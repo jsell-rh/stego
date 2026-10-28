@@ -1,0 +1,1 @@
+{"id":"ST-DECL-RM01","title":"Faults","domain_id":"ST-DECL","description":"Every fault one declaration has, each as structured data: the rule it breaks, where, what was found and what is allowed. An empty list means the declaration is acceptable."}

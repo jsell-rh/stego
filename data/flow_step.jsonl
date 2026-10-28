@@ -1,0 +1,12 @@
+{"id":"ST-DECL-UC01-FL-S01","title":"The author names the archetype for the new service","flow_id":"ST-DECL-UC01-FL","path":"main","position":1}
+{"id":"ST-DECL-UC01-FL-S02","title":"STEGO writes the declaration with the archetype's smallest example content, and a folder for fills","flow_id":"ST-DECL-UC01-FL","path":"main","position":2}
+{"id":"ST-DECL-UC01-FL-S03","title":"An archetype the registry does not hold is refused, with the archetypes it does hold","flow_id":"ST-DECL-UC01-FL","path":"refused","position":1}
+{"id":"ST-DECL-UC01-FL-S04","title":"A declaration already present stops the scaffold, and no file changes","flow_id":"ST-DECL-UC01-FL","path":"refused","position":2}
+{"id":"ST-DECL-UC01-FL-S05","title":"Asked for an empty scaffold, STEGO leaves the example content out and names every setting the author must supply","flow_id":"ST-DECL-UC01-FL","path":"empty","position":1}
+{"id":"ST-DECL-UC02-FL-S01","title":"The agent names the archetype it writes for","flow_id":"ST-DECL-UC02-FL","path":"main","position":1}
+{"id":"ST-DECL-UC02-FL-S02","title":"STEGO reports the active component set's components, each setting with its type and allowed values, and each slot, as structured data","flow_id":"ST-DECL-UC02-FL","path":"main","position":2}
+{"id":"ST-DECL-UC03-FL-S01","title":"The author asks STEGO to check the declaration, and STEGO reports every fault or that there is none","flow_id":"ST-DECL-UC03-FL","path":"main","position":1}
+{"id":"ST-DECL-UC03-FL-S02","title":"A declaration that holds an acceptance past its date is refused, naming the component and the date","flow_id":"ST-DECL-UC03-FL","path":"refused","position":1}
+{"id":"ST-DECL-UC04-FL-S01","title":"The agent reads each fault: the rule it breaks, its path, what was found and what is allowed","flow_id":"ST-DECL-UC04-FL","path":"main","position":1}
+{"id":"ST-DECL-UC04-FL-S02","title":"The agent changes the declaration at the path each fault names","flow_id":"ST-DECL-UC04-FL","path":"main","position":2}
+{"id":"ST-DECL-UC04-FL-S03","title":"The agent asks STEGO to check the declaration again","flow_id":"ST-DECL-UC04-FL","path":"main","position":3}

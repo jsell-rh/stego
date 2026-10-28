@@ -1,0 +1,7 @@
+{"id":"ST-DECL-EN01-DM","title":"types.ServiceDeclaration","entity_id":"ST-DECL-EN01","file":"internal/types/types.go","description":"The ServiceDeclaration struct and its decoding."}
+{"id":"ST-DECL-EN02-DM","title":"types.Entity","entity_id":"ST-DECL-EN02","file":"internal/types/types.go","description":"The Entity struct."}
+{"id":"ST-DECL-EN03-DM","title":"types.Field","entity_id":"ST-DECL-EN03","file":"internal/types/types.go","description":"The Field struct, with its type and constraints."}
+{"id":"ST-DECL-EN04-DM","title":"types.Collection","entity_id":"ST-DECL-EN04","file":"internal/types/types.go","description":"The Collection struct."}
+{"id":"ST-DECL-EN05-DM","title":"types.SlotDeclaration","entity_id":"ST-DECL-EN05","file":"internal/types/types.go","description":"The SlotDeclaration struct: the collection, the slot, the operator and its fills."}
+{"id":"ST-DECL-EN06-DM","title":"types.ServiceDeclaration components","entity_id":"ST-DECL-EN06","file":"internal/types/types.go","description":"The component settings map on ServiceDeclaration; a setting has no struct of its own."}
+{"id":"ST-DECL-EN07-DM","title":"types.ExperimentalAcceptance","entity_id":"ST-DECL-EN07","file":"internal/types/experimental.go","description":"Not written yet: STEGO has no experimental acceptance today. This names where it will live."}

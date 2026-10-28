@@ -1,0 +1,1 @@
+{"id":"ST-DECL-CMD01","title":"Scaffold a declaration","aggregate_id":"ST-DECL-A1","description":"Writes a new declaration for a named archetype, with the smallest example content that checking accepts, and a folder for fills. It refuses to run where a declaration already exists."}

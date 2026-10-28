@@ -1,0 +1,5 @@
+{"read_model_id":"ST-DECL-RM01","position":1,"name":"Rule","meaning":"The rule the fault breaks, by its name.","type":"text","required":true,"example":"unconsumed-slot"}
+{"read_model_id":"ST-DECL-RM01","position":2,"name":"Path","meaning":"Where in the declaration the fault is.","type":"text","required":true,"example":"collections.todos.entity"}
+{"read_model_id":"ST-DECL-RM01","position":3,"name":"Found","meaning":"What the declaration holds there.","type":"text","required":false,"example":"Todoo"}
+{"read_model_id":"ST-DECL-RM01","position":4,"name":"Allowed values","meaning":"The values the rule allows there, when it states a set.","type":"text","required":false,"example":"Todo"}
+{"read_model_id":"ST-DECL-RM01","position":5,"name":"Message","meaning":"The fault in a sentence for a person, rendered from the fields above.","type":"text","required":true,"example":"collection todos names an entity the declaration does not declare"}

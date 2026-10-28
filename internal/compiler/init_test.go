@@ -139,58 +139,59 @@ func TestInitializeRejectsRegistryReplacement(t *testing.T) {
 	}
 }
 
-// Proves ST-DECL-UC01-R02.
 func TestInitializeRejectsExistingPaths(t *testing.T) {
-	t.Setenv("STEGO_REGISTRY", "")
-	for _, name := range []string{"service.yaml", ".stego/config.yaml", ".stego", "fills"} {
-		for _, kind := range []string{"file", "directory", "link", "dangling-link"} {
-			if (name == ".stego/config.yaml" && kind == "file") || ((name == ".stego" || name == "fills") && kind == "directory") {
-				continue
-			}
-			t.Run(name+"/"+kind, func(t *testing.T) {
-				project, outside := t.TempDir(), t.TempDir()
-				initTestRegistry(t, project, "registry", "example")
-				initTestFile(t, outside, "protected", "human source")
-				path := filepath.Join(project, name)
-				if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-					t.Fatal(err)
+	t.Run("ST-DECL-UC01-R02-T01 A scaffold refuses to overwrite an existing path", func(t *testing.T) {
+		t.Setenv("STEGO_REGISTRY", "")
+		for _, name := range []string{"service.yaml", ".stego/config.yaml", ".stego", "fills"} {
+			for _, kind := range []string{"file", "directory", "link", "dangling-link"} {
+				if (name == ".stego/config.yaml" && kind == "file") || ((name == ".stego" || name == "fills") && kind == "directory") {
+					continue
 				}
-				switch kind {
-				case "file":
-					initTestFile(t, project, name, "human source")
-				case "directory":
-					if err := os.Mkdir(path, 0755); err != nil {
+				t.Run(name+"/"+kind, func(t *testing.T) {
+					project, outside := t.TempDir(), t.TempDir()
+					initTestRegistry(t, project, "registry", "example")
+					initTestFile(t, outside, "protected", "human source")
+					path := filepath.Join(project, name)
+					if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 						t.Fatal(err)
 					}
-				default:
-					target := outside
-					if kind == "dangling-link" {
-						target = filepath.Join(outside, "missing")
+					switch kind {
+					case "file":
+						initTestFile(t, project, name, "human source")
+					case "directory":
+						if err := os.Mkdir(path, 0755); err != nil {
+							t.Fatal(err)
+						}
+					default:
+						target := outside
+						if kind == "dangling-link" {
+							target = filepath.Join(outside, "missing")
+						}
+						if err := os.Symlink(target, path); err != nil {
+							t.Fatal(err)
+						}
 					}
-					if err := os.Symlink(target, path); err != nil {
-						t.Fatal(err)
+					if _, err := Initialize(InitOptions{ProjectDir: project, Archetype: "example"}); err == nil {
+						t.Fatal("existing path accepted")
 					}
-				}
-				if _, err := Initialize(InitOptions{ProjectDir: project, Archetype: "example"}); err == nil {
-					t.Fatal("existing path accepted")
-				}
-				entries, err := os.ReadDir(outside)
-				if err != nil || len(entries) != 1 {
-					t.Fatalf("outside files changed: %v, %v", entries, err)
-				}
-				data, err := os.ReadFile(filepath.Join(outside, "protected"))
-				if err != nil || string(data) != "human source" {
-					t.Fatalf("outside content changed: %q, %v", data, err)
-				}
-				if kind == "file" {
-					data, err := os.ReadFile(path)
+					entries, err := os.ReadDir(outside)
+					if err != nil || len(entries) != 1 {
+						t.Fatalf("outside files changed: %v, %v", entries, err)
+					}
+					data, err := os.ReadFile(filepath.Join(outside, "protected"))
 					if err != nil || string(data) != "human source" {
-						t.Fatalf("existing file changed: %q, %v", data, err)
+						t.Fatalf("outside content changed: %q, %v", data, err)
 					}
-				}
-			})
+					if kind == "file" {
+						data, err := os.ReadFile(path)
+						if err != nil || string(data) != "human source" {
+							t.Fatalf("existing file changed: %q, %v", data, err)
+						}
+					}
+				})
+			}
 		}
-	}
+	})
 }
 
 func TestInitializeConcurrent(t *testing.T) {

@@ -1,0 +1,1 @@
+{"id":"ST-DECL-CMD01-H","title":"compiler.Initialize","command_id":"ST-DECL-CMD01","file":"internal/compiler/init.go","description":"Initialize checks the archetype, refuses an existing declaration, then writes the scaffold and the fills folder with exclusive creates."}

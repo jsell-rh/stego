@@ -1,0 +1,1 @@
+{"id":"ST-DECL-A1-REPO","title":"parser.Parse","aggregate_id":"ST-DECL-A1","file":"internal/parser/parser.go","description":"Parse reads a declaration from its file through the strict decoder in strict.go. STEGO writes a declaration only when it scaffolds one; an author or an agent changes it by editing the file."}

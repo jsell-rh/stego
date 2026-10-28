@@ -1,0 +1,1 @@
+{"id":"ST-VO01-VT","title":"slot operator check","value_object_id":"ST-VO01","file":"internal/compiler/validate.go","description":"Validate refuses a slot binding with no operator or with more than one of gate, chain and fan-out."}

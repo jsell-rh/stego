@@ -1,0 +1,1 @@
+{"id":"ST-DECL-QRY01","title":"Check a declaration","read_model_id":"ST-DECL-RM01","description":"Every fault of the declaration, from one strict input stage and one semantic stage, without writing a file."}

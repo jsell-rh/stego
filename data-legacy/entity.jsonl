@@ -1,0 +1,15 @@
+{"id":"ST-DECL-EN01","title":"Declaration","aggregate_id":"ST-DECL-A1","role":"root","description":"What one service is. An agent writes it, and it is the only artifact STEGO accepts as input for a service."}
+{"id":"ST-DECL-EN02","title":"Entity","aggregate_id":"ST-DECL-A1","role":"child","description":"One data shape the service keeps. It states fields and their constraints, and it states no access pattern."}
+{"id":"ST-DECL-EN03","title":"Entity field","aggregate_id":"ST-DECL-A1","role":"child","description":"One field of an entity: its name, its type and the constraints the generated code checks."}
+{"id":"ST-DECL-EN04","title":"Collection","aggregate_id":"ST-DECL-A1","role":"child","description":"One access pattern over an entity: its scope, the operations it allows and the path it is served at. Several collections may read one entity with different scopes and operations."}
+{"id":"ST-DECL-EN05","title":"Slot binding","aggregate_id":"ST-DECL-A1","role":"child","description":"One place where the service's own rules enter the generated code: the collection and slot it binds, the operator that composes the fills, and the fills themselves."}
+{"id":"ST-DECL-EN06","title":"Component setting","aggregate_id":"ST-DECL-A1","role":"child","description":"One value the declaration gives a component of its archetype, checked against that component's own schema."}
+{"id":"ST-DECL-EN07","title":"Experimental acceptance","aggregate_id":"ST-DECL-A1","role":"child","description":"One statement that this service accepts a component that is not ga, with the date the acceptance runs out. It is the only way an experiment reaches a service, and it expires."}
+{"id":"ST-SUP-EN01","title":"Registry","aggregate_id":"ST-SUP-A1","role":"root","description":"One set of parts a service builds from, at one reference."}
+{"id":"ST-SUP-EN02","title":"Namespace","aggregate_id":"ST-SUP-A1","role":"child","description":"The output path a component may write into, which keeps one component's output out of another's."}
+{"id":"ST-SUP-EN03","title":"Archetype","aggregate_id":"ST-SUP-A2","role":"root","description":"One curated component set with its conventions."}
+{"id":"ST-SUP-EN04","title":"Component binding","aggregate_id":"ST-SUP-A2","role":"child","description":"One component the archetype includes, and the port it answers by default."}
+{"id":"ST-SUP-EN05","title":"Mixin","aggregate_id":"ST-SUP-A2","role":"child","description":"An addition to an archetype that brings further components and slots, and replaces nothing."}
+{"id":"ST-SUP-EN06","title":"Port","aggregate_id":"ST-SUP-A3","role":"root","description":"One named contract between components. Its providers must all mean the same thing by it."}
+{"id":"ST-SUP-EN07","title":"Port field","aggregate_id":"ST-SUP-A3","role":"child","description":"One field every provider of the port fills, with the meaning each provider must keep. This is where two providers can silently disagree."}
+{"id":"ST-SUP-EN08","title":"Slot","aggregate_id":"ST-SUP-A4","role":"root","description":"One typed extension point a component declares."}

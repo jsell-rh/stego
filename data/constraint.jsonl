@@ -1,0 +1,1 @@
+{"id":"ST-VO01-C01","title":"One operator for each binding","value_object_id":"ST-VO01","statement":"A slot operator MUST be exactly one of gate, chain or fan-out."}

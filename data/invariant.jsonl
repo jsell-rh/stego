@@ -1,0 +1,16 @@
+{"id":"ST-DECL-INV01","title":"Exactly one archetype","aggregate_id":"ST-DECL-A1","statement":"A declaration MUST select exactly one archetype."}
+{"id":"ST-DECL-INV02","title":"No undeclared field","aggregate_id":"ST-DECL-A1","statement":"A declaration MUST NOT carry a field that STEGO, the selected archetype or its components do not declare."}
+{"id":"ST-DECL-INV03","title":"One document, no indirection","aggregate_id":"ST-DECL-A1","statement":"A declaration MUST be one YAML document, and MUST NOT use anchors, aliases or merge keys."}
+{"id":"ST-DECL-INV04","title":"Bounded input","aggregate_id":"ST-DECL-A1","statement":"A declaration MUST NOT be larger than 4 MiB, and MUST NOT nest more than 128 levels deep."}
+{"id":"ST-DECL-INV05","title":"Entity names are unique","aggregate_id":"ST-DECL-A1","statement":"Every entity name MUST be unique within the declaration."}
+{"id":"ST-DECL-INV06","title":"Field names are unique in their entity","aggregate_id":"ST-DECL-A1","statement":"Every field name MUST be unique within its entity."}
+{"id":"ST-DECL-INV07","title":"Constraints suit the type","aggregate_id":"ST-DECL-A1","statement":"A field's constraints MUST suit the type the field declares."}
+{"id":"ST-DECL-INV08","title":"Collection names are unique","aggregate_id":"ST-DECL-A1","statement":"Every collection name MUST be unique within the declaration."}
+{"id":"ST-DECL-INV09","title":"A collection reads a declared entity","aggregate_id":"ST-DECL-A1","statement":"A collection MUST name an entity that the same declaration declares."}
+{"id":"ST-DECL-INV10","title":"A binding names a declared collection and slot","aggregate_id":"ST-DECL-A1","statement":"A slot binding MUST name a collection the declaration declares, and a slot that a component of the active component set declares."}
+{"id":"ST-DECL-INV11","title":"A bound slot is invoked","aggregate_id":"ST-DECL-A1","statement":"A slot binding MUST name a slot that a generator in the build invokes, so a binding cannot compile without ever running."}
+{"id":"ST-DECL-INV12","title":"A setting matches its component schema","aggregate_id":"ST-DECL-A1","statement":"A component setting MUST name a component of the active component set and a setting that component's schema declares, and its value MUST suit the declared type."}
+{"id":"ST-DECL-INV13","title":"A default suits the type","aggregate_id":"ST-DECL-A1","statement":"A field's default MUST suit the type the field declares."}
+{"id":"ST-DECL-INV14","title":"An experiment is accepted by name","aggregate_id":"ST-DECL-A1","statement":"A declaration MUST NOT use a component whose stage is not ga unless it accepts that component by name, with a reason and a date."}
+{"id":"ST-DECL-INV15","title":"An acceptance cannot outlive the component","aggregate_id":"ST-DECL-A1","statement":"An acceptance date MUST NOT be later than the sunset date of the component it accepts."}
+{"id":"ST-DECL-INV16","title":"An acceptance expires","aggregate_id":"ST-DECL-A1","statement":"A declaration MUST NOT be accepted after the date of any acceptance it holds."}

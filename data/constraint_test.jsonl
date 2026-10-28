@@ -1,0 +1,1 @@
+{"id":"ST-VO01-C01-T","title":"A slot binding needs exactly one operator","constraint_id":"ST-VO01-C01","level":"unit","state":"automated","file":"internal/compiler/validate_test.go","accepts":"a binding with exactly one of gate, chain or fan-out","refuses":"a binding with no operator"}

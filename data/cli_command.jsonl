@@ -1,0 +1,2 @@
+{"id":"ST-DECL-CLI01","title":"stego init","domain_id":"ST-DECL","invocation":"stego init","file":"cmd/stego/main.go","description":"stego init -archetype <name> scaffolds a declaration in the current folder."}
+{"id":"ST-DECL-CLI02","title":"stego validate","domain_id":"ST-DECL","invocation":"stego validate","file":"cmd/stego/main.go","description":"stego validate checks the declaration and prints every fault, or that there is none. It has no structured output yet."}

@@ -158,12 +158,12 @@ func TestValidate_AllValid(t *testing.T) {
 	}
 }
 
-// Proves ST-DECL-DR01.
 func TestValidate_MissingArchetype(t *testing.T) {
-	projectDir, registryDir, _ := setupValidateProject(t)
+	t.Run("ST-DECL-INV01-T A declaration without exactly one archetype is refused", func(t *testing.T) {
+		projectDir, registryDir, _ := setupValidateProject(t)
 
-	// Rewrite service.yaml to reference a non-existent archetype.
-	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+		// Rewrite service.yaml to reference a non-existent archetype.
+		writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
 name: test-service
 archetype: nonexistent-arch
 language: go
@@ -177,18 +177,19 @@ collections:
     operations: [create]
 `)
 
-	input := ReconcilerInput{
-		ProjectDir:  projectDir,
-		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
-		GoVersion:   "1.22",
-		ModuleName:  "github.com/test/svc",
-	}
-	result, err := Validate(input)
-	if err != nil {
-		t.Fatalf("Validate returned error: %v", err)
-	}
-	assertHasError(t, result, "archetype", "nonexistent-arch")
+		input := ReconcilerInput{
+			ProjectDir:  projectDir,
+			RegistryDir: registryDir,
+			Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
+			GoVersion:   "1.22",
+			ModuleName:  "github.com/test/svc",
+		}
+		result, err := Validate(input)
+		if err != nil {
+			t.Fatalf("Validate returned error: %v", err)
+		}
+		assertHasError(t, result, "archetype", "nonexistent-arch")
+	})
 }
 
 func TestValidate_MissingComponent(t *testing.T) {
@@ -517,11 +518,11 @@ qualified_at: 2026-04-01
 	assertHasError(t, result, "fill", "nonexistent-collection")
 }
 
-// Proves ST-DECL-DR09.
 func TestValidate_CollectionBadEntity(t *testing.T) {
-	projectDir, registryDir, _ := setupValidateProject(t)
+	t.Run("ST-DECL-INV09-T A collection that names an undeclared entity is refused", func(t *testing.T) {
+		projectDir, registryDir, _ := setupValidateProject(t)
 
-	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+		writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
 name: test-service
 archetype: test-arch
 language: go
@@ -535,18 +536,19 @@ collections:
     operations: [create]
 `)
 
-	input := ReconcilerInput{
-		ProjectDir:  projectDir,
-		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
-		GoVersion:   "1.22",
-		ModuleName:  "github.com/test/svc",
-	}
-	result, err := Validate(input)
-	if err != nil {
-		t.Fatalf("Validate returned error: %v", err)
-	}
-	assertHasError(t, result, "collection", "NonexistentEntity")
+		input := ReconcilerInput{
+			ProjectDir:  projectDir,
+			RegistryDir: registryDir,
+			Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
+			GoVersion:   "1.22",
+			ModuleName:  "github.com/test/svc",
+		}
+		result, err := Validate(input)
+		if err != nil {
+			t.Fatalf("Validate returned error: %v", err)
+		}
+		assertHasError(t, result, "collection", "NonexistentEntity")
+	})
 }
 
 func TestValidate_CollectionBadScopeEntity(t *testing.T) {
@@ -619,11 +621,11 @@ collections:
 	assertHasError(t, result, "operation", "explode")
 }
 
-// Proves ST-DECL-DR10.
 func TestValidate_UnknownSlot(t *testing.T) {
-	projectDir, registryDir, _ := setupValidateProject(t)
+	t.Run("ST-DECL-INV10-T A binding to an undeclared slot is refused", func(t *testing.T) {
+		projectDir, registryDir, _ := setupValidateProject(t)
 
-	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+		writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
 name: test-service
 archetype: test-arch
 language: go
@@ -642,10 +644,10 @@ slots:
       - my-policy
 `)
 
-	// Create fill so that fill validation passes.
-	fillDir := filepath.Join(projectDir, "fills", "my-policy")
-	mkdirAll(t, fillDir)
-	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+		// Create fill so that fill validation passes.
+		fillDir := filepath.Join(projectDir, "fills", "my-policy")
+		mkdirAll(t, fillDir)
+		writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: my-policy
 implements: stub-api.nonexistent_slot
 collection: widgets
@@ -653,21 +655,21 @@ qualified_by: tester
 qualified_at: 2026-04-01
 `)
 
-	input := ReconcilerInput{
-		ProjectDir:  projectDir,
-		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
-		GoVersion:   "1.22",
-		ModuleName:  "github.com/test/svc",
-	}
-	result, err := Validate(input)
-	if err != nil {
-		t.Fatalf("Validate returned error: %v", err)
-	}
-	assertHasError(t, result, "slot", "nonexistent_slot")
+		input := ReconcilerInput{
+			ProjectDir:  projectDir,
+			RegistryDir: registryDir,
+			Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
+			GoVersion:   "1.22",
+			ModuleName:  "github.com/test/svc",
+		}
+		result, err := Validate(input)
+		if err != nil {
+			t.Fatalf("Validate returned error: %v", err)
+		}
+		assertHasError(t, result, "slot", "nonexistent_slot")
+	})
 }
 
-// Proves ST-DECL-DR10.
 func TestValidate_SlotCollectionNotDefined(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
@@ -717,11 +719,11 @@ qualified_at: 2026-04-01
 	assertHasError(t, result, "slot", "gadgets")
 }
 
-// Proves ST-DECL-UC03-R02.
 func TestValidate_MultipleErrors(t *testing.T) {
-	projectDir, registryDir, _ := setupValidateProject(t)
+	t.Run("ST-DECL-UC03-R02-T01 A refusal reports every fault at once", func(t *testing.T) {
+		projectDir, registryDir, _ := setupValidateProject(t)
 
-	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+		writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
 name: test-service
 archetype: test-arch
 language: go
@@ -736,28 +738,29 @@ collections:
     operations: [create, explode]
 `)
 
-	input := ReconcilerInput{
-		ProjectDir:  projectDir,
-		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
-		GoVersion:   "1.22",
-		ModuleName:  "github.com/test/svc",
-	}
-	result, err := Validate(input)
-	if err != nil {
-		t.Fatalf("Validate returned error: %v", err)
-	}
-	if !result.HasErrors() {
-		t.Fatal("expected errors")
-	}
-	// Should have at least: invalid type, enum no values, bad entity ref, bad operation.
-	if len(result.Errors) < 4 {
-		t.Errorf("expected at least 4 errors, got %d:\n%s", len(result.Errors), FormatValidation(result))
-	}
-	assertHasError(t, result, "field-type", "foobar")
-	assertHasError(t, result, "field-type", "no values")
-	assertHasError(t, result, "collection", "NonexistentEntity")
-	assertHasError(t, result, "operation", "explode")
+		input := ReconcilerInput{
+			ProjectDir:  projectDir,
+			RegistryDir: registryDir,
+			Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
+			GoVersion:   "1.22",
+			ModuleName:  "github.com/test/svc",
+		}
+		result, err := Validate(input)
+		if err != nil {
+			t.Fatalf("Validate returned error: %v", err)
+		}
+		if !result.HasErrors() {
+			t.Fatal("expected errors")
+		}
+		// Should have at least: invalid type, enum no values, bad entity ref, bad operation.
+		if len(result.Errors) < 4 {
+			t.Errorf("expected at least 4 errors, got %d:\n%s", len(result.Errors), FormatValidation(result))
+		}
+		assertHasError(t, result, "field-type", "foobar")
+		assertHasError(t, result, "field-type", "no values")
+		assertHasError(t, result, "collection", "NonexistentEntity")
+		assertHasError(t, result, "operation", "explode")
+	})
 }
 
 func TestFormatValidation_NoErrors(t *testing.T) {
@@ -787,12 +790,12 @@ func TestFormatValidation_WithErrors(t *testing.T) {
 	}
 }
 
-// Proves ST-DECL-DR07.
 func TestValidate_ConstraintTypeApplicability(t *testing.T) {
-	projectDir, registryDir, _ := setupValidateProject(t)
+	t.Run("ST-DECL-INV07-T A field's constraints must suit its type", func(t *testing.T) {
+		projectDir, registryDir, _ := setupValidateProject(t)
 
-	// min_length on int32, max on string, pattern on bool, values on string, to on string.
-	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+		// min_length on int32, max on string, pattern on bool, values on string, to on string.
+		writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
 name: test-service
 archetype: test-arch
 language: go
@@ -812,32 +815,33 @@ collections:
     operations: [create]
 `)
 
-	input := ReconcilerInput{
-		ProjectDir:  projectDir,
-		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
-		GoVersion:   "1.22",
-		ModuleName:  "github.com/test/svc",
-	}
-	result, err := Validate(input)
-	if err != nil {
-		t.Fatalf("Validate returned error: %v", err)
-	}
+		input := ReconcilerInput{
+			ProjectDir:  projectDir,
+			RegistryDir: registryDir,
+			Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
+			GoVersion:   "1.22",
+			ModuleName:  "github.com/test/svc",
+		}
+		result, err := Validate(input)
+		if err != nil {
+			t.Fatalf("Validate returned error: %v", err)
+		}
 
-	// min_length on int32
-	assertHasError(t, result, "field-type", "constraint 'min_length' is only valid for string fields, not \"int32\"")
-	// max on string
-	assertHasError(t, result, "field-type", "constraint 'max' is only valid for numeric fields")
-	// pattern on bool
-	assertHasError(t, result, "field-type", "constraint 'pattern' is only valid for string fields, not \"bool\"")
-	// values on string (not enum)
-	assertHasError(t, result, "field-type", "constraint 'values' is only valid for enum fields, not \"string\"")
-	// to on string (not ref)
-	assertHasError(t, result, "field-type", "attribute 'to' is only valid for ref fields, not \"string\"")
-	// min_length on float
-	assertHasError(t, result, "field-type", "constraint 'min_length' is only valid for string fields, not \"float\"")
-	// max_length on double
-	assertHasError(t, result, "field-type", "constraint 'max_length' is only valid for string fields, not \"double\"")
+		// min_length on int32
+		assertHasError(t, result, "field-type", "constraint 'min_length' is only valid for string fields, not \"int32\"")
+		// max on string
+		assertHasError(t, result, "field-type", "constraint 'max' is only valid for numeric fields")
+		// pattern on bool
+		assertHasError(t, result, "field-type", "constraint 'pattern' is only valid for string fields, not \"bool\"")
+		// values on string (not enum)
+		assertHasError(t, result, "field-type", "constraint 'values' is only valid for enum fields, not \"string\"")
+		// to on string (not ref)
+		assertHasError(t, result, "field-type", "attribute 'to' is only valid for ref fields, not \"string\"")
+		// min_length on float
+		assertHasError(t, result, "field-type", "constraint 'min_length' is only valid for string fields, not \"float\"")
+		// max_length on double
+		assertHasError(t, result, "field-type", "constraint 'max_length' is only valid for string fields, not \"double\"")
+	})
 }
 
 func TestValidate_ConstraintTypeApplicability_ValidCombinations(t *testing.T) {
@@ -1453,11 +1457,11 @@ collections:
 	}
 }
 
-// Proves ST-DECL-DR05.
 func TestValidate_DuplicateEntityName(t *testing.T) {
-	projectDir, registryDir, _ := setupValidateProject(t)
+	t.Run("ST-DECL-INV05-T A repeated entity name is refused", func(t *testing.T) {
+		projectDir, registryDir, _ := setupValidateProject(t)
 
-	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+		writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
 name: test-service
 archetype: test-arch
 language: go
@@ -1474,25 +1478,26 @@ collections:
     operations: [create]
 `)
 
-	input := ReconcilerInput{
-		ProjectDir:  projectDir,
-		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
-		GoVersion:   "1.22",
-		ModuleName:  "github.com/test/svc",
-	}
-	result, err := Validate(input)
-	if err != nil {
-		t.Fatalf("Validate returned error: %v", err)
-	}
-	assertHasError(t, result, "entity", "entity \"Widget\" is defined more than once")
+		input := ReconcilerInput{
+			ProjectDir:  projectDir,
+			RegistryDir: registryDir,
+			Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
+			GoVersion:   "1.22",
+			ModuleName:  "github.com/test/svc",
+		}
+		result, err := Validate(input)
+		if err != nil {
+			t.Fatalf("Validate returned error: %v", err)
+		}
+		assertHasError(t, result, "entity", "entity \"Widget\" is defined more than once")
+	})
 }
 
-// Proves ST-DECL-DR06.
 func TestValidate_DuplicateFieldName(t *testing.T) {
-	projectDir, registryDir, _ := setupValidateProject(t)
+	t.Run("ST-DECL-INV06-T A repeated field name in one entity is refused", func(t *testing.T) {
+		projectDir, registryDir, _ := setupValidateProject(t)
 
-	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+		writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
 name: test-service
 archetype: test-arch
 language: go
@@ -1507,18 +1512,19 @@ collections:
     operations: [create]
 `)
 
-	input := ReconcilerInput{
-		ProjectDir:  projectDir,
-		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
-		GoVersion:   "1.22",
-		ModuleName:  "github.com/test/svc",
-	}
-	result, err := Validate(input)
-	if err != nil {
-		t.Fatalf("Validate returned error: %v", err)
-	}
-	assertHasError(t, result, "field-type", "entity \"Widget\" has duplicate field name \"label\"")
+		input := ReconcilerInput{
+			ProjectDir:  projectDir,
+			RegistryDir: registryDir,
+			Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
+			GoVersion:   "1.22",
+			ModuleName:  "github.com/test/svc",
+		}
+		result, err := Validate(input)
+		if err != nil {
+			t.Fatalf("Validate returned error: %v", err)
+		}
+		assertHasError(t, result, "field-type", "entity \"Widget\" has duplicate field name \"label\"")
+	})
 }
 
 func TestValidate_UpsertKeyWithoutUpsertOperation(t *testing.T) {
@@ -1815,12 +1821,12 @@ collections:
 	}
 }
 
-// Proves ST-DECL-DR08.
 func TestValidate_DuplicateCollectionName(t *testing.T) {
-	projectDir, registryDir, _ := setupValidateProject(t)
+	t.Run("ST-DECL-INV08-T A repeated collection name is refused", func(t *testing.T) {
+		projectDir, registryDir, _ := setupValidateProject(t)
 
-	// Duplicate collection keys must fail before custom YAML decoding.
-	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+		// Duplicate collection keys must fail before custom YAML decoding.
+		writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
 name: test-service
 archetype: test-arch
 language: go
@@ -1843,20 +1849,21 @@ collections:
     operations: [create]
 `)
 
-	input := ReconcilerInput{
-		ProjectDir:  projectDir,
-		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
-		GoVersion:   "1.22",
-		ModuleName:  "github.com/test/svc",
-	}
-	_, err := Validate(input)
-	if err == nil || !strings.Contains(err.Error(), `duplicate key "widgets"`) {
-		t.Fatalf("got %v, want a duplicate collection key error", err)
-	}
-	if !strings.Contains(err.Error(), "service.yaml:16:") {
-		t.Fatalf("error must identify the duplicate declaration: %v", err)
-	}
+		input := ReconcilerInput{
+			ProjectDir:  projectDir,
+			RegistryDir: registryDir,
+			Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
+			GoVersion:   "1.22",
+			ModuleName:  "github.com/test/svc",
+		}
+		_, err := Validate(input)
+		if err == nil || !strings.Contains(err.Error(), `duplicate key "widgets"`) {
+			t.Fatalf("got %v, want a duplicate collection key error", err)
+		}
+		if !strings.Contains(err.Error(), "service.yaml:16:") {
+			t.Fatalf("error must identify the duplicate declaration: %v", err)
+		}
+	})
 }
 
 func TestValidate_DuplicateOperationInCollection(t *testing.T) {
@@ -2433,11 +2440,11 @@ collections:
 	}
 }
 
-// Proves ST-DECL-DR11.
 func TestValidate_SlotBindingWithoutOperator(t *testing.T) {
-	projectDir, registryDir, _ := setupValidateProject(t)
+	t.Run("ST-VO01-C01-T A slot binding needs exactly one operator", func(t *testing.T) {
+		projectDir, registryDir, _ := setupValidateProject(t)
 
-	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+		writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
 name: test-service
 archetype: test-arch
 language: go
@@ -2460,18 +2467,19 @@ slots:
     collection: widgets
 `)
 
-	input := ReconcilerInput{
-		ProjectDir:  projectDir,
-		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
-		GoVersion:   "1.22",
-		ModuleName:  "github.com/test/svc",
-	}
-	result, err := Validate(input)
-	if err != nil {
-		t.Fatalf("Validate returned error: %v", err)
-	}
-	assertHasError(t, result, "slot", "has no operator")
+		input := ReconcilerInput{
+			ProjectDir:  projectDir,
+			RegistryDir: registryDir,
+			Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
+			GoVersion:   "1.22",
+			ModuleName:  "github.com/test/svc",
+		}
+		result, err := Validate(input)
+		if err != nil {
+			t.Fatalf("Validate returned error: %v", err)
+		}
+		assertHasError(t, result, "slot", "has no operator")
+	})
 }
 
 func TestValidate_SlotBindingWithOperatorPasses(t *testing.T) {
@@ -3035,7 +3043,6 @@ qualified_at: 2026-04-01
 	assertHasError(t, result, "slot", "has multiple operators (chain, fan-out)")
 }
 
-// Proves ST-DECL-DR11.
 func TestValidate_SlotBindingMultipleOperators_AllThree(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
@@ -4182,13 +4189,13 @@ func (g *slotConsumingStub) ConsumedSlots() []string {
 // A slot binding no generator consumes must fail validation. Generated code
 // would wire the operator but never call it, so the bound fills would be
 // silent dead code.
-// Proves ST-DECL-DR12.
 func TestValidate_UnconsumedSlotIsRejected(t *testing.T) {
-	projectDir, registryDir, _ := setupValidateProject(t)
+	t.Run("ST-DECL-INV11-T A binding to a slot no generator invokes is refused", func(t *testing.T) {
+		projectDir, registryDir, _ := setupValidateProject(t)
 
-	fillDir := filepath.Join(projectDir, "fills", "probe")
-	mkdirAll(t, fillDir)
-	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+		fillDir := filepath.Join(projectDir, "fills", "probe")
+		mkdirAll(t, fillDir)
+		writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: probe
 implements: test-arch.resolve_field
 collection: widgets
@@ -4196,7 +4203,7 @@ qualified_by: tester
 qualified_at: 2026-09-25
 `)
 
-	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+		writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
 name: test-service
 archetype: test-arch
 language: go
@@ -4215,10 +4222,10 @@ slots:
       - probe
 `)
 
-	// The archetype supplies a slot that no registered generator consumes.
-	slotDir := filepath.Join(registryDir, "components", "slot-owner")
-	mkdirAll(t, filepath.Join(slotDir, "slots"))
-	writeFile(t, filepath.Join(slotDir, "component.yaml"), `kind: component
+		// The archetype supplies a slot that no registered generator consumes.
+		slotDir := filepath.Join(registryDir, "components", "slot-owner")
+		mkdirAll(t, filepath.Join(slotDir, "slots"))
+		writeFile(t, filepath.Join(slotDir, "component.yaml"), `kind: component
 name: slot-owner
 version: 1.0.0
 slots:
@@ -4226,31 +4233,32 @@ slots:
     proto: stego.components.slot_owner.slots.ResolveField
     default: noop
 `)
-	writeFile(t, filepath.Join(slotDir, "slots", "resolve_field.proto"), `syntax = "proto3";
+		writeFile(t, filepath.Join(slotDir, "slots", "resolve_field.proto"), `syntax = "proto3";
 package stego.components.slot_owner.slots;
 service ResolveField { rpc Resolve(ResolveFieldRequest) returns (SlotResult); }
 message ResolveFieldRequest { string input = 1; }
 message SlotResult { bool ok = 1; }
 `)
 
-	input := ReconcilerInput{
-		ProjectDir:  projectDir,
-		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
-		GoVersion:   "1.22",
-		ModuleName:  "github.com/test/svc",
-	}
-	result, err := Validate(input)
-	if err != nil {
-		t.Fatalf("Validate returned error: %v", err)
-	}
-	found := false
-	for _, e := range result.Errors {
-		if e.Category == "slot" && strings.Contains(e.Message, "no resolved generator consumes") {
-			found = true
+		input := ReconcilerInput{
+			ProjectDir:  projectDir,
+			RegistryDir: registryDir,
+			Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
+			GoVersion:   "1.22",
+			ModuleName:  "github.com/test/svc",
 		}
-	}
-	if !found {
-		t.Fatalf("unconsumed slot binding did not fail validation: %v", result.Errors)
-	}
+		result, err := Validate(input)
+		if err != nil {
+			t.Fatalf("Validate returned error: %v", err)
+		}
+		found := false
+		for _, e := range result.Errors {
+			if e.Category == "slot" && strings.Contains(e.Message, "no resolved generator consumes") {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("unconsumed slot binding did not fail validation: %v", result.Errors)
+		}
+	})
 }

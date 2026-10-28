@@ -1,0 +1,12 @@
+{"id":"ST-DECL-INV01-T","title":"A declaration without exactly one archetype is refused","invariant_id":"ST-DECL-INV01","level":"unit","state":"automated","file":"internal/compiler/validate_test.go"}
+{"id":"ST-DECL-INV02-T","title":"A declaration that carries an undeclared field is refused","invariant_id":"ST-DECL-INV02","level":"unit","state":"automated","file":"internal/parser/strict_test.go"}
+{"id":"ST-DECL-INV03-T","title":"A declaration must be one document with no anchors, aliases or merge keys","invariant_id":"ST-DECL-INV03","level":"unit","state":"automated","file":"internal/parser/strict_test.go"}
+{"id":"ST-DECL-INV04-T","title":"A declaration beyond 4 MiB or 128 levels is refused","invariant_id":"ST-DECL-INV04","level":"unit","state":"automated","file":"internal/parser/strict_test.go"}
+{"id":"ST-DECL-INV05-T","title":"A repeated entity name is refused","invariant_id":"ST-DECL-INV05","level":"unit","state":"automated","file":"internal/compiler/validate_test.go"}
+{"id":"ST-DECL-INV06-T","title":"A repeated field name in one entity is refused","invariant_id":"ST-DECL-INV06","level":"unit","state":"automated","file":"internal/compiler/validate_test.go"}
+{"id":"ST-DECL-INV07-T","title":"A field's constraints must suit its type","invariant_id":"ST-DECL-INV07","level":"unit","state":"automated","file":"internal/compiler/validate_test.go"}
+{"id":"ST-DECL-INV08-T","title":"A repeated collection name is refused","invariant_id":"ST-DECL-INV08","level":"unit","state":"automated","file":"internal/compiler/validate_test.go"}
+{"id":"ST-DECL-INV09-T","title":"A collection that names an undeclared entity is refused","invariant_id":"ST-DECL-INV09","level":"unit","state":"automated","file":"internal/compiler/validate_test.go"}
+{"id":"ST-DECL-INV10-T","title":"A binding to an undeclared slot is refused","invariant_id":"ST-DECL-INV10","level":"unit","state":"automated","file":"internal/compiler/validate_test.go"}
+{"id":"ST-DECL-INV11-T","title":"A binding to a slot no generator invokes is refused","invariant_id":"ST-DECL-INV11","level":"unit","state":"automated","file":"internal/compiler/validate_test.go"}
+{"id":"ST-DECL-INV12-T","title":"A setting must match its component schema","invariant_id":"ST-DECL-INV12","level":"unit","state":"automated","file":"internal/compiler/config_test.go"}

@@ -1,0 +1,1 @@
+{"id":"ST-DECL-QRY01-H","title":"compiler.Validate","query_id":"ST-DECL-QRY01","file":"internal/compiler/validate.go","description":"Validate loads the declaration and the registry, runs the semantic checks and returns every fault it finds. It writes no file."}

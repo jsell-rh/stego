@@ -1,0 +1,1 @@
+{"id":"ST-DECL-RM01-PJ","title":"ValidationResult","read_model_id":"ST-DECL-RM01","file":"internal/compiler/validate.go","description":"Validate collects each fault into ValidationResult.Errors; FormatValidation renders them for a person. A fault holds a category and a message today, not yet the rule, path and allowed values the read model states."}

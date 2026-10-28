@@ -1,0 +1,4 @@
+{"id":"ST-DECL-UC01-FL","title":"Scaffold a declaration","use_case_id":"ST-DECL-UC01","description":"How an author or an agent starts a service from an archetype."}
+{"id":"ST-DECL-UC02-FL","title":"Report what may be declared","use_case_id":"ST-DECL-UC02","description":"How an agent learns every component, setting and slot it may write, before it writes."}
+{"id":"ST-DECL-UC03-FL","title":"Check a declaration","use_case_id":"ST-DECL-UC03","description":"How an author or an agent learns whether a declaration is acceptable, with the project untouched either way."}
+{"id":"ST-DECL-UC04-FL","title":"Repair a refused declaration","use_case_id":"ST-DECL-UC04","description":"How an agent corrects a declaration from the refusal alone, with no person reading the message."}
