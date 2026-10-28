@@ -24,10 +24,6 @@
 {"read_model_id":"ST-GEN-RM01","position":3,"name":"Record status","meaning":"sound, or broken when the record disagrees with itself or with the state it names.","type":"text","required":true,"example":"sound"}
 {"read_model_id":"ST-GEN-RM02","position":1,"name":"Path","meaning":"A generated file.","type":"text","required":true,"example":"internal/api/handler.go"}
 {"read_model_id":"ST-GEN-RM02","position":2,"name":"Action","meaning":"generate, update, delete or unchanged.","type":"text","required":true,"example":"update"}
-{"read_model_id":"ST-GEN-RM03","position":1,"name":"Component","meaning":"The component's name.","type":"text","required":true,"example":"rh-sso-auth"}
-{"read_model_id":"ST-GEN-RM03","position":2,"name":"Digest","meaning":"The component digest.","type_value_object_id":"ST-VO41","required":true}
-{"read_model_id":"ST-GEN-RM03","position":3,"name":"Standing","meaning":"superseded or withdrawn.","type":"text","required":true,"example":"withdrawn"}
-{"read_model_id":"ST-GEN-RM03","position":4,"name":"Fails after","meaning":"The date after which a pin to the digest fails.","type":"date","required":true,"example":"2026-12-15"}
 {"read_model_id":"ST-SUP-RM01","position":1,"name":"Archetype","meaning":"The archetype whose active component set the row describes.","type":"text","required":true,"example":"rest-crud"}
 {"read_model_id":"ST-SUP-RM01","position":2,"name":"Component","meaning":"A component of the active component set.","type":"text","required":true,"example":"postgres-adapter"}
 {"read_model_id":"ST-SUP-RM01","position":3,"name":"Component version","meaning":"The version the component declares.","type":"text","required":true,"example":"4.13.0"}

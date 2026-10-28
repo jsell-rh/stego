@@ -10,6 +10,7 @@
 {"source_id":"ST-GEN-CLI01","target_id":"ST-GEN-CMD01"}
 {"source_id":"ST-GEN-CLI02","target_id":"ST-GEN-CMD02"}
 {"source_id":"ST-GEN-CLI03","target_id":"ST-GEN-QRY01"}
+{"source_id":"ST-GEN-CLI04","target_id":"ST-GEN-CMD03"}
 {"source_id":"ST-GEN-CLI04","target_id":"ST-GEN-QRY02"}
 {"source_id":"ST-SUP-CLI01","target_id":"ST-SUP-QRY01"}
 {"source_id":"ST-SUP-CLI02","target_id":"ST-SUP-QRY02"}

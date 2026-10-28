@@ -67,6 +67,12 @@
 {"entity_id":"ST-GEN-EN05","position":1,"name":"Output folder","meaning":"The output folder the apply writes to.","type":"text","required":true,"column_name":"output_dir","example":"out"}
 {"entity_id":"ST-GEN-EN05","position":2,"name":"Expected files","meaning":"The state each file must have before the apply writes it.","type":"text","required":true,"column_name":"expected"}
 {"entity_id":"ST-GEN-EN05","position":3,"name":"Operations","meaning":"Each file write in order, with the file's state before and after it.","type":"text","required":true}
+{"entity_id":"ST-GEN-EN06","position":1,"name":"Base record digest","meaning":"The digest of the record the plan was made against. A plan for a service with no record leaves it out.","type_value_object_id":"ST-VO41","required":false}
+{"entity_id":"ST-GEN-EN06","position":2,"name":"Declaration digest","meaning":"The digest of the declaration that planning read.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-GEN-EN06","position":3,"name":"Registry content digest","meaning":"The digest of the registry content that planning read.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-GEN-EN06","position":4,"name":"Compiler build","meaning":"The build identity of the compiler that made the plan.","type_value_object_id":"ST-VO42","required":true}
+{"entity_id":"ST-GEN-EN06","position":5,"name":"Output folder","meaning":"The folder, in the project, that the plan writes to.","type":"text","required":true,"example":"out"}
+{"entity_id":"ST-GEN-EN06","position":6,"name":"Planned files","meaning":"Each file the plan would create, update or delete, with the hash of its new content.","type":"text","required":true}
 {"entity_id":"ST-SUP-EN01","position":1,"name":"Content digest","meaning":"The digest of every input file of the active registry, which pins its content as a whole.","type":"text","required":true,"example":"94d285d7c1e0"}
 {"entity_id":"ST-SUP-EN02","position":1,"name":"Path","meaning":"The output path, from the generated project root.","type":"text","required":true,"example":"internal/storage"}
 {"entity_id":"ST-SUP-EN03","position":1,"name":"Archetype name","meaning":"The archetype's name, unique in its registry.","type":"text","required":true,"example":"rest-crud"}

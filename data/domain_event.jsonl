@@ -5,6 +5,7 @@
 {"id":"ST-DIS-EV07","title":"Compiler installed","aggregate_id":"ST-DIS-A4","published":false,"description":"An operator put a verified compiler in place."}
 {"id":"ST-GEN-EV01","title":"Service build applied","aggregate_id":"ST-GEN-A1","published":true,"description":"Apply wrote a service's generated files and its new record together. Other domains learn from it what the service is built from."}
 {"id":"ST-GEN-EV02","title":"Interrupted apply recovered","aggregate_id":"ST-GEN-A1","published":false,"description":"Recovery completed an interrupted apply, and the files and the record agree again."}
+{"id":"ST-GEN-EV03","title":"Plan saved","aggregate_id":"ST-GEN-A1","published":false,"description":"A plan was saved under .stego/, and apply can carry it out."}
 {"id":"ST-SUP-EV01","title":"Component added","aggregate_id":"ST-SUP-A1","published":false,"description":"A new component is in the registry."}
 {"id":"ST-SUP-EV02","title":"Component version released","aggregate_id":"ST-SUP-A1","published":true,"description":"A component has a new version, so services built from the old version can be told."}
 {"id":"ST-SUP-EV03","title":"Active registry composed","aggregate_id":"ST-SUP-A1","published":false,"description":"The sources of the active registry are pinned, and their parts are one active set."}

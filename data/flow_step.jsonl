@@ -42,11 +42,25 @@
 {"id":"ST-GEN-UC02-FL-S01","title":"The platform engineer asks STEGO to check the record, and STEGO names every generated file that no longer matches its hash","flow_id":"ST-GEN-UC02-FL","path":"main","position":1}
 {"id":"ST-GEN-UC02-FL-S02","title":"A record that disagrees with itself, or that names a registry or compiler its state does not hold, is reported as broken","flow_id":"ST-GEN-UC02-FL","path":"broken","position":1}
 {"id":"ST-GEN-UC03-FL-S01","title":"The service author moves the component's pin to the successor digest","flow_id":"ST-GEN-UC03-FL","path":"main","position":1}
-{"id":"ST-GEN-UC03-FL-S02","title":"The service author runs plan, and STEGO lists each file that the new digest changes","flow_id":"ST-GEN-UC03-FL","path":"main","position":2}
-{"id":"ST-GEN-UC03-FL-S03","title":"The service author runs apply, and STEGO changes only the files that the new digest affects","flow_id":"ST-GEN-UC03-FL","path":"main","position":3}
-{"id":"ST-GEN-UC03-FL-S04","title":"The service author reads the diff and commits it with the record","flow_id":"ST-GEN-UC03-FL","path":"main","position":4}
+{"id":"ST-GEN-UC03-FL-S02","title":"The service author runs plan, and STEGO saves the plan and lists each file that the new digest changes","flow_id":"ST-GEN-UC03-FL","path":"main","position":2}
+{"id":"ST-GEN-UC03-FL-S03","title":"The service author runs apply, and STEGO changes only the files that the new digest affects","flow_id":"ST-GEN-UC03-FL","path":"main","position":4}
+{"id":"ST-GEN-UC03-FL-S04","title":"The service author reads the diff and commits it with the record","flow_id":"ST-GEN-UC03-FL","path":"main","position":5}
 {"id":"ST-GEN-UC03-FL-S05","title":"Apply names every generated file that no longer matches its hash, and writes nothing","flow_id":"ST-GEN-UC03-FL","path":"refused","position":1}
 {"id":"ST-GEN-UC03-FL-S06","title":"When the author states on the command that the run may replace hand-edited files, apply replaces them","flow_id":"ST-GEN-UC03-FL","path":"replace","position":1}
+{"id":"ST-GEN-UC03-FL-S07","title":"STEGO reports the standing of each pin, and the author goes on only when no pin is withdrawn or past its fail date","flow_id":"ST-GEN-UC03-FL","path":"main","position":3}
+{"id":"ST-GEN-UC03-FL-S08","title":"A pin that is withdrawn or past its fail date stops the author before apply, and the author moves it to a digest that stands","flow_id":"ST-GEN-UC03-FL","path":"stopped","position":1}
+{"id":"ST-GEN-UC04-FL-S01","title":"The service author changes the declaration","flow_id":"ST-GEN-UC04-FL","path":"main","position":1}
+{"id":"ST-GEN-UC04-FL-S02","title":"STEGO reports the standing of each pin, and the author goes on only when no pin is withdrawn or past its fail date","flow_id":"ST-GEN-UC04-FL","path":"main","position":2}
+{"id":"ST-GEN-UC04-FL-S03","title":"The service author runs apply, and STEGO plans in the same run and writes the changed files, deletes the files it no longer generates, and writes the record","flow_id":"ST-GEN-UC04-FL","path":"main","position":3}
+{"id":"ST-GEN-UC04-FL-S04","title":"The service author reads the diff and commits it with the record","flow_id":"ST-GEN-UC04-FL","path":"main","position":4}
+{"id":"ST-GEN-UC04-FL-S05","title":"A failed validation, generator or assembly stops the run, STEGO names the failure, and no file changes","flow_id":"ST-GEN-UC04-FL","path":"failed","position":1}
+{"id":"ST-GEN-UC05-FL-S01","title":"The service author runs plan, and STEGO saves the plan and lists each change","flow_id":"ST-GEN-UC05-FL","path":"main","position":1}
+{"id":"ST-GEN-UC05-FL-S02","title":"The service author reads the saved plan","flow_id":"ST-GEN-UC05-FL","path":"main","position":2}
+{"id":"ST-GEN-UC05-FL-S03","title":"The service author runs apply with the saved plan, and STEGO writes exactly what it names","flow_id":"ST-GEN-UC05-FL","path":"main","position":3}
+{"id":"ST-GEN-UC05-FL-S04","title":"An input, the record or a generated file changed after planning, so apply refuses the plan and the author plans again","flow_id":"ST-GEN-UC05-FL","path":"stale","position":1}
+{"id":"ST-GEN-UC06-FL-S01","title":"Plan, apply and drift refuse while a journal is pending, and name recover","flow_id":"ST-GEN-UC06-FL","path":"main","position":1}
+{"id":"ST-GEN-UC06-FL-S02","title":"The service author runs recover, and STEGO completes the journal","flow_id":"ST-GEN-UC06-FL","path":"main","position":2}
+{"id":"ST-GEN-UC06-FL-S03","title":"A journaled file matches neither of its states, so recover names it and changes nothing","flow_id":"ST-GEN-UC06-FL","path":"conflict","position":1}
 {"id":"ST-SUP-UC01-FL-S01","title":"The platform engineer defines each port the component provides that the registry does not hold yet","flow_id":"ST-SUP-UC01-FL","path":"main","position":1}
 {"id":"ST-SUP-UC01-FL-S02","title":"The platform engineer declares each slot the component offers, with its protobuf contract","flow_id":"ST-SUP-UC01-FL","path":"main","position":2}
 {"id":"ST-SUP-UC01-FL-S03","title":"The platform engineer adds the component with its config schema, its ports, its slots and its namespace, and STEGO accepts it before its generator runs","flow_id":"ST-SUP-UC01-FL","path":"main","position":3}

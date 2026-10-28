@@ -14,6 +14,9 @@
 {"use_case_id":"ST-GEN-UC01","position":1,"role_name":"Service author"}
 {"use_case_id":"ST-GEN-UC02","position":1,"role_name":"Platform engineer"}
 {"use_case_id":"ST-GEN-UC03","position":1,"role_name":"Service author"}
+{"use_case_id":"ST-GEN-UC04","position":1,"role_name":"Service author"}
+{"use_case_id":"ST-GEN-UC05","position":1,"role_name":"Service author"}
+{"use_case_id":"ST-GEN-UC06","position":1,"role_name":"Service author"}
 {"use_case_id":"ST-SUP-UC01","position":1,"role_name":"Platform engineer"}
 {"use_case_id":"ST-SUP-UC02","position":1,"role_name":"Platform engineer"}
 {"use_case_id":"ST-SUP-UC03","position":1,"role_name":"Platform engineer"}

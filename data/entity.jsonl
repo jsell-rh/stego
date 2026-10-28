@@ -17,6 +17,7 @@
 {"id":"ST-GEN-EN03","title":"Generated file","aggregate_id":"ST-GEN-A1","role":"child","in_root_table":true,"description":"One file that apply wrote, with the hash of the content it wrote."}
 {"id":"ST-GEN-EN04","title":"Recorded input","aggregate_id":"ST-GEN-A1","role":"child","in_root_table":true,"description":"One project file that apply read, as the input manifest records it."}
 {"id":"ST-GEN-EN05","title":"Pending apply","aggregate_id":"ST-GEN-A1","role":"child","description":"The journal in .stego/transaction.yaml of an apply in progress. It exists only until the apply or its recovery completes."}
+{"id":"ST-GEN-EN06","title":"Saved plan","aggregate_id":"ST-GEN-A1","role":"child","description":"A plan that stego plan saved under .stego/, for apply to carry out exactly. It is local working state, not committed, and apply can also run without one."}
 {"id":"ST-SUP-EN01","title":"Registry","aggregate_id":"ST-SUP-A1","role":"root","description":"One active set of parts a service builds from, composed from its sources at one reference each."}
 {"id":"ST-SUP-EN02","title":"Namespace","aggregate_id":"ST-SUP-A1","role":"child","description":"The output path a component may write into, which keeps one component's output out of another's."}
 {"id":"ST-SUP-EN03","title":"Archetype","aggregate_id":"ST-SUP-A2","role":"root","description":"One curated component set with its conventions."}

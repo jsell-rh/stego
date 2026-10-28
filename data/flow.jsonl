@@ -11,6 +11,9 @@
 {"id":"ST-GEN-UC01-FL","title":"Apply and keep the record","use_case_id":"ST-GEN-UC01","description":"How apply leaves a record of every input beside the generated code."}
 {"id":"ST-GEN-UC02-FL","title":"Check a record against its code","use_case_id":"ST-GEN-UC02","description":"How a platform engineer learns whether a record describes the code beside it."}
 {"id":"ST-GEN-UC03-FL","title":"Take a fix by a pin bump and a new run","use_case_id":"ST-GEN-UC03","description":"How a service author takes a component fix as a diff a reviewer can read."}
+{"id":"ST-GEN-UC04-FL","title":"Change the declaration and run apply","use_case_id":"ST-GEN-UC04","description":"How a changed declaration becomes changed code in one run."}
+{"id":"ST-GEN-UC05-FL","title":"Plan, review, apply","use_case_id":"ST-GEN-UC05","description":"How a service author previews a run and then applies exactly what they saw."}
+{"id":"ST-GEN-UC06-FL","title":"Recover after an interruption","use_case_id":"ST-GEN-UC06","description":"How a service author brings the files and the record back into agreement after apply stops part way."}
 {"id":"ST-SUP-UC01-FL","title":"Write a component","use_case_id":"ST-SUP-UC01","description":"How a platform engineer adds a part that every service can build from."}
 {"id":"ST-SUP-UC02-FL","title":"Compose a registry for a team","use_case_id":"ST-SUP-UC02","description":"How a platform engineer lets a team add its own parts without weakening the common ones."}
 {"id":"ST-SUP-UC03-FL","title":"Curate an archetype","use_case_id":"ST-SUP-UC03","description":"How a platform engineer makes a golden path that a service author can select and trust."}
