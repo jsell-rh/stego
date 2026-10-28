@@ -21,7 +21,7 @@ func TestStreamLimitOptions(t *testing.T)     { testStreams(t, true) }
 
 func testStreams(t *testing.T, options bool) {
 	t.Helper()
-	file, err := Render("client", "")
+	file, err := Render("client", "", FollowLinks)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,8 +49,57 @@ func testStreams(t *testing.T, options bool) {
 	t.Logf("%s", output)
 }
 
+func TestCredentialLinkPolicy(t *testing.T) {
+	follow, err := Render("follow", "", FollowLinks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refuse, err := Render("refuse", "", RefuseLinks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := `package policy
+import("os";"path/filepath";"testing";"example.com/link-test/follow";"example.com/link-test/refuse")
+func TestLeafSymbolicLink(t *testing.T){
+ directory:=t.TempDir()
+ secret:=filepath.Join(directory,"secret")
+ if err:=os.WriteFile(secret,[]byte("value"),0600);err!=nil{t.Fatal(err)}
+ // A Kubernetes projected Secret mount is a leaf symbolic link into "..data".
+ link:=filepath.Join(directory,"projected")
+ if err:=os.Symlink(secret,link);err!=nil{t.Fatal(err)}
+ if data,err:=follow.ReadPrivateFile(link);err!=nil||string(data)!="value"{t.Fatal("the default refused a projected credential file",err)}
+ if _,err:=refuse.ReadPrivateFile(link);err==nil{t.Fatal("the refusing client read a symbolic link")}
+ if data,err:=refuse.ReadPrivateFile(secret);err!=nil||string(data)!="value"{t.Fatal("the refusing client rejected a regular file",err)}
+}
+`
+	dir := t.TempDir()
+	files := map[string][]byte{
+		"go.mod":           []byte("module example.com/link-test\ngo 1.26.8\n"),
+		"follow/client.go": follow.Bytes(),
+		"refuse/client.go": refuse.Bytes(),
+		"policy_test.go":   []byte(fixture),
+	}
+	for name, data := range files {
+		target := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(target, data, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "test", "-count=1", "-mod=readonly", "-timeout=30s", "./...")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GOWORK=off")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("generated credential link policy: %v\n%s", err, output)
+	}
+}
+
 func TestCacheResponse(t *testing.T) {
-	file, err := Render("client", "")
+	file, err := Render("client", "", FollowLinks)
 	if err != nil {
 		t.Fatal(err)
 	}

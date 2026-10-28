@@ -237,6 +237,26 @@ func TestCommandWorkflowAndBoundaries(t *testing.T) {
 	if _, err := run("login", "--url", server.URL, "--token-file", fifo, "--ca-file", ca); err == nil {
 		t.Fatal("FIFO credential accepted")
 	}
+	// A credential file and a CA file behind a leaf symbolic link must not be read.
+	tokenLink := filepath.Join(directory, "token-link")
+	if err := os.Symlink(token, tokenLink); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run("login", "--url", server.URL, "--token-file", tokenLink, "--ca-file", ca); err == nil {
+		t.Fatal("token symlink accepted")
+	}
+	caLink := filepath.Join(directory, "ca-link.pem")
+	if err := os.Symlink(ca, caLink); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run("login", "--url", server.URL, "--token-file", token, "--ca-file", caLink); err == nil {
+		t.Fatal("CA symlink accepted")
+	}
+	// The same login through the files themselves still works, so the two
+	// refusals above come from the links.
+	if _, err := run(login...); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := run("login", "--url", strings.Replace(server.URL, "https:", "http:", 1), "--token-file", token, "--ca-file", ca); err == nil {
 		t.Fatal("plaintext destination accepted")
 	}

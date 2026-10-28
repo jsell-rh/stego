@@ -22,21 +22,21 @@ var localTests []byte
 
 func TestLocalApplicationRendering(t *testing.T) {
 	for _, port := range []int{-1, 0, 80, 1023, 65536} {
-		if _, err := RenderLocalApplication("client", "", port); err == nil {
+		if _, err := RenderLocalApplication("client", "", port, FollowLinks); err == nil {
 			t.Fatalf("accepted port %d", port)
 		}
 	}
 	for _, port := range []int{1024, 65535} {
-		first, err := RenderLocalApplication("client", "example.com/app/tracing", port)
+		first, err := RenderLocalApplication("client", "example.com/app/tracing", port, FollowLinks)
 		if err != nil {
 			t.Fatal(err)
 		}
-		second, err := RenderLocalApplication("client", "example.com/app/tracing", port)
+		second, err := RenderLocalApplication("client", "example.com/app/tracing", port, FollowLinks)
 		if err != nil || !bytes.Equal(first.Bytes(), second.Bytes()) {
 			t.Fatal("local client generation changed", err)
 		}
 	}
-	ordinary, err := Render("client", "")
+	ordinary, err := Render("client", "", FollowLinks)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestLocalApplicationTransport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	file, err := RenderLocalApplication("client", "", port)
+	file, err := RenderLocalApplication("client", "", port, FollowLinks)
 	if err != nil {
 		t.Fatal(err)
 	}

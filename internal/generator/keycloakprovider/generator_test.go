@@ -196,7 +196,7 @@ func ProviderTestRuntime()(*Runtime,*tracetest.SpanRecorder){
 		fmt.Fprintf(&module, "%s %s\n", key, requires[key])
 	}
 	module.WriteString(")\n")
-	h, err := httpclient.Render("application/client", tracingImport)
+	h, err := httpclient.Render("application/client", tracingImport, httpclient.FollowLinks)
 	if err != nil {
 		t.Fatal(err)
 	}
