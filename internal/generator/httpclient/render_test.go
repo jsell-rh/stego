@@ -49,6 +49,7 @@ func testStreams(t *testing.T, options bool) {
 	t.Logf("%s", output)
 }
 
+// Proves ST-SUP-RC10-OC27.
 func TestCredentialLinkPolicy(t *testing.T) {
 	follow, err := Render("follow", "", FollowLinks)
 	if err != nil {
