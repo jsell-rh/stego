@@ -26,6 +26,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// Proves ST-SUP-RC17-OC26.
 func TestTelemetryDeploymentFilesAndRotation(t *testing.T) {
 	traceEnvironment(t)
 	t.Setenv(telemetryTokenSetting, "")
@@ -112,6 +113,7 @@ func TestTelemetryDeploymentFilesAndRotation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC17-OC10, ST-SUP-RC17-OC11, ST-SUP-RC17-OC12.
 func TestTelemetryCollectorTokenProtectsAllSignalsAndRotates(t *testing.T) {
 	traceEnvironment(t)
 	certificate := httptest.NewTLSServer(http.NotFoundHandler())

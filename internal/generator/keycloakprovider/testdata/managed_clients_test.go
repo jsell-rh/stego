@@ -9,6 +9,7 @@ import (
 // legacy stored name), gateway (one id, legacy form, no legacy name), and
 // console (one id, no legacy form).
 
+// Proves ST-SUP-RC13-OC18.
 func TestManagedClientIdentity(t *testing.T) {
 	identity, err := ServiceAccountClientIdentity("gw-1", "acct-1")
 	if err != nil {
@@ -52,6 +53,7 @@ func TestManagedClientIdentity(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC13-OC16.
 func TestManagedClientBinding(t *testing.T) {
 	live := func(clientID string, attributes map[string]string) *ClientRepresentation {
 		return &ClientRepresentation{ID: "uuid-1", ClientID: clientID, Attributes: attributes}
@@ -109,6 +111,7 @@ func TestManagedClientBinding(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC13-OC19.
 func TestManagedAudienceBinding(t *testing.T) {
 	legacy := map[string]string{
 		"hypershell.gateway":    "true",

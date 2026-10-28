@@ -24,6 +24,7 @@ func (b *cancellationBody) Read(p []byte) (int, error) {
 }
 func (b *cancellationBody) Close() error { b.closed.Store(true); return nil }
 
+// Proves ST-SUP-RC10-OC08.
 func TestResponseCompletionRejectsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

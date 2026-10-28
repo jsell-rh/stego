@@ -48,6 +48,7 @@ func TestAllocationPodValidation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC15-OC20, ST-SUP-RC15-OC26, ST-SUP-RC15-OC27.
 func TestAllocationPodPolicy(t *testing.T) {
 	c := allocationContext()
 	p := c.ComponentConfig["allocation_profiles"].([]any)[0].(object)

@@ -50,6 +50,7 @@ func TestStateProtectionPrivateKeyFormat(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC05-OC22.
 func TestStateProtectionBindingAndCorruption(t *testing.T) {
 	key := StateKey{Instance: "tenant", Entity: "Record", ResourceID: "resource", Scope: "provider"}
 	master := bytes.Repeat([]byte{1}, 32)

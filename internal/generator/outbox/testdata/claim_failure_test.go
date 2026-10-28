@@ -111,6 +111,7 @@ func faultQueue(t *testing.T, database *sql.DB, partial bool) *Queue {
 	return queue
 }
 
+// Proves ST-SUP-RC18-OC08.
 func TestClaimDiscardsPartialResults(t *testing.T) {
 	database := testDatabase(t)
 	enqueue(t, database, message("first"), message("second"))
@@ -127,6 +128,7 @@ func TestClaimDiscardsPartialResults(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC18-OC09.
 func TestUnknownClaimResultRecoversAfterLeaseExpiry(t *testing.T) {
 	for _, partial := range []bool{false, true} {
 		name := "query_error"

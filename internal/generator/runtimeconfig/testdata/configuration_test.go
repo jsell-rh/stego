@@ -11,6 +11,7 @@ import (
 	"time"
 )
 
+// Proves ST-SUP-RC22-OC01, ST-SUP-RC22-OC02.
 func TestConfigurationDefaultsAndSingleRead(t *testing.T) {
 	seen := map[string]int{}
 	result, err := ReadWorker(func(name string) (string, bool) {
@@ -39,6 +40,7 @@ func TestConfigurationDefaultsAndSingleRead(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC22-OC03, ST-SUP-RC22-OC04, ST-SUP-RC22-OC05.
 func TestConfigurationRejectsValuesWithoutPartialResults(t *testing.T) {
 	for name, values := range map[string]map[string]string{
 		"missing":                 {},
@@ -82,6 +84,7 @@ func TestConfigurationRejectsValuesWithoutPartialResults(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC22-OC05.
 func TestConfigurationBoundsAndExplicitEmpty(t *testing.T) {
 	for _, values := range []map[string]string{
 		{"WIDGET_ADDRESS": "a", "WIDGET_WATCH_LIMIT": "0", "WIDGET_RESYNC": "1ms", "WIDGET_ENABLED": "false", "WIDGET_OPTIONAL": ""},
@@ -99,6 +102,7 @@ func TestConfigurationBoundsAndExplicitEmpty(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC22-OC06.
 func TestConfigurationFormattingIsPrivate(t *testing.T) {
 	result, err := ReadWorker(func(name string) (string, bool) { return "private-sentinel", name == "WIDGET_ADDRESS" })
 	if err != nil {
@@ -116,6 +120,7 @@ func TestConfigurationFormattingIsPrivate(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC22-OC07.
 func TestConfigurationReadsHaveNoSharedState(t *testing.T) {
 	var wait sync.WaitGroup
 	for i := 0; i < 8; i++ {
@@ -133,6 +138,7 @@ func TestConfigurationReadsHaveNoSharedState(t *testing.T) {
 	wait.Wait()
 }
 
+// Proves ST-SUP-RC22-OC08.
 func TestConfigurationEnvironmentLoader(t *testing.T) {
 	t.Setenv("WIDGET_ADDRESS", "worker")
 	t.Setenv("WIDGET_WATCH_LIMIT", "2")

@@ -7,6 +7,7 @@ import (
  "testing"
 )
 
+// Proves ST-SUP-RC04-OC29.
 func TestVersionWithoutConfiguration(t *testing.T) {
  t.Setenv("VERSION_TEST_CONFIG","/missing/config.json")
  app:=Application{ConfigEnv:"VERSION_TEST_CONFIG",ConfigName:"version-test",VersionCommand:true}

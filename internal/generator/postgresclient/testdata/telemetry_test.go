@@ -24,6 +24,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// Proves ST-SUP-RC19-OC14.
 // Invalid identities stop before a SQL connection. The real client must still
 // report its operation through the caller's private runtime and TLS exporter.
 func TestClientPrivateTelemetry(t *testing.T) {

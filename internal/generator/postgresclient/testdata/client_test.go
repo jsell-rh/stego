@@ -45,6 +45,8 @@ func certificate(t *testing.T) (tls.Certificate, []byte) {
 	}
 	return pair, ca
 }
+
+// Proves ST-SUP-RC19-OC01, ST-SUP-RC19-OC02, ST-SUP-RC19-OC03.
 func TestConfigurationIgnoresEnvironment(t *testing.T) {
 	_, ca := certificate(t)
 	for key, value := range map[string]string{"PGSERVICE": "", "PGSERVICEFILE": "/absent-service", "PGPASSFILE": "/absent-password", "PGHOST": "untrusted.example", "PGPORT": "1", "PGUSER": "other", "PGDATABASE": "other", "PGPASSWORD": "other-password", "PGSSLMODE": "prefer", "PGSSLROOTCERT": "/absent-root", "PGSSLCERT": "/absent-cert", "PGSSLKEY": "/absent-key", "PGTARGETSESSIONATTRS": "standby", "PGCONNECT_TIMEOUT": "1000", "PGOPTIONS": "-c default_transaction_read_only=off", "PGTZ": "UTC", "PGREQUIREAUTH": "none", "PGCHANNELBINDING": "require"} {
@@ -67,6 +69,7 @@ func TestConfigurationIgnoresEnvironment(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC19-OC04.
 func TestInvalidIdentityAndCertificateAreRejected(t *testing.T) {
 	_, ca := certificate(t)
 	base := Options{Host: "localhost", Port: 5432, User: "reader", Database: "catalog", Password: "actual", CA: ca}
@@ -91,6 +94,7 @@ func TestInvalidIdentityAndCertificateAreRejected(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC19-OC05.
 func TestInvalidReadDoesNotConnect(t *testing.T) {
 	_, ca := certificate(t)
 	o := Options{Host: "localhost", Port: 5432, User: "reader", Database: "catalog", Password: "actual", CA: ca}
@@ -193,6 +197,8 @@ func sqlFixture(t *testing.T) Options {
 	}()
 	return Options{Host: "localhost", Port: 5432, User: config.User, Database: config.Database, Password: config.Password, CA: ca, DialAddress: listener.Addr().String()}
 }
+
+// Proves ST-SUP-RC19-OC03, ST-SUP-RC19-OC06, ST-SUP-RC19-OC07, ST-SUP-RC19-OC08.
 func TestVerifiedReadAgainstPostgres(t *testing.T) {
 	o := sqlFixture(t)
 	var text string

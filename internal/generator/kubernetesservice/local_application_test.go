@@ -8,6 +8,7 @@ import (
 	"text/template"
 )
 
+// Proves ST-SUP-RC15-OC01, ST-SUP-RC15-OC03, ST-SUP-RC15-OC33.
 func TestPrivateApplicationDeployment(t *testing.T) {
 	ctx := serviceContext()
 	delete(ctx.PeerNamespaces, "rest-api")

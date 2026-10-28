@@ -36,6 +36,8 @@ func fixture(t *testing.T, handler http.HandlerFunc) (*Client, string) {
 	t.Cleanup(client.Close)
 	return client, file
 }
+
+// Proves ST-SUP-RC14-OC06, ST-SUP-RC14-OC07, ST-SUP-RC14-OC08, ST-SUP-RC14-OC09, ST-SUP-RC14-OC10.
 func TestWidgetCreateConvergeAndDelete(t *testing.T) {
 	var mu sync.Mutex
 	var current Object
@@ -129,6 +131,8 @@ func TestWidgetCreateConvergeAndDelete(t *testing.T) {
 		t.Fatal("unexpected request count", requests, writes)
 	}
 }
+
+// Proves ST-SUP-RC14-OC06.
 func TestOwnershipConflictAndInvalidDesiredState(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -182,6 +186,8 @@ func TestOwnershipConflictAndInvalidDesiredState(t *testing.T) {
 		t.Fatal("unowned delete accepted")
 	}
 }
+
+// Proves ST-SUP-RC14-OC04, ST-SUP-RC14-OC05.
 func TestCredentialRotationAndResponseErrors(t *testing.T) {
 	var mu sync.Mutex
 	expected := "one"
@@ -213,6 +219,7 @@ func TestCredentialRotationAndResponseErrors(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC14-OC11.
 func TestIntegerPrecisionAndResponseValidation(t *testing.T) {
 	const exact = int64(9007199254740993)
 	client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
@@ -248,6 +255,7 @@ func TestIntegerPrecisionAndResponseValidation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC14-OC04, ST-SUP-RC14-OC14, ST-SUP-RC14-OC15, ST-SUP-RC14-OC16.
 func TestWidgetObserveSnapshotReconnectAndExpiredHistory(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
@@ -339,6 +347,7 @@ func TestWidgetObserveSnapshotReconnectAndExpiredHistory(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC14-OC14, ST-SUP-RC14-OC17.
 func TestWidgetObserveRejectsPartialAndDeniedSnapshots(t *testing.T) {
 	for _, mode := range []string{"version", "duplicate", "cursor", "denied", "watch-denied"} {
 		t.Run(mode, func(t *testing.T) {
@@ -385,6 +394,8 @@ func TestWidgetObserveRejectsPartialAndDeniedSnapshots(t *testing.T) {
 		})
 	}
 }
+
+// Proves ST-SUP-RC14-OC19.
 func TestWidgetObserveCallbackFailureAndInvalidPaths(t *testing.T) {
 	c, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) { t.Error("invalid collection reached server") })
 	for _, path := range []string{"https://other.test/api/v1/widgets", "/api/../widgets", "/api/%2e%2e/widgets", "/api/v1/widgets?watch=true", "/api//widgets"} {
@@ -398,6 +409,7 @@ func TestWidgetObserveCallbackFailureAndInvalidPaths(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC14-OC12, ST-SUP-RC14-OC13.
 func TestRateLimitMetadataAndRetryDelay(t *testing.T) {
 	client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Retry-After", "120")
@@ -422,6 +434,7 @@ func TestRateLimitMetadataAndRetryDelay(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC14-OC18.
 func TestWidgetObserveEmptyPagesAndSnapshotLimits(t *testing.T) {
 	for _, mode := range []string{"empty-page", "page-limit", "object-limit"} {
 		t.Run(mode, func(t *testing.T) {
@@ -468,6 +481,7 @@ func TestWidgetObserveEmptyPagesAndSnapshotLimits(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC14-OC12.
 func TestFailureSummaryOmitsPrivateDetails(t *testing.T) {
 	for _, err := range []error{errors.New("private-token"), &APIError{Method: "private-token", StatusCode: 403}, &APIError{Method: "DELETE", StatusCode: 999}} {
 		if got := FailureSummary(err); got != "Kubernetes operation failed" {
@@ -482,6 +496,7 @@ func TestFailureSummaryOmitsPrivateDetails(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC14-OC20.
 func TestRequiredAPIsBeforeWidgetEffects(t *testing.T) {
 	requirement := APIResource{Name: "widgets", Kind: "Widget", Namespaced: true, Verbs: []string{"get", "create", "patch", "delete"}}
 	for _, mode := range []string{"valid", "core", "missing", "partial", "wrong-version", "wrong-kind", "wrong-scope", "missing-scope", "verbs", "duplicate", "malformed", "denied", "unavailable"} {
@@ -553,6 +568,8 @@ func TestRequiredAPIsBeforeWidgetEffects(t *testing.T) {
 		})
 	}
 }
+
+// Proves ST-SUP-RC14-OC20.
 func TestDiscoveryRejectsInvalidRequirementsBeforeRequests(t *testing.T) {
 	client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Error("invalid requirements reached API")
@@ -570,6 +587,8 @@ func TestDiscoveryRejectsInvalidRequirementsBeforeRequests(t *testing.T) {
 		}
 	}
 }
+
+// Proves ST-SUP-RC14-OC04, ST-SUP-RC14-OC20.
 func TestDiscoveryRechecksSupportAndToken(t *testing.T) {
 	allowed := true
 	expected := "one"
@@ -597,6 +616,7 @@ func TestDiscoveryRechecksSupportAndToken(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC14-OC20.
 func TestDiscoveryAllowsResourceNamesWithHyphens(t *testing.T) {
 	client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(Object{"kind": "APIResourceList", "groupVersion": "example.com/v1", "resources": []Object{{"name": "widget-sets", "kind": "WidgetSet", "namespaced": true, "verbs": []string{"get"}}}})
@@ -606,6 +626,7 @@ func TestDiscoveryAllowsResourceNamesWithHyphens(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC14-OC03, ST-SUP-RC14-OC06, ST-SUP-RC14-OC07, ST-SUP-RC14-OC10.
 func TestPatchOwnedUsesTheExactObservation(t *testing.T) {
 	calls := 0
 	old := Object{"metadata": Object{"name": "sample", "uid": "uid", "resourceVersion": "4", "labels": Object{"owner": "widget"}}, "spec": Object{"items": []string{"first"}}}
@@ -652,6 +673,7 @@ func TestPatchOwnedUsesTheExactObservation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC14-OC53.
 func TestPatchOwnedRejectsMissingAndTerminatingResources(t *testing.T) {
 	calls := 0
 	client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(404) })
@@ -668,6 +690,7 @@ func TestPatchOwnedRejectsMissingAndTerminatingResources(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC14-OC01, ST-SUP-RC14-OC02, ST-SUP-RC14-OC03, ST-SUP-RC14-OC12.
 func TestWritesRequireStrictFieldValidation(t *testing.T) {
 	calls := 0
 	client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {

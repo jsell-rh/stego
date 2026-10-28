@@ -54,6 +54,7 @@ func TestAllocationPodRuleValidation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC15-OC29.
 func TestAllocationPodRulesKeepCommonGuards(t *testing.T) {
 	c := isolatedAllocationContext()
 	before, err := allocationConfig(c)

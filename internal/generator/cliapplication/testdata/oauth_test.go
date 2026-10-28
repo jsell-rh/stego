@@ -223,6 +223,8 @@ func (f *oidcFixture) browser(t *testing.T, p *oauthProvider) (*oauthSession, er
 	}
 	return session, err
 }
+
+// Proves ST-SUP-RC04-OC18, ST-SUP-RC04-OC19.
 func TestOIDCBrowserVerification(t *testing.T) {
 	f := oidcServer(t)
 	for _, mode := range []int32{0, 1, 2, 3, 4, 6, 7, 8, 11} {
@@ -249,6 +251,8 @@ func TestOIDCBrowserVerification(t *testing.T) {
 		}
 	}
 }
+
+// Proves ST-SUP-RC04-OC19.
 func TestOIDCDevicePolling(t *testing.T) {
 	f := oidcServer(t)
 	p, err := discover(context.Background(), f.session())
@@ -305,6 +309,8 @@ func TestRefreshProcessHelper(t *testing.T) {
 		t.Fatal("child could not load refreshed session")
 	}
 }
+
+// Proves ST-SUP-RC04-OC20, ST-SUP-RC04-OC22.
 func TestOIDCRefreshAcrossProcessesAndLogout(t *testing.T) {
 	f := oidcServer(t)
 	app := definition()
@@ -341,6 +347,8 @@ func TestOIDCRefreshAcrossProcessesAndLogout(t *testing.T) {
 		t.Fatal("logout retained local credentials")
 	}
 }
+
+// Proves ST-SUP-RC04-OC20, ST-SUP-RC04-OC21.
 func TestOIDCRefreshFailureRemainsPending(t *testing.T) {
 	for _, mode := range []int32{5, 9} {
 		t.Run(fmt.Sprint(mode), func(t *testing.T) {
@@ -366,6 +374,7 @@ func TestOIDCRefreshFailureRemainsPending(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC04-OC22.
 func TestOIDCLogoutRemovesLocalSessionAfterProviderFailure(t *testing.T) {
 	f := oidcServer(t)
 	app := definition()
@@ -379,6 +388,8 @@ func TestOIDCLogoutRemovesLocalSessionAfterProviderFailure(t *testing.T) {
 		t.Fatal("provider failure retained local credentials")
 	}
 }
+
+// Proves ST-SUP-RC04-OC20.
 func TestOIDCConfigLockCancellation(t *testing.T) {
 	f := oidcServer(t)
 	app := definition()
@@ -399,6 +410,7 @@ func TestOIDCConfigLockCancellation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC04-OC13.
 func TestOIDCOutputReservationPrecedesRefresh(t *testing.T) {
 	f := oidcServer(t)
 	app := definition()

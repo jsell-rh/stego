@@ -83,6 +83,7 @@ func TestAllocationIsolatedValidation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC15-OC20, ST-SUP-RC15-OC21.
 func TestAllocationIsolatedPolicy(t *testing.T) {
 	c := isolatedAllocationContext()
 	config, err := allocationConfig(c)
@@ -127,6 +128,7 @@ func TestAllocationIsolatedPolicy(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC15-OC28.
 func TestAllocationIsolatedWithoutRuntimeClass(t *testing.T) {
 	c := isolatedAllocationContext()
 	p := c.ComponentConfig["allocation_profiles"].([]any)[0].(object)

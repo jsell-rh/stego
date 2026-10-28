@@ -23,6 +23,8 @@ func definition() Application {
 		{Name: []string{"delete", "record"}, Method: "DELETE", Path: "/records/{id}", ID: true, Confirm: true, Success: []int{204}},
 	}}
 }
+
+// Proves ST-SUP-RC04-OC03, ST-SUP-RC04-OC04, ST-SUP-RC04-OC05, ST-SUP-RC04-OC06, ST-SUP-RC04-OC07, ST-SUP-RC04-OC09, ST-SUP-RC04-OC10, ST-SUP-RC04-OC11.
 func TestCommandWorkflowAndBoundaries(t *testing.T) {
 	directory := t.TempDir()
 	config := filepath.Join(directory, "config.json")
@@ -230,6 +232,8 @@ func TestCommandWorkflowAndBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Proves ST-SUP-RC04-OC01.
 func TestDefinitionAndJSONLimits(t *testing.T) {
 	app := definition()
 	app.Commands = append(app.Commands, Command{Name: []string{"whoami"}, Method: "GET", Path: "/records/one", Success: []int{200}})
@@ -274,6 +278,7 @@ func TestDefinitionAndJSONLimits(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC04-OC01, ST-SUP-RC04-OC12.
 func TestExplicitEmptyResponses(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("TEST_CLI_CONFIG", filepath.Join(dir, "config.json"))

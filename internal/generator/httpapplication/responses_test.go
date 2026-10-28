@@ -173,6 +173,7 @@ func TestHTTPResponseInputsAndDeterminism(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC10-OC25, ST-SUP-RC10-OC26.
 func TestGeneratedHTTPResponseMappings(t *testing.T) {
 	checkGeneratedResponses(t, responseContext(), responseRuntimeTest, []string{"", "TestResponsePresenceAndOwnership", "TestResponseInvalidValues", "TestResponseIntegerBounds"})
 }

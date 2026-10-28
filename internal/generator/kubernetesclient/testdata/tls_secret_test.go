@@ -43,6 +43,7 @@ func secretCertificate(t *testing.T, host string, expiry time.Time, usage x509.E
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: rootDER}), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
 }
 
+// Proves ST-SUP-RC14-OC36.
 func TestServerTLSSecretTrustBundle(t *testing.T) {
 	ca, leaf, key := secretCertificate(t, "widget.example.test", time.Now().Add(time.Hour), x509.ExtKeyUsageServerAuth)
 	otherCA, _, _ := secretCertificate(t, "widget.example.test", time.Now().Add(time.Hour), x509.ExtKeyUsageServerAuth)
@@ -81,9 +82,12 @@ func TestServerTLSSecretTrustBundle(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC14-OC31, ST-SUP-RC14-OC32, ST-SUP-RC14-OC33, ST-SUP-RC14-OC34.
 func TestServerTLSSecret(t *testing.T) {
 	testTLSSecret(t, x509.ExtKeyUsageServerAuth, VerifyServerTLSSecret)
 }
+
+// Proves ST-SUP-RC14-OC31, ST-SUP-RC14-OC32, ST-SUP-RC14-OC33, ST-SUP-RC14-OC34, ST-SUP-RC14-OC35.
 func TestClientTLSSecret(t *testing.T) {
 	testTLSSecret(t, x509.ExtKeyUsageClientAuth, VerifyClientTLSSecret)
 }

@@ -21,6 +21,7 @@ type terminalStream struct {
 func (s *terminalStream) Header() (metadata.MD, error) { return nil, s.headerErr }
 func (s *terminalStream) RecvMsg(any) error            { return s.receiveErr }
 
+// Proves ST-SUP-RC07-OC08.
 // A transport can return a terminal result before its OnFinish callback runs.
 // No callback runs in this fixture; the wrapper must complete the observation.
 func TestBoundedStreamTerminalObservation(t *testing.T) {

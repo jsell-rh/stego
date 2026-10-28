@@ -152,6 +152,7 @@ func manifest(kind, name, spec string) string {
 	return fmt.Sprintf("apiVersion: example/v1\nkind: %s\nmetadata:\n  name: %q\nspec: %s\n", kind, name, spec)
 }
 
+// Proves ST-SUP-RC04-OC24, ST-SUP-RC04-OC26.
 func TestApplyCreatePatchAndDryRun(t *testing.T) {
 	f := applySetup(t)
 	app := applyDefinition()
@@ -178,6 +179,8 @@ func TestApplyCreatePatchAndDryRun(t *testing.T) {
 		t.Fatal("repeat apply did not patch", second, err)
 	}
 }
+
+// Proves ST-SUP-RC04-OC23, ST-SUP-RC04-OC26.
 func TestApplyRejectsAllInputBeforeRequests(t *testing.T) {
 	f := applySetup(t)
 	app := applyDefinition()
@@ -201,6 +204,8 @@ func TestApplyRejectsAllInputBeforeRequests(t *testing.T) {
 		t.Fatal("invalid document reached API")
 	}
 }
+
+// Proves ST-SUP-RC04-OC23, ST-SUP-RC04-OC25.
 func TestApplyPreflightAndPartialResults(t *testing.T) {
 	for _, mode := range []string{"lookup-failure", "invalid-list", "write-failure", "unknown-write"} {
 		t.Run(mode, func(t *testing.T) {
@@ -236,6 +241,8 @@ func TestApplyPreflightAndPartialResults(t *testing.T) {
 		}
 	})
 }
+
+// Proves ST-SUP-RC04-OC23.
 func TestApplyAmbiguityAndExplicitIDs(t *testing.T) {
 	f := applySetup(t)
 	for _, id := range []string{"one", "two"} {
@@ -255,6 +262,8 @@ func TestApplyAmbiguityAndExplicitIDs(t *testing.T) {
 		t.Fatal("duplicate explicit target accepted")
 	}
 }
+
+// Proves ST-SUP-RC04-OC26.
 func TestApplyDirectoriesAndInputBounds(t *testing.T) {
 	f := applySetup(t)
 	directory := filepath.Join(f.directory, "documents")
@@ -336,6 +345,7 @@ func TestApplyStdinAndCancellation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC04-OC13, ST-SUP-RC04-OC25.
 func TestApplyDefinitionAndOutputFailures(t *testing.T) {
 	for _, change := range []func(*Application){
 		func(a *Application) { a.Resources[0].Path = "//outside.invalid/records" },
@@ -376,6 +386,7 @@ func TestApplyDefinitionAndOutputFailures(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC04-OC23.
 func TestApplyAliasesCannotDuplicateTarget(t *testing.T) {
 	f := applySetup(t)
 	app := applyDefinition()
@@ -385,6 +396,8 @@ func TestApplyAliasesCannotDuplicateTarget(t *testing.T) {
 		t.Fatal("aliased kinds selected the same create target")
 	}
 }
+
+// Proves ST-SUP-RC04-OC23.
 func TestApplyRejectsNullListCount(t *testing.T) {
 	f := applySetup(t)
 	f.mode = "null-total"

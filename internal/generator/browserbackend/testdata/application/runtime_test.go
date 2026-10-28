@@ -30,6 +30,8 @@ func applicationLogin(t *testing.T, f *fixture) *http.Cookie {
 	c, _ := login(t, f)
 	return c
 }
+
+// Proves ST-SUP-RC02-OC45.
 func TestApplicationIdentityAndRestart(t *testing.T) {
 	f := applicationFixture(t)
 	c := applicationLogin(t, f)
@@ -57,6 +59,8 @@ func TestApplicationIdentityAndRestart(t *testing.T) {
 		}
 	}
 }
+
+// Proves ST-SUP-RC02-OC46.
 func TestApplicationWritesRequireOrigin(t *testing.T) {
 	f := applicationFixture(t)
 	c := applicationLogin(t, f)
@@ -71,6 +75,8 @@ func TestApplicationWritesRequireOrigin(t *testing.T) {
 		}
 	}
 }
+
+// Proves ST-SUP-RC02-OC06, ST-SUP-RC02-OC22, ST-SUP-RC02-OC47.
 func TestApplicationLoginAndDeniedRequests(t *testing.T) {
 	f := applicationFixture(t)
 	assetPath := "/assets/app.js"
@@ -93,6 +99,8 @@ func TestApplicationLoginAndDeniedRequests(t *testing.T) {
 	require(t, send(f.backend, "GET", apiPrefix+"/unauthorized", "", []*http.Cookie{c}, nil).Code == 401, "upstream denial was lost")
 	require(t, send(f.backend, "GET", apiPrefix+"/auth/whoami", "", []*http.Cookie{c}, nil).Code == 401, "denied session remained active")
 }
+
+// Proves ST-SUP-RC02-OC46.
 func TestApplicationOriginGuard(t *testing.T) {
 	b := &Backend{}
 	// This check needs no database. It covers the exact-origin boundary.
@@ -111,6 +119,7 @@ func TestApplicationOriginGuard(t *testing.T) {
 	require(t, b.applicationCSRF(r), "exact origin rejected")
 }
 
+// Proves ST-SUP-RC02-OC08, ST-SUP-RC02-OC11.
 func TestApplicationRefreshAndLogout(t *testing.T) {
 	f := applicationFixture(t)
 	c, csrf := login(t, f)
@@ -130,6 +139,8 @@ func TestApplicationRefreshAndLogout(t *testing.T) {
 	require(t, w.Code == 204, "application logout failed")
 	require(t, send(second, "GET", apiPrefix+"/auth/whoami", "", []*http.Cookie{c}, nil).Code == 401, "application session survived logout on another backend")
 }
+
+// Proves ST-SUP-RC02-OC36.
 func TestApplicationAddressIsCompilerOwned(t *testing.T) {
 	for _, o := range []options{{Origin: origin, Upstream: "http://127.0.0.1:8000"}, {Origin: origin, Upstream: "https://other.example"}, {Origin: origin, UpstreamCA: "unused.pem"}} {
 		_, err := newBackend(context.Background(), &sql.DB{}, o)

@@ -64,6 +64,7 @@ func verifierForTest(t *testing.T, key *rsa.PrivateKey) *Verifier {
 	return verifier
 }
 
+// Proves ST-SUP-RC11-OC01, ST-SUP-RC11-OC02, ST-SUP-RC11-OC07.
 func TestAuthenticationRequests(t *testing.T) {
 	key, otherKey := keyForTest(t), keyForTest(t)
 	verifier := verifierForTest(t, key)
@@ -157,6 +158,7 @@ func signRaw(t *testing.T, key *rsa.PrivateKey, header, payload []byte) string {
 	return input + "." + base64.RawURLEncoding.EncodeToString(signature)
 }
 
+// Proves ST-SUP-RC11-OC05, ST-SUP-RC11-OC06.
 func TestAmbiguousAndMalformedTokens(t *testing.T) {
 	key := keyForTest(t)
 	verifier := verifierForTest(t, key)
@@ -190,6 +192,7 @@ func TestAmbiguousAndMalformedTokens(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC11-OC03, ST-SUP-RC11-OC04.
 func TestConfigurationAndKeyValidation(t *testing.T) {
 	key := keyForTest(t)
 	for _, config := range []Config{
@@ -236,6 +239,7 @@ func TestConfigurationAndKeyValidation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC11-OC30.
 func TestConcurrentVerification(t *testing.T) {
 	key := keyForTest(t)
 	verifier := verifierForTest(t, key)
@@ -275,6 +279,7 @@ func BenchmarkVerify(b *testing.B) {
 	}
 }
 
+// Proves ST-SUP-RC11-OC08, ST-SUP-RC11-OC09, ST-SUP-RC11-OC10.
 func TestVerifiedProfileAndConfiguredRoles(t *testing.T) {
 	key := keyForTest(t)
 	config := Config{Issuer: "https://issuer.example", Audience: "example-api", PublicKey: &key.PublicKey, RolesClaim: "realm_access.roles"}
@@ -341,6 +346,7 @@ func TestVerifiedProfileAndConfiguredRoles(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC11-OC24.
 func TestVerifierRejectsUnpairedSurrogatesInIdentity(t *testing.T) {
 	key := keyForTest(t)
 	verifier := verifierForTest(t, key)
@@ -358,6 +364,7 @@ func TestVerifierRejectsUnpairedSurrogatesInIdentity(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC11-OC11, ST-SUP-RC11-OC12.
 func TestTrustedJWKSSelection(t *testing.T) {
 	key, other := keyForTest(t), keyForTest(t)
 	config := Config{Issuer: "https://issuer.example", Audience: "example-api"}

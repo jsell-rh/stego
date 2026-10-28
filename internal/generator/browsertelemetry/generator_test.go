@@ -60,6 +60,8 @@ func TestDefaultAndSharedIdentity(t *testing.T) {
 		}
 	}
 }
+
+// Proves ST-SUP-RC03-OC17.
 func TestRuntime(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {

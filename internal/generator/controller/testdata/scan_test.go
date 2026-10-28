@@ -14,6 +14,7 @@ func scanOptions() ScanOptions {
 	return ScanOptions{PageSize: 2, MaxPages: 3, PageTimeout: time.Second}
 }
 
+// Proves ST-SUP-RC05-OC11.
 func TestScanChecksWholePageBeforeDispatch(t *testing.T) {
 	for _, page := range []CursorPage[int]{
 		{Items: []CursorItem[int]{{Cursor: "ok"}, {Cursor: ""}}},

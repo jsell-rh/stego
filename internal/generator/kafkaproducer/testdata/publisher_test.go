@@ -115,6 +115,7 @@ func testRecord() Record {
 	return Record{ID: uuid.New(), ResourceKey: "resource-1", Kind: "resource.created", Payload: []byte(`{"value":"one"}`)}
 }
 
+// Proves ST-SUP-RC12-OC01, ST-SUP-RC12-OC02, ST-SUP-RC12-OC03.
 func TestMutualTLSPublishRequiresAllReplicaAcknowledgements(t *testing.T) {
 	cluster, config := broker(t, identity(t, "localhost"))
 	if err := os.Chmod(config.ClientKeyFile, 0440); err != nil {
@@ -169,6 +170,7 @@ func TestMutualTLSPublishRequiresAllReplicaAcknowledgements(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC12-OC05, ST-SUP-RC12-OC06.
 func TestSCRAMAuthenticatesOverTLS(t *testing.T) {
 	id := identity(t, "localhost")
 	id.server.ClientAuth = tls.NoClientCert
@@ -201,6 +203,7 @@ func TestSCRAMAuthenticatesOverTLS(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC12-OC04.
 func TestTLSRejectsWrongTrustAndHostname(t *testing.T) {
 	for _, failure := range []string{"hostname", "trust", "client", "plaintext"} {
 		t.Run(failure, func(t *testing.T) {
@@ -233,6 +236,7 @@ func TestTLSRejectsWrongTrustAndHostname(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC12-OC07.
 func TestSCRAMRejectsUnboundedServerWork(t *testing.T) {
 	for _, challenge := range []string{
 		"r=nonce,s=c2FsdA==,i=100001", "r=nonce,s=c2FsdA==,i=2147483647",
@@ -247,6 +251,7 @@ func TestSCRAMRejectsUnboundedServerWork(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC12-OC08.
 func TestUncertainProduceClosesClientBeforeRetry(t *testing.T) {
 	cluster, config := broker(t, identity(t, "localhost"))
 	publisher, err := New(context.Background(), config)
@@ -285,6 +290,7 @@ func TestUncertainProduceClosesClientBeforeRetry(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC12-OC12.
 func TestBrokerDenialDoesNotReturnSuccess(t *testing.T) {
 	cluster, config := broker(t, identity(t, "localhost"))
 	cluster.ControlKey(0, func(request kmsg.Request) (kmsg.Response, error, bool) {
@@ -316,6 +322,7 @@ func TestBrokerDenialDoesNotReturnSuccess(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC12-OC15.
 func TestConcurrentPublishAndClose(t *testing.T) {
 	_, config := broker(t, identity(t, "localhost"))
 	publisher, err := New(context.Background(), config)
@@ -335,6 +342,7 @@ func TestConcurrentPublishAndClose(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC12-OC09, ST-SUP-RC12-OC10, ST-SUP-RC12-OC11.
 func TestInvalidConfigurationAndRecordFailBeforeNetwork(t *testing.T) {
 	id := identity(t, "localhost")
 	id.config.Brokers = []string{"localhost:9093"}

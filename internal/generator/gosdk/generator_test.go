@@ -112,6 +112,8 @@ func TestInputBoundary(t *testing.T) {
 		})
 	}
 }
+
+// Proves ST-SUP-RC06-OC01, ST-SUP-RC06-OC02, ST-SUP-RC06-OC03, ST-SUP-RC06-OC04, ST-SUP-RC06-OC05, ST-SUP-RC06-OC06, ST-SUP-RC06-OC07.
 func TestGeneratedSDK(t *testing.T) {
 	for _, traced := range []bool{false, true} {
 		t.Run(fmt.Sprint(traced), func(t *testing.T) { testGeneratedSDK(t, traced) })

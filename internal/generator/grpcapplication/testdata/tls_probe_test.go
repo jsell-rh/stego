@@ -42,6 +42,7 @@ func (s *probeService) Echo(ctx context.Context, r *pb.Request) (*pb.Response, e
 	}
 }
 
+// Proves ST-SUP-RC07-OC07.
 func TestTLSProbe(t *testing.T) {
 	cert := httptest.NewTLSServer(http.NotFoundHandler())
 	defer cert.Close()

@@ -16,6 +16,7 @@ import (
 	"testing"
 )
 
+// Proves ST-SUP-RC04-OC13, ST-SUP-RC04-OC14, ST-SUP-RC04-OC15.
 func TestScopedCredentialOutput(t *testing.T) {
 	directory := t.TempDir()
 	t.Setenv("TEST_CLI_CONFIG", filepath.Join(directory, "config.json"))
@@ -141,6 +142,7 @@ type shortWriter struct{}
 
 func (shortWriter) Write(data []byte) (int, error) { return len(data) - 1, nil }
 
+// Proves ST-SUP-RC04-OC13.
 func TestCredentialOutputWriteFailures(t *testing.T) {
 	for _, writer := range []interface{ Write([]byte) (int, error) }{privateErrorWriter{}, shortWriter{}} {
 		reserved, err := reserveOutput("-", writer)
@@ -169,6 +171,7 @@ func TestCredentialOutputWriteFailures(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC04-OC15.
 func TestInvalidScopedDefinitions(t *testing.T) {
 	for _, command := range []Command{
 		{Path: "/projects/{project}/keys", PathParameters: []PathParameter{{Flag: "project-id", Key: "missing"}}},

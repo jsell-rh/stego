@@ -197,6 +197,8 @@ func TestRequestSignalsWithAndWithoutSampledSpans(t *testing.T) {
 		})
 	}
 }
+
+// Proves ST-SUP-RC17-OC17, ST-SUP-RC17-OC18.
 func TestMetricCardinalityAndActiveCalls(t *testing.T) {
 	sink := collectorFixture(t, false)
 	runtime, err := NewRuntime()
@@ -251,6 +253,8 @@ func TestMetricCardinalityAndActiveCalls(t *testing.T) {
 		t.Fatal("active count lost completion")
 	}
 }
+
+// Proves ST-SUP-RC17-OC28, ST-SUP-RC17-OC29.
 func TestSignalSettingsAndBlockedCollectors(t *testing.T) {
 	collectorFixture(t, true)
 	for name, values := range map[string][]string{"OTEL_METRICS_EXPORTER": {"prometheus", "invalid"}, "OTEL_LOGS_EXPORTER": {"console", "invalid"}, "OTEL_METRIC_EXPORT_INTERVAL": {"0", "999", "60001", "+1000", "invalid"}} {
@@ -305,6 +309,7 @@ func TestSignalSettingsAndBlockedCollectors(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC17-OC21, ST-SUP-RC17-OC22.
 func TestHTTPPanicBalancesMetricsWithoutInventingAResponse(t *testing.T) {
 	sink := collectorFixture(t, false)
 	runtime, err := NewRuntime()

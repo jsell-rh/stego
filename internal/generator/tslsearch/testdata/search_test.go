@@ -19,6 +19,7 @@ func BenchmarkSearchParallel(b *testing.B){
  b.RunParallel(func(pb *testing.PB){for pb.Next(){if _,err:=engine.ParseSearch("User",input);err!=nil{b.Error(err);return}}})
 }
 
+// Proves ST-SUP-RC23-OC01, ST-SUP-RC23-OC02, ST-SUP-RC23-OC03, ST-SUP-RC23-OC04, ST-SUP-RC23-OC05, ST-SUP-RC23-OC06, ST-SUP-RC23-OC07.
 func TestBoundSearch(t *testing.T){
  engine:=NewSearchEngine()
  var cold sync.WaitGroup

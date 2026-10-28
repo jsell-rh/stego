@@ -16,6 +16,7 @@ import (
 	"time"
 )
 
+// Proves ST-SUP-RC04-OC01.
 func TestIdentityDefinition(t *testing.T) {
 	app := Application{ConfigEnv: "TEST_CLI_CONFIG", ConfigName: "sample", IdentityPath: "/identity"}
 	if err := validate(app); err != nil {
@@ -33,6 +34,8 @@ func TestIdentityDefinition(t *testing.T) {
 		t.Fatal("identity command collision accepted")
 	}
 }
+
+// Proves ST-SUP-RC04-OC16, ST-SUP-RC04-OC17.
 func TestVerifiedIdentityAndProtectedTokenOutput(t *testing.T) {
 	directory := t.TempDir()
 	t.Setenv("TEST_CLI_CONFIG", filepath.Join(directory, "config.json"))

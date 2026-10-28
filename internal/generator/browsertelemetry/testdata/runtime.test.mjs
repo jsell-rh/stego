@@ -17,6 +17,7 @@ function setup(handler) {
  };
  return calls;
 }
+// Proves ST-SUP-RC03-OC01, ST-SUP-RC03-OC02, ST-SUP-RC03-OC03, ST-SUP-RC03-OC16.
 test('all signals use the fixed authenticated transport and generated identity', async()=>{
  const calls=setup();const failures=[];const t=createBrowserTelemetry({sampleRatio:1,reportDeliveryFailure:f=>failures.push(f)});
  try {
@@ -32,6 +33,7 @@ test('all signals use the fixed authenticated transport and generated identity',
   assert.deepEqual(failures,[]);
  }finally{await t.shutdown();}
 });
+// Proves ST-SUP-RC03-OC07, ST-SUP-RC03-OC08.
 test('invalid configuration and trace IDs fail before export',async()=>{
  const calls=setup();
  for(const options of [null,[],{url:'https://elsewhere.example'}, {sampleRatio:-1},{sampleRatio:2},{sampleRatio:NaN},{reportDeliveryFailure:4}])assert.throws(()=>createBrowserTelemetry(options));
@@ -40,6 +42,7 @@ test('invalid configuration and trace IDs fail before export',async()=>{
  assert.match(ids.generateSpanId(),/^[0-9a-f]{16}$/);assert.equal(calls.length,0);
  globalThis.location.href='http://console.example';assert.throws(()=>createBrowserTelemetry());
 });
+// Proves ST-SUP-RC03-OC04, ST-SUP-RC03-OC05.
 test('export failures are bounded public categories, including partial success',async()=>{
  for(const reply of [()=>new Response('private secret',{status:500}),()=>new Response(new Uint8Array([10,2,8,1]),{headers:{'Content-Type':'application/x-protobuf'}}),()=>new Response('x'.repeat(16385),{headers:{'Content-Type':'application/json'}})]){
   setup(reply);const failures=[];const t=createBrowserTelemetry({sampleRatio:1,reportDeliveryFailure:f=>failures.push(f)});
@@ -48,11 +51,13 @@ test('export failures are bounded public categories, including partial success',
   assert.doesNotMatch(JSON.stringify(failures),/private|secret/);
  }
 });
+// Proves ST-SUP-RC03-OC02.
 test('authentication failure makes no export request and reporter throws do not escape',async()=>{
  setup();let posts=0;globalThis.fetch=async(url,options)=>{if(options.method==='POST')posts++;return Response.json({authenticated:false});};
  const t=createBrowserTelemetry({sampleRatio:1,reportDeliveryFailure:()=>{throw new Error('private');}});
  t.tracer.startSpan('workflow').end();await assert.rejects(t.forceFlush(),/telemetry flush failed/);await t.shutdown().catch(()=>{});assert.equal(posts,0);
 });
+// Proves ST-SUP-RC03-OC15.
 test('page hide flushes and shutdown is idempotent and removes listeners',async()=>{
  const calls=setup();const t=createBrowserTelemetry({sampleRatio:1});
  t.tracer.startSpan('workflow').end();globalThis.window.dispatchEvent(new Event('pagehide'));
@@ -60,12 +65,14 @@ test('page hide flushes and shutdown is idempotent and removes listeners',async(
  const done=t.shutdown();assert.equal(t.shutdown(),done);await done;
  const count=calls.length;globalThis.window.dispatchEvent(new Event('pagehide'));await new Promise(resolve=>setTimeout(resolve,10));assert.equal(calls.length,count);
 });
+// Proves ST-SUP-RC03-OC06.
 test('a stalled fetch has a terminal result',async()=>{
  setup();globalThis.fetch=()=>new Promise(()=>{});const failures=[];const t=createBrowserTelemetry({sampleRatio:1,reportDeliveryFailure:f=>failures.push(f)});
  t.tracer.startSpan('workflow').end();const started=Date.now();await assert.rejects(t.forceFlush(),/telemetry flush failed/);await t.shutdown().catch(()=>{});
  assert.ok(Date.now()-started<6500);assert.ok(failures.some(f=>f.signal==='traces'));
 });
 
+// Proves ST-SUP-RC03-OC09.
 test('log bodies, metric instruments, and attributes have finite limits',async()=>{
  const calls=setup();const failures=[];const t=createBrowserTelemetry({sampleRatio:0,reportDeliveryFailure:f=>failures.push(f)});
  t.logger.emit({body:'x'.repeat(513)});t.logger.emit({body:{secret:'not exported'}});
@@ -77,6 +84,7 @@ test('log bodies, metric instruments, and attributes have finite limits',async()
  assert.equal(failures.filter(f=>f.signal==='metrics'&&f.reason==='invalid_record').length,2);
 });
 
+// Proves ST-SUP-RC03-OC10.
 test('observable metric callbacks enforce record limits and can be removed',async()=>{
  const calls=setup();const failures=[];const t=createBrowserTelemetry({sampleRatio:0,reportDeliveryFailure:f=>failures.push(f)});
  const registrations=[];let observations=0;
@@ -105,6 +113,7 @@ test('observable metric callbacks enforce record limits and can be removed',asyn
  }finally{for(const [instrument,callback] of registrations)instrument.removeCallback(callback);await t.shutdown();}
 });
 
+// Proves ST-SUP-RC03-OC10, ST-SUP-RC03-OC11.
 test('batch observable metric callbacks enforce record limits and can be removed',async()=>{
  const calls=setup();const failures=[];const t=createBrowserTelemetry({sampleRatio:0,reportDeliveryFailure:f=>failures.push(f)});
  const gauge=t.meter.createObservableGauge('batch.gauge');const counter=t.meter.createObservableCounter('batch.counter');let observations=0;
@@ -126,6 +135,7 @@ test('batch observable metric callbacks enforce record limits and can be removed
  }finally{t.meter.removeBatchObservableCallback(callback,[gauge,counter]);await t.shutdown();}
 });
 
+// Proves ST-SUP-RC03-OC10.
 test('observable metric callbacks have a shared registration limit and bounded collection',async()=>{
  const calls=setup();const failures=[];const t=createBrowserTelemetry({sampleRatio:0,reportDeliveryFailure:f=>failures.push(f)});
  const gauge=t.meter.createObservableGauge('bounded.gauge');const counter=t.meter.createObservableCounter('bounded.counter');
@@ -145,6 +155,7 @@ test('observable metric callbacks have a shared registration limit and bounded c
  }finally{for(const callback of callbacks)gauge.removeCallback(callback);counter.removeCallback(extra);t.meter.removeBatchObservableCallback(batch,[gauge]);await t.shutdown();}
 });
 
+// Proves ST-SUP-RC03-OC11.
 test('observable metric callbacks reject foreign and unselected instruments',async()=>{
  setup();const failures=[];const t=createBrowserTelemetry({sampleRatio:0,reportDeliveryFailure:f=>failures.push(f)});
  const other=createBrowserTelemetry({sampleRatio:0});const local=t.meter.createObservableGauge('local');const unselected=t.meter.createObservableGauge('unselected');const foreign=other.meter.createObservableGauge('foreign');let invalidCalls=0;
@@ -158,6 +169,7 @@ test('observable metric callbacks reject foreign and unselected instruments',asy
  }finally{t.meter.removeBatchObservableCallback(callback,[local]);await t.shutdown();await other.shutdown();}
 });
 
+// Proves ST-SUP-RC03-OC04.
 test('processor queue loss is reported for logs and traces',async()=>{
  setup();const failures=[];const t=createBrowserTelemetry({sampleRatio:1,reportDeliveryFailure:f=>failures.push(f)});
  try {
@@ -168,6 +180,7 @@ test('processor queue loss is reported for logs and traces',async()=>{
  }finally{await t.shutdown();}
 });
 
+// Proves ST-SUP-RC03-OC08.
 test('an invalid entropy source cannot return zero IDs or loop without a bound',()=>{
  const crypto = Object.getOwnPropertyDescriptor(globalThis,'crypto');
  let calls=0;
@@ -176,6 +189,7 @@ test('an invalid entropy source cannot return zero IDs or loop without a bound',
  finally {Object.defineProperty(globalThis,'crypto',crypto);}
 });
 
+// Proves ST-SUP-RC03-OC14.
 test('server rendering creates no browser transport or timers',async()=>{
  const location=globalThis.location;delete globalThis.location;
  let calls=0;globalThis.fetch=()=>{calls++;throw new Error('unexpected SSR export');};
@@ -183,6 +197,7 @@ test('server rendering creates no browser transport or timers',async()=>{
  finally {globalThis.location=location;}
 });
 
+// Proves ST-SUP-RC03-OC12.
 test('public deployment settings control each exporter and reject invalid metadata',async()=>{
  for(const settings of [undefined, {version:1,traces:false,logs:false,metrics:false,sampleRatio:0}, {version:1,traces:true,logs:false,metrics:true,sampleRatio:1}, {version:1,traces:true,logs:true,metrics:true,sampleRatio:2}, {version:1,traces:true,logs:true,metrics:true,sampleRatio:1,secret:'invalid'}]){
   const calls=setup();document.querySelectorAll=()=>settings===undefined?[]:[{getAttribute:()=>JSON.stringify(settings)}];

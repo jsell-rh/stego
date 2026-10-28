@@ -41,6 +41,8 @@ func noEvent(t *testing.T, sub Subscription) {
 		t.Fatalf("unexpected event: %v", err)
 	}
 }
+
+// Proves ST-SUP-RC18-OC12.
 func TestEventSourceCommitAndMultipleProcesses(t *testing.T) {
 	db := testDatabase(t)
 	first, _ := startSource(t, db)
@@ -107,6 +109,8 @@ func TestEventSourceCommitAndMultipleProcesses(t *testing.T) {
 		}
 	}
 }
+
+// Proves ST-SUP-RC18-OC22.
 func TestEventSourceBoundsAndSlowConsumer(t *testing.T) {
 	db := testDatabase(t)
 	source, _ := startSource(t, db)
@@ -159,6 +163,8 @@ func TestEventSourceBoundsAndSlowConsumer(t *testing.T) {
 		t.Fatal("closed source accepted subscription")
 	}
 }
+
+// Proves ST-SUP-RC18-OC10.
 func TestEventSourceFailureRequiresNewSubscription(t *testing.T) {
 	db := testDatabase(t)
 	source, done := startSource(t, db)

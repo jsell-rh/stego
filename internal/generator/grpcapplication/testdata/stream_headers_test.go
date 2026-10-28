@@ -22,6 +22,7 @@ type startupStream struct {
 func (s *startupStream) Header() (metadata.MD, error) { s.headers++; return s.header, s.headerErr }
 func (s *startupStream) Recv() (string, error)        { s.receives++; return "event", s.receiveErr }
 
+// Proves ST-SUP-RC07-OC10.
 func TestStreamHeaderContract(t *testing.T) {
 	good := []rpc.StreamHeader{{Name: "sample-capability", Value: "v1"}, {Name: "sample-scope", Value: "all-v1"}}
 	for _, required := range [][]rpc.StreamHeader{

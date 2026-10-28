@@ -110,6 +110,7 @@ func (r *claimFaultRows) Next(values []driver.Value) error {
 	return r.failure
 }
 
+// Proves ST-SUP-RC02-OC54.
 func TestRefreshClaimReadFailureKeepsSessionUsable(t *testing.T) {
 	for name, failure := range map[string]error{"lost row": io.ErrUnexpectedEOF, "cancelled": context.Canceled, "deadline": context.DeadlineExceeded} {
 		t.Run(name, func(t *testing.T) {
@@ -136,6 +137,7 @@ func TestRefreshClaimReadFailureKeepsSessionUsable(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC02-OC10.
 func TestRefreshClaimLostCommitRequiresLogin(t *testing.T) {
 	f := setup(t)
 	active, _ := login(t, f)

@@ -123,6 +123,7 @@ func TestHTTPResponseJSONMappingBounds(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC10-OC25, ST-SUP-RC10-OC26.
 func TestGeneratedHTTPResponseJSONMappings(t *testing.T) {
 	checkGeneratedResponses(t, responseJSONContext(), responseJSONRuntimeTest, []string{"", "TestResponseListsPresence", "TestResponseListsRejectInvalidInput", "TestResponseListsOwnOutput"})
 }

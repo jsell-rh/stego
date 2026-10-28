@@ -11,6 +11,7 @@ import (
 	"time"
 )
 
+// Proves ST-SUP-RC08-OC07.
 func TestProcessHealthTransitions(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -42,6 +43,7 @@ func TestProcessHealthTransitions(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC08-OC05, ST-SUP-RC08-OC06.
 func TestProcessProbeBoundaries(t *testing.T) {
 	for _, address := range []string{"localhost:9082", "0.0.0.0:9082", "127.0.0.1:0", "127.0.0.1:09082", "127.0.0.1:65536", "[::1%eth0]:9082", "127.0.0.1:9082/path"} {
 		if monitorAddress(address) == nil {
@@ -91,6 +93,7 @@ func TestProcessProbeBoundaries(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC08-OC08.
 func TestMonitorBindFailureDoesNotOpen(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

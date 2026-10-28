@@ -55,6 +55,7 @@ func TestRejectAmbiguousBasePathsBeforeRendering(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC28.
 func TestLiteralBasePathsRegisterAndServeExactRoutes(t *testing.T) {
 	for _, prefix := range []string{"", "/api/v1", "/api/user-mgmt/v1", "/API/v1.0", "/api/_shared/~preview", "/.well-known/service"} {
 		t.Run(prefix, func(t *testing.T) {

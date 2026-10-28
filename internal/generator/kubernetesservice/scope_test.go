@@ -19,6 +19,7 @@ var deploymentScopeTests []byte
 //go:embed testdata/render_configuration_test.go
 var deploymentConfigurationTests []byte
 
+// Proves ST-SUP-RC15-OC16, ST-SUP-RC15-OC17, ST-SUP-RC15-OC18, ST-SUP-RC15-OC19.
 func TestGeneratedDeploymentScopes(t *testing.T) {
 	ctx := allocationContext()
 	rpc := rpcContext()

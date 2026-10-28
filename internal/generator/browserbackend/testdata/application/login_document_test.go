@@ -10,6 +10,7 @@ import (
 	"testing"
 )
 
+// Proves ST-SUP-RC02-OC21, ST-SUP-RC02-OC27.
 func TestApplicationLoginDocumentTargets(t *testing.T) {
 	b := &Backend{routes: []*regexp.Regexp{regexp.MustCompile(`^/$`), regexp.MustCompile(`^/records/[^/]+$`)}}
 	const query = `/records/record-1?label="><script>private</script>&tab=history`
@@ -44,6 +45,7 @@ func TestApplicationLoginDocumentTargets(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC02-OC01, ST-SUP-RC02-OC27.
 func TestApplicationLoginDocumentSessionAndReplay(t *testing.T) {
 	f := applicationFixture(t)
 	loginCookie, callback := startLogin(t, f)

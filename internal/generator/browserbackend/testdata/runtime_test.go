@@ -16,6 +16,7 @@ import (
 	"time"
 )
 
+// Proves ST-SUP-RC02-OC31.
 func TestAuthorizationRequestUsesDeclaredScopes(t *testing.T) {
 	f := setup(t)
 	for _, scopes := range []string{"openid", "openid email profile records:read"} {
@@ -27,6 +28,7 @@ func TestAuthorizationRequestUsesDeclaredScopes(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC02-OC01, ST-SUP-RC02-OC02, ST-SUP-RC02-OC04, ST-SUP-RC02-OC07.
 func TestLoginProxyRestartLogout(t *testing.T) {
 	f := setup(t)
 	active, csrf := login(t, f)
@@ -58,6 +60,8 @@ func TestLoginProxyRestartLogout(t *testing.T) {
 	_, _, revokes := f.oidc.counts()
 	require(t, revokes == 1, "logout did not revoke provider token")
 }
+
+// Proves ST-SUP-RC02-OC05, ST-SUP-RC02-OC06.
 func TestDeniedRequestsDoNotReachAPI(t *testing.T) {
 	f := setup(t)
 	active, csrf := login(t, f)
@@ -94,6 +98,8 @@ func TestDeniedRequestsDoNotReachAPI(t *testing.T) {
 	f.mu.Unlock()
 	require(t, count == 0, "denied request reached API")
 }
+
+// Proves ST-SUP-RC02-OC32.
 func TestProviderDenialDoesNotEndValidSession(t *testing.T) {
 	f := setup(t)
 	active, _ := login(t, f)
@@ -112,6 +118,8 @@ func TestProviderDenialDoesNotEndValidSession(t *testing.T) {
 	w = send(f.backend, "GET", "/auth/session", "", []*http.Cookie{active}, nil)
 	require(t, strings.Contains(w.Body.String(), `"authenticated":false`), "401 retained session")
 }
+
+// Proves ST-SUP-RC02-OC24.
 func TestCallbackStateAndReplay(t *testing.T) {
 	f := setup(t)
 	c, target := startLogin(t, f)
@@ -146,6 +154,8 @@ func TestCallbackStateAndReplay(t *testing.T) {
 	exchanges, _, _ = f.oidc.counts()
 	require(t, exchanges == 1, "code exchanged more than once")
 }
+
+// Proves ST-SUP-RC02-OC25.
 func TestInvalidIdentityClaims(t *testing.T) {
 	f := setup(t)
 	for _, mode := range []string{"nonce", "issuer", "audience", "expired", "old", "auth-time", "roles", "at-hash"} {
@@ -162,6 +172,8 @@ func TestInvalidIdentityClaims(t *testing.T) {
 	_, _, revokes := f.oidc.counts()
 	require(t, revokes == 8, "rejected identity tokens were not revoked")
 }
+
+// Proves ST-SUP-RC02-OC08.
 func TestRefreshAcrossInstances(t *testing.T) {
 	f := setup(t)
 	active, _ := login(t, f)
@@ -213,6 +225,8 @@ func TestRefreshAcrossInstances(t *testing.T) {
 	_, refreshes, _ := f.oidc.counts()
 	require(t, refreshes == 1, "refresh token rotated twice")
 }
+
+// Proves ST-SUP-RC02-OC11.
 func TestLogoutCannotBeUndoneByRefresh(t *testing.T) {
 	f := setup(t)
 	active, csrf := login(t, f)
@@ -250,6 +264,8 @@ func TestLogoutCannotBeUndoneByRefresh(t *testing.T) {
 	_, refreshes, revokes := f.oidc.counts()
 	require(t, refreshes == 1 && revokes == 2, "old and rotated tokens were not revoked")
 }
+
+// Proves ST-SUP-RC02-OC10.
 func TestUncertainRefreshRequiresLogin(t *testing.T) {
 	for _, mode := range []string{"lost-response", "stale-claim"} {
 		t.Run(mode, func(t *testing.T) {
@@ -281,6 +297,8 @@ func TestUncertainRefreshRequiresLogin(t *testing.T) {
 		})
 	}
 }
+
+// Proves ST-SUP-RC02-OC03.
 func TestStorageEncryptionAndMigration(t *testing.T) {
 	db := database(t)
 	ctx := context.Background()
@@ -314,6 +332,8 @@ func TestStorageEncryptionAndMigration(t *testing.T) {
 	require(t, s.remove(ctx, id) == nil, "delete failed")
 	require(t, errors.Is(func() error { _, _, _, err := s.read(ctx, id); return err }(), errSession), "removed session exists")
 }
+
+// Proves ST-SUP-RC02-OC16, ST-SUP-RC02-OC17, ST-SUP-RC02-OC21, ST-SUP-RC02-OC22.
 func TestStaticRoutesAndBoundaries(t *testing.T) {
 	f := setup(t)
 	sum := sha256.Sum256([]byte("window.ready=true;"))
@@ -351,6 +371,8 @@ func TestStaticRoutesAndBoundaries(t *testing.T) {
 	cancel()
 	require(t, f.backend.Run(ctx) == nil, "canceled backend did not stop")
 }
+
+// Proves ST-SUP-RC02-OC35.
 func TestStrictJSON(t *testing.T) {
 	for _, text := range []string{`{"a":1,"a":2}`, `{"a":"\ud800"}`, `{"a":"\udc00"}`, `{"a":"\ud800x"}`, `{} {}`, strings.Repeat("[", 34) + "0" + strings.Repeat("]", 34), string([]byte{34, 255, 34})} {
 		require(t, !validJSON([]byte(text)), "invalid JSON accepted")
@@ -359,6 +381,8 @@ func TestStrictJSON(t *testing.T) {
 		require(t, validJSON([]byte(text)), "valid JSON rejected")
 	}
 }
+
+// Proves ST-SUP-RC02-OC18, ST-SUP-RC02-OC36.
 func TestBackendConfiguration(t *testing.T) {
 	f := setup(t)
 	for _, upstream := range []string{origin, origin + ":8443", "https://CONSOLE.example.test.:9443", origin + ":443", origin + "/api", "http://api.example.test", "https://api.example.test/path", "https://api.example.test?query=x"} {
@@ -371,6 +395,7 @@ func TestBackendConfiguration(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC02-OC37.
 func TestAPINotModified(t *testing.T) {
 	f := setup(t)
 	active, _ := login(t, f)
@@ -381,6 +406,7 @@ func TestAPINotModified(t *testing.T) {
 	require(t, w.Code == 304 && w.Body.Len() == 0 && w.Header().Get("ETag") == `"record-version"`, "API cache response changed")
 }
 
+// Proves ST-SUP-RC02-OC23.
 func TestStorageFailureIsNotLogout(t *testing.T) {
 	f := setup(t)
 	active, _ := login(t, f)
@@ -389,6 +415,8 @@ func TestStorageFailureIsNotLogout(t *testing.T) {
 	require(t, w.Code == 503 && w.Header().Get("Retry-After") == "1", "storage failure did not report temporary unavailability")
 	require(t, len(w.Result().Cookies()) == 0, "storage failure deleted browser cookie")
 }
+
+// Proves ST-SUP-RC02-OC33.
 func TestPendingLoginCapacity(t *testing.T) {
 	f := setup(t)
 	id, _ := randomValue()
@@ -410,6 +438,7 @@ func TestPendingLoginCapacity(t *testing.T) {
 	require(t, count == 1000, "capacity failure left an extra session")
 }
 
+// Proves ST-SUP-RC02-OC34.
 func TestCrossSiteLandingDoesNotExposeSession(t *testing.T) {
 	f := setup(t)
 	active, _ := login(t, f)
@@ -424,6 +453,7 @@ func TestCrossSiteLandingDoesNotExposeSession(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC02-OC18.
 func TestCookieHostIsolation(t *testing.T) {
 	f := setup(t)
 	o := f.options
@@ -451,6 +481,8 @@ func assertReauthentication(t *testing.T, w *httptest.ResponseRecorder) {
 	require(t, w.Header().Get("WWW-Authenticate") == `Bearer error="invalid_token"` && w.Header().Get("Cache-Control") == "no-store", "unsafe reauthentication headers")
 	require(t, w.Header().Get("Location") == "" && w.Header().Get("ETag") == "", "reauthentication forwarded upstream headers")
 }
+
+// Proves ST-SUP-RC02-OC26.
 func TestBrowserReauthenticationContract(t *testing.T) {
 	f := setup(t)
 	assertReauthentication(t, send(f.backend, "GET", apiPrefix+"/records", "", nil, nil))
@@ -469,6 +501,7 @@ func TestBrowserReauthenticationContract(t *testing.T) {
 	require(t, count == 1, "rejected session reached API again")
 }
 
+// Proves ST-SUP-RC02-OC12, ST-SUP-RC02-OC13.
 func TestLogoutConfirmation(t *testing.T) {
 	f := setup(t)
 	active, csrf := login(t, f)
@@ -498,6 +531,7 @@ func TestLogoutConfirmation(t *testing.T) {
 	require(t, send(f.backend, "GET", "/auth/logout?return_to=https://other.example", "", nil, nil).Code == 400, "logout accepted a redirect input")
 }
 
+// Proves ST-SUP-RC02-OC14, ST-SUP-RC02-OC15.
 func TestProviderLogoutTarget(t *testing.T) {
 	originURL, _ := url.Parse(origin)
 	p := &oauthProvider{options: options{ClientID: clientID}}
@@ -513,6 +547,7 @@ func TestProviderLogoutTarget(t *testing.T) {
 	require(t, u.Query().Get("client_id") == clientID && u.Query().Get("post_logout_redirect_uri") == origin+"/auth/logout" && len(u.Query()) == 2, "provider logout parameters changed")
 }
 
+// Proves ST-SUP-RC02-OC38.
 func TestTelemetryRequiresSessionAndCSRF(t *testing.T) {
 	f := setup(t)
 	f.backend.config.TelemetryService = "example-browser"
@@ -554,6 +589,8 @@ func TestTelemetryRequiresSessionAndCSRF(t *testing.T) {
 	defer f.mu.Unlock()
 	require(t, len(f.requests) == 0, "telemetry reached the API")
 }
+
+// Proves ST-SUP-RC02-OC39.
 func TestTelemetryAdmissionLimit(t *testing.T) {
 	b := &Backend{}
 	for i := 0; i < 6; i++ {
@@ -567,6 +604,7 @@ func TestTelemetryAdmissionLimit(t *testing.T) {
 	require(t, len(b.telemetryLimits) == 512, "telemetry session map exceeded its bound")
 }
 
+// Proves ST-SUP-RC02-OC30.
 func TestPublicRuntimeMetadata(t *testing.T) {
 	f := setup(t)
 	before := send(f.backend, "GET", "/", "", nil, nil)
@@ -583,6 +621,7 @@ func TestPublicRuntimeMetadata(t *testing.T) {
 	require(t, after.Header().Get("Content-Security-Policy") == before.Header().Get("Content-Security-Policy"), "metadata changed script policy")
 }
 
+// Proves ST-SUP-RC02-OC09.
 func TestRefreshWaitHasDeadlineAndCancellation(t *testing.T) {
 	f := setup(t)
 	active, _ := login(t, f)
@@ -606,6 +645,7 @@ func TestRefreshWaitHasDeadlineAndCancellation(t *testing.T) {
 	require(t, refreshes == 0, "waiter used a refresh token")
 }
 
+// Proves ST-SUP-RC02-OC55.
 func TestCancelledRefreshDoesNotLeaveAnOwnedSession(t *testing.T) {
 	f := setup(t)
 	active, _ := login(t, f)

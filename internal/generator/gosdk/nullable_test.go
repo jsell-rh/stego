@@ -1,5 +1,6 @@
 package gosdk
 
+// Proves ST-SUP-RC06-OC08.
 const nullableRuntimeTest = `package sdk
 
 import (

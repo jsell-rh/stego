@@ -61,6 +61,8 @@ func openSocket(t *testing.T, server *httptest.Server, c *http.Cookie) *websocke
 	t.Cleanup(func() { conn.CloseNow() })
 	return conn
 }
+
+// Proves ST-SUP-RC02-OC42.
 func TestApplicationSocketDelivery(t *testing.T) {
 	f := applicationFixture(t)
 	c := applicationLogin(t, f)
@@ -96,6 +98,8 @@ func TestApplicationSocketDelivery(t *testing.T) {
 		t.Fatal("socket handler did not finish")
 	}
 }
+
+// Proves ST-SUP-RC02-OC41.
 func TestApplicationSocketDenied(t *testing.T) {
 	f := applicationFixture(t)
 	c := applicationLogin(t, f)
@@ -120,6 +124,8 @@ func TestApplicationSocketDenied(t *testing.T) {
 		require(t, err != nil && response != nil && response.StatusCode == tc.status, "socket denial changed")
 	}
 }
+
+// Proves ST-SUP-RC02-OC43.
 func TestApplicationSocketSessionEnd(t *testing.T) {
 	if os.Getenv("STEGO_TEST_POSTGRES_DSN") == "" && os.Getenv("STEGO_REQUIRE_POSTGRES") != "1" {
 		t.Skip("database fixture is not configured")
@@ -194,6 +200,8 @@ func TestApplicationSocketSessionEnd(t *testing.T) {
 		})
 	}
 }
+
+// Proves ST-SUP-RC02-OC40.
 func TestApplicationSocketAdmission(t *testing.T) {
 	var set socketSet
 	id, _ := randomValue()
@@ -323,6 +331,7 @@ func TestSocketControlTrafficLimit(t *testing.T) {
 	require(t, !ping(ctx, nil) && ctx.Err() != nil, "control budget did not cancel the stream")
 }
 
+// Proves ST-SUP-RC02-OC44.
 func TestSocketDataBudget(t *testing.T) {
 	for _, budget := range []socketBudget{{messages: client.SocketMessages}, {bytes: client.SocketBytes}} {
 		require(t, !budget.accept(1), "data budget accepted excess data")

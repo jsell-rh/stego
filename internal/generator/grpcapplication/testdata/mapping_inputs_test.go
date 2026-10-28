@@ -15,6 +15,8 @@ func preparedValue() ShipmentInput {
 	recorded := time.Date(2026, 1, 2, 3, 4, 5, 6, time.UTC)
 	return ShipmentInput{Reference: "resolved-reference", Created: recorded, Display: &display, Count: 17, Enabled: true, Recorded: &recorded, Reset: "", Score: 1.25, Total: 2.5, Limit: &limit, Tags: []byte(`["second","first","second"]`), PreparedCount: 23}
 }
+
+// Proves ST-SUP-RC07-OC15.
 func TestPreparedMappingUsesApplicationValues(t *testing.T) {
 	row := model.Shipment{}
 	row.ID = "stored-id"
@@ -63,6 +65,8 @@ func TestPreparedMappingOwnsResults(t *testing.T) {
 		t.Fatal("input changed response")
 	}
 }
+
+// Proves ST-SUP-RC07-OC15.
 func TestPreparedMappingRejectsInvalidValues(t *testing.T) {
 	for name, edit := range map[string]func(*ShipmentInput){
 		"utf8":             func(v *ShipmentInput) { v.Reference = string([]byte{255}) },

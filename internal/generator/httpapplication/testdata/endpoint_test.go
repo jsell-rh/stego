@@ -21,6 +21,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// Proves ST-SUP-RC10-OC18.
 func TestOrderingRejectsAmbiguousInput(t *testing.T) {
 	fields := map[string]string{"name": "name", "created_at": "created_time", "created_time": "created_time"}
 	order, err := transport.ParseOrderBy("name DESC, created_at", fields)
@@ -54,6 +55,8 @@ func handler(t *testing.T) (http.Handler, string) {
 	}
 	return handler, token
 }
+
+// Proves ST-SUP-RC10-OC09, ST-SUP-RC10-OC10, ST-SUP-RC10-OC11, ST-SUP-RC10-OC17.
 func TestEndpointInputAndIdentity(t *testing.T) {
 	handler, token := handler(t)
 	for _, test := range []struct {
@@ -112,6 +115,8 @@ func TestEndpointInputAndIdentity(t *testing.T) {
 		}
 	}
 }
+
+// Proves ST-SUP-RC10-OC16.
 func TestEndpointStopsBodyReadOnCancellation(t *testing.T) {
 	handler, token := handler(t)
 	reader, writer := io.Pipe()
@@ -149,6 +154,7 @@ func (b *signalBody) Read(data []byte) (int, error) {
 	return b.ReadCloser.Read(data)
 }
 
+// Proves ST-SUP-RC10-OC16.
 func TestEndpointCancelsARealSocketBodyRead(t *testing.T) {
 	endpoint, token := handler(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -188,6 +194,7 @@ func TestEndpointCancelsARealSocketBodyRead(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC10-OC13.
 func TestNoContentEndpoint(t *testing.T) {
 	authenticate := func(ctx context.Context, token string) (context.Context, error) {
 		if token != "verified" {
@@ -236,6 +243,7 @@ func TestNoContentEndpoint(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC10-OC14.
 func TestDynamicReplyPreservesStatusAndBodyRules(t *testing.T) {
 	for _, test := range []struct {
 		status int
@@ -269,6 +277,7 @@ func TestDynamicReplyPreservesStatusAndBodyRules(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC10-OC15.
 func TestRequestPreparation(t *testing.T) {
 	type verifiedKey struct{}
 	prepared, called := 0, 0
@@ -352,6 +361,7 @@ func TestRequestPreparation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC10-OC12.
 func TestRequiredJSONFieldsPreserveZeroValues(t *testing.T) {
 	type Nested struct {
 		Enabled bool `json:"enabled" stego:"required"`

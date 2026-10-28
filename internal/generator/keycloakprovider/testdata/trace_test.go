@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// Proves ST-SUP-RC13-OC27.
 func TestProviderTraceContextAndPrivacy(t *testing.T) {
 	runtime, recorder := tracing.ProviderTestRuntime()
 	defer runtime.Close()

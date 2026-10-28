@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// Proves ST-SUP-RC15-OC25.
 func TestAllocationControlAccountManifests(t *testing.T) {
 	// Fixed control identities require protection even without managed workload
 	// accounts. Related profiles must not add their workload aliases here.

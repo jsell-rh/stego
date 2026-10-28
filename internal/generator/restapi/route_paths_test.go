@@ -130,6 +130,7 @@ func TestScopedCollectionRoutesKeepParameterNames(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC33.
 func TestRouteValidationRejectsLegacyMuxMode(t *testing.T) {
 	const marker = "STEGO_TEST_LEGACY_MUX"
 	if os.Getenv(marker) == "1" {

@@ -19,6 +19,7 @@ import (
 	"time"
 )
 
+// Proves ST-SUP-RC02-OC12, ST-SUP-RC02-OC13.
 // Exercise the generated handler and form with native browser navigation.
 // The fixture only installs a session cookie and presses the submit button.
 // It does not construct the POST body, Origin, Referer, or fetch metadata.

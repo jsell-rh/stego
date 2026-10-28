@@ -23,6 +23,8 @@ func disabledServiceAccountRecord() map[string]any {
 func serviceAccountInputs() (ClientBinding, ServiceAccountPolicy) {
 	return ClientBinding{ID: "stable-id", ClientID: "catalog", Attributes: map[string]string{"stego.owner.product": "object-1"}}, ServiceAccountPolicy{DisplayName: "Catalog worker", AccessTokenLifetimeSeconds: 300}
 }
+
+// Proves ST-SUP-RC13-OC13, ST-SUP-RC13-OC14, ST-SUP-RC13-OC15.
 func TestCreateDisabledServiceAccount(t *testing.T) {
 	for _, application := range []struct{ name, key, value string }{{"catalog", "stego.owner.product", "object-1"}, {"batch-worker", "stego.owner.pipeline", "run-2"}} {
 		t.Run(application.name, func(t *testing.T) {

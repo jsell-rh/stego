@@ -81,6 +81,7 @@ func TestAllocationNetworkMetadataStatusPolicy(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC15-OC30.
 func TestAllocationNetworkMetadataCEL(t *testing.T) {
 	env, err := cel.NewEnv(cel.Variable("object", cel.DynType), cel.Variable("oldObject", cel.DynType), cel.Variable("request", cel.DynType))
 	if err != nil {

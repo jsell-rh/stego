@@ -20,6 +20,8 @@ func secretSetFixture() ([]string, Owner, []Object) {
 	}
 	return names, owner, secrets
 }
+
+// Proves ST-SUP-RC14-OC37.
 func TestOpaqueSecretSetTracksDataAndIdentity(t *testing.T) {
 	names, owner, secrets := secretSetFixture()
 	first, err := OpaqueSecretSetDigest("service", names, owner, secrets)
@@ -49,6 +51,8 @@ func TestOpaqueSecretSetTracksDataAndIdentity(t *testing.T) {
 		t.Fatal("map representation changed the digest", err)
 	}
 }
+
+// Proves ST-SUP-RC14-OC38.
 func TestOpaqueSecretSetRejectsInvalidInput(t *testing.T) {
 	cases := map[string]func([]string, Owner, []Object){
 		"owner":               func(n []string, o Owner, s []Object) { o["example.test/owner"] = "other" },
@@ -100,6 +104,7 @@ func TestOpaqueSecretSetRejectsInvalidInput(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC14-OC38, ST-SUP-RC14-OC39, ST-SUP-RC14-OC40.
 func TestOpaqueSecretSetEnsureChecksExactStoredData(t *testing.T) {
 	for _, mode := range []string{"valid", "extra data", "changed data", "replacement", "missing", "foreign owner", "no identity", "deleted", "conflict", "invalid second", "stringData", "canceled"} {
 		t.Run(mode, func(t *testing.T) {

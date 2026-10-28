@@ -15,6 +15,7 @@ func watchKeyOptions() KeyedWatchOptions {
 	return KeyedWatchOptions{KeyedOptions: o, ReconnectDelay: time.Millisecond}
 }
 
+// Proves ST-SUP-RC05-OC09.
 func TestKeyedWorkersKeepIndependentProgressAndSerializeEachKey(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

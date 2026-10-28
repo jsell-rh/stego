@@ -141,6 +141,8 @@ func TestStateJournalRecoveryAndConcurrentSave(t *testing.T) {
 		}
 	}
 }
+
+// Proves ST-SUP-RC05-OC17.
 func TestStateJournalUncertainWritesRequireRead(t *testing.T) {
 	for _, fault := range []string{"lost result", "version", "mutated argument"} {
 		t.Run(fault, func(t *testing.T) {

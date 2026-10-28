@@ -17,6 +17,7 @@ import (
 	telemetry "example.com/browser-test/out/tracing"
 )
 
+// Proves ST-SUP-RC02-OC52.
 func TestBrowserStartupDiagnostics(t *testing.T) {
 	if mode := os.Getenv("STEGO_TEST_STARTUP_CHILD"); mode != "" {
 		// An empty endpoint disables export. Unsupported OTEL settings must
@@ -162,6 +163,7 @@ func TestBrowserStartupDiagnostics(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC02-OC53.
 func TestBrowserStartupPreservesErrorsAndPanic(t *testing.T) {
 	for _, cause := range []error{nil, context.Canceled, context.DeadlineExceeded, errors.New("private-provider-response")} {
 		called := 0

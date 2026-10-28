@@ -13,6 +13,7 @@ import (
 	"time"
 )
 
+// Proves ST-SUP-RC09-OC10.
 func TestAssembledHealthBypassesOnlyProbeAuthentication(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "service")
 	build := exec.Command("go", "build", "-race", "-o", binary, ".")

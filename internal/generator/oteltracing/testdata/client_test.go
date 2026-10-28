@@ -23,6 +23,7 @@ type clientPrivateError struct{ cause error }
 func (clientPrivateError) Error() string   { panic("private error was formatted") }
 func (e clientPrivateError) Unwrap() error { return e.cause }
 
+// Proves ST-SUP-RC17-OC24.
 func TestClientSignalsPreserveContextAndExcludePrivateData(t *testing.T) {
 	for _, sample := range []string{"1", "0"} {
 		t.Run(sample, func(t *testing.T) {

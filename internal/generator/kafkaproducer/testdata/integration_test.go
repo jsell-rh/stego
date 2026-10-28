@@ -60,6 +60,7 @@ func privateDatabase(t *testing.T) *sql.DB {
 	return db
 }
 
+// Proves ST-SUP-RC12-OC16.
 func TestCommittedOutboxMessageReachesTLSKafka(t *testing.T) {
 	db := privateDatabase(t)
 	_, config := broker(t, identity(t, "localhost"))
@@ -164,6 +165,7 @@ func TestCommittedOutboxMessageReachesTLSKafka(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC12-OC14.
 func TestRuntimeDeliversPendingMessageAfterRestart(t *testing.T) {
 	db := privateDatabase(t)
 	_, config := broker(t, identity(t, "localhost"))
@@ -230,6 +232,7 @@ func TestRuntimeDeliversPendingMessageAfterRestart(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC12-OC13.
 func TestRuntimeRejectsMissingQueueSchema(t *testing.T) {
 	db := privateDatabase(t)
 	if _, err := db.Exec("DROP SCHEMA stego_outbox CASCADE"); err != nil {

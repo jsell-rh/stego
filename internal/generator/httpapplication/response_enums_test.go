@@ -71,6 +71,7 @@ func TestHTTPResponseEnumValidation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC10-OC25, ST-SUP-RC10-OC26.
 func TestGeneratedHTTPResponseEnums(t *testing.T) {
 	checkGeneratedResponses(t, enumResponseContext(), responseEnumRuntimeTest, []string{"", "TestEnumValuesAndPresence", "TestEnumOwnership", "TestEnumRejectsUnknownValues"})
 }

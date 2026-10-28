@@ -127,6 +127,7 @@ func (w *blockedLogWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// Proves ST-SUP-RC17-OC23.
 func TestBlockedServiceLogOutputIsBounded(t *testing.T) {
 	collectorFixture(t, true)
 	writer := &blockedLogWriter{entered: make(chan struct{}), release: make(chan struct{})}
@@ -207,6 +208,7 @@ func TestServiceLogWriteFailureAndConcurrentClose(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC17-OC30.
 func TestServiceIdentityIsValidatedWithoutCollector(t *testing.T) {
 	traceEnvironment(t)
 	for _, service := range []string{"private\ncredential", strings.Repeat("x", 129), "name=value"} {

@@ -19,6 +19,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// Proves ST-SUP-RC11-OC20, ST-SUP-RC11-OC21.
 func TestKeySourceTelemetry(t *testing.T) {
 	for _, source := range []string{"file", "https"} {
 		t.Run(source, func(t *testing.T) {

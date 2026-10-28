@@ -47,6 +47,7 @@ func serviceTokenPolicy() ServiceAccountTokenPolicy {
 	return ServiceAccountTokenPolicy{Subject: "saved-subject", AccessTokenLifetimeSeconds: 300, Audiences: []string{"catalog", "urn:batch"}, RoleClaims: map[string][]string{"catalog.roles": {"read"}}}
 }
 
+// Proves ST-SUP-RC13-OC01, ST-SUP-RC13-OC02, ST-SUP-RC13-OC03.
 func TestServiceAccountSignedTokenPolicy(t *testing.T) {
 	key, keys := serviceTokenFixture(t)
 	issuer := "https://issuer.invalid/realms/tenant"
@@ -126,6 +127,7 @@ func TestServiceAccountSignedTokenPolicy(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC13-OC04, ST-SUP-RC13-OC05, ST-SUP-RC13-OC06.
 func TestServiceAccountTokenProtocolAndOwnership(t *testing.T) {
 	key, keys := serviceTokenFixture(t)
 	for _, fault := range []string{"valid", "refresh token", "ID token", "wrong type", "public client", "disabled client", "missing subject", "changed owner", "changed owner after grant", "wrong subject"} {

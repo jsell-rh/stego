@@ -69,6 +69,7 @@ func awaitBaseline(t *testing.T, events <-chan ScopedChange, names ...string) {
 	}
 }
 
+// Proves ST-SUP-RC14-OC45.
 func TestWatchSetAddsRemovesAndReplacesNamespaces(t *testing.T) {
 	opened, closed := make(chan string, 16), make(chan string, 16)
 	client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
@@ -141,6 +142,7 @@ func TestWatchSetAddsRemovesAndReplacesNamespaces(t *testing.T) {
 	takeSet(t, closed)
 }
 
+// Proves ST-SUP-RC14-OC44, ST-SUP-RC14-OC46.
 func TestWatchSetRejectsInvalidAssignmentWithoutStoppingCurrentWatch(t *testing.T) {
 	opened, closed := make(chan struct{}, 1), make(chan struct{}, 1)
 	client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
@@ -193,6 +195,7 @@ func TestWatchSetRejectsInvalidAssignmentWithoutStoppingCurrentWatch(t *testing.
 	takeSet(t, closed)
 }
 
+// Proves ST-SUP-RC14-OC47.
 func TestWatchSetRetriesDeniedScopeOnlyAfterFreshAssignment(t *testing.T) {
 	var allowed atomic.Bool
 	var calls atomic.Int32
@@ -236,6 +239,7 @@ func TestWatchSetRetriesDeniedScopeOnlyAfterFreshAssignment(t *testing.T) {
 	awaitBaseline(t, events, "one")
 }
 
+// Proves ST-SUP-RC14-OC46.
 func TestWatchSetRejectsAggregateLimitsAndForeignObjects(t *testing.T) {
 	for _, kind := range []string{"objects", "bytes", "namespace"} {
 		t.Run(kind, func(t *testing.T) {
@@ -290,6 +294,7 @@ func (s setSource) Observe(ctx context.Context, c Collection, emit func(Change) 
 	return s.run(ctx, c, emit)
 }
 
+// Proves ST-SUP-RC14-OC47.
 func TestWatchSetSerializesBaselinesAndJoinsRemovedWatch(t *testing.T) {
 	entered := make(chan string, 2)
 	release := make(chan struct{})
@@ -337,6 +342,7 @@ func TestWatchSetSerializesBaselinesAndJoinsRemovedWatch(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC14-OC52.
 func TestWatchSetPropagatesConsumerFailureAndCanRestart(t *testing.T) {
 	source := setSource{run: func(ctx context.Context, _ Collection, emit func(Change) error) error {
 		if err := emit(Change{Type: "RESET"}); err != nil {

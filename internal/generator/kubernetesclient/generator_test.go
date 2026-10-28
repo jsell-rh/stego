@@ -235,6 +235,7 @@ func TestPinnedAdmissionTemplate(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC14-OC51.
 func TestUnverifiedAdmissionPrototypeIsNotGenerated(t *testing.T) {
 	ctx := gen.Context{ModuleName: "example.com/policy", OutDirName: "out", OutputNamespace: "kubernetes", PeerNamespaces: map[string]string{"http-application": "application"}}
 	files, _, err := new(Generator).Generate(ctx)

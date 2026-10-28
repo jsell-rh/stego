@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+// Proves ST-SUP-RC02-OC51.
 func TestSchemaInputValidation(t *testing.T) {
 	if !errors.Is(schema.Verify(nil, nil), schema.ErrSchema) {
 		t.Fatal("nil verification accepted")
@@ -27,6 +28,7 @@ func TestSchemaInputValidation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC02-OC29, ST-SUP-RC02-OC49.
 func TestManagedBrowserSchema(t *testing.T) {
 	db := database(t)
 	raw, _ := schemaFixtures.Load(db)
@@ -106,6 +108,7 @@ func TestManagedBrowserSchema(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC02-OC50.
 func TestBrowserSchemaRefusesDrift(t *testing.T) {
 	for name, change := range map[string]string{
 		"extra-column":    "ALTER TABLE public.stego_browser_sessions ADD COLUMN extra text",
@@ -144,6 +147,7 @@ func TestBrowserSchemaRefusesDrift(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC02-OC49.
 func TestBrowserSchemaBootstrapRollsBack(t *testing.T) {
 	db := database(t)
 	raw, _ := schemaFixtures.Load(db)
@@ -173,6 +177,7 @@ func TestBrowserSchemaBootstrapRollsBack(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC02-OC29.
 func TestBrowserSchemaRefusesRuntimeGrantDrift(t *testing.T) {
 	for name, query := range map[string]string{
 		"schema-create":       "GRANT CREATE ON SCHEMA public TO ",

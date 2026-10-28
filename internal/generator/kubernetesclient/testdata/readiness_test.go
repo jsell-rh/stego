@@ -15,6 +15,7 @@ func availableDeployment(t *testing.T) Object {
 	return result
 }
 
+// Proves ST-SUP-RC14-OC21, ST-SUP-RC14-OC22, ST-SUP-RC14-OC23.
 func TestDeploymentAvailability(t *testing.T) {
 	owner := Owner{"example.com/owner": "tenant-1"}
 	current := availableDeployment(t)

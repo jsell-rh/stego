@@ -56,6 +56,7 @@ func awaitWorker(t *testing.T, condition func() bool) {
 	}
 }
 
+// Proves ST-SUP-RC18-OC04, ST-SUP-RC18-OC06.
 func TestWorkerRetriesWithStableIdentityAndNoPayloadErrorText(t *testing.T) {
 	db := testDatabase(t)
 	q, _ := New(db)
@@ -94,6 +95,7 @@ func TestWorkerRetriesWithStableIdentityAndNoPayloadErrorText(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC18-OC15.
 func TestWorkerRetainsUnknownDestinations(t *testing.T) {
 	db := testDatabase(t)
 	q, _ := New(db)
@@ -116,6 +118,7 @@ func TestWorkerRetainsUnknownDestinations(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC18-OC07.
 func TestWorkerHonorsAttemptDeadlineAndRetainsFailures(t *testing.T) {
 	db := testDatabase(t)
 	q, _ := New(db)
@@ -138,6 +141,7 @@ func TestWorkerHonorsAttemptDeadlineAndRetainsFailures(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC18-OC23.
 func TestWorkerShutdownAcknowledgesCompletedDelivery(t *testing.T) {
 	db := testDatabase(t)
 	q, _ := New(db)
@@ -170,6 +174,7 @@ func TestWorkerShutdownAcknowledgesCompletedDelivery(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC18-OC05.
 func TestWorkerCannotAcknowledgeChangedLease(t *testing.T) {
 	db := testDatabase(t)
 	q, _ := New(db)
@@ -190,6 +195,7 @@ func TestWorkerCannotAcknowledgeChangedLease(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC18-OC17.
 func TestWorkerLimitsConcurrencyAndCopiesHandlers(t *testing.T) {
 	db := testDatabase(t)
 	q, _ := New(db)
@@ -228,6 +234,7 @@ func TestWorkerLimitsConcurrencyAndCopiesHandlers(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC18-OC18.
 func TestWorkerReportsDatabaseFailuresWithoutDroppingMessages(t *testing.T) {
 	db := testDatabase(t)
 	q, _ := New(db)
@@ -248,6 +255,7 @@ func TestWorkerReportsDatabaseFailuresWithoutDroppingMessages(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC18-OC16.
 func TestWorkerRejectsInvalidLimitsAndBoundsRetryDelay(t *testing.T) {
 	q := &Queue{db: &sql.DB{}}
 	handlers := map[string]Handler{"audit": func(context.Context, Message) error { return nil }}

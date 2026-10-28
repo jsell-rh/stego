@@ -57,6 +57,7 @@ func TestProcessHealthTracksQueueAndCancellation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC05-OC26.
 func TestProcessProbesDoNotStartApplication(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/livez" && r.URL.Path != "/readyz" {
@@ -139,6 +140,7 @@ func TestProcessChild(t *testing.T) {
 	})
 }
 
+// Proves ST-SUP-RC05-OC13, ST-SUP-RC05-OC14.
 func TestProcessSignalAndErrorPrivacy(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("SIGTERM process check")

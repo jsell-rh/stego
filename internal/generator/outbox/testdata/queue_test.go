@@ -91,6 +91,7 @@ func count(t *testing.T, db *sql.DB, table string) int {
 	return count
 }
 
+// Proves ST-SUP-RC18-OC19.
 func TestBlockedListsEachStuckKeyOnce(t *testing.T) {
 	db := testDatabase(t)
 	q, _ := New(db)
@@ -159,6 +160,7 @@ func TestBlockedListsEachStuckKeyOnce(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC18-OC20.
 func TestDeadLettersAndPurgeRemoveOnlyExhaustedMessages(t *testing.T) {
 	db := testDatabase(t)
 	q, _ := New(db)
@@ -234,6 +236,7 @@ func TestDeadLettersAndPurgeRemoveOnlyExhaustedMessages(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC18-OC01.
 func TestWriteAndEventCommitTogether(t *testing.T) {
 	db := testDatabase(t)
 	for _, commit := range []bool{false, true} {
@@ -266,6 +269,7 @@ func TestWriteAndEventCommitTogether(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC18-OC11.
 func TestDuplicateEventAbortsApplicationWrite(t *testing.T) {
 	db := testDatabase(t)
 	event := message("one")
@@ -289,6 +293,7 @@ func TestDuplicateEventAbortsApplicationWrite(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC18-OC03, ST-SUP-RC18-OC04.
 func TestRetryPreservesOrderAndOtherKeysProgress(t *testing.T) {
 	db := testDatabase(t)
 	q, _ := New(db)
@@ -333,6 +338,7 @@ func TestRetryPreservesOrderAndOtherKeysProgress(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC18-OC05.
 func TestExpiredLeaseCannotAcknowledgeOrRetry(t *testing.T) {
 	db := testDatabase(t)
 	q, _ := New(db)
@@ -360,6 +366,7 @@ func TestExpiredLeaseCannotAcknowledgeOrRetry(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC18-OC14.
 func TestConcurrentWorkersHaveDistinctLeases(t *testing.T) {
 	db := testDatabase(t)
 	q, _ := New(db)
@@ -399,6 +406,7 @@ func TestConcurrentWorkersHaveDistinctLeases(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC18-OC13.
 func TestConcurrentEnqueueSerializesBeforeSequenceAllocation(t *testing.T) {
 	db := testDatabase(t)
 	a, b := message("one"), message("one")
@@ -438,6 +446,7 @@ func TestConcurrentEnqueueSerializesBeforeSequenceAllocation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC18-OC02.
 func TestInvalidPayloadsFailBeforeDatabaseAccess(t *testing.T) {
 	for _, payload := range []string{`[]`, `null`, `{`, `{} {}`, `{"a":1,"a":2}`, `{"nested":{"a":1,"\u0061":2}}`, `{"nested":[{"a":1,"a":2}]}`, "{\"bad\":\"\xff\"}", strings.Repeat(" ", MaxPayloadBytes) + `{}`, `{"x":` + strings.Repeat("[", 32) + `0` + strings.Repeat("]", 32) + `}`} {
 		event := message("one")
@@ -459,6 +468,7 @@ func TestInvalidPayloadsFailBeforeDatabaseAccess(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC18-OC24.
 func TestCanceledQueueOperationReturnsError(t *testing.T) {
 	db := testDatabase(t)
 	q, _ := New(db)
@@ -504,6 +514,7 @@ func TestOutboxCrashHelper(t *testing.T) {
 	os.Exit(99)
 }
 
+// Proves ST-SUP-RC18-OC21.
 func TestProcessCrashPreservesTransactionAndLeaseRules(t *testing.T) {
 	for _, mode := range []string{"uncommitted", "claimed"} {
 		t.Run(mode, func(t *testing.T) {

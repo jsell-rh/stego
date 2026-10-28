@@ -30,6 +30,8 @@ func secureClient(t *testing.T, server *httptest.Server) *client.Client {
 	t.Cleanup(c.Close)
 	return c
 }
+
+// Proves ST-SUP-RC10-OC01, ST-SUP-RC10-OC02.
 func TestBoundedHTTPSClient(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -106,6 +108,8 @@ func TestBoundedHTTPSClient(t *testing.T) {
 		t.Fatal("accepted foreign origin")
 	}
 }
+
+// Proves ST-SUP-RC10-OC03.
 func TestHTTPSCapacity(t *testing.T) {
 	entered := make(chan struct{}, client.MaxConcurrentRequests)
 	release := make(chan struct{})
@@ -141,6 +145,8 @@ func TestHTTPSCapacity(t *testing.T) {
 		t.Fatal("accepted excess request")
 	}
 }
+
+// Proves ST-SUP-RC10-OC06.
 func TestHTTPSCredentials(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "secret")
 	if err := os.WriteFile(path, []byte("secret"), 0600); err != nil {
@@ -173,6 +179,7 @@ func TestHTTPSCredentials(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC10-OC05.
 func TestHTTPSStreamFramesLimitsAndCancellation(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -219,6 +226,7 @@ func TestHTTPSStreamFramesLimitsAndCancellation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC10-OC04.
 func TestHTTPSCloseStopsActiveStream(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("open\n"))
@@ -273,6 +281,7 @@ func TestClientTimeoutAndSystemTrust(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC10-OC07.
 func TestHTTPSPeerCertificatePin(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1); w.Write([]byte("ready")) }))

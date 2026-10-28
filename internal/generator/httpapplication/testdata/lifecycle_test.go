@@ -10,6 +10,7 @@ import (
 	"example.com/http-test/sample"
 )
 
+// Proves ST-SUP-RC10-OC24.
 func TestManagedApplicationLifecycle(t *testing.T) {
 	sample.Managed.Store(true)
 	defer sample.Managed.Store(false)

@@ -51,6 +51,7 @@ func TestRPCDeploymentValidation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC15-OC35.
 func TestRPCDeploymentFiles(t *testing.T) {
 	c := rpcContext()
 	files, _, err := new(Generator).Generate(c)
@@ -86,6 +87,7 @@ func TestRPCDeploymentFiles(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC15-OC14.
 func TestRPCDeploymentRolloutStrategies(t *testing.T) {
 	baseline, _, err := new(Generator).Generate(rpcContext())
 	if err != nil {

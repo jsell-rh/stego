@@ -13,6 +13,7 @@ import (
 	"example.com/sso-test/tracing"
 )
 
+// Proves ST-SUP-RC21-OC13, ST-SUP-RC21-OC14.
 func TestSSOStartupTelemetry(t *testing.T) {
 	ssoFixture(t)
 	for _, entry := range os.Environ() {

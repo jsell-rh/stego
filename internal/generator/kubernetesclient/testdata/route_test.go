@@ -27,6 +27,7 @@ func routeCondition(o Object) map[string]any {
 	return selectedIngress(o)["conditions"].([]any)[0].(map[string]any)
 }
 
+// Proves ST-SUP-RC14-OC25, ST-SUP-RC14-OC26, ST-SUP-RC14-OC27.
 func TestPassthroughRouteAdmission(t *testing.T) {
 	target := PassthroughRouteTarget{Host: "service.example.test", Service: "service", Port: "grpc", Router: "default"}
 	owner := Owner{"example.com/owner": "tenant-1"}
@@ -118,6 +119,7 @@ func TestPassthroughRouteAdmission(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC14-OC25, ST-SUP-RC14-OC27, ST-SUP-RC14-OC28, ST-SUP-RC14-OC29, ST-SUP-RC14-OC30.
 func TestPassthroughRouteEnsureRequiresStableProbeObservation(t *testing.T) {
 	for _, mode := range []string{"ready", "pending", "probe failure", "replaced", "changed", "removed", "denied after probe", "foreign response", "nil probe", "invalid target", "canceled"} {
 		t.Run(mode, func(t *testing.T) {

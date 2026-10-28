@@ -19,7 +19,9 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestAuthKeyRefreshSignals(t *testing.T)    { testDatabaseSignals(t, false, "auth-keys") }
+func TestAuthKeyRefreshSignals(t *testing.T) { testDatabaseSignals(t, false, "auth-keys") }
+
+// Proves ST-SUP-RC17-OC25.
 func TestDatabaseSignals(t *testing.T)          { testDatabaseSignals(t, false) }
 func TestPostgresOperationSignals(t *testing.T) { testDatabaseSignals(t, true) }
 func TestSchemaOperationSignals(t *testing.T)   { testDatabaseSignals(t, true, "schema") }

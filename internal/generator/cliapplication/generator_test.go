@@ -126,6 +126,7 @@ func TestInvalidCLIConfig(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC04-OC29.
 // Build real executables so the test checks Go revision stamping, not test data.
 func testVersionBuilds(t *testing.T, project string) {
 	t.Helper()

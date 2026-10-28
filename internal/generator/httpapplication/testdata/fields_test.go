@@ -20,6 +20,7 @@ func fieldProjector(t testing.TB) *transport.FieldProjector {
 	return p
 }
 
+// Proves ST-SUP-RC10-OC19.
 func TestProjectionPreservesJSONAndEnvelope(t *testing.T) {
 	p := fieldProjector(t)
 	data := json.RawMessage(`{"kind":"RecordList","total":9007199254740993,"items":[{"id":"one","amount":9007199254740993,"profile":{"name":"A","active":false,"password":"hidden"},"members":[{"name":"B","active":true,"password":"hidden"},null],"tags":["a","b"],"secret":"hidden"}]}`)
@@ -55,6 +56,7 @@ func TestProjectionPreservesJSONAndEnvelope(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC10-OC23.
 func TestOptionalProjectionKeepsTheNormalEncodingPath(t *testing.T) {
 	value := &struct {
 		Items []map[string]string `json:"items"`
@@ -80,6 +82,7 @@ func TestOptionalProjectionKeepsTheNormalEncodingPath(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC10-OC20.
 func TestProjectionRejectsSelectorsWithoutData(t *testing.T) {
 	p := fieldProjector(t)
 	for _, query := range []string{"unknown", "profile.unknown", "profile.name.more", "name.*", "*,unknown", "name,,id", "name,name", "name, name", ".name", "profile.", "profile.*.name", "id;DROP", "Name", strings.Repeat("a", 4097), strings.Repeat("name,", 64) + "id", "\x00", "\xff"} {
@@ -99,6 +102,7 @@ func TestProjectionRejectsSelectorsWithoutData(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC10-OC21.
 func TestProjectionRejectsMalformedResponses(t *testing.T) {
 	s, _ := fieldProjector(t).Parse("*")
 	for _, data := range []string{`null`, `[]`, `{}`, `{"items":null}`, `{"items":{}}`, `{"items":[null]}`, `{"items":[[]]}`, `{"items":[1]}`, `{"items":[],"items":[]}`, `{"items":[{"id":"a","id":"b"}]}`, `{"items":[{"profile":false}]}`, `{"items":[{"name":"\ud800"}]}`, `{"items":[] } {}`, `{"items":[` + strings.Repeat(`{},`, 1000) + `{}]}`, `{"items":[{"tags":[` + strings.Repeat(`0,`, 1000) + `0]}]}`} {
@@ -115,6 +119,7 @@ func TestProjectionRejectsMalformedResponses(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC10-OC22.
 func TestProjectionSchemaBoundsAndCopy(t *testing.T) {
 	cycle := transport.FieldSchema{}
 	cycle["next"] = cycle
@@ -157,6 +162,7 @@ func TestProjectionSchemaBoundsAndCopy(t *testing.T) {
 	wg.Wait()
 }
 
+// Proves ST-SUP-RC10-OC21.
 func TestProjectionBoundsAllResponseData(t *testing.T) {
 	selection, err := fieldProjector(t).Parse("id")
 	if err != nil {

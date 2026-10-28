@@ -278,6 +278,7 @@ func TestInvalidSweepDefinitionsHaveNoEffects(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC05-OC12.
 func TestSweepSlowStreamCannotStarveHistory(t *testing.T) {
 	source := func(value string) func(context.Context, string, int) (SweepPage[string], error) {
 		return func(context.Context, string, int) (SweepPage[string], error) {

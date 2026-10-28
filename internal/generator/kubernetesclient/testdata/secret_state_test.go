@@ -10,6 +10,7 @@ import (
 	"testing"
 )
 
+// Proves ST-SUP-RC14-OC48, ST-SUP-RC14-OC49.
 func TestSecretStateRecoversAndRefusesLostIdentity(t *testing.T) {
 	for _, mode := range []string{"recover", "read-only", "missing-secret", "missing-marker", "changed-data", "changed-pin", "foreign-secret", "closed", "namespace-replaced", "invalid-prepared"} {
 		t.Run(mode, func(t *testing.T) {
@@ -135,6 +136,7 @@ func TestSecretStateRecoversAndRefusesLostIdentity(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC14-OC48.
 func TestSecretStateRequiresValidRegistration(t *testing.T) {
 	client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Error("invalid binding reached Kubernetes")

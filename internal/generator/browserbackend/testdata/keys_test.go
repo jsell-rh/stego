@@ -29,6 +29,7 @@ func keyRing(t *testing.T, keys ...[]byte) []byte {
 	return raw
 }
 
+// Proves ST-SUP-RC02-OC19.
 func TestSessionKeyFile(t *testing.T) {
 	a, b, c := bytes.Repeat([]byte{1}, 32), bytes.Repeat([]byte{2}, 32), bytes.Repeat([]byte{3}, 32)
 	encoded := base64.StdEncoding.EncodeToString(a)
@@ -61,6 +62,7 @@ func TestSessionKeyFile(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC02-OC11, ST-SUP-RC02-OC20.
 func TestSessionKeyRollout(t *testing.T) {
 	db := database(t)
 	migrate(t, db)
@@ -137,6 +139,7 @@ func TestSessionKeyRollout(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC02-OC19, ST-SUP-RC02-OC20.
 func TestBackendSessionKeyRotation(t *testing.T) {
 	f := setup(t)
 	active, csrf := login(t, f)

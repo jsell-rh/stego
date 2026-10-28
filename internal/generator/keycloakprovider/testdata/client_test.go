@@ -50,6 +50,7 @@ func authRequest(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
+// Proves ST-SUP-RC13-OC23.
 func TestTypedReadsAndRealmBoundary(t *testing.T) {
 	var calls atomic.Int32
 	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -202,6 +203,7 @@ func TestMutationRequiresObservedResult(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC13-OC25.
 func TestTokenRotationAndUnauthorizedResponse(t *testing.T) {
 	var auth, admin atomic.Int32
 	c, options := testClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -249,6 +251,7 @@ func TestTokenRotationAndUnauthorizedResponse(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC13-OC26.
 func TestTokenWaitCancellationAndClose(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
@@ -331,6 +334,7 @@ func TestPrivateCredentialAndServiceAccountBinding(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC13-OC21.
 func TestMalformedProviderResponses(t *testing.T) {
 	for _, body := range []string{`null`, `{}`, `{"id":"different","clientId":"service"}`, `{"id":"owned","id":"owned","clientId":"service"}`, `{"id":"owned","clientId":"\ud800"}`, `{"id":"owned","clientId":"service"} {}`, `{"id":"owned","clientId":"service","attributes":{"owner":"one","owner":"two"}}`} {
 		t.Run(fmt.Sprint(len(body)), func(t *testing.T) {
@@ -360,6 +364,7 @@ func TestMalformedProviderResponses(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC13-OC11.
 func TestProviderTLSAndRedirects(t *testing.T) {
 	var redirected atomic.Int32
 	destination := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { redirected.Add(1) }))
@@ -375,6 +380,7 @@ func TestProviderTLSAndRedirects(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC13-OC24.
 func TestDisableRequiresAnExplicitState(t *testing.T) {
 	for _, state := range []string{"", `,"enabled":null`} {
 		writes := 0
@@ -395,6 +401,7 @@ func TestDisableRequiresAnExplicitState(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC13-OC22.
 func TestInvalidAdministratorGrantCannotAuthorizeARequest(t *testing.T) {
 	for _, body := range []string{
 		`{"access_token":"token","expires_in":300}`,
@@ -418,6 +425,7 @@ func TestInvalidAdministratorGrantCannotAuthorizeARequest(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC13-OC12.
 func TestProtectedValueFormattingUsesEveryVerb(t *testing.T) {
 	for _, tc := range []struct {
 		value any

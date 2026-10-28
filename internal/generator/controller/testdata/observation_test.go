@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+// Proves ST-SUP-RC05-OC21.
 func TestObservationReservesACommitAfterWorkDeadline(t *testing.T) {
 	parent, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()

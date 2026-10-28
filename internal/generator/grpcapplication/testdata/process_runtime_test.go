@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+// Proves ST-SUP-RC08-OC03, ST-SUP-RC08-OC04.
 func TestSupervisorBoundaries(t *testing.T) {
 	for _, mode := range []string{"return", "panic", "goexit", "startup-timeout", "cleanup-timeout", "cancel"} {
 		t.Run(mode, func(t *testing.T) {

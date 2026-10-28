@@ -56,6 +56,8 @@ func TestKeysCombineAndRetainChangesDuringAction(t *testing.T) {
 		t.Fatal("capacity was not released")
 	}
 }
+
+// Proves ST-SUP-RC05-OC08.
 func TestKeyRetryDelayCannotBeBypassed(t *testing.T) {
 	q := newKeyQueue[string](2)
 	q.setReady(true)
@@ -85,6 +87,8 @@ func TestKeyRetryDelayCannotBeBypassed(t *testing.T) {
 		t.Fatal("retry cap was exceeded")
 	}
 }
+
+// Proves ST-SUP-RC05-OC25.
 func TestDueRetryPrecedesNewKeys(t *testing.T) {
 	q := newKeyQueue[string](2)
 	q.setReady(true)
@@ -98,6 +102,8 @@ func TestDueRetryPrecedesNewKeys(t *testing.T) {
 		t.Fatal("new traffic starved a due retry")
 	}
 }
+
+// Proves ST-SUP-RC05-OC23.
 func TestKeyQueueStartsPausedAndPreservesPendingWork(t *testing.T) {
 	q := newKeyQueue[string](1)
 	_ = q.add("record")
@@ -123,6 +129,8 @@ func TestKeyQueueStartsPausedAndPreservesPendingWork(t *testing.T) {
 		t.Fatal("reset lost pending work")
 	}
 }
+
+// Proves ST-SUP-RC05-OC24.
 func TestInvalidKeysDoNotConsumeCapacity(t *testing.T) {
 	q := newKeyQueue[string](1)
 	for _, key := range []string{"", strings.Repeat("a", 1025), string([]byte{255})} {

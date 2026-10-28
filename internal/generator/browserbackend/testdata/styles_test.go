@@ -10,6 +10,7 @@ import (
 	"testing"
 )
 
+// Proves ST-SUP-RC02-OC28.
 func TestDynamicStylesUseFreshDocumentNonce(t *testing.T) {
 	originURL, _ := url.Parse(origin)
 	b := &Backend{origin: originURL, permits: make(chan struct{}, 1)}

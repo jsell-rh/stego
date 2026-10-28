@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// Proves ST-SUP-RC07-OC11.
 func TestTimestampSupportedInstants(t *testing.T) {
 	plusHour := time.FixedZone("source-zone", 3600)
 	for _, tc := range []struct {
@@ -52,6 +53,7 @@ func TestTimestampSupportedInstants(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC07-OC11.
 func TestTimestampRejectsInvalidInstantsWithoutOutput(t *testing.T) {
 	first := time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC)
 	last := time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC)
@@ -80,6 +82,7 @@ func TestTimestampRejectsInvalidInstantsWithoutOutput(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC07-OC11.
 func TestOptionalTimestampPreservesPresenceAndOwnsOutput(t *testing.T) {
 	missing, err := transport.OptionalTimestamp(nil)
 	if missing != nil || err != nil {
@@ -101,6 +104,7 @@ func TestOptionalTimestampPreservesPresenceAndOwnsOutput(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC07-OC11.
 func TestTimestampDiscardsMonotonicState(t *testing.T) {
 	value := time.Now()
 	got, err := transport.Timestamp(value)

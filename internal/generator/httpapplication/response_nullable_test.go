@@ -122,6 +122,7 @@ func TestHTTPResponseNullableDeterminism(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC10-OC25, ST-SUP-RC10-OC26.
 func TestGeneratedHTTPResponseNullable(t *testing.T) {
 	checkGeneratedResponses(t, nullableResponseContext(), nullableResponseRuntime, []string{"", "TestNullablePresence", "TestNullableOwnsValues", "TestNullableRejectsInvalidValues", "TestNullableNumericBounds"})
 }

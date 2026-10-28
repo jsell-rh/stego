@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// Proves ST-SUP-RC02-OC06, ST-SUP-RC02-OC48.
 func TestCapturedApplicationAssets(t *testing.T) {
 	f := applicationFixture(t)
 	if len(f.backend.config.Assets) == 0 {

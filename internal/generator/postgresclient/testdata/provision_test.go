@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+// Proves ST-SUP-RC19-OC15.
 func TestDatabaseCredentialPreparationValidation(t *testing.T) {
 	value := DatabaseCredentials{ServerIdentity: strings.Repeat("c", 64), Password: strings.Repeat("d", 64)}
 	for _, format := range []string{"%s", "%v", "%+v", "%#v", "%q"} {
@@ -43,6 +44,7 @@ func TestDatabaseCredentialPreparationValidation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC19-OC16.
 func TestDatabaseNamesAndValidation(t *testing.T) {
 	a, err := DatabaseNames(DatabaseKey{Scope: "installation", Resource: "one'; DROP DATABASE postgres; --"})
 	if err != nil || !strings.HasPrefix(a.Database, "stego_") || a.Owner == a.User || len(a.Owner) > 63 || strings.ContainsAny(a.Database, "'; ") {
@@ -69,6 +71,7 @@ func TestDatabaseNamesAndValidation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC19-OC09, ST-SUP-RC19-OC10, ST-SUP-RC19-OC11, ST-SUP-RC19-OC12.
 // This check needs a dedicated disposable server. Never revoke PUBLIC access
 // on a shared test server or a server that has application databases.
 func TestDatabaseProvisioningLifecycle(t *testing.T) {
@@ -855,6 +858,7 @@ func TestDatabaseProvisioningLifecycle(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC19-OC13.
 func TestDatabaseClientDoesNotUseGlobalProviders(t *testing.T) {
 	previousTrace, previousMeter, previousLog := otel.GetTracerProvider(), otel.GetMeterProvider(), slog.Default()
 	exporter := tracetest.NewInMemoryExporter()
@@ -897,6 +901,7 @@ func TestDatabaseClientDoesNotUseGlobalProviders(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC19-OC17.
 func TestSchemaOperationValidation(t *testing.T) {
 	callback := func(context.Context, *sql.Conn, DatabaseIdentity) error {
 		t.Fatal("invalid operation called schema code")

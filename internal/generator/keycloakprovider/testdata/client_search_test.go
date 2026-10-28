@@ -9,6 +9,7 @@ import (
 	"testing"
 )
 
+// Proves ST-SUP-RC13-OC17.
 func TestBoundedClientNameSearch(t *testing.T) {
 	var requests atomic.Int32
 	var reads atomic.Int32
@@ -47,6 +48,7 @@ func TestBoundedClientNameSearch(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC13-OC20.
 func TestClientNameSearchDoesNotExpandFailedQueries(t *testing.T) {
 	for _, test := range []struct {
 		name string

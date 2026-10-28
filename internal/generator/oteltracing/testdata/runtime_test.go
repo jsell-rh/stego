@@ -85,6 +85,8 @@ func collectorFixture(t testing.TB, block bool) *traceCollector {
 	t.Setenv("OTEL_TRACES_SAMPLER_ARG", "1")
 	return c
 }
+
+// Proves ST-SUP-RC17-OC01, ST-SUP-RC17-OC02, ST-SUP-RC17-OC07.
 func TestTLSExportContextAndPrivacy(t *testing.T) {
 	c := collectorFixture(t, false)
 	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
@@ -132,6 +134,8 @@ func TestTLSExportContextAndPrivacy(t *testing.T) {
 		}
 	}
 }
+
+// Proves ST-SUP-RC17-OC03, ST-SUP-RC17-OC04, ST-SUP-RC17-OC05.
 func TestDisabledAndInvalidSettings(t *testing.T) {
 	traceEnvironment(t)
 	runtime, err := NewRuntime()
@@ -163,6 +167,8 @@ func TestDisabledAndInvalidSettings(t *testing.T) {
 		t.Fatal("undeclared resource settings accepted")
 	}
 }
+
+// Proves ST-SUP-RC17-OC08, ST-SUP-RC17-OC09.
 func TestBlockedCollectorDoesNotBlockRequestsOrShutdown(t *testing.T) {
 	collectorFixture(t, true)
 	runtime, err := NewRuntime()
@@ -232,6 +238,7 @@ func TestRegisteredRouteAndStreamingResponse(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC17-OC06.
 func TestCollectorCertificateMustBeTrusted(t *testing.T) {
 	collector := collectorFixture(t, false)
 	t.Setenv("OTEL_EXPORTER_OTLP_CERTIFICATE", "")
@@ -313,6 +320,7 @@ func (w *benchmarkWriter) Header() http.Header         { return w.header }
 func (w *benchmarkWriter) WriteHeader(int)             {}
 func (w *benchmarkWriter) Write(p []byte) (int, error) { return len(p), nil }
 
+// Proves ST-SUP-RC17-OC15.
 func TestRemoteSamplingCannotOverrideLocalZero(t *testing.T) {
 	c := collectorFixture(t, false)
 	t.Setenv("OTEL_TRACES_SAMPLER_ARG", "0")
@@ -337,6 +345,8 @@ func TestRemoteSamplingCannotOverrideLocalZero(t *testing.T) {
 	default:
 	}
 }
+
+// Proves ST-SUP-RC17-OC16.
 func TestInvalidParentsStartRootSpans(t *testing.T) {
 	c := collectorFixture(t, false)
 	runtime, err := NewRuntime()

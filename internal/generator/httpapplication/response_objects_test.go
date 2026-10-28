@@ -138,6 +138,7 @@ func TestHTTPResponseObjectGeneration(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC10-OC25, ST-SUP-RC10-OC26.
 func TestGeneratedHTTPResponseObjects(t *testing.T) {
 	checkGeneratedResponses(t, responseObjectContext(), responseObjectRuntimeTest,
 		[]string{"", "TestObjectPresence", "TestObjectNumbersAndOwnership", "TestObjectRejectsInvalidInput", "TestObjectBounds"})

@@ -35,6 +35,8 @@ func result(t *testing.T, done <-chan error) error {
 		return nil
 	}
 }
+
+// Proves ST-SUP-RC05-OC01, ST-SUP-RC05-OC02.
 func TestWatchBeforeScanAndSerialActions(t *testing.T) {
 	var opened, active atomic.Bool
 	var scanned atomic.Int32
@@ -78,6 +80,8 @@ func TestWatchBeforeScanAndSerialActions(t *testing.T) {
 		t.Fatal("typed actions did not finish")
 	}
 }
+
+// Proves ST-SUP-RC05-OC19.
 func TestTransientFailureIsRecoveredByScan(t *testing.T) {
 	source := Source[string]{Watch: idle[string], Scan: func(ctx context.Context, emit func(string) error) error { return emit("record") }}
 	attempts := 0
@@ -92,6 +96,8 @@ func TestTransientFailureIsRecoveredByScan(t *testing.T) {
 		t.Fatal("failed work was not retried through retained state")
 	}
 }
+
+// Proves ST-SUP-RC05-OC18.
 func TestSlowScanCompletesWithoutOverlap(t *testing.T) {
 	var scanning atomic.Bool
 	source := Source[string]{Watch: idle[string], Scan: func(ctx context.Context, emit func(string) error) error {
@@ -113,6 +119,8 @@ func TestSlowScanCompletesWithoutOverlap(t *testing.T) {
 		t.Fatal("resync interval canceled a slow scan")
 	}
 }
+
+// Proves ST-SUP-RC05-OC03.
 func TestOverflowCancelsActionJoinsWorkersAndRescans(t *testing.T) {
 	var sessions, scans atomic.Int32
 	var live atomic.Int32
@@ -163,6 +171,8 @@ func TestOverflowCancelsActionJoinsWorkersAndRescans(t *testing.T) {
 		t.Fatal("overflow did not recover")
 	}
 }
+
+// Proves ST-SUP-RC05-OC04.
 func TestPermissionFailureIsNotHiddenByCancellation(t *testing.T) {
 	for _, where := range []string{"watch", "scan", "action"} {
 		t.Run(where, func(t *testing.T) {
@@ -186,6 +196,8 @@ func TestPermissionFailureIsNotHiddenByCancellation(t *testing.T) {
 		})
 	}
 }
+
+// Proves ST-SUP-RC05-OC07.
 func TestActionDeadlineAndCancellationJoin(t *testing.T) {
 	o := options()
 	o.ReconcileTimeout = 5 * time.Millisecond
@@ -234,6 +246,8 @@ func TestDisconnectRecoversBeforeRetry(t *testing.T) {
 		t.Fatal("disconnect did not rescan")
 	}
 }
+
+// Proves ST-SUP-RC05-OC05.
 func TestInvalidOptionsDoNotOpenSource(t *testing.T) {
 	valid := options()
 	cases := []Options{valid, valid, valid, valid, valid, valid}
@@ -281,6 +295,7 @@ func TestActionTimeoutSchedulesAnotherPass(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC05-OC06.
 func TestWatchSetupHasDeadline(t *testing.T) {
 	o := options()
 	o.ReconcileTimeout = 5 * time.Millisecond

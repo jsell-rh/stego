@@ -28,6 +28,7 @@ func keyDocument(t *testing.T, id string, key *rsa.PrivateKey) []byte {
 	return data
 }
 
+// Proves ST-SUP-RC11-OC13, ST-SUP-RC11-OC15, ST-SUP-RC11-OC16, ST-SUP-RC11-OC17, ST-SUP-RC11-OC18.
 func TestKeySourceTLSRotationAndFailure(t *testing.T) {
 	first, second := keyForTest(t), keyForTest(t)
 	var document atomic.Value
@@ -119,6 +120,7 @@ func TestKeySourceTLSRotationAndFailure(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC11-OC05, ST-SUP-RC11-OC13.
 func TestKeySourceInputLimitsAndRedirect(t *testing.T) {
 	key := keyForTest(t)
 	file := filepath.Join(t.TempDir(), "keys.json")
@@ -172,6 +174,7 @@ func TestKeySourceInputLimitsAndRedirect(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC11-OC25.
 func TestKeySourceStopCancelsRefresh(t *testing.T) {
 	key := keyForTest(t)
 	data := keyDocument(t, "key", key)
@@ -219,6 +222,7 @@ func TestKeySourceStopCancelsRefresh(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC11-OC26.
 func TestEmptyKeySourceFailsClosed(t *testing.T) {
 	var v JWKSVerifier
 	if _, err := v.Verify(context.Background(), "token"); err == nil {
@@ -228,6 +232,7 @@ func TestEmptyKeySourceFailsClosed(t *testing.T) {
 	v.Stop()
 }
 
+// Proves ST-SUP-RC11-OC19.
 func TestRemoteKeyInputLimits(t *testing.T) {
 	for _, mode := range []string{"body", "headers", "status"} {
 		t.Run(mode, func(t *testing.T) {

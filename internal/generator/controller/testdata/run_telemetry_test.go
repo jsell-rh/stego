@@ -105,6 +105,7 @@ func runTelemetryCollector(t *testing.T) (*runTraceSink, *runLogSink, *runMetric
 	return ts, ls, ms
 }
 
+// Proves ST-SUP-RC05-OC16.
 func TestRunOwnsLogsMetricsAndIndependentTraces(t *testing.T) {
 	for _, sample := range []string{"1", "0"} {
 		t.Run(sample, func(t *testing.T) {

@@ -58,6 +58,7 @@ func extraValue(object Object, key string) string {
 	return value
 }
 
+// Proves ST-SUP-RC14-OC04.
 func TestLiveProjectedTokenRotation(t *testing.T) {
 	if os.Getenv("STEGO_KUBERNETES_LIVE_ROTATION") != "1" {
 		t.Skip("requires a dedicated cluster Job with a projected token")

@@ -21,6 +21,7 @@ func sample() store.Shipment {
 	return store.Shipment{Meta: store.Meta{ID: "parcel-1", CreatedTime: recorded, UpdatedTime: recorded}, Name: &name, Count: 42, Enabled: true, Content: []byte("cargo"), RecordedAt: &recorded, Score: 1.25, Total: 123.5, Limit: &limit}
 }
 
+// Proves ST-SUP-RC07-OC12.
 func TestMappingPreservesContract(t *testing.T) {
 	input := sample()
 	result, err := mapping.Shipment(input)
@@ -52,6 +53,7 @@ func TestMappingPreservesContract(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC07-OC12.
 func TestMappingOwnsOutputAndPreservesAbsence(t *testing.T) {
 	input := sample()
 	result, err := mapping.Shipment(input)
@@ -83,6 +85,7 @@ func TestMappingOwnsOutputAndPreservesAbsence(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC07-OC12.
 func TestMappingRejectsInvalidValuesWithoutPartialOutput(t *testing.T) {
 	for name, change := range map[string]func(*store.Shipment){
 		"invalid text":          func(s *store.Shipment) { s.Reset = string([]byte{0xff}) },

@@ -29,6 +29,8 @@ func checkResourceIdentity(t *testing.T, attrs []*commonpb.KeyValue, service, in
 type failedEntropy struct{}
 
 func (failedEntropy) Read([]byte) (int, error) { return 0, errors.New("private entropy error") }
+
+// Proves ST-SUP-RC17-OC13, ST-SUP-RC17-OC14.
 func TestInstanceIdentityFormatAndEntropyFailure(t *testing.T) {
 	data := []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
 	reader := bytes.NewReader(data)
@@ -43,6 +45,8 @@ func TestInstanceIdentityFormatAndEntropyFailure(t *testing.T) {
 		}
 	}
 }
+
+// Proves ST-SUP-RC17-OC19.
 func TestConcurrentAndReplacementRuntimesHaveDistinctIdentities(t *testing.T) {
 	traceEnvironment(t)
 	ids := make(chan string, 32)
@@ -75,6 +79,8 @@ func TestConcurrentAndReplacementRuntimesHaveDistinctIdentities(t *testing.T) {
 		t.Fatal("runtime creation failed")
 	}
 }
+
+// Proves ST-SUP-RC17-OC20.
 func TestAllSignalsAndLocalLogsShareRuntimeIdentity(t *testing.T) {
 	sink := collectorFixture(t, false)
 	var output bytes.Buffer

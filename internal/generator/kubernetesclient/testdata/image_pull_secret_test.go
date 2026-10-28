@@ -29,6 +29,7 @@ func pullSecret(password string) Object {
 	return Object{"apiVersion": "v1", "kind": "Secret", "type": "kubernetes.io/dockerconfigjson", "metadata": Object{"name": "image-pull", "namespace": "service", "uid": "secret-1", "resourceVersion": "1", "labels": Object{"example.test/component": "browser"}}, "data": Object{".dockerconfigjson": base64.StdEncoding.EncodeToString(pullConfig(password))}}
 }
 
+// Proves ST-SUP-RC14-OC42.
 func TestImagePullConfigRejectsAmbiguousAndUnselectedCredentials(t *testing.T) {
 	valid := pullConfig("private-first")
 	cases := map[string][]byte{
@@ -74,6 +75,7 @@ func TestImagePullConfigRejectsAmbiguousAndUnselectedCredentials(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC14-OC05, ST-SUP-RC14-OC40, ST-SUP-RC14-OC41, ST-SUP-RC14-OC43.
 func TestImagePullSecretCreateRotateAndRecover(t *testing.T) {
 	for _, mode := range []string{"valid", "foreign namespace", "namespace missing", "namespace replacement", "namespace deleting", "namespace no uid", "foreign secret", "secret type", "secret immutable", "secret extra data", "secret deleting", "secret no uid", "secret wrong name", "secret wrong namespace", "create conflict", "patch conflict", "patch replacement", "response extra data", "read replacement", "read version", "read missing", "read changed", "invalid input", "invalid target", "canceled"} {
 		t.Run(mode, func(t *testing.T) {

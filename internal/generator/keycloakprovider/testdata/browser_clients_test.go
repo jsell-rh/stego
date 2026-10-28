@@ -11,6 +11,8 @@ import (
 func browserInputs() (ClientBinding, BrowserClientPolicy) {
 	return ClientBinding{ID: "browser-id", ClientID: "catalog-browser", Attributes: map[string]string{"stego.owner.product": "catalog"}}, BrowserClientPolicy{DisplayName: "Catalog", AccessTokenLifetimeSeconds: 300, RedirectURI: "https://catalog.example.test/auth/callback", PostLogoutRedirectURI: "https://catalog.example.test/auth/logged-out"}
 }
+
+// Proves ST-SUP-RC13-OC07, ST-SUP-RC13-OC08.
 func TestBrowserRedirectValidation(t *testing.T) {
 	for _, uri := range []string{"https://catalog.example.test/auth/callback", "https://catalog.example.test:8443/auth/callback", "https://192.0.2.1/", "https://[2001:db8::1]:8443/oauth/return"} {
 		if _, err := browserRedirectOrigin(uri); err != nil {
@@ -35,6 +37,8 @@ func TestBrowserRedirectValidation(t *testing.T) {
 		t.Fatal("invalid browser policy caused provider I/O")
 	}
 }
+
+// Proves ST-SUP-RC13-OC09, ST-SUP-RC13-OC10.
 func TestBrowserProfileChecks(t *testing.T) {
 	b, p := browserInputs()
 	desired, err := browserClientConfiguration(b, p)

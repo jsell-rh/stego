@@ -35,6 +35,7 @@ func HTTPClientTestRuntime(t *testing.T) (*Runtime, *tracetest.SpanRecorder, *by
 	return r, recorder, output
 }
 
+// Proves ST-SUP-RC17-OC27.
 func TestHTTPClientSignals(t *testing.T) {
 	for _, sample := range []string{"1", "0"} {
 		t.Run(sample, func(t *testing.T) {

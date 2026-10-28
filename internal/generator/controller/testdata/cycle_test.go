@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+// Proves ST-SUP-RC05-OC15.
 func TestCycleRetainsFailureAcrossProcessReplacement(t *testing.T) {
 	saved := Checkpoint{}
 	access := CheckpointAccess{Load: func(context.Context) (Checkpoint, error) { return saved, nil }, Save: func(_ context.Context, version int64, value string) error {

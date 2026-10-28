@@ -54,6 +54,7 @@ func ssoToken(t *testing.T, key *rsa.PrivateKey, claims jwt.MapClaims, method jw
 	return raw
 }
 
+// Proves ST-SUP-RC21-OC01, ST-SUP-RC21-OC02, ST-SUP-RC21-OC03, ST-SUP-RC21-OC04, ST-SUP-RC21-OC05.
 func TestTrustClaims(t *testing.T) {
 	key := ssoFixture(t)
 	other, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -144,6 +145,7 @@ func TestTrustClaims(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC21-OC06, ST-SUP-RC21-OC07.
 func TestSSOPayloadMapping(t *testing.T) {
 	key := ssoFixture(t)
 	h, err := NewJWTHandler()
@@ -193,6 +195,7 @@ func TestSSOPayloadMapping(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC21-OC09, ST-SUP-RC21-OC10.
 func TestSSOStartupRequiresTrust(t *testing.T) {
 	_ = ssoFixture(t)
 	for _, setting := range []struct{ name, value string }{{"STEGO_AUTH_ISSUER", ""}, {"STEGO_AUTH_AUDIENCE", ""}, {"AUTH_ENABLED", "false"}, {"AUTH_ENABLED", "FALSE"}, {"AUTH_ENABLED", "invalid"}, {"JWK_CERT_FILE", "/missing-keys"}} {
@@ -206,6 +209,7 @@ func TestSSOStartupRequiresTrust(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC21-OC12.
 func TestSSOStartupContext(t *testing.T) {
 	ssoFixture(t)
 	if h, err := NewJWTHandlerWithContext(nil); err == nil {

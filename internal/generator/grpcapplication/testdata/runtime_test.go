@@ -35,6 +35,7 @@ import (
 type subjectKey struct{}
 type traceKey struct{}
 
+// Proves ST-SUP-RC07-OC01, ST-SUP-RC07-OC02, ST-SUP-RC07-OC03, ST-SUP-RC07-OC04, ST-SUP-RC07-OC05, ST-SUP-RC07-OC06, ST-SUP-RC07-OC13, ST-SUP-RC07-OC14.
 func TestRuntime(t *testing.T) {
 	optional := &pb.Request{Label: proto.String("")}
 	encoded, err := proto.Marshal(optional)
@@ -629,6 +630,7 @@ func (r *capturedRegistrar) RegisterService(d *grpc.ServiceDesc, implementation 
 	r.implementation = implementation
 }
 
+// Proves ST-SUP-RC07-OC14.
 func TestPreparationKeepsRegistrationsIndependent(t *testing.T) {
 	first, second := &capturedRegistrar{}, &capturedRegistrar{}
 	calls := [2]int{}

@@ -188,6 +188,7 @@ func TestGenerate_RouterEntityStructsHaveFields(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC33.
 func TestGenerate_WiringUsesMethodPatternRoutes(t *testing.T) {
 	g := &Generator{}
 	ctx := basicContext()
@@ -589,6 +590,7 @@ func TestGenerate_UpsertOperation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC13, ST-SUP-RC20-OC14.
 func TestGenerate_UpsertStatusCodes(t *testing.T) {
 	// Verifies that the upsert handler distinguishes created (201),
 	// updated (200), and conflict (409) via the store return values.
@@ -655,6 +657,7 @@ func TestGenerate_UpsertStatusCodes(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC13.
 func TestGenerate_UpsertOpenAPIResponses(t *testing.T) {
 	// Verifies that the OpenAPI spec includes 200, 201, and 409 responses
 	// for upsert operations.
@@ -1724,6 +1727,7 @@ func TestGenerate_OpenAPIRenderedBytesValidJSON(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC29.
 func TestGenerate_HandlersSetContentTypeJSON(t *testing.T) {
 	// Every handler method that writes a JSON response body must set
 	// Content-Type: application/json to match the OpenAPI spec.
@@ -4596,6 +4600,7 @@ func TestGenerate_SlotRequestPopulationWithNonStringFields(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC31.
 func TestGenerate_NilGuardPassthrough(t *testing.T) {
 	// Verify that handler methods with slot bindings include nil guards so that
 	// the handler degrades to passthrough semantics when no fills are wired.
@@ -5024,6 +5029,7 @@ func TestGenerate_BasePathOmittedRoutesFromRoot(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC28.
 func TestGenerate_BasePathInOpenAPIPaths(t *testing.T) {
 	g := &Generator{}
 	ctx := basicContext()
@@ -5149,6 +5155,7 @@ func TestDeriveErrorPrefix(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC01, ST-SUP-RC20-OC03, ST-SUP-RC20-OC05.
 func TestGenerate_ErrorsFileGenerated(t *testing.T) {
 	g := &Generator{}
 	ctx := basicContext()
@@ -5215,6 +5222,7 @@ func TestGenerate_ErrorsFileGenerated(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC03.
 func TestGenerate_ErrorCodePrefixDerived(t *testing.T) {
 	// AC3: Error code prefix derived from service name.
 	// "user-management" → hyphens removed, uppercased → "USERMANAGEMENT"
@@ -5237,6 +5245,7 @@ func TestGenerate_ErrorCodePrefixDerived(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC04.
 func TestGenerate_ErrorTypeBasePopulatesTypeURI(t *testing.T) {
 	// AC5: error_type_base populates the type URI.
 	g := &Generator{}
@@ -5262,6 +5271,7 @@ func TestGenerate_ErrorTypeBasePopulatesTypeURI(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC04.
 func TestGenerate_ErrorTypeBaseAbsentUsesAboutBlank(t *testing.T) {
 	// When error_type_base is not set, type uses about:blank per RFC 9457.
 	g := &Generator{}
@@ -5281,6 +5291,7 @@ func TestGenerate_ErrorTypeBaseAbsentUsesAboutBlank(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC01.
 func TestGenerate_HandlersUseHandleError(t *testing.T) {
 	// AC6: All handlers use handleError instead of raw http.Error.
 	g := &Generator{}
@@ -5359,6 +5370,7 @@ func TestGenerate_ErrorsFileCompiles(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC02.
 func TestGenerate_HandleErrorPopulatesInstance(t *testing.T) {
 	// handleError should populate instance from request path.
 	g := &Generator{}
@@ -5377,6 +5389,7 @@ func TestGenerate_HandleErrorPopulatesInstance(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC02.
 func TestGenerate_HandleErrorPopulatesTimestamp(t *testing.T) {
 	// handleError should populate timestamp.
 	g := &Generator{}
@@ -5395,6 +5408,7 @@ func TestGenerate_HandleErrorPopulatesTimestamp(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC02.
 func TestGenerate_HandleErrorPopulatesTraceID(t *testing.T) {
 	// handleError should populate trace_id from W3C Trace Context header
 	// (OpenTelemetry propagation format: version-traceId-parentId-flags).
@@ -5417,6 +5431,7 @@ func TestGenerate_HandleErrorPopulatesTraceID(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC05.
 func TestGenerate_ValidationErrorsArray(t *testing.T) {
 	// AC7: Validation errors include per-field details array.
 	g := &Generator{}
@@ -5477,6 +5492,7 @@ func TestGenerate_SlotErrorsUseHandleError(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC30.
 func TestGenerate_SlotRejectionIncludesCode(t *testing.T) {
 	// Round 2 finding: slot rejection errors must include Code field via
 	// errorForStatus, not an inline ServiceError{} without Code.
@@ -5769,6 +5785,7 @@ func TestGenerate_ResponseFormatConvention(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC06, ST-SUP-RC20-OC08.
 func TestGenerate_EnvelopeSingleResourceCreate(t *testing.T) {
 	// AC2: Single resource responses include id, kind, href when envelope is enabled.
 	g := &Generator{}
@@ -5849,6 +5866,7 @@ func TestGenerate_EnvelopeSingleResourceUpdate(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC07.
 func TestGenerate_EnvelopeListResponse(t *testing.T) {
 	// AC3: List responses include kind, page, size, total, items envelope.
 	g := &Generator{}
@@ -5882,6 +5900,7 @@ func TestGenerate_EnvelopeListResponse(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC09.
 func TestGenerate_ListQueryParametersParsing(t *testing.T) {
 	// AC4: List query parameters parsed and validated: page, size, orderBy, fields.
 	g := &Generator{}
@@ -5925,6 +5944,7 @@ func TestGenerate_ListQueryParametersParsing(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC09.
 func TestGenerate_PageSizeCappedAt65500(t *testing.T) {
 	// AC5: pageSize capped at 65500.
 	g := &Generator{}
@@ -5944,6 +5964,7 @@ func TestGenerate_PageSizeCappedAt65500(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC10.
 func TestGenerate_OrderByFieldValidation(t *testing.T) {
 	// AC6: orderBy field names validated against entity fields.
 	g := &Generator{}
@@ -5979,6 +6000,7 @@ func TestGenerate_OrderByFieldValidation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC11.
 func TestGenerate_DefaultSortOrderWhenOrderByOmitted(t *testing.T) {
 	// AC1: When orderBy is omitted, the generated list handler defaults to
 	// []OrderByField{{Field: "created_time", Direction: "desc"}}
@@ -5997,6 +6019,7 @@ func TestGenerate_DefaultSortOrderWhenOrderByOmitted(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC10.
 func TestGenerate_OrderQueryParameterParsedAndValidated(t *testing.T) {
 	// AC2: The order query parameter is parsed and validated (must be "asc" or "desc").
 	g := &Generator{}
@@ -6246,6 +6269,7 @@ func TestGenerate_EntityStructIncludesID(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC06.
 func TestGenerate_PresentEntityHelper(t *testing.T) {
 	// When envelope is enabled, router.go includes presentEntity helper.
 	g := &Generator{}
@@ -6286,6 +6310,7 @@ func TestGenerate_PresentEntityNotInBareMode(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC08.
 func TestGenerate_EnvelopeCreateUUIDGoModRequires(t *testing.T) {
 	// When envelope + create op, wiring must include uuid dependency.
 	g := &Generator{}
@@ -6424,6 +6449,7 @@ func TestGenerate_EnvelopeScopedCollectionHrefResolved(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC07.
 func TestGenerate_EnvelopeListItemsPresented(t *testing.T) {
 	// Finding 2: List response items must be run through presentEntity()
 	// to include id, kind, and href metadata — matching single-resource responses.
@@ -6703,6 +6729,7 @@ func TestResolvedHrefBaseExpr_ScopedPath(t *testing.T) {
 
 // --- Task 024 Round 2 Revision: Findings 1-3 ---
 
+// Proves ST-SUP-RC20-OC12.
 func TestGenerate_EnvelopeFieldsIDAlwaysIncluded(t *testing.T) {
 	// Round 2 Finding 1: The fields query parameter must ensure "id" is always
 	// included in the field list even if the user does not list it.
@@ -6905,6 +6932,7 @@ func TestGenerate_OpenAPIUpsertEnvelopeSchema(t *testing.T) {
 	assertEnvelopeResourceSchema(t, upsertedSchema, "upsert")
 }
 
+// Proves ST-SUP-RC20-OC12.
 func TestGenerate_FieldsQueryParameterValidation(t *testing.T) {
 	// Round 3 Finding 1: The fields query parameter must validate field names
 	// against the entity's fields, same as orderBy validation. Unvalidated
@@ -7009,6 +7037,7 @@ func assertEnvelopeResourceSchema(t *testing.T, schema map[string]any, opName st
 	}
 }
 
+// Proves ST-SUP-RC20-OC12.
 func TestGenerate_FieldsSparseFieldsetFiltersResponse(t *testing.T) {
 	// Round 4 Finding: The fields query parameter must filter the response map
 	// to only include requested fields plus metadata (id, kind, href). Without
@@ -7046,6 +7075,7 @@ func TestGenerate_FieldsSparseFieldsetFiltersResponse(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC15.
 func TestGenerate_PatchOperation(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -7141,6 +7171,7 @@ func TestGenerate_PatchOperation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC15.
 func TestGenerate_PatchOperationWithPointerFields(t *testing.T) {
 	// Verify that ALL patchable fields get pointer types, including reference types.
 	g := &Generator{}
@@ -7651,6 +7682,7 @@ func TestGenerate_UpsertEntityNamedCreatedCompiles(t *testing.T) {
 
 // --- Validation Middleware Tests ---
 
+// Proves ST-SUP-RC20-OC21.
 func TestGenerate_ValidationMiddleware_Generated(t *testing.T) {
 	g := &Generator{}
 	ctx := basicContext()
@@ -7777,6 +7809,7 @@ func TestGenerate_ValidationMiddleware_NotGeneratedForReadOnly(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC21.
 func TestGenerate_ValidationMiddleware_MethodFilter(t *testing.T) {
 	g := &Generator{}
 	ctx := basicContext()
@@ -7809,6 +7842,7 @@ func TestGenerate_ValidationMiddleware_MethodFilter(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC05, ST-SUP-RC20-OC21.
 func TestGenerate_ValidationMiddleware_ErrorFormat(t *testing.T) {
 	g := &Generator{}
 	ctx := basicContext()
@@ -7844,6 +7878,7 @@ func TestGenerate_ValidationMiddleware_ErrorFormat(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC22.
 func TestGenerate_ValidationMiddleware_BodyRestore(t *testing.T) {
 	g := &Generator{}
 	ctx := basicContext()
@@ -7932,6 +7967,7 @@ func TestGenerate_ValidationMiddleware_AuthBypass(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC24.
 func TestGenerate_ScopedReadVerifiesScope(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -7985,6 +8021,7 @@ func TestGenerate_ScopedReadVerifiesScope(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC24.
 func TestGenerate_ScopedUpdateVerifiesScope(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -8025,6 +8062,7 @@ func TestGenerate_ScopedUpdateVerifiesScope(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC24.
 func TestGenerate_ScopedPatchVerifiesScope(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -8062,6 +8100,7 @@ func TestGenerate_ScopedPatchVerifiesScope(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC24.
 func TestGenerate_ScopedDeleteVerifiesScope(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -8184,6 +8223,7 @@ func TestGenerate_ListStorageAPIConversionChecksErrors(t *testing.T) {
 
 // --- Task 039: Server-Managed Fields and Request Schemas ---
 
+// Proves ST-SUP-RC20-OC17.
 func TestIsServerManaged(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -8246,6 +8286,7 @@ func TestIsServerManaged(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC20.
 func TestGenerate_CreateRequestSchemaExcludesServerManagedFields(t *testing.T) {
 	g := &Generator{}
 	defaultVal := 1
@@ -8322,6 +8363,7 @@ func TestGenerate_CreateRequestSchemaExcludesServerManagedFields(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC20.
 func TestGenerate_CreateRequestSchemaExcludesScopeFields(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -8372,6 +8414,7 @@ func TestGenerate_CreateRequestSchemaExcludesScopeFields(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC20.
 func TestGenerate_CreateRequestSchemaExcludesImplicitFields(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -8494,6 +8537,7 @@ func TestGenerate_CreateRequestSchemaExcludesImplicitFieldAcrossCollections(t *t
 	}
 }
 
+// Proves ST-SUP-RC20-OC20.
 func TestGenerate_PostRefPointsToCreateRequest(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -8534,6 +8578,7 @@ func TestGenerate_PostRefPointsToCreateRequest(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC17.
 func TestGenerate_CreateHandlerPopulatesServerManagedFields(t *testing.T) {
 	g := &Generator{}
 	defaultVal := 1
@@ -8638,6 +8683,7 @@ func TestGenerate_CreateHandlerPopulatesServerManagedFields(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC19.
 func TestGenerate_KindFieldValidation(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -8785,6 +8831,7 @@ func IdentityFromContext(ctx context.Context) Identity {
 	}
 }
 
+// Proves ST-SUP-RC20-OC17, ST-SUP-RC20-OC19.
 func TestGenerate_UpsertKindValidationAndServerManagedFields(t *testing.T) {
 	g := &Generator{}
 	defaultVal := 1
@@ -8847,6 +8894,7 @@ func TestGenerate_UpsertKindValidationAndServerManagedFields(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC19.
 func TestGenerate_UpdateHandlerKindValidation(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -8893,6 +8941,7 @@ func TestGenerate_UpdateHandlerKindValidation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC18.
 func TestGenerate_UpdateHandlerPreservesCreateOnlyFields(t *testing.T) {
 	g := &Generator{}
 	defaultVal := 1
@@ -8973,6 +9022,7 @@ func TestGenerate_UpdateHandlerPreservesCreateOnlyFields(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC19.
 func TestGenerate_PatchHandlerKindValidation(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -9032,6 +9082,7 @@ func TestGenerate_PatchHandlerKindValidation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC27.
 func TestGenerate_CORSMiddleware_Generated(t *testing.T) {
 	g := &Generator{}
 	ctx := basicContext()
@@ -9202,6 +9253,7 @@ func TestGenerate_CORSMiddleware_CompilesWithHandler(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC23.
 func TestGenerate_CreateHandlerSetsImplicitFields(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -9256,6 +9308,7 @@ func TestGenerate_CreateHandlerSetsImplicitFields(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC23.
 func TestGenerate_UpsertHandlerSetsImplicitFields(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -9422,6 +9475,7 @@ func TestGenerate_NoImplicitFieldsNoExtraCode(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC23.
 func TestGenerate_ListHandlerPopulatesImplicitFilters(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -9707,6 +9761,7 @@ func TestGenerate_BeforeUpsertSlot(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC30.
 func TestGenerate_BeforeDeleteSlot(t *testing.T) {
 	// Verify that a before_delete slot binding fires on delete operations.
 	// The before_delete proto has a different structure: entity (string),
@@ -9965,6 +10020,7 @@ func TestGenerate_BeforeDeleteNilGuardPassthrough(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC31.
 func TestGenerate_AllBeforeSlotsNilGuardPassthrough(t *testing.T) {
 	// Verify that all three new before-slots work correctly together
 	// with nil-guard passthrough semantics.
@@ -10029,6 +10085,7 @@ func TestGenerate_AllBeforeSlotsNilGuardPassthrough(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC34.
 func TestGenerate_AfterCreateSlot(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -10250,6 +10307,7 @@ func TestGenerate_AfterPatchSlot(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC34.
 func TestGenerate_AfterDeleteSlot(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -10400,6 +10458,7 @@ func TestGenerate_OnEntityChangedStillWorksWithLifecycleAfterSlots(t *testing.T)
 	}
 }
 
+// Proves ST-SUP-RC20-OC31.
 func TestGenerate_AfterSlotNilGuardPassthrough(t *testing.T) {
 	// Verify all four lifecycle after-slots have nil-guard passthrough.
 	g := &Generator{}
@@ -10809,6 +10868,7 @@ func TestGenerate_AfterPatchSlotNeedsFmt(t *testing.T) {
 
 // --- Discovery endpoint tests ---
 
+// Proves ST-SUP-RC20-OC25.
 func TestGenerate_DiscoveryFileGenerated(t *testing.T) {
 	g := &Generator{}
 	ctx := basicContext()
@@ -10860,6 +10920,7 @@ func TestGenerate_DiscoveryFileGenerated(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC25.
 func TestGenerate_DiscoveryWiringRoutes(t *testing.T) {
 	g := &Generator{}
 	ctx := basicContext()
@@ -10912,6 +10973,7 @@ func TestGenerate_DiscoveryWiringRoutes(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC26.
 func TestGenerate_DiscoveryMetadataTopLevelCollectionsOnly(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -11004,6 +11066,7 @@ func TestGenerate_DiscoveryRoutesUseDiscoveryHandlerVar(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC28.
 func TestGenerate_DiscoveryEmptyBasePath(t *testing.T) {
 	g := &Generator{}
 	ctx := basicContext()

@@ -10,6 +10,7 @@ import (
 	"time"
 )
 
+// Proves ST-SUP-RC14-OC50.
 func TestNamespaceReadsWithOpenWatches(t *testing.T) {
 	watching := make(chan string, 16)
 	client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {

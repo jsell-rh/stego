@@ -37,12 +37,18 @@ type output struct {
 
 func (o *output) Write(p []byte) (int, error) { o.Lock(); defer o.Unlock(); return o.b.Write(p) }
 func (o *output) String() string              { o.Lock(); defer o.Unlock(); return o.b.String() }
+
+// Proves ST-SUP-RC08-OC01, ST-SUP-RC08-OC02, ST-SUP-RC08-OC04.
 func TestGeneratedProcess(t *testing.T) {
 	testGeneratedProcess(t, []string{"normal", "restart", "open-error", "open-panic", "open-goexit", "register-error", "close-error", "close-panic", "close-goexit"}, true)
 }
+
+// Proves ST-SUP-RC08-OC02, ST-SUP-RC08-OC04.
 func TestGeneratedProcessStartupTelemetry(t *testing.T) {
 	testGeneratedProcess(t, []string{"open-error", "open-panic", "open-goexit"}, false)
 }
+
+// Proves ST-SUP-RC08-OC03, ST-SUP-RC08-OC04.
 func TestGeneratedProcessCleanupTelemetry(t *testing.T) {
 	testGeneratedProcess(t, []string{"restart", "register-error", "close-error", "close-panic", "close-goexit"}, true)
 }

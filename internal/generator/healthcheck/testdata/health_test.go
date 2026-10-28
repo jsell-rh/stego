@@ -47,6 +47,8 @@ func runMonitor(t *testing.T, m *Monitor) func() {
 		}
 	}
 }
+
+// Proves ST-SUP-RC09-OC01, ST-SUP-RC09-OC02, ST-SUP-RC09-OC03, ST-SUP-RC09-OC04.
 func TestFailureRecoveryAndBoundedProbeWork(t *testing.T) {
 	var failed atomic.Bool
 	failed.Store(true)
@@ -98,6 +100,8 @@ func TestFailureRecoveryAndBoundedProbeWork(t *testing.T) {
 	failed.Store(true)
 	awaitStatus(t, m, 503)
 }
+
+// Proves ST-SUP-RC09-OC05, ST-SUP-RC09-OC06, ST-SUP-RC09-OC07.
 func TestCheckDeadlineAndCancellation(t *testing.T) {
 	checked := make(chan time.Duration, 1)
 	m, _ := NewMonitor(context.Background(), func(ctx context.Context) error {
@@ -132,6 +136,8 @@ func TestCheckDeadlineAndCancellation(t *testing.T) {
 	}
 	stop()
 }
+
+// Proves ST-SUP-RC09-OC08, ST-SUP-RC09-OC09.
 func TestStalledCheckCannotKeepOldReadinessOrSpawnMoreWork(t *testing.T) {
 	var calls atomic.Int32
 	entered, release := make(chan struct{}), make(chan struct{})
@@ -159,6 +165,8 @@ func TestStalledCheckCannotKeepOldReadinessOrSpawnMoreWork(t *testing.T) {
 		t.Fatal("stalled dependency changed liveness")
 	}
 }
+
+// Proves ST-SUP-RC09-OC11, ST-SUP-RC09-OC12.
 func TestMethodsAndInvalidConstruction(t *testing.T) {
 	m, _ := NewMonitor(context.Background())
 	for _, path := range []string{"/livez", "/readyz"} {

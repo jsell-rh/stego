@@ -20,6 +20,8 @@ func immutableApplication() Application {
 	fields := []Field{{Flag: "member", Key: "member", Type: "string", Required: true}, {Flag: "group", Key: "group", Type: "string", Required: true}, {Flag: "limit", Key: "limit", Type: "integer"}}
 	return Application{ConfigEnv: "TEST_CLI_CONFIG", ConfigName: "sample", Resources: []ApplyResource{{Kind: "Membership", APIVersion: "example/v1", Path: "/memberships", CreateFields: fields, ImmutableIdentity: []string{"member", "group"}}}}
 }
+
+// Proves ST-SUP-RC04-OC27.
 func TestImmutableApplyDefinitionAndInput(t *testing.T) {
 	for _, change := range []func(*ApplyResource){
 		func(r *ApplyResource) { r.PatchFields = r.CreateFields }, func(r *ApplyResource) { r.ImmutableIdentity = []string{"member", "member"} }, func(r *ApplyResource) { r.ImmutableIdentity = []string{"missing"} }, func(r *ApplyResource) { r.ImmutableIdentity = []string{"limit"} }, func(r *ApplyResource) { r.CreateFields[0].Required = false }, func(r *ApplyResource) { r.CreateFields[0].Nullable = true },
@@ -49,6 +51,7 @@ func TestImmutableApplyDefinitionAndInput(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC04-OC27.
 func TestImmutableApplyOverTLS(t *testing.T) {
 	for _, mode := range []string{"create", "nameless", "existing", "conflict", "conflict-mismatch", "ambiguous", "wrong-row", "wrong-write", "denied"} {
 		t.Run(mode, func(t *testing.T) {

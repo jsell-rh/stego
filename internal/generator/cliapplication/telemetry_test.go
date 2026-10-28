@@ -17,6 +17,7 @@ import (
 	"time"
 )
 
+// Proves ST-SUP-RC04-OC30.
 func testTelemetryProcess(t *testing.T, project string) {
 	t.Helper()
 	binary := filepath.Join(t.TempDir(), "cli")

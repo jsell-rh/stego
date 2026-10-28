@@ -1,3 +1,4 @@
+// Proves ST-SUP-RC24-OC13.
 import {createBrowserClient, type RequestSchemas, type Client} from './sdk/index.js';
 const client: Client = createBrowserClient();
 const body: RequestSchemas['Record'] = {id: 'r1', name: 'One', count: 0, enabled: false, description: null};

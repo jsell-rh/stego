@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+// Proves ST-SUP-RC18-OC06.
 func TestWorkerDoesNotStoreSinkErrorText(t *testing.T) {
 	db := testDatabase(t)
 	q, _ := New(db)
@@ -29,6 +30,7 @@ func TestWorkerDoesNotStoreSinkErrorText(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC18-OC07.
 func TestWorkerDoesNotAcknowledgeSuccessAfterAttemptDeadline(t *testing.T) {
 	db := testDatabase(t)
 	q, _ := New(db)

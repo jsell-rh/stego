@@ -47,6 +47,8 @@ func TestCheckpointedScanReservesCommitAndRetriesFailedItem(t *testing.T) {
 		t.Fatal(progress, saved, calls, err)
 	}
 }
+
+// Proves ST-SUP-RC05-OC20.
 func TestCheckpointedScanDoesNotCommitAfterParentCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

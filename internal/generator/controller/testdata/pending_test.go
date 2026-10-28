@@ -10,6 +10,7 @@ import (
 	"time"
 )
 
+// Proves ST-SUP-RC05-OC10.
 func TestPendingResultQueueRetainsCapacityAndDelay(t *testing.T) {
 	q := newKeyQueue[string](2)
 	q.setReady(true)

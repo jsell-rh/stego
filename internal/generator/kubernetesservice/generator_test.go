@@ -56,6 +56,7 @@ func TestDeploymentValidation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC15-OC01, ST-SUP-RC15-OC03, ST-SUP-RC15-OC04, ST-SUP-RC15-OC08, ST-SUP-RC15-OC09, ST-SUP-RC15-OC11, ST-SUP-RC15-OC12, ST-SUP-RC15-OC13, ST-SUP-RC15-OC15.
 func TestGeneratedDeploymentRenderer(t *testing.T) {
 	ctx := rpcContext()
 	ctx.ComponentConfig["optional_external_endpoints"] = []any{"service-probe"}
@@ -200,6 +201,7 @@ func TestWorkerValidation(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC15-OC10, ST-SUP-RC15-OC34.
 // Browser services use the same TLS listener and health routes as API services.
 // Their deployment must retain all API isolation and resource limits.
 func TestBrowserDeployment(t *testing.T) {

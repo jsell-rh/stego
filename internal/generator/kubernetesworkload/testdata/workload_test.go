@@ -30,6 +30,8 @@ func pod(t *testing.T, out []Resource) Object {
 	t.Helper()
 	return out[0].Object["spec"].(Object)["template"].(Object)["spec"].(Object)
 }
+
+// Proves ST-SUP-RC16-OC01, ST-SUP-RC16-OC02, ST-SUP-RC16-OC03, ST-SUP-RC16-OC04, ST-SUP-RC16-OC06, ST-SUP-RC16-OC09, ST-SUP-RC16-OC11.
 func TestWidgetSecurityAndService(t *testing.T) {
 	d := widget()
 	out := render(t, d)
@@ -183,6 +185,8 @@ func TestConfigurationDigestRejectsInvalidInput(t *testing.T) {
 		})
 	}
 }
+
+// Proves ST-SUP-RC16-OC03, ST-SUP-RC16-OC05, ST-SUP-RC16-OC06, ST-SUP-RC16-OC07, ST-SUP-RC16-OC10, ST-SUP-RC16-OC13.
 func TestWorkloadRejectsUnsafeOrAmbiguousInput(t *testing.T) {
 	cases := map[string]func(*Deployment){
 		"missing dependency": func(d *Deployment) { d.Dependencies = d.Dependencies[1:] },
@@ -268,6 +272,7 @@ func TestWorkloadRejectsUnsafeOrAmbiguousInput(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC16-OC08, ST-SUP-RC16-OC09.
 func TestWidgetDependencyRollout(t *testing.T) {
 	d := widget()
 	before := render(t, d)
@@ -310,6 +315,7 @@ func TestConfigurationDigestSeparatesObjectKinds(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC16-OC12.
 // Kubernetes omits empty lists, empty environment values, and false mount flags.
 // Desired fields must survive this response format to avoid repeated patches.
 // See kubernetes/api v0.35.0 core/v1/types.go: PodSpec, Container, EnvVar, VolumeMount.

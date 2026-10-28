@@ -15,6 +15,7 @@ import (
 	"time"
 )
 
+// Proves ST-SUP-RC04-OC28.
 func TestRelativeTimestamp(t *testing.T) {
 	now := time.Date(2028, 2, 28, 23, 30, 0, 123, time.FixedZone("offset", 3600))
 	for value, duration := range map[string]time.Duration{"30d": 30 * 24 * time.Hour, "24h": 24 * time.Hour, "1h30m": 90 * time.Minute, "1ns": time.Nanosecond, "+2h": 2 * time.Hour} {
@@ -39,6 +40,8 @@ func relativeDefinition() Application {
 	app.Commands = []Command{{Name: []string{"create", "record"}, Method: "POST", Path: "/records", Fields: []Field{{Flag: "end-at", Key: "end_at", Type: "string", RelativeFlag: "end-in", Required: true}}, Success: []int{201}}}
 	return app
 }
+
+// Proves ST-SUP-RC04-OC28.
 func TestRelativeFlagDefinition(t *testing.T) {
 	for _, change := range []func(*Command){
 		func(c *Command) { c.Query = true }, func(c *Command) { c.Method = "GET" },
@@ -63,6 +66,8 @@ func TestRelativeFlagDefinition(t *testing.T) {
 		}
 	}
 }
+
+// Proves ST-SUP-RC04-OC28.
 func TestRelativeFlagThroughTLS(t *testing.T) {
 	directory := t.TempDir()
 	t.Setenv("TEST_CLI_CONFIG", filepath.Join(directory, "config.json"))

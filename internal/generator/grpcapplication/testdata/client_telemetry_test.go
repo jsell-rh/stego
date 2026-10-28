@@ -77,6 +77,8 @@ func (s *tracedClientService) Watch(r *pb.Request, stream grpc.ServerStreamingSe
 	}
 	return nil
 }
+
+// Proves ST-SUP-RC07-OC09.
 func TestGeneratedClientTracesCompleteCallsAndStreams(t *testing.T) {
 	certificate := httptest.NewTLSServer(http.NotFoundHandler())
 	defer certificate.Close()

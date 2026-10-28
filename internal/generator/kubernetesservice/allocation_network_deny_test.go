@@ -8,6 +8,7 @@ import (
 	"testing"
 )
 
+// Proves ST-SUP-RC15-OC23, ST-SUP-RC15-OC24.
 func TestAllocationNetworkIsolationManifest(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		t.Run(map[bool]string{false: "legacy", true: "isolated"}[enabled], func(t *testing.T) {

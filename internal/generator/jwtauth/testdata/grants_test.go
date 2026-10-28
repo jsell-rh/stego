@@ -12,6 +12,7 @@ func testGrant() Grant {
 	return Grant{Issuer: "https://issuer.example", Subject: "worker", Resource: "Lease", Operation: "cleanup.worker", Target: "region-a"}
 }
 
+// Proves ST-SUP-RC11-OC22, ST-SUP-RC11-OC23.
 func TestGrantsMatchEveryAuthorityDimension(t *testing.T) {
 	grant := testGrant()
 	input := []Grant{grant}
@@ -61,6 +62,7 @@ func TestGrantsMatchEveryAuthorityDimension(t *testing.T) {
 	group.Wait()
 }
 
+// Proves ST-SUP-RC11-OC29.
 func TestEmptyAndOpaqueTargetsAreExact(t *testing.T) {
 	grant := testGrant()
 	grant.Target = ""
@@ -82,6 +84,7 @@ func TestEmptyAndOpaqueTargetsAreExact(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC11-OC27.
 func TestGrantDocumentsRejectAmbiguousConfiguration(t *testing.T) {
 	encoded, _ := json.Marshal([]Grant{testGrant()})
 	if _, err := ParseGrantPolicy(encoded); err != nil {
@@ -111,6 +114,7 @@ func TestGrantDocumentsRejectAmbiguousConfiguration(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC11-OC28.
 func TestGrantConstructionEnforcesBoundsAndUniqueness(t *testing.T) {
 	grant := testGrant()
 	if _, err := NewGrantPolicy([]Grant{grant, grant}); err == nil {
