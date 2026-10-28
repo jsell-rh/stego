@@ -19,3 +19,17 @@
 {"entity_id":"ST-DECL-EN06","position":1,"name":"Component name","meaning":"The component the setting is for, which must be in the active component set.","type":"Component reference","example":"postgres-adapter"}
 {"entity_id":"ST-DECL-EN06","position":2,"name":"Setting name","meaning":"The setting, which the component's schema must declare.","type":"Text","example":"writer_lease"}
 {"entity_id":"ST-DECL-EN06","position":3,"name":"Value","meaning":"The value, which must suit the type the component's schema states.","type":"A value of the declared type","example":"off"}
+{"entity_id":"ST-SUP-EN01","position":1,"name":"Reference","meaning":"What pins the registry's content.","type":"Digest","example":"94d285d7"}
+{"entity_id":"ST-SUP-EN01","position":2,"name":"Trust","meaning":"Whether the registry is the reviewed common one or a local extension.","type":"One of a list: common, local","example":"common"}
+{"entity_id":"ST-SUP-EN02","position":1,"name":"Path","meaning":"The output path, from the generated project root.","type":"Text","example":"internal/storage"}
+{"entity_id":"ST-SUP-EN03","position":1,"name":"Archetype name","meaning":"The archetype's name, unique in its registry.","type":"Text","example":"rest-crud"}
+{"entity_id":"ST-SUP-EN03","position":2,"name":"Version","meaning":"The version the archetype declares.","type":"Text","example":"3.0.0"}
+{"entity_id":"ST-SUP-EN04","position":1,"name":"Component name","meaning":"The component the archetype includes.","type":"Component reference","example":"postgres-adapter"}
+{"entity_id":"ST-SUP-EN04","position":2,"name":"Default for port","meaning":"The port this component answers unless the declaration overrides it.","type":"Port reference","example":"auth-provider"}
+{"entity_id":"ST-SUP-EN05","position":1,"name":"Mixin name","meaning":"The mixin's name.","type":"Text","example":"event-publisher"}
+{"entity_id":"ST-SUP-EN06","position":1,"name":"Port name","meaning":"The port's name, unique in its registry.","type":"Text","example":"auth-provider"}
+{"entity_id":"ST-SUP-EN06","position":2,"name":"Meaning","meaning":"What a provider of this port undertakes to supply.","type":"Text","example":"A verified identity for each request"}
+{"entity_id":"ST-SUP-EN07","position":1,"name":"Field name","meaning":"The field a provider fills.","type":"Text","example":"Identity.UserID"}
+{"entity_id":"ST-SUP-EN07","position":2,"name":"Required meaning","meaning":"What every provider must put in the field.","type":"Text","example":"The verified subject, which never changes"}
+{"entity_id":"ST-SUP-EN08","position":1,"name":"Slot name","meaning":"The slot's name, unique in its component.","type":"Text","example":"before_create"}
+{"entity_id":"ST-SUP-EN08","position":2,"name":"Contract","meaning":"The typed contract a fill implements, as a protobuf service.","type":"Text","example":"slots/before_create.proto"}
