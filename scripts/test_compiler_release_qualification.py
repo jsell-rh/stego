@@ -206,6 +206,15 @@ class QualificationChecks(unittest.TestCase):
             with self.assertRaises(CheckError):
                 self.qualify()
 
+    def test_extra_artifact_fails(self):
+        with self.subTest("ST-STD-TRUST-R01-T02 Qualification fails when the signed artifact run holds a second artifact"):
+            self.artifacts.append({"name": "generator-rest-api-" + self.revision,
+                                   "size_in_bytes": 1024,
+                                   "digest": "sha256:" + "0" * 64, "expired": False})
+            with patch.object(qualification, "api", self.api):
+                with self.assertRaisesRegex(CheckError, "unknown or repeated artifact"):
+                    self.qualify()
+
     def test_expired_artifact_fails_prepare_mode(self):
         for artifact in self.artifacts:
             artifact["expired"] = True
