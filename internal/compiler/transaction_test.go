@@ -84,21 +84,22 @@ func checkRecovered(t *testing.T, input ReconcilerInput) {
 	}
 }
 
-// Proves ST-DIS-UC01-R02.
 func TestRecoverCompletesEveryInterruptedPhase(t *testing.T) {
-	for _, point := range []string{"prepared", "after_operation_0", "after_operation_1", "after_operation_2", "after_operation_3", "before_complete"} {
-		t.Run(point, func(t *testing.T) {
-			input := transactionInput(t)
-			prepareInterruptedApply(t, input, point)
-			if _, err := Reconcile(input); !errors.Is(err, ErrRecoveryRequired) {
-				t.Fatalf("plan ignored a pending transaction: %v", err)
-			}
-			if _, err := DetectDrift(input.ProjectDir, filepath.Join(input.ProjectDir, "out")); !errors.Is(err, ErrRecoveryRequired) {
-				t.Fatalf("drift ignored a pending transaction: %v", err)
-			}
-			checkRecovered(t, input)
-		})
-	}
+	t.Run("ST-GEN-INV01-T Recovery completes an interrupted apply, and plan and drift refuse until it does", func(t *testing.T) {
+		for _, point := range []string{"prepared", "after_operation_0", "after_operation_1", "after_operation_2", "after_operation_3", "before_complete"} {
+			t.Run(point, func(t *testing.T) {
+				input := transactionInput(t)
+				prepareInterruptedApply(t, input, point)
+				if _, err := Reconcile(input); !errors.Is(err, ErrRecoveryRequired) {
+					t.Fatalf("plan ignored a pending transaction: %v", err)
+				}
+				if _, err := DetectDrift(input.ProjectDir, filepath.Join(input.ProjectDir, "out")); !errors.Is(err, ErrRecoveryRequired) {
+					t.Fatalf("drift ignored a pending transaction: %v", err)
+				}
+				checkRecovered(t, input)
+			})
+		}
+	})
 }
 
 func TestFailureBeforePrepareKeepsPriorOutput(t *testing.T) {

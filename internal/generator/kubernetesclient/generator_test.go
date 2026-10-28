@@ -235,19 +235,20 @@ func TestPinnedAdmissionTemplate(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC14-OC51.
 func TestUnverifiedAdmissionPrototypeIsNotGenerated(t *testing.T) {
-	ctx := gen.Context{ModuleName: "example.com/policy", OutDirName: "out", OutputNamespace: "kubernetes", PeerNamespaces: map[string]string{"http-application": "application"}}
-	files, _, err := new(Generator).Generate(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(files) == 0 {
-		t.Fatal("Kubernetes runtime output is empty")
-	}
-	for _, file := range files {
-		if strings.Contains(file.Path, "pinned_admission") || bytes.Contains(file.Bytes(), []byte("PinnedAdmissionPolicies")) {
-			t.Fatal("unverified admission prototype reached generated output")
+	t.Run("ST-SUP-RC14-OC51-T01 No generated file carries the withdrawn pinned admission renderer", func(t *testing.T) {
+		ctx := gen.Context{ModuleName: "example.com/policy", OutDirName: "out", OutputNamespace: "kubernetes", PeerNamespaces: map[string]string{"http-application": "application"}}
+		files, _, err := new(Generator).Generate(ctx)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
+		if len(files) == 0 {
+			t.Fatal("Kubernetes runtime output is empty")
+		}
+		for _, file := range files {
+			if strings.Contains(file.Path, "pinned_admission") || bytes.Contains(file.Bytes(), []byte("PinnedAdmissionPolicies")) {
+				t.Fatal("unverified admission prototype reached generated output")
+			}
+		}
+	})
 }

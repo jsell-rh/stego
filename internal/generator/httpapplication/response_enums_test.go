@@ -71,9 +71,14 @@ func TestHTTPResponseEnumValidation(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC10-OC25, ST-SUP-RC10-OC26.
 func TestGeneratedHTTPResponseEnums(t *testing.T) {
-	checkGeneratedResponses(t, enumResponseContext(), responseEnumRuntimeTest, []string{"", "TestEnumValuesAndPresence", "TestEnumOwnership", "TestEnumRejectsUnknownValues"})
+	passed := checkGeneratedResponses(t, enumResponseContext(), responseEnumRuntimeTest, []string{"", "TestEnumValuesAndPresence", "TestEnumOwnership", "TestEnumRejectsUnknownValues"})
+	t.Run("ST-SUP-RC10-OC25-T06 The emitted enum conversion accepts only declared values", func(t *testing.T) {
+		requireGeneratedResponses(t, passed, "TestEnumRejectsUnknownValues")
+	})
+	t.Run("ST-SUP-RC10-OC26-T06 The emitted enum conversion owns its output", func(t *testing.T) {
+		requireGeneratedResponses(t, passed, "TestEnumOwnership")
+	})
 }
 
 const responseEnumRuntimeTest = `package responses

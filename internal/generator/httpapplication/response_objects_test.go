@@ -138,10 +138,15 @@ func TestHTTPResponseObjectGeneration(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC10-OC25, ST-SUP-RC10-OC26.
 func TestGeneratedHTTPResponseObjects(t *testing.T) {
-	checkGeneratedResponses(t, responseObjectContext(), responseObjectRuntimeTest,
+	passed := checkGeneratedResponses(t, responseObjectContext(), responseObjectRuntimeTest,
 		[]string{"", "TestObjectPresence", "TestObjectNumbersAndOwnership", "TestObjectRejectsInvalidInput", "TestObjectBounds"})
+	t.Run("ST-SUP-RC10-OC25-T03 The emitted JSON object conversion bounds its input", func(t *testing.T) {
+		requireGeneratedResponses(t, passed, "TestObjectRejectsInvalidInput", "TestObjectBounds")
+	})
+	t.Run("ST-SUP-RC10-OC26-T03 The emitted JSON object conversion owns its output", func(t *testing.T) {
+		requireGeneratedResponses(t, passed, "TestObjectNumbersAndOwnership")
+	})
 }
 
 func TestGeneratedHTTPResponseObjectInputs(t *testing.T) {

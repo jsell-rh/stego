@@ -24,24 +24,25 @@ func (b *cancellationBody) Read(p []byte) (int, error) {
 }
 func (b *cancellationBody) Close() error { b.closed.Store(true); return nil }
 
-// Proves ST-SUP-RC10-OC08.
 func TestResponseCompletionRejectsCanceledContext(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	body := &cancellationBody{cancel: cancel}
-	c := &Client{
-		lifetime: context.Background(),
-		base:     &url.URL{Scheme: "https", Host: "provider.example"},
-		permits:  make(chan struct{}, MaxConcurrentRequests),
-		http: &http.Client{Transport: completionTransport(func(*http.Request) (*http.Response, error) {
-			return &http.Response{StatusCode: 200, Header: http.Header{}, Body: body}, nil
-		})},
-	}
-	response, err := c.Do(ctx, "GET", "/record", nil, nil)
-	if err == nil || response.StatusCode != 0 || len(response.Body) != 0 {
-		t.Fatal("cancellation during response completion returned success or response data")
-	}
-	if !body.closed.Load() || len(c.permits) != 0 {
-		t.Fatal("canceled completion retained the response body or request capacity")
-	}
+	t.Run("ST-SUP-RC10-OC08-T01 The emitted client returns no data when the caller cancels during the response read", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		body := &cancellationBody{cancel: cancel}
+		c := &Client{
+			lifetime: context.Background(),
+			base:     &url.URL{Scheme: "https", Host: "provider.example"},
+			permits:  make(chan struct{}, MaxConcurrentRequests),
+			http: &http.Client{Transport: completionTransport(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: 200, Header: http.Header{}, Body: body}, nil
+			})},
+		}
+		response, err := c.Do(ctx, "GET", "/record", nil, nil)
+		if err == nil || response.StatusCode != 0 || len(response.Body) != 0 {
+			t.Fatal("cancellation during response completion returned success or response data")
+		}
+		if !body.closed.Load() || len(c.permits) != 0 {
+			t.Fatal("canceled completion retained the response body or request capacity")
+		}
+	})
 }

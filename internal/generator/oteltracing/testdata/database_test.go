@@ -21,8 +21,9 @@ import (
 
 func TestAuthKeyRefreshSignals(t *testing.T) { testDatabaseSignals(t, false, "auth-keys") }
 
-// Proves ST-SUP-RC17-OC25.
-func TestDatabaseSignals(t *testing.T)          { testDatabaseSignals(t, false) }
+func TestDatabaseSignals(t *testing.T) {
+	t.Run("ST-SUP-RC17-OC25-T01 Database signals from the emitted runtime hold no statement data and map an unknown outcome", func(t *testing.T) { testDatabaseSignals(t, false) })
+}
 func TestPostgresOperationSignals(t *testing.T) { testDatabaseSignals(t, true) }
 func TestSchemaOperationSignals(t *testing.T)   { testDatabaseSignals(t, true, "schema") }
 func TestPrepareOperationSignals(t *testing.T)  { testDatabaseSignals(t, true, "prepare") }

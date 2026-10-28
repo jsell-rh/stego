@@ -1,0 +1,1 @@
+{"id":"ST-GEN-SP01-T","title":"A hand-edited generated file is named as modified","specification_id":"ST-GEN-SP01","level":"unit","state":"automated","file":"internal/compiler/drift_test.go","given":"A project with applied output.","when":"One generated file is edited by hand and drift detection runs.","then":"Exactly that file is listed as modified."}

@@ -16,26 +16,26 @@ import (
 	"time"
 )
 
-// Proves ST-SUP-RC04-OC01.
 func TestIdentityDefinition(t *testing.T) {
-	app := Application{ConfigEnv: "TEST_CLI_CONFIG", ConfigName: "sample", IdentityPath: "/identity"}
-	if err := validate(app); err != nil {
-		t.Fatal(err)
-	}
-	for _, path := range []string{"https://other.test/identity", "//other.test/identity", "/identity?token=x", "/identity/{id}", "/../identity"} {
-		invalid := app
-		invalid.IdentityPath = path
-		if err := validate(invalid); err == nil {
-			t.Fatal("invalid identity destination accepted", path)
+	t.Run("ST-SUP-RC04-OC01-T03 The emitted CLI checks the identity destination", func(t *testing.T) {
+		app := Application{ConfigEnv: "TEST_CLI_CONFIG", ConfigName: "sample", IdentityPath: "/identity"}
+		if err := validate(app); err != nil {
+			t.Fatal(err)
 		}
-	}
-	app.Commands = []Command{{Name: []string{"whoami"}, Method: "GET", Path: "/identity", Success: []int{200}}}
-	if err := validate(app); err == nil {
-		t.Fatal("identity command collision accepted")
-	}
+		for _, path := range []string{"https://other.test/identity", "//other.test/identity", "/identity?token=x", "/identity/{id}", "/../identity"} {
+			invalid := app
+			invalid.IdentityPath = path
+			if err := validate(invalid); err == nil {
+				t.Fatal("invalid identity destination accepted", path)
+			}
+		}
+		app.Commands = []Command{{Name: []string{"whoami"}, Method: "GET", Path: "/identity", Success: []int{200}}}
+		if err := validate(app); err == nil {
+			t.Fatal("identity command collision accepted")
+		}
+	})
 }
 
-// Proves ST-SUP-RC04-OC16, ST-SUP-RC04-OC17.
 func TestVerifiedIdentityAndProtectedTokenOutput(t *testing.T) {
 	directory := t.TempDir()
 	t.Setenv("TEST_CLI_CONFIG", filepath.Join(directory, "config.json"))
@@ -81,65 +81,71 @@ func TestVerifiedIdentityAndProtectedTokenOutput(t *testing.T) {
 	if _, err := run("login", "--url", server.URL, "--ca-file", ca, "--token-file", tokenFile); err != nil {
 		t.Fatal(err)
 	}
-	value, err := run("whoami")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var report IdentityReport
-	if json.Unmarshal([]byte(value), &report) != nil || report.Username != "verified-user" || report.Subject != "verified-subject" || report.APIURL != server.URL || report.ExpiresAt.IsZero() {
-		t.Fatal("identity was not read from the API")
-	}
-	for _, private := range []string{token, "local-claim", "sensitive-claim", "must-not-copy"} {
-		if strings.Contains(value, private) {
-			t.Fatal("default output copied private or local claims")
-		}
-	}
-	for _, args := range [][]string{{"--show-token"}, {"-t"}, {"--show-token-decoded"}, {"--show-token", "--show-token-decoded", "--output-file", "-"}, {"--show-token", "-t", "--output-file", "-"}, {"--unknown"}, {"extra"}} {
-		before := calls.Load()
-		value, err := run(append([]string{"whoami"}, args...)...)
-		if err == nil || value != "" || calls.Load() != before {
-			t.Fatal("invalid token output contacted API", err)
-		}
-	}
-	for _, flag := range []string{"--show-token", "-t", "--show-token-decoded"} {
-		output := filepath.Join(directory, strings.TrimLeft(flag, "-")+".txt")
-		if value, err := run("whoami", flag, "--output-file", output); err != nil || value != "" {
-			t.Fatal("protected output failed", err)
-		}
-		data, err := os.ReadFile(output)
+	if !t.Run("ST-SUP-RC04-OC16-T01 The emitted CLI reports only API identity", func(t *testing.T) {
+		value, err := run("whoami")
 		if err != nil {
 			t.Fatal(err)
 		}
-		info, err := os.Stat(output)
-		if err != nil || info.Mode().Perm() != 0600 {
-			t.Fatal("token output is not private")
+		var report IdentityReport
+		if json.Unmarshal([]byte(value), &report) != nil || report.Username != "verified-user" || report.Subject != "verified-subject" || report.APIURL != server.URL || report.ExpiresAt.IsZero() {
+			t.Fatal("identity was not read from the API")
 		}
-		if flag == "--show-token-decoded" {
-			if !bytes.Contains(data, []byte("9007199254740993")) || !bytes.Contains(data, []byte("sensitive-claim")) {
-				t.Fatal("decoded claims changed")
-			}
-		} else if string(data) != token+"\n" {
-			t.Fatal("raw token changed")
-		}
-		before := calls.Load()
-		if _, err := run("whoami", flag, "--output-file", output); err == nil || calls.Load() != before {
-			t.Fatal("existing token output contacted API")
-		}
-	}
-	if value, err := run("whoami", "-t", "--output-file", "-"); err != nil || value != token+"\n" {
-		t.Fatal("explicit token stdout failed", err)
-	}
-	for _, failure := range []int32{1, 2, 3} {
-		mode.Store(failure)
-		for _, flag := range []string{"--show-token", "--show-token-decoded"} {
-			output := filepath.Join(directory, "failed")
-			value, err := run("whoami", flag, "--output-file", output)
-			if err == nil || value != "" || strings.Contains(err.Error(), token) {
-				t.Fatal("failed identity disclosed token", err)
-			}
-			if _, err := os.Stat(output); !os.IsNotExist(err) {
-				t.Fatal("failed identity left an output file", err)
+		for _, private := range []string{token, "local-claim", "sensitive-claim", "must-not-copy"} {
+			if strings.Contains(value, private) {
+				t.Fatal("default output copied private or local claims")
 			}
 		}
+	}) {
+		return
 	}
+	t.Run("ST-SUP-RC04-OC17-T01 The emitted CLI exports a token only to a private file", func(t *testing.T) {
+		for _, args := range [][]string{{"--show-token"}, {"-t"}, {"--show-token-decoded"}, {"--show-token", "--show-token-decoded", "--output-file", "-"}, {"--show-token", "-t", "--output-file", "-"}, {"--unknown"}, {"extra"}} {
+			before := calls.Load()
+			value, err := run(append([]string{"whoami"}, args...)...)
+			if err == nil || value != "" || calls.Load() != before {
+				t.Fatal("invalid token output contacted API", err)
+			}
+		}
+		for _, flag := range []string{"--show-token", "-t", "--show-token-decoded"} {
+			output := filepath.Join(directory, strings.TrimLeft(flag, "-")+".txt")
+			if value, err := run("whoami", flag, "--output-file", output); err != nil || value != "" {
+				t.Fatal("protected output failed", err)
+			}
+			data, err := os.ReadFile(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			info, err := os.Stat(output)
+			if err != nil || info.Mode().Perm() != 0600 {
+				t.Fatal("token output is not private")
+			}
+			if flag == "--show-token-decoded" {
+				if !bytes.Contains(data, []byte("9007199254740993")) || !bytes.Contains(data, []byte("sensitive-claim")) {
+					t.Fatal("decoded claims changed")
+				}
+			} else if string(data) != token+"\n" {
+				t.Fatal("raw token changed")
+			}
+			before := calls.Load()
+			if _, err := run("whoami", flag, "--output-file", output); err == nil || calls.Load() != before {
+				t.Fatal("existing token output contacted API")
+			}
+		}
+		if value, err := run("whoami", "-t", "--output-file", "-"); err != nil || value != token+"\n" {
+			t.Fatal("explicit token stdout failed", err)
+		}
+		for _, failure := range []int32{1, 2, 3} {
+			mode.Store(failure)
+			for _, flag := range []string{"--show-token", "--show-token-decoded"} {
+				output := filepath.Join(directory, "failed")
+				value, err := run("whoami", flag, "--output-file", output)
+				if err == nil || value != "" || strings.Contains(err.Error(), token) {
+					t.Fatal("failed identity disclosed token", err)
+				}
+				if _, err := os.Stat(output); !os.IsNotExist(err) {
+					t.Fatal("failed identity left an output file", err)
+				}
+			}
+		}
+	})
 }

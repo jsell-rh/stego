@@ -253,7 +253,7 @@ func testGeneratedController(t *testing.T, telemetry bool, patterns ...string) {
 	} else if runCheck {
 		required := []string{"TestWatchBeforeScanAndSerialActions", "TestTransientFailureIsRecoveredByScan", "TestSlowScanCompletesWithoutOverlap", "TestOverflowCancelsActionJoinsWorkersAndRescans", "TestPermissionFailureIsNotHiddenByCancellation", "TestActionDeadlineAndCancellationJoin", "TestDisconnectRecoversBeforeRetry", "TestInvalidOptionsDoNotOpenSource", "TestActionTimeoutSchedulesAnotherPass", "TestWatchSetupHasDeadline", "TestEmptyReceiverStops"}
 		if telemetry {
-			required = append(required, "TestRunOwnsLogsMetricsAndIndependentTraces", "TestRunOwnsLogsMetricsAndIndependentTraces/1", "TestRunOwnsLogsMetricsAndIndependentTraces/0", "TestRunTelemetryFailureStopsBeforeSource", "TestRunTelemetryFailureStopsBeforeSource/invalid_exporter", "TestRunTelemetryFailureStopsBeforeSource/queue_limit")
+			required = append(required, "TestRunOwnsLogsMetricsAndIndependentTraces", "TestRunOwnsLogsMetricsAndIndependentTraces/ST-SUP-RC05-OC16-T01_Run_owns_its_telemetry_and_excludes_private_data", "TestRunOwnsLogsMetricsAndIndependentTraces/ST-SUP-RC05-OC16-T01_Run_owns_its_telemetry_and_excludes_private_data/1", "TestRunOwnsLogsMetricsAndIndependentTraces/ST-SUP-RC05-OC16-T01_Run_owns_its_telemetry_and_excludes_private_data/0", "TestRunTelemetryFailureStopsBeforeSource", "TestRunTelemetryFailureStopsBeforeSource/invalid_exporter", "TestRunTelemetryFailureStopsBeforeSource/queue_limit")
 		}
 		for _, name := range required {
 			if !strings.Contains(string(output), "--- PASS: "+name+" ") {

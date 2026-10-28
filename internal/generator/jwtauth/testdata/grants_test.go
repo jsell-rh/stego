@@ -12,7 +12,6 @@ func testGrant() Grant {
 	return Grant{Issuer: "https://issuer.example", Subject: "worker", Resource: "Lease", Operation: "cleanup.worker", Target: "region-a"}
 }
 
-// Proves ST-SUP-RC11-OC22, ST-SUP-RC11-OC23.
 func TestGrantsMatchEveryAuthorityDimension(t *testing.T) {
 	grant := testGrant()
 	input := []Grant{grant}
@@ -21,115 +20,124 @@ func TestGrantsMatchEveryAuthorityDimension(t *testing.T) {
 		t.Fatal(err)
 	}
 	identity := Identity{Issuer: grant.Issuer, UserID: grant.Subject}
-	if !policy.Allows(identity, grant.Resource, grant.Operation, grant.Target) {
-		t.Fatal("exact grant was denied")
-	}
-	input[0].Target = "region-b"
-	for _, change := range []func(*Grant){
-		func(g *Grant) { g.Issuer = "https://other.example" }, func(g *Grant) { g.Subject = "other" },
-		func(g *Grant) { g.Resource = "Other" }, func(g *Grant) { g.Operation = "cleanup.identity" },
-		func(g *Grant) { g.Target = "region-b" }, func(g *Grant) { g.Target = "" },
-		func(g *Grant) { g.Target = "region-a/child" }, func(g *Grant) { g.Target = "REGION-A" },
-	} {
-		altered := grant
-		change(&altered)
-		caller := Identity{Issuer: altered.Issuer, UserID: altered.Subject, Role: "admin", Roles: []string{"admin"}}
-		if policy.Allows(caller, altered.Resource, altered.Operation, altered.Target) {
-			t.Fatal("grant crossed an authority boundary")
+	t.Run("ST-SUP-RC11-OC22-T01 The emitted grant policy permits only a grant that matches every authority dimension", func(t *testing.T) {
+		if !policy.Allows(identity, grant.Resource, grant.Operation, grant.Target) {
+			t.Fatal("exact grant was denied")
 		}
-	}
-	if !policy.Allows(identity, grant.Resource, grant.Operation, grant.Target) {
-		t.Fatal("caller mutation changed the policy")
-	}
-	for _, empty := range []*GrantPolicy{nil, {}} {
-		if empty.Allows(identity, grant.Resource, grant.Operation, grant.Target) {
-			t.Fatal("empty policy allowed a write")
-		}
-	}
-	var group sync.WaitGroup
-	for range 16 {
-		group.Add(1)
-		go func() {
-			defer group.Done()
-			for range 1000 {
-				if !policy.Allows(identity, grant.Resource, grant.Operation, grant.Target) {
-					t.Error("concurrent read changed authorization")
-					return
-				}
+		input[0].Target = "region-b"
+		for _, change := range []func(*Grant){
+			func(g *Grant) { g.Issuer = "https://other.example" }, func(g *Grant) { g.Subject = "other" },
+			func(g *Grant) { g.Resource = "Other" }, func(g *Grant) { g.Operation = "cleanup.identity" },
+			func(g *Grant) { g.Target = "region-b" }, func(g *Grant) { g.Target = "" },
+			func(g *Grant) { g.Target = "region-a/child" }, func(g *Grant) { g.Target = "REGION-A" },
+		} {
+			altered := grant
+			change(&altered)
+			caller := Identity{Issuer: altered.Issuer, UserID: altered.Subject, Role: "admin", Roles: []string{"admin"}}
+			if policy.Allows(caller, altered.Resource, altered.Operation, altered.Target) {
+				t.Fatal("grant crossed an authority boundary")
 			}
-		}()
-	}
-	group.Wait()
+		}
+		if !policy.Allows(identity, grant.Resource, grant.Operation, grant.Target) {
+			t.Fatal("caller mutation changed the policy")
+		}
+	})
+	t.Run("ST-SUP-RC11-OC23-T01 A nil or zero emitted grant policy denies every operation", func(t *testing.T) {
+		for _, empty := range []*GrantPolicy{nil, {}} {
+			if empty.Allows(identity, grant.Resource, grant.Operation, grant.Target) {
+				t.Fatal("empty policy allowed a write")
+			}
+		}
+	})
+	t.Run("Concurrent reads keep the grant decision", func(t *testing.T) {
+		var group sync.WaitGroup
+		for range 16 {
+			group.Add(1)
+			go func() {
+				defer group.Done()
+				for range 1000 {
+					if !policy.Allows(identity, grant.Resource, grant.Operation, grant.Target) {
+						t.Error("concurrent read changed authorization")
+						return
+					}
+				}
+			}()
+		}
+		group.Wait()
+	})
 }
 
-// Proves ST-SUP-RC11-OC29.
 func TestEmptyAndOpaqueTargetsAreExact(t *testing.T) {
-	grant := testGrant()
-	grant.Target = ""
-	policy, err := NewGrantPolicy([]Grant{grant})
-	if err != nil {
-		t.Fatal(err)
-	}
-	identity := Identity{Issuer: grant.Issuer, UserID: grant.Subject}
-	if !policy.Allows(identity, grant.Resource, grant.Operation, "") || policy.Allows(identity, grant.Resource, grant.Operation, "region-a") {
-		t.Fatal("empty scope acted as a wildcard")
-	}
-	grant.Target = "*"
-	policy, err = NewGrantPolicy([]Grant{grant})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !policy.Allows(identity, grant.Resource, grant.Operation, "*") || policy.Allows(identity, grant.Resource, grant.Operation, "region-a") {
-		t.Fatal("opaque target acted as a wildcard")
-	}
+	t.Run("ST-SUP-RC11-OC29-T01 The emitted grant policy treats an empty target and a literal asterisk target as exact", func(t *testing.T) {
+		grant := testGrant()
+		grant.Target = ""
+		policy, err := NewGrantPolicy([]Grant{grant})
+		if err != nil {
+			t.Fatal(err)
+		}
+		identity := Identity{Issuer: grant.Issuer, UserID: grant.Subject}
+		if !policy.Allows(identity, grant.Resource, grant.Operation, "") || policy.Allows(identity, grant.Resource, grant.Operation, "region-a") {
+			t.Fatal("empty scope acted as a wildcard")
+		}
+		grant.Target = "*"
+		policy, err = NewGrantPolicy([]Grant{grant})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !policy.Allows(identity, grant.Resource, grant.Operation, "*") || policy.Allows(identity, grant.Resource, grant.Operation, "region-a") {
+			t.Fatal("opaque target acted as a wildcard")
+		}
+	})
 }
 
-// Proves ST-SUP-RC11-OC27.
 func TestGrantDocumentsRejectAmbiguousConfiguration(t *testing.T) {
-	encoded, _ := json.Marshal([]Grant{testGrant()})
-	if _, err := ParseGrantPolicy(encoded); err != nil {
-		t.Fatal(err)
-	}
-	if policy, err := ParseGrantPolicy([]byte(`[]`)); err != nil || policy.Allows(Identity{}, "Lease", "read", "") {
-		t.Fatal("empty policy is invalid or allows access", err)
-	}
-	for _, raw := range []string{
-		`null`, `{}`, `[null]`, `[] true`, string(encoded) + `[]`,
-		strings.Replace(string(encoded), `"subject":"worker"`, `"subject":"worker","subject":"other"`, 1),
-		strings.Replace(string(encoded), `"subject":"worker"`, `"subject":null`, 1),
-		strings.Replace(string(encoded), `"subject":"worker"`, `"subject":123`, 1),
-		strings.Replace(string(encoded), `"subject":"worker"`, `"subject":[]`, 1),
-		strings.Replace(string(encoded), `"subject":"worker",`, ``, 1),
-		strings.Replace(string(encoded), `"subject"`, `"Subject"`, 1),
-		strings.Replace(string(encoded), `"subject":"worker"`, `"subject":"worker","extra":"ignored"`, 1),
-		strings.Replace(string(encoded), `"worker"`, `"\ud800"`, 1),
-		strings.Replace(string(encoded), `"worker"`, `" worker"`, 1),
-		strings.Replace(string(encoded), `"worker"`, `"worker\u0000"`, 1),
-		strings.Replace(string(encoded), `"Lease"`, `"*"`, 1),
-		strings.Repeat(" ", 262145), string([]byte{0xff}),
-	} {
-		if policy, err := ParseGrantPolicy([]byte(raw)); err == nil || policy != nil {
-			t.Fatal("ambiguous grant document was accepted")
+	t.Run("ST-SUP-RC11-OC27-T01 The emitted grant document reader refuses an ambiguous document", func(t *testing.T) {
+		encoded, _ := json.Marshal([]Grant{testGrant()})
+		if _, err := ParseGrantPolicy(encoded); err != nil {
+			t.Fatal(err)
 		}
-	}
+		if policy, err := ParseGrantPolicy([]byte(`[]`)); err != nil || policy.Allows(Identity{}, "Lease", "read", "") {
+			t.Fatal("empty policy is invalid or allows access", err)
+		}
+		for _, raw := range []string{
+			`null`, `{}`, `[null]`, `[] true`, string(encoded) + `[]`,
+			strings.Replace(string(encoded), `"subject":"worker"`, `"subject":"worker","subject":"other"`, 1),
+			strings.Replace(string(encoded), `"subject":"worker"`, `"subject":null`, 1),
+			strings.Replace(string(encoded), `"subject":"worker"`, `"subject":123`, 1),
+			strings.Replace(string(encoded), `"subject":"worker"`, `"subject":[]`, 1),
+			strings.Replace(string(encoded), `"subject":"worker",`, ``, 1),
+			strings.Replace(string(encoded), `"subject"`, `"Subject"`, 1),
+			strings.Replace(string(encoded), `"subject":"worker"`, `"subject":"worker","extra":"ignored"`, 1),
+			strings.Replace(string(encoded), `"worker"`, `"\ud800"`, 1),
+			strings.Replace(string(encoded), `"worker"`, `" worker"`, 1),
+			strings.Replace(string(encoded), `"worker"`, `"worker\u0000"`, 1),
+			strings.Replace(string(encoded), `"Lease"`, `"*"`, 1),
+			strings.Repeat(" ", 262145), string([]byte{0xff}),
+		} {
+			if policy, err := ParseGrantPolicy([]byte(raw)); err == nil || policy != nil {
+				t.Fatal("ambiguous grant document was accepted")
+			}
+		}
+	})
 }
 
-// Proves ST-SUP-RC11-OC28.
 func TestGrantConstructionEnforcesBoundsAndUniqueness(t *testing.T) {
-	grant := testGrant()
-	if _, err := NewGrantPolicy([]Grant{grant, grant}); err == nil {
-		t.Fatal("repeated grant accepted")
-	}
-	if _, err := NewGrantPolicy(make([]Grant, 1025)); err == nil {
-		t.Fatal("grant count limit ignored")
-	}
-	for _, change := range []func(*Grant){func(g *Grant) { g.Issuer = "" }, func(g *Grant) { g.Subject = "" }, func(g *Grant) { g.Target = strings.Repeat("x", 257) }, func(g *Grant) { g.Operation = "delete *" }, func(g *Grant) { g.Resource = "bad/resource" }} {
-		altered := grant
-		change(&altered)
-		if _, err := NewGrantPolicy([]Grant{altered}); err == nil {
-			t.Fatal("invalid grant accepted")
+	t.Run("ST-SUP-RC11-OC28-T01 The emitted grant policy refuses a repeated grant and a grant outside its bounds", func(t *testing.T) {
+		grant := testGrant()
+		if _, err := NewGrantPolicy([]Grant{grant, grant}); err == nil {
+			t.Fatal("repeated grant accepted")
 		}
-	}
+		if _, err := NewGrantPolicy(make([]Grant, 1025)); err == nil {
+			t.Fatal("grant count limit ignored")
+		}
+		for _, change := range []func(*Grant){func(g *Grant) { g.Issuer = "" }, func(g *Grant) { g.Subject = "" }, func(g *Grant) { g.Target = strings.Repeat("x", 257) }, func(g *Grant) { g.Operation = "delete *" }, func(g *Grant) { g.Resource = "bad/resource" }} {
+			altered := grant
+			change(&altered)
+			if _, err := NewGrantPolicy([]Grant{altered}); err == nil {
+				t.Fatal("invalid grant accepted")
+			}
+		}
+	})
 }
 
 func BenchmarkGrantPolicy(b *testing.B) {

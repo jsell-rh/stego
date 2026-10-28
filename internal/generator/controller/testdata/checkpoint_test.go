@@ -48,18 +48,19 @@ func TestCheckpointedScanReservesCommitAndRetriesFailedItem(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC05-OC20.
 func TestCheckpointedScanDoesNotCommitAfterParentCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	writes := 0
-	access := CheckpointAccess{Load: func(context.Context) (Checkpoint, error) { return Checkpoint{}, nil }, Save: func(context.Context, int64, string) error { writes++; return nil }}
-	_, err := ScanCheckpointed(ctx, access, func(context.Context, string, int) (CursorPage[string], error) {
-		return CursorPage[string]{Items: []CursorItem[string]{{"a", "a"}, {"b", "b"}}}, nil
-	}, func(context.Context, string) error { cancel(); return nil }, ScanOptions{PageSize: 2, MaxPages: 1, PageTimeout: time.Second}, ObservationOptions{WorkTimeout: time.Second, CommitTimeout: time.Second})
-	if !errors.Is(err, context.Canceled) || writes != 0 {
-		t.Fatal("cancelled parent saved progress", err, writes)
-	}
+	t.Run("ST-SUP-RC05-OC20-T01 A canceled parent saves no checkpoint", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		writes := 0
+		access := CheckpointAccess{Load: func(context.Context) (Checkpoint, error) { return Checkpoint{}, nil }, Save: func(context.Context, int64, string) error { writes++; return nil }}
+		_, err := ScanCheckpointed(ctx, access, func(context.Context, string, int) (CursorPage[string], error) {
+			return CursorPage[string]{Items: []CursorItem[string]{{"a", "a"}, {"b", "b"}}}, nil
+		}, func(context.Context, string) error { cancel(); return nil }, ScanOptions{PageSize: 2, MaxPages: 1, PageTimeout: time.Second}, ObservationOptions{WorkTimeout: time.Second, CommitTimeout: time.Second})
+		if !errors.Is(err, context.Canceled) || writes != 0 {
+			t.Fatal("cancelled parent saved progress", err, writes)
+		}
+	})
 }
 func TestCheckpointedScanPreservesCommitConflict(t *testing.T) {
 	conflict := errors.New("stale checkpoint")

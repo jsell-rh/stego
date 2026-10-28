@@ -330,73 +330,74 @@ func TestReconcile_SubsequentPlanNoChanges(t *testing.T) {
 	}
 }
 
-// Proves ST-DIS-UC06-R01.
 func TestReconcile_PlanShowsUpdateOnChange(t *testing.T) {
-	projectDir, registryDir := setupTestProject(t)
+	t.Run("ST-GEN-UC03-R01-T01 A changed component generator shows as an update in the next plan", func(t *testing.T) {
+		projectDir, registryDir := setupTestProject(t)
 
-	generators := map[string]gen.Generator{
-		"stub-api": &stubGenerator{
+		generators := map[string]gen.Generator{
+			"stub-api": &stubGenerator{
+				files: []gen.File{
+					{Path: "internal/api/handler.go", Content: []byte("package api\n// v1\n")},
+				},
+				wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler()"},
+					Routes:       []string{`mux.Handle("/widgets", handler)`},
+				},
+			},
+			"stub-store": &stubGenerator{},
+		}
+
+		reconcilerInput := ReconcilerInput{
+			ProjectDir:  projectDir,
+			RegistryDir: registryDir,
+			Generators:  generators,
+			GoVersion:   "1.22",
+			ModuleName:  "github.com/test/svc",
+		}
+
+		// First apply.
+		plan1, err := Reconcile(reconcilerInput)
+		if err != nil {
+			t.Fatalf("first Reconcile failed: %v", err)
+		}
+		outDir := filepath.Join(projectDir, "out")
+		if err := Apply(plan1, projectDir, outDir); err != nil {
+			t.Fatalf("first Apply failed: %v", err)
+		}
+
+		// Change the generator output.
+		generators["stub-api"] = &stubGenerator{
 			files: []gen.File{
-				{Path: "internal/api/handler.go", Content: []byte("package api\n// v1\n")},
+				{Path: "internal/api/handler.go", Content: []byte("package api\n// v2\n")},
 			},
 			wiring: &gen.Wiring{
 				Imports:      []string{"internal/api"},
 				Constructors: []string{"api.NewHandler()"},
 				Routes:       []string{`mux.Handle("/widgets", handler)`},
 			},
-		},
-		"stub-store": &stubGenerator{},
-	}
-
-	reconcilerInput := ReconcilerInput{
-		ProjectDir:  projectDir,
-		RegistryDir: registryDir,
-		Generators:  generators,
-		GoVersion:   "1.22",
-		ModuleName:  "github.com/test/svc",
-	}
-
-	// First apply.
-	plan1, err := Reconcile(reconcilerInput)
-	if err != nil {
-		t.Fatalf("first Reconcile failed: %v", err)
-	}
-	outDir := filepath.Join(projectDir, "out")
-	if err := Apply(plan1, projectDir, outDir); err != nil {
-		t.Fatalf("first Apply failed: %v", err)
-	}
-
-	// Change the generator output.
-	generators["stub-api"] = &stubGenerator{
-		files: []gen.File{
-			{Path: "internal/api/handler.go", Content: []byte("package api\n// v2\n")},
-		},
-		wiring: &gen.Wiring{
-			Imports:      []string{"internal/api"},
-			Constructors: []string{"api.NewHandler()"},
-			Routes:       []string{`mux.Handle("/widgets", handler)`},
-		},
-	}
-
-	// Second plan — should show update.
-	plan2, err := Reconcile(reconcilerInput)
-	if err != nil {
-		t.Fatalf("second Reconcile failed: %v", err)
-	}
-
-	if !plan2.HasChanges() {
-		t.Fatal("expected plan to show changes after generator output changed")
-	}
-
-	foundUpdate := false
-	for _, f := range plan2.Files {
-		if f.Path == "internal/api/handler.go" && f.Action == ActionUpdate {
-			foundUpdate = true
 		}
-	}
-	if !foundUpdate {
-		t.Error("expected handler.go to show as 'update'")
-	}
+
+		// Second plan — should show update.
+		plan2, err := Reconcile(reconcilerInput)
+		if err != nil {
+			t.Fatalf("second Reconcile failed: %v", err)
+		}
+
+		if !plan2.HasChanges() {
+			t.Fatal("expected plan to show changes after generator output changed")
+		}
+
+		foundUpdate := false
+		for _, f := range plan2.Files {
+			if f.Path == "internal/api/handler.go" && f.Action == ActionUpdate {
+				foundUpdate = true
+			}
+		}
+		if !foundUpdate {
+			t.Error("expected handler.go to show as 'update'")
+		}
+	})
 }
 
 func TestReconcile_ArchetypeNotFound(t *testing.T) {

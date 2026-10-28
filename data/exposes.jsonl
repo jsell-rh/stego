@@ -1,2 +1,15 @@
 {"source_id":"ST-DECL-CLI01","target_id":"ST-DECL-CMD01"}
 {"source_id":"ST-DECL-CLI02","target_id":"ST-DECL-QRY01"}
+{"source_id":"ST-DIS-CLI04","target_id":"ST-DIS-QRY04"}
+{"source_id":"ST-DIS-CLI05","target_id":"ST-DIS-QRY01"}
+{"source_id":"ST-DIS-CLI06","target_id":"ST-DIS-CMD03"}
+{"source_id":"ST-DIS-CLI07","target_id":"ST-DIS-CMD04"}
+{"source_id":"ST-DIS-CLI08","target_id":"ST-DIS-CMD05"}
+{"source_id":"ST-DIS-CLI09","target_id":"ST-DIS-CMD06"}
+{"source_id":"ST-DIS-CLI10","target_id":"ST-DIS-CMD07"}
+{"source_id":"ST-GEN-CLI01","target_id":"ST-GEN-CMD01"}
+{"source_id":"ST-GEN-CLI02","target_id":"ST-GEN-CMD02"}
+{"source_id":"ST-GEN-CLI03","target_id":"ST-GEN-QRY01"}
+{"source_id":"ST-GEN-CLI04","target_id":"ST-GEN-QRY02"}
+{"source_id":"ST-SUP-CLI01","target_id":"ST-SUP-QRY01"}
+{"source_id":"ST-SUP-CLI02","target_id":"ST-SUP-QRY02"}

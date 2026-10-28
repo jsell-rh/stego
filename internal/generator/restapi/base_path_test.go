@@ -55,32 +55,33 @@ func TestRejectAmbiguousBasePathsBeforeRendering(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC28.
 func TestLiteralBasePathsRegisterAndServeExactRoutes(t *testing.T) {
-	for _, prefix := range []string{"", "/api/v1", "/api/user-mgmt/v1", "/API/v1.0", "/api/_shared/~preview", "/.well-known/service"} {
-		t.Run(prefix, func(t *testing.T) {
-			ctx := basicContext()
-			ctx.BasePath = prefix
-			_, wiring, err := (&Generator{}).Generate(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
-			mux, failure := basePathMux(wiring)
-			if failure != nil {
-				t.Fatal("generated route registration failed", failure)
-			}
-			for _, path := range []string{prefix + "/users/123", prefix + "/openapi"} {
-				response := httptest.NewRecorder()
-				mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
-				if response.Code != http.StatusNoContent {
-					t.Fatal("generated route did not match its literal path", path, response.Code)
+	t.Run("ST-SUP-RC20-OC28-T01 The emitted routes serve exactly the declared base path", func(t *testing.T) {
+		for _, prefix := range []string{"", "/api/v1", "/api/user-mgmt/v1", "/API/v1.0", "/api/_shared/~preview", "/.well-known/service"} {
+			t.Run(prefix, func(t *testing.T) {
+				ctx := basicContext()
+				ctx.BasePath = prefix
+				_, wiring, err := (&Generator{}).Generate(ctx)
+				if err != nil {
+					t.Fatal(err)
 				}
-			}
-			response := httptest.NewRecorder()
-			mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/unrelated/users/123", nil))
-			if response.Code != http.StatusNotFound {
-				t.Fatal("generated route matched an unrelated prefix", response.Code)
-			}
-		})
-	}
+				mux, failure := basePathMux(wiring)
+				if failure != nil {
+					t.Fatal("generated route registration failed", failure)
+				}
+				for _, path := range []string{prefix + "/users/123", prefix + "/openapi"} {
+					response := httptest.NewRecorder()
+					mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+					if response.Code != http.StatusNoContent {
+						t.Fatal("generated route did not match its literal path", path, response.Code)
+					}
+				}
+				response := httptest.NewRecorder()
+				mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/unrelated/users/123", nil))
+				if response.Code != http.StatusNotFound {
+					t.Fatal("generated route matched an unrelated prefix", response.Code)
+				}
+			})
+		}
+	})
 }

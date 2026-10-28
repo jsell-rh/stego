@@ -8,37 +8,38 @@ import (
 	"time"
 )
 
-// Proves ST-SUP-RC05-OC21.
 func TestObservationReservesACommitAfterWorkDeadline(t *testing.T) {
-	parent, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
-	end, _ := parent.Deadline()
-	options := ObservationOptions{WorkTimeout: time.Second, CommitTimeout: 200 * time.Millisecond}
-	var operation, write context.Context
-	err := RunObservation(parent, func(ctx context.Context) error {
-		operation = ctx
-		deadline, _ := ctx.Deadline()
-		if !deadline.Equal(end.Add(-options.CommitTimeout)) {
-			t.Fatal("work did not reserve commit time")
+	t.Run("ST-SUP-RC05-OC21-T01 An observation keeps its commit reserve", func(t *testing.T) {
+		parent, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		defer cancel()
+		end, _ := parent.Deadline()
+		options := ObservationOptions{WorkTimeout: time.Second, CommitTimeout: 200 * time.Millisecond}
+		var operation, write context.Context
+		err := RunObservation(parent, func(ctx context.Context) error {
+			operation = ctx
+			deadline, _ := ctx.Deadline()
+			if !deadline.Equal(end.Add(-options.CommitTimeout)) {
+				t.Fatal("work did not reserve commit time")
+			}
+			<-ctx.Done()
+			return nil // A late success must be rejected.
+		}, func(ctx context.Context, err error) error {
+			write = ctx
+			if ctx.Err() != nil || !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatal("deadline prevented failure commit", ctx.Err(), err)
+			}
+			if operation.Err() == nil {
+				t.Fatal("work context stayed active during commit")
+			}
+			return nil
+		}, options)
+		if !errors.Is(err, context.DeadlineExceeded) || write == nil {
+			t.Fatal("work failure was lost", err)
 		}
-		<-ctx.Done()
-		return nil // A late success must be rejected.
-	}, func(ctx context.Context, err error) error {
-		write = ctx
-		if ctx.Err() != nil || !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatal("deadline prevented failure commit", ctx.Err(), err)
+		if write.Err() == nil {
+			t.Fatal("commit context was not closed")
 		}
-		if operation.Err() == nil {
-			t.Fatal("work context stayed active during commit")
-		}
-		return nil
-	}, options)
-	if !errors.Is(err, context.DeadlineExceeded) || write == nil {
-		t.Fatal("work failure was lost", err)
-	}
-	if write.Err() == nil {
-		t.Fatal("commit context was not closed")
-	}
+	})
 }
 
 func TestObservationPreservesBothFailures(t *testing.T) {

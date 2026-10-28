@@ -31,223 +31,230 @@ func secureClient(t *testing.T, server *httptest.Server) *client.Client {
 	return c
 }
 
-// Proves ST-SUP-RC10-OC01, ST-SUP-RC10-OC02.
 func TestBoundedHTTPSClient(t *testing.T) {
-	var calls atomic.Int32
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
-		switch r.URL.Path {
-		case "/redirect":
-			http.Redirect(w, r, "https://untrusted.example/secret", 307)
-		case "/large":
-			w.Write([]byte(strings.Repeat("x", client.MaxResponseBytes+1)))
-		case "/slow":
-			<-r.Context().Done()
-		case "/fail":
-			http.Error(w, "sensitive-provider-body", 503)
-		default:
-			w.Write([]byte("ok"))
-		}
-	}))
-	defer server.Close()
-	c := secureClient(t, server)
-	caPath := filepath.Join(t.TempDir(), "ca.pem")
-	if err := os.WriteFile(caPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0600); err != nil {
-		t.Fatal(err)
-	}
-	mismatch, err := client.New(client.Options{BaseURL: strings.Replace(server.URL, "127.0.0.1", "localhost", 1), CAFile: caPath})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer mismatch.Close()
-	if _, err := mismatch.Do(context.Background(), "GET", "/record", nil, nil); err == nil {
-		t.Fatal("accepted wrong TLS server identity")
-	}
-
-	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
-	response, err := c.Do(context.Background(), "POST", "/record", http.Header{"Authorization": []string{"Bearer secret"}}, []byte(`{"title":"sample"}`))
-	if err != nil || string(response.Body) != "ok" {
-		t.Fatalf("valid request: %v", err)
-	}
-	before := calls.Load()
-	for _, path := range []string{"//untrusted.example/path", "https://untrusted.example/path", "/../other", "/%2e%2e/other", "/%2fother", "/path#fragment"} {
-		if _, err := c.Do(context.Background(), "GET", path, nil, nil); err == nil {
-			t.Fatalf("accepted %s", path)
-		}
-	}
-	if _, err := c.Do(context.Background(), "POST", "/record", nil, make([]byte, client.MaxRequestBytes+1)); err == nil {
-		t.Fatal("accepted large request")
-	}
-	if calls.Load() != before {
-		t.Fatal("invalid request reached provider")
-	}
-	for _, path := range []string{"/redirect", "/large"} {
-		if _, err := c.Do(context.Background(), "GET", path, nil, nil); err == nil {
-			t.Fatalf("accepted %s", path)
-		}
-	}
-	before = calls.Load()
-	response, err = c.Do(context.Background(), "POST", "/fail", nil, []byte("secret"))
-	if err != nil || response.StatusCode != 503 || calls.Load() != before+1 {
-		t.Fatal("failed mutation was replayed")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-	if response, err := c.Do(ctx, "GET", "/slow", nil, nil); err == nil {
-		t.Fatalf("deadline returned status %d with context error %v", response.StatusCode, ctx.Err())
-	}
-	c.Close()
-	if _, err := c.Do(context.Background(), "GET", "/record", nil, nil); err == nil {
-		t.Fatal("accepted request after close")
-	}
-	other := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("untrusted server reached") }))
-	defer other.Close()
-	wrong := secureClient(t, other)
-	// A request cannot replace the configured origin.
-	if _, err := wrong.Do(context.Background(), "GET", server.URL, nil, nil); err == nil {
-		t.Fatal("accepted foreign origin")
-	}
-}
-
-// Proves ST-SUP-RC10-OC03.
-func TestHTTPSCapacity(t *testing.T) {
-	entered := make(chan struct{}, client.MaxConcurrentRequests)
-	release := make(chan struct{})
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		entered <- struct{}{}
-		select {
-		case <-release:
-		case <-r.Context().Done():
-		}
-	}))
-	defer server.Close()
-	c := secureClient(t, server)
-	var wg sync.WaitGroup
-	for range client.MaxConcurrentRequests {
-		wg.Go(func() {
-			if _, err := c.Do(context.Background(), "GET", "/record", nil, nil); err != nil {
-				t.Error(err)
+	check := func(t *testing.T) {
+		var calls atomic.Int32
+		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls.Add(1)
+			switch r.URL.Path {
+			case "/redirect":
+				http.Redirect(w, r, "https://untrusted.example/secret", 307)
+			case "/large":
+				w.Write([]byte(strings.Repeat("x", client.MaxResponseBytes+1)))
+			case "/slow":
+				<-r.Context().Done()
+			case "/fail":
+				http.Error(w, "sensitive-provider-body", 503)
+			default:
+				w.Write([]byte("ok"))
 			}
-		})
-	}
-	for range client.MaxConcurrentRequests {
-		select {
-		case <-entered:
-		case <-time.After(3 * time.Second):
-			close(release)
-			t.Fatal("requests did not reach service")
+		}))
+		defer server.Close()
+		c := secureClient(t, server)
+		caPath := filepath.Join(t.TempDir(), "ca.pem")
+		if err := os.WriteFile(caPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0600); err != nil {
+			t.Fatal(err)
+		}
+		mismatch, err := client.New(client.Options{BaseURL: strings.Replace(server.URL, "127.0.0.1", "localhost", 1), CAFile: caPath})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer mismatch.Close()
+		if _, err := mismatch.Do(context.Background(), "GET", "/record", nil, nil); err == nil {
+			t.Fatal("accepted wrong TLS server identity")
+		}
+
+		t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+		response, err := c.Do(context.Background(), "POST", "/record", http.Header{"Authorization": []string{"Bearer secret"}}, []byte(`{"title":"sample"}`))
+		if err != nil || string(response.Body) != "ok" {
+			t.Fatalf("valid request: %v", err)
+		}
+		before := calls.Load()
+		for _, path := range []string{"//untrusted.example/path", "https://untrusted.example/path", "/../other", "/%2e%2e/other", "/%2fother", "/path#fragment"} {
+			if _, err := c.Do(context.Background(), "GET", path, nil, nil); err == nil {
+				t.Fatalf("accepted %s", path)
+			}
+		}
+		if _, err := c.Do(context.Background(), "POST", "/record", nil, make([]byte, client.MaxRequestBytes+1)); err == nil {
+			t.Fatal("accepted large request")
+		}
+		if calls.Load() != before {
+			t.Fatal("invalid request reached provider")
+		}
+		for _, path := range []string{"/redirect", "/large"} {
+			if _, err := c.Do(context.Background(), "GET", path, nil, nil); err == nil {
+				t.Fatalf("accepted %s", path)
+			}
+		}
+		before = calls.Load()
+		response, err = c.Do(context.Background(), "POST", "/fail", nil, []byte("secret"))
+		if err != nil || response.StatusCode != 503 || calls.Load() != before+1 {
+			t.Fatal("failed mutation was replayed")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		if response, err := c.Do(ctx, "GET", "/slow", nil, nil); err == nil {
+			t.Fatalf("deadline returned status %d with context error %v", response.StatusCode, ctx.Err())
+		}
+		c.Close()
+		if _, err := c.Do(context.Background(), "GET", "/record", nil, nil); err == nil {
+			t.Fatal("accepted request after close")
+		}
+		other := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("untrusted server reached") }))
+		defer other.Close()
+		wrong := secureClient(t, other)
+		// A request cannot replace the configured origin.
+		if _, err := wrong.Do(context.Background(), "GET", server.URL, nil, nil); err == nil {
+			t.Fatal("accepted foreign origin")
 		}
 	}
-	_, err := c.Do(context.Background(), "GET", "/record", nil, nil)
-	close(release)
-	wg.Wait()
-	if err == nil {
-		t.Fatal("accepted excess request")
-	}
+	t.Run("ST-SUP-RC10-OC01-T01 The emitted HTTPS client keeps one verified origin", check)
+	t.Run("ST-SUP-RC10-OC02-T01 The emitted HTTPS client refuses a redirect and bounds both bodies", check)
 }
 
-// Proves ST-SUP-RC10-OC06.
+func TestHTTPSCapacity(t *testing.T) {
+	t.Run("ST-SUP-RC10-OC03-T01 The emitted client refuses a call beyond its capacity", func(t *testing.T) {
+		entered := make(chan struct{}, client.MaxConcurrentRequests)
+		release := make(chan struct{})
+		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			entered <- struct{}{}
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			}
+		}))
+		defer server.Close()
+		c := secureClient(t, server)
+		var wg sync.WaitGroup
+		for range client.MaxConcurrentRequests {
+			wg.Go(func() {
+				if _, err := c.Do(context.Background(), "GET", "/record", nil, nil); err != nil {
+					t.Error(err)
+				}
+			})
+		}
+		for range client.MaxConcurrentRequests {
+			select {
+			case <-entered:
+			case <-time.After(3 * time.Second):
+				close(release)
+				t.Fatal("requests did not reach service")
+			}
+		}
+		_, err := c.Do(context.Background(), "GET", "/record", nil, nil)
+		close(release)
+		wg.Wait()
+		if err == nil {
+			t.Fatal("accepted excess request")
+		}
+	})
+}
+
 func TestHTTPSCredentials(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "secret")
-	if err := os.WriteFile(path, []byte("secret"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	projected := filepath.Join(t.TempDir(), "projected")
-	if err := os.Symlink(path, projected); err != nil {
-		t.Fatal(err)
-	}
-	for _, mode := range []os.FileMode{0400, 0600, 0440, 0640} {
-		if err := os.Chmod(path, mode); err != nil {
+	t.Run("ST-SUP-RC10-OC06-T01 The emitted client reads only a private credential file", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "secret")
+		if err := os.WriteFile(path, []byte("secret"), 0600); err != nil {
 			t.Fatal(err)
 		}
-		if data, err := client.ReadPrivateFile(projected); err != nil || string(data) != "secret" {
-			t.Fatal("private projected file rejected", mode, err)
-		}
-	}
-	for _, mode := range []os.FileMode{0644, 0460, 0500, 0610} {
-		if err := os.Chmod(path, mode); err != nil {
+		projected := filepath.Join(t.TempDir(), "projected")
+		if err := os.Symlink(path, projected); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := client.ReadPrivateFile(projected); err == nil {
-			t.Fatal("unsafe private file accepted", mode)
+		for _, mode := range []os.FileMode{0400, 0600, 0440, 0640} {
+			if err := os.Chmod(path, mode); err != nil {
+				t.Fatal(err)
+			}
+			if data, err := client.ReadPrivateFile(projected); err != nil || string(data) != "secret" {
+				t.Fatal("private projected file rejected", mode, err)
+			}
 		}
-	}
-	for _, base := range []string{"http://example.test", "https://user:secret@example.test", "https://example.test?query", "https://example.test/#fragment", "https://example.test/../"} {
-		if _, err := client.New(client.Options{BaseURL: base, CAFile: path}); err == nil {
-			t.Fatal("accepted invalid base")
+		for _, mode := range []os.FileMode{0644, 0460, 0500, 0610} {
+			if err := os.Chmod(path, mode); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := client.ReadPrivateFile(projected); err == nil {
+				t.Fatal("unsafe private file accepted", mode)
+			}
 		}
-	}
+		for _, base := range []string{"http://example.test", "https://user:secret@example.test", "https://example.test?query", "https://example.test/#fragment", "https://example.test/../"} {
+			if _, err := client.New(client.Options{BaseURL: base, CAFile: path}); err == nil {
+				t.Fatal("accepted invalid base")
+			}
+		}
+	})
 }
 
-// Proves ST-SUP-RC10-OC05.
 func TestHTTPSStreamFramesLimitsAndCancellation(t *testing.T) {
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/frames":
-			w.Write([]byte("first\n"))
+	t.Run("ST-SUP-RC10-OC05-T01 The emitted stream is bounded and cancellable", func(t *testing.T) {
+		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/frames":
+				w.Write([]byte("first\n"))
+				w.(http.Flusher).Flush()
+				<-r.Context().Done()
+			case "/large":
+				w.Write([]byte(strings.Repeat("x", client.MaxResponseBytes+1) + "\n"))
+			case "/crlf-total":
+				frame := []byte(strings.Repeat("x", 1022) + "\r\n")
+				for n := 0; n < client.MaxStreamBytes/1024+1; n++ {
+					if _, err := w.Write(frame); err != nil {
+						return
+					}
+				}
+			case "/total":
+				frame := []byte(strings.Repeat("x", 1<<20) + "\n")
+				for n := 0; n < 65; n++ {
+					if _, err := w.Write(frame); err != nil {
+						return
+					}
+				}
+			case "/redirect":
+				http.Redirect(w, r, "https://untrusted.example/secret", 307)
+			}
+		}))
+		defer server.Close()
+		c := secureClient(t, server)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		seen := false
+		_, err := c.Stream(ctx, "/frames", nil, func(ctx context.Context, frame []byte) error { seen = string(frame) == "first"; cancel(); return nil })
+		if err == nil || !seen {
+			t.Fatal("stream buffered its live frame", seen, err)
+		}
+		for _, path := range []string{"/large", "/total", "/crlf-total", "/redirect", "//untrusted.example/secret", "/../secret"} {
+			if _, err := c.Stream(context.Background(), path, nil, func(context.Context, []byte) error { return nil }); err == nil {
+				t.Fatal("unbounded or redirected stream", path)
+			}
+		}
+		if _, err := c.Stream(context.Background(), "/frames", nil, nil); err == nil {
+			t.Fatal("missing callback accepted")
+		}
+	})
+}
+
+func TestHTTPSCloseStopsActiveStream(t *testing.T) {
+	t.Run("ST-SUP-RC10-OC04-T01 Closing the emitted client stops a live stream", func(t *testing.T) {
+		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("open\n"))
 			w.(http.Flusher).Flush()
 			<-r.Context().Done()
-		case "/large":
-			w.Write([]byte(strings.Repeat("x", client.MaxResponseBytes+1) + "\n"))
-		case "/crlf-total":
-			frame := []byte(strings.Repeat("x", 1022) + "\r\n")
-			for n := 0; n < client.MaxStreamBytes/1024+1; n++ {
-				if _, err := w.Write(frame); err != nil {
-					return
-				}
+		}))
+		defer server.Close()
+		c := secureClient(t, server)
+		done := make(chan error, 1)
+		go func() {
+			_, err := c.Stream(context.Background(), "/stream", nil, func(context.Context, []byte) error { c.Close(); return nil })
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			if err == nil {
+				t.Fatal("close did not cancel stream")
 			}
-		case "/total":
-			frame := []byte(strings.Repeat("x", 1<<20) + "\n")
-			for n := 0; n < 65; n++ {
-				if _, err := w.Write(frame); err != nil {
-					return
-				}
-			}
-		case "/redirect":
-			http.Redirect(w, r, "https://untrusted.example/secret", 307)
+		case <-time.After(time.Second):
+			t.Fatal("close left a live stream")
 		}
-	}))
-	defer server.Close()
-	c := secureClient(t, server)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	seen := false
-	_, err := c.Stream(ctx, "/frames", nil, func(ctx context.Context, frame []byte) error { seen = string(frame) == "first"; cancel(); return nil })
-	if err == nil || !seen {
-		t.Fatal("stream buffered its live frame", seen, err)
-	}
-	for _, path := range []string{"/large", "/total", "/crlf-total", "/redirect", "//untrusted.example/secret", "/../secret"} {
-		if _, err := c.Stream(context.Background(), path, nil, func(context.Context, []byte) error { return nil }); err == nil {
-			t.Fatal("unbounded or redirected stream", path)
-		}
-	}
-	if _, err := c.Stream(context.Background(), "/frames", nil, nil); err == nil {
-		t.Fatal("missing callback accepted")
-	}
-}
-
-// Proves ST-SUP-RC10-OC04.
-func TestHTTPSCloseStopsActiveStream(t *testing.T) {
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("open\n"))
-		w.(http.Flusher).Flush()
-		<-r.Context().Done()
-	}))
-	defer server.Close()
-	c := secureClient(t, server)
-	done := make(chan error, 1)
-	go func() {
-		_, err := c.Stream(context.Background(), "/stream", nil, func(context.Context, []byte) error { c.Close(); return nil })
-		done <- err
-	}()
-	select {
-	case err := <-done:
-		if err == nil {
-			t.Fatal("close did not cancel stream")
-		}
-	case <-time.After(time.Second):
-		t.Fatal("close left a live stream")
-	}
+	})
 }
 
 func TestClientTimeoutAndSystemTrust(t *testing.T) {
@@ -281,55 +288,56 @@ func TestClientTimeoutAndSystemTrust(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC10-OC07.
 func TestHTTPSPeerCertificatePin(t *testing.T) {
-	var calls atomic.Int32
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1); w.Write([]byte("ready")) }))
-	defer server.Close()
-	ca := filepath.Join(t.TempDir(), "ca.pem")
-	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0600); err != nil {
-		t.Fatal(err)
-	}
-	expected := sha256.Sum256(server.Certificate().Raw)
-	for _, scenario := range []string{"exact", "copied", "different", "untrusted", "wrong host", "empty"} {
-		t.Run(scenario, func(t *testing.T) {
-			pin := expected
-			options := client.Options{BaseURL: server.URL, CAFile: ca, PeerCertificateSHA256: &pin}
-			switch scenario {
-			case "different":
-				pin[0] ^= 255
-			case "untrusted":
-				options.CAFile = ""
-			case "wrong host":
-				options.BaseURL = strings.Replace(server.URL, "127.0.0.1", "localhost", 1)
-			case "empty":
-				pin = [32]byte{}
-			}
-			before := calls.Load()
-			c, err := client.New(options)
-			if scenario == "empty" {
-				if err == nil {
-					c.Close()
-					t.Fatal("empty peer pin accepted")
+	t.Run("ST-SUP-RC10-OC07-T01 A certificate pin is copied and does not replace CA trust", func(t *testing.T) {
+		var calls atomic.Int32
+		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1); w.Write([]byte("ready")) }))
+		defer server.Close()
+		ca := filepath.Join(t.TempDir(), "ca.pem")
+		if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0600); err != nil {
+			t.Fatal(err)
+		}
+		expected := sha256.Sum256(server.Certificate().Raw)
+		for _, scenario := range []string{"exact", "copied", "different", "untrusted", "wrong host", "empty"} {
+			t.Run(scenario, func(t *testing.T) {
+				pin := expected
+				options := client.Options{BaseURL: server.URL, CAFile: ca, PeerCertificateSHA256: &pin}
+				switch scenario {
+				case "different":
+					pin[0] ^= 255
+				case "untrusted":
+					options.CAFile = ""
+				case "wrong host":
+					options.BaseURL = strings.Replace(server.URL, "127.0.0.1", "localhost", 1)
+				case "empty":
+					pin = [32]byte{}
 				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer c.Close()
-			if scenario == "copied" {
-				pin[0] ^= 255
-			}
-			response, err := c.Do(context.Background(), "GET", "/readyz", nil, nil)
-			valid := scenario == "exact" || scenario == "copied"
-			if valid {
-				if err != nil || response.StatusCode != 200 || string(response.Body) != "ready" || calls.Load() != before+1 {
-					t.Fatal("matching peer failed", err)
+				before := calls.Load()
+				c, err := client.New(options)
+				if scenario == "empty" {
+					if err == nil {
+						c.Close()
+						t.Fatal("empty peer pin accepted")
+					}
+					return
 				}
-			} else if err == nil || calls.Load() != before {
-				t.Fatal("unverified peer reached the application")
-			}
-		})
-	}
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer c.Close()
+				if scenario == "copied" {
+					pin[0] ^= 255
+				}
+				response, err := c.Do(context.Background(), "GET", "/readyz", nil, nil)
+				valid := scenario == "exact" || scenario == "copied"
+				if valid {
+					if err != nil || response.StatusCode != 200 || string(response.Body) != "ready" || calls.Load() != before+1 {
+						t.Fatal("matching peer failed", err)
+					}
+				} else if err == nil || calls.Load() != before {
+					t.Fatal("unverified peer reached the application")
+				}
+			})
+		}
+	})
 }

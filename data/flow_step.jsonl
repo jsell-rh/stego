@@ -10,3 +10,63 @@
 {"id":"ST-DECL-UC04-FL-S01","title":"The agent reads each fault: the rule it breaks, its path, what was found and what is allowed","flow_id":"ST-DECL-UC04-FL","path":"main","position":1}
 {"id":"ST-DECL-UC04-FL-S02","title":"The agent changes the declaration at the path each fault names","flow_id":"ST-DECL-UC04-FL","path":"main","position":2}
 {"id":"ST-DECL-UC04-FL-S03","title":"The agent asks STEGO to check the declaration again","flow_id":"ST-DECL-UC04-FL","path":"main","position":3}
+{"id":"ST-DIS-UC02-FL-S01","title":"The platform engineer names the component digest and the checkouts to search","flow_id":"ST-DIS-UC02-FL","path":"main","position":1}
+{"id":"ST-DIS-UC02-FL-S02","title":"STEGO reads the committed record in each checkout, and names each service that pins the digest, with its version and digest","flow_id":"ST-DIS-UC02-FL","path":"main","position":2}
+{"id":"ST-DIS-UC02-FL-S03","title":"A checkout with generated output and no readable record is reported as unknown","flow_id":"ST-DIS-UC02-FL","path":"unknown","position":1}
+{"id":"ST-DIS-UC04-FL-S01","title":"The platform engineer changes one component, and the registry publishes its new digest","flow_id":"ST-DIS-UC04-FL","path":"main","position":1}
+{"id":"ST-DIS-UC04-FL-S02","title":"The platform engineer records the new digest as the successor of the old one, with the fail date and whether taking it needs a declaration or fill change","flow_id":"ST-DIS-UC04-FL","path":"main","position":2}
+{"id":"ST-DIS-UC04-FL-S03","title":"A consumer moves that component's pin alone and runs apply in Generating, and keeps its compiler pin","flow_id":"ST-DIS-UC04-FL","path":"main","position":3}
+{"id":"ST-DIS-UC04-FL-S04","title":"A supersession with no successor, no fail date or no statement of the change it needs is refused","flow_id":"ST-DIS-UC04-FL","path":"refused","position":1}
+{"id":"ST-DIS-UC05-FL-S01","title":"The service author runs validate or plan","flow_id":"ST-DIS-UC05-FL","path":"main","position":1}
+{"id":"ST-DIS-UC05-FL-S02","title":"STEGO reports each superseded pin with its successor and fail date, and does not fail for that reason","flow_id":"ST-DIS-UC05-FL","path":"main","position":2}
+{"id":"ST-DIS-UC05-FL-S03","title":"Past its fail date, validate fails for the pin","flow_id":"ST-DIS-UC05-FL","path":"expired","position":1}
+{"id":"ST-DIS-UC05-FL-S04","title":"Past its fail date, apply in Generating refuses to write","flow_id":"ST-DIS-UC05-FL","path":"expired","position":2}
+{"id":"ST-DIS-UC05-FL-S05","title":"When STEGO cannot read the lifecycle records, it reports that it could not check, and does not report the pins as current","flow_id":"ST-DIS-UC05-FL","path":"unchecked","position":1}
+{"id":"ST-DIS-UC07-FL-S01","title":"The platform engineer asks STEGO for every recorded service that pins the digest","flow_id":"ST-DIS-UC07-FL","path":"main","position":1}
+{"id":"ST-DIS-UC07-FL-S02","title":"The platform engineer records the withdrawal, with the future date after which the digest fails","flow_id":"ST-DIS-UC07-FL","path":"main","position":2}
+{"id":"ST-DIS-UC07-FL-S03","title":"After the date, validate fails for every service that still pins the digest","flow_id":"ST-DIS-UC07-FL","path":"main","position":3}
+{"id":"ST-DIS-UC07-FL-S04","title":"A withdrawal whose date is already past is refused","flow_id":"ST-DIS-UC07-FL","path":"refused","position":1}
+{"id":"ST-DIS-UC07-FL-S05","title":"Apply in Generating refuses a new pin to a withdrawn digest at once, whatever the date of the withdrawal","flow_id":"ST-DIS-UC07-FL","path":"new pin","position":1}
+{"id":"ST-DIS-UC08-FL-S01","title":"The platform engineer names the commit to qualify","flow_id":"ST-DIS-UC08-FL","path":"main","position":1}
+{"id":"ST-DIS-UC08-FL-S02","title":"STEGO finds the checks run and the signed artifact run at exactly that commit, and requires a success conclusion for every required job","flow_id":"ST-DIS-UC08-FL","path":"main","position":2}
+{"id":"ST-DIS-UC08-FL-S03","title":"STEGO installs the published release through the consumer path, and cross-checks each asset digest against the qualified artifacts","flow_id":"ST-DIS-UC08-FL","path":"main","position":3}
+{"id":"ST-DIS-UC08-FL-S04","title":"A run from another commit, or a required job with no success conclusion, fails qualification","flow_id":"ST-DIS-UC08-FL","path":"refused","position":1}
+{"id":"ST-DIS-UC08-FL-S05","title":"A release tag that points at another commit fails verification","flow_id":"ST-DIS-UC08-FL","path":"refused","position":2}
+{"id":"ST-DIS-UC09-FL-S01","title":"The operator names the release by its full source commit","flow_id":"ST-DIS-UC09-FL","path":"main","position":1}
+{"id":"ST-DIS-UC09-FL-S02","title":"The installer checks each asset digest and both signatures, and the signed record's platform, then puts the binary and its build record in place","flow_id":"ST-DIS-UC09-FL","path":"main","position":2}
+{"id":"ST-DIS-UC09-FL-S03","title":"The operator asks the installed compiler for its build identity, and it reports the identity it writes into a service's record","flow_id":"ST-DIS-UC09-FL","path":"main","position":3}
+{"id":"ST-DIS-UC09-FL-S04","title":"On any platform other than Linux amd64, the installer refuses before it downloads anything","flow_id":"ST-DIS-UC09-FL","path":"refused","position":1}
+{"id":"ST-GEN-UC01-FL-S01","title":"The service author runs apply, and STEGO writes the generated files and the record together","flow_id":"ST-GEN-UC01-FL","path":"main","position":1}
+{"id":"ST-GEN-UC01-FL-S02","title":"The service author commits the record with the generated code","flow_id":"ST-GEN-UC01-FL","path":"main","position":2}
+{"id":"ST-GEN-UC01-FL-S03","title":"An interrupted apply leaves a journal, and plan, apply and drift refuse until the author runs recover","flow_id":"ST-GEN-UC01-FL","path":"interrupted","position":1}
+{"id":"ST-GEN-UC02-FL-S01","title":"The platform engineer asks STEGO to check the record, and STEGO names every generated file that no longer matches its hash","flow_id":"ST-GEN-UC02-FL","path":"main","position":1}
+{"id":"ST-GEN-UC02-FL-S02","title":"A record that disagrees with itself, or that names a registry or compiler its state does not hold, is reported as broken","flow_id":"ST-GEN-UC02-FL","path":"broken","position":1}
+{"id":"ST-GEN-UC03-FL-S01","title":"The service author moves the component's pin to the successor digest","flow_id":"ST-GEN-UC03-FL","path":"main","position":1}
+{"id":"ST-GEN-UC03-FL-S02","title":"The service author runs plan, and STEGO lists each file that the new digest changes","flow_id":"ST-GEN-UC03-FL","path":"main","position":2}
+{"id":"ST-GEN-UC03-FL-S03","title":"The service author runs apply, and STEGO changes only the files that the new digest affects","flow_id":"ST-GEN-UC03-FL","path":"main","position":3}
+{"id":"ST-GEN-UC03-FL-S04","title":"The service author reads the diff and commits it with the record","flow_id":"ST-GEN-UC03-FL","path":"main","position":4}
+{"id":"ST-GEN-UC03-FL-S05","title":"Apply names every generated file that no longer matches its hash, and writes nothing","flow_id":"ST-GEN-UC03-FL","path":"refused","position":1}
+{"id":"ST-GEN-UC03-FL-S06","title":"When the author states on the command that the run may replace hand-edited files, apply replaces them","flow_id":"ST-GEN-UC03-FL","path":"replace","position":1}
+{"id":"ST-SUP-UC01-FL-S01","title":"The platform engineer defines each port the component provides that the registry does not hold yet","flow_id":"ST-SUP-UC01-FL","path":"main","position":1}
+{"id":"ST-SUP-UC01-FL-S02","title":"The platform engineer declares each slot the component offers, with its protobuf contract","flow_id":"ST-SUP-UC01-FL","path":"main","position":2}
+{"id":"ST-SUP-UC01-FL-S03","title":"The platform engineer adds the component with its config schema, its ports, its slots and its namespace, and STEGO accepts it before its generator runs","flow_id":"ST-SUP-UC01-FL","path":"main","position":3}
+{"id":"ST-SUP-UC01-FL-S04","title":"The platform engineer states each thing the emitted code must always do as an output contract, with the generator that builds it and the test that proves it","flow_id":"ST-SUP-UC01-FL","path":"main","position":4}
+{"id":"ST-SUP-UC01-FL-S05","title":"The platform engineer changes what the generator emits, and releases the component at a new version","flow_id":"ST-SUP-UC01-FL","path":"change","position":1}
+{"id":"ST-SUP-UC01-FL-S06","title":"A namespace that another component of the registry claims is refused, naming both components","flow_id":"ST-SUP-UC01-FL","path":"refused","position":1}
+{"id":"ST-SUP-UC02-FL-S01","title":"The platform engineer pins the common registry at one reference","flow_id":"ST-SUP-UC02-FL","path":"main","position":1}
+{"id":"ST-SUP-UC02-FL-S02","title":"The platform engineer names a local registry that adds the team's own parts, at one reference","flow_id":"ST-SUP-UC02-FL","path":"main","position":2}
+{"id":"ST-SUP-UC02-FL-S03","title":"STEGO composes the sources into one active set, and records the reference of each","flow_id":"ST-SUP-UC02-FL","path":"main","position":3}
+{"id":"ST-SUP-UC02-FL-S04","title":"A local part that would replace a common part is refused, naming the part and both registries","flow_id":"ST-SUP-UC02-FL","path":"refused","position":1}
+{"id":"ST-SUP-UC03-FL-S01","title":"The platform engineer chooses the components the archetype includes, and the component that answers each port by default","flow_id":"ST-SUP-UC03-FL","path":"main","position":1}
+{"id":"ST-SUP-UC03-FL-S02","title":"STEGO accepts the archetype with its smallest example content, which a fresh declaration of it passes checking with","flow_id":"ST-SUP-UC03-FL","path":"main","position":2}
+{"id":"ST-SUP-UC03-FL-S03","title":"A required port with no provider, or with more than one, is refused, naming the port and every component involved","flow_id":"ST-SUP-UC03-FL","path":"refused","position":1}
+{"id":"ST-SUP-UC03-FL-S04","title":"A component that is not ga is refused, naming the component and its stage","flow_id":"ST-SUP-UC03-FL","path":"refused","position":2}
+{"id":"ST-SUP-UC03-FL-S05","title":"A mixin that brings a component that is not ga is refused, naming the component and its stage","flow_id":"ST-SUP-UC03-FL","path":"refused","position":3}
+{"id":"ST-SUP-UC04-FL-S01","title":"The platform engineer gives the component a port name of its own, which no ga component provides","flow_id":"ST-SUP-UC04-FL","path":"main","position":1}
+{"id":"ST-SUP-UC04-FL-S02","title":"The platform engineer adds the component at stage alpha, with the date it stops working","flow_id":"ST-SUP-UC04-FL","path":"main","position":2}
+{"id":"ST-SUP-UC04-FL-S03","title":"A service that wants the component accepts it by name in its declaration, with a date of its own","flow_id":"ST-SUP-UC04-FL","path":"main","position":3}
+{"id":"ST-SUP-UC04-FL-S04","title":"A sunset date that is already past is refused","flow_id":"ST-SUP-UC04-FL","path":"refused","position":1}
+{"id":"ST-SUP-UC05-FL-S01","title":"The platform engineer reads every recorded service that uses the component","flow_id":"ST-SUP-UC05-FL","path":"main","position":1}
+{"id":"ST-SUP-UC05-FL-S02","title":"The platform engineer moves the component up to ga, which removes its sunset date and lets it take over the real port name","flow_id":"ST-SUP-UC05-FL","path":"main","position":2}
+{"id":"ST-SUP-UC05-FL-S03","title":"The platform engineer withdraws a component that will not graduate","flow_id":"ST-SUP-UC05-FL","path":"withdrawn","position":1}
+{"id":"ST-SUP-UC05-FL-S04","title":"STEGO reports every service that still uses a component past its sunset, and checking fails for each of them","flow_id":"ST-SUP-UC05-FL","path":"missed","position":1}

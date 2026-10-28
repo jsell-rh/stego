@@ -28,7 +28,6 @@ func keyDocument(t *testing.T, id string, key *rsa.PrivateKey) []byte {
 	return data
 }
 
-// Proves ST-SUP-RC11-OC13, ST-SUP-RC11-OC15, ST-SUP-RC11-OC16, ST-SUP-RC11-OC17, ST-SUP-RC11-OC18.
 func TestKeySourceTLSRotationAndFailure(t *testing.T) {
 	first, second := keyForTest(t), keyForTest(t)
 	var document atomic.Value
@@ -50,13 +49,15 @@ func TestKeySourceTLSRotationAndFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	config := JWKSConfig{Trust: Config{Issuer: "https://issuer.example", Audience: "example-api"}, URL: server.URL}
-	if v, err := NewJWKSVerifier(context.Background(), config); err == nil {
-		v.Stop()
-		t.Fatal("untrusted TLS certificate accepted")
-	}
-	if requests.Load() != 0 {
-		t.Fatal("untrusted server received an HTTP request")
-	}
+	t.Run("ST-SUP-RC11-OC13-T01 The emitted key source refuses an untrusted TLS certificate before it sends a request", func(t *testing.T) {
+		if v, err := NewJWKSVerifier(context.Background(), config); err == nil {
+			v.Stop()
+			t.Fatal("untrusted TLS certificate accepted")
+		}
+		if requests.Load() != 0 {
+			t.Fatal("untrusted server received an HTTP request")
+		}
+	})
 	config.CAFile = ca
 	v, err := NewJWKSVerifier(context.Background(), config)
 	if err != nil {
@@ -71,69 +72,83 @@ func TestKeySourceTLSRotationAndFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	initial := requests.Load()
-	for i := 0; i < 3; i++ {
-		if _, err := v.Verify(context.Background(), b); err == nil {
-			t.Fatal("unknown key accepted")
+	t.Run("ST-SUP-RC11-OC15-T01 The emitted key source makes one request for each refresh and holds the cooldown", func(t *testing.T) {
+		for i := 0; i < 3; i++ {
+			if _, err := v.Verify(context.Background(), b); err == nil {
+				t.Fatal("unknown key accepted")
+			}
 		}
-	}
-	if requests.Load() != initial {
-		t.Fatal("unknown key bypassed the refresh interval")
-	}
-	now = now.Add(31 * time.Second)
-	document.Store(keyDocument(t, "second", second))
-	if _, err := v.Verify(context.Background(), b); err != nil {
-		t.Fatal("rotated key rejected", err)
-	}
-	if _, err := v.Verify(context.Background(), a); err == nil {
-		t.Fatal("removed key accepted")
-	}
-	if requests.Load() != initial+1 {
-		t.Fatal("rotation did not make one bounded request")
-	}
-	fail.Store(true)
-	now = now.Add(6 * time.Minute)
-	if _, err := v.Verify(context.Background(), b); err != nil {
-		t.Fatal("known key failed inside the outage limit", err)
-	}
-	now = now.Add(10 * time.Minute)
-	if _, err := v.Verify(context.Background(), b); err == nil {
-		t.Fatal("expired cache survived provider failure")
-	}
-	fail.Store(false)
-	now = now.Add(31 * time.Second)
-	if _, err := v.Verify(context.Background(), b); err != nil {
-		t.Fatal("provider recovery failed", err)
-	}
-	canceled, cancel := context.WithCancel(context.Background())
-	cancel()
-	count := requests.Load()
-	if _, err := v.Verify(canceled, b); err == nil {
-		t.Fatal("canceled request accepted")
-	}
-	if requests.Load() != count {
-		t.Fatal("canceled request contacted provider")
-	}
-	v.Stop()
-	v.Stop()
-	if _, err := v.Verify(context.Background(), b); err == nil {
-		t.Fatal("stopped verifier accepted request")
-	}
+		if requests.Load() != initial {
+			t.Fatal("unknown key bypassed the refresh interval")
+		}
+		now = now.Add(31 * time.Second)
+		document.Store(keyDocument(t, "second", second))
+		if _, err := v.Verify(context.Background(), b); err != nil {
+			t.Fatal("rotated key rejected", err)
+		}
+		if _, err := v.Verify(context.Background(), a); err == nil {
+			t.Fatal("removed key accepted")
+		}
+		if requests.Load() != initial+1 {
+			t.Fatal("rotation did not make one bounded request")
+		}
+	})
+	t.Run("ST-SUP-RC11-OC17-T01 The emitted key source denies a removed key at once", func(t *testing.T) {
+		if _, err := v.Verify(context.Background(), a); err == nil {
+			t.Fatal("removed key accepted")
+		}
+	})
+	t.Run("ST-SUP-RC11-OC16-T01 The emitted key source denies every token after the outage window until a load succeeds", func(t *testing.T) {
+		fail.Store(true)
+		now = now.Add(6 * time.Minute)
+		if _, err := v.Verify(context.Background(), b); err != nil {
+			t.Fatal("known key failed inside the outage limit", err)
+		}
+		now = now.Add(10 * time.Minute)
+		if _, err := v.Verify(context.Background(), b); err == nil {
+			t.Fatal("expired cache survived provider failure")
+		}
+		fail.Store(false)
+		now = now.Add(31 * time.Second)
+		if _, err := v.Verify(context.Background(), b); err != nil {
+			t.Fatal("provider recovery failed", err)
+		}
+	})
+	t.Run("A canceled request does not contact the provider", func(t *testing.T) {
+		canceled, cancel := context.WithCancel(context.Background())
+		cancel()
+		count := requests.Load()
+		if _, err := v.Verify(canceled, b); err == nil {
+			t.Fatal("canceled request accepted")
+		}
+		if requests.Load() != count {
+			t.Fatal("canceled request contacted provider")
+		}
+	})
+	t.Run("ST-SUP-RC11-OC18-T01 After Stop, the emitted key source denies every verification and a repeat Stop is safe", func(t *testing.T) {
+		v.Stop()
+		v.Stop()
+		if _, err := v.Verify(context.Background(), b); err == nil {
+			t.Fatal("stopped verifier accepted request")
+		}
+	})
 }
 
-// Proves ST-SUP-RC11-OC05, ST-SUP-RC11-OC13.
 func TestKeySourceInputLimitsAndRedirect(t *testing.T) {
 	key := keyForTest(t)
 	file := filepath.Join(t.TempDir(), "keys.json")
 	config := JWKSConfig{Trust: Config{Issuer: "https://issuer.example", Audience: "example-api"}, File: file}
-	for _, data := range [][]byte{nil, []byte(`{"keys":[]}`), []byte(strings.Repeat(" ", maxKeyFileBytes+1)), []byte(`{"keys":[],"keys":[]}`)} {
-		if err := os.WriteFile(file, data, 0600); err != nil {
-			t.Fatal(err)
+	t.Run("An invalid key file is refused", func(t *testing.T) {
+		for _, data := range [][]byte{nil, []byte(`{"keys":[]}`), []byte(strings.Repeat(" ", maxKeyFileBytes+1)), []byte(`{"keys":[],"keys":[]}`)} {
+			if err := os.WriteFile(file, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if v, err := NewJWKSVerifier(context.Background(), config); err == nil {
+				v.Stop()
+				t.Fatal("invalid key file accepted")
+			}
 		}
-		if v, err := NewJWKSVerifier(context.Background(), config); err == nil {
-			v.Stop()
-			t.Fatal("invalid key file accepted")
-		}
-	}
+	})
 	if err := os.WriteFile(file, keyDocument(t, "key", key), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -142,124 +157,133 @@ func TestKeySourceInputLimitsAndRedirect(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer v.Stop()
-	if _, err := v.Verify(context.Background(), strings.Repeat("x", maxTokenBytes+1)); err == nil {
-		t.Fatal("oversize token accepted")
-	}
-	config.Trust.Audience = ""
-	if bad, err := NewJWKSVerifier(context.Background(), config); err == nil {
-		bad.Stop()
-		t.Fatal("missing audience accepted")
-	}
+	t.Run("ST-SUP-RC11-OC05-T02 The emitted key source refuses an oversize token", func(t *testing.T) {
+		if _, err := v.Verify(context.Background(), strings.Repeat("x", maxTokenBytes+1)); err == nil {
+			t.Fatal("oversize token accepted")
+		}
+	})
+	t.Run("A missing audience is refused", func(t *testing.T) {
+		config.Trust.Audience = ""
+		if bad, err := NewJWKSVerifier(context.Background(), config); err == nil {
+			bad.Stop()
+			t.Fatal("missing audience accepted")
+		}
+	})
 	var targetRequests atomic.Int32
 	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { targetRequests.Add(1) }))
 	defer target.Close()
 	redirect := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, target.URL, http.StatusFound) }))
 	defer redirect.Close()
-	ca := filepath.Join(t.TempDir(), "ca.pem")
-	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: redirect.Certificate().Raw}), 0600); err != nil {
-		t.Fatal(err)
-	}
-	config = JWKSConfig{Trust: Config{Issuer: "https://issuer.example", Audience: "example-api"}, URL: redirect.URL, CAFile: ca}
-	if bad, err := NewJWKSVerifier(context.Background(), config); err == nil {
-		bad.Stop()
-		t.Fatal("redirect accepted")
-	}
-	if targetRequests.Load() != 0 {
-		t.Fatal("key loader followed redirect")
-	}
-	config.URL = "http://example.com/keys"
-	if bad, err := NewJWKSVerifier(context.Background(), config); err == nil {
-		bad.Stop()
-		t.Fatal("plaintext key source accepted")
-	}
+	t.Run("ST-SUP-RC11-OC13-T02 The emitted key source refuses a redirect and a plaintext URL", func(t *testing.T) {
+		ca := filepath.Join(t.TempDir(), "ca.pem")
+		if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: redirect.Certificate().Raw}), 0600); err != nil {
+			t.Fatal(err)
+		}
+		config = JWKSConfig{Trust: Config{Issuer: "https://issuer.example", Audience: "example-api"}, URL: redirect.URL, CAFile: ca}
+		if bad, err := NewJWKSVerifier(context.Background(), config); err == nil {
+			bad.Stop()
+			t.Fatal("redirect accepted")
+		}
+		if targetRequests.Load() != 0 {
+			t.Fatal("key loader followed redirect")
+		}
+		config.URL = "http://example.com/keys"
+		if bad, err := NewJWKSVerifier(context.Background(), config); err == nil {
+			bad.Stop()
+			t.Fatal("plaintext key source accepted")
+		}
+	})
 }
 
-// Proves ST-SUP-RC11-OC25.
 func TestKeySourceStopCancelsRefresh(t *testing.T) {
-	key := keyForTest(t)
-	data := keyDocument(t, "key", key)
-	var wait atomic.Bool
-	entered := make(chan struct{})
-	var once sync.Once
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if wait.Load() {
-			once.Do(func() { close(entered) })
-			<-r.Context().Done()
-			return
-		}
-		_, _ = w.Write(data)
-	}))
-	defer server.Close()
-	ca := filepath.Join(t.TempDir(), "ca.pem")
-	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0600); err != nil {
-		t.Fatal(err)
-	}
-	v, err := NewJWKSVerifier(context.Background(), JWKSConfig{Trust: Config{Issuer: "https://issuer.example", Audience: "example-api"}, URL: server.URL, CAFile: ca})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer v.Stop()
-	future := time.Now().Add(6 * time.Minute)
-	v.now = func() time.Time { return future }
-	raw := signed(t, validClaims(), jwt.SigningMethodRS256, key, map[string]any{"kid": "key"})
-	wait.Store(true)
-	done := make(chan error, 1)
-	go func() { _, err := v.Verify(context.Background(), raw); done <- err }()
-	select {
-	case <-entered:
-	case <-time.After(2 * time.Second):
-		t.Fatal("refresh did not start")
-	}
-	v.Stop()
-	v.Stop()
-	select {
-	case err := <-done:
-		if err == nil {
-			t.Fatal("stopped refresh accepted token")
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("shutdown did not cancel key retrieval")
-	}
-}
-
-// Proves ST-SUP-RC11-OC26.
-func TestEmptyKeySourceFailsClosed(t *testing.T) {
-	var v JWKSVerifier
-	if _, err := v.Verify(context.Background(), "token"); err == nil {
-		t.Fatal("empty verifier accepted token")
-	}
-	v.Stop()
-	v.Stop()
-}
-
-// Proves ST-SUP-RC11-OC19.
-func TestRemoteKeyInputLimits(t *testing.T) {
-	for _, mode := range []string{"body", "headers", "status"} {
-		t.Run(mode, func(t *testing.T) {
-			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				switch mode {
-				case "body":
-					_, _ = w.Write([]byte(strings.Repeat("x", maxKeyFileBytes+1)))
-				case "headers":
-					w.Header().Set("X-Excess", strings.Repeat("x", 16384))
-					w.WriteHeader(200)
-				case "status":
-					http.Error(w, "private-provider-error", 503)
-				}
-			}))
-			defer server.Close()
-			ca := filepath.Join(t.TempDir(), "ca.pem")
-			if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0600); err != nil {
-				t.Fatal(err)
+	t.Run("ST-SUP-RC11-OC25-T01 Stop on the emitted key source cancels a retrieval that is already running", func(t *testing.T) {
+		key := keyForTest(t)
+		data := keyDocument(t, "key", key)
+		var wait atomic.Bool
+		entered := make(chan struct{})
+		var once sync.Once
+		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if wait.Load() {
+				once.Do(func() { close(entered) })
+				<-r.Context().Done()
+				return
 			}
-			v, err := NewJWKSVerifier(context.Background(), JWKSConfig{Trust: Config{Issuer: "https://issuer.example", Audience: "example-api"}, URL: server.URL, CAFile: ca})
+			_, _ = w.Write(data)
+		}))
+		defer server.Close()
+		ca := filepath.Join(t.TempDir(), "ca.pem")
+		if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0600); err != nil {
+			t.Fatal(err)
+		}
+		v, err := NewJWKSVerifier(context.Background(), JWKSConfig{Trust: Config{Issuer: "https://issuer.example", Audience: "example-api"}, URL: server.URL, CAFile: ca})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer v.Stop()
+		future := time.Now().Add(6 * time.Minute)
+		v.now = func() time.Time { return future }
+		raw := signed(t, validClaims(), jwt.SigningMethodRS256, key, map[string]any{"kid": "key"})
+		wait.Store(true)
+		done := make(chan error, 1)
+		go func() { _, err := v.Verify(context.Background(), raw); done <- err }()
+		select {
+		case <-entered:
+		case <-time.After(2 * time.Second):
+			t.Fatal("refresh did not start")
+		}
+		v.Stop()
+		v.Stop()
+		select {
+		case err := <-done:
 			if err == nil {
-				v.Stop()
-				t.Fatal("invalid remote input accepted")
+				t.Fatal("stopped refresh accepted token")
 			}
-			if strings.Contains(err.Error(), server.URL) || strings.Contains(err.Error(), "private-provider-error") {
-				t.Fatal("provider details reached the startup error")
-			}
-		})
-	}
+		case <-time.After(2 * time.Second):
+			t.Fatal("shutdown did not cancel key retrieval")
+		}
+	})
+}
+
+func TestEmptyKeySourceFailsClosed(t *testing.T) {
+	t.Run("ST-SUP-RC11-OC26-T01 A zero emitted key source denies every token and a repeat Stop is safe", func(t *testing.T) {
+		var v JWKSVerifier
+		if _, err := v.Verify(context.Background(), "token"); err == nil {
+			t.Fatal("empty verifier accepted token")
+		}
+		v.Stop()
+		v.Stop()
+	})
+}
+
+func TestRemoteKeyInputLimits(t *testing.T) {
+	t.Run("ST-SUP-RC11-OC19-T01 A startup error from the emitted key source holds no provider detail", func(t *testing.T) {
+		for _, mode := range []string{"body", "headers", "status"} {
+			t.Run(mode, func(t *testing.T) {
+				server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch mode {
+					case "body":
+						_, _ = w.Write([]byte(strings.Repeat("x", maxKeyFileBytes+1)))
+					case "headers":
+						w.Header().Set("X-Excess", strings.Repeat("x", 16384))
+						w.WriteHeader(200)
+					case "status":
+						http.Error(w, "private-provider-error", 503)
+					}
+				}))
+				defer server.Close()
+				ca := filepath.Join(t.TempDir(), "ca.pem")
+				if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0600); err != nil {
+					t.Fatal(err)
+				}
+				v, err := NewJWKSVerifier(context.Background(), JWKSConfig{Trust: Config{Issuer: "https://issuer.example", Audience: "example-api"}, URL: server.URL, CAFile: ca})
+				if err == nil {
+					v.Stop()
+					t.Fatal("invalid remote input accepted")
+				}
+				if strings.Contains(err.Error(), server.URL) || strings.Contains(err.Error(), "private-provider-error") {
+					t.Fatal("provider details reached the startup error")
+				}
+			})
+		}
+	})
 }

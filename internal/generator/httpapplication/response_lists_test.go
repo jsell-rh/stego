@@ -123,9 +123,14 @@ func TestHTTPResponseJSONMappingBounds(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC10-OC25, ST-SUP-RC10-OC26.
 func TestGeneratedHTTPResponseJSONMappings(t *testing.T) {
-	checkGeneratedResponses(t, responseJSONContext(), responseJSONRuntimeTest, []string{"", "TestResponseListsPresence", "TestResponseListsRejectInvalidInput", "TestResponseListsOwnOutput"})
+	passed := checkGeneratedResponses(t, responseJSONContext(), responseJSONRuntimeTest, []string{"", "TestResponseListsPresence", "TestResponseListsRejectInvalidInput", "TestResponseListsOwnOutput"})
+	t.Run("ST-SUP-RC10-OC25-T04 The emitted JSON list conversion refuses invalid input", func(t *testing.T) {
+		requireGeneratedResponses(t, passed, "TestResponseListsRejectInvalidInput")
+	})
+	t.Run("ST-SUP-RC10-OC26-T04 The emitted JSON list conversion owns its output", func(t *testing.T) {
+		requireGeneratedResponses(t, passed, "TestResponseListsOwnOutput")
+	})
 }
 
 const responseJSONRuntimeTest = `package responses

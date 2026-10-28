@@ -1,0 +1,8 @@
+{"id":"ST-DIS-SP02-PR","title":"lifecycle.IsSuperseded","specification_id":"ST-DIS-SP02","file":"internal/lifecycle/standing.go","description":"Not written yet."}
+{"id":"ST-DIS-SP03-PR","title":"lifecycle.IsPastFailDate","specification_id":"ST-DIS-SP03","file":"internal/lifecycle/standing.go","description":"Not written yet."}
+{"id":"ST-DIS-SP04-PR","title":"lifecycle.IsWithdrawn","specification_id":"ST-DIS-SP04","file":"internal/lifecycle/standing.go","description":"Not written yet."}
+{"id":"ST-GEN-SP01-PR","title":"DetectDrift file comparison","specification_id":"ST-GEN-SP01","file":"internal/compiler/drift.go","description":"DetectDrift compares each generated file on disk with the hash in the record, and lists it as modified or deleted."}
+{"id":"ST-SUP-SP01-PR","title":"registry.FitForGoldenPath","specification_id":"ST-SUP-SP01","file":"internal/registry/stage.go","description":"Not written yet: no component declares a stage today."}
+{"id":"ST-SUP-SP02-PR","title":"ports.Resolve (ambiguous ports)","specification_id":"ST-SUP-SP02","file":"internal/ports/resolve.go","description":"Resolve reports an AmbiguousPort for each required port that more than one active component provides with no binding to choose one."}
+{"id":"ST-SUP-SP03-PR","title":"ports.Resolve (unresolved ports)","specification_id":"ST-SUP-SP03","file":"internal/ports/resolve.go","description":"Resolve reports an UnresolvedPort for each required port that no active component provides."}
+{"id":"ST-SUP-SP04-PR","title":"registry.PastSunset","specification_id":"ST-SUP-SP04","file":"internal/registry/stage.go","description":"Not written yet: no component declares a sunset today."}

@@ -1,1 +1,7 @@
 {"id":"ST-VO01-C01","title":"One operator for each binding","value_object_id":"ST-VO01","statement":"A slot operator MUST be exactly one of gate, chain or fan-out."}
+{"id":"ST-VO02-C01","title":"One of three stages","value_object_id":"ST-VO02","statement":"A maturity stage MUST be exactly one of alpha, beta or ga."}
+{"id":"ST-VO03-C01","title":"Common or local","value_object_id":"ST-VO03","statement":"A registry trust MUST be exactly one of common or local."}
+{"id":"ST-VO41-C01","title":"Sixty-four lower-case hexadecimal digits","value_object_id":"ST-VO41","statement":"A content digest MUST be a SHA-256 digest written as exactly 64 lower-case hexadecimal digits."}
+{"id":"ST-VO42-C01","title":"A known source state","value_object_id":"ST-VO42","statement":"The source state of a build identity MUST be one of unknown, clean or modified."}
+{"id":"ST-VO42-C02","title":"An unknown source is unknown throughout","value_object_id":"ST-VO42","statement":"When the VCS or the revision of a build identity is unknown, its VCS, revision and source state MUST all be unknown."}
+{"id":"ST-VO43-C01","title":"A full commit ID","value_object_id":"ST-VO43","statement":"A source revision MUST be a full commit ID of 40 lower-case hexadecimal digits."}

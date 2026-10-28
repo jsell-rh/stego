@@ -110,46 +110,48 @@ func (r *claimFaultRows) Next(values []driver.Value) error {
 	return r.failure
 }
 
-// Proves ST-SUP-RC02-OC54.
 func TestRefreshClaimReadFailureKeepsSessionUsable(t *testing.T) {
-	for name, failure := range map[string]error{"lost row": io.ErrUnexpectedEOF, "cancelled": context.Canceled, "deadline": context.DeadlineExceeded} {
-		t.Run(name, func(t *testing.T) {
-			f := setup(t)
-			active, _ := login(t, f)
-			expireAccess(t, f, active)
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			before, state, _, err := f.backend.store.read(ctx, active.Value)
-			require(t, err == nil && state == "active", "session setup failed")
-			fault := &claimReadFault{failure: failure}
-			store := faultClaimStore(t, f, fault)
-			_, err = store.claimRefresh(ctx, active.Value)
-			require(t, errors.Is(err, errStore) && fault.used.Load(), "claim did not report the injected read failure")
-			after, state, _, err := f.backend.store.read(ctx, active.Value)
-			require(t, err == nil && state == "active" && after.Access == before.Access && after.Refresh == before.Refresh, "failed claim left a pending refresh or changed credentials")
-			_, refreshes, _ := f.oidc.counts()
-			require(t, refreshes == 0, "failed claim used a refresh token")
-			_, err = f.backend.active(ctx, active.Value)
-			require(t, err == nil, "session could not renew after a failed claim")
-			_, refreshes, _ = f.oidc.counts()
-			require(t, refreshes == 1, "recovery did not use one refresh request")
-		})
-	}
+	t.Run("ST-SUP-RC02-OC54-T01 A failed renewal claim leaves the session usable", func(t *testing.T) {
+		for name, failure := range map[string]error{"lost row": io.ErrUnexpectedEOF, "cancelled": context.Canceled, "deadline": context.DeadlineExceeded} {
+			t.Run(name, func(t *testing.T) {
+				f := setup(t)
+				active, _ := login(t, f)
+				expireAccess(t, f, active)
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				before, state, _, err := f.backend.store.read(ctx, active.Value)
+				require(t, err == nil && state == "active", "session setup failed")
+				fault := &claimReadFault{failure: failure}
+				store := faultClaimStore(t, f, fault)
+				_, err = store.claimRefresh(ctx, active.Value)
+				require(t, errors.Is(err, errStore) && fault.used.Load(), "claim did not report the injected read failure")
+				after, state, _, err := f.backend.store.read(ctx, active.Value)
+				require(t, err == nil && state == "active" && after.Access == before.Access && after.Refresh == before.Refresh, "failed claim left a pending refresh or changed credentials")
+				_, refreshes, _ := f.oidc.counts()
+				require(t, refreshes == 0, "failed claim used a refresh token")
+				_, err = f.backend.active(ctx, active.Value)
+				require(t, err == nil, "session could not renew after a failed claim")
+				_, refreshes, _ = f.oidc.counts()
+				require(t, refreshes == 1, "recovery did not use one refresh request")
+			})
+		}
+	})
 }
 
-// Proves ST-SUP-RC02-OC10.
 func TestRefreshClaimLostCommitRequiresLogin(t *testing.T) {
-	f := setup(t)
-	active, _ := login(t, f)
-	expireAccess(t, f, active)
-	fault := &claimReadFault{loseCommit: true}
-	store := faultClaimStore(t, f, fault)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_, err := store.claimRefresh(ctx, active.Value)
-	require(t, errors.Is(err, errSession) && fault.used.Load(), "uncertain commit did not require a new login")
-	_, _, _, err = f.backend.store.read(ctx, active.Value)
-	require(t, errors.Is(err, errSession), "uncertain commit retained its session")
-	_, refreshes, _ := f.oidc.counts()
-	require(t, refreshes == 0, "uncertain claim used a refresh token")
+	t.Run("ST-SUP-RC02-OC10-T02 A renewal claim with a lost commit requires a new login", func(t *testing.T) {
+		f := setup(t)
+		active, _ := login(t, f)
+		expireAccess(t, f, active)
+		fault := &claimReadFault{loseCommit: true}
+		store := faultClaimStore(t, f, fault)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, err := store.claimRefresh(ctx, active.Value)
+		require(t, errors.Is(err, errSession) && fault.used.Load(), "uncertain commit did not require a new login")
+		_, _, _, err = f.backend.store.read(ctx, active.Value)
+		require(t, errors.Is(err, errSession), "uncertain commit retained its session")
+		_, refreshes, _ := f.oidc.counts()
+		require(t, refreshes == 0, "uncertain claim used a refresh token")
+	})
 }

@@ -142,27 +142,28 @@ func TestStateJournalRecoveryAndConcurrentSave(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC05-OC17.
 func TestStateJournalUncertainWritesRequireRead(t *testing.T) {
-	for _, fault := range []string{"lost result", "version", "mutated argument"} {
-		t.Run(fault, func(t *testing.T) {
-			j, f := newJournalFixture(t)
-			ctx := context.Background()
-			initial, err := j.Load(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
-			f.fault = fault
-			failed, err := j.Save(ctx, initial, []byte("saved before provider mutation"))
-			if err == nil || failed.journal != nil || f.writes != 1 {
-				t.Fatal("uncertain write returned usable state or was retried")
-			}
-			recovered, err := j.Load(ctx)
-			if err != nil || recovered.Version() != 1 || string(recovered.Reveal()) != "saved before provider mutation" {
-				t.Fatal("committed uncertain result did not recover", err)
-			}
-		})
-	}
+	t.Run("ST-SUP-RC05-OC17-T01 An uncertain save requires a fresh load", func(t *testing.T) {
+		for _, fault := range []string{"lost result", "version", "mutated argument"} {
+			t.Run(fault, func(t *testing.T) {
+				j, f := newJournalFixture(t)
+				ctx := context.Background()
+				initial, err := j.Load(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				f.fault = fault
+				failed, err := j.Save(ctx, initial, []byte("saved before provider mutation"))
+				if err == nil || failed.journal != nil || f.writes != 1 {
+					t.Fatal("uncertain write returned usable state or was retried")
+				}
+				recovered, err := j.Load(ctx)
+				if err != nil || recovered.Version() != 1 || string(recovered.Reveal()) != "saved before provider mutation" {
+					t.Fatal("committed uncertain result did not recover", err)
+				}
+			})
+		}
+	})
 }
 func TestStateJournalRejectsInvalidStorageAndBounds(t *testing.T) {
 	ctx := context.Background()

@@ -1,0 +1,12 @@
+{"source_id":"ST-DIS-Q01","target_id":"ST-DIS-RM01"}
+{"source_id":"ST-DIS-Q01","target_id":"ST-DIS-RM03"}
+{"source_id":"ST-DIS-Q01","target_id":"ST-DIS-UC02-R01"}
+{"source_id":"ST-DIS-Q01","target_id":"ST-GEN-EV01"}
+{"source_id":"ST-DIS-Q02","target_id":"ST-DIS-UC04-R04"}
+{"source_id":"ST-DIS-Q02","target_id":"ST-GEN-CMD01"}
+{"source_id":"ST-GEN-Q01","target_id":"ST-DIS-EV03"}
+{"source_id":"ST-GEN-Q01","target_id":"ST-DIS-EV04"}
+{"source_id":"ST-GEN-Q01","target_id":"ST-DIS-UC05-R03"}
+{"source_id":"ST-GEN-Q01","target_id":"ST-DIS-UC07-R03"}
+{"source_id":"ST-GEN-Q01","target_id":"ST-GEN-CMD01"}
+{"source_id":"ST-GEN-Q01","target_id":"ST-GEN-RM03"}

@@ -19,7 +19,6 @@ var deploymentScopeTests []byte
 //go:embed testdata/render_configuration_test.go
 var deploymentConfigurationTests []byte
 
-// Proves ST-SUP-RC15-OC16, ST-SUP-RC15-OC17, ST-SUP-RC15-OC18, ST-SUP-RC15-OC19.
 func TestGeneratedDeploymentScopes(t *testing.T) {
 	ctx := allocationContext()
 	rpc := rpcContext()
@@ -92,7 +91,25 @@ func TestGeneratedDeploymentScopes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if commandErr != nil {
-		t.Fatalf("generated scope checks: %v\n%s", commandErr, output)
-	}
+	// One run of the generated module holds the checks of every record below.
+	t.Run("ST-SUP-RC15-OC16-T01 The generated renderer splits scopes and keeps every object", func(t *testing.T) {
+		if commandErr != nil {
+			t.Fatalf("generated scope checks: %v\n%s", commandErr, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC17-T01 The generated renderer sets the configuration digest in one annotation", func(t *testing.T) {
+		if commandErr != nil {
+			t.Fatalf("generated scope checks: %v\n%s", commandErr, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC18-T01 The generated renderer keeps generated labels against owner labels", func(t *testing.T) {
+		if commandErr != nil {
+			t.Fatalf("generated scope checks: %v\n%s", commandErr, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC19-T01 The generated renderer adds pull Secrets as name references", func(t *testing.T) {
+		if commandErr != nil {
+			t.Fatalf("generated scope checks: %v\n%s", commandErr, output)
+		}
+	})
 }

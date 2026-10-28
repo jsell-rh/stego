@@ -1,6 +1,5 @@
 package gosdk
 
-// Proves ST-SUP-RC06-OC08.
 const nullableRuntimeTest = `package sdk
 
 import (
@@ -17,6 +16,7 @@ import (
 )
 
 func TestNullableExchange(t *testing.T) {
+ t.Run("ST-SUP-RC06-OC08-T01 The emitted SDK keeps the three nullable states in both directions", func(t *testing.T) {
  t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
  received := make(chan []byte, 1)
  server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -62,5 +62,6 @@ func TestNullableExchange(t *testing.T) {
  if value, err := field.Description.Get(); err != nil || value != "" { t.Fatal("cannot set an empty value") }
  field.Description.SetUnspecified()
  if field.Description.IsSpecified() { t.Fatal("cannot omit field") }
+ })
 }
 `

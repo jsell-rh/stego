@@ -1,0 +1,1 @@
+{"id":"ST-GEN-DS01","title":"Component digest","domain_id":"ST-GEN","statement":"The digest of one component MUST be computed from that component's files in the registry alone, in a fixed order, so the same content always gives the same digest and a change to another component never changes it."}

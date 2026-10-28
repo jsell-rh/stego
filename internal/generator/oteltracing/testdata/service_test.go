@@ -127,51 +127,52 @@ func (w *blockedLogWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// Proves ST-SUP-RC17-OC23.
 func TestBlockedServiceLogOutputIsBounded(t *testing.T) {
-	collectorFixture(t, true)
-	writer := &blockedLogWriter{entered: make(chan struct{}), release: make(chan struct{})}
-	runtime, err := newRuntime(writer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		close(writer.release)
-		runtime.Close()
-		select {
-		case <-runtime.service.local.done:
-		case <-time.After(time.Second):
-			t.Error("released log worker did not stop")
+	t.Run("ST-SUP-RC17-OC23-T01 A blocked local log output of the emitted runtime stays bounded and does not block its caller", func(t *testing.T) {
+		collectorFixture(t, true)
+		writer := &blockedLogWriter{entered: make(chan struct{}), release: make(chan struct{})}
+		runtime, err := newRuntime(writer)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}()
-	runtime.LogServiceEvent(context.Background(), ServiceReady)
-	select {
-	case <-writer.entered:
-	case <-time.After(time.Second):
-		t.Fatal("local writer did not start")
-	}
-	started := time.Now()
-	for i := 0; i < QueueSize*3; i++ {
-		runtime.LogServiceEvent(context.Background(), ServiceFailed)
-	}
-	if time.Since(started) > time.Second {
-		t.Fatal("log queue blocked the caller")
-	}
-	if runtime.LocalLogDrops() != QueueSize*2 {
-		t.Fatal("local queue is not bounded", runtime.LocalLogDrops())
-	}
-	runtime.service.lifecycle = true
-	started = time.Now()
-	runtime.Close()
-	if elapsed := time.Since(started); elapsed < ShutdownTimeout || elapsed > ShutdownTimeout+time.Second {
-		t.Fatal("shared shutdown budget not enforced", elapsed)
-	}
-	if runtime.LocalLogDrops() != QueueSize*2+2 {
-		t.Fatal("final events bypassed the queue bound")
-	}
-	if runtime.LogServiceEvent(context.Background(), ServiceFailed) {
-		t.Fatal("closed queue accepted an event")
-	}
+		defer func() {
+			close(writer.release)
+			runtime.Close()
+			select {
+			case <-runtime.service.local.done:
+			case <-time.After(time.Second):
+				t.Error("released log worker did not stop")
+			}
+		}()
+		runtime.LogServiceEvent(context.Background(), ServiceReady)
+		select {
+		case <-writer.entered:
+		case <-time.After(time.Second):
+			t.Fatal("local writer did not start")
+		}
+		started := time.Now()
+		for i := 0; i < QueueSize*3; i++ {
+			runtime.LogServiceEvent(context.Background(), ServiceFailed)
+		}
+		if time.Since(started) > time.Second {
+			t.Fatal("log queue blocked the caller")
+		}
+		if runtime.LocalLogDrops() != QueueSize*2 {
+			t.Fatal("local queue is not bounded", runtime.LocalLogDrops())
+		}
+		runtime.service.lifecycle = true
+		started = time.Now()
+		runtime.Close()
+		if elapsed := time.Since(started); elapsed < ShutdownTimeout || elapsed > ShutdownTimeout+time.Second {
+			t.Fatal("shared shutdown budget not enforced", elapsed)
+		}
+		if runtime.LocalLogDrops() != QueueSize*2+2 {
+			t.Fatal("final events bypassed the queue bound")
+		}
+		if runtime.LogServiceEvent(context.Background(), ServiceFailed) {
+			t.Fatal("closed queue accepted an event")
+		}
+	})
 }
 
 type failedLogWriter struct{}
@@ -208,15 +209,16 @@ func TestServiceLogWriteFailureAndConcurrentClose(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC17-OC30.
 func TestServiceIdentityIsValidatedWithoutCollector(t *testing.T) {
-	traceEnvironment(t)
-	for _, service := range []string{"private\ncredential", strings.Repeat("x", 129), "name=value"} {
-		t.Setenv("OTEL_SERVICE_NAME", service)
-		if _, err := NewRuntime(); err == nil || strings.Contains(err.Error(), service) {
-			t.Fatal("invalid identity accepted or exposed")
+	t.Run("ST-SUP-RC17-OC30-T01 The emitted runtime refuses an invalid service name and does not echo it", func(t *testing.T) {
+		traceEnvironment(t)
+		for _, service := range []string{"private\ncredential", strings.Repeat("x", 129), "name=value"} {
+			t.Setenv("OTEL_SERVICE_NAME", service)
+			if _, err := NewRuntime(); err == nil || strings.Contains(err.Error(), service) {
+				t.Fatal("invalid identity accepted or exposed")
+			}
 		}
-	}
+	})
 }
 
 func BenchmarkServiceLogs(b *testing.B) {

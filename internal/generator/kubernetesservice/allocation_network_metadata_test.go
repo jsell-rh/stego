@@ -81,86 +81,87 @@ func TestAllocationNetworkMetadataStatusPolicy(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC15-OC30.
 func TestAllocationNetworkMetadataCEL(t *testing.T) {
-	env, err := cel.NewEnv(cel.Variable("object", cel.DynType), cel.Variable("oldObject", cel.DynType), cel.Variable("request", cel.DynType))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, provider := range []struct{ key, prefix, group string }{{ovnPodNetworks, "system:ovn-node:", "system:ovn-nodes"}, {multusNetworkStatus, "system:multus:", "system:multus"}} {
-		t.Run(provider.key, func(t *testing.T) {
-			ast, issues := env.Compile(allocationNetworkMetadataCEL(provider.key, provider.prefix, provider.group))
-			if issues.Err() != nil {
-				t.Fatal(issues.Err())
-			}
-			program, err := env.Program(ast, cel.CostLimit(10000))
-			if err != nil {
-				t.Fatal(err)
-			}
-			pod := func(value string) object {
-				annotations := object{}
-				if value != "" {
-					annotations[provider.key] = value
+	t.Run("ST-SUP-RC15-OC30-T01 Only the assigned network node identity can change the Pod network output annotation", func(t *testing.T) {
+		env, err := cel.NewEnv(cel.Variable("object", cel.DynType), cel.Variable("oldObject", cel.DynType), cel.Variable("request", cel.DynType))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, provider := range []struct{ key, prefix, group string }{{ovnPodNetworks, "system:ovn-node:", "system:ovn-nodes"}, {multusNetworkStatus, "system:multus:", "system:multus"}} {
+			t.Run(provider.key, func(t *testing.T) {
+				ast, issues := env.Compile(allocationNetworkMetadataCEL(provider.key, provider.prefix, provider.group))
+				if issues.Err() != nil {
+					t.Fatal(issues.Err())
 				}
-				return object{"metadata": object{"annotations": annotations}, "spec": object{"nodeName": "node-one"}}
-			}
-			cases := map[string]struct {
-				allowed bool
-				change  func(object)
-			}{
-				"assigned node adds":     {true, func(object) {}},
-				"assigned node replaces": {true, func(v object) { v["oldObject"] = pod("old") }},
-				"assigned node removes":  {true, func(v object) { v["oldObject"] = pod("old"); v["object"] = pod("") }},
-				"workload adds": {false, func(v object) {
-					v["request"].(object)["userInfo"].(object)["username"] = "system:serviceaccount:tenant:workload"
-				}},
-				"other node": {false, func(v object) { v["request"].(object)["userInfo"].(object)["username"] = provider.prefix + "node-two" }},
-				"prefix spoof": {false, func(v object) {
-					v["request"].(object)["userInfo"].(object)["username"] = provider.prefix + "node-one:extra"
-				}},
-				"wrong group":           {false, func(v object) { v["request"].(object)["userInfo"].(object)["groups"] = []any{"system:authenticated"} }},
-				"missing group":         {false, func(v object) { delete(v["request"].(object)["userInfo"].(object), "groups") }},
-				"different subresource": {false, func(v object) { v["request"].(object)["subResource"] = "ephemeralcontainers" }},
-				"main resource write":   {false, func(v object) { v["request"].(object)["subResource"] = "" }},
-				"create injection":      {false, func(v object) { v["oldObject"] = nil; v["request"].(object)["operation"] = "CREATE" }},
-				"new assigned node":     {false, func(v object) { v["object"].(object)["spec"].(object)["nodeName"] = "node-two" }},
-				"missing assignment":    {false, func(v object) { delete(v["oldObject"].(object)["spec"].(object), "nodeName") }},
-				"empty assignment":      {false, func(v object) { v["oldObject"].(object)["spec"].(object)["nodeName"] = "" }},
-				"workload preserves": {true, func(v object) {
-					v["oldObject"] = pod("new")
-					v["request"].(object)["userInfo"] = object{"username": "workload", "groups": []any{}}
-				}},
-				"workload changes": {false, func(v object) {
-					v["oldObject"] = pod("old")
-					v["request"].(object)["userInfo"] = object{"username": "workload", "groups": []any{}}
-				}},
-				"workload removes": {false, func(v object) {
-					v["oldObject"] = pod("old")
-					v["object"] = pod("")
-					v["request"].(object)["userInfo"] = object{"username": "workload", "groups": []any{}}
-				}},
-				"create without metadata": {true, func(v object) {
-					v["oldObject"] = nil
-					v["object"] = pod("")
-					v["request"].(object)["operation"] = "CREATE"
-				}},
-			}
-			for name, test := range cases {
-				t.Run(name, func(t *testing.T) {
-					values := object{"object": pod("new"), "oldObject": pod(""), "request": object{"operation": "UPDATE", "subResource": "status", "userInfo": object{"username": provider.prefix + "node-one", "groups": []any{provider.group, "system:authenticated"}}}}
-					test.change(values)
-					result, _, err := program.Eval(values)
-					if test.allowed {
-						if err != nil || result.Value() != true {
-							t.Fatal("valid network update denied", result, err)
-						}
-					} else if err == nil && result.Value() != false {
-						t.Fatal("untrusted network update permitted", result)
+				program, err := env.Program(ast, cel.CostLimit(10000))
+				if err != nil {
+					t.Fatal(err)
+				}
+				pod := func(value string) object {
+					annotations := object{}
+					if value != "" {
+						annotations[provider.key] = value
 					}
-				})
-			}
-		})
-	}
+					return object{"metadata": object{"annotations": annotations}, "spec": object{"nodeName": "node-one"}}
+				}
+				cases := map[string]struct {
+					allowed bool
+					change  func(object)
+				}{
+					"assigned node adds":     {true, func(object) {}},
+					"assigned node replaces": {true, func(v object) { v["oldObject"] = pod("old") }},
+					"assigned node removes":  {true, func(v object) { v["oldObject"] = pod("old"); v["object"] = pod("") }},
+					"workload adds": {false, func(v object) {
+						v["request"].(object)["userInfo"].(object)["username"] = "system:serviceaccount:tenant:workload"
+					}},
+					"other node": {false, func(v object) { v["request"].(object)["userInfo"].(object)["username"] = provider.prefix + "node-two" }},
+					"prefix spoof": {false, func(v object) {
+						v["request"].(object)["userInfo"].(object)["username"] = provider.prefix + "node-one:extra"
+					}},
+					"wrong group":           {false, func(v object) { v["request"].(object)["userInfo"].(object)["groups"] = []any{"system:authenticated"} }},
+					"missing group":         {false, func(v object) { delete(v["request"].(object)["userInfo"].(object), "groups") }},
+					"different subresource": {false, func(v object) { v["request"].(object)["subResource"] = "ephemeralcontainers" }},
+					"main resource write":   {false, func(v object) { v["request"].(object)["subResource"] = "" }},
+					"create injection":      {false, func(v object) { v["oldObject"] = nil; v["request"].(object)["operation"] = "CREATE" }},
+					"new assigned node":     {false, func(v object) { v["object"].(object)["spec"].(object)["nodeName"] = "node-two" }},
+					"missing assignment":    {false, func(v object) { delete(v["oldObject"].(object)["spec"].(object), "nodeName") }},
+					"empty assignment":      {false, func(v object) { v["oldObject"].(object)["spec"].(object)["nodeName"] = "" }},
+					"workload preserves": {true, func(v object) {
+						v["oldObject"] = pod("new")
+						v["request"].(object)["userInfo"] = object{"username": "workload", "groups": []any{}}
+					}},
+					"workload changes": {false, func(v object) {
+						v["oldObject"] = pod("old")
+						v["request"].(object)["userInfo"] = object{"username": "workload", "groups": []any{}}
+					}},
+					"workload removes": {false, func(v object) {
+						v["oldObject"] = pod("old")
+						v["object"] = pod("")
+						v["request"].(object)["userInfo"] = object{"username": "workload", "groups": []any{}}
+					}},
+					"create without metadata": {true, func(v object) {
+						v["oldObject"] = nil
+						v["object"] = pod("")
+						v["request"].(object)["operation"] = "CREATE"
+					}},
+				}
+				for name, test := range cases {
+					t.Run(name, func(t *testing.T) {
+						values := object{"object": pod("new"), "oldObject": pod(""), "request": object{"operation": "UPDATE", "subResource": "status", "userInfo": object{"username": provider.prefix + "node-one", "groups": []any{provider.group, "system:authenticated"}}}}
+						test.change(values)
+						result, _, err := program.Eval(values)
+						if test.allowed {
+							if err != nil || result.Value() != true {
+								t.Fatal("valid network update denied", result, err)
+							}
+						} else if err == nil && result.Value() != false {
+							t.Fatal("untrusted network update permitted", result)
+						}
+					})
+				}
+			})
+		}
+	})
 }
 
 func TestAllocationNetworkMetadataManifests(t *testing.T) {

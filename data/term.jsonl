@@ -6,3 +6,37 @@
 {"id":"ST-DECL-TM06","title":"Fill","domain_id":"ST-DECL","meaning":"Code an author or an agent writes against a generated slot contract. STEGO does not generate it."}
 {"id":"ST-DECL-TM07","title":"Fault","domain_id":"ST-DECL","meaning":"One way a declaration breaks a rule, given as structured data an agent can act on."}
 {"id":"ST-DECL-TM08","title":"Experimental acceptance","domain_id":"ST-DECL","meaning":"A statement in a declaration that it accepts a component that is not ga, until a date."}
+{"id":"ST-DIS-TM01","title":"Record","domain_id":"ST-DIS","meaning":"The part of .stego/state.yaml that says what a service's generated code was built from: the service, the compiler build, the registry content, every component pin and the hash of every generated file."}
+{"id":"ST-DIS-TM02","title":"Component pin","domain_id":"ST-DIS","meaning":"The version and digest of one component that a service is built from."}
+{"id":"ST-DIS-TM03","title":"Component digest","domain_id":"ST-DIS","meaning":"The SHA-256 digest of one component's content in the registry. It changes only when that component's content changes."}
+{"id":"ST-DIS-TM04","title":"Supersession","domain_id":"ST-DIS","meaning":"A statement that a component digest has a successor, with the date after which the old digest fails, and whether taking the successor needs a declaration or fill change."}
+{"id":"ST-DIS-TM05","title":"Successor","domain_id":"ST-DIS","meaning":"The component digest that replaces a superseded digest. A platform engineer declares it. STEGO never infers it."}
+{"id":"ST-DIS-TM06","title":"Withdrawal","domain_id":"ST-DIS","meaning":"A statement that a component digest must not be used any more, with the future date after which it fails."}
+{"id":"ST-DIS-TM07","title":"Fail date","domain_id":"ST-DIS","meaning":"The date after which a superseded or withdrawn pin fails validation, and apply writes nothing."}
+{"id":"ST-DIS-TM11","title":"Fleet","domain_id":"ST-DIS","meaning":"Every service whose record a sweep can read, in the checkouts a platform engineer names."}
+{"id":"ST-DIS-TM12","title":"Compiler release","domain_id":"ST-DIS","meaning":"One signed compiler, built at one exact commit, that holds every generator STEGO can run."}
+{"id":"ST-DIS-TM13","title":"Qualification","domain_id":"ST-DIS","meaning":"The check that the CI runs, required jobs and signed artifacts of a compiler release all passed at its exact commit."}
+{"id":"ST-DIS-TM14","title":"Build identity","domain_id":"ST-DIS","meaning":"What the compiler records about its own build: its Go version, platform, module version, revision and source state."}
+{"id":"ST-DIS-TM15","title":"Qualified platform","domain_id":"ST-DIS","meaning":"The one platform a compiler release is qualified for: Linux amd64."}
+{"id":"ST-GEN-TM01","title":"Record","domain_id":"ST-GEN","meaning":"The part of .stego/state.yaml that says what a service's generated code was built from: the service, the compiler build, the registry content, every component pin and the hash of every generated file."}
+{"id":"ST-GEN-TM02","title":"Component pin","domain_id":"ST-GEN","meaning":"The version and digest of one component that a service is built from."}
+{"id":"ST-GEN-TM03","title":"Drift","domain_id":"ST-GEN","meaning":"A difference between a generated file and the hash its record holds, or between a recorded input and the file on disk."}
+{"id":"ST-GEN-TM04","title":"Hand edit","domain_id":"ST-GEN","meaning":"A change to a generated file that no generation run made."}
+{"id":"ST-GEN-TM05","title":"Journal","domain_id":"ST-GEN","meaning":"The file .stego/transaction.yaml. It holds an apply in progress, so recovery can complete it."}
+{"id":"ST-SUP-TM01","title":"Registry","domain_id":"ST-SUP","meaning":"The set of archetypes, components and mixins that services are built from, pinned by one reference for each source."}
+{"id":"ST-SUP-TM02","title":"Common registry","domain_id":"ST-SUP","meaning":"The reviewed registry every team trusts. A local registry may add to it, and may not replace a part of it."}
+{"id":"ST-SUP-TM03","title":"Local registry","domain_id":"ST-SUP","meaning":"A registry that adds a team's own parts to the common registry."}
+{"id":"ST-SUP-TM04","title":"Active registry","domain_id":"ST-SUP","meaning":"The one set of parts that the common registry and its local registries compose to."}
+{"id":"ST-SUP-TM05","title":"Component","domain_id":"ST-SUP","meaning":"A deterministic generator with its config schema, ports, slots and output contracts, versioned and staged as one unit."}
+{"id":"ST-SUP-TM06","title":"Archetype","domain_id":"ST-SUP","meaning":"A curated component set with its conventions: the golden path a service selects."}
+{"id":"ST-SUP-TM07","title":"Mixin","domain_id":"ST-SUP","meaning":"An addition to an archetype that brings further components and slots, and replaces nothing."}
+{"id":"ST-SUP-TM08","title":"Active component set","domain_id":"ST-SUP","meaning":"The components one service is built from: its archetype's components, those its mixins add, and the providers its declaration selects."}
+{"id":"ST-SUP-TM09","title":"Port","domain_id":"ST-SUP","meaning":"A named contract between components. One component provides it, and others require it."}
+{"id":"ST-SUP-TM10","title":"Provider","domain_id":"ST-SUP","meaning":"The component that answers a port in an active component set."}
+{"id":"ST-SUP-TM11","title":"Slot","domain_id":"ST-SUP","meaning":"A typed extension point a component declares, where a service binds its own rules as fills."}
+{"id":"ST-SUP-TM12","title":"Namespace","domain_id":"ST-SUP","meaning":"The output path a component may write into."}
+{"id":"ST-SUP-TM13","title":"Maturity stage","domain_id":"ST-SUP","meaning":"Where a component is on the ladder alpha, beta, ga."}
+{"id":"ST-SUP-TM14","title":"Sunset","domain_id":"ST-SUP","meaning":"The date an alpha or beta component stops working."}
+{"id":"ST-SUP-TM15","title":"Golden path","domain_id":"ST-SUP","meaning":"The shape an archetype gives a service, which holds only ga components."}
+{"id":"ST-SUP-TM16","title":"Output contract","domain_id":"ST-SUP","meaning":"One fact that must always hold of the code a component emits. The component owns it, not the service."}
+{"id":"ST-SUP-TM17","title":"Generator","domain_id":"ST-SUP","meaning":"A file of a component's generator that emits part of the component's code."}

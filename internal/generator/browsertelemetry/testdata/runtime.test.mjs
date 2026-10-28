@@ -17,8 +17,7 @@ function setup(handler) {
  };
  return calls;
 }
-// Proves ST-SUP-RC03-OC01, ST-SUP-RC03-OC02, ST-SUP-RC03-OC03, ST-SUP-RC03-OC16.
-test('all signals use the fixed authenticated transport and generated identity', async()=>{
+const proof1 = async()=>{
  const calls=setup();const failures=[];const t=createBrowserTelemetry({sampleRatio:1,reportDeliveryFailure:f=>failures.push(f)});
  try {
   t.beginTrace(parent);const span=t.tracer.startSpan('workflow.create');span.end();
@@ -32,48 +31,50 @@ test('all signals use the fixed authenticated transport and generated identity',
   assert.ok(trace.includes(Buffer.from(parent,'hex')));
   assert.deepEqual(failures,[]);
  }finally{await t.shutdown();}
-});
-// Proves ST-SUP-RC03-OC07, ST-SUP-RC03-OC08.
-test('invalid configuration and trace IDs fail before export',async()=>{
+};
+test('ST-SUP-RC03-OC01-T01 The emitted runtime uses the fixed same-origin transport', proof1);
+test('ST-SUP-RC03-OC02-T01 The emitted runtime sends each batch with a session token', proof1);
+test('ST-SUP-RC03-OC03-T01 The emitted runtime uses the generated service identity', proof1);
+test('ST-SUP-RC03-OC16-T01 The emitted runtime puts no credential in an export body', proof1);
+const proof3 = async()=>{
  const calls=setup();
  for(const options of [null,[],{url:'https://elsewhere.example'}, {sampleRatio:-1},{sampleRatio:2},{sampleRatio:NaN},{reportDeliveryFailure:4}])assert.throws(()=>createBrowserTelemetry(options));
  const ids=new RootTraceIdGenerator();
  for(const id of ['',parent+'\n',parent.toUpperCase(),'0'.repeat(32)])assert.throws(()=>ids.primeTraceId(id));
  assert.match(ids.generateSpanId(),/^[0-9a-f]{16}$/);assert.equal(calls.length,0);
  globalThis.location.href='http://console.example';assert.throws(()=>createBrowserTelemetry());
-});
-// Proves ST-SUP-RC03-OC04, ST-SUP-RC03-OC05.
-test('export failures are bounded public categories, including partial success',async()=>{
+};
+test('ST-SUP-RC03-OC07-T01 The emitted runtime refuses an insecure page', proof3);
+test('ST-SUP-RC03-OC08-T01 The emitted runtime refuses an invalid trace ID', proof3);
+const proof2 = async()=>{
  for(const reply of [()=>new Response('private secret',{status:500}),()=>new Response(new Uint8Array([10,2,8,1]),{headers:{'Content-Type':'application/x-protobuf'}}),()=>new Response('x'.repeat(16385),{headers:{'Content-Type':'application/json'}})]){
   setup(reply);const failures=[];const t=createBrowserTelemetry({sampleRatio:1,reportDeliveryFailure:f=>failures.push(f)});
   t.tracer.startSpan('workflow').end();await assert.rejects(t.forceFlush(),/telemetry flush failed/);await t.shutdown().catch(()=>{});
   assert.ok(failures.some(f=>f.signal==='traces'&&f.reason==='export_failed'));
   assert.doesNotMatch(JSON.stringify(failures),/private|secret/);
  }
-});
-// Proves ST-SUP-RC03-OC02.
-test('authentication failure makes no export request and reporter throws do not escape',async()=>{
+};
+test('ST-SUP-RC03-OC04-T01 Export failures stay inside the public categories', proof2);
+test('ST-SUP-RC03-OC05-T01 Export failures stay inside the response limit', proof2);
+test('ST-SUP-RC03-OC02-T02 An unauthenticated session makes no export request',async()=>{
  setup();let posts=0;globalThis.fetch=async(url,options)=>{if(options.method==='POST')posts++;return Response.json({authenticated:false});};
  const t=createBrowserTelemetry({sampleRatio:1,reportDeliveryFailure:()=>{throw new Error('private');}});
  t.tracer.startSpan('workflow').end();await assert.rejects(t.forceFlush(),/telemetry flush failed/);await t.shutdown().catch(()=>{});assert.equal(posts,0);
 });
-// Proves ST-SUP-RC03-OC15.
-test('page hide flushes and shutdown is idempotent and removes listeners',async()=>{
+test('ST-SUP-RC03-OC15-T01 A hidden page flushes and shutdown happens once',async()=>{
  const calls=setup();const t=createBrowserTelemetry({sampleRatio:1});
  t.tracer.startSpan('workflow').end();globalThis.window.dispatchEvent(new Event('pagehide'));
  await t.forceFlush();assert.ok(calls.some(c=>c.url.endsWith('/traces')));
  const done=t.shutdown();assert.equal(t.shutdown(),done);await done;
  const count=calls.length;globalThis.window.dispatchEvent(new Event('pagehide'));await new Promise(resolve=>setTimeout(resolve,10));assert.equal(calls.length,count);
 });
-// Proves ST-SUP-RC03-OC06.
-test('a stalled fetch has a terminal result',async()=>{
+test('ST-SUP-RC03-OC06-T01 A stalled export reaches its deadline and a terminal result',async()=>{
  setup();globalThis.fetch=()=>new Promise(()=>{});const failures=[];const t=createBrowserTelemetry({sampleRatio:1,reportDeliveryFailure:f=>failures.push(f)});
  t.tracer.startSpan('workflow').end();const started=Date.now();await assert.rejects(t.forceFlush(),/telemetry flush failed/);await t.shutdown().catch(()=>{});
  assert.ok(Date.now()-started<6500);assert.ok(failures.some(f=>f.signal==='traces'));
 });
 
-// Proves ST-SUP-RC03-OC09.
-test('log bodies, metric instruments, and attributes have finite limits',async()=>{
+test('ST-SUP-RC03-OC09-T01 The emitted runtime holds its log, instrument and attribute limits',async()=>{
  const calls=setup();const failures=[];const t=createBrowserTelemetry({sampleRatio:0,reportDeliveryFailure:f=>failures.push(f)});
  t.logger.emit({body:'x'.repeat(513)});t.logger.emit({body:{secret:'not exported'}});
  for(let i=0;i<33;i++)t.meter.createCounter('counter.'+i).add(1);
@@ -84,8 +85,7 @@ test('log bodies, metric instruments, and attributes have finite limits',async()
  assert.equal(failures.filter(f=>f.signal==='metrics'&&f.reason==='invalid_record').length,2);
 });
 
-// Proves ST-SUP-RC03-OC10.
-test('observable metric callbacks enforce record limits and can be removed',async()=>{
+test('ST-SUP-RC03-OC10-T01 Observable metric callbacks use the direct write limits and release their capacity',async()=>{
  const calls=setup();const failures=[];const t=createBrowserTelemetry({sampleRatio:0,reportDeliveryFailure:f=>failures.push(f)});
  const registrations=[];let observations=0;
  try {
@@ -113,8 +113,7 @@ test('observable metric callbacks enforce record limits and can be removed',asyn
  }finally{for(const [instrument,callback] of registrations)instrument.removeCallback(callback);await t.shutdown();}
 });
 
-// Proves ST-SUP-RC03-OC10, ST-SUP-RC03-OC11.
-test('batch observable metric callbacks enforce record limits and can be removed',async()=>{
+const proof4 = async()=>{
  const calls=setup();const failures=[];const t=createBrowserTelemetry({sampleRatio:0,reportDeliveryFailure:f=>failures.push(f)});
  const gauge=t.meter.createObservableGauge('batch.gauge');const counter=t.meter.createObservableCounter('batch.counter');let observations=0;
  const callback=result=>{
@@ -133,10 +132,11 @@ test('batch observable metric callbacks enforce record limits and can be removed
   t.meter.removeBatchObservableCallback(callback,[counter,gauge]);
   await t.forceFlush();assert.equal(observations,1);
  }finally{t.meter.removeBatchObservableCallback(callback,[gauge,counter]);await t.shutdown();}
-});
+};
+test('ST-SUP-RC03-OC10-T02 Batch observable callbacks use the direct write limits and release their capacity', proof4);
+test('ST-SUP-RC03-OC11-T02 Batch observable callbacks observe only their selected instruments', proof4);
 
-// Proves ST-SUP-RC03-OC10.
-test('observable metric callbacks have a shared registration limit and bounded collection',async()=>{
+test('ST-SUP-RC03-OC10-T03 Observable callbacks share a registration limit and a bounded collection',async()=>{
  const calls=setup();const failures=[];const t=createBrowserTelemetry({sampleRatio:0,reportDeliveryFailure:f=>failures.push(f)});
  const gauge=t.meter.createObservableGauge('bounded.gauge');const counter=t.meter.createObservableCounter('bounded.counter');
  const callbacks=Array.from({length:31},()=>()=>{});let batchCalls=0;let extraCalls=0;
@@ -155,8 +155,7 @@ test('observable metric callbacks have a shared registration limit and bounded c
  }finally{for(const callback of callbacks)gauge.removeCallback(callback);counter.removeCallback(extra);t.meter.removeBatchObservableCallback(batch,[gauge]);await t.shutdown();}
 });
 
-// Proves ST-SUP-RC03-OC11.
-test('observable metric callbacks reject foreign and unselected instruments',async()=>{
+test('ST-SUP-RC03-OC11-T01 Batch observable callbacks observe only their own selection',async()=>{
  setup();const failures=[];const t=createBrowserTelemetry({sampleRatio:0,reportDeliveryFailure:f=>failures.push(f)});
  const other=createBrowserTelemetry({sampleRatio:0});const local=t.meter.createObservableGauge('local');const unselected=t.meter.createObservableGauge('unselected');const foreign=other.meter.createObservableGauge('foreign');let invalidCalls=0;
  const invalid=()=>{invalidCalls++;};
@@ -169,8 +168,7 @@ test('observable metric callbacks reject foreign and unselected instruments',asy
  }finally{t.meter.removeBatchObservableCallback(callback,[local]);await t.shutdown();await other.shutdown();}
 });
 
-// Proves ST-SUP-RC03-OC04.
-test('processor queue loss is reported for logs and traces',async()=>{
+test('ST-SUP-RC03-OC04-T02 Processor queue loss is reported for logs and traces',async()=>{
  setup();const failures=[];const t=createBrowserTelemetry({sampleRatio:1,reportDeliveryFailure:f=>failures.push(f)});
  try {
   for(let i=0;i<300;i++){t.tracer.startSpan('workflow').end();t.logger.emit({body:'workflow.completed'});}
@@ -180,8 +178,7 @@ test('processor queue loss is reported for logs and traces',async()=>{
  }finally{await t.shutdown();}
 });
 
-// Proves ST-SUP-RC03-OC08.
-test('an invalid entropy source cannot return zero IDs or loop without a bound',()=>{
+test('ST-SUP-RC03-OC08-T02 An invalid entropy source cannot give a zero trace ID',()=>{
  const crypto = Object.getOwnPropertyDescriptor(globalThis,'crypto');
  let calls=0;
  Object.defineProperty(globalThis,'crypto',{configurable:true,value:{getRandomValues: value=>{calls++;value.fill(0);return value;}}});
@@ -189,16 +186,14 @@ test('an invalid entropy source cannot return zero IDs or loop without a bound',
  finally {Object.defineProperty(globalThis,'crypto',crypto);}
 });
 
-// Proves ST-SUP-RC03-OC14.
-test('server rendering creates no browser transport or timers',async()=>{
+test('ST-SUP-RC03-OC14-T01 Server rendering creates no browser transport',async()=>{
  const location=globalThis.location;delete globalThis.location;
  let calls=0;globalThis.fetch=()=>{calls++;throw new Error('unexpected SSR export');};
  try {const t=createBrowserTelemetry({sampleRatio:1});t.tracer.startSpan('render').end();t.logger.emit({body:'render'});t.meter.createCounter('render').add(1);await t.forceFlush();await t.shutdown();assert.equal(calls,0);}
  finally {globalThis.location=location;}
 });
 
-// Proves ST-SUP-RC03-OC12.
-test('public deployment settings control each exporter and reject invalid metadata',async()=>{
+test('ST-SUP-RC03-OC12-T01 Public deployment metadata controls each exporter',async()=>{
  for(const settings of [undefined, {version:1,traces:false,logs:false,metrics:false,sampleRatio:0}, {version:1,traces:true,logs:false,metrics:true,sampleRatio:1}, {version:1,traces:true,logs:true,metrics:true,sampleRatio:2}, {version:1,traces:true,logs:true,metrics:true,sampleRatio:1,secret:'invalid'}]){
   const calls=setup();document.querySelectorAll=()=>settings===undefined?[]:[{getAttribute:()=>JSON.stringify(settings)}];
   const t=createBrowserTelemetry();t.tracer.startSpan('deployment').end();t.logger.emit({body:'deployment'});t.meter.createCounter('deployment').add(1);await t.forceFlush();await t.shutdown();

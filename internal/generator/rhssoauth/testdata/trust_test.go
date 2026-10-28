@@ -54,7 +54,6 @@ func ssoToken(t *testing.T, key *rsa.PrivateKey, claims jwt.MapClaims, method jw
 	return raw
 }
 
-// Proves ST-SUP-RC21-OC01, ST-SUP-RC21-OC02, ST-SUP-RC21-OC03, ST-SUP-RC21-OC04, ST-SUP-RC21-OC05.
 func TestTrustClaims(t *testing.T) {
 	key := ssoFixture(t)
 	other, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -68,84 +67,107 @@ func TestTrustClaims(t *testing.T) {
 	defer h.Stop()
 	called := 0
 	next := h.Build()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called++; w.WriteHeader(204) }))
-	for _, name := range []string{"valid", "wrong-issuer", "wrong-audience", "missing-expiry", "missing-issuer", "missing-audience", "missing-subject", "missing-issue-time", "future-issue-time", "expired", "wrong-signature", "wrong-algorithm", "duplicate-header", "oversize-token"} {
-		t.Run(name, func(t *testing.T) {
-			claims := ssoClaims()
-			method := jwt.SigningMethodRS256
-			signingKey := key
-			switch name {
-			case "wrong-issuer":
-				claims["iss"] = "https://other.example/realm"
-			case "wrong-audience":
-				claims["aud"] = "other-service"
-			case "missing-expiry":
-				delete(claims, "exp")
-			case "missing-issuer":
-				delete(claims, "iss")
-			case "missing-audience":
-				delete(claims, "aud")
-			case "missing-subject":
-				delete(claims, "sub")
-			case "missing-issue-time":
-				delete(claims, "iat")
-			case "future-issue-time":
-				claims["iat"] = time.Now().Add(time.Hour).Unix()
-			case "expired":
-				claims["exp"] = time.Now().Add(-time.Second).Unix()
-			case "wrong-signature":
-				signingKey = other
-			case "wrong-algorithm":
-				method = jwt.SigningMethodRS512
+	const (
+		claimGroup  = "ST-SUP-RC21-OC02-T01 The emitted SSO handler denies a wrong issuer, a wrong audience and an absent expiry"
+		denialGroup = "ST-SUP-RC21-OC05-T01 A denial from the emitted SSO handler hides the token and sets no-store and WWW-Authenticate"
+		trustGroup  = "ST-SUP-RC21-OC01-T01 The emitted SSO handler verifies the token before it maps any claim"
+	)
+	for _, group := range []struct {
+		name  string
+		cases []string
+	}{
+		{claimGroup, []string{"wrong-issuer", "wrong-audience", "missing-expiry"}},
+		{denialGroup, []string{"wrong-issuer", "wrong-audience", "missing-expiry", "missing-issuer", "missing-audience", "missing-subject", "missing-issue-time", "future-issue-time", "expired", "wrong-signature", "wrong-algorithm", "duplicate-header", "oversize-token"}},
+		{trustGroup, []string{"valid", "missing-issuer", "missing-audience", "missing-subject", "missing-issue-time", "future-issue-time", "expired", "wrong-signature", "wrong-algorithm", "duplicate-header", "oversize-token"}},
+	} {
+		t.Run(group.name, func(t *testing.T) {
+			for _, name := range group.cases {
+				t.Run(name, func(t *testing.T) {
+					claims := ssoClaims()
+					method := jwt.SigningMethodRS256
+					signingKey := key
+					switch name {
+					case "wrong-issuer":
+						claims["iss"] = "https://other.example/realm"
+					case "wrong-audience":
+						claims["aud"] = "other-service"
+					case "missing-expiry":
+						delete(claims, "exp")
+					case "missing-issuer":
+						delete(claims, "iss")
+					case "missing-audience":
+						delete(claims, "aud")
+					case "missing-subject":
+						delete(claims, "sub")
+					case "missing-issue-time":
+						delete(claims, "iat")
+					case "future-issue-time":
+						claims["iat"] = time.Now().Add(time.Hour).Unix()
+					case "expired":
+						claims["exp"] = time.Now().Add(-time.Second).Unix()
+					case "wrong-signature":
+						signingKey = other
+					case "wrong-algorithm":
+						method = jwt.SigningMethodRS512
+					}
+					raw := ssoToken(t, signingKey, claims, method)
+					if name == "oversize-token" {
+						raw = strings.Repeat("x", maxTokenBytes+1)
+					}
+					r := httptest.NewRequest("GET", "/private", nil)
+					r.Header.Set("Authorization", "Bearer "+raw)
+					if name == "duplicate-header" {
+						r.Header.Add("Authorization", "Bearer "+raw)
+					}
+					w := httptest.NewRecorder()
+					next.ServeHTTP(w, r)
+					want := 401
+					if name == "valid" {
+						want = 204
+					}
+					if w.Code != want {
+						t.Fatalf("got %d, want %d", w.Code, want)
+					}
+					if want == 401 && (strings.Contains(w.Body.String(), raw) || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("WWW-Authenticate") == "") {
+						t.Fatal("unsafe authentication error response")
+					}
+				})
 			}
-			raw := ssoToken(t, signingKey, claims, method)
-			if name == "oversize-token" {
-				raw = strings.Repeat("x", maxTokenBytes+1)
+			// The trust group runs last, so this count covers every group.
+			if group.name != trustGroup {
+				return
 			}
-			r := httptest.NewRequest("GET", "/private", nil)
-			r.Header.Set("Authorization", "Bearer "+raw)
-			if name == "duplicate-header" {
-				r.Header.Add("Authorization", "Bearer "+raw)
-			}
-			w := httptest.NewRecorder()
-			next.ServeHTTP(w, r)
-			want := 401
-			if name == "valid" {
-				want = 204
-			}
-			if w.Code != want {
-				t.Fatalf("got %d, want %d", w.Code, want)
-			}
-			if want == 401 && (strings.Contains(w.Body.String(), raw) || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("WWW-Authenticate") == "") {
-				t.Fatal("unsafe authentication error response")
+			if called != 1 {
+				t.Fatal("a denied request reached the application")
 			}
 		})
 	}
-	if called != 1 {
-		t.Fatal("a denied request reached the application")
-	}
-	for _, p := range []string{"/healthcheck", "/metrics", "/openapi", "/healthcheck/private", "/metrics/private"} {
+	t.Run("ST-SUP-RC21-OC03-T01 The emitted SSO handler lets only an exact public path through without a token", func(t *testing.T) {
+		for _, p := range []string{"/healthcheck", "/metrics", "/openapi", "/healthcheck/private", "/metrics/private"} {
+			w := httptest.NewRecorder()
+			next.ServeHTTP(w, httptest.NewRequest("GET", p, nil))
+			want := 204
+			if strings.HasSuffix(p, "/private") {
+				want = 401
+			}
+			if w.Code != want {
+				t.Fatal("public path match was not exact", p, w.Code)
+			}
+		}
+	})
+	t.Run("ST-SUP-RC21-OC04-T01 After Stop, the emitted SSO handler denies every request and a repeat Stop is safe", func(t *testing.T) {
+		h.Stop()
+		h.Stop()
+		r := httptest.NewRequest("GET", "/private", nil)
+		r.Header.Set("Authorization", "Bearer "+ssoToken(t, key, ssoClaims(), jwt.SigningMethodRS256))
 		w := httptest.NewRecorder()
-		next.ServeHTTP(w, httptest.NewRequest("GET", p, nil))
-		want := 204
-		if strings.HasSuffix(p, "/private") {
-			want = 401
+		next.ServeHTTP(w, r)
+		if w.Code != 401 {
+			t.Fatal("stopped handler accepted token")
 		}
-		if w.Code != want {
-			t.Fatal("public path match was not exact", p, w.Code)
-		}
-	}
-	h.Stop()
-	h.Stop()
-	r := httptest.NewRequest("GET", "/private", nil)
-	r.Header.Set("Authorization", "Bearer "+ssoToken(t, key, ssoClaims(), jwt.SigningMethodRS256))
-	w := httptest.NewRecorder()
-	next.ServeHTTP(w, r)
-	if w.Code != 401 {
-		t.Fatal("stopped handler accepted token")
-	}
+	})
 }
 
-// Proves ST-SUP-RC21-OC06, ST-SUP-RC21-OC07.
 func TestSSOPayloadMapping(t *testing.T) {
 	key := ssoFixture(t)
 	h, err := NewJWTHandler()
@@ -153,36 +175,76 @@ func TestSSOPayloadMapping(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer h.Stop()
-	for _, mode := range []string{"sso", "oidc", "fallback"} {
-		claims := ssoClaims()
-		claims["email"] = "person@example.com"
-		claims["clientId"] = "service-client"
-		username, first, last := "caller", "Example", "Person"
-		switch mode {
-		case "sso":
-			claims["username"] = "account"
-			claims["preferred_username"] = "ignored"
-			claims["first_name"] = first
-			claims["last_name"] = last
-			username = "account"
-		case "oidc":
-			claims["preferred_username"] = "preferred"
-			claims["given_name"] = first
-			claims["family_name"] = last
-			username = "preferred"
-		case "fallback":
-			claims["name"] = first + " " + last
+	for _, group := range []string{"ST-SUP-RC21-OC06-T01 The emitted SSO handler fills each payload field from its declared claim order", "ST-SUP-RC21-OC07-T01 The identity from the emitted SSO handler holds an empty Role"} {
+		t.Run(group, func(t *testing.T) {
+			for _, mode := range []string{"sso", "oidc", "fallback"} {
+				claims := ssoClaims()
+				claims["email"] = "person@example.com"
+				claims["clientId"] = "service-client"
+				username, first, last := "caller", "Example", "Person"
+				switch mode {
+				case "sso":
+					claims["username"] = "account"
+					claims["preferred_username"] = "ignored"
+					claims["first_name"] = first
+					claims["last_name"] = last
+					username = "account"
+				case "oidc":
+					claims["preferred_username"] = "preferred"
+					claims["given_name"] = first
+					claims["family_name"] = last
+					username = "preferred"
+				case "fallback":
+					claims["name"] = first + " " + last
+				}
+				called := false
+				next := h.Build()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					called = true
+					p := GetAuthPayload(r)
+					id := IdentityFromContext(r.Context())
+					if p.Username != username || p.FirstName != first || p.LastName != last || p.Email != "person@example.com" || p.ClientID != "service-client" || p.Issuer != "https://issuer.example/realm" {
+						t.Fatal("SSO mapping changed", mode)
+					}
+					if id.UserID != "caller" || id.Username != username || id.Role != "" || id.ExpiresAt.IsZero() || id.Attributes["client_id"] != p.ClientID || GetUsernameFromContext(r.Context()) != username || !TokenFromContext(r.Context()).Valid {
+						t.Fatal("verified context mapping changed")
+					}
+					w.WriteHeader(204)
+				}))
+				r := httptest.NewRequest("GET", "/private", nil)
+				r.Header.Set("Authorization", "Bearer "+ssoToken(t, key, claims, jwt.SigningMethodRS256))
+				next.ServeHTTP(httptest.NewRecorder(), r)
+				if !called {
+					t.Fatal("valid payload rejected")
+				}
+			}
+		})
+	}
+}
+
+func TestSSOIdentitySubject(t *testing.T) {
+	t.Run("ST-SUP-RC21-OC08-T01 The emitted SSO identity holds the verified issuer and subject, not the username", func(t *testing.T) {
+		key := ssoFixture(t)
+		h, err := NewJWTHandler()
+		if err != nil {
+			t.Fatal(err)
 		}
+		defer h.Stop()
+		// The username differs from the subject. Authorization keys on the subject,
+		// so the identity must carry the subject, not the username.
+		claims := ssoClaims()
+		claims["username"] = "account"
 		called := false
 		next := h.Build()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			called = true
-			p := GetAuthPayload(r)
 			id := IdentityFromContext(r.Context())
-			if p.Username != username || p.FirstName != first || p.LastName != last || p.Email != "person@example.com" || p.ClientID != "service-client" || p.Issuer != "https://issuer.example/realm" {
-				t.Fatal("SSO mapping changed", mode)
+			if id.UserID != "caller" {
+				t.Fatal("identity does not hold the verified subject")
 			}
-			if id.UserID != "caller" || id.Username != username || id.Role != "" || id.ExpiresAt.IsZero() || id.Attributes["client_id"] != p.ClientID || GetUsernameFromContext(r.Context()) != username || !TokenFromContext(r.Context()).Valid {
-				t.Fatal("verified context mapping changed")
+			if id.Issuer != "https://issuer.example/realm" {
+				t.Fatal("identity does not hold the verified issuer")
+			}
+			if id.Username != "account" {
+				t.Fatal("identity lost the username")
 			}
 			w.WriteHeader(204)
 		}))
@@ -190,76 +252,51 @@ func TestSSOPayloadMapping(t *testing.T) {
 		r.Header.Set("Authorization", "Bearer "+ssoToken(t, key, claims, jwt.SigningMethodRS256))
 		next.ServeHTTP(httptest.NewRecorder(), r)
 		if !called {
-			t.Fatal("valid payload rejected")
+			t.Fatal("valid token rejected")
 		}
-	}
+	})
 }
 
-// Proves ST-SUP-RC21-OC08.
-func TestSSOIdentitySubject(t *testing.T) {
-	key := ssoFixture(t)
-	h, err := NewJWTHandler()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer h.Stop()
-	// The username differs from the subject. Authorization keys on the subject,
-	// so the identity must carry the subject, not the username.
-	claims := ssoClaims()
-	claims["username"] = "account"
-	called := false
-	next := h.Build()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		id := IdentityFromContext(r.Context())
-		if id.UserID != "caller" {
-			t.Fatal("identity does not hold the verified subject")
-		}
-		if id.Issuer != "https://issuer.example/realm" {
-			t.Fatal("identity does not hold the verified issuer")
-		}
-		if id.Username != "account" {
-			t.Fatal("identity lost the username")
-		}
-		w.WriteHeader(204)
-	}))
-	r := httptest.NewRequest("GET", "/private", nil)
-	r.Header.Set("Authorization", "Bearer "+ssoToken(t, key, claims, jwt.SigningMethodRS256))
-	next.ServeHTTP(httptest.NewRecorder(), r)
-	if !called {
-		t.Fatal("valid token rejected")
-	}
-}
-
-// Proves ST-SUP-RC21-OC09, ST-SUP-RC21-OC10.
 func TestSSOStartupRequiresTrust(t *testing.T) {
 	_ = ssoFixture(t)
-	for _, setting := range []struct{ name, value string }{{"STEGO_AUTH_ISSUER", ""}, {"STEGO_AUTH_AUDIENCE", ""}, {"AUTH_ENABLED", "false"}, {"AUTH_ENABLED", "FALSE"}, {"AUTH_ENABLED", "invalid"}, {"JWK_CERT_FILE", "/missing-keys"}} {
-		t.Run(setting.name+setting.value, func(t *testing.T) {
-			t.Setenv(setting.name, setting.value)
-			if h, err := NewJWTHandler(); err == nil {
-				h.Stop()
-				t.Fatal("unsafe startup accepted")
+	for _, group := range []struct {
+		name     string
+		settings []struct{ name, value string }
+	}{
+		{"ST-SUP-RC21-OC09-T01 The emitted SSO handler refuses to start without an issuer, an audience or a key", []struct{ name, value string }{{"STEGO_AUTH_ISSUER", ""}, {"STEGO_AUTH_AUDIENCE", ""}, {"JWK_CERT_FILE", "/missing-keys"}}},
+		{"ST-SUP-RC21-OC10-T01 The emitted SSO handler refuses to start when AUTH_ENABLED is not empty or true", []struct{ name, value string }{{"AUTH_ENABLED", "false"}, {"AUTH_ENABLED", "FALSE"}, {"AUTH_ENABLED", "invalid"}}},
+	} {
+		t.Run(group.name, func(t *testing.T) {
+			for _, setting := range group.settings {
+				t.Run(setting.name+setting.value, func(t *testing.T) {
+					t.Setenv(setting.name, setting.value)
+					if h, err := NewJWTHandler(); err == nil {
+						h.Stop()
+						t.Fatal("unsafe startup accepted")
+					}
+				})
 			}
 		})
 	}
 }
 
-// Proves ST-SUP-RC21-OC12.
 func TestSSOStartupContext(t *testing.T) {
-	ssoFixture(t)
-	if h, err := NewJWTHandlerWithContext(nil); err == nil {
+	t.Run("ST-SUP-RC21-OC12-T01 The emitted SSO handler refuses a nil or canceled startup context", func(t *testing.T) {
+		ssoFixture(t)
+		if h, err := NewJWTHandlerWithContext(nil); err == nil {
+			h.Stop()
+			t.Fatal("nil startup context accepted")
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if h, err := NewJWTHandlerWithContext(ctx); err == nil {
+			h.Stop()
+			t.Fatal("canceled startup context accepted")
+		}
+		h, err := NewJWTHandlerWithContext(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
 		h.Stop()
-		t.Fatal("nil startup context accepted")
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if h, err := NewJWTHandlerWithContext(ctx); err == nil {
-		h.Stop()
-		t.Fatal("canceled startup context accepted")
-	}
-	h, err := NewJWTHandlerWithContext(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	h.Stop()
+	})
 }

@@ -2,3 +2,17 @@
 {"id":"ST-DECL-UC02-FL","title":"Report what may be declared","use_case_id":"ST-DECL-UC02","description":"How an agent learns every component, setting and slot it may write, before it writes."}
 {"id":"ST-DECL-UC03-FL","title":"Check a declaration","use_case_id":"ST-DECL-UC03","description":"How an author or an agent learns whether a declaration is acceptable, with the project untouched either way."}
 {"id":"ST-DECL-UC04-FL","title":"Repair a refused declaration","use_case_id":"ST-DECL-UC04","description":"How an agent corrects a declaration from the refusal alone, with no person reading the message."}
+{"id":"ST-DIS-UC02-FL","title":"Sweep the fleet for a digest","use_case_id":"ST-DIS-UC02","description":"How a platform engineer names every service built from a component digest."}
+{"id":"ST-DIS-UC04-FL","title":"Publish a fix as a successor","use_case_id":"ST-DIS-UC04","description":"How a platform engineer gets a component fix to consumers with no new compiler."}
+{"id":"ST-DIS-UC05-FL","title":"Report superseded pins while working","use_case_id":"ST-DIS-UC05","description":"How a service author learns, from validate or plan, that a pin is superseded."}
+{"id":"ST-DIS-UC07-FL","title":"Withdraw a digest after naming its consumers","use_case_id":"ST-DIS-UC07","description":"How a platform engineer stops a digest from being used, and names every affected service first."}
+{"id":"ST-DIS-UC08-FL","title":"Qualify a release at one commit","use_case_id":"ST-DIS-UC08","description":"How a platform engineer qualifies a compiler release before anyone can install it."}
+{"id":"ST-DIS-UC09-FL","title":"Install and identify a compiler","use_case_id":"ST-DIS-UC09","description":"How an operator installs a compiler whose identity and platform they can verify."}
+{"id":"ST-GEN-UC01-FL","title":"Apply and keep the record","use_case_id":"ST-GEN-UC01","description":"How apply leaves a record of every input beside the generated code."}
+{"id":"ST-GEN-UC02-FL","title":"Check a record against its code","use_case_id":"ST-GEN-UC02","description":"How a platform engineer learns whether a record describes the code beside it."}
+{"id":"ST-GEN-UC03-FL","title":"Take a fix by a pin bump and a new run","use_case_id":"ST-GEN-UC03","description":"How a service author takes a component fix as a diff a reviewer can read."}
+{"id":"ST-SUP-UC01-FL","title":"Write a component","use_case_id":"ST-SUP-UC01","description":"How a platform engineer adds a part that every service can build from."}
+{"id":"ST-SUP-UC02-FL","title":"Compose a registry for a team","use_case_id":"ST-SUP-UC02","description":"How a platform engineer lets a team add its own parts without weakening the common ones."}
+{"id":"ST-SUP-UC03-FL","title":"Curate an archetype","use_case_id":"ST-SUP-UC03","description":"How a platform engineer makes a golden path that a service author can select and trust."}
+{"id":"ST-SUP-UC04-FL","title":"Introduce an experimental component","use_case_id":"ST-SUP-UC04","description":"How a team runs ahead of the platform team, visibly and for a stated time, without reaching a golden path."}
+{"id":"ST-SUP-UC05-FL","title":"Graduate or retire a component","use_case_id":"ST-SUP-UC05","description":"How an experiment becomes a part everyone can rely on, or goes, with nobody surprised either way."}

@@ -57,90 +57,94 @@ func TestKeysCombineAndRetainChangesDuringAction(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC05-OC08.
 func TestKeyRetryDelayCannotBeBypassed(t *testing.T) {
-	q := newKeyQueue[string](2)
-	q.setReady(true)
-	_ = q.add("failed")
-	keyTake(t, q)
-	q.finish("failed", true, 40*time.Millisecond, 80*time.Millisecond)
-	due := q.entries["failed"].due
-	for i := 0; i < 1000; i++ {
+	t.Run("ST-SUP-RC05-OC08-T01 A new event cannot bypass a failed key's retry delay", func(t *testing.T) {
+		q := newKeyQueue[string](2)
+		q.setReady(true)
 		_ = q.add("failed")
-	}
-	if !q.entries["failed"].due.Equal(due) {
-		t.Fatal("new event bypassed retry delay")
-	}
-	_ = q.add("healthy")
-	if keyTake(t, q) != "healthy" {
-		t.Fatal("failed key blocked healthy work")
-	}
-	q.finish("healthy", false, time.Millisecond, time.Second)
-	if keyTake(t, q) != "failed" || time.Now().Before(due) {
-		t.Fatal("retry ran early")
-	}
-	q.finish("failed", true, 40*time.Millisecond, 80*time.Millisecond)
-	if q.entries["failed"].delay != 80*time.Millisecond {
-		t.Fatal("retry delay did not grow")
-	}
-	if nextDelay(80*time.Millisecond, 40*time.Millisecond, 80*time.Millisecond) != 80*time.Millisecond {
-		t.Fatal("retry cap was exceeded")
-	}
-}
-
-// Proves ST-SUP-RC05-OC25.
-func TestDueRetryPrecedesNewKeys(t *testing.T) {
-	q := newKeyQueue[string](2)
-	q.setReady(true)
-	_ = q.add("retry")
-	keyTake(t, q)
-	q.finish("retry", true, time.Millisecond, time.Millisecond)
-	// Make the retry due without relying on scheduler timing.
-	q.entries["retry"].due = time.Now().Add(-time.Second)
-	_ = q.add("new")
-	if keyTake(t, q) != "retry" {
-		t.Fatal("new traffic starved a due retry")
-	}
-}
-
-// Proves ST-SUP-RC05-OC23.
-func TestKeyQueueStartsPausedAndPreservesPendingWork(t *testing.T) {
-	q := newKeyQueue[string](1)
-	_ = q.add("record")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
-	if _, err := q.take(ctx); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatal("action started before baseline")
-	}
-	cancel()
-	q.setReady(true)
-	if keyTake(t, q) != "record" {
-		t.Fatal("baseline lost work")
-	}
-	_ = q.add("record")
-	q.setReady(false)
-	q.finish("record", false, time.Millisecond, time.Second)
-	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Millisecond)
-	if _, err := q.take(ctx); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatal("action started during reset")
-	}
-	cancel()
-	q.setReady(true)
-	if keyTake(t, q) != "record" {
-		t.Fatal("reset lost pending work")
-	}
-}
-
-// Proves ST-SUP-RC05-OC24.
-func TestInvalidKeysDoNotConsumeCapacity(t *testing.T) {
-	q := newKeyQueue[string](1)
-	for _, key := range []string{"", strings.Repeat("a", 1025), string([]byte{255})} {
-		if !errors.Is(q.add(key), ErrKey) {
-			t.Fatal("invalid key accepted")
+		keyTake(t, q)
+		q.finish("failed", true, 40*time.Millisecond, 80*time.Millisecond)
+		due := q.entries["failed"].due
+		for i := 0; i < 1000; i++ {
+			_ = q.add("failed")
 		}
-	}
-	if len(q.entries) != 0 {
-		t.Fatal("invalid key consumed capacity")
-	}
+		if !q.entries["failed"].due.Equal(due) {
+			t.Fatal("new event bypassed retry delay")
+		}
+		_ = q.add("healthy")
+		if keyTake(t, q) != "healthy" {
+			t.Fatal("failed key blocked healthy work")
+		}
+		q.finish("healthy", false, time.Millisecond, time.Second)
+		if keyTake(t, q) != "failed" || time.Now().Before(due) {
+			t.Fatal("retry ran early")
+		}
+		q.finish("failed", true, 40*time.Millisecond, 80*time.Millisecond)
+		if q.entries["failed"].delay != 80*time.Millisecond {
+			t.Fatal("retry delay did not grow")
+		}
+		if nextDelay(80*time.Millisecond, 40*time.Millisecond, 80*time.Millisecond) != 80*time.Millisecond {
+			t.Fatal("retry cap was exceeded")
+		}
+	})
+}
+
+func TestDueRetryPrecedesNewKeys(t *testing.T) {
+	t.Run("ST-SUP-RC05-OC25-T01 A due retry runs before a newer key", func(t *testing.T) {
+		q := newKeyQueue[string](2)
+		q.setReady(true)
+		_ = q.add("retry")
+		keyTake(t, q)
+		q.finish("retry", true, time.Millisecond, time.Millisecond)
+		// Make the retry due without relying on scheduler timing.
+		q.entries["retry"].due = time.Now().Add(-time.Second)
+		_ = q.add("new")
+		if keyTake(t, q) != "retry" {
+			t.Fatal("new traffic starved a due retry")
+		}
+	})
+}
+
+func TestKeyQueueStartsPausedAndPreservesPendingWork(t *testing.T) {
+	t.Run("ST-SUP-RC05-OC23-T01 The keyed queue starts paused and keeps its work", func(t *testing.T) {
+		q := newKeyQueue[string](1)
+		_ = q.add("record")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+		if _, err := q.take(ctx); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatal("action started before baseline")
+		}
+		cancel()
+		q.setReady(true)
+		if keyTake(t, q) != "record" {
+			t.Fatal("baseline lost work")
+		}
+		_ = q.add("record")
+		q.setReady(false)
+		q.finish("record", false, time.Millisecond, time.Second)
+		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Millisecond)
+		if _, err := q.take(ctx); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatal("action started during reset")
+		}
+		cancel()
+		q.setReady(true)
+		if keyTake(t, q) != "record" {
+			t.Fatal("reset lost pending work")
+		}
+	})
+}
+
+func TestInvalidKeysDoNotConsumeCapacity(t *testing.T) {
+	t.Run("ST-SUP-RC05-OC24-T01 An invalid key consumes no capacity", func(t *testing.T) {
+		q := newKeyQueue[string](1)
+		for _, key := range []string{"", strings.Repeat("a", 1025), string([]byte{255})} {
+			if !errors.Is(q.add(key), ErrKey) {
+				t.Fatal("invalid key accepted")
+			}
+		}
+		if len(q.entries) != 0 {
+			t.Fatal("invalid key consumed capacity")
+		}
+	})
 }
 func TestKeyedLatestStateAndSerializedRetry(t *testing.T) {
 	var current atomic.Int32

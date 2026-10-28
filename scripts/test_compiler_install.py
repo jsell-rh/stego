@@ -62,22 +62,22 @@ class InstallationChecks(unittest.TestCase):
     def install(self):
         return installer.install(self.revision, self.output, self.gh)
 
-    # Proves ST-DIS-UC09-R02.
     def test_release_requires_both_signatures_and_publishes_captured_bytes(self):
-        signed = []
-        def authenticate(gh, path, bundle, revision, environment):
-            self.assertFalse(self.output.exists())
-            self.assertEqual(revision, self.revision)
-            self.assertEqual(bundle.read_bytes(), self.files["provenance.jsonl"])
-            signed.append(path.name)
-        with patch.object(installer, "api", side_effect=self.fetch), \
-                patch.object(installer.verification, "authenticate", side_effect=authenticate):
-            result = self.install()
-        self.assertEqual(signed, [installer.verification.BINARY, "build.json"])
-        self.assertEqual(result["source_revision"], self.revision)
-        self.assertEqual((self.output / installer.verification.BINARY).read_bytes(),
-                         self.files[installer.verification.BINARY])
-        self.assertEqual(list(self.root.glob(".stego-download-*")), [])
+        with self.subTest("ST-DIS-UC09-R02-T01 Installation verifies both signatures before it puts the binary in place"):
+            signed = []
+            def authenticate(gh, path, bundle, revision, environment):
+                self.assertFalse(self.output.exists())
+                self.assertEqual(revision, self.revision)
+                self.assertEqual(bundle.read_bytes(), self.files["provenance.jsonl"])
+                signed.append(path.name)
+            with patch.object(installer, "api", side_effect=self.fetch), \
+                    patch.object(installer.verification, "authenticate", side_effect=authenticate):
+                result = self.install()
+            self.assertEqual(signed, [installer.verification.BINARY, "build.json"])
+            self.assertEqual(result["source_revision"], self.revision)
+            self.assertEqual((self.output / installer.verification.BINARY).read_bytes(),
+                             self.files[installer.verification.BINARY])
+            self.assertEqual(list(self.root.glob(".stego-download-*")), [])
 
     def test_mutable_draft_other_revision_and_repeated_assets_are_rejected(self):
         bad = []
@@ -93,20 +93,21 @@ class InstallationChecks(unittest.TestCase):
                 installer.release_assets(record, self.revision)
 
     def test_changed_asset_and_failed_signature_leave_no_result(self):
-        original = self.files[installer.verification.BINARY]
-        self.files[installer.verification.BINARY] = b"x" * len(original)
-        with patch.object(installer, "api", side_effect=self.fetch), \
-                patch.object(installer.verification, "authenticate") as authenticate:
-            with self.assertRaises(installer.CheckError):
-                self.install()
-            authenticate.assert_not_called()
-        self.files[installer.verification.BINARY] = original
-        with patch.object(installer, "api", side_effect=self.fetch), \
-                patch.object(installer.verification, "authenticate", side_effect=installer.CheckError("denied")):
-            with self.assertRaises(installer.CheckError):
-                self.install()
-        self.assertFalse(self.output.exists())
-        self.assertEqual(list(self.root.glob(".stego-*-*")), [])
+        with self.subTest("ST-DIS-INV08-T A changed asset or a failed signature leaves no installation"):
+            original = self.files[installer.verification.BINARY]
+            self.files[installer.verification.BINARY] = b"x" * len(original)
+            with patch.object(installer, "api", side_effect=self.fetch), \
+                    patch.object(installer.verification, "authenticate") as authenticate:
+                with self.assertRaises(installer.CheckError):
+                    self.install()
+                authenticate.assert_not_called()
+            self.files[installer.verification.BINARY] = original
+            with patch.object(installer, "api", side_effect=self.fetch), \
+                    patch.object(installer.verification, "authenticate", side_effect=installer.CheckError("denied")):
+                with self.assertRaises(installer.CheckError):
+                    self.install()
+            self.assertFalse(self.output.exists())
+            self.assertEqual(list(self.root.glob(".stego-*-*")), [])
 
     def test_explicit_package_does_not_download_or_trust_a_saved_verified_record(self):
         package = self.root / "package"; package.mkdir()
@@ -119,18 +120,23 @@ class InstallationChecks(unittest.TestCase):
         api.assert_not_called()
         self.assertEqual(authenticate.call_count, 2)
 
-    # Proves ST-DIS-UC09-R01.
     def test_existing_output_bad_revision_and_platform_fail_before_download(self):
         with patch.object(installer, "api") as api:
-            with self.assertRaises(installer.CheckError):
-                installer.install("main", self.output, self.gh)
-            with patch.object(installer.platform, "machine", return_value="aarch64"):
+            with self.subTest("ST-VO43-C01-T A revision that is not a full commit ID is refused before any download"):
+                with self.assertRaises(installer.CheckError):
+                    installer.install("main", self.output, self.gh)
+                api.assert_not_called()
+            with self.subTest("ST-DIS-UC09-R01-T01 Installation refuses a platform other than Linux amd64 before any download"):
+                with patch.object(installer.platform, "machine", return_value="aarch64"):
+                    with self.assertRaises(installer.CheckError):
+                        self.install()
+                api.assert_not_called()
+            with self.subTest("ST-DIS-INV07-T An installation refuses an existing result folder and keeps what it holds"):
+                self.output.mkdir(); (self.output / "keep").write_text("retained")
                 with self.assertRaises(installer.CheckError):
                     self.install()
-            self.output.mkdir(); (self.output / "keep").write_text("retained")
-            with self.assertRaises(installer.CheckError):
-                self.install()
-            self.assertEqual((self.output / "keep").read_text(), "retained")
+                self.assertEqual((self.output / "keep").read_text(), "retained")
+                api.assert_not_called()
             api.assert_not_called()
 
     def test_api_has_fixed_host_headers_environment_and_process_bounds(self):

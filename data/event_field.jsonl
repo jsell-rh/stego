@@ -1,0 +1,49 @@
+{"domain_event_id":"ST-DIS-EV03","position":1,"name":"Component","meaning":"The component's name.","type":"text","required":true}
+{"domain_event_id":"ST-DIS-EV03","position":2,"name":"Digest","meaning":"The superseded digest.","type_value_object_id":"ST-VO41","required":true}
+{"domain_event_id":"ST-DIS-EV03","position":3,"name":"Successor digest","meaning":"The digest that replaces it.","type_value_object_id":"ST-VO41","required":true}
+{"domain_event_id":"ST-DIS-EV03","position":4,"name":"Fails after","meaning":"The date after which a pin to the superseded digest fails.","type":"date","required":true}
+{"domain_event_id":"ST-DIS-EV03","position":5,"name":"Needs declaration change","meaning":"Whether taking the successor needs a declaration change.","type":"yes/no","required":true}
+{"domain_event_id":"ST-DIS-EV03","position":6,"name":"Needs fill change","meaning":"Whether taking the successor needs a fill change.","type":"yes/no","required":true}
+{"domain_event_id":"ST-DIS-EV04","position":1,"name":"Component","meaning":"The component's name.","type":"text","required":true}
+{"domain_event_id":"ST-DIS-EV04","position":2,"name":"Digest","meaning":"The withdrawn digest.","type_value_object_id":"ST-VO41","required":true}
+{"domain_event_id":"ST-DIS-EV04","position":3,"name":"Fails after","meaning":"The date after which a pin to the withdrawn digest fails.","type":"date","required":true}
+{"domain_event_id":"ST-DIS-EV05","position":1,"name":"Source revision","meaning":"The qualified commit.","type_value_object_id":"ST-VO43","required":true}
+{"domain_event_id":"ST-DIS-EV05","position":2,"name":"Checks run","meaning":"The CI run of the compiler checks.","type":"whole number","required":true}
+{"domain_event_id":"ST-DIS-EV05","position":3,"name":"Signed artifact run","meaning":"The CI run that built and signed the compiler.","type":"whole number","required":true}
+{"domain_event_id":"ST-DIS-EV06","position":1,"name":"Source revision","meaning":"The qualified commit.","type_value_object_id":"ST-VO43","required":true}
+{"domain_event_id":"ST-DIS-EV06","position":2,"name":"Release tag","meaning":"The tag of the published release.","type":"text","required":true}
+{"domain_event_id":"ST-DIS-EV06","position":3,"name":"Compiler digest","meaning":"The digest of the published compiler binary.","type":"text","required":true}
+{"domain_event_id":"ST-DIS-EV07","position":1,"name":"Source revision","meaning":"The commit of the installed release.","type_value_object_id":"ST-VO43","required":true}
+{"domain_event_id":"ST-DIS-EV07","position":2,"name":"Result folder","meaning":"The folder that holds the installed compiler.","type":"text","required":true}
+{"domain_event_id":"ST-DIS-EV07","position":3,"name":"Build identity","meaning":"The build identity of the installed compiler.","type_value_object_id":"ST-VO42","required":true}
+{"domain_event_id":"ST-GEN-EV01","position":1,"name":"Service name","meaning":"The service that was built.","type":"text","required":true}
+{"domain_event_id":"ST-GEN-EV01","position":2,"name":"Component pins","meaning":"Each component the build used, with its version and digest.","type":"text","required":true}
+{"domain_event_id":"ST-GEN-EV01","position":3,"name":"Registry content digest","meaning":"The registry content the build read.","type_value_object_id":"ST-VO41","required":true}
+{"domain_event_id":"ST-GEN-EV01","position":4,"name":"Compiler build","meaning":"The compiler that ran the apply.","type_value_object_id":"ST-VO42","required":true}
+{"domain_event_id":"ST-GEN-EV01","position":5,"name":"Changed files","meaning":"How many generated files the apply wrote or deleted.","type":"whole number","required":true}
+{"domain_event_id":"ST-GEN-EV02","position":1,"name":"Service name","meaning":"The service whose apply was recovered.","type":"text","required":true}
+{"domain_event_id":"ST-GEN-EV02","position":2,"name":"Output folder","meaning":"The output folder the apply wrote to.","type":"text","required":true}
+{"domain_event_id":"ST-SUP-EV01","position":1,"name":"Component name","meaning":"The component, by its name in the active registry.","type":"text","required":true}
+{"domain_event_id":"ST-SUP-EV01","position":2,"name":"Version","meaning":"The version the component declares.","type":"text","required":true}
+{"domain_event_id":"ST-SUP-EV01","position":3,"name":"Namespace","meaning":"The output path the component writes into.","type":"text","required":true}
+{"domain_event_id":"ST-SUP-EV02","position":1,"name":"Component name","meaning":"The component, by its name in the active registry.","type":"text","required":true}
+{"domain_event_id":"ST-SUP-EV02","position":2,"name":"Version","meaning":"The version the component declares.","type":"text","required":true}
+{"domain_event_id":"ST-SUP-EV02","position":3,"name":"Previous version","meaning":"The version the new one supersedes.","type":"text","required":true}
+{"domain_event_id":"ST-SUP-EV03","position":1,"name":"Content digest","meaning":"The digest of the composed content.","type":"text","required":true}
+{"domain_event_id":"ST-SUP-EV03","position":2,"name":"References","meaning":"The reference of each source, in order.","type":"text","required":true}
+{"domain_event_id":"ST-SUP-EV04","position":1,"name":"Component name","meaning":"The component, by its name in the active registry.","type":"text","required":true}
+{"domain_event_id":"ST-SUP-EV04","position":2,"name":"Version","meaning":"The version the component declares.","type":"text","required":true}
+{"domain_event_id":"ST-SUP-EV04","position":3,"name":"Stage","meaning":"The component's maturity stage after the change.","type_value_object_id":"ST-VO02","required":true}
+{"domain_event_id":"ST-SUP-EV04","position":4,"name":"Sunset","meaning":"The date the component stops working.","type":"date","required":true}
+{"domain_event_id":"ST-SUP-EV05","position":1,"name":"Component name","meaning":"The component, by its name in the active registry.","type":"text","required":true}
+{"domain_event_id":"ST-SUP-EV05","position":2,"name":"Version","meaning":"The version the component declares.","type":"text","required":true}
+{"domain_event_id":"ST-SUP-EV05","position":3,"name":"Stage","meaning":"The component's maturity stage after the change.","type_value_object_id":"ST-VO02","required":true}
+{"domain_event_id":"ST-SUP-EV06","position":1,"name":"Component name","meaning":"The component, by its name in the active registry.","type":"text","required":true}
+{"domain_event_id":"ST-SUP-EV06","position":2,"name":"Version","meaning":"The version the component declares.","type":"text","required":true}
+{"domain_event_id":"ST-SUP-EV07","position":1,"name":"Archetype name","meaning":"The archetype.","type":"text","required":true}
+{"domain_event_id":"ST-SUP-EV07","position":2,"name":"Version","meaning":"The version the archetype declares.","type":"text","required":true}
+{"domain_event_id":"ST-SUP-EV08","position":1,"name":"Archetype name","meaning":"The archetype the mixin extends.","type":"text","required":true}
+{"domain_event_id":"ST-SUP-EV08","position":2,"name":"Mixin name","meaning":"The mixin.","type":"text","required":true}
+{"domain_event_id":"ST-SUP-EV09","position":1,"name":"Port name","meaning":"The port.","type_aggregate_id":"ST-SUP-A3","required":true}
+{"domain_event_id":"ST-SUP-EV10","position":1,"name":"Slot name","meaning":"The slot.","type":"text","required":true}
+{"domain_event_id":"ST-SUP-EV10","position":2,"name":"Component name","meaning":"The component, by its name in the active registry.","type":"text","required":true}

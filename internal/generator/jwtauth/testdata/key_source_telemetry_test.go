@@ -19,7 +19,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// Proves ST-SUP-RC11-OC20, ST-SUP-RC11-OC21.
 func TestKeySourceTelemetry(t *testing.T) {
 	for _, source := range []string{"file", "https"} {
 		t.Run(source, func(t *testing.T) {
@@ -119,23 +118,27 @@ func TestKeySourceTelemetry(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if bytes.Contains(data, []byte("private-")) || bytes.Contains(data, []byte(token)) || bytes.Contains(data, []byte("issuer.example")) {
-				t.Fatal("key telemetry contains private data")
-			}
-			decoder := json.NewDecoder(bytes.NewReader(data))
-			for _, outcome := range []string{"success", "failure", "success", "canceled", "deadline"} {
-				var record map[string]any
-				if err := decoder.Decode(&record); err != nil {
-					t.Fatal("missing refresh completion", err)
+			t.Run("ST-SUP-RC11-OC20-T01 Key refresh telemetry from the emitted key source holds no private data", func(t *testing.T) {
+				if bytes.Contains(data, []byte("private-")) || bytes.Contains(data, []byte(token)) || bytes.Contains(data, []byte("issuer.example")) {
+					t.Fatal("key telemetry contains private data")
 				}
-				if record["event.name"] != "auth.keys.refresh.completed" || record["operation"] != source || record["outcome"] != outcome {
-					t.Fatal("wrong refresh completion", record)
+			})
+			t.Run("ST-SUP-RC11-OC21-T01 The emitted key source emits no refresh record for a cache hit, a cooldown or a stopped verifier", func(t *testing.T) {
+				decoder := json.NewDecoder(bytes.NewReader(data))
+				for _, outcome := range []string{"success", "failure", "success", "canceled", "deadline"} {
+					var record map[string]any
+					if err := decoder.Decode(&record); err != nil {
+						t.Fatal("missing refresh completion", err)
+					}
+					if record["event.name"] != "auth.keys.refresh.completed" || record["operation"] != source || record["outcome"] != outcome {
+						t.Fatal("wrong refresh completion", record)
+					}
 				}
-			}
-			var extra map[string]any
-			if err := decoder.Decode(&extra); err != io.EOF {
-				t.Fatal("cache hit, cooldown, or stopped verifier emitted extra refresh work", err)
-			}
+				var extra map[string]any
+				if err := decoder.Decode(&extra); err != io.EOF {
+					t.Fatal("cache hit, cooldown, or stopped verifier emitted extra refresh work", err)
+				}
+			})
 		})
 	}
 }

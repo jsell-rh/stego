@@ -31,119 +31,139 @@ func applicationLogin(t *testing.T, f *fixture) *http.Cookie {
 	return c
 }
 
-// Proves ST-SUP-RC02-OC45.
 func TestApplicationIdentityAndRestart(t *testing.T) {
-	f := applicationFixture(t)
-	c := applicationLogin(t, f)
-	for _, backend := range []*Backend{f.backend, f.start(t)} {
-		targets := []string{apiPrefix + "/auth/whoami"}
-		if len(backend.config.Assets) == 0 {
-			targets = append(targets, "/", "/records/record-1", "/assets/app.js")
+	t.Run("ST-SUP-RC02-OC45-T01 The local application proxy drops every untrusted browser header", func(t *testing.T) {
+		f := applicationFixture(t)
+		c := applicationLogin(t, f)
+		for _, backend := range []*Backend{f.backend, f.start(t)} {
+			targets := []string{apiPrefix + "/auth/whoami"}
+			if len(backend.config.Assets) == 0 {
+				targets = append(targets, "/", "/records/record-1", "/assets/app.js")
+			}
+			for _, target := range targets {
+				w := send(backend, "GET", target, "", []*http.Cookie{c}, http.Header{"X-Forwarded-Access-Token": {"attacker"}, "X-Forwarded-User": {"attacker"}, "X-Auth-Request-User": {"attacker"}, "Forwarded": {"host=attacker"}})
+				require(t, w.Code == 200, "authenticated application request failed")
+				var result struct {
+					Path    string
+					Headers http.Header
+				}
+				if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+					t.Fatal(err)
+				}
+				require(t, result.Path == target, "application path changed")
+				require(t, result.Headers.Get("Authorization") == "Bearer initial-access-value", "server identity was not forwarded")
+				for _, name := range []string{"Cookie", "X-Forwarded-Access-Token", "X-Forwarded-User", "X-Auth-Request-User", "Forwarded"} {
+					require(t, result.Headers.Get(name) == "", "untrusted header reached application")
+				}
+				require(t, w.Header().Get("Set-Cookie") == "" && w.Header().Get("X-Private") == "", "application response leaked private headers")
+			}
 		}
-		for _, target := range targets {
-			w := send(backend, "GET", target, "", []*http.Cookie{c}, http.Header{"X-Forwarded-Access-Token": {"attacker"}, "X-Forwarded-User": {"attacker"}, "X-Auth-Request-User": {"attacker"}, "Forwarded": {"host=attacker"}})
-			require(t, w.Code == 200, "authenticated application request failed")
-			var result struct {
-				Path    string
-				Headers http.Header
-			}
-			if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
-				t.Fatal(err)
-			}
-			require(t, result.Path == target, "application path changed")
-			require(t, result.Headers.Get("Authorization") == "Bearer initial-access-value", "server identity was not forwarded")
-			for _, name := range []string{"Cookie", "X-Forwarded-Access-Token", "X-Forwarded-User", "X-Auth-Request-User", "Forwarded"} {
-				require(t, result.Headers.Get(name) == "", "untrusted header reached application")
-			}
-			require(t, w.Header().Get("Set-Cookie") == "" && w.Header().Get("X-Private") == "", "application response leaked private headers")
-		}
-	}
+	})
 }
 
-// Proves ST-SUP-RC02-OC46.
 func TestApplicationWritesRequireOrigin(t *testing.T) {
-	f := applicationFixture(t)
-	c := applicationLogin(t, f)
-	for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
-		for _, headers := range []http.Header{nil, {"Origin": {"https://evil.example"}}, {"Origin": {origin, origin}}, {"Origin": {origin}, "Sec-Fetch-Site": {"same-site"}}, {"Origin": {origin}, "Sec-Fetch-Site": {"none"}}, {"Origin": {origin}, "Sec-Fetch-Site": {"unknown"}}, {"Origin": {origin}, "Sec-Fetch-Site": {"same-origin", "same-origin"}}} {
-			w := send(f.backend, method, apiPrefix+"/workspaces", `{"name":"one"}`, []*http.Cookie{c}, headers)
-			require(t, w.Code == 403 || w.Code == 400, "unsafe application write was accepted")
+	t.Run("ST-SUP-RC02-OC46-T01 A local application write needs an exact origin and a trusted fetch site", func(t *testing.T) {
+		f := applicationFixture(t)
+		c := applicationLogin(t, f)
+		for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
+			for _, headers := range []http.Header{nil, {"Origin": {"https://evil.example"}}, {"Origin": {origin, origin}}, {"Origin": {origin}, "Sec-Fetch-Site": {"same-site"}}, {"Origin": {origin}, "Sec-Fetch-Site": {"none"}}, {"Origin": {origin}, "Sec-Fetch-Site": {"unknown"}}, {"Origin": {origin}, "Sec-Fetch-Site": {"same-origin", "same-origin"}}} {
+				w := send(f.backend, method, apiPrefix+"/workspaces", `{"name":"one"}`, []*http.Cookie{c}, headers)
+				require(t, w.Code == 403 || w.Code == 400, "unsafe application write was accepted")
+			}
+			for _, headers := range []http.Header{{"Origin": {origin}}, {"Origin": {origin}, "Sec-Fetch-Site": {"same-origin"}}} {
+				w := send(f.backend, method, apiPrefix+"/workspaces", `{"name":"one"}`, []*http.Cookie{c}, headers)
+				require(t, w.Code == 200, "same-origin application write failed")
+			}
 		}
-		for _, headers := range []http.Header{{"Origin": {origin}}, {"Origin": {origin}, "Sec-Fetch-Site": {"same-origin"}}} {
-			w := send(f.backend, method, apiPrefix+"/workspaces", `{"name":"one"}`, []*http.Cookie{c}, headers)
-			require(t, w.Code == 200, "same-origin application write failed")
-		}
-	}
+	})
 }
 
-// Proves ST-SUP-RC02-OC06, ST-SUP-RC02-OC22, ST-SUP-RC02-OC47.
 func TestApplicationLoginAndDeniedRequests(t *testing.T) {
 	f := applicationFixture(t)
 	assetPath := "/assets/app.js"
 	if len(f.backend.config.Assets) != 0 {
 		assetPath = "/assets/main.js"
 	}
-	for _, target := range []string{apiPrefix + "/auth/whoami", assetPath} {
-		require(t, send(f.backend, "GET", target, "", nil, nil).Code == 401, "anonymous request reached application")
+	if !t.Run("ST-SUP-RC02-OC47-T01 An anonymous document request starts login and keeps the cookie", func(t *testing.T) {
+		for _, target := range []string{apiPrefix + "/auth/whoami", assetPath} {
+			require(t, send(f.backend, "GET", target, "", nil, nil).Code == 401, "anonymous request reached application")
+		}
+		w := send(f.backend, "GET", "/records/record-1", "", nil, http.Header{"Sec-Fetch-Site": {"none"}})
+		require(t, w.Code == 303 && strings.HasPrefix(w.Header().Get("Location"), "/auth/login?"), "document did not start login")
+		w = send(f.backend, "GET", "/", "", nil, http.Header{"Sec-Fetch-Site": {"cross-site"}})
+		require(t, w.Code == 200 && strings.Contains(w.Body.String(), "Sign in to continue"), "cross-site landing did not require sign-in")
+		require(t, w.Header().Get("Set-Cookie") == "", "cross-site landing cleared an existing browser cookie")
+	}) {
+		return
 	}
-	w := send(f.backend, "GET", "/records/record-1", "", nil, http.Header{"Sec-Fetch-Site": {"none"}})
-	require(t, w.Code == 303 && strings.HasPrefix(w.Header().Get("Location"), "/auth/login?"), "document did not start login")
-	w = send(f.backend, "GET", "/", "", nil, http.Header{"Sec-Fetch-Site": {"cross-site"}})
-	require(t, w.Code == 200 && strings.Contains(w.Body.String(), "Sign in to continue"), "cross-site landing did not require sign-in")
-	require(t, w.Header().Get("Set-Cookie") == "", "cross-site landing cleared an existing browser cookie")
 	c := applicationLogin(t, f)
-	require(t, send(f.backend, "GET", apiPrefix+"/auth/whoami", "", []*http.Cookie{c}, http.Header{"Authorization": {"Bearer browser-token"}}).Code == 400, "browser bearer was accepted")
-	require(t, send(f.backend, "GET", "/unknown", "", []*http.Cookie{c}, nil).Code == 404, "undeclared UI route was accepted")
+	if !t.Run("ST-SUP-RC02-OC06-T03 The local application proxy refuses a browser bearer token", func(t *testing.T) {
+		require(t, send(f.backend, "GET", apiPrefix+"/auth/whoami", "", []*http.Cookie{c}, http.Header{"Authorization": {"Bearer browser-token"}}).Code == 400, "browser bearer was accepted")
+	}) {
+		return
+	}
+	if !t.Run("ST-SUP-RC02-OC22-T02 The local application proxy returns 404 for an undeclared UI route", func(t *testing.T) {
+		require(t, send(f.backend, "GET", "/unknown", "", []*http.Cookie{c}, nil).Code == 404, "undeclared UI route was accepted")
+	}) {
+		return
+	}
 	require(t, send(f.backend, "POST", "/records/record-1", "", []*http.Cookie{c}, http.Header{"Origin": {origin}}).Code == 405, "write reached a UI route")
 	require(t, send(f.backend, "GET", apiPrefix+"/terminal", "", []*http.Cookie{c}, http.Header{"Upgrade": {"websocket"}, "Sec-Websocket-Key": {"a-key"}}).Code == 403, "upgrade without an origin was accepted")
 	require(t, send(f.backend, "GET", apiPrefix+"/unauthorized", "", []*http.Cookie{c}, nil).Code == 401, "upstream denial was lost")
 	require(t, send(f.backend, "GET", apiPrefix+"/auth/whoami", "", []*http.Cookie{c}, nil).Code == 401, "denied session remained active")
 }
 
-// Proves ST-SUP-RC02-OC46.
 func TestApplicationOriginGuard(t *testing.T) {
-	b := &Backend{}
-	// This check needs no database. It covers the exact-origin boundary.
-	r := httptest.NewRequest("POST", origin+"/api/v1/workspaces", nil)
-	b.origin = r.URL
-	b.origin.Path = ""
-	for _, site := range []string{"same-site", "cross-site", "none", "invalid"} {
+	t.Run("ST-SUP-RC02-OC46-T02 The application CSRF check needs an exact origin and a trusted fetch site", func(t *testing.T) {
+		b := &Backend{}
+		// This check needs no database. It covers the exact-origin boundary.
+		r := httptest.NewRequest("POST", origin+"/api/v1/workspaces", nil)
+		b.origin = r.URL
+		b.origin.Path = ""
+		for _, site := range []string{"same-site", "cross-site", "none", "invalid"} {
+			r.Header.Set("Origin", origin)
+			r.Header.Set("Sec-Fetch-Site", site)
+			require(t, !b.applicationCSRF(r), "untrusted fetch site accepted")
+		}
+		r.Header.Del("Sec-Fetch-Site")
+		r.Header.Del("Origin")
+		require(t, !b.applicationCSRF(r), "missing origin accepted")
 		r.Header.Set("Origin", origin)
-		r.Header.Set("Sec-Fetch-Site", site)
-		require(t, !b.applicationCSRF(r), "untrusted fetch site accepted")
-	}
-	r.Header.Del("Sec-Fetch-Site")
-	r.Header.Del("Origin")
-	require(t, !b.applicationCSRF(r), "missing origin accepted")
-	r.Header.Set("Origin", origin)
-	require(t, b.applicationCSRF(r), "exact origin rejected")
+		require(t, b.applicationCSRF(r), "exact origin rejected")
+	})
 }
 
-// Proves ST-SUP-RC02-OC08, ST-SUP-RC02-OC11.
 func TestApplicationRefreshAndLogout(t *testing.T) {
 	f := applicationFixture(t)
 	c, csrf := login(t, f)
 	expireAccess(t, f, c)
 	second := f.start(t)
-	w := send(second, "GET", apiPrefix+"/auth/whoami", "", []*http.Cookie{c}, nil)
-	require(t, w.Code == 200, "application session did not refresh")
-	var result struct{ Headers http.Header }
-	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
-		t.Fatal(err)
+	if !t.Run("ST-SUP-RC02-OC08-T02 A second backend renews an expired application session", func(t *testing.T) {
+		w := send(second, "GET", apiPrefix+"/auth/whoami", "", []*http.Cookie{c}, nil)
+		require(t, w.Code == 200, "application session did not refresh")
+		var result struct{ Headers http.Header }
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		require(t, result.Headers.Get("Authorization") == "Bearer refreshed-access-value", "application received an expired token")
+	}) {
+		return
 	}
-	require(t, result.Headers.Get("Authorization") == "Bearer refreshed-access-value", "application received an expired token")
-	w = send(f.backend, "POST", "/auth/logout", "", []*http.Cookie{c}, http.Header{"Origin": {origin}})
-	require(t, w.Code == 403, "application mode bypassed logout CSRF")
-	require(t, send(second, "GET", apiPrefix+"/auth/whoami", "", []*http.Cookie{c}, nil).Code == 200, "denied logout ended the session")
-	w = send(f.backend, "POST", "/auth/logout", "", []*http.Cookie{c}, http.Header{"Origin": {origin}, CSRFHeader: {csrf}})
-	require(t, w.Code == 204, "application logout failed")
-	require(t, send(second, "GET", apiPrefix+"/auth/whoami", "", []*http.Cookie{c}, nil).Code == 401, "application session survived logout on another backend")
+	t.Run("ST-SUP-RC02-OC11-T03 An application sign-out on one backend ends the session on another", func(t *testing.T) {
+		w := send(f.backend, "POST", "/auth/logout", "", []*http.Cookie{c}, http.Header{"Origin": {origin}})
+		require(t, w.Code == 403, "application mode bypassed logout CSRF")
+		require(t, send(second, "GET", apiPrefix+"/auth/whoami", "", []*http.Cookie{c}, nil).Code == 200, "denied logout ended the session")
+		w = send(f.backend, "POST", "/auth/logout", "", []*http.Cookie{c}, http.Header{"Origin": {origin}, CSRFHeader: {csrf}})
+		require(t, w.Code == 204, "application logout failed")
+		require(t, send(second, "GET", apiPrefix+"/auth/whoami", "", []*http.Cookie{c}, nil).Code == 401, "application session survived logout on another backend")
+	})
 }
 
-// Proves ST-SUP-RC02-OC36.
 func TestApplicationAddressIsCompilerOwned(t *testing.T) {
-	for _, o := range []options{{Origin: origin, Upstream: "http://127.0.0.1:8000"}, {Origin: origin, Upstream: "https://other.example"}, {Origin: origin, UpstreamCA: "unused.pem"}} {
-		_, err := newBackend(context.Background(), &sql.DB{}, o)
-		require(t, err != nil && strings.Contains(err.Error(), "compiler-owned"), "runtime application address override accepted")
-	}
+	t.Run("ST-SUP-RC02-OC36-T01 The application upstream address stays compiler-owned", func(t *testing.T) {
+		for _, o := range []options{{Origin: origin, Upstream: "http://127.0.0.1:8000"}, {Origin: origin, Upstream: "https://other.example"}, {Origin: origin, UpstreamCA: "unused.pem"}} {
+			_, err := newBackend(context.Background(), &sql.DB{}, o)
+			require(t, err != nil && strings.Contains(err.Error(), "compiler-owned"), "runtime application address override accepted")
+		}
+	})
 }

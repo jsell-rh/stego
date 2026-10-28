@@ -1,0 +1,1 @@
+{"id":"ST-GEN-DS01-SV","title":"compiler.ComponentDigest","domain_service_id":"ST-GEN-DS01","file":"internal/compiler/component_digest.go","description":"Not written yet: apply records the registry reference as each component's digest today."}

@@ -1,1 +1,6 @@
 {"id":"ST-VO01","title":"Slot operator","description":"How the fills bound to one slot compose."}
+{"id":"ST-VO02","title":"Maturity stage","description":"How far a component is on the maturity ladder. It decides whether a golden path may include the component."}
+{"id":"ST-VO03","title":"Registry trust","description":"Whether a registry source is the reviewed common registry or a local registry that adds to it."}
+{"id":"ST-VO41","title":"Content digest","description":"The SHA-256 digest of some content, such as a file, a declaration, a component or the registry."}
+{"id":"ST-VO42","title":"Build identity","description":"What a compiler records about its own build, from the Go build metadata."}
+{"id":"ST-VO43","title":"Source revision","description":"A full commit ID that names one exact source state."}

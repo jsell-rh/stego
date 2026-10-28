@@ -188,32 +188,33 @@ func TestGenerate_RouterEntityStructsHaveFields(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC33.
 func TestGenerate_WiringUsesMethodPatternRoutes(t *testing.T) {
-	g := &Generator{}
-	ctx := basicContext()
+	t.Run("ST-SUP-RC20-OC33-T01 The emitted wiring registers one literal method-and-pattern route per operation", func(t *testing.T) {
+		g := &Generator{}
+		ctx := basicContext()
 
-	_, wiring, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if wiring == nil {
-		t.Fatal("wiring is nil")
-	}
-
-	// Go 1.22 method+pattern routes via Wiring.Routes.
-	routeStr := strings.Join(wiring.Routes, "\n")
-	for _, want := range []string{
-		`"POST /users"`,
-		`"GET /users/{id}"`,
-		`"PUT /users/{id}"`,
-		`"DELETE /users/{id}"`,
-		`"GET /users"`,
-	} {
-		if !strings.Contains(routeStr, want) {
-			t.Errorf("wiring routes missing %s route", want)
+		_, wiring, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-	}
+		if wiring == nil {
+			t.Fatal("wiring is nil")
+		}
+
+		// Go 1.22 method+pattern routes via Wiring.Routes.
+		routeStr := strings.Join(wiring.Routes, "\n")
+		for _, want := range []string{
+			`"POST /users"`,
+			`"GET /users/{id}"`,
+			`"PUT /users/{id}"`,
+			`"DELETE /users/{id}"`,
+			`"GET /users"`,
+		} {
+			if !strings.Contains(routeStr, want) {
+				t.Errorf("wiring routes missing %s route", want)
+			}
+		}
+	})
 }
 
 func TestGenerate_NestedRouting(t *testing.T) {
@@ -590,121 +591,125 @@ func TestGenerate_UpsertOperation(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC13, ST-SUP-RC20-OC14.
 func TestGenerate_UpsertStatusCodes(t *testing.T) {
-	// Verifies that the upsert handler distinguishes created (201),
-	// updated (200), and conflict (409) via the store return values.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Widget", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-				{Name: "generation", Type: types.FieldTypeInt64},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:        "widgets",
-				Entity:      "Widget",
-				Operations:  []types.Operation{types.OpUpsert},
-				UpsertKey:   []string{"name"},
-				Concurrency: types.ConcurrencyOptimistic,
+	check := func(t *testing.T) {
+		// Verifies that the upsert handler distinguishes created (201),
+		// updated (200), and conflict (409) via the store return values.
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Widget", Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString},
+					{Name: "generation", Type: types.FieldTypeInt64},
+				}},
 			},
-		},
-		OutputNamespace: "internal/api",
-	}
+			Collections: []types.Collection{
+				{
+					Name:        "widgets",
+					Entity:      "Widget",
+					Operations:  []types.Operation{types.OpUpsert},
+					UpsertKey:   []string{"name"},
+					Concurrency: types.ConcurrencyOptimistic,
+				},
+			},
+			OutputNamespace: "internal/api",
+		}
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
 
-	// Handler must use the (bool, error) return from store.Upsert.
-	if !strings.Contains(handler, "created, err := h.store.Upsert(") {
-		t.Error("handler must capture 'created' return value from store.Upsert")
-	}
+		// Handler must use the (bool, error) return from store.Upsert.
+		if !strings.Contains(handler, "created, err := h.store.Upsert(") {
+			t.Error("handler must capture 'created' return value from store.Upsert")
+		}
 
-	// Handler must check for ErrConflict and return 409.
-	if !strings.Contains(handler, "errors.Is(err, ErrConflict)") {
-		t.Error("handler must check for ErrConflict")
-	}
-	if !strings.Contains(handler, "Conflict(") {
-		t.Error("handler must call Conflict() for optimistic concurrency failure")
-	}
+		// Handler must check for ErrConflict and return 409.
+		if !strings.Contains(handler, "errors.Is(err, ErrConflict)") {
+			t.Error("handler must check for ErrConflict")
+		}
+		if !strings.Contains(handler, "Conflict(") {
+			t.Error("handler must call Conflict() for optimistic concurrency failure")
+		}
 
-	// Handler must return 201 when created.
-	if !strings.Contains(handler, "http.StatusCreated") {
-		t.Error("handler must return 201 Created for new inserts")
-	}
+		// Handler must return 201 when created.
+		if !strings.Contains(handler, "http.StatusCreated") {
+			t.Error("handler must return 201 Created for new inserts")
+		}
 
-	// Handler must return 200 when updated.
-	if !strings.Contains(handler, "http.StatusOK") {
-		t.Error("handler must return 200 OK for updates")
-	}
+		// Handler must return 200 when updated.
+		if !strings.Contains(handler, "http.StatusOK") {
+			t.Error("handler must return 200 OK for updates")
+		}
 
-	// Router must define ErrConflict sentinel.
-	router := findFileContent(t, files, "internal/api/router.go")
-	if !strings.Contains(router, "ErrConflict") {
-		t.Error("router must define ErrConflict sentinel variable")
-	}
+		// Router must define ErrConflict sentinel.
+		router := findFileContent(t, files, "internal/api/router.go")
+		if !strings.Contains(router, "ErrConflict") {
+			t.Error("router must define ErrConflict sentinel variable")
+		}
 
-	// Store interface must return (bool, error) for Upsert.
-	if !strings.Contains(router, "Upsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) (bool, error)") {
-		t.Error("Store.Upsert must return (bool, error)")
+		// Store interface must return (bool, error) for Upsert.
+		if !strings.Contains(router, "Upsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) (bool, error)") {
+			t.Error("Store.Upsert must return (bool, error)")
+		}
 	}
+	t.Run("ST-SUP-RC20-OC13-T01 The emitted upsert handler separates an insert from an update", check)
+	t.Run("ST-SUP-RC20-OC14-T01 The emitted upsert handler refuses a stale generation", check)
 }
 
-// Proves ST-SUP-RC20-OC13.
 func TestGenerate_UpsertOpenAPIResponses(t *testing.T) {
-	// Verifies that the OpenAPI spec includes 200, 201, and 409 responses
-	// for upsert operations.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Widget", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "widgets",
-				Entity:     "Widget",
-				Operations: []types.Operation{types.OpUpsert},
-				UpsertKey:  []string{"name"},
+	t.Run("ST-SUP-RC20-OC13-T02 The emitted document declares both upsert answers", func(t *testing.T) {
+		// Verifies that the OpenAPI spec includes 200, 201, and 409 responses
+		// for upsert operations.
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Widget", Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString},
+				}},
 			},
-		},
-		OutputNamespace: "internal/api",
-	}
+			Collections: []types.Collection{
+				{
+					Name:       "widgets",
+					Entity:     "Widget",
+					Operations: []types.Operation{types.OpUpsert},
+					UpsertKey:  []string{"name"},
+				},
+			},
+			OutputNamespace: "internal/api",
+		}
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	openapiBytes := findFileBytes(t, files, "internal/api/openapi.json")
-	var specMap map[string]any
-	if err := json.Unmarshal(openapiBytes, &specMap); err != nil {
-		t.Fatalf("invalid OpenAPI JSON: %v", err)
-	}
+		openapiBytes := findFileBytes(t, files, "internal/api/openapi.json")
+		var specMap map[string]any
+		if err := json.Unmarshal(openapiBytes, &specMap); err != nil {
+			t.Fatalf("invalid OpenAPI JSON: %v", err)
+		}
 
-	paths := specMap["paths"].(map[string]any)
-	widgetsPath := paths["/widgets"].(map[string]any)
-	putOp := widgetsPath["put"].(map[string]any)
-	responses := putOp["responses"].(map[string]any)
+		paths := specMap["paths"].(map[string]any)
+		widgetsPath := paths["/widgets"].(map[string]any)
+		putOp := widgetsPath["put"].(map[string]any)
+		responses := putOp["responses"].(map[string]any)
 
-	if _, ok := responses["200"]; !ok {
-		t.Error("upsert OpenAPI must include 200 response")
-	}
-	if _, ok := responses["201"]; !ok {
-		t.Error("upsert OpenAPI must include 201 response")
-	}
-	if _, ok := responses["409"]; !ok {
-		t.Error("upsert OpenAPI must include 409 response")
-	}
+		if _, ok := responses["200"]; !ok {
+			t.Error("upsert OpenAPI must include 200 response")
+		}
+		if _, ok := responses["201"]; !ok {
+			t.Error("upsert OpenAPI must include 201 response")
+		}
+		if _, ok := responses["409"]; !ok {
+			t.Error("upsert OpenAPI must include 409 response")
+		}
+	})
 }
 
 func TestGenerate_UpdateAndUpsertOnSameEntity(t *testing.T) {
@@ -1727,42 +1732,43 @@ func TestGenerate_OpenAPIRenderedBytesValidJSON(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC29.
 func TestGenerate_HandlersSetContentTypeJSON(t *testing.T) {
-	// Every handler method that writes a JSON response body must set
-	// Content-Type: application/json to match the OpenAPI spec.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Item", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-				{Name: "key", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "items",
-				Entity:     "Item",
-				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpList, types.OpUpsert},
-				UpsertKey:  []string{"key"},
+	t.Run("ST-SUP-RC20-OC29-T01 The emitted handlers set the JSON content type", func(t *testing.T) {
+		// Every handler method that writes a JSON response body must set
+		// Content-Type: application/json to match the OpenAPI spec.
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Item", Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString},
+					{Name: "key", Type: types.FieldTypeString},
+				}},
 			},
-		},
-		OutputNamespace: "internal/api",
-	}
+			Collections: []types.Collection{
+				{
+					Name:       "items",
+					Entity:     "Item",
+					Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpList, types.OpUpsert},
+					UpsertKey:  []string{"key"},
+				},
+			},
+			OutputNamespace: "internal/api",
+		}
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_items.go")
-	// Count occurrences of Content-Type header setting — must match the number
-	// of methods that write JSON responses (create, read, update, list, upsert = 5).
-	ct := strings.Count(handler, `w.Header().Set("Content-Type", "application/json")`)
-	if ct != 5 {
-		t.Errorf("expected 5 Content-Type header sets (one per JSON-returning method), got %d", ct)
-	}
+		handler := findFileContent(t, files, "internal/api/handler_items.go")
+		// Count occurrences of Content-Type header setting — must match the number
+		// of methods that write JSON responses (create, read, update, list, upsert = 5).
+		ct := strings.Count(handler, `w.Header().Set("Content-Type", "application/json")`)
+		if ct != 5 {
+			t.Errorf("expected 5 Content-Type header sets (one per JSON-returning method), got %d", ct)
+		}
+	})
 }
 
 func TestGenerate_ComputedTimestampFieldCompiles(t *testing.T) {
@@ -4600,102 +4606,103 @@ func TestGenerate_SlotRequestPopulationWithNonStringFields(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC31.
 func TestGenerate_NilGuardPassthrough(t *testing.T) {
-	// Verify that handler methods with slot bindings include nil guards so that
-	// the handler degrades to passthrough semantics when no fills are wired.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Item", Fields: []types.Field{
-				{Name: "label", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "items", Entity: "Item", Operations: []types.Operation{
-				types.OpCreate, types.OpUpdate, types.OpDelete, types.OpUpsert,
-			}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "before_create", Collection: "items", Gate: []string{"gate-fill"}},
-			{Slot: "validate", Collection: "items", Chain: []string{"validate-fill"}},
-			{Slot: "on_entity_changed", Collection: "items", FanOut: []string{"fanout-fill"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "github.com/myorg/svc",
-		SlotsPackage:    "internal/slots",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var handlerContent string
-	for _, f := range files {
-		if strings.Contains(f.Path, "handler_items.go") {
-			handlerContent = string(f.Content)
+	t.Run("ST-SUP-RC20-OC31-T01 An unbound slot is never called", func(t *testing.T) {
+		// Verify that handler methods with slot bindings include nil guards so that
+		// the handler degrades to passthrough semantics when no fills are wired.
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Item", Fields: []types.Field{
+					{Name: "label", Type: types.FieldTypeString},
+				}},
+			},
+			Collections: []types.Collection{
+				{Name: "items", Entity: "Item", Operations: []types.Operation{
+					types.OpCreate, types.OpUpdate, types.OpDelete, types.OpUpsert,
+				}},
+			},
+			SlotBindings: []types.SlotDeclaration{
+				{Slot: "before_create", Collection: "items", Gate: []string{"gate-fill"}},
+				{Slot: "validate", Collection: "items", Chain: []string{"validate-fill"}},
+				{Slot: "on_entity_changed", Collection: "items", FanOut: []string{"fanout-fill"}},
+			},
+			OutputNamespace: "internal/api",
+			ModuleName:      "github.com/myorg/svc",
+			SlotsPackage:    "internal/slots",
 		}
-	}
-	if handlerContent == "" {
-		t.Fatal("handler_items.go not found")
-	}
 
-	// Every slot operator invocation must have a nil guard.
-	// Gate before create.
-	if !strings.Contains(handlerContent, "if h.beforeCreateGate != nil {") {
-		t.Errorf("missing nil guard for beforeCreateGate:\n%s", handlerContent)
-	}
-	// Chain for validate (fires on create, update, upsert).
-	if !strings.Contains(handlerContent, "if h.validateChain != nil {") {
-		t.Errorf("missing nil guard for validateChain:\n%s", handlerContent)
-	}
-	// Fan-out for on_entity_changed (fires on create, update, delete, upsert).
-	if !strings.Contains(handlerContent, "if h.onEntityChangedFanOut != nil {") {
-		t.Errorf("missing nil guard for onEntityChangedFanOut:\n%s", handlerContent)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	// Verify the after-slot request for different operations includes the
-	// correct action string.
-	for _, action := range []string{"create", "update", "delete", "upsert"} {
-		expected := fmt.Sprintf(`Action: "%s"`, action)
-		if !strings.Contains(handlerContent, expected) {
-			t.Errorf("after-slot request missing action %q:\n%s", action, handlerContent)
+		var handlerContent string
+		for _, f := range files {
+			if strings.Contains(f.Path, "handler_items.go") {
+				handlerContent = string(f.Content)
+			}
 		}
-	}
+		if handlerContent == "" {
+			t.Fatal("handler_items.go not found")
+		}
 
-	// Finding 30: verify polymorphic slot request field emission.
-	// before_create has Caller (from proto), validate does NOT.
-	if !strings.Contains(handlerContent, "Caller: &") {
-		t.Errorf("before_create request should have Caller field:\n%s", handlerContent)
-	}
-	// ValidateRequest has Entity string field (distinct from CreateRequest.Entity).
-	// Count occurrences to ensure validate request populates Entity.
-	// The validate slot fires on create, update, and upsert — each should
-	// emit a ValidateRequest with an Entity field.
-	validateReqCount := strings.Count(handlerContent, "ValidateRequest{")
-	if validateReqCount == 0 {
-		t.Errorf("expected ValidateRequest struct literals in handler:\n%s", handlerContent)
-	}
+		// Every slot operator invocation must have a nil guard.
+		// Gate before create.
+		if !strings.Contains(handlerContent, "if h.beforeCreateGate != nil {") {
+			t.Errorf("missing nil guard for beforeCreateGate:\n%s", handlerContent)
+		}
+		// Chain for validate (fires on create, update, upsert).
+		if !strings.Contains(handlerContent, "if h.validateChain != nil {") {
+			t.Errorf("missing nil guard for validateChain:\n%s", handlerContent)
+		}
+		// Fan-out for on_entity_changed (fires on create, update, delete, upsert).
+		if !strings.Contains(handlerContent, "if h.onEntityChangedFanOut != nil {") {
+			t.Errorf("missing nil guard for onEntityChangedFanOut:\n%s", handlerContent)
+		}
 
-	// Split handler into before_create and validate sections to verify
-	// Caller only appears in before_create requests, not validate requests.
-	// Each ValidateRequest literal must have Entity but NOT Caller.
-	sections := strings.Split(handlerContent, "ValidateRequest{")
-	for i, section := range sections[1:] { // skip pre-first-match
-		closing := strings.Index(section, "}\n")
-		if closing < 0 {
-			continue
+		// Verify the after-slot request for different operations includes the
+		// correct action string.
+		for _, action := range []string{"create", "update", "delete", "upsert"} {
+			expected := fmt.Sprintf(`Action: "%s"`, action)
+			if !strings.Contains(handlerContent, expected) {
+				t.Errorf("after-slot request missing action %q:\n%s", action, handlerContent)
+			}
 		}
-		reqBody := section[:closing]
-		if strings.Contains(reqBody, "Caller:") {
-			t.Errorf("ValidateRequest occurrence %d should NOT have Caller field:\n%s", i, reqBody)
+
+		// Finding 30: verify polymorphic slot request field emission.
+		// before_create has Caller (from proto), validate does NOT.
+		if !strings.Contains(handlerContent, "Caller: &") {
+			t.Errorf("before_create request should have Caller field:\n%s", handlerContent)
 		}
-		if !strings.Contains(reqBody, "Entity:") {
-			t.Errorf("ValidateRequest occurrence %d should have Entity field:\n%s", i, reqBody)
+		// ValidateRequest has Entity string field (distinct from CreateRequest.Entity).
+		// Count occurrences to ensure validate request populates Entity.
+		// The validate slot fires on create, update, and upsert — each should
+		// emit a ValidateRequest with an Entity field.
+		validateReqCount := strings.Count(handlerContent, "ValidateRequest{")
+		if validateReqCount == 0 {
+			t.Errorf("expected ValidateRequest struct literals in handler:\n%s", handlerContent)
 		}
-	}
+
+		// Split handler into before_create and validate sections to verify
+		// Caller only appears in before_create requests, not validate requests.
+		// Each ValidateRequest literal must have Entity but NOT Caller.
+		sections := strings.Split(handlerContent, "ValidateRequest{")
+		for i, section := range sections[1:] { // skip pre-first-match
+			closing := strings.Index(section, "}\n")
+			if closing < 0 {
+				continue
+			}
+			reqBody := section[:closing]
+			if strings.Contains(reqBody, "Caller:") {
+				t.Errorf("ValidateRequest occurrence %d should NOT have Caller field:\n%s", i, reqBody)
+			}
+			if !strings.Contains(reqBody, "Entity:") {
+				t.Errorf("ValidateRequest occurrence %d should have Entity field:\n%s", i, reqBody)
+			}
+		}
+	})
 }
 
 func TestGenerate_CrossGeneratorIntegrationCompilation(t *testing.T) {
@@ -5029,35 +5036,36 @@ func TestGenerate_BasePathOmittedRoutesFromRoot(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC28.
 func TestGenerate_BasePathInOpenAPIPaths(t *testing.T) {
-	g := &Generator{}
-	ctx := basicContext()
-	ctx.BasePath = "/api/hyperfleet/v1"
+	t.Run("ST-SUP-RC20-OC28-T03 The emitted document paths start at the base path", func(t *testing.T) {
+		g := &Generator{}
+		ctx := basicContext()
+		ctx.BasePath = "/api/hyperfleet/v1"
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	openapiBytes := findFileBytes(t, files, "internal/api/openapi.json")
+		openapiBytes := findFileBytes(t, files, "internal/api/openapi.json")
 
-	var spec map[string]any
-	if err := json.Unmarshal(openapiBytes, &spec); err != nil {
-		t.Fatalf("openapi.json is not valid JSON: %v", err)
-	}
+		var spec map[string]any
+		if err := json.Unmarshal(openapiBytes, &spec); err != nil {
+			t.Fatalf("openapi.json is not valid JSON: %v", err)
+		}
 
-	paths, ok := spec["paths"].(map[string]any)
-	if !ok {
-		t.Fatal("missing paths in openapi spec")
-	}
+		paths, ok := spec["paths"].(map[string]any)
+		if !ok {
+			t.Fatal("missing paths in openapi spec")
+		}
 
-	if _, ok := paths["/api/hyperfleet/v1/users"]; !ok {
-		t.Errorf("missing /api/hyperfleet/v1/users in openapi paths, got: %v", mapKeys(paths))
-	}
-	if _, ok := paths["/api/hyperfleet/v1/users/{id}"]; !ok {
-		t.Errorf("missing /api/hyperfleet/v1/users/{id} in openapi paths, got: %v", mapKeys(paths))
-	}
+		if _, ok := paths["/api/hyperfleet/v1/users"]; !ok {
+			t.Errorf("missing /api/hyperfleet/v1/users in openapi paths, got: %v", mapKeys(paths))
+		}
+		if _, ok := paths["/api/hyperfleet/v1/users/{id}"]; !ok {
+			t.Errorf("missing /api/hyperfleet/v1/users/{id} in openapi paths, got: %v", mapKeys(paths))
+		}
+	})
 }
 
 func TestGenerate_BasePathWithNestedRoutes(t *testing.T) {
@@ -5155,172 +5163,180 @@ func TestDeriveErrorPrefix(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC01, ST-SUP-RC20-OC03, ST-SUP-RC20-OC05.
 func TestGenerate_ErrorsFileGenerated(t *testing.T) {
-	g := &Generator{}
-	ctx := basicContext()
-	ctx.ServiceName = "hyperfleet-api"
+	check := func(t *testing.T) {
+		g := &Generator{}
+		ctx := basicContext()
+		ctx.ServiceName = "hyperfleet-api"
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	errorsContent := findFileContent(t, files, "internal/api/errors.go")
+		errorsContent := findFileContent(t, files, "internal/api/errors.go")
 
-	// AC1: ServiceError type with RFC 9457 fields.
-	for _, field := range []string{
-		"Type ", "Title ", "Status ", "Detail ", "Code ",
-		"Instance ", "TraceID ", "Timestamp ",
-		"ValidationErrors []ValidationError",
-	} {
-		if !strings.Contains(errorsContent, field) {
-			t.Errorf("errors.go missing ServiceError field containing %q", field)
+		// AC1: ServiceError type with RFC 9457 fields.
+		for _, field := range []string{
+			"Type ", "Title ", "Status ", "Detail ", "Code ",
+			"Instance ", "TraceID ", "Timestamp ",
+			"ValidationErrors []ValidationError",
+		} {
+			if !strings.Contains(errorsContent, field) {
+				t.Errorf("errors.go missing ServiceError field containing %q", field)
+			}
+		}
+
+		// AC7: ValidationError type with field+message.
+		if !strings.Contains(errorsContent, "type ValidationError struct") {
+			t.Error("errors.go missing ValidationError struct")
+		}
+		if !strings.Contains(errorsContent, `Field   string`) {
+			t.Error("ValidationError missing Field")
+		}
+		if !strings.Contains(errorsContent, `Message string`) {
+			t.Error("ValidationError missing Message")
+		}
+
+		// AC2: Error constructors for all six categories.
+		// Prefix for "hyperfleet-api" is "HYPERFLEET" (strip -api, remove hyphens, uppercase).
+		constructors := []struct {
+			name string
+			code string
+		}{
+			{"func NotFound(", "HYPERFLEET-NTF-001"},
+			{"func BadRequest(", "HYPERFLEET-VAL-001"},
+			{"func Conflict(", "HYPERFLEET-CNF-001"},
+			{"func Validation(", "HYPERFLEET-VAL-000"},
+			{"func Unauthorized(", "HYPERFLEET-AUT-001"},
+			{"func Forbidden(", "HYPERFLEET-AUZ-001"},
+			{"func InternalError(", "HYPERFLEET-INT-001"},
+		}
+		for _, c := range constructors {
+			if !strings.Contains(errorsContent, c.name) {
+				t.Errorf("errors.go missing constructor %s", c.name)
+			}
+			if !strings.Contains(errorsContent, c.code) {
+				t.Errorf("errors.go missing error code %s", c.code)
+			}
+		}
+
+		// AC4: handleError writes application/problem+json.
+		if !strings.Contains(errorsContent, `"application/problem+json"`) {
+			t.Error("errors.go missing application/problem+json content type")
+		}
+		if !strings.Contains(errorsContent, "func handleError(") {
+			t.Error("errors.go missing handleError function")
 		}
 	}
-
-	// AC7: ValidationError type with field+message.
-	if !strings.Contains(errorsContent, "type ValidationError struct") {
-		t.Error("errors.go missing ValidationError struct")
-	}
-	if !strings.Contains(errorsContent, `Field   string`) {
-		t.Error("ValidationError missing Field")
-	}
-	if !strings.Contains(errorsContent, `Message string`) {
-		t.Error("ValidationError missing Message")
-	}
-
-	// AC2: Error constructors for all six categories.
-	// Prefix for "hyperfleet-api" is "HYPERFLEET" (strip -api, remove hyphens, uppercase).
-	constructors := []struct {
-		name string
-		code string
-	}{
-		{"func NotFound(", "HYPERFLEET-NTF-001"},
-		{"func BadRequest(", "HYPERFLEET-VAL-001"},
-		{"func Conflict(", "HYPERFLEET-CNF-001"},
-		{"func Validation(", "HYPERFLEET-VAL-000"},
-		{"func Unauthorized(", "HYPERFLEET-AUT-001"},
-		{"func Forbidden(", "HYPERFLEET-AUZ-001"},
-		{"func InternalError(", "HYPERFLEET-INT-001"},
-	}
-	for _, c := range constructors {
-		if !strings.Contains(errorsContent, c.name) {
-			t.Errorf("errors.go missing constructor %s", c.name)
-		}
-		if !strings.Contains(errorsContent, c.code) {
-			t.Errorf("errors.go missing error code %s", c.code)
-		}
-	}
-
-	// AC4: handleError writes application/problem+json.
-	if !strings.Contains(errorsContent, `"application/problem+json"`) {
-		t.Error("errors.go missing application/problem+json content type")
-	}
-	if !strings.Contains(errorsContent, "func handleError(") {
-		t.Error("errors.go missing handleError function")
-	}
+	t.Run("ST-SUP-RC20-OC01-T01 The emitted problem type and its serializer match RFC 9457", check)
+	t.Run("ST-SUP-RC20-OC03-T01 The emitted error constructors carry the per-category codes", check)
+	t.Run("ST-SUP-RC20-OC05-T01 The emitted problem type carries the validation array", check)
 }
 
-// Proves ST-SUP-RC20-OC03.
 func TestGenerate_ErrorCodePrefixDerived(t *testing.T) {
-	// AC3: Error code prefix derived from service name.
-	// "user-management" → hyphens removed, uppercased → "USERMANAGEMENT"
-	g := &Generator{}
-	ctx := basicContext()
-	ctx.ServiceName = "user-management"
+	t.Run("ST-SUP-RC20-OC03-T02 The error code prefix comes from the service name", func(t *testing.T) {
+		// AC3: Error code prefix derived from service name.
+		// "user-management" → hyphens removed, uppercased → "USERMANAGEMENT"
+		g := &Generator{}
+		ctx := basicContext()
+		ctx.ServiceName = "user-management"
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	errorsContent := findFileContent(t, files, "internal/api/errors.go")
-
-	if !strings.Contains(errorsContent, "USERMANAGEMENT-NTF-001") {
-		t.Error("error code prefix not derived from service name 'user-management'")
-	}
-	if !strings.Contains(errorsContent, "USERMANAGEMENT-VAL-001") {
-		t.Error("error code prefix not derived from service name 'user-management'")
-	}
-}
-
-// Proves ST-SUP-RC20-OC04.
-func TestGenerate_ErrorTypeBasePopulatesTypeURI(t *testing.T) {
-	// AC5: error_type_base populates the type URI.
-	g := &Generator{}
-	ctx := basicContext()
-	ctx.ServiceName = "hyperfleet-api"
-	ctx.ErrorTypeBase = "https://api.hyperfleet.io/errors/"
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	errorsContent := findFileContent(t, files, "internal/api/errors.go")
-
-	if !strings.Contains(errorsContent, `"https://api.hyperfleet.io/errors/not-found"`) {
-		t.Error("NotFound should use error_type_base for type URI")
-	}
-	if !strings.Contains(errorsContent, `"https://api.hyperfleet.io/errors/bad-request"`) {
-		t.Error("BadRequest should use error_type_base for type URI")
-	}
-	if !strings.Contains(errorsContent, `"https://api.hyperfleet.io/errors/internal-error"`) {
-		t.Error("InternalError should use error_type_base for type URI")
-	}
-}
-
-// Proves ST-SUP-RC20-OC04.
-func TestGenerate_ErrorTypeBaseAbsentUsesAboutBlank(t *testing.T) {
-	// When error_type_base is not set, type uses about:blank per RFC 9457.
-	g := &Generator{}
-	ctx := basicContext()
-	ctx.ServiceName = "test-svc"
-	ctx.ErrorTypeBase = ""
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	errorsContent := findFileContent(t, files, "internal/api/errors.go")
-
-	if !strings.Contains(errorsContent, `"about:blank"`) {
-		t.Error("errors.go should use about:blank when error_type_base is not set")
-	}
-}
-
-// Proves ST-SUP-RC20-OC01.
-func TestGenerate_HandlersUseHandleError(t *testing.T) {
-	// AC6: All handlers use handleError instead of raw http.Error.
-	g := &Generator{}
-	ctx := basicContext()
-	ctx.ServiceName = "test-svc"
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_users.go")
-
-	// Must NOT contain http.Error.
-	if strings.Contains(handler, "http.Error(") {
-		t.Error("handler still contains http.Error() calls; should use handleError()")
-	}
-
-	// Must contain handleError calls for each error case.
-	expectedCalls := []string{
-		"handleError(w, r, BadRequest(",
-		"handleError(w, r, InternalError(",
-		"handleError(w, r, NotFound(",
-	}
-	for _, call := range expectedCalls {
-		if !strings.Contains(handler, call) {
-			t.Errorf("handler missing expected call: %s", call)
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-	}
+
+		errorsContent := findFileContent(t, files, "internal/api/errors.go")
+
+		if !strings.Contains(errorsContent, "USERMANAGEMENT-NTF-001") {
+			t.Error("error code prefix not derived from service name 'user-management'")
+		}
+		if !strings.Contains(errorsContent, "USERMANAGEMENT-VAL-001") {
+			t.Error("error code prefix not derived from service name 'user-management'")
+		}
+	})
+}
+
+func TestGenerate_ErrorTypeBasePopulatesTypeURI(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC04-T01 The emitted problem type URI follows the declared error base", func(t *testing.T) {
+		// AC5: error_type_base populates the type URI.
+		g := &Generator{}
+		ctx := basicContext()
+		ctx.ServiceName = "hyperfleet-api"
+		ctx.ErrorTypeBase = "https://api.hyperfleet.io/errors/"
+
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		errorsContent := findFileContent(t, files, "internal/api/errors.go")
+
+		if !strings.Contains(errorsContent, `"https://api.hyperfleet.io/errors/not-found"`) {
+			t.Error("NotFound should use error_type_base for type URI")
+		}
+		if !strings.Contains(errorsContent, `"https://api.hyperfleet.io/errors/bad-request"`) {
+			t.Error("BadRequest should use error_type_base for type URI")
+		}
+		if !strings.Contains(errorsContent, `"https://api.hyperfleet.io/errors/internal-error"`) {
+			t.Error("InternalError should use error_type_base for type URI")
+		}
+	})
+}
+
+func TestGenerate_ErrorTypeBaseAbsentUsesAboutBlank(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC04-T02 Without a declared base the problem type is about:blank", func(t *testing.T) {
+		// When error_type_base is not set, type uses about:blank per RFC 9457.
+		g := &Generator{}
+		ctx := basicContext()
+		ctx.ServiceName = "test-svc"
+		ctx.ErrorTypeBase = ""
+
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		errorsContent := findFileContent(t, files, "internal/api/errors.go")
+
+		if !strings.Contains(errorsContent, `"about:blank"`) {
+			t.Error("errors.go should use about:blank when error_type_base is not set")
+		}
+	})
+}
+
+func TestGenerate_HandlersUseHandleError(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC01-T02 Every emitted handler answers an error through the problem serializer", func(t *testing.T) {
+		// AC6: All handlers use handleError instead of raw http.Error.
+		g := &Generator{}
+		ctx := basicContext()
+		ctx.ServiceName = "test-svc"
+
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		handler := findFileContent(t, files, "internal/api/handler_users.go")
+
+		// Must NOT contain http.Error.
+		if strings.Contains(handler, "http.Error(") {
+			t.Error("handler still contains http.Error() calls; should use handleError()")
+		}
+
+		// Must contain handleError calls for each error case.
+		expectedCalls := []string{
+			"handleError(w, r, BadRequest(",
+			"handleError(w, r, InternalError(",
+			"handleError(w, r, NotFound(",
+		}
+		for _, call := range expectedCalls {
+			if !strings.Contains(handler, call) {
+				t.Errorf("handler missing expected call: %s", call)
+			}
+		}
+	})
 }
 
 func TestGenerate_ErrorsFileCompiles(t *testing.T) {
@@ -5370,89 +5386,93 @@ func TestGenerate_ErrorsFileCompiles(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC02.
 func TestGenerate_HandleErrorPopulatesInstance(t *testing.T) {
-	// handleError should populate instance from request path.
-	g := &Generator{}
-	ctx := basicContext()
-	ctx.ServiceName = "test-svc"
+	t.Run("ST-SUP-RC20-OC02-T02 The emitted problem names the request path", func(t *testing.T) {
+		// handleError should populate instance from request path.
+		g := &Generator{}
+		ctx := basicContext()
+		ctx.ServiceName = "test-svc"
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	errorsContent := findFileContent(t, files, "internal/api/errors.go")
+		errorsContent := findFileContent(t, files, "internal/api/errors.go")
 
-	if !strings.Contains(errorsContent, "svcErr.Instance = r.URL.Path") {
-		t.Error("handleError should populate instance from request path")
-	}
+		if !strings.Contains(errorsContent, "svcErr.Instance = r.URL.Path") {
+			t.Error("handleError should populate instance from request path")
+		}
+	})
 }
 
-// Proves ST-SUP-RC20-OC02.
 func TestGenerate_HandleErrorPopulatesTimestamp(t *testing.T) {
-	// handleError should populate timestamp.
-	g := &Generator{}
-	ctx := basicContext()
-	ctx.ServiceName = "test-svc"
+	t.Run("ST-SUP-RC20-OC02-T03 The emitted problem carries a UTC timestamp", func(t *testing.T) {
+		// handleError should populate timestamp.
+		g := &Generator{}
+		ctx := basicContext()
+		ctx.ServiceName = "test-svc"
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	errorsContent := findFileContent(t, files, "internal/api/errors.go")
+		errorsContent := findFileContent(t, files, "internal/api/errors.go")
 
-	if !strings.Contains(errorsContent, "time.Now().UTC().Format(time.RFC3339)") {
-		t.Error("handleError should populate timestamp with UTC RFC3339")
-	}
+		if !strings.Contains(errorsContent, "time.Now().UTC().Format(time.RFC3339)") {
+			t.Error("handleError should populate timestamp with UTC RFC3339")
+		}
+	})
 }
 
-// Proves ST-SUP-RC20-OC02.
 func TestGenerate_HandleErrorPopulatesTraceID(t *testing.T) {
-	// handleError should populate trace_id from W3C Trace Context header
-	// (OpenTelemetry propagation format: version-traceId-parentId-flags).
-	g := &Generator{}
-	ctx := basicContext()
-	ctx.ServiceName = "test-svc"
+	t.Run("ST-SUP-RC20-OC02-T01 The emitted problem serializer reads the trace identifier from the request header", func(t *testing.T) {
+		// handleError should populate trace_id from W3C Trace Context header
+		// (OpenTelemetry propagation format: version-traceId-parentId-flags).
+		g := &Generator{}
+		ctx := basicContext()
+		ctx.ServiceName = "test-svc"
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	errorsContent := findFileContent(t, files, "internal/api/errors.go")
+		errorsContent := findFileContent(t, files, "internal/api/errors.go")
 
-	if !strings.Contains(errorsContent, `r.Header.Get("Traceparent")`) {
-		t.Error("handleError should extract trace ID from Traceparent header")
-	}
-	if !strings.Contains(errorsContent, "svcErr.TraceID = parts[1]") {
-		t.Error("handleError should set TraceID from traceparent parts")
-	}
+		if !strings.Contains(errorsContent, `r.Header.Get("Traceparent")`) {
+			t.Error("handleError should extract trace ID from Traceparent header")
+		}
+		if !strings.Contains(errorsContent, "svcErr.TraceID = parts[1]") {
+			t.Error("handleError should set TraceID from traceparent parts")
+		}
+	})
 }
 
-// Proves ST-SUP-RC20-OC05.
 func TestGenerate_ValidationErrorsArray(t *testing.T) {
-	// AC7: Validation errors include per-field details array.
-	g := &Generator{}
-	ctx := basicContext()
-	ctx.ServiceName = "test-svc"
+	t.Run("ST-SUP-RC20-OC05-T02 A validation problem carries its per-field array", func(t *testing.T) {
+		// AC7: Validation errors include per-field details array.
+		g := &Generator{}
+		ctx := basicContext()
+		ctx.ServiceName = "test-svc"
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	errorsContent := findFileContent(t, files, "internal/api/errors.go")
+		errorsContent := findFileContent(t, files, "internal/api/errors.go")
 
-	// Validation constructor accepts []ValidationError.
-	if !strings.Contains(errorsContent, "func Validation(errors []ValidationError)") {
-		t.Error("Validation constructor should accept []ValidationError")
-	}
-	// ServiceError has validation_errors JSON tag.
-	if !strings.Contains(errorsContent, `json:"validation_errors,omitempty"`) {
-		t.Error("ServiceError should have validation_errors JSON tag")
-	}
+		// Validation constructor accepts []ValidationError.
+		if !strings.Contains(errorsContent, "func Validation(errors []ValidationError)") {
+			t.Error("Validation constructor should accept []ValidationError")
+		}
+		// ServiceError has validation_errors JSON tag.
+		if !strings.Contains(errorsContent, `json:"validation_errors,omitempty"`) {
+			t.Error("ServiceError should have validation_errors JSON tag")
+		}
+	})
 }
 
 func TestGenerate_SlotErrorsUseHandleError(t *testing.T) {
@@ -5492,56 +5512,57 @@ func TestGenerate_SlotErrorsUseHandleError(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC30.
 func TestGenerate_SlotRejectionIncludesCode(t *testing.T) {
-	// Round 2 finding: slot rejection errors must include Code field via
-	// errorForStatus, not an inline ServiceError{} without Code.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Widget", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpCreate}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "before_create", Collection: "widgets", Gate: []string{"my-gate"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "testmod",
-		SlotsPackage:    "internal/slots",
-		ServiceName:     "test-svc",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-	// Slot rejection must use errorForStatus (which sets Code), not inline ServiceError{}.
-	if !strings.Contains(handler, "handleError(w, r, errorForStatus(sc, slotResult.ErrorMessage))") {
-		t.Error("slot rejection should use errorForStatus to include Code field")
-	}
-	if strings.Contains(handler, "&ServiceError{Type:") {
-		t.Error("handler should not contain inline ServiceError{} construction — use error constructors")
-	}
-
-	// Verify errors.go contains errorForStatus function.
-	errorsContent := findFileContent(t, files, "internal/api/errors.go")
-	if !strings.Contains(errorsContent, "func errorForStatus(status int, detail string) *ServiceError") {
-		t.Error("errors.go should contain errorForStatus function")
-	}
-	// Verify errorForStatus maps status codes to categories.
-	for _, cat := range []string{`category = "VAL"`, `category = "AUT"`, `category = "AUZ"`, `category = "NTF"`, `category = "CNF"`} {
-		if !strings.Contains(errorsContent, cat) {
-			t.Errorf("errorForStatus missing category mapping: %s", cat)
+	t.Run("ST-SUP-RC20-OC30-T01 A before slot refusal becomes a problem response with its own code", func(t *testing.T) {
+		// Round 2 finding: slot rejection errors must include Code field via
+		// errorForStatus, not an inline ServiceError{} without Code.
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Widget", Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString},
+				}},
+			},
+			Collections: []types.Collection{
+				{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpCreate}},
+			},
+			SlotBindings: []types.SlotDeclaration{
+				{Slot: "before_create", Collection: "widgets", Gate: []string{"my-gate"}},
+			},
+			OutputNamespace: "internal/api",
+			ModuleName:      "testmod",
+			SlotsPackage:    "internal/slots",
+			ServiceName:     "test-svc",
 		}
-	}
+
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+		// Slot rejection must use errorForStatus (which sets Code), not inline ServiceError{}.
+		if !strings.Contains(handler, "handleError(w, r, errorForStatus(sc, slotResult.ErrorMessage))") {
+			t.Error("slot rejection should use errorForStatus to include Code field")
+		}
+		if strings.Contains(handler, "&ServiceError{Type:") {
+			t.Error("handler should not contain inline ServiceError{} construction — use error constructors")
+		}
+
+		// Verify errors.go contains errorForStatus function.
+		errorsContent := findFileContent(t, files, "internal/api/errors.go")
+		if !strings.Contains(errorsContent, "func errorForStatus(status int, detail string) *ServiceError") {
+			t.Error("errors.go should contain errorForStatus function")
+		}
+		// Verify errorForStatus maps status codes to categories.
+		for _, cat := range []string{`category = "VAL"`, `category = "AUT"`, `category = "AUZ"`, `category = "NTF"`, `category = "CNF"`} {
+			if !strings.Contains(errorsContent, cat) {
+				t.Errorf("errorForStatus missing category mapping: %s", cat)
+			}
+		}
+	})
 }
 
 func TestGenerate_ErrorForStatusCompilesWithHandlers(t *testing.T) {
@@ -5785,42 +5806,45 @@ func TestGenerate_ResponseFormatConvention(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC06, ST-SUP-RC20-OC08.
 func TestGenerate_EnvelopeSingleResourceCreate(t *testing.T) {
-	// AC2: Single resource responses include id, kind, href when envelope is enabled.
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	check := func(t *testing.T) {
+		// AC2: Single resource responses include id, kind, href when envelope is enabled.
+		g := &Generator{}
+		ctx := envelopeContext()
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
 
-	// Create handler must generate a UUID v7 for the entity ID.
-	if !strings.Contains(handler, `uuid.NewV7()`) {
-		t.Error("Create handler must use uuid.NewV7() when envelope is enabled")
-	}
+		// Create handler must generate a UUID v7 for the entity ID.
+		if !strings.Contains(handler, `uuid.NewV7()`) {
+			t.Error("Create handler must use uuid.NewV7() when envelope is enabled")
+		}
 
-	// Create handler must propagate uuid.NewV7() errors as HTTP 500.
-	if !strings.Contains(handler, `InternalError("generating entity ID:`) {
-		t.Error("Create handler must propagate uuid.NewV7() error as InternalError")
-	}
+		// Create handler must propagate uuid.NewV7() errors as HTTP 500.
+		if !strings.Contains(handler, `InternalError("generating entity ID:`) {
+			t.Error("Create handler must propagate uuid.NewV7() error as InternalError")
+		}
 
-	// Create handler must use presentEntity to wrap the response.
-	if !strings.Contains(handler, `presentEntity(`) {
-		t.Error("Create handler must use presentEntity for envelope response")
-	}
+		// Create handler must use presentEntity to wrap the response.
+		if !strings.Contains(handler, `presentEntity(`) {
+			t.Error("Create handler must use presentEntity for envelope response")
+		}
 
-	// Verify kind is the entity name.
-	if !strings.Contains(handler, `"Widget"`) {
-		t.Error("Create handler must pass entity name as kind to presentEntity")
-	}
+		// Verify kind is the entity name.
+		if !strings.Contains(handler, `"Widget"`) {
+			t.Error("Create handler must pass entity name as kind to presentEntity")
+		}
 
-	// Verify href includes the base path.
-	if !strings.Contains(handler, `"/api/v1/widgets"`) {
-		t.Error("Create handler must include base_path + collection path in href")
+		// Verify href includes the base path.
+		if !strings.Contains(handler, `"/api/v1/widgets"`) {
+			t.Error("Create handler must include base_path + collection path in href")
+		}
 	}
+	t.Run("ST-SUP-RC20-OC06-T01 The emitted create handler presents the envelope", check)
+	t.Run("ST-SUP-RC20-OC08-T01 The emitted create handler makes a time-ordered identifier", check)
 }
 
 func TestGenerate_EnvelopeSingleResourceRead(t *testing.T) {
@@ -5866,185 +5890,191 @@ func TestGenerate_EnvelopeSingleResourceUpdate(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC07.
 func TestGenerate_EnvelopeListResponse(t *testing.T) {
-	// AC3: List responses include kind, page, size, total, items envelope.
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	t.Run("ST-SUP-RC20-OC07-T01 The emitted list handler answers with the paging envelope", func(t *testing.T) {
+		// AC3: List responses include kind, page, size, total, items envelope.
+		g := &Generator{}
+		ctx := envelopeContext()
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
 
-	// List handler must construct envelope with all required fields.
-	if !strings.Contains(handler, `"kind":  "WidgetList"`) {
-		t.Error("list response must include kind with entity name + 'List'")
-	}
-	if !strings.Contains(handler, `"page":  page`) {
-		t.Error("list response must include page")
-	}
-	if !strings.Contains(handler, `"size":  actualSize`) {
-		t.Error("list response must include actual size")
-	}
-	if !strings.Contains(handler, `"total": listResult.Total`) {
-		t.Error("list response must include total from ListResult")
-	}
-	if !strings.Contains(handler, `"items": presentedItems`) {
-		t.Error("list response must include presented items")
-	}
-	// Each list item must be converted to API type and run through presentEntity for id/kind/href metadata.
-	if !strings.Contains(handler, `presentEntity(apiItem,`) {
-		t.Error("list items must be run through presentEntity for envelope metadata")
-	}
+		// List handler must construct envelope with all required fields.
+		if !strings.Contains(handler, `"kind":  "WidgetList"`) {
+			t.Error("list response must include kind with entity name + 'List'")
+		}
+		if !strings.Contains(handler, `"page":  page`) {
+			t.Error("list response must include page")
+		}
+		if !strings.Contains(handler, `"size":  actualSize`) {
+			t.Error("list response must include actual size")
+		}
+		if !strings.Contains(handler, `"total": listResult.Total`) {
+			t.Error("list response must include total from ListResult")
+		}
+		if !strings.Contains(handler, `"items": presentedItems`) {
+			t.Error("list response must include presented items")
+		}
+		// Each list item must be converted to API type and run through presentEntity for id/kind/href metadata.
+		if !strings.Contains(handler, `presentEntity(apiItem,`) {
+			t.Error("list items must be run through presentEntity for envelope metadata")
+		}
+	})
 }
 
-// Proves ST-SUP-RC20-OC09.
 func TestGenerate_ListQueryParametersParsing(t *testing.T) {
-	// AC4: List query parameters parsed and validated: page, size, orderBy, fields.
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	t.Run("ST-SUP-RC20-OC09-T02 The emitted list handler parses every list parameter", func(t *testing.T) {
+		// AC4: List query parameters parsed and validated: page, size, orderBy, fields.
+		g := &Generator{}
+		ctx := envelopeContext()
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
 
-	// page and pageSize parsing.
-	if !strings.Contains(handler, `r.URL.Query().Get("page")`) {
-		t.Error("list handler must parse page query parameter")
-	}
-	if !strings.Contains(handler, `r.URL.Query().Get("pageSize")`) {
-		t.Error("list handler must parse pageSize query parameter")
-	}
+		// page and pageSize parsing.
+		if !strings.Contains(handler, `r.URL.Query().Get("page")`) {
+			t.Error("list handler must parse page query parameter")
+		}
+		if !strings.Contains(handler, `r.URL.Query().Get("pageSize")`) {
+			t.Error("list handler must parse pageSize query parameter")
+		}
 
-	// orderBy parsing.
-	if !strings.Contains(handler, `r.URL.Query().Get("orderBy")`) {
-		t.Error("list handler must parse orderBy query parameter")
-	}
-	if !strings.Contains(handler, `strings.Split(orderByStr, ",")`) {
-		t.Error("list handler must split orderBy by comma")
-	}
+		// orderBy parsing.
+		if !strings.Contains(handler, `r.URL.Query().Get("orderBy")`) {
+			t.Error("list handler must parse orderBy query parameter")
+		}
+		if !strings.Contains(handler, `strings.Split(orderByStr, ",")`) {
+			t.Error("list handler must split orderBy by comma")
+		}
 
-	// fields parsing.
-	if !strings.Contains(handler, `r.URL.Query().Get("fields")`) {
-		t.Error("list handler must parse fields query parameter")
-	}
+		// fields parsing.
+		if !strings.Contains(handler, `r.URL.Query().Get("fields")`) {
+			t.Error("list handler must parse fields query parameter")
+		}
 
-	// search parsing.
-	if !strings.Contains(handler, `r.URL.Query().Get("search")`) {
-		t.Error("list handler must parse search query parameter")
-	}
+		// search parsing.
+		if !strings.Contains(handler, `r.URL.Query().Get("search")`) {
+			t.Error("list handler must parse search query parameter")
+		}
 
-	// ListOptions construction.
-	if !strings.Contains(handler, `opts := ListOptions{Page: page, Size: pageSize, OrderBy: orderBy, Fields: fields, Search: searchExpr}`) {
-		t.Error("list handler must construct ListOptions from parsed parameters")
-	}
+		// ListOptions construction.
+		if !strings.Contains(handler, `opts := ListOptions{Page: page, Size: pageSize, OrderBy: orderBy, Fields: fields, Search: searchExpr}`) {
+			t.Error("list handler must construct ListOptions from parsed parameters")
+		}
+	})
 }
 
-// Proves ST-SUP-RC20-OC09.
 func TestGenerate_PageSizeCappedAt65500(t *testing.T) {
-	// AC5: pageSize capped at 65500.
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	t.Run("ST-SUP-RC20-OC09-T01 The emitted list handler clamps the page size", func(t *testing.T) {
+		// AC5: pageSize capped at 65500.
+		g := &Generator{}
+		ctx := envelopeContext()
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
 
-	if !strings.Contains(handler, `pageSize > 65500`) {
-		t.Error("list handler must cap pageSize at 65500")
-	}
-	if !strings.Contains(handler, `pageSize = 65500`) {
-		t.Error("list handler must clamp pageSize to 65500 when exceeded")
-	}
+		if !strings.Contains(handler, `pageSize > 65500`) {
+			t.Error("list handler must cap pageSize at 65500")
+		}
+		if !strings.Contains(handler, `pageSize = 65500`) {
+			t.Error("list handler must clamp pageSize to 65500 when exceeded")
+		}
+	})
 }
 
-// Proves ST-SUP-RC20-OC10.
 func TestGenerate_OrderByFieldValidation(t *testing.T) {
-	// AC6: orderBy field names validated against entity fields.
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	t.Run("ST-SUP-RC20-OC10-T01 The emitted list handler refuses an order field that is not an entity field", func(t *testing.T) {
+		// AC6: orderBy field names validated against entity fields.
+		g := &Generator{}
+		ctx := envelopeContext()
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
 
-	// Valid fields set must include entity field names.
-	if !strings.Contains(handler, `"name": true`) {
-		t.Error("validFields must include entity field 'name'")
-	}
-	if !strings.Contains(handler, `"color": true`) {
-		t.Error("validFields must include entity field 'color'")
-	}
+		// Valid fields set must include entity field names.
+		if !strings.Contains(handler, `"name": true`) {
+			t.Error("validFields must include entity field 'name'")
+		}
+		if !strings.Contains(handler, `"color": true`) {
+			t.Error("validFields must include entity field 'color'")
+		}
 
-	// Validation check on orderBy field names.
-	if !strings.Contains(handler, `validFields[fieldName]`) {
-		t.Error("orderBy must validate field names against validFields")
-	}
+		// Validation check on orderBy field names.
+		if !strings.Contains(handler, `validFields[fieldName]`) {
+			t.Error("orderBy must validate field names against validFields")
+		}
 
-	// Direction validation.
-	if !strings.Contains(handler, `d != "asc" && d != "desc"`) {
-		t.Error("orderBy must validate direction is 'asc' or 'desc'")
-	}
+		// Direction validation.
+		if !strings.Contains(handler, `d != "asc" && d != "desc"`) {
+			t.Error("orderBy must validate direction is 'asc' or 'desc'")
+		}
 
-	// Invalid field produces 400 error.
-	if !strings.Contains(handler, `BadRequest("invalid orderBy field: "`) {
-		t.Error("invalid orderBy field must return BadRequest error")
-	}
+		// Invalid field produces 400 error.
+		if !strings.Contains(handler, `BadRequest("invalid orderBy field: "`) {
+			t.Error("invalid orderBy field must return BadRequest error")
+		}
+	})
 }
 
-// Proves ST-SUP-RC20-OC11.
 func TestGenerate_DefaultSortOrderWhenOrderByOmitted(t *testing.T) {
-	// AC1: When orderBy is omitted, the generated list handler defaults to
-	// []OrderByField{{Field: "created_time", Direction: "desc"}}
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	t.Run("ST-SUP-RC20-OC11-T01 The emitted list handler sorts newest first without an order request", func(t *testing.T) {
+		// AC1: When orderBy is omitted, the generated list handler defaults to
+		// []OrderByField{{Field: "created_time", Direction: "desc"}}
+		g := &Generator{}
+		ctx := envelopeContext()
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
 
-	// The default sort must appear in the else branch of the orderBy check.
-	if !strings.Contains(handler, `orderBy = []OrderByField{{Field: "created_time", Direction: "desc"}}`) {
-		t.Error("when orderBy is omitted, list handler must default to created_time desc")
-	}
+		// The default sort must appear in the else branch of the orderBy check.
+		if !strings.Contains(handler, `orderBy = []OrderByField{{Field: "created_time", Direction: "desc"}}`) {
+			t.Error("when orderBy is omitted, list handler must default to created_time desc")
+		}
+	})
 }
 
-// Proves ST-SUP-RC20-OC10.
 func TestGenerate_OrderQueryParameterParsedAndValidated(t *testing.T) {
-	// AC2: The order query parameter is parsed and validated (must be "asc" or "desc").
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	t.Run("ST-SUP-RC20-OC10-T02 The order direction override is checked", func(t *testing.T) {
+		// AC2: The order query parameter is parsed and validated (must be "asc" or "desc").
+		g := &Generator{}
+		ctx := envelopeContext()
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
 
-	// order parameter parsed from query string.
-	if !strings.Contains(handler, `orderDir := r.URL.Query().Get("order")`) {
-		t.Error("list handler must parse order query parameter")
-	}
+		// order parameter parsed from query string.
+		if !strings.Contains(handler, `orderDir := r.URL.Query().Get("order")`) {
+			t.Error("list handler must parse order query parameter")
+		}
 
-	// Validation: must be "asc" or "desc".
-	if !strings.Contains(handler, `orderDir != "asc" && orderDir != "desc"`) {
-		t.Error("list handler must validate order is 'asc' or 'desc'")
-	}
+		// Validation: must be "asc" or "desc".
+		if !strings.Contains(handler, `orderDir != "asc" && orderDir != "desc"`) {
+			t.Error("list handler must validate order is 'asc' or 'desc'")
+		}
 
-	// Invalid order value returns BadRequest.
-	if !strings.Contains(handler, `BadRequest("invalid order value: "`) {
-		t.Error("invalid order value must return BadRequest error")
-	}
+		// Invalid order value returns BadRequest.
+		if !strings.Contains(handler, `BadRequest("invalid order value: "`) {
+			t.Error("invalid order value must return BadRequest error")
+		}
+	})
 }
 
 func TestGenerate_OrderOverridesDirectionOfOrderByEntries(t *testing.T) {
@@ -6269,21 +6299,22 @@ func TestGenerate_EntityStructIncludesID(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC06.
 func TestGenerate_PresentEntityHelper(t *testing.T) {
-	// When envelope is enabled, router.go includes presentEntity helper.
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	t.Run("ST-SUP-RC20-OC06-T02 The emitted presenter adds the envelope metadata", func(t *testing.T) {
+		// When envelope is enabled, router.go includes presentEntity helper.
+		g := &Generator{}
+		ctx := envelopeContext()
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	router := findFileContent(t, files, "internal/api/router.go")
+		router := findFileContent(t, files, "internal/api/router.go")
 
-	if !strings.Contains(router, "func presentEntity(entity any, kind, id, href string) map[string]any") {
-		t.Error("router.go must include presentEntity helper when envelope is enabled")
-	}
+		if !strings.Contains(router, "func presentEntity(entity any, kind, id, href string) map[string]any") {
+			t.Error("router.go must include presentEntity helper when envelope is enabled")
+		}
+	})
 }
 
 func TestGenerate_PresentEntityNotInBareMode(t *testing.T) {
@@ -6310,22 +6341,23 @@ func TestGenerate_PresentEntityNotInBareMode(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC08.
 func TestGenerate_EnvelopeCreateUUIDGoModRequires(t *testing.T) {
-	// When envelope + create op, wiring must include uuid dependency.
-	g := &Generator{}
-	ctx := envelopeContext()
-	_, wiring, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	t.Run("ST-SUP-RC20-OC08-T02 Envelope mode declares the identifier dependency", func(t *testing.T) {
+		// When envelope + create op, wiring must include uuid dependency.
+		g := &Generator{}
+		ctx := envelopeContext()
+		_, wiring, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	if wiring.GoModRequires == nil {
-		t.Fatal("wiring.GoModRequires should not be nil when envelope + create")
-	}
-	if _, ok := wiring.GoModRequires["github.com/google/uuid"]; !ok {
-		t.Error("wiring.GoModRequires must include github.com/google/uuid when envelope + create")
-	}
+		if wiring.GoModRequires == nil {
+			t.Fatal("wiring.GoModRequires should not be nil when envelope + create")
+		}
+		if _, ok := wiring.GoModRequires["github.com/google/uuid"]; !ok {
+			t.Error("wiring.GoModRequires must include github.com/google/uuid when envelope + create")
+		}
+	})
 }
 
 func TestGenerate_BareCreateNoUUIDGoModRequires(t *testing.T) {
@@ -6449,42 +6481,43 @@ func TestGenerate_EnvelopeScopedCollectionHrefResolved(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC07.
 func TestGenerate_EnvelopeListItemsPresented(t *testing.T) {
-	// Finding 2: List response items must be run through presentEntity()
-	// to include id, kind, and href metadata — matching single-resource responses.
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	t.Run("ST-SUP-RC20-OC07-T02 Each list item is presented like a single resource", func(t *testing.T) {
+		// Finding 2: List response items must be run through presentEntity()
+		// to include id, kind, and href metadata — matching single-resource responses.
+		g := &Generator{}
+		ctx := envelopeContext()
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-	listSection := extractMethodBody(handler, "func (h *WidgetsHandler) List(")
-	if listSection == "" {
-		t.Fatal("could not find List method in widgets handler")
-	}
+		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+		listSection := extractMethodBody(handler, "func (h *WidgetsHandler) List(")
+		if listSection == "" {
+			t.Fatal("could not find List method in widgets handler")
+		}
 
-	// List must iterate items and present each one.
-	if !strings.Contains(listSection, "presentedItems") {
-		t.Error("list handler must build presentedItems array with presented entities")
-	}
+		// List must iterate items and present each one.
+		if !strings.Contains(listSection, "presentedItems") {
+			t.Error("list handler must build presentedItems array with presented entities")
+		}
 
-	// Each item must be converted to API type and wrapped through presentEntity.
-	if !strings.Contains(listSection, `presentEntity(apiItem,`) {
-		t.Error("list handler must call presentEntity on each item")
-	}
+		// Each item must be converted to API type and wrapped through presentEntity.
+		if !strings.Contains(listSection, `presentEntity(apiItem,`) {
+			t.Error("list handler must call presentEntity on each item")
+		}
 
-	// The envelope must use presentedItems, not raw listResult.Items.
-	if strings.Contains(listSection, `"items": listResult.Items`) {
-		t.Error("list envelope must use presented items, not raw listResult.Items")
-	}
+		// The envelope must use presentedItems, not raw listResult.Items.
+		if strings.Contains(listSection, `"items": listResult.Items`) {
+			t.Error("list envelope must use presented items, not raw listResult.Items")
+		}
 
-	// Items must reflect the entity kind.
-	if !strings.Contains(listSection, `"Widget"`) {
-		t.Error("list handler must pass entity name as kind to presentEntity for each item")
-	}
+		// Items must reflect the entity kind.
+		if !strings.Contains(listSection, `"Widget"`) {
+			t.Error("list handler must pass entity name as kind to presentEntity for each item")
+		}
+	})
 }
 
 func TestGenerate_EnvelopeListItemsHrefForScoped(t *testing.T) {
@@ -6729,30 +6762,31 @@ func TestResolvedHrefBaseExpr_ScopedPath(t *testing.T) {
 
 // --- Task 024 Round 2 Revision: Findings 1-3 ---
 
-// Proves ST-SUP-RC20-OC12.
 func TestGenerate_EnvelopeFieldsIDAlwaysIncluded(t *testing.T) {
-	// Round 2 Finding 1: The fields query parameter must ensure "id" is always
-	// included in the field list even if the user does not list it.
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	t.Run("ST-SUP-RC20-OC12-T02 The identifier stays in the field selection", func(t *testing.T) {
+		// Round 2 Finding 1: The fields query parameter must ensure "id" is always
+		// included in the field list even if the user does not list it.
+		g := &Generator{}
+		ctx := envelopeContext()
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-	listBody := extractMethodBody(handler, "func (h *WidgetsHandler) List")
-	if listBody == "" {
-		t.Fatal("could not find List method in handler")
-	}
+		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+		listBody := extractMethodBody(handler, "func (h *WidgetsHandler) List")
+		if listBody == "" {
+			t.Fatal("could not find List method in handler")
+		}
 
-	// The fields parsing code must check for "id" and inject it if missing.
-	if !strings.Contains(listBody, `hasID`) {
-		t.Error("List handler must track whether 'id' is in the fields list")
-	}
-	if !strings.Contains(listBody, `fields = append(fields, "id")`) {
-		t.Error("List handler must append 'id' to fields when not listed by user")
-	}
+		// The fields parsing code must check for "id" and inject it if missing.
+		if !strings.Contains(listBody, `hasID`) {
+			t.Error("List handler must track whether 'id' is in the fields list")
+		}
+		if !strings.Contains(listBody, `fields = append(fields, "id")`) {
+			t.Error("List handler must append 'id' to fields when not listed by user")
+		}
+	})
 }
 
 func TestGenerate_EnvelopeUpdateSetsEntityIDFromPath(t *testing.T) {
@@ -6932,39 +6966,40 @@ func TestGenerate_OpenAPIUpsertEnvelopeSchema(t *testing.T) {
 	assertEnvelopeResourceSchema(t, upsertedSchema, "upsert")
 }
 
-// Proves ST-SUP-RC20-OC12.
 func TestGenerate_FieldsQueryParameterValidation(t *testing.T) {
-	// Round 3 Finding 1: The fields query parameter must validate field names
-	// against the entity's fields, same as orderBy validation. Unvalidated
-	// field names in ListOptions.Fields reach the storage layer SQL SELECT.
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	t.Run("ST-SUP-RC20-OC12-T01 The emitted list handler checks the field selection and keeps the identifier", func(t *testing.T) {
+		// Round 3 Finding 1: The fields query parameter must validate field names
+		// against the entity's fields, same as orderBy validation. Unvalidated
+		// field names in ListOptions.Fields reach the storage layer SQL SELECT.
+		g := &Generator{}
+		ctx := envelopeContext()
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-	listBody := extractMethodBody(handler, "func (h *WidgetsHandler) List")
-	if listBody == "" {
-		t.Fatal("could not find List method in handler")
-	}
+		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+		listBody := extractMethodBody(handler, "func (h *WidgetsHandler) List")
+		if listBody == "" {
+			t.Fatal("could not find List method in handler")
+		}
 
-	// Fields must be validated against validFields — same map used by orderBy.
-	if !strings.Contains(listBody, `validFields[f]`) {
-		t.Error("fields query parameter must validate each field name against validFields")
-	}
+		// Fields must be validated against validFields — same map used by orderBy.
+		if !strings.Contains(listBody, `validFields[f]`) {
+			t.Error("fields query parameter must validate each field name against validFields")
+		}
 
-	// Invalid field names must be rejected with a BadRequest error.
-	if !strings.Contains(listBody, `BadRequest("invalid fields value: "`) {
-		t.Error("invalid fields value must return BadRequest error")
-	}
+		// Invalid field names must be rejected with a BadRequest error.
+		if !strings.Contains(listBody, `BadRequest("invalid fields value: "`) {
+			t.Error("invalid fields value must return BadRequest error")
+		}
 
-	// "id" must be accepted without validFields check (it's the implicit primary key,
-	// not an entity-declared field).
-	if !strings.Contains(listBody, `f != "id" && !validFields[f]`) {
-		t.Error("fields validation must allow 'id' even though it's not in validFields")
-	}
+		// "id" must be accepted without validFields check (it's the implicit primary key,
+		// not an entity-declared field).
+		if !strings.Contains(listBody, `f != "id" && !validFields[f]`) {
+			t.Error("fields validation must allow 'id' even though it's not in validFields")
+		}
+	})
 }
 
 func TestGenerate_OpenAPIListItemsEnvelopeSchema(t *testing.T) {
@@ -7037,208 +7072,211 @@ func assertEnvelopeResourceSchema(t *testing.T, schema map[string]any, opName st
 	}
 }
 
-// Proves ST-SUP-RC20-OC12.
 func TestGenerate_FieldsSparseFieldsetFiltersResponse(t *testing.T) {
-	// Round 4 Finding: The fields query parameter must filter the response map
-	// to only include requested fields plus metadata (id, kind, href). Without
-	// filtering, non-selected fields appear with zero values (empty strings, 0,
-	// etc.) violating sparse fieldset semantics.
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-	listBody := extractMethodBody(handler, "func (h *WidgetsHandler) List")
-	if listBody == "" {
-		t.Fatal("could not find List method in handler")
-	}
-
-	// The list handler must filter presented items when fields is non-empty.
-	// It should build an allowed set including metadata keys and requested fields,
-	// then delete non-allowed keys from the presented map.
-	if !strings.Contains(listBody, `if len(fields) > 0`) {
-		t.Error("List handler must check if fields is non-empty to trigger sparse filtering")
-	}
-
-	// Metadata keys (id, kind, href) must always be retained regardless of
-	// the fields selection.
-	if !strings.Contains(listBody, `"id": true, "kind": true, "href": true`) {
-		t.Error("sparse fieldset filter must always allow metadata keys: id, kind, href")
-	}
-
-	// Non-selected fields must be removed from the presented entity map.
-	if !strings.Contains(listBody, `delete(presentedItems[i], k)`) {
-		t.Error("sparse fieldset filter must delete non-allowed keys from presented items")
-	}
-}
-
-// Proves ST-SUP-RC20-OC15.
-func TestGenerate_PatchOperation(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Cluster", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString, Unique: true},
-				{Name: "spec", Type: types.FieldTypeJsonb},
-				{Name: "labels", Type: types.FieldTypeJsonb, Optional: true},
-				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-				{Name: "status", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "status-agg"},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "clusters",
-				Entity:     "Cluster",
-				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpPatch},
-				Patchable:  []string{"spec", "labels"},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, wiring, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_clusters.go")
-
-	// Verify patch request struct is generated with pointer fields.
-	if !strings.Contains(handler, "type ClustersPatchRequest struct") {
-		t.Error("handler missing ClustersPatchRequest struct")
-	}
-	// spec is jsonb → *json.RawMessage (pointer for nil = not provided).
-	if !strings.Contains(handler, "*json.RawMessage") {
-		t.Error("patch request missing Spec field as *json.RawMessage")
-	}
-	// labels is jsonb → *json.RawMessage (pointer for nil = not provided).
-	if !strings.Contains(handler, "Labels") {
-		t.Error("patch request missing Labels field")
-	}
-
-	// Verify Patch method exists.
-	if !strings.Contains(handler, "func (h *ClustersHandler) Patch(") {
-		t.Error("handler missing Patch method")
-	}
-
-	// Verify get-then-merge: fetches existing, converts via JSON, decodes patch, applies.
-	if !strings.Contains(handler, "h.store.Get(r.Context()") {
-		t.Error("Patch handler must fetch existing entity via store.Get")
-	}
-	if !strings.Contains(handler, "json.Marshal(existing)") {
-		t.Error("Patch handler must marshal Get result for cross-package type conversion")
-	}
-	if !strings.Contains(handler, "json.Unmarshal(existingData") {
-		t.Error("Patch handler must unmarshal Get result into API-package entity type")
-	}
-	if !strings.Contains(handler, "var patch ClustersPatchRequest") {
-		t.Error("Patch handler must decode into patch request struct")
-	}
-	if !strings.Contains(handler, "h.store.Replace(r.Context()") {
-		t.Error("Patch handler must save merged entity via store.Replace")
-	}
-
-	// Verify apply-non-nil logic for patchable fields (pointer dereference for
-	// non-optional fields, direct pointer assignment for optional fields).
-	if !strings.Contains(handler, "if patch.Spec != nil") {
-		t.Error("Patch handler must check patch.Spec != nil before applying")
-	}
-	if !strings.Contains(handler, "*patch.Spec") {
-		t.Error("Patch handler must dereference pointer field Spec (non-optional)")
-	}
-	if !strings.Contains(handler, "if patch.Labels != nil") {
-		t.Error("Patch handler must check patch.Labels != nil before applying")
-	}
-	// Labels is optional → entity field is already a pointer → assign directly.
-	if !strings.Contains(handler, "cluster.Labels = patch.Labels") {
-		t.Error("Patch handler must assign optional pointer field Labels directly (not dereference)")
-	}
-
-	// Verify route is PATCH method on /{id} path.
-	found := false
-	for _, route := range wiring.Routes {
-		if strings.Contains(route, "PATCH") && strings.Contains(route, "{id}") && strings.Contains(route, "Patch") {
-			found = true
-			break
+	t.Run("ST-SUP-RC20-OC12-T03 A field selection removes the fields it did not name", func(t *testing.T) {
+		// Round 4 Finding: The fields query parameter must filter the response map
+		// to only include requested fields plus metadata (id, kind, href). Without
+		// filtering, non-selected fields appear with zero values (empty strings, 0,
+		// etc.) violating sparse fieldset semantics.
+		g := &Generator{}
+		ctx := envelopeContext()
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-	}
-	if !found {
-		t.Error("wiring must include PATCH /{path}/{id} route")
-	}
+
+		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+		listBody := extractMethodBody(handler, "func (h *WidgetsHandler) List")
+		if listBody == "" {
+			t.Fatal("could not find List method in handler")
+		}
+
+		// The list handler must filter presented items when fields is non-empty.
+		// It should build an allowed set including metadata keys and requested fields,
+		// then delete non-allowed keys from the presented map.
+		if !strings.Contains(listBody, `if len(fields) > 0`) {
+			t.Error("List handler must check if fields is non-empty to trigger sparse filtering")
+		}
+
+		// Metadata keys (id, kind, href) must always be retained regardless of
+		// the fields selection.
+		if !strings.Contains(listBody, `"id": true, "kind": true, "href": true`) {
+			t.Error("sparse fieldset filter must always allow metadata keys: id, kind, href")
+		}
+
+		// Non-selected fields must be removed from the presented entity map.
+		if !strings.Contains(listBody, `delete(presentedItems[i], k)`) {
+			t.Error("sparse fieldset filter must delete non-allowed keys from presented items")
+		}
+	})
 }
 
-// Proves ST-SUP-RC20-OC15.
-func TestGenerate_PatchOperationWithPointerFields(t *testing.T) {
-	// Verify that ALL patchable fields get pointer types, including reference types.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Widget", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-				{Name: "count", Type: types.FieldTypeInt32},
-				{Name: "score", Type: types.FieldTypeDouble},
-				{Name: "active", Type: types.FieldTypeBool},
-				{Name: "metadata", Type: types.FieldTypeJsonb},
-				{Name: "payload", Type: types.FieldTypeBytes},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "widgets",
-				Entity:     "Widget",
-				Operations: []types.Operation{types.OpRead, types.OpPatch},
-				Patchable:  []string{"name", "count", "score", "active", "metadata", "payload"},
+func TestGenerate_PatchOperation(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC15-T02 The emitted patch handler reads, merges and saves", func(t *testing.T) {
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Cluster", Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString, Unique: true},
+					{Name: "spec", Type: types.FieldTypeJsonb},
+					{Name: "labels", Type: types.FieldTypeJsonb, Optional: true},
+					{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+					{Name: "status", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "status-agg"},
+				}},
 			},
-		},
-		OutputNamespace: "internal/api",
-	}
+			Collections: []types.Collection{
+				{
+					Name:       "clusters",
+					Entity:     "Cluster",
+					Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpPatch},
+					Patchable:  []string{"spec", "labels"},
+				},
+			},
+			OutputNamespace: "internal/api",
+		}
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, wiring, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+		handler := findFileContent(t, files, "internal/api/handler_clusters.go")
 
-	// Pointer fields for value types.
-	if !strings.Contains(handler, "*string") {
-		t.Error("patch request missing *string pointer field")
-	}
-	if !strings.Contains(handler, "*int32") {
-		t.Error("patch request missing *int32 pointer field")
-	}
-	if !strings.Contains(handler, "*float64") {
-		t.Error("patch request missing *float64 pointer field")
-	}
-	if !strings.Contains(handler, "*bool") {
-		t.Error("patch request missing *bool pointer field")
-	}
-	// Pointer fields for reference types (spec mandates *json.RawMessage, *[]byte).
-	if !strings.Contains(handler, "*json.RawMessage") {
-		t.Error("patch request missing *json.RawMessage pointer field for jsonb")
-	}
-	if !strings.Contains(handler, "*[]byte") {
-		t.Error("patch request missing *[]byte pointer field for bytes")
-	}
+		// Verify patch request struct is generated with pointer fields.
+		if !strings.Contains(handler, "type ClustersPatchRequest struct") {
+			t.Error("handler missing ClustersPatchRequest struct")
+		}
+		// spec is jsonb → *json.RawMessage (pointer for nil = not provided).
+		if !strings.Contains(handler, "*json.RawMessage") {
+			t.Error("patch request missing Spec field as *json.RawMessage")
+		}
+		// labels is jsonb → *json.RawMessage (pointer for nil = not provided).
+		if !strings.Contains(handler, "Labels") {
+			t.Error("patch request missing Labels field")
+		}
 
-	// Verify pointer dereference in apply logic for all types.
-	if !strings.Contains(handler, "*patch.Name") {
-		t.Error("Patch handler must dereference pointer field Name")
-	}
-	if !strings.Contains(handler, "*patch.Count") {
-		t.Error("Patch handler must dereference pointer field Count")
-	}
-	if !strings.Contains(handler, "*patch.Metadata") {
-		t.Error("Patch handler must dereference pointer field Metadata")
-	}
-	if !strings.Contains(handler, "*patch.Payload") {
-		t.Error("Patch handler must dereference pointer field Payload")
-	}
+		// Verify Patch method exists.
+		if !strings.Contains(handler, "func (h *ClustersHandler) Patch(") {
+			t.Error("handler missing Patch method")
+		}
+
+		// Verify get-then-merge: fetches existing, converts via JSON, decodes patch, applies.
+		if !strings.Contains(handler, "h.store.Get(r.Context()") {
+			t.Error("Patch handler must fetch existing entity via store.Get")
+		}
+		if !strings.Contains(handler, "json.Marshal(existing)") {
+			t.Error("Patch handler must marshal Get result for cross-package type conversion")
+		}
+		if !strings.Contains(handler, "json.Unmarshal(existingData") {
+			t.Error("Patch handler must unmarshal Get result into API-package entity type")
+		}
+		if !strings.Contains(handler, "var patch ClustersPatchRequest") {
+			t.Error("Patch handler must decode into patch request struct")
+		}
+		if !strings.Contains(handler, "h.store.Replace(r.Context()") {
+			t.Error("Patch handler must save merged entity via store.Replace")
+		}
+
+		// Verify apply-non-nil logic for patchable fields (pointer dereference for
+		// non-optional fields, direct pointer assignment for optional fields).
+		if !strings.Contains(handler, "if patch.Spec != nil") {
+			t.Error("Patch handler must check patch.Spec != nil before applying")
+		}
+		if !strings.Contains(handler, "*patch.Spec") {
+			t.Error("Patch handler must dereference pointer field Spec (non-optional)")
+		}
+		if !strings.Contains(handler, "if patch.Labels != nil") {
+			t.Error("Patch handler must check patch.Labels != nil before applying")
+		}
+		// Labels is optional → entity field is already a pointer → assign directly.
+		if !strings.Contains(handler, "cluster.Labels = patch.Labels") {
+			t.Error("Patch handler must assign optional pointer field Labels directly (not dereference)")
+		}
+
+		// Verify route is PATCH method on /{id} path.
+		found := false
+		for _, route := range wiring.Routes {
+			if strings.Contains(route, "PATCH") && strings.Contains(route, "{id}") && strings.Contains(route, "Patch") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("wiring must include PATCH /{path}/{id} route")
+		}
+	})
+}
+
+func TestGenerate_PatchOperationWithPointerFields(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC15-T01 The emitted patch handler takes only the patchable fields, as pointers", func(t *testing.T) {
+		// Verify that ALL patchable fields get pointer types, including reference types.
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Widget", Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString},
+					{Name: "count", Type: types.FieldTypeInt32},
+					{Name: "score", Type: types.FieldTypeDouble},
+					{Name: "active", Type: types.FieldTypeBool},
+					{Name: "metadata", Type: types.FieldTypeJsonb},
+					{Name: "payload", Type: types.FieldTypeBytes},
+				}},
+			},
+			Collections: []types.Collection{
+				{
+					Name:       "widgets",
+					Entity:     "Widget",
+					Operations: []types.Operation{types.OpRead, types.OpPatch},
+					Patchable:  []string{"name", "count", "score", "active", "metadata", "payload"},
+				},
+			},
+			OutputNamespace: "internal/api",
+		}
+
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+		// Pointer fields for value types.
+		if !strings.Contains(handler, "*string") {
+			t.Error("patch request missing *string pointer field")
+		}
+		if !strings.Contains(handler, "*int32") {
+			t.Error("patch request missing *int32 pointer field")
+		}
+		if !strings.Contains(handler, "*float64") {
+			t.Error("patch request missing *float64 pointer field")
+		}
+		if !strings.Contains(handler, "*bool") {
+			t.Error("patch request missing *bool pointer field")
+		}
+		// Pointer fields for reference types (spec mandates *json.RawMessage, *[]byte).
+		if !strings.Contains(handler, "*json.RawMessage") {
+			t.Error("patch request missing *json.RawMessage pointer field for jsonb")
+		}
+		if !strings.Contains(handler, "*[]byte") {
+			t.Error("patch request missing *[]byte pointer field for bytes")
+		}
+
+		// Verify pointer dereference in apply logic for all types.
+		if !strings.Contains(handler, "*patch.Name") {
+			t.Error("Patch handler must dereference pointer field Name")
+		}
+		if !strings.Contains(handler, "*patch.Count") {
+			t.Error("Patch handler must dereference pointer field Count")
+		}
+		if !strings.Contains(handler, "*patch.Metadata") {
+			t.Error("Patch handler must dereference pointer field Metadata")
+		}
+		if !strings.Contains(handler, "*patch.Payload") {
+			t.Error("Patch handler must dereference pointer field Payload")
+		}
+	})
 }
 
 func TestGenerate_PatchOpenAPISchema(t *testing.T) {
@@ -7682,73 +7720,74 @@ func TestGenerate_UpsertEntityNamedCreatedCompiles(t *testing.T) {
 
 // --- Validation Middleware Tests ---
 
-// Proves ST-SUP-RC20-OC21.
 func TestGenerate_ValidationMiddleware_Generated(t *testing.T) {
-	g := &Generator{}
-	ctx := basicContext()
-	ctx.Conventions.RequestValidation = "openapi-schema"
+	t.Run("ST-SUP-RC20-OC21-T01 The emitted middleware checks each write body against the embedded document", func(t *testing.T) {
+		g := &Generator{}
+		ctx := basicContext()
+		ctx.Conventions.RequestValidation = "openapi-schema"
 
-	files, wiring, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, wiring, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	// Should have validation.go in addition to handler, router, errors, openapi.json.
-	var foundValidation bool
-	for _, f := range files {
-		if f.Path == "internal/api/validation.go" {
-			foundValidation = true
-			content := string(f.Bytes())
-			if !strings.Contains(content, "//go:embed openapi.json") {
-				t.Error("validation.go missing //go:embed openapi.json")
-			}
-			if !strings.Contains(content, "NewValidationMiddleware") {
-				t.Error("validation.go missing NewValidationMiddleware function")
-			}
-			if !strings.Contains(content, "openapi3filter") {
-				t.Error("validation.go missing openapi3filter import")
-			}
-			if !strings.Contains(content, "parseValidationErrors") {
-				t.Error("validation.go missing parseValidationErrors function")
-			}
-			if !strings.Contains(content, "ValidateRequestBody") {
-				t.Error("validation.go missing ValidateRequestBody call")
-			}
-			if !strings.Contains(content, "handleError") {
-				t.Error("validation.go missing handleError call for validation failures")
-			}
-			if !strings.Contains(content, "Validation(valErrors)") {
-				t.Error("validation.go missing Validation() error constructor call")
+		// Should have validation.go in addition to handler, router, errors, openapi.json.
+		var foundValidation bool
+		for _, f := range files {
+			if f.Path == "internal/api/validation.go" {
+				foundValidation = true
+				content := string(f.Bytes())
+				if !strings.Contains(content, "//go:embed openapi.json") {
+					t.Error("validation.go missing //go:embed openapi.json")
+				}
+				if !strings.Contains(content, "NewValidationMiddleware") {
+					t.Error("validation.go missing NewValidationMiddleware function")
+				}
+				if !strings.Contains(content, "openapi3filter") {
+					t.Error("validation.go missing openapi3filter import")
+				}
+				if !strings.Contains(content, "parseValidationErrors") {
+					t.Error("validation.go missing parseValidationErrors function")
+				}
+				if !strings.Contains(content, "ValidateRequestBody") {
+					t.Error("validation.go missing ValidateRequestBody call")
+				}
+				if !strings.Contains(content, "handleError") {
+					t.Error("validation.go missing handleError call for validation failures")
+				}
+				if !strings.Contains(content, "Validation(valErrors)") {
+					t.Error("validation.go missing Validation() error constructor call")
+				}
 			}
 		}
-	}
-	if !foundValidation {
-		t.Fatal("expected validation.go to be generated when RequestValidation is set")
-	}
+		if !foundValidation {
+			t.Fatal("expected validation.go to be generated when RequestValidation is set")
+		}
 
-	if wiring == nil {
-		t.Fatal("expected wiring, got nil")
-	}
-	if len(wiring.Middlewares) != 1 {
-		t.Fatalf("expected 1 middleware in wiring, got %d", len(wiring.Middlewares))
-	}
-	ms := wiring.Middlewares[0]
-	if ms.WrapExpr != "%s(%s)" {
-		t.Errorf("unexpected WrapExpr: %s", ms.WrapExpr)
-	}
-	if ms.ConstructorIndex < 0 || ms.ConstructorIndex >= len(wiring.Constructors) {
-		t.Fatalf("middleware ConstructorIndex %d out of range [0, %d)", ms.ConstructorIndex, len(wiring.Constructors))
-	}
-	if !strings.Contains(wiring.Constructors[ms.ConstructorIndex], "NewValidationMiddleware") {
-		t.Errorf("middleware constructor does not reference NewValidationMiddleware: %s", wiring.Constructors[ms.ConstructorIndex])
-	}
+		if wiring == nil {
+			t.Fatal("expected wiring, got nil")
+		}
+		if len(wiring.Middlewares) != 1 {
+			t.Fatalf("expected 1 middleware in wiring, got %d", len(wiring.Middlewares))
+		}
+		ms := wiring.Middlewares[0]
+		if ms.WrapExpr != "%s(%s)" {
+			t.Errorf("unexpected WrapExpr: %s", ms.WrapExpr)
+		}
+		if ms.ConstructorIndex < 0 || ms.ConstructorIndex >= len(wiring.Constructors) {
+			t.Fatalf("middleware ConstructorIndex %d out of range [0, %d)", ms.ConstructorIndex, len(wiring.Constructors))
+		}
+		if !strings.Contains(wiring.Constructors[ms.ConstructorIndex], "NewValidationMiddleware") {
+			t.Errorf("middleware constructor does not reference NewValidationMiddleware: %s", wiring.Constructors[ms.ConstructorIndex])
+		}
 
-	if wiring.GoModRequires == nil {
-		t.Fatal("expected GoModRequires, got nil")
-	}
-	if _, ok := wiring.GoModRequires["github.com/getkin/kin-openapi"]; !ok {
-		t.Error("GoModRequires missing kin-openapi dependency")
-	}
+		if wiring.GoModRequires == nil {
+			t.Fatal("expected GoModRequires, got nil")
+		}
+		if _, ok := wiring.GoModRequires["github.com/getkin/kin-openapi"]; !ok {
+			t.Error("GoModRequires missing kin-openapi dependency")
+		}
+	})
 }
 
 func TestGenerate_ValidationMiddleware_NotGeneratedWhenNotSet(t *testing.T) {
@@ -7809,103 +7848,108 @@ func TestGenerate_ValidationMiddleware_NotGeneratedForReadOnly(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC21.
 func TestGenerate_ValidationMiddleware_MethodFilter(t *testing.T) {
-	g := &Generator{}
-	ctx := basicContext()
-	ctx.Conventions.RequestValidation = "openapi-schema"
+	t.Run("ST-SUP-RC20-OC21-T02 The emitted middleware checks only the methods that carry a body", func(t *testing.T) {
+		g := &Generator{}
+		ctx := basicContext()
+		ctx.Conventions.RequestValidation = "openapi-schema"
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var content string
-	for _, f := range files {
-		if f.Path == "internal/api/validation.go" {
-			content = string(f.Bytes())
-			break
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-	}
-	if content == "" {
-		t.Fatal("validation.go not found")
-	}
 
-	if !strings.Contains(content, "http.MethodPost") {
-		t.Error("validation.go missing http.MethodPost check")
-	}
-	if !strings.Contains(content, "http.MethodPut") {
-		t.Error("validation.go missing http.MethodPut check")
-	}
-	if !strings.Contains(content, "http.MethodPatch") {
-		t.Error("validation.go missing http.MethodPatch check")
-	}
+		var content string
+		for _, f := range files {
+			if f.Path == "internal/api/validation.go" {
+				content = string(f.Bytes())
+				break
+			}
+		}
+		if content == "" {
+			t.Fatal("validation.go not found")
+		}
+
+		if !strings.Contains(content, "http.MethodPost") {
+			t.Error("validation.go missing http.MethodPost check")
+		}
+		if !strings.Contains(content, "http.MethodPut") {
+			t.Error("validation.go missing http.MethodPut check")
+		}
+		if !strings.Contains(content, "http.MethodPatch") {
+			t.Error("validation.go missing http.MethodPatch check")
+		}
+	})
 }
 
-// Proves ST-SUP-RC20-OC05, ST-SUP-RC20-OC21.
 func TestGenerate_ValidationMiddleware_ErrorFormat(t *testing.T) {
-	g := &Generator{}
-	ctx := basicContext()
-	ctx.Conventions.RequestValidation = "openapi-schema"
+	check := func(t *testing.T) {
+		g := &Generator{}
+		ctx := basicContext()
+		ctx.Conventions.RequestValidation = "openapi-schema"
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	var validationContent string
-	for _, f := range files {
-		if f.Path == "internal/api/validation.go" {
-			validationContent = string(f.Bytes())
-			break
+		var validationContent string
+		for _, f := range files {
+			if f.Path == "internal/api/validation.go" {
+				validationContent = string(f.Bytes())
+				break
+			}
+		}
+		if validationContent == "" {
+			t.Fatal("validation.go not found")
+		}
+
+		if !strings.Contains(validationContent, "openapi3filter.RequestError") {
+			t.Error("parseValidationErrors should unwrap openapi3filter.RequestError")
+		}
+		if !strings.Contains(validationContent, "openapi3.MultiError") {
+			t.Error("parseValidationErrors should handle openapi3.MultiError")
+		}
+		if !strings.Contains(validationContent, "openapi3.SchemaError") {
+			t.Error("addSchemaErrors should extract field info from openapi3.SchemaError")
+		}
+		if !strings.Contains(validationContent, "JSONPointer()") {
+			t.Error("addSchemaErrors should use JSONPointer() for field path")
 		}
 	}
-	if validationContent == "" {
-		t.Fatal("validation.go not found")
-	}
-
-	if !strings.Contains(validationContent, "openapi3filter.RequestError") {
-		t.Error("parseValidationErrors should unwrap openapi3filter.RequestError")
-	}
-	if !strings.Contains(validationContent, "openapi3.MultiError") {
-		t.Error("parseValidationErrors should handle openapi3.MultiError")
-	}
-	if !strings.Contains(validationContent, "openapi3.SchemaError") {
-		t.Error("addSchemaErrors should extract field info from openapi3.SchemaError")
-	}
-	if !strings.Contains(validationContent, "JSONPointer()") {
-		t.Error("addSchemaErrors should use JSONPointer() for field path")
-	}
+	t.Run("ST-SUP-RC20-OC05-T03 A failed body check answers with a validation problem", check)
+	t.Run("ST-SUP-RC20-OC21-T03 The emitted middleware refuses a body that fails its check", check)
 }
 
-// Proves ST-SUP-RC20-OC22.
 func TestGenerate_ValidationMiddleware_BodyRestore(t *testing.T) {
-	g := &Generator{}
-	ctx := basicContext()
-	ctx.Conventions.RequestValidation = "openapi-schema"
+	t.Run("ST-SUP-RC20-OC22-T01 The emitted middleware gives the request body back to the handler", func(t *testing.T) {
+		g := &Generator{}
+		ctx := basicContext()
+		ctx.Conventions.RequestValidation = "openapi-schema"
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var content string
-	for _, f := range files {
-		if f.Path == "internal/api/validation.go" {
-			content = string(f.Bytes())
-			break
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-	}
-	if content == "" {
-		t.Fatal("validation.go not found")
-	}
 
-	if strings.Count(content, "io.NopCloser(bytes.NewReader(bodyBytes))") < 2 {
-		t.Error("validation middleware should restore body at least twice (before validation and after)")
-	}
-	if !strings.Contains(content, "io.ReadAll(r.Body)") {
-		t.Error("validation middleware should buffer the body with io.ReadAll")
-	}
+		var content string
+		for _, f := range files {
+			if f.Path == "internal/api/validation.go" {
+				content = string(f.Bytes())
+				break
+			}
+		}
+		if content == "" {
+			t.Fatal("validation.go not found")
+		}
+
+		if strings.Count(content, "io.NopCloser(bytes.NewReader(bodyBytes))") < 2 {
+			t.Error("validation middleware should restore body at least twice (before validation and after)")
+		}
+		if !strings.Contains(content, "io.ReadAll(r.Body)") {
+			t.Error("validation middleware should buffer the body with io.ReadAll")
+		}
+	})
 }
 
 func TestGenerate_ValidationMiddleware_WithEnvelope(t *testing.T) {
@@ -7967,181 +8011,185 @@ func TestGenerate_ValidationMiddleware_AuthBypass(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC24.
 func TestGenerate_ScopedReadVerifiesScope(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-			{Name: "User", Fields: []types.Field{
-				{Name: "email", Type: types.FieldTypeString},
-				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
-			{
-				Name:       "users",
-				Entity:     "User",
-				Operations: []types.Operation{types.OpRead},
-				Scope:      map[string]string{"org_id": "Organization"},
+	t.Run("ST-SUP-RC20-OC24-T01 The emitted handlers check a scoped record against its parent", func(t *testing.T) {
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+				{Name: "User", Fields: []types.Field{
+					{Name: "email", Type: types.FieldTypeString},
+					{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+				}},
 			},
-		},
-		OutputNamespace: "internal/api",
-	}
+			Collections: []types.Collection{
+				{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+				{
+					Name:       "users",
+					Entity:     "User",
+					Operations: []types.Operation{types.OpRead},
+					Scope:      map[string]string{"org_id": "Organization"},
+				},
+			},
+			OutputNamespace: "internal/api",
+		}
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_users.go")
-	// Read handler for scoped collection must verify scope field via
-	// map[string]any lookup so the original storage value (with metadata)
-	// is preserved for the response.
-	if !strings.Contains(handler, `scopeVal, _ := scopeMap["org_id"].(string)`) {
-		t.Error("scoped Read handler must extract scope field from map[string]any")
-	}
-	if !strings.Contains(handler, `scopeVal != r.PathValue("org_id")`) {
-		t.Error("scoped Read handler must verify scope value matches URL path parameter")
-	}
-	// Must return 404 on scope mismatch.
-	if !strings.Contains(handler, `NotFound("User", id)`) {
-		t.Error("scoped Read handler must return NotFound on scope mismatch")
-	}
-	// Must convert via JSON roundtrip to map for scope field lookup.
-	if !strings.Contains(handler, "json.Marshal(existing)") {
-		t.Error("scoped Read handler must marshal Get result for scope check")
-	}
-	// After scope check, must convert storage type to API type via JSON
-	// unmarshal of scopeData, stripping storage metadata for consistent responses.
-	if !strings.Contains(handler, "json.Unmarshal(scopeData, &") {
-		t.Error("scoped Read handler must unmarshal scopeData into API type")
-	}
+		handler := findFileContent(t, files, "internal/api/handler_users.go")
+		// Read handler for scoped collection must verify scope field via
+		// map[string]any lookup so the original storage value (with metadata)
+		// is preserved for the response.
+		if !strings.Contains(handler, `scopeVal, _ := scopeMap["org_id"].(string)`) {
+			t.Error("scoped Read handler must extract scope field from map[string]any")
+		}
+		if !strings.Contains(handler, `scopeVal != r.PathValue("org_id")`) {
+			t.Error("scoped Read handler must verify scope value matches URL path parameter")
+		}
+		// Must return 404 on scope mismatch.
+		if !strings.Contains(handler, `NotFound("User", id)`) {
+			t.Error("scoped Read handler must return NotFound on scope mismatch")
+		}
+		// Must convert via JSON roundtrip to map for scope field lookup.
+		if !strings.Contains(handler, "json.Marshal(existing)") {
+			t.Error("scoped Read handler must marshal Get result for scope check")
+		}
+		// After scope check, must convert storage type to API type via JSON
+		// unmarshal of scopeData, stripping storage metadata for consistent responses.
+		if !strings.Contains(handler, "json.Unmarshal(scopeData, &") {
+			t.Error("scoped Read handler must unmarshal scopeData into API type")
+		}
+	})
 }
 
-// Proves ST-SUP-RC20-OC24.
 func TestGenerate_ScopedUpdateVerifiesScope(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-			{Name: "User", Fields: []types.Field{
-				{Name: "email", Type: types.FieldTypeString},
-				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
-			{
-				Name:       "users",
-				Entity:     "User",
-				Operations: []types.Operation{types.OpUpdate},
-				Scope:      map[string]string{"org_id": "Organization"},
+	t.Run("ST-SUP-RC20-OC24-T02 The emitted update handler checks the parent scope", func(t *testing.T) {
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+				{Name: "User", Fields: []types.Field{
+					{Name: "email", Type: types.FieldTypeString},
+					{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+				}},
 			},
-		},
-		OutputNamespace: "internal/api",
-	}
+			Collections: []types.Collection{
+				{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+				{
+					Name:       "users",
+					Entity:     "User",
+					Operations: []types.Operation{types.OpUpdate},
+					Scope:      map[string]string{"org_id": "Organization"},
+				},
+			},
+			OutputNamespace: "internal/api",
+		}
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_users.go")
-	// Update handler for scoped collection must pre-fetch and verify scope
-	// using map[string]any approach (consistent with Read and Delete handlers).
-	if !strings.Contains(handler, `scopeVal != r.PathValue("org_id")`) {
-		t.Error("scoped Update handler must verify existing entity scope field matches URL path parameter")
-	}
-	// Must fetch existing entity before body decode to check scope.
-	if !strings.Contains(handler, `h.store.Get(r.Context(), "User", id)`) {
-		t.Error("scoped Update handler must call store.Get to verify scope before Replace")
-	}
+		handler := findFileContent(t, files, "internal/api/handler_users.go")
+		// Update handler for scoped collection must pre-fetch and verify scope
+		// using map[string]any approach (consistent with Read and Delete handlers).
+		if !strings.Contains(handler, `scopeVal != r.PathValue("org_id")`) {
+			t.Error("scoped Update handler must verify existing entity scope field matches URL path parameter")
+		}
+		// Must fetch existing entity before body decode to check scope.
+		if !strings.Contains(handler, `h.store.Get(r.Context(), "User", id)`) {
+			t.Error("scoped Update handler must call store.Get to verify scope before Replace")
+		}
+	})
 }
 
-// Proves ST-SUP-RC20-OC24.
 func TestGenerate_ScopedPatchVerifiesScope(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-			{Name: "User", Fields: []types.Field{
-				{Name: "email", Type: types.FieldTypeString},
-				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
-			{
-				Name:       "users",
-				Entity:     "User",
-				Operations: []types.Operation{types.OpPatch},
-				Scope:      map[string]string{"org_id": "Organization"},
-				Patchable:  []string{"email"},
+	t.Run("ST-SUP-RC20-OC24-T03 The emitted patch handler checks the parent scope", func(t *testing.T) {
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+				{Name: "User", Fields: []types.Field{
+					{Name: "email", Type: types.FieldTypeString},
+					{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+				}},
 			},
-		},
-		OutputNamespace: "internal/api",
-	}
+			Collections: []types.Collection{
+				{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+				{
+					Name:       "users",
+					Entity:     "User",
+					Operations: []types.Operation{types.OpPatch},
+					Scope:      map[string]string{"org_id": "Organization"},
+					Patchable:  []string{"email"},
+				},
+			},
+			OutputNamespace: "internal/api",
+		}
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_users.go")
-	// Patch handler already does store.Get + JSON roundtrip; scope check
-	// must be added after the unmarshal.
-	if !strings.Contains(handler, `user.OrgID != r.PathValue("org_id")`) {
-		t.Error("scoped Patch handler must verify entity scope field matches URL path parameter")
-	}
+		handler := findFileContent(t, files, "internal/api/handler_users.go")
+		// Patch handler already does store.Get + JSON roundtrip; scope check
+		// must be added after the unmarshal.
+		if !strings.Contains(handler, `user.OrgID != r.PathValue("org_id")`) {
+			t.Error("scoped Patch handler must verify entity scope field matches URL path parameter")
+		}
+	})
 }
 
-// Proves ST-SUP-RC20-OC24.
 func TestGenerate_ScopedDeleteVerifiesScope(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-			{Name: "User", Fields: []types.Field{
-				{Name: "email", Type: types.FieldTypeString},
-				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
-			{
-				Name:       "users",
-				Entity:     "User",
-				Operations: []types.Operation{types.OpDelete},
-				Scope:      map[string]string{"org_id": "Organization"},
+	t.Run("ST-SUP-RC20-OC24-T04 The emitted delete handler checks the parent scope", func(t *testing.T) {
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+				{Name: "User", Fields: []types.Field{
+					{Name: "email", Type: types.FieldTypeString},
+					{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+				}},
 			},
-		},
-		OutputNamespace: "internal/api",
-	}
+			Collections: []types.Collection{
+				{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+				{
+					Name:       "users",
+					Entity:     "User",
+					Operations: []types.Operation{types.OpDelete},
+					Scope:      map[string]string{"org_id": "Organization"},
+				},
+			},
+			OutputNamespace: "internal/api",
+		}
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_users.go")
-	// Delete handler for scoped collection must fetch and verify scope
-	// before performing the delete using map[string]any approach.
-	if !strings.Contains(handler, `scopeVal != r.PathValue("org_id")`) {
-		t.Error("scoped Delete handler must verify entity scope field matches URL path parameter")
-	}
-	if !strings.Contains(handler, `h.store.Get(r.Context(), "User", id)`) {
-		t.Error("scoped Delete handler must call store.Get to verify scope before Delete")
-	}
-	// Verify encoding/json is imported even when delete is the only operation.
-	if !strings.Contains(handler, `"encoding/json"`) {
-		t.Error("scoped delete-only collection must import encoding/json for scope verification")
-	}
+		handler := findFileContent(t, files, "internal/api/handler_users.go")
+		// Delete handler for scoped collection must fetch and verify scope
+		// before performing the delete using map[string]any approach.
+		if !strings.Contains(handler, `scopeVal != r.PathValue("org_id")`) {
+			t.Error("scoped Delete handler must verify entity scope field matches URL path parameter")
+		}
+		if !strings.Contains(handler, `h.store.Get(r.Context(), "User", id)`) {
+			t.Error("scoped Delete handler must call store.Get to verify scope before Delete")
+		}
+		// Verify encoding/json is imported even when delete is the only operation.
+		if !strings.Contains(handler, `"encoding/json"`) {
+			t.Error("scoped delete-only collection must import encoding/json for scope verification")
+		}
+	})
 }
 
 func TestGenerate_UnscopedReadNoScopeCheck(t *testing.T) {
@@ -8223,261 +8271,265 @@ func TestGenerate_ListStorageAPIConversionChecksErrors(t *testing.T) {
 
 // --- Task 039: Server-Managed Fields and Request Schemas ---
 
-// Proves ST-SUP-RC20-OC17.
 func TestIsServerManaged(t *testing.T) {
-	tests := []struct {
-		name   string
-		field  types.Field
-		expect bool
-	}{
-		{
-			name:   "computed field",
-			field:  types.Field{Name: "status", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "agg"},
-			expect: true,
-		},
-		{
-			name:   "timestamp field",
-			field:  types.Field{Name: "created_time", Type: types.FieldTypeTimestamp},
-			expect: true,
-		},
-		{
-			name:   "created_by field",
-			field:  types.Field{Name: "created_by", Type: types.FieldTypeString},
-			expect: true,
-		},
-		{
-			name:   "updated_by field",
-			field:  types.Field{Name: "updated_by", Type: types.FieldTypeString},
-			expect: true,
-		},
-		{
-			name:   "generation field",
-			field:  types.Field{Name: "generation", Type: types.FieldTypeInt32},
-			expect: true,
-		},
-		{
-			name:   "regular string field",
-			field:  types.Field{Name: "name", Type: types.FieldTypeString},
-			expect: false,
-		},
-		{
-			name:   "regular ref field",
-			field:  types.Field{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-			expect: false,
-		},
-		{
-			name:   "optional jsonb field",
-			field:  types.Field{Name: "labels", Type: types.FieldTypeJsonb, Optional: true},
-			expect: false,
-		},
-		{
-			name:   "enum field",
-			field:  types.Field{Name: "role", Type: types.FieldTypeEnum, Values: []string{"admin", "member"}},
-			expect: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isServerManaged(tt.field)
-			if got != tt.expect {
-				t.Errorf("isServerManaged(%q) = %v, want %v", tt.field.Name, got, tt.expect)
-			}
-		})
-	}
+	t.Run("ST-SUP-RC20-OC17-T02 The server-managed field rule covers all four cases", func(t *testing.T) {
+		tests := []struct {
+			name   string
+			field  types.Field
+			expect bool
+		}{
+			{
+				name:   "computed field",
+				field:  types.Field{Name: "status", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "agg"},
+				expect: true,
+			},
+			{
+				name:   "timestamp field",
+				field:  types.Field{Name: "created_time", Type: types.FieldTypeTimestamp},
+				expect: true,
+			},
+			{
+				name:   "created_by field",
+				field:  types.Field{Name: "created_by", Type: types.FieldTypeString},
+				expect: true,
+			},
+			{
+				name:   "updated_by field",
+				field:  types.Field{Name: "updated_by", Type: types.FieldTypeString},
+				expect: true,
+			},
+			{
+				name:   "generation field",
+				field:  types.Field{Name: "generation", Type: types.FieldTypeInt32},
+				expect: true,
+			},
+			{
+				name:   "regular string field",
+				field:  types.Field{Name: "name", Type: types.FieldTypeString},
+				expect: false,
+			},
+			{
+				name:   "regular ref field",
+				field:  types.Field{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+				expect: false,
+			},
+			{
+				name:   "optional jsonb field",
+				field:  types.Field{Name: "labels", Type: types.FieldTypeJsonb, Optional: true},
+				expect: false,
+			},
+			{
+				name:   "enum field",
+				field:  types.Field{Name: "role", Type: types.FieldTypeEnum, Values: []string{"admin", "member"}},
+				expect: false,
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				got := isServerManaged(tt.field)
+				if got != tt.expect {
+					t.Errorf("isServerManaged(%q) = %v, want %v", tt.field.Name, got, tt.expect)
+				}
+			})
+		}
+	})
 }
 
-// Proves ST-SUP-RC20-OC20.
 func TestGenerate_CreateRequestSchemaExcludesServerManagedFields(t *testing.T) {
-	g := &Generator{}
-	defaultVal := 1
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Cluster", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString, Unique: true},
-				{Name: "spec", Type: types.FieldTypeJsonb},
-				{Name: "labels", Type: types.FieldTypeJsonb, Optional: true},
-				{Name: "status", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "status-aggregator"},
-				{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
-				{Name: "created_by", Type: types.FieldTypeString},
-				{Name: "updated_by", Type: types.FieldTypeString},
-				{Name: "created_time", Type: types.FieldTypeTimestamp},
-				{Name: "updated_time", Type: types.FieldTypeTimestamp},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpRead}},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	content := findFileContent(t, files, "internal/api/openapi.json")
-	var spec map[string]any
-	if err := json.Unmarshal([]byte(content), &spec); err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-
-	schemas := spec["components"].(map[string]any)["schemas"].(map[string]any)
-
-	// ClusterCreateRequest schema should exist.
-	createReqRaw, ok := schemas["ClusterCreateRequest"]
-	if !ok {
-		t.Fatal("ClusterCreateRequest schema not found in OpenAPI components")
-	}
-	createReq := createReqRaw.(map[string]any)
-	props := createReq["properties"].(map[string]any)
-
-	// Client-provided fields should be present.
-	for _, expected := range []string{"name", "spec", "labels"} {
-		if _, ok := props[expected]; !ok {
-			t.Errorf("ClusterCreateRequest schema missing client-provided field %q", expected)
+	t.Run("ST-SUP-RC20-OC20-T01 The emitted create-request schema leaves out the fields a client cannot set", func(t *testing.T) {
+		g := &Generator{}
+		defaultVal := 1
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Cluster", Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString, Unique: true},
+					{Name: "spec", Type: types.FieldTypeJsonb},
+					{Name: "labels", Type: types.FieldTypeJsonb, Optional: true},
+					{Name: "status", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "status-aggregator"},
+					{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
+					{Name: "created_by", Type: types.FieldTypeString},
+					{Name: "updated_by", Type: types.FieldTypeString},
+					{Name: "created_time", Type: types.FieldTypeTimestamp},
+					{Name: "updated_time", Type: types.FieldTypeTimestamp},
+				}},
+			},
+			Collections: []types.Collection{
+				{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpRead}},
+			},
+			OutputNamespace: "internal/api",
 		}
-	}
 
-	// Server-managed fields should be absent.
-	for _, excluded := range []string{"status", "generation", "created_by", "updated_by", "created_time", "updated_time"} {
-		if _, ok := props[excluded]; ok {
-			t.Errorf("ClusterCreateRequest schema should not include server-managed field %q", excluded)
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-	}
 
-	// Required array should only contain client-provided non-optional fields.
-	reqArr, _ := createReq["required"].([]any)
-	reqSet := make(map[string]bool)
-	for _, r := range reqArr {
-		reqSet[r.(string)] = true
-	}
-	if !reqSet["name"] {
-		t.Error("ClusterCreateRequest should list 'name' as required")
-	}
-	if !reqSet["spec"] {
-		t.Error("ClusterCreateRequest should list 'spec' as required")
-	}
-	if reqSet["labels"] {
-		t.Error("ClusterCreateRequest should not list optional field 'labels' as required")
-	}
+		content := findFileContent(t, files, "internal/api/openapi.json")
+		var spec map[string]any
+		if err := json.Unmarshal([]byte(content), &spec); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+
+		schemas := spec["components"].(map[string]any)["schemas"].(map[string]any)
+
+		// ClusterCreateRequest schema should exist.
+		createReqRaw, ok := schemas["ClusterCreateRequest"]
+		if !ok {
+			t.Fatal("ClusterCreateRequest schema not found in OpenAPI components")
+		}
+		createReq := createReqRaw.(map[string]any)
+		props := createReq["properties"].(map[string]any)
+
+		// Client-provided fields should be present.
+		for _, expected := range []string{"name", "spec", "labels"} {
+			if _, ok := props[expected]; !ok {
+				t.Errorf("ClusterCreateRequest schema missing client-provided field %q", expected)
+			}
+		}
+
+		// Server-managed fields should be absent.
+		for _, excluded := range []string{"status", "generation", "created_by", "updated_by", "created_time", "updated_time"} {
+			if _, ok := props[excluded]; ok {
+				t.Errorf("ClusterCreateRequest schema should not include server-managed field %q", excluded)
+			}
+		}
+
+		// Required array should only contain client-provided non-optional fields.
+		reqArr, _ := createReq["required"].([]any)
+		reqSet := make(map[string]bool)
+		for _, r := range reqArr {
+			reqSet[r.(string)] = true
+		}
+		if !reqSet["name"] {
+			t.Error("ClusterCreateRequest should list 'name' as required")
+		}
+		if !reqSet["spec"] {
+			t.Error("ClusterCreateRequest should list 'spec' as required")
+		}
+		if reqSet["labels"] {
+			t.Error("ClusterCreateRequest should not list optional field 'labels' as required")
+		}
+	})
 }
 
-// Proves ST-SUP-RC20-OC20.
 func TestGenerate_CreateRequestSchemaExcludesScopeFields(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Organization", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-			{Name: "User", Fields: []types.Field{
-				{Name: "email", Type: types.FieldTypeString},
-				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpCreate, types.OpRead}},
-			{
-				Name:       "org-users",
-				Entity:     "User",
-				Scope:      map[string]string{"org_id": "Organization"},
-				Operations: []types.Operation{types.OpCreate, types.OpRead},
+	t.Run("ST-SUP-RC20-OC20-T02 A create-request schema leaves out the scope fields", func(t *testing.T) {
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Organization", Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString},
+				}},
+				{Name: "User", Fields: []types.Field{
+					{Name: "email", Type: types.FieldTypeString},
+					{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+				}},
 			},
-		},
-		OutputNamespace: "internal/api",
-	}
+			Collections: []types.Collection{
+				{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpCreate, types.OpRead}},
+				{
+					Name:       "org-users",
+					Entity:     "User",
+					Scope:      map[string]string{"org_id": "Organization"},
+					Operations: []types.Operation{types.OpCreate, types.OpRead},
+				},
+			},
+			OutputNamespace: "internal/api",
+		}
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	content := findFileContent(t, files, "internal/api/openapi.json")
-	var spec map[string]any
-	if err := json.Unmarshal([]byte(content), &spec); err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
+		content := findFileContent(t, files, "internal/api/openapi.json")
+		var spec map[string]any
+		if err := json.Unmarshal([]byte(content), &spec); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
 
-	schemas := spec["components"].(map[string]any)["schemas"].(map[string]any)
-	createReq := schemas["UserCreateRequest"].(map[string]any)
-	props := createReq["properties"].(map[string]any)
+		schemas := spec["components"].(map[string]any)["schemas"].(map[string]any)
+		createReq := schemas["UserCreateRequest"].(map[string]any)
+		props := createReq["properties"].(map[string]any)
 
-	// Scope field org_id should be excluded from CreateRequest.
-	if _, ok := props["org_id"]; ok {
-		t.Error("UserCreateRequest should not include scope field 'org_id'")
-	}
-	// email should be present.
-	if _, ok := props["email"]; !ok {
-		t.Error("UserCreateRequest should include client-provided field 'email'")
-	}
+		// Scope field org_id should be excluded from CreateRequest.
+		if _, ok := props["org_id"]; ok {
+			t.Error("UserCreateRequest should not include scope field 'org_id'")
+		}
+		// email should be present.
+		if _, ok := props["email"]; !ok {
+			t.Error("UserCreateRequest should include client-provided field 'email'")
+		}
+	})
 }
 
-// Proves ST-SUP-RC20-OC20.
 func TestGenerate_CreateRequestSchemaExcludesImplicitFields(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "AuditEvent", Fields: []types.Field{
-				{Name: "message", Type: types.FieldTypeString},
-				{Name: "source_type", Type: types.FieldTypeString},
-				{Name: "severity", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "user-audit-events",
-				Entity:     "AuditEvent",
-				PathPrefix: "/user-events",
-				Implicit:   map[string]string{"source_type": "User"},
-				Operations: []types.Operation{types.OpCreate, types.OpList},
+	t.Run("ST-SUP-RC20-OC20-T03 A create-request schema leaves out the implicit fields", func(t *testing.T) {
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "AuditEvent", Fields: []types.Field{
+					{Name: "message", Type: types.FieldTypeString},
+					{Name: "source_type", Type: types.FieldTypeString},
+					{Name: "severity", Type: types.FieldTypeString},
+				}},
 			},
-			{
-				Name:       "org-audit-events",
-				Entity:     "AuditEvent",
-				PathPrefix: "/org-events",
-				Implicit:   map[string]string{"source_type": "Organization"},
-				Operations: []types.Operation{types.OpCreate, types.OpList},
+			Collections: []types.Collection{
+				{
+					Name:       "user-audit-events",
+					Entity:     "AuditEvent",
+					PathPrefix: "/user-events",
+					Implicit:   map[string]string{"source_type": "User"},
+					Operations: []types.Operation{types.OpCreate, types.OpList},
+				},
+				{
+					Name:       "org-audit-events",
+					Entity:     "AuditEvent",
+					PathPrefix: "/org-events",
+					Implicit:   map[string]string{"source_type": "Organization"},
+					Operations: []types.Operation{types.OpCreate, types.OpList},
+				},
 			},
-		},
-		OutputNamespace: "internal/api",
-	}
+			OutputNamespace: "internal/api",
+		}
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	content := findFileContent(t, files, "internal/api/openapi.json")
-	var spec map[string]any
-	if err := json.Unmarshal([]byte(content), &spec); err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
+		content := findFileContent(t, files, "internal/api/openapi.json")
+		var spec map[string]any
+		if err := json.Unmarshal([]byte(content), &spec); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
 
-	schemas := spec["components"].(map[string]any)["schemas"].(map[string]any)
-	createReq := schemas["AuditEventCreateRequest"].(map[string]any)
-	props := createReq["properties"].(map[string]any)
+		schemas := spec["components"].(map[string]any)["schemas"].(map[string]any)
+		createReq := schemas["AuditEventCreateRequest"].(map[string]any)
+		props := createReq["properties"].(map[string]any)
 
-	// Implicit field source_type should be excluded from CreateRequest.
-	if _, ok := props["source_type"]; ok {
-		t.Error("AuditEventCreateRequest should not include implicit field 'source_type'")
-	}
-	// Non-implicit fields should be present.
-	if _, ok := props["message"]; !ok {
-		t.Error("AuditEventCreateRequest should include client-provided field 'message'")
-	}
-	if _, ok := props["severity"]; !ok {
-		t.Error("AuditEventCreateRequest should include client-provided field 'severity'")
-	}
+		// Implicit field source_type should be excluded from CreateRequest.
+		if _, ok := props["source_type"]; ok {
+			t.Error("AuditEventCreateRequest should not include implicit field 'source_type'")
+		}
+		// Non-implicit fields should be present.
+		if _, ok := props["message"]; !ok {
+			t.Error("AuditEventCreateRequest should include client-provided field 'message'")
+		}
+		if _, ok := props["severity"]; !ok {
+			t.Error("AuditEventCreateRequest should include client-provided field 'severity'")
+		}
 
-	// Response schema should still include implicit fields.
-	responseSchema := schemas["AuditEvent"].(map[string]any)
-	responseProps := responseSchema["properties"].(map[string]any)
-	if _, ok := responseProps["source_type"]; !ok {
-		t.Error("AuditEvent response schema should include implicit field 'source_type'")
-	}
+		// Response schema should still include implicit fields.
+		responseSchema := schemas["AuditEvent"].(map[string]any)
+		responseProps := responseSchema["properties"].(map[string]any)
+		if _, ok := responseProps["source_type"]; !ok {
+			t.Error("AuditEvent response schema should include implicit field 'source_type'")
+		}
+	})
 }
 
 func TestGenerate_CreateRequestSchemaExcludesImplicitFieldAcrossCollections(t *testing.T) {
@@ -8537,232 +8589,234 @@ func TestGenerate_CreateRequestSchemaExcludesImplicitFieldAcrossCollections(t *t
 	}
 }
 
-// Proves ST-SUP-RC20-OC20.
 func TestGenerate_PostRefPointsToCreateRequest(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Widget", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-				{Name: "created_time", Type: types.FieldTypeTimestamp},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpCreate}},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	content := findFileContent(t, files, "internal/api/openapi.json")
-	var spec map[string]any
-	if err := json.Unmarshal([]byte(content), &spec); err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-
-	paths := spec["paths"].(map[string]any)
-	widgetsPath := paths["/widgets"].(map[string]any)
-	postOp := widgetsPath["post"].(map[string]any)
-	reqBody := postOp["requestBody"].(map[string]any)
-	reqContent := reqBody["content"].(map[string]any)
-	jsonSchema := reqContent["application/json"].(map[string]any)
-	schemaRef := jsonSchema["schema"].(map[string]any)["$ref"].(string)
-
-	if schemaRef != "#/components/schemas/WidgetCreateRequest" {
-		t.Errorf("POST request body $ref = %q, want #/components/schemas/WidgetCreateRequest", schemaRef)
-	}
-}
-
-// Proves ST-SUP-RC20-OC17.
-func TestGenerate_CreateHandlerPopulatesServerManagedFields(t *testing.T) {
-	g := &Generator{}
-	defaultVal := 1
-	ctx := gen.Context{
-		Conventions: types.Convention{
-			Layout:         "flat",
-			ResponseFormat: "envelope",
-		},
-		Entities: []types.Entity{
-			{Name: "Cluster", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-				{Name: "created_by", Type: types.FieldTypeString},
-				{Name: "updated_by", Type: types.FieldTypeString},
-				{Name: "created_time", Type: types.FieldTypeTimestamp},
-				{Name: "updated_time", Type: types.FieldTypeTimestamp},
-				{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
-				{Name: "status", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "agg"},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpUpdate}},
-		},
-		OutputNamespace: "internal/api",
-		AuthPackage:     "github.com/example/svc/internal/auth",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_clusters.go")
-
-	// Create handler must clear server-managed fields.
-	if !strings.Contains(handler, "cluster.CreatedBy = \"\"") {
-		t.Error("create handler must clear created_by")
-	}
-	if !strings.Contains(handler, "cluster.UpdatedBy = \"\"") {
-		t.Error("create handler must clear updated_by")
-	}
-	if !strings.Contains(handler, "cluster.Generation = 0") {
-		t.Error("create handler must clear generation")
-	}
-	if !strings.Contains(handler, "cluster.Status = nil") {
-		t.Error("create handler must clear computed field status")
-	}
-
-	// Create handler must populate server-managed fields from auth context,
-	// preferring Attributes["email"] with UserID fallback.
-	if !strings.Contains(handler, "auth.IdentityFromContext(r.Context())") {
-		t.Error("create handler must extract identity from auth context")
-	}
-	if !strings.Contains(handler, `authID.Attributes["email"]`) {
-		t.Error("create handler must check Attributes[\"email\"] for created_by/updated_by")
-	}
-	if !strings.Contains(handler, "cluster.CreatedBy = email") {
-		t.Error("create handler must set created_by from email attribute")
-	}
-	if !strings.Contains(handler, "cluster.UpdatedBy = email") {
-		t.Error("create handler must set updated_by from email attribute")
-	}
-	if !strings.Contains(handler, "cluster.CreatedBy = authID.UserID") {
-		t.Error("create handler must fall back to UserID for created_by")
-	}
-	if !strings.Contains(handler, "cluster.UpdatedBy = authID.UserID") {
-		t.Error("create handler must fall back to UserID for updated_by")
-	}
-
-	// Create handler must populate timestamps.
-	if !strings.Contains(handler, "cluster.CreatedTime = time.Now()") {
-		t.Error("create handler must set created_time to time.Now()")
-	}
-	if !strings.Contains(handler, "cluster.UpdatedTime = time.Now()") {
-		t.Error("create handler must set updated_time to time.Now()")
-	}
-
-	// Create handler must set generation from default.
-	if !strings.Contains(handler, "cluster.Generation = 1") {
-		t.Error("create handler must set generation from field default value")
-	}
-
-	// Update handler must set updated_by and updated_time, and increment generation.
-	updateStart := strings.Index(handler, "func (h *ClustersHandler) Update(")
-	if updateStart == -1 {
-		t.Fatal("Update method not found")
-	}
-	updateSection := handler[updateStart:]
-	if !strings.Contains(updateSection, `authID.Attributes["email"]`) {
-		t.Error("update handler must check Attributes[\"email\"] for updated_by")
-	}
-	if !strings.Contains(updateSection, "cluster.UpdatedBy = email") {
-		t.Error("update handler must set updated_by from email attribute")
-	}
-	if !strings.Contains(updateSection, "cluster.UpdatedBy = authID.UserID") {
-		t.Error("update handler must fall back to UserID for updated_by")
-	}
-	if !strings.Contains(updateSection, "cluster.UpdatedTime = time.Now()") {
-		t.Error("update handler must set updated_time to time.Now()")
-	}
-	if !strings.Contains(updateSection, "cluster.Generation = existingTyped.Generation + 1") {
-		t.Error("update handler must increment generation from existing entity value")
-	}
-}
-
-// Proves ST-SUP-RC20-OC16.
-func TestGenerate_PatchHandlerRecordsAuditFields(t *testing.T) {
-	g := &Generator{}
-	defaultVal := 1
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Cluster", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-				{Name: "spec", Type: types.FieldTypeJsonb},
-				{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
-				{Name: "created_by", Type: types.FieldTypeString},
-				{Name: "updated_by", Type: types.FieldTypeString},
-				{Name: "created_time", Type: types.FieldTypeTimestamp},
-				{Name: "updated_time", Type: types.FieldTypeTimestamp},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "clusters",
-				Entity:     "Cluster",
-				Operations: []types.Operation{types.OpRead, types.OpPatch},
-				Patchable:  []string{"spec"},
+	t.Run("ST-SUP-RC20-OC20-T04 The write operation points at the create-request schema", func(t *testing.T) {
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Widget", Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString},
+					{Name: "created_time", Type: types.FieldTypeTimestamp},
+				}},
 			},
-		},
-		OutputNamespace: "internal/api",
-		AuthPackage:     "github.com/example/svc/internal/auth",
-		ModuleName:      "github.com/example/svc",
-	}
+			Collections: []types.Collection{
+				{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpCreate}},
+			},
+			OutputNamespace: "internal/api",
+		}
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_clusters.go")
-	patchStart := strings.Index(handler, "func (h *ClustersHandler) Patch(")
-	if patchStart == -1 {
-		t.Fatal("Patch method not found")
-	}
-	patchSection := handler[patchStart:]
+		content := findFileContent(t, files, "internal/api/openapi.json")
+		var spec map[string]any
+		if err := json.Unmarshal([]byte(content), &spec); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
 
-	// The patch handler must record who changed the record and when.
-	if !strings.Contains(patchSection, `authID.Attributes["email"]`) {
-		t.Error("patch handler must check Attributes[\"email\"] for updated_by")
-	}
-	if !strings.Contains(patchSection, "cluster.UpdatedBy = email") {
-		t.Error("patch handler must set updated_by from email attribute")
-	}
-	if !strings.Contains(patchSection, "cluster.UpdatedBy = authID.UserID") {
-		t.Error("patch handler must fall back to UserID for updated_by")
-	}
-	if !strings.Contains(patchSection, "cluster.UpdatedTime = time.Now()") {
-		t.Error("patch handler must set updated_time to time.Now()")
-	}
+		paths := spec["paths"].(map[string]any)
+		widgetsPath := paths["/widgets"].(map[string]any)
+		postOp := widgetsPath["post"].(map[string]any)
+		reqBody := postOp["requestBody"].(map[string]any)
+		reqContent := reqBody["content"].(map[string]any)
+		jsonSchema := reqContent["application/json"].(map[string]any)
+		schemaRef := jsonSchema["schema"].(map[string]any)["$ref"].(string)
 
-	// The audit fields must be set after the merge, so a client value in the
-	// patch request cannot win.
-	applyIndex := strings.Index(patchSection, "if patch.Spec != nil")
-	auditIndex := strings.Index(patchSection, "cluster.UpdatedTime = time.Now()")
-	if applyIndex == -1 || auditIndex < applyIndex {
-		t.Error("patch handler must set the audit fields after it applies the patch")
-	}
+		if schemaRef != "#/components/schemas/WidgetCreateRequest" {
+			t.Errorf("POST request body $ref = %q, want #/components/schemas/WidgetCreateRequest", schemaRef)
+		}
+	})
+}
 
-	// A database trigger raises generation. The handler must not raise it, and
-	// must not rewrite the create-only fields it already holds.
-	if strings.Contains(patchSection, "cluster.Generation =") {
-		t.Error("patch handler must leave generation to the database trigger")
-	}
-	if strings.Contains(patchSection, "cluster.CreatedBy =") || strings.Contains(patchSection, "cluster.CreatedTime =") {
-		t.Error("patch handler must not rewrite create-only fields")
-	}
+func TestGenerate_CreateHandlerPopulatesServerManagedFields(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC17-T01 The emitted create handler discards client values for server-managed fields", func(t *testing.T) {
+		g := &Generator{}
+		defaultVal := 1
+		ctx := gen.Context{
+			Conventions: types.Convention{
+				Layout:         "flat",
+				ResponseFormat: "envelope",
+			},
+			Entities: []types.Entity{
+				{Name: "Cluster", Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString},
+					{Name: "created_by", Type: types.FieldTypeString},
+					{Name: "updated_by", Type: types.FieldTypeString},
+					{Name: "created_time", Type: types.FieldTypeTimestamp},
+					{Name: "updated_time", Type: types.FieldTypeTimestamp},
+					{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
+					{Name: "status", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "agg"},
+				}},
+			},
+			Collections: []types.Collection{
+				{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpUpdate}},
+			},
+			OutputNamespace: "internal/api",
+			AuthPackage:     "github.com/example/svc/internal/auth",
+		}
 
-	// Compile the generated package to prove the time and auth imports are right.
-	tmpDir := t.TempDir()
-	authDir := filepath.Join(tmpDir, "internal", "auth")
-	if err := os.MkdirAll(authDir, 0o755); err != nil {
-		t.Fatalf("mkdir auth: %v", err)
-	}
-	authStub := `package auth
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		handler := findFileContent(t, files, "internal/api/handler_clusters.go")
+
+		// Create handler must clear server-managed fields.
+		if !strings.Contains(handler, "cluster.CreatedBy = \"\"") {
+			t.Error("create handler must clear created_by")
+		}
+		if !strings.Contains(handler, "cluster.UpdatedBy = \"\"") {
+			t.Error("create handler must clear updated_by")
+		}
+		if !strings.Contains(handler, "cluster.Generation = 0") {
+			t.Error("create handler must clear generation")
+		}
+		if !strings.Contains(handler, "cluster.Status = nil") {
+			t.Error("create handler must clear computed field status")
+		}
+
+		// Create handler must populate server-managed fields from auth context,
+		// preferring Attributes["email"] with UserID fallback.
+		if !strings.Contains(handler, "auth.IdentityFromContext(r.Context())") {
+			t.Error("create handler must extract identity from auth context")
+		}
+		if !strings.Contains(handler, `authID.Attributes["email"]`) {
+			t.Error("create handler must check Attributes[\"email\"] for created_by/updated_by")
+		}
+		if !strings.Contains(handler, "cluster.CreatedBy = email") {
+			t.Error("create handler must set created_by from email attribute")
+		}
+		if !strings.Contains(handler, "cluster.UpdatedBy = email") {
+			t.Error("create handler must set updated_by from email attribute")
+		}
+		if !strings.Contains(handler, "cluster.CreatedBy = authID.UserID") {
+			t.Error("create handler must fall back to UserID for created_by")
+		}
+		if !strings.Contains(handler, "cluster.UpdatedBy = authID.UserID") {
+			t.Error("create handler must fall back to UserID for updated_by")
+		}
+
+		// Create handler must populate timestamps.
+		if !strings.Contains(handler, "cluster.CreatedTime = time.Now()") {
+			t.Error("create handler must set created_time to time.Now()")
+		}
+		if !strings.Contains(handler, "cluster.UpdatedTime = time.Now()") {
+			t.Error("create handler must set updated_time to time.Now()")
+		}
+
+		// Create handler must set generation from default.
+		if !strings.Contains(handler, "cluster.Generation = 1") {
+			t.Error("create handler must set generation from field default value")
+		}
+
+		// Update handler must set updated_by and updated_time, and increment generation.
+		updateStart := strings.Index(handler, "func (h *ClustersHandler) Update(")
+		if updateStart == -1 {
+			t.Fatal("Update method not found")
+		}
+		updateSection := handler[updateStart:]
+		if !strings.Contains(updateSection, `authID.Attributes["email"]`) {
+			t.Error("update handler must check Attributes[\"email\"] for updated_by")
+		}
+		if !strings.Contains(updateSection, "cluster.UpdatedBy = email") {
+			t.Error("update handler must set updated_by from email attribute")
+		}
+		if !strings.Contains(updateSection, "cluster.UpdatedBy = authID.UserID") {
+			t.Error("update handler must fall back to UserID for updated_by")
+		}
+		if !strings.Contains(updateSection, "cluster.UpdatedTime = time.Now()") {
+			t.Error("update handler must set updated_time to time.Now()")
+		}
+		if !strings.Contains(updateSection, "cluster.Generation = existingTyped.Generation + 1") {
+			t.Error("update handler must increment generation from existing entity value")
+		}
+	})
+}
+
+func TestGenerate_PatchHandlerRecordsAuditFields(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC16-T01 The emitted patch handler records who changed the record and when", func(t *testing.T) {
+		g := &Generator{}
+		defaultVal := 1
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Cluster", Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString},
+					{Name: "spec", Type: types.FieldTypeJsonb},
+					{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
+					{Name: "created_by", Type: types.FieldTypeString},
+					{Name: "updated_by", Type: types.FieldTypeString},
+					{Name: "created_time", Type: types.FieldTypeTimestamp},
+					{Name: "updated_time", Type: types.FieldTypeTimestamp},
+				}},
+			},
+			Collections: []types.Collection{
+				{
+					Name:       "clusters",
+					Entity:     "Cluster",
+					Operations: []types.Operation{types.OpRead, types.OpPatch},
+					Patchable:  []string{"spec"},
+				},
+			},
+			OutputNamespace: "internal/api",
+			AuthPackage:     "github.com/example/svc/internal/auth",
+			ModuleName:      "github.com/example/svc",
+		}
+
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		handler := findFileContent(t, files, "internal/api/handler_clusters.go")
+		patchStart := strings.Index(handler, "func (h *ClustersHandler) Patch(")
+		if patchStart == -1 {
+			t.Fatal("Patch method not found")
+		}
+		patchSection := handler[patchStart:]
+
+		// The patch handler must record who changed the record and when.
+		if !strings.Contains(patchSection, `authID.Attributes["email"]`) {
+			t.Error("patch handler must check Attributes[\"email\"] for updated_by")
+		}
+		if !strings.Contains(patchSection, "cluster.UpdatedBy = email") {
+			t.Error("patch handler must set updated_by from email attribute")
+		}
+		if !strings.Contains(patchSection, "cluster.UpdatedBy = authID.UserID") {
+			t.Error("patch handler must fall back to UserID for updated_by")
+		}
+		if !strings.Contains(patchSection, "cluster.UpdatedTime = time.Now()") {
+			t.Error("patch handler must set updated_time to time.Now()")
+		}
+
+		// The audit fields must be set after the merge, so a client value in the
+		// patch request cannot win.
+		applyIndex := strings.Index(patchSection, "if patch.Spec != nil")
+		auditIndex := strings.Index(patchSection, "cluster.UpdatedTime = time.Now()")
+		if applyIndex == -1 || auditIndex < applyIndex {
+			t.Error("patch handler must set the audit fields after it applies the patch")
+		}
+
+		// A database trigger raises generation. The handler must not raise it, and
+		// must not rewrite the create-only fields it already holds.
+		if strings.Contains(patchSection, "cluster.Generation =") {
+			t.Error("patch handler must leave generation to the database trigger")
+		}
+		if strings.Contains(patchSection, "cluster.CreatedBy =") || strings.Contains(patchSection, "cluster.CreatedTime =") {
+			t.Error("patch handler must not rewrite create-only fields")
+		}
+
+		// Compile the generated package to prove the time and auth imports are right.
+		tmpDir := t.TempDir()
+		authDir := filepath.Join(tmpDir, "internal", "auth")
+		if err := os.MkdirAll(authDir, 0o755); err != nil {
+			t.Fatalf("mkdir auth: %v", err)
+		}
+		authStub := `package auth
 
 import "context"
 
@@ -8781,72 +8835,74 @@ func IdentityFromContext(ctx context.Context) Identity {
 	return Identity{}
 }
 `
-	if err := os.WriteFile(filepath.Join(authDir, "auth.go"), []byte(authStub), 0o644); err != nil {
-		t.Fatalf("write auth stub: %v", err)
-	}
-	for _, f := range files {
-		fp := filepath.Join(tmpDir, f.Path)
-		if err := os.MkdirAll(filepath.Dir(fp), 0o755); err != nil {
-			t.Fatalf("mkdir: %v", err)
+		if err := os.WriteFile(filepath.Join(authDir, "auth.go"), []byte(authStub), 0o644); err != nil {
+			t.Fatalf("write auth stub: %v", err)
 		}
-		if err := os.WriteFile(fp, f.Bytes(), 0o644); err != nil {
-			t.Fatalf("write: %v", err)
+		for _, f := range files {
+			fp := filepath.Join(tmpDir, f.Path)
+			if err := os.MkdirAll(filepath.Dir(fp), 0o755); err != nil {
+				t.Fatalf("mkdir: %v", err)
+			}
+			if err := os.WriteFile(fp, f.Bytes(), 0o644); err != nil {
+				t.Fatalf("write: %v", err)
+			}
 		}
-	}
-	goMod := "module github.com/example/svc\n\ngo 1.23\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0o644); err != nil {
-		t.Fatalf("write go.mod: %v", err)
-	}
-	cmd := exec.Command("go", "build", "./...")
-	cmd.Dir = tmpDir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("generated patch handler does not compile:\n%s", out)
-	}
+		goMod := "module github.com/example/svc\n\ngo 1.23\n"
+		if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0o644); err != nil {
+			t.Fatalf("write go.mod: %v", err)
+		}
+		cmd := exec.Command("go", "build", "./...")
+		cmd.Dir = tmpDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("generated patch handler does not compile:\n%s", out)
+		}
+	})
 }
 
-// Proves ST-SUP-RC20-OC19.
 func TestGenerate_KindFieldValidation(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Widget", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpCreate}},
-		},
-		OutputNamespace: "internal/api",
-	}
+	t.Run("ST-SUP-RC20-OC19-T01 The emitted handlers refuse a body whose kind is not the entity", func(t *testing.T) {
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Widget", Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString},
+				}},
+			},
+			Collections: []types.Collection{
+				{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpCreate}},
+			},
+			OutputNamespace: "internal/api",
+		}
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
 
-	// Create handler must validate kind field.
-	if !strings.Contains(handler, `rawMap["kind"]`) {
-		t.Error("create handler must check for 'kind' field in request body")
-	}
-	if !strings.Contains(handler, `kind != "Widget"`) {
-		t.Error("create handler must validate kind against entity name 'Widget'")
-	}
-	if !strings.Contains(handler, `BadRequest("kind must be Widget")`) {
-		t.Error("create handler must return BadRequest for wrong kind value")
-	}
-	// The kind validation must reject non-string values (e.g., kind: 42,
-	// kind: true, kind: [1]) — these are "present and wrong" per the spec.
-	// The generated condition must use err != nil || kind != "Entity" so that
-	// JSON unmarshal failures (non-string types) also produce a 400.
-	if strings.Contains(handler, `err == nil && kind != "Widget"`) {
-		t.Error("kind validation must use 'err != nil || kind != Entity' to reject non-string values, not 'err == nil && kind != Entity'")
-	}
-	if !strings.Contains(handler, `err != nil || kind != "Widget"`) {
-		t.Error("kind validation must use 'err != nil || kind != Entity' to reject non-string kind values")
-	}
+		// Create handler must validate kind field.
+		if !strings.Contains(handler, `rawMap["kind"]`) {
+			t.Error("create handler must check for 'kind' field in request body")
+		}
+		if !strings.Contains(handler, `kind != "Widget"`) {
+			t.Error("create handler must validate kind against entity name 'Widget'")
+		}
+		if !strings.Contains(handler, `BadRequest("kind must be Widget")`) {
+			t.Error("create handler must return BadRequest for wrong kind value")
+		}
+		// The kind validation must reject non-string values (e.g., kind: 42,
+		// kind: true, kind: [1]) — these are "present and wrong" per the spec.
+		// The generated condition must use err != nil || kind != "Entity" so that
+		// JSON unmarshal failures (non-string types) also produce a 400.
+		if strings.Contains(handler, `err == nil && kind != "Widget"`) {
+			t.Error("kind validation must use 'err != nil || kind != Entity' to reject non-string values, not 'err == nil && kind != Entity'")
+		}
+		if !strings.Contains(handler, `err != nil || kind != "Widget"`) {
+			t.Error("kind validation must use 'err != nil || kind != Entity' to reject non-string kind values")
+		}
+	})
 }
 
 func TestGenerate_ServerManagedFieldsCompilesAsPackage(t *testing.T) {
@@ -8952,353 +9008,360 @@ func IdentityFromContext(ctx context.Context) Identity {
 	}
 }
 
-// Proves ST-SUP-RC20-OC17, ST-SUP-RC20-OC19.
 func TestGenerate_UpsertKindValidationAndServerManagedFields(t *testing.T) {
-	g := &Generator{}
-	defaultVal := 1
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat", ResponseFormat: "envelope"},
-		Entities: []types.Entity{
-			{Name: "Setting", Fields: []types.Field{
-				{Name: "key", Type: types.FieldTypeString},
-				{Name: "value", Type: types.FieldTypeString},
-				{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
-				{Name: "updated_time", Type: types.FieldTypeTimestamp},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "settings",
-				Entity:     "Setting",
-				Operations: []types.Operation{types.OpUpsert, types.OpRead},
-				UpsertKey:  []string{"key"},
+	check := func(t *testing.T) {
+		g := &Generator{}
+		defaultVal := 1
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat", ResponseFormat: "envelope"},
+			Entities: []types.Entity{
+				{Name: "Setting", Fields: []types.Field{
+					{Name: "key", Type: types.FieldTypeString},
+					{Name: "value", Type: types.FieldTypeString},
+					{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
+					{Name: "updated_time", Type: types.FieldTypeTimestamp},
+				}},
 			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_settings.go")
-
-	// Upsert must validate kind field.
-	if !strings.Contains(handler, `rawMap["kind"]`) {
-		t.Error("upsert handler must check for 'kind' field in request body")
-	}
-	if !strings.Contains(handler, `kind != "Setting"`) {
-		t.Error("upsert handler must validate kind against entity name")
-	}
-
-	// Upsert must clear server-managed fields.
-	if !strings.Contains(handler, "setting.Generation = 0") {
-		t.Error("upsert handler must clear generation field")
-	}
-
-	// Upsert must populate server-managed fields.
-	if !strings.Contains(handler, "setting.Generation = 1") {
-		t.Error("upsert handler must set generation from field default")
-	}
-	if !strings.Contains(handler, "setting.UpdatedTime = time.Now()") {
-		t.Error("upsert handler must set updated_time")
-	}
-
-	// Upsert must use io.ReadAll for body reading.
-	if !strings.Contains(handler, "io.ReadAll(r.Body)") {
-		t.Error("upsert handler must use io.ReadAll for body reading")
-	}
-	// Kind validation must reject non-string values (checklist item 234).
-	if !strings.Contains(handler, `err != nil || kind != "Setting"`) {
-		t.Error("upsert handler kind validation must use 'err != nil || kind != Entity' to reject non-string kind values")
-	}
-}
-
-// Proves ST-SUP-RC20-OC19.
-func TestGenerate_UpdateHandlerKindValidation(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Widget", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpUpdate}},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-	// Update handler must use io.ReadAll for body reading.
-	if !strings.Contains(handler, "io.ReadAll(r.Body)") {
-		t.Error("update handler must use io.ReadAll for body reading")
-	}
-	// Update handler must validate kind field.
-	if !strings.Contains(handler, `rawMap["kind"]`) {
-		t.Error("update handler must check for 'kind' field in request body")
-	}
-	if !strings.Contains(handler, `kind != "Widget"`) {
-		t.Error("update handler must validate kind against entity name 'Widget'")
-	}
-	if !strings.Contains(handler, `BadRequest("kind must be Widget")`) {
-		t.Error("update handler must return BadRequest for wrong kind value")
-	}
-	// Update handler must use json.Unmarshal (not json.NewDecoder).
-	if !strings.Contains(handler, "json.Unmarshal(bodyBytes") {
-		t.Error("update handler must use json.Unmarshal for body decoding")
-	}
-	// Kind validation must reject non-string values (checklist item 234).
-	if !strings.Contains(handler, `err != nil || kind != "Widget"`) {
-		t.Error("update handler kind validation must use 'err != nil || kind != Entity' to reject non-string kind values")
-	}
-}
-
-// Proves ST-SUP-RC20-OC18.
-func TestGenerate_UpdateHandlerPreservesCreateOnlyFields(t *testing.T) {
-	g := &Generator{}
-	defaultVal := 1
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat", ResponseFormat: "envelope"},
-		Entities: []types.Entity{
-			{Name: "Cluster", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-				{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
-				{Name: "created_by", Type: types.FieldTypeString},
-				{Name: "updated_by", Type: types.FieldTypeString},
-				{Name: "created_time", Type: types.FieldTypeTimestamp},
-				{Name: "updated_time", Type: types.FieldTypeTimestamp},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{
-				types.OpCreate, types.OpUpdate, types.OpRead,
-			}},
-		},
-		OutputNamespace: "internal/api",
-		AuthPackage:     "github.com/example/svc/internal/auth",
-		ModuleName:      "github.com/example/svc",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_clusters.go")
-
-	// Update handler must always fetch existing entity for preserving
-	// create-only fields.
-	if !strings.Contains(handler, `h.store.Get(r.Context(), "Cluster", id)`) {
-		t.Error("update handler must fetch existing entity")
-	}
-
-	// Update handler must clear server-managed fields to prevent client
-	// from setting them.
-	if !strings.Contains(handler, "cluster.Generation = 0") {
-		t.Error("update handler must clear generation field")
-	}
-	if !strings.Contains(handler, `cluster.CreatedBy = ""`) {
-		t.Error("update handler must clear created_by field")
-	}
-
-	// Update handler must set updated_by from auth context, preferring email.
-	if !strings.Contains(handler, `authID.Attributes["email"]`) {
-		t.Error("update handler must check Attributes[\"email\"] for updated_by")
-	}
-	if !strings.Contains(handler, "cluster.UpdatedBy = email") {
-		t.Error("update handler must set updated_by from email attribute")
-	}
-	if !strings.Contains(handler, "cluster.UpdatedBy = authID.UserID") {
-		t.Error("update handler must fall back to UserID for updated_by")
-	}
-	// Update handler must set updated_time.
-	if !strings.Contains(handler, "cluster.UpdatedTime = time.Now()") {
-		t.Error("update handler must set updated_time to time.Now()")
-	}
-
-	// Update handler must restore create-only fields from existing entity
-	// via JSON roundtrip, not leave them zeroed.
-	if !strings.Contains(handler, "cluster.CreatedBy = existingTyped.CreatedBy") {
-		t.Error("update handler must restore created_by from existing entity")
-	}
-	if !strings.Contains(handler, "cluster.CreatedTime = existingTyped.CreatedTime") {
-		t.Error("update handler must restore created_time from existing entity")
-	}
-	// Update handler must increment generation from existing value, not from zero.
-	if !strings.Contains(handler, "cluster.Generation = existingTyped.Generation + 1") {
-		t.Error("update handler must increment generation from existing entity value")
-	}
-	// Update handler must NOT contain generation++ (which increments from zero).
-	if strings.Contains(handler, "cluster.Generation++") {
-		t.Error("update handler must not use generation++ (increments from cleared zero value)")
-	}
-}
-
-// Proves ST-SUP-RC20-OC19.
-func TestGenerate_PatchHandlerKindValidation(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Widget", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-				{Name: "color", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "widgets",
-				Entity:     "Widget",
-				Operations: []types.Operation{types.OpRead, types.OpPatch},
-				Patchable:  []string{"color"},
+			Collections: []types.Collection{
+				{
+					Name:       "settings",
+					Entity:     "Setting",
+					Operations: []types.Operation{types.OpUpsert, types.OpRead},
+					UpsertKey:  []string{"key"},
+				},
 			},
-		},
-		OutputNamespace: "internal/api",
-	}
+			OutputNamespace: "internal/api",
+		}
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+		handler := findFileContent(t, files, "internal/api/handler_settings.go")
 
-	// Patch handler must use io.ReadAll for body reading (the PatchRequest
-	// struct does not include "kind", so json.NewDecoder would silently
-	// discard it — checklist item 235).
-	if !strings.Contains(handler, "io.ReadAll(r.Body)") {
-		t.Error("patch handler must use io.ReadAll for body reading")
-	}
-	// Patch handler must validate kind field.
-	if !strings.Contains(handler, `rawMap["kind"]`) {
-		t.Error("patch handler must check for 'kind' field in request body")
-	}
-	if !strings.Contains(handler, `kind != "Widget"`) {
-		t.Error("patch handler must validate kind against entity name 'Widget'")
-	}
-	if !strings.Contains(handler, `BadRequest("kind must be Widget")`) {
-		t.Error("patch handler must return BadRequest for wrong kind value")
-	}
-	// Patch handler must use json.Unmarshal from buffered bytes (not json.NewDecoder).
-	if !strings.Contains(handler, "json.Unmarshal(bodyBytes") {
-		t.Error("patch handler must use json.Unmarshal for body decoding")
-	}
-	// Kind validation must reject non-string values (checklist item 234).
-	if !strings.Contains(handler, `err != nil || kind != "Widget"`) {
-		t.Error("patch handler kind validation must use 'err != nil || kind != Entity' to reject non-string kind values")
-	}
-	// Patch handler must NOT use json.NewDecoder(r.Body) — the body was already
-	// consumed by io.ReadAll.
-	if strings.Contains(handler, "json.NewDecoder(r.Body)") {
-		t.Error("patch handler must not use json.NewDecoder(r.Body) — body is read via io.ReadAll")
-	}
-}
+		// Upsert must validate kind field.
+		if !strings.Contains(handler, `rawMap["kind"]`) {
+			t.Error("upsert handler must check for 'kind' field in request body")
+		}
+		if !strings.Contains(handler, `kind != "Setting"`) {
+			t.Error("upsert handler must validate kind against entity name")
+		}
 
-// Proves ST-SUP-RC20-OC27.
-func TestGenerate_CORSMiddleware_Generated(t *testing.T) {
-	g := &Generator{}
-	ctx := basicContext()
-	ctx.Conventions.CORS = "enabled"
+		// Upsert must clear server-managed fields.
+		if !strings.Contains(handler, "setting.Generation = 0") {
+			t.Error("upsert handler must clear generation field")
+		}
 
-	files, wiring, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		// Upsert must populate server-managed fields.
+		if !strings.Contains(handler, "setting.Generation = 1") {
+			t.Error("upsert handler must set generation from field default")
+		}
+		if !strings.Contains(handler, "setting.UpdatedTime = time.Now()") {
+			t.Error("upsert handler must set updated_time")
+		}
 
-	// Should have cors.go in the output files.
-	var foundCORS bool
-	for _, f := range files {
-		if f.Path == "internal/api/cors.go" {
-			foundCORS = true
-			content := string(f.Bytes())
-
-			// Verify the generated header is present.
-			if !strings.Contains(content, "Code generated by stego") {
-				t.Error("cors.go missing generated header")
-			}
-
-			// Verify constructor function.
-			if !strings.Contains(content, "func NewCORSMiddleware()") {
-				t.Error("cors.go missing NewCORSMiddleware function")
-			}
-
-			// Verify all 3 env vars with correct defaults.
-			if !strings.Contains(content, `CORS_ALLOWED_ORIGINS`) {
-				t.Error("cors.go missing CORS_ALLOWED_ORIGINS env var")
-			}
-			if !strings.Contains(content, `allowedOrigins = "*"`) {
-				t.Error("cors.go missing default * for allowed origins")
-			}
-
-			if !strings.Contains(content, `CORS_ALLOWED_METHODS`) {
-				t.Error("cors.go missing CORS_ALLOWED_METHODS env var")
-			}
-			if !strings.Contains(content, `allowedMethods = "GET,POST,PATCH,PUT,DELETE,OPTIONS"`) {
-				t.Error("cors.go missing default methods")
-			}
-
-			if !strings.Contains(content, `CORS_ALLOWED_HEADERS`) {
-				t.Error("cors.go missing CORS_ALLOWED_HEADERS env var")
-			}
-			if !strings.Contains(content, `allowedHeaders = "Content-Type,Authorization"`) {
-				t.Error("cors.go missing default headers")
-			}
-
-			// Verify CORS response headers are set.
-			if !strings.Contains(content, `Access-Control-Allow-Origin`) {
-				t.Error("cors.go missing Access-Control-Allow-Origin header")
-			}
-			if !strings.Contains(content, `Access-Control-Allow-Methods`) {
-				t.Error("cors.go missing Access-Control-Allow-Methods header")
-			}
-			if !strings.Contains(content, `Access-Control-Allow-Headers`) {
-				t.Error("cors.go missing Access-Control-Allow-Headers header")
-			}
-
-			// Verify OPTIONS preflight handling with 204.
-			if !strings.Contains(content, "http.MethodOptions") {
-				t.Error("cors.go missing OPTIONS method check")
-			}
-			if !strings.Contains(content, "http.StatusNoContent") {
-				t.Error("cors.go missing 204 No Content for preflight")
-			}
-
-			// Verify middleware wraps next handler.
-			if !strings.Contains(content, "next.ServeHTTP(w, r)") {
-				t.Error("cors.go missing next.ServeHTTP call")
-			}
+		// Upsert must use io.ReadAll for body reading.
+		if !strings.Contains(handler, "io.ReadAll(r.Body)") {
+			t.Error("upsert handler must use io.ReadAll for body reading")
+		}
+		// Kind validation must reject non-string values (checklist item 234).
+		if !strings.Contains(handler, `err != nil || kind != "Setting"`) {
+			t.Error("upsert handler kind validation must use 'err != nil || kind != Entity' to reject non-string kind values")
 		}
 	}
-	if !foundCORS {
-		t.Fatal("expected cors.go to be generated when CORS is enabled")
-	}
+	t.Run("ST-SUP-RC20-OC17-T03 The emitted upsert handler resets the server fields", check)
+	t.Run("ST-SUP-RC20-OC19-T02 The emitted upsert handler checks the kind", check)
+}
 
-	// Verify wiring metadata.
-	if wiring == nil {
-		t.Fatal("expected wiring, got nil")
-	}
-	if len(wiring.OuterMiddlewares) != 1 {
-		t.Fatalf("expected 1 outer middleware in wiring, got %d", len(wiring.OuterMiddlewares))
-	}
-	ms := wiring.OuterMiddlewares[0]
-	if ms.WrapExpr != "%s(%s)" {
-		t.Errorf("unexpected WrapExpr: %s", ms.WrapExpr)
-	}
-	if ms.ConstructorIndex < 0 || ms.ConstructorIndex >= len(wiring.Constructors) {
-		t.Fatalf("OuterMiddlewares ConstructorIndex %d out of range [0, %d)", ms.ConstructorIndex, len(wiring.Constructors))
-	}
-	if !strings.Contains(wiring.Constructors[ms.ConstructorIndex], "NewCORSMiddleware") {
-		t.Errorf("outer middleware constructor does not reference NewCORSMiddleware: %s", wiring.Constructors[ms.ConstructorIndex])
-	}
+func TestGenerate_UpdateHandlerKindValidation(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC19-T03 The emitted update handler checks the body kind", func(t *testing.T) {
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Widget", Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString},
+				}},
+			},
+			Collections: []types.Collection{
+				{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpUpdate}},
+			},
+			OutputNamespace: "internal/api",
+		}
+
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+		// Update handler must use io.ReadAll for body reading.
+		if !strings.Contains(handler, "io.ReadAll(r.Body)") {
+			t.Error("update handler must use io.ReadAll for body reading")
+		}
+		// Update handler must validate kind field.
+		if !strings.Contains(handler, `rawMap["kind"]`) {
+			t.Error("update handler must check for 'kind' field in request body")
+		}
+		if !strings.Contains(handler, `kind != "Widget"`) {
+			t.Error("update handler must validate kind against entity name 'Widget'")
+		}
+		if !strings.Contains(handler, `BadRequest("kind must be Widget")`) {
+			t.Error("update handler must return BadRequest for wrong kind value")
+		}
+		// Update handler must use json.Unmarshal (not json.NewDecoder).
+		if !strings.Contains(handler, "json.Unmarshal(bodyBytes") {
+			t.Error("update handler must use json.Unmarshal for body decoding")
+		}
+		// Kind validation must reject non-string values (checklist item 234).
+		if !strings.Contains(handler, `err != nil || kind != "Widget"`) {
+			t.Error("update handler kind validation must use 'err != nil || kind != Entity' to reject non-string kind values")
+		}
+	})
+}
+
+func TestGenerate_UpdateHandlerPreservesCreateOnlyFields(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC18-T01 The emitted update handler keeps create-only values and raises the generation", func(t *testing.T) {
+		g := &Generator{}
+		defaultVal := 1
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat", ResponseFormat: "envelope"},
+			Entities: []types.Entity{
+				{Name: "Cluster", Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString},
+					{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
+					{Name: "created_by", Type: types.FieldTypeString},
+					{Name: "updated_by", Type: types.FieldTypeString},
+					{Name: "created_time", Type: types.FieldTypeTimestamp},
+					{Name: "updated_time", Type: types.FieldTypeTimestamp},
+				}},
+			},
+			Collections: []types.Collection{
+				{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{
+					types.OpCreate, types.OpUpdate, types.OpRead,
+				}},
+			},
+			OutputNamespace: "internal/api",
+			AuthPackage:     "github.com/example/svc/internal/auth",
+			ModuleName:      "github.com/example/svc",
+		}
+
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		handler := findFileContent(t, files, "internal/api/handler_clusters.go")
+
+		// Update handler must always fetch existing entity for preserving
+		// create-only fields.
+		if !strings.Contains(handler, `h.store.Get(r.Context(), "Cluster", id)`) {
+			t.Error("update handler must fetch existing entity")
+		}
+
+		// Update handler must clear server-managed fields to prevent client
+		// from setting them.
+		if !strings.Contains(handler, "cluster.Generation = 0") {
+			t.Error("update handler must clear generation field")
+		}
+		if !strings.Contains(handler, `cluster.CreatedBy = ""`) {
+			t.Error("update handler must clear created_by field")
+		}
+
+		// Update handler must set updated_by from auth context, preferring email.
+		if !strings.Contains(handler, `authID.Attributes["email"]`) {
+			t.Error("update handler must check Attributes[\"email\"] for updated_by")
+		}
+		if !strings.Contains(handler, "cluster.UpdatedBy = email") {
+			t.Error("update handler must set updated_by from email attribute")
+		}
+		if !strings.Contains(handler, "cluster.UpdatedBy = authID.UserID") {
+			t.Error("update handler must fall back to UserID for updated_by")
+		}
+		// Update handler must set updated_time.
+		if !strings.Contains(handler, "cluster.UpdatedTime = time.Now()") {
+			t.Error("update handler must set updated_time to time.Now()")
+		}
+
+		// Update handler must restore create-only fields from existing entity
+		// via JSON roundtrip, not leave them zeroed.
+		if !strings.Contains(handler, "cluster.CreatedBy = existingTyped.CreatedBy") {
+			t.Error("update handler must restore created_by from existing entity")
+		}
+		if !strings.Contains(handler, "cluster.CreatedTime = existingTyped.CreatedTime") {
+			t.Error("update handler must restore created_time from existing entity")
+		}
+		// Update handler must increment generation from existing value, not from zero.
+		if !strings.Contains(handler, "cluster.Generation = existingTyped.Generation + 1") {
+			t.Error("update handler must increment generation from existing entity value")
+		}
+		// Update handler must NOT contain generation++ (which increments from zero).
+		if strings.Contains(handler, "cluster.Generation++") {
+			t.Error("update handler must not use generation++ (increments from cleared zero value)")
+		}
+	})
+}
+
+func TestGenerate_PatchHandlerKindValidation(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC19-T04 The emitted patch handler checks the body kind", func(t *testing.T) {
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Widget", Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString},
+					{Name: "color", Type: types.FieldTypeString},
+				}},
+			},
+			Collections: []types.Collection{
+				{
+					Name:       "widgets",
+					Entity:     "Widget",
+					Operations: []types.Operation{types.OpRead, types.OpPatch},
+					Patchable:  []string{"color"},
+				},
+			},
+			OutputNamespace: "internal/api",
+		}
+
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+		// Patch handler must use io.ReadAll for body reading (the PatchRequest
+		// struct does not include "kind", so json.NewDecoder would silently
+		// discard it — checklist item 235).
+		if !strings.Contains(handler, "io.ReadAll(r.Body)") {
+			t.Error("patch handler must use io.ReadAll for body reading")
+		}
+		// Patch handler must validate kind field.
+		if !strings.Contains(handler, `rawMap["kind"]`) {
+			t.Error("patch handler must check for 'kind' field in request body")
+		}
+		if !strings.Contains(handler, `kind != "Widget"`) {
+			t.Error("patch handler must validate kind against entity name 'Widget'")
+		}
+		if !strings.Contains(handler, `BadRequest("kind must be Widget")`) {
+			t.Error("patch handler must return BadRequest for wrong kind value")
+		}
+		// Patch handler must use json.Unmarshal from buffered bytes (not json.NewDecoder).
+		if !strings.Contains(handler, "json.Unmarshal(bodyBytes") {
+			t.Error("patch handler must use json.Unmarshal for body decoding")
+		}
+		// Kind validation must reject non-string values (checklist item 234).
+		if !strings.Contains(handler, `err != nil || kind != "Widget"`) {
+			t.Error("patch handler kind validation must use 'err != nil || kind != Entity' to reject non-string kind values")
+		}
+		// Patch handler must NOT use json.NewDecoder(r.Body) — the body was already
+		// consumed by io.ReadAll.
+		if strings.Contains(handler, "json.NewDecoder(r.Body)") {
+			t.Error("patch handler must not use json.NewDecoder(r.Body) — body is read via io.ReadAll")
+		}
+	})
+}
+
+func TestGenerate_CORSMiddleware_Generated(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC27-T01 The emitted CORS middleware reads the environment and answers a preflight", func(t *testing.T) {
+		g := &Generator{}
+		ctx := basicContext()
+		ctx.Conventions.CORS = "enabled"
+
+		files, wiring, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Should have cors.go in the output files.
+		var foundCORS bool
+		for _, f := range files {
+			if f.Path == "internal/api/cors.go" {
+				foundCORS = true
+				content := string(f.Bytes())
+
+				// Verify the generated header is present.
+				if !strings.Contains(content, "Code generated by stego") {
+					t.Error("cors.go missing generated header")
+				}
+
+				// Verify constructor function.
+				if !strings.Contains(content, "func NewCORSMiddleware()") {
+					t.Error("cors.go missing NewCORSMiddleware function")
+				}
+
+				// Verify all 3 env vars with correct defaults.
+				if !strings.Contains(content, `CORS_ALLOWED_ORIGINS`) {
+					t.Error("cors.go missing CORS_ALLOWED_ORIGINS env var")
+				}
+				if !strings.Contains(content, `allowedOrigins = "*"`) {
+					t.Error("cors.go missing default * for allowed origins")
+				}
+
+				if !strings.Contains(content, `CORS_ALLOWED_METHODS`) {
+					t.Error("cors.go missing CORS_ALLOWED_METHODS env var")
+				}
+				if !strings.Contains(content, `allowedMethods = "GET,POST,PATCH,PUT,DELETE,OPTIONS"`) {
+					t.Error("cors.go missing default methods")
+				}
+
+				if !strings.Contains(content, `CORS_ALLOWED_HEADERS`) {
+					t.Error("cors.go missing CORS_ALLOWED_HEADERS env var")
+				}
+				if !strings.Contains(content, `allowedHeaders = "Content-Type,Authorization"`) {
+					t.Error("cors.go missing default headers")
+				}
+
+				// Verify CORS response headers are set.
+				if !strings.Contains(content, `Access-Control-Allow-Origin`) {
+					t.Error("cors.go missing Access-Control-Allow-Origin header")
+				}
+				if !strings.Contains(content, `Access-Control-Allow-Methods`) {
+					t.Error("cors.go missing Access-Control-Allow-Methods header")
+				}
+				if !strings.Contains(content, `Access-Control-Allow-Headers`) {
+					t.Error("cors.go missing Access-Control-Allow-Headers header")
+				}
+
+				// Verify OPTIONS preflight handling with 204.
+				if !strings.Contains(content, "http.MethodOptions") {
+					t.Error("cors.go missing OPTIONS method check")
+				}
+				if !strings.Contains(content, "http.StatusNoContent") {
+					t.Error("cors.go missing 204 No Content for preflight")
+				}
+
+				// Verify middleware wraps next handler.
+				if !strings.Contains(content, "next.ServeHTTP(w, r)") {
+					t.Error("cors.go missing next.ServeHTTP call")
+				}
+			}
+		}
+		if !foundCORS {
+			t.Fatal("expected cors.go to be generated when CORS is enabled")
+		}
+
+		// Verify wiring metadata.
+		if wiring == nil {
+			t.Fatal("expected wiring, got nil")
+		}
+		if len(wiring.OuterMiddlewares) != 1 {
+			t.Fatalf("expected 1 outer middleware in wiring, got %d", len(wiring.OuterMiddlewares))
+		}
+		ms := wiring.OuterMiddlewares[0]
+		if ms.WrapExpr != "%s(%s)" {
+			t.Errorf("unexpected WrapExpr: %s", ms.WrapExpr)
+		}
+		if ms.ConstructorIndex < 0 || ms.ConstructorIndex >= len(wiring.Constructors) {
+			t.Fatalf("OuterMiddlewares ConstructorIndex %d out of range [0, %d)", ms.ConstructorIndex, len(wiring.Constructors))
+		}
+		if !strings.Contains(wiring.Constructors[ms.ConstructorIndex], "NewCORSMiddleware") {
+			t.Errorf("outer middleware constructor does not reference NewCORSMiddleware: %s", wiring.Constructors[ms.ConstructorIndex])
+		}
+	})
 }
 
 func TestGenerate_CORSMiddleware_NotGeneratedWhenEmpty(t *testing.T) {
@@ -9374,115 +9437,117 @@ func TestGenerate_CORSMiddleware_CompilesWithHandler(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC23.
 func TestGenerate_CreateHandlerSetsImplicitFields(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{
-			Layout:         "flat",
-			ResponseFormat: "bare",
-		},
-		Entities: []types.Entity{
-			{Name: "AdapterStatus", Fields: []types.Field{
-				{Name: "resource_type", Type: types.FieldTypeString},
-				{Name: "resource_id", Type: types.FieldTypeString},
-				{Name: "status", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:   "cluster-statuses",
-				Entity: "AdapterStatus",
-				Implicit: map[string]string{
-					"resource_type": "Cluster",
-				},
-				Operations: []types.Operation{types.OpCreate},
+	t.Run("ST-SUP-RC20-OC23-T01 The emitted handlers force the collection's implicit field values", func(t *testing.T) {
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{
+				Layout:         "flat",
+				ResponseFormat: "bare",
 			},
-		},
-		OutputNamespace: "internal/api",
-	}
+			Entities: []types.Entity{
+				{Name: "AdapterStatus", Fields: []types.Field{
+					{Name: "resource_type", Type: types.FieldTypeString},
+					{Name: "resource_id", Type: types.FieldTypeString},
+					{Name: "status", Type: types.FieldTypeString},
+				}},
+			},
+			Collections: []types.Collection{
+				{
+					Name:   "cluster-statuses",
+					Entity: "AdapterStatus",
+					Implicit: map[string]string{
+						"resource_type": "Cluster",
+					},
+					Operations: []types.Operation{types.OpCreate},
+				},
+			},
+			OutputNamespace: "internal/api",
+		}
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_cluster_statuses.go")
+		handler := findFileContent(t, files, "internal/api/handler_cluster_statuses.go")
 
-	// Verify implicit field assignment is present.
-	if !strings.Contains(handler, `adapterstatus.ResourceType = "Cluster"`) {
-		t.Error("create handler must set implicit field resource_type to \"Cluster\"")
-	}
+		// Verify implicit field assignment is present.
+		if !strings.Contains(handler, `adapterstatus.ResourceType = "Cluster"`) {
+			t.Error("create handler must set implicit field resource_type to \"Cluster\"")
+		}
 
-	// Verify the assignment is after decode and before store.Create call.
-	decodeIdx := strings.Index(handler, "json.Unmarshal(bodyBytes")
-	implicitIdx := strings.Index(handler, `adapterstatus.ResourceType = "Cluster"`)
-	storeIdx := strings.Index(handler, `h.store.Create(r.Context()`)
-	if decodeIdx == -1 || implicitIdx == -1 || storeIdx == -1 {
-		t.Fatal("could not find decode, implicit, or store.Create in handler")
-	}
-	if implicitIdx < decodeIdx {
-		t.Error("implicit field assignment must come after body decode")
-	}
-	if implicitIdx > storeIdx {
-		t.Error("implicit field assignment must come before store.Create call")
-	}
+		// Verify the assignment is after decode and before store.Create call.
+		decodeIdx := strings.Index(handler, "json.Unmarshal(bodyBytes")
+		implicitIdx := strings.Index(handler, `adapterstatus.ResourceType = "Cluster"`)
+		storeIdx := strings.Index(handler, `h.store.Create(r.Context()`)
+		if decodeIdx == -1 || implicitIdx == -1 || storeIdx == -1 {
+			t.Fatal("could not find decode, implicit, or store.Create in handler")
+		}
+		if implicitIdx < decodeIdx {
+			t.Error("implicit field assignment must come after body decode")
+		}
+		if implicitIdx > storeIdx {
+			t.Error("implicit field assignment must come before store.Create call")
+		}
+	})
 }
 
-// Proves ST-SUP-RC20-OC23.
 func TestGenerate_UpsertHandlerSetsImplicitFields(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{
-			Layout:         "flat",
-			ResponseFormat: "bare",
-		},
-		Entities: []types.Entity{
-			{Name: "AdapterStatus", Fields: []types.Field{
-				{Name: "resource_type", Type: types.FieldTypeString},
-				{Name: "resource_id", Type: types.FieldTypeString},
-				{Name: "status", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:   "cluster-statuses",
-				Entity: "AdapterStatus",
-				Implicit: map[string]string{
-					"resource_type": "Cluster",
-				},
-				Operations: []types.Operation{types.OpUpsert},
-				UpsertKey:  []string{"resource_type", "resource_id"},
+	t.Run("ST-SUP-RC20-OC23-T02 The emitted upsert handler forces the implicit values", func(t *testing.T) {
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{
+				Layout:         "flat",
+				ResponseFormat: "bare",
 			},
-		},
-		OutputNamespace: "internal/api",
-	}
+			Entities: []types.Entity{
+				{Name: "AdapterStatus", Fields: []types.Field{
+					{Name: "resource_type", Type: types.FieldTypeString},
+					{Name: "resource_id", Type: types.FieldTypeString},
+					{Name: "status", Type: types.FieldTypeString},
+				}},
+			},
+			Collections: []types.Collection{
+				{
+					Name:   "cluster-statuses",
+					Entity: "AdapterStatus",
+					Implicit: map[string]string{
+						"resource_type": "Cluster",
+					},
+					Operations: []types.Operation{types.OpUpsert},
+					UpsertKey:  []string{"resource_type", "resource_id"},
+				},
+			},
+			OutputNamespace: "internal/api",
+		}
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_cluster_statuses.go")
+		handler := findFileContent(t, files, "internal/api/handler_cluster_statuses.go")
 
-	// Verify implicit field assignment is present.
-	if !strings.Contains(handler, `adapterstatus.ResourceType = "Cluster"`) {
-		t.Error("upsert handler must set implicit field resource_type to \"Cluster\"")
-	}
+		// Verify implicit field assignment is present.
+		if !strings.Contains(handler, `adapterstatus.ResourceType = "Cluster"`) {
+			t.Error("upsert handler must set implicit field resource_type to \"Cluster\"")
+		}
 
-	// Verify the assignment is after decode and before store.Upsert call.
-	decodeIdx := strings.Index(handler, "json.Unmarshal(bodyBytes")
-	implicitIdx := strings.Index(handler, `adapterstatus.ResourceType = "Cluster"`)
-	storeIdx := strings.Index(handler, `h.store.Upsert(r.Context()`)
-	if decodeIdx == -1 || implicitIdx == -1 || storeIdx == -1 {
-		t.Fatal("could not find decode, implicit, or store.Upsert in handler")
-	}
-	if implicitIdx < decodeIdx {
-		t.Error("implicit field assignment must come after body decode")
-	}
-	if implicitIdx > storeIdx {
-		t.Error("implicit field assignment must come before store.Upsert call")
-	}
+		// Verify the assignment is after decode and before store.Upsert call.
+		decodeIdx := strings.Index(handler, "json.Unmarshal(bodyBytes")
+		implicitIdx := strings.Index(handler, `adapterstatus.ResourceType = "Cluster"`)
+		storeIdx := strings.Index(handler, `h.store.Upsert(r.Context()`)
+		if decodeIdx == -1 || implicitIdx == -1 || storeIdx == -1 {
+			t.Fatal("could not find decode, implicit, or store.Upsert in handler")
+		}
+		if implicitIdx < decodeIdx {
+			t.Error("implicit field assignment must come after body decode")
+		}
+		if implicitIdx > storeIdx {
+			t.Error("implicit field assignment must come before store.Upsert call")
+		}
+	})
 }
 
 func TestGenerate_ImplicitFieldsMultipleKeysSorted(t *testing.T) {
@@ -9596,62 +9661,63 @@ func TestGenerate_NoImplicitFieldsNoExtraCode(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC23.
 func TestGenerate_ListHandlerPopulatesImplicitFilters(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{
-			Layout:         "flat",
-			ResponseFormat: "bare",
-		},
-		Entities: []types.Entity{
-			{Name: "AdapterStatus", Fields: []types.Field{
-				{Name: "resource_type", Type: types.FieldTypeString},
-				{Name: "resource_id", Type: types.FieldTypeString},
-				{Name: "status", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:   "cluster-statuses",
-				Entity: "AdapterStatus",
-				Implicit: map[string]string{
-					"resource_type": "Cluster",
-				},
-				Operations: []types.Operation{types.OpList},
+	t.Run("ST-SUP-RC20-OC23-T03 The emitted list handler filters on the implicit values", func(t *testing.T) {
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{
+				Layout:         "flat",
+				ResponseFormat: "bare",
 			},
-		},
-		OutputNamespace: "internal/api",
-	}
+			Entities: []types.Entity{
+				{Name: "AdapterStatus", Fields: []types.Field{
+					{Name: "resource_type", Type: types.FieldTypeString},
+					{Name: "resource_id", Type: types.FieldTypeString},
+					{Name: "status", Type: types.FieldTypeString},
+				}},
+			},
+			Collections: []types.Collection{
+				{
+					Name:   "cluster-statuses",
+					Entity: "AdapterStatus",
+					Implicit: map[string]string{
+						"resource_type": "Cluster",
+					},
+					Operations: []types.Operation{types.OpList},
+				},
+			},
+			OutputNamespace: "internal/api",
+		}
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	handler := findFileContent(t, files, "internal/api/handler_cluster_statuses.go")
+		handler := findFileContent(t, files, "internal/api/handler_cluster_statuses.go")
 
-	// The list handler must populate ImplicitFilters in ListOptions.
-	if !strings.Contains(handler, `ImplicitFilters: map[string]string{`) {
-		t.Error("list handler must populate ImplicitFilters in ListOptions")
-	}
-	if !strings.Contains(handler, `"resource_type": "Cluster"`) {
-		t.Error("list handler must include resource_type: Cluster in ImplicitFilters")
-	}
+		// The list handler must populate ImplicitFilters in ListOptions.
+		if !strings.Contains(handler, `ImplicitFilters: map[string]string{`) {
+			t.Error("list handler must populate ImplicitFilters in ListOptions")
+		}
+		if !strings.Contains(handler, `"resource_type": "Cluster"`) {
+			t.Error("list handler must include resource_type: Cluster in ImplicitFilters")
+		}
 
-	// Verify the ImplicitFilters appear in the ListOptions initialization,
-	// not as standalone assignments.
-	optsIdx := strings.Index(handler, "opts := ListOptions{")
-	if optsIdx == -1 {
-		t.Fatal("ListOptions initialization not found")
-	}
-	filtersIdx := strings.Index(handler, `ImplicitFilters: map[string]string{`)
-	if filtersIdx == -1 {
-		t.Fatal("ImplicitFilters not found")
-	}
-	if filtersIdx < optsIdx {
-		t.Error("ImplicitFilters must be inside ListOptions initialization")
-	}
+		// Verify the ImplicitFilters appear in the ListOptions initialization,
+		// not as standalone assignments.
+		optsIdx := strings.Index(handler, "opts := ListOptions{")
+		if optsIdx == -1 {
+			t.Fatal("ListOptions initialization not found")
+		}
+		filtersIdx := strings.Index(handler, `ImplicitFilters: map[string]string{`)
+		if filtersIdx == -1 {
+			t.Fatal("ImplicitFilters not found")
+		}
+		if filtersIdx < optsIdx {
+			t.Error("ImplicitFilters must be inside ListOptions initialization")
+		}
+	})
 }
 
 func TestGenerate_ListHandlerNoImplicitFiltersWhenEmpty(t *testing.T) {
@@ -9882,93 +9948,94 @@ func TestGenerate_BeforeUpsertSlot(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC30.
 func TestGenerate_BeforeDeleteSlot(t *testing.T) {
-	// Verify that a before_delete slot binding fires on delete operations.
-	// The before_delete proto has a different structure: entity (string),
-	// entity_id (string), caller (*Identity) — no Input field.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Task", Fields: []types.Field{
-				{Name: "title", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "tasks", Entity: "Task", Operations: []types.Operation{
-				types.OpDelete,
-			}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "before_delete", Collection: "tasks", Gate: []string{"delete-guard"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "github.com/myorg/svc",
-		SlotsPackage:    "internal/slots",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var handlerContent string
-	for _, f := range files {
-		if strings.Contains(f.Path, "handler_tasks.go") {
-			handlerContent = string(f.Content)
+	t.Run("ST-SUP-RC20-OC30-T02 A bound before-delete slot gates the delete", func(t *testing.T) {
+		// Verify that a before_delete slot binding fires on delete operations.
+		// The before_delete proto has a different structure: entity (string),
+		// entity_id (string), caller (*Identity) — no Input field.
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Task", Fields: []types.Field{
+					{Name: "title", Type: types.FieldTypeString},
+				}},
+			},
+			Collections: []types.Collection{
+				{Name: "tasks", Entity: "Task", Operations: []types.Operation{
+					types.OpDelete,
+				}},
+			},
+			SlotBindings: []types.SlotDeclaration{
+				{Slot: "before_delete", Collection: "tasks", Gate: []string{"delete-guard"}},
+			},
+			OutputNamespace: "internal/api",
+			ModuleName:      "github.com/myorg/svc",
+			SlotsPackage:    "internal/slots",
 		}
-	}
-	if handlerContent == "" {
-		t.Fatal("handler_tasks.go not found")
-	}
 
-	// Handler struct must have the before_delete gate field.
-	if !strings.Contains(handlerContent, "beforeDeleteGate slots.BeforeDeleteSlot") {
-		t.Errorf("handler struct missing beforeDeleteGate field:\n%s", handlerContent)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	// Delete method must invoke the before_delete gate.
-	if !strings.Contains(handlerContent, "h.beforeDeleteGate.Evaluate(r.Context()") {
-		t.Errorf("Delete method missing before_delete gate invocation:\n%s", handlerContent)
-	}
+		var handlerContent string
+		for _, f := range files {
+			if strings.Contains(f.Path, "handler_tasks.go") {
+				handlerContent = string(f.Content)
+			}
+		}
+		if handlerContent == "" {
+			t.Fatal("handler_tasks.go not found")
+		}
 
-	// Nil guard must be present.
-	if !strings.Contains(handlerContent, "if h.beforeDeleteGate != nil {") {
-		t.Errorf("before_delete invocation missing nil guard:\n%s", handlerContent)
-	}
+		// Handler struct must have the before_delete gate field.
+		if !strings.Contains(handlerContent, "beforeDeleteGate slots.BeforeDeleteSlot") {
+			t.Errorf("handler struct missing beforeDeleteGate field:\n%s", handlerContent)
+		}
 
-	// Request must have the before_delete-specific structure: Entity and EntityID.
-	if !strings.Contains(handlerContent, "BeforeDeleteRequest{") {
-		t.Errorf("Delete method missing BeforeDeleteRequest struct literal:\n%s", handlerContent)
-	}
-	// go/format aligns struct fields, so check for the field name and value
-	// separately rather than exact spacing.
-	if !strings.Contains(handlerContent, "Entity:") || !strings.Contains(handlerContent, `"Task"`) {
-		t.Errorf("before_delete request missing Entity field:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, "EntityID:") || !strings.Contains(handlerContent, "id,") {
-		t.Errorf("before_delete request missing EntityID field:\n%s", handlerContent)
-	}
+		// Delete method must invoke the before_delete gate.
+		if !strings.Contains(handlerContent, "h.beforeDeleteGate.Evaluate(r.Context()") {
+			t.Errorf("Delete method missing before_delete gate invocation:\n%s", handlerContent)
+		}
 
-	// Caller field must be present.
-	if !strings.Contains(handlerContent, "Caller:") || !strings.Contains(handlerContent, "slots.Identity{}") {
-		t.Errorf("before_delete request missing Caller field:\n%s", handlerContent)
-	}
+		// Nil guard must be present.
+		if !strings.Contains(handlerContent, "if h.beforeDeleteGate != nil {") {
+			t.Errorf("before_delete invocation missing nil guard:\n%s", handlerContent)
+		}
 
-	// before_delete must NOT have an Input field (different proto from before_create).
-	// The BeforeDeleteRequest has {Entity, EntityID, Caller} — no Input.
-	if strings.Contains(handlerContent, "Input: &slots.CreateRequest{") {
-		t.Errorf("before_delete request should NOT have Input field:\n%s", handlerContent)
-	}
+		// Request must have the before_delete-specific structure: Entity and EntityID.
+		if !strings.Contains(handlerContent, "BeforeDeleteRequest{") {
+			t.Errorf("Delete method missing BeforeDeleteRequest struct literal:\n%s", handlerContent)
+		}
+		// go/format aligns struct fields, so check for the field name and value
+		// separately rather than exact spacing.
+		if !strings.Contains(handlerContent, "Entity:") || !strings.Contains(handlerContent, `"Task"`) {
+			t.Errorf("before_delete request missing Entity field:\n%s", handlerContent)
+		}
+		if !strings.Contains(handlerContent, "EntityID:") || !strings.Contains(handlerContent, "id,") {
+			t.Errorf("before_delete request missing EntityID field:\n%s", handlerContent)
+		}
 
-	// Halt and rejection semantics must work.
-	if !strings.Contains(handlerContent, "if slotResult.Halt {") {
-		t.Errorf("before_delete invocation missing halt check:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, "if !slotResult.Ok {") {
-		t.Errorf("before_delete invocation missing rejection check:\n%s", handlerContent)
-	}
+		// Caller field must be present.
+		if !strings.Contains(handlerContent, "Caller:") || !strings.Contains(handlerContent, "slots.Identity{}") {
+			t.Errorf("before_delete request missing Caller field:\n%s", handlerContent)
+		}
+
+		// before_delete must NOT have an Input field (different proto from before_create).
+		// The BeforeDeleteRequest has {Entity, EntityID, Caller} — no Input.
+		if strings.Contains(handlerContent, "Input: &slots.CreateRequest{") {
+			t.Errorf("before_delete request should NOT have Input field:\n%s", handlerContent)
+		}
+
+		// Halt and rejection semantics must work.
+		if !strings.Contains(handlerContent, "if slotResult.Halt {") {
+			t.Errorf("before_delete invocation missing halt check:\n%s", handlerContent)
+		}
+		if !strings.Contains(handlerContent, "if !slotResult.Ok {") {
+			t.Errorf("before_delete invocation missing rejection check:\n%s", handlerContent)
+		}
+	})
 }
 
 func TestGenerate_BeforePatchSlot(t *testing.T) {
@@ -10141,148 +10208,150 @@ func TestGenerate_BeforeDeleteNilGuardPassthrough(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC31.
 func TestGenerate_AllBeforeSlotsNilGuardPassthrough(t *testing.T) {
-	// Verify that all three new before-slots work correctly together
-	// with nil-guard passthrough semantics.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Item", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "items", Entity: "Item", Operations: []types.Operation{
-				types.OpDelete, types.OpUpsert, types.OpPatch,
-			}, Patchable: []string{"name"}, UpsertKey: []string{"name"}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "before_upsert", Collection: "items", Gate: []string{"upsert-guard"}},
-			{Slot: "before_patch", Collection: "items", Gate: []string{"patch-guard"}},
-			{Slot: "before_delete", Collection: "items", Gate: []string{"delete-guard"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "github.com/myorg/svc",
-		SlotsPackage:    "internal/slots",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var handlerContent string
-	for _, f := range files {
-		if strings.Contains(f.Path, "handler_items.go") {
-			handlerContent = string(f.Content)
+	t.Run("ST-SUP-RC20-OC31-T02 Every before slot has its own nil guard", func(t *testing.T) {
+		// Verify that all three new before-slots work correctly together
+		// with nil-guard passthrough semantics.
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Item", Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString},
+				}},
+			},
+			Collections: []types.Collection{
+				{Name: "items", Entity: "Item", Operations: []types.Operation{
+					types.OpDelete, types.OpUpsert, types.OpPatch,
+				}, Patchable: []string{"name"}, UpsertKey: []string{"name"}},
+			},
+			SlotBindings: []types.SlotDeclaration{
+				{Slot: "before_upsert", Collection: "items", Gate: []string{"upsert-guard"}},
+				{Slot: "before_patch", Collection: "items", Gate: []string{"patch-guard"}},
+				{Slot: "before_delete", Collection: "items", Gate: []string{"delete-guard"}},
+			},
+			OutputNamespace: "internal/api",
+			ModuleName:      "github.com/myorg/svc",
+			SlotsPackage:    "internal/slots",
 		}
-	}
-	if handlerContent == "" {
-		t.Fatal("handler_items.go not found")
-	}
 
-	// All three before-slot operator fields must be present.
-	for _, field := range []string{
-		"beforeUpsertGate slots.BeforeUpsertSlot",
-		"beforePatchGate slots.BeforePatchSlot",
-		"beforeDeleteGate slots.BeforeDeleteSlot",
-	} {
-		if !strings.Contains(handlerContent, field) {
-			t.Errorf("handler struct missing field %q:\n%s", field, handlerContent)
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-	}
 
-	// All three nil guards must be present.
-	for _, guard := range []string{
-		"if h.beforeUpsertGate != nil {",
-		"if h.beforePatchGate != nil {",
-		"if h.beforeDeleteGate != nil {",
-	} {
-		if !strings.Contains(handlerContent, guard) {
-			t.Errorf("missing nil guard %q:\n%s", guard, handlerContent)
+		var handlerContent string
+		for _, f := range files {
+			if strings.Contains(f.Path, "handler_items.go") {
+				handlerContent = string(f.Content)
+			}
 		}
-	}
+		if handlerContent == "" {
+			t.Fatal("handler_items.go not found")
+		}
+
+		// All three before-slot operator fields must be present.
+		for _, field := range []string{
+			"beforeUpsertGate slots.BeforeUpsertSlot",
+			"beforePatchGate slots.BeforePatchSlot",
+			"beforeDeleteGate slots.BeforeDeleteSlot",
+		} {
+			if !strings.Contains(handlerContent, field) {
+				t.Errorf("handler struct missing field %q:\n%s", field, handlerContent)
+			}
+		}
+
+		// All three nil guards must be present.
+		for _, guard := range []string{
+			"if h.beforeUpsertGate != nil {",
+			"if h.beforePatchGate != nil {",
+			"if h.beforeDeleteGate != nil {",
+		} {
+			if !strings.Contains(handlerContent, guard) {
+				t.Errorf("missing nil guard %q:\n%s", guard, handlerContent)
+			}
+		}
+	})
 }
 
-// Proves ST-SUP-RC20-OC34.
 func TestGenerate_AfterCreateSlot(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Widget", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-				{Name: "count", Type: types.FieldTypeInt32},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{
-				types.OpCreate,
-			}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "after_create", Collection: "widgets", FanOut: []string{"create-notifier"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "github.com/myorg/svc",
-		SlotsPackage:    "internal/slots",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var handlerContent string
-	for _, f := range files {
-		if strings.Contains(f.Path, "handler_widgets.go") {
-			handlerContent = string(f.Content)
+	t.Run("ST-SUP-RC20-OC34-T01 An after-create slot runs after the store call", func(t *testing.T) {
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Widget", Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString},
+					{Name: "count", Type: types.FieldTypeInt32},
+				}},
+			},
+			Collections: []types.Collection{
+				{Name: "widgets", Entity: "Widget", Operations: []types.Operation{
+					types.OpCreate,
+				}},
+			},
+			SlotBindings: []types.SlotDeclaration{
+				{Slot: "after_create", Collection: "widgets", FanOut: []string{"create-notifier"}},
+			},
+			OutputNamespace: "internal/api",
+			ModuleName:      "github.com/myorg/svc",
+			SlotsPackage:    "internal/slots",
 		}
-	}
-	if handlerContent == "" {
-		t.Fatal("handler_widgets.go not found")
-	}
 
-	// Handler struct must have the after_create fan-out field.
-	if !strings.Contains(handlerContent, "afterCreateFanOut slots.AfterCreateSlot") {
-		t.Errorf("handler struct missing afterCreateFanOut field:\n%s", handlerContent)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	// Nil guard must be present.
-	if !strings.Contains(handlerContent, "if h.afterCreateFanOut != nil {") {
-		t.Errorf("after_create invocation missing nil guard:\n%s", handlerContent)
-	}
+		var handlerContent string
+		for _, f := range files {
+			if strings.Contains(f.Path, "handler_widgets.go") {
+				handlerContent = string(f.Content)
+			}
+		}
+		if handlerContent == "" {
+			t.Fatal("handler_widgets.go not found")
+		}
 
-	// Request must use AfterCreateRequest with PersistedFields.
-	if !strings.Contains(handlerContent, "AfterCreateRequest{") {
-		t.Errorf("Create method missing AfterCreateRequest struct literal:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, "PersistedFields: map[string]string{") {
-		t.Errorf("after_create request missing PersistedFields map:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, `Entity: "Widget"`) {
-		t.Errorf("after_create request missing Entity field:\n%s", handlerContent)
-	}
+		// Handler struct must have the after_create fan-out field.
+		if !strings.Contains(handlerContent, "afterCreateFanOut slots.AfterCreateSlot") {
+			t.Errorf("handler struct missing afterCreateFanOut field:\n%s", handlerContent)
+		}
 
-	// Caller field must be present (no auth alias, so empty Identity).
-	if !strings.Contains(handlerContent, "Caller: &slots.Identity{}") {
-		t.Errorf("after_create request missing Caller field:\n%s", handlerContent)
-	}
+		// Nil guard must be present.
+		if !strings.Contains(handlerContent, "if h.afterCreateFanOut != nil {") {
+			t.Errorf("after_create invocation missing nil guard:\n%s", handlerContent)
+		}
 
-	// Fields must be populated in PersistedFields.
-	if !strings.Contains(handlerContent, `"name":`) {
-		t.Errorf("after_create PersistedFields missing name field:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, `"count":`) {
-		t.Errorf("after_create PersistedFields missing count field:\n%s", handlerContent)
-	}
+		// Request must use AfterCreateRequest with PersistedFields.
+		if !strings.Contains(handlerContent, "AfterCreateRequest{") {
+			t.Errorf("Create method missing AfterCreateRequest struct literal:\n%s", handlerContent)
+		}
+		if !strings.Contains(handlerContent, "PersistedFields: map[string]string{") {
+			t.Errorf("after_create request missing PersistedFields map:\n%s", handlerContent)
+		}
+		if !strings.Contains(handlerContent, `Entity: "Widget"`) {
+			t.Errorf("after_create request missing Entity field:\n%s", handlerContent)
+		}
 
-	// Error from after-slot must return 500.
-	if !strings.Contains(handlerContent, "InternalError(slotErr.Error())") {
-		t.Errorf("after_create missing error handling:\n%s", handlerContent)
-	}
+		// Caller field must be present (no auth alias, so empty Identity).
+		if !strings.Contains(handlerContent, "Caller: &slots.Identity{}") {
+			t.Errorf("after_create request missing Caller field:\n%s", handlerContent)
+		}
+
+		// Fields must be populated in PersistedFields.
+		if !strings.Contains(handlerContent, `"name":`) {
+			t.Errorf("after_create PersistedFields missing name field:\n%s", handlerContent)
+		}
+		if !strings.Contains(handlerContent, `"count":`) {
+			t.Errorf("after_create PersistedFields missing count field:\n%s", handlerContent)
+		}
+
+		// Error from after-slot must return 500.
+		if !strings.Contains(handlerContent, "InternalError(slotErr.Error())") {
+			t.Errorf("after_create missing error handling:\n%s", handlerContent)
+		}
+	})
 }
 
 func TestGenerate_AfterUpsertSlot(t *testing.T) {
@@ -10428,75 +10497,76 @@ func TestGenerate_AfterPatchSlot(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC34.
 func TestGenerate_AfterDeleteSlot(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Task", Fields: []types.Field{
-				{Name: "title", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "tasks", Entity: "Task", Operations: []types.Operation{
-				types.OpDelete,
-			}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "after_delete", Collection: "tasks", FanOut: []string{"delete-auditor"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "github.com/myorg/svc",
-		SlotsPackage:    "internal/slots",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var handlerContent string
-	for _, f := range files {
-		if strings.Contains(f.Path, "handler_tasks.go") {
-			handlerContent = string(f.Content)
+	t.Run("ST-SUP-RC20-OC34-T02 An after-delete slot runs after the store call", func(t *testing.T) {
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Task", Fields: []types.Field{
+					{Name: "title", Type: types.FieldTypeString},
+				}},
+			},
+			Collections: []types.Collection{
+				{Name: "tasks", Entity: "Task", Operations: []types.Operation{
+					types.OpDelete,
+				}},
+			},
+			SlotBindings: []types.SlotDeclaration{
+				{Slot: "after_delete", Collection: "tasks", FanOut: []string{"delete-auditor"}},
+			},
+			OutputNamespace: "internal/api",
+			ModuleName:      "github.com/myorg/svc",
+			SlotsPackage:    "internal/slots",
 		}
-	}
-	if handlerContent == "" {
-		t.Fatal("handler_tasks.go not found")
-	}
 
-	// Handler struct must have the after_delete fan-out field.
-	if !strings.Contains(handlerContent, "afterDeleteFanOut slots.AfterDeleteSlot") {
-		t.Errorf("handler struct missing afterDeleteFanOut field:\n%s", handlerContent)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	// Nil guard must be present.
-	if !strings.Contains(handlerContent, "if h.afterDeleteFanOut != nil {") {
-		t.Errorf("after_delete invocation missing nil guard:\n%s", handlerContent)
-	}
+		var handlerContent string
+		for _, f := range files {
+			if strings.Contains(f.Path, "handler_tasks.go") {
+				handlerContent = string(f.Content)
+			}
+		}
+		if handlerContent == "" {
+			t.Fatal("handler_tasks.go not found")
+		}
 
-	// Request must use AfterDeleteRequest with DeletedEntityID.
-	if !strings.Contains(handlerContent, "AfterDeleteRequest{") {
-		t.Errorf("Delete method missing AfterDeleteRequest struct literal:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, "DeletedEntityID:") {
-		t.Errorf("after_delete request missing DeletedEntityID field:\n%s", handlerContent)
-	}
-	// Entity field may have alignment padding from go/format; check for presence.
-	if !strings.Contains(handlerContent, `"Task"`) || !strings.Contains(handlerContent, "Entity:") {
-		t.Errorf("after_delete request missing Entity field:\n%s", handlerContent)
-	}
+		// Handler struct must have the after_delete fan-out field.
+		if !strings.Contains(handlerContent, "afterDeleteFanOut slots.AfterDeleteSlot") {
+			t.Errorf("handler struct missing afterDeleteFanOut field:\n%s", handlerContent)
+		}
 
-	// Caller field must be present (may have alignment padding from go/format).
-	if !strings.Contains(handlerContent, "Caller:") || !strings.Contains(handlerContent, "&slots.Identity{}") {
-		t.Errorf("after_delete request missing Caller field:\n%s", handlerContent)
-	}
+		// Nil guard must be present.
+		if !strings.Contains(handlerContent, "if h.afterDeleteFanOut != nil {") {
+			t.Errorf("after_delete invocation missing nil guard:\n%s", handlerContent)
+		}
 
-	// Error from after-slot must return 500.
-	if !strings.Contains(handlerContent, "InternalError(slotErr.Error())") {
-		t.Errorf("after_delete missing error handling:\n%s", handlerContent)
-	}
+		// Request must use AfterDeleteRequest with DeletedEntityID.
+		if !strings.Contains(handlerContent, "AfterDeleteRequest{") {
+			t.Errorf("Delete method missing AfterDeleteRequest struct literal:\n%s", handlerContent)
+		}
+		if !strings.Contains(handlerContent, "DeletedEntityID:") {
+			t.Errorf("after_delete request missing DeletedEntityID field:\n%s", handlerContent)
+		}
+		// Entity field may have alignment padding from go/format; check for presence.
+		if !strings.Contains(handlerContent, `"Task"`) || !strings.Contains(handlerContent, "Entity:") {
+			t.Errorf("after_delete request missing Entity field:\n%s", handlerContent)
+		}
+
+		// Caller field must be present (may have alignment padding from go/format).
+		if !strings.Contains(handlerContent, "Caller:") || !strings.Contains(handlerContent, "&slots.Identity{}") {
+			t.Errorf("after_delete request missing Caller field:\n%s", handlerContent)
+		}
+
+		// Error from after-slot must return 500.
+		if !strings.Contains(handlerContent, "InternalError(slotErr.Error())") {
+			t.Errorf("after_delete missing error handling:\n%s", handlerContent)
+		}
+	})
 }
 
 func TestGenerate_OnEntityChangedStillWorksWithLifecycleAfterSlots(t *testing.T) {
@@ -10579,71 +10649,72 @@ func TestGenerate_OnEntityChangedStillWorksWithLifecycleAfterSlots(t *testing.T)
 	}
 }
 
-// Proves ST-SUP-RC20-OC31.
 func TestGenerate_AfterSlotNilGuardPassthrough(t *testing.T) {
-	// Verify all four lifecycle after-slots have nil-guard passthrough.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Item", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "items", Entity: "Item", Operations: []types.Operation{
-				types.OpCreate, types.OpDelete, types.OpUpsert, types.OpPatch,
-			}, Patchable: []string{"name"}, UpsertKey: []string{"name"}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "after_create", Collection: "items", FanOut: []string{"a"}},
-			{Slot: "after_upsert", Collection: "items", FanOut: []string{"b"}},
-			{Slot: "after_patch", Collection: "items", FanOut: []string{"c"}},
-			{Slot: "after_delete", Collection: "items", FanOut: []string{"d"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "github.com/myorg/svc",
-		SlotsPackage:    "internal/slots",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var handlerContent string
-	for _, f := range files {
-		if strings.Contains(f.Path, "handler_items.go") {
-			handlerContent = string(f.Content)
+	t.Run("ST-SUP-RC20-OC31-T03 Every after slot has its own nil guard", func(t *testing.T) {
+		// Verify all four lifecycle after-slots have nil-guard passthrough.
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Item", Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString},
+				}},
+			},
+			Collections: []types.Collection{
+				{Name: "items", Entity: "Item", Operations: []types.Operation{
+					types.OpCreate, types.OpDelete, types.OpUpsert, types.OpPatch,
+				}, Patchable: []string{"name"}, UpsertKey: []string{"name"}},
+			},
+			SlotBindings: []types.SlotDeclaration{
+				{Slot: "after_create", Collection: "items", FanOut: []string{"a"}},
+				{Slot: "after_upsert", Collection: "items", FanOut: []string{"b"}},
+				{Slot: "after_patch", Collection: "items", FanOut: []string{"c"}},
+				{Slot: "after_delete", Collection: "items", FanOut: []string{"d"}},
+			},
+			OutputNamespace: "internal/api",
+			ModuleName:      "github.com/myorg/svc",
+			SlotsPackage:    "internal/slots",
 		}
-	}
-	if handlerContent == "" {
-		t.Fatal("handler_items.go not found")
-	}
 
-	// All four nil guards must be present.
-	for _, guard := range []string{
-		"if h.afterCreateFanOut != nil {",
-		"if h.afterUpsertFanOut != nil {",
-		"if h.afterPatchFanOut != nil {",
-		"if h.afterDeleteFanOut != nil {",
-	} {
-		if !strings.Contains(handlerContent, guard) {
-			t.Errorf("missing nil guard %q:\n%s", guard, handlerContent)
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-	}
 
-	// All four handler struct fields must be present.
-	for _, field := range []string{
-		"afterCreateFanOut slots.AfterCreateSlot",
-		"afterUpsertFanOut slots.AfterUpsertSlot",
-		"afterPatchFanOut slots.AfterPatchSlot",
-		"afterDeleteFanOut slots.AfterDeleteSlot",
-	} {
-		if !strings.Contains(handlerContent, field) {
-			t.Errorf("handler struct missing field %q:\n%s", field, handlerContent)
+		var handlerContent string
+		for _, f := range files {
+			if strings.Contains(f.Path, "handler_items.go") {
+				handlerContent = string(f.Content)
+			}
 		}
-	}
+		if handlerContent == "" {
+			t.Fatal("handler_items.go not found")
+		}
+
+		// All four nil guards must be present.
+		for _, guard := range []string{
+			"if h.afterCreateFanOut != nil {",
+			"if h.afterUpsertFanOut != nil {",
+			"if h.afterPatchFanOut != nil {",
+			"if h.afterDeleteFanOut != nil {",
+		} {
+			if !strings.Contains(handlerContent, guard) {
+				t.Errorf("missing nil guard %q:\n%s", guard, handlerContent)
+			}
+		}
+
+		// All four handler struct fields must be present.
+		for _, field := range []string{
+			"afterCreateFanOut slots.AfterCreateSlot",
+			"afterUpsertFanOut slots.AfterUpsertSlot",
+			"afterPatchFanOut slots.AfterPatchSlot",
+			"afterDeleteFanOut slots.AfterDeleteSlot",
+		} {
+			if !strings.Contains(handlerContent, field) {
+				t.Errorf("handler struct missing field %q:\n%s", field, handlerContent)
+			}
+		}
+	})
 }
 
 func TestGenerate_AfterCreateSlotWithOptionalFields(t *testing.T) {
@@ -10989,174 +11060,177 @@ func TestGenerate_AfterPatchSlotNeedsFmt(t *testing.T) {
 
 // --- Discovery endpoint tests ---
 
-// Proves ST-SUP-RC20-OC25.
 func TestGenerate_DiscoveryFileGenerated(t *testing.T) {
-	g := &Generator{}
-	ctx := basicContext()
+	t.Run("ST-SUP-RC20-OC25-T02 The emitted discovery handler serves all three endpoints", func(t *testing.T) {
+		g := &Generator{}
+		ctx := basicContext()
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	content := findFileContent(t, files, "internal/api/discovery.go")
+		content := findFileContent(t, files, "internal/api/discovery.go")
 
-	// Verify DiscoveryHandler struct exists.
-	if !strings.Contains(content, "type DiscoveryHandler struct") {
-		t.Error("discovery.go missing DiscoveryHandler struct")
-	}
+		// Verify DiscoveryHandler struct exists.
+		if !strings.Contains(content, "type DiscoveryHandler struct") {
+			t.Error("discovery.go missing DiscoveryHandler struct")
+		}
 
-	// Verify all three handler methods exist.
-	if !strings.Contains(content, "func (h *DiscoveryHandler) ServeOpenAPI(") {
-		t.Error("discovery.go missing ServeOpenAPI method")
-	}
-	if !strings.Contains(content, "func (h *DiscoveryHandler) ServeOpenAPIUI(") {
-		t.Error("discovery.go missing ServeOpenAPIUI method")
-	}
-	if !strings.Contains(content, "func (h *DiscoveryHandler) ServeMetadata(") {
-		t.Error("discovery.go missing ServeMetadata method")
-	}
+		// Verify all three handler methods exist.
+		if !strings.Contains(content, "func (h *DiscoveryHandler) ServeOpenAPI(") {
+			t.Error("discovery.go missing ServeOpenAPI method")
+		}
+		if !strings.Contains(content, "func (h *DiscoveryHandler) ServeOpenAPIUI(") {
+			t.Error("discovery.go missing ServeOpenAPIUI method")
+		}
+		if !strings.Contains(content, "func (h *DiscoveryHandler) ServeMetadata(") {
+			t.Error("discovery.go missing ServeMetadata method")
+		}
 
-	// Verify constructor exists.
-	if !strings.Contains(content, "func NewDiscoveryHandler()") {
-		t.Error("discovery.go missing NewDiscoveryHandler constructor")
-	}
+		// Verify constructor exists.
+		if !strings.Contains(content, "func NewDiscoveryHandler()") {
+			t.Error("discovery.go missing NewDiscoveryHandler constructor")
+		}
 
-	// Verify OpenAPI spec embed.
-	if !strings.Contains(content, "//go:embed openapi.json") {
-		t.Error("discovery.go missing //go:embed openapi.json")
-	}
+		// Verify OpenAPI spec embed.
+		if !strings.Contains(content, "//go:embed openapi.json") {
+			t.Error("discovery.go missing //go:embed openapi.json")
+		}
 
-	// Verify Swagger UI HTML template.
-	if !strings.Contains(content, "swagger-ui") {
-		t.Error("discovery.go missing Swagger UI HTML template")
-	}
+		// Verify Swagger UI HTML template.
+		if !strings.Contains(content, "swagger-ui") {
+			t.Error("discovery.go missing Swagger UI HTML template")
+		}
 
-	// Verify Content-Type headers.
-	if !strings.Contains(content, `"application/json"`) {
-		t.Error("discovery.go missing application/json Content-Type")
-	}
-	if !strings.Contains(content, `"text/html"`) {
-		t.Error("discovery.go missing text/html Content-Type")
-	}
+		// Verify Content-Type headers.
+		if !strings.Contains(content, `"application/json"`) {
+			t.Error("discovery.go missing application/json Content-Type")
+		}
+		if !strings.Contains(content, `"text/html"`) {
+			t.Error("discovery.go missing text/html Content-Type")
+		}
+	})
 }
 
-// Proves ST-SUP-RC20-OC25.
 func TestGenerate_DiscoveryWiringRoutes(t *testing.T) {
-	g := &Generator{}
-	ctx := basicContext()
-	ctx.BasePath = "/api/v1"
+	t.Run("ST-SUP-RC20-OC25-T01 The emitted discovery routes sit outside the authenticated group", func(t *testing.T) {
+		g := &Generator{}
+		ctx := basicContext()
+		ctx.BasePath = "/api/v1"
 
-	_, wiring, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if wiring == nil {
-		t.Fatal("expected wiring, got nil")
-	}
-
-	// Verify discovery routes are in DiscoveryRoutes (not Routes).
-	if len(wiring.DiscoveryRoutes) != 3 {
-		t.Fatalf("expected 3 discovery routes, got %d", len(wiring.DiscoveryRoutes))
-	}
-
-	foundOpenAPI := false
-	foundOpenAPIHTML := false
-	foundMetadata := false
-	for _, r := range wiring.DiscoveryRoutes {
-		if strings.Contains(r, "/api/v1/openapi\"") && strings.Contains(r, "ServeOpenAPI") {
-			foundOpenAPI = true
+		_, wiring, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-		if strings.Contains(r, "/api/v1/openapi.html\"") && strings.Contains(r, "ServeOpenAPIUI") {
-			foundOpenAPIHTML = true
-		}
-		if strings.Contains(r, "GET /api/v1\"") && strings.Contains(r, "ServeMetadata") {
-			foundMetadata = true
-		}
-	}
 
-	if !foundOpenAPI {
-		t.Errorf("missing OpenAPI spec route, got: %v", wiring.DiscoveryRoutes)
-	}
-	if !foundOpenAPIHTML {
-		t.Errorf("missing OpenAPI UI route, got: %v", wiring.DiscoveryRoutes)
-	}
-	if !foundMetadata {
-		t.Errorf("missing metadata route, got: %v", wiring.DiscoveryRoutes)
-	}
-
-	// Discovery routes must reference topMux (not mux).
-	for _, r := range wiring.DiscoveryRoutes {
-		if !strings.Contains(r, "topMux.") {
-			t.Errorf("discovery route should use topMux, got: %s", r)
+		if wiring == nil {
+			t.Fatal("expected wiring, got nil")
 		}
-	}
+
+		// Verify discovery routes are in DiscoveryRoutes (not Routes).
+		if len(wiring.DiscoveryRoutes) != 3 {
+			t.Fatalf("expected 3 discovery routes, got %d", len(wiring.DiscoveryRoutes))
+		}
+
+		foundOpenAPI := false
+		foundOpenAPIHTML := false
+		foundMetadata := false
+		for _, r := range wiring.DiscoveryRoutes {
+			if strings.Contains(r, "/api/v1/openapi\"") && strings.Contains(r, "ServeOpenAPI") {
+				foundOpenAPI = true
+			}
+			if strings.Contains(r, "/api/v1/openapi.html\"") && strings.Contains(r, "ServeOpenAPIUI") {
+				foundOpenAPIHTML = true
+			}
+			if strings.Contains(r, "GET /api/v1\"") && strings.Contains(r, "ServeMetadata") {
+				foundMetadata = true
+			}
+		}
+
+		if !foundOpenAPI {
+			t.Errorf("missing OpenAPI spec route, got: %v", wiring.DiscoveryRoutes)
+		}
+		if !foundOpenAPIHTML {
+			t.Errorf("missing OpenAPI UI route, got: %v", wiring.DiscoveryRoutes)
+		}
+		if !foundMetadata {
+			t.Errorf("missing metadata route, got: %v", wiring.DiscoveryRoutes)
+		}
+
+		// Discovery routes must reference topMux (not mux).
+		for _, r := range wiring.DiscoveryRoutes {
+			if !strings.Contains(r, "topMux.") {
+				t.Errorf("discovery route should use topMux, got: %s", r)
+			}
+		}
+	})
 }
 
-// Proves ST-SUP-RC20-OC26.
 func TestGenerate_DiscoveryMetadataTopLevelCollectionsOnly(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-			{Name: "User", Fields: []types.Field{
-				{Name: "email", Type: types.FieldTypeString},
-				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpCreate, types.OpRead}},
-			{
-				Name:       "org-users",
-				Entity:     "User",
-				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
-				Scope:      map[string]string{"org_id": "Organization"},
+	t.Run("ST-SUP-RC20-OC26-T01 The emitted metadata lists only the top-level collections", func(t *testing.T) {
+		g := &Generator{}
+		ctx := gen.Context{
+			Conventions: types.Convention{Layout: "flat"},
+			Entities: []types.Entity{
+				{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+				{Name: "User", Fields: []types.Field{
+					{Name: "email", Type: types.FieldTypeString},
+					{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+				}},
 			},
-			{Name: "all-users", Entity: "User", Operations: []types.Operation{types.OpList}},
-		},
-		OutputNamespace: "internal/api",
-		BasePath:        "/api/v1",
-		ServiceName:     "user-management",
-	}
+			Collections: []types.Collection{
+				{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpCreate, types.OpRead}},
+				{
+					Name:       "org-users",
+					Entity:     "User",
+					Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
+					Scope:      map[string]string{"org_id": "Organization"},
+				},
+				{Name: "all-users", Entity: "User", Operations: []types.Operation{types.OpList}},
+			},
+			OutputNamespace: "internal/api",
+			BasePath:        "/api/v1",
+			ServiceName:     "user-management",
+		}
 
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		files, _, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	content := findFileContent(t, files, "internal/api/discovery.go")
+		content := findFileContent(t, files, "internal/api/discovery.go")
 
-	// Metadata should include top-level (unscoped) collections.
-	if !strings.Contains(content, "OrganizationList") {
-		t.Error("metadata missing OrganizationList (top-level collection)")
-	}
-	if !strings.Contains(content, "UserList") {
-		t.Error("metadata missing UserList (top-level all-users collection)")
-	}
+		// Metadata should include top-level (unscoped) collections.
+		if !strings.Contains(content, "OrganizationList") {
+			t.Error("metadata missing OrganizationList (top-level collection)")
+		}
+		if !strings.Contains(content, "UserList") {
+			t.Error("metadata missing UserList (top-level all-users collection)")
+		}
 
-	// Metadata should NOT include scoped collections.
-	// org-users is scoped to Organization and should not appear at top level.
-	// Check that the metadata JSON does not include the scoped path.
-	if strings.Contains(content, "/organizations/{org_id}/users") {
-		t.Error("metadata should not include scoped collection path")
-	}
+		// Metadata should NOT include scoped collections.
+		// org-users is scoped to Organization and should not appear at top level.
+		// Check that the metadata JSON does not include the scoped path.
+		if strings.Contains(content, "/organizations/{org_id}/users") {
+			t.Error("metadata should not include scoped collection path")
+		}
 
-	// Verify service name in metadata.
-	if !strings.Contains(content, `"user-management"`) {
-		t.Error("metadata missing service name")
-	}
+		// Verify service name in metadata.
+		if !strings.Contains(content, `"user-management"`) {
+			t.Error("metadata missing service name")
+		}
 
-	// Verify kind is API.
-	if !strings.Contains(content, `"kind": "API"`) {
-		t.Error("metadata missing kind: API")
-	}
+		// Verify kind is API.
+		if !strings.Contains(content, `"kind": "API"`) {
+			t.Error("metadata missing kind: API")
+		}
 
-	// Verify href includes base_path.
-	if !strings.Contains(content, `"href": "/api/v1"`) {
-		t.Error("metadata missing href with base_path")
-	}
+		// Verify href includes base_path.
+		if !strings.Contains(content, `"href": "/api/v1"`) {
+			t.Error("metadata missing href with base_path")
+		}
+	})
 }
 
 func TestGenerate_DiscoveryRoutesUseDiscoveryHandlerVar(t *testing.T) {
@@ -11187,34 +11261,35 @@ func TestGenerate_DiscoveryRoutesUseDiscoveryHandlerVar(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC20-OC28.
 func TestGenerate_DiscoveryEmptyBasePath(t *testing.T) {
-	g := &Generator{}
-	ctx := basicContext()
-	ctx.BasePath = ""
+	t.Run("ST-SUP-RC20-OC28-T02 Without a base path the discovery routes start at the root", func(t *testing.T) {
+		g := &Generator{}
+		ctx := basicContext()
+		ctx.BasePath = ""
 
-	_, wiring, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		_, wiring, err := g.Generate(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	// With empty base_path, routes should be at root.
-	foundOpenAPI := false
-	foundMetadata := false
-	for _, r := range wiring.DiscoveryRoutes {
-		if strings.Contains(r, "GET /openapi\"") {
-			foundOpenAPI = true
+		// With empty base_path, routes should be at root.
+		foundOpenAPI := false
+		foundMetadata := false
+		for _, r := range wiring.DiscoveryRoutes {
+			if strings.Contains(r, "GET /openapi\"") {
+				foundOpenAPI = true
+			}
+			if strings.Contains(r, "GET /{$}\"") && strings.Contains(r, "ServeMetadata") {
+				foundMetadata = true
+			}
 		}
-		if strings.Contains(r, "GET /{$}\"") && strings.Contains(r, "ServeMetadata") {
-			foundMetadata = true
+		if !foundOpenAPI {
+			t.Errorf("with empty base_path, OpenAPI route should be at /openapi, got: %v", wiring.DiscoveryRoutes)
 		}
-	}
-	if !foundOpenAPI {
-		t.Errorf("with empty base_path, OpenAPI route should be at /openapi, got: %v", wiring.DiscoveryRoutes)
-	}
-	if !foundMetadata {
-		t.Errorf("with empty base_path, metadata route should use /{$} (exact match), got: %v", wiring.DiscoveryRoutes)
-	}
+		if !foundMetadata {
+			t.Errorf("with empty base_path, metadata route should use /{$} (exact match), got: %v", wiring.DiscoveryRoutes)
+		}
+	})
 }
 
 func TestGenerate_DiscoveryMetadataCollectionsEmptyArrayNotNull(t *testing.T) {

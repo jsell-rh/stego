@@ -255,15 +255,16 @@ func BenchmarkProjectInputManifest(b *testing.B) {
 	}
 }
 
-// Proves ST-DIS-UC03-R02.
 func TestInputManifestMustMatchAppliedState(t *testing.T) {
-	m := manifestFixture()
-	for _, state := range []*AppliedState{
-		{Inputs: m, ServiceHash: strings.Repeat("b", 64), RegistrySHA: "local"},
-		{Inputs: m, ServiceHash: strings.Repeat("a", 64), RegistrySHA: "other"},
-	} {
-		if err := validateStatePaths(&State{LastApplied: state}); err == nil {
-			t.Fatal("contradictory input record accepted")
+	t.Run("ST-GEN-INV02-T A record whose input manifest disagrees with it is refused", func(t *testing.T) {
+		m := manifestFixture()
+		for _, state := range []*AppliedState{
+			{Inputs: m, ServiceHash: strings.Repeat("b", 64), RegistrySHA: "local"},
+			{Inputs: m, ServiceHash: strings.Repeat("a", 64), RegistrySHA: "other"},
+		} {
+			if err := validateStatePaths(&State{LastApplied: state}); err == nil {
+				t.Fatal("contradictory input record accepted")
+			}
 		}
-	}
+	})
 }

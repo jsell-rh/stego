@@ -15,61 +15,62 @@ func watchKeyOptions() KeyedWatchOptions {
 	return KeyedWatchOptions{KeyedOptions: o, ReconnectDelay: time.Millisecond}
 }
 
-// Proves ST-SUP-RC05-OC09.
 func TestKeyedWorkersKeepIndependentProgressAndSerializeEachKey(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	active := make(chan struct{})
-	release := make(chan struct{})
-	var calls, overlap atomic.Int32
-	var firstActive atomic.Bool
-	source := KeyedSource[string]{Observe: func(ctx context.Context, sink *KeySink[string]) error {
-		if err := sink.Add("slow"); err != nil {
-			return err
-		}
-		sink.SetReady(true)
-		select {
-		case <-active:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-		for i := 0; i < 10000; i++ {
+	t.Run("ST-SUP-RC05-OC09-T01 Keyed workers keep independent progress and serialize each key", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		active := make(chan struct{})
+		release := make(chan struct{})
+		var calls, overlap atomic.Int32
+		var firstActive atomic.Bool
+		source := KeyedSource[string]{Observe: func(ctx context.Context, sink *KeySink[string]) error {
 			if err := sink.Add("slow"); err != nil {
 				return err
 			}
-		}
-		if err := sink.Add("other"); err != nil {
-			return err
-		}
-		<-ctx.Done()
-		return ctx.Err()
-	}, Scan: func(context.Context, func(string) error) error { return nil }}
-	o := keyOptions()
-	o.Workers = 2
-	o.Capacity = 2
-	err := RunKeyed(ctx, source, func(ctx context.Context, key string) error {
-		if key == "other" {
-			close(release)
-			return nil
-		}
-		if firstActive.Swap(true) {
-			overlap.Add(1)
-		}
-		defer firstActive.Store(false)
-		if calls.Add(1) == 1 {
-			close(active)
+			sink.SetReady(true)
 			select {
-			case <-release:
-				return nil
+			case <-active:
 			case <-ctx.Done():
 				return ctx.Err()
 			}
+			for i := 0; i < 10000; i++ {
+				if err := sink.Add("slow"); err != nil {
+					return err
+				}
+			}
+			if err := sink.Add("other"); err != nil {
+				return err
+			}
+			<-ctx.Done()
+			return ctx.Err()
+		}, Scan: func(context.Context, func(string) error) error { return nil }}
+		o := keyOptions()
+		o.Workers = 2
+		o.Capacity = 2
+		err := RunKeyed(ctx, source, func(ctx context.Context, key string) error {
+			if key == "other" {
+				close(release)
+				return nil
+			}
+			if firstActive.Swap(true) {
+				overlap.Add(1)
+			}
+			defer firstActive.Store(false)
+			if calls.Add(1) == 1 {
+				close(active)
+				select {
+				case <-release:
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			return denied
+		}, o)
+		if !errors.Is(err, denied) || calls.Load() != 2 || overlap.Load() != 0 {
+			t.Fatal("key exclusion or independent progress failed", err, calls.Load(), overlap.Load())
 		}
-		return denied
-	}, o)
-	if !errors.Is(err, denied) || calls.Load() != 2 || overlap.Load() != 0 {
-		t.Fatal("key exclusion or independent progress failed", err, calls.Load(), overlap.Load())
-	}
+	})
 }
 
 func TestKeyedWatchReconnectJoinsActionsAndRepeatsDiscovery(t *testing.T) {

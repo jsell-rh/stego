@@ -10,53 +10,54 @@ import (
 	"time"
 )
 
-// Proves ST-SUP-RC05-OC10.
 func TestPendingResultQueueRetainsCapacityAndDelay(t *testing.T) {
-	q := newKeyQueue[string](2)
-	q.setReady(true)
-	if err := q.add("pending"); err != nil {
-		t.Fatal(err)
-	}
-	keyTake(t, q)
-	q.finishResult("pending", false, time.Hour, time.Millisecond, time.Second)
-	due := q.entries["pending"].due
-	if q.retrying != 0 || len(q.pending) != 1 {
-		t.Fatal("pending work was counted as a failure or lost")
-	}
-	for range 3 {
+	t.Run("ST-SUP-RC05-OC10-T01 A pending result keeps its capacity and its delay", func(t *testing.T) {
+		q := newKeyQueue[string](2)
+		q.setReady(true)
 		if err := q.add("pending"); err != nil {
 			t.Fatal(err)
 		}
-	}
-	q.restart(time.Millisecond, time.Second)
-	if !q.entries["pending"].due.Equal(due) {
-		t.Fatal("event or reconnect shortened the recheck delay")
-	}
-	if err := q.add("healthy"); err != nil {
-		t.Fatal(err)
-	}
-	if !errors.Is(q.add("overflow"), ErrOverflow) {
-		t.Fatal("pending work left the capacity bound")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
-	defer cancel()
-	if _, err := q.take(ctx); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatal("reconnect bypassed readiness", err)
-	}
-	q.setReady(true)
-	if keyTake(t, q) != "healthy" {
-		t.Fatal("pending work blocked another key")
-	}
-	q.finish("healthy", false, time.Millisecond, time.Second)
-	// Make the retained key due without a long sleep. No queue goroutine is active.
-	q.entries["pending"].due = time.Now().Add(-time.Second)
-	if keyTake(t, q) != "pending" {
-		t.Fatal("pending key was lost")
-	}
-	q.finishResult("pending", true, time.Millisecond, 20*time.Millisecond, time.Second)
-	if q.entries["pending"].delay != 20*time.Millisecond || q.retrying != 1 {
-		t.Fatal("failure did not select the error schedule")
-	}
+		keyTake(t, q)
+		q.finishResult("pending", false, time.Hour, time.Millisecond, time.Second)
+		due := q.entries["pending"].due
+		if q.retrying != 0 || len(q.pending) != 1 {
+			t.Fatal("pending work was counted as a failure or lost")
+		}
+		for range 3 {
+			if err := q.add("pending"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		q.restart(time.Millisecond, time.Second)
+		if !q.entries["pending"].due.Equal(due) {
+			t.Fatal("event or reconnect shortened the recheck delay")
+		}
+		if err := q.add("healthy"); err != nil {
+			t.Fatal(err)
+		}
+		if !errors.Is(q.add("overflow"), ErrOverflow) {
+			t.Fatal("pending work left the capacity bound")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+		defer cancel()
+		if _, err := q.take(ctx); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatal("reconnect bypassed readiness", err)
+		}
+		q.setReady(true)
+		if keyTake(t, q) != "healthy" {
+			t.Fatal("pending work blocked another key")
+		}
+		q.finish("healthy", false, time.Millisecond, time.Second)
+		// Make the retained key due without a long sleep. No queue goroutine is active.
+		q.entries["pending"].due = time.Now().Add(-time.Second)
+		if keyTake(t, q) != "pending" {
+			t.Fatal("pending key was lost")
+		}
+		q.finishResult("pending", true, time.Millisecond, 20*time.Millisecond, time.Second)
+		if q.entries["pending"].delay != 20*time.Millisecond || q.retrying != 1 {
+			t.Fatal("failure did not select the error schedule")
+		}
+	})
 }
 
 func TestPendingResultFailureAndContextTakePrecedence(t *testing.T) {

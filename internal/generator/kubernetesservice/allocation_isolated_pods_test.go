@@ -83,7 +83,6 @@ func TestAllocationIsolatedValidation(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC15-OC20, ST-SUP-RC15-OC21.
 func TestAllocationIsolatedPolicy(t *testing.T) {
 	c := isolatedAllocationContext()
 	config, err := allocationConfig(c)
@@ -94,31 +93,38 @@ func TestAllocationIsolatedPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	policies := 0
-	for _, raw := range items {
-		item := raw.(object)
-		if item["kind"] == "ValidatingAdmissionPolicy" {
-			policies++
-			if item["spec"].(object)["failurePolicy"] != "Fail" {
-				t.Fatal("policy fails open")
+	t.Run("ST-SUP-RC15-OC20-T02 Every isolated allocation policy fails closed", func(t *testing.T) {
+		policies := 0
+		for _, raw := range items {
+			item := raw.(object)
+			if item["kind"] == "ValidatingAdmissionPolicy" {
+				policies++
+				if item["spec"].(object)["failurePolicy"] != "Fail" {
+					t.Fatal("policy fails open")
+				}
 			}
 		}
-		if item["kind"] == "ClusterRole" {
-			for _, raw := range item["rules"].([]any) {
-				rule := raw.(object)
-				if resources, ok := rule["resources"].([]string); ok {
-					for _, resource := range resources {
-						if resource == "validatingadmissionpolicies" || resource == "runtimeclasses" {
-							t.Fatal("allocator can change its runtime or policy")
+		if policies != 8 {
+			t.Fatal("missing guards", policies)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC21-T01 The isolated allocator gets no policy or runtime class write", func(t *testing.T) {
+		for _, raw := range items {
+			item := raw.(object)
+			if item["kind"] == "ClusterRole" {
+				for _, raw := range item["rules"].([]any) {
+					rule := raw.(object)
+					if resources, ok := rule["resources"].([]string); ok {
+						for _, resource := range resources {
+							if resource == "validatingadmissionpolicies" || resource == "runtimeclasses" {
+								t.Fatal("allocator can change its runtime or policy")
+							}
 						}
 					}
 				}
 			}
 		}
-	}
-	if policies != 8 {
-		t.Fatal("missing guards", policies)
-	}
+	})
 	encoded, err := json.Marshal(config)
 	if err != nil {
 		t.Fatal(err)
@@ -128,39 +134,40 @@ func TestAllocationIsolatedPolicy(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC15-OC28.
 func TestAllocationIsolatedWithoutRuntimeClass(t *testing.T) {
-	c := isolatedAllocationContext()
-	p := c.ComponentConfig["allocation_profiles"].([]any)[0].(object)
-	delete(p, "pod_runtime_class")
-	config, err := allocationConfig(c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if config.Profiles[0].PodRuntimeClass != "" || config.Profiles[0].PodSecurity != "isolated-runtime" {
-		t.Fatal("classless isolated profile must keep the security mode without a runtime class")
-	}
-	items, err := allocationObjects(config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	policies := 0
-	for _, raw := range items {
-		item := raw.(object)
-		if item["kind"] == "ValidatingAdmissionPolicy" {
-			policies++
-			encoded, err := json.Marshal(item)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if strings.Contains(string(encoded), "runtimeClassName") {
-				t.Fatal("classless isolated profile must not emit a runtime-class admission rule")
+	t.Run("ST-SUP-RC15-OC28-T01 A profile without a runtime class emits no runtime-class admission rule", func(t *testing.T) {
+		c := isolatedAllocationContext()
+		p := c.ComponentConfig["allocation_profiles"].([]any)[0].(object)
+		delete(p, "pod_runtime_class")
+		config, err := allocationConfig(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if config.Profiles[0].PodRuntimeClass != "" || config.Profiles[0].PodSecurity != "isolated-runtime" {
+			t.Fatal("classless isolated profile must keep the security mode without a runtime class")
+		}
+		items, err := allocationObjects(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		policies := 0
+		for _, raw := range items {
+			item := raw.(object)
+			if item["kind"] == "ValidatingAdmissionPolicy" {
+				policies++
+				encoded, err := json.Marshal(item)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if strings.Contains(string(encoded), "runtimeClassName") {
+					t.Fatal("classless isolated profile must not emit a runtime-class admission rule")
+				}
 			}
 		}
-	}
-	if policies != 8 {
-		t.Fatal("classless isolated profile changed the guard count", policies)
-	}
+		if policies != 8 {
+			t.Fatal("classless isolated profile changed the guard count", policies)
+		}
+	})
 }
 
 func TestAllocationIsolatedManifests(t *testing.T) {

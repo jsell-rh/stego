@@ -86,7 +86,6 @@ func collectorFixture(t testing.TB, block bool) *traceCollector {
 	return c
 }
 
-// Proves ST-SUP-RC17-OC01, ST-SUP-RC17-OC02, ST-SUP-RC17-OC07.
 func TestTLSExportContextAndPrivacy(t *testing.T) {
 	c := collectorFixture(t, false)
 	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
@@ -109,66 +108,78 @@ func TestTLSExportContextAndPrivacy(t *testing.T) {
 	req.Header.Set("Traceparent", "00-11111111111111111111111111111111-2222222222222222-00")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-	if !observed || w.Code != 201 || w.Body.String() != "private-response" {
-		t.Fatal("instrumentation changed response or lost context")
-	}
+	t.Run("ST-SUP-RC17-OC02-T01 The emitted handler wrapper keeps the application status and body", func(t *testing.T) {
+		if !observed || w.Code != 201 || w.Body.String() != "private-response" {
+			t.Fatal("instrumentation changed response or lost context")
+		}
+	})
 	runtime.Close()
 	var result *collector.ExportTraceServiceRequest
-	select {
-	case result = <-c.received:
-	case <-time.After(time.Second):
-		t.Fatal("trace was not exported")
-	}
-	spans := result.ResourceSpans[0].ScopeSpans[0].Spans
-	if len(spans) != 1 {
-		t.Fatal("unexpected span count", len(spans))
-	}
-	span := spans[0]
-	if span.Name != "HTTP POST" || hex.EncodeToString(span.TraceId) != "11111111111111111111111111111111" || hex.EncodeToString(span.ParentSpanId) != "2222222222222222" || len(span.Attributes) != 2 || span.TraceState != "" || len(span.Events) != 0 || len(span.Links) != 0 {
-		t.Fatal("invalid trace shape", span)
-	}
-	data, _ := proto.Marshal(result)
-	for _, private := range []string{"private-resource-id", "private-query", "private-request", "private-response", "private-token", "private-user", "private-state"} {
-		if strings.Contains(string(data), private) {
-			t.Fatal("trace exposed private request data")
+	t.Run("ST-SUP-RC17-OC07-T01 The emitted runtime exports past dead HTTP proxy settings", func(t *testing.T) {
+		select {
+		case result = <-c.received:
+		case <-time.After(time.Second):
+			t.Fatal("trace was not exported")
 		}
-	}
+	})
+	t.Run("ST-SUP-RC17-OC01-T01 A span from the emitted runtime holds no private request data", func(t *testing.T) {
+		spans := result.ResourceSpans[0].ScopeSpans[0].Spans
+		if len(spans) != 1 {
+			t.Fatal("unexpected span count", len(spans))
+		}
+		span := spans[0]
+		if span.Name != "HTTP POST" || hex.EncodeToString(span.TraceId) != "11111111111111111111111111111111" || hex.EncodeToString(span.ParentSpanId) != "2222222222222222" || len(span.Attributes) != 2 || span.TraceState != "" || len(span.Events) != 0 || len(span.Links) != 0 {
+			t.Fatal("invalid trace shape", span)
+		}
+		data, _ := proto.Marshal(result)
+		for _, private := range []string{"private-resource-id", "private-query", "private-request", "private-response", "private-token", "private-user", "private-state"} {
+			if strings.Contains(string(data), private) {
+				t.Fatal("trace exposed private request data")
+			}
+		}
+	})
 }
 
-// Proves ST-SUP-RC17-OC03, ST-SUP-RC17-OC04, ST-SUP-RC17-OC05.
 func TestDisabledAndInvalidSettings(t *testing.T) {
 	traceEnvironment(t)
 	runtime, err := NewRuntime()
 	if err != nil {
 		t.Fatal(err)
 	}
-	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
-	if runtime.provider != nil {
-		t.Fatal("disabled tracing started a provider")
-	}
-	runtime.Close()
-	_ = runtime.Handler(next)
-	for _, endpoint := range []string{"http://localhost:4317", "https://user:secret@localhost:4317", "https://localhost:4317/path", "https://localhost:4317?secret=value"} {
-		t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint)
-		if _, err := NewRuntime(); err == nil {
-			t.Fatal("invalid endpoint accepted")
+	t.Run("Tracing without a collector starts no provider", func(t *testing.T) {
+		next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+		if runtime.provider != nil {
+			t.Fatal("disabled tracing started a provider")
 		}
-	}
+		runtime.Close()
+		_ = runtime.Handler(next)
+	})
+	t.Run("ST-SUP-RC17-OC03-T01 The emitted runtime refuses a collector endpoint that is not a plain HTTPS origin", func(t *testing.T) {
+		for _, endpoint := range []string{"http://localhost:4317", "https://user:secret@localhost:4317", "https://localhost:4317/path", "https://localhost:4317?secret=value"} {
+			t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint)
+			if _, err := NewRuntime(); err == nil {
+				t.Fatal("invalid endpoint accepted")
+			}
+		}
+	})
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://localhost:4317")
-	for _, value := range []string{"NaN", "Inf", "-1", "1.1", "invalid"} {
-		t.Setenv("OTEL_TRACES_SAMPLER_ARG", value)
-		if _, err := NewRuntime(); err == nil {
-			t.Fatal("invalid sampler accepted")
+	t.Run("ST-SUP-RC17-OC05-T01 The emitted runtime refuses a sampling ratio outside 0 to 1", func(t *testing.T) {
+		for _, value := range []string{"NaN", "Inf", "-1", "1.1", "invalid"} {
+			t.Setenv("OTEL_TRACES_SAMPLER_ARG", value)
+			if _, err := NewRuntime(); err == nil {
+				t.Fatal("invalid sampler accepted")
+			}
 		}
-	}
-	t.Setenv("OTEL_TRACES_SAMPLER_ARG", "1")
-	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "private=value")
-	if _, err := NewRuntime(); err == nil {
-		t.Fatal("undeclared resource settings accepted")
-	}
+	})
+	t.Run("ST-SUP-RC17-OC04-T01 The emitted runtime refuses an undeclared OTEL setting", func(t *testing.T) {
+		t.Setenv("OTEL_TRACES_SAMPLER_ARG", "1")
+		t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "private=value")
+		if _, err := NewRuntime(); err == nil {
+			t.Fatal("undeclared resource settings accepted")
+		}
+	})
 }
 
-// Proves ST-SUP-RC17-OC08, ST-SUP-RC17-OC09.
 func TestBlockedCollectorDoesNotBlockRequestsOrShutdown(t *testing.T) {
 	collectorFixture(t, true)
 	runtime, err := NewRuntime()
@@ -178,28 +189,32 @@ func TestBlockedCollectorDoesNotBlockRequestsOrShutdown(t *testing.T) {
 	defer runtime.Close()
 	handler := runtime.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
 	started := time.Now()
-	for i := 0; i < QueueSize*3; i++ {
-		w := httptest.NewRecorder()
-		handler.ServeHTTP(w, httptest.NewRequest("GET", "/records", nil))
-		if w.Code != 204 {
-			t.Fatal("collector failure reached request")
+	t.Run("ST-SUP-RC17-OC08-T01 A blocked collector does not change or delay a request the emitted runtime observes", func(t *testing.T) {
+		for i := 0; i < QueueSize*3; i++ {
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, httptest.NewRequest("GET", "/records", nil))
+			if w.Code != 204 {
+				t.Fatal("collector failure reached request")
+			}
 		}
-	}
-	if time.Since(started) > time.Second {
-		t.Fatal("export backpressure delayed requests")
-	}
-	deadline := time.Now().Add(3 * time.Second)
-	for runtime.ExportFailures() == 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("blocked export did not reach deadline")
+		if time.Since(started) > time.Second {
+			t.Fatal("export backpressure delayed requests")
 		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	started = time.Now()
-	runtime.Close()
-	if time.Since(started) > ShutdownTimeout+time.Second {
-		t.Fatal("trace shutdown exceeded its limit")
-	}
+	})
+	t.Run("ST-SUP-RC17-OC09-T01 The emitted runtime finishes shutdown inside its limit when the collector is blocked", func(t *testing.T) {
+		deadline := time.Now().Add(3 * time.Second)
+		for runtime.ExportFailures() == 0 {
+			if time.Now().After(deadline) {
+				t.Fatal("blocked export did not reach deadline")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		started = time.Now()
+		runtime.Close()
+		if time.Since(started) > ShutdownTimeout+time.Second {
+			t.Fatal("trace shutdown exceeded its limit")
+		}
+	})
 }
 
 func TestRegisteredRouteAndStreamingResponse(t *testing.T) {
@@ -238,28 +253,29 @@ func TestRegisteredRouteAndStreamingResponse(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC17-OC06.
 func TestCollectorCertificateMustBeTrusted(t *testing.T) {
-	collector := collectorFixture(t, false)
-	t.Setenv("OTEL_EXPORTER_OTLP_CERTIFICATE", "")
-	runtime, err := NewRuntime()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer runtime.Close()
-	runtime.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/records", nil))
-	deadline := time.Now().Add(3 * time.Second)
-	for runtime.ExportFailures() == 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("untrusted collector did not fail export")
+	t.Run("ST-SUP-RC17-OC06-T01 The emitted runtime does not export to an untrusted collector", func(t *testing.T) {
+		collector := collectorFixture(t, false)
+		t.Setenv("OTEL_EXPORTER_OTLP_CERTIFICATE", "")
+		runtime, err := NewRuntime()
+		if err != nil {
+			t.Fatal(err)
 		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	select {
-	case <-collector.received:
-		t.Fatal("untrusted collector received a trace")
-	default:
-	}
+		defer runtime.Close()
+		runtime.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/records", nil))
+		deadline := time.Now().Add(3 * time.Second)
+		for runtime.ExportFailures() == 0 {
+			if time.Now().After(deadline) {
+				t.Fatal("untrusted collector did not fail export")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		select {
+		case <-collector.received:
+			t.Fatal("untrusted collector received a trace")
+		default:
+		}
+	})
 }
 
 func TestRouteSurvivesAuthenticationRequestCopy(t *testing.T) {
@@ -320,69 +336,71 @@ func (w *benchmarkWriter) Header() http.Header         { return w.header }
 func (w *benchmarkWriter) WriteHeader(int)             {}
 func (w *benchmarkWriter) Write(p []byte) (int, error) { return len(p), nil }
 
-// Proves ST-SUP-RC17-OC15.
 func TestRemoteSamplingCannotOverrideLocalZero(t *testing.T) {
-	c := collectorFixture(t, false)
-	t.Setenv("OTEL_TRACES_SAMPLER_ARG", "0")
-	runtime, err := NewRuntime()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer runtime.Close()
-	handler := runtime.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if trace.SpanFromContext(r.Context()).IsRecording() {
-			t.Error("remote sampled flag bypassed local ratio")
+	t.Run("ST-SUP-RC17-OC15-T01 A remote sampled flag cannot override the local zero ratio of the emitted runtime", func(t *testing.T) {
+		c := collectorFixture(t, false)
+		t.Setenv("OTEL_TRACES_SAMPLER_ARG", "0")
+		runtime, err := NewRuntime()
+		if err != nil {
+			t.Fatal(err)
 		}
-		w.WriteHeader(204)
-	}))
-	request := httptest.NewRequest("GET", "/records", nil)
-	request.Header.Set("traceparent", "00-11111111111111111111111111111111-2222222222222222-01")
-	handler.ServeHTTP(httptest.NewRecorder(), request)
-	runtime.Close()
-	select {
-	case <-c.received:
-		t.Fatal("zero-ratio trace was exported")
-	default:
-	}
+		defer runtime.Close()
+		handler := runtime.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if trace.SpanFromContext(r.Context()).IsRecording() {
+				t.Error("remote sampled flag bypassed local ratio")
+			}
+			w.WriteHeader(204)
+		}))
+		request := httptest.NewRequest("GET", "/records", nil)
+		request.Header.Set("traceparent", "00-11111111111111111111111111111111-2222222222222222-01")
+		handler.ServeHTTP(httptest.NewRecorder(), request)
+		runtime.Close()
+		select {
+		case <-c.received:
+			t.Fatal("zero-ratio trace was exported")
+		default:
+		}
+	})
 }
 
-// Proves ST-SUP-RC17-OC16.
 func TestInvalidParentsStartRootSpans(t *testing.T) {
-	c := collectorFixture(t, false)
-	runtime, err := NewRuntime()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer runtime.Close()
-	handler := runtime.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
-	valid := "00-11111111111111111111111111111111-2222222222222222-01"
-	values := [][]string{nil, {"bad"}, {"00-00000000000000000000000000000000-2222222222222222-01"}, {valid, valid}}
-	for _, parent := range values {
-		request := httptest.NewRequest("GET", "/records", nil)
-		request.Header["Traceparent"] = parent
-		handler.ServeHTTP(httptest.NewRecorder(), request)
-	}
-	runtime.Close()
-	count := 0
-	deadline := time.NewTimer(time.Second)
-	defer deadline.Stop()
-	for count < len(values) {
-		select {
-		case request := <-c.received:
-			for _, resource := range request.ResourceSpans {
-				for _, scope := range resource.ScopeSpans {
-					for _, span := range scope.Spans {
-						count++
-						if len(span.ParentSpanId) != 0 {
-							t.Fatal("invalid parent was accepted")
+	t.Run("ST-SUP-RC17-OC16-T01 An invalid trace parent starts a root span in the emitted runtime", func(t *testing.T) {
+		c := collectorFixture(t, false)
+		runtime, err := NewRuntime()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer runtime.Close()
+		handler := runtime.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
+		valid := "00-11111111111111111111111111111111-2222222222222222-01"
+		values := [][]string{nil, {"bad"}, {"00-00000000000000000000000000000000-2222222222222222-01"}, {valid, valid}}
+		for _, parent := range values {
+			request := httptest.NewRequest("GET", "/records", nil)
+			request.Header["Traceparent"] = parent
+			handler.ServeHTTP(httptest.NewRecorder(), request)
+		}
+		runtime.Close()
+		count := 0
+		deadline := time.NewTimer(time.Second)
+		defer deadline.Stop()
+		for count < len(values) {
+			select {
+			case request := <-c.received:
+				for _, resource := range request.ResourceSpans {
+					for _, scope := range resource.ScopeSpans {
+						for _, span := range scope.Spans {
+							count++
+							if len(span.ParentSpanId) != 0 {
+								t.Fatal("invalid parent was accepted")
+							}
 						}
 					}
 				}
+			case <-deadline.C:
+				t.Fatal("missing root spans")
 			}
-		case <-deadline.C:
-			t.Fatal("missing root spans")
 		}
-	}
+	})
 }
 
 func TestRPCSpanLifetimeStatusAndPrivacy(t *testing.T) {

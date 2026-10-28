@@ -56,7 +56,6 @@ func TestDeploymentValidation(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC15-OC01, ST-SUP-RC15-OC03, ST-SUP-RC15-OC04, ST-SUP-RC15-OC08, ST-SUP-RC15-OC09, ST-SUP-RC15-OC11, ST-SUP-RC15-OC12, ST-SUP-RC15-OC13, ST-SUP-RC15-OC15.
 func TestGeneratedDeploymentRenderer(t *testing.T) {
 	ctx := rpcContext()
 	ctx.ComponentConfig["optional_external_endpoints"] = []any{"service-probe"}
@@ -144,9 +143,53 @@ func TestRenderedPolicy(t *testing.T){
 	command := exec.Command("go", "test", "-race", "-mod=readonly", "-timeout=20s", "./...")
 	command.Dir = dir
 	command.Env = append(os.Environ(), "GOWORK=off")
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("generated deployment: %v\n%s", err, output)
-	}
+	// One run of the generated module holds the checks of every record below.
+	output, err := command.CombinedOutput()
+	t.Run("ST-SUP-RC15-OC01-T01 The rendered service Pod runs as non-root with a read-only root filesystem", func(t *testing.T) {
+		if err != nil {
+			t.Fatalf("generated deployment: %v\n%s", err, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC03-T01 The rendered service and worker Pods mount no service-account token", func(t *testing.T) {
+		if err != nil {
+			t.Fatalf("generated deployment: %v\n%s", err, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC04-T01 The rendered service probes use HTTPS", func(t *testing.T) {
+		if err != nil {
+			t.Fatalf("generated deployment: %v\n%s", err, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC08-T01 The rendered external egress rules stay narrow", func(t *testing.T) {
+		if err != nil {
+			t.Fatalf("generated deployment: %v\n%s", err, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC09-T01 An incomplete or wrong endpoint binding gives no rendered manifest", func(t *testing.T) {
+		if err != nil {
+			t.Fatalf("generated deployment: %v\n%s", err, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC11-T01 The rendered worker has no Service, container port or ingress rule", func(t *testing.T) {
+		if err != nil {
+			t.Fatalf("generated deployment: %v\n%s", err, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC12-T01 The rendered worker uses one replica and Recreate", func(t *testing.T) {
+		if err != nil {
+			t.Fatalf("generated deployment: %v\n%s", err, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC13-T01 The rendered RPC Service exposes only port 9090", func(t *testing.T) {
+		if err != nil {
+			t.Fatalf("generated deployment: %v\n%s", err, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC15-T01 An invalid image, namespace or file group gives no rendered output", func(t *testing.T) {
+		if err != nil {
+			t.Fatalf("generated deployment: %v\n%s", err, output)
+		}
+	})
 }
 
 func workerContext() gen.Context {
@@ -201,7 +244,6 @@ func TestWorkerValidation(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC15-OC10, ST-SUP-RC15-OC34.
 // Browser services use the same TLS listener and health routes as API services.
 // Their deployment must retain all API isolation and resource limits.
 func TestBrowserDeployment(t *testing.T) {
@@ -217,17 +259,24 @@ func TestBrowserDeployment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(apiFiles) != len(browserFiles) {
-		t.Fatal("browser deployment file set differs")
-	}
-	for i, file := range apiFiles {
-		if file.Path != browserFiles[i].Path || !bytes.Equal(file.Bytes(), browserFiles[i].Bytes()) {
-			t.Fatalf("browser deployment differs from the restricted API deployment: %s", file.Path)
-		}
-	}
 	// Browser sessions do not require a gRPC listener.
 	browser.ComponentConfig["network_peers"].([]any)[0].(map[string]any)["port"] = 9090
-	if _, _, err := new(Generator).Generate(browser); err == nil {
-		t.Fatal("browser gRPC ingress accepted")
-	}
+	t.Run("ST-SUP-RC15-OC34-T01 A browser deployment matches the API deployment byte for byte", func(t *testing.T) {
+		if len(apiFiles) != len(browserFiles) {
+			t.Fatal("browser deployment file set differs")
+		}
+		for i, file := range apiFiles {
+			if file.Path != browserFiles[i].Path || !bytes.Equal(file.Bytes(), browserFiles[i].Bytes()) {
+				t.Fatalf("browser deployment differs from the restricted API deployment: %s", file.Path)
+			}
+		}
+		if _, _, err := new(Generator).Generate(browser); err == nil {
+			t.Fatal("browser gRPC ingress accepted")
+		}
+	})
+	t.Run("ST-SUP-RC15-OC10-T01 A browser deployment refuses a gRPC ingress peer", func(t *testing.T) {
+		if _, _, err := new(Generator).Generate(browser); err == nil {
+			t.Fatal("browser gRPC ingress accepted")
+		}
+	})
 }

@@ -111,98 +111,100 @@ func faultQueue(t *testing.T, database *sql.DB, partial bool) *Queue {
 	return queue
 }
 
-// Proves ST-SUP-RC18-OC08.
 func TestClaimDiscardsPartialResults(t *testing.T) {
-	database := testDatabase(t)
-	enqueue(t, database, message("first"), message("second"))
-	claimed, err := faultQueue(t, database, true).Claim(context.Background(), 2, time.Minute)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("expected the lost result error: %v", err)
-	}
-	if claimed != nil {
-		t.Fatal("claim returned a partial batch after a row error")
-	}
-	var retained int
-	if err := database.QueryRow("SELECT count(*) FROM stego_outbox.messages WHERE attempts = 1 AND lease_token IS NOT NULL AND lease_until > clock_timestamp()").Scan(&retained); err != nil || retained != 2 {
-		t.Fatalf("the unknown claim did not retain both leases: %d, %v", retained, err)
-	}
+	t.Run("ST-SUP-RC18-OC08-T01 A claim with a lost client result returns no delivery", func(t *testing.T) {
+		database := testDatabase(t)
+		enqueue(t, database, message("first"), message("second"))
+		claimed, err := faultQueue(t, database, true).Claim(context.Background(), 2, time.Minute)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected the lost result error: %v", err)
+		}
+		if claimed != nil {
+			t.Fatal("claim returned a partial batch after a row error")
+		}
+		var retained int
+		if err := database.QueryRow("SELECT count(*) FROM stego_outbox.messages WHERE attempts = 1 AND lease_token IS NOT NULL AND lease_until > clock_timestamp()").Scan(&retained); err != nil || retained != 2 {
+			t.Fatalf("the unknown claim did not retain both leases: %d, %v", retained, err)
+		}
+	})
 }
 
-// Proves ST-SUP-RC18-OC09.
 func TestUnknownClaimResultRecoversAfterLeaseExpiry(t *testing.T) {
-	for _, partial := range []bool{false, true} {
-		name := "query_error"
-		if partial {
-			name = "partial_rows"
-		}
-		t.Run(name, func(t *testing.T) {
-			database := testDatabase(t)
-			first, second := message("first"), message("second")
-			enqueue(t, database, first, second)
-			claimed, err := faultQueue(t, database, partial).Claim(context.Background(), 2, 5*time.Second)
-			if !errors.Is(err, context.Canceled) || claimed != nil {
-				t.Fatal("failed claim exposed a result", err)
+	t.Run("ST-SUP-RC18-OC09-T01 Recovery after an unknown claim result keeps the delivery contract", func(t *testing.T) {
+		for _, partial := range []bool{false, true} {
+			name := "query_error"
+			if partial {
+				name = "partial_rows"
 			}
-			var token uuid.UUID
-			var active int
-			if err := database.QueryRow("SELECT lease_token, count(*) FROM stego_outbox.messages WHERE attempts = 1 AND lease_until > clock_timestamp() GROUP BY lease_token").Scan(&token, &active); err != nil || active != 2 || token == uuid.Nil {
-				t.Fatalf("claimed leases were not retained: %d, %v", active, err)
-			}
-			recovered, err := New(database)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if rows, err := recovered.Claim(context.Background(), 2, time.Minute); err != nil || len(rows) != 0 {
-				t.Fatal("another caller acquired an active lease", err)
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			var rows []Delivery
-			for {
-				rows, err = recovered.Claim(ctx, 2, time.Minute)
+			t.Run(name, func(t *testing.T) {
+				database := testDatabase(t)
+				first, second := message("first"), message("second")
+				enqueue(t, database, first, second)
+				claimed, err := faultQueue(t, database, partial).Claim(context.Background(), 2, 5*time.Second)
+				if !errors.Is(err, context.Canceled) || claimed != nil {
+					t.Fatal("failed claim exposed a result", err)
+				}
+				var token uuid.UUID
+				var active int
+				if err := database.QueryRow("SELECT lease_token, count(*) FROM stego_outbox.messages WHERE attempts = 1 AND lease_until > clock_timestamp() GROUP BY lease_token").Scan(&token, &active); err != nil || active != 2 || token == uuid.Nil {
+					t.Fatalf("claimed leases were not retained: %d, %v", active, err)
+				}
+				recovered, err := New(database)
 				if err != nil {
-					t.Fatal("lease recovery failed", err)
-				}
-				if len(rows) != 0 {
-					break
-				}
-				select {
-				case <-ctx.Done():
-					t.Fatal("stored leases did not expire")
-				case <-time.After(20 * time.Millisecond):
-				}
-			}
-			if len(rows) != 2 {
-				t.Fatal("lease recovery lost a row")
-			}
-			expected := map[uuid.UUID]Message{first.ID: first, second.ID: second}
-			for _, row := range rows {
-				original, ok := expected[row.ID]
-				if !ok || row.Attempts != 2 || row.Receipt.Token == token || row.ResourceKey != original.ResourceKey || row.Kind != original.Kind {
-					t.Fatal("lease recovery changed the message or claim identity")
-				}
-				// JSONB can change spacing. Compare the fixture's JSON values.
-				var expectedPayload, actualPayload any
-				if err := json.Unmarshal(original.Payload, &expectedPayload); err != nil {
 					t.Fatal(err)
 				}
-				if err := json.Unmarshal(row.Payload, &actualPayload); err != nil {
-					t.Fatal(err)
+				if rows, err := recovered.Claim(context.Background(), 2, time.Minute); err != nil || len(rows) != 0 {
+					t.Fatal("another caller acquired an active lease", err)
 				}
-				if !reflect.DeepEqual(expectedPayload, actualPayload) {
-					t.Fatal("lease recovery changed the message payload")
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				var rows []Delivery
+				for {
+					rows, err = recovered.Claim(ctx, 2, time.Minute)
+					if err != nil {
+						t.Fatal("lease recovery failed", err)
+					}
+					if len(rows) != 0 {
+						break
+					}
+					select {
+					case <-ctx.Done():
+						t.Fatal("stored leases did not expire")
+					case <-time.After(20 * time.Millisecond):
+					}
 				}
-				delete(expected, row.ID)
-				if changed, err := recovered.Acknowledge(ctx, Receipt{ID: row.ID, Token: token}); err != nil || changed {
-					t.Fatal("stale receipt removed a new claim", err)
+				if len(rows) != 2 {
+					t.Fatal("lease recovery lost a row")
 				}
-				if changed, err := recovered.Acknowledge(ctx, row.Receipt); err != nil || !changed {
-					t.Fatal("new receipt did not acknowledge its claim", err)
+				expected := map[uuid.UUID]Message{first.ID: first, second.ID: second}
+				for _, row := range rows {
+					original, ok := expected[row.ID]
+					if !ok || row.Attempts != 2 || row.Receipt.Token == token || row.ResourceKey != original.ResourceKey || row.Kind != original.Kind {
+						t.Fatal("lease recovery changed the message or claim identity")
+					}
+					// JSONB can change spacing. Compare the fixture's JSON values.
+					var expectedPayload, actualPayload any
+					if err := json.Unmarshal(original.Payload, &expectedPayload); err != nil {
+						t.Fatal(err)
+					}
+					if err := json.Unmarshal(row.Payload, &actualPayload); err != nil {
+						t.Fatal(err)
+					}
+					if !reflect.DeepEqual(expectedPayload, actualPayload) {
+						t.Fatal("lease recovery changed the message payload")
+					}
+					delete(expected, row.ID)
+					if changed, err := recovered.Acknowledge(ctx, Receipt{ID: row.ID, Token: token}); err != nil || changed {
+						t.Fatal("stale receipt removed a new claim", err)
+					}
+					if changed, err := recovered.Acknowledge(ctx, row.Receipt); err != nil || !changed {
+						t.Fatal("new receipt did not acknowledge its claim", err)
+					}
 				}
-			}
-			if len(expected) != 0 || count(t, database, "stego_outbox.messages") != 0 {
-				t.Fatal("recovery left a message incomplete")
-			}
-		})
-	}
+				if len(expected) != 0 || count(t, database, "stego_outbox.messages") != 0 {
+					t.Fatal("recovery left a message incomplete")
+				}
+			})
+		}
+	})
 }

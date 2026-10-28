@@ -105,249 +105,250 @@ func runTelemetryCollector(t *testing.T) (*runTraceSink, *runLogSink, *runMetric
 	return ts, ls, ms
 }
 
-// Proves ST-SUP-RC05-OC16.
 func TestRunOwnsLogsMetricsAndIndependentTraces(t *testing.T) {
-	for _, sample := range []string{"1", "0"} {
-		t.Run(sample, func(t *testing.T) {
-			ts, ls, ms := runTelemetryCollector(t)
-			t.Setenv("OTEL_TRACES_SAMPLER_ARG", sample)
-			output, err := os.CreateTemp(t.TempDir(), "run-logs")
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer output.Close()
-			saved := os.Stderr
-			os.Stderr = output
-			defer func() { os.Stderr = saved }()
-			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-			defer cancel()
-			release := make(chan struct{})
-			var once sync.Once
-			unblock := func() { once.Do(func() { close(release) }) }
-			defer unblock()
-			var mu sync.Mutex
-			roots := map[string]string{}
-			children := map[string]string{}
-			traceIDs := map[string]bool{}
-			record := func(ctx context.Context, operation string) {
-				sc := trace.SpanContextFromContext(ctx)
-				mu.Lock()
-				defer mu.Unlock()
-				if !sc.IsValid() || sc.IsSampled() != (sample == "1") || traceIDs[sc.TraceID().String()] {
-					t.Error("operation has no independent trace")
+	t.Run("ST-SUP-RC05-OC16-T01 Run owns its telemetry and excludes private data", func(t *testing.T) {
+		for _, sample := range []string{"1", "0"} {
+			t.Run(sample, func(t *testing.T) {
+				ts, ls, ms := runTelemetryCollector(t)
+				t.Setenv("OTEL_TRACES_SAMPLER_ARG", sample)
+				output, err := os.CreateTemp(t.TempDir(), "run-logs")
+				if err != nil {
+					t.Fatal(err)
 				}
-				roots[sc.SpanID().String()] = "controller." + operation
-				traceIDs[sc.TraceID().String()] = true
-				child, _, finish := tracing.TraceClientHTTP(ctx, "GET")
-				finish(200, "")
-				cs := trace.SpanContextFromContext(child)
-				if !cs.IsValid() || cs.TraceID() != sc.TraceID() || cs.SpanID() == sc.SpanID() {
-					t.Error("provider call lost its parent")
-				}
-				children[cs.SpanID().String()] = sc.SpanID().String()
-			}
-			opened, scanned, actions := 0, 0, 0
-			o := options()
-			o.QueueCapacity = 2
-			o.ReconcileTimeout = 4 * time.Second
-			o.ResyncInterval = time.Hour
-			source := Source[string]{Watch: func(ctx context.Context) (func() (string, error), error) {
-				opened++
-				record(ctx, "watch")
-				if opened == 1 {
-					return nil, new(privateProcessError)
-				}
-				return idle[string](ctx)
-			}, Scan: func(ctx context.Context, emit func(string) error) error {
-				scanned++
-				record(ctx, "scan")
-				if scanned == 1 {
-					return new(privateProcessError)
-				}
-				for range 5 {
-					if err := emit("private-resource"); err != nil {
-						return err
+				defer output.Close()
+				saved := os.Stderr
+				os.Stderr = output
+				defer func() { os.Stderr = saved }()
+				ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+				defer cancel()
+				release := make(chan struct{})
+				var once sync.Once
+				unblock := func() { once.Do(func() { close(release) }) }
+				defer unblock()
+				var mu sync.Mutex
+				roots := map[string]string{}
+				children := map[string]string{}
+				traceIDs := map[string]bool{}
+				record := func(ctx context.Context, operation string) {
+					sc := trace.SpanContextFromContext(ctx)
+					mu.Lock()
+					defer mu.Unlock()
+					if !sc.IsValid() || sc.IsSampled() != (sample == "1") || traceIDs[sc.TraceID().String()] {
+						t.Error("operation has no independent trace")
 					}
+					roots[sc.SpanID().String()] = "controller." + operation
+					traceIDs[sc.TraceID().String()] = true
+					child, _, finish := tracing.TraceClientHTTP(ctx, "GET")
+					finish(200, "")
+					cs := trace.SpanContextFromContext(child)
+					if !cs.IsValid() || cs.TraceID() != sc.TraceID() || cs.SpanID() == sc.SpanID() {
+						t.Error("provider call lost its parent")
+					}
+					children[cs.SpanID().String()] = sc.SpanID().String()
 				}
-				<-ctx.Done()
-				return ctx.Err()
-			}}
-			done := make(chan error, 1)
-			go func() {
-				done <- Run(ctx, source, func(ctx context.Context, _ string) error {
-					actions++
-					record(ctx, "reconcile")
-					if actions == 1 {
+				opened, scanned, actions := 0, 0, 0
+				o := options()
+				o.QueueCapacity = 2
+				o.ReconcileTimeout = 4 * time.Second
+				o.ResyncInterval = time.Hour
+				source := Source[string]{Watch: func(ctx context.Context) (func() (string, error), error) {
+					opened++
+					record(ctx, "watch")
+					if opened == 1 {
+						return nil, new(privateProcessError)
+					}
+					return idle[string](ctx)
+				}, Scan: func(ctx context.Context, emit func(string) error) error {
+					scanned++
+					record(ctx, "scan")
+					if scanned == 1 {
 						return new(privateProcessError)
 					}
-					if actions == 2 {
-						select {
-						case <-release:
-							return nil
-						case <-ctx.Done():
-							return ctx.Err()
+					for range 5 {
+						if err := emit("private-resource"); err != nil {
+							return err
 						}
 					}
-					return denied
-				}, o)
-			}()
-			// Always join the controller before restoring shared test output or stopping
-			// the collector, including a failed metric assertion.
-			joined := false
-			defer func() {
-				if !joined {
-					unblock()
-					cancel()
-					select {
-					case <-done:
-					case <-time.After(5 * time.Second):
-						t.Error("controller did not stop")
+					<-ctx.Done()
+					return ctx.Err()
+				}}
+				done := make(chan error, 1)
+				go func() {
+					done <- Run(ctx, source, func(ctx context.Context, _ string) error {
+						actions++
+						record(ctx, "reconcile")
+						if actions == 1 {
+							return new(privateProcessError)
+						}
+						if actions == 2 {
+							select {
+							case <-release:
+								return nil
+							case <-ctx.Done():
+								return ctx.Err()
+							}
+						}
+						return denied
+					}, o)
+				}()
+				// Always join the controller before restoring shared test output or stopping
+				// the collector, including a failed metric assertion.
+				joined := false
+				defer func() {
+					if !joined {
+						unblock()
+						cancel()
+						select {
+						case <-done:
+						case <-time.After(5 * time.Second):
+							t.Error("controller did not stop")
+						}
+					}
+				}()
+				allMetrics := map[string]*metricpb.Metric{}
+				private := func(message proto.Message) {
+					t.Helper()
+					body, err := proto.Marshal(message)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if bytes.Contains(body, []byte("private-")) {
+						t.Fatal("private callback data entered telemetry")
 					}
 				}
-			}()
-			allMetrics := map[string]*metricpb.Metric{}
-			private := func(message proto.Message) {
-				t.Helper()
-				body, err := proto.Marshal(message)
+				takeMetrics := func(batch *metrics.ExportMetricsServiceRequest) {
+					private(batch)
+					for _, r := range batch.ResourceMetrics {
+						for _, s := range r.ScopeMetrics {
+							for _, m := range s.Metrics {
+								allMetrics[m.Name] = m
+							}
+						}
+					}
+				}
+				ready := false
+				for !ready {
+					select {
+					case batch := <-ms.batches:
+						takeMetrics(batch)
+						want := map[string]int64{"running": 1, "capacity": 3, "queued": 2, "active": 1, "waiting": 1, "ready": 1, "retrying": 0}
+						ready = true
+						for name, value := range want {
+							points := allMetrics["stego.controller.queue."+name].GetGauge().GetDataPoints()
+							if len(points) != 1 || points[0].GetAsInt() != value {
+								ready = false
+							}
+						}
+					case <-ctx.Done():
+						t.Fatal("Run did not export its bounded queue")
+					case <-done:
+						joined = true
+						t.Fatal("Run stopped before queue observation")
+					}
+				}
+				unblock()
+				select {
+				case err := <-done:
+					joined = true
+					if !errors.Is(err, denied) {
+						t.Fatal("terminal action error changed")
+					}
+				case <-ctx.Done():
+					t.Fatal("Run did not finish")
+				}
+				if opened != 3 || scanned != 2 || actions != 3 || controllerTelemetryOwner.runtime != nil || controllerTelemetryOwner.users != 0 {
+					t.Fatal("Run changed recovery or retained the telemetry owner", opened, scanned, actions)
+				}
+				spans := map[string]*tracepb.Span{}
+				for len(ts.batches) > 0 {
+					batch := <-ts.batches
+					private(batch)
+					for _, r := range batch.ResourceSpans {
+						for _, s := range r.ScopeSpans {
+							for _, v := range s.Spans {
+								id := hex.EncodeToString(v.SpanId)
+								if spans[id] != nil {
+									t.Fatal("duplicate span")
+								}
+								spans[id] = v
+							}
+						}
+					}
+				}
+				if len(roots) != 8 || len(children) != 8 {
+					t.Fatal("missing operation or provider context", len(roots), len(children))
+				}
+				if sample == "0" && len(spans) != 0 {
+					t.Fatal("unsampled spans were exported")
+				}
+				if sample == "1" {
+					if len(spans) != 16 {
+						t.Fatal("Run did not flush every span", len(spans))
+					}
+					for id, name := range roots {
+						v := spans[id]
+						if v == nil || v.Name != name || len(v.ParentSpanId) != 0 || len(v.Links) != 0 {
+							t.Fatal("operation is not an independent root")
+						}
+					}
+					for id, parent := range children {
+						v := spans[id]
+						if v == nil || hex.EncodeToString(v.ParentSpanId) != parent {
+							t.Fatal("provider span has the wrong parent")
+						}
+					}
+				}
+				pairs := map[string]bool{}
+				for len(ls.batches) > 0 {
+					batch := <-ls.batches
+					private(batch)
+					for _, r := range batch.ResourceLogs {
+						for _, s := range r.ScopeLogs {
+							for _, v := range s.LogRecords {
+								if v.EventName == "controller.work.completed" {
+									id := hex.EncodeToString(v.SpanId)
+									if roots[id] == "" || pairs[id] {
+										t.Fatal("work log has no unique operation span")
+									}
+									pairs[id] = true
+								}
+							}
+						}
+					}
+				}
+				if len(pairs) != 8 {
+					t.Fatal("Run did not flush paired work logs", len(pairs))
+				}
+				for len(ms.batches) > 0 {
+					takeMetrics(<-ms.batches)
+				}
+				var measured uint64
+				for _, point := range allMetrics["stego.controller.work.duration"].GetHistogram().GetDataPoints() {
+					measured += point.Count
+				}
+				if measured != 8 {
+					t.Fatal("Run work metrics are incomplete", measured)
+				}
+				body, err := os.ReadFile(output.Name())
 				if err != nil {
 					t.Fatal(err)
 				}
 				if bytes.Contains(body, []byte("private-")) {
-					t.Fatal("private callback data entered telemetry")
+					t.Fatal("local log exposed a callback error or resource")
 				}
-			}
-			takeMetrics := func(batch *metrics.ExportMetricsServiceRequest) {
-				private(batch)
-				for _, r := range batch.ResourceMetrics {
-					for _, s := range r.ScopeMetrics {
-						for _, m := range s.Metrics {
-							allMetrics[m.Name] = m
-						}
+				local := 0
+				for _, line := range bytes.Split(body, []byte{'\n'}) {
+					var row map[string]any
+					if json.Unmarshal(line, &row) == nil && row["event.name"] == "controller.work.completed" {
+						local++
 					}
 				}
-			}
-			ready := false
-			for !ready {
-				select {
-				case batch := <-ms.batches:
-					takeMetrics(batch)
-					want := map[string]int64{"running": 1, "capacity": 3, "queued": 2, "active": 1, "waiting": 1, "ready": 1, "retrying": 0}
-					ready = true
-					for name, value := range want {
-						points := allMetrics["stego.controller.queue."+name].GetGauge().GetDataPoints()
-						if len(points) != 1 || points[0].GetAsInt() != value {
-							ready = false
-						}
-					}
-				case <-ctx.Done():
-					t.Fatal("Run did not export its bounded queue")
-				case <-done:
-					joined = true
-					t.Fatal("Run stopped before queue observation")
+				if local != 8 {
+					t.Fatal("local work logs are incomplete", local)
 				}
-			}
-			unblock()
-			select {
-			case err := <-done:
-				joined = true
-				if !errors.Is(err, denied) {
-					t.Fatal("terminal action error changed")
-				}
-			case <-ctx.Done():
-				t.Fatal("Run did not finish")
-			}
-			if opened != 3 || scanned != 2 || actions != 3 || controllerTelemetryOwner.runtime != nil || controllerTelemetryOwner.users != 0 {
-				t.Fatal("Run changed recovery or retained the telemetry owner", opened, scanned, actions)
-			}
-			spans := map[string]*tracepb.Span{}
-			for len(ts.batches) > 0 {
-				batch := <-ts.batches
-				private(batch)
-				for _, r := range batch.ResourceSpans {
-					for _, s := range r.ScopeSpans {
-						for _, v := range s.Spans {
-							id := hex.EncodeToString(v.SpanId)
-							if spans[id] != nil {
-								t.Fatal("duplicate span")
-							}
-							spans[id] = v
-						}
-					}
-				}
-			}
-			if len(roots) != 8 || len(children) != 8 {
-				t.Fatal("missing operation or provider context", len(roots), len(children))
-			}
-			if sample == "0" && len(spans) != 0 {
-				t.Fatal("unsampled spans were exported")
-			}
-			if sample == "1" {
-				if len(spans) != 16 {
-					t.Fatal("Run did not flush every span", len(spans))
-				}
-				for id, name := range roots {
-					v := spans[id]
-					if v == nil || v.Name != name || len(v.ParentSpanId) != 0 || len(v.Links) != 0 {
-						t.Fatal("operation is not an independent root")
-					}
-				}
-				for id, parent := range children {
-					v := spans[id]
-					if v == nil || hex.EncodeToString(v.ParentSpanId) != parent {
-						t.Fatal("provider span has the wrong parent")
-					}
-				}
-			}
-			pairs := map[string]bool{}
-			for len(ls.batches) > 0 {
-				batch := <-ls.batches
-				private(batch)
-				for _, r := range batch.ResourceLogs {
-					for _, s := range r.ScopeLogs {
-						for _, v := range s.LogRecords {
-							if v.EventName == "controller.work.completed" {
-								id := hex.EncodeToString(v.SpanId)
-								if roots[id] == "" || pairs[id] {
-									t.Fatal("work log has no unique operation span")
-								}
-								pairs[id] = true
-							}
-						}
-					}
-				}
-			}
-			if len(pairs) != 8 {
-				t.Fatal("Run did not flush paired work logs", len(pairs))
-			}
-			for len(ms.batches) > 0 {
-				takeMetrics(<-ms.batches)
-			}
-			var measured uint64
-			for _, point := range allMetrics["stego.controller.work.duration"].GetHistogram().GetDataPoints() {
-				measured += point.Count
-			}
-			if measured != 8 {
-				t.Fatal("Run work metrics are incomplete", measured)
-			}
-			body, err := os.ReadFile(output.Name())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if bytes.Contains(body, []byte("private-")) {
-				t.Fatal("local log exposed a callback error or resource")
-			}
-			local := 0
-			for _, line := range bytes.Split(body, []byte{'\n'}) {
-				var row map[string]any
-				if json.Unmarshal(line, &row) == nil && row["event.name"] == "controller.work.completed" {
-					local++
-				}
-			}
-			if local != 8 {
-				t.Fatal("local work logs are incomplete", local)
-			}
-		})
-	}
+			})
+		}
+	})
 }
 
 func TestRunTelemetryFailureStopsBeforeSource(t *testing.T) {

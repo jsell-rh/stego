@@ -61,7 +61,6 @@ func TestDefaultAndSharedIdentity(t *testing.T) {
 	}
 }
 
-// Proves ST-SUP-RC03-OC17.
 func TestRuntime(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -80,42 +79,44 @@ func TestRuntime(t *testing.T) {
 		}
 		t.Skip("Node dependencies are not installed")
 	}
-	dir := t.TempDir()
-	files, _, err := new(Generator).Generate(fixture())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, f := range files {
-		target := filepath.Join(dir, f.Path)
-		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(target, f.Bytes(), 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.Symlink(modules, filepath.Join(dir, "node_modules")); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"runtime.test.mjs", "usage.mts"} {
-		data, err := os.ReadFile("testdata/" + name)
+	t.Run("ST-SUP-RC03-OC17-T01 The emitted package and its declarations compile and run under strict checks", func(t *testing.T) {
+		dir := t.TempDir()
+		files, _, err := new(Generator).Generate(fixture())
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err = os.WriteFile(filepath.Join(dir, name), data, 0644); err != nil {
+		for _, f := range files {
+			target := filepath.Join(dir, f.Path)
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(target, f.Bytes(), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.Symlink(modules, filepath.Join(dir, "node_modules")); err != nil {
 			t.Fatal(err)
 		}
-	}
-	for _, args := range [][]string{{"--test", "runtime.test.mjs"}, {filepath.Join(modules, "typescript/lib/tsc.js"), "--strict", "--noEmit", "--target", "ES2022", "--module", "NodeNext", "--moduleResolution", "NodeNext", "usage.mts"}} {
-		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-		cmd := exec.CommandContext(ctx, node, args...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), "NODE_OPTIONS=--max-old-space-size=256")
-		output, err := cmd.CombinedOutput()
-		cancel()
-		if err != nil {
-			t.Fatalf("browser telemetry: %v\n%s", err, output)
+		for _, name := range []string{"runtime.test.mjs", "usage.mts"} {
+			data, err := os.ReadFile("testdata/" + name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = os.WriteFile(filepath.Join(dir, name), data, 0644); err != nil {
+				t.Fatal(err)
+			}
 		}
-		t.Log(string(output))
-	}
+		for _, args := range [][]string{{"--test", "runtime.test.mjs"}, {filepath.Join(modules, "typescript/lib/tsc.js"), "--strict", "--noEmit", "--target", "ES2022", "--module", "NodeNext", "--moduleResolution", "NodeNext", "usage.mts"}} {
+			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+			cmd := exec.CommandContext(ctx, node, args...)
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "NODE_OPTIONS=--max-old-space-size=256")
+			output, err := cmd.CombinedOutput()
+			cancel()
+			if err != nil {
+				t.Fatalf("browser telemetry: %v\n%s", err, output)
+			}
+			t.Log(string(output))
+		}
+	})
 }

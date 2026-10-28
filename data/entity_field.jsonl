@@ -22,3 +22,73 @@
 {"entity_id":"ST-DECL-EN07","position":1,"name":"Component name","meaning":"The component the service accepts, whose stage is not ga.","type":"text","required":true,"example":"rh-sso-auth"}
 {"entity_id":"ST-DECL-EN07","position":2,"name":"Accepted until","meaning":"The date the acceptance runs out, which may not be later than the component's own sunset.","type":"date","required":true,"example":"2027-03-01"}
 {"entity_id":"ST-DECL-EN07","position":3,"name":"Reason","meaning":"Why the service accepts it, so a reader can judge the risk.","type":"text","required":true,"example":"SSO migration pilot, ticket PLAT-1234"}
+{"entity_id":"ST-DIS-EN06","position":1,"name":"Component","meaning":"The component's name.","type":"text","required":true,"example":"rest-api"}
+{"entity_id":"ST-DIS-EN06","position":2,"name":"Digest","meaning":"The component digest whose standing this is.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-DIS-EN07","position":1,"name":"Successor digest","meaning":"The digest that replaces this one. The platform engineer declares it.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-DIS-EN07","position":2,"name":"Fails after","meaning":"The date after which a pin to the superseded digest fails.","type":"date","required":true,"example":"2027-01-31"}
+{"entity_id":"ST-DIS-EN07","position":3,"name":"Needs declaration change","meaning":"Whether taking the successor needs a change to the service declaration.","type":"yes/no","required":true,"example":"false"}
+{"entity_id":"ST-DIS-EN07","position":4,"name":"Needs fill change","meaning":"Whether taking the successor needs a change to a fill.","type":"yes/no","required":true,"example":"false"}
+{"entity_id":"ST-DIS-EN07","position":5,"name":"Recorded on","meaning":"The date the platform engineer recorded the supersession.","type":"date","required":true,"example":"2026-11-02"}
+{"entity_id":"ST-DIS-EN08","position":1,"name":"Fails after","meaning":"The date after which a pin to the withdrawn digest fails.","type":"date","required":true,"example":"2026-12-15"}
+{"entity_id":"ST-DIS-EN08","position":2,"name":"Reason","meaning":"Why the digest is withdrawn, for the people who pin it.","type":"text","required":true,"example":"The token check accepts an expired token."}
+{"entity_id":"ST-DIS-EN08","position":3,"name":"Recorded on","meaning":"The date the platform engineer recorded the withdrawal.","type":"date","required":true,"example":"2026-11-02"}
+{"entity_id":"ST-DIS-EN09","position":1,"name":"Source revision","meaning":"The exact commit the release is built from.","type_value_object_id":"ST-VO43","required":true,"column_name":"revision"}
+{"entity_id":"ST-DIS-EN09","position":2,"name":"Release tag","meaning":"The tag of the published release.","type":"text","required":true,"column_name":"tag_name","example":"compiler-<source revision>"}
+{"entity_id":"ST-DIS-EN09","position":3,"name":"Checks run","meaning":"The CI run of the compiler checks at the source revision.","type":"whole number","required":true,"example":"101"}
+{"entity_id":"ST-DIS-EN09","position":4,"name":"Signed artifact run","meaning":"The CI run that built and signed the compiler at the source revision.","type":"whole number","required":true,"example":"202"}
+{"entity_id":"ST-DIS-EN09","position":5,"name":"Immutable","meaning":"Whether the published release can no longer change.","type":"yes/no","required":false,"example":"true"}
+{"entity_id":"ST-DIS-EN09","position":6,"name":"Compiler digest","meaning":"The digest of the published compiler binary.","type":"text","required":false,"example":"sha256:<64 hexadecimal digits>"}
+{"entity_id":"ST-DIS-EN10","position":1,"name":"Workflow","meaning":"The CI workflow the job ran in.","type":"text","required":true,"example":".github/workflows/checks.yml"}
+{"entity_id":"ST-DIS-EN10","position":2,"name":"Job","meaning":"The job's name.","type":"text","required":true,"example":"linux-amd64"}
+{"entity_id":"ST-DIS-EN10","position":3,"name":"Conclusion","meaning":"How the job ended. Only success qualifies.","type":"text","required":true,"example":"success"}
+{"entity_id":"ST-DIS-EN11","position":1,"name":"Name","meaning":"The asset's name.","type":"text","required":true,"example":"stego-linux-amd64"}
+{"entity_id":"ST-DIS-EN11","position":2,"name":"Size","meaning":"The asset's size in bytes.","type":"whole number","required":true,"example":"31457280"}
+{"entity_id":"ST-DIS-EN11","position":3,"name":"Digest","meaning":"The digest the release publishes for the asset.","type":"text","required":true,"example":"sha256:<64 hexadecimal digits>"}
+{"entity_id":"ST-DIS-EN12","position":1,"name":"Result folder","meaning":"The new folder that holds the installed compiler.","type":"text","required":true,"example":"/opt/stego/compiler"}
+{"entity_id":"ST-DIS-EN12","position":2,"name":"Source revision","meaning":"The commit of the release that was installed.","type_value_object_id":"ST-VO43","required":true}
+{"entity_id":"ST-DIS-EN12","position":3,"name":"Platform","meaning":"The platform the release is qualified for, as its signed record states it.","type":"text","required":true,"example":"linux/amd64"}
+{"entity_id":"ST-DIS-EN12","position":4,"name":"Build identity","meaning":"The build identity of the installed compiler.","type_value_object_id":"ST-VO42","required":true}
+{"entity_id":"ST-GEN-EN01","position":1,"name":"Service name","meaning":"The service the record describes. STEGO does not write it yet.","type":"text","required":true,"example":"user-management"}
+{"entity_id":"ST-GEN-EN01","position":2,"name":"Format version","meaning":"The version of the record's format. A documented field changes only with this version.","type":"whole number","required":true,"column_name":"format_version","example":"1"}
+{"entity_id":"ST-GEN-EN01","position":3,"name":"Declaration digest","meaning":"The digest of the service declaration that apply read.","type_value_object_id":"ST-VO41","required":true,"column_name":"service_hash"}
+{"entity_id":"ST-GEN-EN01","position":4,"name":"Registry reference","meaning":"The registry reference from .stego/config.yaml.","type":"text","required":false,"column_name":"registry_sha","example":"local"}
+{"entity_id":"ST-GEN-EN01","position":5,"name":"Registry content digest","meaning":"The digest of the registry content that apply read. A legacy record can leave it out.","type_value_object_id":"ST-VO41","required":false,"column_name":"registry_content_sha256"}
+{"entity_id":"ST-GEN-EN01","position":6,"name":"Compiler build","meaning":"The build identity of the compiler that ran the apply. A legacy record can leave it out.","type_value_object_id":"ST-VO42","required":false,"column_name":"compiler_build"}
+{"entity_id":"ST-GEN-EN01","position":7,"name":"Output folder","meaning":"The folder, in the project, that holds the generated files.","type":"text","required":true,"column_name":"output_dir","example":"out"}
+{"entity_id":"ST-GEN-EN02","position":1,"name":"Component","meaning":"The component's name.","type":"text","required":true,"example":"rest-api"}
+{"entity_id":"ST-GEN-EN02","position":2,"name":"Version","meaning":"The component's version.","type":"text","required":true,"example":"2.4.0"}
+{"entity_id":"ST-GEN-EN02","position":3,"name":"Digest","meaning":"The digest of the component's own content. Today this column holds the registry reference, not a real per-component digest.","type_value_object_id":"ST-VO41","required":true,"column_name":"sha"}
+{"entity_id":"ST-GEN-EN03","position":1,"name":"Path","meaning":"The file's path in the output folder.","type":"text","required":true,"example":"internal/api/handler.go"}
+{"entity_id":"ST-GEN-EN03","position":2,"name":"Hash","meaning":"The digest of the content apply wrote.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-GEN-EN04","position":1,"name":"Path","meaning":"The file's path in the project.","type":"text","required":true,"example":"service.yaml"}
+{"entity_id":"ST-GEN-EN04","position":2,"name":"Exists","meaning":"Whether the file existed when apply read it.","type":"yes/no","required":true,"example":"true"}
+{"entity_id":"ST-GEN-EN04","position":3,"name":"Hash","meaning":"The digest of the file's content, when it exists.","type_value_object_id":"ST-VO41","required":false,"column_name":"sha256"}
+{"entity_id":"ST-GEN-EN04","position":4,"name":"Mode","meaning":"The file's permission bits, when it exists.","type":"whole number","required":false,"example":"420"}
+{"entity_id":"ST-GEN-EN05","position":1,"name":"Output folder","meaning":"The output folder the apply writes to.","type":"text","required":true,"column_name":"output_dir","example":"out"}
+{"entity_id":"ST-GEN-EN05","position":2,"name":"Expected files","meaning":"The state each file must have before the apply writes it.","type":"text","required":true,"column_name":"expected"}
+{"entity_id":"ST-GEN-EN05","position":3,"name":"Operations","meaning":"Each file write in order, with the file's state before and after it.","type":"text","required":true}
+{"entity_id":"ST-SUP-EN01","position":1,"name":"Content digest","meaning":"The digest of every input file of the active registry, which pins its content as a whole.","type":"text","required":true,"example":"94d285d7c1e0"}
+{"entity_id":"ST-SUP-EN02","position":1,"name":"Path","meaning":"The output path, from the generated project root.","type":"text","required":true,"example":"internal/storage"}
+{"entity_id":"ST-SUP-EN03","position":1,"name":"Archetype name","meaning":"The archetype's name, unique in its registry.","type":"text","required":true,"example":"rest-crud"}
+{"entity_id":"ST-SUP-EN03","position":2,"name":"Version","meaning":"The version the archetype declares.","type":"text","required":true,"example":"3.0.0"}
+{"entity_id":"ST-SUP-EN04","position":1,"name":"Component name","meaning":"The component the archetype includes, by its name in the active registry.","type":"text","required":true,"example":"postgres-adapter"}
+{"entity_id":"ST-SUP-EN04","position":2,"name":"Default for port","meaning":"The port this component answers unless the declaration overrides it.","type_aggregate_id":"ST-SUP-A3","required":false,"example":"auth-provider"}
+{"entity_id":"ST-SUP-EN05","position":1,"name":"Mixin name","meaning":"The mixin's name.","type":"text","required":true,"example":"event-publisher"}
+{"entity_id":"ST-SUP-EN06","position":1,"name":"Port name","meaning":"The port's name, unique in its registry.","type":"text","required":true,"example":"auth-provider"}
+{"entity_id":"ST-SUP-EN06","position":2,"name":"Meaning","meaning":"What a provider of this port undertakes to supply.","type":"text","required":true,"example":"A verified identity for each request"}
+{"entity_id":"ST-SUP-EN07","position":1,"name":"Field name","meaning":"The field a provider fills.","type":"text","required":true,"example":"Identity.UserID"}
+{"entity_id":"ST-SUP-EN07","position":2,"name":"Required meaning","meaning":"What every provider must put in the field.","type":"text","required":true,"example":"The verified subject, which never changes"}
+{"entity_id":"ST-SUP-EN08","position":1,"name":"Slot name","meaning":"The slot's name, unique in its component.","type":"text","required":true,"example":"before_create"}
+{"entity_id":"ST-SUP-EN08","position":2,"name":"Component name","meaning":"The component that declares the slot, by its name in the active registry.","type":"text","required":true,"example":"rest-api"}
+{"entity_id":"ST-SUP-EN08","position":3,"name":"Contract","meaning":"The typed contract a fill implements, as a protobuf service.","type":"text","required":true,"example":"slots/before_create.proto"}
+{"entity_id":"ST-SUP-EN09","position":1,"name":"Component name","meaning":"The component's name, unique in the active registry.","type":"text","required":true,"example":"postgres-adapter"}
+{"entity_id":"ST-SUP-EN09","position":2,"name":"Version","meaning":"The version the component declares. It changes whenever the emitted code changes.","type":"text","required":true,"example":"4.13.0"}
+{"entity_id":"ST-SUP-EN09","position":3,"name":"Stage","meaning":"How far the component is on the maturity ladder.","type_value_object_id":"ST-VO02","required":true,"example":"ga"}
+{"entity_id":"ST-SUP-EN09","position":4,"name":"Sunset","meaning":"The date an alpha or beta component stops working. A ga component has none.","type":"date","required":false,"example":"2027-03-31"}
+{"entity_id":"ST-SUP-EN09","position":5,"name":"Config schema","meaning":"Each setting a declaration may give the component, with its type, its allowed values, its default and whether it is optional.","type":"text","required":false,"example":"pool_size: type=int, default=10"}
+{"entity_id":"ST-SUP-EN09","position":6,"name":"Required ports","meaning":"The ports the component needs another component to provide.","type":"text","required":false,"example":"auth-provider"}
+{"entity_id":"ST-SUP-EN09","position":7,"name":"Provided ports","meaning":"The ports the component provides.","type":"text","required":false,"example":"storage-adapter"}
+{"entity_id":"ST-SUP-EN10","position":1,"name":"Location","meaning":"Where the registry is: a pinned Git repository or a local folder.","type":"text","required":true,"example":"https://github.com/example/stego-registry"}
+{"entity_id":"ST-SUP-EN10","position":2,"name":"Reference","meaning":"The exact commit that pins the registry content.","type":"text","required":true,"example":"94d285d7c1e0b3f2a9d4e5f6a7b8c9d0e1f2a3b4"}
+{"entity_id":"ST-SUP-EN10","position":3,"name":"Subfolder","meaning":"The folder in the repository that holds the registry, when it is not the root.","type":"text","required":false,"example":"registry"}
+{"entity_id":"ST-SUP-EN10","position":4,"name":"Trust","meaning":"Whether the source is the reviewed common registry or a local extension.","type_value_object_id":"ST-VO03","required":true,"example":"common"}
