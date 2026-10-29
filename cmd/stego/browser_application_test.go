@@ -11,22 +11,7 @@ import (
 	"testing"
 )
 
-func TestPrivateBrowserApplicationCommands(t *testing.T) {
-	registry, err := filepath.Abs("../../registry")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Chdir(t.TempDir())
-	t.Setenv("STEGO_REGISTRY", registry)
-	t.Setenv("STEGO_MODULE", "example.com/private-browser")
-	t.Setenv("STEGO_GO_VERSION", "1.26.8")
-	if err := os.Mkdir("ui", 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile("ui/index.html", []byte(`<html><head></head><body>Private application</body></html>`), 0600); err != nil {
-		t.Fatal(err)
-	}
-	declaration := `kind: service
+var browserDeclaration = `kind: service
 name: private-browser
 archetype: browser-service
 language: go
@@ -47,6 +32,23 @@ overrides:
         files_secret: application-files
         health_path: /api/v1/readyz
 `
+
+func TestPrivateBrowserApplicationCommands(t *testing.T) {
+	registry, err := filepath.Abs("../../registry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(t.TempDir())
+	t.Setenv("STEGO_REGISTRY", registry)
+	t.Setenv("STEGO_MODULE", "example.com/private-browser")
+	t.Setenv("STEGO_GO_VERSION", "1.26.8")
+	if err := os.Mkdir("ui", 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("ui/index.html", []byte(`<html><head></head><body>Private application</body></html>`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	declaration := browserDeclaration
 	if err := os.WriteFile("service.yaml", []byte(declaration), 0600); err != nil {
 		t.Fatal(err)
 	}

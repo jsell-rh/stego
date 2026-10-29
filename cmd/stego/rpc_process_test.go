@@ -5,20 +5,42 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
+
+const rpcProto = `syntax="proto3";package sample.v1;message Request{string text=1;}message Response{string text=1;}service Records{rpc Echo(Request)returns(Response);rpc Watch(Request)returns(stream Response);}`
+
+const rpcDeclaration = `kind: service
+name: records
+archetype: rpc-service
+language: go
+overrides:
+  jwt-auth:
+    mode: verifier
+  grpc-processes:
+    processes: [{name: records, factory_package: factory}]
+    proto_files: [{path: api.proto, import_path: sample/v1/records.proto}]
+`
+
+// rpcFactory returns the process factory that rpcDeclaration names.
+func rpcFactory(t *testing.T) []byte {
+	t.Helper()
+	_, source, _, _ := runtime.Caller(0)
+	factory, err := os.ReadFile(filepath.Join(filepath.Dir(source), "../../internal/generator/grpcapplication/testdata/process_factory.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The archetype uses the registry namespace. The generator fixture renames it.
+	return bytes.ReplaceAll(factory, []byte("example.com/grpc-test/out/telemetry"), []byte("example.com/grpc-test/out/tracing"))
+}
 
 func TestRPCProcessCommandsWithoutStorage(t *testing.T) {
 	registry, err := filepath.Abs("../../registry")
 	if err != nil {
 		t.Fatal(err)
 	}
-	factory, err := os.ReadFile("../../internal/generator/grpcapplication/testdata/process_factory.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The archetype uses the registry namespace. The generator fixture renames it.
-	factory = bytes.ReplaceAll(factory, []byte("example.com/grpc-test/out/telemetry"), []byte("example.com/grpc-test/out/tracing"))
+	factory := rpcFactory(t)
 	project := t.TempDir()
 	t.Chdir(project)
 	t.Setenv("STEGO_REGISTRY", registry)
@@ -35,18 +57,8 @@ func TestRPCProcessCommandsWithoutStorage(t *testing.T) {
 		}
 	}
 	write("factory/rpc.go", factory)
-	write("api.proto", []byte(`syntax="proto3";package sample.v1;message Request{string text=1;}message Response{string text=1;}service Records{rpc Echo(Request)returns(Response);rpc Watch(Request)returns(stream Response);}`))
-	write("service.yaml", []byte(`kind: service
-name: records
-archetype: rpc-service
-language: go
-overrides:
-  jwt-auth:
-    mode: verifier
-  grpc-processes:
-    processes: [{name: records, factory_package: factory}]
-    proto_files: [{path: api.proto, import_path: sample/v1/records.proto}]
-`))
+	write("api.proto", []byte(rpcProto))
+	write("service.yaml", []byte(rpcDeclaration))
 	for _, command := range []func([]string) error{runValidate, runApply, runDependencies, runApply, runDrift} {
 		if err := command(nil); err != nil {
 			t.Fatal(err)
