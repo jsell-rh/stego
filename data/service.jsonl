@@ -1,5 +1,7 @@
 {"id":"ST-BLD-DS01-SV","title":"appbuild.WriteSBOMs","domain_service_id":"ST-BLD-DS01","file":"internal/appbuild/sbom.go","description":"Not written yet."}
 {"id":"ST-BLD-DS02-SV","title":"appbuild.Verify","domain_service_id":"ST-BLD-DS02","file":"internal/appbuild/verify.go","description":"Verify, VerifySource and VerifyImage share the record checks; none checks a signature yet."}
+{"id":"ST-DLV-DS01-SV","title":"delivery.DeriveRequirements","domain_service_id":"ST-DLV-DS01","file":"internal/delivery/requirements.go","description":"Not written yet."}
+{"id":"ST-DLV-DS02-SV","title":"delivery.CheckEnvironment","domain_service_id":"ST-DLV-DS02","file":"internal/delivery/environment.go","description":"Not written yet."}
 {"id":"ST-EXT-DS01-SV","title":"fill.Digest","domain_service_id":"ST-EXT-DS01","file":"internal/fill/digest.go","description":"Not written yet."}
 {"id":"ST-EXT-DS02-SV","title":"fill.VerifySignOff","domain_service_id":"ST-EXT-DS02","file":"internal/fill/signoff.go","description":"Not written yet. It will call ssh-keygen -Y verify or gpg --verify against the SIGNERS file."}
 {"id":"ST-GEN-DS01-SV","title":"compiler.ComponentDigest","domain_service_id":"ST-GEN-DS01","file":"internal/compiler/component_digest.go","description":"Not written yet: apply records the registry reference as each component's digest today."}

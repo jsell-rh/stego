@@ -26,6 +26,9 @@
 {"read_model_id":"ST-DIS-RM03","position":8,"name":"Past its fail date","meaning":"Whether the fail date has passed, so validate fails and apply writes nothing.","type":"yes/no","required":true,"example":"false"}
 {"read_model_id":"ST-DIS-RM04","position":1,"name":"Version","meaning":"The compiler's version.","type":"text","required":true,"example":"dev"}
 {"read_model_id":"ST-DIS-RM04","position":2,"name":"Build","meaning":"The compiler's build identity.","type_value_object_id":"ST-VO42","required":true}
+{"read_model_id":"ST-DLV-RM01","position":1,"name":"Requirement","meaning":"The requirement's kind and name.","type":"text","required":true,"example":"secret orders-database"}
+{"read_model_id":"ST-DLV-RM01","position":2,"name":"Status","meaning":"One of met, missing or wrong type.","type":"text","required":true,"example":"missing"}
+{"read_model_id":"ST-DLV-RM01","position":3,"name":"Detail","meaning":"What is missing or wrong, such as a secret key.","type":"text","required":false,"example":"key password"}
 {"read_model_id":"ST-EXT-RM01","position":1,"name":"Fill name","meaning":"The fill.","type":"text","required":true,"example":"admin-creation-policy"}
 {"read_model_id":"ST-EXT-RM01","position":2,"name":"Collection","meaning":"The collection it serves.","type":"text","required":true,"example":"org-users"}
 {"read_model_id":"ST-EXT-RM01","position":3,"name":"Standing","meaning":"Its qualification standing.","type_value_object_id":"ST-VO45","required":true}

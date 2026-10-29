@@ -3,6 +3,8 @@
 {"id":"ST-DIS-SP02-PR","title":"lifecycle.IsSuperseded","specification_id":"ST-DIS-SP02","file":"internal/lifecycle/standing.go","description":"Not written yet."}
 {"id":"ST-DIS-SP03-PR","title":"lifecycle.IsPastFailDate","specification_id":"ST-DIS-SP03","file":"internal/lifecycle/standing.go","description":"Not written yet."}
 {"id":"ST-DIS-SP04-PR","title":"lifecycle.IsWithdrawn","specification_id":"ST-DIS-SP04","file":"internal/lifecycle/standing.go","description":"Not written yet."}
+{"id":"ST-DLV-SP01-PR","title":"delivery.requirementMet","specification_id":"ST-DLV-SP01","file":"internal/delivery/environment.go","description":"Not written yet."}
+{"id":"ST-DLV-SP02-PR","title":"delivery.pinned","specification_id":"ST-DLV-SP02","file":"internal/delivery/pin.go","description":"Not written yet."}
 {"id":"ST-EXT-SP01-PR","title":"fill.IsQualified","specification_id":"ST-EXT-SP01","file":"internal/fill/qualification.go","description":"Not written yet."}
 {"id":"ST-EXT-SP02-PR","title":"fill.FitsBinding","specification_id":"ST-EXT-SP02","file":"internal/fill/qualification.go","description":"Not written yet: no check compares a fill's implements with the slot it is bound to."}
 {"id":"ST-GEN-SP01-PR","title":"compiler.DetectDrift","specification_id":"ST-GEN-SP01","file":"internal/compiler/drift.go","description":"DetectDrift compares each generated file on disk with the hash in the record, and lists it as modified or deleted."}

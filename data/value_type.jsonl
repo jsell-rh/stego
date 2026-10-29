@@ -11,3 +11,6 @@
 {"id":"ST-VO48-VT","title":"appbuild.Inventory","value_object_id":"ST-VO48","file":"internal/appbuild/inventory.go","description":"Inventory holds the SDK's file count, bytes and digest. The release it must match is the compiler's GoVersion today, not an archetype's pin."}
 {"id":"ST-VO49-VT","title":"appbuild.SBOMFormat","value_object_id":"ST-VO49","file":"internal/appbuild/sbom.go","description":"Not written yet."}
 {"id":"ST-VO50-VT","title":"appbuild.SignerIdentity","value_object_id":"ST-VO50","file":"internal/appbuild/sign.go","description":"Not written yet."}
+{"id":"ST-VO51-VT","title":"delivery.Provider","value_object_id":"ST-VO51","file":"internal/delivery/provider.go","description":"Not written yet."}
+{"id":"ST-VO52-VT","title":"delivery.PinnedReference","value_object_id":"ST-VO52","file":"internal/delivery/pin.go","description":"Not written yet."}
+{"id":"ST-VO53-VT","title":"delivery.RequirementKind","value_object_id":"ST-VO53","file":"internal/delivery/requirements.go","description":"Not written yet."}

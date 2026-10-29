@@ -5,6 +5,7 @@
 {"source_id":"ST-DIS-QRY03","target_id":"ST-DIS-SP02"}
 {"source_id":"ST-DIS-QRY03","target_id":"ST-DIS-SP03"}
 {"source_id":"ST-DIS-QRY03","target_id":"ST-DIS-SP04"}
+{"source_id":"ST-DLV-QRY01","target_id":"ST-DLV-SP01"}
 {"source_id":"ST-EXT-QRY01","target_id":"ST-EXT-SP01"}
 {"source_id":"ST-EXT-QRY02","target_id":"ST-EXT-SP01"}
 {"source_id":"ST-EXT-QRY02","target_id":"ST-EXT-SP02"}

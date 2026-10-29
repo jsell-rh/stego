@@ -21,6 +21,13 @@
 {"id":"ST-DIS-EN10","title":"Required job result","aggregate_id":"ST-DIS-A3","role":"child","in_root_table":true,"description":"The conclusion of one job that qualification requires."}
 {"id":"ST-DIS-EN11","title":"Release asset","aggregate_id":"ST-DIS-A3","role":"child","in_root_table":true,"description":"One file of the published release."}
 {"id":"ST-DIS-EN12","title":"Compiler installation","aggregate_id":"ST-DIS-A4","role":"root","description":"One installed compiler: the binary and its signed build record in a result folder."}
+{"id":"ST-DLV-EN01","title":"Platform requirements","aggregate_id":"ST-DLV-A1","role":"root","description":"The service's platform-requirements.yaml."}
+{"id":"ST-DLV-EN02","title":"Platform requirement","aggregate_id":"ST-DLV-A1","role":"child","in_root_table":true,"description":"One thing the environment must supply, such as a secret with its keys or an egress endpoint with its port."}
+{"id":"ST-DLV-EN03","title":"Delivery pipeline","aggregate_id":"ST-DLV-A2","role":"root","description":"The generated workflow or PipelineRun file."}
+{"id":"ST-DLV-EN04","title":"Kubernetes base","aggregate_id":"ST-DLV-A3","role":"root","description":"The kustomization.yaml and the resources it lists."}
+{"id":"ST-DLV-EN05","title":"Delivery object","aggregate_id":"ST-DLV-A4","role":"root","description":"The Argo CD Application for the service."}
+{"id":"ST-DLV-EN06","title":"Delivery candidate","aggregate_id":"ST-DLV-A5","role":"root","description":"The image, the build it must match, and who built it."}
+{"id":"ST-DLV-EN07","title":"Check result","aggregate_id":"ST-DLV-A5","role":"child","in_root_table":true,"description":"The result of one STEGO check on the candidate."}
 {"id":"ST-EXT-EN01","title":"Fill","aggregate_id":"ST-EXT-A1","role":"root","description":"The fill as fill.yaml states it: its name, the slot it implements and the collection it serves. Its code and tests sit beside fill.yaml."}
 {"id":"ST-EXT-EN02","title":"Test evidence","aggregate_id":"ST-EXT-A1","role":"child","in_root_table":true,"description":"The record, in fill.yaml, that the fill's tests passed against one exact state of the fill and of its slot contract."}
 {"id":"ST-EXT-EN03","title":"Sign-off","aggregate_id":"ST-EXT-A1","role":"child","in_root_table":true,"description":"A person's signature, in fill.yaml, of the fill's test evidence. It vouches that a person lets this exact fill ship."}

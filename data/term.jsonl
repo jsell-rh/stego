@@ -20,6 +20,13 @@
 {"id":"ST-DIS-TM13","title":"Qualification","domain_id":"ST-DIS","meaning":"The check that the CI runs, required jobs and signed artifacts of a compiler release all passed at its exact commit."}
 {"id":"ST-DIS-TM14","title":"Build identity","domain_id":"ST-DIS","meaning":"What the compiler records about its own build: its Go version, platform, module version, revision and source state."}
 {"id":"ST-DIS-TM15","title":"Qualified platform","domain_id":"ST-DIS","meaning":"The one platform a compiler release is qualified for: Linux amd64."}
+{"id":"ST-DLV-TM01","title":"platform-requirements.yaml","domain_id":"ST-DLV","meaning":"The typed file every service writes that states what its environment must supply, and holds no environment values."}
+{"id":"ST-DLV-TM02","title":"Environment file","domain_id":"ST-DLV","meaning":"The platform's typed file for one service in one environment, kept in a platform-owned repo, that supplies every value the requirements name."}
+{"id":"ST-DLV-TM03","title":"Kubernetes base","domain_id":"ST-DLV","meaning":"The plain kustomize base STEGO writes; the platform's overlay builds on it."}
+{"id":"ST-DLV-TM04","title":"Overlay","domain_id":"ST-DLV","meaning":"The platform's kustomize layer for one environment: image digest, namespace, replicas, PodDisruptionBudget and resource changes."}
+{"id":"ST-DLV-TM05","title":"Delivery object","domain_id":"ST-DLV","meaning":"The object a GitOps tool reads to deliver a service; an Argo CD Application for now."}
+{"id":"ST-DLV-TM06","title":"Delivery candidate","domain_id":"ST-DLV","meaning":"An image a CI provider built, before every STEGO check has passed on it."}
+{"id":"ST-DLV-TM07","title":"Trusted signer","domain_id":"ST-DLV","meaning":"The one identity a CI provider's images may be signed by: a pinned workflow's keyless identity, or a Tekton Chains key."}
 {"id":"ST-EXT-TM01","title":"Fill","domain_id":"ST-EXT","meaning":"Hand-written code in a service's fills/ folder that implements one slot's contract for one collection, with its own tests."}
 {"id":"ST-EXT-TM02","title":"Test evidence","domain_id":"ST-EXT","meaning":"The record in fill.yaml that a fill's tests passed against one exact state of the fill and its slot contract."}
 {"id":"ST-EXT-TM03","title":"Sign-off","domain_id":"ST-EXT","meaning":"A person's key signature, in fill.yaml, of a fill's test evidence."}

@@ -78,6 +78,29 @@
 {"entity_id":"ST-DIS-EN12","position":2,"name":"Source revision","meaning":"The commit of the release that was installed.","type_value_object_id":"ST-VO43","required":true}
 {"entity_id":"ST-DIS-EN12","position":3,"name":"Platform","meaning":"The platform the release is qualified for, as its signed record states it.","type":"text","required":true,"example":"linux/amd64"}
 {"entity_id":"ST-DIS-EN12","position":4,"name":"Build identity","meaning":"The build identity of the installed compiler.","type_value_object_id":"ST-VO42","required":true}
+{"entity_id":"ST-DLV-EN01","position":1,"name":"Service name","meaning":"The service the requirements belong to.","type":"text","required":true,"example":"orders"}
+{"entity_id":"ST-DLV-EN01","position":2,"name":"Schema version","meaning":"The version of the requirements format.","type":"whole number","required":true,"example":"1"}
+{"entity_id":"ST-DLV-EN01","position":3,"name":"Generation record digest","meaning":"The digest of the generation record the file was written with.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-DLV-EN02","position":1,"name":"Kind","meaning":"What sort of thing it is.","type_value_object_id":"ST-VO53","required":true}
+{"entity_id":"ST-DLV-EN02","position":2,"name":"Name","meaning":"The name the service reads it by.","type":"text","required":true,"example":"orders-database"}
+{"entity_id":"ST-DLV-EN02","position":3,"name":"Shape","meaning":"What a value must hold, such as a secret's keys or an endpoint's port.","type":"text","required":false,"example":"keys: [url, password]"}
+{"entity_id":"ST-DLV-EN02","position":4,"name":"Needed by","meaning":"The component that needs it.","type":"text","required":true,"example":"postgres-adapter"}
+{"entity_id":"ST-DLV-EN03","position":1,"name":"Provider","meaning":"The CI system.","type_value_object_id":"ST-VO51","required":true}
+{"entity_id":"ST-DLV-EN03","position":2,"name":"Pipeline","meaning":"The platform's reusable workflow, or the Konflux standard pipeline bundle.","type_value_object_id":"ST-VO52","required":true}
+{"entity_id":"ST-DLV-EN03","position":3,"name":"STEGO checks","meaning":"The pinned bundle or action that runs every STEGO check.","type_value_object_id":"ST-VO52","required":true}
+{"entity_id":"ST-DLV-EN03","position":4,"name":"Trusted signer","meaning":"The one identity that may sign this pipeline's images.","type_value_object_id":"ST-VO50","required":true}
+{"entity_id":"ST-DLV-EN04","position":1,"name":"Service name","meaning":"The service.","type":"text","required":true,"example":"orders"}
+{"entity_id":"ST-DLV-EN04","position":2,"name":"Image name","meaning":"The image repository, with no tag or digest; the overlay sets the digest.","type":"text","required":true,"example":"orders"}
+{"entity_id":"ST-DLV-EN04","position":3,"name":"Resource defaults","meaning":"The default CPU, memory and ephemeral storage requests and limits.","type":"text","required":true,"example":"100m/128Mi to 1/512Mi"}
+{"entity_id":"ST-DLV-EN05","position":1,"name":"Tool","meaning":"The GitOps tool; only argocd for now.","type":"text","required":true,"example":"argocd"}
+{"entity_id":"ST-DLV-EN05","position":2,"name":"Project","meaning":"The Argo CD project the delivery stanza names.","type":"text","required":true,"example":"orders"}
+{"entity_id":"ST-DLV-EN05","position":3,"name":"Base path","meaning":"The path to the service's Kubernetes base.","type":"text","required":true,"example":"deploy/base"}
+{"entity_id":"ST-DLV-EN06","position":1,"name":"Source revision","meaning":"The commit built.","type_value_object_id":"ST-VO43","required":true}
+{"entity_id":"ST-DLV-EN06","position":2,"name":"Image digest","meaning":"The image's digest.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-DLV-EN06","position":3,"name":"Build record digest","meaning":"The stego build record the image's executable must match.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-DLV-EN06","position":4,"name":"Provider","meaning":"The CI system that built the image.","type_value_object_id":"ST-VO51","required":true}
+{"entity_id":"ST-DLV-EN07","position":1,"name":"Check","meaning":"One of drift, vet, test, build, executable match.","type":"text","required":true,"example":"executable match"}
+{"entity_id":"ST-DLV-EN07","position":2,"name":"Passed","meaning":"Whether the check passed.","type":"yes/no","required":true}
 {"entity_id":"ST-EXT-EN01","position":1,"name":"Name","meaning":"The fill's name, which is also its folder under fills/.","type":"text","required":true,"example":"admin-creation-policy"}
 {"entity_id":"ST-EXT-EN01","position":2,"name":"Implements","meaning":"The one slot whose contract the fill implements.","type_value_object_id":"ST-VO46","required":true}
 {"entity_id":"ST-EXT-EN01","position":3,"name":"Collection","meaning":"The collection the fill serves.","type":"text","required":true,"example":"org-users"}

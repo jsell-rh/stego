@@ -5,6 +5,7 @@
 {"id":"ST-DIS-QRY01-H","title":"fleet.FindByDigest","query_id":"ST-DIS-QRY01","file":"internal/fleet/query.go","description":"Not written yet."}
 {"id":"ST-DIS-QRY03-H","title":"lifecycle.PinStanding","query_id":"ST-DIS-QRY03","file":"internal/lifecycle/standing.go","description":"Not written yet."}
 {"id":"ST-DIS-QRY04-H","title":"buildidentity.Current","query_id":"ST-DIS-QRY04","file":"internal/buildidentity/runtime.go","description":"Current reads the build identity from the Go build metadata. Apply and the version command use this one source."}
+{"id":"ST-DLV-QRY01-H","title":"delivery.UnmetRequirements","query_id":"ST-DLV-QRY01","file":"internal/delivery/environment.go","description":"Not written yet."}
 {"id":"ST-EXT-QRY01-H","title":"main.runRegistryFills","query_id":"ST-EXT-QRY01","file":"cmd/stego/main.go","description":"runRegistryFills reads each fills/<name>/fill.yaml and matches the slot part of implements."}
 {"id":"ST-EXT-QRY02-H","title":"fill.ListQualification","query_id":"ST-EXT-QRY02","file":"internal/fill/qualification.go","description":"Not written yet."}
 {"id":"ST-GEN-QRY01-H","title":"compiler.DetectDrift","query_id":"ST-GEN-QRY01","file":"internal/compiler/drift.go","description":"DetectDrift refuses while a journal is pending, reads the record, and compares every generated file and recorded input with the disk."}

@@ -4,6 +4,7 @@
 {"id":"ST-DIS-RM01","title":"Fleet","domain_id":"ST-DIS","description":"Every service whose record a sweep reads in the checkouts a platform engineer names, with each component it pins. It is fed by Generating's published event Service build applied, whose durable form is the committed record."}
 {"id":"ST-DIS-RM03","title":"Pin standing","domain_id":"ST-DIS","description":"Each component pin of one service, with the standing that the digest lifecycle gives it."}
 {"id":"ST-DIS-RM04","title":"Compiler identity","domain_id":"ST-DIS","description":"The version and build identity of the compiler that runs, which is the identity it writes into a record."}
+{"id":"ST-DLV-RM01","title":"Environment fit","domain_id":"ST-DLV","description":"For one service and one environment file, each platform requirement and whether the environment meets it."}
 {"id":"ST-EXT-RM01","title":"Fill catalog","domain_id":"ST-EXT","description":"Every fill in the project that implements one slot, with its collection and its qualification standing, so an author or an agent can reuse a fill before writing a new one."}
 {"id":"ST-EXT-RM02","title":"Fill qualification","domain_id":"ST-EXT","description":"Each fill the declaration binds, with its qualification standing, whether it fits its binding, and why it is not qualified when it is not."}
 {"id":"ST-GEN-RM01","title":"Drift","domain_id":"ST-GEN","description":"Every difference between a service's record and the files beside it, and whether the record itself can be trusted."}

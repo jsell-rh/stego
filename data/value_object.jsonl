@@ -10,4 +10,7 @@
 {"id":"ST-VO47","title":"Quality evidence kind","description":"Which part of the ga quality bar one piece of evidence shows."}
 {"id":"ST-VO48","title":"Go SDK pin","description":"One official Go SDK release, fixed by version and by the digest of its contents."}
 {"id":"ST-VO49","title":"SBOM format","description":"The format of one software bill of materials."}
-{"id":"ST-VO50","title":"Signer identity","description":"Who made a keyless signature, as the certificate the signing service issued states it."}
+{"id":"ST-VO50","title":"Signer identity","description":"Who made an image signature: a keyless identity that the signing service's certificate states, or a Tekton Chains signer named by its public key."}
+{"id":"ST-VO51","title":"CI provider","description":"The CI system that builds and signs a service's images."}
+{"id":"ST-VO52","title":"Pinned pipeline reference","description":"A reference to shared pipeline code that cannot move: a reusable workflow at one commit, or a Tekton bundle at one digest."}
+{"id":"ST-VO53","title":"Requirement kind","description":"What sort of thing a service needs the environment to supply."}

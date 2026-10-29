@@ -15,5 +15,10 @@
 {"value_object_id":"ST-VO48","position":1,"name":"Version","meaning":"The Go release.","type":"text","required":true,"example":"go1.26.8"}
 {"value_object_id":"ST-VO48","position":2,"name":"Contents digest","meaning":"The digest of the SDK's files, as Building takes its inventory.","type_value_object_id":"ST-VO41","required":true}
 {"value_object_id":"ST-VO49","position":1,"name":"Format","meaning":"One of SPDX or CycloneDX.","type":"text","required":true,"example":"SPDX"}
-{"value_object_id":"ST-VO50","position":1,"name":"Issuer","meaning":"The OIDC issuer that vouched for the signer.","type":"text","required":true,"example":"https://token.actions.githubusercontent.com"}
-{"value_object_id":"ST-VO50","position":2,"name":"Subject","meaning":"The workflow identity, with the exact reference it ran at.","type":"text","required":true,"example":"https://github.com/example/platform/.github/workflows/build.yml@refs/tags/v3"}
+{"value_object_id":"ST-VO50","position":1,"name":"Issuer","meaning":"The OIDC issuer that vouched for the signer.","type":"text","required":false,"example":"https://token.actions.githubusercontent.com"}
+{"value_object_id":"ST-VO50","position":2,"name":"Subject","meaning":"The workflow identity, with the exact reference it ran at.","type":"text","required":false,"example":"https://github.com/example/platform/.github/workflows/build.yml@refs/tags/v3"}
+{"value_object_id":"ST-VO50","position":3,"name":"Public key digest","meaning":"The digest of the Tekton Chains public key, for a key-based signer.","type_value_object_id":"ST-VO41","required":false}
+{"value_object_id":"ST-VO51","position":1,"name":"Provider","meaning":"One of github-actions or konflux.","type":"text","required":true,"example":"konflux"}
+{"value_object_id":"ST-VO52","position":1,"name":"Location","meaning":"The workflow file or the bundle repository.","type":"text","required":true,"example":"example/platform/.github/workflows/stego.yml"}
+{"value_object_id":"ST-VO52","position":2,"name":"Pin","meaning":"A full 40-character commit SHA, or a sha256 OCI digest.","type":"text","required":true,"example":"sha256:4f1c..."}
+{"value_object_id":"ST-VO53","position":1,"name":"Kind","meaning":"One of secret, configuration, database, topic, identity issuer, ingress, egress, cluster permission or pod security.","type":"text","required":true,"example":"secret"}

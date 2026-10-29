@@ -7,7 +7,7 @@
 {"id":"ST-BLD-UC04-FL01-S01","title":"The operator runs build verify on an executable, and STEGO reports whether it matches the trusted record","flow_id":"ST-BLD-UC04-FL01","path":"main","position":1}
 {"id":"ST-BLD-UC04-FL01-S02","title":"The operator runs build verify-source on a source snapshot, and STEGO reports whether it matches","flow_id":"ST-BLD-UC04-FL01","path":"main","position":2}
 {"id":"ST-BLD-UC05-FL01-S01","title":"The operator runs image build from the trusted build, and STEGO writes a scratch image and its record","flow_id":"ST-BLD-UC05-FL01","path":"main","position":1}
-{"id":"ST-BLD-UC05-FL01-S02","title":"The pinned workflow runs image sign, and STEGO signs the image and attaches both SBOMs","flow_id":"ST-BLD-UC05-FL01","path":"main","position":2}
+{"id":"ST-BLD-UC05-FL01-S02","title":"The provider's trusted signer signs the image and attaches both SBOMs","flow_id":"ST-BLD-UC05-FL01","path":"main","position":2}
 {"id":"ST-BLD-UC05-FL01-S03","title":"An untrusted build record or CA bundle stops image build","flow_id":"ST-BLD-UC05-FL01","path":"refused","position":1}
 {"id":"ST-BLD-UC06-FL01-S01","title":"The operator runs image publish, and STEGO pushes the image and reads it back","flow_id":"ST-BLD-UC06-FL01","path":"main","position":1}
 {"id":"ST-BLD-UC06-FL01-S02","title":"A consumer runs image retrieve, and STEGO checks the image, its build and its signature","flow_id":"ST-BLD-UC06-FL01","path":"main","position":2}
@@ -49,6 +49,18 @@
 {"id":"ST-DIS-UC09-FL01-S02","title":"The installer checks each asset digest and both signatures, and the signed record's platform, then puts the binary and its build record in place","flow_id":"ST-DIS-UC09-FL01","path":"main","position":2}
 {"id":"ST-DIS-UC09-FL01-S03","title":"The operator asks the installed compiler for its build identity, and it reports the identity it writes into a service's record","flow_id":"ST-DIS-UC09-FL01","path":"main","position":3}
 {"id":"ST-DIS-UC09-FL01-S04","title":"On any platform other than Linux amd64, the installer refuses before it downloads anything","flow_id":"ST-DIS-UC09-FL01","path":"refused","position":1}
+{"id":"ST-DLV-UC01-FL01-S01","title":"The service author runs stego apply, and STEGO writes platform-requirements.yaml with the rest of the generated files","flow_id":"ST-DLV-UC01-FL01","path":"main","position":1}
+{"id":"ST-DLV-UC02-FL01-S01","title":"The operator runs stego env check on an environment file, by hand or in the platform repo's CI, and STEGO reports that it meets every requirement","flow_id":"ST-DLV-UC02-FL01","path":"main","position":1}
+{"id":"ST-DLV-UC02-FL01-S02","title":"A requirement is unmet or a value is mistyped, so STEGO names each one and exits non-zero","flow_id":"ST-DLV-UC02-FL01","path":"refused","position":1}
+{"id":"ST-DLV-UC03-FL01-S01","title":"The service author runs stego apply, and STEGO writes the CI file for the provider the delivery stanza names","flow_id":"ST-DLV-UC03-FL01","path":"main","position":1}
+{"id":"ST-DLV-UC03-FL01-S02","title":"On a push, GitHub Actions runs the pinned reusable workflow, which runs the STEGO checks, stego build, stego image build and signs keyless","flow_id":"ST-DLV-UC03-FL01","path":"main","position":2}
+{"id":"ST-DLV-UC03-FL01-S03","title":"On a push, Konflux runs its standard pipeline from the offline Containerfile, then stego delivery check, and Tekton Chains signs","flow_id":"ST-DLV-UC03-FL01","path":"konflux","position":1}
+{"id":"ST-DLV-UC03-FL01-S04","title":"A STEGO check fails, so the pipeline stops and releases no image","flow_id":"ST-DLV-UC03-FL01","path":"refused","position":1}
+{"id":"ST-DLV-UC04-FL01-S01","title":"The platform engineer releases a ci-pipeline version with the new pin, and each service author runs stego apply, which changes only the pin","flow_id":"ST-DLV-UC04-FL01","path":"main","position":1}
+{"id":"ST-DLV-UC04-FL01-S02","title":"The new reference is not pinned, so stego apply refuses it and names it","flow_id":"ST-DLV-UC04-FL01","path":"refused","position":1}
+{"id":"ST-DLV-UC05-FL01-S01","title":"The service author runs stego apply, and STEGO writes the Kubernetes base and the delivery object","flow_id":"ST-DLV-UC05-FL01","path":"main","position":1}
+{"id":"ST-DLV-UC05-FL01-S02","title":"STEGO writes the Argo CD Application from the delivery stanza","flow_id":"ST-DLV-UC05-FL01","path":"main","position":2}
+{"id":"ST-DLV-UC05-FL01-S03","title":"The operator checks the environment file and commits the overlay, and Argo CD applies base and overlay","flow_id":"ST-DLV-UC05-FL01","path":"main","position":3}
 {"id":"ST-EXT-UC01-FL01-S01","title":"The agent runs fill create for the slot and collection, and STEGO writes a fill and a test that compile against the slot's contract","flow_id":"ST-EXT-UC01-FL01","path":"main","position":1}
 {"id":"ST-EXT-UC01-FL01-S02","title":"The agent writes the rule and its tests, binds the fill in the declaration, and runs stego test, and STEGO records the fill's evidence","flow_id":"ST-EXT-UC01-FL01","path":"main","position":2}
 {"id":"ST-EXT-UC01-FL01-S03","title":"A fill with no test file or a forbidden import gets no evidence, and STEGO names why","flow_id":"ST-EXT-UC01-FL01","path":"refused","position":1}

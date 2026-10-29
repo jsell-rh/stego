@@ -29,6 +29,15 @@
 {"domain_event_id":"ST-DIS-EV07","position":1,"name":"Source revision","meaning":"The commit of the installed release.","type_value_object_id":"ST-VO43","required":true}
 {"domain_event_id":"ST-DIS-EV07","position":2,"name":"Result folder","meaning":"The folder that holds the installed compiler.","type":"text","required":true}
 {"domain_event_id":"ST-DIS-EV07","position":3,"name":"Build identity","meaning":"The build identity of the installed compiler.","type_value_object_id":"ST-VO42","required":true}
+{"domain_event_id":"ST-DLV-EV01","position":1,"name":"Service name","meaning":"The service.","type":"text","required":true,"example":"orders"}
+{"domain_event_id":"ST-DLV-EV01","position":2,"name":"Requirements digest","meaning":"The digest of the new file.","type_value_object_id":"ST-VO41","required":true}
+{"domain_event_id":"ST-DLV-EV02","position":1,"name":"Provider","meaning":"The CI system.","type_value_object_id":"ST-VO51","required":true}
+{"domain_event_id":"ST-DLV-EV02","position":2,"name":"Pipeline","meaning":"The pinned pipeline.","type_value_object_id":"ST-VO52","required":true}
+{"domain_event_id":"ST-DLV-EV03","position":1,"name":"Service name","meaning":"The service.","type":"text","required":true,"example":"orders"}
+{"domain_event_id":"ST-DLV-EV04","position":1,"name":"Service name","meaning":"The service.","type":"text","required":true,"example":"orders"}
+{"domain_event_id":"ST-DLV-EV05","position":1,"name":"Image digest","meaning":"The image.","type_value_object_id":"ST-VO41","required":true}
+{"domain_event_id":"ST-DLV-EV05","position":2,"name":"Build record digest","meaning":"The build it matches.","type_value_object_id":"ST-VO41","required":true}
+{"domain_event_id":"ST-DLV-EV05","position":3,"name":"Provider","meaning":"Who built it.","type_value_object_id":"ST-VO51","required":true}
 {"domain_event_id":"ST-EXT-EV01","position":1,"name":"Fill name","meaning":"The new fill.","type":"text","required":true,"example":"admin-creation-policy"}
 {"domain_event_id":"ST-EXT-EV01","position":2,"name":"Implements","meaning":"The slot it implements.","type_value_object_id":"ST-VO46","required":true}
 {"domain_event_id":"ST-EXT-EV02","position":1,"name":"Fill name","meaning":"The fill whose tests passed.","type":"text","required":true,"example":"admin-creation-policy"}

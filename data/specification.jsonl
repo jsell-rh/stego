@@ -1,8 +1,10 @@
 {"id":"ST-BLD-SP01","title":"Build record is trusted","statement":"A build record is trusted when the digest of its canonical bytes equals a digest that verified provenance supplies."}
-{"id":"ST-BLD-SP02","title":"Image signature is acceptable","statement":"An image signature is acceptable when it is a keyless cosign signature in the transparency log, and its signer identity is the platform's pinned reusable workflow."}
+{"id":"ST-BLD-SP02","title":"Image signature is acceptable","statement":"An image signature is acceptable when it is in the transparency log or made by a trusted key, and its signer identity is the trusted signer the ci-pipeline component names for the provider that built the image."}
 {"id":"ST-DIS-SP02","title":"Digest is superseded","statement":"A component digest is superseded when its lifecycle holds a supersession."}
 {"id":"ST-DIS-SP03","title":"Digest is past its fail date","statement":"A component digest is past its fail date when its lifecycle holds a supersession or a withdrawal, and the date after which it fails has passed."}
 {"id":"ST-DIS-SP04","title":"Digest is withdrawn","statement":"A component digest is withdrawn when its lifecycle holds a withdrawal, whatever the date of the withdrawal."}
+{"id":"ST-DLV-SP01","title":"Requirement is met","statement":"A platform requirement is met when the environment file supplies, under its name, a value of its kind with every part its shape names, such as each key of a secret or the port of an egress endpoint."}
+{"id":"ST-DLV-SP02","title":"Reference is pinned","statement":"A pipeline reference is pinned when it names a full 40-character commit SHA or a sha256 OCI digest."}
 {"id":"ST-EXT-SP01","title":"Fill is qualified","statement":"A fill is qualified when its evidence names its current content digest and its slot contract's current digest, and a key in the project's SIGNERS file signed that evidence."}
 {"id":"ST-EXT-SP02","title":"Fill fits its binding","statement":"A fill fits a slot binding when it implements the bound slot and serves the bound collection."}
 {"id":"ST-GEN-SP01","title":"Generated file is hand-edited","statement":"A generated file is hand-edited when the file on disk is missing or no longer matches the hash its record holds."}

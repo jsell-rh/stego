@@ -4,6 +4,8 @@
 {"source_id":"ST-BLD-QRY01","target_id":"ST-BLD-DS02"}
 {"source_id":"ST-BLD-QRY02","target_id":"ST-BLD-DS02"}
 {"source_id":"ST-BLD-QRY03","target_id":"ST-BLD-DS02"}
+{"source_id":"ST-DLV-CMD01","target_id":"ST-DLV-DS01"}
+{"source_id":"ST-DLV-QRY01","target_id":"ST-DLV-DS02"}
 {"source_id":"ST-EXT-CMD02","target_id":"ST-EXT-DS01"}
 {"source_id":"ST-EXT-CMD03","target_id":"ST-EXT-DS01"}
 {"source_id":"ST-EXT-CMD03","target_id":"ST-EXT-DS02"}

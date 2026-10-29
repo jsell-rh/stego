@@ -9,6 +9,12 @@
 {"source_id":"ST-DIS-CAP01","target_id":"ST-BO04"}
 {"source_id":"ST-DIS-CAP02","target_id":"ST-BO04"}
 {"source_id":"ST-DIS-CAP03","target_id":"ST-BO03"}
+{"source_id":"ST-DLV-CAP01","target_id":"ST-BO01"}
+{"source_id":"ST-DLV-CAP01","target_id":"ST-BO03"}
+{"source_id":"ST-DLV-CAP01","target_id":"ST-BO06"}
+{"source_id":"ST-DLV-CAP02","target_id":"ST-BO03"}
+{"source_id":"ST-DLV-CAP02","target_id":"ST-BO04"}
+{"source_id":"ST-DLV-CAP02","target_id":"ST-BO06"}
 {"source_id":"ST-EXT-CAP01","target_id":"ST-BO01"}
 {"source_id":"ST-EXT-CAP01","target_id":"ST-BO05"}
 {"source_id":"ST-EXT-CAP02","target_id":"ST-BO03"}
