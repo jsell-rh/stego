@@ -105,6 +105,10 @@
 {"id":"ST-GEN-UC06-FL01-S03","title":"A journaled file matches neither of its states, so recover names it and changes nothing","flow_id":"ST-GEN-UC06-FL01","path":"conflict","position":1}
 {"id":"ST-GEN-UC07-FL01-S01","title":"The service author runs stego assets on the build folder, and STEGO writes the checked bundle","flow_id":"ST-GEN-UC07-FL01","path":"main","position":1}
 {"id":"ST-GEN-UC07-FL01-S02","title":"An entry fails its checks, so STEGO names it and leaves the output as it was","flow_id":"ST-GEN-UC07-FL01","path":"refused","position":1}
+{"id":"ST-GEN-UC08-FL01-S01","title":"The service author runs stego apply, and STEGO writes the architecture view with the code","flow_id":"ST-GEN-UC08-FL01","path":"main","position":1}
+{"id":"ST-GEN-UC08-FL01-S02","title":"The service owner opens the view in a browser, selects elements and follows request flows","flow_id":"ST-GEN-UC08-FL01","path":"main","position":2}
+{"id":"ST-GEN-UC09-FL01-S01","title":"The service author runs stego apply after a change, and the diff of the architecture model shows how the service changed","flow_id":"ST-GEN-UC09-FL01","path":"main","position":1}
+{"id":"ST-GEN-UC09-FL01-S02","title":"The view or model was edited or is stale, so stego drift names it","flow_id":"ST-GEN-UC09-FL01","path":"refused","position":1}
 {"id":"ST-SUP-UC01-FL01-S01","title":"The platform engineer defines each port the component provides that the registry does not hold yet","flow_id":"ST-SUP-UC01-FL01","path":"main","position":1}
 {"id":"ST-SUP-UC01-FL01-S02","title":"The platform engineer declares each slot the component offers, with its protobuf contract","flow_id":"ST-SUP-UC01-FL01","path":"main","position":2}
 {"id":"ST-SUP-UC01-FL01-S03","title":"The platform engineer adds the component with its config schema, its ports, its slots and its namespace, and STEGO accepts it before its generator runs","flow_id":"ST-SUP-UC01-FL01","path":"main","position":3}

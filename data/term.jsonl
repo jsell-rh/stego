@@ -41,6 +41,7 @@
 {"id":"ST-GEN-TM06","title":"Saved plan","domain_id":"ST-GEN","meaning":"A plan that stego plan saved under .stego/, which apply carries out exactly. It is local, never committed."}
 {"id":"ST-GEN-TM07","title":"Assembler","domain_id":"ST-GEN","meaning":"The part of the compiler that combines every generator's wiring into the service's entry point and module file."}
 {"id":"ST-GEN-TM08","title":"Output namespace","domain_id":"ST-GEN","meaning":"The folder, in the output, that one component's generator may write to. No two components share one."}
+{"id":"ST-GEN-TM20","title":"Architecture view","domain_id":"ST-GEN","meaning":"The self-contained HTML file every run writes that shows how a service is shaped and how it works, derived from the same inputs as its code."}
 {"id":"ST-SUP-TM01","title":"Registry","domain_id":"ST-SUP","meaning":"The set of archetypes, components and mixins that services are built from, pinned by one reference for each source."}
 {"id":"ST-SUP-TM02","title":"Common registry","domain_id":"ST-SUP","meaning":"The reviewed registry every team trusts. A local registry may add to it, and may not replace a part of it."}
 {"id":"ST-SUP-TM03","title":"Local registry","domain_id":"ST-SUP","meaning":"A registry that adds a team's own parts to the common registry."}

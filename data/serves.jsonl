@@ -20,6 +20,7 @@
 {"source_id":"ST-EXT-CAP02","target_id":"ST-BO03"}
 {"source_id":"ST-GEN-CAP01","target_id":"ST-BO03"}
 {"source_id":"ST-GEN-CAP01","target_id":"ST-BO04"}
+{"source_id":"ST-GEN-CAP02","target_id":"ST-BO09"}
 {"source_id":"ST-SUP-CAP01","target_id":"ST-BO01"}
 {"source_id":"ST-SUP-CAP01","target_id":"ST-BO02"}
 {"source_id":"ST-SUP-CAP01","target_id":"ST-BO08"}

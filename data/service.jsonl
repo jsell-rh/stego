@@ -7,3 +7,4 @@
 {"id":"ST-GEN-DS01-SV","title":"compiler.ComponentDigest","domain_service_id":"ST-GEN-DS01","file":"internal/compiler/component_digest.go","description":"Not written yet: apply records the registry reference as each component's digest today."}
 {"id":"ST-GEN-DS02-SV","title":"gen.Generator","domain_service_id":"ST-GEN-DS02","file":"internal/compiler/reconciler.go","description":"Reconcile in reconciler.go builds each component's gen.Context from the captured inputs, calls its Generate, and checks the files against the component's namespace."}
 {"id":"ST-GEN-DS03-SV","title":"compiler.Assemble","domain_service_id":"ST-GEN-DS03","file":"internal/compiler/assembler.go","description":"Assemble writes go.mod and main.go from the wirings, in an order that topoSortConstructors fixes."}
+{"id":"ST-GEN-DS04-SV","title":"compiler.DeriveArchitecture","domain_service_id":"ST-GEN-DS04","file":"internal/compiler/architecture.go","description":"Not written yet."}
