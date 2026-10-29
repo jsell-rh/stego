@@ -1,13 +1,10 @@
 {"id":"ST-DECL-TM01","title":"Declaration","domain_id":"ST-DECL","meaning":"The one file that states what a service is. An agent writes it, and it is the only input STEGO accepts for a service."}
-{"id":"ST-DECL-TM02","title":"Archetype","domain_id":"ST-DECL","meaning":"The curated component set a declaration selects, which decides its shape and conventions."}
 {"id":"ST-DECL-TM03","title":"Entity","domain_id":"ST-DECL","meaning":"A data shape a declaration names, with fields and their constraints and no access pattern."}
 {"id":"ST-DECL-TM04","title":"Collection","domain_id":"ST-DECL","meaning":"An access pattern over one entity: its scope, its operations and its path."}
 {"id":"ST-DECL-TM05","title":"Slot binding","domain_id":"ST-DECL","meaning":"A place where a service binds its own rules, as fills, to a slot a component declares."}
 {"id":"ST-DECL-TM06","title":"Fill","domain_id":"ST-DECL","meaning":"Code an author or an agent writes against a generated slot contract. STEGO does not generate it."}
 {"id":"ST-DECL-TM07","title":"Fault","domain_id":"ST-DECL","meaning":"One way a declaration breaks a rule, given as structured data an agent can act on."}
 {"id":"ST-DECL-TM08","title":"Experimental acceptance","domain_id":"ST-DECL","meaning":"A statement in a declaration that it accepts a component that is not ga, until a date."}
-{"id":"ST-DIS-TM01","title":"Record","domain_id":"ST-DIS","meaning":"The part of .stego/state.yaml that says what a service's generated code was built from: the service, the compiler build, the registry content, every component pin and the hash of every generated file."}
-{"id":"ST-DIS-TM02","title":"Component pin","domain_id":"ST-DIS","meaning":"The version and digest of one component that a service is built from."}
 {"id":"ST-DIS-TM03","title":"Component digest","domain_id":"ST-DIS","meaning":"The SHA-256 digest of one component's content in the registry. It changes only when that component's content changes."}
 {"id":"ST-DIS-TM04","title":"Supersession","domain_id":"ST-DIS","meaning":"A statement that a component digest has a successor, with the date after which the old digest fails, and whether taking the successor needs a declaration or fill change."}
 {"id":"ST-DIS-TM05","title":"Successor","domain_id":"ST-DIS","meaning":"The component digest that replaces a superseded digest. A platform engineer declares it. STEGO never infers it."}
