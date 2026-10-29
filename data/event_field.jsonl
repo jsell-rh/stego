@@ -23,6 +23,9 @@
 {"domain_event_id":"ST-GEN-EV01","position":5,"name":"Changed files","meaning":"How many generated files the apply wrote or deleted.","type":"whole number","required":true}
 {"domain_event_id":"ST-GEN-EV02","position":1,"name":"Service name","meaning":"The service whose apply was recovered.","type":"text","required":true}
 {"domain_event_id":"ST-GEN-EV02","position":2,"name":"Output folder","meaning":"The output folder the apply wrote to.","type":"text","required":true}
+{"domain_event_id":"ST-GEN-EV03","position":1,"name":"Service name","meaning":"The service the plan is for.","type":"text","required":true}
+{"domain_event_id":"ST-GEN-EV03","position":2,"name":"Base record digest","meaning":"The digest of the record the plan starts from; apply carries out the plan only on that record. A plan for a service with no record leaves it out.","type_value_object_id":"ST-VO41","required":false}
+{"domain_event_id":"ST-GEN-EV03","position":3,"name":"Planned changes","meaning":"How many generated files the plan creates, updates or deletes.","type":"whole number","required":true}
 {"domain_event_id":"ST-SUP-EV01","position":1,"name":"Component name","meaning":"The component, by its name in the active registry.","type":"text","required":true}
 {"domain_event_id":"ST-SUP-EV01","position":2,"name":"Version","meaning":"The version the component declares.","type":"text","required":true}
 {"domain_event_id":"ST-SUP-EV01","position":3,"name":"Namespace","meaning":"The output path the component writes into.","type":"text","required":true}
