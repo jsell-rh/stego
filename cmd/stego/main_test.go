@@ -204,29 +204,38 @@ func TestRunFillCreate(t *testing.T) {
 }
 
 func TestRunFillCreateAlreadyExists(t *testing.T) {
-	tmp := t.TempDir()
-	setupMinimalRegistry(t, tmp)
+	t.Run("ST-EXT-UC01-R01-T02 Fill create refuses a fill that exists and leaves it unchanged", func(t *testing.T) {
+		tmp := t.TempDir()
+		setupMinimalRegistry(t, tmp)
 
-	projDir := filepath.Join(tmp, "fillproject2")
-	fillDir := filepath.Join(projDir, "fills", "existing")
-	if err := os.MkdirAll(fillDir, 0755); err != nil {
-		t.Fatal(err)
-	}
+		projDir := filepath.Join(tmp, "fillproject2")
+		fillDir := filepath.Join(projDir, "fills", "existing")
+		if err := os.MkdirAll(fillDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(fillDir, "fill.yaml"), []byte("kind: fill\nname: existing\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
 
-	origDir, _ := os.Getwd()
-	if err := os.Chdir(projDir); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(origDir)
-	t.Setenv("STEGO_REGISTRY", filepath.Join(tmp, "registry"))
+		origDir, _ := os.Getwd()
+		if err := os.Chdir(projDir); err != nil {
+			t.Fatal(err)
+		}
+		defer os.Chdir(origDir)
+		t.Setenv("STEGO_REGISTRY", filepath.Join(tmp, "registry"))
 
-	err := runFillCreate([]string{"existing", "--slot", "before_create"})
-	if err == nil {
-		t.Fatal("expected error for existing fill directory")
-	}
-	if !strings.Contains(err.Error(), "already exist") {
-		t.Errorf("expected 'already exists' error, got: %v", err)
-	}
+		err := runFillCreate([]string{"existing", "--slot", "before_create"})
+		if err == nil {
+			t.Fatal("expected error for existing fill directory")
+		}
+		if !strings.Contains(err.Error(), "already exist") {
+			t.Errorf("expected 'already exists' error, got: %v", err)
+		}
+		data, err := os.ReadFile(filepath.Join(fillDir, "fill.yaml"))
+		if err != nil || string(data) != "kind: fill\nname: existing\n" {
+			t.Fatalf("the existing fill changed: %q, %v", data, err)
+		}
+	})
 }
 
 func TestRunFillCreateUnknownSlot(t *testing.T) {
