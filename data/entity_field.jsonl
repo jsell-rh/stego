@@ -1,3 +1,31 @@
+{"entity_id":"ST-BLD-EN01","position":1,"name":"Module file digest","meaning":"The digest of go.mod.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-BLD-EN01","position":2,"name":"Sum file digest","meaning":"The digest of go.sum.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-BLD-EN01","position":3,"name":"Go version","meaning":"The Go version go.mod states.","type":"text","required":true,"example":"1.26.8"}
+{"entity_id":"ST-BLD-EN02","position":1,"name":"Source revision","meaning":"The commit the cache serves.","type_value_object_id":"ST-VO43","required":true}
+{"entity_id":"ST-BLD-EN02","position":2,"name":"Go SDK","meaning":"The SDK that downloaded it.","type_value_object_id":"ST-VO48","required":true}
+{"entity_id":"ST-BLD-EN02","position":3,"name":"Inventory digest","meaning":"The digest of the cache's canonical record.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-BLD-EN03","position":1,"name":"Module path","meaning":"The module.","type":"text","required":true,"example":"golang.org/x/net"}
+{"entity_id":"ST-BLD-EN03","position":2,"name":"Version","meaning":"Its version.","type":"text","required":true,"example":"v0.38.0"}
+{"entity_id":"ST-BLD-EN03","position":3,"name":"Zip hash","meaning":"The hash go.sum states for its zip.","type":"text","required":true,"example":"h1:..."}
+{"entity_id":"ST-BLD-EN04","position":1,"name":"Source revision","meaning":"The commit built.","type_value_object_id":"ST-VO43","required":true}
+{"entity_id":"ST-BLD-EN04","position":2,"name":"Target","meaning":"The entry point built, within the module.","type":"text","required":true,"example":"cmd/service"}
+{"entity_id":"ST-BLD-EN04","position":3,"name":"Go SDK","meaning":"The SDK that built it.","type_value_object_id":"ST-VO48","required":true}
+{"entity_id":"ST-BLD-EN04","position":4,"name":"Module cache digest","meaning":"The inventory of the module cache it built from.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-BLD-EN04","position":5,"name":"Generation record digest","meaning":"The digest of the service's .stego/state.yaml at that revision.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-BLD-EN04","position":6,"name":"Executable digest","meaning":"The digest of the executable it produced.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-BLD-EN04","position":7,"name":"Record digest","meaning":"The digest of the build record's canonical bytes.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-BLD-EN05","position":1,"name":"Format","meaning":"Its format.","type_value_object_id":"ST-VO49","required":true}
+{"entity_id":"ST-BLD-EN05","position":2,"name":"Digest","meaning":"The digest of the SBOM file.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-BLD-EN06","position":1,"name":"Build record digest","meaning":"The trusted build record the executable came from.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-BLD-EN06","position":2,"name":"Executable digest","meaning":"The executable it carries.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-BLD-EN06","position":3,"name":"CA bundle digest","meaning":"The explicit CA bundle it carries.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-BLD-EN06","position":4,"name":"Entrypoint","meaning":"The executable's name in the image.","type":"text","required":true,"example":"service"}
+{"entity_id":"ST-BLD-EN06","position":5,"name":"Image digest","meaning":"The OCI image's digest.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-BLD-EN07","position":1,"name":"Signer","meaning":"Who signed.","type_value_object_id":"ST-VO50","required":true}
+{"entity_id":"ST-BLD-EN07","position":2,"name":"Transparency log entry","meaning":"The signature's entry in the public transparency log.","type":"text","required":true,"example":"rekor:123456"}
+{"entity_id":"ST-BLD-EN07","position":3,"name":"Signed at","meaning":"When it was signed.","type":"date and time","required":true,"example":"2026-10-28T12:00:00Z"}
+{"entity_id":"ST-BLD-EN08","position":1,"name":"Repository","meaning":"The registry repository, without a tag.","type":"text","required":true,"example":"quay.io/example/service"}
+{"entity_id":"ST-BLD-EN08","position":2,"name":"Published at","meaning":"When it was published.","type":"date and time","required":true,"example":"2026-10-28T12:05:00Z"}
 {"entity_id":"ST-DECL-EN01","position":1,"name":"Service name","meaning":"The service the declaration describes.","type":"text","required":true,"example":"my-service"}
 {"entity_id":"ST-DECL-EN01","position":2,"name":"Archetype","meaning":"The curated component set the service is built from. Exactly one.","type":"text","required":true,"example":"rest-crud"}
 {"entity_id":"ST-DECL-EN01","position":3,"name":"Language","meaning":"The language the output is generated in.","type":"text","required":true,"example":"go"}
@@ -89,6 +117,7 @@
 {"entity_id":"ST-SUP-EN02","position":1,"name":"Path","meaning":"The output path, from the generated project root.","type":"text","required":true,"example":"internal/storage"}
 {"entity_id":"ST-SUP-EN03","position":1,"name":"Archetype name","meaning":"The archetype's name, unique in its registry.","type":"text","required":true,"example":"rest-crud"}
 {"entity_id":"ST-SUP-EN03","position":2,"name":"Version","meaning":"The version the archetype declares.","type":"text","required":true,"example":"3.0.0"}
+{"entity_id":"ST-SUP-EN03","position":3,"name":"Go SDK","meaning":"The official Go SDK that every service of this archetype builds with.","type_value_object_id":"ST-VO48","required":false}
 {"entity_id":"ST-SUP-EN04","position":1,"name":"Component name","meaning":"The component the archetype includes, by its name in the active registry.","type":"text","required":true,"example":"postgres-adapter"}
 {"entity_id":"ST-SUP-EN04","position":2,"name":"Default for port","meaning":"The port this component answers unless the declaration overrides it.","type_aggregate_id":"ST-SUP-A3","required":false,"example":"auth-provider"}
 {"entity_id":"ST-SUP-EN05","position":1,"name":"Mixin name","meaning":"The mixin's name.","type":"text","required":true,"example":"event-publisher"}

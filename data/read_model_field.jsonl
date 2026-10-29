@@ -1,3 +1,10 @@
+{"read_model_id":"ST-BLD-RM01","position":1,"name":"Record digest","meaning":"The build record checked against.","type_value_object_id":"ST-VO41","required":true}
+{"read_model_id":"ST-BLD-RM01","position":2,"name":"Matches","meaning":"Whether every digest matched.","type":"yes/no","required":true,"example":"yes"}
+{"read_model_id":"ST-BLD-RM01","position":3,"name":"Mismatches","meaning":"Each input or output whose digest differs.","type":"text","required":false,"example":"go.sum"}
+{"read_model_id":"ST-BLD-RM02","position":1,"name":"Image digest","meaning":"The image checked.","type_value_object_id":"ST-VO41","required":true}
+{"read_model_id":"ST-BLD-RM02","position":2,"name":"Matches","meaning":"Whether the image, its record and its build agree.","type":"yes/no","required":true,"example":"yes"}
+{"read_model_id":"ST-BLD-RM02","position":3,"name":"Signature acceptable","meaning":"Whether the pinned workflow signed it.","type":"yes/no","required":true,"example":"yes"}
+{"read_model_id":"ST-BLD-RM02","position":4,"name":"Mismatches","meaning":"Each part that does not agree.","type":"text","required":false,"example":"CA bundle"}
 {"read_model_id":"ST-DECL-RM01","position":1,"name":"Rule","meaning":"The rule the fault breaks, by its name.","type":"text","required":true,"example":"unconsumed-slot"}
 {"read_model_id":"ST-DECL-RM01","position":2,"name":"Path","meaning":"Where in the declaration the fault is.","type":"text","required":true,"example":"collections.todos.entity"}
 {"read_model_id":"ST-DECL-RM01","position":3,"name":"Found","meaning":"What the declaration holds there.","type":"text","required":false,"example":"Todoo"}

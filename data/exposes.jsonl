@@ -1,3 +1,12 @@
+{"source_id":"ST-BLD-CLI01","target_id":"ST-BLD-CMD01"}
+{"source_id":"ST-BLD-CLI02","target_id":"ST-BLD-CMD02"}
+{"source_id":"ST-BLD-CLI03","target_id":"ST-BLD-CMD03"}
+{"source_id":"ST-BLD-CLI04","target_id":"ST-BLD-QRY01"}
+{"source_id":"ST-BLD-CLI05","target_id":"ST-BLD-QRY02"}
+{"source_id":"ST-BLD-CLI06","target_id":"ST-BLD-CMD04"}
+{"source_id":"ST-BLD-CLI07","target_id":"ST-BLD-CMD05"}
+{"source_id":"ST-BLD-CLI08","target_id":"ST-BLD-CMD06"}
+{"source_id":"ST-BLD-CLI09","target_id":"ST-BLD-QRY03"}
 {"source_id":"ST-DECL-CLI01","target_id":"ST-DECL-CMD01"}
 {"source_id":"ST-DECL-CLI02","target_id":"ST-DECL-QRY01"}
 {"source_id":"ST-DIS-CLI04","target_id":"ST-DIS-QRY04"}
@@ -17,6 +26,7 @@
 {"source_id":"ST-GEN-CLI03","target_id":"ST-GEN-QRY01"}
 {"source_id":"ST-GEN-CLI04","target_id":"ST-GEN-CMD03"}
 {"source_id":"ST-GEN-CLI04","target_id":"ST-GEN-QRY02"}
+{"source_id":"ST-GEN-CLI05","target_id":"ST-GEN-CMD04"}
 {"source_id":"ST-SUP-CLI01","target_id":"ST-SUP-QRY01"}
 {"source_id":"ST-SUP-CLI02","target_id":"ST-SUP-QRY02"}
 {"source_id":"ST-SUP-CLI03","target_id":"ST-SUP-CMD12"}

@@ -1,3 +1,16 @@
+{"source_id":"ST-BLD-UC01-FL01-S01","target_id":"ST-BLD-CMD01"}
+{"source_id":"ST-BLD-UC01-FL01-S02","target_id":"ST-BLD-CMD01"}
+{"source_id":"ST-BLD-UC01-FL01-S03","target_id":"ST-GEN-CMD02"}
+{"source_id":"ST-BLD-UC02-FL01-S01","target_id":"ST-BLD-CMD02"}
+{"source_id":"ST-BLD-UC03-FL01-S01","target_id":"ST-BLD-CMD03"}
+{"source_id":"ST-BLD-UC03-FL01-S02","target_id":"ST-BLD-CMD03"}
+{"source_id":"ST-BLD-UC04-FL01-S01","target_id":"ST-BLD-QRY01"}
+{"source_id":"ST-BLD-UC04-FL01-S02","target_id":"ST-BLD-QRY02"}
+{"source_id":"ST-BLD-UC05-FL01-S01","target_id":"ST-BLD-CMD04"}
+{"source_id":"ST-BLD-UC05-FL01-S02","target_id":"ST-BLD-CMD05"}
+{"source_id":"ST-BLD-UC05-FL01-S03","target_id":"ST-BLD-CMD04"}
+{"source_id":"ST-BLD-UC06-FL01-S01","target_id":"ST-BLD-CMD06"}
+{"source_id":"ST-BLD-UC06-FL01-S02","target_id":"ST-BLD-QRY03"}
 {"source_id":"ST-DECL-UC01-FL01-S02","target_id":"ST-DECL-CMD01"}
 {"source_id":"ST-DECL-UC01-FL01-S03","target_id":"ST-DECL-CMD01"}
 {"source_id":"ST-DECL-UC01-FL01-S04","target_id":"ST-DECL-CMD01"}
@@ -62,6 +75,8 @@
 {"source_id":"ST-GEN-UC06-FL01-S01","target_id":"ST-GEN-QRY01"}
 {"source_id":"ST-GEN-UC06-FL01-S02","target_id":"ST-GEN-CMD02"}
 {"source_id":"ST-GEN-UC06-FL01-S03","target_id":"ST-GEN-CMD02"}
+{"source_id":"ST-GEN-UC07-FL01-S01","target_id":"ST-GEN-CMD04"}
+{"source_id":"ST-GEN-UC07-FL01-S02","target_id":"ST-GEN-CMD04"}
 {"source_id":"ST-SUP-UC01-FL01-S01","target_id":"ST-SUP-CMD09"}
 {"source_id":"ST-SUP-UC01-FL01-S02","target_id":"ST-SUP-CMD10"}
 {"source_id":"ST-SUP-UC01-FL01-S03","target_id":"ST-SUP-CMD01"}

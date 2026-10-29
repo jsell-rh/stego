@@ -1,3 +1,7 @@
+{"source_id":"ST-BLD-QRY01","target_id":"ST-BLD-SP01"}
+{"source_id":"ST-BLD-QRY02","target_id":"ST-BLD-SP01"}
+{"source_id":"ST-BLD-QRY03","target_id":"ST-BLD-SP01"}
+{"source_id":"ST-BLD-QRY03","target_id":"ST-BLD-SP02"}
 {"source_id":"ST-DIS-QRY03","target_id":"ST-DIS-SP02"}
 {"source_id":"ST-DIS-QRY03","target_id":"ST-DIS-SP03"}
 {"source_id":"ST-DIS-QRY03","target_id":"ST-DIS-SP04"}

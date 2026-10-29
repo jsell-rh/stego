@@ -1,3 +1,11 @@
+{"id":"ST-BLD-EN01-DM","title":"compiler.moduleFiles","entity_id":"ST-BLD-EN01","file":"internal/compiler/dependencies.go","description":"go.mod and go.sum as resolution reads and writes them; they have no struct of their own."}
+{"id":"ST-BLD-EN02-DM","title":"appbuild.ModuleCacheRecord","entity_id":"ST-BLD-EN02","file":"internal/appbuild/download.go","description":"The cache record, with its source revision and inventory."}
+{"id":"ST-BLD-EN03-DM","title":"appbuild.Module","entity_id":"ST-BLD-EN03","file":"internal/appbuild/build.go","description":"One module with its path, version and hash."}
+{"id":"ST-BLD-EN04-DM","title":"appbuild.Record","entity_id":"ST-BLD-EN04","file":"internal/appbuild/build.go","description":"The build record: source, inputs, toolchain, module cache, build settings, modules and artifact. It names no SBOM yet."}
+{"id":"ST-BLD-EN05-DM","title":"appbuild.SBOM","entity_id":"ST-BLD-EN05","file":"internal/appbuild/sbom.go","description":"Not written yet: no SBOM is produced."}
+{"id":"ST-BLD-EN06-DM","title":"appbuild.ImageRecord","entity_id":"ST-BLD-EN06","file":"internal/appbuild/image.go","description":"The image record: build record, executable, CA bundle and image digests."}
+{"id":"ST-BLD-EN07-DM","title":"appbuild.ImageSignature","entity_id":"ST-BLD-EN07","file":"internal/appbuild/sign.go","description":"Not written yet: stego's own workflows sign with GitHub attestations, not keyless cosign."}
+{"id":"ST-BLD-EN08-DM","title":"appbuild.RegistryImageRecord","entity_id":"ST-BLD-EN08","file":"internal/appbuild/image_registry.go","description":"The registry record of a published or retrieved image."}
 {"id":"ST-DECL-EN01-DM","title":"types.ServiceDeclaration","entity_id":"ST-DECL-EN01","file":"internal/types/types.go","description":"The ServiceDeclaration struct and its decoding."}
 {"id":"ST-DECL-EN02-DM","title":"types.Entity","entity_id":"ST-DECL-EN02","file":"internal/types/types.go","description":"The Entity struct."}
 {"id":"ST-DECL-EN03-DM","title":"types.Field","entity_id":"ST-DECL-EN03","file":"internal/types/types.go","description":"The Field struct, with its type and constraints."}

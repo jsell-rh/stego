@@ -1,3 +1,7 @@
+{"source_id":"ST-BLD-CAP01","target_id":"ST-BO03"}
+{"source_id":"ST-BLD-CAP02","target_id":"ST-BO03"}
+{"source_id":"ST-BLD-CAP03","target_id":"ST-BO03"}
+{"source_id":"ST-BLD-CAP03","target_id":"ST-BO08"}
 {"source_id":"ST-DECL-CAP01","target_id":"ST-BO01"}
 {"source_id":"ST-DECL-CAP01","target_id":"ST-BO05"}
 {"source_id":"ST-DECL-CAP02","target_id":"ST-BO03"}

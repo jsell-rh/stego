@@ -1,3 +1,9 @@
+{"id":"ST-BLD-TM01","title":"Module cache","domain_id":"ST-BLD","meaning":"The module zips one source revision needs, recorded by digest, which builds use with the network off."}
+{"id":"ST-BLD-TM02","title":"Build record","domain_id":"ST-BLD","meaning":"The record of one build: every input by digest, the build settings, and the executable and SBOMs it produced."}
+{"id":"ST-BLD-TM03","title":"Bit-identical rebuild","domain_id":"ST-BLD","meaning":"A second build from the same source revision, Go SDK and module cache that gives the same bytes as the first."}
+{"id":"ST-BLD-TM04","title":"SBOM","domain_id":"ST-BLD","meaning":"A software bill of materials: the list of every module in an executable, in SPDX or CycloneDX."}
+{"id":"ST-BLD-TM05","title":"Keyless signature","domain_id":"ST-BLD","meaning":"A cosign signature made with a short-lived certificate for the signer's OIDC identity, recorded in a public transparency log, with no long-lived key."}
+{"id":"ST-BLD-TM06","title":"Pinned reusable workflow","domain_id":"ST-BLD","meaning":"The platform's CI workflow, at one exact reference, that every service's pipeline calls; its identity is the only one that may sign images."}
 {"id":"ST-DECL-TM01","title":"Declaration","domain_id":"ST-DECL","meaning":"The one file that states what a service is. An agent writes it, and it is the only input STEGO accepts for a service."}
 {"id":"ST-DECL-TM03","title":"Entity","domain_id":"ST-DECL","meaning":"A data shape a declaration names, with fields and their constraints and no access pattern."}
 {"id":"ST-DECL-TM04","title":"Collection","domain_id":"ST-DECL","meaning":"An access pattern over one entity: its scope, its operations and its path."}

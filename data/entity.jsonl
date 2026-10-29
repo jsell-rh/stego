@@ -1,3 +1,11 @@
+{"id":"ST-BLD-EN01","title":"Module requirements","aggregate_id":"ST-BLD-A1","role":"root","description":"The service's go.mod and go.sum, as resolution left them."}
+{"id":"ST-BLD-EN02","title":"Module cache","aggregate_id":"ST-BLD-A2","role":"root","description":"One cache: the source revision it serves, the Go SDK that downloaded it, and its inventory."}
+{"id":"ST-BLD-EN03","title":"Cached module","aggregate_id":"ST-BLD-A2","role":"child","in_root_table":true,"description":"One module zip in the cache."}
+{"id":"ST-BLD-EN04","title":"Application build","aggregate_id":"ST-BLD-A3","role":"root","description":"The build and its record: what went in, how it was built, and the executable that came out."}
+{"id":"ST-BLD-EN05","title":"Software bill of materials","aggregate_id":"ST-BLD-A3","role":"child","description":"One SBOM of the executable, written from the build record's module inventory."}
+{"id":"ST-BLD-EN06","title":"Application image","aggregate_id":"ST-BLD-A4","role":"root","description":"The image and its record: the build it came from, the CA bundle it carries, and its digest."}
+{"id":"ST-BLD-EN07","title":"Image signature","aggregate_id":"ST-BLD-A4","role":"child","in_root_table":true,"description":"The keyless cosign signature of the image and of its SBOM attestations."}
+{"id":"ST-BLD-EN08","title":"Image publication","aggregate_id":"ST-BLD-A4","role":"child","in_root_table":true,"description":"Where the image was published."}
 {"id":"ST-DECL-EN01","title":"Declaration","aggregate_id":"ST-DECL-A1","role":"root","description":"What one service is. An agent writes it, and it is the only artifact STEGO accepts as input for a service."}
 {"id":"ST-DECL-EN02","title":"Entity","aggregate_id":"ST-DECL-A1","role":"child","in_root_table":true,"description":"One data shape the service keeps. It states fields and their constraints, and it states no access pattern."}
 {"id":"ST-DECL-EN03","title":"Entity field","aggregate_id":"ST-DECL-A1","role":"child","in_root_table":true,"description":"One field of an entity: its name, its type and the constraints the generated code checks."}

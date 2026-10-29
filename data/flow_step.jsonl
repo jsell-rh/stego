@@ -1,3 +1,16 @@
+{"id":"ST-BLD-UC01-FL01-S01","title":"The service author runs stego deps, and STEGO resolves the modules and writes go.mod and go.sum","flow_id":"ST-BLD-UC01-FL01","path":"main","position":1}
+{"id":"ST-BLD-UC01-FL01-S02","title":"Generated code is out of date, so stego deps refuses and names apply","flow_id":"ST-BLD-UC01-FL01","path":"stale","position":1}
+{"id":"ST-BLD-UC01-FL01-S03","title":"Resolution stops part way, and stego recover completes or rolls back the module files","flow_id":"ST-BLD-UC01-FL01","path":"interrupted","position":1}
+{"id":"ST-BLD-UC02-FL01-S01","title":"The operator runs build download for a revision, and STEGO writes the zips and the cache record","flow_id":"ST-BLD-UC02-FL01","path":"main","position":1}
+{"id":"ST-BLD-UC03-FL01-S01","title":"The operator runs stego build for a revision with its module cache, and STEGO builds twice, offline, compares, and writes the record and both SBOMs","flow_id":"ST-BLD-UC03-FL01","path":"main","position":1}
+{"id":"ST-BLD-UC03-FL01-S02","title":"A missing module, a different SDK or two different builds stop the build, and STEGO names why","flow_id":"ST-BLD-UC03-FL01","path":"refused","position":1}
+{"id":"ST-BLD-UC04-FL01-S01","title":"The operator runs build verify on an executable, and STEGO reports whether it matches the trusted record","flow_id":"ST-BLD-UC04-FL01","path":"main","position":1}
+{"id":"ST-BLD-UC04-FL01-S02","title":"The operator runs build verify-source on a source snapshot, and STEGO reports whether it matches","flow_id":"ST-BLD-UC04-FL01","path":"main","position":2}
+{"id":"ST-BLD-UC05-FL01-S01","title":"The operator runs image build from the trusted build, and STEGO writes a scratch image and its record","flow_id":"ST-BLD-UC05-FL01","path":"main","position":1}
+{"id":"ST-BLD-UC05-FL01-S02","title":"The pinned workflow runs image sign, and STEGO signs the image and attaches both SBOMs","flow_id":"ST-BLD-UC05-FL01","path":"main","position":2}
+{"id":"ST-BLD-UC05-FL01-S03","title":"An untrusted build record or CA bundle stops image build","flow_id":"ST-BLD-UC05-FL01","path":"refused","position":1}
+{"id":"ST-BLD-UC06-FL01-S01","title":"The operator runs image publish, and STEGO pushes the image and reads it back","flow_id":"ST-BLD-UC06-FL01","path":"main","position":1}
+{"id":"ST-BLD-UC06-FL01-S02","title":"A consumer runs image retrieve, and STEGO checks the image, its build and its signature","flow_id":"ST-BLD-UC06-FL01","path":"main","position":2}
 {"id":"ST-DECL-UC01-FL01-S01","title":"The author names the archetype for the new service","flow_id":"ST-DECL-UC01-FL01","path":"main","position":1}
 {"id":"ST-DECL-UC01-FL01-S02","title":"STEGO writes the declaration with the archetype's smallest example content, and a folder for fills","flow_id":"ST-DECL-UC01-FL01","path":"main","position":2}
 {"id":"ST-DECL-UC01-FL01-S03","title":"An archetype the registry does not hold is refused, with the archetypes it does hold","flow_id":"ST-DECL-UC01-FL01","path":"refused","position":1}
@@ -78,6 +91,8 @@
 {"id":"ST-GEN-UC06-FL01-S01","title":"Plan, apply and drift refuse while a journal is pending, and name recover","flow_id":"ST-GEN-UC06-FL01","path":"main","position":1}
 {"id":"ST-GEN-UC06-FL01-S02","title":"The service author runs recover, and STEGO completes the journal","flow_id":"ST-GEN-UC06-FL01","path":"main","position":2}
 {"id":"ST-GEN-UC06-FL01-S03","title":"A journaled file matches neither of its states, so recover names it and changes nothing","flow_id":"ST-GEN-UC06-FL01","path":"conflict","position":1}
+{"id":"ST-GEN-UC07-FL01-S01","title":"The service author runs stego assets on the build folder, and STEGO writes the checked bundle","flow_id":"ST-GEN-UC07-FL01","path":"main","position":1}
+{"id":"ST-GEN-UC07-FL01-S02","title":"An entry fails its checks, so STEGO names it and leaves the output as it was","flow_id":"ST-GEN-UC07-FL01","path":"refused","position":1}
 {"id":"ST-SUP-UC01-FL01-S01","title":"The platform engineer defines each port the component provides that the registry does not hold yet","flow_id":"ST-SUP-UC01-FL01","path":"main","position":1}
 {"id":"ST-SUP-UC01-FL01-S02","title":"The platform engineer declares each slot the component offers, with its protobuf contract","flow_id":"ST-SUP-UC01-FL01","path":"main","position":2}
 {"id":"ST-SUP-UC01-FL01-S03","title":"The platform engineer adds the component with its config schema, its ports, its slots and its namespace, and STEGO accepts it before its generator runs","flow_id":"ST-SUP-UC01-FL01","path":"main","position":3}

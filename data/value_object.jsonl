@@ -8,3 +8,6 @@
 {"id":"ST-VO45","title":"Qualification standing","description":"Where one fill stands on its way to being qualified."}
 {"id":"ST-VO46","title":"Slot reference","description":"The one slot a fill implements: a component and one of its slots."}
 {"id":"ST-VO47","title":"Quality evidence kind","description":"Which part of the ga quality bar one piece of evidence shows."}
+{"id":"ST-VO48","title":"Go SDK pin","description":"One official Go SDK release, fixed by version and by the digest of its contents."}
+{"id":"ST-VO49","title":"SBOM format","description":"The format of one software bill of materials."}
+{"id":"ST-VO50","title":"Signer identity","description":"Who made a keyless signature, as the certificate the signing service issued states it."}

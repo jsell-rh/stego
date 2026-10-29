@@ -1,3 +1,5 @@
+{"id":"ST-BLD-SP01","title":"Build record is trusted","statement":"A build record is trusted when the digest of its canonical bytes equals a digest that verified provenance supplies."}
+{"id":"ST-BLD-SP02","title":"Image signature is acceptable","statement":"An image signature is acceptable when it is a keyless cosign signature in the transparency log, and its signer identity is the platform's pinned reusable workflow."}
 {"id":"ST-DIS-SP02","title":"Digest is superseded","statement":"A component digest is superseded when its lifecycle holds a supersession."}
 {"id":"ST-DIS-SP03","title":"Digest is past its fail date","statement":"A component digest is past its fail date when its lifecycle holds a supersession or a withdrawal, and the date after which it fails has passed."}
 {"id":"ST-DIS-SP04","title":"Digest is withdrawn","statement":"A component digest is withdrawn when its lifecycle holds a withdrawal, whatever the date of the withdrawal."}

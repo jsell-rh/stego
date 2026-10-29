@@ -1,3 +1,5 @@
+{"id":"ST-BLD-RM01","title":"Build verification","domain_id":"ST-BLD","description":"Whether an executable or a source snapshot matches a trusted build record, and each digest that does not."}
+{"id":"ST-BLD-RM02","title":"Image verification","domain_id":"ST-BLD","description":"Whether an image, local or in a registry, matches its record and its build, and whether its signature and SBOMs are acceptable."}
 {"id":"ST-DECL-RM01","title":"Faults","domain_id":"ST-DECL","description":"Every fault one declaration has, each as structured data: the rule it breaks, where, what was found and what is allowed. An empty list means the declaration is acceptable."}
 {"id":"ST-DIS-RM01","title":"Fleet","domain_id":"ST-DIS","description":"Every service whose record a sweep reads in the checkouts a platform engineer names, with each component it pins. It is fed by Generating's published event Service build applied, whose durable form is the committed record."}
 {"id":"ST-DIS-RM03","title":"Pin standing","domain_id":"ST-DIS","description":"Each component pin of one service, with the standing that the digest lifecycle gives it."}

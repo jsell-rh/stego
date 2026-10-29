@@ -1,3 +1,5 @@
+{"id":"ST-BLD-SP01-PR","title":"appbuild.trustedRecord","specification_id":"ST-BLD-SP01","file":"internal/appbuild/verify.go","description":"The record's canonical bytes must hash to the digest given with --record-sha256."}
+{"id":"ST-BLD-SP02-PR","title":"appbuild.AcceptableSignature","specification_id":"ST-BLD-SP02","file":"internal/appbuild/sign.go","description":"Not written yet."}
 {"id":"ST-DIS-SP02-PR","title":"lifecycle.IsSuperseded","specification_id":"ST-DIS-SP02","file":"internal/lifecycle/standing.go","description":"Not written yet."}
 {"id":"ST-DIS-SP03-PR","title":"lifecycle.IsPastFailDate","specification_id":"ST-DIS-SP03","file":"internal/lifecycle/standing.go","description":"Not written yet."}
 {"id":"ST-DIS-SP04-PR","title":"lifecycle.IsWithdrawn","specification_id":"ST-DIS-SP04","file":"internal/lifecycle/standing.go","description":"Not written yet."}

@@ -1,3 +1,6 @@
+{"id":"ST-BLD-QRY01-H","title":"appbuild.Verify","query_id":"ST-BLD-QRY01","file":"internal/appbuild/verify.go","description":"Verify checks the executable against the trusted record."}
+{"id":"ST-BLD-QRY02-H","title":"appbuild.VerifySource","query_id":"ST-BLD-QRY02","file":"internal/appbuild/verify_source.go","description":"VerifySource checks a source snapshot against the record's source inventory."}
+{"id":"ST-BLD-QRY03-H","title":"appbuild.VerifyImage","query_id":"ST-BLD-QRY03","file":"internal/appbuild/image_verify.go","description":"VerifyImage checks a local image; RetrieveImage checks one read back from a registry. Neither checks a signature yet."}
 {"id":"ST-DECL-QRY01-H","title":"compiler.Validate","query_id":"ST-DECL-QRY01","file":"internal/compiler/validate.go","description":"Validate loads the declaration and the registry, runs the semantic checks and returns every fault it finds. It writes no file."}
 {"id":"ST-DIS-QRY01-H","title":"fleet.FindByDigest","query_id":"ST-DIS-QRY01","file":"internal/fleet/query.go","description":"Not written yet."}
 {"id":"ST-DIS-QRY03-H","title":"lifecycle.PinStanding","query_id":"ST-DIS-QRY03","file":"internal/lifecycle/standing.go","description":"Not written yet."}

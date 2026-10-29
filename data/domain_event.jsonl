@@ -1,3 +1,9 @@
+{"id":"ST-BLD-EV01","title":"Modules resolved","aggregate_id":"ST-BLD-A1","published":false,"description":"go.mod and go.sum hold the service's resolved modules."}
+{"id":"ST-BLD-EV02","title":"Module cache downloaded","aggregate_id":"ST-BLD-A2","published":false,"description":"A module cache for one source revision is ready for offline builds."}
+{"id":"ST-BLD-EV03","title":"Application built","aggregate_id":"ST-BLD-A3","published":true,"description":"A service's executable was built and recorded, so it can be imaged and checked."}
+{"id":"ST-BLD-EV04","title":"Image built","aggregate_id":"ST-BLD-A4","published":false,"description":"An image of a built executable exists locally with its record."}
+{"id":"ST-BLD-EV05","title":"Image signed","aggregate_id":"ST-BLD-A4","published":false,"description":"An image and its SBOMs carry a keyless signature."}
+{"id":"ST-BLD-EV06","title":"Image published","aggregate_id":"ST-BLD-A4","published":true,"description":"A signed image is in a registry, ready to deploy."}
 {"id":"ST-DIS-EV03","title":"Component digest superseded","aggregate_id":"ST-DIS-A2","published":true,"description":"A platform engineer declared a successor for a component digest."}
 {"id":"ST-DIS-EV04","title":"Component digest withdrawn","aggregate_id":"ST-DIS-A2","published":true,"description":"A platform engineer withdrew a component digest."}
 {"id":"ST-DIS-EV05","title":"Compiler release qualified","aggregate_id":"ST-DIS-A3","published":false,"description":"Every required job and signed artifact at one commit passed."}

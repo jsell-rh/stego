@@ -1,3 +1,16 @@
+{"domain_event_id":"ST-BLD-EV01","position":1,"name":"Module file digest","meaning":"go.mod's new digest.","type_value_object_id":"ST-VO41","required":true}
+{"domain_event_id":"ST-BLD-EV01","position":2,"name":"Sum file digest","meaning":"go.sum's new digest.","type_value_object_id":"ST-VO41","required":true}
+{"domain_event_id":"ST-BLD-EV02","position":1,"name":"Source revision","meaning":"The commit it serves.","type_value_object_id":"ST-VO43","required":true}
+{"domain_event_id":"ST-BLD-EV02","position":2,"name":"Inventory digest","meaning":"The cache record's digest.","type_value_object_id":"ST-VO41","required":true}
+{"domain_event_id":"ST-BLD-EV03","position":1,"name":"Source revision","meaning":"The commit built.","type_value_object_id":"ST-VO43","required":true}
+{"domain_event_id":"ST-BLD-EV03","position":2,"name":"Record digest","meaning":"The build record's digest.","type_value_object_id":"ST-VO41","required":true}
+{"domain_event_id":"ST-BLD-EV03","position":3,"name":"Executable digest","meaning":"The executable's digest.","type_value_object_id":"ST-VO41","required":true}
+{"domain_event_id":"ST-BLD-EV04","position":1,"name":"Image digest","meaning":"The image's digest.","type_value_object_id":"ST-VO41","required":true}
+{"domain_event_id":"ST-BLD-EV04","position":2,"name":"Build record digest","meaning":"The build it came from.","type_value_object_id":"ST-VO41","required":true}
+{"domain_event_id":"ST-BLD-EV05","position":1,"name":"Image digest","meaning":"The signed image.","type_value_object_id":"ST-VO41","required":true}
+{"domain_event_id":"ST-BLD-EV05","position":2,"name":"Signer","meaning":"Who signed.","type_value_object_id":"ST-VO50","required":true}
+{"domain_event_id":"ST-BLD-EV06","position":1,"name":"Image digest","meaning":"The published image.","type_value_object_id":"ST-VO41","required":true}
+{"domain_event_id":"ST-BLD-EV06","position":2,"name":"Repository","meaning":"Where it was published.","type":"text","required":true,"example":"quay.io/example/service"}
 {"domain_event_id":"ST-DIS-EV03","position":1,"name":"Component","meaning":"The component's name.","type":"text","required":true}
 {"domain_event_id":"ST-DIS-EV03","position":2,"name":"Digest","meaning":"The superseded digest.","type_value_object_id":"ST-VO41","required":true}
 {"domain_event_id":"ST-DIS-EV03","position":3,"name":"Successor digest","meaning":"The digest that replaces it.","type_value_object_id":"ST-VO41","required":true}

@@ -1,3 +1,7 @@
+{"source_id":"ST-BLD-RM01","target_id":"ST-BLD-A3"}
+{"source_id":"ST-BLD-RM02","target_id":"ST-BLD-A4"}
+{"source_id":"ST-BLD-SP01","target_id":"ST-BLD-A3"}
+{"source_id":"ST-BLD-SP02","target_id":"ST-BLD-A4"}
 {"source_id":"ST-DECL-RM01","target_id":"ST-DECL-A1"}
 {"source_id":"ST-DIS-RM03","target_id":"ST-DIS-A2"}
 {"source_id":"ST-DIS-RM04","target_id":"ST-DIS-A4"}
