@@ -117,12 +117,7 @@ func TestGeneratorsReadNoClockOrRandomness(t *testing.T) {
 			"time.Now", "time.Since", "time.Until", "time.Sleep", "time.After", "time.AfterFunc",
 			"time.Tick", "time.NewTimer", "time.NewTicker",
 			"context.WithTimeout", "context.WithDeadline", "context.WithTimeoutCause", "context.WithDeadlineCause",
-		}, map[generatorUse]string{
-			// Each is a known violation. The test record stays "not automated
-			// yet" until this list is empty.
-			{"grpcapplication/overlay.go", "context.WithTimeout"}: "proto compilation stops after 10 seconds",
-			{"grpcapplication/proto.go", "context.WithTimeout"}:   "proto compilation stops after 10 seconds",
-		})
+		}, map[generatorUse]string{})
 	})
 }
 

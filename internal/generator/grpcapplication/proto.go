@@ -6,7 +6,6 @@ import (
 	"path"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/bufbuild/protocompile"
 	"github.com/jsell-rh/stego/internal/gen"
@@ -106,9 +105,7 @@ func prepareProto(ctx gen.Context) (*protogen.Plugin, error) {
 		names[i] = item.Import
 	}
 	compiler := protocompile.Compiler{Resolver: protocompile.WithStandardImports(&protocompile.SourceResolver{Accessor: protocompile.SourceAccessorFromMap(text)}), MaxParallelism: 1, SourceInfoMode: protocompile.SourceInfoStandard}
-	compileContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	linked, err := compiler.Compile(compileContext, names...)
+	linked, err := compiler.Compile(context.Background(), names...)
 	if err != nil {
 		return nil, err
 	}

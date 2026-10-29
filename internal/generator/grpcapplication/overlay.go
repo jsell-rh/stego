@@ -7,7 +7,6 @@ import (
 	"path"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/bufbuild/protocompile"
 	"github.com/bufbuild/protocompile/linker"
@@ -63,9 +62,7 @@ func compileReference(ctx gen.Context, items []source, overlay source) (protoref
 	}
 	text[overlay.Import] = string(data)
 	compiler := protocompile.Compiler{Resolver: protocompile.WithStandardImports(&protocompile.SourceResolver{Accessor: protocompile.SourceAccessorFromMap(text)}), MaxParallelism: 1, SourceInfoMode: protocompile.SourceInfoNone}
-	compileContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	linked, err := compiler.Compile(compileContext, overlay.Import)
+	linked, err := compiler.Compile(context.Background(), overlay.Import)
 	if err != nil {
 		return nil, fmt.Errorf("reference %s: %w", overlay.Reference, err)
 	}
