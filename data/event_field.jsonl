@@ -22,7 +22,7 @@
 {"domain_event_id":"ST-EXT-EV02","position":2,"name":"Fill digest","meaning":"The fill's content digest.","type_value_object_id":"ST-VO41","required":true}
 {"domain_event_id":"ST-EXT-EV02","position":3,"name":"Contract digest","meaning":"The slot contract's digest.","type_value_object_id":"ST-VO41","required":true}
 {"domain_event_id":"ST-EXT-EV03","position":1,"name":"Fill name","meaning":"The fill that was signed.","type":"text","required":true,"example":"admin-creation-policy"}
-{"domain_event_id":"ST-EXT-EV03","position":2,"name":"Signer","meaning":"Who signed, as the allowed signers file names them.","type":"text","required":true,"example":"jsell@example.com"}
+{"domain_event_id":"ST-EXT-EV03","position":2,"name":"Signer","meaning":"Who signed, as the SIGNERS file names them.","type":"text","required":true,"example":"jsell@example.com"}
 {"domain_event_id":"ST-EXT-EV03","position":3,"name":"Evidence digest","meaning":"The evidence the signature covers.","type_value_object_id":"ST-VO41","required":true}
 {"domain_event_id":"ST-GEN-EV01","position":1,"name":"Service name","meaning":"The service that was built.","type":"text","required":true}
 {"domain_event_id":"ST-GEN-EV01","position":2,"name":"Component pins","meaning":"Each component the build used, with its version and digest.","type":"text","required":true}

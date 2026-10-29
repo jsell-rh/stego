@@ -43,7 +43,7 @@
 {"id":"ST-EXT-UC02-FL01-S01","title":"The service author runs stego test, and STEGO records the evidence of each fill whose tests pass","flow_id":"ST-EXT-UC02-FL01","path":"main","position":1}
 {"id":"ST-EXT-UC02-FL01-S02","title":"The service author runs fill sign, and STEGO signs the evidence with the author's key and writes the sign-off","flow_id":"ST-EXT-UC02-FL01","path":"main","position":2}
 {"id":"ST-EXT-UC02-FL01-S03","title":"A fill's tests fail, so STEGO records no evidence and fill sign refuses it","flow_id":"ST-EXT-UC02-FL01","path":"failed","position":1}
-{"id":"ST-EXT-UC02-FL01-S04","title":"A signature by a key that the allowed signers file does not list leaves the fill unsigned, and plan stops","flow_id":"ST-EXT-UC02-FL01","path":"unlisted","position":1}
+{"id":"ST-EXT-UC02-FL01-S04","title":"A signature by a key that the SIGNERS file does not list leaves the fill unsigned, and plan stops","flow_id":"ST-EXT-UC02-FL01","path":"unlisted","position":1}
 {"id":"ST-EXT-UC03-FL01-S01","title":"The agent runs registry fills for the slot, and STEGO lists each fill with its collection and standing","flow_id":"ST-EXT-UC03-FL01","path":"main","position":1}
 {"id":"ST-EXT-UC04-FL01-S01","title":"The service author runs fill status, and STEGO names each stale fill and what changed","flow_id":"ST-EXT-UC04-FL01","path":"main","position":1}
 {"id":"ST-EXT-UC04-FL01-S02","title":"The service author runs stego test, and STEGO records new evidence","flow_id":"ST-EXT-UC04-FL01","path":"main","position":2}

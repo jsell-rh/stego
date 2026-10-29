@@ -17,7 +17,7 @@
 {"id":"ST-EXT-TM01","title":"Fill","domain_id":"ST-EXT","meaning":"Hand-written code in a service's fills/ folder that implements one slot's contract for one collection, with its own tests."}
 {"id":"ST-EXT-TM02","title":"Test evidence","domain_id":"ST-EXT","meaning":"The record in fill.yaml that a fill's tests passed against one exact state of the fill and its slot contract."}
 {"id":"ST-EXT-TM03","title":"Sign-off","domain_id":"ST-EXT","meaning":"A person's key signature, in fill.yaml, of a fill's test evidence."}
-{"id":"ST-EXT-TM04","title":"Allowed signers","domain_id":"ST-EXT","meaning":"The file in the project that lists the keys whose signatures may qualify a fill, in the format git uses for SSH signatures."}
+{"id":"ST-EXT-TM04","title":"SIGNERS","domain_id":"ST-EXT","meaning":"The file named SIGNERS at the project root, like OWNERS, that lists the keys whose signatures may qualify a fill: SSH keys in the allowed signers format git uses, and GPG keys. Adding a signer is a reviewed change to it."}
 {"id":"ST-EXT-TM05","title":"Qualified fill","domain_id":"ST-EXT","meaning":"A fill whose evidence matches its current code and contract, and whose evidence a listed key signed."}
 {"id":"ST-EXT-TM06","title":"Fill module","domain_id":"ST-EXT","meaning":"A module that the declaration lets fills import, besides their contracts and the standard library."}
 {"id":"ST-GEN-TM01","title":"Record","domain_id":"ST-GEN","meaning":"The part of .stego/state.yaml that says what a service's generated code was built from: the service, the compiler build, the registry content, every component pin and the hash of every generated file."}

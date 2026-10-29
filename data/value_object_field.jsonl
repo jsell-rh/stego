@@ -6,7 +6,7 @@
 {"value_object_id":"ST-VO42","position":6,"name":"Revision","meaning":"The commit the compiler is built from.","type":"text","required":true,"example":"<40 hexadecimal digits>"}
 {"value_object_id":"ST-VO42","position":7,"name":"Source state","meaning":"Whether the source had changes that were not committed.","type":"text","required":true,"example":"clean"}
 {"value_object_id":"ST-VO44","position":1,"name":"Key type","meaning":"The kind of key that made the signature.","type":"text","required":true,"example":"ssh"}
-{"value_object_id":"ST-VO44","position":2,"name":"Signer","meaning":"The identity the allowed signers file lists for the key, such as an email address.","type":"text","required":true,"example":"jsell@example.com"}
+{"value_object_id":"ST-VO44","position":2,"name":"Signer","meaning":"The identity the SIGNERS file lists for the key, such as an email address.","type":"text","required":true,"example":"jsell@example.com"}
 {"value_object_id":"ST-VO44","position":3,"name":"Signature","meaning":"The armored signature over the evidence.","type":"text","required":true}
 {"value_object_id":"ST-VO45","position":1,"name":"Standing","meaning":"One of qualified, stale, unsigned or untested.","type":"text","required":true,"example":"stale"}
 {"value_object_id":"ST-VO46","position":1,"name":"Component","meaning":"The component that declares the slot.","type":"text","required":true,"example":"rest-api"}
