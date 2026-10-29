@@ -4,3 +4,6 @@
 {"id":"ST-VO41-VT","title":"compiler.validDigest","value_object_id":"ST-VO41","file":"internal/compiler/input_manifest.go","description":"validDigest accepts exactly 64 lower-case hexadecimal digits. validateStatePaths applies the same rule to the registry content digest."}
 {"id":"ST-VO42-VT","title":"buildidentity.Record","value_object_id":"ST-VO42","file":"internal/buildidentity/runtime.go","description":"Record holds the build identity, and Record.Validate refuses an unsafe value, an unknown source state and an incomplete source record."}
 {"id":"ST-VO43-VT","title":"install","value_object_id":"ST-VO43","file":"scripts/install-compiler.py","description":"install refuses a revision that is not 40 lower-case hexadecimal digits before any other step."}
+{"id":"ST-VO44-VT","title":"fill.Signature","value_object_id":"ST-VO44","file":"internal/fill/signoff.go","description":"Not written yet."}
+{"id":"ST-VO45-VT","title":"fill.Standing","value_object_id":"ST-VO45","file":"internal/fill/qualification.go","description":"Not written yet."}
+{"id":"ST-VO46-VT","title":"types.SlotRef","value_object_id":"ST-VO46","file":"internal/types/types.go","description":"Not written yet: implements is a plain string, and runRegistryFills splits it at the period without checking its form."}

@@ -19,6 +19,13 @@
 {"read_model_id":"ST-DIS-RM03","position":8,"name":"Past its fail date","meaning":"Whether the fail date has passed, so validate fails and apply writes nothing.","type":"yes/no","required":true,"example":"false"}
 {"read_model_id":"ST-DIS-RM04","position":1,"name":"Version","meaning":"The compiler's version.","type":"text","required":true,"example":"dev"}
 {"read_model_id":"ST-DIS-RM04","position":2,"name":"Build","meaning":"The compiler's build identity.","type_value_object_id":"ST-VO42","required":true}
+{"read_model_id":"ST-EXT-RM01","position":1,"name":"Fill name","meaning":"The fill.","type":"text","required":true,"example":"admin-creation-policy"}
+{"read_model_id":"ST-EXT-RM01","position":2,"name":"Collection","meaning":"The collection it serves.","type":"text","required":true,"example":"org-users"}
+{"read_model_id":"ST-EXT-RM01","position":3,"name":"Standing","meaning":"Its qualification standing.","type_value_object_id":"ST-VO45","required":true}
+{"read_model_id":"ST-EXT-RM02","position":1,"name":"Fill name","meaning":"The bound fill.","type":"text","required":true,"example":"admin-creation-policy"}
+{"read_model_id":"ST-EXT-RM02","position":2,"name":"Standing","meaning":"Its qualification standing.","type_value_object_id":"ST-VO45","required":true}
+{"read_model_id":"ST-EXT-RM02","position":3,"name":"Fits binding","meaning":"Whether it implements the bound slot for the bound collection.","type":"yes/no","required":true,"example":"yes"}
+{"read_model_id":"ST-EXT-RM02","position":4,"name":"Reason","meaning":"Why it is not qualified or does not fit, such as the file that changed after its evidence.","type":"text","required":false,"example":"policy.go changed after the tests passed"}
 {"read_model_id":"ST-GEN-RM01","position":1,"name":"Path","meaning":"The generated file or recorded input that differs.","type":"text","required":true,"example":"internal/api/handler.go"}
 {"read_model_id":"ST-GEN-RM01","position":2,"name":"Change","meaning":"modified or deleted for a generated file; input changed for a recorded input.","type":"text","required":true,"example":"modified"}
 {"read_model_id":"ST-GEN-RM01","position":3,"name":"Record status","meaning":"sound, or broken when the record disagrees with itself or with the state it names.","type":"text","required":true,"example":"sound"}

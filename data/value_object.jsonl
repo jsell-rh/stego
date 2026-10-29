@@ -4,3 +4,6 @@
 {"id":"ST-VO41","title":"Content digest","description":"The SHA-256 digest of some content, such as a file, a declaration, a component or the registry."}
 {"id":"ST-VO42","title":"Build identity","description":"What a compiler records about its own build, from the Go build metadata."}
 {"id":"ST-VO43","title":"Source revision","description":"A full commit ID that names one exact source state."}
+{"id":"ST-VO44","title":"Fill signature","description":"A person's signature of one fill's test evidence, made with the SSH or GPG key that signs their commits."}
+{"id":"ST-VO45","title":"Qualification standing","description":"Where one fill stands on its way to being qualified."}
+{"id":"ST-VO46","title":"Slot reference","description":"The one slot a fill implements: a component and one of its slots."}

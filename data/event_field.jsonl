@@ -16,6 +16,14 @@
 {"domain_event_id":"ST-DIS-EV07","position":1,"name":"Source revision","meaning":"The commit of the installed release.","type_value_object_id":"ST-VO43","required":true}
 {"domain_event_id":"ST-DIS-EV07","position":2,"name":"Result folder","meaning":"The folder that holds the installed compiler.","type":"text","required":true}
 {"domain_event_id":"ST-DIS-EV07","position":3,"name":"Build identity","meaning":"The build identity of the installed compiler.","type_value_object_id":"ST-VO42","required":true}
+{"domain_event_id":"ST-EXT-EV01","position":1,"name":"Fill name","meaning":"The new fill.","type":"text","required":true,"example":"admin-creation-policy"}
+{"domain_event_id":"ST-EXT-EV01","position":2,"name":"Implements","meaning":"The slot it implements.","type_value_object_id":"ST-VO46","required":true}
+{"domain_event_id":"ST-EXT-EV02","position":1,"name":"Fill name","meaning":"The fill whose tests passed.","type":"text","required":true,"example":"admin-creation-policy"}
+{"domain_event_id":"ST-EXT-EV02","position":2,"name":"Fill digest","meaning":"The fill's content digest.","type_value_object_id":"ST-VO41","required":true}
+{"domain_event_id":"ST-EXT-EV02","position":3,"name":"Contract digest","meaning":"The slot contract's digest.","type_value_object_id":"ST-VO41","required":true}
+{"domain_event_id":"ST-EXT-EV03","position":1,"name":"Fill name","meaning":"The fill that was signed.","type":"text","required":true,"example":"admin-creation-policy"}
+{"domain_event_id":"ST-EXT-EV03","position":2,"name":"Signer","meaning":"Who signed, as the allowed signers file names them.","type":"text","required":true,"example":"jsell@example.com"}
+{"domain_event_id":"ST-EXT-EV03","position":3,"name":"Evidence digest","meaning":"The evidence the signature covers.","type_value_object_id":"ST-VO41","required":true}
 {"domain_event_id":"ST-GEN-EV01","position":1,"name":"Service name","meaning":"The service that was built.","type":"text","required":true}
 {"domain_event_id":"ST-GEN-EV01","position":2,"name":"Component pins","meaning":"Each component the build used, with its version and digest.","type":"text","required":true}
 {"domain_event_id":"ST-GEN-EV01","position":3,"name":"Registry content digest","meaning":"The registry content the build read.","type_value_object_id":"ST-VO41","required":true}

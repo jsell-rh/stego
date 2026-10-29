@@ -4,6 +4,10 @@
 {"source_id":"ST-DIS-SP02","target_id":"ST-DIS-A2"}
 {"source_id":"ST-DIS-SP03","target_id":"ST-DIS-A2"}
 {"source_id":"ST-DIS-SP04","target_id":"ST-DIS-A2"}
+{"source_id":"ST-EXT-RM01","target_id":"ST-EXT-A1"}
+{"source_id":"ST-EXT-RM02","target_id":"ST-EXT-A1"}
+{"source_id":"ST-EXT-SP01","target_id":"ST-EXT-A1"}
+{"source_id":"ST-EXT-SP02","target_id":"ST-EXT-A1"}
 {"source_id":"ST-GEN-RM01","target_id":"ST-GEN-A1"}
 {"source_id":"ST-GEN-RM02","target_id":"ST-GEN-A1"}
 {"source_id":"ST-GEN-SP01","target_id":"ST-GEN-A1"}

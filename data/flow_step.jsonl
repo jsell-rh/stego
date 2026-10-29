@@ -36,6 +36,19 @@
 {"id":"ST-DIS-UC09-FL01-S02","title":"The installer checks each asset digest and both signatures, and the signed record's platform, then puts the binary and its build record in place","flow_id":"ST-DIS-UC09-FL01","path":"main","position":2}
 {"id":"ST-DIS-UC09-FL01-S03","title":"The operator asks the installed compiler for its build identity, and it reports the identity it writes into a service's record","flow_id":"ST-DIS-UC09-FL01","path":"main","position":3}
 {"id":"ST-DIS-UC09-FL01-S04","title":"On any platform other than Linux amd64, the installer refuses before it downloads anything","flow_id":"ST-DIS-UC09-FL01","path":"refused","position":1}
+{"id":"ST-EXT-UC01-FL01-S01","title":"The agent runs fill create for the slot and collection, and STEGO writes a fill and a test that compile against the slot's contract","flow_id":"ST-EXT-UC01-FL01","path":"main","position":1}
+{"id":"ST-EXT-UC01-FL01-S02","title":"The agent writes the rule and its tests, binds the fill in the declaration, and runs stego test, and STEGO records the fill's evidence","flow_id":"ST-EXT-UC01-FL01","path":"main","position":2}
+{"id":"ST-EXT-UC01-FL01-S03","title":"A fill with no test file or a forbidden import gets no evidence, and STEGO names why","flow_id":"ST-EXT-UC01-FL01","path":"refused","position":1}
+{"id":"ST-EXT-UC01-FL01-S04","title":"Plan finds a bound fill that implements another slot or serves another collection, and stops","flow_id":"ST-EXT-UC01-FL01","path":"misfit","position":1}
+{"id":"ST-EXT-UC02-FL01-S01","title":"The service author runs stego test, and STEGO records the evidence of each fill whose tests pass","flow_id":"ST-EXT-UC02-FL01","path":"main","position":1}
+{"id":"ST-EXT-UC02-FL01-S02","title":"The service author runs fill sign, and STEGO signs the evidence with the author's key and writes the sign-off","flow_id":"ST-EXT-UC02-FL01","path":"main","position":2}
+{"id":"ST-EXT-UC02-FL01-S03","title":"A fill's tests fail, so STEGO records no evidence and fill sign refuses it","flow_id":"ST-EXT-UC02-FL01","path":"failed","position":1}
+{"id":"ST-EXT-UC02-FL01-S04","title":"A signature by a key that the allowed signers file does not list leaves the fill unsigned, and plan stops","flow_id":"ST-EXT-UC02-FL01","path":"unlisted","position":1}
+{"id":"ST-EXT-UC03-FL01-S01","title":"The agent runs registry fills for the slot, and STEGO lists each fill with its collection and standing","flow_id":"ST-EXT-UC03-FL01","path":"main","position":1}
+{"id":"ST-EXT-UC04-FL01-S01","title":"The service author runs fill status, and STEGO names each stale fill and what changed","flow_id":"ST-EXT-UC04-FL01","path":"main","position":1}
+{"id":"ST-EXT-UC04-FL01-S02","title":"The service author runs stego test, and STEGO records new evidence","flow_id":"ST-EXT-UC04-FL01","path":"main","position":2}
+{"id":"ST-EXT-UC04-FL01-S03","title":"The service author runs fill sign, and STEGO signs the new evidence","flow_id":"ST-EXT-UC04-FL01","path":"main","position":3}
+{"id":"ST-EXT-UC04-FL01-S04","title":"Plan or apply meets a stale fill, stops, and names it","flow_id":"ST-EXT-UC04-FL01","path":"stopped","position":1}
 {"id":"ST-GEN-UC01-FL01-S01","title":"The service author runs apply, and STEGO writes the generated files and the record together","flow_id":"ST-GEN-UC01-FL01","path":"main","position":1}
 {"id":"ST-GEN-UC01-FL01-S02","title":"The service author commits the record with the generated code","flow_id":"ST-GEN-UC01-FL01","path":"main","position":2}
 {"id":"ST-GEN-UC01-FL01-S03","title":"An interrupted apply leaves a journal, and plan, apply and drift refuse until the author runs recover","flow_id":"ST-GEN-UC01-FL01","path":"interrupted","position":1}
@@ -43,17 +56,21 @@
 {"id":"ST-GEN-UC02-FL01-S02","title":"A record that disagrees with itself, or that names a registry or compiler its state does not hold, is reported as broken","flow_id":"ST-GEN-UC02-FL01","path":"broken","position":1}
 {"id":"ST-GEN-UC03-FL01-S01","title":"The service author moves the component's pin to the successor digest","flow_id":"ST-GEN-UC03-FL01","path":"main","position":1}
 {"id":"ST-GEN-UC03-FL01-S02","title":"The service author runs plan, and STEGO saves the plan and lists each file that the new digest changes","flow_id":"ST-GEN-UC03-FL01","path":"main","position":2}
-{"id":"ST-GEN-UC03-FL01-S03","title":"The service author runs apply, and STEGO changes only the files that the new digest affects","flow_id":"ST-GEN-UC03-FL01","path":"main","position":4}
-{"id":"ST-GEN-UC03-FL01-S04","title":"The service author reads the diff of the fix and commits it with the record","flow_id":"ST-GEN-UC03-FL01","path":"main","position":5}
+{"id":"ST-GEN-UC03-FL01-S03","title":"The service author runs apply, and STEGO changes only the files that the new digest affects","flow_id":"ST-GEN-UC03-FL01","path":"main","position":5}
+{"id":"ST-GEN-UC03-FL01-S04","title":"The service author reads the diff of the fix and commits it with the record","flow_id":"ST-GEN-UC03-FL01","path":"main","position":6}
 {"id":"ST-GEN-UC03-FL01-S05","title":"Apply names every generated file that no longer matches its hash, and writes nothing","flow_id":"ST-GEN-UC03-FL01","path":"refused","position":1}
 {"id":"ST-GEN-UC03-FL01-S06","title":"When the author states on the command that the run may replace hand-edited files, apply replaces them","flow_id":"ST-GEN-UC03-FL01","path":"replace","position":1}
 {"id":"ST-GEN-UC03-FL01-S07","title":"STEGO reports the standing of each pin, the successor included, and the author goes on only when no pin is withdrawn or past its fail date","flow_id":"ST-GEN-UC03-FL01","path":"main","position":3}
 {"id":"ST-GEN-UC03-FL01-S08","title":"A pin that is withdrawn or past its fail date stops the author before apply, and the author moves it to a digest that stands","flow_id":"ST-GEN-UC03-FL01","path":"stopped","position":1}
+{"id":"ST-GEN-UC03-FL01-S09","title":"STEGO reports the qualification of each bound fill against the new contracts, and the author goes on only when every one is qualified","flow_id":"ST-GEN-UC03-FL01","path":"main","position":4}
+{"id":"ST-GEN-UC03-FL01-S10","title":"A fix that changes a slot contract leaves its fills stale, so the author requalifies them before apply","flow_id":"ST-GEN-UC03-FL01","path":"stale fill","position":1}
 {"id":"ST-GEN-UC04-FL01-S01","title":"The service author changes the declaration","flow_id":"ST-GEN-UC04-FL01","path":"main","position":1}
 {"id":"ST-GEN-UC04-FL01-S02","title":"STEGO reports the standing of each pin before the change is applied, and the author goes on only when no pin is withdrawn or past its fail date","flow_id":"ST-GEN-UC04-FL01","path":"main","position":2}
-{"id":"ST-GEN-UC04-FL01-S03","title":"The service author runs apply, and STEGO plans in the same run and writes the changed files, deletes the files it no longer generates, and writes the record","flow_id":"ST-GEN-UC04-FL01","path":"main","position":3}
-{"id":"ST-GEN-UC04-FL01-S04","title":"The service author reads the diff of the declaration change and commits it with the declaration and the record","flow_id":"ST-GEN-UC04-FL01","path":"main","position":4}
+{"id":"ST-GEN-UC04-FL01-S03","title":"The service author runs apply, and STEGO plans in the same run and writes the changed files, deletes the files it no longer generates, and writes the record","flow_id":"ST-GEN-UC04-FL01","path":"main","position":4}
+{"id":"ST-GEN-UC04-FL01-S04","title":"The service author reads the diff of the declaration change and commits it with the declaration and the record","flow_id":"ST-GEN-UC04-FL01","path":"main","position":5}
 {"id":"ST-GEN-UC04-FL01-S05","title":"A failed validation, generator or assembly stops the run, STEGO names the failure, and no file changes","flow_id":"ST-GEN-UC04-FL01","path":"failed","position":1}
+{"id":"ST-GEN-UC04-FL01-S06","title":"STEGO reports the qualification of each bound fill, and the author goes on only when every one is qualified and fits its binding","flow_id":"ST-GEN-UC04-FL01","path":"main","position":3}
+{"id":"ST-GEN-UC04-FL01-S07","title":"A bound fill that is not qualified or does not fit stops the run before apply, and the author requalifies or rebinds it","flow_id":"ST-GEN-UC04-FL01","path":"unqualified","position":1}
 {"id":"ST-GEN-UC05-FL01-S01","title":"The service author runs plan, and STEGO saves the plan and lists each change","flow_id":"ST-GEN-UC05-FL01","path":"main","position":1}
 {"id":"ST-GEN-UC05-FL01-S02","title":"The service author reads the saved plan","flow_id":"ST-GEN-UC05-FL01","path":"main","position":2}
 {"id":"ST-GEN-UC05-FL01-S03","title":"The service author runs apply with the saved plan, and STEGO writes exactly what it names","flow_id":"ST-GEN-UC05-FL01","path":"main","position":3}

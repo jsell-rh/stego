@@ -2,7 +2,6 @@
 {"id":"ST-DECL-TM03","title":"Entity","domain_id":"ST-DECL","meaning":"A data shape a declaration names, with fields and their constraints and no access pattern."}
 {"id":"ST-DECL-TM04","title":"Collection","domain_id":"ST-DECL","meaning":"An access pattern over one entity: its scope, its operations and its path."}
 {"id":"ST-DECL-TM05","title":"Slot binding","domain_id":"ST-DECL","meaning":"A place where a service binds its own rules, as fills, to a slot a component declares."}
-{"id":"ST-DECL-TM06","title":"Fill","domain_id":"ST-DECL","meaning":"Code an author or an agent writes against a generated slot contract. STEGO does not generate it."}
 {"id":"ST-DECL-TM07","title":"Fault","domain_id":"ST-DECL","meaning":"One way a declaration breaks a rule, given as structured data an agent can act on."}
 {"id":"ST-DECL-TM08","title":"Experimental acceptance","domain_id":"ST-DECL","meaning":"A statement in a declaration that it accepts a component that is not ga, until a date."}
 {"id":"ST-DIS-TM03","title":"Component digest","domain_id":"ST-DIS","meaning":"The SHA-256 digest of one component's content in the registry. It changes only when that component's content changes."}
@@ -15,6 +14,12 @@
 {"id":"ST-DIS-TM13","title":"Qualification","domain_id":"ST-DIS","meaning":"The check that the CI runs, required jobs and signed artifacts of a compiler release all passed at its exact commit."}
 {"id":"ST-DIS-TM14","title":"Build identity","domain_id":"ST-DIS","meaning":"What the compiler records about its own build: its Go version, platform, module version, revision and source state."}
 {"id":"ST-DIS-TM15","title":"Qualified platform","domain_id":"ST-DIS","meaning":"The one platform a compiler release is qualified for: Linux amd64."}
+{"id":"ST-EXT-TM01","title":"Fill","domain_id":"ST-EXT","meaning":"Hand-written code in a service's fills/ folder that implements one slot's contract for one collection, with its own tests."}
+{"id":"ST-EXT-TM02","title":"Test evidence","domain_id":"ST-EXT","meaning":"The record in fill.yaml that a fill's tests passed against one exact state of the fill and its slot contract."}
+{"id":"ST-EXT-TM03","title":"Sign-off","domain_id":"ST-EXT","meaning":"A person's key signature, in fill.yaml, of a fill's test evidence."}
+{"id":"ST-EXT-TM04","title":"Allowed signers","domain_id":"ST-EXT","meaning":"The file in the project that lists the keys whose signatures may qualify a fill, in the format git uses for SSH signatures."}
+{"id":"ST-EXT-TM05","title":"Qualified fill","domain_id":"ST-EXT","meaning":"A fill whose evidence matches its current code and contract, and whose evidence a listed key signed."}
+{"id":"ST-EXT-TM06","title":"Fill module","domain_id":"ST-EXT","meaning":"A module that the declaration lets fills import, besides their contracts and the standard library."}
 {"id":"ST-GEN-TM01","title":"Record","domain_id":"ST-GEN","meaning":"The part of .stego/state.yaml that says what a service's generated code was built from: the service, the compiler build, the registry content, every component pin and the hash of every generated file."}
 {"id":"ST-GEN-TM02","title":"Component pin","domain_id":"ST-GEN","meaning":"The version and digest of one component that a service is built from."}
 {"id":"ST-GEN-TM03","title":"Drift","domain_id":"ST-GEN","meaning":"A difference between a generated file and the hash its record holds, or between a recorded input and the file on disk."}

@@ -22,6 +22,8 @@
 {"entity_id":"ST-DECL-EN07","position":1,"name":"Component name","meaning":"The component the service accepts, whose stage is not ga.","type":"text","required":true,"example":"rh-sso-auth"}
 {"entity_id":"ST-DECL-EN07","position":2,"name":"Accepted until","meaning":"The date the acceptance runs out, which may not be later than the component's own sunset.","type":"date","required":true,"example":"2027-03-01"}
 {"entity_id":"ST-DECL-EN07","position":3,"name":"Reason","meaning":"Why the service accepts it, so a reader can judge the risk.","type":"text","required":true,"example":"SSO migration pilot, ticket PLAT-1234"}
+{"entity_id":"ST-DECL-EN08","position":1,"name":"Module path","meaning":"The Go module path fills may import.","type":"text","required":true,"example":"github.com/google/uuid"}
+{"entity_id":"ST-DECL-EN08","position":2,"name":"Reason","meaning":"Why the fills need it, so a reviewer can judge it.","type":"text","required":true,"example":"fills create request IDs"}
 {"entity_id":"ST-DIS-EN06","position":1,"name":"Component","meaning":"The component's name.","type":"text","required":true,"example":"rest-api"}
 {"entity_id":"ST-DIS-EN06","position":2,"name":"Digest","meaning":"The component digest whose standing this is.","type_value_object_id":"ST-VO41","required":true}
 {"entity_id":"ST-DIS-EN07","position":1,"name":"Successor digest","meaning":"The digest that replaces this one. The platform engineer declares it.","type_value_object_id":"ST-VO41","required":true}
@@ -48,6 +50,16 @@
 {"entity_id":"ST-DIS-EN12","position":2,"name":"Source revision","meaning":"The commit of the release that was installed.","type_value_object_id":"ST-VO43","required":true}
 {"entity_id":"ST-DIS-EN12","position":3,"name":"Platform","meaning":"The platform the release is qualified for, as its signed record states it.","type":"text","required":true,"example":"linux/amd64"}
 {"entity_id":"ST-DIS-EN12","position":4,"name":"Build identity","meaning":"The build identity of the installed compiler.","type_value_object_id":"ST-VO42","required":true}
+{"entity_id":"ST-EXT-EN01","position":1,"name":"Name","meaning":"The fill's name, which is also its folder under fills/.","type":"text","required":true,"example":"admin-creation-policy"}
+{"entity_id":"ST-EXT-EN01","position":2,"name":"Implements","meaning":"The one slot whose contract the fill implements.","type_value_object_id":"ST-VO46","required":true}
+{"entity_id":"ST-EXT-EN01","position":3,"name":"Collection","meaning":"The collection the fill serves.","type":"text","required":true,"example":"org-users"}
+{"entity_id":"ST-EXT-EN02","position":1,"name":"Fill digest","meaning":"The fill's content digest when its tests passed.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-EXT-EN02","position":2,"name":"Contract digest","meaning":"The digest of the slot contract the tests ran against.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-EXT-EN02","position":3,"name":"Passed at","meaning":"When the tests passed.","type":"date","required":true,"example":"2026-10-28"}
+{"entity_id":"ST-EXT-EN02","position":4,"name":"Compiler build","meaning":"The compiler that ran the tests.","type_value_object_id":"ST-VO42","required":true}
+{"entity_id":"ST-EXT-EN03","position":1,"name":"Evidence digest","meaning":"The digest of the test evidence the signature covers.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-EXT-EN03","position":2,"name":"Signature","meaning":"The person's signature of that evidence.","type_value_object_id":"ST-VO44","required":true}
+{"entity_id":"ST-EXT-EN03","position":3,"name":"Signed at","meaning":"When the person signed.","type":"date","required":true,"example":"2026-10-28"}
 {"entity_id":"ST-GEN-EN01","position":1,"name":"Service name","meaning":"The service the record describes. STEGO does not write it yet.","type":"text","required":true,"example":"user-management"}
 {"entity_id":"ST-GEN-EN01","position":2,"name":"Format version","meaning":"The version of the record's format. A documented field changes only with this version.","type":"whole number","required":true,"column_name":"format_version","example":"1"}
 {"entity_id":"ST-GEN-EN01","position":3,"name":"Declaration digest","meaning":"The digest of the service declaration that apply read.","type_value_object_id":"ST-VO41","required":true,"column_name":"service_hash"}
