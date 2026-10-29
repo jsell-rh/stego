@@ -12,3 +12,4 @@
 {"id":"ST-SUP-SP02-PR","title":"ports.AmbiguousPort","specification_id":"ST-SUP-SP02","file":"internal/ports/resolve.go","description":"Resolve in resolve.go reports an AmbiguousPort for each required port that more than one active component provides with no binding to choose one."}
 {"id":"ST-SUP-SP03-PR","title":"ports.UnresolvedPort","specification_id":"ST-SUP-SP03","file":"internal/ports/resolve.go","description":"Resolve in resolve.go reports an UnresolvedPort for each required port that no active component provides."}
 {"id":"ST-SUP-SP04-PR","title":"registry.PastSunset","specification_id":"ST-SUP-SP04","file":"internal/registry/stage.go","description":"Not written yet: no component declares a sunset today."}
+{"id":"ST-SUP-SP05-PR","title":"registry.statesPlace","specification_id":"ST-SUP-SP05","file":"internal/registry/architecture.go","description":"Not written yet: component.yaml has no architecture role."}

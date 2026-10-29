@@ -105,7 +105,7 @@
 {"id":"ST-GEN-UC06-FL01-S03","title":"A journaled file matches neither of its states, so recover names it and changes nothing","flow_id":"ST-GEN-UC06-FL01","path":"conflict","position":1}
 {"id":"ST-GEN-UC07-FL01-S01","title":"The service author runs stego assets on the build folder, and STEGO writes the checked bundle","flow_id":"ST-GEN-UC07-FL01","path":"main","position":1}
 {"id":"ST-GEN-UC07-FL01-S02","title":"An entry fails its checks, so STEGO names it and leaves the output as it was","flow_id":"ST-GEN-UC07-FL01","path":"refused","position":1}
-{"id":"ST-GEN-UC08-FL01-S01","title":"The service author runs stego apply, and STEGO writes the architecture view with the code","flow_id":"ST-GEN-UC08-FL01","path":"main","position":1}
+{"id":"ST-GEN-UC08-FL01-S01","title":"The service author runs stego apply, and STEGO derives the architecture model and writes the view with the code","flow_id":"ST-GEN-UC08-FL01","path":"main","position":1}
 {"id":"ST-GEN-UC08-FL01-S02","title":"The service owner opens the view in a browser, selects elements and follows request flows","flow_id":"ST-GEN-UC08-FL01","path":"main","position":2}
 {"id":"ST-GEN-UC09-FL01-S01","title":"The service author runs stego apply after a change, and the diff of the architecture model shows how the service changed","flow_id":"ST-GEN-UC09-FL01","path":"main","position":1}
 {"id":"ST-GEN-UC09-FL01-S02","title":"The view or model was edited or is stale, so stego drift names it","flow_id":"ST-GEN-UC09-FL01","path":"refused","position":1}
@@ -115,6 +115,7 @@
 {"id":"ST-SUP-UC01-FL01-S04","title":"The platform engineer states each thing the emitted code must always do as an output contract, with the generator that builds it and the test that proves it","flow_id":"ST-SUP-UC01-FL01","path":"main","position":4}
 {"id":"ST-SUP-UC01-FL01-S05","title":"The platform engineer changes what the generator emits, and releases the component at a new version","flow_id":"ST-SUP-UC01-FL01","path":"change","position":1}
 {"id":"ST-SUP-UC01-FL01-S06","title":"A namespace that another component of the registry claims is refused, naming both components","flow_id":"ST-SUP-UC01-FL01","path":"refused","position":1}
+{"id":"ST-SUP-UC01-FL01-S07","title":"A component that states no architecture role is refused, naming the component","flow_id":"ST-SUP-UC01-FL01","path":"refused","position":2}
 {"id":"ST-SUP-UC02-FL01-S01","title":"The platform engineer pins the common registry at one reference","flow_id":"ST-SUP-UC02-FL01","path":"main","position":1}
 {"id":"ST-SUP-UC02-FL01-S02","title":"The platform engineer names a local registry that adds the team's own parts, at one reference","flow_id":"ST-SUP-UC02-FL01","path":"main","position":2}
 {"id":"ST-SUP-UC02-FL01-S03","title":"STEGO composes the sources into one active set, and records the reference of each","flow_id":"ST-SUP-UC02-FL01","path":"main","position":3}
