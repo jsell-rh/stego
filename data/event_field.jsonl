@@ -58,3 +58,9 @@
 {"domain_event_id":"ST-SUP-EV09","position":1,"name":"Port name","meaning":"The port.","type_aggregate_id":"ST-SUP-A3","required":true}
 {"domain_event_id":"ST-SUP-EV10","position":1,"name":"Slot name","meaning":"The slot.","type":"text","required":true}
 {"domain_event_id":"ST-SUP-EV10","position":2,"name":"Component name","meaning":"The component, by its name in the active registry.","type":"text","required":true}
+{"domain_event_id":"ST-SUP-EV11","position":1,"name":"Component name","meaning":"The component.","type":"text","required":true,"example":"rest-api"}
+{"domain_event_id":"ST-SUP-EV11","position":2,"name":"Component digest","meaning":"The digest the evidence covers.","type_value_object_id":"ST-VO41","required":true}
+{"domain_event_id":"ST-SUP-EV11","position":3,"name":"Kind","meaning":"Which part of the bar.","type_value_object_id":"ST-VO47","required":true}
+{"domain_event_id":"ST-SUP-EV12","position":1,"name":"Component name","meaning":"The promoted component.","type":"text","required":true,"example":"rate-limiter"}
+{"domain_event_id":"ST-SUP-EV12","position":2,"name":"Component digest","meaning":"Its digest, the same in both registries.","type_value_object_id":"ST-VO41","required":true}
+{"domain_event_id":"ST-SUP-EV12","position":3,"name":"Source registry","meaning":"The local registry it came from.","type":"text","required":true,"example":"team-payments"}

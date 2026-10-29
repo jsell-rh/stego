@@ -7,3 +7,4 @@
 {"id":"ST-VO44","title":"Fill signature","description":"A person's signature of one fill's test evidence, made with the SSH or GPG key that signs their commits."}
 {"id":"ST-VO45","title":"Qualification standing","description":"Where one fill stands on its way to being qualified."}
 {"id":"ST-VO46","title":"Slot reference","description":"The one slot a fill implements: a component and one of its slots."}
+{"id":"ST-VO47","title":"Quality evidence kind","description":"Which part of the ga quality bar one piece of evidence shows."}

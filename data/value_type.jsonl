@@ -7,3 +7,4 @@
 {"id":"ST-VO44-VT","title":"fill.Signature","value_object_id":"ST-VO44","file":"internal/fill/signoff.go","description":"Not written yet."}
 {"id":"ST-VO45-VT","title":"fill.Standing","value_object_id":"ST-VO45","file":"internal/fill/qualification.go","description":"Not written yet."}
 {"id":"ST-VO46-VT","title":"types.SlotRef","value_object_id":"ST-VO46","file":"internal/types/types.go","description":"Not written yet: implements is a plain string, and runRegistryFills splits it at the period without checking its form."}
+{"id":"ST-VO47-VT","title":"registry.EvidenceKind","value_object_id":"ST-VO47","file":"internal/registry/quality.go","description":"Not written yet."}

@@ -32,3 +32,4 @@
 {"id":"ST-SUP-EN08-DM","title":"types.SlotDefinition","entity_id":"ST-SUP-EN08","file":"internal/types/types.go","description":"The SlotDefinition struct: the slot's name, its protobuf contract and its default."}
 {"id":"ST-SUP-EN09-DM","title":"types.Component","entity_id":"ST-SUP-EN09","file":"internal/types/types.go","description":"The Component struct: name, version, config schema, required and provided ports, slots and output namespace. It has no stage and no sunset yet."}
 {"id":"ST-SUP-EN10-DM","title":"types.RegistrySource","entity_id":"ST-SUP-EN10","file":"internal/types/types.go","description":"The RegistrySource struct in .stego/config.yaml: the location, the pinned reference, the subfolder and the vendored checkout."}
+{"id":"ST-SUP-EN11-DM","title":"registry.QualityEvidence","entity_id":"ST-SUP-EN11","file":"internal/registry/quality.go","description":"Not written yet: no component carries quality evidence."}

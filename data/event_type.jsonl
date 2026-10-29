@@ -19,3 +19,5 @@
 {"id":"ST-SUP-EV08-ET","title":"registry.MixinAdded","domain_event_id":"ST-SUP-EV08","file":"internal/registry/events.go","description":"Not written yet: STEGO raises no events today. This names where the event's shape will live."}
 {"id":"ST-SUP-EV09-ET","title":"registry.PortDefined","domain_event_id":"ST-SUP-EV09","file":"internal/registry/events.go","description":"Not written yet: STEGO raises no events today. This names where the event's shape will live."}
 {"id":"ST-SUP-EV10-ET","title":"registry.SlotDeclared","domain_event_id":"ST-SUP-EV10","file":"internal/registry/events.go","description":"Not written yet: STEGO raises no events today. This names where the event's shape will live."}
+{"id":"ST-SUP-EV11-ET","title":"QualityEvidenceRecorded","domain_event_id":"ST-SUP-EV11","delivery":"in process","file":"internal/registry/events.go","description":"Not written yet."}
+{"id":"ST-SUP-EV12-ET","title":"ComponentPromoted","domain_event_id":"ST-SUP-EV12","delivery":"in process","file":"internal/registry/events.go","description":"Not written yet. The durable form is the reviewed change to the common registry."}

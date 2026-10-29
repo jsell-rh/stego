@@ -11,3 +11,4 @@
 {"value_object_id":"ST-VO45","position":1,"name":"Standing","meaning":"One of qualified, stale, unsigned or untested.","type":"text","required":true,"example":"stale"}
 {"value_object_id":"ST-VO46","position":1,"name":"Component","meaning":"The component that declares the slot.","type":"text","required":true,"example":"rest-api"}
 {"value_object_id":"ST-VO46","position":2,"name":"Slot","meaning":"The slot's name in that component.","type":"text","required":true,"example":"before_create"}
+{"value_object_id":"ST-VO47","position":1,"name":"Kind","meaning":"One of security review, benchmark or design review.","type":"text","required":true,"example":"benchmark"}

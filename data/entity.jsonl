@@ -32,3 +32,4 @@
 {"id":"ST-SUP-EN08","title":"Slot","aggregate_id":"ST-SUP-A4","role":"root","description":"One typed extension point a component declares."}
 {"id":"ST-SUP-EN09","title":"Component","aggregate_id":"ST-SUP-A1","role":"child","description":"One deterministic generator with its config schema, the ports it requires and provides, the slots it offers and its maturity stage. It is versioned and released as one unit."}
 {"id":"ST-SUP-EN10","title":"Registry source","aggregate_id":"ST-SUP-A1","role":"child","in_root_table":true,"description":"One registry the active set is composed from: the common registry, or a local registry that adds to it."}
+{"id":"ST-SUP-EN11","title":"Quality evidence","aggregate_id":"ST-SUP-A1","role":"child","description":"One piece of evidence that a component version meets the ga quality bar: a security review, a benchmark against a reference, or a design review, made at the component's exact digest."}

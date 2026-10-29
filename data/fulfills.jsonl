@@ -98,3 +98,10 @@
 {"source_id":"ST-SUP-UC05-FL01-S01","target_id":"ST-SUP-UC05-R01"}
 {"source_id":"ST-SUP-UC05-FL01-S02","target_id":"ST-SUP-UC05-R03"}
 {"source_id":"ST-SUP-UC05-FL01-S04","target_id":"ST-SUP-UC05-R02"}
+{"source_id":"ST-SUP-UC05-FL01-S05","target_id":"ST-SUP-UC05-R04"}
+{"source_id":"ST-SUP-UC05-FL01-S06","target_id":"ST-SUP-UC05-R04"}
+{"source_id":"ST-SUP-UC06-FL01-S01","target_id":"ST-SUP-UC06-R01"}
+{"source_id":"ST-SUP-UC06-FL01-S01","target_id":"ST-SUP-UC06-R02"}
+{"source_id":"ST-SUP-UC06-FL01-S02","target_id":"ST-SUP-UC06-R03"}
+{"source_id":"ST-SUP-UC06-FL01-S03","target_id":"ST-SUP-UC06-R04"}
+{"source_id":"ST-SUP-UC06-FL01-S04","target_id":"ST-SUP-UC06-R01"}

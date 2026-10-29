@@ -80,3 +80,8 @@
 {"source_id":"ST-SUP-UC05-FL01-S02","target_id":"ST-SUP-CMD05"}
 {"source_id":"ST-SUP-UC05-FL01-S03","target_id":"ST-SUP-CMD06"}
 {"source_id":"ST-SUP-UC05-FL01-S04","target_id":"ST-SUP-QRY04"}
+{"source_id":"ST-SUP-UC05-FL01-S05","target_id":"ST-SUP-CMD11"}
+{"source_id":"ST-SUP-UC05-FL01-S06","target_id":"ST-SUP-CMD05"}
+{"source_id":"ST-SUP-UC06-FL01-S01","target_id":"ST-SUP-CMD12"}
+{"source_id":"ST-SUP-UC06-FL01-S03","target_id":"ST-GEN-CMD01"}
+{"source_id":"ST-SUP-UC06-FL01-S04","target_id":"ST-SUP-CMD12"}

@@ -19,3 +19,5 @@
 {"id":"ST-SUP-EV08","title":"Mixin added","aggregate_id":"ST-SUP-A2","published":false,"description":"An archetype accepts a further mixin."}
 {"id":"ST-SUP-EV09","title":"Port defined","aggregate_id":"ST-SUP-A3","published":false,"description":"A port and the meaning of its fields are in the registry."}
 {"id":"ST-SUP-EV10","title":"Slot declared","aggregate_id":"ST-SUP-A4","published":false,"description":"A component offers a new slot."}
+{"id":"ST-SUP-EV11","title":"Quality evidence recorded","aggregate_id":"ST-SUP-A1","published":false,"description":"A component version holds a new piece of ga quality evidence."}
+{"id":"ST-SUP-EV12","title":"Component promoted","aggregate_id":"ST-SUP-A1","published":true,"description":"A component written in a team's local registry entered the common registry, so every team can build from it."}

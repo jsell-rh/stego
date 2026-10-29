@@ -45,3 +45,5 @@
 {"id":"ST-SUP-TM15","title":"Golden path","domain_id":"ST-SUP","meaning":"The shape an archetype gives a service, which holds only ga components."}
 {"id":"ST-SUP-TM16","title":"Output contract","domain_id":"ST-SUP","meaning":"One fact that must always hold of the code a component emits. The component owns it, not the service."}
 {"id":"ST-SUP-TM17","title":"Generator","domain_id":"ST-SUP","meaning":"A file of a component's generator that emits part of the component's code."}
+{"id":"ST-SUP-TM18","title":"Quality bar","domain_id":"ST-SUP","meaning":"What a component version must hold to be ga: a security review, a benchmark against a reference and a design review, each at its exact digest."}
+{"id":"ST-SUP-TM19","title":"Promotion","domain_id":"ST-SUP","meaning":"Moving a component from a team's local registry into the common registry, through review, so every team can build from it."}

@@ -110,3 +110,10 @@
 {"entity_id":"ST-SUP-EN10","position":2,"name":"Reference","meaning":"The exact commit that pins the registry content.","type":"text","required":true,"example":"94d285d7c1e0b3f2a9d4e5f6a7b8c9d0e1f2a3b4"}
 {"entity_id":"ST-SUP-EN10","position":3,"name":"Subfolder","meaning":"The folder in the repository that holds the registry, when it is not the root.","type":"text","required":false,"example":"registry"}
 {"entity_id":"ST-SUP-EN10","position":4,"name":"Trust","meaning":"Whether the source is the reviewed common registry or a local extension.","type_value_object_id":"ST-VO03","required":true,"example":"common"}
+{"entity_id":"ST-SUP-EN11","position":1,"name":"Component name","meaning":"The component the evidence is for.","type":"text","required":true,"example":"rest-api"}
+{"entity_id":"ST-SUP-EN11","position":2,"name":"Component digest","meaning":"The exact digest the evidence was made at.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-SUP-EN11","position":3,"name":"Kind","meaning":"Which part of the bar it shows.","type_value_object_id":"ST-VO47","required":true}
+{"entity_id":"ST-SUP-EN11","position":4,"name":"Reviewer","meaning":"Who made the review or ran the benchmark.","type":"text","required":true,"example":"security@example.com"}
+{"entity_id":"ST-SUP-EN11","position":5,"name":"Result","meaning":"What it found: the review's conclusion, or the benchmark's figures against the reference.","type":"text","required":true,"example":"p99 latency within 5% of the reference"}
+{"entity_id":"ST-SUP-EN11","position":6,"name":"Reference","meaning":"Where the full review or benchmark report is kept.","type":"text","required":true,"example":"https://example.com/reviews/rest-api-2.4.0"}
+{"entity_id":"ST-SUP-EN11","position":7,"name":"Recorded at","meaning":"When the evidence was recorded.","type":"date","required":true,"example":"2026-10-28"}

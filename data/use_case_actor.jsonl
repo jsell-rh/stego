@@ -28,3 +28,5 @@
 {"use_case_id":"ST-SUP-UC03","position":1,"role_name":"Platform engineer"}
 {"use_case_id":"ST-SUP-UC04","position":1,"role_name":"Platform engineer"}
 {"use_case_id":"ST-SUP-UC05","position":1,"role_name":"Platform engineer"}
+{"use_case_id":"ST-SUP-UC06","position":1,"role_name":"Service author"}
+{"use_case_id":"ST-SUP-UC06","position":2,"role_name":"Platform engineer"}
