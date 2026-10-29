@@ -12,32 +12,34 @@ import (
 )
 
 func TestCompiledModulesRequireRecordedContent(t *testing.T) {
-	sum := "h1:" + strings.Repeat("A", 43) + "="
-	for _, name := range []string{"matching", "missing checksum", "wrong version", "wrong main", "extra module", "wrong checksum", "missing dependency"} {
-		t.Run(name, func(t *testing.T) {
-			record := fixtureRecord()
-			record.Modules = append(record.Modules, Module{Path: "example.test/dep", Version: "v1.2.3", Sum: sum, GoModSum: sum})
-			info := &debug.BuildInfo{Path: "example.test/app/out", Main: debug.Module{Path: "example.test/app", Version: "(devel)"}, Deps: []*debug.Module{{Path: "example.test/dep", Version: "v1.2.3", Sum: sum}}}
-			switch name {
-			case "missing checksum":
-				record.Modules[1].Sum = ""
-			case "wrong version":
-				info.Deps[0].Version = "v1.2.4"
-			case "wrong main":
-				info.Main.Path = "example.test/other"
-			case "extra module":
-				record.Modules = append(record.Modules, Module{Path: "example.test/extra", Version: "v1.0.0", Sum: sum, GoModSum: sum})
-			case "wrong checksum":
-				info.Deps[0].Sum = "h1:" + strings.Repeat("B", 42) + "A="
-			case "missing dependency":
-				record.Modules = record.Modules[:1]
-			}
-			err := matchCompiledModules(info, &record)
-			if (err == nil) != (name == "matching") {
-				t.Fatal("unexpected module match", err)
-			}
-		})
-	}
+	t.Run("ST-BLD-DS02-T01 An executable whose compiled modules differ from the record is refused", func(t *testing.T) {
+		sum := "h1:" + strings.Repeat("A", 43) + "="
+		for _, name := range []string{"matching", "missing checksum", "wrong version", "wrong main", "extra module", "wrong checksum", "missing dependency"} {
+			t.Run(name, func(t *testing.T) {
+				record := fixtureRecord()
+				record.Modules = append(record.Modules, Module{Path: "example.test/dep", Version: "v1.2.3", Sum: sum, GoModSum: sum})
+				info := &debug.BuildInfo{Path: "example.test/app/out", Main: debug.Module{Path: "example.test/app", Version: "(devel)"}, Deps: []*debug.Module{{Path: "example.test/dep", Version: "v1.2.3", Sum: sum}}}
+				switch name {
+				case "missing checksum":
+					record.Modules[1].Sum = ""
+				case "wrong version":
+					info.Deps[0].Version = "v1.2.4"
+				case "wrong main":
+					info.Main.Path = "example.test/other"
+				case "extra module":
+					record.Modules = append(record.Modules, Module{Path: "example.test/extra", Version: "v1.0.0", Sum: sum, GoModSum: sum})
+				case "wrong checksum":
+					info.Deps[0].Sum = "h1:" + strings.Repeat("B", 42) + "A="
+				case "missing dependency":
+					record.Modules = record.Modules[:1]
+				}
+				err := matchCompiledModules(info, &record)
+				if (err == nil) != (name == "matching") {
+					t.Fatal("unexpected module match", err)
+				}
+			})
+		}
+	})
 }
 
 func TestCompiledModulesRetainLocalAndRemoteReplacementIdentity(t *testing.T) {

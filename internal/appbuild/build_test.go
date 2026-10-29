@@ -27,32 +27,34 @@ func put(t *testing.T, root, name, value string) {
 }
 
 func TestInventoryTracksFilesAndRejectsLinks(t *testing.T) {
-	root := t.TempDir()
-	put(t, root, "b", "second")
-	put(t, root, "a", "first")
-	first, files, err := inventory(root, 2, 11)
-	if err != nil || first.Files != 2 || first.Bytes != 11 || files[0].Path != "a" {
-		t.Fatal(first, files, err)
-	}
-	if err := os.Chmod(filepath.Join(root, "a"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	second, _, err := inventory(root, 2, 11)
-	if err != nil || first.SHA256 == second.SHA256 {
-		t.Fatal("executable change was not recorded", err)
-	}
-	if _, _, err = inventory(root, 1, 11); err == nil {
-		t.Fatal("file limit was ignored")
-	}
-	if _, _, err = inventory(root, 2, 10); err == nil {
-		t.Fatal("byte limit was ignored")
-	}
-	if err := os.Symlink(filepath.Join(root, "a"), filepath.Join(root, "link")); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err = inventory(root, 3, 100); err == nil {
-		t.Fatal("link was accepted")
-	}
+	t.Run("ST-VO48-C01-T The SDK inventory digest follows the contents and refuses links", func(t *testing.T) {
+		root := t.TempDir()
+		put(t, root, "b", "second")
+		put(t, root, "a", "first")
+		first, files, err := inventory(root, 2, 11)
+		if err != nil || first.Files != 2 || first.Bytes != 11 || files[0].Path != "a" {
+			t.Fatal(first, files, err)
+		}
+		if err := os.Chmod(filepath.Join(root, "a"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		second, _, err := inventory(root, 2, 11)
+		if err != nil || first.SHA256 == second.SHA256 {
+			t.Fatal("executable change was not recorded", err)
+		}
+		if _, _, err = inventory(root, 1, 11); err == nil {
+			t.Fatal("file limit was ignored")
+		}
+		if _, _, err = inventory(root, 2, 10); err == nil {
+			t.Fatal("byte limit was ignored")
+		}
+		if err := os.Symlink(filepath.Join(root, "a"), filepath.Join(root, "link")); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err = inventory(root, 3, 100); err == nil {
+			t.Fatal("link was accepted")
+		}
+	})
 }
 
 func TestInventoryRetainsOfficialSDKASCIIEncoding(t *testing.T) {
@@ -147,50 +149,54 @@ func TestLocalReplacementCannotEscapeSource(t *testing.T) {
 }
 
 func TestModuleInventoryRecordsReplacementsWithoutHostPaths(t *testing.T) {
-	root := t.TempDir()
-	sum := "h1:" + strings.Repeat("A", 43) + "="
-	values := []goModule{
-		{Path: "example.test/app", Main: true, Dir: filepath.Join(root, "app")},
-		{Path: "example.test/common", Version: "v1.0.0", Replace: &goModule{Path: "../common", Dir: filepath.Join(root, "common")}},
-		{Path: "example.test/remote", Version: "v1.0.0", Sum: sum, GoModSum: sum},
-	}
-	var data bytes.Buffer
-	for _, value := range values {
-		if err := json.NewEncoder(&data).Encode(value); err != nil {
+	t.Run("ST-BLD-UC03-R04-T02 The module inventory names each module once with no host path", func(t *testing.T) {
+		root := t.TempDir()
+		sum := "h1:" + strings.Repeat("A", 43) + "="
+		values := []goModule{
+			{Path: "example.test/app", Main: true, Dir: filepath.Join(root, "app")},
+			{Path: "example.test/common", Version: "v1.0.0", Replace: &goModule{Path: "../common", Dir: filepath.Join(root, "common")}},
+			{Path: "example.test/remote", Version: "v1.0.0", Sum: sum, GoModSum: sum},
+		}
+		var data bytes.Buffer
+		for _, value := range values {
+			if err := json.NewEncoder(&data).Encode(value); err != nil {
+				t.Fatal(err)
+			}
+		}
+		modules, err := moduleInventory(data.Bytes(), root)
+		if err != nil {
 			t.Fatal(err)
 		}
-	}
-	modules, err := moduleInventory(data.Bytes(), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	encoded, _ := json.Marshal(modules)
-	if bytes.Contains(encoded, []byte(root)) || modules[1].Replacement.LocalPath != "common" {
-		t.Fatal("host path leaked", modules)
-	}
-	if _, err := moduleInventory(append(data.Bytes(), data.Bytes()...), root); err == nil {
-		t.Fatal("repeated modules accepted")
-	}
-	values[2].Sum = "h1:wrong"
-	raw, _ := json.Marshal(values[2])
-	if _, err := moduleInventory(raw, root); err == nil {
-		t.Fatal("bad checksum accepted")
-	}
+		encoded, _ := json.Marshal(modules)
+		if bytes.Contains(encoded, []byte(root)) || modules[1].Replacement.LocalPath != "common" {
+			t.Fatal("host path leaked", modules)
+		}
+		if _, err := moduleInventory(append(data.Bytes(), data.Bytes()...), root); err == nil {
+			t.Fatal("repeated modules accepted")
+		}
+		values[2].Sum = "h1:wrong"
+		raw, _ := json.Marshal(values[2])
+		if _, err := moduleInventory(raw, root); err == nil {
+			t.Fatal("bad checksum accepted")
+		}
+	})
 }
 
 func TestEnvironmentExcludesAmbientBuildAndCredentialSettings(t *testing.T) {
-	for _, key := range []string{"GOFLAGS", "GOWORK", "GOENV", "GOCACHEPROG", "LD_PRELOAD", "GH_TOKEN", "HTTPS_PROXY"} {
-		t.Setenv(key, "unexpected-private-value")
-	}
-	env := environment("/work", "/sdk", true)
-	for _, value := range env {
-		if strings.Contains(value, "unexpected-private-value") {
-			t.Fatal("ambient setting was inherited")
+	t.Run("ST-BLD-UC03-R01-T01 The build environment drops ambient settings and sets GOPROXY off", func(t *testing.T) {
+		for _, key := range []string{"GOFLAGS", "GOWORK", "GOENV", "GOCACHEPROG", "LD_PRELOAD", "GH_TOKEN", "HTTPS_PROXY"} {
+			t.Setenv(key, "unexpected-private-value")
 		}
-	}
-	if !strings.Contains(strings.Join(env, "\n"), "GOPROXY=off\n") {
-		t.Fatal("build can fetch dependencies")
-	}
+		env := environment("/work", "/sdk", true)
+		for _, value := range env {
+			if strings.Contains(value, "unexpected-private-value") {
+				t.Fatal("ambient setting was inherited")
+			}
+		}
+		if !strings.Contains(strings.Join(env, "\n"), "GOPROXY=off\n") {
+			t.Fatal("build can fetch dependencies")
+		}
+	})
 }
 
 func fixtureRecord() Record {
@@ -263,74 +269,93 @@ func TestRecordRejectsChangedBuildPolicyAndInputs(t *testing.T) {
 			}
 		})
 	}
-	for name, change := range map[string]func(*Record){
-		"one build":       func(r *Record) { r.IndependentBuilds = 1 },
-		"toolchain":       func(r *Record) { r.Toolchain.SHA256 = strings.Repeat("0", 64) },
-		"ambient flags":   func(r *Record) { r.Environment["GOFLAGS"] = "-race" },
-		"target escape":   func(r *Record) { r.Target = "../outside" },
-		"file change":     func(r *Record) { r.Inputs[0].SHA256 = strings.Repeat("0", 64) },
-		"file order":      func(r *Record) { r.Inputs[0], r.Inputs[1] = r.Inputs[1], r.Inputs[0] },
-		"missing modules": func(r *Record) { r.Modules = nil },
-		"bad replacement": func(r *Record) { r.Modules[0].LocalPath = "../outside" },
-		"build flags":     func(r *Record) { r.BuildFlags = append(r.BuildFlags, "-race") },
-	} {
-		t.Run(name, func(t *testing.T) {
-			record := fixtureRecord()
-			change(&record)
-			if err := validateRecord(&record); err == nil {
-				t.Fatal("changed record accepted")
-			}
-		})
+	refused := func(t *testing.T, record Record, change func(*Record)) {
+		t.Helper()
+		change(&record)
+		if err := validateRecord(&record); err == nil {
+			t.Fatal("changed record accepted")
+		}
 	}
+	t.Run("ST-BLD-UC03-R03-T01 A record of one build is refused", func(t *testing.T) {
+		refused(t, fixtureRecord(), func(r *Record) { r.IndependentBuilds = 1 })
+	})
+	t.Run("ST-BLD-UC03-R02-T01 A record whose SDK digest differs is refused", func(t *testing.T) {
+		refused(t, fixtureRecord(), func(r *Record) { r.Toolchain.SHA256 = strings.Repeat("0", 64) })
+	})
+	t.Run("ST-BLD-INV07-T ST-BLD-UC03-R04-T01 A record whose inputs, modules or build settings changed is refused", func(t *testing.T) {
+		for name, change := range map[string]func(*Record){
+			"ambient flags":   func(r *Record) { r.Environment["GOFLAGS"] = "-race" },
+			"target escape":   func(r *Record) { r.Target = "../outside" },
+			"file change":     func(r *Record) { r.Inputs[0].SHA256 = strings.Repeat("0", 64) },
+			"file order":      func(r *Record) { r.Inputs[0], r.Inputs[1] = r.Inputs[1], r.Inputs[0] },
+			"missing modules": func(r *Record) { r.Modules = nil },
+			"bad replacement": func(r *Record) { r.Modules[0].LocalPath = "../outside" },
+			"build flags":     func(r *Record) { r.BuildFlags = append(r.BuildFlags, "-race") },
+		} {
+			t.Run(name, func(t *testing.T) { refused(t, fixtureRecord(), change) })
+		}
+	})
+	t.Run("ST-BLD-INV04-T ST-BLD-UC03-R01-T02 An offline record names a cache and no proxy, and an online record names no cache", func(t *testing.T) {
+		for name, change := range offlineCases {
+			t.Run(name, func(t *testing.T) { refused(t, fixtureOfflineRecord(), change) })
+		}
+		for name, change := range onlineCases {
+			t.Run(name, func(t *testing.T) { refused(t, fixtureRecord(), change) })
+		}
+	})
 }
 
 func TestRecordVerificationRequiresTrustedCanonicalBytes(t *testing.T) {
-	r := fixtureRecord()
-	data, _ := json.MarshalIndent(r, "", "  ")
-	data = append(data, '\n')
-	root := t.TempDir()
-	name := filepath.Join(root, "build.json")
-	if err := os.WriteFile(name, data, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Verify(name, "missing", strings.Repeat("0", 64)); err == nil || !strings.Contains(err.Error(), "digest") {
-		t.Fatal("changed record digest accepted", err)
-	}
-	duplicate := bytes.Replace(data, []byte("  \"format\": 1,"), []byte("  \"format\": 1,\n  \"format\": 1,"), 1)
-	if err := os.WriteFile(name, duplicate, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Verify(name, "missing", digest(duplicate)); err == nil || !strings.Contains(err.Error(), "canonical") {
-		t.Fatal("duplicate field accepted", err)
-	}
+	t.Run("ST-BLD-SP01-T ST-BLD-UC04-R01-T01 A record whose canonical bytes do not hash to the trusted digest is refused", func(t *testing.T) {
+		r := fixtureRecord()
+		data, _ := json.MarshalIndent(r, "", "  ")
+		data = append(data, '\n')
+		root := t.TempDir()
+		name := filepath.Join(root, "build.json")
+		if err := os.WriteFile(name, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Verify(name, "missing", strings.Repeat("0", 64)); err == nil || !strings.Contains(err.Error(), "digest") {
+			t.Fatal("changed record digest accepted", err)
+		}
+		duplicate := bytes.Replace(data, []byte("  \"format\": 1,"), []byte("  \"format\": 1,\n  \"format\": 1,"), 1)
+		if err := os.WriteFile(name, duplicate, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Verify(name, "missing", digest(duplicate)); err == nil || !strings.Contains(err.Error(), "canonical") {
+			t.Fatal("duplicate field accepted", err)
+		}
+	})
 }
 
 func TestBuildPathValidationProtectsExistingDirectories(t *testing.T) {
-	root := t.TempDir()
-	put(t, root, "sdk/bin/go", "not executed")
-	if err := os.Mkdir(filepath.Join(root, "source"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	base := Options{Source: filepath.Join(root, "source"), Revision: strings.Repeat("a", 40), Module: ".", Target: "out", Go: filepath.Join(root, "sdk/bin/go"), Work: filepath.Join(root, "work"), Output: filepath.Join(root, "output")}
-	if _, err := prepare(base); err != nil {
-		t.Fatal(err)
-	}
-	bad := base
-	bad.Output = base.Source
-	if _, err := prepare(bad); err == nil {
-		t.Fatal("existing output accepted")
-	}
-	bad = base
-	bad.Work = filepath.Join(base.Source, "work")
-	if _, err := prepare(bad); err == nil {
-		t.Fatal("source overlap accepted")
-	}
-	if _, err := Build(context.Background(), base); err == nil {
-		t.Fatal("unverified SDK accepted")
-	}
-	if _, err := os.Stat(base.Work); !os.IsNotExist(err) {
-		t.Fatal("unverified SDK caused a work directory write", err)
-	}
+	t.Run("ST-BLD-INV05-T ST-BLD-UC03-R02-T02 A build refuses an SDK that is not the verified one", func(t *testing.T) {
+		root := t.TempDir()
+		put(t, root, "sdk/bin/go", "not executed")
+		if err := os.Mkdir(filepath.Join(root, "source"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		base := Options{Source: filepath.Join(root, "source"), Revision: strings.Repeat("a", 40), Module: ".", Target: "out", Go: filepath.Join(root, "sdk/bin/go"), Work: filepath.Join(root, "work"), Output: filepath.Join(root, "output")}
+		if _, err := prepare(base); err != nil {
+			t.Fatal(err)
+		}
+		bad := base
+		bad.Output = base.Source
+		if _, err := prepare(bad); err == nil {
+			t.Fatal("existing output accepted")
+		}
+		bad = base
+		bad.Work = filepath.Join(base.Source, "work")
+		if _, err := prepare(bad); err == nil {
+			t.Fatal("source overlap accepted")
+		}
+		if _, err := Build(context.Background(), base); err == nil {
+			t.Fatal("unverified SDK accepted")
+		}
+		if _, err := os.Stat(base.Work); !os.IsNotExist(err) {
+			t.Fatal("unverified SDK caused a work directory write", err)
+		}
+	})
 }
 
 func TestCommandRejectsOutputLimitAndCancellation(t *testing.T) {

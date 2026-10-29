@@ -64,64 +64,66 @@ func registryFixtureAccess(t *testing.T, server *httptest.Server, ca []byte) Reg
 }
 
 func TestRegistryTLSRoundTripRetainsExactImage(t *testing.T) {
-	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
-	handler := registry.New(registry.Logger(log.New(io.Discard, "", 0)))
-	var authenticated atomic.Int64
-	server, ca := registryTLSFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user, password, ok := r.BasicAuth()
-		if !ok || user != "test" || password != "fixture-credential" {
-			w.Header().Set("WWW-Authenticate", `Basic realm="fixture"`)
-			w.WriteHeader(http.StatusUnauthorized)
-			return
+	t.Run("ST-BLD-UC06-R01-T01 A push over TLS with an explicit CA reads back the exact image", func(t *testing.T) {
+		t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+		handler := registry.New(registry.Logger(log.New(io.Discard, "", 0)))
+		var authenticated atomic.Int64
+		server, ca := registryTLSFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user, password, ok := r.BasicAuth()
+			if !ok || user != "test" || password != "fixture-credential" {
+				w.Header().Set("WWW-Authenticate", `Basic realm="fixture"`)
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			authenticated.Add(1)
+			handler.ServeHTTP(w, r)
+		}))
+		root, record := imageFixture(t, imageTestCA(t, true))
+		access := registryFixtureAccess(t, server, ca)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		connection, err := connectRegistry(ctx, access, record, true)
+		if err != nil {
+			t.Fatal(err)
 		}
-		authenticated.Add(1)
-		handler.ServeHTTP(w, r)
-	}))
-	root, record := imageFixture(t, imageTestCA(t, true))
-	access := registryFixtureAccess(t, server, ca)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	connection, err := connectRegistry(ctx, access, record, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer connection.close()
-	captured := filepath.Join(t.TempDir(), "captured")
-	if err := captureRegistryLayout(ctx, filepath.Join(root, "oci"), captured, record); err != nil {
-		t.Fatal(err)
-	}
-	// Later source changes must not change the publication input.
-	put(t, root, "oci/blobs/sha256/"+record.Layer.SHA256, "changed after capture")
-	store, err := layout.FromPath(captured)
-	if err != nil {
-		t.Fatal(err)
-	}
-	image, err := store.Image(v1.Hash{Algorithm: "sha256", Hex: record.Manifest.SHA256})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := remote.Write(connection.repository.Tag("sha256-"+record.Manifest.SHA256), image, remote.WithContext(ctx), remote.WithTransport(connection.transport), remote.WithJobs(1), remote.WithRetryBackoff(remote.Backoff{Steps: 1})); err != nil {
-		t.Fatal(err)
-	}
-	retrieved := filepath.Join(t.TempDir(), "retrieved")
-	if err := connection.retrieve(ctx, retrieved, record); err != nil {
-		t.Fatal(err)
-	}
-	first, _, err := inventory(captured, 5, imageLayerLimit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, _, err := inventory(retrieved, 5, imageLayerLimit)
-	if err != nil || first != second {
-		t.Fatal("registry bytes differ", err)
-	}
-	if authenticated.Load() < 5 {
-		t.Fatal("registry authentication was not exercised")
-	}
-	// Repeated publication exercises HEAD requests for existing large blobs.
-	if err := remote.Write(connection.repository.Tag("sha256-"+record.Manifest.SHA256), image, remote.WithContext(ctx), remote.WithTransport(connection.transport), remote.WithJobs(1)); err != nil {
-		t.Fatal(err)
-	}
+		defer connection.close()
+		captured := filepath.Join(t.TempDir(), "captured")
+		if err := captureRegistryLayout(ctx, filepath.Join(root, "oci"), captured, record); err != nil {
+			t.Fatal(err)
+		}
+		// Later source changes must not change the publication input.
+		put(t, root, "oci/blobs/sha256/"+record.Layer.SHA256, "changed after capture")
+		store, err := layout.FromPath(captured)
+		if err != nil {
+			t.Fatal(err)
+		}
+		image, err := store.Image(v1.Hash{Algorithm: "sha256", Hex: record.Manifest.SHA256})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := remote.Write(connection.repository.Tag("sha256-"+record.Manifest.SHA256), image, remote.WithContext(ctx), remote.WithTransport(connection.transport), remote.WithJobs(1), remote.WithRetryBackoff(remote.Backoff{Steps: 1})); err != nil {
+			t.Fatal(err)
+		}
+		retrieved := filepath.Join(t.TempDir(), "retrieved")
+		if err := connection.retrieve(ctx, retrieved, record); err != nil {
+			t.Fatal(err)
+		}
+		first, _, err := inventory(captured, 5, imageLayerLimit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		second, _, err := inventory(retrieved, 5, imageLayerLimit)
+		if err != nil || first != second {
+			t.Fatal("registry bytes differ", err)
+		}
+		if authenticated.Load() < 5 {
+			t.Fatal("registry authentication was not exercised")
+		}
+		// Repeated publication exercises HEAD requests for existing large blobs.
+		if err := remote.Write(connection.repository.Tag("sha256-"+record.Manifest.SHA256), image, remote.WithContext(ctx), remote.WithTransport(connection.transport), remote.WithJobs(1)); err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 func TestRegistryBearerRealmNeedsExplicitApproval(t *testing.T) {
@@ -245,84 +247,88 @@ func TestRegistryResponseAndRequestBounds(t *testing.T) {
 }
 
 func TestRegistryTLSCredentialsAndPolicyFailClosed(t *testing.T) {
-	server, ca := registryTLSFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
-	_, record := imageFixture(t, imageTestCA(t, true))
-	base := registryFixtureAccess(t, server, ca)
-	for _, name := range []string{"CA digest", "untrusted CA", "credential mode", "credential link", "credential fields", "missing credentials", "token scheme", "blob overlap", "repository tag"} {
-		t.Run(name, func(t *testing.T) {
-			access := base
-			root := t.TempDir()
-			switch name {
-			case "CA digest":
-				access.CASHA256 = strings.Repeat("0", 64)
-			case "untrusted CA":
-				data := imageTestCA(t, true)
-				put(t, root, "ca.pem", string(data))
-				access.CAFile = filepath.Join(root, "ca.pem")
-				access.CASHA256 = digest(data)
-			case "credential mode":
-				put(t, root, "credentials", "{\"username\":\"test\",\"password\":\"fixture\"}\n")
-				access.Credentials = filepath.Join(root, "credentials")
-				os.Chmod(access.Credentials, 0644)
-			case "credential link":
-				access.Credentials = filepath.Join(root, "link")
-				if err := os.Symlink(base.Credentials, access.Credentials); err != nil {
-					t.Fatal(err)
+	t.Run("ST-BLD-UC06-R01-T03 Publication refuses a wrong CA, a bad credential file or a tagged repository", func(t *testing.T) {
+		server, ca := registryTLSFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+		_, record := imageFixture(t, imageTestCA(t, true))
+		base := registryFixtureAccess(t, server, ca)
+		for _, name := range []string{"CA digest", "untrusted CA", "credential mode", "credential link", "credential fields", "missing credentials", "token scheme", "blob overlap", "repository tag"} {
+			t.Run(name, func(t *testing.T) {
+				access := base
+				root := t.TempDir()
+				switch name {
+				case "CA digest":
+					access.CASHA256 = strings.Repeat("0", 64)
+				case "untrusted CA":
+					data := imageTestCA(t, true)
+					put(t, root, "ca.pem", string(data))
+					access.CAFile = filepath.Join(root, "ca.pem")
+					access.CASHA256 = digest(data)
+				case "credential mode":
+					put(t, root, "credentials", "{\"username\":\"test\",\"password\":\"fixture\"}\n")
+					access.Credentials = filepath.Join(root, "credentials")
+					os.Chmod(access.Credentials, 0644)
+				case "credential link":
+					access.Credentials = filepath.Join(root, "link")
+					if err := os.Symlink(base.Credentials, access.Credentials); err != nil {
+						t.Fatal(err)
+					}
+				case "credential fields":
+					access.Credentials = filepath.Join(root, "credentials")
+					if err := os.WriteFile(access.Credentials, []byte("{\"username\":\"test\",\"password\":\"fixture\",\"extra\":true}\n"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				case "missing credentials":
+					access.Credentials = ""
+				case "token scheme":
+					access.TokenOrigins = []string{"http://auth.example"}
+				case "blob overlap":
+					access.TokenOrigins = []string{"https://same.example"}
+					access.BlobOrigins = access.TokenOrigins
+				case "repository tag":
+					access.Repository += ":tag"
 				}
-			case "credential fields":
-				access.Credentials = filepath.Join(root, "credentials")
-				if err := os.WriteFile(access.Credentials, []byte("{\"username\":\"test\",\"password\":\"fixture\",\"extra\":true}\n"), 0600); err != nil {
-					t.Fatal(err)
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				connection, err := connectRegistry(ctx, access, record, true)
+				if err == nil {
+					connection.close()
+					t.Fatal("unsafe registry access accepted", name)
 				}
-			case "missing credentials":
-				access.Credentials = ""
-			case "token scheme":
-				access.TokenOrigins = []string{"http://auth.example"}
-			case "blob overlap":
-				access.TokenOrigins = []string{"https://same.example"}
-				access.BlobOrigins = access.TokenOrigins
-			case "repository tag":
-				access.Repository += ":tag"
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			connection, err := connectRegistry(ctx, access, record, true)
-			if err == nil {
-				connection.close()
-				t.Fatal("unsafe registry access accepted", name)
-			}
-		})
-	}
+			})
+		}
+	})
 }
 
 func TestRegistryRejectsCorruptDownloadAndHonorsCancellation(t *testing.T) {
-	server, ca := registryTLSFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v2/" {
-			w.WriteHeader(200)
-			return
+	t.Run("ST-BLD-UC06-R02-T01 A retrieved image whose bytes differ is refused", func(t *testing.T) {
+		server, ca := registryTLSFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/v2/" {
+				w.WriteHeader(200)
+				return
+			}
+			io.WriteString(w, "changed")
+		}))
+		_, record := imageFixture(t, imageTestCA(t, true))
+		access := registryFixtureAccess(t, server, ca)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		connection, err := connectRegistry(ctx, access, record, false)
+		if err != nil {
+			t.Fatal(err)
 		}
-		io.WriteString(w, "changed")
-	}))
-	_, record := imageFixture(t, imageTestCA(t, true))
-	access := registryFixtureAccess(t, server, ca)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	connection, err := connectRegistry(ctx, access, record, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer connection.close()
-	if err := connection.retrieve(ctx, filepath.Join(t.TempDir(), "retrieved"), record); err == nil || !strings.Contains(err.Error(), "bytes differ") {
-		t.Fatal("corrupt bytes accepted", err)
-	}
-	canceled, stop := context.WithCancel(ctx)
-	stop()
-	if _, err := PublishImage(canceled, RegistryImageOptions{}); err != context.Canceled {
-		t.Fatal("publish cancellation lost", err)
-	}
-	if _, err := RetrieveImage(canceled, RegistryImageOptions{}); err != context.Canceled {
-		t.Fatal("retrieve cancellation lost", err)
-	}
+		defer connection.close()
+		if err := connection.retrieve(ctx, filepath.Join(t.TempDir(), "retrieved"), record); err == nil || !strings.Contains(err.Error(), "bytes differ") {
+			t.Fatal("corrupt bytes accepted", err)
+		}
+		canceled, stop := context.WithCancel(ctx)
+		stop()
+		if _, err := PublishImage(canceled, RegistryImageOptions{}); err != context.Canceled {
+			t.Fatal("publish cancellation lost", err)
+		}
+		if _, err := RetrieveImage(canceled, RegistryImageOptions{}); err != context.Canceled {
+			t.Fatal("retrieve cancellation lost", err)
+		}
+	})
 }
 
 func TestRegistryTokenScopeCannotExpandCredentials(t *testing.T) {
