@@ -1,8 +1,11 @@
 package compiler
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -145,4 +148,57 @@ func TestMissingGeneratorStopsAllGeneration(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestFailedRunWritesNothing(t *testing.T) {
+	t.Run("ST-GEN-INV09-T A failed validation, generator or assembly leaves the output and the record unchanged", func(t *testing.T) {
+		for failure, want := range map[string]string{"validation": "has no generator", "generator": "generator failed", "assembler": "circular constructor dependency"} {
+			t.Run(failure, func(t *testing.T) {
+				input := snapshotTestInput(t)
+				applyInitialSnapshot(t, input)
+				before := projectFiles(t, input.ProjectDir)
+				switch failure {
+				case "validation":
+					delete(input.Generators, "stub-store")
+				case "generator":
+					input.Generators["stub-api"] = &stubGenerator{err: errors.New("generator failed")}
+				case "assembler":
+					input.Generators["stub-api"] = &stubGenerator{
+						files:  []gen.File{{Path: "internal/api/handler.go", Content: []byte("package api\n")}},
+						wiring: &gen.Wiring{Imports: []string{"internal/api"}, Constructors: []string{"api.NewFoo(bar)"}, ConstructorDeps: map[int][]string{0: {"bar"}}},
+					}
+					input.Generators["stub-store"] = &stubGenerator{
+						wiring: &gen.Wiring{Imports: []string{"internal/storage"}, Constructors: []string{"storage.NewBar(foo)"}, ConstructorDeps: map[int][]string{0: {"foo"}}},
+					}
+				}
+				plan, err := Reconcile(input)
+				if err == nil {
+					err = Apply(plan, input.ProjectDir, "")
+				}
+				if err == nil || !strings.Contains(err.Error(), want) {
+					t.Fatalf("the %s failure did not stop the run: %v", failure, err)
+				}
+				if after := projectFiles(t, input.ProjectDir); !reflect.DeepEqual(before, after) {
+					t.Fatalf("the %s failure changed the project: %v", failure, err)
+				}
+			})
+		}
+	})
+}
+
+func projectFiles(t *testing.T, root string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		files[path] = string(data)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
 }

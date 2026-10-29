@@ -537,31 +537,33 @@ bindings:
 }
 
 func TestReconcile_NamespaceViolation(t *testing.T) {
-	projectDir, registryDir := setupTestProject(t)
+	t.Run("ST-GEN-INV07-T A generator file outside its component namespace stops planning", func(t *testing.T) {
+		projectDir, registryDir := setupTestProject(t)
 
-	generators := map[string]gen.Generator{
-		"stub-api": &stubGenerator{
-			files: []gen.File{
-				// File outside the component's namespace.
-				{Path: "cmd/bad.go", Content: []byte("package main\n")},
+		generators := map[string]gen.Generator{
+			"stub-api": &stubGenerator{
+				files: []gen.File{
+					// File outside the component's namespace.
+					{Path: "cmd/bad.go", Content: []byte("package main\n")},
+				},
 			},
-		},
-		"stub-store": &stubGenerator{},
-	}
+			"stub-store": &stubGenerator{},
+		}
 
-	_, err := Reconcile(ReconcilerInput{
-		ProjectDir:  projectDir,
-		RegistryDir: registryDir,
-		Generators:  generators,
-		GoVersion:   "1.22",
-		ModuleName:  "github.com/test/svc",
+		_, err := Reconcile(ReconcilerInput{
+			ProjectDir:  projectDir,
+			RegistryDir: registryDir,
+			Generators:  generators,
+			GoVersion:   "1.22",
+			ModuleName:  "github.com/test/svc",
+		})
+		if err == nil {
+			t.Fatal("expected namespace violation error")
+		}
+		if !strings.Contains(err.Error(), "namespace") {
+			t.Errorf("expected 'namespace' in error, got: %v", err)
+		}
 	})
-	if err == nil {
-		t.Fatal("expected namespace violation error")
-	}
-	if !strings.Contains(err.Error(), "namespace") {
-		t.Errorf("expected 'namespace' in error, got: %v", err)
-	}
 }
 
 func TestFormatPlan_NoChanges(t *testing.T) {
@@ -1689,23 +1691,25 @@ bindings:
 }
 
 func TestReconcile_DuplicateFilePathsDetected(t *testing.T) {
-	projectDir, registryDir := setupTestProject(t)
-	// A generator must not emit the same path twice. Cross-component
-	// namespace overlaps are rejected before generators run.
-	generators := map[string]gen.Generator{
-		"stub-api": &stubGenerator{files: []gen.File{
-			{Path: "internal/api/handler.go", Content: []byte("package api\n")},
-			{Path: "internal/api/handler.go", Content: []byte("package api\n// duplicate\n")},
-		}},
-		"stub-store": &stubGenerator{},
-	}
-	_, err := Reconcile(ReconcilerInput{
-		ProjectDir: projectDir, RegistryDir: registryDir,
-		Generators: generators, GoVersion: "1.22", ModuleName: "github.com/test/svc",
+	t.Run("ST-GEN-INV06-T A generator that emits one path twice stops planning", func(t *testing.T) {
+		projectDir, registryDir := setupTestProject(t)
+		// A generator must not emit the same path twice. Cross-component
+		// namespace overlaps are rejected before generators run.
+		generators := map[string]gen.Generator{
+			"stub-api": &stubGenerator{files: []gen.File{
+				{Path: "internal/api/handler.go", Content: []byte("package api\n")},
+				{Path: "internal/api/handler.go", Content: []byte("package api\n// duplicate\n")},
+			}},
+			"stub-store": &stubGenerator{},
+		}
+		_, err := Reconcile(ReconcilerInput{
+			ProjectDir: projectDir, RegistryDir: registryDir,
+			Generators: generators, GoVersion: "1.22", ModuleName: "github.com/test/svc",
+		})
+		if err == nil || !strings.Contains(err.Error(), "duplicate") || !strings.Contains(err.Error(), "internal/api/handler.go") {
+			t.Fatalf("expected a duplicate path diagnostic, got: %v", err)
+		}
 	})
-	if err == nil || !strings.Contains(err.Error(), "duplicate") || !strings.Contains(err.Error(), "internal/api/handler.go") {
-		t.Fatalf("expected a duplicate path diagnostic, got: %v", err)
-	}
 }
 
 func TestValidateUniqueFilePaths_NoDuplicates(t *testing.T) {

@@ -10,40 +10,42 @@ import (
 )
 
 func TestApplyRejectsUnsafePathsBeforeWriting(t *testing.T) {
-	for _, kind := range []string{"generated", "delete", "state"} {
-		t.Run(kind, func(t *testing.T) {
-			project := t.TempDir()
-			outside := filepath.Join(project, "fills", "policy.go")
-			if err := os.MkdirAll(filepath.Dir(outside), 0755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(outside, []byte("human-owned source"), 0600); err != nil {
-				t.Fatal(err)
-			}
-			plan := &Plan{
-				GeneratedFiles: []gen.File{{Path: "main.go", Content: []byte("new output")}},
-				NewState:       &State{LastApplied: &AppliedState{Files: map[string]string{"main.go": "hash"}}},
-			}
-			switch kind {
-			case "generated":
-				plan.GeneratedFiles = append(plan.GeneratedFiles, gen.File{Path: "../fills/policy.go", Content: []byte("replacement")})
-			case "delete":
-				plan.Files = []PlannedFile{{Path: "../fills/policy.go", Action: ActionDelete}}
-			case "state":
-				plan.NewState.LastApplied.Files["../fills/policy.go"] = "hash"
-			}
-			if err := Apply(plan, project, filepath.Join(project, "out")); err == nil {
-				t.Fatal("unsafe path was accepted")
-			}
-			data, err := os.ReadFile(outside)
-			if err != nil || string(data) != "human-owned source" {
-				t.Fatalf("human source changed: %q, %v", data, err)
-			}
-			if _, err := os.Stat(filepath.Join(project, "out")); !os.IsNotExist(err) {
-				t.Fatalf("output was changed before path validation: %v", err)
-			}
-		})
-	}
+	t.Run("ST-GEN-INV08-T A plan that writes, deletes or records a path outside the output folder is refused before a fill changes", func(t *testing.T) {
+		for _, kind := range []string{"generated", "delete", "state"} {
+			t.Run(kind, func(t *testing.T) {
+				project := t.TempDir()
+				outside := filepath.Join(project, "fills", "policy.go")
+				if err := os.MkdirAll(filepath.Dir(outside), 0755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(outside, []byte("human-owned source"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				plan := &Plan{
+					GeneratedFiles: []gen.File{{Path: "main.go", Content: []byte("new output")}},
+					NewState:       &State{LastApplied: &AppliedState{Files: map[string]string{"main.go": "hash"}}},
+				}
+				switch kind {
+				case "generated":
+					plan.GeneratedFiles = append(plan.GeneratedFiles, gen.File{Path: "../fills/policy.go", Content: []byte("replacement")})
+				case "delete":
+					plan.Files = []PlannedFile{{Path: "../fills/policy.go", Action: ActionDelete}}
+				case "state":
+					plan.NewState.LastApplied.Files["../fills/policy.go"] = "hash"
+				}
+				if err := Apply(plan, project, filepath.Join(project, "out")); err == nil {
+					t.Fatal("unsafe path was accepted")
+				}
+				data, err := os.ReadFile(outside)
+				if err != nil || string(data) != "human-owned source" {
+					t.Fatalf("human source changed: %q, %v", data, err)
+				}
+				if _, err := os.Stat(filepath.Join(project, "out")); !os.IsNotExist(err) {
+					t.Fatalf("output was changed before path validation: %v", err)
+				}
+			})
+		}
+	})
 }
 
 func TestStateRejectsCorruptionAndUnsafePaths(t *testing.T) {
