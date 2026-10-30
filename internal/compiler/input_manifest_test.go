@@ -135,7 +135,7 @@ func TestManifestUsesCapturedModuleBytes(t *testing.T) {
 }
 
 func manifestFixture() *InputManifest {
-	m := &InputManifest{Version: 1, Options: InputOptions{"example.com/demo", "1.26.10", "out", "local"}, Files: map[string]InputFile{
+	m := &InputManifest{Version: 1, Options: InputOptions{"example.com/demo", "1.26.8", "out", "local"}, Files: map[string]InputFile{
 		"service.yaml": {Exists: true, SHA256: strings.Repeat("a", 64), Mode: 0644}, "go.mod": {}, "go.sum": {}, ".stego/config.yaml": {},
 	}}
 	m.SHA256 = m.digest()
