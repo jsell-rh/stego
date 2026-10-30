@@ -19,7 +19,7 @@ Cursor reads are available through the optional generated CursorReader contract.
 ReadCursor uses a bound ID, fixed database order, and one bounded query without
 a total or offset. It shares List filters and current-observation projection.
 The caller must authorize access and select the required deletion visibility.
-See [the cursor contract](../../../specs/storage-cursors.md) for limits,
+See the cursor contract (a retired record, in git history) for limits,
 continuation rules, tests, and application evidence.
 
 `CheckpointStore` stores scan progress with an independent version. It rejects
@@ -30,7 +30,7 @@ See [scan checkpoints](../../../specs/scan-checkpoints.md).
 Versioned entities with desired generations can declare condition owners and
 names. The generated condition writer requires the observed resource revision
 and a transaction. PostgreSQL supplies generation and transition time. Current
-views hide old-generation status. See [resource conditions](../../../specs/resource-conditions.md).
+views hide old-generation status. See resource conditions (a retired record, in git history).
 
 The generated process uses a private GORM connection with raw logging disabled.
 With `otel-tracing`, version 3.14.0 also generates an instrumented PostgreSQL
@@ -38,7 +38,7 @@ pool factory. The generated main owns the pool. Request contexts supply the
 telemetry runtime; domain code needs no wrapper. See the
 [database telemetry contract](../../../specs/database-observability.md).
 Process failures report a fixed stage without driver or query text. See the
-[process failure policy](../../../specs/process-failure-privacy.md) for coverage
+process failure policy (a retired record, in git history) for coverage
 and limits. Database telemetry remains an open requirement.
 
 Version 3.14.1 rejects entity names that conflict with database helpers or
@@ -48,20 +48,20 @@ package declaration and import in the generated database helper.
 Version 3.15.0 always generates the pool factory, including without telemetry.
 It limits open and idle connections and sets finite connection lifetime and
 idle time. Deployment settings can change these bounds. Invalid settings stop
-pool creation. See the [pool contract](../../../specs/database-pool-bounds.md)
+pool creation. See the pool contract (a retired record, in git history)
 for defaults, limits, ownership, and acceptance requirements.
 
 Version 4.4.1 also supplies the pool factory when the service has no entities.
 This supports the separate browser backend and other SQL consumers without
 storage models or automatic migrations. Assembly selects the declared factory
 for each required process pool, even when the storage constructor is unused.
-See the [factory contract](../../../specs/database-pool-factory.md).
+See the factory contract (a retired record, in git history).
 
 Version 3.16.0 bounds each pool connection operation to five seconds. The limit
 includes host fallbacks and preserves a shorter caller deadline. It does not
 limit an established session. Generated startup also uses a five-second ping
 before migrations, constructors, tasks, or listeners. See the
-[database startup contract](../../../specs/database-startup.md).
+database startup contract (a retired record, in git history).
 
 Version 4.3 adds an optional [fresh schema generation gate](schema-generation.md).
 It rejects old or unknown schemas before initialization writes and before the
@@ -80,7 +80,7 @@ owner and retained-target confirmations. Commit it with the final event in one
 transaction. Later cleanup can reopen, but completion cannot be reversed.
 The first migration preserves the hidden state of earlier deletions. Repeated
 migrations leave new deletion requests pending. See the
-[asynchronous deletion contract](../../../specs/asynchronous-deletion.md).
+asynchronous deletion contract (a retired record, in git history).
 
 `ListOptions.IncludeDeleting` includes live resources and pending deletion
 requests. `OnlyDeleting` selects pending requests alone. Both require declared

@@ -14,7 +14,7 @@ is not implemented. RDS has no PostgreSQL superuser or host-file access; see
 Actual RDS acceptance is still required.
 
 An RDS installation with restricted password management also needs the
-installation-owned password grant. The [RDS acceptance gate](../../../specs/rds-acceptance.md)
+installation-owned password grant. The RDS acceptance gate (a retired record, in git history)
 records this requirement, catalog isolation checks, and failover evidence.
 
 `DatabaseKey.Scope` identifies the application installation on the server.

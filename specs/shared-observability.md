@@ -60,15 +60,15 @@ resources with random UUIDs. Request, controller, and local signals share their
 runtime identity. Replica aggregation can now retain separate OTLP streams;
 backend storage and production capacity remain separate gates.
 
-The [process failure policy](process-failure-privacy.md) adds safe local failure
+The process failure policy (a retired record, in git history) adds safe local failure
 records before telemetry is available and removes GORM's raw query and error
 output. Bootstrap export and complete process and database telemetry remain open.
 
-The [HTTP diagnostic policy](http-diagnostics.md) replaces raw server error logs
+The HTTP diagnostic policy (a retired record, in git history) replaces raw server error logs
 with fixed events. It uses the telemetry runtime when present and a bounded local
 fallback otherwise. Request panic signals retain their separate correlation.
 
-The [task abort policy](task-abort-handling.md) adds safe task names for callbacks
+The task abort policy (a retired record, in git history) adds safe task names for callbacks
 that panic or exit without return. Peer cancellation and resource cleanup finish
 before the local failure report. Full process lifecycle export remains open.
 
@@ -95,7 +95,7 @@ ownership and context-bound PostgreSQL call signals. SQL text, arguments, and
 connection details are excluded. Pool statistics, startup work, the separate
 PostgreSQL read client, and unbound workers remain open requirements.
 
-The [pool metric contract](database-pool-metrics.md) adds automatic statistics
+The pool metric contract (a retired record, in git history) adds automatic statistics
 for the pool owned by generated service assembly. The compiler supplies the
 existing pool through an optional typed resource. Independent runtime and
 application checks must verify this change before its gate can close.

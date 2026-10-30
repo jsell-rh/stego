@@ -94,5 +94,5 @@ seconds. Registry tests and static analysis also passed in the same bounded
 cluster job. The source archive hash was
 `61e72348f052a5b85b74410d44ac52297120c1934b5cabd6f579cff9b9208ba6`.
 
-The [pool contract](database-pool-bounds.md) defines deployment connection bounds
+The pool contract (a retired record, in git history) defines deployment connection bounds
 with or without telemetry. Pool wait metrics and startup coverage remain open.

@@ -13,7 +13,7 @@ supplies the existing pool; no database is created for telemetry alone. The
 runtime reports connection use, the configured limit, cumulative waits and
 wait duration, and connection retirement. These are eight fixed series with
 the runtime's service and instance identity. See the
-[pool metric contract](../../../specs/database-pool-metrics.md).
+pool metric contract (a retired record, in git history).
 
 The runtime records methods, registered routes when available, status, duration,
 and active requests. Request logs correlate with spans. Metrics and logs also
@@ -39,7 +39,7 @@ logs in one runtime. Replacements get a new identity. See the
 
 Version 1.6.0 supplies the generated HTTP server's diagnostic logger. It discards
 raw panic and server error text, then queues a fixed local and OTLP service
-event. See [HTTP diagnostics](../../../specs/http-diagnostics.md) for ownership,
+event. See HTTP diagnostics (a retired record, in git history) for ownership,
 queue limits, request correlation, and remaining work.
 
 [RPC client observability](../../../specs/rpc-client-observability.md) adds

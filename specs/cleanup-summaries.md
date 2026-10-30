@@ -72,7 +72,7 @@ assertion now matches the new adapter version.
 
 PostgreSQL adapter 4.1.0 adds `ScopedCleanupSummaryReader`. Up to eight distinct
 text-field filters use AND in the same aggregate statement. The existing method
-delegates to it. The [shared storage contract](shared-storage-contract.md)
+delegates to it. The shared storage contract (a retired record, in git history)
 defines the filter limits and validation rules.
 
 On 2026-09-14, bounded jshell Job `stego-placement-3a677869/check` passed the
