@@ -46,6 +46,7 @@
 {"read_model_id":"ST-DLV-RM01","position":1,"name":"Requirement","meaning":"The requirement's kind and name.","type":"text","required":true,"example":"secret orders-database"}
 {"read_model_id":"ST-DLV-RM01","position":2,"name":"Status","meaning":"One of met, missing or wrong type.","type":"text","required":true,"example":"missing"}
 {"read_model_id":"ST-DLV-RM01","position":3,"name":"Detail","meaning":"What is missing or wrong, such as a secret key.","type":"text","required":false,"example":"key password"}
+{"read_model_id":"ST-DLV-RM01","position":4,"name":"Unused values","meaning":"The names of the values in the environment file that no platform requirement names. They are listed and do not fail the check.","type":"text","required":false,"example":"secret legacy-cache, config LOG_FORMAT"}
 {"read_model_id":"ST-EXT-RM01","position":1,"name":"Fill name","meaning":"The fill.","type":"text","required":true,"example":"admin-creation-policy"}
 {"read_model_id":"ST-EXT-RM01","position":2,"name":"Collection","meaning":"The collection it serves.","type":"text","required":true,"example":"org-users"}
 {"read_model_id":"ST-EXT-RM01","position":3,"name":"Standing","meaning":"Its qualification standing.","type_value_object_id":"ST-VO45","required":true}
