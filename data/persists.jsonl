@@ -8,6 +8,11 @@
 {"source_id":"ST-DIS-REPO01","target_id":"ST-DIS-A2"}
 {"source_id":"ST-DIS-REPO02","target_id":"ST-DIS-A3"}
 {"source_id":"ST-DIS-REPO03","target_id":"ST-DIS-A4"}
+{"source_id":"ST-DLV-REPO01","target_id":"ST-DLV-A1"}
+{"source_id":"ST-DLV-REPO02","target_id":"ST-DLV-A2"}
+{"source_id":"ST-DLV-REPO03","target_id":"ST-DLV-A3"}
+{"source_id":"ST-DLV-REPO04","target_id":"ST-DLV-A4"}
+{"source_id":"ST-DLV-REPO05","target_id":"ST-DLV-A5"}
 {"source_id":"ST-EXT-REPO01","target_id":"ST-EXT-A1"}
 {"source_id":"ST-GEN-REPO01","target_id":"ST-GEN-A1"}
 {"source_id":"ST-SUP-REPO01","target_id":"ST-SUP-A1"}

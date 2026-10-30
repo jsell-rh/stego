@@ -24,6 +24,13 @@
 {"id":"ST-DIS-EN10-DM","title":"run_jobs","entity_id":"ST-DIS-EN10","file":"scripts/qualify-compiler-release.py"}
 {"id":"ST-DIS-EN11-DM","title":"verify_published_release","entity_id":"ST-DIS-EN11","file":"scripts/qualify-compiler-release.py"}
 {"id":"ST-DIS-EN12-DM","title":"verification.verify","entity_id":"ST-DIS-EN12","file":"scripts/verify-compiler-artifact.py"}
+{"id":"ST-DLV-EN01-DM","title":"delivery.Requirements","entity_id":"ST-DLV-EN01","file":"internal/delivery/requirements.go"}
+{"id":"ST-DLV-EN02-DM","title":"delivery.Requirement","entity_id":"ST-DLV-EN02","file":"internal/delivery/requirements.go"}
+{"id":"ST-DLV-EN03-DM","title":"delivery.Pipeline","entity_id":"ST-DLV-EN03","file":"internal/delivery/pipeline.go"}
+{"id":"ST-DLV-EN04-DM","title":"kubernetesservice.Base","entity_id":"ST-DLV-EN04","file":"internal/generator/kubernetesservice/kustomize.go"}
+{"id":"ST-DLV-EN05-DM","title":"delivery.Application","entity_id":"ST-DLV-EN05","file":"internal/delivery/argocd.go"}
+{"id":"ST-DLV-EN06-DM","title":"delivery.Candidate","entity_id":"ST-DLV-EN06","file":"internal/delivery/check.go"}
+{"id":"ST-DLV-EN07-DM","title":"delivery.CheckResult","entity_id":"ST-DLV-EN07","file":"internal/delivery/check.go"}
 {"id":"ST-EXT-EN01-DM","title":"types.Fill","entity_id":"ST-EXT-EN01","file":"internal/types/types.go"}
 {"id":"ST-EXT-EN02-DM","title":"types.FillEvidence","entity_id":"ST-EXT-EN02","file":"internal/types/fill_evidence.go"}
 {"id":"ST-EXT-EN03-DM","title":"types.FillSignOff","entity_id":"ST-EXT-EN03","file":"internal/types/fill_signoff.go"}

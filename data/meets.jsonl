@@ -1,5 +1,11 @@
+{"source_id":"ST-BLD-CMD06-H","target_id":"ST-STD-TRUST-R03"}
+{"source_id":"ST-BLD-CMD06-H","target_id":"ST-STD-TRUST-R04"}
 {"source_id":"ST-DIS-CMD05-H","target_id":"ST-STD-TRUST-R01"}
 {"source_id":"ST-GEN-CMD01-H","target_id":"ST-STD-TRUST-R02"}
 {"source_id":"ST-GEN-DS02-SV","target_id":"ST-STD-GEN-R01"}
 {"source_id":"ST-GEN-DS02-SV","target_id":"ST-STD-GEN-R02"}
 {"source_id":"ST-GEN-DS02-SV","target_id":"ST-STD-GEN-R03"}
+{"source_id":"ST-INT01-AD","target_id":"ST-STD-TRUST-R04"}
+{"source_id":"ST-INT02-AD","target_id":"ST-STD-TRUST-R03"}
+{"source_id":"ST-INT02-AD","target_id":"ST-STD-TRUST-R04"}
+{"source_id":"ST-INT03-AD","target_id":"ST-STD-TRUST-R05"}

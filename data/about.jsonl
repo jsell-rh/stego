@@ -6,3 +6,4 @@
 {"source_id":"ST-DIS-Q02","target_id":"ST-DIS-UC04-R04"}
 {"source_id":"ST-DIS-Q02","target_id":"ST-GEN-CMD01"}
 {"source_id":"ST-DLV-Q01","target_id":"ST-DLV-A4"}
+{"source_id":"ST-DLV-Q01","target_id":"ST-INT03-AD"}
