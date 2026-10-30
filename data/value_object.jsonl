@@ -19,3 +19,4 @@
 {"id":"ST-VO56","title":"Attestation reference","description":"Where a signed statement about one commit is kept, and who signed it."}
 {"id":"ST-VO57","title":"Gate kind","description":"Which bar a gate holds a commit to."}
 {"id":"ST-VO58","title":"Runtime pin","description":"One version of the runtime library, fixed by module path, tagged version and the go.sum hash of that version's contents."}
+{"id":"ST-VO59","title":"Image target","description":"One image a service's pipeline builds: which module and build target, and the executable that is its entry point."}

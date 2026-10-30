@@ -35,3 +35,7 @@
 {"value_object_id":"ST-VO58","position":1,"name":"Module path","meaning":"The library's Go module path.","type":"text","required":true,"example":"stego.dev/runtime"}
 {"value_object_id":"ST-VO58","position":2,"name":"Version","meaning":"The tagged version.","type":"text","required":true,"example":"v1.4.2"}
 {"value_object_id":"ST-VO58","position":3,"name":"Sum","meaning":"The go.sum hash of that version's contents.","type":"text","required":true,"example":"h1:2jc7..."}
+{"value_object_id":"ST-VO59","position":1,"name":"Name","meaning":"The image's name, unique in the service.","type":"text","required":true,"example":"orders-api"}
+{"value_object_id":"ST-VO59","position":2,"name":"Module","meaning":"The Go module folder, relative to the source root.","type":"text","required":true,"example":"."}
+{"value_object_id":"ST-VO59","position":3,"name":"Target","meaning":"The build target, relative to the module.","type":"text","required":true,"example":"cmd/orders"}
+{"value_object_id":"ST-VO59","position":4,"name":"Entry point","meaning":"The executable's name.","type":"text","required":true,"example":"orders"}

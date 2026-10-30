@@ -110,6 +110,7 @@
 {"entity_id":"ST-DLV-EN03","position":2,"name":"Pipeline","meaning":"The platform's reusable workflow, or the Konflux standard pipeline bundle.","type_value_object_id":"ST-VO52","required":true}
 {"entity_id":"ST-DLV-EN03","position":3,"name":"STEGO checks","meaning":"The pinned bundle or action that runs every STEGO check.","type_value_object_id":"ST-VO52","required":true}
 {"entity_id":"ST-DLV-EN03","position":4,"name":"Trusted signer","meaning":"The one identity that may sign this pipeline's images.","type_value_object_id":"ST-VO50","required":true}
+{"entity_id":"ST-DLV-EN03","position":5,"name":"Image targets","meaning":"The images the pipeline builds, one per target; the delivery stanza declares them.","type_value_object_id":"ST-VO59","required":false}
 {"entity_id":"ST-DLV-EN04","position":1,"name":"Service name","meaning":"The service.","type":"text","required":true,"example":"orders"}
 {"entity_id":"ST-DLV-EN04","position":2,"name":"Image name","meaning":"The image repository, with no tag or digest; the overlay sets the digest.","type":"text","required":true,"example":"orders"}
 {"entity_id":"ST-DLV-EN04","position":3,"name":"Resource defaults","meaning":"The default CPU, memory and ephemeral storage requests and limits.","type":"text","required":true,"example":"100m/128Mi to 1/512Mi"}
@@ -183,6 +184,7 @@
 {"entity_id":"ST-SUP-EN09","position":7,"name":"Provided ports","meaning":"The ports the component provides.","type":"text","required":false,"example":"storage-adapter"}
 {"entity_id":"ST-SUP-EN09","position":8,"name":"Architecture role","meaning":"Where the component sits in a service: its layer (edge, authentication, handler, slot, repository, store or outbound), the part it plays in a request flow, and which side of that flow each port it provides or requires is on. The architecture view places the component from this alone.","type":"text","required":true,"example":"layer: edge; flow: receives the request and calls the handler port"}
 {"entity_id":"ST-SUP-EN09","position":9,"name":"Outcome served","meaning":"The business outcome the component exists for, by its ID, stated when the component is requested and before its generator is written.","type":"text","required":false,"example":"ST-BO08"}
+{"entity_id":"ST-SUP-EN09","position":10,"name":"Minimum Go version","meaning":"The lowest Go version the component's emitted code and pinned dependencies build with; the build target must meet it.","type":"text","required":false,"example":"1.26.0"}
 {"entity_id":"ST-SUP-EN10","position":1,"name":"Location","meaning":"Where the registry is: a pinned Git repository or a local folder.","type":"text","required":true,"example":"https://github.com/example/stego-registry"}
 {"entity_id":"ST-SUP-EN10","position":2,"name":"Reference","meaning":"The exact commit that pins the registry content.","type":"text","required":true,"example":"94d285d7c1e0b3f2a9d4e5f6a7b8c9d0e1f2a3b4"}
 {"entity_id":"ST-SUP-EN10","position":3,"name":"Subfolder","meaning":"The folder in the repository that holds the registry, when it is not the root.","type":"text","required":false,"example":"registry"}
