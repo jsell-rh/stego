@@ -139,6 +139,8 @@
 {"source_id":"ST-GEN-UC03-FL01-S03","target_id":"ST-GEN-UC03-R02"}
 {"source_id":"ST-GEN-UC03-FL01-S05","target_id":"ST-GEN-UC03-R03"}
 {"source_id":"ST-GEN-UC03-FL01-S06","target_id":"ST-GEN-UC03-R03"}
+{"source_id":"ST-GEN-UC03-FL01-S08","target_id":"ST-GEN-UC03-R04"}
+{"source_id":"ST-GEN-UC03-FL01-S11","target_id":"ST-GEN-UC03-R04"}
 {"source_id":"ST-GEN-UC04-FL01-S03","target_id":"ST-GEN-UC04-R01"}
 {"source_id":"ST-GEN-UC04-FL01-S03","target_id":"ST-GEN-UC04-R02"}
 {"source_id":"ST-GEN-UC04-FL01-S05","target_id":"ST-GEN-UC04-R03"}

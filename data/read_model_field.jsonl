@@ -21,6 +21,7 @@
 {"read_model_id":"ST-DIS-RM01","position":5,"name":"Digest","meaning":"The digest of the component the service holds.","type_value_object_id":"ST-VO41","required":false}
 {"read_model_id":"ST-DIS-RM01","position":6,"name":"Record status","meaning":"recorded when a record was read; unknown when the checkout holds generated output and no record, or a record that cannot be read.","type":"text","required":true,"example":"unknown"}
 {"read_model_id":"ST-DIS-RM01","position":7,"name":"Runtime version","meaning":"The runtime library version the service's archetype pinned at its last run, so a sweep names every service on a superseded version.","type_value_object_id":"ST-VO58","required":false}
+{"read_model_id":"ST-DIS-RM01","position":8,"name":"Overridden pins","meaning":"Each pin the service's last run allowed although it did not stand, so a sweep names every service that runs on an override.","type":"text","required":false,"example":"outbox@sha256:4f1c…"}
 {"read_model_id":"ST-DIS-RM03","position":1,"name":"Component","meaning":"The pinned component.","type":"text","required":true,"example":"rh-sso-auth"}
 {"read_model_id":"ST-DIS-RM03","position":2,"name":"Pinned digest","meaning":"The digest the service pins.","type_value_object_id":"ST-VO41","required":true}
 {"read_model_id":"ST-DIS-RM03","position":3,"name":"Standing","meaning":"current, superseded, withdrawn, or unchecked when the lifecycle records cannot be read.","type":"text","required":true,"example":"superseded"}

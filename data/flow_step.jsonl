@@ -45,7 +45,7 @@
 {"id":"ST-DIS-UC05-FL01-S01","title":"The service author runs validate or plan","flow_id":"ST-DIS-UC05-FL01","path":"main","position":1}
 {"id":"ST-DIS-UC05-FL01-S02","title":"STEGO reports each superseded pin with its successor and fail date, and does not fail for that reason","flow_id":"ST-DIS-UC05-FL01","path":"main","position":2}
 {"id":"ST-DIS-UC05-FL01-S03","title":"Past its fail date, validate fails for the pin","flow_id":"ST-DIS-UC05-FL01","path":"expired","position":1}
-{"id":"ST-DIS-UC05-FL01-S04","title":"Past its fail date, apply in Generating refuses to write","flow_id":"ST-DIS-UC05-FL01","path":"expired","position":2}
+{"id":"ST-DIS-UC05-FL01-S04","title":"Past its fail date, apply in Generating refuses to write unless the author overrides the pin by name","flow_id":"ST-DIS-UC05-FL01","path":"expired","position":2}
 {"id":"ST-DIS-UC05-FL01-S05","title":"When STEGO cannot read the lifecycle records, it reports that it could not check, and does not report the pins as current","flow_id":"ST-DIS-UC05-FL01","path":"unchecked","position":1}
 {"id":"ST-DIS-UC07-FL01-S01","title":"The platform engineer asks STEGO for every recorded service that pins the digest","flow_id":"ST-DIS-UC07-FL01","path":"main","position":1}
 {"id":"ST-DIS-UC07-FL01-S02","title":"The platform engineer records the withdrawal, with the future date after which the digest fails","flow_id":"ST-DIS-UC07-FL01","path":"main","position":2}
@@ -99,12 +99,13 @@
 {"id":"ST-GEN-UC03-FL01-S04","title":"The service author reads the diff of the fix and commits it with the record","flow_id":"ST-GEN-UC03-FL01","path":"main","position":6}
 {"id":"ST-GEN-UC03-FL01-S05","title":"Apply names every generated file that no longer matches its hash, and writes nothing","flow_id":"ST-GEN-UC03-FL01","path":"refused","position":1}
 {"id":"ST-GEN-UC03-FL01-S06","title":"When the author states on the command that the run may replace hand-edited files, apply replaces them","flow_id":"ST-GEN-UC03-FL01","path":"replace","position":1}
-{"id":"ST-GEN-UC03-FL01-S07","title":"STEGO reports the standing of each pin, the successor included, and the author goes on only when no pin is withdrawn or past its fail date","flow_id":"ST-GEN-UC03-FL01","path":"main","position":3}
-{"id":"ST-GEN-UC03-FL01-S08","title":"A pin that is withdrawn or past its fail date stops the author before apply, and the author moves it to a digest that stands","flow_id":"ST-GEN-UC03-FL01","path":"stopped","position":1}
+{"id":"ST-GEN-UC03-FL01-S07","title":"STEGO reports the standing of each pin, the successor included, and refuses to go on while any pin is withdrawn or past its fail date","flow_id":"ST-GEN-UC03-FL01","path":"main","position":3}
+{"id":"ST-GEN-UC03-FL01-S08","title":"Apply refuses a pin that is withdrawn or past its fail date, naming it and its successor, and the author moves it to a digest that stands","flow_id":"ST-GEN-UC03-FL01","path":"stopped","position":1}
 {"id":"ST-GEN-UC03-FL01-S09","title":"STEGO reports the qualification of each bound fill against the new contracts, and the author goes on only when every one is qualified","flow_id":"ST-GEN-UC03-FL01","path":"main","position":4}
 {"id":"ST-GEN-UC03-FL01-S10","title":"A fix that changes a slot contract leaves its fills stale, so the author requalifies them before apply","flow_id":"ST-GEN-UC03-FL01","path":"stale fill","position":1}
+{"id":"ST-GEN-UC03-FL01-S11","title":"The author overrides the pin by name on the command with a reason, apply goes on, and the record names the override","flow_id":"ST-GEN-UC03-FL01","path":"override","position":1}
 {"id":"ST-GEN-UC04-FL01-S01","title":"The service author changes the declaration","flow_id":"ST-GEN-UC04-FL01","path":"main","position":1}
-{"id":"ST-GEN-UC04-FL01-S02","title":"STEGO reports the standing of each pin before the change is applied, and the author goes on only when no pin is withdrawn or past its fail date","flow_id":"ST-GEN-UC04-FL01","path":"main","position":2}
+{"id":"ST-GEN-UC04-FL01-S02","title":"STEGO reports the standing of each pin before the change is applied, and apply refuses a pin that is withdrawn or past its fail date unless the author overrides it by name","flow_id":"ST-GEN-UC04-FL01","path":"main","position":2}
 {"id":"ST-GEN-UC04-FL01-S03","title":"The service author runs apply, and STEGO plans in the same run and writes the changed files, deletes the files it no longer generates, and writes the record","flow_id":"ST-GEN-UC04-FL01","path":"main","position":4}
 {"id":"ST-GEN-UC04-FL01-S04","title":"The service author reads the diff of the declaration change and commits it with the declaration and the record","flow_id":"ST-GEN-UC04-FL01","path":"main","position":5}
 {"id":"ST-GEN-UC04-FL01-S05","title":"A failed validation, generator or assembly stops the run, STEGO names the failure, and no file changes","flow_id":"ST-GEN-UC04-FL01","path":"failed","position":1}

@@ -86,9 +86,10 @@
 {"source_id":"ST-GEN-UC03-FL01-S05","target_id":"ST-GEN-CMD01"}
 {"source_id":"ST-GEN-UC03-FL01-S06","target_id":"ST-GEN-CMD01"}
 {"source_id":"ST-GEN-UC03-FL01-S07","target_id":"ST-DIS-QRY03"}
-{"source_id":"ST-GEN-UC03-FL01-S08","target_id":"ST-DIS-QRY03"}
+{"source_id":"ST-GEN-UC03-FL01-S08","target_id":"ST-GEN-CMD01"}
 {"source_id":"ST-GEN-UC03-FL01-S09","target_id":"ST-EXT-QRY02"}
 {"source_id":"ST-GEN-UC03-FL01-S10","target_id":"ST-EXT-QRY02"}
+{"source_id":"ST-GEN-UC03-FL01-S11","target_id":"ST-GEN-CMD01"}
 {"source_id":"ST-GEN-UC04-FL01-S02","target_id":"ST-DIS-QRY03"}
 {"source_id":"ST-GEN-UC04-FL01-S03","target_id":"ST-GEN-CMD01"}
 {"source_id":"ST-GEN-UC04-FL01-S05","target_id":"ST-GEN-CMD01"}
