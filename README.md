@@ -244,7 +244,7 @@ Six nouns: **Archetype**, **Component**, **Mixin**, **Service Declaration**, **C
 Seven operators: `use`, `with`, `mixin`, `gate`, `chain`, `fan-out`, `map`.
 
 The full specification is the Lathe model under `data/`; `npx lathe serve`
-browses it. The prose under `specs/` is being retired as the model covers it.
+browses it. The prose specs are retired; each record that came from one cites it at the commit that last held it.
 
 ## License
 
