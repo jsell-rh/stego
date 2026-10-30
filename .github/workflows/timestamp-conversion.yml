@@ -61,7 +61,7 @@ jobs:
           for namespace in ['grpcapi', 'rpc/provider']:
               package = 'example.com/timestamp-test/out/' + namespace + '/transport'
               passed = {e.get('Test') for e in nested if e.get('Action') == 'pass' and e.get('Package') == package and e.get('Test')}
-              assert required <= passed and len(passed) == 17
+              assert required <= passed and len(passed) == 21
               assert any(e.get('Action') == 'pass' and e.get('Package') == package and not e.get('Test') for e in nested)
           PYCHECK
           git diff --exit-code
