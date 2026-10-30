@@ -29,13 +29,13 @@ last_applied:
         go_version: go1.26.8
         goos: linux
         goarch: amd64
-        module_version: (devel)
-        vcs: unknown
-        revision: unknown
-        source_state: unknown
+        module_version: v0.0.0-20261030214725-eddf89f5995c
+        vcs: git
+        revision: eddf89f5995c8e8cab6be2f61ab1d120a2970267
+        source_state: clean
     service_hash: 40aa411da16d99a025ea81b2c13702b86cacd06678d0825757c4865830bee705
     registry_sha: env-override
-    registry_content_sha256: 131e3a5eb2d4fa1a692f236e00ea44af55cce4a97a24c2c3187b68b1944fe900
+    registry_content_sha256: 408bbbd40cf6aeb20dadfbb4d04f819eb1f576a22a8d8732cd1f43117e067450
     components:
         health-check:
             version: 1.1.0
@@ -50,7 +50,7 @@ last_applied:
             version: 1.4.0
             sha: env-override
         postgres-adapter:
-            version: 4.12.0
+            version: 4.13.0
             sha: env-override
         rest-api:
             version: 3.1.0
@@ -122,7 +122,7 @@ last_applied:
         internal/auth/jwks.go: a8112269eb448cd7162747c7c97755f6e6f40d8360243e4939399d842726ab09
         internal/auth/key_source.go: f54757d1354b0649ce023659de975cf38abcc1b7d204bc860dbea54c4d1909bb
         internal/auth/middleware.go: 8342641196802a57399a2ecaf0f79cd238b37235abd669282357012f93d5867c
-        internal/auth/sso.go: f3635376e151f1d4a882aa4144a4a3ec0cea82b3343756037041a771c17d6803
+        internal/auth/sso.go: 9bfc499a0b1f3804037412f535c1f6061cfcfa5e77127a17d5426d04f15e1e9a
         internal/auth/telemetry.go: 281eec9da5b1c153489354cbd6d1a016291078b265085dde89d56ea49f76ea17
         internal/events/publisher.go: 509b0edb8033b8492830ccc9b88ad6748fd6e55cc95a7823a1de5e0fb3cd60eb
         internal/events/runtime.go: 0e31422293fd35b975f2b989c8c638ed21da478db61a360dcfdde829f6e171dd
