@@ -4,7 +4,7 @@ The common runtime is published. Hypershell adoption passed the complete Gateway
 workflow described below. The shared-cluster Sandbox guard remains in place.
 Cross-namespace bindings, Sandbox admission, and Sandbox workload checks are
 still required before that guard can be removed. The initial live admission gate passed; see the
-[evidence and its limits](allocation-service-accounts-evidence.md).
+evidence and its limits (a retired record, in git history).
 
 An allocation profile can declare `service_accounts` with one through eight
 aliases. Each alias is a distinct DNS label with at most ten bytes. `default`

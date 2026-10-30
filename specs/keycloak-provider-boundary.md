@@ -6,7 +6,7 @@ Current provider version is 0.16.0 at compiler `af67e7b`. All six jobs in
 [run 35106013382](https://github.com/jsell-rh/stego/actions/runs/35106013382)
 passed. It adds saved closure preparation, bounded client discovery, source
 identity, and failed-window recovery. See [provider inventory](keycloak-inventory.md)
-and the [current enterprise state](enterprise-goal.md). Full Hypershell checks
+and the current enterprise state (a retired record, in git history). Full Hypershell checks
 for this version remain in progress.
 
 The following records describe earlier revisions. Provider version 0.13.0 used compiler

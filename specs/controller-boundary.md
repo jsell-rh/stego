@@ -2,7 +2,7 @@ The controller mechanism belongs in STEGO. The application supplies the rules
 that determine the desired state and the permitted effects. A generated transport
 client alone does not establish this boundary.
 
-The [PR 200 contract review](reconciliation-contract-review.md) expands this
+The PR 200 contract review (a retired record, in git history) expands this
 boundary to conditional API writes, generations, durable finalization, status
 ownership, and controller metrics. Its implementation order takes precedence
 over the earlier focus on scan efficiency. A scheduler alone cannot provide

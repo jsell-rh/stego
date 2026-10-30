@@ -3,7 +3,7 @@
 The complete Hypershell CNPG workflow passed in run `35176586562`. One browser
 backend process restarted three times before it became ready. Its final error
 identified `browser.NewBrowserBackend`, but did not identify the failed step.
-The cause remains unknown. See the [application record](upstream-dashboard-integration.md).
+The cause remains unknown. See the application record (a retired record, in git history).
 
 STEGO now generates an explicit dependency from the browser constructor to the
 process telemetry runtime. `NewBrowserBackendWithTelemetry` binds the context

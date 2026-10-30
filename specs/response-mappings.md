@@ -79,7 +79,7 @@ omission. Other stored JSON conversions and application-derived parameters are
 not yet supported. A mapper does not provide REST conversion or public error mapping.
 Do not use an omission to hide a required application response field.
 
-The [REST mapping plan](rest-response-mapping-plan.md) records the proposed
+The REST mapping plan (a retired record, in git history) records the proposed
 common mechanism, field-presence rules, and acceptance requirements. It is not
 an implemented or accepted REST capability.
 

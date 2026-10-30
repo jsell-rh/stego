@@ -25,7 +25,7 @@ round trips, optional presence, independent output, and fixed errors.
 This helper does not generate complete response mappings. Domain observation
 selection, field ownership, HTTP and gRPC error contracts, and delivery-time
 access checks remain application responsibilities. The
-[transport mapping audit](transport-mapping-audit-20260920.md) defines the next
+transport mapping audit (a retired record, in git history) defines the next
 mapping requirements. Hypershell now uses the checked catalog timestamp path
 and rejects invalid values without a partial response.
 

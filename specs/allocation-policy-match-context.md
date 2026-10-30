@@ -21,7 +21,7 @@ the issuer guard still rejects account names from the previous installation.
 
 The generator test rejects namespace and composed-variable dependencies in
 match conditions. The complete real admission and retained-grant gate passed with the new
-generated manifests. See [the live evidence](allocation-service-accounts-evidence.md#corrected-live-admission-and-authorization).
+generated manifests. See the live evidence (a retired record, in git history).
 Full compiler and release qualification remain required. The previous accepted request
 remains a failed gate. No generated account component from this branch has been
 released or adopted by Hypershell.

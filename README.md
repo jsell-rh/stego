@@ -3,10 +3,10 @@
 Service Templates, Extensible Generation & Operations.
 
 STEGO generates common service and client code from YAML declarations and
-reusable components. The output is plain Go, with no STEGO runtime dependency.
-Application fills and factories supply domain rules. The
-[enterprise goal](specs/enterprise-goal.md) records verified workflows and open
-work. Production use requires validation for the selected application and
+reusable components. The output is plain Go, with no framework dependency.
+Application fills and factories supply domain rules. The requirements are the
+Lathe model under `data/`; `lathe check` reports what is designed, built and
+proved. Production use requires validation for the selected application and
 deployment.
 The [Kubernetes service component](specs/kubernetes-service.md) supplies common
 container build files, restricted Pod settings, network policy, and HTTPS probes.
@@ -243,7 +243,8 @@ go build -o service ./out
 Six nouns: **Archetype**, **Component**, **Mixin**, **Service Declaration**, **Collection**, **Fill**.
 Seven operators: `use`, `with`, `mixin`, `gate`, `chain`, `fan-out`, `map`.
 
-See [specs/spec.md](specs/spec.md) for the full specification.
+The full specification is the Lathe model under `data/`; `npx lathe serve`
+browses it. The prose under `specs/` is being retired as the model covers it.
 
 ## License
 

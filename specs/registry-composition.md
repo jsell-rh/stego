@@ -202,7 +202,7 @@ Common compiler revision `8e0fae6` passed
 These earlier results establish the registry integration. The later public
 workflow at `e8bb965` establishes the deployed dashboard behavior described
 above. The later expanded CNPG workflow is recorded in the
-[integration record](upstream-dashboard-integration.md).
+integration record (a retired record, in git history).
 
 Earlier checkouts at `d6b1fe3` still contain the old local copies.
 Generated runtime files remain committed for review and repeated generation.
