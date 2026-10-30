@@ -1,0 +1,8 @@
+{
+  "schema": 2,
+  "data": "data",
+  "tests": [
+    "**/*_test.go",
+    "scripts/test_*.py"
+  ]
+}

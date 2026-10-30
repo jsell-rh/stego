@@ -141,17 +141,31 @@ func TestNativeLogoutBrowser(t *testing.T) {
 			_, _, revokes := f.oidc.counts()
 			_, _, _, sessionErr := f.backend.store.read(ctx, active.Value)
 			if oldPolicy {
-				require(t, observed.Policy == "no-referrer" && observed.Origin == "null" && observed.Status == 403, "old policy did not reproduce the rejected native form")
-				require(t, revokes == 0 && sessionErr == nil, "denied form removed the session")
-			} else {
-				require(t, observed.Policy == "same-origin" && observed.Origin == server.URL && observed.Status == 303, "generated native sign-out failed")
-				require(t, revokes == 1 && errors.Is(sessionErr, errSession), "sign-out did not remove and revoke the session")
-				select {
-				case clean := <-providerRequests:
-					require(t, clean, "provider received an unsafe sign-out request")
-				case <-ctx.Done():
-					t.Fatal("provider sign-out deadline expired")
+				if !t.Run("ST-SUP-RC02-OC13-T02 The sign-out confirmation page lets a native form send its Origin", func(t *testing.T) {
+					require(t, observed.Policy == "no-referrer" && observed.Origin == "null" && observed.Status == 403, "old policy did not reproduce the rejected native form")
+				}) {
+					return
 				}
+				t.Run("ST-SUP-RC02-OC12-T02 The sign-out confirmation page does not sign out under native browser navigation", func(t *testing.T) {
+					require(t, observed.Policy == "no-referrer" && observed.Origin == "null" && observed.Status == 403, "old policy did not reproduce the rejected native form")
+					require(t, revokes == 0 && sessionErr == nil, "denied form removed the session")
+				})
+			} else {
+				if !t.Run("ST-SUP-RC02-OC13-T02 The sign-out confirmation page lets a native form send its Origin", func(t *testing.T) {
+					require(t, observed.Policy == "same-origin" && observed.Origin == server.URL && observed.Status == 303, "generated native sign-out failed")
+				}) {
+					return
+				}
+				t.Run("ST-SUP-RC02-OC12-T02 The sign-out confirmation page does not sign out under native browser navigation", func(t *testing.T) {
+					require(t, observed.Policy == "same-origin" && observed.Origin == server.URL && observed.Status == 303, "generated native sign-out failed")
+					require(t, revokes == 1 && errors.Is(sessionErr, errSession), "sign-out did not remove and revoke the session")
+					select {
+					case clean := <-providerRequests:
+						require(t, clean, "provider received an unsafe sign-out request")
+					case <-ctx.Done():
+						t.Fatal("provider sign-out deadline expired")
+					}
+				})
 			}
 		})
 	}

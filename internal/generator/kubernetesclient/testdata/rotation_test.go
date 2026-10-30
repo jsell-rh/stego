@@ -62,73 +62,75 @@ func TestLiveProjectedTokenRotation(t *testing.T) {
 	if os.Getenv("STEGO_KUBERNETES_LIVE_ROTATION") != "1" {
 		t.Skip("requires a dedicated cluster Job with a projected token")
 	}
-	namespace, pod := os.Getenv("STEGO_TEST_NAMESPACE"), os.Getenv("STEGO_TEST_POD_UID")
-	if namespace == "" || pod == "" {
-		t.Fatal("live rotation requires a namespace and Pod UID")
-	}
-	const tokenFile = "/var/run/stego-kubernetes/token"
-	client, err := New(Options{ServerURL: "https://kubernetes.default.svc", CAFile: "/var/run/stego-kubernetes/ca.crt", TokenFile: tokenFile})
-	if err != nil {
-		t.Fatal("cannot create the generated Kubernetes client")
-	}
-	defer client.Close()
-	started := time.Now()
-	base, finishTelemetry := rotationTelemetry(t, context.Background())
-	ctx, cancel := context.WithTimeout(base, 12*time.Minute)
-	defer cancel()
-	tick := time.NewTicker(5 * time.Second)
-	defer tick.Stop()
-	initial, requests := "", 0
-	for {
-		before := projectedIdentity(t, tokenFile, namespace, pod)
-		operation, stop := context.WithTimeout(ctx, 5*time.Second)
-		response, code, err := client.Request(operation, http.MethodPost, "/apis/authentication.k8s.io/v1/selfsubjectreviews", Object{"apiVersion": "authentication.k8s.io/v1", "kind": "SelfSubjectReview"})
-		stop()
-		requests++
-		if err != nil || code != http.StatusCreated {
-			t.Fatal("API server did not accept a projected-token request")
+	t.Run("ST-SUP-RC14-OC04-T04 The emitted client reads a rotated projected token on a live cluster", func(t *testing.T) {
+		namespace, pod := os.Getenv("STEGO_TEST_NAMESPACE"), os.Getenv("STEGO_TEST_POD_UID")
+		if namespace == "" || pod == "" {
+			t.Fatal("live rotation requires a namespace and Pod UID")
 		}
-		after := projectedIdentity(t, tokenFile, namespace, pod)
-		credential := extraValue(response, "authentication.kubernetes.io/credential-id")
-		// The file can rotate while Request reads it. Accept only a token seen
-		// immediately before or after this request, and confirmed by the server.
-		observed := before
-		if credential == "JTI="+after.ID {
-			observed = after
-		} else if credential != "JTI="+before.ID {
-			t.Fatal("API server did not confirm the current projected credential")
+		const tokenFile = "/var/run/stego-kubernetes/token"
+		client, err := New(Options{ServerURL: "https://kubernetes.default.svc", CAFile: "/var/run/stego-kubernetes/ca.crt", TokenFile: tokenFile})
+		if err != nil {
+			t.Fatal("cannot create the generated Kubernetes client")
 		}
-		if String(response, "status", "userInfo", "username") != observed.Subject || String(response, "status", "userInfo", "uid") != observed.Kubernetes.ServiceAccount.UID || extraValue(response, "authentication.kubernetes.io/pod-uid") != pod {
-			t.Fatal("API server did not confirm the bound ServiceAccount and Pod")
-		}
-		if initial == "" {
-			initial = credential
-		}
-		if credential != initial {
+		defer client.Close()
+		started := time.Now()
+		base, finishTelemetry := rotationTelemetry(t, context.Background())
+		ctx, cancel := context.WithTimeout(base, 12*time.Minute)
+		defer cancel()
+		tick := time.NewTicker(5 * time.Second)
+		defer tick.Stop()
+		initial, requests := "", 0
+		for {
+			before := projectedIdentity(t, tokenFile, namespace, pod)
 			operation, stop := context.WithTimeout(ctx, 5*time.Second)
-			_, code, err := client.Request(operation, http.MethodGet, "/api/v1/namespaces/"+namespace+"/secrets", nil)
+			response, code, err := client.Request(operation, http.MethodPost, "/apis/authentication.k8s.io/v1/selfsubjectreviews", Object{"apiVersion": "authentication.k8s.io/v1", "kind": "SelfSubjectReview"})
 			stop()
-			if err == nil || code != http.StatusForbidden {
-				t.Fatal("rotation identity has unexpected Secret access")
+			requests++
+			if err != nil || code != http.StatusCreated {
+				t.Fatal("API server did not accept a projected-token request")
 			}
-			finishTelemetry()
-			report := map[string]any{"telemetry_enabled": rotationTelemetryEnabled, "rotations": 1, "server_confirmed_credentials": 2, "requests": requests, "elapsed_seconds": time.Since(started).Seconds(), "token_lifetime_seconds": observed.Expires - observed.Issued, "secret_access_denied": true, "client_restarts": 0}
-			if dir := os.Getenv("STEGO_KUBERNETES_ROTATION_ARTIFACTS"); dir != "" {
-				if err := os.MkdirAll(dir, 0700); err != nil {
-					t.Fatal("cannot create rotation evidence directory")
-				}
-				data, err := json.MarshalIndent(report, "", "  ")
-				if err != nil || os.WriteFile(filepath.Join(dir, "rotation.json"), append(data, '\n'), 0600) != nil {
-					t.Fatal("cannot save rotation evidence")
-				}
+			after := projectedIdentity(t, tokenFile, namespace, pod)
+			credential := extraValue(response, "authentication.kubernetes.io/credential-id")
+			// The file can rotate while Request reads it. Accept only a token seen
+			// immediately before or after this request, and confirmed by the server.
+			observed := before
+			if credential == "JTI="+after.ID {
+				observed = after
+			} else if credential != "JTI="+before.ID {
+				t.Fatal("API server did not confirm the current projected credential")
 			}
-			t.Log("API server confirmed a new projected credential through the same generated client; Secret access remained denied")
-			return
+			if String(response, "status", "userInfo", "username") != observed.Subject || String(response, "status", "userInfo", "uid") != observed.Kubernetes.ServiceAccount.UID || extraValue(response, "authentication.kubernetes.io/pod-uid") != pod {
+				t.Fatal("API server did not confirm the bound ServiceAccount and Pod")
+			}
+			if initial == "" {
+				initial = credential
+			}
+			if credential != initial {
+				operation, stop := context.WithTimeout(ctx, 5*time.Second)
+				_, code, err := client.Request(operation, http.MethodGet, "/api/v1/namespaces/"+namespace+"/secrets", nil)
+				stop()
+				if err == nil || code != http.StatusForbidden {
+					t.Fatal("rotation identity has unexpected Secret access")
+				}
+				finishTelemetry()
+				report := map[string]any{"telemetry_enabled": rotationTelemetryEnabled, "rotations": 1, "server_confirmed_credentials": 2, "requests": requests, "elapsed_seconds": time.Since(started).Seconds(), "token_lifetime_seconds": observed.Expires - observed.Issued, "secret_access_denied": true, "client_restarts": 0}
+				if dir := os.Getenv("STEGO_KUBERNETES_ROTATION_ARTIFACTS"); dir != "" {
+					if err := os.MkdirAll(dir, 0700); err != nil {
+						t.Fatal("cannot create rotation evidence directory")
+					}
+					data, err := json.MarshalIndent(report, "", "  ")
+					if err != nil || os.WriteFile(filepath.Join(dir, "rotation.json"), append(data, '\n'), 0600) != nil {
+						t.Fatal("cannot save rotation evidence")
+					}
+				}
+				t.Log("API server confirmed a new projected credential through the same generated client; Secret access remained denied")
+				return
+			}
+			select {
+			case <-ctx.Done():
+				t.Fatal("projected token did not rotate within twelve minutes")
+			case <-tick.C:
+			}
 		}
-		select {
-		case <-ctx.Done():
-			t.Fatal("projected token did not rotate within twelve minutes")
-		case <-tick.C:
-		}
-	}
+	})
 }

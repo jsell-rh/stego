@@ -37,7 +37,7 @@ func TestApplicationFactoryChecksGateValidation(t *testing.T) {
 func applicationPreflightInput(t *testing.T, generator gen.Generator, factory string) ReconcilerInput {
 	t.Helper()
 	project, registry, input := setupValidateProject(t)
-	input.GoVersion = "1.26.8"
+	input.GoVersion = "1.26.10"
 	input.Generators["stub-api"] = generator
 	input.Generators["jwt-auth"] = rejectedInputGenerator{t}
 	archPath := filepath.Join(registry, "archetypes/test-arch/archetype.yaml")

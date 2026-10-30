@@ -127,7 +127,7 @@ func NewHandler(repository Repository, verifier *auth.Verifier, database *sql.DB
 	if peer := ctx.PeerNamespaces["otel-tracing"]; peer != "" {
 		tracing = path.Join(ctx.ModuleName, ctx.OutDirName, peer)
 	}
-	client, err := httpclient.Render(path.Join(ctx.OutputNamespace, "client"), tracing)
+	client, err := httpclient.Render(path.Join(ctx.OutputNamespace, "client"), tracing, httpclient.FollowLinks)
 	if err != nil {
 		return nil, nil, err
 	}

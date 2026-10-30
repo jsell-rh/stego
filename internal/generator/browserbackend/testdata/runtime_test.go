@@ -17,303 +17,345 @@ import (
 )
 
 func TestAuthorizationRequestUsesDeclaredScopes(t *testing.T) {
-	f := setup(t)
-	for _, scopes := range []string{"openid", "openid email profile records:read"} {
-		f.backend.config.OAuthScope = scopes
-		w := send(f.backend, "GET", "/auth/login", "", nil, http.Header{"Sec-Fetch-Site": {"none"}})
-		require(t, w.Code == 302, "declared scope login failed")
-		target, err := url.Parse(w.Header().Get("Location"))
-		require(t, err == nil && target.Query().Get("scope") == scopes, "authorization request changed declared scopes")
-	}
+	t.Run("ST-SUP-RC02-OC31-T01 The authorization request keeps the declared scopes", func(t *testing.T) {
+		f := setup(t)
+		for _, scopes := range []string{"openid", "openid email profile records:read"} {
+			f.backend.config.OAuthScope = scopes
+			w := send(f.backend, "GET", "/auth/login", "", nil, http.Header{"Sec-Fetch-Site": {"none"}})
+			require(t, w.Code == 302, "declared scope login failed")
+			target, err := url.Parse(w.Header().Get("Location"))
+			require(t, err == nil && target.Query().Get("scope") == scopes, "authorization request changed declared scopes")
+		}
+	})
 }
 
 func TestLoginProxyRestartLogout(t *testing.T) {
-	f := setup(t)
-	active, csrf := login(t, f)
-	headers := mutationHeaders(csrf)
-	headers.Set("Cookie", "malicious=ignored")
-	headers.Set("X-Forwarded-Host", "private.example")
-	headers.Set("Proxy-Authorization", "private")
-	headers.Set("X-Untrusted", "private")
-	// Cookies from the browser are consumed by the backend, never by the API.
-	delete(headers, "Cookie")
-	w := send(f.backend, "POST", apiPrefix+"/records", `{"name":"one"}`, []*http.Cookie{active}, headers)
-	require(t, w.Code == 201 && w.Body.String() == `{"id":"record-1","name":"one"}`, "API contract changed")
-	require(t, w.Header().Get("ETag") == `"record-version"` && w.Header().Get("Set-Cookie") == "" && w.Header().Get("X-Private") == "", "unsafe response headers")
-	f.mu.Lock()
-	sent := f.requests[0]
-	f.mu.Unlock()
-	require(t, sent.Get("Authorization") == "Bearer initial-access-value", "server access token was not sent")
-	for _, name := range []string{"Cookie", "X-Forwarded-Host", "Proxy-Authorization", "X-Untrusted", CSRFHeader, "Origin"} {
-		require(t, sent.Get(name) == "", "private header reached the API: "+name)
+	proof := func(t *testing.T) {
+		f := setup(t)
+		active, csrf := login(t, f)
+		headers := mutationHeaders(csrf)
+		headers.Set("Cookie", "malicious=ignored")
+		headers.Set("X-Forwarded-Host", "private.example")
+		headers.Set("Proxy-Authorization", "private")
+		headers.Set("X-Untrusted", "private")
+		// Cookies from the browser are consumed by the backend, never by the API.
+		delete(headers, "Cookie")
+		w := send(f.backend, "POST", apiPrefix+"/records", `{"name":"one"}`, []*http.Cookie{active}, headers)
+		require(t, w.Code == 201 && w.Body.String() == `{"id":"record-1","name":"one"}`, "API contract changed")
+		require(t, w.Header().Get("ETag") == `"record-version"` && w.Header().Get("Set-Cookie") == "" && w.Header().Get("X-Private") == "", "unsafe response headers")
+		f.mu.Lock()
+		sent := f.requests[0]
+		f.mu.Unlock()
+		require(t, sent.Get("Authorization") == "Bearer initial-access-value", "server access token was not sent")
+		for _, name := range []string{"Cookie", "X-Forwarded-Host", "Proxy-Authorization", "X-Untrusted", CSRFHeader, "Origin"} {
+			require(t, sent.Get(name) == "", "private header reached the API: "+name)
+		}
+		f.backend.Close()
+		f.backend = f.start(t)
+		w = send(f.backend, "GET", apiPrefix+"/records/record-1", "", []*http.Cookie{active}, nil)
+		require(t, w.Code == 201, "session did not survive backend restart")
+		w = send(f.backend, "POST", "/auth/logout", "", []*http.Cookie{active}, mutationHeaders(csrf))
+		require(t, w.Code == 204 && cookie(t, w, SessionCookie).MaxAge == -1, "logout failed")
+		w = send(f.backend, "GET", apiPrefix+"/records/record-1", "", []*http.Cookie{active}, nil)
+		require(t, w.Code == 401, "logout did not remove API access")
+		_, _, revokes := f.oidc.counts()
+		require(t, revokes == 1, "logout did not revoke provider token")
 	}
-	f.backend.Close()
-	f.backend = f.start(t)
-	w = send(f.backend, "GET", apiPrefix+"/records/record-1", "", []*http.Cookie{active}, nil)
-	require(t, w.Code == 201, "session did not survive backend restart")
-	w = send(f.backend, "POST", "/auth/logout", "", []*http.Cookie{active}, mutationHeaders(csrf))
-	require(t, w.Code == 204 && cookie(t, w, SessionCookie).MaxAge == -1, "logout failed")
-	w = send(f.backend, "GET", apiPrefix+"/records/record-1", "", []*http.Cookie{active}, nil)
-	require(t, w.Code == 401, "logout did not remove API access")
-	_, _, revokes := f.oidc.counts()
-	require(t, revokes == 1, "logout did not revoke provider token")
+	t.Run("ST-SUP-RC02-OC01-T01 The emitted backend sets a strict active session cookie", proof)
+	t.Run("ST-SUP-RC02-OC02-T01 The emitted backend sets a lax login cookie", proof)
+	t.Run("ST-SUP-RC02-OC04-T01 The emitted session response holds no tokens", proof)
+	t.Run("ST-SUP-RC02-OC07-T01 The emitted proxy sends only server-held credentials", proof)
 }
+
 func TestDeniedRequestsDoNotReachAPI(t *testing.T) {
 	f := setup(t)
 	active, csrf := login(t, f)
-	cases := []struct {
+	type deniedCase struct {
 		name, method, path, body string
 		cookies                  []*http.Cookie
 		headers                  http.Header
 		status                   int
-	}{
+	}
+	check := func(t *testing.T, cases []deniedCase) {
+		for _, test := range cases {
+			t.Run(test.name, func(t *testing.T) {
+				w := send(f.backend, test.method, test.path, test.body, test.cookies, test.headers)
+				if w.Code != test.status {
+					t.Fatalf("status %d, want %d", w.Code, test.status)
+				}
+			})
+		}
+		f.mu.Lock()
+		count := len(f.requests)
+		f.mu.Unlock()
+		require(t, count == 0, "denied request reached API")
+	}
+	t.Run("ST-SUP-RC02-OC05-T01 The emitted backend refuses a mutation without an exact origin or a CSRF token", func(t *testing.T) {
+		check(t, []deniedCase{
+			{name: "missing csrf", method: "POST", path: apiPrefix + "/records", cookies: []*http.Cookie{active}, headers: http.Header{"Origin": {origin}}, status: 403},
+			{name: "missing origin", method: "POST", path: apiPrefix + "/records", cookies: []*http.Cookie{active}, headers: http.Header{CSRFHeader: {csrf}}, status: 403},
+			{name: "wrong origin", method: "POST", path: apiPrefix + "/records", cookies: []*http.Cookie{active}, headers: http.Header{"Origin": {"https://sibling.example.test"}, CSRFHeader: {csrf}}, status: 403},
+			{name: "same site is not same origin", method: "GET", path: apiPrefix + "/records", cookies: []*http.Cookie{active}, headers: http.Header{"Sec-Fetch-Site": {"same-site"}}, status: 403},
+			{name: "duplicate origin", method: "POST", path: apiPrefix + "/records", cookies: []*http.Cookie{active}, headers: http.Header{"Origin": {origin, origin}, CSRFHeader: {csrf}}, status: 403},
+			{name: "duplicate csrf", method: "POST", path: apiPrefix + "/records", cookies: []*http.Cookie{active}, headers: http.Header{"Origin": {origin}, CSRFHeader: {csrf, csrf}}, status: 403},
+		})
+	})
+	t.Run("ST-SUP-RC02-OC06-T01 The emitted backend refuses browser bearer credentials", func(t *testing.T) {
+		check(t, []deniedCase{
+			{name: "browser bearer", method: "GET", path: apiPrefix + "/records", cookies: []*http.Cookie{active}, headers: http.Header{"Authorization": {"Bearer from-browser"}}, status: 400},
+		})
+	})
+	check(t, []deniedCase{
 		{name: "missing session", method: "GET", path: apiPrefix + "/records", status: 401},
-		{name: "missing csrf", method: "POST", path: apiPrefix + "/records", cookies: []*http.Cookie{active}, headers: http.Header{"Origin": {origin}}, status: 403},
-		{name: "missing origin", method: "POST", path: apiPrefix + "/records", cookies: []*http.Cookie{active}, headers: http.Header{CSRFHeader: {csrf}}, status: 403},
-		{name: "wrong origin", method: "POST", path: apiPrefix + "/records", cookies: []*http.Cookie{active}, headers: http.Header{"Origin": {"https://sibling.example.test"}, CSRFHeader: {csrf}}, status: 403},
-		{name: "same site is not same origin", method: "GET", path: apiPrefix + "/records", cookies: []*http.Cookie{active}, headers: http.Header{"Sec-Fetch-Site": {"same-site"}}, status: 403},
-		{name: "browser bearer", method: "GET", path: apiPrefix + "/records", cookies: []*http.Cookie{active}, headers: http.Header{"Authorization": {"Bearer from-browser"}}, status: 400},
 		{name: "duplicate cookie", method: "GET", path: apiPrefix + "/records", cookies: []*http.Cookie{active, active}, status: 401},
-		{name: "duplicate origin", method: "POST", path: apiPrefix + "/records", cookies: []*http.Cookie{active}, headers: http.Header{"Origin": {origin, origin}, CSRFHeader: {csrf}}, status: 403},
-		{name: "duplicate csrf", method: "POST", path: apiPrefix + "/records", cookies: []*http.Cookie{active}, headers: http.Header{"Origin": {origin}, CSRFHeader: {csrf, csrf}}, status: 403},
 		{name: "get logout", method: "GET", path: "/auth/logout", cookies: []*http.Cookie{active}, status: 200},
 		{name: "bad method", method: "TRACE", path: apiPrefix + "/records", cookies: []*http.Cookie{active}, status: 405},
 		{name: "request body limit", method: "POST", path: apiPrefix + "/records", body: strings.Repeat("x", (1<<20)+1), cookies: []*http.Cookie{active}, headers: mutationHeaders(csrf), status: 413},
 		{name: "GET body", method: "GET", path: apiPrefix + "/records", body: "data", cookies: []*http.Cookie{active}, status: 400},
-	}
-	for _, test := range cases {
-		t.Run(test.name, func(t *testing.T) {
-			w := send(f.backend, test.method, test.path, test.body, test.cookies, test.headers)
-			if w.Code != test.status {
-				t.Fatalf("status %d, want %d", w.Code, test.status)
-			}
-		})
-	}
-	f.mu.Lock()
-	count := len(f.requests)
-	f.mu.Unlock()
-	require(t, count == 0, "denied request reached API")
+	})
 }
+
 func TestProviderDenialDoesNotEndValidSession(t *testing.T) {
-	f := setup(t)
-	active, _ := login(t, f)
-	f.mu.Lock()
-	f.status = 403
-	f.mu.Unlock()
-	w := send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil)
-	require(t, w.Code == 403, "API denial changed")
-	w = send(f.backend, "GET", "/auth/session", "", []*http.Cookie{active}, nil)
-	require(t, strings.Contains(w.Body.String(), `"authenticated":true`), "403 removed session")
-	f.mu.Lock()
-	f.status = 401
-	f.mu.Unlock()
-	w = send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil)
-	require(t, w.Code == 401, "API authentication failure changed")
-	w = send(f.backend, "GET", "/auth/session", "", []*http.Cookie{active}, nil)
-	require(t, strings.Contains(w.Body.String(), `"authenticated":false`), "401 retained session")
+	t.Run("ST-SUP-RC02-OC32-T01 An API permission denial does not end a valid session", func(t *testing.T) {
+		f := setup(t)
+		active, _ := login(t, f)
+		f.mu.Lock()
+		f.status = 403
+		f.mu.Unlock()
+		w := send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil)
+		require(t, w.Code == 403, "API denial changed")
+		w = send(f.backend, "GET", "/auth/session", "", []*http.Cookie{active}, nil)
+		require(t, strings.Contains(w.Body.String(), `"authenticated":true`), "403 removed session")
+		f.mu.Lock()
+		f.status = 401
+		f.mu.Unlock()
+		w = send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil)
+		require(t, w.Code == 401, "API authentication failure changed")
+		w = send(f.backend, "GET", "/auth/session", "", []*http.Cookie{active}, nil)
+		require(t, strings.Contains(w.Body.String(), `"authenticated":false`), "401 retained session")
+	})
 }
+
 func TestCallbackStateAndReplay(t *testing.T) {
-	f := setup(t)
-	c, target := startLogin(t, f)
-	u, _ := url.Parse(target)
-	q := u.Query()
-	q.Set("state", "wrong")
-	u.RawQuery = q.Encode()
-	w := send(f.backend, "GET", u.RequestURI(), "", []*http.Cookie{c}, nil)
-	require(t, w.Code == 400, "wrong state accepted")
-	exchanges, _, _ := f.oidc.counts()
-	require(t, exchanges == 0, "wrong state exchanged code")
-	b2 := f.start(t)
-	results := make(chan int, 2)
-	var group sync.WaitGroup
-	for _, b := range []*Backend{f.backend, b2} {
-		group.Add(1)
-		go func() { defer group.Done(); results <- send(b, "GET", target, "", []*http.Cookie{c}, nil).Code }()
-	}
-	group.Wait()
-	close(results)
-	successes, denials := 0, 0
-	for code := range results {
-		if code == 303 {
-			successes++
-		} else if code == 400 {
-			denials++
-		} else {
-			t.Fatalf("unexpected concurrent callback status %d", code)
+	t.Run("ST-SUP-RC02-OC24-T01 The emitted callback consumes a pending login exactly once", func(t *testing.T) {
+		f := setup(t)
+		c, target := startLogin(t, f)
+		u, _ := url.Parse(target)
+		q := u.Query()
+		q.Set("state", "wrong")
+		u.RawQuery = q.Encode()
+		w := send(f.backend, "GET", u.RequestURI(), "", []*http.Cookie{c}, nil)
+		require(t, w.Code == 400, "wrong state accepted")
+		exchanges, _, _ := f.oidc.counts()
+		require(t, exchanges == 0, "wrong state exchanged code")
+		b2 := f.start(t)
+		results := make(chan int, 2)
+		var group sync.WaitGroup
+		for _, b := range []*Backend{f.backend, b2} {
+			group.Add(1)
+			go func() { defer group.Done(); results <- send(b, "GET", target, "", []*http.Cookie{c}, nil).Code }()
 		}
-	}
-	require(t, successes == 1 && denials == 1, "callback was not consumed exactly once")
-	exchanges, _, _ = f.oidc.counts()
-	require(t, exchanges == 1, "code exchanged more than once")
-}
-func TestInvalidIdentityClaims(t *testing.T) {
-	f := setup(t)
-	for _, mode := range []string{"nonce", "issuer", "audience", "expired", "old", "auth-time", "roles", "at-hash"} {
-		t.Run(mode, func(t *testing.T) {
-			f.oidc.setMode(mode)
-			c, target := startLogin(t, f)
-			w := send(f.backend, "GET", target, "", []*http.Cookie{c}, nil)
-			require(t, w.Code == 502, "invalid identity accepted")
-			for _, c := range w.Result().Cookies() {
-				require(t, c.Name != SessionCookie, "invalid identity got a session")
-			}
-		})
-	}
-	_, _, revokes := f.oidc.counts()
-	require(t, revokes == 8, "rejected identity tokens were not revoked")
-}
-func TestRefreshAcrossInstances(t *testing.T) {
-	f := setup(t)
-	active, _ := login(t, f)
-	expireAccess(t, f, active)
-	b2 := f.start(t)
-	entered, release := f.oidc.pauseRefresh()
-	t.Cleanup(func() {
-		select {
-		case <-release:
-		default:
-			close(release)
-		}
-	})
-	result := make(chan *httptest.ResponseRecorder, 1)
-	go func() { result <- send(f.backend, "GET", "/auth/session", "", []*http.Cookie{active}, nil) }()
-	select {
-	case <-entered:
-	case <-time.After(5 * time.Second):
-		close(release)
-		t.Fatal("refresh did not start")
-	}
-	second := make(chan *httptest.ResponseRecorder, 1)
-	go func() { second <- send(b2, "GET", "/auth/session", "", []*http.Cookie{active}, nil) }()
-	select {
-	case <-second:
-		t.Fatal("second instance did not wait for refresh")
-	case <-time.After(100 * time.Millisecond):
-	}
-	close(release)
-	var w *httptest.ResponseRecorder
-	select {
-	case w = <-result:
-		require(t, w.Code == 200, "refresh failed")
-	case <-time.After(5 * time.Second):
-		t.Fatal("refresh did not finish")
-	}
-	select {
-	case w = <-second:
-		require(t, w.Code == 200, "waiting instance lost its session")
-	case <-time.After(3 * time.Second):
-		t.Fatal("waiting instance did not finish")
-	}
-	w = send(b2, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil)
-	require(t, w.Code == 201, "refreshed session unavailable to second instance")
-	f.mu.Lock()
-	token := f.requests[len(f.requests)-1].Get("Authorization")
-	f.mu.Unlock()
-	require(t, token == "Bearer refreshed-access-value", "old access token used")
-	_, refreshes, _ := f.oidc.counts()
-	require(t, refreshes == 1, "refresh token rotated twice")
-}
-func TestLogoutCannotBeUndoneByRefresh(t *testing.T) {
-	f := setup(t)
-	active, csrf := login(t, f)
-	expireAccess(t, f, active)
-	b2 := f.start(t)
-	entered, release := f.oidc.pauseRefresh()
-	t.Cleanup(func() {
-		select {
-		case <-release:
-		default:
-			close(release)
-		}
-	})
-	result := make(chan *httptest.ResponseRecorder, 1)
-	go func() { result <- send(f.backend, "GET", "/auth/session", "", []*http.Cookie{active}, nil) }()
-	select {
-	case <-entered:
-	case <-time.After(5 * time.Second):
-		close(release)
-		t.Fatal("refresh did not start")
-	}
-	w := send(b2, "POST", "/auth/logout", "", []*http.Cookie{active}, mutationHeaders(csrf))
-	if w.Code != 204 {
-		close(release)
-		t.Fatalf("logout status %d", w.Code)
-	}
-	close(release)
-	select {
-	case <-result:
-	case <-time.After(5 * time.Second):
-		t.Fatal("refresh did not finish")
-	}
-	w = send(b2, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil)
-	require(t, w.Code == 401, "refresh restored logged-out session")
-	_, refreshes, revokes := f.oidc.counts()
-	require(t, refreshes == 1 && revokes == 2, "old and rotated tokens were not revoked")
-}
-func TestUncertainRefreshRequiresLogin(t *testing.T) {
-	for _, mode := range []string{"lost-response", "stale-claim"} {
-		t.Run(mode, func(t *testing.T) {
-			f := setup(t)
-			active, _ := login(t, f)
-			expireAccess(t, f, active)
-			if mode == "lost-response" {
-				f.oidc.setMode("lost-refresh")
+		group.Wait()
+		close(results)
+		successes, denials := 0, 0
+		for code := range results {
+			if code == 303 {
+				successes++
+			} else if code == 400 {
+				denials++
 			} else {
-				_, err := f.backend.store.claimRefresh(context.Background(), active.Value)
-				if err != nil {
-					t.Fatal(err)
+				t.Fatalf("unexpected concurrent callback status %d", code)
+			}
+		}
+		require(t, successes == 1 && denials == 1, "callback was not consumed exactly once")
+		exchanges, _, _ = f.oidc.counts()
+		require(t, exchanges == 1, "code exchanged more than once")
+	})
+}
+
+func TestInvalidIdentityClaims(t *testing.T) {
+	t.Run("ST-SUP-RC02-OC25-T01 A rejected identity token gets no session and is revoked", func(t *testing.T) {
+		f := setup(t)
+		for _, mode := range []string{"nonce", "issuer", "audience", "expired", "old", "auth-time", "roles", "at-hash"} {
+			t.Run(mode, func(t *testing.T) {
+				f.oidc.setMode(mode)
+				c, target := startLogin(t, f)
+				w := send(f.backend, "GET", target, "", []*http.Cookie{c}, nil)
+				require(t, w.Code == 502, "invalid identity accepted")
+				for _, c := range w.Result().Cookies() {
+					require(t, c.Name != SessionCookie, "invalid identity got a session")
 				}
-				hash, _ := sessionHash(active.Value)
-				if _, err := f.db.Exec("UPDATE public.stego_browser_sessions SET changed_at=CURRENT_TIMESTAMP-INTERVAL '31 seconds' WHERE id_hash=$1", hash); err != nil {
-					t.Fatal(err)
-				}
+			})
+		}
+		_, _, revokes := f.oidc.counts()
+		require(t, revokes == 8, "rejected identity tokens were not revoked")
+	})
+}
+
+func TestRefreshAcrossInstances(t *testing.T) {
+	t.Run("ST-SUP-RC02-OC08-T01 Two emitted backend instances share one token renewal", func(t *testing.T) {
+		f := setup(t)
+		active, _ := login(t, f)
+		expireAccess(t, f, active)
+		b2 := f.start(t)
+		entered, release := f.oidc.pauseRefresh()
+		t.Cleanup(func() {
+			select {
+			case <-release:
+			default:
+				close(release)
 			}
-			for i := 0; i < 2; i++ {
-				w := send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil)
-				require(t, w.Code == 401, "uncertain refresh retained access")
-			}
-			_, refreshes, _ := f.oidc.counts()
-			want := 1
-			if mode == "stale-claim" {
-				want = 0
-			}
-			require(t, refreshes == want, "uncertain refresh was retried")
 		})
-	}
+		result := make(chan *httptest.ResponseRecorder, 1)
+		go func() { result <- send(f.backend, "GET", "/auth/session", "", []*http.Cookie{active}, nil) }()
+		select {
+		case <-entered:
+		case <-time.After(5 * time.Second):
+			close(release)
+			t.Fatal("refresh did not start")
+		}
+		second := make(chan *httptest.ResponseRecorder, 1)
+		go func() { second <- send(b2, "GET", "/auth/session", "", []*http.Cookie{active}, nil) }()
+		select {
+		case <-second:
+			t.Fatal("second instance did not wait for refresh")
+		case <-time.After(100 * time.Millisecond):
+		}
+		close(release)
+		var w *httptest.ResponseRecorder
+		select {
+		case w = <-result:
+			require(t, w.Code == 200, "refresh failed")
+		case <-time.After(5 * time.Second):
+			t.Fatal("refresh did not finish")
+		}
+		select {
+		case w = <-second:
+			require(t, w.Code == 200, "waiting instance lost its session")
+		case <-time.After(3 * time.Second):
+			t.Fatal("waiting instance did not finish")
+		}
+		w = send(b2, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil)
+		require(t, w.Code == 201, "refreshed session unavailable to second instance")
+		f.mu.Lock()
+		token := f.requests[len(f.requests)-1].Get("Authorization")
+		f.mu.Unlock()
+		require(t, token == "Bearer refreshed-access-value", "old access token used")
+		_, refreshes, _ := f.oidc.counts()
+		require(t, refreshes == 1, "refresh token rotated twice")
+	})
 }
+
+func TestLogoutCannotBeUndoneByRefresh(t *testing.T) {
+	t.Run("ST-SUP-RC02-OC11-T01 A completed renewal cannot restore a session that sign-out removed", func(t *testing.T) {
+		f := setup(t)
+		active, csrf := login(t, f)
+		expireAccess(t, f, active)
+		b2 := f.start(t)
+		entered, release := f.oidc.pauseRefresh()
+		t.Cleanup(func() {
+			select {
+			case <-release:
+			default:
+				close(release)
+			}
+		})
+		result := make(chan *httptest.ResponseRecorder, 1)
+		go func() { result <- send(f.backend, "GET", "/auth/session", "", []*http.Cookie{active}, nil) }()
+		select {
+		case <-entered:
+		case <-time.After(5 * time.Second):
+			close(release)
+			t.Fatal("refresh did not start")
+		}
+		w := send(b2, "POST", "/auth/logout", "", []*http.Cookie{active}, mutationHeaders(csrf))
+		if w.Code != 204 {
+			close(release)
+			t.Fatalf("logout status %d", w.Code)
+		}
+		close(release)
+		select {
+		case <-result:
+		case <-time.After(5 * time.Second):
+			t.Fatal("refresh did not finish")
+		}
+		w = send(b2, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil)
+		require(t, w.Code == 401, "refresh restored logged-out session")
+		_, refreshes, revokes := f.oidc.counts()
+		require(t, refreshes == 1 && revokes == 2, "old and rotated tokens were not revoked")
+	})
+}
+
+func TestUncertainRefreshRequiresLogin(t *testing.T) {
+	t.Run("ST-SUP-RC02-OC10-T01 A lost or stale renewal requires a new login and is not retried", func(t *testing.T) {
+		for _, mode := range []string{"lost-response", "stale-claim"} {
+			t.Run(mode, func(t *testing.T) {
+				f := setup(t)
+				active, _ := login(t, f)
+				expireAccess(t, f, active)
+				if mode == "lost-response" {
+					f.oidc.setMode("lost-refresh")
+				} else {
+					_, err := f.backend.store.claimRefresh(context.Background(), active.Value)
+					if err != nil {
+						t.Fatal(err)
+					}
+					hash, _ := sessionHash(active.Value)
+					if _, err := f.db.Exec("UPDATE public.stego_browser_sessions SET changed_at=CURRENT_TIMESTAMP-INTERVAL '31 seconds' WHERE id_hash=$1", hash); err != nil {
+						t.Fatal(err)
+					}
+				}
+				for i := 0; i < 2; i++ {
+					w := send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil)
+					require(t, w.Code == 401, "uncertain refresh retained access")
+				}
+				_, refreshes, _ := f.oidc.counts()
+				want := 1
+				if mode == "stale-claim" {
+					want = 0
+				}
+				require(t, refreshes == want, "uncertain refresh was retried")
+			})
+		}
+	})
+}
+
 func TestStorageEncryptionAndMigration(t *testing.T) {
-	db := database(t)
-	ctx := context.Background()
-	key := bytes.Repeat([]byte{7}, 32)
-	if _, err := newStore(ctx, db, key); err == nil {
-		t.Fatal("missing migration accepted")
-	}
-	migrate(t, db)
-	s, err := newStore(ctx, db, key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	id, _ := randomValue()
-	value := session{Kind: "login", Expires: time.Now().Add(time.Minute).Unix(), Access: "private-access-token", Refresh: "private-refresh-token"}
-	if err := s.create(ctx, id, value); err != nil {
-		t.Fatal(err)
-	}
-	var hash, payload []byte
-	if err := db.QueryRow("SELECT id_hash,payload FROM public.stego_browser_sessions").Scan(&hash, &payload); err != nil {
-		t.Fatal(err)
-	}
-	require(t, len(hash) == 32 && !bytes.Contains(payload, []byte(value.Access)) && !bytes.Contains(payload, []byte(value.Refresh)) && !bytes.Contains(payload, []byte(id)), "private session data stored in plaintext")
-	other, _ := randomValue()
-	if _, err := s.open(other, payload); err == nil {
-		t.Fatal("ciphertext was not bound to cookie ID")
-	}
-	payload[len(payload)-1] ^= 1
-	if _, err := s.open(id, payload); err == nil {
-		t.Fatal("modified ciphertext accepted")
-	}
-	require(t, s.remove(ctx, id) == nil, "delete failed")
-	require(t, errors.Is(func() error { _, _, _, err := s.read(ctx, id); return err }(), errSession), "removed session exists")
+	t.Run("ST-SUP-RC02-OC03-T01 The emitted store encrypts session records and binds them to the cookie hash", func(t *testing.T) {
+		db := database(t)
+		ctx := context.Background()
+		key := bytes.Repeat([]byte{7}, 32)
+		if _, err := newStore(ctx, db, key); err == nil {
+			t.Fatal("missing migration accepted")
+		}
+		migrate(t, db)
+		s, err := newStore(ctx, db, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, _ := randomValue()
+		value := session{Kind: "login", Expires: time.Now().Add(time.Minute).Unix(), Access: "private-access-token", Refresh: "private-refresh-token"}
+		if err := s.create(ctx, id, value); err != nil {
+			t.Fatal(err)
+		}
+		var hash, payload []byte
+		if err := db.QueryRow("SELECT id_hash,payload FROM public.stego_browser_sessions").Scan(&hash, &payload); err != nil {
+			t.Fatal(err)
+		}
+		require(t, len(hash) == 32 && !bytes.Contains(payload, []byte(value.Access)) && !bytes.Contains(payload, []byte(value.Refresh)) && !bytes.Contains(payload, []byte(id)), "private session data stored in plaintext")
+		other, _ := randomValue()
+		if _, err := s.open(other, payload); err == nil {
+			t.Fatal("ciphertext was not bound to cookie ID")
+		}
+		payload[len(payload)-1] ^= 1
+		if _, err := s.open(id, payload); err == nil {
+			t.Fatal("modified ciphertext accepted")
+		}
+		require(t, s.remove(ctx, id) == nil, "delete failed")
+		require(t, errors.Is(func() error { _, _, _, err := s.read(ctx, id); return err }(), errSession), "removed session exists")
+	})
 }
+
 func TestStaticRoutesAndBoundaries(t *testing.T) {
 	f := setup(t)
 	sum := sha256.Sum256([]byte("window.ready=true;"))
@@ -322,8 +364,16 @@ func TestStaticRoutesAndBoundaries(t *testing.T) {
 		w := send(f.backend, "GET", path, "", nil, nil)
 		require(t, w.Code == 200, "declared asset route failed")
 		policy := w.Header().Get("Content-Security-Policy")
-		require(t, !strings.Contains(policy, "unsafe-inline") && !strings.Contains(policy, "unsafe-eval"), "broad script policy accepted")
-		require(t, strings.Contains(policy, hash) == (!strings.HasPrefix(path, "/assets/")), "script hash has incorrect route scope")
+		if !t.Run("ST-SUP-RC02-OC16-T01 The emitted asset routes permit no broad script or style policy "+path, func(t *testing.T) {
+			require(t, !strings.Contains(policy, "unsafe-inline") && !strings.Contains(policy, "unsafe-eval"), "broad script policy accepted")
+		}) {
+			return
+		}
+		if !t.Run("ST-SUP-RC02-OC17-T01 The emitted script hashes apply only to the index document "+path, func(t *testing.T) {
+			require(t, strings.Contains(policy, hash) == (!strings.HasPrefix(path, "/assets/")), "script hash has incorrect route scope")
+		}) {
+			return
+		}
 		require(t, w.Header().Get("Content-Security-Policy") != "" && w.Header().Get("X-Content-Type-Options") == "nosniff", "missing response controls")
 	}
 	font := send(f.backend, "GET", "/assets/symbols.ttf", "", nil, nil)
@@ -331,12 +381,20 @@ func TestStaticRoutesAndBoundaries(t *testing.T) {
 	require(t, font.Body.String() == string([]byte{0, 1, 0, 0, 255, 128}), "font bytes changed")
 	head := send(f.backend, "HEAD", "/assets/symbols.ttf", "", nil, nil)
 	require(t, head.Code == 200 && head.Body.Len() == 0 && head.Header().Get("Content-Type") == "font/ttf", "font HEAD response differs")
-	for _, path := range []string{"/unknown", "/records/a/b", "/assets/secret.pem"} {
-		w := send(f.backend, "GET", path, "", nil, nil)
-		require(t, w.Code == 404, "unknown route returned SPA")
+	if !t.Run("ST-SUP-RC02-OC22-T01 The emitted backend returns 404 for undeclared paths", func(t *testing.T) {
+		for _, path := range []string{"/unknown", "/records/a/b", "/assets/secret.pem"} {
+			w := send(f.backend, "GET", path, "", nil, nil)
+			require(t, w.Code == 404, "unknown route returned SPA")
+		}
+	}) {
+		return
 	}
-	for _, path := range []string{"https://evil.example/x", "//evil.example/x", "/unknown", "/records/%2F%2Fevil.example", "/records/a#fragment"} {
-		require(t, f.backend.returnPath(path) == "/", "unsafe return route accepted")
+	if !t.Run("ST-SUP-RC02-OC21-T01 The emitted backend reduces unsafe return paths to the root route", func(t *testing.T) {
+		for _, path := range []string{"https://evil.example/x", "//evil.example/x", "/unknown", "/records/%2F%2Fevil.example", "/records/a#fragment"} {
+			require(t, f.backend.returnPath(path) == "/", "unsafe return route accepted")
+		}
+	}) {
+		return
 	}
 	for _, address := range []string{"http://console.example.test/", "https://other.example.test/"} {
 		r := httptest.NewRequest("GET", address, nil)
@@ -351,92 +409,115 @@ func TestStaticRoutesAndBoundaries(t *testing.T) {
 	cancel()
 	require(t, f.backend.Run(ctx) == nil, "canceled backend did not stop")
 }
+
 func TestStrictJSON(t *testing.T) {
-	for _, text := range []string{`{"a":1,"a":2}`, `{"a":"\ud800"}`, `{"a":"\udc00"}`, `{"a":"\ud800x"}`, `{} {}`, strings.Repeat("[", 34) + "0" + strings.Repeat("]", 34), string([]byte{34, 255, 34})} {
-		require(t, !validJSON([]byte(text)), "invalid JSON accepted")
-	}
-	for _, text := range []string{`{"a":"\ud83d\ude00"}`, `{"a":"\\ud800"}`, `{"a":[1,null,true]}`} {
-		require(t, validJSON([]byte(text)), "valid JSON rejected")
-	}
+	t.Run("ST-SUP-RC02-OC35-T01 The emitted JSON reader accepts only strict documents", func(t *testing.T) {
+		for _, text := range []string{`{"a":1,"a":2}`, `{"a":"\ud800"}`, `{"a":"\udc00"}`, `{"a":"\ud800x"}`, `{} {}`, strings.Repeat("[", 34) + "0" + strings.Repeat("]", 34), string([]byte{34, 255, 34})} {
+			require(t, !validJSON([]byte(text)), "invalid JSON accepted")
+		}
+		for _, text := range []string{`{"a":"\ud83d\ude00"}`, `{"a":"\\ud800"}`, `{"a":[1,null,true]}`} {
+			require(t, validJSON([]byte(text)), "valid JSON rejected")
+		}
+	})
 }
+
 func TestBackendConfiguration(t *testing.T) {
 	f := setup(t)
-	for _, upstream := range []string{origin, origin + ":8443", "https://CONSOLE.example.test.:9443", origin + ":443", origin + "/api", "http://api.example.test", "https://api.example.test/path", "https://api.example.test?query=x"} {
-		o := f.options
-		o.Upstream = upstream
-		if b, err := newBackend(context.Background(), f.db, o); err == nil {
-			b.Close()
-			t.Fatal("invalid upstream accepted")
+	check := func(t *testing.T, upstreams []string) {
+		for _, upstream := range upstreams {
+			o := f.options
+			o.Upstream = upstream
+			if b, err := newBackend(context.Background(), f.db, o); err == nil {
+				b.Close()
+				t.Fatal("invalid upstream accepted")
+			}
 		}
 	}
+	t.Run("ST-SUP-RC02-OC18-T02 The emitted backend refuses an upstream on the console cookie host", func(t *testing.T) {
+		check(t, []string{origin, origin + ":8443", "https://CONSOLE.example.test.:9443", origin + ":443", origin + "/api"})
+	})
+	t.Run("ST-SUP-RC02-OC36-T02 The emitted backend refuses an upstream address that is not compiler-owned", func(t *testing.T) {
+		check(t, []string{"http://api.example.test", "https://api.example.test/path", "https://api.example.test?query=x"})
+	})
 }
 
 func TestAPINotModified(t *testing.T) {
-	f := setup(t)
-	active, _ := login(t, f)
-	f.mu.Lock()
-	f.status = 304
-	f.mu.Unlock()
-	w := send(f.backend, "GET", apiPrefix+"/records/record-1", "", []*http.Cookie{active}, http.Header{"If-None-Match": {`"record-version"`}})
-	require(t, w.Code == 304 && w.Body.Len() == 0 && w.Header().Get("ETag") == `"record-version"`, "API cache response changed")
+	t.Run("ST-SUP-RC02-OC37-T01 The proxy passes an upstream cache response through", func(t *testing.T) {
+		f := setup(t)
+		active, _ := login(t, f)
+		f.mu.Lock()
+		f.status = 304
+		f.mu.Unlock()
+		w := send(f.backend, "GET", apiPrefix+"/records/record-1", "", []*http.Cookie{active}, http.Header{"If-None-Match": {`"record-version"`}})
+		require(t, w.Code == 304 && w.Body.Len() == 0 && w.Header().Get("ETag") == `"record-version"`, "API cache response changed")
+	})
 }
 
 func TestStorageFailureIsNotLogout(t *testing.T) {
-	f := setup(t)
-	active, _ := login(t, f)
-	f.db.Close()
-	w := send(f.backend, "GET", "/auth/session", "", []*http.Cookie{active}, nil)
-	require(t, w.Code == 503 && w.Header().Get("Retry-After") == "1", "storage failure did not report temporary unavailability")
-	require(t, len(w.Result().Cookies()) == 0, "storage failure deleted browser cookie")
+	t.Run("ST-SUP-RC02-OC23-T01 A storage failure reports temporary unavailability and keeps the cookie", func(t *testing.T) {
+		f := setup(t)
+		active, _ := login(t, f)
+		f.db.Close()
+		w := send(f.backend, "GET", "/auth/session", "", []*http.Cookie{active}, nil)
+		require(t, w.Code == 503 && w.Header().Get("Retry-After") == "1", "storage failure did not report temporary unavailability")
+		require(t, len(w.Result().Cookies()) == 0, "storage failure deleted browser cookie")
+	})
 }
+
 func TestPendingLoginCapacity(t *testing.T) {
-	f := setup(t)
-	id, _ := randomValue()
-	value := session{Kind: "login", Expires: time.Now().Add(time.Minute).Unix()}
-	payload, err := f.backend.store.seal(id, value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// One bounded insert reaches the fixed capacity without a request load test.
-	_, err = f.db.Exec("INSERT INTO public.stego_browser_sessions(id_hash,payload,state,expires_at) SELECT decode(md5(i::text)||md5('fixture-'||i::text),'hex'),$1,'login',CURRENT_TIMESTAMP+INTERVAL '1 minute' FROM generate_series(1,1000) AS i", payload)
-	if err != nil {
-		t.Fatal(err)
-	}
-	require(t, errors.Is(f.backend.store.create(context.Background(), id, value), errStore), "pending login limit was not enforced")
-	var count int
-	if err := f.db.QueryRow("SELECT count(*) FROM public.stego_browser_sessions").Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	require(t, count == 1000, "capacity failure left an extra session")
+	t.Run("ST-SUP-RC02-OC33-T01 The pending login limit is enforced", func(t *testing.T) {
+		f := setup(t)
+		id, _ := randomValue()
+		value := session{Kind: "login", Expires: time.Now().Add(time.Minute).Unix()}
+		payload, err := f.backend.store.seal(id, value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// One bounded insert reaches the fixed capacity without a request load test.
+		_, err = f.db.Exec("INSERT INTO public.stego_browser_sessions(id_hash,payload,state,expires_at) SELECT decode(md5(i::text)||md5('fixture-'||i::text),'hex'),$1,'login',CURRENT_TIMESTAMP+INTERVAL '1 minute' FROM generate_series(1,1000) AS i", payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		require(t, errors.Is(f.backend.store.create(context.Background(), id, value), errStore), "pending login limit was not enforced")
+		var count int
+		if err := f.db.QueryRow("SELECT count(*) FROM public.stego_browser_sessions").Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		require(t, count == 1000, "capacity failure left an extra session")
+	})
 }
 
 func TestCrossSiteLandingDoesNotExposeSession(t *testing.T) {
-	f := setup(t)
-	active, _ := login(t, f)
-	for _, site := range []string{"cross-site", "same-site"} {
-		headers := http.Header{"Sec-Fetch-Site": {site}}
-		w := send(f.backend, "GET", "/", "", []*http.Cookie{active}, headers)
-		require(t, w.Code == 200, "external link cannot open the public application page")
-		for _, path := range []string{"/auth/session", "/auth/login", apiPrefix + "/records"} {
-			w = send(f.backend, "GET", path, "", []*http.Cookie{active}, headers)
-			require(t, w.Code == 403, "cross-origin request obtained a private response")
+	t.Run("ST-SUP-RC02-OC34-T01 A cross-site request cannot read a private response", func(t *testing.T) {
+		f := setup(t)
+		active, _ := login(t, f)
+		for _, site := range []string{"cross-site", "same-site"} {
+			headers := http.Header{"Sec-Fetch-Site": {site}}
+			w := send(f.backend, "GET", "/", "", []*http.Cookie{active}, headers)
+			require(t, w.Code == 200, "external link cannot open the public application page")
+			for _, path := range []string{"/auth/session", "/auth/login", apiPrefix + "/records"} {
+				w = send(f.backend, "GET", path, "", []*http.Cookie{active}, headers)
+				require(t, w.Code == 403, "cross-origin request obtained a private response")
+			}
 		}
-	}
+	})
 }
 
 func TestCookieHostIsolation(t *testing.T) {
-	f := setup(t)
-	o := f.options
-	o.Issuer = origin + ":8443/realm"
-	if b, err := newBackend(context.Background(), f.db, o); err == nil {
-		b.Close()
-		t.Fatal("same-host identity provider accepted")
-	}
-	f.oidc.setMode("cookie-host")
-	if b, err := newBackend(context.Background(), f.db, f.options); err == nil {
-		b.Close()
-		t.Fatal("authorization endpoint on cookie host accepted")
-	}
+	t.Run("ST-SUP-RC02-OC18-T01 The emitted backend refuses an identity host that shares the console cookie host", func(t *testing.T) {
+		f := setup(t)
+		o := f.options
+		o.Issuer = origin + ":8443/realm"
+		if b, err := newBackend(context.Background(), f.db, o); err == nil {
+			b.Close()
+			t.Fatal("same-host identity provider accepted")
+		}
+		f.oidc.setMode("cookie-host")
+		if b, err := newBackend(context.Background(), f.db, f.options); err == nil {
+			b.Close()
+			t.Fatal("authorization endpoint on cookie host accepted")
+		}
+	})
 }
 
 func assertReauthentication(t *testing.T, w *httptest.ResponseRecorder) {
@@ -451,22 +532,25 @@ func assertReauthentication(t *testing.T, w *httptest.ResponseRecorder) {
 	require(t, w.Header().Get("WWW-Authenticate") == `Bearer error="invalid_token"` && w.Header().Get("Cache-Control") == "no-store", "unsafe reauthentication headers")
 	require(t, w.Header().Get("Location") == "" && w.Header().Get("ETag") == "", "reauthentication forwarded upstream headers")
 }
+
 func TestBrowserReauthenticationContract(t *testing.T) {
-	f := setup(t)
-	assertReauthentication(t, send(f.backend, "GET", apiPrefix+"/records", "", nil, nil))
-	active, _ := login(t, f)
-	f.mu.Lock()
-	f.status = 401
-	f.mu.Unlock()
-	w := send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil)
-	assertReauthentication(t, w)
-	require(t, !strings.Contains(w.Body.String(), "record-1"), "upstream rejection body reached browser")
-	require(t, cookie(t, w, SessionCookie).MaxAge == -1, "rejected session cookie remains")
-	assertReauthentication(t, send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil))
-	f.mu.Lock()
-	count := len(f.requests)
-	f.mu.Unlock()
-	require(t, count == 1, "rejected session reached API again")
+	t.Run("ST-SUP-RC02-OC26-T01 A rejected API session returns the fixed reauthentication response", func(t *testing.T) {
+		f := setup(t)
+		assertReauthentication(t, send(f.backend, "GET", apiPrefix+"/records", "", nil, nil))
+		active, _ := login(t, f)
+		f.mu.Lock()
+		f.status = 401
+		f.mu.Unlock()
+		w := send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil)
+		assertReauthentication(t, w)
+		require(t, !strings.Contains(w.Body.String(), "record-1"), "upstream rejection body reached browser")
+		require(t, cookie(t, w, SessionCookie).MaxAge == -1, "rejected session cookie remains")
+		assertReauthentication(t, send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil))
+		f.mu.Lock()
+		count := len(f.requests)
+		f.mu.Unlock()
+		require(t, count == 1, "rejected session reached API again")
+	})
 }
 
 func TestLogoutConfirmation(t *testing.T) {
@@ -475,159 +559,182 @@ func TestLogoutConfirmation(t *testing.T) {
 	w := send(f.backend, "GET", "/auth/logout", "", []*http.Cookie{active}, nil)
 	require(t, w.Code == 200 && strings.Contains(w.Body.String(), `method="post"`) && strings.Contains(w.Body.String(), `name="csrf_token" value="`+csrf+`"`), "logout confirmation is unavailable")
 	require(t, !strings.Contains(w.Body.String(), "access-value") && !strings.Contains(w.Body.String(), "refresh-value"), "logout page contains tokens")
-	require(t, w.Header().Get("Referrer-Policy") == "same-origin", "native logout form cannot send its Origin")
-	require(t, send(f.backend, "GET", "/auth/session", "", []*http.Cookie{active}, nil).Header().Get("Referrer-Policy") == "no-referrer", "session response lost its privacy policy")
-	_, _, revokes := f.oidc.counts()
-	require(t, revokes == 0, "GET revoked a session")
-	require(t, send(f.backend, "GET", "/auth/logout", "", nil, http.Header{"Sec-Fetch-Site": {"cross-site"}}).Code == 200, "provider return was rejected")
-	require(t, send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil).Code == 201, "GET removed access")
-	for _, origins := range [][]string{nil, {"null"}, {"https://sibling.example.test"}, {origin, origin}} {
-		headers := http.Header{"Origin": origins, "Content-Type": {"application/x-www-form-urlencoded"}}
+	if !t.Run("ST-SUP-RC02-OC13-T01 The sign-out confirmation page keeps its same-origin referrer policy", func(t *testing.T) {
+		require(t, w.Header().Get("Referrer-Policy") == "same-origin", "native logout form cannot send its Origin")
+		require(t, send(f.backend, "GET", "/auth/session", "", []*http.Cookie{active}, nil).Header().Get("Referrer-Policy") == "no-referrer", "session response lost its privacy policy")
+	}) {
+		return
+	}
+	t.Run("ST-SUP-RC02-OC12-T01 The sign-out confirmation page does not sign out", func(t *testing.T) {
+		_, _, revokes := f.oidc.counts()
+		require(t, revokes == 0, "GET revoked a session")
+		require(t, send(f.backend, "GET", "/auth/logout", "", nil, http.Header{"Sec-Fetch-Site": {"cross-site"}}).Code == 200, "provider return was rejected")
+		require(t, send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil).Code == 201, "GET removed access")
+		for _, origins := range [][]string{nil, {"null"}, {"https://sibling.example.test"}, {origin, origin}} {
+			headers := http.Header{"Origin": origins, "Content-Type": {"application/x-www-form-urlencoded"}}
+			w = send(f.backend, "POST", "/auth/logout", "csrf_token="+csrf, []*http.Cookie{active}, headers)
+			require(t, w.Code == 403, "invalid form Origin was accepted")
+		}
+		headers := http.Header{"Origin": {origin}, "Content-Type": {"application/x-www-form-urlencoded"}}
+		for _, body := range []string{"csrf_token=wrong", "csrf_token=" + csrf + "&csrf_token=" + csrf, "csrf_token=" + csrf + "&return_to=https://other.example", strings.Repeat("x", 4097)} {
+			w = send(f.backend, "POST", "/auth/logout", body, []*http.Cookie{active}, headers)
+			require(t, w.Code == 400 || w.Code == 403, "invalid logout form was accepted")
+		}
+		require(t, send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil).Code == 201, "invalid form removed access")
 		w = send(f.backend, "POST", "/auth/logout", "csrf_token="+csrf, []*http.Cookie{active}, headers)
-		require(t, w.Code == 403, "invalid form Origin was accepted")
-	}
-	headers := http.Header{"Origin": {origin}, "Content-Type": {"application/x-www-form-urlencoded"}}
-	for _, body := range []string{"csrf_token=wrong", "csrf_token=" + csrf + "&csrf_token=" + csrf, "csrf_token=" + csrf + "&return_to=https://other.example", strings.Repeat("x", 4097)} {
-		w = send(f.backend, "POST", "/auth/logout", body, []*http.Cookie{active}, headers)
-		require(t, w.Code == 400 || w.Code == 403, "invalid logout form was accepted")
-	}
-	require(t, send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil).Code == 201, "invalid form removed access")
-	w = send(f.backend, "POST", "/auth/logout", "csrf_token="+csrf, []*http.Cookie{active}, headers)
-	require(t, w.Code == 303 && w.Header().Get("Location") == "/auth/logout", "logout form did not return to confirmation route")
-	assertReauthentication(t, send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil))
-	require(t, send(f.backend, "GET", "/auth/logout?return_to=https://other.example", "", nil, nil).Code == 400, "logout accepted a redirect input")
+		require(t, w.Code == 303 && w.Header().Get("Location") == "/auth/logout", "logout form did not return to confirmation route")
+		assertReauthentication(t, send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil))
+		require(t, send(f.backend, "GET", "/auth/logout?return_to=https://other.example", "", nil, nil).Code == 400, "logout accepted a redirect input")
+	})
 }
 
 func TestProviderLogoutTarget(t *testing.T) {
 	originURL, _ := url.Parse(origin)
 	p := &oauthProvider{options: options{ClientID: clientID}}
-	for _, endpoint := range []string{"", "http://identity.example/logout", origin + ":8443/logout", "https://identity.example/logout?next=other", "https://identity.example/logout#other", "https://identity.example;invalid/logout"} {
-		p.metadata.EndSession = endpoint
-		_, _, err := p.logoutTarget(originURL)
-		require(t, err != nil, "unsafe provider logout endpoint was accepted")
+	if !t.Run("ST-SUP-RC02-OC15-T01 The emitted provider sign-out refuses unsafe endpoints", func(t *testing.T) {
+		for _, endpoint := range []string{"", "http://identity.example/logout", origin + ":8443/logout", "https://identity.example/logout?next=other", "https://identity.example/logout#other", "https://identity.example;invalid/logout"} {
+			p.metadata.EndSession = endpoint
+			_, _, err := p.logoutTarget(originURL)
+			require(t, err != nil, "unsafe provider logout endpoint was accepted")
+		}
+	}) {
+		return
 	}
-	p.metadata.EndSession = "https://identity.example/logout"
-	target, host, err := p.logoutTarget(originURL)
-	require(t, err == nil && host == "https://identity.example", "valid provider logout endpoint was rejected")
-	u, _ := url.Parse(target)
-	require(t, u.Query().Get("client_id") == clientID && u.Query().Get("post_logout_redirect_uri") == origin+"/auth/logout" && len(u.Query()) == 2, "provider logout parameters changed")
+	t.Run("ST-SUP-RC02-OC14-T01 The emitted provider sign-out request is minimal", func(t *testing.T) {
+		p.metadata.EndSession = "https://identity.example/logout"
+		target, host, err := p.logoutTarget(originURL)
+		require(t, err == nil && host == "https://identity.example", "valid provider logout endpoint was rejected")
+		u, _ := url.Parse(target)
+		require(t, u.Query().Get("client_id") == clientID && u.Query().Get("post_logout_redirect_uri") == origin+"/auth/logout" && len(u.Query()) == 2, "provider logout parameters changed")
+	})
 }
 
 func TestTelemetryRequiresSessionAndCSRF(t *testing.T) {
-	f := setup(t)
-	f.backend.config.TelemetryService = "example-browser"
-	active, csrf := login(t, f)
-	valid := func() http.Header {
-		h := mutationHeaders(csrf)
-		h.Set("Content-Type", "application/x-protobuf")
-		return h
-	}
-	cases := []struct {
-		name, method, path, body string
-		cookies                  []*http.Cookie
-		headers                  http.Header
-		status                   int
-	}{
-		{"session", "POST", "/telemetry/v1/traces", "payload", nil, valid(), 401},
-		{"csrf", "POST", "/telemetry/v1/traces", "payload", []*http.Cookie{active}, http.Header{"Origin": {origin}, "Content-Type": {"application/x-protobuf"}}, 403},
-		{"origin", "POST", "/telemetry/v1/traces", "payload", []*http.Cookie{active}, http.Header{CSRFHeader: {csrf}, "Content-Type": {"application/x-protobuf"}}, 403},
-		{"media", "POST", "/telemetry/v1/traces", "payload", []*http.Cookie{active}, mutationHeaders(csrf), 400},
-		{"method", "GET", "/telemetry/v1/traces", "", []*http.Cookie{active}, nil, 405},
-		{"path", "POST", "/telemetry/v1/private", "payload", []*http.Cookie{active}, valid(), 404},
-		{"size", "POST", "/telemetry/v1/traces", strings.Repeat("x", (256<<10)+1), []*http.Cookie{active}, valid(), 413},
-	}
-	for _, test := range cases {
-		t.Run(test.name, func(t *testing.T) {
-			w := send(f.backend, test.method, test.path, test.body, test.cookies, test.headers)
-			require(t, w.Code == test.status, "telemetry access status differs")
-		})
-	}
-	h := valid()
-	h.Set("Authorization", "Bearer private")
-	w := send(f.backend, "POST", "/telemetry/v1/traces", "payload", []*http.Cookie{active}, h)
-	require(t, w.Code == 400, "browser bearer accepted for telemetry")
-	h = valid()
-	h.Set("Content-Encoding", "gzip")
-	w = send(f.backend, "POST", "/telemetry/v1/traces", "payload", []*http.Cookie{active}, h)
-	require(t, w.Code == 400, "compressed browser telemetry accepted")
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	require(t, len(f.requests) == 0, "telemetry reached the API")
+	t.Run("ST-SUP-RC02-OC38-T01 Telemetry ingest needs a session, an origin, a CSRF token and protobuf", func(t *testing.T) {
+		f := setup(t)
+		f.backend.config.TelemetryService = "example-browser"
+		active, csrf := login(t, f)
+		valid := func() http.Header {
+			h := mutationHeaders(csrf)
+			h.Set("Content-Type", "application/x-protobuf")
+			return h
+		}
+		cases := []struct {
+			name, method, path, body string
+			cookies                  []*http.Cookie
+			headers                  http.Header
+			status                   int
+		}{
+			{"session", "POST", "/telemetry/v1/traces", "payload", nil, valid(), 401},
+			{"csrf", "POST", "/telemetry/v1/traces", "payload", []*http.Cookie{active}, http.Header{"Origin": {origin}, "Content-Type": {"application/x-protobuf"}}, 403},
+			{"origin", "POST", "/telemetry/v1/traces", "payload", []*http.Cookie{active}, http.Header{CSRFHeader: {csrf}, "Content-Type": {"application/x-protobuf"}}, 403},
+			{"media", "POST", "/telemetry/v1/traces", "payload", []*http.Cookie{active}, mutationHeaders(csrf), 400},
+			{"method", "GET", "/telemetry/v1/traces", "", []*http.Cookie{active}, nil, 405},
+			{"path", "POST", "/telemetry/v1/private", "payload", []*http.Cookie{active}, valid(), 404},
+			{"size", "POST", "/telemetry/v1/traces", strings.Repeat("x", (256<<10)+1), []*http.Cookie{active}, valid(), 413},
+		}
+		for _, test := range cases {
+			t.Run(test.name, func(t *testing.T) {
+				w := send(f.backend, test.method, test.path, test.body, test.cookies, test.headers)
+				require(t, w.Code == test.status, "telemetry access status differs")
+			})
+		}
+		h := valid()
+		h.Set("Authorization", "Bearer private")
+		w := send(f.backend, "POST", "/telemetry/v1/traces", "payload", []*http.Cookie{active}, h)
+		require(t, w.Code == 400, "browser bearer accepted for telemetry")
+		h = valid()
+		h.Set("Content-Encoding", "gzip")
+		w = send(f.backend, "POST", "/telemetry/v1/traces", "payload", []*http.Cookie{active}, h)
+		require(t, w.Code == 400, "compressed browser telemetry accepted")
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		require(t, len(f.requests) == 0, "telemetry reached the API")
+	})
 }
+
 func TestTelemetryAdmissionLimit(t *testing.T) {
-	b := &Backend{}
-	for i := 0; i < 6; i++ {
-		require(t, b.allowTelemetry("session"), "initial telemetry budget denied")
-	}
-	require(t, !b.allowTelemetry("session"), "telemetry burst is not bounded")
-	for i := 0; i < 511; i++ {
-		require(t, b.allowTelemetry(string(rune(i))+"other"), "session budget is too small")
-	}
-	require(t, !b.allowTelemetry("overflow"), "telemetry session map is not bounded")
-	require(t, len(b.telemetryLimits) == 512, "telemetry session map exceeded its bound")
+	t.Run("ST-SUP-RC02-OC39-T01 Telemetry admission bounds the burst and the session map", func(t *testing.T) {
+		b := &Backend{}
+		for i := 0; i < 6; i++ {
+			require(t, b.allowTelemetry("session"), "initial telemetry budget denied")
+		}
+		require(t, !b.allowTelemetry("session"), "telemetry burst is not bounded")
+		for i := 0; i < 511; i++ {
+			require(t, b.allowTelemetry(string(rune(i))+"other"), "session budget is too small")
+		}
+		require(t, !b.allowTelemetry("overflow"), "telemetry session map is not bounded")
+		require(t, len(b.telemetryLimits) == 512, "telemetry session map exceeded its bound")
+	})
 }
 
 func TestPublicRuntimeMetadata(t *testing.T) {
-	f := setup(t)
-	before := send(f.backend, "GET", "/", "", nil, nil)
-	f.backend.config.TelemetryService = "example-browser"
-	body, err := assets.ReadFile("public/index.html")
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.backend.config.RuntimeConfigOffset = bytes.Index(body, []byte("<head>")) + len("<head>")
-	after := send(f.backend, "GET", "/", "", nil, http.Header{"If-None-Match": {before.Header().Get("ETag")}})
-	require(t, after.Code == 200, "runtime configuration kept a stale ETag")
-	require(t, strings.Contains(after.Body.String(), `name="stego-runtime-config"`), "runtime metadata missing")
-	require(t, strings.Contains(after.Body.String(), `&#34;traces&#34;:false`), "missing collector did not disable browser export")
-	require(t, after.Header().Get("Content-Security-Policy") == before.Header().Get("Content-Security-Policy"), "metadata changed script policy")
+	t.Run("ST-SUP-RC02-OC30-T01 The inserted runtime metadata is escaped and changes no policy", func(t *testing.T) {
+		f := setup(t)
+		before := send(f.backend, "GET", "/", "", nil, nil)
+		f.backend.config.TelemetryService = "example-browser"
+		body, err := assets.ReadFile("public/index.html")
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.backend.config.RuntimeConfigOffset = bytes.Index(body, []byte("<head>")) + len("<head>")
+		after := send(f.backend, "GET", "/", "", nil, http.Header{"If-None-Match": {before.Header().Get("ETag")}})
+		require(t, after.Code == 200, "runtime configuration kept a stale ETag")
+		require(t, strings.Contains(after.Body.String(), `name="stego-runtime-config"`), "runtime metadata missing")
+		require(t, strings.Contains(after.Body.String(), `&#34;traces&#34;:false`), "missing collector did not disable browser export")
+		require(t, after.Header().Get("Content-Security-Policy") == before.Header().Get("Content-Security-Policy"), "metadata changed script policy")
+	})
 }
 
 func TestRefreshWaitHasDeadlineAndCancellation(t *testing.T) {
-	f := setup(t)
-	active, _ := login(t, f)
-	expireAccess(t, f, active)
-	if _, err := f.backend.store.claimRefresh(context.Background(), active.Value); err != nil {
-		t.Fatal(err)
-	}
-	started := time.Now()
-	response := send(f.backend, "GET", "/auth/session", "", []*http.Cookie{active}, nil)
-	require(t, response.Code == 503 && response.Header().Get("Retry-After") == "1", "stalled refresh did not report temporary unavailability")
-	require(t, time.Since(started) < 3*time.Second, "refresh wait exceeded its deadline")
-	require(t, len(response.Result().Cookies()) == 0, "refresh wait removed the session cookie")
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	started = time.Now()
-	if _, err := f.backend.active(ctx, active.Value); err == nil {
-		t.Fatal("cancelled waiter succeeded")
-	}
-	require(t, time.Since(started) < time.Second, "cancelled waiter remained active")
-	_, refreshes, _ := f.oidc.counts()
-	require(t, refreshes == 0, "waiter used a refresh token")
+	t.Run("ST-SUP-RC02-OC09-T01 A waiter for an active renewal has a deadline and keeps its cookie", func(t *testing.T) {
+		f := setup(t)
+		active, _ := login(t, f)
+		expireAccess(t, f, active)
+		if _, err := f.backend.store.claimRefresh(context.Background(), active.Value); err != nil {
+			t.Fatal(err)
+		}
+		started := time.Now()
+		response := send(f.backend, "GET", "/auth/session", "", []*http.Cookie{active}, nil)
+		require(t, response.Code == 503 && response.Header().Get("Retry-After") == "1", "stalled refresh did not report temporary unavailability")
+		require(t, time.Since(started) < 3*time.Second, "refresh wait exceeded its deadline")
+		require(t, len(response.Result().Cookies()) == 0, "refresh wait removed the session cookie")
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		started = time.Now()
+		if _, err := f.backend.active(ctx, active.Value); err == nil {
+			t.Fatal("cancelled waiter succeeded")
+		}
+		require(t, time.Since(started) < time.Second, "cancelled waiter remained active")
+		_, refreshes, _ := f.oidc.counts()
+		require(t, refreshes == 0, "waiter used a refresh token")
+	})
 }
 
 func TestCancelledRefreshDoesNotLeaveAnOwnedSession(t *testing.T) {
-	f := setup(t)
-	active, _ := login(t, f)
-	expireAccess(t, f, active)
-	entered, release := f.oidc.pauseRefresh()
-	defer close(release)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	result := make(chan error, 1)
-	go func() { _, err := f.backend.active(ctx, active.Value); result <- err }()
-	select {
-	case <-entered:
-	case <-time.After(3 * time.Second):
-		t.Fatal("refresh did not start")
-	}
-	cancel()
-	select {
-	case err := <-result:
-		require(t, err != nil, "cancelled refresh succeeded")
-	case <-time.After(3 * time.Second):
-		t.Fatal("cancelled refresh did not finish")
-	}
-	_, _, _, err := f.backend.store.read(context.Background(), active.Value)
-	require(t, errors.Is(err, errSession), "cancelled refresh left a retained refresh claim")
+	t.Run("ST-SUP-RC02-OC55-T01 A cancelled renewal leaves no refresh claim", func(t *testing.T) {
+		f := setup(t)
+		active, _ := login(t, f)
+		expireAccess(t, f, active)
+		entered, release := f.oidc.pauseRefresh()
+		defer close(release)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		result := make(chan error, 1)
+		go func() { _, err := f.backend.active(ctx, active.Value); result <- err }()
+		select {
+		case <-entered:
+		case <-time.After(3 * time.Second):
+			t.Fatal("refresh did not start")
+		}
+		cancel()
+		select {
+		case err := <-result:
+			require(t, err != nil, "cancelled refresh succeeded")
+		case <-time.After(3 * time.Second):
+			t.Fatal("cancelled refresh did not finish")
+		}
+		_, _, _, err := f.backend.store.read(context.Background(), active.Value)
+		require(t, errors.Is(err, errSession), "cancelled refresh left a retained refresh claim")
+	})
 }

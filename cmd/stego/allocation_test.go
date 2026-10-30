@@ -84,7 +84,7 @@ overrides:
         network_peers:
           - {direction: egress, allocation_profile: tenant, pod_label: app, pod_value: database, port: 5432, protocol: TCP}
 `
-	input := compiler.ReconcilerInput{ProjectDir: project, RegistryDir: registry, GoVersion: "1.26.8", ModuleName: "example.com/widget", Generators: defaultGenerators()}
+	input := compiler.ReconcilerInput{ProjectDir: project, RegistryDir: registry, GoVersion: "1.26.10", ModuleName: "example.com/widget", Generators: defaultGenerators()}
 	for name, source := range map[string]string{
 		"valid":                      declaration,
 		"both selectors":             strings.Replace(declaration, "allocation_profile: tenant,", "allocation_profile: tenant, namespace: self,", 1),

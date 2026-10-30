@@ -95,7 +95,7 @@ func testGeneratedTracing(t *testing.T, pattern string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, err := httpclient.Render("web", "example.com/records/tracing")
+	client, err := httpclient.Render("web", "example.com/records/tracing", httpclient.FollowLinks)
 	if err != nil {
 		t.Fatal(err)
 	}

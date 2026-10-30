@@ -1,0 +1,158 @@
+{"id":"ST-ASR-UC01-FL01-S01","title":"CI runs the Go and Python suites with machine-readable output at the checked-out commit, and assure record reads an outcome for every automated test record","flow_id":"ST-ASR-UC01-FL01","path":"main","position":1}
+{"id":"ST-ASR-UC01-FL01-S02","title":"The provider's attestation action signs the proof run with the commit as subject and keeps it","flow_id":"ST-ASR-UC01-FL01","path":"main","position":2}
+{"id":"ST-ASR-UC01-FL01-S03","title":"An outcome names an ID the spec does not have, so assure record exits non-zero and writes nothing","flow_id":"ST-ASR-UC01-FL01","path":"refused","position":1}
+{"id":"ST-ASR-UC02-FL01-S01","title":"On a pull request, CI runs assure judge change, which measures the coverage at the change's commit and at the base head","flow_id":"ST-ASR-UC02-FL01","path":"main","position":1}
+{"id":"ST-ASR-UC02-FL01-S02","title":"assure judge change fetches the proof run attestation for the change's commit from the provider and verifies it","flow_id":"ST-ASR-UC02-FL01","path":"main","position":2}
+{"id":"ST-ASR-UC02-FL01-S03","title":"A share fell or a proof did not pass, so the verdict names each cause and the check fails","flow_id":"ST-ASR-UC02-FL01","path":"refused","position":1}
+{"id":"ST-ASR-UC03-FL01-S01","title":"The release workflow runs assure judge release at the commit to release, which measures the coverage and verifies the proof run there","flow_id":"ST-ASR-UC03-FL01","path":"main","position":1}
+{"id":"ST-ASR-UC03-FL01-S02","title":"The provider's attestation action signs the passed verdict with the commit as subject and keeps it","flow_id":"ST-ASR-UC03-FL01","path":"main","position":2}
+{"id":"ST-ASR-UC03-FL01-S03","title":"A share is below 100% or a proof did not pass, so the workflow stops and publishes no release","flow_id":"ST-ASR-UC03-FL01","path":"refused","position":1}
+{"id":"ST-ASR-UC04-FL01-S01","title":"The platform engineer runs assure ledger for a commit, and STEGO fetches and verifies the proof runs from the provider and prints each test record with its result and where it last passed","flow_id":"ST-ASR-UC04-FL01","path":"main","position":1}
+{"id":"ST-ASR-UC04-FL01-S02","title":"An attestation fails verification, so the ledger shows no result for it and says why","flow_id":"ST-ASR-UC04-FL01","path":"refused","position":1}
+{"id":"ST-BLD-UC01-FL01-S01","title":"The service author runs stego deps, and STEGO resolves the modules and writes go.mod and go.sum","flow_id":"ST-BLD-UC01-FL01","path":"main","position":1}
+{"id":"ST-BLD-UC01-FL01-S02","title":"Generated code is out of date, so stego deps refuses and names apply","flow_id":"ST-BLD-UC01-FL01","path":"stale","position":1}
+{"id":"ST-BLD-UC01-FL01-S03","title":"Resolution stops part way, and stego recover completes or rolls back the module files","flow_id":"ST-BLD-UC01-FL01","path":"interrupted","position":1}
+{"id":"ST-BLD-UC02-FL01-S01","title":"The operator runs build download for a revision, and STEGO writes the zips and the cache record","flow_id":"ST-BLD-UC02-FL01","path":"main","position":1}
+{"id":"ST-BLD-UC03-FL01-S01","title":"The operator runs stego build for a revision with its module cache, and STEGO builds twice, offline, compares, and writes the record and both SBOMs","flow_id":"ST-BLD-UC03-FL01","path":"main","position":1}
+{"id":"ST-BLD-UC03-FL01-S02","title":"A missing module, a different SDK or two different builds stop the build, and STEGO names why","flow_id":"ST-BLD-UC03-FL01","path":"refused","position":1}
+{"id":"ST-BLD-UC04-FL01-S01","title":"The operator runs build verify on an executable, and STEGO reports whether it matches the trusted record","flow_id":"ST-BLD-UC04-FL01","path":"main","position":1}
+{"id":"ST-BLD-UC04-FL01-S02","title":"The operator runs build verify-source on a source snapshot, and STEGO reports whether it matches","flow_id":"ST-BLD-UC04-FL01","path":"main","position":2}
+{"id":"ST-BLD-UC05-FL01-S01","title":"The operator runs image build from the trusted build, and STEGO writes a scratch image and its record","flow_id":"ST-BLD-UC05-FL01","path":"main","position":1}
+{"id":"ST-BLD-UC05-FL01-S02","title":"The provider's trusted signer signs the image and attaches both SBOMs","flow_id":"ST-BLD-UC05-FL01","path":"main","position":2}
+{"id":"ST-BLD-UC05-FL01-S03","title":"An untrusted build record or CA bundle stops image build","flow_id":"ST-BLD-UC05-FL01","path":"refused","position":1}
+{"id":"ST-BLD-UC06-FL01-S01","title":"The operator runs image publish, and STEGO pushes the image and reads it back","flow_id":"ST-BLD-UC06-FL01","path":"main","position":1}
+{"id":"ST-BLD-UC06-FL01-S02","title":"A consumer runs image retrieve, and STEGO checks the image, its build and its signature","flow_id":"ST-BLD-UC06-FL01","path":"main","position":2}
+{"id":"ST-DECL-UC01-FL01-S01","title":"The author names the archetype for the new service","flow_id":"ST-DECL-UC01-FL01","path":"main","position":1}
+{"id":"ST-DECL-UC01-FL01-S02","title":"STEGO writes the declaration with the archetype's smallest example content, and a folder for fills","flow_id":"ST-DECL-UC01-FL01","path":"main","position":2}
+{"id":"ST-DECL-UC01-FL01-S03","title":"An archetype the registry does not hold is refused, with the archetypes it does hold","flow_id":"ST-DECL-UC01-FL01","path":"refused","position":1}
+{"id":"ST-DECL-UC01-FL01-S04","title":"A declaration already present stops the scaffold, and no file changes","flow_id":"ST-DECL-UC01-FL01","path":"refused","position":2}
+{"id":"ST-DECL-UC01-FL01-S05","title":"Asked for an empty scaffold, STEGO leaves the example content out and names every setting the author must supply","flow_id":"ST-DECL-UC01-FL01","path":"empty","position":1}
+{"id":"ST-DECL-UC02-FL01-S01","title":"The agent names the archetype it writes for","flow_id":"ST-DECL-UC02-FL01","path":"main","position":1}
+{"id":"ST-DECL-UC02-FL01-S02","title":"STEGO reports the active component set's components, each setting with its type and allowed values, and each slot, as structured data","flow_id":"ST-DECL-UC02-FL01","path":"main","position":2}
+{"id":"ST-DECL-UC03-FL01-S01","title":"The author asks STEGO to check the declaration, and STEGO reports every fault or that there is none","flow_id":"ST-DECL-UC03-FL01","path":"main","position":1}
+{"id":"ST-DECL-UC03-FL01-S02","title":"A declaration that holds an acceptance past its date is refused, naming the component and the date","flow_id":"ST-DECL-UC03-FL01","path":"refused","position":1}
+{"id":"ST-DECL-UC04-FL01-S01","title":"The agent reads each fault: the rule it breaks, its path, what was found and what is allowed","flow_id":"ST-DECL-UC04-FL01","path":"main","position":1}
+{"id":"ST-DECL-UC04-FL01-S02","title":"The agent changes the declaration at the path each fault names","flow_id":"ST-DECL-UC04-FL01","path":"main","position":2}
+{"id":"ST-DECL-UC04-FL01-S03","title":"The agent asks STEGO to check the declaration again","flow_id":"ST-DECL-UC04-FL01","path":"main","position":3}
+{"id":"ST-DIS-UC02-FL01-S01","title":"The platform engineer names the component digest and the checkouts to search","flow_id":"ST-DIS-UC02-FL01","path":"main","position":1}
+{"id":"ST-DIS-UC02-FL01-S02","title":"STEGO reads the committed record in each checkout, and names each service that pins the digest, with its version and digest","flow_id":"ST-DIS-UC02-FL01","path":"main","position":2}
+{"id":"ST-DIS-UC02-FL01-S03","title":"A checkout with generated output and no readable record is reported as unknown","flow_id":"ST-DIS-UC02-FL01","path":"unknown","position":1}
+{"id":"ST-DIS-UC04-FL01-S01","title":"The platform engineer changes one component, and the registry publishes its new digest","flow_id":"ST-DIS-UC04-FL01","path":"main","position":1}
+{"id":"ST-DIS-UC04-FL01-S02","title":"The platform engineer records the new digest as the successor of the old one, with the fail date and whether taking it needs a declaration or fill change","flow_id":"ST-DIS-UC04-FL01","path":"main","position":2}
+{"id":"ST-DIS-UC04-FL01-S03","title":"A consumer moves that component's pin alone and runs apply in Generating, and keeps its compiler pin","flow_id":"ST-DIS-UC04-FL01","path":"main","position":3}
+{"id":"ST-DIS-UC04-FL01-S04","title":"A supersession with no successor, no fail date or no statement of the change it needs is refused","flow_id":"ST-DIS-UC04-FL01","path":"refused","position":1}
+{"id":"ST-DIS-UC04-FL01-S05","title":"The platform engineer releases a new runtime library version, moves the archetype's pin to it, and records the old version as superseded; each consumer takes it with a registry pin bump and a new run","flow_id":"ST-DIS-UC04-FL01","path":"runtime","position":1}
+{"id":"ST-DIS-UC05-FL01-S01","title":"The service author runs validate or plan","flow_id":"ST-DIS-UC05-FL01","path":"main","position":1}
+{"id":"ST-DIS-UC05-FL01-S02","title":"STEGO reports each superseded pin with its successor and fail date, and does not fail for that reason","flow_id":"ST-DIS-UC05-FL01","path":"main","position":2}
+{"id":"ST-DIS-UC05-FL01-S03","title":"Past its fail date, validate fails for the pin","flow_id":"ST-DIS-UC05-FL01","path":"expired","position":1}
+{"id":"ST-DIS-UC05-FL01-S04","title":"Past its fail date, apply in Generating refuses to write unless the author overrides the pin by name","flow_id":"ST-DIS-UC05-FL01","path":"expired","position":2}
+{"id":"ST-DIS-UC05-FL01-S05","title":"When STEGO cannot read the lifecycle records, it reports that it could not check, and does not report the pins as current","flow_id":"ST-DIS-UC05-FL01","path":"unchecked","position":1}
+{"id":"ST-DIS-UC07-FL01-S01","title":"The platform engineer asks STEGO for every recorded service that pins the digest","flow_id":"ST-DIS-UC07-FL01","path":"main","position":1}
+{"id":"ST-DIS-UC07-FL01-S02","title":"The platform engineer records the withdrawal, with the future date after which the digest fails","flow_id":"ST-DIS-UC07-FL01","path":"main","position":2}
+{"id":"ST-DIS-UC07-FL01-S03","title":"After the date, validate fails for every service that still pins the digest","flow_id":"ST-DIS-UC07-FL01","path":"main","position":3}
+{"id":"ST-DIS-UC07-FL01-S04","title":"A withdrawal whose date is already past is refused","flow_id":"ST-DIS-UC07-FL01","path":"refused","position":1}
+{"id":"ST-DIS-UC07-FL01-S05","title":"Apply in Generating refuses a new pin to a withdrawn digest at once, whatever the date of the withdrawal","flow_id":"ST-DIS-UC07-FL01","path":"new pin","position":1}
+{"id":"ST-DIS-UC08-FL01-S01","title":"The platform engineer names the commit to qualify","flow_id":"ST-DIS-UC08-FL01","path":"main","position":1}
+{"id":"ST-DIS-UC08-FL01-S02","title":"STEGO finds the checks run and the signed artifact run at exactly that commit, and requires a success conclusion for every required job","flow_id":"ST-DIS-UC08-FL01","path":"main","position":3}
+{"id":"ST-DIS-UC08-FL01-S03","title":"STEGO installs the published release through the consumer path, and cross-checks each asset digest against the qualified artifacts","flow_id":"ST-DIS-UC08-FL01","path":"main","position":4}
+{"id":"ST-DIS-UC08-FL01-S04","title":"A run from another commit, or a required job with no success conclusion, fails qualification","flow_id":"ST-DIS-UC08-FL01","path":"refused","position":1}
+{"id":"ST-DIS-UC08-FL01-S05","title":"A release tag that points at another commit fails verification","flow_id":"ST-DIS-UC08-FL01","path":"refused","position":2}
+{"id":"ST-DIS-UC08-FL01-S06","title":"STEGO fetches the release verdict attested at exactly that commit and verifies it passed","flow_id":"ST-DIS-UC08-FL01","path":"main","position":2}
+{"id":"ST-DIS-UC08-FL01-S07","title":"No passed release verdict is attested at that commit, so qualification fails","flow_id":"ST-DIS-UC08-FL01","path":"refused","position":3}
+{"id":"ST-DIS-UC09-FL01-S01","title":"The operator names the release by its full source commit","flow_id":"ST-DIS-UC09-FL01","path":"main","position":1}
+{"id":"ST-DIS-UC09-FL01-S02","title":"The installer checks each asset digest and both signatures, and the signed record's platform, then puts the binary and its build record in place","flow_id":"ST-DIS-UC09-FL01","path":"main","position":2}
+{"id":"ST-DIS-UC09-FL01-S03","title":"The operator asks the installed compiler for its build identity, and it reports the identity it writes into a service's record","flow_id":"ST-DIS-UC09-FL01","path":"main","position":3}
+{"id":"ST-DIS-UC09-FL01-S04","title":"On any platform other than Linux amd64, the installer refuses before it downloads anything","flow_id":"ST-DIS-UC09-FL01","path":"refused","position":1}
+{"id":"ST-DLV-UC01-FL01-S01","title":"The service author runs stego apply, and STEGO writes platform-requirements.yaml with the rest of the generated files","flow_id":"ST-DLV-UC01-FL01","path":"main","position":1}
+{"id":"ST-DLV-UC02-FL01-S01","title":"The operator runs stego env check on an environment file, by hand or in the platform repo's CI, and STEGO reports that it meets every requirement","flow_id":"ST-DLV-UC02-FL01","path":"main","position":1}
+{"id":"ST-DLV-UC02-FL01-S02","title":"A requirement is unmet or a value is mistyped, so STEGO names each one and exits non-zero","flow_id":"ST-DLV-UC02-FL01","path":"refused","position":1}
+{"id":"ST-DLV-UC03-FL01-S01","title":"The service author runs stego apply, and STEGO writes the CI file for the provider the delivery stanza names","flow_id":"ST-DLV-UC03-FL01","path":"main","position":1}
+{"id":"ST-DLV-UC03-FL01-S02","title":"On a push, GitHub Actions runs the pinned reusable workflow, which runs the STEGO checks, stego build, stego image build and signs keyless","flow_id":"ST-DLV-UC03-FL01","path":"main","position":2}
+{"id":"ST-DLV-UC03-FL01-S03","title":"On a push, Konflux runs its standard pipeline from the offline Containerfile, then stego delivery check, and Tekton Chains signs","flow_id":"ST-DLV-UC03-FL01","path":"konflux","position":1}
+{"id":"ST-DLV-UC03-FL01-S04","title":"A STEGO check fails, so the pipeline stops and releases no image","flow_id":"ST-DLV-UC03-FL01","path":"refused","position":1}
+{"id":"ST-DLV-UC04-FL01-S01","title":"The platform engineer releases a ci-pipeline version with the new pin, and each service author runs stego apply, which changes only the pin","flow_id":"ST-DLV-UC04-FL01","path":"main","position":1}
+{"id":"ST-DLV-UC04-FL01-S02","title":"The new reference is not pinned, so stego apply refuses it and names it","flow_id":"ST-DLV-UC04-FL01","path":"refused","position":1}
+{"id":"ST-DLV-UC05-FL01-S01","title":"The service author runs stego apply, and STEGO writes the Kubernetes base and the delivery object","flow_id":"ST-DLV-UC05-FL01","path":"main","position":1}
+{"id":"ST-DLV-UC05-FL01-S02","title":"STEGO writes the Argo CD Application from the delivery stanza","flow_id":"ST-DLV-UC05-FL01","path":"main","position":2}
+{"id":"ST-DLV-UC05-FL01-S03","title":"The operator checks the environment file and commits the overlay, and Argo CD applies base and overlay","flow_id":"ST-DLV-UC05-FL01","path":"main","position":3}
+{"id":"ST-EXT-UC01-FL01-S01","title":"The agent runs fill create for the slot and collection, and STEGO writes a fill and a test that compile against the slot's contract","flow_id":"ST-EXT-UC01-FL01","path":"main","position":1}
+{"id":"ST-EXT-UC01-FL01-S02","title":"The agent writes the rule and its tests, binds the fill in the declaration, and runs stego test, and STEGO records the fill's evidence","flow_id":"ST-EXT-UC01-FL01","path":"main","position":2}
+{"id":"ST-EXT-UC01-FL01-S03","title":"A fill with no test file or a forbidden import gets no evidence, and STEGO names why","flow_id":"ST-EXT-UC01-FL01","path":"refused","position":1}
+{"id":"ST-EXT-UC01-FL01-S04","title":"Plan finds a bound fill that implements another slot or serves another collection, and stops","flow_id":"ST-EXT-UC01-FL01","path":"misfit","position":1}
+{"id":"ST-EXT-UC02-FL01-S01","title":"The service author runs stego test, and STEGO records the evidence of each fill whose tests pass","flow_id":"ST-EXT-UC02-FL01","path":"main","position":1}
+{"id":"ST-EXT-UC02-FL01-S02","title":"The service author runs fill sign, and STEGO signs the evidence with the author's key and writes the sign-off","flow_id":"ST-EXT-UC02-FL01","path":"main","position":2}
+{"id":"ST-EXT-UC02-FL01-S03","title":"A fill's tests fail, so STEGO records no evidence and fill sign refuses it","flow_id":"ST-EXT-UC02-FL01","path":"failed","position":1}
+{"id":"ST-EXT-UC02-FL01-S04","title":"A signature by a key that the SIGNERS file does not list leaves the fill unsigned, and plan stops","flow_id":"ST-EXT-UC02-FL01","path":"unlisted","position":1}
+{"id":"ST-EXT-UC03-FL01-S01","title":"The agent runs registry fills for the slot, and STEGO lists each fill with its collection and standing","flow_id":"ST-EXT-UC03-FL01","path":"main","position":1}
+{"id":"ST-EXT-UC04-FL01-S01","title":"The service author runs fill status, and STEGO names each stale fill and what changed","flow_id":"ST-EXT-UC04-FL01","path":"main","position":1}
+{"id":"ST-EXT-UC04-FL01-S02","title":"The service author runs stego test, and STEGO records new evidence","flow_id":"ST-EXT-UC04-FL01","path":"main","position":2}
+{"id":"ST-EXT-UC04-FL01-S03","title":"The service author runs fill sign, and STEGO signs the new evidence","flow_id":"ST-EXT-UC04-FL01","path":"main","position":3}
+{"id":"ST-EXT-UC04-FL01-S04","title":"Plan or apply meets a stale fill, stops, and names it","flow_id":"ST-EXT-UC04-FL01","path":"stopped","position":1}
+{"id":"ST-GEN-UC01-FL01-S01","title":"The service author runs apply, and STEGO writes the generated files and the record together","flow_id":"ST-GEN-UC01-FL01","path":"main","position":1}
+{"id":"ST-GEN-UC01-FL01-S02","title":"The service author commits the record with the generated code","flow_id":"ST-GEN-UC01-FL01","path":"main","position":2}
+{"id":"ST-GEN-UC01-FL01-S03","title":"An interrupted apply leaves a journal, and plan, apply and drift refuse until the author runs recover","flow_id":"ST-GEN-UC01-FL01","path":"interrupted","position":1}
+{"id":"ST-GEN-UC02-FL01-S01","title":"The platform engineer asks STEGO to check the record, and STEGO names every generated file that no longer matches its hash","flow_id":"ST-GEN-UC02-FL01","path":"main","position":1}
+{"id":"ST-GEN-UC02-FL01-S02","title":"A record that disagrees with itself, or that names a registry or compiler its state does not hold, is reported as broken","flow_id":"ST-GEN-UC02-FL01","path":"broken","position":1}
+{"id":"ST-GEN-UC03-FL01-S01","title":"The service author moves the component's pin to the successor digest","flow_id":"ST-GEN-UC03-FL01","path":"main","position":1}
+{"id":"ST-GEN-UC03-FL01-S02","title":"The service author runs plan, and STEGO saves the plan and lists each file that the new digest changes","flow_id":"ST-GEN-UC03-FL01","path":"main","position":2}
+{"id":"ST-GEN-UC03-FL01-S03","title":"The service author runs apply, and STEGO changes only the files that the new digest affects","flow_id":"ST-GEN-UC03-FL01","path":"main","position":5}
+{"id":"ST-GEN-UC03-FL01-S04","title":"The service author reads the diff of the fix and commits it with the record","flow_id":"ST-GEN-UC03-FL01","path":"main","position":6}
+{"id":"ST-GEN-UC03-FL01-S05","title":"Apply names every generated file that no longer matches its hash, and writes nothing","flow_id":"ST-GEN-UC03-FL01","path":"refused","position":1}
+{"id":"ST-GEN-UC03-FL01-S06","title":"When the author states on the command that the run may replace hand-edited files, apply replaces them","flow_id":"ST-GEN-UC03-FL01","path":"replace","position":1}
+{"id":"ST-GEN-UC03-FL01-S07","title":"STEGO reports the standing of each pin, the successor included, and refuses to go on while any pin is withdrawn or past its fail date","flow_id":"ST-GEN-UC03-FL01","path":"main","position":3}
+{"id":"ST-GEN-UC03-FL01-S08","title":"Apply refuses a pin that is withdrawn or past its fail date, naming it and its successor, and the author moves it to a digest that stands","flow_id":"ST-GEN-UC03-FL01","path":"stopped","position":1}
+{"id":"ST-GEN-UC03-FL01-S09","title":"STEGO reports the qualification of each bound fill against the new contracts, and the author goes on only when every one is qualified","flow_id":"ST-GEN-UC03-FL01","path":"main","position":4}
+{"id":"ST-GEN-UC03-FL01-S10","title":"A fix that changes a slot contract leaves its fills stale, so the author requalifies them before apply","flow_id":"ST-GEN-UC03-FL01","path":"stale fill","position":1}
+{"id":"ST-GEN-UC03-FL01-S11","title":"The author overrides the pin by name on the command with a reason, apply goes on, and the record names the override","flow_id":"ST-GEN-UC03-FL01","path":"override","position":1}
+{"id":"ST-GEN-UC04-FL01-S01","title":"The service author changes the declaration","flow_id":"ST-GEN-UC04-FL01","path":"main","position":1}
+{"id":"ST-GEN-UC04-FL01-S02","title":"STEGO reports the standing of each pin before the change is applied, and apply refuses a pin that is withdrawn or past its fail date unless the author overrides it by name","flow_id":"ST-GEN-UC04-FL01","path":"main","position":2}
+{"id":"ST-GEN-UC04-FL01-S03","title":"The service author runs apply, and STEGO plans in the same run and writes the changed files, deletes the files it no longer generates, and writes the record","flow_id":"ST-GEN-UC04-FL01","path":"main","position":4}
+{"id":"ST-GEN-UC04-FL01-S04","title":"The service author reads the diff of the declaration change and commits it with the declaration and the record","flow_id":"ST-GEN-UC04-FL01","path":"main","position":5}
+{"id":"ST-GEN-UC04-FL01-S05","title":"A failed validation, generator or assembly stops the run, STEGO names the failure, and no file changes","flow_id":"ST-GEN-UC04-FL01","path":"failed","position":1}
+{"id":"ST-GEN-UC04-FL01-S06","title":"STEGO reports the qualification of each bound fill, and the author goes on only when every one is qualified and fits its binding","flow_id":"ST-GEN-UC04-FL01","path":"main","position":3}
+{"id":"ST-GEN-UC04-FL01-S07","title":"A bound fill that is not qualified or does not fit stops the run before apply, and the author requalifies or rebinds it","flow_id":"ST-GEN-UC04-FL01","path":"unqualified","position":1}
+{"id":"ST-GEN-UC05-FL01-S01","title":"The service author runs plan, and STEGO saves the plan and lists each change","flow_id":"ST-GEN-UC05-FL01","path":"main","position":1}
+{"id":"ST-GEN-UC05-FL01-S02","title":"The service author reads the saved plan","flow_id":"ST-GEN-UC05-FL01","path":"main","position":2}
+{"id":"ST-GEN-UC05-FL01-S03","title":"The service author runs apply with the saved plan, and STEGO writes exactly what it names","flow_id":"ST-GEN-UC05-FL01","path":"main","position":3}
+{"id":"ST-GEN-UC05-FL01-S04","title":"An input, the record or a generated file changed after planning, so apply refuses the plan and the author plans again","flow_id":"ST-GEN-UC05-FL01","path":"stale","position":1}
+{"id":"ST-GEN-UC06-FL01-S01","title":"Plan, apply and drift refuse while a journal is pending, and name recover","flow_id":"ST-GEN-UC06-FL01","path":"main","position":1}
+{"id":"ST-GEN-UC06-FL01-S02","title":"The service author runs recover, and STEGO completes the journal","flow_id":"ST-GEN-UC06-FL01","path":"main","position":2}
+{"id":"ST-GEN-UC06-FL01-S03","title":"A journaled file matches neither of its states, so recover names it and changes nothing","flow_id":"ST-GEN-UC06-FL01","path":"conflict","position":1}
+{"id":"ST-GEN-UC07-FL01-S01","title":"The service author runs stego assets on the build folder, and STEGO writes the checked bundle","flow_id":"ST-GEN-UC07-FL01","path":"main","position":1}
+{"id":"ST-GEN-UC07-FL01-S02","title":"An entry fails its checks, so STEGO names it and leaves the output as it was","flow_id":"ST-GEN-UC07-FL01","path":"refused","position":1}
+{"id":"ST-GEN-UC08-FL01-S01","title":"The service author runs stego apply, and STEGO derives the architecture model and writes the view with the code","flow_id":"ST-GEN-UC08-FL01","path":"main","position":1}
+{"id":"ST-GEN-UC08-FL01-S02","title":"The service owner opens the view in a browser, selects elements and follows request flows","flow_id":"ST-GEN-UC08-FL01","path":"main","position":2}
+{"id":"ST-GEN-UC09-FL01-S01","title":"The service author runs stego apply after a change, and the diff of the architecture model shows how the service changed","flow_id":"ST-GEN-UC09-FL01","path":"main","position":1}
+{"id":"ST-GEN-UC09-FL01-S02","title":"The view or model was edited or is stale, so stego drift names it","flow_id":"ST-GEN-UC09-FL01","path":"refused","position":1}
+{"id":"ST-SUP-UC01-FL01-S01","title":"The platform engineer defines each port the component provides that the registry does not hold yet","flow_id":"ST-SUP-UC01-FL01","path":"main","position":1}
+{"id":"ST-SUP-UC01-FL01-S02","title":"The platform engineer declares each slot the component offers, with its protobuf contract","flow_id":"ST-SUP-UC01-FL01","path":"main","position":2}
+{"id":"ST-SUP-UC01-FL01-S03","title":"The platform engineer adds the component with its config schema, its ports, its slots and its namespace, and STEGO accepts it before its generator runs","flow_id":"ST-SUP-UC01-FL01","path":"main","position":3}
+{"id":"ST-SUP-UC01-FL01-S04","title":"The platform engineer states each thing the emitted code must always do as an output contract, with the generator that builds it and the test that proves it","flow_id":"ST-SUP-UC01-FL01","path":"main","position":4}
+{"id":"ST-SUP-UC01-FL01-S05","title":"The platform engineer changes what the generator emits, and releases the component at a new version","flow_id":"ST-SUP-UC01-FL01","path":"change","position":1}
+{"id":"ST-SUP-UC01-FL01-S06","title":"A namespace that another component of the registry claims is refused, naming both components","flow_id":"ST-SUP-UC01-FL01","path":"refused","position":1}
+{"id":"ST-SUP-UC01-FL01-S07","title":"A component that states no architecture role is refused, naming the component","flow_id":"ST-SUP-UC01-FL01","path":"refused","position":2}
+{"id":"ST-SUP-UC01-FL01-S08","title":"A file the component emits is the same for every declaration, so the registry refuses the component as static and names the file","flow_id":"ST-SUP-UC01-FL01","path":"refused","position":3}
+{"id":"ST-SUP-UC02-FL01-S01","title":"The platform engineer pins the common registry at one reference","flow_id":"ST-SUP-UC02-FL01","path":"main","position":1}
+{"id":"ST-SUP-UC02-FL01-S02","title":"The platform engineer names a local registry that adds the team's own parts, at one reference","flow_id":"ST-SUP-UC02-FL01","path":"main","position":2}
+{"id":"ST-SUP-UC02-FL01-S03","title":"STEGO composes the sources into one active set, and records the reference of each","flow_id":"ST-SUP-UC02-FL01","path":"main","position":3}
+{"id":"ST-SUP-UC02-FL01-S04","title":"A local part that would replace a common part is refused, naming the part and both registries","flow_id":"ST-SUP-UC02-FL01","path":"refused","position":1}
+{"id":"ST-SUP-UC03-FL01-S01","title":"The platform engineer chooses the components the archetype includes, and the component that answers each port by default","flow_id":"ST-SUP-UC03-FL01","path":"main","position":1}
+{"id":"ST-SUP-UC03-FL01-S02","title":"STEGO accepts the archetype with its smallest example content, which a fresh declaration of it passes checking with","flow_id":"ST-SUP-UC03-FL01","path":"main","position":2}
+{"id":"ST-SUP-UC03-FL01-S03","title":"A required port with no provider, or with more than one, is refused, naming the port and every component involved","flow_id":"ST-SUP-UC03-FL01","path":"refused","position":1}
+{"id":"ST-SUP-UC03-FL01-S04","title":"A component that is not ga is refused, naming the component and its stage","flow_id":"ST-SUP-UC03-FL01","path":"refused","position":2}
+{"id":"ST-SUP-UC03-FL01-S05","title":"A mixin that brings a component that is not ga is refused, naming the component and its stage","flow_id":"ST-SUP-UC03-FL01","path":"refused","position":3}
+{"id":"ST-SUP-UC04-FL01-S01","title":"The platform engineer gives the component a port name of its own, which no ga component provides","flow_id":"ST-SUP-UC04-FL01","path":"main","position":1}
+{"id":"ST-SUP-UC04-FL01-S02","title":"The platform engineer adds the component at stage alpha with the date it stops working, the outcome it serves, its references or why none exists, and its promise list as output contracts","flow_id":"ST-SUP-UC04-FL01","path":"main","position":2}
+{"id":"ST-SUP-UC04-FL01-S03","title":"A service that wants the component accepts it by name in its declaration, with a date of its own","flow_id":"ST-SUP-UC04-FL01","path":"main","position":3}
+{"id":"ST-SUP-UC04-FL01-S04","title":"A sunset date that is already past is refused","flow_id":"ST-SUP-UC04-FL01","path":"refused","position":1}
+{"id":"ST-SUP-UC04-FL01-S05","title":"A component that states no outcome, no reference and no reasoning, or no contract, is refused with what is missing","flow_id":"ST-SUP-UC04-FL01","path":"refused","position":2}
+{"id":"ST-SUP-UC05-FL01-S01","title":"The platform engineer reads every recorded service that uses the component","flow_id":"ST-SUP-UC05-FL01","path":"main","position":1}
+{"id":"ST-SUP-UC05-FL01-S02","title":"The platform engineer moves the component up to ga, which removes its sunset date and lets it take over the real port name","flow_id":"ST-SUP-UC05-FL01","path":"main","position":3}
+{"id":"ST-SUP-UC05-FL01-S03","title":"The platform engineer withdraws a component that will not graduate","flow_id":"ST-SUP-UC05-FL01","path":"withdrawn","position":1}
+{"id":"ST-SUP-UC05-FL01-S04","title":"STEGO reports every service that still uses a component past its sunset, and checking fails for each of them","flow_id":"ST-SUP-UC05-FL01","path":"missed","position":1}
+{"id":"ST-SUP-UC05-FL01-S05","title":"The platform engineer records the security review, the benchmark and the design review at the component's digest, and the reference comparison at its contract set's digest","flow_id":"ST-SUP-UC05-FL01","path":"main","position":2}
+{"id":"ST-SUP-UC05-FL01-S06","title":"A component that lacks a piece of the quality bar, or whose reference comparison is stale or leaves a promise undecided, stays below ga, and STEGO names what is missing","flow_id":"ST-SUP-UC05-FL01","path":"below bar","position":1}
+{"id":"ST-SUP-UC06-FL01-S01","title":"The service author runs registry promote, and STEGO copies the component at its digest into a checkout of the common registry at stage alpha","flow_id":"ST-SUP-UC06-FL01","path":"main","position":1}
+{"id":"ST-SUP-UC06-FL01-S02","title":"The service author opens the change to the common registry, and a platform engineer reviews and accepts it","flow_id":"ST-SUP-UC06-FL01","path":"main","position":2}
+{"id":"ST-SUP-UC06-FL01-S03","title":"The service author moves the service's pin to the promoted component, and regeneration changes no file","flow_id":"ST-SUP-UC06-FL01","path":"main","position":3}
+{"id":"ST-SUP-UC06-FL01-S04","title":"The common registry already holds a component of that name, so STEGO refuses and names it","flow_id":"ST-SUP-UC06-FL01","path":"refused","position":1}

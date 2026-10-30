@@ -51,70 +51,72 @@ func TestStateProtectionPrivateKeyFormat(t *testing.T) {
 }
 
 func TestStateProtectionBindingAndCorruption(t *testing.T) {
-	key := StateKey{Instance: "tenant", Entity: "Record", ResourceID: "resource", Scope: "provider"}
-	master := bytes.Repeat([]byte{1}, 32)
-	p, err := NewStateProtector([][]byte{master})
-	if err != nil {
-		t.Fatal(err)
-	}
-	plain := []byte("private provider migration checkpoint")
-	sealed, err := p.Seal(key, 1, plain)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := CheckStateEnvelope(sealed); err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(sealed, plain) {
-		t.Fatal("state stored plaintext")
-	}
-	again, err := p.Seal(key, 1, plain)
-	if err != nil || bytes.Equal(sealed, again) {
-		t.Fatal("sealing reused its envelope", err)
-	}
-	value, err := p.Open(key, 1, sealed)
-	if err != nil || !bytes.Equal(value.Reveal(), plain) {
-		t.Fatal("round trip failed", err)
-	}
-	copyValue := value.Reveal()
-	copyValue[0] = 0
-	if !bytes.Equal(value.Reveal(), plain) {
-		t.Fatal("plaintext alias escaped")
-	}
-	for _, changed := range []StateKey{
-		{"other", key.Entity, key.ResourceID, key.Scope}, {key.Instance, "Other", key.ResourceID, key.Scope},
-		{key.Instance, key.Entity, "other", key.Scope}, {key.Instance, key.Entity, key.ResourceID, "other"},
-	} {
-		if got, err := p.Open(changed, 1, sealed); err == nil || len(got.Reveal()) != 0 {
-			t.Fatal("cross-key state accepted")
+	t.Run("ST-SUP-RC05-OC22-T01 A sealed state record binds its key, its version and its bytes", func(t *testing.T) {
+		key := StateKey{Instance: "tenant", Entity: "Record", ResourceID: "resource", Scope: "provider"}
+		master := bytes.Repeat([]byte{1}, 32)
+		p, err := NewStateProtector([][]byte{master})
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	if _, err := p.Open(key, 2, sealed); err == nil {
-		t.Fatal("old record version accepted")
-	}
-	for i := range sealed {
-		altered := bytes.Clone(sealed)
-		altered[i] ^= 1
-		if got, err := p.Open(key, 1, altered); err == nil || len(got.Reveal()) != 0 {
-			t.Fatal("damaged state accepted", i)
+		plain := []byte("private provider migration checkpoint")
+		sealed, err := p.Seal(key, 1, plain)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	for _, object := range []any{p, *p, value} {
-		if strings.Contains(fmt.Sprintf("%v %+v %#v", object, object, object), string(plain)) {
-			t.Fatal("formatting disclosed state")
+		if err := CheckStateEnvelope(sealed); err != nil {
+			t.Fatal(err)
 		}
-		if _, err := json.Marshal(object); err == nil {
-			t.Fatal("implicit JSON export accepted")
+		if bytes.Contains(sealed, plain) {
+			t.Fatal("state stored plaintext")
 		}
-	}
-	for _, format := range []string{"%v", "%+v", "%#v", "%d", "%x", "%s", "%q"} {
-		if fmt.Sprintf(format, p) != "[protected state keys]" {
-			t.Fatal("key formatting is not redacted")
+		again, err := p.Seal(key, 1, plain)
+		if err != nil || bytes.Equal(sealed, again) {
+			t.Fatal("sealing reused its envelope", err)
 		}
-		if fmt.Sprintf(format, value) != "[protected state]" {
-			t.Fatal("state formatting is not redacted")
+		value, err := p.Open(key, 1, sealed)
+		if err != nil || !bytes.Equal(value.Reveal(), plain) {
+			t.Fatal("round trip failed", err)
 		}
-	}
+		copyValue := value.Reveal()
+		copyValue[0] = 0
+		if !bytes.Equal(value.Reveal(), plain) {
+			t.Fatal("plaintext alias escaped")
+		}
+		for _, changed := range []StateKey{
+			{"other", key.Entity, key.ResourceID, key.Scope}, {key.Instance, "Other", key.ResourceID, key.Scope},
+			{key.Instance, key.Entity, "other", key.Scope}, {key.Instance, key.Entity, key.ResourceID, "other"},
+		} {
+			if got, err := p.Open(changed, 1, sealed); err == nil || len(got.Reveal()) != 0 {
+				t.Fatal("cross-key state accepted")
+			}
+		}
+		if _, err := p.Open(key, 2, sealed); err == nil {
+			t.Fatal("old record version accepted")
+		}
+		for i := range sealed {
+			altered := bytes.Clone(sealed)
+			altered[i] ^= 1
+			if got, err := p.Open(key, 1, altered); err == nil || len(got.Reveal()) != 0 {
+				t.Fatal("damaged state accepted", i)
+			}
+		}
+		for _, object := range []any{p, *p, value} {
+			if strings.Contains(fmt.Sprintf("%v %+v %#v", object, object, object), string(plain)) {
+				t.Fatal("formatting disclosed state")
+			}
+			if _, err := json.Marshal(object); err == nil {
+				t.Fatal("implicit JSON export accepted")
+			}
+		}
+		for _, format := range []string{"%v", "%+v", "%#v", "%d", "%x", "%s", "%q"} {
+			if fmt.Sprintf(format, p) != "[protected state keys]" {
+				t.Fatal("key formatting is not redacted")
+			}
+			if fmt.Sprintf(format, value) != "[protected state]" {
+				t.Fatal("state formatting is not redacted")
+			}
+		}
+	})
 }
 
 func TestStateProtectionRotationAndLimits(t *testing.T) {

@@ -52,112 +52,116 @@ func TestRPCDeploymentValidation(t *testing.T) {
 }
 
 func TestRPCDeploymentFiles(t *testing.T) {
-	c := rpcContext()
-	files, _, err := new(Generator).Generate(c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	repeat, _, err := new(Generator).Generate(c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := 0
-	for i, file := range files {
-		if file.Path != repeat[i].Path || !bytes.Equal(file.Bytes(), repeat[i].Bytes()) {
-			t.Fatal("unstable RPC deployment")
+	t.Run("ST-SUP-RC15-OC35-T01 The RPC image and manifest carry the declared process, its TLS listener and its loopback monitor", func(t *testing.T) {
+		c := rpcContext()
+		files, _, err := new(Generator).Generate(c)
+		if err != nil {
+			t.Fatal(err)
 		}
-		if file.Path == "deploy/rpc/records/Containerfile" {
-			found++
-			if !strings.Contains(string(file.Content), "./out/rpcapi/processes/records") || !strings.Contains(string(file.Content), `ENTRYPOINT ["/rpc"]`) {
-				t.Fatal("RPC image does not build the declared process")
+		repeat, _, err := new(Generator).Generate(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := 0
+		for i, file := range files {
+			if file.Path != repeat[i].Path || !bytes.Equal(file.Bytes(), repeat[i].Bytes()) {
+				t.Fatal("unstable RPC deployment")
 			}
-		}
-		if file.Path == "deploy/render/rpc-records.json.tmpl" {
-			found++
-			for _, value := range []string{"widget-records", "--stego-probe=ready", "--stego-probe=live", "127.0.0.1:9082", "0.0.0.0:9090", "/var/run/stego/tls.key"} {
-				if !strings.Contains(string(file.Content), value) {
-					t.Fatal("RPC manifest is incomplete", value)
+			if file.Path == "deploy/rpc/records/Containerfile" {
+				found++
+				if !strings.Contains(string(file.Content), "./out/rpcapi/processes/records") || !strings.Contains(string(file.Content), `ENTRYPOINT ["/rpc"]`) {
+					t.Fatal("RPC image does not build the declared process")
+				}
+			}
+			if file.Path == "deploy/render/rpc-records.json.tmpl" {
+				found++
+				for _, value := range []string{"widget-records", "--stego-probe=ready", "--stego-probe=live", "127.0.0.1:9082", "0.0.0.0:9090", "/var/run/stego/tls.key"} {
+					if !strings.Contains(string(file.Content), value) {
+						t.Fatal("RPC manifest is incomplete", value)
+					}
 				}
 			}
 		}
-	}
-	if found != 2 {
-		t.Fatal("RPC deployment files missing")
-	}
+		if found != 2 {
+			t.Fatal("RPC deployment files missing")
+		}
+	})
 }
 
 func TestRPCDeploymentRolloutStrategies(t *testing.T) {
-	baseline, _, err := new(Generator).Generate(rpcContext())
-	if err != nil {
-		t.Fatal(err)
-	}
-	render := func(files []gen.File) (map[string]any, map[string]any) {
-		t.Helper()
-		for _, file := range files {
-			if file.Path != "deploy/render/rpc-records.json.tmpl" {
-				continue
-			}
-			raw := bytes.ReplaceAll(file.Content, []byte("{{.FSGroup}}"), []byte("65532"))
-			var list map[string]any
-			if err := json.Unmarshal(raw, &list); err != nil {
-				t.Fatal(err)
-			}
-			for _, item := range list["items"].([]any) {
-				resource := item.(map[string]any)
-				if resource["kind"] != "Deployment" {
+	t.Run("ST-SUP-RC15-OC14-T01 The RPC Deployment keeps one replica and the selected rollout strategy", func(t *testing.T) {
+		baseline, _, err := new(Generator).Generate(rpcContext())
+		if err != nil {
+			t.Fatal(err)
+		}
+		render := func(files []gen.File) (map[string]any, map[string]any) {
+			t.Helper()
+			for _, file := range files {
+				if file.Path != "deploy/render/rpc-records.json.tmpl" {
 					continue
 				}
-				spec := resource["spec"].(map[string]any)
-				if spec["replicas"] != float64(1) {
-					t.Fatal("RPC replica count changed")
+				raw := bytes.ReplaceAll(file.Content, []byte("{{.FSGroup}}"), []byte("65532"))
+				var list map[string]any
+				if err := json.Unmarshal(raw, &list); err != nil {
+					t.Fatal(err)
 				}
-				strategy := spec["strategy"].(map[string]any)
-				delete(spec, "strategy")
-				return list, strategy
+				for _, item := range list["items"].([]any) {
+					resource := item.(map[string]any)
+					if resource["kind"] != "Deployment" {
+						continue
+					}
+					spec := resource["spec"].(map[string]any)
+					if spec["replicas"] != float64(1) {
+						t.Fatal("RPC replica count changed")
+					}
+					strategy := spec["strategy"].(map[string]any)
+					delete(spec, "strategy")
+					return list, strategy
+				}
 			}
+			t.Fatal("RPC Deployment is absent")
+			return nil, nil
 		}
-		t.Fatal("RPC Deployment is absent")
-		return nil, nil
-	}
-	baseManifest, baseStrategy := render(baseline)
-	rolling := map[string]any{"type": "RollingUpdate", "rollingUpdate": map[string]any{"maxUnavailable": float64(0), "maxSurge": float64(1)}}
-	if !reflect.DeepEqual(baseStrategy, rolling) {
-		t.Fatal("default rollout changed", baseStrategy)
-	}
-	for _, selected := range []string{"RollingUpdate", "Recreate"} {
-		t.Run(selected, func(t *testing.T) {
-			c := rpcContext()
-			c.ComponentConfig["rpc_processes"].([]any)[0].(map[string]any)["rollout_strategy"] = selected
-			files, _, err := new(Generator).Generate(c)
-			if err != nil {
-				t.Fatal(err)
-			}
-			again, _, err := new(Generator).Generate(c)
-			if err != nil || !reflect.DeepEqual(files, again) {
-				t.Fatal("RPC generation is not stable", err)
-			}
-			manifest, strategy := render(files)
-			expected := rolling
-			if selected == "Recreate" {
-				expected = map[string]any{"type": "Recreate"}
-			}
-			if !reflect.DeepEqual(strategy, expected) {
-				t.Fatal("incorrect rollout policy", strategy)
-			}
-			if !reflect.DeepEqual(manifest, baseManifest) {
-				t.Fatal("rollout changed other RPC resources")
-			}
-			if len(files) != len(baseline) {
-				t.Fatal("rollout changed the file set")
-			}
-			for i, file := range files {
-				if file.Path != baseline[i].Path {
-					t.Fatal("rollout changed a file path")
+		baseManifest, baseStrategy := render(baseline)
+		rolling := map[string]any{"type": "RollingUpdate", "rollingUpdate": map[string]any{"maxUnavailable": float64(0), "maxSurge": float64(1)}}
+		if !reflect.DeepEqual(baseStrategy, rolling) {
+			t.Fatal("default rollout changed", baseStrategy)
+		}
+		for _, selected := range []string{"RollingUpdate", "Recreate"} {
+			t.Run(selected, func(t *testing.T) {
+				c := rpcContext()
+				c.ComponentConfig["rpc_processes"].([]any)[0].(map[string]any)["rollout_strategy"] = selected
+				files, _, err := new(Generator).Generate(c)
+				if err != nil {
+					t.Fatal(err)
 				}
-				if file.Path != "deploy/render/rpc-records.json.tmpl" && !bytes.Equal(file.Bytes(), baseline[i].Bytes()) {
-					t.Fatal("rollout changed another component", file.Path)
+				again, _, err := new(Generator).Generate(c)
+				if err != nil || !reflect.DeepEqual(files, again) {
+					t.Fatal("RPC generation is not stable", err)
 				}
-			}
-		})
-	}
+				manifest, strategy := render(files)
+				expected := rolling
+				if selected == "Recreate" {
+					expected = map[string]any{"type": "Recreate"}
+				}
+				if !reflect.DeepEqual(strategy, expected) {
+					t.Fatal("incorrect rollout policy", strategy)
+				}
+				if !reflect.DeepEqual(manifest, baseManifest) {
+					t.Fatal("rollout changed other RPC resources")
+				}
+				if len(files) != len(baseline) {
+					t.Fatal("rollout changed the file set")
+				}
+				for i, file := range files {
+					if file.Path != baseline[i].Path {
+						t.Fatal("rollout changed a file path")
+					}
+					if file.Path != "deploy/render/rpc-records.json.tmpl" && !bytes.Equal(file.Bytes(), baseline[i].Bytes()) {
+						t.Fatal("rollout changed another component", file.Path)
+					}
+				}
+			})
+		}
+	})
 }

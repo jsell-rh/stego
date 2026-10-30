@@ -115,7 +115,13 @@ func TestHTTPResponsePreparedInputDeterminism(t *testing.T) {
 }
 
 func TestGeneratedHTTPResponsePreparedInputs(t *testing.T) {
-	checkGeneratedResponses(t, preparedResponseContext(), responseInputRuntimeTest, []string{"", "TestPreparedInputsUseDomainValues", "TestPreparedInputsOwnOutput", "TestPreparedInputsRejectInvalidValues"})
+	passed := checkGeneratedResponses(t, preparedResponseContext(), responseInputRuntimeTest, []string{"", "TestPreparedInputsUseDomainValues", "TestPreparedInputsOwnOutput", "TestPreparedInputsRejectInvalidValues"})
+	t.Run("ST-SUP-RC10-OC25-T05 The emitted prepared inputs refuse invalid values", func(t *testing.T) {
+		requireGeneratedResponses(t, passed, "TestPreparedInputsRejectInvalidValues")
+	})
+	t.Run("ST-SUP-RC10-OC26-T05 The emitted prepared inputs own their output", func(t *testing.T) {
+		requireGeneratedResponses(t, passed, "TestPreparedInputsOwnOutput")
+	})
 }
 
 const responseInputRuntimeTest = `package responses

@@ -143,7 +143,7 @@ func TestBackupContractManifest(t *testing.T) {
 	w.DBBackend = "gorm"
 	w.BackupObjects = []gen.BackupObject{table}
 	w.DatabaseAccess = []gen.DatabaseObject{{Schema: "public", Name: "records", Kind: "table", Privileges: []string{"SELECT"}}}
-	files, err := Assemble(AssemblerInput{ModuleName: "example.com/access", GoVersion: "1.26.8", OutDirName: "out", Wirings: []ComponentWiring{{Name: "store", Wiring: w}}})
+	files, err := Assemble(AssemblerInput{ModuleName: "example.com/access", GoVersion: "1.26.10", OutDirName: "out", Wirings: []ComponentWiring{{Name: "store", Wiring: w}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestDatabaseAccessStartup(t *testing.T) {
 			if used {
 				w.Routes = []string{`mux.Handle("/",store)`}
 			}
-			files, err := Assemble(AssemblerInput{ModuleName: "example.com/access", GoVersion: "1.26.8", OutDirName: "out", Wirings: []ComponentWiring{{Name: "store", Wiring: w}}})
+			files, err := Assemble(AssemblerInput{ModuleName: "example.com/access", GoVersion: "1.26.10", OutDirName: "out", Wirings: []ComponentWiring{{Name: "store", Wiring: w}}})
 			if err != nil {
 				t.Fatal(err)
 			}

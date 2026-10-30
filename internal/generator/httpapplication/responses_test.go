@@ -174,11 +174,18 @@ func TestHTTPResponseInputsAndDeterminism(t *testing.T) {
 }
 
 func TestGeneratedHTTPResponseMappings(t *testing.T) {
-	checkGeneratedResponses(t, responseContext(), responseRuntimeTest, []string{"", "TestResponsePresenceAndOwnership", "TestResponseInvalidValues", "TestResponseIntegerBounds"})
+	passed := checkGeneratedResponses(t, responseContext(), responseRuntimeTest, []string{"", "TestResponsePresenceAndOwnership", "TestResponseInvalidValues", "TestResponseIntegerBounds"})
+	t.Run("ST-SUP-RC10-OC25-T01 The emitted scalar response mappings refuse invalid values and bound integers", func(t *testing.T) {
+		requireGeneratedResponses(t, passed, "TestResponseInvalidValues", "TestResponseIntegerBounds")
+	})
+	t.Run("ST-SUP-RC10-OC26-T01 The emitted scalar response mappings own their values", func(t *testing.T) {
+		requireGeneratedResponses(t, passed, "TestResponsePresenceAndOwnership")
+	})
 }
 
-func checkGeneratedResponses(t *testing.T, ctx gen.Context, runtimeTest string, required []string) {
+func checkGeneratedResponses(t *testing.T, ctx gen.Context, runtimeTest string, required []string) map[string]bool {
 	t.Helper()
+	var results map[string]bool
 	files, wiring, err := new(Generator).Generate(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -251,6 +258,18 @@ type Record struct {ID,Title,Creator string; CreatedTime time.Time; Count int64;
 			}
 		}
 		t.Log("generated response checks passed:", required)
+		results = passed
+	}
+	return results
+}
+
+// requireGeneratedResponses fails unless each named generated test passed.
+func requireGeneratedResponses(t *testing.T, passed map[string]bool, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		if !passed[name] {
+			t.Fatal("missing generated response result", name)
+		}
 	}
 }
 

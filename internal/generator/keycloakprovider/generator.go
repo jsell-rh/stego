@@ -16,7 +16,7 @@ var sources embed.FS
 
 type Generator struct{}
 
-func (*Generator) MinimumGoVersion() string { return "1.26.8" }
+func (*Generator) MinimumGoVersion() string { return "1.26.10" }
 func (*Generator) ValidateContext(ctx gen.Context) error {
 	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
 		return err

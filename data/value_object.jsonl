@@ -1,0 +1,22 @@
+{"id":"ST-VO01","title":"Slot operator","description":"How the fills bound to one slot compose."}
+{"id":"ST-VO02","title":"Maturity stage","description":"How far a component is on the maturity ladder. It decides whether a golden path may include the component."}
+{"id":"ST-VO03","title":"Registry trust","description":"Whether a registry source is the reviewed common registry or a local registry that adds to it."}
+{"id":"ST-VO41","title":"Content digest","description":"The SHA-256 digest of some content, such as a file, a declaration, a component or the registry."}
+{"id":"ST-VO42","title":"Build identity","description":"What a compiler records about its own build, from the Go build metadata."}
+{"id":"ST-VO43","title":"Source revision","description":"A full commit ID that names one exact source state."}
+{"id":"ST-VO44","title":"Fill signature","description":"A person's signature of one fill's test evidence, made with the SSH or GPG key that signs their commits."}
+{"id":"ST-VO45","title":"Qualification standing","description":"Where one fill stands on its way to being qualified."}
+{"id":"ST-VO46","title":"Slot reference","description":"The one slot a fill implements: a component and one of its slots."}
+{"id":"ST-VO47","title":"Quality evidence kind","description":"Which part of the ga quality bar one piece of evidence shows: a review of the code, a benchmark of it, or a comparison of its promises with the best in its field."}
+{"id":"ST-VO48","title":"Go SDK pin","description":"One official Go SDK release, fixed by version and by the digest of its contents."}
+{"id":"ST-VO49","title":"SBOM format","description":"The format of one software bill of materials."}
+{"id":"ST-VO50","title":"Signer identity","description":"Who made an image signature: a keyless identity that the signing service's certificate states, or a Tekton Chains signer named by its public key."}
+{"id":"ST-VO51","title":"CI provider","description":"The CI system that builds and signs a service's images."}
+{"id":"ST-VO52","title":"Pinned pipeline reference","description":"A reference to shared pipeline code that cannot move: a reusable workflow at one commit, or a Tekton bundle at one digest."}
+{"id":"ST-VO53","title":"Requirement kind","description":"What sort of thing a service needs the environment to supply."}
+{"id":"ST-VO54","title":"Test result","description":"What one test did in one run."}
+{"id":"ST-VO55","title":"Coverage share","description":"How much of the spec's obligations lathe counts as designed, built and proved at one commit, each as a share of the total."}
+{"id":"ST-VO56","title":"Attestation reference","description":"Where a signed statement about one commit is kept, and who signed it."}
+{"id":"ST-VO57","title":"Gate kind","description":"Which bar a gate holds a commit to."}
+{"id":"ST-VO58","title":"Runtime pin","description":"One version of the runtime library, fixed by module path, tagged version and the go.sum hash of that version's contents."}
+{"id":"ST-VO59","title":"Image target","description":"One image a service's pipeline builds: which module and build target, and the executable that is its entry point."}

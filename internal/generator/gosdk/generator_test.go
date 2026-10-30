@@ -112,6 +112,7 @@ func TestInputBoundary(t *testing.T) {
 		})
 	}
 }
+
 func TestGeneratedSDK(t *testing.T) {
 	for _, traced := range []bool{false, true} {
 		t.Run(fmt.Sprint(traced), func(t *testing.T) { testGeneratedSDK(t, traced) })
@@ -229,18 +230,36 @@ func TestHTTPSAndStatus(t *testing.T){
  }));server.TLS=&tls.Config{MinVersion:tls.VersionTLS13};server.StartTLS();defer server.Close()
  ca:=filepath.Join(t.TempDir(),"ca.pem");os.WriteFile(ca,pem.EncodeToMemory(&pem.Block{Type:"CERTIFICATE",Bytes:server.Certificate().Raw}),0600)
  client,err:=NewClient(Options{BaseURL:server.URL,CAFile:ca,Token:"private-token"});if err!=nil{t.Fatal(err)};defer client.Close()
- got,err:=client.GetWidgetWithResponse(context.Background(),"one");if err!=nil||got.JSON200==nil||got.JSON200.Id!="one"{t.Fatal("typed SDK read failed",err)}
- denied,err:=client.GetWidgetWithResponse(context.Background(),"missing");if err!=nil||denied.StatusCode()!=404{t.Fatal("SDK lost status",err)}
- for _,id:=range []string{"redirect","large","malformed","../private-token"}{if _,err:=client.GetWidgetWithResponse(context.Background(),id);err==nil||strings.Contains(err.Error(),"private-token"){t.Fatal("unsafe request or error",err)}}
- short,cancel:=context.WithTimeout(context.Background(),30*time.Millisecond);defer cancel()
- if _,err:=client.GetWidgetWithResponse(short,"wait");!errors.Is(err,context.DeadlineExceeded){t.Fatal("SDK lost caller deadline",err)}
- if bad,err:=NewClient(Options{BaseURL:strings.Replace(server.URL,"https:","http:",1),Token:"private-token"});err==nil{bad.Close();t.Fatal("SDK accepted plaintext")}
- if bad,err:=NewClient(Options{BaseURL:server.URL,Token:"private-token"});err==nil{defer bad.Close();if _,err:=bad.GetWidgetWithResponse(context.Background(),"one");err==nil{t.Fatal("SDK accepted an untrusted certificate")}}
  prefix,err:=NewClient(Options{BaseURL:server.URL+"/prefix",CAFile:ca,Token:"private-token"});if err!=nil{t.Fatal(err)};defer prefix.Close()
- if _,err:=prefix.GetWidgetWithResponse(context.Background(),"one");err!=nil{t.Fatal("SDK path prefix failed",err)}
- if err:=prefix.acquire(context.Background());err!=nil{t.Fatal(err)}
- start:=time.Now();prefix.Close();if time.Since(start)>2*time.Second{t.Fatal("SDK close did not bound pending caller work")};prefix.release()
- client.Close();if _,err:=client.GetWidgetWithResponse(context.Background(),"one");err==nil{t.Fatal("closed SDK client accepted a request")}
+ t.Run("ST-SUP-RC06-OC01-T01 The emitted SDK client keeps one verified origin and path prefix",func(t *testing.T){
+  if bad,err:=NewClient(Options{BaseURL:strings.Replace(server.URL,"https:","http:",1),Token:"private-token"});err==nil{bad.Close();t.Fatal("SDK accepted plaintext")}
+  if bad,err:=NewClient(Options{BaseURL:server.URL,Token:"private-token"});err==nil{defer bad.Close();if _,err:=bad.GetWidgetWithResponse(context.Background(),"one");err==nil{t.Fatal("SDK accepted an untrusted certificate")}}
+  if _,err:=prefix.GetWidgetWithResponse(context.Background(),"one");err!=nil{t.Fatal("SDK path prefix failed",err)}
+ })
+ t.Run("ST-SUP-RC06-OC02-T01 The emitted SDK client follows no redirect",func(t *testing.T){
+  for _,id:=range []string{"redirect"}{if _,err:=client.GetWidgetWithResponse(context.Background(),id);err==nil||strings.Contains(err.Error(),"private-token"){t.Fatal("unsafe request or error",err)}}
+ })
+ t.Run("ST-SUP-RC06-OC03-T01 The emitted SDK client sends its bearer token and hides its transport",func(t *testing.T){
+  got,err:=client.GetWidgetWithResponse(context.Background(),"one");if err!=nil||got.JSON200==nil||got.JSON200.Id!="one"{t.Fatal("typed SDK read failed",err)}
+ })
+ t.Run("ST-SUP-RC06-OC04-T01 A failed SDK call keeps its status and hides its secrets",func(t *testing.T){
+  denied,err:=client.GetWidgetWithResponse(context.Background(),"missing");if err!=nil||denied.StatusCode()!=404{t.Fatal("SDK lost status",err)}
+  for _,id:=range []string{"large","malformed","../private-token"}{if _,err:=client.GetWidgetWithResponse(context.Background(),id);err==nil||strings.Contains(err.Error(),"private-token"){t.Fatal("unsafe request or error",err)}}
+ })
+ t.Run("ST-SUP-RC06-OC05-T01 The emitted SDK client honours a shorter caller deadline",func(t *testing.T){
+  short,cancel:=context.WithTimeout(context.Background(),30*time.Millisecond);defer cancel()
+  if _,err:=client.GetWidgetWithResponse(short,"wait");!errors.Is(err,context.DeadlineExceeded){t.Fatal("SDK lost caller deadline",err)}
+ })
+ t.Run("ST-SUP-RC06-OC06-T01 The emitted SDK client bounds its active calls",func(t *testing.T){
+  held:=0;for held<17&&prefix.acquire(context.Background())==nil{held++}
+  for i:=0;i<held;i++{prefix.release()}
+  if held!=16{t.Fatal("SDK client did not refuse the seventeenth active call",held)}
+ })
+ t.Run("ST-SUP-RC06-OC07-T01 Close bounds its wait and ends the SDK client",func(t *testing.T){
+  if err:=prefix.acquire(context.Background());err!=nil{t.Fatal(err)}
+  start:=time.Now();prefix.Close();if time.Since(start)>2*time.Second{t.Fatal("SDK close did not bound pending caller work")};prefix.release()
+  client.Close();if _,err:=client.GetWidgetWithResponse(context.Background(),"one");err==nil{t.Fatal("closed SDK client accepted a request")}
+ })
 }
 `
 

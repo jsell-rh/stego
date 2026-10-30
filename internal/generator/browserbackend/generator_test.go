@@ -49,7 +49,7 @@ func TestGeneration(t *testing.T) {
 	if !wiring.NeedsDB || !wiring.ConstructorReturnsError[0] || !reflect.DeepEqual(wiring.ConstructorResources[0], []gen.Resource{gen.ServiceContext, gen.SQLDatabase}) || wiring.ConstructorDeferCalls[0] != "Close()" || !reflect.DeepEqual(wiring.BackgroundTasks, []int{0}) {
 		t.Fatal("missing runtime resource contract")
 	}
-	if g.MinimumGoVersion() != "1.26.8" {
+	if g.MinimumGoVersion() != "1.26.10" {
 		t.Fatal("unexpected toolchain")
 	}
 	for _, file := range files {
@@ -78,7 +78,7 @@ func TestStartupAssembly(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The dependency must work even when the input lists the browser first.
-	files, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, OutDirName: "out", GoVersion: "1.26.8", Wirings: []compiler.ComponentWiring{{Name: "browser-backend", Wiring: browser}, {Name: "otel-tracing", Wiring: runtime}, {Name: "postgres-adapter", Wiring: database}}})
+	files, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, OutDirName: "out", GoVersion: "1.26.10", Wirings: []compiler.ComponentWiring{{Name: "browser-backend", Wiring: browser}, {Name: "otel-tracing", Wiring: runtime}, {Name: "postgres-adapter", Wiring: database}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +315,7 @@ func testGeneratedRuntime(t *testing.T, g *Generator, ctx gen.Context, local boo
 	}
 	if ctx.PeerConfigs["kubernetes-service"] != nil {
 		deployment := ctx
-		deployment.GoVersion = "1.26.8"
+		deployment.GoVersion = "1.26.10"
 		deployment.OutputNamespace = "deploy"
 		deployment.ComponentConfig = ctx.PeerConfigs["kubernetes-service"]
 		generated, _, err := new(kubernetesservice.Generator).Generate(deployment)
@@ -324,7 +324,7 @@ func testGeneratedRuntime(t *testing.T, g *Generator, ctx gen.Context, local boo
 		}
 		files = append(files, generated...)
 	}
-	shared, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: fixture().ModuleName, OutDirName: "out", GoVersion: "1.26.8", Wirings: wirings})
+	shared, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: fixture().ModuleName, OutDirName: "out", GoVersion: "1.26.10", Wirings: wirings})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -545,7 +545,7 @@ func TestBrowserAssemblyUsesDeclaredPool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	shared, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, OutDirName: ctx.OutDirName, GoVersion: "1.26.8", Wirings: []compiler.ComponentWiring{{Name: "browser-backend", Wiring: backend}, {Name: "postgres-adapter", Wiring: pool}, {Name: "otel-tracing", Wiring: runtime}}})
+	shared, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, OutDirName: ctx.OutDirName, GoVersion: "1.26.10", Wirings: []compiler.ComponentWiring{{Name: "browser-backend", Wiring: backend}, {Name: "postgres-adapter", Wiring: pool}, {Name: "otel-tracing", Wiring: runtime}}})
 	if err != nil {
 		t.Fatal(err)
 	}

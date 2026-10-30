@@ -175,30 +175,31 @@ class RecordChecks(unittest.TestCase):
         self.assertEqual(list(self.root.glob(".stego-records-*")), [])
 
     def test_exact_consumer_policy_and_both_signatures_precede_output(self):
-        calls = []
-        def command(args, cwd, env, **limits):
-            self.assertFalse(self.output.exists())
-            self.assertNotEqual(cwd, self.inputs)
-            for key, value in [("--repo", "example/consumer"), ("--signer-digest", "a" * 40),
-                               ("--source-digest", "a" * 40), ("--source-ref", "refs/heads/main"),
-                               ("--cert-identity", "https://github.com/example/consumer/.github/workflows/images.yml@refs/heads/main"),
-                               ("--predicate-type", "https://slsa.dev/provenance/v1"),
-                               ("--cert-oidc-issuer", "https://token.actions.githubusercontent.com"),
-                               ("--hostname", "github.com"), ("--digest-alg", "sha256")]:
-                self.assertEqual(args[args.index(key) + 1], value)
-            self.assertIn("--deny-self-hosted-runners", args)
-            self.assertEqual(limits, {"timeout": 90, "limit": 4 << 20})
-            self.assertNotIn("HTTPS_PROXY", env)
-            calls.append(Path(args[3]).name)
-        with patch.object(records.verification.control, "command", side_effect=command):
-            result = self.verify()
-        self.assertEqual(calls, ["build.json", "image.json"])
-        self.assertTrue(result["records_authenticated"])
-        self.assertFalse(result["image_contents_checked"])
-        self.assertFalse(result["registry_publication_checked"])
-        self.assertNotIn("image_blob_bytes_checked", result)
-        self.assertEqual(self.output.stat().st_mode & 0o777, 0o700)
-        self.assertEqual((self.output / "image.json").stat().st_mode & 0o777, 0o600)
+        with self.subTest("ST-BLD-INV10-T ST-BLD-SP02-T ST-BLD-UC05-R03-T01 Both records are checked against the exact signer identity before any output exists"):
+            calls = []
+            def command(args, cwd, env, **limits):
+                self.assertFalse(self.output.exists())
+                self.assertNotEqual(cwd, self.inputs)
+                for key, value in [("--repo", "example/consumer"), ("--signer-digest", "a" * 40),
+                                   ("--source-digest", "a" * 40), ("--source-ref", "refs/heads/main"),
+                                   ("--cert-identity", "https://github.com/example/consumer/.github/workflows/images.yml@refs/heads/main"),
+                                   ("--predicate-type", "https://slsa.dev/provenance/v1"),
+                                   ("--cert-oidc-issuer", "https://token.actions.githubusercontent.com"),
+                                   ("--hostname", "github.com"), ("--digest-alg", "sha256")]:
+                    self.assertEqual(args[args.index(key) + 1], value)
+                self.assertIn("--deny-self-hosted-runners", args)
+                self.assertEqual(limits, {"timeout": 90, "limit": 4 << 20})
+                self.assertNotIn("HTTPS_PROXY", env)
+                calls.append(Path(args[3]).name)
+            with patch.object(records.verification.control, "command", side_effect=command):
+                result = self.verify()
+            self.assertEqual(calls, ["build.json", "image.json"])
+            self.assertTrue(result["records_authenticated"])
+            self.assertFalse(result["image_contents_checked"])
+            self.assertFalse(result["registry_publication_checked"])
+            self.assertNotIn("image_blob_bytes_checked", result)
+            self.assertEqual(self.output.stat().st_mode & 0o777, 0o700)
+            self.assertEqual((self.output / "image.json").stat().st_mode & 0o777, 0o600)
 
     def test_either_signature_failure_leaves_no_output(self):
         for failure in [1, 2]:
@@ -221,24 +222,25 @@ class RecordChecks(unittest.TestCase):
         self.write()
 
     def test_reusable_signer_and_caller_are_independent(self):
-        self.reusable_policy()
-        calls = []
-        def command(args, cwd, env, **limits):
-            self.assertFalse(self.output.exists())
-            for key, value in [("--repo", "example/consumer"), ("--source-digest", "a" * 40),
-                               ("--source-ref", "refs/heads/main"), ("--signer-digest", "9" * 40),
-                               ("--signer-workflow", "example/compiler/.github/workflows/application-target.yml"),
-                               ("--cert-oidc-issuer", "https://token.actions.githubusercontent.com"),
-                               ("--predicate-type", "https://slsa.dev/provenance/v1")]:
-                self.assertEqual(args[args.index(key) + 1], value)
-            for selector in ["--cert-identity", "--cert-identity-regex", "--signer-repo"]:
-                self.assertNotIn(selector, args)
-            self.assertIn("--deny-self-hosted-runners", args)
-            self.assertEqual(limits, {"timeout": 90, "limit": 4 << 20})
-            calls.append(Path(args[3]).name)
-        with patch.object(records.verification.control, "command", side_effect=command):
-            self.verify()
-        self.assertEqual(calls, ["build.json", "image.json"])
+        with self.subTest("ST-BLD-UC05-R03-T02 The reusable workflow signer is pinned by digest and workflow, with no identity regex"):
+            self.reusable_policy()
+            calls = []
+            def command(args, cwd, env, **limits):
+                self.assertFalse(self.output.exists())
+                for key, value in [("--repo", "example/consumer"), ("--source-digest", "a" * 40),
+                                   ("--source-ref", "refs/heads/main"), ("--signer-digest", "9" * 40),
+                                   ("--signer-workflow", "example/compiler/.github/workflows/application-target.yml"),
+                                   ("--cert-oidc-issuer", "https://token.actions.githubusercontent.com"),
+                                   ("--predicate-type", "https://slsa.dev/provenance/v1")]:
+                    self.assertEqual(args[args.index(key) + 1], value)
+                for selector in ["--cert-identity", "--cert-identity-regex", "--signer-repo"]:
+                    self.assertNotIn(selector, args)
+                self.assertIn("--deny-self-hosted-runners", args)
+                self.assertEqual(limits, {"timeout": 90, "limit": 4 << 20})
+                calls.append(Path(args[3]).name)
+            with patch.object(records.verification.control, "command", side_effect=command):
+                self.verify()
+            self.assertEqual(calls, ["build.json", "image.json"])
 
     def test_reusable_policy_requires_all_signer_fields(self):
         self.reusable_policy()

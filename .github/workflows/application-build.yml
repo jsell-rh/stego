@@ -50,7 +50,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
-          go-version: '1.26.8'
+          go-version: '1.26.10'
           cache: true
       - name: Inspect the runner SDK and prepare the pinned official SDK
         timeout-minutes: 5

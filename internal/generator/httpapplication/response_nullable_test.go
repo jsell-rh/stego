@@ -123,7 +123,13 @@ func TestHTTPResponseNullableDeterminism(t *testing.T) {
 }
 
 func TestGeneratedHTTPResponseNullable(t *testing.T) {
-	checkGeneratedResponses(t, nullableResponseContext(), nullableResponseRuntime, []string{"", "TestNullablePresence", "TestNullableOwnsValues", "TestNullableRejectsInvalidValues", "TestNullableNumericBounds"})
+	passed := checkGeneratedResponses(t, nullableResponseContext(), nullableResponseRuntime, []string{"", "TestNullablePresence", "TestNullableOwnsValues", "TestNullableRejectsInvalidValues", "TestNullableNumericBounds"})
+	t.Run("ST-SUP-RC10-OC25-T02 The emitted nullable response mappings refuse invalid values", func(t *testing.T) {
+		requireGeneratedResponses(t, passed, "TestNullableRejectsInvalidValues", "TestNullableNumericBounds")
+	})
+	t.Run("ST-SUP-RC10-OC26-T02 The emitted nullable response mappings own their values", func(t *testing.T) {
+		requireGeneratedResponses(t, passed, "TestNullableOwnsValues")
+	})
 }
 
 const nullableResponseRuntime = `package responses

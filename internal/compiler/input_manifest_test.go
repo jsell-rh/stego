@@ -111,7 +111,7 @@ func TestInputManifestRejectsPlanSubstitution(t *testing.T) {
 
 func TestManifestUsesCapturedModuleBytes(t *testing.T) {
 	input := snapshotTestInput(t)
-	original := []byte("module example.com/snapshot\ngo 1.26.8\nrequire example.com/original v1.0.0\n")
+	original := []byte("module example.com/snapshot\ngo 1.26.10\nrequire example.com/original v1.0.0\n")
 	path := filepath.Join(input.ProjectDir, "go.mod")
 	writeFile(t, path, string(original))
 	service, err := os.ReadFile(filepath.Join(input.ProjectDir, "service.yaml"))
@@ -122,8 +122,8 @@ func TestManifestUsesCapturedModuleBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, path, "module example.com/snapshot\ngo 1.26.8\nrequire example.com/intermediate v1.0.0\n")
-	result, err := mergeCapturedModule(data, snapshots["go.mod"].Exists, gen.File{Path: "go.mod", Content: []byte("module example.com/snapshot\ngo 1.26.8\n")})
+	writeFile(t, path, "module example.com/snapshot\ngo 1.26.10\nrequire example.com/intermediate v1.0.0\n")
+	result, err := mergeCapturedModule(data, snapshots["go.mod"].Exists, gen.File{Path: "go.mod", Content: []byte("module example.com/snapshot\ngo 1.26.10\n")})
 	if err != nil || !bytes.Equal(result.Content, original) {
 		t.Fatal("module merge read later filesystem data", err)
 	}
@@ -233,7 +233,7 @@ func TestOversizedStateCannotBeSaved(t *testing.T) {
 func BenchmarkProjectInputManifest(b *testing.B) {
 	for _, size := range []int{14, 1024} {
 		b.Run(fmt.Sprint(size), func(b *testing.B) {
-			input := ReconcilerInput{ModuleName: "example.com/demo", GoVersion: "1.26.8", RegistrySHA: "local"}
+			input := ReconcilerInput{ModuleName: "example.com/demo", GoVersion: "1.26.10", RegistrySHA: "local"}
 			snapshots := map[string]fileSnapshot{}
 			for _, name := range []string{"service.yaml", "go.mod", "go.sum", ".stego/config.yaml"} {
 				snapshots[name] = fileSnapshot{Exists: true, Hash: strings.Repeat("a", 64), Mode: 0644}
@@ -256,13 +256,15 @@ func BenchmarkProjectInputManifest(b *testing.B) {
 }
 
 func TestInputManifestMustMatchAppliedState(t *testing.T) {
-	m := manifestFixture()
-	for _, state := range []*AppliedState{
-		{Inputs: m, ServiceHash: strings.Repeat("b", 64), RegistrySHA: "local"},
-		{Inputs: m, ServiceHash: strings.Repeat("a", 64), RegistrySHA: "other"},
-	} {
-		if err := validateStatePaths(&State{LastApplied: state}); err == nil {
-			t.Fatal("contradictory input record accepted")
+	t.Run("ST-GEN-INV02-T A record whose input manifest disagrees with it is refused", func(t *testing.T) {
+		m := manifestFixture()
+		for _, state := range []*AppliedState{
+			{Inputs: m, ServiceHash: strings.Repeat("b", 64), RegistrySHA: "local"},
+			{Inputs: m, ServiceHash: strings.Repeat("a", 64), RegistrySHA: "other"},
+		} {
+			if err := validateStatePaths(&State{LastApplied: state}); err == nil {
+				t.Fatal("contradictory input record accepted")
+			}
 		}
-	}
+	})
 }

@@ -23,255 +23,301 @@ func definition() Application {
 		{Name: []string{"delete", "record"}, Method: "DELETE", Path: "/records/{id}", ID: true, Confirm: true, Success: []int{204}},
 	}}
 }
+
 func TestCommandWorkflowAndBoundaries(t *testing.T) {
-	directory := t.TempDir()
-	config := filepath.Join(directory, "config.json")
-	t.Setenv("TEST_CLI_CONFIG", config)
-	token := filepath.Join(directory, "token")
-	if err := os.WriteFile(token, []byte("first-token"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	var paths atomic.Value
-	var calls atomic.Int32
-	var mode atomic.Int32
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
-		paths.Store(r.URL.Path)
-		want := "first-token"
-		if mode.Load() == 1 {
-			want = "second-token"
+	proof := func(t *testing.T) {
+		directory := t.TempDir()
+		config := filepath.Join(directory, "config.json")
+		t.Setenv("TEST_CLI_CONFIG", config)
+		token := filepath.Join(directory, "token")
+		if err := os.WriteFile(token, []byte("first-token"), 0600); err != nil {
+			t.Fatal(err)
 		}
-		if r.Header.Get("Authorization") != "Bearer "+want {
-			t.Error("incorrect token")
+		var paths atomic.Value
+		var calls atomic.Int32
+		var mode atomic.Int32
+		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls.Add(1)
+			paths.Store(r.URL.Path)
+			want := "first-token"
+			if mode.Load() == 1 {
+				want = "second-token"
+			}
+			if r.Header.Get("Authorization") != "Bearer "+want {
+				t.Error("incorrect token")
+			}
+			w.Header().Set("Content-Type", "application/json")
+			switch mode.Load() {
+			case 2:
+				w.WriteHeader(500)
+				w.Write([]byte("private response first-token"))
+				return
+			case 3:
+				w.Header().Set("Location", "https://elsewhere.invalid")
+				w.WriteHeader(302)
+				return
+			case 4:
+				w.Write([]byte(`{"id":"a","id":"b"}`))
+				return
+			}
+			switch r.Method {
+			case "POST":
+				var body struct {
+					Name  string
+					Tags  []string
+					Count int64
+				}
+				if json.NewDecoder(r.Body).Decode(&body) != nil || body.Name != "sample" {
+					t.Error("invalid body")
+				}
+				w.WriteHeader(201)
+				w.Write([]byte(`{"id":"one","name":"sample","sequence":9007199254740993}`))
+			case "DELETE":
+				if r.URL.Path != "/records/one" {
+					t.Error("incorrect delete path")
+				}
+				w.WriteHeader(204)
+			default:
+				if r.URL.RawQuery != "" && r.URL.Query().Get("search") != "literal%_!" {
+					t.Error("query encoding")
+				}
+				w.Write([]byte(`{"id":"one","name":"sample","sequence":9007199254740993}`))
+			}
+		}))
+		defer server.Close()
+		ca := filepath.Join(directory, "ca.pem")
+		if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0644); err != nil {
+			t.Fatal(err)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		switch mode.Load() {
-		case 2:
-			w.WriteHeader(500)
-			w.Write([]byte("private response first-token"))
-			return
-		case 3:
-			w.Header().Set("Location", "https://elsewhere.invalid")
-			w.WriteHeader(302)
-			return
-		case 4:
-			w.Write([]byte(`{"id":"a","id":"b"}`))
-			return
+		run := func(args ...string) (string, error) {
+			var output bytes.Buffer
+			err := Run(context.Background(), definition(), args, &output)
+			return output.String(), err
 		}
-		switch r.Method {
-		case "POST":
-			var body struct {
-				Name  string
-				Tags  []string
-				Count int64
-			}
-			if json.NewDecoder(r.Body).Decode(&body) != nil || body.Name != "sample" {
-				t.Error("invalid body")
-			}
-			w.WriteHeader(201)
-			w.Write([]byte(`{"id":"one","name":"sample","sequence":9007199254740993}`))
-		case "DELETE":
-			if r.URL.Path != "/records/one" {
-				t.Error("incorrect delete path")
-			}
-			w.WriteHeader(204)
-		default:
-			if r.URL.RawQuery != "" && r.URL.Query().Get("search") != "literal%_!" {
-				t.Error("query encoding")
-			}
-			w.Write([]byte(`{"id":"one","name":"sample","sequence":9007199254740993}`))
+		login := []string{"login", "--url", server.URL, "--token-file", token, "--ca-file", ca}
+		if _, err := run(login...); err != nil {
+			t.Fatal(err)
 		}
-	}))
-	defer server.Close()
-	ca := filepath.Join(directory, "ca.pem")
-	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0644); err != nil {
-		t.Fatal(err)
-	}
-	run := func(args ...string) (string, error) {
-		var output bytes.Buffer
-		err := Run(context.Background(), definition(), args, &output)
-		return output.String(), err
-	}
-	login := []string{"login", "--url", server.URL, "--token-file", token, "--ca-file", ca}
-	if _, err := run(login...); err != nil {
-		t.Fatal(err)
-	}
-	saved, err := os.ReadFile(config)
-	if err != nil || bytes.Contains(saved, []byte("first-token")) {
-		t.Fatal("token copied to configuration")
-	}
-	info, err := os.Stat(config)
-	if err != nil || info.Mode().Perm() != 0600 {
-		t.Fatal("configuration permissions")
-	}
-	for _, args := range [][]string{
-		{"create", "record", "--name", "sample", "--tags", `["a","b"]`, "--count", "9007199254740993"},
-		{"get", "record", "one"}, {"list", "records", "--search", "literal%_!"}, {"delete", "record", "--yes", "one"},
-	} {
-		if _, err := run(args...); err != nil {
+		saved, err := os.ReadFile(config)
+		if err != nil || bytes.Contains(saved, []byte("first-token")) {
+			t.Fatal("token copied to configuration")
+		}
+		info, err := os.Stat(config)
+		if err != nil || info.Mode().Perm() != 0600 {
+			t.Fatal("configuration permissions")
+		}
+		for _, args := range [][]string{
+			{"create", "record", "--name", "sample", "--tags", `["a","b"]`, "--count", "9007199254740993"},
+			{"get", "record", "one"}, {"list", "records", "--search", "literal%_!"}, {"delete", "record", "--yes", "one"},
+		} {
+			if _, err := run(args...); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if output, err := run("get", "record", "one"); err != nil || !strings.Contains(output, "9007199254740993") {
+			t.Fatal("exact response number changed")
+		}
+		one := definition()
+		one.Commands = append(one.Commands, Command{Name: []string{"whoami"}, Method: "GET", Path: "/apis/example.test/v1/records", Success: []int{200}})
+		var identity bytes.Buffer
+		if err := Run(context.Background(), one, []string{"whoami"}, &identity); err != nil {
+			t.Fatal(err)
+		}
+		if paths.Load() != "/apis/example.test/v1/records" {
+			t.Fatal("dotted API path changed")
+		}
+		if err := os.Chmod(config, 0644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := run("get", "record", "one"); err == nil {
+			t.Fatal("public configuration accepted")
+		}
+		os.Chmod(config, 0600)
+		if err := os.Chmod(directory, 0777); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := run("get", "record", "one"); err == nil {
+			t.Fatal("writable configuration directory accepted")
+		}
+		os.Chmod(directory, 0700)
+		// A rotation is read by the next command. No token enters the config file.
+		mode.Store(1)
+		if err := os.WriteFile(token, []byte("second-token"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := run("get", "record", "one"); err != nil {
+			t.Fatal(err)
+		}
+		mode.Store(0)
+		os.WriteFile(token, []byte("first-token"), 0600)
+		before := calls.Load()
+		for _, args := range [][]string{
+			{"create", "record", "--name", "sample", "--name", "duplicate"}, {"create", "record", "--unknown", "x"}, {"create", "record"},
+			{"create", "record", "--name", "sample", "--count", "1.5"}, {"create", "record", "--name", "sample", "--tags", `"wrong"`},
+			{"delete", "record", "one"}, {"get", "record", "../escape"}, {"get", "record", "one/else"}, {"get", "record", "one", "extra"},
+			{"login", "--url", server.URL, "--token", "first-token"}, {"get", "record", "one", "--body", "file"},
+			{"create", "record", "--name", string([]byte{255})}, {"create", "record", "--name", strings.Repeat("x", 4097)},
+		} {
+			if _, err := run(args...); err == nil {
+				t.Fatalf("invalid args accepted: %q", args)
+			}
+		}
+		body := filepath.Join(directory, "body.json")
+		for _, data := range []string{`{"name":"a","name":"b"}`, `{"name":"\ud800"}`, `{"name":null}`, `{"name":"sample","admin":true}`, `[]`, `{"name":"sample"} {}`, `{"name":"sample","tags":["\ud800"]}`} {
+			os.WriteFile(body, []byte(data), 0600)
+			if _, err := run("create", "record", "--body", body); err == nil {
+				t.Fatal("invalid body accepted")
+			}
+		}
+		if calls.Load() != before {
+			t.Fatal("invalid request reached server")
+		}
+		os.WriteFile(body, []byte(`{"name":"sample"}`), 0600)
+		if _, err := run("create", "record", "--body", body); err != nil {
+			t.Fatal(err)
+		}
+		// The same valid body behind a leaf symbolic link must not be read.
+		bodyLink := filepath.Join(directory, "body-link.json")
+		if err := os.Symlink(body, bodyLink); err != nil {
+			t.Fatal(err)
+		}
+		before = calls.Load()
+		if _, err := run("create", "record", "--body", bodyLink); err == nil {
+			t.Fatal("body symlink accepted")
+		}
+		if calls.Load() != before {
+			t.Fatal("symlink body reached server")
+		}
+		for _, value := range []int32{2, 3, 4} {
+			mode.Store(value)
+			before = calls.Load()
+			out, err := run("get", "record", "one")
+			if err == nil || out != "" || strings.Contains(err.Error(), "private") || strings.Contains(err.Error(), "first-token") {
+				t.Fatal("response was not rejected safely")
+			}
+			if calls.Load() != before+1 {
+				t.Fatal("request replayed")
+			}
+		}
+		mode.Store(0)
+		if err := os.Chmod(token, 0644); err != nil {
+			t.Fatal(err)
+		}
+		before = calls.Load()
+		if _, err := run("get", "record", "one"); err == nil {
+			t.Fatal("public token file accepted")
+		}
+		if calls.Load() != before {
+			t.Fatal("public credential reached server")
+		}
+		os.Chmod(token, 0600)
+		if _, err := run("logout"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(config); !os.IsNotExist(err) {
+			t.Fatal("logout retained config")
+		}
+		if _, err := os.Stat(token); err != nil {
+			t.Fatal("logout removed externally owned token")
+		}
+		if err := os.Symlink(body, config); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := run(login...); err == nil {
+			t.Fatal("configuration symlink accepted")
+		}
+		os.Remove(config)
+		fifo := filepath.Join(directory, "fifo")
+		if err := syscall.Mkfifo(fifo, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := run("create", "record", "--body", fifo); err == nil {
+			t.Fatal("FIFO body accepted")
+		}
+		if _, err := run("login", "--url", server.URL, "--token-file", fifo, "--ca-file", ca); err == nil {
+			t.Fatal("FIFO credential accepted")
+		}
+		// A credential file and a CA file behind a leaf symbolic link must not be read.
+		tokenLink := filepath.Join(directory, "token-link")
+		if err := os.Symlink(token, tokenLink); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := run("login", "--url", server.URL, "--token-file", tokenLink, "--ca-file", ca); err == nil {
+			t.Fatal("token symlink accepted")
+		}
+		caLink := filepath.Join(directory, "ca-link.pem")
+		if err := os.Symlink(ca, caLink); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := run("login", "--url", server.URL, "--token-file", token, "--ca-file", caLink); err == nil {
+			t.Fatal("CA symlink accepted")
+		}
+		// The same login through the files themselves still works, so the two
+		// refusals above come from the links.
+		if _, err := run(login...); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := run("login", "--url", strings.Replace(server.URL, "https:", "http:", 1), "--token-file", token, "--ca-file", ca); err == nil {
+			t.Fatal("plaintext destination accepted")
+		}
+		if _, err := run("--help"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if output, err := run("get", "record", "one"); err != nil || !strings.Contains(output, "9007199254740993") {
-		t.Fatal("exact response number changed")
-	}
-	one := definition()
-	one.Commands = append(one.Commands, Command{Name: []string{"whoami"}, Method: "GET", Path: "/apis/example.test/v1/records", Success: []int{200}})
-	var identity bytes.Buffer
-	if err := Run(context.Background(), one, []string{"whoami"}, &identity); err != nil {
-		t.Fatal(err)
-	}
-	if paths.Load() != "/apis/example.test/v1/records" {
-		t.Fatal("dotted API path changed")
-	}
-	if err := os.Chmod(config, 0644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := run("get", "record", "one"); err == nil {
-		t.Fatal("public configuration accepted")
-	}
-	os.Chmod(config, 0600)
-	if err := os.Chmod(directory, 0777); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := run("get", "record", "one"); err == nil {
-		t.Fatal("writable configuration directory accepted")
-	}
-	os.Chmod(directory, 0700)
-	// A rotation is read by the next command. No token enters the config file.
-	mode.Store(1)
-	if err := os.WriteFile(token, []byte("second-token"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := run("get", "record", "one"); err != nil {
-		t.Fatal(err)
-	}
-	mode.Store(0)
-	os.WriteFile(token, []byte("first-token"), 0600)
-	before := calls.Load()
-	for _, args := range [][]string{
-		{"create", "record", "--name", "sample", "--name", "duplicate"}, {"create", "record", "--unknown", "x"}, {"create", "record"},
-		{"create", "record", "--name", "sample", "--count", "1.5"}, {"create", "record", "--name", "sample", "--tags", `"wrong"`},
-		{"delete", "record", "one"}, {"get", "record", "../escape"}, {"get", "record", "one/else"}, {"get", "record", "one", "extra"},
-		{"login", "--url", server.URL, "--token", "first-token"}, {"get", "record", "one", "--body", "file"},
-		{"create", "record", "--name", string([]byte{255})}, {"create", "record", "--name", strings.Repeat("x", 4097)},
-	} {
-		if _, err := run(args...); err == nil {
-			t.Fatalf("invalid args accepted: %q", args)
-		}
-	}
-	body := filepath.Join(directory, "body.json")
-	for _, data := range []string{`{"name":"a","name":"b"}`, `{"name":"\ud800"}`, `{"name":null}`, `{"name":"sample","admin":true}`, `[]`, `{"name":"sample"} {}`, `{"name":"sample","tags":["\ud800"]}`} {
-		os.WriteFile(body, []byte(data), 0600)
-		if _, err := run("create", "record", "--body", body); err == nil {
-			t.Fatal("invalid body accepted")
-		}
-	}
-	if calls.Load() != before {
-		t.Fatal("invalid request reached server")
-	}
-	os.WriteFile(body, []byte(`{"name":"sample"}`), 0600)
-	if _, err := run("create", "record", "--body", body); err != nil {
-		t.Fatal(err)
-	}
-	for _, value := range []int32{2, 3, 4} {
-		mode.Store(value)
-		before = calls.Load()
-		out, err := run("get", "record", "one")
-		if err == nil || out != "" || strings.Contains(err.Error(), "private") || strings.Contains(err.Error(), "first-token") {
-			t.Fatal("response was not rejected safely")
-		}
-		if calls.Load() != before+1 {
-			t.Fatal("request replayed")
-		}
-	}
-	mode.Store(0)
-	if err := os.Chmod(token, 0644); err != nil {
-		t.Fatal(err)
-	}
-	before = calls.Load()
-	if _, err := run("get", "record", "one"); err == nil {
-		t.Fatal("public token file accepted")
-	}
-	if calls.Load() != before {
-		t.Fatal("public credential reached server")
-	}
-	os.Chmod(token, 0600)
-	if _, err := run("logout"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(config); !os.IsNotExist(err) {
-		t.Fatal("logout retained config")
-	}
-	if _, err := os.Stat(token); err != nil {
-		t.Fatal("logout removed externally owned token")
-	}
-	if err := os.Symlink(body, config); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := run(login...); err == nil {
-		t.Fatal("configuration symlink accepted")
-	}
-	os.Remove(config)
-	fifo := filepath.Join(directory, "fifo")
-	if err := syscall.Mkfifo(fifo, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := run("create", "record", "--body", fifo); err == nil {
-		t.Fatal("FIFO body accepted")
-	}
-	if _, err := run("login", "--url", server.URL, "--token-file", fifo, "--ca-file", ca); err == nil {
-		t.Fatal("FIFO credential accepted")
-	}
-	if _, err := run("login", "--url", strings.Replace(server.URL, "https:", "http:", 1), "--token-file", token, "--ca-file", ca); err == nil {
-		t.Fatal("plaintext destination accepted")
-	}
-	if _, err := run("--help"); err != nil {
-		t.Fatal(err)
-	}
+	t.Run("ST-SUP-RC04-OC03-T01 The emitted CLI accepts only verified HTTPS", proof)
+	t.Run("ST-SUP-RC04-OC04-T01 The emitted CLI follows no redirect", proof)
+	t.Run("ST-SUP-RC04-OC05-T01 The emitted CLI does not retry after a failure", proof)
+	t.Run("ST-SUP-RC04-OC06-T01 The emitted CLI keeps its configuration private", proof)
+	t.Run("ST-SUP-RC04-OC07-T01 The emitted CLI keeps the token file external", proof)
+	t.Run("ST-SUP-RC04-OC09-T01 The emitted CLI reads only regular input files", proof)
+	t.Run("ST-SUP-RC04-OC10-T01 Invalid bounded input to the emitted CLI reaches no server", proof)
+	t.Run("ST-SUP-RC04-OC11-T01 The emitted CLI keeps exact numbers and quiet errors", proof)
 }
+
 func TestDefinitionAndJSONLimits(t *testing.T) {
-	app := definition()
-	app.Commands = append(app.Commands, Command{Name: []string{"whoami"}, Method: "GET", Path: "/records/one", Success: []int{200}})
-	if err := validate(app); err != nil {
-		t.Fatal(err)
-	}
-	app.Commands = append(app.Commands, Command{Name: []string{"get"}, Method: "GET", Path: "/records/one", Success: []int{200}})
-	if validate(app) == nil {
-		t.Fatal("ambiguous command prefix accepted")
-	}
-	app = definition()
-	app.Commands = append(app.Commands, app.Commands[0])
-	if validate(app) == nil {
-		t.Fatal("duplicate command accepted")
-	}
-	for _, path := range []string{"//other/records", "https://other/records", "/records/../escape", "/records/%2fescape", "/records?query=true"} {
-		app = definition()
-		app.Commands[0].Path = path
-		if validate(app) == nil {
-			t.Fatal("invalid route accepted")
-		}
-	}
-	for _, path := range []string{"/.well-known/info", "/apis/example.test/v1/records", "/2026-09/records", "/records:inspect"} {
-		app = definition()
-		app.Commands[0].Path = path
+	t.Run("ST-SUP-RC04-OC01-T02 The emitted CLI checks command definitions and JSON limits", func(t *testing.T) {
+		app := definition()
+		app.Commands = append(app.Commands, Command{Name: []string{"whoami"}, Method: "GET", Path: "/records/one", Success: []int{200}})
 		if err := validate(app); err != nil {
-			t.Fatalf("valid service route %q rejected: %v", path, err)
+			t.Fatal(err)
 		}
-	}
-	app = definition()
-	app.Commands[0].Fields[0].Flag = "body"
-	if validate(app) == nil {
-		t.Fatal("reserved flag accepted")
-	}
-	for _, data := range []string{strings.Repeat("[", 33) + "0" + strings.Repeat("]", 33), `{"nested":{"a":1,"a":2}}`, string([]byte{255}), `"\ud800"`, "true false"} {
-		if validJSON([]byte(data)) {
-			t.Fatal("invalid JSON accepted")
+		app.Commands = append(app.Commands, Command{Name: []string{"get"}, Method: "GET", Path: "/records/one", Success: []int{200}})
+		if validate(app) == nil {
+			t.Fatal("ambiguous command prefix accepted")
 		}
-	}
-	if !validJSON([]byte(`{"value":9007199254740993,"unicode":"\ud83d\ude00"}`)) {
-		t.Fatal("valid JSON rejected")
-	}
+		app = definition()
+		app.Commands = append(app.Commands, app.Commands[0])
+		if validate(app) == nil {
+			t.Fatal("duplicate command accepted")
+		}
+		for _, path := range []string{"//other/records", "https://other/records", "/records/../escape", "/records/%2fescape", "/records?query=true"} {
+			app = definition()
+			app.Commands[0].Path = path
+			if validate(app) == nil {
+				t.Fatal("invalid route accepted")
+			}
+		}
+		for _, path := range []string{"/.well-known/info", "/apis/example.test/v1/records", "/2026-09/records", "/records:inspect"} {
+			app = definition()
+			app.Commands[0].Path = path
+			if err := validate(app); err != nil {
+				t.Fatalf("valid service route %q rejected: %v", path, err)
+			}
+		}
+		app = definition()
+		app.Commands[0].Fields[0].Flag = "body"
+		if validate(app) == nil {
+			t.Fatal("reserved flag accepted")
+		}
+		for _, data := range []string{strings.Repeat("[", 33) + "0" + strings.Repeat("]", 33), `{"nested":{"a":1,"a":2}}`, string([]byte{255}), `"\ud800"`, "true false"} {
+			if validJSON([]byte(data)) {
+				t.Fatal("invalid JSON accepted")
+			}
+		}
+		if !validJSON([]byte(`{"value":9007199254740993,"unicode":"\ud83d\ude00"}`)) {
+			t.Fatal("valid JSON rejected")
+		}
+	})
 }
 
 func TestExplicitEmptyResponses(t *testing.T) {
@@ -304,49 +350,55 @@ func TestExplicitEmptyResponses(t *testing.T) {
 	if err := Run(context.Background(), definition(), []string{"login", "--url", server.URL, "--token-file", token, "--ca-file", ca}, &output); err != nil {
 		t.Fatal(err)
 	}
-	for _, test := range []struct {
-		name      string
-		status    int
-		body      string
-		empty     []int
-		wantError bool
-	}{
-		{"accepted empty", 202, "", []int{202}, false},
-		{"accepted JSON", 202, `{"state":"pending"}`, nil, false},
-		{"missing JSON", 202, "", nil, true},
-		{"unexpected JSON", 202, `{"state":"pending"}`, []int{202}, true},
-		{"invalid JSON", 202, `{`, nil, true},
-		{"unaccepted HTTP code", 201, "", []int{202}, true},
-		{"no content", 204, "", nil, false},
-		{"reset content", 205, "", nil, false},
-	} {
-		t.Run(test.name, func(t *testing.T) {
+	if !t.Run("ST-SUP-RC04-OC12-T01 The emitted CLI holds the declared empty response contract", func(t *testing.T) {
+		for _, test := range []struct {
+			name      string
+			status    int
+			body      string
+			empty     []int
+			wantError bool
+		}{
+			{"accepted empty", 202, "", []int{202}, false},
+			{"accepted JSON", 202, `{"state":"pending"}`, nil, false},
+			{"missing JSON", 202, "", nil, true},
+			{"unexpected JSON", 202, `{"state":"pending"}`, []int{202}, true},
+			{"invalid JSON", 202, `{`, nil, true},
+			{"unaccepted HTTP code", 201, "", []int{202}, true},
+			{"no content", 204, "", nil, false},
+			{"reset content", 205, "", nil, false},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				app := definition()
+				app.Commands = app.Commands[3:]
+				app.Commands[0].Success = []int{202, 204, 205}
+				app.Commands[0].EmptyResponses = test.empty
+				selected.Store(reply{code: test.status, body: test.body})
+				output.Reset()
+				err := Run(context.Background(), app, []string{"delete", "record", "one", "--yes"}, &output)
+				if (err != nil) != test.wantError {
+					t.Fatal("response contract", err)
+				}
+				if test.wantError && output.Len() != 0 {
+					t.Fatal("failed response wrote output")
+				}
+				if !test.wantError && test.body == "" && output.Len() != 0 {
+					t.Fatal("empty response wrote output")
+				}
+			})
+		}
+	}) {
+		return
+	}
+	t.Run("ST-SUP-RC04-OC01-T01 The emitted CLI checks an empty response declaration before any request", func(t *testing.T) {
+		for _, empty := range [][]int{{202, 202}, {201}, {400}, {202, 204, 205, 206, 207}} {
 			app := definition()
 			app.Commands = app.Commands[3:]
 			app.Commands[0].Success = []int{202, 204, 205}
-			app.Commands[0].EmptyResponses = test.empty
-			selected.Store(reply{code: test.status, body: test.body})
-			output.Reset()
-			err := Run(context.Background(), app, []string{"delete", "record", "one", "--yes"}, &output)
-			if (err != nil) != test.wantError {
-				t.Fatal("response contract", err)
+			app.Commands[0].EmptyResponses = empty
+			before := calls.Load()
+			if err := Run(context.Background(), app, []string{"delete", "record", "one", "--yes"}, &output); err == nil || calls.Load() != before {
+				t.Fatal("invalid declaration reached the server", err)
 			}
-			if test.wantError && output.Len() != 0 {
-				t.Fatal("failed response wrote output")
-			}
-			if !test.wantError && test.body == "" && output.Len() != 0 {
-				t.Fatal("empty response wrote output")
-			}
-		})
-	}
-	for _, empty := range [][]int{{202, 202}, {201}, {400}, {202, 204, 205, 206, 207}} {
-		app := definition()
-		app.Commands = app.Commands[3:]
-		app.Commands[0].Success = []int{202, 204, 205}
-		app.Commands[0].EmptyResponses = empty
-		before := calls.Load()
-		if err := Run(context.Background(), app, []string{"delete", "record", "one", "--yes"}, &output); err == nil || calls.Load() != before {
-			t.Fatal("invalid declaration reached the server", err)
 		}
-	}
+	})
 }

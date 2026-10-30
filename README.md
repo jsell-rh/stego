@@ -3,15 +3,15 @@
 Service Templates, Extensible Generation & Operations.
 
 STEGO generates common service and client code from YAML declarations and
-reusable components. The output is plain Go, with no STEGO runtime dependency.
-Application fills and factories supply domain rules. The
-[enterprise goal](specs/enterprise-goal.md) records verified workflows and open
-work. Production use requires validation for the selected application and
+reusable components. The output is plain Go, with no framework dependency.
+Application fills and factories supply domain rules. The requirements are the
+Lathe model under `data/`; `lathe check` reports what is designed, built and
+proved. Production use requires validation for the selected application and
 deployment.
-The [Kubernetes service component](specs/kubernetes-service.md) supplies common
+The Kubernetes service component (a retired record, in git history) supplies common
 container build files, restricted Pod settings, network policy, and HTTPS probes.
 Its workload policies do not cover application-allocated namespaces. The
-[namespace allocator](specs/namespace-allocation.md) has an optional deny-all
+namespace allocator (a retired record, in git history) has an optional deny-all
 policy with admission protection. Allowed traffic and live network enforcement
 for the Hypershell Gateway profile remain open; the application has not enabled
 that policy.
@@ -68,7 +68,7 @@ workflows through the generated runtime.
 
 ## Prerequisites
 
-- Go 1.26.8+ ([install](https://go.dev/dl/))
+- Go 1.26.10+ ([install](https://go.dev/dl/))
 
 ## Build from source
 
@@ -91,8 +91,8 @@ mkdir my-service && cd my-service
 stego init -archetype rest-crud
 ```
 
-Consumers can [compose a pinned common registry with local application
-extensions](specs/registry-composition.md). Common component copies are not
+Consumers can compose a pinned common registry with local application
+extensions (a retired record, in git history). Common component copies are not
 required. Application output paths use `component_namespaces`; offline builds
 can select an explicit verified vendored checkout.
 Use the path of your STEGO checkout for `/path/to/stego`.
@@ -147,12 +147,12 @@ These checks do not replace application tests or dependency security review.
 
 Adapter version 4 requires verified database TLS by default. Configure
 `sslmode=verify-full` and a trusted server certificate. The
-[database TLS contract](specs/database-tls.md) describes private trust roots,
+database TLS contract (a retired record, in git history) describes private trust roots,
 host fallbacks, and the explicit loopback test exception.
 
 Set `DATABASE_URL` or `DATABASE_URL_FILE` for the service database. The file
 setting supports mounted secrets with bounded reads and private file permissions.
-See [database secret sources](specs/database-secret-source.md) for the source
+See database secret sources (a retired record, in git history) for the source
 rules and restart behavior.
 
 The PostgreSQL adapter prepares model metadata before concurrent work starts.
@@ -243,7 +243,8 @@ go build -o service ./out
 Six nouns: **Archetype**, **Component**, **Mixin**, **Service Declaration**, **Collection**, **Fill**.
 Seven operators: `use`, `with`, `mixin`, `gate`, `chain`, `fan-out`, `map`.
 
-See [specs/spec.md](specs/spec.md) for the full specification.
+The full specification is the Lathe model under `data/`; `npx lathe serve`
+browses it. The prose specs are retired; each record that came from one cites it at the commit that last held it.
 
 ## License
 

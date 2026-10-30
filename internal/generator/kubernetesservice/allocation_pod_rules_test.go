@@ -55,40 +55,42 @@ func TestAllocationPodRuleValidation(t *testing.T) {
 }
 
 func TestAllocationPodRulesKeepCommonGuards(t *testing.T) {
-	c := isolatedAllocationContext()
-	before, err := allocationConfig(c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	base := allocationPodObjects(before, before.Profiles[0], "true")
-	rule := object{"expression": "true", "message": "Application rule"}
-	p := c.ComponentConfig["allocation_profiles"].([]any)[0].(object)
-	p["pod_validations"] = []any{rule}
-	after, err := allocationConfig(c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	objects := allocationPodObjects(after, after.Profiles[0], "true")
-	spec := objects[0].(object)["spec"].(object)
-	checks := spec["validations"].([]any)
-	if !reflect.DeepEqual(checks[len(checks)-1], rule) {
-		t.Fatal("application rule changed")
-	}
-	spec["validations"] = checks[:len(checks)-1]
-	if !reflect.DeepEqual(objects, base) {
-		t.Fatal("application rule changed common policy or binding")
-	}
-	encoded, err := json.Marshal(after)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(encoded), "Application rule") {
-		t.Fatal("worker interprets application admission code")
-	}
-	p["pod_validations"] = []any{rule, rule}
-	if _, _, err := new(Generator).Generate(c); err == nil {
-		t.Fatal("duplicate rule was accepted")
-	}
+	t.Run("ST-SUP-RC15-OC29-T01 An application Pod rule adds one denial and changes nothing else", func(t *testing.T) {
+		c := isolatedAllocationContext()
+		before, err := allocationConfig(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		base := allocationPodObjects(before, before.Profiles[0], "true")
+		rule := object{"expression": "true", "message": "Application rule"}
+		p := c.ComponentConfig["allocation_profiles"].([]any)[0].(object)
+		p["pod_validations"] = []any{rule}
+		after, err := allocationConfig(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		objects := allocationPodObjects(after, after.Profiles[0], "true")
+		spec := objects[0].(object)["spec"].(object)
+		checks := spec["validations"].([]any)
+		if !reflect.DeepEqual(checks[len(checks)-1], rule) {
+			t.Fatal("application rule changed")
+		}
+		spec["validations"] = checks[:len(checks)-1]
+		if !reflect.DeepEqual(objects, base) {
+			t.Fatal("application rule changed common policy or binding")
+		}
+		encoded, err := json.Marshal(after)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(encoded), "Application rule") {
+			t.Fatal("worker interprets application admission code")
+		}
+		p["pod_validations"] = []any{rule, rule}
+		if _, _, err := new(Generator).Generate(c); err == nil {
+			t.Fatal("duplicate rule was accepted")
+		}
+	})
 }
 
 func TestAllocationPodRuleCredentialMounts(t *testing.T) {

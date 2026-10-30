@@ -9,7 +9,7 @@ import (
 func TestSourceState(t *testing.T) {
 	for _, tc := range []struct{ name, modified, want string }{{"clean", "false", "clean"}, {"changed", "true", "modified"}, {"absent", "", "unknown"}, {"invalid", "False", "unknown"}} {
 		t.Run(tc.name, func(t *testing.T) {
-			info := &debug.BuildInfo{GoVersion: "go1.26.8", Main: debug.Module{Version: "v1.2.3"}, Settings: []debug.BuildSetting{{Key: "vcs", Value: "git"}, {Key: "vcs.revision", Value: strings.Repeat("a", 40)}, {Key: "vcs.modified", Value: tc.modified}, {Key: "-ldflags", Value: "private-build-argument"}}}
+			info := &debug.BuildInfo{GoVersion: "go1.26.10", Main: debug.Module{Version: "v1.2.3"}, Settings: []debug.BuildSetting{{Key: "vcs", Value: "git"}, {Key: "vcs.revision", Value: strings.Repeat("a", 40)}, {Key: "vcs.modified", Value: tc.modified}, {Key: "-ldflags", Value: "private-build-argument"}}}
 			got := fromInfo(info)
 			if got.SourceState != tc.want || got.ModuleVersion != "v1.2.3" || got.Validate() != nil {
 				t.Fatal(got)

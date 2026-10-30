@@ -41,71 +41,84 @@ func TestAllocationNetworkIsolationManifest(t *testing.T) {
 			if err = json.Unmarshal(data, &objects); err != nil {
 				t.Fatal(err)
 			}
-			rules, guards, reserved := 0, 0, 0
-			for _, item := range objects {
-				if item["kind"] == "ClusterRole" {
-					for _, raw := range item["rules"].([]any) {
-						rule := raw.(object)
-						if !reflect.DeepEqual(rule["apiGroups"], []any{"networking.k8s.io"}) {
-							continue
-						}
-						rules++
-						if !reflect.DeepEqual(rule["resources"], []any{"networkpolicies"}) {
-							t.Fatal("unexpected network resource permission")
-						}
-						if reflect.DeepEqual(rule["verbs"], []any{"get", "patch"}) {
-							if !reflect.DeepEqual(rule["resourceNames"], []any{"stego-allocation"}) {
-								t.Fatal("network read is not restricted by name")
+			t.Run("ST-SUP-RC15-OC23-T01 Network isolation gives narrow NetworkPolicy permissions", func(t *testing.T) {
+				rules := 0
+				for _, item := range objects {
+					if item["kind"] == "ClusterRole" {
+						for _, raw := range item["rules"].([]any) {
+							rule := raw.(object)
+							if !reflect.DeepEqual(rule["apiGroups"], []any{"networking.k8s.io"}) {
+								continue
 							}
-						} else if !reflect.DeepEqual(rule["verbs"], []any{"create", "list"}) {
-							t.Fatal("allocator can change an unrestricted policy or delete a policy")
-						}
-					}
-				}
-				if item["kind"] != "ValidatingAdmissionPolicy" {
-					continue
-				}
-				spec := item["spec"].(object)
-				for _, raw := range spec["validations"].([]any) {
-					expression := raw.(object)["expression"].(string)
-					if strings.Contains(expression, "NetworkPolicy") {
-						t.Fatal("resource kind used in place of the API resource")
-					}
-					if strings.HasPrefix(expression, "request.resource.resource != 'networkpolicies'") {
-						guards++
-						for _, part := range []string{"stego-allocation", "request.operation != 'DELETE'", "'Ingress' in", "'Egress' in", "size(variables.o.spec.policyTypes) == 2", "size(variables.o.spec.ingress) == 0", "size(variables.o.spec.egress) == 0", "size(variables.o.spec.podSelector.matchLabels) == 0", "size(variables.o.spec.podSelector.matchExpressions) == 0", "namespaceObject.metadata.name", "\"tenant\""} {
-							if !strings.Contains(expression, part) {
-								t.Fatal("missing network constraint", part)
+							rules++
+							if !reflect.DeepEqual(rule["resources"], []any{"networkpolicies"}) {
+								t.Fatal("unexpected network resource permission")
+							}
+							if reflect.DeepEqual(rule["verbs"], []any{"get", "patch"}) {
+								if !reflect.DeepEqual(rule["resourceNames"], []any{"stego-allocation"}) {
+									t.Fatal("network read is not restricted by name")
+								}
+							} else if !reflect.DeepEqual(rule["verbs"], []any{"create", "list"}) {
+								t.Fatal("allocator can change an unrestricted policy or delete a policy")
 							}
 						}
-						if strings.Contains(expression, "\"other\"") {
-							t.Fatal("network permission includes a profile that did not select isolation")
+					}
+				}
+				if enabled && rules != 2 {
+					t.Fatal("network protection missing", rules)
+				}
+				if !enabled && rules != 0 {
+					t.Fatal("legacy profile gained network permissions")
+				}
+			})
+			t.Run("ST-SUP-RC15-OC24-T01 Network isolation gives a deny-all policy shape", func(t *testing.T) {
+				guards, reserved := 0, 0
+				for _, item := range objects {
+					if item["kind"] != "ValidatingAdmissionPolicy" {
+						continue
+					}
+					spec := item["spec"].(object)
+					for _, raw := range spec["validations"].([]any) {
+						expression := raw.(object)["expression"].(string)
+						if strings.Contains(expression, "NetworkPolicy") {
+							t.Fatal("resource kind used in place of the API resource")
+						}
+						if strings.HasPrefix(expression, "request.resource.resource != 'networkpolicies'") {
+							guards++
+							for _, part := range []string{"stego-allocation", "request.operation != 'DELETE'", "'Ingress' in", "'Egress' in", "size(variables.o.spec.policyTypes) == 2", "size(variables.o.spec.ingress) == 0", "size(variables.o.spec.egress) == 0", "size(variables.o.spec.podSelector.matchLabels) == 0", "size(variables.o.spec.podSelector.matchExpressions) == 0", "namespaceObject.metadata.name", "\"tenant\""} {
+								if !strings.Contains(expression, part) {
+									t.Fatal("missing network constraint", part)
+								}
+							}
+							if strings.Contains(expression, "\"other\"") {
+								t.Fatal("network permission includes a profile that did not select isolation")
+							}
+						}
+					}
+					for _, raw := range spec["matchConditions"].([]any) {
+						condition := raw.(object)["expression"].(string)
+						if strings.Contains(condition, "request.resource.resource == 'networkpolicies'") {
+							reserved++
+							if !strings.HasPrefix(condition, "(request.resource.resource == 'networkpolicies' || ") {
+								t.Fatal("admission can omit an added network policy")
+							}
+							if strings.Contains(condition, "namespaceObject") {
+								t.Fatal("namespace data used before admission validation")
+							}
+							validation := spec["validations"].([]any)[0].(object)["expression"].(string)
+							if !strings.Contains(validation, `namespaceObject.metadata.labels['stego.dev/allocation-profile'] in ["tenant"]`) || strings.Contains(validation, `"other"`) {
+								t.Fatal("network guard does not select the isolated profile")
+							}
 						}
 					}
 				}
-				for _, raw := range spec["matchConditions"].([]any) {
-					condition := raw.(object)["expression"].(string)
-					if strings.Contains(condition, "request.resource.resource == 'networkpolicies'") {
-						reserved++
-						if !strings.HasPrefix(condition, "(request.resource.resource == 'networkpolicies' || ") {
-							t.Fatal("admission can omit an added network policy")
-						}
-						if strings.Contains(condition, "namespaceObject") {
-							t.Fatal("namespace data used before admission validation")
-						}
-						validation := spec["validations"].([]any)[0].(object)["expression"].(string)
-						if !strings.Contains(validation, `namespaceObject.metadata.labels['stego.dev/allocation-profile'] in ["tenant"]`) || strings.Contains(validation, `"other"`) {
-							t.Fatal("network guard does not select the isolated profile")
-						}
-					}
+				if enabled && (guards != 1 || reserved != 1) {
+					t.Fatal("network protection missing", guards, reserved)
 				}
-			}
-			if enabled && (rules != 2 || guards != 1 || reserved != 1) {
-				t.Fatal("network protection missing", rules, guards, reserved)
-			}
-			if !enabled && (rules != 0 || guards != 0 || reserved != 0) {
-				t.Fatal("legacy profile gained network permissions")
-			}
+				if !enabled && (guards != 0 || reserved != 0) {
+					t.Fatal("legacy profile gained network permissions")
+				}
+			})
 			files, err := allocationFiles(c)
 			if err != nil {
 				t.Fatal(err)

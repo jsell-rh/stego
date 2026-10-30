@@ -70,75 +70,77 @@ func awaitBaseline(t *testing.T, events <-chan ScopedChange, names ...string) {
 }
 
 func TestWatchSetAddsRemovesAndReplacesNamespaces(t *testing.T) {
-	opened, closed := make(chan string, 16), make(chan string, 16)
-	client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
-		parts := strings.Split(r.URL.Path, "/")
-		if len(parts) != 6 || parts[3] != "namespaces" {
-			t.Error("unscoped request", r.URL.Path)
-			w.WriteHeader(403)
-			return
-		}
-		ns := parts[4]
-		if r.URL.Query().Get("watch") == "true" {
-			_ = json.NewEncoder(w).Encode(Object{"type": "BOOKMARK", "object": Object{"metadata": Object{"resourceVersion": "1"}}})
-			w.(http.Flusher).Flush()
-			opened <- ns
-			<-r.Context().Done()
-			closed <- ns
-			return
-		}
-		_ = json.NewEncoder(w).Encode(Object{"metadata": Object{"resourceVersion": "1"}, "items": []Object{scopedPod(ns, "pod-"+ns)}})
-	})
-	set, ctx, events, _ := startSet(t, client, WatchSetOptions{})
-	if err := set.Replace(ctx, []CollectionScope{scope("one"), scope("two")}); err != nil {
-		t.Fatal(err)
-	}
-	awaitBaseline(t, events, "one", "two")
-	takeSet(t, opened)
-	takeSet(t, opened)
-	if err := set.Replace(ctx, []CollectionScope{scope("two"), scope("three")}); err != nil {
-		t.Fatal(err)
-	}
-	if got := takeSet(t, closed); got != "one" {
-		t.Fatal("wrong watch closed", got)
-	}
-	event := takeSet(t, events)
-	if event.Change.Type != "REMOVED" || event.Scope != scope("one") {
-		t.Fatal("missing scope removal", event)
-	}
-	awaitBaseline(t, events, "three")
-	if got := takeSet(t, opened); got != "three" {
-		t.Fatal("unchanged watch restarted", got)
-	}
-	replacement := scope("two")
-	replacement.Identity = "new-namespace-uid"
-	if err := set.Replace(ctx, []CollectionScope{replacement, scope("three")}); err != nil {
-		t.Fatal(err)
-	}
-	if got := takeSet(t, closed); got != "two" {
-		t.Fatal("old namespace identity stayed active", got)
-	}
-	event = takeSet(t, events)
-	if event.Change.Type != "REMOVED" || event.Scope.Identity != scope("two").Identity {
-		t.Fatal("old identity was not removed")
-	}
-	for {
-		event = takeSet(t, events)
-		if event.Change.Type == "REPLACE" {
-			if event.Scope != replacement {
-				t.Fatal("replacement has old identity")
+	t.Run("ST-SUP-RC14-OC45-T01 A changed namespace identity stops and joins the old watch before the new watch starts", func(t *testing.T) {
+		opened, closed := make(chan string, 16), make(chan string, 16)
+		client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+			parts := strings.Split(r.URL.Path, "/")
+			if len(parts) != 6 || parts[3] != "namespaces" {
+				t.Error("unscoped request", r.URL.Path)
+				w.WriteHeader(403)
+				return
 			}
-			break
+			ns := parts[4]
+			if r.URL.Query().Get("watch") == "true" {
+				_ = json.NewEncoder(w).Encode(Object{"type": "BOOKMARK", "object": Object{"metadata": Object{"resourceVersion": "1"}}})
+				w.(http.Flusher).Flush()
+				opened <- ns
+				<-r.Context().Done()
+				closed <- ns
+				return
+			}
+			_ = json.NewEncoder(w).Encode(Object{"metadata": Object{"resourceVersion": "1"}, "items": []Object{scopedPod(ns, "pod-"+ns)}})
+		})
+		set, ctx, events, _ := startSet(t, client, WatchSetOptions{})
+		if err := set.Replace(ctx, []CollectionScope{scope("one"), scope("two")}); err != nil {
+			t.Fatal(err)
 		}
-	}
-	if got := takeSet(t, opened); got != "two" {
-		t.Fatal("replacement watch did not start", got)
-	}
-	if err := set.Replace(ctx, nil); err != nil {
-		t.Fatal(err)
-	}
-	takeSet(t, closed)
-	takeSet(t, closed)
+		awaitBaseline(t, events, "one", "two")
+		takeSet(t, opened)
+		takeSet(t, opened)
+		if err := set.Replace(ctx, []CollectionScope{scope("two"), scope("three")}); err != nil {
+			t.Fatal(err)
+		}
+		if got := takeSet(t, closed); got != "one" {
+			t.Fatal("wrong watch closed", got)
+		}
+		event := takeSet(t, events)
+		if event.Change.Type != "REMOVED" || event.Scope != scope("one") {
+			t.Fatal("missing scope removal", event)
+		}
+		awaitBaseline(t, events, "three")
+		if got := takeSet(t, opened); got != "three" {
+			t.Fatal("unchanged watch restarted", got)
+		}
+		replacement := scope("two")
+		replacement.Identity = "new-namespace-uid"
+		if err := set.Replace(ctx, []CollectionScope{replacement, scope("three")}); err != nil {
+			t.Fatal(err)
+		}
+		if got := takeSet(t, closed); got != "two" {
+			t.Fatal("old namespace identity stayed active", got)
+		}
+		event = takeSet(t, events)
+		if event.Change.Type != "REMOVED" || event.Scope.Identity != scope("two").Identity {
+			t.Fatal("old identity was not removed")
+		}
+		for {
+			event = takeSet(t, events)
+			if event.Change.Type == "REPLACE" {
+				if event.Scope != replacement {
+					t.Fatal("replacement has old identity")
+				}
+				break
+			}
+		}
+		if got := takeSet(t, opened); got != "two" {
+			t.Fatal("replacement watch did not start", got)
+		}
+		if err := set.Replace(ctx, nil); err != nil {
+			t.Fatal(err)
+		}
+		takeSet(t, closed)
+		takeSet(t, closed)
+	})
 }
 
 func TestWatchSetRejectsInvalidAssignmentWithoutStoppingCurrentWatch(t *testing.T) {
@@ -160,33 +162,42 @@ func TestWatchSetRejectsInvalidAssignmentWithoutStoppingCurrentWatch(t *testing.
 	}
 	awaitBaseline(t, events, "one")
 	takeSet(t, opened)
-	invalid := []CollectionScope{}
-	for _, path := range []string{"/api/v1/pods", "/apis/group/v1/pods", "/api/v1/namespaces/one/pods/name", "/api/v1/namespaces/../pods", "/api/v1/namespaces/one/pods?watch=true", "/api/v1/namespaces/one/pods/status", "/api/v1/namespaces/%6fne/pods", "/api/v1/namespaces//pods"} {
-		bad := scope("one")
-		bad.Collection.Path = path
-		invalid = append(invalid, bad)
-	}
-	bad := scope("one")
-	bad.Identity = ""
-	invalid = append(invalid, bad)
-	for _, bad := range invalid {
-		if err := set.Replace(ctx, []CollectionScope{bad}); !errors.Is(err, ErrWatchSetContract) {
-			t.Fatal("invalid scope accepted", bad, err)
+	t.Run("ST-SUP-RC14-OC44-T01 An invalid assignment is refused without disturbing the running watch", func(t *testing.T) {
+		invalid := []CollectionScope{}
+		for _, path := range []string{"/api/v1/pods", "/apis/group/v1/pods", "/api/v1/namespaces/one/pods/name", "/api/v1/namespaces/../pods", "/api/v1/namespaces/one/pods?watch=true", "/api/v1/namespaces/one/pods/status", "/api/v1/namespaces/%6fne/pods", "/api/v1/namespaces//pods"} {
+			bad := scope("one")
+			bad.Collection.Path = path
+			invalid = append(invalid, bad)
 		}
-	}
-	if err := set.Replace(ctx, []CollectionScope{scope("one"), scope("two")}); !errors.Is(err, ErrWatchSetContract) {
-		t.Fatal("scope limit was exceeded", err)
-	}
-	canceled, stop := context.WithCancel(ctx)
-	stop()
-	if err := set.Replace(canceled, nil); !errors.Is(err, context.Canceled) {
-		t.Fatal("canceled replacement accepted", err)
-	}
-	select {
-	case <-closed:
-		t.Fatal("invalid assignment closed an existing watch")
-	default:
-	}
+		bad := scope("one")
+		bad.Identity = ""
+		invalid = append(invalid, bad)
+		for _, bad := range invalid {
+			if err := set.Replace(ctx, []CollectionScope{bad}); !errors.Is(err, ErrWatchSetContract) {
+				t.Fatal("invalid scope accepted", bad, err)
+			}
+		}
+		canceled, stop := context.WithCancel(ctx)
+		stop()
+		if err := set.Replace(canceled, nil); !errors.Is(err, context.Canceled) {
+			t.Fatal("canceled replacement accepted", err)
+		}
+		select {
+		case <-closed:
+			t.Fatal("invalid assignment closed an existing watch")
+		default:
+		}
+	})
+	t.Run("ST-SUP-RC14-OC46-T01 An assignment above the watch limit is refused without disturbing the running watch", func(t *testing.T) {
+		if err := set.Replace(ctx, []CollectionScope{scope("one"), scope("two")}); !errors.Is(err, ErrWatchSetContract) {
+			t.Fatal("scope limit was exceeded", err)
+		}
+		select {
+		case <-closed:
+			t.Fatal("invalid assignment closed an existing watch")
+		default:
+		}
+	})
 	if err := set.Replace(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -194,91 +205,95 @@ func TestWatchSetRejectsInvalidAssignmentWithoutStoppingCurrentWatch(t *testing.
 }
 
 func TestWatchSetRetriesDeniedScopeOnlyAfterFreshAssignment(t *testing.T) {
-	var allowed atomic.Bool
-	var calls atomic.Int32
-	client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
-		if !allowed.Load() {
-			w.WriteHeader(403)
-			return
-		}
-		if r.URL.Query().Get("watch") == "true" {
-			w.WriteHeader(200)
-			w.(http.Flusher).Flush()
-			<-r.Context().Done()
-			return
-		}
-		_ = json.NewEncoder(w).Encode(Object{"metadata": Object{"resourceVersion": "1"}, "items": []Object{}})
-	})
-	set, ctx, events, _ := startSet(t, client, WatchSetOptions{})
-	if err := set.Replace(ctx, []CollectionScope{scope("one")}); err != nil {
-		t.Fatal(err)
-	}
-	for {
-		event := takeSet(t, events)
-		if event.Change.Type == "REPLACE" {
-			t.Fatal("denied list produced an empty baseline")
-		}
-		if event.Err != nil {
-			if !errors.Is(event.Err, ErrWatchAccess) {
-				t.Fatal(event.Err)
+	t.Run("ST-SUP-RC14-OC47-T01 A denied scope is reported once and retried only after a new assignment", func(t *testing.T) {
+		var allowed atomic.Bool
+		var calls atomic.Int32
+		client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+			calls.Add(1)
+			if !allowed.Load() {
+				w.WriteHeader(403)
+				return
 			}
-			break
+			if r.URL.Query().Get("watch") == "true" {
+				w.WriteHeader(200)
+				w.(http.Flusher).Flush()
+				<-r.Context().Done()
+				return
+			}
+			_ = json.NewEncoder(w).Encode(Object{"metadata": Object{"resourceVersion": "1"}, "items": []Object{}})
+		})
+		set, ctx, events, _ := startSet(t, client, WatchSetOptions{})
+		if err := set.Replace(ctx, []CollectionScope{scope("one")}); err != nil {
+			t.Fatal(err)
 		}
-	}
-	if calls.Load() != 1 {
-		t.Fatal("denied scope retried without a fresh assignment")
-	}
-	allowed.Store(true)
-	if err := set.Replace(ctx, []CollectionScope{scope("one")}); err != nil {
-		t.Fatal(err)
-	}
-	awaitBaseline(t, events, "one")
+		for {
+			event := takeSet(t, events)
+			if event.Change.Type == "REPLACE" {
+				t.Fatal("denied list produced an empty baseline")
+			}
+			if event.Err != nil {
+				if !errors.Is(event.Err, ErrWatchAccess) {
+					t.Fatal(event.Err)
+				}
+				break
+			}
+		}
+		if calls.Load() != 1 {
+			t.Fatal("denied scope retried without a fresh assignment")
+		}
+		allowed.Store(true)
+		if err := set.Replace(ctx, []CollectionScope{scope("one")}); err != nil {
+			t.Fatal(err)
+		}
+		awaitBaseline(t, events, "one")
+	})
 }
 
 func TestWatchSetRejectsAggregateLimitsAndForeignObjects(t *testing.T) {
-	for _, kind := range []string{"objects", "bytes", "namespace"} {
-		t.Run(kind, func(t *testing.T) {
-			client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
-				ns := strings.Split(r.URL.Path, "/")[4]
-				if r.URL.Query().Get("watch") == "true" {
-					w.WriteHeader(200)
-					w.(http.Flusher).Flush()
-					<-r.Context().Done()
-					return
+	t.Run("ST-SUP-RC14-OC46-T02 An aggregate object or byte limit, or an object from another namespace, stops the whole set", func(t *testing.T) {
+		for _, kind := range []string{"objects", "bytes", "namespace"} {
+			t.Run(kind, func(t *testing.T) {
+				client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+					ns := strings.Split(r.URL.Path, "/")[4]
+					if r.URL.Query().Get("watch") == "true" {
+						w.WriteHeader(200)
+						w.(http.Flusher).Flush()
+						<-r.Context().Done()
+						return
+					}
+					if kind == "namespace" {
+						ns = "foreign"
+					}
+					_ = json.NewEncoder(w).Encode(Object{"metadata": Object{"resourceVersion": "1"}, "items": []Object{scopedPod(ns, "pod-"+ns)}})
+				})
+				options := WatchSetOptions{}
+				if kind == "objects" {
+					options.MaxObjects = 1
 				}
-				if kind == "namespace" {
-					ns = "foreign"
+				if kind == "bytes" {
+					encoded, _ := json.Marshal(scopedPod("one", "pod-one"))
+					options.MaxBytes = len(encoded) + 1
 				}
-				_ = json.NewEncoder(w).Encode(Object{"metadata": Object{"resourceVersion": "1"}, "items": []Object{scopedPod(ns, "pod-"+ns)}})
+				set, ctx, events, done := startSet(t, client, options)
+				if err := set.Replace(ctx, []CollectionScope{scope("one"), scope("two")}); err != nil {
+					t.Fatal(err)
+				}
+				if err := takeSet(t, done); !errors.Is(err, ErrWatchSetContract) {
+					t.Fatal("invalid collection set survived", err)
+				}
+				replacements := 0
+				for len(events) > 0 {
+					event := <-events
+					if event.Change.Type == "REPLACE" {
+						replacements++
+					}
+				}
+				if replacements > 1 || kind == "namespace" && replacements != 0 {
+					t.Fatal("invalid baseline reached the consumer")
+				}
 			})
-			options := WatchSetOptions{}
-			if kind == "objects" {
-				options.MaxObjects = 1
-			}
-			if kind == "bytes" {
-				encoded, _ := json.Marshal(scopedPod("one", "pod-one"))
-				options.MaxBytes = len(encoded) + 1
-			}
-			set, ctx, events, done := startSet(t, client, options)
-			if err := set.Replace(ctx, []CollectionScope{scope("one"), scope("two")}); err != nil {
-				t.Fatal(err)
-			}
-			if err := takeSet(t, done); !errors.Is(err, ErrWatchSetContract) {
-				t.Fatal("invalid collection set survived", err)
-			}
-			replacements := 0
-			for len(events) > 0 {
-				event := <-events
-				if event.Change.Type == "REPLACE" {
-					replacements++
-				}
-			}
-			if replacements > 1 || kind == "namespace" && replacements != 0 {
-				t.Fatal("invalid baseline reached the consumer")
-			}
-		})
-	}
+		}
+	})
 }
 
 type setSource struct {
@@ -291,80 +306,84 @@ func (s setSource) Observe(ctx context.Context, c Collection, emit func(Change) 
 }
 
 func TestWatchSetSerializesBaselinesAndJoinsRemovedWatch(t *testing.T) {
-	entered := make(chan string, 2)
-	release := make(chan struct{})
-	stopped := make(chan string, 2)
-	var first sync.Once
-	source := setSource{run: func(ctx context.Context, c Collection, emit func(Change) error) error {
-		defer func() { stopped <- c.Path }()
-		if err := emit(Change{Type: "RESET"}); err != nil {
-			return err
-		}
-		entered <- c.Path
-		wait := false
-		first.Do(func() { wait = true })
-		if wait {
-			select {
-			case <-release:
-			case <-ctx.Done():
-				return ctx.Err()
+	t.Run("ST-SUP-RC14-OC47-T02 Only one complete list runs at a time and a removal waits for its watch to stop", func(t *testing.T) {
+		entered := make(chan string, 2)
+		release := make(chan struct{})
+		stopped := make(chan string, 2)
+		var first sync.Once
+		source := setSource{run: func(ctx context.Context, c Collection, emit func(Change) error) error {
+			defer func() { stopped <- c.Path }()
+			if err := emit(Change{Type: "RESET"}); err != nil {
+				return err
 			}
+			entered <- c.Path
+			wait := false
+			first.Do(func() { wait = true })
+			if wait {
+				select {
+				case <-release:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			if err := emit(Change{Type: "REPLACE"}); err != nil {
+				return err
+			}
+			<-ctx.Done()
+			return ctx.Err()
+		}}
+		set, ctx, events, _ := startSet(t, source, WatchSetOptions{})
+		if err := set.Replace(ctx, []CollectionScope{scope("one"), scope("two")}); err != nil {
+			t.Fatal(err)
 		}
-		if err := emit(Change{Type: "REPLACE"}); err != nil {
-			return err
+		takeSet(t, entered)
+		select {
+		case <-entered:
+			t.Fatal("two complete baselines ran at once")
+		case <-time.After(20 * time.Millisecond):
 		}
-		<-ctx.Done()
-		return ctx.Err()
-	}}
-	set, ctx, events, _ := startSet(t, source, WatchSetOptions{})
-	if err := set.Replace(ctx, []CollectionScope{scope("one"), scope("two")}); err != nil {
-		t.Fatal(err)
-	}
-	takeSet(t, entered)
-	select {
-	case <-entered:
-		t.Fatal("two complete baselines ran at once")
-	case <-time.After(20 * time.Millisecond):
-	}
-	close(release)
-	takeSet(t, entered)
-	awaitBaseline(t, events, "one", "two")
-	if err := set.Replace(ctx, nil); err != nil {
-		t.Fatal(err)
-	}
-	if len(stopped) != 2 {
-		t.Fatal("replacement returned before old watches stopped")
-	}
+		close(release)
+		takeSet(t, entered)
+		awaitBaseline(t, events, "one", "two")
+		if err := set.Replace(ctx, nil); err != nil {
+			t.Fatal(err)
+		}
+		if len(stopped) != 2 {
+			t.Fatal("replacement returned before old watches stopped")
+		}
+	})
 }
 
 func TestWatchSetPropagatesConsumerFailureAndCanRestart(t *testing.T) {
-	source := setSource{run: func(ctx context.Context, _ Collection, emit func(Change) error) error {
-		if err := emit(Change{Type: "RESET"}); err != nil {
-			return err
-		}
-		if err := emit(Change{Type: "REPLACE"}); err != nil {
-			return err
-		}
-		<-ctx.Done()
-		return ctx.Err()
-	}}
-	set, err := NewWatchSet(source, WatchSetOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range 2 {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		done := make(chan error, 1)
-		want := errors.New("consumer stopped")
-		go func() { done <- set.Run(ctx, func(ScopedChange) error { return want }) }()
-		if err := set.Replace(ctx, []CollectionScope{scope("one")}); err != nil {
-			cancel()
+	t.Run("ST-SUP-RC14-OC52-T01 A consumer error stops the watch set and the same set can run again", func(t *testing.T) {
+		source := setSource{run: func(ctx context.Context, _ Collection, emit func(Change) error) error {
+			if err := emit(Change{Type: "RESET"}); err != nil {
+				return err
+			}
+			if err := emit(Change{Type: "REPLACE"}); err != nil {
+				return err
+			}
+			<-ctx.Done()
+			return ctx.Err()
+		}}
+		set, err := NewWatchSet(source, WatchSetOptions{})
+		if err != nil {
 			t.Fatal(err)
 		}
-		if err := takeSet(t, done); !errors.Is(err, want) {
+		for range 2 {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			done := make(chan error, 1)
+			want := errors.New("consumer stopped")
+			go func() { done <- set.Run(ctx, func(ScopedChange) error { return want }) }()
+			if err := set.Replace(ctx, []CollectionScope{scope("one")}); err != nil {
+				cancel()
+				t.Fatal(err)
+			}
+			if err := takeSet(t, done); !errors.Is(err, want) {
+				cancel()
+				t.Fatal("consumer error changed", err)
+			}
 			cancel()
-			t.Fatal("consumer error changed", err)
 		}
-		cancel()
-	}
+	})
 }

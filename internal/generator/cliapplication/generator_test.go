@@ -129,65 +129,67 @@ func TestInvalidCLIConfig(t *testing.T) {
 // Build real executables so the test checks Go revision stamping, not test data.
 func testVersionBuilds(t *testing.T, project string) {
 	t.Helper()
-	run := func(args ...string) []byte {
-		t.Helper()
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = project
-		cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
-		out, err := cmd.CombinedOutput()
+	t.Run("ST-SUP-RC04-OC29-T02 A built CLI reports a stable version stamp", func(t *testing.T) {
+		run := func(args ...string) []byte {
+			t.Helper()
+			cmd := exec.Command(args[0], args[1:]...)
+			cmd.Dir = project
+			cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("%s: %v\n%s", args[0], err, out)
+			}
+			return out
+		}
+		run("git", "init", "-q")
+		run("git", "add", ".")
+		run("git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "Build fixture")
+		revision := strings.TrimSpace(string(run("git", "rev-parse", "HEAD")))
+		binary := filepath.Join(t.TempDir(), "cli")
+		build := func(stamp, want string) {
+			t.Helper()
+			run("go", "build", "-trimpath", "-buildvcs="+stamp, "-mod=readonly", "-o", binary, "./out/cli/cmd")
+			command := exec.Command(binary, "version")
+			command.Dir = t.TempDir()
+			command.Env = append(os.Environ(), "TEST_CLI_CONFIG=/missing/config.json")
+			out, err := command.Output()
+			if err != nil {
+				t.Fatalf("version: %v %s", err, out)
+			}
+			var report struct {
+				Application buildidentity.Record `json:"application"`
+				Compiler    buildidentity.Record `json:"compiler"`
+			}
+			if err := json.Unmarshal(out, &report); err != nil {
+				t.Fatal(err)
+			}
+			if report.Application.SourceState != want || report.Compiler != buildidentity.Current() {
+				t.Fatal(report)
+			}
+			if want != "unknown" && report.Application.Revision != revision {
+				t.Fatal(report)
+			}
+			if want == "unknown" && report.Application.Revision != "unknown" {
+				t.Fatal(report)
+			}
+			repeat := exec.Command(binary, "version")
+			repeat.Dir = command.Dir
+			repeat.Env = command.Env
+			again, err := repeat.Output()
+			if err != nil || !bytes.Equal(out, again) {
+				t.Fatal("unstable version output", err)
+			}
+		}
+		build("true", "clean")
+		path := filepath.Join(project, "app/app.go")
+		data, err := os.ReadFile(path)
 		if err != nil {
-			t.Fatalf("%s: %v\n%s", args[0], err, out)
-		}
-		return out
-	}
-	run("git", "init", "-q")
-	run("git", "add", ".")
-	run("git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "Build fixture")
-	revision := strings.TrimSpace(string(run("git", "rev-parse", "HEAD")))
-	binary := filepath.Join(t.TempDir(), "cli")
-	build := func(stamp, want string) {
-		t.Helper()
-		run("go", "build", "-trimpath", "-buildvcs="+stamp, "-mod=readonly", "-o", binary, "./out/cli/cmd")
-		command := exec.Command(binary, "version")
-		command.Dir = t.TempDir()
-		command.Env = append(os.Environ(), "TEST_CLI_CONFIG=/missing/config.json")
-		out, err := command.Output()
-		if err != nil {
-			t.Fatalf("version: %v %s", err, out)
-		}
-		var report struct {
-			Application buildidentity.Record `json:"application"`
-			Compiler    buildidentity.Record `json:"compiler"`
-		}
-		if err := json.Unmarshal(out, &report); err != nil {
 			t.Fatal(err)
 		}
-		if report.Application.SourceState != want || report.Compiler != buildidentity.Current() {
-			t.Fatal(report)
+		if err := os.WriteFile(path, append(data, []byte("\n// Changed source.\n")...), 0644); err != nil {
+			t.Fatal(err)
 		}
-		if want != "unknown" && report.Application.Revision != revision {
-			t.Fatal(report)
-		}
-		if want == "unknown" && report.Application.Revision != "unknown" {
-			t.Fatal(report)
-		}
-		repeat := exec.Command(binary, "version")
-		repeat.Dir = command.Dir
-		repeat.Env = command.Env
-		again, err := repeat.Output()
-		if err != nil || !bytes.Equal(out, again) {
-			t.Fatal("unstable version output", err)
-		}
-	}
-	build("true", "clean")
-	path := filepath.Join(project, "app/app.go")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, append(data, []byte("\n// Changed source.\n")...), 0644); err != nil {
-		t.Fatal(err)
-	}
-	build("true", "modified")
-	build("false", "unknown")
+		build("true", "modified")
+		build("false", "unknown")
+	})
 }

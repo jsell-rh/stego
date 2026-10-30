@@ -328,7 +328,7 @@ func testGeneratedAllocationRuntime(t *testing.T, filter string) {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/widget\ngo 1.26.8\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/widget\ngo 1.26.10\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	args := []string{"test", "-p=1", "-v", "-race", "-count=1", "-timeout=3m"}

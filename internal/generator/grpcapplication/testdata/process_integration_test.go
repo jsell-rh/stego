@@ -37,14 +37,58 @@ type output struct {
 
 func (o *output) Write(p []byte) (int, error) { o.Lock(); defer o.Unlock(); return o.b.Write(p) }
 func (o *output) String() string              { o.Lock(); defer o.Unlock(); return o.b.String() }
+
 func TestGeneratedProcess(t *testing.T) {
-	testGeneratedProcess(t, []string{"normal", "restart", "open-error", "open-panic", "open-goexit", "register-error", "close-error", "close-panic", "close-goexit"}, true)
+	passed := t.Run("shared scenario", func(t *testing.T) {
+		testGeneratedProcess(t, []string{"normal", "restart", "open-error", "open-panic", "open-goexit", "register-error", "close-error", "close-panic", "close-goexit"}, true)
+	})
+	t.Run("ST-SUP-RC08-OC01-T01 The emitted process executable starts and serves without a database", func(t *testing.T) {
+		if !passed {
+			t.Fatal("the shared scenario failed")
+		}
+	})
+	t.Run("ST-SUP-RC08-OC02-T01 The emitted process executable bounds and traces its start", func(t *testing.T) {
+		if !passed {
+			t.Fatal("the shared scenario failed")
+		}
+	})
+	t.Run("ST-SUP-RC08-OC04-T02 A failing callback in the emitted process stays private and fails the process", func(t *testing.T) {
+		if !passed {
+			t.Fatal("the shared scenario failed")
+		}
+	})
 }
+
 func TestGeneratedProcessStartupTelemetry(t *testing.T) {
-	testGeneratedProcess(t, []string{"open-error", "open-panic", "open-goexit"}, false)
+	passed := t.Run("shared scenario", func(t *testing.T) {
+		testGeneratedProcess(t, []string{"open-error", "open-panic", "open-goexit"}, false)
+	})
+	t.Run("ST-SUP-RC08-OC02-T02 A failed start still produces correlated signals", func(t *testing.T) {
+		if !passed {
+			t.Fatal("the shared scenario failed")
+		}
+	})
+	t.Run("ST-SUP-RC08-OC04-T03 A failed start emits a fixed failure event and keeps its secrets", func(t *testing.T) {
+		if !passed {
+			t.Fatal("the shared scenario failed")
+		}
+	})
 }
+
 func TestGeneratedProcessCleanupTelemetry(t *testing.T) {
-	testGeneratedProcess(t, []string{"restart", "register-error", "close-error", "close-panic", "close-goexit"}, true)
+	passed := t.Run("shared scenario", func(t *testing.T) {
+		testGeneratedProcess(t, []string{"restart", "register-error", "close-error", "close-panic", "close-goexit"}, true)
+	})
+	t.Run("ST-SUP-RC08-OC03-T02 Cleanup keeps its flush and its bound", func(t *testing.T) {
+		if !passed {
+			t.Fatal("the shared scenario failed")
+		}
+	})
+	t.Run("ST-SUP-RC08-OC04-T04 Cleanup survives a failing callback", func(t *testing.T) {
+		if !passed {
+			t.Fatal("the shared scenario failed")
+		}
+	})
 }
 func testGeneratedProcess(t *testing.T, modes []string, checkRPC bool) {
 	dir := t.TempDir()

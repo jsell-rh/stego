@@ -77,7 +77,7 @@ func testGeneratedAuthenticationRuntime(t *testing.T, telemetry bool) {
 	if err := os.WriteFile(filepath.Join(project, "auth/key_source_test.go"), keySourceTests, 0644); err != nil {
 		t.Fatal(err)
 	}
-	module := "module example.com/auth-test\ngo 1.26.8\nrequire (\n"
+	module := "module example.com/auth-test\ngo 1.26.10\nrequire (\n"
 	names := make([]string, 0, len(wiring.GoModRequires))
 	for name := range wiring.GoModRequires {
 		names = append(names, name)

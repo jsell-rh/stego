@@ -15,20 +15,22 @@ func scanOptions() ScanOptions {
 }
 
 func TestScanChecksWholePageBeforeDispatch(t *testing.T) {
-	for _, page := range []CursorPage[int]{
-		{Items: []CursorItem[int]{{Cursor: "ok"}, {Cursor: ""}}},
-		{Items: []CursorItem[int]{{Cursor: "ok"}, {Cursor: "ok"}}},
-		{Items: []CursorItem[int]{{Cursor: "ok"}, {Cursor: "\xff"}}},
-		{Items: []CursorItem[int]{{Cursor: "ok"}, {Cursor: strings.Repeat("x", 1025)}}},
-		{Items: []CursorItem[int]{{Cursor: "a"}, {Cursor: "b"}, {Cursor: "c"}}},
-		{More: true},
-	} {
-		calls := 0
-		err := Scan(context.Background(), func(context.Context, string, int) (CursorPage[int], error) { return page, nil }, func(int) error { calls++; return nil }, scanOptions())
-		if !errors.Is(err, ErrScanContract) || calls != 0 {
-			t.Fatalf("invalid page caused effects: %d, %v", calls, err)
+	t.Run("ST-SUP-RC05-OC11-T01 The scanner checks a whole page before any effect", func(t *testing.T) {
+		for _, page := range []CursorPage[int]{
+			{Items: []CursorItem[int]{{Cursor: "ok"}, {Cursor: ""}}},
+			{Items: []CursorItem[int]{{Cursor: "ok"}, {Cursor: "ok"}}},
+			{Items: []CursorItem[int]{{Cursor: "ok"}, {Cursor: "\xff"}}},
+			{Items: []CursorItem[int]{{Cursor: "ok"}, {Cursor: strings.Repeat("x", 1025)}}},
+			{Items: []CursorItem[int]{{Cursor: "a"}, {Cursor: "b"}, {Cursor: "c"}}},
+			{More: true},
+		} {
+			calls := 0
+			err := Scan(context.Background(), func(context.Context, string, int) (CursorPage[int], error) { return page, nil }, func(int) error { calls++; return nil }, scanOptions())
+			if !errors.Is(err, ErrScanContract) || calls != 0 {
+				t.Fatalf("invalid page caused effects: %d, %v", calls, err)
+			}
 		}
-	}
+	})
 }
 
 func TestScanFollowsOpaqueCursorsAndRestarts(t *testing.T) {

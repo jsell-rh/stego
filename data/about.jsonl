@@ -1,0 +1,8 @@
+{"source_id":"ST-ASR-Q01","target_id":"ST-ASR-A1"}
+{"source_id":"ST-DIS-Q01","target_id":"ST-DIS-RM01"}
+{"source_id":"ST-DIS-Q01","target_id":"ST-DIS-RM03"}
+{"source_id":"ST-DIS-Q01","target_id":"ST-DIS-UC02-R01"}
+{"source_id":"ST-DIS-Q01","target_id":"ST-GEN-EV01"}
+{"source_id":"ST-DIS-Q02","target_id":"ST-DIS-UC04-R04"}
+{"source_id":"ST-DIS-Q02","target_id":"ST-GEN-CMD01"}
+{"source_id":"ST-DLV-Q01","target_id":"ST-DLV-A4"}

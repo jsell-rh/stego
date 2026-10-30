@@ -253,7 +253,7 @@ func testGeneratedController(t *testing.T, telemetry bool, patterns ...string) {
 	} else if runCheck {
 		required := []string{"TestWatchBeforeScanAndSerialActions", "TestTransientFailureIsRecoveredByScan", "TestSlowScanCompletesWithoutOverlap", "TestOverflowCancelsActionJoinsWorkersAndRescans", "TestPermissionFailureIsNotHiddenByCancellation", "TestActionDeadlineAndCancellationJoin", "TestDisconnectRecoversBeforeRetry", "TestInvalidOptionsDoNotOpenSource", "TestActionTimeoutSchedulesAnotherPass", "TestWatchSetupHasDeadline", "TestEmptyReceiverStops"}
 		if telemetry {
-			required = append(required, "TestRunOwnsLogsMetricsAndIndependentTraces", "TestRunOwnsLogsMetricsAndIndependentTraces/1", "TestRunOwnsLogsMetricsAndIndependentTraces/0", "TestRunTelemetryFailureStopsBeforeSource", "TestRunTelemetryFailureStopsBeforeSource/invalid_exporter", "TestRunTelemetryFailureStopsBeforeSource/queue_limit")
+			required = append(required, "TestRunOwnsLogsMetricsAndIndependentTraces", "TestRunOwnsLogsMetricsAndIndependentTraces/ST-SUP-RC05-OC16-T01_Run_owns_its_telemetry_and_excludes_private_data", "TestRunOwnsLogsMetricsAndIndependentTraces/ST-SUP-RC05-OC16-T01_Run_owns_its_telemetry_and_excludes_private_data/1", "TestRunOwnsLogsMetricsAndIndependentTraces/ST-SUP-RC05-OC16-T01_Run_owns_its_telemetry_and_excludes_private_data/0", "TestRunTelemetryFailureStopsBeforeSource", "TestRunTelemetryFailureStopsBeforeSource/invalid_exporter", "TestRunTelemetryFailureStopsBeforeSource/queue_limit")
 		}
 		for _, name := range required {
 			if !strings.Contains(string(output), "--- PASS: "+name+" ") {
@@ -330,7 +330,7 @@ func TestNestedControllerLibraryCanBeImported(t *testing.T) {
 				t.Fatal(err)
 			}
 			project := t.TempDir()
-			files = append(files, gen.File{Path: "go.mod", Content: []byte("module example.com/controllernamespace\ngo 1.26.8\n")}, gen.File{Path: "main.go", Content: []byte("package main\nimport runtime \"example.com/controllernamespace/" + namespace + "\"\nfunc main(){_=runtime.ErrScanContract}\n")})
+			files = append(files, gen.File{Path: "go.mod", Content: []byte("module example.com/controllernamespace\ngo 1.26.10\n")}, gen.File{Path: "main.go", Content: []byte("package main\nimport runtime \"example.com/controllernamespace/" + namespace + "\"\nfunc main(){_=runtime.ErrScanContract}\n")})
 			for _, file := range files {
 				name := filepath.Join(project, file.Path)
 				if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {

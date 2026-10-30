@@ -48,4 +48,4 @@ runtime in the caller's context. They emit correlated spans, duration and active
 metrics, and fixed local and OTLP logs. Attributes exclude queries, bound values,
 connection identities, and credentials. Without a peer or runtime context, the
 client emits no signals. It does not use global providers or the default logger.
-See [the signal contract](../../../specs/postgres-client-observability.md).
+See the signal contract (a retired record, in git history).

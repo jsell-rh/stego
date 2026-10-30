@@ -279,24 +279,26 @@ func TestInvalidSweepDefinitionsHaveNoEffects(t *testing.T) {
 }
 
 func TestSweepSlowStreamCannotStarveHistory(t *testing.T) {
-	source := func(value string) func(context.Context, string, int) (SweepPage[string], error) {
-		return func(context.Context, string, int) (SweepPage[string], error) {
-			return SweepPage[string]{Items: []SweepItem[string]{{Cursor: value, Value: value}}}, nil
+	t.Run("ST-SUP-RC05-OC12-T01 A slow stream cannot starve retained history", func(t *testing.T) {
+		source := func(value string) func(context.Context, string, int) (SweepPage[string], error) {
+			return func(context.Context, string, int) (SweepPage[string], error) {
+				return SweepPage[string]{Items: []SweepItem[string]{{Cursor: value, Value: value}}}, nil
+			}
 		}
-	}
-	groups := []SweepGroup[string]{{Name: "records", Streams: []SweepStream[string]{{Name: "live", Page: source("live")}, {Name: "history", Page: source("history")}}}}
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-	err := RunSweep(ctx, groups, func(ctx context.Context, value string) error {
-		if value == "live" {
-			<-ctx.Done()
-			return ctx.Err()
+		groups := []SweepGroup[string]{{Name: "records", Streams: []SweepStream[string]{{Name: "live", Page: source("live")}, {Name: "history", Page: source("history")}}}}
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		err := RunSweep(ctx, groups, func(ctx context.Context, value string) error {
+			if value == "live" {
+				<-ctx.Done()
+				return ctx.Err()
+			}
+			return denied
+		}, sweepOptions())
+		if !errors.Is(err, denied) {
+			t.Fatal("slow first stream starved retained history", err)
 		}
-		return denied
-	}, sweepOptions())
-	if !errors.Is(err, denied) {
-		t.Fatal("slow first stream starved retained history", err)
-	}
+	})
 }
 
 func BenchmarkSweepDispatch(b *testing.B) {

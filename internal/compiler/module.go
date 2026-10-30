@@ -68,7 +68,7 @@ func moduleRequirements(wirings []ComponentWiring) (map[string]string, error) {
 	// Keep them with the runtime requirements so new generated paths do not
 	// inherit affected transitive versions.
 	for _, minimum := range []struct{ parent, path, version string }{
-		{"google.golang.org/grpc", "golang.org/x/net", "v0.56.0"},
+		{"google.golang.org/grpc", "golang.org/x/net", "v0.60.0"},
 		{"google.golang.org/grpc", "golang.org/x/sys", "v0.48.0"},
 		{"gorm.io/datatypes", "filippo.io/edwards25519", "v1.1.1"},
 		{"github.com/go-sql-driver/mysql", "filippo.io/edwards25519", "v1.1.1"},
@@ -198,7 +198,7 @@ func ProjectModuleSettings(projectDir, name, goVersion string) (string, string, 
 		name = "github.com/example/service"
 	}
 	if goVersion == "" {
-		goVersion = "1.26.8"
+		goVersion = "1.26.10"
 	}
 	if err := validateBuildTarget(name, goVersion); err != nil {
 		return "", "", err

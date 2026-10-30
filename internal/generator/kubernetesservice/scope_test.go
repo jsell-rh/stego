@@ -69,7 +69,7 @@ func TestGeneratedDeploymentScopes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "out/deploy/configuration_test.go"), deploymentConfigurationTests, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/widget\ngo 1.26.8\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/widget\ngo 1.26.10\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	command := exec.Command("go", "test", "-v", "-race", "-count=1", "-mod=readonly", "-timeout=30s", "./out/deploy")
@@ -91,7 +91,25 @@ func TestGeneratedDeploymentScopes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if commandErr != nil {
-		t.Fatalf("generated scope checks: %v\n%s", commandErr, output)
-	}
+	// One run of the generated module holds the checks of every record below.
+	t.Run("ST-SUP-RC15-OC16-T01 The generated renderer splits scopes and keeps every object", func(t *testing.T) {
+		if commandErr != nil {
+			t.Fatalf("generated scope checks: %v\n%s", commandErr, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC17-T01 The generated renderer sets the configuration digest in one annotation", func(t *testing.T) {
+		if commandErr != nil {
+			t.Fatalf("generated scope checks: %v\n%s", commandErr, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC18-T01 The generated renderer keeps generated labels against owner labels", func(t *testing.T) {
+		if commandErr != nil {
+			t.Fatalf("generated scope checks: %v\n%s", commandErr, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC19-T01 The generated renderer adds pull Secrets as name references", func(t *testing.T) {
+		if commandErr != nil {
+			t.Fatalf("generated scope checks: %v\n%s", commandErr, output)
+		}
+	})
 }

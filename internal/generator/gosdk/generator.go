@@ -76,7 +76,9 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("format SDK: %w", err)
 	}
-	transport, err := httpclient.Render(path.Join(ctx.OutputNamespace, "internal/transport"), tracing)
+	// The SDK runs inside someone else's program, so it keeps the established
+	// link behavior.
+	transport, err := httpclient.Render(path.Join(ctx.OutputNamespace, "internal/transport"), tracing, httpclient.FollowLinks)
 	if err != nil {
 		return nil, nil, err
 	}

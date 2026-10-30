@@ -47,7 +47,7 @@ func TestDatabaseOpenerAssembly(t *testing.T) {
 			if used {
 				w.Routes = []string{`mux.Handle("/",store)`}
 			}
-			files, err := Assemble(AssemblerInput{ModuleName: "example.com/probe", GoVersion: "1.26.8", Wirings: []ComponentWiring{{Name: "store", Wiring: w}}})
+			files, err := Assemble(AssemblerInput{ModuleName: "example.com/probe", GoVersion: "1.26.10", Wirings: []ComponentWiring{{Name: "store", Wiring: w}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -102,7 +102,7 @@ func testDatabaseStartupFailure(t *testing.T, backend string, independent bool) 
 		w.Routes = nil
 		wirings = append(wirings, ComponentWiring{Name: "reader", Wiring: &gen.Wiring{Imports: []string{"reader"}, Constructors: []string{"reader.NewReader()"}, ConstructorResources: map[int][]gen.Resource{0: {gen.SQLDatabase}}, BackgroundTasks: []int{0}}})
 	}
-	files, err := Assemble(AssemblerInput{ModuleName: "example.com/pool", GoVersion: "1.26.8", Wirings: wirings})
+	files, err := Assemble(AssemblerInput{ModuleName: "example.com/pool", GoVersion: "1.26.10", Wirings: wirings})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestDatabaseOpenerWithIndependentConsumer(t *testing.T) {
 			factory.DatabaseOpener.Namespace = "internal/context"
 			factory.PostDBCalls = []string{"context.Migrate(db)"}
 			reader := &gen.Wiring{Imports: []string{"reader"}, Constructors: []string{"reader.NewReader()"}, ConstructorResources: map[int][]gen.Resource{0: {gen.SQLDatabase}}, BackgroundTasks: []int{0}, DBBackend: backend}
-			files, err := Assemble(AssemblerInput{ModuleName: "example.com/pool", GoVersion: "1.26.8", Wirings: []ComponentWiring{{Name: "factory", Wiring: factory}, {Name: "reader", Wiring: reader}}})
+			files, err := Assemble(AssemblerInput{ModuleName: "example.com/pool", GoVersion: "1.26.10", Wirings: []ComponentWiring{{Name: "factory", Wiring: factory}, {Name: "reader", Wiring: reader}}})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -223,56 +223,64 @@ func (f *oidcFixture) browser(t *testing.T, p *oauthProvider) (*oauthSession, er
 	}
 	return session, err
 }
+
 func TestOIDCBrowserVerification(t *testing.T) {
-	f := oidcServer(t)
-	for _, mode := range []int32{0, 1, 2, 3, 4, 6, 7, 8, 11} {
-		f.mode.Store(mode)
-		p, err := discover(context.Background(), f.session())
-		if mode == 1 || mode == 2 {
-			if err == nil {
-				p.close()
-				t.Fatal("invalid issuer or endpoint accepted")
+	proof := func(t *testing.T) {
+		f := oidcServer(t)
+		for _, mode := range []int32{0, 1, 2, 3, 4, 6, 7, 8, 11} {
+			f.mode.Store(mode)
+			p, err := discover(context.Background(), f.session())
+			if mode == 1 || mode == 2 {
+				if err == nil {
+					p.close()
+					t.Fatal("invalid issuer or endpoint accepted")
+				}
+				continue
 			}
-			continue
+			if err != nil {
+				t.Fatal(err)
+			}
+			session, err := f.browser(t, p)
+			p.close()
+			if mode == 0 {
+				if err != nil || session.Subject != "person-one" || session.RefreshToken != "refresh-new" {
+					t.Fatal("browser login failed", err)
+				}
+			} else if err == nil {
+				t.Fatal("invalid ID token accepted")
+			}
 		}
+	}
+	t.Run("ST-SUP-RC04-OC18-T01 The emitted CLI holds the restricted OIDC profile at browser login", proof)
+	t.Run("ST-SUP-RC04-OC19-T01 The emitted CLI bounds the OIDC browser login flow", proof)
+}
+
+func TestOIDCDevicePolling(t *testing.T) {
+	t.Run("ST-SUP-RC04-OC19-T02 The emitted CLI bounds device authorization polling", func(t *testing.T) {
+		f := oidcServer(t)
+		p, err := discover(context.Background(), f.session())
 		if err != nil {
 			t.Fatal(err)
 		}
-		session, err := f.browser(t, p)
-		p.close()
-		if mode == 0 {
-			if err != nil || session.Subject != "person-one" || session.RefreshToken != "refresh-new" {
-				t.Fatal("browser login failed", err)
-			}
-		} else if err == nil {
-			t.Fatal("invalid ID token accepted")
+		defer p.close()
+		var output bytes.Buffer
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		session, err := p.device(ctx, &output)
+		if err != nil || session.Subject != "person-one" || f.polls.Load() != 2 {
+			t.Fatal("device authorization failed", err)
 		}
-	}
-}
-func TestOIDCDevicePolling(t *testing.T) {
-	f := oidcServer(t)
-	p, err := discover(context.Background(), f.session())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer p.close()
-	var output bytes.Buffer
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	session, err := p.device(ctx, &output)
-	if err != nil || session.Subject != "person-one" || f.polls.Load() != 2 {
-		t.Fatal("device authorization failed", err)
-	}
-	if !strings.Contains(output.String(), "ABCD-EFGH") || strings.Contains(output.String(), "device-private") || strings.Contains(output.String(), "access-new") {
-		t.Fatal("device display exposed a private value")
-	}
-	f.mode.Store(10)
-	f.polls.Store(0)
-	ctx, cancel = context.WithTimeout(context.Background(), 1500*time.Millisecond)
-	defer cancel()
-	if _, err := p.device(ctx, &output); err == nil || f.polls.Load() != 1 {
-		t.Fatal("slow_down did not delay the next poll")
-	}
+		if !strings.Contains(output.String(), "ABCD-EFGH") || strings.Contains(output.String(), "device-private") || strings.Contains(output.String(), "access-new") {
+			t.Fatal("device display exposed a private value")
+		}
+		f.mode.Store(10)
+		f.polls.Store(0)
+		ctx, cancel = context.WithTimeout(context.Background(), 1500*time.Millisecond)
+		defer cancel()
+		if _, err := p.device(ctx, &output); err == nil || f.polls.Load() != 1 {
+			t.Fatal("slow_down did not delay the next poll")
+		}
+	})
 }
 func expiredSession(f *oidcFixture) oauthSession {
 	s := f.session()
@@ -305,120 +313,143 @@ func TestRefreshProcessHelper(t *testing.T) {
 		t.Fatal("child could not load refreshed session")
 	}
 }
+
 func TestOIDCRefreshAcrossProcessesAndLogout(t *testing.T) {
 	f := oidcServer(t)
 	app := definition()
 	t.Setenv(app.ConfigEnv, filepath.Join(f.directory, "session.json"))
 	saveTestSession(t, app, expiredSession(f))
-	var commands []*exec.Cmd
-	for i := 0; i < 4; i++ {
-		cmd := exec.Command(os.Args[0], "-test.run=^TestRefreshProcessHelper$")
-		cmd.Env = append(os.Environ(), "CLI_REFRESH_HELPER=1", "GORACE=atexit_sleep_ms=0")
-		if err := cmd.Start(); err != nil {
+	if !t.Run("ST-SUP-RC04-OC20-T01 The emitted CLI refreshes once across processes", func(t *testing.T) {
+		var commands []*exec.Cmd
+		for i := 0; i < 4; i++ {
+			cmd := exec.Command(os.Args[0], "-test.run=^TestRefreshProcessHelper$")
+			cmd.Env = append(os.Environ(), "CLI_REFRESH_HELPER=1", "GORACE=atexit_sleep_ms=0")
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			commands = append(commands, cmd)
+		}
+		for _, cmd := range commands {
+			if err := cmd.Wait(); err != nil {
+				t.Fatal("refresh child failed", err)
+			}
+		}
+		if f.refresh.Load() != 1 {
+			t.Fatal("concurrent processes repeated refresh")
+		}
+		saved, err := load(app)
+		if err != nil || saved.OAuth.RefreshToken != "refresh-new" || saved.OAuth.RefreshPending {
+			t.Fatal("rotated session was not saved")
+		}
+	}) {
+		return
+	}
+	t.Run("ST-SUP-RC04-OC22-T01 The emitted CLI removes the local session at logout", func(t *testing.T) {
+		if err := logout(context.Background(), app); err != nil {
 			t.Fatal(err)
 		}
-		commands = append(commands, cmd)
-	}
-	for _, cmd := range commands {
-		if err := cmd.Wait(); err != nil {
-			t.Fatal("refresh child failed", err)
+		if f.revokes.Load() != 1 {
+			t.Fatal("logout did not revoke the provider session")
+		}
+		if _, err := os.Stat(os.Getenv(app.ConfigEnv)); !os.IsNotExist(err) {
+			t.Fatal("logout retained local credentials")
+		}
+	})
+}
+
+func TestOIDCRefreshFailureRemainsPending(t *testing.T) {
+	check := func(t *testing.T, modes []int32) {
+		for _, mode := range modes {
+			t.Run(fmt.Sprint(mode), func(t *testing.T) {
+				f := oidcServer(t)
+				t.Cleanup(func() { os.Chmod(f.directory, 0700) })
+				app := definition()
+				t.Setenv(app.ConfigEnv, filepath.Join(f.directory, "session.json"))
+				saveTestSession(t, app, expiredSession(f))
+				f.mode.Store(mode)
+				if _, _, err := requestCredentials(context.Background(), app); err == nil {
+					t.Fatal("failed refresh returned a credential")
+				}
+				os.Chmod(f.directory, 0700)
+				f.mode.Store(0)
+				if _, _, err := requestCredentials(context.Background(), app); err == nil || f.refresh.Load() != 1 {
+					t.Fatal("uncertain refresh was retried")
+				}
+				saved, err := load(app)
+				if err != nil || !saved.OAuth.RefreshPending {
+					t.Fatal("failed refresh lost its pending record")
+				}
+			})
 		}
 	}
-	if f.refresh.Load() != 1 {
-		t.Fatal("concurrent processes repeated refresh")
-	}
-	saved, err := load(app)
-	if err != nil || saved.OAuth.RefreshToken != "refresh-new" || saved.OAuth.RefreshPending {
-		t.Fatal("rotated session was not saved")
-	}
-	if err := logout(context.Background(), app); err != nil {
-		t.Fatal(err)
-	}
-	if f.revokes.Load() != 1 {
-		t.Fatal("logout did not revoke the provider session")
-	}
-	if _, err := os.Stat(os.Getenv(app.ConfigEnv)); !os.IsNotExist(err) {
-		t.Fatal("logout retained local credentials")
-	}
-}
-func TestOIDCRefreshFailureRemainsPending(t *testing.T) {
-	for _, mode := range []int32{5, 9} {
-		t.Run(fmt.Sprint(mode), func(t *testing.T) {
-			f := oidcServer(t)
-			t.Cleanup(func() { os.Chmod(f.directory, 0700) })
-			app := definition()
-			t.Setenv(app.ConfigEnv, filepath.Join(f.directory, "session.json"))
-			saveTestSession(t, app, expiredSession(f))
-			f.mode.Store(mode)
-			if _, _, err := requestCredentials(context.Background(), app); err == nil {
-				t.Fatal("failed refresh returned a credential")
-			}
-			os.Chmod(f.directory, 0700)
-			f.mode.Store(0)
-			if _, _, err := requestCredentials(context.Background(), app); err == nil || f.refresh.Load() != 1 {
-				t.Fatal("uncertain refresh was retried")
-			}
-			saved, err := load(app)
-			if err != nil || !saved.OAuth.RefreshPending {
-				t.Fatal("failed refresh lost its pending record")
-			}
-		})
-	}
+	t.Run("ST-SUP-RC04-OC20-T02 A refresh that cannot save its result keeps its pending state", func(t *testing.T) {
+		check(t, []int32{9})
+	})
+	t.Run("ST-SUP-RC04-OC21-T01 A refresh that changes the subject keeps its pending state and the session identity", func(t *testing.T) {
+		check(t, []int32{5})
+	})
 }
 
 func TestOIDCLogoutRemovesLocalSessionAfterProviderFailure(t *testing.T) {
-	f := oidcServer(t)
-	app := definition()
-	t.Setenv(app.ConfigEnv, filepath.Join(f.directory, "session.json"))
-	saveTestSession(t, app, expiredSession(f))
-	f.mode.Store(1)
-	if err := logout(context.Background(), app); err == nil {
-		t.Fatal("logout hid the provider failure")
-	}
-	if _, err := os.Stat(os.Getenv(app.ConfigEnv)); !os.IsNotExist(err) {
-		t.Fatal("provider failure retained local credentials")
-	}
+	t.Run("ST-SUP-RC04-OC22-T02 Logout removes the local session after a provider failure", func(t *testing.T) {
+		f := oidcServer(t)
+		app := definition()
+		t.Setenv(app.ConfigEnv, filepath.Join(f.directory, "session.json"))
+		saveTestSession(t, app, expiredSession(f))
+		f.mode.Store(1)
+		if err := logout(context.Background(), app); err == nil {
+			t.Fatal("logout hid the provider failure")
+		}
+		if _, err := os.Stat(os.Getenv(app.ConfigEnv)); !os.IsNotExist(err) {
+			t.Fatal("provider failure retained local credentials")
+		}
+	})
 }
+
 func TestOIDCConfigLockCancellation(t *testing.T) {
-	f := oidcServer(t)
-	app := definition()
-	t.Setenv(app.ConfigEnv, filepath.Join(f.directory, "session.json"))
-	saveTestSession(t, app, expiredSession(f))
-	_, _, release, err := configGuard(context.Background(), app, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer release()
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	if _, _, err := requestCredentials(ctx, app); err == nil {
-		t.Fatal("busy lock ignored cancellation")
-	}
-	if f.refresh.Load() != 0 {
-		t.Fatal("busy lock permitted token use")
-	}
+	t.Run("ST-SUP-RC04-OC20-T03 A busy configuration lock obeys cancellation", func(t *testing.T) {
+		f := oidcServer(t)
+		app := definition()
+		t.Setenv(app.ConfigEnv, filepath.Join(f.directory, "session.json"))
+		saveTestSession(t, app, expiredSession(f))
+		_, _, release, err := configGuard(context.Background(), app, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer release()
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		if _, _, err := requestCredentials(ctx, app); err == nil {
+			t.Fatal("busy lock ignored cancellation")
+		}
+		if f.refresh.Load() != 0 {
+			t.Fatal("busy lock permitted token use")
+		}
+	})
 }
 
 func TestOIDCOutputReservationPrecedesRefresh(t *testing.T) {
-	f := oidcServer(t)
-	app := definition()
-	t.Setenv(app.ConfigEnv, filepath.Join(f.directory, "session.json"))
-	saveTestSession(t, app, expiredSession(f))
-	target := filepath.Join(f.directory, "existing.json")
-	if err := os.WriteFile(target, []byte("keep"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	var output bytes.Buffer
-	if err := Run(context.Background(), app, []string{"get", "record", "one", "--output-file", target}, &output); err == nil {
-		t.Fatal("existing output was accepted")
-	}
-	if f.refresh.Load() != 0 {
-		t.Fatal("invalid output caused a token request")
-	}
-	data, err := os.ReadFile(target)
-	if err != nil || string(data) != "keep" || output.Len() != 0 {
-		t.Fatal("failed output reservation changed output")
-	}
+	t.Run("ST-SUP-RC04-OC13-T04 The output file is reserved before a token refresh", func(t *testing.T) {
+		f := oidcServer(t)
+		app := definition()
+		t.Setenv(app.ConfigEnv, filepath.Join(f.directory, "session.json"))
+		saveTestSession(t, app, expiredSession(f))
+		target := filepath.Join(f.directory, "existing.json")
+		if err := os.WriteFile(target, []byte("keep"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		var output bytes.Buffer
+		if err := Run(context.Background(), app, []string{"get", "record", "one", "--output-file", target}, &output); err == nil {
+			t.Fatal("existing output was accepted")
+		}
+		if f.refresh.Load() != 0 {
+			t.Fatal("invalid output caused a token request")
+		}
+		data, err := os.ReadFile(target)
+		if err != nil || string(data) != "keep" || output.Len() != 0 {
+			t.Fatal("failed output reservation changed output")
+		}
+	})
 }
 
 func TestOIDCDeviceWithoutPKCEAdvertisement(t *testing.T) {

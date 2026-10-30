@@ -106,15 +106,19 @@ func TestDetectDrift_ModifiedFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DetectDrift returned error: %v", err)
 	}
-	if !result.HasDrift() {
-		t.Fatal("expected drift to be detected")
-	}
-	if len(result.Modified) != 1 {
-		t.Fatalf("expected 1 modified file, got %d", len(result.Modified))
-	}
-	if result.Modified[0].Path != "internal/api/handler.go" {
-		t.Errorf("expected modified file 'internal/api/handler.go', got %q", result.Modified[0].Path)
-	}
+	t.Run("ST-GEN-UC02-R01-T01 The drift check fails when a generated file no longer matches its hash", func(t *testing.T) {
+		if !result.HasDrift() {
+			t.Fatal("expected drift to be detected")
+		}
+	})
+	t.Run("ST-GEN-SP01-T A hand-edited generated file is named as modified", func(t *testing.T) {
+		if len(result.Modified) != 1 {
+			t.Fatalf("expected 1 modified file, got %d", len(result.Modified))
+		}
+		if result.Modified[0].Path != "internal/api/handler.go" {
+			t.Errorf("expected modified file 'internal/api/handler.go', got %q", result.Modified[0].Path)
+		}
+	})
 }
 
 func TestDetectDrift_DeletedFile(t *testing.T) {

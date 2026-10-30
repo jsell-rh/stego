@@ -24,7 +24,7 @@ var httpTLSTests []byte
 
 func TestGeneratedHTTPLifecycle(t *testing.T) {
 	files, err := Assemble(AssemblerInput{
-		ModuleName: "example.com/http-lifecycle", GoVersion: "1.26.8",
+		ModuleName: "example.com/http-lifecycle", GoVersion: "1.26.10",
 		Wirings: []ComponentWiring{{Name: "api", Wiring: &gen.Wiring{
 			Routes: []string{`mux.Handle("/", http.NotFoundHandler())`},
 		}}},
@@ -70,7 +70,7 @@ func TestGeneratedHTTPLifecycle(t *testing.T) {
 
 func TestConstructorFailureReturnsAfterCleanup(t *testing.T) {
 	input := AssemblerInput{
-		ModuleName: "example.com/lifecycle", GoVersion: "1.26.8",
+		ModuleName: "example.com/lifecycle", GoVersion: "1.26.10",
 		Wirings: []ComponentWiring{{Name: "api", Wiring: &gen.Wiring{
 			Imports:                 []string{"internal/api"},
 			Constructors:            []string{"api.NewHandle()", "api.NewBroken(handle)"},
@@ -141,7 +141,7 @@ func TestListenFailure(t *testing.T) {
 func TestConstructorErrorIndexMustExist(t *testing.T) {
 	for _, index := range []int{-1, 1} {
 		_, err := Assemble(AssemblerInput{
-			ModuleName: "example.com/service", GoVersion: "1.26.8",
+			ModuleName: "example.com/service", GoVersion: "1.26.10",
 			Wirings: []ComponentWiring{{Name: "invalid", Wiring: &gen.Wiring{
 				Constructors: []string{"api.New()"}, ConstructorReturnsError: map[int]bool{index: true},
 			}}},

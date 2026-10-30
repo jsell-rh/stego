@@ -51,61 +51,63 @@ func authRequest(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func TestTypedReadsAndRealmBoundary(t *testing.T) {
-	var calls atomic.Int32
-	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
-		if authRequest(w, r) {
-			return
-		}
-		if r.Header.Get("Authorization") != "Bearer admin-token" {
-			t.Error("administrator credential missing")
-			w.WriteHeader(401)
-			return
-		}
-		switch r.URL.Path {
-		case "/admin/realms/tenant/clients":
-			if r.URL.Query().Get("clientId") != "" {
-				if r.URL.Query().Get("clientId") != "catalog & reports" || r.URL.Query().Get("max") != "2" || r.URL.Query().Get("search") != "false" {
-					t.Error("lookup query differs")
-				}
-			} else if r.URL.Query().Get("first") != "100" || r.URL.Query().Get("max") != "5" || len(r.URL.Query()) != 2 {
-				t.Error("page query differs")
+	t.Run("ST-SUP-RC13-OC23-T01 The emitted provider checks identifiers and pages before any request and stays in its realm", func(t *testing.T) {
+		var calls atomic.Int32
+		c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+			calls.Add(1)
+			if authRequest(w, r) {
+				return
 			}
-			_, _ = w.Write([]byte(`[{"id":"provider-id","clientId":"catalog & reports","attributes":{"product.owner":"object-1"}}]`))
-		case "/admin/realms/tenant/clients/provider-id":
-			_, _ = w.Write([]byte(`{"id":"provider-id","clientId":"catalog & reports","attributes":{"product.owner":"object-1"}}`))
-		default:
-			t.Error("unexpected provider path", r.URL.Path)
-			w.WriteHeader(500)
+			if r.Header.Get("Authorization") != "Bearer admin-token" {
+				t.Error("administrator credential missing")
+				w.WriteHeader(401)
+				return
+			}
+			switch r.URL.Path {
+			case "/admin/realms/tenant/clients":
+				if r.URL.Query().Get("clientId") != "" {
+					if r.URL.Query().Get("clientId") != "catalog & reports" || r.URL.Query().Get("max") != "2" || r.URL.Query().Get("search") != "false" {
+						t.Error("lookup query differs")
+					}
+				} else if r.URL.Query().Get("first") != "100" || r.URL.Query().Get("max") != "5" || len(r.URL.Query()) != 2 {
+					t.Error("page query differs")
+				}
+				_, _ = w.Write([]byte(`[{"id":"provider-id","clientId":"catalog & reports","attributes":{"product.owner":"object-1"}}]`))
+			case "/admin/realms/tenant/clients/provider-id":
+				_, _ = w.Write([]byte(`{"id":"provider-id","clientId":"catalog & reports","attributes":{"product.owner":"object-1"}}`))
+			default:
+				t.Error("unexpected provider path", r.URL.Path)
+				w.WriteHeader(500)
+			}
+		})
+		ctx := context.Background()
+		if got, err := c.FindClient(ctx, "catalog & reports"); err != nil || got.ID != "provider-id" {
+			t.Fatal("typed lookup failed", err)
+		}
+		if got, err := c.ListClients(ctx, Page{First: 100, Size: 5}); err != nil || len(got) != 1 {
+			t.Fatal("typed page failed", err)
+		}
+		if _, err := c.InspectClient(ctx, ClientBinding{ID: "provider-id", ClientID: "catalog & reports", Attributes: map[string]string{"product.owner": "object-1"}}); err != nil {
+			t.Fatal(err)
+		}
+		before := calls.Load()
+		for _, id := range []string{"", "../other", "a/b", "a%2fb", "other?x=y", "other#x", "a\x00b"} {
+			if _, err := c.GetClient(ctx, id); err == nil {
+				t.Fatal("unsafe identifier accepted")
+			}
+		}
+		for _, page := range []Page{{Size: 0}, {First: -1, Size: 1}, {Size: 101}, {First: 9999, Size: 2}} {
+			if _, err := c.ListClients(ctx, page); err == nil {
+				t.Fatal("invalid page accepted")
+			}
+		}
+		if calls.Load() != before {
+			t.Fatal("invalid arguments caused a network request")
+		}
+		if calls.Load() != 4 {
+			t.Fatal("administrator token was not cached", calls.Load())
 		}
 	})
-	ctx := context.Background()
-	if got, err := c.FindClient(ctx, "catalog & reports"); err != nil || got.ID != "provider-id" {
-		t.Fatal("typed lookup failed", err)
-	}
-	if got, err := c.ListClients(ctx, Page{First: 100, Size: 5}); err != nil || len(got) != 1 {
-		t.Fatal("typed page failed", err)
-	}
-	if _, err := c.InspectClient(ctx, ClientBinding{ID: "provider-id", ClientID: "catalog & reports", Attributes: map[string]string{"product.owner": "object-1"}}); err != nil {
-		t.Fatal(err)
-	}
-	before := calls.Load()
-	for _, id := range []string{"", "../other", "a/b", "a%2fb", "other?x=y", "other#x", "a\x00b"} {
-		if _, err := c.GetClient(ctx, id); err == nil {
-			t.Fatal("unsafe identifier accepted")
-		}
-	}
-	for _, page := range []Page{{Size: 0}, {First: -1, Size: 1}, {Size: 101}, {First: 9999, Size: 2}} {
-		if _, err := c.ListClients(ctx, page); err == nil {
-			t.Fatal("invalid page accepted")
-		}
-	}
-	if calls.Load() != before {
-		t.Fatal("invalid arguments caused a network request")
-	}
-	if calls.Load() != 4 {
-		t.Fatal("administrator token was not cached", calls.Load())
-	}
 }
 
 func TestOwnershipDisableAndDelete(t *testing.T) {
@@ -203,95 +205,99 @@ func TestMutationRequiresObservedResult(t *testing.T) {
 }
 
 func TestTokenRotationAndUnauthorizedResponse(t *testing.T) {
-	var auth, admin atomic.Int32
-	c, options := testClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/token") {
-			count := auth.Add(1)
-			_ = r.ParseForm()
-			want := "private-admin-secret"
-			if count > 1 {
-				want = "rotated-secret"
+	t.Run("ST-SUP-RC13-OC25-T01 Credential rotation and an unauthorized answer clear the emitted provider token cache", func(t *testing.T) {
+		var auth, admin atomic.Int32
+		c, options := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "/token") {
+				count := auth.Add(1)
+				_ = r.ParseForm()
+				want := "private-admin-secret"
+				if count > 1 {
+					want = "rotated-secret"
+				}
+				if r.Form.Get("client_secret") != want {
+					t.Error("secret rotation was not read")
+				}
+				_, _ = fmt.Fprintf(w, `{"access_token":"token-%d","expires_in":300,"token_type":"Bearer"}`, count)
+				return
 			}
-			if r.Form.Get("client_secret") != want {
-				t.Error("secret rotation was not read")
+			count := admin.Add(1)
+			if count == 2 {
+				w.WriteHeader(401)
+				_, _ = w.Write([]byte("private-error-body"))
+				return
 			}
-			_, _ = fmt.Fprintf(w, `{"access_token":"token-%d","expires_in":300,"token_type":"Bearer"}`, count)
-			return
+			if r.Header.Get("Authorization") != fmt.Sprintf("Bearer token-%d", auth.Load()) {
+				t.Error("old token reused")
+			}
+			_, _ = w.Write([]byte(`{"id":"owned","clientId":"service"}`))
+		})
+		if _, err := c.GetClient(context.Background(), "owned"); err != nil {
+			t.Fatal(err)
 		}
-		count := admin.Add(1)
-		if count == 2 {
-			w.WriteHeader(401)
-			_, _ = w.Write([]byte("private-error-body"))
-			return
+		if err := os.WriteFile(options.SecretFile, []byte("rotated-secret"), 0600); err != nil {
+			t.Fatal(err)
 		}
-		if r.Header.Get("Authorization") != fmt.Sprintf("Bearer token-%d", auth.Load()) {
-			t.Error("old token reused")
+		if _, err := c.GetClient(context.Background(), "owned"); err == nil || strings.Contains(err.Error(), "private-error-body") {
+			t.Fatal("unauthorized response was replayed or exposed", err)
 		}
-		_, _ = w.Write([]byte(`{"id":"owned","clientId":"service"}`))
+		if admin.Load() != 2 || auth.Load() != 2 {
+			t.Fatal("unexpected authentication or replay")
+		}
+		if _, err := c.GetClient(context.Background(), "owned"); err != nil {
+			t.Fatal(err)
+		}
+		if auth.Load() != 3 {
+			t.Fatal("unauthorized token remained cached")
+		}
 	})
-	if _, err := c.GetClient(context.Background(), "owned"); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(options.SecretFile, []byte("rotated-secret"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := c.GetClient(context.Background(), "owned"); err == nil || strings.Contains(err.Error(), "private-error-body") {
-		t.Fatal("unauthorized response was replayed or exposed", err)
-	}
-	if admin.Load() != 2 || auth.Load() != 2 {
-		t.Fatal("unexpected authentication or replay")
-	}
-	if _, err := c.GetClient(context.Background(), "owned"); err != nil {
-		t.Fatal(err)
-	}
-	if auth.Load() != 3 {
-		t.Fatal("unauthorized token remained cached")
-	}
 }
 
 func TestTokenWaitCancellationAndClose(t *testing.T) {
-	started := make(chan struct{})
-	release := make(chan struct{})
-	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.Copy(io.Discard, r.Body)
-		close(started)
+	t.Run("ST-SUP-RC13-OC26-T01 Close and cancellation release every caller of the emitted provider", func(t *testing.T) {
+		started := make(chan struct{})
+		release := make(chan struct{})
+		c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.Copy(io.Discard, r.Body)
+			close(started)
+			select {
+			case <-r.Context().Done():
+			case <-release:
+			}
+		})
+		t.Cleanup(func() { close(release) })
+		first := make(chan error, 1)
+		go func() { _, err := c.GetClient(context.Background(), "owned"); first <- err }()
 		select {
-		case <-r.Context().Done():
-		case <-release:
+		case <-started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("authentication did not start")
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if _, err := c.GetClient(ctx, "owned"); !errors.Is(err, context.Canceled) {
+			t.Fatal("canceled caller was not released", err)
+		}
+		// The token gate is held by the first request. A waiting caller must leave
+		// when its context expires, even though the first authentication is pending.
+		waiting, stop := context.WithTimeout(context.Background(), 30*time.Millisecond)
+		defer stop()
+		if _, err := c.GetClient(waiting, "owned"); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatal("token wait ignored its deadline", err)
+		}
+		c.Close()
+		select {
+		case err := <-first:
+			if !errors.Is(err, context.Canceled) {
+				t.Fatal("close did not cancel authentication", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("close left an active request")
+		}
+		if _, err := c.GetClient(context.Background(), "owned"); !errors.Is(err, ErrClosed) {
+			t.Fatal("closed provider accepted work", err)
 		}
 	})
-	t.Cleanup(func() { close(release) })
-	first := make(chan error, 1)
-	go func() { _, err := c.GetClient(context.Background(), "owned"); first <- err }()
-	select {
-	case <-started:
-	case <-time.After(2 * time.Second):
-		t.Fatal("authentication did not start")
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if _, err := c.GetClient(ctx, "owned"); !errors.Is(err, context.Canceled) {
-		t.Fatal("canceled caller was not released", err)
-	}
-	// The token gate is held by the first request. A waiting caller must leave
-	// when its context expires, even though the first authentication is pending.
-	waiting, stop := context.WithTimeout(context.Background(), 30*time.Millisecond)
-	defer stop()
-	if _, err := c.GetClient(waiting, "owned"); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatal("token wait ignored its deadline", err)
-	}
-	c.Close()
-	select {
-	case err := <-first:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatal("close did not cancel authentication", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("close left an active request")
-	}
-	if _, err := c.GetClient(context.Background(), "owned"); !errors.Is(err, ErrClosed) {
-		t.Fatal("closed provider accepted work", err)
-	}
 }
 
 func TestPrivateCredentialAndServiceAccountBinding(t *testing.T) {
@@ -332,105 +338,115 @@ func TestPrivateCredentialAndServiceAccountBinding(t *testing.T) {
 }
 
 func TestMalformedProviderResponses(t *testing.T) {
-	for _, body := range []string{`null`, `{}`, `{"id":"different","clientId":"service"}`, `{"id":"owned","id":"owned","clientId":"service"}`, `{"id":"owned","clientId":"\ud800"}`, `{"id":"owned","clientId":"service"} {}`, `{"id":"owned","clientId":"service","attributes":{"owner":"one","owner":"two"}}`} {
-		t.Run(fmt.Sprint(len(body)), func(t *testing.T) {
-			c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
-				if authRequest(w, r) {
-					return
+	t.Run("ST-SUP-RC13-OC21-T01 The emitted provider refuses an ambiguous provider response with ErrResponse", func(t *testing.T) {
+		for _, body := range []string{`null`, `{}`, `{"id":"different","clientId":"service"}`, `{"id":"owned","id":"owned","clientId":"service"}`, `{"id":"owned","clientId":"\ud800"}`, `{"id":"owned","clientId":"service"} {}`, `{"id":"owned","clientId":"service","attributes":{"owner":"one","owner":"two"}}`} {
+			t.Run(fmt.Sprint(len(body)), func(t *testing.T) {
+				c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+					if authRequest(w, r) {
+						return
+					}
+					_, _ = w.Write([]byte(body))
+				})
+				if _, err := c.GetClient(context.Background(), "owned"); !errors.Is(err, ErrResponse) {
+					t.Fatal("invalid provider response accepted", err)
 				}
-				_, _ = w.Write([]byte(body))
 			})
-			if _, err := c.GetClient(context.Background(), "owned"); !errors.Is(err, ErrResponse) {
-				t.Fatal("invalid provider response accepted", err)
-			}
-		})
-	}
-	for _, body := range []string{`null`, `[{"id":"x","clientId":"service"},{"id":"x","clientId":"service"}]`, `[{"id":"x","clientId":"other"}]`, `[{"id":"","clientId":"service"}]`} {
-		t.Run("lookup-"+fmt.Sprint(len(body)), func(t *testing.T) {
-			c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
-				if authRequest(w, r) {
-					return
+		}
+		for _, body := range []string{`null`, `[{"id":"x","clientId":"service"},{"id":"x","clientId":"service"}]`, `[{"id":"x","clientId":"other"}]`, `[{"id":"","clientId":"service"}]`} {
+			t.Run("lookup-"+fmt.Sprint(len(body)), func(t *testing.T) {
+				c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+					if authRequest(w, r) {
+						return
+					}
+					_, _ = w.Write([]byte(body))
+				})
+				if _, err := c.FindClient(context.Background(), "service"); !errors.Is(err, ErrResponse) {
+					t.Fatal("ambiguous lookup accepted", err)
 				}
-				_, _ = w.Write([]byte(body))
 			})
-			if _, err := c.FindClient(context.Background(), "service"); !errors.Is(err, ErrResponse) {
-				t.Fatal("ambiguous lookup accepted", err)
-			}
-		})
-	}
+		}
+	})
 }
 
 func TestProviderTLSAndRedirects(t *testing.T) {
-	var redirected atomic.Int32
-	destination := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { redirected.Add(1) }))
-	defer destination.Close()
-	c, options := testClient(t, func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, destination.URL+"/private", 302) })
-	if _, err := c.GetClient(context.Background(), "owned"); err == nil || redirected.Load() != 0 {
-		t.Fatal("authentication followed a redirect", err)
-	}
-	options.ServerURL = strings.Replace(options.ServerURL, "https:", "http:", 1)
-	if other, err := New(options); err == nil {
-		other.Close()
-		t.Fatal("plaintext provider accepted")
-	}
+	t.Run("ST-SUP-RC13-OC11-T01 The emitted provider refuses a redirect and a plaintext server URL", func(t *testing.T) {
+		var redirected atomic.Int32
+		destination := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { redirected.Add(1) }))
+		defer destination.Close()
+		c, options := testClient(t, func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, destination.URL+"/private", 302) })
+		if _, err := c.GetClient(context.Background(), "owned"); err == nil || redirected.Load() != 0 {
+			t.Fatal("authentication followed a redirect", err)
+		}
+		options.ServerURL = strings.Replace(options.ServerURL, "https:", "http:", 1)
+		if other, err := New(options); err == nil {
+			other.Close()
+			t.Fatal("plaintext provider accepted")
+		}
+	})
 }
 
 func TestDisableRequiresAnExplicitState(t *testing.T) {
-	for _, state := range []string{"", `,"enabled":null`} {
-		writes := 0
-		c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
-			if authRequest(w, r) {
-				return
+	t.Run("ST-SUP-RC13-OC24-T01 The emitted provider does not treat a record with no explicit state as disabled", func(t *testing.T) {
+		for _, state := range []string{"", `,"enabled":null`} {
+			writes := 0
+			c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				if authRequest(w, r) {
+					return
+				}
+				if r.Method != "GET" {
+					writes++
+					w.WriteHeader(500)
+					return
+				}
+				_, _ = fmt.Fprintf(w, `{"id":"owned","clientId":"service","attributes":{"owner":"one"}%s}`, state)
+			})
+			if err := c.DisableClient(context.Background(), ClientBinding{ID: "owned", ClientID: "service", Attributes: map[string]string{"owner": "one"}}); !errors.Is(err, ErrResponse) || writes != 0 {
+				t.Fatal("missing state was treated as disabled", err)
 			}
-			if r.Method != "GET" {
-				writes++
-				w.WriteHeader(500)
-				return
-			}
-			_, _ = fmt.Fprintf(w, `{"id":"owned","clientId":"service","attributes":{"owner":"one"}%s}`, state)
-		})
-		if err := c.DisableClient(context.Background(), ClientBinding{ID: "owned", ClientID: "service", Attributes: map[string]string{"owner": "one"}}); !errors.Is(err, ErrResponse) || writes != 0 {
-			t.Fatal("missing state was treated as disabled", err)
 		}
-	}
+	})
 }
 
 func TestInvalidAdministratorGrantCannotAuthorizeARequest(t *testing.T) {
-	for _, body := range []string{
-		`{"access_token":"token","expires_in":300}`,
-		`{"access_token":"token","expires_in":300,"token_type":"MAC"}`,
-		`{"access_token":"token","expires_in":0,"token_type":"Bearer"}`,
-		`{"access_token":"token","expires_in":3601,"token_type":"Bearer"}`,
-		`{"access_token":"token","access_token":"second","expires_in":300,"token_type":"Bearer"}`,
-	} {
-		var requests atomic.Int32
-		c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
-			if strings.HasSuffix(r.URL.Path, "/token") {
-				_, _ = w.Write([]byte(body))
-				return
+	t.Run("ST-SUP-RC13-OC22-T01 An invalid administrator grant never reaches the emitted provider API", func(t *testing.T) {
+		for _, body := range []string{
+			`{"access_token":"token","expires_in":300}`,
+			`{"access_token":"token","expires_in":300,"token_type":"MAC"}`,
+			`{"access_token":"token","expires_in":0,"token_type":"Bearer"}`,
+			`{"access_token":"token","expires_in":3601,"token_type":"Bearer"}`,
+			`{"access_token":"token","access_token":"second","expires_in":300,"token_type":"Bearer"}`,
+		} {
+			var requests atomic.Int32
+			c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/token") {
+					_, _ = w.Write([]byte(body))
+					return
+				}
+				requests.Add(1)
+				w.WriteHeader(500)
+			})
+			if _, err := c.GetClient(context.Background(), "owned"); !errors.Is(err, ErrResponse) || requests.Load() != 0 {
+				t.Fatal("invalid administrator grant reached the API", err)
 			}
-			requests.Add(1)
-			w.WriteHeader(500)
-		})
-		if _, err := c.GetClient(context.Background(), "owned"); !errors.Is(err, ErrResponse) || requests.Load() != 0 {
-			t.Fatal("invalid administrator grant reached the API", err)
 		}
-	}
+	})
 }
 
 func TestProtectedValueFormattingUsesEveryVerb(t *testing.T) {
-	for _, tc := range []struct {
-		value any
-		want  string
-	}{
-		{Secret{value: "private-test-credential"}, "[credential redacted]"},
-		{&Client{token: Secret{value: "private-admin-token"}}, "KeycloakClient{credentials redacted}"},
-		{ClientOwnershipMigration{fingerprint: "private-checkpoint-fingerprint"}, "ClientOwnershipMigration{checkpoint redacted}"},
-	} {
-		for _, verb := range []string{"%v", "%+v", "%#v", "%d", "%x", "%s", "%q"} {
-			if fmt.Sprintf(verb, tc.value) != tc.want {
-				t.Fatalf("protected formatting failed for %T with %s", tc.value, verb)
+	t.Run("ST-SUP-RC13-OC12-T01 Protected values from the emitted provider print as redacted text for every verb", func(t *testing.T) {
+		for _, tc := range []struct {
+			value any
+			want  string
+		}{
+			{Secret{value: "private-test-credential"}, "[credential redacted]"},
+			{&Client{token: Secret{value: "private-admin-token"}}, "KeycloakClient{credentials redacted}"},
+			{ClientOwnershipMigration{fingerprint: "private-checkpoint-fingerprint"}, "ClientOwnershipMigration{checkpoint redacted}"},
+		} {
+			for _, verb := range []string{"%v", "%+v", "%#v", "%d", "%x", "%s", "%q"} {
+				if fmt.Sprintf(verb, tc.value) != tc.want {
+					t.Fatalf("protected formatting failed for %T with %s", tc.value, verb)
+				}
 			}
 		}
-	}
+	})
 }

@@ -57,47 +57,51 @@ func imageFixture(t *testing.T, ca []byte) (string, *ImageRecord) {
 }
 
 func TestImageBuildHasStableContentsAndConfiguration(t *testing.T) {
-	ca := imageTestCA(t, true)
-	first, record := imageFixture(t, ca)
-	second, repeated := imageFixture(t, ca)
-	if !reflect.DeepEqual(record, repeated) {
-		t.Fatal("image record changed across paths")
-	}
-	one, _, err := inventory(filepath.Join(first, "oci"), 5, imageLayerLimit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	two, _, err := inventory(filepath.Join(second, "oci"), 5, imageLayerLimit)
-	if err != nil || one != two {
-		t.Fatal("image layout changed across paths", err)
-	}
-	extracted := filepath.Join(t.TempDir(), "executable")
-	if err := verifyImageContents(context.Background(), filepath.Join(first, "oci"), record, extracted); err != nil {
-		index, _ := os.ReadFile(filepath.Join(first, "oci/index.json"))
-		t.Fatalf("%v; index=%s", err, index)
-	}
-	hash, size, err := fileDigest(extracted)
-	if err != nil || (Artifact{hash, size}) != record.Application {
-		t.Fatal("extracted executable differs", err)
-	}
-	config := imageConfig(record)
-	if config.Config.User != "65532:65532" || config.Config.Entrypoint[0] != "/service" || config.OS != "linux" || config.Architecture != "amd64" || config.Config.Env[0] != "SSL_CERT_FILE=/"+trustStorePath {
-		t.Fatal("runtime image policy differs")
-	}
+	t.Run("ST-BLD-INV11-T ST-BLD-UC05-R02-T01 The same build gives the same image, running as non-root", func(t *testing.T) {
+		ca := imageTestCA(t, true)
+		first, record := imageFixture(t, ca)
+		second, repeated := imageFixture(t, ca)
+		if !reflect.DeepEqual(record, repeated) {
+			t.Fatal("image record changed across paths")
+		}
+		one, _, err := inventory(filepath.Join(first, "oci"), 5, imageLayerLimit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		two, _, err := inventory(filepath.Join(second, "oci"), 5, imageLayerLimit)
+		if err != nil || one != two {
+			t.Fatal("image layout changed across paths", err)
+		}
+		extracted := filepath.Join(t.TempDir(), "executable")
+		if err := verifyImageContents(context.Background(), filepath.Join(first, "oci"), record, extracted); err != nil {
+			index, _ := os.ReadFile(filepath.Join(first, "oci/index.json"))
+			t.Fatalf("%v; index=%s", err, index)
+		}
+		hash, size, err := fileDigest(extracted)
+		if err != nil || (Artifact{hash, size}) != record.Application {
+			t.Fatal("extracted executable differs", err)
+		}
+		config := imageConfig(record)
+		if config.Config.User != "65532:65532" || config.Config.Entrypoint[0] != "/service" || config.OS != "linux" || config.Architecture != "amd64" || config.Config.Env[0] != "SSL_CERT_FILE=/"+trustStorePath {
+			t.Fatal("runtime image policy differs")
+		}
+	})
 }
 
 func TestTrustStoreRejectsKeysAndNonCACertificates(t *testing.T) {
-	ca := imageTestCA(t, true)
-	for name, data := range map[string][]byte{"empty": nil, "key": pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("private")}), "leaf": imageTestCA(t, false), "leading text": append([]byte("ignored\n"), ca...), "trailing text": append(append([]byte{}, ca...), []byte("ignored")...), "too many": bytes.Repeat(ca, 513), "malformed": []byte("-----BEGIN CERTIFICATE-----\nwrong\n-----END CERTIFICATE-----\n")} {
-		t.Run(name, func(t *testing.T) {
-			if err := validTrustStore(data); err == nil {
-				t.Fatal("unsafe CA input accepted")
-			}
-		})
-	}
-	if err := validTrustStore(append(ca, ca...)); err != nil {
-		t.Fatal(err)
-	}
+	t.Run("ST-BLD-INV08-T An image takes only a CA bundle of CA certificates", func(t *testing.T) {
+		ca := imageTestCA(t, true)
+		for name, data := range map[string][]byte{"empty": nil, "key": pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("private")}), "leaf": imageTestCA(t, false), "leading text": append([]byte("ignored\n"), ca...), "trailing text": append(append([]byte{}, ca...), []byte("ignored")...), "too many": bytes.Repeat(ca, 513), "malformed": []byte("-----BEGIN CERTIFICATE-----\nwrong\n-----END CERTIFICATE-----\n")} {
+			t.Run(name, func(t *testing.T) {
+				if err := validTrustStore(data); err == nil {
+					t.Fatal("unsafe CA input accepted")
+				}
+			})
+		}
+		if err := validTrustStore(append(ca, ca...)); err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 func TestImageRecordAndInputBoundaries(t *testing.T) {
@@ -132,161 +136,165 @@ func TestImageRecordAndInputBoundaries(t *testing.T) {
 }
 
 func TestImageRejectsChangedLayoutAndRecord(t *testing.T) {
-	ca := imageTestCA(t, true)
-	for _, change := range []string{"extra file", "link", "config bytes", "missing blob", "wrong application", "wrong CA", "wrong diff", "dirty packer", "duplicate index"} {
-		t.Run(change, func(t *testing.T) {
-			root, record := imageFixture(t, ca)
-			image := filepath.Join(root, "oci")
-			switch change {
-			case "extra file":
-				put(t, image, "credentials", "not allowed")
-			case "link":
-				if err := os.Symlink(filepath.Join(root, "application"), filepath.Join(image, "link")); err != nil {
-					t.Fatal(err)
+	t.Run("ST-BLD-DS02-T03 ST-BLD-UC05-R01-T01 An image is refused when any digest its record names differs", func(t *testing.T) {
+		ca := imageTestCA(t, true)
+		for _, change := range []string{"extra file", "link", "config bytes", "missing blob", "wrong application", "wrong CA", "wrong diff", "dirty packer", "duplicate index"} {
+			t.Run(change, func(t *testing.T) {
+				root, record := imageFixture(t, ca)
+				image := filepath.Join(root, "oci")
+				switch change {
+				case "extra file":
+					put(t, image, "credentials", "not allowed")
+				case "link":
+					if err := os.Symlink(filepath.Join(root, "application"), filepath.Join(image, "link")); err != nil {
+						t.Fatal(err)
+					}
+				case "config bytes":
+					put(t, image, "blobs/sha256/"+record.Config.SHA256, "changed")
+				case "missing blob":
+					if err := os.Remove(filepath.Join(image, "blobs/sha256", record.Layer.SHA256)); err != nil {
+						t.Fatal(err)
+					}
+				case "wrong application":
+					record.Application.SHA256 = strings.Repeat("0", 64)
+				case "wrong CA":
+					record.TrustStore.SHA256 = strings.Repeat("0", 64)
+				case "wrong diff":
+					record.LayerDiffSHA256 = strings.Repeat("0", 64)
+				case "dirty packer":
+					record.PackerCompiler.SourceState = "dirty"
+				case "duplicate index":
+					data, err := os.ReadFile(filepath.Join(image, "index.json"))
+					if err != nil {
+						t.Fatal(err)
+					}
+					put(t, image, "index.json", strings.Replace(string(data), "{", "{\"schemaVersion\": 2,", 1))
 				}
-			case "config bytes":
-				put(t, image, "blobs/sha256/"+record.Config.SHA256, "changed")
-			case "missing blob":
-				if err := os.Remove(filepath.Join(image, "blobs/sha256", record.Layer.SHA256)); err != nil {
-					t.Fatal(err)
+				reasons := map[string]string{"extra file": "unexpected image layout file", "link": "link or special file", "config bytes": "image blob size differs", "missing blob": "image layout is incomplete", "wrong application": "image executable content differs", "wrong CA": "image trust store content differs", "wrong diff": "image configuration differs", "dirty packer": "invalid image record policy", "duplicate index": "image index differs"}
+				if err := verifyImageContents(context.Background(), image, record, ""); err == nil || !strings.Contains(err.Error(), reasons[change]) {
+					t.Fatal("wrong image rejection", change, err)
 				}
-			case "wrong application":
-				record.Application.SHA256 = strings.Repeat("0", 64)
-			case "wrong CA":
-				record.TrustStore.SHA256 = strings.Repeat("0", 64)
-			case "wrong diff":
-				record.LayerDiffSHA256 = strings.Repeat("0", 64)
-			case "dirty packer":
-				record.PackerCompiler.SourceState = "dirty"
-			case "duplicate index":
-				data, err := os.ReadFile(filepath.Join(image, "index.json"))
-				if err != nil {
-					t.Fatal(err)
-				}
-				put(t, image, "index.json", strings.Replace(string(data), "{", "{\"schemaVersion\": 2,", 1))
-			}
-			reasons := map[string]string{"extra file": "unexpected image layout file", "link": "link or special file", "config bytes": "image blob size differs", "missing blob": "image layout is incomplete", "wrong application": "image executable content differs", "wrong CA": "image trust store content differs", "wrong diff": "image configuration differs", "dirty packer": "invalid image record policy", "duplicate index": "image index differs"}
-			if err := verifyImageContents(context.Background(), image, record, ""); err == nil || !strings.Contains(err.Error(), reasons[change]) {
-				t.Fatal("wrong image rejection", change, err)
-			}
-		})
-	}
+			})
+		}
+	})
 }
 
 // Rebuild descriptors after changing a layer or configuration. Correct new
 // hashes must not let an image bypass the common runtime policy.
 func TestImageRejectsRehashedUnsafeContent(t *testing.T) {
-	ca := imageTestCA(t, true)
-	for _, change := range []string{"root user", "ambient environment", "writable executable", "symbolic link", "extra executable", "private key"} {
-		t.Run(change, func(t *testing.T) {
-			root, record := imageFixture(t, ca)
-			raw, err := os.ReadFile(filepath.Join(root, "layer.tar"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			reader := tar.NewReader(bytes.NewReader(raw))
-			var out bytes.Buffer
-			writer := tar.NewWriter(&out)
-			for {
-				header, err := reader.Next()
-				if err == io.EOF {
-					break
-				}
+	t.Run("ST-BLD-UC05-R02-T02 A rehashed image that runs as root or carries an extra executable is refused", func(t *testing.T) {
+		ca := imageTestCA(t, true)
+		for _, change := range []string{"root user", "ambient environment", "writable executable", "symbolic link", "extra executable", "private key"} {
+			t.Run(change, func(t *testing.T) {
+				root, record := imageFixture(t, ca)
+				raw, err := os.ReadFile(filepath.Join(root, "layer.tar"))
 				if err != nil {
 					t.Fatal(err)
 				}
-				data, err := io.ReadAll(reader)
+				reader := tar.NewReader(bytes.NewReader(raw))
+				var out bytes.Buffer
+				writer := tar.NewWriter(&out)
+				for {
+					header, err := reader.Next()
+					if err == io.EOF {
+						break
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					data, err := io.ReadAll(reader)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if header.Name == record.Entrypoint {
+						if change == "writable executable" {
+							header.Mode = 0777
+						}
+						if change == "symbolic link" {
+							header.Typeflag = tar.TypeSymlink
+							header.Linkname = "/etc/passwd"
+							header.Size = 0
+							data = nil
+						}
+					}
+					if header.Name == trustStorePath && change == "private key" {
+						data = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("secret")})
+						header.Size = int64(len(data))
+						record.TrustStore = Artifact{digest(data), int64(len(data))}
+					}
+					if err := writer.WriteHeader(header); err != nil {
+						t.Fatal(err)
+					}
+					if _, err := writer.Write(data); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if change == "extra executable" {
+					if err := writer.WriteHeader(&tar.Header{Name: "shell", Typeflag: tar.TypeReg, Mode: 0555, Format: tar.FormatUSTAR, ModTime: time.Unix(0, 0)}); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := writer.Close(); err != nil {
+					t.Fatal(err)
+				}
+				put(t, root, "unsafe-layer.tar", out.String())
+				layer, err := tarball.LayerFromFile(filepath.Join(root, "unsafe-layer.tar"), tarball.WithMediaType(types.OCILayer))
 				if err != nil {
 					t.Fatal(err)
 				}
-				if header.Name == record.Entrypoint {
-					if change == "writable executable" {
-						header.Mode = 0777
-					}
-					if change == "symbolic link" {
-						header.Typeflag = tar.TypeSymlink
-						header.Linkname = "/etc/passwd"
-						header.Size = 0
-						data = nil
-					}
-				}
-				if header.Name == trustStorePath && change == "private key" {
-					data = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("secret")})
-					header.Size = int64(len(data))
-					record.TrustStore = Artifact{digest(data), int64(len(data))}
-				}
-				if err := writer.WriteHeader(header); err != nil {
+				image, err := mutate.AppendLayers(empty.Image, layer)
+				if err != nil {
 					t.Fatal(err)
 				}
-				if _, err := writer.Write(data); err != nil {
+				diff, err := layer.DiffID()
+				if err != nil {
 					t.Fatal(err)
 				}
-			}
-			if change == "extra executable" {
-				if err := writer.WriteHeader(&tar.Header{Name: "shell", Typeflag: tar.TypeReg, Mode: 0555, Format: tar.FormatUSTAR, ModTime: time.Unix(0, 0)}); err != nil {
+				record.LayerDiffSHA256 = diff.Hex
+				config := imageConfig(record)
+				if change == "root user" {
+					config.Config.User = "0:0"
+				}
+				if change == "ambient environment" {
+					config.Config.Env = append(config.Config.Env, "TOKEN=private")
+				}
+				image = mutate.ConfigMediaType(mutate.MediaType(image, types.OCIManifestSchema1), types.OCIConfigJSON)
+				image, err = mutate.ConfigFile(image, config)
+				if err != nil {
 					t.Fatal(err)
 				}
-			}
-			if err := writer.Close(); err != nil {
-				t.Fatal(err)
-			}
-			put(t, root, "unsafe-layer.tar", out.String())
-			layer, err := tarball.LayerFromFile(filepath.Join(root, "unsafe-layer.tar"), tarball.WithMediaType(types.OCILayer))
-			if err != nil {
-				t.Fatal(err)
-			}
-			image, err := mutate.AppendLayers(empty.Image, layer)
-			if err != nil {
-				t.Fatal(err)
-			}
-			diff, err := layer.DiffID()
-			if err != nil {
-				t.Fatal(err)
-			}
-			record.LayerDiffSHA256 = diff.Hex
-			config := imageConfig(record)
-			if change == "root user" {
-				config.Config.User = "0:0"
-			}
-			if change == "ambient environment" {
-				config.Config.Env = append(config.Config.Env, "TOKEN=private")
-			}
-			image = mutate.ConfigMediaType(mutate.MediaType(image, types.OCIManifestSchema1), types.OCIConfigJSON)
-			image, err = mutate.ConfigFile(image, config)
-			if err != nil {
-				t.Fatal(err)
-			}
-			manifest, err := image.RawManifest()
-			if err != nil {
-				t.Fatal(err)
-			}
-			configBytes, err := image.RawConfigFile()
-			if err != nil {
-				t.Fatal(err)
-			}
-			layerHash, err := layer.Digest()
-			if err != nil {
-				t.Fatal(err)
-			}
-			layerSize, err := layer.Size()
-			if err != nil {
-				t.Fatal(err)
-			}
-			record.Manifest = Artifact{digest(manifest), int64(len(manifest))}
-			record.Config = Artifact{digest(configBytes), int64(len(configBytes))}
-			record.Layer = Artifact{layerHash.Hex, layerSize}
-			store, err := layout.Write(filepath.Join(root, "unsafe"), empty.Index)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := store.AppendImage(image); err != nil {
-				t.Fatal(err)
-			}
-			reasons := map[string]string{"root user": "image configuration differs", "ambient environment": "image configuration differs", "writable executable": "image executable metadata differs", "symbolic link": "image entry metadata differs", "extra executable": "repeated or extra entries", "private key": "trust store must contain only PEM certificates"}
-			if err := verifyImageContents(context.Background(), string(store), record, ""); err == nil || !strings.Contains(err.Error(), reasons[change]) {
-				data, _ := json.Marshal(config)
-				t.Fatal("wrong unsafe image rejection", change, err, string(data))
-			}
-		})
-	}
+				manifest, err := image.RawManifest()
+				if err != nil {
+					t.Fatal(err)
+				}
+				configBytes, err := image.RawConfigFile()
+				if err != nil {
+					t.Fatal(err)
+				}
+				layerHash, err := layer.Digest()
+				if err != nil {
+					t.Fatal(err)
+				}
+				layerSize, err := layer.Size()
+				if err != nil {
+					t.Fatal(err)
+				}
+				record.Manifest = Artifact{digest(manifest), int64(len(manifest))}
+				record.Config = Artifact{digest(configBytes), int64(len(configBytes))}
+				record.Layer = Artifact{layerHash.Hex, layerSize}
+				store, err := layout.Write(filepath.Join(root, "unsafe"), empty.Index)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := store.AppendImage(image); err != nil {
+					t.Fatal(err)
+				}
+				reasons := map[string]string{"root user": "image configuration differs", "ambient environment": "image configuration differs", "writable executable": "image executable metadata differs", "symbolic link": "image entry metadata differs", "extra executable": "repeated or extra entries", "private key": "trust store must contain only PEM certificates"}
+				if err := verifyImageContents(context.Background(), string(store), record, ""); err == nil || !strings.Contains(err.Error(), reasons[change]) {
+					data, _ := json.Marshal(config)
+					t.Fatal("wrong unsafe image rejection", change, err, string(data))
+				}
+			})
+		}
+	})
 }

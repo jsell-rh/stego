@@ -31,15 +31,21 @@ func TestApplicationLoginDocumentTargets(t *testing.T) {
 			refresh := regexp.MustCompile(`<meta http-equiv="refresh" content="([^"]*)">`).FindStringSubmatch(body)
 			link := regexp.MustCompile(`<a href="([^"]*)">`).FindStringSubmatch(body)
 			require(t, w.Code == 200 && w.Header().Get("Location") == "", "completion did not commit a document")
-			require(t, len(refresh) == 2 && html.UnescapeString(refresh[1]) == "0; URL="+test.want, "completion refresh changed or accepted an unsafe target")
-			require(t, len(link) == 2, "completion fallback link is missing")
-			actual, err := url.Parse(html.UnescapeString(link[1]))
-			want, wantErr := url.Parse(test.want)
-			require(t, err == nil && wantErr == nil && !actual.IsAbs() && actual.Host == "" && actual.Fragment == "" && actual.Path == want.Path && actual.Query().Encode() == want.Query().Encode(), "completion fallback link changed or accepted an unsafe target")
-			require(t, !strings.Contains(body, "<script") && strings.Count(body, "<a ") == 1 && strings.Count(body, "<meta http-equiv=") == 1, "return path injected active markup")
-			require(t, w.Header().Get("Set-Cookie") == "", "completion renderer changed a cookie")
-			require(t, w.Header().Get("Cache-Control") == "no-store" && w.Header().Get("Referrer-Policy") == "no-referrer" && w.Header().Get("Cross-Origin-Opener-Policy") == "same-origin", "completion lost its privacy headers")
-			require(t, w.Header().Get("Content-Security-Policy") == "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'", "completion permits active or framed content")
+			if !t.Run("ST-SUP-RC02-OC21-T02 The completion document reduces an unsafe return target to the root route", func(t *testing.T) {
+				require(t, len(refresh) == 2 && html.UnescapeString(refresh[1]) == "0; URL="+test.want, "completion refresh changed or accepted an unsafe target")
+				require(t, len(link) == 2, "completion fallback link is missing")
+				actual, err := url.Parse(html.UnescapeString(link[1]))
+				want, wantErr := url.Parse(test.want)
+				require(t, err == nil && wantErr == nil && !actual.IsAbs() && actual.Host == "" && actual.Fragment == "" && actual.Path == want.Path && actual.Query().Encode() == want.Query().Encode(), "completion fallback link changed or accepted an unsafe target")
+			}) {
+				return
+			}
+			t.Run("ST-SUP-RC02-OC27-T02 The completion document holds no active markup and keeps its privacy headers", func(t *testing.T) {
+				require(t, !strings.Contains(body, "<script") && strings.Count(body, "<a ") == 1 && strings.Count(body, "<meta http-equiv=") == 1, "return path injected active markup")
+				require(t, w.Header().Get("Set-Cookie") == "", "completion renderer changed a cookie")
+				require(t, w.Header().Get("Cache-Control") == "no-store" && w.Header().Get("Referrer-Policy") == "no-referrer" && w.Header().Get("Cross-Origin-Opener-Policy") == "same-origin", "completion lost its privacy headers")
+				require(t, w.Header().Get("Content-Security-Policy") == "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'", "completion permits active or framed content")
+			})
 		})
 	}
 }
@@ -50,9 +56,17 @@ func TestApplicationLoginDocumentSessionAndReplay(t *testing.T) {
 	w := send(f.backend, "GET", callback, "", []*http.Cookie{loginCookie}, http.Header{"Sec-Fetch-Site": {"cross-site"}})
 	require(t, w.Code == 200 && strings.Contains(w.Body.String(), `content="0; URL=/records/record-1"`), "verified callback did not return the completion document")
 	active := cookie(t, w, SessionCookie)
-	require(t, active.SameSite == http.SameSiteStrictMode && active.Secure && active.HttpOnly && active.Domain == "" && active.Path == "/", "completion weakened the session cookie")
-	for _, private := range []string{active.Value, loginCookie.Value, "initial-access-value", "refresh-value", "code=", "state="} {
-		require(t, !strings.Contains(w.Body.String(), private), "completion exposed private state")
+	if !t.Run("ST-SUP-RC02-OC01-T02 The completion document keeps the strict session cookie", func(t *testing.T) {
+		require(t, active.SameSite == http.SameSiteStrictMode && active.Secure && active.HttpOnly && active.Domain == "" && active.Path == "/", "completion weakened the session cookie")
+	}) {
+		return
+	}
+	if !t.Run("ST-SUP-RC02-OC27-T01 The completion document holds no private state", func(t *testing.T) {
+		for _, private := range []string{active.Value, loginCookie.Value, "initial-access-value", "refresh-value", "code=", "state="} {
+			require(t, !strings.Contains(w.Body.String(), private), "completion exposed private state")
+		}
+	}) {
+		return
 	}
 	// Model cookie omission on a cross-site request, then the new document's
 	// same-origin navigation. Real browser enforcement has a separate live gate.

@@ -4,7 +4,7 @@ last_applied:
         version: 1
         options:
             module_name: github.com/example/service
-            go_version: 1.26.8
+            go_version: 1.26.10
             output_dir: out
             registry_ref: env-override
         files:
@@ -14,28 +14,28 @@ last_applied:
                 mode: 420
             go.mod:
                 exists: true
-                sha256: f91e30c57906e922a900c355af4ad555c97246e7bc6e53e831e15521f300adc4
+                sha256: 3ccb8e5ce67112425fe7c83be06bdd2b90ad6ffafeab7b37dc07eb1d8e53cd25
                 mode: 420
             go.sum:
                 exists: true
-                sha256: ebd1dfb117ad38ea91954ec141a4e20dd81480f6b3ae75f85b82a62312b0894b
+                sha256: d81f1adbfddce67774f26734e51227138f6ceeea81f5db9e36b0fe6bbf081b3c
                 mode: 420
             service.yaml:
                 exists: true
                 sha256: df9112176f2dcaf28257689abc0fedd964b29998195268acc4804137c064b9b1
                 mode: 420
-        sha256: e1a15be52648033c6cb9bf598e20e8d017500458c4d703fdc03053d768724aa5
+        sha256: 4e8533aeb2b06f8728da8d252e44ad4e8508da09194dec5bfb9700f842e5e431
     compiler_build:
-        go_version: go1.26.8
+        go_version: go1.26.10
         goos: linux
         goarch: amd64
-        module_version: (devel)
-        vcs: unknown
-        revision: unknown
-        source_state: unknown
+        module_version: v0.0.0-20261030220542-305f6fe7e0e6
+        vcs: git
+        revision: 305f6fe7e0e6781c186e10fec7af36a413a00580
+        source_state: clean
     service_hash: df9112176f2dcaf28257689abc0fedd964b29998195268acc4804137c064b9b1
     registry_sha: env-override
-    registry_content_sha256: 131e3a5eb2d4fa1a692f236e00ea44af55cce4a97a24c2c3187b68b1944fe900
+    registry_content_sha256: 408bbbd40cf6aeb20dadfbb4d04f819eb1f576a22a8d8732cd1f43117e067450
     components:
         health-check:
             version: 1.1.0
@@ -53,7 +53,7 @@ last_applied:
             version: 1.4.0
             sha: env-override
         postgres-adapter:
-            version: 4.12.0
+            version: 4.13.0
             sha: env-override
         rest-api:
             version: 3.1.0

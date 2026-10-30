@@ -197,6 +197,7 @@ func TestRequestSignalsWithAndWithoutSampledSpans(t *testing.T) {
 		})
 	}
 }
+
 func TestMetricCardinalityAndActiveCalls(t *testing.T) {
 	sink := collectorFixture(t, false)
 	runtime, err := NewRuntime()
@@ -221,132 +222,147 @@ func TestMetricCardinalityAndActiveCalls(t *testing.T) {
 		}
 	}
 	points := metricMap(flush())["rpc.server.active_requests"].GetSum().GetDataPoints()
-	if len(points) != 1 || points[0].GetAsInt() != 1 {
-		t.Fatal("active stream was not counted")
-	}
 	finish(nil)
-	for cycle := 0; cycle < 3; cycle++ {
-		for i := 0; i < MetricSeriesLimit*2; i++ {
-			_, end := runtime.TraceRPC(context.Background(), fmt.Sprintf("/sample.Records/Method%d", cycle*MetricSeriesLimit*2+i))
-			end(nil)
-		}
-		metrics := metricMap(flush())
-		hist := metrics["rpc.server.call.duration"].GetHistogram()
-		if len(hist.DataPoints) > MetricSeriesLimit {
-			t.Fatal("metric series exceeded bound")
-		}
-		var total uint64
-		overflow := false
-		for _, point := range hist.DataPoints {
-			total += point.Count
-			if value(point.Attributes, "otel.metric.overflow").GetBoolValue() {
-				overflow = true
+	t.Run("ST-SUP-RC17-OC17-T01 The emitted metric provider limits each instrument to 128 series", func(t *testing.T) {
+		for cycle := 0; cycle < 3; cycle++ {
+			for i := 0; i < MetricSeriesLimit*2; i++ {
+				_, end := runtime.TraceRPC(context.Background(), fmt.Sprintf("/sample.Records/Method%d", cycle*MetricSeriesLimit*2+i))
+				end(nil)
+			}
+			metrics := metricMap(flush())
+			hist := metrics["rpc.server.call.duration"].GetHistogram()
+			if len(hist.DataPoints) > MetricSeriesLimit {
+				t.Fatal("metric series exceeded bound")
+			}
+			var total uint64
+			overflow := false
+			for _, point := range hist.DataPoints {
+				total += point.Count
+				if value(point.Attributes, "otel.metric.overflow").GetBoolValue() {
+					overflow = true
+				}
+			}
+			if total != uint64(1+(cycle+1)*MetricSeriesLimit*2) || !overflow {
+				t.Fatal("overflow lost request counts", total, overflow)
 			}
 		}
-		if total != uint64(1+(cycle+1)*MetricSeriesLimit*2) || !overflow {
-			t.Fatal("overflow lost request counts", total, overflow)
+	})
+	t.Run("ST-SUP-RC17-OC18-T01 The emitted active request counter returns to zero", func(t *testing.T) {
+		if len(points) != 1 || points[0].GetAsInt() != 1 {
+			t.Fatal("active stream was not counted")
 		}
-	}
-	if metricMap(flush())["rpc.server.active_requests"].GetSum().DataPoints[0].GetAsInt() != 0 {
-		t.Fatal("active count lost completion")
-	}
+		if metricMap(flush())["rpc.server.active_requests"].GetSum().DataPoints[0].GetAsInt() != 0 {
+			t.Fatal("active count lost completion")
+		}
+	})
 }
+
 func TestSignalSettingsAndBlockedCollectors(t *testing.T) {
 	collectorFixture(t, true)
-	for name, values := range map[string][]string{"OTEL_METRICS_EXPORTER": {"prometheus", "invalid"}, "OTEL_LOGS_EXPORTER": {"console", "invalid"}, "OTEL_METRIC_EXPORT_INTERVAL": {"0", "999", "60001", "+1000", "invalid"}} {
-		for _, value := range values {
-			t.Setenv(name, value)
-			if _, err := NewRuntime(); err == nil {
-				t.Fatalf("accepted %s=%s", name, value)
+	t.Run("ST-SUP-RC17-OC28-T01 The emitted runtime refuses an unsupported exporter or metric interval", func(t *testing.T) {
+		for name, values := range map[string][]string{"OTEL_METRICS_EXPORTER": {"prometheus", "invalid"}, "OTEL_LOGS_EXPORTER": {"console", "invalid"}, "OTEL_METRIC_EXPORT_INTERVAL": {"0", "999", "60001", "+1000", "invalid"}} {
+			for _, value := range values {
+				t.Setenv(name, value)
+				if _, err := NewRuntime(); err == nil {
+					t.Fatalf("accepted %s=%s", name, value)
+				}
 			}
+			t.Setenv(name, "")
 		}
-		t.Setenv(name, "")
-	}
+	})
 	t.Setenv("OTEL_METRIC_EXPORT_INTERVAL", "1000")
-	runtime, err := NewRuntime()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer runtime.Close()
-	started := time.Now()
-	for range QueueSize * 3 {
-		_, finish := runtime.TraceRPC(context.Background(), "/sample.Records/Get")
-		finish(nil)
-	}
-	if time.Since(started) > time.Second {
-		t.Fatal("blocked export delayed requests")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-	defer cancel()
-	if err := runtime.signals.meter.ForceFlush(ctx); err == nil {
-		t.Fatal("blocked metric collector reported success")
-	}
-	deadline := time.Now().Add(3 * time.Second)
-	for runtime.MetricExportFailures() == 0 || runtime.LogExportFailures() == 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("signal export deadline failed")
+	t.Run("ST-SUP-RC17-OC29-T01 Blocked signal collectors share one shutdown limit in the emitted runtime", func(t *testing.T) {
+		runtime, err := NewRuntime()
+		if err != nil {
+			t.Fatal(err)
 		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	started = time.Now()
-	runtime.Close()
-	if time.Since(started) > ShutdownTimeout+time.Second {
-		t.Fatal("signal shutdown budgets accumulated")
-	}
-	t.Setenv("OTEL_METRICS_EXPORTER", "none")
-	t.Setenv("OTEL_LOGS_EXPORTER", "none")
-	disabled, err := NewRuntime()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer disabled.Close()
-	if disabled.signals.meter != nil || disabled.signals.logs != nil {
-		t.Fatal("disabled signal started provider")
-	}
+		defer runtime.Close()
+		started := time.Now()
+		for range QueueSize * 3 {
+			_, finish := runtime.TraceRPC(context.Background(), "/sample.Records/Get")
+			finish(nil)
+		}
+		if time.Since(started) > time.Second {
+			t.Fatal("blocked export delayed requests")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		defer cancel()
+		if err := runtime.signals.meter.ForceFlush(ctx); err == nil {
+			t.Fatal("blocked metric collector reported success")
+		}
+		deadline := time.Now().Add(3 * time.Second)
+		for runtime.MetricExportFailures() == 0 || runtime.LogExportFailures() == 0 {
+			if time.Now().After(deadline) {
+				t.Fatal("signal export deadline failed")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		started = time.Now()
+		runtime.Close()
+		if time.Since(started) > ShutdownTimeout+time.Second {
+			t.Fatal("signal shutdown budgets accumulated")
+		}
+	})
+	t.Run("Disabled signals start no provider", func(t *testing.T) {
+		t.Setenv("OTEL_METRICS_EXPORTER", "none")
+		t.Setenv("OTEL_LOGS_EXPORTER", "none")
+		disabled, err := NewRuntime()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer disabled.Close()
+		if disabled.signals.meter != nil || disabled.signals.logs != nil {
+			t.Fatal("disabled signal started provider")
+		}
+	})
 }
 
 func TestHTTPPanicBalancesMetricsWithoutInventingAResponse(t *testing.T) {
-	sink := collectorFixture(t, false)
-	runtime, err := NewRuntime()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer runtime.Close()
-	handler := runtime.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("private-panic") }))
-	func() {
-		defer func() {
-			if recover() == nil {
-				t.Error("instrumentation swallowed panic")
+	for _, group := range []string{"ST-SUP-RC17-OC21-T01 A handler panic in the emitted runtime invents no response and is raised again", "ST-SUP-RC17-OC22-T01 A handler panic leaves no active request in the emitted runtime"} {
+		t.Run(group, func(t *testing.T) {
+			sink := collectorFixture(t, false)
+			runtime, err := NewRuntime()
+			if err != nil {
+				t.Fatal(err)
 			}
-		}()
-		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/private-resource", nil))
-	}()
-	runtime.Close()
-	select {
-	case request := <-sink.metrics:
-		metrics := metricMap(request)
-		point := metrics["http.server.request.duration"].GetHistogram().DataPoints[0]
-		if value(point.Attributes, "http.response.status_code") != nil || value(point.Attributes, "error.type").GetStringValue() != "panic" || point.Count != 1 {
-			t.Fatal("panic recorded a false HTTP response")
-		}
-		if metrics["http.server.active_requests"].GetSum().DataPoints[0].GetAsInt() != 0 {
-			t.Fatal("panic left an active request")
-		}
-	case <-time.After(time.Second):
-		t.Fatal("panic metrics missing")
-	}
-	select {
-	case request := <-sink.logs:
-		record := request.ResourceLogs[0].ScopeLogs[0].LogRecords[0]
-		if record.SeverityText != "ERROR" || value(record.Attributes, "error.type").GetStringValue() != "panic" {
-			t.Fatal("panic log status lost")
-		}
-		raw, _ := proto.Marshal(request)
-		if strings.Contains(string(raw), "private-") {
-			t.Fatal("panic log contains private data")
-		}
-	case <-time.After(time.Second):
-		t.Fatal("panic log missing")
+			defer runtime.Close()
+			handler := runtime.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("private-panic") }))
+			func() {
+				defer func() {
+					if recover() == nil {
+						t.Error("instrumentation swallowed panic")
+					}
+				}()
+				handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/private-resource", nil))
+			}()
+			runtime.Close()
+			select {
+			case request := <-sink.metrics:
+				metrics := metricMap(request)
+				point := metrics["http.server.request.duration"].GetHistogram().DataPoints[0]
+				if value(point.Attributes, "http.response.status_code") != nil || value(point.Attributes, "error.type").GetStringValue() != "panic" || point.Count != 1 {
+					t.Fatal("panic recorded a false HTTP response")
+				}
+				if metrics["http.server.active_requests"].GetSum().DataPoints[0].GetAsInt() != 0 {
+					t.Fatal("panic left an active request")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("panic metrics missing")
+			}
+			select {
+			case request := <-sink.logs:
+				record := request.ResourceLogs[0].ScopeLogs[0].LogRecords[0]
+				if record.SeverityText != "ERROR" || value(record.Attributes, "error.type").GetStringValue() != "panic" {
+					t.Fatal("panic log status lost")
+				}
+				raw, _ := proto.Marshal(request)
+				if strings.Contains(string(raw), "private-") {
+					t.Fatal("panic log contains private data")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("panic log missing")
+			}
+		})
 	}
 }
 func BenchmarkRequestSignals(b *testing.B) {

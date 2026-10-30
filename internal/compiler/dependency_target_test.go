@@ -38,7 +38,7 @@ func TestPinnedDependenciesGateGoTarget(t *testing.T) {
 			if plan, err := Reconcile(input); plan != nil || err == nil || !strings.Contains(err.Error(), "requires Go "+component.minimum+" or later") {
 				t.Fatal("unsupported dependency target reached generation", plan, err)
 			}
-			for _, target := range []string{component.minimum, "1.26.8"} {
+			for _, target := range []string{component.minimum, "1.26.10"} {
 				if errors := validateGeneratorGoVersion(component.name, component.generator, target); len(errors) != 0 {
 					t.Fatal("supported dependency target rejected", target, errors)
 				}

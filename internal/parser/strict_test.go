@@ -12,30 +12,42 @@ import (
 
 func TestStrictServiceInput(t *testing.T) {
 	const base = "kind: service\nname: test\narchetype: rest-crud\nlanguage: go\n"
+	const (
+		undeclared = "ST-DECL-INV02-T A declaration that carries an undeclared field is refused"
+		document   = "ST-DECL-INV03-T A declaration must be one document with no anchors, aliases or merge keys"
+		keys       = "Duplicate and non-string keys are refused"
+	)
 	tests := []struct {
-		name, suffix, want string
+		group, name, suffix, want string
 	}{
-		{"root field", "langauge: go\n", "langauge"},
-		{"entity constraint", "entities:\n  - name: Todo\n    fields:\n      - {name: title, type: string, min_lenght: 1}\n", "entities[0].fields[0].min_lenght"},
-		{"collection field", "collections:\n  todos: {entity: Todo, operation: [create]}\n", "collections.todos.operation"},
-		{"slot field", "slots:\n  - {slot: before_create, collection: todos, gates: [policy]}\n", "slots[0].gates"},
-		{"duplicate collection", "collections:\n  todos: {entity: Todo, operations: [create]}\n  todos: {entity: Todo, operations: [read]}\n", "duplicate key"},
-		{"duplicate dynamic config", "overrides:\n  auth: {header: one, header: two}\n", "duplicate key"},
-		{"additional document", "---\nkind: service\n", "multiple YAML documents"},
-		{"empty additional document", "---\n", "multiple YAML documents"},
-		{"anchor", "overrides: {auth: &auth {header: example}}\n", "anchors and aliases"},
-		{"merge", "overrides: {auth: {<<: {header: example}}}\n", "merge keys"},
-		{"non-string key", "overrides: {123: value}\n", "keys must be strings"},
+		{undeclared, "root field", "langauge: go\n", "langauge"},
+		{undeclared, "entity constraint", "entities:\n  - name: Todo\n    fields:\n      - {name: title, type: string, min_lenght: 1}\n", "entities[0].fields[0].min_lenght"},
+		{undeclared, "collection field", "collections:\n  todos: {entity: Todo, operation: [create]}\n", "collections.todos.operation"},
+		{undeclared, "slot field", "slots:\n  - {slot: before_create, collection: todos, gates: [policy]}\n", "slots[0].gates"},
+		{keys, "duplicate collection", "collections:\n  todos: {entity: Todo, operations: [create]}\n  todos: {entity: Todo, operations: [read]}\n", "duplicate key"},
+		{keys, "duplicate dynamic config", "overrides:\n  auth: {header: one, header: two}\n", "duplicate key"},
+		{document, "additional document", "---\nkind: service\n", "multiple YAML documents"},
+		{document, "empty additional document", "---\n", "multiple YAML documents"},
+		{document, "anchor", "overrides: {auth: &auth {header: example}}\n", "anchors and aliases"},
+		{document, "merge", "overrides: {auth: {<<: {header: example}}}\n", "merge keys"},
+		{keys, "non-string key", "overrides: {123: value}\n", "keys must be strings"},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := ParseServiceDeclarationFromBytes([]byte(base+tt.suffix), "service.yaml")
-			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("got %v, want error containing %q", err, tt.want)
-			}
-			var pe *ParseError
-			if !errors.As(err, &pe) || pe.Path != "service.yaml" || pe.Line < 1 {
-				t.Fatalf("error must identify the file and line: %v", err)
+	for _, group := range []string{undeclared, document, keys} {
+		t.Run(group, func(t *testing.T) {
+			for _, tt := range tests {
+				if tt.group != group {
+					continue
+				}
+				t.Run(tt.name, func(t *testing.T) {
+					_, err := ParseServiceDeclarationFromBytes([]byte(base+tt.suffix), "service.yaml")
+					if err == nil || !strings.Contains(err.Error(), tt.want) {
+						t.Fatalf("got %v, want error containing %q", err, tt.want)
+					}
+					var pe *ParseError
+					if !errors.As(err, &pe) || pe.Path != "service.yaml" || pe.Line < 1 {
+						t.Fatalf("error must identify the file and line: %v", err)
+					}
+				})
 			}
 		})
 	}
@@ -65,21 +77,23 @@ func TestStrictOtherDeclarations(t *testing.T) {
 }
 
 func TestStrictLimits(t *testing.T) {
-	var service types.ServiceDeclaration
-	if err := DecodeStrict([]byte(strings.Repeat(" ", MaxDocumentBytes+1)), "large.yaml", &service); err == nil {
-		t.Fatal("oversized input was accepted")
-	}
-	input := "overrides: " + strings.Repeat("[", 130) + "0" + strings.Repeat("]", 130)
-	if err := DecodeStrict([]byte(input), "deep.yaml", &service); err == nil || !strings.Contains(err.Error(), "nesting") {
-		t.Fatalf("got %v, want nesting error", err)
-	}
-	path := filepath.Join(t.TempDir(), "large.yaml")
-	if err := os.WriteFile(path, []byte(strings.Repeat(" ", MaxDocumentBytes+1)), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Parse(path); err == nil || !strings.Contains(err.Error(), "byte limit") {
-		t.Fatalf("got %v, want a file size error", err)
-	}
+	t.Run("ST-DECL-INV04-T A declaration beyond 4 MiB or 128 levels is refused", func(t *testing.T) {
+		var service types.ServiceDeclaration
+		if err := DecodeStrict([]byte(strings.Repeat(" ", MaxDocumentBytes+1)), "large.yaml", &service); err == nil {
+			t.Fatal("oversized input was accepted")
+		}
+		input := "overrides: " + strings.Repeat("[", 130) + "0" + strings.Repeat("]", 130)
+		if err := DecodeStrict([]byte(input), "deep.yaml", &service); err == nil || !strings.Contains(err.Error(), "nesting") {
+			t.Fatalf("got %v, want nesting error", err)
+		}
+		path := filepath.Join(t.TempDir(), "large.yaml")
+		if err := os.WriteFile(path, []byte(strings.Repeat(" ", MaxDocumentBytes+1)), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Parse(path); err == nil || !strings.Contains(err.Error(), "byte limit") {
+			t.Fatalf("got %v, want a file size error", err)
+		}
+	})
 }
 
 func FuzzStrictServiceInput(f *testing.F) {

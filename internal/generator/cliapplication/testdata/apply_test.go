@@ -157,27 +157,34 @@ func TestApplyCreatePatchAndDryRun(t *testing.T) {
 	app := applyDefinition()
 	path := applyFile(t, filepath.Join(f.directory, "input.yaml"), manifest("Record", "a' OR name = 'b", `{"count":9007199254740993,"tags":["a","b"]}`)+"---\n"+manifest("Widget", "other", `{"count":0}`))
 	// Dry run needs neither credentials nor a network connection.
-	t.Setenv("TEST_CLI_CONFIG", filepath.Join(f.directory, "absent.json"))
-	result, _, err := runApplyTest(t, app, "apply", "-f", path, "--dry-run", "-o", "json")
-	if err != nil || len(result) != 2 || result[0].Status != "validated" || f.calls != 0 {
-		t.Fatal("dry run contacted API or credentials", err)
+	if !t.Run("ST-SUP-RC04-OC24-T01 The emitted apply command keeps a dry run local", func(t *testing.T) {
+		t.Setenv("TEST_CLI_CONFIG", filepath.Join(f.directory, "absent.json"))
+		result, _, err := runApplyTest(t, app, "apply", "-f", path, "--dry-run", "-o", "json")
+		if err != nil || len(result) != 2 || result[0].Status != "validated" || f.calls != 0 {
+			t.Fatal("dry run contacted API or credentials", err)
+		}
+	}) {
+		return
 	}
-	t.Setenv("TEST_CLI_CONFIG", filepath.Join(f.directory, "config.json"))
-	first, _, err := runApplyTest(t, app, "apply", "-f", path, "-o", "json")
-	if err != nil || len(first) != 2 || first[0].Status != "created" || f.writes != 2 {
-		t.Fatal("apply creation", first, err)
-	}
-	f.mu.Lock()
-	number := f.rows["/records/"+first[0].ID]["count"].(json.Number).String()
-	f.mu.Unlock()
-	if number != "9007199254740993" {
-		t.Fatal("apply lost integer precision")
-	}
-	second, _, err := runApplyTest(t, app, "apply", "--filename="+path, "--output=json")
-	if err != nil || second[0].ID != first[0].ID || second[0].Status != "configured" || f.writes != 4 || len(f.rows) != 2 {
-		t.Fatal("repeat apply did not patch", second, err)
-	}
+	t.Run("ST-SUP-RC04-OC26-T01 The emitted apply command keeps exact integers from its input", func(t *testing.T) {
+		t.Setenv("TEST_CLI_CONFIG", filepath.Join(f.directory, "config.json"))
+		first, _, err := runApplyTest(t, app, "apply", "-f", path, "-o", "json")
+		if err != nil || len(first) != 2 || first[0].Status != "created" || f.writes != 2 {
+			t.Fatal("apply creation", first, err)
+		}
+		f.mu.Lock()
+		number := f.rows["/records/"+first[0].ID]["count"].(json.Number).String()
+		f.mu.Unlock()
+		if number != "9007199254740993" {
+			t.Fatal("apply lost integer precision")
+		}
+		second, _, err := runApplyTest(t, app, "apply", "--filename="+path, "--output=json")
+		if err != nil || second[0].ID != first[0].ID || second[0].Status != "configured" || f.writes != 4 || len(f.rows) != 2 {
+			t.Fatal("repeat apply did not patch", second, err)
+		}
+	})
 }
+
 func TestApplyRejectsAllInputBeforeRequests(t *testing.T) {
 	f := applySetup(t)
 	app := applyDefinition()
@@ -191,108 +198,129 @@ func TestApplyRejectsAllInputBeforeRequests(t *testing.T) {
 		"kind: Record\nmetadata: {name: x}\nspec: {tags: {nested: value}}", `{"kind":"Record","metadata":{"name":"x"},"spec":{"tags":["\ud800"]}}`,
 		"kind: Record\nmetadata: {name: x}\nspec: {tags: [a], tags: [b]}", good + "---\n" + good,
 	}
-	for i, bad := range invalid {
-		path := applyFile(t, filepath.Join(f.directory, "invalid.yaml"), good+"---\n"+bad)
-		if _, _, err := runApplyTest(t, app, "apply", "-f", path, "-o", "json"); err == nil {
-			t.Fatalf("accepted invalid document %d", i)
+	if !t.Run("ST-SUP-RC04-OC26-T02 The emitted apply command accepts only the JSON subset of YAML", func(t *testing.T) {
+		for i, bad := range invalid {
+			path := applyFile(t, filepath.Join(f.directory, "invalid.yaml"), good+"---\n"+bad)
+			if _, _, err := runApplyTest(t, app, "apply", "-f", path, "-o", "json"); err == nil {
+				t.Fatalf("accepted invalid document %d", i)
+			}
 		}
+	}) {
+		return
 	}
-	if f.calls != 0 || f.writes != 0 {
-		t.Fatal("invalid document reached API")
-	}
-}
-func TestApplyPreflightAndPartialResults(t *testing.T) {
-	for _, mode := range []string{"lookup-failure", "invalid-list", "write-failure", "unknown-write"} {
-		t.Run(mode, func(t *testing.T) {
-			f := applySetup(t)
-			f.mode = mode
-			path := applyFile(t, filepath.Join(f.directory, "input.yaml"), manifest("Record", "first", "{}")+"---\n"+manifest("Record", "second", "{}")+"---\n"+manifest("Record", "third", "{}"))
-			results, output, err := runApplyTest(t, applyDefinition(), "apply", "-f", path, "-o", "json")
-			if err == nil || strings.Contains(output, "do-not-print") || strings.Contains(err.Error(), "do-not-print") {
-				t.Fatal("apply failure or private response handling", err)
-			}
-			if mode == "lookup-failure" || mode == "invalid-list" {
-				if f.writes != 0 {
-					t.Fatal("lookup failure allowed writes")
-				}
-				return
-			}
-			want := "failed"
-			if mode == "unknown-write" {
-				want = "unknown"
-			}
-			if f.writes != 2 || len(results) != 3 || results[0].Status != "created" || results[1].Status != want || results[2].Status != "not_attempted" {
-				t.Fatal("partial results are wrong", results, f.writes)
-			}
-		})
-	}
-	t.Run("required-create-field", func(t *testing.T) {
-		f := applySetup(t)
-		app := applyDefinition()
-		app.Resources[0].CreateFields[1].Required = true
-		path := applyFile(t, filepath.Join(f.directory, "input.yaml"), manifest("Record", "first", "{count: 1}")+"---\n"+manifest("Record", "second", "{}"))
-		if _, _, err := runApplyTest(t, app, "apply", "-f", path, "-o", "json"); err == nil || f.writes != 0 {
-			t.Fatal("late required field allowed writes", err)
+	t.Run("ST-SUP-RC04-OC23-T02 The emitted apply command refuses every invalid document before any request", func(t *testing.T) {
+		if f.calls != 0 || f.writes != 0 {
+			t.Fatal("invalid document reached API")
 		}
 	})
 }
-func TestApplyAmbiguityAndExplicitIDs(t *testing.T) {
-	f := applySetup(t)
-	for _, id := range []string{"one", "two"} {
-		f.rows["/records/"+id] = map[string]any{"id": id, "name": "same"}
+
+func TestApplyPreflightAndPartialResults(t *testing.T) {
+	check := func(t *testing.T, modes []string) {
+		for _, mode := range modes {
+			t.Run(mode, func(t *testing.T) {
+				f := applySetup(t)
+				f.mode = mode
+				path := applyFile(t, filepath.Join(f.directory, "input.yaml"), manifest("Record", "first", "{}")+"---\n"+manifest("Record", "second", "{}")+"---\n"+manifest("Record", "third", "{}"))
+				results, output, err := runApplyTest(t, applyDefinition(), "apply", "-f", path, "-o", "json")
+				if err == nil || strings.Contains(output, "do-not-print") || strings.Contains(err.Error(), "do-not-print") {
+					t.Fatal("apply failure or private response handling", err)
+				}
+				if mode == "lookup-failure" || mode == "invalid-list" {
+					if f.writes != 0 {
+						t.Fatal("lookup failure allowed writes")
+					}
+					return
+				}
+				want := "failed"
+				if mode == "unknown-write" {
+					want = "unknown"
+				}
+				if f.writes != 2 || len(results) != 3 || results[0].Status != "created" || results[1].Status != want || results[2].Status != "not_attempted" {
+					t.Fatal("partial results are wrong", results, f.writes)
+				}
+			})
+		}
 	}
-	path := applyFile(t, filepath.Join(f.directory, "input.yaml"), manifest("Record", "same", "{}"))
-	if _, _, err := runApplyTest(t, applyDefinition(), "apply", "-f", path, "-o", "json"); err == nil || f.writes != 0 {
-		t.Fatal("ambiguous name was applied")
-	}
-	applyFile(t, path, "kind: Record\nmetadata: {name: same, id: one}\nspec: {count: 2}\n---\nkind: Record\nmetadata: {name: same, id: two}\nspec: {count: 3}\n")
-	result, _, err := runApplyTest(t, applyDefinition(), "apply", "-f", path, "-o", "json")
-	if err != nil || len(result) != 2 || result[0].ID != "one" || result[1].ID != "two" {
-		t.Fatal("explicit IDs did not resolve ambiguity", result, err)
-	}
-	applyFile(t, path, "kind: Record\nmetadata: {name: same, id: one}\n---\nkind: Record\nmetadata: {name: changed, id: one}\n")
-	if _, _, err := runApplyTest(t, applyDefinition(), "apply", "-f", path, "-o", "json"); err == nil {
-		t.Fatal("duplicate explicit target accepted")
-	}
+	t.Run("ST-SUP-RC04-OC23-T01 The emitted apply command stops before writes", func(t *testing.T) {
+		check(t, []string{"lookup-failure", "invalid-list"})
+		t.Run("required-create-field", func(t *testing.T) {
+			f := applySetup(t)
+			app := applyDefinition()
+			app.Resources[0].CreateFields[1].Required = true
+			path := applyFile(t, filepath.Join(f.directory, "input.yaml"), manifest("Record", "first", "{count: 1}")+"---\n"+manifest("Record", "second", "{}"))
+			if _, _, err := runApplyTest(t, app, "apply", "-f", path, "-o", "json"); err == nil || f.writes != 0 {
+				t.Fatal("late required field allowed writes", err)
+			}
+		})
+	})
+	t.Run("ST-SUP-RC04-OC25-T01 The emitted apply command reports partial results", func(t *testing.T) {
+		check(t, []string{"write-failure", "unknown-write"})
+	})
 }
+
+func TestApplyAmbiguityAndExplicitIDs(t *testing.T) {
+	t.Run("ST-SUP-RC04-OC23-T03 The emitted apply command refuses an ambiguous name before any write", func(t *testing.T) {
+		f := applySetup(t)
+		for _, id := range []string{"one", "two"} {
+			f.rows["/records/"+id] = map[string]any{"id": id, "name": "same"}
+		}
+		path := applyFile(t, filepath.Join(f.directory, "input.yaml"), manifest("Record", "same", "{}"))
+		if _, _, err := runApplyTest(t, applyDefinition(), "apply", "-f", path, "-o", "json"); err == nil || f.writes != 0 {
+			t.Fatal("ambiguous name was applied")
+		}
+		applyFile(t, path, "kind: Record\nmetadata: {name: same, id: one}\nspec: {count: 2}\n---\nkind: Record\nmetadata: {name: same, id: two}\nspec: {count: 3}\n")
+		result, _, err := runApplyTest(t, applyDefinition(), "apply", "-f", path, "-o", "json")
+		if err != nil || len(result) != 2 || result[0].ID != "one" || result[1].ID != "two" {
+			t.Fatal("explicit IDs did not resolve ambiguity", result, err)
+		}
+		applyFile(t, path, "kind: Record\nmetadata: {name: same, id: one}\n---\nkind: Record\nmetadata: {name: changed, id: one}\n")
+		if _, _, err := runApplyTest(t, applyDefinition(), "apply", "-f", path, "-o", "json"); err == nil {
+			t.Fatal("duplicate explicit target accepted")
+		}
+	})
+}
+
 func TestApplyDirectoriesAndInputBounds(t *testing.T) {
-	f := applySetup(t)
-	directory := filepath.Join(f.directory, "documents")
-	if err := os.Mkdir(directory, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(filepath.Join(directory, "nested"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	applyFile(t, filepath.Join(directory, "a.yaml"), manifest("Record", "first", "{}"))
-	applyFile(t, filepath.Join(directory, "nested", "b.json"), `{"kind":"Record","metadata":{"name":"second"}}`)
-	applyFile(t, filepath.Join(directory, "z.yml"), manifest("Record", "third", "{}"))
-	if _, _, err := runApplyTest(t, applyDefinition(), "apply", "-f", directory, "-o", "json"); err != nil || !slices.Equal(f.order, []string{"first", "second", "third"}) {
-		t.Fatal("directory order", f.order, err)
-	}
-	before := f.calls
-	if err := os.Symlink(filepath.Join(directory, "a.yaml"), filepath.Join(directory, "link.yaml")); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := runApplyTest(t, applyDefinition(), "apply", "-f", directory, "-o", "json"); err == nil || f.calls != before {
-		t.Fatal("directory link reached API")
-	}
-	if err := os.Remove(filepath.Join(directory, "link.yaml")); err != nil {
-		t.Fatal(err)
-	}
-	fifo := filepath.Join(directory, "fifo.yaml")
-	if err := syscall.Mkfifo(fifo, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := runApplyTest(t, applyDefinition(), "apply", "-f", fifo, "-o", "json"); err == nil {
-		t.Fatal("FIFO accepted as a regular input")
-	}
-	if _, err := decodeApply([]byte(strings.Repeat("---\nkind: Record\nmetadata: {name: x}\n", 129))); err == nil {
-		t.Fatal("document bound ignored")
-	}
-	if _, err := decodeApply([]byte("kind: Record\nmetadata: {name: x}\nspec: " + strings.Repeat("[", 40) + "0" + strings.Repeat("]", 40))); err == nil {
-		t.Fatal("depth bound ignored")
-	}
+	t.Run("ST-SUP-RC04-OC26-T03 The emitted apply command reads directories in order and holds its input bounds", func(t *testing.T) {
+		f := applySetup(t)
+		directory := filepath.Join(f.directory, "documents")
+		if err := os.Mkdir(directory, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(filepath.Join(directory, "nested"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		applyFile(t, filepath.Join(directory, "a.yaml"), manifest("Record", "first", "{}"))
+		applyFile(t, filepath.Join(directory, "nested", "b.json"), `{"kind":"Record","metadata":{"name":"second"}}`)
+		applyFile(t, filepath.Join(directory, "z.yml"), manifest("Record", "third", "{}"))
+		if _, _, err := runApplyTest(t, applyDefinition(), "apply", "-f", directory, "-o", "json"); err != nil || !slices.Equal(f.order, []string{"first", "second", "third"}) {
+			t.Fatal("directory order", f.order, err)
+		}
+		before := f.calls
+		if err := os.Symlink(filepath.Join(directory, "a.yaml"), filepath.Join(directory, "link.yaml")); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := runApplyTest(t, applyDefinition(), "apply", "-f", directory, "-o", "json"); err == nil || f.calls != before {
+			t.Fatal("directory link reached API")
+		}
+		if err := os.Remove(filepath.Join(directory, "link.yaml")); err != nil {
+			t.Fatal(err)
+		}
+		fifo := filepath.Join(directory, "fifo.yaml")
+		if err := syscall.Mkfifo(fifo, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := runApplyTest(t, applyDefinition(), "apply", "-f", fifo, "-o", "json"); err == nil {
+			t.Fatal("FIFO accepted as a regular input")
+		}
+		if _, err := decodeApply([]byte(strings.Repeat("---\nkind: Record\nmetadata: {name: x}\n", 129))); err == nil {
+			t.Fatal("document bound ignored")
+		}
+		if _, err := decodeApply([]byte("kind: Record\nmetadata: {name: x}\nspec: " + strings.Repeat("[", 40) + "0" + strings.Repeat("]", 40))); err == nil {
+			t.Fatal("depth bound ignored")
+		}
+	})
 }
 func TestApplyStdinAndCancellation(t *testing.T) {
 	original := os.Stdin
@@ -366,30 +394,41 @@ func TestApplyDefinitionAndOutputFailures(t *testing.T) {
 			t.Fatal("invalid apply options reached API")
 		}
 	}
-	if _, _, err := runApplyTest(t, applyDefinition(), "apply", "-f", path, "--output-file", path, "-o", "json"); err == nil || f.calls != 0 {
-		t.Fatal("output overwrote apply input")
+	if !t.Run("ST-SUP-RC04-OC13-T03 The emitted apply command refuses an output file that is its input", func(t *testing.T) {
+		if _, _, err := runApplyTest(t, applyDefinition(), "apply", "-f", path, "--output-file", path, "-o", "json"); err == nil || f.calls != 0 {
+			t.Fatal("output overwrote apply input")
+		}
+	}) {
+		return
 	}
-	f.mode = "wrong-write-id"
-	results, _, err := runApplyTest(t, applyDefinition(), "apply", "-f", path, "-o", "json")
-	if err == nil || len(results) != 1 || results[0].Status != "unknown" || f.writes != 1 {
-		t.Fatal("invalid write response allowed success or retry", results, err)
-	}
+	t.Run("ST-SUP-RC04-OC25-T02 The emitted apply command reports a wrong write answer as unknown", func(t *testing.T) {
+		f.mode = "wrong-write-id"
+		results, _, err := runApplyTest(t, applyDefinition(), "apply", "-f", path, "-o", "json")
+		if err == nil || len(results) != 1 || results[0].Status != "unknown" || f.writes != 1 {
+			t.Fatal("invalid write response allowed success or retry", results, err)
+		}
+	})
 }
 
 func TestApplyAliasesCannotDuplicateTarget(t *testing.T) {
-	f := applySetup(t)
-	app := applyDefinition()
-	app.Resources[1].Path = app.Resources[0].Path
-	path := applyFile(t, filepath.Join(f.directory, "input.yaml"), manifest("Record", "same", "{}")+"---\n"+manifest("Widget", "same", "{}"))
-	if _, _, err := runApplyTest(t, app, "apply", "-f", path, "-o", "json"); err == nil || f.writes != 0 {
-		t.Fatal("aliased kinds selected the same create target")
-	}
+	t.Run("ST-SUP-RC04-OC23-T04 Two aliased kinds cannot select one create target", func(t *testing.T) {
+		f := applySetup(t)
+		app := applyDefinition()
+		app.Resources[1].Path = app.Resources[0].Path
+		path := applyFile(t, filepath.Join(f.directory, "input.yaml"), manifest("Record", "same", "{}")+"---\n"+manifest("Widget", "same", "{}"))
+		if _, _, err := runApplyTest(t, app, "apply", "-f", path, "-o", "json"); err == nil || f.writes != 0 {
+			t.Fatal("aliased kinds selected the same create target")
+		}
+	})
 }
+
 func TestApplyRejectsNullListCount(t *testing.T) {
-	f := applySetup(t)
-	f.mode = "null-total"
-	path := applyFile(t, filepath.Join(f.directory, "input.yaml"), manifest("Record", "example", "{}"))
-	if _, _, err := runApplyTest(t, applyDefinition(), "apply", "-f", path, "-o", "json"); err == nil || f.writes != 0 {
-		t.Fatal("null list count caused a create")
-	}
+	t.Run("ST-SUP-RC04-OC23-T05 A null list count causes no create", func(t *testing.T) {
+		f := applySetup(t)
+		f.mode = "null-total"
+		path := applyFile(t, filepath.Join(f.directory, "input.yaml"), manifest("Record", "example", "{}"))
+		if _, _, err := runApplyTest(t, applyDefinition(), "apply", "-f", path, "-o", "json"); err == nil || f.writes != 0 {
+			t.Fatal("null list count caused a create")
+		}
+	})
 }

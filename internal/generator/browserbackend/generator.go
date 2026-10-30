@@ -210,7 +210,7 @@ func reservedPath(value string) bool {
 func canonicalPath(value string) bool {
 	return len(value) > 0 && len(value) <= 256 && publicPath.MatchString(value) && path.Clean(value) == value && !strings.Contains(value, "//")
 }
-func (*Generator) MinimumGoVersion() string { return "1.26.8" }
+func (*Generator) MinimumGoVersion() string { return "1.26.10" }
 func (g *Generator) InputFiles(values map[string]any) ([]gen.InputFile, error) {
 	s, err := g.config(values)
 	if err != nil {
@@ -409,9 +409,9 @@ func (g *Generator) generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		}
 		files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, name), Content: content})
 	}
-	client, err := httpclient.Render(path.Join(ctx.OutputNamespace, "client"), path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["otel-tracing"]))
+	client, err := httpclient.Render(path.Join(ctx.OutputNamespace, "client"), path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["otel-tracing"]), httpclient.FollowLinks)
 	if g.LocalApplicationPort != 0 {
-		client, err = httpclient.RenderLocalApplication(path.Join(ctx.OutputNamespace, "client"), path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["otel-tracing"]), g.LocalApplicationPort)
+		client, err = httpclient.RenderLocalApplication(path.Join(ctx.OutputNamespace, "client"), path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["otel-tracing"]), g.LocalApplicationPort, httpclient.FollowLinks)
 	}
 	if err != nil {
 		return nil, nil, err

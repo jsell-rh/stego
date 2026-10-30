@@ -76,7 +76,7 @@ environment = {
 }
 container = {
     "name": "test",
-    "image": "docker.io/library/golang@sha256:2d54f6c8c6ea532a321e0b4c69553b2ed3637608d4f4357dbed37939fe2620cc",
+    "image": "docker.io/library/golang@sha256:670bb5aa5349ae03b8516764718486f4f16399134bdc9acd0c46a23f043ab05c",
     "command": ["sh", "-c", run],
     "env": [{"name": k, "value": v} for k, v in environment.items()]
     + [

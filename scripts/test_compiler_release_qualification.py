@@ -149,23 +149,24 @@ class QualificationChecks(unittest.TestCase):
         self.assertTrue((self.output / "qualification.json").exists())
 
     def test_release_verification_cross_checks_assets_and_notes(self):
-        def with_tag(gh, path, directory, **keyword):
-            if path.endswith("matching-refs/tags/" + self.tag):
-                return json.dumps([{"ref": "refs/tags/" + self.tag,
-                                    "object": {"type": "commit",
-                                               "sha": self.revision}}]).encode()
-            return self.api(None, path, directory, **keyword)
-        with patch.object(qualification, "api", with_tag), \
-                patch.object(qualification.installer, "install", self.install):
-            result = self.qualify(verify_release=True)
-        self.assertEqual(result["mode"], "verify-release")
-        release = result["release"]
-        self.assertEqual(release["tag_name"], self.tag)
-        self.assertTrue(release["immutable"])
-        self.assertTrue(release["notes_retain_signed_artifact_run"])
-        self.assertTrue(release["notes_retain_compiler_sha256"])
-        self.assertEqual(release["assets"][BINARY],
-                         self.release["assets"][0]["digest"])
+        with self.subTest("ST-DIS-UC08-R03-T01 Release verification cross-checks every asset digest and the release notes"):
+            def with_tag(gh, path, directory, **keyword):
+                if path.endswith("matching-refs/tags/" + self.tag):
+                    return json.dumps([{"ref": "refs/tags/" + self.tag,
+                                        "object": {"type": "commit",
+                                                   "sha": self.revision}}]).encode()
+                return self.api(None, path, directory, **keyword)
+            with patch.object(qualification, "api", with_tag), \
+                    patch.object(qualification.installer, "install", self.install):
+                result = self.qualify(verify_release=True)
+            self.assertEqual(result["mode"], "verify-release")
+            release = result["release"]
+            self.assertEqual(release["tag_name"], self.tag)
+            self.assertTrue(release["immutable"])
+            self.assertTrue(release["notes_retain_signed_artifact_run"])
+            self.assertTrue(release["notes_retain_compiler_sha256"])
+            self.assertEqual(release["assets"][BINARY],
+                             self.release["assets"][0]["digest"])
 
     def test_missing_checks_run_fails(self):
         def without_checks(gh, path, directory, **keyword):
@@ -178,10 +179,11 @@ class QualificationChecks(unittest.TestCase):
                 self.qualify()
 
     def test_incomplete_checks_job_set_fails(self):
-        self.jobs["checks"] = self.jobs["checks"][:-1]
-        with patch.object(qualification, "api", self.api):
-            with self.assertRaises(CheckError):
-                self.qualify()
+        with self.subTest("ST-DIS-UC08-R02-T01 Qualification fails when a required checks job is missing"):
+            self.jobs["checks"] = self.jobs["checks"][:-1]
+            with patch.object(qualification, "api", self.api):
+                with self.assertRaises(CheckError):
+                    self.qualify()
 
     def test_skipped_provenance_job_fails(self):
         for job in self.jobs["artifact"]:
@@ -204,6 +206,15 @@ class QualificationChecks(unittest.TestCase):
             with self.assertRaises(CheckError):
                 self.qualify()
 
+    def test_extra_artifact_fails(self):
+        with self.subTest("ST-STD-TRUST-R01-T02 Qualification fails when the signed artifact run holds a second artifact"):
+            self.artifacts.append({"name": "generator-rest-api-" + self.revision,
+                                   "size_in_bytes": 1024,
+                                   "digest": "sha256:" + "0" * 64, "expired": False})
+            with patch.object(qualification, "api", self.api):
+                with self.assertRaisesRegex(CheckError, "unknown or repeated artifact"):
+                    self.qualify()
+
     def test_expired_artifact_fails_prepare_mode(self):
         for artifact in self.artifacts:
             artifact["expired"] = True
@@ -223,16 +234,17 @@ class QualificationChecks(unittest.TestCase):
                 self.qualify()
 
     def test_tag_pointing_elsewhere_fails_release_verification(self):
-        def with_other_tag(gh, path, directory, **keyword):
-            if path.endswith("matching-refs/tags/" + self.tag):
-                return json.dumps([{"ref": "refs/tags/" + self.tag,
-                                    "object": {"type": "commit",
-                                               "sha": "b" * 40}}]).encode()
-            return self.api(None, path, directory, **keyword)
-        with patch.object(qualification, "api", with_other_tag), \
-                patch.object(qualification.installer, "install", self.install):
-            with self.assertRaises(CheckError):
-                self.qualify(verify_release=True)
+        with self.subTest("ST-DIS-UC08-R01-T01 Verification fails when the release tag points at another commit"):
+            def with_other_tag(gh, path, directory, **keyword):
+                if path.endswith("matching-refs/tags/" + self.tag):
+                    return json.dumps([{"ref": "refs/tags/" + self.tag,
+                                        "object": {"type": "commit",
+                                                   "sha": "b" * 40}}]).encode()
+                return self.api(None, path, directory, **keyword)
+            with patch.object(qualification, "api", with_other_tag), \
+                    patch.object(qualification.installer, "install", self.install):
+                with self.assertRaises(CheckError):
+                    self.qualify(verify_release=True)
 
     def test_release_without_evidence_notes_fails(self):
         self.release["body"] = "no run identifiers"

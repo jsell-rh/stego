@@ -23,6 +23,7 @@ func disabledServiceAccountRecord() map[string]any {
 func serviceAccountInputs() (ClientBinding, ServiceAccountPolicy) {
 	return ClientBinding{ID: "stable-id", ClientID: "catalog", Attributes: map[string]string{"stego.owner.product": "object-1"}}, ServiceAccountPolicy{DisplayName: "Catalog worker", AccessTokenLifetimeSeconds: 300}
 }
+
 func TestCreateDisabledServiceAccount(t *testing.T) {
 	for _, application := range []struct{ name, key, value string }{{"catalog", "stego.owner.product", "object-1"}, {"batch-worker", "stego.owner.pipeline", "run-2"}} {
 		t.Run(application.name, func(t *testing.T) {
@@ -69,18 +70,26 @@ func TestCreateDisabledServiceAccount(t *testing.T) {
 				t.Error("unexpected request", r.Method, r.URL.Path)
 				w.WriteHeader(500)
 			})
-			if record, err := c.CreateDisabledServiceAccount(context.Background(), b, p); err != nil || record.Enabled {
-				t.Fatal("disabled creation failed", err)
-			}
-			if _, err := c.CreateDisabledServiceAccount(context.Background(), b, p); !errors.Is(err, ErrConflict) {
-				t.Fatal("creation conflict was not preserved", err)
-			}
-			if writes != 2 {
-				t.Fatal("creation was replayed")
-			}
-			if err := c.ConfigureDisabledServiceAccount(context.Background(), b, p); err != nil {
-				t.Fatal("converged configuration failed", err)
-			}
+			t.Run("ST-SUP-RC13-OC15-T01 A client the emitted provider creates starts disabled with no secret", func(t *testing.T) {
+				if record, err := c.CreateDisabledServiceAccount(context.Background(), b, p); err != nil || record.Enabled {
+					t.Fatal("disabled creation failed", err)
+				}
+			})
+			t.Run("ST-SUP-RC13-OC14-T01 The emitted provider returns ErrConflict for a creation conflict", func(t *testing.T) {
+				if _, err := c.CreateDisabledServiceAccount(context.Background(), b, p); !errors.Is(err, ErrConflict) {
+					t.Fatal("creation conflict was not preserved", err)
+				}
+			})
+			t.Run("ST-SUP-RC13-OC13-T01 The emitted provider confirms a creation by a read of the saved ID and does not repeat it", func(t *testing.T) {
+				if writes != 2 {
+					t.Fatal("creation was replayed")
+				}
+			})
+			t.Run("A converged configuration succeeds", func(t *testing.T) {
+				if err := c.ConfigureDisabledServiceAccount(context.Background(), b, p); err != nil {
+					t.Fatal("converged configuration failed", err)
+				}
+			})
 		})
 	}
 }

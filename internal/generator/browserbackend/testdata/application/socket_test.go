@@ -61,179 +61,191 @@ func openSocket(t *testing.T, server *httptest.Server, c *http.Cookie) *websocke
 	t.Cleanup(func() { conn.CloseNow() })
 	return conn
 }
+
 func TestApplicationSocketDelivery(t *testing.T) {
-	f := applicationFixture(t)
-	c := applicationLogin(t, f)
-	_, server, complete := socketServer(t, f)
-	conn := openSocket(t, server, c)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	// The connection must survive the ordinary HTTP server deadline.
-	time.Sleep(120 * time.Millisecond)
-	for _, kind := range []websocket.MessageType{websocket.MessageBinary, websocket.MessageText} {
-		data := []byte("stdin")
-		if kind == websocket.MessageText {
-			data = []byte(`{"type":"resize","cols":80,"rows":24}`)
+	t.Run("ST-SUP-RC02-OC42-T01 A socket survives the HTTP deadlines and relays both message kinds", func(t *testing.T) {
+		f := applicationFixture(t)
+		c := applicationLogin(t, f)
+		_, server, complete := socketServer(t, f)
+		conn := openSocket(t, server, c)
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		// The connection must survive the ordinary HTTP server deadline.
+		time.Sleep(120 * time.Millisecond)
+		for _, kind := range []websocket.MessageType{websocket.MessageBinary, websocket.MessageText} {
+			data := []byte("stdin")
+			if kind == websocket.MessageText {
+				data = []byte(`{"type":"resize","cols":80,"rows":24}`)
+			}
+			if err := conn.Write(ctx, kind, data); err != nil {
+				t.Fatal(err)
+			}
+			got, payload, err := conn.Read(ctx)
+			if err != nil || got != kind || string(payload) != string(data) {
+				t.Fatal("socket delivery changed", err)
+			}
 		}
-		if err := conn.Write(ctx, kind, data); err != nil {
+		if err := conn.Write(ctx, websocket.MessageBinary, []byte("exit")); err != nil {
 			t.Fatal(err)
 		}
-		got, payload, err := conn.Read(ctx)
-		if err != nil || got != kind || string(payload) != string(data) {
-			t.Fatal("socket delivery changed", err)
+		_, _, err := conn.Read(ctx)
+		var closed websocket.CloseError
+		require(t, errors.As(err, &closed) && closed.Code == websocket.StatusNormalClosure && closed.Reason == "17", "terminal exit status changed")
+		select {
+		case code := <-complete:
+			require(t, code == 101, "telemetry wrapper lost the upgrade status")
+		case <-ctx.Done():
+			t.Fatal("socket handler did not finish")
 		}
-	}
-	if err := conn.Write(ctx, websocket.MessageBinary, []byte("exit")); err != nil {
-		t.Fatal(err)
-	}
-	_, _, err := conn.Read(ctx)
-	var closed websocket.CloseError
-	require(t, errors.As(err, &closed) && closed.Code == websocket.StatusNormalClosure && closed.Reason == "17", "terminal exit status changed")
-	select {
-	case code := <-complete:
-		require(t, code == 101, "telemetry wrapper lost the upgrade status")
-	case <-ctx.Done():
-		t.Fatal("socket handler did not finish")
-	}
+	})
 }
+
 func TestApplicationSocketDenied(t *testing.T) {
-	f := applicationFixture(t)
-	c := applicationLogin(t, f)
-	_, server, _ := socketServer(t, f)
-	for _, tc := range []struct {
-		headers http.Header
-		query   string
-		status  int
-	}{
-		{http.Header{"Origin": {server.URL}}, "", 401},
-		{http.Header{"Origin": {"https://wrong.example"}, "Cookie": {c.String()}}, "", 403},
-		{http.Header{"Cookie": {c.String()}}, "", 403},
-		{http.Header{"Origin": {server.URL}, "Cookie": {c.String()}, "Authorization": {"Bearer browser-token"}}, "", 400},
-		{http.Header{"Origin": {server.URL}, "Cookie": {c.String()}}, "?denied=1", 403},
-	} {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		conn, response, err := websocket.Dial(ctx, server.URL+apiPrefix+"/socket"+tc.query, &websocket.DialOptions{HTTPClient: server.Client(), HTTPHeader: tc.headers})
-		cancel()
-		if conn != nil {
-			conn.CloseNow()
+	t.Run("ST-SUP-RC02-OC41-T01 A socket upgrade needs a session and an exact origin", func(t *testing.T) {
+		f := applicationFixture(t)
+		c := applicationLogin(t, f)
+		_, server, _ := socketServer(t, f)
+		for _, tc := range []struct {
+			headers http.Header
+			query   string
+			status  int
+		}{
+			{http.Header{"Origin": {server.URL}}, "", 401},
+			{http.Header{"Origin": {"https://wrong.example"}, "Cookie": {c.String()}}, "", 403},
+			{http.Header{"Cookie": {c.String()}}, "", 403},
+			{http.Header{"Origin": {server.URL}, "Cookie": {c.String()}, "Authorization": {"Bearer browser-token"}}, "", 400},
+			{http.Header{"Origin": {server.URL}, "Cookie": {c.String()}}, "?denied=1", 403},
+		} {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			conn, response, err := websocket.Dial(ctx, server.URL+apiPrefix+"/socket"+tc.query, &websocket.DialOptions{HTTPClient: server.Client(), HTTPHeader: tc.headers})
+			cancel()
+			if conn != nil {
+				conn.CloseNow()
+			}
+			require(t, err != nil && response != nil && response.StatusCode == tc.status, "socket denial changed")
 		}
-		require(t, err != nil && response != nil && response.StatusCode == tc.status, "socket denial changed")
-	}
+	})
 }
+
 func TestApplicationSocketSessionEnd(t *testing.T) {
 	if os.Getenv("STEGO_TEST_POSTGRES_DSN") == "" && os.Getenv("STEGO_REQUIRE_POSTGRES") != "1" {
 		t.Skip("database fixture is not configured")
 	}
-	for _, mode := range []string{"local logout", "remote logout", "backend close", "runtime stop", "store failure", "session expiry", "token expiry"} {
-		t.Run(mode, func(t *testing.T) {
-			f := applicationFixture(t)
-			c, csrf := login(t, f)
-			b, server, complete := socketServer(t, f)
-			if mode == "session expiry" || mode == "token expiry" {
-				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-				value, _, _, err := b.store.read(ctx, c.Value)
-				if err != nil {
+	t.Run("ST-SUP-RC02-OC43-T01 Every session end closes that session's sockets", func(t *testing.T) {
+		for _, mode := range []string{"local logout", "remote logout", "backend close", "runtime stop", "store failure", "session expiry", "token expiry"} {
+			t.Run(mode, func(t *testing.T) {
+				f := applicationFixture(t)
+				c, csrf := login(t, f)
+				b, server, complete := socketServer(t, f)
+				if mode == "session expiry" || mode == "token expiry" {
+					ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+					value, _, _, err := b.store.read(ctx, c.Value)
+					if err != nil {
+						cancel()
+						t.Fatal(err)
+					}
+					if mode == "session expiry" {
+						value.Expires = time.Now().Add(3 * time.Second).Unix()
+					} else {
+						value.AccessExpires = time.Now().Add(20 * time.Second).Unix()
+					}
+					payload, err := b.store.seal(c.Value, value)
+					if err != nil {
+						cancel()
+						t.Fatal(err)
+					}
+					hash, err := sessionHash(c.Value)
+					if err != nil {
+						cancel()
+						t.Fatal(err)
+					}
+					_, err = f.db.ExecContext(ctx, "UPDATE public.stego_browser_sessions SET payload=$1,expires_at=$2 WHERE id_hash=$3", payload, time.Unix(value.Expires, 0), hash)
 					cancel()
-					t.Fatal(err)
+					if err != nil {
+						t.Fatal(err)
+					}
 				}
-				if mode == "session expiry" {
-					value.Expires = time.Now().Add(3 * time.Second).Unix()
-				} else {
-					value.AccessExpires = time.Now().Add(20 * time.Second).Unix()
-				}
-				payload, err := b.store.seal(c.Value, value)
-				if err != nil {
+				conn := openSocket(t, server, c)
+				switch mode {
+				case "local logout":
+					r := httptest.NewRequest("POST", server.URL+"/auth/logout", nil)
+					r.Header.Set("Origin", server.URL)
+					r.Header.Set(CSRFHeader, csrf)
+					r.AddCookie(c)
+					w := httptest.NewRecorder()
+					b.ServeHTTP(w, r)
+					require(t, w.Code == 204, "local logout failed")
+				case "remote logout":
+					require(t, send(f.backend, "POST", "/auth/logout", "", []*http.Cookie{c}, http.Header{"Origin": {origin}, CSRFHeader: {csrf}}).Code == 204, "remote logout failed")
+				case "store failure":
+					require(t, f.db.Close() == nil, "database close failed")
+				case "backend close":
+					b.Close()
+				case "runtime stop":
+					ctx, cancel := context.WithCancel(context.Background())
 					cancel()
-					t.Fatal(err)
+					require(t, b.Run(ctx) == nil, "runtime stop failed")
 				}
-				hash, err := sessionHash(c.Value)
-				if err != nil {
-					cancel()
-					t.Fatal(err)
+				ctx, cancel := context.WithTimeout(context.Background(), 23*time.Second)
+				defer cancel()
+				_, _, err := conn.Read(ctx)
+				require(t, err != nil && ctx.Err() == nil, "session end did not close the socket")
+				select {
+				case <-complete:
+				case <-ctx.Done():
+					t.Fatal("socket work did not stop")
 				}
-				_, err = f.db.ExecContext(ctx, "UPDATE public.stego_browser_sessions SET payload=$1,expires_at=$2 WHERE id_hash=$3", payload, time.Unix(value.Expires, 0), hash)
-				cancel()
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
-			conn := openSocket(t, server, c)
-			switch mode {
-			case "local logout":
-				r := httptest.NewRequest("POST", server.URL+"/auth/logout", nil)
-				r.Header.Set("Origin", server.URL)
-				r.Header.Set(CSRFHeader, csrf)
-				r.AddCookie(c)
-				w := httptest.NewRecorder()
-				b.ServeHTTP(w, r)
-				require(t, w.Code == 204, "local logout failed")
-			case "remote logout":
-				require(t, send(f.backend, "POST", "/auth/logout", "", []*http.Cookie{c}, http.Header{"Origin": {origin}, CSRFHeader: {csrf}}).Code == 204, "remote logout failed")
-			case "store failure":
-				require(t, f.db.Close() == nil, "database close failed")
-			case "backend close":
-				b.Close()
-			case "runtime stop":
-				ctx, cancel := context.WithCancel(context.Background())
-				cancel()
-				require(t, b.Run(ctx) == nil, "runtime stop failed")
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 23*time.Second)
-			defer cancel()
-			_, _, err := conn.Read(ctx)
-			require(t, err != nil && ctx.Err() == nil, "session end did not close the socket")
-			select {
-			case <-complete:
-			case <-ctx.Done():
-				t.Fatal("socket work did not stop")
-			}
-			b.sockets.mu.Lock()
-			count := len(b.sockets.leases)
-			b.sockets.mu.Unlock()
-			require(t, count == 0, "socket lease remained after close")
-		})
-	}
+				b.sockets.mu.Lock()
+				count := len(b.sockets.leases)
+				b.sockets.mu.Unlock()
+				require(t, count == 0, "socket lease remained after close")
+			})
+		}
+	})
 }
+
 func TestApplicationSocketAdmission(t *testing.T) {
-	var set socketSet
-	id, _ := randomValue()
-	ctx, release, err := set.acquire(context.Background(), id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer release()
-	_, second, err := set.acquire(context.Background(), id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer second()
-	if _, _, err := set.acquire(context.Background(), id); !errors.Is(err, errBusy) {
-		t.Fatal("session socket limit failed")
-	}
-	set.end(id)
-	require(t, ctx.Err() != nil, "session cancellation failed")
-	release()
-	second()
-	var releases []func()
-	for i := 0; i < socketCapacity; i++ {
+	t.Run("ST-SUP-RC02-OC40-T01 Socket admission bounds each session and each backend", func(t *testing.T) {
+		var set socketSet
 		id, _ := randomValue()
-		_, release, err := set.acquire(context.Background(), id)
+		ctx, release, err := set.acquire(context.Background(), id)
 		if err != nil {
 			t.Fatal(err)
 		}
-		releases = append(releases, release)
-	}
-	other, _ := randomValue()
-	if _, _, err := set.acquire(context.Background(), other); !errors.Is(err, errBusy) {
-		t.Fatal("global socket limit failed")
-	}
-	set.close()
-	for _, release := range releases {
+		defer release()
+		_, second, err := set.acquire(context.Background(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer second()
+		if _, _, err := set.acquire(context.Background(), id); !errors.Is(err, errBusy) {
+			t.Fatal("session socket limit failed")
+		}
+		set.end(id)
+		require(t, ctx.Err() != nil, "session cancellation failed")
 		release()
-	}
-	if _, _, err := set.acquire(context.Background(), id); !errors.Is(err, errBusy) {
-		t.Fatal("closed backend accepted a socket")
-	}
+		second()
+		var releases []func()
+		for i := 0; i < socketCapacity; i++ {
+			id, _ := randomValue()
+			_, release, err := set.acquire(context.Background(), id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			releases = append(releases, release)
+		}
+		other, _ := randomValue()
+		if _, _, err := set.acquire(context.Background(), other); !errors.Is(err, errBusy) {
+			t.Fatal("global socket limit failed")
+		}
+		set.close()
+		for _, release := range releases {
+			release()
+		}
+		if _, _, err := set.acquire(context.Background(), id); !errors.Is(err, errBusy) {
+			t.Fatal("closed backend accepted a socket")
+		}
+	})
 }
 func TestSocketTransportIsolationAndClose(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -324,12 +336,14 @@ func TestSocketControlTrafficLimit(t *testing.T) {
 }
 
 func TestSocketDataBudget(t *testing.T) {
-	for _, budget := range []socketBudget{{messages: client.SocketMessages}, {bytes: client.SocketBytes}} {
-		require(t, !budget.accept(1), "data budget accepted excess data")
-	}
-	budget := socketBudget{messages: client.SocketMessages - 1, bytes: client.SocketBytes - 1}
-	require(t, budget.accept(1) && !budget.accept(0), "data budget did not count an empty message")
-	require(t, !new(socketBudget).accept(client.SocketMessageBytes+1), "oversized message passed the data budget")
+	t.Run("ST-SUP-RC02-OC44-T01 The socket data budget counts messages, bytes and empty frames", func(t *testing.T) {
+		for _, budget := range []socketBudget{{messages: client.SocketMessages}, {bytes: client.SocketBytes}} {
+			require(t, !budget.accept(1), "data budget accepted excess data")
+		}
+		budget := socketBudget{messages: client.SocketMessages - 1, bytes: client.SocketBytes - 1}
+		require(t, budget.accept(1) && !budget.accept(0), "data budget did not count an empty message")
+		require(t, !new(socketBudget).accept(client.SocketMessageBytes+1), "oversized message passed the data budget")
+	})
 }
 func TestSocketTransportMessageLimit(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

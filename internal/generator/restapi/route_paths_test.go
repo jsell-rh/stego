@@ -131,24 +131,26 @@ func TestScopedCollectionRoutesKeepParameterNames(t *testing.T) {
 }
 
 func TestRouteValidationRejectsLegacyMuxMode(t *testing.T) {
-	const marker = "STEGO_TEST_LEGACY_MUX"
-	if os.Getenv(marker) == "1" {
-		files, wiring, err := (&Generator{}).Generate(basicContext())
-		if err == nil || len(files) != 0 || wiring != nil || !strings.Contains(err.Error(), "HTTP pattern semantics") {
-			t.Fatal("legacy mux mode bypassed route validation", err)
+	t.Run("ST-SUP-RC20-OC33-T02 Route validation requires the current HTTP pattern rules", func(t *testing.T) {
+		const marker = "STEGO_TEST_LEGACY_MUX"
+		if os.Getenv(marker) == "1" {
+			files, wiring, err := (&Generator{}).Generate(basicContext())
+			if err == nil || len(files) != 0 || wiring != nil || !strings.Contains(err.Error(), "HTTP pattern semantics") {
+				t.Fatal("legacy mux mode bypassed route validation", err)
+			}
+			return
 		}
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRouteValidationRejectsLegacyMuxMode$", "-test.count=1")
-	for _, entry := range os.Environ() {
-		if !strings.HasPrefix(entry, "GODEBUG=") && !strings.HasPrefix(entry, marker+"=") {
-			command.Env = append(command.Env, entry)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRouteValidationRejectsLegacyMuxMode$", "-test.count=1")
+		for _, entry := range os.Environ() {
+			if !strings.HasPrefix(entry, "GODEBUG=") && !strings.HasPrefix(entry, marker+"=") {
+				command.Env = append(command.Env, entry)
+			}
 		}
-	}
-	command.Env = append(command.Env, "GODEBUG=httpmuxgo121=1", marker+"=1")
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("legacy mux regression failed: %v\n%s", err, output)
-	}
+		command.Env = append(command.Env, "GODEBUG=httpmuxgo121=1", marker+"=1")
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("legacy mux regression failed: %v\n%s", err, output)
+		}
+	})
 }

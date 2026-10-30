@@ -44,7 +44,7 @@ func testGeneratedApplicationEndpoint(t *testing.T, pattern string) {
 		files = append(files, generated...)
 		wirings = append(wirings, compiler.ComponentWiring{Name: item.name, Wiring: wiring})
 	}
-	shared, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, OutDirName: "out", GoVersion: "1.26.8", Wirings: wirings})
+	shared, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, OutDirName: "out", GoVersion: "1.26.10", Wirings: wirings})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestApplicationRequiresVerifierProducer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, OutDirName: "out", GoVersion: "1.26.8", Wirings: []compiler.ComponentWiring{{Name: "store", Wiring: &gen.Wiring{Constructors: []string{"storage.NewStore(db)"}, Imports: []string{"storage"}, NeedsDB: true}}, {Name: "jwt-auth", Wiring: authentication}, {Name: "http-application", Wiring: application}}})
+	_, err = compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, OutDirName: "out", GoVersion: "1.26.10", Wirings: []compiler.ComponentWiring{{Name: "store", Wiring: &gen.Wiring{Constructors: []string{"storage.NewStore(db)"}, Imports: []string{"storage"}, NeedsDB: true}}, {Name: "jwt-auth", Wiring: authentication}, {Name: "http-application", Wiring: application}}})
 	if err == nil {
 		t.Fatal("application accepted middleware in place of its verifier dependency")
 	}

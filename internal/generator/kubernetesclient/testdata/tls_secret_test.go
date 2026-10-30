@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"math/big"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -44,50 +45,83 @@ func secretCertificate(t *testing.T, host string, expiry time.Time, usage x509.E
 }
 
 func TestServerTLSSecretTrustBundle(t *testing.T) {
-	ca, leaf, key := secretCertificate(t, "widget.example.test", time.Now().Add(time.Hour), x509.ExtKeyUsageServerAuth)
-	otherCA, _, _ := secretCertificate(t, "widget.example.test", time.Now().Add(time.Hour), x509.ExtKeyUsageServerAuth)
-	block, _ := pem.Decode(leaf)
-	certificate, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, bundle := range [][]byte{ca, append(append([]byte{}, ca...), otherCA...)} {
-		roots, err := ParseServerTLSRoots(bundle)
+	t.Run("ST-SUP-RC14-OC36-T01 The trust parser accepts only certificate blocks and keeps a private copy of the pool", func(t *testing.T) {
+		ca, leaf, key := secretCertificate(t, "widget.example.test", time.Now().Add(time.Hour), x509.ExtKeyUsageServerAuth)
+		otherCA, _, _ := secretCertificate(t, "widget.example.test", time.Now().Add(time.Hour), x509.ExtKeyUsageServerAuth)
+		block, _ := pem.Decode(leaf)
+		certificate, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := certificate.Verify(x509.VerifyOptions{Roots: roots, DNSName: "widget.example.test"}); err != nil {
-			t.Fatal(err)
-		}
-		clear(bundle)
-		if _, err := certificate.Verify(x509.VerifyOptions{Roots: roots, DNSName: "widget.example.test"}); err != nil {
-			t.Fatal("trust pool retained mutable input", err)
-		}
-	}
-	ca, _, _ = secretCertificate(t, "widget.example.test", time.Now().Add(time.Hour), x509.ExtKeyUsageServerAuth)
-	for name, input := range map[string][]byte{
-		"empty": nil, "whitespace": []byte(" \n"), "oversize": bytes.Repeat([]byte(" "), (512<<10)+1),
-		"too many": bytes.Repeat(ca, 257), "private key": append(append([]byte{}, ca...), key...),
-		"leading text": append([]byte("unexpected\n"), ca...), "trailing text": append(append([]byte{}, ca...), []byte("unexpected")...),
-		"malformed prefix":    append([]byte("-----BEGIN CERTIFICATE-----\nbroken\n"), ca...),
-		"invalid certificate": pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("invalid")}),
-		"headers":             pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Headers: map[string]string{"Name": "value"}, Bytes: block.Bytes}),
-	} {
-		t.Run(name, func(t *testing.T) {
-			if roots, err := ParseServerTLSRoots(input); !errors.Is(err, ErrResourceObservation) || roots != nil {
-				t.Fatal("invalid trust input accepted")
+		for _, bundle := range [][]byte{ca, append(append([]byte{}, ca...), otherCA...)} {
+			roots, err := ParseServerTLSRoots(bundle)
+			if err != nil {
+				t.Fatal(err)
 			}
-		})
-	}
+			if _, err := certificate.Verify(x509.VerifyOptions{Roots: roots, DNSName: "widget.example.test"}); err != nil {
+				t.Fatal(err)
+			}
+			clear(bundle)
+			if _, err := certificate.Verify(x509.VerifyOptions{Roots: roots, DNSName: "widget.example.test"}); err != nil {
+				t.Fatal("trust pool retained mutable input", err)
+			}
+		}
+		ca, _, _ = secretCertificate(t, "widget.example.test", time.Now().Add(time.Hour), x509.ExtKeyUsageServerAuth)
+		for name, input := range map[string][]byte{
+			"empty": nil, "whitespace": []byte(" \n"), "oversize": bytes.Repeat([]byte(" "), (512<<10)+1),
+			"too many": bytes.Repeat(ca, 257), "private key": append(append([]byte{}, ca...), key...),
+			"leading text": append([]byte("unexpected\n"), ca...), "trailing text": append(append([]byte{}, ca...), []byte("unexpected")...),
+			"malformed prefix":    append([]byte("-----BEGIN CERTIFICATE-----\nbroken\n"), ca...),
+			"invalid certificate": pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("invalid")}),
+			"headers":             pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Headers: map[string]string{"Name": "value"}, Bytes: block.Bytes}),
+		} {
+			t.Run(name, func(t *testing.T) {
+				if roots, err := ParseServerTLSRoots(input); !errors.Is(err, ErrResourceObservation) || roots != nil {
+					t.Fatal("invalid trust input accepted")
+				}
+			})
+		}
+	})
 }
 
 func TestServerTLSSecret(t *testing.T) {
-	testTLSSecret(t, x509.ExtKeyUsageServerAuth, VerifyServerTLSSecret)
+	t.Run("ST-SUP-RC14-OC31-T01 Server TLS Secret verification uses only the explicit trust pool", func(t *testing.T) {
+		testTLSSecret(t, x509.ExtKeyUsageServerAuth, VerifyServerTLSSecret, "trust")
+	})
+	t.Run("ST-SUP-RC14-OC32-T01 Server TLS Secret verification refuses mixed PEM data in the certificate field", func(t *testing.T) {
+		testTLSSecret(t, x509.ExtKeyUsageServerAuth, VerifyServerTLSSecret, "certificate")
+	})
+	t.Run("ST-SUP-RC14-OC33-T01 Server TLS Secret verification requires one complete private-key block", func(t *testing.T) {
+		testTLSSecret(t, x509.ExtKeyUsageServerAuth, VerifyServerTLSSecret, "key")
+	})
+	t.Run("ST-SUP-RC14-OC34-T01 Server TLS Secret verification hides its reasons and holds its data limits", func(t *testing.T) {
+		testTLSSecret(t, x509.ExtKeyUsageServerAuth, VerifyServerTLSSecret, "detail")
+	})
+	testTLSSecret(t, x509.ExtKeyUsageServerAuth, VerifyServerTLSSecret, "")
 }
+
 func TestClientTLSSecret(t *testing.T) {
-	testTLSSecret(t, x509.ExtKeyUsageClientAuth, VerifyClientTLSSecret)
+	t.Run("ST-SUP-RC14-OC31-T02 Client TLS Secret verification uses only the explicit trust pool", func(t *testing.T) {
+		testTLSSecret(t, x509.ExtKeyUsageClientAuth, VerifyClientTLSSecret, "trust")
+	})
+	t.Run("ST-SUP-RC14-OC32-T02 Client TLS Secret verification refuses mixed PEM data in the certificate field", func(t *testing.T) {
+		testTLSSecret(t, x509.ExtKeyUsageClientAuth, VerifyClientTLSSecret, "certificate")
+	})
+	t.Run("ST-SUP-RC14-OC33-T02 Client TLS Secret verification requires one complete private-key block", func(t *testing.T) {
+		testTLSSecret(t, x509.ExtKeyUsageClientAuth, VerifyClientTLSSecret, "key")
+	})
+	t.Run("ST-SUP-RC14-OC34-T02 Client TLS Secret verification hides its reasons and holds its data limits", func(t *testing.T) {
+		testTLSSecret(t, x509.ExtKeyUsageClientAuth, VerifyClientTLSSecret, "detail")
+	})
+	t.Run("ST-SUP-RC14-OC35-T01 Client TLS Secret verification refuses a server-only certificate", func(t *testing.T) {
+		testTLSSecret(t, x509.ExtKeyUsageClientAuth, VerifyClientTLSSecret, "purpose")
+	})
+	testTLSSecret(t, x509.ExtKeyUsageClientAuth, VerifyClientTLSSecret, "")
 }
-func testTLSSecret(t *testing.T, usage x509.ExtKeyUsage, verify func(Object, Owner, TLSSecretTarget) ([]byte, error)) {
+
+// testTLSSecret runs the checks of one part: "trust", "certificate", "key", "detail" or "purpose".
+// The detail part runs every refused Secret case. The empty part runs the expiry and purpose checks.
+func testTLSSecret(t *testing.T, usage x509.ExtKeyUsage, verify func(Object, Owner, TLSSecretTarget) ([]byte, error), part string) {
 	const host = "widget.example.test"
 	ca, cert, key := secretCertificate(t, host, time.Now().Add(time.Hour), usage)
 	roots := x509.NewCertPool()
@@ -157,20 +191,36 @@ func testTLSSecret(t *testing.T, usage x509.ExtKeyUsage, verify func(Object, Own
 			o["data"].(Object)["tls.crt"] = base64.StdEncoding.EncodeToString(append(append([]byte(nil), cert...), bytes.Repeat(ca, 16)...))
 		},
 	}
-	for name, change := range cases {
-		t.Run(name, func(t *testing.T) {
-			current := fresh()
-			change(current)
-			got, err := verify(current, owner, target)
-			if !errors.Is(err, ErrResourceObservation) || len(got) != 0 || err.Error() != ErrResourceObservation.Error() {
-				t.Fatal("invalid Secret exposed data or passed verification", err)
-			}
-		})
+	// The detail part runs every case: each case checks that the error carries no detail.
+	parts := map[string][]string{
+		"trust":       {"self supplied CA"},
+		"certificate": {"missing certificate", "invalid base64", "invalid PEM", "noncanonical base64", "private key in certificate", "garbage in certificate", "malformed prefix"},
+		"key":         {"garbage before key", "second private key", "certificate in key", "wrong key"},
 	}
-	for _, bad := range []ServerTLSSecretTarget{{Namespace: target.Namespace, Name: target.Name, DNSName: host}, {Namespace: target.Namespace, Name: target.Name, DNSName: "other.example.test", Roots: roots}, {Namespace: target.Namespace, Name: target.Name, DNSName: "", Roots: roots}} {
-		if _, err := verify(fresh(), owner, bad); !errors.Is(err, ErrResourceObservation) {
-			t.Fatal("invalid target accepted", err)
+	if part == "trust" || part == "certificate" || part == "key" || part == "detail" {
+		for name, change := range cases {
+			if names, ok := parts[part]; ok && !slices.Contains(names, name) {
+				continue
+			}
+			t.Run(name, func(t *testing.T) {
+				current := fresh()
+				change(current)
+				got, err := verify(current, owner, target)
+				if !errors.Is(err, ErrResourceObservation) || len(got) != 0 || err.Error() != ErrResourceObservation.Error() {
+					t.Fatal("invalid Secret exposed data or passed verification", err)
+				}
+			})
 		}
+	}
+	if part == "trust" {
+		for _, bad := range []ServerTLSSecretTarget{{Namespace: target.Namespace, Name: target.Name, DNSName: host}, {Namespace: target.Namespace, Name: target.Name, DNSName: "other.example.test", Roots: roots}, {Namespace: target.Namespace, Name: target.Name, DNSName: "", Roots: roots}} {
+			if _, err := verify(fresh(), owner, bad); !errors.Is(err, ErrResourceObservation) {
+				t.Fatal("invalid target accepted", err)
+			}
+		}
+	}
+	if part != "" && part != "purpose" {
+		return
 	}
 	wrongUsage := x509.ExtKeyUsageServerAuth
 	if usage == wrongUsage {
@@ -180,6 +230,9 @@ func testTLSSecret(t *testing.T, usage x509.ExtKeyUsage, verify func(Object, Own
 		expiry time.Time
 		usage  x509.ExtKeyUsage
 	}{{time.Now().Add(-time.Minute), usage}, {time.Now().Add(time.Hour), wrongUsage}} {
+		if part == "purpose" && tc.usage == usage {
+			continue
+		}
 		ca, crt, key := secretCertificate(t, host, tc.expiry, tc.usage)
 		pool := x509.NewCertPool()
 		pool.AppendCertsFromPEM(ca)

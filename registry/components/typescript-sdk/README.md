@@ -28,7 +28,7 @@ Declare `error_codes` for public API error codes that the UI needs. Use at most
 starts with a letter and has at most 128 characters. `SDKError.apiCode` contains
 only a declared code. Error bodies and private diagnostic fields stay hidden.
 
-See the [contract and test record](../../../specs/typescript-sdk.md) for limits
+See the contract and test record (a retired record, in git history) for limits
 and open work. Browser telemetry and the full Hypershell UI migration remain
 open. The generated Go backend supplies its existing server telemetry.
 

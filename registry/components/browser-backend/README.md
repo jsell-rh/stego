@@ -7,7 +7,7 @@ The application supplies its browser assets and its domain API.
 Use PostgreSQL adapter 4.4.1 or later and the compiler's independent factory
 selection. This supplies the shared verified-TLS policy, connection deadline,
 and bounded pool even when the browser service has no entities. Configure its
-pool with the same [deployment settings](../../../specs/database-pool-bounds.md)
+pool with the same deployment settings (a retired record, in git history)
 as the API. With telemetry 1.13.0, pool metrics are automatic. The browser and
 API processes have separate pool budgets and runtime identities.
 
@@ -76,7 +76,7 @@ token to the configured API. It does not accept bearer tokens from the browser.
 
 The component does not supply domain pages, API authorization rules, identity
 provider administration, ingress certificates, or production database setup.
-See [the runtime contract](../../../specs/browser-backend.md) for limits and
+See the runtime contract (a retired record, in git history) for limits and
 acceptance evidence. A browser user interface and deployment still need their
 own application checks.
 

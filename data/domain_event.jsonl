@@ -1,0 +1,37 @@
+{"id":"ST-ASR-EV01","title":"Proof run attested","aggregate_id":"ST-ASR-A1","published":true,"description":"A proof run at a commit is attested; the gates read it."}
+{"id":"ST-ASR-EV02","title":"Change judged","aggregate_id":"ST-ASR-A2","published":false,"description":"A change got its verdict."}
+{"id":"ST-ASR-EV03","title":"Release judged","aggregate_id":"ST-ASR-A2","published":true,"description":"A release commit got its verdict; release qualification reads it."}
+{"id":"ST-BLD-EV01","title":"Modules resolved","aggregate_id":"ST-BLD-A1","published":false,"description":"go.mod and go.sum hold the service's resolved modules."}
+{"id":"ST-BLD-EV02","title":"Module cache downloaded","aggregate_id":"ST-BLD-A2","published":false,"description":"A module cache for one source revision is ready for offline builds."}
+{"id":"ST-BLD-EV03","title":"Application built","aggregate_id":"ST-BLD-A3","published":true,"description":"A service's executable was built and recorded, so it can be imaged and checked."}
+{"id":"ST-BLD-EV04","title":"Image built","aggregate_id":"ST-BLD-A4","published":false,"description":"An image of a built executable exists locally with its record."}
+{"id":"ST-BLD-EV05","title":"Image signed","aggregate_id":"ST-BLD-A4","published":false,"description":"An image and its SBOMs carry a keyless signature."}
+{"id":"ST-BLD-EV06","title":"Image published","aggregate_id":"ST-BLD-A4","published":true,"description":"A signed image is in a registry, ready to deploy."}
+{"id":"ST-DIS-EV03","title":"Component digest superseded","aggregate_id":"ST-DIS-A2","published":true,"description":"A platform engineer declared a successor for a component digest."}
+{"id":"ST-DIS-EV04","title":"Component digest withdrawn","aggregate_id":"ST-DIS-A2","published":true,"description":"A platform engineer withdrew a component digest."}
+{"id":"ST-DIS-EV05","title":"Compiler release qualified","aggregate_id":"ST-DIS-A3","published":false,"description":"Every required job and signed artifact at one commit passed."}
+{"id":"ST-DIS-EV06","title":"Published compiler release verified","aggregate_id":"ST-DIS-A3","published":false,"description":"The published release matched its qualification, as a consumer installs it."}
+{"id":"ST-DIS-EV07","title":"Compiler installed","aggregate_id":"ST-DIS-A4","published":false,"description":"An operator put a verified compiler in place."}
+{"id":"ST-DLV-EV01","title":"Platform requirements written","aggregate_id":"ST-DLV-A1","published":true,"description":"A service's platform requirements changed; the platform reads them to prepare its environments."}
+{"id":"ST-DLV-EV02","title":"Delivery pipeline written","aggregate_id":"ST-DLV-A2","published":false,"description":"A service's CI file changed."}
+{"id":"ST-DLV-EV03","title":"Kubernetes base written","aggregate_id":"ST-DLV-A3","published":false,"description":"A service's Kubernetes base changed."}
+{"id":"ST-DLV-EV04","title":"Delivery object written","aggregate_id":"ST-DLV-A4","published":false,"description":"A service's delivery object changed."}
+{"id":"ST-DLV-EV05","title":"Delivery candidate passed","aggregate_id":"ST-DLV-A5","published":true,"description":"An image passed every STEGO check and may be released for delivery."}
+{"id":"ST-EXT-EV01","title":"Fill scaffolded","aggregate_id":"ST-EXT-A1","published":false,"description":"A new fill and its test were written for one slot and collection."}
+{"id":"ST-EXT-EV02","title":"Fill tests passed","aggregate_id":"ST-EXT-A1","published":false,"description":"A fill's tests passed, and its evidence was recorded."}
+{"id":"ST-EXT-EV03","title":"Fill signed off","aggregate_id":"ST-EXT-A1","published":false,"description":"A person signed a fill's evidence."}
+{"id":"ST-GEN-EV01","title":"Service build applied","aggregate_id":"ST-GEN-A1","published":true,"description":"Apply wrote a service's generated files and its new record together. Other domains learn from it what the service is built from."}
+{"id":"ST-GEN-EV02","title":"Interrupted apply recovered","aggregate_id":"ST-GEN-A1","published":false,"description":"Recovery completed an interrupted apply, and the files and the record agree again."}
+{"id":"ST-GEN-EV03","title":"Plan saved","aggregate_id":"ST-GEN-A1","published":false,"description":"A plan was saved under .stego/, and apply can carry it out."}
+{"id":"ST-SUP-EV01","title":"Component added","aggregate_id":"ST-SUP-A1","published":false,"description":"A new component is in the registry."}
+{"id":"ST-SUP-EV02","title":"Component version released","aggregate_id":"ST-SUP-A1","published":true,"description":"A component has a new version, so services built from the old version can be told."}
+{"id":"ST-SUP-EV03","title":"Active registry composed","aggregate_id":"ST-SUP-A1","published":false,"description":"The sources of the active registry are pinned, and their parts are one active set."}
+{"id":"ST-SUP-EV04","title":"Experimental component introduced","aggregate_id":"ST-SUP-A1","published":true,"description":"A component that is not ga is in the registry until its sunset."}
+{"id":"ST-SUP-EV05","title":"Component graduated","aggregate_id":"ST-SUP-A1","published":true,"description":"A component moved up the maturity ladder."}
+{"id":"ST-SUP-EV06","title":"Component withdrawn","aggregate_id":"ST-SUP-A1","published":true,"description":"A component is no longer in the registry, so services built from it can be told."}
+{"id":"ST-SUP-EV07","title":"Archetype curated","aggregate_id":"ST-SUP-A2","published":false,"description":"An archetype has a new set of components and default providers."}
+{"id":"ST-SUP-EV08","title":"Mixin added","aggregate_id":"ST-SUP-A2","published":false,"description":"An archetype accepts a further mixin."}
+{"id":"ST-SUP-EV09","title":"Port defined","aggregate_id":"ST-SUP-A3","published":false,"description":"A port and the meaning of its fields are in the registry."}
+{"id":"ST-SUP-EV10","title":"Slot declared","aggregate_id":"ST-SUP-A4","published":false,"description":"A component offers a new slot."}
+{"id":"ST-SUP-EV11","title":"Quality evidence recorded","aggregate_id":"ST-SUP-A1","published":false,"description":"A component version holds a new piece of ga quality evidence."}
+{"id":"ST-SUP-EV12","title":"Component promoted","aggregate_id":"ST-SUP-A1","published":true,"description":"A component written in a team's local registry entered the common registry, so every team can build from it."}

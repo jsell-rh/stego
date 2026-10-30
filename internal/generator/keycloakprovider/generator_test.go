@@ -151,7 +151,7 @@ func testGeneratedProviderWith(t *testing.T, supply func() gen.Context, telemetr
 	}
 	tracingImport := ""
 	var module strings.Builder
-	module.WriteString("module example.com/provider\ngo 1.26.8\n")
+	module.WriteString("module example.com/provider\ngo 1.26.10\n")
 	authContext := c
 	authContext.OutputNamespace = "auth"
 	authContext.ComponentConfig = map[string]any{"mode": "verifier"}
@@ -172,7 +172,7 @@ func testGeneratedProviderWith(t *testing.T, supply func() gen.Context, telemetr
 		}
 		files = append(files, generated...)
 		// The live native login fixture parses Keycloak HTML forms.
-		wiring.GoModRequires["golang.org/x/net"] = "v0.58.0"
+		wiring.GoModRequires["golang.org/x/net"] = "v0.60.0"
 		for key, value := range wiring.GoModRequires {
 			requires[key] = value
 		}
@@ -196,7 +196,7 @@ func ProviderTestRuntime()(*Runtime,*tracetest.SpanRecorder){
 		fmt.Fprintf(&module, "%s %s\n", key, requires[key])
 	}
 	module.WriteString(")\n")
-	h, err := httpclient.Render("application/client", tracingImport)
+	h, err := httpclient.Render("application/client", tracingImport, httpclient.FollowLinks)
 	if err != nil {
 		t.Fatal(err)
 	}

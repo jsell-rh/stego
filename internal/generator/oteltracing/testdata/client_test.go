@@ -24,133 +24,135 @@ func (clientPrivateError) Error() string   { panic("private error was formatted"
 func (e clientPrivateError) Unwrap() error { return e.cause }
 
 func TestClientSignalsPreserveContextAndExcludePrivateData(t *testing.T) {
-	for _, sample := range []string{"1", "0"} {
-		t.Run(sample, func(t *testing.T) {
-			sink := collectorFixture(t, false)
-			t.Setenv("OTEL_TRACES_SAMPLER_ARG", sample)
-			var output bytes.Buffer
-			runtime, err := newRuntime(&output)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer runtime.Close()
-			rootCtx, rootSpan := runtime.provider.Tracer("test").Start(context.Background(), "parent")
-			parent := rootSpan.SpanContext()
-			original := metadata.Pairs("authorization", "private-token", "traceparent", "private-parent", "tracestate", "private-state", "baggage", "private-baggage")
-			ctx := runtime.Context(metadata.NewOutgoingContext(rootCtx, original))
-			expected := map[string]string{}
-			for _, cause := range []error{clientPrivateError{status.Error(codes.PermissionDenied, "private-provider-message")}, context.DeadlineExceeded, nil} {
-				child, finish := TraceClientRPC(ctx, "sample.v1.Records/Echo")
-				sc := trace.SpanContextFromContext(child)
-				if !sc.IsValid() || sc.TraceID() != parent.TraceID() || sc.SpanID() == parent.SpanID() {
-					t.Fatal("client span lost its parent")
+	t.Run("ST-SUP-RC17-OC24-T01 Outbound RPC signals from the emitted runtime keep the parent trace and isolate the caller metadata", func(t *testing.T) {
+		for _, sample := range []string{"1", "0"} {
+			t.Run(sample, func(t *testing.T) {
+				sink := collectorFixture(t, false)
+				t.Setenv("OTEL_TRACES_SAMPLER_ARG", sample)
+				var output bytes.Buffer
+				runtime, err := newRuntime(&output)
+				if err != nil {
+					t.Fatal(err)
 				}
-				md, _ := metadata.FromOutgoingContext(child)
-				if len(md.Get("traceparent")) != 1 || len(md.Get("traceparent")[0]) != 55 || !strings.Contains(md.Get("traceparent")[0], sc.SpanID().String()) || len(md.Get("tracestate")) != 0 || len(md.Get("baggage")) != 0 || md.Get("authorization")[0] != "private-token" {
-					t.Fatal("client metadata was not isolated")
+				defer runtime.Close()
+				rootCtx, rootSpan := runtime.provider.Tracer("test").Start(context.Background(), "parent")
+				parent := rootSpan.SpanContext()
+				original := metadata.Pairs("authorization", "private-token", "traceparent", "private-parent", "tracestate", "private-state", "baggage", "private-baggage")
+				ctx := runtime.Context(metadata.NewOutgoingContext(rootCtx, original))
+				expected := map[string]string{}
+				for _, cause := range []error{clientPrivateError{status.Error(codes.PermissionDenied, "private-provider-message")}, context.DeadlineExceeded, nil} {
+					child, finish := TraceClientRPC(ctx, "sample.v1.Records/Echo")
+					sc := trace.SpanContextFromContext(child)
+					if !sc.IsValid() || sc.TraceID() != parent.TraceID() || sc.SpanID() == parent.SpanID() {
+						t.Fatal("client span lost its parent")
+					}
+					md, _ := metadata.FromOutgoingContext(child)
+					if len(md.Get("traceparent")) != 1 || len(md.Get("traceparent")[0]) != 55 || !strings.Contains(md.Get("traceparent")[0], sc.SpanID().String()) || len(md.Get("tracestate")) != 0 || len(md.Get("baggage")) != 0 || md.Get("authorization")[0] != "private-token" {
+						t.Fatal("client metadata was not isolated")
+					}
+					finish(cause)
+					finish(nil)
+					expected[sc.SpanID().String()] = clientCode(cause).String()
 				}
-				finish(cause)
-				finish(nil)
-				expected[sc.SpanID().String()] = clientCode(cause).String()
-			}
-			if original.Get("traceparent")[0] != "private-parent" || original.Get("baggage")[0] != "private-baggage" {
-				t.Fatal("client changed caller metadata")
-			}
-			rootSpan.End()
-			runtime.Close()
-			check := func(message proto.Message) {
-				data, _ := proto.Marshal(message)
-				if bytes.Contains(data, []byte("private-")) {
-					t.Fatal("client export exposed private data")
+				if original.Get("traceparent")[0] != "private-parent" || original.Get("baggage")[0] != "private-baggage" {
+					t.Fatal("client changed caller metadata")
 				}
-			}
-			spans := map[string]*tracepb.Span{}
-			logs := map[string]*logpb.LogRecord{}
-			for len(sink.received) > 0 {
-				batch := <-sink.received
-				check(batch)
-				for _, resource := range batch.ResourceSpans {
-					for _, scope := range resource.ScopeSpans {
-						if scope.Scope.Name == "stego/grpc-client" {
-							for _, span := range scope.Spans {
-								spans[hex.EncodeToString(span.SpanId)] = span
-							}
-						}
+				rootSpan.End()
+				runtime.Close()
+				check := func(message proto.Message) {
+					data, _ := proto.Marshal(message)
+					if bytes.Contains(data, []byte("private-")) {
+						t.Fatal("client export exposed private data")
 					}
 				}
-			}
-			for len(sink.logs) > 0 {
-				batch := <-sink.logs
-				check(batch)
-				for _, resource := range batch.ResourceLogs {
-					for _, scope := range resource.ScopeLogs {
-						if scope.Scope.Name == "stego/grpc-client" {
-							for _, record := range scope.LogRecords {
-								logs[hex.EncodeToString(record.SpanId)] = record
-							}
-						}
-					}
-				}
-			}
-			var measured uint64
-			var active int64
-			for len(sink.metrics) > 0 {
-				batch := <-sink.metrics
-				check(batch)
-				for _, resource := range batch.ResourceMetrics {
-					for _, scope := range resource.ScopeMetrics {
-						for _, metric := range scope.Metrics {
-							switch metric.Name {
-							case "rpc.client.call.duration":
-								measured = 0
-								for _, point := range metric.GetHistogram().DataPoints {
-									measured += point.Count
-								}
-							case "rpc.client.active_requests":
-								for _, point := range metric.GetSum().DataPoints {
-									active = point.GetAsInt()
+				spans := map[string]*tracepb.Span{}
+				logs := map[string]*logpb.LogRecord{}
+				for len(sink.received) > 0 {
+					batch := <-sink.received
+					check(batch)
+					for _, resource := range batch.ResourceSpans {
+						for _, scope := range resource.ScopeSpans {
+							if scope.Scope.Name == "stego/grpc-client" {
+								for _, span := range scope.Spans {
+									spans[hex.EncodeToString(span.SpanId)] = span
 								}
 							}
 						}
 					}
 				}
-			}
-			if len(logs) != 3 || measured != 3 || active != 0 {
-				t.Fatal("client completion was lost or repeated", len(logs), measured, active)
-			}
-			for id, code := range expected {
-				record := logs[id]
-				if record == nil || record.EventName != "rpc.client.call.completed" {
-					t.Fatal("missing client log", id)
-				}
-				if sample == "1" {
-					span := spans[id]
-					if span == nil || span.Kind != tracepb.Span_SPAN_KIND_CLIENT || hex.EncodeToString(span.ParentSpanId) != parent.SpanID().String() || !bytes.Equal(span.TraceId, record.TraceId) {
-						t.Fatal("client signals lost correlation")
+				for len(sink.logs) > 0 {
+					batch := <-sink.logs
+					check(batch)
+					for _, resource := range batch.ResourceLogs {
+						for _, scope := range resource.ScopeLogs {
+							if scope.Scope.Name == "stego/grpc-client" {
+								for _, record := range scope.LogRecords {
+									logs[hex.EncodeToString(record.SpanId)] = record
+								}
+							}
+						}
 					}
 				}
-				if code == "OK" && record.SeverityNumber != logpb.SeverityNumber_SEVERITY_NUMBER_INFO {
-					t.Fatal("success has wrong severity")
+				var measured uint64
+				var active int64
+				for len(sink.metrics) > 0 {
+					batch := <-sink.metrics
+					check(batch)
+					for _, resource := range batch.ResourceMetrics {
+						for _, scope := range resource.ScopeMetrics {
+							for _, metric := range scope.Metrics {
+								switch metric.Name {
+								case "rpc.client.call.duration":
+									measured = 0
+									for _, point := range metric.GetHistogram().DataPoints {
+										measured += point.Count
+									}
+								case "rpc.client.active_requests":
+									for _, point := range metric.GetSum().DataPoints {
+										active = point.GetAsInt()
+									}
+								}
+							}
+						}
+					}
 				}
-			}
-			if sample == "0" && len(spans) != 0 {
-				t.Fatal("unsampled client exported spans")
-			}
-			if strings.Contains(output.String(), "private-") {
-				t.Fatal("local client log exposed private data")
-			}
-			count := 0
-			for _, line := range bytes.Split(output.Bytes(), []byte("\n")) {
-				var record map[string]any
-				if json.Unmarshal(line, &record) == nil && record["event.name"] == "rpc.client.call.completed" {
-					count++
+				if len(logs) != 3 || measured != 3 || active != 0 {
+					t.Fatal("client completion was lost or repeated", len(logs), measured, active)
 				}
-			}
-			if count != 3 {
-				t.Fatal("local client completion was lost or repeated", count)
-			}
-		})
-	}
+				for id, code := range expected {
+					record := logs[id]
+					if record == nil || record.EventName != "rpc.client.call.completed" {
+						t.Fatal("missing client log", id)
+					}
+					if sample == "1" {
+						span := spans[id]
+						if span == nil || span.Kind != tracepb.Span_SPAN_KIND_CLIENT || hex.EncodeToString(span.ParentSpanId) != parent.SpanID().String() || !bytes.Equal(span.TraceId, record.TraceId) {
+							t.Fatal("client signals lost correlation")
+						}
+					}
+					if code == "OK" && record.SeverityNumber != logpb.SeverityNumber_SEVERITY_NUMBER_INFO {
+						t.Fatal("success has wrong severity")
+					}
+				}
+				if sample == "0" && len(spans) != 0 {
+					t.Fatal("unsampled client exported spans")
+				}
+				if strings.Contains(output.String(), "private-") {
+					t.Fatal("local client log exposed private data")
+				}
+				count := 0
+				for _, line := range bytes.Split(output.Bytes(), []byte("\n")) {
+					var record map[string]any
+					if json.Unmarshal(line, &record) == nil && record["event.name"] == "rpc.client.call.completed" {
+						count++
+					}
+				}
+				if count != 3 {
+					t.Fatal("local client completion was lost or repeated", count)
+				}
+			})
+		}
+	})
 }
 
 func TestClientLocalLogsAndUnavailableRuntime(t *testing.T) {

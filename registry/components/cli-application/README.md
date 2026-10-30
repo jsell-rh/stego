@@ -127,6 +127,6 @@ The device PKCE extension is tested with [Keycloak](https://github.com/keycloak/
 The standard device flow is also tested without a PKCE advertisement.
 
 Generated HTTPS clients use the telemetry runtime in their call context.
-The [HTTP client contract](../../../specs/http-client-observability.md) defines
+The HTTP client contract (a retired record, in git history) defines
 completion, propagation, privacy, and resource bounds. The generated CLI now owns its runtime; see the
-[CLI contract](../../../specs/cli-observability.md).
+CLI contract (a retired record, in git history).

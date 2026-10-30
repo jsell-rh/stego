@@ -12,7 +12,7 @@ import (
 )
 
 func serviceContext() gen.Context {
-	return gen.Context{ModuleName: "example.com/widget", GoVersion: "1.26.8", ServiceName: "widget", OutDirName: "out", OutputNamespace: "deploy", PeerNamespaces: map[string]string{"rest-api": "api", "health-check": "health"}, ComponentConfig: map[string]any{"source_directories": []any{"internal"}, "network_peers": []any{map[string]any{"direction": "ingress", "namespace": "self", "pod_label": "app.kubernetes.io/name", "pod_value": "client", "port": 8443, "protocol": "TCP"}}}}
+	return gen.Context{ModuleName: "example.com/widget", GoVersion: "1.26.10", ServiceName: "widget", OutDirName: "out", OutputNamespace: "deploy", PeerNamespaces: map[string]string{"rest-api": "api", "health-check": "health"}, ComponentConfig: map[string]any{"source_directories": []any{"internal"}, "network_peers": []any{map[string]any{"direction": "ingress", "namespace": "self", "pod_label": "app.kubernetes.io/name", "pod_value": "client", "port": 8443, "protocol": "TCP"}}}}
 }
 
 func TestDeploymentValidation(t *testing.T) {
@@ -134,7 +134,7 @@ func TestRenderedPolicy(t *testing.T){
  for _,args:=range [][]string{append(args,"--rpc-process","missing"),append(args,"--rpc-process","../records"),append(args,"--rpc-process","records","--worker","queue"),append(args,"--worker","missing"),append(args,"--worker","../queue"),nil,{"--image","widget:latest","--namespace","test"},{"--image","registry.test/widget@sha256:"+strings.Repeat("a",64),"--namespace","../bad"},{"--image","registry.test/widget@sha256:"+strings.Repeat("a",64),"--namespace","test","--fs-group","0"}}{output.Reset();if err:=render(args,&output);err==nil||output.Len()!=0{t.Fatal("invalid input emitted output")}}
 }
 `
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/widget\n\ngo 1.26.8\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/widget\n\ngo 1.26.10\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "out/deploy/render/main_test.go"), []byte(check+externalRendererTests+optionalExternalRendererTests), 0644); err != nil {
@@ -143,9 +143,53 @@ func TestRenderedPolicy(t *testing.T){
 	command := exec.Command("go", "test", "-race", "-mod=readonly", "-timeout=20s", "./...")
 	command.Dir = dir
 	command.Env = append(os.Environ(), "GOWORK=off")
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("generated deployment: %v\n%s", err, output)
-	}
+	// One run of the generated module holds the checks of every record below.
+	output, err := command.CombinedOutput()
+	t.Run("ST-SUP-RC15-OC01-T01 The rendered service Pod runs as non-root with a read-only root filesystem", func(t *testing.T) {
+		if err != nil {
+			t.Fatalf("generated deployment: %v\n%s", err, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC03-T01 The rendered service and worker Pods mount no service-account token", func(t *testing.T) {
+		if err != nil {
+			t.Fatalf("generated deployment: %v\n%s", err, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC04-T01 The rendered service probes use HTTPS", func(t *testing.T) {
+		if err != nil {
+			t.Fatalf("generated deployment: %v\n%s", err, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC08-T01 The rendered external egress rules stay narrow", func(t *testing.T) {
+		if err != nil {
+			t.Fatalf("generated deployment: %v\n%s", err, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC09-T01 An incomplete or wrong endpoint binding gives no rendered manifest", func(t *testing.T) {
+		if err != nil {
+			t.Fatalf("generated deployment: %v\n%s", err, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC11-T01 The rendered worker has no Service, container port or ingress rule", func(t *testing.T) {
+		if err != nil {
+			t.Fatalf("generated deployment: %v\n%s", err, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC12-T01 The rendered worker uses one replica and Recreate", func(t *testing.T) {
+		if err != nil {
+			t.Fatalf("generated deployment: %v\n%s", err, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC13-T01 The rendered RPC Service exposes only port 9090", func(t *testing.T) {
+		if err != nil {
+			t.Fatalf("generated deployment: %v\n%s", err, output)
+		}
+	})
+	t.Run("ST-SUP-RC15-OC15-T01 An invalid image, namespace or file group gives no rendered output", func(t *testing.T) {
+		if err != nil {
+			t.Fatalf("generated deployment: %v\n%s", err, output)
+		}
+	})
 }
 
 func workerContext() gen.Context {
@@ -215,17 +259,24 @@ func TestBrowserDeployment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(apiFiles) != len(browserFiles) {
-		t.Fatal("browser deployment file set differs")
-	}
-	for i, file := range apiFiles {
-		if file.Path != browserFiles[i].Path || !bytes.Equal(file.Bytes(), browserFiles[i].Bytes()) {
-			t.Fatalf("browser deployment differs from the restricted API deployment: %s", file.Path)
-		}
-	}
 	// Browser sessions do not require a gRPC listener.
 	browser.ComponentConfig["network_peers"].([]any)[0].(map[string]any)["port"] = 9090
-	if _, _, err := new(Generator).Generate(browser); err == nil {
-		t.Fatal("browser gRPC ingress accepted")
-	}
+	t.Run("ST-SUP-RC15-OC34-T01 A browser deployment matches the API deployment byte for byte", func(t *testing.T) {
+		if len(apiFiles) != len(browserFiles) {
+			t.Fatal("browser deployment file set differs")
+		}
+		for i, file := range apiFiles {
+			if file.Path != browserFiles[i].Path || !bytes.Equal(file.Bytes(), browserFiles[i].Bytes()) {
+				t.Fatalf("browser deployment differs from the restricted API deployment: %s", file.Path)
+			}
+		}
+		if _, _, err := new(Generator).Generate(browser); err == nil {
+			t.Fatal("browser gRPC ingress accepted")
+		}
+	})
+	t.Run("ST-SUP-RC15-OC10-T01 A browser deployment refuses a gRPC ingress peer", func(t *testing.T) {
+		if _, _, err := new(Generator).Generate(browser); err == nil {
+			t.Fatal("browser gRPC ingress accepted")
+		}
+	})
 }

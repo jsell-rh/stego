@@ -8,7 +8,7 @@ import (
 )
 
 func TestAssemblyTargetChecksGateAllGenerators(t *testing.T) {
-	for _, test := range []struct{ name, module, target string }{{"missing module", "", "1.26.8"}, {"invalid module", "bad module", "1.26.8"}, {"missing target", "example.com/service", ""}, {"invalid target", "example.com/service", "invalid"}} {
+	for _, test := range []struct{ name, module, target string }{{"missing module", "", "1.26.10"}, {"invalid module", "bad module", "1.26.10"}, {"missing target", "example.com/service", ""}, {"invalid target", "example.com/service", "invalid"}} {
 		t.Run(test.name, func(t *testing.T) {
 			input := snapshotTestInput(t)
 			input.ModuleName = test.module
@@ -65,7 +65,7 @@ func TestNormalizedSlotNamesFailBeforeRendering(t *testing.T) {
 }
 
 func TestBuildTargetSyntaxIsShared(t *testing.T) {
-	for _, target := range []string{"1.026", "01.26", "1.26.08", "go1.26", "1.26.8 extra"} {
+	for _, target := range []string{"1.026", "01.26", "1.26.08", "go1.26", "1.26.10 extra"} {
 		input := snapshotTestInput(t)
 		input.GoVersion = target
 		checked := validateBuildTarget(input.ModuleName, target)
@@ -82,7 +82,7 @@ func TestBuildTargetSyntaxIsShared(t *testing.T) {
 			t.Fatal("assembly uses a different target rule", target, err)
 		}
 	}
-	for _, target := range []string{"1.22", "1.26.8", "1.27rc1"} {
+	for _, target := range []string{"1.22", "1.26.10", "1.27rc1"} {
 		if err := validateBuildTarget("example.com/service", target); err != nil {
 			t.Fatal("valid Go target rejected", target, err)
 		}

@@ -9,7 +9,7 @@ const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(b
 const session = () => json({authenticated: true, roles: ['user'], user: {sub: 'owner'}, expires_at: Date.now() + 60000, csrf_token: csrf});
 function client(fetcher) { globalThis.location = {origin}; globalThis.fetch = fetcher; return createBrowserClient(); }
 const error = (code, status = 0) => e => e instanceof SDKError && e.code === code && e.status === status && !e.message.includes('private');
-test('request shape, session CSRF, JSON values, query encoding, and logout', async () => {
+const proof1 = async () => {
   const requests = [];
   const sdk = client(async (url, options) => {
     requests.push([url, options]);
@@ -26,42 +26,45 @@ test('request shape, session CSRF, JSON values, query encoding, and logout', asy
   assert.equal(requests[2][0], origin + '/api/records/r1?search=a+%26+b');
   const value = await sdk.session(); assert.equal(value.csrf_token, undefined);
   await sdk.deleteRecord({id: 'r1'}); await sdk.logout();
-});
-test('invalid input performs no request', async () => {
+};
+test('ST-SUP-RC24-OC02-T01 Every fetch of the emitted client is same-origin, uncached and unredirected', proof1);
+test('ST-SUP-RC24-OC03-T01 The emitted client sends no credential and no caller header', proof1);
+test('ST-SUP-RC24-OC04-T01 A mutation of the emitted client carries the session CSRF token', proof1);
+test('ST-SUP-RC24-OC06-T01 Invalid input to the emitted client makes no request', async () => {
   let calls = 0; const sdk = client(async () => { calls++; return json(record); });
   for (const input of [{id: '..'}, {id: 'x', token: 'private'}, {id: '\ud800'}, {id: 'x'.repeat(9000)}]) await assert.rejects(sdk.getRecord(input), error('invalid_input'));
   for (const body of [record, {...requestRecord, count: 1.5}, {...requestRecord, count: Number.MAX_SAFE_INTEGER + 1}, {...requestRecord, name: ''}, {...requestRecord, private: 'hidden'}]) await assert.rejects(sdk.createRecord({body}), error('invalid_input'));
   await assert.rejects(sdk.createRecord({body: {...requestRecord, description: 'a'.repeat((1 << 20) + 1)}}), error('invalid_input'));
   assert.equal(calls, 0);
 });
-test('invalid responses and unsafe numbers are rejected', async () => {
+test('ST-SUP-RC24-OC07-T01 The emitted client rejects invalid responses and unsafe numbers', async () => {
   for (const body of ['{"server_id":"server","id":"r1","id":"r2","name":"One","count":0,"enabled":false}', '{"server_id":"server","id":"r1","name":"\\ud800","count":0,"enabled":false}', JSON.stringify({...record, secret: 'private'}), JSON.stringify({...record, count: -1}), JSON.stringify({...record, mode: null}), JSON.stringify({...record, endpoint: "https://invalid.example/%zz"}), JSON.stringify({...record, created_at: '2026-02-31T00:00:00Z'}), JSON.stringify({...record, count: Number.MAX_SAFE_INTEGER + 1}), '{"server_id":"server","id":"r1","name":"One","count":1.0000000000000001,"enabled":false}', '{}', JSON.stringify({...record, private: 'value'})]) {
     const sdk = client(async () => new Response(body, {headers: {'Content-Type': 'application/json'}}));
     await assert.rejects(sdk.getRecord({id: 'r1'}), error('invalid_response'));
   }
 });
-test('HTTP errors and exceptions do not expose private response data', async () => {
+test('ST-SUP-RC24-OC09-T01 HTTP errors and exceptions of the emitted client expose no private data', async () => {
   for (const status of [401, 403, 404, 409, 503]) { const sdk = client(async () => json({private: 'private'}, status)); await assert.rejects(sdk.getRecord({id: 'r1'}), error(status === 401 ? 'reauth_required' : 'http_error', status)); }
   const sdk = client(async () => { throw new Error('private'); }); await assert.rejects(sdk.getRecord({id: 'r1'}), error('request_failed'));
 });
-test('response bytes, media type, and schema limits are enforced', async () => {
+test('ST-SUP-RC24-OC08-T01 The emitted client holds its response byte, media type and schema limits', async () => {
   const huge = client(async () => new Response(' '.repeat((4 << 20) + 1), {headers: {'Content-Type': 'application/json'}})); await assert.rejects(huge.getRecord({id: 'r1'}), error('response_limit'));
   const wrong = client(async () => new Response(JSON.stringify(record), {headers: {'Content-Type': 'application/jsonp'}})); await assert.rejects(wrong.getRecord({id: 'r1'}), error('invalid_response'));
 });
-test('cancellation and concurrency limits release capacity', async () => {
+test('ST-SUP-RC24-OC08-T02 Cancellation and the concurrency limit of the emitted client release capacity', async () => {
   const pending = []; const sdk = client((url, options) => new Promise((resolve, reject) => { pending.push(resolve); options.signal.addEventListener('abort', () => reject(new Error('private')), {once: true}); }));
   const controller = new AbortController(); controller.abort(); await assert.rejects(sdk.getRecord({id: 'r1'}, {signal: controller.signal}), error('cancelled')); assert.equal(pending.length, 0);
   const requests = Array.from({length: 16}, () => sdk.getRecord({id: 'r1'})); await assert.rejects(sdk.getRecord({id: 'r1'}), error('busy'));
   for (const resolve of pending) resolve(json(record)); await Promise.all(requests);
   const next = client(async () => json(record)); assert.equal((await next.getRecord({id: 'r1'})).status, 200);
 });
-test('an unauthenticated session prevents mutation and private session fields are rejected', async () => {
+test('ST-SUP-RC24-OC05-T01 An unauthenticated session stops a mutation of the emitted client', async () => {
   let calls = 0; const sdk = client(async () => { calls++; return json({authenticated: false, roles: []}); }); await assert.rejects(sdk.createRecord({body: requestRecord}), error('reauth_required', 401)); assert.equal(calls, 1);
   const bad = client(async () => json({authenticated: false, roles: [], access_token: 'private'})); await assert.rejects(bad.session(), error('invalid_response'));
 });
-test('HTTPS is required', () => { globalThis.location = {origin: 'http://localhost'}; assert.throws(createBrowserClient, error('invalid_origin')); });
+test('ST-SUP-RC24-OC01-T01 The emitted client requires an HTTPS origin', () => { globalThis.location = {origin: 'http://localhost'}; assert.throws(createBrowserClient, error('invalid_origin')); });
 
-test('operation names do not alter object prototypes', async () => {
+test('ST-SUP-RC24-OC11-T01 Operation names of the emitted client do not change object prototypes', async () => {
  const sdk=client(async () => json(record));
  assert.equal(Object.getPrototypeOf(sdk),null);
  assert.equal((await sdk['__proto__']()).body.id,'r1');
@@ -69,7 +72,7 @@ test('operation names do not alter object prototypes', async () => {
 });
 
 
-test('in-flight cancellation and the whole-operation deadline release capacity', async () => {
+test('ST-SUP-RC24-OC08-T03 In-flight cancellation and the operation deadline of the emitted client release capacity', async () => {
   const sdk = client((url, options) => new Promise((resolve, reject) => {
     options.signal.addEventListener('abort', () => reject(new Error('private')), {once: true});
   }));
@@ -95,7 +98,7 @@ test('in-flight cancellation and the whole-operation deadline release capacity',
 });
 
 
-test('only declared API error codes leave the transport', async () => {
+test('ST-SUP-RC24-OC09-T02 Only declared API error codes leave the emitted client', async () => {
   for (const code of ['record_name_exists', 'private_provider_failure']) {
     const sdk = client(async () => json({code, reason: 'private', operation_id: 'private'}, 409));
     await assert.rejects(sdk.getRecord({id: 'r1'}), e => {
@@ -107,7 +110,7 @@ test('only declared API error codes leave the transport', async () => {
     });
   }
 });
-test('login uses a fixed same-origin path and bounds the return address', () => {
+test('ST-SUP-RC24-OC10-T01 The emitted client logs in through a fixed same-origin path', () => {
   const sdk = client(async () => json(record));
   let destination;
   globalThis.location = {origin, pathname: '/records/r1', search: '?tab=info', hash: '#heading', assign: value => { destination = value; }};
@@ -120,7 +123,7 @@ test('login uses a fixed same-origin path and bounds the return address', () => 
 });
 
 
-test('trace context stays with one operation and cannot supply other headers', async () => {
+test('ST-SUP-RC24-OC12-T01 A trace context of the emitted client stays with one operation', async () => {
   const parent = '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01';
   const calls = [];
   client(async (url, options) => { calls.push(options.headers); return new URL(url).pathname === '/auth/session' ? session() : json(record, options.method === 'POST' ? 201 : 200); });

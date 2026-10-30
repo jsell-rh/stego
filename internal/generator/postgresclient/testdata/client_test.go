@@ -45,86 +45,96 @@ func certificate(t *testing.T) (tls.Certificate, []byte) {
 	}
 	return pair, ca
 }
+
 func TestConfigurationIgnoresEnvironment(t *testing.T) {
-	_, ca := certificate(t)
-	for key, value := range map[string]string{"PGSERVICE": "", "PGSERVICEFILE": "/absent-service", "PGPASSFILE": "/absent-password", "PGHOST": "untrusted.example", "PGPORT": "1", "PGUSER": "other", "PGDATABASE": "other", "PGPASSWORD": "other-password", "PGSSLMODE": "prefer", "PGSSLROOTCERT": "/absent-root", "PGSSLCERT": "/absent-cert", "PGSSLKEY": "/absent-key", "PGTARGETSESSIONATTRS": "standby", "PGCONNECT_TIMEOUT": "1000", "PGOPTIONS": "-c default_transaction_read_only=off", "PGTZ": "UTC", "PGREQUIREAUTH": "none", "PGCHANNELBINDING": "require"} {
-		t.Setenv(key, value)
+	proof := func(t *testing.T) {
+		_, ca := certificate(t)
+		for key, value := range map[string]string{"PGSERVICE": "", "PGSERVICEFILE": "/absent-service", "PGPASSFILE": "/absent-password", "PGHOST": "untrusted.example", "PGPORT": "1", "PGUSER": "other", "PGDATABASE": "other", "PGPASSWORD": "other-password", "PGSSLMODE": "prefer", "PGSSLROOTCERT": "/absent-root", "PGSSLCERT": "/absent-cert", "PGSSLKEY": "/absent-key", "PGTARGETSESSIONATTRS": "standby", "PGCONNECT_TIMEOUT": "1000", "PGOPTIONS": "-c default_transaction_read_only=off", "PGTZ": "UTC", "PGREQUIREAUTH": "none", "PGCHANNELBINDING": "require"} {
+			t.Setenv(key, value)
+		}
+		o := Options{Host: "localhost", Port: 5432, User: "reader", Database: "catalog", Password: "actual", CA: ca, DialAddress: "127.0.0.1:23456"}
+		config, err := configuration(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if config.Host != o.Host || config.Port != o.Port || config.User != o.User || config.Database != o.Database || config.Password != o.Password || config.TLSConfig == nil || config.TLSConfig.ServerName != o.Host || config.TLSConfig.InsecureSkipVerify || len(config.Fallbacks) != 0 || config.MaxProtocolMessageBodyLen != MaxValueBytes {
+			t.Fatal("environment changed identity, TLS, or limits")
+		}
+		if len(config.RuntimeParams) != 4 || config.RuntimeParams["default_transaction_read_only"] != "on" || config.RuntimeParams["statement_timeout"] != "5000" {
+			t.Fatal("unsafe session")
+		}
+		t.Setenv("PGSERVICE", "unrelated")
+		if _, err := configuration(o); err == nil {
+			t.Fatal("accepted a service override")
+		}
 	}
-	o := Options{Host: "localhost", Port: 5432, User: "reader", Database: "catalog", Password: "actual", CA: ca, DialAddress: "127.0.0.1:23456"}
-	config, err := configuration(o)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if config.Host != o.Host || config.Port != o.Port || config.User != o.User || config.Database != o.Database || config.Password != o.Password || config.TLSConfig == nil || config.TLSConfig.ServerName != o.Host || config.TLSConfig.InsecureSkipVerify || len(config.Fallbacks) != 0 || config.MaxProtocolMessageBodyLen != MaxValueBytes {
-		t.Fatal("environment changed identity, TLS, or limits")
-	}
-	if len(config.RuntimeParams) != 4 || config.RuntimeParams["default_transaction_read_only"] != "on" || config.RuntimeParams["statement_timeout"] != "5000" {
-		t.Fatal("unsafe session")
-	}
-	t.Setenv("PGSERVICE", "unrelated")
-	if _, err := configuration(o); err == nil {
-		t.Fatal("accepted a service override")
-	}
+	t.Run("ST-SUP-RC19-OC01-T01 Unrelated PostgreSQL environment values change no identity", proof)
+	t.Run("ST-SUP-RC19-OC02-T01 Unrelated PostgreSQL environment values change no read-only session", proof)
+	t.Run("ST-SUP-RC19-OC03-T01 Unrelated PostgreSQL environment values change no verified transport", proof)
 }
 
 func TestInvalidIdentityAndCertificateAreRejected(t *testing.T) {
-	_, ca := certificate(t)
-	base := Options{Host: "localhost", Port: 5432, User: "reader", Database: "catalog", Password: "actual", CA: ca}
-	for _, host := range []string{"localhost", "db.example", "127.0.0.1", "::1"} {
-		o := base
-		o.Host = host
-		if _, err := configuration(o); err != nil {
-			t.Fatal("valid host rejected", host, err)
+	t.Run("ST-SUP-RC19-OC04-T01 An invalid identity or certificate input is refused", func(t *testing.T) {
+		_, ca := certificate(t)
+		base := Options{Host: "localhost", Port: 5432, User: "reader", Database: "catalog", Password: "actual", CA: ca}
+		for _, host := range []string{"localhost", "db.example", "127.0.0.1", "::1"} {
+			o := base
+			o.Host = host
+			if _, err := configuration(o); err != nil {
+				t.Fatal("valid host rejected", host, err)
+			}
 		}
-	}
-	for _, change := range []func(*Options){
-		func(o *Options) { o.Host = "/tmp/socket" }, func(o *Options) { o.Host = "bad@host" }, func(o *Options) { o.Host = "a..example" },
-		func(o *Options) { o.Port = 0 }, func(o *Options) { o.User = "" }, func(o *Options) { o.Database = "" }, func(o *Options) { o.Password = "" },
-		func(o *Options) { o.CA = append(append([]byte(nil), o.CA...), []byte("private trailing data")...) },
-		func(o *Options) { o.CA = []byte("-----BEGIN PRIVATE KEY-----\ninvalid\n-----END PRIVATE KEY-----") },
-	} {
-		o := base
-		change(&o)
-		if _, err := configuration(o); err == nil {
-			t.Fatal("invalid identity accepted")
+		for _, change := range []func(*Options){
+			func(o *Options) { o.Host = "/tmp/socket" }, func(o *Options) { o.Host = "bad@host" }, func(o *Options) { o.Host = "a..example" },
+			func(o *Options) { o.Port = 0 }, func(o *Options) { o.User = "" }, func(o *Options) { o.Database = "" }, func(o *Options) { o.Password = "" },
+			func(o *Options) { o.CA = append(append([]byte(nil), o.CA...), []byte("private trailing data")...) },
+			func(o *Options) { o.CA = []byte("-----BEGIN PRIVATE KEY-----\ninvalid\n-----END PRIVATE KEY-----") },
+		} {
+			o := base
+			change(&o)
+			if _, err := configuration(o); err == nil {
+				t.Fatal("invalid identity accepted")
+			}
 		}
-	}
+	})
 }
 
 func TestInvalidReadDoesNotConnect(t *testing.T) {
-	_, ca := certificate(t)
-	o := Options{Host: "localhost", Port: 5432, User: "reader", Database: "catalog", Password: "actual", CA: ca}
-	for _, address := range []string{"localhost:5432", "127.0.0.1", "127.0.0.1:0", "127.0.0.1:65536", "https://127.0.0.1:5432"} {
-		if ValidateDialAddress(address) == nil {
-			t.Fatal("invalid route accepted", address)
-		}
-	}
-	for _, address := range []string{"", "127.0.0.1:5432", "[::1]:5432"} {
-		if err := ValidateDialAddress(address); err != nil {
-			t.Fatal(err)
-		}
-	}
-	var value bool
-	for _, check := range []func() error{
-		func() error { return ReadRow(nil, o, "SELECT true", nil, &value) },
-		func() error {
-			return ReadRow(context.Background(), o, strings.Repeat("x", MaxQueryBytes+1), nil, &value)
-		},
-		func() error {
-			return ReadRow(context.Background(), o, "SELECT $1", []any{strings.Repeat("x", MaxValueBytes+1)}, &value)
-		},
-		func() error { return ReadRow(context.Background(), o, "SELECT $1", []any{map[string]string{}}, &value) },
-		func() error { return ReadRow(context.Background(), o, "SELECT true", nil, (*bool)(nil)) },
-	} {
-		if err := check(); err == nil {
-			t.Fatal("invalid read accepted")
-		} else {
-			var remote *Error
-			if errors.As(err, &remote) {
-				t.Fatal("invalid read reached connection", err)
+	t.Run("ST-SUP-RC19-OC05-T01 An invalid read opens no connection", func(t *testing.T) {
+		_, ca := certificate(t)
+		o := Options{Host: "localhost", Port: 5432, User: "reader", Database: "catalog", Password: "actual", CA: ca}
+		for _, address := range []string{"localhost:5432", "127.0.0.1", "127.0.0.1:0", "127.0.0.1:65536", "https://127.0.0.1:5432"} {
+			if ValidateDialAddress(address) == nil {
+				t.Fatal("invalid route accepted", address)
 			}
 		}
-	}
+		for _, address := range []string{"", "127.0.0.1:5432", "[::1]:5432"} {
+			if err := ValidateDialAddress(address); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var value bool
+		for _, check := range []func() error{
+			func() error { return ReadRow(nil, o, "SELECT true", nil, &value) },
+			func() error {
+				return ReadRow(context.Background(), o, strings.Repeat("x", MaxQueryBytes+1), nil, &value)
+			},
+			func() error {
+				return ReadRow(context.Background(), o, "SELECT $1", []any{strings.Repeat("x", MaxValueBytes+1)}, &value)
+			},
+			func() error { return ReadRow(context.Background(), o, "SELECT $1", []any{map[string]string{}}, &value) },
+			func() error { return ReadRow(context.Background(), o, "SELECT true", nil, (*bool)(nil)) },
+		} {
+			if err := check(); err == nil {
+				t.Fatal("invalid read accepted")
+			} else {
+				var remote *Error
+				if errors.As(err, &remote) {
+					t.Fatal("invalid read reached connection", err)
+				}
+			}
+		}
+	})
 }
 
 // Terminate verified TLS in the fixture and relay the PostgreSQL protocol to
@@ -193,52 +203,59 @@ func sqlFixture(t *testing.T) Options {
 	}()
 	return Options{Host: "localhost", Port: 5432, User: config.User, Database: config.Database, Password: config.Password, CA: ca, DialAddress: listener.Addr().String()}
 }
+
 func TestVerifiedReadAgainstPostgres(t *testing.T) {
-	o := sqlFixture(t)
-	var text string
-	literal := "' OR true; -- private-value"
-	if err := ReadRow(context.Background(), o, "SELECT $1::text", []any{literal}, &text); err != nil || text != literal {
-		t.Fatal("bound value changed", err)
-	}
-	if err := ReadRow(context.Background(), o, "SHOW default_transaction_read_only", nil, &text); err != nil || text != "on" {
-		t.Fatal("not read-only", err, text)
-	}
-	err := ReadRow(context.Background(), o, "CREATE TABLE public.stego_read_must_not_write(id int)", nil, &text)
-	var failure *Error
-	if !errors.As(err, &failure) || failure.SQLState != "25006" {
-		t.Fatal("write was not rejected as read-only", err)
-	}
-	var absent bool
-	if err := ReadRow(context.Background(), o, "SELECT to_regclass('public.stego_read_must_not_write') IS NULL", nil, &absent); err != nil || !absent {
-		t.Fatal("read changed database state", err)
-	}
-	if err := ReadRow(context.Background(), o, "SELECT repeat('x',70000)", nil, &text); err == nil {
-		t.Fatal("oversized read succeeded")
-	}
-	var number int64
-	if err := ReadRow(context.Background(), o, "SELECT 1::bigint WHERE false", nil, &number); !errors.Is(err, ErrNoRows) {
-		t.Fatal("lost no-row result", err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
-	defer cancel()
-	start := time.Now()
-	if err := ReadRow(ctx, o, "SELECT pg_sleep(3)", nil, &text); !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > time.Second {
-		t.Fatal("read did not honor caller deadline", err, time.Since(start))
-	}
-	wrong := o
-	wrong.Password = "wrong-private-password"
-	err = ReadRow(context.Background(), wrong, "SELECT true", nil, &text)
-	if !errors.As(err, &failure) || failure.Stage != "connect" || failure.SQLState != "28P01" || strings.Contains(err.Error(), wrong.Password) {
-		t.Fatal("unsafe authentication result", err)
-	}
-	for _, change := range []func(*Options){func(o *Options) { o.Host = "wrong.example" }, func(o *Options) { _, o.CA = certificate(t) }} {
-		bad := o
-		change(&bad)
-		if err := ReadRow(context.Background(), bad, "SELECT true", nil, &text); err == nil {
-			t.Fatal("accepted unverified TLS")
+	proof := func(t *testing.T) {
+		o := sqlFixture(t)
+		var text string
+		literal := "' OR true; -- private-value"
+		if err := ReadRow(context.Background(), o, "SELECT $1::text", []any{literal}, &text); err != nil || text != literal {
+			t.Fatal("bound value changed", err)
+		}
+		if err := ReadRow(context.Background(), o, "SHOW default_transaction_read_only", nil, &text); err != nil || text != "on" {
+			t.Fatal("not read-only", err, text)
+		}
+		err := ReadRow(context.Background(), o, "CREATE TABLE public.stego_read_must_not_write(id int)", nil, &text)
+		var failure *Error
+		if !errors.As(err, &failure) || failure.SQLState != "25006" {
+			t.Fatal("write was not rejected as read-only", err)
+		}
+		var absent bool
+		if err := ReadRow(context.Background(), o, "SELECT to_regclass('public.stego_read_must_not_write') IS NULL", nil, &absent); err != nil || !absent {
+			t.Fatal("read changed database state", err)
+		}
+		if err := ReadRow(context.Background(), o, "SELECT repeat('x',70000)", nil, &text); err == nil {
+			t.Fatal("oversized read succeeded")
+		}
+		var number int64
+		if err := ReadRow(context.Background(), o, "SELECT 1::bigint WHERE false", nil, &number); !errors.Is(err, ErrNoRows) {
+			t.Fatal("lost no-row result", err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+		defer cancel()
+		start := time.Now()
+		if err := ReadRow(ctx, o, "SELECT pg_sleep(3)", nil, &text); !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > time.Second {
+			t.Fatal("read did not honor caller deadline", err, time.Since(start))
+		}
+		wrong := o
+		wrong.Password = "wrong-private-password"
+		err = ReadRow(context.Background(), wrong, "SELECT true", nil, &text)
+		if !errors.As(err, &failure) || failure.Stage != "connect" || failure.SQLState != "28P01" || strings.Contains(err.Error(), wrong.Password) {
+			t.Fatal("unsafe authentication result", err)
+		}
+		for _, change := range []func(*Options){func(o *Options) { o.Host = "wrong.example" }, func(o *Options) { _, o.CA = certificate(t) }} {
+			bad := o
+			change(&bad)
+			if err := ReadRow(context.Background(), bad, "SELECT true", nil, &text); err == nil {
+				t.Fatal("accepted unverified TLS")
+			}
+		}
+		if err := ReadRow(context.Background(), o, "SELECT 7::bigint", nil, &number); err != nil || number != 7 {
+			t.Fatal("failed recovery after rejected reads", err)
 		}
 	}
-	if err := ReadRow(context.Background(), o, "SELECT 7::bigint", nil, &number); err != nil || number != 7 {
-		t.Fatal("failed recovery after rejected reads", err)
-	}
+	t.Run("ST-SUP-RC19-OC03-T02 A verified read refuses a wrong host name and a wrong trust root", proof)
+	t.Run("ST-SUP-RC19-OC06-T01 A failed verified read keeps the password and the server text out of its error", proof)
+	t.Run("ST-SUP-RC19-OC07-T01 A verified read honors the caller's deadline", proof)
+	t.Run("ST-SUP-RC19-OC08-T01 A verified read refuses a write and changes nothing", proof)
 }

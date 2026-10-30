@@ -83,7 +83,7 @@ func TestGeneratedAllocationEndpointRenderer(t *testing.T) {
 	if err = os.WriteFile(filepath.Join(dir, "out/deploy/render/endpoints_test.go"), allocationEndpointRendererTests, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/widget\ngo 1.26.8\n"), 0600); err != nil {
+	if err = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/widget\ngo 1.26.10\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("go", "test", "-p=1", "-race", "-count=1", "-mod=readonly", "-timeout=30s", "./out/deploy/render")

@@ -1,6 +1,6 @@
 module github.com/jsell-rh/stego
 
-go 1.26.8
+go 1.26.10
 
 require (
 	cel.dev/cel-go v0.32.0
@@ -11,7 +11,7 @@ require (
 
 require golang.org/x/mod v0.41.0
 
-require golang.org/x/net v0.58.0
+require golang.org/x/net v0.60.0
 
 require (
 	github.com/bufbuild/protocompile v0.14.1
@@ -46,8 +46,8 @@ require (
 	github.com/speakeasy-api/jsonpath v0.6.3 // indirect
 	github.com/speakeasy-api/openapi v1.24.0 // indirect
 	github.com/vmware-labs/yaml-jsonpath v0.3.2 // indirect
-	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect
 )
 

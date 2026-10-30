@@ -1,8 +1,11 @@
 package compiler
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -26,8 +29,8 @@ func TestGeneratorGoVersionGatesGeneration(t *testing.T) {
 		{"1.25.1", "1.25.0", "requires Go 1.25.1 or later"},
 		{"1.25", "", "requires a valid Go target"},
 		{"1.25", "invalid", "requires a valid Go target"},
-		{"", "1.26.8", "invalid minimum Go version"},
-		{"go1.25", "1.26.8", "invalid minimum Go version"},
+		{"", "1.26.10", "invalid minimum Go version"},
+		{"go1.25", "1.26.10", "invalid minimum Go version"},
 	} {
 		t.Run(tt.minimum+"/"+tt.target, func(t *testing.T) {
 			input := snapshotTestInput(t)
@@ -52,7 +55,7 @@ func TestGeneratorGoVersionGatesGeneration(t *testing.T) {
 }
 
 func TestGeneratorGoVersionAcceptsSupportedTargets(t *testing.T) {
-	for _, target := range []string{"1.25", "1.25.0", "1.25.1", "1.26.8", "1.30"} {
+	for _, target := range []string{"1.25", "1.25.0", "1.25.1", "1.26.10", "1.30"} {
 		t.Run(target, func(t *testing.T) {
 			input := snapshotTestInput(t)
 			input.GoVersion = target
@@ -76,69 +79,126 @@ func (g rejectedInputGenerator) Generate(gen.Context) ([]gen.File, *gen.Wiring, 
 }
 
 func TestSemanticValidationGatesGeneration(t *testing.T) {
-	tests := []struct {
-		name, field, collection, want string
-	}{
-		{"empty length range", "{name: title, type: string, min_length: 10, max_length: 1}", "", "min_length"},
-		{"invalid pattern", `{name: title, type: string, pattern: "["}`, "", "pattern"},
-		{"unknown field type", "{name: title, type: unsupported}", "", "unsupported"},
-		{"missing patch field", "{name: title, type: string}", "    patchable: [missing]\n", "patchable"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			project, registry := setupTestProject(t)
-			service := "kind: service\nname: test\narchetype: test-arch\nlanguage: go\nentities:\n  - name: Widget\n    fields:\n      - " + tt.field + "\ncollections:\n  widgets:\n    entity: Widget\n    operations: [create, patch]\n" + tt.collection
-			writeFile(t, filepath.Join(project, "service.yaml"), service)
-			input := ReconcilerInput{
-				ProjectDir: project, RegistryDir: registry,
-				ModuleName: "example.com/test", GoVersion: "1.24",
-				Generators: map[string]gen.Generator{
-					"stub-api": rejectedInputGenerator{t}, "stub-store": rejectedInputGenerator{t},
-				},
-			}
-			validation, err := Validate(input)
-			if err != nil || !validation.HasErrors() || !strings.Contains(FormatValidation(validation), tt.want) {
-				t.Fatalf("expected validation error for %s: result=%+v, err=%v", tt.want, validation, err)
-			}
-			plan, err := Reconcile(input)
-			if plan != nil || err == nil || !strings.Contains(err.Error(), FormatValidation(validation)) {
-				t.Fatalf("reconciliation did not use the validation result: plan=%+v, err=%v", plan, err)
-			}
-			for _, path := range []string{"out", "go.mod", ".stego"} {
-				if _, err := os.Stat(filepath.Join(project, path)); !os.IsNotExist(err) {
-					t.Fatalf("invalid input changed %s: %v", path, err)
+	t.Run("ST-DECL-UC03-R03-T01 Generation refuses only what checking refuses", func(t *testing.T) {
+		tests := []struct {
+			name, field, collection, want string
+		}{
+			{"empty length range", "{name: title, type: string, min_length: 10, max_length: 1}", "", "min_length"},
+			{"invalid pattern", `{name: title, type: string, pattern: "["}`, "", "pattern"},
+			{"unknown field type", "{name: title, type: unsupported}", "", "unsupported"},
+			{"missing patch field", "{name: title, type: string}", "    patchable: [missing]\n", "patchable"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				project, registry := setupTestProject(t)
+				service := "kind: service\nname: test\narchetype: test-arch\nlanguage: go\nentities:\n  - name: Widget\n    fields:\n      - " + tt.field + "\ncollections:\n  widgets:\n    entity: Widget\n    operations: [create, patch]\n" + tt.collection
+				writeFile(t, filepath.Join(project, "service.yaml"), service)
+				input := ReconcilerInput{
+					ProjectDir: project, RegistryDir: registry,
+					ModuleName: "example.com/test", GoVersion: "1.24",
+					Generators: map[string]gen.Generator{
+						"stub-api": rejectedInputGenerator{t}, "stub-store": rejectedInputGenerator{t},
+					},
 				}
-			}
-		})
-	}
+				validation, err := Validate(input)
+				if err != nil || !validation.HasErrors() || !strings.Contains(FormatValidation(validation), tt.want) {
+					t.Fatalf("expected validation error for %s: result=%+v, err=%v", tt.want, validation, err)
+				}
+				plan, err := Reconcile(input)
+				if plan != nil || err == nil || !strings.Contains(err.Error(), FormatValidation(validation)) {
+					t.Fatalf("reconciliation did not use the validation result: plan=%+v, err=%v", plan, err)
+				}
+				for _, path := range []string{"out", "go.mod", ".stego"} {
+					if _, err := os.Stat(filepath.Join(project, path)); !os.IsNotExist(err) {
+						t.Fatalf("invalid input changed %s: %v", path, err)
+					}
+				}
+			})
+		}
+	})
 }
 
 func TestMissingGeneratorStopsAllGeneration(t *testing.T) {
-	for _, state := range []string{"missing", "nil", "typed nil"} {
-		t.Run(state, func(t *testing.T) {
-			input := snapshotTestInput(t)
-			input.Generators["stub-api"] = rejectedInputGenerator{t}
-			switch state {
-			case "missing":
-				delete(input.Generators, "stub-store")
-			case "nil":
-				input.Generators["stub-store"] = nil
-			case "typed nil":
-				input.Generators["stub-store"] = (*stubGenerator)(nil)
-			}
-			validation, err := Validate(input)
-			if err != nil || !validation.HasErrors() || !strings.Contains(FormatValidation(validation), `component "stub-store" has no generator`) {
-				t.Fatalf("missing backend passed validation: %+v, %v", validation, err)
-			}
-			plan, err := Reconcile(input)
-			if plan != nil || err == nil || !strings.Contains(err.Error(), FormatValidation(validation)) {
-				t.Fatalf("missing backend did not stop compilation: %+v, %v", plan, err)
-			}
-			for _, name := range []string{"out", "go.mod", ".stego"} {
-				if _, err := os.Stat(filepath.Join(input.ProjectDir, name)); !os.IsNotExist(err) {
-					t.Fatalf("missing generator changed %s: %v", name, err)
+	t.Run("ST-STD-TRUST-R02-T01 A component with no generator in the compiler build stops compilation before anything is written", func(t *testing.T) {
+		for _, state := range []string{"missing", "nil", "typed nil"} {
+			t.Run(state, func(t *testing.T) {
+				input := snapshotTestInput(t)
+				input.Generators["stub-api"] = rejectedInputGenerator{t}
+				switch state {
+				case "missing":
+					delete(input.Generators, "stub-store")
+				case "nil":
+					input.Generators["stub-store"] = nil
+				case "typed nil":
+					input.Generators["stub-store"] = (*stubGenerator)(nil)
 				}
-			}
-		})
+				validation, err := Validate(input)
+				if err != nil || !validation.HasErrors() || !strings.Contains(FormatValidation(validation), `component "stub-store" has no generator`) {
+					t.Fatalf("missing backend passed validation: %+v, %v", validation, err)
+				}
+				plan, err := Reconcile(input)
+				if plan != nil || err == nil || !strings.Contains(err.Error(), FormatValidation(validation)) {
+					t.Fatalf("missing backend did not stop compilation: %+v, %v", plan, err)
+				}
+				for _, name := range []string{"out", "go.mod", ".stego"} {
+					if _, err := os.Stat(filepath.Join(input.ProjectDir, name)); !os.IsNotExist(err) {
+						t.Fatalf("missing generator changed %s: %v", name, err)
+					}
+				}
+			})
+		}
+	})
+}
+
+func TestFailedRunWritesNothing(t *testing.T) {
+	t.Run("ST-GEN-INV09-T A failed validation, generator or assembly leaves the output and the record unchanged", func(t *testing.T) {
+		for failure, want := range map[string]string{"validation": "has no generator", "generator": "generator failed", "assembler": "circular constructor dependency"} {
+			t.Run(failure, func(t *testing.T) {
+				input := snapshotTestInput(t)
+				applyInitialSnapshot(t, input)
+				before := projectFiles(t, input.ProjectDir)
+				switch failure {
+				case "validation":
+					delete(input.Generators, "stub-store")
+				case "generator":
+					input.Generators["stub-api"] = &stubGenerator{err: errors.New("generator failed")}
+				case "assembler":
+					input.Generators["stub-api"] = &stubGenerator{
+						files:  []gen.File{{Path: "internal/api/handler.go", Content: []byte("package api\n")}},
+						wiring: &gen.Wiring{Imports: []string{"internal/api"}, Constructors: []string{"api.NewFoo(bar)"}, ConstructorDeps: map[int][]string{0: {"bar"}}},
+					}
+					input.Generators["stub-store"] = &stubGenerator{
+						wiring: &gen.Wiring{Imports: []string{"internal/storage"}, Constructors: []string{"storage.NewBar(foo)"}, ConstructorDeps: map[int][]string{0: {"foo"}}},
+					}
+				}
+				plan, err := Reconcile(input)
+				if err == nil {
+					err = Apply(plan, input.ProjectDir, "")
+				}
+				if err == nil || !strings.Contains(err.Error(), want) {
+					t.Fatalf("the %s failure did not stop the run: %v", failure, err)
+				}
+				if after := projectFiles(t, input.ProjectDir); !reflect.DeepEqual(before, after) {
+					t.Fatalf("the %s failure changed the project: %v", failure, err)
+				}
+			})
+		}
+	})
+}
+
+func projectFiles(t *testing.T, root string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		files[path] = string(data)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
+	return files
 }

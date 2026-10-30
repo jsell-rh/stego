@@ -90,19 +90,31 @@ func TestAllocationPodPolicy(t *testing.T) {
 	}
 	spec := policy["spec"].(object)
 	constraints := spec["matchConstraints"].(object)
-	if spec["failurePolicy"] != "Fail" || !reflect.DeepEqual(constraints["namespaceSelector"], object{"matchLabels": object{"stego.dev/allocator": allocationMarker(config), "stego.dev/allocation-profile": "tenant"}}) {
-		t.Fatal("Pod policy must select one installation and fail closed")
-	}
-	rule := constraints["resourceRules"].([]any)[0].(object)
-	if !reflect.DeepEqual(rule["operations"], []string{"CREATE", "UPDATE"}) || !reflect.DeepEqual(rule["resources"], []string{"pods", "pods/status", "pods/ephemeralcontainers"}) || rule["scope"] != "Namespaced" {
-		t.Fatal("Pod policy must cover main, status, and ephemeral writes and retain deletion")
-	}
-	raw, _ := json.Marshal(spec["validations"])
-	for _, text := range []string{"namespaceObject != null", "'restricted'", "stego.dev/service-account-gateway", "automountServiceAccountToken", "object.spec.runtimeClassName", "kata.test", "example.test/owner"} {
-		if !strings.Contains(string(raw), text) {
-			t.Fatal("missing admission restriction", text)
+	t.Run("ST-SUP-RC15-OC20-T01 The Pod admission policy fails closed and its binding denies", func(t *testing.T) {
+		for _, raw := range items {
+			item := raw.(object)
+			if item["kind"] == "ValidatingAdmissionPolicyBinding" && item["metadata"].(object)["name"] == name && !reflect.DeepEqual(item["spec"].(object)["validationActions"], []string{"Deny"}) {
+				t.Fatal("Pod restriction added a non-blocking binding")
+			}
 		}
-	}
+		if spec["failurePolicy"] != "Fail" || !reflect.DeepEqual(constraints["namespaceSelector"], object{"matchLabels": object{"stego.dev/allocator": allocationMarker(config), "stego.dev/allocation-profile": "tenant"}}) {
+			t.Fatal("Pod policy must select one installation and fail closed")
+		}
+	})
+	t.Run("ST-SUP-RC15-OC26-T01 The Pod admission policy covers status and ephemeral container writes", func(t *testing.T) {
+		rule := constraints["resourceRules"].([]any)[0].(object)
+		if !reflect.DeepEqual(rule["operations"], []string{"CREATE", "UPDATE"}) || !reflect.DeepEqual(rule["resources"], []string{"pods", "pods/status", "pods/ephemeralcontainers"}) || rule["scope"] != "Namespaced" {
+			t.Fatal("Pod policy must cover main, status, and ephemeral writes and retain deletion")
+		}
+	})
+	t.Run("ST-SUP-RC15-OC27-T01 The Pod admission policy holds the account and token rules", func(t *testing.T) {
+		raw, _ := json.Marshal(spec["validations"])
+		for _, text := range []string{"namespaceObject != null", "'restricted'", "stego.dev/service-account-gateway", "automountServiceAccountToken", "object.spec.runtimeClassName", "kata.test", "example.test/owner"} {
+			if !strings.Contains(string(raw), text) {
+				t.Fatal("missing admission restriction", text)
+			}
+		}
+	})
 	// The worker does not interpret policy fields. Existing runtime output stays
 	// identical; the installation manifest is the source of these restrictions.
 	first, _ := json.Marshal(before)

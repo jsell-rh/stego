@@ -60,7 +60,9 @@ func (h *JWTHandler) Build() func(http.Handler)http.Handler {
    ctx:=context.WithValue(r.Context(),tokenContextKey,token)
    payload:=GetAuthPayloadFromContext(ctx)
    ctx=SetUsernameContext(ctx,payload.Username)
-   ctx=context.WithValue(ctx,identityKey,Identity{Issuer:payload.Issuer,UserID:payload.Username,Username:payload.Username,ExpiresAt:identity.ExpiresAt,
+   // The verified identity holds the subject. The username can change, so it
+   // stays in Identity.Username and never occupies the subject field.
+   ctx=context.WithValue(ctx,identityKey,Identity{Issuer:payload.Issuer,UserID:identity.UserID,Username:payload.Username,ExpiresAt:identity.ExpiresAt,
     Attributes:map[string]string{"email":payload.Email,"first_name":payload.FirstName,"last_name":payload.LastName,"client_id":payload.ClientID,"issuer":payload.Issuer}})
    next.ServeHTTP(w,r.WithContext(ctx))
   })

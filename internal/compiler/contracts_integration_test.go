@@ -67,7 +67,7 @@ func TestSharedStorageDomainAndHTTP(t *testing.T) {
 		files = append(files, generated...)
 		wirings = append(wirings, compiler.ComponentWiring{Name: component.name, Wiring: wiring})
 	}
-	shared, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, GoVersion: "1.26.8", OutDirName: "out", Wirings: wirings})
+	shared, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, GoVersion: "1.26.10", OutDirName: "out", Wirings: wirings})
 	if err != nil {
 		t.Fatal(err)
 	}

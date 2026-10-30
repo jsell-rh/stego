@@ -46,7 +46,7 @@ func validLabelKey(key string) bool {
 	return true
 }
 
-func (*Generator) MinimumGoVersion() string { return "1.26.8" }
+func (*Generator) MinimumGoVersion() string { return "1.26.10" }
 
 func configList(ctx gen.Context, key string) ([]any, error) {
 	v, exists := ctx.ComponentConfig[key]
@@ -104,8 +104,8 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	if !directory.MatchString(ctx.OutDirName) {
 		return fmt.Errorf("kubernetes-service requires a top-level output directory")
 	}
-	if ctx.GoVersion != "1.26.8" {
-		return fmt.Errorf("kubernetes-service supports Go 1.26.8 with its pinned builder")
+	if ctx.GoVersion != "1.26.10" {
+		return fmt.Errorf("kubernetes-service supports Go 1.26.10 with its pinned builder")
 	}
 	if ctx.PeerNamespaces["health-check"] == "" || (ctx.PeerNamespaces["http-application"] == "" && ctx.PeerNamespaces["rest-api"] == "" && ctx.PeerNamespaces["browser-backend"] == "") {
 		return fmt.Errorf("kubernetes-service requires health-check and an HTTP component")

@@ -9,40 +9,42 @@ import (
 )
 
 func TestCycleRetainsFailureAcrossProcessReplacement(t *testing.T) {
-	saved := Checkpoint{}
-	access := CheckpointAccess{Load: func(context.Context) (Checkpoint, error) { return saved, nil }, Save: func(_ context.Context, version int64, value string) error {
-		if version != saved.Version {
-			t.Fatal("stale save")
+	t.Run("ST-SUP-RC05-OC15-T01 A cycle keeps its failure across process replacement", func(t *testing.T) {
+		saved := Checkpoint{}
+		access := CheckpointAccess{Load: func(context.Context) (Checkpoint, error) { return saved, nil }, Save: func(_ context.Context, version int64, value string) error {
+			if version != saved.Version {
+				t.Fatal("stale save")
+			}
+			saved = Checkpoint{Version: version + 1, After: value}
+			return nil
+		}}
+		source := func(_ context.Context, after string, _ int) (CursorPage[string], error) {
+			if after == "a" {
+				return CursorPage[string]{Items: []CursorItem[string]{{"b", "b"}}}, nil
+			}
+			return CursorPage[string]{Items: []CursorItem[string]{{"a", "a"}}, More: true}, nil
 		}
-		saved = Checkpoint{Version: version + 1, After: value}
-		return nil
-	}}
-	source := func(_ context.Context, after string, _ int) (CursorPage[string], error) {
-		if after == "a" {
-			return CursorPage[string]{Items: []CursorItem[string]{{"b", "b"}}}, nil
+		scan := ScanOptions{PageSize: 1, MaxPages: 1, PageTimeout: time.Second}
+		budget := ObservationOptions{WorkTimeout: time.Second, CommitTimeout: time.Second}
+		failed := errors.New("private provider failure")
+		first, err := ScanCycle(context.Background(), "desired-1", access, source, func(context.Context, string) error { return failed }, func(error) bool { return true }, scan, budget)
+		if !errors.Is(err, failed) || !errors.Is(err, ErrCycleFailed) || first.Complete || !first.Failed || strings.Contains(saved.After, "private") {
+			t.Fatal(first, saved, err)
 		}
-		return CursorPage[string]{Items: []CursorItem[string]{{"a", "a"}}, More: true}, nil
-	}
-	scan := ScanOptions{PageSize: 1, MaxPages: 1, PageTimeout: time.Second}
-	budget := ObservationOptions{WorkTimeout: time.Second, CommitTimeout: time.Second}
-	failed := errors.New("private provider failure")
-	first, err := ScanCycle(context.Background(), "desired-1", access, source, func(context.Context, string) error { return failed }, func(error) bool { return true }, scan, budget)
-	if !errors.Is(err, failed) || !errors.Is(err, ErrCycleFailed) || first.Complete || !first.Failed || strings.Contains(saved.After, "private") {
-		t.Fatal(first, saved, err)
-	}
-	// The next call has no shared error accumulator from the earlier call.
-	second, err := ScanCycle(context.Background(), "desired-1", access, source, func(context.Context, string) error { return nil }, nil, scan, budget)
-	if !second.Complete || !second.Failed || !errors.Is(err, ErrCycleFailed) {
-		t.Fatal("earlier failure was lost", second, err)
-	}
-	third, err := ScanCycle(context.Background(), "desired-1", access, source, func(context.Context, string) error { return nil }, nil, scan, budget)
-	if err != nil || third.Complete || third.Failed || third.After != "a" {
-		t.Fatal("next full cycle did not restart", third, err)
-	}
-	fourth, err := ScanCycle(context.Background(), "desired-1", access, source, func(context.Context, string) error { return nil }, nil, scan, budget)
-	if err != nil || !fourth.Complete || fourth.Failed {
-		t.Fatal(fourth, err)
-	}
+		// The next call has no shared error accumulator from the earlier call.
+		second, err := ScanCycle(context.Background(), "desired-1", access, source, func(context.Context, string) error { return nil }, nil, scan, budget)
+		if !second.Complete || !second.Failed || !errors.Is(err, ErrCycleFailed) {
+			t.Fatal("earlier failure was lost", second, err)
+		}
+		third, err := ScanCycle(context.Background(), "desired-1", access, source, func(context.Context, string) error { return nil }, nil, scan, budget)
+		if err != nil || third.Complete || third.Failed || third.After != "a" {
+			t.Fatal("next full cycle did not restart", third, err)
+		}
+		fourth, err := ScanCycle(context.Background(), "desired-1", access, source, func(context.Context, string) error { return nil }, nil, scan, budget)
+		if err != nil || !fourth.Complete || fourth.Failed {
+			t.Fatal(fourth, err)
+		}
+	})
 }
 
 func TestCycleRejectsUnpersistablePageBeforeEffects(t *testing.T) {

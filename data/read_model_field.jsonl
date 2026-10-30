@@ -1,0 +1,73 @@
+{"read_model_id":"ST-ASR-RM01","position":1,"name":"Test record","meaning":"The test record's ID.","type":"text","required":true,"example":"ST-BLD-SP01-T"}
+{"read_model_id":"ST-ASR-RM01","position":2,"name":"State","meaning":"The test record's state in the spec at the commit.","type":"text","required":true,"example":"automated"}
+{"read_model_id":"ST-ASR-RM01","position":3,"name":"Result","meaning":"Its result at the commit; none when no verified proof run exists there.","type_value_object_id":"ST-VO54","required":false}
+{"read_model_id":"ST-ASR-RM01","position":4,"name":"Last passed at","meaning":"The newest commit a verified proof run passed it at, when any.","type_value_object_id":"ST-VO43","required":false}
+{"read_model_id":"ST-BLD-RM01","position":1,"name":"Record digest","meaning":"The build record checked against.","type_value_object_id":"ST-VO41","required":true}
+{"read_model_id":"ST-BLD-RM01","position":2,"name":"Matches","meaning":"Whether every digest matched.","type":"yes/no","required":true,"example":"yes"}
+{"read_model_id":"ST-BLD-RM01","position":3,"name":"Mismatches","meaning":"Each input or output whose digest differs.","type":"text","required":false,"example":"go.sum"}
+{"read_model_id":"ST-BLD-RM02","position":1,"name":"Image digest","meaning":"The image checked.","type_value_object_id":"ST-VO41","required":true}
+{"read_model_id":"ST-BLD-RM02","position":2,"name":"Matches","meaning":"Whether the image, its record and its build agree.","type":"yes/no","required":true,"example":"yes"}
+{"read_model_id":"ST-BLD-RM02","position":3,"name":"Signature acceptable","meaning":"Whether the pinned workflow signed it.","type":"yes/no","required":true,"example":"yes"}
+{"read_model_id":"ST-BLD-RM02","position":4,"name":"Mismatches","meaning":"Each part that does not agree.","type":"text","required":false,"example":"CA bundle"}
+{"read_model_id":"ST-DECL-RM01","position":1,"name":"Rule","meaning":"The rule the fault breaks, by its name.","type":"text","required":true,"example":"unconsumed-slot"}
+{"read_model_id":"ST-DECL-RM01","position":2,"name":"Path","meaning":"Where in the declaration the fault is.","type":"text","required":true,"example":"collections.todos.entity"}
+{"read_model_id":"ST-DECL-RM01","position":3,"name":"Found","meaning":"What the declaration holds there.","type":"text","required":false,"example":"Todoo"}
+{"read_model_id":"ST-DECL-RM01","position":4,"name":"Allowed values","meaning":"The values the rule allows there, when it states a set.","type":"text","required":false,"example":"Todo"}
+{"read_model_id":"ST-DECL-RM01","position":5,"name":"Message","meaning":"The fault in a sentence for a person, rendered from the fields above.","type":"text","required":true,"example":"collection todos names an entity the declaration does not declare"}
+{"read_model_id":"ST-DIS-RM01","position":1,"name":"Checkout","meaning":"The checkout the record was read from.","type":"text","required":true,"example":"git/user-management"}
+{"read_model_id":"ST-DIS-RM01","position":2,"name":"Service name","meaning":"The service the record describes, when a record was read.","type":"text","required":false,"example":"user-management"}
+{"read_model_id":"ST-DIS-RM01","position":3,"name":"Component","meaning":"A component the service pins.","type":"text","required":false,"example":"rh-sso-auth"}
+{"read_model_id":"ST-DIS-RM01","position":4,"name":"Version","meaning":"The version of the component the service holds.","type":"text","required":false,"example":"1.6.0"}
+{"read_model_id":"ST-DIS-RM01","position":5,"name":"Digest","meaning":"The digest of the component the service holds.","type_value_object_id":"ST-VO41","required":false}
+{"read_model_id":"ST-DIS-RM01","position":6,"name":"Record status","meaning":"recorded when a record was read; unknown when the checkout holds generated output and no record, or a record that cannot be read.","type":"text","required":true,"example":"unknown"}
+{"read_model_id":"ST-DIS-RM01","position":7,"name":"Runtime version","meaning":"The runtime library version the service's archetype pinned at its last run, so a sweep names every service on a superseded version.","type_value_object_id":"ST-VO58","required":false}
+{"read_model_id":"ST-DIS-RM01","position":8,"name":"Overridden pins","meaning":"Each pin the service's last run allowed although it did not stand, so a sweep names every service that runs on an override.","type":"text","required":false,"example":"outbox@sha256:4f1c…"}
+{"read_model_id":"ST-DIS-RM03","position":1,"name":"Component","meaning":"The pinned component.","type":"text","required":true,"example":"rh-sso-auth"}
+{"read_model_id":"ST-DIS-RM03","position":2,"name":"Pinned digest","meaning":"The digest the service pins.","type_value_object_id":"ST-VO41","required":true}
+{"read_model_id":"ST-DIS-RM03","position":3,"name":"Standing","meaning":"current, superseded, withdrawn, or unchecked when the lifecycle records cannot be read.","type":"text","required":true,"example":"superseded"}
+{"read_model_id":"ST-DIS-RM03","position":4,"name":"Successor digest","meaning":"The successor, when the pin is superseded.","type_value_object_id":"ST-VO41","required":false}
+{"read_model_id":"ST-DIS-RM03","position":5,"name":"Fails after","meaning":"The date after which the pin fails, when it is superseded or withdrawn.","type":"date","required":false,"example":"2027-01-31"}
+{"read_model_id":"ST-DIS-RM03","position":6,"name":"Needs declaration change","meaning":"Whether taking the successor needs a declaration change.","type":"yes/no","required":false,"example":"false"}
+{"read_model_id":"ST-DIS-RM03","position":7,"name":"Needs fill change","meaning":"Whether taking the successor needs a fill change.","type":"yes/no","required":false,"example":"false"}
+{"read_model_id":"ST-DIS-RM03","position":8,"name":"Past its fail date","meaning":"Whether the fail date has passed, so validate fails and apply writes nothing.","type":"yes/no","required":true,"example":"false"}
+{"read_model_id":"ST-DIS-RM04","position":1,"name":"Version","meaning":"The compiler's version.","type":"text","required":true,"example":"dev"}
+{"read_model_id":"ST-DIS-RM04","position":2,"name":"Build","meaning":"The compiler's build identity.","type_value_object_id":"ST-VO42","required":true}
+{"read_model_id":"ST-DLV-RM01","position":1,"name":"Requirement","meaning":"The requirement's kind and name.","type":"text","required":true,"example":"secret orders-database"}
+{"read_model_id":"ST-DLV-RM01","position":2,"name":"Status","meaning":"One of met, missing or wrong type.","type":"text","required":true,"example":"missing"}
+{"read_model_id":"ST-DLV-RM01","position":3,"name":"Detail","meaning":"What is missing or wrong, such as a secret key.","type":"text","required":false,"example":"key password"}
+{"read_model_id":"ST-EXT-RM01","position":1,"name":"Fill name","meaning":"The fill.","type":"text","required":true,"example":"admin-creation-policy"}
+{"read_model_id":"ST-EXT-RM01","position":2,"name":"Collection","meaning":"The collection it serves.","type":"text","required":true,"example":"org-users"}
+{"read_model_id":"ST-EXT-RM01","position":3,"name":"Standing","meaning":"Its qualification standing.","type_value_object_id":"ST-VO45","required":true}
+{"read_model_id":"ST-EXT-RM02","position":1,"name":"Fill name","meaning":"The bound fill.","type":"text","required":true,"example":"admin-creation-policy"}
+{"read_model_id":"ST-EXT-RM02","position":2,"name":"Standing","meaning":"Its qualification standing.","type_value_object_id":"ST-VO45","required":true}
+{"read_model_id":"ST-EXT-RM02","position":3,"name":"Fits binding","meaning":"Whether it implements the bound slot for the bound collection.","type":"yes/no","required":true,"example":"yes"}
+{"read_model_id":"ST-EXT-RM02","position":4,"name":"Reason","meaning":"Why it is not qualified or does not fit, such as the file that changed after its evidence.","type":"text","required":false,"example":"policy.go changed after the tests passed"}
+{"read_model_id":"ST-GEN-RM01","position":1,"name":"Path","meaning":"The generated file or recorded input that differs.","type":"text","required":true,"example":"internal/api/handler.go"}
+{"read_model_id":"ST-GEN-RM01","position":2,"name":"Change","meaning":"modified or deleted for a generated file; input changed for a recorded input.","type":"text","required":true,"example":"modified"}
+{"read_model_id":"ST-GEN-RM01","position":3,"name":"Record status","meaning":"sound, or broken when the record disagrees with itself or with the state it names.","type":"text","required":true,"example":"sound"}
+{"read_model_id":"ST-GEN-RM02","position":1,"name":"Path","meaning":"A generated file.","type":"text","required":true,"example":"internal/api/handler.go"}
+{"read_model_id":"ST-GEN-RM02","position":2,"name":"Action","meaning":"generate, update, delete or unchanged.","type":"text","required":true,"example":"update"}
+{"read_model_id":"ST-SUP-RM01","position":1,"name":"Archetype","meaning":"The archetype whose active component set the row describes.","type":"text","required":true,"example":"rest-crud"}
+{"read_model_id":"ST-SUP-RM01","position":2,"name":"Component","meaning":"A component of the active component set.","type":"text","required":true,"example":"postgres-adapter"}
+{"read_model_id":"ST-SUP-RM01","position":3,"name":"Component version","meaning":"The version the component declares.","type":"text","required":true,"example":"4.13.0"}
+{"read_model_id":"ST-SUP-RM01","position":4,"name":"Setting","meaning":"A setting the component's schema declares, by its path.","type":"text","required":false,"example":"pool_size"}
+{"read_model_id":"ST-SUP-RM01","position":5,"name":"Setting type","meaning":"The type the setting's value must have.","type":"text","required":false,"example":"int"}
+{"read_model_id":"ST-SUP-RM01","position":6,"name":"Allowed values","meaning":"The values checking accepts for the setting, when the schema states a set.","type":"text","required":false,"example":"create, read, update, delete, list"}
+{"read_model_id":"ST-SUP-RM01","position":7,"name":"Optional","meaning":"Whether a declaration may leave the setting out.","type":"yes/no","required":false,"example":"false"}
+{"read_model_id":"ST-SUP-RM01","position":8,"name":"Default","meaning":"The value used when the declaration leaves the setting out.","type":"text","required":false,"example":"10"}
+{"read_model_id":"ST-SUP-RM01","position":9,"name":"Slot","meaning":"A slot the component or a mixin of the archetype declares.","type":"text","required":false,"example":"before_create"}
+{"read_model_id":"ST-SUP-RM01","position":10,"name":"Slot contract","meaning":"The protobuf contract a fill for the slot implements.","type":"text","required":false,"example":"slots/before_create.proto"}
+{"read_model_id":"ST-SUP-RM02","position":1,"name":"Component","meaning":"The component.","type":"text","required":true,"example":"jwt-auth"}
+{"read_model_id":"ST-SUP-RM02","position":2,"name":"Version","meaning":"The version the component declares.","type":"text","required":true,"example":"2.1.0"}
+{"read_model_id":"ST-SUP-RM02","position":3,"name":"Stage","meaning":"The component's maturity stage.","type_value_object_id":"ST-VO02","required":true,"example":"ga"}
+{"read_model_id":"ST-SUP-RM02","position":4,"name":"Provided ports","meaning":"The ports the component provides.","type":"text","required":false,"example":"auth-provider"}
+{"read_model_id":"ST-SUP-RM02","position":5,"name":"Required ports","meaning":"The ports the component requires.","type":"text","required":false,"example":"storage-adapter"}
+{"read_model_id":"ST-SUP-RM02","position":6,"name":"Slots","meaning":"The slots the component offers.","type":"text","required":false,"example":"before_create, after_create"}
+{"read_model_id":"ST-SUP-RM02","position":7,"name":"Namespace","meaning":"The output path the component writes into.","type":"text","required":false,"example":"internal/auth"}
+{"read_model_id":"ST-SUP-RM03","position":1,"name":"Component","meaning":"The component.","type":"text","required":true,"example":"search-preview"}
+{"read_model_id":"ST-SUP-RM03","position":2,"name":"Version","meaning":"The version the service was built from.","type":"text","required":true,"example":"0.3.0"}
+{"read_model_id":"ST-SUP-RM03","position":3,"name":"Stage","meaning":"The component's maturity stage now.","type_value_object_id":"ST-VO02","required":true,"example":"beta"}
+{"read_model_id":"ST-SUP-RM03","position":4,"name":"Sunset","meaning":"The date the component stops working, if it is not ga.","type":"date","required":false,"example":"2027-03-31"}
+{"read_model_id":"ST-SUP-RM03","position":5,"name":"Service","meaning":"A recorded service built from the component.","type":"text","required":true,"example":"orders"}
+{"read_model_id":"ST-SUP-RM03","position":6,"name":"Accepted until","meaning":"The date the service's declaration accepts the component until, if it is not ga.","type":"date","required":false,"example":"2027-01-31"}
+{"read_model_id":"ST-SUP-RM03","position":7,"name":"Past sunset","meaning":"Whether the component is past its sunset.","type":"yes/no","required":true,"example":"false"}

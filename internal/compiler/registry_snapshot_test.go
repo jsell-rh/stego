@@ -65,40 +65,42 @@ func TestReconcileRejectsRegistryChangeDuringGeneration(t *testing.T) {
 func TestRegistryContentChangeUpdatesOnlyState(t *testing.T) {
 	input := snapshotTestInput(t)
 	applyInitialSnapshot(t, input)
-	before, err := LoadState(filepath.Join(input.ProjectDir, ".stego/state.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(before.LastApplied.RegistryContentSHA256) != 64 {
-		t.Fatal("registry identity was not saved")
-	}
-	path := filepath.Join(input.RegistryDir, "components/stub-api/component.yaml")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, append(data, []byte("\n# Content without output changes.\n")...), 0600); err != nil {
-		t.Fatal(err)
-	}
-	plan, err := Reconcile(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !plan.StateChanged || !plan.HasChanges() || plan.NewState.LastApplied.RegistryContentSHA256 == before.LastApplied.RegistryContentSHA256 {
-		t.Fatal("registry-only change was hidden")
-	}
-	for _, file := range plan.Files {
-		if file.Action != ActionUnchanged {
-			t.Fatal("comment changed generated output", file)
+	t.Run("ST-GEN-UC03-R02-T01 A registry change that does not affect output changes no generated file", func(t *testing.T) {
+		before, err := LoadState(filepath.Join(input.ProjectDir, ".stego/state.yaml"))
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	if err := Apply(plan, input.ProjectDir, ""); err != nil {
-		t.Fatal(err)
-	}
-	next, err := Reconcile(input)
-	if err != nil || next.HasChanges() {
-		t.Fatal("repeated plan changed state", err)
-	}
+		if len(before.LastApplied.RegistryContentSHA256) != 64 {
+			t.Fatal("registry identity was not saved")
+		}
+		path := filepath.Join(input.RegistryDir, "components/stub-api/component.yaml")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, append(data, []byte("\n# Content without output changes.\n")...), 0600); err != nil {
+			t.Fatal(err)
+		}
+		plan, err := Reconcile(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !plan.StateChanged || !plan.HasChanges() || plan.NewState.LastApplied.RegistryContentSHA256 == before.LastApplied.RegistryContentSHA256 {
+			t.Fatal("registry-only change was hidden")
+		}
+		for _, file := range plan.Files {
+			if file.Action != ActionUnchanged {
+				t.Fatal("comment changed generated output", file)
+			}
+		}
+		if err := Apply(plan, input.ProjectDir, ""); err != nil {
+			t.Fatal(err)
+		}
+		next, err := Reconcile(input)
+		if err != nil || next.HasChanges() {
+			t.Fatal("repeated plan changed state", err)
+		}
+	})
 	// Old state records remain readable, but require a new content identity.
 	saved, err := LoadState(filepath.Join(input.ProjectDir, ".stego/state.yaml"))
 	if err != nil {
@@ -204,18 +206,20 @@ func TestSlotGenerationUsesCapturedRegistryFiles(t *testing.T) {
 }
 
 func TestApplyRejectsChangedRegistryIdentityInPlan(t *testing.T) {
-	input := snapshotTestInput(t)
-	plan, err := Reconcile(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	plan.NewState.LastApplied.RegistryContentSHA256 = strings.Repeat("a", 64)
-	if err := Apply(plan, input.ProjectDir, ""); err == nil || !strings.Contains(err.Error(), "registry") {
-		t.Fatal("changed identity was accepted", err)
-	}
-	if _, err := os.Stat(filepath.Join(input.ProjectDir, "out")); !os.IsNotExist(err) {
-		t.Fatal("invalid plan wrote output", err)
-	}
+	t.Run("ST-GEN-INV03-T Apply refuses a plan whose registry content digest differs from the registry it reads", func(t *testing.T) {
+		input := snapshotTestInput(t)
+		plan, err := Reconcile(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		plan.NewState.LastApplied.RegistryContentSHA256 = strings.Repeat("a", 64)
+		if err := Apply(plan, input.ProjectDir, ""); err == nil || !strings.Contains(err.Error(), "registry") {
+			t.Fatal("changed identity was accepted", err)
+		}
+		if _, err := os.Stat(filepath.Join(input.ProjectDir, "out")); !os.IsNotExist(err) {
+			t.Fatal("invalid plan wrote output", err)
+		}
+	})
 }
 
 func TestSlotImportErrorsAreNotIgnored(t *testing.T) {

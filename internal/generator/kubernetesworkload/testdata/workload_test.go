@@ -30,6 +30,7 @@ func pod(t *testing.T, out []Resource) Object {
 	t.Helper()
 	return out[0].Object["spec"].(Object)["template"].(Object)["spec"].(Object)
 }
+
 func TestWidgetSecurityAndService(t *testing.T) {
 	d := widget()
 	out := render(t, d)
@@ -37,65 +38,79 @@ func TestWidgetSecurityAndService(t *testing.T) {
 		t.Fatal("resource scope differs")
 	}
 	p := pod(t, out)
-	if p["automountServiceAccountToken"] != false || p["serviceAccountName"] != "widget-runtime" {
-		t.Fatal("unexpected API credentials")
-	}
-	want := Object{"runAsNonRoot": true, "fsGroup": uint32(2000), "seccompProfile": Object{"type": "RuntimeDefault", "localhostProfile": nil}}
-	if !reflect.DeepEqual(p["securityContext"], want) {
-		t.Fatal("Pod security differs")
-	}
 	c := p["containers"].([]Object)[0]
-	want = Object{"allowPrivilegeEscalation": false, "readOnlyRootFilesystem": true, "privileged": nil, "runAsNonRoot": true, "runAsUser": nil, "runAsGroup": nil, "seccompProfile": nil, "procMount": nil, "capabilities": Object{"drop": []string{"ALL"}, "add": nil}}
-	if !reflect.DeepEqual(c["securityContext"], want) {
-		t.Fatal("container security differs")
-	}
-	for _, key := range []string{"startupProbe", "readinessProbe", "livenessProbe"} {
-		probe := c[key].(Object)
-		if probe["timeoutSeconds"] != 1 || probe["successThreshold"] != 1 || probe["httpGet"].(Object)["host"] != nil {
-			t.Fatal("probe policy differs")
-		}
-	}
 	volumes := p["volumes"].([]Object)
-	if volumes[1]["secret"].(Object)["defaultMode"] != int32(0440) {
-		t.Fatal("Secret access differs")
-	}
 	mounts := c["volumeMounts"].([]Object)
-	if mounts[0]["readOnly"] != true || mounts[1]["readOnly"] != true || mounts[2]["readOnly"] != nil {
-		t.Fatal("mount access differs")
-	}
 	spec := out[1].Object["spec"].(Object)
-	if spec["type"] != "ClusterIP" || spec["ports"].([]Object)[0]["targetPort"] != "http" {
-		t.Fatal("service differs")
-	}
 	body, e := json.Marshal(out)
 	if e != nil {
 		t.Fatal(e)
 	}
-	if bytes.Contains(body, []byte("private-database-value")) {
-		t.Fatal("dependency data exposed")
-	}
-	var decoded any
-	if json.Unmarshal(body, &decoded) != nil {
-		t.Fatal("invalid resource JSON")
-	}
-	forbidden := map[string]bool{"hostNetwork": true, "hostPID": true, "hostIPC": true, "hostPath": true, "privileged": true, "subPath": true, "exec": true}
-	var inspect func(any)
-	inspect = func(value any) {
-		switch item := value.(type) {
-		case map[string]any:
-			for key, field := range item {
-				if forbidden[key] && field != nil {
-					t.Fatalf("unexpected field %s", key)
-				}
-				inspect(field)
-			}
-		case []any:
-			for _, field := range item {
-				inspect(field)
+	t.Run("ST-SUP-RC16-OC03-T01 The built Pod mounts no service-account token", func(t *testing.T) {
+		if p["automountServiceAccountToken"] != false || p["serviceAccountName"] != "widget-runtime" {
+			t.Fatal("unexpected API credentials")
+		}
+	})
+	t.Run("ST-SUP-RC16-OC01-T01 The built Pod and container keep the restricted security context", func(t *testing.T) {
+		want := Object{"runAsNonRoot": true, "fsGroup": uint32(2000), "seccompProfile": Object{"type": "RuntimeDefault", "localhostProfile": nil}}
+		if !reflect.DeepEqual(p["securityContext"], want) {
+			t.Fatal("Pod security differs")
+		}
+		want = Object{"allowPrivilegeEscalation": false, "readOnlyRootFilesystem": true, "privileged": nil, "runAsNonRoot": true, "runAsUser": nil, "runAsGroup": nil, "seccompProfile": nil, "procMount": nil, "capabilities": Object{"drop": []string{"ALL"}, "add": nil}}
+		if !reflect.DeepEqual(c["securityContext"], want) {
+			t.Fatal("container security differs")
+		}
+	})
+	t.Run("ST-SUP-RC16-OC06-T01 The built container keeps three HTTP probes with deadlines and no host", func(t *testing.T) {
+		for _, key := range []string{"startupProbe", "readinessProbe", "livenessProbe"} {
+			probe := c[key].(Object)
+			if probe["timeoutSeconds"] != 1 || probe["successThreshold"] != 1 || probe["httpGet"].(Object)["host"] != nil {
+				t.Fatal("probe policy differs")
 			}
 		}
-	}
-	inspect(decoded)
+	})
+	t.Run("ST-SUP-RC16-OC04-T01 The built Secret and ConfigMap mounts are read-only", func(t *testing.T) {
+		if volumes[1]["secret"].(Object)["defaultMode"] != int32(0440) {
+			t.Fatal("Secret access differs")
+		}
+		if mounts[0]["readOnly"] != true || mounts[1]["readOnly"] != true || mounts[2]["readOnly"] != nil {
+			t.Fatal("mount access differs")
+		}
+	})
+	t.Run("ST-SUP-RC16-OC11-T01 The built Service is a ClusterIP Service that targets the declared port", func(t *testing.T) {
+		if spec["type"] != "ClusterIP" || spec["ports"].([]Object)[0]["targetPort"] != "http" {
+			t.Fatal("service differs")
+		}
+	})
+	t.Run("ST-SUP-RC16-OC09-T01 The built resources hold no dependency contents", func(t *testing.T) {
+		if bytes.Contains(body, []byte("private-database-value")) {
+			t.Fatal("dependency data exposed")
+		}
+	})
+	t.Run("ST-SUP-RC16-OC02-T01 The built resources hold no host, privileged, subPath or exec field", func(t *testing.T) {
+		var decoded any
+		if json.Unmarshal(body, &decoded) != nil {
+			t.Fatal("invalid resource JSON")
+		}
+		forbidden := map[string]bool{"hostNetwork": true, "hostPID": true, "hostIPC": true, "hostPath": true, "privileged": true, "subPath": true, "exec": true}
+		var inspect func(any)
+		inspect = func(value any) {
+			switch item := value.(type) {
+			case map[string]any:
+				for key, field := range item {
+					if forbidden[key] && field != nil {
+						t.Fatalf("unexpected field %s", key)
+					}
+					inspect(field)
+				}
+			case []any:
+				for _, field := range item {
+					inspect(field)
+				}
+			}
+		}
+		inspect(decoded)
+	})
 }
 func TestWidgetInputsAreNotAliased(t *testing.T) {
 	d := widget()
@@ -183,59 +198,101 @@ func TestConfigurationDigestRejectsInvalidInput(t *testing.T) {
 		})
 	}
 }
+
 func TestWorkloadRejectsUnsafeOrAmbiguousInput(t *testing.T) {
+	run := func(t *testing.T, cases map[string]func(*Deployment)) {
+		for name, change := range cases {
+			t.Run(name, func(t *testing.T) {
+				d := widget()
+				change(&d)
+				out, e := Build(d)
+				if !errors.Is(e, ErrDeclaration) || out != nil || e.Error() != "invalid workload declaration" {
+					t.Fatal("invalid declaration returned resources or private error data")
+				}
+			})
+		}
+	}
+	t.Run("ST-SUP-RC16-OC03-T02 An unsafe service account returns no resources", func(t *testing.T) {
+		run(t, map[string]func(*Deployment){
+			"default account": func(d *Deployment) { d.ServiceAccount = "default" },
+			"empty account":   func(d *Deployment) { d.ServiceAccount = "" },
+		})
+	})
+	t.Run("ST-SUP-RC16-OC05-T01 An unbounded or ambiguous volume returns no resources", func(t *testing.T) {
+		run(t, map[string]func(*Deployment){
+			"volume ambiguity":      func(d *Deployment) { d.Volumes[0].Secret = "other" },
+			"volume negative":       func(d *Deployment) { d.Volumes[2].EmptyMi = -1 },
+			"volume storage excess": func(d *Deployment) { d.Volumes[2].EmptyMi = 257 },
+		})
+	})
+	t.Run("ST-SUP-RC16-OC06-T02 An unsafe or incomplete probe returns no resources", func(t *testing.T) {
+		run(t, map[string]func(*Deployment){
+			"missing probe port": func(d *Deployment) { d.Containers[0].Readiness.Port = "other" },
+			"probe authority":    func(d *Deployment) { d.Containers[0].Startup.Path = "//other/path" },
+			"probe query":        func(d *Deployment) { d.Containers[0].Startup.Path = "/health?credential=value" },
+			"probe encoding":     func(d *Deployment) { d.Containers[0].Startup.Path = "/%2fother" },
+			"probe newline":      func(d *Deployment) { d.Containers[0].Startup.Path = "/health\n" },
+			"probe timeout":      func(d *Deployment) { d.Containers[0].Startup.TimeoutSeconds = 0 },
+			"probe period":       func(d *Deployment) { d.Containers[0].Startup.PeriodSeconds = 0 },
+			"probe threshold":    func(d *Deployment) { d.Containers[0].Startup.FailureThreshold = 0 },
+		})
+	})
+	t.Run("ST-SUP-RC16-OC07-T01 An image without a registry or digest returns no resources", func(t *testing.T) {
+		run(t, map[string]func(*Deployment){
+			"invalid registry port": func(d *Deployment) {
+				d.Containers[0].Image = "registry.example.org:65536/widget@sha256:" + strings.Repeat("a", 64)
+			},
+			"invalid registry host": func(d *Deployment) { d.Containers[0].Image = "bad..example/widget@sha256:" + strings.Repeat("a", 64) },
+			"image tag":             func(d *Deployment) { d.Containers[0].Image = "registry.example.org/widget:latest" },
+			"image path": func(d *Deployment) {
+				d.Containers[0].Image = "https://registry.example.org/widget@sha256:" + strings.Repeat("a", 64)
+			},
+			"missing digest": func(d *Deployment) { d.Containers[0].Image = "registry.example.org/widget@sha256:bad" },
+		})
+	})
+	t.Run("ST-SUP-RC16-OC10-T01 A dependency that does not match the mounts and environment returns no resources", func(t *testing.T) {
+		run(t, map[string]func(*Deployment){
+			"missing dependency": func(d *Deployment) { d.Dependencies = d.Dependencies[1:] },
+			"extra dependency": func(d *Deployment) {
+				d.Dependencies = append(d.Dependencies, Dependency{Kind: "Secret", Name: "unused"})
+			},
+			"wrong dependency kind":   func(d *Deployment) { d.Dependencies[0].Kind = "ConfigMap" },
+			"missing environment key": func(d *Deployment) { delete(d.Dependencies[0].Data, "uri") },
+			"unknown volume":          func(d *Deployment) { d.Containers[0].Mounts[0].Name = "unknown" },
+			"volume unused":           func(d *Deployment) { d.Volumes = append(d.Volumes, Volume{Name: "unused", Secret: "unused"}) },
+		})
+	})
+	t.Run("ST-SUP-RC16-OC13-T01 A zero or excess resource amount returns no resources", func(t *testing.T) {
+		run(t, map[string]func(*Deployment){
+			"CPU zero":       func(d *Deployment) { d.Containers[0].Requests.CPUMilli = 0 },
+			"CPU excess":     func(d *Deployment) { d.Containers[0].Requests.CPUMilli = 501 },
+			"memory excess":  func(d *Deployment) { d.Containers[0].Requests.MemoryMi = 513 },
+			"storage excess": func(d *Deployment) { d.Containers[0].Requests.EphemeralMi = 257 },
+			"negative limit": func(d *Deployment) { d.Containers[0].Limits.CPUMilli = -1 },
+		})
+	})
 	cases := map[string]func(*Deployment){
-		"missing dependency": func(d *Deployment) { d.Dependencies = d.Dependencies[1:] },
-		"extra dependency": func(d *Deployment) {
-			d.Dependencies = append(d.Dependencies, Dependency{Kind: "Secret", Name: "unused"})
-		},
-		"wrong dependency kind":   func(d *Deployment) { d.Dependencies[0].Kind = "ConfigMap" },
-		"missing environment key": func(d *Deployment) { delete(d.Dependencies[0].Data, "uri") },
-		"invalid registry port": func(d *Deployment) {
-			d.Containers[0].Image = "registry.example.org:65536/widget@sha256:" + strings.Repeat("a", 64)
-		},
-		"invalid registry host": func(d *Deployment) { d.Containers[0].Image = "bad..example/widget@sha256:" + strings.Repeat("a", 64) },
-		"namespace":             func(d *Deployment) { d.Namespace = "../foreign" },
-		"name":                  func(d *Deployment) { d.Name = "bad/name" },
-		"default account":       func(d *Deployment) { d.ServiceAccount = "default" },
-		"empty account":         func(d *Deployment) { d.ServiceAccount = "" },
-		"root group":            func(d *Deployment) { d.FSGroup = 0 },
-		"user overflow":         func(d *Deployment) { d.RunAsUser = 1 << 31 },
-		"replica overflow":      func(d *Deployment) { d.Replicas = 1 << 31 },
-		"strategy":              func(d *Deployment) { d.Strategy = "unknown" },
-		"no labels":             func(d *Deployment) { d.OwnerLabels = nil },
-		"invalid label":         func(d *Deployment) { d.OwnerLabels["bad/key/key"] = "one" },
-		"no selector":           func(d *Deployment) { d.Selector = nil },
-		"selector mismatch":     func(d *Deployment) { d.Selector["example.org/workload"] = "other" },
-		"image tag":             func(d *Deployment) { d.Containers[0].Image = "registry.example.org/widget:latest" },
-		"image path": func(d *Deployment) {
-			d.Containers[0].Image = "https://registry.example.org/widget@sha256:" + strings.Repeat("a", 64)
-		},
-		"missing digest":      func(d *Deployment) { d.Containers[0].Image = "registry.example.org/widget@sha256:bad" },
+		"namespace":           func(d *Deployment) { d.Namespace = "../foreign" },
+		"name":                func(d *Deployment) { d.Name = "bad/name" },
+		"root group":          func(d *Deployment) { d.FSGroup = 0 },
+		"user overflow":       func(d *Deployment) { d.RunAsUser = 1 << 31 },
+		"replica overflow":    func(d *Deployment) { d.Replicas = 1 << 31 },
+		"strategy":            func(d *Deployment) { d.Strategy = "unknown" },
+		"no labels":           func(d *Deployment) { d.OwnerLabels = nil },
+		"invalid label":       func(d *Deployment) { d.OwnerLabels["bad/key/key"] = "one" },
+		"no selector":         func(d *Deployment) { d.Selector = nil },
+		"selector mismatch":   func(d *Deployment) { d.Selector["example.org/workload"] = "other" },
 		"duplicate container": func(d *Deployment) { d.Containers = append(d.Containers, d.Containers[0]) },
 		"no containers":       func(d *Deployment) { d.Containers = nil },
 		"too many containers": func(d *Deployment) { d.Containers = make([]Container, 17) },
 		"argument bytes":      func(d *Deployment) { d.Containers[0].Args = []string{strings.Repeat("x", 8193)} },
 		"argument nul":        func(d *Deployment) { d.Containers[0].Args = []string{"bad\x00arg"} },
-		"CPU zero":            func(d *Deployment) { d.Containers[0].Requests.CPUMilli = 0 },
-		"CPU excess":          func(d *Deployment) { d.Containers[0].Requests.CPUMilli = 501 },
-		"memory excess":       func(d *Deployment) { d.Containers[0].Requests.MemoryMi = 513 },
-		"storage excess":      func(d *Deployment) { d.Containers[0].Requests.EphemeralMi = 257 },
-		"negative limit":      func(d *Deployment) { d.Containers[0].Limits.CPUMilli = -1 },
 		"duplicate env":       func(d *Deployment) { d.Containers[0].Env = append(d.Containers[0].Env, d.Containers[0].Env[0]) },
 		"env ambiguity":       func(d *Deployment) { d.Containers[0].Env[1].Value = "private-value" },
 		"env missing key":     func(d *Deployment) { d.Containers[0].Env[1].Key = "" },
 		"env nul":             func(d *Deployment) { d.Containers[0].Env[0].Value = "bad\x00value" },
 		"duplicate port":      func(d *Deployment) { d.Containers[0].Ports = append(d.Containers[0].Ports, d.Containers[0].Ports[0]) },
 		"privileged port":     func(d *Deployment) { d.Containers[0].Ports[0].Number = 80 },
-		"missing probe port":  func(d *Deployment) { d.Containers[0].Readiness.Port = "other" },
-		"probe authority":     func(d *Deployment) { d.Containers[0].Startup.Path = "//other/path" },
-		"probe query":         func(d *Deployment) { d.Containers[0].Startup.Path = "/health?credential=value" },
-		"probe encoding":      func(d *Deployment) { d.Containers[0].Startup.Path = "/%2fother" },
-		"probe newline":       func(d *Deployment) { d.Containers[0].Startup.Path = "/health\n" },
-		"probe timeout":       func(d *Deployment) { d.Containers[0].Startup.TimeoutSeconds = 0 },
-		"probe period":        func(d *Deployment) { d.Containers[0].Startup.PeriodSeconds = 0 },
-		"probe threshold":     func(d *Deployment) { d.Containers[0].Startup.FailureThreshold = 0 },
 		"mount root":          func(d *Deployment) { d.Containers[0].Mounts[0].Path = "/" },
 		"mount traversal":     func(d *Deployment) { d.Containers[0].Mounts[0].Path = "/etc/../tmp" },
 		"mount proc":          func(d *Deployment) { d.Containers[0].Mounts[0].Path = "/proc" },
@@ -244,28 +301,14 @@ func TestWorkloadRejectsUnsafeOrAmbiguousInput(t *testing.T) {
 		"mount duplicate": func(d *Deployment) {
 			d.Containers[0].Mounts = append(d.Containers[0].Mounts, d.Containers[0].Mounts[0])
 		},
-		"unknown volume":         func(d *Deployment) { d.Containers[0].Mounts[0].Name = "unknown" },
-		"volume ambiguity":       func(d *Deployment) { d.Volumes[0].Secret = "other" },
 		"volume duplicate":       func(d *Deployment) { d.Volumes = append(d.Volumes, d.Volumes[0]) },
-		"volume unused":          func(d *Deployment) { d.Volumes = append(d.Volumes, Volume{Name: "unused", Secret: "unused"}) },
-		"volume negative":        func(d *Deployment) { d.Volumes[2].EmptyMi = -1 },
-		"volume storage excess":  func(d *Deployment) { d.Volumes[2].EmptyMi = 257 },
 		"pull secret duplicate":  func(d *Deployment) { d.ImagePullSecrets = []string{"one", "one"} },
 		"missing service target": func(d *Deployment) { d.ServicePorts[0].Target = "other" },
 		"service duplicate":      func(d *Deployment) { d.ServicePorts = append(d.ServicePorts, d.ServicePorts[0]) },
 		"service port":           func(d *Deployment) { d.ServicePorts[0].Port = 0 },
 		"termination deadline":   func(d *Deployment) { d.TerminationGraceSeconds = 0 },
 	}
-	for name, change := range cases {
-		t.Run(name, func(t *testing.T) {
-			d := widget()
-			change(&d)
-			out, e := Build(d)
-			if !errors.Is(e, ErrDeclaration) || out != nil || e.Error() != "invalid workload declaration" {
-				t.Fatal("invalid declaration returned resources or private error data")
-			}
-		})
-	}
+	run(t, cases)
 }
 
 func TestWidgetDependencyRollout(t *testing.T) {
@@ -277,23 +320,27 @@ func TestWidgetDependencyRollout(t *testing.T) {
 	a := template(before)
 	b := template(after)
 	secondDigest := b["metadata"].(Object)["annotations"].(Object)[ConfigurationAnnotation]
-	if a["metadata"].(Object)["annotations"].(Object)[ConfigurationAnnotation] == b["metadata"].(Object)["annotations"].(Object)[ConfigurationAnnotation] {
-		t.Fatal("Secret rotation did not change rollout")
-	}
-	delete(a["metadata"].(Object), "annotations")
-	delete(b["metadata"].(Object), "annotations")
-	if !reflect.DeepEqual(a, b) {
-		t.Fatal("Secret rotation changed the workload contract")
-	}
-	data, _ := json.Marshal(after)
-	if bytes.Contains(data, []byte("rotated-private-database-value")) {
-		t.Fatal("rotated Secret leaked")
-	}
-	d.Dependencies[1].Data["mode"] = []byte("changed")
-	latest := render(t, d)
-	if template(latest)["metadata"].(Object)["annotations"].(Object)[ConfigurationAnnotation] == secondDigest {
-		t.Fatal("ConfigMap change did not change rollout")
-	}
+	t.Run("ST-SUP-RC16-OC08-T01 Changed dependency contents change only the configuration annotation", func(t *testing.T) {
+		if a["metadata"].(Object)["annotations"].(Object)[ConfigurationAnnotation] == b["metadata"].(Object)["annotations"].(Object)[ConfigurationAnnotation] {
+			t.Fatal("Secret rotation did not change rollout")
+		}
+		delete(a["metadata"].(Object), "annotations")
+		delete(b["metadata"].(Object), "annotations")
+		if !reflect.DeepEqual(a, b) {
+			t.Fatal("Secret rotation changed the workload contract")
+		}
+		d.Dependencies[1].Data["mode"] = []byte("changed")
+		latest := render(t, d)
+		if template(latest)["metadata"].(Object)["annotations"].(Object)[ConfigurationAnnotation] == secondDigest {
+			t.Fatal("ConfigMap change did not change rollout")
+		}
+	})
+	t.Run("ST-SUP-RC16-OC09-T02 A rotated Secret value does not appear in the output", func(t *testing.T) {
+		data, _ := json.Marshal(after)
+		if bytes.Contains(data, []byte("rotated-private-database-value")) {
+			t.Fatal("rotated Secret leaked")
+		}
+	})
 }
 
 func TestConfigurationDigestSeparatesObjectKinds(t *testing.T) {
@@ -314,70 +361,72 @@ func TestConfigurationDigestSeparatesObjectKinds(t *testing.T) {
 // Desired fields must survive this response format to avoid repeated patches.
 // See kubernetes/api v0.35.0 core/v1/types.go: PodSpec, Container, EnvVar, VolumeMount.
 func TestWidgetOptionalFieldsSurviveAPISerialization(t *testing.T) {
-	d := widget()
-	d.Containers[0].Args = nil
-	d.Containers[0].Env = nil
-	d.Containers[0].Mounts = nil
-	d.Volumes = nil
-	d.Dependencies = nil
-	p := pod(t, render(t, d))
-	c := p["containers"].([]Object)[0]
-	for _, name := range []string{"volumes", "imagePullSecrets"} {
-		if value, exists := p[name]; !exists || value != nil {
-			t.Fatal("missing explicit Pod field removal", name)
+	t.Run("ST-SUP-RC16-OC12-T01 An omitted profile field stays an explicit null and survives the API response format", func(t *testing.T) {
+		d := widget()
+		d.Containers[0].Args = nil
+		d.Containers[0].Env = nil
+		d.Containers[0].Mounts = nil
+		d.Volumes = nil
+		d.Dependencies = nil
+		p := pod(t, render(t, d))
+		c := p["containers"].([]Object)[0]
+		for _, name := range []string{"volumes", "imagePullSecrets"} {
+			if value, exists := p[name]; !exists || value != nil {
+				t.Fatal("missing explicit Pod field removal", name)
+			}
 		}
-	}
-	for _, name := range []string{"args", "env", "volumeMounts"} {
-		if value, exists := c[name]; !exists || value != nil {
-			t.Fatal("missing explicit container field removal", name)
+		for _, name := range []string{"args", "env", "volumeMounts"} {
+			if value, exists := c[name]; !exists || value != nil {
+				t.Fatal("missing explicit container field removal", name)
+			}
 		}
-	}
-	d.Containers[0].Env = []Env{{Name: "EMPTY", Value: ""}}
-	c = pod(t, render(t, d))["containers"].([]Object)[0]
-	raw, err := json.Marshal(c["env"])
-	if err != nil {
-		t.Fatal(err)
-	}
-	// These public API JSON fields deliberately use the upstream omit rules.
-	var env []struct {
-		Name  string `json:"name"`
-		Value string `json:"value,omitempty"`
-	}
-	if err := json.Unmarshal(raw, &env); err != nil {
-		t.Fatal(err)
-	}
-	roundTrip, err := json.Marshal(env)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var beforeEnv, afterEnv any
-	if json.Unmarshal(raw, &beforeEnv) != nil || json.Unmarshal(roundTrip, &afterEnv) != nil || !kube.Contains(kube.Object{"env": afterEnv}, kube.Object{"env": beforeEnv}) {
-		t.Fatal("empty environment value changes after serialization")
-	}
-	p = pod(t, render(t, widget()))
-	c = p["containers"].([]Object)[0]
-	for _, mount := range c["volumeMounts"].([]Object) {
-		raw, err := json.Marshal(mount)
+		d.Containers[0].Env = []Env{{Name: "EMPTY", Value: ""}}
+		c = pod(t, render(t, d))["containers"].([]Object)[0]
+		raw, err := json.Marshal(c["env"])
 		if err != nil {
 			t.Fatal(err)
 		}
-		var typed struct {
-			Name     string `json:"name"`
-			Path     string `json:"mountPath"`
-			ReadOnly bool   `json:"readOnly,omitempty"`
+		// These public API JSON fields deliberately use the upstream omit rules.
+		var env []struct {
+			Name  string `json:"name"`
+			Value string `json:"value,omitempty"`
 		}
-		if err := json.Unmarshal(raw, &typed); err != nil {
+		if err := json.Unmarshal(raw, &env); err != nil {
 			t.Fatal(err)
 		}
-		encoded, err := json.Marshal(typed)
+		roundTrip, err := json.Marshal(env)
 		if err != nil {
 			t.Fatal(err)
 		}
-		var before, after Object
-		if json.Unmarshal(raw, &before) != nil || json.Unmarshal(encoded, &after) != nil || !kube.Contains(kube.Object(after), kube.Object(before)) {
-			t.Fatal("mount changes after serialization")
+		var beforeEnv, afterEnv any
+		if json.Unmarshal(raw, &beforeEnv) != nil || json.Unmarshal(roundTrip, &afterEnv) != nil || !kube.Contains(kube.Object{"env": afterEnv}, kube.Object{"env": beforeEnv}) {
+			t.Fatal("empty environment value changes after serialization")
 		}
-	}
+		p = pod(t, render(t, widget()))
+		c = p["containers"].([]Object)[0]
+		for _, mount := range c["volumeMounts"].([]Object) {
+			raw, err := json.Marshal(mount)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var typed struct {
+				Name     string `json:"name"`
+				Path     string `json:"mountPath"`
+				ReadOnly bool   `json:"readOnly,omitempty"`
+			}
+			if err := json.Unmarshal(raw, &typed); err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(typed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var before, after Object
+			if json.Unmarshal(raw, &before) != nil || json.Unmarshal(encoded, &after) != nil || !kube.Contains(kube.Object(after), kube.Object(before)) {
+				t.Fatal("mount changes after serialization")
+			}
+		}
+	})
 }
 
 func TestWidgetKubernetesAPIRoundTrip(t *testing.T) {

@@ -24,9 +24,9 @@ import (
 	"golang.org/x/mod/modfile"
 )
 
-const GoVersion = "go1.26.8"
+const GoVersion = "go1.26.10"
 
-var sdkIdentity = Inventory{"94168e19a28c7bdeaf3c281f88e3a3efab13f7d80e2694ae2dd4d71378da9289", 15036, 232512886}
+var sdkIdentity = Inventory{"9ba41b7539289f8b3c624f7ed8639e0a19fb2a059480c484371f4b30e26f6345", 15045, 232612406}
 var revisionPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 type Options struct {

@@ -11,59 +11,94 @@ import (
 func browserInputs() (ClientBinding, BrowserClientPolicy) {
 	return ClientBinding{ID: "browser-id", ClientID: "catalog-browser", Attributes: map[string]string{"stego.owner.product": "catalog"}}, BrowserClientPolicy{DisplayName: "Catalog", AccessTokenLifetimeSeconds: 300, RedirectURI: "https://catalog.example.test/auth/callback", PostLogoutRedirectURI: "https://catalog.example.test/auth/logged-out"}
 }
+
 func TestBrowserRedirectValidation(t *testing.T) {
-	for _, uri := range []string{"https://catalog.example.test/auth/callback", "https://catalog.example.test:8443/auth/callback", "https://192.0.2.1/", "https://[2001:db8::1]:8443/oauth/return"} {
-		if _, err := browserRedirectOrigin(uri); err != nil {
-			t.Fatal("valid browser redirect rejected", uri, err)
+	t.Run("ST-SUP-RC13-OC07-T01 The emitted provider accepts only an exact HTTPS browser callback with a path", func(t *testing.T) {
+		for _, uri := range []string{"https://catalog.example.test/auth/callback", "https://catalog.example.test:8443/auth/callback", "https://192.0.2.1/", "https://[2001:db8::1]:8443/oauth/return"} {
+			if _, err := browserRedirectOrigin(uri); err != nil {
+				t.Fatal("valid browser redirect rejected", uri, err)
+			}
 		}
-	}
-	for _, uri := range []string{"http://catalog.example.test/auth/callback", "https://catalog.example.test", "https://catalog.example.test/*", "https://catalog.example.test/+", "https://catalog.example.test/a?b=c", "https://catalog.example.test/a#x", "https://catalog.example.test/a?", "https://catalog.example.test/a#", "https://user@catalog.example.test/a", "https://catalog.example.test/%2f", "https://catalog.example.test/../a", "https://catalog.example.test//a", "https://catalog.example.test/a\\b", "https://CATALOG.example.test/a", "https://catalog.example.test.:8443/a", "https://catalog.example.test:0/a", "https://catalog.example.test:65536/a", "https://catalog.example.test:08443/a", "https://catalog.example.test:/a", "https://127.1/a", "https://2130706433/a", "https://localhost/a", "https://app.localhost/a", "https://127.0.0.1/a", "https://[::1]/a", "https://[::ffff:192.0.2.1]/a"} {
-		if _, err := browserRedirectOrigin(uri); err == nil {
-			t.Fatal("unsafe browser redirect accepted", uri)
+		for _, uri := range []string{"http://catalog.example.test/auth/callback", "https://catalog.example.test", "https://catalog.example.test/*", "https://catalog.example.test/+", "https://catalog.example.test/a?b=c", "https://catalog.example.test/a#x", "https://catalog.example.test/a?", "https://catalog.example.test/a#", "https://user@catalog.example.test/a", "https://catalog.example.test/%2f", "https://catalog.example.test/../a", "https://catalog.example.test//a", "https://catalog.example.test/a\\b", "https://CATALOG.example.test/a", "https://catalog.example.test.:8443/a", "https://catalog.example.test:0/a", "https://catalog.example.test:65536/a", "https://catalog.example.test:08443/a", "https://catalog.example.test:/a", "https://127.1/a", "https://2130706433/a", "https://localhost/a", "https://app.localhost/a", "https://127.0.0.1/a", "https://[::1]/a", "https://[::ffff:192.0.2.1]/a"} {
+			if _, err := browserRedirectOrigin(uri); err == nil {
+				t.Fatal("unsafe browser redirect accepted", uri)
+			}
 		}
-	}
+	})
 	calls := 0
 	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(500) })
-	for _, change := range []func(*BrowserClientPolicy){func(p *BrowserClientPolicy) { p.RedirectURI = "" }, func(p *BrowserClientPolicy) { p.PostLogoutRedirectURI = "https://foreign.example.test/" }, func(p *BrowserClientPolicy) { p.AccessTokenLifetimeSeconds = 0 }} {
-		b, p := browserInputs()
-		change(&p)
-		if _, err := c.CreateDisabledBrowserClient(context.Background(), b, p); err == nil {
-			t.Fatal("invalid browser policy accepted")
+	t.Run("ST-SUP-RC13-OC08-T01 The emitted provider refuses a logout callback on another origin before any provider request", func(t *testing.T) {
+		for _, change := range []func(*BrowserClientPolicy){func(p *BrowserClientPolicy) { p.PostLogoutRedirectURI = "https://foreign.example.test/" }} {
+			b, p := browserInputs()
+			change(&p)
+			if _, err := c.CreateDisabledBrowserClient(context.Background(), b, p); err == nil {
+				t.Fatal("invalid browser policy accepted")
+			}
 		}
-	}
-	if calls != 0 {
-		t.Fatal("invalid browser policy caused provider I/O")
-	}
+		if calls != 0 {
+			t.Fatal("invalid browser policy caused provider I/O")
+		}
+	})
+	t.Run("An empty callback or a zero lifetime is refused before any provider request", func(t *testing.T) {
+		for _, change := range []func(*BrowserClientPolicy){func(p *BrowserClientPolicy) { p.RedirectURI = "" }, func(p *BrowserClientPolicy) { p.AccessTokenLifetimeSeconds = 0 }} {
+			b, p := browserInputs()
+			change(&p)
+			if _, err := c.CreateDisabledBrowserClient(context.Background(), b, p); err == nil {
+				t.Fatal("invalid browser policy accepted")
+			}
+		}
+		if calls != 0 {
+			t.Fatal("invalid browser policy caused provider I/O")
+		}
+	})
 }
+
 func TestBrowserProfileChecks(t *testing.T) {
 	b, p := browserInputs()
 	desired, err := browserClientConfiguration(b, p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if desired.PublicClient || !desired.StandardFlowEnabled || desired.Enabled || desired.Attributes["pkce.code.challenge.method"] != "S256" || desired.Attributes["post.logout.redirect.uris"] != p.PostLogoutRedirectURI {
-		t.Fatal("unsafe browser profile")
-	}
-	for _, change := range []func(map[string]any){
-		func(v map[string]any) { v["publicClient"] = true }, func(v map[string]any) { delete(v, "publicClient") },
-		func(v map[string]any) { v["serviceAccountsEnabled"] = true }, func(v map[string]any) { v["directAccessGrantsEnabled"] = true },
-		func(v map[string]any) { v["implicitFlowEnabled"] = true }, func(v map[string]any) { v["fullScopeAllowed"] = true },
-		func(v map[string]any) { v["redirectUris"] = []string{p.RedirectURI + "*"} }, func(v map[string]any) { v["webOrigins"] = []string{"+"} },
-		func(v map[string]any) { v["attributes"].(map[string]any)["post.logout.redirect.uris"] = "+" },
-		func(v map[string]any) { v["attributes"].(map[string]any)["pkce.code.challenge.method"] = "plain" },
-		func(v map[string]any) { v["attributes"].(map[string]any)["unknown.security.setting"] = "true" },
-	} {
-		raw, _ := json.Marshal(desired)
-		var value map[string]any
-		_ = json.Unmarshal(raw, &value)
-		change(value)
-		raw, _ = json.Marshal(value)
-		var live ClientRepresentation
-		_ = json.Unmarshal(raw, &live)
-		if browserClientConfigurationMatches(live, raw, desired) {
-			t.Fatal("unsafe browser drift accepted")
+	t.Run("ST-SUP-RC13-OC09-T01 The emitted provider builds a confidential browser client with PKCE S256", func(t *testing.T) {
+		if desired.PublicClient || !desired.StandardFlowEnabled || desired.Enabled || desired.Attributes["pkce.code.challenge.method"] != "S256" || desired.Attributes["post.logout.redirect.uris"] != p.PostLogoutRedirectURI {
+			t.Fatal("unsafe browser profile")
 		}
-	}
+		for _, change := range []func(map[string]any){
+			func(v map[string]any) { v["publicClient"] = true }, func(v map[string]any) { delete(v, "publicClient") },
+		} {
+			raw, _ := json.Marshal(desired)
+			var value map[string]any
+			_ = json.Unmarshal(raw, &value)
+			change(value)
+			raw, _ = json.Marshal(value)
+			var live ClientRepresentation
+			_ = json.Unmarshal(raw, &live)
+			if browserClientConfigurationMatches(live, raw, desired) {
+				t.Fatal("unsafe browser drift accepted")
+			}
+		}
+	})
+	t.Run("ST-SUP-RC13-OC10-T01 The emitted provider refuses unsafe browser client drift", func(t *testing.T) {
+		for _, change := range []func(map[string]any){
+			func(v map[string]any) { v["serviceAccountsEnabled"] = true }, func(v map[string]any) { v["directAccessGrantsEnabled"] = true },
+			func(v map[string]any) { v["implicitFlowEnabled"] = true }, func(v map[string]any) { v["fullScopeAllowed"] = true },
+			func(v map[string]any) { v["redirectUris"] = []string{p.RedirectURI + "*"} }, func(v map[string]any) { v["webOrigins"] = []string{"+"} },
+			func(v map[string]any) { v["attributes"].(map[string]any)["post.logout.redirect.uris"] = "+" },
+			func(v map[string]any) { v["attributes"].(map[string]any)["pkce.code.challenge.method"] = "plain" },
+			func(v map[string]any) { v["attributes"].(map[string]any)["unknown.security.setting"] = "true" },
+		} {
+			raw, _ := json.Marshal(desired)
+			var value map[string]any
+			_ = json.Unmarshal(raw, &value)
+			change(value)
+			raw, _ = json.Marshal(value)
+			var live ClientRepresentation
+			_ = json.Unmarshal(raw, &live)
+			if browserClientConfigurationMatches(live, raw, desired) {
+				t.Fatal("unsafe browser drift accepted")
+			}
+		}
+	})
 }
 func newBrowserAccessFixture(t *testing.T) (*Client, *nativeAccessFixture, ClientBinding, BrowserAccessPolicy) {
 	c, f, b, native := newNativeAccessFixture(t)

@@ -58,30 +58,32 @@ func TestProcessHealthTracksQueueAndCancellation(t *testing.T) {
 }
 
 func TestProcessProbesDoNotStartApplication(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/livez" && r.URL.Path != "/readyz" {
-			t.Error("wrong probe path")
+	t.Run("ST-SUP-RC05-OC26-T01 Probe commands start no application work", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/livez" && r.URL.Path != "/readyz" {
+				t.Error("wrong probe path")
+			}
+			w.Write([]byte("ok\n"))
+		}))
+		defer server.Close()
+		address := strings.TrimPrefix(server.URL, "http://")
+		run := func(context.Context, *Metrics) error { t.Error("probe started application"); return nil }
+		for _, arg := range []string{"--stego-probe=live", "--stego-probe=ready"} {
+			if code := controllerProcess(context.Background(), []string{arg}, address, run); code != 0 {
+				t.Fatal("probe failed", code)
+			}
 		}
-		w.Write([]byte("ok\n"))
-	}))
-	defer server.Close()
-	address := strings.TrimPrefix(server.URL, "http://")
-	run := func(context.Context, *Metrics) error { t.Error("probe started application"); return nil }
-	for _, arg := range []string{"--stego-probe=live", "--stego-probe=ready"} {
-		if code := controllerProcess(context.Background(), []string{arg}, address, run); code != 0 {
-			t.Fatal("probe failed", code)
+		for _, args := range [][]string{{"secret"}, {"--stego-probe=metrics"}, {"--stego-probe=live", "extra"}} {
+			if code := controllerProcess(context.Background(), args, address, run); code != 2 {
+				t.Fatal("unknown argument accepted")
+			}
 		}
-	}
-	for _, args := range [][]string{{"secret"}, {"--stego-probe=metrics"}, {"--stego-probe=live", "extra"}} {
-		if code := controllerProcess(context.Background(), args, address, run); code != 2 {
-			t.Fatal("unknown argument accepted")
+		for _, address := range []string{"localhost:9081", "0.0.0.0:9081", "127.0.0.1:0", "127.0.0.1:09081", "127.0.0.1:9081/elsewhere"} {
+			if code := controllerProcess(context.Background(), nil, address, run); code != 2 {
+				t.Fatal("invalid probe address accepted")
+			}
 		}
-	}
-	for _, address := range []string{"localhost:9081", "0.0.0.0:9081", "127.0.0.1:0", "127.0.0.1:09081", "127.0.0.1:9081/elsewhere"} {
-		if code := controllerProcess(context.Background(), nil, address, run); code != 2 {
-			t.Fatal("invalid probe address accepted")
-		}
-	}
+	})
 }
 
 func TestProcessProbeRejectsRedirectsAndInvalidBodies(t *testing.T) {
@@ -143,62 +145,66 @@ func TestProcessSignalAndErrorPrivacy(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("SIGTERM process check")
 	}
-	for _, mode := range []string{"signal", "failure", "panic", "nil-panic", "legacy-nil-panic", "goexit", "defer-panic"} {
-		t.Run(mode, func(t *testing.T) {
-			listener, err := net.Listen("tcp", "127.0.0.1:0")
-			if err != nil {
-				t.Fatal(err)
-			}
-			address := listener.Addr().String()
-			listener.Close()
-			marker := t.TempDir() + "/closed"
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestProcessChild$")
-			command.Env = append(os.Environ(), "STEGO_TEST_PROCESS_CHILD="+mode, "STEGO_CONTROLLER_MONITOR_ADDR="+address, "STEGO_TEST_PROCESS_MARKER="+marker, "OTEL_EXPORTER_OTLP_ENDPOINT=")
-			if mode == "legacy-nil-panic" {
-				command.Env = append(command.Env, "GODEBUG=panicnil=1")
-			}
-			if mode != "signal" {
-				output, err := command.CombinedOutput()
-				var exit *exec.ExitError
-				if !errors.As(err, &exit) || exit.ExitCode() != 1 || strings.Count(string(output), "controller.process.failed") != 1 || strings.Contains(string(output), "private-domain-credential") || strings.Contains(string(output), "goroutine ") {
-					t.Fatal("process error contract failed", err)
+	proof := func(t *testing.T) {
+		for _, mode := range []string{"signal", "failure", "panic", "nil-panic", "legacy-nil-panic", "goexit", "defer-panic"} {
+			t.Run(mode, func(t *testing.T) {
+				listener, err := net.Listen("tcp", "127.0.0.1:0")
+				if err != nil {
+					t.Fatal(err)
+				}
+				address := listener.Addr().String()
+				listener.Close()
+				marker := t.TempDir() + "/closed"
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestProcessChild$")
+				command.Env = append(os.Environ(), "STEGO_TEST_PROCESS_CHILD="+mode, "STEGO_CONTROLLER_MONITOR_ADDR="+address, "STEGO_TEST_PROCESS_MARKER="+marker, "OTEL_EXPORTER_OTLP_ENDPOINT=")
+				if mode == "legacy-nil-panic" {
+					command.Env = append(command.Env, "GODEBUG=panicnil=1")
+				}
+				if mode != "signal" {
+					output, err := command.CombinedOutput()
+					var exit *exec.ExitError
+					if !errors.As(err, &exit) || exit.ExitCode() != 1 || strings.Count(string(output), "controller.process.failed") != 1 || strings.Contains(string(output), "private-domain-credential") || strings.Contains(string(output), "goroutine ") {
+						t.Fatal("process error contract failed", err)
+					}
+					if data, err := os.ReadFile(marker); err != nil || string(data) != "closed" {
+						t.Fatal("callback cleanup did not finish", err)
+					}
+					return
+				}
+				if err := command.Start(); err != nil {
+					t.Fatal(err)
+				}
+				joined := false
+				defer func() {
+					if !joined {
+						command.Process.Kill()
+						command.Wait()
+					}
+				}()
+				for controllerProbe(ctx, address, "/readyz") != nil {
+					if ctx.Err() != nil {
+						t.Fatal("process did not become ready")
+					}
+					time.Sleep(10 * time.Millisecond)
+				}
+				if err := command.Process.Signal(syscall.SIGTERM); err != nil {
+					t.Fatal(err)
+				}
+				err = command.Wait()
+				joined = true
+				if err != nil {
+					t.Fatal("signal shutdown failed", err)
 				}
 				if data, err := os.ReadFile(marker); err != nil || string(data) != "closed" {
 					t.Fatal("callback cleanup did not finish", err)
 				}
-				return
-			}
-			if err := command.Start(); err != nil {
-				t.Fatal(err)
-			}
-			joined := false
-			defer func() {
-				if !joined {
-					command.Process.Kill()
-					command.Wait()
-				}
-			}()
-			for controllerProbe(ctx, address, "/readyz") != nil {
-				if ctx.Err() != nil {
-					t.Fatal("process did not become ready")
-				}
-				time.Sleep(10 * time.Millisecond)
-			}
-			if err := command.Process.Signal(syscall.SIGTERM); err != nil {
-				t.Fatal(err)
-			}
-			err = command.Wait()
-			joined = true
-			if err != nil {
-				t.Fatal("signal shutdown failed", err)
-			}
-			if data, err := os.ReadFile(marker); err != nil || string(data) != "closed" {
-				t.Fatal("callback cleanup did not finish", err)
-			}
-		})
+			})
+		}
 	}
+	t.Run("ST-SUP-RC05-OC13-T01 The emitted process keeps domain text and goroutine dumps out of its output", proof)
+	t.Run("ST-SUP-RC05-OC14-T01 The emitted process exits with code 1 and one fixed failure record after its cleanup", proof)
 }
 
 func TestMonitorAbortClosesListenerAndPreservesErrors(t *testing.T) {
