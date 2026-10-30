@@ -1,20 +1,20 @@
-{"id":"ST-VO01-VT","title":"compiler.validateSource","value_object_id":"ST-VO01","file":"internal/compiler/validate.go","description":"validateSource in validate.go refuses a slot binding with no operator or with more than one of gate, chain and fan-out."}
-{"id":"ST-VO02-VT","title":"types.Stage","value_object_id":"ST-VO02","file":"internal/types/stage.go","description":"Not written yet: no component.yaml declares a stage today. This names where the stage type and its check will live."}
-{"id":"ST-VO03-VT","title":"registry.Trust","value_object_id":"ST-VO03","file":"internal/registry/trust.go","description":"Not written yet: today the order of the sources stands for trust, and the first source is the common registry. This names where an explicit trust will live."}
-{"id":"ST-VO41-VT","title":"compiler.validDigest","value_object_id":"ST-VO41","file":"internal/compiler/input_manifest.go","description":"validDigest accepts exactly 64 lower-case hexadecimal digits. validateStatePaths applies the same rule to the registry content digest."}
-{"id":"ST-VO42-VT","title":"buildidentity.Record","value_object_id":"ST-VO42","file":"internal/buildidentity/runtime.go","description":"Record holds the build identity, and Record.Validate refuses an unsafe value, an unknown source state and an incomplete source record."}
-{"id":"ST-VO43-VT","title":"install","value_object_id":"ST-VO43","file":"scripts/install-compiler.py","description":"install refuses a revision that is not 40 lower-case hexadecimal digits before any other step."}
-{"id":"ST-VO44-VT","title":"fill.Signature","value_object_id":"ST-VO44","file":"internal/fill/signoff.go","description":"Not written yet."}
-{"id":"ST-VO45-VT","title":"fill.Standing","value_object_id":"ST-VO45","file":"internal/fill/qualification.go","description":"Not written yet."}
-{"id":"ST-VO46-VT","title":"types.SlotRef","value_object_id":"ST-VO46","file":"internal/types/slot_reference.go","description":"Not written yet: implements is a plain string, and runRegistryFills splits it at the period without checking its form."}
-{"id":"ST-VO47-VT","title":"registry.EvidenceKind","value_object_id":"ST-VO47","file":"internal/registry/quality.go","description":"Not written yet."}
-{"id":"ST-VO48-VT","title":"appbuild.Inventory","value_object_id":"ST-VO48","file":"internal/appbuild/inventory.go","description":"Inventory holds the SDK's file count, bytes and digest. The release it must match is the compiler's GoVersion today, not an archetype's pin."}
-{"id":"ST-VO49-VT","title":"appbuild.SBOMFormat","value_object_id":"ST-VO49","file":"internal/appbuild/sbom.go","description":"Not written yet."}
-{"id":"ST-VO50-VT","title":"appbuild.SignerIdentity","value_object_id":"ST-VO50","file":"internal/appbuild/sign.go","description":"Not written yet."}
-{"id":"ST-VO51-VT","title":"delivery.Provider","value_object_id":"ST-VO51","file":"internal/delivery/provider.go","description":"Not written yet."}
-{"id":"ST-VO52-VT","title":"delivery.PinnedReference","value_object_id":"ST-VO52","file":"internal/delivery/pin.go","description":"Not written yet."}
-{"id":"ST-VO53-VT","title":"delivery.RequirementKind","value_object_id":"ST-VO53","file":"internal/delivery/requirements.go","description":"Not written yet."}
-{"id":"ST-VO54-VT","title":"assure.Result","value_object_id":"ST-VO54","file":"internal/assure/result.go","description":"Not written yet."}
-{"id":"ST-VO55-VT","title":"assure.Coverage","value_object_id":"ST-VO55","file":"internal/assure/coverage.go","description":"Not written yet."}
-{"id":"ST-VO56-VT","title":"assure.Attestation","value_object_id":"ST-VO56","file":"internal/assure/attestation.go","description":"Not written yet."}
-{"id":"ST-VO57-VT","title":"assure.GateKind","value_object_id":"ST-VO57","file":"internal/assure/gate.go","description":"Not written yet."}
+{"id":"ST-VO01-VT","title":"compiler.validateSource","value_object_id":"ST-VO01","file":"internal/compiler/validate.go"}
+{"id":"ST-VO02-VT","title":"types.Stage","value_object_id":"ST-VO02","file":"internal/types/stage.go"}
+{"id":"ST-VO03-VT","title":"registry.Trust","value_object_id":"ST-VO03","file":"internal/registry/trust.go"}
+{"id":"ST-VO41-VT","title":"compiler.validDigest","value_object_id":"ST-VO41","file":"internal/compiler/input_manifest.go"}
+{"id":"ST-VO42-VT","title":"buildidentity.Record","value_object_id":"ST-VO42","file":"internal/buildidentity/runtime.go"}
+{"id":"ST-VO43-VT","title":"install","value_object_id":"ST-VO43","file":"scripts/install-compiler.py"}
+{"id":"ST-VO44-VT","title":"fill.Signature","value_object_id":"ST-VO44","file":"internal/fill/signoff.go"}
+{"id":"ST-VO45-VT","title":"fill.Standing","value_object_id":"ST-VO45","file":"internal/fill/qualification.go"}
+{"id":"ST-VO46-VT","title":"types.SlotRef","value_object_id":"ST-VO46","file":"internal/types/slot_reference.go"}
+{"id":"ST-VO47-VT","title":"registry.EvidenceKind","value_object_id":"ST-VO47","file":"internal/registry/quality.go"}
+{"id":"ST-VO48-VT","title":"appbuild.Inventory","value_object_id":"ST-VO48","file":"internal/appbuild/inventory.go"}
+{"id":"ST-VO49-VT","title":"appbuild.SBOMFormat","value_object_id":"ST-VO49","file":"internal/appbuild/sbom.go"}
+{"id":"ST-VO50-VT","title":"appbuild.SignerIdentity","value_object_id":"ST-VO50","file":"internal/appbuild/sign.go"}
+{"id":"ST-VO51-VT","title":"delivery.Provider","value_object_id":"ST-VO51","file":"internal/delivery/provider.go"}
+{"id":"ST-VO52-VT","title":"delivery.PinnedReference","value_object_id":"ST-VO52","file":"internal/delivery/pin.go"}
+{"id":"ST-VO53-VT","title":"delivery.RequirementKind","value_object_id":"ST-VO53","file":"internal/delivery/requirements.go"}
+{"id":"ST-VO54-VT","title":"assure.Result","value_object_id":"ST-VO54","file":"internal/assure/result.go"}
+{"id":"ST-VO55-VT","title":"assure.Coverage","value_object_id":"ST-VO55","file":"internal/assure/coverage.go"}
+{"id":"ST-VO56-VT","title":"assure.Attestation","value_object_id":"ST-VO56","file":"internal/assure/attestation.go"}
+{"id":"ST-VO57-VT","title":"assure.GateKind","value_object_id":"ST-VO57","file":"internal/assure/gate.go"}

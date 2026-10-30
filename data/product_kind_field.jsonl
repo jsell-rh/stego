@@ -1,20 +1,20 @@
-{"kind":"cli_command","position":1,"name":"invocation","type":"text","required":true,"description":"What a person types, such as stego validate."}
-{"kind":"cli_command","position":2,"name":"file","type":"text","required":true,"description":"The file that parses it, from the product root."}
-{"kind":"cli_command","position":3,"name":"description","type":"text","required":false,"description":"Its flags and its output in brief."}
-{"kind":"generator","position":1,"name":"file","type":"text","required":true,"description":"The file, from the product root."}
-{"kind":"generator","position":2,"name":"description","type":"text","required":false,"description":"What in the file implements which contracts, by name."}
-{"kind":"output_contract","position":1,"name":"statement","type":"text","required":true,"description":"The contract, stated with MUST, MUST NOT, SHOULD or MAY, in one sentence."}
-{"kind":"output_contract","position":2,"name":"introduced_in","type":"text","required":false,"description":"The component version that introduced the contract."}
-{"kind":"output_contract","position":3,"name":"spec_doc","type":"text","required":false,"description":"The document in specs/ that recorded the contract before it became data."}
-{"kind":"output_contract","position":4,"name":"group_name","type":"text","required":false,"description":"A short heading the contract is shown under among its siblings, such as Transport or Audit."}
-{"kind":"output_contract_test","position":1,"name":"file","type":"text","required":true,"description":"The test file, from the product root. It names the test ID at the start of a test name."}
-{"kind":"output_contract_test","position":2,"name":"given","type":"text","required":false,"description":"The state the test starts from."}
-{"kind":"output_contract_test","position":3,"name":"when","type":"text","required":false,"description":"What the test does."}
-{"kind":"output_contract_test","position":4,"name":"then","type":"text","required":false,"description":"What the test expects."}
-{"kind":"output_contract_test","position":5,"name":"notes","type":"text","required":false,"description":"Anything a reader needs, such as a gate the test needs to run."}
-{"kind":"registry_component","position":1,"name":"name","type":"text","required":true,"description":"The component's name in the registry, such as postgres-adapter."}
-{"kind":"registry_component","position":2,"name":"version","type":"text","required":true,"description":"The version the component declares, such as 4.13.0."}
-{"kind":"registry_component","position":3,"name":"stage","type":"text","required":true,"description":"The component's maturity: alpha, beta or ga."}
-{"kind":"registry_component","position":4,"name":"sunset","type":"date","required":false,"description":"The date an alpha or beta component stops working. A ga component has none."}
-{"kind":"registry_component","position":5,"name":"declaration_path","type":"text","required":true,"description":"The folder that holds the component's declaration, from the product root."}
-{"kind":"registry_component","position":6,"name":"generator_package","type":"text","required":false,"description":"The Go package that implements the component's generator, from the product root."}
+{"kind": "cli_command", "position": 1, "name": "invocation", "type": "text", "required": true, "description": "What a person types, such as stego validate."}
+{"kind": "cli_command", "position": 2, "name": "file", "type": "text", "required": true, "description": "The file that parses it, from the product root."}
+{"kind": "cli_command", "position": 3, "name": "description", "type": "text", "required": true, "description": "Its flags and its output in brief."}
+{"kind": "generator", "position": 1, "name": "file", "type": "text", "required": true, "description": "The file, from the product root."}
+{"kind": "generator", "position": 2, "name": "description", "type": "text", "required": true, "description": "What in the file implements which contracts, by name."}
+{"kind": "output_contract", "position": 1, "name": "statement", "type": "text", "required": true, "description": "The contract, stated with MUST, MUST NOT, SHOULD or MAY, in one sentence."}
+{"kind": "output_contract", "position": 2, "name": "introduced_in", "type": "text", "required": false, "description": "The component version that introduced the contract."}
+{"kind": "output_contract", "position": 3, "name": "spec_doc", "type": "text", "required": false, "description": "The document in specs/ that recorded the contract before it became data."}
+{"kind": "output_contract", "position": 4, "name": "group_name", "type": "text", "required": false, "description": "A short heading the contract is shown under among its siblings, such as Transport or Audit."}
+{"kind": "output_contract_test", "position": 1, "name": "file", "type": "text", "required": true, "description": "The test file, from the product root. It names the test ID at the start of a test name."}
+{"kind": "output_contract_test", "position": 2, "name": "given", "type": "text", "required": false, "description": "The state the test starts from."}
+{"kind": "output_contract_test", "position": 3, "name": "when", "type": "text", "required": false, "description": "What the test does."}
+{"kind": "output_contract_test", "position": 4, "name": "then", "type": "text", "required": false, "description": "What the test expects."}
+{"kind": "output_contract_test", "position": 5, "name": "notes", "type": "text", "required": false, "description": "Anything a reader needs, such as a gate the test needs to run."}
+{"kind": "registry_component", "position": 1, "name": "name", "type": "text", "required": true, "description": "The component's name in the registry, such as postgres-adapter."}
+{"kind": "registry_component", "position": 2, "name": "version", "type": "text", "required": true, "description": "The version the component declares, such as 4.13.0."}
+{"kind": "registry_component", "position": 3, "name": "stage", "type": "text", "required": true, "description": "The component's maturity: alpha, beta or ga."}
+{"kind": "registry_component", "position": 4, "name": "sunset", "type": "date", "required": false, "description": "The date an alpha or beta component stops working. A ga component has none."}
+{"kind": "registry_component", "position": 5, "name": "declaration_path", "type": "text", "required": true, "description": "The folder that holds the component's declaration, from the product root."}
+{"kind": "registry_component", "position": 6, "name": "generator_package", "type": "text", "required": false, "description": "The Go package that implements the component's generator, from the product root."}

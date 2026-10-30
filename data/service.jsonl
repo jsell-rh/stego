@@ -1,13 +1,13 @@
-{"id":"ST-ASR-DS01-SV","title":"assure.ReadOutcomes","domain_service_id":"ST-ASR-DS01","file":"internal/assure/outcomes.go","description":"Not written yet."}
-{"id":"ST-ASR-DS02-SV","title":"assure.MeasureCoverage","domain_service_id":"ST-ASR-DS02","file":"internal/assure/coverage.go","description":"Not written yet."}
-{"id":"ST-ASR-DS03-SV","title":"assure.VerifyAttestation","domain_service_id":"ST-ASR-DS03","file":"internal/assure/attestation.go","description":"Not written yet."}
-{"id":"ST-BLD-DS01-SV","title":"appbuild.WriteSBOMs","domain_service_id":"ST-BLD-DS01","file":"internal/appbuild/sbom.go","description":"Not written yet."}
-{"id":"ST-BLD-DS02-SV","title":"appbuild.Verify","domain_service_id":"ST-BLD-DS02","file":"internal/appbuild/verify.go","description":"Verify, VerifySource and VerifyImage share the record checks; none checks a signature yet."}
-{"id":"ST-DLV-DS01-SV","title":"delivery.DeriveRequirements","domain_service_id":"ST-DLV-DS01","file":"internal/delivery/requirements.go","description":"Not written yet."}
-{"id":"ST-DLV-DS02-SV","title":"delivery.CheckEnvironment","domain_service_id":"ST-DLV-DS02","file":"internal/delivery/environment.go","description":"Not written yet."}
-{"id":"ST-EXT-DS01-SV","title":"fill.Digest","domain_service_id":"ST-EXT-DS01","file":"internal/fill/digest.go","description":"Not written yet."}
-{"id":"ST-EXT-DS02-SV","title":"fill.VerifySignOff","domain_service_id":"ST-EXT-DS02","file":"internal/fill/signoff.go","description":"Not written yet. It will call ssh-keygen -Y verify or gpg --verify against the SIGNERS file."}
-{"id":"ST-GEN-DS01-SV","title":"compiler.ComponentDigest","domain_service_id":"ST-GEN-DS01","file":"internal/compiler/component_digest.go","description":"Not written yet: apply records the registry reference as each component's digest today."}
-{"id":"ST-GEN-DS02-SV","title":"gen.Generator","domain_service_id":"ST-GEN-DS02","file":"internal/compiler/reconciler.go","description":"Reconcile in reconciler.go builds each component's gen.Context from the captured inputs, calls its Generate, and checks the files against the component's namespace."}
-{"id":"ST-GEN-DS03-SV","title":"compiler.Assemble","domain_service_id":"ST-GEN-DS03","file":"internal/compiler/assembler.go","description":"Assemble writes go.mod and main.go from the wirings, in an order that topoSortConstructors fixes."}
-{"id":"ST-GEN-DS04-SV","title":"compiler.DeriveArchitecture","domain_service_id":"ST-GEN-DS04","file":"internal/compiler/architecture.go","description":"Not written yet."}
+{"id":"ST-ASR-DS01-SV","title":"assure.ReadOutcomes","domain_service_id":"ST-ASR-DS01","file":"internal/assure/outcomes.go"}
+{"id":"ST-ASR-DS02-SV","title":"assure.MeasureCoverage","domain_service_id":"ST-ASR-DS02","file":"internal/assure/coverage.go"}
+{"id":"ST-ASR-DS03-SV","title":"assure.VerifyAttestation","domain_service_id":"ST-ASR-DS03","file":"internal/assure/attestation.go"}
+{"id":"ST-BLD-DS01-SV","title":"appbuild.WriteSBOMs","domain_service_id":"ST-BLD-DS01","file":"internal/appbuild/sbom.go"}
+{"id":"ST-BLD-DS02-SV","title":"appbuild.Verify","domain_service_id":"ST-BLD-DS02","file":"internal/appbuild/verify.go"}
+{"id":"ST-DLV-DS01-SV","title":"delivery.DeriveRequirements","domain_service_id":"ST-DLV-DS01","file":"internal/delivery/requirements.go"}
+{"id":"ST-DLV-DS02-SV","title":"delivery.CheckEnvironment","domain_service_id":"ST-DLV-DS02","file":"internal/delivery/environment.go"}
+{"id":"ST-EXT-DS01-SV","title":"fill.Digest","domain_service_id":"ST-EXT-DS01","file":"internal/fill/digest.go"}
+{"id":"ST-EXT-DS02-SV","title":"fill.VerifySignOff","domain_service_id":"ST-EXT-DS02","file":"internal/fill/signoff.go"}
+{"id":"ST-GEN-DS01-SV","title":"compiler.ComponentDigest","domain_service_id":"ST-GEN-DS01","file":"internal/compiler/component_digest.go"}
+{"id":"ST-GEN-DS02-SV","title":"gen.Generator","domain_service_id":"ST-GEN-DS02","file":"internal/compiler/reconciler.go"}
+{"id":"ST-GEN-DS03-SV","title":"compiler.Assemble","domain_service_id":"ST-GEN-DS03","file":"internal/compiler/assembler.go"}
+{"id":"ST-GEN-DS04-SV","title":"compiler.DeriveArchitecture","domain_service_id":"ST-GEN-DS04","file":"internal/compiler/architecture.go"}

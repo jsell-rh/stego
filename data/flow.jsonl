@@ -1,44 +1,44 @@
-{"id":"ST-ASR-UC01-FL01","title":"Attest a proof run through the command line","use_case_id":"ST-ASR-UC01","interface_id":"ST-IF01","description":"How a CI run becomes evidence."}
-{"id":"ST-ASR-UC02-FL01","title":"Judge a change through the command line","use_case_id":"ST-ASR-UC02","interface_id":"ST-IF01","description":"How a pull request is held to the ratchet."}
-{"id":"ST-ASR-UC03-FL01","title":"Judge a release through the command line","use_case_id":"ST-ASR-UC03","interface_id":"ST-IF01","description":"How a release is held to full proof."}
-{"id":"ST-ASR-UC04-FL01","title":"See what a commit proved through the command line","use_case_id":"ST-ASR-UC04","interface_id":"ST-IF01","description":"How anyone reads the evidence."}
-{"id":"ST-BLD-UC01-FL01","title":"Resolve a service's modules through the command line","use_case_id":"ST-BLD-UC01","interface_id":"ST-IF01","description":"How a service author resolves the modules after a run."}
-{"id":"ST-BLD-UC02-FL01","title":"Prepare an offline module cache through the command line","use_case_id":"ST-BLD-UC02","interface_id":"ST-IF01","description":"How an operator prepares the modules a build will use offline."}
-{"id":"ST-BLD-UC03-FL01","title":"Build a service reproducibly through the command line","use_case_id":"ST-BLD-UC03","interface_id":"ST-IF01","description":"How an operator builds a service's executable."}
-{"id":"ST-BLD-UC04-FL01","title":"Check an artifact against its record through the command line","use_case_id":"ST-BLD-UC04","interface_id":"ST-IF01","description":"How an operator or an auditor checks an artifact."}
-{"id":"ST-BLD-UC05-FL01","title":"Build and sign an image through the command line","use_case_id":"ST-BLD-UC05","interface_id":"ST-IF01","description":"How an operator turns a recorded build into a signed image."}
-{"id":"ST-BLD-UC06-FL01","title":"Publish and retrieve an image through the command line","use_case_id":"ST-BLD-UC06","interface_id":"ST-IF01","description":"How an image moves to and from a registry."}
-{"id":"ST-DECL-UC01-FL01","title":"Start a service declaration through the command line","use_case_id":"ST-DECL-UC01","interface_id":"ST-IF01","description":"How an author or an agent starts a service from an archetype."}
-{"id":"ST-DECL-UC02-FL01","title":"Learn what may be declared through the command line","use_case_id":"ST-DECL-UC02","interface_id":"ST-IF01","description":"How an agent learns every component, setting and slot it may write, before it writes."}
-{"id":"ST-DECL-UC03-FL01","title":"Check a declaration through the command line","use_case_id":"ST-DECL-UC03","interface_id":"ST-IF01","description":"How an author or an agent learns whether a declaration is acceptable, with the project untouched either way."}
-{"id":"ST-DECL-UC04-FL01","title":"Repair a refused declaration through the command line","use_case_id":"ST-DECL-UC04","interface_id":"ST-IF01","description":"How an agent corrects a declaration from the refusal alone, with no person reading the message."}
-{"id":"ST-DIS-UC02-FL01","title":"Find every service built from a component through the command line","use_case_id":"ST-DIS-UC02","interface_id":"ST-IF01","description":"How a platform engineer names every service built from a component digest."}
-{"id":"ST-DIS-UC04-FL01","title":"Ship a component fix without a compiler release through the command line","use_case_id":"ST-DIS-UC04","interface_id":"ST-IF01","description":"How a platform engineer gets a component fix to consumers with no new compiler."}
-{"id":"ST-DIS-UC05-FL01","title":"Learn that a pinned component is superseded through the command line","use_case_id":"ST-DIS-UC05","interface_id":"ST-IF01","description":"How a service author learns, from validate or plan, that a pin is superseded."}
-{"id":"ST-DIS-UC07-FL01","title":"Withdraw a component digest through the command line","use_case_id":"ST-DIS-UC07","interface_id":"ST-IF01","description":"How a platform engineer stops a digest from being used, and names every affected service first."}
-{"id":"ST-DIS-UC08-FL01","title":"Qualify a compiler release through the command line","use_case_id":"ST-DIS-UC08","interface_id":"ST-IF01","description":"How a platform engineer qualifies a compiler release before anyone can install it."}
-{"id":"ST-DIS-UC09-FL01","title":"Install a qualified compiler through the command line","use_case_id":"ST-DIS-UC09","interface_id":"ST-IF01","description":"How an operator installs a compiler whose identity and platform they can verify."}
-{"id":"ST-DLV-UC01-FL01","title":"State what a service needs from the platform through the command line","use_case_id":"ST-DLV-UC01","interface_id":"ST-IF01","description":"How a service's needs reach the platform."}
-{"id":"ST-DLV-UC02-FL01","title":"Check an environment against a service through the command line","use_case_id":"ST-DLV-UC02","interface_id":"ST-IF01","description":"How an operator checks an environment file."}
-{"id":"ST-DLV-UC03-FL01","title":"Build and release a service through its CI provider through the command line","use_case_id":"ST-DLV-UC03","interface_id":"ST-IF01","description":"How a push becomes a checked, signed image on each CI provider."}
-{"id":"ST-DLV-UC04-FL01","title":"Patch every service's pipeline through the command line","use_case_id":"ST-DLV-UC04","interface_id":"ST-IF01","description":"How a pipeline fix reaches the fleet, found by the manual sweep."}
-{"id":"ST-DLV-UC05-FL01","title":"Deploy a service with GitOps through the command line","use_case_id":"ST-DLV-UC05","interface_id":"ST-IF01","description":"How a service reaches a cluster through GitOps."}
-{"id":"ST-EXT-UC01-FL01","title":"Add a service rule at a slot through the command line","use_case_id":"ST-EXT-UC01","interface_id":"ST-IF01","description":"How an agent or an author puts one rule into the service at a slot."}
-{"id":"ST-EXT-UC02-FL01","title":"Qualify a fill through the command line","use_case_id":"ST-EXT-UC02","interface_id":"ST-IF01","description":"How a service author qualifies a fill for shipping."}
-{"id":"ST-EXT-UC03-FL01","title":"Find an existing fill for a slot through the command line","use_case_id":"ST-EXT-UC03","interface_id":"ST-IF01","description":"How an agent finds a fill to reuse."}
-{"id":"ST-EXT-UC04-FL01","title":"Requalify a fill after a change through the command line","use_case_id":"ST-EXT-UC04","interface_id":"ST-IF01","description":"How a service author brings a changed fill back to qualified."}
-{"id":"ST-GEN-UC01-FL01","title":"Record what a service was built from through the command line","use_case_id":"ST-GEN-UC01","interface_id":"ST-IF01","description":"How apply leaves a record of every input beside the generated code."}
-{"id":"ST-GEN-UC02-FL01","title":"Trust that a record matches its code through the command line","use_case_id":"ST-GEN-UC02","interface_id":"ST-IF01","description":"How a platform engineer learns whether a record describes the code beside it."}
-{"id":"ST-GEN-UC03-FL01","title":"Take a component fix into a service through the command line","use_case_id":"ST-GEN-UC03","interface_id":"ST-IF01","description":"How a service author takes a component fix as a diff a reviewer can read."}
-{"id":"ST-GEN-UC04-FL01","title":"Regenerate after a declaration change through the command line","use_case_id":"ST-GEN-UC04","interface_id":"ST-IF01","description":"How a changed declaration becomes changed code in one run."}
-{"id":"ST-GEN-UC05-FL01","title":"Review a plan before anything changes through the command line","use_case_id":"ST-GEN-UC05","interface_id":"ST-IF01","description":"How a service author previews a run and then applies exactly what they saw."}
-{"id":"ST-GEN-UC06-FL01","title":"Recover from an interrupted apply through the command line","use_case_id":"ST-GEN-UC06","interface_id":"ST-IF01","description":"How a service author brings the files and the record back into agreement after apply stops part way."}
-{"id":"ST-GEN-UC07-FL01","title":"Capture a frontend build as an input through the command line","use_case_id":"ST-GEN-UC07","interface_id":"ST-IF01","description":"How a service author turns a frontend build into a captured input."}
-{"id":"ST-GEN-UC08-FL01","title":"See how a service is shaped and how it works through the command line","use_case_id":"ST-GEN-UC08","interface_id":"ST-IF01","description":"How a service owner comes to understand their service."}
-{"id":"ST-GEN-UC09-FL01","title":"Review how a change reshapes a service through the command line","use_case_id":"ST-GEN-UC09","interface_id":"ST-IF01","description":"How a reviewer sees a change to a service's shape."}
-{"id":"ST-SUP-UC01-FL01","title":"Write a component through the command line","use_case_id":"ST-SUP-UC01","interface_id":"ST-IF01","description":"How a platform engineer adds a part that every service can build from."}
-{"id":"ST-SUP-UC02-FL01","title":"Compose a registry for a team through the command line","use_case_id":"ST-SUP-UC02","interface_id":"ST-IF01","description":"How a platform engineer lets a team add its own parts without weakening the common ones."}
-{"id":"ST-SUP-UC03-FL01","title":"Curate an archetype through the command line","use_case_id":"ST-SUP-UC03","interface_id":"ST-IF01","description":"How a platform engineer makes a golden path that a service author can select and trust."}
-{"id":"ST-SUP-UC04-FL01","title":"Introduce an experimental component through the command line","use_case_id":"ST-SUP-UC04","interface_id":"ST-IF01","description":"How a team runs ahead of the platform team, visibly and for a stated time, without reaching a golden path."}
-{"id":"ST-SUP-UC05-FL01","title":"Graduate or retire a component through the command line","use_case_id":"ST-SUP-UC05","interface_id":"ST-IF01","description":"How an experiment becomes a part everyone can rely on, or goes, with nobody surprised either way."}
-{"id":"ST-SUP-UC06-FL01","title":"Contribute a component upstream through the command line","use_case_id":"ST-SUP-UC06","interface_id":"ST-IF01","description":"How a consumer team gives a component from its local registry to every team."}
+{"id":"ST-ASR-UC01-FL01","title":"Attest a proof run through the command line","use_case_id":"ST-ASR-UC01","interface_id":"ST-IF01"}
+{"id":"ST-ASR-UC02-FL01","title":"Judge a change through the command line","use_case_id":"ST-ASR-UC02","interface_id":"ST-IF01"}
+{"id":"ST-ASR-UC03-FL01","title":"Judge a release through the command line","use_case_id":"ST-ASR-UC03","interface_id":"ST-IF01"}
+{"id":"ST-ASR-UC04-FL01","title":"See what a commit proved through the command line","use_case_id":"ST-ASR-UC04","interface_id":"ST-IF01"}
+{"id":"ST-BLD-UC01-FL01","title":"Resolve a service's modules through the command line","use_case_id":"ST-BLD-UC01","interface_id":"ST-IF01"}
+{"id":"ST-BLD-UC02-FL01","title":"Prepare an offline module cache through the command line","use_case_id":"ST-BLD-UC02","interface_id":"ST-IF01"}
+{"id":"ST-BLD-UC03-FL01","title":"Build a service reproducibly through the command line","use_case_id":"ST-BLD-UC03","interface_id":"ST-IF01"}
+{"id":"ST-BLD-UC04-FL01","title":"Check an artifact against its record through the command line","use_case_id":"ST-BLD-UC04","interface_id":"ST-IF01"}
+{"id":"ST-BLD-UC05-FL01","title":"Build and sign an image through the command line","use_case_id":"ST-BLD-UC05","interface_id":"ST-IF01"}
+{"id":"ST-BLD-UC06-FL01","title":"Publish and retrieve an image through the command line","use_case_id":"ST-BLD-UC06","interface_id":"ST-IF01"}
+{"id":"ST-DECL-UC01-FL01","title":"Start a service declaration through the command line","use_case_id":"ST-DECL-UC01","interface_id":"ST-IF01"}
+{"id":"ST-DECL-UC02-FL01","title":"Learn what may be declared through the command line","use_case_id":"ST-DECL-UC02","interface_id":"ST-IF01"}
+{"id":"ST-DECL-UC03-FL01","title":"Check a declaration through the command line","use_case_id":"ST-DECL-UC03","interface_id":"ST-IF01"}
+{"id":"ST-DECL-UC04-FL01","title":"Repair a refused declaration through the command line","use_case_id":"ST-DECL-UC04","interface_id":"ST-IF01"}
+{"id":"ST-DIS-UC02-FL01","title":"Find every service built from a component through the command line","use_case_id":"ST-DIS-UC02","interface_id":"ST-IF01"}
+{"id":"ST-DIS-UC04-FL01","title":"Ship a component fix without a compiler release through the command line","use_case_id":"ST-DIS-UC04","interface_id":"ST-IF01"}
+{"id":"ST-DIS-UC05-FL01","title":"Learn that a pinned component is superseded through the command line","use_case_id":"ST-DIS-UC05","interface_id":"ST-IF01"}
+{"id":"ST-DIS-UC07-FL01","title":"Withdraw a component digest through the command line","use_case_id":"ST-DIS-UC07","interface_id":"ST-IF01"}
+{"id":"ST-DIS-UC08-FL01","title":"Qualify a compiler release through the command line","use_case_id":"ST-DIS-UC08","interface_id":"ST-IF01"}
+{"id":"ST-DIS-UC09-FL01","title":"Install a qualified compiler through the command line","use_case_id":"ST-DIS-UC09","interface_id":"ST-IF01"}
+{"id":"ST-DLV-UC01-FL01","title":"State what a service needs from the platform through the command line","use_case_id":"ST-DLV-UC01","interface_id":"ST-IF01"}
+{"id":"ST-DLV-UC02-FL01","title":"Check an environment against a service through the command line","use_case_id":"ST-DLV-UC02","interface_id":"ST-IF01"}
+{"id":"ST-DLV-UC03-FL01","title":"Build and release a service through its CI provider through the command line","use_case_id":"ST-DLV-UC03","interface_id":"ST-IF01"}
+{"id":"ST-DLV-UC04-FL01","title":"Patch every service's pipeline through the command line","use_case_id":"ST-DLV-UC04","interface_id":"ST-IF01"}
+{"id":"ST-DLV-UC05-FL01","title":"Deploy a service with GitOps through the command line","use_case_id":"ST-DLV-UC05","interface_id":"ST-IF01"}
+{"id":"ST-EXT-UC01-FL01","title":"Add a service rule at a slot through the command line","use_case_id":"ST-EXT-UC01","interface_id":"ST-IF01"}
+{"id":"ST-EXT-UC02-FL01","title":"Qualify a fill through the command line","use_case_id":"ST-EXT-UC02","interface_id":"ST-IF01"}
+{"id":"ST-EXT-UC03-FL01","title":"Find an existing fill for a slot through the command line","use_case_id":"ST-EXT-UC03","interface_id":"ST-IF01"}
+{"id":"ST-EXT-UC04-FL01","title":"Requalify a fill after a change through the command line","use_case_id":"ST-EXT-UC04","interface_id":"ST-IF01"}
+{"id":"ST-GEN-UC01-FL01","title":"Record what a service was built from through the command line","use_case_id":"ST-GEN-UC01","interface_id":"ST-IF01"}
+{"id":"ST-GEN-UC02-FL01","title":"Trust that a record matches its code through the command line","use_case_id":"ST-GEN-UC02","interface_id":"ST-IF01"}
+{"id":"ST-GEN-UC03-FL01","title":"Take a component fix into a service through the command line","use_case_id":"ST-GEN-UC03","interface_id":"ST-IF01"}
+{"id":"ST-GEN-UC04-FL01","title":"Regenerate after a declaration change through the command line","use_case_id":"ST-GEN-UC04","interface_id":"ST-IF01"}
+{"id":"ST-GEN-UC05-FL01","title":"Review a plan before anything changes through the command line","use_case_id":"ST-GEN-UC05","interface_id":"ST-IF01"}
+{"id":"ST-GEN-UC06-FL01","title":"Recover from an interrupted apply through the command line","use_case_id":"ST-GEN-UC06","interface_id":"ST-IF01"}
+{"id":"ST-GEN-UC07-FL01","title":"Capture a frontend build as an input through the command line","use_case_id":"ST-GEN-UC07","interface_id":"ST-IF01"}
+{"id":"ST-GEN-UC08-FL01","title":"See how a service is shaped and how it works through the command line","use_case_id":"ST-GEN-UC08","interface_id":"ST-IF01"}
+{"id":"ST-GEN-UC09-FL01","title":"Review how a change reshapes a service through the command line","use_case_id":"ST-GEN-UC09","interface_id":"ST-IF01"}
+{"id":"ST-SUP-UC01-FL01","title":"Write a component through the command line","use_case_id":"ST-SUP-UC01","interface_id":"ST-IF01"}
+{"id":"ST-SUP-UC02-FL01","title":"Compose a registry for a team through the command line","use_case_id":"ST-SUP-UC02","interface_id":"ST-IF01"}
+{"id":"ST-SUP-UC03-FL01","title":"Curate an archetype through the command line","use_case_id":"ST-SUP-UC03","interface_id":"ST-IF01"}
+{"id":"ST-SUP-UC04-FL01","title":"Introduce an experimental component through the command line","use_case_id":"ST-SUP-UC04","interface_id":"ST-IF01"}
+{"id":"ST-SUP-UC05-FL01","title":"Graduate or retire a component through the command line","use_case_id":"ST-SUP-UC05","interface_id":"ST-IF01"}
+{"id":"ST-SUP-UC06-FL01","title":"Contribute a component upstream through the command line","use_case_id":"ST-SUP-UC06","interface_id":"ST-IF01"}
