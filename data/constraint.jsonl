@@ -19,3 +19,4 @@
 {"id":"ST-VO55-C01","title":"Each count is at most the total","value_object_id":"ST-VO55","statement":"Designed, built and proved MUST each be between zero and the total, and a share is the count over the total, with an empty spec counted as 100%."}
 {"id":"ST-VO56-C01","title":"The subject is a full commit","value_object_id":"ST-VO56","statement":"An attestation reference MUST name its subject by a full 40-character commit ID, never a tag, a branch or a short ID."}
 {"id":"ST-VO57-C01","title":"Change or release","value_object_id":"ST-VO57","statement":"A gate kind MUST be exactly one of change or release."}
+{"id":"ST-VO58-C01","title":"A tagged version by hash","value_object_id":"ST-VO58","statement":"A runtime pin MUST name the module path, a tagged version and the go.sum hash of that version, never a branch, a pseudo-version or a replace directive."}

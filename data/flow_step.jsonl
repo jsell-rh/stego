@@ -41,6 +41,7 @@
 {"id":"ST-DIS-UC04-FL01-S02","title":"The platform engineer records the new digest as the successor of the old one, with the fail date and whether taking it needs a declaration or fill change","flow_id":"ST-DIS-UC04-FL01","path":"main","position":2}
 {"id":"ST-DIS-UC04-FL01-S03","title":"A consumer moves that component's pin alone and runs apply in Generating, and keeps its compiler pin","flow_id":"ST-DIS-UC04-FL01","path":"main","position":3}
 {"id":"ST-DIS-UC04-FL01-S04","title":"A supersession with no successor, no fail date or no statement of the change it needs is refused","flow_id":"ST-DIS-UC04-FL01","path":"refused","position":1}
+{"id":"ST-DIS-UC04-FL01-S05","title":"The platform engineer releases a new runtime library version, moves the archetype's pin to it, and records the old version as superseded; each consumer takes it with a registry pin bump and a new run","flow_id":"ST-DIS-UC04-FL01","path":"runtime","position":1}
 {"id":"ST-DIS-UC05-FL01-S01","title":"The service author runs validate or plan","flow_id":"ST-DIS-UC05-FL01","path":"main","position":1}
 {"id":"ST-DIS-UC05-FL01-S02","title":"STEGO reports each superseded pin with its successor and fail date, and does not fail for that reason","flow_id":"ST-DIS-UC05-FL01","path":"main","position":2}
 {"id":"ST-DIS-UC05-FL01-S03","title":"Past its fail date, validate fails for the pin","flow_id":"ST-DIS-UC05-FL01","path":"expired","position":1}
@@ -129,6 +130,7 @@
 {"id":"ST-SUP-UC01-FL01-S05","title":"The platform engineer changes what the generator emits, and releases the component at a new version","flow_id":"ST-SUP-UC01-FL01","path":"change","position":1}
 {"id":"ST-SUP-UC01-FL01-S06","title":"A namespace that another component of the registry claims is refused, naming both components","flow_id":"ST-SUP-UC01-FL01","path":"refused","position":1}
 {"id":"ST-SUP-UC01-FL01-S07","title":"A component that states no architecture role is refused, naming the component","flow_id":"ST-SUP-UC01-FL01","path":"refused","position":2}
+{"id":"ST-SUP-UC01-FL01-S08","title":"A file the component emits is the same for every declaration, so the registry refuses the component as static and names the file","flow_id":"ST-SUP-UC01-FL01","path":"refused","position":3}
 {"id":"ST-SUP-UC02-FL01-S01","title":"The platform engineer pins the common registry at one reference","flow_id":"ST-SUP-UC02-FL01","path":"main","position":1}
 {"id":"ST-SUP-UC02-FL01-S02","title":"The platform engineer names a local registry that adds the team's own parts, at one reference","flow_id":"ST-SUP-UC02-FL01","path":"main","position":2}
 {"id":"ST-SUP-UC02-FL01-S03","title":"STEGO composes the sources into one active set, and records the reference of each","flow_id":"ST-SUP-UC02-FL01","path":"main","position":3}

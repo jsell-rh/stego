@@ -17,3 +17,4 @@
 {"id":"ST-SUP-SP03","title":"Every required port is answered","statement":"An active component set answers its ports when every port that a component of the set requires has a provider in that set."}
 {"id":"ST-SUP-SP04","title":"Component past its sunset","statement":"A component is past its sunset when its stage is alpha or beta and its sunset date is earlier than today."}
 {"id":"ST-SUP-SP05","title":"Component states its place","statement":"A component states its place when it names one layer, its part in a request flow, and a side for each port it provides or requires."}
+{"id":"ST-SUP-SP06","title":"Emitted file is static","statement":"A file a component emits is static when rendering the component for two declarations that differ in every input the component reads gives the same bytes, once the module path and package name are normalised."}

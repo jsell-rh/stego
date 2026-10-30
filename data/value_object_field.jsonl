@@ -32,3 +32,6 @@
 {"value_object_id":"ST-VO56","position":3,"name":"Signer","meaning":"Who signed it.","type_value_object_id":"ST-VO50","required":true}
 {"value_object_id":"ST-VO56","position":4,"name":"Log entry","meaning":"The transparency log entry that holds it, when the signer is keyless.","type":"text","required":false,"example":"rekor:123456789"}
 {"value_object_id":"ST-VO57","position":1,"name":"Kind","meaning":"One of change or release.","type":"text","required":true,"example":"release"}
+{"value_object_id":"ST-VO58","position":1,"name":"Module path","meaning":"The library's Go module path.","type":"text","required":true,"example":"stego.dev/runtime"}
+{"value_object_id":"ST-VO58","position":2,"name":"Version","meaning":"The tagged version.","type":"text","required":true,"example":"v1.4.2"}
+{"value_object_id":"ST-VO58","position":3,"name":"Sum","meaning":"The go.sum hash of that version's contents.","type":"text","required":true,"example":"h1:2jc7..."}

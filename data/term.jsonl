@@ -28,6 +28,7 @@
 {"id":"ST-DIS-TM13","title":"Qualification","domain_id":"ST-DIS","meaning":"The check that the CI runs, required jobs and signed artifacts of a compiler release all passed at its exact commit."}
 {"id":"ST-DIS-TM14","title":"Build identity","domain_id":"ST-DIS","meaning":"What the compiler records about its own build: its Go version, platform, module version, revision and source state."}
 {"id":"ST-DIS-TM15","title":"Qualified platform","domain_id":"ST-DIS","meaning":"The one platform a compiler release is qualified for: Linux amd64."}
+{"id":"ST-DIS-TM16","title":"Runtime version","domain_id":"ST-DIS","meaning":"One tagged version of the runtime library; it is superseded and withdrawn like a component digest, and the fleet sweep names every service on it."}
 {"id":"ST-DLV-TM01","title":"platform-requirements.yaml","domain_id":"ST-DLV","meaning":"The typed file every service writes that states what its environment must supply, and holds no environment values."}
 {"id":"ST-DLV-TM02","title":"Environment file","domain_id":"ST-DLV","meaning":"The platform's typed file for one service in one environment, kept in a platform-owned repo, that supplies every value the requirements name."}
 {"id":"ST-DLV-TM03","title":"Kubernetes base","domain_id":"ST-DLV","meaning":"The plain kustomize base STEGO writes; the platform's overlay builds on it."}
@@ -50,6 +51,7 @@
 {"id":"ST-GEN-TM07","title":"Assembler","domain_id":"ST-GEN","meaning":"The part of the compiler that combines every generator's wiring into the service's entry point and module file."}
 {"id":"ST-GEN-TM08","title":"Output namespace","domain_id":"ST-GEN","meaning":"The folder, in the output, that one component's generator may write to. No two components share one."}
 {"id":"ST-GEN-TM20","title":"Architecture view","domain_id":"ST-GEN","meaning":"The self-contained HTML file every run writes that shows how a service is shaped and how it works, derived from the same inputs as its code."}
+{"id":"ST-GEN-TM21","title":"Build-time binding","domain_id":"ST-GEN","meaning":"The rule that a service's declaration is turned into behavior when the code is generated, never at startup or per request; it is what makes a generated decision non-negotiable."}
 {"id":"ST-SUP-TM01","title":"Registry","domain_id":"ST-SUP","meaning":"The set of archetypes, components and mixins that services are built from, pinned by one reference for each source."}
 {"id":"ST-SUP-TM02","title":"Common registry","domain_id":"ST-SUP","meaning":"The reviewed registry every team trusts. A local registry may add to it, and may not replace a part of it."}
 {"id":"ST-SUP-TM03","title":"Local registry","domain_id":"ST-SUP","meaning":"A registry that adds a team's own parts to the common registry."}
@@ -70,3 +72,6 @@
 {"id":"ST-SUP-TM18","title":"Quality bar","domain_id":"ST-SUP","meaning":"What a component version must hold to be ga: a security review, a benchmark against a reference and a design review, each at its exact digest."}
 {"id":"ST-SUP-TM19","title":"Promotion","domain_id":"ST-SUP","meaning":"Moving a component from a team's local registry into the common registry, through review, so every team can build from it."}
 {"id":"ST-SUP-TM20","title":"Architecture role","domain_id":"ST-SUP","meaning":"A component's stated layer, part in a request flow and port sides, from which the architecture view places it."}
+{"id":"ST-SUP-TM21","title":"Runtime library","domain_id":"ST-SUP","meaning":"The one versioned Go module that holds the code every service shares and no declaration changes, such as the outbox queue, the controller loop and tracing; generated code imports it at the version its archetype pins."}
+{"id":"ST-SUP-TM22","title":"Static file","domain_id":"ST-SUP","meaning":"A file a component emits that comes out the same for every declaration; it belongs in the runtime library, and the registry refuses a component that emits one."}
+{"id":"ST-SUP-TM23","title":"Framework","domain_id":"ST-SUP","meaning":"A dependency that inverts control: it scans, discovers or registers code by name, struct tag or init(), or interprets the declaration at run time. A pinned library with a stable API that the service's own code calls is not one."}

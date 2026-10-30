@@ -18,3 +18,4 @@
 {"id":"ST-VO55-VT","title":"assure.Coverage","value_object_id":"ST-VO55","file":"internal/assure/coverage.go"}
 {"id":"ST-VO56-VT","title":"assure.Attestation","value_object_id":"ST-VO56","file":"internal/assure/attestation.go"}
 {"id":"ST-VO57-VT","title":"assure.GateKind","value_object_id":"ST-VO57","file":"internal/assure/gate.go"}
+{"id":"ST-VO58-VT","title":"registry.RuntimePin","value_object_id":"ST-VO58","file":"internal/registry/runtime.go"}

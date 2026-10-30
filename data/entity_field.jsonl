@@ -162,6 +162,7 @@
 {"entity_id":"ST-SUP-EN03","position":1,"name":"Archetype name","meaning":"The archetype's name, unique in its registry.","type":"text","required":true,"example":"rest-crud"}
 {"entity_id":"ST-SUP-EN03","position":2,"name":"Version","meaning":"The version the archetype declares.","type":"text","required":true,"example":"3.0.0"}
 {"entity_id":"ST-SUP-EN03","position":3,"name":"Go SDK","meaning":"The official Go SDK that every service of this archetype builds with.","type_value_object_id":"ST-VO48","required":false}
+{"entity_id":"ST-SUP-EN03","position":4,"name":"Runtime library","meaning":"The runtime library version every service of this archetype imports.","type_value_object_id":"ST-VO58","required":false}
 {"entity_id":"ST-SUP-EN04","position":1,"name":"Component name","meaning":"The component the archetype includes, by its name in the active registry.","type":"text","required":true,"example":"postgres-adapter"}
 {"entity_id":"ST-SUP-EN04","position":2,"name":"Default for port","meaning":"The port this component answers unless the declaration overrides it.","type_aggregate_id":"ST-SUP-A3","required":false,"example":"auth-provider"}
 {"entity_id":"ST-SUP-EN05","position":1,"name":"Mixin name","meaning":"The mixin's name.","type":"text","required":true,"example":"event-publisher"}
