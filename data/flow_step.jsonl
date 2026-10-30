@@ -142,15 +142,16 @@
 {"id":"ST-SUP-UC03-FL01-S04","title":"A component that is not ga is refused, naming the component and its stage","flow_id":"ST-SUP-UC03-FL01","path":"refused","position":2}
 {"id":"ST-SUP-UC03-FL01-S05","title":"A mixin that brings a component that is not ga is refused, naming the component and its stage","flow_id":"ST-SUP-UC03-FL01","path":"refused","position":3}
 {"id":"ST-SUP-UC04-FL01-S01","title":"The platform engineer gives the component a port name of its own, which no ga component provides","flow_id":"ST-SUP-UC04-FL01","path":"main","position":1}
-{"id":"ST-SUP-UC04-FL01-S02","title":"The platform engineer adds the component at stage alpha, with the date it stops working","flow_id":"ST-SUP-UC04-FL01","path":"main","position":2}
+{"id":"ST-SUP-UC04-FL01-S02","title":"The platform engineer adds the component at stage alpha with the date it stops working, the outcome it serves, its references or why none exists, and its promise list as output contracts","flow_id":"ST-SUP-UC04-FL01","path":"main","position":2}
 {"id":"ST-SUP-UC04-FL01-S03","title":"A service that wants the component accepts it by name in its declaration, with a date of its own","flow_id":"ST-SUP-UC04-FL01","path":"main","position":3}
 {"id":"ST-SUP-UC04-FL01-S04","title":"A sunset date that is already past is refused","flow_id":"ST-SUP-UC04-FL01","path":"refused","position":1}
+{"id":"ST-SUP-UC04-FL01-S05","title":"A component that states no outcome, no reference and no reasoning, or no contract, is refused with what is missing","flow_id":"ST-SUP-UC04-FL01","path":"refused","position":2}
 {"id":"ST-SUP-UC05-FL01-S01","title":"The platform engineer reads every recorded service that uses the component","flow_id":"ST-SUP-UC05-FL01","path":"main","position":1}
 {"id":"ST-SUP-UC05-FL01-S02","title":"The platform engineer moves the component up to ga, which removes its sunset date and lets it take over the real port name","flow_id":"ST-SUP-UC05-FL01","path":"main","position":3}
 {"id":"ST-SUP-UC05-FL01-S03","title":"The platform engineer withdraws a component that will not graduate","flow_id":"ST-SUP-UC05-FL01","path":"withdrawn","position":1}
 {"id":"ST-SUP-UC05-FL01-S04","title":"STEGO reports every service that still uses a component past its sunset, and checking fails for each of them","flow_id":"ST-SUP-UC05-FL01","path":"missed","position":1}
-{"id":"ST-SUP-UC05-FL01-S05","title":"The platform engineer records the security review, the benchmark and the design review at the component's digest","flow_id":"ST-SUP-UC05-FL01","path":"main","position":2}
-{"id":"ST-SUP-UC05-FL01-S06","title":"A component that lacks a piece of the quality bar stays below ga, and STEGO names what is missing","flow_id":"ST-SUP-UC05-FL01","path":"below bar","position":1}
+{"id":"ST-SUP-UC05-FL01-S05","title":"The platform engineer records the security review, the benchmark and the design review at the component's digest, and the reference comparison at its contract set's digest","flow_id":"ST-SUP-UC05-FL01","path":"main","position":2}
+{"id":"ST-SUP-UC05-FL01-S06","title":"A component that lacks a piece of the quality bar, or whose reference comparison is stale or leaves a promise undecided, stays below ga, and STEGO names what is missing","flow_id":"ST-SUP-UC05-FL01","path":"below bar","position":1}
 {"id":"ST-SUP-UC06-FL01-S01","title":"The service author runs registry promote, and STEGO copies the component at its digest into a checkout of the common registry at stage alpha","flow_id":"ST-SUP-UC06-FL01","path":"main","position":1}
 {"id":"ST-SUP-UC06-FL01-S02","title":"The service author opens the change to the common registry, and a platform engineer reviews and accepts it","flow_id":"ST-SUP-UC06-FL01","path":"main","position":2}
 {"id":"ST-SUP-UC06-FL01-S03","title":"The service author moves the service's pin to the promoted component, and regeneration changes no file","flow_id":"ST-SUP-UC06-FL01","path":"main","position":3}

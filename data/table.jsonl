@@ -38,6 +38,7 @@
 {"id":"ST-SUP-EN08-TB","title":"slots/<slot>.proto","entity_id":"ST-SUP-EN08","name":"slots/<slot>.proto","storage":"file","file":"internal/registry/registry.go"}
 {"id":"ST-SUP-EN09-TB","title":"component.yaml","entity_id":"ST-SUP-EN09","name":"component.yaml","storage":"file","file":"internal/registry/registry.go"}
 {"id":"ST-SUP-EN11-TB","title":"quality.yaml","entity_id":"ST-SUP-EN11","name":"components/<name>/quality.yaml","storage":"file","file":"internal/registry/quality.go"}
+{"id":"ST-SUP-EN12-TB","title":"quality.yaml#promises","entity_id":"ST-SUP-EN12","name":"components/<name>/quality.yaml","storage":"file","file":"internal/registry/quality.go"}
 {"id":"ST-SUP-RM01-TB","title":"main.runRegistryInspect","read_model_id":"ST-SUP-RM01","name":"main.runRegistryInspect","storage":"in memory","file":"cmd/stego/main.go"}
 {"id":"ST-SUP-RM02-TB","title":"main.runRegistrySearch","read_model_id":"ST-SUP-RM02","name":"main.runRegistrySearch","storage":"in memory","file":"cmd/stego/main.go"}
 {"id":"ST-SUP-RM03-TB","title":"registry.ComponentConsumers","read_model_id":"ST-SUP-RM03","name":"registry.ComponentConsumers","storage":"in memory","file":"internal/registry/consumers.go"}

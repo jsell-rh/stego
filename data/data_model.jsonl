@@ -44,3 +44,4 @@
 {"id":"ST-SUP-EN09-DM","title":"types.Component","entity_id":"ST-SUP-EN09","file":"internal/types/types.go"}
 {"id":"ST-SUP-EN10-DM","title":"types.RegistrySource","entity_id":"ST-SUP-EN10","file":"internal/types/types.go"}
 {"id":"ST-SUP-EN11-DM","title":"registry.QualityEvidence","entity_id":"ST-SUP-EN11","file":"internal/registry/quality.go"}
+{"id":"ST-SUP-EN12-DM","title":"registry.ComparedPromise","entity_id":"ST-SUP-EN12","file":"internal/registry/quality.go"}

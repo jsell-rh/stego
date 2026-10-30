@@ -18,3 +18,4 @@
 {"id":"ST-SUP-SP04-PR","title":"registry.PastSunset","specification_id":"ST-SUP-SP04","file":"internal/registry/stage.go"}
 {"id":"ST-SUP-SP05-PR","title":"registry.statesPlace","specification_id":"ST-SUP-SP05","file":"internal/registry/architecture.go"}
 {"id":"ST-SUP-SP06-PR","title":"registry.fileIsStatic","specification_id":"ST-SUP-SP06","file":"internal/registry/static.go"}
+{"id":"ST-SUP-SP07-PR","title":"registry.bestOfBreed","specification_id":"ST-SUP-SP07","file":"internal/registry/quality.go"}

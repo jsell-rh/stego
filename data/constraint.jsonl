@@ -8,7 +8,7 @@
 {"id":"ST-VO44-C01","title":"An SSH or GPG signature","value_object_id":"ST-VO44","statement":"A fill signature's key type MUST be ssh or gpg, and its signature MUST be in the armored form that ssh-keygen -Y sign or gpg --detach-sign --armor writes."}
 {"id":"ST-VO45-C01","title":"One of four standings","value_object_id":"ST-VO45","statement":"A qualification standing MUST be exactly one of qualified, stale, unsigned or untested."}
 {"id":"ST-VO46-C01","title":"Written as component.slot","value_object_id":"ST-VO46","statement":"A slot reference MUST be written as the component name, a period and the slot name, each non-empty."}
-{"id":"ST-VO47-C01","title":"One of three kinds","value_object_id":"ST-VO47","statement":"A quality evidence kind MUST be exactly one of security review, benchmark or design review."}
+{"id":"ST-VO47-C01","title":"One of four kinds","value_object_id":"ST-VO47","statement":"A quality evidence kind MUST be exactly one of security review, benchmark, design review or reference comparison."}
 {"id":"ST-VO48-C01","title":"An official release by digest","value_object_id":"ST-VO48","statement":"A Go SDK pin MUST name an official Go release and the digest of that release's contents, and a build MUST refuse an SDK whose contents differ."}
 {"id":"ST-VO49-C01","title":"SPDX or CycloneDX","value_object_id":"ST-VO49","statement":"An SBOM format MUST be exactly one of SPDX or CycloneDX, each in its JSON form."}
 {"id":"ST-VO50-C01","title":"Keyless workflow or Chains key","value_object_id":"ST-VO50","statement":"A signer identity MUST be either a keyless identity that names an OIDC issuer and a workflow subject with the exact reference the workflow ran at, or a Tekton Chains signer named by the digest of its public key, and never both."}
