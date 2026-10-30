@@ -89,5 +89,5 @@ The target Kubernetes server supplies schema defaults and CEL evaluation. See
 [Kubernetes admission parameters](https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/).
 The pure renderer and live type checks pass, but the parameter lookup gate
 failed. No complete admission or lifetime result has passed. See the
-[attempt record](../../../specs/pinned-resource-admission.md). Unattended CNPG
+attempt record (a retired record, in git history). Unattended CNPG
 installation and credential renewal remain open.

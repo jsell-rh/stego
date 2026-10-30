@@ -2,7 +2,7 @@ The `otel-tracing` component version 1.2.0 generates request metrics and
 OpenTelemetry request logs as well as HTTP and gRPC server spans. One runtime
 owns all three providers and their shared verified TLS 1.3 export connection.
 Application handlers do not construct exporters or record these common signals.
-This is progress toward the [full observability requirement](shared-observability.md),
+This is progress toward the full observability requirement (a retired record, in git history),
 which remains open.
 
 The existing HTTPS collector, trust, service-name, and local trace-sampling
@@ -12,7 +12,7 @@ by default. `OTEL_METRICS_EXPORTER` and `OTEL_LOGS_EXPORTER` each accept `otlp`,
 defaults to ten seconds. `OTEL_METRIC_EXPORT_INTERVAL` accepts a canonical integer
 from 1,000 through 60,000 milliseconds. Other nonempty, undeclared `OTEL_` settings
 still fail startup. Without an endpoint, these providers and request wrappers
-remain disabled. Version 1.3.0 adds [local service events](service-logging.md). Public health and discovery routes
+remain disabled. Version 1.3.0 adds local service events (a retired record, in git history). Public health and discovery routes
 remain outside the application request wrappers.
 
 The generated instruments are:

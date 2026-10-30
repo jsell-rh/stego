@@ -9,7 +9,7 @@ logs, metrics, and traces. The application supplies no client transport code.
 Call `sdk.NewClient` with a base URL, bearer token, and optional CA file and
 request timeout. Call `Close` to release the client.
 
-See the [input and runtime contract](../../../specs/go-sdk.md) for limits,
+See the input and runtime contract (a retired record, in git history) for limits,
 unsupported features, response handling, and acceptance requirements.
 
 Version 2 preserves omitted fields, explicit JSON null, and values for nullable

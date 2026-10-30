@@ -76,7 +76,7 @@ token to the configured API. It does not accept bearer tokens from the browser.
 
 The component does not supply domain pages, API authorization rules, identity
 provider administration, ingress certificates, or production database setup.
-See [the runtime contract](../../../specs/browser-backend.md) for limits and
+See the runtime contract (a retired record, in git history) for limits and
 acceptance evidence. A browser user interface and deployment still need their
 own application checks.
 

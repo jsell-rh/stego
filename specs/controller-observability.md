@@ -52,7 +52,7 @@ Metrics and logs cover unsampled work. Local JSON logging remains enabled
 without a collector. Local and OTLP queues retain their existing separate
 256-record limits. Full queues can drop logs. Recording does not wait for export
 or local writes. The shared three-second close budget and fixed failure counters
-still apply. See [service logging](service-logging.md) for blocked stderr behavior.
+still apply. See service logging (a retired record, in git history) for blocked stderr behavior.
 
 Generated tests cover controller operation with and without the telemetry peer,
 overlapping provider ownership, queue aggregation, registration limits and
@@ -78,7 +78,7 @@ backlog export through OTLP, outbound client spans and propagation, database
 spans, process resource metrics, or domain event declarations. Existing loopback
 Prometheus diagnostics remain available. Cross-process trace continuation from
 API requests into reconciliation is not claimed. The full
-[observability requirement](shared-observability.md) remains open.
+observability requirement (a retired record, in git history) remains open.
 
 Compiler CI run 34532475046 failed an existing reconnect test. A retained action
 returned its terminal error before the second scan started. The test assumed an
@@ -90,7 +90,7 @@ runs passed across both generated forms and GOMAXPROCS values 1 and 4. Run
 to repeat this check. Production runtime code did not change in this correction.
 The failed CI result is not a pass; the corrected revision needs its own CI.
 
-The later [instance identity contract](telemetry-instance-identity.md) adds
+The later instance identity contract (a retired record, in git history) adds
 `service.instance.id` to all signals and local logs. It distinguishes separate
 replicas and runtime replacements. Full production observability remains open.
 

@@ -25,7 +25,7 @@ continuation rules, tests, and application evidence.
 `CheckpointStore` stores scan progress with an independent version. It rejects
 stale saves, retains the version when a scan completes, and requires a store
 transaction for each save. The application must authorize each fixed scope.
-See [scan checkpoints](../../../specs/scan-checkpoints.md).
+See scan checkpoints (a retired record, in git history).
 
 Versioned entities with desired generations can declare condition owners and
 names. The generated condition writer requires the observed resource revision
@@ -36,7 +36,7 @@ The generated process uses a private GORM connection with raw logging disabled.
 With `otel-tracing`, version 3.14.0 also generates an instrumented PostgreSQL
 pool factory. The generated main owns the pool. Request contexts supply the
 telemetry runtime; domain code needs no wrapper. See the
-[database telemetry contract](../../../specs/database-observability.md).
+database telemetry contract (a retired record, in git history).
 Process failures report a fixed stage without driver or query text. See the
 process failure policy (a retired record, in git history) for coverage
 and limits. Database telemetry remains an open requirement.

@@ -6,6 +6,6 @@ Checks run in a bounded background loop. HTTP requests read the latest result.
 Failed, absent, stale, or canceled observations produce 503. Dependency errors
 are not returned to callers. Liveness does not depend on database connectivity.
 
-See [the health contract](../../../specs/health-probes.md) for timing, lifecycle,
+See the health contract (a retired record, in git history) for timing, lifecycle,
 security, tests, and limits. Database readiness does not certify the schema,
 provider state, or event delivery.

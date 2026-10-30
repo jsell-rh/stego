@@ -227,7 +227,7 @@ RunObservation reserves time to commit a conditional observation after provider
 work. Its work timeout cannot consume the commit reserve within a parent action
 deadline. Both callbacks run synchronously and retain cancellation. The caller
 owns status values, access rules, revision checks, and atomic events. See the
-[observation budget contract](../../../specs/observation-budgets.md) for limits,
+observation budget contract (a retired record, in git history) for limits,
 error behavior, tests, and application evidence.
 
 `ScanCheckpointed` connects `ScanFrom` to durable checkpoint callbacks. It
@@ -235,12 +235,12 @@ reserves time for a conditional save after work. Parent cancellation prevents
 the save. Completion resets the cursor so that the next pass scans all data.
 Initial and page cursors cannot contain NUL bytes. The whole page is checked
 before its first effect, so emitted cursors can pass checkpoint validation.
-See [scan checkpoints](../../../specs/scan-checkpoints.md).
+See scan checkpoints (a retired record, in git history).
 
 `ScanCycle` retains action failures across bounded passes and process replacement.
 It uses versioned checkpoint callbacks and a bounded record with no provider error
 text. A completed cycle with an earlier failure returns `ErrCycleFailed`.
-See [scan-cycle outcomes](../../../specs/scan-cycles.md) for invalidation rules.
+See scan-cycle outcomes (a retired record, in git history) for invalidation rules.
 
 [Sweep telemetry](../../../specs/sweep-observability.md) covers page reads and
 actions in `RunSweep`. It shares providers with keyed controllers and omits
@@ -276,7 +276,7 @@ The generated Kubernetes worker resources use these commands. Common telemetry
 still uses the configured OTLP exporter; the local endpoint is not exposed as
 a Kubernetes Service.
 
-[Run callback abort handling](../../../specs/controller-process-abort.md) covers
+Run callback abort handling (a retired record, in git history) covers
 the goroutine that calls Run, with or without the local monitor. Goroutines
 started by the callback, fatal runtime faults, and callbacks that do not stop
 on cancellation remain outside this boundary.
@@ -336,5 +336,5 @@ behind an offset. It does not make offset pagination a snapshot.
 The public `Run` entry point also uses the common telemetry runtime. It records
 watch sessions, scans, reconciliation work, and queue counts. The configured
 buffer limit excludes the active action; reported capacity includes that action.
-See [public Run telemetry](../../../specs/controller-run-telemetry.md) for the
+See public Run telemetry (a retired record, in git history) for the
 lifecycle contract and exact-source verification.

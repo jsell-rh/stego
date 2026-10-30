@@ -8,10 +8,10 @@ Application fills and factories supply domain rules. The requirements are the
 Lathe model under `data/`; `lathe check` reports what is designed, built and
 proved. Production use requires validation for the selected application and
 deployment.
-The [Kubernetes service component](specs/kubernetes-service.md) supplies common
+The Kubernetes service component (a retired record, in git history) supplies common
 container build files, restricted Pod settings, network policy, and HTTPS probes.
 Its workload policies do not cover application-allocated namespaces. The
-[namespace allocator](specs/namespace-allocation.md) has an optional deny-all
+namespace allocator (a retired record, in git history) has an optional deny-all
 policy with admission protection. Allowed traffic and live network enforcement
 for the Hypershell Gateway profile remain open; the application has not enabled
 that policy.
@@ -147,12 +147,12 @@ These checks do not replace application tests or dependency security review.
 
 Adapter version 4 requires verified database TLS by default. Configure
 `sslmode=verify-full` and a trusted server certificate. The
-[database TLS contract](specs/database-tls.md) describes private trust roots,
+database TLS contract (a retired record, in git history) describes private trust roots,
 host fallbacks, and the explicit loopback test exception.
 
 Set `DATABASE_URL` or `DATABASE_URL_FILE` for the service database. The file
 setting supports mounted secrets with bounded reads and private file permissions.
-See [database secret sources](specs/database-secret-source.md) for the source
+See database secret sources (a retired record, in git history) for the source
 rules and restart behavior.
 
 The PostgreSQL adapter prepares model metadata before concurrent work starts.

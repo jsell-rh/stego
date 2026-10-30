@@ -6,7 +6,7 @@ not prevent application requests.
 
 Version 1.10.0 adds fixed PostgreSQL driver signals through the same runtime.
 The storage peer supplies the driver callbacks. SQL and connection data do not
-enter the signal API. See the [database telemetry contract](../../../specs/database-observability.md).
+enter the signal API. See the database telemetry contract (a retired record, in git history).
 
 Version 1.13.0 adds automatic metrics for the process database pool. The compiler
 supplies the existing pool; no database is created for telemetry alone. The
@@ -26,7 +26,7 @@ Complete service, controller, database, and outbound instrumentation remains ope
 
 Version 1.3.0 also emits fixed runtime lifecycle events as local JSON and OTLP
 logs. Local service logs remain available without a collector. See the
-[service logging contract](../../../specs/service-logging.md) for the declared
+service logging contract (a retired record, in git history) for the declared
 event API, queue limits, shutdown behavior, and remaining process logging work.
 
 [Shared controller telemetry](../../../specs/controller-observability.md) now
@@ -35,21 +35,21 @@ The generated runtime owns logging, metrics, spans, and provider lifetime.
 
 Version 1.5.0 adds a random `service.instance.id` shared by all signals and local
 logs in one runtime. Replacements get a new identity. See the
-[instance identity contract](../../../specs/telemetry-instance-identity.md).
+instance identity contract (a retired record, in git history).
 
 Version 1.6.0 supplies the generated HTTP server's diagnostic logger. It discards
 raw panic and server error text, then queues a fixed local and OTLP service
 event. See HTTP diagnostics (a retired record, in git history) for ownership,
 queue limits, request correlation, and remaining work.
 
-[RPC client observability](../../../specs/rpc-client-observability.md) adds
+RPC client observability (a retired record, in git history) adds
 common outbound signals through the active runtime. Generated clients select
 method names from compiled contracts and preserve the complete stream lifetime.
 
 Generated HTTPS clients use the telemetry runtime in their call context.
-The [HTTP client contract](../../../specs/http-client-observability.md) defines
+The HTTP client contract (a retired record, in git history) defines
 completion, propagation, privacy, and resource bounds. The generated CLI now owns its runtime; see the
-[CLI contract](../../../specs/cli-observability.md).
+CLI contract (a retired record, in git history).
 
 `ExportEnvironment(service, directory)` captures the current collector settings
 and returns validated environment values and files for another generated process.

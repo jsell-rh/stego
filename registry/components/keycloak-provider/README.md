@@ -11,7 +11,7 @@ checked native and service-account enablement, and service-account token verific
 shared JWT verifier from `jwt-auth` or `rh-sso-auth`. The compiler requires that
 verifier and the generated HTTP application client. The application supplies its
 domain policy. See the
-[acceptance gate](../../../specs/keycloak-provider-boundary.md).
+acceptance gate (a retired record, in git history).
 
 `ClientBinding` contains an immutable provider ID, a public OAuth client ID,
 and expected ownership attributes from application state. Do not derive these

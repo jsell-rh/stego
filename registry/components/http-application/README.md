@@ -56,7 +56,7 @@ on ordinary requests; it does not replace the public response type or its access
 checks with a field schema.
 
 Generated HTTPS clients use the telemetry runtime in their call context.
-The [HTTP client contract](../../../specs/http-client-observability.md) defines
+The HTTP client contract (a retired record, in git history) defines
 completion, propagation, privacy, and resource bounds. Independent CLI entry
 points still need runtime integration.
 

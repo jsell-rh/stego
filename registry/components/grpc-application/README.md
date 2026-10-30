@@ -15,13 +15,13 @@ A callback panic is reported without its contents; remaining callbacks still
 run. Tests cover normal stop, repeated close, registration error, registration
 panic, and listener failure.
 
-[RPC client observability](../../../specs/rpc-client-observability.md) adds
+RPC client observability (a retired record, in git history) adds
 common outbound signals through the active runtime. Generated clients select
 method names from compiled contracts and preserve the complete stream lifetime.
 
 The optional `processes` declarations generate separate RPC entry points with
 common authentication, telemetry, signals, and cleanup. Domain factories supply
-only their services and dependencies. See [RPC processes](../../../specs/grpc-processes.md)
+only their services and dependencies. See RPC processes (a retired record, in git history)
 for the source contract and process bounds.
 
 Terminal `Header` and `RecvMsg` results complete the client span before they
@@ -34,4 +34,4 @@ not end the stream span; EOF records successful completion.
 The generated transport provides checked required and optional timestamp
 conversion. Invalid values return no timestamp and a fixed error. A nil
 optional input stays absent; a present zero Go time stays present. See
-[the conversion contract](../../../specs/checked-timestamp-conversion.md).
+the conversion contract (a retired record, in git history).
