@@ -14,24 +14,24 @@ last_applied:
                 mode: 420
             go.mod:
                 exists: true
-                sha256: f91e30c57906e922a900c355af4ad555c97246e7bc6e53e831e15521f300adc4
+                sha256: 3ccb8e5ce67112425fe7c83be06bdd2b90ad6ffafeab7b37dc07eb1d8e53cd25
                 mode: 420
             go.sum:
                 exists: true
-                sha256: ebd1dfb117ad38ea91954ec141a4e20dd81480f6b3ae75f85b82a62312b0894b
+                sha256: d81f1adbfddce67774f26734e51227138f6ceeea81f5db9e36b0fe6bbf081b3c
                 mode: 420
             service.yaml:
                 exists: true
                 sha256: 40aa411da16d99a025ea81b2c13702b86cacd06678d0825757c4865830bee705
                 mode: 420
-        sha256: 410869af7fc932cb9d2ed312b7bde7f8bea2200159fa66814d71025ad9522b3c
+        sha256: 5e13eb9aab8856b5b4bb6ffd1fc81dc287bde53a24ac36cf88e32aba7f5712bb
     compiler_build:
         go_version: go1.26.10
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261030214725-eddf89f5995c
+        module_version: v0.0.0-20261030220542-305f6fe7e0e6
         vcs: git
-        revision: eddf89f5995c8e8cab6be2f61ab1d120a2970267
+        revision: 305f6fe7e0e6781c186e10fec7af36a413a00580
         source_state: clean
     service_hash: 40aa411da16d99a025ea81b2c13702b86cacd06678d0825757c4865830bee705
     registry_sha: env-override
