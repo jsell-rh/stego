@@ -26,7 +26,7 @@ func testStreams(t *testing.T, options bool) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	files := map[string][]byte{"go.mod": []byte("module example.com/stream-test\ngo 1.26.8\n"), "client.go": file.Bytes(), "isolation_test.go": isolationTests}
+	files := map[string][]byte{"go.mod": []byte("module example.com/stream-test\ngo 1.26.10\n"), "client.go": file.Bytes(), "isolation_test.go": isolationTests}
 	pattern := "^(TestStreamRequestIsolation|TestStreamCallbackOwnsItsSlot)$"
 	if options {
 		files["options_test.go"] = optionTests
@@ -75,7 +75,7 @@ func TestLeafSymbolicLink(t *testing.T){
 `
 		dir := t.TempDir()
 		files := map[string][]byte{
-			"go.mod":           []byte("module example.com/link-test\ngo 1.26.8\n"),
+			"go.mod":           []byte("module example.com/link-test\ngo 1.26.10\n"),
 			"follow/client.go": follow.Bytes(),
 			"refuse/client.go": refuse.Bytes(),
 			"policy_test.go":   []byte(fixture),
@@ -122,7 +122,7 @@ func TestCacheResponse(t *testing.T){
  if followed.Load()!=0{t.Fatal("redirect was followed")}
 }
 `
-	for name, data := range map[string][]byte{"go.mod": []byte("module example.com/cache-test\ngo 1.26.8\n"), "client.go": file.Bytes(), "client_test.go": []byte(fixture)} {
+	for name, data := range map[string][]byte{"go.mod": []byte("module example.com/cache-test\ngo 1.26.10\n"), "client.go": file.Bytes(), "client_test.go": []byte(fixture)} {
 		if err := os.WriteFile(filepath.Join(dir, name), data, 0644); err != nil {
 			t.Fatal(err)
 		}

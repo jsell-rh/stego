@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
-          go-version: '1.26.8'
+          go-version: '1.26.10'
           cache-dependency-path: |
             go.sum
             examples/*/go.sum
@@ -102,7 +102,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: '1.26.8'
+          go-version: '1.26.10'
           cache: true
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -141,7 +141,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
-          go-version: '1.26.8'
+          go-version: '1.26.10'
           cache: true
       - name: Check generated SQL provisioning on a dedicated server
         run: go test -v -race -count=1 -mod=readonly -timeout=8m ./internal/generator/postgresclient
@@ -168,7 +168,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
-          go-version: '1.26.8'
+          go-version: '1.26.10'
           cache: true
       - name: Check saved client closure with both ownership formats
         run: |
@@ -227,7 +227,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
-          go-version: '1.26.8'
+          go-version: '1.26.10'
           cache: true
       - name: Check generated state keys and scope closure
         shell: bash

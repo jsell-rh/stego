@@ -14,7 +14,7 @@ func snapshotTestInput(t *testing.T) ReconcilerInput {
 	t.Helper()
 	project, registry := setupTestProject(t)
 	return ReconcilerInput{
-		ProjectDir: project, RegistryDir: registry, ModuleName: "example.com/snapshot", GoVersion: "1.26.8",
+		ProjectDir: project, RegistryDir: registry, ModuleName: "example.com/snapshot", GoVersion: "1.26.10",
 		Generators: map[string]gen.Generator{
 			"stub-api":   &stubGenerator{files: []gen.File{{Path: "internal/api/handler.go", Content: []byte("package api\n")}}},
 			"stub-store": &stubGenerator{},

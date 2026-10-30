@@ -115,7 +115,7 @@ func testGeneratedKubernetesClient(t *testing.T, telemetry bool, selected string
 	files = append(files, gen.File{Path: "kubernetes/watch_capacity_test.go", Content: watchCapacityTests})
 	files = append(files, gen.File{Path: "kubernetes/watch_set_test.go", Content: watchSetTests})
 	var module strings.Builder
-	module.WriteString("module example.com/widget\ngo 1.26.8\n")
+	module.WriteString("module example.com/widget\ngo 1.26.10\n")
 	if telemetry {
 		ctx.OutputNamespace = "tracing"
 		ctx.ServiceName = "widget"
@@ -222,7 +222,7 @@ func TestPinnedAdmissionTemplate(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for name, data := range map[string][]byte{"go.mod": []byte("module example.com/policy\ngo 1.26.8\n"), "types.go": []byte("package kubernetes\ntype Object map[string]any\n"), "policy_test.go": pinnedAdmissionTests} {
+	for name, data := range map[string][]byte{"go.mod": []byte("module example.com/policy\ngo 1.26.10\n"), "types.go": []byte("package kubernetes\ntype Object map[string]any\n"), "policy_test.go": pinnedAdmissionTests} {
 		if err := os.WriteFile(filepath.Join(directory, name), data, 0600); err != nil {
 			t.Fatal(err)
 		}

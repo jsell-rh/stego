@@ -210,7 +210,7 @@ func reservedPath(value string) bool {
 func canonicalPath(value string) bool {
 	return len(value) > 0 && len(value) <= 256 && publicPath.MatchString(value) && path.Clean(value) == value && !strings.Contains(value, "//")
 }
-func (*Generator) MinimumGoVersion() string { return "1.26.8" }
+func (*Generator) MinimumGoVersion() string { return "1.26.10" }
 func (g *Generator) InputFiles(values map[string]any) ([]gen.InputFile, error) {
 	s, err := g.config(values)
 	if err != nil {

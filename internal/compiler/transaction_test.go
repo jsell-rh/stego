@@ -318,7 +318,7 @@ func TestTransactionProcessHelper(t *testing.T) {
 	}
 	input := ReconcilerInput{
 		ProjectDir: project, RegistryDir: os.Getenv("STEGO_TEST_TRANSACTION_REGISTRY"),
-		ModuleName: "example.com/snapshot", GoVersion: "1.26.8", Generators: transactionGenerators(true),
+		ModuleName: "example.com/snapshot", GoVersion: "1.26.10", Generators: transactionGenerators(true),
 	}
 	plan, err := Reconcile(input)
 	if err != nil {

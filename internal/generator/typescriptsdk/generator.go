@@ -24,7 +24,7 @@ func (*Generator) InputFiles(config map[string]any) ([]gen.InputFile, error) {
 	names, err := openapicontract.InputFiles(openAPIConfig(config))
 	return gen.SourceInputs(names), err
 }
-func (*Generator) MinimumGoVersion() string { return "1.26.8" }
+func (*Generator) MinimumGoVersion() string { return "1.26.10" }
 func (*Generator) ValidateContext(ctx gen.Context) error {
 	c, err := compile(ctx)
 	if err != nil {

@@ -36,7 +36,7 @@ func TestHTTPLoggerConsumesItsConstructorAndUsesItsName(t *testing.T) {
 			if tasks {
 				api.BackgroundTasks = []int{0}
 			}
-			files, err := Assemble(AssemblerInput{ModuleName: "example.com/diagnostics", GoVersion: "1.26.8", Wirings: []ComponentWiring{
+			files, err := Assemble(AssemblerInput{ModuleName: "example.com/diagnostics", GoVersion: "1.26.10", Wirings: []ComponentWiring{
 				{Name: "api", Wiring: api},
 				{Name: "logger", Wiring: &gen.Wiring{Imports: []string{"internal/log"}, Constructors: []string{"log.NewHandle()"}, HTTPErrorLogger: &index}},
 			}})

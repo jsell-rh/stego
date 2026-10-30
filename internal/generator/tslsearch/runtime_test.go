@@ -18,7 +18,7 @@ func TestGeneratedSearchRuntime(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	module := "module example.com/search-test\n\ngo 1.26.8\n\nrequire github.com/yaacov/tree-search-language/v5 v5.2.12\n"
+	module := "module example.com/search-test\n\ngo 1.26.10\n\nrequire github.com/yaacov/tree-search-language/v5 v5.2.12\n"
 	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte(module), 0644); err != nil {
 		t.Fatal(err)
 	}

@@ -94,7 +94,7 @@ func TestOverlaysAcceptSelfPinnedReference(t *testing.T) {
 	if testPath == "" {
 		t.Fatal("overlay test not emitted")
 	}
-	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte("module example.com/overlay\ngo 1.26.8\nrequire google.golang.org/protobuf v1.36.11\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte("module example.com/overlay\ngo 1.26.10\nrequire google.golang.org/protobuf v1.36.11\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	command := exec.Command("go", "test", "-mod=mod", "./out/"+filepath.Dir(testPath))
@@ -135,7 +135,7 @@ func TestOverlaysAcceptValidExtensions(t *testing.T) {
 	if testPath == "" {
 		t.Fatal("overlay test not emitted")
 	}
-	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte("module example.com/overlay\ngo 1.26.8\nrequire google.golang.org/protobuf v1.36.11\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte("module example.com/overlay\ngo 1.26.10\nrequire google.golang.org/protobuf v1.36.11\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	command := exec.Command("go", "test", "-mod=mod", "./out/grpcapi/pb/")

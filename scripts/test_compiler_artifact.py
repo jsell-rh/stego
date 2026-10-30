@@ -68,7 +68,7 @@ class ArtifactChecks(unittest.TestCase):
         source.mkdir()
         go = self.root / "sdk" / "bin" / "go"
         go.parent.mkdir(parents=True)
-        go.write_text("#!/bin/sh\necho 'go version go1.26.8 linux/amd64'\n")
+        go.write_text("#!/bin/sh\necho 'go version go1.26.10 linux/amd64'\n")
         go.chmod(0o755)
         with patch.object(artifact, "command") as command:
             with self.assertRaisesRegex(artifact.CheckError, "pinned official release"):

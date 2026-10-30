@@ -4,7 +4,7 @@ last_applied:
         version: 1
         options:
             module_name: github.com/example/service
-            go_version: 1.26.8
+            go_version: 1.26.10
             output_dir: out
             registry_ref: env-override
         files:
@@ -26,7 +26,7 @@ last_applied:
                 mode: 420
         sha256: 410869af7fc932cb9d2ed312b7bde7f8bea2200159fa66814d71025ad9522b3c
     compiler_build:
-        go_version: go1.26.8
+        go_version: go1.26.10
         goos: linux
         goarch: amd64
         module_version: v0.0.0-20261030214725-eddf89f5995c

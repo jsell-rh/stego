@@ -45,7 +45,7 @@ func TestRPCProcessCommandsWithoutStorage(t *testing.T) {
 	t.Chdir(project)
 	t.Setenv("STEGO_REGISTRY", registry)
 	t.Setenv("STEGO_MODULE", "example.com/grpc-test")
-	t.Setenv("STEGO_GO_VERSION", "1.26.8")
+	t.Setenv("STEGO_GO_VERSION", "1.26.10")
 	t.Setenv("GOWORK", "off")
 	write := func(name string, data []byte) {
 		t.Helper()

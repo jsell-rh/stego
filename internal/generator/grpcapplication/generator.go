@@ -173,7 +173,7 @@ func renderFiles(ctx gen.Context, data any, sources []templateSource) ([]gen.Fil
 func rpcDependencies(ctx gen.Context) map[string]string {
 	dependencies := map[string]string{"google.golang.org/grpc": "v1.83.2", "google.golang.org/protobuf": "v1.36.11"}
 	if declared, _ := processes(ctx.ComponentConfig); len(declared) != 0 {
-		dependencies["golang.org/x/net"] = "v0.58.0"
+		dependencies["golang.org/x/net"] = "v0.60.0"
 	}
 	return dependencies
 }

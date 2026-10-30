@@ -45,11 +45,11 @@ func assertCommandsRejectPathsBeforeWriting(t *testing.T, base, collections stri
 	t.Chdir(project)
 	t.Setenv("STEGO_REGISTRY", registry)
 	t.Setenv("STEGO_MODULE", "example.com/base-path")
-	t.Setenv("STEGO_GO_VERSION", "1.26.8")
+	t.Setenv("STEGO_GO_VERSION", "1.26.10")
 	files := map[string]string{
 		"service.yaml": "kind: service\nname: base-path\narchetype: rest-crud\nlanguage: go\n" + base + "entities:\n  - name: Widget\n    fields:\n      - {name: label, type: string}\ncollections:\n" + collections,
 		"out/main.go":  "existing output\n", ".stego/state.yaml": "last_applied: null\n",
-		"go.mod": "module example.com/base-path\ngo 1.26.8\n", "go.sum": "",
+		"go.mod": "module example.com/base-path\ngo 1.26.10\n", "go.sum": "",
 	}
 	for name, data := range files {
 		if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {

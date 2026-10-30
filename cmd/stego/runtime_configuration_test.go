@@ -41,7 +41,7 @@ overrides:
           - {name: Address, env: WIDGET_ADDRESS, type: string, min_length: 1, max_length: 256}
           - {name: Resync, env: WIDGET_RESYNC, type: duration, min: 1s, max: 1h, default: 30s}
 `
-	input := compiler.ReconcilerInput{ProjectDir: project, RegistryDir: registry, GoVersion: "1.26.8", ModuleName: "example.com/widget", Generators: defaultGenerators()}
+	input := compiler.ReconcilerInput{ProjectDir: project, RegistryDir: registry, GoVersion: "1.26.10", ModuleName: "example.com/widget", Generators: defaultGenerators()}
 	for name, source := range map[string]string{
 		"valid":           declaration,
 		"unknown field":   strings.Replace(declaration, "max_length: 256", "max_length: 256, unknown: true", 1),

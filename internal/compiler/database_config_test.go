@@ -14,7 +14,7 @@ var databaseConfigTests []byte
 func TestGeneratedDatabaseConfiguration(t *testing.T) {
 	project := t.TempDir()
 	files := map[string][]byte{
-		"go.mod":         []byte("module example.com/databaseconfig\ngo 1.26.8\n"),
+		"go.mod":         []byte("module example.com/databaseconfig\ngo 1.26.10\n"),
 		"config.go":      []byte("package main\nimport(\"os\";\"errors\";\"path/filepath\";\"syscall\";\"io\";\"strings\")\n" + databaseConfigSource),
 		"config_test.go": databaseConfigTests,
 	}

@@ -14,7 +14,7 @@ func metadataInput(routes bool) AssemblerInput {
 	if routes {
 		wiring.Routes = []string{`mux.HandleFunc("GET /private", handler.Handle)`}
 	}
-	return AssemblerInput{ModuleName: "example.com/metadata", GoVersion: "1.26.8", OutDirName: "out", Wirings: []ComponentWiring{{Name: "fixture", Wiring: wiring}}}
+	return AssemblerInput{ModuleName: "example.com/metadata", GoVersion: "1.26.10", OutDirName: "out", Wirings: []ComponentWiring{{Name: "fixture", Wiring: wiring}}}
 }
 
 func TestConstructorMetadataIndexesMustExist(t *testing.T) {

@@ -29,8 +29,8 @@ func TestGeneratorGoVersionGatesGeneration(t *testing.T) {
 		{"1.25.1", "1.25.0", "requires Go 1.25.1 or later"},
 		{"1.25", "", "requires a valid Go target"},
 		{"1.25", "invalid", "requires a valid Go target"},
-		{"", "1.26.8", "invalid minimum Go version"},
-		{"go1.25", "1.26.8", "invalid minimum Go version"},
+		{"", "1.26.10", "invalid minimum Go version"},
+		{"go1.25", "1.26.10", "invalid minimum Go version"},
 	} {
 		t.Run(tt.minimum+"/"+tt.target, func(t *testing.T) {
 			input := snapshotTestInput(t)
@@ -55,7 +55,7 @@ func TestGeneratorGoVersionGatesGeneration(t *testing.T) {
 }
 
 func TestGeneratorGoVersionAcceptsSupportedTargets(t *testing.T) {
-	for _, target := range []string{"1.25", "1.25.0", "1.25.1", "1.26.8", "1.30"} {
+	for _, target := range []string{"1.25", "1.25.0", "1.25.1", "1.26.10", "1.30"} {
 		t.Run(target, func(t *testing.T) {
 			input := snapshotTestInput(t)
 			input.GoVersion = target

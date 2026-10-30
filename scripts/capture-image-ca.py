@@ -15,7 +15,7 @@ from pathlib import Path
 import re
 import subprocess
 
-IMAGE = 'docker.io/library/golang@sha256:2d54f6c8c6ea532a321e0b4c69553b2ed3637608d4f4357dbed37939fe2620cc'
+IMAGE = 'docker.io/library/golang@sha256:670bb5aa5349ae03b8516764718486f4f16399134bdc9acd0c46a23f043ab05c'
 
 
 spec = importlib.util.spec_from_file_location('control', Path(__file__).with_name('check-compiler-artifact.py'))

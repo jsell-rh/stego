@@ -91,7 +91,7 @@ func TestDependencyResolutionUsesLocalReplacementsAndPreservesThem(t *testing.T)
 			t.Fatal(err)
 		}
 		for name, data := range map[string]string{
-			"go.mod":   "module example.com/local\ngo 1.26.8\n",
+			"go.mod":   "module example.com/local\ngo 1.26.10\n",
 			"local.go": "package local\n",
 		} {
 			if err := os.WriteFile(filepath.Join(dependency, name), []byte(data), 0644); err != nil {
@@ -177,12 +177,12 @@ func TestDependencyResolutionRequiresAppliedCode(t *testing.T) {
 }
 
 func TestResolvedModuleCannotLowerComponentMinimum(t *testing.T) {
-	before, err := modfile.Parse("go.mod", []byte("module example.com/app\ngo 1.26.8\n"), nil)
+	before, err := modfile.Parse("go.mod", []byte("module example.com/app\ngo 1.26.10\n"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, suffix := range []string{"", "require example.com/dep v1.0.0\n"} {
-		if err := validateResolvedModule(before, []byte("module example.com/app\ngo 1.26.8\n"+suffix), map[string]string{"example.com/dep": "v1.2.0"}); err == nil {
+		if err := validateResolvedModule(before, []byte("module example.com/app\ngo 1.26.10\n"+suffix), map[string]string{"example.com/dep": "v1.2.0"}); err == nil {
 			t.Fatal("accepted missing or lower component requirement")
 		}
 	}
@@ -192,7 +192,7 @@ func TestDependencyResolutionRejectsChangedExternalReplacement(t *testing.T) {
 	input := snapshotTestInput(t)
 	applyInitialSnapshot(t, input)
 	external := t.TempDir()
-	for name, data := range map[string]string{"go.mod": "module example.com/local\ngo 1.26.8\n", "local.go": "package local\n"} {
+	for name, data := range map[string]string{"go.mod": "module example.com/local\ngo 1.26.10\n", "local.go": "package local\n"} {
 		if err := os.WriteFile(filepath.Join(external, name), []byte(data), 0644); err != nil {
 			t.Fatal(err)
 		}

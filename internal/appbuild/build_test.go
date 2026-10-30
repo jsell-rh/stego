@@ -136,12 +136,12 @@ func TestArchiveCopiesOnlyDeclaredBytes(t *testing.T) {
 func TestLocalReplacementCannotEscapeSource(t *testing.T) {
 	root := t.TempDir()
 	for _, replacement := range []string{"../../outside", "/etc", "../bad:volume", "../bad\\path"} {
-		put(t, root, "app/go.mod", "module example.test/app\ngo 1.26.8\nreplace example.test/common => "+replacement+"\n")
+		put(t, root, "app/go.mod", "module example.test/app\ngo 1.26.10\nreplace example.test/common => "+replacement+"\n")
 		if err := checkModules(root, filepath.Join(root, "app"), map[string]bool{}); err == nil {
 			t.Fatal("accepted replacement", replacement)
 		}
 	}
-	put(t, root, "app/go.mod", "module example.test/app\ngo 1.26.8\nreplace example.test/common => ../common\n")
+	put(t, root, "app/go.mod", "module example.test/app\ngo 1.26.10\nreplace example.test/common => ../common\n")
 	put(t, root, "common/go.mod", "module example.test/common\ngo 1.25.0\n")
 	if err := checkModules(root, filepath.Join(root, "app"), map[string]bool{}); err != nil {
 		t.Fatal(err)

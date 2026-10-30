@@ -124,7 +124,7 @@ func TestGeneratedConfiguration(t *testing.T) {
 			}
 			project := t.TempDir()
 			packageName := filepath.Base(namespace)
-			contents := map[string][]byte{"go.mod": []byte("module example.com/widget\ngo 1.26.8\n"), files[0].Path: files[0].Bytes(), namespace + "/configuration_test.go": bytes.Replace(runtimeTests, []byte("package settings"), []byte("package "+packageName), 1)}
+			contents := map[string][]byte{"go.mod": []byte("module example.com/widget\ngo 1.26.10\n"), files[0].Path: files[0].Bytes(), namespace + "/configuration_test.go": bytes.Replace(runtimeTests, []byte("package settings"), []byte("package "+packageName), 1)}
 			for name, content := range contents {
 				file := filepath.Join(project, name)
 				if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {

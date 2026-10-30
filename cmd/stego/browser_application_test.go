@@ -41,7 +41,7 @@ func TestPrivateBrowserApplicationCommands(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("STEGO_REGISTRY", registry)
 	t.Setenv("STEGO_MODULE", "example.com/private-browser")
-	t.Setenv("STEGO_GO_VERSION", "1.26.8")
+	t.Setenv("STEGO_GO_VERSION", "1.26.10")
 	if err := os.Mkdir("ui", 0700); err != nil {
 		t.Fatal(err)
 	}

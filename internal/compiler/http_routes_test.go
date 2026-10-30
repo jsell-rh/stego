@@ -67,7 +67,7 @@ func TestHTTPCompositionMatchesGeneratedDeclarations(t *testing.T) {
 }
 
 func TestHTTPCompositionRejectsDuplicateWiringBeforeAssembly(t *testing.T) {
-	input := AssemblerInput{ModuleName: "example.com/routes", GoVersion: "1.26.8"}
+	input := AssemblerInput{ModuleName: "example.com/routes", GoVersion: "1.26.10"}
 	for i := 0; i < 2; i++ {
 		input.Wirings = append(input.Wirings, ComponentWiring{Name: fmt.Sprint(i), Wiring: &gen.Wiring{DiscoveryRoutes: []string{`topMux.HandleFunc("GET /livez", http.NotFound)`}}})
 	}

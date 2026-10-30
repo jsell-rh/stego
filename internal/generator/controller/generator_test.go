@@ -330,7 +330,7 @@ func TestNestedControllerLibraryCanBeImported(t *testing.T) {
 				t.Fatal(err)
 			}
 			project := t.TempDir()
-			files = append(files, gen.File{Path: "go.mod", Content: []byte("module example.com/controllernamespace\ngo 1.26.8\n")}, gen.File{Path: "main.go", Content: []byte("package main\nimport runtime \"example.com/controllernamespace/" + namespace + "\"\nfunc main(){_=runtime.ErrScanContract}\n")})
+			files = append(files, gen.File{Path: "go.mod", Content: []byte("module example.com/controllernamespace\ngo 1.26.10\n")}, gen.File{Path: "main.go", Content: []byte("package main\nimport runtime \"example.com/controllernamespace/" + namespace + "\"\nfunc main(){_=runtime.ErrScanContract}\n")})
 			for _, file := range files {
 				name := filepath.Join(project, file.Path)
 				if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {

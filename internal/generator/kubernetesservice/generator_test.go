@@ -12,7 +12,7 @@ import (
 )
 
 func serviceContext() gen.Context {
-	return gen.Context{ModuleName: "example.com/widget", GoVersion: "1.26.8", ServiceName: "widget", OutDirName: "out", OutputNamespace: "deploy", PeerNamespaces: map[string]string{"rest-api": "api", "health-check": "health"}, ComponentConfig: map[string]any{"source_directories": []any{"internal"}, "network_peers": []any{map[string]any{"direction": "ingress", "namespace": "self", "pod_label": "app.kubernetes.io/name", "pod_value": "client", "port": 8443, "protocol": "TCP"}}}}
+	return gen.Context{ModuleName: "example.com/widget", GoVersion: "1.26.10", ServiceName: "widget", OutDirName: "out", OutputNamespace: "deploy", PeerNamespaces: map[string]string{"rest-api": "api", "health-check": "health"}, ComponentConfig: map[string]any{"source_directories": []any{"internal"}, "network_peers": []any{map[string]any{"direction": "ingress", "namespace": "self", "pod_label": "app.kubernetes.io/name", "pod_value": "client", "port": 8443, "protocol": "TCP"}}}}
 }
 
 func TestDeploymentValidation(t *testing.T) {
@@ -134,7 +134,7 @@ func TestRenderedPolicy(t *testing.T){
  for _,args:=range [][]string{append(args,"--rpc-process","missing"),append(args,"--rpc-process","../records"),append(args,"--rpc-process","records","--worker","queue"),append(args,"--worker","missing"),append(args,"--worker","../queue"),nil,{"--image","widget:latest","--namespace","test"},{"--image","registry.test/widget@sha256:"+strings.Repeat("a",64),"--namespace","../bad"},{"--image","registry.test/widget@sha256:"+strings.Repeat("a",64),"--namespace","test","--fs-group","0"}}{output.Reset();if err:=render(args,&output);err==nil||output.Len()!=0{t.Fatal("invalid input emitted output")}}
 }
 `
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/widget\n\ngo 1.26.8\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/widget\n\ngo 1.26.10\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "out/deploy/render/main_test.go"), []byte(check+externalRendererTests+optionalExternalRendererTests), 0644); err != nil {

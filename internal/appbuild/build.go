@@ -24,7 +24,7 @@ import (
 	"golang.org/x/mod/modfile"
 )
 
-const GoVersion = "go1.26.8"
+const GoVersion = "go1.26.10"
 
 var sdkIdentity = Inventory{"94168e19a28c7bdeaf3c281f88e3a3efab13f7d80e2694ae2dd4d71378da9289", 15036, 232512886}
 var revisionPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)

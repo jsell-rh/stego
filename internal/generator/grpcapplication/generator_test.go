@@ -157,7 +157,7 @@ func TestProtobufPackageDirectoriesCanBeImported(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte("module example.com/protonames\ngo 1.26.8\nrequire google.golang.org/protobuf v1.36.11\n"), 0644); err != nil {
+			if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte("module example.com/protonames\ngo 1.26.10\nrequire google.golang.org/protobuf v1.36.11\n"), 0644); err != nil {
 				t.Fatal(err)
 			}
 			name := "example.com/protonames/out/grpcapi/pb"

@@ -94,7 +94,7 @@ func TestLocalApplicationTransport(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	for name, data := range map[string][]byte{"go.mod": []byte("module example.com/local-test\ngo 1.26.8\n"), "client.go": file.Bytes(), "local_test.go": localTests} {
+	for name, data := range map[string][]byte{"go.mod": []byte("module example.com/local-test\ngo 1.26.10\n"), "client.go": file.Bytes(), "local_test.go": localTests} {
 		if err := os.WriteFile(filepath.Join(dir, name), data, 0600); err != nil {
 			t.Fatal(err)
 		}

@@ -44,7 +44,7 @@ func TestGeneratedDatabaseAccess(t *testing.T) {
 		files = append(files, generated...)
 		wirings = append(wirings, compiler.ComponentWiring{Name: c.name, Wiring: wiring})
 	}
-	assembled, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, GoVersion: "1.26.8", OutDirName: "out", Wirings: wirings})
+	assembled, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, GoVersion: "1.26.10", OutDirName: "out", Wirings: wirings})
 	if err != nil {
 		t.Fatal(err)
 	}

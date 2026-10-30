@@ -24,7 +24,7 @@ func TestResourceArgumentsUseTheSelectedDatabase(t *testing.T) {
 			if backend == "gorm" {
 				wiring.GoModRequires = map[string]string{"gorm.io/gorm": "v1.25.12", "gorm.io/driver/postgres": "v1.5.11"}
 			}
-			files, err := Assemble(AssemblerInput{ModuleName: "example.com/resources", GoVersion: "1.26.8", Wirings: []ComponentWiring{{Name: "probe", Wiring: wiring}}})
+			files, err := Assemble(AssemblerInput{ModuleName: "example.com/resources", GoVersion: "1.26.10", Wirings: []ComponentWiring{{Name: "probe", Wiring: wiring}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -75,7 +75,7 @@ func TestResources(t *testing.T){if err:=run();!errors.Is(err,probe.ErrDone){t.F
 
 func TestInvalidConstructorResourcesFailAssembly(t *testing.T) {
 	for _, resources := range []map[int][]gen.Resource{{-1: {gen.ServiceContext}}, {1: {gen.SQLDatabase}}, {0: {"unknown"}}} {
-		_, err := Assemble(AssemblerInput{ModuleName: "example.com/resources", GoVersion: "1.26.8", Wirings: []ComponentWiring{{Name: "probe", Wiring: &gen.Wiring{Constructors: []string{"probe.New()"}, ConstructorResources: resources}}}})
+		_, err := Assemble(AssemblerInput{ModuleName: "example.com/resources", GoVersion: "1.26.10", Wirings: []ComponentWiring{{Name: "probe", Wiring: &gen.Wiring{Constructors: []string{"probe.New()"}, ConstructorResources: resources}}}})
 		if err == nil {
 			t.Fatalf("invalid resources were accepted: %v", resources)
 		}
@@ -84,7 +84,7 @@ func TestInvalidConstructorResourcesFailAssembly(t *testing.T) {
 
 func TestConstructorDependenciesMustExist(t *testing.T) {
 	for _, dependency := range []string{"missing", "worker", "db", "ctx"} {
-		_, err := Assemble(AssemblerInput{ModuleName: "example.com/resources", GoVersion: "1.26.8", Wirings: []ComponentWiring{{Name: "tasks", Wiring: &gen.Wiring{Imports: []string{"tasks"}, Constructors: []string{"tasks.NewWorker(" + dependency + ")"}, ConstructorDeps: map[int][]string{0: {dependency}}, BackgroundTasks: []int{0}}}}})
+		_, err := Assemble(AssemblerInput{ModuleName: "example.com/resources", GoVersion: "1.26.10", Wirings: []ComponentWiring{{Name: "tasks", Wiring: &gen.Wiring{Imports: []string{"tasks"}, Constructors: []string{"tasks.NewWorker(" + dependency + ")"}, ConstructorDeps: map[int][]string{0: {dependency}}, BackgroundTasks: []int{0}}}}})
 		// Worker services have a service context, but no implicit database.
 		if dependency == "ctx" {
 			if err != nil {
@@ -108,7 +108,7 @@ func TestOptionalDatabaseResourceDoesNotCreatePool(t *testing.T) {
 			} else if backend != "" {
 				provider.BackgroundTasks = []int{0}
 			}
-			files, err := Assemble(AssemblerInput{ModuleName: "example.com/optional", GoVersion: "1.26.8", Wirings: []ComponentWiring{{Name: "observer", Wiring: observer}, {Name: "provider", Wiring: provider}}})
+			files, err := Assemble(AssemblerInput{ModuleName: "example.com/optional", GoVersion: "1.26.10", Wirings: []ComponentWiring{{Name: "observer", Wiring: observer}, {Name: "provider", Wiring: provider}}})
 			if err != nil {
 				t.Fatal(err)
 			}

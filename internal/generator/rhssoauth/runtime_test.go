@@ -60,7 +60,7 @@ func testGeneratedSSOTrustPolicy(t *testing.T, telemetry bool) {
 	if err := os.WriteFile(filepath.Join(project, "auth/trust_test.go"), tests, 0600); err != nil {
 		t.Fatal(err)
 	}
-	module := "module example.com/sso-test\ngo 1.26.8\n"
+	module := "module example.com/sso-test\ngo 1.26.10\n"
 	names := make([]string, 0, len(wiring.GoModRequires))
 	for name := range wiring.GoModRequires {
 		names = append(names, name)

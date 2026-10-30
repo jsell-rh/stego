@@ -35,7 +35,7 @@ func TestModuleRequirementsRejectInvalidInput(t *testing.T) {
 		{"example.com/mod", "v1.0.0\nreplace x => y"},
 	} {
 		_, err := Assemble(AssemblerInput{
-			ModuleName: "example.com/service", GoVersion: "1.26.8",
+			ModuleName: "example.com/service", GoVersion: "1.26.10",
 			Wirings: []ComponentWiring{{Name: "invalid", Wiring: &gen.Wiring{
 				GoModRequires: map[string]string{requirement.path: requirement.version},
 			}}},
@@ -50,9 +50,9 @@ func TestModuleMergePreservesApplicationChoices(t *testing.T) {
 	project := t.TempDir()
 	original := []byte(`module example.com/service
 
-go 1.26.8
+go 1.26.10
 
-toolchain go1.26.8
+toolchain go1.26.10
 
 // Application dependencies.
 require (
@@ -74,7 +74,7 @@ exclude example.com/shared v1.8.0
 	if !bytes.Equal(result.Bytes(), original) {
 		t.Fatalf("module changed with no unmet requirement:\n%s", result.Bytes())
 	}
-	request.Content = []byte("module example.com/service\ngo 1.26.8\nrequire (\nexample.com/shared v1.13.0\nexample.com/new v0.1.0\n)\n")
+	request.Content = []byte("module example.com/service\ngo 1.26.10\nrequire (\nexample.com/shared v1.13.0\nexample.com/new v0.1.0\n)\n")
 	result, err = mergeProjectModule(project, request)
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +90,7 @@ exclude example.com/shared v1.8.0
 	if versions["example.com/shared"] != "v1.13.0" || versions["example.com/business"] != "v1.0.0" || versions["example.com/new"] != "v0.1.0" {
 		t.Fatalf("lost or incorrect dependency: %v", versions)
 	}
-	if len(parsed.Replace) != 1 || len(parsed.Exclude) != 1 || parsed.Toolchain.Name != "go1.26.8" || !strings.Contains(string(result.Bytes()), "// Application dependencies.") {
+	if len(parsed.Replace) != 1 || len(parsed.Exclude) != 1 || parsed.Toolchain.Name != "go1.26.10" || !strings.Contains(string(result.Bytes()), "// Application dependencies.") {
 		t.Fatalf("application settings were lost:\n%s", result.Bytes())
 	}
 	onDisk, err := os.ReadFile(filepath.Join(project, "go.mod"))
@@ -101,8 +101,8 @@ exclude example.com/shared v1.8.0
 
 func TestModuleMergeRejectsInvalidProject(t *testing.T) {
 	for _, data := range []string{
-		"module example.com/other\ngo 1.26.8\n",
-		"go 1.26.8\n",
+		"module example.com/other\ngo 1.26.10\n",
+		"go 1.26.10\n",
 		"module example.com/service\ninvalid directive\n",
 		"module example.com/service\nrequire (\nexample.com/dep v1.0.0\nexample.com/dep v1.1.0\n)\n",
 	} {
@@ -110,7 +110,7 @@ func TestModuleMergeRejectsInvalidProject(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte(data), 0644); err != nil {
 			t.Fatal(err)
 		}
-		_, err := mergeProjectModule(project, gen.File{Path: "go.mod", Content: []byte("module example.com/service\ngo 1.26.8\n")})
+		_, err := mergeProjectModule(project, gen.File{Path: "go.mod", Content: []byte("module example.com/service\ngo 1.26.10\n")})
 		if err == nil {
 			t.Errorf("accepted invalid project module %q", data)
 		}
@@ -119,11 +119,11 @@ func TestModuleMergeRejectsInvalidProject(t *testing.T) {
 
 func TestProjectModuleSettings(t *testing.T) {
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte("module example.com/actual\ngo 1.26.8\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte("module example.com/actual\ngo 1.26.10\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	name, version, err := ProjectModuleSettings(project, "", "")
-	if err != nil || name != "example.com/actual" || version != "1.26.8" {
+	if err != nil || name != "example.com/actual" || version != "1.26.10" {
 		t.Fatalf("settings = %q, %q, %v", name, version, err)
 	}
 	if _, _, err := ProjectModuleSettings(project, "example.com/wrong", ""); err == nil {
@@ -133,7 +133,7 @@ func TestProjectModuleSettings(t *testing.T) {
 
 func TestReconcileRetainsApplicationModuleAcrossApplies(t *testing.T) {
 	project, registry := setupTestProject(t)
-	input := ReconcilerInput{ProjectDir: project, RegistryDir: registry, ModuleName: "example.com/service", GoVersion: "1.26.8",
+	input := ReconcilerInput{ProjectDir: project, RegistryDir: registry, ModuleName: "example.com/service", GoVersion: "1.26.10",
 		Generators: map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 	}
 	plan, err := Reconcile(input)
@@ -143,7 +143,7 @@ func TestReconcileRetainsApplicationModuleAcrossApplies(t *testing.T) {
 	if err := Apply(plan, project, ""); err != nil {
 		t.Fatal(err)
 	}
-	module := []byte("module example.com/service\ngo 1.26.8\nrequire example.com/domain v1.0.0\n// Maintained by the application.\n")
+	module := []byte("module example.com/service\ngo 1.26.10\nrequire example.com/domain v1.0.0\n// Maintained by the application.\n")
 	if err := os.WriteFile(filepath.Join(project, "go.mod"), module, 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestRuntimeDependenciesRequirePatchedUnicodeNormalization(t *testing.T) {
 
 func TestRuntimeTransitiveSecurityMinimums(t *testing.T) {
 	for _, tc := range []struct{ parent, parentVersion, path, minimum string }{
-		{"google.golang.org/grpc", "v1.82.1", "golang.org/x/net", "v0.56.0"},
+		{"google.golang.org/grpc", "v1.82.1", "golang.org/x/net", "v0.60.0"},
 		{"google.golang.org/grpc", "v1.82.1", "golang.org/x/sys", "v0.48.0"},
 		{"gorm.io/datatypes", "v1.2.5", "filippo.io/edwards25519", "v1.1.1"},
 		{"github.com/go-sql-driver/mysql", "v1.8.1", "filippo.io/edwards25519", "v1.1.1"},

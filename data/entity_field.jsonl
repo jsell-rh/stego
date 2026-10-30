@@ -21,7 +21,7 @@
 {"entity_id":"ST-ASR-EN03","position":9,"name":"Attestation","meaning":"Where the signed verdict is kept; a release verdict always has one.","type_value_object_id":"ST-VO56","required":false}
 {"entity_id":"ST-BLD-EN01","position":1,"name":"Module file digest","meaning":"The digest of go.mod.","type_value_object_id":"ST-VO41","required":true}
 {"entity_id":"ST-BLD-EN01","position":2,"name":"Sum file digest","meaning":"The digest of go.sum.","type_value_object_id":"ST-VO41","required":true}
-{"entity_id":"ST-BLD-EN01","position":3,"name":"Go version","meaning":"The Go version go.mod states.","type":"text","required":true,"example":"1.26.8"}
+{"entity_id":"ST-BLD-EN01","position":3,"name":"Go version","meaning":"The Go version go.mod states.","type":"text","required":true,"example":"1.26.10"}
 {"entity_id":"ST-BLD-EN02","position":1,"name":"Source revision","meaning":"The commit the cache serves.","type_value_object_id":"ST-VO43","required":true}
 {"entity_id":"ST-BLD-EN02","position":2,"name":"Go SDK","meaning":"The SDK that downloaded it.","type_value_object_id":"ST-VO48","required":true}
 {"entity_id":"ST-BLD-EN02","position":3,"name":"Inventory digest","meaning":"The digest of the cache's canonical record.","type_value_object_id":"ST-VO41","required":true}
