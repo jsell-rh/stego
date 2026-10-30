@@ -91,8 +91,8 @@ mkdir my-service && cd my-service
 stego init -archetype rest-crud
 ```
 
-Consumers can [compose a pinned common registry with local application
-extensions](specs/registry-composition.md). Common component copies are not
+Consumers can compose a pinned common registry with local application
+extensions (a retired record, in git history). Common component copies are not
 required. Application output paths use `component_namespaces`; offline builds
 can select an explicit verified vendored checkout.
 Use the path of your STEGO checkout for `/path/to/stego`.

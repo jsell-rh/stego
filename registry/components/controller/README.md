@@ -242,15 +242,15 @@ It uses versioned checkpoint callbacks and a bounded record with no provider err
 text. A completed cycle with an earlier failure returns `ErrCycleFailed`.
 See scan-cycle outcomes (a retired record, in git history) for invalidation rules.
 
-[Sweep telemetry](../../../specs/sweep-observability.md) covers page reads and
+Sweep telemetry (a retired record, in git history) covers page reads and
 actions in `RunSweep`. It shares providers with keyed controllers and omits
 domain values from common logs, metrics, and spans.
 
-[Shared controller telemetry](../../../specs/controller-observability.md) now
+Shared controller telemetry (a retired record, in git history) now
 records keyed actions, scans, watch sessions, retries, and aggregate queue state.
 The generated runtime owns logging, metrics, spans, and provider lifetime.
 
-[Worker startup telemetry](../../../specs/worker-startup-observability.md) starts
+Worker startup telemetry (a retired record, in git history) starts
 before the `Monitor` callback. Provider setup, nested controllers, and deferred
 cleanup share one runtime identity. A callback error or abort emits a fixed
 failure event before the runtime closes. Probe commands do not start telemetry.

@@ -20,7 +20,7 @@ and active requests. Request logs correlate with spans. Metrics and logs also
 cover unsampled requests. Raw URLs, bodies, credentials, and identity fields are
 excluded. Queues, metric series, export time, and shutdown time have fixed limits.
 
-See the [request observability contract](../../../specs/request-observability.md)
+See the request observability contract (a retired record, in git history)
 for settings, privacy rules, evidence, and remaining observability requirements.
 Complete service, controller, database, and outbound instrumentation remains open.
 
@@ -29,7 +29,7 @@ logs. Local service logs remain available without a collector. See the
 service logging contract (a retired record, in git history) for the declared
 event API, queue limits, shutdown behavior, and remaining process logging work.
 
-[Shared controller telemetry](../../../specs/controller-observability.md) now
+Shared controller telemetry (a retired record, in git history) now
 records keyed actions, scans, watch sessions, retries, and aggregate queue state.
 The generated runtime owns logging, metrics, spans, and provider lifetime.
 
