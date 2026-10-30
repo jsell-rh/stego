@@ -1,3 +1,7 @@
+{"id":"ST-ASR-UC01-FL01","title":"Attest a proof run through the command line","use_case_id":"ST-ASR-UC01","interface_id":"ST-IF01","description":"How a CI run becomes evidence."}
+{"id":"ST-ASR-UC02-FL01","title":"Judge a change through the command line","use_case_id":"ST-ASR-UC02","interface_id":"ST-IF01","description":"How a pull request is held to the ratchet."}
+{"id":"ST-ASR-UC03-FL01","title":"Judge a release through the command line","use_case_id":"ST-ASR-UC03","interface_id":"ST-IF01","description":"How a release is held to full proof."}
+{"id":"ST-ASR-UC04-FL01","title":"See what a commit proved through the command line","use_case_id":"ST-ASR-UC04","interface_id":"ST-IF01","description":"How anyone reads the evidence."}
 {"id":"ST-BLD-UC01-FL01","title":"Resolve a service's modules through the command line","use_case_id":"ST-BLD-UC01","interface_id":"ST-IF01","description":"How a service author resolves the modules after a run."}
 {"id":"ST-BLD-UC02-FL01","title":"Prepare an offline module cache through the command line","use_case_id":"ST-BLD-UC02","interface_id":"ST-IF01","description":"How an operator prepares the modules a build will use offline."}
 {"id":"ST-BLD-UC03-FL01","title":"Build a service reproducibly through the command line","use_case_id":"ST-BLD-UC03","interface_id":"ST-IF01","description":"How an operator builds a service's executable."}

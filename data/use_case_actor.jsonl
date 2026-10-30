@@ -1,3 +1,8 @@
+{"use_case_id":"ST-ASR-UC01","position":1,"role_name":"Platform engineer"}
+{"use_case_id":"ST-ASR-UC02","position":1,"role_name":"Platform engineer"}
+{"use_case_id":"ST-ASR-UC03","position":1,"role_name":"Platform engineer"}
+{"use_case_id":"ST-ASR-UC04","position":1,"role_name":"Platform engineer"}
+{"use_case_id":"ST-ASR-UC04","position":2,"role_name":"Operator"}
 {"use_case_id":"ST-BLD-UC01","position":1,"role_name":"Service author"}
 {"use_case_id":"ST-BLD-UC02","position":1,"role_name":"Operator"}
 {"use_case_id":"ST-BLD-UC03","position":1,"role_name":"Operator"}

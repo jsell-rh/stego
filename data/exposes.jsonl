@@ -1,3 +1,7 @@
+{"source_id":"ST-ASR-CLI01","target_id":"ST-ASR-CMD01"}
+{"source_id":"ST-ASR-CLI02","target_id":"ST-ASR-CMD02"}
+{"source_id":"ST-ASR-CLI03","target_id":"ST-ASR-CMD03"}
+{"source_id":"ST-ASR-CLI04","target_id":"ST-ASR-QRY01"}
 {"source_id":"ST-BLD-CLI01","target_id":"ST-BLD-CMD01"}
 {"source_id":"ST-BLD-CLI02","target_id":"ST-BLD-CMD02"}
 {"source_id":"ST-BLD-CLI03","target_id":"ST-BLD-CMD03"}

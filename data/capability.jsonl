@@ -1,3 +1,4 @@
+{"id":"ST-ASR-CAP01","title":"Evidence of proof","domain_id":"ST-ASR","position":1,"description":"Every automated test's result at an exact commit, attested where nobody can alter it, and the two gates that hold a change to the ratchet and a release to full proof."}
 {"id":"ST-BLD-CAP01","title":"Dependency resolution","domain_id":"ST-BLD","position":1,"description":"Fixing the modules a service needs, from its captured source, and keeping them where a build can use them with no network."}
 {"id":"ST-BLD-CAP02","title":"Reproducible build","domain_id":"ST-BLD","position":2,"description":"Building a service's executable so that anyone with the same inputs gets the same bytes, with a record that names every input."}
 {"id":"ST-BLD-CAP03","title":"Image delivery","domain_id":"ST-BLD","position":3,"description":"Turning a recorded build into a signed image with its SBOMs, publishing it, and letting anyone check it back to its source."}

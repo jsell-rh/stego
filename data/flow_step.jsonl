@@ -1,3 +1,14 @@
+{"id":"ST-ASR-UC01-FL01-S01","title":"CI runs the Go and Python suites with machine-readable output at the checked-out commit, and assure record reads an outcome for every automated test record","flow_id":"ST-ASR-UC01-FL01","path":"main","position":1}
+{"id":"ST-ASR-UC01-FL01-S02","title":"The provider's attestation action signs the proof run with the commit as subject and keeps it","flow_id":"ST-ASR-UC01-FL01","path":"main","position":2}
+{"id":"ST-ASR-UC01-FL01-S03","title":"An outcome names an ID the spec does not have, so assure record exits non-zero and writes nothing","flow_id":"ST-ASR-UC01-FL01","path":"refused","position":1}
+{"id":"ST-ASR-UC02-FL01-S01","title":"On a pull request, CI runs assure judge change, which measures the coverage at the change's commit and at the base head","flow_id":"ST-ASR-UC02-FL01","path":"main","position":1}
+{"id":"ST-ASR-UC02-FL01-S02","title":"assure judge change fetches the proof run attestation for the change's commit from the provider and verifies it","flow_id":"ST-ASR-UC02-FL01","path":"main","position":2}
+{"id":"ST-ASR-UC02-FL01-S03","title":"A share fell or a proof did not pass, so the verdict names each cause and the check fails","flow_id":"ST-ASR-UC02-FL01","path":"refused","position":1}
+{"id":"ST-ASR-UC03-FL01-S01","title":"The release workflow runs assure judge release at the commit to release, which measures the coverage and verifies the proof run there","flow_id":"ST-ASR-UC03-FL01","path":"main","position":1}
+{"id":"ST-ASR-UC03-FL01-S02","title":"The provider's attestation action signs the passed verdict with the commit as subject and keeps it","flow_id":"ST-ASR-UC03-FL01","path":"main","position":2}
+{"id":"ST-ASR-UC03-FL01-S03","title":"A share is below 100% or a proof did not pass, so the workflow stops and publishes no release","flow_id":"ST-ASR-UC03-FL01","path":"refused","position":1}
+{"id":"ST-ASR-UC04-FL01-S01","title":"The platform engineer runs assure ledger for a commit, and STEGO fetches and verifies the proof runs from the provider and prints each test record with its result and where it last passed","flow_id":"ST-ASR-UC04-FL01","path":"main","position":1}
+{"id":"ST-ASR-UC04-FL01-S02","title":"An attestation fails verification, so the ledger shows no result for it and says why","flow_id":"ST-ASR-UC04-FL01","path":"refused","position":1}
 {"id":"ST-BLD-UC01-FL01-S01","title":"The service author runs stego deps, and STEGO resolves the modules and writes go.mod and go.sum","flow_id":"ST-BLD-UC01-FL01","path":"main","position":1}
 {"id":"ST-BLD-UC01-FL01-S02","title":"Generated code is out of date, so stego deps refuses and names apply","flow_id":"ST-BLD-UC01-FL01","path":"stale","position":1}
 {"id":"ST-BLD-UC01-FL01-S03","title":"Resolution stops part way, and stego recover completes or rolls back the module files","flow_id":"ST-BLD-UC01-FL01","path":"interrupted","position":1}
@@ -41,10 +52,12 @@
 {"id":"ST-DIS-UC07-FL01-S04","title":"A withdrawal whose date is already past is refused","flow_id":"ST-DIS-UC07-FL01","path":"refused","position":1}
 {"id":"ST-DIS-UC07-FL01-S05","title":"Apply in Generating refuses a new pin to a withdrawn digest at once, whatever the date of the withdrawal","flow_id":"ST-DIS-UC07-FL01","path":"new pin","position":1}
 {"id":"ST-DIS-UC08-FL01-S01","title":"The platform engineer names the commit to qualify","flow_id":"ST-DIS-UC08-FL01","path":"main","position":1}
-{"id":"ST-DIS-UC08-FL01-S02","title":"STEGO finds the checks run and the signed artifact run at exactly that commit, and requires a success conclusion for every required job","flow_id":"ST-DIS-UC08-FL01","path":"main","position":2}
-{"id":"ST-DIS-UC08-FL01-S03","title":"STEGO installs the published release through the consumer path, and cross-checks each asset digest against the qualified artifacts","flow_id":"ST-DIS-UC08-FL01","path":"main","position":3}
+{"id":"ST-DIS-UC08-FL01-S02","title":"STEGO finds the checks run and the signed artifact run at exactly that commit, and requires a success conclusion for every required job","flow_id":"ST-DIS-UC08-FL01","path":"main","position":3}
+{"id":"ST-DIS-UC08-FL01-S03","title":"STEGO installs the published release through the consumer path, and cross-checks each asset digest against the qualified artifacts","flow_id":"ST-DIS-UC08-FL01","path":"main","position":4}
 {"id":"ST-DIS-UC08-FL01-S04","title":"A run from another commit, or a required job with no success conclusion, fails qualification","flow_id":"ST-DIS-UC08-FL01","path":"refused","position":1}
 {"id":"ST-DIS-UC08-FL01-S05","title":"A release tag that points at another commit fails verification","flow_id":"ST-DIS-UC08-FL01","path":"refused","position":2}
+{"id":"ST-DIS-UC08-FL01-S06","title":"STEGO fetches the release verdict attested at exactly that commit and verifies it passed","flow_id":"ST-DIS-UC08-FL01","path":"main","position":2}
+{"id":"ST-DIS-UC08-FL01-S07","title":"No passed release verdict is attested at that commit, so qualification fails","flow_id":"ST-DIS-UC08-FL01","path":"refused","position":3}
 {"id":"ST-DIS-UC09-FL01-S01","title":"The operator names the release by its full source commit","flow_id":"ST-DIS-UC09-FL01","path":"main","position":1}
 {"id":"ST-DIS-UC09-FL01-S02","title":"The installer checks each asset digest and both signatures, and the signed record's platform, then puts the binary and its build record in place","flow_id":"ST-DIS-UC09-FL01","path":"main","position":2}
 {"id":"ST-DIS-UC09-FL01-S03","title":"The operator asks the installed compiler for its build identity, and it reports the identity it writes into a service's record","flow_id":"ST-DIS-UC09-FL01","path":"main","position":3}

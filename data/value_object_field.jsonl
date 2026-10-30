@@ -22,3 +22,13 @@
 {"value_object_id":"ST-VO52","position":1,"name":"Location","meaning":"The workflow file or the bundle repository.","type":"text","required":true,"example":"example/platform/.github/workflows/stego.yml"}
 {"value_object_id":"ST-VO52","position":2,"name":"Pin","meaning":"A full 40-character commit SHA, or a sha256 OCI digest.","type":"text","required":true,"example":"sha256:4f1c..."}
 {"value_object_id":"ST-VO53","position":1,"name":"Kind","meaning":"One of secret, configuration, database, topic, identity issuer, ingress, egress, cluster permission or pod security.","type":"text","required":true,"example":"secret"}
+{"value_object_id":"ST-VO54","position":1,"name":"Result","meaning":"One of passed, failed or skipped.","type":"text","required":true,"example":"passed"}
+{"value_object_id":"ST-VO55","position":1,"name":"Total","meaning":"The obligations lathe counts, over every domain and kind.","type":"whole number","required":true,"example":"412"}
+{"value_object_id":"ST-VO55","position":2,"name":"Designed","meaning":"How many of them are designed.","type":"whole number","required":true,"example":"412"}
+{"value_object_id":"ST-VO55","position":3,"name":"Built","meaning":"How many of them are built.","type":"whole number","required":true,"example":"301"}
+{"value_object_id":"ST-VO55","position":4,"name":"Proved","meaning":"How many of them are proved.","type":"whole number","required":true,"example":"96"}
+{"value_object_id":"ST-VO56","position":1,"name":"Predicate type","meaning":"The statement's kind, as a URI STEGO owns.","type":"text","required":true,"example":"https://stego.dev/attestations/proof-run/v1"}
+{"value_object_id":"ST-VO56","position":2,"name":"Subject","meaning":"The commit the statement is about.","type_value_object_id":"ST-VO43","required":true}
+{"value_object_id":"ST-VO56","position":3,"name":"Signer","meaning":"Who signed it.","type_value_object_id":"ST-VO50","required":true}
+{"value_object_id":"ST-VO56","position":4,"name":"Log entry","meaning":"The transparency log entry that holds it, when the signer is keyless.","type":"text","required":false,"example":"rekor:123456789"}
+{"value_object_id":"ST-VO57","position":1,"name":"Kind","meaning":"One of change or release.","type":"text","required":true,"example":"release"}

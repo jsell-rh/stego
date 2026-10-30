@@ -1,3 +1,11 @@
+{"domain_event_id":"ST-ASR-EV01","position":1,"name":"Commit","meaning":"The commit.","type_value_object_id":"ST-VO43","required":true}
+{"domain_event_id":"ST-ASR-EV01","position":2,"name":"Attestation","meaning":"Where it is kept.","type_value_object_id":"ST-VO56","required":true}
+{"domain_event_id":"ST-ASR-EV01","position":3,"name":"Passed","meaning":"Whether every automated test passed.","type":"yes/no","required":true,"example":"yes"}
+{"domain_event_id":"ST-ASR-EV02","position":1,"name":"Commit","meaning":"The change's commit.","type_value_object_id":"ST-VO43","required":true}
+{"domain_event_id":"ST-ASR-EV02","position":2,"name":"Passed","meaning":"The verdict.","type":"yes/no","required":true,"example":"no"}
+{"domain_event_id":"ST-ASR-EV03","position":1,"name":"Commit","meaning":"The release commit.","type_value_object_id":"ST-VO43","required":true}
+{"domain_event_id":"ST-ASR-EV03","position":2,"name":"Passed","meaning":"The verdict.","type":"yes/no","required":true,"example":"yes"}
+{"domain_event_id":"ST-ASR-EV03","position":3,"name":"Attestation","meaning":"Where the verdict is kept, when passed.","type_value_object_id":"ST-VO56","required":false}
 {"domain_event_id":"ST-BLD-EV01","position":1,"name":"Module file digest","meaning":"go.mod's new digest.","type_value_object_id":"ST-VO41","required":true}
 {"domain_event_id":"ST-BLD-EV01","position":2,"name":"Sum file digest","meaning":"go.sum's new digest.","type_value_object_id":"ST-VO41","required":true}
 {"domain_event_id":"ST-BLD-EV02","position":1,"name":"Source revision","meaning":"The commit it serves.","type_value_object_id":"ST-VO43","required":true}

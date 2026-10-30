@@ -1,3 +1,7 @@
+{"read_model_id":"ST-ASR-RM01","position":1,"name":"Test record","meaning":"The test record's ID.","type":"text","required":true,"example":"ST-BLD-SP01-T"}
+{"read_model_id":"ST-ASR-RM01","position":2,"name":"State","meaning":"The test record's state in the spec at the commit.","type":"text","required":true,"example":"automated"}
+{"read_model_id":"ST-ASR-RM01","position":3,"name":"Result","meaning":"Its result at the commit; none when no verified proof run exists there.","type_value_object_id":"ST-VO54","required":false}
+{"read_model_id":"ST-ASR-RM01","position":4,"name":"Last passed at","meaning":"The newest commit a verified proof run passed it at, when any.","type_value_object_id":"ST-VO43","required":false}
 {"read_model_id":"ST-BLD-RM01","position":1,"name":"Record digest","meaning":"The build record checked against.","type_value_object_id":"ST-VO41","required":true}
 {"read_model_id":"ST-BLD-RM01","position":2,"name":"Matches","meaning":"Whether every digest matched.","type":"yes/no","required":true,"example":"yes"}
 {"read_model_id":"ST-BLD-RM01","position":3,"name":"Mismatches","meaning":"Each input or output whose digest differs.","type":"text","required":false,"example":"go.sum"}

@@ -14,3 +14,7 @@
 {"id":"ST-VO51","title":"CI provider","description":"The CI system that builds and signs a service's images."}
 {"id":"ST-VO52","title":"Pinned pipeline reference","description":"A reference to shared pipeline code that cannot move: a reusable workflow at one commit, or a Tekton bundle at one digest."}
 {"id":"ST-VO53","title":"Requirement kind","description":"What sort of thing a service needs the environment to supply."}
+{"id":"ST-VO54","title":"Test result","description":"What one test did in one run."}
+{"id":"ST-VO55","title":"Coverage share","description":"How much of the spec's obligations lathe counts as designed, built and proved at one commit, each as a share of the total."}
+{"id":"ST-VO56","title":"Attestation reference","description":"Where a signed statement about one commit is kept, and who signed it."}
+{"id":"ST-VO57","title":"Gate kind","description":"Which bar a gate holds a commit to."}

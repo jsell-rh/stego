@@ -1,3 +1,24 @@
+{"entity_id":"ST-ASR-EN01","position":1,"name":"Commit","meaning":"The exact commit the suites ran against.","type_value_object_id":"ST-VO43","required":true}
+{"entity_id":"ST-ASR-EN01","position":2,"name":"Provider","meaning":"The CI system that ran them.","type_value_object_id":"ST-VO51","required":true}
+{"entity_id":"ST-ASR-EN01","position":3,"name":"Run reference","meaning":"The provider's identity for the run and attempt.","type":"text","required":true,"example":"github:35950507614/1"}
+{"entity_id":"ST-ASR-EN01","position":4,"name":"Started at","meaning":"When the run started.","type":"date and time","required":true,"example":"2026-10-29T14:02:11Z"}
+{"entity_id":"ST-ASR-EN01","position":5,"name":"Finished at","meaning":"When the run finished.","type":"date and time","required":true,"example":"2026-10-29T14:19:40Z"}
+{"entity_id":"ST-ASR-EN01","position":6,"name":"Spec digest","meaning":"The digest of the spec's data files at the commit, so the outcome list is tied to the test records it answers.","type_value_object_id":"ST-VO41","required":true}
+{"entity_id":"ST-ASR-EN01","position":7,"name":"Attestation","meaning":"Where the signed proof run is kept.","type_value_object_id":"ST-VO56","required":true}
+{"entity_id":"ST-ASR-EN02","position":1,"name":"Test record","meaning":"The ID of the test record in the spec.","type":"text","required":true,"example":"ST-BLD-SP01-T"}
+{"entity_id":"ST-ASR-EN02","position":2,"name":"Result","meaning":"What the test did.","type_value_object_id":"ST-VO54","required":true}
+{"entity_id":"ST-ASR-EN02","position":3,"name":"File","meaning":"The file that ran it, from the product root.","type":"text","required":true,"example":"internal/appbuild/verify_test.go"}
+{"entity_id":"ST-ASR-EN02","position":4,"name":"Duration","meaning":"How long it ran, in seconds.","type":"decimal","required":false,"example":"0.42"}
+{"entity_id":"ST-ASR-EN02","position":5,"name":"Detail","meaning":"Why it failed or was skipped, when it did not pass.","type":"text","required":false,"example":"did not run"}
+{"entity_id":"ST-ASR-EN03","position":1,"name":"Commit","meaning":"The commit judged.","type_value_object_id":"ST-VO43","required":true}
+{"entity_id":"ST-ASR-EN03","position":2,"name":"Kind","meaning":"Which gate.","type_value_object_id":"ST-VO57","required":true}
+{"entity_id":"ST-ASR-EN03","position":3,"name":"Base commit","meaning":"The base branch's head the change was judged against; none for a release.","type_value_object_id":"ST-VO43","required":false}
+{"entity_id":"ST-ASR-EN03","position":4,"name":"Coverage","meaning":"The coverage at the commit.","type_value_object_id":"ST-VO55","required":true}
+{"entity_id":"ST-ASR-EN03","position":5,"name":"Base coverage","meaning":"The coverage at the base commit; none for a release.","type_value_object_id":"ST-VO55","required":false}
+{"entity_id":"ST-ASR-EN03","position":6,"name":"Proof run","meaning":"The attestation of the proof run the verdict rests on.","type_value_object_id":"ST-VO56","required":false}
+{"entity_id":"ST-ASR-EN03","position":7,"name":"Passed","meaning":"Whether the commit passed the gate.","type":"yes/no","required":true,"example":"no"}
+{"entity_id":"ST-ASR-EN03","position":8,"name":"Reasons","meaning":"Each reason for a refusal, one per line; empty when passed.","type":"text","required":false,"example":"ST-BLD-UC03-R01 fell from built\nST-GEN-INV05-T failed"}
+{"entity_id":"ST-ASR-EN03","position":9,"name":"Attestation","meaning":"Where the signed verdict is kept; a release verdict always has one.","type_value_object_id":"ST-VO56","required":false}
 {"entity_id":"ST-BLD-EN01","position":1,"name":"Module file digest","meaning":"The digest of go.mod.","type_value_object_id":"ST-VO41","required":true}
 {"entity_id":"ST-BLD-EN01","position":2,"name":"Sum file digest","meaning":"The digest of go.sum.","type_value_object_id":"ST-VO41","required":true}
 {"entity_id":"ST-BLD-EN01","position":3,"name":"Go version","meaning":"The Go version go.mod states.","type":"text","required":true,"example":"1.26.8"}

@@ -1,0 +1,1 @@
+{"id":"ST-INT01-AD","title":"assure.GitHubAttestations","integration_id":"ST-INT01","file":"internal/assure/github.go","description":"Not written yet. Writes the predicate the attest action signs, and fetches and verifies attestations for a commit through the GitHub attestations API with the trusted signer's identity."}

@@ -14,3 +14,7 @@
 {"id":"ST-VO51-VT","title":"delivery.Provider","value_object_id":"ST-VO51","file":"internal/delivery/provider.go","description":"Not written yet."}
 {"id":"ST-VO52-VT","title":"delivery.PinnedReference","value_object_id":"ST-VO52","file":"internal/delivery/pin.go","description":"Not written yet."}
 {"id":"ST-VO53-VT","title":"delivery.RequirementKind","value_object_id":"ST-VO53","file":"internal/delivery/requirements.go","description":"Not written yet."}
+{"id":"ST-VO54-VT","title":"assure.Result","value_object_id":"ST-VO54","file":"internal/assure/result.go","description":"Not written yet."}
+{"id":"ST-VO55-VT","title":"assure.Coverage","value_object_id":"ST-VO55","file":"internal/assure/coverage.go","description":"Not written yet."}
+{"id":"ST-VO56-VT","title":"assure.Attestation","value_object_id":"ST-VO56","file":"internal/assure/attestation.go","description":"Not written yet."}
+{"id":"ST-VO57-VT","title":"assure.GateKind","value_object_id":"ST-VO57","file":"internal/assure/gate.go","description":"Not written yet."}

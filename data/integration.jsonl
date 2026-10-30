@@ -1,3 +1,3 @@
-{"id":"ST-INT01","title":"GitHub Actions","system":"GitHub Actions","description":"Runs a service's generated workflow, which calls the platform's pinned reusable workflow and signs images keyless."}
+{"id":"ST-INT01","title":"GitHub Actions","system":"GitHub Actions","description":"Runs a service's generated workflow, which calls the platform's pinned reusable workflow and signs images keyless; runs STEGO's own suites and gates, and keeps the proof run and release verdict attestations its attestation action signs."}
 {"id":"ST-INT02","title":"Konflux","system":"Konflux (Tekton)","description":"Runs the Konflux standard pipeline from a service's generated PipelineRun, with the STEGO checks, and signs images with Tekton Chains."}
 {"id":"ST-INT03","title":"Argo CD","system":"Argo CD","description":"Reads a service's delivery object, Kubernetes base and the platform's overlay from git, and applies them."}

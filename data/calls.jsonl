@@ -1,3 +1,9 @@
+{"source_id":"ST-ASR-CMD01","target_id":"ST-ASR-DS01"}
+{"source_id":"ST-ASR-CMD02","target_id":"ST-ASR-DS02"}
+{"source_id":"ST-ASR-CMD02","target_id":"ST-ASR-DS03"}
+{"source_id":"ST-ASR-CMD03","target_id":"ST-ASR-DS02"}
+{"source_id":"ST-ASR-CMD03","target_id":"ST-ASR-DS03"}
+{"source_id":"ST-ASR-RM01","target_id":"ST-ASR-DS03"}
 {"source_id":"ST-BLD-CMD03","target_id":"ST-BLD-DS01"}
 {"source_id":"ST-BLD-CMD04","target_id":"ST-BLD-DS02"}
 {"source_id":"ST-BLD-CMD06","target_id":"ST-BLD-DS02"}

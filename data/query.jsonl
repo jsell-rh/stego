@@ -1,3 +1,4 @@
+{"id":"ST-ASR-QRY01","title":"Find the proofs that did not pass at a commit","read_model_id":"ST-ASR-RM01","description":"Lists every automated test record that has no passed outcome in a verified proof run at the commit, with its result or none, and every test record in another state."}
 {"id":"ST-BLD-QRY01","title":"Get the verification of an executable","read_model_id":"ST-BLD-RM01","description":"Checks an executable against a build record whose digest is trusted."}
 {"id":"ST-BLD-QRY02","title":"Get the verification of a source snapshot","read_model_id":"ST-BLD-RM01","description":"Checks a source snapshot with no Git metadata against a trusted build record's source inventory."}
 {"id":"ST-BLD-QRY03","title":"Get the verification of an image","read_model_id":"ST-BLD-RM02","description":"Checks a local or retrieved image against its record, its trusted build record and its signature."}
