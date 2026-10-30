@@ -31,3 +31,6 @@ Thumbs.db
 
 # Lathe spec toolchain
 /node_modules/
+
+# Python bytecode
+__pycache__/
