@@ -1,0 +1,4 @@
+# Lathe's row-by-row merge for the specification data. Enable it once per clone:
+#   git config merge.lathe.driver './node_modules/.bin/lathe merge-data %O %A %B %P'
+#   git config merge.lathe.name 'Lathe row-by-row merge of data/*.jsonl'
+data/*.jsonl merge=lathe
