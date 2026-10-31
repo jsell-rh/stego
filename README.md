@@ -246,6 +246,22 @@ Seven operators: `use`, `with`, `mixin`, `gate`, `chain`, `fan-out`, `map`.
 The full specification is the Lathe model under `data/`; `npx lathe serve`
 browses it. The prose specs are retired; each record that came from one cites it at the commit that last held it.
 
+### Specification checks
+
+`lathe check` loads the model and fails on any error: data that breaks the
+model, a test file without the ID of its test record, a manual test in STEGO's
+own spec, a component or runtime package no aggregate lists. The workflow
+`spec.yml` runs it on every pull request with the Lathe commit it pins, which
+moves together with the schema in `lathe.config.json`. Write the data only
+through `lathe <aggregate> <command>` or the Lathe plugin's tools, never by
+editing `data/*.jsonl`. For merges, enable Lathe's row-by-row driver once per
+clone:
+
+```sh
+git config merge.lathe.driver './node_modules/.bin/lathe merge-data %O %A %B %P'
+git config merge.lathe.name 'Lathe row-by-row merge of data/*.jsonl'
+```
+
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
