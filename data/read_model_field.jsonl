@@ -42,6 +42,7 @@
 {"read_model_id":"ST-DIS-RM01","position":26,"name":"Modes","meaning":"The modes the service declares; all when it declares none.","type":"text","required":false,"example":"api, worker, controller"}
 {"read_model_id":"ST-DIS-RM01","position":27,"name":"Authorization provider","meaning":"The authorization provider the service binds, or none.","type":"text","required":false,"example":"spicedb"}
 {"read_model_id":"ST-DIS-RM01","position":28,"name":"Event mixin","meaning":"The event mixin the service binds: durable-events, kafka-events, or event-publisher for a service still on the deprecated alias.","type":"text","required":false,"example":"event-publisher"}
+{"read_model_id":"ST-DIS-RM01","position":29,"name":"Public operations","meaning":"Each operation the service declares public, with its reason, so a sweep names every route that runs without a decision and why.","type":"text","required":false,"example":"catalog.list: the catalog is public by design"}
 {"read_model_id":"ST-DIS-RM03","position":1,"name":"Component","meaning":"The pinned component.","type":"text","required":true,"example":"rh-sso-auth"}
 {"read_model_id":"ST-DIS-RM03","position":2,"name":"Pinned digest","meaning":"The digest the service pins.","type_value_object_id":"ST-VO41","required":true}
 {"read_model_id":"ST-DIS-RM03","position":3,"name":"Standing","meaning":"current, superseded, withdrawn, or unchecked when the lifecycle records cannot be read.","type":"text","required":true,"example":"superseded"}

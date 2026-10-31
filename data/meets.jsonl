@@ -16,6 +16,8 @@
 {"source_id":"ST-DECL-SP14-PR","target_id":"ST-STD-TXN-R16"}
 {"source_id":"ST-DECL-SP16-PR","target_id":"ST-STD-TXN-R17"}
 {"source_id":"ST-DECL-SP17-PR","target_id":"ST-STD-TXN-R15"}
+{"source_id":"ST-DECL-SP18-PR","target_id":"ST-STD-TXN-R08"}
+{"source_id":"ST-DECL-SP18-PR","target_id":"ST-STD-TXN-R18"}
 {"source_id":"ST-DIS-CMD05-H","target_id":"ST-STD-TRUST-R01"}
 {"source_id":"ST-DIS-EV03-ET","target_id":"ST-STD-TRUST-R06"}
 {"source_id":"ST-DIS-EV04-ET","target_id":"ST-STD-TRUST-R06"}

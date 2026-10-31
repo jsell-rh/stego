@@ -65,6 +65,7 @@
 {"id":"ST-DECL-UC06-FL01-S04","title":"A resource type, permission, relation or caveat parameter the schema lacks is refused, naming the name and where it is used","flow_id":"ST-DECL-UC06-FL01","path":"refused","position":1}
 {"id":"ST-DECL-UC06-FL01-S05","title":"A bypass flag in a slot or a setting is refused, naming the place","flow_id":"ST-DECL-UC06-FL01","path":"refused","position":2}
 {"id":"ST-DECL-UC06-FL01-S06","title":"A slot binding that lists a relation the schema lacks, or one of an entity the service does not declare, is refused, naming the binding and the relation","flow_id":"ST-DECL-UC06-FL01","path":"refused","position":3}
+{"id":"ST-DECL-UC06-FL01-S07","title":"An entity a collection reads with no resource type, or an operation with neither a permission nor public with a reason, is refused, naming each","flow_id":"ST-DECL-UC06-FL01","path":"refused","position":4}
 {"id":"ST-DECL-UC07-FL01-S01","title":"The author declares idempotency with the operations it is required on, the retention and the fingerprint","flow_id":"ST-DECL-UC07-FL01","path":"main","position":1}
 {"id":"ST-DECL-UC07-FL01-S02","title":"The author asks STEGO to check the declaration, and STEGO accepts it with create among the required operations","flow_id":"ST-DECL-UC07-FL01","path":"main","position":2}
 {"id":"ST-DECL-UC07-FL01-S03","title":"A declaration that requires the key on read, list or delete is refused, naming the operation","flow_id":"ST-DECL-UC07-FL01","path":"refused","position":1}

@@ -21,6 +21,7 @@
 {"id":"ST-DECL-SP15-PR","title":"declaration.MixinRequirementUnmet","specification_id":"ST-DECL-SP15","file":"internal/declaration/composition.go"}
 {"id":"ST-DECL-SP16-PR","title":"declaration.InvariantWithoutEmission","specification_id":"ST-DECL-SP16","file":"internal/declaration/composition.go"}
 {"id":"ST-DECL-SP17-PR","title":"declaration.ControllerWithoutLease","specification_id":"ST-DECL-SP17","file":"internal/declaration/composition.go"}
+{"id":"ST-DECL-SP18-PR","title":"declaration.operationUnprotected","specification_id":"ST-DECL-SP18","file":"internal/declaration/authz_coverage.go"}
 {"id":"ST-DIS-SP02-PR","title":"lifecycle.IsSuperseded","specification_id":"ST-DIS-SP02","file":"internal/lifecycle/standing.go"}
 {"id":"ST-DIS-SP03-PR","title":"lifecycle.IsPastFailDate","specification_id":"ST-DIS-SP03","file":"internal/lifecycle/standing.go"}
 {"id":"ST-DIS-SP04-PR","title":"lifecycle.IsWithdrawn","specification_id":"ST-DIS-SP04","file":"internal/lifecycle/standing.go"}
