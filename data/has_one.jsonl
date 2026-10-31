@@ -1,5 +1,10 @@
 {"source_id":"ST-BLD-EN06","target_id":"ST-BLD-EN07"}
 {"source_id":"ST-BLD-EN06","target_id":"ST-BLD-EN08"}
+{"source_id":"ST-DECL-EN01","target_id":"ST-DECL-EN09"}
+{"source_id":"ST-DECL-EN01","target_id":"ST-DECL-EN10"}
+{"source_id":"ST-DECL-EN01","target_id":"ST-DECL-EN11"}
+{"source_id":"ST-DECL-EN01","target_id":"ST-DECL-EN13"}
+{"source_id":"ST-DECL-EN02","target_id":"ST-DECL-EN14"}
 {"source_id":"ST-DIS-EN06","target_id":"ST-DIS-EN07"}
 {"source_id":"ST-DIS-EN06","target_id":"ST-DIS-EN08"}
 {"source_id":"ST-EXT-EN01","target_id":"ST-EXT-EN02"}

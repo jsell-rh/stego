@@ -2,3 +2,4 @@
 {"product_id":"ST","name":"Operator","description":"Installs the compiler, deploys the generated service, supplies the trust roots and runs the cluster checks."}
 {"product_id":"ST","name":"Platform engineer","description":"Writes and versions the archetypes, components and mixins. Makes every accidental decision once, so no service author has to make it."}
 {"product_id":"ST","name":"Service author","description":"Writes the service declaration and the fills for one service, and qualifies each fill with tests."}
+{"product_id":"ST","name":"Product owner","description":"Owns STEGO itself: decides the open questions and the design, and holds the requirement model. The one role that is not a user of the generated services."}

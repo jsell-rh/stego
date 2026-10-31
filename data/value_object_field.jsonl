@@ -1,3 +1,7 @@
+{"value_object_id":"ST-VO01","position":1,"name":"Operator","meaning":"How the fills bound to the slot compose: gate, chain or fan-out. A slot binding names exactly one.","type":"text","required":true,"example":"chain"}
+{"value_object_id":"ST-VO02","position":1,"name":"Stage","meaning":"The rung of the maturity ladder the component version is on: alpha, beta or ga.","type":"text","required":true,"example":"ga"}
+{"value_object_id":"ST-VO03","position":1,"name":"Trust","meaning":"Whether the registry source is the reviewed common registry or a local registry that adds to it: common or local.","type":"text","required":true,"example":"common"}
+{"value_object_id":"ST-VO41","position":1,"name":"Digest","meaning":"The SHA-256 digest of the content, written as 64 lower-case hexadecimal digits with no prefix.","type":"text","required":true,"example":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}
 {"value_object_id":"ST-VO42","position":1,"name":"Go version","meaning":"The Go toolchain that built the compiler.","type":"text","required":true,"example":"go1.24.4"}
 {"value_object_id":"ST-VO42","position":2,"name":"OS","meaning":"The operating system the compiler is built for.","type":"text","required":true,"example":"linux"}
 {"value_object_id":"ST-VO42","position":3,"name":"Architecture","meaning":"The processor architecture the compiler is built for.","type":"text","required":true,"example":"amd64"}
@@ -5,13 +9,14 @@
 {"value_object_id":"ST-VO42","position":5,"name":"VCS","meaning":"The version control system of the source.","type":"text","required":true,"example":"git"}
 {"value_object_id":"ST-VO42","position":6,"name":"Revision","meaning":"The commit the compiler is built from.","type":"text","required":true,"example":"<40 hexadecimal digits>"}
 {"value_object_id":"ST-VO42","position":7,"name":"Source state","meaning":"Whether the source had changes that were not committed.","type":"text","required":true,"example":"clean"}
+{"value_object_id":"ST-VO43","position":1,"name":"Commit ID","meaning":"The full commit ID of the source state, written as 40 lower-case hexadecimal digits.","type":"text","required":true,"example":"9eca0564f7bb8cce12e7fc329fd3b47b940bb11c"}
 {"value_object_id":"ST-VO44","position":1,"name":"Key type","meaning":"The kind of key that made the signature.","type":"text","required":true,"example":"ssh"}
 {"value_object_id":"ST-VO44","position":2,"name":"Signer","meaning":"The identity the SIGNERS file lists for the key, such as an email address.","type":"text","required":true,"example":"jsell@example.com"}
 {"value_object_id":"ST-VO44","position":3,"name":"Signature","meaning":"The armored signature over the evidence.","type":"text","required":true}
 {"value_object_id":"ST-VO45","position":1,"name":"Standing","meaning":"One of qualified, stale, unsigned or untested.","type":"text","required":true,"example":"stale"}
 {"value_object_id":"ST-VO46","position":1,"name":"Component","meaning":"The component that declares the slot.","type":"text","required":true,"example":"rest-api"}
 {"value_object_id":"ST-VO46","position":2,"name":"Slot","meaning":"The slot's name in that component.","type":"text","required":true,"example":"before_create"}
-{"value_object_id":"ST-VO47","position":1,"name":"Kind","meaning":"One of security review, benchmark, design review or reference comparison.","type":"text","required":true,"example":"benchmark"}
+{"value_object_id":"ST-VO47","position":1,"name":"Kind","meaning":"One of security review, benchmark, design review, reference comparison or port conformance.","type":"text","required":true,"example":"benchmark"}
 {"value_object_id":"ST-VO48","position":1,"name":"Version","meaning":"The Go release.","type":"text","required":true,"example":"go1.26.10"}
 {"value_object_id":"ST-VO48","position":2,"name":"Contents digest","meaning":"The digest of the SDK's files, as Building takes its inventory.","type_value_object_id":"ST-VO41","required":true}
 {"value_object_id":"ST-VO49","position":1,"name":"Format","meaning":"One of SPDX or CycloneDX.","type":"text","required":true,"example":"SPDX"}
@@ -39,3 +44,5 @@
 {"value_object_id":"ST-VO59","position":2,"name":"Module","meaning":"The Go module folder, relative to the source root.","type":"text","required":true,"example":"."}
 {"value_object_id":"ST-VO59","position":3,"name":"Target","meaning":"The build target, relative to the module.","type":"text","required":true,"example":"cmd/orders"}
 {"value_object_id":"ST-VO59","position":4,"name":"Entry point","meaning":"The executable's name.","type":"text","required":true,"example":"orders"}
+{"value_object_id":"ST-VO61","position":1,"name":"Amount","meaning":"The amount in minor units of the currency, signed.","type":"whole number","required":true,"example":"100000"}
+{"value_object_id":"ST-VO61","position":2,"name":"Currency","meaning":"The ISO 4217 code.","type":"text","required":true,"example":"EUR"}

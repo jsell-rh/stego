@@ -20,3 +20,4 @@
 {"id":"ST-VO57-VT","title":"assure.GateKind","value_object_id":"ST-VO57","file":"internal/assure/gate.go"}
 {"id":"ST-VO58-VT","title":"registry.RuntimePin","value_object_id":"ST-VO58","file":"internal/registry/runtime.go"}
 {"id":"ST-VO59-VT","title":"delivery.ImageTarget","value_object_id":"ST-VO59","file":"internal/delivery/images.go"}
+{"id":"ST-VO61-VT","title":"money.Money","value_object_id":"ST-VO61","file":"registry/runtime/money/money.go"}

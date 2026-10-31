@@ -12,6 +12,11 @@
 {"id":"ST-DIS-EV05-ET","title":"qualify","domain_event_id":"ST-DIS-EV05","delivery":"in process","file":"scripts/qualify-compiler-release.py"}
 {"id":"ST-DIS-EV06-ET","title":"verify_published_release","domain_event_id":"ST-DIS-EV06","delivery":"in process","file":"scripts/qualify-compiler-release.py"}
 {"id":"ST-DIS-EV07-ET","title":"install","domain_event_id":"ST-DIS-EV07","delivery":"in process","file":"scripts/install-compiler.py"}
+{"id":"ST-DLV-EV01-ET","title":"delivery.RequirementsWritten","domain_event_id":"ST-DLV-EV01","delivery":"outbox","file":"internal/delivery/events.go"}
+{"id":"ST-DLV-EV02-ET","title":"delivery.PipelineWritten","domain_event_id":"ST-DLV-EV02","delivery":"in process","file":"internal/delivery/events.go"}
+{"id":"ST-DLV-EV03-ET","title":"delivery.BaseWritten","domain_event_id":"ST-DLV-EV03","delivery":"in process","file":"internal/delivery/events.go"}
+{"id":"ST-DLV-EV04-ET","title":"delivery.ApplicationWritten","domain_event_id":"ST-DLV-EV04","delivery":"in process","file":"internal/delivery/events.go"}
+{"id":"ST-DLV-EV05-ET","title":"delivery.CandidatePassed","domain_event_id":"ST-DLV-EV05","delivery":"outbox","file":"internal/delivery/events.go"}
 {"id":"ST-EXT-EV01-ET","title":"FillScaffolded","domain_event_id":"ST-EXT-EV01","delivery":"in process","file":"internal/fill/events.go"}
 {"id":"ST-EXT-EV02-ET","title":"FillTestsPassed","domain_event_id":"ST-EXT-EV02","delivery":"in process","file":"internal/fill/events.go"}
 {"id":"ST-EXT-EV03-ET","title":"FillSignedOff","domain_event_id":"ST-EXT-EV03","delivery":"in process","file":"internal/fill/events.go"}

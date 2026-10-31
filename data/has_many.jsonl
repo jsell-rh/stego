@@ -7,7 +7,11 @@
 {"source_id":"ST-DECL-EN01","target_id":"ST-DECL-EN06"}
 {"source_id":"ST-DECL-EN01","target_id":"ST-DECL-EN07"}
 {"source_id":"ST-DECL-EN01","target_id":"ST-DECL-EN08"}
+{"source_id":"ST-DECL-EN01","target_id":"ST-DECL-EN16"}
+{"source_id":"ST-DECL-EN01","target_id":"ST-DECL-EN17"}
 {"source_id":"ST-DECL-EN02","target_id":"ST-DECL-EN03"}
+{"source_id":"ST-DECL-EN02","target_id":"ST-DECL-EN12"}
+{"source_id":"ST-DECL-EN14","target_id":"ST-DECL-EN15"}
 {"source_id":"ST-DIS-EN09","target_id":"ST-DIS-EN10"}
 {"source_id":"ST-DIS-EN09","target_id":"ST-DIS-EN11"}
 {"source_id":"ST-DLV-EN01","target_id":"ST-DLV-EN02"}
@@ -22,3 +26,4 @@
 {"source_id":"ST-SUP-EN06","target_id":"ST-SUP-EN07"}
 {"source_id":"ST-SUP-EN09","target_id":"ST-SUP-EN11"}
 {"source_id":"ST-SUP-EN11","target_id":"ST-SUP-EN12"}
+{"source_id":"ST-SUP-EN11","target_id":"ST-SUP-EN13"}
