@@ -61,12 +61,14 @@ jobs:
       - run: npm ci --prefix internal/generator/typescriptsdk/testdata --ignore-scripts --no-audit --no-fund
       - run: npm ci --prefix internal/generator/browsertelemetry/testdata --ignore-scripts --no-audit --no-fund
       - name: Run the Go suites
+        timeout-minutes: 25
         env:
           STEGO_REQUIRE_NODE: '1'
           STEGO_REQUIRE_POSTGRES: '1'
           STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable
         run: go test -json -race -count=1 -mod=readonly ./... > "$RUNNER_TEMP/go-test.json" || true
       - name: Run the Python suites
+        timeout-minutes: 5
         run: python3 -B scripts/run-python-tests.py --output "$RUNNER_TEMP/python-tests.json"
       - name: Record the proof run
         id: record
