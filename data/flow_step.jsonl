@@ -257,3 +257,19 @@
 {"id":"ST-SUP-UC09-FL01-S02","title":"The platform engineer sets the ga provider the archetype answers the port with by default","flow_id":"ST-SUP-UC09-FL01","path":"main","position":2}
 {"id":"ST-SUP-UC09-FL01-S03","title":"No provider of the port is ga, so the choice is refused, naming the port and each provider with its stage","flow_id":"ST-SUP-UC09-FL01","path":"refused","position":1}
 {"id":"ST-SUP-UC09-FL01-S04","title":"A provider that has not passed the port's conformance tests is below ga, so it cannot be the default, and STEGO names the suite it has not passed","flow_id":"ST-SUP-UC09-FL01","path":"refused","position":2}
+{"id":"ST-SUP-UC10-FL01-S01","title":"The platform engineer chooses the components the archetype includes and names tenancy and audit-log as its default concerns","flow_id":"ST-SUP-UC10-FL01","path":"main","position":1}
+{"id":"ST-SUP-UC10-FL01-S02","title":"The platform engineer extends the archetype with the mixins a service may add, each with the mixins it requires","flow_id":"ST-SUP-UC10-FL01","path":"main","position":2}
+{"id":"ST-SUP-UC10-FL01-S03","title":"STEGO checks that every default concern is ga and accepts the archetype with its smallest example content","flow_id":"ST-SUP-UC10-FL01","path":"main","position":3}
+{"id":"ST-SUP-UC10-FL01-S04","title":"A service declaration that opts out of a default concern gives its reason, and STEGO records the reason with the service","flow_id":"ST-SUP-UC10-FL01","path":"main","position":4}
+{"id":"ST-SUP-UC10-FL01-S05","title":"A service declaration that binds event-publisher gets durable-events and kafka-events, and a notice that names them and the sunset date","flow_id":"ST-SUP-UC10-FL01","path":"alias","position":1}
+{"id":"ST-SUP-UC10-FL01-S06","title":"A ga archetype without tenancy or audit-log is refused, naming the missing component","flow_id":"ST-SUP-UC10-FL01","path":"refused","position":1}
+{"id":"ST-SUP-UC10-FL01-S07","title":"An opt-out with no reason is refused, naming the component","flow_id":"ST-SUP-UC10-FL01","path":"refused","position":2}
+{"id":"ST-SUP-UC10-FL01-S08","title":"A mixin bound without the mixin it requires is refused, naming both","flow_id":"ST-SUP-UC10-FL01","path":"refused","position":3}
+{"id":"ST-SUP-UC10-FL01-S09","title":"A default concern that is not ga is refused, naming the component and its stage","flow_id":"ST-SUP-UC10-FL01","path":"refused","position":4}
+{"id":"ST-SUP-UC11-FL01-S01","title":"The platform engineer names the port the component provides and the runtime package that holds the provider","flow_id":"ST-SUP-UC11-FL01","path":"main","position":1}
+{"id":"ST-SUP-UC11-FL01-S02","title":"STEGO checks that each emitted file varies with the declaration and that the provider import is the pinned runtime library version, and accepts the component","flow_id":"ST-SUP-UC11-FL01","path":"main","position":2}
+{"id":"ST-SUP-UC11-FL01-S03","title":"The provider passes the port's conformance suite at the component's digest, and the pass is recorded as port conformance evidence","flow_id":"ST-SUP-UC11-FL01","path":"main","position":3}
+{"id":"ST-SUP-UC11-FL01-S04","title":"The component graduates to ga with the conformance pass at its current digest","flow_id":"ST-SUP-UC11-FL01","path":"main","position":4}
+{"id":"ST-SUP-UC11-FL01-S05","title":"A file that is the same for two declarations that differ in everything the component reads is refused, naming the file and the runtime package","flow_id":"ST-SUP-UC11-FL01","path":"refused","position":1}
+{"id":"ST-SUP-UC11-FL01-S06","title":"A provider imported at a version the archetype does not pin is refused, naming both versions","flow_id":"ST-SUP-UC11-FL01","path":"refused","position":2}
+{"id":"ST-SUP-UC11-FL01-S07","title":"A component whose provider has not passed the suite at its current digest stays below ga, naming the port and the suite","flow_id":"ST-SUP-UC11-FL01","path":"refused","position":3}

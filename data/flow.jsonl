@@ -52,3 +52,5 @@
 {"id":"ST-SUP-UC07-FL01","title":"Define a port through the command line","use_case_id":"ST-SUP-UC07","interface_id":"ST-IF01"}
 {"id":"ST-SUP-UC08-FL01","title":"Declare a slot through the command line","use_case_id":"ST-SUP-UC08","interface_id":"ST-IF01"}
 {"id":"ST-SUP-UC09-FL01","title":"Choose a provider for a port through the command line","use_case_id":"ST-SUP-UC09","interface_id":"ST-IF01"}
+{"id":"ST-SUP-UC10-FL01","title":"Curate a golden path through the command line","use_case_id":"ST-SUP-UC10","interface_id":"ST-IF01"}
+{"id":"ST-SUP-UC11-FL01","title":"Provide a port from the runtime library through the command line","use_case_id":"ST-SUP-UC11","interface_id":"ST-IF01"}
