@@ -44,3 +44,5 @@
 {"value_object_id":"ST-VO59","position":2,"name":"Module","meaning":"The Go module folder, relative to the source root.","type":"text","required":true,"example":"."}
 {"value_object_id":"ST-VO59","position":3,"name":"Target","meaning":"The build target, relative to the module.","type":"text","required":true,"example":"cmd/orders"}
 {"value_object_id":"ST-VO59","position":4,"name":"Entry point","meaning":"The executable's name.","type":"text","required":true,"example":"orders"}
+{"value_object_id":"ST-VO61","position":1,"name":"Amount","meaning":"The amount in minor units of the currency, signed.","type":"whole number","required":true,"example":"100000"}
+{"value_object_id":"ST-VO61","position":2,"name":"Currency","meaning":"The ISO 4217 code.","type":"text","required":true,"example":"EUR"}

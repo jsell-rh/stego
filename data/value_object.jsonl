@@ -20,3 +20,4 @@
 {"id":"ST-VO57","title":"Gate kind","description":"Which bar a gate holds a commit to."}
 {"id":"ST-VO58","title":"Runtime pin","description":"One version of the runtime library, fixed by module path, tagged version and the go.sum hash of that version's contents."}
 {"id":"ST-VO59","title":"Image target","description":"One image a service's pipeline builds: which module and build target, and the executable that is its entry point."}
+{"id":"ST-VO61","title":"Money","description":"An amount of one currency in integer minor units. Allocation splits an amount without losing a minor unit."}

@@ -26,3 +26,4 @@
 {"source_id":"ST-SUP-EV05-ET","target_id":"ST-STD-TRUST-R06"}
 {"source_id":"ST-SUP-EV06-ET","target_id":"ST-STD-TRUST-R06"}
 {"source_id":"ST-SUP-SP06-PR","target_id":"ST-STD-RUNTIME-R05"}
+{"source_id":"ST-VO61-VT","target_id":"ST-STD-TXN-R12"}
