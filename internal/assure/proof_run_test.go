@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -148,6 +149,35 @@ func TestProofRunInvariants(t *testing.T) {
 				t.Setenv("GIT_CONFIG_GLOBAL", globalConfig)
 				writeTestFile(t, filepath.Join(root, "internal", "fix", "extra.local"), "x\n")
 			},
+			"another commit's tree shown by a replace ref": func(root string) {
+				head := strings.TrimSpace(gitIn(t, root, "rev-parse", "HEAD"))
+				branch := strings.TrimSpace(gitIn(t, root, "branch", "--show-current"))
+				gitIn(t, root, "checkout", "-q", "-b", "other")
+				writeTestFile(t, filepath.Join(root, "data", "invariant_test.jsonl"), `{"id":"ST-FIX-INV01-T","state":"automated","file":"internal/fix/fix_test.go"}`+"\n"+`{"id":"ST-FIX-INV09-T","state":"automated","file":"internal/fix/fix_test.go"}`+"\n")
+				gitIn(t, root, "-c", "user.name=fixture", "-c", "user.email=fixture@example.com", "-c", "commit.gpgsign=false", "commit", "-q", "-a", "-m", "other")
+				other := strings.TrimSpace(gitIn(t, root, "rev-parse", "HEAD"))
+				gitIn(t, root, "checkout", "-q", branch)
+				gitIn(t, root, "replace", head, other)
+				gitIn(t, root, "reset", "-q", "--hard")
+			},
+			"a same-size change hidden by minimal stat checks": func(root string) {
+				gitIn(t, root, "config", "core.checkStat", "minimal")
+				gitIn(t, root, "config", "core.trustctime", "false")
+				file := filepath.Join(root, "internal", "fix", "fix.go")
+				old := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+				if err := os.Chtimes(file, old, old); err != nil {
+					t.Fatal(err)
+				}
+				gitIn(t, root, "update-index", "--refresh")
+				writeTestFile(t, file, "package fiz\n")
+				if err := os.Chtimes(file, old, old); err != nil {
+					t.Fatal(err)
+				}
+			},
+			"a new file hidden by an untracked .gitignore that ignores itself": func(root string) {
+				writeTestFile(t, filepath.Join(root, "internal", "fix", ".gitignore"), "*\n")
+				writeTestFile(t, filepath.Join(root, "internal", "fix", "new.go"), "package fix\n")
+			},
 		} {
 			t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 			root := gitRepository(t)
@@ -167,7 +197,7 @@ func TestProofRunInvariants(t *testing.T) {
 				t.Fatalf("%s is accepted", name)
 			}
 			refusedBy(t, err, "atOneCleanCommit", store)
-			if name == "a spec change hidden by assume-unchanged" {
+			if name == "a spec change hidden by assume-unchanged" || name == "another commit's tree shown by a replace ref" {
 				spec, err := ReadCommittedSpec(root, tree.Head)
 				if err != nil {
 					t.Fatal(err)

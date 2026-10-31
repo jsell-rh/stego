@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -344,9 +345,44 @@ class Fix(unittest.TestCase):
 			{name: "an untracked file hidden by the user's excludes file", make: func(f fixture) {
 				writeFile(t, filepath.Join(f.repository, "internal", "fix", "extra.local"), "x\n")
 			}, env: []string{"GIT_CONFIG_GLOBAL=" + userConfig}},
+			{name: "another commit's tree shown by a replace ref", make: func(f fixture) {
+				head := strings.TrimSpace(f.git(t, "rev-parse", "HEAD"))
+				branch := strings.TrimSpace(f.git(t, "branch", "--show-current"))
+				f.git(t, "checkout", "-q", "-b", "other")
+				writeFile(t, filepath.Join(f.repository, "data", "invariant_test.jsonl"), fixtureData["data/invariant_test.jsonl"]+
+					`{"id":"ST-FIX-INV04-T","title":"Replaced","invariant_id":"ST-FIX-INV04","level":"unit","state":"automated","file":"internal/fix/fix_test.go"}`+"\n")
+				f.git(t, "-c", "user.name=fixture", "-c", "user.email=fixture@example.com", "-c", "commit.gpgsign=false", "commit", "-q", "-a", "-m", "other")
+				other := strings.TrimSpace(f.git(t, "rev-parse", "HEAD"))
+				f.git(t, "checkout", "-q", branch)
+				f.git(t, "replace", head, other)
+				f.git(t, "reset", "-q", "--hard")
+			}},
+			{name: "a same-size change hidden by minimal stat checks", make: func(f fixture) {
+				f.git(t, "config", "core.checkStat", "minimal")
+				f.git(t, "config", "core.trustctime", "false")
+				file := filepath.Join(f.repository, "data", "domain.jsonl")
+				old := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+				if err := os.Chtimes(file, old, old); err != nil {
+					t.Fatal(err)
+				}
+				f.git(t, "update-index", "--refresh")
+				writeFile(t, file, strings.Replace(fixtureData["data/domain.jsonl"], "Fixture", "Fixturf", 1))
+				if err := os.Chtimes(file, old, old); err != nil {
+					t.Fatal(err)
+				}
+			}},
+			{name: "a new file hidden by an untracked .gitignore that ignores itself", make: func(f fixture) {
+				writeFile(t, filepath.Join(f.repository, "internal", "fix", ".gitignore"), "*\n")
+				writeFile(t, filepath.Join(f.repository, "internal", "fix", "new.go"), "package fix\n")
+			}},
 		} {
 			f := newFixture(t, goFixture, pythonFixture)
 			c.make(f)
+			if strings.Contains(c.name, "hidden") || strings.Contains(c.name, "replace") {
+				if status := f.git(t, "-c", "core.excludesFile="+userExcludes, "status", "--porcelain"); status != "" {
+					t.Fatalf("%s: git status shows %q, so the case hides nothing", c.name, status)
+				}
+			}
 			result := f.record(t, f.commit, f.predicate, c.env...)
 			if result.code == 0 {
 				t.Fatalf("%s: assure record exited 0", c.name)
@@ -436,6 +472,7 @@ class Fix(unittest.TestCase):
 		if _, _, err := runSubjectStep(t, "main"); err == nil {
 			t.Fatal("the attest job names a branch as the subject")
 		}
+
 	})
 }
 

@@ -3,11 +3,13 @@ package assure
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"os/exec"
@@ -129,15 +131,32 @@ func RepositoryRoot(dir string) (string, error) {
 }
 
 // ReadCheckout reads the state of the tree at root: the commit checked out, and each change that is not committed.
-// A change is any entry git status shows, untracked files too, with no excludes file but the committed .gitignore
-// files; any file whose index entry hides its changes from git status (assume-unchanged or skip-worktree, as git
-// ls-files -v shows them); and any pattern in the repository's info/exclude file.
+// A change is:
+//   - any entry git status shows, untracked files too, with no excludes file but the committed .gitignore files,
+//     and with full stat checks, so that core.checkStat, core.trustctime, core.fileMode, fsmonitor or the untracked
+//     cache in the repository's configuration hide nothing;
+//   - any file whose index entry hides its changes from git status (assume-unchanged or skip-worktree, as git
+//     ls-files -v shows them);
+//   - any pattern in the repository's info/exclude file;
+//   - any untracked .gitignore file that ignores itself, which can hide new files next to it (one in a folder
+//     that is ignored as a whole, such as node_modules, can hide nothing more and is not counted);
+//   - any file of the commit's tree whose bytes, kind or executable bit in the working tree differ from the commit,
+//     compared by object ID with no filters, so that no stat setting can hide it.
+//
+// Every git call runs with GIT_NO_REPLACE_OBJECTS=1, so a replace ref cannot show another commit's tree under the
+// commit's ID.
+//
+// These checks catch accidents and the ordinary ways to hide a change from git. They cannot stop code that runs
+// in the same job before assure record: such code can always defeat a check made on the job's own disk. What
+// keeps the subject honest is the proof run workflow, whose attest job runs no code of the repository and names
+// the commit itself.
 func ReadCheckout(root string) (Checkout, error) {
 	head, err := git(root, "rev-parse", "HEAD")
 	if err != nil {
 		return Checkout{}, err
 	}
 	status, err := git(root, "-c", "core.excludesFile="+os.DevNull, "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
+		"-c", "core.checkStat=default", "-c", "core.trustctime=true", "-c", "core.fileMode=true",
 		"status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none")
 	if err != nil {
 		return Checkout{}, err
@@ -174,12 +193,108 @@ func ReadCheckout(root string) (Checkout, error) {
 			changes = append(changes, "info/exclude hides "+pattern)
 		}
 	}
+	ignored, err := git(root, "-c", "core.excludesFile="+os.DevNull, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory")
+	if err != nil {
+		return Checkout{}, err
+	}
+	for _, file := range strings.Split(string(ignored), "\x00") {
+		if path.Base(file) == ".gitignore" {
+			changes = append(changes, file+" is an untracked .gitignore file that git ignores")
+		}
+	}
+	differ, err := treeDifferences(root)
+	if err != nil {
+		return Checkout{}, err
+	}
+	changes = append(changes, differ...)
 	return Checkout{Head: strings.TrimSpace(string(head)), Changes: changes}, nil
 }
 
-// git runs git in the repository at root and returns what it writes to its standard output.
+// treeDifferences lists each file of HEAD's tree that the working tree does not hold as committed: missing, of
+// another kind, with another executable bit, or with other bytes. It hashes the working file as git hashes a blob,
+// with no filters, so no stat setting or index flag can hide a change.
+func treeDifferences(root string) ([]string, error) {
+	tree, err := git(root, "ls-tree", "-r", "-z", "--full-tree", "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	var differ []string
+	for _, entry := range strings.Split(string(tree), "\x00") {
+		info, file, ok := strings.Cut(entry, "\t")
+		fields := strings.Fields(info)
+		if !ok || len(fields) != 3 || fields[1] != "blob" {
+			continue
+		}
+		mode, id := fields[0], fields[2]
+		got, err := workingObjectID(filepath.Join(root, filepath.FromSlash(file)), mode, len(id))
+		if err != nil {
+			differ = append(differ, file+" differs from the commit: "+err.Error())
+			continue
+		}
+		if got != id {
+			differ = append(differ, file+" differs from the commit")
+		}
+	}
+	return differ, nil
+}
+
+// workingObjectID is the git object ID of the working file as a blob of the mode given: the link's target for a
+// symbolic link, else the file's bytes. hexLength tells the repository's object format: 40 for SHA-1, 64 for
+// SHA-256. It refuses a file of another kind or another executable bit than the mode.
+func workingObjectID(file, mode string, hexLength int) (string, error) {
+	info, err := os.Lstat(file)
+	if err != nil {
+		return "", err
+	}
+	var content io.Reader
+	var size int64
+	switch {
+	case mode == "120000":
+		if info.Mode()&os.ModeSymlink == 0 {
+			return "", errors.New("it is not a symbolic link")
+		}
+		target, err := os.Readlink(file)
+		if err != nil {
+			return "", err
+		}
+		content, size = strings.NewReader(target), int64(len(target))
+	case !info.Mode().IsRegular():
+		return "", errors.New("it is not a regular file")
+	case (mode == "100755") != (info.Mode().Perm()&0o100 != 0):
+		return "", errors.New("its executable bit differs")
+	default:
+		opened, err := os.Open(file)
+		if err != nil {
+			return "", err
+		}
+		defer opened.Close()
+		content, size = opened, info.Size()
+	}
+	var hasher hash.Hash
+	switch hexLength {
+	case 40:
+		hasher = sha1.New()
+	case 64:
+		hasher = sha256.New()
+	default:
+		return "", fmt.Errorf("object IDs of %d digits are not SHA-1 or SHA-256", hexLength)
+	}
+	fmt.Fprintf(hasher, "blob %d\x00", size)
+	written, err := io.Copy(hasher, content)
+	if err != nil {
+		return "", err
+	}
+	if written != size {
+		return "", errors.New("it changed while it was read")
+	}
+	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+// git runs git in the repository at root and returns what it writes to its standard output. Replace refs are
+// off, so every object is the one its ID names.
 func git(root string, args ...string) ([]byte, error) {
 	command := exec.Command("git", append([]string{"-C", root}, args...)...)
+	command.Env = append(os.Environ(), "GIT_NO_REPLACE_OBJECTS=1")
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 	out, err := command.Output()
