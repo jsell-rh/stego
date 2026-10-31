@@ -1,0 +1,72 @@
+name: Specification checks
+
+# The Lathe model under data/ is the specification. This job loads it with the Lathe release the
+# repository pins and fails on any error: data that breaks the model, a test file that lacks the ID
+# of its test record, a manual test in STEGO's own spec, a component or runtime package no aggregate
+# lists. Warnings (not built, not proved) are reported and do not fail the job; the ratchet that
+# refuses a change under which coverage falls is Assuring's gate (ST-ASR-UC02), which runs here once
+# it is written.
+#
+# Lathe is a private repository, so the job reads it with a deploy key (read only) kept in the
+# secret LATHE_DEPLOY_KEY. The ref below is the Lathe commit stego's data is for; move it together
+# with lathe.config.json's schema.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'data/**'
+      - 'lathe.config.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - '**/*_test.go'
+      - 'scripts/test_*.py'
+      - '.github/workflows/spec.yml'
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  LATHE_REF: c5137883563b53e13fd10f65eb30b4cb20268035
+
+jobs:
+  check:
+    name: lathe check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      LATHE_DEPLOY_KEY: ${{ secrets.LATHE_DEPLOY_KEY }}
+    steps:
+      - name: Require the Lathe deploy key
+        if: env.LATHE_DEPLOY_KEY == ''
+        run: |
+          echo "::error::LATHE_DEPLOY_KEY is not set. Add a read-only deploy key for Jared4Robertson/lathe as a repository secret of that name."
+          exit 1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          path: stego
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: Jared4Robertson/lathe
+          ref: ${{ env.LATHE_REF }}
+          ssh-key: ${{ secrets.LATHE_DEPLOY_KEY }}
+          path: lathe
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24.18.1'
+      - name: Build the pinned Lathe
+        working-directory: lathe/lathe
+        run: |
+          npm ci --no-audit --no-fund
+          ./node_modules/.bin/tsc -p tsconfig.build.json
+          chmod +x dist/bin/lathe.js
+      - name: Load and check the specification
+        working-directory: stego
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          ./node_modules/.bin/lathe check
