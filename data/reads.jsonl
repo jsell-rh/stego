@@ -3,6 +3,12 @@
 {"source_id":"ST-ASR-SP02","target_id":"ST-ASR-A1"}
 {"source_id":"ST-ASR-SP03","target_id":"ST-ASR-A2"}
 {"source_id":"ST-ASR-SP04","target_id":"ST-ASR-A2"}
+{"source_id":"ST-ASR-SP05","target_id":"ST-ASR-A2"}
+{"source_id":"ST-ASR-SP06","target_id":"ST-ASR-A2"}
+{"source_id":"ST-ASR-SP07","target_id":"ST-ASR-A2"}
+{"source_id":"ST-ASR-SP08","target_id":"ST-ASR-A2"}
+{"source_id":"ST-ASR-SP09","target_id":"ST-ASR-A2"}
+{"source_id":"ST-ASR-SP10","target_id":"ST-ASR-A2"}
 {"source_id":"ST-BLD-RM01","target_id":"ST-BLD-A3"}
 {"source_id":"ST-BLD-RM02","target_id":"ST-BLD-A4"}
 {"source_id":"ST-BLD-SP01","target_id":"ST-BLD-A3"}

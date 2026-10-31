@@ -4,9 +4,13 @@
 {"id":"ST-ASR-UC02-FL01-S01","title":"On a pull request, CI runs assure judge change, which measures the coverage at the change's commit and at the base head","flow_id":"ST-ASR-UC02-FL01","path":"main","position":1}
 {"id":"ST-ASR-UC02-FL01-S02","title":"assure judge change fetches the proof run attestation for the change's commit from the provider and verifies it","flow_id":"ST-ASR-UC02-FL01","path":"main","position":2}
 {"id":"ST-ASR-UC02-FL01-S03","title":"A share fell or a proof did not pass, so the verdict names each cause and the check fails","flow_id":"ST-ASR-UC02-FL01","path":"refused","position":1}
+{"id":"ST-ASR-UC02-FL01-S04","title":"assure judge change reads the change's tree against the code standard and compares its faults with the base's","flow_id":"ST-ASR-UC02-FL01","path":"main","position":3}
+{"id":"ST-ASR-UC02-FL01-S05","title":"A code-standard fault is new, so the verdict names each with its rule and the check fails","flow_id":"ST-ASR-UC02-FL01","path":"refused","position":2}
 {"id":"ST-ASR-UC03-FL01-S01","title":"The release workflow runs assure judge release at the commit to release, which measures the coverage and verifies the proof run there","flow_id":"ST-ASR-UC03-FL01","path":"main","position":1}
 {"id":"ST-ASR-UC03-FL01-S02","title":"The provider's attestation action signs the passed verdict with the commit as subject and keeps it","flow_id":"ST-ASR-UC03-FL01","path":"main","position":2}
 {"id":"ST-ASR-UC03-FL01-S03","title":"A share is below 100% or a proof did not pass, so the workflow stops and publishes no release","flow_id":"ST-ASR-UC03-FL01","path":"refused","position":1}
+{"id":"ST-ASR-UC03-FL01-S04","title":"assure judge release reads the commit's tree against the code standard","flow_id":"ST-ASR-UC03-FL01","path":"main","position":3}
+{"id":"ST-ASR-UC03-FL01-S05","title":"The tree has a code-standard fault, so the workflow stops and publishes no release","flow_id":"ST-ASR-UC03-FL01","path":"refused","position":2}
 {"id":"ST-ASR-UC04-FL01-S01","title":"The platform engineer runs assure ledger for a commit, and STEGO fetches and verifies the proof runs from the provider and prints each test record with its result and where it last passed","flow_id":"ST-ASR-UC04-FL01","path":"main","position":1}
 {"id":"ST-ASR-UC04-FL01-S02","title":"An attestation fails verification, so the ledger shows no result for it and says why","flow_id":"ST-ASR-UC04-FL01","path":"refused","position":1}
 {"id":"ST-BLD-UC01-FL01-S01","title":"The service author runs stego deps, and STEGO resolves the modules and writes go.mod and go.sum","flow_id":"ST-BLD-UC01-FL01","path":"main","position":1}
