@@ -84,6 +84,3 @@ func fullCommit(text string) bool {
 	}
 	return true
 }
-
-// Verification of an attestation the provider returns (ST-ASR-SP02, attestationVerified, and ST-ASR-DS03,
-// VerifyAttestation) belongs in this file. Judge a change (ST-ASR-UC02) adds it.

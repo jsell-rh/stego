@@ -11,6 +11,3 @@ type ProofRunAttested struct {
 	Attestation     Attestation
 	PredicateDigest string
 }
-
-// The events of the gate verdict, ChangeJudged (ST-ASR-EV02) and ReleaseJudged (ST-ASR-EV03), belong in this
-// file. Judge a change (ST-ASR-UC02) and Judge a release (ST-ASR-UC03) add them.
