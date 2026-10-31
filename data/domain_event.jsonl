@@ -10,10 +10,10 @@
 {"id":"ST-DIS-EV03","title":"Component digest superseded","aggregate_id":"ST-DIS-A2","published":true,"description":"A platform engineer declared a successor for a component digest."}
 {"id":"ST-DIS-EV04","title":"Component digest withdrawn","aggregate_id":"ST-DIS-A2","published":true,"description":"A platform engineer withdrew a component digest."}
 {"id":"ST-DIS-EV05","title":"Compiler release qualified","aggregate_id":"ST-DIS-A3","published":false,"description":"Every required job and signed artifact at one commit passed."}
-{"id":"ST-DIS-EV06","title":"Published compiler release verified","aggregate_id":"ST-DIS-A3","published":false,"description":"The published release matched its qualification, as a consumer installs it."}
+{"id":"ST-DIS-EV06","title":"Published compiler release verified","aggregate_id":"ST-DIS-A3","published":true,"description":"The published release matched its qualification, as a consumer installs it."}
 {"id":"ST-DIS-EV07","title":"Compiler installed","aggregate_id":"ST-DIS-A4","published":false,"description":"An operator put a verified compiler in place."}
 {"id":"ST-DLV-EV01","title":"Platform requirements written","aggregate_id":"ST-DLV-A1","published":true,"description":"A service's platform requirements changed; the platform reads them to prepare its environments."}
-{"id":"ST-DLV-EV02","title":"Delivery pipeline written","aggregate_id":"ST-DLV-A2","published":false,"description":"A service's CI file changed."}
+{"id":"ST-DLV-EV02","title":"Delivery pipeline written","aggregate_id":"ST-DLV-A2","published":true,"description":"A service's CI file changed."}
 {"id":"ST-DLV-EV03","title":"Kubernetes base written","aggregate_id":"ST-DLV-A3","published":false,"description":"A service's Kubernetes base changed."}
 {"id":"ST-DLV-EV04","title":"Delivery object written","aggregate_id":"ST-DLV-A4","published":false,"description":"A service's delivery object changed."}
 {"id":"ST-DLV-EV05","title":"Delivery candidate passed","aggregate_id":"ST-DLV-A5","published":true,"description":"An image passed every STEGO check and may be released for delivery."}

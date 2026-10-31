@@ -21,6 +21,7 @@
 {"source_id":"ST-DIS-CLI09","target_id":"ST-DIS-CMD06"}
 {"source_id":"ST-DIS-CLI10","target_id":"ST-DIS-CMD07"}
 {"source_id":"ST-DIS-CLI11","target_id":"ST-DIS-QRY05"}
+{"source_id":"ST-DIS-CLI12","target_id":"ST-DIS-QRY06"}
 {"source_id":"ST-DLV-CLI01","target_id":"ST-DLV-QRY01"}
 {"source_id":"ST-DLV-CLI02","target_id":"ST-DLV-CMD05"}
 {"source_id":"ST-EXT-CLI01","target_id":"ST-EXT-CMD01"}

@@ -1,6 +1,13 @@
+{"source_id":"ST-ASR-EV03-ET","target_id":"ST-STD-TRUST-R06"}
 {"source_id":"ST-BLD-CMD06-H","target_id":"ST-STD-TRUST-R03"}
 {"source_id":"ST-BLD-CMD06-H","target_id":"ST-STD-TRUST-R04"}
+{"source_id":"ST-BLD-EV06-ET","target_id":"ST-STD-TRUST-R06"}
 {"source_id":"ST-DIS-CMD05-H","target_id":"ST-STD-TRUST-R01"}
+{"source_id":"ST-DIS-EV03-ET","target_id":"ST-STD-TRUST-R06"}
+{"source_id":"ST-DIS-EV04-ET","target_id":"ST-STD-TRUST-R06"}
+{"source_id":"ST-DIS-EV06-ET","target_id":"ST-STD-TRUST-R06"}
+{"source_id":"ST-DLV-EV02-ET","target_id":"ST-STD-TRUST-R06"}
+{"source_id":"ST-DLV-EV05-ET","target_id":"ST-STD-TRUST-R06"}
 {"source_id":"ST-GEN-CMD01-H","target_id":"ST-STD-TRUST-R02"}
 {"source_id":"ST-GEN-DS02-SV","target_id":"ST-STD-GEN-R01"}
 {"source_id":"ST-GEN-DS02-SV","target_id":"ST-STD-GEN-R02"}
@@ -10,8 +17,12 @@
 {"source_id":"ST-GEN-DS03-SV","target_id":"ST-STD-RUNTIME-R03"}
 {"source_id":"ST-GEN-DS03-SV","target_id":"ST-STD-RUNTIME-R04"}
 {"source_id":"ST-GEN-DS03-SV","target_id":"ST-STD-RUNTIME-R05"}
+{"source_id":"ST-GEN-EV01-ET","target_id":"ST-STD-TRUST-R06"}
 {"source_id":"ST-INT01-AD","target_id":"ST-STD-TRUST-R04"}
 {"source_id":"ST-INT02-AD","target_id":"ST-STD-TRUST-R03"}
 {"source_id":"ST-INT02-AD","target_id":"ST-STD-TRUST-R04"}
 {"source_id":"ST-INT03-AD","target_id":"ST-STD-TRUST-R05"}
+{"source_id":"ST-SUP-EV02-ET","target_id":"ST-STD-TRUST-R06"}
+{"source_id":"ST-SUP-EV05-ET","target_id":"ST-STD-TRUST-R06"}
+{"source_id":"ST-SUP-EV06-ET","target_id":"ST-STD-TRUST-R06"}
 {"source_id":"ST-SUP-SP06-PR","target_id":"ST-STD-RUNTIME-R05"}
