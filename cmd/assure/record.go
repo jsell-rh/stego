@@ -1,16 +1,11 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/jsell-rh/stego/internal/assure"
 )
@@ -39,24 +34,22 @@ func record(args []string, stdout, stderr io.Writer, getenv func(string) string)
 	return 0
 }
 
+// recordProofRun reads the tree of the repository that holds the working folder, and the spec from the git
+// objects of the commit checked out, never from the working tree.
 func recordProofRun(commit, goJSON, pythonJSON, predicate string, stdout io.Writer, getenv func(string) string) error {
 	job, err := assure.ReadGitHubRun(getenv)
 	if err != nil {
 		return err
 	}
-	root, err := git("rev-parse", "--show-toplevel")
+	root, err := assure.RepositoryRoot(".")
 	if err != nil {
 		return err
 	}
-	tree, err := checkout(root)
+	tree, err := assure.ReadCheckout(root)
 	if err != nil {
 		return err
 	}
-	dataDir, err := specFolder(root)
-	if err != nil {
-		return err
-	}
-	spec, err := assure.ReadSpec(os.DirFS(root), dataDir)
+	spec, err := assure.ReadCommittedSpec(root, tree.Head)
 	if err != nil {
 		return err
 	}
@@ -74,13 +67,6 @@ func recordProofRun(commit, goJSON, pythonJSON, predicate string, stdout io.Writ
 	if err != nil {
 		return err
 	}
-	store := assure.GitHubAttestations{
-		Repository: root,
-		Predicate:  predicatePath,
-		Outputs:    job.Outputs,
-		Server:     job.Server,
-		Name:       job.Name,
-	}
 	run, attested, err := assure.RecordProofRun(assure.RecordRequest{
 		Commit:       commit,
 		Tree:         tree,
@@ -91,7 +77,7 @@ func recordProofRun(commit, goJSON, pythonJSON, predicate string, stdout io.Writ
 		RunReference: job.RunReference,
 		Signer:       job.Signer,
 		Trusted:      job.Trusted,
-	}, store)
+	}, assure.GitHubAttestations{Repository: root, Predicate: predicatePath})
 	if err != nil {
 		return err
 	}
@@ -104,60 +90,4 @@ func recordProofRun(commit, goJSON, pythonJSON, predicate string, stdout io.Writ
 	fmt.Fprintf(stdout, "predicate %s (%s), type %s, for %s to sign\n",
 		predicatePath, attested.PredicateDigest, attested.Attestation.PredicateType, attested.Attestation.Signer.Subject)
 	return nil
-}
-
-// checkout reads the commit the tree at root is at, and each change git status shows, untracked files too.
-func checkout(root string) (assure.Checkout, error) {
-	head, err := git("-C", root, "rev-parse", "HEAD")
-	if err != nil {
-		return assure.Checkout{}, err
-	}
-	status, err := gitRaw("-C", root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
-	if err != nil {
-		return assure.Checkout{}, err
-	}
-	var changes []string
-	for _, entry := range strings.Split(status, "\x00") {
-		if entry != "" {
-			changes = append(changes, entry)
-		}
-	}
-	return assure.Checkout{Head: head, Changes: changes}, nil
-}
-
-// specFolder reads the folder of the spec's data files from lathe.config.json at root: its data key, or data.
-func specFolder(root string) (string, error) {
-	data, err := os.ReadFile(filepath.Join(root, "lathe.config.json"))
-	if errors.Is(err, os.ErrNotExist) {
-		return "data", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	var config struct {
-		Data string `json:"data"`
-	}
-	if err := json.Unmarshal(data, &config); err != nil {
-		return "", fmt.Errorf("lathe.config.json: %w", err)
-	}
-	if config.Data == "" {
-		return "data", nil
-	}
-	return filepath.ToSlash(filepath.Clean(config.Data)), nil
-}
-
-func git(args ...string) (string, error) {
-	out, err := gitRaw(args...)
-	return strings.TrimSpace(out), err
-}
-
-func gitRaw(args ...string) (string, error) {
-	command := exec.Command("git", args...)
-	var stderr bytes.Buffer
-	command.Stderr = &stderr
-	out, err := command.Output()
-	if err != nil {
-		return "", fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
-	}
-	return string(out), nil
 }

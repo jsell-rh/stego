@@ -56,12 +56,9 @@ func TestRecordFlow(t *testing.T) {
 			t.Fatalf("predicate:\n%s\nwant:\n%s", first, want)
 		}
 		sum := sha256.Sum256([]byte(f.commit))
-		wantOutputs := "subject-name=git+https://github.com/jsell-rh/stego@" + f.commit + "\n" +
-			"subject-digest=sha256:" + hex.EncodeToString(sum[:]) + "\n" +
-			"predicate-type=https://github.com/jsell-rh/stego/assure/proof-run/v1\n" +
-			"predicate-path=" + f.predicate + "\n"
-		if outputs, _ := os.ReadFile(f.outputs); string(outputs) != wantOutputs {
-			t.Fatalf("step outputs for the attestation action:\n%s\nwant:\n%s", outputs, wantOutputs)
+		name, digest := workflowSubject(t, f.commit)
+		if name != "git+https://github.com/jsell-rh/stego@"+f.commit || digest != "sha256:"+hex.EncodeToString(sum[:]) {
+			t.Fatalf("the attest job names the subject %s (%s), not the commit %s", name, digest, f.commit)
 		}
 
 		again := filepath.Join(f.runnerTemp, "proof-run-again.json")
@@ -71,6 +68,12 @@ func TestRecordFlow(t *testing.T) {
 		if second, _ := os.ReadFile(again); !bytes.Equal(first, second) {
 			t.Fatalf("the same run gave another predicate:\n%s", second)
 		}
+
+		unknown := newFixture(t, goFixture+`{"Time":"2026-10-29T14:02:15Z","Action":"run","Package":"example.com/fix","Test":"TestOther/ST-FIX-INV09-T_names_no_record"}
+{"Time":"2026-10-29T14:02:15Z","Action":"pass","Package":"example.com/fix","Test":"TestOther/ST-FIX-INV09-T_names_no_record","Elapsed":0}
+`, pythonFixture)
+		refused := unknown.record(t, unknown.commit, unknown.predicate)
+		unknown.refusedWithNothingWritten(t, refused, unknown.predicate, "ST-FIX-INV09-T")
 	})
 }
 

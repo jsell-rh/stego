@@ -2,6 +2,8 @@ package assure
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -114,6 +116,67 @@ func TestProofRunInvariants(t *testing.T) {
 			}
 			refusedBy(t, err, "atOneCleanCommit", store)
 		}
+
+		t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+		t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+		clean := gitRepository(t)
+		tree, err := ReadCheckout(clean)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if head := strings.TrimSpace(gitIn(t, clean, "rev-parse", "HEAD")); tree.Head != head || len(tree.Changes) != 0 {
+			t.Fatalf("a clean tree at %s reads as %+v", head, tree)
+		}
+		globalExcludes := filepath.Join(t.TempDir(), "excludes")
+		globalConfig := filepath.Join(t.TempDir(), "gitconfig")
+		writeTestFile(t, globalExcludes, "*.local\n")
+		writeTestFile(t, globalConfig, "[core]\n\texcludesFile = "+globalExcludes+"\n")
+		for name, hide := range map[string]func(root string){
+			"a change hidden by skip-worktree": func(root string) {
+				gitIn(t, root, "update-index", "--skip-worktree", "internal/fix/fix.go")
+				writeTestFile(t, filepath.Join(root, "internal", "fix", "fix.go"), "package fix\n\nvar changed = true\n")
+			},
+			"a spec change hidden by assume-unchanged": func(root string) {
+				gitIn(t, root, "update-index", "--assume-unchanged", "data/invariant_test.jsonl")
+				writeTestFile(t, filepath.Join(root, "data", "invariant_test.jsonl"), `{"id":"ST-FIX-INV01-T","state":"automated","file":"internal/fix/fix_test.go"}`+"\n"+`{"id":"ST-FIX-INV09-T","state":"automated","file":"internal/fix/fix_test.go"}`+"\n")
+			},
+			"an untracked file hidden by info/exclude": func(root string) {
+				writeTestFile(t, filepath.Join(root, ".git", "info", "exclude"), "# patterns\n*.local\n")
+				writeTestFile(t, filepath.Join(root, "internal", "fix", "extra.local"), "x\n")
+			},
+			"an untracked file hidden by the user's excludes file": func(root string) {
+				t.Setenv("GIT_CONFIG_GLOBAL", globalConfig)
+				writeTestFile(t, filepath.Join(root, "internal", "fix", "extra.local"), "x\n")
+			},
+		} {
+			t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+			root := gitRepository(t)
+			hide(root)
+			if status := gitIn(t, root, "-c", "core.excludesFile="+globalExcludes, "status", "--porcelain"); status != "" {
+				t.Fatalf("%s: git status shows %q, so the case hides nothing", name, status)
+			}
+			tree, err := ReadCheckout(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := fixtureRequest(everyTest, pythonPass)
+			request.Commit, request.Tree = tree.Head, tree
+			store := &keptStore{}
+			_, _, err = RecordProofRun(request, store)
+			if err == nil {
+				t.Fatalf("%s is accepted", name)
+			}
+			refusedBy(t, err, "atOneCleanCommit", store)
+			if name == "a spec change hidden by assume-unchanged" {
+				spec, err := ReadCommittedSpec(root, tree.Head)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, ok := spec.Tests["ST-FIX-INV09-T"]; ok || len(spec.Tests) != 1 {
+					t.Fatalf("the spec is read from the working tree, not from the commit: %v", spec.Tests)
+				}
+			}
+		}
 	})
 
 	t.Run("ST-ASR-INV02-T Every automated test record has an outcome, and a test that did not run is failed with did not run", func(t *testing.T) {
@@ -160,8 +223,8 @@ func TestProofRunInvariants(t *testing.T) {
 			t.Fatalf("attestation = %+v, event = %+v, want %+v", run.Attestation, attested.Attestation, want)
 		}
 		trusted := TrustedSigner{Issuer: GitHubIssuer, Workflow: trustedRef}
-		if err := attestedByTrustedSigner(run, Attestation{PredicateType: ProofRunPredicateType, Subject: fixtureCommit, Signer: Signer{Issuer: GitHubIssuer, Subject: trustedRef + "@refs/pull/23/merge"}}, trusted); err != nil {
-			t.Fatalf("the trusted workflow at another reference is refused: %v", err)
+		if err := attestedByTrustedSigner(run, want, trusted); err != nil {
+			t.Fatalf("the trusted workflow at main is refused: %v", err)
 		}
 		for name, attestation := range map[string]Attestation{
 			"another commit as subject":             {PredicateType: ProofRunPredicateType, Subject: otherCommit, Signer: want.Signer},
@@ -208,4 +271,14 @@ func TestProofRunInvariants(t *testing.T) {
 			}
 		}
 	})
+}
+
+func writeTestFile(t *testing.T, file, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }

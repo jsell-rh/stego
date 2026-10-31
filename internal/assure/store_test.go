@@ -12,15 +12,23 @@ import (
 	"testing"
 )
 
-// gitRepository makes a git repository with one committed file, and returns its folder.
+// gitRepository makes a git repository with a committed spec: lathe.config.json, a table with no tests, and a
+// table with one automated test record. It returns the repository's folder.
 func gitRepository(t *testing.T) string {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "repository")
-	if err := os.MkdirAll(filepath.Join(root, "data"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "data", "domain.jsonl"), []byte(`{"id":"ST-FIX"}`+"\n"), 0o644); err != nil {
-		t.Fatal(err)
+	for name, content := range map[string]string{
+		"lathe.config.json":         `{"schema": 2, "data": "data"}` + "\n",
+		"data/domain.jsonl":         `{"id":"ST-FIX"}` + "\n",
+		"data/invariant_test.jsonl": `{"id":"ST-FIX-INV01-T","state":"automated","file":"internal/fix/fix_test.go"}` + "\n",
+		"internal/fix/fix.go":       "package fix\n",
+	} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	for _, args := range [][]string{
 		{"init", "-q"},
@@ -115,16 +123,11 @@ func relativeFrom(t *testing.T, folder, file string) string {
 }
 
 func TestAttestationStore(t *testing.T) {
-	t.Run("ST-ASR-A1-SR01-T01 A proof run is kept for the provider's attestation with the commit as subject, and never committed", func(t *testing.T) {
+	t.Run("ST-ASR-A1-SR01-T01 A proof run is kept only outside the repository for the provider's attestation, and never committed", func(t *testing.T) {
 		repository := gitRepository(t)
 		before := gitIn(t, repository, "rev-parse", "HEAD")
-		runnerTemp := t.TempDir()
-		outputs := filepath.Join(runnerTemp, "github-output")
-		if err := os.WriteFile(outputs, nil, 0o644); err != nil {
-			t.Fatal(err)
-		}
-		predicate := filepath.Join(runnerTemp, ProofRunFile)
-		store := GitHubAttestations{Repository: repository, Predicate: predicate, Outputs: outputs, Server: "https://github.com", Name: "jsell-rh/stego"}
+		predicate := filepath.Join(t.TempDir(), ProofRunFile)
+		store := GitHubAttestations{Repository: repository, Predicate: predicate}
 		run := fixtureRun()
 		digest, err := store.HandOver(run)
 		if err != nil {
@@ -132,7 +135,7 @@ func TestAttestationStore(t *testing.T) {
 		}
 		data, err := os.ReadFile(predicate)
 		if err != nil {
-			t.Fatalf("the predicate is not where the attestation action reads it: %v", err)
+			t.Fatalf("the predicate is not where the attestation job reads it: %v", err)
 		}
 		sum := sha256.Sum256(data)
 		if digest != "sha256:"+hex.EncodeToString(sum[:]) {
@@ -141,14 +144,6 @@ func TestAttestationStore(t *testing.T) {
 		if !bytes.Contains(data, []byte(`"commit": "`+fixtureCommit+`"`)) {
 			t.Fatalf("the predicate does not name the commit:\n%s", data)
 		}
-		commitSum := sha256.Sum256([]byte(fixtureCommit))
-		wantOutputs := "subject-name=git+https://github.com/jsell-rh/stego@" + fixtureCommit + "\n" +
-			"subject-digest=sha256:" + hex.EncodeToString(commitSum[:]) + "\n" +
-			"predicate-type=" + ProofRunPredicateType + "\n" +
-			"predicate-path=" + predicate + "\n"
-		if got, _ := os.ReadFile(outputs); string(got) != wantOutputs {
-			t.Fatalf("step outputs:\n%s\nwant:\n%s", got, wantOutputs)
-		}
 		if status := gitIn(t, repository, "status", "--porcelain", "--untracked-files=all", "--ignored"); status != "" {
 			t.Fatalf("the repository changed: %s", status)
 		}
@@ -156,15 +151,12 @@ func TestAttestationStore(t *testing.T) {
 			t.Fatalf("a commit was made: %s, then %s", before, after)
 		}
 
-		inside := GitHubAttestations{Repository: repository, Predicate: filepath.Join(repository, "data", ProofRunFile), Outputs: outputs, Server: "https://github.com", Name: "jsell-rh/stego"}
+		inside := GitHubAttestations{Repository: repository, Predicate: filepath.Join(repository, "data", ProofRunFile)}
 		if _, err := inside.HandOver(run); err == nil {
 			t.Fatal("the store keeps a proof run in the repository")
 		}
 		if status := gitIn(t, repository, "status", "--porcelain", "--untracked-files=all", "--ignored"); status != "" {
 			t.Fatalf("a refused proof run changed the repository: %s", status)
-		}
-		if got, _ := os.ReadFile(outputs); string(got) != wantOutputs {
-			t.Fatalf("a refused proof run wrote step outputs:\n%s", got)
 		}
 	})
 }

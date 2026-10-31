@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,7 +68,6 @@ type fixture struct {
 	goJSON     string
 	pythonJSON string
 	predicate  string
-	outputs    string
 }
 
 func newFixture(t *testing.T, goJSON, pythonJSON string) fixture {
@@ -80,13 +80,11 @@ func newFixture(t *testing.T, goJSON, pythonJSON string) fixture {
 	f.goJSON = filepath.Join(f.runnerTemp, "go-test.json")
 	f.pythonJSON = filepath.Join(f.runnerTemp, "python-tests.json")
 	f.predicate = filepath.Join(f.runnerTemp, "proof-run.json")
-	f.outputs = filepath.Join(f.runnerTemp, "github-output")
 	for name, content := range fixtureData {
 		writeFile(t, filepath.Join(f.repository, name), content)
 	}
 	writeFile(t, f.goJSON, goJSON)
 	writeFile(t, f.pythonJSON, pythonJSON)
-	writeFile(t, f.outputs, "")
 	f.git(t, "init", "-q")
 	f.git(t, "add", "-A")
 	f.git(t, "-c", "user.name=fixture", "-c", "user.email=fixture@example.com", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "fixture")
@@ -140,7 +138,6 @@ func (f fixture) record(t *testing.T, commit, predicate string, env ...string) a
 		"GITHUB_SERVER_URL=https://github.com",
 		"GITHUB_REPOSITORY=jsell-rh/stego",
 		"GITHUB_WORKFLOW_REF=" + trustedWorkflowRef,
-		"GITHUB_OUTPUT=" + f.outputs,
 	}, env...)
 	var stdout, stderr bytes.Buffer
 	command.Stdout, command.Stderr = &stdout, &stderr
@@ -193,7 +190,7 @@ func (d predicateDocument) results() []string {
 	return list
 }
 
-// refusedWithNothingWritten checks that assure record exited non-zero and wrote no predicate and no step output.
+// refusedWithNothingWritten checks that assure record exited non-zero and wrote no predicate.
 func (f fixture) refusedWithNothingWritten(t *testing.T, result assureResult, predicate, says string) {
 	t.Helper()
 	if result.code == 0 {
@@ -204,9 +201,6 @@ func (f fixture) refusedWithNothingWritten(t *testing.T, result assureResult, pr
 	}
 	if _, err := os.Stat(predicate); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("a refused run wrote the predicate %s (%v)", predicate, err)
-	}
-	if data, _ := os.ReadFile(f.outputs); len(data) != 0 {
-		t.Fatalf("a refused run wrote step outputs:\n%s", data)
 	}
 }
 
@@ -281,14 +275,18 @@ class Fix(unittest.TestCase):
 		f.refusedWithNothingWritten(t, result, f.predicate, "ST-FIX-INV09-T")
 	})
 
-	t.Run("ST-ASR-UC01-R04-T01 The subject is the full commit checked out, and a short or other commit is refused", func(t *testing.T) {
+	t.Run("ST-ASR-UC01-R04-T01 The subject is the full commit checked out, and a short ID, a branch or another commit is refused", func(t *testing.T) {
 		f := newFixture(t, goFixture, pythonFixture)
 		first := f.commit
 		writeFile(t, filepath.Join(f.repository, "data", "domain.jsonl"), `{"id":"ST-FIX","title":"Fixture, second"}`+"\n")
 		f.git(t, "-c", "user.name=fixture", "-c", "user.email=fixture@example.com", "-c", "commit.gpgsign=false", "commit", "-q", "-a", "-m", "second")
 		head := strings.TrimSpace(f.git(t, "rev-parse", "HEAD"))
 		short := strings.TrimSpace(f.git(t, "rev-parse", "--short", "HEAD"))
-		for name, commit := range map[string]string{"a short ID": short, "a branch": "HEAD", "the commit before the one checked out": first} {
+		branch := strings.TrimSpace(f.git(t, "branch", "--show-current"))
+		if branch == "" {
+			t.Fatal("the fixture repository is on no branch")
+		}
+		for name, commit := range map[string]string{"a short ID": short, "the branch " + branch: branch, "the commit before the one checked out": first} {
 			result := f.record(t, commit, f.predicate)
 			if result.code == 0 {
 				t.Fatalf("%s (%s): assure record exited 0", name, commit)
@@ -303,75 +301,127 @@ class Fix(unittest.TestCase):
 			t.Fatalf("the predicate is about %q, want the commit checked out %s", got, head)
 		}
 		sum := sha256.Sum256([]byte(head))
-		outputs, _ := os.ReadFile(f.outputs)
-		for _, line := range []string{"subject-name=git+https://github.com/jsell-rh/stego@" + head, "subject-digest=sha256:" + hex.EncodeToString(sum[:])} {
-			if !strings.Contains(string(outputs), line+"\n") {
-				t.Fatalf("the attestation's subject is not the commit: no %q in\n%s", line, outputs)
-			}
+		name, digest := workflowSubject(t, head)
+		if name != "git+https://github.com/jsell-rh/stego@"+head || digest != "sha256:"+hex.EncodeToString(sum[:]) {
+			t.Fatalf("the attest job names the subject %s (%s), not the commit %s", name, digest, head)
 		}
 	})
 
-	t.Run("ST-ASR-UC01-R04-T02 A tree with uncommitted changes is refused", func(t *testing.T) {
-		for name, change := range map[string]func(f fixture){
-			"a changed file": func(f fixture) {
+	t.Run("ST-ASR-UC01-R04-T02 A tree with uncommitted changes is refused, also when git status hides them", func(t *testing.T) {
+		userExcludes := filepath.Join(t.TempDir(), "excludes")
+		userConfig := filepath.Join(t.TempDir(), "gitconfig")
+		writeFile(t, userExcludes, "*.local\n")
+		writeFile(t, userConfig, "[core]\n\texcludesFile = "+userExcludes+"\n")
+		type change struct {
+			name string
+			make func(f fixture)
+			env  []string
+		}
+		for _, c := range []change{
+			{name: "a changed file", make: func(f fixture) {
 				writeFile(t, filepath.Join(f.repository, "data", "domain.jsonl"), `{"id":"ST-FIX","title":"Changed"}`+"\n")
-			},
-			"an added file": func(f fixture) { f.git(t, "rm", "-q", "--cached", "data/domain.jsonl") },
-			"an untracked file": func(f fixture) {
+			}},
+			{name: "a staged change", make: func(f fixture) {
+				writeFile(t, filepath.Join(f.repository, "data", "domain.jsonl"), `{"id":"ST-FIX","title":"Staged"}`+"\n")
+				f.git(t, "add", "data/domain.jsonl")
+			}},
+			{name: "an untracked file", make: func(f fixture) {
 				writeFile(t, filepath.Join(f.repository, "internal", "fix", "new.go"), "package fix\n")
-			},
+			}},
+			{name: "a change hidden by skip-worktree", make: func(f fixture) {
+				f.git(t, "update-index", "--skip-worktree", "data/domain.jsonl")
+				writeFile(t, filepath.Join(f.repository, "data", "domain.jsonl"), `{"id":"ST-FIX","title":"Hidden"}`+"\n")
+			}},
+			{name: "an automated test record hidden by assume-unchanged", make: func(f fixture) {
+				f.git(t, "update-index", "--assume-unchanged", "data/invariant_test.jsonl")
+				writeFile(t, filepath.Join(f.repository, "data", "invariant_test.jsonl"), fixtureData["data/invariant_test.jsonl"]+
+					`{"id":"ST-FIX-INV04-T","title":"Hidden","invariant_id":"ST-FIX-INV04","level":"unit","state":"automated","file":"internal/fix/fix_test.go"}`+"\n")
+			}},
+			{name: "an untracked file hidden by info/exclude", make: func(f fixture) {
+				writeFile(t, filepath.Join(f.repository, ".git", "info", "exclude"), "*.local\n")
+				writeFile(t, filepath.Join(f.repository, "internal", "fix", "extra.local"), "x\n")
+			}},
+			{name: "an untracked file hidden by the user's excludes file", make: func(f fixture) {
+				writeFile(t, filepath.Join(f.repository, "internal", "fix", "extra.local"), "x\n")
+			}, env: []string{"GIT_CONFIG_GLOBAL=" + userConfig}},
 		} {
 			f := newFixture(t, goFixture, pythonFixture)
-			change(f)
-			result := f.record(t, f.commit, f.predicate)
+			c.make(f)
+			result := f.record(t, f.commit, f.predicate, c.env...)
 			if result.code == 0 {
-				t.Fatalf("%s: assure record exited 0", name)
+				t.Fatalf("%s: assure record exited 0", c.name)
 			}
 			f.refusedWithNothingWritten(t, result, f.predicate, "uncommitted changes")
 		}
 	})
 
-	t.Run("ST-ASR-UC01-R05-T01 Only the trusted workflow's attestation action signs the proof run, and CI commits no evidence file", func(t *testing.T) {
+	t.Run("ST-ASR-UC01-R05-T01 Only the trusted workflow's attestation job signs the proof run, it runs no repository code, and CI commits no evidence file", func(t *testing.T) {
 		workflow := readWorkflow(t)
-		if workflow.Permissions["contents"] != "read" {
-			t.Fatalf("the workflow's contents permission is %q, want read", workflow.Permissions["contents"])
+		if len(workflow.Permissions) != 1 || workflow.Permissions["contents"] != "read" {
+			t.Fatalf("the workflow's permissions are %v, want only contents: read", workflow.Permissions)
 		}
-		job, ok := workflow.Jobs["proof-run"]
-		if !ok {
-			t.Fatal("the workflow has no proof-run job")
+		suites, attest := workflow.Jobs["suites"], workflow.Jobs["attest"]
+		if len(suites.Steps) == 0 || len(attest.Steps) == 0 {
+			t.Fatal("the workflow does not have both a suites job and an attest job")
 		}
-		for permission, access := range job.Permissions {
-			if access == "write" && permission != "id-token" && permission != "attestations" {
-				t.Fatalf("the job may write %s; it may write only its identity token and attestations", permission)
+		if len(suites.Permissions) != 1 || suites.Permissions["contents"] != "read" {
+			t.Fatalf("the suites job's permissions are %v, want only contents: read: it runs the repository's code", suites.Permissions)
+		}
+		if len(attest.Permissions) != 2 || attest.Permissions["id-token"] != "write" || attest.Permissions["attestations"] != "write" {
+			t.Fatalf("the attest job's permissions are %v, want only id-token and attestations", attest.Permissions)
+		}
+		if len(attest.Needs) != 1 || attest.Needs[0] != "suites" {
+			t.Fatalf("the attest job needs %v, want the suites job", attest.Needs)
+		}
+		var record *workflowStep
+		for _, job := range []workflowJob{suites, attest} {
+			for i, step := range job.Steps {
+				if strings.Contains(step.Run, "git commit") || strings.Contains(step.Run, "git push") {
+					t.Fatalf("step %q commits to the repository", step.Name)
+				}
+				if action, pin, ok := strings.Cut(step.Uses, "@"); step.Uses != "" && (!ok || len(pin) != 40 || action == "") {
+					t.Fatalf("step %q uses %s, which is not pinned to a commit", step.Name, step.Uses)
+				}
+				if strings.Contains(step.Run, "./cmd/assure record") {
+					record = &job.Steps[i]
+				}
 			}
 		}
-		if job.Permissions["contents"] != "read" || job.Permissions["id-token"] != "write" || job.Permissions["attestations"] != "write" {
-			t.Fatalf("the job's permissions are %v", job.Permissions)
+		if record == nil || !strings.Contains(record.Run, `--predicate "$RUNNER_TEMP/`) || !strings.Contains(record.Run, `--commit "$COMMIT"`) {
+			t.Fatal("the suites job does not record the proof run at the commit, under the runner's temporary folder")
 		}
-		var record, attest *workflowStep
-		for i, step := range job.Steps {
-			if strings.Contains(step.Run, "git commit") || strings.Contains(step.Run, "git push") {
-				t.Fatalf("step %q commits to the repository", step.Name)
+		if workflow.Env["COMMIT"] != "${{ github.event.pull_request.head.sha || github.sha }}" {
+			t.Fatalf("the commit is %q, want the pull request's head or the commit pushed", workflow.Env["COMMIT"])
+		}
+		if suites.Steps[0].With["ref"] != "${{ env.COMMIT }}" {
+			t.Fatalf("the suites job checks out %q, not the commit", suites.Steps[0].With["ref"])
+		}
+		var signs *workflowStep
+		for i, step := range attest.Steps {
+			if strings.HasPrefix(step.Uses, "actions/checkout@") || strings.HasPrefix(step.Uses, "actions/setup-") {
+				t.Fatalf("the attest job checks out or sets up code: %s", step.Uses)
 			}
-			if strings.Contains(step.Run, "./cmd/assure record") {
-				record = &job.Steps[i]
+			for _, word := range []string{"go ", "python", "npm", "node ", "make", "./"} {
+				if strings.Contains(step.Run, word) {
+					t.Fatalf("the attest job's step %q runs %q", step.Name, word)
+				}
 			}
 			if strings.HasPrefix(step.Uses, "actions/attest@") {
-				attest = &job.Steps[i]
+				signs = &attest.Steps[i]
 			}
 		}
-		if record == nil || attest == nil {
-			t.Fatal("the job does not both record the proof run and attest it")
+		if signs == nil {
+			t.Fatal("the attest job does not sign the proof run with actions/attest")
 		}
-		if !strings.Contains(record.Run, `--predicate "$RUNNER_TEMP/`) {
-			t.Fatalf("the predicate is not written under the runner's temporary folder: %s", record.Run)
+		want := map[string]string{
+			"subject-name":   "${{ steps.subject.outputs.name }}",
+			"subject-digest": "${{ steps.subject.outputs.digest }}",
+			"predicate-type": "https://github.com/jsell-rh/stego/assure/proof-run/v1",
+			"predicate-path": "${{ runner.temp }}/proof-run/proof-run.json",
 		}
-		if pin := strings.TrimPrefix(attest.Uses, "actions/attest@"); len(pin) != 40 {
-			t.Fatalf("the attestation action is not pinned to a commit: %s", attest.Uses)
-		}
-		for _, input := range []string{"subject-name", "subject-digest", "predicate-type", "predicate-path"} {
-			if want := "${{ steps." + record.ID + ".outputs." + input + " }}"; attest.With[input] != want {
-				t.Fatalf("the attestation action's %s is %q, want %q", input, attest.With[input], want)
+		for input, value := range want {
+			if signs.With[input] != value {
+				t.Fatalf("the attestation action's %s is %q, want %q", input, signs.With[input], value)
 			}
 		}
 
@@ -382,6 +432,9 @@ class Fix(unittest.TestCase):
 		f.refusedWithNothingWritten(t, f.record(t, f.commit, inside), inside, "inside the repository")
 		if status := f.git(t, "status", "--porcelain", "--untracked-files=all"); status != "" {
 			t.Fatalf("assure record changed the repository: %s", status)
+		}
+		if _, _, err := runSubjectStep(t, "main"); err == nil {
+			t.Fatal("the attest job names a branch as the subject")
 		}
 	})
 }
@@ -394,12 +447,32 @@ type workflowStep struct {
 	With map[string]string `yaml:"with"`
 }
 
-type workflowFile struct {
+type workflowJob struct {
+	Needs       stringList        `yaml:"needs"`
 	Permissions map[string]string `yaml:"permissions"`
-	Jobs        map[string]struct {
-		Permissions map[string]string `yaml:"permissions"`
-		Steps       []workflowStep    `yaml:"steps"`
-	} `yaml:"jobs"`
+	Steps       []workflowStep    `yaml:"steps"`
+}
+
+type workflowFile struct {
+	Env         map[string]string      `yaml:"env"`
+	Permissions map[string]string      `yaml:"permissions"`
+	Jobs        map[string]workflowJob `yaml:"jobs"`
+}
+
+// stringList is a YAML value that is one string or a list of strings, as a job's needs is.
+type stringList []string
+
+func (l *stringList) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		*l = []string{node.Value}
+		return nil
+	}
+	var list []string
+	if err := node.Decode(&list); err != nil {
+		return err
+	}
+	*l = list
+	return nil
 }
 
 // readWorkflow reads the proof run workflow from the repository this test runs in.
@@ -414,4 +487,52 @@ func readWorkflow(t *testing.T) workflowFile {
 		t.Fatal(err)
 	}
 	return workflow
+}
+
+// runSubjectStep runs the attest job's step that names the subject, with bash, as GitHub Actions would for the
+// commit, and returns the subject name and digest it gives.
+func runSubjectStep(t *testing.T, commit string) (string, string, error) {
+	t.Helper()
+	var script string
+	for _, step := range readWorkflow(t).Jobs["attest"].Steps {
+		if step.ID == "subject" {
+			script = step.Run
+		}
+	}
+	if script == "" {
+		t.Fatal("the attest job has no step with the ID subject")
+	}
+	outputs := filepath.Join(t.TempDir(), "github-output")
+	writeFile(t, outputs, "")
+	command := exec.Command("bash", "-e", "-c", script)
+	command.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"COMMIT=" + commit,
+		"GITHUB_SERVER_URL=https://github.com",
+		"GITHUB_REPOSITORY=jsell-rh/stego",
+		"GITHUB_OUTPUT=" + outputs,
+	}
+	if out, err := command.CombinedOutput(); err != nil {
+		return "", "", fmt.Errorf("%v: %s", err, out)
+	}
+	data, err := os.ReadFile(outputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		key, value, _ := strings.Cut(line, "=")
+		values[key] = value
+	}
+	return values["name"], values["digest"], nil
+}
+
+// workflowSubject is the subject name and digest the attest job gives for the commit.
+func workflowSubject(t *testing.T, commit string) (string, string) {
+	t.Helper()
+	name, digest, err := runSubjectStep(t, commit)
+	if err != nil {
+		t.Fatalf("the attest job's subject step fails for %s: %v", commit, err)
+	}
+	return name, digest
 }

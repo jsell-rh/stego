@@ -9,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
+	"os"
+	"os/exec"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -41,30 +43,29 @@ func (s Spec) automated() []string {
 	return ids
 }
 
-// ReadSpec reads the spec's data files, the *.jsonl files in the folder dir of the tree fsys. Every *_test.jsonl
-// file is a table of test records; a test record is automated when its state is automated. The digest is
-// "sha256:" and the SHA-256 of the lines "<SHA-256 of the file>  <dir>/<name>", one per data file in name order,
-// which is what sha256sum data/*.jsonl | sha256sum gives in the C locale.
-func ReadSpec(fsys fs.FS, dir string) (Spec, error) {
-	files, err := fs.Glob(fsys, path.Join(dir, "*.jsonl"))
-	if err != nil {
-		return Spec{}, err
-	}
+// SpecFile is one data file of the spec: its path from the repository's root, and its bytes.
+type SpecFile struct {
+	Path string
+	Data []byte
+}
+
+// ReadSpec reads the spec's data files, the *.jsonl files of its data folder. Every *_test.jsonl file is a table
+// of test records; a test record is automated when its state is automated. The digest is "sha256:" and the
+// SHA-256 of the lines "<SHA-256 of the file>  <path>", one per data file in path order, which is what
+// sha256sum data/*.jsonl | sha256sum gives in the C locale.
+func ReadSpec(files []SpecFile) (Spec, error) {
 	if len(files) == 0 {
-		return Spec{}, fmt.Errorf("the spec has no data files in %s", dir)
+		return Spec{}, errors.New("the spec has no data files")
 	}
-	sort.Strings(files)
+	sorted := append([]SpecFile(nil), files...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Path < sorted[j].Path })
 	spec := Spec{Tests: make(map[string]TestRecord)}
 	var sums strings.Builder
-	for _, file := range files {
-		data, err := fs.ReadFile(fsys, file)
-		if err != nil {
-			return Spec{}, err
-		}
-		sum := sha256.Sum256(data)
-		fmt.Fprintf(&sums, "%s  %s\n", hex.EncodeToString(sum[:]), file)
-		if strings.HasSuffix(file, "_test.jsonl") {
-			if err := readTestRecords(file, data, spec.Tests); err != nil {
+	for _, file := range sorted {
+		sum := sha256.Sum256(file.Data)
+		fmt.Fprintf(&sums, "%s  %s\n", hex.EncodeToString(sum[:]), file.Path)
+		if strings.HasSuffix(file.Path, "_test.jsonl") {
+			if err := readTestRecords(file.Path, file.Data, spec.Tests); err != nil {
 				return Spec{}, err
 			}
 		}
@@ -72,6 +73,120 @@ func ReadSpec(fsys fs.FS, dir string) (Spec, error) {
 	digest := sha256.Sum256([]byte(sums.String()))
 	spec.Digest = "sha256:" + hex.EncodeToString(digest[:])
 	return spec, nil
+}
+
+// ReadCommittedSpec reads the spec at the commit from the git objects of the repository at root, never from the
+// working tree: the data folder that lathe.config.json names at the commit (data when it names none), and every
+// *.jsonl file directly in it.
+func ReadCommittedSpec(root, commit string) (Spec, error) {
+	dir := "data"
+	listed, err := git(root, "ls-tree", "-z", "--name-only", commit, "--", "lathe.config.json")
+	if err != nil {
+		return Spec{}, err
+	}
+	if len(listed) > 0 {
+		data, err := git(root, "cat-file", "blob", commit+":lathe.config.json")
+		if err != nil {
+			return Spec{}, err
+		}
+		var config struct {
+			Data string `json:"data"`
+		}
+		if err := json.Unmarshal(data, &config); err != nil {
+			return Spec{}, fmt.Errorf("lathe.config.json at %s: %w", commit, err)
+		}
+		if config.Data != "" {
+			dir = path.Clean(config.Data)
+		}
+	}
+	tree, err := git(root, "ls-tree", "-z", commit, "--", dir+"/")
+	if err != nil {
+		return Spec{}, err
+	}
+	var files []SpecFile
+	for _, entry := range strings.Split(string(tree), "\x00") {
+		info, file, ok := strings.Cut(entry, "\t")
+		fields := strings.Fields(info)
+		if !ok || len(fields) != 3 || fields[1] != "blob" || path.Dir(file) != dir || !strings.HasSuffix(file, ".jsonl") {
+			continue
+		}
+		data, err := git(root, "cat-file", "blob", fields[2])
+		if err != nil {
+			return Spec{}, err
+		}
+		files = append(files, SpecFile{Path: file, Data: data})
+	}
+	if len(files) == 0 {
+		return Spec{}, fmt.Errorf("the spec at %s has no data files in %s", commit, dir)
+	}
+	return ReadSpec(files)
+}
+
+// RepositoryRoot is the root of the git repository that holds the folder dir.
+func RepositoryRoot(dir string) (string, error) {
+	out, err := git(dir, "rev-parse", "--show-toplevel")
+	return strings.TrimSpace(string(out)), err
+}
+
+// ReadCheckout reads the state of the tree at root: the commit checked out, and each change that is not committed.
+// A change is any entry git status shows, untracked files too, with no excludes file but the committed .gitignore
+// files; any file whose index entry hides its changes from git status (assume-unchanged or skip-worktree, as git
+// ls-files -v shows them); and any pattern in the repository's info/exclude file.
+func ReadCheckout(root string) (Checkout, error) {
+	head, err := git(root, "rev-parse", "HEAD")
+	if err != nil {
+		return Checkout{}, err
+	}
+	status, err := git(root, "-c", "core.excludesFile="+os.DevNull, "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
+		"status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none")
+	if err != nil {
+		return Checkout{}, err
+	}
+	var changes []string
+	for _, entry := range strings.Split(string(status), "\x00") {
+		if entry != "" {
+			changes = append(changes, entry)
+		}
+	}
+	index, err := git(root, "ls-files", "-v", "-z")
+	if err != nil {
+		return Checkout{}, err
+	}
+	for _, entry := range strings.Split(string(index), "\x00") {
+		if len(entry) > 2 && entry[:2] != "H " {
+			changes = append(changes, entry[2:]+" is hidden from git status (git ls-files -v tag "+entry[:1]+")")
+		}
+	}
+	exclude, err := git(root, "rev-parse", "--git-path", "info/exclude")
+	if err != nil {
+		return Checkout{}, err
+	}
+	excludeFile := strings.TrimSpace(string(exclude))
+	if !filepath.IsAbs(excludeFile) {
+		excludeFile = filepath.Join(root, excludeFile)
+	}
+	patterns, err := os.ReadFile(excludeFile)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return Checkout{}, err
+	}
+	for _, line := range strings.Split(string(patterns), "\n") {
+		if pattern := strings.TrimSpace(line); pattern != "" && !strings.HasPrefix(pattern, "#") {
+			changes = append(changes, "info/exclude hides "+pattern)
+		}
+	}
+	return Checkout{Head: strings.TrimSpace(string(head)), Changes: changes}, nil
+}
+
+// git runs git in the repository at root and returns what it writes to its standard output.
+func git(root string, args ...string) ([]byte, error) {
+	command := exec.Command("git", append([]string{"-C", root}, args...)...)
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	out, err := command.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+	}
+	return out, nil
 }
 
 // readTestRecords reads one table of test records, one JSON object per line, into tests.
