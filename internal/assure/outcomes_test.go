@@ -27,16 +27,16 @@ const goOutput = `{"Time":"2026-10-29T14:02:11Z","Action":"start","Package":"exa
 {"Time":"2026-10-29T14:02:13Z","Action":"pass","Package":"example.com/fix","Test":"TestFixture/ST-FIX-INV01-T_holds","Elapsed":0.01}
 {"Time":"2026-10-29T14:02:14Z","Action":"run","Package":"example.com/fix","Test":"TestFixture/a_case_with_no_ID"}
 {"Time":"2026-10-29T14:02:14Z","Action":"fail","Package":"example.com/fix","Test":"TestFixture/a_case_with_no_ID","Elapsed":0}
-{"Time":"2026-10-29T14:02:14Z","Action":"run","Package":"example.com/fix","Test":"TestFixture/LAST-FIX-SP04-T_and_ST-FIX-SP05-Tx_are_not_IDs"}
-{"Time":"2026-10-29T14:02:14Z","Action":"fail","Package":"example.com/fix","Test":"TestFixture/LAST-FIX-SP04-T_and_ST-FIX-SP05-Tx_are_not_IDs","Elapsed":0}
+{"Time":"2026-10-29T14:02:14Z","Action":"run","Package":"example.com/fix","Test":"TestFixture/LAST-FIX-SP04-T_and_ST-STD-TRUST-R04_are_not_test_IDs"}
+{"Time":"2026-10-29T14:02:14Z","Action":"fail","Package":"example.com/fix","Test":"TestFixture/LAST-FIX-SP04-T_and_ST-STD-TRUST-R04_are_not_test_IDs","Elapsed":0}
 {"Time":"2026-10-29T14:02:15Z","Action":"fail","Package":"example.com/fix","Test":"TestFixture","Elapsed":0.4}
 {"Time":"2026-10-29T14:02:19Z","Action":"fail","Package":"example.com/fix","Elapsed":8}
 `
 
-// pythonOutput is the document scripts/run-python-tests.py writes, with subtests that carry IDs.
+// pythonOutput is the document scripts/run-python-tests.py writes, with subtests that carry IDs, not in ID order.
 const pythonOutput = `{"format": 1, "started": "2026-10-29T14:01:00Z", "finished": "2026-10-29T14:01:02Z", "tests": [
- {"test": "test_fix.Fix.test_cases [ST-FIX-UC01-R01-T01 a case holds]", "name": "[ST-FIX-UC01-R01-T01 a case holds]", "result": "passed", "elapsed": null, "detail": ""},
  {"test": "test_fix.Fix.test_cases [ST-FIX-UC01-R02-T01 a case is skipped]", "name": "[ST-FIX-UC01-R02-T01 a case is skipped]", "result": "skipped", "elapsed": null, "detail": "no network"},
+ {"test": "test_fix.Fix.test_cases [ST-FIX-UC01-R01-T01 a case holds]", "name": "[ST-FIX-UC01-R01-T01 a case holds]", "result": "passed", "elapsed": null, "detail": ""},
  {"test": "test_fix.Fix.test_cases", "name": "test_cases", "result": "failed", "elapsed": 0.5, "detail": "a subtest failed"},
  {"test": "test_fix.Fix.test_ST_FIX_UC01_R03_T01", "name": "test_ST_FIX_UC01_R03_T01", "result": "passed", "elapsed": 0.2, "detail": ""}
 ]}`
@@ -59,6 +59,17 @@ func TestReadOutcomes(t *testing.T) {
 		}
 		if got := suites.FinishedAt.Format(time.RFC3339); got != "2026-10-29T14:10:01Z" {
 			t.Fatalf("finished at %s, want the last time in either output", got)
+		}
+		for _, word := range []string{"ST-FIX-INV01-T-holds", "ST-FIX-SP05-Tx"} {
+			malformed := strings.Replace(goOutput, "ST-STD-TRUST-R04", word, -1)
+			_, err := ReadOutcomes(strings.NewReader(malformed), strings.NewReader(emptyPython))
+			if err == nil || !strings.Contains(err.Error(), `"`+word+`"`) {
+				t.Fatalf("a test whose name holds %s is read, or the refusal does not name it: %v", word, err)
+			}
+			python := strings.Replace(pythonOutput, "ST-FIX-UC01-R01-T01 a case", word+" a case", -1)
+			if _, err := ReadOutcomes(strings.NewReader(""), strings.NewReader(python)); err == nil || !strings.Contains(err.Error(), `"`+word+`"`) {
+				t.Fatalf("a Python subtest whose name holds %s is read, or the refusal does not name it: %v", word, err)
+			}
 		}
 	})
 

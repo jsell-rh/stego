@@ -28,6 +28,10 @@ const maxDetail = 4000
 // which writes the unittest result, for Python. Each test and subtest whose own name carries a test record's ID
 // gives an outcome for each ID it carries; a test whose name carries no ID gives no outcome. A test record's ID
 // that runs more than once gets one outcome (ST-ASR-INV06). The outcomes are in test record ID order.
+//
+// A word of a name that starts with a test record's ID and goes on with a hyphen or a lower-case letter, such as
+// ST-FIX-INV01-T-holds or ST-FIX-INV01-Tx, carries no ID, but its test surely meant to carry one. ReadOutcomes
+// refuses the output and names the word, so the name is fixed, and the test record does not show as not run.
 func ReadOutcomes(goTestJSON, pythonJSON io.Reader) (SuiteOutcomes, error) {
 	var bounds timeBounds
 	goRuns, err := readGoTestEvents(goTestJSON, &bounds)
@@ -116,7 +120,11 @@ func readGoTestEvents(r io.Reader, bounds *timeBounds) ([]testRun, error) {
 			if result != Passed && output[key] != nil {
 				detail = goDetail(output[key].String())
 			}
-			for _, id := range testRecordIDs(ownName(event.Test, known[event.Package])) {
+			ids, err := testRecordIDs(ownName(event.Test, known[event.Package]))
+			if err != nil {
+				return nil, fmt.Errorf("test %s: %w", event.Test, err)
+			}
+			for _, id := range ids {
 				run := testRun{id: id, result: result, detail: detail}
 				if event.Elapsed != nil {
 					run.duration, run.timed = *event.Elapsed, true
@@ -215,7 +223,11 @@ func readPythonResults(r io.Reader, bounds *timeBounds) ([]testRun, error) {
 		if result != Passed {
 			detail = cut(strings.TrimSpace(test.Detail))
 		}
-		for _, id := range testRecordIDs(test.Name) {
+		ids, err := testRecordIDs(test.Name)
+		if err != nil {
+			return nil, fmt.Errorf("test %s: %w", test.Test, err)
+		}
+		for _, id := range ids {
 			run := testRun{id: id, result: result, detail: detail}
 			if test.Elapsed != nil {
 				run.duration, run.timed = *test.Elapsed, true
@@ -229,20 +241,40 @@ func readPythonResults(r io.Reader, bounds *timeBounds) ([]testRun, error) {
 // testRecordIDs lists the test record IDs a test's own name carries, each once, in the order the name gives
 // them. The name is cut into words at every character that is not a letter, a digit or a hyphen, so the spaces
 // that go test writes as underscores also part words. A word is an ID when it matches
-// ST-[A-Z0-9]+(-[A-Z0-9]+)*-T[0-9]*.
-func testRecordIDs(name string) []string {
+// ST-[A-Z0-9]+(-[A-Z0-9]+)*-T[0-9]*. It refuses a name with a word that malformedID finds.
+func testRecordIDs(name string) ([]string, error) {
 	words := strings.FieldsFunc(name, func(r rune) bool {
 		return !(r == '-' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
 	})
 	var ids []string
 	seen := make(map[string]bool)
 	for _, word := range words {
+		if malformedID(word) {
+			return nil, fmt.Errorf("%q starts with a test record ID and goes on, so it is not one; put a space after the ID", word)
+		}
 		if isTestRecordID(word) && !seen[word] {
 			seen[word] = true
 			ids = append(ids, word)
 		}
 	}
-	return ids
+	return ids, nil
+}
+
+// malformedID tells if the word is not a test record's ID, but its longest prefix that is one goes on with a
+// hyphen or a lower-case letter, such as ST-FIX-INV01-T-holds or ST-FIX-INV01-Tx. A word such as
+// ST-STD-TRUST-R04, the ID of a record that is not a test, is not malformed: its longest such prefix, ST-STD-T,
+// goes on with an upper-case letter.
+func malformedID(word string) bool {
+	if !strings.HasPrefix(word, "ST-") || isTestRecordID(word) {
+		return false
+	}
+	for end := len(word) - 1; end > 0; end-- {
+		if isTestRecordID(word[:end]) {
+			next := word[end]
+			return next == '-' || next >= 'a' && next <= 'z'
+		}
+	}
+	return false
 }
 
 // isTestRecordID tells if the word is a test record's ID: ST, one or more parts of upper-case letters and
