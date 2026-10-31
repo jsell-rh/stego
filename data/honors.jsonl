@@ -54,6 +54,8 @@
 {"source_id":"ST-SUP-RC29-OC11","target_id":"ST-STD-TXN-R10"}
 {"source_id":"ST-SUP-RC29-OC12","target_id":"ST-STD-TXN-R09"}
 {"source_id":"ST-SUP-RC29-OC14","target_id":"ST-STD-TXN-R08"}
+{"source_id":"ST-SUP-RC29-OC15","target_id":"ST-STD-TXN-R08"}
+{"source_id":"ST-SUP-RC29-OC15","target_id":"ST-STD-TXN-R18"}
 {"source_id":"ST-SUP-RC30-OC01","target_id":"ST-STD-TXN-R11"}
 {"source_id":"ST-SUP-RC30-OC02","target_id":"ST-STD-TXN-R11"}
 {"source_id":"ST-SUP-RC30-OC03","target_id":"ST-STD-TXN-R11"}

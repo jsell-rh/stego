@@ -21,6 +21,7 @@
 {"id":"ST-DECL-SP15","title":"Mixin requirement unmet","statement":"A declaration satisfies it when it binds kafka-events without durable-events."}
 {"id":"ST-DECL-SP16","title":"Invariant has no known emission","statement":"A declaration satisfies it when a declared invariant has a kind other than unique, no_overlap or sum_limit, or lacks the fields its kind needs."}
 {"id":"ST-DECL-SP17","title":"Controller lacks a lease","statement":"A declaration satisfies it when a controller has no lease TTL, a source other than scan or watch, or tenants other than each."}
+{"id":"ST-DECL-SP18","title":"Operation without a permission","statement":"A declaration satisfies it when it binds an authorization provider and a collection reads an entity with no resource type, or allows an operation that names neither a permission of the entity's resource type nor public with a reason."}
 {"id":"ST-DIS-SP02","title":"Digest is superseded","statement":"A component digest is superseded when its lifecycle holds a supersession."}
 {"id":"ST-DIS-SP03","title":"Digest is past its fail date","statement":"A component digest is past its fail date when its lifecycle holds a supersession or a withdrawal, and the date after which it fails has passed."}
 {"id":"ST-DIS-SP04","title":"Digest is withdrawn","statement":"A component digest is withdrawn when its lifecycle holds a withdrawal, whatever the date of the withdrawal."}
