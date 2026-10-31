@@ -37,7 +37,7 @@
 {"id":"ST-DLV-EN02","title":"Platform requirement","aggregate_id":"ST-DLV-A1","role":"child","in_root_table":true,"description":"One thing the environment must supply, such as a secret with its keys or an egress endpoint with its port."}
 {"id":"ST-DLV-EN03","title":"Delivery pipeline","aggregate_id":"ST-DLV-A2","role":"root","description":"The generated workflow or PipelineRun file."}
 {"id":"ST-DLV-EN04","title":"Kubernetes base","aggregate_id":"ST-DLV-A3","role":"root","description":"The kustomization.yaml and the resources it lists."}
-{"id":"ST-DLV-EN05","title":"Delivery object","aggregate_id":"ST-DLV-A4","role":"root","description":"The Argo CD Application for the service."}
+{"id":"ST-DLV-EN05","title":"Delivery object","aggregate_id":"ST-DLV-A4","role":"root","description":"The Argo CD ApplicationSet for the service: its template names the service, its project and its base, and its git-files generator lists the platform's environment files, each of which gives one destination cluster, namespace and overlay path."}
 {"id":"ST-DLV-EN06","title":"Delivery candidate","aggregate_id":"ST-DLV-A5","role":"root","description":"The image, the build it must match, and who built it."}
 {"id":"ST-DLV-EN07","title":"Check result","aggregate_id":"ST-DLV-A5","role":"child","in_root_table":true,"description":"The result of one STEGO check on the candidate."}
 {"id":"ST-EXT-EN01","title":"Fill","aggregate_id":"ST-EXT-A1","role":"root","description":"The fill as fill.yaml states it: its name, the slot it implements and the collection it serves. Its code and tests sit beside fill.yaml."}

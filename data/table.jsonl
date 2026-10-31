@@ -19,7 +19,7 @@
 {"id":"ST-DLV-EN01-TB","title":"platform-requirements.yaml","entity_id":"ST-DLV-EN01","name":"deploy/platform-requirements.yaml","storage":"file","file":"internal/delivery/requirements.go"}
 {"id":"ST-DLV-EN03-TB","title":"delivery_pipeline","entity_id":"ST-DLV-EN03","name":".github/workflows/stego.yml or .tekton/<service>-push.yaml","storage":"file","file":"internal/delivery/pipeline.go"}
 {"id":"ST-DLV-EN04-TB","title":"kustomization.yaml","entity_id":"ST-DLV-EN04","name":"deploy/base/kustomization.yaml","storage":"file","file":"internal/generator/kubernetesservice/kustomize.go"}
-{"id":"ST-DLV-EN05-TB","title":"application.yaml","entity_id":"ST-DLV-EN05","name":"deploy/argocd/application.yaml","storage":"file","file":"internal/delivery/argocd.go"}
+{"id":"ST-DLV-EN05-TB","title":"applicationset.yaml","entity_id":"ST-DLV-EN05","name":"deploy/argocd/applicationset.yaml","storage":"file","file":"internal/delivery/argocd.go"}
 {"id":"ST-DLV-EN06-TB","title":"delivery_candidate","entity_id":"ST-DLV-EN06","name":"delivery-check.json","storage":"file","file":"internal/delivery/check.go"}
 {"id":"ST-DLV-RM01-TB","title":"delivery.CheckEnvironment","read_model_id":"ST-DLV-RM01","name":"delivery.CheckEnvironment","storage":"in memory","file":"internal/delivery/environment.go"}
 {"id":"ST-EXT-EN01-TB","title":"fill.yaml","entity_id":"ST-EXT-EN01","name":"fill.yaml","storage":"file","file":"internal/parser/parser.go"}
