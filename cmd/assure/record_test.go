@@ -473,6 +473,13 @@ class Fix(unittest.TestCase):
 			t.Fatal("the attest job names a branch as the subject")
 		}
 
+		commit := strings.Repeat("ab", 20)
+		if err := runPredicateCheck(t, commit, commit); err != nil {
+			t.Fatalf("the attest job refuses a predicate about the commit: %v", err)
+		}
+		if err := runPredicateCheck(t, commit, strings.Repeat("cd", 20)); err == nil {
+			t.Fatal("the attest job accepts a predicate about another commit")
+		}
 	})
 }
 
@@ -572,4 +579,27 @@ func workflowSubject(t *testing.T, commit string) (string, string) {
 		t.Fatalf("the attest job's subject step fails for %s: %v", commit, err)
 	}
 	return name, digest
+}
+
+// runPredicateCheck runs, with bash, the attest job's step that checks that the downloaded predicate is about the
+// commit, on a predicate whose commit is about.
+func runPredicateCheck(t *testing.T, commit, about string) error {
+	t.Helper()
+	var script string
+	for _, step := range readWorkflow(t).Jobs["attest"].Steps {
+		if step.Name == "Check that the predicate is about the commit" {
+			script = step.Run
+		}
+	}
+	if script == "" {
+		t.Fatal("the attest job has no step that checks the predicate's commit")
+	}
+	runnerTemp := t.TempDir()
+	writeFile(t, filepath.Join(runnerTemp, "proof-run", "proof-run.json"), `{"commit": "`+about+`", "outcomes": []}`)
+	command := exec.Command("bash", "-e", "-c", script)
+	command.Env = []string{"PATH=" + os.Getenv("PATH"), "COMMIT=" + commit, "RUNNER_TEMP=" + runnerTemp}
+	if out, err := command.CombinedOutput(); err != nil {
+		return fmt.Errorf("%v: %s", err, out)
+	}
+	return nil
 }
