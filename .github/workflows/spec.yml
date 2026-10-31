@@ -32,7 +32,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  LATHE_REF: c5137883563b53e13fd10f65eb30b4cb20268035
+  LATHE_REF: 9dea28bec0aa3ec1508652968f8ad290d275bc66
 
 jobs:
   check:
