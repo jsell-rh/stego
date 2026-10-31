@@ -12,9 +12,11 @@ writes one JSON document to the output file:
 
 There is one entry for each test method and one for each subtest. The name of a test method is the method's
 name; the name of a subtest is its description, which carries the IDs of the test records it proves. assure record
-takes the IDs from the name (ST-ASR-DS01). An error counts as failed, an expected failure as passed, and an
-unexpected success as failed. The runner exits 0 when it wrote the document, whatever the results, and 2 when
-it was called wrongly. It writes no bytecode.
+takes the IDs from the name (ST-ASR-DS01). An error counts as failed. An expected failure counts as skipped, since
+only passed counts as a pass (ST-VO54-C01). An unexpected success counts as failed, for the method and for each
+subtest of it that passed. A subtest that fails in a method marked as an expected failure gets no entry of its
+own, because unittest reports it only as the method's expected failure. The runner exits 0 when it wrote the
+document, whatever the results, and 2 when it was called wrongly. It writes no bytecode.
 """
 
 import argparse
@@ -43,6 +45,7 @@ class Results(unittest.TestResult):
         self.started = {}
         self.recorded = set()
         self.subtest_failed = set()
+        self.subtests = {}
 
     def startTest(self, test):
         super().startTest(test)
@@ -60,6 +63,7 @@ class Results(unittest.TestResult):
         subtest = hasattr(test, "test_case")
         if subtest:
             name = test._subDescription()
+            self.subtests.setdefault(test.test_case.id(), []).append(len(self.entries))
             elapsed = None
         else:
             self.recorded.add(test.id())
@@ -87,11 +91,15 @@ class Results(unittest.TestResult):
 
     def addExpectedFailure(self, test, err):
         super().addExpectedFailure(test, err)
-        self.entry(test, "passed", "")
+        self.entry(test, "skipped", "expected failure: " + self.describe(err))
 
     def addUnexpectedSuccess(self, test):
         super().addUnexpectedSuccess(test)
         self.entry(test, "failed", "unexpected success")
+        for index in self.subtests.get(test.id(), []):
+            if self.entries[index]["result"] == "passed":
+                self.entries[index]["result"] = "failed"
+                self.entries[index]["detail"] = "unexpected success"
 
     def addSubTest(self, test, subtest, err):
         super().addSubTest(test, subtest, err)
