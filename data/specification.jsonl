@@ -4,6 +4,23 @@
 {"id":"ST-ASR-SP04","title":"Release is fully proved","statement":"A commit is fully proved for release when its designed, built and proved shares are each 100% and a proof run at that commit passed."}
 {"id":"ST-BLD-SP01","title":"Build record is trusted","statement":"A build record is trusted when the digest of its canonical bytes equals a digest that verified provenance supplies."}
 {"id":"ST-BLD-SP02","title":"Image signature is acceptable","statement":"An image signature is acceptable when it is in the transparency log or made by a trusted key, and its signer identity is the trusted signer the service's delivery pipeline names for the provider that built the image."}
+{"id":"ST-DECL-SP01","title":"Default left without a reason","statement":"A declaration satisfies it when it says tenancy kind single or audit off and gives no reason."}
+{"id":"ST-DECL-SP02","title":"Tenant comes from a client field","statement":"A declaration satisfies it when its tenancy claim names a request header or a body field instead of a path in the verified identity token."}
+{"id":"ST-DECL-SP03","title":"Tenant-less path declared","statement":"A declaration satisfies it when a controller declares tenants none, a collection reads a system entity, or a binding that runs as tenant writes a shared entity."}
+{"id":"ST-DECL-SP04","title":"Audit level or sensitivity unknown","statement":"A declaration satisfies it when an audit level is not metadata or change, an audit sink is not a port binding, or a field sensitivity is not public, pii or secret."}
+{"id":"ST-DECL-SP05","title":"Schema lacks a named permission","statement":"A declaration satisfies it when an entity, a collection or a slot names a resource type, a permission, a relation or a caveat parameter that the compiled .zed schema does not declare."}
+{"id":"ST-DECL-SP06","title":"Slot relationship unknown to the schema","statement":"A declaration satisfies it when a slot binding lists a relation in Relationships written that the schema lacks or that belongs to no resource type of a declared entity."}
+{"id":"ST-DECL-SP07","title":"Bypass flag present","statement":"A declaration satisfies it when any slot binding or component setting holds a bypass flag."}
+{"id":"ST-DECL-SP08","title":"Idempotency required on an ignored method","statement":"A declaration satisfies it when Required on names read, list, delete or another operation that GET, PUT or DELETE serves."}
+{"id":"ST-DECL-SP09","title":"Money field is a float","statement":"A declaration satisfies it when a field that holds money is typed as a float or a decimal instead of integer minor units with a currency."}
+{"id":"ST-DECL-SP10","title":"Ledger currency is not one ISO 4217 code","statement":"A declaration satisfies it when a ledger has no currency, a currency that is not an ISO 4217 code, or an account minimum balance in another currency."}
+{"id":"ST-DECL-SP11","title":"Ledger collection allows update or delete","statement":"A declaration satisfies it when a collection over a ledger names update or delete among its operations."}
+{"id":"ST-DECL-SP12","title":"Balance column writable by a slot","statement":"A declaration satisfies it when a slot binding on a ledger account collection can update a balance column."}
+{"id":"ST-DECL-SP13","title":"Transfer has one entry","statement":"A declaration satisfies it when a transfer code or a transfer example states one entry, so the set cannot balance."}
+{"id":"ST-DECL-SP14","title":"Mode unknown","statement":"A declaration satisfies it when Modes names a mode other than api, worker or controller."}
+{"id":"ST-DECL-SP15","title":"Mixin requirement unmet","statement":"A declaration satisfies it when it binds kafka-events without durable-events."}
+{"id":"ST-DECL-SP16","title":"Invariant has no known emission","statement":"A declaration satisfies it when a declared invariant has a kind other than unique, no_overlap or sum_limit, or lacks the fields its kind needs."}
+{"id":"ST-DECL-SP17","title":"Controller lacks a lease","statement":"A declaration satisfies it when a controller has no lease TTL, a source other than scan or watch, or tenants other than each."}
 {"id":"ST-DIS-SP02","title":"Digest is superseded","statement":"A component digest is superseded when its lifecycle holds a supersession."}
 {"id":"ST-DIS-SP03","title":"Digest is past its fail date","statement":"A component digest is past its fail date when its lifecycle holds a supersession or a withdrawal, and the date after which it fails has passed."}
 {"id":"ST-DIS-SP04","title":"Digest is withdrawn","statement":"A component digest is withdrawn when its lifecycle holds a withdrawal, whatever the date of the withdrawal."}

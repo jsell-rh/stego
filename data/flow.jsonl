@@ -12,6 +12,11 @@
 {"id":"ST-DECL-UC02-FL01","title":"Learn what may be declared through the command line","use_case_id":"ST-DECL-UC02","interface_id":"ST-IF01"}
 {"id":"ST-DECL-UC03-FL01","title":"Check a declaration through the command line","use_case_id":"ST-DECL-UC03","interface_id":"ST-IF01"}
 {"id":"ST-DECL-UC04-FL01","title":"Repair a refused declaration through the command line","use_case_id":"ST-DECL-UC04","interface_id":"ST-IF01"}
+{"id":"ST-DECL-UC05-FL01","title":"Declare tenancy and audit through the command line","use_case_id":"ST-DECL-UC05","interface_id":"ST-IF01"}
+{"id":"ST-DECL-UC06-FL01","title":"Declare authorization through the command line","use_case_id":"ST-DECL-UC06","interface_id":"ST-IF01"}
+{"id":"ST-DECL-UC07-FL01","title":"Declare idempotent operations through the command line","use_case_id":"ST-DECL-UC07","interface_id":"ST-IF01"}
+{"id":"ST-DECL-UC08-FL01","title":"Declare a ledger through the command line","use_case_id":"ST-DECL-UC08","interface_id":"ST-IF01"}
+{"id":"ST-DECL-UC09-FL01","title":"Declare invariants, modes and controllers through the command line","use_case_id":"ST-DECL-UC09","interface_id":"ST-IF01"}
 {"id":"ST-DIS-UC02-FL01","title":"Find every service built from a component through the command line","use_case_id":"ST-DIS-UC02","interface_id":"ST-IF01"}
 {"id":"ST-DIS-UC04-FL01","title":"Ship a component fix without a compiler release through the command line","use_case_id":"ST-DIS-UC04","interface_id":"ST-IF01"}
 {"id":"ST-DIS-UC05-FL01","title":"Learn that a pinned component is superseded through the command line","use_case_id":"ST-DIS-UC05","interface_id":"ST-IF01"}

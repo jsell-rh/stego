@@ -53,6 +53,35 @@
 {"id":"ST-DECL-UC04-FL01-S03","title":"The agent asks STEGO to check the declaration again","flow_id":"ST-DECL-UC04-FL01","path":"main","position":3}
 {"id":"ST-DECL-UC04-FL01-S04","title":"The check refuses the declaration again, so the agent compares the new faults with the old ones and repairs the faults that remain","flow_id":"ST-DECL-UC04-FL01","path":"repeated","position":1}
 {"id":"ST-DECL-UC04-FL01-S05","title":"The changed declaration no longer reads as one YAML document, so STEGO reports one fault with the line and column where reading stopped, and the agent repairs that place first","flow_id":"ST-DECL-UC04-FL01","path":"unreadable","position":1}
+{"id":"ST-DECL-UC05-FL01-S01","title":"The author writes the tenancy and audit settings, marks each entity owned, shared or system, and marks each sensitive field pii or secret","flow_id":"ST-DECL-UC05-FL01","path":"main","position":1}
+{"id":"ST-DECL-UC05-FL01-S02","title":"The author asks STEGO to check the declaration, and STEGO accepts it with the claim path and the defaults it filled in","flow_id":"ST-DECL-UC05-FL01","path":"main","position":2}
+{"id":"ST-DECL-UC05-FL01-S03","title":"A declaration that says tenancy kind single or audit off and gives no reason is refused, naming the setting","flow_id":"ST-DECL-UC05-FL01","path":"refused","position":1}
+{"id":"ST-DECL-UC05-FL01-S04","title":"A tenancy claim taken from a header or a body field is refused, naming the claim","flow_id":"ST-DECL-UC05-FL01","path":"refused","position":2}
+{"id":"ST-DECL-UC05-FL01-S05","title":"A controller that declares tenants none is refused, naming the controller","flow_id":"ST-DECL-UC05-FL01","path":"refused","position":3}
+{"id":"ST-DECL-UC05-FL01-S06","title":"A collection over a system entity is refused, naming the collection and the entity","flow_id":"ST-DECL-UC05-FL01","path":"refused","position":4}
+{"id":"ST-DECL-UC06-FL01-S01","title":"The author names the provider, the schema path and the subject mapping, and gives each protected entity its resource type, permissions and relationships","flow_id":"ST-DECL-UC06-FL01","path":"main","position":1}
+{"id":"ST-DECL-UC06-FL01-S02","title":"The author lists on each slot binding the relations its fills may write, as resource_type#relation","flow_id":"ST-DECL-UC06-FL01","path":"main","position":2}
+{"id":"ST-DECL-UC06-FL01-S03","title":"The author asks STEGO to check the declaration; STEGO compiles the schema and accepts the declaration","flow_id":"ST-DECL-UC06-FL01","path":"main","position":3}
+{"id":"ST-DECL-UC06-FL01-S04","title":"A resource type, permission, relation or caveat parameter the schema lacks is refused, naming the name and where it is used","flow_id":"ST-DECL-UC06-FL01","path":"refused","position":1}
+{"id":"ST-DECL-UC06-FL01-S05","title":"A bypass flag in a slot or a setting is refused, naming the place","flow_id":"ST-DECL-UC06-FL01","path":"refused","position":2}
+{"id":"ST-DECL-UC06-FL01-S06","title":"A slot binding that lists a relation the schema lacks, or one of an entity the service does not declare, is refused, naming the binding and the relation","flow_id":"ST-DECL-UC06-FL01","path":"refused","position":3}
+{"id":"ST-DECL-UC07-FL01-S01","title":"The author declares idempotency with the operations it is required on, the retention and the fingerprint","flow_id":"ST-DECL-UC07-FL01","path":"main","position":1}
+{"id":"ST-DECL-UC07-FL01-S02","title":"The author asks STEGO to check the declaration, and STEGO accepts it with create among the required operations","flow_id":"ST-DECL-UC07-FL01","path":"main","position":2}
+{"id":"ST-DECL-UC07-FL01-S03","title":"A declaration that requires the key on read, list or delete is refused, naming the operation","flow_id":"ST-DECL-UC07-FL01","path":"refused","position":1}
+{"id":"ST-DECL-UC08-FL01-S01","title":"The author declares the ledger entity with its currency, accounts, transfer codes, two-phase rule, pending timeout and snapshot interval","flow_id":"ST-DECL-UC08-FL01","path":"main","position":1}
+{"id":"ST-DECL-UC08-FL01-S02","title":"The author declares a collection over the transfers of the ledger with create, post, void, reverse, read and list","flow_id":"ST-DECL-UC08-FL01","path":"main","position":2}
+{"id":"ST-DECL-UC08-FL01-S03","title":"The author asks STEGO to check the declaration, and STEGO accepts it","flow_id":"ST-DECL-UC08-FL01","path":"main","position":3}
+{"id":"ST-DECL-UC08-FL01-S04","title":"A money field typed as a float is refused, naming the field","flow_id":"ST-DECL-UC08-FL01","path":"refused","position":1}
+{"id":"ST-DECL-UC08-FL01-S05","title":"A ledger collection that allows update or delete is refused, naming the collection and the operation","flow_id":"ST-DECL-UC08-FL01","path":"refused","position":2}
+{"id":"ST-DECL-UC08-FL01-S06","title":"A slot binding that can update a balance column is refused, naming the binding and the column","flow_id":"ST-DECL-UC08-FL01","path":"refused","position":3}
+{"id":"ST-DECL-UC08-FL01-S07","title":"A transfer with one entry is refused, naming the transfer","flow_id":"ST-DECL-UC08-FL01","path":"refused","position":4}
+{"id":"ST-DECL-UC09-FL01-S01","title":"The author declares the modes and the mixins","flow_id":"ST-DECL-UC09-FL01","path":"main","position":1}
+{"id":"ST-DECL-UC09-FL01-S02","title":"The author declares each controller with its sources, resync, replicas and lease TTL, and each invariant with its kind and fields","flow_id":"ST-DECL-UC09-FL01","path":"main","position":2}
+{"id":"ST-DECL-UC09-FL01-S03","title":"The author asks STEGO to check the declaration, and STEGO accepts it, filling in all when no mode is declared","flow_id":"ST-DECL-UC09-FL01","path":"main","position":3}
+{"id":"ST-DECL-UC09-FL01-S04","title":"A mode other than api, worker or controller is refused, naming the mode","flow_id":"ST-DECL-UC09-FL01","path":"refused","position":1}
+{"id":"ST-DECL-UC09-FL01-S05","title":"kafka-events without durable-events is refused, naming the missing mixin","flow_id":"ST-DECL-UC09-FL01","path":"refused","position":2}
+{"id":"ST-DECL-UC09-FL01-S06","title":"A controller with no lease TTL is refused, naming the controller","flow_id":"ST-DECL-UC09-FL01","path":"refused","position":3}
+{"id":"ST-DECL-UC09-FL01-S07","title":"An invariant of another kind, or one that lacks the fields its kind needs, is refused, naming the invariant and the field","flow_id":"ST-DECL-UC09-FL01","path":"refused","position":4}
 {"id":"ST-DIS-UC02-FL01-S01","title":"The platform engineer names the component digest and the checkouts to search","flow_id":"ST-DIS-UC02-FL01","path":"main","position":1}
 {"id":"ST-DIS-UC02-FL01-S02","title":"STEGO reads the committed record in each checkout, and names each service that pins the digest, with its version and digest","flow_id":"ST-DIS-UC02-FL01","path":"main","position":2}
 {"id":"ST-DIS-UC02-FL01-S03","title":"A checkout with generated output and no readable record is reported as unknown","flow_id":"ST-DIS-UC02-FL01","path":"unknown","position":1}
