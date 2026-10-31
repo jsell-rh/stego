@@ -7,7 +7,7 @@
 {"id":"ST-VO44","title":"Fill signature","description":"A person's signature of one fill's test evidence, made with the SSH or GPG key that signs their commits."}
 {"id":"ST-VO45","title":"Qualification standing","description":"Where one fill stands on its way to being qualified."}
 {"id":"ST-VO46","title":"Slot reference","description":"The one slot a fill implements: a component and one of its slots."}
-{"id":"ST-VO47","title":"Quality evidence kind","description":"Which part of the ga quality bar one piece of evidence shows: a review of the code, a benchmark of it, or a comparison of its promises with the best in its field."}
+{"id":"ST-VO47","title":"Quality evidence kind","description":"Which part of the ga quality bar one piece of evidence shows: a review of the code, a benchmark of it, a comparison of its promises with the best in its field, or a pass of the conformance tests of a port it provides."}
 {"id":"ST-VO48","title":"Go SDK pin","description":"One official Go SDK release, fixed by version and by the digest of its contents."}
 {"id":"ST-VO49","title":"SBOM format","description":"The format of one software bill of materials."}
 {"id":"ST-VO50","title":"Signer identity","description":"Who made an image signature: a keyless identity that the signing service's certificate states, or a Tekton Chains signer named by its public key."}

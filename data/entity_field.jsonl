@@ -52,6 +52,7 @@
 {"entity_id":"ST-DECL-EN01","position":3,"name":"Language","meaning":"The language the output is generated in.","type":"text","required":true,"example":"go"}
 {"entity_id":"ST-DECL-EN01","position":4,"name":"Base path","meaning":"The prefix every generated route sits under.","type":"text","required":false,"example":"/api/my-svc/v1"}
 {"entity_id":"ST-DECL-EN01","position":5,"name":"Error type base","meaning":"The base address the generated error types are named from.","type":"text","required":false,"example":"https://api.example.com/errors/"}
+{"entity_id":"ST-DECL-EN01","position":6,"name":"Declaration version","meaning":"The declaration version the file is written in. Checking refuses a version the registry does not accept, and names the versions it accepts.","type":"text","required":true,"example":"2"}
 {"entity_id":"ST-DECL-EN02","position":1,"name":"Entity name","meaning":"The shape's name, unique in the declaration.","type":"text","required":true,"example":"Todo"}
 {"entity_id":"ST-DECL-EN03","position":1,"name":"Field name","meaning":"The field's name, unique in its entity.","type":"text","required":true,"example":"title"}
 {"entity_id":"ST-DECL-EN03","position":2,"name":"Type","meaning":"The kind of value the field holds.","type":"text","required":true,"example":"string"}
@@ -172,6 +173,7 @@
 {"entity_id":"ST-SUP-EN01","position":2,"name":"Alpha window","meaning":"The months from a version's release to the fail date of the digest it supersedes, when the component's stage is alpha: the digest fails at the release.","type":"whole number","required":true,"example":"0"}
 {"entity_id":"ST-SUP-EN01","position":3,"name":"Beta window","meaning":"The months from a version's release to the fail date of the digest it supersedes, when the component's stage is beta.","type":"whole number","required":true,"example":"3"}
 {"entity_id":"ST-SUP-EN01","position":4,"name":"Ga window","meaning":"The months from a version's release to the fail date of the digest it supersedes, when the component's stage is ga.","type":"whole number","required":true,"example":"6"}
+{"entity_id":"ST-SUP-EN01","position":5,"name":"Accepted declaration versions","meaning":"The declaration versions the registry accepts. A breaking compiler release supersedes an old version through the registry's advisories, with a fail date, so the fleet sweep and plan's refusal carry it as they carry a component digest.","type":"text","required":true,"example":"1, 2"}
 {"entity_id":"ST-SUP-EN02","position":1,"name":"Path","meaning":"The output path, from the generated project root.","type":"text","required":true,"example":"internal/storage"}
 {"entity_id":"ST-SUP-EN03","position":1,"name":"Archetype name","meaning":"The archetype's name, unique in its registry.","type":"text","required":true,"example":"rest-crud"}
 {"entity_id":"ST-SUP-EN03","position":2,"name":"Version","meaning":"The version the archetype declares.","type":"text","required":true,"example":"3.0.0"}
@@ -182,6 +184,7 @@
 {"entity_id":"ST-SUP-EN05","position":1,"name":"Mixin name","meaning":"The mixin's name.","type":"text","required":true,"example":"event-publisher"}
 {"entity_id":"ST-SUP-EN06","position":1,"name":"Port name","meaning":"The port's name, unique in its registry.","type":"text","required":true,"example":"auth-provider"}
 {"entity_id":"ST-SUP-EN06","position":2,"name":"Meaning","meaning":"What a provider of this port undertakes to supply.","type":"text","required":true,"example":"A verified identity for each request"}
+{"entity_id":"ST-SUP-EN06","position":3,"name":"Conformance tests","meaning":"The path to the conformance test suite every provider of the port runs. A provider that has not passed it at its current digest does not graduate to ga.","type":"text","required":false,"example":"ports/auth-provider/conformance"}
 {"entity_id":"ST-SUP-EN07","position":1,"name":"Field name","meaning":"The field a provider fills.","type":"text","required":true,"example":"Identity.UserID"}
 {"entity_id":"ST-SUP-EN07","position":2,"name":"Required meaning","meaning":"What every provider must put in the field.","type":"text","required":true,"example":"The verified subject, which never changes"}
 {"entity_id":"ST-SUP-EN08","position":1,"name":"Slot name","meaning":"The slot's name, unique in its component.","type":"text","required":true,"example":"before_create"}
@@ -205,7 +208,7 @@
 {"entity_id":"ST-SUP-EN11","position":2,"name":"Component digest","meaning":"The exact digest the evidence was made at.","type_value_object_id":"ST-VO41","required":true}
 {"entity_id":"ST-SUP-EN11","position":3,"name":"Kind","meaning":"Which part of the bar it shows.","type_value_object_id":"ST-VO47","required":true}
 {"entity_id":"ST-SUP-EN11","position":4,"name":"Reviewer","meaning":"Who made the review or ran the benchmark.","type":"text","required":true,"example":"security@example.com"}
-{"entity_id":"ST-SUP-EN11","position":5,"name":"Result","meaning":"What it found: the review's conclusion, or the benchmark's figures against the reference.","type":"text","required":true,"example":"p99 latency within 5% of the reference"}
+{"entity_id":"ST-SUP-EN11","position":5,"name":"Result","meaning":"What it found: a review's conclusion; for a benchmark, the comparison of its figures with the figures recorded at the previous version, naming each figure that regressed; for a reference comparison, the verdict on each promise.","type":"text","required":true,"example":"No figure regressed against 2.3.0; p99 latency improved 4%"}
 {"entity_id":"ST-SUP-EN11","position":6,"name":"Reference","meaning":"Where the full review or benchmark report is kept.","type":"text","required":true,"example":"https://example.com/reviews/rest-api-2.4.0"}
 {"entity_id":"ST-SUP-EN11","position":7,"name":"Recorded at","meaning":"When the evidence was recorded.","type":"date","required":true,"example":"2026-10-28"}
 {"entity_id":"ST-SUP-EN11","position":8,"name":"Contract set digest","meaning":"For a reference comparison, the digest of the component's output contracts it was made against; the comparison is stale once they change.","type_value_object_id":"ST-VO41","required":false}
@@ -215,3 +218,8 @@
 {"entity_id":"ST-SUP-EN12","position":3,"name":"Verdict","meaning":"adopted or declined.","type":"text","required":true,"example":"adopted"}
 {"entity_id":"ST-SUP-EN12","position":4,"name":"Contract","meaning":"The component's output contract that adopts it, when adopted.","type":"text","required":false,"example":"ST-SUP-RC01-OC06"}
 {"entity_id":"ST-SUP-EN12","position":5,"name":"Reason","meaning":"Why it is declined, when declined.","type":"text","required":false,"example":"Applies to a query language STEGO does not emit."}
+{"entity_id":"ST-SUP-EN13","position":1,"name":"Reference name","meaning":"The best-in-field reference the figure was measured against, by name and version.","type":"text","required":true,"example":"pgx v5.7"}
+{"entity_id":"ST-SUP-EN13","position":2,"name":"Metric","meaning":"What was measured.","type":"text","required":true,"example":"p99 latency"}
+{"entity_id":"ST-SUP-EN13","position":3,"name":"Value","meaning":"The figure measured for the component.","type":"decimal","required":true,"example":"12.4"}
+{"entity_id":"ST-SUP-EN13","position":4,"name":"Unit","meaning":"The unit of the value.","type":"text","required":true,"example":"ms"}
+{"entity_id":"ST-SUP-EN13","position":5,"name":"Better direction","meaning":"lower or higher: which way a change in the value is an improvement, so a comparison can tell a regression from a gain.","type":"text","required":true,"example":"lower"}

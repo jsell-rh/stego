@@ -35,6 +35,7 @@
 {"source_id":"ST-GEN-CLI04","target_id":"ST-GEN-CMD03"}
 {"source_id":"ST-GEN-CLI04","target_id":"ST-GEN-QRY02"}
 {"source_id":"ST-GEN-CLI05","target_id":"ST-GEN-CMD04"}
+{"source_id":"ST-GEN-CLI06","target_id":"ST-GEN-CMD06"}
 {"source_id":"ST-SUP-CLI01","target_id":"ST-SUP-QRY01"}
 {"source_id":"ST-SUP-CLI02","target_id":"ST-SUP-QRY02"}
 {"source_id":"ST-SUP-CLI03","target_id":"ST-SUP-CMD12"}

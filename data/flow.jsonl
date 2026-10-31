@@ -18,6 +18,7 @@
 {"id":"ST-DIS-UC07-FL01","title":"Withdraw a component digest through the command line","use_case_id":"ST-DIS-UC07","interface_id":"ST-IF01"}
 {"id":"ST-DIS-UC08-FL01","title":"Qualify a compiler release through the command line","use_case_id":"ST-DIS-UC08","interface_id":"ST-IF01"}
 {"id":"ST-DIS-UC09-FL01","title":"Install a qualified compiler through the command line","use_case_id":"ST-DIS-UC09","interface_id":"ST-IF01"}
+{"id":"ST-DIS-UC10-FL01","title":"Measure the fleet through the command line","use_case_id":"ST-DIS-UC10","interface_id":"ST-IF01"}
 {"id":"ST-DLV-UC01-FL01","title":"State what a service needs from the platform through the command line","use_case_id":"ST-DLV-UC01","interface_id":"ST-IF01"}
 {"id":"ST-DLV-UC02-FL01","title":"Check an environment against a service through the command line","use_case_id":"ST-DLV-UC02","interface_id":"ST-IF01"}
 {"id":"ST-DLV-UC03-FL01","title":"Build and release a service through its CI provider through the command line","use_case_id":"ST-DLV-UC03","interface_id":"ST-IF01"}
@@ -36,9 +37,13 @@
 {"id":"ST-GEN-UC07-FL01","title":"Capture a frontend build as an input through the command line","use_case_id":"ST-GEN-UC07","interface_id":"ST-IF01"}
 {"id":"ST-GEN-UC08-FL01","title":"See how a service is shaped and how it works through the command line","use_case_id":"ST-GEN-UC08","interface_id":"ST-IF01"}
 {"id":"ST-GEN-UC09-FL01","title":"Review how a change reshapes a service through the command line","use_case_id":"ST-GEN-UC09","interface_id":"ST-IF01"}
+{"id":"ST-GEN-UC10-FL01","title":"Move a service to a new declaration version through the command line","use_case_id":"ST-GEN-UC10","interface_id":"ST-IF01"}
 {"id":"ST-SUP-UC01-FL01","title":"Write a component through the command line","use_case_id":"ST-SUP-UC01","interface_id":"ST-IF01"}
 {"id":"ST-SUP-UC02-FL01","title":"Compose a registry for a team through the command line","use_case_id":"ST-SUP-UC02","interface_id":"ST-IF01"}
 {"id":"ST-SUP-UC03-FL01","title":"Curate an archetype through the command line","use_case_id":"ST-SUP-UC03","interface_id":"ST-IF01"}
 {"id":"ST-SUP-UC04-FL01","title":"Introduce an experimental component through the command line","use_case_id":"ST-SUP-UC04","interface_id":"ST-IF01"}
 {"id":"ST-SUP-UC05-FL01","title":"Graduate or retire a component through the command line","use_case_id":"ST-SUP-UC05","interface_id":"ST-IF01"}
 {"id":"ST-SUP-UC06-FL01","title":"Contribute a component upstream through the command line","use_case_id":"ST-SUP-UC06","interface_id":"ST-IF01"}
+{"id":"ST-SUP-UC07-FL01","title":"Define a port through the command line","use_case_id":"ST-SUP-UC07","interface_id":"ST-IF01"}
+{"id":"ST-SUP-UC08-FL01","title":"Declare a slot through the command line","use_case_id":"ST-SUP-UC08","interface_id":"ST-IF01"}
+{"id":"ST-SUP-UC09-FL01","title":"Choose a provider for a port through the command line","use_case_id":"ST-SUP-UC09","interface_id":"ST-IF01"}
