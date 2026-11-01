@@ -5,6 +5,7 @@
 {"source_id":"ST-ASR-UC01-FL01-S03","target_id":"ST-ASR-UC01-R03"}
 {"source_id":"ST-ASR-UC02-FL01-S01","target_id":"ST-ASR-UC02-R01"}
 {"source_id":"ST-ASR-UC02-FL01-S01","target_id":"ST-ASR-UC02-R04"}
+{"source_id":"ST-ASR-UC02-FL01-S01","target_id":"ST-ASR-UC02-R07"}
 {"source_id":"ST-ASR-UC02-FL01-S02","target_id":"ST-ASR-UC02-R02"}
 {"source_id":"ST-ASR-UC02-FL01-S03","target_id":"ST-ASR-UC02-R03"}
 {"source_id":"ST-ASR-UC02-FL01-S04","target_id":"ST-ASR-UC02-R05"}

@@ -1,7 +1,7 @@
 {"id":"ST-ASR-UC01-FL01-S01","title":"CI runs the Go and Python suites with machine-readable output at the checked-out commit, and assure record reads an outcome for every automated test record","flow_id":"ST-ASR-UC01-FL01","path":"main","position":1}
 {"id":"ST-ASR-UC01-FL01-S02","title":"The provider's attestation action signs the proof run with the commit as subject and keeps it","flow_id":"ST-ASR-UC01-FL01","path":"main","position":2}
 {"id":"ST-ASR-UC01-FL01-S03","title":"An outcome names an ID the spec does not have, so assure record exits non-zero and writes nothing","flow_id":"ST-ASR-UC01-FL01","path":"refused","position":1}
-{"id":"ST-ASR-UC02-FL01-S01","title":"On a pull request, CI runs assure gate change, which measures the coverage at the change's commit and at the base head","flow_id":"ST-ASR-UC02-FL01","path":"main","position":1}
+{"id":"ST-ASR-UC02-FL01-S01","title":"On a pull request, CI builds assure gate change from the base head and runs it, which measures the coverage at the change's commit and at the base head","flow_id":"ST-ASR-UC02-FL01","path":"main","position":1}
 {"id":"ST-ASR-UC02-FL01-S02","title":"assure gate change fetches the proof run attestation for the change's commit from the provider and verifies it","flow_id":"ST-ASR-UC02-FL01","path":"main","position":2}
 {"id":"ST-ASR-UC02-FL01-S03","title":"A share fell or a proof did not pass, so the decision names each cause and the check fails","flow_id":"ST-ASR-UC02-FL01","path":"refused","position":1}
 {"id":"ST-ASR-UC02-FL01-S04","title":"assure gate change reads the change's tree against the code standard and compares its faults with the base's","flow_id":"ST-ASR-UC02-FL01","path":"main","position":3}
