@@ -108,6 +108,8 @@ var gateSpec = map[string]string{
 {"id":"FX-LEND-INV02-RL","title":"lend.dueAfterStart","invariant_id":"FX-LEND-INV02","file":"internal/lend/rules.go"}
 `,
 	"data/invariant_test.jsonl":     invariantTest01 + invariantTest02,
+	"data/entity.jsonl":             `{"id":"FX-LEND-EN01","title":"Loan","aggregate_id":"FX-LEND-A1","role":"root","description":"A loan of a tool."}` + "\n",
+	"data/entity_field.jsonl":       `{"entity_id":"FX-LEND-EN01","position":1,"name":"Due","meaning":"When it ends.","type_value_object_id":"FX-VO01","required":true}` + "\n",
 	"data/value_object.jsonl":       `{"id":"FX-VO01","title":"Due date","description":"The day a loan ends."}` + "\n",
 	"data/value_object_field.jsonl": `{"value_object_id":"FX-VO01","position":1,"name":"Day","meaning":"The day.","type":"date","required":true}` + "\n",
 	"data/constraint.jsonl":         `{"id":"FX-VO01-C01","title":"In the future","value_object_id":"FX-VO01","statement":"A due date MUST be after today."}` + "\n",
@@ -312,6 +314,33 @@ func TestGateChange(t *testing.T) {
 		passed = g.keep(t, "falls", proofRun(falls, pullRef, 2, "FX-LEND-INV01-T passed"))
 		decided(t, "a change that removes the rules and a test record", g.gate(t, falls, g.base, passed), 1,
 			"FX-LEND-INV01 fell from built", "FX-LEND-INV02 fell from built", "FX-LEND-INV02 fell from proved")
+	})
+
+	t.Run("ST-ASR-UC02-R01-T02 A change is not gated when Lathe finds an error in the spec at the base head or at the change", func(t *testing.T) {
+		g := newGateRepository(t)
+		outcomes := []string{"FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed"}
+		// A dangling test record: Lathe finds an error and gives no coverage.
+		dangling := `{"id":"FX-LEND-INV03-T","title":"Borrower","invariant_id":"FX-LEND-INV03","level":"unit","state":"automated","file":"internal/lend/missing_test.go","when":"Lends to a stranger.","then":"Refused."}` + "\n"
+		brokenBase := g.commit(t, g.base, map[string]string{"data/invariant_test.jsonl": invariantTest01 + invariantTest02 + dangling})
+		// The change drops every rule, test and file: against a base read as empty it would pass.
+		dropAll := g.commit(t, brokenBase, map[string]string{
+			"data/invariant_test.jsonl": "",
+			"data/rule.jsonl":           "",
+			"internal/lend/rules.go":    "",
+		})
+		brokenChange := g.commit(t, g.base, map[string]string{"data/invariant_test.jsonl": invariantTest01 + invariantTest02 + dangling})
+		for name, check := range map[string]struct{ commit, base string }{
+			"an error at the base head": {dropAll, brokenBase},
+			"an error at the change":    {brokenChange, g.base},
+		} {
+			result := g.gate(t, check.commit, check.base, g.keep(t, "proof", proofRun(check.commit, pullRef, 16, outcomes...)))
+			if result.code != 2 || result.stdout != "" {
+				t.Fatalf("%s: assure gate change exits %d and prints a decision:\n%s%s", name, result.code, result.stdout, result.stderr)
+			}
+			if !strings.Contains(result.stderr, "no decision") || !strings.Contains(result.stderr, "[test-file-missing] FX-LEND-INV03-T: ") {
+				t.Fatalf("%s: assure gate change does not name the spec's error:\n%s", name, result.stderr)
+			}
+		}
 	})
 
 	t.Run("ST-ASR-UC02-R02-T01 A change with no verified proof run at its commit, or with an automated test record not passed there, is refused", func(t *testing.T) {

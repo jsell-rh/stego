@@ -115,6 +115,10 @@ type Measurement struct {
 // lathe check on that commit's tree alone: it writes the tree of the commit from the git objects of the
 // repository at root into a new folder, runs the Lathe CLI at the path lathe there, and reads the coverage and
 // each obligation's chain from its JSON. It never reads the working tree. Two readings of one commit agree.
+//
+// A spec with an error does not give a coverage: when lathe check exits non-zero or names a problem of severity
+// error, MeasureCoverage returns an error that names each problem, and no measurement. Lathe leaves the coverage
+// of such a spec empty, and an empty coverage must never stand for the spec.
 func MeasureCoverage(root, commit, lathe string) (Measurement, error) {
 	if !fullCommit(commit) {
 		return Measurement{}, fmt.Errorf("commit %q is not a full 40-character commit ID", commit)
@@ -136,9 +140,11 @@ func MeasureCoverage(root, commit, lathe string) (Measurement, error) {
 	var stdout, stderr bytes.Buffer
 	command.Stdout, command.Stderr = &stdout, &stderr
 	runErr := command.Run()
-	var exit *exec.ExitError
-	if runErr != nil && !(errors.As(runErr, &exit) && exit.ExitCode() == 1) {
-		return Measurement{}, fmt.Errorf("lathe check at %s: %v: %s", commit, runErr, strings.TrimSpace(stderr.String()))
+	if errs := latheErrors(stdout.Bytes()); len(errs) > 0 {
+		return Measurement{}, &SpecError{Commit: commit, Problems: errs}
+	}
+	if runErr != nil {
+		return Measurement{}, &SpecError{Commit: commit, Problems: []string{fmt.Sprintf("lathe check fails: %v: %s", runErr, strings.TrimSpace(stderr.String()))}}
 	}
 	measurement, err := readLatheCheck(stdout.Bytes())
 	if err != nil {
@@ -146,6 +152,50 @@ func MeasureCoverage(root, commit, lathe string) (Measurement, error) {
 	}
 	measurement.Commit = commit
 	return measurement, nil
+}
+
+// SpecError tells that the coverage at a commit cannot be measured, because Lathe finds errors in the spec there
+// or does not run. Problems names each error, one per line.
+type SpecError struct {
+	Commit   string
+	Problems []string
+}
+
+func (e *SpecError) Error() string {
+	return fmt.Sprintf("the coverage at %s cannot be measured: lathe check finds %d errors:\n%s",
+		e.Commit, len(e.Problems), strings.Join(e.Problems, "\n"))
+}
+
+// latheErrors lists each problem of severity error in lathe check --json output, as "[check] record: message",
+// in the order Lathe gives them. It lists none for output that is not JSON.
+func latheErrors(data []byte) []string {
+	var check struct {
+		Products []struct {
+			Workspace *struct {
+				Problems []struct {
+					Severity string `json:"severity"`
+					Check    string `json:"check"`
+					Record   string `json:"record"`
+					Message  string `json:"message"`
+				} `json:"problems"`
+			} `json:"workspace"`
+		} `json:"products"`
+	}
+	if json.Unmarshal(data, &check) != nil {
+		return nil
+	}
+	var errs []string
+	for _, product := range check.Products {
+		if product.Workspace == nil {
+			continue
+		}
+		for _, problem := range product.Workspace.Problems {
+			if problem.Severity == "error" {
+				errs = append(errs, fmt.Sprintf("[%s] %s: %s", problem.Check, problem.Record, strings.Join(strings.Fields(problem.Message), " ")))
+			}
+		}
+	}
+	return errs
 }
 
 // latheCheck is the part of lathe check --json that the coverage is read from.

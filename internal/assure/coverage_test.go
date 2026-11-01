@@ -2,6 +2,7 @@ package assure
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -27,6 +28,8 @@ var latheSpec = map[string]string{
 	"data/invariant_test.jsonl": `{"id":"FX-LEND-INV01-T","title":"One loan","invariant_id":"FX-LEND-INV01","level":"unit","state":"automated","file":"internal/lend/rules_test.go","when":"Lends twice.","then":"Refused."}
 {"id":"FX-LEND-INV02-T","title":"Due after start","invariant_id":"FX-LEND-INV02","level":"unit","state":"automated","file":"internal/lend/rules_test.go","when":"Ends before it starts.","then":"Refused."}
 `,
+	"data/entity.jsonl":             `{"id":"FX-LEND-EN01","title":"Loan","aggregate_id":"FX-LEND-A1","role":"root","description":"A loan of a tool."}` + "\n",
+	"data/entity_field.jsonl":       `{"entity_id":"FX-LEND-EN01","position":1,"name":"Due","meaning":"When it ends.","type_value_object_id":"FX-VO01","required":true}` + "\n",
 	"data/value_object.jsonl":       `{"id":"FX-VO01","title":"Due date","description":"The day a loan ends."}` + "\n",
 	"data/value_object_field.jsonl": `{"value_object_id":"FX-VO01","position":1,"name":"Day","meaning":"The day.","type":"date","required":true}` + "\n",
 	"data/constraint.jsonl":         `{"id":"FX-VO01-C01","title":"In the future","value_object_id":"FX-VO01","statement":"A due date MUST be after today."}` + "\n",
@@ -188,6 +191,19 @@ func TestCoverage(t *testing.T) {
 		}
 		if _, err := MeasureCoverage(root, first[:12], lathe); err == nil {
 			t.Fatal("a short commit ID is measured")
+		}
+
+		// At a commit whose spec has an error, Lathe gives no coverage, and nothing is measured.
+		broken := commitFiles(t, root, map[string]string{"internal/lend/rules_test.go": ""}, "the tests' file goes")
+		measured, err = MeasureCoverage(root, broken, lathe)
+		var specErr *SpecError
+		if !errors.As(err, &specErr) || specErr.Commit != broken || !reflect.DeepEqual(measured, Measurement{}) {
+			t.Fatalf("a spec with an error gives %+v, %v; want no measurement and a SpecError", measured, err)
+		}
+		for _, id := range []string{"FX-LEND-INV01-T", "FX-LEND-INV02-T"} {
+			if !strings.Contains(err.Error(), "[test-file-missing] "+id+": ") {
+				t.Fatalf("the error does not name the error of %s:\n%v", id, err)
+			}
 		}
 	})
 

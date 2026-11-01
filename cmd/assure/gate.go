@@ -17,7 +17,8 @@ import (
 type provider func(getenv func(string) string) (assure.AttestationStore, assure.BundleVerifier, func(), error)
 
 // gate is assure gate change (ST-ASR-CLI02). It gates the change's commit against the base head, prints the
-// decision with every reason, and exits 1 when the change is refused or the gate cannot decide.
+// decision with every reason, and exits 1 when the change is refused. When it cannot decide, such as when Lathe
+// finds an error in the spec at either commit, it prints no decision, names why, and exits 2.
 func gate(args []string, stdout, stderr io.Writer, getenv func(string) string, open provider) int {
 	if len(args) == 0 || args[0] != "change" {
 		fmt.Fprintln(stderr, "assure gate: the gate is change: assure gate change --commit <sha> --base <sha>")
@@ -37,8 +38,8 @@ func gate(args []string, stdout, stderr io.Writer, getenv func(string) string, o
 	}
 	decision, err := gateChange(*commit, *base, *lathe, stdout, getenv, open)
 	if err != nil {
-		fmt.Fprintf(stderr, "assure gate change: %v\n", err)
-		return 1
+		fmt.Fprintf(stderr, "assure gate change: no decision: %v\n", err)
+		return 2
 	}
 	if !decision.Passed {
 		return 1
