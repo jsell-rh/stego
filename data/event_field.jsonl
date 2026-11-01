@@ -37,6 +37,9 @@
 {"domain_event_id":"ST-DIS-EV07","position":1,"name":"Source revision","meaning":"The commit of the installed release.","type_value_object_id":"ST-VO43","required":true}
 {"domain_event_id":"ST-DIS-EV07","position":2,"name":"Result folder","meaning":"The folder that holds the installed compiler.","type":"text","required":true}
 {"domain_event_id":"ST-DIS-EV07","position":3,"name":"Build identity","meaning":"The build identity of the installed compiler.","type_value_object_id":"ST-VO42","required":true}
+{"domain_event_id":"ST-DIS-EV08","position":1,"name":"Commit","meaning":"The full commit the release is built from and tagged at.","type_value_object_id":"ST-VO43","required":true}
+{"domain_event_id":"ST-DIS-EV08","position":2,"name":"Release tag","meaning":"compiler-<full commit>.","type":"text","required":true,"example":"compiler-e691a9deff304a5158ede787fa5dd91504819c28"}
+{"domain_event_id":"ST-DIS-EV08","position":3,"name":"Asset digests","meaning":"The SHA-256 digest of each of the four assets as uploaded, by asset name.","type":"text","required":true}
 {"domain_event_id":"ST-DLV-EV01","position":1,"name":"Service name","meaning":"The service.","type":"text","required":true,"example":"orders"}
 {"domain_event_id":"ST-DLV-EV01","position":2,"name":"Requirements digest","meaning":"The digest of the new file.","type_value_object_id":"ST-VO41","required":true}
 {"domain_event_id":"ST-DLV-EV02","position":1,"name":"Provider","meaning":"The CI system.","type_value_object_id":"ST-VO51","required":true}
