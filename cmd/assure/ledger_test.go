@@ -252,7 +252,7 @@ func TestLedger(t *testing.T) {
 			"FX-LEND-INV01-T (automated): none, last passed at " + h.at(2) + "\n" +
 			"FX-LEND-INV02-T (automated): none, last passed at " + h.at(2) + "\n" +
 			"FX-LEND-INV03-T (manual): none, last passed not within 4 commits\n" +
-			"proof run at " + h.at(5) + ": none verified, as each attestation there is refused\n" +
+			"proof run at " + h.at(5) + ": none verified at release grade\n" +
 			"refused at " + h.at(5) + ": an attestation fails its signature check: the signature does not verify\n" +
 			"refused at " + h.at(3) + ": an attestation fails its signature check: the signature does not verify\n" +
 			"not passed (3): FX-LEND-INV01-T, FX-LEND-INV02-T, FX-LEND-INV03-T\n"
@@ -260,67 +260,67 @@ func TestLedger(t *testing.T) {
 			t.Fatalf("with a forged attestation at the commit, assure ledger exited %d with:\n%s%s\nwant:\n%s", result.code, result.stdout, result.stderr, want)
 		}
 
-		// A proof run signed at a pull request's ref counts at the commit only while its workflows folder is the one
-		// at its merge base with main, which the ledger finds itself; the caller cannot name the base.
-		h.git(t, "checkout", "-q", "--detach", h.at(5))
-		h.git(t, "update-ref", "-d", "refs/heads/main")
+		// Only a release-grade proof run gives results. A change-grade one, signed at a pull request's ref, counts only
+		// in its own change's gate: the ledger lists it, gives it no result, and takes no GITHUB_REF, no base and no
+		// base branch from its caller.
 		change := h.commit(t, h.at(5), map[string]string{"README.md": "Changed.\n"})
 		workflow := h.commit(t, h.at(5), map[string]string{".github/workflows/proof-run.yml": "name: Proof run, changed\n"})
 		merge := h.mergeRef(t, h.at(5), change)
-		lone := strings.TrimSpace(h.git(t, "-c", "user.name=fixture", "-c", "user.email=fixture@example.com", "commit-tree", h.at(5)+"^{tree}", "-m", "lone"))
-		own := h.keep(t, "own",
+		elsewhere := proofRun(h.at(4), mainRef, 13, "FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed")
+		elsewhere.SourceDigest = h.at(1)
+		feature := proofRun(h.at(4), "refs/heads/feature", 14, "FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed")
+		own := h.keep(t, "own", append(historyStatements(h),
 			proofRun(change, pullRef, 6, "FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed"),
 			proofRun(workflow, pullRef, 7, "FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed"),
 			proofRun(merge, pullRef, 8, "FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed"),
-			proofRun(lone, pullRef, 9, "FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed"),
-			proofRun(h.at(4), pullRef, 10, "FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed"))
-		onlyRelease := func(commit string, index int) string {
-			return "refused at " + commit + ": the attestation at rekor:" + strconv.Itoa(index) + " is refused: it is signed by " + proofRunWorkflow + " at " + pullRef +
-				", not at " + mainRef + ", and only release-grade evidence counts here\n"
+			proofRun(h.at(4), pullRef, 10, "FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed"),
+			elsewhere, feature)...)
+		changeGrade := func(commit string, index int) string {
+			return "proof run at " + commit + ": change grade at " + pullRef + " (rekor:" + strconv.Itoa(index) + "): counts only in its own gate\n"
 		}
-		changeGrade := func(commit, base string, index int) string {
-			return "proof run at " + commit + ": change grade against the base " + base + ", signed by " + proofRunWorkflow + "@" + pullRef +
-				" (issuer " + assure.GitHubIssuer + "), rekor:" + strconv.Itoa(index) + "\n"
+		for name, env := range map[string][]string{"with no GITHUB_REF": nil, "with GITHUB_REF the change's ref": {"GITHUB_REF=" + pullRef}} {
+			result := h.ledger(t, own, "", []string{"--commit", change, "--depth", "1"}, env...)
+			want := "proof ledger at " + change + ": 3 test records, 1 commit walked of at most 1\n" +
+				"FX-LEND-INV01-T (automated): none, last passed not within 1 commit\n" +
+				"FX-LEND-INV02-T (automated): none, last passed not within 1 commit\n" +
+				"FX-LEND-INV03-T (manual): none, last passed not within 1 commit\n" +
+				"proof run at " + change + ": none verified at release grade\n" +
+				changeGrade(change, 6) +
+				"not passed (3): FX-LEND-INV01-T, FX-LEND-INV02-T, FX-LEND-INV03-T\n"
+			if result.code != 1 || result.stdout != want {
+				t.Fatalf("a change-grade proof run %s: assure ledger exited %d with:\n%s%s\nwant:\n%s", name, result.code, result.stdout, result.stderr, want)
+			}
 		}
-		refused := h.ledger(t, own, "", []string{"--commit", change, "--depth", "1"}, "GITHUB_REF="+pullRef)
-		if refused.code != 1 || !strings.Contains(refused.stdout, "FX-LEND-INV01-T (automated): none, last passed not within 1 commit\n") ||
-			!strings.Contains(refused.stdout, onlyRelease(change, 6)) {
-			t.Fatalf("a change-grade proof run in a repository with no main: assure ledger exited %d with:\n%s%s", refused.code, refused.stdout, refused.stderr)
+		// A commit made as GitHub makes a pull request's merge ref, whose first parent is main's head: its own
+		// change-grade proof run gives no result, and so do the change-grade one, the one signed at main by a run at
+		// another commit and the one signed at a branch at commit 4; the passes come from release-grade proof runs.
+		merged := h.ledger(t, own, "", []string{"--commit", merge}, "GITHUB_REF="+pullRef)
+		want = "proof ledger at " + merge + ": 3 test records, 5 commits walked of at most 200\n" +
+			"FX-LEND-INV01-T (automated): none, last passed at " + h.at(5) + "\n" +
+			"FX-LEND-INV02-T (automated): none, last passed at " + h.at(2) + "\n" +
+			"FX-LEND-INV03-T (manual): none, last passed not within 5 commits\n" +
+			"proof run at " + merge + ": none verified at release grade\n" +
+			changeGrade(merge, 8) +
+			changeGrade(h.at(4), 10) +
+			"refused at " + h.at(4) + ": the attestation at rekor:13 is refused: it is signed at " + mainRef + " by a run at commit \"" + h.at(1) +
+			"\", not at the commit " + h.at(4) + " it is about\n" +
+			"refused at " + h.at(4) + ": the attestation at rekor:14 is refused: it is signed by " + proofRunWorkflow + " at refs/heads/feature, not at " +
+			mainRef + ", and only release-grade evidence counts here\n" +
+			"refused at " + h.at(3) + ": an attestation fails its signature check: the signature does not verify\n" +
+			"not passed (3): FX-LEND-INV01-T, FX-LEND-INV02-T, FX-LEND-INV03-T\n"
+		if merged.code != 1 || merged.stdout != want {
+			t.Fatalf("a merge ref: assure ledger exited %d with:\n%s%s\nwant:\n%s", merged.code, merged.stdout, merged.stderr, want)
 		}
-		h.git(t, "update-ref", assure.OriginMainRef, h.at(5))
-		accepted := h.ledger(t, own, "", []string{"--commit", change, "--depth", "1"}, "GITHUB_REF="+pullRef)
-		if accepted.code != 0 || !strings.Contains(accepted.stdout, changeGrade(change, h.at(5), 6)) {
-			t.Fatalf("a change-grade proof run, with main only at origin: assure ledger exited %d with:\n%s%s", accepted.code, accepted.stdout, accepted.stderr)
-		}
-		h.git(t, "update-ref", "refs/heads/main", h.at(5))
-		// A commit made as GitHub makes a pull request's merge ref: its first parent is main's head.
-		merged := h.ledger(t, own, "", []string{"--commit", merge, "--depth", "2"}, "GITHUB_REF="+pullRef)
-		if merged.code != 0 || !strings.Contains(merged.stdout, changeGrade(merge, h.at(5), 8)) ||
-			!strings.Contains(merged.stdout, ": 3 test records, 1 commit walked of at most 2\n") {
-			t.Fatalf("a change-grade proof run of a merge ref: assure ledger exited %d with:\n%s%s", merged.code, merged.stdout, merged.stderr)
-		}
-		// The reviewer's spoof: a change that alters the workflows folder, with a caller that tries to name the
-		// commit itself as the base, as a flag or as the base branch. Its proof run is refused each time.
+		// The reviewer's spoof: a change that alters the workflows folder, with a change-grade proof run, and a
+		// caller that tries to name a base or a base branch. The proof run gives no result, and the flags are refused.
 		altered := h.ledger(t, own, "", []string{"--commit", workflow, "--depth", "1"}, "GITHUB_REF="+pullRef)
-		if altered.code != 1 || !strings.Contains(altered.stdout, "proof run at "+workflow+": none verified, as each attestation there is refused\n") ||
-			!strings.Contains(altered.stdout, "the change alters the workflows folder: .github/workflows/proof-run.yml\n") {
+		if altered.code != 1 || !strings.Contains(altered.stdout, "FX-LEND-INV01-T (automated): none, last passed not within 1 commit\n") ||
+			!strings.Contains(altered.stdout, changeGrade(workflow, 7)) {
 			t.Fatalf("a change-grade proof run of a change that alters a workflow: assure ledger exited %d with:\n%s%s", altered.code, altered.stdout, altered.stderr)
 		}
-		if spoof := h.ledger(t, own, "", []string{"--commit", workflow, "--depth", "1", "--base", workflow}, "GITHUB_REF="+pullRef); spoof.code != 2 || spoof.stdout != "" {
-			t.Fatalf("the caller names the base: assure ledger exited %d with:\n%s%s", spoof.code, spoof.stdout, spoof.stderr)
-		}
-		spoof := h.ledger(t, own, "", []string{"--commit", workflow, "--depth", "1", "--main", workflow}, "GITHUB_REF="+pullRef)
-		if spoof.code != 1 || !strings.Contains(spoof.stdout, onlyRelease(workflow, 7)) {
-			t.Fatalf("the caller names the commit itself as main: assure ledger exited %d with:\n%s%s", spoof.code, spoof.stdout, spoof.stderr)
-		}
-		// A commit already on main, and one with no merge base with main, get no change grade.
-		for name, check := range map[string]struct {
-			commit string
-			index  int
-		}{"a commit on main": {h.at(4), 10}, "a commit with no merge base": {lone, 9}} {
-			result := h.ledger(t, own, "", []string{"--commit", check.commit, "--depth", "1"}, "GITHUB_REF="+pullRef)
-			if result.code != 1 || !strings.Contains(result.stdout, onlyRelease(check.commit, check.index)) {
-				t.Fatalf("%s: assure ledger exited %d with:\n%s%s", name, result.code, result.stdout, result.stderr)
+		for _, flag := range []string{"--base", "--main"} {
+			if spoof := h.ledger(t, own, "", []string{"--commit", workflow, flag, workflow}, "GITHUB_REF="+pullRef); spoof.code != 2 || spoof.stdout != "" {
+				t.Fatalf("the caller names %s: assure ledger exited %d with:\n%s%s", flag, spoof.code, spoof.stdout, spoof.stderr)
 			}
 		}
 	})

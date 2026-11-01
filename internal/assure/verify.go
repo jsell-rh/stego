@@ -223,8 +223,10 @@ func attestationVerified(statement SignedStatement, commit string, trust Trust) 
 	changeRef := trust.ChangeRef
 	if changeRef == "" {
 		if reference, ok := trust.Signer.reference(statement.Signer); ok {
-			return NoGrade, refuse("it is signed by %s at %s, not at %s, and only release-grade evidence counts here",
-				trust.Signer.Workflow, reference, MainRef)
+			refusal := refuse("it is signed by %s at %s, not at %s, and only release-grade evidence counts here",
+				trust.Signer.Workflow, reference, MainRef).(*Refusal)
+			refusal.SignedAt = reference
+			return NoGrade, refusal
 		}
 		changeRef = "none"
 	}
@@ -240,12 +242,23 @@ type VerifiedProofRun struct {
 }
 
 // Verification is what VerifyAttestation found for a commit: the proof run it accepted, or none; why it refused
-// each attestation, in order; and whether it refused a change-grade proof run only because the change alters the
-// workflows folder.
+// each attestation, in order; whether it refused a change-grade proof run only because the change alters the
+// workflows folder; and, with no change reference gated, each attestation it refused only because the trusted
+// workflow signed it at a pull request's reference, which counts only in that change's own gate.
 type Verification struct {
 	Proof            *VerifiedProofRun
 	Refused          []string
 	WorkflowsChanged bool
+	ChangeGrade      []ChangeGradeAttestation
+}
+
+// ChangeGradeAttestation is an attestation that the trusted workflow signed at a pull request's reference, which
+// VerifyAttestation refused because no change reference is gated: the reference, the log entry, and the reason,
+// as Refused gives it.
+type ChangeGradeAttestation struct {
+	Ref      string
+	LogEntry string
+	Reason   string
 }
 
 // VerifyAttestation is the service of ST-ASR-DS03, Verify an attestation. It fetches every proof run
@@ -274,8 +287,15 @@ func VerifyAttestation(commit string, store AttestationStore, verifier BundleVer
 		where := "the attestation at rekor:" + strconv.FormatInt(statement.LogIndex, 10)
 		grade, err := attestationVerified(statement, commit, trust)
 		if err != nil {
-			verification.Refused = append(verification.Refused, where+" is refused: "+err.Error())
+			reason := where + " is refused: " + err.Error()
+			verification.Refused = append(verification.Refused, reason)
 			verification.WorkflowsChanged = verification.WorkflowsChanged || grade == ChangeGrade
+			var refusal *Refusal
+			if errors.As(err, &refusal) && strings.HasPrefix(refusal.SignedAt, "refs/pull/") {
+				verification.ChangeGrade = append(verification.ChangeGrade, ChangeGradeAttestation{
+					Ref: refusal.SignedAt, LogEntry: "rekor:" + strconv.FormatInt(statement.LogIndex, 10), Reason: reason,
+				})
+			}
 			continue
 		}
 		run, err := decodeProofRun(statement.Predicate)
@@ -293,6 +313,7 @@ func VerifyAttestation(commit string, store AttestationStore, verifier BundleVer
 		logIndexes = append(logIndexes, statement.LogIndex)
 	}
 	sort.Strings(verification.Refused)
+	sort.Slice(verification.ChangeGrade, func(i, j int) bool { return verification.ChangeGrade[i].Reason < verification.ChangeGrade[j].Reason })
 	best := -1
 	for i := range accepted {
 		if best < 0 || better(accepted[i].Grade, logIndexes[i], accepted[best].Grade, logIndexes[best]) {

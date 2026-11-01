@@ -35,44 +35,42 @@ type LedgerRefusal struct {
 // Ledger is the table of the proof ledger (ST-ASR-RM01-TB), which the run builds in memory and keeps only while
 // it runs (ST-STORE05). It holds a row for each test record of the spec at the commit, in ID order; the proof run
 // verified at the commit, or none; how many commits of the first-parent history were walked and the most that
-// could be; each attestation refused at a commit walked, in walk order; and the base of a change-grade proof run.
+// could be; each attestation refused at a commit walked, in walk order; and each change-grade attestation at a
+// commit walked, in walk order, which gives no result.
 type Ledger struct {
-	Commit  string
-	Rows    []LedgerRow
-	Proof   *VerifiedProofRun
-	Walked  int
-	Depth   int
-	Refused []LedgerRefusal
-	// ChangeBase is the base a change-grade proof run at the commit was judged against: the merge base of the
-	// commit and the base branch. It is empty when the proof run is release grade or there is none.
-	ChangeBase string
+	Commit      string
+	Rows        []LedgerRow
+	Proof       *VerifiedProofRun
+	Walked      int
+	Depth       int
+	Refused     []LedgerRefusal
+	ChangeGrade []LedgerChangeGrade
+}
+
+// LedgerChangeGrade is a change-grade attestation at a commit the ledger walked: the trusted workflow signed it
+// at a pull request's reference, so it counts only in that change's own gate and gives the ledger no result.
+type LedgerChangeGrade struct {
+	Commit   string
+	Ref      string
+	LogEntry string
 }
 
 // LedgerRequest is what the proof ledger is built from: the repository that holds the commit, the commit, the
-// provider's trusted signer, and how many commits of history to walk at most (DefaultLedgerDepth when zero).
-// ChangeRef lets a change-grade proof run count at the commit itself: a proof run signed at ChangeRef counts there
-// while no file under the workflows folder differs between the commit and its base (ST-ASR-SP02). The ledger
-// finds the base itself, never from its caller: the merge base of the commit and Main, the base branch's
-// reference (MainRef when empty; refs/remotes/origin/main when MainRef does not exist). A commit with no merge
-// base, or one that is already on the base branch, gets no change grade. At every commit before it, only a
-// release-grade proof run counts.
+// provider's trusted signer, and how many commits of history to walk at most (DefaultLedgerDepth when zero). The
+// ledger is for anyone, with no gate's context, so it takes no change reference: only a release-grade proof run,
+// signed at main, gives results. Change-grade evidence counts only in its own change's gate (ST-ASR-SP02).
 type LedgerRequest struct {
-	Root      string
-	Commit    string
-	Trusted   TrustedSigner
-	ChangeRef string
-	Main      string
-	Depth     int
+	Root    string
+	Commit  string
+	Trusted TrustedSigner
+	Depth   int
 }
-
-// OriginMainRef is the remote-tracking reference of the base branch main, which a clone has when it has no local
-// branch main.
-const OriginMainRef = "refs/remotes/origin/main"
 
 // BuildLedger is the projection of ST-ASR-RM01, Proof ledger. It reads the test records and their states from the
 // spec at the commit in the repository's git objects, never from the working tree, and reads no evidence file.
 // Each result and each pass comes only from a proof run attestation that VerifyAttestation (ST-ASR-DS03) fetched
-// by its commit and accepted (ST-ASR-SP02). It walks the commit's first-parent history from the commit itself,
+// by its commit and accepted at release grade, signed at main (ST-ASR-SP02); the ledger trusts no change reference,
+// so a change-grade attestation is listed apart and gives no result. It walks the commit's first-parent history from the commit itself,
 // fetching each commit's attestations once, and takes for each test record the first commit at which a verified
 // proof run passed it. It stops when every automated test record has passed somewhere, at the root commit, or
 // after Depth commits. A commit with no attestation is passed over; a refused attestation is listed with its
@@ -94,20 +92,6 @@ func BuildLedger(request LedgerRequest, store AttestationStore, verifier BundleV
 		return Ledger{}, err
 	}
 	trust := Trust{Signer: request.Trusted}
-	changeBase := ""
-	if request.ChangeRef != "" {
-		changeBase, err = ledgerBase(request.Root, request.Commit, request.Main)
-		if err != nil {
-			return Ledger{}, err
-		}
-	}
-	if changeBase != "" {
-		changes, err := workflowChanges(request.Root, changeBase, request.Commit)
-		if err != nil {
-			return Ledger{}, err
-		}
-		trust = Trust{Signer: request.Trusted, ChangeRef: request.ChangeRef, WorkflowChanges: changes}
-	}
 	history, err := firstParentHistory(request.Root, request.Commit, depth)
 	if err != nil {
 		return Ledger{}, err
@@ -123,26 +107,30 @@ func BuildLedger(request LedgerRequest, store AttestationStore, verifier BundleV
 		waiting[id] = true
 	}
 	for i, commit := range history {
-		at := trust
-		if i > 0 {
-			at = Trust{Signer: request.Trusted}
-		}
-		verification, err := VerifyAttestation(commit, store, verifier, at)
+		verification, err := VerifyAttestation(commit, store, verifier, trust)
 		if err != nil {
 			return Ledger{}, err
 		}
 		ledger.Walked++
-		if len(verification.Refused) > 0 {
-			ledger.Refused = append(ledger.Refused, LedgerRefusal{Commit: commit, Reasons: verification.Refused})
+		elsewhere := make(map[string]bool, len(verification.ChangeGrade))
+		for _, change := range verification.ChangeGrade {
+			ledger.ChangeGrade = append(ledger.ChangeGrade, LedgerChangeGrade{Commit: commit, Ref: change.Ref, LogEntry: change.LogEntry})
+			elsewhere[change.Reason] = true
+		}
+		var reasons []string
+		for _, reason := range verification.Refused {
+			if !elsewhere[reason] {
+				reasons = append(reasons, reason)
+			}
+		}
+		if len(reasons) > 0 {
+			ledger.Refused = append(ledger.Refused, LedgerRefusal{Commit: commit, Reasons: reasons})
 		}
 		if verification.Proof == nil {
 			continue
 		}
 		if i == 0 {
 			ledger.Proof = verification.Proof
-			if verification.Proof.Grade == ChangeGrade {
-				ledger.ChangeBase = changeBase
-			}
 		}
 		for _, outcome := range verification.Proof.Run.Outcomes {
 			row, ok := index[outcome.TestRecord]
@@ -180,44 +168,6 @@ func NotPassedAt(reader LedgerReader) []LedgerRow {
 
 // automatedState is the state of a test record that a file runs, as the spec gives it.
 const automatedState = "automated"
-
-// ledgerBase is the base a change-grade proof run at the commit is judged against: the merge base of the commit
-// and the head of the base branch, read from the repository's git objects. The base branch is main, MainRef when
-// it is empty, or OriginMainRef when main is MainRef and the repository has no such reference. It is empty when
-// the repository has no such branch, when the commit and the branch have no merge base, and when the commit is on
-// the base branch already: such a commit is not a change, and only a release-grade proof run counts there.
-func ledgerBase(root, commit, main string) (string, error) {
-	if main == "" {
-		main = MainRef
-	}
-	candidates := []string{main}
-	if main == MainRef {
-		candidates = append(candidates, OriginMainRef)
-	}
-	head := ""
-	for _, ref := range candidates {
-		if out, err := git(root, "rev-parse", "--verify", "--quiet", ref+"^{commit}"); err == nil {
-			head = strings.TrimSpace(string(out))
-			break
-		}
-	}
-	if head == "" {
-		return "", nil
-	}
-	out, err := git(root, "merge-base", commit, head)
-	if err != nil {
-		// git merge-base exits 1, with nothing on stderr, when the two commits have no common ancestor.
-		if strings.HasSuffix(strings.TrimSpace(err.Error()), ": exit status 1:") {
-			return "", nil
-		}
-		return "", err
-	}
-	base := strings.TrimSpace(string(out))
-	if base == commit {
-		return "", nil
-	}
-	return base, nil
-}
 
 // ids lists the IDs of every test record of the spec, in order.
 func (s Spec) ids() []string {

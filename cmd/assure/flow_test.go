@@ -249,7 +249,7 @@ func TestLedgerFlow(t *testing.T) {
 		statements[0] = forged(statements[0])
 		result = h.ledger(t, h.keep(t, "forged", statements...), "", []string{"--commit", h.at(5)})
 		if result.code != 1 || !strings.Contains(result.stdout, "FX-LEND-INV01-T (automated): none, last passed at "+h.at(2)+"\n") ||
-			!strings.Contains(result.stdout, "proof run at "+h.at(5)+": none verified, as each attestation there is refused\n") ||
+			!strings.Contains(result.stdout, "proof run at "+h.at(5)+": none verified at release grade\n") ||
 			!strings.Contains(result.stdout, "refused at "+h.at(5)+": an attestation fails its signature check: the signature does not verify\n") {
 			t.Fatalf("with the attestation at the commit forged, assure ledger exited %d with:\n%s%s", result.code, result.stdout, result.stderr)
 		}
