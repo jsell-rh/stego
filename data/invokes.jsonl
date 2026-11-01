@@ -6,11 +6,13 @@
 {"source_id":"ST-ASR-UC02-FL01-S03","target_id":"ST-ASR-CMD02"}
 {"source_id":"ST-ASR-UC02-FL01-S04","target_id":"ST-ASR-CMD02"}
 {"source_id":"ST-ASR-UC02-FL01-S05","target_id":"ST-ASR-CMD02"}
+{"source_id":"ST-ASR-UC02-FL01-S06","target_id":"ST-ASR-CMD02"}
 {"source_id":"ST-ASR-UC03-FL01-S01","target_id":"ST-ASR-CMD03"}
 {"source_id":"ST-ASR-UC03-FL01-S02","target_id":"ST-ASR-CMD03"}
 {"source_id":"ST-ASR-UC03-FL01-S03","target_id":"ST-ASR-CMD03"}
 {"source_id":"ST-ASR-UC03-FL01-S04","target_id":"ST-ASR-CMD03"}
 {"source_id":"ST-ASR-UC03-FL01-S05","target_id":"ST-ASR-CMD03"}
+{"source_id":"ST-ASR-UC03-FL01-S06","target_id":"ST-ASR-CMD03"}
 {"source_id":"ST-ASR-UC04-FL01-S01","target_id":"ST-ASR-QRY01"}
 {"source_id":"ST-ASR-UC04-FL01-S02","target_id":"ST-ASR-QRY01"}
 {"source_id":"ST-BLD-UC01-FL01-S01","target_id":"ST-BLD-CMD01"}
