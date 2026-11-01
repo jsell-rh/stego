@@ -18,7 +18,7 @@
 {"entity_id":"ST-ASR-EN03","position":6,"name":"Proof run","meaning":"The attestation of the proof run the decision rests on.","type_value_object_id":"ST-VO56","required":false}
 {"entity_id":"ST-ASR-EN03","position":7,"name":"Passed","meaning":"Whether the commit passed the gate.","type":"yes/no","required":true,"example":"no"}
 {"entity_id":"ST-ASR-EN03","position":8,"name":"Reasons","meaning":"Each reason for a refusal, one per line; empty when passed.","type":"text","required":false,"example":"ST-BLD-UC03-R01 fell from built\nST-GEN-INV05-T failed"}
-{"entity_id":"ST-ASR-EN03","position":9,"name":"Attestation","meaning":"Where the signed decision is kept; a release decision always has one.","type_value_object_id":"ST-VO56","required":false}
+{"entity_id":"ST-ASR-EN03","position":9,"name":"Attestation","meaning":"Where the signed decision is kept; a passed release decision always has one, and a refused decision or a change decision has none.","type_value_object_id":"ST-VO56","required":false}
 {"entity_id":"ST-ASR-EN03","position":10,"name":"Code faults","meaning":"Each code-standard fault in the commit's tree, with its file or package, the rule it breaks, and whether the base branch's head has it; a change is refused for a new fault, a release for any.","type":"text","required":false,"example":"internal/compiler/lock.go: no record (ST-STD-CODE-R05), present at base"}
 {"entity_id":"ST-BLD-EN01","position":1,"name":"Module file digest","meaning":"The digest of go.mod.","type_value_object_id":"ST-VO41","required":true}
 {"entity_id":"ST-BLD-EN01","position":2,"name":"Sum file digest","meaning":"The digest of go.sum.","type_value_object_id":"ST-VO41","required":true}
