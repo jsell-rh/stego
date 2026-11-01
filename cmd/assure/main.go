@@ -1,5 +1,6 @@
 // Command assure is the command line of the Assuring domain (ST-ASR). assure record records a proof run at the
-// commit CI checked out (ST-ASR-CLI01).
+// commit CI checked out (ST-ASR-CLI01), and assure gate change gates a change against its base head
+// (ST-ASR-CLI02).
 package main
 
 import (
@@ -9,12 +10,12 @@ import (
 )
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, os.Getenv))
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, os.Getenv, gitHubProvider))
 }
 
 // run runs one assure command and returns its exit code: 0 when it did its work, 1 when it refused or failed,
-// and 2 when it was called wrongly.
-func run(args []string, stdout, stderr io.Writer, getenv func(string) string) int {
+// and 2 when it was called wrongly. open opens the provider's attestation store and signature check.
+func run(args []string, stdout, stderr io.Writer, getenv func(string) string, open provider) int {
 	if len(args) == 0 {
 		usage(stderr)
 		return 2
@@ -22,6 +23,8 @@ func run(args []string, stdout, stderr io.Writer, getenv func(string) string) in
 	switch args[0] {
 	case "record":
 		return record(args[1:], stdout, stderr, getenv)
+	case "gate":
+		return gate(args[1:], stdout, stderr, getenv, open)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return 0
@@ -34,4 +37,5 @@ func run(args []string, stdout, stderr io.Writer, getenv func(string) string) in
 func usage(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  assure record --commit <sha> --go-json <file> --python-json <file> --predicate <out>")
+	fmt.Fprintln(w, "  assure gate change --commit <sha> --base <sha> [--lathe <path>]")
 }
