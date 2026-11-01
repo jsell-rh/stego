@@ -11,7 +11,6 @@
 # base (ST-ASR-UC02-R05).
 # One fault per line, sorted, each fault once: the rule, the key, the file or package, and the reason, with a tab
 # between them.
-ST-STD-CODE-R01	cmd/stego	cmd/stego	the package holds files that the records of more than one domain name: ST-BLD, ST-DECL, ST-DIS, ST-EXT, ST-GEN, ST-SUP
 ST-STD-CODE-R01	internal/compiler	internal/compiler	the package holds files that the records of more than one domain name: ST-BLD, ST-DECL, ST-GEN
 ST-STD-CODE-R01	internal/generator/kubernetesservice	internal/generator/kubernetesservice	the package holds files that the records of more than one domain name: ST-DLV, ST-SUP
 ST-STD-CODE-R01	internal/parser	internal/parser	the package holds files that the records of more than one domain name: ST-DECL, ST-EXT, ST-SUP

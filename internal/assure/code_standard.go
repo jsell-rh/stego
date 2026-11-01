@@ -357,14 +357,16 @@ func packageDomains(spec Spec, tree Tree) (map[string][]string, map[string]bool)
 	return domains, named
 }
 
-// packageOfTwoDomains is the predicate of ST-ASR-SP05 (ST-STD-CODE-R01): a Go package under internal or cmd holds
-// a file named by a technical record of one domain and a file named by a technical record of another. A shared
-// value type counts for no domain. It finds one fault per such package, with its domains.
+// packageOfTwoDomains is the predicate of ST-ASR-SP05 (ST-STD-CODE-R01): a Go package under internal holds a file
+// named by a technical record of one domain and a file named by a technical record of another. A shared value
+// type counts for no domain. A package under cmd composes domains, as the Product owner decided: the CLI command
+// records of several domains name it, and it belongs to no one domain, so it is not checked. It finds one fault
+// per such package, with its domains.
 func packageOfTwoDomains(spec Spec, tree Tree) []CodeFault {
 	var faults []CodeFault
 	packages, _ := packageDomains(spec, tree)
 	for dir, domains := range packages {
-		if len(domains) > 1 {
+		if len(domains) > 1 && strings.HasPrefix(dir, "internal/") {
 			faults = append(faults, CodeFault{
 				Rule:   RuleOneDomainPerPackage,
 				Key:    dir,

@@ -109,7 +109,6 @@ func TestPackageOfTwoDomains(t *testing.T) {
 			t.Fatalf("package domains = %v, want %v", domains, want)
 		}
 		expectFaults(t, packageOfTwoDomains(spec, tree),
-			CodeFault{Rule: "ST-STD-CODE-R01", Key: "cmd/fx", Path: "cmd/fx", Reason: "the package holds files that the records of more than one domain name: ST-FXB, ST-FXD"},
 			CodeFault{Rule: "ST-STD-CODE-R01", Key: "internal/folder", Path: "internal/folder", Reason: "the package holds files that the records of more than one domain name: ST-FXD, ST-FXS"},
 			CodeFault{Rule: "ST-STD-CODE-R01", Key: "internal/mixed", Path: "internal/mixed", Reason: "the package holds files that the records of more than one domain name: ST-FXD, ST-FXS"},
 		)
