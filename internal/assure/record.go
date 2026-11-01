@@ -19,11 +19,14 @@ import (
 	"strings"
 )
 
-// Spec is what Record a proof run reads from the spec at the commit: the digest of its data files and its test
-// records.
+// Spec is what Assuring reads from the spec at a commit: the digest of its data files and its test records, which
+// Record a proof run reads, and its domains by ID with their titles and its technical records that name a file or
+// folder, which the code-standard predicates read.
 type Spec struct {
-	Digest string
-	Tests  map[string]TestRecord
+	Digest    string
+	Tests     map[string]TestRecord
+	Domains   map[string]string
+	Technical []TechnicalRecord
 }
 
 // TestRecord is one test record of the spec: its ID, the file that runs it, and whether its state is automated.
@@ -52,7 +55,9 @@ type SpecFile struct {
 }
 
 // ReadSpec reads the spec's data files, the *.jsonl files of its data folder. Every *_test.jsonl file is a table
-// of test records; a test record is automated when its state is automated. The digest is "sha256:" and the
+// of test records; a test record is automated when its state is automated. The domain table gives the domains,
+// and the tables of the technical stage's kinds, Lathe's and the product's own, give the technical records that
+// name a file or folder. The digest is "sha256:" and the
 // SHA-256 of the lines "<SHA-256 of the file>  <path>", one per data file in path order, which is what
 // sha256sum data/*.jsonl | sha256sum gives in the C locale.
 func ReadSpec(files []SpecFile) (Spec, error) {
@@ -62,6 +67,7 @@ func ReadSpec(files []SpecFile) (Spec, error) {
 	sorted := append([]SpecFile(nil), files...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Path < sorted[j].Path })
 	spec := Spec{Tests: make(map[string]TestRecord)}
+	tables := make(map[string]SpecFile)
 	var sums strings.Builder
 	for _, file := range sorted {
 		sum := sha256.Sum256(file.Data)
@@ -70,8 +76,15 @@ func ReadSpec(files []SpecFile) (Spec, error) {
 			if err := readTestRecords(file.Path, file.Data, spec.Tests); err != nil {
 				return Spec{}, err
 			}
+			continue
 		}
+		tables[strings.TrimSuffix(path.Base(file.Path), ".jsonl")] = file
 	}
+	domains, technical, err := readTechnicalStage(tables)
+	if err != nil {
+		return Spec{}, err
+	}
+	spec.Domains, spec.Technical = domains, technical
 	digest := sha256.Sum256([]byte(sums.String()))
 	spec.Digest = "sha256:" + hex.EncodeToString(digest[:])
 	return spec, nil
