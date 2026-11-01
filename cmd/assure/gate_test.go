@@ -455,8 +455,8 @@ func TestGateChange(t *testing.T) {
 		if len(gate.Needs) != 1 || gate.Needs[0] != "attest" {
 			t.Fatalf("the gate job needs %v, want the attest job", gate.Needs)
 		}
-		if gate.If != "github.event_name == 'pull_request'" {
-			t.Fatalf("the gate job runs when %q, want only on a pull request", gate.If)
+		if gate.If != "always() && github.event_name == 'pull_request'" {
+			t.Fatalf("the gate job runs when %q, want on every pull request, also when the suites or the attest job fail", gate.If)
 		}
 		if len(gate.Permissions) != 1 || gate.Permissions["contents"] != "read" {
 			t.Fatalf("the gate job's permissions are %v, want only contents: read", gate.Permissions)
@@ -472,12 +472,16 @@ func TestGateChange(t *testing.T) {
 			if strings.Contains(step.Run, "./cmd/assure gate change") {
 				run = &gate.Steps[i]
 			}
+			if strings.Contains(step.Run, "npm ci") && step.WorkingDirectory != "lathe/lathe" {
+				t.Fatalf("step %q installs packages that the change names: %s", step.Name, step.Run)
+			}
 		}
 		if checkout == nil || checkout.With["ref"] != "${{ env.COMMIT }}" || checkout.With["fetch-depth"] != "0" {
 			t.Fatalf("the gate job does not check out the change's commit with its full history: %+v", checkout)
 		}
 		if run == nil || !strings.Contains(run.Run, `gate change --commit "$COMMIT" --base "$BASE"`) ||
-			run.Env["BASE"] != "${{ github.event.pull_request.base.sha }}" || run.WorkingDirectory != "stego" {
+			run.Env["BASE"] != "${{ github.event.pull_request.base.sha }}" || run.WorkingDirectory != "stego" ||
+			!strings.Contains(run.Run, `--lathe "$GITHUB_WORKSPACE/lathe/lathe/dist/bin/lathe.js"`) {
 			t.Fatalf("the gate job does not gate the change's commit against the pull request's base: %+v", run)
 		}
 

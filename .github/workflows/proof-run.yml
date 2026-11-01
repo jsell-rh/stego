@@ -34,6 +34,7 @@ concurrency:
 
 env:
   COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+  # The Lathe commit stego's data is for. .github/workflows/spec.yml pins the same commit: move both together.
   LATHE_REF: 9dea28bec0aa3ec1508652968f8ad290d275bc66
 
 jobs:
@@ -66,6 +67,7 @@ jobs:
         with:
           ref: ${{ env.COMMIT }}
           path: stego
+          fetch-depth: 0
           persist-credentials: false
       - name: Require the Lathe deploy key
         env:
@@ -100,6 +102,18 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm ci --prefix internal/generator/typescriptsdk/testdata --ignore-scripts --no-audit --no-fund
       - run: npm ci --prefix internal/generator/browsertelemetry/testdata --ignore-scripts --no-audit --no-fund
+      # The code standard's own-tree tests (ST-STD-CODE-R01-T01 to R06-T01) refuse a fault that the base's list of
+      # known faults does not hold. ASSURE_RATCHET_BASE names that base: on a pull request, the merge base of the
+      # pull request's base and its head, not main's tip, so a branch behind main is not failed for lines main has
+      # since removed. On a push to main it is unset, and the tests take HEAD^1.
+      - name: Name the ratchet base of the code standard
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags origin "$BASE"
+          merge_base="$(git merge-base "$BASE" HEAD)"
+          echo "ASSURE_RATCHET_BASE=$merge_base" >> "$GITHUB_ENV"
       - name: Run the Go suites
         timeout-minutes: 25
         env:
@@ -162,7 +176,9 @@ jobs:
   gate:
     name: gate
     needs: attest
-    if: github.event_name == 'pull_request'
+    # always(): when the suites or the attest job fail, the gate still runs and refuses the change for want of a
+    # verified proof run, because GitHub counts a skipped required check as passed.
+    if: always() && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -203,12 +219,13 @@ jobs:
           npm ci --no-audit --no-fund
           ./node_modules/.bin/tsc -p tsconfig.build.json
           chmod +x dist/bin/lathe.js
-      - name: Install the pinned Lathe
-        working-directory: stego
-        run: npm ci --ignore-scripts --no-audit --no-fund
+      # The gate runs the Lathe this workflow builds from LATHE_REF, never a Lathe the change's own package files
+      # name. It still runs the change's own cmd/assure: building it from the base is for the Product owner to decide.
       - name: Gate the change
         working-directory: stego
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           GITHUB_TOKEN: ${{ github.token }}
-        run: go run -mod=readonly ./cmd/assure gate change --commit "$COMMIT" --base "$BASE"
+        run: >-
+          go run -mod=readonly ./cmd/assure gate change --commit "$COMMIT" --base "$BASE"
+          --lathe "$GITHUB_WORKSPACE/lathe/lathe/dist/bin/lathe.js"

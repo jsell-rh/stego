@@ -32,6 +32,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+  # .github/workflows/proof-run.yml pins the same Lathe commit for its suites and gate jobs: move both together.
   LATHE_REF: 9dea28bec0aa3ec1508652968f8ad290d275bc66
 
 jobs:
