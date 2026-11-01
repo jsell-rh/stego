@@ -385,7 +385,7 @@ func TestGateChange(t *testing.T) {
 		result := g.gate(t, change, g.base, statements, "GITHUB_STEP_SUMMARY="+summary)
 		decided(t, "two obligations fell from shares, one went, and a test failed", result, 1,
 			"FX-LEND-INV01 fell from built", "FX-LEND-INV01 fell from proved", "FX-LEND-INV02 fell from built",
-			"FX-LEND-INV03 fell from designed", "FX-LEND-INV02-T failed")
+			"FX-LEND-INV03 is absent at the change (was designed at the base)", "FX-LEND-INV02-T failed")
 		if !strings.HasPrefix(result.stdout, "change gate on "+change+": refused\n") {
 			t.Fatalf("the decision does not say that the change is refused:\n%s", result.stdout)
 		}

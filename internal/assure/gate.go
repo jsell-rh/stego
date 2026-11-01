@@ -59,12 +59,26 @@ func proofRunPassed(proof *VerifiedProofRun, spec Spec, why string) []string {
 // designed, built or proved at the base head is still counted so at the change's commit. An obligation that is
 // new at the change may arrive with no share. It returns a reason for each share an obligation fell from, by
 // obligation ID and then in the order designed, built, proved, and none when the change holds the ratchet. An
-// obligation that the change removes falls from every share it had.
+// obligation that the change does not have at all, because it removes or renames the record or because the
+// change's branch is behind the base, is no longer counted either: it gives one reason that says it is absent and
+// names each share it had at the base.
 func holdsRatchet(base, change Measurement) []string {
 	var reasons []string
 	for _, id := range base.sortedObligations() {
 		before := base.Obligations[id]
-		after := change.Obligations[id]
+		after, present := change.Obligations[id]
+		if !present {
+			var had []string
+			for _, share := range allShares() {
+				if before.Has(share) {
+					had = append(had, string(share))
+				}
+			}
+			if len(had) > 0 {
+				reasons = append(reasons, absentReason(id, had))
+			}
+			continue
+		}
 		for _, share := range allShares() {
 			if before.Has(share) && !after.Has(share) {
 				reasons = append(reasons, fellReason(id, share))

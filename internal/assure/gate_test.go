@@ -70,6 +70,7 @@ func TestGate(t *testing.T) {
 			"ST-FIX-INV03": {Designed: true},
 			"ST-FIX-SP01":  all,
 			"ST-FIX-UC01":  {},
+			"ST-FIX-UC02":  {},
 		}}
 		held := Measurement{Obligations: map[string]Standing{
 			"ST-FIX-INV01": all,
@@ -77,6 +78,7 @@ func TestGate(t *testing.T) {
 			"ST-FIX-INV03": {Designed: true, Built: true},
 			"ST-FIX-SP01":  all,
 			"ST-FIX-UC01":  {},
+			"ST-FIX-UC02":  {},
 			"ST-FIX-INV04": {},
 			"ST-FIX-SP02":  {Designed: true},
 		}}
@@ -85,13 +87,14 @@ func TestGate(t *testing.T) {
 		}
 		fell := Measurement{Obligations: map[string]Standing{
 			"ST-FIX-SP01":  {Designed: true},
+			"ST-FIX-INV05": {Designed: true},
 			"ST-FIX-INV02": {Designed: true, Proved: true},
 			"ST-FIX-INV03": {},
 			"ST-FIX-UC01":  {},
 			"ST-FIX-INV04": {},
 		}}
 		want := []string{
-			"ST-FIX-INV01 fell from designed", "ST-FIX-INV01 fell from built", "ST-FIX-INV01 fell from proved",
+			"ST-FIX-INV01 is absent at the change (was designed, built, proved at the base)",
 			"ST-FIX-INV02 fell from built",
 			"ST-FIX-INV03 fell from designed",
 			"ST-FIX-SP01 fell from built", "ST-FIX-SP01 fell from proved",

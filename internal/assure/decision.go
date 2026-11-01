@@ -70,6 +70,7 @@ const (
 	fellFrom           = " fell from "
 	differsFromBase    = " differs from the base head"
 	noVerifiedProofRun = "no verified proof run at "
+	absentAtChange     = " is absent at the change (was "
 )
 
 // fellReason is the reason that names an obligation that fell from a share.
@@ -77,13 +78,19 @@ func fellReason(obligation string, share Share) string {
 	return obligation + fellFrom + string(share)
 }
 
+// absentReason is the reason that names an obligation of the base that the change does not have, with the shares
+// it had at the base.
+func absentReason(obligation string, had []string) string {
+	return obligation + absentAtChange + strings.Join(had, ", ") + " at the base)"
+}
+
 // workflowReason is the reason that names a file under the workflows folder that differs from the base head's.
 func workflowReason(file string) string {
 	return file + differsFromBase
 }
 
-// reasonOrder is the place of a reason in the fixed order: the obligations that fell, by ID, each with its shares
-// in the order designed, built, proved; then the proof run (why there is none first) and the test records that
+// reasonOrder is the place of a reason in the fixed order: the obligations that fell or are absent at the change,
+// by ID, each with its shares in the order designed, built, proved; then the proof run (why there is none first) and the test records that
 // did not pass, by ID; then the workflow files that differ, by path.
 func reasonOrder(reason string) (int, string) {
 	if file, ok := strings.CutSuffix(reason, differsFromBase); ok {
@@ -95,6 +102,9 @@ func reasonOrder(reason string) (int, string) {
 				return obligationSection, obligation + "\x00" + string(rune('0'+i))
 			}
 		}
+	}
+	if obligation, _, ok := strings.Cut(reason, absentAtChange); ok && !strings.Contains(obligation, " ") {
+		return obligationSection, obligation
 	}
 	if strings.HasPrefix(reason, noVerifiedProofRun) {
 		return proofSection, ""
