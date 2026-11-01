@@ -443,12 +443,22 @@ func fieldNamedLikeInput(d Decision) string { var other Decision; return other.d
 func blankRead(d Decision) bool { _ = d; return true }
 
 func noInputs() bool { return true }
+
+func noInputsPanics() error { panic("not written yet") }
+
+func noInputsComputes() Decision { return newDecision() }
+
+func newDecision() Decision { return Decision{ID: fmt.Sprint(1)} }
+
+func fieldKey(ID string) Decision { return Decision{ID: "fixed"} }
+
+func mapKey(d string) map[string]int { return map[string]int{d: 1} }
 `
 
 func TestStubBuilt(t *testing.T) {
 	t.Run("ST-ASR-SP10-T Stub counted as built is found in a tree built for it, and not in one that follows the rule", func(t *testing.T) {
-		builtFunctions := []string{"fx.isGood", "fx.Handler.Count", "fx.reads", "fx.returnsInput", "fx.panicsWithInput", "fx.delegates", "fx.blankRead", "fx.noInputs", "fx.missing"}
-		stubs := []string{"fx.alwaysTrue", "fx.Handler.Handle", "fx.notYet", "fx.notYetEither", "fx.empty", "fx.viaLocal", "fx.viaHelper", "fx.viaSprintf", "fx.ifConstant", "fx.unnamed", "fx.blank", "fx.fieldNamedLikeInput"}
+		builtFunctions := []string{"fx.isGood", "fx.Handler.Count", "fx.reads", "fx.returnsInput", "fx.panicsWithInput", "fx.delegates", "fx.blankRead", "fx.noInputsComputes", "fx.mapKey", "fx.missing"}
+		stubs := []string{"fx.alwaysTrue", "fx.Handler.Handle", "fx.notYet", "fx.notYetEither", "fx.empty", "fx.viaLocal", "fx.viaHelper", "fx.viaSprintf", "fx.ifConstant", "fx.unnamed", "fx.blank", "fx.fieldNamedLikeInput", "fx.noInputs", "fx.noInputsPanics", "fx.fieldKey"}
 		kinds := []string{"predicate", "command_handler", "query_handler", "service"}
 		tables := make(map[string]string)
 		var want []CodeFault
@@ -457,8 +467,11 @@ func TestStubBuilt(t *testing.T) {
 			kind := kinds[i%len(kinds)]
 			tables[kind] += fmt.Sprintf(`{"id":%q,"title":%q,"file":"internal/fx/fx.go"}`+"\n", id, title)
 			if i >= len(builtFunctions) {
-				want = append(want, CodeFault{Rule: "ST-STD-CODE-R06", Key: id, Path: "internal/fx/fx.go",
-					Reason: id + " names " + title + ", whose body reads none of its parameters or its receiver"})
+				why := ", whose body reads none of its parameters or its receiver"
+				if strings.HasPrefix(title, "fx.noInputs") {
+					why = ", which has no input and whose body only returns constants or panics"
+				}
+				want = append(want, CodeFault{Rule: "ST-STD-CODE-R06", Key: id, Path: "internal/fx/fx.go", Reason: id + " names " + title + why})
 			}
 		}
 		tables["value_type"] = `{"id":"ST-VO01-VT","title":"fx.alwaysTrue","file":"internal/fx/fx.go"}`

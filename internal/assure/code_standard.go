@@ -1007,8 +1007,8 @@ func fileWithoutRecord(spec Spec, tree Tree) []CodeFault {
 // record names exists and does not read its inputs. The record's title names the function, as pkg.Func or
 // pkg.Type.Method, in the record's file. A function is a stub when it has a parameter or a receiver and no
 // identifier in its body names any of them: a body that only returns constants or only panics reads none, and so
-// does one that only calls a helper with no argument or keeps a constant in a variable. A function with no
-// parameter and no receiver has no input to read, so it is not a stub. An unnamed or blank parameter cannot be
+// does one that only calls a helper with no argument or keeps a constant in a variable. A function whose body only
+// returns constants or only panics is a stub too when it has no parameter and no receiver. An unnamed or blank parameter cannot be
 // read. A blank assignment such as _ = d names the parameter, and so counts as reading it, and a local variable
 // that has the name of a parameter counts too: the predicate reads names, not types.
 //
@@ -1038,12 +1038,12 @@ func stubBuilt(spec Spec, tree Tree) []CodeFault {
 			if !ok || function.Body == nil || !namesFunction(function, names) {
 				continue
 			}
-			if stub(function) {
+			if why := stub(function); why != "" {
 				faults = append(faults, CodeFault{
 					Rule:   RuleStubIsNotBuilt,
 					Key:    record.ID,
 					Path:   record.File,
-					Reason: fmt.Sprintf("%s names %s, whose body reads none of its parameters or its receiver", record.ID, record.Title),
+					Reason: fmt.Sprintf("%s names %s, %s", record.ID, record.Title, why),
 				})
 			}
 		}
@@ -1061,8 +1061,9 @@ func namesFunction(function *ast.FuncDecl, names []string) bool {
 	return receiver == names[0] && function.Name.Name == names[1]
 }
 
-// stub tells if the function has a parameter or a receiver and its body names none of them.
-func stub(function *ast.FuncDecl) bool {
+// stub tells if the function is a stub, and why: it has a parameter or a receiver and its body names none of them,
+// or it has none and its body only returns constants or only panics. It gives "" when the function is no stub.
+func stub(function *ast.FuncDecl) string {
 	inputs := make(map[string]bool)
 	count := 0
 	for _, list := range []*ast.FieldList{function.Recv, function.Type.Params} {
@@ -1081,17 +1082,109 @@ func stub(function *ast.FuncDecl) bool {
 			}
 		}
 	}
-	return count > 0 && !readsInput(function.Body, inputs)
+	switch {
+	case count > 0 && !readsInput(function.Body, inputs):
+		return "whose body reads none of its parameters or its receiver"
+	case count == 0 && onlyConstantsOrPanics(function.Body):
+		return "which has no input and whose body only returns constants or panics"
+	}
+	return ""
+}
+
+// onlyConstantsOrPanics tells if each statement of the body is a return of constants or a call of panic. An empty
+// body counts. A constant is a literal, a name, a composite literal of constants, an operator on constants, or an
+// error that errors.New or fmt.Errorf makes of constants; any other call computes something, so it is not one.
+func onlyConstantsOrPanics(body *ast.BlockStmt) bool {
+	for _, statement := range body.List {
+		switch s := statement.(type) {
+		case *ast.ReturnStmt:
+			for _, result := range s.Results {
+				if !constant(result) {
+					return false
+				}
+			}
+		case *ast.ExprStmt:
+			call, ok := s.X.(*ast.CallExpr)
+			if !ok || !isIdent(call.Fun, "panic") {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func isIdent(expr ast.Expr, name string) bool {
+	ident, ok := expr.(*ast.Ident)
+	return ok && ident.Name == name
+}
+
+// constant tells if the expression is a constant: see onlyConstantsOrPanics.
+func constant(expr ast.Expr) bool {
+	switch e := expr.(type) {
+	case *ast.BasicLit, *ast.Ident:
+		return true
+	case *ast.SelectorExpr:
+		return constant(e.X)
+	case *ast.ParenExpr:
+		return constant(e.X)
+	case *ast.UnaryExpr:
+		return constant(e.X)
+	case *ast.BinaryExpr:
+		return constant(e.X) && constant(e.Y)
+	case *ast.KeyValueExpr:
+		return constant(e.Key) && constant(e.Value)
+	case *ast.CompositeLit:
+		for _, element := range e.Elts {
+			if !constant(element) {
+				return false
+			}
+		}
+		return true
+	case *ast.CallExpr:
+		selector, ok := e.Fun.(*ast.SelectorExpr)
+		if !ok || !(isIdent(selector.X, "errors") && selector.Sel.Name == "New" || isIdent(selector.X, "fmt") && selector.Sel.Name == "Errorf") {
+			return false
+		}
+		for _, arg := range e.Args {
+			if !constant(arg) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // readsInput tells if an identifier in the node names a parameter or the receiver. The name of a field or method
-// after a dot is not one.
+// after a dot is not one, nor the name of a field as the key of a composite literal of a type that is not a map
+// type written out, such as Decision{ID: id}. (A map type with a name of its own reads as a struct here: the
+// predicate reads names, not types.)
 func readsInput(node ast.Node, inputs map[string]bool) bool {
 	reads := false
 	ast.Inspect(node, func(n ast.Node) bool {
 		switch e := n.(type) {
 		case *ast.SelectorExpr:
 			reads = reads || readsInput(e.X, inputs)
+			return false
+		case *ast.CompositeLit:
+			if _, isMap := e.Type.(*ast.MapType); isMap {
+				return true
+			}
+			if e.Type != nil {
+				reads = reads || readsInput(e.Type, inputs)
+			}
+			for _, element := range e.Elts {
+				if pair, ok := element.(*ast.KeyValueExpr); ok {
+					if _, field := pair.Key.(*ast.Ident); !field {
+						reads = reads || readsInput(pair.Key, inputs)
+					}
+					reads = reads || readsInput(pair.Value, inputs)
+					continue
+				}
+				reads = reads || readsInput(element, inputs)
+			}
 			return false
 		case *ast.Ident:
 			if inputs[e.Name] {
