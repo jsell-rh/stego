@@ -1,6 +1,7 @@
 {"id":"ST-ASR-DS01-SV","title":"assure.ReadOutcomes","domain_service_id":"ST-ASR-DS01","file":"internal/assure/outcomes.go"}
 {"id":"ST-ASR-DS02-SV","title":"assure.MeasureCoverage","domain_service_id":"ST-ASR-DS02","file":"internal/assure/coverage.go"}
 {"id":"ST-ASR-DS03-SV","title":"assure.VerifyAttestation","domain_service_id":"ST-ASR-DS03","file":"internal/assure/verify.go"}
+{"id":"ST-ASR-DS04-SV","title":"assure.CodeFaults","domain_service_id":"ST-ASR-DS04","file":"internal/assure/code_standard.go"}
 {"id":"ST-BLD-DS01-SV","title":"appbuild.WriteSBOMs","domain_service_id":"ST-BLD-DS01","file":"internal/appbuild/sbom.go"}
 {"id":"ST-BLD-DS02-SV","title":"appbuild.Verify","domain_service_id":"ST-BLD-DS02","file":"internal/appbuild/verify.go"}
 {"id":"ST-DLV-DS01-SV","title":"delivery.DeriveRequirements","domain_service_id":"ST-DLV-DS01","file":"internal/delivery/requirements.go"}

@@ -2,6 +2,7 @@
 """Qualify a compiler release from completed CI runs before or after publication."""
 
 import argparse
+from datetime import datetime, timedelta, timezone
 import importlib.util
 import json
 import os
@@ -37,6 +38,10 @@ ARTIFACT_JOB_NAMES = ["linux-amd64", "provenance"]
 CHECKS_BRANCHES = ["main"]
 RUN_PAGE = 100
 RELEASE_NOTES_LIMIT = 65536
+# The retention-days of the three artifacts in compiler-artifact.yml.
+ARTIFACT_RETENTION = timedelta(days=7)
+RUN_INVOCATION = re.compile(r"https://github\.com/" + re.escape(REPOSITORY)
+                            + r"/actions/runs/([1-9][0-9]{0,18})/attempts/([1-9][0-9]{0,3})")
 
 
 def api(gh, path, directory, *, limit=4 << 20):
@@ -57,12 +62,25 @@ def fetch(gh, path, directory):
 def run_record(run):
     if not isinstance(run, dict):
         raise CheckError("A CI run record is invalid")
-    for name in ["id", "path", "event", "head_branch", "head_sha", "status", "conclusion"]:
+    for name in ["id", "run_attempt", "path", "event", "head_branch", "head_sha", "status",
+                 "conclusion"]:
         if name not in run:
             raise CheckError("A CI run record is incomplete")
-    if type(run["id"]) is not int or run["id"] <= 0:
+    if (type(run["id"]) is not int or run["id"] <= 0
+            or type(run["run_attempt"]) is not int or run["run_attempt"] <= 0):
         raise CheckError("A CI run identity is invalid")
     return run
+
+
+def run_age(run):
+    updated = run.get("updated_at")
+    try:
+        if not isinstance(updated, str):
+            raise ValueError(updated)
+        moment = datetime.strptime(updated, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise CheckError("A CI run time is invalid") from None
+    return datetime.now(timezone.utc) - moment
 
 
 def runs_at(gh, revision, directory):
@@ -78,9 +96,12 @@ def runs_at(gh, revision, directory):
     return [run_record(run) for run in runs]
 
 
-def select_run(runs, workflow, branches, label):
+def select_run(runs, workflow, branches, label, identity=None):
+    # Without an identity, take the newest successful run. With one, take
+    # only that run: the run that the release signatures name.
     candidates = [run for run in runs
-                  if run["path"] == workflow and run["head_branch"] in branches]
+                  if run["path"] == workflow and run["head_branch"] in branches
+                  and (identity is None or run["id"] == identity)]
     if not candidates:
         raise CheckError("No " + label + " run exists at the source commit")
     for run in candidates:
@@ -135,7 +156,7 @@ def run_artifacts(gh, run, directory):
     return artifacts
 
 
-def require_artifacts(artifacts, revision, run_id, require_current):
+def require_artifacts(artifacts, revision, run_id, require_current, removable=False):
     limits = {"compiler-linux-amd64-" + revision: 100 << 20,
               "compiler-attestation-" + revision: 4 << 20,
               "compiler-provenance-" + revision: 100 << 20}
@@ -158,8 +179,15 @@ def require_artifacts(artifacts, revision, run_id, require_current):
                              + " expired before qualification")
         found[name] = {"name": name, "digest": digest, "size_in_bytes": size,
                        "expired": expired}
-    if set(found) != set(limits):
-        raise CheckError("The signed artifact run is missing required artifacts")
+    if not found and removable:
+        # GitHub removes an expired artifact from the run's list. After
+        # publication, verify_published_release requires the signatures of the
+        # release to name this run instead. A partial list still fails.
+        return []
+    missing = sorted(set(limits) - set(found))
+    if missing:
+        raise CheckError("The signed artifact run is missing required artifacts: "
+                         + ", ".join(missing))
     return [found[name] for name in limits]
 
 
@@ -169,6 +197,38 @@ def tag_ref(gh, revision, directory):
     if not isinstance(data, list):
         raise CheckError("The tag reference list is invalid")
     return data
+
+
+def attested_runs(gh, path, revision, bundle=None):
+    """Return the (run, attempt) pairs whose signatures authenticate one file."""
+    try:
+        # The installer's signer policy. Without a bundle, GitHub CLI reads the
+        # attestation store of the repository. With the release bundle, it
+        # reads what a consumer reads.
+        raw = verification.authenticate(gh, path, bundle, revision,
+                                        verification.verifier_environment())
+    except CheckError:
+        raise CheckError("No signature authenticates " + path.name + " at the source commit"
+                         + ("" if bundle is None else " in the release bundle")) from None
+    results = json.loads(raw, object_pairs_hook=verification.unique_object)
+    if not isinstance(results, list) or not results:
+        raise CheckError("The signature verification result for " + path.name + " is invalid")
+    runs = set()
+    for result in results:
+        outcome = result.get("verificationResult") if isinstance(result, dict) else None
+        signature = outcome.get("signature") if isinstance(outcome, dict) else None
+        certificate = signature.get("certificate") if isinstance(signature, dict) else None
+        if not isinstance(certificate, dict):
+            raise CheckError("A signature of " + path.name + " has no certificate")
+        if certificate.get("sourceRepositoryDigest") != revision:
+            raise CheckError("A signature of " + path.name + " names another commit")
+        invocation = certificate.get("runInvocationURI")
+        match = (RUN_INVOCATION.fullmatch(invocation)
+                 if isinstance(invocation, str) else None)
+        if match is None:
+            raise CheckError("A signature of " + path.name + " does not name its signing run")
+        runs.add((int(match.group(1)), int(match.group(2))))
+    return runs
 
 
 def qualify(revision, output, gh, verify_release=False):
@@ -187,20 +247,34 @@ def qualify(revision, output, gh, verify_release=False):
         stage = Path(temporary)
         runs = runs_at(gh, revision, stage)
         checks = select_run(runs, CHECKS_WORKFLOW, branches, "compiler checks")
-        artifact = select_run(runs, ARTIFACT_WORKFLOW, CHECKS_BRANCHES,
-                              "signed artifact")
+        release = None
+        if verify_release:
+            # A published release names its signed artifact run in its
+            # signatures. Another successful run at the commit is not it.
+            release = verify_published_release(gh, revision, stage)
+            signer = release["signing_run"]
+            artifact = select_run(runs, ARTIFACT_WORKFLOW, CHECKS_BRANCHES,
+                                  "signed artifact", signer["id"])
+            if artifact["run_attempt"] != signer["attempt"]:
+                raise CheckError("The release was signed by attempt " + str(signer["attempt"])
+                                 + " of CI run " + str(artifact["id"])
+                                 + ", not by its successful attempt")
+        else:
+            artifact = select_run(runs, ARTIFACT_WORKFLOW, CHECKS_BRANCHES,
+                                  "signed artifact")
         checks_jobs, checks_names = run_jobs(gh, checks, stage)
         checks_result = require_jobs(checks_jobs, checks_names, CHECKS_JOB_NAMES,
                                      checks["id"])
         artifact_jobs, artifact_names = run_jobs(gh, artifact, stage)
         artifact_result = require_jobs(artifact_jobs, artifact_names,
                                        ARTIFACT_JOB_NAMES, artifact["id"])
+        # An empty list is expiry only when the retention time has passed since
+        # the run; earlier, it is a deletion or a fault, and it fails.
+        removable = verify_release and run_age(artifact) > ARTIFACT_RETENTION
         artifacts = require_artifacts(run_artifacts(gh, artifact, stage), revision,
-                                      artifact["id"], require_current=not verify_release)
-        release = None
-        if verify_release:
-            release = verify_published_release(gh, revision, stage, artifact["id"])
-        else:
+                                      artifact["id"], require_current=not verify_release,
+                                      removable=removable)
+        if not verify_release:
             refs = tag_ref(gh, revision, stage)
             if refs:
                 raise CheckError("The compiler tag already exists; never replace a release")
@@ -214,9 +288,11 @@ def qualify(revision, output, gh, verify_release=False):
                 "head_branch": checks["head_branch"], "conclusion": checks["conclusion"],
                 "jobs": checks_result},
             "signed_artifact": {
-                "run_id": artifact["id"], "event": artifact["event"],
+                "run_id": artifact["id"], "run_attempt": artifact["run_attempt"],
+                "event": artifact["event"],
                 "head_branch": artifact["head_branch"], "conclusion": artifact["conclusion"],
-                "jobs": artifact_result, "artifacts": artifacts},
+                "jobs": artifact_result, "artifacts": artifacts,
+                "artifacts_retained": bool(artifacts)},
             "release": release,
             "downloaded_compiler_executed": False,
         }
@@ -225,7 +301,7 @@ def qualify(revision, output, gh, verify_release=False):
         return result
 
 
-def verify_published_release(gh, revision, stage, artifact_run_id):
+def verify_published_release(gh, revision, stage):
     refs = tag_ref(gh, revision, stage)
     if len(refs) != 1:
         raise CheckError("The compiler release tag must exist exactly once")
@@ -245,10 +321,27 @@ def verify_published_release(gh, revision, stage, artifact_run_id):
         raise CheckError("The release compiler digest differs from the verified bytes")
     if assets["build.json"]["digest"] != build_digest:
         raise CheckError("The release build record digest differs from the verified bytes")
+    # Run artifacts expire. The signatures name the run and the attempt that
+    # signed these bytes. The release bundle is what a consumer verifies, and
+    # it must name one signing run for both files.
+    signers = attested_runs(gh, package / BINARY, revision, package / "provenance.jsonl")
+    if len(signers) != 1:
+        raise CheckError("The release bundle must name exactly one signing run")
+    signer = next(iter(signers))
+    if signer not in attested_runs(gh, package / "build.json", revision,
+                                   package / "provenance.jsonl"):
+        raise CheckError("The signature of build.json in the release bundle"
+                         " does not name the signed artifact run")
+    # The attestation store is checked too: GitHub lets an owner delete an
+    # attestation, and a deletion is a revocation that the bundle cannot show.
+    for name in [BINARY, "build.json"]:
+        if signer not in attested_runs(gh, package / name, revision):
+            raise CheckError("The signature of " + name + " in the attestation store"
+                             " does not name the signed artifact run")
     notes = record.get("body")
     if not isinstance(notes, str) or not 0 < len(notes) <= RELEASE_NOTES_LIMIT:
         raise CheckError("The release record must retain its evidence notes")
-    if str(artifact_run_id) not in notes:
+    if str(signer[0]) not in notes:
         raise CheckError("The release notes do not retain the signed artifact run")
     if verified["artifact"]["sha256"] not in notes:
         raise CheckError("The release notes do not retain the compiler digest")
@@ -258,6 +351,8 @@ def verify_published_release(gh, revision, stage, artifact_run_id):
         "assets": {name: assets[name]["digest"] for name in assets},
         "notes_retain_signed_artifact_run": True,
         "notes_retain_compiler_sha256": True,
+        "signatures_name_signed_artifact_run": signer[0],
+        "signing_run": {"id": signer[0], "attempt": signer[1]},
         "verified": verified,
     }
 

@@ -57,13 +57,16 @@ def verifier_environment():
 
 
 def authenticate(gh, path, bundle, revision, environment):
-    authenticate_subject(gh, path, bundle, revision, environment,
-                         REPOSITORY, ".github/workflows/compiler-artifact.yml", REFERENCE)
+    # The one compiler signer policy. A bundle of None reads the attestation
+    # store of the repository instead of a local bundle. Returns the JSON result.
+    return authenticate_subject(gh, path, bundle, revision, environment,
+                                REPOSITORY, ".github/workflows/compiler-artifact.yml", REFERENCE)
 
 
 def authenticate_subject(gh, path, bundle, revision, environment, repository, workflow, reference):
-    authenticate_selected_subject(gh, path, bundle, environment, repository, reference, revision,
-                                  revision, ["--cert-identity", "https://github.com/" + repository + "/" + workflow + "@" + reference])
+    return authenticate_selected_subject(
+        gh, path, bundle, environment, repository, reference, revision, revision,
+        ["--cert-identity", "https://github.com/" + repository + "/" + workflow + "@" + reference])
 
 
 def authenticate_reusable_subject(gh, path, bundle, environment, repository, reference, revision,
@@ -76,8 +79,9 @@ def authenticate_reusable_subject(gh, path, bundle, environment, repository, ref
 
 def authenticate_selected_subject(gh, path, bundle, environment, repository, reference, revision,
                                   signer_revision, identity_flags):
-    control.command([
-        str(gh), "attestation", "verify", str(path), "--bundle", str(bundle),
+    source = [] if bundle is None else ["--bundle", str(bundle)]
+    return control.command([
+        str(gh), "attestation", "verify", str(path), *source,
         "--hostname", "github.com", "--repo", repository,
         "--signer-digest", signer_revision, *identity_flags,
         "--cert-oidc-issuer", "https://token.actions.githubusercontent.com",
