@@ -149,8 +149,8 @@ type ChangeRequest struct {
 	Lathe     string
 }
 
-// GateChange is the handler of ST-ASR-CMD02, Gate a change. It measures the coverage at the change's commit and
-// at the base head, verifies the proof run at the change's commit, and reads the code faults of both commits'
+// GateChange is the handler of ST-ASR-CMD02, Gate a change. It measures the coverage at the base head and then
+// at the change's commit, verifies the proof run at the change's commit, and reads the code faults of both commits'
 // trees and specs. It refuses the change when an obligation present at the base lost its designed, built or
 // proved standing, when no proof run at the commit is verified, when an automated test record did not pass
 // there, when the change's tree has a code-standard fault that the base head's does not have by rule and key, or
@@ -164,11 +164,14 @@ func GateChange(request ChangeRequest, store AttestationStore, verifier BundleVe
 			return Decision{}, ChangeDecided{}, fmt.Errorf("commit %q is not a full 40-character commit ID", commit)
 		}
 	}
-	change, err := MeasureCoverage(request.Root, request.Commit, request.Lathe)
+	// The base is measured first. The change's spec is data that Lathe runs, and a run on it could alter what it
+	// runs with (ST-ASR-UC02-R07): when the base is measured before, the change cannot alter the Lathe that
+	// measures the base.
+	base, err := MeasureCoverage(request.Root, request.Base, request.Lathe)
 	if err != nil {
 		return Decision{}, ChangeDecided{}, err
 	}
-	base, err := MeasureCoverage(request.Root, request.Base, request.Lathe)
+	change, err := MeasureCoverage(request.Root, request.Commit, request.Lathe)
 	if err != nil {
 		return Decision{}, ChangeDecided{}, err
 	}
