@@ -2,7 +2,7 @@
 {"id":"ST-ASR-TM02","title":"Test outcome","domain_id":"ST-ASR","meaning":"What one test did in a proof run: passed, failed or skipped, with why when it did not pass."}
 {"id":"ST-ASR-TM03","title":"Attestation","domain_id":"ST-ASR","meaning":"A signed statement about one commit, kept by the CI system, that names its signer and predicate type; STEGO's evidence is attestations, never files committed back."}
 {"id":"ST-ASR-TM04","title":"Ratchet","domain_id":"ST-ASR","meaning":"The change gate's rule: no obligation that was designed, built or proved at the base head may lose that standing; new obligations may arrive unproved."}
-{"id":"ST-ASR-TM05","title":"Gate","domain_id":"ST-ASR","meaning":"A judgement of one commit that CI enforces: the change gate on each pull request, and the release gate before a release is published."}
+{"id":"ST-ASR-TM05","title":"Gate","domain_id":"ST-ASR","meaning":"A bar that CI holds one commit to, with a decision that is the same for the same inputs: the change gate on each pull request, and the release gate before a release is published."}
 {"id":"ST-ASR-TM06","title":"Base head","domain_id":"ST-ASR","meaning":"The commit at the head of the branch a change asks to merge into, which the change gate measures against."}
 {"id":"ST-ASR-TM07","title":"Proof ledger","domain_id":"ST-ASR","meaning":"The view of what a commit proved, built from verified attestations alone: each test with its result there and the last commit it passed at."}
 {"id":"ST-ASR-TM08","title":"Share","domain_id":"ST-ASR","meaning":"A coverage count over the total, such as proved over all obligations; the three shares are designed, built and proved."}

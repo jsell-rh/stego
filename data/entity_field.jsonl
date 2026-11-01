@@ -10,15 +10,15 @@
 {"entity_id":"ST-ASR-EN02","position":3,"name":"File","meaning":"The file that ran it, from the product root.","type":"text","required":true,"example":"internal/appbuild/verify_test.go"}
 {"entity_id":"ST-ASR-EN02","position":4,"name":"Duration","meaning":"How long it ran, in seconds.","type":"decimal","required":false,"example":"0.42"}
 {"entity_id":"ST-ASR-EN02","position":5,"name":"Detail","meaning":"Why it failed or was skipped, when it did not pass.","type":"text","required":false,"example":"did not run"}
-{"entity_id":"ST-ASR-EN03","position":1,"name":"Commit","meaning":"The commit judged.","type_value_object_id":"ST-VO43","required":true}
+{"entity_id":"ST-ASR-EN03","position":1,"name":"Commit","meaning":"The commit the gate decided on.","type_value_object_id":"ST-VO43","required":true}
 {"entity_id":"ST-ASR-EN03","position":2,"name":"Kind","meaning":"Which gate.","type_value_object_id":"ST-VO57","required":true}
-{"entity_id":"ST-ASR-EN03","position":3,"name":"Base commit","meaning":"The base branch's head the change was judged against; none for a release.","type_value_object_id":"ST-VO43","required":false}
+{"entity_id":"ST-ASR-EN03","position":3,"name":"Base commit","meaning":"The base branch's head the change was gated against; none for a release.","type_value_object_id":"ST-VO43","required":false}
 {"entity_id":"ST-ASR-EN03","position":4,"name":"Coverage","meaning":"The coverage at the commit.","type_value_object_id":"ST-VO55","required":true}
 {"entity_id":"ST-ASR-EN03","position":5,"name":"Base coverage","meaning":"The coverage at the base commit; none for a release.","type_value_object_id":"ST-VO55","required":false}
-{"entity_id":"ST-ASR-EN03","position":6,"name":"Proof run","meaning":"The attestation of the proof run the verdict rests on.","type_value_object_id":"ST-VO56","required":false}
+{"entity_id":"ST-ASR-EN03","position":6,"name":"Proof run","meaning":"The attestation of the proof run the decision rests on.","type_value_object_id":"ST-VO56","required":false}
 {"entity_id":"ST-ASR-EN03","position":7,"name":"Passed","meaning":"Whether the commit passed the gate.","type":"yes/no","required":true,"example":"no"}
 {"entity_id":"ST-ASR-EN03","position":8,"name":"Reasons","meaning":"Each reason for a refusal, one per line; empty when passed.","type":"text","required":false,"example":"ST-BLD-UC03-R01 fell from built\nST-GEN-INV05-T failed"}
-{"entity_id":"ST-ASR-EN03","position":9,"name":"Attestation","meaning":"Where the signed verdict is kept; a release verdict always has one.","type_value_object_id":"ST-VO56","required":false}
+{"entity_id":"ST-ASR-EN03","position":9,"name":"Attestation","meaning":"Where the signed decision is kept; a release decision always has one.","type_value_object_id":"ST-VO56","required":false}
 {"entity_id":"ST-ASR-EN03","position":10,"name":"Code faults","meaning":"Each code-standard fault in the commit's tree, with its file or package, the rule it breaks, and whether the base branch's head has it; a change is refused for a new fault, a release for any.","type":"text","required":false,"example":"internal/compiler/lock.go: no record (ST-STD-CODE-R05), present at base"}
 {"entity_id":"ST-BLD-EN01","position":1,"name":"Module file digest","meaning":"The digest of go.mod.","type_value_object_id":"ST-VO41","required":true}
 {"entity_id":"ST-BLD-EN01","position":2,"name":"Sum file digest","meaning":"The digest of go.sum.","type_value_object_id":"ST-VO41","required":true}

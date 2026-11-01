@@ -1,6 +1,6 @@
 {"id":"ST-ASR-EV01-ET","title":"assure.ProofRunAttested","domain_event_id":"ST-ASR-EV01","delivery":"in process","file":"internal/assure/events.go"}
-{"id":"ST-ASR-EV02-ET","title":"assure.ChangeJudged","domain_event_id":"ST-ASR-EV02","delivery":"in process","file":"internal/assure/verdict_events.go"}
-{"id":"ST-ASR-EV03-ET","title":"assure.ReleaseJudged","domain_event_id":"ST-ASR-EV03","delivery":"in process","file":"internal/assure/verdict_events.go"}
+{"id":"ST-ASR-EV02-ET","title":"assure.ChangeDecided","domain_event_id":"ST-ASR-EV02","delivery":"in process","file":"internal/assure/decision_events.go"}
+{"id":"ST-ASR-EV03-ET","title":"assure.ReleaseDecided","domain_event_id":"ST-ASR-EV03","delivery":"in process","file":"internal/assure/decision_events.go"}
 {"id":"ST-BLD-EV01-ET","title":"ModulesResolved","domain_event_id":"ST-BLD-EV01","delivery":"in process","file":"internal/appbuild/events.go"}
 {"id":"ST-BLD-EV02-ET","title":"ModuleCacheDownloaded","domain_event_id":"ST-BLD-EV02","delivery":"in process","file":"internal/appbuild/events.go"}
 {"id":"ST-BLD-EV03-ET","title":"ApplicationBuilt","domain_event_id":"ST-BLD-EV03","delivery":"in process","file":"internal/appbuild/events.go"}
