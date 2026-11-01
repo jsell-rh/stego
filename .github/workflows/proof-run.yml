@@ -36,7 +36,7 @@ concurrency:
 env:
   COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
   # The Lathe commit stego's data is for. .github/workflows/spec.yml pins the same commit: move both together.
-  LATHE_REF: 9dea28bec0aa3ec1508652968f8ad290d275bc66
+  LATHE_REF: 004ff3d7bb9cefee1b764d923d8909a032a4bfde
 
 jobs:
   suites:
