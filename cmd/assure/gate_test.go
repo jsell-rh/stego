@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -540,6 +541,157 @@ const baseSHA = "${{ github.event.pull_request.base.sha }}"
 // goCommand matches a go command that builds, runs, tests, installs or changes code or modules.
 var goCommand = regexp.MustCompile(`(^|[^\w./-])go\s+(build|run|test|install|generate|vet|mod|get|tool|work|env\s+-w)\b`)
 
+// expectedGateJob is the gate job of the proof run workflow, key by key and step by step. The gate is the base's
+// own code (ST-ASR-UC02-R07) only while every step is what it is here: a search of the job's text for words that
+// name the change's checkout misses a word that shell quoting splits or hides, so the test compares the whole job.
+// A change to the gate job changes this value with it, in review.
+const expectedGateJob = `name: gate
+needs: attest
+if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+runs-on: ubuntu-latest
+timeout-minutes: 15
+permissions:
+  contents: read
+steps:
+  - name: Require the Lathe deploy key
+    env:
+      LATHE_DEPLOY_KEY: ${{ secrets.LATHE_DEPLOY_KEY }}
+    run: |
+      if [ -z "$LATHE_DEPLOY_KEY" ]; then
+        echo "::error::The gate did not run: LATHE_DEPLOY_KEY is not set, and the gate needs the pinned Lathe to measure the coverage. This is no decision on the change."
+        exit 1
+      fi
+  - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+    with:
+      ref: ${{ env.COMMIT }}
+      fetch-depth: 0
+      path: stego
+      persist-credentials: false
+  - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+    with:
+      ref: ${{ github.event.pull_request.base.sha }}
+      path: base
+      persist-credentials: false
+  - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+    with:
+      repository: Jared4Robertson/lathe
+      ref: ${{ env.LATHE_REF }}
+      ssh-key: ${{ secrets.LATHE_DEPLOY_KEY }}
+      path: lathe
+      persist-credentials: false
+  - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+    with:
+      go-version: '1.26.10'
+      cache: false
+  - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+    with:
+      node-version: '24.18.1'
+  - name: Build the pinned Lathe
+    working-directory: lathe/lathe
+    run: |
+      if ! { npm ci --no-audit --no-fund && ./node_modules/.bin/tsc -p tsconfig.build.json && chmod +x dist/bin/lathe.js; }; then
+        echo "::error::The gate did not run: the pinned Lathe did not build. This is no decision on the change."
+        exit 1
+      fi
+  - name: Build assure from the base commit
+    working-directory: base/cmd/assure
+    env:
+      GOWORK: 'off'
+    run: |
+      mkdir -p "$RUNNER_TEMP/gate"
+      if ! go build -mod=readonly -trimpath -o "$RUNNER_TEMP/gate/assure" .; then
+        echo "::error::The gate did not run: assure did not build from the base commit. This is no decision on the change."
+        exit 1
+      fi
+  - name: Make Lathe and assure read-only
+    run: chmod -R a-w "$GITHUB_WORKSPACE/lathe" "$RUNNER_TEMP/gate"
+  - name: Gate the change
+    id: gate
+    working-directory: stego
+    env:
+      BASE: ${{ github.event.pull_request.base.sha }}
+      GITHUB_TOKEN: ${{ github.token }}
+    run: >-
+      "$RUNNER_TEMP/gate/assure" gate change --commit "$COMMIT" --base "$BASE"
+      --lathe "$GITHUB_WORKSPACE/lathe/lathe/dist/bin/lathe.js"
+  - name: Say that the gate did not run
+    if: ${{ failure() && steps.gate.outcome != 'failure' }}
+    run: echo "::error::The gate did not run, because a step before it failed. This is no decision on the change."
+  - name: Make Lathe and assure writable again
+    if: ${{ always() }}
+    run: |
+      for folder in "$GITHUB_WORKSPACE/lathe" "$RUNNER_TEMP/gate"; do
+        if [ -e "$folder" ]; then chmod -R u+w "$folder"; fi
+      done
+`
+
+// expectedWorkflowOn is when the proof run workflow runs: never on pull_request_target, which would give a
+// change's run the base's secrets and write access.
+const expectedWorkflowOn = `workflow_dispatch:
+push:
+  branches: [main]
+pull_request:
+`
+
+// yamlValue decodes YAML text into plain values, for a comparison key by key.
+func yamlValue(t *testing.T, text string) any {
+	t.Helper()
+	var value any
+	if err := yaml.Unmarshal([]byte(text), &value); err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+// yamlText is the YAML text of a value, for a message.
+func yamlText(value any) string {
+	data, err := yaml.Marshal(value)
+	if err != nil {
+		return fmt.Sprint(value)
+	}
+	return string(data)
+}
+
+// sameGateJob fails the test unless the gate job of the workflow is exactly the expected job: each key of the job,
+// and each step in order with each of its keys (run, with, env, uses, working-directory, if, shell and any other).
+func sameGateJob(t *testing.T, data []byte) {
+	t.Helper()
+	var workflow map[string]any
+	if err := yaml.Unmarshal(data, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	if on := workflow["on"]; !reflect.DeepEqual(on, yamlValue(t, expectedWorkflowOn)) {
+		t.Fatalf("the workflow runs on\n%swant\n%s", yamlText(on), expectedWorkflowOn)
+	}
+	jobs, _ := workflow["jobs"].(map[string]any)
+	got, _ := jobs["gate"].(map[string]any)
+	want := yamlValue(t, expectedGateJob).(map[string]any)
+	gotSteps, _ := got["steps"].([]any)
+	wantSteps := want["steps"].([]any)
+	for key := range got {
+		if _, ok := want[key]; !ok {
+			t.Fatalf("the gate job has the key %q, which the expected job does not have", key)
+		}
+	}
+	for key, value := range want {
+		if key != "steps" && !reflect.DeepEqual(got[key], value) {
+			t.Fatalf("the gate job's %s is\n%swant\n%s", key, yamlText(got[key]), yamlText(value))
+		}
+	}
+	for i := 0; i < len(gotSteps) || i < len(wantSteps); i++ {
+		var g, w any
+		if i < len(gotSteps) {
+			g = gotSteps[i]
+		}
+		if i < len(wantSteps) {
+			w = wantSteps[i]
+		}
+		if !reflect.DeepEqual(g, w) {
+			t.Fatalf("step %d of the gate job is\n%swant\n%s", i, yamlText(g), yamlText(w))
+		}
+	}
+}
+
 // rawGateWorkflow is the proof run workflow as YAML maps, so a test sees every key, also one that gateWorkflow
 // does not model.
 type rawGateWorkflow struct {
@@ -596,6 +748,8 @@ func TestGateBuiltFromBase(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// The job is exactly the expected job, every key of every step in order.
+		sameGateJob(t, data)
 		var raw rawGateWorkflow
 		if err := yaml.Unmarshal(data, &raw); err != nil {
 			t.Fatal(err)
