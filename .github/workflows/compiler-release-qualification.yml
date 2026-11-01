@@ -39,10 +39,22 @@ jobs:
         run: timeout --signal=TERM --kill-after=5s 20s python3 -B scripts/test_compiler_release_qualification.py
       # This step reads the immutable release and its tag, the signatures in the
       # release bundle and in the attestation store, and the run and job
-      # records. It does not need the run artifacts: they expire after seven
-      # days. The script accepts a run without artifacts only after publication,
-      # and only when both signatures name that run. The tests above prove the
-      # artifact checks on fixed records.
+      # records. Releases and tags do not expire. GitHub documents no retention
+      # for attestations, but an owner can delete one. The run artifacts expire
+      # after seven days; this step does not need them. The script accepts a run
+      # without artifacts only after publication, more than seven days after the
+      # run, and only when both signatures name that run and attempt. The tests
+      # above prove the artifact checks on fixed records.
+      #
+      # The run and job records also expire. Since 2026-10-01 they follow the
+      # Actions retention setting, 90 days at most for a public repository
+      # (GitHub changelog of 2026-08-27). The runs of 94d285d7 are from
+      # 2026-09-25, so GitHub removes them about 2026-12-24. Then this step
+      # fails with "No compiler checks run exists at the source commit". It must
+      # not pass without them. The attested release decision
+      # (ST-DIS-UC08-R04) and the publish use case ST-DIS-UC11 replace this
+      # step: they keep the proof in a signed record, not in run records. That
+      # design is decided; it is not built here.
       - name: Qualify the published compiler release
         timeout-minutes: 8
         env:
