@@ -641,6 +641,8 @@ class ReleasePublishing(unittest.TestCase):
                               name)
             # The signed artifact run that publishing takes exists for every push to main, whatever it changes.
             self.assertEqual(workflow("compiler-artifact.yml")["on"]["push"], {"branches": ["main"]})
+            # The checks that qualification needs run on every push too, also one that changes only documents.
+            self.assertIsNone(workflow("checks.yml")["on"]["push"])
             # The gate step: passed=true runs the publish job, passed=false skips it with a green step, and no
             # decision fails the run.
             gate = next(step for step in jobs["gate-release"]["steps"] if step.get("id") == "gate")
@@ -771,10 +773,13 @@ class ReleasePublishing(unittest.TestCase):
                                 self.world.run(ARTIFACT_RUN, artifact)),
                 self.world.runs(self.world.run(CHECKS_RUN, checks), self.world.run(ARTIFACT_RUN, artifact))]}
             self.world.save()
+            self.world.clear_calls()
             run = run_job(self.world, "qualify-release", ROOT, needs={"publish-release": published.outputs},
                           override={"RUN_POLL_SECONDS": "0"})
             self.assertEqual(run.status, 0, run.log)
             self.assertTrue(self.qualification_folder().joinpath("qualification.json").exists())
+            # The wait step looked twice, and the qualification read the runs after that.
+            self.assertEqual(sum(1 for call in self.world.calls() if call[-1] == runs.format(self.world.commit)), 3)
 
 
 @unittest.skipUnless(sys.platform == "linux", "qualification runs GitHub CLI as a Linux process")
