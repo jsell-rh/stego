@@ -1,7 +1,11 @@
 package assure
 
 import (
+	"bufio"
+	"bytes"
+	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -394,4 +398,124 @@ func TestStubBuilt(t *testing.T) {
 			CodeFault{Rule: "ST-STD-CODE-R06", Path: file, Reason: reason("ST-FXD-SP02-PR", "fx.alwaysTrue")},
 		)
 	})
+}
+
+// knownCodeFaultsRecord is the tooling record that names the committed list of the code-standard faults STEGO's
+// own tree has: the list the rule tests hold the tree to, which may only get shorter.
+const knownCodeFaultsRecord = "ST-ASR-TOOL03"
+
+// knownCodeFaults reads the list of known faults: one fault per line, as rule, path and reason separated by tabs.
+// A line that starts with # is a comment.
+func knownCodeFaults(t *testing.T, data []byte) []CodeFault {
+	t.Helper()
+	var faults []CodeFault
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	line := 0
+	for scanner.Scan() {
+		line++
+		text := scanner.Text()
+		if strings.TrimSpace(text) == "" || strings.HasPrefix(text, "#") {
+			continue
+		}
+		fields := strings.Split(text, "\t")
+		if len(fields) != 3 {
+			t.Fatalf("known faults line %d has %d fields, not rule, path and reason: %q", line, len(fields), text)
+		}
+		faults = append(faults, CodeFault{Rule: fields[0], Path: fields[1], Reason: fields[2]})
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return faults
+}
+
+// difference lists the faults of a that b does not hold.
+func difference(a, b []CodeFault) []CodeFault {
+	held := make(map[CodeFault]bool, len(b))
+	for _, fault := range b {
+		held[fault] = true
+	}
+	var only []CodeFault
+	for _, fault := range a {
+		if !held[fault] {
+			only = append(only, fault)
+		}
+	}
+	return only
+}
+
+// TestOwnTree runs each predicate over STEGO's own tree and spec at the commit under test, read from git objects,
+// never from the working tree. A fault the committed list of known faults does not hold fails the rule's test, and
+// so does a listed fault that is gone, so that the list only gets shorter. CodeFaults must give the same faults as
+// the predicate, in order.
+func TestOwnTree(t *testing.T) {
+	root, err := RepositoryRoot(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := ReadCommittedSpec(root, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := ReadCommittedTree(root, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var list TechnicalRecord
+	for _, record := range spec.Technical {
+		if record.ID == knownCodeFaultsRecord {
+			list = record
+		}
+	}
+	data, held := tree.File(list.File)
+	if list.ID == "" || !held {
+		t.Fatalf("the spec at HEAD has no record %s that names a file of the tree", knownCodeFaultsRecord)
+	}
+	known := knownCodeFaults(t, data)
+	all := CodeFaults(spec, tree)
+	for _, rule := range []struct {
+		test      string
+		rule      string
+		predicate func(Spec, Tree) []CodeFault
+	}{
+		{"ST-STD-CODE-R01-T01 STEGO's own tree holds the rule: package of two domains is not found in it", RuleOneDomainPerPackage, packageOfTwoDomains},
+		{"ST-STD-CODE-R02-T01 STEGO's own tree holds the rule: identifier missing from its file is not found in it", RuleNamedAsRecordNames, identifierMissing},
+		{"ST-STD-CODE-R03-T01 STEGO's own tree holds the rule: import against the order is not found in it", RuleImportsFollowOrder, importAgainstOrder},
+		{"ST-STD-CODE-R04-T01 STEGO's own tree holds the rule: test without its id is not found in it", RuleTestNamesWhatItDoes, testWithoutID},
+		{"ST-STD-CODE-R05-T01 STEGO's own tree holds the rule: source file without a record is not found in it", RuleNoFileWithoutRecord, fileWithoutRecord},
+		{"ST-STD-CODE-R06-T01 STEGO's own tree holds the rule: stub counted as built is not found in it", RuleStubIsNotBuilt, stubBuilt},
+	} {
+		t.Run(rule.test, func(t *testing.T) {
+			got := rule.predicate(spec, tree)
+			var listed, fromAll []CodeFault
+			for _, fault := range known {
+				if fault.Rule == rule.rule {
+					listed = append(listed, fault)
+				}
+			}
+			for _, fault := range all {
+				if fault.Rule == rule.rule {
+					fromAll = append(fromAll, fault)
+				}
+			}
+			if !reflect.DeepEqual(got, fromAll) {
+				t.Fatalf("CodeFaults gives other faults than the predicate:\n%s\nthe predicate:\n%s", faultLines(fromAll), faultLines(got))
+			}
+			if !sort.SliceIsSorted(got, func(i, j int) bool {
+				return got[i].Path < got[j].Path || got[i].Path == got[j].Path && got[i].Reason < got[j].Reason
+			}) {
+				t.Fatalf("the faults are not in order:\n%s", faultLines(got))
+			}
+			var problems []string
+			if added := difference(got, listed); len(added) > 0 {
+				problems = append(problems, fmt.Sprintf("%d new faults, which the list of known faults (%s) does not hold:\n%s", len(added), list.File, faultLines(added)))
+			}
+			if gone := difference(listed, got); len(gone) > 0 {
+				problems = append(problems, fmt.Sprintf("%d listed faults are gone; remove them from %s, so that the list gets shorter:\n%s", len(gone), list.File, faultLines(gone)))
+			}
+			if len(problems) > 0 {
+				t.Fatal(strings.Join(problems, "\n"))
+			}
+		})
+	}
 }
