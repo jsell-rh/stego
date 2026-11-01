@@ -318,6 +318,26 @@ func TestLedger(t *testing.T) {
 			!strings.Contains(altered.stdout, changeGrade(workflow, 7)) {
 			t.Fatalf("a change-grade proof run of a change that alters a workflow: assure ledger exited %d with:\n%s%s", altered.code, altered.stdout, altered.stderr)
 		}
+		// A statement signed at a pull request's ref whose certificate names another source repository or ref is not
+		// labelled change grade: it is refused with its reason.
+		otherSource := proofRun(workflow, pullRef, 15, "FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed")
+		otherSource.SourceRepository = "https://github.com/someone/stego"
+		otherRef := proofRun(workflow, pullRef, 16, "FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed")
+		otherRef.SourceRef = "refs/heads/feature"
+		sources := h.ledger(t, h.keep(t, "sources", otherSource, otherRef), "", []string{"--commit", workflow, "--depth", "1"})
+		want = "proof ledger at " + workflow + ": 3 test records, 1 commit walked of at most 1\n" +
+			"FX-LEND-INV01-T (automated): none, last passed not within 1 commit\n" +
+			"FX-LEND-INV02-T (automated): none, last passed not within 1 commit\n" +
+			"FX-LEND-INV03-T (manual): none, last passed not within 1 commit\n" +
+			"proof run at " + workflow + ": none verified at release grade\n" +
+			"refused at " + workflow + ": the attestation at rekor:15 is refused: the certificate names the source https://github.com/someone/stego at " + pullRef +
+			", not the trusted workflow's repository https://github.com/jsell-rh/stego at " + pullRef + "\n" +
+			"refused at " + workflow + ": the attestation at rekor:16 is refused: the certificate names the source https://github.com/jsell-rh/stego at refs/heads/feature" +
+			", not the trusted workflow's repository https://github.com/jsell-rh/stego at " + pullRef + "\n" +
+			"not passed (3): FX-LEND-INV01-T, FX-LEND-INV02-T, FX-LEND-INV03-T\n"
+		if sources.code != 1 || sources.stdout != want {
+			t.Fatalf("pull-ref statements with another source: assure ledger exited %d with:\n%s%s\nwant:\n%s", sources.code, sources.stdout, sources.stderr, want)
+		}
 		for _, flag := range []string{"--base", "--main"} {
 			if spoof := h.ledger(t, own, "", []string{"--commit", workflow, flag, workflow}, "GITHUB_REF="+pullRef); spoof.code != 2 || spoof.stdout != "" {
 				t.Fatalf("the caller names %s: assure ledger exited %d with:\n%s%s", flag, spoof.code, spoof.stdout, spoof.stderr)

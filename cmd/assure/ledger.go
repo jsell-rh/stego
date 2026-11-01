@@ -24,7 +24,7 @@ func ledger(args []string, stdout, stderr io.Writer, getenv func(string) string,
 		return 2
 	}
 	if flags.NArg() > 0 || *commit == "" || *depth < 1 {
-		fmt.Fprintln(stderr, "assure ledger: --commit is required, --depth is a number of commits from 1, and nothing else but --depth")
+		fmt.Fprintln(stderr, "assure ledger: --commit is required, --depth is a number of commits from 1, and no other flag is taken")
 		return 2
 	}
 	built, err := buildLedger(*commit, *depth, getenv, open)

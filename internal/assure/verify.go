@@ -223,6 +223,13 @@ func attestationVerified(statement SignedStatement, commit string, trust Trust) 
 	changeRef := trust.ChangeRef
 	if changeRef == "" {
 		if reference, ok := trust.Signer.reference(statement.Signer); ok {
+			// The source checks run first, so only a statement the trusted workflow truly signed at the reference
+			// is named as signed there.
+			repository, _, _ := strings.Cut(trust.Signer.Workflow, "/.github/workflows/")
+			if statement.SourceRepository != repository || statement.SourceRef != reference {
+				return NoGrade, refuse("the certificate names the source %s at %s, not the trusted workflow's repository %s at %s",
+					statement.SourceRepository, statement.SourceRef, repository, reference)
+			}
 			refusal := refuse("it is signed by %s at %s, not at %s, and only release-grade evidence counts here",
 				trust.Signer.Workflow, reference, MainRef).(*Refusal)
 			refusal.SignedAt = reference
