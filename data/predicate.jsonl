@@ -1,7 +1,7 @@
 {"id":"ST-ASR-SP01-PR","title":"assure.proofRunPassed","specification_id":"ST-ASR-SP01","file":"internal/assure/gate.go"}
 {"id":"ST-ASR-SP02-PR","title":"assure.attestationVerified","specification_id":"ST-ASR-SP02","file":"internal/assure/verify.go"}
 {"id":"ST-ASR-SP03-PR","title":"assure.holdsRatchet","specification_id":"ST-ASR-SP03","file":"internal/assure/gate.go"}
-{"id":"ST-ASR-SP04-PR","title":"assure.fullyProved","specification_id":"ST-ASR-SP04","file":"internal/assure/gate.go"}
+{"id":"ST-ASR-SP04-PR","title":"assure.fullyProved","specification_id":"ST-ASR-SP04","file":"internal/assure/release.go"}
 {"id":"ST-ASR-SP05-PR","title":"assure.packageOfTwoDomains","specification_id":"ST-ASR-SP05","file":"internal/assure/code_standard.go"}
 {"id":"ST-ASR-SP06-PR","title":"assure.identifierMissing","specification_id":"ST-ASR-SP06","file":"internal/assure/code_standard.go"}
 {"id":"ST-ASR-SP07-PR","title":"assure.importAgainstOrder","specification_id":"ST-ASR-SP07","file":"internal/assure/code_standard.go"}
