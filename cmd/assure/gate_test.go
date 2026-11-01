@@ -1616,7 +1616,7 @@ func gateReleaseJob() allowedJob {
 				"repository": "Jared4Robertson/lathe", "ref": "${{ env.LATHE_REF }}", "ssh-key": "${{ secrets.LATHE_DEPLOY_KEY }}",
 				"path": "lathe", "persist-credentials": "false"}},
 			{"uses": pinned("actions/setup-go"), "with": map[string]any{
-				"go-version": anyScalar{}, "cache": "true", "cache-dependency-path": "stego/cmd/assure/go.sum"}},
+				"go-version": anyScalar{}, "cache": "false"}},
 			{"uses": pinned("actions/setup-node"), "with": map[string]any{"node-version": anyScalar{}}},
 			{"name": "Build the pinned Lathe", "working-directory": "lathe/lathe",
 				"run": "npm ci --no-audit --no-fund\n./node_modules/.bin/tsc -p tsconfig.build.json\nchmod +x dist/bin/lathe.js\n"},
