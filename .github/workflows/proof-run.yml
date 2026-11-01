@@ -1,0 +1,123 @@
+name: Proof run
+
+# Attest a proof run (ST-ASR-UC01). The suites job runs the Go and Python suites at the commit, and assure record
+# writes an outcome for every automated test record in the spec at that commit. The attest job runs no code of the
+# repository: it names the commit as the subject, and GitHub's attestation action signs the proof run with this
+# workflow's keyless identity, the trusted signer of a proof run, and keeps it. Only the attest job can get an
+# identity token, so no test can sign or change what is signed after the suites job ends. Nothing is committed
+# (ST-ASR-A1-SR01): the suites job can only read the repository, and the predicate stays outside the checkout.
+#
+# On a pull request the commit is the pull request's head, a commit that exists in the repository; on a push it is
+# the commit pushed. A failed test does not stop the run: the proof run records it, and the gates read the
+# attestation. assure record stops the run, and nothing is attested, when a test names an unknown ID or the tree
+# has uncommitted changes.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  suites:
+    name: suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2 # 18.6-alpine
+        env:
+          POSTGRES_PASSWORD: stego_test
+          POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=trust
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      STEGO_DATABASE_ALLOW_INSECURE_LOOPBACK: '1'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.COMMIT }}
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26.10'
+          cache: true
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24.18.1'
+      - run: npm ci --prefix internal/generator/typescriptsdk/testdata --ignore-scripts --no-audit --no-fund
+      - run: npm ci --prefix internal/generator/browsertelemetry/testdata --ignore-scripts --no-audit --no-fund
+      - name: Run the Go suites
+        timeout-minutes: 25
+        env:
+          STEGO_REQUIRE_NODE: '1'
+          STEGO_REQUIRE_POSTGRES: '1'
+          STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable
+        run: go test -json -race -count=1 -mod=readonly ./... > "$RUNNER_TEMP/go-test.json" || true
+      - name: Run the Python suites
+        timeout-minutes: 5
+        run: python3 -B scripts/run-python-tests.py --output "$RUNNER_TEMP/python-tests.json"
+      - name: Record the proof run
+        run: >-
+          mkdir -p "$RUNNER_TEMP/proof-run" &&
+          go run -mod=readonly ./cmd/assure record
+          --commit "$COMMIT"
+          --go-json "$RUNNER_TEMP/go-test.json"
+          --python-json "$RUNNER_TEMP/python-tests.json"
+          --predicate "$RUNNER_TEMP/proof-run/proof-run.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: proof-run
+          path: ${{ runner.temp }}/proof-run/proof-run.json
+          retention-days: 14
+          if-no-files-found: error
+
+  attest:
+    name: attest
+    needs: suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: proof-run
+          path: ${{ runner.temp }}/proof-run
+      - name: Check that the predicate is about the commit
+        run: test "$(jq -r .commit "$RUNNER_TEMP/proof-run/proof-run.json")" = "$COMMIT"
+      - name: Name the commit as the subject
+        id: subject
+        run: |
+          case "$COMMIT" in
+            *[!0-9a-f]*) echo "::error::$COMMIT is not a full commit ID"; exit 1 ;;
+          esac
+          test "${#COMMIT}" -eq 40
+          digest="$(printf '%s' "$COMMIT" | sha256sum | cut -d ' ' -f 1)"
+          echo "name=git+$GITHUB_SERVER_URL/$GITHUB_REPOSITORY@$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "digest=sha256:$digest" >> "$GITHUB_OUTPUT"
+      - name: Sign and keep the proof run
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ steps.subject.outputs.name }}
+          subject-digest: ${{ steps.subject.outputs.digest }}
+          predicate-type: https://github.com/jsell-rh/stego/assure/proof-run/v1
+          predicate-path: ${{ runner.temp }}/proof-run/proof-run.json

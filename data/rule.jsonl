@@ -1,0 +1,6 @@
+{"id":"ST-ASR-INV01-RL","title":"assure.atOneCleanCommit","invariant_id":"ST-ASR-INV01","file":"internal/assure/proof_run.go"}
+{"id":"ST-ASR-INV02-RL","title":"assure.outcomeForEveryAutomatedTest","invariant_id":"ST-ASR-INV02","file":"internal/assure/proof_run.go"}
+{"id":"ST-ASR-INV03-RL","title":"assure.outcomesNameKnownRecords","invariant_id":"ST-ASR-INV03","file":"internal/assure/proof_run.go"}
+{"id":"ST-ASR-INV04-RL","title":"assure.attestedByTrustedSigner","invariant_id":"ST-ASR-INV04","file":"internal/assure/proof_run.go"}
+{"id":"ST-ASR-INV05-RL","title":"assure.outsideTheRepository","invariant_id":"ST-ASR-INV05","file":"internal/assure/store.go"}
+{"id":"ST-ASR-INV06-RL","title":"assure.oneOutcomePerTestRecord","invariant_id":"ST-ASR-INV06","file":"internal/assure/proof_run.go"}
