@@ -125,7 +125,7 @@
 {"id":"ST-DIS-UC11-FL01-S01","title":"Release decided arrives passed for a push to main, so the publish job starts for that commit","flow_id":"ST-DIS-UC11-FL01","path":"main","position":1}
 {"id":"ST-DIS-UC11-FL01-S02","title":"The job fetches the four assets of the signed artifact run at the commit by their immutable IDs and verifies each against its attestation","flow_id":"ST-DIS-UC11-FL01","path":"main","position":2}
 {"id":"ST-DIS-UC11-FL01-S03","title":"The job creates the release compiler-<commit> at the full commit, immutable and not the latest, with the four assets, and raises Compiler release published","flow_id":"ST-DIS-UC11-FL01","path":"main","position":3}
-{"id":"ST-DIS-UC11-FL01-S04","title":"The release decision is refused or absent, so nothing is published and the run fails","flow_id":"ST-DIS-UC11-FL01","path":"refused","position":1}
+{"id":"ST-DIS-UC11-FL01-S04","title":"The release decision is refused, so nothing is published and the run says why; a run that reaches no decision fails","flow_id":"ST-DIS-UC11-FL01","path":"refused","position":1}
 {"id":"ST-DIS-UC11-FL01-S05","title":"The tag compiler-<commit> exists already, so publishing stops naming it; the commit needs a new merge commit","flow_id":"ST-DIS-UC11-FL01","path":"refused","position":2}
 {"id":"ST-DLV-UC01-FL01-S01","title":"The service author runs stego apply, and STEGO writes platform-requirements.yaml with the rest of the generated files","flow_id":"ST-DLV-UC01-FL01","path":"main","position":1}
 {"id":"ST-DLV-UC01-FL01-S02","title":"A component states a need with an environment value in it, so apply refuses, names the component and the need, and writes nothing","flow_id":"ST-DLV-UC01-FL01","path":"refused","position":1}
