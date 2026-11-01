@@ -1,11 +1,8 @@
 package assure
 
 import (
-	"bufio"
-	"bytes"
 	"fmt"
 	"reflect"
-	"sort"
 	"strings"
 	"testing"
 )
@@ -106,8 +103,8 @@ func TestPackageOfTwoDomains(t *testing.T) {
 			t.Fatalf("package domains = %v, want %v", domains, want)
 		}
 		expectFaults(t, packageOfTwoDomains(spec, tree),
-			CodeFault{Rule: "ST-STD-CODE-R01", Path: "cmd/fx", Reason: "the package holds files that the records of more than one domain name: ST-FXB, ST-FXD"},
-			CodeFault{Rule: "ST-STD-CODE-R01", Path: "internal/mixed", Reason: "the package holds files that the records of more than one domain name: ST-FXD, ST-FXS"},
+			CodeFault{Rule: "ST-STD-CODE-R01", Key: "cmd/fx", Path: "cmd/fx", Reason: "the package holds files that the records of more than one domain name: ST-FXB, ST-FXD"},
+			CodeFault{Rule: "ST-STD-CODE-R01", Key: "internal/mixed", Path: "internal/mixed", Reason: "the package holds files that the records of more than one domain name: ST-FXD, ST-FXS"},
 		)
 	})
 }
@@ -174,13 +171,13 @@ func TestIdentifierMissing(t *testing.T) {
 		})
 		file := "internal/fx/fx.go"
 		expectFaults(t, identifierMissing(spec, tree),
-			CodeFault{Rule: "ST-STD-CODE-R02", Path: file, Reason: "ST-FXD-CMD02-H names fx.Handler.Missing, which the file does not declare"},
-			CodeFault{Rule: "ST-STD-CODE-R02", Path: file, Reason: `ST-FXD-DS01-SV is titled "other.Decision", which is not an identifier of package fx`},
-			CodeFault{Rule: "ST-STD-CODE-R02", Path: file, Reason: `ST-FXD-EN02-TB is titled "proof-run.json", which is not an identifier of package fx`},
-			CodeFault{Rule: "ST-STD-CODE-R02", Path: file, Reason: "ST-FXD-EN03-DM names fx.Decision.Branch, which the file does not declare"},
-			CodeFault{Rule: "ST-STD-CODE-R02", Path: file, Reason: `ST-FXD-EV01-ET is titled "Decided", which is not an identifier of package fx`},
-			CodeFault{Rule: "ST-STD-CODE-R02", Path: file, Reason: "ST-FXD-SP02-PR names fx.isMissing, which the file does not declare"},
-			CodeFault{Rule: "ST-STD-CODE-R02", Path: file, Reason: "ST-FXD-SP03-PR names fx.isElsewhere, which the file does not declare"},
+			CodeFault{Rule: "ST-STD-CODE-R02", Key: "ST-FXD-CMD02-H", Path: file, Reason: "ST-FXD-CMD02-H names fx.Handler.Missing, which the file does not declare"},
+			CodeFault{Rule: "ST-STD-CODE-R02", Key: "ST-FXD-DS01-SV", Path: file, Reason: `ST-FXD-DS01-SV is titled "other.Decision", which is not an identifier of package fx`},
+			CodeFault{Rule: "ST-STD-CODE-R02", Key: "ST-FXD-EN02-TB", Path: file, Reason: `ST-FXD-EN02-TB is titled "proof-run.json", which is not an identifier of package fx`},
+			CodeFault{Rule: "ST-STD-CODE-R02", Key: "ST-FXD-EN03-DM", Path: file, Reason: "ST-FXD-EN03-DM names fx.Decision.Branch, which the file does not declare"},
+			CodeFault{Rule: "ST-STD-CODE-R02", Key: "ST-FXD-EV01-ET", Path: file, Reason: `ST-FXD-EV01-ET is titled "Decided", which is not an identifier of package fx`},
+			CodeFault{Rule: "ST-STD-CODE-R02", Key: "ST-FXD-SP02-PR", Path: file, Reason: "ST-FXD-SP02-PR names fx.isMissing, which the file does not declare"},
+			CodeFault{Rule: "ST-STD-CODE-R02", Key: "ST-FXD-SP03-PR", Path: file, Reason: "ST-FXD-SP03-PR names fx.isElsewhere, which the file does not declare"},
 		)
 	})
 }
@@ -220,9 +217,16 @@ func TestImportAgainstOrder(t *testing.T) {
 			"cmd/fx/main.go": imports("main", "internal/assure", "internal/declare", "internal/supply",
 				"internal/generate", "internal/build", "internal/distribute"),
 		})
-		expectFaults(t, importAgainstOrder(spec, tree),
-			CodeFault{Rule: "ST-STD-CODE-R03", Path: "internal/build", Reason: "the package imports internal/declare against the domain order: Building (ST-FXB) may not import Declaring (ST-FXD)"},
-			CodeFault{Rule: "ST-STD-CODE-R03", Path: "internal/declare", Reason: "the package imports internal/supply against the domain order: Declaring (ST-FXD) may not import Supplying (ST-FXS)"},
+		faults, err := importAgainstOrder(spec, tree)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := importAgainstOrder(spec, codeTree(map[string]string{"internal/declare/declare.go": "package declare\n"})); err == nil {
+			t.Fatal("a tree with no go.mod gave no error, so its imports went unchecked")
+		}
+		expectFaults(t, faults,
+			CodeFault{Rule: "ST-STD-CODE-R03", Key: "internal/build imports internal/declare", Path: "internal/build", Reason: "the package imports internal/declare against the domain order: Building (ST-FXB) may not import Declaring (ST-FXD)"},
+			CodeFault{Rule: "ST-STD-CODE-R03", Key: "internal/declare imports internal/supply", Path: "internal/declare", Reason: "the package imports internal/supply against the domain order: Declaring (ST-FXD) may not import Supplying (ST-FXS)"},
 		)
 	})
 }
@@ -264,14 +268,14 @@ func TestTestWithoutID(t *testing.T) {
 			"examples/service/fills/check_test.go": fixtureTest(),
 		})
 		expectFaults(t, testWithoutID(spec, tree),
-			CodeFault{Rule: "ST-STD-CODE-R04", Path: "examples/service/fills/check_test.go", Reason: "the test file names no test record's ID"},
-			CodeFault{Rule: "ST-STD-CODE-R04", Path: "internal/fx/fx_test.go", Reason: "the file does not carry the ID of automated test record ST-FXD-SP02-T"},
-			CodeFault{Rule: "ST-STD-CODE-R04", Path: "internal/fx/gone_test.go", Reason: "automated test record ST-FXD-SP04-T names this file, which the tree does not hold"},
-			CodeFault{Rule: "ST-STD-CODE-R04", Path: "internal/fx/helpers_test.go", Reason: "the test file names no test record's ID"},
-			CodeFault{Rule: "ST-STD-CODE-R04", Path: "internal/fx/joined_test.go", Reason: "the file does not carry the ID of automated test record ST-FXD-SP05-T"},
-			CodeFault{Rule: "ST-STD-CODE-R04", Path: "internal/fx/joined_test.go", Reason: "the test file names no test record's ID"},
-			CodeFault{Rule: "ST-STD-CODE-R04", Path: "internal/fx/none_test.go", Reason: "the test file names no test record's ID"},
-			CodeFault{Rule: "ST-STD-CODE-R04", Path: "internal/fx/unknown_test.go", Reason: "the test file names no test record's ID"},
+			CodeFault{Rule: "ST-STD-CODE-R04", Key: "examples/service/fills/check_test.go", Path: "examples/service/fills/check_test.go", Reason: "the test file names no test record's ID"},
+			CodeFault{Rule: "ST-STD-CODE-R04", Key: "internal/fx/fx_test.go ST-FXD-SP02-T", Path: "internal/fx/fx_test.go", Reason: "the file does not carry the ID of automated test record ST-FXD-SP02-T"},
+			CodeFault{Rule: "ST-STD-CODE-R04", Key: "internal/fx/gone_test.go ST-FXD-SP04-T", Path: "internal/fx/gone_test.go", Reason: "automated test record ST-FXD-SP04-T names this file, which the tree does not hold"},
+			CodeFault{Rule: "ST-STD-CODE-R04", Key: "internal/fx/helpers_test.go", Path: "internal/fx/helpers_test.go", Reason: "the test file names no test record's ID"},
+			CodeFault{Rule: "ST-STD-CODE-R04", Key: "internal/fx/joined_test.go", Path: "internal/fx/joined_test.go", Reason: "the test file names no test record's ID"},
+			CodeFault{Rule: "ST-STD-CODE-R04", Key: "internal/fx/joined_test.go ST-FXD-SP05-T", Path: "internal/fx/joined_test.go", Reason: "the file does not carry the ID of automated test record ST-FXD-SP05-T"},
+			CodeFault{Rule: "ST-STD-CODE-R04", Key: "internal/fx/none_test.go", Path: "internal/fx/none_test.go", Reason: "the test file names no test record's ID"},
+			CodeFault{Rule: "ST-STD-CODE-R04", Key: "internal/fx/unknown_test.go", Path: "internal/fx/unknown_test.go", Reason: "the test file names no test record's ID"},
 		)
 	})
 }
@@ -310,11 +314,11 @@ this line is not JSON, and Lathe passes over it
 		})
 		lost := "no technical record names the file, directly or through a folder"
 		expectFaults(t, fileWithoutRecord(spec, tree),
-			CodeFault{Rule: "ST-STD-CODE-R05", Path: "cmd/fx/main.go", Reason: lost},
-			CodeFault{Rule: "ST-STD-CODE-R05", Path: "internal/fx/contract.go", Reason: lost},
-			CodeFault{Rule: "ST-STD-CODE-R05", Path: "internal/fx/lost.go", Reason: lost},
-			CodeFault{Rule: "ST-STD-CODE-R05", Path: "registry/components/api/generate.go", Reason: lost},
-			CodeFault{Rule: "ST-STD-CODE-R05", Path: "scripts/lost.py", Reason: lost},
+			CodeFault{Rule: "ST-STD-CODE-R05", Key: "cmd/fx/main.go", Path: "cmd/fx/main.go", Reason: lost},
+			CodeFault{Rule: "ST-STD-CODE-R05", Key: "internal/fx/contract.go", Path: "internal/fx/contract.go", Reason: lost},
+			CodeFault{Rule: "ST-STD-CODE-R05", Key: "internal/fx/lost.go", Path: "internal/fx/lost.go", Reason: lost},
+			CodeFault{Rule: "ST-STD-CODE-R05", Key: "registry/components/api/generate.go", Path: "registry/components/api/generate.go", Reason: lost},
+			CodeFault{Rule: "ST-STD-CODE-R05", Key: "scripts/lost.py", Path: "scripts/lost.py", Reason: lost},
 		)
 	})
 }
@@ -394,42 +398,42 @@ func TestStubBuilt(t *testing.T) {
 			return id + " names " + title + ", whose body only returns constants or panics, so it reads no input"
 		}
 		expectFaults(t, stubBuilt(spec, tree),
-			CodeFault{Rule: "ST-STD-CODE-R06", Path: file, Reason: reason("ST-FXD-CMD01-H", "fx.Handler.Handle")},
-			CodeFault{Rule: "ST-STD-CODE-R06", Path: file, Reason: reason("ST-FXD-CMD02-H", "fx.empty")},
-			CodeFault{Rule: "ST-STD-CODE-R06", Path: file, Reason: reason("ST-FXD-DS01-SV", "fx.notYet")},
-			CodeFault{Rule: "ST-STD-CODE-R06", Path: file, Reason: reason("ST-FXD-DS02-SV", "fx.notYetEither")},
-			CodeFault{Rule: "ST-STD-CODE-R06", Path: file, Reason: reason("ST-FXD-SP02-PR", "fx.alwaysTrue")},
+			CodeFault{Rule: "ST-STD-CODE-R06", Key: "ST-FXD-CMD01-H", Path: file, Reason: reason("ST-FXD-CMD01-H", "fx.Handler.Handle")},
+			CodeFault{Rule: "ST-STD-CODE-R06", Key: "ST-FXD-CMD02-H", Path: file, Reason: reason("ST-FXD-CMD02-H", "fx.empty")},
+			CodeFault{Rule: "ST-STD-CODE-R06", Key: "ST-FXD-DS01-SV", Path: file, Reason: reason("ST-FXD-DS01-SV", "fx.notYet")},
+			CodeFault{Rule: "ST-STD-CODE-R06", Key: "ST-FXD-DS02-SV", Path: file, Reason: reason("ST-FXD-DS02-SV", "fx.notYetEither")},
+			CodeFault{Rule: "ST-STD-CODE-R06", Key: "ST-FXD-SP02-PR", Path: file, Reason: reason("ST-FXD-SP02-PR", "fx.alwaysTrue")},
 		)
 	})
 }
 
 // knownCodeFaultsRecord is the tooling record that names the committed list of the code-standard faults STEGO's
-// own tree has: the list the rule tests hold the tree to, which may only get shorter.
+// own tree has, which the rule tests hold the tree to.
 const knownCodeFaultsRecord = "ST-ASR-TOOL03"
 
-// knownCodeFaults reads the list of known faults: one fault per line, as rule, path and reason separated by tabs.
-// A line that starts with # is a comment.
-func knownCodeFaults(t *testing.T, data []byte) []CodeFault {
-	t.Helper()
+// readKnownCodeFaults reads the list of known faults: one fault per line, as rule, key, path and reason with a tab
+// between them, in the order CodeFaults gives them, each fault once. A line that starts with # is a comment. It
+// refuses a line of another form, a line out of order and a line that is there twice.
+func readKnownCodeFaults(data []byte) ([]CodeFault, error) {
 	var faults []CodeFault
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	line := 0
-	for scanner.Scan() {
-		line++
-		text := scanner.Text()
+	for number, text := range strings.Split(string(data), "\n") {
 		if strings.TrimSpace(text) == "" || strings.HasPrefix(text, "#") {
 			continue
 		}
 		fields := strings.Split(text, "\t")
-		if len(fields) != 3 {
-			t.Fatalf("known faults line %d has %d fields, not rule, path and reason: %q", line, len(fields), text)
+		if len(fields) != 4 {
+			return nil, fmt.Errorf("line %d has %d fields, not rule, key, path and reason: %q", number+1, len(fields), text)
 		}
-		faults = append(faults, CodeFault{Rule: fields[0], Path: fields[1], Reason: fields[2]})
+		fault := CodeFault{Rule: fields[0], Key: fields[1], Path: fields[2], Reason: fields[3]}
+		if last := len(faults) - 1; last >= 0 && !faultBefore(faults[last], fault) {
+			if faults[last] == fault {
+				return nil, fmt.Errorf("line %d is there twice: %q", number+1, text)
+			}
+			return nil, fmt.Errorf("line %d is out of order: the list is sorted by rule, then key, path and reason: %q", number+1, text)
+		}
+		faults = append(faults, fault)
 	}
-	if err := scanner.Err(); err != nil {
-		t.Fatal(err)
-	}
-	return faults
+	return faults, nil
 }
 
 // difference lists the faults of a that b does not hold.
@@ -447,10 +451,14 @@ func difference(a, b []CodeFault) []CodeFault {
 	return only
 }
 
-// TestOwnTree runs each predicate over STEGO's own tree and spec at the commit under test, read from git objects,
-// never from the working tree. A fault the committed list of known faults does not hold fails the rule's test, and
-// so does a listed fault that is gone, so that the list only gets shorter. CodeFaults must give the same faults as
-// the predicate, in order.
+// TestOwnTree runs each predicate over STEGO's own tree and spec at the commit under test, HEAD, read from git
+// objects, never from the working tree. Each rule's test proves that the tree has no fault of the rule outside the
+// committed list of known faults (ST-ASR-TOOL03) at the same commit, and that the list holds no fault of the rule
+// that the tree no longer has. The list must be sorted and hold each fault once. CodeFaults must give the same
+// faults as the predicate.
+//
+// The test reads git through a subprocess, which go test cannot see, so go test can give a cached result for a
+// new commit. Run it with -count=1.
 func TestOwnTree(t *testing.T) {
 	root, err := RepositoryRoot(".")
 	if err != nil {
@@ -474,51 +482,66 @@ func TestOwnTree(t *testing.T) {
 	if list.ID == "" || !held {
 		t.Fatalf("the spec at HEAD has no record %s that names a file of the tree", knownCodeFaultsRecord)
 	}
-	known := knownCodeFaults(t, data)
-	all := CodeFaults(spec, tree)
-	for _, rule := range []struct {
-		test      string
-		rule      string
-		predicate func(Spec, Tree) []CodeFault
-	}{
-		{"ST-STD-CODE-R01-T01 STEGO's own tree holds the rule: package of two domains is not found in it", RuleOneDomainPerPackage, packageOfTwoDomains},
-		{"ST-STD-CODE-R02-T01 STEGO's own tree holds the rule: identifier missing from its file is not found in it", RuleNamedAsRecordNames, identifierMissing},
-		{"ST-STD-CODE-R03-T01 STEGO's own tree holds the rule: import against the order is not found in it", RuleImportsFollowOrder, importAgainstOrder},
-		{"ST-STD-CODE-R04-T01 STEGO's own tree holds the rule: test without its id is not found in it", RuleTestNamesWhatItDoes, testWithoutID},
-		{"ST-STD-CODE-R05-T01 STEGO's own tree holds the rule: source file without a record is not found in it", RuleNoFileWithoutRecord, fileWithoutRecord},
-		{"ST-STD-CODE-R06-T01 STEGO's own tree holds the rule: stub counted as built is not found in it", RuleStubIsNotBuilt, stubBuilt},
-	} {
-		t.Run(rule.test, func(t *testing.T) {
-			got := rule.predicate(spec, tree)
-			var listed, fromAll []CodeFault
-			for _, fault := range known {
-				if fault.Rule == rule.rule {
-					listed = append(listed, fault)
-				}
-			}
-			for _, fault := range all {
-				if fault.Rule == rule.rule {
-					fromAll = append(fromAll, fault)
-				}
-			}
-			if !reflect.DeepEqual(got, fromAll) {
-				t.Fatalf("CodeFaults gives other faults than the predicate:\n%s\nthe predicate:\n%s", faultLines(fromAll), faultLines(got))
-			}
-			if !sort.SliceIsSorted(got, func(i, j int) bool {
-				return got[i].Path < got[j].Path || got[i].Path == got[j].Path && got[i].Reason < got[j].Reason
-			}) {
-				t.Fatalf("the faults are not in order:\n%s", faultLines(got))
-			}
-			var problems []string
-			if added := difference(got, listed); len(added) > 0 {
-				problems = append(problems, fmt.Sprintf("%d new faults, which the list of known faults (%s) does not hold:\n%s", len(added), list.File, faultLines(added)))
-			}
-			if gone := difference(listed, got); len(gone) > 0 {
-				problems = append(problems, fmt.Sprintf("%d listed faults are gone; remove them from %s, so that the list gets shorter:\n%s", len(gone), list.File, faultLines(gone)))
-			}
-			if len(problems) > 0 {
-				t.Fatal(strings.Join(problems, "\n"))
-			}
-		})
+	known, listError := readKnownCodeFaults(data)
+	all, err := CodeFaults(spec, tree)
+	if err != nil {
+		t.Fatal(err)
 	}
+	check := func(t *testing.T, rule string, got []CodeFault) {
+		t.Helper()
+		if listError != nil {
+			t.Fatalf("the list of known faults (%s): %v", list.File, listError)
+		}
+		var listed, fromAll []CodeFault
+		for _, fault := range known {
+			if fault.Rule == rule {
+				listed = append(listed, fault)
+			}
+		}
+		for _, fault := range all {
+			if fault.Rule == rule {
+				fromAll = append(fromAll, fault)
+			}
+		}
+		if !reflect.DeepEqual(got, fromAll) {
+			t.Fatalf("CodeFaults gives other faults than the predicate:\n%s\nthe predicate:\n%s", faultLines(fromAll), faultLines(got))
+		}
+		for i := 1; i < len(got); i++ {
+			if !faultBefore(got[i-1], got[i]) {
+				t.Fatalf("the faults are not in order, or a fault is there twice:\n%s", faultLines(got))
+			}
+		}
+		var problems []string
+		if added := difference(got, listed); len(added) > 0 {
+			problems = append(problems, fmt.Sprintf("%d faults that the list of known faults (%s) does not hold:\n%s", len(added), list.File, faultLines(added)))
+		}
+		if gone := difference(listed, got); len(gone) > 0 {
+			problems = append(problems, fmt.Sprintf("%d listed faults are gone; remove them from %s:\n%s", len(gone), list.File, faultLines(gone)))
+		}
+		if len(problems) > 0 {
+			t.Fatal(strings.Join(problems, "\n"))
+		}
+	}
+	t.Run("ST-STD-CODE-R01-T01 STEGO's own tree holds the rule: package of two domains is not found in it", func(t *testing.T) {
+		check(t, RuleOneDomainPerPackage, packageOfTwoDomains(spec, tree))
+	})
+	t.Run("ST-STD-CODE-R02-T01 STEGO's own tree holds the rule: identifier missing from its file is not found in it", func(t *testing.T) {
+		check(t, RuleNamedAsRecordNames, identifierMissing(spec, tree))
+	})
+	t.Run("ST-STD-CODE-R03-T01 STEGO's own tree holds the rule: import against the order is not found in it", func(t *testing.T) {
+		faults, err := importAgainstOrder(spec, tree)
+		if err != nil {
+			t.Fatal(err)
+		}
+		check(t, RuleImportsFollowOrder, faults)
+	})
+	t.Run("ST-STD-CODE-R04-T01 STEGO's own tree holds the rule: test without its id is not found in it", func(t *testing.T) {
+		check(t, RuleTestNamesWhatItDoes, testWithoutID(spec, tree))
+	})
+	t.Run("ST-STD-CODE-R05-T01 STEGO's own tree holds the rule: source file without a record is not found in it", func(t *testing.T) {
+		check(t, RuleNoFileWithoutRecord, fileWithoutRecord(spec, tree))
+	})
+	t.Run("ST-STD-CODE-R06-T01 STEGO's own tree holds the rule: stub counted as built is not found in it", func(t *testing.T) {
+		check(t, RuleStubIsNotBuilt, stubBuilt(spec, tree))
+	})
 }

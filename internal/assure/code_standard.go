@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -28,11 +29,24 @@ const (
 	RuleStubIsNotBuilt      = "ST-STD-CODE-R06"
 )
 
-// CodeFault is one fault of a tree against STEGO's own code standard (ST-STD-CODE): the rule it breaks, the file
-// or package it is in, from the repository's root, and a sentence that tells why. The same tree and spec always
-// give the same faults, so a gate can compare the faults of two commits.
+// CodeFault is one fault of a tree against STEGO's own code standard (ST-STD-CODE): the rule it breaks, its key,
+// the file or package it is in, from the repository's root, and a sentence that tells why.
+//
+// The rule and the key are the fault's identity, which a gate compares between two commits. The key stays the same
+// while the fault is there, even when its reason changes:
+//   - R01: the package;
+//   - R02: the record's ID;
+//   - R03: the importing package and the package it imports, as "<package> imports <package>";
+//   - R04: the test file, or "<file> <test record ID>" for an automated test record whose file does not carry its
+//     ID, so that this fault and a fault of the whole file are not one fault (the ID alone when the record names no
+//     file);
+//   - R05: the file;
+//   - R06: the record's ID.
+//
+// The reason is for people to read. The same tree and spec always give the same faults.
 type CodeFault struct {
 	Rule   string
+	Key    string
 	Path   string
 	Reason string
 }
@@ -42,33 +56,39 @@ func (f CodeFault) String() string {
 }
 
 // CodeFaults runs the six predicates of the code standard over the tree at a commit and the spec at the same
-// commit, and returns every fault, sorted by rule, then by file or package, then by reason. It is the one entry
-// the gates call: ST-ASR-SP05-PR packageOfTwoDomains (ST-STD-CODE-R01), ST-ASR-SP06-PR identifierMissing (R02),
+// commit, and returns every fault, sorted by rule, then by key, then by path and reason. It is the one entry the
+// gates call: ST-ASR-SP05-PR packageOfTwoDomains (ST-STD-CODE-R01), ST-ASR-SP06-PR identifierMissing (R02),
 // ST-ASR-SP07-PR importAgainstOrder (R03), ST-ASR-SP08-PR testWithoutID (R04), ST-ASR-SP09-PR fileWithoutRecord
-// (R05) and ST-ASR-SP10-PR stubBuilt (R06).
-func CodeFaults(spec Spec, tree Tree) []CodeFault {
+// (R05) and ST-ASR-SP10-PR stubBuilt (R06). It refuses a tree whose imports it cannot resolve, as
+// importAgainstOrder does.
+func CodeFaults(spec Spec, tree Tree) ([]CodeFault, error) {
+	imports, err := importAgainstOrder(spec, tree)
+	if err != nil {
+		return nil, err
+	}
 	var faults []CodeFault
 	faults = append(faults, packageOfTwoDomains(spec, tree)...)
 	faults = append(faults, identifierMissing(spec, tree)...)
-	faults = append(faults, importAgainstOrder(spec, tree)...)
+	faults = append(faults, imports...)
 	faults = append(faults, testWithoutID(spec, tree)...)
 	faults = append(faults, fileWithoutRecord(spec, tree)...)
 	faults = append(faults, stubBuilt(spec, tree)...)
 	sortFaults(faults)
-	return faults
+	return faults, nil
 }
 
+// sortFaults sorts faults by rule, then by key, then by path and reason.
 func sortFaults(faults []CodeFault) {
-	sort.Slice(faults, func(i, j int) bool {
-		a, b := faults[i], faults[j]
-		if a.Rule != b.Rule {
-			return a.Rule < b.Rule
+	sort.Slice(faults, func(i, j int) bool { return faultBefore(faults[i], faults[j]) })
+}
+
+func faultBefore(a, b CodeFault) bool {
+	for _, pair := range [][2]string{{a.Rule, b.Rule}, {a.Key, b.Key}, {a.Path, b.Path}, {a.Reason, b.Reason}} {
+		if pair[0] != pair[1] {
+			return pair[0] < pair[1]
 		}
-		if a.Path != b.Path {
-			return a.Path < b.Path
-		}
-		return a.Reason < b.Reason
-	})
+	}
+	return false
 }
 
 // Tree is the files of one commit's tree, which the code-standard predicates read: each file's path from the
@@ -322,6 +342,7 @@ func packageOfTwoDomains(spec Spec, tree Tree) []CodeFault {
 		if len(domains) > 1 {
 			faults = append(faults, CodeFault{
 				Rule:   RuleOneDomainPerPackage,
+				Key:    dir,
 				Path:   dir,
 				Reason: "the package holds files that the records of more than one domain name: " + strings.Join(domains, ", "),
 			})
@@ -496,7 +517,7 @@ func identifierMissing(spec Spec, tree Tree) []CodeFault {
 			continue
 		}
 		fault := func(format string, args ...any) {
-			faults = append(faults, CodeFault{Rule: RuleNamedAsRecordNames, Path: record.File, Reason: fmt.Sprintf(format, args...)})
+			faults = append(faults, CodeFault{Rule: RuleNamedAsRecordNames, Key: record.ID, Path: record.File, Reason: fmt.Sprintf(format, args...)})
 		}
 		file, err := files.parse(record.File)
 		if err != nil {
@@ -562,10 +583,10 @@ func modulePath(tree Tree) string {
 // records name its files. A cmd package may import any domain; a package no domain's record names, a shared value
 // type and the standard library belong to no domain. It finds one fault per import against the order, with both
 // packages and the domains of each pair the order does not allow.
-func importAgainstOrder(spec Spec, tree Tree) []CodeFault {
+func importAgainstOrder(spec Spec, tree Tree) ([]CodeFault, error) {
 	module := modulePath(tree)
 	if module == "" {
-		return nil
+		return nil, errors.New("the tree has no go.mod with a module path at its root, so its imports cannot be resolved")
 	}
 	domains := packageDomains(spec, tree)
 	title := func(domain string) string {
@@ -585,7 +606,7 @@ func importAgainstOrder(spec Spec, tree Tree) []CodeFault {
 		data, _ := tree.File(name)
 		file, err := parser.ParseFile(fset, name, data, parser.ImportsOnly)
 		if err != nil {
-			faults = append(faults, CodeFault{Rule: RuleImportsFollowOrder, Path: name, Reason: "its imports cannot be read: " + err.Error()})
+			faults = append(faults, CodeFault{Rule: RuleImportsFollowOrder, Key: name, Path: name, Reason: "its imports cannot be read: " + err.Error()})
 			continue
 		}
 		for _, spec := range file.Imports {
@@ -612,6 +633,7 @@ func importAgainstOrder(spec Spec, tree Tree) []CodeFault {
 			if len(against) > 0 {
 				faults = append(faults, CodeFault{
 					Rule:   RuleImportsFollowOrder,
+					Key:    dir + " imports " + target,
 					Path:   dir,
 					Reason: "the package imports " + target + " against the domain order: " + strings.Join(against, "; "),
 				})
@@ -619,7 +641,7 @@ func importAgainstOrder(spec Spec, tree Tree) []CodeFault {
 		}
 	}
 	sortFaults(faults)
-	return faults
+	return faults, nil
 }
 
 // testGlobs are the globs of the product's test files that lathe.config.json at the tree's root names, or Lathe's
@@ -748,7 +770,7 @@ func testWithoutID(spec Spec, tree Tree) []CodeFault {
 			}
 		}
 		if !names {
-			faults = append(faults, CodeFault{Rule: RuleTestNamesWhatItDoes, Path: name, Reason: "the test file names no test record's ID"})
+			faults = append(faults, CodeFault{Rule: RuleTestNamesWhatItDoes, Key: name, Path: name, Reason: "the test file names no test record's ID"})
 		}
 	}
 	for _, id := range spec.automated() {
@@ -756,11 +778,11 @@ func testWithoutID(spec Spec, tree Tree) []CodeFault {
 		data, held := tree.File(normalPath(record.File))
 		switch {
 		case record.File == "":
-			faults = append(faults, CodeFault{Rule: RuleTestNamesWhatItDoes, Path: id, Reason: "automated test record " + id + " names no file"})
+			faults = append(faults, CodeFault{Rule: RuleTestNamesWhatItDoes, Key: id, Path: id, Reason: "automated test record " + id + " names no file"})
 		case !held:
-			faults = append(faults, CodeFault{Rule: RuleTestNamesWhatItDoes, Path: record.File, Reason: "automated test record " + id + " names this file, which the tree does not hold"})
+			faults = append(faults, CodeFault{Rule: RuleTestNamesWhatItDoes, Key: record.File + " " + id, Path: record.File, Reason: "automated test record " + id + " names this file, which the tree does not hold"})
 		case !carriesID(data, id):
-			faults = append(faults, CodeFault{Rule: RuleTestNamesWhatItDoes, Path: record.File, Reason: "the file does not carry the ID of automated test record " + id})
+			faults = append(faults, CodeFault{Rule: RuleTestNamesWhatItDoes, Key: record.File + " " + id, Path: record.File, Reason: "the file does not carry the ID of automated test record " + id})
 		}
 	}
 	sortFaults(faults)
@@ -826,7 +848,7 @@ func fileWithoutRecord(spec Spec, tree Tree) []CodeFault {
 			traced = named[at]
 		}
 		if !traced {
-			faults = append(faults, CodeFault{Rule: RuleNoFileWithoutRecord, Path: name, Reason: "no technical record names the file, directly or through a folder"})
+			faults = append(faults, CodeFault{Rule: RuleNoFileWithoutRecord, Key: name, Path: name, Reason: "no technical record names the file, directly or through a folder"})
 		}
 	}
 	sortFaults(faults)
@@ -887,6 +909,7 @@ func stubBuilt(spec Spec, tree Tree) []CodeFault {
 			if stub(function) {
 				faults = append(faults, CodeFault{
 					Rule:   RuleStubIsNotBuilt,
+					Key:    record.ID,
 					Path:   record.File,
 					Reason: fmt.Sprintf("%s names %s, whose body only returns constants or panics, so it reads no input", record.ID, record.Title),
 				})
