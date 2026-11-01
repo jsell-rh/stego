@@ -866,10 +866,16 @@ func namedIDs(spec Spec, names []string) map[string]bool {
 
 // testNames lists the names of the tests a test file holds, which is where a test carries the ID of the record it
 // proves. A comment, a string constant or any other text of the file is not a name.
-//   - Go: the name of each top-level test function (Test, Benchmark, Fuzz or Example), and each string literal in
-//     the first argument of a call of a method Run with two arguments, such as t.Run("ST-ASR-SP05-T ...", ...) or
-//     t.Run("ST-ASR-SP05-T "+name, ...). A name that the test reads from a variable, such as a table's field, is
-//     not known before the test runs, so it does not count. A file that does not parse has no names.
+//   - Go: the name of each top-level test function (Test, Benchmark, Fuzz or Example), and the subtest names: in
+//     each call of a method Run whose second argument is a function (a function literal or a name), each string
+//     literal of the first argument, and each name in it of a string constant the file declares, such as
+//     t.Run("ST-ASR-SP05-T ...", ...), t.Run("ST-ASR-SP05-T "+name, ...) or t.Run(proofName, ...). A name that the
+//     test reads from a variable, such as a table's field or a loop variable, is not known before the test runs,
+//     so it does not count. A file that does not parse has no names.
+//
+// The proof run (ST-ASR-UC01) reads the names that the tests have when they run; this predicate reads the names
+// that the file states. The two can differ for a name the test builds as it runs: the proof run can see an ID that
+// this predicate does not.
 //   - Python: the name of each function and class, and the first argument of each self.subTest call when it is a
 //     string literal, such as self.subTest("ST-ASR-UC01-R01-T01 ...").
 //   - Any other file: the first argument of each test, it or describe call when it is a string literal.
@@ -890,6 +896,25 @@ func testNames(name string, data []byte) []string {
 				}
 			}
 		}
+		// The string constants of the file, at its top level or in a function, each with one string literal.
+		constants := make(map[string]string)
+		ast.Inspect(file, func(node ast.Node) bool {
+			if decl, ok := node.(*ast.GenDecl); ok && decl.Tok == token.CONST {
+				for _, spec := range decl.Specs {
+					value := spec.(*ast.ValueSpec)
+					for i, name := range value.Names {
+						if i < len(value.Values) {
+							if literal, ok := value.Values[i].(*ast.BasicLit); ok && literal.Kind == token.STRING {
+								if text, err := strconv.Unquote(literal.Value); err == nil {
+									constants[name.Name] = text
+								}
+							}
+						}
+					}
+				}
+			}
+			return true
+		})
 		ast.Inspect(file, func(node ast.Node) bool {
 			call, ok := node.(*ast.CallExpr)
 			if !ok || len(call.Args) != 2 {
@@ -898,11 +923,23 @@ func testNames(name string, data []byte) []string {
 			if selector, ok := call.Fun.(*ast.SelectorExpr); !ok || selector.Sel.Name != "Run" {
 				return true
 			}
+			switch call.Args[1].(type) {
+			case *ast.FuncLit, *ast.Ident, *ast.SelectorExpr:
+			default:
+				return true
+			}
 			ast.Inspect(call.Args[0], func(inner ast.Node) bool {
-				if literal, ok := inner.(*ast.BasicLit); ok && literal.Kind == token.STRING {
-					if text, err := strconv.Unquote(literal.Value); err == nil {
+				switch e := inner.(type) {
+				case *ast.BasicLit:
+					if text, err := strconv.Unquote(e.Value); err == nil && e.Kind == token.STRING {
 						names = append(names, text)
 					}
+				case *ast.Ident:
+					if text, ok := constants[e.Name]; ok {
+						names = append(names, text)
+					}
+				case *ast.SelectorExpr:
+					return false
 				}
 				return true
 			})

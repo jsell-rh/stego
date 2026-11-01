@@ -271,6 +271,8 @@ func TestTestWithoutID(t *testing.T) {
 {"id":"ST-FXD-SP04-T","state":"automated","file":"internal/fx/gone_test.go"}
 {"id":"ST-FXD-SP05-T","state":"automated","file":"internal/fx/joined_test.go"}
 {"id":"ST-FXD-SP06-T","state":"automated","file":"internal/build/build_test.go"}
+{"id":"ST-FXD-SP07-T","state":"automated","file":"internal/fx/const_test.go"}
+{"id":"ST-FXD-SP08-T","state":"automated","file":"internal/fx/runner_test.go"}
 `,
 			"use_case_test": `{"id":"ST-FXD-UC01-R01-T01","state":"automated","file":"scripts/test_fx.py"}
 {"id":"ST-FXD-UC01-R02-T01","state":"automated","file":"scripts/test_named.py"}
@@ -282,6 +284,8 @@ func TestTestWithoutID(t *testing.T) {
 			"internal/fx/helpers_test.go":          "package fx\n\n// Helpers of the fx tests, once ST-FXD-SP01-T.\nconst fixture = \"ST-FXD-SP01-T\"\n\nfunc helper() string { return fixture }\n",
 			"internal/fx/table_test.go":            "package fx\n\nimport \"testing\"\n\nfunc TestTable(t *testing.T) {\n\tfor _, name := range []string{\"ST-FXD-SP01-T holds\"} {\n\t\tt.Run(name, func(t *testing.T) {})\n\t}\n}\n",
 			"internal/fx/joined_test.go":           fixtureTest("ST-FXD-SP05-T-holds", "ST-FXD-SP05-Tx"),
+			"internal/fx/const_test.go":            "package fx\n\nimport \"testing\"\n\nconst proof = \"ST-FXD-SP07-T holds\"\n\nfunc TestConst(t *testing.T) {\n\tt.Run(proof, func(t *testing.T) {})\n}\n",
+			"internal/fx/runner_test.go":           "package fx\n\nimport \"testing\"\n\ntype runner struct{}\n\nfunc (runner) Run(name string, times int) {}\n\nfunc TestRunner(t *testing.T) {\n\trunner{}.Run(\"ST-FXD-SP08-T holds\", 1)\n}\n",
 			"internal/fx/unknown_test.go":          fixtureTest("ST-FXD-SP09-T"),
 			"internal/fx/none_test.go":             fixtureTest("a case with no ID"),
 			"internal/fx/fx.go":                    "package fx\n",
@@ -312,6 +316,8 @@ func TestTestWithoutID(t *testing.T) {
 			fault("internal/fx/joined_test.go", "internal/fx/joined_test.go", none),
 			fault("internal/fx/joined_test.go ST-FXD-SP05-T", "internal/fx/joined_test.go", carries("ST-FXD-SP05-T")),
 			fault("internal/fx/none_test.go", "internal/fx/none_test.go", none),
+			fault("internal/fx/runner_test.go", "internal/fx/runner_test.go", none),
+			fault("internal/fx/runner_test.go ST-FXD-SP08-T", "internal/fx/runner_test.go", carries("ST-FXD-SP08-T")),
 			fault("internal/fx/table_test.go", "internal/fx/table_test.go", none),
 			fault("internal/fx/unknown_test.go", "internal/fx/unknown_test.go", none),
 			fault("scripts/test_named.py", "scripts/test_named.py", none),
