@@ -8,7 +8,8 @@ import (
 
 // DecisionStore is the repository of gate decisions (ST-ASR-REPO02). Keep writes a decision to the CI job's
 // output. It writes nothing into the product's repository. Handing a passed release decision to the provider's
-// attestation action, as the decision.json table (ST-ASR-EN03-TB), belongs to Gate a release (ST-ASR-UC03).
+// attestation action, as the decision.json table (ST-ASR-EN03-TB, assure.DecisionFile in release.go), belongs to
+// Gate a release (ST-ASR-UC03).
 type DecisionStore interface {
 	Keep(decision Decision) error
 }
