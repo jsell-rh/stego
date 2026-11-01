@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -204,6 +205,57 @@ func TestCoverage(t *testing.T) {
 			if !strings.Contains(err.Error(), "[test-file-missing] "+id+": ") {
 				t.Fatalf("the error does not name the error of %s:\n%v", id, err)
 			}
+		}
+	})
+
+	t.Run("ST-ASR-DS02-T03 The tree of a commit is written only inside its folder, and a link that leads out of it is refused", func(t *testing.T) {
+		root := newRepository(t)
+		outside := t.TempDir()
+		blob := func(content string) string {
+			command := exec.Command("git", "-C", root, "hash-object", "-w", "--stdin")
+			command.Stdin = strings.NewReader(content)
+			out, err := command.Output()
+			if err != nil {
+				t.Fatal(err)
+			}
+			return strings.TrimSpace(string(out))
+		}
+		tree := func(entries string) string {
+			command := exec.Command("git", "-C", root, "mktree")
+			command.Stdin = strings.NewReader(entries)
+			out, err := command.Output()
+			if err != nil {
+				t.Fatal(err)
+			}
+			return strings.TrimSpace(string(out))
+		}
+		commitOf := func(tree string) string {
+			return strings.TrimSpace(gitIn(t, root, "-c", "user.name=fixture", "-c", "user.email=fixture@example.com", "commit-tree", tree, "-m", "tree"))
+		}
+		readme := blob("Fixture.\n")
+		pwned := tree("100644 blob " + blob("pwned\n") + "\tpwned\n")
+		for name, entries := range map[string]string{
+			"a link and a folder of one name":    "120000 blob " + blob(outside) + "\ta\n040000 tree " + pwned + "\ta\n",
+			"a link to an absolute path":         "120000 blob " + blob("/etc") + "\tlink\n",
+			"a link out of the tree by its text": "040000 tree " + tree("120000 blob "+blob("../../outside")+"\tlink\n") + "\tsub\n",
+			"a link out of the tree through a link": "040000 tree " + tree("120000 blob "+blob("..")+"\ty\n") + "\td\n" +
+				"120000 blob " + blob("d/y/..") + "\tx\n",
+		} {
+			folder := t.TempDir()
+			if err := writeTree(root, commitOf(tree(entries)), folder); err == nil {
+				t.Fatalf("%s is written", name)
+			}
+			if leftovers, _ := os.ReadDir(outside); len(leftovers) != 0 {
+				t.Fatalf("%s writes outside the folder: %v", name, leftovers)
+			}
+		}
+		folder := t.TempDir()
+		good := tree("100644 blob " + readme + "\tREADME.md\n040000 tree " + tree("120000 blob "+blob("../README.md")+"\treadme\n") + "\tdocs\n")
+		if err := writeTree(root, commitOf(good), folder); err != nil {
+			t.Fatalf("a link inside the tree is refused: %v", err)
+		}
+		if target, err := os.Readlink(filepath.Join(folder, "docs", "readme")); err != nil || target != "../README.md" {
+			t.Fatalf("the link inside the tree is %q, %v", target, err)
 		}
 	})
 

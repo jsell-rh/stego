@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -301,7 +302,9 @@ func count(yes bool) int {
 // writeTree writes the tree of the commit, from the git objects of the repository at root, into the empty
 // folder: every blob with its executable bit, and every symbolic link as a link. A submodule is an empty folder,
 // as a checkout without its submodules has it. It reads the objects as they are, with no attributes, filters or
-// replace refs, so the folder holds exactly the commit's tree.
+// replace refs, so the folder holds exactly the commit's tree. It writes only through the folder as an os.Root,
+// and makes the links last, so no write follows a link. It refuses a link to an absolute path, and a link whose
+// target leaves the tree, by its text or once the tree is written.
 func writeTree(root, commit, folder string) error {
 	listing, err := git(root, "ls-tree", "-r", "-z", "--full-tree", commit)
 	if err != nil {
@@ -310,7 +313,12 @@ func writeTree(root, commit, folder string) error {
 	type entry struct {
 		mode, kind, id, path string
 	}
-	var entries []entry
+	var blobs []entry
+	tree, err := os.OpenRoot(folder)
+	if err != nil {
+		return err
+	}
+	defer tree.Close()
 	for _, line := range strings.Split(string(listing), "\x00") {
 		if line == "" {
 			continue
@@ -320,17 +328,13 @@ func writeTree(root, commit, folder string) error {
 		if !ok || len(fields) != 3 || !filepath.IsLocal(filepath.FromSlash(file)) {
 			return fmt.Errorf("git ls-tree gives an entry that is not a file of the tree: %q", line)
 		}
-		entries = append(entries, entry{mode: fields[0], kind: fields[1], id: fields[2], path: file})
-	}
-	var blobs []entry
-	for _, e := range entries {
-		target := filepath.Join(folder, filepath.FromSlash(e.path))
-		switch {
-		case e.kind == "commit":
-			if err := os.MkdirAll(target, 0o755); err != nil {
+		e := entry{mode: fields[0], kind: fields[1], id: fields[2], path: file}
+		switch e.kind {
+		case "commit":
+			if err := tree.MkdirAll(file, 0o755); err != nil {
 				return err
 			}
-		case e.kind == "blob":
+		case "blob":
 			blobs = append(blobs, e)
 		default:
 			return fmt.Errorf("the tree of %s holds %s of kind %s", commit, e.path, e.kind)
@@ -356,6 +360,7 @@ func writeTree(root, commit, folder string) error {
 		return err
 	}
 	reader := bufio.NewReader(out)
+	links := map[string]string{}
 	writeErr := func() error {
 		for _, e := range blobs {
 			header, err := reader.ReadString('\n')
@@ -377,19 +382,18 @@ func writeTree(root, commit, folder string) error {
 			if end, err := reader.ReadByte(); err != nil || end != '\n' {
 				return fmt.Errorf("git cat-file does not end blob %s with a newline", e.id)
 			}
-			target := filepath.Join(folder, filepath.FromSlash(e.path))
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if e.mode == "120000" {
+				links[e.path] = string(content)
+				continue
+			}
+			if err := tree.MkdirAll(path.Dir(e.path), 0o755); err != nil {
 				return err
 			}
-			switch e.mode {
-			case "120000":
-				err = os.Symlink(string(content), target)
-			case "100755":
-				err = os.WriteFile(target, content, 0o755)
-			default:
-				err = os.WriteFile(target, content, 0o644)
+			mode := os.FileMode(0o644)
+			if e.mode == "100755" {
+				mode = 0o755
 			}
-			if err != nil {
+			if err := tree.WriteFile(e.path, content, mode); err != nil {
 				return err
 			}
 		}
@@ -401,7 +405,50 @@ func writeTree(root, commit, folder string) error {
 	if err := command.Wait(); err != nil {
 		return fmt.Errorf("git cat-file --batch: %v: %s", err, strings.TrimSpace(stderr.String()))
 	}
-	return writeErr
+	if writeErr != nil {
+		return writeErr
+	}
+	return writeLinks(tree, folder, links)
+}
+
+// writeLinks makes each symbolic link of the tree, by its path, after every blob. It refuses an absolute target
+// and a target that leaves the tree by its text. Once all links are made, it refuses a link that resolves to a
+// place outside the folder through other links.
+func writeLinks(tree *os.Root, folder string, links map[string]string) error {
+	paths := make([]string, 0, len(links))
+	for link := range links {
+		paths = append(paths, link)
+	}
+	sort.Strings(paths)
+	for _, link := range paths {
+		target := links[link]
+		if target == "" || path.IsAbs(target) || filepath.IsAbs(target) {
+			return fmt.Errorf("the symbolic link %s points to the absolute path %q, outside the tree", link, target)
+		}
+		if resolved := path.Join(path.Dir(link), target); resolved == ".." || strings.HasPrefix(resolved, "../") {
+			return fmt.Errorf("the symbolic link %s points to %q, outside the tree", link, target)
+		}
+		if err := tree.MkdirAll(path.Dir(link), 0o755); err != nil {
+			return err
+		}
+		if err := tree.Symlink(target, link); err != nil {
+			return err
+		}
+	}
+	base, err := filepath.EvalSymlinks(folder)
+	if err != nil {
+		return err
+	}
+	for _, link := range paths {
+		resolved, err := filepath.EvalSymlinks(filepath.Join(folder, filepath.FromSlash(link)))
+		if err != nil {
+			continue // A link to nothing points nowhere outside the tree.
+		}
+		if relative, err := filepath.Rel(base, resolved); err != nil || !filepath.IsLocal(relative) && relative != "." {
+			return fmt.Errorf("the symbolic link %s resolves to %s, outside the tree", link, resolved)
+		}
+	}
+	return nil
 }
 
 // sortedObligations lists the IDs of the measurement's obligations, in order.
