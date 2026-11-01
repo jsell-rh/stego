@@ -198,10 +198,11 @@ type GitHubRun struct {
 	Trusted      TrustedSigner
 }
 
-// ReadGitHubRun reads the job's environment through getenv. It refuses outside a GitHub Actions job.
+// ReadGitHubRun reads the job's environment through getenv. It refuses outside a GitHub Actions job. assure
+// record and assure gate release read it for the identity their job's attestation action signs with.
 func ReadGitHubRun(getenv func(string) string) (GitHubRun, error) {
 	if getenv("GITHUB_ACTIONS") != "true" {
-		return GitHubRun{}, errors.New("assure record runs only in a GitHub Actions job: GITHUB_ACTIONS is not true")
+		return GitHubRun{}, errors.New("assure record and assure gate release run only in a GitHub Actions job: GITHUB_ACTIONS is not true")
 	}
 	values := map[string]string{}
 	for _, name := range []string{"GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_SERVER_URL", "GITHUB_REPOSITORY", "GITHUB_WORKFLOW_REF"} {

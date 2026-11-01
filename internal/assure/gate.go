@@ -150,11 +150,14 @@ type ChangeRequest struct {
 }
 
 // GateChange is the handler of ST-ASR-CMD02, Gate a change. It measures the coverage at the base head and then
-// at the change's commit, verifies the proof run at the change's commit, and refuses the change when an obligation
-// present at the base lost its designed, built or proved standing, when no proof run at the commit is verified,
-// when an automated test record did not pass there, or when the only proof run is change grade and the change
-// alters the workflows folder. The decision names both commits and both coverages, and lists every reason in the
-// fixed order; the store keeps it. It returns an error, and no decision, when it cannot read what it decides on.
+// at the change's commit, verifies the proof run at the change's commit, and reads the code faults of both commits'
+// trees and specs. It refuses the change when an obligation present at the base lost its designed, built or
+// proved standing, when no proof run at the commit is verified, when an automated test record did not pass
+// there, when the change's tree has a code-standard fault that the base head's does not have by rule and key, or
+// when the only proof run is change grade and the change alters the workflows folder. A fault the base head
+// already has is reported in the decision's code faults, and is no reason. The decision names both commits and
+// both coverages, and lists every reason in the fixed order; the store keeps it. It returns an error, and no
+// decision, when it cannot read what it decides on.
 func GateChange(request ChangeRequest, store AttestationStore, verifier BundleVerifier, decisions DecisionStore) (Decision, ChangeDecided, error) {
 	for _, commit := range []string{request.Commit, request.Base} {
 		if !fullCommit(commit) {
@@ -185,15 +188,29 @@ func GateChange(request ChangeRequest, store AttestationStore, verifier BundleVe
 	if err != nil {
 		return Decision{}, ChangeDecided{}, err
 	}
-	why := noVerifiedProofRun + request.Commit
-	if len(verification.Refused) == 0 {
-		why += ": the provider keeps no proof run attestation for it"
-	} else {
-		why += ": " + strings.Join(verification.Refused, "; ")
+	faults, err := committedFaults(request.Root, request.Commit, spec)
+	if err != nil {
+		return Decision{}, ChangeDecided{}, err
 	}
-	why = strings.Join(strings.Fields(why), " ")
+	baseSpec, err := ReadCommittedSpec(request.Root, request.Base)
+	if err != nil {
+		return Decision{}, ChangeDecided{}, err
+	}
+	baseFaults, err := committedFaults(request.Root, request.Base, baseSpec)
+	if err != nil {
+		return Decision{}, ChangeDecided{}, err
+	}
+	atBase := make(map[[2]string]bool, len(baseFaults))
+	for _, fault := range baseFaults {
+		atBase[[2]string{fault.Rule, fault.Key}] = true
+	}
 	causes := holdsRatchet(base, change)
-	causes = append(causes, proofRunPassed(verification.Proof, spec, why)...)
+	causes = append(causes, proofRunPassed(verification.Proof, spec, noProofRunWhy(request.Commit, verification))...)
+	for _, fault := range faults {
+		if !atBase[[2]string{fault.Rule, fault.Key}] {
+			causes = append(causes, codeFaultReason(fault))
+		}
+	}
 	if verification.Proof == nil && verification.WorkflowsChanged {
 		for _, file := range changed {
 			causes = append(causes, workflowReason(file))
@@ -207,6 +224,7 @@ func GateChange(request ChangeRequest, store AttestationStore, verifier BundleVe
 		Coverage:     change.Coverage,
 		BaseCoverage: &baseCoverage,
 		Reasons:      sortReasons(causes),
+		CodeFaults:   describeFaults(faults, atBase),
 	}
 	decision.Passed = len(decision.Reasons) == 0
 	if verification.Proof != nil {
@@ -227,4 +245,26 @@ func GateChange(request ChangeRequest, store AttestationStore, verifier BundleVe
 		Passed:     decision.Passed,
 		Reasons:    append([]string(nil), decision.Reasons...),
 	}, nil
+}
+
+// noProofRunWhy is the reason that the commit has no verified proof run, with why the store's attestations were
+// refused, or that the store keeps none, on one line.
+func noProofRunWhy(commit string, verification Verification) string {
+	why := noVerifiedProofRun + commit
+	if len(verification.Refused) == 0 {
+		why += ": the provider keeps no proof run attestation for it"
+	} else {
+		why += ": " + strings.Join(verification.Refused, "; ")
+	}
+	return strings.Join(strings.Fields(why), " ")
+}
+
+// committedFaults reads the code-standard faults of the commit, from its tree in the git objects of the
+// repository at root and the spec at the same commit.
+func committedFaults(root, commit string, spec Spec) ([]CodeFault, error) {
+	tree, err := ReadCommittedTree(root, commit)
+	if err != nil {
+		return nil, err
+	}
+	return CodeFaults(spec, tree)
 }

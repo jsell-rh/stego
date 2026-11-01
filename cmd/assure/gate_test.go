@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -96,9 +98,11 @@ const (
 
 // gateSpec is the spec of the gate's fixture repository: the domain FX-LEND with three invariants, of which
 // FX-LEND-INV01 and FX-LEND-INV02 are built and proved by automated tests and FX-LEND-INV03 is only designed, and
-// a constraint of the product that is designed only. It has two workflow files.
+// a constraint of the product that is designed only. It has two workflow files, and a go.mod, so its code faults
+// can be read: the rule FX-LEND-INV02-RL names an identifier that its file does not declare (ST-STD-CODE-R02).
 var gateSpec = map[string]string{
 	"lathe.config.json":    `{"schema": 2, "data": "data", "tests": ["**/*_test.go"]}` + "\n",
+	"go.mod":               "module example.com/fixture\n\ngo 1.26\n",
 	"data/product.jsonl":   `{"id":"FX","title":"Fixture","description":"What Fixture is, who it is for, and what it must do."}` + "\n",
 	"data/domain.jsonl":    `{"id":"FX-LEND","title":"Lending","product_id":"FX","subdomain_type":"core","description":"Lending tools."}` + "\n",
 	"data/aggregate.jsonl": `{"id":"FX-LEND-A1","title":"Loan","domain_id":"FX-LEND","description":"A loan.","identity":"Loan ID"}` + "\n",
@@ -273,17 +277,22 @@ func (g gateRepository) gate(t *testing.T, commit, base, attestations string, en
 	return assureResult{code: command.ProcessState.ExitCode(), stdout: stdout.String(), stderr: stderr.String()}
 }
 
-// reasons is the list of reasons the decision prints, one per line, or none when it prints none.
+// reasons is the list of reasons the decision prints, one per line, or none when it prints none. After a passed
+// release decision, assure gate release prints where it wrote the decision predicate.
 func (r assureResult) reasons(t *testing.T) []string {
 	t.Helper()
 	_, list, ok := strings.Cut(r.stdout, "\nreasons (")
 	if !ok {
-		if !strings.HasSuffix(r.stdout, "\nreasons: none\n") {
+		if !strings.HasSuffix(r.stdout, "\nreasons: none\n") && !strings.Contains(r.stdout, "\nreasons: none\ndecision predicate ") {
 			t.Fatalf("the decision lists no reasons:\n%s%s", r.stdout, r.stderr)
 		}
 		return nil
 	}
 	_, list, _ = strings.Cut(list, "):\n")
+	// After a refused release, assure gate release prints one notice line for the CI log.
+	if at := strings.Index(list, "::notice::release refused: "); at >= 0 {
+		list = list[:at]
+	}
 	return strings.Split(strings.TrimSuffix(list, "\n"), "\n")
 }
 
@@ -603,6 +612,8 @@ steps:
         echo "::error::The gate did not run: assure did not build from the base commit. This is no decision on the change."
         exit 1
       fi
+  - name: Remove the Go problem matcher
+    run: echo "::remove-matcher owner=go::"
   - name: Make Lathe and assure read-only
     run: chmod -R a-w "$GITHUB_WORKSPACE/lathe" "$RUNNER_TEMP/gate"
   - name: Gate the change
@@ -970,4 +981,729 @@ type gateWorkflow struct {
 	Permissions map[string]string  `yaml:"permissions"`
 	Env         map[string]string  `yaml:"env"`
 	Jobs        map[string]gateJob `yaml:"jobs"`
+}
+
+// fullyProved changes the gate's fixture spec so that every obligation is designed, built and proved and the tree
+// has no code-standard fault: a rule and an automated test for each invariant, a test for the constraint, the value
+// type's file, and rules that each declare the identifier their record names.
+var fullyProved = map[string]string{
+	"data/rule.jsonl": gateSpec["data/rule.jsonl"] +
+		`{"id":"FX-LEND-INV03-RL","title":"lend.borrowerKnown","invariant_id":"FX-LEND-INV03","file":"internal/lend/rules.go"}` + "\n",
+	"data/invariant_test.jsonl":  invariantTest01 + invariantTest02 + invariantTest03,
+	"data/constraint_test.jsonl": `{"id":"FX-VO01-C01-T","title":"In the future","constraint_id":"FX-VO01-C01","level":"unit","state":"automated","file":"internal/lend/rules_test.go","accepts":"Tomorrow.","refuses":"Yesterday."}` + "\n",
+	"internal/lend/rules.go": "package lend\n\nfunc oneLoanPerTool(open int) bool { return open < 2 }\n\n" +
+		"func dueAfterStart(start, due int) bool { return due > start }\n\n" +
+		"func borrowerKnown(known map[string]bool, borrower string) bool { return known[borrower] }\n",
+	"internal/lend/due.go": "package lend\n\n// DueDate is the day a loan ends.\ntype DueDate struct{ Day string }\n",
+	"internal/lend/rules_test.go": "package lend\n\nimport \"testing\"\n\nfunc TestRules(t *testing.T) {\n" +
+		"\tt.Run(\"FX-LEND-INV01-T one loan\", func(t *testing.T) {})\n\tt.Run(\"FX-LEND-INV02-T due after start\", func(t *testing.T) {})\n" +
+		"\tt.Run(\"FX-LEND-INV03-T borrower known\", func(t *testing.T) {})\n\tt.Run(\"FX-VO01-C01-T in the future\", func(t *testing.T) {})\n}\n",
+}
+
+const invariantTest03 = `{"id":"FX-LEND-INV03-T","title":"Borrower known","invariant_id":"FX-LEND-INV03","level":"unit","state":"automated","file":"internal/lend/rules_test.go","when":"Lends to a stranger.","then":"Refused."}` + "\n"
+
+// allPassed is the outcome of each automated test record of the fully proved spec: passed.
+var allPassed = []string{"FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed", "FX-LEND-INV03-T passed", "FX-VO01-C01-T passed"}
+
+// with is the files given with each change written over them, as a commit of g.commit takes them.
+func with(files map[string]string, changes map[string]string) map[string]string {
+	merged := make(map[string]string, len(files)+len(changes))
+	for name, content := range files {
+		merged[name] = content
+	}
+	for name, content := range changes {
+		merged[name] = content
+	}
+	return merged
+}
+
+// releasePredicate is where the gate-release job has assure gate release write the decision predicate.
+func (g gateRepository) releasePredicate(t *testing.T) string {
+	t.Helper()
+	folder := filepath.Join(g.runnerTemp, "decision")
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(folder, "decision.json")
+}
+
+// release runs assure gate release in the repository as the gate-release job of a push to main would, with the
+// attestations in the file and the predicate to write, and with any change to the environment given as
+// NAME=value.
+func (g gateRepository) release(t *testing.T, commit, attestations, predicate string, env ...string) assureResult {
+	t.Helper()
+	command := exec.Command(os.Args[0], "gate", "release", "--commit", commit, "--predicate", predicate, "--lathe", g.lathe)
+	command.Dir = g.root
+	command.Env = append([]string{
+		"ASSURE_TEST_MAIN=1",
+		"ASSURE_TEST_ATTESTATIONS=" + attestations,
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + g.runnerTemp,
+		"TMPDIR=" + g.runnerTemp,
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=" + os.DevNull,
+		"GITHUB_ACTIONS=true",
+		"GITHUB_RUN_ID=36000000001",
+		"GITHUB_RUN_ATTEMPT=1",
+		"GITHUB_SERVER_URL=https://github.com",
+		"GITHUB_REPOSITORY=jsell-rh/stego",
+		"GITHUB_REF=" + mainRef,
+		"GITHUB_WORKFLOW_REF=" + trustedWorkflowRef,
+		"RUNNER_TEMP=" + g.runnerTemp,
+	}, env...)
+	var stdout, stderr bytes.Buffer
+	command.Stdout, command.Stderr = &stdout, &stderr
+	err := command.Run()
+	var exit *exec.ExitError
+	if err != nil && !errors.As(err, &exit) {
+		t.Fatalf("assure gate release did not run: %v", err)
+	}
+	return assureResult{code: command.ProcessState.ExitCode(), stdout: stdout.String(), stderr: stderr.String()}
+}
+
+// refusedRelease checks that the release gate refused the release for exactly the reasons, and wrote no predicate.
+func refusedRelease(t *testing.T, name string, result assureResult, predicate string, reasons ...string) {
+	t.Helper()
+	decided(t, name, result, 1, reasons...)
+	notice := fmt.Sprintf("::notice::release refused: %d reasons\n", len(reasons))
+	if len(reasons) == 1 {
+		notice = "::notice::release refused: 1 reason\n"
+	}
+	if !strings.HasSuffix(result.stdout, "\n"+reasons[len(reasons)-1]+"\n"+notice) {
+		t.Fatalf("%s: the decision does not end with the one notice line %q:\n%s", name, notice, result.stdout)
+	}
+	if !strings.HasPrefix(result.stdout, "release gate on ") || !strings.Contains(result.stdout, ": refused\n") {
+		t.Fatalf("%s: the decision does not say that the release is refused:\n%s", name, result.stdout)
+	}
+	noPredicate(t, name, predicate)
+}
+
+// noPredicate checks that no decision predicate was written.
+func noPredicate(t *testing.T, name, predicate string) {
+	t.Helper()
+	if _, err := os.Stat(predicate); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("%s: a decision predicate is written at %s (%v)", name, predicate, err)
+	}
+}
+
+// releaseDecision is the decision predicate as the attestation job reads it.
+type releaseDecision struct {
+	Commit     string   `json:"commit"`
+	Kind       string   `json:"kind"`
+	Passed     bool     `json:"passed"`
+	Reasons    []string `json:"reasons"`
+	CodeFaults []string `json:"codeFaults"`
+}
+
+// readReleaseDecision reads the decision predicate, and refuses a field it does not know.
+func readReleaseDecision(t *testing.T, file string) releaseDecision {
+	t.Helper()
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		releaseDecision
+		Coverage map[string]int `json:"coverage"`
+		ProofRun map[string]any `json:"proofRun"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&document); err != nil {
+		t.Fatalf("the decision predicate does not read: %v:\n%s", err, data)
+	}
+	return document.releaseDecision
+}
+
+func TestGateRelease(t *testing.T) {
+	t.Run("ST-ASR-UC03-R01-T01 A release is refused while any obligation is not designed, built and proved, and each such obligation is named", func(t *testing.T) {
+		g := newGateRepository(t)
+		predicate := g.releasePredicate(t)
+		// FX-LEND-INV02 loses its test record, and FX-LEND-INV03 its rule and its test record.
+		short := g.commit(t, g.base, with(fullyProved, map[string]string{
+			"data/rule.jsonl":           gateSpec["data/rule.jsonl"],
+			"data/invariant_test.jsonl": invariantTest01,
+		}))
+		result := g.release(t, short, g.keep(t, "short", proofRun(short, mainRef, 41, "FX-LEND-INV01-T passed", "FX-VO01-C01-T passed")), predicate)
+		refusedRelease(t, "a commit with obligations not built or not proved", result, predicate,
+			"FX-LEND-INV02 is not proved", "FX-LEND-INV03 is not built", "FX-LEND-INV03 is not proved")
+		if !strings.Contains(result.stdout, "coverage at "+short+": 4 obligations: 4 designed (100.0%), 3 built (75.0%), 2 proved (50.0%)\n") {
+			t.Fatalf("the decision does not give the coverage at the commit:\n%s", result.stdout)
+		}
+
+		full := g.commit(t, g.base, fullyProved)
+		decided(t, "a fully proved commit", g.release(t, full, g.keep(t, "full", proofRun(full, mainRef, 42, allPassed...)), predicate), 0)
+	})
+
+	t.Run("ST-ASR-UC03-R02-T01 A release commit with no verified proof run, or with an automated test record not passed there, is refused", func(t *testing.T) {
+		g := newGateRepository(t)
+		predicate := g.releasePredicate(t)
+		full := g.commit(t, g.base, fullyProved)
+		none := noVerifiedProofRunAt(full)
+		refusedRelease(t, "no attestation", g.release(t, full, g.keep(t, "none"), predicate), predicate,
+			none+": the provider keeps no proof run attestation for it")
+
+		forged := proofRun(full, mainRef, 43, allPassed...)
+		forged.Signer.Subject = "forged"
+		refusedRelease(t, "a forged attestation", g.release(t, full, g.keep(t, "forged", forged), predicate), predicate,
+			none+": an attestation fails its signature check: the signature does not verify")
+
+		failing := proofRun(full, mainRef, 44, "FX-LEND-INV01-T passed", "FX-LEND-INV02-T failed", "FX-VO01-C01-T passed")
+		refusedRelease(t, "a failed test and a test with no outcome", g.release(t, full, g.keep(t, "failing", failing), predicate), predicate,
+			"FX-LEND-INV02-T failed", "FX-LEND-INV03-T has no outcome in the proof run")
+		skipped := proofRun(full, mainRef, 45, "FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed", "FX-LEND-INV03-T passed", "FX-VO01-C01-T skipped")
+		refusedRelease(t, "a skipped test", g.release(t, full, g.keep(t, "skipped", skipped), predicate), predicate, "FX-VO01-C01-T skipped")
+
+		decided(t, "every automated test passed", g.release(t, full, g.keep(t, "passed", proofRun(full, mainRef, 46, allPassed...)), predicate), 0)
+	})
+
+	t.Run("ST-ASR-UC03-R03-T01 The release gate job runs on a push to main, and only the attest-release job, which runs no repository code, signs a passed decision with the commit as subject", func(t *testing.T) {
+		// The workflow, the gate-release job and the attest-release job are exactly what is allowed: every key of
+		// the workflow and of each job, and every step with each of its keys and values, in order. A key, a step or a
+		// value that is not listed here, such as a step that fetches and runs code, a container, an if that stops the
+		// attestation or a continue-on-error, fails the test.
+		raw := readRawWorkflow(t)
+		exactWorkflow(t, raw)
+		exactJob(t, raw, "gate-release", gateReleaseJob())
+		exactJob(t, raw, "attest-release", attestReleaseJob())
+		signers := 0
+		for name, job := range readWorkflow(t).Jobs {
+			if job.Permissions["id-token"] != "" || job.Permissions["attestations"] != "" {
+				signers++
+				if name != "attest" && name != "attest-release" {
+					t.Fatalf("the job %s may get an identity token or write attestations", name)
+				}
+			}
+		}
+		if signers != 2 {
+			t.Fatalf("%d jobs may sign, want the attest and attest-release jobs", signers)
+		}
+
+		// The gate step: a passed release gives passed=true; a refused one ends green with passed=false, so neither
+		// the upload nor the attest-release job runs; no decision fails the step and so the job.
+		for code, want := range map[int]struct {
+			exit    int
+			outputs string
+		}{0: {0, "passed=true\n"}, 1: {0, "passed=false\n"}, 2: {2, ""}, 3: {3, ""}} {
+			exit, outputs := runGateReleaseStep(t, code)
+			if exit != want.exit || outputs != want.outputs {
+				t.Fatalf("with assure exiting %d, the gate step exits %d with the outputs %q, want %d with %q", code, exit, outputs, want.exit, want.outputs)
+			}
+		}
+
+		commit := strings.Repeat("ab", 20)
+		name, digest, err := runJobSubjectStep(t, "attest-release", commit)
+		sum := sha256.Sum256([]byte(commit))
+		if err != nil || name != "git+https://github.com/jsell-rh/stego@"+commit || digest != "sha256:"+hex.EncodeToString(sum[:]) {
+			t.Fatalf("the attest-release job names the subject %s (%s), %v, not the commit %s", name, digest, err, commit)
+		}
+		if _, _, err := runJobSubjectStep(t, "attest-release", "main"); err == nil {
+			t.Fatal("the attest-release job names a branch as the subject")
+		}
+		passed := `{"commit": "` + commit + `", "kind": "release", "passed": true, "reasons": []}`
+		if err := runDecisionCheck(t, commit, passed); err != nil {
+			t.Fatalf("the attest-release job refuses a passed release decision about the commit: %v", err)
+		}
+		for name, document := range map[string]string{
+			"about another commit": strings.Replace(passed, commit, strings.Repeat("cd", 20), 1),
+			"refused":              strings.Replace(passed, `"passed": true`, `"passed": false`, 1),
+			"of the change gate":   strings.Replace(passed, `"kind": "release"`, `"kind": "change"`, 1),
+			"with no kind":         `{"commit": "` + commit + `", "passed": true}`,
+		} {
+			if err := runDecisionCheck(t, commit, document); err == nil {
+				t.Fatalf("the attest-release job accepts a decision %s", name)
+			}
+		}
+	})
+
+	t.Run("ST-ASR-UC03-R04-T01 A release commit whose tree has a code-standard fault is refused, and each fault is named with its file and rule", func(t *testing.T) {
+		g := newGateRepository(t)
+		predicate := g.releasePredicate(t)
+		faulty := g.commit(t, g.base, with(fullyProved, map[string]string{
+			"data/rule.jsonl":        strings.Replace(fullyProved["data/rule.jsonl"], "lend.borrowerKnown", "lend.borrowerIsKnown", 1),
+			"internal/lend/extra.go": "package lend\n\nconst extra = 1\n",
+		}))
+		result := g.release(t, faulty, g.keep(t, "faulty", proofRun(faulty, mainRef, 47, allPassed...)), predicate)
+		refusedRelease(t, "a tree with two code-standard faults", result, predicate,
+			"internal/lend/rules.go (ST-STD-CODE-R02, FX-LEND-INV03-RL): FX-LEND-INV03-RL names lend.borrowerIsKnown, which the file does not declare",
+			"internal/lend/extra.go (ST-STD-CODE-R05, internal/lend/extra.go): no technical record names the file, directly or through a folder")
+		if !strings.Contains(result.stdout, "coverage at "+faulty+": 4 obligations: 4 designed (100.0%), 4 built (100.0%), 4 proved (100.0%)\n") ||
+			!strings.Contains(result.stdout, "\ncode faults (2):\n"+
+				"internal/lend/rules.go (ST-STD-CODE-R02): FX-LEND-INV03-RL names lend.borrowerIsKnown, which the file does not declare\n"+
+				"internal/lend/extra.go (ST-STD-CODE-R05): no technical record names the file, directly or through a folder\nreasons (2):\n") {
+			t.Fatalf("the decision does not list the faults of a fully proved commit:\n%s", result.stdout)
+		}
+	})
+
+	t.Run("ST-ASR-UC03-R05-T01 A release takes only a proof run signed at main, and one signed at any other ref is refused with the ref named", func(t *testing.T) {
+		g := newGateRepository(t)
+		predicate := g.releasePredicate(t)
+		full := g.commit(t, g.base, fullyProved)
+		refusal := func(logIndex, reference string) string {
+			return noVerifiedProofRunAt(full) + ": the attestation at rekor:" + logIndex + " is refused: it is signed by " + proofRunWorkflow +
+				" at " + reference + ", not at " + mainRef + ", and only release-grade evidence counts here"
+		}
+		own := proofRun(full, pullRef, 48, allPassed...)
+		refusedRelease(t, "a proof run signed at a pull request's ref", g.release(t, full, g.keep(t, "own", own), predicate), predicate,
+			refusal("48", pullRef))
+		branch := proofRun(full, "refs/heads/feature", 49, allPassed...)
+		refusedRelease(t, "a proof run signed at another branch", g.release(t, full, g.keep(t, "branch", branch), predicate), predicate,
+			refusal("49", "refs/heads/feature"))
+
+		result := g.release(t, full, g.keep(t, "both", own, proofRun(full, mainRef, 50, allPassed...)), predicate)
+		decided(t, "a proof run signed at main beside one signed at a pull request's ref", result, 0)
+		if !strings.Contains(result.stdout, "proof run: "+assure.ProofRunPredicateType+" about "+full+", signed by "+proofRunWorkflow+"@"+mainRef+" (issuer "+assure.GitHubIssuer+"), rekor:50\n") {
+			t.Fatalf("the decision does not rest on the proof run signed at main:\n%s", result.stdout)
+		}
+	})
+
+	t.Run("ST-ASR-INV09-T A passed release decision is handed to the attestation action about its commit, for the trusted signer at main, and nothing else is", func(t *testing.T) {
+		g := newGateRepository(t)
+		full := g.commit(t, g.base, fullyProved)
+		passed := g.keep(t, "passed", proofRun(full, mainRef, 51, allPassed...))
+		predicate := g.releasePredicate(t)
+		result := g.release(t, full, passed, predicate)
+		decided(t, "a fully proved commit", result, 0)
+		if !strings.Contains(result.stdout, "attestation: "+assure.ReleaseDecisionPredicateType+" about "+full+", for "+proofRunWorkflow+"@"+mainRef+" (issuer "+assure.GitHubIssuer+") to sign\n") {
+			t.Fatalf("the passed decision does not name the attestation the trusted signer is to make:\n%s", result.stdout)
+		}
+		if decision := readReleaseDecision(t, predicate); decision.Commit != full || decision.Kind != "release" || !decision.Passed || len(decision.Reasons) != 0 {
+			t.Fatalf("the predicate is not a passed release decision about %s: %+v", full, decision)
+		}
+
+		for name, env := range map[string]string{
+			"in a job of the trusted workflow at a pull request's ref": "GITHUB_WORKFLOW_REF=jsell-rh/stego/.github/workflows/proof-run.yml@" + pullRef,
+			"in a job of another workflow":                             "GITHUB_WORKFLOW_REF=jsell-rh/stego/.github/workflows/checks.yml@" + mainRef,
+		} {
+			other := filepath.Join(g.runnerTemp, "decision", "other.json")
+			result := g.release(t, full, passed, other, env)
+			if result.code != 2 || result.stdout != "" || !strings.Contains(result.stderr, "is not the provider's trusted signer "+proofRunWorkflow+" at "+mainRef) {
+				t.Fatalf("%s: assure gate release exits %d:\n%s%s", name, result.code, result.stdout, result.stderr)
+			}
+			noPredicate(t, name, other)
+		}
+
+		refusedPredicate := filepath.Join(g.runnerTemp, "decision", "refused.json")
+		failed := g.keep(t, "failed", proofRun(full, mainRef, 52, "FX-LEND-INV01-T failed", "FX-LEND-INV02-T passed", "FX-LEND-INV03-T passed", "FX-VO01-C01-T passed"))
+		refused := g.release(t, full, failed, refusedPredicate)
+		refusedRelease(t, "a refused release", refused, refusedPredicate, "FX-LEND-INV01-T failed")
+		if strings.Contains(refused.stdout, "attestation:") {
+			t.Fatalf("the refused decision names an attestation:\n%s", refused.stdout)
+		}
+
+		inside := filepath.Join(g.root, "decision.json")
+		if result := g.release(t, full, passed, inside); result.code != 2 || result.stdout != "" || !strings.Contains(result.stderr, "inside the repository") {
+			t.Fatalf("a predicate inside the repository: assure gate release exits %d:\n%s%s", result.code, result.stdout, result.stderr)
+		}
+		noPredicate(t, "a predicate inside the repository", inside)
+		summaryInside := filepath.Join(g.runnerTemp, "decision", "summary-inside.json")
+		if result := g.release(t, full, passed, summaryInside, "GITHUB_STEP_SUMMARY="+filepath.Join(g.root, "summary.md")); result.code != 2 ||
+			result.stdout != "" || !strings.Contains(result.stderr, "inside the repository") {
+			t.Fatalf("a step summary inside the repository: assure gate release exits %d:\n%s%s", result.code, result.stdout, result.stderr)
+		}
+		noPredicate(t, "a step summary inside the repository", summaryInside)
+
+		// An earlier run's predicate is at the path: the gate does not start, and a refused run cannot leave it as
+		// though it were its own.
+		earlier := filepath.Join(g.runnerTemp, "decision", "earlier.json")
+		writeFile(t, earlier, "an earlier predicate\n")
+		for name, attestations := range map[string]string{"a passed release": passed, "a refused release": failed} {
+			result := g.release(t, full, attestations, earlier)
+			if data, _ := os.ReadFile(earlier); result.code != 2 || result.stdout != "" || !strings.Contains(result.stderr, "already at the decision predicate's path") ||
+				string(data) != "an earlier predicate\n" {
+				t.Fatalf("%s with an earlier predicate at the path: assure gate release exits %d and leaves %q:\n%s%s", name, result.code, data, result.stdout, result.stderr)
+			}
+		}
+		if status := g.git(t, "status", "--porcelain", "--untracked-files=all"); status != "" {
+			t.Fatalf("assure gate release wrote into the repository: %s", status)
+		}
+
+		// The attest-release job is exactly its allowed keys and steps: it signs decision.json at the release-decision
+		// predicate type, with the subject its subject step names, and does nothing else.
+		exactJob(t, readRawWorkflow(t), "attest-release", attestReleaseJob())
+		name, _, err := runJobSubjectStep(t, "attest-release", full)
+		if err != nil || name != "git+https://github.com/jsell-rh/stego@"+full {
+			t.Fatalf("the attest-release job names the subject %s (%v), not the release commit", name, err)
+		}
+	})
+}
+
+// runJobSubjectStep runs, with bash, the step with the ID subject of the job, as GitHub Actions would for the
+// commit, and returns the subject name and digest it gives.
+func runJobSubjectStep(t *testing.T, job, commit string) (string, string, error) {
+	t.Helper()
+	var script string
+	for _, step := range readWorkflow(t).Jobs[job].Steps {
+		if step.ID == "subject" {
+			script = step.Run
+		}
+	}
+	if script == "" {
+		t.Fatalf("the %s job has no step with the ID subject", job)
+	}
+	outputs := filepath.Join(t.TempDir(), "github-output")
+	writeFile(t, outputs, "")
+	command := exec.Command("bash", "-e", "-c", script)
+	command.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"COMMIT=" + commit,
+		"GITHUB_SERVER_URL=https://github.com",
+		"GITHUB_REPOSITORY=jsell-rh/stego",
+		"GITHUB_OUTPUT=" + outputs,
+	}
+	if out, err := command.CombinedOutput(); err != nil {
+		return "", "", fmt.Errorf("%v: %s", err, out)
+	}
+	data, err := os.ReadFile(outputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		key, value, _ := strings.Cut(line, "=")
+		values[key] = value
+	}
+	return values["name"], values["digest"], nil
+}
+
+// runDecisionCheck runs, with bash, the attest-release job's step that checks the downloaded predicate, on the
+// decision document given.
+func runDecisionCheck(t *testing.T, commit, document string) error {
+	t.Helper()
+	var script string
+	for _, step := range readWorkflow(t).Jobs["attest-release"].Steps {
+		if step.Name == "Check that the predicate is a passed release decision about the commit" {
+			script = step.Run
+		}
+	}
+	if script == "" {
+		t.Fatal("the attest-release job has no step that checks the decision predicate")
+	}
+	runnerTemp := t.TempDir()
+	writeFile(t, filepath.Join(runnerTemp, "decision", "decision.json"), document)
+	command := exec.Command("bash", "-e", "-c", script)
+	command.Env = []string{"PATH=" + os.Getenv("PATH"), "COMMIT=" + commit, "RUNNER_TEMP=" + runnerTemp}
+	if out, err := command.CombinedOutput(); err != nil {
+		return fmt.Errorf("%v: %s", err, out)
+	}
+	return nil
+}
+
+func TestGateChangeCodeStandard(t *testing.T) {
+	t.Run("ST-ASR-UC02-R05-T01 A change is refused for a code-standard fault the base head does not have, and a fault the base has is reported, not refused", func(t *testing.T) {
+		g := newGateRepository(t)
+		base := g.commit(t, g.base, map[string]string{"internal/lend/old.go": "package lend\n\nconst old = 1\n"})
+		outcomes := []string{"FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed"}
+		// Each fault as the decision lists it, given whether the base head has it.
+		rules := func(base string) string {
+			return "internal/lend/rules.go (ST-STD-CODE-R02, " + base + "): FX-LEND-INV02-RL names lend.dueAfterStart, which the file does not declare\n"
+		}
+		old := func(base string) string {
+			return "internal/lend/old.go (ST-STD-CODE-R05, " + base + "): no technical record names the file, directly or through a folder\n"
+		}
+		added := func(base string) string {
+			return "internal/lend/new.go (ST-STD-CODE-R05, " + base + "): no technical record names the file, directly or through a folder\n"
+		}
+		const present, absent = "present at base", "not at base"
+
+		change := g.commit(t, base, map[string]string{"internal/lend/new.go": "package lend\n\nconst added = 2\n"})
+		result := g.gate(t, change, base, g.keep(t, "added", proofRun(change, pullRef, 61, outcomes...)))
+		decided(t, "a change that adds a file no record names", result, 1,
+			"internal/lend/new.go (ST-STD-CODE-R05, internal/lend/new.go): no technical record names the file, directly or through a folder")
+		if !strings.Contains(result.stdout, "\ncode faults (3):\n"+rules(present)+added(absent)+old(present)+"reasons (1):\n") {
+			t.Fatalf("the decision does not list each fault and whether the base head has it:\n%s", result.stdout)
+		}
+
+		kept := g.commit(t, base, map[string]string{"README.md": "Fixture.\n"})
+		result = g.gate(t, kept, base, g.keep(t, "kept", proofRun(kept, pullRef, 62, outcomes...)))
+		decided(t, "a change that keeps the base head's faults", result, 0)
+		if !strings.Contains(result.stdout, "\ncode faults (2):\n"+rules(present)+old(present)+"reasons: none\n") {
+			t.Fatalf("the decision does not report the faults the base head has:\n%s", result.stdout)
+		}
+
+		// The rule names another identifier that its file does not declare: the fault's reason changes, its rule and
+		// key do not, so it is not new.
+		renamed := g.commit(t, base, map[string]string{"data/rule.jsonl": strings.Replace(gateSpec["data/rule.jsonl"], "lend.dueAfterStart", "lend.dueBeforeEnd", 1)})
+		result = g.gate(t, renamed, base, g.keep(t, "renamed", proofRun(renamed, pullRef, 63, outcomes...)))
+		decided(t, "a change under which a fault of the base head changes its reason", result, 0)
+		if !strings.Contains(result.stdout, "internal/lend/rules.go (ST-STD-CODE-R02, present at base): FX-LEND-INV02-RL names lend.dueBeforeEnd, which the file does not declare\n") {
+			t.Fatalf("the decision does not report the fault with its new reason as present at base:\n%s", result.stdout)
+		}
+
+		fixed := g.commit(t, base, map[string]string{"internal/lend/old.go": ""})
+		result = g.gate(t, fixed, base, g.keep(t, "fixed", proofRun(fixed, pullRef, 64, outcomes...)))
+		decided(t, "a change that fixes a fault", result, 0)
+		if !strings.Contains(result.stdout, "\ncode faults (1):\n"+rules(present)+"reasons: none\n") {
+			t.Fatalf("the decision lists a fault the change fixed:\n%s", result.stdout)
+		}
+	})
+}
+
+// rawWorkflow is the proof run workflow read key by key, so that a test can allow only the keys it names: the
+// workflow's own keys, and each job's keys and steps.
+type rawWorkflow struct {
+	Keys map[string]yaml.Node `yaml:",inline"`
+	Jobs map[string]struct {
+		Keys  map[string]yaml.Node   `yaml:",inline"`
+		Steps []map[string]yaml.Node `yaml:"steps"`
+	} `yaml:"jobs"`
+}
+
+// readRawWorkflow reads the proof run workflow from the repository this test runs in, key by key.
+func readRawWorkflow(t *testing.T) rawWorkflow {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "proof-run.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw rawWorkflow
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+// pinned is an action that a step must use pinned to a full commit: "<action>@<40 hexadecimal digits>".
+type pinned string
+
+// anyScalar allows any single value, such as a tool's version.
+type anyScalar struct{}
+
+// allowedJob is what a job may hold: each key with its value, and its steps in order, each step as its keys with
+// their values. A value is a string (the exact scalar), a map[string]any (the exact mapping), pinned or anyScalar.
+type allowedJob struct {
+	keys  map[string]any
+	steps []map[string]any
+}
+
+var pinPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+// exactValue fails the test unless the node is exactly the value allowed.
+func exactValue(t *testing.T, where string, node yaml.Node, want any) {
+	t.Helper()
+	switch want := want.(type) {
+	case string:
+		if node.Kind != yaml.ScalarNode || node.Value != want {
+			t.Fatalf("%s is %q, want exactly %q", where, node.Value, want)
+		}
+	case anyScalar:
+		if node.Kind != yaml.ScalarNode {
+			t.Fatalf("%s is not a single value", where)
+		}
+	case pinned:
+		action, pin, ok := strings.Cut(node.Value, "@")
+		if node.Kind != yaml.ScalarNode || !ok || action != string(want) || !pinPattern.MatchString(pin) {
+			t.Fatalf("%s uses %q, want %s pinned to a full commit", where, node.Value, want)
+		}
+	case map[string]any:
+		var got map[string]yaml.Node
+		if node.Kind != yaml.MappingNode || node.Decode(&got) != nil {
+			t.Fatalf("%s is not a mapping", where)
+		}
+		exactKeys(t, where, got, want)
+	default:
+		t.Fatalf("%s: the test allows a value of type %T", where, want)
+	}
+}
+
+// exactKeys fails the test unless the mapping has exactly the keys allowed, each with its allowed value.
+func exactKeys(t *testing.T, where string, got map[string]yaml.Node, want map[string]any) {
+	t.Helper()
+	for key := range got {
+		if _, ok := want[key]; !ok {
+			t.Fatalf("%s has %q, which is not allowed there", where, key)
+		}
+	}
+	for key, value := range want {
+		node, ok := got[key]
+		if !ok {
+			t.Fatalf("%s has no %q", where, key)
+		}
+		exactValue(t, where+"'s "+key, node, value)
+	}
+}
+
+// exactWorkflow fails the test unless the workflow has only its allowed keys: read-only permissions, and no
+// environment but the commit and the Lathe pin.
+func exactWorkflow(t *testing.T, raw rawWorkflow) {
+	t.Helper()
+	for key := range raw.Keys {
+		switch key {
+		case "name", "on", "concurrency":
+		case "permissions":
+			exactValue(t, "the workflow's permissions", raw.Keys[key], map[string]any{"contents": "read"})
+		case "env":
+			exactValue(t, "the workflow's env", raw.Keys[key], map[string]any{
+				"COMMIT":    "${{ github.event.pull_request.head.sha || github.sha }}",
+				"LATHE_REF": anyScalar{},
+			})
+		default:
+			t.Fatalf("the workflow has %q, which is not allowed", key)
+		}
+	}
+	if _, ok := raw.Keys["permissions"]; !ok {
+		t.Fatal("the workflow has no permissions, so its jobs get the repository's default")
+	}
+}
+
+// exactJob fails the test unless the job has exactly the keys and the steps allowed.
+func exactJob(t *testing.T, raw rawWorkflow, name string, allowed allowedJob) {
+	t.Helper()
+	job, ok := raw.Jobs[name]
+	if !ok {
+		t.Fatalf("the proof run workflow has no %s job", name)
+	}
+	exactKeys(t, "the "+name+" job", job.Keys, allowed.keys)
+	if len(job.Steps) != len(allowed.steps) {
+		t.Fatalf("the %s job has %d steps, want exactly %d", name, len(job.Steps), len(allowed.steps))
+	}
+	for i, step := range job.Steps {
+		exactKeys(t, fmt.Sprintf("step %d of the %s job", i+1, name), step, allowed.steps[i])
+	}
+}
+
+// subjectScript is the script of the step that names the commit as the subject, the same in the attest and the
+// attest-release jobs: it refuses anything but a full commit, and gives its name and the SHA-256 of its ID.
+const subjectScript = `case "$COMMIT" in
+  *[!0-9a-f]*) echo "::error::$COMMIT is not a full commit ID"; exit 1 ;;
+esac
+test "${#COMMIT}" -eq 40
+digest="$(printf '%s' "$COMMIT" | sha256sum | cut -d ' ' -f 1)"
+echo "name=git+$GITHUB_SERVER_URL/$GITHUB_REPOSITORY@$COMMIT" >> "$GITHUB_OUTPUT"
+echo "digest=sha256:$digest" >> "$GITHUB_OUTPUT"
+`
+
+// signingJob is a job that signs a predicate another job made: it needs that job, may only get an identity token
+// and write attestations, checks out and runs no code of the repository, and has exactly four steps: download the
+// predicate, check it, name the commit as the subject, and sign it with actions/attest.
+func signingJob(name, needs, condition, artifact, folder, checkName, check, signName, predicateType, predicate string) allowedJob {
+	keys := map[string]any{
+		"name":            name,
+		"needs":           needs,
+		"runs-on":         "ubuntu-latest",
+		"timeout-minutes": "10",
+		"permissions":     map[string]any{"id-token": "write", "attestations": "write"},
+	}
+	if condition != "" {
+		keys["if"] = condition
+	}
+	return allowedJob{
+		keys: keys,
+		steps: []map[string]any{
+			{"uses": pinned("actions/download-artifact"), "with": map[string]any{"name": artifact, "path": "${{ runner.temp }}/" + folder}},
+			{"name": checkName, "run": check},
+			{"name": "Name the commit as the subject", "id": "subject", "run": subjectScript},
+			{"name": signName, "uses": pinned("actions/attest"), "with": map[string]any{
+				"subject-name":   "${{ steps.subject.outputs.name }}",
+				"subject-digest": "${{ steps.subject.outputs.digest }}",
+				"predicate-type": predicateType,
+				"predicate-path": "${{ runner.temp }}/" + folder + "/" + predicate,
+			}},
+		},
+	}
+}
+
+// attestJob is all the attest job may hold: it signs the proof run.
+func attestJob() allowedJob {
+	return signingJob("attest", "suites", "", "proof-run", "proof-run", "Check that the predicate is about the commit",
+		`test "$(jq -r .commit "$RUNNER_TEMP/proof-run/proof-run.json")" = "$COMMIT"`,
+		"Sign and keep the proof run", assure.ProofRunPredicateType, assure.ProofRunFile)
+}
+
+// attestReleaseJob is all the attest-release job may hold: it signs a passed release decision, and runs only when
+// the gate-release job says that the release passed.
+func attestReleaseJob() allowedJob {
+	return signingJob("attest release", "gate-release", "${{ needs.gate-release.outputs.passed == 'true' }}", "release-decision", "decision",
+		"Check that the predicate is a passed release decision about the commit",
+		`test "$(jq -r '[.commit, .kind, (.passed | tostring)] | join(" ")' "$RUNNER_TEMP/decision/decision.json")" = "$COMMIT release true"`,
+		"Sign and keep the release decision", assure.ReleaseDecisionPredicateType, assure.DecisionFile)
+}
+
+// gateReleaseJob is all the gate-release job may hold: on each push to main, also when the suites or the attest job
+// fail, with read access only, it checks out the commit and the pinned Lathe, builds Lathe, removes the Go problem
+// matcher, runs assure gate release, and uploads the predicate. No step has a condition of its own, so the upload
+// runs only when the gate passed, and none may go on after an error.
+func gateReleaseJob() allowedJob {
+	return allowedJob{
+		keys: map[string]any{
+			"name":            "gate release",
+			"needs":           "attest",
+			"if":              "${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}",
+			"runs-on":         "ubuntu-latest",
+			"timeout-minutes": "15",
+			"permissions":     map[string]any{"contents": "read"},
+			"outputs":         map[string]any{"passed": "${{ steps.gate.outputs.passed }}"},
+		},
+		steps: []map[string]any{
+			{"name": "Require the Lathe deploy key", "env": map[string]any{"LATHE_DEPLOY_KEY": "${{ secrets.LATHE_DEPLOY_KEY }}"},
+				"run": "if [ -z \"$LATHE_DEPLOY_KEY\" ]; then\n" +
+					"  echo \"::error::LATHE_DEPLOY_KEY is not set. The release gate needs the pinned Lathe to measure the coverage.\"\n" +
+					"  exit 1\nfi\n"},
+			{"uses": pinned("actions/checkout"), "with": map[string]any{
+				"ref": "${{ env.COMMIT }}", "fetch-depth": "0", "path": "stego", "persist-credentials": "false"}},
+			{"uses": pinned("actions/checkout"), "with": map[string]any{
+				"repository": "Jared4Robertson/lathe", "ref": "${{ env.LATHE_REF }}", "ssh-key": "${{ secrets.LATHE_DEPLOY_KEY }}",
+				"path": "lathe", "persist-credentials": "false"}},
+			{"uses": pinned("actions/setup-go"), "with": map[string]any{"go-version": anyScalar{}, "cache": "false"}},
+			{"uses": pinned("actions/setup-node"), "with": map[string]any{"node-version": anyScalar{}}},
+			{"name": "Build the pinned Lathe", "working-directory": "lathe/lathe",
+				"run": "npm ci --no-audit --no-fund\n./node_modules/.bin/tsc -p tsconfig.build.json\nchmod +x dist/bin/lathe.js\n"},
+			{"name": "Build assure", "working-directory": "stego/cmd/assure", "env": map[string]any{"GOWORK": "off"},
+				"run": "mkdir -p \"$RUNNER_TEMP/release\"\ngo build -mod=readonly -trimpath -o \"$RUNNER_TEMP/release/assure\" .\n"},
+			{"name": "Remove the Go problem matcher", "run": `echo "::remove-matcher owner=go::"`},
+			{"name": "Gate the release", "id": "gate", "working-directory": "stego", "env": map[string]any{"GITHUB_TOKEN": "${{ github.token }}"},
+				"run": gateReleaseScript},
+			{"uses": pinned("actions/upload-artifact"), "if": "${{ steps.gate.outputs.passed == 'true' }}", "with": map[string]any{
+				"name": "release-decision", "path": "${{ runner.temp }}/decision/decision.json", "retention-days": "14", "if-no-files-found": "error"}},
+		},
+	}
+}
+
+// gateReleaseScript is the gate-release job's gate step: it runs assure gate release and maps its exit code to
+// the job output passed. A refused release (1) is passed=false and a green step; no decision (2, or any other code)
+// fails the step.
+const gateReleaseScript = `mkdir -p "$RUNNER_TEMP/decision"
+status=0
+"$RUNNER_TEMP/release/assure" gate release --commit "$COMMIT" --predicate "$RUNNER_TEMP/decision/decision.json" --lathe "$GITHUB_WORKSPACE/lathe/lathe/dist/bin/lathe.js" || status=$?
+case "$status" in
+  0) echo "passed=true" >> "$GITHUB_OUTPUT" ;;
+  1) echo "passed=false" >> "$GITHUB_OUTPUT" ;;
+  *) exit "$status" ;;
+esac
+`
+
+// runGateReleaseStep runs, with bash -e as GitHub Actions does, the gate-release job's gate step with an assure
+// that exits with the code given, and returns the step's exit code and the outputs it wrote.
+func runGateReleaseStep(t *testing.T, code int) (int, string) {
+	t.Helper()
+	var script string
+	for _, step := range readWorkflow(t).Jobs["gate-release"].Steps {
+		if step.ID == "gate" {
+			script = step.Run
+		}
+	}
+	if script == "" {
+		t.Fatal("the gate-release job has no step with the ID gate")
+	}
+	runnerTemp := t.TempDir()
+	writeFile(t, filepath.Join(runnerTemp, "release", "assure"), fmt.Sprintf("#!/bin/sh\necho decision\nexit %d\n", code))
+	if err := os.Chmod(filepath.Join(runnerTemp, "release", "assure"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outputs := filepath.Join(runnerTemp, "github-output")
+	writeFile(t, outputs, "")
+	command := exec.Command("bash", "-e", "-c", script)
+	command.Dir = runnerTemp
+	command.Env = []string{"PATH=" + os.Getenv("PATH"), "COMMIT=" + strings.Repeat("ab", 20), "RUNNER_TEMP=" + runnerTemp,
+		"GITHUB_WORKSPACE=" + runnerTemp, "GITHUB_OUTPUT=" + outputs}
+	err := command.Run()
+	var exit *exec.ExitError
+	if err != nil && !errors.As(err, &exit) {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(outputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return command.ProcessState.ExitCode(), string(data)
 }

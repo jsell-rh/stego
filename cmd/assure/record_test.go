@@ -403,12 +403,13 @@ class Fix(unittest.TestCase):
 		if len(suites.Permissions) != 1 || suites.Permissions["contents"] != "read" {
 			t.Fatalf("the suites job's permissions are %v, want only contents: read: it runs the repository's code", suites.Permissions)
 		}
-		if len(attest.Permissions) != 2 || attest.Permissions["id-token"] != "write" || attest.Permissions["attestations"] != "write" {
-			t.Fatalf("the attest job's permissions are %v, want only id-token and attestations", attest.Permissions)
-		}
-		if len(attest.Needs) != 1 || attest.Needs[0] != "suites" {
-			t.Fatalf("the attest job needs %v, want the suites job", attest.Needs)
-		}
+		// The workflow and the attest job are exactly what is allowed: each key of the workflow and of the job, and
+		// each step with each of its keys and values, in order. The attest job needs the suites job, may only get an
+		// identity token and write attestations, checks out and runs no code of the repository, and signs
+		// proof-run.json with actions/attest at the proof run predicate type and the subject its subject step names.
+		raw := readRawWorkflow(t)
+		exactWorkflow(t, raw)
+		exactJob(t, raw, "attest", attestJob())
 		var record *workflowStep
 		for _, job := range []workflowJob{suites, attest} {
 			for i, step := range job.Steps {
@@ -431,34 +432,6 @@ class Fix(unittest.TestCase):
 		}
 		if suites.Steps[0].With["ref"] != "${{ env.COMMIT }}" {
 			t.Fatalf("the suites job checks out %q, not the commit", suites.Steps[0].With["ref"])
-		}
-		var signs *workflowStep
-		for i, step := range attest.Steps {
-			if strings.HasPrefix(step.Uses, "actions/checkout@") || strings.HasPrefix(step.Uses, "actions/setup-") {
-				t.Fatalf("the attest job checks out or sets up code: %s", step.Uses)
-			}
-			for _, word := range []string{"go ", "python", "npm", "node ", "make", "./"} {
-				if strings.Contains(step.Run, word) {
-					t.Fatalf("the attest job's step %q runs %q", step.Name, word)
-				}
-			}
-			if strings.HasPrefix(step.Uses, "actions/attest@") {
-				signs = &attest.Steps[i]
-			}
-		}
-		if signs == nil {
-			t.Fatal("the attest job does not sign the proof run with actions/attest")
-		}
-		want := map[string]string{
-			"subject-name":   "${{ steps.subject.outputs.name }}",
-			"subject-digest": "${{ steps.subject.outputs.digest }}",
-			"predicate-type": "https://github.com/jsell-rh/stego/assure/proof-run/v1",
-			"predicate-path": "${{ runner.temp }}/proof-run/proof-run.json",
-		}
-		for input, value := range want {
-			if signs.With[input] != value {
-				t.Fatalf("the attestation action's %s is %q, want %q", input, signs.With[input], value)
-			}
 		}
 
 		f := newFixture(t, goFixture, pythonFixture)

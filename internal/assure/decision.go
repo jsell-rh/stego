@@ -10,8 +10,11 @@ import (
 // decision names the base head it was gated against and the coverage there; a release decision names neither.
 // Reasons holds one reason per line, in the fixed order of reasonOrder, and is empty when the commit passed.
 //
-// CodeFaults holds each code-standard fault of the commit's tree (ST-ASR-UC02-R05). The code standard's
-// predicates are not wired into the gate yet, so the change gate leaves it empty.
+// CodeFaults holds each code-standard fault of the commit's tree, by rule and key, with its file or package and
+// the rule it breaks; for a change decision, each also says whether the base head has it. A change is refused
+// for a fault the base head does not have (ST-ASR-UC02-R05), a release for any (ST-ASR-UC03-R04), and each fault
+// so refused is also a reason. Attestation names the attestation the provider's action is to make of a passed
+// release decision (ST-ASR-INV09); no other decision has one.
 type Decision struct {
 	Commit       string
 	Kind         GateKind
@@ -47,6 +50,18 @@ func (d Decision) Text() string {
 	} else {
 		text.WriteString("proof run: none verified\n")
 	}
+	if d.Attestation != nil {
+		fmt.Fprintf(&text, "attestation: %s about %s, for %s (issuer %s) to sign\n",
+			d.Attestation.PredicateType, d.Attestation.Subject, d.Attestation.Signer.Subject, d.Attestation.Signer.Issuer)
+	}
+	if len(d.CodeFaults) == 0 {
+		text.WriteString("code faults: none\n")
+	} else {
+		fmt.Fprintf(&text, "code faults (%d):\n", len(d.CodeFaults))
+		for _, fault := range d.CodeFaults {
+			text.WriteString(fault + "\n")
+		}
+	}
 	if len(d.Reasons) == 0 {
 		text.WriteString("reasons: none\n")
 		return text.String()
@@ -58,10 +73,11 @@ func (d Decision) Text() string {
 	return text.String()
 }
 
-// The three sections of the reasons, in their fixed order.
+// The four sections of the reasons, in their fixed order.
 const (
 	obligationSection = iota
 	proofSection
+	codeFaultSection
 	workflowSection
 )
 
@@ -70,7 +86,12 @@ const (
 	fellFrom           = " fell from "
 	differsFromBase    = " differs from the base head"
 	noVerifiedProofRun = "no verified proof run at "
+	noObligation       = "no obligation at "
 	absentAtChange     = " is absent at the change (was "
+	isNot              = " is not "
+	codeRule           = " (ST-STD-CODE-R"
+	presentAtBase      = ", present at base"
+	notAtBase          = ", not at base"
 )
 
 // fellReason is the reason that names an obligation that fell from a share.
@@ -89,12 +110,66 @@ func workflowReason(file string) string {
 	return file + differsFromBase
 }
 
-// reasonOrder is the place of a reason in the fixed order: the obligations that fell or are absent at the change,
-// by ID, each with its shares in the order designed, built, proved; then the proof run (why there is none first) and the test records that
-// did not pass, by ID; then the workflow files that differ, by path.
+// codeFaultReason is the reason that names a code-standard fault: its file or package, the rule it breaks with
+// its key, and why, as "<path> (<rule>, <key>): <why>". The path is not followed by a colon, so a CI log's
+// problem matcher for Go, which reads "<file>.go: <message>" as a compiler error, does not take a fault for one.
+func codeFaultReason(fault CodeFault) string {
+	return fault.Path + " (" + fault.Rule + ", " + fault.Key + "): " + fault.Reason
+}
+
+// codeFaultKey reads the rule and the key from a reason that codeFaultReason wrote.
+func codeFaultKey(reason string) (string, string, bool) {
+	at := strings.Index(reason, codeRule)
+	if at < 0 {
+		return "", "", false
+	}
+	inner, _, ok := strings.Cut(reason[at+2:], "): ")
+	if !ok {
+		return "", "", false
+	}
+	rule, key, ok := strings.Cut(inner, ", ")
+	if !ok || strings.Contains(rule, " ") || key == "" {
+		return "", "", false
+	}
+	return rule, key, true
+}
+
+// describeFaults is the code faults as a decision lists them, in the order CodeFaults gives them, by rule and
+// key: each as "<path> (<rule>): <why>", with its file or package, the rule and why. With base, the faults of the
+// base head by rule and key, each also says in the parentheses whether the base head has it; with none, as for a
+// release, it says nothing of a base. As in a reason, the path is not followed by a colon.
+func describeFaults(faults []CodeFault, base map[[2]string]bool) []string {
+	described := make([]string, 0, len(faults))
+	for _, fault := range faults {
+		where := fault.Rule
+		switch {
+		case base == nil:
+		case base[[2]string{fault.Rule, fault.Key}]:
+			where += presentAtBase
+		default:
+			where += notAtBase
+		}
+		described = append(described, fault.Path+" ("+where+"): "+fault.Reason)
+	}
+	return described
+}
+
+// reasonOrder is the place of a reason in the fixed order: the obligations that fell, are absent at the change,
+// or do not have a share at a release commit, by ID, each with its shares in the order designed, built, proved;
+// then the proof run (why there is none first) and the test records that did not pass, by ID; then the
+// code-standard faults, by rule and then key; then the workflow files that differ, by path.
 func reasonOrder(reason string) (int, string) {
 	if file, ok := strings.CutSuffix(reason, differsFromBase); ok {
 		return workflowSection, file
+	}
+	if strings.HasPrefix(reason, noObligation) {
+		return obligationSection, ""
+	}
+	if strings.HasPrefix(reason, noVerifiedProofRun) {
+		return proofSection, ""
+	}
+	if rule, key, ok := codeFaultKey(reason); ok {
+		return codeFaultSection, rule + "\x00" + key
 	}
 	if obligation, share, ok := strings.Cut(reason, fellFrom); ok && !strings.Contains(obligation, " ") {
 		for i, s := range allShares() {
@@ -103,11 +178,13 @@ func reasonOrder(reason string) (int, string) {
 			}
 		}
 	}
+	for i, share := range allShares() {
+		if obligation, ok := strings.CutSuffix(reason, isNot+string(share)); ok && !strings.Contains(obligation, " ") {
+			return obligationSection, obligation + "\x00" + string(rune('0'+i))
+		}
+	}
 	if obligation, _, ok := strings.Cut(reason, absentAtChange); ok && !strings.Contains(obligation, " ") {
 		return obligationSection, obligation
-	}
-	if strings.HasPrefix(reason, noVerifiedProofRun) {
-		return proofSection, ""
 	}
 	id, _, _ := strings.Cut(reason, " ")
 	return proofSection, id
@@ -167,8 +244,9 @@ func namesBothCommits(decision Decision) error {
 }
 
 // namesEveryCause is the rule of ST-ASR-INV08: a refused decision names each cause, every obligation that fell
-// from a share and every test record that did not pass, each given as its reason; a passed decision names no
-// reason, and a decision with a reason is not passed.
+// from a share or does not have it, every test record that did not pass and every code-standard fault the gate
+// refuses, each given as its reason; a passed decision names no reason, and a decision with a reason is not
+// passed.
 func namesEveryCause(decision Decision, causes []string) error {
 	refuse := func(format string, args ...any) error {
 		return &Refusal{Rule: "namesEveryCause", Reason: fmt.Sprintf(format, args...)}
