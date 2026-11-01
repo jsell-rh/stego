@@ -512,11 +512,60 @@ func difference(a, b []CodeFault) []CodeFault {
 	return only
 }
 
+// parentKnownCodeFaults reads the list of known faults at HEAD's first parent: the lines of faults, and whether
+// there is a list to compare with. There is none when HEAD has no parent the repository holds (the first commit,
+// or a shallow clone, such as the depth-1 checkout of CI, which leaves the parent out), or when the parent's spec
+// has no record of the list or its file.
+func parentKnownCodeFaults(t *testing.T, root string) (map[string]bool, bool) {
+	t.Helper()
+	if _, err := git(root, "rev-parse", "--verify", "--quiet", "HEAD^1^{commit}"); err != nil {
+		return nil, false
+	}
+	spec, err := ReadCommittedSpec(root, "HEAD^1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := ""
+	for _, record := range spec.Technical {
+		if record.ID == knownCodeFaultsRecord {
+			file = record.File
+		}
+	}
+	if file == "" {
+		return nil, false
+	}
+	if listed, err := git(root, "ls-tree", "--name-only", "HEAD^1", "--", file); err != nil || len(listed) == 0 {
+		return nil, false
+	}
+	data, err := git(root, "cat-file", "blob", "HEAD^1:"+file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := make(map[string]bool)
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(line) != "" && !strings.HasPrefix(line, "#") {
+			lines[line] = true
+		}
+	}
+	return lines, true
+}
+
+// faultLine is a fault as a line of the list of known faults.
+func faultLine(fault CodeFault) string {
+	return strings.Join([]string{fault.Rule, fault.Key, fault.Path, fault.Reason}, "\t")
+}
+
 // TestOwnTree runs each predicate over STEGO's own tree and spec at the commit under test, HEAD, read from git
-// objects, never from the working tree. Each rule's test proves that the tree has no fault of the rule outside the
-// committed list of known faults (ST-ASR-TOOL03) at the same commit, and that the list holds no fault of the rule
-// that the tree no longer has. The list must be sorted and hold each fault once. CodeFaults must give the same
-// faults as the predicate.
+// objects, never from the working tree. The Product owner decided (ST-ASR-Q02) that the committed list of known
+// faults (ST-ASR-TOOL03) stays until it is empty. Each rule's test proves three things:
+//   - the tree has no fault of the rule outside the list at the same commit;
+//   - the list holds no fault of the rule that the tree no longer has;
+//   - the ratchet: the list holds no line of the rule that the list at HEAD's first parent does not hold. Thus each
+//     commit removes lines or keeps them, never adds one, and so does each commit of a pull request. When the
+//     repository does not hold the parent, as in a shallow clone, or the parent has no list, the ratchet is not
+//     checked; the test logs it. The change gate compares a change with its base (ST-ASR-UC02-R05) in any case.
+//
+// The list must be sorted and hold each fault once. CodeFaults must give the same faults as the predicate.
 //
 // The test reads git through a subprocess, which go test cannot see, so go test can give a cached result for a
 // new commit. Run it with -count=1.
@@ -544,6 +593,10 @@ func TestOwnTree(t *testing.T) {
 		t.Fatalf("the spec at HEAD has no record %s that names a file of the tree", knownCodeFaultsRecord)
 	}
 	known, listError := readKnownCodeFaults(data)
+	parent, ratchet := parentKnownCodeFaults(t, root)
+	if !ratchet {
+		t.Log("the repository holds no list of known faults at HEAD's first parent, so the ratchet is not checked")
+	}
 	all, err := CodeFaults(spec, tree)
 	if err != nil {
 		t.Fatal(err)
@@ -578,6 +631,15 @@ func TestOwnTree(t *testing.T) {
 		}
 		if gone := difference(listed, got); len(gone) > 0 {
 			problems = append(problems, fmt.Sprintf("%d listed faults are gone; remove them from %s:\n%s", len(gone), list.File, faultLines(gone)))
+		}
+		var grown []CodeFault
+		for _, fault := range listed {
+			if ratchet && !parent[faultLine(fault)] {
+				grown = append(grown, fault)
+			}
+		}
+		if len(grown) > 0 {
+			problems = append(problems, fmt.Sprintf("%d lines of %s are not in the list at HEAD's first parent; the list may only get shorter, so fix these faults:\n%s", len(grown), list.File, faultLines(grown)))
 		}
 		if len(problems) > 0 {
 			t.Fatal(strings.Join(problems, "\n"))

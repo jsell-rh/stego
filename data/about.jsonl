@@ -1,10 +1,3 @@
-{"source_id":"ST-ASR-Q02","target_id":"ST-ASR-TOOL03"}
-{"source_id":"ST-ASR-Q02","target_id":"ST-STD-CODE-R01-T01"}
-{"source_id":"ST-ASR-Q02","target_id":"ST-STD-CODE-R02-T01"}
-{"source_id":"ST-ASR-Q02","target_id":"ST-STD-CODE-R03-T01"}
-{"source_id":"ST-ASR-Q02","target_id":"ST-STD-CODE-R04-T01"}
-{"source_id":"ST-ASR-Q02","target_id":"ST-STD-CODE-R05-T01"}
-{"source_id":"ST-ASR-Q02","target_id":"ST-STD-CODE-R06-T01"}
 {"source_id":"ST-ASR-Q03","target_id":"ST-ASR-CMD02-H"}
 {"source_id":"ST-ASR-Q03","target_id":"ST-ASR-CMD03-H"}
 {"source_id":"ST-ASR-Q03","target_id":"ST-ASR-SP05-PR"}

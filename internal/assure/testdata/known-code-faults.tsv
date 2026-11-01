@@ -1,10 +1,14 @@
 # Known faults of STEGO's own tree against its code standard (ST-STD-CODE), at the commit that holds this file.
-# The tooling record ST-ASR-TOOL03 names this file. TestOwnTree in code_standard_test.go reads it and the tree
-# from the same commit, from git objects, not from the working tree.
-# Each rule test proves that the tree has no fault of the rule outside this list, and that this list holds no
-# fault of the rule that the tree no longer has. When you fix a fault, remove its line in the same change.
-# This test does not compare the list with the base branch: the ratchet against the base belongs to the change
-# gate (ST-ASR-UC02-R05).
+# The tooling record ST-ASR-TOOL03 names this file. The Product owner decided (ST-ASR-Q02, 2026-10-31) that the
+# list stays until it is empty. TestOwnTree in code_standard_test.go reads it and the tree from git objects.
+# Each rule test proves that:
+#   - the tree at this commit has no fault of the rule outside this list;
+#   - this list holds no fault of the rule that the tree no longer has;
+#   - this list holds no line that the list at the commit's first parent does not hold (the ratchet).
+# Thus each commit removes lines or keeps them, and never adds one. When you fix a fault, remove its line in the
+# same commit. Do not add a line for a new fault: fix the fault. When the repository does not hold the parent
+# commit, as in a shallow clone, the ratchet is not checked there; the change gate compares a change with its
+# base (ST-ASR-UC02-R05).
 # One fault per line, sorted, each fault once: the rule, the key, the file or package, and the reason, with a tab
 # between them.
 ST-STD-CODE-R01	cmd/stego	cmd/stego	the package holds files that the records of more than one domain name: ST-BLD, ST-DECL, ST-DIS, ST-EXT, ST-GEN, ST-SUP
