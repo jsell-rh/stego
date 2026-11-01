@@ -189,70 +189,61 @@ func latheTechnicalKinds() []string {
 }
 
 // readTechnicalStage reads, from the spec's tables by name, the domains with their titles and every technical
-// record that names a file or folder, in ID order.
-func readTechnicalStage(tables map[string]SpecFile) (map[string]string, []TechnicalRecord, error) {
+// record that names a file or folder, in ID order. It reads rows as Lathe's code-file-untraced does: a column it
+// reads counts only when its value is a string, and a line that is not a JSON object is passed over. Thus a row
+// that this reader cannot use never makes ReadSpec, and so assure record, refuse the spec.
+func readTechnicalStage(tables map[string]SpecFile) (map[string]string, []TechnicalRecord) {
 	type row struct {
-		ID    string `json:"id"`
-		Title string `json:"title"`
-		File  string `json:"file"`
-		Name  string `json:"name"`
-		Stage string `json:"stage"`
+		ID, Title, File, Name, Stage string
 	}
-	rows := func(table string) ([]row, error) {
+	text := func(fields map[string]json.RawMessage, column string) string {
+		var value string
+		if raw, ok := fields[column]; ok && json.Unmarshal(raw, &value) == nil {
+			return value
+		}
+		return ""
+	}
+	rows := func(table string) []row {
 		file, ok := tables[table]
 		if !ok {
-			return nil, nil
+			return nil
 		}
 		var read []row
-		scanner := bufio.NewScanner(bytes.NewReader(file.Data))
-		scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
-		line := 0
-		for scanner.Scan() {
-			line++
-			if len(bytes.TrimSpace(scanner.Bytes())) == 0 {
+		for _, line := range bytes.Split(file.Data, []byte("\n")) {
+			var fields map[string]json.RawMessage
+			if len(bytes.TrimSpace(line)) == 0 || json.Unmarshal(line, &fields) != nil {
 				continue
 			}
-			var r row
-			if err := json.Unmarshal(scanner.Bytes(), &r); err != nil {
-				return nil, fmt.Errorf("%s line %d: %w", file.Path, line, err)
-			}
-			read = append(read, r)
+			read = append(read, row{
+				ID: text(fields, "id"), Title: text(fields, "title"), File: text(fields, "file"),
+				Name: text(fields, "name"), Stage: text(fields, "stage"),
+			})
 		}
-		return read, scanner.Err()
+		return read
 	}
-	domainRows, err := rows("domain")
-	if err != nil {
-		return nil, nil, err
-	}
-	domains := make(map[string]string, len(domainRows))
-	for _, r := range domainRows {
-		domains[r.ID] = r.Title
+	domains := make(map[string]string)
+	for _, r := range rows("domain") {
+		if r.ID != "" {
+			domains[r.ID] = r.Title
+		}
 	}
 	kinds := latheTechnicalKinds()
-	productKinds, err := rows("product_kind")
-	if err != nil {
-		return nil, nil, err
-	}
-	for _, r := range productKinds {
-		if r.Stage == "technical-specification" {
+	for _, r := range rows("product_kind") {
+		if r.Stage == "technical-specification" && r.Name != "" {
 			kinds = append(kinds, r.Name)
 		}
 	}
 	sort.Strings(kinds)
 	var records []TechnicalRecord
 	for _, kind := range kinds {
-		kindRows, err := rows(kind)
-		if err != nil {
-			return nil, nil, err
-		}
-		for _, r := range kindRows {
-			if r.File != "" {
+		for _, r := range rows(kind) {
+			if r.ID != "" && r.File != "" {
 				records = append(records, TechnicalRecord{ID: r.ID, Kind: kind, Title: r.Title, File: normalPath(r.File)})
 			}
 		}
 	}
 	sort.Slice(records, func(i, j int) bool { return records[i].ID < records[j].ID })
-	return domains, records, nil
+	return domains, records
 }
 
 // normalPath is a path as records write it: from the root, with no leading ./ and no trailing slash.

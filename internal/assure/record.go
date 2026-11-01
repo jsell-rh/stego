@@ -80,11 +80,7 @@ func ReadSpec(files []SpecFile) (Spec, error) {
 		}
 		tables[strings.TrimSuffix(path.Base(file.Path), ".jsonl")] = file
 	}
-	domains, technical, err := readTechnicalStage(tables)
-	if err != nil {
-		return Spec{}, err
-	}
-	spec.Domains, spec.Technical = domains, technical
+	spec.Domains, spec.Technical = readTechnicalStage(tables)
 	digest := sha256.Sum256([]byte(sums.String()))
 	spec.Digest = "sha256:" + hex.EncodeToString(digest[:])
 	return spec, nil

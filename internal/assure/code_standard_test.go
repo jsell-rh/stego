@@ -279,9 +279,12 @@ func TestTestWithoutID(t *testing.T) {
 func TestFileWithoutRecord(t *testing.T) {
 	t.Run("ST-ASR-SP09-T Source file without a record is found in a tree built for it, and not in one that follows the rule", func(t *testing.T) {
 		spec := codeSpec(t, map[string]string{
-			"predicate":          `{"id":"ST-FXD-SP01-PR","title":"fx.holds","file":"./internal/fx/named.go"}`,
-			"generator":          `{"id":"ST-FXS-RC01-G01","title":"templates","file":"registry/components/web/"}`,
-			"tooling":            `{"id":"ST-FXA-TOOL01","title":"scripts","file":"scripts/tools"}`,
+			"predicate": `{"id":"ST-FXD-SP01-PR","title":"fx.holds","file":"./internal/fx/named.go"}`,
+			"generator": `{"id":"ST-FXS-RC01-G01","title":"templates","file":"registry/components/web/"}`,
+			"tooling": `{"id":"ST-FXA-TOOL01","title":"scripts","file":"scripts/tools"}
+{"id":"ST-FXA-TOOL02","title":"a file that is not a string","file":["scripts/lost.py"]}
+this line is not JSON, and Lathe passes over it
+`,
 			"note":               `{"id":"ST-FXS-UC01-N01","title":"fx.contract","file":"internal/fx/contract.go"}`,
 			"specification_test": `{"id":"ST-FXD-SP01-T","state":"automated","file":"internal/fx/lost.go"}`,
 		})
