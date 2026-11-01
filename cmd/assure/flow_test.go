@@ -113,7 +113,7 @@ func TestGateFlow(t *testing.T) {
 			"proof run: https://github.com/jsell-rh/stego/assure/proof-run/v1 about " + change +
 			", signed by https://github.com/jsell-rh/stego/.github/workflows/proof-run.yml@refs/pull/7/merge (issuer https://token.actions.githubusercontent.com), rekor:21\n" +
 			"code faults (1):\n" +
-			"internal/lend/rules.go: FX-LEND-INV02-RL names lend.dueAfterStart, which the file does not declare (ST-STD-CODE-R02), present at base\n" +
+			"internal/lend/rules.go (ST-STD-CODE-R02, present at base): FX-LEND-INV02-RL names lend.dueAfterStart, which the file does not declare\n" +
 			"reasons: none\n"
 		if result.code != 0 || result.stdout != want {
 			t.Fatalf("assure gate change exited %d with:\n%s%s\nwant:\n%s", result.code, result.stdout, result.stderr, want)
@@ -140,8 +140,8 @@ func TestGateFlow(t *testing.T) {
 		fault := g.commit(t, g.base, map[string]string{"internal/lend/new.go": "package lend\n\nconst added = 2\n"})
 		result = g.gate(t, fault, g.base, g.keep(t, "fault", proofRun(fault, pullRef, 24, "FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed")))
 		if result.code == 0 || !strings.HasSuffix(result.stdout, "reasons (1):\n"+
-			"internal/lend/new.go: no technical record names the file, directly or through a folder (ST-STD-CODE-R05, internal/lend/new.go)\n") ||
-			!strings.Contains(result.stdout, "(ST-STD-CODE-R02), present at base\n") {
+			"internal/lend/new.go (ST-STD-CODE-R05, internal/lend/new.go): no technical record names the file, directly or through a folder\n") ||
+			!strings.Contains(result.stdout, " (ST-STD-CODE-R02, present at base): ") {
 			t.Fatalf("a change that adds a code-standard fault exits %d with:\n%s%s", result.code, result.stdout, result.stderr)
 		}
 	})
@@ -225,6 +225,6 @@ func TestReleaseFlow(t *testing.T) {
 		fault := g.commit(t, g.base, with(fullyProved, map[string]string{"internal/lend/extra.go": "package lend\n\nconst extra = 1\n"}))
 		refusedRelease(t, "a tree with a code-standard fault",
 			g.release(t, fault, g.keep(t, "fault", proofRun(fault, mainRef, 35, allPassed...)), predicate+".fault"), predicate+".fault",
-			"internal/lend/extra.go: no technical record names the file, directly or through a folder (ST-STD-CODE-R05, internal/lend/extra.go)")
+			"internal/lend/extra.go (ST-STD-CODE-R05, internal/lend/extra.go): no technical record names the file, directly or through a folder")
 	})
 }

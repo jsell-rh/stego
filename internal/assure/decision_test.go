@@ -91,9 +91,9 @@ func TestDecisionInvariants(t *testing.T) {
 			"ST-FIX-INV01-T failed",
 			"ST-FIX-INV02-T failed: did not run",
 			"ST-FIX-SP01-T has no outcome in the proof run",
-			"internal/fix/rules.go: ST-FIX-INV01-RL names fix.ruleOne, which the file does not declare (ST-STD-CODE-R02, ST-FIX-INV01-RL)",
-			"internal/fix/b.go: no technical record names the file, directly or through a folder (ST-STD-CODE-R05, internal/fix/b.go)",
-			"internal/fix/c.go: no technical record names the file, directly or through a folder (ST-STD-CODE-R05, internal/fix/c.go)",
+			"internal/fix/rules.go (ST-STD-CODE-R02, ST-FIX-INV01-RL): ST-FIX-INV01-RL names fix.ruleOne, which the file does not declare",
+			"internal/fix/b.go (ST-STD-CODE-R05, internal/fix/b.go): no technical record names the file, directly or through a folder",
+			"internal/fix/c.go (ST-STD-CODE-R05, internal/fix/c.go): no technical record names the file, directly or through a folder",
 			".github/workflows/checks.yml differs from the base head",
 			".github/workflows/proof-run.yml differs from the base head",
 		}

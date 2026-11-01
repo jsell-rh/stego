@@ -853,12 +853,12 @@ func TestGateRelease(t *testing.T) {
 		}))
 		result := g.release(t, faulty, g.keep(t, "faulty", proofRun(faulty, mainRef, 47, allPassed...)), predicate)
 		refusedRelease(t, "a tree with two code-standard faults", result, predicate,
-			"internal/lend/rules.go: FX-LEND-INV03-RL names lend.borrowerIsKnown, which the file does not declare (ST-STD-CODE-R02, FX-LEND-INV03-RL)",
-			"internal/lend/extra.go: no technical record names the file, directly or through a folder (ST-STD-CODE-R05, internal/lend/extra.go)")
+			"internal/lend/rules.go (ST-STD-CODE-R02, FX-LEND-INV03-RL): FX-LEND-INV03-RL names lend.borrowerIsKnown, which the file does not declare",
+			"internal/lend/extra.go (ST-STD-CODE-R05, internal/lend/extra.go): no technical record names the file, directly or through a folder")
 		if !strings.Contains(result.stdout, "coverage at "+faulty+": 4 obligations: 4 designed (100.0%), 4 built (100.0%), 4 proved (100.0%)\n") ||
 			!strings.Contains(result.stdout, "\ncode faults (2):\n"+
-				"internal/lend/rules.go: FX-LEND-INV03-RL names lend.borrowerIsKnown, which the file does not declare (ST-STD-CODE-R02)\n"+
-				"internal/lend/extra.go: no technical record names the file, directly or through a folder (ST-STD-CODE-R05)\nreasons (2):\n") {
+				"internal/lend/rules.go (ST-STD-CODE-R02): FX-LEND-INV03-RL names lend.borrowerIsKnown, which the file does not declare\n"+
+				"internal/lend/extra.go (ST-STD-CODE-R05): no technical record names the file, directly or through a folder\nreasons (2):\n") {
 			t.Fatalf("the decision does not list the faults of a fully proved commit:\n%s", result.stdout)
 		}
 	})
@@ -1011,24 +1011,30 @@ func TestGateChangeCodeStandard(t *testing.T) {
 		g := newGateRepository(t)
 		base := g.commit(t, g.base, map[string]string{"internal/lend/old.go": "package lend\n\nconst old = 1\n"})
 		outcomes := []string{"FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed"}
-		const (
-			rules = "internal/lend/rules.go: FX-LEND-INV02-RL names lend.dueAfterStart, which the file does not declare (ST-STD-CODE-R02)"
-			old   = "internal/lend/old.go: no technical record names the file, directly or through a folder (ST-STD-CODE-R05)"
-			added = "internal/lend/new.go: no technical record names the file, directly or through a folder (ST-STD-CODE-R05)"
-		)
+		// Each fault as the decision lists it, given whether the base head has it.
+		rules := func(base string) string {
+			return "internal/lend/rules.go (ST-STD-CODE-R02, " + base + "): FX-LEND-INV02-RL names lend.dueAfterStart, which the file does not declare\n"
+		}
+		old := func(base string) string {
+			return "internal/lend/old.go (ST-STD-CODE-R05, " + base + "): no technical record names the file, directly or through a folder\n"
+		}
+		added := func(base string) string {
+			return "internal/lend/new.go (ST-STD-CODE-R05, " + base + "): no technical record names the file, directly or through a folder\n"
+		}
+		const present, absent = "present at base", "not at base"
 
 		change := g.commit(t, base, map[string]string{"internal/lend/new.go": "package lend\n\nconst added = 2\n"})
 		result := g.gate(t, change, base, g.keep(t, "added", proofRun(change, pullRef, 61, outcomes...)))
 		decided(t, "a change that adds a file no record names", result, 1,
-			"internal/lend/new.go: no technical record names the file, directly or through a folder (ST-STD-CODE-R05, internal/lend/new.go)")
-		if !strings.Contains(result.stdout, "\ncode faults (3):\n"+rules+", present at base\n"+added+", not at base\n"+old+", present at base\nreasons (1):\n") {
+			"internal/lend/new.go (ST-STD-CODE-R05, internal/lend/new.go): no technical record names the file, directly or through a folder")
+		if !strings.Contains(result.stdout, "\ncode faults (3):\n"+rules(present)+added(absent)+old(present)+"reasons (1):\n") {
 			t.Fatalf("the decision does not list each fault and whether the base head has it:\n%s", result.stdout)
 		}
 
 		kept := g.commit(t, base, map[string]string{"README.md": "Fixture.\n"})
 		result = g.gate(t, kept, base, g.keep(t, "kept", proofRun(kept, pullRef, 62, outcomes...)))
 		decided(t, "a change that keeps the base head's faults", result, 0)
-		if !strings.Contains(result.stdout, "\ncode faults (2):\n"+rules+", present at base\n"+old+", present at base\nreasons: none\n") {
+		if !strings.Contains(result.stdout, "\ncode faults (2):\n"+rules(present)+old(present)+"reasons: none\n") {
 			t.Fatalf("the decision does not report the faults the base head has:\n%s", result.stdout)
 		}
 
@@ -1037,14 +1043,14 @@ func TestGateChangeCodeStandard(t *testing.T) {
 		renamed := g.commit(t, base, map[string]string{"data/rule.jsonl": strings.Replace(gateSpec["data/rule.jsonl"], "lend.dueAfterStart", "lend.dueBeforeEnd", 1)})
 		result = g.gate(t, renamed, base, g.keep(t, "renamed", proofRun(renamed, pullRef, 63, outcomes...)))
 		decided(t, "a change under which a fault of the base head changes its reason", result, 0)
-		if !strings.Contains(result.stdout, "internal/lend/rules.go: FX-LEND-INV02-RL names lend.dueBeforeEnd, which the file does not declare (ST-STD-CODE-R02), present at base\n") {
+		if !strings.Contains(result.stdout, "internal/lend/rules.go (ST-STD-CODE-R02, present at base): FX-LEND-INV02-RL names lend.dueBeforeEnd, which the file does not declare\n") {
 			t.Fatalf("the decision does not report the fault with its new reason as present at base:\n%s", result.stdout)
 		}
 
 		fixed := g.commit(t, base, map[string]string{"internal/lend/old.go": ""})
 		result = g.gate(t, fixed, base, g.keep(t, "fixed", proofRun(fixed, pullRef, 64, outcomes...)))
 		decided(t, "a change that fixes a fault", result, 0)
-		if !strings.Contains(result.stdout, "\ncode faults (1):\n"+rules+", present at base\nreasons: none\n") {
+		if !strings.Contains(result.stdout, "\ncode faults (1):\n"+rules(present)+"reasons: none\n") {
 			t.Fatalf("the decision lists a fault the change fixed:\n%s", result.stdout)
 		}
 	})

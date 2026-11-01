@@ -109,19 +109,24 @@ func workflowReason(file string) string {
 	return file + differsFromBase
 }
 
-// codeFaultReason is the reason that names a code-standard fault: its file or package, why, and the rule it
-// breaks with its key, as "<path>: <why> (<rule>, <key>)".
+// codeFaultReason is the reason that names a code-standard fault: its file or package, the rule it breaks with
+// its key, and why, as "<path> (<rule>, <key>): <why>". The path is not followed by a colon, so a CI log's
+// problem matcher for Go, which reads "<file>.go: <message>" as a compiler error, does not take a fault for one.
 func codeFaultReason(fault CodeFault) string {
-	return fault.Path + ": " + fault.Reason + " (" + fault.Rule + ", " + fault.Key + ")"
+	return fault.Path + " (" + fault.Rule + ", " + fault.Key + "): " + fault.Reason
 }
 
 // codeFaultKey reads the rule and the key from a reason that codeFaultReason wrote.
 func codeFaultKey(reason string) (string, string, bool) {
-	at := strings.LastIndex(reason, codeRule)
-	if at < 0 || !strings.HasSuffix(reason, ")") {
+	at := strings.Index(reason, codeRule)
+	if at < 0 {
 		return "", "", false
 	}
-	rule, key, ok := strings.Cut(reason[at+2:len(reason)-1], ", ")
+	inner, _, ok := strings.Cut(reason[at+2:], "): ")
+	if !ok {
+		return "", "", false
+	}
+	rule, key, ok := strings.Cut(inner, ", ")
 	if !ok || strings.Contains(rule, " ") || key == "" {
 		return "", "", false
 	}
@@ -129,20 +134,21 @@ func codeFaultKey(reason string) (string, string, bool) {
 }
 
 // describeFaults is the code faults as a decision lists them, in the order CodeFaults gives them, by rule and
-// key: each with its file or package, why, and the rule. With base, the faults of the base head by rule and key,
-// each also says whether the base head has it; with none, as for a release, it says nothing of a base.
+// key: each as "<path> (<rule>): <why>", with its file or package, the rule and why. With base, the faults of the
+// base head by rule and key, each also says in the parentheses whether the base head has it; with none, as for a
+// release, it says nothing of a base. As in a reason, the path is not followed by a colon.
 func describeFaults(faults []CodeFault, base map[[2]string]bool) []string {
 	described := make([]string, 0, len(faults))
 	for _, fault := range faults {
-		text := fault.String()
+		where := fault.Rule
 		switch {
 		case base == nil:
 		case base[[2]string{fault.Rule, fault.Key}]:
-			text += presentAtBase
+			where += presentAtBase
 		default:
-			text += notAtBase
+			where += notAtBase
 		}
-		described = append(described, text)
+		described = append(described, fault.Path+" ("+where+"): "+fault.Reason)
 	}
 	return described
 }

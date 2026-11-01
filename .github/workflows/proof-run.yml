@@ -219,6 +219,10 @@ jobs:
           npm ci --no-audit --no-fund
           ./node_modules/.bin/tsc -p tsconfig.build.json
           chmod +x dist/bin/lathe.js
+      # setup-go registers a problem matcher, owner go, that reads each line "<file>.go: <message>" as a compiler
+      # error. The gate prints no compiler output: remove the matcher, so no code fault or reason is an annotation.
+      - name: Remove the Go problem matcher
+        run: echo "::remove-matcher owner=go::"
       # The gate runs the Lathe this workflow builds from LATHE_REF, never a Lathe the change's own package files
       # name. It still runs the change's own cmd/assure: building it from the base is for the Product owner to decide.
       - name: Gate the change
@@ -284,6 +288,10 @@ jobs:
           npm ci --no-audit --no-fund
           ./node_modules/.bin/tsc -p tsconfig.build.json
           chmod +x dist/bin/lathe.js
+      # setup-go registers a problem matcher, owner go, that reads each line "<file>.go: <message>" as a compiler
+      # error. The gate prints no compiler output: remove the matcher, so no code fault or reason is an annotation.
+      - name: Remove the Go problem matcher
+        run: echo "::remove-matcher owner=go::"
       - name: Gate the release
         working-directory: stego
         env:
