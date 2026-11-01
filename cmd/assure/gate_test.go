@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -720,54 +721,16 @@ func TestGateRelease(t *testing.T) {
 	})
 
 	t.Run("ST-ASR-UC03-R03-T01 The release gate job runs on a push to main, and only the attest-release job, which runs no repository code, signs a passed decision with the commit as subject", func(t *testing.T) {
-		workflow := readWorkflow(t)
-		gates, ok := readGateWorkflow(t).Jobs["gate-release"]
-		if !ok {
-			t.Fatal("the proof run workflow has no gate-release job")
-		}
-		if len(gates.Needs) != 1 || gates.Needs[0] != "attest" {
-			t.Fatalf("the gate-release job needs %v, want the attest job", gates.Needs)
-		}
-		if gates.If != "${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}" {
-			t.Fatalf("the gate-release job runs when %q, want on each push to main, also when the suites or the attest job fail", gates.If)
-		}
-		if len(gates.Permissions) != 1 || gates.Permissions["contents"] != "read" {
-			t.Fatalf("the gate-release job's permissions are %v, want only contents: read", gates.Permissions)
-		}
-		var checkout, run, upload *gateStep
-		for i, step := range gates.Steps {
-			if action, pin, ok := strings.Cut(step.Uses, "@"); step.Uses != "" && (!ok || len(pin) != 40 || action == "") {
-				t.Fatalf("step %q uses %s, which is not pinned to a commit", step.Name, step.Uses)
-			}
-			if strings.HasPrefix(step.Uses, "actions/checkout@") && step.With["path"] == "stego" {
-				checkout = &gates.Steps[i]
-			}
-			if strings.Contains(step.Run, "./cmd/assure gate release") {
-				run = &gates.Steps[i]
-			}
-			if strings.HasPrefix(step.Uses, "actions/upload-artifact@") {
-				upload = &gates.Steps[i]
-			}
-			if strings.Contains(step.Run, "npm ci") && step.WorkingDirectory != "lathe/lathe" {
-				t.Fatalf("step %q installs packages that the commit names: %s", step.Name, step.Run)
-			}
-		}
-		if checkout == nil || checkout.With["ref"] != "${{ env.COMMIT }}" || checkout.With["fetch-depth"] != "0" {
-			t.Fatalf("the gate-release job does not check out the commit with its full history: %+v", checkout)
-		}
-		if run == nil || run.WorkingDirectory != "stego" ||
-			!strings.Contains(run.Run, `gate release --commit "$COMMIT" --predicate "$RUNNER_TEMP/decision/decision.json"`) ||
-			!strings.Contains(run.Run, `--lathe "$GITHUB_WORKSPACE/lathe/lathe/dist/bin/lathe.js"`) {
-			t.Fatalf("the gate-release job does not gate the commit with the Lathe the workflow builds: %+v", run)
-		}
-		// The upload has no condition of its own, so it runs only when the gate passed.
-		if upload == nil || upload.If != "" || upload.With["name"] != "release-decision" ||
-			upload.With["path"] != "${{ runner.temp }}/decision/decision.json" || upload.With["if-no-files-found"] != "error" {
-			t.Fatalf("the gate-release job does not upload the predicate only when the release passed: %+v", upload)
-		}
-
+		// The workflow, the gate-release job and the attest-release job are exactly what is allowed: every key of
+		// the workflow and of each job, and every step with each of its keys and values, in order. A key, a step or a
+		// value that is not listed here, such as a step that fetches and runs code, a container, an if that stops the
+		// attestation or a continue-on-error, fails the test.
+		raw := readRawWorkflow(t)
+		exactWorkflow(t, raw)
+		exactJob(t, raw, "gate-release", gateReleaseJob())
+		exactJob(t, raw, "attest-release", attestReleaseJob())
 		signers := 0
-		for name, job := range workflow.Jobs {
+		for name, job := range readWorkflow(t).Jobs {
 			if job.Permissions["id-token"] != "" || job.Permissions["attestations"] != "" {
 				signers++
 				if name != "attest" && name != "attest-release" {
@@ -775,48 +738,8 @@ func TestGateRelease(t *testing.T) {
 				}
 			}
 		}
-		attest := workflow.Jobs["attest-release"]
-		if signers != 2 || len(attest.Permissions) != 2 || attest.Permissions["id-token"] != "write" || attest.Permissions["attestations"] != "write" {
-			t.Fatalf("the attest-release job's permissions are %v, want only id-token and attestations", attest.Permissions)
-		}
-		if len(attest.Needs) != 1 || attest.Needs[0] != "gate-release" {
-			t.Fatalf("the attest-release job needs %v, want the gate-release job", attest.Needs)
-		}
-		var download, signs *workflowStep
-		for i, step := range attest.Steps {
-			if strings.HasPrefix(step.Uses, "actions/checkout@") || strings.HasPrefix(step.Uses, "actions/setup-") {
-				t.Fatalf("the attest-release job checks out or sets up code: %s", step.Uses)
-			}
-			for _, word := range []string{"go ", "python", "npm", "node ", "make", "./"} {
-				if strings.Contains(step.Run, word) {
-					t.Fatalf("the attest-release job's step %q runs %q", step.Name, word)
-				}
-			}
-			if action, pin, ok := strings.Cut(step.Uses, "@"); step.Uses != "" && (!ok || len(pin) != 40 || action == "") {
-				t.Fatalf("step %q uses %s, which is not pinned to a commit", step.Name, step.Uses)
-			}
-			if strings.HasPrefix(step.Uses, "actions/download-artifact@") {
-				download = &attest.Steps[i]
-			}
-			if strings.HasPrefix(step.Uses, "actions/attest@") {
-				signs = &attest.Steps[i]
-			}
-		}
-		if download == nil || download.With["name"] != "release-decision" || download.With["path"] != "${{ runner.temp }}/decision" {
-			t.Fatalf("the attest-release job does not download the decision predicate: %+v", download)
-		}
-		if signs == nil {
-			t.Fatal("the attest-release job does not sign the decision with actions/attest")
-		}
-		for input, value := range map[string]string{
-			"subject-name":   "${{ steps.subject.outputs.name }}",
-			"subject-digest": "${{ steps.subject.outputs.digest }}",
-			"predicate-type": assure.ReleaseDecisionPredicateType,
-			"predicate-path": "${{ runner.temp }}/decision/decision.json",
-		} {
-			if signs.With[input] != value {
-				t.Fatalf("the attestation action's %s is %q, want %q", input, signs.With[input], value)
-			}
+		if signers != 2 {
+			t.Fatalf("%d jobs may sign, want the attest and attest-release jobs", signers)
 		}
 
 		commit := strings.Repeat("ab", 20)
@@ -946,16 +869,9 @@ func TestGateRelease(t *testing.T) {
 			t.Fatalf("assure gate release wrote into the repository: %s", status)
 		}
 
-		var signs *workflowStep
-		steps := readWorkflow(t).Jobs["attest-release"].Steps
-		for i, step := range steps {
-			if strings.HasPrefix(step.Uses, "actions/attest@") {
-				signs = &steps[i]
-			}
-		}
-		if signs == nil || signs.With["predicate-type"] != assure.ReleaseDecisionPredicateType || signs.With["subject-digest"] != "${{ steps.subject.outputs.digest }}" {
-			t.Fatalf("the attest-release job does not sign the decision with its commit as subject: %+v", signs)
-		}
+		// The attest-release job is exactly its allowed keys and steps: it signs decision.json at the release-decision
+		// predicate type, with the subject its subject step names, and does nothing else.
+		exactJob(t, readRawWorkflow(t), "attest-release", attestReleaseJob())
 		name, _, err := runJobSubjectStep(t, "attest-release", full)
 		if err != nil || name != "git+https://github.com/jsell-rh/stego@"+full {
 			t.Fatalf("the attest-release job names the subject %s (%v), not the release commit", name, err)
@@ -1072,4 +988,218 @@ func TestGateChangeCodeStandard(t *testing.T) {
 			t.Fatalf("the decision lists a fault the change fixed:\n%s", result.stdout)
 		}
 	})
+}
+
+// rawWorkflow is the proof run workflow read key by key, so that a test can allow only the keys it names: the
+// workflow's own keys, and each job's keys and steps.
+type rawWorkflow struct {
+	Keys map[string]yaml.Node `yaml:",inline"`
+	Jobs map[string]struct {
+		Keys  map[string]yaml.Node   `yaml:",inline"`
+		Steps []map[string]yaml.Node `yaml:"steps"`
+	} `yaml:"jobs"`
+}
+
+// readRawWorkflow reads the proof run workflow from the repository this test runs in, key by key.
+func readRawWorkflow(t *testing.T) rawWorkflow {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "proof-run.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw rawWorkflow
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+// pinned is an action that a step must use pinned to a full commit: "<action>@<40 hexadecimal digits>".
+type pinned string
+
+// anyScalar allows any single value, such as a tool's version.
+type anyScalar struct{}
+
+// allowedJob is what a job may hold: each key with its value, and its steps in order, each step as its keys with
+// their values. A value is a string (the exact scalar), a map[string]any (the exact mapping), pinned or anyScalar.
+type allowedJob struct {
+	keys  map[string]any
+	steps []map[string]any
+}
+
+var pinPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+// exactValue fails the test unless the node is exactly the value allowed.
+func exactValue(t *testing.T, where string, node yaml.Node, want any) {
+	t.Helper()
+	switch want := want.(type) {
+	case string:
+		if node.Kind != yaml.ScalarNode || node.Value != want {
+			t.Fatalf("%s is %q, want exactly %q", where, node.Value, want)
+		}
+	case anyScalar:
+		if node.Kind != yaml.ScalarNode {
+			t.Fatalf("%s is not a single value", where)
+		}
+	case pinned:
+		action, pin, ok := strings.Cut(node.Value, "@")
+		if node.Kind != yaml.ScalarNode || !ok || action != string(want) || !pinPattern.MatchString(pin) {
+			t.Fatalf("%s uses %q, want %s pinned to a full commit", where, node.Value, want)
+		}
+	case map[string]any:
+		var got map[string]yaml.Node
+		if node.Kind != yaml.MappingNode || node.Decode(&got) != nil {
+			t.Fatalf("%s is not a mapping", where)
+		}
+		exactKeys(t, where, got, want)
+	default:
+		t.Fatalf("%s: the test allows a value of type %T", where, want)
+	}
+}
+
+// exactKeys fails the test unless the mapping has exactly the keys allowed, each with its allowed value.
+func exactKeys(t *testing.T, where string, got map[string]yaml.Node, want map[string]any) {
+	t.Helper()
+	for key := range got {
+		if _, ok := want[key]; !ok {
+			t.Fatalf("%s has %q, which is not allowed there", where, key)
+		}
+	}
+	for key, value := range want {
+		node, ok := got[key]
+		if !ok {
+			t.Fatalf("%s has no %q", where, key)
+		}
+		exactValue(t, where+"'s "+key, node, value)
+	}
+}
+
+// exactWorkflow fails the test unless the workflow has only its allowed keys: read-only permissions, and no
+// environment but the commit and the Lathe pin.
+func exactWorkflow(t *testing.T, raw rawWorkflow) {
+	t.Helper()
+	for key := range raw.Keys {
+		switch key {
+		case "name", "on", "concurrency":
+		case "permissions":
+			exactValue(t, "the workflow's permissions", raw.Keys[key], map[string]any{"contents": "read"})
+		case "env":
+			exactValue(t, "the workflow's env", raw.Keys[key], map[string]any{
+				"COMMIT":    "${{ github.event.pull_request.head.sha || github.sha }}",
+				"LATHE_REF": anyScalar{},
+			})
+		default:
+			t.Fatalf("the workflow has %q, which is not allowed", key)
+		}
+	}
+	if _, ok := raw.Keys["permissions"]; !ok {
+		t.Fatal("the workflow has no permissions, so its jobs get the repository's default")
+	}
+}
+
+// exactJob fails the test unless the job has exactly the keys and the steps allowed.
+func exactJob(t *testing.T, raw rawWorkflow, name string, allowed allowedJob) {
+	t.Helper()
+	job, ok := raw.Jobs[name]
+	if !ok {
+		t.Fatalf("the proof run workflow has no %s job", name)
+	}
+	exactKeys(t, "the "+name+" job", job.Keys, allowed.keys)
+	if len(job.Steps) != len(allowed.steps) {
+		t.Fatalf("the %s job has %d steps, want exactly %d", name, len(job.Steps), len(allowed.steps))
+	}
+	for i, step := range job.Steps {
+		exactKeys(t, fmt.Sprintf("step %d of the %s job", i+1, name), step, allowed.steps[i])
+	}
+}
+
+// subjectScript is the script of the step that names the commit as the subject, the same in the attest and the
+// attest-release jobs: it refuses anything but a full commit, and gives its name and the SHA-256 of its ID.
+const subjectScript = `case "$COMMIT" in
+  *[!0-9a-f]*) echo "::error::$COMMIT is not a full commit ID"; exit 1 ;;
+esac
+test "${#COMMIT}" -eq 40
+digest="$(printf '%s' "$COMMIT" | sha256sum | cut -d ' ' -f 1)"
+echo "name=git+$GITHUB_SERVER_URL/$GITHUB_REPOSITORY@$COMMIT" >> "$GITHUB_OUTPUT"
+echo "digest=sha256:$digest" >> "$GITHUB_OUTPUT"
+`
+
+// signingJob is a job that signs a predicate another job made: it needs that job, may only get an identity token
+// and write attestations, checks out and runs no code of the repository, and has exactly four steps: download the
+// predicate, check it, name the commit as the subject, and sign it with actions/attest.
+func signingJob(name, needs, artifact, folder, checkName, check, signName, predicateType, predicate string) allowedJob {
+	return allowedJob{
+		keys: map[string]any{
+			"name":            name,
+			"needs":           needs,
+			"runs-on":         "ubuntu-latest",
+			"timeout-minutes": "10",
+			"permissions":     map[string]any{"id-token": "write", "attestations": "write"},
+		},
+		steps: []map[string]any{
+			{"uses": pinned("actions/download-artifact"), "with": map[string]any{"name": artifact, "path": "${{ runner.temp }}/" + folder}},
+			{"name": checkName, "run": check},
+			{"name": "Name the commit as the subject", "id": "subject", "run": subjectScript},
+			{"name": signName, "uses": pinned("actions/attest"), "with": map[string]any{
+				"subject-name":   "${{ steps.subject.outputs.name }}",
+				"subject-digest": "${{ steps.subject.outputs.digest }}",
+				"predicate-type": predicateType,
+				"predicate-path": "${{ runner.temp }}/" + folder + "/" + predicate,
+			}},
+		},
+	}
+}
+
+// attestJob is all the attest job may hold: it signs the proof run.
+func attestJob() allowedJob {
+	return signingJob("attest", "suites", "proof-run", "proof-run", "Check that the predicate is about the commit",
+		`test "$(jq -r .commit "$RUNNER_TEMP/proof-run/proof-run.json")" = "$COMMIT"`,
+		"Sign and keep the proof run", assure.ProofRunPredicateType, assure.ProofRunFile)
+}
+
+// attestReleaseJob is all the attest-release job may hold: it signs a passed release decision.
+func attestReleaseJob() allowedJob {
+	return signingJob("attest release", "gate-release", "release-decision", "decision",
+		"Check that the predicate is a passed release decision about the commit",
+		`test "$(jq -r '[.commit, .kind, (.passed | tostring)] | join(" ")' "$RUNNER_TEMP/decision/decision.json")" = "$COMMIT release true"`,
+		"Sign and keep the release decision", assure.ReleaseDecisionPredicateType, assure.DecisionFile)
+}
+
+// gateReleaseJob is all the gate-release job may hold: on each push to main, also when the suites or the attest job
+// fail, with read access only, it checks out the commit and the pinned Lathe, builds Lathe, removes the Go problem
+// matcher, runs assure gate release, and uploads the predicate. No step has a condition of its own, so the upload
+// runs only when the gate passed, and none may go on after an error.
+func gateReleaseJob() allowedJob {
+	return allowedJob{
+		keys: map[string]any{
+			"name":            "gate release",
+			"needs":           "attest",
+			"if":              "${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}",
+			"runs-on":         "ubuntu-latest",
+			"timeout-minutes": "15",
+			"permissions":     map[string]any{"contents": "read"},
+		},
+		steps: []map[string]any{
+			{"name": "Require the Lathe deploy key", "env": map[string]any{"LATHE_DEPLOY_KEY": "${{ secrets.LATHE_DEPLOY_KEY }}"},
+				"run": "if [ -z \"$LATHE_DEPLOY_KEY\" ]; then\n" +
+					"  echo \"::error::LATHE_DEPLOY_KEY is not set. The release gate needs the pinned Lathe to measure the coverage.\"\n" +
+					"  exit 1\nfi\n"},
+			{"uses": pinned("actions/checkout"), "with": map[string]any{
+				"ref": "${{ env.COMMIT }}", "fetch-depth": "0", "path": "stego", "persist-credentials": "false"}},
+			{"uses": pinned("actions/checkout"), "with": map[string]any{
+				"repository": "Jared4Robertson/lathe", "ref": "${{ env.LATHE_REF }}", "ssh-key": "${{ secrets.LATHE_DEPLOY_KEY }}",
+				"path": "lathe", "persist-credentials": "false"}},
+			{"uses": pinned("actions/setup-go"), "with": map[string]any{
+				"go-version": anyScalar{}, "cache": "true", "cache-dependency-path": "stego/go.sum"}},
+			{"uses": pinned("actions/setup-node"), "with": map[string]any{"node-version": anyScalar{}}},
+			{"name": "Build the pinned Lathe", "working-directory": "lathe/lathe",
+				"run": "npm ci --no-audit --no-fund\n./node_modules/.bin/tsc -p tsconfig.build.json\nchmod +x dist/bin/lathe.js\n"},
+			{"name": "Remove the Go problem matcher", "run": `echo "::remove-matcher owner=go::"`},
+			{"name": "Gate the release", "working-directory": "stego", "env": map[string]any{"GITHUB_TOKEN": "${{ github.token }}"},
+				"run": `mkdir -p "$RUNNER_TEMP/decision" && go run -mod=readonly ./cmd/assure gate release --commit "$COMMIT" ` +
+					`--predicate "$RUNNER_TEMP/decision/decision.json" --lathe "$GITHUB_WORKSPACE/lathe/lathe/dist/bin/lathe.js"`},
+			{"uses": pinned("actions/upload-artifact"), "with": map[string]any{
+				"name": "release-decision", "path": "${{ runner.temp }}/decision/decision.json", "retention-days": "14", "if-no-files-found": "error"}},
+		},
+	}
 }
