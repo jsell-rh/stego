@@ -287,7 +287,16 @@ func (s Spec) domainOf(id string) string {
 // package under internal or cmd. A folder named testdata, or one whose name starts with a dot or an underscore,
 // holds no package.
 func goPackageOf(name string) (string, bool) {
-	if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+	if strings.HasSuffix(name, "_test.go") {
+		return "", false
+	}
+	return goFolderOf(name)
+}
+
+// goFolderOf is the folder of the Go package under internal or cmd that holds the Go file, a test file too: an
+// external test package (package x_test) sits in the folder of the package it tests.
+func goFolderOf(name string) (string, bool) {
+	if !strings.HasSuffix(name, ".go") {
 		return "", false
 	}
 	if !strings.HasPrefix(name, "internal/") && !strings.HasPrefix(name, "cmd/") {
@@ -303,25 +312,40 @@ func goPackageOf(name string) (string, bool) {
 }
 
 // packageDomains lists, for each Go package under internal or cmd, the domains whose technical records name a
-// file the tree holds in it, in order.
-func packageDomains(spec Spec, tree Tree) map[string][]string {
-	sets := make(map[string]map[string]bool)
-	for _, record := range spec.Technical {
-		dir, ok := goPackageOf(record.File)
-		if !ok {
-			continue
+// file the tree holds in it, or name a folder that holds it, in order. It also tells which packages a technical
+// record names at all, of a domain or of the product as a whole, such as a shared value type.
+func packageDomains(spec Spec, tree Tree) (map[string][]string, map[string]bool) {
+	packages := make(map[string]bool)
+	for _, name := range tree.paths() {
+		if dir, ok := goPackageOf(name); ok {
+			packages[dir] = true
 		}
-		if _, held := tree.File(record.File); !held {
-			continue
+	}
+	sets := make(map[string]map[string]bool)
+	named := make(map[string]bool)
+	for _, record := range spec.Technical {
+		var dirs []string
+		if dir, ok := goPackageOf(record.File); ok {
+			if _, held := tree.File(record.File); held {
+				dirs = append(dirs, dir)
+			}
+		}
+		for dir := range packages {
+			if dir == record.File || strings.HasPrefix(dir, record.File+"/") {
+				dirs = append(dirs, dir)
+			}
 		}
 		domain := spec.domainOf(record.ID)
-		if domain == "" {
-			continue
+		for _, dir := range dirs {
+			named[dir] = true
+			if domain == "" {
+				continue
+			}
+			if sets[dir] == nil {
+				sets[dir] = make(map[string]bool)
+			}
+			sets[dir][domain] = true
 		}
-		if sets[dir] == nil {
-			sets[dir] = make(map[string]bool)
-		}
-		sets[dir][domain] = true
 	}
 	domains := make(map[string][]string, len(sets))
 	for dir, set := range sets {
@@ -330,7 +354,7 @@ func packageDomains(spec Spec, tree Tree) map[string][]string {
 		}
 		sort.Strings(domains[dir])
 	}
-	return domains
+	return domains, named
 }
 
 // packageOfTwoDomains is the predicate of ST-ASR-SP05 (ST-STD-CODE-R01): a Go package under internal or cmd holds
@@ -338,7 +362,8 @@ func packageDomains(spec Spec, tree Tree) map[string][]string {
 // value type counts for no domain. It finds one fault per such package, with its domains.
 func packageOfTwoDomains(spec Spec, tree Tree) []CodeFault {
 	var faults []CodeFault
-	for dir, domains := range packageDomains(spec, tree) {
+	packages, _ := packageDomains(spec, tree)
+	for dir, domains := range packages {
 		if len(domains) > 1 {
 			faults = append(faults, CodeFault{
 				Rule:   RuleOneDomainPerPackage,
@@ -569,17 +594,26 @@ func modulePath(tree Tree) string {
 }
 
 // importAgainstOrder is the predicate of ST-ASR-SP07 (ST-STD-CODE-R03): a package of one domain imports a package
-// of a domain the order does not allow. It reads the imports of every Go file that is not a test in a package
-// under internal or cmd, resolves them against go.mod's module path, and gives each package the domains whose
-// records name its files. A cmd package may import any domain; a package no domain's record names, a shared value
-// type and the standard library belong to no domain. It finds one fault per import against the order, with both
-// packages and the domains of each pair the order does not allow.
+// of a domain the order does not allow. It reads the imports of every Go file in a package under internal or cmd,
+// its test files too, resolves them against go.mod's module path, and gives each package the domains whose records
+// name its files or a folder that holds them. It refuses a tree with no go.mod module path, whose imports it cannot
+// resolve.
+//
+// A cmd package may import any domain; a shared value type and the standard library belong to no domain, and so
+// does a package that only records of the product as a whole name. A package under internal that no technical
+// record names belongs to no domain either, but it is no free bridge: the predicate follows it to what it imports,
+// and a package of a domain that reaches a package of another domain through it is checked as though it imported
+// that package itself. (Such a package is also a fault of ST-STD-CODE-R05.) A bridge's own test files do not count
+// for what it reaches.
+//
+// It finds one fault per package and package it reaches against the order, with both packages, the packages it
+// goes through, and the domains of each pair the order does not allow.
 func importAgainstOrder(spec Spec, tree Tree) ([]CodeFault, error) {
 	module := modulePath(tree)
 	if module == "" {
 		return nil, errors.New("the tree has no go.mod with a module path at its root, so its imports cannot be resolved")
 	}
-	domains := packageDomains(spec, tree)
+	domains, named := packageDomains(spec, tree)
 	title := func(domain string) string {
 		if t := spec.Domains[domain]; t != "" {
 			return t
@@ -587,11 +621,12 @@ func importAgainstOrder(spec Spec, tree Tree) ([]CodeFault, error) {
 		return domain
 	}
 	imports := make(map[string]map[string]bool)
+	testImports := make(map[string]map[string]bool)
 	var faults []CodeFault
 	fset := token.NewFileSet()
 	for _, name := range tree.paths() {
-		dir, ok := goPackageOf(name)
-		if !ok || strings.HasPrefix(dir, "cmd/") || len(domains[dir]) == 0 {
+		dir, ok := goFolderOf(name)
+		if !ok {
 			continue
 		}
 		data, _ := tree.File(name)
@@ -600,19 +635,82 @@ func importAgainstOrder(spec Spec, tree Tree) ([]CodeFault, error) {
 			faults = append(faults, CodeFault{Rule: RuleImportsFollowOrder, Key: name, Path: name, Reason: "its imports cannot be read: " + err.Error()})
 			continue
 		}
+		into := imports
+		if strings.HasSuffix(name, "_test.go") {
+			into = testImports
+		}
 		for _, spec := range file.Imports {
 			imported, err := strconv.Unquote(spec.Path.Value)
 			if err != nil || !strings.HasPrefix(imported, module+"/") {
 				continue
 			}
-			if imports[dir] == nil {
-				imports[dir] = make(map[string]bool)
+			if into[dir] == nil {
+				into[dir] = make(map[string]bool)
 			}
-			imports[dir][strings.TrimPrefix(imported, module+"/")] = true
+			into[dir][strings.TrimPrefix(imported, module+"/")] = true
 		}
 	}
-	for dir, targets := range imports {
-		for target := range targets {
+	sorted := func(set map[string]bool) []string {
+		var keys []string
+		for key := range set {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		return keys
+	}
+	importers := make(map[string]bool)
+	for dir := range imports {
+		importers[dir] = true
+	}
+	for dir := range testImports {
+		importers[dir] = true
+	}
+	for _, dir := range sorted(importers) {
+		if strings.HasPrefix(dir, "cmd/") || len(domains[dir]) == 0 {
+			continue
+		}
+		// reached holds each package the package reaches, with the unnamed packages it goes through ("" when it
+		// imports the package itself).
+		reached := make(map[string]map[string]bool)
+		seen := map[string]bool{dir: true}
+		var visit func(target, through string)
+		visit = func(target, through string) {
+			if target == dir {
+				return
+			}
+			if strings.HasPrefix(target, "internal/") && !named[target] {
+				if seen[target] {
+					return
+				}
+				seen[target] = true
+				if through == "" {
+					through = target
+				}
+				for _, next := range sorted(imports[target]) {
+					visit(next, through)
+				}
+				return
+			}
+			if reached[target] == nil {
+				reached[target] = make(map[string]bool)
+			}
+			reached[target][through] = true
+		}
+		direct := make(map[string]bool)
+		for target := range imports[dir] {
+			direct[target] = true
+		}
+		for target := range testImports[dir] {
+			direct[target] = true
+		}
+		for _, target := range sorted(direct) {
+			visit(target, "")
+		}
+		targets := make(map[string]bool, len(reached))
+		for target := range reached {
+			targets[target] = true
+		}
+		for _, target := range sorted(targets) {
 			var against []string
 			for _, from := range domains[dir] {
 				for _, to := range domains[target] {
@@ -621,14 +719,28 @@ func importAgainstOrder(spec Spec, tree Tree) ([]CodeFault, error) {
 					}
 				}
 			}
-			if len(against) > 0 {
-				faults = append(faults, CodeFault{
-					Rule:   RuleImportsFollowOrder,
-					Key:    dir + " imports " + target,
-					Path:   dir,
-					Reason: "the package imports " + target + " against the domain order: " + strings.Join(against, "; "),
-				})
+			if len(against) == 0 {
+				continue
 			}
+			how := "imports " + target
+			if bridges := sorted(reached[target]); bridges[len(bridges)-1] != "" {
+				var through []string
+				for _, bridge := range bridges {
+					if bridge != "" {
+						through = append(through, bridge)
+					}
+				}
+				how = "reaches " + target + " through " + strings.Join(through, ", ") + ", which no technical record names,"
+				if bridges[0] == "" {
+					how = "imports " + target + ", and reaches it through " + strings.Join(through, ", ") + ", which no technical record names,"
+				}
+			}
+			faults = append(faults, CodeFault{
+				Rule:   RuleImportsFollowOrder,
+				Key:    dir + " imports " + target,
+				Path:   dir,
+				Reason: "the package " + how + " against the domain order: " + strings.Join(against, "; "),
+			})
 		}
 	}
 	sortFaults(faults)

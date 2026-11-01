@@ -82,6 +82,8 @@ func TestPackageOfTwoDomains(t *testing.T) {
 			"entry_point": `{"id":"ST-FXD-ENTRY01","title":"fx","file":"cmd/fx/main.go"}`,
 			"cli_command": `{"id":"ST-FXB-CLI01","title":"fx build","file":"cmd/fx/build.go"}`,
 			"tooling":     `{"id":"ST-FXG-TOOL01","title":"gen.go","file":"internal/clean/testdata/gen.go"}`,
+			"reader":      `{"id":"ST-FXD-RM01-RD","title":"folder.Read","file":"internal/folder/read.go"}`,
+			"generator":   `{"id":"ST-FXS-RC01-G01","title":"templates","file":"internal/folder/"}`,
 		})
 		tree := codeTree(map[string]string{
 			"internal/mixed/declared.go":     "package mixed\n",
@@ -92,18 +94,23 @@ func TestPackageOfTwoDomains(t *testing.T) {
 			"internal/clean/testdata/gen.go": "package gen\n",
 			"cmd/fx/main.go":                 "package main\n",
 			"cmd/fx/build.go":                "package main\n",
+			"internal/folder/read.go":        "package folder\n",
+			"internal/folder/sub/emit.go":    "package sub\n",
 		})
-		domains := packageDomains(spec, tree)
+		domains, _ := packageDomains(spec, tree)
 		want := map[string][]string{
-			"internal/mixed": {"ST-FXD", "ST-FXS"},
-			"internal/clean": {"ST-FXD"},
-			"cmd/fx":         {"ST-FXB", "ST-FXD"},
+			"internal/mixed":      {"ST-FXD", "ST-FXS"},
+			"internal/clean":      {"ST-FXD"},
+			"cmd/fx":              {"ST-FXB", "ST-FXD"},
+			"internal/folder":     {"ST-FXD", "ST-FXS"},
+			"internal/folder/sub": {"ST-FXS"},
 		}
 		if !reflect.DeepEqual(domains, want) {
 			t.Fatalf("package domains = %v, want %v", domains, want)
 		}
 		expectFaults(t, packageOfTwoDomains(spec, tree),
 			CodeFault{Rule: "ST-STD-CODE-R01", Key: "cmd/fx", Path: "cmd/fx", Reason: "the package holds files that the records of more than one domain name: ST-FXB, ST-FXD"},
+			CodeFault{Rule: "ST-STD-CODE-R01", Key: "internal/folder", Path: "internal/folder", Reason: "the package holds files that the records of more than one domain name: ST-FXD, ST-FXS"},
 			CodeFault{Rule: "ST-STD-CODE-R01", Key: "internal/mixed", Path: "internal/mixed", Reason: "the package holds files that the records of more than one domain name: ST-FXD, ST-FXS"},
 		)
 	})
@@ -213,6 +220,10 @@ func TestImportAgainstOrder(t *testing.T) {
 			"internal/declare/declare.go":       imports("declare", "internal/shared"),
 			"internal/declare/reverse.go":       imports("declare", "internal/supply"),
 			"internal/declare/declare_test.go":  imports("declare", "internal/generate"),
+			"internal/supply/ext_test.go":       imports("supply_test", "internal/supply", "internal/generate"),
+			"internal/assure/bridged.go":        imports("assure", "internal/bridge"),
+			"internal/bridge/bridge.go":         imports("bridge", "internal/shared", "internal/declare"),
+			"internal/bridge/bridge_test.go":    imports("bridge", "internal/build"),
 			"internal/supply/supply.go":         imports("supply", "internal/declare", "internal/shared"),
 			"internal/generate/generate.go":     imports("generate", "internal/declare", "internal/supply"),
 			"internal/build/build.go":           imports("build", "internal/generate", "internal/declare"),
@@ -228,8 +239,11 @@ func TestImportAgainstOrder(t *testing.T) {
 			t.Fatal("a tree with no go.mod gave no error, so its imports went unchecked")
 		}
 		expectFaults(t, faults,
+			CodeFault{Rule: "ST-STD-CODE-R03", Key: "internal/assure imports internal/declare", Path: "internal/assure", Reason: "the package reaches internal/declare through internal/bridge, which no technical record names, against the domain order: Assuring (ST-FXA) may not import Declaring (ST-FXD)"},
 			CodeFault{Rule: "ST-STD-CODE-R03", Key: "internal/build imports internal/declare", Path: "internal/build", Reason: "the package imports internal/declare against the domain order: Building (ST-FXB) may not import Declaring (ST-FXD)"},
+			CodeFault{Rule: "ST-STD-CODE-R03", Key: "internal/declare imports internal/generate", Path: "internal/declare", Reason: "the package imports internal/generate against the domain order: Declaring (ST-FXD) may not import Generating (ST-FXG)"},
 			CodeFault{Rule: "ST-STD-CODE-R03", Key: "internal/declare imports internal/supply", Path: "internal/declare", Reason: "the package imports internal/supply against the domain order: Declaring (ST-FXD) may not import Supplying (ST-FXS)"},
+			CodeFault{Rule: "ST-STD-CODE-R03", Key: "internal/supply imports internal/generate", Path: "internal/supply", Reason: "the package imports internal/generate against the domain order: Supplying (ST-FXS) may not import Generating (ST-FXG)"},
 		)
 	})
 }
