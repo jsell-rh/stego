@@ -4,11 +4,12 @@
 # Each rule test proves that:
 #   - the tree at this commit has no fault of the rule outside this list;
 #   - this list holds no fault of the rule that the tree no longer has;
-#   - this list holds no line that the list at the commit's first parent does not hold (the ratchet).
-# Thus each commit removes lines or keeps them, and never adds one. When you fix a fault, remove its line in the
-# same commit. Do not add a line for a new fault: fix the fault. When the repository does not hold the parent
-# commit, as in a shallow clone, the ratchet is not checked there; the change gate compares a change with its
-# base (ST-ASR-UC02-R05).
+#   - this list holds no fault, by rule and key, that the list at the base commit does not hold (the ratchet). The
+#     base is the commit ASSURE_RATCHET_BASE names, or else the first parent. A fault may change its reason while
+#     its key stands.
+# Where the base is the first parent, the ratchet holds for the commit under test only: the last commit of a push,
+# or a whole pull request through its merge ref. In a shallow clone without the parent and with no base given,
+# the rule tests are skipped. When you fix a fault, remove its line in the same commit. Do not add a fault: fix it.
 # One fault per line, sorted, each fault once: the rule, the key, the file or package, and the reason, with a tab
 # between them.
 ST-STD-CODE-R01	internal/compiler	internal/compiler	the package holds files that the records of more than one domain name: ST-BLD, ST-DECL, ST-GEN

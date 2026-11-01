@@ -637,16 +637,44 @@ func difference(a, b []CodeFault) []CodeFault {
 	return only
 }
 
-// parentKnownCodeFaults reads the list of known faults at HEAD's first parent: the lines of faults, and whether
-// there is a list to compare with. There is none when HEAD has no parent the repository holds (the first commit,
-// or a shallow clone, such as the depth-1 checkout of CI, which leaves the parent out), or when the parent's spec
-// has no record of the list or its file.
-func parentKnownCodeFaults(t *testing.T, root string) (map[string]bool, bool) {
+// ratchetBaseVariable names the environment variable that gives the base commit of the ratchet, such as a pull
+// request's base, which the proof run sets after it fetches that commit.
+const ratchetBaseVariable = "ASSURE_RATCHET_BASE"
+
+// ratchetBase is the commit whose list of known faults the ratchet compares with: the commit that
+// ASSURE_RATCHET_BASE names when it is set, else HEAD's first parent. It gives "" and why when there is no base to
+// compare with, and skip is true when the rule tests must be skipped rather than pass with the ratchet unchecked:
+// in a shallow clone that leaves the parent out, such as CI's depth-1 checkout, with no base given. A first commit
+// has no parent, and there the ratchet is not checked.
+func ratchetBase(t *testing.T, root string) (commit, why string, skip bool) {
 	t.Helper()
-	if _, err := git(root, "rev-parse", "--verify", "--quiet", "HEAD^1^{commit}"); err != nil {
-		return nil, false
+	if base := os.Getenv(ratchetBaseVariable); base != "" {
+		out, err := git(root, "rev-parse", "--verify", "--quiet", base+"^{commit}")
+		if err != nil {
+			t.Fatalf("%s=%s names no commit the repository holds: %v", ratchetBaseVariable, base, err)
+		}
+		return strings.TrimSpace(string(out)), "", false
 	}
-	spec, err := ReadCommittedSpec(root, "HEAD^1")
+	if out, err := git(root, "rev-parse", "--verify", "--quiet", "HEAD^1^{commit}"); err == nil {
+		return strings.TrimSpace(string(out)), "", false
+	}
+	shallow, err := git(root, "rev-parse", "--is-shallow-repository")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(shallow)) == "true" {
+		return "", "the clone is shallow and does not hold HEAD's first parent, and " + ratchetBaseVariable +
+			" gives no base, so the ratchet cannot be checked: fetch the parent (fetch-depth: 2) or set " + ratchetBaseVariable, true
+	}
+	return "", "HEAD has no parent, so the ratchet is not checked", false
+}
+
+// baseKnownCodeFaults reads the list of known faults at the base commit: the rule and key of each fault, and
+// whether there is a list. There is none when the base's spec has no record of the list or the base has no file
+// for it, as before the list was made.
+func baseKnownCodeFaults(t *testing.T, root, base string) (map[[2]string]bool, bool) {
+	t.Helper()
+	spec, err := ReadCommittedSpec(root, base)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -659,25 +687,24 @@ func parentKnownCodeFaults(t *testing.T, root string) (map[string]bool, bool) {
 	if file == "" {
 		return nil, false
 	}
-	if listed, err := git(root, "ls-tree", "--name-only", "HEAD^1", "--", file); err != nil || len(listed) == 0 {
+	if listed, err := git(root, "ls-tree", "--name-only", base, "--", file); err != nil || len(listed) == 0 {
 		return nil, false
 	}
-	data, err := git(root, "cat-file", "blob", "HEAD^1:"+file)
+	data, err := git(root, "cat-file", "blob", base+":"+file)
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := make(map[string]bool)
+	keys := make(map[[2]string]bool)
 	for _, line := range strings.Split(string(data), "\n") {
-		if strings.TrimSpace(line) != "" && !strings.HasPrefix(line, "#") {
-			lines[line] = true
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) >= 2 {
+			keys[[2]string{fields[0], fields[1]}] = true
 		}
 	}
-	return lines, true
-}
-
-// faultLine is a fault as a line of the list of known faults.
-func faultLine(fault CodeFault) string {
-	return strings.Join([]string{fault.Rule, fault.Key, fault.Path, fault.Reason}, "\t")
+	return keys, true
 }
 
 // TestOwnTree runs each predicate over STEGO's own tree and spec at the commit under test, HEAD, read from git
@@ -685,10 +712,15 @@ func faultLine(fault CodeFault) string {
 // faults (ST-ASR-TOOL03) stays until it is empty. Each rule's test proves three things:
 //   - the tree has no fault of the rule outside the list at the same commit;
 //   - the list holds no fault of the rule that the tree no longer has;
-//   - the ratchet: the list holds no line of the rule that the list at HEAD's first parent does not hold. Thus each
-//     commit removes lines or keeps them, never adds one, and so does each commit of a pull request. When the
-//     repository does not hold the parent, as in a shallow clone, or the parent has no list, the ratchet is not
-//     checked; the test logs it. The change gate compares a change with its base (ST-ASR-UC02-R05) in any case.
+//   - the ratchet: the list holds no fault of the rule, by rule and key, that the list at the base commit does not
+//     hold. The base is the commit ASSURE_RATCHET_BASE names, or else HEAD's first parent. A fault whose reason
+//     changes while its key stands, such as a package that goes from three domains to two, passes the ratchet.
+//
+// Where the base is HEAD's first parent, the ratchet holds for the commit under test only: for the last commit of
+// a push, or, on a pull request whose merge ref is checked out, for the whole change against the base branch's
+// tip. In a shallow clone that does not hold the parent, with no base given, each rule test is skipped, as it
+// cannot check the ratchet. A first commit has no parent; the test logs that the ratchet is not checked. The change
+// gate compares a change with its base (ST-ASR-UC02-R05) in any case.
 //
 // The list must be sorted and hold each fault once. CodeFaults must give the same faults as the predicate.
 //
@@ -718,9 +750,17 @@ func TestOwnTree(t *testing.T) {
 		t.Fatalf("the spec at HEAD has no record %s that names a file of the tree", knownCodeFaultsRecord)
 	}
 	known, listError := readKnownCodeFaults(data)
-	parent, ratchet := parentKnownCodeFaults(t, root)
-	if !ratchet {
-		t.Log("the repository holds no list of known faults at HEAD's first parent, so the ratchet is not checked")
+	base, why, skip := ratchetBase(t, root)
+	var baseKeys map[[2]string]bool
+	ratchet := false
+	if base != "" {
+		baseKeys, ratchet = baseKnownCodeFaults(t, root, base)
+		if !ratchet {
+			why = "the base commit " + base + " has no list of known faults, so the ratchet is not checked"
+		}
+	}
+	if why != "" && !skip {
+		t.Log(why)
 	}
 	all, err := CodeFaults(spec, tree)
 	if err != nil {
@@ -728,6 +768,9 @@ func TestOwnTree(t *testing.T) {
 	}
 	check := func(t *testing.T, rule string, got []CodeFault) {
 		t.Helper()
+		if skip {
+			t.Skip(why)
+		}
 		if listError != nil {
 			t.Fatalf("the list of known faults (%s): %v", list.File, listError)
 		}
@@ -759,12 +802,12 @@ func TestOwnTree(t *testing.T) {
 		}
 		var grown []CodeFault
 		for _, fault := range listed {
-			if ratchet && !parent[faultLine(fault)] {
+			if ratchet && !baseKeys[[2]string{fault.Rule, fault.Key}] {
 				grown = append(grown, fault)
 			}
 		}
 		if len(grown) > 0 {
-			problems = append(problems, fmt.Sprintf("%d lines of %s are not in the list at HEAD's first parent; the list may only get shorter, so fix these faults:\n%s", len(grown), list.File, faultLines(grown)))
+			problems = append(problems, fmt.Sprintf("%d faults of %s, by rule and key, are not in the list at the base commit %s; the list may only get shorter, so fix these faults:\n%s", len(grown), list.File, base, faultLines(grown)))
 		}
 		if len(problems) > 0 {
 			t.Fatal(strings.Join(problems, "\n"))
