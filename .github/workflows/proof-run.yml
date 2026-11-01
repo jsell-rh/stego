@@ -229,3 +229,105 @@ jobs:
         run: >-
           go run -mod=readonly ./cmd/assure gate change --commit "$COMMIT" --base "$BASE"
           --lathe "$GITHUB_WORKSPACE/lathe/lathe/dist/bin/lathe.js"
+
+  # Gate a release (ST-ASR-UC03). On each push to main, once the proof run is attested, the gate-release job gates
+  # the commit pushed on its own: every obligation designed, built and proved, every automated proof passed in a
+  # proof run signed at main, and no code-standard fault in the tree. It reads the attestation from GitHub's store,
+  # verifies it, and measures the coverage with the pinned Lathe, as the gate job does. A refused release fails the
+  # job and writes no predicate. A passed decision is written as decision.json under the runner's temporary folder,
+  # outside the checkout, and uploaded; the attest-release job then runs no code of the repository, names the commit
+  # as the subject as the attest job does, and has GitHub's attestation action sign the decision with this
+  # workflow's keyless identity at main and keep it (ST-ASR-INV09), so release qualification can verify it.
+  gate-release:
+    name: gate release
+    needs: attest
+    # !cancelled(): when the suites or the attest job fail, the release gate still runs and refuses the release for
+    # want of a verified proof run.
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Require the Lathe deploy key
+        env:
+          LATHE_DEPLOY_KEY: ${{ secrets.LATHE_DEPLOY_KEY }}
+        run: |
+          if [ -z "$LATHE_DEPLOY_KEY" ]; then
+            echo "::error::LATHE_DEPLOY_KEY is not set. The release gate needs the pinned Lathe to measure the coverage."
+            exit 1
+          fi
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.COMMIT }}
+          fetch-depth: 0
+          path: stego
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: Jared4Robertson/lathe
+          ref: ${{ env.LATHE_REF }}
+          ssh-key: ${{ secrets.LATHE_DEPLOY_KEY }}
+          path: lathe
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26.10'
+          cache: true
+          cache-dependency-path: stego/go.sum
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24.18.1'
+      - name: Build the pinned Lathe
+        working-directory: lathe/lathe
+        run: |
+          npm ci --no-audit --no-fund
+          ./node_modules/.bin/tsc -p tsconfig.build.json
+          chmod +x dist/bin/lathe.js
+      - name: Gate the release
+        working-directory: stego
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          mkdir -p "$RUNNER_TEMP/decision" &&
+          go run -mod=readonly ./cmd/assure gate release --commit "$COMMIT" --predicate "$RUNNER_TEMP/decision/decision.json"
+          --lathe "$GITHUB_WORKSPACE/lathe/lathe/dist/bin/lathe.js"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-decision
+          path: ${{ runner.temp }}/decision/decision.json
+          retention-days: 14
+          if-no-files-found: error
+
+  attest-release:
+    name: attest release
+    needs: gate-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: release-decision
+          path: ${{ runner.temp }}/decision
+      - name: Check that the predicate is a passed release decision about the commit
+        run: test "$(jq -r '[.commit, .kind, (.passed | tostring)] | join(" ")' "$RUNNER_TEMP/decision/decision.json")" = "$COMMIT release true"
+      - name: Name the commit as the subject
+        id: subject
+        run: |
+          case "$COMMIT" in
+            *[!0-9a-f]*) echo "::error::$COMMIT is not a full commit ID"; exit 1 ;;
+          esac
+          test "${#COMMIT}" -eq 40
+          digest="$(printf '%s' "$COMMIT" | sha256sum | cut -d ' ' -f 1)"
+          echo "name=git+$GITHUB_SERVER_URL/$GITHUB_REPOSITORY@$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "digest=sha256:$digest" >> "$GITHUB_OUTPUT"
+      - name: Sign and keep the release decision
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ steps.subject.outputs.name }}
+          subject-digest: ${{ steps.subject.outputs.digest }}
+          predicate-type: https://github.com/jsell-rh/stego/assure/release-decision/v1
+          predicate-path: ${{ runner.temp }}/decision/decision.json

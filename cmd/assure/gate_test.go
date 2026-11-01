@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -515,6 +517,8 @@ func noVerifiedProofRunAt(commit string) string {
 }
 
 type gateStep struct {
+	ID               string            `yaml:"id"`
+	If               string            `yaml:"if"`
 	Name             string            `yaml:"name"`
 	Uses             string            `yaml:"uses"`
 	Run              string            `yaml:"run"`
@@ -644,6 +648,35 @@ func noPredicate(t *testing.T, name, predicate string) {
 	}
 }
 
+// releaseDecision is the decision predicate as the attestation job reads it.
+type releaseDecision struct {
+	Commit     string   `json:"commit"`
+	Kind       string   `json:"kind"`
+	Passed     bool     `json:"passed"`
+	Reasons    []string `json:"reasons"`
+	CodeFaults []string `json:"codeFaults"`
+}
+
+// readReleaseDecision reads the decision predicate, and refuses a field it does not know.
+func readReleaseDecision(t *testing.T, file string) releaseDecision {
+	t.Helper()
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		releaseDecision
+		Coverage map[string]int `json:"coverage"`
+		ProofRun map[string]any `json:"proofRun"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&document); err != nil {
+		t.Fatalf("the decision predicate does not read: %v:\n%s", err, data)
+	}
+	return document.releaseDecision
+}
+
 func TestGateRelease(t *testing.T) {
 	t.Run("ST-ASR-UC03-R01-T01 A release is refused while any obligation is not designed, built and proved, and each such obligation is named", func(t *testing.T) {
 		g := newGateRepository(t)
@@ -684,6 +717,131 @@ func TestGateRelease(t *testing.T) {
 		refusedRelease(t, "a skipped test", g.release(t, full, g.keep(t, "skipped", skipped), predicate), predicate, "FX-VO01-C01-T skipped")
 
 		decided(t, "every automated test passed", g.release(t, full, g.keep(t, "passed", proofRun(full, mainRef, 46, allPassed...)), predicate), 0)
+	})
+
+	t.Run("ST-ASR-UC03-R03-T01 The release gate job runs on a push to main, and only the attest-release job, which runs no repository code, signs a passed decision with the commit as subject", func(t *testing.T) {
+		workflow := readWorkflow(t)
+		gates, ok := readGateWorkflow(t).Jobs["gate-release"]
+		if !ok {
+			t.Fatal("the proof run workflow has no gate-release job")
+		}
+		if len(gates.Needs) != 1 || gates.Needs[0] != "attest" {
+			t.Fatalf("the gate-release job needs %v, want the attest job", gates.Needs)
+		}
+		if gates.If != "${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}" {
+			t.Fatalf("the gate-release job runs when %q, want on each push to main, also when the suites or the attest job fail", gates.If)
+		}
+		if len(gates.Permissions) != 1 || gates.Permissions["contents"] != "read" {
+			t.Fatalf("the gate-release job's permissions are %v, want only contents: read", gates.Permissions)
+		}
+		var checkout, run, upload *gateStep
+		for i, step := range gates.Steps {
+			if action, pin, ok := strings.Cut(step.Uses, "@"); step.Uses != "" && (!ok || len(pin) != 40 || action == "") {
+				t.Fatalf("step %q uses %s, which is not pinned to a commit", step.Name, step.Uses)
+			}
+			if strings.HasPrefix(step.Uses, "actions/checkout@") && step.With["path"] == "stego" {
+				checkout = &gates.Steps[i]
+			}
+			if strings.Contains(step.Run, "./cmd/assure gate release") {
+				run = &gates.Steps[i]
+			}
+			if strings.HasPrefix(step.Uses, "actions/upload-artifact@") {
+				upload = &gates.Steps[i]
+			}
+			if strings.Contains(step.Run, "npm ci") && step.WorkingDirectory != "lathe/lathe" {
+				t.Fatalf("step %q installs packages that the commit names: %s", step.Name, step.Run)
+			}
+		}
+		if checkout == nil || checkout.With["ref"] != "${{ env.COMMIT }}" || checkout.With["fetch-depth"] != "0" {
+			t.Fatalf("the gate-release job does not check out the commit with its full history: %+v", checkout)
+		}
+		if run == nil || run.WorkingDirectory != "stego" ||
+			!strings.Contains(run.Run, `gate release --commit "$COMMIT" --predicate "$RUNNER_TEMP/decision/decision.json"`) ||
+			!strings.Contains(run.Run, `--lathe "$GITHUB_WORKSPACE/lathe/lathe/dist/bin/lathe.js"`) {
+			t.Fatalf("the gate-release job does not gate the commit with the Lathe the workflow builds: %+v", run)
+		}
+		// The upload has no condition of its own, so it runs only when the gate passed.
+		if upload == nil || upload.If != "" || upload.With["name"] != "release-decision" ||
+			upload.With["path"] != "${{ runner.temp }}/decision/decision.json" || upload.With["if-no-files-found"] != "error" {
+			t.Fatalf("the gate-release job does not upload the predicate only when the release passed: %+v", upload)
+		}
+
+		signers := 0
+		for name, job := range workflow.Jobs {
+			if job.Permissions["id-token"] != "" || job.Permissions["attestations"] != "" {
+				signers++
+				if name != "attest" && name != "attest-release" {
+					t.Fatalf("the job %s may get an identity token or write attestations", name)
+				}
+			}
+		}
+		attest := workflow.Jobs["attest-release"]
+		if signers != 2 || len(attest.Permissions) != 2 || attest.Permissions["id-token"] != "write" || attest.Permissions["attestations"] != "write" {
+			t.Fatalf("the attest-release job's permissions are %v, want only id-token and attestations", attest.Permissions)
+		}
+		if len(attest.Needs) != 1 || attest.Needs[0] != "gate-release" {
+			t.Fatalf("the attest-release job needs %v, want the gate-release job", attest.Needs)
+		}
+		var download, signs *workflowStep
+		for i, step := range attest.Steps {
+			if strings.HasPrefix(step.Uses, "actions/checkout@") || strings.HasPrefix(step.Uses, "actions/setup-") {
+				t.Fatalf("the attest-release job checks out or sets up code: %s", step.Uses)
+			}
+			for _, word := range []string{"go ", "python", "npm", "node ", "make", "./"} {
+				if strings.Contains(step.Run, word) {
+					t.Fatalf("the attest-release job's step %q runs %q", step.Name, word)
+				}
+			}
+			if action, pin, ok := strings.Cut(step.Uses, "@"); step.Uses != "" && (!ok || len(pin) != 40 || action == "") {
+				t.Fatalf("step %q uses %s, which is not pinned to a commit", step.Name, step.Uses)
+			}
+			if strings.HasPrefix(step.Uses, "actions/download-artifact@") {
+				download = &attest.Steps[i]
+			}
+			if strings.HasPrefix(step.Uses, "actions/attest@") {
+				signs = &attest.Steps[i]
+			}
+		}
+		if download == nil || download.With["name"] != "release-decision" || download.With["path"] != "${{ runner.temp }}/decision" {
+			t.Fatalf("the attest-release job does not download the decision predicate: %+v", download)
+		}
+		if signs == nil {
+			t.Fatal("the attest-release job does not sign the decision with actions/attest")
+		}
+		for input, value := range map[string]string{
+			"subject-name":   "${{ steps.subject.outputs.name }}",
+			"subject-digest": "${{ steps.subject.outputs.digest }}",
+			"predicate-type": assure.ReleaseDecisionPredicateType,
+			"predicate-path": "${{ runner.temp }}/decision/decision.json",
+		} {
+			if signs.With[input] != value {
+				t.Fatalf("the attestation action's %s is %q, want %q", input, signs.With[input], value)
+			}
+		}
+
+		commit := strings.Repeat("ab", 20)
+		name, digest, err := runJobSubjectStep(t, "attest-release", commit)
+		sum := sha256.Sum256([]byte(commit))
+		if err != nil || name != "git+https://github.com/jsell-rh/stego@"+commit || digest != "sha256:"+hex.EncodeToString(sum[:]) {
+			t.Fatalf("the attest-release job names the subject %s (%s), %v, not the commit %s", name, digest, err, commit)
+		}
+		if _, _, err := runJobSubjectStep(t, "attest-release", "main"); err == nil {
+			t.Fatal("the attest-release job names a branch as the subject")
+		}
+		passed := `{"commit": "` + commit + `", "kind": "release", "passed": true, "reasons": []}`
+		if err := runDecisionCheck(t, commit, passed); err != nil {
+			t.Fatalf("the attest-release job refuses a passed release decision about the commit: %v", err)
+		}
+		for name, document := range map[string]string{
+			"about another commit": strings.Replace(passed, commit, strings.Repeat("cd", 20), 1),
+			"refused":              strings.Replace(passed, `"passed": true`, `"passed": false`, 1),
+			"of the change gate":   strings.Replace(passed, `"kind": "release"`, `"kind": "change"`, 1),
+			"with no kind":         `{"commit": "` + commit + `", "passed": true}`,
+		} {
+			if err := runDecisionCheck(t, commit, document); err == nil {
+				t.Fatalf("the attest-release job accepts a decision %s", name)
+			}
+		}
 	})
 
 	t.Run("ST-ASR-UC03-R04-T01 A release commit whose tree has a code-standard fault is refused, and each fault is named with its file and rule", func(t *testing.T) {
@@ -727,6 +885,125 @@ func TestGateRelease(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-ASR-INV09-T A passed release decision is handed to the attestation action about its commit, for the trusted signer at main, and nothing else is", func(t *testing.T) {
+		g := newGateRepository(t)
+		full := g.commit(t, g.base, fullyProved)
+		passed := g.keep(t, "passed", proofRun(full, mainRef, 51, allPassed...))
+		predicate := g.releasePredicate(t)
+		result := g.release(t, full, passed, predicate)
+		decided(t, "a fully proved commit", result, 0)
+		if !strings.Contains(result.stdout, "attestation: "+assure.ReleaseDecisionPredicateType+" about "+full+", for "+proofRunWorkflow+"@"+mainRef+" (issuer "+assure.GitHubIssuer+") to sign\n") {
+			t.Fatalf("the passed decision does not name the attestation the trusted signer is to make:\n%s", result.stdout)
+		}
+		if decision := readReleaseDecision(t, predicate); decision.Commit != full || decision.Kind != "release" || !decision.Passed || len(decision.Reasons) != 0 {
+			t.Fatalf("the predicate is not a passed release decision about %s: %+v", full, decision)
+		}
+
+		for name, env := range map[string]string{
+			"in a job of the trusted workflow at a pull request's ref": "GITHUB_WORKFLOW_REF=jsell-rh/stego/.github/workflows/proof-run.yml@" + pullRef,
+			"in a job of another workflow":                             "GITHUB_WORKFLOW_REF=jsell-rh/stego/.github/workflows/checks.yml@" + mainRef,
+		} {
+			other := filepath.Join(g.runnerTemp, "decision", "other.json")
+			result := g.release(t, full, passed, other, env)
+			if result.code != 2 || result.stdout != "" || !strings.Contains(result.stderr, "is not the provider's trusted signer "+proofRunWorkflow+" at "+mainRef) {
+				t.Fatalf("%s: assure gate release exits %d:\n%s%s", name, result.code, result.stdout, result.stderr)
+			}
+			noPredicate(t, name, other)
+		}
+
+		refusedPredicate := filepath.Join(g.runnerTemp, "decision", "refused.json")
+		failed := g.keep(t, "failed", proofRun(full, mainRef, 52, "FX-LEND-INV01-T failed", "FX-LEND-INV02-T passed", "FX-LEND-INV03-T passed", "FX-VO01-C01-T passed"))
+		refused := g.release(t, full, failed, refusedPredicate)
+		refusedRelease(t, "a refused release", refused, refusedPredicate, "FX-LEND-INV01-T failed")
+		if strings.Contains(refused.stdout, "attestation:") {
+			t.Fatalf("the refused decision names an attestation:\n%s", refused.stdout)
+		}
+
+		inside := filepath.Join(g.root, "decision.json")
+		if result := g.release(t, full, passed, inside); result.code != 2 || !strings.Contains(result.stderr, "inside the repository") {
+			t.Fatalf("a predicate inside the repository: assure gate release exits %d:\n%s%s", result.code, result.stdout, result.stderr)
+		}
+		noPredicate(t, "a predicate inside the repository", inside)
+		if status := g.git(t, "status", "--porcelain", "--untracked-files=all"); status != "" {
+			t.Fatalf("assure gate release wrote into the repository: %s", status)
+		}
+
+		var signs *workflowStep
+		steps := readWorkflow(t).Jobs["attest-release"].Steps
+		for i, step := range steps {
+			if strings.HasPrefix(step.Uses, "actions/attest@") {
+				signs = &steps[i]
+			}
+		}
+		if signs == nil || signs.With["predicate-type"] != assure.ReleaseDecisionPredicateType || signs.With["subject-digest"] != "${{ steps.subject.outputs.digest }}" {
+			t.Fatalf("the attest-release job does not sign the decision with its commit as subject: %+v", signs)
+		}
+		name, _, err := runJobSubjectStep(t, "attest-release", full)
+		if err != nil || name != "git+https://github.com/jsell-rh/stego@"+full {
+			t.Fatalf("the attest-release job names the subject %s (%v), not the release commit", name, err)
+		}
+	})
+}
+
+// runJobSubjectStep runs, with bash, the step with the ID subject of the job, as GitHub Actions would for the
+// commit, and returns the subject name and digest it gives.
+func runJobSubjectStep(t *testing.T, job, commit string) (string, string, error) {
+	t.Helper()
+	var script string
+	for _, step := range readWorkflow(t).Jobs[job].Steps {
+		if step.ID == "subject" {
+			script = step.Run
+		}
+	}
+	if script == "" {
+		t.Fatalf("the %s job has no step with the ID subject", job)
+	}
+	outputs := filepath.Join(t.TempDir(), "github-output")
+	writeFile(t, outputs, "")
+	command := exec.Command("bash", "-e", "-c", script)
+	command.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"COMMIT=" + commit,
+		"GITHUB_SERVER_URL=https://github.com",
+		"GITHUB_REPOSITORY=jsell-rh/stego",
+		"GITHUB_OUTPUT=" + outputs,
+	}
+	if out, err := command.CombinedOutput(); err != nil {
+		return "", "", fmt.Errorf("%v: %s", err, out)
+	}
+	data, err := os.ReadFile(outputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		key, value, _ := strings.Cut(line, "=")
+		values[key] = value
+	}
+	return values["name"], values["digest"], nil
+}
+
+// runDecisionCheck runs, with bash, the attest-release job's step that checks the downloaded predicate, on the
+// decision document given.
+func runDecisionCheck(t *testing.T, commit, document string) error {
+	t.Helper()
+	var script string
+	for _, step := range readWorkflow(t).Jobs["attest-release"].Steps {
+		if step.Name == "Check that the predicate is a passed release decision about the commit" {
+			script = step.Run
+		}
+	}
+	if script == "" {
+		t.Fatal("the attest-release job has no step that checks the decision predicate")
+	}
+	runnerTemp := t.TempDir()
+	writeFile(t, filepath.Join(runnerTemp, "decision", "decision.json"), document)
+	command := exec.Command("bash", "-e", "-c", script)
+	command.Env = []string{"PATH=" + os.Getenv("PATH"), "COMMIT=" + commit, "RUNNER_TEMP=" + runnerTemp}
+	if out, err := command.CombinedOutput(); err != nil {
+		return fmt.Errorf("%v: %s", err, out)
+	}
+	return nil
 }
 
 func TestGateChangeCodeStandard(t *testing.T) {
