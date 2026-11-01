@@ -15,8 +15,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  # Let active push checks finish. New pull requests can replace obsolete checks.
+  # A push has a group of its own: release qualification needs the checks run of each commit on main, and a newer
+  # push must not replace the pending run of an older one. New pull requests can replace obsolete checks.
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

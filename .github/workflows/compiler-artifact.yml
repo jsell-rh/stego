@@ -2,22 +2,10 @@ name: Compiler artifact check
 
 on:
   workflow_dispatch:
+  # Every push to main builds and signs the compiler: the publish-release job of proof-run.yml publishes the
+  # release of each commit whose release gate passed, from this run at the commit (ST-DIS-UC11-R04).
   push:
-    paths:
-      - '.github/workflows/compiler-artifact.yml'
-      - 'scripts/check-compiler-artifact.py'
-      - 'scripts/test_compiler_artifact.py'
-      - 'scripts/prepare-compiler-toolchain.py'
-      - 'scripts/test_compiler_toolchain.py'
-      - 'scripts/verify-compiler-artifact.py'
-      - 'scripts/install-compiler.py'
-      - 'scripts/test_compiler_install.py'
-      - 'scripts/test_compiler_verification.py'
-      - 'scripts/check-compiler-provenance.py'
-      - 'cmd/**'
-      - 'internal/**'
-      - 'go.mod'
-      - 'go.sum'
+    branches: [main]
   pull_request:
     paths:
       - '.github/workflows/compiler-artifact.yml'
@@ -38,8 +26,9 @@ on:
 permissions:
   contents: read
 
+# A push to main has a group of its own, so a newer push never replaces the pending run of an older commit.
 concurrency:
-  group: compiler-artifact-${{ github.ref }}
+  group: compiler-artifact-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: false
 
 jobs:
