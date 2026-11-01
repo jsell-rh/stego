@@ -63,6 +63,37 @@ def signer_policy(gh, path, revision, bundle):
             "--deny-self-hosted-runners", "--format", "json"]
 
 
+DECISION_PREDICATE = "https://github.com/jsell-rh/stego/assure/release-decision/v1"
+
+
+def decision_result(revision, **predicate):
+    # A verified release decision, in the shape of gh attestation verify.
+    result = json.loads(json.dumps(SIGNATURE_RESULT[0]))
+    certificate = result["verificationResult"]["signature"]["certificate"]
+    for name in ["subjectAlternativeName", "buildSignerURI"]:
+        certificate[name] = ("https://github.com/jsell-rh/stego/.github/workflows/proof-run.yml"
+                             "@refs/heads/main")
+    for name in ["githubWorkflowSHA", "buildSignerDigest", "sourceRepositoryDigest"]:
+        certificate[name] = revision
+    document = {"commit": revision, "kind": "release", "passed": True}
+    document.update(predicate)
+    result["verificationResult"]["statement"] = {"predicateType": DECISION_PREDICATE,
+                                                 "predicate": document}
+    return result
+
+
+def decision_policy(gh, path, revision):
+    return [str(gh), "attestation", "verify", str(path),
+            "--hostname", "github.com", "--repo", "jsell-rh/stego",
+            "--signer-digest", revision,
+            "--cert-identity",
+            "https://github.com/jsell-rh/stego/.github/workflows/proof-run.yml@refs/heads/main",
+            "--cert-oidc-issuer", "https://token.actions.githubusercontent.com",
+            "--source-ref", "refs/heads/main", "--source-digest", revision,
+            "--predicate-type", DECISION_PREDICATE, "--digest-alg", "sha256",
+            "--deny-self-hosted-runners", "--format", "json"]
+
+
 class QualificationChecks(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -85,6 +116,12 @@ class QualificationChecks(unittest.TestCase):
                              for name in [BINARY, "build.json"]
                              for source in ["bundle", "store"]}
         self.signature_calls = []
+        self.decisions = [decision_result(self.revision)]
+        # Every qualification first verifies the release decision through
+        # GitHub CLI. The fixture answers for the decision and the signatures.
+        command = patch.object(qualification.control, "command", self.signature_command)
+        command.start()
+        self.addCleanup(command.stop)
 
     def run_record(self, identity, path, branch):
         return {"id": identity, "run_attempt": 1, "path": path, "event": "workflow_dispatch",
@@ -181,9 +218,16 @@ class QualificationChecks(unittest.TestCase):
                 "bundle_sha256": hashlib.sha256(b"fixture signatures").hexdigest()}
 
     def signature_command(self, args, cwd, env, **keyword):
-        # Stands in for GitHub CLI: one signature per file and source.
-        self.signature_calls.append(args)
+        # Stands in for GitHub CLI: one signature per file and source, and the
+        # release decisions attested at the commit.
         path = Path(args[3])
+        if DECISION_PREDICATE in args:
+            self.assertEqual(path.read_bytes(), self.revision.encode())
+            self.assertEqual(args, decision_policy(self.gh, path, self.revision))
+            if not self.decisions:
+                raise CheckError("no attestation")
+            return json.dumps(self.decisions).encode()
+        self.signature_calls.append(args)
         source = "bundle" if "--bundle" in args else "store"
         self.assertEqual(args, signer_policy(self.gh, path, self.revision,
                                              path.parent / "provenance.jsonl"
@@ -240,6 +284,31 @@ class QualificationChecks(unittest.TestCase):
                              self.release["assets"][0]["digest"])
             self.assertEqual(release["signatures_name_signed_artifact_run"], 202)
             self.assertTrue(result["signed_artifact"]["artifacts_retained"])
+
+    def test_qualification_requires_a_passed_release_decision(self):
+        with patch.object(qualification, "api", self.api):
+            result = self.qualify()
+        self.assertEqual(result["release_decision"]["commit"], self.revision)
+        self.assertTrue(result["release_decision"]["passed"])
+        self.output.joinpath("qualification.json").unlink()
+        self.output.rmdir()
+        other = decision_result(self.revision)
+        other["verificationResult"]["signature"]["certificate"]["sourceRepositoryDigest"] = "b" * 40
+        for decisions, message in [
+                ([], "No release decision attested at"),
+                ([decision_result(self.revision, passed=False)], "No passed release decision"),
+                ([decision_result(self.revision, commit="b" * 40)], "No passed release decision"),
+                ([decision_result(self.revision, kind="change")], "No passed release decision"),
+                ([other], "names another commit"),
+                ([{"verificationResult": {}}], "no certificate or statement")]:
+            with self.subTest(message=message, decisions=len(decisions)):
+                self.decisions = decisions
+                with patch.object(qualification, "api", self.api):
+                    with self.assertRaisesRegex(CheckError, message):
+                        self.qualify()
+                with self.assertRaisesRegex(CheckError, message):
+                    self.verify_release()
+                self.assertFalse(self.output.exists())
 
     def test_missing_checks_run_fails(self):
         def without_checks(gh, path, directory, **keyword):
