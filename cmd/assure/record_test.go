@@ -21,7 +21,7 @@ import (
 // record end to end as a process, with its own environment, working folder and exit code.
 func TestMain(m *testing.M) {
 	if os.Getenv("ASSURE_TEST_MAIN") == "1" {
-		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, os.Getenv))
+		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, os.Getenv, fixtureProvider))
 	}
 	os.Exit(m.Run())
 }
