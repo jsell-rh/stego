@@ -471,7 +471,7 @@ func TestGateChange(t *testing.T) {
 			if strings.HasPrefix(step.Uses, "actions/checkout@") && step.With["path"] == "stego" {
 				checkout = &gate.Steps[i]
 			}
-			if strings.Contains(step.Run, "./cmd/assure gate change") {
+			if strings.Contains(step.Run, "go run -C cmd/assure -mod=readonly . gate change") {
 				run = &gate.Steps[i]
 			}
 			if strings.Contains(step.Run, "npm ci") && step.WorkingDirectory != "lathe/lathe" {
