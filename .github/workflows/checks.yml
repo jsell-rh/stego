@@ -2,9 +2,9 @@ name: Compiler checks
 
 on:
   workflow_dispatch:
+  # Every push runs the checks, also one that changes only documents: release qualification needs the checks run
+  # of each commit on main that the release gate passes.
   push:
-    paths-ignore:
-      - '**/*.md'
   pull_request:
 
 env:

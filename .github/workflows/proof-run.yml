@@ -493,17 +493,25 @@ jobs:
             jq -e '.total_count <= 100 and (.workflow_runs | type == "array")' "$work/runs.json" > /dev/null
             # The newest successful run of compiler-artifact.yml on main at exactly the commit, from a push or a
             # dispatch of main: the provenance job signs only there.
-            jq -r --arg commit "$COMMIT" '[.workflow_runs[] | select(.path == ".github/workflows/compiler-artifact.yml"
+            found="$(jq -r --arg commit "$COMMIT" '[.workflow_runs[] | select(.path == ".github/workflows/compiler-artifact.yml"
                 and .head_sha == $commit and .head_branch == "main"
                 and (.event == "push" or .event == "workflow_dispatch")
                 and .status == "completed" and .conclusion == "success")]
-              | max_by(.id) | if . == null then "" else "\(.id) \(.run_attempt)" end' "$work/runs.json" > "$work/run"
-            if [ -s "$work/run" ]; then
+              | max_by(.id) | if . == null then "" else "\(.id) \(.run_attempt)" end' "$work/runs.json")"
+            if [ -n "$found" ]; then
+              echo "$found" > "$work/run"
               break
             fi
+            seen="$(jq -r '[.workflow_runs[] | select(.path == ".github/workflows/compiler-artifact.yml")
+              | "\(.id) (\(.event) on \(.head_branch), \(.status), \(.conclusion // "no conclusion"))"] | join(", ")' "$work/runs.json")"
+            # When every run of compiler-artifact.yml at the commit has completed and none is a success on main,
+            # waiting cannot help.
+            if jq -e '[.workflow_runs[] | select(.path == ".github/workflows/compiler-artifact.yml")]
+                | length > 0 and all(.[]; .status == "completed")' "$work/runs.json" > /dev/null; then
+              echo "::error::Every run of compiler-artifact.yml at $COMMIT has completed, and none succeeded on main from a push or a dispatch. Runs at the commit: $seen. Nothing is published."
+              exit 1
+            fi
             if [ "$SECONDS" -ge "$deadline" ]; then
-              seen="$(jq -r '[.workflow_runs[] | select(.path == ".github/workflows/compiler-artifact.yml")
-                | "\(.id) (\(.event) on \(.head_branch), \(.status), \(.conclusion // "no conclusion"))"] | join(", ")' "$work/runs.json")"
               echo "::error::No run of compiler-artifact.yml at $COMMIT on main succeeded within $RUN_WAIT_SECONDS seconds. Runs at the commit: ${seen:-none}. Nothing is published."
               exit 1
             fi
@@ -637,14 +645,14 @@ jobs:
             exit 1
           fi
           if ! jq -e '.immutable == true' "$work/release.json" > /dev/null; then
-            echo "::error::The release $tag is not immutable. Enable release immutability in the repository settings; the owner must remove this release and its tag, and the commit needs a new merge commit."
+            echo "::error::The release $tag is not immutable. The owner must enable release immutability in the repository settings, then delete this release and its tag; the commit needs a new merge commit to be published."
             exit 1
           fi
           gh api --hostname github.com graphql -f owner="${REPOSITORY%/*}" -f name="${REPOSITORY#*/}" -f tag="$tag" \
             -f query='query($owner: String!, $name: String!, $tag: String!) { repository(owner: $owner, name: $name) { release(tagName: $tag) { isLatest } } }' \
             > "$work/latest.json"
           if ! jq -e '.data.repository.release.isLatest == false' "$work/latest.json" > /dev/null; then
-            echo "::error::The release $tag is the latest release. A compiler release is never the latest."
+            echo "::error::The release $tag is the latest release, and a compiler release is never the latest. The owner must mark the previous latest release as latest explicitly (make_latest), so that GitHub does not mark the newest release by date, then delete this release and its tag; the commit needs a new merge commit to be published."
             exit 1
           fi
           url="$(jq -r .html_url "$work/release.json")"
@@ -679,9 +687,19 @@ jobs:
         run: |
           set -euo pipefail
           deadline=$((SECONDS + RUN_WAIT_SECONDS))
-          until gh api --hostname github.com "repos/$REPOSITORY/actions/runs?head_sha=$COMMIT&per_page=100" \
-            | jq -e '[.workflow_runs[] | select(.path == ".github/workflows/checks.yml" and .head_branch == "main")]
-                | length > 0 and all(.[]; .status == "completed")' > /dev/null; do
+          runs="$RUNNER_TEMP/checks-runs.json"
+          while :; do
+            gh api --hostname github.com "repos/$REPOSITORY/actions/runs?head_sha=$COMMIT&per_page=100" > "$runs"
+            # The checks run starts from the same push as this run, so it exists by now, or it never will.
+            if ! jq -e '[.workflow_runs[] | select(.path == ".github/workflows/checks.yml" and .head_branch == "main")]
+                | length > 0' "$runs" > /dev/null; then
+              echo "::error::No checks run exists at $COMMIT on main. The release is not qualified."
+              exit 1
+            fi
+            if jq -e '[.workflow_runs[] | select(.path == ".github/workflows/checks.yml" and .head_branch == "main")]
+                | all(.[]; .status == "completed")' "$runs" > /dev/null; then
+              break
+            fi
             if [ "$SECONDS" -ge "$deadline" ]; then
               echo "::error::The checks run at $COMMIT did not complete within $RUN_WAIT_SECONDS seconds. The release is not qualified."
               exit 1

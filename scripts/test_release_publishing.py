@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import zipfile
 
@@ -137,6 +138,8 @@ elif args[:2] == ["release", "create"]:
     assets = []
     for number, name in enumerate(files, 301):
         data = Path(name).read_bytes()
+        if state["upload_changes"] and number == 301:
+            data += b"changed in upload"
         (here / ("asset-" + str(number))).write_bytes(data)
         state["api"]["repos/jsell-rh/stego/releases/assets/" + str(number)] = {"file": "asset-" + str(number)}
         assets.append({"id": number, "name": Path(name).name, "size": len(data),
@@ -206,7 +209,7 @@ class World:
             "compiler-attestation": {"attestation.json": self.bundle}}
         self.state = {
             "commit": commit, "bundle": sha256(self.bundle), "immutable": True, "latest": {},
-            "latest_anyway": False,
+            "latest_anyway": False, "upload_changes": False,
             "signers": {DECISION_PREDICATE: ".github/workflows/proof-run.yml",
                         COMPILER_PREDICATE: ".github/workflows/compiler-artifact.yml"},
             "attestations": {}, "api": {}}
@@ -530,6 +533,67 @@ class ReleasePublishing(unittest.TestCase):
                              [("stego-linux-amd64", world.binary), ("build.json", world.build)]).encode()
         return {"build.json": world.build, "SHA256SUMS": world.sums}
 
+    def artifact_runs(self, *runs):
+        self.world.state["api"]["repos/jsell-rh/stego/actions/runs?head_sha=" + self.world.commit
+                                + "&per_page=100"] = self.world.runs(*runs)
+
+    def test_the_signed_artifact_run_is_found_and_awaited(self):
+        with self.subTest("ST-DIS-UC11-R02-T02 The job takes the newest successful compiler-artifact.yml run on main at the commit from a push or a dispatch, waits for it within a bound, and stops naming the runs when none can succeed"):
+            artifact = ".github/workflows/compiler-artifact.yml"
+            world = lambda name: self.new_world(name)
+            # Decoys with higher IDs than the signed run 202: each one that a filter lets through is taken first,
+            # and has no artifacts, so publishing fails.
+            self.world = world("decoys")
+            run = self.world.run
+            self.artifact_runs(
+                run(ARTIFACT_RUN, artifact), run(150, artifact),
+                run(300, artifact, conclusion="failure"),
+                run(301, artifact, head_branch="feature"),
+                run(302, artifact, event="pull_request"),
+                run(303, ".github/workflows/application-build.yml"),
+                run(304, artifact, status="in_progress", conclusion=None))
+            published = self.publish()
+            self.assert_published(published)
+            self.assertIn("The signed artifact run is 202, attempt 1.", published.log)
+            self.assertIn("https://github.com/jsell-rh/stego/actions/runs/202/attempts/1",
+                          self.world.load()["api"]["repos/jsell-rh/stego/releases/tags/" + self.world.tag]["body"])
+            # A dispatch of main counts as a push does.
+            self.world = world("dispatch")
+            self.artifact_runs(self.world.run(ARTIFACT_RUN, artifact, event="workflow_dispatch"))
+            self.assert_published(self.publish())
+            # The run is in progress at the first look and succeeds at the second: the job waits for it.
+            self.world = world("waits")
+            runs = "repos/jsell-rh/stego/actions/runs?head_sha=" + self.world.commit + "&per_page=100"
+            self.world.state["api"][runs] = {"sequence": [
+                self.world.runs(self.world.run(ARTIFACT_RUN, artifact, status="in_progress", conclusion=None)),
+                self.world.runs(self.world.run(ARTIFACT_RUN, artifact))]}
+            self.assert_published(self.publish(RUN_WAIT_SECONDS="60", RUN_POLL_SECONDS="0"))
+            self.assertEqual(sum(1 for call in self.world.calls() if call[-1] == runs), 2)
+            # A run still in progress at the bound fails the job, naming the run.
+            self.world = world("bound")
+            self.artifact_runs(self.world.run(ARTIFACT_RUN, artifact, status="in_progress", conclusion=None))
+            self.assert_nothing_published(self.publish(RUN_WAIT_SECONDS="0", RUN_POLL_SECONDS="0"),
+                                          "No run of compiler-artifact.yml at " + self.world.commit
+                                          + " on main succeeded within 0 seconds. Runs at the commit: 202 (push on"
+                                          " main, in_progress, no conclusion).")
+            # Every run has completed and none can be taken: the job stops at once, naming the runs.
+            stopped = [
+                ("a failed run", [run(ARTIFACT_RUN, artifact, conclusion="failure")],
+                 "202 (push on main, completed, failure)"),
+                ("a pull request run", [run(ARTIFACT_RUN, artifact, event="pull_request")],
+                 "202 (pull_request on main, completed, success)"),
+                ("a run on another branch", [run(ARTIFACT_RUN, artifact, head_branch="feature")],
+                 "202 (push on feature, completed, success)")]
+            for label, runs_found, named in stopped:
+                self.world = world(re.sub(r"\W+", "-", label))
+                self.artifact_runs(*runs_found)
+                started = time.monotonic()
+                self.assert_nothing_published(self.publish(RUN_WAIT_SECONDS="30", RUN_POLL_SECONDS="1"),
+                                              "Every run of compiler-artifact.yml at " + self.world.commit
+                                              + " has completed, and none succeeded on main from a push or a"
+                                              " dispatch. Runs at the commit: " + named + ".")
+                self.assertLess(time.monotonic() - started, 20, label)
+
     def test_immutable_and_never_the_latest(self):
         with self.subTest("ST-DIS-UC11-R03-T01 The release is created not latest and must be immutable; an existing tag or release stops publishing and names the tag"):
             run = self.publish()
@@ -545,9 +609,13 @@ class ReleasePublishing(unittest.TestCase):
                     "repos/jsell-rh/stego/releases?per_page=100": [{"tag_name": tag, "draft": True}]}),
                  "A release " + tag + " exists.", False),
                 ("a release that is not immutable", lambda world: world.state.update(immutable=False),
-                 "The release " + tag + " is not immutable. Enable release immutability", True),
+                 "The release " + tag + " is not immutable. The owner must enable release immutability in the repository"
+                 " settings, then delete this release and its tag; the commit needs a new merge commit", True),
                 ("a release that is the latest", lambda world: world.state.update(latest_anyway=True),
-                 "The release " + tag + " is the latest release.", True)]
+                 "The release " + tag + " is the latest release, and a compiler release is never the latest. The owner"
+                 " must mark the previous latest release as latest explicitly (make_latest)", True),
+                ("an upload that changes an asset", lambda world: world.state.update(upload_changes=True),
+                 "The release " + tag + " is not exactly the four verified assets at", True)]
             for label, change, message, created in refused:
                 self.world = self.new_world(re.sub(r"\W+", "-", label))
                 change(self.world)
@@ -666,6 +734,47 @@ class ReleasePublishing(unittest.TestCase):
             self.assertNotEqual(run.status, 0)
             self.assertIn("No release decision attested at " + self.world.commit, run.log)
             self.assertFalse(self.qualification_folder().exists())
+            # A release output that names another release qualifies nothing.
+            self.world = self.new_world("other-release")
+            published = self.publish()
+            self.assert_published(published)
+            self.world.clear_calls()
+            run = run_job(self.world, "qualify-release", ROOT,
+                          needs={"publish-release": {"release": "compiler-" + "b" * 40}})
+            self.assertNotEqual(run.status, 0)
+            self.assertIn("The published release compiler-" + "b" * 40 + " is not the release of " + self.world.commit,
+                          run.log)
+            self.assertFalse(self.qualification_folder().exists())
+            self.assertFalse(any(DECISION_PREDICATE in call for call in self.world.calls()))
+            # No checks run at the commit: the job says so at once and qualifies nothing.
+            checks = ".github/workflows/checks.yml"
+            artifact = ".github/workflows/compiler-artifact.yml"
+            runs = "repos/jsell-rh/stego/actions/runs?head_sha={}&per_page=100"
+            self.world = self.new_world("no-checks")
+            published = self.publish()
+            self.world.load()
+            self.world.state["api"][runs.format(self.world.commit)] = self.world.runs(
+                self.world.run(ARTIFACT_RUN, artifact))
+            self.world.save()
+            started = time.monotonic()
+            run = run_job(self.world, "qualify-release", ROOT, needs={"publish-release": published.outputs})
+            self.assertNotEqual(run.status, 0)
+            self.assertIn("No checks run exists at " + self.world.commit + " on main.", run.log)
+            self.assertLess(time.monotonic() - started, 20)
+            self.assertFalse(self.qualification_folder().exists())
+            # The checks run is in progress at the first look and completes at the second: the job waits for it.
+            self.world = self.new_world("checks-wait")
+            published = self.publish()
+            self.world.load()
+            self.world.state["api"][runs.format(self.world.commit)] = {"sequence": [
+                self.world.runs(self.world.run(CHECKS_RUN, checks, status="in_progress", conclusion=None),
+                                self.world.run(ARTIFACT_RUN, artifact)),
+                self.world.runs(self.world.run(CHECKS_RUN, checks), self.world.run(ARTIFACT_RUN, artifact))]}
+            self.world.save()
+            run = run_job(self.world, "qualify-release", ROOT, needs={"publish-release": published.outputs},
+                          override={"RUN_POLL_SECONDS": "0"})
+            self.assertEqual(run.status, 0, run.log)
+            self.assertTrue(self.qualification_folder().joinpath("qualification.json").exists())
 
 
 @unittest.skipUnless(sys.platform == "linux", "qualification runs GitHub CLI as a Linux process")
