@@ -12,6 +12,7 @@
 {"id":"ST-DIS-EV05-ET","title":"qualify","domain_event_id":"ST-DIS-EV05","delivery":"in process","file":"scripts/qualify-compiler-release.py"}
 {"id":"ST-DIS-EV06-ET","title":"verify_published_release","domain_event_id":"ST-DIS-EV06","delivery":"in process","file":"scripts/qualify-compiler-release.py"}
 {"id":"ST-DIS-EV07-ET","title":"install","domain_event_id":"ST-DIS-EV07","delivery":"in process","file":"scripts/install-compiler.py"}
+{"id":"ST-DIS-EV08-ET","title":"publish-release.outputs.release","domain_event_id":"ST-DIS-EV08","delivery":"in process","file":".github/workflows/proof-run.yml"}
 {"id":"ST-DLV-EV01-ET","title":"delivery.RequirementsWritten","domain_event_id":"ST-DLV-EV01","delivery":"outbox","file":"internal/delivery/events.go"}
 {"id":"ST-DLV-EV02-ET","title":"delivery.PipelineWritten","domain_event_id":"ST-DLV-EV02","delivery":"in process","file":"internal/delivery/events.go"}
 {"id":"ST-DLV-EV03-ET","title":"delivery.BaseWritten","domain_event_id":"ST-DLV-EV03","delivery":"in process","file":"internal/delivery/events.go"}

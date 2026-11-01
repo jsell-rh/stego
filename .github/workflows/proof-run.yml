@@ -29,8 +29,10 @@ on:
 permissions:
   contents: read
 
+# A push has a group of its own: each push to main gets its release decision and its release (ST-DIS-UC11-R04),
+# and a newer push must not replace the pending run of an older one. A newer pull request run cancels the older.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -414,3 +416,287 @@ jobs:
           subject-digest: ${{ steps.subject.outputs.digest }}
           predicate-type: https://github.com/jsell-rh/stego/assure/release-decision/v1
           predicate-path: ${{ runner.temp }}/decision/decision.json
+
+  # Publish a compiler release (ST-DIS-UC11). The publish-release job hears Release decided (ST-DIS-PO06): it needs
+  # the attest-release job and runs only when the release gate passed, so on a push to main only, in the same run as
+  # the decision. A refused decision skips it: nothing is published, and the run stays green with the gate's notice
+  # line (ST-DIS-UC11-R04). It is the only job that can write releases, and it runs no code of the repository
+  # (ST-DIS-UC11-R05): it checks out nothing, and its steps are shell with gh, jq, unzip and coreutils only.
+  #
+  # It does not trust the job outputs it follows. It verifies the release decision itself, as a consumer does
+  # (ST-DIS-UC11-R01). It finds the signed artifact run of compiler-artifact.yml at the commit, which starts from the
+  # same push and can still run, and waits for it within a bound. It downloads the compiler artifact and the
+  # signature bundle by their artifact IDs, checks each archive against the digest that GitHub lists for that ID,
+  # and verifies the executable and the build record against their signatures from that run (ST-DIS-UC11-R02). It
+  # refuses a tag or a release that exists, then creates compiler-<commit> at the full commit with exactly the four
+  # assets, never the latest, and fails when the release is not immutable or is the latest (ST-DIS-UC11-R03).
+  # Release immutability is a repository setting: the job cannot set it, so it fails when the setting is off.
+  # The job output release names the tag: it is Compiler release published (ST-DIS-EV08).
+  #
+  # actions: read lets the job list the runs and download their artifacts by ID; contents: write lets it create the
+  # release and its tag. The job gets no identity token and writes no attestation.
+  publish-release:
+    name: publish release
+    needs: [gate-release, attest-release]
+    if: ${{ needs.gate-release.outputs.passed == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: jsell-rh/stego
+    outputs:
+      release: ${{ steps.publish.outputs.release }}
+    steps:
+      - name: Verify the passed release decision at the commit
+        run: |
+          set -euo pipefail
+          case "$COMMIT" in
+            ''|*[!0-9a-f]*) echo "::error::$COMMIT is not a full commit ID. Nothing is published."; exit 1 ;;
+          esac
+          test "${#COMMIT}" -eq 40
+          work="$RUNNER_TEMP/publish"
+          mkdir -p "$work"
+          # The subject of the decision is the commit ID: this file holds exactly its bytes.
+          printf '%s' "$COMMIT" > "$work/commit"
+          if ! gh attestation verify "$work/commit" --hostname github.com --repo "$REPOSITORY" \
+            --signer-digest "$COMMIT" \
+            --cert-identity "https://github.com/$REPOSITORY/.github/workflows/proof-run.yml@refs/heads/main" \
+            --cert-oidc-issuer https://token.actions.githubusercontent.com \
+            --source-ref refs/heads/main --source-digest "$COMMIT" \
+            --predicate-type https://github.com/jsell-rh/stego/assure/release-decision/v1 \
+            --digest-alg sha256 --deny-self-hosted-runners --format json > "$work/decision.json"; then
+            echo "::error::No release decision attested at $COMMIT by proof-run.yml at refs/heads/main verifies. Nothing is published."
+            exit 1
+          fi
+          if ! jq -e --arg commit "$COMMIT" 'type == "array" and any(.[];
+              .verificationResult.signature.certificate.sourceRepositoryDigest == $commit
+              and .verificationResult.statement.predicate.commit == $commit
+              and .verificationResult.statement.predicate.kind == "release"
+              and .verificationResult.statement.predicate.passed == true)' "$work/decision.json" > /dev/null; then
+            echo "::error::No passed release decision is attested at $COMMIT. Nothing is published."
+            exit 1
+          fi
+          echo "The release decision at $COMMIT passed, signed by proof-run.yml at refs/heads/main."
+      - name: Find the signed artifact run at the commit
+        env:
+          RUN_WAIT_SECONDS: '2700'
+          RUN_POLL_SECONDS: '30'
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/publish"
+          deadline=$((SECONDS + RUN_WAIT_SECONDS))
+          while :; do
+            gh api --hostname github.com "repos/$REPOSITORY/actions/runs?head_sha=$COMMIT&per_page=100" > "$work/runs.json"
+            jq -e '.total_count <= 100 and (.workflow_runs | type == "array")' "$work/runs.json" > /dev/null
+            # The newest successful run of compiler-artifact.yml on main at exactly the commit, from a push or a
+            # dispatch of main: the provenance job signs only there.
+            jq -r --arg commit "$COMMIT" '[.workflow_runs[] | select(.path == ".github/workflows/compiler-artifact.yml"
+                and .head_sha == $commit and .head_branch == "main"
+                and (.event == "push" or .event == "workflow_dispatch")
+                and .status == "completed" and .conclusion == "success")]
+              | max_by(.id) | if . == null then "" else "\(.id) \(.run_attempt)" end' "$work/runs.json" > "$work/run"
+            if [ -s "$work/run" ]; then
+              break
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              seen="$(jq -r '[.workflow_runs[] | select(.path == ".github/workflows/compiler-artifact.yml")
+                | "\(.id) (\(.event) on \(.head_branch), \(.status), \(.conclusion // "no conclusion"))"] | join(", ")' "$work/runs.json")"
+              echo "::error::No run of compiler-artifact.yml at $COMMIT on main succeeded within $RUN_WAIT_SECONDS seconds. Runs at the commit: ${seen:-none}. Nothing is published."
+              exit 1
+            fi
+            sleep "$RUN_POLL_SECONDS"
+          done
+          read -r run attempt < "$work/run"
+          echo "The signed artifact run is $run, attempt $attempt."
+      - name: Fetch the four assets by their artifact IDs and verify them
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/publish"
+          read -r run attempt < "$work/run"
+          gh api --hostname github.com "repos/$REPOSITORY/actions/runs/$run/artifacts?per_page=100" > "$work/artifacts.json"
+          jq -e '.total_count <= 100 and (.artifacts | type == "array") and (.artifacts | length) == .total_count' "$work/artifacts.json" > /dev/null
+          for kind in compiler-linux-amd64 compiler-attestation; do
+            name="$kind-$COMMIT"
+            if ! jq -e --arg name "$name" '[.artifacts[] | select(.name == $name)] | length == 1' "$work/artifacts.json" > /dev/null; then
+              echo "::error::Run $run does not hold exactly one artifact $name. Nothing is published."
+              exit 1
+            fi
+            jq -r --arg name "$name" '.artifacts[] | select(.name == $name) | "\(.id) \(.digest) \(.expired)"' "$work/artifacts.json" > "$work/$kind.identity"
+            read -r id digest expired < "$work/$kind.identity"
+            case "$id" in
+              ''|*[!0-9]*) echo "::error::The artifact $name has no valid ID. Nothing is published."; exit 1 ;;
+            esac
+            if [ "$expired" != false ] || ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "::error::The artifact $name (ID $id) expired or has no valid digest. Nothing is published."
+              exit 1
+            fi
+            # A fixed API path with the immutable artifact ID, never a name or a URL from a response.
+            gh api --hostname github.com "repos/$REPOSITORY/actions/artifacts/$id/zip" > "$work/$kind.zip"
+            if [ "sha256:$(sha256sum "$work/$kind.zip" | cut -d ' ' -f 1)" != "$digest" ]; then
+              echo "::error::The artifact $name (ID $id) does not match the digest that run $run lists for it. Nothing is published."
+              exit 1
+            fi
+          done
+          # Each archive holds exactly the files the signed artifact run puts in it, and nothing else.
+          if [ "$(unzip -Z1 "$work/compiler-linux-amd64.zip" | LC_ALL=C sort | tr '\n' ' ')" != "SHA256SUMS build.json stego-linux-amd64 " ] \
+            || [ "$(unzip -Z1 "$work/compiler-attestation.zip" | tr '\n' ' ')" != "attestation.json " ]; then
+            echo "::error::The artifacts of run $run do not hold exactly the executable, its build record, SHA256SUMS and the signature bundle. Nothing is published."
+            exit 1
+          fi
+          assets="$work/assets"
+          rm -rf "$assets"
+          mkdir "$assets"
+          unzip -q "$work/compiler-linux-amd64.zip" -d "$assets"
+          unzip -p "$work/compiler-attestation.zip" attestation.json > "$assets/provenance.jsonl"
+          cd "$assets"
+          # SHA256SUMS lists exactly the executable and the build record.
+          if ! sha256sum stego-linux-amd64 build.json | cmp -s - SHA256SUMS; then
+            echo "::error::SHA256SUMS of run $run does not match the executable and the build record. Nothing is published."
+            exit 1
+          fi
+          # The compiler's signer policy, as scripts/verify-compiler-artifact.py holds it, and the signing run.
+          for file in stego-linux-amd64 build.json; do
+            if ! gh attestation verify "$file" --bundle provenance.jsonl --hostname github.com --repo "$REPOSITORY" \
+              --signer-digest "$COMMIT" \
+              --cert-identity "https://github.com/$REPOSITORY/.github/workflows/compiler-artifact.yml@refs/heads/main" \
+              --cert-oidc-issuer https://token.actions.githubusercontent.com \
+              --source-ref refs/heads/main --source-digest "$COMMIT" \
+              --predicate-type https://slsa.dev/provenance/v1 \
+              --digest-alg sha256 --deny-self-hosted-runners --format json > "$work/$file.verified.json"; then
+              echo "::error::The signature of $file from run $run does not verify. Nothing is published."
+              exit 1
+            fi
+            if ! jq -e --arg run "https://github.com/$REPOSITORY/actions/runs/$run/attempts/$attempt" --arg commit "$COMMIT" \
+              'type == "array" and length > 0 and all(.[];
+                .verificationResult.signature.certificate.runInvocationURI == $run
+                and .verificationResult.signature.certificate.sourceRepositoryDigest == $commit)' "$work/$file.verified.json" > /dev/null; then
+              echo "::error::The signature of $file does not name run $run, attempt $attempt, at $COMMIT. Nothing is published."
+              exit 1
+            fi
+          done
+          binary_sha256="$(sha256sum stego-linux-amd64 | cut -d ' ' -f 1)"
+          if ! jq -e --arg commit "$COMMIT" --arg sha256 "$binary_sha256" --argjson size "$(stat -c %s stego-linux-amd64)" '
+              .format == 1 and .source_revision == $commit
+              and .artifact == {"name": "stego-linux-amd64", "sha256": $sha256, "size": $size}
+              and .version.build.goos == "linux" and .version.build.goarch == "amd64"
+              and .version.build.revision == $commit and .version.build.vcs == "git"
+              and .version.build.source_state == "clean"' build.json > /dev/null; then
+            echo "::error::The signed build record does not describe this executable at $COMMIT. Nothing is published."
+            exit 1
+          fi
+          echo "The four assets of run $run are verified."
+      - name: Publish the release
+        id: publish
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/publish"
+          assets="$work/assets"
+          read -r run attempt < "$work/run"
+          tag="compiler-$COMMIT"
+          # A release or a tag is never replaced (ST-DIS-INV10): an existing tag or release stops publishing.
+          gh api --hostname github.com "repos/$REPOSITORY/git/matching-refs/tags/$tag" > "$work/tags.json"
+          if ! jq -e --arg ref "refs/tags/$tag" 'type == "array" and all(.[]; .ref != $ref)' "$work/tags.json" > /dev/null; then
+            echo "::error::The tag $tag exists. A tag is never replaced: the commit needs a new merge commit. Nothing is published."
+            exit 1
+          fi
+          gh api --hostname github.com --paginate "repos/$REPOSITORY/releases?per_page=100" > "$work/releases.json"
+          if ! jq -s -e --arg tag "$tag" 'all(.[]; type == "array" and all(.[]; .tag_name != $tag))' "$work/releases.json" > /dev/null; then
+            echo "::error::A release $tag exists. A release is never replaced: the commit needs a new merge commit. Nothing is published."
+            exit 1
+          fi
+          {
+            echo "Compiler release from main at $COMMIT."
+            echo
+            echo "The release gate passed at this commit: proof-run.yml at refs/heads/main attested the release decision."
+            echo "The compiler-artifact workflow run $run, attempt $attempt, built and signed the assets: https://github.com/$REPOSITORY/actions/runs/$run/attempts/$attempt"
+            echo "Binary sha256: $(sha256sum "$assets/stego-linux-amd64" | cut -d ' ' -f 1)"
+            echo "Build record sha256: $(sha256sum "$assets/build.json" | cut -d ' ' -f 1)"
+          } > "$work/notes.md"
+          gh release create "$tag" --repo "$REPOSITORY" --target "$COMMIT" --latest=false \
+            --title "Compiler release $COMMIT" --notes-file "$work/notes.md" \
+            "$assets/stego-linux-amd64" "$assets/build.json" "$assets/SHA256SUMS" "$assets/provenance.jsonl"
+          gh api --hostname github.com "repos/$REPOSITORY/releases/tags/$tag" > "$work/release.json"
+          ( cd "$assets" && for file in stego-linux-amd64 build.json SHA256SUMS provenance.jsonl; do
+              echo "$file sha256:$(sha256sum "$file" | cut -d ' ' -f 1)"
+            done ) | LC_ALL=C sort > "$work/expected-assets"
+          jq -r '.assets[] | "\(.name) \(.digest)"' "$work/release.json" | LC_ALL=C sort > "$work/published-assets"
+          if ! jq -e --arg tag "$tag" --arg commit "$COMMIT" '.tag_name == $tag and .target_commitish == $commit
+              and .draft == false and .prerelease == false and (.assets | length == 4)
+              and all(.assets[]; .state == "uploaded")' "$work/release.json" > /dev/null \
+            || ! cmp -s "$work/expected-assets" "$work/published-assets"; then
+            echo "::error::The release $tag is not exactly the four verified assets at $COMMIT."
+            exit 1
+          fi
+          gh api --hostname github.com "repos/$REPOSITORY/git/matching-refs/tags/$tag" > "$work/tags.json"
+          if ! jq -e --arg ref "refs/tags/$tag" --arg commit "$COMMIT" '[.[] | select(.ref == $ref)]
+              | length == 1 and .[0].object.type == "commit" and .[0].object.sha == $commit' "$work/tags.json" > /dev/null; then
+            echo "::error::The tag $tag does not point at $COMMIT."
+            exit 1
+          fi
+          if ! jq -e '.immutable == true' "$work/release.json" > /dev/null; then
+            echo "::error::The release $tag is not immutable. Enable release immutability in the repository settings; the owner must remove this release and its tag, and the commit needs a new merge commit."
+            exit 1
+          fi
+          gh api --hostname github.com graphql -f owner="${REPOSITORY%/*}" -f name="${REPOSITORY#*/}" -f tag="$tag" \
+            -f query='query($owner: String!, $name: String!, $tag: String!) { repository(owner: $owner, name: $name) { release(tagName: $tag) { isLatest } } }' \
+            > "$work/latest.json"
+          if ! jq -e '.data.repository.release.isLatest == false' "$work/latest.json" > /dev/null; then
+            echo "::error::The release $tag is the latest release. A compiler release is never the latest."
+            exit 1
+          fi
+          url="$(jq -r .html_url "$work/release.json")"
+          echo "release=$tag" >> "$GITHUB_OUTPUT"
+          echo "Compiler release published: $url" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # Qualify the published release (ST-DIS-PO05): the qualify-release job hears Compiler release published through the
+  # publish-release job's output, and runs scripts/qualify-compiler-release.py --verify-release for the commit in
+  # the same run. The script verifies the passed release decision at the commit (ST-DIS-UC08-R04), requires the
+  # checks run and the signed artifact run, and installs the release through the consumer path. It waits, within a
+  # bound, for the checks run at the commit to complete, since that run starts from the same push. It may only read.
+  qualify-release:
+    name: qualify release
+    needs: publish-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: jsell-rh/stego
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.COMMIT }}
+          persist-credentials: false
+      - name: Wait for the checks run at the commit
+        env:
+          RUN_WAIT_SECONDS: '1800'
+          RUN_POLL_SECONDS: '30'
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + RUN_WAIT_SECONDS))
+          until gh api --hostname github.com "repos/$REPOSITORY/actions/runs?head_sha=$COMMIT&per_page=100" \
+            | jq -e '[.workflow_runs[] | select(.path == ".github/workflows/checks.yml" and .head_branch == "main")]
+                | length > 0 and all(.[]; .status == "completed")' > /dev/null; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::The checks run at $COMMIT did not complete within $RUN_WAIT_SECONDS seconds. The release is not qualified."
+              exit 1
+            fi
+            sleep "$RUN_POLL_SECONDS"
+          done
+      - name: Qualify the published release through the consumer path
+        env:
+          RELEASE: ${{ needs.publish-release.outputs.release }}
+        run: |
+          set -euo pipefail
+          if [ "$RELEASE" != "compiler-$COMMIT" ]; then
+            echo "::error::The published release $RELEASE is not the release of $COMMIT."
+            exit 1
+          fi
+          timeout --signal=TERM --kill-after=5s 15m python3 -B scripts/qualify-compiler-release.py \
+            --revision "$COMMIT" --output "$RUNNER_TEMP/qualification" --gh "$(command -v gh)" --verify-release
+          echo "The release $RELEASE is qualified at $COMMIT."
