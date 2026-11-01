@@ -6,7 +6,8 @@
 {"source_id":"ST-DIS-PO02","target_id":"ST-SUP-EV05"}
 {"source_id":"ST-DIS-PO03","target_id":"ST-SUP-EV06"}
 {"source_id":"ST-DIS-PO04","target_id":"ST-DIS-EV05"}
-{"source_id":"ST-DIS-PO05","target_id":"ST-ASR-EV03"}
+{"source_id":"ST-DIS-PO05","target_id":"ST-DIS-EV08"}
+{"source_id":"ST-DIS-PO06","target_id":"ST-ASR-EV03"}
 {"source_id":"ST-DLV-PO01","target_id":"ST-DIS-EV04"}
 {"source_id":"ST-DLV-PO02","target_id":"ST-DIS-EV06"}
 {"source_id":"ST-DLV-PO03","target_id":"ST-BLD-EV06"}

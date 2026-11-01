@@ -111,6 +111,11 @@
 {"source_id":"ST-DIS-UC10-FL01-S01","target_id":"ST-DIS-QRY05"}
 {"source_id":"ST-DIS-UC10-FL01-S02","target_id":"ST-DIS-QRY05"}
 {"source_id":"ST-DIS-UC10-FL01-S03","target_id":"ST-DIS-QRY05"}
+{"source_id":"ST-DIS-UC11-FL01-S01","target_id":"ST-DIS-CMD08"}
+{"source_id":"ST-DIS-UC11-FL01-S02","target_id":"ST-DIS-CMD08"}
+{"source_id":"ST-DIS-UC11-FL01-S03","target_id":"ST-DIS-CMD08"}
+{"source_id":"ST-DIS-UC11-FL01-S04","target_id":"ST-DIS-CMD08"}
+{"source_id":"ST-DIS-UC11-FL01-S05","target_id":"ST-DIS-CMD08"}
 {"source_id":"ST-DLV-UC01-FL01-S01","target_id":"ST-DLV-CMD01"}
 {"source_id":"ST-DLV-UC01-FL01-S02","target_id":"ST-DLV-CMD01"}
 {"source_id":"ST-DLV-UC01-FL01-S03","target_id":"ST-DLV-CMD01"}

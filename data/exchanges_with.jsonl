@@ -4,6 +4,11 @@
 {"source_id":"ST-ASR-UC03-FL01-S02","target_id":"ST-INT01"}
 {"source_id":"ST-ASR-UC04-FL01-S01","target_id":"ST-INT01"}
 {"source_id":"ST-DIS-UC08-FL01-S06","target_id":"ST-INT01"}
+{"source_id":"ST-DIS-UC11-FL01-S01","target_id":"ST-INT01"}
+{"source_id":"ST-DIS-UC11-FL01-S02","target_id":"ST-INT01"}
+{"source_id":"ST-DIS-UC11-FL01-S03","target_id":"ST-INT01"}
+{"source_id":"ST-DIS-UC11-FL01-S04","target_id":"ST-INT01"}
+{"source_id":"ST-DIS-UC11-FL01-S05","target_id":"ST-INT01"}
 {"source_id":"ST-DLV-UC03-FL01-S02","target_id":"ST-INT01"}
 {"source_id":"ST-DLV-UC03-FL01-S03","target_id":"ST-INT02"}
 {"source_id":"ST-DLV-UC05-FL01-S03","target_id":"ST-INT03"}
