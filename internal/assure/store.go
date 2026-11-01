@@ -11,14 +11,19 @@ import (
 
 // AttestationStore is the repository of proof runs (ST-ASR-REPO01). It keeps a proof run only as an attestation
 // at the CI provider, with the commit as its subject: HandOver hands the proof run's statement to the provider's
-// attestation action, which signs and keeps it. The product's repository holds nothing (ST-ASR-A1-SR01).
+// attestation action, which signs and keeps it, and Fetch reads back what the provider keeps for a commit. The
+// product's repository holds nothing (ST-ASR-A1-SR01).
 //
-// Fetching the attestations for a commit through the provider's API belongs to this interface too. Gate a
-// change (ST-ASR-UC02) adds it with the verification of an attestation (ST-ASR-DS03).
+// The store only moves bytes. VerifyAttestation (ST-ASR-DS03) checks each bundle that Fetch gives before the
+// gates read it, so a store that gives a wrong or forged bundle gives no attestation.
 type AttestationStore interface {
 	// HandOver writes the proof run's predicate where the provider's attestation action reads it, and returns
 	// the predicate's digest. It writes nothing in the product's repository.
 	HandOver(run ProofRun) (string, error)
+	// Fetch returns every signed bundle the provider keeps under SubjectDigest of the commit, as the provider
+	// gives it, and none when the provider keeps none. An empty bundle stands for one the provider names but
+	// does not give.
+	Fetch(commit string) ([][]byte, error)
 }
 
 // ProofRunFile is the name of the file that holds a proof run's predicate, the proof-run.json table

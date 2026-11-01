@@ -25,6 +25,11 @@ func (s *keptStore) HandOver(run ProofRun) (string, error) {
 	return "sha256:" + strings.Repeat("0", 64), nil
 }
 
+// Fetch gives nothing: Record a proof run only hands proof runs over.
+func (s *keptStore) Fetch(string) ([][]byte, error) {
+	return nil, nil
+}
+
 // fixtureSpec is a spec with three automated test records and one that is not automated yet.
 func fixtureSpec() Spec {
 	return Spec{Digest: "sha256:" + strings.Repeat("a", 64), Tests: map[string]TestRecord{

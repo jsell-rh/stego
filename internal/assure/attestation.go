@@ -33,19 +33,61 @@ type Signer struct {
 }
 
 // TrustedSigner is the one identity a CI provider may sign a proof run with: the issuer, and the workflow
-// identity up to the "@" that starts its reference. A run of that workflow at any reference is trusted; a run of
-// any other workflow is not.
+// identity up to the "@" that starts its reference. A run of that workflow at any reference signs a proof run
+// (ST-ASR-UC01); a run of any other workflow does not. What the signature is worth to a gate depends on the
+// reference: see Grade.
 type TrustedSigner struct {
 	Issuer   string
 	Workflow string
 }
 
-// Trusts tells if the signer is the trusted signer.
+// TrustGrade is what a proof run's signature is worth to a gate (ST-ASR-TM09), read from the reference in the
+// signer's identity.
+type TrustGrade string
+
+// The trust grades. NoGrade is worth nothing to a gate.
+const (
+	NoGrade      TrustGrade = ""
+	ChangeGrade  TrustGrade = "change"
+	ReleaseGrade TrustGrade = "release"
+)
+
+// MainRef is the reference of the base branch main. The trusted workflow signs at main only from main's own
+// tree, which no change can alter before it merges.
+const MainRef = "refs/heads/main"
+
+// Trusts tells if the signer is the trusted signer: the issuer, and the workflow at any reference.
 func (t TrustedSigner) Trusts(signer Signer) bool {
-	if t.Issuer == "" || t.Workflow == "" {
-		return false
+	_, ok := t.reference(signer)
+	return ok
+}
+
+// Grade tells what the signer's signature is worth to a gate: release grade when the trusted workflow signed at
+// main; change grade when it signed at the change's own reference, changeRef, such as refs/pull/7/merge; and no
+// grade for any other reference or identity, or for a changeRef that is empty or main.
+func (t TrustedSigner) Grade(signer Signer, changeRef string) TrustGrade {
+	reference, ok := t.reference(signer)
+	switch {
+	case !ok:
+		return NoGrade
+	case reference == MainRef:
+		return ReleaseGrade
+	case changeRef != "" && changeRef != MainRef && reference == changeRef:
+		return ChangeGrade
 	}
-	return signer.Issuer == t.Issuer && strings.HasPrefix(signer.Subject, t.Workflow+"@")
+	return NoGrade
+}
+
+// reference is the reference the signer's workflow ran at, when the signer is the trusted signer.
+func (t TrustedSigner) reference(signer Signer) (string, bool) {
+	if t.Issuer == "" || t.Workflow == "" || signer.Issuer != t.Issuer {
+		return "", false
+	}
+	reference, ok := strings.CutPrefix(signer.Subject, t.Workflow+"@")
+	if !ok || reference == "" {
+		return "", false
+	}
+	return reference, true
 }
 
 // NewAttestation makes an attestation reference. It refuses a subject that is not a full 40-character commit
