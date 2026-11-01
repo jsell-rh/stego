@@ -434,42 +434,33 @@ func receiverName(decl *ast.FuncDecl) string {
 	}
 }
 
-// declares tells if the file declares the identifiers at its top level: a type, function, variable or constant
-// Name, or a method's receiver type Name; or, for Type.Member, a type Type that the file declares, or whose
-// methods it declares, with a method, struct field or interface method Member that the file declares.
+// declares tells if the file declares the identifiers at its top level:
+//   - Name: a type, a function with no receiver, a variable or a constant that the file declares. A method whose
+//     receiver has the type Name does not declare the type: only its type declaration does, in the record's file.
+//   - Type.Member: a method Member whose receiver has the type Type, declared in the file; or a struct field or
+//     interface method Member of the type Type, whose type declaration is in the file. The record names the method
+//     or the field, so the method's declaration is enough, wherever the type is declared.
 func declares(file *ast.File, names []string) bool {
-	typeName := names[0]
-	typeDeclared, memberDeclared := false, false
 	for _, decl := range file.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
 			receiver := receiverName(d)
-			if len(names) == 1 && ((receiver == "" && d.Name.Name == typeName) || receiver == typeName) {
+			if len(names) == 1 && receiver == "" && d.Name.Name == names[0] {
 				return true
 			}
-			if receiver == typeName {
-				typeDeclared = true
-				if len(names) == 2 && d.Name.Name == names[1] {
-					memberDeclared = true
-				}
+			if len(names) == 2 && receiver == names[0] && d.Name.Name == names[1] {
+				return true
 			}
 		case *ast.GenDecl:
 			for _, spec := range d.Specs {
 				switch s := spec.(type) {
 				case *ast.TypeSpec:
-					if s.Name.Name != typeName {
-						continue
-					}
-					if len(names) == 1 {
+					if s.Name.Name == names[0] && (len(names) == 1 || hasMember(s.Type, names[1])) {
 						return true
-					}
-					typeDeclared = true
-					if hasMember(s.Type, names[1]) {
-						memberDeclared = true
 					}
 				case *ast.ValueSpec:
 					for _, name := range s.Names {
-						if len(names) == 1 && name.Name == typeName {
+						if len(names) == 1 && name.Name == names[0] {
 							return true
 						}
 					}
@@ -477,7 +468,7 @@ func declares(file *ast.File, names []string) bool {
 			}
 		}
 	}
-	return typeDeclared && memberDeclared
+	return false
 }
 
 // hasMember tells if a struct type has the field, or an interface type the method.
@@ -897,12 +888,16 @@ func fileWithoutRecord(spec Spec, tree Tree) []CodeFault {
 }
 
 // stubBuilt is the predicate of ST-ASR-SP10 (ST-STD-CODE-R06): a function that a predicate, handler or service
-// record names exists, and its body only returns constants or only panics, so that it reads no input. The record's
-// title names the function, as pkg.Func or pkg.Type.Method, in the record's file. A body is a stub when it is
-// empty, or when each of its statements is a return of constants or a panic, and none of them reads a parameter or
-// the receiver. A constant is a literal, a name that is not a parameter or the receiver, a composite literal of
-// constants, an operator on constants, or an error that errors.New or fmt.Errorf makes of constants; any other call
-// reads something, so it is not a constant.
+// record names exists and does not read its inputs. The record's title names the function, as pkg.Func or
+// pkg.Type.Method, in the record's file. A function is a stub when it has a parameter or a receiver and no
+// identifier in its body names any of them: a body that only returns constants or only panics reads none, and so
+// does one that only calls a helper with no argument or keeps a constant in a variable. A function with no
+// parameter and no receiver has no input to read, so it is not a stub. An unnamed or blank parameter cannot be
+// read. A blank assignment such as _ = d names the parameter, and so counts as reading it, and a local variable
+// that has the name of a parameter counts too: the predicate reads names, not types.
+//
+// It reads Go only. The Python command handlers ST-DIS-CMD05-H, ST-DIS-CMD06-H and ST-DIS-CMD07-H, in
+// scripts/qualify-compiler-release.py and scripts/install-compiler.py, are not checked.
 func stubBuilt(spec Spec, tree Tree) []CodeFault {
 	kinds := codeKinds()
 	files := newGoFiles(tree)
@@ -932,7 +927,7 @@ func stubBuilt(spec Spec, tree Tree) []CodeFault {
 					Rule:   RuleStubIsNotBuilt,
 					Key:    record.ID,
 					Path:   record.File,
-					Reason: fmt.Sprintf("%s names %s, whose body only returns constants or panics, so it reads no input", record.ID, record.Title),
+					Reason: fmt.Sprintf("%s names %s, whose body reads none of its parameters or its receiver", record.ID, record.Title),
 				})
 			}
 		}
@@ -950,58 +945,37 @@ func namesFunction(function *ast.FuncDecl, names []string) bool {
 	return receiver == names[0] && function.Name.Name == names[1]
 }
 
-// stub tells if the function's body only returns constants or only panics, and reads no parameter or receiver.
+// stub tells if the function has a parameter or a receiver and its body names none of them.
 func stub(function *ast.FuncDecl) bool {
 	inputs := make(map[string]bool)
+	count := 0
 	for _, list := range []*ast.FieldList{function.Recv, function.Type.Params} {
 		if list == nil {
 			continue
 		}
 		for _, field := range list.List {
+			if len(field.Names) == 0 {
+				count++
+			}
 			for _, name := range field.Names {
+				count++
 				if name.Name != "_" {
 					inputs[name.Name] = true
 				}
 			}
 		}
 	}
-	for _, statement := range function.Body.List {
-		switch s := statement.(type) {
-		case *ast.ReturnStmt:
-			for _, result := range s.Results {
-				if !constant(result, inputs) {
-					return false
-				}
-			}
-		case *ast.ExprStmt:
-			call, ok := s.X.(*ast.CallExpr)
-			if !ok || !isIdent(call.Fun, "panic") || readsInput(call, inputs) {
-				return false
-			}
-		default:
-			return false
-		}
-	}
-	return true
+	return count > 0 && !readsInput(function.Body, inputs)
 }
 
-func isIdent(expr ast.Expr, name string) bool {
-	ident, ok := expr.(*ast.Ident)
-	return ok && ident.Name == name
-}
-
-// readsInput tells if the expression names a parameter or the receiver.
+// readsInput tells if an identifier in the node names a parameter or the receiver. The name of a field or method
+// after a dot is not one.
 func readsInput(node ast.Node, inputs map[string]bool) bool {
 	reads := false
 	ast.Inspect(node, func(n ast.Node) bool {
 		switch e := n.(type) {
 		case *ast.SelectorExpr:
-			ast.Inspect(e.X, func(inner ast.Node) bool {
-				if ident, ok := inner.(*ast.Ident); ok && inputs[ident.Name] {
-					reads = true
-				}
-				return !reads
-			})
+			reads = reads || readsInput(e.X, inputs)
 			return false
 		case *ast.Ident:
 			if inputs[e.Name] {
@@ -1011,43 +985,4 @@ func readsInput(node ast.Node, inputs map[string]bool) bool {
 		return !reads
 	})
 	return reads
-}
-
-// constant tells if the expression is a constant that reads no input: see stubBuilt.
-func constant(expr ast.Expr, inputs map[string]bool) bool {
-	switch e := expr.(type) {
-	case *ast.BasicLit:
-		return true
-	case *ast.Ident:
-		return !inputs[e.Name]
-	case *ast.SelectorExpr:
-		return !readsInput(e, inputs)
-	case *ast.ParenExpr:
-		return constant(e.X, inputs)
-	case *ast.UnaryExpr:
-		return constant(e.X, inputs)
-	case *ast.BinaryExpr:
-		return constant(e.X, inputs) && constant(e.Y, inputs)
-	case *ast.KeyValueExpr:
-		return constant(e.Value, inputs)
-	case *ast.CompositeLit:
-		for _, element := range e.Elts {
-			if !constant(element, inputs) {
-				return false
-			}
-		}
-		return true
-	case *ast.CallExpr:
-		selector, ok := e.Fun.(*ast.SelectorExpr)
-		if !ok || !(isIdent(selector.X, "errors") && selector.Sel.Name == "New" || isIdent(selector.X, "fmt") && selector.Sel.Name == "Errorf") {
-			return false
-		}
-		for _, arg := range e.Args {
-			if !constant(arg, inputs) {
-				return false
-			}
-		}
-		return true
-	}
-	return false
 }

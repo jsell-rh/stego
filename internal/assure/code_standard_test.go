@@ -132,7 +132,7 @@ func isGood(d Decision) bool { return d.Commit != "" }
 
 func (d Decision) Check() error { return errRefused }
 
-// Handler is only named by its methods in this file.
+// Handler is declared in another file: this file declares only its method Handle.
 func (h *Handler) Handle(d Decision) error { return h.store.Keep(d) }
 `
 
@@ -148,8 +148,10 @@ func TestIdentifierMissing(t *testing.T) {
 {"id":"ST-FXD-CMD02-H","title":"fx.Handler.Missing","file":"internal/fx/fx.go"}
 `,
 			"query_handler": `{"id":"ST-FXD-QRY01-H","title":"fx.Decision.Check","file":"internal/fx/fx.go"}`,
-			"service":       `{"id":"ST-FXD-DS01-SV","title":"other.Decision","file":"internal/fx/fx.go"}`,
-			"value_type":    `{"id":"ST-VO01-VT","title":"fx.Store","file":"internal/fx/fx.go"}`,
+			"service": `{"id":"ST-FXD-DS01-SV","title":"other.Decision","file":"internal/fx/fx.go"}
+{"id":"ST-FXD-DS02-SV","title":"fx.Handler","file":"internal/fx/fx.go"}
+`,
+			"value_type": `{"id":"ST-VO01-VT","title":"fx.Store","file":"internal/fx/fx.go"}`,
 			"data_model": `{"id":"ST-FXD-EN01-DM","title":"fx.Decision","file":"internal/fx/fx.go"}
 {"id":"ST-FXD-EN02-DM","title":"fx.Decision.Commit","file":"internal/fx/fx.go"}
 {"id":"ST-FXD-EN03-DM","title":"fx.Decision.Branch","file":"internal/fx/fx.go"}
@@ -173,6 +175,7 @@ func TestIdentifierMissing(t *testing.T) {
 		expectFaults(t, identifierMissing(spec, tree),
 			CodeFault{Rule: "ST-STD-CODE-R02", Key: "ST-FXD-CMD02-H", Path: file, Reason: "ST-FXD-CMD02-H names fx.Handler.Missing, which the file does not declare"},
 			CodeFault{Rule: "ST-STD-CODE-R02", Key: "ST-FXD-DS01-SV", Path: file, Reason: `ST-FXD-DS01-SV is titled "other.Decision", which is not an identifier of package fx`},
+			CodeFault{Rule: "ST-STD-CODE-R02", Key: "ST-FXD-DS02-SV", Path: file, Reason: "ST-FXD-DS02-SV names fx.Handler, which the file does not declare"},
 			CodeFault{Rule: "ST-STD-CODE-R02", Key: "ST-FXD-EN02-TB", Path: file, Reason: `ST-FXD-EN02-TB is titled "proof-run.json", which is not an identifier of package fx`},
 			CodeFault{Rule: "ST-STD-CODE-R02", Key: "ST-FXD-EN03-DM", Path: file, Reason: "ST-FXD-EN03-DM names fx.Decision.Branch, which the file does not declare"},
 			CodeFault{Rule: "ST-STD-CODE-R02", Key: "ST-FXD-EV01-ET", Path: file, Reason: `ST-FXD-EV01-ET is titled "Decided", which is not an identifier of package fx`},
@@ -406,42 +409,48 @@ func delegates(d Decision) error { return check(d) }
 
 func check(d Decision) error { return nil }
 
-func constantValue() Decision { return Decision{ID: "fixed"} }
+func viaLocal(d Decision) bool { ok := false; return ok }
+
+func viaHelper(d Decision) error { return notImplemented() }
+
+func notImplemented() error { return errors.New("not implemented") }
+
+func viaSprintf(d Decision) error { return errors.New(fmt.Sprintf("not %s", "yet")) }
+
+func ifConstant(d Decision) bool { if true { return false }; return true }
+
+func unnamed(Decision) bool { return true }
+
+func blank(_ Decision) bool { return true }
+
+func fieldNamedLikeInput(d Decision) string { var other Decision; return other.d }
+
+func blankRead(d Decision) bool { _ = d; return true }
+
+func noInputs() bool { return true }
 `
 
 func TestStubBuilt(t *testing.T) {
 	t.Run("ST-ASR-SP10-T Stub counted as built is found in a tree built for it, and not in one that follows the rule", func(t *testing.T) {
-		spec := codeSpec(t, map[string]string{
-			"predicate": `{"id":"ST-FXD-SP01-PR","title":"fx.isGood","file":"internal/fx/fx.go"}
-{"id":"ST-FXD-SP02-PR","title":"fx.alwaysTrue","file":"internal/fx/fx.go"}
-{"id":"ST-FXD-SP03-PR","title":"fx.missing","file":"internal/fx/fx.go"}
-`,
-			"command_handler": `{"id":"ST-FXD-CMD01-H","title":"fx.Handler.Handle","file":"internal/fx/fx.go"}
-{"id":"ST-FXD-CMD02-H","title":"fx.empty","file":"internal/fx/fx.go"}
-{"id":"ST-FXD-CMD03-H","title":"fx.panicsWithInput","file":"internal/fx/fx.go"}
-`,
-			"query_handler": `{"id":"ST-FXD-QRY01-H","title":"fx.Handler.Count","file":"internal/fx/fx.go"}
-{"id":"ST-FXD-QRY02-H","title":"fx.reads","file":"internal/fx/fx.go"}
-`,
-			"service": `{"id":"ST-FXD-DS01-SV","title":"fx.notYet","file":"internal/fx/fx.go"}
-{"id":"ST-FXD-DS02-SV","title":"fx.notYetEither","file":"internal/fx/fx.go"}
-{"id":"ST-FXD-DS03-SV","title":"fx.returnsInput","file":"internal/fx/fx.go"}
-{"id":"ST-FXD-DS04-SV","title":"fx.delegates","file":"internal/fx/fx.go"}
-`,
-			"value_type": `{"id":"ST-VO01-VT","title":"fx.constantValue","file":"internal/fx/fx.go"}`,
-		})
-		tree := codeTree(map[string]string{"internal/fx/fx.go": stubFile})
-		file := "internal/fx/fx.go"
-		reason := func(id, title string) string {
-			return id + " names " + title + ", whose body only returns constants or panics, so it reads no input"
+		builtFunctions := []string{"fx.isGood", "fx.Handler.Count", "fx.reads", "fx.returnsInput", "fx.panicsWithInput", "fx.delegates", "fx.blankRead", "fx.noInputs", "fx.missing"}
+		stubs := []string{"fx.alwaysTrue", "fx.Handler.Handle", "fx.notYet", "fx.notYetEither", "fx.empty", "fx.viaLocal", "fx.viaHelper", "fx.viaSprintf", "fx.ifConstant", "fx.unnamed", "fx.blank", "fx.fieldNamedLikeInput"}
+		kinds := []string{"predicate", "command_handler", "query_handler", "service"}
+		tables := make(map[string]string)
+		var want []CodeFault
+		for i, title := range append(append([]string(nil), builtFunctions...), stubs...) {
+			id := fmt.Sprintf("ST-FXD-SP%02d-PR", i+1)
+			kind := kinds[i%len(kinds)]
+			tables[kind] += fmt.Sprintf(`{"id":%q,"title":%q,"file":"internal/fx/fx.go"}`+"\n", id, title)
+			if i >= len(builtFunctions) {
+				want = append(want, CodeFault{Rule: "ST-STD-CODE-R06", Key: id, Path: "internal/fx/fx.go",
+					Reason: id + " names " + title + ", whose body reads none of its parameters or its receiver"})
+			}
 		}
-		expectFaults(t, stubBuilt(spec, tree),
-			CodeFault{Rule: "ST-STD-CODE-R06", Key: "ST-FXD-CMD01-H", Path: file, Reason: reason("ST-FXD-CMD01-H", "fx.Handler.Handle")},
-			CodeFault{Rule: "ST-STD-CODE-R06", Key: "ST-FXD-CMD02-H", Path: file, Reason: reason("ST-FXD-CMD02-H", "fx.empty")},
-			CodeFault{Rule: "ST-STD-CODE-R06", Key: "ST-FXD-DS01-SV", Path: file, Reason: reason("ST-FXD-DS01-SV", "fx.notYet")},
-			CodeFault{Rule: "ST-STD-CODE-R06", Key: "ST-FXD-DS02-SV", Path: file, Reason: reason("ST-FXD-DS02-SV", "fx.notYetEither")},
-			CodeFault{Rule: "ST-STD-CODE-R06", Key: "ST-FXD-SP02-PR", Path: file, Reason: reason("ST-FXD-SP02-PR", "fx.alwaysTrue")},
-		)
+		tables["value_type"] = `{"id":"ST-VO01-VT","title":"fx.alwaysTrue","file":"internal/fx/fx.go"}`
+		spec := codeSpec(t, tables)
+		tree := codeTree(map[string]string{"internal/fx/fx.go": stubFile})
+		sortFaults(want)
+		expectFaults(t, stubBuilt(spec, tree), want...)
 	})
 }
 
