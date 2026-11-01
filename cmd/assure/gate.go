@@ -18,7 +18,8 @@ type provider func(getenv func(string) string) (assure.AttestationStore, assure.
 
 // gate is assure gate change (ST-ASR-CLI02) and assure gate release (ST-ASR-CLI03). Each prints the decision with
 // every reason, and exits 0 when the commit passes and 1 when it is refused. When it cannot decide, such as when
-// Lathe finds an error in the spec at a commit it reads, it prints no decision, names why, and exits 2.
+// Lathe finds an error in the spec at a commit it reads, it prints no decision, names why on stderr and in one line
+// of the job's step summary, and exits 2.
 func gate(args []string, stdout, stderr io.Writer, getenv func(string) string, open provider) int {
 	if len(args) > 0 && args[0] == "change" {
 		return gateChangeCommand(args[1:], stdout, stderr, getenv, open)
@@ -47,6 +48,7 @@ func gateChangeCommand(args []string, stdout, stderr io.Writer, getenv func(stri
 	decision, err := gateChange(*commit, *base, *lathe, stdout, getenv, open)
 	if err != nil {
 		fmt.Fprintf(stderr, "assure gate change: no decision: %v\n", err)
+		keepNoDecision(assure.ChangeGate, err, stderr, getenv)
 		return 2
 	}
 	if !decision.Passed {
@@ -74,6 +76,7 @@ func gateReleaseCommand(args []string, stdout, stderr io.Writer, getenv func(str
 	decision, err := gateRelease(*commit, *predicate, *lathe, stdout, getenv, open)
 	if err != nil {
 		fmt.Fprintf(stderr, "assure gate release: no decision: %v\n", err)
+		keepNoDecision(assure.ReleaseGate, err, stderr, getenv)
 		return 2
 	}
 	if !decision.Passed {
@@ -87,6 +90,20 @@ func gateReleaseCommand(args []string, stdout, stderr io.Writer, getenv func(str
 		return 1
 	}
 	return 0
+}
+
+// keepNoDecision writes one line to the job's step summary, when the job names one, that says the gate reached no
+// decision and why. After a passed release decision whose predicate is not written, the summary already holds the
+// decision; this line then says that the job does not stand by it. A summary inside the product's repository gets
+// nothing, and a summary that cannot be written is named on stderr: the exit code stays 2 in either case.
+func keepNoDecision(kind assure.GateKind, why error, stderr io.Writer, getenv func(string) string) {
+	output := assure.JobOutput{Summary: getenv("GITHUB_STEP_SUMMARY")}
+	if root, err := assure.RepositoryRoot("."); err == nil {
+		output.Repository = root
+	}
+	if err := output.KeepNoDecision(kind, why.Error()); err != nil {
+		fmt.Fprintf(stderr, "assure gate %s: the step summary does not say that no decision was reached: %v\n", kind, err)
+	}
 }
 
 // gateChange gates the change in the repository that holds the working folder. It reads both commits from the
