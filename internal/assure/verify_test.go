@@ -73,6 +73,7 @@ func proofRunStatement(t *testing.T, commit, reference string, logIndex int64, o
 		Signer:           Signer{Issuer: GitHubIssuer, Subject: trustedWorkflow + "@" + reference},
 		SourceRepository: "https://github.com/jsell-rh/stego",
 		SourceRef:        reference,
+		SourceDigest:     commit,
 		LogIndex:         logIndex,
 	}
 }
@@ -207,6 +208,8 @@ func TestVerify(t *testing.T) {
 			"no reference":                          func(s *SignedStatement) { s.Signer.Subject = trustedWorkflow + "@" },
 			"another source repository":             func(s *SignedStatement) { s.SourceRepository = "https://github.com/someone/stego" },
 			"a source ref that is not the signer's": func(s *SignedStatement) { s.SourceRef = "refs/heads/feature" },
+			"a run at main at another commit":       func(s *SignedStatement) { s.SourceDigest = other },
+			"a run at main at no commit":            func(s *SignedStatement) { s.SourceDigest = "" },
 		}
 		for name, change := range refused {
 			statement := proofRunStatement(t, commit, MainRef, 1)
@@ -218,6 +221,11 @@ func TestVerify(t *testing.T) {
 			if !errors.As(err, &refusal) || refusal.Rule != "attestationVerified" || grade != NoGrade {
 				t.Fatalf("%s: grade %q, %v; want a refusal with no grade", name, grade, err)
 			}
+		}
+		merged := proofRunStatement(t, commit, changeRef, 1)
+		merged.SourceDigest = other
+		if grade, err := attestationVerified(merged, commit, clean); err != nil || grade != ChangeGrade {
+			t.Fatalf("signed at the change's own reference by a run at another commit: grade %q, %v; want change grade", grade, err)
 		}
 		if grade, err := attestationVerified(proofRunStatement(t, commit, changeRef, 1), commit, Trust{Signer: trusted}); err == nil || grade != NoGrade {
 			t.Fatalf("a pull request's signature counts with no change reference to gate: grade %q", grade)
@@ -254,6 +262,10 @@ func TestVerify(t *testing.T) {
 		}
 		if proof.Attestation != want || proof.Grade != ChangeGrade || proof.Run.Commit != fixture.Commit || len(proof.Run.Outcomes) != 239 {
 			t.Fatalf("the verified proof run is %+v (grade %s, %d outcomes), want %+v", proof.Attestation, proof.Grade, len(proof.Run.Outcomes), want)
+		}
+		// The certificate names the commit the signing run ran at, which the release grade checks.
+		if statement, err := verifier.VerifyBundle(fixture.Bundle, SubjectDigest(fixture.Commit)); err != nil || !fullCommit(statement.SourceDigest) {
+			t.Fatalf("the certificate's source digest is %q (%v), not a full commit", statement.SourceDigest, err)
 		}
 		for _, outcome := range proof.Run.Outcomes {
 			if outcome.TestRecord == "ST-ASR-UC01-FL01-T" && (outcome.Result != Passed || outcome.File != "cmd/assure/flow_test.go") {

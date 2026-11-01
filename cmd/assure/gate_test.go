@@ -211,8 +211,8 @@ func (g gateRepository) commit(t *testing.T, parent string, files map[string]str
 	return strings.TrimSpace(g.git(t, "rev-parse", "HEAD"))
 }
 
-// proofRun is a signed proof run statement about the commit, signed by the proof run workflow at the reference,
-// with its outcomes given as "ID result".
+// proofRun is a signed proof run statement about the commit, signed by the proof run workflow at the reference
+// in a run at the commit, with its outcomes given as "ID result".
 func proofRun(commit, reference string, logIndex int64, outcomes ...string) assure.SignedStatement {
 	var entries []string
 	for _, outcome := range outcomes {
@@ -228,6 +228,7 @@ func proofRun(commit, reference string, logIndex int64, outcomes ...string) assu
 		Signer:           assure.Signer{Issuer: assure.GitHubIssuer, Subject: proofRunWorkflow + "@" + reference},
 		SourceRepository: "https://github.com/jsell-rh/stego",
 		SourceRef:        reference,
+		SourceDigest:     commit,
 		LogIndex:         logIndex,
 	}
 }
@@ -408,6 +409,25 @@ func TestGateChange(t *testing.T) {
 		}
 		if status := g.git(t, "status", "--porcelain", "--untracked-files=all"); status != "" {
 			t.Fatalf("assure gate change wrote into the repository: %s", status)
+		}
+
+		// When the gate cannot decide, the step summary gets one line that says so and why, and no decision.
+		dangling := `{"id":"FX-LEND-INV03-T","title":"Borrower","invariant_id":"FX-LEND-INV03","level":"unit","state":"automated","file":"internal/lend/missing_test.go","when":"Lends to a stranger.","then":"Refused."}` + "\n"
+		broken := g.commit(t, g.base, map[string]string{"data/invariant_test.jsonl": invariantTest01 + invariantTest02 + dangling})
+		noDecision := filepath.Join(g.runnerTemp, "no-decision.md")
+		result = g.gate(t, broken, g.base, g.keep(t, "broken", proofRun(broken, pullRef, 10, "FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed")),
+			"GITHUB_STEP_SUMMARY="+noDecision)
+		data, err = os.ReadFile(noDecision)
+		if result.code != 2 || result.stdout != "" || err != nil || strings.Count(string(data), "\n") != 1 ||
+			!strings.HasPrefix(string(data), "change gate: no decision was reached: ") || !strings.Contains(string(data), "[test-file-missing] FX-LEND-INV03-T: ") {
+			t.Fatalf("a change the gate cannot decide on: exit %d, step summary (%v):\n%s\n%s%s", result.code, err, data, result.stdout, result.stderr)
+		}
+		wrong := filepath.Join(g.runnerTemp, "wrong-call.md")
+		result = g.gate(t, broken, "", g.keep(t, "wrong", proofRun(broken, pullRef, 11)), "GITHUB_STEP_SUMMARY="+wrong)
+		data, err = os.ReadFile(wrong)
+		if result.code != 2 || result.stdout != "" || err != nil || string(data) !=
+			"change gate: no decision was reached: assure gate change is called wrongly: --commit and --base are required, and nothing else but --lathe\n" {
+			t.Fatalf("a wrong call of assure gate change: exit %d, step summary (%v):\n%s\n%s%s", result.code, err, data, result.stdout, result.stderr)
 		}
 	})
 
@@ -1302,6 +1322,44 @@ func TestGateRelease(t *testing.T) {
 			t.Fatalf("a step summary inside the repository: assure gate release exits %d:\n%s%s", result.code, result.stdout, result.stderr)
 		}
 		noPredicate(t, "a step summary inside the repository", summaryInside)
+
+		// When the gate cannot decide, the step summary gets one line that says so and why. When the predicate of a
+		// passed decision cannot be written after the decision is kept, that line follows the decision, so the
+		// summary does not show a passed decision alone while the job fails.
+		dangling := `{"id":"FX-LEND-INV09-T","title":"Unknown","invariant_id":"FX-LEND-INV09","level":"unit","state":"automated","file":"internal/lend/rules_test.go","when":"Lends.","then":"Refused."}` + "\n"
+		broken := g.commit(t, g.base, with(fullyProved, map[string]string{"data/invariant_test.jsonl": invariantTest01 + invariantTest02 + invariantTest03 + dangling}))
+		brokenSummary := filepath.Join(g.runnerTemp, "no-decision.md")
+		noResult := g.release(t, broken, g.keep(t, "broken", proofRun(broken, mainRef, 53, allPassed...)), filepath.Join(g.runnerTemp, "decision", "broken.json"),
+			"GITHUB_STEP_SUMMARY="+brokenSummary)
+		noData, noErr := os.ReadFile(brokenSummary)
+		if noResult.code != 2 || noResult.stdout != "" || noErr != nil || strings.Count(string(noData), "\n") != 1 ||
+			!strings.HasPrefix(string(noData), "release gate: no decision was reached: ") || !strings.Contains(string(noData), "FX-LEND-INV09-T") {
+			t.Fatalf("a release the gate cannot decide on: exit %d, step summary (%v):\n%s\n%s%s", noResult.code, noErr, noData, noResult.stdout, noResult.stderr)
+		}
+		wrongSummary := filepath.Join(g.runnerTemp, "wrong-call.md")
+		wrong := g.release(t, full, passed, "", "GITHUB_STEP_SUMMARY="+wrongSummary)
+		if data, err := os.ReadFile(wrongSummary); wrong.code != 2 || wrong.stdout != "" || err != nil || string(data) !=
+			"release gate: no decision was reached: assure gate release is called wrongly: --commit and --predicate are required, and nothing else but --lathe\n" {
+			t.Fatalf("a wrong call of assure gate release: exit %d, step summary (%v):\n%s\n%s%s", wrong.code, err, data, wrong.stdout, wrong.stderr)
+		}
+		if os.Geteuid() == 0 {
+			t.Log("the tests run as root, which can write into a read-only folder, so a predicate that cannot be written is not checked")
+		} else {
+			locked := filepath.Join(g.runnerTemp, "locked")
+			if err := os.MkdirAll(locked, 0o555); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.Chmod(locked, 0o755) })
+			lockedSummary := filepath.Join(g.runnerTemp, "locked.md")
+			result := g.release(t, full, passed, filepath.Join(locked, "decision.json"), "GITHUB_STEP_SUMMARY="+lockedSummary)
+			data, err := os.ReadFile(lockedSummary)
+			decision, line, _ := strings.Cut(string(data), "```\n")
+			if result.code != 2 || err != nil || !strings.HasPrefix(decision, "```text\nrelease gate on "+full+": passed\n") ||
+				!strings.HasPrefix(line, "release gate: no decision was reached: the decision predicate is not written: ") || strings.Count(line, "\n") != 1 {
+				t.Fatalf("a passed release whose predicate cannot be written: exit %d, step summary (%v):\n%s\n%s%s", result.code, err, data, result.stdout, result.stderr)
+			}
+			noPredicate(t, "a predicate in a read-only folder", filepath.Join(locked, "decision.json"))
+		}
 
 		// An earlier run's predicate is at the path: the gate does not start, and a refused run cannot leave it as
 		// though it were its own.

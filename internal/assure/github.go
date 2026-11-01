@@ -174,7 +174,7 @@ type GitHubGate struct {
 func ReadGitHubGate(getenv func(string) string) (GitHubGate, error) {
 	server, slug := strings.TrimSuffix(getenv("GITHUB_SERVER_URL"), "/"), getenv("GITHUB_REPOSITORY")
 	if server == "" || slug == "" {
-		return GitHubGate{}, errors.New("assure gate reads GITHUB_SERVER_URL and GITHUB_REPOSITORY, which are not set")
+		return GitHubGate{}, errors.New("GITHUB_SERVER_URL and GITHUB_REPOSITORY, which name the trusted signer's repository, are not set")
 	}
 	api := getenv("GITHUB_API_URL")
 	if api == "" {

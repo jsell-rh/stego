@@ -29,10 +29,12 @@ type Spec struct {
 	Technical []TechnicalRecord
 }
 
-// TestRecord is one test record of the spec: its ID, the file that runs it, and whether its state is automated.
+// TestRecord is one test record of the spec: its ID, the file that runs it, its state as the spec gives it, and
+// whether that state is automated.
 type TestRecord struct {
 	ID        string
 	File      string
+	State     string
 	Automated bool
 }
 
@@ -337,7 +339,7 @@ func readTestRecords(file string, data []byte, tests map[string]TestRecord) erro
 		if _, ok := tests[row.ID]; ok {
 			return fmt.Errorf("%s line %d: test record %s is in the spec twice", file, line, row.ID)
 		}
-		tests[row.ID] = TestRecord{ID: row.ID, File: row.File, Automated: row.State == "automated"}
+		tests[row.ID] = TestRecord{ID: row.ID, File: row.File, State: row.State, Automated: row.State == "automated"}
 	}
 	return scanner.Err()
 }
