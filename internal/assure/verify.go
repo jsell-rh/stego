@@ -214,6 +214,10 @@ func attestationVerified(statement SignedStatement, commit string, trust Trust) 
 	}
 	changeRef := trust.ChangeRef
 	if changeRef == "" {
+		if reference, ok := trust.Signer.reference(statement.Signer); ok {
+			return NoGrade, refuse("it is signed by %s at %s, not at %s, and only release-grade evidence counts here",
+				trust.Signer.Workflow, reference, MainRef)
+		}
 		changeRef = "none"
 	}
 	return NoGrade, refuse("it is signed by %s (issuer %s), not by %s at %s or at the change's own reference (%s)",

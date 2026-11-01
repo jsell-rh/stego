@@ -10,11 +10,16 @@ type ChangeDecided struct {
 	Reasons    []string
 }
 
-// ReleaseDecided is the event of ST-ASR-EV03, Release decided: the release gate reached its decision on a
-// release commit, and a passed decision is attested by the provider's trusted signer. Gate a release
-// (ST-ASR-UC03) raises it; release qualification reads the attestation, never this value.
+// ReleaseDecided is the event of ST-ASR-EV03, Release decided. GateRelease returns it in process when the release
+// gate reached its decision on a release commit and the decision store kept it. It names the commit, whether the
+// release passed, and every reason for a refusal. For a passed decision it also names the attestation the
+// provider's trusted signer is to make and the digest of the decision.json predicate handed over for it; a
+// refused decision has neither. Release qualification and publishing read the attestation the provider keeps,
+// never this value.
 type ReleaseDecided struct {
-	Commit      string
-	Passed      bool
-	Attestation Attestation
+	Commit          string
+	Passed          bool
+	Reasons         []string
+	Attestation     *Attestation
+	PredicateDigest string
 }

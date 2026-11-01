@@ -6,4 +6,5 @@
 {"id":"ST-ASR-INV06-RL","title":"assure.oneOutcomePerTestRecord","invariant_id":"ST-ASR-INV06","file":"internal/assure/proof_run.go"}
 {"id":"ST-ASR-INV07-RL","title":"assure.namesBothCommits","invariant_id":"ST-ASR-INV07","file":"internal/assure/decision.go"}
 {"id":"ST-ASR-INV08-RL","title":"assure.namesEveryCause","invariant_id":"ST-ASR-INV08","file":"internal/assure/decision.go"}
+{"id":"ST-ASR-INV09-RL","title":"assure.releaseAttested","invariant_id":"ST-ASR-INV09","file":"internal/assure/release.go"}
 {"id":"ST-ASR-INV10-RL","title":"assure.reasonsInFixedOrder","invariant_id":"ST-ASR-INV10","file":"internal/assure/decision.go"}

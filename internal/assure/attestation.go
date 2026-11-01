@@ -12,6 +12,11 @@ import (
 // STEGO repository, and version 1 is the document that encodeProofRun writes.
 const ProofRunPredicateType = "https://github.com/jsell-rh/stego/assure/proof-run/v1"
 
+// ReleaseDecisionPredicateType is the predicate type of a passed release decision's statement. STEGO owns it, as
+// it owns ProofRunPredicateType, and version 1 is the document that encodeDecision writes, the decision.json
+// table (ST-ASR-EN03-TB).
+const ReleaseDecisionPredicateType = "https://github.com/jsell-rh/stego/assure/release-decision/v1"
+
 // Attestation is a reference to a signed statement about one commit (ST-VO56): its predicate type, the commit
 // it is about, who signed it, and the transparency log entry that holds it when the signer is keyless.
 //
