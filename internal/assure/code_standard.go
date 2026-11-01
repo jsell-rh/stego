@@ -604,10 +604,10 @@ func modulePath(tree Tree) string {
 // resolve.
 //
 // A cmd package may import any domain; a shared value type and the standard library belong to no domain, and so
-// does a package that only records of the product as a whole name. A package under internal that no technical
-// record names belongs to no domain either, but it is no free bridge: the predicate follows it to what it imports,
-// and a package of a domain that reaches a package of another domain through it is checked as though it imported
-// that package itself. (Such a package is also a fault of ST-STD-CODE-R05.) A bridge's own test files do not count
+// do a package that only records of the product as a whole name, such as a shared value type's, and a package no
+// technical record names (also a fault of ST-STD-CODE-R05). A package under internal of no domain is no free
+// bridge: the predicate follows it to what it imports, and a package of a domain that reaches a package of another
+// domain through it is checked as though it imported that package itself. A bridge's own test files do not count
 // for what it reaches.
 //
 // It finds one fault per package and package it reaches against the order, with both packages, the packages it
@@ -617,7 +617,7 @@ func importAgainstOrder(spec Spec, tree Tree) ([]CodeFault, error) {
 	if module == "" {
 		return nil, errors.New("the tree has no go.mod with a module path at its root, so its imports cannot be resolved")
 	}
-	domains, named := packageDomains(spec, tree)
+	domains, _ := packageDomains(spec, tree)
 	title := func(domain string) string {
 		if t := spec.Domains[domain]; t != "" {
 			return t
@@ -673,8 +673,8 @@ func importAgainstOrder(spec Spec, tree Tree) ([]CodeFault, error) {
 		if strings.HasPrefix(dir, "cmd/") || len(domains[dir]) == 0 {
 			continue
 		}
-		// reached holds each package the package reaches, with the unnamed packages it goes through ("" when it
-		// imports the package itself).
+		// reached holds each package the package reaches, with the packages of no domain it goes through ("" when
+		// it imports the package itself).
 		reached := make(map[string]map[string]bool)
 		seen := map[string]bool{dir: true}
 		var visit func(target, through string)
@@ -682,7 +682,7 @@ func importAgainstOrder(spec Spec, tree Tree) ([]CodeFault, error) {
 			if target == dir {
 				return
 			}
-			if strings.HasPrefix(target, "internal/") && !named[target] {
+			if strings.HasPrefix(target, "internal/") && len(domains[target]) == 0 {
 				if seen[target] {
 					return
 				}
@@ -734,9 +734,9 @@ func importAgainstOrder(spec Spec, tree Tree) ([]CodeFault, error) {
 						through = append(through, bridge)
 					}
 				}
-				how = "reaches " + target + " through " + strings.Join(through, ", ") + ", which no technical record names,"
+				how = "reaches " + target + " through " + strings.Join(through, ", ") + ", of no domain,"
 				if bridges[0] == "" {
-					how = "imports " + target + ", and reaches it through " + strings.Join(through, ", ") + ", which no technical record names,"
+					how = "imports " + target + ", and reaches it through " + strings.Join(through, ", ") + ", of no domain,"
 				}
 			}
 			faults = append(faults, CodeFault{

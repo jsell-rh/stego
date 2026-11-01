@@ -203,7 +203,9 @@ func TestImportAgainstOrder(t *testing.T) {
 {"id":"ST-FXB-SP01-PR","title":"build.holds","file":"internal/build/build.go"}
 {"id":"ST-FXR-SP01-PR","title":"distribute.holds","file":"internal/distribute/distribute.go"}
 `,
-			"value_type":  `{"id":"ST-VO01-VT","title":"shared.Value","file":"internal/shared/shared.go"}`,
+			"value_type": `{"id":"ST-VO01-VT","title":"shared.Value","file":"internal/shared/shared.go"}
+{"id":"ST-VO02-VT","title":"values.Value","file":"internal/values/values.go"}
+`,
 			"entry_point": `{"id":"ST-FXD-ENTRY01","title":"fx","file":"cmd/fx/main.go"}`,
 		})
 		module := "example.com/fx"
@@ -225,6 +227,8 @@ func TestImportAgainstOrder(t *testing.T) {
 			"internal/assure/bridged.go":        imports("assure", "internal/bridge"),
 			"internal/bridge/bridge.go":         imports("bridge", "internal/shared", "internal/declare"),
 			"internal/bridge/bridge_test.go":    imports("bridge", "internal/build"),
+			"internal/declare/shared.go":        imports("declare", "internal/values"),
+			"internal/values/values.go":         imports("values", "internal/supply"),
 			"internal/supply/supply.go":         imports("supply", "internal/declare", "internal/shared"),
 			"internal/generate/generate.go":     imports("generate", "internal/declare", "internal/supply"),
 			"internal/build/build.go":           imports("build", "internal/generate", "internal/declare"),
@@ -240,10 +244,10 @@ func TestImportAgainstOrder(t *testing.T) {
 			t.Fatal("a tree with no go.mod gave no error, so its imports went unchecked")
 		}
 		expectFaults(t, faults,
-			CodeFault{Rule: "ST-STD-CODE-R03", Key: "internal/assure imports internal/declare", Path: "internal/assure", Reason: "the package reaches internal/declare through internal/bridge, which no technical record names, against the domain order: Assuring (ST-FXA) may not import Declaring (ST-FXD)"},
+			CodeFault{Rule: "ST-STD-CODE-R03", Key: "internal/assure imports internal/declare", Path: "internal/assure", Reason: "the package reaches internal/declare through internal/bridge, of no domain, against the domain order: Assuring (ST-FXA) may not import Declaring (ST-FXD)"},
 			CodeFault{Rule: "ST-STD-CODE-R03", Key: "internal/build imports internal/declare", Path: "internal/build", Reason: "the package imports internal/declare against the domain order: Building (ST-FXB) may not import Declaring (ST-FXD)"},
 			CodeFault{Rule: "ST-STD-CODE-R03", Key: "internal/declare imports internal/generate", Path: "internal/declare", Reason: "the package imports internal/generate against the domain order: Declaring (ST-FXD) may not import Generating (ST-FXG)"},
-			CodeFault{Rule: "ST-STD-CODE-R03", Key: "internal/declare imports internal/supply", Path: "internal/declare", Reason: "the package imports internal/supply against the domain order: Declaring (ST-FXD) may not import Supplying (ST-FXS)"},
+			CodeFault{Rule: "ST-STD-CODE-R03", Key: "internal/declare imports internal/supply", Path: "internal/declare", Reason: "the package imports internal/supply, and reaches it through internal/values, of no domain, against the domain order: Declaring (ST-FXD) may not import Supplying (ST-FXS)"},
 			CodeFault{Rule: "ST-STD-CODE-R03", Key: "internal/supply imports internal/generate", Path: "internal/supply", Reason: "the package imports internal/generate against the domain order: Supplying (ST-FXS) may not import Generating (ST-FXG)"},
 		)
 	})
