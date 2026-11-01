@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 )
 
 // DecisionStore is the repository of gate decisions (ST-ASR-REPO02). Keep writes a decision to the CI job's
@@ -90,5 +91,29 @@ func (j JobOutput) Keep(decision Decision) error {
 		}
 	}
 	_, err := io.WriteString(j.Out, text)
+	return err
+}
+
+// KeepNoDecision writes one line to the job's step summary, when Summary names one, that says the gate reached no
+// decision and why, so a gate that exits without a decision never leaves the summary empty or showing a decision
+// that the job does not stand by. The gate is change or release; the reason is given on one line. When Repository
+// names the product's repository, the summary must be outside it, as for Keep.
+func (j JobOutput) KeepNoDecision(gate GateKind, why string) error {
+	if j.Summary == "" {
+		return nil
+	}
+	if j.Repository != "" {
+		if err := outsideTheRepository(j.Repository, j.Summary); err != nil {
+			return err
+		}
+	}
+	file, err := os.OpenFile(j.Summary, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(file, "%s gate: no decision was reached: %s\n", gate, strings.Join(strings.Fields(why), " "))
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
 	return err
 }

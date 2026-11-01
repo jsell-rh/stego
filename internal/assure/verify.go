@@ -18,8 +18,8 @@ import (
 )
 
 // SignedStatement is what a signature check gives for one bundle: the in-toto statement that the signature
-// covers, the signer that the signing certificate names, the source repository and ref that the certificate
-// names, and the index of the transparency log entry that holds it. Only a BundleVerifier makes one, and only
+// covers, the signer that the signing certificate names, the source repository, ref and digest (the commit the
+// signing workflow ran at) that the certificate names, and the index of the transparency log entry that holds it. Only a BundleVerifier makes one, and only
 // when every check of the bundle passed.
 type SignedStatement struct {
 	Subjects         []StatementSubject
@@ -28,6 +28,7 @@ type SignedStatement struct {
 	Signer           Signer
 	SourceRepository string
 	SourceRef        string
+	SourceDigest     string
 	LogIndex         int64
 }
 
@@ -123,6 +124,7 @@ func (s SigstoreVerifier) VerifyBundle(data []byte, subjectDigest string) (Signe
 	certificate := result.Signature.Certificate
 	statement.Signer = Signer{Issuer: certificate.Issuer, Subject: certificate.SubjectAlternativeName}
 	statement.SourceRepository, statement.SourceRef = certificate.SourceRepositoryURI, certificate.SourceRepositoryRef
+	statement.SourceDigest = certificate.SourceRepositoryDigest
 	statement.LogIndex = entries[0].LogIndex()
 	return statement, nil
 }
@@ -165,8 +167,8 @@ type Trust struct {
 // name that ends in the commit, and a proof run predicate about the commit. Its predicate type must be
 // ProofRunPredicateType. The certificate's source repository and source ref must be the trusted workflow's
 // repository and the ref the signer ran at. Its signer, from the certificate, must be the trusted signer at a
-// grade: release grade
-// at main, for any tree; change grade at the change's own reference, only while no file under the workflows
+// grade: release grade at main, for any tree, when the certificate's source digest, the commit the signing run ran
+// at, is the commit; change grade at the change's own reference, only while no file under the workflows
 // folder differs from the base head's. It returns the grade, and a refusal that says why when the statement
 // fails. A change-grade statement that fails only on the workflows folder returns ChangeGrade with the refusal,
 // so the gate can name each file.
@@ -204,6 +206,12 @@ func attestationVerified(statement SignedStatement, commit string, trust Trust) 
 	}
 	switch grade {
 	case ReleaseGrade:
+		// The run at main signs the commit it ran at, so a release-grade statement about another commit is not
+		// that run's. A pull request's run runs at its merge commit, so change grade has no such check.
+		if statement.SourceDigest != commit {
+			return NoGrade, refuse("it is signed at %s by a run at commit %q, not at the commit %s it is about",
+				MainRef, statement.SourceDigest, commit)
+		}
 		return grade, nil
 	case ChangeGrade:
 		if len(trust.WorkflowChanges) > 0 {
@@ -215,8 +223,17 @@ func attestationVerified(statement SignedStatement, commit string, trust Trust) 
 	changeRef := trust.ChangeRef
 	if changeRef == "" {
 		if reference, ok := trust.Signer.reference(statement.Signer); ok {
-			return NoGrade, refuse("it is signed by %s at %s, not at %s, and only release-grade evidence counts here",
-				trust.Signer.Workflow, reference, MainRef)
+			// The source checks run first, so only a statement the trusted workflow truly signed at the reference
+			// is named as signed there.
+			repository, _, _ := strings.Cut(trust.Signer.Workflow, "/.github/workflows/")
+			if statement.SourceRepository != repository || statement.SourceRef != reference {
+				return NoGrade, refuse("the certificate names the source %s at %s, not the trusted workflow's repository %s at %s",
+					statement.SourceRepository, statement.SourceRef, repository, reference)
+			}
+			refusal := refuse("it is signed by %s at %s, not at %s, and only release-grade evidence counts here",
+				trust.Signer.Workflow, reference, MainRef).(*Refusal)
+			refusal.SignedAt = reference
+			return NoGrade, refusal
 		}
 		changeRef = "none"
 	}
@@ -232,12 +249,23 @@ type VerifiedProofRun struct {
 }
 
 // Verification is what VerifyAttestation found for a commit: the proof run it accepted, or none; why it refused
-// each attestation, in order; and whether it refused a change-grade proof run only because the change alters the
-// workflows folder.
+// each attestation, in order; whether it refused a change-grade proof run only because the change alters the
+// workflows folder; and, with no change reference gated, each attestation it refused only because the trusted
+// workflow signed it at a pull request's reference, which counts only in that change's own gate.
 type Verification struct {
 	Proof            *VerifiedProofRun
 	Refused          []string
 	WorkflowsChanged bool
+	ChangeGrade      []ChangeGradeAttestation
+}
+
+// ChangeGradeAttestation is an attestation that the trusted workflow signed at a pull request's reference, which
+// VerifyAttestation refused because no change reference is gated: the reference, the log entry, and the reason,
+// as Refused gives it.
+type ChangeGradeAttestation struct {
+	Ref      string
+	LogEntry string
+	Reason   string
 }
 
 // VerifyAttestation is the service of ST-ASR-DS03, Verify an attestation. It fetches every proof run
@@ -266,8 +294,15 @@ func VerifyAttestation(commit string, store AttestationStore, verifier BundleVer
 		where := "the attestation at rekor:" + strconv.FormatInt(statement.LogIndex, 10)
 		grade, err := attestationVerified(statement, commit, trust)
 		if err != nil {
-			verification.Refused = append(verification.Refused, where+" is refused: "+err.Error())
+			reason := where + " is refused: " + err.Error()
+			verification.Refused = append(verification.Refused, reason)
 			verification.WorkflowsChanged = verification.WorkflowsChanged || grade == ChangeGrade
+			var refusal *Refusal
+			if errors.As(err, &refusal) && strings.HasPrefix(refusal.SignedAt, "refs/pull/") {
+				verification.ChangeGrade = append(verification.ChangeGrade, ChangeGradeAttestation{
+					Ref: refusal.SignedAt, LogEntry: "rekor:" + strconv.FormatInt(statement.LogIndex, 10), Reason: reason,
+				})
+			}
 			continue
 		}
 		run, err := decodeProofRun(statement.Predicate)
@@ -285,6 +320,7 @@ func VerifyAttestation(commit string, store AttestationStore, verifier BundleVer
 		logIndexes = append(logIndexes, statement.LogIndex)
 	}
 	sort.Strings(verification.Refused)
+	sort.Slice(verification.ChangeGrade, func(i, j int) bool { return verification.ChangeGrade[i].Reason < verification.ChangeGrade[j].Reason })
 	best := -1
 	for i := range accepted {
 		if best < 0 || better(accepted[i].Grade, logIndexes[i], accepted[best].Grade, logIndexes[best]) {

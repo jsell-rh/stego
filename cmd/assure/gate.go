@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -18,7 +19,8 @@ type provider func(getenv func(string) string) (assure.AttestationStore, assure.
 
 // gate is assure gate change (ST-ASR-CLI02) and assure gate release (ST-ASR-CLI03). Each prints the decision with
 // every reason, and exits 0 when the commit passes and 1 when it is refused. When it cannot decide, such as when
-// Lathe finds an error in the spec at a commit it reads, it prints no decision, names why, and exits 2.
+// Lathe finds an error in the spec at a commit it reads, it prints no decision, names why on stderr and in one line
+// of the job's step summary, and exits 2.
 func gate(args []string, stdout, stderr io.Writer, getenv func(string) string, open provider) int {
 	if len(args) > 0 && args[0] == "change" {
 		return gateChangeCommand(args[1:], stdout, stderr, getenv, open)
@@ -38,15 +40,18 @@ func gateChangeCommand(args []string, stdout, stderr io.Writer, getenv func(stri
 	base := flags.String("base", "", "the full commit at the head of the branch the change merges into")
 	lathe := flags.String("lathe", "", "the Lathe CLI (default node_modules/.bin/lathe of the repository)")
 	if err := flags.Parse(args); err != nil {
+		keepNoDecision(assure.ChangeGate, fmt.Errorf("assure gate change is called wrongly: %w", err), stderr, getenv)
 		return 2
 	}
 	if flags.NArg() > 0 || *commit == "" || *base == "" {
 		fmt.Fprintln(stderr, "assure gate change: --commit and --base are required, and nothing else but --lathe")
+		keepNoDecision(assure.ChangeGate, errors.New("assure gate change is called wrongly: --commit and --base are required, and nothing else but --lathe"), stderr, getenv)
 		return 2
 	}
 	decision, err := gateChange(*commit, *base, *lathe, stdout, getenv, open)
 	if err != nil {
 		fmt.Fprintf(stderr, "assure gate change: no decision: %v\n", err)
+		keepNoDecision(assure.ChangeGate, err, stderr, getenv)
 		return 2
 	}
 	if !decision.Passed {
@@ -65,15 +70,18 @@ func gateReleaseCommand(args []string, stdout, stderr io.Writer, getenv func(str
 	predicate := flags.String("predicate", "", "the decision predicate file to write when the release passes, outside the repository")
 	lathe := flags.String("lathe", "", "the Lathe CLI (default node_modules/.bin/lathe of the repository)")
 	if err := flags.Parse(args); err != nil {
+		keepNoDecision(assure.ReleaseGate, fmt.Errorf("assure gate release is called wrongly: %w", err), stderr, getenv)
 		return 2
 	}
 	if flags.NArg() > 0 || *commit == "" || *predicate == "" {
 		fmt.Fprintln(stderr, "assure gate release: --commit and --predicate are required, and nothing else but --lathe")
+		keepNoDecision(assure.ReleaseGate, errors.New("assure gate release is called wrongly: --commit and --predicate are required, and nothing else but --lathe"), stderr, getenv)
 		return 2
 	}
 	decision, err := gateRelease(*commit, *predicate, *lathe, stdout, getenv, open)
 	if err != nil {
 		fmt.Fprintf(stderr, "assure gate release: no decision: %v\n", err)
+		keepNoDecision(assure.ReleaseGate, err, stderr, getenv)
 		return 2
 	}
 	if !decision.Passed {
@@ -87,6 +95,20 @@ func gateReleaseCommand(args []string, stdout, stderr io.Writer, getenv func(str
 		return 1
 	}
 	return 0
+}
+
+// keepNoDecision writes one line to the job's step summary, when the job names one, that says the gate reached no
+// decision and why. After a passed release decision whose predicate is not written, the summary already holds the
+// decision; this line then says that the job does not stand by it. A summary inside the product's repository gets
+// nothing, and a summary that cannot be written is named on stderr: the exit code stays 2 in either case.
+func keepNoDecision(kind assure.GateKind, why error, stderr io.Writer, getenv func(string) string) {
+	output := assure.JobOutput{Summary: getenv("GITHUB_STEP_SUMMARY")}
+	if root, err := assure.RepositoryRoot("."); err == nil {
+		output.Repository = root
+	}
+	if err := output.KeepNoDecision(kind, why.Error()); err != nil {
+		fmt.Fprintf(stderr, "assure gate %s: the step summary does not say that no decision was reached: %v\n", kind, err)
+	}
 }
 
 // gateChange gates the change in the repository that holds the working folder. It reads both commits from the

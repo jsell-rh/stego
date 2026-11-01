@@ -42,9 +42,12 @@ type Checkout struct {
 }
 
 // Refusal is why a rule of the proof run refused it. Rule is the rule's name in code, as its record names it.
+// SignedAt is the reference the trusted workflow signed at, when attestationVerified refuses a statement only
+// because that reference is not main and no change reference is gated.
 type Refusal struct {
-	Rule   string
-	Reason string
+	Rule     string
+	Reason   string
+	SignedAt string
 }
 
 func (r *Refusal) Error() string {

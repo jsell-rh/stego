@@ -228,3 +228,30 @@ func TestReleaseFlow(t *testing.T) {
 			"internal/lend/extra.go (ST-STD-CODE-R05, internal/lend/extra.go): no technical record names the file, directly or through a folder")
 	})
 }
+
+func TestLedgerFlow(t *testing.T) {
+	t.Run("ST-ASR-UC04-FL01-T assure ledger fetches and verifies the proof runs of a commit and its history, prints each test record with its result and where it last passed, and shows a refused attestation as none with why", func(t *testing.T) {
+		// The main path: commit 5 has a proof run with one test failed, commit 4 has none, commit 3 has one whose
+		// signature does not verify, and commit 2 has one where every automated test passed.
+		h := newLedgerHistory(t)
+		fetches := filepath.Join(h.runnerTemp, "fetches")
+		result := h.ledger(t, h.keep(t, "history", historyStatements(h)...), fetches, []string{"--commit", h.at(5)})
+		if result.code != 1 || result.stdout != historyLedger(h) || result.stderr != "" {
+			t.Fatalf("assure ledger exited %d with:\n%s%s\nwant:\n%s", result.code, result.stdout, result.stderr, historyLedger(h))
+		}
+		if got := fetched(t, fetches); strings.Join(got, " ") != strings.Join([]string{h.at(5), h.at(4), h.at(3), h.at(2)}, " ") {
+			t.Fatalf("the store was asked for %v", got)
+		}
+
+		// The refused path: the attestation at the commit fails verification, so the commit has no result, and
+		// the ledger says why.
+		statements := historyStatements(h)
+		statements[0] = forged(statements[0])
+		result = h.ledger(t, h.keep(t, "forged", statements...), "", []string{"--commit", h.at(5)})
+		if result.code != 1 || !strings.Contains(result.stdout, "FX-LEND-INV01-T (automated): none, last passed at "+h.at(2)+"\n") ||
+			!strings.Contains(result.stdout, "proof run at "+h.at(5)+": none verified at release grade\n") ||
+			!strings.Contains(result.stdout, "refused at "+h.at(5)+": an attestation fails its signature check: the signature does not verify\n") {
+			t.Fatalf("with the attestation at the commit forged, assure ledger exited %d with:\n%s%s", result.code, result.stdout, result.stderr)
+		}
+	})
+}
