@@ -38,7 +38,7 @@ CHECKS_BRANCHES = ["main"]
 RUN_PAGE = 100
 RELEASE_NOTES_LIMIT = 65536
 RUN_INVOCATION = re.compile(r"https://github\.com/" + re.escape(REPOSITORY)
-                            + r"/actions/runs/([1-9][0-9]{0,18})/attempts/[1-9][0-9]{0,3}")
+                            + r"/actions/runs/([1-9][0-9]{0,18})/attempts/([1-9][0-9]{0,3})")
 
 
 def api(gh, path, directory, *, limit=4 << 20):
@@ -59,10 +59,12 @@ def fetch(gh, path, directory):
 def run_record(run):
     if not isinstance(run, dict):
         raise CheckError("A CI run record is invalid")
-    for name in ["id", "path", "event", "head_branch", "head_sha", "status", "conclusion"]:
+    for name in ["id", "run_attempt", "path", "event", "head_branch", "head_sha", "status",
+                 "conclusion"]:
         if name not in run:
             raise CheckError("A CI run record is incomplete")
-    if type(run["id"]) is not int or run["id"] <= 0:
+    if (type(run["id"]) is not int or run["id"] <= 0
+            or type(run["run_attempt"]) is not int or run["run_attempt"] <= 0):
         raise CheckError("A CI run identity is invalid")
     return run
 
@@ -80,9 +82,12 @@ def runs_at(gh, revision, directory):
     return [run_record(run) for run in runs]
 
 
-def select_run(runs, workflow, branches, label):
+def select_run(runs, workflow, branches, label, identity=None):
+    # Without an identity, take the newest successful run. With one, take
+    # only that run: the run that the release signatures name.
     candidates = [run for run in runs
-                  if run["path"] == workflow and run["head_branch"] in branches]
+                  if run["path"] == workflow and run["head_branch"] in branches
+                  and (identity is None or run["id"] == identity)]
     if not candidates:
         raise CheckError("No " + label + " run exists at the source commit")
     for run in candidates:
@@ -181,7 +186,7 @@ def tag_ref(gh, revision, directory):
 
 
 def attested_runs(gh, path, revision, bundle=None):
-    """Return the signed artifact runs whose signatures authenticate one file."""
+    """Return the (run, attempt) pairs whose signatures authenticate one file."""
     try:
         # The installer's signer policy. Without a bundle, GitHub CLI reads the
         # attestation store of the repository. With the release bundle, it
@@ -208,7 +213,7 @@ def attested_runs(gh, path, revision, bundle=None):
                  if isinstance(invocation, str) else None)
         if match is None:
             raise CheckError("A signature of " + path.name + " does not name its signing run")
-        runs.add(int(match.group(1)))
+        runs.add((int(match.group(1)), int(match.group(2))))
     return runs
 
 
@@ -228,8 +233,21 @@ def qualify(revision, output, gh, verify_release=False):
         stage = Path(temporary)
         runs = runs_at(gh, revision, stage)
         checks = select_run(runs, CHECKS_WORKFLOW, branches, "compiler checks")
-        artifact = select_run(runs, ARTIFACT_WORKFLOW, CHECKS_BRANCHES,
-                              "signed artifact")
+        release = None
+        if verify_release:
+            # A published release names its signed artifact run in its
+            # signatures. Another successful run at the commit is not it.
+            release = verify_published_release(gh, revision, stage)
+            signer = release["signing_run"]
+            artifact = select_run(runs, ARTIFACT_WORKFLOW, CHECKS_BRANCHES,
+                                  "signed artifact", signer["id"])
+            if artifact["run_attempt"] != signer["attempt"]:
+                raise CheckError("The release was signed by attempt " + str(signer["attempt"])
+                                 + " of CI run " + str(artifact["id"])
+                                 + ", not by its successful attempt")
+        else:
+            artifact = select_run(runs, ARTIFACT_WORKFLOW, CHECKS_BRANCHES,
+                                  "signed artifact")
         checks_jobs, checks_names = run_jobs(gh, checks, stage)
         checks_result = require_jobs(checks_jobs, checks_names, CHECKS_JOB_NAMES,
                                      checks["id"])
@@ -238,10 +256,7 @@ def qualify(revision, output, gh, verify_release=False):
                                        ARTIFACT_JOB_NAMES, artifact["id"])
         artifacts = require_artifacts(run_artifacts(gh, artifact, stage), revision,
                                       artifact["id"], require_current=not verify_release)
-        release = None
-        if verify_release:
-            release = verify_published_release(gh, revision, stage, artifact["id"])
-        else:
+        if not verify_release:
             refs = tag_ref(gh, revision, stage)
             if refs:
                 raise CheckError("The compiler tag already exists; never replace a release")
@@ -255,7 +270,8 @@ def qualify(revision, output, gh, verify_release=False):
                 "head_branch": checks["head_branch"], "conclusion": checks["conclusion"],
                 "jobs": checks_result},
             "signed_artifact": {
-                "run_id": artifact["id"], "event": artifact["event"],
+                "run_id": artifact["id"], "run_attempt": artifact["run_attempt"],
+                "event": artifact["event"],
                 "head_branch": artifact["head_branch"], "conclusion": artifact["conclusion"],
                 "jobs": artifact_result, "artifacts": artifacts,
                 "artifacts_retained": bool(artifacts)},
@@ -267,7 +283,7 @@ def qualify(revision, output, gh, verify_release=False):
         return result
 
 
-def verify_published_release(gh, revision, stage, artifact_run_id):
+def verify_published_release(gh, revision, stage):
     refs = tag_ref(gh, revision, stage)
     if len(refs) != 1:
         raise CheckError("The compiler release tag must exist exactly once")
@@ -287,29 +303,38 @@ def verify_published_release(gh, revision, stage, artifact_run_id):
         raise CheckError("The release compiler digest differs from the verified bytes")
     if assets["build.json"]["digest"] != build_digest:
         raise CheckError("The release build record digest differs from the verified bytes")
+    # Run artifacts expire. The signatures name the run and the attempt that
+    # signed these bytes. The release bundle is what a consumer verifies, and
+    # it must name one signing run for both files.
+    signers = attested_runs(gh, package / BINARY, revision, package / "provenance.jsonl")
+    if len(signers) != 1:
+        raise CheckError("The release bundle must name exactly one signing run")
+    signer = next(iter(signers))
+    if signer not in attested_runs(gh, package / "build.json", revision,
+                                   package / "provenance.jsonl"):
+        raise CheckError("The signature of build.json in the release bundle"
+                         " does not name the signed artifact run")
+    # The attestation store is checked too: GitHub lets an owner delete an
+    # attestation, and a deletion is a revocation that the bundle cannot show.
+    for name in [BINARY, "build.json"]:
+        if signer not in attested_runs(gh, package / name, revision):
+            raise CheckError("The signature of " + name + " in the attestation store"
+                             " does not name the signed artifact run")
     notes = record.get("body")
     if not isinstance(notes, str) or not 0 < len(notes) <= RELEASE_NOTES_LIMIT:
         raise CheckError("The release record must retain its evidence notes")
-    if str(artifact_run_id) not in notes:
+    if str(signer[0]) not in notes:
         raise CheckError("The release notes do not retain the signed artifact run")
     if verified["artifact"]["sha256"] not in notes:
         raise CheckError("The release notes do not retain the compiler digest")
-    # Run artifacts expire. The signatures name the run that signed these bytes.
-    # The release bundle is what a consumer verifies. The attestation store is
-    # checked too: GitHub lets an owner delete an attestation, and a deletion
-    # is a revocation that the bundle in the release cannot show.
-    for name in [BINARY, "build.json"]:
-        for bundle in [package / "provenance.jsonl", None]:
-            if artifact_run_id not in attested_runs(gh, package / name, revision, bundle):
-                raise CheckError("The signature of " + name
-                                 + " does not name the signed artifact run")
     return {
         "id": record["id"], "tag_name": record["tag_name"],
         "immutable": record["immutable"],
         "assets": {name: assets[name]["digest"] for name in assets},
         "notes_retain_signed_artifact_run": True,
         "notes_retain_compiler_sha256": True,
-        "signatures_name_signed_artifact_run": artifact_run_id,
+        "signatures_name_signed_artifact_run": signer[0],
+        "signing_run": {"id": signer[0], "attempt": signer[1]},
         "verified": verified,
     }
 

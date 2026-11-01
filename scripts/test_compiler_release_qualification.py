@@ -75,6 +75,7 @@ class QualificationChecks(unittest.TestCase):
         self.tag = "compiler-" + self.revision
         self.checks_run = self.run_record(101, qualification.CHECKS_WORKFLOW, "main")
         self.artifact_run = self.run_record(202, qualification.ARTIFACT_WORKFLOW, "main")
+        self.newer_runs = []
         self.jobs = {"checks": self.job_records(qualification.CHECKS_JOB_NAMES),
                      "artifact": self.job_records(qualification.ARTIFACT_JOB_NAMES)}
         self.artifacts = self.artifact_records()
@@ -85,7 +86,7 @@ class QualificationChecks(unittest.TestCase):
         self.signature_calls = []
 
     def run_record(self, identity, path, branch):
-        return {"id": identity, "path": path, "event": "workflow_dispatch",
+        return {"id": identity, "run_attempt": 1, "path": path, "event": "workflow_dispatch",
                 "head_branch": branch, "head_sha": self.revision,
                 "status": "completed", "conclusion": "success"}
 
@@ -131,8 +132,9 @@ class QualificationChecks(unittest.TestCase):
     def api(self, gh, path, directory, *, limit=4 << 20):
         runs = {"repos/" + qualification.REPOSITORY + "/actions/runs?head_sha="
                 + self.revision + "&per_page=" + str(qualification.RUN_PAGE):
-                json.dumps({"total_count": 2,
-                            "workflow_runs": [self.checks_run, self.artifact_run]}),
+                json.dumps({"total_count": 2 + len(self.newer_runs),
+                            "workflow_runs": self.newer_runs
+                            + [self.checks_run, self.artifact_run]}),
                 "repos/" + qualification.REPOSITORY + "/actions/runs/101/jobs?per_page="
                 + str(qualification.RUN_PAGE):
                 json.dumps({"total_count": len(self.jobs["checks"]),
@@ -184,8 +186,11 @@ class QualificationChecks(unittest.TestCase):
         self.assertEqual(args, signer_policy(self.gh, path, self.revision,
                                              path.parent / "provenance.jsonl"
                                              if source == "bundle" else None))
-        run = self.signing_runs[(path.name, source)]
-        return json.dumps([signature_result(self.revision, run)]).encode()
+        signers = self.signing_runs[(path.name, source)]
+        signers = signers if isinstance(signers, list) else [signers]
+        return json.dumps([signature_result(self.revision, *(signer if isinstance(signer, tuple)
+                                                            else (signer, 1)))
+                           for signer in signers]).encode()
 
     def with_tag(self, gh, path, directory, **keyword):
         if path.endswith("matching-refs/tags/" + self.tag):
@@ -314,8 +319,18 @@ class QualificationChecks(unittest.TestCase):
                     self.qualify(verify_release=True)
 
     def test_release_without_evidence_notes_fails(self):
-        self.release["body"] = "no run identifiers"
-        with self.assertRaises(CheckError):
+        notes = self.release["body"]
+        digest = hashlib.sha256(b"fixture compiler; do not execute").hexdigest()
+        for body in ["no run identifiers", notes.replace("run 202", "run"),
+                     notes.replace(digest, "")]:
+            with self.subTest(body=body):
+                self.release["body"] = body
+                with self.assertRaisesRegex(CheckError, "release notes do not retain"):
+                    self.verify_release()
+
+    def test_bundle_with_two_signing_runs_fails(self):
+        self.signing_runs[(BINARY, "bundle")] = [202, 203]
+        with self.assertRaisesRegex(CheckError, "exactly one signing run"):
             self.verify_release()
 
     def test_tag_triggered_checks_run_qualifies_after_publication(self):
@@ -340,10 +355,30 @@ class QualificationChecks(unittest.TestCase):
                         self.signing_runs = dict.fromkeys(self.signing_runs, 202)
                         self.signing_runs[key] = 303
                         with self.assertRaisesRegex(
-                                CheckError, "The signature of " + key[0].replace(".", r"\.")
-                                + " does not name the signed artifact run"):
+                                CheckError, "does not name the signed artifact run"):
                             self.verify_release()
                         self.assertFalse(self.output.exists())
+            self.artifacts = self.artifact_records()
+            self.signing_runs = dict.fromkeys(self.signing_runs, (202, 1))
+            self.artifact_run["run_attempt"] = 2
+            with self.assertRaisesRegex(CheckError, "signed by attempt 1 of CI run 202"):
+                self.verify_release()
+            self.assertFalse(self.output.exists())
+
+    def test_release_verification_takes_the_run_its_signatures_name(self):
+        with self.subTest("ST-DIS-UC08-R03-T02 Release verification proves the signed artifact run by the release signatures after its artifacts expire"):
+            newer = self.run_record(203, qualification.ARTIFACT_WORKFLOW, "main")
+            self.newer_runs = [newer]
+            self.artifacts = []
+            result = self.verify_release()
+            self.assertEqual(result["signed_artifact"]["run_id"], 202)
+            self.assertEqual(result["release"]["signing_run"], {"id": 202, "attempt": 1})
+            self.output.joinpath("qualification.json").unlink()
+            self.output.rmdir()
+            self.signing_runs = dict.fromkeys(self.signing_runs, 404)
+            self.release["body"] += " 404"
+            with self.assertRaisesRegex(CheckError, "No signed artifact run exists"):
+                self.verify_release()
 
     def test_release_verification_uses_the_installer_signer_policy(self):
         self.verify_release()
@@ -407,7 +442,7 @@ class SignatureRunChecks(unittest.TestCase):
 
     def test_real_signature_result_names_its_run(self):
         runs, calls = self.runs(SIGNATURE_RESULT)
-        self.assertEqual(runs, {36128796855})
+        self.assertEqual(runs, {(36128796855, 1)})
         self.assertEqual(calls, [signer_policy(self.root / "gh", self.path,
                                                self.revision, None)])
         bundle = self.root / "provenance.jsonl"
@@ -416,7 +451,7 @@ class SignatureRunChecks(unittest.TestCase):
                                                self.revision, bundle)])
         runs, _ = self.runs([signature_result(self.revision, 202),
                              signature_result(self.revision, 404)])
-        self.assertEqual(runs, {202, 404})
+        self.assertEqual(runs, {(202, 1), (404, 1)})
 
     def test_invalid_signature_results_fail(self):
         no_run = signature_result(self.revision, 202)
