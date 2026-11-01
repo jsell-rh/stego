@@ -94,9 +94,11 @@ const (
 
 // gateSpec is the spec of the gate's fixture repository: the domain FX-LEND with three invariants, of which
 // FX-LEND-INV01 and FX-LEND-INV02 are built and proved by automated tests and FX-LEND-INV03 is only designed, and
-// a constraint of the product that is designed only. It has two workflow files.
+// a constraint of the product that is designed only. It has two workflow files, and a go.mod, so its code faults
+// can be read: the rule FX-LEND-INV02-RL names an identifier that its file does not declare (ST-STD-CODE-R02).
 var gateSpec = map[string]string{
 	"lathe.config.json":    `{"schema": 2, "data": "data", "tests": ["**/*_test.go"]}` + "\n",
+	"go.mod":               "module example.com/fixture\n\ngo 1.26\n",
 	"data/product.jsonl":   `{"id":"FX","title":"Fixture","description":"What Fixture is, who it is for, and what it must do."}` + "\n",
 	"data/domain.jsonl":    `{"id":"FX-LEND","title":"Lending","product_id":"FX","subdomain_type":"core","description":"Lending tools."}` + "\n",
 	"data/aggregate.jsonl": `{"id":"FX-LEND-A1","title":"Loan","domain_id":"FX-LEND","description":"A loan.","identity":"Loan ID"}` + "\n",
@@ -543,4 +545,48 @@ func readGateWorkflow(t *testing.T) gateWorkflow {
 
 type gateWorkflow struct {
 	Jobs map[string]gateJob `yaml:"jobs"`
+}
+
+func TestGateChangeCodeStandard(t *testing.T) {
+	t.Run("ST-ASR-UC02-R05-T01 A change is refused for a code-standard fault the base head does not have, and a fault the base has is reported, not refused", func(t *testing.T) {
+		g := newGateRepository(t)
+		base := g.commit(t, g.base, map[string]string{"internal/lend/old.go": "package lend\n\nconst old = 1\n"})
+		outcomes := []string{"FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed"}
+		const (
+			rules = "internal/lend/rules.go: FX-LEND-INV02-RL names lend.dueAfterStart, which the file does not declare (ST-STD-CODE-R02)"
+			old   = "internal/lend/old.go: no technical record names the file, directly or through a folder (ST-STD-CODE-R05)"
+			added = "internal/lend/new.go: no technical record names the file, directly or through a folder (ST-STD-CODE-R05)"
+		)
+
+		change := g.commit(t, base, map[string]string{"internal/lend/new.go": "package lend\n\nconst added = 2\n"})
+		result := g.gate(t, change, base, g.keep(t, "added", proofRun(change, pullRef, 61, outcomes...)))
+		decided(t, "a change that adds a file no record names", result, 1,
+			"internal/lend/new.go: no technical record names the file, directly or through a folder (ST-STD-CODE-R05, internal/lend/new.go)")
+		if !strings.Contains(result.stdout, "\ncode faults (3):\n"+rules+", present at base\n"+added+", not at base\n"+old+", present at base\nreasons (1):\n") {
+			t.Fatalf("the decision does not list each fault and whether the base head has it:\n%s", result.stdout)
+		}
+
+		kept := g.commit(t, base, map[string]string{"README.md": "Fixture.\n"})
+		result = g.gate(t, kept, base, g.keep(t, "kept", proofRun(kept, pullRef, 62, outcomes...)))
+		decided(t, "a change that keeps the base head's faults", result, 0)
+		if !strings.Contains(result.stdout, "\ncode faults (2):\n"+rules+", present at base\n"+old+", present at base\nreasons: none\n") {
+			t.Fatalf("the decision does not report the faults the base head has:\n%s", result.stdout)
+		}
+
+		// The rule names another identifier that its file does not declare: the fault's reason changes, its rule and
+		// key do not, so it is not new.
+		renamed := g.commit(t, base, map[string]string{"data/rule.jsonl": strings.Replace(gateSpec["data/rule.jsonl"], "lend.dueAfterStart", "lend.dueBeforeEnd", 1)})
+		result = g.gate(t, renamed, base, g.keep(t, "renamed", proofRun(renamed, pullRef, 63, outcomes...)))
+		decided(t, "a change under which a fault of the base head changes its reason", result, 0)
+		if !strings.Contains(result.stdout, "internal/lend/rules.go: FX-LEND-INV02-RL names lend.dueBeforeEnd, which the file does not declare (ST-STD-CODE-R02), present at base\n") {
+			t.Fatalf("the decision does not report the fault with its new reason as present at base:\n%s", result.stdout)
+		}
+
+		fixed := g.commit(t, base, map[string]string{"internal/lend/old.go": ""})
+		result = g.gate(t, fixed, base, g.keep(t, "fixed", proofRun(fixed, pullRef, 64, outcomes...)))
+		decided(t, "a change that fixes a fault", result, 0)
+		if !strings.Contains(result.stdout, "\ncode faults (1):\n"+rules+", present at base\nreasons: none\n") {
+			t.Fatalf("the decision lists a fault the change fixed:\n%s", result.stdout)
+		}
+	})
 }

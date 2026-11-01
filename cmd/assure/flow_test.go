@@ -98,7 +98,7 @@ func specDigest(t *testing.T, repository string) string {
 }
 
 func TestGateFlow(t *testing.T) {
-	t.Run("ST-ASR-UC02-FL01-T assure gate change measures both commits, verifies the proof run at the change, and prints the decision with every cause", func(t *testing.T) {
+	t.Run("ST-ASR-UC02-FL01-T assure gate change measures both commits, verifies the proof run at the change, compares the code faults of both, and prints the decision with every cause", func(t *testing.T) {
 		g := newGateRepository(t)
 		change := g.commit(t, g.base, map[string]string{"data/invariant.jsonl": gateSpec["data/invariant.jsonl"] + newInvariant})
 		proof := g.keep(t, "proof", proofRun(change, pullRef, 21, "FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed"))
@@ -110,6 +110,8 @@ func TestGateFlow(t *testing.T) {
 			"coverage at " + g.base + ": 4 obligations: 4 designed (100.0%), 2 built (50.0%), 2 proved (50.0%)\n" +
 			"proof run: https://github.com/jsell-rh/stego/assure/proof-run/v1 about " + change +
 			", signed by https://github.com/jsell-rh/stego/.github/workflows/proof-run.yml@refs/pull/7/merge (issuer https://token.actions.githubusercontent.com), rekor:21\n" +
+			"code faults (1):\n" +
+			"internal/lend/rules.go: FX-LEND-INV02-RL names lend.dueAfterStart, which the file does not declare (ST-STD-CODE-R02), present at base\n" +
 			"reasons: none\n"
 		if result.code != 0 || result.stdout != want {
 			t.Fatalf("assure gate change exited %d with:\n%s%s\nwant:\n%s", result.code, result.stdout, result.stderr, want)
@@ -131,6 +133,14 @@ func TestGateFlow(t *testing.T) {
 		if result.code == 0 || !strings.HasSuffix(result.stdout, "\n.github/workflows/checks.yml differs from the base head\n") ||
 			!strings.Contains(result.stdout, "proof run: none verified\n") {
 			t.Fatalf("a change that alters a workflow file with a proof run signed at its own ref exits %d with:\n%s%s", result.code, result.stdout, result.stderr)
+		}
+
+		fault := g.commit(t, g.base, map[string]string{"internal/lend/new.go": "package lend\n\nconst added = 2\n"})
+		result = g.gate(t, fault, g.base, g.keep(t, "fault", proofRun(fault, pullRef, 24, "FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed")))
+		if result.code == 0 || !strings.HasSuffix(result.stdout, "reasons (1):\n"+
+			"internal/lend/new.go: no technical record names the file, directly or through a folder (ST-STD-CODE-R05, internal/lend/new.go)\n") ||
+			!strings.Contains(result.stdout, "(ST-STD-CODE-R02), present at base\n") {
+			t.Fatalf("a change that adds a code-standard fault exits %d with:\n%s%s", result.code, result.stdout, result.stderr)
 		}
 	})
 }

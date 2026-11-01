@@ -85,17 +85,22 @@ func TestDecisionInvariants(t *testing.T) {
 			"ST-FIX-INV01 fell from proved",
 			"ST-FIX-SP01 fell from built",
 			"ST-FIX-SP02 is absent at the change (was designed, built at the base)",
+			"ST-FIX-SP03 is not built",
+			"ST-FIX-SP03 is not proved",
 			noVerifiedProofRun + commit + ": the provider keeps no proof run attestation for it",
 			"ST-FIX-INV01-T failed",
 			"ST-FIX-INV02-T failed: did not run",
 			"ST-FIX-SP01-T has no outcome in the proof run",
+			"internal/fix/rules.go: ST-FIX-INV01-RL names fix.ruleOne, which the file does not declare (ST-STD-CODE-R02, ST-FIX-INV01-RL)",
+			"internal/fix/b.go: no technical record names the file, directly or through a folder (ST-STD-CODE-R05, internal/fix/b.go)",
+			"internal/fix/c.go: no technical record names the file, directly or through a folder (ST-STD-CODE-R05, internal/fix/c.go)",
 			".github/workflows/checks.yml differs from the base head",
 			".github/workflows/proof-run.yml differs from the base head",
 		}
 		orders := [][]string{
 			append([]string(nil), want...),
-			{want[10], want[6], want[3], want[0], want[9], want[2], want[8], want[1], want[7], want[5], want[4]},
-			{want[5], want[9], want[4], want[7], want[2], want[10], want[1], want[3], want[8], want[6], want[0], want[6]},
+			{want[15], want[8], want[13], want[3], want[0], want[11], want[14], want[6], want[2], want[10], want[1], want[12], want[9], want[7], want[5], want[4]},
+			{want[7], want[14], want[4], want[12], want[9], want[2], want[15], want[1], want[3], want[10], want[13], want[6], want[8], want[0], want[11], want[5], want[8], want[12]},
 		}
 		var texts []string
 		for _, order := range orders {
@@ -113,15 +118,24 @@ func TestDecisionInvariants(t *testing.T) {
 			t.Fatalf("the same causes give other decisions:\n%s\n%s\n%s", texts[0], texts[1], texts[2])
 		}
 		for name, reasons := range map[string][]string{
-			"a test record before an obligation":   {want[6], want[0]},
-			"a workflow file before a test record": {want[9], want[6]},
-			"built before designed":                {want[1], want[0]},
-			"obligations out of ID order":          {want[3], want[0]},
-			"an absent obligation before another":  {want[4], want[3]},
-			"a reason twice":                       {want[6], want[6]},
-			"the missing proof run after a test":   {want[6], want[5]},
-			"workflow files out of path order":     {want[10], want[9]},
-			"test records out of ID order":         {want[7], want[6]},
+			"a test record before an obligation":        {want[8], want[0]},
+			"a workflow file before a test record":      {want[14], want[8]},
+			"built before designed":                     {want[1], want[0]},
+			"obligations out of ID order":               {want[3], want[0]},
+			"an absent obligation before another":       {want[4], want[3]},
+			"proved before built at a release":          {want[6], want[5]},
+			"a share not had before an obligation":      {want[5], want[4]},
+			"a reason twice":                            {want[8], want[8]},
+			"the missing proof run after a test":        {want[8], want[7]},
+			"workflow files out of path order":          {want[15], want[14]},
+			"test records out of ID order":              {want[9], want[8]},
+			"a code fault before a test record":         {want[11], want[10]},
+			"a code fault before an obligation":         {want[12], want[5]},
+			"a workflow file before a code fault":       {want[14], want[13]},
+			"code faults out of rule order":             {want[12], want[11]},
+			"code faults of one rule out of key order":  {want[13], want[12]},
+			"a code fault twice":                        {want[12], want[12]},
+			"a code fault before the missing proof run": {want[11], want[7]},
 		} {
 			refusedByRule(t, name, reasonsInFixedOrder(Decision{Commit: commit, Reasons: reasons}), "reasonsInFixedOrder")
 		}
