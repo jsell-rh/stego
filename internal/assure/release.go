@@ -82,11 +82,15 @@ func notReason(obligation string, share Share) string {
 // the commit are each 100%, and a proof run at the commit passed. It returns a reason for each share each
 // obligation does not have, by obligation ID and then in the order designed, built, proved, and then the reasons
 // of proofRunPassed: why there is no verified proof run, or each automated test record that did not pass. It
-// returns none when the commit is fully proved. The proof run is the one VerifyAttestation took at release grade
+// returns none when the commit is fully proved. A commit with no obligation is not fully proved: its shares are
+// 100% only because nothing is counted, and the one more reason says so, first. The proof run is the one VerifyAttestation took at release grade
 // alone (GateRelease trusts no change ref), so a proof run signed at any ref but main is refused there, by its ref,
 // and comes here as none.
 func fullyProved(measurement Measurement, proof *VerifiedProofRun, spec Spec, why string) []string {
 	var reasons []string
+	if len(measurement.Obligations) == 0 {
+		reasons = append(reasons, noObligation+measurement.Commit+": a release needs at least one obligation")
+	}
 	for _, id := range measurement.sortedObligations() {
 		standing := measurement.Obligations[id]
 		for _, share := range allShares() {

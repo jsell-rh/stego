@@ -7,7 +7,7 @@ import (
 )
 
 func TestRelease(t *testing.T) {
-	t.Run("ST-ASR-SP04-T A commit is fully proved only when every share is 100% and a proof run at it passed", func(t *testing.T) {
+	t.Run("ST-ASR-SP04-T A commit is fully proved only when it has an obligation, every share is 100% and a proof run at it passed", func(t *testing.T) {
 		commit := strings.Repeat("ab", 20)
 		spec := gateSpec()
 		all := Standing{Designed: true, Built: true, Proved: true}
@@ -44,8 +44,16 @@ func TestRelease(t *testing.T) {
 		if reasons := fullyProved(full, nil, spec, why); !reflect.DeepEqual(reasons, []string{why}) {
 			t.Fatalf("with no verified proof run: %q", reasons)
 		}
-		if reasons := fullyProved(Measurement{Commit: commit}, passed, Spec{}, why); len(reasons) != 0 {
-			t.Fatalf("an empty spec with a passed proof run is not fully proved: %q", reasons)
+		want = []string{noObligation + commit + ": a release needs at least one obligation"}
+		if reasons := fullyProved(Measurement{Commit: commit}, passed, Spec{}, why); !reflect.DeepEqual(reasons, want) {
+			t.Fatalf("a commit with no obligation and a passed proof run: got %q, want %q", reasons, want)
+		}
+		want = append(want, why)
+		if reasons := fullyProved(Measurement{Commit: commit}, nil, Spec{}, why); !reflect.DeepEqual(reasons, want) {
+			t.Fatalf("a commit with no obligation and no proof run: got %q, want %q", reasons, want)
+		}
+		if reasons := sortReasons([]string{why, want[0]}); !reflect.DeepEqual(reasons, want) {
+			t.Fatalf("the reason that there is no obligation does not come first: %q", reasons)
 		}
 	})
 }

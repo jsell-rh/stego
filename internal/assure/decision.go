@@ -86,6 +86,7 @@ const (
 	fellFrom           = " fell from "
 	differsFromBase    = " differs from the base head"
 	noVerifiedProofRun = "no verified proof run at "
+	noObligation       = "no obligation at "
 	absentAtChange     = " is absent at the change (was "
 	isNot              = " is not "
 	codeRule           = " (ST-STD-CODE-R"
@@ -160,6 +161,9 @@ func describeFaults(faults []CodeFault, base map[[2]string]bool) []string {
 func reasonOrder(reason string) (int, string) {
 	if file, ok := strings.CutSuffix(reason, differsFromBase); ok {
 		return workflowSection, file
+	}
+	if strings.HasPrefix(reason, noObligation) {
+		return obligationSection, ""
 	}
 	if strings.HasPrefix(reason, noVerifiedProofRun) {
 		return proofSection, ""
