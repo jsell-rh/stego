@@ -182,21 +182,12 @@ def tag_ref(gh, revision, directory):
 
 def attested_runs(gh, path, revision, bundle=None):
     """Return the signed artifact runs whose signatures authenticate one file."""
-    source = [] if bundle is None else ["--bundle", str(bundle)]
     try:
-        # Without a bundle, GitHub CLI reads the attestation store of the
-        # repository. With the release bundle, it reads what a consumer reads.
-        raw = control.command([
-            str(gh), "attestation", "verify", str(path), *source,
-            "--hostname", "github.com", "--repo", REPOSITORY,
-            "--signer-digest", revision,
-            "--cert-identity", "https://github.com/" + verification.WORKFLOW
-            + "@" + verification.REFERENCE,
-            "--cert-oidc-issuer", "https://token.actions.githubusercontent.com",
-            "--source-ref", verification.REFERENCE, "--source-digest", revision,
-            "--predicate-type", verification.PREDICATE, "--digest-alg", "sha256",
-            "--deny-self-hosted-runners", "--format", "json",
-        ], path.parent, verification.verifier_environment(), timeout=90, limit=4 << 20)
+        # The installer's signer policy. Without a bundle, GitHub CLI reads the
+        # attestation store of the repository. With the release bundle, it
+        # reads what a consumer reads.
+        raw = verification.authenticate(gh, path, bundle, revision,
+                                        verification.verifier_environment())
     except CheckError:
         raise CheckError("No signature authenticates " + path.name + " at the source commit"
                          + ("" if bundle is None else " in the release bundle")) from None
@@ -303,8 +294,10 @@ def verify_published_release(gh, revision, stage, artifact_run_id):
         raise CheckError("The release notes do not retain the signed artifact run")
     if verified["artifact"]["sha256"] not in notes:
         raise CheckError("The release notes do not retain the compiler digest")
-    # Run artifacts expire; signatures do not. The release bundle and the
-    # attestation store must both name the selected signed artifact run.
+    # Run artifacts expire. The signatures name the run that signed these bytes.
+    # The release bundle is what a consumer verifies. The attestation store is
+    # checked too: GitHub lets an owner delete an attestation, and a deletion
+    # is a revocation that the bundle in the release cannot show.
     for name in [BINARY, "build.json"]:
         for bundle in [package / "provenance.jsonl", None]:
             if artifact_run_id not in attested_runs(gh, package / name, revision, bundle):

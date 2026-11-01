@@ -17,6 +17,50 @@ spec.loader.exec_module(qualification)
 CheckError = qualification.CheckError
 BINARY = qualification.BINARY
 
+# gh 2.96.0 attestation verify --format json for the 94d285d7 release, trimmed
+# to the fields the checks read. signature_result puts other values in a copy.
+SIGNATURE_RESULT = json.loads("""[{"verificationResult": {
+  "mediaType": "application/vnd.dev.sigstore.verificationresult+json;version=0.1",
+  "signature": {"certificate": {
+    "subjectAlternativeName": "https://github.com/jsell-rh/stego/.github/workflows/compiler-artifact.yml@refs/heads/main",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "githubWorkflowTrigger": "workflow_dispatch",
+    "githubWorkflowSHA": "94d285d7a13466d4bb53a3ddf8737888f29fea5a",
+    "githubWorkflowRef": "refs/heads/main",
+    "buildSignerURI": "https://github.com/jsell-rh/stego/.github/workflows/compiler-artifact.yml@refs/heads/main",
+    "buildSignerDigest": "94d285d7a13466d4bb53a3ddf8737888f29fea5a",
+    "runnerEnvironment": "github-hosted",
+    "sourceRepositoryURI": "https://github.com/jsell-rh/stego",
+    "sourceRepositoryDigest": "94d285d7a13466d4bb53a3ddf8737888f29fea5a",
+    "sourceRepositoryRef": "refs/heads/main",
+    "buildTrigger": "workflow_dispatch",
+    "runInvocationURI": "https://github.com/jsell-rh/stego/actions/runs/36128796855/attempts/1"}},
+  "statement": {"predicateType": "https://slsa.dev/provenance/v1"}}}]""")
+
+
+def signature_result(revision, run, attempt=1):
+    result = json.loads(json.dumps(SIGNATURE_RESULT[0]))
+    certificate = result["verificationResult"]["signature"]["certificate"]
+    for name in ["githubWorkflowSHA", "buildSignerDigest", "sourceRepositoryDigest"]:
+        certificate[name] = revision
+    certificate["runInvocationURI"] = ("https://github.com/" + qualification.REPOSITORY
+                                       + "/actions/runs/" + str(run)
+                                       + "/attempts/" + str(attempt))
+    return result
+
+
+def signer_policy(gh, path, revision, bundle):
+    source = [] if bundle is None else ["--bundle", str(bundle)]
+    return [str(gh), "attestation", "verify", str(path), *source,
+            "--hostname", "github.com", "--repo", "jsell-rh/stego",
+            "--signer-digest", revision,
+            "--cert-identity",
+            "https://github.com/jsell-rh/stego/.github/workflows/compiler-artifact.yml@refs/heads/main",
+            "--cert-oidc-issuer", "https://token.actions.githubusercontent.com",
+            "--source-ref", "refs/heads/main", "--source-digest", revision,
+            "--predicate-type", "https://slsa.dev/provenance/v1", "--digest-alg", "sha256",
+            "--deny-self-hosted-runners", "--format", "json"]
+
 
 class QualificationChecks(unittest.TestCase):
     def setUp(self):
@@ -35,8 +79,10 @@ class QualificationChecks(unittest.TestCase):
                      "artifact": self.job_records(qualification.ARTIFACT_JOB_NAMES)}
         self.artifacts = self.artifact_records()
         self.release = self.release_record()
-        self.signing_runs = {"bundle": [self.artifact_run["id"]],
-                             "store": [self.artifact_run["id"]]}
+        self.signing_runs = {(name, source): self.artifact_run["id"]
+                             for name in [BINARY, "build.json"]
+                             for source in ["bundle", "store"]}
+        self.signature_calls = []
 
     def run_record(self, identity, path, branch):
         return {"id": identity, "path": path, "event": "workflow_dispatch",
@@ -130,10 +176,16 @@ class QualificationChecks(unittest.TestCase):
                 "build_record_sha256": hashlib.sha256(build_bytes).hexdigest(),
                 "bundle_sha256": hashlib.sha256(b"fixture signatures").hexdigest()}
 
-    def attested_runs(self, gh, path, revision, bundle=None):
-        self.assertEqual(revision, self.revision)
-        self.assertIn(path.name, [BINARY, "build.json"])
-        return set(self.signing_runs["bundle" if bundle is not None else "store"])
+    def signature_command(self, args, cwd, env, **keyword):
+        # Stands in for GitHub CLI: one signature per file and source.
+        self.signature_calls.append(args)
+        path = Path(args[3])
+        source = "bundle" if "--bundle" in args else "store"
+        self.assertEqual(args, signer_policy(self.gh, path, self.revision,
+                                             path.parent / "provenance.jsonl"
+                                             if source == "bundle" else None))
+        run = self.signing_runs[(path.name, source)]
+        return json.dumps([signature_result(self.revision, run)]).encode()
 
     def with_tag(self, gh, path, directory, **keyword):
         if path.endswith("matching-refs/tags/" + self.tag):
@@ -145,7 +197,7 @@ class QualificationChecks(unittest.TestCase):
     def verify_release(self):
         with patch.object(qualification, "api", self.with_tag), \
                 patch.object(qualification.installer, "install", self.install), \
-                patch.object(qualification, "attested_runs", self.attested_runs):
+                patch.object(qualification.control, "command", self.signature_command):
             return self.qualify(verify_release=True)
 
     def qualify(self, **keyword):
@@ -257,7 +309,7 @@ class QualificationChecks(unittest.TestCase):
                 return self.api(None, path, directory, **keyword)
             with patch.object(qualification, "api", with_other_tag), \
                     patch.object(qualification.installer, "install", self.install), \
-                    patch.object(qualification, "attested_runs", self.attested_runs):
+                    patch.object(qualification.control, "command", self.signature_command):
                 with self.assertRaises(CheckError):
                     self.qualify(verify_release=True)
 
@@ -281,14 +333,35 @@ class QualificationChecks(unittest.TestCase):
 
     def test_signature_from_another_run_fails_release_verification(self):
         with self.subTest("ST-DIS-UC08-R01-T02 Release verification fails when a release signature names another signed artifact run"):
-            for source in ["bundle", "store"]:
+            for key in list(self.signing_runs):
                 for artifacts in [self.artifact_records(), []]:
-                    self.artifacts = artifacts
-                    self.signing_runs = {"bundle": [202], "store": [202]}
-                    self.signing_runs[source] = [303]
-                    with self.assertRaisesRegex(CheckError, "does not name the signed artifact run"):
-                        self.verify_release()
-                    self.assertFalse(self.output.exists())
+                    with self.subTest(file=key[0], source=key[1], artifacts=len(artifacts)):
+                        self.artifacts = artifacts
+                        self.signing_runs = dict.fromkeys(self.signing_runs, 202)
+                        self.signing_runs[key] = 303
+                        with self.assertRaisesRegex(
+                                CheckError, "The signature of " + key[0].replace(".", r"\.")
+                                + " does not name the signed artifact run"):
+                            self.verify_release()
+                        self.assertFalse(self.output.exists())
+
+    def test_release_verification_uses_the_installer_signer_policy(self):
+        self.verify_release()
+        checked = sorted((Path(args[3]).name, "--bundle" in args)
+                         for args in self.signature_calls)
+        self.assertEqual(checked, [("build.json", False), ("build.json", True),
+                                   (BINARY, False), (BINARY, True)])
+        installer_calls = []
+        def record(args, cwd, env, **keyword):
+            installer_calls.append(args)
+            return b"[]"
+        path = Path(self.signature_calls[0][3])
+        with patch.object(qualification.installer.verification.control, "command", record):
+            qualification.installer.verification.authenticate(
+                self.gh, path, path.parent / "provenance.jsonl", self.revision, {})
+        bundled = [args for args in self.signature_calls if args[3] == str(path)
+                   and "--bundle" in args]
+        self.assertEqual(installer_calls, bundled)
 
     def test_missing_signed_artifacts_fail(self):
         with self.subTest("ST-DIS-UC08-R02-T02 Qualification fails when the signed artifact run holds no artifacts or only some of them"):
@@ -318,15 +391,7 @@ class SignatureRunChecks(unittest.TestCase):
         self.root = Path(temporary.name)
         self.path = self.root / BINARY
         self.path.write_bytes(b"fixture compiler; do not execute")
-        self.revision = "a" * 40
-
-    def result(self, run, revision=None):
-        uri = ("https://github.com/" + qualification.REPOSITORY + "/actions/runs/"
-               + str(run) + "/attempts/1") if run is not None else None
-        certificate = {"sourceRepositoryDigest": revision or self.revision}
-        if uri is not None:
-            certificate["runInvocationURI"] = uri
-        return {"verificationResult": {"signature": {"certificate": certificate}}}
+        self.revision = "94d285d7a13466d4bb53a3ddf8737888f29fea5a"
 
     def runs(self, output, bundle=None):
         calls = []
@@ -340,26 +405,31 @@ class SignatureRunChecks(unittest.TestCase):
                                                self.revision, bundle)
         return runs, calls
 
-    def test_signature_runs(self):
-        with self.subTest("ST-DIS-UC08-R01-T02 Release verification fails when a release signature names another signed artifact run"):
-            runs, calls = self.runs([self.result(202), self.result(404)])
-            self.assertEqual(runs, {202, 404})
-            self.assertNotIn("--bundle", calls[0])
-            self.assertIn("--source-digest", calls[0])
-            self.assertEqual(calls[0][calls[0].index("--source-digest") + 1], self.revision)
-            _, calls = self.runs([self.result(202)], self.root / "provenance.jsonl")
-            self.assertEqual(calls[0][calls[0].index("--bundle") + 1],
-                             str(self.root / "provenance.jsonl"))
-            for refused in [[], {}, [self.result(None)], [self.result(202, "b" * 40)],
-                            [{"verificationResult": {}}], ["text"],
-                            CheckError("not signed")]:
+    def test_real_signature_result_names_its_run(self):
+        runs, calls = self.runs(SIGNATURE_RESULT)
+        self.assertEqual(runs, {36128796855})
+        self.assertEqual(calls, [signer_policy(self.root / "gh", self.path,
+                                               self.revision, None)])
+        bundle = self.root / "provenance.jsonl"
+        _, calls = self.runs(SIGNATURE_RESULT, bundle)
+        self.assertEqual(calls, [signer_policy(self.root / "gh", self.path,
+                                               self.revision, bundle)])
+        runs, _ = self.runs([signature_result(self.revision, 202),
+                             signature_result(self.revision, 404)])
+        self.assertEqual(runs, {202, 404})
+
+    def test_invalid_signature_results_fail(self):
+        no_run = signature_result(self.revision, 202)
+        del no_run["verificationResult"]["signature"]["certificate"]["runInvocationURI"]
+        other_repository = signature_result(self.revision, 202)
+        other_repository["verificationResult"]["signature"]["certificate"][
+            "runInvocationURI"] = "https://github.com/other/stego/actions/runs/202/attempts/1"
+        for refused in [[], {}, [no_run], [signature_result("b" * 40, 202)],
+                        [other_repository], [{"verificationResult": {}}], ["text"],
+                        CheckError("not signed")]:
+            with self.subTest(refused=refused):
                 with self.assertRaises(CheckError):
                     self.runs(refused)
-            uri = "https://github.com/other/stego/actions/runs/202/attempts/1"
-            other = self.result(202)
-            other["verificationResult"]["signature"]["certificate"]["runInvocationURI"] = uri
-            with self.assertRaises(CheckError):
-                self.runs([other])
 
 
 if __name__ == "__main__":
