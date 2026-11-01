@@ -24,6 +24,7 @@
 {"id":"ST-DIS-UC08-FL01","title":"Qualify a compiler release through the command line","use_case_id":"ST-DIS-UC08","interface_id":"ST-IF01"}
 {"id":"ST-DIS-UC09-FL01","title":"Install a qualified compiler through the command line","use_case_id":"ST-DIS-UC09","interface_id":"ST-IF01"}
 {"id":"ST-DIS-UC10-FL01","title":"Measure the fleet through the command line","use_case_id":"ST-DIS-UC10","interface_id":"ST-IF01"}
+{"id":"ST-DIS-UC11-FL01","title":"Publish a compiler release through the command line","use_case_id":"ST-DIS-UC11","interface_id":"ST-IF01"}
 {"id":"ST-DLV-UC01-FL01","title":"State what a service needs from the platform through the command line","use_case_id":"ST-DLV-UC01","interface_id":"ST-IF01"}
 {"id":"ST-DLV-UC02-FL01","title":"Check an environment against a service through the command line","use_case_id":"ST-DLV-UC02","interface_id":"ST-IF01"}
 {"id":"ST-DLV-UC03-FL01","title":"Build and release a service through its CI provider through the command line","use_case_id":"ST-DLV-UC03","interface_id":"ST-IF01"}

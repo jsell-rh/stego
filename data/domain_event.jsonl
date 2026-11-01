@@ -12,6 +12,7 @@
 {"id":"ST-DIS-EV05","title":"Compiler release qualified","aggregate_id":"ST-DIS-A3","published":false,"description":"Every required job and signed artifact at one commit passed."}
 {"id":"ST-DIS-EV06","title":"Published compiler release verified","aggregate_id":"ST-DIS-A3","published":true,"description":"The published release matched its qualification, as a consumer installs it."}
 {"id":"ST-DIS-EV07","title":"Compiler installed","aggregate_id":"ST-DIS-A4","published":false,"description":"An operator put a verified compiler in place."}
+{"id":"ST-DIS-EV08","title":"Compiler release published","aggregate_id":"ST-DIS-A3","published":false,"description":"An immutable release of the compiler at one commit exists, with its four assets, and is not the latest."}
 {"id":"ST-DLV-EV01","title":"Platform requirements written","aggregate_id":"ST-DLV-A1","published":true,"description":"A service's platform requirements changed; the platform reads them to prepare its environments."}
 {"id":"ST-DLV-EV02","title":"Delivery pipeline written","aggregate_id":"ST-DLV-A2","published":true,"description":"A service's CI file changed."}
 {"id":"ST-DLV-EV03","title":"Kubernetes base written","aggregate_id":"ST-DLV-A3","published":false,"description":"A service's Kubernetes base changed."}

@@ -33,6 +33,7 @@
 {"use_case_id":"ST-DIS-UC08","position":1,"role_name":"Platform engineer"}
 {"use_case_id":"ST-DIS-UC09","position":1,"role_name":"Operator"}
 {"use_case_id":"ST-DIS-UC10","position":1,"role_name":"Platform engineer"}
+{"use_case_id":"ST-DIS-UC11","position":1,"role_name":"Platform engineer"}
 {"use_case_id":"ST-DLV-UC01","position":1,"role_name":"Service author"}
 {"use_case_id":"ST-DLV-UC02","position":1,"role_name":"Operator"}
 {"use_case_id":"ST-DLV-UC03","position":1,"role_name":"Service author"}
