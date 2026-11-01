@@ -1,5 +1,5 @@
 {"id":"ST-ASR-EN01-TB","title":"proof-run.json","entity_id":"ST-ASR-EN01","name":"proof-run.json","storage":"file","file":"internal/assure/store.go"}
-{"id":"ST-ASR-EN03-TB","title":"verdict.json","entity_id":"ST-ASR-EN03","name":"verdict.json","storage":"file","file":"internal/assure/verdict_store.go"}
+{"id":"ST-ASR-EN03-TB","title":"decision.json","entity_id":"ST-ASR-EN03","name":"decision.json","storage":"file","file":"internal/assure/decision_store.go"}
 {"id":"ST-ASR-RM01-TB","title":"assure.Ledger","read_model_id":"ST-ASR-RM01","name":"assure.Ledger","storage":"in memory","file":"internal/assure/ledger.go"}
 {"id":"ST-BLD-EN01-TB","title":"go.mod","entity_id":"ST-BLD-EN01","name":"go.mod and go.sum","storage":"file","file":"internal/compiler/dependencies.go"}
 {"id":"ST-BLD-EN02-TB","title":"module-cache.json","entity_id":"ST-BLD-EN02","name":"module-cache.json","storage":"file","file":"internal/appbuild/download.go"}

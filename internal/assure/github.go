@@ -21,7 +21,7 @@ const ProofRunWorkflow = ".github/workflows/proof-run.yml"
 // has actions/attest sign the predicate.
 //
 // Fetching and verifying the attestations for a commit through the GitHub attestations API belongs to this
-// adapter too. Judge a change (ST-ASR-UC02) adds it with ST-ASR-DS03.
+// adapter too. Gate a change (ST-ASR-UC02) adds it with ST-ASR-DS03.
 type GitHubAttestations struct {
 	Repository string
 	Predicate  string

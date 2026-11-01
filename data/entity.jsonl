@@ -1,6 +1,6 @@
 {"id":"ST-ASR-EN01","title":"Proof run","aggregate_id":"ST-ASR-A1","role":"root","description":"One run of every test suite at one commit, with its attestation."}
 {"id":"ST-ASR-EN02","title":"Test outcome","aggregate_id":"ST-ASR-A1","role":"child","in_root_table":true,"description":"What one test record's test did in the run."}
-{"id":"ST-ASR-EN03","title":"Gate verdict","aggregate_id":"ST-ASR-A2","role":"root","description":"The result of judging one commit at one gate, with every reason for a refusal."}
+{"id":"ST-ASR-EN03","title":"Gate decision","aggregate_id":"ST-ASR-A2","role":"root","description":"The decision of one gate on one commit, with every reason for a refusal."}
 {"id":"ST-BLD-EN01","title":"Module requirements","aggregate_id":"ST-BLD-A1","role":"root","description":"The service's go.mod and go.sum, as resolution left them."}
 {"id":"ST-BLD-EN02","title":"Module cache","aggregate_id":"ST-BLD-A2","role":"root","description":"One cache: the source revision it serves, the Go SDK that downloaded it, and its inventory."}
 {"id":"ST-BLD-EN03","title":"Cached module","aggregate_id":"ST-BLD-A2","role":"child","in_root_table":true,"description":"One module zip in the cache."}

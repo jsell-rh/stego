@@ -22,7 +22,7 @@ storage. Do not use `/tmp` for their only copies.
 ## STEGO's own code
 
 The specification under `data/` is the contract. STEGO's own code follows
-the standard ST-STD-CODE in it, which `lathe check` and `assure judge change`
+the standard ST-STD-CODE in it, which `lathe check` and `assure gate change`
 hold the code to:
 
 - One domain per Go package under `internal` and `cmd`; imports between

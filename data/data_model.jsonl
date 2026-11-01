@@ -1,6 +1,6 @@
 {"id":"ST-ASR-EN01-DM","title":"assure.ProofRun","entity_id":"ST-ASR-EN01","file":"internal/assure/proof_run.go"}
 {"id":"ST-ASR-EN02-DM","title":"assure.Outcome","entity_id":"ST-ASR-EN02","file":"internal/assure/proof_run.go"}
-{"id":"ST-ASR-EN03-DM","title":"assure.Verdict","entity_id":"ST-ASR-EN03","file":"internal/assure/verdict.go"}
+{"id":"ST-ASR-EN03-DM","title":"assure.Decision","entity_id":"ST-ASR-EN03","file":"internal/assure/decision.go"}
 {"id":"ST-BLD-EN01-DM","title":"compiler.moduleFiles","entity_id":"ST-BLD-EN01","file":"internal/compiler/dependencies.go"}
 {"id":"ST-BLD-EN02-DM","title":"appbuild.ModuleCacheRecord","entity_id":"ST-BLD-EN02","file":"internal/appbuild/download.go"}
 {"id":"ST-BLD-EN03-DM","title":"appbuild.Module","entity_id":"ST-BLD-EN03","file":"internal/appbuild/build.go"}

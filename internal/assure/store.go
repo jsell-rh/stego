@@ -13,7 +13,7 @@ import (
 // at the CI provider, with the commit as its subject: HandOver hands the proof run's statement to the provider's
 // attestation action, which signs and keeps it. The product's repository holds nothing (ST-ASR-A1-SR01).
 //
-// Fetching the attestations for a commit through the provider's API belongs to this interface too. Judge a
+// Fetching the attestations for a commit through the provider's API belongs to this interface too. Gate a
 // change (ST-ASR-UC02) adds it with the verification of an attestation (ST-ASR-DS03).
 type AttestationStore interface {
 	// HandOver writes the proof run's predicate where the provider's attestation action reads it, and returns
