@@ -18,14 +18,17 @@ import (
 )
 
 // SignedStatement is what a signature check gives for one bundle: the in-toto statement that the signature
-// covers, the signer that the signing certificate names, and the index of the transparency log entry that holds
-// it. Only a BundleVerifier makes one, and only when every check of the bundle passed.
+// covers, the signer that the signing certificate names, the source repository and ref that the certificate
+// names, and the index of the transparency log entry that holds it. Only a BundleVerifier makes one, and only
+// when every check of the bundle passed.
 type SignedStatement struct {
-	Subjects      []StatementSubject
-	PredicateType string
-	Predicate     json.RawMessage
-	Signer        Signer
-	LogIndex      int64
+	Subjects         []StatementSubject
+	PredicateType    string
+	Predicate        json.RawMessage
+	Signer           Signer
+	SourceRepository string
+	SourceRef        string
+	LogIndex         int64
 }
 
 // StatementSubject is one subject of a statement: its name, and its digest as "sha256:" and hexadecimal.
@@ -117,7 +120,9 @@ func (s SigstoreVerifier) VerifyBundle(data []byte, subjectDigest string) (Signe
 	if err != nil {
 		return SignedStatement{}, err
 	}
-	statement.Signer = Signer{Issuer: result.Signature.Certificate.Issuer, Subject: result.Signature.Certificate.SubjectAlternativeName}
+	certificate := result.Signature.Certificate
+	statement.Signer = Signer{Issuer: certificate.Issuer, Subject: certificate.SubjectAlternativeName}
+	statement.SourceRepository, statement.SourceRef = certificate.SourceRepositoryURI, certificate.SourceRepositoryRef
 	statement.LogIndex = entries[0].LogIndex()
 	return statement, nil
 }
@@ -158,7 +163,9 @@ type Trust struct {
 // attestationVerified is the predicate of ST-ASR-SP02, Attestation is verified. The statement, which a
 // BundleVerifier gave, must be about exactly the commit: one subject, with SubjectDigest of the commit and a
 // name that ends in the commit, and a proof run predicate about the commit. Its predicate type must be
-// ProofRunPredicateType. Its signer, from the certificate, must be the trusted signer at a grade: release grade
+// ProofRunPredicateType. The certificate's source repository and source ref must be the trusted workflow's
+// repository and the ref the signer ran at. Its signer, from the certificate, must be the trusted signer at a
+// grade: release grade
 // at main, for any tree; change grade at the change's own reference, only while no file under the workflows
 // folder differs from the base head's. It returns the grade, and a refusal that says why when the statement
 // fails. A change-grade statement that fails only on the workflows folder returns ChangeGrade with the refusal,
@@ -187,6 +194,14 @@ func attestationVerified(statement SignedStatement, commit string, trust Trust) 
 		return NoGrade, refuse("the proof run in the statement is about commit %q, not about %s", predicate.Commit, commit)
 	}
 	grade := trust.Signer.Grade(statement.Signer, trust.ChangeRef)
+	if grade != NoGrade {
+		repository, _, _ := strings.Cut(trust.Signer.Workflow, "/.github/workflows/")
+		_, reference, _ := strings.Cut(statement.Signer.Subject, "@")
+		if statement.SourceRepository != repository || statement.SourceRef != reference {
+			return NoGrade, refuse("the certificate names the source %s at %s, not the trusted workflow's repository %s at %s",
+				statement.SourceRepository, statement.SourceRef, repository, reference)
+		}
+	}
 	switch grade {
 	case ReleaseGrade:
 		return grade, nil

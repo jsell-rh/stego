@@ -216,11 +216,13 @@ func proofRun(commit, reference string, logIndex int64, outcomes ...string) assu
 	predicate := `{"commit":"` + commit + `","provider":"github-actions","runReference":"github:1/1","startedAt":"2026-10-31T10:00:00Z",` +
 		`"finishedAt":"2026-10-31T10:05:00Z","specDigest":"sha256:` + strings.Repeat("a", 64) + `","outcomes":[` + strings.Join(entries, ",") + `]}`
 	return assure.SignedStatement{
-		Subjects:      []assure.StatementSubject{{Name: "git+https://github.com/jsell-rh/stego@" + commit, Digest: assure.SubjectDigest(commit)}},
-		PredicateType: assure.ProofRunPredicateType,
-		Predicate:     json.RawMessage(predicate),
-		Signer:        assure.Signer{Issuer: assure.GitHubIssuer, Subject: proofRunWorkflow + "@" + reference},
-		LogIndex:      logIndex,
+		Subjects:         []assure.StatementSubject{{Name: "git+https://github.com/jsell-rh/stego@" + commit, Digest: assure.SubjectDigest(commit)}},
+		PredicateType:    assure.ProofRunPredicateType,
+		Predicate:        json.RawMessage(predicate),
+		Signer:           assure.Signer{Issuer: assure.GitHubIssuer, Subject: proofRunWorkflow + "@" + reference},
+		SourceRepository: "https://github.com/jsell-rh/stego",
+		SourceRef:        reference,
+		LogIndex:         logIndex,
 	}
 }
 

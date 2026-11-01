@@ -67,11 +67,13 @@ func proofRunStatement(t *testing.T, commit, reference string, logIndex int64, o
 		t.Fatal(err)
 	}
 	return SignedStatement{
-		Subjects:      []StatementSubject{{Name: "git+https://github.com/jsell-rh/stego@" + commit, Digest: SubjectDigest(commit)}},
-		PredicateType: ProofRunPredicateType,
-		Predicate:     predicate,
-		Signer:        Signer{Issuer: GitHubIssuer, Subject: trustedWorkflow + "@" + reference},
-		LogIndex:      logIndex,
+		Subjects:         []StatementSubject{{Name: "git+https://github.com/jsell-rh/stego@" + commit, Digest: SubjectDigest(commit)}},
+		PredicateType:    ProofRunPredicateType,
+		Predicate:        predicate,
+		Signer:           Signer{Issuer: GitHubIssuer, Subject: trustedWorkflow + "@" + reference},
+		SourceRepository: "https://github.com/jsell-rh/stego",
+		SourceRef:        reference,
+		LogIndex:         logIndex,
 	}
 }
 
@@ -198,11 +200,13 @@ func TestVerify(t *testing.T) {
 			"another repository's workflow": func(s *SignedStatement) {
 				s.Signer.Subject = "https://github.com/someone/stego/.github/workflows/proof-run.yml@" + MainRef
 			},
-			"another issuer":             func(s *SignedStatement) { s.Signer.Issuer = "https://accounts.google.com" },
-			"another pull request's ref": func(s *SignedStatement) { s.Signer.Subject = trustedWorkflow + "@refs/pull/8/merge" },
-			"a branch that is not main":  func(s *SignedStatement) { s.Signer.Subject = trustedWorkflow + "@refs/heads/feature" },
-			"a tag":                      func(s *SignedStatement) { s.Signer.Subject = trustedWorkflow + "@refs/tags/v1.0.0" },
-			"no reference":               func(s *SignedStatement) { s.Signer.Subject = trustedWorkflow + "@" },
+			"another issuer":                        func(s *SignedStatement) { s.Signer.Issuer = "https://accounts.google.com" },
+			"another pull request's ref":            func(s *SignedStatement) { s.Signer.Subject = trustedWorkflow + "@refs/pull/8/merge" },
+			"a branch that is not main":             func(s *SignedStatement) { s.Signer.Subject = trustedWorkflow + "@refs/heads/feature" },
+			"a tag":                                 func(s *SignedStatement) { s.Signer.Subject = trustedWorkflow + "@refs/tags/v1.0.0" },
+			"no reference":                          func(s *SignedStatement) { s.Signer.Subject = trustedWorkflow + "@" },
+			"another source repository":             func(s *SignedStatement) { s.SourceRepository = "https://github.com/someone/stego" },
+			"a source ref that is not the signer's": func(s *SignedStatement) { s.SourceRef = "refs/heads/feature" },
 		}
 		for name, change := range refused {
 			statement := proofRunStatement(t, commit, MainRef, 1)
