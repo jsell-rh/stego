@@ -26,5 +26,8 @@
 {"kind":"registry_component","position":4,"name":"sunset","type":"date","required":false,"description":"The date an alpha or beta component stops working. A ga component has none."}
 {"kind":"registry_component","position":5,"name":"declaration_path","type":"text","required":true,"description":"The folder that holds the component's declaration, from the product root."}
 {"kind":"registry_component","position":6,"name":"generator_package","type":"text","required":false,"description":"The Go package that implements the component's generator, from the product root."}
+{"kind":"retirement","position":1,"name":"retired_id","type":"text","required":true,"description":"The ID of the obligation the change removes, which the base branch's head still has."}
+{"kind":"retirement","position":2,"name":"reason","type":"text","required":true,"description":"Why the obligation leaves the specification, in a sentence."}
+{"kind":"retirement","position":3,"name":"retired_on","type":"date","required":true,"description":"The date the Product owner decided the retirement."}
 {"kind":"runtime_package","position":1,"name":"import_path","type":"text","required":true,"description":"The package's Go import path inside the runtime module."}
 {"kind":"runtime_package","position":2,"name":"concern","type":"text","required":true,"description":"What the package holds, in a sentence."}
