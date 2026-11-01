@@ -211,8 +211,8 @@ func (g gateRepository) commit(t *testing.T, parent string, files map[string]str
 	return strings.TrimSpace(g.git(t, "rev-parse", "HEAD"))
 }
 
-// proofRun is a signed proof run statement about the commit, signed by the proof run workflow at the reference,
-// with its outcomes given as "ID result".
+// proofRun is a signed proof run statement about the commit, signed by the proof run workflow at the reference
+// in a run at the commit, with its outcomes given as "ID result".
 func proofRun(commit, reference string, logIndex int64, outcomes ...string) assure.SignedStatement {
 	var entries []string
 	for _, outcome := range outcomes {
@@ -228,6 +228,7 @@ func proofRun(commit, reference string, logIndex int64, outcomes ...string) assu
 		Signer:           assure.Signer{Issuer: assure.GitHubIssuer, Subject: proofRunWorkflow + "@" + reference},
 		SourceRepository: "https://github.com/jsell-rh/stego",
 		SourceRef:        reference,
+		SourceDigest:     commit,
 		LogIndex:         logIndex,
 	}
 }

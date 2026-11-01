@@ -18,8 +18,8 @@ import (
 )
 
 // SignedStatement is what a signature check gives for one bundle: the in-toto statement that the signature
-// covers, the signer that the signing certificate names, the source repository and ref that the certificate
-// names, and the index of the transparency log entry that holds it. Only a BundleVerifier makes one, and only
+// covers, the signer that the signing certificate names, the source repository, ref and digest (the commit the
+// signing workflow ran at) that the certificate names, and the index of the transparency log entry that holds it. Only a BundleVerifier makes one, and only
 // when every check of the bundle passed.
 type SignedStatement struct {
 	Subjects         []StatementSubject
@@ -28,6 +28,7 @@ type SignedStatement struct {
 	Signer           Signer
 	SourceRepository string
 	SourceRef        string
+	SourceDigest     string
 	LogIndex         int64
 }
 
@@ -123,6 +124,7 @@ func (s SigstoreVerifier) VerifyBundle(data []byte, subjectDigest string) (Signe
 	certificate := result.Signature.Certificate
 	statement.Signer = Signer{Issuer: certificate.Issuer, Subject: certificate.SubjectAlternativeName}
 	statement.SourceRepository, statement.SourceRef = certificate.SourceRepositoryURI, certificate.SourceRepositoryRef
+	statement.SourceDigest = certificate.SourceRepositoryDigest
 	statement.LogIndex = entries[0].LogIndex()
 	return statement, nil
 }
@@ -165,8 +167,8 @@ type Trust struct {
 // name that ends in the commit, and a proof run predicate about the commit. Its predicate type must be
 // ProofRunPredicateType. The certificate's source repository and source ref must be the trusted workflow's
 // repository and the ref the signer ran at. Its signer, from the certificate, must be the trusted signer at a
-// grade: release grade
-// at main, for any tree; change grade at the change's own reference, only while no file under the workflows
+// grade: release grade at main, for any tree, when the certificate's source digest, the commit the signing run ran
+// at, is the commit; change grade at the change's own reference, only while no file under the workflows
 // folder differs from the base head's. It returns the grade, and a refusal that says why when the statement
 // fails. A change-grade statement that fails only on the workflows folder returns ChangeGrade with the refusal,
 // so the gate can name each file.
@@ -204,6 +206,12 @@ func attestationVerified(statement SignedStatement, commit string, trust Trust) 
 	}
 	switch grade {
 	case ReleaseGrade:
+		// The run at main signs the commit it ran at, so a release-grade statement about another commit is not
+		// that run's. A pull request's run runs at its merge commit, so change grade has no such check.
+		if statement.SourceDigest != commit {
+			return NoGrade, refuse("it is signed at %s by a run at commit %q, not at the commit %s it is about",
+				MainRef, statement.SourceDigest, commit)
+		}
 		return grade, nil
 	case ChangeGrade:
 		if len(trust.WorkflowChanges) > 0 {
