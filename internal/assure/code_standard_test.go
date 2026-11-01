@@ -248,18 +248,25 @@ func TestTestWithoutID(t *testing.T) {
 {"id":"ST-FXD-SP03-T","state":"not automated yet","file":"internal/fx/fx_test.go"}
 {"id":"ST-FXD-SP04-T","state":"automated","file":"internal/fx/gone_test.go"}
 {"id":"ST-FXD-SP05-T","state":"automated","file":"internal/fx/joined_test.go"}
+{"id":"ST-FXD-SP06-T","state":"automated","file":"internal/build/build_test.go"}
 `,
-			"use_case_test": `{"id":"ST-FXD-UC01-R01-T01","state":"automated","file":"scripts/test_fx.py"}`,
+			"use_case_test": `{"id":"ST-FXD-UC01-R01-T01","state":"automated","file":"scripts/test_fx.py"}
+{"id":"ST-FXD-UC01-R02-T01","state":"automated","file":"scripts/test_named.py"}
+`,
 		})
 		tree := codeTree(map[string]string{
 			"lathe.config.json":                    `{"schema": 2, "data": "data", "tests": ["**/*_test.go", "scripts/test_*.py"]}`,
-			"internal/fx/fx_test.go":               fixtureTest("ST-FXD-SP01-T"),
-			"internal/fx/helpers_test.go":          "package fx\n\n// Helpers of the fx tests. ST-FXD-SP09-T has the form of an ID, but no test record has it.\n",
+			"internal/fx/fx_test.go":               fixtureTest("ST-FXD-SP01-T") + "\n// ST-FXD-SP02-T is only in this comment.\n",
+			"internal/fx/helpers_test.go":          "package fx\n\n// Helpers of the fx tests, once ST-FXD-SP01-T.\nconst fixture = \"ST-FXD-SP01-T\"\n\nfunc helper() string { return fixture }\n",
+			"internal/fx/table_test.go":            "package fx\n\nimport \"testing\"\n\nfunc TestTable(t *testing.T) {\n\tfor _, name := range []string{\"ST-FXD-SP01-T holds\"} {\n\t\tt.Run(name, func(t *testing.T) {})\n\t}\n}\n",
 			"internal/fx/joined_test.go":           fixtureTest("ST-FXD-SP05-T-holds", "ST-FXD-SP05-Tx"),
 			"internal/fx/unknown_test.go":          fixtureTest("ST-FXD-SP09-T"),
 			"internal/fx/none_test.go":             fixtureTest("a case with no ID"),
 			"internal/fx/fx.go":                    "package fx\n",
-			"scripts/test_fx.py":                   "class Fx:\n    def test_cases(self):\n        self.subTest('ST-FXD-UC01-R01-T01 holds')\n",
+			"internal/build/build_test.go":         "package build\n\nimport \"testing\"\n\nfunc TestBuild(t *testing.T) {\n\tname := \"holds\"\n\tt.Run(\"ST-FXD-SP06-T \"+name, func(t *testing.T) {})\n}\n",
+			"internal/.cache/x_test.go":            fixtureTest(),
+			"scripts/test_fx.py":                   "import unittest\n\n\nclass Fx(unittest.TestCase):\n    def test_cases(self):\n        with self.subTest('ST-FXD-UC01-R01-T01 holds'):\n            pass\n",
+			"scripts/test_named.py":                "# ST-FXD-UC01-R02-T01 is only in a comment.\nNAME = \"ST-FXD-UC01-R02-T01\"\n\n\ndef test_st_fxd_uc01_r02_t01():\n    pass\n",
 			"scripts/fx.py":                        "print('no test here')\n",
 			".github/fx_test.go":                   fixtureTest(),
 			"node_modules/x/x_test.go":             fixtureTest(),
@@ -267,15 +274,26 @@ func TestTestWithoutID(t *testing.T) {
 			"examples/other/internal/x/x_test.go":  fixtureTest(),
 			"examples/service/fills/check_test.go": fixtureTest(),
 		})
+		none := "the test file names no test record's ID in a test or subtest name"
+		carries := func(id string) string {
+			return "no test or subtest name in the file carries the ID of automated test record " + id
+		}
+		fault := func(key, path, reason string) CodeFault {
+			return CodeFault{Rule: "ST-STD-CODE-R04", Key: key, Path: path, Reason: reason}
+		}
 		expectFaults(t, testWithoutID(spec, tree),
-			CodeFault{Rule: "ST-STD-CODE-R04", Key: "examples/service/fills/check_test.go", Path: "examples/service/fills/check_test.go", Reason: "the test file names no test record's ID"},
-			CodeFault{Rule: "ST-STD-CODE-R04", Key: "internal/fx/fx_test.go ST-FXD-SP02-T", Path: "internal/fx/fx_test.go", Reason: "the file does not carry the ID of automated test record ST-FXD-SP02-T"},
-			CodeFault{Rule: "ST-STD-CODE-R04", Key: "internal/fx/gone_test.go ST-FXD-SP04-T", Path: "internal/fx/gone_test.go", Reason: "automated test record ST-FXD-SP04-T names this file, which the tree does not hold"},
-			CodeFault{Rule: "ST-STD-CODE-R04", Key: "internal/fx/helpers_test.go", Path: "internal/fx/helpers_test.go", Reason: "the test file names no test record's ID"},
-			CodeFault{Rule: "ST-STD-CODE-R04", Key: "internal/fx/joined_test.go", Path: "internal/fx/joined_test.go", Reason: "the test file names no test record's ID"},
-			CodeFault{Rule: "ST-STD-CODE-R04", Key: "internal/fx/joined_test.go ST-FXD-SP05-T", Path: "internal/fx/joined_test.go", Reason: "the file does not carry the ID of automated test record ST-FXD-SP05-T"},
-			CodeFault{Rule: "ST-STD-CODE-R04", Key: "internal/fx/none_test.go", Path: "internal/fx/none_test.go", Reason: "the test file names no test record's ID"},
-			CodeFault{Rule: "ST-STD-CODE-R04", Key: "internal/fx/unknown_test.go", Path: "internal/fx/unknown_test.go", Reason: "the test file names no test record's ID"},
+			fault("examples/service/fills/check_test.go", "examples/service/fills/check_test.go", none),
+			fault("internal/.cache/x_test.go", "internal/.cache/x_test.go", none),
+			fault("internal/fx/fx_test.go ST-FXD-SP02-T", "internal/fx/fx_test.go", carries("ST-FXD-SP02-T")),
+			fault("internal/fx/gone_test.go ST-FXD-SP04-T", "internal/fx/gone_test.go", "automated test record ST-FXD-SP04-T names this file, which the tree does not hold"),
+			fault("internal/fx/helpers_test.go", "internal/fx/helpers_test.go", none),
+			fault("internal/fx/joined_test.go", "internal/fx/joined_test.go", none),
+			fault("internal/fx/joined_test.go ST-FXD-SP05-T", "internal/fx/joined_test.go", carries("ST-FXD-SP05-T")),
+			fault("internal/fx/none_test.go", "internal/fx/none_test.go", none),
+			fault("internal/fx/table_test.go", "internal/fx/table_test.go", none),
+			fault("internal/fx/unknown_test.go", "internal/fx/unknown_test.go", none),
+			fault("scripts/test_named.py", "scripts/test_named.py", none),
+			fault("scripts/test_named.py ST-FXD-UC01-R02-T01", "scripts/test_named.py", carries("ST-FXD-UC01-R02-T01")),
 		)
 	})
 }
@@ -301,24 +319,44 @@ this line is not JSON, and Lathe passes over it
 			"internal/fx/zz_generated.go":            "// Code generated by fx. DO NOT EDIT.\n\npackage fx\n",
 			"internal/fx/README.md":                  "# fx\n",
 			"internal/fx/fixtures/helper.go":         "package fixtures\n",
+			"internal/fx/test/helper.go":             "package test\n",
 			"internal/fx/web.config.js":              "export default {}\n",
+			"internal/build/build.go":                "package build\n",
+			"internal/fx/out/out.go":                 "package out\n",
+			"internal/.hidden/hidden.go":             "package hidden\n",
+			"internal/sub/lathe.config.json":         "{}",
+			"internal/sub/sub.go":                    "package sub\n",
+			"cmd/dist/main.go":                       "package main\n",
 			"registry/components/web/generate.go":    "package web\n",
 			"registry/components/web/sub/emit.ts":    "export {}\n",
 			"registry/components/api/component.yaml": "name: api\n",
 			"registry/components/api/generate.go":    "package api\n",
 			"scripts/tools/build.py":                 "print('build')\n",
+			"scripts/tools/run.sh":                   "#!/bin/sh\n",
 			"scripts/lost.py":                        "print('lost')\n",
+			"scripts/lost.sh":                        "#!/bin/sh\n",
 			"scripts/test_fx.py":                     "print('a test')\n",
-			"cmd/fx/main.go":                         "package main\n",
 			"examples/fx/main.go":                    "package main\n",
+			"node_modules/x/index.js":                "export {}\n",
 		})
-		lost := "no technical record names the file, directly or through a folder"
+		fault := func(path string) CodeFault {
+			return CodeFault{Rule: "ST-STD-CODE-R05", Key: path, Path: path, Reason: "no technical record names the file, directly or through a folder"}
+		}
 		expectFaults(t, fileWithoutRecord(spec, tree),
-			CodeFault{Rule: "ST-STD-CODE-R05", Key: "cmd/fx/main.go", Path: "cmd/fx/main.go", Reason: lost},
-			CodeFault{Rule: "ST-STD-CODE-R05", Key: "internal/fx/contract.go", Path: "internal/fx/contract.go", Reason: lost},
-			CodeFault{Rule: "ST-STD-CODE-R05", Key: "internal/fx/lost.go", Path: "internal/fx/lost.go", Reason: lost},
-			CodeFault{Rule: "ST-STD-CODE-R05", Key: "registry/components/api/generate.go", Path: "registry/components/api/generate.go", Reason: lost},
-			CodeFault{Rule: "ST-STD-CODE-R05", Key: "scripts/lost.py", Path: "scripts/lost.py", Reason: lost},
+			fault("cmd/dist/main.go"),
+			fault("internal/.hidden/hidden.go"),
+			fault("internal/build/build.go"),
+			fault("internal/fx/contract.go"),
+			fault("internal/fx/fixtures/helper.go"),
+			fault("internal/fx/lost.go"),
+			fault("internal/fx/out/out.go"),
+			fault("internal/fx/test/helper.go"),
+			fault("internal/fx/web.config.js"),
+			fault("internal/fx/zz_generated.go"),
+			fault("internal/sub/sub.go"),
+			fault("registry/components/api/generate.go"),
+			fault("scripts/lost.py"),
+			fault("scripts/lost.sh"),
 		)
 	})
 }

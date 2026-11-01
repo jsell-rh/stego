@@ -53,231 +53,237 @@ ST-STD-CODE-R03	internal/parser imports internal/types	internal/parser	the packa
 ST-STD-CODE-R03	internal/ports imports internal/types	internal/ports	the package imports internal/types against the domain order: Supplying (ST-SUP) may not import Extending (ST-EXT)
 ST-STD-CODE-R03	internal/registry imports internal/parser	internal/registry	the package imports internal/parser against the domain order: Supplying (ST-SUP) may not import Extending (ST-EXT)
 ST-STD-CODE-R03	internal/registry imports internal/types	internal/registry	the package imports internal/types against the domain order: Supplying (ST-SUP) may not import Extending (ST-EXT)
-ST-STD-CODE-R04	cmd/stego/allocation_test.go	cmd/stego/allocation_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	cmd/stego/assets_test.go	cmd/stego/assets_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	cmd/stego/base_path_test.go	cmd/stego/base_path_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	cmd/stego/browser_application_test.go	cmd/stego/browser_application_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	cmd/stego/recover_test.go	cmd/stego/recover_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	cmd/stego/rpc_process_test.go	cmd/stego/rpc_process_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	cmd/stego/runtime_configuration_test.go	cmd/stego/runtime_configuration_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	examples/user-management-rhsso/fills/admin-creation-policy/policy_test.go	examples/user-management-rhsso/fills/admin-creation-policy/policy_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	examples/user-management-rhsso/fills/audit-logger/logger_test.go	examples/user-management-rhsso/fills/audit-logger/logger_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	examples/user-management-rhsso/fills/org-name-validator/validator_test.go	examples/user-management-rhsso/fills/org-name-validator/validator_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	examples/user-management-rhsso/fills/org-provisioner/provisioner_test.go	examples/user-management-rhsso/fills/org-provisioner/provisioner_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	examples/user-management-rhsso/fills/rbac-policy/policy_test.go	examples/user-management-rhsso/fills/rbac-policy/policy_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	examples/user-management-rhsso/fills/user-change-notifier/notifier_test.go	examples/user-management-rhsso/fills/user-change-notifier/notifier_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	examples/user-management/fills/admin-creation-policy/policy_test.go	examples/user-management/fills/admin-creation-policy/policy_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	examples/user-management/fills/audit-logger/logger_test.go	examples/user-management/fills/audit-logger/logger_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	examples/user-management/fills/check-dependencies/checker_test.go	examples/user-management/fills/check-dependencies/checker_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	examples/user-management/fills/org-name-validator/validator_test.go	examples/user-management/fills/org-name-validator/validator_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	examples/user-management/fills/org-provisioner/provisioner_test.go	examples/user-management/fills/org-provisioner/provisioner_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	examples/user-management/fills/rbac-policy/policy_test.go	examples/user-management/fills/rbac-policy/policy_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	examples/user-management/fills/send-welcome/welcome_test.go	examples/user-management/fills/send-welcome/welcome_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	examples/user-management/fills/user-change-notifier/notifier_test.go	examples/user-management/fills/user-change-notifier/notifier_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/appbuild/source_test.go	internal/appbuild/source_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/appbuild/state_test.go	internal/appbuild/state_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/browserapplication/config_test.go	internal/browserapplication/config_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/browserassets/bundle_test.go	internal/browserassets/bundle_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/buildidentity/runtime_test.go	internal/buildidentity/runtime_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/assembler_test.go	internal/compiler/assembler_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/assembly_inputs_test.go	internal/compiler/assembly_inputs_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/base_path_test.go	internal/compiler/base_path_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/component_preflight_test.go	internal/compiler/component_preflight_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/constructor_dependencies_test.go	internal/compiler/constructor_dependencies_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/constructor_metadata_test.go	internal/compiler/constructor_metadata_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/constructor_references_test.go	internal/compiler/constructor_references_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/contracts_integration_test.go	internal/compiler/contracts_integration_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/contracts_test.go	internal/compiler/contracts_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/database_access_integration_test.go	internal/compiler/database_access_integration_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/database_access_test.go	internal/compiler/database_access_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/database_config_test.go	internal/compiler/database_config_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/database_opener_test.go	internal/compiler/database_opener_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/dependency_target_test.go	internal/compiler/dependency_target_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/filesystem_test.go	internal/compiler/filesystem_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/generator_inputs_test.go	internal/compiler/generator_inputs_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/go_models_test.go	internal/compiler/go_models_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/go_namespace_test.go	internal/compiler/go_namespace_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/http_logger_test.go	internal/compiler/http_logger_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/http_responses_test.go	internal/compiler/http_responses_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/http_routes_test.go	internal/compiler/http_routes_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/lifecycle_test.go	internal/compiler/lifecycle_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/lock_test.go	internal/compiler/lock_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/module_test.go	internal/compiler/module_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/numeric_bounds_test.go	internal/compiler/numeric_bounds_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/preflight_test.go	internal/compiler/preflight_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/protobuf_inputs_test.go	internal/compiler/protobuf_inputs_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/registry_composition_test.go	internal/compiler/registry_composition_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/resources_test.go	internal/compiler/resources_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/state_format_test.go	internal/compiler/state_format_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/state_test.go	internal/compiler/state_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/symbol_hygiene_test.go	internal/compiler/symbol_hygiene_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/task_lifecycle_test.go	internal/compiler/task_lifecycle_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/testdata/database_access_test.go	internal/compiler/testdata/database_access_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/testdata/database_config_test.go	internal/compiler/testdata/database_config_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/testdata/http_diagnostics_test.go	internal/compiler/testdata/http_diagnostics_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/testdata/http_lifecycle_test.go	internal/compiler/testdata/http_lifecycle_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/testdata/http_tls_test.go	internal/compiler/testdata/http_tls_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/testdata/service_failure_test.go	internal/compiler/testdata/service_failure_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/testdata/shared_storage_test.go	internal/compiler/testdata/shared_storage_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/testdata/task_http_test.go	internal/compiler/testdata/task_http_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/compiler/testdata/task_lifecycle_test.go	internal/compiler/testdata/task_lifecycle_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/gen/gen_test.go	internal/gen/gen_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/gen/go_models_test.go	internal/gen/go_models_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/gen/go_namespace_test.go	internal/gen/go_namespace_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/gen/http_routes_test.go	internal/gen/http_routes_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/browserbackend/generator_test.go	internal/generator/browserbackend/generator_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/browserbackend/testdata/declared/health_test.go	internal/generator/browserbackend/testdata/declared/health_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/browserbackend/testdata/fixture_test.go	internal/generator/browserbackend/testdata/fixture_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/browseridentity/identity_test.go	internal/generator/browseridentity/identity_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/controller/testdata/admission_test.go	internal/generator/controller/testdata/admission_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/controller/testdata/cycle_budget_test.go	internal/generator/controller/testdata/cycle_budget_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/controller/testdata/cycle_parallel_test.go	internal/generator/controller/testdata/cycle_parallel_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/controller/testdata/cycle_retry_test.go	internal/generator/controller/testdata/cycle_retry_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/controller/testdata/helper_telemetry_test.go	internal/generator/controller/testdata/helper_telemetry_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/controller/testdata/metrics_test.go	internal/generator/controller/testdata/metrics_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/controller/testdata/sequence_test.go	internal/generator/controller/testdata/sequence_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/controller/testdata/stream_test.go	internal/generator/controller/testdata/stream_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/controller/testdata/telemetry_test.go	internal/generator/controller/testdata/telemetry_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/grpcapplication/conversion_test.go	internal/generator/grpcapplication/conversion_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/grpcapplication/generator_test.go	internal/generator/grpcapplication/generator_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/grpcapplication/mapping_inputs_test.go	internal/generator/grpcapplication/mapping_inputs_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/grpcapplication/mapping_test.go	internal/generator/grpcapplication/mapping_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/grpcapplication/overlay_test.go	internal/generator/grpcapplication/overlay_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/grpcapplication/process_test.go	internal/generator/grpcapplication/process_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/grpcapplication/testdata/authority_test.go	internal/generator/grpcapplication/testdata/authority_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/grpcapplication/testdata/process_telemetry_test.go	internal/generator/grpcapplication/testdata/process_telemetry_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/healthcheck/generator_test.go	internal/generator/healthcheck/generator_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/httpapplication/generator_test.go	internal/generator/httpapplication/generator_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/httpclient/local_test.go	internal/generator/httpclient/local_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/httpclient/testdata/isolation_test.go	internal/generator/httpclient/testdata/isolation_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/httpclient/testdata/local_test.go	internal/generator/httpclient/testdata/local_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/httpclient/testdata/options_test.go	internal/generator/httpclient/testdata/options_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/jwtauth/generator_test.go	internal/generator/jwtauth/generator_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/jwtauth/runtime_test.go	internal/generator/jwtauth/runtime_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kafkaproducer/generator_test.go	internal/generator/kafkaproducer/generator_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/generator_test.go	internal/generator/keycloakprovider/generator_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/access_lifecycle_test.go	internal/generator/keycloakprovider/testdata/access_lifecycle_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/browser_lifecycle_test.go	internal/generator/keycloakprovider/testdata/browser_lifecycle_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/browser_live_test.go	internal/generator/keycloakprovider/testdata/browser_live_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/client_cursor_test.go	internal/generator/keycloakprovider/testdata/client_cursor_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/client_roles_live_test.go	internal/generator/keycloakprovider/testdata/client_roles_live_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/live_test.go	internal/generator/keycloakprovider/testdata/live_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/mappers_live_test.go	internal/generator/keycloakprovider/testdata/mappers_live_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/mappers_test.go	internal/generator/keycloakprovider/testdata/mappers_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/migration_live_test.go	internal/generator/keycloakprovider/testdata/migration_live_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/native_access_test.go	internal/generator/keycloakprovider/testdata/native_access_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/native_clients_test.go	internal/generator/keycloakprovider/testdata/native_clients_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/native_lifecycle_gate_test.go	internal/generator/keycloakprovider/testdata/native_lifecycle_gate_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/native_lifecycle_live_test.go	internal/generator/keycloakprovider/testdata/native_lifecycle_live_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/native_lifecycle_test.go	internal/generator/keycloakprovider/testdata/native_lifecycle_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/native_live_test.go	internal/generator/keycloakprovider/testdata/native_live_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/ownership_migration_test.go	internal/generator/keycloakprovider/testdata/ownership_migration_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/roles_live_test.go	internal/generator/keycloakprovider/testdata/roles_live_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/roles_test.go	internal/generator/keycloakprovider/testdata/roles_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/scopes_live_test.go	internal/generator/keycloakprovider/testdata/scopes_live_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/scopes_test.go	internal/generator/keycloakprovider/testdata/scopes_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/service_account_access_test.go	internal/generator/keycloakprovider/testdata/service_account_access_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/service_account_lifecycle_live_test.go	internal/generator/keycloakprovider/testdata/service_account_lifecycle_live_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/service_account_lifecycle_observed_test.go	internal/generator/keycloakprovider/testdata/service_account_lifecycle_observed_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/service_account_lifecycle_test.go	internal/generator/keycloakprovider/testdata/service_account_lifecycle_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesclient/testdata/pinned_admission_test.go	internal/generator/kubernetesclient/testdata/pinned_admission_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesclient/testdata/rotation_telemetry_test.go	internal/generator/kubernetesclient/testdata/rotation_telemetry_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/allocation_endpoints_test.go	internal/generator/kubernetesservice/allocation_endpoints_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/allocation_network_exists_test.go	internal/generator/kubernetesservice/allocation_network_exists_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/allocation_network_peers_test.go	internal/generator/kubernetesservice/allocation_network_peers_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/allocation_network_profile_test.go	internal/generator/kubernetesservice/allocation_network_profile_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/allocation_network_test.go	internal/generator/kubernetesservice/allocation_network_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/allocation_peer_bindings_test.go	internal/generator/kubernetesservice/allocation_peer_bindings_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/allocation_service_accounts_test.go	internal/generator/kubernetesservice/allocation_service_accounts_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/allocation_test.go	internal/generator/kubernetesservice/allocation_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/external_test.go	internal/generator/kubernetesservice/external_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/identity_test.go	internal/generator/kubernetesservice/identity_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/optional_external_test.go	internal/generator/kubernetesservice/optional_external_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/allocation_endpoint_renderer_test.go	internal/generator/kubernetesservice/testdata/allocation_endpoint_renderer_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/allocation_endpoint_runtime_test.go	internal/generator/kubernetesservice/testdata/allocation_endpoint_runtime_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/allocation_isolated_test.go	internal/generator/kubernetesservice/testdata/allocation_isolated_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/allocation_network_deny_test.go	internal/generator/kubernetesservice/testdata/allocation_network_deny_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/allocation_network_peers_test.go	internal/generator/kubernetesservice/testdata/allocation_network_peers_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/allocation_service_accounts_test.go	internal/generator/kubernetesservice/testdata/allocation_service_accounts_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/allocation_test.go	internal/generator/kubernetesservice/testdata/allocation_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/allocation_uid_test.go	internal/generator/kubernetesservice/testdata/allocation_uid_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/render_configuration_test.go	internal/generator/kubernetesservice/testdata/render_configuration_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/render_library_test.go	internal/generator/kubernetesservice/testdata/render_library_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/render_scope_test.go	internal/generator/kubernetesservice/testdata/render_scope_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesworkload/generator_test.go	internal/generator/kubernetesworkload/generator_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesworkload/testdata/dependency_data_test.go	internal/generator/kubernetesworkload/testdata/dependency_data_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/kubernetesworkload/testdata/updates_test.go	internal/generator/kubernetesworkload/testdata/updates_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/oteltracing/generator_test.go	internal/generator/oteltracing/generator_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/oteltracing/testdata/browser_test.go	internal/generator/oteltracing/testdata/browser_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/oteltracing/testdata/command_test.go	internal/generator/oteltracing/testdata/command_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/oteltracing/testdata/controller_test.go	internal/generator/oteltracing/testdata/controller_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/oteltracing/testdata/controller_trace_test.go	internal/generator/oteltracing/testdata/controller_trace_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/oteltracing/testdata/http_client_transport_test.go	internal/generator/oteltracing/testdata/http_client_transport_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/oteltracing/testdata/http_diagnostics_test.go	internal/generator/oteltracing/testdata/http_diagnostics_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/oteltracing/testdata/outbox_test.go	internal/generator/oteltracing/testdata/outbox_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/oteltracing/testdata/startup_test.go	internal/generator/oteltracing/testdata/startup_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/outbox/generator_test.go	internal/generator/outbox/generator_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/outbox/schema_test.go	internal/generator/outbox/schema_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/postgresadapter/database_test.go	internal/generator/postgresadapter/database_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/postgresadapter/generator_test.go	internal/generator/postgresadapter/generator_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/postgresadapter/go_models_test.go	internal/generator/postgresadapter/go_models_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/postgresadapter/schema_generation_test.go	internal/generator/postgresadapter/schema_generation_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/checkpoints_test.go	internal/generator/postgresadapter/testdata/checkpoints_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/cleanup_summary_test.go	internal/generator/postgresadapter/testdata/cleanup_summary_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/cleanup_targets_test.go	internal/generator/postgresadapter/testdata/cleanup_targets_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/cleanup_test.go	internal/generator/postgresadapter/testdata/cleanup_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/conditions_test.go	internal/generator/postgresadapter/testdata/conditions_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/cursor_test.go	internal/generator/postgresadapter/testdata/cursor_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/database_pool_test.go	internal/generator/postgresadapter/testdata/database_pool_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/database_test.go	internal/generator/postgresadapter/testdata/database_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/effects_test.go	internal/generator/postgresadapter/testdata/effects_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/resource_state_scopes_test.go	internal/generator/postgresadapter/testdata/resource_state_scopes_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/resource_state_test.go	internal/generator/postgresadapter/testdata/resource_state_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/schema_generation_test.go	internal/generator/postgresadapter/testdata/schema_generation_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/transaction_test.go	internal/generator/postgresadapter/testdata/transaction_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/versions_test.go	internal/generator/postgresadapter/testdata/versions_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/postgresadapter/transaction_test.go	internal/generator/postgresadapter/transaction_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/postgresadapter/versions_test.go	internal/generator/postgresadapter/versions_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/postgresclient/generator_test.go	internal/generator/postgresclient/generator_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/rhssoauth/generator_test.go	internal/generator/rhssoauth/generator_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/rhssoauth/runtime_test.go	internal/generator/rhssoauth/runtime_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/runtimeconfig/generator_test.go	internal/generator/runtimeconfig/generator_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/tslsearch/generator_test.go	internal/generator/tslsearch/generator_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/tslsearch/runtime_test.go	internal/generator/tslsearch/runtime_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/generator/typescriptsdk/generator_test.go	internal/generator/typescriptsdk/generator_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/openapicontract/enums_test.go	internal/openapicontract/enums_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/openapicontract/go_test.go	internal/openapicontract/go_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/openapicontract/models_test.go	internal/openapicontract/models_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/parser/parser_test.go	internal/parser/parser_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/ports/resolve_test.go	internal/ports/resolve_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/registry/archetype_test.go	internal/registry/archetype_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/registry/cache_security_test.go	internal/registry/cache_security_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/registry/composition_test.go	internal/registry/composition_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/registry/registry_load_benchmark_test.go	internal/registry/registry_load_benchmark_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/registry/registry_test.go	internal/registry/registry_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/registry/resolve_test.go	internal/registry/resolve_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/registry/snapshot_test.go	internal/registry/snapshot_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/responsemapping/json_objects_test.go	internal/responsemapping/json_objects_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/responsemapping/json_strings_test.go	internal/responsemapping/json_strings_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/slot/generate_test.go	internal/slot/generate_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/slot/operators_test.go	internal/slot/operators_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/slot/proto_test.go	internal/slot/proto_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/types/conditions_test.go	internal/types/conditions_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/types/types_test.go	internal/types/types_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	internal/types/versioned_test.go	internal/types/versioned_test.go	the test file names no test record's ID
-ST-STD-CODE-R04	scripts/test_allocation_account_identity.py	scripts/test_allocation_account_identity.py	the test file names no test record's ID
-ST-STD-CODE-R04	scripts/test_allocation_control_identity.py	scripts/test_allocation_control_identity.py	the test file names no test record's ID
-ST-STD-CODE-R04	scripts/test_allocation_peer_bindings.py	scripts/test_allocation_peer_bindings.py	the test file names no test record's ID
-ST-STD-CODE-R04	scripts/test_allocation_pods.py	scripts/test_allocation_pods.py	the test file names no test record's ID
-ST-STD-CODE-R04	scripts/test_allocation_setup.py	scripts/test_allocation_setup.py	the test file names no test record's ID
-ST-STD-CODE-R04	scripts/test_application_delivery.py	scripts/test_application_delivery.py	the test file names no test record's ID
-ST-STD-CODE-R04	scripts/test_application_matrix.py	scripts/test_application_matrix.py	the test file names no test record's ID
-ST-STD-CODE-R04	scripts/test_capture_image_ca.py	scripts/test_capture_image_ca.py	the test file names no test record's ID
-ST-STD-CODE-R04	scripts/test_compiler_artifact.py	scripts/test_compiler_artifact.py	the test file names no test record's ID
-ST-STD-CODE-R04	scripts/test_compiler_toolchain.py	scripts/test_compiler_toolchain.py	the test file names no test record's ID
-ST-STD-CODE-R04	scripts/test_compiler_verification.py	scripts/test_compiler_verification.py	the test file names no test record's ID
-ST-STD-CODE-R04	scripts/test_isolated_allocation.py	scripts/test_isolated_allocation.py	the test file names no test record's ID
-ST-STD-CODE-R04	scripts/test_network_metadata.py	scripts/test_network_metadata.py	the test file names no test record's ID
+ST-STD-CODE-R04	cmd/stego/allocation_test.go	cmd/stego/allocation_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	cmd/stego/assets_test.go	cmd/stego/assets_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	cmd/stego/base_path_test.go	cmd/stego/base_path_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	cmd/stego/browser_application_test.go	cmd/stego/browser_application_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	cmd/stego/recover_test.go	cmd/stego/recover_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	cmd/stego/rpc_process_test.go	cmd/stego/rpc_process_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	cmd/stego/runtime_configuration_test.go	cmd/stego/runtime_configuration_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	examples/user-management-rhsso/fills/admin-creation-policy/policy_test.go	examples/user-management-rhsso/fills/admin-creation-policy/policy_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	examples/user-management-rhsso/fills/audit-logger/logger_test.go	examples/user-management-rhsso/fills/audit-logger/logger_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	examples/user-management-rhsso/fills/org-name-validator/validator_test.go	examples/user-management-rhsso/fills/org-name-validator/validator_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	examples/user-management-rhsso/fills/org-provisioner/provisioner_test.go	examples/user-management-rhsso/fills/org-provisioner/provisioner_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	examples/user-management-rhsso/fills/rbac-policy/policy_test.go	examples/user-management-rhsso/fills/rbac-policy/policy_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	examples/user-management-rhsso/fills/user-change-notifier/notifier_test.go	examples/user-management-rhsso/fills/user-change-notifier/notifier_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	examples/user-management/fills/admin-creation-policy/policy_test.go	examples/user-management/fills/admin-creation-policy/policy_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	examples/user-management/fills/audit-logger/logger_test.go	examples/user-management/fills/audit-logger/logger_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	examples/user-management/fills/check-dependencies/checker_test.go	examples/user-management/fills/check-dependencies/checker_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	examples/user-management/fills/org-name-validator/validator_test.go	examples/user-management/fills/org-name-validator/validator_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	examples/user-management/fills/org-provisioner/provisioner_test.go	examples/user-management/fills/org-provisioner/provisioner_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	examples/user-management/fills/rbac-policy/policy_test.go	examples/user-management/fills/rbac-policy/policy_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	examples/user-management/fills/send-welcome/welcome_test.go	examples/user-management/fills/send-welcome/welcome_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	examples/user-management/fills/user-change-notifier/notifier_test.go	examples/user-management/fills/user-change-notifier/notifier_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/appbuild/source_test.go	internal/appbuild/source_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/appbuild/state_test.go	internal/appbuild/state_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/browserapplication/config_test.go	internal/browserapplication/config_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/browserassets/bundle_test.go	internal/browserassets/bundle_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/buildidentity/runtime_test.go	internal/buildidentity/runtime_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/assembler_test.go	internal/compiler/assembler_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/assembly_inputs_test.go	internal/compiler/assembly_inputs_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/base_path_test.go	internal/compiler/base_path_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/component_preflight_test.go	internal/compiler/component_preflight_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/constructor_dependencies_test.go	internal/compiler/constructor_dependencies_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/constructor_metadata_test.go	internal/compiler/constructor_metadata_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/constructor_references_test.go	internal/compiler/constructor_references_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/contracts_integration_test.go	internal/compiler/contracts_integration_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/contracts_test.go	internal/compiler/contracts_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/database_access_integration_test.go	internal/compiler/database_access_integration_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/database_access_test.go	internal/compiler/database_access_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/database_config_test.go	internal/compiler/database_config_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/database_opener_test.go	internal/compiler/database_opener_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/dependency_target_test.go	internal/compiler/dependency_target_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/filesystem_test.go	internal/compiler/filesystem_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/generator_inputs_test.go	internal/compiler/generator_inputs_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/go_models_test.go	internal/compiler/go_models_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/go_namespace_test.go	internal/compiler/go_namespace_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/http_logger_test.go	internal/compiler/http_logger_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/http_responses_test.go	internal/compiler/http_responses_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/http_routes_test.go	internal/compiler/http_routes_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/lifecycle_test.go	internal/compiler/lifecycle_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/lock_test.go	internal/compiler/lock_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/module_test.go	internal/compiler/module_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/numeric_bounds_test.go	internal/compiler/numeric_bounds_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/preflight_test.go	internal/compiler/preflight_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/protobuf_inputs_test.go	internal/compiler/protobuf_inputs_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/registry_composition_test.go	internal/compiler/registry_composition_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/resources_test.go	internal/compiler/resources_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/state_format_test.go	internal/compiler/state_format_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/state_test.go	internal/compiler/state_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/symbol_hygiene_test.go	internal/compiler/symbol_hygiene_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/task_lifecycle_test.go	internal/compiler/task_lifecycle_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/testdata/database_access_test.go	internal/compiler/testdata/database_access_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/testdata/database_config_test.go	internal/compiler/testdata/database_config_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/testdata/http_diagnostics_test.go	internal/compiler/testdata/http_diagnostics_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/testdata/http_lifecycle_test.go	internal/compiler/testdata/http_lifecycle_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/testdata/http_tls_test.go	internal/compiler/testdata/http_tls_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/testdata/service_failure_test.go	internal/compiler/testdata/service_failure_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/testdata/shared_storage_test.go	internal/compiler/testdata/shared_storage_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/testdata/task_http_test.go	internal/compiler/testdata/task_http_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/compiler/testdata/task_lifecycle_test.go	internal/compiler/testdata/task_lifecycle_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/gen/gen_test.go	internal/gen/gen_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/gen/go_models_test.go	internal/gen/go_models_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/gen/go_namespace_test.go	internal/gen/go_namespace_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/gen/http_routes_test.go	internal/gen/http_routes_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/browserbackend/generator_test.go	internal/generator/browserbackend/generator_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/browserbackend/testdata/declared/health_test.go	internal/generator/browserbackend/testdata/declared/health_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/browserbackend/testdata/fixture_test.go	internal/generator/browserbackend/testdata/fixture_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/browseridentity/identity_test.go	internal/generator/browseridentity/identity_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/controller/generator_test.go	internal/generator/controller/generator_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/controller/testdata/admission_test.go	internal/generator/controller/testdata/admission_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/controller/testdata/cycle_budget_test.go	internal/generator/controller/testdata/cycle_budget_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/controller/testdata/cycle_parallel_test.go	internal/generator/controller/testdata/cycle_parallel_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/controller/testdata/cycle_retry_test.go	internal/generator/controller/testdata/cycle_retry_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/controller/testdata/helper_telemetry_test.go	internal/generator/controller/testdata/helper_telemetry_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/controller/testdata/metrics_test.go	internal/generator/controller/testdata/metrics_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/controller/testdata/sequence_test.go	internal/generator/controller/testdata/sequence_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/controller/testdata/stream_test.go	internal/generator/controller/testdata/stream_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/controller/testdata/telemetry_test.go	internal/generator/controller/testdata/telemetry_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/gosdk/generator_test.go	internal/generator/gosdk/generator_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/gosdk/nullable_test.go	internal/generator/gosdk/nullable_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/grpcapplication/conversion_test.go	internal/generator/grpcapplication/conversion_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/grpcapplication/generator_test.go	internal/generator/grpcapplication/generator_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/grpcapplication/mapping_inputs_test.go	internal/generator/grpcapplication/mapping_inputs_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/grpcapplication/mapping_test.go	internal/generator/grpcapplication/mapping_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/grpcapplication/overlay_test.go	internal/generator/grpcapplication/overlay_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/grpcapplication/process_test.go	internal/generator/grpcapplication/process_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/grpcapplication/testdata/authority_test.go	internal/generator/grpcapplication/testdata/authority_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/grpcapplication/testdata/process_telemetry_test.go	internal/generator/grpcapplication/testdata/process_telemetry_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/healthcheck/generator_test.go	internal/generator/healthcheck/generator_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/httpapplication/generator_test.go	internal/generator/httpapplication/generator_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/httpclient/local_test.go	internal/generator/httpclient/local_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/httpclient/testdata/isolation_test.go	internal/generator/httpclient/testdata/isolation_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/httpclient/testdata/local_test.go	internal/generator/httpclient/testdata/local_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/httpclient/testdata/options_test.go	internal/generator/httpclient/testdata/options_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/jwtauth/generator_test.go	internal/generator/jwtauth/generator_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/jwtauth/runtime_test.go	internal/generator/jwtauth/runtime_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kafkaproducer/generator_test.go	internal/generator/kafkaproducer/generator_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/generator_test.go	internal/generator/keycloakprovider/generator_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/access_lifecycle_test.go	internal/generator/keycloakprovider/testdata/access_lifecycle_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/browser_lifecycle_test.go	internal/generator/keycloakprovider/testdata/browser_lifecycle_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/browser_live_test.go	internal/generator/keycloakprovider/testdata/browser_live_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/client_cursor_test.go	internal/generator/keycloakprovider/testdata/client_cursor_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/client_roles_live_test.go	internal/generator/keycloakprovider/testdata/client_roles_live_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/live_test.go	internal/generator/keycloakprovider/testdata/live_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/mappers_live_test.go	internal/generator/keycloakprovider/testdata/mappers_live_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/mappers_test.go	internal/generator/keycloakprovider/testdata/mappers_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/migration_live_test.go	internal/generator/keycloakprovider/testdata/migration_live_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/native_access_test.go	internal/generator/keycloakprovider/testdata/native_access_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/native_clients_test.go	internal/generator/keycloakprovider/testdata/native_clients_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/native_lifecycle_gate_test.go	internal/generator/keycloakprovider/testdata/native_lifecycle_gate_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/native_lifecycle_live_test.go	internal/generator/keycloakprovider/testdata/native_lifecycle_live_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/native_lifecycle_test.go	internal/generator/keycloakprovider/testdata/native_lifecycle_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/native_live_test.go	internal/generator/keycloakprovider/testdata/native_live_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/ownership_migration_test.go	internal/generator/keycloakprovider/testdata/ownership_migration_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/roles_live_test.go	internal/generator/keycloakprovider/testdata/roles_live_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/roles_test.go	internal/generator/keycloakprovider/testdata/roles_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/scopes_live_test.go	internal/generator/keycloakprovider/testdata/scopes_live_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/scopes_test.go	internal/generator/keycloakprovider/testdata/scopes_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/service_account_access_test.go	internal/generator/keycloakprovider/testdata/service_account_access_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/service_account_lifecycle_live_test.go	internal/generator/keycloakprovider/testdata/service_account_lifecycle_live_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/service_account_lifecycle_observed_test.go	internal/generator/keycloakprovider/testdata/service_account_lifecycle_observed_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/service_account_lifecycle_test.go	internal/generator/keycloakprovider/testdata/service_account_lifecycle_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/service_account_tokens_test.go	internal/generator/keycloakprovider/testdata/service_account_tokens_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesclient/testdata/pinned_admission_test.go	internal/generator/kubernetesclient/testdata/pinned_admission_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesclient/testdata/rotation_telemetry_test.go	internal/generator/kubernetesclient/testdata/rotation_telemetry_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/allocation_endpoints_test.go	internal/generator/kubernetesservice/allocation_endpoints_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/allocation_network_exists_test.go	internal/generator/kubernetesservice/allocation_network_exists_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/allocation_network_peers_test.go	internal/generator/kubernetesservice/allocation_network_peers_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/allocation_network_profile_test.go	internal/generator/kubernetesservice/allocation_network_profile_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/allocation_network_test.go	internal/generator/kubernetesservice/allocation_network_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/allocation_peer_bindings_test.go	internal/generator/kubernetesservice/allocation_peer_bindings_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/allocation_service_accounts_test.go	internal/generator/kubernetesservice/allocation_service_accounts_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/allocation_test.go	internal/generator/kubernetesservice/allocation_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/external_test.go	internal/generator/kubernetesservice/external_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/identity_test.go	internal/generator/kubernetesservice/identity_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/optional_external_test.go	internal/generator/kubernetesservice/optional_external_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/allocation_endpoint_renderer_test.go	internal/generator/kubernetesservice/testdata/allocation_endpoint_renderer_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/allocation_endpoint_runtime_test.go	internal/generator/kubernetesservice/testdata/allocation_endpoint_runtime_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/allocation_isolated_test.go	internal/generator/kubernetesservice/testdata/allocation_isolated_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/allocation_network_deny_test.go	internal/generator/kubernetesservice/testdata/allocation_network_deny_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/allocation_network_peers_test.go	internal/generator/kubernetesservice/testdata/allocation_network_peers_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/allocation_service_accounts_test.go	internal/generator/kubernetesservice/testdata/allocation_service_accounts_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/allocation_test.go	internal/generator/kubernetesservice/testdata/allocation_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/allocation_uid_test.go	internal/generator/kubernetesservice/testdata/allocation_uid_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/render_configuration_test.go	internal/generator/kubernetesservice/testdata/render_configuration_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/render_library_test.go	internal/generator/kubernetesservice/testdata/render_library_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/render_scope_test.go	internal/generator/kubernetesservice/testdata/render_scope_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesworkload/generator_test.go	internal/generator/kubernetesworkload/generator_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesworkload/testdata/dependency_data_test.go	internal/generator/kubernetesworkload/testdata/dependency_data_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/kubernetesworkload/testdata/updates_test.go	internal/generator/kubernetesworkload/testdata/updates_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/oteltracing/generator_test.go	internal/generator/oteltracing/generator_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/oteltracing/testdata/browser_test.go	internal/generator/oteltracing/testdata/browser_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/oteltracing/testdata/command_test.go	internal/generator/oteltracing/testdata/command_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/oteltracing/testdata/controller_test.go	internal/generator/oteltracing/testdata/controller_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/oteltracing/testdata/controller_trace_test.go	internal/generator/oteltracing/testdata/controller_trace_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/oteltracing/testdata/http_client_transport_test.go	internal/generator/oteltracing/testdata/http_client_transport_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/oteltracing/testdata/http_diagnostics_test.go	internal/generator/oteltracing/testdata/http_diagnostics_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/oteltracing/testdata/outbox_test.go	internal/generator/oteltracing/testdata/outbox_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/oteltracing/testdata/startup_test.go	internal/generator/oteltracing/testdata/startup_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/outbox/generator_test.go	internal/generator/outbox/generator_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/outbox/schema_test.go	internal/generator/outbox/schema_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/postgresadapter/database_test.go	internal/generator/postgresadapter/database_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/postgresadapter/generator_test.go	internal/generator/postgresadapter/generator_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/postgresadapter/go_models_test.go	internal/generator/postgresadapter/go_models_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/postgresadapter/schema_generation_test.go	internal/generator/postgresadapter/schema_generation_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/checkpoints_test.go	internal/generator/postgresadapter/testdata/checkpoints_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/cleanup_summary_test.go	internal/generator/postgresadapter/testdata/cleanup_summary_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/cleanup_targets_test.go	internal/generator/postgresadapter/testdata/cleanup_targets_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/cleanup_test.go	internal/generator/postgresadapter/testdata/cleanup_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/conditions_test.go	internal/generator/postgresadapter/testdata/conditions_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/cursor_test.go	internal/generator/postgresadapter/testdata/cursor_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/database_pool_test.go	internal/generator/postgresadapter/testdata/database_pool_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/database_test.go	internal/generator/postgresadapter/testdata/database_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/effects_test.go	internal/generator/postgresadapter/testdata/effects_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/resource_state_scopes_test.go	internal/generator/postgresadapter/testdata/resource_state_scopes_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/resource_state_test.go	internal/generator/postgresadapter/testdata/resource_state_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/schema_generation_test.go	internal/generator/postgresadapter/testdata/schema_generation_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/transaction_test.go	internal/generator/postgresadapter/testdata/transaction_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/versions_test.go	internal/generator/postgresadapter/testdata/versions_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/postgresadapter/transaction_test.go	internal/generator/postgresadapter/transaction_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/postgresadapter/versions_test.go	internal/generator/postgresadapter/versions_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/postgresclient/generator_test.go	internal/generator/postgresclient/generator_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/rhssoauth/generator_test.go	internal/generator/rhssoauth/generator_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/rhssoauth/runtime_test.go	internal/generator/rhssoauth/runtime_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/runtimeconfig/generator_test.go	internal/generator/runtimeconfig/generator_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/tslsearch/generator_test.go	internal/generator/tslsearch/generator_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/tslsearch/runtime_test.go	internal/generator/tslsearch/runtime_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/generator/typescriptsdk/generator_test.go	internal/generator/typescriptsdk/generator_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/openapicontract/enums_test.go	internal/openapicontract/enums_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/openapicontract/go_test.go	internal/openapicontract/go_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/openapicontract/models_test.go	internal/openapicontract/models_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/parser/parser_test.go	internal/parser/parser_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/parser/strict_test.go ST-DECL-INV02-T	internal/parser/strict_test.go	no test or subtest name in the file carries the ID of automated test record ST-DECL-INV02-T
+ST-STD-CODE-R04	internal/parser/strict_test.go ST-DECL-INV03-T	internal/parser/strict_test.go	no test or subtest name in the file carries the ID of automated test record ST-DECL-INV03-T
+ST-STD-CODE-R04	internal/ports/resolve_test.go	internal/ports/resolve_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/registry/archetype_test.go	internal/registry/archetype_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/registry/cache_security_test.go	internal/registry/cache_security_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/registry/composition_test.go	internal/registry/composition_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/registry/registry_load_benchmark_test.go	internal/registry/registry_load_benchmark_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/registry/registry_test.go	internal/registry/registry_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/registry/resolve_test.go	internal/registry/resolve_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/registry/snapshot_test.go	internal/registry/snapshot_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/responsemapping/json_objects_test.go	internal/responsemapping/json_objects_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/responsemapping/json_strings_test.go	internal/responsemapping/json_strings_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/slot/generate_test.go	internal/slot/generate_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/slot/operators_test.go	internal/slot/operators_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/slot/proto_test.go	internal/slot/proto_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/types/conditions_test.go	internal/types/conditions_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/types/types_test.go	internal/types/types_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	internal/types/versioned_test.go	internal/types/versioned_test.go	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	scripts/test_allocation_account_identity.py	scripts/test_allocation_account_identity.py	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	scripts/test_allocation_control_identity.py	scripts/test_allocation_control_identity.py	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	scripts/test_allocation_peer_bindings.py	scripts/test_allocation_peer_bindings.py	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	scripts/test_allocation_pods.py	scripts/test_allocation_pods.py	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	scripts/test_allocation_setup.py	scripts/test_allocation_setup.py	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	scripts/test_application_delivery.py	scripts/test_application_delivery.py	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	scripts/test_application_matrix.py	scripts/test_application_matrix.py	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	scripts/test_capture_image_ca.py	scripts/test_capture_image_ca.py	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	scripts/test_compiler_artifact.py	scripts/test_compiler_artifact.py	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	scripts/test_compiler_toolchain.py	scripts/test_compiler_toolchain.py	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	scripts/test_compiler_verification.py	scripts/test_compiler_verification.py	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	scripts/test_isolated_allocation.py	scripts/test_isolated_allocation.py	the test file names no test record's ID in a test or subtest name
+ST-STD-CODE-R04	scripts/test_network_metadata.py	scripts/test_network_metadata.py	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R05	cmd/stego/scaffold.go	cmd/stego/scaffold.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/appbuild/image_export.go	internal/appbuild/image_export.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/appbuild/image_registry_transport.go	internal/appbuild/image_registry_transport.go	no technical record names the file, directly or through a folder
@@ -327,12 +333,14 @@ ST-STD-CODE-R05	internal/gen/http_base_path.go	internal/gen/http_base_path.go	no
 ST-STD-CODE-R05	internal/gen/http_routes.go	internal/gen/http_routes.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/gen/input.go	internal/gen/input.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/gen/json_validation.go	internal/gen/json_validation.go	no technical record names the file, directly or through a folder
+ST-STD-CODE-R05	internal/generator/browserdom/declarations.d.ts	internal/generator/browserdom/declarations.d.ts	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/generator/browserdom/generator.go	internal/generator/browserdom/generator.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/generator/browserdom/monaco-loader.cjs	internal/generator/browserdom/monaco-loader.cjs	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/generator/browserdom/runtime.js	internal/generator/browserdom/runtime.js	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/generator/browserdom/testdata/browser.test.js	internal/generator/browserdom/testdata/browser.test.js	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/generator/browserdom/testdata/monaco-adapter.test.cjs	internal/generator/browserdom/testdata/monaco-adapter.test.cjs	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/generator/browseridentity/identity.go	internal/generator/browseridentity/identity.go	no technical record names the file, directly or through a folder
+ST-STD-CODE-R05	internal/generator/browsertelemetry/declarations.d.ts	internal/generator/browsertelemetry/declarations.d.ts	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/generator/browsertelemetry/testdata/runtime.test.mjs	internal/generator/browsertelemetry/testdata/runtime.test.mjs	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/generator/browsertelemetry/testdata/usage.mts	internal/generator/browsertelemetry/testdata/usage.mts	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/generator/gosdk/input.go	internal/generator/gosdk/input.go	no technical record names the file, directly or through a folder
@@ -411,6 +419,8 @@ ST-STD-CODE-R05	scripts/check-monaco-adapter.py	scripts/check-monaco-adapter.py	
 ST-STD-CODE-R05	scripts/check-namespace-allocation.py	scripts/check-namespace-allocation.py	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	scripts/check-network-metadata.py	scripts/check-network-metadata.py	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	scripts/check-pinned-admission.py	scripts/check-pinned-admission.py	no technical record names the file, directly or through a folder
+ST-STD-CODE-R05	scripts/pre-commit-check-config-deletions.sh	scripts/pre-commit-check-config-deletions.sh	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	scripts/prepare-compiler-toolchain.py	scripts/prepare-compiler-toolchain.py	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	scripts/registry-fixture.go	scripts/registry-fixture.go	no technical record names the file, directly or through a folder
+ST-STD-CODE-R05	scripts/stats.sh	scripts/stats.sh	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	scripts/verify-application-records.py	scripts/verify-application-records.py	no technical record names the file, directly or through a folder

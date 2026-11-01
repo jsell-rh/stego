@@ -693,9 +693,17 @@ func matchParts(glob, name []string) bool {
 	return matchParts(glob[1:], name[1:])
 }
 
-// productFiles lists the tree's files that belong to the product, in order: not in a folder Lathe never reads
-// (node_modules, dist, build, out, coverage, or one whose name starts with a dot) and not in the folder of another
-// product, one with its own lathe.config.json.
+// codeRoot tells if the file is under internal, cmd, scripts or registry, the folders of STEGO's own code that
+// ST-STD-CODE-R05 names.
+func codeRoot(name string) bool {
+	top, _, _ := strings.Cut(name, "/")
+	return top == "internal" || top == "cmd" || top == "scripts" || top == "registry"
+}
+
+// productFiles lists the tree's files that belong to the product, in order. Every file under internal, cmd,
+// scripts and registry belongs to it, whatever its folders are named. Elsewhere, a file in a folder that holds no
+// source of the product (node_modules, dist, build, out, coverage, or one whose name starts with a dot) does not,
+// nor a file in the folder of another product, one with its own lathe.config.json.
 func productFiles(tree Tree) []string {
 	others := make(map[string]bool)
 	for _, name := range tree.paths() {
@@ -714,113 +722,156 @@ func productFiles(tree Tree) []string {
 				skip = true
 			}
 		}
-		if !skip {
+		if codeRoot(name) || !skip {
 			files = append(files, name)
 		}
 	}
 	return files
 }
 
-// carriesID tells if the text holds the ID as a whole word: not part of a longer ID or name. An underscore may
-// follow it, as go test writes a space in a test's name.
-func carriesID(text []byte, id string) bool {
-	for at := 0; ; {
-		i := bytes.Index(text[at:], []byte(id))
-		if i < 0 {
-			return false
-		}
-		start, end := at+i, at+i+len(id)
-		if (start == 0 || !idByte(text[start-1])) && (end == len(text) || !idByte(text[end])) {
+// testFile tells if the file is a test file: one that a test glob matches.
+func testFile(name string, globs []string) bool {
+	for _, glob := range globs {
+		if matchesGlob(glob, name) {
 			return true
 		}
-		at = start + 1
 	}
+	return false
 }
 
 func idByte(b byte) bool {
 	return b == '-' || b >= '0' && b <= '9' || b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z'
 }
 
-// testWithoutID is the predicate of ST-ASR-SP08 (ST-STD-CODE-R04): a test file names no test record's ID, or an
-// automated test record's file does not carry the record's ID. The test files are those that the test globs of
-// lathe.config.json match under the product's root; a file names a test record when it holds, as a whole word,
-// the ID of a test record of the spec.
+// namedIDs lists the test record IDs that the names carry, each as a whole word: not part of a longer ID or name.
+// An underscore or a space may end an ID, as go test writes a space in a test's name as an underscore.
+func namedIDs(spec Spec, names []string) map[string]bool {
+	ids := make(map[string]bool)
+	for _, name := range names {
+		for _, word := range strings.FieldsFunc(name, func(r rune) bool { return r > 127 || !idByte(byte(r)) }) {
+			if _, ok := spec.Tests[word]; ok {
+				ids[word] = true
+			}
+		}
+	}
+	return ids
+}
+
+// testNames lists the names of the tests a test file holds, which is where a test carries the ID of the record it
+// proves. A comment, a string constant or any other text of the file is not a name.
+//   - Go: the name of each top-level test function (Test, Benchmark, Fuzz or Example), and each string literal in
+//     the first argument of a call of a method Run with two arguments, such as t.Run("ST-ASR-SP05-T ...", ...) or
+//     t.Run("ST-ASR-SP05-T "+name, ...). A name that the test reads from a variable, such as a table's field, is
+//     not known before the test runs, so it does not count. A file that does not parse has no names.
+//   - Python: the name of each function and class, and the first argument of each self.subTest call when it is a
+//     string literal, such as self.subTest("ST-ASR-UC01-R01-T01 ...").
+//   - Any other file: the first argument of each test, it or describe call when it is a string literal.
+func testNames(name string, data []byte) []string {
+	var names []string
+	switch path.Ext(name) {
+	case ".go":
+		file, err := parser.ParseFile(token.NewFileSet(), name, data, parser.SkipObjectResolution)
+		if err != nil {
+			return nil
+		}
+		for _, decl := range file.Decls {
+			if function, ok := decl.(*ast.FuncDecl); ok && function.Recv == nil {
+				for _, prefix := range []string{"Test", "Benchmark", "Fuzz", "Example"} {
+					if strings.HasPrefix(function.Name.Name, prefix) {
+						names = append(names, function.Name.Name)
+					}
+				}
+			}
+		}
+		ast.Inspect(file, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok || len(call.Args) != 2 {
+				return true
+			}
+			if selector, ok := call.Fun.(*ast.SelectorExpr); !ok || selector.Sel.Name != "Run" {
+				return true
+			}
+			ast.Inspect(call.Args[0], func(inner ast.Node) bool {
+				if literal, ok := inner.(*ast.BasicLit); ok && literal.Kind == token.STRING {
+					if text, err := strconv.Unquote(literal.Value); err == nil {
+						names = append(names, text)
+					}
+				}
+				return true
+			})
+			return true
+		})
+	case ".py":
+		definition := regexp.MustCompile(`^\s*(?:async\s+)?(?:def|class)\s+(\w+)`)
+		subTest := regexp.MustCompile(`\.subTest\(\s*(?:"([^"\\]*)"|'([^'\\]*)')`)
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "#") {
+				continue
+			}
+			if match := definition.FindStringSubmatch(line); match != nil {
+				names = append(names, match[1])
+			}
+			for _, match := range subTest.FindAllStringSubmatch(line, -1) {
+				names = append(names, match[1]+match[2])
+			}
+		}
+	default:
+		call := regexp.MustCompile(`\b(?:test|it|describe)\(\s*(?:"([^"\\]*)"|'([^'\\]*)'|` + "`([^`]*)`" + `)`)
+		for _, match := range call.FindAllStringSubmatch(string(data), -1) {
+			names = append(names, match[1]+match[2]+match[3])
+		}
+	}
+	return names
+}
+
+// testWithoutID is the predicate of ST-ASR-SP08 (ST-STD-CODE-R04): a test file names no test record's ID in any
+// test function or subtest name, or an automated test record's file does not carry the record's ID in one. The
+// test files are those that the test globs of lathe.config.json match under the product's root; testNames says
+// which names a file holds, and each name is checked for the ID of every test record of the spec.
 func testWithoutID(spec Spec, tree Tree) []CodeFault {
-	// A word that has the form of a test record's ID, such as ST-ASR-SP05-T or ST-STD-CODE-R01-T01.
-	testRecordID := regexp.MustCompile(`ST-[A-Z0-9]+(?:-[A-Z0-9]+)*-T[0-9]*`)
 	var faults []CodeFault
 	globs := testGlobs(tree)
 	for _, name := range productFiles(tree) {
-		matched := false
-		for _, glob := range globs {
-			if matchesGlob(glob, name) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
+		if !testFile(name, globs) {
 			continue
 		}
 		data, _ := tree.File(name)
-		names := false
-		for _, found := range testRecordID.FindAll(data, -1) {
-			if _, ok := spec.Tests[string(found)]; ok && carriesID(data, string(found)) {
-				names = true
-				break
-			}
-		}
-		if !names {
-			faults = append(faults, CodeFault{Rule: RuleTestNamesWhatItDoes, Key: name, Path: name, Reason: "the test file names no test record's ID"})
+		if len(namedIDs(spec, testNames(name, data))) == 0 {
+			faults = append(faults, CodeFault{Rule: RuleTestNamesWhatItDoes, Key: name, Path: name, Reason: "the test file names no test record's ID in a test or subtest name"})
 		}
 	}
 	for _, id := range spec.automated() {
 		record := spec.Tests[id]
-		data, held := tree.File(normalPath(record.File))
+		file := normalPath(record.File)
+		data, held := tree.File(file)
 		switch {
 		case record.File == "":
 			faults = append(faults, CodeFault{Rule: RuleTestNamesWhatItDoes, Key: id, Path: id, Reason: "automated test record " + id + " names no file"})
 		case !held:
-			faults = append(faults, CodeFault{Rule: RuleTestNamesWhatItDoes, Key: record.File + " " + id, Path: record.File, Reason: "automated test record " + id + " names this file, which the tree does not hold"})
-		case !carriesID(data, id):
-			faults = append(faults, CodeFault{Rule: RuleTestNamesWhatItDoes, Key: record.File + " " + id, Path: record.File, Reason: "the file does not carry the ID of automated test record " + id})
+			faults = append(faults, CodeFault{Rule: RuleTestNamesWhatItDoes, Key: file + " " + id, Path: file, Reason: "automated test record " + id + " names this file, which the tree does not hold"})
+		case !namedIDs(spec, testNames(file, data))[id]:
+			faults = append(faults, CodeFault{Rule: RuleTestNamesWhatItDoes, Key: file + " " + id, Path: file, Reason: "no test or subtest name in the file carries the ID of automated test record " + id})
 		}
 	}
 	sortFaults(faults)
 	return faults
 }
 
-// sourceExtensions are the file extensions of source files, as Lathe's code-file-untraced reads them.
+// sourceExtensions are the file extensions of source files: those of Lathe's code-file-untraced, and shell
+// scripts.
 func sourceExtensions() map[string]bool {
 	extensions := make(map[string]bool)
-	for _, extension := range strings.Split("ts tsx js jsx mjs cjs mts cts vue svelte py rb go rs java kt swift cs php", " ") {
+	for _, extension := range strings.Split("ts tsx js jsx mjs cjs mts cts vue svelte py rb go rs java kt swift cs php sh", " ") {
 		extensions["."+extension] = true
 	}
 	return extensions
 }
 
-// generatedHead tells if a file's first five lines say it is generated: @generated, or generated and do not
-// edit, as Lathe reads them.
-func generatedHead() func(data []byte) bool {
-	generatedWord := regexp.MustCompile(`(?i)\bgenerated\b`)
-	doNotEdit := regexp.MustCompile(`(?i)\bdo not edit\b`)
-	return func(data []byte) bool {
-		if len(data) > 1024 {
-			data = data[:1024]
-		}
-		lines := strings.Split(string(data), "\n")
-		if len(lines) > 5 {
-			lines = lines[:5]
-		}
-		head := strings.Join(lines, "\n")
-		return strings.Contains(head, "@generated") || generatedWord.MatchString(head) && doNotEdit.MatchString(head)
-	}
-}
-
 // fileWithoutRecord is the predicate of ST-ASR-SP09 (ST-STD-CODE-R05): a source file under internal, cmd, scripts
-// or registry is named by no technical record, directly or through a folder a record names. A source file is one
-// Lathe's code-file-untraced reads: a file with a source extension that is not a test (the test globs of
-// lathe.config.json, or a folder named test, tests, __tests__, __mocks__ or fixtures), not a tool's config, and not
-// generated.
+// or registry is named by no technical record, directly or through a folder a record names. A source file is a file
+// with a source extension that is not a test file (a test glob of lathe.config.json matches it; a test record
+// traces it, and ST-STD-CODE-R04 holds it). Every other file counts, whatever its folder is named and whether or
+// not it says it is generated or is a tool's config: the rule has no such exception.
 func fileWithoutRecord(spec Spec, tree Tree) []CodeFault {
 	named := make(map[string]bool)
 	for _, record := range spec.Technical {
@@ -828,19 +879,9 @@ func fileWithoutRecord(spec Spec, tree Tree) []CodeFault {
 	}
 	extensions := sourceExtensions()
 	globs := testGlobs(tree)
-	generated := generatedHead()
-	// The name of a tool's config file or a type declaration file, which is not a source file.
-	configName := regexp.MustCompile(`(^|\.)config\.[cm]?[jt]sx?$|^\.[^/]*rc(\.[cm]?[jt]s)?$|\.d\.[cm]?ts$`)
 	var faults []CodeFault
-	for _, name := range productFiles(tree) {
-		top, _, _ := strings.Cut(name, "/")
-		if top != "internal" && top != "cmd" && top != "scripts" && top != "registry" || !extensions[path.Ext(name)] {
-			continue
-		}
-		if !sourceFile(name, globs, configName) {
-			continue
-		}
-		if data, _ := tree.File(name); generated(data) {
+	for _, name := range tree.paths() {
+		if !codeRoot(name) || !extensions[path.Ext(name)] || testFile(name, globs) {
 			continue
 		}
 		traced := named["."] || named[""]
@@ -853,26 +894,6 @@ func fileWithoutRecord(spec Spec, tree Tree) []CodeFault {
 	}
 	sortFaults(faults)
 	return faults
-}
-
-// sourceFile tells if the file is not a test, a test's helper or a tool's config.
-func sourceFile(name string, testGlobs []string, configName *regexp.Regexp) bool {
-	parts := strings.Split(name, "/")
-	for _, part := range parts[:len(parts)-1] {
-		switch part {
-		case "test", "tests", "__tests__", "__mocks__", "fixtures":
-			return false
-		}
-	}
-	if configName.MatchString(parts[len(parts)-1]) {
-		return false
-	}
-	for _, glob := range testGlobs {
-		if matchesGlob(glob, name) {
-			return false
-		}
-	}
-	return true
 }
 
 // stubBuilt is the predicate of ST-ASR-SP10 (ST-STD-CODE-R06): a function that a predicate, handler or service
