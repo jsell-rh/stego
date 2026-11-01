@@ -613,7 +613,10 @@ class ReleasePublishing(unittest.TestCase):
                  " settings, then delete this release and its tag; the commit needs a new merge commit", True),
                 ("a release that is the latest", lambda world: world.state.update(latest_anyway=True),
                  "The release " + tag + " is the latest release, and a compiler release is never the latest. The owner"
-                 " must mark the previous latest release as latest explicitly (make_latest)", True),
+                 " must mark the previous latest release as latest explicitly (make_latest), so that GitHub does not"
+                 " mark the newest release by date. Do not delete this release: its immutable tag can never be used"
+                 " again. It then stands as immutable and not the latest; qualify it by hand, in a checkout of the"
+                 " commit, with qualify-compiler-release.py --verify-release --revision " + self.world.commit, True),
                 ("an upload that changes an asset", lambda world: world.state.update(upload_changes=True),
                  "The release " + tag + " is not exactly the four verified assets at", True)]
             for label, change, message, created in refused:
