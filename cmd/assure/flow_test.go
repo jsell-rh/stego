@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jsell-rh/stego/internal/assure"
 )
 
 func TestRecordFlow(t *testing.T) {
@@ -142,5 +144,87 @@ func TestGateFlow(t *testing.T) {
 			!strings.Contains(result.stdout, "(ST-STD-CODE-R02), present at base\n") {
 			t.Fatalf("a change that adds a code-standard fault exits %d with:\n%s%s", result.code, result.stdout, result.stderr)
 		}
+	})
+}
+
+func TestReleaseFlow(t *testing.T) {
+	t.Run("ST-ASR-UC03-FL01-T assure gate release passes a fully proved commit and writes the decision predicate, and refuses every other commit with each cause named", func(t *testing.T) {
+		g := newGateRepository(t)
+		full := g.commit(t, g.base, fullyProved)
+		proof := g.keep(t, "proof", proofRun(full, mainRef, 31, allPassed...))
+		summary := filepath.Join(g.runnerTemp, "step-summary.md")
+		predicate := g.releasePredicate(t)
+		result := g.release(t, full, proof, predicate, "GITHUB_STEP_SUMMARY="+summary)
+		decision := "release gate on " + full + ": passed\n" +
+			"coverage at " + full + ": 4 obligations: 4 designed (100.0%), 4 built (100.0%), 4 proved (100.0%)\n" +
+			"proof run: https://github.com/jsell-rh/stego/assure/proof-run/v1 about " + full +
+			", signed by https://github.com/jsell-rh/stego/.github/workflows/proof-run.yml@refs/heads/main (issuer https://token.actions.githubusercontent.com), rekor:31\n" +
+			"attestation: https://github.com/jsell-rh/stego/assure/release-decision/v1 about " + full +
+			", for https://github.com/jsell-rh/stego/.github/workflows/proof-run.yml@refs/heads/main (issuer https://token.actions.githubusercontent.com) to sign\n" +
+			"code faults: none\n" +
+			"reasons: none\n"
+		want := `{
+  "commit": "` + full + `",
+  "kind": "release",
+  "coverage": {
+    "total": 4,
+    "designed": 4,
+    "built": 4,
+    "proved": 4
+  },
+  "passed": true,
+  "reasons": [],
+  "codeFaults": [],
+  "proofRun": {
+    "predicateType": "https://github.com/jsell-rh/stego/assure/proof-run/v1",
+    "subject": "` + full + `",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "signer": "https://github.com/jsell-rh/stego/.github/workflows/proof-run.yml@refs/heads/main",
+    "logEntry": "rekor:31"
+  }
+}
+`
+		sum := sha256.Sum256([]byte(want))
+		predicateLine := "decision predicate " + predicate + " (sha256:" + hex.EncodeToString(sum[:]) + "), type " +
+			"https://github.com/jsell-rh/stego/assure/release-decision/v1, for https://github.com/jsell-rh/stego/.github/workflows/proof-run.yml@refs/heads/main to sign\n"
+		if result.code != 0 || result.stdout != decision+predicateLine {
+			t.Fatalf("assure gate release exited %d with:\n%s%s\nwant:\n%s%s", result.code, result.stdout, result.stderr, decision, predicateLine)
+		}
+		first, err := os.ReadFile(predicate)
+		if err != nil || string(first) != want {
+			t.Fatalf("the decision predicate (%v):\n%s\nwant:\n%s", err, first, want)
+		}
+		if data, err := os.ReadFile(summary); err != nil || string(data) != "```text\n"+decision+"```\n" {
+			t.Fatalf("the job's step summary does not hold the decision (%v):\n%s", err, data)
+		}
+		name, digest, err := runJobSubjectStep(t, "attest-release", full)
+		if err != nil || name != "git+https://github.com/jsell-rh/stego@"+full || digest != assure.SubjectDigest(full) {
+			t.Fatalf("the attest-release job names the subject %s (%s), %v, not the release commit", name, digest, err)
+		}
+		again := filepath.Join(g.runnerTemp, "decision", "again.json")
+		if result := g.release(t, full, proof, again); result.code != 0 {
+			t.Fatalf("assure gate release exited %d the second time:\n%s", result.code, result.stderr)
+		}
+		if second, _ := os.ReadFile(again); !bytes.Equal(first, second) {
+			t.Fatalf("the same commit and proof run gave another predicate:\n%s", second)
+		}
+
+		unproved := g.commit(t, g.base, with(fullyProved, map[string]string{"data/invariant_test.jsonl": invariantTest01 + invariantTest02}))
+		refusedRelease(t, "a commit with an obligation not proved",
+			g.release(t, unproved, g.keep(t, "unproved", proofRun(unproved, mainRef, 32, allPassed...)), predicate+".unproved"),
+			predicate+".unproved", "FX-LEND-INV03 is not proved")
+
+		failed := g.keep(t, "failed", proofRun(full, mainRef, 33, "FX-LEND-INV01-T passed", "FX-LEND-INV02-T failed", "FX-LEND-INV03-T passed", "FX-VO01-C01-T passed"))
+		refusedRelease(t, "a proof run with a failed test", g.release(t, full, failed, predicate+".failed"), predicate+".failed", "FX-LEND-INV02-T failed")
+
+		change := g.keep(t, "change", proofRun(full, pullRef, 34, allPassed...))
+		refusedRelease(t, "a change-grade proof run", g.release(t, full, change, predicate+".change"), predicate+".change",
+			noVerifiedProofRunAt(full)+": the attestation at rekor:34 is refused: it is signed by "+proofRunWorkflow+" at "+pullRef+
+				", not at "+mainRef+", and only release-grade evidence counts here")
+
+		fault := g.commit(t, g.base, with(fullyProved, map[string]string{"internal/lend/extra.go": "package lend\n\nconst extra = 1\n"}))
+		refusedRelease(t, "a tree with a code-standard fault",
+			g.release(t, fault, g.keep(t, "fault", proofRun(fault, mainRef, 35, allPassed...)), predicate+".fault"), predicate+".fault",
+			"internal/lend/extra.go: no technical record names the file, directly or through a folder (ST-STD-CODE-R05, internal/lend/extra.go)")
 	})
 }
