@@ -2,6 +2,8 @@ package assure
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -464,6 +466,130 @@ func TestStubBuilt(t *testing.T) {
 		tree := codeTree(map[string]string{"internal/fx/fx.go": stubFile})
 		sortFaults(want)
 		expectFaults(t, stubBuilt(spec, tree), want...)
+	})
+}
+
+// codeRepository makes a git repository that holds the files, by path and text, with no commit yet, and returns
+// its folder.
+func codeRepository(t *testing.T, files map[string]string) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "repository")
+	for name, text := range files {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitIn(t, root, "init", "-q")
+	return root
+}
+
+// commitAll commits every file of the working tree and returns the commit.
+func commitAll(t *testing.T, root, message string) string {
+	t.Helper()
+	gitIn(t, root, "add", "-A")
+	gitIn(t, root, "-c", "user.name=fixture", "-c", "user.email=fixture@example.com", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message)
+	return strings.TrimSpace(gitIn(t, root, "rev-parse", "HEAD"))
+}
+
+// readFaults reads the spec and the tree at the commit from git objects and gives their code faults.
+func readFaults(t *testing.T, root, commit string) []CodeFault {
+	t.Helper()
+	spec, err := ReadCommittedSpec(root, commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := ReadCommittedTree(root, commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	faults, err := CodeFaults(spec, tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return faults
+}
+
+func TestFindTheCodeFaults(t *testing.T) {
+	t.Run("ST-ASR-DS04-T01 The code faults of a commit come from its tree and spec alone, keyed and ordered, and two readings agree", func(t *testing.T) {
+		root := codeRepository(t, map[string]string{
+			"go.mod":            "module example.com/fx\n",
+			"lathe.config.json": `{"schema": 2, "data": "data", "tests": ["**/*_test.go"]}` + "\n",
+			"data/domain.jsonl": fixtureDomains,
+			"data/predicate.jsonl": `{"id":"ST-FXD-SP01-PR","title":"mixed.isDeclared","file":"internal/mixed/declared.go"}
+{"id":"ST-FXG-SP01-PR","title":"mixed.isGenerated","file":"internal/mixed/generated.go"}
+{"id":"ST-FXS-SP01-PR","title":"mixed.isSupplied","file":"internal/mixed/supplied.go"}
+{"id":"ST-FXS-SP02-PR","title":"mixed.isMissing","file":"internal/mixed/supplied.go"}
+`,
+			"data/specification_test.jsonl": `{"id":"ST-FXD-SP01-T","state":"automated","file":"internal/mixed/mixed_test.go"}` + "\n",
+			"internal/mixed/declared.go":    "package mixed\n\nfunc isDeclared(name string) bool { return name != \"\" }\n",
+			"internal/mixed/generated.go":   "package mixed\n\nfunc isGenerated(name string) bool { return len(name) > 1 }\n",
+			"internal/mixed/supplied.go":    "package mixed\n\nfunc isSupplied(name string) bool { return true }\n",
+			"internal/mixed/mixed_test.go":  fixtureTest("ST-FXD-SP01-T"),
+			"internal/lost/lost.go":         "package lost\n",
+		})
+		first := commitAll(t, root, "first")
+		faults := readFaults(t, root, first)
+		keys := make([]string, 0, len(faults))
+		for _, fault := range faults {
+			keys = append(keys, fault.Rule+" "+fault.Key)
+		}
+		want := []string{
+			"ST-STD-CODE-R01 internal/mixed",
+			"ST-STD-CODE-R02 ST-FXS-SP02-PR",
+			"ST-STD-CODE-R05 internal/lost/lost.go",
+			"ST-STD-CODE-R06 ST-FXS-SP01-PR",
+		}
+		if !reflect.DeepEqual(keys, want) {
+			t.Fatalf("faults at the first commit:\n%s\nwant one per rule and key, in rule then key order: %v", faultLines(faults), want)
+		}
+
+		// The working tree changes, with a new file and a stub made real, but the commit does not: a second
+		// reading of the commit gives the same faults.
+		for name, text := range map[string]string{
+			"internal/extra/extra.go":    "package extra\n",
+			"internal/mixed/supplied.go": "package mixed\n\nfunc isSupplied(name string) bool { return name == \"s\" }\n",
+			"data/predicate.jsonl":       "",
+		} {
+			if err := os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, name), []byte(text), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if again := readFaults(t, root, first); !reflect.DeepEqual(again, faults) {
+			t.Fatalf("a second reading of the same commit gave other faults:\n%s\nfirst reading:\n%s", faultLines(again), faultLines(faults))
+		}
+
+		// A later commit takes one of the package's three domains away. The package still holds two, so the
+		// fault stands with the same key and another reason.
+		gitIn(t, root, "checkout", "-q", "--", ".")
+		gitIn(t, root, "clean", "-q", "-f", "-d")
+		if err := os.Remove(filepath.Join(root, "internal/mixed/generated.go")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "data/predicate.jsonl"), []byte(`{"id":"ST-FXD-SP01-PR","title":"mixed.isDeclared","file":"internal/mixed/declared.go"}
+{"id":"ST-FXS-SP01-PR","title":"mixed.isSupplied","file":"internal/mixed/supplied.go"}
+{"id":"ST-FXS-SP02-PR","title":"mixed.isMissing","file":"internal/mixed/supplied.go"}
+`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		second := commitAll(t, root, "second")
+		later := readFaults(t, root, second)
+		if len(later) != len(faults) {
+			t.Fatalf("faults at the second commit:\n%s\nwant the same four faults", faultLines(later))
+		}
+		for i := range later {
+			if later[i].Rule != faults[i].Rule || later[i].Key != faults[i].Key {
+				t.Fatalf("fault %d changed its identity: %s, then %s", i, faults[i], later[i])
+			}
+		}
+		if later[0].Reason == faults[0].Reason {
+			t.Fatalf("the R01 fault kept its reason %q; the fixture must change it", later[0].Reason)
+		}
 	})
 }
 
