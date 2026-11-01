@@ -37,6 +37,12 @@ jobs:
           persist-credentials: false
       - name: Check qualification rejection paths
         run: timeout --signal=TERM --kill-after=5s 20s python3 -B scripts/test_compiler_release_qualification.py
+      # This step reads the immutable release and its tag, the signatures in the
+      # release bundle and in the attestation store, and the run and job
+      # records. It does not need the run artifacts: they expire after seven
+      # days. The script accepts a run without artifacts only after publication,
+      # and only when both signatures name that run. The tests above prove the
+      # artifact checks on fixed records.
       - name: Qualify the published compiler release
         timeout-minutes: 8
         env:
@@ -61,6 +67,10 @@ jobs:
           if (result['release']['assets']['stego-linux-amd64']
                   != 'sha256:1f4e53d27f30b57e93b21701ab11a09765ff4d859cf149ef0679b8a274ee746e'):
               raise SystemExit('The qualified compiler digest changed')
+          signed_run = 36128796855
+          if (result['signed_artifact']['run_id'] != signed_run
+                  or result['release']['signatures_name_signed_artifact_run'] != signed_run):
+              raise SystemExit('The release signatures must name the signed artifact run')
           print(json.dumps({'source_revision': result['source_revision'],
                             'mode': result['mode'],
                             'downloaded_compiler_executed': False}))

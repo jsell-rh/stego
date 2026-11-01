@@ -37,6 +37,8 @@ ARTIFACT_JOB_NAMES = ["linux-amd64", "provenance"]
 CHECKS_BRANCHES = ["main"]
 RUN_PAGE = 100
 RELEASE_NOTES_LIMIT = 65536
+RUN_INVOCATION = re.compile(r"https://github\.com/" + re.escape(REPOSITORY)
+                            + r"/actions/runs/([1-9][0-9]{0,18})/attempts/[1-9][0-9]{0,3}")
 
 
 def api(gh, path, directory, *, limit=4 << 20):
@@ -158,6 +160,11 @@ def require_artifacts(artifacts, revision, run_id, require_current):
                              + " expired before qualification")
         found[name] = {"name": name, "digest": digest, "size_in_bytes": size,
                        "expired": expired}
+    if not found and not require_current:
+        # GitHub removes an expired artifact from the run's list. After
+        # publication, verify_published_release requires the signatures of the
+        # release to name this run instead. A partial list still fails.
+        return []
     if set(found) != set(limits):
         raise CheckError("The signed artifact run is missing required artifacts")
     return [found[name] for name in limits]
@@ -169,6 +176,47 @@ def tag_ref(gh, revision, directory):
     if not isinstance(data, list):
         raise CheckError("The tag reference list is invalid")
     return data
+
+
+def attested_runs(gh, path, revision, bundle=None):
+    """Return the signed artifact runs whose signatures authenticate one file."""
+    source = [] if bundle is None else ["--bundle", str(bundle)]
+    try:
+        # Without a bundle, GitHub CLI reads the attestation store of the
+        # repository. With the release bundle, it reads what a consumer reads.
+        raw = control.command([
+            str(gh), "attestation", "verify", str(path), *source,
+            "--hostname", "github.com", "--repo", REPOSITORY,
+            "--signer-digest", revision,
+            "--cert-identity", "https://github.com/" + verification.WORKFLOW
+            + "@" + verification.REFERENCE,
+            "--cert-oidc-issuer", "https://token.actions.githubusercontent.com",
+            "--source-ref", verification.REFERENCE, "--source-digest", revision,
+            "--predicate-type", verification.PREDICATE, "--digest-alg", "sha256",
+            "--deny-self-hosted-runners", "--format", "json",
+        ], path.parent, verification.verifier_environment(), timeout=90, limit=4 << 20)
+    except CheckError:
+        raise CheckError("No signature authenticates " + path.name + " at the source commit"
+                         + ("" if bundle is None else " in the release bundle")) from None
+    results = json.loads(raw, object_pairs_hook=verification.unique_object)
+    if not isinstance(results, list) or not results:
+        raise CheckError("The signature verification result for " + path.name + " is invalid")
+    runs = set()
+    for result in results:
+        outcome = result.get("verificationResult") if isinstance(result, dict) else None
+        signature = outcome.get("signature") if isinstance(outcome, dict) else None
+        certificate = signature.get("certificate") if isinstance(signature, dict) else None
+        if not isinstance(certificate, dict):
+            raise CheckError("A signature of " + path.name + " has no certificate")
+        if certificate.get("sourceRepositoryDigest") != revision:
+            raise CheckError("A signature of " + path.name + " names another commit")
+        invocation = certificate.get("runInvocationURI")
+        match = (RUN_INVOCATION.fullmatch(invocation)
+                 if isinstance(invocation, str) else None)
+        if match is None:
+            raise CheckError("A signature of " + path.name + " does not name its signing run")
+        runs.add(int(match.group(1)))
+    return runs
 
 
 def qualify(revision, output, gh, verify_release=False):
@@ -216,7 +264,8 @@ def qualify(revision, output, gh, verify_release=False):
             "signed_artifact": {
                 "run_id": artifact["id"], "event": artifact["event"],
                 "head_branch": artifact["head_branch"], "conclusion": artifact["conclusion"],
-                "jobs": artifact_result, "artifacts": artifacts},
+                "jobs": artifact_result, "artifacts": artifacts,
+                "artifacts_retained": bool(artifacts)},
             "release": release,
             "downloaded_compiler_executed": False,
         }
@@ -252,12 +301,20 @@ def verify_published_release(gh, revision, stage, artifact_run_id):
         raise CheckError("The release notes do not retain the signed artifact run")
     if verified["artifact"]["sha256"] not in notes:
         raise CheckError("The release notes do not retain the compiler digest")
+    # Run artifacts expire; signatures do not. The release bundle and the
+    # attestation store must both name the selected signed artifact run.
+    for name in [BINARY, "build.json"]:
+        for bundle in [package / "provenance.jsonl", None]:
+            if artifact_run_id not in attested_runs(gh, package / name, revision, bundle):
+                raise CheckError("The signature of " + name
+                                 + " does not name the signed artifact run")
     return {
         "id": record["id"], "tag_name": record["tag_name"],
         "immutable": record["immutable"],
         "assets": {name: assets[name]["digest"] for name in assets},
         "notes_retain_signed_artifact_run": True,
         "notes_retain_compiler_sha256": True,
+        "signatures_name_signed_artifact_run": artifact_run_id,
         "verified": verified,
     }
 

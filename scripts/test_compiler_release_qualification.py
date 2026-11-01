@@ -35,6 +35,8 @@ class QualificationChecks(unittest.TestCase):
                      "artifact": self.job_records(qualification.ARTIFACT_JOB_NAMES)}
         self.artifacts = self.artifact_records()
         self.release = self.release_record()
+        self.signing_runs = {"bundle": [self.artifact_run["id"]],
+                             "store": [self.artifact_run["id"]]}
 
     def run_record(self, identity, path, branch):
         return {"id": identity, "path": path, "event": "workflow_dispatch",
@@ -128,6 +130,24 @@ class QualificationChecks(unittest.TestCase):
                 "build_record_sha256": hashlib.sha256(build_bytes).hexdigest(),
                 "bundle_sha256": hashlib.sha256(b"fixture signatures").hexdigest()}
 
+    def attested_runs(self, gh, path, revision, bundle=None):
+        self.assertEqual(revision, self.revision)
+        self.assertIn(path.name, [BINARY, "build.json"])
+        return set(self.signing_runs["bundle" if bundle is not None else "store"])
+
+    def with_tag(self, gh, path, directory, **keyword):
+        if path.endswith("matching-refs/tags/" + self.tag):
+            return json.dumps([{"ref": "refs/tags/" + self.tag,
+                                "object": {"type": "commit",
+                                           "sha": self.revision}}]).encode()
+        return self.api(None, path, directory, **keyword)
+
+    def verify_release(self):
+        with patch.object(qualification, "api", self.with_tag), \
+                patch.object(qualification.installer, "install", self.install), \
+                patch.object(qualification, "attested_runs", self.attested_runs):
+            return self.qualify(verify_release=True)
+
     def qualify(self, **keyword):
         settings = {"revision": self.revision, "output": self.output,
                     "gh": self.gh}
@@ -150,15 +170,7 @@ class QualificationChecks(unittest.TestCase):
 
     def test_release_verification_cross_checks_assets_and_notes(self):
         with self.subTest("ST-DIS-UC08-R03-T01 Release verification cross-checks every asset digest and the release notes"):
-            def with_tag(gh, path, directory, **keyword):
-                if path.endswith("matching-refs/tags/" + self.tag):
-                    return json.dumps([{"ref": "refs/tags/" + self.tag,
-                                        "object": {"type": "commit",
-                                                   "sha": self.revision}}]).encode()
-                return self.api(None, path, directory, **keyword)
-            with patch.object(qualification, "api", with_tag), \
-                    patch.object(qualification.installer, "install", self.install):
-                result = self.qualify(verify_release=True)
+            result = self.verify_release()
             self.assertEqual(result["mode"], "verify-release")
             release = result["release"]
             self.assertEqual(release["tag_name"], self.tag)
@@ -167,6 +179,8 @@ class QualificationChecks(unittest.TestCase):
             self.assertTrue(release["notes_retain_compiler_sha256"])
             self.assertEqual(release["assets"][BINARY],
                              self.release["assets"][0]["digest"])
+            self.assertEqual(release["signatures_name_signed_artifact_run"], 202)
+            self.assertTrue(result["signed_artifact"]["artifacts_retained"])
 
     def test_missing_checks_run_fails(self):
         def without_checks(gh, path, directory, **keyword):
@@ -242,35 +256,102 @@ class QualificationChecks(unittest.TestCase):
                                                    "sha": "b" * 40}}]).encode()
                 return self.api(None, path, directory, **keyword)
             with patch.object(qualification, "api", with_other_tag), \
-                    patch.object(qualification.installer, "install", self.install):
+                    patch.object(qualification.installer, "install", self.install), \
+                    patch.object(qualification, "attested_runs", self.attested_runs):
                 with self.assertRaises(CheckError):
                     self.qualify(verify_release=True)
 
     def test_release_without_evidence_notes_fails(self):
         self.release["body"] = "no run identifiers"
-        def with_tag(gh, path, directory, **keyword):
-            if path.endswith("matching-refs/tags/" + self.tag):
-                return json.dumps([{"ref": "refs/tags/" + self.tag,
-                                    "object": {"type": "commit",
-                                               "sha": self.revision}}]).encode()
-            return self.api(None, path, directory, **keyword)
-        with patch.object(qualification, "api", with_tag), \
-                patch.object(qualification.installer, "install", self.install):
-            with self.assertRaises(CheckError):
-                self.qualify(verify_release=True)
+        with self.assertRaises(CheckError):
+            self.verify_release()
 
     def test_tag_triggered_checks_run_qualifies_after_publication(self):
         self.checks_run["head_branch"] = self.tag
-        def with_tag(gh, path, directory, **keyword):
-            if path.endswith("matching-refs/tags/" + self.tag):
-                return json.dumps([{"ref": "refs/tags/" + self.tag,
-                                    "object": {"type": "commit",
-                                               "sha": self.revision}}]).encode()
-            return self.api(None, path, directory, **keyword)
-        with patch.object(qualification, "api", with_tag), \
-                patch.object(qualification.installer, "install", self.install):
-            result = self.qualify(verify_release=True)
+        result = self.verify_release()
         self.assertEqual(result["compiler_checks"]["head_branch"], self.tag)
+
+    def test_release_verification_proves_removed_artifacts_by_signature(self):
+        with self.subTest("ST-DIS-UC08-R03-T02 Release verification proves the signed artifact run by the release signatures after its artifacts expire"):
+            self.artifacts = []
+            result = self.verify_release()
+            self.assertEqual(result["signed_artifact"]["artifacts"], [])
+            self.assertFalse(result["signed_artifact"]["artifacts_retained"])
+            self.assertEqual(result["release"]["signatures_name_signed_artifact_run"], 202)
+
+    def test_signature_from_another_run_fails_release_verification(self):
+        with self.subTest("ST-DIS-UC08-R01-T02 Release verification fails when a release signature names another signed artifact run"):
+            for source in ["bundle", "store"]:
+                for artifacts in [self.artifact_records(), []]:
+                    self.artifacts = artifacts
+                    self.signing_runs = {"bundle": [202], "store": [202]}
+                    self.signing_runs[source] = [303]
+                    with self.assertRaisesRegex(CheckError, "does not name the signed artifact run"):
+                        self.verify_release()
+                    self.assertFalse(self.output.exists())
+
+    def test_missing_signed_artifacts_fail(self):
+        with self.subTest("ST-DIS-UC08-R02-T02 Qualification fails when the signed artifact run holds no artifacts or only some of them"):
+            self.artifacts = []
+            with patch.object(qualification, "api", self.api):
+                with self.assertRaisesRegex(CheckError, "missing required artifacts"):
+                    self.qualify()
+            self.artifacts = [a for a in self.artifact_records()
+                              if not a["name"].startswith("compiler-provenance-")]
+            with self.assertRaisesRegex(CheckError, "missing required artifacts"):
+                self.verify_release()
+            self.assertFalse(self.output.exists())
+
+
+class SignatureRunChecks(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.path = self.root / BINARY
+        self.path.write_bytes(b"fixture compiler; do not execute")
+        self.revision = "a" * 40
+
+    def result(self, run, revision=None):
+        uri = ("https://github.com/" + qualification.REPOSITORY + "/actions/runs/"
+               + str(run) + "/attempts/1") if run is not None else None
+        certificate = {"sourceRepositoryDigest": revision or self.revision}
+        if uri is not None:
+            certificate["runInvocationURI"] = uri
+        return {"verificationResult": {"signature": {"certificate": certificate}}}
+
+    def runs(self, output, bundle=None):
+        calls = []
+        def command(args, cwd, env, **keyword):
+            calls.append(args)
+            if isinstance(output, Exception):
+                raise output
+            return json.dumps(output).encode()
+        with patch.object(qualification.control, "command", command):
+            runs = qualification.attested_runs(self.root / "gh", self.path,
+                                               self.revision, bundle)
+        return runs, calls
+
+    def test_signature_runs(self):
+        with self.subTest("ST-DIS-UC08-R01-T02 Release verification fails when a release signature names another signed artifact run"):
+            runs, calls = self.runs([self.result(202), self.result(404)])
+            self.assertEqual(runs, {202, 404})
+            self.assertNotIn("--bundle", calls[0])
+            self.assertIn("--source-digest", calls[0])
+            self.assertEqual(calls[0][calls[0].index("--source-digest") + 1], self.revision)
+            _, calls = self.runs([self.result(202)], self.root / "provenance.jsonl")
+            self.assertEqual(calls[0][calls[0].index("--bundle") + 1],
+                             str(self.root / "provenance.jsonl"))
+            for refused in [[], {}, [self.result(None)], [self.result(202, "b" * 40)],
+                            [{"verificationResult": {}}], ["text"],
+                            CheckError("not signed")]:
+                with self.assertRaises(CheckError):
+                    self.runs(refused)
+            uri = "https://github.com/other/stego/actions/runs/202/attempts/1"
+            other = self.result(202)
+            other["verificationResult"]["signature"]["certificate"]["runInvocationURI"] = uri
+            with self.assertRaises(CheckError):
+                self.runs([other])
 
 
 if __name__ == "__main__":
