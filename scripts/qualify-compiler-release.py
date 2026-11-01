@@ -2,6 +2,7 @@
 """Qualify a compiler release from completed CI runs before or after publication."""
 
 import argparse
+from datetime import datetime, timedelta, timezone
 import importlib.util
 import json
 import os
@@ -37,6 +38,8 @@ ARTIFACT_JOB_NAMES = ["linux-amd64", "provenance"]
 CHECKS_BRANCHES = ["main"]
 RUN_PAGE = 100
 RELEASE_NOTES_LIMIT = 65536
+# The retention-days of the three artifacts in compiler-artifact.yml.
+ARTIFACT_RETENTION = timedelta(days=7)
 RUN_INVOCATION = re.compile(r"https://github\.com/" + re.escape(REPOSITORY)
                             + r"/actions/runs/([1-9][0-9]{0,18})/attempts/([1-9][0-9]{0,3})")
 
@@ -67,6 +70,17 @@ def run_record(run):
             or type(run["run_attempt"]) is not int or run["run_attempt"] <= 0):
         raise CheckError("A CI run identity is invalid")
     return run
+
+
+def run_age(run):
+    updated = run.get("updated_at")
+    try:
+        if not isinstance(updated, str):
+            raise ValueError(updated)
+        moment = datetime.strptime(updated, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise CheckError("A CI run time is invalid") from None
+    return datetime.now(timezone.utc) - moment
 
 
 def runs_at(gh, revision, directory):
@@ -142,7 +156,7 @@ def run_artifacts(gh, run, directory):
     return artifacts
 
 
-def require_artifacts(artifacts, revision, run_id, require_current):
+def require_artifacts(artifacts, revision, run_id, require_current, removable=False):
     limits = {"compiler-linux-amd64-" + revision: 100 << 20,
               "compiler-attestation-" + revision: 4 << 20,
               "compiler-provenance-" + revision: 100 << 20}
@@ -165,7 +179,7 @@ def require_artifacts(artifacts, revision, run_id, require_current):
                              + " expired before qualification")
         found[name] = {"name": name, "digest": digest, "size_in_bytes": size,
                        "expired": expired}
-    if not found and not require_current:
+    if not found and removable:
         # GitHub removes an expired artifact from the run's list. After
         # publication, verify_published_release requires the signatures of the
         # release to name this run instead. A partial list still fails.
@@ -254,8 +268,12 @@ def qualify(revision, output, gh, verify_release=False):
         artifact_jobs, artifact_names = run_jobs(gh, artifact, stage)
         artifact_result = require_jobs(artifact_jobs, artifact_names,
                                        ARTIFACT_JOB_NAMES, artifact["id"])
+        # An empty list is expiry only when the retention time has passed since
+        # the run; earlier, it is a deletion or a fault, and it fails.
+        removable = verify_release and run_age(artifact) > ARTIFACT_RETENTION
         artifacts = require_artifacts(run_artifacts(gh, artifact, stage), revision,
-                                      artifact["id"], require_current=not verify_release)
+                                      artifact["id"], require_current=not verify_release,
+                                      removable=removable)
         if not verify_release:
             refs = tag_ref(gh, revision, stage)
             if refs:

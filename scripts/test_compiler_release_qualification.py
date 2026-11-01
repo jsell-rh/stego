@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check compiler release qualification with fixed records and no network."""
 
+from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib.util
 import json
@@ -88,7 +89,8 @@ class QualificationChecks(unittest.TestCase):
     def run_record(self, identity, path, branch):
         return {"id": identity, "run_attempt": 1, "path": path, "event": "workflow_dispatch",
                 "head_branch": branch, "head_sha": self.revision,
-                "status": "completed", "conclusion": "success"}
+                "status": "completed", "conclusion": "success",
+                "updated_at": "2026-09-25T11:30:00Z"}
 
     def job_records(self, names):
         return [{"name": name, "conclusion": "success"} for name in names]
@@ -416,6 +418,16 @@ class QualificationChecks(unittest.TestCase):
             self.assertEqual(str(refused.exception),
                              "The signed artifact run is missing required artifacts: "
                              "compiler-provenance-" + self.revision)
+            # An empty list before the retention time is not expiry.
+            self.artifacts = []
+            recent = datetime.now(timezone.utc) - timedelta(days=6, hours=23)
+            self.artifact_run["updated_at"] = recent.strftime("%Y-%m-%dT%H:%M:%SZ")
+            with self.assertRaisesRegex(CheckError, "missing required artifacts"):
+                self.verify_release()
+            for invalid in [None, "2026-09-25", 7]:
+                self.artifact_run["updated_at"] = invalid
+                with self.assertRaisesRegex(CheckError, "run time is invalid"):
+                    self.verify_release()
             self.assertFalse(self.output.exists())
 
 
