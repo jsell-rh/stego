@@ -56,7 +56,8 @@ func gateChangeCommand(args []string, stdout, stderr io.Writer, getenv func(stri
 }
 
 // gateReleaseCommand is assure gate release (ST-ASR-CLI03). It gates the release commit on its own, and writes
-// the decision predicate for the provider's attestation action only when the release passes.
+// the decision predicate for the provider's attestation action only when the release passes. After a refused
+// decision it prints one notice line for the CI log, "::notice::release refused: N reasons", and exits 1.
 func gateReleaseCommand(args []string, stdout, stderr io.Writer, getenv func(string) string, open provider) int {
 	flags := flag.NewFlagSet("assure gate release", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -76,6 +77,13 @@ func gateReleaseCommand(args []string, stdout, stderr io.Writer, getenv func(str
 		return 2
 	}
 	if !decision.Passed {
+		// A refused release is a neutral outcome of the run (ST-DIS-UC11-R04): one notice line in the log says
+		// so, after the decision, which the step summary holds.
+		reasons := fmt.Sprintf("%d reasons", len(decision.Reasons))
+		if len(decision.Reasons) == 1 {
+			reasons = "1 reason"
+		}
+		fmt.Fprintf(stdout, "::notice::release refused: %s\n", reasons)
 		return 1
 	}
 	return 0

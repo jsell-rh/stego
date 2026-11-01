@@ -286,13 +286,19 @@ jobs:
   # Gate a release (ST-ASR-UC03). On each push to main, once the proof run is attested, the gate-release job gates
   # the commit pushed on its own: every obligation designed, built and proved, every automated proof passed in a
   # proof run signed at main, and no code-standard fault in the tree. It reads the attestation from GitHub's store,
-  # verifies it, and measures the coverage with the pinned Lathe, as the gate job does. A refused release fails the
-  # job and writes no predicate. A passed decision is written as decision.json under the runner's temporary folder,
-  # outside the checkout, and uploaded; the attest-release job then runs no code of the repository, names the commit
-  # as the subject as the attest job does, and has GitHub's attestation action sign the decision with this
-  # workflow's keyless identity at main and keep it (ST-ASR-INV09), so release qualification can verify it.
+  # verifies it, and measures the coverage with the pinned Lathe, as the gate job does. It builds assure, so that the
+  # step sees assure's own exit code, which go run does not pass on.
+  #
+  # A refused release is a neutral outcome (ST-DIS-UC11-R04): assure exits 1, prints the decision and one notice
+  # line, and writes no predicate; the step ends green with the job output passed=false. Only a run that reaches no
+  # decision (exit 2, or a step before the gate that fails) fails the job. A passed decision (exit 0, passed=true)
+  # is written as decision.json under the runner's temporary folder, outside the checkout, and uploaded; only then
+  # the attest-release job runs. It runs no code of the repository, names the commit as the subject as the attest
+  # job does, and has GitHub's attestation action sign the decision with this workflow's keyless identity at main
+  # and keep it (ST-ASR-INV09), so release qualification can verify it.
+  #
   # The gate-release job restores no cache, as the gate job: a cache that another job wrote could hold module or
-  # build files that go run does not check again.
+  # build files that go build does not check again.
   gate-release:
     name: gate release
     needs: attest
@@ -303,6 +309,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+    outputs:
+      passed: ${{ steps.gate.outputs.passed }}
     steps:
       - name: Require the Lathe deploy key
         env:
@@ -338,19 +346,33 @@ jobs:
           npm ci --no-audit --no-fund
           ./node_modules/.bin/tsc -p tsconfig.build.json
           chmod +x dist/bin/lathe.js
+      - name: Build assure
+        working-directory: stego/cmd/assure
+        env:
+          GOWORK: 'off'
+        run: |
+          mkdir -p "$RUNNER_TEMP/release"
+          go build -mod=readonly -trimpath -o "$RUNNER_TEMP/release/assure" .
       # setup-go registers a problem matcher, owner go, that reads each line "<file>.go: <message>" as a compiler
       # error. The gate prints no compiler output: remove the matcher, so no code fault or reason is an annotation.
       - name: Remove the Go problem matcher
         run: echo "::remove-matcher owner=go::"
       - name: Gate the release
+        id: gate
         working-directory: stego
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: >-
-          mkdir -p "$RUNNER_TEMP/decision" &&
-          go run -C cmd/assure -mod=readonly . gate release --commit "$COMMIT" --predicate "$RUNNER_TEMP/decision/decision.json"
-          --lathe "$GITHUB_WORKSPACE/lathe/lathe/dist/bin/lathe.js"
+        run: |
+          mkdir -p "$RUNNER_TEMP/decision"
+          status=0
+          "$RUNNER_TEMP/release/assure" gate release --commit "$COMMIT" --predicate "$RUNNER_TEMP/decision/decision.json" --lathe "$GITHUB_WORKSPACE/lathe/lathe/dist/bin/lathe.js" || status=$?
+          case "$status" in
+            0) echo "passed=true" >> "$GITHUB_OUTPUT" ;;
+            1) echo "passed=false" >> "$GITHUB_OUTPUT" ;;
+            *) exit "$status" ;;
+          esac
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ steps.gate.outputs.passed == 'true' }}
         with:
           name: release-decision
           path: ${{ runner.temp }}/decision/decision.json
@@ -360,6 +382,9 @@ jobs:
   attest-release:
     name: attest release
     needs: gate-release
+    # Only a passed release decision is signed. gate-release runs only on a push to main, so this job never runs on
+    # a pull request either.
+    if: ${{ needs.gate-release.outputs.passed == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

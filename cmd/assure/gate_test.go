@@ -289,6 +289,10 @@ func (r assureResult) reasons(t *testing.T) []string {
 		return nil
 	}
 	_, list, _ = strings.Cut(list, "):\n")
+	// After a refused release, assure gate release prints one notice line for the CI log.
+	if at := strings.Index(list, "::notice::release refused: "); at >= 0 {
+		list = list[:at]
+	}
 	return strings.Split(strings.TrimSuffix(list, "\n"), "\n")
 }
 
@@ -1061,6 +1065,13 @@ func (g gateRepository) release(t *testing.T, commit, attestations, predicate st
 func refusedRelease(t *testing.T, name string, result assureResult, predicate string, reasons ...string) {
 	t.Helper()
 	decided(t, name, result, 1, reasons...)
+	notice := fmt.Sprintf("::notice::release refused: %d reasons\n", len(reasons))
+	if len(reasons) == 1 {
+		notice = "::notice::release refused: 1 reason\n"
+	}
+	if !strings.HasSuffix(result.stdout, "\n"+reasons[len(reasons)-1]+"\n"+notice) {
+		t.Fatalf("%s: the decision does not end with the one notice line %q:\n%s", name, notice, result.stdout)
+	}
 	if !strings.HasPrefix(result.stdout, "release gate on ") || !strings.Contains(result.stdout, ": refused\n") {
 		t.Fatalf("%s: the decision does not say that the release is refused:\n%s", name, result.stdout)
 	}
@@ -1166,6 +1177,18 @@ func TestGateRelease(t *testing.T) {
 		}
 		if signers != 2 {
 			t.Fatalf("%d jobs may sign, want the attest and attest-release jobs", signers)
+		}
+
+		// The gate step: a passed release gives passed=true; a refused one ends green with passed=false, so neither
+		// the upload nor the attest-release job runs; no decision fails the step and so the job.
+		for code, want := range map[int]struct {
+			exit    int
+			outputs string
+		}{0: {0, "passed=true\n"}, 1: {0, "passed=false\n"}, 2: {2, ""}, 3: {3, ""}} {
+			exit, outputs := runGateReleaseStep(t, code)
+			if exit != want.exit || outputs != want.outputs {
+				t.Fatalf("with assure exiting %d, the gate step exits %d with the outputs %q, want %d with %q", code, exit, outputs, want.exit, want.outputs)
+			}
 		}
 
 		commit := strings.Repeat("ab", 20)
@@ -1553,15 +1576,19 @@ echo "digest=sha256:$digest" >> "$GITHUB_OUTPUT"
 // signingJob is a job that signs a predicate another job made: it needs that job, may only get an identity token
 // and write attestations, checks out and runs no code of the repository, and has exactly four steps: download the
 // predicate, check it, name the commit as the subject, and sign it with actions/attest.
-func signingJob(name, needs, artifact, folder, checkName, check, signName, predicateType, predicate string) allowedJob {
+func signingJob(name, needs, condition, artifact, folder, checkName, check, signName, predicateType, predicate string) allowedJob {
+	keys := map[string]any{
+		"name":            name,
+		"needs":           needs,
+		"runs-on":         "ubuntu-latest",
+		"timeout-minutes": "10",
+		"permissions":     map[string]any{"id-token": "write", "attestations": "write"},
+	}
+	if condition != "" {
+		keys["if"] = condition
+	}
 	return allowedJob{
-		keys: map[string]any{
-			"name":            name,
-			"needs":           needs,
-			"runs-on":         "ubuntu-latest",
-			"timeout-minutes": "10",
-			"permissions":     map[string]any{"id-token": "write", "attestations": "write"},
-		},
+		keys: keys,
 		steps: []map[string]any{
 			{"uses": pinned("actions/download-artifact"), "with": map[string]any{"name": artifact, "path": "${{ runner.temp }}/" + folder}},
 			{"name": checkName, "run": check},
@@ -1578,14 +1605,15 @@ func signingJob(name, needs, artifact, folder, checkName, check, signName, predi
 
 // attestJob is all the attest job may hold: it signs the proof run.
 func attestJob() allowedJob {
-	return signingJob("attest", "suites", "proof-run", "proof-run", "Check that the predicate is about the commit",
+	return signingJob("attest", "suites", "", "proof-run", "proof-run", "Check that the predicate is about the commit",
 		`test "$(jq -r .commit "$RUNNER_TEMP/proof-run/proof-run.json")" = "$COMMIT"`,
 		"Sign and keep the proof run", assure.ProofRunPredicateType, assure.ProofRunFile)
 }
 
-// attestReleaseJob is all the attest-release job may hold: it signs a passed release decision.
+// attestReleaseJob is all the attest-release job may hold: it signs a passed release decision, and runs only when
+// the gate-release job says that the release passed.
 func attestReleaseJob() allowedJob {
-	return signingJob("attest release", "gate-release", "release-decision", "decision",
+	return signingJob("attest release", "gate-release", "${{ needs.gate-release.outputs.passed == 'true' }}", "release-decision", "decision",
 		"Check that the predicate is a passed release decision about the commit",
 		`test "$(jq -r '[.commit, .kind, (.passed | tostring)] | join(" ")' "$RUNNER_TEMP/decision/decision.json")" = "$COMMIT release true"`,
 		"Sign and keep the release decision", assure.ReleaseDecisionPredicateType, assure.DecisionFile)
@@ -1604,6 +1632,7 @@ func gateReleaseJob() allowedJob {
 			"runs-on":         "ubuntu-latest",
 			"timeout-minutes": "15",
 			"permissions":     map[string]any{"contents": "read"},
+			"outputs":         map[string]any{"passed": "${{ steps.gate.outputs.passed }}"},
 		},
 		steps: []map[string]any{
 			{"name": "Require the Lathe deploy key", "env": map[string]any{"LATHE_DEPLOY_KEY": "${{ secrets.LATHE_DEPLOY_KEY }}"},
@@ -1615,17 +1644,66 @@ func gateReleaseJob() allowedJob {
 			{"uses": pinned("actions/checkout"), "with": map[string]any{
 				"repository": "Jared4Robertson/lathe", "ref": "${{ env.LATHE_REF }}", "ssh-key": "${{ secrets.LATHE_DEPLOY_KEY }}",
 				"path": "lathe", "persist-credentials": "false"}},
-			{"uses": pinned("actions/setup-go"), "with": map[string]any{
-				"go-version": anyScalar{}, "cache": "false"}},
+			{"uses": pinned("actions/setup-go"), "with": map[string]any{"go-version": anyScalar{}, "cache": "false"}},
 			{"uses": pinned("actions/setup-node"), "with": map[string]any{"node-version": anyScalar{}}},
 			{"name": "Build the pinned Lathe", "working-directory": "lathe/lathe",
 				"run": "npm ci --no-audit --no-fund\n./node_modules/.bin/tsc -p tsconfig.build.json\nchmod +x dist/bin/lathe.js\n"},
+			{"name": "Build assure", "working-directory": "stego/cmd/assure", "env": map[string]any{"GOWORK": "off"},
+				"run": "mkdir -p \"$RUNNER_TEMP/release\"\ngo build -mod=readonly -trimpath -o \"$RUNNER_TEMP/release/assure\" .\n"},
 			{"name": "Remove the Go problem matcher", "run": `echo "::remove-matcher owner=go::"`},
-			{"name": "Gate the release", "working-directory": "stego", "env": map[string]any{"GITHUB_TOKEN": "${{ github.token }}"},
-				"run": `mkdir -p "$RUNNER_TEMP/decision" && go run -C cmd/assure -mod=readonly . gate release --commit "$COMMIT" ` +
-					`--predicate "$RUNNER_TEMP/decision/decision.json" --lathe "$GITHUB_WORKSPACE/lathe/lathe/dist/bin/lathe.js"`},
-			{"uses": pinned("actions/upload-artifact"), "with": map[string]any{
+			{"name": "Gate the release", "id": "gate", "working-directory": "stego", "env": map[string]any{"GITHUB_TOKEN": "${{ github.token }}"},
+				"run": gateReleaseScript},
+			{"uses": pinned("actions/upload-artifact"), "if": "${{ steps.gate.outputs.passed == 'true' }}", "with": map[string]any{
 				"name": "release-decision", "path": "${{ runner.temp }}/decision/decision.json", "retention-days": "14", "if-no-files-found": "error"}},
 		},
 	}
+}
+
+// gateReleaseScript is the gate-release job's gate step: it runs assure gate release and maps its exit code to
+// the job output passed. A refused release (1) is passed=false and a green step; no decision (2, or any other code)
+// fails the step.
+const gateReleaseScript = `mkdir -p "$RUNNER_TEMP/decision"
+status=0
+"$RUNNER_TEMP/release/assure" gate release --commit "$COMMIT" --predicate "$RUNNER_TEMP/decision/decision.json" --lathe "$GITHUB_WORKSPACE/lathe/lathe/dist/bin/lathe.js" || status=$?
+case "$status" in
+  0) echo "passed=true" >> "$GITHUB_OUTPUT" ;;
+  1) echo "passed=false" >> "$GITHUB_OUTPUT" ;;
+  *) exit "$status" ;;
+esac
+`
+
+// runGateReleaseStep runs, with bash -e as GitHub Actions does, the gate-release job's gate step with an assure
+// that exits with the code given, and returns the step's exit code and the outputs it wrote.
+func runGateReleaseStep(t *testing.T, code int) (int, string) {
+	t.Helper()
+	var script string
+	for _, step := range readWorkflow(t).Jobs["gate-release"].Steps {
+		if step.ID == "gate" {
+			script = step.Run
+		}
+	}
+	if script == "" {
+		t.Fatal("the gate-release job has no step with the ID gate")
+	}
+	runnerTemp := t.TempDir()
+	writeFile(t, filepath.Join(runnerTemp, "release", "assure"), fmt.Sprintf("#!/bin/sh\necho decision\nexit %d\n", code))
+	if err := os.Chmod(filepath.Join(runnerTemp, "release", "assure"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outputs := filepath.Join(runnerTemp, "github-output")
+	writeFile(t, outputs, "")
+	command := exec.Command("bash", "-e", "-c", script)
+	command.Dir = runnerTemp
+	command.Env = []string{"PATH=" + os.Getenv("PATH"), "COMMIT=" + strings.Repeat("ab", 20), "RUNNER_TEMP=" + runnerTemp,
+		"GITHUB_WORKSPACE=" + runnerTemp, "GITHUB_OUTPUT=" + outputs}
+	err := command.Run()
+	var exit *exec.ExitError
+	if err != nil && !errors.As(err, &exit) {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(outputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return command.ProcessState.ExitCode(), string(data)
 }
