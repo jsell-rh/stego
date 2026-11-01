@@ -418,7 +418,7 @@ class Fix(unittest.TestCase):
 				if action, pin, ok := strings.Cut(step.Uses, "@"); step.Uses != "" && (!ok || len(pin) != 40 || action == "") {
 					t.Fatalf("step %q uses %s, which is not pinned to a commit", step.Name, step.Uses)
 				}
-				if strings.Contains(step.Run, "./cmd/assure record") {
+				if strings.Contains(step.Run, "go run -C cmd/assure -mod=readonly . record") {
 					record = &job.Steps[i]
 				}
 			}

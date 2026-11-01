@@ -14,7 +14,8 @@ name: Proof run
 #
 # On a pull request, the gate job then gates the change (ST-ASR-UC02): it hears that the proof run is attested
 # (ST-ASR-PO01), reads the attestation from GitHub's store, verifies it, and measures the coverage at the head and
-# at the base with the pinned Lathe. A refused change fails the job. The suites job and the gate job read Lathe, a
+# at the base with the pinned Lathe. It runs assure as built from the base commit, never from the change
+# (ST-ASR-UC02-R07). A refused change fails the job. The suites job and the gate job read Lathe, a
 # private repository, with the read-only deploy key in the secret LATHE_DEPLOY_KEY, at LATHE_REF, as the
 # specification checks do; the checkouts sit side by side, stego and lathe, so stego's package.json finds it. Only
 # the steps that need the key see it: the code of the repository runs in later steps.
@@ -88,7 +89,10 @@ jobs:
         with:
           go-version: '1.26.10'
           cache: true
-          cache-dependency-path: stego/go.sum
+          cache-dependency-path: |
+            stego/go.sum
+            stego/internal/assure/go.sum
+            stego/cmd/assure/go.sum
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '24.18.1'
@@ -121,14 +125,21 @@ jobs:
           STEGO_REQUIRE_POSTGRES: '1'
           STEGO_REQUIRE_LATHE: '1'
           STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable
-        run: go test -json -race -count=1 -mod=readonly ./... > "$RUNNER_TEMP/go-test.json" || true
+        # go test ./... at the root does not reach Assuring's modules, internal/assure and cmd/assure: each has a
+        # go.mod of its own. Their events go into the same file, after the root's, and assure record reads the file
+        # as one run.
+        run: |
+          go test -json -race -count=1 -mod=readonly ./... > "$RUNNER_TEMP/go-test.json" || true
+          for module in internal/assure cmd/assure; do
+            go test -C "$module" -json -race -count=1 -mod=readonly ./... >> "$RUNNER_TEMP/go-test.json" || true
+          done
       - name: Run the Python suites
         timeout-minutes: 5
         run: python3 -B scripts/run-python-tests.py --output "$RUNNER_TEMP/python-tests.json"
       - name: Record the proof run
         run: >-
           mkdir -p "$RUNNER_TEMP/proof-run" &&
-          go run -mod=readonly ./cmd/assure record
+          go run -C cmd/assure -mod=readonly . record
           --commit "$COMMIT"
           --go-json "$RUNNER_TEMP/go-test.json"
           --python-json "$RUNNER_TEMP/python-tests.json"
@@ -176,20 +187,31 @@ jobs:
   gate:
     name: gate
     needs: attest
-    # always(): when the suites or the attest job fail, the gate still runs and refuses the change for want of a
-    # verified proof run, because GitHub counts a skipped required check as passed.
-    if: always() && github.event_name == 'pull_request'
+    # !cancelled(): when the suites or the attest job fail, the gate still runs and refuses the change for want of a
+    # verified proof run, because GitHub counts a skipped required check as passed. A cancelled run does not gate.
+    if: ${{ !cancelled() && github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
+    # The gate is the base's own code (ST-ASR-UC02-R07). The job checks out the base commit into the folder base,
+    # beside the change's checkout, builds assure from the base's cmd/assure and internal/assure there, and runs that
+    # binary in the change's checkout, with the Lathe that this workflow builds from LATHE_REF. The change's tree is
+    # only data to the decision: no step of this job runs, builds or installs code from it. While the gate can pass,
+    # this workflow file is the base's own, as a change that alters it has a change-grade proof run, which the gate
+    # refuses (ST-ASR-UC02-R06): so LATHE_REF is the Lathe that the base's workflow pins.
+    #
+    # The job restores no cache: a cache that another job wrote, also one a change's own run wrote, could hold
+    # module or build files that go build does not check again. The change's spec is data that Lathe runs, so before
+    # the gate step the job makes Lathe and the built binary read-only, and assure measures the base before the
+    # change: the change's run cannot alter the Lathe or the binary that decide.
     steps:
       - name: Require the Lathe deploy key
         env:
           LATHE_DEPLOY_KEY: ${{ secrets.LATHE_DEPLOY_KEY }}
         run: |
           if [ -z "$LATHE_DEPLOY_KEY" ]; then
-            echo "::error::LATHE_DEPLOY_KEY is not set. The gate needs the pinned Lathe to measure the coverage."
+            echo "::error::The gate did not run: LATHE_DEPLOY_KEY is not set, and the gate needs the pinned Lathe to measure the coverage. This is no decision on the change."
             exit 1
           fi
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -197,6 +219,11 @@ jobs:
           ref: ${{ env.COMMIT }}
           fetch-depth: 0
           path: stego
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
           persist-credentials: false
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -208,24 +235,46 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.26.10'
-          cache: true
-          cache-dependency-path: stego/go.sum
+          cache: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '24.18.1'
       - name: Build the pinned Lathe
         working-directory: lathe/lathe
         run: |
-          npm ci --no-audit --no-fund
-          ./node_modules/.bin/tsc -p tsconfig.build.json
-          chmod +x dist/bin/lathe.js
-      # The gate runs the Lathe this workflow builds from LATHE_REF, never a Lathe the change's own package files
-      # name. It still runs the change's own cmd/assure: building it from the base is for the Product owner to decide.
+          if ! { npm ci --no-audit --no-fund && ./node_modules/.bin/tsc -p tsconfig.build.json && chmod +x dist/bin/lathe.js; }; then
+            echo "::error::The gate did not run: the pinned Lathe did not build. This is no decision on the change."
+            exit 1
+          fi
+      - name: Build assure from the base commit
+        working-directory: base/cmd/assure
+        env:
+          GOWORK: 'off'
+        run: |
+          mkdir -p "$RUNNER_TEMP/gate"
+          if ! go build -mod=readonly -trimpath -o "$RUNNER_TEMP/gate/assure" .; then
+            echo "::error::The gate did not run: assure did not build from the base commit. This is no decision on the change."
+            exit 1
+          fi
+      - name: Make Lathe and assure read-only
+        run: chmod -R a-w "$GITHUB_WORKSPACE/lathe" "$RUNNER_TEMP/gate"
       - name: Gate the change
+        id: gate
         working-directory: stego
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           GITHUB_TOKEN: ${{ github.token }}
         run: >-
-          go run -mod=readonly ./cmd/assure gate change --commit "$COMMIT" --base "$BASE"
+          "$RUNNER_TEMP/gate/assure" gate change --commit "$COMMIT" --base "$BASE"
           --lathe "$GITHUB_WORKSPACE/lathe/lathe/dist/bin/lathe.js"
+      - name: Say that the gate did not run
+        # The gate step did not run when its outcome is not failure: it was skipped, or it has none.
+        if: ${{ failure() && steps.gate.outcome != 'failure' }}
+        run: echo "::error::The gate did not run, because a step before it failed. This is no decision on the change."
+      # The runner's post steps clean up the checkouts, so they get write access back after the gate.
+      - name: Make Lathe and assure writable again
+        if: ${{ always() }}
+        run: |
+          for folder in "$GITHUB_WORKSPACE/lathe" "$RUNNER_TEMP/gate"; do
+            if [ -e "$folder" ]; then chmod -R u+w "$folder"; fi
+          done

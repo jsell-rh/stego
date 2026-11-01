@@ -101,6 +101,50 @@ func TestReadOutcomes(t *testing.T) {
 	})
 }
 
+// secondModuleOutput is go test -json output of a second Go module, run after goOutput's into the same file, as
+// the proof run runs the root module and then Assuring's modules: a package of its own, a test of the same name as
+// the first module's, an ID of its own, and an ID that the first module's output also carries.
+const secondModuleOutput = `{"Time":"2026-10-29T14:03:01Z","Action":"start","Package":"example.com/fix/assure"}
+{"Time":"2026-10-29T14:03:02Z","Action":"run","Package":"example.com/fix/assure","Test":"TestFixture"}
+{"Time":"2026-10-29T14:03:02Z","Action":"run","Package":"example.com/fix/assure","Test":"TestFixture/ST-FIX-SP04-T_holds"}
+{"Time":"2026-10-29T14:03:02Z","Action":"pass","Package":"example.com/fix/assure","Test":"TestFixture/ST-FIX-SP04-T_holds","Elapsed":0.5}
+{"Time":"2026-10-29T14:03:03Z","Action":"run","Package":"example.com/fix/assure","Test":"TestFixture/ST-FIX-SP01-T_holds_again"}
+{"Time":"2026-10-29T14:03:03Z","Action":"output","Package":"example.com/fix/assure","Test":"TestFixture/ST-FIX-SP01-T_holds_again","Output":"    assure_test.go:7: want a, got b\n"}
+{"Time":"2026-10-29T14:03:03Z","Action":"fail","Package":"example.com/fix/assure","Test":"TestFixture/ST-FIX-SP01-T_holds_again","Elapsed":0.2}
+{"Time":"2026-10-29T14:03:04Z","Action":"fail","Package":"example.com/fix/assure","Test":"TestFixture","Elapsed":0.7}
+{"Time":"2026-10-29T14:03:09Z","Action":"fail","Package":"example.com/fix/assure","Elapsed":3}
+`
+
+func TestReadOutcomesOfModules(t *testing.T) {
+	t.Run("ST-ASR-DS01-T04 The go test -json output of two Go modules, one after the other in one file, reads as one run", func(t *testing.T) {
+		want := []Outcome{
+			{TestRecord: "ST-FIX-INV01-T", Result: Passed, Duration: 0.01, Timed: true},
+			{TestRecord: "ST-FIX-SP01-T", Result: Failed, Duration: 0.2, Timed: true, Detail: "assure_test.go:7: want a, got b"},
+			{TestRecord: "ST-FIX-SP02-T", Result: Failed, Duration: 0.1, Timed: true, Detail: "fix_test.go:12: want 1, got 2"},
+			{TestRecord: "ST-FIX-SP03-T", Result: Failed, Duration: 0.1, Timed: true, Detail: "fix_test.go:12: want 1, got 2"},
+			{TestRecord: "ST-FIX-SP04-T", Result: Passed, Duration: 0.5, Timed: true},
+		}
+		// The Python suites ran between the two modules' first and last events.
+		pythonBetween := `{"format": 1, "started": "2026-10-29T14:02:30Z", "finished": "2026-10-29T14:02:31Z", "tests": []}`
+		for name, file := range map[string]string{
+			"the root module first":   goOutput + secondModuleOutput,
+			"the second module first": secondModuleOutput + goOutput,
+		} {
+			suites, err := ReadOutcomes(strings.NewReader(file), strings.NewReader(pythonBetween))
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			sameOutcomes(t, suites.Outcomes, want)
+			if got := suites.StartedAt.Format(time.RFC3339); got != "2026-10-29T14:02:11Z" {
+				t.Fatalf("%s: started at %s, want the first event of either module", name, got)
+			}
+			if got := suites.FinishedAt.Format(time.RFC3339); got != "2026-10-29T14:03:09Z" {
+				t.Fatalf("%s: finished at %s, want the last event of either module", name, got)
+			}
+		}
+	})
+}
+
 func sameOutcomes(t *testing.T, got, want []Outcome) {
 	t.Helper()
 	if len(got) != len(want) {
