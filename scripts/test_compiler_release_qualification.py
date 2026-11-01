@@ -294,12 +294,20 @@ class QualificationChecks(unittest.TestCase):
         with self.subTest("ST-DIS-UC08-R02-T02 Qualification fails when the signed artifact run holds no artifacts or only some of them"):
             self.artifacts = []
             with patch.object(qualification, "api", self.api):
-                with self.assertRaisesRegex(CheckError, "missing required artifacts"):
+                with self.assertRaises(CheckError) as refused:
                     self.qualify()
+            self.assertEqual(str(refused.exception),
+                             "The signed artifact run is missing required artifacts: "
+                             + ", ".join(prefix + self.revision for prefix in
+                                         ["compiler-attestation-", "compiler-linux-amd64-",
+                                          "compiler-provenance-"]))
             self.artifacts = [a for a in self.artifact_records()
                               if not a["name"].startswith("compiler-provenance-")]
-            with self.assertRaisesRegex(CheckError, "missing required artifacts"):
+            with self.assertRaises(CheckError) as refused:
                 self.verify_release()
+            self.assertEqual(str(refused.exception),
+                             "The signed artifact run is missing required artifacts: "
+                             "compiler-provenance-" + self.revision)
             self.assertFalse(self.output.exists())
 
 

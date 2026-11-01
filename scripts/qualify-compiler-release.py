@@ -165,8 +165,10 @@ def require_artifacts(artifacts, revision, run_id, require_current):
         # publication, verify_published_release requires the signatures of the
         # release to name this run instead. A partial list still fails.
         return []
-    if set(found) != set(limits):
-        raise CheckError("The signed artifact run is missing required artifacts")
+    missing = sorted(set(limits) - set(found))
+    if missing:
+        raise CheckError("The signed artifact run is missing required artifacts: "
+                         + ", ".join(missing))
     return [found[name] for name in limits]
 
 
