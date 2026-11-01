@@ -200,6 +200,11 @@ jobs:
     # only data to the decision: no step of this job runs, builds or installs code from it. While the gate can pass,
     # this workflow file is the base's own, as a change that alters it has a change-grade proof run, which the gate
     # refuses (ST-ASR-UC02-R06): so LATHE_REF is the Lathe that the base's workflow pins.
+    #
+    # The job restores no cache: a cache that another job wrote, also one a change's own run wrote, could hold
+    # module or build files that go build does not check again. The change's spec is data that Lathe runs, so before
+    # the gate step the job makes Lathe and the built binary read-only, and assure measures the base before the
+    # change: the change's run cannot alter the Lathe or the binary that decide.
     steps:
       - name: Require the Lathe deploy key
         env:
@@ -230,10 +235,7 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.26.10'
-          cache: true
-          cache-dependency-path: |
-            base/internal/assure/go.sum
-            base/cmd/assure/go.sum
+          cache: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '24.18.1'
@@ -246,11 +248,16 @@ jobs:
           fi
       - name: Build assure from the base commit
         working-directory: base/cmd/assure
+        env:
+          GOWORK: 'off'
         run: |
-          if ! go build -mod=readonly -trimpath -o "$RUNNER_TEMP/assure" .; then
+          mkdir -p "$RUNNER_TEMP/gate"
+          if ! go build -mod=readonly -trimpath -o "$RUNNER_TEMP/gate/assure" .; then
             echo "::error::The gate did not run: assure did not build from the base commit. This is no decision on the change."
             exit 1
           fi
+      - name: Make Lathe and assure read-only
+        run: chmod -R a-w "$GITHUB_WORKSPACE/lathe" "$RUNNER_TEMP/gate"
       - name: Gate the change
         id: gate
         working-directory: stego
@@ -258,9 +265,16 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
           GITHUB_TOKEN: ${{ github.token }}
         run: >-
-          "$RUNNER_TEMP/assure" gate change --commit "$COMMIT" --base "$BASE"
+          "$RUNNER_TEMP/gate/assure" gate change --commit "$COMMIT" --base "$BASE"
           --lathe "$GITHUB_WORKSPACE/lathe/lathe/dist/bin/lathe.js"
       - name: Say that the gate did not run
         # The gate step did not run when its outcome is not failure: it was skipped, or it has none.
         if: ${{ failure() && steps.gate.outcome != 'failure' }}
         run: echo "::error::The gate did not run, because a step before it failed. This is no decision on the change."
+      # The runner's post steps clean up the checkouts, so they get write access back after the gate.
+      - name: Make Lathe and assure writable again
+        if: ${{ always() }}
+        run: |
+          for folder in "$GITHUB_WORKSPACE/lathe" "$RUNNER_TEMP/gate"; do
+            if [ -e "$folder" ]; then chmod -R u+w "$folder"; fi
+          done

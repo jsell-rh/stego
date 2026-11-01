@@ -478,7 +478,7 @@ func TestGateChange(t *testing.T) {
 			if goCommand.MatchString(step.Run) {
 				build = &gate.Steps[i]
 			}
-			if strings.Contains(step.Run, `"$RUNNER_TEMP/assure" gate change`) {
+			if strings.Contains(step.Run, `"$RUNNER_TEMP/gate/assure" gate change`) {
 				run = &gate.Steps[i]
 			}
 			if strings.Contains(step.Run, "npm ci") && step.WorkingDirectory != "lathe/lathe" {
@@ -489,10 +489,10 @@ func TestGateChange(t *testing.T) {
 			t.Fatalf("the gate job does not check out the change's commit with its full history: %+v", checkout)
 		}
 		if baseCheckout == nil || build == nil || !strings.HasPrefix(build.WorkingDirectory, baseCheckout.With["path"]+"/") ||
-			!strings.Contains(build.Run, `go build -mod=readonly -trimpath -o "$RUNNER_TEMP/assure" .`) {
+			!strings.Contains(build.Run, `go build -mod=readonly -trimpath -o "$RUNNER_TEMP/gate/assure" .`) {
 			t.Fatalf("the gate job does not build assure from the pull request's base commit: %+v, %+v", baseCheckout, build)
 		}
-		if run == nil || !strings.Contains(run.Run, `"$RUNNER_TEMP/assure" gate change --commit "$COMMIT" --base "$BASE"`) ||
+		if run == nil || !strings.Contains(run.Run, `"$RUNNER_TEMP/gate/assure" gate change --commit "$COMMIT" --base "$BASE"`) ||
 			run.Env["BASE"] != baseSHA || run.WorkingDirectory != "stego" ||
 			!strings.Contains(run.Run, `--lathe "$GITHUB_WORKSPACE/lathe/lathe/dist/bin/lathe.js"`) {
 			t.Fatalf("the gate job does not gate the change's commit against the pull request's base: %+v", run)
@@ -540,33 +540,111 @@ const baseSHA = "${{ github.event.pull_request.base.sha }}"
 // goCommand matches a go command that builds, runs, tests, installs or changes code or modules.
 var goCommand = regexp.MustCompile(`(^|[^\w./-])go\s+(build|run|test|install|generate|vet|mod|get|tool|work|env\s+-w)\b`)
 
-// TestGateBuiltFromBase reads the gate job of the proof run workflow. The gate is the base's own code
-// (ST-ASR-UC02-R07): the job builds assure from the base commit and runs it on the change's tree, which is only
-// data to the decision.
+// rawGateWorkflow is the proof run workflow as YAML maps, so a test sees every key, also one that gateWorkflow
+// does not model.
+type rawGateWorkflow struct {
+	Keys map[string]yaml.Node `yaml:",inline"`
+	Jobs map[string]struct {
+		Keys  map[string]yaml.Node   `yaml:",inline"`
+		Steps []map[string]yaml.Node `yaml:"steps"`
+	} `yaml:"jobs"`
+}
+
+// onlyKeys fails the test when the map has a key that is not one of the keys given.
+func onlyKeys[V any](t *testing.T, where string, got map[string]V, keys ...string) {
+	t.Helper()
+	allowed := make(map[string]bool)
+	for _, key := range keys {
+		allowed[key] = true
+	}
+	for key := range got {
+		if !allowed[key] {
+			t.Fatalf("%s has %q, which the gate job does not allow", where, key)
+		}
+	}
+}
+
+// poisonedLathe writes a script that stands for a Lathe that the change's spec can rewrite, as a DuckDB query in
+// the change's data can: a run on a tree that holds the file poison marks the Lathe as rewritten and then runs as
+// the real Lathe, and a run of a rewritten Lathe gives no coverage. It returns the script and the mark.
+func poisonedLathe(t *testing.T, real string) (string, string) {
+	t.Helper()
+	folder := t.TempDir()
+	mark := filepath.Join(folder, "rewritten")
+	script := filepath.Join(folder, "lathe")
+	writeFile(t, script, "#!/bin/sh\n"+
+		"if [ -e '"+mark+"' ]; then echo 'this Lathe was rewritten by a change' >&2; exit 3; fi\n"+
+		"if [ -e poison ]; then : > '"+mark+"'; fi\n"+
+		"exec '"+real+"' \"$@\"\n")
+	if err := os.Chmod(script, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return script, mark
+}
+
+// TestGateBuiltFromBase proves that the gate is the base's own code (ST-ASR-UC02-R07): the gate job builds assure
+// from the base commit and runs it on the change's tree, which is only data to the decision, and the change's run
+// of Lathe cannot alter the Lathe that measures the base.
 func TestGateBuiltFromBase(t *testing.T) {
-	t.Run("ST-ASR-UC02-R07-T01 The gate job builds assure from the base commit only, and runs it in the change's checkout with the pinned Lathe", func(t *testing.T) {
+	t.Run("ST-ASR-UC02-R07-T01 The gate job builds assure from the base commit only, and runs it in the change's checkout with the pinned Lathe, which the change cannot alter", func(t *testing.T) {
 		workflow := readGateWorkflow(t)
 		gate, ok := workflow.Jobs["gate"]
 		if !ok {
 			t.Fatal("the proof run workflow has no gate job")
 		}
-		if len(workflow.Permissions) != 1 || workflow.Permissions["contents"] != "read" ||
-			len(gate.Permissions) != 1 || gate.Permissions["contents"] != "read" {
-			t.Fatalf("the gate job's permissions are %v, under the workflow's %v, want only contents: read", gate.Permissions, workflow.Permissions)
+		data, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "proof-run.yml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var raw rawGateWorkflow
+		if err := yaml.Unmarshal(data, &raw); err != nil {
+			t.Fatal(err)
+		}
+
+		// The workflow and the job: only read access, no defaults, no environment but the commit and the Lathe
+		// pin, and no key that lets a step's failure pass or moves where the job runs.
+		onlyKeys(t, "the workflow", raw.Keys, "name", "on", "permissions", "concurrency", "env")
+		onlyKeys(t, "the gate job", raw.Jobs["gate"].Keys, "name", "needs", "if", "runs-on", "timeout-minutes", "permissions")
+		onlyKeys(t, "the workflow's env", workflow.Env, "COMMIT", "LATHE_REF")
+		if workflow.Env["COMMIT"] != "${{ github.event.pull_request.head.sha || github.sha }}" {
+			t.Fatalf("COMMIT is %q, want the pull request's head", workflow.Env["COMMIT"])
 		}
 		if pin := workflow.Env["LATHE_REF"]; !fullCommit.MatchString(pin) {
 			t.Fatalf("LATHE_REF is %q, want a full commit", pin)
 		}
+		if len(workflow.Permissions) != 1 || workflow.Permissions["contents"] != "read" ||
+			len(gate.Permissions) != 1 || gate.Permissions["contents"] != "read" {
+			t.Fatalf("the gate job's permissions are %v, under the workflow's %v, want only contents: read", gate.Permissions, workflow.Permissions)
+		}
+		if strings.Contains(gate.If, "always()") || !strings.Contains(gate.If, "!cancelled()") {
+			t.Fatalf("the gate job runs when %q, want not when the run is cancelled", gate.If)
+		}
+
 		step := func(i int) string { return fmt.Sprintf("step %d (%s)", i, gate.Steps[i].Name) }
-		head, base, lathe, latheBuild, build, run := -1, -1, -1, -1, -1, -1
+		head, base, lathe, latheBuild, build, readOnly, run := -1, -1, -1, -1, -1, -1, -1
+		checkouts := 0
 		for i, s := range gate.Steps {
-			switch {
-			case strings.HasPrefix(s.Uses, "actions/checkout@") && s.With["ref"] == "${{ env.COMMIT }}":
-				head = i
-			case strings.HasPrefix(s.Uses, "actions/checkout@") && s.With["ref"] == baseSHA:
-				base = i
-			case strings.HasPrefix(s.Uses, "actions/checkout@") && s.With["ref"] == "${{ env.LATHE_REF }}":
-				lathe = i
+			onlyKeys(t, step(i), raw.Jobs["gate"].Steps[i], "id", "name", "if", "uses", "run", "with", "env", "working-directory")
+			if action, _, _ := strings.Cut(s.Uses, "@"); s.Uses != "" &&
+				action != "actions/checkout" && action != "actions/setup-go" && action != "actions/setup-node" {
+				t.Fatalf("%s uses %s: the gate job uses only checkout, setup-go and setup-node", step(i), s.Uses)
+			}
+			if strings.HasPrefix(s.Uses, "actions/checkout@") {
+				checkouts++
+				switch s.With["ref"] {
+				case "${{ env.COMMIT }}":
+					head = i
+				case baseSHA:
+					base = i
+				case "${{ env.LATHE_REF }}":
+					lathe = i
+				}
+			}
+			if strings.HasPrefix(s.Uses, "actions/setup-") {
+				onlyKeys(t, step(i)+"'s inputs", s.With, "go-version", "node-version", "cache")
+				if strings.HasPrefix(s.Uses, "actions/setup-go@") && s.With["cache"] != "false" {
+					t.Fatalf("%s restores the Go cache (cache: %q): a cache that another job wrote can hold module or build files that go build does not check again", step(i), s.With["cache"])
+				}
 			}
 			if strings.Contains(s.Run, "tsc -p tsconfig.build.json") {
 				latheBuild = i
@@ -577,6 +655,9 @@ func TestGateBuiltFromBase(t *testing.T) {
 				}
 				build = i
 			}
+			if strings.Contains(s.Run, "chmod -R a-w") {
+				readOnly = i
+			}
 			if strings.Contains(s.Run, " gate change ") {
 				if run != -1 {
 					t.Fatalf("%s and %s both gate the change", step(run), step(i))
@@ -584,65 +665,109 @@ func TestGateBuiltFromBase(t *testing.T) {
 				run = i
 			}
 		}
-		if head == -1 || base == -1 || lathe == -1 || latheBuild == -1 || build == -1 || run == -1 {
-			t.Fatalf("the gate job lacks a step: the change's checkout %d, the base's %d, Lathe's %d, Lathe's build %d, assure's build %d, the gate %d",
-				head, base, lathe, latheBuild, build, run)
+		if checkouts != 3 || head == -1 || base == -1 || lathe == -1 || latheBuild == -1 || build == -1 || readOnly == -1 || run == -1 {
+			t.Fatalf("the gate job does not have exactly its steps: %d checkouts, the change's %d, the base's %d, Lathe's %d, Lathe's build %d, assure's build %d, read-only %d, the gate %d",
+				checkouts, head, base, lathe, latheBuild, build, readOnly, run)
 		}
 
-		// The base commit is checked out into a folder of its own.
+		// The base commit is checked out into a folder of its own, and nothing else is checked out there.
 		headPath, basePath, lathePath := gate.Steps[head].With["path"], gate.Steps[base].With["path"], gate.Steps[lathe].With["path"]
-		if basePath == "" || basePath == headPath || basePath == lathePath || strings.Contains(basePath, "/") || strings.Contains(basePath, ".") {
+		if headPath != "stego" || basePath == "" || basePath == headPath || basePath == lathePath || strings.ContainsAny(basePath, "/.") {
 			t.Fatalf("the base commit is checked out into %q, beside the change's %q and Lathe's %q: want a folder of its own", basePath, headPath, lathePath)
 		}
+		onlyKeys(t, step(base)+"'s inputs", gate.Steps[base].With, "ref", "path", "persist-credentials")
 		if gate.Steps[head].With["fetch-depth"] != "0" {
 			t.Fatal("the change's checkout does not have the full history, so it does not hold the base commit")
 		}
 
-		// The binary is built there and only there, after the base is checked out, and no go command touches the
-		// change's checkout.
-		b := gate.Steps[build]
-		if b.WorkingDirectory != basePath+"/cmd/assure" || build < base {
-			t.Fatalf("%s builds in %q, want %s/cmd/assure after the base is checked out", step(build), b.WorkingDirectory, basePath)
-		}
-		if !strings.Contains(b.Run, `go build -mod=readonly -trimpath -o "$RUNNER_TEMP/assure" .`) || strings.Contains(b.Run, "..") ||
-			strings.Contains(b.Run, "-C ") || strings.Contains(b.Run, headPath) || strings.Contains(b.Run, "GITHUB_WORKSPACE") {
-			t.Fatalf("%s does not build assure from the base's own folder alone: %s", step(build), b.Run)
+		// The environment of each step: only what the step needs, by its exact value.
+		allowedEnv := map[string]string{
+			"LATHE_DEPLOY_KEY": "${{ secrets.LATHE_DEPLOY_KEY }}",
+			"GOWORK":           "off",
+			"BASE":             baseSHA,
+			"GITHUB_TOKEN":     "${{ github.token }}",
 		}
 		for i, s := range gate.Steps {
-			for key, value := range s.With {
-				if i != head && (value == headPath || strings.HasPrefix(value, headPath+"/")) {
-					t.Fatalf("%s reads the change's checkout through %s: %s", step(i), key, value)
-				}
-				if key == "cache-dependency-path" {
-					for _, file := range strings.Fields(value) {
-						if !strings.HasPrefix(file, basePath+"/") {
-							t.Fatalf("%s keys the module cache on %s, not on the base's go.sum", step(i), file)
-						}
-					}
+			for key, value := range s.Env {
+				if want, ok := allowedEnv[key]; !ok || value != want ||
+					(key == "GOWORK") != (i == build && key == "GOWORK") || ((key == "BASE" || key == "GITHUB_TOKEN") && i != run) {
+					t.Fatalf("%s sets %s=%q, which the gate job does not allow there", step(i), key, value)
 				}
 			}
-			if s.WorkingDirectory == headPath && i != run {
-				t.Fatalf("%s runs in the change's checkout: %s", step(i), s.Run)
+		}
+		if gate.Steps[build].Env["GOWORK"] != "off" {
+			t.Fatalf("%s does not turn off workspace mode, so a go.work could change what it builds", step(build))
+		}
+
+		// No step but the gate runs in the change's checkout or names it, and no step runs git, a package manager,
+		// an interpreter or a script outside Lathe's folder.
+		for i, s := range gate.Steps {
+			if i == run {
+				continue
 			}
-			for _, word := range []string{"npm ", "npx ", "node ", "python", "make ", "bash ", "sh ", "source ", "./"} {
+			if dir := s.WorkingDirectory; dir == headPath || strings.HasPrefix(dir, headPath+"/") || strings.Contains(dir, "..") {
+				t.Fatalf("%s runs in %q, in or beside the change's checkout", step(i), dir)
+			}
+			for _, word := range []string{headPath, "COMMIT", "head", "..", "git ", "eval", "source ", "--prefix"} {
+				if strings.Contains(s.Run, word) {
+					t.Fatalf("%s names %q: only the gate step may name the change's checkout, and no step fetches, merges or checks out into the base's folder: %s", step(i), word, s.Run)
+				}
+			}
+			for _, word := range []string{"npm ", "npx ", "node ", "python", "perl", "ruby", "make ", "bash ", "sh ", "./"} {
 				if strings.Contains(s.Run, word) && s.WorkingDirectory != lathePath+"/lathe" {
 					t.Fatalf("%s runs %q outside Lathe's folder: %s", step(i), word, s.Run)
 				}
 			}
 		}
+		for i := range gate.Steps[:run] {
+			if gate.Steps[i].If != "" {
+				t.Fatalf("%s runs only when %q: every step before the gate must run, or the gate does not", step(i), gate.Steps[i].If)
+			}
+		}
 
-		// The binary runs in the change's checkout, with the Lathe built from LATHE_REF, against the pull request's
-		// base.
+		// The binary is built there and only there, after the base is checked out.
+		b := gate.Steps[build]
+		if b.WorkingDirectory != basePath+"/cmd/assure" || build < base {
+			t.Fatalf("%s builds in %q, want %s/cmd/assure after the base is checked out", step(build), b.WorkingDirectory, basePath)
+		}
+		if !strings.Contains(b.Run, `go build -mod=readonly -trimpath -o "$RUNNER_TEMP/gate/assure" .`) || strings.Contains(b.Run, "-C ") ||
+			strings.Contains(b.Run, "GITHUB_WORKSPACE") {
+			t.Fatalf("%s does not build assure from the base's own folder alone: %s", step(build), b.Run)
+		}
+
+		// Lathe and the binary are read-only right before the gate, after both builds.
+		ro := strings.TrimSpace(gate.Steps[readOnly].Run)
+		if ro != `chmod -R a-w "$GITHUB_WORKSPACE/`+lathePath+`" "$RUNNER_TEMP/gate"` || readOnly != run-1 || readOnly < build || readOnly < latheBuild {
+			t.Fatalf("%s does not make Lathe and the binary read-only right before the gate: %s", step(readOnly), ro)
+		}
+
+		// The binary runs in the change's checkout, with the Lathe built from LATHE_REF, for the change's commit
+		// against the pull request's base, and with nothing else.
 		r := gate.Steps[run]
-		if r.WorkingDirectory != headPath || run < build || run < latheBuild {
-			t.Fatalf("%s gates in %q, want the change's checkout %q after both builds", step(run), r.WorkingDirectory, headPath)
+		want := `"$RUNNER_TEMP/gate/assure" gate change --commit "$COMMIT" --base "$BASE" --lathe "$GITHUB_WORKSPACE/` + lathePath + `/lathe/dist/bin/lathe.js"`
+		if got := strings.Join(strings.Fields(r.Run), " "); got != want {
+			t.Fatalf("%s runs\n%s\nwant\n%s", step(run), got, want)
 		}
-		if !strings.HasPrefix(strings.TrimSpace(r.Run), `"$RUNNER_TEMP/assure" gate change --commit "$COMMIT" --base "$BASE"`) ||
-			r.Env["BASE"] != baseSHA || goCommand.MatchString(r.Run) {
-			t.Fatalf("%s does not run the binary built from the base for the change's commit against the base: %s", step(run), r.Run)
+		if r.WorkingDirectory != headPath || len(r.Env) != 2 || gate.Steps[latheBuild].WorkingDirectory != lathePath+"/lathe" {
+			t.Fatalf("%s does not run in the change's checkout with only the base and the token: %+v", step(run), r)
 		}
-		if gate.Steps[latheBuild].WorkingDirectory != lathePath+"/lathe" || !strings.Contains(r.Run, `--lathe "$GITHUB_WORKSPACE/`+lathePath+`/lathe/dist/bin/lathe.js"`) {
-			t.Fatalf("%s does not measure with the Lathe built from LATHE_REF: %s", step(run), r.Run)
+
+		// assure gate change measures the base before the change: a Lathe that the change's run rewrites does not
+		// measure the base.
+		g := newGateRepository(t)
+		poisoned, mark := poisonedLathe(t, g.lathe)
+		g.lathe = poisoned
+		change := g.commit(t, g.base, map[string]string{"poison": "a query that rewrites the Lathe\n"})
+		passed := g.keep(t, "poison", proofRun(change, pullRef, 16, "FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed"))
+		decided(t, "a change whose run of Lathe rewrites the Lathe", g.gate(t, change, g.base, passed), 0)
+		if _, err := os.Stat(mark); err != nil {
+			t.Fatal("the change's run did not rewrite the Lathe, so the test proves nothing")
+		}
+		// Once rewritten, the Lathe gives no coverage of the base: had the change been measured first, the base
+		// would have been measured with it.
+		again := g.gate(t, change, g.base, passed)
+		if again.code != 2 || !strings.Contains(again.stderr, "rewritten by a change") {
+			t.Fatalf("the rewritten Lathe still measures the base (exit %d):\n%s%s", again.code, again.stdout, again.stderr)
 		}
 	})
 }
