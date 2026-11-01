@@ -112,7 +112,8 @@ func gateChange(commit, base, lathe string, stdout io.Writer, getenv func(string
 }
 
 // gateRelease gates the release commit in the repository that holds the working folder, reading it from the
-// repository's git objects, never from the working tree. The job's own workflow identity is the signer the
+// repository's git objects, never from the working tree. Before it gates, it refuses a step summary or a predicate
+// inside the repository and a predicate file that is already there, so it writes no predicate but its own. The job's own workflow identity is the signer the
 // attestation job signs a passed decision with.
 func gateRelease(commit, predicate, lathe string, stdout io.Writer, getenv func(string) string, open provider) (assure.Decision, error) {
 	job, err := assure.ReadGitHubGate(getenv)
@@ -134,6 +135,10 @@ func gateRelease(commit, predicate, lathe string, stdout io.Writer, getenv func(
 	if err != nil {
 		return assure.Decision{}, err
 	}
+	output := assure.JobOutput{Repository: root, Out: stdout, Summary: getenv("GITHUB_STEP_SUMMARY"), Predicate: predicatePath}
+	if err := output.Check(); err != nil {
+		return assure.Decision{}, err
+	}
 	store, verifier, done, err := open(getenv)
 	if err != nil {
 		return assure.Decision{}, err
@@ -145,7 +150,7 @@ func gateRelease(commit, predicate, lathe string, stdout io.Writer, getenv func(
 		Trusted: job.Trusted,
 		Signer:  signer.Signer,
 		Lathe:   lathe,
-	}, store, verifier, assure.JobOutput{Repository: root, Out: stdout, Summary: getenv("GITHUB_STEP_SUMMARY"), Predicate: predicatePath})
+	}, store, verifier, output)
 	if err != nil {
 		return assure.Decision{}, err
 	}

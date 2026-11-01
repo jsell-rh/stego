@@ -153,8 +153,8 @@ type ReleaseRequest struct {
 // each obligation that is not by its ID and share; unless every automated test record passed; and unless the
 // tree has no code-standard fault, naming each with its file or package and the rule. The decision names only
 // the commit, lists every reason in the fixed order, is checked by the rules of the Gate decision, and is kept
-// by the store. A passed decision names the attestation the provider's action is to make, and the store hands it
-// over as the decision.json predicate before it keeps the decision. It returns an error, and no decision, when it
+// by the store. A passed decision names the attestation the provider's action is to make, and once the store has
+// kept the decision, it hands it over as the decision.json predicate; when either fails, no predicate is written. It returns an error, and no decision, when it
 // cannot read what it decides on, such as when Lathe finds an error in the spec at the commit.
 func GateRelease(request ReleaseRequest, store AttestationStore, verifier BundleVerifier, decisions DecisionStore) (Decision, ReleaseDecided, error) {
 	if !fullCommit(request.Commit) {
@@ -205,16 +205,16 @@ func GateRelease(request ReleaseRequest, store AttestationStore, verifier Bundle
 			return Decision{}, ReleaseDecided{}, rule
 		}
 	}
+	if err := decisions.Keep(decision); err != nil {
+		return Decision{}, ReleaseDecided{}, err
+	}
 	event := ReleaseDecided{Commit: decision.Commit, Passed: decision.Passed, Reasons: append([]string(nil), decision.Reasons...)}
 	if decision.Passed {
 		digest, err := decisions.HandOver(decision)
 		if err != nil {
-			return Decision{}, ReleaseDecided{}, err
+			return Decision{}, ReleaseDecided{}, fmt.Errorf("the decision predicate is not written: %w", err)
 		}
 		event.Attestation, event.PredicateDigest = decision.Attestation, digest
-	}
-	if err := decisions.Keep(decision); err != nil {
-		return Decision{}, ReleaseDecided{}, err
 	}
 	return decision, event, nil
 }

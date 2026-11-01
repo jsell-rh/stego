@@ -920,10 +920,28 @@ func TestGateRelease(t *testing.T) {
 		}
 
 		inside := filepath.Join(g.root, "decision.json")
-		if result := g.release(t, full, passed, inside); result.code != 2 || !strings.Contains(result.stderr, "inside the repository") {
+		if result := g.release(t, full, passed, inside); result.code != 2 || result.stdout != "" || !strings.Contains(result.stderr, "inside the repository") {
 			t.Fatalf("a predicate inside the repository: assure gate release exits %d:\n%s%s", result.code, result.stdout, result.stderr)
 		}
 		noPredicate(t, "a predicate inside the repository", inside)
+		summaryInside := filepath.Join(g.runnerTemp, "decision", "summary-inside.json")
+		if result := g.release(t, full, passed, summaryInside, "GITHUB_STEP_SUMMARY="+filepath.Join(g.root, "summary.md")); result.code != 2 ||
+			result.stdout != "" || !strings.Contains(result.stderr, "inside the repository") {
+			t.Fatalf("a step summary inside the repository: assure gate release exits %d:\n%s%s", result.code, result.stdout, result.stderr)
+		}
+		noPredicate(t, "a step summary inside the repository", summaryInside)
+
+		// An earlier run's predicate is at the path: the gate does not start, and a refused run cannot leave it as
+		// though it were its own.
+		earlier := filepath.Join(g.runnerTemp, "decision", "earlier.json")
+		writeFile(t, earlier, "an earlier predicate\n")
+		for name, attestations := range map[string]string{"a passed release": passed, "a refused release": failed} {
+			result := g.release(t, full, attestations, earlier)
+			if data, _ := os.ReadFile(earlier); result.code != 2 || result.stdout != "" || !strings.Contains(result.stderr, "already at the decision predicate's path") ||
+				string(data) != "an earlier predicate\n" {
+				t.Fatalf("%s with an earlier predicate at the path: assure gate release exits %d and leaves %q:\n%s%s", name, result.code, data, result.stdout, result.stderr)
+			}
+		}
 		if status := g.git(t, "status", "--porcelain", "--untracked-files=all"); status != "" {
 			t.Fatalf("assure gate release wrote into the repository: %s", status)
 		}

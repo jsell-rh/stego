@@ -28,6 +28,28 @@ type JobOutput struct {
 	Predicate  string
 }
 
+// Check tells, before a gate decides, whether the job output can keep a decision and hand one over: the step
+// summary, when Summary names one, and the predicate file, when Predicate names one, must be outside the product's
+// repository, in a folder that exists, and no predicate file may be there yet. An earlier predicate at that path is
+// refused, not removed, so a refused release never leaves a predicate that the job could upload as its own.
+func (j JobOutput) Check() error {
+	if j.Summary != "" {
+		if err := outsideTheRepository(j.Repository, j.Summary); err != nil {
+			return err
+		}
+	}
+	if j.Predicate == "" {
+		return nil
+	}
+	if err := outsideTheRepository(j.Repository, j.Predicate); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(j.Predicate); !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("a file is already at the decision predicate's path %s (%v); remove it first, so only this run's decision can be attested", j.Predicate, err)
+	}
+	return nil
+}
+
 // HandOver writes the passed release decision's predicate to the file Predicate, and returns its digest. It
 // refuses a decision that is not a passed release decision with the attestation it is to get, and writes nothing.
 func (j JobOutput) HandOver(decision Decision) (string, error) {

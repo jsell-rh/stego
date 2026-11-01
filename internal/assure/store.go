@@ -108,7 +108,7 @@ func outsideTheRepository(repository, file string) error {
 		return err
 	}
 	if relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return refuse("%s is inside the repository %s; a proof run is kept only as the provider's attestation", file, repository)
+		return refuse("%s is inside the repository %s; assure writes no evidence and no decision into the product's repository", file, repository)
 	}
 	return nil
 }
