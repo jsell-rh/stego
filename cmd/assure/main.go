@@ -42,5 +42,5 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  assure record --commit <sha> --go-json <file> --python-json <file> --predicate <out>")
 	fmt.Fprintln(w, "  assure gate change --commit <sha> --base <sha> [--lathe <path>]")
 	fmt.Fprintln(w, "  assure gate release --commit <sha> --predicate <out> [--lathe <path>]")
-	fmt.Fprintln(w, "  assure ledger --commit <sha> [--depth <n>] [--base <sha>]")
+	fmt.Fprintln(w, "  assure ledger --commit <sha> [--depth <n>] [--main <ref>]")
 }

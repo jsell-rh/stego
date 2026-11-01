@@ -19,15 +19,15 @@ func ledger(args []string, stdout, stderr io.Writer, getenv func(string) string,
 	flags.SetOutput(stderr)
 	commit := flags.String("commit", "", "the full commit to show the proof ledger of")
 	depth := flags.Int("depth", assure.DefaultLedgerDepth, "how many commits of first-parent history to walk, from the commit itself")
-	base := flags.String("base", "", "the base branch's head, so a proof run signed at the change's own ref (GITHUB_REF) counts at the commit")
+	branch := flags.String("main", assure.MainRef, "the base branch's reference; a proof run signed at the change's own ref (GITHUB_REF) counts at the commit only while its workflows folder is the one at its merge base with this branch")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	if flags.NArg() > 0 || *commit == "" || *depth < 1 {
-		fmt.Fprintln(stderr, "assure ledger: --commit is required, --depth is a number of commits from 1, and nothing else but --base")
+		fmt.Fprintln(stderr, "assure ledger: --commit is required, --depth is a number of commits from 1, and nothing else but --main")
 		return 2
 	}
-	built, err := buildLedger(*commit, *base, *depth, getenv, open)
+	built, err := buildLedger(*commit, *branch, *depth, getenv, open)
 	if err != nil {
 		fmt.Fprintf(stderr, "assure ledger: no ledger: %v\n", err)
 		return 2
@@ -50,8 +50,9 @@ func ledger(args []string, stdout, stderr io.Writer, getenv func(string) string,
 }
 
 // buildLedger builds the proof ledger of the commit in the repository that holds the working folder, with the
-// trusted signer and the change's own ref from the job's environment.
-func buildLedger(commit, base string, depth int, getenv func(string) string, open provider) (assure.Ledger, error) {
+// trusted signer and the change's own ref from the environment. The ledger finds the base of a change itself, from
+// the base branch main names; the caller never names it.
+func buildLedger(commit, branch string, depth int, getenv func(string) string, open provider) (assure.Ledger, error) {
 	job, err := assure.ReadGitHubGate(getenv)
 	if err != nil {
 		return assure.Ledger{}, err
@@ -70,14 +71,15 @@ func buildLedger(commit, base string, depth int, getenv func(string) string, ope
 		Commit:    commit,
 		Trusted:   job.Trusted,
 		ChangeRef: job.ChangeRef,
-		Base:      base,
+		Main:      branch,
 		Depth:     depth,
 	}, store, verifier)
 }
 
 // ledgerText is the proof ledger as assure ledger prints it: a heading line; one line per test record in ID order
 // with its state, its result at the commit (passed, failed, skipped or none) and the last commit it passed at;
-// one line for the proof run at the commit, or why there is none; a line for each attestation refused at a commit
+// one line for the proof run at the commit, with the base a change-grade one was judged against, or why there is
+// none; a line for each attestation refused at a commit
 // walked, with the reason; and the test records NotPassedAt gives. The same ledger always gives the same text.
 func ledgerText(ledger assure.Ledger, notPassed []assure.LedgerRow) string {
 	var text strings.Builder
@@ -95,6 +97,9 @@ func ledgerText(ledger assure.Ledger, notPassed []assure.LedgerRow) string {
 		fmt.Fprintf(&text, "%s (%s): %s, %s\n", row.TestRecord, row.State, result, last)
 	}
 	switch proof := ledger.Proof; {
+	case proof != nil && ledger.ChangeBase != "":
+		fmt.Fprintf(&text, "proof run at %s: %s grade against the base %s, signed by %s (issuer %s), %s\n",
+			ledger.Commit, proof.Grade, ledger.ChangeBase, proof.Attestation.Signer.Subject, proof.Attestation.Signer.Issuer, proof.Attestation.LogEntry)
 	case proof != nil:
 		fmt.Fprintf(&text, "proof run at %s: %s grade, signed by %s (issuer %s), %s\n",
 			ledger.Commit, proof.Grade, proof.Attestation.Signer.Subject, proof.Attestation.Signer.Issuer, proof.Attestation.LogEntry)
