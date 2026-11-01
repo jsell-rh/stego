@@ -7,7 +7,7 @@ import (
 )
 
 func TestRelease(t *testing.T) {
-	t.Run("ST-ASR-SP04-T A commit is fully proved only when every share is 100% and a release-grade proof run at it passed", func(t *testing.T) {
+	t.Run("ST-ASR-SP04-T A commit is fully proved only when every share is 100% and a proof run at it passed", func(t *testing.T) {
 		commit := strings.Repeat("ab", 20)
 		spec := gateSpec()
 		all := Standing{Designed: true, Built: true, Proved: true}
@@ -43,14 +43,6 @@ func TestRelease(t *testing.T) {
 
 		if reasons := fullyProved(full, nil, spec, why); !reflect.DeepEqual(reasons, []string{why}) {
 			t.Fatalf("with no verified proof run: %q", reasons)
-		}
-		change := *passed
-		change.Grade = ChangeGrade
-		change.Attestation.Signer.Subject = "https://github.com/jsell-rh/stego/.github/workflows/proof-run.yml@refs/pull/7/merge"
-		want = []string{noVerifiedProofRun + commit + ": the proof run at rekor:7 is signed at refs/pull/7/merge, not at " + MainRef +
-			", and a release takes only release-grade evidence"}
-		if reasons := fullyProved(full, &change, spec, why); !reflect.DeepEqual(reasons, want) {
-			t.Fatalf("with a change-grade proof run: got %q, want %q", reasons, want)
 		}
 		if reasons := fullyProved(Measurement{Commit: commit}, passed, Spec{}, why); len(reasons) != 0 {
 			t.Fatalf("an empty spec with a passed proof run is not fully proved: %q", reasons)

@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strings"
 )
 
 // DecisionFile is the name of the file that holds a passed release decision's predicate, the decision.json table
@@ -82,9 +81,10 @@ func notReason(obligation string, share Share) string {
 // fullyProved is the predicate of ST-ASR-SP04, Release is fully proved: the designed, built and proved shares at
 // the commit are each 100%, and a proof run at the commit passed. It returns a reason for each share each
 // obligation does not have, by obligation ID and then in the order designed, built, proved, and then the reasons
-// of proofRunPassed: why there is no verified proof run, or each automated test record that did not pass. A proof
-// run that is not release grade is no proof run to a release: the reason says so and names the reference it was
-// signed at. It returns none when the commit is fully proved.
+// of proofRunPassed: why there is no verified proof run, or each automated test record that did not pass. It
+// returns none when the commit is fully proved. The proof run is the one VerifyAttestation took at release grade
+// alone (GateRelease trusts no change ref), so a proof run signed at any ref but main is refused there, by its ref,
+// and comes here as none.
 func fullyProved(measurement Measurement, proof *VerifiedProofRun, spec Spec, why string) []string {
 	var reasons []string
 	for _, id := range measurement.sortedObligations() {
@@ -94,12 +94,6 @@ func fullyProved(measurement Measurement, proof *VerifiedProofRun, spec Spec, wh
 				reasons = append(reasons, notReason(id, share))
 			}
 		}
-	}
-	if proof != nil && proof.Grade != ReleaseGrade {
-		_, reference, _ := strings.Cut(proof.Attestation.Signer.Subject, "@")
-		why = fmt.Sprintf("%s%s: the proof run at %s is signed at %s, not at %s, and a release takes only release-grade evidence",
-			noVerifiedProofRun, proof.Attestation.Subject, proof.Attestation.LogEntry, reference, MainRef)
-		proof = nil
 	}
 	return append(reasons, proofRunPassed(proof, spec, why)...)
 }
