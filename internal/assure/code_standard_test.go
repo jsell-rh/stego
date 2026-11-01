@@ -552,6 +552,16 @@ func TestFindTheCodeFaults(t *testing.T) {
 			"internal/mixed/supplied.go":    "package mixed\n\nfunc isSupplied(name string) bool { return true }\n",
 			"internal/mixed/mixed_test.go":  fixtureTest("ST-FXD-SP01-T"),
 			"internal/lost/lost.go":         "package lost\n",
+			"data/data_model.jsonl": `{"id":"ST-FXD-EN01-DM","title":"plan.Plan","file":"internal/plan/plan.go"}
+{"id":"ST-FXS-EN01-DM","title":"supply.Supply","file":"internal/supply/supply.go"}
+`,
+			"data/value_type.jsonl": `{"id":"ST-VO01-VT","title":"bridgea.Value","file":"internal/bridgea/bridgea.go"}
+{"id":"ST-VO02-VT","title":"bridgeb.Value","file":"internal/bridgeb/bridgeb.go"}
+`,
+			"internal/plan/plan.go":       "package plan\n\nimport _ \"example.com/fx/internal/bridgea\"\n\ntype Plan struct{}\n",
+			"internal/bridgea/bridgea.go": "package bridgea\n\nimport _ \"example.com/fx/internal/supply\"\n\ntype Value int\n",
+			"internal/bridgeb/bridgeb.go": "package bridgeb\n\nimport _ \"example.com/fx/internal/supply\"\n\ntype Value int\n",
+			"internal/supply/supply.go":   "package supply\n\ntype Supply struct{}\n",
 		})
 		first := commitAll(t, root, "first")
 		faults := readFaults(t, root, first)
@@ -562,6 +572,7 @@ func TestFindTheCodeFaults(t *testing.T) {
 		want := []string{
 			"ST-STD-CODE-R01 internal/mixed",
 			"ST-STD-CODE-R02 ST-FXS-SP02-PR",
+			"ST-STD-CODE-R03 internal/plan imports internal/supply",
 			"ST-STD-CODE-R05 internal/lost/lost.go",
 			"ST-STD-CODE-R06 ST-FXS-SP01-PR",
 		}
@@ -587,8 +598,9 @@ func TestFindTheCodeFaults(t *testing.T) {
 			t.Fatalf("a second reading of the same commit gave other faults:\n%s\nfirst reading:\n%s", faultLines(again), faultLines(faults))
 		}
 
-		// A later commit takes one of the package's three domains away. The package still holds two, so the
-		// fault stands with the same key and another reason.
+		// A later commit takes one of the package's three domains away, renames the identifier a record names
+		// to another that the file does not declare either, and reaches the same package through another package of
+		// no domain. Each fault stands, with the same key and another reason.
 		gitIn(t, root, "checkout", "-q", "--", ".")
 		gitIn(t, root, "clean", "-q", "-f", "-d")
 		if err := os.Remove(filepath.Join(root, "internal/mixed/generated.go")); err != nil {
@@ -596,22 +608,27 @@ func TestFindTheCodeFaults(t *testing.T) {
 		}
 		if err := os.WriteFile(filepath.Join(root, "data/predicate.jsonl"), []byte(`{"id":"ST-FXD-SP01-PR","title":"mixed.isDeclared","file":"internal/mixed/declared.go"}
 {"id":"ST-FXS-SP01-PR","title":"mixed.isSupplied","file":"internal/mixed/supplied.go"}
-{"id":"ST-FXS-SP02-PR","title":"mixed.isMissing","file":"internal/mixed/supplied.go"}
+{"id":"ST-FXS-SP02-PR","title":"mixed.isAbsent","file":"internal/mixed/supplied.go"}
 `), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "internal/plan/plan.go"), []byte("package plan\n\nimport _ \"example.com/fx/internal/bridgeb\"\n\ntype Plan struct{}\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		second := commitAll(t, root, "second")
 		later := readFaults(t, root, second)
 		if len(later) != len(faults) {
-			t.Fatalf("faults at the second commit:\n%s\nwant the same four faults", faultLines(later))
+			t.Fatalf("faults at the second commit:\n%s\nwant the same five faults", faultLines(later))
 		}
 		for i := range later {
 			if later[i].Rule != faults[i].Rule || later[i].Key != faults[i].Key {
 				t.Fatalf("fault %d changed its identity: %s, then %s", i, faults[i], later[i])
 			}
 		}
-		if later[0].Reason == faults[0].Reason {
-			t.Fatalf("the R01 fault kept its reason %q; the fixture must change it", later[0].Reason)
+		for i := 0; i < 3; i++ {
+			if later[i].Reason == faults[i].Reason {
+				t.Fatalf("the %s fault kept its reason %q; the fixture must change it", later[i].Rule, later[i].Reason)
+			}
 		}
 	})
 }
