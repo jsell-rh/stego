@@ -9,6 +9,7 @@
 {"source_id":"ST-ASR-UC02-FL01-S03","target_id":"ST-ASR-UC02-R03"}
 {"source_id":"ST-ASR-UC02-FL01-S04","target_id":"ST-ASR-UC02-R05"}
 {"source_id":"ST-ASR-UC02-FL01-S05","target_id":"ST-ASR-UC02-R05"}
+{"source_id":"ST-ASR-UC02-FL01-S06","target_id":"ST-ASR-UC02-R06"}
 {"source_id":"ST-ASR-UC03-FL01-S01","target_id":"ST-ASR-UC03-R01"}
 {"source_id":"ST-ASR-UC03-FL01-S01","target_id":"ST-ASR-UC03-R02"}
 {"source_id":"ST-ASR-UC03-FL01-S02","target_id":"ST-ASR-UC03-R03"}
@@ -16,6 +17,7 @@
 {"source_id":"ST-ASR-UC03-FL01-S03","target_id":"ST-ASR-UC03-R02"}
 {"source_id":"ST-ASR-UC03-FL01-S04","target_id":"ST-ASR-UC03-R04"}
 {"source_id":"ST-ASR-UC03-FL01-S05","target_id":"ST-ASR-UC03-R04"}
+{"source_id":"ST-ASR-UC03-FL01-S06","target_id":"ST-ASR-UC03-R05"}
 {"source_id":"ST-ASR-UC04-FL01-S01","target_id":"ST-ASR-UC04-R01"}
 {"source_id":"ST-ASR-UC04-FL01-S01","target_id":"ST-ASR-UC04-R02"}
 {"source_id":"ST-ASR-UC04-FL01-S02","target_id":"ST-ASR-UC04-R03"}

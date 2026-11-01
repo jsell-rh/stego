@@ -4,6 +4,9 @@
 {"source_id":"ST-ASR-TM04","target_id":"ST-ASR-TM06"}
 {"source_id":"ST-ASR-TM06","target_id":"ST-ASR-TM05"}
 {"source_id":"ST-ASR-TM07","target_id":"ST-ASR-TM03"}
+{"source_id":"ST-ASR-TM09","target_id":"ST-ASR-TM01"}
+{"source_id":"ST-ASR-TM09","target_id":"ST-ASR-TM03"}
+{"source_id":"ST-ASR-TM09","target_id":"ST-ASR-TM05"}
 {"source_id":"ST-BLD-TM02","target_id":"ST-BLD-TM04"}
 {"source_id":"ST-BLD-TM03","target_id":"ST-BLD-TM01"}
 {"source_id":"ST-DECL-TM03","target_id":"ST-DECL-TM01"}
