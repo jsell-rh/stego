@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -39,10 +40,12 @@ func gateChangeCommand(args []string, stdout, stderr io.Writer, getenv func(stri
 	base := flags.String("base", "", "the full commit at the head of the branch the change merges into")
 	lathe := flags.String("lathe", "", "the Lathe CLI (default node_modules/.bin/lathe of the repository)")
 	if err := flags.Parse(args); err != nil {
+		keepNoDecision(assure.ChangeGate, fmt.Errorf("assure gate change is called wrongly: %w", err), stderr, getenv)
 		return 2
 	}
 	if flags.NArg() > 0 || *commit == "" || *base == "" {
 		fmt.Fprintln(stderr, "assure gate change: --commit and --base are required, and nothing else but --lathe")
+		keepNoDecision(assure.ChangeGate, errors.New("assure gate change is called wrongly: --commit and --base are required, and nothing else but --lathe"), stderr, getenv)
 		return 2
 	}
 	decision, err := gateChange(*commit, *base, *lathe, stdout, getenv, open)
@@ -67,10 +70,12 @@ func gateReleaseCommand(args []string, stdout, stderr io.Writer, getenv func(str
 	predicate := flags.String("predicate", "", "the decision predicate file to write when the release passes, outside the repository")
 	lathe := flags.String("lathe", "", "the Lathe CLI (default node_modules/.bin/lathe of the repository)")
 	if err := flags.Parse(args); err != nil {
+		keepNoDecision(assure.ReleaseGate, fmt.Errorf("assure gate release is called wrongly: %w", err), stderr, getenv)
 		return 2
 	}
 	if flags.NArg() > 0 || *commit == "" || *predicate == "" {
 		fmt.Fprintln(stderr, "assure gate release: --commit and --predicate are required, and nothing else but --lathe")
+		keepNoDecision(assure.ReleaseGate, errors.New("assure gate release is called wrongly: --commit and --predicate are required, and nothing else but --lathe"), stderr, getenv)
 		return 2
 	}
 	decision, err := gateRelease(*commit, *predicate, *lathe, stdout, getenv, open)

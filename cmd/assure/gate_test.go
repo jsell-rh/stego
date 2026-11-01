@@ -421,6 +421,13 @@ func TestGateChange(t *testing.T) {
 			!strings.HasPrefix(string(data), "change gate: no decision was reached: ") || !strings.Contains(string(data), "[test-file-missing] FX-LEND-INV03-T: ") {
 			t.Fatalf("a change the gate cannot decide on: exit %d, step summary (%v):\n%s\n%s%s", result.code, err, data, result.stdout, result.stderr)
 		}
+		wrong := filepath.Join(g.runnerTemp, "wrong-call.md")
+		result = g.gate(t, broken, "", g.keep(t, "wrong", proofRun(broken, pullRef, 11)), "GITHUB_STEP_SUMMARY="+wrong)
+		data, err = os.ReadFile(wrong)
+		if result.code != 2 || result.stdout != "" || err != nil || string(data) !=
+			"change gate: no decision was reached: assure gate change is called wrongly: --commit and --base are required, and nothing else but --lathe\n" {
+			t.Fatalf("a wrong call of assure gate change: exit %d, step summary (%v):\n%s\n%s%s", result.code, err, data, result.stdout, result.stderr)
+		}
 	})
 
 	t.Run("ST-ASR-UC02-R04-T01 The same commit, base and proof run give the same decision and reasons in the same order", func(t *testing.T) {
@@ -1327,6 +1334,12 @@ func TestGateRelease(t *testing.T) {
 		if noResult.code != 2 || noResult.stdout != "" || noErr != nil || strings.Count(string(noData), "\n") != 1 ||
 			!strings.HasPrefix(string(noData), "release gate: no decision was reached: ") || !strings.Contains(string(noData), "FX-LEND-INV09-T") {
 			t.Fatalf("a release the gate cannot decide on: exit %d, step summary (%v):\n%s\n%s%s", noResult.code, noErr, noData, noResult.stdout, noResult.stderr)
+		}
+		wrongSummary := filepath.Join(g.runnerTemp, "wrong-call.md")
+		wrong := g.release(t, full, passed, "", "GITHUB_STEP_SUMMARY="+wrongSummary)
+		if data, err := os.ReadFile(wrongSummary); wrong.code != 2 || wrong.stdout != "" || err != nil || string(data) !=
+			"release gate: no decision was reached: assure gate release is called wrongly: --commit and --predicate are required, and nothing else but --lathe\n" {
+			t.Fatalf("a wrong call of assure gate release: exit %d, step summary (%v):\n%s\n%s%s", wrong.code, err, data, wrong.stdout, wrong.stderr)
 		}
 		if os.Geteuid() == 0 {
 			t.Log("the tests run as root, which can write into a read-only folder, so a predicate that cannot be written is not checked")
