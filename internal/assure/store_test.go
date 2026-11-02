@@ -18,7 +18,7 @@ func gitRepository(t *testing.T) string {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "repository")
 	for name, content := range map[string]string{
-		"lathe.config.json":         `{"schema": 2, "data": "data"}` + "\n",
+		"lathe.config.json":         `{"schema": 5, "data": "data"}` + "\n",
 		"data/domain.jsonl":         `{"id":"ST-FIX"}` + "\n",
 		"data/invariant_test.jsonl": `{"id":"ST-FIX-INV01-T","state":"automated","file":"internal/fix/fix_test.go"}` + "\n",
 		"internal/fix/fix.go":       "package fix\n",

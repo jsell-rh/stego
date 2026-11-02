@@ -1,0 +1,3487 @@
+{
+  "products": [
+    {
+      "root": ".",
+      "workspace": {
+        "kinds": [
+          {
+            "kind": "product",
+            "label": "Product",
+            "stage": null,
+            "position": 1,
+            "parent_kinds": [],
+            "required_fields": [
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": null,
+            "description": "A product: the root of a set of specifications."
+          },
+          {
+            "kind": "business_outcome",
+            "label": "Business outcome",
+            "stage": "discovery",
+            "position": 2,
+            "parent_kinds": [
+              "product"
+            ],
+            "required_fields": [
+              "statement",
+              "measure",
+              "target"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "parent",
+            "description": "A business outcome: a measurable change the product exists to bring about, which its capabilities and journeys serve and its tests or records measure (measured_by). The trace runs from it to a capability or a journey, a use case, the code and the tests."
+          },
+          {
+            "kind": "journey",
+            "label": "Journey",
+            "stage": "discovery",
+            "position": 3,
+            "parent_kinds": [
+              "product"
+            ],
+            "required_fields": [
+              "trigger",
+              "result"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "parent",
+            "description": "A journey: the use cases and handoffs, in order, that take the product's people from a trigger to a result a business outcome measures, across actors and domains. It serves business outcomes as a capability does, and its journey test drives it end to end."
+          },
+          {
+            "kind": "journey_step",
+            "label": "Journey step",
+            "stage": "discovery",
+            "position": 4,
+            "parent_kinds": [
+              "journey"
+            ],
+            "required_fields": [
+              "path",
+              "position"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "parent",
+            "description": "One step of a journey, in order on its path, in the journey's words. It carries out one use case or one policy (a handoff), of its own product (carries_out); a step that carries out nothing yet is a use case still to write. Its actors are its use case's, derived; a handoff's actor is the product itself."
+          },
+          {
+            "kind": "domain",
+            "label": "Domain",
+            "stage": "domain-model",
+            "position": 5,
+            "parent_kinds": [
+              "product"
+            ],
+            "required_fields": [
+              "subdomain_type",
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "parent",
+            "description": "A part of the product with its own model, language and owner, for one business capability: what DDD calls a bounded context. Domains meet only through published events."
+          },
+          {
+            "kind": "aggregate",
+            "label": "Aggregate",
+            "stage": "domain-model",
+            "position": 6,
+            "parent_kinds": [
+              "domain"
+            ],
+            "required_fields": [
+              "description",
+              "identity"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "domain",
+            "description": "The consistency boundary: a cluster of entities changed together as one unit, by one command at a time. Other aggregates follow its changes through events, and refer to it by ID only."
+          },
+          {
+            "kind": "entity",
+            "label": "Entity",
+            "stage": "domain-model",
+            "position": 7,
+            "parent_kinds": [
+              "aggregate"
+            ],
+            "required_fields": [
+              "role",
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "domain",
+            "description": "A record the domain keeps, with an identity: its aggregate's root or one of its children. Its fields are entity_field rows; the value objects it has are the ones its fields are typed with."
+          },
+          {
+            "kind": "value_object",
+            "label": "Value object",
+            "stage": "domain-model",
+            "position": 8,
+            "parent_kinds": [],
+            "required_fields": [
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "product",
+            "description": "A value with no identity of its own, such as an email address or a money amount, defined by its fields and checked by its constraints when it is created. It has no owner: it exists because entities, events or read models use it as a field's type, and its product follows from its ID."
+          },
+          {
+            "kind": "constraint",
+            "label": "Constraint",
+            "stage": "domain-model",
+            "position": 9,
+            "parent_kinds": [
+              "value_object"
+            ],
+            "required_fields": [
+              "statement"
+            ],
+            "obligation": true,
+            "complexity": "essential",
+            "id_scope": "parent",
+            "description": "A value object's own rule, checked when the value is created, such as an email address having one @."
+          },
+          {
+            "kind": "invariant",
+            "label": "Invariant",
+            "stage": "domain-model",
+            "position": 10,
+            "parent_kinds": [
+              "aggregate"
+            ],
+            "required_fields": [
+              "statement"
+            ],
+            "obligation": true,
+            "complexity": "essential",
+            "id_scope": "domain",
+            "description": "A rule that holds for one aggregate on every change, enforced by its rule (rule) in the aggregate's code. Uniqueness across records (no two members share an email) is an invariant too, which a unique key of the table may back up."
+          },
+          {
+            "kind": "specification",
+            "label": "Specification",
+            "stage": "domain-model",
+            "position": 11,
+            "parent_kinds": [],
+            "required_fields": [
+              "statement"
+            ],
+            "obligation": true,
+            "complexity": "essential",
+            "id_scope": "domain",
+            "description": "A named predicate over one or more aggregates of one domain (Evans), such as Member in good standing. Commands check it before acting, and queries may select by it. It has no owner: it reads its aggregates, and its domain follows from its ID."
+          },
+          {
+            "kind": "domain_event",
+            "label": "Domain event",
+            "stage": "domain-model",
+            "position": 12,
+            "parent_kinds": [
+              "aggregate"
+            ],
+            "required_fields": [
+              "published",
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "domain",
+            "description": "An unchangeable record that something happened to an aggregate, named in the past tense (Loan opened), raised by its commands. What it carries are event_field rows."
+          },
+          {
+            "kind": "command",
+            "label": "Command",
+            "stage": "domain-model",
+            "position": 13,
+            "parent_kinds": [
+              "entity"
+            ],
+            "required_fields": [
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "domain",
+            "description": "A request to change exactly one aggregate: the one its entity belongs to. It sits under the entity it changes, and checks specifications, raises events and may call domain services, all of its own domain."
+          },
+          {
+            "kind": "read_model",
+            "label": "Read model",
+            "stage": "domain-model",
+            "position": 14,
+            "parent_kinds": [
+              "domain"
+            ],
+            "required_fields": [
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "domain",
+            "description": "A view of its domain's data shaped for reading, which reads one or more of the domain's aggregates. Its fields are read_model_field rows, and it is stored in a table of its own."
+          },
+          {
+            "kind": "query",
+            "label": "Query",
+            "stage": "domain-model",
+            "position": 15,
+            "parent_kinds": [
+              "read_model"
+            ],
+            "required_fields": [
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "domain",
+            "description": "A question asked of one read model, its parent. It changes nothing, and may select by specifications and call domain services of its own domain."
+          },
+          {
+            "kind": "policy",
+            "label": "Policy",
+            "stage": "domain-model",
+            "position": 16,
+            "parent_kinds": [
+              "command"
+            ],
+            "required_fields": [
+              "statement"
+            ],
+            "obligation": true,
+            "complexity": "essential",
+            "id_scope": "domain",
+            "description": "Whenever an event, then a command (event storming). It belongs to the command it invokes and hears one event: its own domain's, or another domain's published one."
+          },
+          {
+            "kind": "domain_service",
+            "label": "Domain service",
+            "stage": "domain-model",
+            "position": 17,
+            "parent_kinds": [
+              "domain"
+            ],
+            "required_fields": [
+              "statement"
+            ],
+            "obligation": true,
+            "complexity": "essential",
+            "id_scope": "domain",
+            "description": "Domain logic that belongs to no single entity and is not a yes-or-no check, such as calculating a late fee. Commands and queries of its domain call it; it uses no storage and no outside system."
+          },
+          {
+            "kind": "storage_requirement",
+            "label": "Storage requirement",
+            "stage": "domain-model",
+            "position": 18,
+            "parent_kinds": [
+              "aggregate",
+              "read_model"
+            ],
+            "required_fields": [
+              "statement"
+            ],
+            "obligation": true,
+            "complexity": "essential",
+            "id_scope": "parent",
+            "description": "What the business needs kept of one aggregate or read model, its parent, and how well: whichever apply of durability (it survives a restart or a crash), atomicity (saved whole or not at all, such as a loan with its outbox event), retention and deletion (how long it is kept, and deleted on request), recovery (backups, and how much may be lost) and capacity (how much, how fast). It is built by its aggregate's repository, or its read model's reader, naming a file that exists and the data store it is stored in, and proved by its storage requirement tests."
+          },
+          {
+            "kind": "term",
+            "label": "Term",
+            "stage": "domain-model",
+            "position": 19,
+            "parent_kinds": [
+              "domain"
+            ],
+            "required_fields": [
+              "meaning"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "domain",
+            "description": "A word of the domain's glossary and what it means there, so specs, code and conversation use one language."
+          },
+          {
+            "kind": "capability",
+            "label": "Capability",
+            "stage": "use-cases",
+            "position": 20,
+            "parent_kinds": [
+              "domain"
+            ],
+            "required_fields": [
+              "position",
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "domain",
+            "description": "An ordered slice of a domain that groups its use cases, such as Catalog or Lending."
+          },
+          {
+            "kind": "use_case",
+            "label": "Use case",
+            "stage": "use-cases",
+            "position": 21,
+            "parent_kinds": [
+              "capability"
+            ],
+            "required_fields": [
+              "goal"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "domain",
+            "description": "An actor's goal: its actors (use_case_actor rows), its UC requirements and its flow, the same through every interface that offers it. It changes nothing itself; its flow's steps invoke commands and queries."
+          },
+          {
+            "kind": "uc_requirement",
+            "label": "UC requirement",
+            "stage": "use-cases",
+            "position": 22,
+            "parent_kinds": [
+              "use_case"
+            ],
+            "required_fields": [
+              "statement"
+            ],
+            "obligation": true,
+            "complexity": "essential",
+            "id_scope": "parent",
+            "description": "One rule a use case must follow, whatever the interface: a step of the use case's own flow fulfills it. A rule only one interface can meet is a view or API requirement, or a rule of that interface's pattern, instead."
+          },
+          {
+            "kind": "pattern",
+            "label": "Pattern",
+            "stage": "use-cases",
+            "position": 23,
+            "parent_kinds": [
+              "product"
+            ],
+            "required_fields": [
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "parent",
+            "description": "Behavior several use cases share, stated once: a fixed part, the settings each use case that follows it fills in (its configuration, the known ways it varies) and its slots (the open-ended variation, filled with code against a contract). Its settings are pattern_setting rows, its rules pattern_rule records and its slots slot records."
+          },
+          {
+            "kind": "pattern_rule",
+            "label": "Pattern rule",
+            "stage": "use-cases",
+            "position": 24,
+            "parent_kinds": [
+              "pattern"
+            ],
+            "required_fields": [
+              "statement"
+            ],
+            "obligation": true,
+            "complexity": "essential",
+            "id_scope": "parent",
+            "description": "One rule of a pattern. Every domain that follows the pattern owes it, with no exception: a rule that holds for only some followers belongs to their use cases, not to the pattern."
+          },
+          {
+            "kind": "slot",
+            "label": "Slot",
+            "stage": "use-cases",
+            "position": 25,
+            "parent_kinds": [
+              "pattern"
+            ],
+            "required_fields": [
+              "statement"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "parent",
+            "description": "An open-ended part of a pattern, which neither its fixed part nor its settings can express: code fills it against its contract. A technical record that fills it, written by hand, is a fill (fills): accidental complexity recorded where it is owed, and debt until the pattern can derive it."
+          },
+          {
+            "kind": "interface",
+            "label": "Interface",
+            "stage": "interaction-design",
+            "position": 26,
+            "parent_kinds": [
+              "product"
+            ],
+            "required_fields": [
+              "kind",
+              "description",
+              "public"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "parent",
+            "description": "A way people or programs use the product, such as its web app, its HTTP API or its command line. It offers use cases (offers), is used by some of the product's roles (interface_actor rows) and follows the pattern that says how a step is carried out through it (follows): its version of each flow it offers is derived from that, never written."
+          },
+          {
+            "kind": "flow",
+            "label": "Flow",
+            "stage": "interaction-design",
+            "position": 27,
+            "parent_kinds": [
+              "use_case"
+            ],
+            "required_fields": [],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "parent",
+            "description": "How its use case is carried out, whatever the interface: the steps on its main path and its alternate paths. A use case has one flow, and each interface that offers the use case has its own version of it, derived from the steps' commands and queries by the interface's pattern."
+          },
+          {
+            "kind": "flow_step",
+            "label": "Flow step",
+            "stage": "interaction-design",
+            "position": 28,
+            "parent_kinds": [
+              "flow"
+            ],
+            "required_fields": [
+              "path",
+              "position"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "parent",
+            "description": "One step of a flow, in order on its path, in the words of the people who take it. It fulfills UC requirements of its own use case, invokes at most one command or query and may exchange with integrations; where it happens is its interface's, derived. A step only one interface can do is a variant: it names that interface."
+          },
+          {
+            "kind": "view",
+            "label": "View",
+            "stage": "interaction-design",
+            "position": 29,
+            "parent_kinds": [],
+            "required_fields": [
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "product",
+            "description": "A screen or page a person uses. It has no owner: it exists because it presents commands and queries (presents), so a step that invokes one is carried out in it on a web app or desktop interface, and its product follows from its ID."
+          },
+          {
+            "kind": "view_requirement",
+            "label": "View requirement",
+            "stage": "interaction-design",
+            "position": 30,
+            "parent_kinds": [
+              "view"
+            ],
+            "required_fields": [
+              "statement"
+            ],
+            "obligation": true,
+            "complexity": "essential",
+            "id_scope": "parent",
+            "description": "One rule a view must follow, such as what it shows while loading or a field's limits. The UI components whose code does what it says build it (builds)."
+          },
+          {
+            "kind": "endpoint",
+            "label": "Endpoint",
+            "stage": "interaction-design",
+            "position": 31,
+            "parent_kinds": [
+              "command",
+              "query"
+            ],
+            "required_fields": [
+              "method",
+              "route",
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "accidental",
+            "id_scope": "domain",
+            "description": "An HTTP endpoint that exposes exactly one command or query, its parent. A step that invokes it is carried out through it on an API interface: steps reach it through their command or query, never directly."
+          },
+          {
+            "kind": "api_requirement",
+            "label": "API requirement",
+            "stage": "interaction-design",
+            "position": 32,
+            "parent_kinds": [
+              "endpoint"
+            ],
+            "required_fields": [
+              "statement"
+            ],
+            "obligation": true,
+            "complexity": "by-interface",
+            "id_scope": "parent",
+            "description": "One rule an endpoint must follow, such as an error's response or a limit on its request."
+          },
+          {
+            "kind": "integration",
+            "label": "Integration",
+            "stage": "interaction-design",
+            "position": 33,
+            "parent_kinds": [],
+            "required_fields": [
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "product",
+            "description": "An outside system the product exchanges with, such as a payment provider or a mail service. It has no owner: it exists because flow steps exchange with it, and its product follows from its ID."
+          },
+          {
+            "kind": "data_store",
+            "label": "Data store",
+            "stage": "technical-specification",
+            "position": 34,
+            "parent_kinds": [
+              "product",
+              "domain"
+            ],
+            "required_fields": [
+              "kind",
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "accidental",
+            "id_scope": "parent",
+            "description": "Where data actually lives: a database, a bucket, a folder of files, browser storage or memory. Every repository, reader and table names the one it is stored in (stored_in). One that is a service someone else runs, which the user must provide, such as a managed database or a bucket, is reached through its integration (provided_by); one the product owns outright, such as a local file or browser storage, has none."
+          },
+          {
+            "kind": "repository",
+            "label": "Repository",
+            "stage": "technical-specification",
+            "position": 35,
+            "parent_kinds": [
+              "domain"
+            ],
+            "required_fields": [
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "accidental",
+            "id_scope": "parent",
+            "description": "Loads and saves its aggregate, whole: the way command handlers reach the aggregate's storage, in the one data store it names (stored_in). It persists exactly one aggregate, linked with persists, and sits under its domain, or, for one several domains share, under the domain that holds what they share."
+          },
+          {
+            "kind": "data_model",
+            "label": "Data model",
+            "stage": "technical-specification",
+            "position": 36,
+            "parent_kinds": [
+              "entity"
+            ],
+            "required_fields": [],
+            "obligation": false,
+            "complexity": "accidental",
+            "id_scope": "parent",
+            "description": "Its entity in code: the entity's data, behavior and mapping to its table. A command is carried out by its handler and its aggregate root's data model."
+          },
+          {
+            "kind": "table",
+            "label": "Table",
+            "stage": "technical-specification",
+            "position": 37,
+            "parent_kinds": [
+              "entity",
+              "read_model",
+              "domain"
+            ],
+            "required_fields": [
+              "name",
+              "storage"
+            ],
+            "obligation": false,
+            "complexity": "accidental",
+            "id_scope": "parent",
+            "description": "Where an entity or a read model, its parent, is stored, in a database or not; or, under a domain, a table of the domain's own infrastructure that implements no design record, such as its outbox. It is kept in the one data store it names (stored_in). Its columns follow from its parent's fields, a value object's fields flattened into columns, so it stores only what fields cannot say: its keys and indexes (table_key rows). An entity's table holds its rows, the source of truth: a table, normalized, or the browser storage, file or memory that keeps them; a read model's is a projection that can be rebuilt, usually a view over its domain's entity tables, or computed in memory on each load."
+          },
+          {
+            "kind": "value_type",
+            "label": "Value type",
+            "stage": "technical-specification",
+            "position": 38,
+            "parent_kinds": [
+              "value_object"
+            ],
+            "required_fields": [],
+            "obligation": false,
+            "complexity": "accidental",
+            "id_scope": "parent",
+            "description": "Its value object in code, which checks the value object's constraints when a value is created."
+          },
+          {
+            "kind": "rule",
+            "label": "Rule",
+            "stage": "technical-specification",
+            "position": 39,
+            "parent_kinds": [
+              "invariant"
+            ],
+            "required_fields": [],
+            "obligation": false,
+            "complexity": "accidental",
+            "id_scope": "parent",
+            "description": "Enforces its invariant: the rule in its aggregate's code, run by the aggregate's commands before saving, which refuses a change that would break it. Lathe's own rules sit in each aggregate's rules.ts and also run over all data on every load. An invariant is built only through its rule."
+          },
+          {
+            "kind": "predicate",
+            "label": "Predicate",
+            "stage": "technical-specification",
+            "position": 40,
+            "parent_kinds": [
+              "specification"
+            ],
+            "required_fields": [],
+            "obligation": false,
+            "complexity": "accidental",
+            "id_scope": "parent",
+            "description": "Its specification in code: a yes-or-no test over the records it is given."
+          },
+          {
+            "kind": "event_type",
+            "label": "Event type",
+            "stage": "technical-specification",
+            "position": 41,
+            "parent_kinds": [
+              "domain_event"
+            ],
+            "required_fields": [],
+            "obligation": false,
+            "complexity": "accidental",
+            "id_scope": "parent",
+            "description": "Its domain event's shape in code; a contract with other domains when the event is published."
+          },
+          {
+            "kind": "projection",
+            "label": "Projection",
+            "stage": "technical-specification",
+            "position": 42,
+            "parent_kinds": [
+              "read_model"
+            ],
+            "required_fields": [
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "accidental",
+            "id_scope": "parent",
+            "description": "Fills its read model's table and keeps it current, from events or as a view's query. It writes only its own read model's table."
+          },
+          {
+            "kind": "reader",
+            "label": "Reader",
+            "stage": "technical-specification",
+            "position": 43,
+            "parent_kinds": [
+              "read_model"
+            ],
+            "required_fields": [
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "accidental",
+            "id_scope": "parent",
+            "description": "Reads its read model's table for its query handlers: the way query handlers reach a read model's storage, in the one data store it names (stored_in). It reads exactly one read model, its parent, and nothing else; a query handler reads only through its own read model's reader, and the projection alone fills the table it reads."
+          },
+          {
+            "kind": "command_handler",
+            "label": "Command handler",
+            "stage": "technical-specification",
+            "position": 44,
+            "parent_kinds": [
+              "command"
+            ],
+            "required_fields": [
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "accidental",
+            "id_scope": "parent",
+            "description": "Carries out its command: an application service that owns the transaction, loads the aggregate through its repository, checks specifications and raises events. What clean architecture calls a use case or interactor."
+          },
+          {
+            "kind": "query_handler",
+            "label": "Query handler",
+            "stage": "technical-specification",
+            "position": 45,
+            "parent_kinds": [
+              "query"
+            ],
+            "required_fields": [
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "accidental",
+            "id_scope": "parent",
+            "description": "Answers its query from its read model's table: an application service that changes nothing."
+          },
+          {
+            "kind": "event_handler",
+            "label": "Event handler",
+            "stage": "technical-specification",
+            "position": 46,
+            "parent_kinds": [
+              "policy"
+            ],
+            "required_fields": [
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "accidental",
+            "id_scope": "parent",
+            "description": "Carries out its policy: hears the policy's event and sends its command."
+          },
+          {
+            "kind": "service",
+            "label": "Service",
+            "stage": "technical-specification",
+            "position": 47,
+            "parent_kinds": [
+              "domain_service"
+            ],
+            "required_fields": [],
+            "obligation": false,
+            "complexity": "accidental",
+            "id_scope": "parent",
+            "description": "Its domain service in code. It never uses a repository or an outside system: its inputs are passed in, and it returns a value or a decision."
+          },
+          {
+            "kind": "ui_component",
+            "label": "UI component",
+            "stage": "technical-specification",
+            "position": 48,
+            "parent_kinds": [],
+            "required_fields": [
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "accidental",
+            "id_scope": "product",
+            "description": "A piece of the user interface that renders one or more views and builds the view requirements its code does (builds). It has no owner: it exists because views use it, and its product follows from its ID."
+          },
+          {
+            "kind": "endpoint_handler",
+            "label": "Endpoint handler",
+            "stage": "technical-specification",
+            "position": 49,
+            "parent_kinds": [
+              "endpoint"
+            ],
+            "required_fields": [
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "accidental",
+            "id_scope": "parent",
+            "description": "Serves its endpoint: reads the request, calls the command or query handler and writes the response."
+          },
+          {
+            "kind": "adapter",
+            "label": "Adapter",
+            "stage": "technical-specification",
+            "position": 50,
+            "parent_kinds": [
+              "integration"
+            ],
+            "required_fields": [
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "accidental",
+            "id_scope": "parent",
+            "description": "Talks to its integration's outside system, so the rest of the code does not."
+          },
+          {
+            "kind": "entry_point",
+            "label": "Entry point",
+            "stage": "technical-specification",
+            "position": 51,
+            "parent_kinds": [
+              "domain"
+            ],
+            "required_fields": [
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "accidental",
+            "id_scope": "parent",
+            "description": "A start-up file: what runs first and wires the rest together, such as a server's main file or a desktop app's main process. No design record is implemented by it alone, so it sits under the domain it starts."
+          },
+          {
+            "kind": "tooling",
+            "label": "Tooling",
+            "stage": "technical-specification",
+            "position": 52,
+            "parent_kinds": [
+              "domain"
+            ],
+            "required_fields": [],
+            "obligation": false,
+            "complexity": "accidental",
+            "id_scope": "parent",
+            "description": "A dev script or config file outside the running product: a build, a generator, a watcher, or a config of the tools it is checked and tested with, such as a type checker's or a test runner's. Its title and file say what it is."
+          },
+          {
+            "kind": "standard",
+            "label": "Standard",
+            "stage": "technical-specification",
+            "position": 53,
+            "parent_kinds": [
+              "product"
+            ],
+            "required_fields": [
+              "type",
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "by-type",
+            "id_scope": "parent",
+            "description": "A library of rules that holds across the product, such as exact money, a latency budget, logging, error handling or naming. Its type says whether its rules are essential (a quality) or accidental (engineering). What follows one of its rules meets it."
+          },
+          {
+            "kind": "standard_rule",
+            "label": "Standard rule",
+            "stage": "technical-specification",
+            "position": 54,
+            "parent_kinds": [
+              "standard"
+            ],
+            "required_fields": [
+              "statement"
+            ],
+            "obligation": true,
+            "complexity": "as-parent",
+            "id_scope": "parent",
+            "description": "One rule of a standard. Technical records that follow it link to it with meets; its standard rule tests prove it."
+          },
+          {
+            "kind": "test_data_set",
+            "label": "Test data set",
+            "stage": "test-plan",
+            "position": 55,
+            "parent_kinds": [
+              "domain"
+            ],
+            "required_fields": [
+              "environment",
+              "records",
+              "prepare",
+              "reset",
+              "description"
+            ],
+            "obligation": false,
+            "complexity": "essential",
+            "id_scope": "domain",
+            "description": "What some tests start from: the environment, the accounts and the starting records, how to prepare and reset them, and the file that builds them. Tests link to it with starts_from."
+          },
+          {
+            "kind": "constraint_test",
+            "label": "Constraint test",
+            "stage": "test-plan",
+            "position": 56,
+            "parent_kinds": [
+              "constraint"
+            ],
+            "required_fields": [
+              "level",
+              "state",
+              "accepts",
+              "refuses"
+            ],
+            "obligation": false,
+            "complexity": "as-parent",
+            "id_scope": "parent",
+            "description": "Proves its constraint: the values its value object accepts and refuses."
+          },
+          {
+            "kind": "invariant_test",
+            "label": "Invariant test",
+            "stage": "test-plan",
+            "position": 57,
+            "parent_kinds": [
+              "invariant"
+            ],
+            "required_fields": [
+              "level",
+              "state",
+              "when",
+              "then"
+            ],
+            "obligation": false,
+            "complexity": "as-parent",
+            "id_scope": "parent",
+            "description": "Proves its invariant: a change that would break it is refused, and the aggregate stays as it was."
+          },
+          {
+            "kind": "specification_test",
+            "label": "Specification test",
+            "stage": "test-plan",
+            "position": 58,
+            "parent_kinds": [
+              "specification"
+            ],
+            "required_fields": [
+              "level",
+              "state",
+              "when",
+              "then"
+            ],
+            "obligation": false,
+            "complexity": "as-parent",
+            "id_scope": "parent",
+            "description": "Proves its specification: which records satisfy the predicate and which do not."
+          },
+          {
+            "kind": "policy_test",
+            "label": "Policy test",
+            "stage": "test-plan",
+            "position": 59,
+            "parent_kinds": [
+              "policy"
+            ],
+            "required_fields": [
+              "level",
+              "state",
+              "when",
+              "then"
+            ],
+            "obligation": false,
+            "complexity": "as-parent",
+            "id_scope": "parent",
+            "description": "Proves its policy: when its event happens, its command is sent."
+          },
+          {
+            "kind": "domain_service_test",
+            "label": "Domain service test",
+            "stage": "test-plan",
+            "position": 60,
+            "parent_kinds": [
+              "domain_service"
+            ],
+            "required_fields": [
+              "level",
+              "state",
+              "when",
+              "then"
+            ],
+            "obligation": false,
+            "complexity": "as-parent",
+            "id_scope": "parent",
+            "description": "Proves its domain service: from the inputs given, the value or decision it returns."
+          },
+          {
+            "kind": "storage_requirement_test",
+            "label": "Storage requirement test",
+            "stage": "test-plan",
+            "position": 61,
+            "parent_kinds": [
+              "storage_requirement"
+            ],
+            "required_fields": [
+              "level",
+              "state",
+              "when",
+              "then"
+            ],
+            "obligation": false,
+            "complexity": "as-parent",
+            "id_scope": "parent",
+            "description": "Proves its storage requirement at the level that can observe it: a round trip, a restart, a failed save that leaves nothing behind, a deletion, a restore."
+          },
+          {
+            "kind": "use_case_test",
+            "label": "Use case test",
+            "stage": "test-plan",
+            "position": 62,
+            "parent_kinds": [
+              "uc_requirement"
+            ],
+            "required_fields": [
+              "level",
+              "state",
+              "when",
+              "then"
+            ],
+            "obligation": false,
+            "complexity": "as-parent",
+            "id_scope": "parent",
+            "description": "Proves its UC requirement, at the level the use case is stated: what the actor does and what the product does in answer."
+          },
+          {
+            "kind": "view_test",
+            "label": "View test",
+            "stage": "test-plan",
+            "position": 63,
+            "parent_kinds": [
+              "view_requirement"
+            ],
+            "required_fields": [
+              "level",
+              "state",
+              "when",
+              "then"
+            ],
+            "obligation": false,
+            "complexity": "as-parent",
+            "id_scope": "parent",
+            "description": "Proves its view requirement in the view."
+          },
+          {
+            "kind": "endpoint_test",
+            "label": "Endpoint test",
+            "stage": "test-plan",
+            "position": 64,
+            "parent_kinds": [
+              "api_requirement"
+            ],
+            "required_fields": [
+              "level",
+              "state",
+              "when",
+              "then"
+            ],
+            "obligation": false,
+            "complexity": "as-parent",
+            "id_scope": "parent",
+            "description": "Proves its API requirement at the endpoint: the request and the response."
+          },
+          {
+            "kind": "flow_test",
+            "label": "Flow test",
+            "stage": "test-plan",
+            "position": 65,
+            "parent_kinds": [
+              "flow"
+            ],
+            "required_fields": [
+              "level",
+              "state",
+              "steps",
+              "expected_result"
+            ],
+            "obligation": false,
+            "complexity": "as-parent",
+            "id_scope": "parent",
+            "description": "The use case's acceptance test: its flow's main path, end to end, through any one interface that offers the use case, at the level that fits that interface (browser for a web app or desktop, system for an API, a CLI or agent tools). How each other interface carries a step out is proved once per rule and domain by its pattern's rule tests, never per use case."
+          },
+          {
+            "kind": "journey_test",
+            "label": "Journey test",
+            "stage": "test-plan",
+            "position": 66,
+            "parent_kinds": [
+              "journey"
+            ],
+            "required_fields": [
+              "level",
+              "state",
+              "steps",
+              "expected_result"
+            ],
+            "obligation": false,
+            "complexity": "as-parent",
+            "id_scope": "parent",
+            "description": "The journey's test: its main path, end to end, from its trigger to its result, across the use cases and handoffs it carries out, at the lowest level that can observe the result (service, system or browser). It proves the journey only; each step's use case and policy is proved by its own tests."
+          },
+          {
+            "kind": "integration_test",
+            "label": "Integration test",
+            "stage": "test-plan",
+            "position": 67,
+            "parent_kinds": [
+              "integration"
+            ],
+            "required_fields": [
+              "level",
+              "state",
+              "when",
+              "then"
+            ],
+            "obligation": false,
+            "complexity": "as-parent",
+            "id_scope": "parent",
+            "description": "Proves an exchange with its integration's outside system."
+          },
+          {
+            "kind": "pattern_rule_test",
+            "label": "Pattern rule test",
+            "stage": "test-plan",
+            "position": 68,
+            "parent_kinds": [
+              "pattern_rule"
+            ],
+            "required_fields": [
+              "domain_id",
+              "level",
+              "state",
+              "when",
+              "then"
+            ],
+            "obligation": false,
+            "complexity": "as-parent",
+            "id_scope": "parent",
+            "description": "Proves its pattern rule in one domain that adopts the pattern: one test per pattern rule and adopting domain."
+          },
+          {
+            "kind": "standard_rule_test",
+            "label": "Standard rule test",
+            "stage": "test-plan",
+            "position": 69,
+            "parent_kinds": [
+              "standard_rule"
+            ],
+            "required_fields": [
+              "level",
+              "state",
+              "when",
+              "then"
+            ],
+            "obligation": false,
+            "complexity": "as-parent",
+            "id_scope": "parent",
+            "description": "Proves its standard rule in the product's code, such as a scan of the code for what the rule forbids or a test of a place that follows it."
+          },
+          {
+            "kind": "question",
+            "label": "Open question",
+            "stage": null,
+            "position": 70,
+            "parent_kinds": [
+              "product",
+              "domain"
+            ],
+            "required_fields": [
+              "owner",
+              "description"
+            ],
+            "obligation": false,
+            "complexity": null,
+            "id_scope": "parent",
+            "description": "Something undecided, with the role that decides it. It sits under its product or one of its domains, and may be about any record (the about link). A decided question is removed and its answer written into the records it affects."
+          }
+        ],
+        "stages": [
+          {
+            "stage": "discovery",
+            "position": 1,
+            "label": "Discovery",
+            "description": "The business outcomes the product exists to achieve, each a measurable statement with its measure and target, which its capabilities serve, and the journeys that reach them: the use cases and handoffs, in order, from a trigger to a result."
+          },
+          {
+            "stage": "domain-model",
+            "position": 2,
+            "label": "Domain model",
+            "description": "Domains and their aggregates, entities, value objects, rules (constraints, invariants, specifications and policies), events, commands, read models, queries, domain services and glossary terms."
+          },
+          {
+            "stage": "use-cases",
+            "position": 3,
+            "label": "Use cases",
+            "description": "Capabilities, the use cases in them with their actors and UC requirements, and the patterns use cases and domains follow."
+          },
+          {
+            "stage": "interaction-design",
+            "position": 4,
+            "label": "Interaction design",
+            "description": "The product's interfaces and the use cases each offers, each use case's flow and its steps, and the views, endpoints and integrations the steps reach, with their requirements."
+          },
+          {
+            "stage": "technical-specification",
+            "position": 5,
+            "label": "Technical specification",
+            "description": "The technical record that implements each design record, such as a command's handler or an entity's table, and the standards code meets."
+          },
+          {
+            "stage": "test-plan",
+            "position": 6,
+            "label": "Test plan",
+            "description": "The tests, one kind per thing tested, each proving exactly its parent, and the test data sets they start from."
+          }
+        ],
+        "relations": [
+          {
+            "relation": "about",
+            "source_kind": "question",
+            "target_kind": "*",
+            "role": "",
+            "description": "The open question concerns that record.",
+            "forward_label": "About",
+            "reverse_label": "Questions about this"
+          },
+          {
+            "relation": "builds",
+            "source_kind": "ui_component",
+            "target_kind": "view_requirement",
+            "role": "build",
+            "description": "The UI component's code does what the view requirement says.",
+            "forward_label": "Builds",
+            "reverse_label": "Built by"
+          },
+          {
+            "relation": "builds_on",
+            "source_kind": "term",
+            "target_kind": "term",
+            "role": "",
+            "description": "The term's meaning uses the other term, which is defined before it.",
+            "forward_label": "Builds on",
+            "reverse_label": "Built on by"
+          },
+          {
+            "relation": "calls",
+            "source_kind": "command",
+            "target_kind": "domain_service",
+            "role": "",
+            "description": "The command uses the domain service.",
+            "forward_label": "Calls",
+            "reverse_label": "Called by"
+          },
+          {
+            "relation": "calls",
+            "source_kind": "query",
+            "target_kind": "domain_service",
+            "role": "",
+            "description": "The query uses the domain service.",
+            "forward_label": "Calls",
+            "reverse_label": "Called by"
+          },
+          {
+            "relation": "calls",
+            "source_kind": "read_model",
+            "target_kind": "domain_service",
+            "role": "",
+            "description": "The read model's projection uses the domain service.",
+            "forward_label": "Calls",
+            "reverse_label": "Called by"
+          },
+          {
+            "relation": "carries_out",
+            "source_kind": "journey_step",
+            "target_kind": "policy",
+            "role": "",
+            "description": "The step is a handoff: the product itself acts, by the policy.",
+            "forward_label": "Carries out",
+            "reverse_label": "Carried out in"
+          },
+          {
+            "relation": "carries_out",
+            "source_kind": "journey_step",
+            "target_kind": "use_case",
+            "role": "",
+            "description": "The step is the use case, taken by its actors.",
+            "forward_label": "Carries out",
+            "reverse_label": "Carried out in"
+          },
+          {
+            "relation": "checks",
+            "source_kind": "command",
+            "target_kind": "specification",
+            "role": "",
+            "description": "The command checks the specification before it acts.",
+            "forward_label": "Checks",
+            "reverse_label": "Checked by"
+          },
+          {
+            "relation": "exchanges_with",
+            "source_kind": "flow_step",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The step exchanges with the outside system.",
+            "forward_label": "Exchanges with",
+            "reverse_label": "Exchanged with by"
+          },
+          {
+            "relation": "fed_by",
+            "source_kind": "read_model",
+            "target_kind": "domain_event",
+            "role": "",
+            "description": "The read model is kept current from the event.",
+            "forward_label": "Fed by",
+            "reverse_label": "Feeds"
+          },
+          {
+            "relation": "fills",
+            "source_kind": "adapter",
+            "target_kind": "slot",
+            "role": "",
+            "description": "The adapter, written by hand, fills the slot.",
+            "forward_label": "Fills",
+            "reverse_label": "Filled by"
+          },
+          {
+            "relation": "fills",
+            "source_kind": "command_handler",
+            "target_kind": "slot",
+            "role": "",
+            "description": "The command handler, written by hand, fills the slot.",
+            "forward_label": "Fills",
+            "reverse_label": "Filled by"
+          },
+          {
+            "relation": "fills",
+            "source_kind": "data_model",
+            "target_kind": "slot",
+            "role": "",
+            "description": "The data model, written by hand, fills the slot.",
+            "forward_label": "Fills",
+            "reverse_label": "Filled by"
+          },
+          {
+            "relation": "fills",
+            "source_kind": "data_store",
+            "target_kind": "slot",
+            "role": "",
+            "description": "The data store, written by hand, fills the slot.",
+            "forward_label": "Fills",
+            "reverse_label": "Filled by"
+          },
+          {
+            "relation": "fills",
+            "source_kind": "endpoint",
+            "target_kind": "slot",
+            "role": "",
+            "description": "The endpoint, written by hand, fills the slot.",
+            "forward_label": "Fills",
+            "reverse_label": "Filled by"
+          },
+          {
+            "relation": "fills",
+            "source_kind": "endpoint_handler",
+            "target_kind": "slot",
+            "role": "",
+            "description": "The endpoint handler, written by hand, fills the slot.",
+            "forward_label": "Fills",
+            "reverse_label": "Filled by"
+          },
+          {
+            "relation": "fills",
+            "source_kind": "entry_point",
+            "target_kind": "slot",
+            "role": "",
+            "description": "The entry point, written by hand, fills the slot.",
+            "forward_label": "Fills",
+            "reverse_label": "Filled by"
+          },
+          {
+            "relation": "fills",
+            "source_kind": "event_handler",
+            "target_kind": "slot",
+            "role": "",
+            "description": "The event handler, written by hand, fills the slot.",
+            "forward_label": "Fills",
+            "reverse_label": "Filled by"
+          },
+          {
+            "relation": "fills",
+            "source_kind": "event_type",
+            "target_kind": "slot",
+            "role": "",
+            "description": "The event type, written by hand, fills the slot.",
+            "forward_label": "Fills",
+            "reverse_label": "Filled by"
+          },
+          {
+            "relation": "fills",
+            "source_kind": "predicate",
+            "target_kind": "slot",
+            "role": "",
+            "description": "The predicate, written by hand, fills the slot.",
+            "forward_label": "Fills",
+            "reverse_label": "Filled by"
+          },
+          {
+            "relation": "fills",
+            "source_kind": "projection",
+            "target_kind": "slot",
+            "role": "",
+            "description": "The projection, written by hand, fills the slot.",
+            "forward_label": "Fills",
+            "reverse_label": "Filled by"
+          },
+          {
+            "relation": "fills",
+            "source_kind": "query_handler",
+            "target_kind": "slot",
+            "role": "",
+            "description": "The query handler, written by hand, fills the slot.",
+            "forward_label": "Fills",
+            "reverse_label": "Filled by"
+          },
+          {
+            "relation": "fills",
+            "source_kind": "reader",
+            "target_kind": "slot",
+            "role": "",
+            "description": "The reader, written by hand, fills the slot.",
+            "forward_label": "Fills",
+            "reverse_label": "Filled by"
+          },
+          {
+            "relation": "fills",
+            "source_kind": "repository",
+            "target_kind": "slot",
+            "role": "",
+            "description": "The repository, written by hand, fills the slot.",
+            "forward_label": "Fills",
+            "reverse_label": "Filled by"
+          },
+          {
+            "relation": "fills",
+            "source_kind": "rule",
+            "target_kind": "slot",
+            "role": "",
+            "description": "The rule, written by hand, fills the slot.",
+            "forward_label": "Fills",
+            "reverse_label": "Filled by"
+          },
+          {
+            "relation": "fills",
+            "source_kind": "service",
+            "target_kind": "slot",
+            "role": "",
+            "description": "The service, written by hand, fills the slot.",
+            "forward_label": "Fills",
+            "reverse_label": "Filled by"
+          },
+          {
+            "relation": "fills",
+            "source_kind": "table",
+            "target_kind": "slot",
+            "role": "",
+            "description": "The table, written by hand, fills the slot.",
+            "forward_label": "Fills",
+            "reverse_label": "Filled by"
+          },
+          {
+            "relation": "fills",
+            "source_kind": "tooling",
+            "target_kind": "slot",
+            "role": "",
+            "description": "The tooling, written by hand, fills the slot.",
+            "forward_label": "Fills",
+            "reverse_label": "Filled by"
+          },
+          {
+            "relation": "fills",
+            "source_kind": "ui_component",
+            "target_kind": "slot",
+            "role": "",
+            "description": "The UI component, written by hand, fills the slot.",
+            "forward_label": "Fills",
+            "reverse_label": "Filled by"
+          },
+          {
+            "relation": "fills",
+            "source_kind": "value_type",
+            "target_kind": "slot",
+            "role": "",
+            "description": "The value type, written by hand, fills the slot.",
+            "forward_label": "Fills",
+            "reverse_label": "Filled by"
+          },
+          {
+            "relation": "follows",
+            "source_kind": "domain",
+            "target_kind": "pattern",
+            "role": "",
+            "description": "The whole domain follows the pattern, and so owes each of its rules.",
+            "forward_label": "Follows",
+            "reverse_label": "Followed by"
+          },
+          {
+            "relation": "follows",
+            "source_kind": "interface",
+            "target_kind": "pattern",
+            "role": "",
+            "description": "Each step through the interface is carried out as the pattern says.",
+            "forward_label": "Follows",
+            "reverse_label": "Followed by"
+          },
+          {
+            "relation": "follows",
+            "source_kind": "use_case",
+            "target_kind": "pattern",
+            "role": "",
+            "description": "The use case follows the pattern and gives a value for each of its settings.",
+            "forward_label": "Follows",
+            "reverse_label": "Followed by"
+          },
+          {
+            "relation": "fulfills",
+            "source_kind": "flow_step",
+            "target_kind": "uc_requirement",
+            "role": "design",
+            "description": "The step fulfills the UC requirement of its use case.",
+            "forward_label": "Fulfills",
+            "reverse_label": "Fulfilled by"
+          },
+          {
+            "relation": "generates",
+            "source_kind": "tooling",
+            "target_kind": "adapter",
+            "role": "",
+            "description": "The tooling record generates the adapter's code.",
+            "forward_label": "Generates",
+            "reverse_label": "Generated by"
+          },
+          {
+            "relation": "generates",
+            "source_kind": "tooling",
+            "target_kind": "command_handler",
+            "role": "",
+            "description": "The tooling record generates the command handler's code.",
+            "forward_label": "Generates",
+            "reverse_label": "Generated by"
+          },
+          {
+            "relation": "generates",
+            "source_kind": "tooling",
+            "target_kind": "data_model",
+            "role": "",
+            "description": "The tooling record generates the data model's code.",
+            "forward_label": "Generates",
+            "reverse_label": "Generated by"
+          },
+          {
+            "relation": "generates",
+            "source_kind": "tooling",
+            "target_kind": "data_store",
+            "role": "",
+            "description": "The tooling record generates the data store's code.",
+            "forward_label": "Generates",
+            "reverse_label": "Generated by"
+          },
+          {
+            "relation": "generates",
+            "source_kind": "tooling",
+            "target_kind": "endpoint",
+            "role": "",
+            "description": "The tooling record generates the endpoint's code.",
+            "forward_label": "Generates",
+            "reverse_label": "Generated by"
+          },
+          {
+            "relation": "generates",
+            "source_kind": "tooling",
+            "target_kind": "endpoint_handler",
+            "role": "",
+            "description": "The tooling record generates the endpoint handler's code.",
+            "forward_label": "Generates",
+            "reverse_label": "Generated by"
+          },
+          {
+            "relation": "generates",
+            "source_kind": "tooling",
+            "target_kind": "entry_point",
+            "role": "",
+            "description": "The tooling record generates the entry point's code.",
+            "forward_label": "Generates",
+            "reverse_label": "Generated by"
+          },
+          {
+            "relation": "generates",
+            "source_kind": "tooling",
+            "target_kind": "event_handler",
+            "role": "",
+            "description": "The tooling record generates the event handler's code.",
+            "forward_label": "Generates",
+            "reverse_label": "Generated by"
+          },
+          {
+            "relation": "generates",
+            "source_kind": "tooling",
+            "target_kind": "event_type",
+            "role": "",
+            "description": "The tooling record generates the event type's code.",
+            "forward_label": "Generates",
+            "reverse_label": "Generated by"
+          },
+          {
+            "relation": "generates",
+            "source_kind": "tooling",
+            "target_kind": "predicate",
+            "role": "",
+            "description": "The tooling record generates the predicate's code.",
+            "forward_label": "Generates",
+            "reverse_label": "Generated by"
+          },
+          {
+            "relation": "generates",
+            "source_kind": "tooling",
+            "target_kind": "projection",
+            "role": "",
+            "description": "The tooling record generates the projection's code.",
+            "forward_label": "Generates",
+            "reverse_label": "Generated by"
+          },
+          {
+            "relation": "generates",
+            "source_kind": "tooling",
+            "target_kind": "query_handler",
+            "role": "",
+            "description": "The tooling record generates the query handler's code.",
+            "forward_label": "Generates",
+            "reverse_label": "Generated by"
+          },
+          {
+            "relation": "generates",
+            "source_kind": "tooling",
+            "target_kind": "reader",
+            "role": "",
+            "description": "The tooling record generates the reader's code.",
+            "forward_label": "Generates",
+            "reverse_label": "Generated by"
+          },
+          {
+            "relation": "generates",
+            "source_kind": "tooling",
+            "target_kind": "repository",
+            "role": "",
+            "description": "The tooling record generates the repository's code.",
+            "forward_label": "Generates",
+            "reverse_label": "Generated by"
+          },
+          {
+            "relation": "generates",
+            "source_kind": "tooling",
+            "target_kind": "rule",
+            "role": "",
+            "description": "The tooling record generates the rule's code.",
+            "forward_label": "Generates",
+            "reverse_label": "Generated by"
+          },
+          {
+            "relation": "generates",
+            "source_kind": "tooling",
+            "target_kind": "service",
+            "role": "",
+            "description": "The tooling record generates the service's code.",
+            "forward_label": "Generates",
+            "reverse_label": "Generated by"
+          },
+          {
+            "relation": "generates",
+            "source_kind": "tooling",
+            "target_kind": "table",
+            "role": "",
+            "description": "The tooling record generates the table's code.",
+            "forward_label": "Generates",
+            "reverse_label": "Generated by"
+          },
+          {
+            "relation": "generates",
+            "source_kind": "tooling",
+            "target_kind": "tooling",
+            "role": "",
+            "description": "The tooling record generates the tooling's code.",
+            "forward_label": "Generates",
+            "reverse_label": "Generated by"
+          },
+          {
+            "relation": "generates",
+            "source_kind": "tooling",
+            "target_kind": "ui_component",
+            "role": "",
+            "description": "The tooling record generates the UI component's code.",
+            "forward_label": "Generates",
+            "reverse_label": "Generated by"
+          },
+          {
+            "relation": "generates",
+            "source_kind": "tooling",
+            "target_kind": "value_type",
+            "role": "",
+            "description": "The tooling record generates the value type's code.",
+            "forward_label": "Generates",
+            "reverse_label": "Generated by"
+          },
+          {
+            "relation": "has_many",
+            "source_kind": "entity",
+            "target_kind": "entity",
+            "role": "",
+            "description": "The entity holds any number of the other entity, as parts of it (one to many).",
+            "forward_label": "Has many",
+            "reverse_label": "Part of"
+          },
+          {
+            "relation": "has_one",
+            "source_kind": "entity",
+            "target_kind": "entity",
+            "role": "",
+            "description": "The entity holds exactly one of the other entity, as a part of it (one to one).",
+            "forward_label": "Has one",
+            "reverse_label": "Part of"
+          },
+          {
+            "relation": "hears",
+            "source_kind": "policy",
+            "target_kind": "domain_event",
+            "role": "",
+            "description": "Whenever the event happens, the policy sends its command.",
+            "forward_label": "Hears",
+            "reverse_label": "Heard by"
+          },
+          {
+            "relation": "invokes",
+            "source_kind": "flow_step",
+            "target_kind": "command",
+            "role": "",
+            "description": "The step sends the command.",
+            "forward_label": "Invokes",
+            "reverse_label": "Invoked by"
+          },
+          {
+            "relation": "invokes",
+            "source_kind": "flow_step",
+            "target_kind": "query",
+            "role": "",
+            "description": "The step asks the query.",
+            "forward_label": "Invokes",
+            "reverse_label": "Invoked by"
+          },
+          {
+            "relation": "measured_by",
+            "source_kind": "business_outcome",
+            "target_kind": "constraint_test",
+            "role": "",
+            "description": "The business outcome is measured by the constraint test.",
+            "forward_label": "Measured by",
+            "reverse_label": "Measures"
+          },
+          {
+            "relation": "measured_by",
+            "source_kind": "business_outcome",
+            "target_kind": "domain_service_test",
+            "role": "",
+            "description": "The business outcome is measured by the domain service test.",
+            "forward_label": "Measured by",
+            "reverse_label": "Measures"
+          },
+          {
+            "relation": "measured_by",
+            "source_kind": "business_outcome",
+            "target_kind": "endpoint_test",
+            "role": "",
+            "description": "The business outcome is measured by the endpoint test.",
+            "forward_label": "Measured by",
+            "reverse_label": "Measures"
+          },
+          {
+            "relation": "measured_by",
+            "source_kind": "business_outcome",
+            "target_kind": "flow_test",
+            "role": "",
+            "description": "The business outcome is measured by the flow test.",
+            "forward_label": "Measured by",
+            "reverse_label": "Measures"
+          },
+          {
+            "relation": "measured_by",
+            "source_kind": "business_outcome",
+            "target_kind": "integration_test",
+            "role": "",
+            "description": "The business outcome is measured by the integration test.",
+            "forward_label": "Measured by",
+            "reverse_label": "Measures"
+          },
+          {
+            "relation": "measured_by",
+            "source_kind": "business_outcome",
+            "target_kind": "invariant_test",
+            "role": "",
+            "description": "The business outcome is measured by the invariant test.",
+            "forward_label": "Measured by",
+            "reverse_label": "Measures"
+          },
+          {
+            "relation": "measured_by",
+            "source_kind": "business_outcome",
+            "target_kind": "journey_test",
+            "role": "",
+            "description": "The business outcome is measured by the journey test.",
+            "forward_label": "Measured by",
+            "reverse_label": "Measures"
+          },
+          {
+            "relation": "measured_by",
+            "source_kind": "business_outcome",
+            "target_kind": "pattern_rule_test",
+            "role": "",
+            "description": "The business outcome is measured by the pattern rule test.",
+            "forward_label": "Measured by",
+            "reverse_label": "Measures"
+          },
+          {
+            "relation": "measured_by",
+            "source_kind": "business_outcome",
+            "target_kind": "policy_test",
+            "role": "",
+            "description": "The business outcome is measured by the policy test.",
+            "forward_label": "Measured by",
+            "reverse_label": "Measures"
+          },
+          {
+            "relation": "measured_by",
+            "source_kind": "business_outcome",
+            "target_kind": "specification_test",
+            "role": "",
+            "description": "The business outcome is measured by the specification test.",
+            "forward_label": "Measured by",
+            "reverse_label": "Measures"
+          },
+          {
+            "relation": "measured_by",
+            "source_kind": "business_outcome",
+            "target_kind": "standard_rule_test",
+            "role": "",
+            "description": "The business outcome is measured by the standard rule test.",
+            "forward_label": "Measured by",
+            "reverse_label": "Measures"
+          },
+          {
+            "relation": "measured_by",
+            "source_kind": "business_outcome",
+            "target_kind": "storage_requirement_test",
+            "role": "",
+            "description": "The business outcome is measured by the storage requirement test.",
+            "forward_label": "Measured by",
+            "reverse_label": "Measures"
+          },
+          {
+            "relation": "measured_by",
+            "source_kind": "business_outcome",
+            "target_kind": "use_case_test",
+            "role": "",
+            "description": "The business outcome is measured by the use case test.",
+            "forward_label": "Measured by",
+            "reverse_label": "Measures"
+          },
+          {
+            "relation": "measured_by",
+            "source_kind": "business_outcome",
+            "target_kind": "view_test",
+            "role": "",
+            "description": "The business outcome is measured by the view test.",
+            "forward_label": "Measured by",
+            "reverse_label": "Measures"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "adapter",
+            "target_kind": "pattern_rule",
+            "role": "",
+            "description": "The adapter carries out the pattern rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "adapter",
+            "target_kind": "standard_rule",
+            "role": "",
+            "description": "The adapter follows the standard rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "command_handler",
+            "target_kind": "pattern_rule",
+            "role": "",
+            "description": "The command handler carries out the pattern rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "command_handler",
+            "target_kind": "standard_rule",
+            "role": "",
+            "description": "The command handler follows the standard rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "data_model",
+            "target_kind": "pattern_rule",
+            "role": "",
+            "description": "The data model carries out the pattern rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "data_model",
+            "target_kind": "standard_rule",
+            "role": "",
+            "description": "The data model follows the standard rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "endpoint_handler",
+            "target_kind": "pattern_rule",
+            "role": "",
+            "description": "The endpoint handler carries out the pattern rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "endpoint_handler",
+            "target_kind": "standard_rule",
+            "role": "",
+            "description": "The endpoint handler follows the standard rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "entry_point",
+            "target_kind": "pattern_rule",
+            "role": "",
+            "description": "The entry point carries out the pattern rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "entry_point",
+            "target_kind": "standard_rule",
+            "role": "",
+            "description": "The entry point follows the standard rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "event_handler",
+            "target_kind": "pattern_rule",
+            "role": "",
+            "description": "The event handler carries out the pattern rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "event_handler",
+            "target_kind": "standard_rule",
+            "role": "",
+            "description": "The event handler follows the standard rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "event_type",
+            "target_kind": "pattern_rule",
+            "role": "",
+            "description": "The event type carries out the pattern rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "event_type",
+            "target_kind": "standard_rule",
+            "role": "",
+            "description": "The event type follows the standard rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "predicate",
+            "target_kind": "pattern_rule",
+            "role": "",
+            "description": "The predicate carries out the pattern rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "predicate",
+            "target_kind": "standard_rule",
+            "role": "",
+            "description": "The predicate follows the standard rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "projection",
+            "target_kind": "pattern_rule",
+            "role": "",
+            "description": "The projection carries out the pattern rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "projection",
+            "target_kind": "standard_rule",
+            "role": "",
+            "description": "The projection follows the standard rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "query_handler",
+            "target_kind": "pattern_rule",
+            "role": "",
+            "description": "The query handler carries out the pattern rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "query_handler",
+            "target_kind": "standard_rule",
+            "role": "",
+            "description": "The query handler follows the standard rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "reader",
+            "target_kind": "pattern_rule",
+            "role": "",
+            "description": "The reader carries out the pattern rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "reader",
+            "target_kind": "standard_rule",
+            "role": "",
+            "description": "The reader follows the standard rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "repository",
+            "target_kind": "pattern_rule",
+            "role": "",
+            "description": "The repository carries out the pattern rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "repository",
+            "target_kind": "standard_rule",
+            "role": "",
+            "description": "The repository follows the standard rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "rule",
+            "target_kind": "pattern_rule",
+            "role": "",
+            "description": "The rule carries out the pattern rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "rule",
+            "target_kind": "standard_rule",
+            "role": "",
+            "description": "The rule follows the standard rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "service",
+            "target_kind": "pattern_rule",
+            "role": "",
+            "description": "The service carries out the pattern rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "service",
+            "target_kind": "standard_rule",
+            "role": "",
+            "description": "The service follows the standard rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "table",
+            "target_kind": "pattern_rule",
+            "role": "",
+            "description": "The table carries out the pattern rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "table",
+            "target_kind": "standard_rule",
+            "role": "",
+            "description": "The table follows the standard rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "tooling",
+            "target_kind": "pattern_rule",
+            "role": "",
+            "description": "The tooling carries out the pattern rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "tooling",
+            "target_kind": "standard_rule",
+            "role": "",
+            "description": "The tooling record follows the standard rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "ui_component",
+            "target_kind": "pattern_rule",
+            "role": "",
+            "description": "The UI component carries out the pattern rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "ui_component",
+            "target_kind": "standard_rule",
+            "role": "",
+            "description": "The UI component follows the standard rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "value_type",
+            "target_kind": "pattern_rule",
+            "role": "",
+            "description": "The value type carries out the pattern rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "meets",
+            "source_kind": "value_type",
+            "target_kind": "standard_rule",
+            "role": "",
+            "description": "The value type follows the standard rule.",
+            "forward_label": "Meets",
+            "reverse_label": "Met by"
+          },
+          {
+            "relation": "offers",
+            "source_kind": "interface",
+            "target_kind": "use_case",
+            "role": "",
+            "description": "The use case is carried out through the interface.",
+            "forward_label": "Offers",
+            "reverse_label": "Offered through"
+          },
+          {
+            "relation": "persists",
+            "source_kind": "repository",
+            "target_kind": "aggregate",
+            "role": "",
+            "description": "The repository loads and saves the aggregate, whole.",
+            "forward_label": "Persists",
+            "reverse_label": "Persisted by"
+          },
+          {
+            "relation": "presents",
+            "source_kind": "view",
+            "target_kind": "command",
+            "role": "",
+            "description": "A person sends the command in the view.",
+            "forward_label": "Presents",
+            "reverse_label": "Presented in"
+          },
+          {
+            "relation": "presents",
+            "source_kind": "view",
+            "target_kind": "query",
+            "role": "",
+            "description": "A person asks the query in the view.",
+            "forward_label": "Presents",
+            "reverse_label": "Presented in"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "adapter",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The adapter is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "api_requirement",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The API requirement is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "command_handler",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The command handler is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "constraint",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The constraint is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "data_model",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The data model is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "data_store",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The data store is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "domain_service",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The domain service is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "endpoint",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The endpoint is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "endpoint_handler",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The endpoint handler is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "entry_point",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The entry point is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "event_handler",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The event handler is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "event_type",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The event type is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "invariant",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The invariant is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "pattern_rule",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The pattern rule is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "policy",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The policy is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "predicate",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The predicate is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "projection",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The projection is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "query_handler",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The query handler is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "reader",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The reader is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "repository",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The repository is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "rule",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The rule is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "service",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The service is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "specification",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The specification is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "standard",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The standard is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "standard_rule",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The standard rule is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "storage_requirement",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The storage requirement is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "table",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The table is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "tooling",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The tooling is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "uc_requirement",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The UC requirement is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "ui_component",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The UI component is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "value_type",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The value type is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "provided_by",
+            "source_kind": "view_requirement",
+            "target_kind": "integration",
+            "role": "",
+            "description": "The view requirement is provided by what the integration reaches, outside the product.",
+            "forward_label": "Provided by",
+            "reverse_label": "Provides"
+          },
+          {
+            "relation": "raises",
+            "source_kind": "command",
+            "target_kind": "domain_event",
+            "role": "",
+            "description": "The command raises the event, of the aggregate it changes.",
+            "forward_label": "Raises",
+            "reverse_label": "Raised by"
+          },
+          {
+            "relation": "reads",
+            "source_kind": "read_model",
+            "target_kind": "aggregate",
+            "role": "",
+            "description": "The read model shows the aggregate's data.",
+            "forward_label": "Reads",
+            "reverse_label": "Read by"
+          },
+          {
+            "relation": "reads",
+            "source_kind": "specification",
+            "target_kind": "aggregate",
+            "role": "",
+            "description": "The specification is a predicate over the aggregate.",
+            "forward_label": "Reads",
+            "reverse_label": "Read by"
+          },
+          {
+            "relation": "renders",
+            "source_kind": "ui_component",
+            "target_kind": "view",
+            "role": "",
+            "description": "The UI component renders the view, or part of it.",
+            "forward_label": "Renders",
+            "reverse_label": "Rendered by"
+          },
+          {
+            "relation": "selects_by",
+            "source_kind": "query",
+            "target_kind": "specification",
+            "role": "",
+            "description": "The query selects the records that satisfy the specification.",
+            "forward_label": "Selects by",
+            "reverse_label": "Selects for"
+          },
+          {
+            "relation": "serves",
+            "source_kind": "capability",
+            "target_kind": "business_outcome",
+            "role": "",
+            "description": "The capability serves the business outcome.",
+            "forward_label": "Serves",
+            "reverse_label": "Served by"
+          },
+          {
+            "relation": "serves",
+            "source_kind": "journey",
+            "target_kind": "business_outcome",
+            "role": "",
+            "description": "The journey serves the business outcome: its result is what the outcome measures.",
+            "forward_label": "Serves",
+            "reverse_label": "Served by"
+          },
+          {
+            "relation": "starts_from",
+            "source_kind": "constraint_test",
+            "target_kind": "test_data_set",
+            "role": "",
+            "description": "The constraint test starts from the test data set.",
+            "forward_label": "Starts from",
+            "reverse_label": "Starting point of"
+          },
+          {
+            "relation": "starts_from",
+            "source_kind": "domain_service_test",
+            "target_kind": "test_data_set",
+            "role": "",
+            "description": "The domain service test starts from the test data set.",
+            "forward_label": "Starts from",
+            "reverse_label": "Starting point of"
+          },
+          {
+            "relation": "starts_from",
+            "source_kind": "endpoint_test",
+            "target_kind": "test_data_set",
+            "role": "",
+            "description": "The endpoint test starts from the test data set.",
+            "forward_label": "Starts from",
+            "reverse_label": "Starting point of"
+          },
+          {
+            "relation": "starts_from",
+            "source_kind": "flow_test",
+            "target_kind": "test_data_set",
+            "role": "",
+            "description": "The flow test starts from the test data set.",
+            "forward_label": "Starts from",
+            "reverse_label": "Starting point of"
+          },
+          {
+            "relation": "starts_from",
+            "source_kind": "integration_test",
+            "target_kind": "test_data_set",
+            "role": "",
+            "description": "The integration test starts from the test data set.",
+            "forward_label": "Starts from",
+            "reverse_label": "Starting point of"
+          },
+          {
+            "relation": "starts_from",
+            "source_kind": "invariant_test",
+            "target_kind": "test_data_set",
+            "role": "",
+            "description": "The invariant test starts from the test data set.",
+            "forward_label": "Starts from",
+            "reverse_label": "Starting point of"
+          },
+          {
+            "relation": "starts_from",
+            "source_kind": "journey_test",
+            "target_kind": "test_data_set",
+            "role": "",
+            "description": "The journey test starts from the test data set.",
+            "forward_label": "Starts from",
+            "reverse_label": "Starting point of"
+          },
+          {
+            "relation": "starts_from",
+            "source_kind": "pattern_rule_test",
+            "target_kind": "test_data_set",
+            "role": "",
+            "description": "The pattern rule test starts from the test data set.",
+            "forward_label": "Starts from",
+            "reverse_label": "Starting point of"
+          },
+          {
+            "relation": "starts_from",
+            "source_kind": "policy_test",
+            "target_kind": "test_data_set",
+            "role": "",
+            "description": "The policy test starts from the test data set.",
+            "forward_label": "Starts from",
+            "reverse_label": "Starting point of"
+          },
+          {
+            "relation": "starts_from",
+            "source_kind": "specification_test",
+            "target_kind": "test_data_set",
+            "role": "",
+            "description": "The specification test starts from the test data set.",
+            "forward_label": "Starts from",
+            "reverse_label": "Starting point of"
+          },
+          {
+            "relation": "starts_from",
+            "source_kind": "standard_rule_test",
+            "target_kind": "test_data_set",
+            "role": "",
+            "description": "The standard rule test starts from the test data set.",
+            "forward_label": "Starts from",
+            "reverse_label": "Starting point of"
+          },
+          {
+            "relation": "starts_from",
+            "source_kind": "storage_requirement_test",
+            "target_kind": "test_data_set",
+            "role": "",
+            "description": "The storage requirement test starts from the test data set.",
+            "forward_label": "Starts from",
+            "reverse_label": "Starting point of"
+          },
+          {
+            "relation": "starts_from",
+            "source_kind": "use_case_test",
+            "target_kind": "test_data_set",
+            "role": "",
+            "description": "The use case test starts from the test data set.",
+            "forward_label": "Starts from",
+            "reverse_label": "Starting point of"
+          },
+          {
+            "relation": "starts_from",
+            "source_kind": "view_test",
+            "target_kind": "test_data_set",
+            "role": "",
+            "description": "The view test starts from the test data set.",
+            "forward_label": "Starts from",
+            "reverse_label": "Starting point of"
+          },
+          {
+            "relation": "stored_in",
+            "source_kind": "reader",
+            "target_kind": "data_store",
+            "role": "",
+            "description": "The reader reads its read model's table in the data store.",
+            "forward_label": "Stored in",
+            "reverse_label": "Stores"
+          },
+          {
+            "relation": "stored_in",
+            "source_kind": "repository",
+            "target_kind": "data_store",
+            "role": "",
+            "description": "The repository loads and saves its aggregate in the data store.",
+            "forward_label": "Stored in",
+            "reverse_label": "Stores"
+          },
+          {
+            "relation": "stored_in",
+            "source_kind": "table",
+            "target_kind": "data_store",
+            "role": "",
+            "description": "The table is kept in the data store.",
+            "forward_label": "Stored in",
+            "reverse_label": "Stores"
+          }
+        ],
+        "records": [
+          {
+            "id": "FX",
+            "kind": "product",
+            "title": "Fixture",
+            "parent": null,
+            "product": "FX",
+            "domain": null,
+            "aggregate": null,
+            "fields": {
+              "description": "What Fixture is, who it is for, and what it must do."
+            },
+            "parts": {}
+          },
+          {
+            "id": "FX-LEND",
+            "kind": "domain",
+            "title": "Lending",
+            "parent": "FX",
+            "product": "FX",
+            "domain": "FX-LEND",
+            "aggregate": null,
+            "fields": {
+              "product_id": "FX",
+              "subdomain_type": "core",
+              "description": "Lending tools."
+            },
+            "parts": {}
+          },
+          {
+            "id": "FX-LEND-A1",
+            "kind": "aggregate",
+            "title": "Loan",
+            "parent": "FX-LEND",
+            "product": "FX",
+            "domain": "FX-LEND",
+            "aggregate": "FX-LEND-A1",
+            "fields": {
+              "domain_id": "FX-LEND",
+              "description": "A loan.",
+              "identity": "Loan ID"
+            },
+            "parts": {}
+          },
+          {
+            "id": "FX-LEND-EN01",
+            "kind": "entity",
+            "title": "Loan",
+            "parent": "FX-LEND-A1",
+            "product": "FX",
+            "domain": "FX-LEND",
+            "aggregate": "FX-LEND-A1",
+            "fields": {
+              "aggregate_id": "FX-LEND-A1",
+              "role": "root",
+              "description": "A loan of a tool."
+            },
+            "parts": {
+              "entity_field": [
+                {
+                  "entity_id": "FX-LEND-EN01",
+                  "position": 1,
+                  "name": "Due",
+                  "meaning": "When it ends.",
+                  "type_value_object_id": "FX-VO01",
+                  "required": true
+                }
+              ]
+            }
+          },
+          {
+            "id": "FX-VO01",
+            "kind": "value_object",
+            "title": "Due date",
+            "parent": null,
+            "product": "FX",
+            "domain": "FX-LEND",
+            "aggregate": null,
+            "fields": {
+              "description": "The day a loan ends."
+            },
+            "parts": {
+              "value_object_field": [
+                {
+                  "value_object_id": "FX-VO01",
+                  "position": 1,
+                  "name": "Day",
+                  "meaning": "The day.",
+                  "type": "date",
+                  "required": true
+                }
+              ]
+            }
+          },
+          {
+            "id": "FX-VO01-C01",
+            "kind": "constraint",
+            "title": "In the future",
+            "parent": "FX-VO01",
+            "product": "FX",
+            "domain": "FX-LEND",
+            "aggregate": null,
+            "fields": {
+              "value_object_id": "FX-VO01",
+              "statement": "A due date MUST be after today."
+            },
+            "parts": {}
+          },
+          {
+            "id": "FX-LEND-INV01",
+            "kind": "invariant",
+            "title": "One loan per tool",
+            "parent": "FX-LEND-A1",
+            "product": "FX",
+            "domain": "FX-LEND",
+            "aggregate": "FX-LEND-A1",
+            "fields": {
+              "aggregate_id": "FX-LEND-A1",
+              "statement": "A tool MUST have at most one open loan."
+            },
+            "parts": {}
+          },
+          {
+            "id": "FX-LEND-INV02",
+            "kind": "invariant",
+            "title": "Due after start",
+            "parent": "FX-LEND-A1",
+            "product": "FX",
+            "domain": "FX-LEND",
+            "aggregate": "FX-LEND-A1",
+            "fields": {
+              "aggregate_id": "FX-LEND-A1",
+              "statement": "A loan MUST end after it starts."
+            },
+            "parts": {}
+          },
+          {
+            "id": "FX-LEND-INV03",
+            "kind": "invariant",
+            "title": "Borrower known",
+            "parent": "FX-LEND-A1",
+            "product": "FX",
+            "domain": "FX-LEND",
+            "aggregate": "FX-LEND-A1",
+            "fields": {
+              "aggregate_id": "FX-LEND-A1",
+              "statement": "A loan MUST name a known borrower."
+            },
+            "parts": {}
+          },
+          {
+            "id": "FX-VO01-VT",
+            "kind": "value_type",
+            "title": "lend.DueDate",
+            "parent": "FX-VO01",
+            "product": "FX",
+            "domain": "FX-LEND",
+            "aggregate": null,
+            "fields": {
+              "value_object_id": "FX-VO01",
+              "file": "internal/lend/due.go"
+            },
+            "parts": {}
+          },
+          {
+            "id": "FX-LEND-INV01-RL",
+            "kind": "rule",
+            "title": "lend.oneLoanPerTool",
+            "parent": "FX-LEND-INV01",
+            "product": "FX",
+            "domain": "FX-LEND",
+            "aggregate": "FX-LEND-A1",
+            "fields": {
+              "invariant_id": "FX-LEND-INV01",
+              "file": "internal/lend/rules.go"
+            },
+            "parts": {}
+          },
+          {
+            "id": "FX-LEND-INV02-RL",
+            "kind": "rule",
+            "title": "lend.dueAfterStart",
+            "parent": "FX-LEND-INV02",
+            "product": "FX",
+            "domain": "FX-LEND",
+            "aggregate": "FX-LEND-A1",
+            "fields": {
+              "invariant_id": "FX-LEND-INV02",
+              "file": "internal/lend/rules.go"
+            },
+            "parts": {}
+          },
+          {
+            "id": "FX-LEND-INV01-T",
+            "kind": "invariant_test",
+            "title": "One loan",
+            "parent": "FX-LEND-INV01",
+            "product": "FX",
+            "domain": "FX-LEND",
+            "aggregate": "FX-LEND-A1",
+            "fields": {
+              "invariant_id": "FX-LEND-INV01",
+              "level": "unit",
+              "state": "automated",
+              "file": "internal/lend/rules_test.go",
+              "when": "Lends twice.",
+              "then": "Refused."
+            },
+            "parts": {}
+          },
+          {
+            "id": "FX-LEND-INV02-T",
+            "kind": "invariant_test",
+            "title": "Due after start",
+            "parent": "FX-LEND-INV02",
+            "product": "FX",
+            "domain": "FX-LEND",
+            "aggregate": "FX-LEND-A1",
+            "fields": {
+              "invariant_id": "FX-LEND-INV02",
+              "level": "unit",
+              "state": "automated",
+              "file": "internal/lend/rules_test.go",
+              "when": "Ends before it starts.",
+              "then": "Refused."
+            },
+            "parts": {}
+          }
+        ],
+        "links": [],
+        "problems": [
+          {
+            "severity": "warning",
+            "check": "technical-file-missing",
+            "record": "FX-VO01-VT",
+            "message": "Value type FX-VO01-VT names internal/lend/due.go, which does not exist yet."
+          },
+          {
+            "severity": "warning",
+            "check": "not-built",
+            "record": "FX-LEND-INV03",
+            "message": "Invariant FX-LEND-INV03 is not built yet: not every file of what implements it exists."
+          },
+          {
+            "severity": "warning",
+            "check": "not-built",
+            "record": "FX-VO01-C01",
+            "message": "Constraint FX-VO01-C01 is not built yet: not every file of what implements it exists."
+          },
+          {
+            "severity": "warning",
+            "check": "not-proved",
+            "record": "FX-LEND-INV03",
+            "message": "Invariant FX-LEND-INV03 is not proved yet."
+          },
+          {
+            "severity": "warning",
+            "check": "not-proved",
+            "record": "FX-VO01-C01",
+            "message": "Constraint FX-VO01-C01 is not proved yet."
+          },
+          {
+            "severity": "warning",
+            "check": "serves-no-outcome",
+            "record": "FX-LEND-A1",
+            "message": "Aggregate FX-LEND-A1 serves no outcome: no use case whose capability serves a business outcome reaches it. Write the use case that needs it, or remove it."
+          },
+          {
+            "severity": "warning",
+            "check": "serves-no-outcome",
+            "record": "FX-LEND-INV01",
+            "message": "Invariant FX-LEND-INV01 serves no outcome: no use case whose capability serves a business outcome reaches it. Write the use case that needs it, or remove it."
+          },
+          {
+            "severity": "warning",
+            "check": "serves-no-outcome",
+            "record": "FX-LEND-INV02",
+            "message": "Invariant FX-LEND-INV02 serves no outcome: no use case whose capability serves a business outcome reaches it. Write the use case that needs it, or remove it."
+          },
+          {
+            "severity": "warning",
+            "check": "serves-no-outcome",
+            "record": "FX-LEND-INV03",
+            "message": "Invariant FX-LEND-INV03 serves no outcome: no use case whose capability serves a business outcome reaches it. Write the use case that needs it, or remove it."
+          },
+          {
+            "severity": "warning",
+            "check": "serves-no-outcome",
+            "record": "FX-VO01-C01",
+            "message": "Constraint FX-VO01-C01 serves no outcome: no use case whose capability serves a business outcome reaches it. Write the use case that needs it, or remove it."
+          },
+          {
+            "severity": "warning",
+            "check": "accidental-not-accounted-for",
+            "record": "FX-LEND-INV01-RL",
+            "message": "Rule FX-LEND-INV01-RL is accidental complexity nothing accounts for: no tooling record generates it, nothing provides it, and it fills no slot; generate it, name its provider, or record the pattern slot it fills."
+          },
+          {
+            "severity": "warning",
+            "check": "accidental-not-accounted-for",
+            "record": "FX-LEND-INV02-RL",
+            "message": "Rule FX-LEND-INV02-RL is accidental complexity nothing accounts for: no tooling record generates it, nothing provides it, and it fills no slot; generate it, name its provider, or record the pattern slot it fills."
+          },
+          {
+            "severity": "warning",
+            "check": "accidental-not-accounted-for",
+            "record": "FX-VO01-VT",
+            "message": "Value type FX-VO01-VT is accidental complexity nothing accounts for: no tooling record generates it, nothing provides it, and it fills no slot; generate it, name its provider, or record the pattern slot it fills."
+          }
+        ],
+        "coverage": [
+          {
+            "product": "FX",
+            "domain": "FX-LEND",
+            "obligations": [
+              {
+                "kind": "constraint",
+                "label": "Constraint",
+                "total": 1,
+                "designed": 1,
+                "built": 0,
+                "proved": 0,
+                "not_automated": 0,
+                "proof_only": false
+              },
+              {
+                "kind": "invariant",
+                "label": "Invariant",
+                "total": 3,
+                "designed": 3,
+                "built": 2,
+                "proved": 2,
+                "not_automated": 0,
+                "proof_only": false
+              },
+              {
+                "kind": "specification",
+                "label": "Specification",
+                "total": 0,
+                "designed": 0,
+                "built": 0,
+                "proved": 0,
+                "not_automated": 0,
+                "proof_only": false
+              },
+              {
+                "kind": "policy",
+                "label": "Policy",
+                "total": 0,
+                "designed": 0,
+                "built": 0,
+                "proved": 0,
+                "not_automated": 0,
+                "proof_only": false
+              },
+              {
+                "kind": "domain_service",
+                "label": "Domain service",
+                "total": 0,
+                "designed": 0,
+                "built": 0,
+                "proved": 0,
+                "not_automated": 0,
+                "proof_only": false
+              },
+              {
+                "kind": "storage_requirement",
+                "label": "Storage requirement",
+                "total": 0,
+                "designed": 0,
+                "built": 0,
+                "proved": 0,
+                "not_automated": 0,
+                "proof_only": false
+              },
+              {
+                "kind": "uc_requirement",
+                "label": "UC requirement",
+                "total": 0,
+                "designed": 0,
+                "built": 0,
+                "proved": 0,
+                "not_automated": 0,
+                "proof_only": false
+              },
+              {
+                "kind": "pattern_rule",
+                "label": "Pattern rule",
+                "total": 0,
+                "designed": 0,
+                "built": 0,
+                "proved": 0,
+                "not_automated": 0,
+                "proof_only": true
+              },
+              {
+                "kind": "view_requirement",
+                "label": "View requirement",
+                "total": 0,
+                "designed": 0,
+                "built": 0,
+                "proved": 0,
+                "not_automated": 0,
+                "proof_only": false
+              },
+              {
+                "kind": "api_requirement",
+                "label": "API requirement",
+                "total": 0,
+                "designed": 0,
+                "built": 0,
+                "proved": 0,
+                "not_automated": 0,
+                "proof_only": false
+              },
+              {
+                "kind": "standard_rule",
+                "label": "Standard rule",
+                "total": 0,
+                "designed": 0,
+                "built": 0,
+                "proved": 0,
+                "not_automated": 0,
+                "proof_only": false
+              }
+            ],
+            "tests": {
+              "automated": 2,
+              "manual": 0,
+              "not_automated": 0
+            },
+            "proved_by": {
+              "FX-LEND-INV01": [
+                "FX-LEND-INV01-T"
+              ],
+              "FX-LEND-INV02": [
+                "FX-LEND-INV02-T"
+              ]
+            },
+            "pattern_rules": [],
+            "gaps": [
+              {
+                "id": "FX-LEND-A1",
+                "kind": "aggregate",
+                "missing": "aggregate-without-command",
+                "message": "Aggregate FX-LEND-A1 has no command, so nothing changes it."
+              },
+              {
+                "id": "FX-LEND-A1",
+                "kind": "aggregate",
+                "missing": "aggregate-without-repository",
+                "message": "Aggregate FX-LEND-A1 has no repository: none persists it."
+              },
+              {
+                "id": "FX-LEND-EN01",
+                "kind": "entity",
+                "missing": "entity-without-data-model",
+                "message": "Entity FX-LEND-EN01 has no data model."
+              },
+              {
+                "id": "FX-LEND-EN01",
+                "kind": "entity",
+                "missing": "entity-without-table",
+                "message": "Entity FX-LEND-EN01 has no table."
+              },
+              {
+                "id": "FX-LEND-INV03",
+                "kind": "invariant",
+                "missing": "built",
+                "message": "Invariant FX-LEND-INV03 is not built yet: not every file of what implements it exists."
+              },
+              {
+                "id": "FX-LEND-INV03",
+                "kind": "invariant",
+                "missing": "proved",
+                "message": "Invariant FX-LEND-INV03 is not proved yet."
+              },
+              {
+                "id": "FX-VO01-C01",
+                "kind": "constraint",
+                "missing": "built",
+                "message": "Constraint FX-VO01-C01 is not built yet: not every file of what implements it exists."
+              },
+              {
+                "id": "FX-VO01-C01",
+                "kind": "constraint",
+                "missing": "proved",
+                "message": "Constraint FX-VO01-C01 is not proved yet."
+              }
+            ],
+            "debt": []
+          },
+          {
+            "product": "FX",
+            "domain": null,
+            "obligations": [
+              {
+                "kind": "constraint",
+                "label": "Constraint",
+                "total": 0,
+                "designed": 0,
+                "built": 0,
+                "proved": 0,
+                "not_automated": 0,
+                "proof_only": false
+              },
+              {
+                "kind": "invariant",
+                "label": "Invariant",
+                "total": 0,
+                "designed": 0,
+                "built": 0,
+                "proved": 0,
+                "not_automated": 0,
+                "proof_only": false
+              },
+              {
+                "kind": "specification",
+                "label": "Specification",
+                "total": 0,
+                "designed": 0,
+                "built": 0,
+                "proved": 0,
+                "not_automated": 0,
+                "proof_only": false
+              },
+              {
+                "kind": "policy",
+                "label": "Policy",
+                "total": 0,
+                "designed": 0,
+                "built": 0,
+                "proved": 0,
+                "not_automated": 0,
+                "proof_only": false
+              },
+              {
+                "kind": "domain_service",
+                "label": "Domain service",
+                "total": 0,
+                "designed": 0,
+                "built": 0,
+                "proved": 0,
+                "not_automated": 0,
+                "proof_only": false
+              },
+              {
+                "kind": "storage_requirement",
+                "label": "Storage requirement",
+                "total": 0,
+                "designed": 0,
+                "built": 0,
+                "proved": 0,
+                "not_automated": 0,
+                "proof_only": false
+              },
+              {
+                "kind": "uc_requirement",
+                "label": "UC requirement",
+                "total": 0,
+                "designed": 0,
+                "built": 0,
+                "proved": 0,
+                "not_automated": 0,
+                "proof_only": false
+              },
+              {
+                "kind": "pattern_rule",
+                "label": "Pattern rule",
+                "total": 0,
+                "designed": 0,
+                "built": 0,
+                "proved": 0,
+                "not_automated": 0,
+                "proof_only": true
+              },
+              {
+                "kind": "view_requirement",
+                "label": "View requirement",
+                "total": 0,
+                "designed": 0,
+                "built": 0,
+                "proved": 0,
+                "not_automated": 0,
+                "proof_only": false
+              },
+              {
+                "kind": "api_requirement",
+                "label": "API requirement",
+                "total": 0,
+                "designed": 0,
+                "built": 0,
+                "proved": 0,
+                "not_automated": 0,
+                "proof_only": false
+              },
+              {
+                "kind": "standard_rule",
+                "label": "Standard rule",
+                "total": 0,
+                "designed": 0,
+                "built": 0,
+                "proved": 0,
+                "not_automated": 0,
+                "proof_only": false
+              }
+            ],
+            "tests": {
+              "automated": 0,
+              "manual": 0,
+              "not_automated": 0
+            },
+            "proved_by": {},
+            "pattern_rules": [],
+            "gaps": [],
+            "debt": []
+          }
+        ],
+        "chains": [
+          {
+            "obligation": "FX-LEND-INV01",
+            "design": [
+              "FX-LEND-A1"
+            ],
+            "build": [
+              "FX-LEND-INV01-RL"
+            ],
+            "tests": [
+              "FX-LEND-INV01-T"
+            ],
+            "files": [
+              {
+                "path": "internal/lend/rules_test.go",
+                "named_by": [
+                  "FX-LEND-INV01-T"
+                ]
+              },
+              {
+                "path": "internal/lend/rules.go",
+                "named_by": [
+                  "FX-LEND-INV01-RL"
+                ]
+              }
+            ],
+            "links": [
+              [
+                "FX-LEND-INV01",
+                "FX-LEND-INV01-RL"
+              ],
+              [
+                "FX-LEND-INV01",
+                "FX-LEND-A1"
+              ],
+              [
+                "FX-LEND-INV01",
+                "FX-LEND-INV01-T"
+              ]
+            ]
+          },
+          {
+            "obligation": "FX-LEND-INV02",
+            "design": [
+              "FX-LEND-A1"
+            ],
+            "build": [
+              "FX-LEND-INV02-RL"
+            ],
+            "tests": [
+              "FX-LEND-INV02-T"
+            ],
+            "files": [
+              {
+                "path": "internal/lend/rules_test.go",
+                "named_by": [
+                  "FX-LEND-INV02-T"
+                ]
+              },
+              {
+                "path": "internal/lend/rules.go",
+                "named_by": [
+                  "FX-LEND-INV02-RL"
+                ]
+              }
+            ],
+            "links": [
+              [
+                "FX-LEND-INV02",
+                "FX-LEND-INV02-RL"
+              ],
+              [
+                "FX-LEND-INV02",
+                "FX-LEND-A1"
+              ],
+              [
+                "FX-LEND-INV02",
+                "FX-LEND-INV02-T"
+              ]
+            ]
+          },
+          {
+            "obligation": "FX-LEND-INV03",
+            "design": [
+              "FX-LEND-A1"
+            ],
+            "build": [],
+            "tests": [],
+            "files": [],
+            "links": [
+              [
+                "FX-LEND-INV03",
+                "FX-LEND-A1"
+              ]
+            ]
+          },
+          {
+            "obligation": "FX-VO01-C01",
+            "design": [
+              "FX-VO01"
+            ],
+            "build": [
+              "FX-VO01-VT"
+            ],
+            "tests": [],
+            "files": [
+              {
+                "path": "internal/lend/due.go",
+                "named_by": [
+                  "FX-VO01-VT"
+                ]
+              }
+            ],
+            "links": [
+              [
+                "FX-VO01",
+                "FX-VO01-VT"
+              ],
+              [
+                "FX-VO01-C01",
+                "FX-VO01"
+              ]
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

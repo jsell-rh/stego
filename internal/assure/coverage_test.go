@@ -15,7 +15,7 @@ import (
 // the product's own value object. FX-LEND-INV01 and FX-LEND-INV02 have a rule in internal/lend/rules.go and an
 // automated test, FX-LEND-INV03 has neither, and the constraint's value type names internal/lend/due.go.
 var latheSpec = map[string]string{
-	"lathe.config.json":    `{"schema": 2, "data": "data", "tests": ["**/*_test.go"]}` + "\n",
+	"lathe.config.json":    `{"schema": 5, "data": "data", "tests": ["**/*_test.go"]}` + "\n",
 	"data/product.jsonl":   `{"id":"FX","title":"Fixture","description":"What Fixture is, who it is for, and what it must do."}` + "\n",
 	"data/domain.jsonl":    `{"id":"FX-LEND","title":"Lending","product_id":"FX","subdomain_type":"core","description":"Lending tools."}` + "\n",
 	"data/aggregate.jsonl": `{"id":"FX-LEND-A1","title":"Loan","domain_id":"FX-LEND","description":"A loan.","identity":"Loan ID"}` + "\n",
@@ -302,6 +302,86 @@ func TestCoverage(t *testing.T) {
 			if got, err := readLatheCheck(output); err == nil {
 				t.Fatalf("%s is read as %+v", name, got)
 			}
+		}
+	})
+
+	t.Run("ST-ASR-DS02-T02 The coverage is read from the real lathe check --json of Lathe 5, whose kinds carry their complexity and whose scopes carry their debt", func(t *testing.T) {
+		output, err := os.ReadFile(filepath.Join("testdata", "lathe5-check.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var shape struct {
+			Products []struct {
+				Workspace struct {
+					Kinds    []map[string]json.RawMessage `json:"kinds"`
+					Coverage []map[string]json.RawMessage `json:"coverage"`
+				} `json:"workspace"`
+			} `json:"products"`
+		}
+		if err := json.Unmarshal(output, &shape); err != nil || len(shape.Products) != 1 {
+			t.Fatalf("the fixture is not one product's lathe check --json: %v", err)
+		}
+		workspace := shape.Products[0].Workspace
+		if len(workspace.Kinds) == 0 || len(workspace.Coverage) == 0 {
+			t.Fatal("the fixture has no kinds or no coverage")
+		}
+		for _, kind := range workspace.Kinds {
+			if _, ok := kind["complexity"]; !ok {
+				t.Fatalf("kind %s has no complexity, so the fixture is not Lathe 5's output", kind["kind"])
+			}
+		}
+		for _, scope := range workspace.Coverage {
+			if _, ok := scope["debt"]; !ok {
+				t.Fatalf("scope %s has no debt, so the fixture is not Lathe 5's output", scope["domain"])
+			}
+		}
+		measured, err := readLatheCheck(output)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := Measurement{
+			Coverage: Coverage{Total: 4, Designed: 4, Built: 2, Proved: 2},
+			Obligations: map[string]Standing{
+				"FX-LEND-INV01": {Designed: true, Built: true, Proved: true},
+				"FX-LEND-INV02": {Designed: true, Built: true, Proved: true},
+				"FX-LEND-INV03": {Designed: true},
+				"FX-VO01-C01":   {Designed: true},
+			},
+		}
+		if !reflect.DeepEqual(measured, want) {
+			t.Fatalf("Lathe 5's output reads as %+v, want %+v", measured, want)
+		}
+	})
+
+	t.Run("ST-ASR-DS02-T01 When lathe check exits non-zero, the error holds what Lathe printed on its standard output and its standard error", func(t *testing.T) {
+		root := newRepository(t)
+		commit := commitFiles(t, root, latheSpec, "spec")
+		fake := filepath.Join(t.TempDir(), "lathe")
+		script := "#!/bin/sh\necho 'the reason on standard output'\necho 'the reason on standard error' >&2\nexit 2\n"
+		if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		measured, err := MeasureCoverage(root, commit, fake)
+		var specErr *SpecError
+		if !errors.As(err, &specErr) || specErr.Commit != commit || !reflect.DeepEqual(measured, Measurement{}) {
+			t.Fatalf("a failed lathe check gives %+v, %v; want no measurement and a SpecError", measured, err)
+		}
+		for _, said := range []string{"the reason on standard output", "the reason on standard error"} {
+			if !strings.Contains(err.Error(), said) {
+				t.Fatalf("the error does not hold %q:\n%v", said, err)
+			}
+		}
+		long := strings.Repeat("x", latheSaidLimit+100)
+		if got := latheSaid([]byte(long), nil); len(got) > latheSaidLimit+4 || !strings.HasPrefix(got, long[:latheSaidLimit]) {
+			t.Fatalf("a long standard output is not cut at %d bytes: %d bytes", latheSaidLimit, len(got))
+		}
+
+		// The real Lathe refuses data of an older schema, and the error names the schemas.
+		lathe := latheCLI(t)
+		old := commitFiles(t, root, map[string]string{"lathe.config.json": `{"schema": 2, "data": "data", "tests": ["**/*_test.go"]}` + "\n"}, "the spec says schema 2")
+		_, err = MeasureCoverage(root, old, lathe)
+		if !errors.As(err, &specErr) || !strings.Contains(err.Error(), "schema 2") {
+			t.Fatalf("data for schema 2 gives %v; want a SpecError that names schema 2", err)
 		}
 	})
 }

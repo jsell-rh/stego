@@ -1,57 +1,57 @@
-{"id":"ST-ASR-UC01-FL01","title":"Attest a proof run through the command line","use_case_id":"ST-ASR-UC01","interface_id":"ST-IF01"}
-{"id":"ST-ASR-UC02-FL01","title":"Gate a change through the command line","use_case_id":"ST-ASR-UC02","interface_id":"ST-IF01"}
-{"id":"ST-ASR-UC03-FL01","title":"Gate a release through the command line","use_case_id":"ST-ASR-UC03","interface_id":"ST-IF01"}
-{"id":"ST-ASR-UC04-FL01","title":"See what a commit proved through the command line","use_case_id":"ST-ASR-UC04","interface_id":"ST-IF01"}
-{"id":"ST-BLD-UC01-FL01","title":"Resolve a service's modules through the command line","use_case_id":"ST-BLD-UC01","interface_id":"ST-IF01"}
-{"id":"ST-BLD-UC02-FL01","title":"Prepare an offline module cache through the command line","use_case_id":"ST-BLD-UC02","interface_id":"ST-IF01"}
-{"id":"ST-BLD-UC03-FL01","title":"Build a service reproducibly through the command line","use_case_id":"ST-BLD-UC03","interface_id":"ST-IF01"}
-{"id":"ST-BLD-UC04-FL01","title":"Check an artifact against its record through the command line","use_case_id":"ST-BLD-UC04","interface_id":"ST-IF01"}
-{"id":"ST-BLD-UC05-FL01","title":"Build and sign an image through the command line","use_case_id":"ST-BLD-UC05","interface_id":"ST-IF01"}
-{"id":"ST-BLD-UC06-FL01","title":"Publish and retrieve an image through the command line","use_case_id":"ST-BLD-UC06","interface_id":"ST-IF01"}
-{"id":"ST-DECL-UC01-FL01","title":"Start a service declaration through the command line","use_case_id":"ST-DECL-UC01","interface_id":"ST-IF01"}
-{"id":"ST-DECL-UC02-FL01","title":"Learn what may be declared through the command line","use_case_id":"ST-DECL-UC02","interface_id":"ST-IF01"}
-{"id":"ST-DECL-UC03-FL01","title":"Check a declaration through the command line","use_case_id":"ST-DECL-UC03","interface_id":"ST-IF01"}
-{"id":"ST-DECL-UC04-FL01","title":"Repair a refused declaration through the command line","use_case_id":"ST-DECL-UC04","interface_id":"ST-IF01"}
-{"id":"ST-DECL-UC05-FL01","title":"Declare tenancy and audit through the command line","use_case_id":"ST-DECL-UC05","interface_id":"ST-IF01"}
-{"id":"ST-DECL-UC06-FL01","title":"Declare authorization through the command line","use_case_id":"ST-DECL-UC06","interface_id":"ST-IF01"}
-{"id":"ST-DECL-UC07-FL01","title":"Declare idempotent operations through the command line","use_case_id":"ST-DECL-UC07","interface_id":"ST-IF01"}
-{"id":"ST-DECL-UC08-FL01","title":"Declare a ledger through the command line","use_case_id":"ST-DECL-UC08","interface_id":"ST-IF01"}
-{"id":"ST-DECL-UC09-FL01","title":"Declare invariants, modes and controllers through the command line","use_case_id":"ST-DECL-UC09","interface_id":"ST-IF01"}
-{"id":"ST-DIS-UC02-FL01","title":"Find every service built from a component through the command line","use_case_id":"ST-DIS-UC02","interface_id":"ST-IF01"}
-{"id":"ST-DIS-UC04-FL01","title":"Ship a component fix without a compiler release through the command line","use_case_id":"ST-DIS-UC04","interface_id":"ST-IF01"}
-{"id":"ST-DIS-UC05-FL01","title":"Learn that a pinned component is superseded through the command line","use_case_id":"ST-DIS-UC05","interface_id":"ST-IF01"}
-{"id":"ST-DIS-UC07-FL01","title":"Withdraw a component digest through the command line","use_case_id":"ST-DIS-UC07","interface_id":"ST-IF01"}
-{"id":"ST-DIS-UC08-FL01","title":"Qualify a compiler release through the command line","use_case_id":"ST-DIS-UC08","interface_id":"ST-IF01"}
-{"id":"ST-DIS-UC09-FL01","title":"Install a qualified compiler through the command line","use_case_id":"ST-DIS-UC09","interface_id":"ST-IF01"}
-{"id":"ST-DIS-UC10-FL01","title":"Measure the fleet through the command line","use_case_id":"ST-DIS-UC10","interface_id":"ST-IF01"}
-{"id":"ST-DIS-UC11-FL01","title":"Publish a compiler release through the command line","use_case_id":"ST-DIS-UC11","interface_id":"ST-IF01"}
-{"id":"ST-DLV-UC01-FL01","title":"State what a service needs from the platform through the command line","use_case_id":"ST-DLV-UC01","interface_id":"ST-IF01"}
-{"id":"ST-DLV-UC02-FL01","title":"Check an environment against a service through the command line","use_case_id":"ST-DLV-UC02","interface_id":"ST-IF01"}
-{"id":"ST-DLV-UC03-FL01","title":"Build and release a service through its CI provider through the command line","use_case_id":"ST-DLV-UC03","interface_id":"ST-IF01"}
-{"id":"ST-DLV-UC04-FL01","title":"Patch every service's pipeline through the command line","use_case_id":"ST-DLV-UC04","interface_id":"ST-IF01"}
-{"id":"ST-DLV-UC05-FL01","title":"Deploy a service with GitOps through the command line","use_case_id":"ST-DLV-UC05","interface_id":"ST-IF01"}
-{"id":"ST-EXT-UC01-FL01","title":"Add a service rule at a slot through the command line","use_case_id":"ST-EXT-UC01","interface_id":"ST-IF01"}
-{"id":"ST-EXT-UC02-FL01","title":"Qualify a fill through the command line","use_case_id":"ST-EXT-UC02","interface_id":"ST-IF01"}
-{"id":"ST-EXT-UC03-FL01","title":"Find an existing fill for a slot through the command line","use_case_id":"ST-EXT-UC03","interface_id":"ST-IF01"}
-{"id":"ST-EXT-UC04-FL01","title":"Requalify a fill after a change through the command line","use_case_id":"ST-EXT-UC04","interface_id":"ST-IF01"}
-{"id":"ST-GEN-UC01-FL01","title":"Record what a service was built from through the command line","use_case_id":"ST-GEN-UC01","interface_id":"ST-IF01"}
-{"id":"ST-GEN-UC02-FL01","title":"Trust that a record matches its code through the command line","use_case_id":"ST-GEN-UC02","interface_id":"ST-IF01"}
-{"id":"ST-GEN-UC03-FL01","title":"Take a component fix into a service through the command line","use_case_id":"ST-GEN-UC03","interface_id":"ST-IF01"}
-{"id":"ST-GEN-UC04-FL01","title":"Regenerate after a declaration change through the command line","use_case_id":"ST-GEN-UC04","interface_id":"ST-IF01"}
-{"id":"ST-GEN-UC05-FL01","title":"Review a plan before anything changes through the command line","use_case_id":"ST-GEN-UC05","interface_id":"ST-IF01"}
-{"id":"ST-GEN-UC06-FL01","title":"Recover from an interrupted apply through the command line","use_case_id":"ST-GEN-UC06","interface_id":"ST-IF01"}
-{"id":"ST-GEN-UC07-FL01","title":"Capture a frontend build as an input through the command line","use_case_id":"ST-GEN-UC07","interface_id":"ST-IF01"}
-{"id":"ST-GEN-UC08-FL01","title":"See how a service is shaped and how it works through the command line","use_case_id":"ST-GEN-UC08","interface_id":"ST-IF01"}
-{"id":"ST-GEN-UC09-FL01","title":"Review how a change reshapes a service through the command line","use_case_id":"ST-GEN-UC09","interface_id":"ST-IF01"}
-{"id":"ST-GEN-UC10-FL01","title":"Move a service to a new declaration version through the command line","use_case_id":"ST-GEN-UC10","interface_id":"ST-IF01"}
-{"id":"ST-SUP-UC01-FL01","title":"Write a component through the command line","use_case_id":"ST-SUP-UC01","interface_id":"ST-IF01"}
-{"id":"ST-SUP-UC02-FL01","title":"Compose a registry for a team through the command line","use_case_id":"ST-SUP-UC02","interface_id":"ST-IF01"}
-{"id":"ST-SUP-UC03-FL01","title":"Curate an archetype through the command line","use_case_id":"ST-SUP-UC03","interface_id":"ST-IF01"}
-{"id":"ST-SUP-UC04-FL01","title":"Introduce an experimental component through the command line","use_case_id":"ST-SUP-UC04","interface_id":"ST-IF01"}
-{"id":"ST-SUP-UC05-FL01","title":"Graduate or retire a component through the command line","use_case_id":"ST-SUP-UC05","interface_id":"ST-IF01"}
-{"id":"ST-SUP-UC06-FL01","title":"Contribute a component upstream through the command line","use_case_id":"ST-SUP-UC06","interface_id":"ST-IF01"}
-{"id":"ST-SUP-UC07-FL01","title":"Define a port through the command line","use_case_id":"ST-SUP-UC07","interface_id":"ST-IF01"}
-{"id":"ST-SUP-UC08-FL01","title":"Declare a slot through the command line","use_case_id":"ST-SUP-UC08","interface_id":"ST-IF01"}
-{"id":"ST-SUP-UC09-FL01","title":"Choose a provider for a port through the command line","use_case_id":"ST-SUP-UC09","interface_id":"ST-IF01"}
-{"id":"ST-SUP-UC10-FL01","title":"Curate a golden path through the command line","use_case_id":"ST-SUP-UC10","interface_id":"ST-IF01"}
-{"id":"ST-SUP-UC11-FL01","title":"Provide a port from the runtime library through the command line","use_case_id":"ST-SUP-UC11","interface_id":"ST-IF01"}
+{"id":"ST-ASR-UC01-FL","title":"Attest a proof run","use_case_id":"ST-ASR-UC01"}
+{"id":"ST-ASR-UC02-FL","title":"Gate a change","use_case_id":"ST-ASR-UC02"}
+{"id":"ST-ASR-UC03-FL","title":"Gate a release","use_case_id":"ST-ASR-UC03"}
+{"id":"ST-ASR-UC04-FL","title":"See what a commit proved","use_case_id":"ST-ASR-UC04"}
+{"id":"ST-BLD-UC01-FL","title":"Resolve a service's modules","use_case_id":"ST-BLD-UC01"}
+{"id":"ST-BLD-UC02-FL","title":"Prepare an offline module cache","use_case_id":"ST-BLD-UC02"}
+{"id":"ST-BLD-UC03-FL","title":"Build a service reproducibly","use_case_id":"ST-BLD-UC03"}
+{"id":"ST-BLD-UC04-FL","title":"Check an artifact against its record","use_case_id":"ST-BLD-UC04"}
+{"id":"ST-BLD-UC05-FL","title":"Build and sign an image","use_case_id":"ST-BLD-UC05"}
+{"id":"ST-BLD-UC06-FL","title":"Publish and retrieve an image","use_case_id":"ST-BLD-UC06"}
+{"id":"ST-DECL-UC01-FL","title":"Start a service declaration","use_case_id":"ST-DECL-UC01"}
+{"id":"ST-DECL-UC02-FL","title":"Learn what may be declared","use_case_id":"ST-DECL-UC02"}
+{"id":"ST-DECL-UC03-FL","title":"Check a declaration","use_case_id":"ST-DECL-UC03"}
+{"id":"ST-DECL-UC04-FL","title":"Repair a refused declaration","use_case_id":"ST-DECL-UC04"}
+{"id":"ST-DECL-UC05-FL","title":"Declare tenancy and audit","use_case_id":"ST-DECL-UC05"}
+{"id":"ST-DECL-UC06-FL","title":"Declare authorization","use_case_id":"ST-DECL-UC06"}
+{"id":"ST-DECL-UC07-FL","title":"Declare idempotent operations","use_case_id":"ST-DECL-UC07"}
+{"id":"ST-DECL-UC08-FL","title":"Declare a ledger","use_case_id":"ST-DECL-UC08"}
+{"id":"ST-DECL-UC09-FL","title":"Declare invariants, modes and controllers","use_case_id":"ST-DECL-UC09"}
+{"id":"ST-DIS-UC02-FL","title":"Find every service built from a component","use_case_id":"ST-DIS-UC02"}
+{"id":"ST-DIS-UC04-FL","title":"Ship a component fix without a compiler release","use_case_id":"ST-DIS-UC04"}
+{"id":"ST-DIS-UC05-FL","title":"Learn that a pinned component is superseded","use_case_id":"ST-DIS-UC05"}
+{"id":"ST-DIS-UC07-FL","title":"Withdraw a component digest","use_case_id":"ST-DIS-UC07"}
+{"id":"ST-DIS-UC08-FL","title":"Qualify a compiler release","use_case_id":"ST-DIS-UC08"}
+{"id":"ST-DIS-UC09-FL","title":"Install a qualified compiler","use_case_id":"ST-DIS-UC09"}
+{"id":"ST-DIS-UC10-FL","title":"Measure the fleet","use_case_id":"ST-DIS-UC10"}
+{"id":"ST-DIS-UC11-FL","title":"Publish a compiler release","use_case_id":"ST-DIS-UC11"}
+{"id":"ST-DLV-UC01-FL","title":"State what a service needs from the platform","use_case_id":"ST-DLV-UC01"}
+{"id":"ST-DLV-UC02-FL","title":"Check an environment against a service","use_case_id":"ST-DLV-UC02"}
+{"id":"ST-DLV-UC03-FL","title":"Build and release a service through its CI provider","use_case_id":"ST-DLV-UC03"}
+{"id":"ST-DLV-UC04-FL","title":"Patch every service's pipeline","use_case_id":"ST-DLV-UC04"}
+{"id":"ST-DLV-UC05-FL","title":"Deploy a service with GitOps","use_case_id":"ST-DLV-UC05"}
+{"id":"ST-EXT-UC01-FL","title":"Add a service rule at a slot","use_case_id":"ST-EXT-UC01"}
+{"id":"ST-EXT-UC02-FL","title":"Qualify a fill","use_case_id":"ST-EXT-UC02"}
+{"id":"ST-EXT-UC03-FL","title":"Find an existing fill for a slot","use_case_id":"ST-EXT-UC03"}
+{"id":"ST-EXT-UC04-FL","title":"Requalify a fill after a change","use_case_id":"ST-EXT-UC04"}
+{"id":"ST-GEN-UC01-FL","title":"Record what a service was built from","use_case_id":"ST-GEN-UC01"}
+{"id":"ST-GEN-UC02-FL","title":"Trust that a record matches its code","use_case_id":"ST-GEN-UC02"}
+{"id":"ST-GEN-UC03-FL","title":"Take a component fix into a service","use_case_id":"ST-GEN-UC03"}
+{"id":"ST-GEN-UC04-FL","title":"Regenerate after a declaration change","use_case_id":"ST-GEN-UC04"}
+{"id":"ST-GEN-UC05-FL","title":"Review a plan before anything changes","use_case_id":"ST-GEN-UC05"}
+{"id":"ST-GEN-UC06-FL","title":"Recover from an interrupted apply","use_case_id":"ST-GEN-UC06"}
+{"id":"ST-GEN-UC07-FL","title":"Capture a frontend build as an input","use_case_id":"ST-GEN-UC07"}
+{"id":"ST-GEN-UC08-FL","title":"See how a service is shaped and how it works","use_case_id":"ST-GEN-UC08"}
+{"id":"ST-GEN-UC09-FL","title":"Review how a change reshapes a service","use_case_id":"ST-GEN-UC09"}
+{"id":"ST-GEN-UC10-FL","title":"Move a service to a new declaration version","use_case_id":"ST-GEN-UC10"}
+{"id":"ST-SUP-UC01-FL","title":"Write a component","use_case_id":"ST-SUP-UC01"}
+{"id":"ST-SUP-UC02-FL","title":"Compose a registry for a team","use_case_id":"ST-SUP-UC02"}
+{"id":"ST-SUP-UC03-FL","title":"Curate an archetype","use_case_id":"ST-SUP-UC03"}
+{"id":"ST-SUP-UC04-FL","title":"Introduce an experimental component","use_case_id":"ST-SUP-UC04"}
+{"id":"ST-SUP-UC05-FL","title":"Graduate or retire a component","use_case_id":"ST-SUP-UC05"}
+{"id":"ST-SUP-UC06-FL","title":"Contribute a component upstream","use_case_id":"ST-SUP-UC06"}
+{"id":"ST-SUP-UC07-FL","title":"Define a port","use_case_id":"ST-SUP-UC07"}
+{"id":"ST-SUP-UC08-FL","title":"Declare a slot","use_case_id":"ST-SUP-UC08"}
+{"id":"ST-SUP-UC09-FL","title":"Choose a provider for a port","use_case_id":"ST-SUP-UC09"}
+{"id":"ST-SUP-UC10-FL","title":"Curate a golden path with its default concerns","use_case_id":"ST-SUP-UC10"}
+{"id":"ST-SUP-UC11-FL","title":"Provide a port from the runtime library","use_case_id":"ST-SUP-UC11"}

@@ -145,7 +145,7 @@ func MeasureCoverage(root, commit, lathe string) (Measurement, error) {
 		return Measurement{}, &SpecError{Commit: commit, Problems: errs}
 	}
 	if runErr != nil {
-		return Measurement{}, &SpecError{Commit: commit, Problems: []string{fmt.Sprintf("lathe check fails: %v: %s", runErr, strings.TrimSpace(stderr.String()))}}
+		return Measurement{}, &SpecError{Commit: commit, Problems: []string{fmt.Sprintf("lathe check fails: %v: %s", runErr, latheSaid(stdout.Bytes(), stderr.Bytes()))}}
 	}
 	measurement, err := readLatheCheck(stdout.Bytes())
 	if err != nil {
@@ -153,6 +153,27 @@ func MeasureCoverage(root, commit, lathe string) (Measurement, error) {
 	}
 	measurement.Commit = commit
 	return measurement, nil
+}
+
+// latheSaidLimit is the most bytes of Lathe's standard output that an error holds.
+const latheSaidLimit = 4096
+
+// latheSaid is what Lathe printed when it failed: its standard output, then its standard error, each trimmed and
+// each only when it is not empty. Lathe can give its reason on either stream, such as "This product's data is for
+// schema 2; this Lathe uses schema 5", so an error must hold both. Standard output longer than latheSaidLimit is
+// cut there.
+func latheSaid(stdout, stderr []byte) string {
+	var said []string
+	if out := strings.TrimSpace(string(stdout)); out != "" {
+		if len(out) > latheSaidLimit {
+			out = out[:latheSaidLimit] + " ..."
+		}
+		said = append(said, out)
+	}
+	if errText := strings.TrimSpace(string(stderr)); errText != "" {
+		said = append(said, errText)
+	}
+	return strings.Join(said, "\n")
 }
 
 // SpecError tells that the coverage at a commit cannot be measured, because Lathe finds errors in the spec there

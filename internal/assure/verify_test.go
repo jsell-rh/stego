@@ -267,6 +267,8 @@ func TestVerify(t *testing.T) {
 		if statement, err := verifier.VerifyBundle(fixture.Bundle, SubjectDigest(fixture.Commit)); err != nil || !fullCommit(statement.SourceDigest) {
 			t.Fatalf("the certificate's source digest is %q (%v), not a full commit", statement.SourceDigest, err)
 		}
+		// The bundle was signed before the Lathe 5 upgrade renamed the flow test to ST-ASR-UC01-FL-T, so its
+		// outcomes hold the old ID.
 		for _, outcome := range proof.Run.Outcomes {
 			if outcome.TestRecord == "ST-ASR-UC01-FL01-T" && (outcome.Result != Passed || outcome.File != "cmd/assure/flow_test.go") {
 				t.Fatalf("the proof run's outcome of ST-ASR-UC01-FL01-T is %+v", outcome)

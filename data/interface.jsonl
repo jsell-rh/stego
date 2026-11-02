@@ -1,1 +1,1 @@
-{"id":"ST-IF01","title":"Command line","product_id":"ST","kind":"CLI","description":"Service authors, component authors and release engineers run the stego commands and the release scripts in a terminal or in CI."}
+{"id":"ST-IF01","title":"Command line","product_id":"ST","kind":"CLI","description":"Service authors, component authors and release engineers run the stego commands and the release scripts in a terminal or in CI.","public":false}

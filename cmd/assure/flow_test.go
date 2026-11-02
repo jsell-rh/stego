@@ -13,7 +13,7 @@ import (
 )
 
 func TestRecordFlow(t *testing.T) {
-	t.Run("ST-ASR-UC01-FL01-T assure record writes the same predicate for the same run, for the attestation action to sign with the commit as subject", func(t *testing.T) {
+	t.Run("ST-ASR-UC01-FL-T assure record writes the same predicate for the same run, for the attestation action to sign with the commit as subject", func(t *testing.T) {
 		f := newFixture(t, goFixture, pythonFixture)
 		result := f.record(t, f.commit, f.predicate)
 		if result.code != 0 {
@@ -100,7 +100,7 @@ func specDigest(t *testing.T, repository string) string {
 }
 
 func TestGateFlow(t *testing.T) {
-	t.Run("ST-ASR-UC02-FL01-T assure gate change measures both commits, verifies the proof run at the change, compares the code faults of both, and prints the decision with every cause", func(t *testing.T) {
+	t.Run("ST-ASR-UC02-FL-T assure gate change measures both commits, verifies the proof run at the change, compares the code faults of both, and prints the decision with every cause", func(t *testing.T) {
 		g := newGateRepository(t)
 		change := g.commit(t, g.base, map[string]string{"data/invariant.jsonl": gateSpec["data/invariant.jsonl"] + newInvariant})
 		proof := g.keep(t, "proof", proofRun(change, pullRef, 21, "FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed"))
@@ -148,7 +148,7 @@ func TestGateFlow(t *testing.T) {
 }
 
 func TestReleaseFlow(t *testing.T) {
-	t.Run("ST-ASR-UC03-FL01-T assure gate release passes a fully proved commit and writes the decision predicate, and refuses every other commit with each cause named", func(t *testing.T) {
+	t.Run("ST-ASR-UC03-FL-T assure gate release passes a fully proved commit and writes the decision predicate, and refuses every other commit with each cause named", func(t *testing.T) {
 		g := newGateRepository(t)
 		full := g.commit(t, g.base, fullyProved)
 		proof := g.keep(t, "proof", proofRun(full, mainRef, 31, allPassed...))
@@ -230,7 +230,7 @@ func TestReleaseFlow(t *testing.T) {
 }
 
 func TestLedgerFlow(t *testing.T) {
-	t.Run("ST-ASR-UC04-FL01-T assure ledger fetches and verifies the proof runs of a commit and its history, prints each test record with its result and where it last passed, and shows a refused attestation as none with why", func(t *testing.T) {
+	t.Run("ST-ASR-UC04-FL-T assure ledger fetches and verifies the proof runs of a commit and its history, prints each test record with its result and where it last passed, and shows a refused attestation as none with why", func(t *testing.T) {
 		// The main path: commit 5 has a proof run with one test failed, commit 4 has none, commit 3 has one whose
 		// signature does not verify, and commit 2 has one where every automated test passed.
 		h := newLedgerHistory(t)
