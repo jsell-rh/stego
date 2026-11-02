@@ -750,25 +750,6 @@ func baseKnownCodeFaults(t *testing.T, root, base string) (map[[2]string]bool, b
 	return keys, true
 }
 
-// TestOwnTree runs each predicate over STEGO's own tree and spec at the commit under test, HEAD, read from git
-// objects, never from the working tree. The Product owner decided (ST-ASR-Q02) that the committed list of known
-// faults (ST-ASR-TOOL03) stays until it is empty. Each rule's test proves three things:
-//   - the tree has no fault of the rule outside the list at the same commit;
-//   - the list holds no fault of the rule that the tree no longer has;
-//   - the ratchet: the list holds no fault of the rule, by rule and key, that the list at the base commit does not
-//     hold. The base is the commit ASSURE_RATCHET_BASE names, or else HEAD's first parent. A fault whose reason
-//     changes while its key stands, such as a package that goes from three domains to two, passes the ratchet.
-//
-// Where the base is HEAD's first parent, the ratchet holds for the commit under test only: for the last commit of
-// a push, or, on a pull request whose merge ref is checked out, for the whole change against the base branch's
-// tip. In a shallow clone that does not hold the parent, with no base given, each rule test is skipped, as it
-// cannot check the ratchet. A first commit has no parent; the test logs that the ratchet is not checked. The change
-// gate compares a change with its base (ST-ASR-UC02-R05) in any case.
-//
-// The list must be sorted and hold each fault once. CodeFaults must give the same faults as the predicate.
-//
-// The test reads git through a subprocess, which go test cannot see, so go test can give a cached result for a
-// new commit. Run it with -count=1.
 func TestLatheTechnicalKinds(t *testing.T) {
 	t.Run("ST-ASR-SP09-T The code standard reads every kind of Lathe's own technical stage that has a file column, as the pinned Lathe's meta model lists them", func(t *testing.T) {
 		lathe := latheCLI(t)
@@ -818,6 +799,25 @@ func TestLatheTechnicalKinds(t *testing.T) {
 	})
 }
 
+// TestOwnTree runs each predicate over STEGO's own tree and spec at the commit under test, HEAD, read from git
+// objects, never from the working tree. The Product owner decided (ST-ASR-Q02) that the committed list of known
+// faults (ST-ASR-TOOL03) stays until it is empty. Each rule's test proves three things:
+//   - the tree has no fault of the rule outside the list at the same commit;
+//   - the list holds no fault of the rule that the tree no longer has;
+//   - the ratchet: the list holds no fault of the rule, by rule and key, that the list at the base commit does not
+//     hold. The base is the commit ASSURE_RATCHET_BASE names, or else HEAD's first parent. A fault whose reason
+//     changes while its key stands, such as a package that goes from three domains to two, passes the ratchet.
+//
+// Where the base is HEAD's first parent, the ratchet holds for the commit under test only: for the last commit of
+// a push, or, on a pull request whose merge ref is checked out, for the whole change against the base branch's
+// tip. In a shallow clone that does not hold the parent, with no base given, each rule test is skipped, as it
+// cannot check the ratchet. A first commit has no parent; the test logs that the ratchet is not checked. The change
+// gate compares a change with its base (ST-ASR-UC02-R05) in any case.
+//
+// The list must be sorted and hold each fault once. CodeFaults must give the same faults as the predicate.
+//
+// The test reads git through a subprocess, which go test cannot see, so go test can give a cached result for a
+// new commit. Run it with -count=1.
 func TestOwnTree(t *testing.T) {
 	root, err := RepositoryRoot(".")
 	if err != nil {
