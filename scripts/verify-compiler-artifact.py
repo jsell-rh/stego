@@ -63,10 +63,14 @@ def authenticate(gh, path, bundle, revision, environment):
                                 REPOSITORY, ".github/workflows/compiler-artifact.yml", REFERENCE)
 
 
-def authenticate_subject(gh, path, bundle, revision, environment, repository, workflow, reference):
+def authenticate_subject(gh, path, bundle, revision, environment, repository, workflow, reference,
+                         predicate=PREDICATE):
+    # The predicate type is the compiler's provenance unless the caller names
+    # another statement of the same signer policy, such as a release decision.
     return authenticate_selected_subject(
         gh, path, bundle, environment, repository, reference, revision, revision,
-        ["--cert-identity", "https://github.com/" + repository + "/" + workflow + "@" + reference])
+        ["--cert-identity", "https://github.com/" + repository + "/" + workflow + "@" + reference],
+        predicate)
 
 
 def authenticate_reusable_subject(gh, path, bundle, environment, repository, reference, revision,
@@ -78,7 +82,7 @@ def authenticate_reusable_subject(gh, path, bundle, environment, repository, ref
 
 
 def authenticate_selected_subject(gh, path, bundle, environment, repository, reference, revision,
-                                  signer_revision, identity_flags):
+                                  signer_revision, identity_flags, predicate=PREDICATE):
     source = [] if bundle is None else ["--bundle", str(bundle)]
     return control.command([
         str(gh), "attestation", "verify", str(path), *source,
@@ -86,7 +90,7 @@ def authenticate_selected_subject(gh, path, bundle, environment, repository, ref
         "--signer-digest", signer_revision, *identity_flags,
         "--cert-oidc-issuer", "https://token.actions.githubusercontent.com",
         "--source-ref", reference, "--source-digest", revision,
-        "--predicate-type", PREDICATE, "--digest-alg", "sha256",
+        "--predicate-type", predicate, "--digest-alg", "sha256",
         "--deny-self-hosted-runners", "--format", "json",
     ], path.parent, environment, timeout=90, limit=4 << 20)
 

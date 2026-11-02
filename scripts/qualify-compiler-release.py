@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Qualify a compiler release from completed CI runs before or after publication."""
+"""Qualify a compiler release from its passed release decision and completed CI runs."""
 
 import argparse
 from datetime import datetime, timedelta, timezone
@@ -28,6 +28,10 @@ installer = importlib.util.module_from_spec(installer_spec)
 installer_spec.loader.exec_module(installer)
 
 CHECKS_WORKFLOW = ".github/workflows/checks.yml"
+# The release gate's decision (ST-DIS-UC08-R04): the proof run workflow at
+# main signs a passed release decision with the commit as its subject.
+DECISION_WORKFLOW = ".github/workflows/proof-run.yml"
+DECISION_PREDICATE = "https://github.com/jsell-rh/stego/assure/release-decision/v1"
 ARTIFACT_WORKFLOW = ".github/workflows/compiler-artifact.yml"
 CHECKS_JOB_NAMES = ["examples (user-management)", "examples (user-management-rhsso)",
                     "compiler", "postgres-provisioning", "keycloak-provider",
@@ -231,6 +235,44 @@ def attested_runs(gh, path, revision, bundle=None):
     return runs
 
 
+def release_decision(gh, revision, stage):
+    """Verify the passed release decision attested at exactly the commit."""
+    # The subject of the decision is the commit ID. The file holds exactly its
+    # bytes, so its SHA-256 is the subject digest that GitHub CLI verifies.
+    subject = stage / "release-decision-subject"
+    subject.write_bytes(revision.encode())
+    try:
+        raw = verification.authenticate_subject(
+            gh, subject, None, revision, verification.verifier_environment(), REPOSITORY,
+            DECISION_WORKFLOW, verification.REFERENCE, predicate=DECISION_PREDICATE)
+    except CheckError:
+        raise CheckError("No release decision attested at " + revision + " by "
+                         + DECISION_WORKFLOW + " at " + verification.REFERENCE
+                         + " verifies; a release without a passed decision is not qualified") from None
+    results = json.loads(raw, object_pairs_hook=verification.unique_object)
+    if not isinstance(results, list) or not results:
+        raise CheckError("The release decision verification result is invalid")
+    for result in results:
+        outcome = result.get("verificationResult") if isinstance(result, dict) else None
+        signature = outcome.get("signature") if isinstance(outcome, dict) else None
+        certificate = signature.get("certificate") if isinstance(signature, dict) else None
+        statement = outcome.get("statement") if isinstance(outcome, dict) else None
+        if not isinstance(certificate, dict) or not isinstance(statement, dict):
+            raise CheckError("A release decision signature has no certificate or statement")
+        if certificate.get("sourceRepositoryDigest") != revision:
+            raise CheckError("A release decision signature names another commit")
+        if statement.get("predicateType") != DECISION_PREDICATE:
+            raise CheckError("A release decision statement has another predicate type")
+        predicate = statement.get("predicate")
+        if (isinstance(predicate, dict) and predicate.get("commit") == revision
+                and predicate.get("kind") == "release" and predicate.get("passed") is True):
+            return {"predicate_type": DECISION_PREDICATE,
+                    "signer": "https://github.com/" + REPOSITORY + "/" + DECISION_WORKFLOW
+                    + "@" + verification.REFERENCE,
+                    "commit": revision, "kind": "release", "passed": True}
+    raise CheckError("No passed release decision is attested at " + revision)
+
+
 def qualify(revision, output, gh, verify_release=False):
     if not re.fullmatch(r"[0-9a-f]{40}", revision):
         raise CheckError("Select a full lowercase source commit ID")
@@ -245,6 +287,7 @@ def qualify(revision, output, gh, verify_release=False):
         branches.append("compiler-" + revision)
     with tempfile.TemporaryDirectory(prefix=".stego-qualification-", dir=output.parent) as temporary:
         stage = Path(temporary)
+        decision = release_decision(gh, revision, stage)
         runs = runs_at(gh, revision, stage)
         checks = select_run(runs, CHECKS_WORKFLOW, branches, "compiler checks")
         release = None
@@ -283,6 +326,7 @@ def qualify(revision, output, gh, verify_release=False):
             "mode": "verify-release" if verify_release else "prepare",
             "repository": REPOSITORY,
             "source_revision": revision,
+            "release_decision": decision,
             "compiler_checks": {
                 "run_id": checks["id"], "event": checks["event"],
                 "head_branch": checks["head_branch"], "conclusion": checks["conclusion"],
