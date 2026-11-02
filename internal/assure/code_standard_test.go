@@ -1,10 +1,13 @@
 package assure
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -766,6 +769,55 @@ func baseKnownCodeFaults(t *testing.T, root, base string) (map[[2]string]bool, b
 //
 // The test reads git through a subprocess, which go test cannot see, so go test can give a cached result for a
 // new commit. Run it with -count=1.
+func TestLatheTechnicalKinds(t *testing.T) {
+	t.Run("ST-ASR-SP09-T The code standard reads every kind of Lathe's own technical stage that has a file column, as the pinned Lathe's meta model lists them", func(t *testing.T) {
+		lathe := latheCLI(t)
+		root := codeRepository(t, map[string]string{
+			"lathe.config.json":  `{"schema": 5, "data": "data"}` + "\n",
+			"data/product.jsonl": `{"id":"FX","title":"Fixture","description":"What Fixture is, who it is for, and what it must do."}` + "\n",
+		})
+		command := exec.Command(lathe, "meta-model", "get-meta-model", "--json", "-")
+		command.Dir = root
+		command.Stdin = strings.NewReader("{}")
+		output, err := command.Output()
+		if err != nil {
+			t.Fatalf("lathe meta-model get-meta-model: %v", err)
+		}
+		var model struct {
+			Kinds []struct {
+				Kind       string  `json:"kind"`
+				Stage      *string `json:"stage"`
+				DeclaredBy *string `json:"declared_by"`
+			} `json:"kinds"`
+			Columns map[string][]struct {
+				Name string `json:"name"`
+			} `json:"columns"`
+		}
+		if err := json.Unmarshal(output, &model); err != nil {
+			t.Fatalf("the meta model is not JSON: %v", err)
+		}
+		var withFile []string
+		for _, kind := range model.Kinds {
+			if kind.DeclaredBy != nil || kind.Stage == nil || *kind.Stage != "technical-specification" {
+				continue
+			}
+			for _, column := range model.Columns[kind.Kind] {
+				if column.Name == "file" {
+					withFile = append(withFile, kind.Kind)
+					break
+				}
+			}
+		}
+		sort.Strings(withFile)
+		if len(withFile) == 0 {
+			t.Fatal("the meta model lists no technical kind with a file column")
+		}
+		if got := latheTechnicalKinds(); !reflect.DeepEqual(got, withFile) {
+			t.Fatalf("the code standard reads the kinds %v, but Lathe's technical kinds with a file column are %v", got, withFile)
+		}
+	})
+}
+
 func TestOwnTree(t *testing.T) {
 	root, err := RepositoryRoot(".")
 	if err != nil {

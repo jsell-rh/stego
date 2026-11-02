@@ -200,8 +200,8 @@ type TechnicalRecord struct {
 	File  string
 }
 
-// latheTechnicalKinds are Lathe's own kinds of the technical stage that have a file column, in its schema 2. A
-// product's own kinds of that stage are read from its product_kind table.
+// latheTechnicalKinds are Lathe's own kinds of the technical stage that have a file column, as the meta model of the
+// pinned Lathe lists them. A product's own kinds of that stage are read from its product_kind table.
 func latheTechnicalKinds() []string {
 	return []string{
 		"adapter", "command_handler", "data_model", "endpoint_handler", "entry_point", "event_handler", "event_type",
