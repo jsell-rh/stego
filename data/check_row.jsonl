@@ -1,0 +1,10 @@
+{"id":"ST-ASR-CK01","title":"manual-test-in-spec","domain_id":"ST-ASR","file":"data/check.jsonl"}
+{"id":"ST-ASR-CK02","title":"package-of-two-domains","domain_id":"ST-ASR","file":"data/check.jsonl"}
+{"id":"ST-ASR-CK03","title":"unwritten-record-names-existing-file","domain_id":"ST-ASR","file":"data/check.jsonl"}
+{"id":"ST-ASR-CK04","title":"retired-record-still-present","domain_id":"ST-ASR","file":"data/check.jsonl"}
+{"id":"ST-ASR-CK05","title":"retirement-successor-not-obligation","domain_id":"ST-ASR","file":"data/check.jsonl"}
+{"id":"ST-SUP-CK01","title":"component-stage-unknown","domain_id":"ST-SUP","file":"data/check.jsonl"}
+{"id":"ST-SUP-CK02","title":"component-sunset-wrong","domain_id":"ST-SUP","file":"data/check.jsonl"}
+{"id":"ST-SUP-CK03","title":"library-contract-not-normative","domain_id":"ST-SUP","file":"data/check.jsonl"}
+{"id":"ST-SUP-CK04","title":"output-contract-not-normative","domain_id":"ST-SUP","file":"data/check.jsonl"}
+{"id":"ST-SUP-CK05","title":"registry-part-not-listed","domain_id":"ST-SUP","file":"data/check.jsonl"}

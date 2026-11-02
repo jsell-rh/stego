@@ -1,3 +1,4 @@
+{"kind":"check_row","position":1,"name":"file","type":"text","required":true,"description":"The data file holding the row, from the repo root."}
 {"kind":"cli_command","position":1,"name":"invocation","type":"text","required":true,"description":"What a person types, such as stego validate."}
 {"kind":"cli_command","position":2,"name":"file","type":"text","required":true,"description":"The file that parses it, from the product root."}
 {"kind":"cli_command","position":3,"name":"description","type":"text","required":true,"description":"Its flags and its output in brief."}
