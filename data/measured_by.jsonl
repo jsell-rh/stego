@@ -1,10 +1,10 @@
-{"source_id":"ST-BO01","target_id":"ST-DIS-CLI11"}
-{"source_id":"ST-BO03","target_id":"ST-DIS-CLI11"}
-{"source_id":"ST-BO04","target_id":"ST-DIS-CLI11"}
-{"source_id":"ST-BO06","target_id":"ST-SUP-CLI04"}
+{"source_id":"ST-BO01","target_id":"ST-DIS-QRY05-CLI"}
+{"source_id":"ST-BO03","target_id":"ST-DIS-QRY05-CLI"}
+{"source_id":"ST-BO04","target_id":"ST-DIS-QRY05-CLI"}
+{"source_id":"ST-BO06","target_id":"ST-SUP-QRY04-CLI"}
 {"source_id":"ST-BO06","target_id":"ST-SUP-SP01-T"}
-{"source_id":"ST-BO07","target_id":"ST-ASR-CLI03"}
+{"source_id":"ST-BO07","target_id":"ST-ASR-CMD03-CLI"}
 {"source_id":"ST-BO07","target_id":"ST-ASR-UC03-R01-T01"}
-{"source_id":"ST-BO08","target_id":"ST-DIS-CLI11"}
-{"source_id":"ST-BO08","target_id":"ST-SUP-CLI05"}
+{"source_id":"ST-BO08","target_id":"ST-DIS-QRY05-CLI"}
+{"source_id":"ST-BO08","target_id":"ST-SUP-QRY05-CLI"}
 {"source_id":"ST-BO08","target_id":"ST-SUP-SP07-T"}
