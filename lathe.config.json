@@ -1,5 +1,5 @@
 {
-  "schema": 2,
+  "schema": 5,
   "data": "data",
   "tests": [
     "**/*_test.go",
