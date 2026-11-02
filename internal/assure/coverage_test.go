@@ -15,7 +15,7 @@ import (
 // the product's own value object. FX-LEND-INV01 and FX-LEND-INV02 have a rule in internal/lend/rules.go and an
 // automated test, FX-LEND-INV03 has neither, and the constraint's value type names internal/lend/due.go.
 var latheSpec = map[string]string{
-	"lathe.config.json":    `{"schema": 2, "data": "data", "tests": ["**/*_test.go"]}` + "\n",
+	"lathe.config.json":    `{"schema": 5, "data": "data", "tests": ["**/*_test.go"]}` + "\n",
 	"data/product.jsonl":   `{"id":"FX","title":"Fixture","description":"What Fixture is, who it is for, and what it must do."}` + "\n",
 	"data/domain.jsonl":    `{"id":"FX-LEND","title":"Lending","product_id":"FX","subdomain_type":"core","description":"Lending tools."}` + "\n",
 	"data/aggregate.jsonl": `{"id":"FX-LEND-A1","title":"Loan","domain_id":"FX-LEND","description":"A loan.","identity":"Loan ID"}` + "\n",

@@ -15,7 +15,7 @@ import (
 
 // ledgerSpec is the spec of the ledger's fixture repository: two automated test records and a manual one.
 var ledgerSpec = map[string]string{
-	"lathe.config.json": `{"schema": 2, "data": "data", "tests": ["**/*_test.go"]}` + "\n",
+	"lathe.config.json": `{"schema": 5, "data": "data", "tests": ["**/*_test.go"]}` + "\n",
 	"data/invariant_test.jsonl": `{"id":"FX-LEND-INV01-T","title":"One loan","invariant_id":"FX-LEND-INV01","level":"unit","state":"automated","file":"internal/lend/rules_test.go"}
 {"id":"FX-LEND-INV02-T","title":"Due after start","invariant_id":"FX-LEND-INV02","level":"unit","state":"automated","file":"internal/lend/rules_test.go"}
 {"id":"FX-LEND-INV03-T","title":"Borrower known","invariant_id":"FX-LEND-INV03","level":"unit","state":"manual","manual_reason":"A person checks it."}

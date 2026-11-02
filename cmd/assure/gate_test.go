@@ -101,7 +101,7 @@ const (
 // a constraint of the product that is designed only. It has two workflow files, and a go.mod, so its code faults
 // can be read: the rule FX-LEND-INV02-RL names an identifier that its file does not declare (ST-STD-CODE-R02).
 var gateSpec = map[string]string{
-	"lathe.config.json":    `{"schema": 2, "data": "data", "tests": ["**/*_test.go"]}` + "\n",
+	"lathe.config.json":    `{"schema": 5, "data": "data", "tests": ["**/*_test.go"]}` + "\n",
 	"go.mod":               "module example.com/fixture\n\ngo 1.26\n",
 	"data/product.jsonl":   `{"id":"FX","title":"Fixture","description":"What Fixture is, who it is for, and what it must do."}` + "\n",
 	"data/domain.jsonl":    `{"id":"FX-LEND","title":"Lending","product_id":"FX","subdomain_type":"core","description":"Lending tools."}` + "\n",

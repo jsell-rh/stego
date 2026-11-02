@@ -31,7 +31,7 @@ const trustedWorkflowRef = "jsell-rh/stego/.github/workflows/proof-run.yml@refs/
 // fixtureData is the spec of the fixture repository: test records of two kinds, three of them automated, and a
 // table that holds no tests.
 var fixtureData = map[string]string{
-	"lathe.config.json": `{"schema": 2, "data": "data", "tests": ["**/*_test.go", "scripts/test_*.py"]}` + "\n",
+	"lathe.config.json": `{"schema": 5, "data": "data", "tests": ["**/*_test.go", "scripts/test_*.py"]}` + "\n",
 	"data/domain.jsonl": `{"id":"ST-FIX","title":"Fixture"}` + "\n",
 	"data/invariant_test.jsonl": `{"id":"ST-FIX-INV01-T","title":"One","invariant_id":"ST-FIX-INV01","level":"unit","state":"automated","file":"internal/fix/fix_test.go"}
 {"id":"ST-FIX-INV02-T","title":"Two","invariant_id":"ST-FIX-INV02","level":"unit","state":"automated","file":"internal/fix/fix_test.go"}

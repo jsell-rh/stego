@@ -20,9 +20,9 @@ const fixtureDomains = `{"id":"ST-FXA","title":"Assuring"}
 
 // fixtureKinds declares the product's own kinds of the technical stage, as STEGO's spec declares cli_command and
 // generator, and one kind of another stage, whose records are not technical records even when they name a file.
-const fixtureKinds = `{"name":"cli_command","stage":"technical-specification"}
-{"name":"generator","stage":"technical-specification"}
-{"name":"note","stage":"use-cases"}
+const fixtureKinds = `{"name":"cli_command","stage":"technical-specification","complexity":"accidental"}
+{"name":"generator","stage":"technical-specification","complexity":"accidental"}
+{"name":"note","stage":"use-cases","complexity":"essential"}
 `
 
 // codeSpec reads a spec built for a test from its tables, by name, through ReadSpec, as the gates read the spec
@@ -279,7 +279,7 @@ func TestTestWithoutID(t *testing.T) {
 `,
 		})
 		tree := codeTree(map[string]string{
-			"lathe.config.json":                    `{"schema": 2, "data": "data", "tests": ["**/*_test.go", "scripts/test_*.py"]}`,
+			"lathe.config.json":                    `{"schema": 5, "data": "data", "tests": ["**/*_test.go", "scripts/test_*.py"]}`,
 			"internal/fx/fx_test.go":               fixtureTest("ST-FXD-SP01-T") + "\n// ST-FXD-SP02-T is only in this comment.\n",
 			"internal/fx/helpers_test.go":          "package fx\n\n// Helpers of the fx tests, once ST-FXD-SP01-T.\nconst fixture = \"ST-FXD-SP01-T\"\n\nfunc helper() string { return fixture }\n",
 			"internal/fx/table_test.go":            "package fx\n\nimport \"testing\"\n\nfunc TestTable(t *testing.T) {\n\tfor _, name := range []string{\"ST-FXD-SP01-T holds\"} {\n\t\tt.Run(name, func(t *testing.T) {})\n\t}\n}\n",
@@ -339,7 +339,7 @@ this line is not JSON, and Lathe passes over it
 			"specification_test": `{"id":"ST-FXD-SP01-T","state":"automated","file":"internal/fx/lost.go"}`,
 		})
 		tree := codeTree(map[string]string{
-			"lathe.config.json":                      `{"schema": 2, "data": "data", "tests": ["**/*_test.go", "scripts/test_*.py"]}`,
+			"lathe.config.json":                      `{"schema": 5, "data": "data", "tests": ["**/*_test.go", "scripts/test_*.py"]}`,
 			"internal/fx/named.go":                   "package fx\n",
 			"internal/fx/lost.go":                    "package fx\n",
 			"internal/fx/contract.go":                "package fx\n",
@@ -539,7 +539,7 @@ func TestFindTheCodeFaults(t *testing.T) {
 	t.Run("ST-ASR-DS04-T01 The code faults of a commit come from its tree and spec alone, keyed and ordered, and two readings agree", func(t *testing.T) {
 		root := codeRepository(t, map[string]string{
 			"go.mod":            "module example.com/fx\n",
-			"lathe.config.json": `{"schema": 2, "data": "data", "tests": ["**/*_test.go"]}` + "\n",
+			"lathe.config.json": `{"schema": 5, "data": "data", "tests": ["**/*_test.go"]}` + "\n",
 			"data/domain.jsonl": fixtureDomains,
 			"data/predicate.jsonl": `{"id":"ST-FXD-SP01-PR","title":"mixed.isDeclared","file":"internal/mixed/declared.go"}
 {"id":"ST-FXG-SP01-PR","title":"mixed.isGenerated","file":"internal/mixed/generated.go"}
