@@ -21,10 +21,12 @@ const fixtureDomains = `{"id":"ST-FXA","title":"Assuring"}
 {"id":"ST-FXR","title":"Distributing"}
 `
 
-// fixtureKinds declares the product's own kinds of the technical stage, as STEGO's spec declares cli_command and
-// generator, and one kind of another stage, whose records are not technical records even when they name a file.
-const fixtureKinds = `{"name":"cli_command","stage":"technical-specification","complexity":"accidental"}
+// fixtureKinds declares the product's own kinds of the technical stage, as STEGO's spec declares cli_handler and
+// generator, and kinds of other stages, as STEGO's spec declares cli_command, whose records are not technical
+// records even when they name a file.
+const fixtureKinds = `{"name":"cli_handler","stage":"technical-specification","complexity":"accidental","title_form":"identifier"}
 {"name":"generator","stage":"technical-specification","complexity":"accidental"}
+{"name":"cli_command","stage":"interaction-design","complexity":"essential","title_form":"invocation"}
 {"name":"note","stage":"use-cases","complexity":"essential"}
 `
 
@@ -85,7 +87,7 @@ func TestPackageOfTwoDomains(t *testing.T) {
 			"value_type":  `{"id":"ST-VO01-VT","title":"clean.Shared","file":"internal/clean/shared.go"}`,
 			"adapter":     `{"id":"ST-INT01-AD","title":"clean.Outside","file":"internal/clean/outside.go"}`,
 			"entry_point": `{"id":"ST-FXD-ENTRY01","title":"fx","file":"cmd/fx/main.go"}`,
-			"cli_command": `{"id":"ST-FXB-CLI01","title":"fx build","file":"cmd/fx/build.go"}`,
+			"cli_handler": `{"id":"ST-FXB-CH01","title":"main.build","file":"cmd/fx/build.go"}`,
 			"tooling":     `{"id":"ST-FXG-TOOL01","title":"gen.go","file":"internal/clean/testdata/gen.go"}`,
 			"reader":      `{"id":"ST-FXD-RM01-RD","title":"folder.Read","file":"internal/folder/read.go"}`,
 			"generator":   `{"id":"ST-FXS-RC01-G01","title":"templates","file":"internal/folder/"}`,
@@ -173,17 +175,22 @@ func TestIdentifierMissing(t *testing.T) {
 			"table": `{"id":"ST-FXD-EN01-TB","title":"fx.ProofRunFile","file":"internal/fx/fx.go"}
 {"id":"ST-FXD-EN02-TB","title":"proof-run.json","file":"internal/fx/fx.go"}
 `,
-			"tooling":     `{"id":"ST-FXD-TOOL01","title":"run.py","file":"scripts/run.py"}`,
-			"cli_command": `{"id":"ST-FXD-CLI01","title":"fx decide","file":"cmd/fx/main.go"}`,
+			"tooling": `{"id":"ST-FXD-TOOL01","title":"run.py","file":"scripts/run.py"}`,
+			"cli_handler": `{"id":"ST-FXD-CH01","title":"main.decide","file":"cmd/fx/main.go"}
+{"id":"ST-FXD-CH02","title":"main.missing","file":"cmd/fx/main.go"}
+`,
+			"cli_command": `{"id":"ST-FXD-CMD01-CLI","title":"fx decide","file":"cmd/fx/other.go"}`,
 		})
 		tree := codeTree(map[string]string{
 			"internal/fx/fx.go":    declaringFile,
 			"internal/fx/other.go": "package fx\n\nfunc isElsewhere() bool { return true }\n",
 			"scripts/run.py":       "print('run')\n",
-			"cmd/fx/main.go":       "package main\n",
+			"cmd/fx/main.go":       "package main\n\nfunc decide(args []string) error { return nil }\n",
+			"cmd/fx/other.go":      "package main\n",
 		})
 		file := "internal/fx/fx.go"
 		expectFaults(t, identifierMissing(spec, tree),
+			CodeFault{Rule: "ST-STD-CODE-R02", Key: "ST-FXD-CH02", Path: "cmd/fx/main.go", Reason: "ST-FXD-CH02 names main.missing, which the file does not declare"},
 			CodeFault{Rule: "ST-STD-CODE-R02", Key: "ST-FXD-CMD02-H", Path: file, Reason: "ST-FXD-CMD02-H names fx.Handler.Missing, which the file does not declare"},
 			CodeFault{Rule: "ST-STD-CODE-R02", Key: "ST-FXD-DS01-SV", Path: file, Reason: `ST-FXD-DS01-SV is titled "other.Decision", which is not an identifier of package fx`},
 			CodeFault{Rule: "ST-STD-CODE-R02", Key: "ST-FXD-DS02-SV", Path: file, Reason: "ST-FXD-DS02-SV names fx.Handler, which the file does not declare"},
@@ -339,6 +346,8 @@ func TestFileWithoutRecord(t *testing.T) {
 this line is not JSON, and Lathe passes over it
 `,
 			"note":               `{"id":"ST-FXS-UC01-N01","title":"fx.contract","file":"internal/fx/contract.go"}`,
+			"cli_handler":        `{"id":"ST-FXB-CH01","title":"main.build","file":"cmd/dist/build.go"}`,
+			"cli_command":        `{"id":"ST-FXB-CMD01-CLI","title":"dist serve","file":"cmd/dist/serve.go"}`,
 			"specification_test": `{"id":"ST-FXD-SP01-T","state":"automated","file":"internal/fx/lost.go"}`,
 		})
 		tree := codeTree(map[string]string{
@@ -358,6 +367,8 @@ this line is not JSON, and Lathe passes over it
 			"internal/sub/lathe.config.json":         "{}",
 			"internal/sub/sub.go":                    "package sub\n",
 			"cmd/dist/main.go":                       "package main\n",
+			"cmd/dist/build.go":                      "package main\n",
+			"cmd/dist/serve.go":                      "package main\n",
 			"registry/components/web/generate.go":    "package web\n",
 			"registry/components/web/sub/emit.ts":    "export {}\n",
 			"registry/components/api/component.yaml": "name: api\n",
@@ -375,6 +386,7 @@ this line is not JSON, and Lathe passes over it
 		}
 		expectFaults(t, fileWithoutRecord(spec, tree),
 			fault("cmd/dist/main.go"),
+			fault("cmd/dist/serve.go"),
 			fault("internal/.hidden/hidden.go"),
 			fault("internal/build/build.go"),
 			fault("internal/fx/contract.go"),

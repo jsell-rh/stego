@@ -9,9 +9,10 @@ import (
 	"github.com/jsell-rh/stego/internal/assure"
 )
 
-// ledger is assure ledger (ST-ASR-CLI04). It builds the proof ledger of the commit from verified attestations and
-// the spec in the repository's git objects, prints it, and asks NotPassedAt for the proofs that did not pass there.
-// Only a release-grade proof run, signed at main, gives results; a change-grade one counts only in its own gate.
+// ledger (ST-ASR-CH03) is assure ledger (ST-ASR-QRY01-CLI). It builds the proof ledger of the commit from verified
+// attestations and the spec in the repository's git objects, prints it, and asks NotPassedAt for the proofs that
+// did not pass there. Only a release-grade proof run, signed at main, gives results; a change-grade one counts only
+// in its own gate.
 // It exits 0 when a verified proof run at the commit passed every automated test record, 1 when it did not or
 // there is none, and 2 when it is called wrongly or cannot build the ledger, such as when the commit has no spec or
 // the provider's store cannot answer.

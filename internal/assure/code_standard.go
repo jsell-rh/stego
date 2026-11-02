@@ -361,7 +361,7 @@ func packageDomains(spec Spec, tree Tree) (map[string][]string, map[string]bool)
 
 // packageOfTwoDomains is the predicate of ST-ASR-SP05 (ST-STD-CODE-R01): a Go package under internal holds a file
 // named by a technical record of one domain and a file named by a technical record of another. A shared value
-// type counts for no domain. A package under cmd composes domains, as the Product owner decided: the CLI command
+// type counts for no domain. A package under cmd composes domains, as the Product owner decided: the CLI handler
 // records of several domains name it, and it belongs to no one domain, so it is not checked. It finds one fault
 // per such package, with its domains.
 func packageOfTwoDomains(spec Spec, tree Tree) []CodeFault {
@@ -382,13 +382,14 @@ func packageOfTwoDomains(spec Spec, tree Tree) []CodeFault {
 }
 
 // codeTitledKinds are the kinds of technical record whose title is the package-qualified identifier the file
-// declares: those whose title Lathe defines as the record's name in code, and the table records that
-// ST-ASR-SP06-T names.
+// declares: those whose title Lathe defines as the record's name in code, the table records that ST-ASR-SP06-T
+// names, and STEGO's own CLI handler, a handler whose kind is titled by an identifier, such as main.gate.
 func codeTitledKinds() map[string]bool {
 	return map[string]bool{
-		"adapter": true, "command_handler": true, "data_model": true, "endpoint_handler": true, "event_handler": true,
-		"event_type": true, "predicate": true, "projection": true, "query_handler": true, "reader": true,
-		"repository": true, "rule": true, "service": true, "table": true, "ui_component": true, "value_type": true,
+		"adapter": true, "cli_handler": true, "command_handler": true, "data_model": true, "endpoint_handler": true,
+		"event_handler": true, "event_type": true, "predicate": true, "projection": true, "query_handler": true,
+		"reader": true, "repository": true, "rule": true, "service": true, "table": true, "ui_component": true,
+		"value_type": true,
 	}
 }
 

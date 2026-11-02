@@ -17,10 +17,10 @@ import (
 // environment.
 type provider func(getenv func(string) string) (assure.AttestationStore, assure.BundleVerifier, func(), error)
 
-// gate is assure gate change (ST-ASR-CLI02) and assure gate release (ST-ASR-CLI03). Each prints the decision with
-// every reason, and exits 0 when the commit passes and 1 when it is refused. When it cannot decide, such as when
-// Lathe finds an error in the spec at a commit it reads, it prints no decision, names why on stderr and in one line
-// of the job's step summary, and exits 2.
+// gate (ST-ASR-CH02) is assure gate change (ST-ASR-CMD02-CLI) and assure gate release (ST-ASR-CMD03-CLI). Each
+// prints the decision with every reason, and exits 0 when the commit passes and 1 when it is refused. When it
+// cannot decide, such as when Lathe finds an error in the spec at a commit it reads, it prints no decision, names
+// why on stderr and in one line of the job's step summary, and exits 2.
 func gate(args []string, stdout, stderr io.Writer, getenv func(string) string, open provider) int {
 	if len(args) > 0 && args[0] == "change" {
 		return gateChangeCommand(args[1:], stdout, stderr, getenv, open)
@@ -32,7 +32,7 @@ func gate(args []string, stdout, stderr io.Writer, getenv func(string) string, o
 	return 2
 }
 
-// gateChangeCommand is assure gate change (ST-ASR-CLI02). It gates the change's commit against the base head.
+// gateChangeCommand is assure gate change (ST-ASR-CMD02-CLI). It gates the change's commit against the base head.
 func gateChangeCommand(args []string, stdout, stderr io.Writer, getenv func(string) string, open provider) int {
 	flags := flag.NewFlagSet("assure gate change", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -60,8 +60,8 @@ func gateChangeCommand(args []string, stdout, stderr io.Writer, getenv func(stri
 	return 0
 }
 
-// gateReleaseCommand is assure gate release (ST-ASR-CLI03). It gates the release commit on its own, and writes
-// the decision predicate for the provider's attestation action only when the release passes. After a refused
+// gateReleaseCommand is assure gate release (ST-ASR-CMD03-CLI). It gates the release commit on its own, and
+// writes the decision predicate for the provider's attestation action only when the release passes. After a refused
 // decision it prints one notice line for the CI log, "::notice::release refused: N reasons", and exits 1.
 func gateReleaseCommand(args []string, stdout, stderr io.Writer, getenv func(string) string, open provider) int {
 	flags := flag.NewFlagSet("assure gate release", flag.ContinueOnError)
