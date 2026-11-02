@@ -10,9 +10,9 @@ import (
 	"github.com/jsell-rh/stego/internal/assure"
 )
 
-// record is assure record (ST-ASR-CLI01). It reads the suites' output, writes the proof run predicate for the
-// provider's attestation action, and exits non-zero on an unknown test ID, a commit that is not the full commit
-// checked out, or a tree with uncommitted changes. When it refuses, it writes nothing.
+// record (ST-ASR-CH01) is assure record (ST-ASR-CMD01-CLI). It reads the suites' output, writes the proof run
+// predicate for the provider's attestation action, and exits non-zero on an unknown test ID, a commit that is not
+// the full commit checked out, or a tree with uncommitted changes. When it refuses, it writes nothing.
 func record(args []string, stdout, stderr io.Writer, getenv func(string) string) int {
 	flags := flag.NewFlagSet("assure record", flag.ContinueOnError)
 	flags.SetOutput(stderr)

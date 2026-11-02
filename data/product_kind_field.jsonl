@@ -1,6 +1,9 @@
-{"kind":"cli_command","position":1,"name":"invocation","type":"text","required":true,"description":"What a person types, such as stego validate."}
-{"kind":"cli_command","position":2,"name":"file","type":"text","required":true,"description":"The file that parses it, from the product root."}
-{"kind":"cli_command","position":3,"name":"description","type":"text","required":true,"description":"Its flags and its output in brief."}
+{"kind":"cli_command","position":1,"name":"usage","type":"text","required":true,"description":"How it is called, such as assure gate change --commit <sha> --base <sha>."}
+{"kind":"cli_command","position":2,"name":"description","type":"text","required":true,"description":"Its flags and its output in brief."}
+{"kind":"cli_handler","position":1,"name":"file","type":"text","required":true,"description":"The file that parses it, from the product root."}
+{"kind":"cli_handler","position":2,"name":"description","type":"text","required":true,"description":"What in the file parses which invocations."}
+{"kind":"cli_query","position":1,"name":"usage","type":"text","required":true,"description":"How it is called, such as assure ledger --commit <sha>."}
+{"kind":"cli_query","position":2,"name":"description","type":"text","required":true,"description":"Its flags and its output in brief."}
 {"kind":"generator","position":1,"name":"file","type":"text","required":true,"description":"The file, from the product root."}
 {"kind":"generator","position":2,"name":"description","type":"text","required":true,"description":"What in the file implements which contracts, by name."}
 {"kind":"library_contract","position":1,"name":"statement","type":"text","required":true,"description":"The promise, in one sentence with MUST, MUST NOT, SHOULD or MAY."}

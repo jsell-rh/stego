@@ -1,7 +1,7 @@
 // Command assure is the command line of the Assuring domain (ST-ASR). assure record records a proof run at the
-// commit CI checked out (ST-ASR-CLI01), assure gate change gates a change against its base head (ST-ASR-CLI02),
-// assure gate release gates a release commit on its own (ST-ASR-CLI03), and assure ledger shows what a commit
-// proved (ST-ASR-CLI04).
+// commit CI checked out (ST-ASR-CMD01-CLI), assure gate change gates a change against its base head
+// (ST-ASR-CMD02-CLI), assure gate release gates a release commit on its own (ST-ASR-CMD03-CLI), and assure ledger
+// shows what a commit proved (ST-ASR-QRY01-CLI).
 package main
 
 import (
