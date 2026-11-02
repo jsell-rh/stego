@@ -388,7 +388,7 @@ class ReleasePublishing(unittest.TestCase):
                       + self.world.tag + "\n", run.log)
 
     def test_publish_and_qualify_flow(self):
-        with self.subTest("ST-DIS-UC11-FL01-T A passed release decision publishes the commit's release, which qualifies through the consumer path, and every refused path publishes nothing"):
+        with self.subTest("ST-DIS-UC11-FL-T A passed release decision publishes the commit's release, which qualifies through the consumer path, and every refused path publishes nothing"):
             # Main path: the decision passed and the signed artifact run succeeded.
             run = self.publish()
             self.assert_published(run)
@@ -408,19 +408,19 @@ class ReleasePublishing(unittest.TestCase):
             self.assertEqual(record["release"]["tag_name"], self.world.tag)
             self.assertEqual(record["release"]["signing_run"], {"id": ARTIFACT_RUN, "attempt": 1})
 
-        with self.subTest("ST-DIS-UC11-FL01-T A refused or absent release decision publishes nothing"):
+        with self.subTest("ST-DIS-UC11-FL-T A refused or absent release decision publishes nothing"):
             for change in [{"passed": False}, {}]:
                 self.world = self.new_world("refused-" + str(len(change)))
                 self.world.decide(**change)
                 self.assert_nothing_published(self.publish(), "Nothing is published.")
 
-        with self.subTest("ST-DIS-UC11-FL01-T An existing tag stops publishing and names the tag"):
+        with self.subTest("ST-DIS-UC11-FL-T An existing tag stops publishing and names the tag"):
             self.world = self.new_world("tagged")
             self.world.state["api"]["repos/jsell-rh/stego/git/matching-refs/tags/" + self.world.tag] = [
                 {"ref": "refs/tags/" + self.world.tag, "object": {"type": "commit", "sha": self.world.commit}}]
             self.assert_nothing_published(self.publish(), "The tag " + self.world.tag + " exists.")
 
-        with self.subTest("ST-DIS-UC11-FL01-T A mismatched asset digest stops before the release"):
+        with self.subTest("ST-DIS-UC11-FL-T A mismatched asset digest stops before the release"):
             self.world = self.new_world("mismatched")
             self.world.store_artifacts(lambda artifacts: artifacts[0].update(digest="sha256:" + "0" * 64))
             self.assert_nothing_published(self.publish(), "does not match the digest that run 202 lists for it")
