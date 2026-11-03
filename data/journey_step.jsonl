@@ -6,3 +6,7 @@
 {"id":"ST-JR02-S02","title":"The agent asks STEGO to check the declaration, and STEGO reports every fault","journey_id":"ST-JR02","path":"main","position":2}
 {"id":"ST-JR02-S03","title":"The agent repairs the declaration from the refusal alone and checks it again, until STEGO accepts it","journey_id":"ST-JR02","path":"main","position":3}
 {"id":"ST-JR02-S04","title":"The service author qualifies each fill the declaration binds, and signs its test evidence with their own key","journey_id":"ST-JR02","path":"main","position":4}
+{"id":"ST-JR03-S01","title":"The platform engineer composes a registry for the team, with a local registry for the team's own components","journey_id":"ST-JR03","path":"main","position":1}
+{"id":"ST-JR03-S02","title":"The service author contributes the team's component upstream, and the platform team accepts it into the common registry at alpha","journey_id":"ST-JR03","path":"main","position":2}
+{"id":"ST-JR03-S03","title":"The platform engineer graduates the component to ga when it meets the quality bar","journey_id":"ST-JR03","path":"main","position":3}
+{"id":"ST-JR03-S04","title":"The platform engineer retires the component, after naming every service that uses it","journey_id":"ST-JR03","path":"will not graduate","position":1}
