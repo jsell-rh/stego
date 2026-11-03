@@ -37,6 +37,7 @@
 {"source_id":"ST-DECL-TM21","target_id":"ST-SUP-TM37"}
 {"source_id":"ST-DECL-TM21","target_id":"ST-SUP-TM38"}
 {"source_id":"ST-DECL-TM22","target_id":"ST-DECL-TM01"}
+{"source_id":"ST-DECL-TM22","target_id":"ST-DECL-TM03"}
 {"source_id":"ST-DECL-TM23","target_id":"ST-DECL-TM01"}
 {"source_id":"ST-DECL-TM23","target_id":"ST-DIS-TM11"}
 {"source_id":"ST-DECL-TM24","target_id":"ST-DECL-TM01"}
