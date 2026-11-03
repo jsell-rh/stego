@@ -12,12 +12,12 @@
 {"id":"ST-VO49","title":"SBOM format","description":"The format of one software bill of materials."}
 {"id":"ST-VO50","title":"Signer identity","description":"Who made an image signature: a keyless identity that the signing service's certificate states, or a Tekton Chains signer named by its public key."}
 {"id":"ST-VO51","title":"CI provider","description":"The CI system that builds and signs a service's images."}
-{"id":"ST-VO52","title":"Pinned pipeline reference","description":"A reference to shared pipeline code that cannot move: a reusable workflow at one commit, or a Tekton bundle at one digest."}
+{"id":"ST-VO52","title":"Pinned pipeline reference","description":"A reference to shared pipeline code that cannot move: a shared pipeline definition at one commit, or a Tekton bundle at one digest."}
 {"id":"ST-VO53","title":"Requirement kind","description":"What sort of thing a service needs the environment to supply."}
 {"id":"ST-VO54","title":"Test result","description":"What one test did in one run."}
-{"id":"ST-VO55","title":"Coverage share","description":"How much of the spec's obligations lathe counts as designed, built and proved at one commit, each as a share of the total."}
+{"id":"ST-VO55","title":"Coverage share","description":"How much of the spec's obligations the spec's check counts as designed, built and proved at one commit, each as a share of the total."}
 {"id":"ST-VO56","title":"Attestation reference","description":"Where a signed statement about one commit is kept, and who signed it."}
 {"id":"ST-VO57","title":"Gate kind","description":"Which bar a gate holds a commit to."}
-{"id":"ST-VO58","title":"Runtime pin","description":"One version of the runtime library, fixed by module path, tagged version and the go.sum hash of that version's contents."}
-{"id":"ST-VO59","title":"Image target","description":"One image a service's pipeline builds: which module and build target, and the executable that is its entry point."}
+{"id":"ST-VO58","title":"Runtime pin","description":"One version of the runtime library, fixed by module path, tagged version and the checksum that the module requirements hold for that version's contents."}
+{"id":"ST-VO59","title":"Image target","description":"One image a service's pipeline builds: which module and build target, and the executable that the image starts."}
 {"id":"ST-VO61","title":"Money","description":"An amount of one currency in integer minor units. Allocation splits an amount without losing a minor unit."}
