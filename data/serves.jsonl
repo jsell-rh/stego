@@ -25,6 +25,7 @@
 {"source_id":"ST-JR01","target_id":"ST-BO04"}
 {"source_id":"ST-JR02","target_id":"ST-BO05"}
 {"source_id":"ST-JR03","target_id":"ST-BO02"}
+{"source_id":"ST-JR04","target_id":"ST-BO06"}
 {"source_id":"ST-SUP-CAP01","target_id":"ST-BO01"}
 {"source_id":"ST-SUP-CAP01","target_id":"ST-BO02"}
 {"source_id":"ST-SUP-CAP01","target_id":"ST-BO08"}

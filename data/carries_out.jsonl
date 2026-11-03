@@ -10,3 +10,7 @@
 {"source_id":"ST-JR03-S02","target_id":"ST-SUP-UC06"}
 {"source_id":"ST-JR03-S03","target_id":"ST-SUP-UC05"}
 {"source_id":"ST-JR03-S04","target_id":"ST-SUP-UC05"}
+{"source_id":"ST-JR04-S01","target_id":"ST-SUP-UC04"}
+{"source_id":"ST-JR04-S02","target_id":"ST-SUP-UC05"}
+{"source_id":"ST-JR04-S03","target_id":"ST-SUP-UC10"}
+{"source_id":"ST-JR04-S04","target_id":"ST-SUP-UC05"}
