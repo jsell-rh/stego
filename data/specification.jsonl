@@ -21,7 +21,7 @@
 {"id":"ST-DECL-SP09","title":"Money field is a float","statement":"A declaration satisfies it when a field that holds money is typed as a float or a decimal instead of integer minor units with a currency."}
 {"id":"ST-DECL-SP10","title":"Ledger currency is not one ISO 4217 code","statement":"A declaration satisfies it when a ledger has no currency, a currency that is not an ISO 4217 code, or an account minimum balance in another currency."}
 {"id":"ST-DECL-SP11","title":"Ledger collection allows update or delete","statement":"A declaration satisfies it when a collection over a ledger names update or delete among its operations."}
-{"id":"ST-DECL-SP12","title":"Balance column writable by a slot","statement":"A declaration satisfies it when a slot binding on a ledger account collection can update a balance column."}
+{"id":"ST-DECL-SP12","title":"Stored balance writable by a slot","statement":"A declaration satisfies it when a slot binding on a ledger account collection can update a stored balance."}
 {"id":"ST-DECL-SP13","title":"Transfer has one entry","statement":"A declaration satisfies it when a transfer code or a transfer example states one entry, so the set cannot balance."}
 {"id":"ST-DECL-SP14","title":"Mode unknown","statement":"A declaration satisfies it when Modes names a mode other than api, worker or controller."}
 {"id":"ST-DECL-SP15","title":"Mixin requirement unmet","statement":"A declaration satisfies it when it binds kafka-events without durable-events."}

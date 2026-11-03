@@ -43,7 +43,7 @@
 {"id":"ST-BLD-UC06-FL-S07","title":"The consumer names a repository by tag or a CA bundle whose digest is not trusted, so STEGO refuses to retrieve before it opens a connection and names the input","flow_id":"ST-BLD-UC06-FL","path":"unverified","position":2}
 {"id":"ST-DECL-UC01-FL-S01","title":"The author names the archetype for the new service","flow_id":"ST-DECL-UC01-FL","path":"main","position":1}
 {"id":"ST-DECL-UC01-FL-S02","title":"STEGO writes the declaration with the archetype's smallest example content, and a folder for fills","flow_id":"ST-DECL-UC01-FL","path":"main","position":2}
-{"id":"ST-DECL-UC01-FL-S03","title":"STEGO resolves the registry with generation's resolver under the apply lock, keeps the configuration bytes as written, and writes a configuration that names ./registry or the environment override as a local source when none exists","flow_id":"ST-DECL-UC01-FL","path":"main","position":3}
+{"id":"ST-DECL-UC01-FL-S03","title":"STEGO resolves the registry with generation's resolver under the apply lock, keeps the configuration bytes as written, and writes a configuration that names the default local registry folder or the environment override as a local source when none exists","flow_id":"ST-DECL-UC01-FL","path":"main","position":3}
 {"id":"ST-DECL-UC01-FL-S04","title":"Asked for an empty scaffold, STEGO leaves the example content out and names every setting the author must supply","flow_id":"ST-DECL-UC01-FL","path":"empty","position":1}
 {"id":"ST-DECL-UC01-FL-S05","title":"An archetype the registry does not hold is refused, with the archetypes it does hold","flow_id":"ST-DECL-UC01-FL","path":"refused","position":1}
 {"id":"ST-DECL-UC01-FL-S06","title":"A declaration already present stops the scaffold, and no file changes","flow_id":"ST-DECL-UC01-FL","path":"refused","position":2}
@@ -58,7 +58,7 @@
 {"id":"ST-DECL-UC04-FL-S02","title":"The agent changes the declaration at the path each fault names","flow_id":"ST-DECL-UC04-FL","path":"main","position":2}
 {"id":"ST-DECL-UC04-FL-S03","title":"The agent asks STEGO to check the declaration again","flow_id":"ST-DECL-UC04-FL","path":"main","position":3}
 {"id":"ST-DECL-UC04-FL-S04","title":"The check refuses the declaration again, so the agent compares the new faults with the old ones and repairs the faults that remain","flow_id":"ST-DECL-UC04-FL","path":"repeated","position":1}
-{"id":"ST-DECL-UC04-FL-S05","title":"The changed declaration no longer reads as one YAML document, so STEGO reports one fault with the line and column where reading stopped, and the agent repairs that place first","flow_id":"ST-DECL-UC04-FL","path":"unreadable","position":1}
+{"id":"ST-DECL-UC04-FL-S05","title":"The changed declaration can no longer be read as one document, so STEGO reports one fault with the line and the position where reading stopped, and the agent repairs that place first","flow_id":"ST-DECL-UC04-FL","path":"unreadable","position":1}
 {"id":"ST-DECL-UC05-FL-S01","title":"The author writes the tenancy and audit settings, marks each entity owned, shared or system, and marks each sensitive field pii or secret","flow_id":"ST-DECL-UC05-FL","path":"main","position":1}
 {"id":"ST-DECL-UC05-FL-S02","title":"The author asks STEGO to check the declaration, and STEGO accepts it with the claim path and the defaults it filled in","flow_id":"ST-DECL-UC05-FL","path":"main","position":2}
 {"id":"ST-DECL-UC05-FL-S03","title":"A declaration that says tenancy kind single or audit off and gives no reason is refused, naming the setting","flow_id":"ST-DECL-UC05-FL","path":"refused","position":1}
@@ -80,7 +80,7 @@
 {"id":"ST-DECL-UC08-FL-S03","title":"The author asks STEGO to check the declaration, and STEGO accepts it","flow_id":"ST-DECL-UC08-FL","path":"main","position":3}
 {"id":"ST-DECL-UC08-FL-S04","title":"A money field typed as a float is refused, naming the field","flow_id":"ST-DECL-UC08-FL","path":"refused","position":1}
 {"id":"ST-DECL-UC08-FL-S05","title":"A ledger collection that allows update or delete is refused, naming the collection and the operation","flow_id":"ST-DECL-UC08-FL","path":"refused","position":2}
-{"id":"ST-DECL-UC08-FL-S06","title":"A slot binding that can update a balance column is refused, naming the binding and the column","flow_id":"ST-DECL-UC08-FL","path":"refused","position":3}
+{"id":"ST-DECL-UC08-FL-S06","title":"A slot binding that can update a stored balance is refused, naming the binding and the balance field","flow_id":"ST-DECL-UC08-FL","path":"refused","position":3}
 {"id":"ST-DECL-UC08-FL-S07","title":"A transfer with one entry is refused, naming the transfer","flow_id":"ST-DECL-UC08-FL","path":"refused","position":4}
 {"id":"ST-DECL-UC09-FL-S01","title":"The author declares the modes and the mixins","flow_id":"ST-DECL-UC09-FL","path":"main","position":1}
 {"id":"ST-DECL-UC09-FL-S02","title":"The author declares each controller with its sources, resync, replicas and lease TTL, and each invariant with its kind and fields","flow_id":"ST-DECL-UC09-FL","path":"main","position":2}
