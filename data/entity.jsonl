@@ -29,7 +29,7 @@
 {"id":"ST-DIS-EN06","title":"Digest lifecycle","aggregate_id":"ST-DIS-A2","role":"root","description":"The standing of one published component digest."}
 {"id":"ST-DIS-EN07","title":"Supersession","aggregate_id":"ST-DIS-A2","role":"child","in_root_table":true,"description":"A statement that the digest has a successor, with the date after which the digest fails."}
 {"id":"ST-DIS-EN08","title":"Withdrawal","aggregate_id":"ST-DIS-A2","role":"child","in_root_table":true,"description":"A statement that the digest must not be used any more, with the date after which it fails."}
-{"id":"ST-DIS-EN09","title":"Compiler release","aggregate_id":"ST-DIS-A3","role":"root","description":"One compiler release and its qualification, as qualification.json records it."}
+{"id":"ST-DIS-EN09","title":"Compiler release","aggregate_id":"ST-DIS-A3","role":"root","description":"One compiler release and its qualification, as its qualification record holds it."}
 {"id":"ST-DIS-EN10","title":"Required job result","aggregate_id":"ST-DIS-A3","role":"child","in_root_table":true,"description":"The conclusion of one job that qualification requires."}
 {"id":"ST-DIS-EN11","title":"Release asset","aggregate_id":"ST-DIS-A3","role":"child","in_root_table":true,"description":"One file of the published release."}
 {"id":"ST-DIS-EN12","title":"Compiler installation","aggregate_id":"ST-DIS-A4","role":"root","description":"One installed compiler: the binary and its signed build record in a result folder."}
