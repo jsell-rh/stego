@@ -1,0 +1,16 @@
+{"id":"ST-JR01-S01","title":"The platform engineer ships the fix as a new digest and records it as the successor of the old one, with the fail date","journey_id":"ST-JR01","path":"main","position":1}
+{"id":"ST-JR01-S02","title":"The service author learns, while working, that a pin of the service is superseded, with its successor and fail date","journey_id":"ST-JR01","path":"main","position":2}
+{"id":"ST-JR01-S03","title":"The platform engineer finds every service built from the superseded digest","journey_id":"ST-JR01","path":"main","position":3}
+{"id":"ST-JR01-S04","title":"The service author of each affected service takes the fix into the service by a pin bump and a new run","journey_id":"ST-JR01","path":"main","position":4}
+{"id":"ST-JR02-S01","title":"The agent starts the service's declaration from an archetype","journey_id":"ST-JR02","path":"main","position":1}
+{"id":"ST-JR02-S02","title":"The agent asks STEGO to check the declaration, and STEGO reports every fault","journey_id":"ST-JR02","path":"main","position":2}
+{"id":"ST-JR02-S03","title":"The agent repairs the declaration from the refusal alone and checks it again, until STEGO accepts it","journey_id":"ST-JR02","path":"main","position":3}
+{"id":"ST-JR02-S04","title":"The service author qualifies each fill the declaration binds, and signs its test evidence with their own key","journey_id":"ST-JR02","path":"main","position":4}
+{"id":"ST-JR03-S01","title":"The platform engineer composes a registry for the team, with a local registry for the team's own components","journey_id":"ST-JR03","path":"main","position":1}
+{"id":"ST-JR03-S02","title":"The service author contributes the team's component upstream, and the platform team accepts it into the common registry at alpha","journey_id":"ST-JR03","path":"main","position":2}
+{"id":"ST-JR03-S03","title":"The platform engineer graduates the component to ga when it meets the quality bar","journey_id":"ST-JR03","path":"main","position":3}
+{"id":"ST-JR03-S04","title":"The platform engineer retires the component, after naming every service that uses it","journey_id":"ST-JR03","path":"will not graduate","position":1}
+{"id":"ST-JR04-S01","title":"The platform engineer introduces the component at alpha with its sunset date, and a service that wants it accepts it by name with a date","journey_id":"ST-JR04","path":"main","position":1}
+{"id":"ST-JR04-S02","title":"The platform engineer graduates the experiment to ga before its sunset, when it meets the quality bar","journey_id":"ST-JR04","path":"main","position":2}
+{"id":"ST-JR04-S03","title":"The platform engineer curates a golden path that includes the graduated component","journey_id":"ST-JR04","path":"main","position":3}
+{"id":"ST-JR04-S04","title":"The platform engineer retires the experiment before its sunset, and no golden path includes it","journey_id":"ST-JR04","path":"will not graduate","position":1}
