@@ -2,3 +2,7 @@
 {"id":"ST-JR01-S02","title":"The service author learns, while working, that a pin of the service is superseded, with its successor and fail date","journey_id":"ST-JR01","path":"main","position":2}
 {"id":"ST-JR01-S03","title":"The platform engineer finds every service built from the superseded digest","journey_id":"ST-JR01","path":"main","position":3}
 {"id":"ST-JR01-S04","title":"The service author of each affected service takes the fix into the service by a pin bump and a new run","journey_id":"ST-JR01","path":"main","position":4}
+{"id":"ST-JR02-S01","title":"The agent starts the service's declaration from an archetype","journey_id":"ST-JR02","path":"main","position":1}
+{"id":"ST-JR02-S02","title":"The agent asks STEGO to check the declaration, and STEGO reports every fault","journey_id":"ST-JR02","path":"main","position":2}
+{"id":"ST-JR02-S03","title":"The agent repairs the declaration from the refusal alone and checks it again, until STEGO accepts it","journey_id":"ST-JR02","path":"main","position":3}
+{"id":"ST-JR02-S04","title":"The service author qualifies each fill the declaration binds, and signs its test evidence with their own key","journey_id":"ST-JR02","path":"main","position":4}
