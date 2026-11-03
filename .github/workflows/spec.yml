@@ -33,7 +33,7 @@ concurrency:
 
 env:
   # .github/workflows/proof-run.yml pins the same Lathe commit for its suites and gate jobs: move both together.
-  LATHE_REF: 72ab28b69f8785cc432aff7fc33ecd1e2de0afbb
+  LATHE_REF: dcdc1e1751bd1e1bc4f59f773772f0d1ac343613
 
 jobs:
   check:
