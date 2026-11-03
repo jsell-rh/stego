@@ -1,0 +1,4 @@
+{"id":"ST-JR01-S01","title":"The platform engineer ships the fix as a new digest and records it as the successor of the old one, with the fail date","journey_id":"ST-JR01","path":"main","position":1}
+{"id":"ST-JR01-S02","title":"The service author learns, while working, that a pin of the service is superseded, with its successor and fail date","journey_id":"ST-JR01","path":"main","position":2}
+{"id":"ST-JR01-S03","title":"The platform engineer finds every service built from the superseded digest","journey_id":"ST-JR01","path":"main","position":3}
+{"id":"ST-JR01-S04","title":"The service author of each affected service takes the fix into the service by a pin bump and a new run","journey_id":"ST-JR01","path":"main","position":4}
