@@ -150,19 +150,19 @@
 {"id":"ST-DLV-UC05-FL-S05","title":"The delivery stanza names a destination, a namespace or an overlay, so apply refuses it as an undeclared field, names the path, and writes nothing","flow_id":"ST-DLV-UC05-FL","path":"refused","position":1}
 {"id":"ST-DLV-UC05-FL-S06","title":"stego env check finds an unmet requirement, so the GitOps flow stops before Argo CD syncs the overlay, and the operator completes the environment file and checks again","flow_id":"ST-DLV-UC05-FL","path":"unmet","position":1}
 {"id":"ST-EXT-UC01-FL-S01","title":"The agent runs fill create for the slot and collection, and STEGO writes a fill and a test that compile against the slot's contract","flow_id":"ST-EXT-UC01-FL","path":"main","position":1}
-{"id":"ST-EXT-UC01-FL-S02","title":"The agent writes the rule and its tests, binds the fill in the declaration, and runs stego test, and STEGO records the fill's evidence","flow_id":"ST-EXT-UC01-FL","path":"main","position":2}
+{"id":"ST-EXT-UC01-FL-S02","title":"The agent writes the rule and its tests, binds the fill in the declaration, and records test evidence, and STEGO records the fill's evidence","flow_id":"ST-EXT-UC01-FL","path":"main","position":2}
 {"id":"ST-EXT-UC01-FL-S03","title":"Plan finds a bound fill that implements another slot or serves another collection, and stops","flow_id":"ST-EXT-UC01-FL","path":"misfit","position":1}
 {"id":"ST-EXT-UC01-FL-S04","title":"A fill with no test file or a forbidden import gets no evidence, and STEGO names why","flow_id":"ST-EXT-UC01-FL","path":"refused","position":1}
-{"id":"ST-EXT-UC02-FL-S01","title":"The service author runs stego test, and STEGO records the evidence of each fill whose tests pass","flow_id":"ST-EXT-UC02-FL","path":"main","position":1}
+{"id":"ST-EXT-UC02-FL-S01","title":"The service author records test evidence, and STEGO records the evidence of each fill whose tests pass","flow_id":"ST-EXT-UC02-FL","path":"main","position":1}
 {"id":"ST-EXT-UC02-FL-S02","title":"The service author runs fill sign, and STEGO signs the evidence with the author's key and writes the sign-off","flow_id":"ST-EXT-UC02-FL","path":"main","position":2}
 {"id":"ST-EXT-UC02-FL-S03","title":"A fill's tests fail, so STEGO records no evidence and fill sign refuses it","flow_id":"ST-EXT-UC02-FL","path":"failed","position":1}
 {"id":"ST-EXT-UC02-FL-S04","title":"A signature by a key that the SIGNERS file does not list leaves the fill unsigned, and plan stops","flow_id":"ST-EXT-UC02-FL","path":"unlisted","position":1}
 {"id":"ST-EXT-UC03-FL-S01","title":"The agent runs registry fills for the slot, and STEGO lists each fill with its collection and standing","flow_id":"ST-EXT-UC03-FL","path":"main","position":1}
-{"id":"ST-EXT-UC03-FL-S02","title":"A fill folder holds a fill.yaml STEGO cannot read, so the list shows it as unreadable with its fault, and the author repairs it","flow_id":"ST-EXT-UC03-FL","path":"broken","position":1}
+{"id":"ST-EXT-UC03-FL-S02","title":"A fill folder holds a fill manifest STEGO cannot read, so the list shows it as unreadable with its fault, and the author repairs it","flow_id":"ST-EXT-UC03-FL","path":"broken","position":1}
 {"id":"ST-EXT-UC03-FL-S03","title":"No fill implements the slot, so STEGO says so by name and names fill create as the way to add one","flow_id":"ST-EXT-UC03-FL","path":"empty","position":1}
 {"id":"ST-EXT-UC03-FL-S04","title":"The slot is one no component of the active set declares, so STEGO refuses and names the slots the set does declare","flow_id":"ST-EXT-UC03-FL","path":"refused","position":1}
 {"id":"ST-EXT-UC04-FL-S01","title":"The service author runs fill status, and STEGO names each stale fill and what changed","flow_id":"ST-EXT-UC04-FL","path":"main","position":1}
-{"id":"ST-EXT-UC04-FL-S02","title":"The service author runs stego test, and STEGO records new evidence","flow_id":"ST-EXT-UC04-FL","path":"main","position":2}
+{"id":"ST-EXT-UC04-FL-S02","title":"The service author records test evidence, and STEGO records new evidence","flow_id":"ST-EXT-UC04-FL","path":"main","position":2}
 {"id":"ST-EXT-UC04-FL-S03","title":"The service author runs fill sign, and STEGO signs the new evidence","flow_id":"ST-EXT-UC04-FL","path":"main","position":3}
 {"id":"ST-EXT-UC04-FL-S04","title":"Plan or apply meets a stale fill, stops, and names it","flow_id":"ST-EXT-UC04-FL","path":"stopped","position":1}
 {"id":"ST-GEN-UC01-FL-S01","title":"The service author runs apply, and STEGO writes the generated files and the record together","flow_id":"ST-GEN-UC01-FL","path":"main","position":1}

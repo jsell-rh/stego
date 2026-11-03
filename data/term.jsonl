@@ -58,11 +58,12 @@
 {"id":"ST-DLV-TM06","title":"Delivery candidate","domain_id":"ST-DLV","meaning":"An image the CI system built, before every STEGO check has passed on it."}
 {"id":"ST-DLV-TM07","title":"Trusted signer","domain_id":"ST-DLV","meaning":"The one identity the CI system's images may be signed by: a pinned workflow's keyless identity, or a Tekton Chains key."}
 {"id":"ST-EXT-TM01","title":"Fill","domain_id":"ST-EXT","meaning":"Hand-written code in a service's fills/ folder that implements one slot's contract for one collection, with its own tests."}
-{"id":"ST-EXT-TM02","title":"Test evidence","domain_id":"ST-EXT","meaning":"The entry in fill.yaml that a fill's tests passed against one exact state of the fill and its slot contract."}
-{"id":"ST-EXT-TM03","title":"Sign-off","domain_id":"ST-EXT","meaning":"A person's key signature, in fill.yaml, of a fill's test evidence."}
-{"id":"ST-EXT-TM04","title":"SIGNERS","domain_id":"ST-EXT","meaning":"The file named SIGNERS at the project root, like OWNERS, that lists the keys whose signatures may qualify a fill: SSH keys in the allowed signers format git uses, and GPG keys. Adding a signer is a reviewed change to it."}
+{"id":"ST-EXT-TM02","title":"Test evidence","domain_id":"ST-EXT","meaning":"The entry in the fill manifest that a fill's tests passed against one exact state of the fill and its slot contract."}
+{"id":"ST-EXT-TM03","title":"Sign-off","domain_id":"ST-EXT","meaning":"A person's key signature, in the fill manifest, of a fill's test evidence."}
+{"id":"ST-EXT-TM04","title":"SIGNERS","domain_id":"ST-EXT","meaning":"The file named SIGNERS at the project root, like OWNERS, that lists the keys whose signatures may qualify a fill: SSH keys in the SSH allowed signers format, and GPG keys. Adding a signer is a reviewed change to it."}
 {"id":"ST-EXT-TM05","title":"Qualified fill","domain_id":"ST-EXT","meaning":"A fill whose evidence matches its current code and contract, and whose evidence a listed key signed."}
 {"id":"ST-EXT-TM06","title":"Fill module","domain_id":"ST-EXT","meaning":"A module that the declaration lets fills import, besides their contracts and the standard library."}
+{"id":"ST-EXT-TM07","title":"Fill manifest","domain_id":"ST-EXT","meaning":"The one file in a fill's folder that states the fill's name, the slot it implements and the collection it serves, and that holds the result of its tests and its signature."}
 {"id":"ST-GEN-TM01","title":"Record","domain_id":"ST-GEN","meaning":"The part of STEGO's state file in the service's sources that says what a service's generated code was built from: the service, the compiler build, the registry content, every component pin and the hash of every generated file."}
 {"id":"ST-GEN-TM02","title":"Component pin","domain_id":"ST-GEN","meaning":"The version and digest of one component that a service is built from."}
 {"id":"ST-GEN-TM03","title":"Drift","domain_id":"ST-GEN","meaning":"A difference between a generated file and the hash its record holds, or between a recorded input and the file on disk."}
