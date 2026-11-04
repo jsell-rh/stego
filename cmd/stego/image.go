@@ -13,7 +13,7 @@ import (
 
 func runImage(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("image requires build, verify, export, publish, or retrieve")
+		return fmt.Errorf("image requires build, sign, verify, export, publish, or retrieve")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -38,6 +38,8 @@ func runImage(args []string) error {
 		}
 		_, err := appbuild.BuildImage(ctx, options)
 		return err
+	case "sign":
+		return runImageSign(ctx, args[1:])
 	case "publish", "retrieve":
 		var options appbuild.RegistryImageOptions
 		flags.StringVar(&options.Record, "record", "", "authenticated image record")
@@ -57,6 +59,10 @@ func runImage(args []string) error {
 			options.Access.BlobOrigins = append(options.Access.BlobOrigins, value)
 			return nil
 		})
+		var check func() (appbuild.SignatureCheck, error)
+		if args[0] == "retrieve" {
+			check = signatureFlags(flags)
+		}
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -70,7 +76,12 @@ func runImage(args []string) error {
 		if options.Image != "" {
 			return fmt.Errorf("image retrieve does not accept an input image directory")
 		}
-		_, err := appbuild.RetrieveImage(ctx, options)
+		signature, err := check()
+		if err != nil {
+			return err
+		}
+		options.Signature = signature
+		_, err = appbuild.RetrieveImage(ctx, options)
 		return err
 	case "verify", "export":
 		record := flags.String("record", "", "image record")
@@ -78,6 +89,10 @@ func runImage(args []string) error {
 		image := flags.String("image", "", "OCI image directory")
 		build := flags.String("build-record", "", "application build record")
 		work := flags.String("work", "", "new private verification directory")
+		var check func() (appbuild.SignatureCheck, error)
+		if args[0] == "verify" {
+			check = signatureFlags(flags)
+		}
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -88,9 +103,13 @@ func runImage(args []string) error {
 			_, err := appbuild.ExportImage(ctx, *record, *image, *build, *expected, *work)
 			return err
 		}
-		_, err := appbuild.VerifyImage(ctx, *record, *image, *build, *expected, *work)
+		signature, err := check()
+		if err != nil {
+			return err
+		}
+		_, err = appbuild.VerifyImage(ctx, appbuild.ImageVerifyOptions{Record: *record, RecordSHA256: *expected, Image: *image, BuildRecord: *build, Work: *work, Check: signature})
 		return err
 	default:
-		return fmt.Errorf("image requires build, verify, export, publish, or retrieve")
+		return fmt.Errorf("image requires build, sign, verify, export, publish, or retrieve")
 	}
 }

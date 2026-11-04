@@ -118,7 +118,7 @@ func exportImageArchive(ctx context.Context, imageRoot string, record *ImageReco
 // ExportImage verifies the complete image and native build record first. It
 // writes image.docker.tar and export.json under the new private work directory.
 func ExportImage(ctx context.Context, recordPath, imageRoot, buildPath, expectedSHA256, work string) (*ImageExportRecord, error) {
-	record, err := VerifyImage(ctx, recordPath, imageRoot, buildPath, expectedSHA256, work)
+	record, _, err := verifyImageBuild(ctx, recordPath, imageRoot, buildPath, expectedSHA256, work)
 	if err != nil {
 		return nil, err
 	}
