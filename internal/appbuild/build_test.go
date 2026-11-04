@@ -360,6 +360,51 @@ func TestBuildPathValidationProtectsExistingDirectories(t *testing.T) {
 	})
 }
 
+func TestBuildFoldersAreNewAndAPartialResultIsRemoved(t *testing.T) {
+	t.Run("ST-BLD-INV15-T A build starts in new folders outside the source, and a failed save leaves no result", func(t *testing.T) {
+		root := t.TempDir()
+		put(t, root, "sdk/bin/go", "not executed")
+		put(t, root, "source/keep", "source")
+		put(t, root, "cache/keep", "cache")
+		put(t, root, "interrupted/keep", "an interrupted build")
+		base := Options{Source: filepath.Join(root, "source"), Revision: strings.Repeat("a", 40), Module: ".", Target: "out", Go: filepath.Join(root, "sdk/bin/go"), Work: filepath.Join(root, "work"), Output: filepath.Join(root, "output"), ModuleCache: filepath.Join(root, "cache")}
+		if _, err := prepare(base); err != nil {
+			t.Fatal(err)
+		}
+		for name, change := range map[string]func(*Options){
+			"an existing work folder":       func(o *Options) { o.Work = filepath.Join(root, "interrupted") },
+			"an existing result folder":     func(o *Options) { o.Output = filepath.Join(root, "interrupted") },
+			"a work folder in the source":   func(o *Options) { o.Work = filepath.Join(root, "source", "work") },
+			"a result folder in the source": func(o *Options) { o.Output = filepath.Join(root, "source", "output") },
+			"a result folder in the work":   func(o *Options) { o.Output = filepath.Join(root, "work", "output") },
+		} {
+			options := base
+			change(&options)
+			if _, err := prepare(options); err == nil {
+				t.Errorf("a build with %s was accepted", name)
+			}
+		}
+		for _, name := range []string{"source/keep", "interrupted/keep"} {
+			if _, err := os.Stat(filepath.Join(root, name)); err != nil {
+				t.Fatalf("a refused build changed %s: %v", name, err)
+			}
+		}
+		// A save that fails after the result folder exists removes it.
+		record := fixtureRecord()
+		output := filepath.Join(root, "output")
+		if err := saveResult(context.Background(), output, filepath.Join(root, "missing-binary"), &record); err == nil {
+			t.Fatal("a save without an executable succeeded")
+		}
+		put(t, root, "binary", "not the recorded executable")
+		if err := saveResult(context.Background(), output, filepath.Join(root, "binary"), &record); err == nil {
+			t.Fatal("a save of an executable that differs from the record succeeded")
+		}
+		if _, err := os.Lstat(output); !os.IsNotExist(err) {
+			t.Fatalf("a failed save left a result folder: %v", err)
+		}
+	})
+}
+
 func TestCommandRejectsOutputLimitAndCancellation(t *testing.T) {
 	var output bytes.Buffer
 	if err := command(context.Background(), t.TempDir(), []string{"PATH=/usr/bin:/bin"}, &output, 4, "/bin/sh", "-c", "printf 12345678"); err == nil {

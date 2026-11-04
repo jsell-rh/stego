@@ -21,6 +21,7 @@
 {"id":"ST-BLD-INV12-RL","title":"appbuild.verifySourceTree","invariant_id":"ST-BLD-INV12","file":"internal/appbuild/source.go"}
 {"id":"ST-BLD-INV13-RL","title":"appbuild.verifyImageContents","invariant_id":"ST-BLD-INV13","file":"internal/appbuild/image_verify.go"}
 {"id":"ST-BLD-INV14-RL","title":"appbuild.connectRegistry","invariant_id":"ST-BLD-INV14","file":"internal/appbuild/image_registry_transport.go"}
+{"id":"ST-BLD-INV15-RL","title":"appbuild.prepare","invariant_id":"ST-BLD-INV15","file":"internal/appbuild/build.go"}
 {"id":"ST-DECL-INV02-RL","title":"parser.checkSchema","invariant_id":"ST-DECL-INV02","file":"internal/parser/strict.go"}
 {"id":"ST-DECL-INV03-RL","title":"parser.readNodeWithLimit","invariant_id":"ST-DECL-INV03","file":"internal/parser/strict.go"}
 {"id":"ST-DECL-INV04-RL","title":"parser.readNode","invariant_id":"ST-DECL-INV04","file":"internal/parser/strict.go"}
