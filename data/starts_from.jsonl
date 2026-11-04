@@ -2,6 +2,8 @@
 {"source_id":"ST-ASR-DS03-T01","target_id":"ST-ASR-TD01"}
 {"source_id":"ST-DLV-DS01-T01","target_id":"ST-DLV-TD01"}
 {"source_id":"ST-DLV-DS01-T02","target_id":"ST-DLV-TD01"}
+{"source_id":"ST-DLV-DS02-T01","target_id":"ST-DLV-TD02"}
+{"source_id":"ST-DLV-DS02-T02","target_id":"ST-DLV-TD02"}
 {"source_id":"ST-DLV-INV01-T","target_id":"ST-DLV-TD01"}
 {"source_id":"ST-DLV-INV02-T","target_id":"ST-DLV-TD01"}
 {"source_id":"ST-EXT-DS01-T01","target_id":"ST-EXT-TD01"}
