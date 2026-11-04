@@ -106,6 +106,9 @@
 {"source_id":"ST-GEN-QRY01-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-GEN-QRY02-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-GEN-SP01-PR","target_id":"ST-PAT-GO-CODE-SL01"}
+{"source_id":"ST-INT01-AD","target_id":"ST-PAT-GO-CODE-SL01"}
+{"source_id":"ST-INT02-AD","target_id":"ST-PAT-GO-CODE-SL01"}
+{"source_id":"ST-INT03-AD","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-SUP-CMD01-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-SUP-CMD02-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-SUP-CMD03-H","target_id":"ST-PAT-GO-CODE-SL01"}
