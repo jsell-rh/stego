@@ -250,7 +250,7 @@
 {"id":"ST-SUP-UC07-FL-S06","title":"The first provider of a port whose conformance suite is missing stays below ga, and STEGO names the port","flow_id":"ST-SUP-UC07-FL","path":"refused","position":3}
 {"id":"ST-SUP-UC07-FL-S07","title":"A provider that has not passed the suite at its current digest stays below ga, and STEGO names the port and the suite","flow_id":"ST-SUP-UC07-FL","path":"refused","position":4}
 {"id":"ST-SUP-UC08-FL-S01","title":"The platform engineer declares the slot on the component, with the protobuf service file that is its contract","flow_id":"ST-SUP-UC08-FL","path":"main","position":1}
-{"id":"ST-SUP-UC08-FL-S02","title":"The platform engineer changes the contract within Buf's FILE rules, and releases the component at a new version","flow_id":"ST-SUP-UC08-FL","path":"main","position":2}
+{"id":"ST-SUP-UC08-FL-S02","title":"The platform engineer declares the slot again with a contract changed within Buf's FILE rules, and STEGO accepts it under the same slot name, so old fills keep compiling","flow_id":"ST-SUP-UC08-FL","path":"main","position":2}
 {"id":"ST-SUP-UC08-FL-S03","title":"A contract file that is missing or holds no service is refused, naming the slot and the file","flow_id":"ST-SUP-UC08-FL","path":"refused","position":1}
 {"id":"ST-SUP-UC08-FL-S04","title":"A contract change that fails a FILE rule is refused when the slot is declared, naming the slot and each rule, unless the slot takes a new name","flow_id":"ST-SUP-UC08-FL","path":"refused","position":2}
 {"id":"ST-SUP-UC08-FL-S05","title":"A release whose slot contract fails a FILE rule under the old slot name is refused, naming the slot and each rule, so old fills keep compiling","flow_id":"ST-SUP-UC08-FL","path":"refused","position":3}
