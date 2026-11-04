@@ -347,7 +347,6 @@ ST-STD-CODE-R05	internal/compiler/http_diagnostics.go	internal/compiler/http_dia
 ST-STD-CODE-R05	internal/compiler/http_lifecycle.go	internal/compiler/http_lifecycle.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/compiler/http_tls.go	internal/compiler/http_tls.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/compiler/lifecycle.go	internal/compiler/lifecycle.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/compiler/lock.go	internal/compiler/lock.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/compiler/lock_other.go	internal/compiler/lock_other.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/compiler/lock_unix.go	internal/compiler/lock_unix.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/compiler/lock_windows.go	internal/compiler/lock_windows.go	no technical record names the file, directly or through a folder
@@ -395,8 +394,6 @@ ST-STD-CODE-R05	internal/slot/generate.go	internal/slot/generate.go	no technical
 ST-STD-CODE-R05	internal/slot/operators.go	internal/slot/operators.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/slot/proto.go	internal/slot/proto.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/slot/scaffold.go	internal/slot/scaffold.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/types/live_unique.go	internal/types/live_unique.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/types/versioned.go	internal/types/versioned.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	scripts/check-pinned-admission.py	scripts/check-pinned-admission.py	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	scripts/pre-commit-check-config-deletions.sh	scripts/pre-commit-check-config-deletions.sh	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	scripts/stats.sh	scripts/stats.sh	no technical record names the file, directly or through a folder
