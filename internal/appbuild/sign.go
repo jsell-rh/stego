@@ -327,7 +327,7 @@ func (verifier GitHubAttestationVerifier) VerifyAttestation(ctx context.Context,
 		"--cert-identity", signer.Subject, "--cert-oidc-issuer", signer.Issuer,
 		"--predicate-type", predicateType, "--digest-alg", "sha256",
 		"--deny-self-hosted-runners", "--format", "json")
-	command.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + os.TempDir(), "GH_NO_UPDATE_NOTIFIER=1", "GH_PROMPT_DISABLED=1"}
+	command.Env = verifierEnvironment(os.Environ())
 	var output, failure boundedBuffer
 	output.limit, failure.limit = 4<<20, 64<<10
 	command.Stdout, command.Stderr = &output, &failure
@@ -335,6 +335,21 @@ func (verifier GitHubAttestationVerifier) VerifyAttestation(ctx context.Context,
 		return VerifiedAttestation{}, fmt.Errorf("gh attestation verify refused the bundle: %s", strings.TrimSpace(failure.String()))
 	}
 	return readGitHubVerification(output.Bytes())
+}
+
+// verifierEnvironment gives the environment of the GitHub CLI: a fixed path,
+// a temporary home and no prompts, and from environ only the provider token
+// (GH_TOKEN and GITHUB_TOKEN) when it is set. gh needs the token to get the
+// trust material of the attestations. No other inherited variable passes.
+func verifierEnvironment(environ []string) []string {
+	selected := []string{"PATH=/usr/bin:/bin", "HOME=" + os.TempDir(), "GH_NO_UPDATE_NOTIFIER=1", "GH_PROMPT_DISABLED=1"}
+	for _, item := range environ {
+		name, value, _ := strings.Cut(item, "=")
+		if (name == "GH_TOKEN" || name == "GITHUB_TOKEN") && value != "" {
+			selected = append(selected, item)
+		}
+	}
+	return selected
 }
 
 type boundedBuffer struct {

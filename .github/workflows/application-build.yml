@@ -19,6 +19,7 @@ on:
       - scripts/check-application-provenance.py
       - scripts/verify-compiler-artifact.py
       - cmd/stego/image.go
+      - cmd/stego/image_sign.go
       - go.mod
       - go.sum
 
@@ -36,6 +37,11 @@ jobs:
       build-sha256: ${{ steps.record-digests.outputs.build-sha256 }}
       image-sha256: ${{ steps.record-digests.outputs.image-sha256 }}
       compiler-sha256: ${{ steps.record-digests.outputs.compiler-sha256 }}
+      spdx-sha256: ${{ steps.record-digests.outputs.spdx-sha256 }}
+      cyclonedx-sha256: ${{ steps.record-digests.outputs.cyclonedx-sha256 }}
+      manifest-sha256: ${{ steps.record-digests.outputs.manifest-sha256 }}
+      fixture-sha256: ${{ steps.record-digests.outputs.fixture-sha256 }}
+      image-inputs-artifact: ${{ steps.image-inputs-artifact.outputs.artifact-id }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
@@ -127,18 +133,37 @@ jobs:
         id: record-digests
         run: |
           python3 -B - <<'PY'
-          import hashlib, os, shutil
+          import hashlib, json, os, re, shutil
           from pathlib import Path
           root = Path(os.environ['RUNNER_TEMP'])
+          image = root / 'image-evidence' / 'first'
           target = root / 'application-records'
           target.mkdir(mode=0o700)
+          # The records and both SBOMs that the signing job attests. The SBOMs are
+          # the ones that stego image build wrote into the image folder.
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              for key, name in [('build', 'build.json'), ('image', 'image.json')]:
-                  data = (root / 'image-evidence' / 'first' / name).read_bytes()
+              for key, name in [('build', 'build.json'), ('image', 'image.json'),
+                                ('spdx', 'sbom.spdx.json'), ('cyclonedx', 'sbom.cdx.json')]:
+                  data = (image / name).read_bytes()
                   (target / name).write_bytes(data)
                   output.write(key + '-sha256=' + hashlib.sha256(data).hexdigest() + '\n')
-              with (root / 'stego').open('rb') as compiler:
-                  output.write('compiler-sha256=' + hashlib.file_digest(compiler, 'sha256').hexdigest() + '\n')
+              manifest = json.loads((image / 'image.json').read_bytes())['manifest']['sha256']
+              if not re.fullmatch('[0-9a-f]{64}', manifest):
+                  raise SystemExit('The image record has no manifest digest')
+              output.write('manifest-sha256=' + manifest + '\n')
+              for key, name in [('compiler', 'stego'), ('fixture', 'registry-fixture')]:
+                  with (root / name).open('rb') as stream:
+                      output.write(key + '-sha256=' + hashlib.file_digest(stream, 'sha256').hexdigest() + '\n')
+          # The inputs of the signed image checks: the exact compiler and registry
+          # fixture, the application with its build record, and the image layout.
+          inputs = root / 'image-inputs'
+          inputs.mkdir(mode=0o700)
+          (inputs / 'application').mkdir(mode=0o700)
+          for source, name in [(root, 'stego'), (root, 'registry-fixture')]:
+              shutil.copyfile(source / name, inputs / name)
+          for name in ['build.json', 'application']:
+              shutil.copyfile(root / 'application-result' / name, inputs / 'application' / name)
+          shutil.copytree(image / 'oci', inputs / 'oci')
           PY
       - name: Save the records for the separate signing job
         id: record-artifact
@@ -148,6 +173,14 @@ jobs:
           retention-days: 14
           if-no-files-found: error
           path: ${{ runner.temp }}/application-records/
+      - name: Save the image inputs for the signed image checks
+        id: image-inputs-artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: example-image-inputs-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: error
+          path: ${{ runner.temp }}/image-inputs/
       - name: Retain build and rejection evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -184,6 +217,11 @@ jobs:
       build-sha256: ${{ steps.record-digests.outputs.build-sha256 }}
       image-sha256: ${{ steps.record-digests.outputs.image-sha256 }}
       compiler-sha256: ${{ steps.record-digests.outputs.compiler-sha256 }}
+      spdx-sha256: ${{ steps.record-digests.outputs.spdx-sha256 }}
+      cyclonedx-sha256: ${{ steps.record-digests.outputs.cyclonedx-sha256 }}
+      manifest-sha256: ${{ steps.record-digests.outputs.manifest-sha256 }}
+      fixture-sha256: ${{ steps.record-digests.outputs.fixture-sha256 }}
+      image-inputs-artifact: ${{ steps.image-inputs-artifact.outputs.artifact-id }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
@@ -261,18 +299,37 @@ jobs:
         id: record-digests
         run: |
           python3 -B - <<'PY'
-          import hashlib, os, shutil
+          import hashlib, json, os, re, shutil
           from pathlib import Path
           root = Path(os.environ['RUNNER_TEMP'])
+          image = root / 'image-evidence' / 'first'
           target = root / 'application-records'
           target.mkdir(mode=0o700)
+          # The records and both SBOMs that the signing job attests. The SBOMs are
+          # the ones that stego image build wrote into the image folder.
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              for key, name in [('build', 'build.json'), ('image', 'image.json')]:
-                  data = (root / 'image-evidence' / 'first' / name).read_bytes()
+              for key, name in [('build', 'build.json'), ('image', 'image.json'),
+                                ('spdx', 'sbom.spdx.json'), ('cyclonedx', 'sbom.cdx.json')]:
+                  data = (image / name).read_bytes()
                   (target / name).write_bytes(data)
                   output.write(key + '-sha256=' + hashlib.sha256(data).hexdigest() + '\n')
-              with (root / 'stego').open('rb') as compiler:
-                  output.write('compiler-sha256=' + hashlib.file_digest(compiler, 'sha256').hexdigest() + '\n')
+              manifest = json.loads((image / 'image.json').read_bytes())['manifest']['sha256']
+              if not re.fullmatch('[0-9a-f]{64}', manifest):
+                  raise SystemExit('The image record has no manifest digest')
+              output.write('manifest-sha256=' + manifest + '\n')
+              for key, name in [('compiler', 'stego'), ('fixture', 'registry-fixture')]:
+                  with (root / name).open('rb') as stream:
+                      output.write(key + '-sha256=' + hashlib.file_digest(stream, 'sha256').hexdigest() + '\n')
+          # The inputs of the signed image checks: the exact compiler and registry
+          # fixture, the application with its build record, and the image layout.
+          inputs = root / 'image-inputs'
+          inputs.mkdir(mode=0o700)
+          (inputs / 'application').mkdir(mode=0o700)
+          for source, name in [(root, 'stego'), (root, 'registry-fixture')]:
+              shutil.copyfile(source / name, inputs / name)
+          for name in ['build.json', 'application']:
+              shutil.copyfile(root / 'application-result' / name, inputs / 'application' / name)
+          shutil.copytree(image / 'oci', inputs / 'oci')
           PY
       - name: Save the records for the separate signing job
         id: record-artifact
@@ -282,6 +339,14 @@ jobs:
           retention-days: 14
           if-no-files-found: error
           path: ${{ runner.temp }}/application-records/
+      - name: Save the image inputs for the signed image checks
+        id: image-inputs-artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: hypershell-api-image-inputs-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: error
+          path: ${{ runner.temp }}/image-inputs/
       - name: Retain the actual consumer build evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -318,7 +383,7 @@ jobs:
     if: github.repository == 'jsell-rh/stego' && github.event_name == 'push'
     needs: [application, hypershell-api]
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -378,6 +443,31 @@ jobs:
           image = (root / 'application-records' / 'image.json').read_bytes()
           records.check_binding(records.decode(build), records.decode(image), build, policy)
           PY
+      - name: Check the SBOMs and the image digest from the build job
+        env:
+          IMAGE_SHA256: ${{ needs[matrix.job].outputs.image-sha256 }}
+          SPDX_SHA256: ${{ needs[matrix.job].outputs.spdx-sha256 }}
+          CYCLONEDX_SHA256: ${{ needs[matrix.job].outputs.cyclonedx-sha256 }}
+          MANIFEST_SHA256: ${{ needs[matrix.job].outputs.manifest-sha256 }}
+        run: |
+          python3 -B - <<'PY'
+          import hashlib, json, os, re
+          from pathlib import Path
+          records = Path(os.environ['RUNNER_TEMP']) / 'application-records'
+          for variable, name in [('SPDX_SHA256', 'sbom.spdx.json'), ('CYCLONEDX_SHA256', 'sbom.cdx.json')]:
+              path = records / name
+              if path.is_symlink() or not path.is_file() or path.stat().st_size > 64 << 20:
+                  raise SystemExit('The retrieved SBOM is not a bounded regular file')
+              expected = os.environ[variable]
+              if not re.fullmatch('[0-9a-f]{64}', expected) or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+                  raise SystemExit('The retrieved SBOM differs from the checked build')
+          image = (records / 'image.json').read_bytes()
+          if hashlib.sha256(image).hexdigest() != os.environ['IMAGE_SHA256']:
+              raise SystemExit('The retrieved image record differs from the checked build')
+          manifest = os.environ['MANIFEST_SHA256']
+          if not re.fullmatch('[0-9a-f]{64}', manifest) or json.loads(image)['manifest']['sha256'] != manifest:
+              raise SystemExit('The image digest differs from the image record')
+          PY
       - name: Sign the checked native build and image records
         id: attest
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
@@ -385,7 +475,25 @@ jobs:
           subject-path: |
             ${{ runner.temp }}/application-records/build.json
             ${{ runner.temp }}/application-records/image.json
-      - name: Save the signature bundle before verification
+      # Each SBOM is attested about the image manifest digest, with the exact
+      # predicate type of SBOMFormat.PredicateType in internal/appbuild/sbom.go.
+      - name: Attest the SPDX SBOM about the image
+        id: attest-spdx
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-name: ${{ matrix.name }}-image
+          subject-digest: sha256:${{ needs[matrix.job].outputs.manifest-sha256 }}
+          predicate-type: https://spdx.dev/Document/v2.3
+          predicate-path: ${{ runner.temp }}/application-records/sbom.spdx.json
+      - name: Attest the CycloneDX SBOM about the image
+        id: attest-cyclonedx
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-name: ${{ matrix.name }}-image
+          subject-digest: sha256:${{ needs[matrix.job].outputs.manifest-sha256 }}
+          predicate-type: https://cyclonedx.org/bom/v1.5
+          predicate-path: ${{ runner.temp }}/application-records/sbom.cdx.json
+      - name: Save the signature bundles before verification
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: application-signature-${{ matrix.name }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -393,6 +501,8 @@ jobs:
           if-no-files-found: error
           path: |
             ${{ steps.attest.outputs.bundle-path }}
+            ${{ steps.attest-spdx.outputs.bundle-path }}
+            ${{ steps.attest-cyclonedx.outputs.bundle-path }}
             ${{ runner.temp }}/application-policy.json
       - name: Verify both signatures and reject changed records or policy
         timeout-minutes: 9
@@ -412,3 +522,101 @@ jobs:
           retention-days: 14
           if-no-files-found: error
           path: ${{ runner.temp }}/authenticated-records/
+      - name: Retrieve the image inputs from the selected build job
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          artifact-ids: ${{ needs[matrix.job].outputs.image-inputs-artifact }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/image-inputs
+      - name: Check the image inputs and assemble the image folder
+        env:
+          COMPILER_SHA256: ${{ needs[matrix.job].outputs.compiler-sha256 }}
+          FIXTURE_SHA256: ${{ needs[matrix.job].outputs.fixture-sha256 }}
+        run: |
+          python3 -B - <<'PY'
+          import hashlib, os, re, shutil
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          inputs = root / 'image-inputs'
+          for variable, name in [('COMPILER_SHA256', 'stego'), ('FIXTURE_SHA256', 'registry-fixture')]:
+              path = inputs / name
+              expected = os.environ[variable]
+              if path.is_symlink() or not path.is_file() or not re.fullmatch('[0-9a-f]{64}', expected):
+                  raise SystemExit('The retrieved ' + name + ' is not a regular file with a digest')
+              with path.open('rb') as stream:
+                  if hashlib.file_digest(stream, 'sha256').hexdigest() != expected:
+                      raise SystemExit('The retrieved ' + name + ' differs from the checked build')
+              path.chmod(0o500)
+          # The image folder holds only the checked records and SBOMs, and the
+          # layout. stego image sign checks the layout against the image record.
+          image = root / 'signed-image'
+          image.mkdir(mode=0o700)
+          for name in ['image.json', 'build.json', 'sbom.spdx.json', 'sbom.cdx.json']:
+              shutil.copyfile(root / 'application-records' / name, image / name)
+          shutil.copytree(inputs / 'oci', image / 'oci')
+          PY
+      - name: Refuse a wrong signer, then sign the image with both SBOM attestations
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_SHA256: ${{ needs[matrix.job].outputs.image-sha256 }}
+          SPDX_BUNDLE: ${{ steps.attest-spdx.outputs.bundle-path }}
+          CYCLONEDX_BUNDLE: ${{ steps.attest-cyclonedx.outputs.bundle-path }}
+        run: |
+          GH="$(command -v gh)"
+          sign() {
+            "$RUNNER_TEMP/image-inputs/stego" image sign --image="$RUNNER_TEMP/signed-image" \
+              --record-sha256="$IMAGE_SHA256" --spdx-bundle="$SPDX_BUNDLE" --cyclonedx-bundle="$CYCLONEDX_BUNDLE" \
+              --signer-issuer=https://token.actions.githubusercontent.com --signer-subject="$1" \
+              --gh="$GH" --source-repository="$GITHUB_REPOSITORY"
+          }
+          # A signer other than this workflow at this reference is refused, and
+          # nothing is written.
+          wrong="https://github.com/$GITHUB_REPOSITORY/.github/workflows/application-target.yml@$GITHUB_REF"
+          if sign "$wrong" 2> "$RUNNER_TEMP/wrong-signer.log"; then
+            echo 'A wrong signer was accepted' >&2
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/wrong-signer.log" >&2
+          grep -q 'gh attestation verify refused the bundle' "$RUNNER_TEMP/wrong-signer.log"
+          test ! -e "$RUNNER_TEMP/signed-image/signature.json"
+          sign "https://github.com/$GITHUB_WORKFLOW_REF"
+          test -f "$RUNNER_TEMP/signed-image/signature.json"
+      - name: Check the signed image with the container engine
+        timeout-minutes: 8
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SPDX_BUNDLE: ${{ steps.attest-spdx.outputs.bundle-path }}
+          CYCLONEDX_BUNDLE: ${{ steps.attest-cyclonedx.outputs.bundle-path }}
+        run: |
+          python3 -B scripts/check-application-image.py --compiler="$RUNNER_TEMP/image-inputs/stego" \
+            --application="$RUNNER_TEMP/image-inputs/application" --trust-store=internal/appbuild/testdata/image-ca.pem \
+            --output="$RUNNER_TEMP/signed-image-evidence" \
+            --spdx-bundle="$SPDX_BUNDLE" --cyclonedx-bundle="$CYCLONEDX_BUNDLE" \
+            --signer-subject="https://github.com/$GITHUB_WORKFLOW_REF"
+      - name: Retrieve the signed image through the private TLS registry
+        timeout-minutes: 6
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SPDX_BUNDLE: ${{ steps.attest-spdx.outputs.bundle-path }}
+          CYCLONEDX_BUNDLE: ${{ steps.attest-cyclonedx.outputs.bundle-path }}
+        run: |
+          python3 -B scripts/check-application-registry.py --compiler="$RUNNER_TEMP/image-inputs/stego" \
+            --fixture="$RUNNER_TEMP/image-inputs/registry-fixture" --image="$RUNNER_TEMP/signed-image" \
+            --output="$RUNNER_TEMP/signed-registry-evidence" \
+            --spdx-bundle="$SPDX_BUNDLE" --cyclonedx-bundle="$CYCLONEDX_BUNDLE" \
+            --signer-subject="https://github.com/$GITHUB_WORKFLOW_REF"
+      - name: Retain the signed image evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: signed-image-${{ matrix.name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/wrong-signer.log
+            ${{ runner.temp }}/signed-image/signature.json
+            ${{ runner.temp }}/signed-image-evidence/verification.json
+            ${{ runner.temp }}/signed-registry-evidence/verification.json
+            ${{ runner.temp }}/signed-registry-evidence/fixture.log
+            ${{ runner.temp }}/signed-registry-evidence/retrieved/registry.json
