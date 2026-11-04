@@ -230,7 +230,7 @@
 {"id":"ST-SUP-UC04-FL-S04","title":"A sunset date that is already past is refused","flow_id":"ST-SUP-UC04-FL","path":"refused","position":1}
 {"id":"ST-SUP-UC04-FL-S05","title":"A component that states no outcome, no reference and no reasoning, or no contract, is refused with what is missing","flow_id":"ST-SUP-UC04-FL","path":"refused","position":2}
 {"id":"ST-SUP-UC05-FL-S01","title":"The platform engineer reads every recorded service that uses the component","flow_id":"ST-SUP-UC05-FL","path":"main","position":1}
-{"id":"ST-SUP-UC05-FL-S02","title":"The platform engineer records the security review, the benchmark and the design review at the component's digest, and the reference comparison at its contract set's digest","flow_id":"ST-SUP-UC05-FL","path":"main","position":2}
+{"id":"ST-SUP-UC05-FL-S02","title":"The platform engineer records the security review, the benchmark, the design review and a conformance pass for each port it provides at the component's digest, and the reference comparison at its contract set's digest","flow_id":"ST-SUP-UC05-FL","path":"main","position":2}
 {"id":"ST-SUP-UC05-FL-S03","title":"The platform engineer moves the component up to ga, which removes its sunset date and lets it take over the real port name","flow_id":"ST-SUP-UC05-FL","path":"main","position":3}
 {"id":"ST-SUP-UC05-FL-S04","title":"The platform engineer reads the quality standing of each ga component after the graduation, so a component that no longer meets the bar at its current digest is seen at once","flow_id":"ST-SUP-UC05-FL","path":"main","position":4}
 {"id":"ST-SUP-UC05-FL-S05","title":"A component that lacks a piece of the quality bar, or whose reference comparison is stale or leaves a promise undecided, stays below ga, and STEGO names what is missing","flow_id":"ST-SUP-UC05-FL","path":"below bar","position":1}
@@ -245,7 +245,6 @@
 {"id":"ST-SUP-UC06-FL-S04","title":"The common registry already holds a component of that name, so STEGO refuses and names it","flow_id":"ST-SUP-UC06-FL","path":"refused","position":1}
 {"id":"ST-SUP-UC07-FL-S01","title":"The platform engineer names the port, what a provider undertakes to supply and the meaning of every field","flow_id":"ST-SUP-UC07-FL","path":"main","position":1}
 {"id":"ST-SUP-UC07-FL-S02","title":"The platform engineer names the port's conformance test suite, which every provider runs, and STEGO records the port","flow_id":"ST-SUP-UC07-FL","path":"main","position":2}
-{"id":"ST-SUP-UC07-FL-S03","title":"A provider passes the suite at its digest, and the pass is recorded as port conformance evidence, so the provider may graduate","flow_id":"ST-SUP-UC07-FL","path":"main","position":3}
 {"id":"ST-SUP-UC07-FL-S04","title":"A port name that is already defined is refused, naming the port, so a changed meaning takes a new name","flow_id":"ST-SUP-UC07-FL","path":"refused","position":1}
 {"id":"ST-SUP-UC07-FL-S05","title":"A field with no meaning is refused, naming the field","flow_id":"ST-SUP-UC07-FL","path":"refused","position":2}
 {"id":"ST-SUP-UC07-FL-S06","title":"The first provider of a port whose conformance suite is missing stays below ga, and STEGO names the port","flow_id":"ST-SUP-UC07-FL","path":"refused","position":3}
