@@ -88,17 +88,15 @@
 {"id":"ST-DECL-UC09-FL-S05","title":"kafka-events without durable-events is refused, naming the missing mixin","flow_id":"ST-DECL-UC09-FL","path":"refused","position":2}
 {"id":"ST-DECL-UC09-FL-S06","title":"A controller with no lease TTL is refused, naming the controller","flow_id":"ST-DECL-UC09-FL","path":"refused","position":3}
 {"id":"ST-DECL-UC09-FL-S07","title":"An invariant of another kind, or one that lacks the fields its kind needs, is refused, naming the invariant and the field","flow_id":"ST-DECL-UC09-FL","path":"refused","position":4}
-{"id":"ST-DIS-UC02-FL-S01","title":"The platform engineer names the component digest and the checkouts to search","flow_id":"ST-DIS-UC02-FL","path":"main","position":1}
-{"id":"ST-DIS-UC02-FL-S02","title":"STEGO reads the committed record in each checkout, and names each service that pins the digest, with its version and digest","flow_id":"ST-DIS-UC02-FL","path":"main","position":2}
-{"id":"ST-DIS-UC02-FL-S03","title":"The platform engineer asks for the VEX statements of the fleet, and STEGO emits one OpenVEX statement per service and advisory, with the status affected, fixed or not_affected","flow_id":"ST-DIS-UC02-FL","path":"main","position":3}
+{"id":"ST-DIS-UC02-FL-S02","title":"The platform engineer names the component digest and the checkouts to search, and STEGO reads the committed record in each checkout and names each service that pins the digest, with its version and digest","flow_id":"ST-DIS-UC02-FL","path":"main","position":1}
+{"id":"ST-DIS-UC02-FL-S03","title":"The platform engineer asks for the VEX statements of the fleet, and STEGO emits one OpenVEX statement per service and advisory, with the status affected, fixed or not_affected","flow_id":"ST-DIS-UC02-FL","path":"main","position":2}
 {"id":"ST-DIS-UC02-FL-S04","title":"A checkout with generated output and no readable record is reported as unknown","flow_id":"ST-DIS-UC02-FL","path":"unknown","position":1}
 {"id":"ST-DIS-UC04-FL-S01","title":"The platform engineer changes one component, and the registry publishes its new digest","flow_id":"ST-DIS-UC04-FL","path":"main","position":1}
 {"id":"ST-DIS-UC04-FL-S02","title":"The platform engineer records the new digest as the successor of the old one, with the fail date and whether taking it needs a declaration or fill change","flow_id":"ST-DIS-UC04-FL","path":"main","position":2}
 {"id":"ST-DIS-UC04-FL-S03","title":"A consumer moves that component's pin alone and runs apply in Generating, and keeps its compiler pin","flow_id":"ST-DIS-UC04-FL","path":"main","position":3}
 {"id":"ST-DIS-UC04-FL-S04","title":"A supersession with no successor, no fail date or no statement of the change it needs is refused","flow_id":"ST-DIS-UC04-FL","path":"refused","position":1}
 {"id":"ST-DIS-UC04-FL-S05","title":"The platform engineer releases a new runtime library version, moves the archetype's pin to it, and records the old version as superseded; each consumer takes it with a registry pin bump and a new run","flow_id":"ST-DIS-UC04-FL","path":"runtime","position":1}
-{"id":"ST-DIS-UC05-FL-S01","title":"The service author runs validate or plan","flow_id":"ST-DIS-UC05-FL","path":"main","position":1}
-{"id":"ST-DIS-UC05-FL-S02","title":"STEGO reports each superseded pin with its successor and fail date, and does not fail for that reason","flow_id":"ST-DIS-UC05-FL","path":"main","position":2}
+{"id":"ST-DIS-UC05-FL-S02","title":"The service author runs validate or plan, and STEGO reports each superseded pin with its successor and fail date, and does not fail for that reason","flow_id":"ST-DIS-UC05-FL","path":"main","position":1}
 {"id":"ST-DIS-UC05-FL-S03","title":"Past its fail date, validate fails for the pin","flow_id":"ST-DIS-UC05-FL","path":"expired","position":1}
 {"id":"ST-DIS-UC05-FL-S04","title":"Past its fail date, apply in Generating refuses to write unless the author overrides the pin by name","flow_id":"ST-DIS-UC05-FL","path":"expired","position":2}
 {"id":"ST-DIS-UC05-FL-S05","title":"When STEGO cannot read the lifecycle records, it reports that it could not check, and does not report the pins as current","flow_id":"ST-DIS-UC05-FL","path":"unchecked","position":1}
@@ -114,9 +112,8 @@
 {"id":"ST-DIS-UC08-FL-S05","title":"A run from another commit, or a required job with no success conclusion, fails qualification","flow_id":"ST-DIS-UC08-FL","path":"refused","position":1}
 {"id":"ST-DIS-UC08-FL-S06","title":"A release tag that points at another commit fails verification","flow_id":"ST-DIS-UC08-FL","path":"refused","position":2}
 {"id":"ST-DIS-UC08-FL-S07","title":"No passed release decision is attested at that commit, so qualification fails","flow_id":"ST-DIS-UC08-FL","path":"refused","position":3}
-{"id":"ST-DIS-UC09-FL-S01","title":"The operator names the release by its full source commit","flow_id":"ST-DIS-UC09-FL","path":"main","position":1}
-{"id":"ST-DIS-UC09-FL-S02","title":"The installer checks each asset digest and both signatures, and the signed record's platform, then puts the binary and its build record in place","flow_id":"ST-DIS-UC09-FL","path":"main","position":2}
-{"id":"ST-DIS-UC09-FL-S03","title":"The operator asks the installed compiler for its build identity, and it reports the identity it writes into a service's record","flow_id":"ST-DIS-UC09-FL","path":"main","position":3}
+{"id":"ST-DIS-UC09-FL-S02","title":"The operator names the release by its full source commit, and the installer checks each asset digest and both signatures, and the signed record's platform, then puts the binary and its build record in place","flow_id":"ST-DIS-UC09-FL","path":"main","position":1}
+{"id":"ST-DIS-UC09-FL-S03","title":"The operator asks the installed compiler for its build identity, and it reports the identity it writes into a service's record","flow_id":"ST-DIS-UC09-FL","path":"main","position":2}
 {"id":"ST-DIS-UC09-FL-S04","title":"On any platform other than Linux amd64, the installer refuses before it downloads anything","flow_id":"ST-DIS-UC09-FL","path":"refused","position":1}
 {"id":"ST-DIS-UC10-FL-S01","title":"The platform engineer names the checkouts, and STEGO computes each outcome measure from their committed records, with no network","flow_id":"ST-DIS-UC10-FL","path":"main","position":1}
 {"id":"ST-DIS-UC10-FL-S02","title":"STEGO prints each measure with the services behind it","flow_id":"ST-DIS-UC10-FL","path":"main","position":2}
