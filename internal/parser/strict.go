@@ -133,6 +133,17 @@ func checkNodes(data []byte, path string, node *yaml.Node, depth int) error {
 	return nil
 }
 
+// ScalarForm is a type whose YAML form may also be one scalar, such as a
+// component's port given by its bare name. The strict decoder accepts a scalar
+// node for such a type, and the type's own UnmarshalYAML reads it. The
+// registry's Port implements it, so that this package need not import the
+// registry.
+type ScalarForm interface {
+	YAMLScalarForm()
+}
+
+var scalarFormType = reflect.TypeFor[ScalarForm]()
+
 func checkSchema(data []byte, path string, node *yaml.Node, typ reflect.Type, location string) error {
 	for typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
@@ -141,7 +152,7 @@ func checkSchema(data []byte, path string, node *yaml.Node, typ reflect.Type, lo
 		return nil
 	}
 	// Ports have an explicit scalar-or-mapping syntax.
-	if typ == reflect.TypeFor[types.Port]() && node.Kind == yaml.ScalarNode {
+	if node.Kind == yaml.ScalarNode && reflect.PointerTo(typ).Implements(scalarFormType) {
 		return nil
 	}
 	if typ == reflect.TypeFor[types.ConfigFieldItems]() {

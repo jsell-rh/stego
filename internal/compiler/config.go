@@ -6,12 +6,13 @@ import (
 	"reflect"
 	"sort"
 
+	"github.com/jsell-rh/stego/internal/registry"
 	"github.com/jsell-rh/stego/internal/types"
 )
 
 // validateComponentConfig checks supplied values and registry defaults before
 // generators consume them. Missing runtime settings are checked at startup.
-func validateComponentConfig(service *types.ServiceDeclaration, components map[string]*types.Component) []ValidationError {
+func validateComponentConfig(service *types.ServiceDeclaration, components map[string]*registry.Component) []ValidationError {
 	var errors []ValidationError
 	names := sortedKeys(service.Overrides)
 	for _, name := range names {

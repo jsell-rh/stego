@@ -254,7 +254,7 @@ func runFillCreate(args []string) error {
 
 	// Find which component(s) own this slot. Multiple components can define
 	// slots with the same name (spec: "duplication is cheaper than coupling").
-	var matchingComps []*types.Component
+	var matchingComps []*registry.Component
 	for _, comp := range reg.Components() {
 		for _, s := range comp.Slots {
 			if s.Name == *slotName {
@@ -268,7 +268,7 @@ func runFillCreate(args []string) error {
 		return fmt.Errorf("slot %q not found in any component", *slotName)
 	}
 
-	var ownerComp *types.Component
+	var ownerComp *registry.Component
 	if len(matchingComps) > 1 {
 		if *componentName == "" {
 			names := make([]string, len(matchingComps))
@@ -747,7 +747,7 @@ func defaultGenerators() map[string]gen.Generator {
 }
 
 // portListContains checks if a port list contains a port with the given name.
-func portListContains(ports []types.Port, name string) bool {
+func portListContains(ports []registry.Port, name string) bool {
 	for _, p := range ports {
 		if p.Name == name {
 			return true
@@ -757,7 +757,7 @@ func portListContains(ports []types.Port, name string) bool {
 }
 
 // slotListContains checks if a slot definition list contains a slot with the given name.
-func slotListContains(slots []types.SlotDefinition, name string) bool {
+func slotListContains(slots []registry.SlotDefinition, name string) bool {
 	for _, s := range slots {
 		if s.Name == name {
 			return true
@@ -767,7 +767,7 @@ func slotListContains(slots []types.SlotDefinition, name string) bool {
 }
 
 // portNames returns the names from a port list.
-func portNames(ports []types.Port) []string {
+func portNames(ports []registry.Port) []string {
 	names := make([]string, len(ports))
 	for i, p := range ports {
 		names[i] = p.Name
@@ -776,7 +776,7 @@ func portNames(ports []types.Port) []string {
 }
 
 // slotDefNames returns the names from a slot definition list.
-func slotDefNames(slots []types.SlotDefinition) []string {
+func slotDefNames(slots []registry.SlotDefinition) []string {
 	names := make([]string, len(slots))
 	for i, s := range slots {
 		names[i] = s.Name

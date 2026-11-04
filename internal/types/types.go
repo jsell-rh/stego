@@ -98,36 +98,6 @@ type Entity struct {
 	CleanupOwners    []string            `yaml:"cleanup_owners,omitempty"`
 }
 
-// Port represents a named capability that a component requires or provides.
-// It unmarshals from either a bare string or a mapping with a "name" key.
-type Port struct {
-	Name string `yaml:"name"`
-}
-
-// UnmarshalYAML allows Port to be unmarshaled from a bare string (e.g. "- auth-provider")
-// or from a mapping (e.g. "- name: auth-provider").
-func (p *Port) UnmarshalYAML(unmarshal func(any) error) error {
-	var s string
-	if err := unmarshal(&s); err == nil {
-		p.Name = s
-		return nil
-	}
-	type raw Port
-	var r raw
-	if err := unmarshal(&r); err != nil {
-		return err
-	}
-	*p = Port(r)
-	return nil
-}
-
-// SlotDefinition represents a slot defined by a component.
-type SlotDefinition struct {
-	Name    string `yaml:"name"`
-	Proto   string `yaml:"proto"`
-	Default string `yaml:"default,omitempty"`
-}
-
 // Convention captures the archetype's conventions.
 type Convention struct {
 	Layout            string `yaml:"layout"`
@@ -137,19 +107,6 @@ type Convention struct {
 	TestPattern       string `yaml:"test_pattern"`
 	RequestValidation string `yaml:"request_validation,omitempty"`
 	CORS              string `yaml:"cors,omitempty"`
-}
-
-// Archetype represents a curated component set with conventions.
-type Archetype struct {
-	Kind             string            `yaml:"kind"`
-	Name             string            `yaml:"name"`
-	Language         string            `yaml:"language"`
-	Version          string            `yaml:"version"`
-	Components       []string          `yaml:"components"`
-	DefaultAuth      string            `yaml:"default_auth"`
-	Conventions      Convention        `yaml:"conventions"`
-	CompatibleMixins []string          `yaml:"compatible_mixins"`
-	Bindings         map[string]string `yaml:"bindings,omitempty"`
 }
 
 // ConfigFieldItems supports two YAML forms for a config field's items:
@@ -212,28 +169,6 @@ type ConfigField struct {
 	Items    *ConfigFieldItems `yaml:"items,omitempty"`
 	Optional bool              `yaml:"optional,omitempty"`
 	Enum     []string          `yaml:"enum,omitempty"`
-}
-
-// Component represents a deterministic code generator with its metadata.
-type Component struct {
-	Kind            string                 `yaml:"kind"`
-	Name            string                 `yaml:"name"`
-	Version         string                 `yaml:"version"`
-	Config          map[string]ConfigField `yaml:"config,omitempty"`
-	Requires        []Port                 `yaml:"requires"`
-	Provides        []Port                 `yaml:"provides"`
-	Slots           []SlotDefinition       `yaml:"slots"`
-	OutputNamespace string                 `yaml:"output_namespace,omitempty"`
-}
-
-// Mixin adds components and slots to an archetype.
-type Mixin struct {
-	Kind           string           `yaml:"kind"`
-	Name           string           `yaml:"name"`
-	Version        string           `yaml:"version"`
-	AddsComponents []string         `yaml:"adds_components"`
-	AddsSlots      []SlotDefinition `yaml:"adds_slots"`
-	Overrides      string           `yaml:"overrides"` // "none"
 }
 
 // ConcurrencyMode for upsert operations.
@@ -536,18 +471,4 @@ func (f *Fill) UnmarshalYAML(value *yaml.Node) error {
 	}
 	*f = Fill(raw)
 	return nil
-}
-
-// RegistrySource describes a single registry origin in .stego/config.yaml.
-type RegistrySource struct {
-	URL    string `yaml:"url"`
-	Ref    string `yaml:"ref"`
-	Path   string `yaml:"path,omitempty"`
-	Vendor string `yaml:"vendor,omitempty"`
-}
-
-// RegistryConfig represents the .stego/config.yaml file.
-type RegistryConfig struct {
-	Registry []RegistrySource  `yaml:"registry"`
-	Pins     map[string]string `yaml:"pins,omitempty"`
 }

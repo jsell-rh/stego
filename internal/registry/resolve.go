@@ -11,8 +11,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-
-	"github.com/jsell-rh/stego/internal/types"
 )
 
 // ResolveResult contains the resolved registry directory and metadata.
@@ -69,7 +67,7 @@ func ResolveRegistry(opts ResolveOptions) (*ResolveResult, error) {
 
 	// 2. Load config.yaml.
 	configPath := filepath.Join(opts.ProjectDir, ".stego", "config.yaml")
-	var cfg *types.RegistryConfig
+	var cfg *RegistryConfig
 	var err error
 	if opts.ConfigData == nil {
 		cfg, err = LoadConfig(configPath)

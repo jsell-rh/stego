@@ -6,10 +6,10 @@ import (
 	"strings"
 
 	"github.com/jsell-rh/stego/internal/gen"
-	"github.com/jsell-rh/stego/internal/types"
+	"github.com/jsell-rh/stego/internal/registry"
 )
 
-func validateComponentNamespaces(components map[string]*types.Component) []ValidationError {
+func validateComponentNamespaces(components map[string]*registry.Component) []ValidationError {
 	var errors []ValidationError
 	names := sortedKeys(components)
 	for i, name := range names {
@@ -62,7 +62,7 @@ func validateFileLayout(names []string) error {
 
 // Application layout can change output paths without replacing common metadata.
 // Copy each selected component before applying the local path declaration.
-func applyComponentNamespaces(namespaces map[string]string, components map[string]*types.Component) []ValidationError {
+func applyComponentNamespaces(namespaces map[string]string, components map[string]*registry.Component) []ValidationError {
 	var failures []ValidationError
 	for _, name := range sortedKeys(namespaces) {
 		component := components[name]

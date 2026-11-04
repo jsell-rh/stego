@@ -352,7 +352,7 @@ func isProjectRootFile(filePath string) bool {
 
 // collectComponentNames assembles the ordered list of component names from the
 // archetype, default_auth, and any mixin-added components.
-func collectComponentNames(archetype *types.Archetype, svcDecl *types.ServiceDeclaration, reg *registry.Registry) ([]string, error) {
+func collectComponentNames(archetype *registry.Archetype, svcDecl *types.ServiceDeclaration, reg *registry.Registry) ([]string, error) {
 	// Collect the baseline component set from the archetype, default_auth,
 	// and mixins. Override-component replacement is handled by ports.Resolve().
 	seen := make(map[string]bool)
@@ -405,7 +405,7 @@ func collectComponentNames(archetype *types.Archetype, svcDecl *types.ServiceDec
 
 // resolveComponentConfig merges a component's default config values with any
 // service-level overrides for that component.
-func resolveComponentConfig(comp *types.Component, svcDecl *types.ServiceDeclaration) map[string]any {
+func resolveComponentConfig(comp *registry.Component, svcDecl *types.ServiceDeclaration) map[string]any {
 	config := make(map[string]any)
 
 	for key, field := range comp.Config {
@@ -427,7 +427,7 @@ func resolveComponentConfig(comp *types.Component, svcDecl *types.ServiceDeclara
 
 // generateSlotFiles generates Go interface and operator files for all slots
 // used by the service declaration.
-func generateSlotFiles(slotsPackage string, components map[string]*types.Component, svcDecl *types.ServiceDeclaration, reg *registry.Registry) ([]gen.File, error) {
+func generateSlotFiles(slotsPackage string, components map[string]*registry.Component, svcDecl *types.ServiceDeclaration, reg *registry.Registry) ([]gen.File, error) {
 	if slotsPackage == "" || len(svcDecl.Slots) == 0 {
 		return nil, nil
 	}
@@ -442,7 +442,7 @@ func generateSlotFiles(slotsPackage string, components map[string]*types.Compone
 
 	// Find the slot definitions and their owning components or mixins.
 	type slotInfo struct {
-		definition types.SlotDefinition
+		definition registry.SlotDefinition
 		// protoDir is the directory containing the slots/ subdirectory for this
 		// slot's proto file, relative to the captured registry root.
 		protoDir string
@@ -572,7 +572,7 @@ func computePlan(
 	existingState *State,
 	serviceData []byte,
 	entities []types.Entity,
-	components map[string]*types.Component,
+	components map[string]*registry.Component,
 	outDir string,
 	projectDir string,
 	registrySHA string,

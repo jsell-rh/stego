@@ -6,13 +6,14 @@ import (
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/registry"
 	"github.com/jsell-rh/stego/internal/types"
 	"gopkg.in/yaml.v3"
 )
 
 func TestComponentNamespacesDoNotChangeCommonMetadata(t *testing.T) {
-	original := &types.Component{Name: "sample", OutputNamespace: "internal/api"}
-	active := map[string]*types.Component{"sample": original}
+	original := &registry.Component{Name: "sample", OutputNamespace: "internal/api"}
+	active := map[string]*registry.Component{"sample": original}
 	if failures := applyComponentNamespaces(map[string]string{"sample": "application"}, active); len(failures) != 0 {
 		t.Fatal(failures)
 	}
@@ -20,7 +21,7 @@ func TestComponentNamespacesDoNotChangeCommonMetadata(t *testing.T) {
 		t.Fatal("application namespace changed registry metadata")
 	}
 	for _, override := range []map[string]string{{"missing": "application"}, {"sample": ""}, {"sample": "../escape"}, {"sample": "contracts"}} {
-		selected := map[string]*types.Component{"sample": original}
+		selected := map[string]*registry.Component{"sample": original}
 		failures := applyComponentNamespaces(override, selected)
 		failures = append(failures, validateComponentNamespaces(selected)...)
 		if len(failures) == 0 {

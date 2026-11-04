@@ -6,11 +6,11 @@ import (
 	"sort"
 
 	"github.com/jsell-rh/stego/internal/gen"
-	"github.com/jsell-rh/stego/internal/types"
+	"github.com/jsell-rh/stego/internal/registry"
 )
 
 type resolvedCompilation struct {
-	Components                       map[string]*types.Component
+	Components                       map[string]*registry.Component
 	Names                            []string
 	Contexts                         map[string]gen.Context
 	HTTPRoutes                       map[string][]gen.HTTPRoute
@@ -20,7 +20,7 @@ type resolvedCompilation struct {
 }
 
 // prepareComponents resolves each context once. All checks finish before rendering.
-func prepareComponents(input ReconcilerInput, source *compilationSource, baselineNames []string, components map[string]*types.Component) (*resolvedCompilation, error) {
+func prepareComponents(input ReconcilerInput, source *compilationSource, baselineNames []string, components map[string]*registry.Component) (*resolvedCompilation, error) {
 	svcDecl := source.Service
 	archetype := source.Registry.Archetype(svcDecl.Archetype)
 	conventions := applyConventionOverrides(archetype.Conventions, svcDecl.Overrides)

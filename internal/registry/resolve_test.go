@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/registry"
-	"github.com/jsell-rh/stego/internal/types"
 	"gopkg.in/yaml.v3"
 )
 
@@ -65,8 +64,8 @@ func TestResolveRegistryLocalPath(t *testing.T) {
 	}
 
 	// Write config.yaml pointing to the local directory.
-	writeConfig(t, tmp, types.RegistryConfig{
-		Registry: []types.RegistrySource{
+	writeConfig(t, tmp, registry.RegistryConfig{
+		Registry: []registry.RegistrySource{
 			{URL: registryDir, Ref: "local"},
 		},
 	})
@@ -125,8 +124,8 @@ func TestResolveRegistryMultipleSources(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	writeConfig(t, tmp, types.RegistryConfig{
-		Registry: []types.RegistrySource{
+	writeConfig(t, tmp, registry.RegistryConfig{
+		Registry: []registry.RegistrySource{
 			{URL: reg1, Ref: "local"},
 			{URL: reg2, Ref: "local"},
 		},
@@ -196,8 +195,8 @@ func TestResolveRegistryGitCloneAndCache(t *testing.T) {
 	// Set up project with config pointing to the bare repo via file:// URL.
 	repoURL := "file://" + bareRepo
 	projectDir := filepath.Join(tmp, "project")
-	writeConfig(t, projectDir, types.RegistryConfig{
-		Registry: []types.RegistrySource{
+	writeConfig(t, projectDir, registry.RegistryConfig{
+		Registry: []registry.RegistrySource{
 			{URL: repoURL, Ref: commitSHA},
 		},
 	})
@@ -262,7 +261,7 @@ func TestResolveRegistryUserCache(t *testing.T) {
 	cloneAndPopulate(t, remote, work)
 	revision := getHeadSHA(t, work)
 	project := t.TempDir()
-	writeConfig(t, project, types.RegistryConfig{Registry: []types.RegistrySource{{URL: "file://" + remote, Ref: revision}}})
+	writeConfig(t, project, registry.RegistryConfig{Registry: []registry.RegistrySource{{URL: "file://" + remote, Ref: revision}}})
 	for _, explicit := range []bool{false, true} {
 		opts := registry.ResolveOptions{ProjectDir: project}
 		want := filepath.Join(cache, "stego", "registries")
@@ -303,8 +302,8 @@ func TestResolveRegistryGitBadURL(t *testing.T) {
 	tmp := t.TempDir()
 	projectDir := filepath.Join(tmp, "project")
 
-	writeConfig(t, projectDir, types.RegistryConfig{
-		Registry: []types.RegistrySource{
+	writeConfig(t, projectDir, registry.RegistryConfig{
+		Registry: []registry.RegistrySource{
 			{URL: "file:///nonexistent/no-such-repo.git", Ref: strings.Repeat("a", 40)},
 		},
 	})
@@ -339,8 +338,8 @@ func TestResolveRegistryGitBadRef(t *testing.T) {
 	// Use a ref that doesn't exist, via file:// URL.
 	repoURL := "file://" + bareRepo
 	projectDir := filepath.Join(tmp, "project")
-	writeConfig(t, projectDir, types.RegistryConfig{
-		Registry: []types.RegistrySource{
+	writeConfig(t, projectDir, registry.RegistryConfig{
+		Registry: []registry.RegistrySource{
 			{URL: repoURL, Ref: "0000000000000000000000000000000000000000"},
 		},
 	})
@@ -396,8 +395,8 @@ func TestResolveRegistryCacheIsolation(t *testing.T) {
 
 	// Resolve with SHA1.
 	projDir1 := filepath.Join(tmp, "proj1")
-	writeConfig(t, projDir1, types.RegistryConfig{
-		Registry: []types.RegistrySource{{URL: repoURL, Ref: sha1}},
+	writeConfig(t, projDir1, registry.RegistryConfig{
+		Registry: []registry.RegistrySource{{URL: repoURL, Ref: sha1}},
 	})
 	result1, err := registry.ResolveRegistry(registry.ResolveOptions{
 		ProjectDir: projDir1,
@@ -409,8 +408,8 @@ func TestResolveRegistryCacheIsolation(t *testing.T) {
 
 	// Resolve with SHA2.
 	projDir2 := filepath.Join(tmp, "proj2")
-	writeConfig(t, projDir2, types.RegistryConfig{
-		Registry: []types.RegistrySource{{URL: repoURL, Ref: sha2}},
+	writeConfig(t, projDir2, registry.RegistryConfig{
+		Registry: []registry.RegistrySource{{URL: repoURL, Ref: sha2}},
 	})
 	result2, err := registry.ResolveRegistry(registry.ResolveOptions{
 		ProjectDir: projDir2,
@@ -440,7 +439,7 @@ func TestResolveRegistryCacheIsolation(t *testing.T) {
 
 // --- Test helpers ---
 
-func writeConfig(t *testing.T, projectDir string, cfg types.RegistryConfig) {
+func writeConfig(t *testing.T, projectDir string, cfg registry.RegistryConfig) {
 	t.Helper()
 	stegoDir := filepath.Join(projectDir, ".stego")
 	if err := os.MkdirAll(stegoDir, 0755); err != nil {
@@ -519,7 +518,7 @@ func TestRegistrySourcePathIsRelativeAndCannotEscape(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		writeConfig(t, project, types.RegistryConfig{Registry: []types.RegistrySource{{URL: "common", Ref: "local", Path: path}}})
+		writeConfig(t, project, registry.RegistryConfig{Registry: []registry.RegistrySource{{URL: "common", Ref: "local", Path: path}}})
 		result, err := registry.ResolveRegistry(registry.ResolveOptions{ProjectDir: project})
 		if path == "registry" {
 			if err != nil || result.Dir != nested || len(result.Dirs) != 1 {
@@ -542,7 +541,7 @@ func TestVendoredRegistryUsesPinnedCheckoutWithoutNetwork(t *testing.T) {
 	cloneAndPopulate(t, remote, vendor)
 	revision := getHeadSHA(t, vendor)
 	t.Setenv("STEGO_REGISTRY", "")
-	writeConfig(t, project, types.RegistryConfig{Registry: []types.RegistrySource{{URL: "https://unreachable.invalid/common.git", Ref: revision, Vendor: "vendor/common"}}})
+	writeConfig(t, project, registry.RegistryConfig{Registry: []registry.RegistrySource{{URL: "https://unreachable.invalid/common.git", Ref: revision, Vendor: "vendor/common"}}})
 	result, err := registry.ResolveRegistry(registry.ResolveOptions{ProjectDir: project, CacheDir: filepath.Join(t.TempDir(), "unused")})
 	if err != nil || result.Dir != vendor {
 		t.Fatal("pinned offline registry failed", err)
@@ -562,8 +561,8 @@ func TestResolveRegistryRejectsUnsupportedComponentPins(t *testing.T) {
 	project := t.TempDir()
 	t.Setenv("STEGO_REGISTRY", "")
 	for _, ref := range []string{"", "main", strings.Repeat("a", 40)} {
-		writeConfig(t, project, types.RegistryConfig{
-			Registry: []types.RegistrySource{{URL: "https://unreachable.invalid/common.git", Ref: strings.Repeat("b", 40)}},
+		writeConfig(t, project, registry.RegistryConfig{
+			Registry: []registry.RegistrySource{{URL: "https://unreachable.invalid/common.git", Ref: strings.Repeat("b", 40)}},
 			Pins:     map[string]string{"postgres-adapter": ref},
 		})
 		_, err := registry.ResolveRegistry(registry.ResolveOptions{ProjectDir: project, CacheDir: t.TempDir()})
@@ -581,7 +580,7 @@ func TestResolveRegistryCapturedConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	captured := []byte("registry:\n  - url: ./registry\n    ref: local\n")
-	writeConfig(t, project, types.RegistryConfig{Registry: []types.RegistrySource{{URL: "./absent", Ref: "local"}}})
+	writeConfig(t, project, registry.RegistryConfig{Registry: []registry.RegistrySource{{URL: "./absent", Ref: "local"}}})
 	resolved, err := registry.ResolveRegistry(registry.ResolveOptions{ProjectDir: project, ConfigData: captured})
 	if err != nil || len(resolved.Dirs) != 1 || resolved.Dirs[0] != directory {
 		t.Fatalf("captured config was not used: %+v, %v", resolved, err)

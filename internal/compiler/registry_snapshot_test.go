@@ -190,7 +190,7 @@ func TestSlotGenerationUsesCapturedRegistryFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	components := map[string]*types.Component{"sample": reg.Component("sample")}
+	components := map[string]*registry.Component{"sample": reg.Component("sample")}
 	declaration := &types.ServiceDeclaration{Slots: []types.SlotDeclaration{{Slot: "check", Gate: []string{"policy"}}}}
 	before, err := generateSlotFiles("slots", components, declaration, reg)
 	if err != nil || len(before) == 0 {
@@ -262,7 +262,7 @@ func TestSlotImportErrorsAreNotIgnored(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			components := map[string]*types.Component{"rest-api": reg.Component("rest-api")}
+			components := map[string]*registry.Component{"rest-api": reg.Component("rest-api")}
 			declaration := &types.ServiceDeclaration{Slots: []types.SlotDeclaration{{Slot: "before_create", Gate: []string{"policy"}}}}
 			files, err := generateSlotFiles("slots", components, declaration, reg)
 			if err == nil || len(files) != 0 || !strings.Contains(err.Error(), "import") {
