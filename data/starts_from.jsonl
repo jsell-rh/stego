@@ -1,5 +1,9 @@
 {"source_id":"ST-ASR-DS02-T02","target_id":"ST-ASR-TD02"}
 {"source_id":"ST-ASR-DS03-T01","target_id":"ST-ASR-TD01"}
+{"source_id":"ST-DLV-A4-SR01-T01","target_id":"ST-DLV-TD01"}
+{"source_id":"ST-DLV-A4-SR01-T02","target_id":"ST-DLV-TD04"}
+{"source_id":"ST-DLV-A4-SR01-T03","target_id":"ST-DLV-TD01"}
+{"source_id":"ST-DLV-A4-SR01-T03","target_id":"ST-DLV-TD03"}
 {"source_id":"ST-DLV-DS01-T01","target_id":"ST-DLV-TD01"}
 {"source_id":"ST-DLV-DS01-T02","target_id":"ST-DLV-TD01"}
 {"source_id":"ST-DLV-DS02-T01","target_id":"ST-DLV-TD02"}
@@ -12,8 +16,10 @@
 {"source_id":"ST-DLV-INV07-T","target_id":"ST-DLV-TD01"}
 {"source_id":"ST-DLV-INV08-T","target_id":"ST-DLV-TD01"}
 {"source_id":"ST-DLV-INV09-T","target_id":"ST-DLV-TD01"}
+{"source_id":"ST-DLV-INV10-T","target_id":"ST-DLV-TD01"}
 {"source_id":"ST-DLV-PO01-T","target_id":"ST-DLV-TD03"}
 {"source_id":"ST-DLV-PO03-T","target_id":"ST-DLV-TD03"}
+{"source_id":"ST-DLV-PO04-T","target_id":"ST-DLV-TD01"}
 {"source_id":"ST-EXT-DS01-T01","target_id":"ST-EXT-TD01"}
 {"source_id":"ST-EXT-DS01-T02","target_id":"ST-EXT-TD01"}
 {"source_id":"ST-EXT-DS01-T03","target_id":"ST-EXT-TD01"}
