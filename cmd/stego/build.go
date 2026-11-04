@@ -69,12 +69,15 @@ func runBuild(args []string) error {
 	flags.StringVar(&options.Go, "go", "", "bin/go in the selected official SDK")
 	flags.StringVar(&options.Work, "work", "", "new private build directory")
 	flags.StringVar(&options.Output, "output", "", "new result directory")
-	flags.StringVar(&options.ModuleCache, "module-cache", "", "module download cache directory for an offline build")
+	flags.StringVar(&options.ModuleCache, "module-cache", "", "module cache that stego build download recorded; required, since a build runs offline")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
 		return fmt.Errorf("build accepts no positional arguments")
+	}
+	if options.ModuleCache == "" {
+		return fmt.Errorf("build requires --module-cache: run stego build download first; a build never downloads modules")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

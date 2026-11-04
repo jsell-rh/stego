@@ -113,6 +113,25 @@ func environment(root, sdk string, offline bool) []string {
 	return result
 }
 
+// offlineCache enforces ST-BLD-INV04: a build runs with the module proxy off,
+// from the module cache that stego build download recorded for the same
+// revision, module and target. It refuses a cache whose zips differ from its
+// record, or lack one the record lists; the Go toolchain then refuses a module
+// the cache does not hold, or whose zip differs from go.sum.
+func offlineCache(o Options) (*ModuleCacheRecord, error) {
+	if o.ModuleCache == "" {
+		return nil, errors.New("build requires --module-cache: a module cache that stego build download recorded; a build never downloads modules")
+	}
+	cache, err := loadModuleCache(o.ModuleCache)
+	if err != nil {
+		return nil, fmt.Errorf("module cache %s: %w", o.ModuleCache, err)
+	}
+	if cache.SourceRevision != o.Revision || cache.Module != o.Module || cache.Target != o.Target || cache.GoVersion != GoVersion {
+		return nil, fmt.Errorf("the module cache %s serves revision %s, module %s and target %s, not the build's", o.ModuleCache, cache.SourceRevision, cache.Module, cache.Target)
+	}
+	return cache, nil
+}
+
 // checkSDK refuses a Go SDK whose contents differ from the pinned official
 // release, and names the inventory it found and the one it expected.
 func checkSDK(sdk string) (Inventory, error) {
@@ -138,11 +157,11 @@ func prepare(options Options) (Options, error) {
 	if !revisionPattern.MatchString(options.Revision) || (options.Module != "." && !safePath(options.Module)) || !safePath(options.Target) {
 		return options, errors.New("build requires a commit, relative module, and relative target")
 	}
+	if options.ModuleCache == "" {
+		return options, errors.New("build requires --module-cache: a module cache that stego build download recorded; a build never downloads modules")
+	}
 	for _, pointer := range []*string{&options.Source, &options.Go, &options.Work, &options.Output, &options.ModuleCache} {
 		if *pointer == "" {
-			if pointer == &options.ModuleCache {
-				continue
-			}
 			return options, errors.New("build paths are required")
 		}
 		absolute, err := filepath.Abs(*pointer)
@@ -160,11 +179,9 @@ func prepare(options Options) (Options, error) {
 	if err != nil {
 		return options, err
 	}
-	if options.ModuleCache != "" {
-		options.ModuleCache, err = filepath.EvalSymlinks(options.ModuleCache)
-		if err != nil {
-			return options, err
-		}
+	options.ModuleCache, err = filepath.EvalSymlinks(options.ModuleCache)
+	if err != nil {
+		return options, fmt.Errorf("cannot read the module cache %s", options.ModuleCache)
 	}
 	for _, pointer := range []*string{&options.Work, &options.Output} {
 		parent, err := filepath.EvalSymlinks(filepath.Dir(*pointer))
@@ -180,7 +197,7 @@ func prepare(options Options) (Options, error) {
 	if options.Go != filepath.Join(sdk, "bin", "go") || !outside(options.Source, options.Work) || !outside(options.Source, options.Output) || !outside(options.Work, options.Output) || !outside(options.Output, options.Work) || !outside(sdk, options.Work) || !outside(sdk, options.Output) {
 		return options, errors.New("build, source, SDK, and result paths overlap")
 	}
-	if options.ModuleCache != "" && (!outside(options.Source, options.ModuleCache) || !outside(options.Work, options.ModuleCache) || !outside(options.Output, options.ModuleCache) || !outside(sdk, options.ModuleCache)) {
+	if !outside(options.Source, options.ModuleCache) || !outside(options.Work, options.ModuleCache) || !outside(options.Output, options.ModuleCache) || !outside(sdk, options.ModuleCache) {
 		return options, errors.New("the module cache overlaps another build path")
 	}
 	return options, nil
@@ -390,15 +407,9 @@ func Build(ctx context.Context, options Options) (*Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	var cache *ModuleCacheRecord
-	if o.ModuleCache != "" {
-		cache, err = loadModuleCache(o.ModuleCache)
-		if err != nil {
-			return nil, err
-		}
-		if cache.SourceRevision != o.Revision || cache.Module != o.Module || cache.Target != o.Target || cache.GoVersion != GoVersion {
-			return nil, errors.New("the module cache does not match the build inputs")
-		}
+	cache, err := offlineCache(o)
+	if err != nil {
+		return nil, err
 	}
 	if err := os.Mkdir(o.Work, 0700); err != nil {
 		return nil, err
@@ -412,15 +423,13 @@ func Build(ctx context.Context, options Options) (*Record, error) {
 				return nil, err
 			}
 		}
-		if o.ModuleCache != "" {
-			// Each round extracts again from the recorded download cache.
-			// Extraction checks every zip against go.sum, so the copy only
-			// moves verified data between private directories.
-			if err := copyTree(filepath.Join(o.ModuleCache, "cache", "download"), filepath.Join(root, "modules", "cache", "download")); err != nil {
-				return nil, fmt.Errorf("module cache copy: %w", err)
-			}
+		// Each round extracts again from the recorded download cache.
+		// Extraction checks every zip against go.sum, so the copy only
+		// moves verified data between private directories.
+		if err := copyTree(filepath.Join(o.ModuleCache, "cache", "download"), filepath.Join(root, "modules", "cache", "download")); err != nil {
+			return nil, fmt.Errorf("module cache copy: %w", err)
 		}
-		env := environment(root, sdk, o.ModuleCache != "")
+		env := environment(root, sdk, true)
 		snapshot := filepath.Join(root, "source")
 
 		tree, err := capture(ctx, o.Source, env, git, "ls-tree", "-r", "-z", o.Revision)
@@ -520,13 +529,9 @@ func Build(ctx context.Context, options Options) (*Record, error) {
 			return nil, errors.New("application source changed during the build")
 		}
 		flags[7] = "<artifact>"
-		proxy := "https://proxy.golang.org"
-		var cacheInventory *Inventory
-		if o.ModuleCache != "" {
-			proxy = "off"
-			recorded := cache.DownloadCache
-			cacheInventory = &recorded
-		}
+		proxy := "off"
+		recorded := cache.DownloadCache
+		cacheInventory := &recorded
 		record := &Record{Format: 1, SourceRevision: o.Revision, Source: inputs, Inputs: files, Module: o.Module, Target: o.Target, GenerationStateSHA256: stateHash, GenerationCompiler: generator, BuildCompiler: buildidentity.Current(), BuildCompilerArtifact: Artifact{compilerHash, compilerSize}, Toolchain: toolchain, GoVersion: GoVersion, GitSHA256: gitHash, Environment: buildEnvironmentRecord(), DependencyProxy: proxy, ModuleCache: cacheInventory, GoTelemetry: "off", BuildFlags: flags, Modules: modules, BinarySettings: settings, Artifact: Artifact{hash, size}, IndependentBuilds: 2}
 		if err := checkCompiledModules(binary, record); err != nil {
 			return nil, err

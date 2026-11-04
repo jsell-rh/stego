@@ -183,7 +183,7 @@ func TestModuleInventoryRecordsReplacementsWithoutHostPaths(t *testing.T) {
 }
 
 func TestEnvironmentExcludesAmbientBuildAndCredentialSettings(t *testing.T) {
-	t.Run("ST-BLD-UC03-R01-T01 The build environment drops ambient settings and sets GOPROXY off", func(t *testing.T) {
+	t.Run("The build environment drops ambient settings and sets GOPROXY off", func(t *testing.T) {
 		for _, key := range []string{"GOFLAGS", "GOWORK", "GOENV", "GOCACHEPROG", "LD_PRELOAD", "GH_TOKEN", "HTTPS_PROXY"} {
 			t.Setenv(key, "unexpected-private-value")
 		}
@@ -295,7 +295,7 @@ func TestRecordRejectsChangedBuildPolicyAndInputs(t *testing.T) {
 			t.Run(name, func(t *testing.T) { refused(t, fixtureRecord(), change) })
 		}
 	})
-	t.Run("ST-BLD-INV04-T ST-BLD-UC03-R01-T02 An offline record names a cache and no proxy, and an online record names no cache", func(t *testing.T) {
+	t.Run("An offline record names a cache and no proxy, and an online record names no cache", func(t *testing.T) {
 		for name, change := range offlineCases {
 			t.Run(name, func(t *testing.T) { refused(t, fixtureOfflineRecord(), change) })
 		}
@@ -332,10 +332,12 @@ func TestBuildPathValidationProtectsExistingDirectories(t *testing.T) {
 	t.Run("ST-BLD-INV05-T ST-BLD-UC03-R02-T02 A build refuses an SDK that is not the verified one", func(t *testing.T) {
 		root := t.TempDir()
 		put(t, root, "sdk/bin/go", "not executed")
-		if err := os.Mkdir(filepath.Join(root, "source"), 0700); err != nil {
-			t.Fatal(err)
+		for _, name := range []string{"source", "cache"} {
+			if err := os.Mkdir(filepath.Join(root, name), 0700); err != nil {
+				t.Fatal(err)
+			}
 		}
-		base := Options{Source: filepath.Join(root, "source"), Revision: strings.Repeat("a", 40), Module: ".", Target: "out", Go: filepath.Join(root, "sdk/bin/go"), Work: filepath.Join(root, "work"), Output: filepath.Join(root, "output")}
+		base := Options{Source: filepath.Join(root, "source"), Revision: strings.Repeat("a", 40), Module: ".", Target: "out", Go: filepath.Join(root, "sdk/bin/go"), Work: filepath.Join(root, "work"), Output: filepath.Join(root, "output"), ModuleCache: filepath.Join(root, "cache")}
 		if _, err := prepare(base); err != nil {
 			t.Fatal(err)
 		}

@@ -380,6 +380,62 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 			t.Fatalf("build %d: %v", index+1, err)
 		}
 	}
+	// brokenCache copies the cache, with its one zip removed or changed, and
+	// runs a build from the copy.
+	brokenCache := func(t *testing.T, change string) (error, []string) {
+		t.Helper()
+		parent := t.TempDir()
+		copied := filepath.Join(parent, "cache")
+		if output, err := exec.Command("cp", "-a", cache, copied).CombinedOutput(); err != nil {
+			t.Fatalf("copy: %v\n%s", err, output)
+		}
+		zip := filepath.Join(copied, "cache", "download", tinyModule, "@v", tinyVersion+".zip")
+		var err error
+		if change == "missing" {
+			err = os.Remove(zip)
+		} else {
+			var data []byte
+			if data, err = os.ReadFile(zip); err == nil {
+				data[len(data)/2] ^= 0xff
+				err = os.WriteFile(zip, data, 0600)
+			}
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = capture(t, runBuild, buildArgs(source, revision, goTool, filepath.Join(parent, "work"), filepath.Join(parent, "result"), copied)...)
+		names := folderNames(t, parent)
+		return err, names
+	}
+	t.Run("ST-BLD-INV04-T A build runs with the proxy off from its recorded cache, and fails when a module is missing or differs", func(t *testing.T) {
+		var record appbuild.Record
+		data, err := os.ReadFile(filepath.Join(results[0], "build.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(data, &record); err != nil {
+			t.Fatal(err)
+		}
+		if record.DependencyProxy != "off" || record.Environment["GOPROXY"] != "off" || record.ModuleCache == nil || *record.ModuleCache != readCacheRecord(t, cache).DownloadCache {
+			t.Fatalf("the record does not show an offline build from the recorded cache: proxy %q, cache %v", record.DependencyProxy, record.ModuleCache)
+		}
+		for _, change := range []string{"missing", "changed"} {
+			if err, _ := brokenCache(t, change); err == nil {
+				t.Errorf("a build from a cache whose zip is %s succeeded", change)
+			}
+		}
+	})
+	t.Run("ST-BLD-UC03-R01-T02 A build from a cache whose module zip is missing or changed fails and leaves no result", func(t *testing.T) {
+		for _, change := range []string{"missing", "changed"} {
+			err, names := brokenCache(t, change)
+			if err == nil || !strings.Contains(err.Error(), "module cache") {
+				t.Errorf("a build from a cache whose zip is %s did not fail naming the module cache: %v", change, err)
+			}
+			if strings.Contains(strings.Join(names, " "), "result") {
+				t.Errorf("a failed build left a result folder: %v", names)
+			}
+		}
+	})
 	t.Run("ST-BLD-UC03-R03-T02 Builds from the same inputs give the same executable and record", func(t *testing.T) {
 		for _, name := range []string{"application", "build.json", "SHA256SUMS"} {
 			if fileSHA256(t, filepath.Join(results[0], name)) != fileSHA256(t, filepath.Join(results[1], name)) {
@@ -545,6 +601,24 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 			if fileSHA256(t, name) != digest {
 				t.Errorf("a failed check changed %s", name)
 			}
+		}
+	})
+}
+
+func TestBuildNeedsARecordedModuleCache(t *testing.T) {
+	t.Run("ST-BLD-UC03-R01-T01 A build without a module cache is refused before any work, and names --module-cache", func(t *testing.T) {
+		root := t.TempDir()
+		source := filepath.Join(root, "source")
+		if err := os.Mkdir(source, 0755); err != nil {
+			t.Fatal(err)
+		}
+		args := []string{"--source", source, "--revision", strings.Repeat("a", 40), "--target", "out", "--go", pinnedGo(t), "--work", filepath.Join(root, "work"), "--output", filepath.Join(root, "result")}
+		_, err := capture(t, runBuild, args...)
+		if err == nil || !strings.Contains(err.Error(), "--module-cache") {
+			t.Fatalf("a build without a module cache was not refused naming --module-cache: %v", err)
+		}
+		if names := folderNames(t, root); len(names) != 1 {
+			t.Fatalf("a refused build made %v", names)
 		}
 	})
 }
