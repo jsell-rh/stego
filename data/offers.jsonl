@@ -29,6 +29,7 @@
 {"source_id":"ST-IF01","target_id":"ST-DLV-UC03"}
 {"source_id":"ST-IF01","target_id":"ST-DLV-UC04"}
 {"source_id":"ST-IF01","target_id":"ST-DLV-UC05"}
+{"source_id":"ST-IF01","target_id":"ST-DLV-UC06"}
 {"source_id":"ST-IF01","target_id":"ST-EXT-UC01"}
 {"source_id":"ST-IF01","target_id":"ST-EXT-UC02"}
 {"source_id":"ST-IF01","target_id":"ST-EXT-UC03"}

@@ -27,9 +27,10 @@
 {"id":"ST-DIS-UC11-FL","title":"Publish a compiler release","use_case_id":"ST-DIS-UC11"}
 {"id":"ST-DLV-UC01-FL","title":"State what a service needs from the platform","use_case_id":"ST-DLV-UC01"}
 {"id":"ST-DLV-UC02-FL","title":"Check an environment against a service","use_case_id":"ST-DLV-UC02"}
-{"id":"ST-DLV-UC03-FL","title":"Build and release a service through its CI provider","use_case_id":"ST-DLV-UC03"}
+{"id":"ST-DLV-UC03-FL","title":"Release a service through its CI provider","use_case_id":"ST-DLV-UC03"}
 {"id":"ST-DLV-UC04-FL","title":"Patch every service's pipeline","use_case_id":"ST-DLV-UC04"}
 {"id":"ST-DLV-UC05-FL","title":"Deploy a service with GitOps","use_case_id":"ST-DLV-UC05"}
+{"id":"ST-DLV-UC06-FL","title":"Connect a service to its CI provider","use_case_id":"ST-DLV-UC06"}
 {"id":"ST-EXT-UC01-FL","title":"Add a service rule at a slot","use_case_id":"ST-EXT-UC01"}
 {"id":"ST-EXT-UC02-FL","title":"Qualify a fill","use_case_id":"ST-EXT-UC02"}
 {"id":"ST-EXT-UC03-FL","title":"Find an existing fill for a slot","use_case_id":"ST-EXT-UC03"}
