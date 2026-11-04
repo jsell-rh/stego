@@ -1,0 +1,3 @@
+{"id":"ST-PAT-GO-CODE-R01","title":"A hand-written record fills one slot","pattern_id":"ST-PAT-GO-CODE","statement":"Each technical record of STEGO that no tooling record generates and nothing provides MUST fill exactly one slot of this pattern."}
+{"id":"ST-PAT-GO-CODE-R02","title":"A fill serves an essential record","pattern_id":"ST-PAT-GO-CODE","statement":"Each fill MUST implement, build or sit under an essential record; code that serves no essential record MUST be removed."}
+{"id":"ST-PAT-GO-CODE-R03","title":"A fill follows the code standard","pattern_id":"ST-PAT-GO-CODE","statement":"Each fill MUST meet every rule of ST-STD-CODE that applies to its kind."}
