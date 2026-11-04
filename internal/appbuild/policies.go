@@ -48,3 +48,40 @@ func BuildImageOnApplicationBuilt(ctx context.Context, event ApplicationBuilt, r
 	}
 	return record, ImageBuilt{ImageDigest: record.Manifest.SHA256, BuildRecordDigest: record.BuildRecordSHA256}, nil
 }
+
+// SignImageOnImageBuilt is the event handler of ST-BLD-PO02. It hears Image
+// built and sends Sign the image: it reads the image record in the image
+// folder, refuses a record whose image or build record is not the one the
+// event names, and checks the provider's signature of that image digest with
+// SignImage, at the digest of the record it read. It gives Image signed.
+func SignImageOnImageBuilt(ctx context.Context, event ImageBuilt, image string, check SignatureCheck) (*ImageSignature, ImageSigned, error) {
+	if image == "" {
+		return nil, ImageSigned{}, errors.New("the signing of Image built needs the image folder")
+	}
+	data, err := readImageBytes(filepath.Join(image, "image.json"), imageMetadataLimit)
+	if err != nil {
+		return nil, ImageSigned{}, fmt.Errorf("cannot read the image record of Image built: %w", err)
+	}
+	recordSHA256 := digest(data)
+	record, err := readTrustedImageRecord(filepath.Join(image, "image.json"), recordSHA256)
+	if err != nil {
+		return nil, ImageSigned{}, err
+	}
+	if record.Manifest.SHA256 != event.ImageDigest {
+		return nil, ImageSigned{}, fmt.Errorf("the image record names the image sha256:%s, not sha256:%s that Image built names", record.Manifest.SHA256, event.ImageDigest)
+	}
+	if record.BuildRecordSHA256 != event.BuildRecordDigest {
+		return nil, ImageSigned{}, fmt.Errorf("the image record names the build record sha256:%s, not sha256:%s that Image built names", record.BuildRecordSHA256, event.BuildRecordDigest)
+	}
+	signature, err := SignImage(ctx, SignOptions{Image: image, RecordSHA256: recordSHA256, Check: check})
+	if err != nil {
+		return nil, ImageSigned{}, err
+	}
+	return signature, SignedEvent(signature), nil
+}
+
+// SignedEvent gives the Image signed event of a signature that SignImage
+// checked: the image digest and the signer.
+func SignedEvent(signature *ImageSignature) ImageSigned {
+	return ImageSigned{ImageDigest: signature.ImageSHA256, Signer: signature.Signer.describe()}
+}

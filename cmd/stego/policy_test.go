@@ -465,3 +465,59 @@ func TestPolicyBuildImageFromBuiltApplication(t *testing.T) {
 		}
 	})
 }
+
+func TestPolicySignBuiltImage(t *testing.T) {
+	t.Run("ST-BLD-PO02-T Sign the image hears Image built, reads the image record at the built digest, and signs that digest with the trusted signer", func(t *testing.T) {
+		fixture := builtImage(t)
+		var event appbuild.ImageBuilt
+		lastEvent(t, fixture.event, &event)
+		if event.ImageDigest != fixture.manifest {
+			t.Fatalf("stego image build printed %+v; expected the image sha256:%s", event, fixture.manifest)
+		}
+		gh := fakeGH(t)
+		sign := func(event appbuild.ImageBuilt, subject string) (string, string, string, error) {
+			image := copyFolder(t, fixture.folder)
+			spdx, cyclonedx := signatureBundles(t, image, subject)
+			stdout, stderr, err := runStego(t, append([]string{"image", "sign", "--after", eventFile(t, event), "--image", image}, signatureArgs(gh, spdx, cyclonedx)...)...)
+			return image, stdout, stderr, err
+		}
+		image, stdout, stderr, err := sign(event, trustedSubject)
+		if err != nil {
+			t.Fatalf("stego image sign --after: %v\n%s", err, stderr)
+		}
+		var signature appbuild.ImageSignature
+		data, err := os.ReadFile(filepath.Join(image, "signature.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(data, &signature); err != nil {
+			t.Fatal(err)
+		}
+		if signature.ImageSHA256 != event.ImageDigest || signature.ImageRecordSHA256 != fixture.recordSHA256 || signature.Signer.Subject != trustedSubject || len(signature.Attestations) != 2 {
+			t.Fatalf("the signature record is %+v; expected the trusted signer's signature of image sha256:%s with both SBOMs", signature, event.ImageDigest)
+		}
+		var signed appbuild.ImageSigned
+		lastEvent(t, stdout, &signed)
+		if signed.ImageDigest != event.ImageDigest || !strings.Contains(signed.Signer, trustedSubject) {
+			t.Fatalf("stego image sign printed %+v; expected the image sha256:%s and the trusted signer", signed, event.ImageDigest)
+		}
+		for _, item := range []struct {
+			name    string
+			event   appbuild.ImageBuilt
+			subject string
+			reason  string
+		}{
+			{"another image", appbuild.ImageBuilt{ImageDigest: strings.Repeat("3", 64), BuildRecordDigest: event.BuildRecordDigest}, trustedSubject, "not sha256:" + strings.Repeat("3", 64)},
+			{"another build record", appbuild.ImageBuilt{ImageDigest: event.ImageDigest, BuildRecordDigest: strings.Repeat("4", 64)}, trustedSubject, "not sha256:" + strings.Repeat("4", 64)},
+			{"another signer", event, otherSubject, "not by the trusted signer"},
+		} {
+			image, _, stderr, err := sign(item.event, item.subject)
+			if err == nil || !strings.Contains(stderr, item.reason) {
+				t.Errorf("stego image sign --after with %s: %v, %q; expected a refusal that names %q", item.name, err, stderr, item.reason)
+			}
+			if _, err := os.Stat(filepath.Join(image, "signature.json")); !os.IsNotExist(err) {
+				t.Errorf("stego image sign --after with %s wrote signature.json", item.name)
+			}
+		}
+	})
+}

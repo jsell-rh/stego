@@ -23,7 +23,7 @@ func signatureFlags(flags *flag.FlagSet) func() (appbuild.SignatureCheck, error)
 		values[item.name] = flags.String(item.name, "", item.usage)
 	}
 	return func() (appbuild.SignatureCheck, error) {
-		for _, name := range []string{"spdx-bundle", "cyclonedx-bundle", "signer-issuer", "signer-subject", "gh", "source-repository"} {
+		for _, name := range signatureNames {
 			if *values[name] == "" {
 				return appbuild.SignatureCheck{}, fmt.Errorf("%s requires --%s", flags.Name(), name)
 			}
@@ -37,6 +37,23 @@ func signatureFlags(flags *flag.FlagSet) func() (appbuild.SignatureCheck, error)
 	}
 }
 
+// signatureNames are the flags that signatureFlags adds, in the order it
+// checks them.
+var signatureNames = []string{"spdx-bundle", "cyclonedx-bundle", "signer-issuer", "signer-subject", "gh", "source-repository"}
+
+// signatureFlagSet gives the name of the first signature flag that the
+// command line set, or "" when it set none.
+func signatureFlagSet(flags *flag.FlagSet) string {
+	set := map[string]bool{}
+	flags.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	for _, name := range signatureNames {
+		if set[name] {
+			return name
+		}
+	}
+	return ""
+}
+
 // runImageSign parses stego image sign (ST-BLD-CLI05) and checks the
 // signature that the CI provider made for the image, through
 // appbuild.SignImage, which writes signature.json. It refuses a missing flag
@@ -45,6 +62,7 @@ func runImageSign(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("image sign", flag.ContinueOnError)
 	image := flags.String("image", "", "image folder that stego image build wrote")
 	recordSHA256 := flags.String("record-sha256", "", "trusted digest of the image record")
+	after := flags.String("after", "", "Image built event that stego image build printed (ST-BLD-PO02), in place of --record-sha256")
 	check := signatureFlags(flags)
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -55,14 +73,32 @@ func runImageSign(ctx context.Context, args []string) error {
 	if *image == "" {
 		return fmt.Errorf("image sign requires --image")
 	}
-	if *recordSHA256 == "" {
+	if *after != "" && *recordSHA256 != "" {
+		return fmt.Errorf("image sign takes --record-sha256 or --after, not both")
+	}
+	if *after == "" && *recordSHA256 == "" {
 		return fmt.Errorf("image sign requires --record-sha256")
+	}
+	var event appbuild.ImageBuilt
+	if *after != "" {
+		if err := readEvent(*after, &event); err != nil {
+			return err
+		}
 	}
 	selected, err := check()
 	if err != nil {
 		return err
 	}
-	signature, err := appbuild.SignImage(ctx, appbuild.SignOptions{Image: *image, RecordSHA256: *recordSHA256, Check: selected})
+	var signature *appbuild.ImageSignature
+	var raised appbuild.ImageSigned
+	if *after != "" {
+		signature, raised, err = appbuild.SignImageOnImageBuilt(ctx, event, *image, selected)
+	} else {
+		signature, err = appbuild.SignImage(ctx, appbuild.SignOptions{Image: *image, RecordSHA256: *recordSHA256, Check: selected})
+		if err == nil {
+			raised = appbuild.SignedEvent(signature)
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -70,5 +106,5 @@ func runImageSign(ctx context.Context, args []string) error {
 	for _, attestation := range signature.Attestations {
 		fmt.Printf("%s attestation: bundle sha256:%s, SBOM sha256:%s\n", attestation.Format, attestation.BundleSHA256, attestation.PredicateSHA256)
 	}
-	return nil
+	return printEvent(raised)
 }
