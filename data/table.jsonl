@@ -4,7 +4,7 @@
 {"id":"ST-BLD-EN01-TB","title":"go.mod","entity_id":"ST-BLD-EN01","name":"go.mod and go.sum","storage":"file","file":"internal/compiler/dependencies.go"}
 {"id":"ST-BLD-EN02-TB","title":"module-cache.json","entity_id":"ST-BLD-EN02","name":"module-cache.json","storage":"file","file":"internal/appbuild/download.go"}
 {"id":"ST-BLD-EN04-TB","title":"result/build.json","entity_id":"ST-BLD-EN04","name":"build.json","storage":"file","file":"internal/appbuild/build.go"}
-{"id":"ST-BLD-EN05-TB","title":"sbom.spdx.json","entity_id":"ST-BLD-EN05","name":"sbom.spdx.json and sbom.cdx.json","storage":"file","file":"internal/appbuild/sbom.go"}
+{"id":"ST-BLD-EN05-TB","title":"appbuild.writeSBOMFiles","entity_id":"ST-BLD-EN05","name":"sbom.spdx.json and sbom.cdx.json","storage":"file","file":"internal/appbuild/sbom.go"}
 {"id":"ST-BLD-EN06-TB","title":"image.json","entity_id":"ST-BLD-EN06","name":"image.json","storage":"file","file":"internal/appbuild/image.go"}
 {"id":"ST-BLD-RM01-TB","title":"appbuild.Verify","read_model_id":"ST-BLD-RM01","name":"appbuild.Verify","storage":"in memory","file":"internal/appbuild/verify.go"}
 {"id":"ST-BLD-RM02-TB","title":"appbuild.VerifyImage","read_model_id":"ST-BLD-RM02","name":"appbuild.VerifyImage","storage":"in memory","file":"internal/appbuild/image_verify.go"}

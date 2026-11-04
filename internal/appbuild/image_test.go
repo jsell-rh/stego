@@ -182,9 +182,9 @@ func TestImageRejectsChangedLayoutAndRecord(t *testing.T) {
 // Rebuild descriptors after changing a layer or configuration. Correct new
 // hashes must not let an image bypass the common runtime policy.
 func TestImageRejectsRehashedUnsafeContent(t *testing.T) {
-	t.Run("ST-BLD-UC05-R02-T02 A rehashed image that runs as root or carries an extra executable is refused", func(t *testing.T) {
+	t.Run("ST-BLD-INV13-T ST-BLD-UC05-R02-T02 A rehashed image that runs as root or carries an extra executable, a link, a device, another owner or unknown metadata is refused", func(t *testing.T) {
 		ca := imageTestCA(t, true)
-		for _, change := range []string{"root user", "ambient environment", "writable executable", "symbolic link", "extra executable", "private key"} {
+		for _, change := range []string{"root user", "ambient environment", "writable executable", "symbolic link", "extra executable", "private key", "device", "changed owner", "unknown metadata"} {
 			t.Run(change, func(t *testing.T) {
 				root, record := imageFixture(t, ca)
 				raw, err := os.ReadFile(filepath.Join(root, "layer.tar"))
@@ -209,6 +209,19 @@ func TestImageRejectsRehashedUnsafeContent(t *testing.T) {
 					if header.Name == record.Entrypoint {
 						if change == "writable executable" {
 							header.Mode = 0777
+						}
+						if change == "device" {
+							header.Typeflag = tar.TypeChar
+							header.Devmajor, header.Devminor = 1, 3
+							header.Size = 0
+							data = nil
+						}
+						if change == "changed owner" {
+							header.Uid, header.Gid = 1000, 1000
+						}
+						if change == "unknown metadata" {
+							header.Format = tar.FormatPAX
+							header.PAXRecords = map[string]string{"comment": "unknown"}
 						}
 						if change == "symbolic link" {
 							header.Typeflag = tar.TypeSymlink
@@ -289,12 +302,73 @@ func TestImageRejectsRehashedUnsafeContent(t *testing.T) {
 				if err := store.AppendImage(image); err != nil {
 					t.Fatal(err)
 				}
-				reasons := map[string]string{"root user": "image configuration differs", "ambient environment": "image configuration differs", "writable executable": "image executable metadata differs", "symbolic link": "image entry metadata differs", "extra executable": "repeated or extra entries", "private key": "trust store must contain only PEM certificates"}
+				reasons := map[string]string{"root user": "image configuration differs", "ambient environment": "image configuration differs", "writable executable": "image executable metadata differs", "symbolic link": "image entry metadata differs", "extra executable": "repeated or extra entries", "private key": "trust store must contain only PEM certificates", "device": "image entry metadata differs", "changed owner": "image entry metadata differs", "unknown metadata": "image entry metadata differs"}
 				if err := verifyImageContents(context.Background(), string(store), record, ""); err == nil || !strings.Contains(err.Error(), reasons[change]) {
 					data, _ := json.Marshal(config)
 					t.Fatal("wrong unsafe image rejection", change, err, string(data))
 				}
 			})
+		}
+	})
+}
+
+func TestImageBuildTakesOnlyTrustedInputs(t *testing.T) {
+	t.Run("ST-BLD-INV08-T An image build refuses an untrusted build record, CA bundle or executable and never reads the host's trust store", func(t *testing.T) {
+		inputs := t.TempDir()
+		ca, leaf, other := imageTestCA(t, true), imageTestCA(t, false), imageTestCA(t, true)
+		application := []byte("fixed application bytes")
+		build := sbomFixtureRecord()
+		build.Artifact = Artifact{digest(application), int64(len(application))}
+		buildData, err := json.MarshalIndent(build, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		buildData = append(buildData, '\n')
+		put(t, inputs, "build.json", string(buildData))
+		put(t, inputs, "application", string(application))
+		put(t, inputs, "other-application", "other application bytes")
+		put(t, inputs, "ca.pem", string(ca))
+		put(t, inputs, "leaf.pem", string(leaf))
+		put(t, inputs, "host.pem", string(other))
+		// The host's trust store points elsewhere; the image must not take it.
+		t.Setenv("SSL_CERT_FILE", filepath.Join(inputs, "host.pem"))
+		t.Setenv("SSL_CERT_DIR", inputs)
+		valid := ImageOptions{BuildRecord: filepath.Join(inputs, "build.json"), BuildRecordSHA256: digest(buildData), Application: filepath.Join(inputs, "application"), TrustStore: filepath.Join(inputs, "ca.pem"), TrustStoreSHA256: digest(ca), Entrypoint: "service"}
+		for name, change := range map[string]func(*ImageOptions){
+			"untrusted build record digest": func(o *ImageOptions) { o.BuildRecordSHA256 = strings.Repeat("0", 64) },
+			"untrusted CA bundle digest":    func(o *ImageOptions) { o.TrustStoreSHA256 = digest(other) },
+			"host CA bundle":                func(o *ImageOptions) { o.TrustStore = filepath.Join(inputs, "host.pem") },
+			"leaf certificate bundle": func(o *ImageOptions) {
+				o.TrustStore, o.TrustStoreSHA256 = filepath.Join(inputs, "leaf.pem"), digest(leaf)
+			},
+			"no CA bundle":                         func(o *ImageOptions) { o.TrustStore, o.TrustStoreSHA256 = "", "" },
+			"executable the record does not name":  func(o *ImageOptions) { o.Application = filepath.Join(inputs, "other-application") },
+			"executable that is not the built one": func(o *ImageOptions) {},
+		} {
+			t.Run(name, func(t *testing.T) {
+				options := valid
+				change(&options)
+				options.Output = filepath.Join(t.TempDir(), "image")
+				if _, err := BuildImage(context.Background(), options); err == nil {
+					t.Fatal("an image was built from untrusted input")
+				}
+				if _, err := os.Lstat(filepath.Join(options.Output, "image.json")); !os.IsNotExist(err) {
+					t.Fatal("an image record was written for untrusted input", err)
+				}
+			})
+		}
+		// The image that assembly writes holds the explicit CA bundle only.
+		root, record := imageFixture(t, ca)
+		if record.TrustStore != (Artifact{digest(ca), int64(len(ca))}) {
+			t.Fatal("the image record does not name the explicit CA bundle")
+		}
+		if err := verifyImageContents(context.Background(), filepath.Join(root, "oci"), record, ""); err != nil {
+			t.Fatal(err)
+		}
+		for name, data := range map[string][]byte{"empty": nil, "key": pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("private")}), "leaf": leaf} {
+			if validTrustStore(data) == nil {
+				t.Fatal("an unsafe CA bundle was accepted:", name)
+			}
 		}
 	})
 }
