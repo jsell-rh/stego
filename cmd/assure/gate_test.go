@@ -357,6 +357,53 @@ func TestGateChange(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-ASR-UC02-R01-T03 A change that retires an obligation to a successor with each standing it had at the base passes, and the decision reports the retirement", func(t *testing.T) {
+		g := newGateRepository(t)
+		change := g.commit(t, g.base, movesOneLoan(true))
+		passed := g.keep(t, "moved", proofRun(change, pullRef, 40, "FX-LEND-INV02-T passed", "FX-LEND-INV05-T passed"))
+		result := g.gate(t, change, g.base, passed)
+		decided(t, "a change that moves FX-LEND-INV01 to FX-LEND-INV05 with its rule and test", result, 0)
+		if !strings.Contains(result.stdout, "\nretirements (1):\nretirement FX-LEND-RT01: FX-LEND-INV01 succeeded by FX-LEND-INV05\nreasons: none\n") {
+			t.Fatalf("the decision does not report the retirement it follows:\n%s", result.stdout)
+		}
+	})
+
+	t.Run("ST-ASR-UC02-R01-T04 A change whose retirement names a successor without a standing the retired obligation had at the base is refused, and the reason names the retirement", func(t *testing.T) {
+		g := newGateRepository(t)
+		change := g.commit(t, g.base, movesOneLoan(false))
+		passed := g.keep(t, "unproved", proofRun(change, pullRef, 41, "FX-LEND-INV02-T passed"))
+		result := g.gate(t, change, g.base, passed)
+		decided(t, "a change that moves FX-LEND-INV01 to FX-LEND-INV05 with no test", result, 1,
+			"FX-LEND-INV01 is retired by FX-LEND-RT01, but its successor FX-LEND-INV05 is not proved")
+		if strings.Contains(result.stdout, "\nretirements (") {
+			t.Fatalf("the decision reports a retirement it does not follow:\n%s", result.stdout)
+		}
+	})
+
+	t.Run("ST-ASR-UC02-R01-T05 A retirement with no successor admits the removal of the obligation it names, and a removal that no retirement names is still refused", func(t *testing.T) {
+		g := newGateRepository(t)
+		retires := with(retirementKind, map[string]string{
+			"data/invariant.jsonl":  strings.Join(strings.SplitAfter(gateSpec["data/invariant.jsonl"], "\n")[:2], ""),
+			"data/retirement.jsonl": `{"id":"FX-LEND-RT01","title":"FX-LEND-INV03 goes","domain_id":"FX-LEND","retired_id":"FX-LEND-INV03","reason":"Lending does not check the borrower.","retired_on":"2026-11-04"}` + "\n",
+		})
+		outcomes := []string{"FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed"}
+		goes := g.commit(t, g.base, retires)
+		result := g.gate(t, goes, g.base, g.keep(t, "goes", proofRun(goes, pullRef, 42, outcomes...)))
+		decided(t, "a change that removes FX-LEND-INV03 under a retirement with no successor", result, 0)
+		report := "\nretirements (1):\nretirement FX-LEND-RT01: FX-LEND-INV03 has no successor\n"
+		if !strings.Contains(result.stdout, report+"reasons: none\n") {
+			t.Fatalf("the decision does not report the retirement with no successor:\n%s", result.stdout)
+		}
+
+		alsoLost := g.commit(t, g.base, with(retires, map[string]string{"data/constraint.jsonl": ""}))
+		result = g.gate(t, alsoLost, g.base, g.keep(t, "lost", proofRun(alsoLost, pullRef, 43, outcomes...)))
+		decided(t, "a change that also removes FX-VO01-C01, which no retirement names", result, 1,
+			"FX-VO01-C01 is absent at the change (was designed at the base)")
+		if !strings.Contains(result.stdout, report+"reasons (1):\n") {
+			t.Fatalf("the refused decision does not report the retirement it follows:\n%s", result.stdout)
+		}
+	})
+
 	t.Run("ST-ASR-UC02-R02-T01 A change with no verified proof run at its commit, or with an automated test record not passed there, is refused", func(t *testing.T) {
 		g := newGateRepository(t)
 		change := g.commit(t, g.base, map[string]string{"README.md": "Fixture.\n"})
@@ -1025,6 +1072,40 @@ func with(files map[string]string, changes map[string]string) map[string]string 
 		merged[name] = content
 	}
 	return merged
+}
+
+// retirementKind is the fixture's own record kind retirement and its relation succeeded_by, as STEGO's spec has
+// them, so a change in the fixture repository can retire an obligation.
+var retirementKind = map[string]string{
+	"data/product_kind.jsonl": `{"name":"retirement","product_id":"FX","label":"Retirement","description":"A deliberate removal of an obligation.","parent_kind":"domain","obligation":false,"id_pattern":"<P>-<D>-RT<nn>","id_example":"FX-LEND-RT01","complexity":"essential"}` + "\n",
+	"data/product_kind_field.jsonl": `{"kind":"retirement","position":1,"name":"retired_id","type":"text","required":true,"description":"The ID of the obligation the change removes."}
+{"kind":"retirement","position":2,"name":"reason","type":"text","required":true,"description":"Why the obligation leaves the specification."}
+{"kind":"retirement","position":3,"name":"retired_on","type":"date","required":true,"description":"The date of the retirement."}
+`,
+	"data/product_relation.jsonl": `{"name":"succeeded_by","source_kind":"retirement","target_kind":"*","product_id":"FX","forward_label":"Succeeded by","reverse_label":"Succeeds","description":"The record that carries the retired obligation's standing."}` + "\n",
+}
+
+// movesOneLoan is a change to the gate's fixture spec that renames FX-LEND-INV01 to FX-LEND-INV05 under the
+// retirement FX-LEND-RT01, whose successor is FX-LEND-INV05. The rule moves with it; with proved, its test record
+// and the test that carries its ID move too, and without, they are removed.
+func movesOneLoan(proved bool) map[string]string {
+	files := with(retirementKind, map[string]string{
+		"data/invariant.jsonl": strings.Replace(gateSpec["data/invariant.jsonl"], `{"id":"FX-LEND-INV01"`, `{"id":"FX-LEND-INV05"`, 1),
+		"data/rule.jsonl": strings.Replace(gateSpec["data/rule.jsonl"],
+			`{"id":"FX-LEND-INV01-RL","title":"lend.oneLoanPerTool","invariant_id":"FX-LEND-INV01"`,
+			`{"id":"FX-LEND-INV05-RL","title":"lend.oneLoanPerTool","invariant_id":"FX-LEND-INV05"`, 1),
+		"data/retirement.jsonl":   `{"id":"FX-LEND-RT01","title":"FX-LEND-INV01 moves to FX-LEND-INV05","domain_id":"FX-LEND","retired_id":"FX-LEND-INV01","reason":"The invariant gets a new number.","retired_on":"2026-11-04"}` + "\n",
+		"data/succeeded_by.jsonl": `{"source_id":"FX-LEND-RT01","target_id":"FX-LEND-INV05"}` + "\n",
+	})
+	if proved {
+		files["data/invariant_test.jsonl"] = strings.Replace(invariantTest01, "FX-LEND-INV01", "FX-LEND-INV05", 2) + invariantTest02
+		files["internal/lend/rules_test.go"] = strings.Replace(gateSpec["internal/lend/rules_test.go"], "FX-LEND-INV01-T", "FX-LEND-INV05-T", 1)
+	} else {
+		files["data/invariant_test.jsonl"] = invariantTest02
+		files["internal/lend/rules_test.go"] = "package lend\n\nimport \"testing\"\n\nfunc TestRules(t *testing.T) {\n" +
+			"\tt.Run(\"FX-LEND-INV02-T due after start\", func(t *testing.T) {})\n}\n"
+	}
+	return files
 }
 
 // releasePredicate is where the gate-release job has assure gate release write the decision predicate.
