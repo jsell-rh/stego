@@ -2,6 +2,7 @@ package assure
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -66,7 +67,9 @@ func proofRunPassed(proof *VerifiedProofRun, spec Spec, why string) []string {
 // obligation had at the base that a successor does not have at the change gives a reason that names the
 // retirement, the successor and the share; a retirement with no successor lets the obligation go. It also returns
 // each retirement it follows with no reason, by the retired obligation's ID and then the retirement's ID, as the
-// decision reports it.
+// decision reports it, each once. A pattern rule's obligation in a domain, named by PatternRuleIn, is compared in
+// that domain alone: a retirement of the rule names it in each domain, and a successor that is a pattern rule
+// followed in the same domain is compared there.
 func holdsRatchet(base, change Measurement, retirements []Retirement) ([]string, []string) {
 	retiring := make(map[string][]Retirement)
 	for _, retirement := range retirements {
@@ -83,7 +86,11 @@ func holdsRatchet(base, change Measurement, retirements []Retirement) ([]string,
 					had = append(had, share)
 				}
 			}
-			named := retiring[id]
+			named := append([]Retirement(nil), retiring[id]...)
+			rule, scope, scoped := strings.Cut(id, "@")
+			if scoped {
+				named = append(named, retiring[rule]...)
+			}
 			sort.Slice(named, func(i, j int) bool { return named[i].ID < named[j].ID })
 			if len(named) == 0 {
 				if len(had) > 0 {
@@ -94,6 +101,9 @@ func holdsRatchet(base, change Measurement, retirements []Retirement) ([]string,
 			for _, retirement := range named {
 				var lacking []string
 				for _, successor := range retirement.Successors {
+					if _, ok := change.Obligations[PatternRuleIn(successor, scope)]; scoped && ok {
+						successor = PatternRuleIn(successor, scope)
+					}
 					standing := change.Obligations[successor]
 					for _, share := range had {
 						if !standing.Has(share) {
@@ -101,8 +111,8 @@ func holdsRatchet(base, change Measurement, retirements []Retirement) ([]string,
 						}
 					}
 				}
-				if len(lacking) == 0 {
-					followed = append(followed, retirementLine(retirement))
+				if line := retirementLine(retirement); len(lacking) == 0 && !slices.Contains(followed, line) {
+					followed = append(followed, line)
 				}
 				reasons = append(reasons, lacking...)
 			}

@@ -40,6 +40,30 @@ var latheSpec = map[string]string{
 		"\tt.Run(\"FX-LEND-INV01-T one loan\", func(t *testing.T) {})\n\tt.Run(\"FX-LEND-INV02-T due after start\", func(t *testing.T) {})\n}\n",
 }
 
+// patternSpec adds to latheSpec a second domain, FX-SHOP, and the pattern FX-PAT-LOG with one rule, which both
+// domains follow. A test proves the rule in FX-LEND only.
+var patternSpec = map[string]string{
+	"data/domain.jsonl": latheSpec["data/domain.jsonl"] +
+		`{"id":"FX-SHOP","title":"Shop","product_id":"FX","position":2,"subdomain_type":"supporting","description":"Selling tools."}` + "\n",
+	"data/pattern.jsonl":           `{"id":"FX-PAT-LOG","title":"Logged","product_id":"FX","description":"Each domain logs what it does."}` + "\n",
+	"data/pattern_rule.jsonl":      `{"id":"FX-PAT-LOG-R01","title":"Each change is logged","pattern_id":"FX-PAT-LOG","statement":"Each change MUST be logged."}` + "\n",
+	"data/follows.jsonl":           `{"source_id":"FX-LEND","target_id":"FX-PAT-LOG"}` + "\n" + `{"source_id":"FX-SHOP","target_id":"FX-PAT-LOG"}` + "\n",
+	"data/pattern_rule_test.jsonl": `{"id":"FX-PAT-LOG-R01-T01","title":"Lending logs","pattern_rule_id":"FX-PAT-LOG-R01","domain_id":"FX-LEND","level":"unit","state":"automated","file":"internal/lend/log_test.go","when":"Lends.","then":"Logged."}` + "\n",
+	"internal/lend/log_test.go":    "package lend\n\nimport \"testing\"\n\nfunc TestLog(t *testing.T) {\n\tt.Run(\"FX-PAT-LOG-R01-T01 lending logs\", func(t *testing.T) {})\n}\n",
+}
+
+// with is the files with the changes laid over them.
+func with(files, changes map[string]string) map[string]string {
+	merged := make(map[string]string, len(files)+len(changes))
+	for name, content := range files {
+		merged[name] = content
+	}
+	for name, content := range changes {
+		merged[name] = content
+	}
+	return merged
+}
+
 // latheCLI is the Lathe CLI the tests run: STEGO_LATHE, or node_modules/.bin/lathe of the repository the tests
 // run in. Without it the test is skipped, unless STEGO_REQUIRE_LATHE is 1, as it is in the proof run.
 func latheCLI(t *testing.T) string {
@@ -205,6 +229,50 @@ func TestCoverage(t *testing.T) {
 			if !strings.Contains(err.Error(), "[test-file-missing] "+id+": ") {
 				t.Fatalf("the error does not name the error of %s:\n%v", id, err)
 			}
+		}
+	})
+
+	t.Run("ST-ASR-DS02-T04 A pattern rule counts once in each domain that follows its pattern, with its standing in that domain, as Lathe counts it", func(t *testing.T) {
+		lathe := latheCLI(t)
+		root := newRepository(t)
+		first := commitFiles(t, root, with(latheSpec, patternSpec), "a pattern that two domains follow")
+		measured, err := MeasureCoverage(root, first, lathe)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := Measurement{
+			Commit:   first,
+			Coverage: Coverage{Total: 6, Designed: 6, Built: 4, Proved: 3},
+			Obligations: map[string]Standing{
+				"FX-LEND-INV01":          {Designed: true, Built: true, Proved: true},
+				"FX-LEND-INV02":          {Designed: true, Built: true, Proved: true},
+				"FX-LEND-INV03":          {Designed: true},
+				"FX-VO01-C01":            {Designed: true},
+				"FX-PAT-LOG-R01@FX-LEND": {Designed: true, Built: true, Proved: true},
+				"FX-PAT-LOG-R01@FX-SHOP": {Designed: true, Built: true},
+			},
+		}
+		if !reflect.DeepEqual(measured, want) {
+			t.Fatalf("the coverage with a pattern is %+v, want %+v", measured, want)
+		}
+
+		// The test in FX-LEND goes: the rule falls from proved in FX-LEND alone, and the ratchet names the domain.
+		second := commitFiles(t, root, map[string]string{"data/pattern_rule_test.jsonl": "", "internal/lend/log_test.go": ""}, "the pattern's test goes")
+		later, err := MeasureCoverage(root, second, lathe)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := later.Obligations["FX-PAT-LOG-R01@FX-LEND"]; got != (Standing{Designed: true, Built: true}) || later.Coverage.Proved != 2 {
+			t.Fatalf("without its test the rule in FX-LEND is %+v, and the coverage %s", got, later.Coverage)
+		}
+		if reasons, _ := holdsRatchet(measured, later, nil); !reflect.DeepEqual(reasons, []string{"FX-PAT-LOG-R01@FX-LEND fell from proved"}) {
+			t.Fatalf("the ratchet gives %q", reasons)
+		}
+
+		// Output whose scopes list a pattern rule that has no chain is refused.
+		check := []byte(`{"products": [{"workspace": {"coverage": [{"domain": "FX-LEND", "obligations": [{"kind": "pattern_rule", "total": 1, "designed": 1, "built": 1, "proved": 1}], "pattern_rules": ["FX-PAT-LOG-R01"], "gaps": []}], "chains": []}}]}`)
+		if got, err := readLatheCheck(check); err == nil {
+			t.Fatalf("a pattern rule with no chain is read as %+v", got)
 		}
 	})
 

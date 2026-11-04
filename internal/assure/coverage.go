@@ -225,6 +225,8 @@ type latheCheck struct {
 	Products []struct {
 		Workspace *struct {
 			Coverage []struct {
+				Product     string  `json:"product"`
+				Domain      *string `json:"domain"`
 				Obligations []struct {
 					Kind     string `json:"kind"`
 					Total    int    `json:"total"`
@@ -232,23 +234,42 @@ type latheCheck struct {
 					Built    int    `json:"built"`
 					Proved   int    `json:"proved"`
 				} `json:"obligations"`
-				Gaps []struct {
+				PatternRules []string `json:"pattern_rules"`
+				Gaps         []struct {
 					ID      string `json:"id"`
+					Kind    string `json:"kind"`
 					Missing string `json:"missing"`
 				} `json:"gaps"`
 			} `json:"coverage"`
 			Chains []struct {
 				Obligation string `json:"obligation"`
 			} `json:"chains"`
+			Records []struct {
+				ID   string `json:"id"`
+				Kind string `json:"kind"`
+			} `json:"records"`
 		} `json:"workspace"`
 	} `json:"products"`
+}
+
+// patternRuleKind is the kind Lathe gives a pattern rule.
+const patternRuleKind = "pattern_rule"
+
+// PatternRuleIn is the name of a pattern rule's obligation in one scope that follows its pattern, as
+// "<rule>@<domain>": Lathe counts a pattern rule once per domain that follows the pattern, each with its own
+// standing, so the rule's ID alone does not name one obligation.
+func PatternRuleIn(rule, scope string) string {
+	return rule + "@" + scope
 }
 
 // readLatheCheck reads the coverage of the first product of lathe check --json, summed over every domain and
 // obligation kind, and the standing of each obligation in its chains. An obligation is designed unless a gap
 // says it is not, built when it is designed and no gap says it is not built, and proved unless a gap says it is
-// not, as Lathe counts them. When the standings do not add up to Lathe's own counts, it refuses the output: a
-// misread gap must never make an obligation look counted.
+// not, as Lathe counts them. A pattern rule is one obligation in each scope that lists it among the pattern rules
+// its domain follows, named by PatternRuleIn with the scope's domain (the product for the product's own scope),
+// and its standing there comes from that scope's gaps; its one chain gives no obligation of its own. Lathe
+// counts such a rule as designed and built, and proved only by a test in that domain. When the standings do not
+// add up to Lathe's own counts, it refuses the output: a misread gap must never make an obligation look counted.
 func readLatheCheck(data []byte) (Measurement, error) {
 	var check latheCheck
 	if err := json.Unmarshal(data, &check); err != nil {
@@ -258,42 +279,88 @@ func readLatheCheck(data []byte) (Measurement, error) {
 		return Measurement{}, errors.New("the output names no product with a workspace")
 	}
 	workspace := check.Products[0].Workspace
+	patternRules := map[string]bool{}
+	for _, record := range workspace.Records {
+		if record.Kind == patternRuleKind {
+			patternRules[record.ID] = true
+		}
+	}
+	for _, scope := range workspace.Coverage {
+		for _, rule := range scope.PatternRules {
+			patternRules[rule] = true
+		}
+	}
 	var total, designed, built, proved int
 	missing := map[string]map[Share]bool{}
+	var scoped []string
 	for _, scope := range workspace.Coverage {
+		name := scope.Product
+		if scope.Domain != nil {
+			name = *scope.Domain
+		}
 		for _, kind := range scope.Obligations {
 			total += kind.Total
 			designed += kind.Designed
 			built += kind.Built
 			proved += kind.Proved
 		}
+		for _, rule := range scope.PatternRules {
+			scoped = append(scoped, PatternRuleIn(rule, name))
+		}
 		for _, gap := range scope.Gaps {
 			share := Share(gap.Missing)
 			if share != Designed && share != Built && share != Proved {
 				continue
 			}
-			if missing[gap.ID] == nil {
-				missing[gap.ID] = map[Share]bool{}
+			id := gap.ID
+			if gap.Kind == patternRuleKind || patternRules[id] {
+				id = PatternRuleIn(id, name)
 			}
-			missing[gap.ID][share] = true
+			if missing[id] == nil {
+				missing[id] = map[Share]bool{}
+			}
+			missing[id][share] = true
 		}
 	}
 	coverage, err := NewCoverage(total, designed, built, proved)
 	if err != nil {
 		return Measurement{}, err
 	}
-	obligations := make(map[string]Standing, len(workspace.Chains))
+	obligations := make(map[string]Standing, len(workspace.Chains)+len(scoped))
+	add := func(id string) error {
+		if _, twice := obligations[id]; twice {
+			return fmt.Errorf("obligation %s has two chains", id)
+		}
+		gaps := missing[id]
+		standing := Standing{Designed: !gaps[Designed], Proved: !gaps[Proved]}
+		standing.Built = standing.Designed && !gaps[Built]
+		obligations[id] = standing
+		return nil
+	}
+	chained := map[string]bool{}
 	for _, chain := range workspace.Chains {
 		if chain.Obligation == "" {
 			return Measurement{}, errors.New("a chain names no obligation")
 		}
-		if _, twice := obligations[chain.Obligation]; twice {
-			return Measurement{}, fmt.Errorf("obligation %s has two chains", chain.Obligation)
+		if patternRules[chain.Obligation] {
+			if chained[chain.Obligation] {
+				return Measurement{}, fmt.Errorf("obligation %s has two chains", chain.Obligation)
+			}
+			chained[chain.Obligation] = true
+			continue
 		}
-		gaps := missing[chain.Obligation]
-		standing := Standing{Designed: !gaps[Designed], Proved: !gaps[Proved]}
-		standing.Built = standing.Designed && !gaps[Built]
-		obligations[chain.Obligation] = standing
+		if err := add(chain.Obligation); err != nil {
+			return Measurement{}, err
+		}
+	}
+	for _, id := range scoped {
+		rule, _, _ := strings.Cut(id, "@")
+		if !chained[rule] {
+			return Measurement{}, fmt.Errorf("pattern rule %s has no chain", rule)
+		}
+		if err := add(id); err != nil {
+			return Measurement{}, err
+		}
 	}
 	for id := range missing {
 		if _, ok := obligations[id]; !ok {

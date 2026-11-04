@@ -132,6 +132,27 @@ func TestGate(t *testing.T) {
 		if !reflect.DeepEqual(reasons, want) || !reflect.DeepEqual(followed, wantFollowed) {
 			t.Fatalf("got %q and %q, want %q and %q", reasons, followed, want, wantFollowed)
 		}
+		// A pattern rule is an obligation in each domain that follows its pattern. A retirement of the rule names
+		// it in each domain, compares its successor in the same domain, and is reported once.
+		patternBase := Measurement{Obligations: map[string]Standing{
+			"ST-FIX-PAT-R01@ST-FIX": all, "ST-FIX-PAT-R01@ST-SHOP": {Designed: true, Built: true},
+		}}
+		renamed := Measurement{Obligations: map[string]Standing{
+			"ST-FIX-PAT-R02@ST-FIX": all, "ST-FIX-PAT-R02@ST-SHOP": {Designed: true, Built: true},
+		}}
+		rename := []Retirement{{ID: "ST-FIX-RT05", Retired: "ST-FIX-PAT-R01", Successors: []string{"ST-FIX-PAT-R02"}}}
+		reasons, followed = holdsRatchet(patternBase, renamed, rename)
+		if len(reasons) != 0 || !reflect.DeepEqual(followed, []string{"retirement ST-FIX-RT05: ST-FIX-PAT-R01 succeeded by ST-FIX-PAT-R02"}) {
+			t.Fatalf("a renamed pattern rule gives %q and %q", reasons, followed)
+		}
+		unproved := Measurement{Obligations: map[string]Standing{
+			"ST-FIX-PAT-R02@ST-FIX": {Designed: true, Built: true}, "ST-FIX-PAT-R02@ST-SHOP": {Designed: true, Built: true},
+		}}
+		reasons, followed = holdsRatchet(patternBase, unproved, rename)
+		if !reflect.DeepEqual(reasons, []string{"ST-FIX-PAT-R01@ST-FIX is retired by ST-FIX-RT05, but its successor ST-FIX-PAT-R02@ST-FIX is not proved"}) ||
+			!reflect.DeepEqual(followed, []string{"retirement ST-FIX-RT05: ST-FIX-PAT-R01 succeeded by ST-FIX-PAT-R02"}) {
+			t.Fatalf("a renamed pattern rule not proved in one domain gives %q and %q", reasons, followed)
+		}
 		if sorted := sortReasons([]string{want[1], want[0], "ST-FIX-INV02 fell from proved", "ST-FIX-INV01-T failed"}); !reflect.DeepEqual(sorted,
 			[]string{want[0], "ST-FIX-INV02 fell from proved", want[1], "ST-FIX-INV01-T failed"}) {
 			t.Fatalf("a retirement's reason is not in the fixed order among the obligations: %q", sorted)
