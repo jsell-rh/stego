@@ -582,14 +582,6 @@ timeout-minutes: 15
 permissions:
   contents: read
 steps:
-  - name: Require the Lathe deploy key
-    env:
-      LATHE_DEPLOY_KEY: ${{ secrets.LATHE_DEPLOY_KEY }}
-    run: |
-      if [ -z "$LATHE_DEPLOY_KEY" ]; then
-        echo "::error::The gate did not run: LATHE_DEPLOY_KEY is not set, and the gate needs the pinned Lathe to measure the coverage. This is no decision on the change."
-        exit 1
-      fi
   - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
     with:
       ref: ${{ env.COMMIT }}
@@ -605,7 +597,6 @@ steps:
     with:
       repository: Jared4Robertson/lathe
       ref: ${{ env.LATHE_REF }}
-      ssh-key: ${{ secrets.LATHE_DEPLOY_KEY }}
       path: lathe
       persist-credentials: false
   - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
@@ -867,10 +858,9 @@ func TestGateBuiltFromBase(t *testing.T) {
 
 		// The environment of each step: only what the step needs, by its exact value.
 		allowedEnv := map[string]string{
-			"LATHE_DEPLOY_KEY": "${{ secrets.LATHE_DEPLOY_KEY }}",
-			"GOWORK":           "off",
-			"BASE":             baseSHA,
-			"GITHUB_TOKEN":     "${{ github.token }}",
+			"GOWORK":       "off",
+			"BASE":         baseSHA,
+			"GITHUB_TOKEN": "${{ github.token }}",
 		}
 		for i, s := range gate.Steps {
 			for key, value := range s.Env {
@@ -1693,14 +1683,10 @@ func gateReleaseJob() allowedJob {
 			"outputs":         map[string]any{"passed": "${{ steps.gate.outputs.passed }}"},
 		},
 		steps: []map[string]any{
-			{"name": "Require the Lathe deploy key", "env": map[string]any{"LATHE_DEPLOY_KEY": "${{ secrets.LATHE_DEPLOY_KEY }}"},
-				"run": "if [ -z \"$LATHE_DEPLOY_KEY\" ]; then\n" +
-					"  echo \"::error::LATHE_DEPLOY_KEY is not set. The release gate needs the pinned Lathe to measure the coverage.\"\n" +
-					"  exit 1\nfi\n"},
 			{"uses": pinned("actions/checkout"), "with": map[string]any{
 				"ref": "${{ env.COMMIT }}", "fetch-depth": "0", "path": "stego", "persist-credentials": "false"}},
 			{"uses": pinned("actions/checkout"), "with": map[string]any{
-				"repository": "Jared4Robertson/lathe", "ref": "${{ env.LATHE_REF }}", "ssh-key": "${{ secrets.LATHE_DEPLOY_KEY }}",
+				"repository": "Jared4Robertson/lathe", "ref": "${{ env.LATHE_REF }}",
 				"path": "lathe", "persist-credentials": "false"}},
 			{"uses": pinned("actions/setup-go"), "with": map[string]any{"go-version": anyScalar{}, "cache": "false"}},
 			{"uses": pinned("actions/setup-node"), "with": map[string]any{"node-version": anyScalar{}}},

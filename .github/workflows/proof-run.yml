@@ -16,9 +16,8 @@ name: Proof run
 # (ST-ASR-PO01), reads the attestation from GitHub's store, verifies it, and measures the coverage at the head and
 # at the base with the pinned Lathe. It runs assure as built from the base commit, never from the change
 # (ST-ASR-UC02-R07). A refused change fails the job. The suites job and the gate job read Lathe, a
-# private repository, with the read-only deploy key in the secret LATHE_DEPLOY_KEY, at LATHE_REF, as the
-# specification checks do; the checkouts sit side by side, stego and lathe, so stego's package.json finds it. Only
-# the steps that need the key see it: the code of the repository runs in later steps.
+# public repository, with no credential, at LATHE_REF, as the specification checks do; the checkouts sit side by
+# side, stego and lathe, so stego's package.json finds it.
 
 on:
   workflow_dispatch:
@@ -72,19 +71,10 @@ jobs:
           path: stego
           fetch-depth: 0
           persist-credentials: false
-      - name: Require the Lathe deploy key
-        env:
-          LATHE_DEPLOY_KEY: ${{ secrets.LATHE_DEPLOY_KEY }}
-        run: |
-          if [ -z "$LATHE_DEPLOY_KEY" ]; then
-            echo "::error::LATHE_DEPLOY_KEY is not set. The suites need the pinned Lathe for the tests that measure coverage."
-            exit 1
-          fi
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: Jared4Robertson/lathe
           ref: ${{ env.LATHE_REF }}
-          ssh-key: ${{ secrets.LATHE_DEPLOY_KEY }}
           path: lathe
           persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
@@ -208,14 +198,6 @@ jobs:
     # the gate step the job makes Lathe and the built binary read-only, and assure measures the base before the
     # change: the change's run cannot alter the Lathe or the binary that decide.
     steps:
-      - name: Require the Lathe deploy key
-        env:
-          LATHE_DEPLOY_KEY: ${{ secrets.LATHE_DEPLOY_KEY }}
-        run: |
-          if [ -z "$LATHE_DEPLOY_KEY" ]; then
-            echo "::error::The gate did not run: LATHE_DEPLOY_KEY is not set, and the gate needs the pinned Lathe to measure the coverage. This is no decision on the change."
-            exit 1
-          fi
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ env.COMMIT }}
@@ -231,7 +213,6 @@ jobs:
         with:
           repository: Jared4Robertson/lathe
           ref: ${{ env.LATHE_REF }}
-          ssh-key: ${{ secrets.LATHE_DEPLOY_KEY }}
           path: lathe
           persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
@@ -314,14 +295,6 @@ jobs:
     outputs:
       passed: ${{ steps.gate.outputs.passed }}
     steps:
-      - name: Require the Lathe deploy key
-        env:
-          LATHE_DEPLOY_KEY: ${{ secrets.LATHE_DEPLOY_KEY }}
-        run: |
-          if [ -z "$LATHE_DEPLOY_KEY" ]; then
-            echo "::error::LATHE_DEPLOY_KEY is not set. The release gate needs the pinned Lathe to measure the coverage."
-            exit 1
-          fi
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ env.COMMIT }}
@@ -332,7 +305,6 @@ jobs:
         with:
           repository: Jared4Robertson/lathe
           ref: ${{ env.LATHE_REF }}
-          ssh-key: ${{ secrets.LATHE_DEPLOY_KEY }}
           path: lathe
           persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
