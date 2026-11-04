@@ -11,6 +11,7 @@
 {"id":"ST-BLD-INV01-RL","title":"compiler.resolveDependencies","invariant_id":"ST-BLD-INV01","file":"internal/compiler/dependencies.go"}
 {"id":"ST-BLD-INV02-RL","title":"compiler.runDependencyCommand","invariant_id":"ST-BLD-INV02","file":"internal/compiler/dependencies.go"}
 {"id":"ST-BLD-INV03-RL","title":"appbuild.checkCachedModules","invariant_id":"ST-BLD-INV03","file":"internal/appbuild/download.go"}
+{"id":"ST-BLD-INV07-RL","title":"appbuild.validateRecord","invariant_id":"ST-BLD-INV07","file":"internal/appbuild/verify.go"}
 {"id":"ST-BLD-INV08-RL","title":"appbuild.captureTrustedInputs","invariant_id":"ST-BLD-INV08","file":"internal/appbuild/image.go"}
 {"id":"ST-BLD-INV09-RL","title":"appbuild.carriesBothSBOMs","invariant_id":"ST-BLD-INV09","file":"internal/appbuild/sign.go"}
 {"id":"ST-BLD-INV10-RL","title":"appbuild.signedByTrustedSigner","invariant_id":"ST-BLD-INV10","file":"internal/appbuild/sign.go"}

@@ -412,6 +412,17 @@ func loadModuleCache(root string) (*ModuleCacheRecord, error) {
 	if actual != record.DownloadCache {
 		return nil, errors.New("module cache differs from its record")
 	}
+	sums := make(map[moduleVersion]string, len(record.Modules))
+	for _, cached := range record.Modules {
+		sums[moduleVersion{cached.Path, cached.Version}] = cached.Sum
+	}
+	modules, err := checkCachedModules(filepath.Join(root, "cache", "download"), sums)
+	if err != nil {
+		return nil, err
+	}
+	if len(modules) != len(record.Modules) {
+		return nil, errors.New("module cache lacks a module zip that its record lists")
+	}
 	return record, nil
 }
 

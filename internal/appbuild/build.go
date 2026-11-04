@@ -549,55 +549,67 @@ func Build(ctx context.Context, options Options) (*Record, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := os.Mkdir(o.Output, 0700); err != nil {
-		return nil, err
+	return result, saveResult(ctx, o.Output, firstBinary, result)
+}
+
+// saveResult writes the executable, build.json and SHA256SUMS into the new
+// result folder. A failure removes the folder, so a partial result is never
+// left as a result (ST-BLD-INV15).
+func saveResult(ctx context.Context, output, firstBinary string, result *Record) (err error) {
+	if err := os.Mkdir(output, 0700); err != nil {
+		return err
 	}
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(output)
+		}
+	}()
 	input, err := os.Open(firstBinary)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer input.Close()
-	output, err := os.OpenFile(filepath.Join(o.Output, "application"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0500)
+	file, err := os.OpenFile(filepath.Join(output, "application"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0500)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	_, err = io.Copy(output, input)
+	_, err = io.Copy(file, input)
 	if err == nil {
-		err = output.Sync()
+		err = file.Sync()
 	}
-	closeErr := output.Close()
+	closeErr := file.Close()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if closeErr != nil {
-		return nil, closeErr
+		return closeErr
 	}
-	hash, size, err := fileDigest(filepath.Join(o.Output, "application"))
+	hash, size, err := fileDigest(filepath.Join(output, "application"))
 	if err != nil || (Artifact{hash, size}) != result.Artifact {
-		return nil, errors.New("saved application artifact differs")
+		return errors.New("saved application artifact differs")
 	}
 	if err := validateRecord(result); err != nil {
-		return nil, err
+		return err
 	}
 	data, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
-		return nil, err
+		return err
 	}
 	data = append(data, '\n')
 	if len(data) > 16<<20 {
-		return nil, errors.New("application build record exceeds its size limit")
+		return errors.New("application build record exceeds its size limit")
 	}
-	if err := os.WriteFile(filepath.Join(o.Output, "build.json"), data, 0600); err != nil {
-		return nil, err
+	if err := os.WriteFile(filepath.Join(output, "build.json"), data, 0600); err != nil {
+		return err
 	}
 	checksums := fmt.Sprintf("%s  application\n%s  build.json\n", hash, digest(data))
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return err
 	}
-	if err := os.WriteFile(filepath.Join(o.Output, "SHA256SUMS"), []byte(checksums), 0600); err != nil {
-		return nil, err
+	if err := os.WriteFile(filepath.Join(output, "SHA256SUMS"), []byte(checksums), 0600); err != nil {
+		return err
 	}
-	return result, nil
+	return nil
 }
 
 func saveSourceChange(root string, before, after []File) error {

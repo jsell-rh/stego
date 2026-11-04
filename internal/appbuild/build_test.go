@@ -282,7 +282,7 @@ func TestRecordRejectsChangedBuildPolicyAndInputs(t *testing.T) {
 	t.Run("ST-BLD-UC03-R02-T01 A record whose SDK digest differs is refused", func(t *testing.T) {
 		refused(t, fixtureRecord(), func(r *Record) { r.Toolchain.SHA256 = strings.Repeat("0", 64) })
 	})
-	t.Run("ST-BLD-INV07-T ST-BLD-UC03-R04-T01 A record whose inputs, modules or build settings changed is refused", func(t *testing.T) {
+	t.Run("ST-BLD-UC03-R04-T01 A record whose inputs, modules or build settings changed is refused", func(t *testing.T) {
 		for name, change := range map[string]func(*Record){
 			"ambient flags":   func(r *Record) { r.Environment["GOFLAGS"] = "-race" },
 			"target escape":   func(r *Record) { r.Target = "../outside" },

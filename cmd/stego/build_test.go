@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -13,6 +15,8 @@ import (
 	"time"
 
 	"github.com/jsell-rh/stego/internal/appbuild"
+	"github.com/jsell-rh/stego/internal/compiler"
+	"github.com/jsell-rh/stego/internal/gen"
 )
 
 // These tests run stego build and its subcommands in process, as an operator
@@ -274,6 +278,167 @@ func TestBuildDownloadChecksTargetAndSDKFirst(t *testing.T) {
 					t.Fatalf("a refused download changed the folder: %v, then %v", before, after)
 				}
 			})
+		}
+	})
+}
+
+// buildGenerator writes one generated program that needs the small module.
+type buildGenerator struct{ files []gen.File }
+
+func (g buildGenerator) Generate(gen.Context) ([]gen.File, *gen.Wiring, error) {
+	return g.files, &gen.Wiring{}, nil
+}
+
+// buildSource commits a project that the compiler applied, with a recorded
+// generation, whose generated program out/internal/api/tiny needs the small
+// module. It returns the repository and its revision.
+func buildSource(t *testing.T) (string, string) {
+	t.Helper()
+	root := t.TempDir()
+	project := filepath.Join(root, "source")
+	registry := filepath.Join(root, "registry")
+	files := map[string]string{
+		filepath.Join(project, "service.yaml"):                                "kind: service\nname: tiny\narchetype: tiny-arch\nlanguage: go\nentities:\n  - name: Widget\n    fields:\n      - { name: label, type: string }\ncollections:\n  widgets:\n    entity: Widget\n    operations: [create, read]\n",
+		filepath.Join(registry, "archetypes", "tiny-arch", "archetype.yaml"):  "kind: archetype\nname: tiny-arch\nlanguage: go\nversion: 1.0.0\ncomponents:\n  - tiny-api\n  - tiny-store\nconventions:\n  layout: flat\n  error_handling: problem-details-rfc\n  logging: structured-json\n  test_pattern: table-driven\nbindings:\n  storage-adapter: tiny-store\n",
+		filepath.Join(registry, "components", "tiny-api", "component.yaml"):   "kind: component\nname: tiny-api\nversion: 1.0.0\noutput_namespace: internal/api\nrequires:\n  - storage-adapter\nprovides:\n  - http-server\nslots: []\n",
+		filepath.Join(registry, "components", "tiny-store", "component.yaml"): "kind: component\nname: tiny-store\nversion: 1.0.0\noutput_namespace: internal/storage\nrequires: []\nprovides:\n  - storage-adapter\nslots: []\n",
+	}
+	for name, data := range files {
+		writeProjectFile(t, name, data)
+	}
+	input := compiler.ReconcilerInput{
+		ProjectDir: project, RegistryDir: registry, ModuleName: "example.com/tiny", GoVersion: "1.26.10",
+		Generators: map[string]gen.Generator{
+			"tiny-api":   buildGenerator{[]gen.File{{Path: "internal/api/tiny/main.go", Content: []byte("package main\n\nimport _ \"" + tinyModule + "\"\n\nfunc main() {}\n")}}},
+			"tiny-store": buildGenerator{},
+		},
+	}
+	apply := func() {
+		t.Helper()
+		plan, err := compiler.Reconcile(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := compiler.Apply(plan, project, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	apply()
+	module, err := os.ReadFile(filepath.Join(project, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeProjectFile(t, filepath.Join(project, "go.mod"), string(module)+"\nrequire "+tinyModule+" "+tinyVersion+"\n")
+	writeProjectFile(t, filepath.Join(project, "go.sum"), tinyModule+" "+tinyVersion+" "+tinySum+"\n"+tinyModule+" "+tinyVersion+"/go.mod "+tinyModSum+"\n")
+	apply()
+	git(t, project, "init", "-q")
+	git(t, project, "add", "-A")
+	git(t, project, "commit", "-q", "-m", "source")
+	return project, git(t, project, "rev-parse", "HEAD")
+}
+
+func buildArgs(source, revision, goTool, work, output, cache string) []string {
+	return []string{"--source", source, "--revision", revision, "--target", "out/internal/api/tiny", "--go", goTool, "--work", work, "--output", output, "--module-cache", cache}
+}
+
+func fileSHA256(t *testing.T, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
+	source, revision := buildSource(t)
+	goTool := pinnedGo(t)
+	root := t.TempDir()
+	// A build keeps its work folders, which hold the read-only module
+	// sources Go extracts. Make them writable so the folder can be removed.
+	t.Cleanup(func() {
+		_ = filepath.WalkDir(root, func(name string, entry os.DirEntry, err error) error {
+			if err == nil && entry.IsDir() {
+				_ = os.Chmod(name, 0700)
+			}
+			return nil
+		})
+	})
+	cache := filepath.Join(root, "cache")
+	_, err := capture(t, runBuild, []string{"download", "--source", source, "--revision", revision, "--target", "out/internal/api/tiny", "--go", goTool, "--output", cache}...)
+	skipUnlessPinned(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A credential in the caller's environment must not reach the record.
+	t.Setenv("GH_TOKEN", "stego-test-credential")
+	t.Setenv("GOFLAGS", "-race")
+	results := []string{filepath.Join(root, "first"), filepath.Join(root, "second")}
+	for index, result := range results {
+		if _, err := capture(t, runBuild, buildArgs(source, revision, goTool, filepath.Join(root, "work"+string(rune('a'+index))), result, cache)...); err != nil {
+			t.Fatalf("build %d: %v", index+1, err)
+		}
+	}
+	t.Run("ST-BLD-UC03-R03-T02 Builds from the same inputs give the same executable and record", func(t *testing.T) {
+		for _, name := range []string{"application", "build.json", "SHA256SUMS"} {
+			if fileSHA256(t, filepath.Join(results[0], name)) != fileSHA256(t, filepath.Join(results[1], name)) {
+				t.Errorf("a later build from the same inputs gave a different %s", name)
+			}
+		}
+	})
+	t.Run("ST-BLD-INV07-T The record of a real build names every input and the fixed build settings, and no credential", func(t *testing.T) {
+		raw, err := os.ReadFile(filepath.Join(results[0], "build.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(raw), "stego-test-credential") || strings.Contains(string(raw), "-race") {
+			t.Fatal("the record holds a value from the caller's environment")
+		}
+		var record appbuild.Record
+		if err := json.Unmarshal(raw, &record); err != nil {
+			t.Fatal(err)
+		}
+		cacheRecord := readCacheRecord(t, cache)
+		if record.SourceRevision != revision || record.IndependentBuilds != 2 || record.DependencyProxy != "off" || record.ModuleCache == nil || *record.ModuleCache != cacheRecord.DownloadCache {
+			t.Fatalf("the record does not name the revision, both builds and the module cache: %+v", record)
+		}
+		if record.GoVersion != appbuild.GoVersion || record.Toolchain.Files < 1 || len(record.Toolchain.SHA256) != 64 {
+			t.Fatal("the record does not name the Go SDK")
+		}
+		if record.Artifact.SHA256 != fileSHA256(t, filepath.Join(results[0], "application")) {
+			t.Fatal("the record does not name the executable's digest")
+		}
+		if record.GenerationStateSHA256 != fileSHA256(t, filepath.Join(source, ".stego", "state.yaml")) {
+			t.Fatal("the record does not name the generation record")
+		}
+		tracked := strings.Split(git(t, source, "ls-files"), "\n")
+		if len(record.Inputs) != len(tracked) {
+			t.Fatalf("the record names %d inputs; the revision holds %d files", len(record.Inputs), len(tracked))
+		}
+		for _, input := range record.Inputs {
+			if input.SHA256 != fileSHA256(t, filepath.Join(source, filepath.FromSlash(input.Path))) {
+				t.Errorf("the record's digest of %s differs from the file", input.Path)
+			}
+		}
+		for key, value := range map[string]string{"CGO_ENABLED": "0", "GOWORK": "off", "GOTOOLCHAIN": "local", "GOFLAGS": "", "GOPROXY": "off"} {
+			if got, ok := record.Environment[key]; !ok || got != value {
+				t.Errorf("the record sets %s to %q, expected %q", key, got, value)
+			}
+		}
+		for _, key := range []string{"PATH", "HOME", "GH_TOKEN"} {
+			if _, ok := record.Environment[key]; ok {
+				t.Errorf("the record holds %s from a complete environment", key)
+			}
+		}
+		flags := strings.Join(record.BuildFlags, " ")
+		for _, flag := range []string{"-mod=readonly", "-trimpath", "-buildvcs=false", "-pgo=off"} {
+			if !strings.Contains(flags, flag) {
+				t.Errorf("the record's build settings lack %s", flag)
+			}
+		}
+		if record.GoTelemetry != "off" {
+			t.Error("the record does not name telemetry off")
 		}
 	})
 }
