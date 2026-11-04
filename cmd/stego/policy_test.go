@@ -361,6 +361,8 @@ func signedImage(t *testing.T) (string, string, []string) {
 type registryServer struct {
 	server   *httptest.Server
 	requests atomic.Int64
+	// tamper makes the registry give each manifest with one byte changed.
+	tamper atomic.Bool
 	// ca and credentials are files of the test, with the CA digest.
 	ca, caSHA256, credentials string
 }
@@ -386,7 +388,21 @@ func newRegistry(t *testing.T) *registryServer {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		handler.ServeHTTP(w, r)
+		if !fixture.tamper.Load() || r.Method != http.MethodGet || !strings.Contains(r.URL.Path, "/manifests/") {
+			handler.ServeHTTP(w, r)
+			return
+		}
+		recorded := httptest.NewRecorder()
+		handler.ServeHTTP(recorded, r)
+		body := recorded.Body.Bytes()
+		if len(body) > 0 {
+			body[len(body)/2] ^= 0x01
+		}
+		for key, values := range recorded.Header() {
+			w.Header()[key] = values
+		}
+		w.WriteHeader(recorded.Code)
+		_, _ = w.Write(body)
 	}))
 	fixture.server.Config.ErrorLog = log.New(io.Discard, "", 0)
 	fixture.server.TLS = &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{raw}, PrivateKey: key}}}
