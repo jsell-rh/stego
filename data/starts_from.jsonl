@@ -66,6 +66,9 @@
 {"source_id":"ST-DLV-UC04-R04-T01","target_id":"ST-DLV-TD01"}
 {"source_id":"ST-DLV-UC04-R04-T02","target_id":"ST-DLV-TD01"}
 {"source_id":"ST-DLV-UC05-FL-T","target_id":"ST-DLV-TD06"}
+{"source_id":"ST-DLV-UC06-FL-T","target_id":"ST-DLV-TD01"}
+{"source_id":"ST-DLV-UC06-R01-T01","target_id":"ST-DLV-TD01"}
+{"source_id":"ST-DLV-UC06-R01-T02","target_id":"ST-DLV-TD01"}
 {"source_id":"ST-EXT-DS01-T01","target_id":"ST-EXT-TD01"}
 {"source_id":"ST-EXT-DS01-T02","target_id":"ST-EXT-TD01"}
 {"source_id":"ST-EXT-DS01-T03","target_id":"ST-EXT-TD01"}
