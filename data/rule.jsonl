@@ -8,3 +8,10 @@
 {"id":"ST-ASR-INV08-RL","title":"assure.namesEveryCause","invariant_id":"ST-ASR-INV08","file":"internal/assure/decision.go"}
 {"id":"ST-ASR-INV09-RL","title":"assure.releaseAttested","invariant_id":"ST-ASR-INV09","file":"internal/assure/release.go"}
 {"id":"ST-ASR-INV10-RL","title":"assure.reasonsInFixedOrder","invariant_id":"ST-ASR-INV10","file":"internal/assure/decision.go"}
+{"id":"ST-DECL-INV12-RL","title":"compiler.validateComponentConfig","invariant_id":"ST-DECL-INV12","file":"internal/compiler/config.go"}
+{"id":"ST-GEN-INV03-RL","title":"compiler.Plan.verifyRegistry","invariant_id":"ST-GEN-INV03","file":"internal/compiler/snapshot.go"}
+{"id":"ST-GEN-INV05-RL","title":"compiler.verifySnapshots","invariant_id":"ST-GEN-INV05","file":"internal/compiler/snapshot.go"}
+{"id":"ST-GEN-INV16-RL","title":"compiler.serviceFailureSource","invariant_id":"ST-GEN-INV16","file":"internal/compiler/service_failure.go"}
+{"id":"ST-GEN-INV18-RL","title":"compiler.taskLifecycleSource","invariant_id":"ST-GEN-INV18","file":"internal/compiler/task_lifecycle.go"}
+{"id":"ST-GEN-INV20-RL","title":"compiler.prepareComponents","invariant_id":"ST-GEN-INV20","file":"internal/compiler/preflight.go"}
+{"id":"ST-GEN-INV21-RL","title":"compiler.validateConstructorDependencies","invariant_id":"ST-GEN-INV21","file":"internal/compiler/constructor_dependencies.go"}
