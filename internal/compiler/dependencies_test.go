@@ -13,7 +13,7 @@ import (
 )
 
 func TestDependencyFailuresPreserveProjectFiles(t *testing.T) {
-	t.Run("ST-BLD-INV01-T ST-BLD-UC01-R01-T01 A failed resolution leaves go.mod and go.sum as they were", func(t *testing.T) {
+	t.Run("ST-BLD-INV01-T A failed or interrupted resolution leaves go.mod and go.sum as they were, or recoverable to the resolved pair", func(t *testing.T) {
 		for _, failure := range []string{"tidy", "verify", "list", "diff", "source-add", "source-edit", "source-delete", "module-edit", "cancel"} {
 			t.Run(failure, func(t *testing.T) {
 				input := snapshotTestInput(t)
@@ -79,11 +79,63 @@ func TestDependencyFailuresPreserveProjectFiles(t *testing.T) {
 				}
 			})
 		}
+		// An interruption at each point of the apply journal leaves either
+		// the old pair, or a journal whose recovery writes the resolved pair.
+		for _, point := range []string{"before_prepare", "prepared", "after_operation_0", "before_complete"} {
+			t.Run("interrupted "+point, func(t *testing.T) {
+				input := snapshotTestInput(t)
+				applyInitialSnapshot(t, input)
+				if err := os.WriteFile(filepath.Join(input.ProjectDir, "go.sum"), []byte("prior checksums\n"), 0644); err != nil {
+					t.Fatal(err)
+				}
+				module, err := os.ReadFile(filepath.Join(input.ProjectDir, "go.mod"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				resolved := append([]byte("// Resolved module.\n"), module...)
+				run := func(_ context.Context, _, stage string, args ...string) error {
+					if args[1] != "tidy" || len(args) > 2 {
+						return nil
+					}
+					if err := os.WriteFile(stage, resolved, 0600); err != nil {
+						return err
+					}
+					return os.WriteFile(strings.TrimSuffix(stage, ".mod")+".sum", []byte("new checksums\n"), 0600)
+				}
+				err = resolveDependencies(context.Background(), input, run, func(at string) error {
+					if at == point {
+						return errors.New("injected interruption")
+					}
+					return nil
+				})
+				if err == nil {
+					t.Fatal("an interrupted resolution reported success")
+				}
+				want := map[string][]byte{"go.mod": module, "go.sum": []byte("prior checksums\n")}
+				if errors.Is(err, ErrRecoveryRequired) {
+					if err := Recover(input.ProjectDir); err != nil {
+						t.Fatal(err)
+					}
+					want = map[string][]byte{"go.mod": resolved, "go.sum": []byte("new checksums\n")}
+				} else if point != "before_prepare" {
+					t.Fatalf("an interruption after the journal was written did not ask for recovery: %v", err)
+				}
+				for name, expected := range want {
+					actual, err := os.ReadFile(filepath.Join(input.ProjectDir, name))
+					if err != nil || !bytes.Equal(actual, expected) {
+						t.Fatalf("after an interruption at %s, %s is not the expected version: %v", point, name, err)
+					}
+				}
+				if _, err := os.Stat(filepath.Join(input.ProjectDir, transactionPath)); !os.IsNotExist(err) {
+					t.Fatalf("a journal is left after recovery: %v", err)
+				}
+			})
+		}
 	})
 }
 
 func TestDependencyResolutionUsesLocalReplacementsAndPreservesThem(t *testing.T) {
-	t.Run("ST-BLD-UC01-R02-T02 Resolution ignores an ambient vendor flag and a missing go.work", func(t *testing.T) {
+	t.Run("Resolution ignores an ambient vendor flag and a missing go.work", func(t *testing.T) {
 		input := snapshotTestInput(t)
 		applyInitialSnapshot(t, input)
 		dependency := filepath.Join(input.ProjectDir, "local")
@@ -137,7 +189,7 @@ func TestDependencyResolutionUsesLocalReplacementsAndPreservesThem(t *testing.T)
 }
 
 func TestDependencyRecoveryCompletesBothModuleFiles(t *testing.T) {
-	t.Run("ST-BLD-UC01-R01-T02 An interrupted resolution is recoverable", func(t *testing.T) {
+	t.Run("An interrupted resolution is recoverable", func(t *testing.T) {
 		input := snapshotTestInput(t)
 		applyInitialSnapshot(t, input)
 		err := resolveDependencies(context.Background(), input, runDependencyCommand, func(point string) error {
@@ -168,7 +220,7 @@ func TestDependencyRecoveryCompletesBothModuleFiles(t *testing.T) {
 }
 
 func TestDependencyResolutionRequiresAppliedCode(t *testing.T) {
-	t.Run("ST-BLD-UC01-R03-T01 Resolution refuses a project that was never applied and names apply", func(t *testing.T) {
+	t.Run("Resolution refuses a project that was never applied and names apply", func(t *testing.T) {
 		input := snapshotTestInput(t)
 		if err := ResolveDependencies(context.Background(), input); err == nil || !strings.Contains(err.Error(), "stego apply") {
 			t.Fatalf("resolved unapplied code: %v", err)

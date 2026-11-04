@@ -183,7 +183,7 @@ func TestModuleInventoryRecordsReplacementsWithoutHostPaths(t *testing.T) {
 }
 
 func TestEnvironmentExcludesAmbientBuildAndCredentialSettings(t *testing.T) {
-	t.Run("ST-BLD-UC03-R01-T01 The build environment drops ambient settings and sets GOPROXY off", func(t *testing.T) {
+	t.Run("The build environment drops ambient settings and sets GOPROXY off", func(t *testing.T) {
 		for _, key := range []string{"GOFLAGS", "GOWORK", "GOENV", "GOCACHEPROG", "LD_PRELOAD", "GH_TOKEN", "HTTPS_PROXY"} {
 			t.Setenv(key, "unexpected-private-value")
 		}
@@ -203,7 +203,7 @@ func fixtureRecord() Record {
 	compiler := buildidentity.Record{GoVersion: GoVersion, GOOS: "linux", GOARCH: "amd64", ModuleVersion: "(devel)", VCS: "git", Revision: strings.Repeat("a", 40), SourceState: "clean"}
 	inputs := []File{{".stego/state.yaml", strings.Repeat("b", 64), false}, {"out/main.go", strings.Repeat("c", 64), false}}
 	data, _ := json.Marshal([][]any{{inputs[0].Path, inputs[0].SHA256, false}, {inputs[1].Path, inputs[1].SHA256, false}})
-	return Record{Format: 1, SourceRevision: strings.Repeat("a", 40), Source: Inventory{digest(data), 2, 100}, Inputs: inputs, Module: ".", Target: "out", GenerationStateSHA256: strings.Repeat("b", 64), GenerationCompiler: compiler, BuildCompiler: compiler, BuildCompilerArtifact: Artifact{strings.Repeat("d", 64), 100}, Toolchain: sdkIdentity, GoVersion: GoVersion, GitSHA256: strings.Repeat("e", 64), Environment: buildEnvironmentRecord(), DependencyProxy: "https://proxy.golang.org", GoTelemetry: "off", BuildFlags: []string{"build", "-mod=readonly", "-trimpath", "-buildvcs=false", "-pgo=off", "-p=2", "-o", "<artifact>", "./out"}, Modules: []Module{{Path: "example.test/app", LocalPath: "."}}, Artifact: Artifact{strings.Repeat("f", 64), 100}, IndependentBuilds: 2}
+	return Record{Format: 1, SourceRevision: strings.Repeat("a", 40), Source: Inventory{digest(data), 2, 100}, Inputs: inputs, Module: ".", Target: "out", GenerationStateSHA256: strings.Repeat("b", 64), GenerationCompiler: compiler, BuildCompiler: compiler, BuildCompilerArtifact: Artifact{strings.Repeat("d", 64), 100}, Toolchain: sdkIdentity, GoVersion: GoVersion, GitSHA256: strings.Repeat("e", 64), Environment: buildEnvironmentRecord(), DependencyProxy: "https://proxy.golang.org", GoTelemetry: "off", BuildFlags: []string{"build", "-mod=readonly", "-trimpath", "-buildvcs=false", "-pgo=off", "-p=2", "-o", "<artifact>", "./out"}, Modules: []Module{{Path: "example.test/app", LocalPath: "."}}, Artifact: Artifact{strings.Repeat("f", 64), 100}, SBOMs: recordSBOMs(), IndependentBuilds: 2}
 }
 
 func fixtureOfflineRecord() Record {
@@ -282,7 +282,7 @@ func TestRecordRejectsChangedBuildPolicyAndInputs(t *testing.T) {
 	t.Run("ST-BLD-UC03-R02-T01 A record whose SDK digest differs is refused", func(t *testing.T) {
 		refused(t, fixtureRecord(), func(r *Record) { r.Toolchain.SHA256 = strings.Repeat("0", 64) })
 	})
-	t.Run("ST-BLD-INV07-T ST-BLD-UC03-R04-T01 A record whose inputs, modules or build settings changed is refused", func(t *testing.T) {
+	t.Run("ST-BLD-UC03-R04-T01 A record whose inputs, modules or build settings changed is refused", func(t *testing.T) {
 		for name, change := range map[string]func(*Record){
 			"ambient flags":   func(r *Record) { r.Environment["GOFLAGS"] = "-race" },
 			"target escape":   func(r *Record) { r.Target = "../outside" },
@@ -295,7 +295,7 @@ func TestRecordRejectsChangedBuildPolicyAndInputs(t *testing.T) {
 			t.Run(name, func(t *testing.T) { refused(t, fixtureRecord(), change) })
 		}
 	})
-	t.Run("ST-BLD-INV04-T ST-BLD-UC03-R01-T02 An offline record names a cache and no proxy, and an online record names no cache", func(t *testing.T) {
+	t.Run("An offline record names a cache and no proxy, and an online record names no cache", func(t *testing.T) {
 		for name, change := range offlineCases {
 			t.Run(name, func(t *testing.T) { refused(t, fixtureOfflineRecord(), change) })
 		}
@@ -306,7 +306,7 @@ func TestRecordRejectsChangedBuildPolicyAndInputs(t *testing.T) {
 }
 
 func TestRecordVerificationRequiresTrustedCanonicalBytes(t *testing.T) {
-	t.Run("ST-BLD-SP01-T ST-BLD-UC04-R01-T01 A record whose canonical bytes do not hash to the trusted digest is refused", func(t *testing.T) {
+	t.Run("ST-BLD-SP01-T A record whose canonical bytes do not hash to the trusted digest is refused", func(t *testing.T) {
 		r := fixtureRecord()
 		data, _ := json.MarshalIndent(r, "", "  ")
 		data = append(data, '\n')
@@ -332,10 +332,12 @@ func TestBuildPathValidationProtectsExistingDirectories(t *testing.T) {
 	t.Run("ST-BLD-INV05-T ST-BLD-UC03-R02-T02 A build refuses an SDK that is not the verified one", func(t *testing.T) {
 		root := t.TempDir()
 		put(t, root, "sdk/bin/go", "not executed")
-		if err := os.Mkdir(filepath.Join(root, "source"), 0700); err != nil {
-			t.Fatal(err)
+		for _, name := range []string{"source", "cache"} {
+			if err := os.Mkdir(filepath.Join(root, name), 0700); err != nil {
+				t.Fatal(err)
+			}
 		}
-		base := Options{Source: filepath.Join(root, "source"), Revision: strings.Repeat("a", 40), Module: ".", Target: "out", Go: filepath.Join(root, "sdk/bin/go"), Work: filepath.Join(root, "work"), Output: filepath.Join(root, "output")}
+		base := Options{Source: filepath.Join(root, "source"), Revision: strings.Repeat("a", 40), Module: ".", Target: "out", Go: filepath.Join(root, "sdk/bin/go"), Work: filepath.Join(root, "work"), Output: filepath.Join(root, "output"), ModuleCache: filepath.Join(root, "cache")}
 		if _, err := prepare(base); err != nil {
 			t.Fatal(err)
 		}
@@ -354,6 +356,51 @@ func TestBuildPathValidationProtectsExistingDirectories(t *testing.T) {
 		}
 		if _, err := os.Stat(base.Work); !os.IsNotExist(err) {
 			t.Fatal("unverified SDK caused a work directory write", err)
+		}
+	})
+}
+
+func TestBuildFoldersAreNewAndAPartialResultIsRemoved(t *testing.T) {
+	t.Run("ST-BLD-INV15-T A build starts in new folders outside the source, and a failed save leaves no result", func(t *testing.T) {
+		root := t.TempDir()
+		put(t, root, "sdk/bin/go", "not executed")
+		put(t, root, "source/keep", "source")
+		put(t, root, "cache/keep", "cache")
+		put(t, root, "interrupted/keep", "an interrupted build")
+		base := Options{Source: filepath.Join(root, "source"), Revision: strings.Repeat("a", 40), Module: ".", Target: "out", Go: filepath.Join(root, "sdk/bin/go"), Work: filepath.Join(root, "work"), Output: filepath.Join(root, "output"), ModuleCache: filepath.Join(root, "cache")}
+		if _, err := prepare(base); err != nil {
+			t.Fatal(err)
+		}
+		for name, change := range map[string]func(*Options){
+			"an existing work folder":       func(o *Options) { o.Work = filepath.Join(root, "interrupted") },
+			"an existing result folder":     func(o *Options) { o.Output = filepath.Join(root, "interrupted") },
+			"a work folder in the source":   func(o *Options) { o.Work = filepath.Join(root, "source", "work") },
+			"a result folder in the source": func(o *Options) { o.Output = filepath.Join(root, "source", "output") },
+			"a result folder in the work":   func(o *Options) { o.Output = filepath.Join(root, "work", "output") },
+		} {
+			options := base
+			change(&options)
+			if _, err := prepare(options); err == nil {
+				t.Errorf("a build with %s was accepted", name)
+			}
+		}
+		for _, name := range []string{"source/keep", "interrupted/keep"} {
+			if _, err := os.Stat(filepath.Join(root, name)); err != nil {
+				t.Fatalf("a refused build changed %s: %v", name, err)
+			}
+		}
+		// A save that fails after the result folder exists removes it.
+		record := fixtureRecord()
+		output := filepath.Join(root, "output")
+		if err := saveResult(context.Background(), output, filepath.Join(root, "missing-binary"), &record); err == nil {
+			t.Fatal("a save without an executable succeeded")
+		}
+		put(t, root, "binary", "not the recorded executable")
+		if err := saveResult(context.Background(), output, filepath.Join(root, "binary"), &record); err == nil {
+			t.Fatal("a save of an executable that differs from the record succeeded")
+		}
+		if _, err := os.Lstat(output); !os.IsNotExist(err) {
+			t.Fatalf("a failed save left a result folder: %v", err)
 		}
 	})
 }

@@ -74,7 +74,19 @@ type Record struct {
 	Modules               []Module             `json:"modules"`
 	BinarySettings        map[string]string    `json:"binary_settings"`
 	Artifact              Artifact             `json:"artifact"`
+	SBOMs                 []string             `json:"sboms"`
 	IndependentBuilds     int                  `json:"independent_builds"`
+}
+
+// recordSBOMs names the SBOM files a build writes beside its record, in the
+// fixed order SPDX, then CycloneDX. A record cannot hold their digests, since
+// the SBOMs are written from the record; SHA256SUMS holds them.
+func recordSBOMs() []string {
+	names := make([]string, 0, len(sbomFormats))
+	for _, format := range sbomFormats {
+		names = append(names, format.FileName())
+	}
+	return names
 }
 
 func fixedEnvironment() map[string]string {
@@ -113,6 +125,38 @@ func environment(root, sdk string, offline bool) []string {
 	return result
 }
 
+// offlineCache enforces ST-BLD-INV04: a build runs with the module proxy off,
+// from the module cache that stego build download recorded for the same
+// revision, module and target. It refuses a cache whose zips differ from its
+// record, or lack one the record lists; the Go toolchain then refuses a module
+// the cache does not hold, or whose zip differs from go.sum.
+func offlineCache(o Options) (*ModuleCacheRecord, error) {
+	if o.ModuleCache == "" {
+		return nil, errors.New("build requires --module-cache: a module cache that stego build download recorded; a build never downloads modules")
+	}
+	cache, err := loadModuleCache(o.ModuleCache)
+	if err != nil {
+		return nil, fmt.Errorf("module cache %s: %w", o.ModuleCache, err)
+	}
+	if cache.SourceRevision != o.Revision || cache.Module != o.Module || cache.Target != o.Target || cache.GoVersion != GoVersion {
+		return nil, fmt.Errorf("the module cache %s serves revision %s, module %s and target %s, not the build's", o.ModuleCache, cache.SourceRevision, cache.Module, cache.Target)
+	}
+	return cache, nil
+}
+
+// checkSDK refuses a Go SDK whose contents differ from the pinned official
+// release, and names the inventory it found and the one it expected.
+func checkSDK(sdk string) (Inventory, error) {
+	toolchain, _, err := inventory(sdk, sdkIdentity.Files, sdkIdentity.Bytes)
+	if err != nil {
+		return Inventory{}, fmt.Errorf("Go SDK %s is not the pinned official release: its inventory cannot be read (%v); expected files=%d bytes=%d SHA-256=%s", sdk, err, sdkIdentity.Files, sdkIdentity.Bytes, sdkIdentity.SHA256)
+	}
+	if toolchain != sdkIdentity {
+		return Inventory{}, fmt.Errorf("Go SDK %s is not the pinned official release: found files=%d bytes=%d SHA-256=%s; expected files=%d bytes=%d SHA-256=%s", sdk, toolchain.Files, toolchain.Bytes, toolchain.SHA256, sdkIdentity.Files, sdkIdentity.Bytes, sdkIdentity.SHA256)
+	}
+	return toolchain, nil
+}
+
 func outside(parent, child string) bool {
 	relative, err := filepath.Rel(parent, child)
 	return err == nil && (relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)))
@@ -125,11 +169,11 @@ func prepare(options Options) (Options, error) {
 	if !revisionPattern.MatchString(options.Revision) || (options.Module != "." && !safePath(options.Module)) || !safePath(options.Target) {
 		return options, errors.New("build requires a commit, relative module, and relative target")
 	}
+	if options.ModuleCache == "" {
+		return options, errors.New("build requires --module-cache: a module cache that stego build download recorded; a build never downloads modules")
+	}
 	for _, pointer := range []*string{&options.Source, &options.Go, &options.Work, &options.Output, &options.ModuleCache} {
 		if *pointer == "" {
-			if pointer == &options.ModuleCache {
-				continue
-			}
 			return options, errors.New("build paths are required")
 		}
 		absolute, err := filepath.Abs(*pointer)
@@ -147,11 +191,9 @@ func prepare(options Options) (Options, error) {
 	if err != nil {
 		return options, err
 	}
-	if options.ModuleCache != "" {
-		options.ModuleCache, err = filepath.EvalSymlinks(options.ModuleCache)
-		if err != nil {
-			return options, err
-		}
+	options.ModuleCache, err = filepath.EvalSymlinks(options.ModuleCache)
+	if err != nil {
+		return options, fmt.Errorf("cannot read the module cache %s", options.ModuleCache)
 	}
 	for _, pointer := range []*string{&options.Work, &options.Output} {
 		parent, err := filepath.EvalSymlinks(filepath.Dir(*pointer))
@@ -167,7 +209,7 @@ func prepare(options Options) (Options, error) {
 	if options.Go != filepath.Join(sdk, "bin", "go") || !outside(options.Source, options.Work) || !outside(options.Source, options.Output) || !outside(options.Work, options.Output) || !outside(options.Output, options.Work) || !outside(sdk, options.Work) || !outside(sdk, options.Output) {
 		return options, errors.New("build, source, SDK, and result paths overlap")
 	}
-	if options.ModuleCache != "" && (!outside(options.Source, options.ModuleCache) || !outside(options.Work, options.ModuleCache) || !outside(options.Output, options.ModuleCache) || !outside(sdk, options.ModuleCache)) {
+	if !outside(options.Source, options.ModuleCache) || !outside(options.Work, options.ModuleCache) || !outside(options.Output, options.ModuleCache) || !outside(sdk, options.ModuleCache) {
 		return options, errors.New("the module cache overlaps another build path")
 	}
 	return options, nil
@@ -360,12 +402,9 @@ func Build(ctx context.Context, options Options) (*Record, error) {
 		return nil, err
 	}
 	sdk := filepath.Dir(filepath.Dir(o.Go))
-	toolchain, _, err := inventory(sdk, sdkIdentity.Files, sdkIdentity.Bytes)
+	toolchain, err := checkSDK(sdk)
 	if err != nil {
-		return nil, fmt.Errorf("Go SDK inventory inspection failed: %w", err)
-	}
-	if toolchain != sdkIdentity {
-		return nil, fmt.Errorf("Go SDK differs from the pinned official release: files=%d bytes=%d SHA-256=%s", toolchain.Files, toolchain.Bytes, toolchain.SHA256)
+		return nil, err
 	}
 	git := "/usr/bin/git"
 	gitHash, _, err := fileDigest(git)
@@ -380,15 +419,9 @@ func Build(ctx context.Context, options Options) (*Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	var cache *ModuleCacheRecord
-	if o.ModuleCache != "" {
-		cache, err = loadModuleCache(o.ModuleCache)
-		if err != nil {
-			return nil, err
-		}
-		if cache.SourceRevision != o.Revision || cache.Module != o.Module || cache.Target != o.Target || cache.GoVersion != GoVersion {
-			return nil, errors.New("the module cache does not match the build inputs")
-		}
+	cache, err := offlineCache(o)
+	if err != nil {
+		return nil, err
 	}
 	if err := os.Mkdir(o.Work, 0700); err != nil {
 		return nil, err
@@ -402,15 +435,13 @@ func Build(ctx context.Context, options Options) (*Record, error) {
 				return nil, err
 			}
 		}
-		if o.ModuleCache != "" {
-			// Each round extracts again from the recorded download cache.
-			// Extraction checks every zip against go.sum, so the copy only
-			// moves verified data between private directories.
-			if err := copyTree(filepath.Join(o.ModuleCache, "cache", "download"), filepath.Join(root, "modules", "cache", "download")); err != nil {
-				return nil, fmt.Errorf("module cache copy: %w", err)
-			}
+		// Each round extracts again from the recorded download cache.
+		// Extraction checks every zip against go.sum, so the copy only
+		// moves verified data between private directories.
+		if err := copyTree(filepath.Join(o.ModuleCache, "cache", "download"), filepath.Join(root, "modules", "cache", "download")); err != nil {
+			return nil, fmt.Errorf("module cache copy: %w", err)
 		}
-		env := environment(root, sdk, o.ModuleCache != "")
+		env := environment(root, sdk, true)
 		snapshot := filepath.Join(root, "source")
 
 		tree, err := capture(ctx, o.Source, env, git, "ls-tree", "-r", "-z", o.Revision)
@@ -510,14 +541,10 @@ func Build(ctx context.Context, options Options) (*Record, error) {
 			return nil, errors.New("application source changed during the build")
 		}
 		flags[7] = "<artifact>"
-		proxy := "https://proxy.golang.org"
-		var cacheInventory *Inventory
-		if o.ModuleCache != "" {
-			proxy = "off"
-			recorded := cache.DownloadCache
-			cacheInventory = &recorded
-		}
-		record := &Record{Format: 1, SourceRevision: o.Revision, Source: inputs, Inputs: files, Module: o.Module, Target: o.Target, GenerationStateSHA256: stateHash, GenerationCompiler: generator, BuildCompiler: buildidentity.Current(), BuildCompilerArtifact: Artifact{compilerHash, compilerSize}, Toolchain: toolchain, GoVersion: GoVersion, GitSHA256: gitHash, Environment: buildEnvironmentRecord(), DependencyProxy: proxy, ModuleCache: cacheInventory, GoTelemetry: "off", BuildFlags: flags, Modules: modules, BinarySettings: settings, Artifact: Artifact{hash, size}, IndependentBuilds: 2}
+		proxy := "off"
+		recorded := cache.DownloadCache
+		cacheInventory := &recorded
+		record := &Record{Format: 1, SourceRevision: o.Revision, Source: inputs, Inputs: files, Module: o.Module, Target: o.Target, GenerationStateSHA256: stateHash, GenerationCompiler: generator, BuildCompiler: buildidentity.Current(), BuildCompilerArtifact: Artifact{compilerHash, compilerSize}, Toolchain: toolchain, GoVersion: GoVersion, GitSHA256: gitHash, Environment: buildEnvironmentRecord(), DependencyProxy: proxy, ModuleCache: cacheInventory, GoTelemetry: "off", BuildFlags: flags, Modules: modules, BinarySettings: settings, Artifact: Artifact{hash, size}, SBOMs: recordSBOMs(), IndependentBuilds: 2}
 		if err := checkCompiledModules(binary, record); err != nil {
 			return nil, err
 		}
@@ -539,55 +566,75 @@ func Build(ctx context.Context, options Options) (*Record, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := os.Mkdir(o.Output, 0700); err != nil {
-		return nil, err
+	return result, saveResult(ctx, o.Output, firstBinary, result)
+}
+
+// saveResult writes the executable, build.json and SHA256SUMS into the new
+// result folder. A failure removes the folder, so a partial result is never
+// left as a result (ST-BLD-INV15).
+func saveResult(ctx context.Context, output, firstBinary string, result *Record) (err error) {
+	if err := os.Mkdir(output, 0700); err != nil {
+		return err
 	}
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(output)
+		}
+	}()
 	input, err := os.Open(firstBinary)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer input.Close()
-	output, err := os.OpenFile(filepath.Join(o.Output, "application"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0500)
+	file, err := os.OpenFile(filepath.Join(output, "application"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0500)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	_, err = io.Copy(output, input)
+	_, err = io.Copy(file, input)
 	if err == nil {
-		err = output.Sync()
+		err = file.Sync()
 	}
-	closeErr := output.Close()
+	closeErr := file.Close()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if closeErr != nil {
-		return nil, closeErr
+		return closeErr
 	}
-	hash, size, err := fileDigest(filepath.Join(o.Output, "application"))
+	hash, size, err := fileDigest(filepath.Join(output, "application"))
 	if err != nil || (Artifact{hash, size}) != result.Artifact {
-		return nil, errors.New("saved application artifact differs")
+		return errors.New("saved application artifact differs")
 	}
 	if err := validateRecord(result); err != nil {
-		return nil, err
+		return err
 	}
 	data, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
-		return nil, err
+		return err
 	}
 	data = append(data, '\n')
 	if len(data) > 16<<20 {
-		return nil, errors.New("application build record exceeds its size limit")
+		return errors.New("application build record exceeds its size limit")
 	}
-	if err := os.WriteFile(filepath.Join(o.Output, "build.json"), data, 0600); err != nil {
-		return nil, err
+	if err := os.WriteFile(filepath.Join(output, "build.json"), data, 0600); err != nil {
+		return err
+	}
+	// Write both SBOMs from the record alone (ST-BLD-DS01, ST-BLD-CMD03).
+	sboms, err := writeSBOMFiles(output, result)
+	if err != nil {
+		return fmt.Errorf("SBOMs: %w", err)
 	}
 	checksums := fmt.Sprintf("%s  application\n%s  build.json\n", hash, digest(data))
+	for _, sbom := range sboms {
+		checksums += fmt.Sprintf("%s  %s\n", sbom.Digest, sbom.Format.FileName())
+	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return err
 	}
-	if err := os.WriteFile(filepath.Join(o.Output, "SHA256SUMS"), []byte(checksums), 0600); err != nil {
-		return nil, err
+	if err := os.WriteFile(filepath.Join(output, "SHA256SUMS"), []byte(checksums), 0600); err != nil {
+		return err
 	}
-	return result, nil
+	return nil
 }
 
 func saveSourceChange(root string, before, after []File) error {

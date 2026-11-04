@@ -12,7 +12,7 @@ import (
 )
 
 func TestCompiledModulesRequireRecordedContent(t *testing.T) {
-	t.Run("ST-BLD-DS02-T01 An executable whose compiled modules differ from the record is refused", func(t *testing.T) {
+	t.Run("An executable whose compiled modules differ from the record is refused", func(t *testing.T) {
 		sum := "h1:" + strings.Repeat("A", 43) + "="
 		for _, name := range []string{"matching", "missing checksum", "wrong version", "wrong main", "extra module", "wrong checksum", "missing dependency"} {
 			t.Run(name, func(t *testing.T) {
@@ -90,4 +90,31 @@ func TestCanceledBuildDoesNotInspectOrWriteInputs(t *testing.T) {
 	if _, err := Build(ctx, Options{}); !errors.Is(err, context.Canceled) {
 		t.Fatal("cancellation was lost", err)
 	}
+}
+
+func TestExecutableMismatchesNameEachDifference(t *testing.T) {
+	t.Run("ST-BLD-DS02-T01 An executable whose digest, size, build settings or modules differ from the record is refused, and each is named", func(t *testing.T) {
+		record := fixtureRecord()
+		record.BinarySettings = map[string]string{"-trimpath": "true", "CGO_ENABLED": "0"}
+		info := &debug.BuildInfo{Path: "example.test/app/out", Main: debug.Module{Path: "example.test/app"}}
+		if mismatches := executableMismatches(&record, record.Artifact, record.BinarySettings, info); len(mismatches) != 0 {
+			t.Fatalf("a matching executable was refused: %v", mismatches)
+		}
+		found := Artifact{strings.Repeat("0", 64), 99}
+		settings := map[string]string{"-trimpath": "false", "-race": "true"}
+		info.Deps = []*debug.Module{{Path: "example.test/extra", Version: "v1.0.0"}}
+		mismatches := strings.Join(executableMismatches(&record, found, settings, info), "\n")
+		for _, want := range []string{
+			"executable digest: recorded " + record.Artifact.SHA256 + ", found " + found.SHA256,
+			"executable size: recorded 100, found 99",
+			`build setting -trimpath: recorded "true", found "false"`,
+			`build setting -race: recorded none, found "true"`,
+			`build setting CGO_ENABLED: recorded "0", found none`,
+			"module example.test/extra v1.0.0: compiled, but not in the record",
+		} {
+			if !strings.Contains(mismatches, want) {
+				t.Errorf("the check does not name %q:\n%s", want, mismatches)
+			}
+		}
+	})
 }
