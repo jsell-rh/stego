@@ -208,6 +208,7 @@
 {"id":"ST-GEN-UC10-FL-S06","title":"Apply refuses the same service for the same reason and writes nothing, until the author moves it with the fixer","flow_id":"ST-GEN-UC10-FL","path":"past fail date","position":2}
 {"id":"ST-GEN-UC10-FL-S07","title":"The fixer cannot rewrite a construct, so it names each one with its path and writes nothing, and the agent rewrites them by hand","flow_id":"ST-GEN-UC10-FL","path":"unfixable","position":1}
 {"id":"ST-GEN-UC10-FL-S08","title":"The agent runs validate again, and STEGO accepts the declaration version or names the faults that remain","flow_id":"ST-GEN-UC10-FL","path":"unfixable","position":2}
+{"id":"ST-GEN-UC11-FL-S01","title":"The service author moves the service's pin to the promoted component, and regeneration changes no file","flow_id":"ST-GEN-UC11-FL","path":"main","position":1}
 {"id":"ST-SUP-UC01-FL-S03","title":"The platform engineer adds the component with its config schema, its ports, its slots and its namespace, and STEGO accepts it before its generator runs","flow_id":"ST-SUP-UC01-FL","path":"main","position":1}
 {"id":"ST-SUP-UC01-FL-S04","title":"The platform engineer states each thing the emitted code must always do as an output contract, with the generator that builds it and the test that proves it","flow_id":"ST-SUP-UC01-FL","path":"main","position":2}
 {"id":"ST-SUP-UC01-FL-S05","title":"The platform engineer changes what the generator emits, and releases the component at a new version","flow_id":"ST-SUP-UC01-FL","path":"change","position":1}
@@ -239,7 +240,6 @@
 {"id":"ST-SUP-UC05-FL-S09","title":"A benchmark recorded as free text, with no figure per reference, is refused, naming what each figure must hold","flow_id":"ST-SUP-UC05-FL","path":"unstructured","position":1}
 {"id":"ST-SUP-UC06-FL-S01","title":"The service author runs registry promote, and STEGO copies the component at its digest into a checkout of the common registry at stage alpha","flow_id":"ST-SUP-UC06-FL","path":"main","position":1}
 {"id":"ST-SUP-UC06-FL-S02","title":"The service author opens the change to the common registry, and a platform engineer reviews and accepts it","flow_id":"ST-SUP-UC06-FL","path":"main","position":2}
-{"id":"ST-SUP-UC06-FL-S03","title":"The service author moves the service's pin to the promoted component, and regeneration changes no file","flow_id":"ST-SUP-UC06-FL","path":"main","position":3}
 {"id":"ST-SUP-UC06-FL-S04","title":"The common registry already holds a component of that name, so STEGO refuses and names it","flow_id":"ST-SUP-UC06-FL","path":"refused","position":1}
 {"id":"ST-SUP-UC07-FL-S01","title":"The platform engineer names the port, what a provider undertakes to supply and the meaning of every field","flow_id":"ST-SUP-UC07-FL","path":"main","position":1}
 {"id":"ST-SUP-UC07-FL-S02","title":"The platform engineer names the port's conformance test suite, which every provider runs, and STEGO records the port","flow_id":"ST-SUP-UC07-FL","path":"main","position":2}
