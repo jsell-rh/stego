@@ -269,33 +269,8 @@ func BuildImage(ctx context.Context, options ImageOptions) (*ImageRecord, error)
 	if err != nil {
 		return nil, err
 	}
-	buildPath := filepath.Join(root, "build.json")
-	if _, err = captureImageInput(ctx, options.BuildRecord, buildPath, 16<<20, options.BuildRecordSHA256); err != nil {
-		return nil, err
-	}
-	raw, err := os.ReadFile(buildPath)
+	build, trust, err := captureTrustedInputs(ctx, options, root)
 	if err != nil {
-		return nil, err
-	}
-	var build Record
-	if err = json.Unmarshal(raw, &build); err != nil {
-		return nil, errors.New("invalid application record")
-	}
-	if _, err = captureImageInput(ctx, options.Application, filepath.Join(root, "application"), maxFileBytes, build.Artifact.SHA256); err != nil {
-		return nil, err
-	}
-	if _, err = Verify(buildPath, filepath.Join(root, "application"), options.BuildRecordSHA256); err != nil {
-		return nil, err
-	}
-	trust, err := captureImageInput(ctx, options.TrustStore, filepath.Join(root, "trust.pem"), trustStoreLimit, options.TrustStoreSHA256)
-	if err != nil {
-		return nil, err
-	}
-	ca, err := os.ReadFile(filepath.Join(root, "trust.pem"))
-	if err != nil {
-		return nil, err
-	}
-	if err = validTrustStore(ca); err != nil {
 		return nil, err
 	}
 	packer, err := os.Executable()
@@ -320,8 +295,49 @@ func BuildImage(ctx context.Context, options ImageOptions) (*ImageRecord, error)
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
+	// The image carries both SBOMs of its executable beside its record, for the
+	// provider's trusted signer to attest (ST-BLD-INV09).
+	if _, err = writeSBOMFiles(root, build); err != nil {
+		return nil, err
+	}
 	if err = os.WriteFile(filepath.Join(root, "image.json"), append(data, '\n'), 0600); err != nil {
 		return nil, err
 	}
 	return record, nil
+}
+
+// captureTrustedInputs is the rule of ST-BLD-INV08: an image comes only from a
+// trusted build. It copies the build record, the explicit CA bundle and the
+// executable into root, each only at its trusted digest, and refuses a CA
+// bundle that holds anything but CA certificates and an executable that the
+// trusted build record does not name. The CA bundle is the operator's file
+// only: nothing here reads the host's trust store.
+func captureTrustedInputs(ctx context.Context, options ImageOptions, root string) (*Record, Artifact, error) {
+	buildPath := filepath.Join(root, "build.json")
+	if _, err := captureImageInput(ctx, options.BuildRecord, buildPath, 16<<20, options.BuildRecordSHA256); err != nil {
+		return nil, Artifact{}, err
+	}
+	trust, err := captureImageInput(ctx, options.TrustStore, filepath.Join(root, "trust.pem"), trustStoreLimit, options.TrustStoreSHA256)
+	if err != nil {
+		return nil, Artifact{}, err
+	}
+	ca, err := os.ReadFile(filepath.Join(root, "trust.pem"))
+	if err != nil {
+		return nil, Artifact{}, err
+	}
+	if err = validTrustStore(ca); err != nil {
+		return nil, Artifact{}, err
+	}
+	trusted, err := readBuildRecord(buildPath, options.BuildRecordSHA256)
+	if err != nil {
+		return nil, Artifact{}, err
+	}
+	if _, err = captureImageInput(ctx, options.Application, filepath.Join(root, "application"), maxFileBytes, trusted.Artifact.SHA256); err != nil {
+		return nil, Artifact{}, err
+	}
+	build, err := Verify(buildPath, filepath.Join(root, "application"), options.BuildRecordSHA256)
+	if err != nil {
+		return nil, Artifact{}, err
+	}
+	return build, trust, nil
 }

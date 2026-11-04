@@ -247,7 +247,7 @@ func TestRegistryResponseAndRequestBounds(t *testing.T) {
 }
 
 func TestRegistryTLSCredentialsAndPolicyFailClosed(t *testing.T) {
-	t.Run("ST-BLD-UC06-R01-T03 Publication refuses a wrong CA, a bad credential file or a tagged repository", func(t *testing.T) {
+	t.Run("ST-BLD-INV14-T ST-BLD-UC06-R01-T03 Publication refuses a wrong CA, a bad credential file or a tagged repository", func(t *testing.T) {
 		server, ca := registryTLSFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
 		_, record := imageFixture(t, imageTestCA(t, true))
 		base := registryFixtureAccess(t, server, ca)
