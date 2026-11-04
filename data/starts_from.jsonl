@@ -44,6 +44,7 @@
 {"source_id":"ST-DECL-SP18-T","target_id":"ST-DECL-TD03"}
 {"source_id":"ST-DECL-UC01-FL-T","target_id":"ST-DECL-TD01"}
 {"source_id":"ST-DECL-UC01-R01-T01","target_id":"ST-DECL-TD01"}
+{"source_id":"ST-DECL-UC01-R02-T01","target_id":"ST-DECL-TD01"}
 {"source_id":"ST-DECL-UC01-R03-T01","target_id":"ST-DECL-TD01"}
 {"source_id":"ST-DECL-UC01-R04-T01","target_id":"ST-DECL-TD01"}
 {"source_id":"ST-DECL-UC01-R04-T02","target_id":"ST-DECL-TD01"}
@@ -72,6 +73,12 @@
 {"source_id":"ST-DECL-UC02-R06-T02","target_id":"ST-DECL-TD01"}
 {"source_id":"ST-DECL-UC03-FL-T","target_id":"ST-DECL-TD01"}
 {"source_id":"ST-DECL-UC03-FL-T","target_id":"ST-DECL-TD02"}
+{"source_id":"ST-DECL-UC03-R02-T01","target_id":"ST-DECL-TD01"}
+{"source_id":"ST-DECL-UC03-R02-T01","target_id":"ST-DECL-TD02"}
+{"source_id":"ST-DECL-UC03-R03-T01","target_id":"ST-DECL-TD01"}
+{"source_id":"ST-DECL-UC03-R03-T01","target_id":"ST-DECL-TD02"}
+{"source_id":"ST-DECL-UC03-R03-T01","target_id":"ST-DECL-TD03"}
+{"source_id":"ST-DECL-UC03-R03-T01","target_id":"ST-DECL-TD04"}
 {"source_id":"ST-DECL-UC03-R04-T01","target_id":"ST-DECL-TD01"}
 {"source_id":"ST-DECL-UC03-R04-T01","target_id":"ST-DECL-TD02"}
 {"source_id":"ST-DECL-UC04-FL-T","target_id":"ST-DECL-TD01"}
@@ -106,8 +113,6 @@
 {"source_id":"ST-DECL-UC05-R03-T02","target_id":"ST-DECL-TD02"}
 {"source_id":"ST-DECL-UC05-R03-T03","target_id":"ST-DECL-TD01"}
 {"source_id":"ST-DECL-UC05-R03-T03","target_id":"ST-DECL-TD02"}
-{"source_id":"ST-DECL-UC05-R03-T04","target_id":"ST-DECL-TD02"}
-{"source_id":"ST-DECL-UC05-R03-T04","target_id":"ST-DECL-TD05"}
 {"source_id":"ST-DECL-UC05-R04-T01","target_id":"ST-DECL-TD01"}
 {"source_id":"ST-DECL-UC05-R04-T01","target_id":"ST-DECL-TD02"}
 {"source_id":"ST-DECL-UC05-R04-T02","target_id":"ST-DECL-TD01"}
