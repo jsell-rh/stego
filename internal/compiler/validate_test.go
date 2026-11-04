@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -160,13 +161,9 @@ func TestValidate_AllValid(t *testing.T) {
 
 func TestValidate_MissingArchetype(t *testing.T) {
 	t.Run("ST-DECL-INV01-T A declaration without exactly one archetype is refused", func(t *testing.T) {
-		projectDir, registryDir, _ := setupValidateProject(t)
-
-		// Rewrite service.yaml to reference a non-existent archetype.
-		writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+		const body = `kind: service
 name: test-service
-archetype: nonexistent-arch
-language: go
+%slanguage: go
 entities:
   - name: Widget
     fields:
@@ -175,20 +172,52 @@ collections:
   widgets:
     entity: Widget
     operations: [create]
-`)
-
-		input := ReconcilerInput{
-			ProjectDir:  projectDir,
-			RegistryDir: registryDir,
-			Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
-			GoVersion:   "1.22",
-			ModuleName:  "github.com/test/svc",
+`
+		cases := []struct {
+			name, archetype string
+			refused         bool
+			want            []string
+		}{
+			{"no archetype", "", true, []string{"archetype"}},
+			{"two archetypes", "archetype: [test-arch, other-arch]\n", true, []string{"archetype", "test-arch", "other-arch"}},
+			{"unknown archetype", "archetype: nonexistent-arch\n", true, []string{"archetype", "nonexistent-arch"}},
+			{"one archetype", "archetype: test-arch\n", false, nil},
 		}
-		result, err := Validate(input)
-		if err != nil {
-			t.Fatalf("Validate returned error: %v", err)
+		for _, c := range cases {
+			t.Run(c.name, func(t *testing.T) {
+				projectDir, registryDir, _ := setupValidateProject(t)
+				writeFile(t, filepath.Join(projectDir, "service.yaml"), fmt.Sprintf(body, c.archetype))
+				input := ReconcilerInput{
+					ProjectDir:  projectDir,
+					RegistryDir: registryDir,
+					Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
+					GoVersion:   "1.22",
+					ModuleName:  "github.com/test/svc",
+				}
+				result, err := Validate(input)
+				if !c.refused {
+					if err != nil || result.HasErrors() {
+						t.Fatalf("one archetype refused: %v\n%s", err, FormatValidation(result))
+					}
+					return
+				}
+				if err != nil {
+					// A document that cannot be read is refused with a reading fault, which must name the field.
+					for _, w := range c.want {
+						if !strings.Contains(err.Error(), w) {
+							t.Fatalf("refusal %q does not name %q", err, w)
+						}
+					}
+					return
+				}
+				for _, w := range c.want[1:] {
+					assertHasError(t, result, c.want[0], w)
+				}
+				if len(c.want) == 1 {
+					assertHasError(t, result, c.want[0], "")
+				}
+			})
 		}
-		assertHasError(t, result, "archetype", "nonexistent-arch")
 	})
 }
 
