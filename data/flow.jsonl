@@ -6,17 +6,17 @@
 {"id":"ST-BLD-UC02-FL","title":"Prepare an offline module cache","use_case_id":"ST-BLD-UC02"}
 {"id":"ST-BLD-UC03-FL","title":"Build a service reproducibly","use_case_id":"ST-BLD-UC03"}
 {"id":"ST-BLD-UC04-FL","title":"Check an artifact against its record","use_case_id":"ST-BLD-UC04"}
-{"id":"ST-BLD-UC05-FL","title":"Build and sign an image","use_case_id":"ST-BLD-UC05"}
+{"id":"ST-BLD-UC05-FL","title":"Build a signed image","use_case_id":"ST-BLD-UC05"}
 {"id":"ST-BLD-UC06-FL","title":"Publish and retrieve an image","use_case_id":"ST-BLD-UC06"}
 {"id":"ST-DECL-UC01-FL","title":"Start a service declaration","use_case_id":"ST-DECL-UC01"}
 {"id":"ST-DECL-UC02-FL","title":"Learn what may be declared","use_case_id":"ST-DECL-UC02"}
 {"id":"ST-DECL-UC03-FL","title":"Check a declaration","use_case_id":"ST-DECL-UC03"}
 {"id":"ST-DECL-UC04-FL","title":"Repair a refused declaration","use_case_id":"ST-DECL-UC04"}
-{"id":"ST-DECL-UC05-FL","title":"Declare tenancy and audit","use_case_id":"ST-DECL-UC05"}
+{"id":"ST-DECL-UC05-FL","title":"Declare tenancy with its audit settings","use_case_id":"ST-DECL-UC05"}
 {"id":"ST-DECL-UC06-FL","title":"Declare authorization","use_case_id":"ST-DECL-UC06"}
 {"id":"ST-DECL-UC07-FL","title":"Declare idempotent operations","use_case_id":"ST-DECL-UC07"}
 {"id":"ST-DECL-UC08-FL","title":"Declare a ledger","use_case_id":"ST-DECL-UC08"}
-{"id":"ST-DECL-UC09-FL","title":"Declare invariants, modes and controllers","use_case_id":"ST-DECL-UC09"}
+{"id":"ST-DECL-UC09-FL","title":"Declare a service's composition","use_case_id":"ST-DECL-UC09"}
 {"id":"ST-DIS-UC02-FL","title":"Find every service built from a component","use_case_id":"ST-DIS-UC02"}
 {"id":"ST-DIS-UC04-FL","title":"Ship a component fix without a compiler release","use_case_id":"ST-DIS-UC04"}
 {"id":"ST-DIS-UC05-FL","title":"Learn that a pinned component is superseded","use_case_id":"ST-DIS-UC05"}
@@ -41,7 +41,7 @@
 {"id":"ST-GEN-UC05-FL","title":"Review a plan before anything changes","use_case_id":"ST-GEN-UC05"}
 {"id":"ST-GEN-UC06-FL","title":"Recover from an interrupted apply","use_case_id":"ST-GEN-UC06"}
 {"id":"ST-GEN-UC07-FL","title":"Capture a frontend build as an input","use_case_id":"ST-GEN-UC07"}
-{"id":"ST-GEN-UC08-FL","title":"See how a service is shaped and how it works","use_case_id":"ST-GEN-UC08"}
+{"id":"ST-GEN-UC08-FL","title":"See a service's architecture","use_case_id":"ST-GEN-UC08"}
 {"id":"ST-GEN-UC09-FL","title":"Review how a change reshapes a service","use_case_id":"ST-GEN-UC09"}
 {"id":"ST-GEN-UC10-FL","title":"Move a service to a new declaration version","use_case_id":"ST-GEN-UC10"}
 {"id":"ST-SUP-UC01-FL","title":"Write a component","use_case_id":"ST-SUP-UC01"}
