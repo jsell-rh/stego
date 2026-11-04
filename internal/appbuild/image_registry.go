@@ -192,11 +192,19 @@ func registryImage(ctx context.Context, options RegistryImageOptions, publish bo
 			return nil, fmt.Errorf("registry publication failed: pushed sha256:%s: %w", record.Manifest.SHA256, err)
 		}
 	}
-	downloaded := filepath.Join(root, "oci")
-	if err := connection.retrieve(ctx, downloaded, record); err != nil {
+	// The image is read into a staging folder and becomes the result only
+	// after it is checked against its record and its trusted build record
+	// (ST-BLD-UC07-R01); a staging folder that fails a check is removed.
+	staging := filepath.Join(root, "unverified-oci")
+	if err := connection.retrieve(ctx, staging, record); err != nil {
+		_ = os.RemoveAll(staging)
 		return nil, err
 	}
-	if _, err := VerifyImage(ctx, savedRecord, downloaded, savedBuild, options.RecordSHA256, filepath.Join(root, "retrieved-check")); err != nil {
+	if _, err := VerifyImage(ctx, savedRecord, staging, savedBuild, options.RecordSHA256, filepath.Join(root, "retrieved-check")); err != nil {
+		_ = os.RemoveAll(staging)
+		return nil, err
+	}
+	if err := os.Rename(staging, filepath.Join(root, "oci")); err != nil {
 		return nil, err
 	}
 	operation := "retrieve"

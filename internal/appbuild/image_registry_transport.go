@@ -255,8 +255,10 @@ func connectRegistry(ctx context.Context, access RegistryAccess, record *ImageRe
 			return nil, errors.New("registry credentials must use canonical username and password JSON")
 		}
 		auth = &authn.Basic{Username: credentials.Username, Password: credentials.Password}
-	} else if write {
-		return nil, errors.New("registry publication requires explicit credentials")
+	} else {
+		// Publication and retrieval both name their credentials (ST-BLD-UC06-R03,
+		// ST-BLD-UC07-R02); no ambient or anonymous access is used.
+		return nil, errors.New("registry access requires explicit credentials")
 	}
 	base := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 20 * time.Second, MaxResponseHeaderBytes: 32 << 10, MaxIdleConns: 4, MaxIdleConnsPerHost: 2, MaxConnsPerHost: 2, IdleConnTimeout: 30 * time.Second, DisableCompression: true}
 	boundary := &registryBoundary{base: base, origin: origin, prefix: "/v2/" + repository.RepositoryStr() + "/", tokens: tokens, blobs: blobs, layer: record.Layer, config: record.Config}

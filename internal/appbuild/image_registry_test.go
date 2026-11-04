@@ -320,6 +320,18 @@ func TestRegistryRejectsCorruptDownloadAndHonorsCancellation(t *testing.T) {
 		if err := connection.retrieve(ctx, filepath.Join(t.TempDir(), "retrieved"), record); err == nil || !strings.Contains(err.Error(), "bytes differ") {
 			t.Fatal("corrupt bytes accepted", err)
 		}
+		// Through RetrieveImage, an image that fails its check is written nowhere.
+		image, signed, recordSHA256, _ := signFixture(t)
+		retrieval := RegistryImageOptions{Access: registryFixtureAccess(t, server, ca), Record: filepath.Join(image, "image.json"), RecordSHA256: recordSHA256, BuildRecord: filepath.Join(image, "build.json"), Work: filepath.Join(t.TempDir(), "work")}
+		retrieval.Access.Repository = strings.Replace(retrieval.Access.Repository, "/test/application", "/test/signed", 1)
+		if _, err := RetrieveImage(ctx, retrieval); err == nil || !strings.Contains(err.Error(), "sha256:"+signed.Manifest.SHA256) {
+			t.Fatal("a changed image was retrieved, or the refusal names no digest", err)
+		}
+		for _, name := range []string{"oci", "unverified-oci", "registry.json"} {
+			if _, err := os.Lstat(filepath.Join(retrieval.Work, name)); !os.IsNotExist(err) {
+				t.Fatal("a refused retrieval left the image or its record", name, err)
+			}
+		}
 		canceled, stop := context.WithCancel(ctx)
 		stop()
 		if _, err := PublishImage(canceled, RegistryImageOptions{}); err != context.Canceled {
@@ -425,6 +437,44 @@ func TestFailedReadBackNamesBothDigests(t *testing.T) {
 		}
 		if _, err := os.Lstat(filepath.Join(root, "registry.json")); !os.IsNotExist(err) {
 			t.Fatal("a publication record was written", err)
+		}
+	})
+}
+
+func TestRetrievalRefusesInputsBeforeAnyConnection(t *testing.T) {
+	t.Run("ST-BLD-UC07-R02-T01 Retrieval refuses a tagged reference, an untrusted CA bundle and missing or malformed credentials before any connection", func(t *testing.T) {
+		var requests atomic.Int64
+		server, ca := registryTLSFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requests.Add(1)
+			w.WriteHeader(200)
+		}))
+		image, _, recordSHA256, _ := signFixture(t)
+		base := registryFixtureAccess(t, server, ca)
+		for name, change := range map[string]func(*RegistryAccess, string){
+			"tagged reference":    func(a *RegistryAccess, _ string) { a.Repository += ":latest" },
+			"untrusted CA digest": func(a *RegistryAccess, _ string) { a.CASHA256 = strings.Repeat("0", 64) },
+			"missing credentials": func(a *RegistryAccess, _ string) { a.Credentials = "" },
+			"malformed credentials": func(a *RegistryAccess, root string) {
+				put(t, root, "credentials.json", "{\"username\":\"test\"}\n")
+				a.Credentials = filepath.Join(root, "credentials.json")
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				access := base
+				change(&access, t.TempDir())
+				options := RegistryImageOptions{Access: access, Record: filepath.Join(image, "image.json"), RecordSHA256: recordSHA256, BuildRecord: filepath.Join(image, "build.json"), Work: filepath.Join(t.TempDir(), "work")}
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if _, err := RetrieveImage(ctx, options); err == nil {
+					t.Fatal("a refused input was accepted")
+				}
+				if requests.Load() != 0 {
+					t.Fatal("a connection was opened before the inputs were checked")
+				}
+				if _, err := os.Lstat(filepath.Join(options.Work, "oci")); !os.IsNotExist(err) {
+					t.Fatal("a refused retrieval wrote the image", err)
+				}
+			})
 		}
 	})
 }
