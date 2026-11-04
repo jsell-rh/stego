@@ -76,10 +76,28 @@ func TestCompilerBuildState(t *testing.T) {
 			t.Fatal("build metadata changed stub output", file)
 		}
 	}
-	t.Run("ST-VO42-C01-T A build identity with an unknown source state is refused", func(t *testing.T) {
-		state.LastApplied.CompilerBuild.SourceState = "trusted"
-		if err := SaveState(statePath, state); err == nil {
-			t.Fatal("invalid source state accepted")
+	t.Run("ST-VO42-C01-T A source state is exactly unknown, clean or modified", func(t *testing.T) {
+		const revision = "0123456789abcdef0123456789abcdef01234567"
+		accepted := []struct{ source, vcs, revision string }{
+			{"unknown", "unknown", "unknown"},
+			{"clean", "git", revision},
+			{"modified", "git", revision},
+		}
+		for _, c := range accepted {
+			state.LastApplied.CompilerBuild.SourceState = c.source
+			state.LastApplied.CompilerBuild.VCS = c.vcs
+			state.LastApplied.CompilerBuild.Revision = c.revision
+			if err := SaveState(statePath, state); err != nil {
+				t.Fatalf("source state %q refused: %v", c.source, err)
+			}
+		}
+		for _, source := range []string{"trusted", "Clean", ""} {
+			state.LastApplied.CompilerBuild.SourceState = source
+			state.LastApplied.CompilerBuild.VCS = "git"
+			state.LastApplied.CompilerBuild.Revision = revision
+			if err := SaveState(statePath, state); err == nil {
+				t.Fatalf("source state %q accepted", source)
+			}
 		}
 	})
 }
