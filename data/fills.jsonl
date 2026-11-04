@@ -250,6 +250,10 @@
 {"source_id":"ST-INT01-AD","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-INT02-AD","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-INT03-AD","target_id":"ST-PAT-GO-CODE-SL01"}
+{"source_id":"ST-STORE01","target_id":"ST-PAT-GO-CODE-SL02"}
+{"source_id":"ST-STORE02","target_id":"ST-PAT-GO-CODE-SL02"}
+{"source_id":"ST-STORE03","target_id":"ST-PAT-GO-CODE-SL02"}
+{"source_id":"ST-STORE05","target_id":"ST-PAT-GO-CODE-SL02"}
 {"source_id":"ST-SUP-CMD01-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-SUP-CMD02-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-SUP-CMD03-H","target_id":"ST-PAT-GO-CODE-SL01"}
