@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -102,8 +103,12 @@ func (c *registryConnection) fetch(ctx context.Context, path, target string, exp
 		return closeErr
 	}
 	hash, size, err := fileDigest(target)
-	if err != nil || count != expected.Size || size != expected.Size || hash != expected.SHA256 {
-		return errors.New("retrieved registry bytes differ from the authenticated image record")
+	if err != nil {
+		return errors.New("retrieved registry bytes cannot be read")
+	}
+	if count != expected.Size || size != expected.Size || hash != expected.SHA256 {
+		// Name both digests, so a failed read-back says what the registry holds.
+		return fmt.Errorf("retrieved registry bytes differ from the authenticated image record: expected sha256:%s (%d bytes), read sha256:%s (%d bytes)", expected.SHA256, expected.Size, hash, size)
 	}
 	return ctx.Err()
 }
@@ -181,10 +186,10 @@ func registryImage(ctx context.Context, options RegistryImageOptions, publish bo
 		}
 		tag := connection.repository.Tag("sha256-" + record.Manifest.SHA256)
 		if err := remote.Write(tag, image, remote.WithContext(ctx), remote.WithTransport(connection.transport), remote.WithJobs(1), remote.WithRetryBackoff(remote.Backoff{Steps: 1}), remote.WithRetryPredicate(func(error) bool { return false })); err != nil {
-			return nil, errors.New("registry publication failed")
+			return nil, fmt.Errorf("registry publication failed: pushed sha256:%s, read nothing back", record.Manifest.SHA256)
 		}
 		if err := connection.fetch(ctx, "/v2/"+connection.repository.RepositoryStr()+"/manifests/"+tag.TagStr(), filepath.Join(root, "published-tag.json"), record.Manifest); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("registry publication failed: pushed sha256:%s: %w", record.Manifest.SHA256, err)
 		}
 	}
 	downloaded := filepath.Join(root, "oci")

@@ -399,3 +399,32 @@ func TestRegistryBlobCannotStartAuthenticationOrReceiveReferer(t *testing.T) {
 		t.Fatal("the boundary changed the caller's header")
 	}
 }
+
+func TestFailedReadBackNamesBothDigests(t *testing.T) {
+	t.Run("ST-BLD-UC06-R04-T01 A read-back that differs names the digest pushed and the digest read, and writes no publication record", func(t *testing.T) {
+		server, ca := registryTLSFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/v2/" {
+				w.WriteHeader(200)
+				return
+			}
+			io.WriteString(w, "changed")
+		}))
+		_, record := imageFixture(t, imageTestCA(t, true))
+		access := registryFixtureAccess(t, server, ca)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		connection, err := connectRegistry(ctx, access, record, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer connection.close()
+		root := t.TempDir()
+		err = connection.fetch(ctx, "/v2/"+connection.repository.RepositoryStr()+"/manifests/sha256:"+record.Manifest.SHA256, filepath.Join(root, "published-tag.json"), record.Manifest)
+		if err == nil || !strings.Contains(err.Error(), "expected sha256:"+record.Manifest.SHA256) || !strings.Contains(err.Error(), "read sha256:"+digest([]byte("changed"))) {
+			t.Fatal("a differing read-back does not name both digests", err)
+		}
+		if _, err := os.Lstat(filepath.Join(root, "registry.json")); !os.IsNotExist(err) {
+			t.Fatal("a publication record was written", err)
+		}
+	})
+}
