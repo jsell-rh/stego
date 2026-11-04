@@ -48,10 +48,11 @@
 {"id":"ST-SUP-UC02-FL","title":"Compose a registry for a team","use_case_id":"ST-SUP-UC02"}
 {"id":"ST-SUP-UC03-FL","title":"Curate an archetype","use_case_id":"ST-SUP-UC03"}
 {"id":"ST-SUP-UC04-FL","title":"Introduce an experimental component","use_case_id":"ST-SUP-UC04"}
-{"id":"ST-SUP-UC05-FL","title":"Graduate or retire a component","use_case_id":"ST-SUP-UC05"}
+{"id":"ST-SUP-UC05-FL","title":"Graduate a component","use_case_id":"ST-SUP-UC05"}
 {"id":"ST-SUP-UC06-FL","title":"Contribute a component upstream","use_case_id":"ST-SUP-UC06"}
 {"id":"ST-SUP-UC07-FL","title":"Define a port","use_case_id":"ST-SUP-UC07"}
 {"id":"ST-SUP-UC08-FL","title":"Declare a slot","use_case_id":"ST-SUP-UC08"}
 {"id":"ST-SUP-UC09-FL","title":"Choose a provider for a port","use_case_id":"ST-SUP-UC09"}
 {"id":"ST-SUP-UC10-FL","title":"Curate a golden path with its default concerns","use_case_id":"ST-SUP-UC10"}
 {"id":"ST-SUP-UC11-FL","title":"Provide a port from the runtime library","use_case_id":"ST-SUP-UC11"}
+{"id":"ST-SUP-UC12-FL","title":"Retire a component","use_case_id":"ST-SUP-UC12"}

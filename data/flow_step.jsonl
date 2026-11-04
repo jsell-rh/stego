@@ -235,10 +235,8 @@
 {"id":"ST-SUP-UC05-FL-S04","title":"The platform engineer reads the quality standing of each ga component after the graduation, so a component that no longer meets the bar at its current digest is seen at once","flow_id":"ST-SUP-UC05-FL","path":"main","position":4}
 {"id":"ST-SUP-UC05-FL-S05","title":"A component that lacks a piece of the quality bar, or whose reference comparison is stale or leaves a promise undecided, stays below ga, and STEGO names what is missing","flow_id":"ST-SUP-UC05-FL","path":"below bar","position":1}
 {"id":"ST-SUP-UC05-FL-S06","title":"A component that provides a port whose conformance tests it has not passed at its digest stays below ga, and STEGO names the port and the suite","flow_id":"ST-SUP-UC05-FL","path":"below bar","position":2}
-{"id":"ST-SUP-UC05-FL-S07","title":"STEGO reports every service that still uses a component past its sunset, and checking fails for each of them","flow_id":"ST-SUP-UC05-FL","path":"missed","position":1}
 {"id":"ST-SUP-UC05-FL-S08","title":"The platform engineer records the benchmark as figures per reference, and STEGO compares them with the previous version's figures and names each figure that regressed","flow_id":"ST-SUP-UC05-FL","path":"regression","position":1}
 {"id":"ST-SUP-UC05-FL-S09","title":"A benchmark recorded as free text, with no figure per reference, is refused, naming what each figure must hold","flow_id":"ST-SUP-UC05-FL","path":"unstructured","position":1}
-{"id":"ST-SUP-UC05-FL-S10","title":"The platform engineer withdraws a component that will not graduate","flow_id":"ST-SUP-UC05-FL","path":"withdrawn","position":1}
 {"id":"ST-SUP-UC06-FL-S01","title":"The service author runs registry promote, and STEGO copies the component at its digest into a checkout of the common registry at stage alpha","flow_id":"ST-SUP-UC06-FL","path":"main","position":1}
 {"id":"ST-SUP-UC06-FL-S02","title":"The service author opens the change to the common registry, and a platform engineer reviews and accepts it","flow_id":"ST-SUP-UC06-FL","path":"main","position":2}
 {"id":"ST-SUP-UC06-FL-S03","title":"The service author moves the service's pin to the promoted component, and regeneration changes no file","flow_id":"ST-SUP-UC06-FL","path":"main","position":3}
@@ -275,3 +273,6 @@
 {"id":"ST-SUP-UC11-FL-S05","title":"A file that is the same for two declarations that differ in everything the component reads is refused, naming the file and the runtime package","flow_id":"ST-SUP-UC11-FL","path":"refused","position":1}
 {"id":"ST-SUP-UC11-FL-S06","title":"A provider imported at a version the archetype does not pin is refused, naming both versions","flow_id":"ST-SUP-UC11-FL","path":"refused","position":2}
 {"id":"ST-SUP-UC11-FL-S07","title":"A component whose provider has not passed the suite at its current digest stays below ga, naming the port and the suite","flow_id":"ST-SUP-UC11-FL","path":"refused","position":3}
+{"id":"ST-SUP-UC12-FL-S01","title":"The platform engineer reads every recorded service that uses the component to retire","flow_id":"ST-SUP-UC12-FL","path":"main","position":1}
+{"id":"ST-SUP-UC12-FL-S02","title":"The platform engineer withdraws the component that will not graduate, and STEGO names every recorded service that uses it","flow_id":"ST-SUP-UC12-FL","path":"main","position":2}
+{"id":"ST-SUP-UC12-FL-S03","title":"STEGO reports every service that still uses a component past its sunset, and checking fails for each of them","flow_id":"ST-SUP-UC12-FL","path":"missed","position":1}
