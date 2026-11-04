@@ -32,3 +32,5 @@
 {"kind":"retirement","position":3,"name":"retired_on","type":"date","required":true,"description":"The date the Product owner decided the retirement."}
 {"kind":"runtime_package","position":1,"name":"import_path","type":"text","required":true,"description":"The package's Go import path inside the runtime module."}
 {"kind":"runtime_package","position":2,"name":"concern","type":"text","required":true,"description":"What the package holds, in a sentence."}
+{"kind":"shared_generator_library","position":1,"name":"file","type":"text","required":true,"description":"The file, from the product root."}
+{"kind":"shared_generator_library","position":2,"name":"description","type":"text","required":true,"description":"What in the file the generators or the assembler use, and which contracts it keeps, by name."}
