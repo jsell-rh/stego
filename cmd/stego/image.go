@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -81,9 +82,10 @@ func runImage(args []string) error {
 			options.Access.BlobOrigins = append(options.Access.BlobOrigins, value)
 			return nil
 		})
-		var check func() (appbuild.SignatureCheck, error)
-		if args[0] == "retrieve" {
-			check = signatureFlags(flags)
+		check := signatureFlags(flags)
+		var after *string
+		if args[0] == "publish" {
+			after = flags.String("after", "", "Image signed event that stego image sign printed (ST-BLD-PO03); --image is then the image folder")
 		}
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
@@ -92,8 +94,32 @@ func runImage(args []string) error {
 			return fmt.Errorf("registry image commands accept no positional arguments")
 		}
 		if args[0] == "publish" {
-			_, err := appbuild.PublishImage(ctx, options)
-			return err
+			if *after == "" {
+				if signed := signatureFlagSet(flags); signed != "" {
+					return fmt.Errorf("image publish takes --%s only with --after", signed)
+				}
+				published, err := appbuild.PublishImage(ctx, options)
+				if err != nil {
+					return err
+				}
+				return printEvent(appbuild.ImagePublished{ImageDigest: strings.TrimPrefix(published.Reference, published.Repository+"@sha256:"), Repository: published.Repository})
+			}
+			var event appbuild.ImageSigned
+			if err := readEvent(*after, &event); err != nil {
+				return err
+			}
+			signature, err := check()
+			if err != nil {
+				return err
+			}
+			image := options.Image
+			options.Image = ""
+			options.Signature = signature
+			_, raised, err := appbuild.PublishImageOnImageSigned(ctx, event, image, options)
+			if err != nil {
+				return err
+			}
+			return printEvent(raised)
 		}
 		if options.Image != "" {
 			return fmt.Errorf("image retrieve does not accept an input image directory")

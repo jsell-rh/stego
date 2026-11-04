@@ -521,3 +521,76 @@ func TestPolicySignBuiltImage(t *testing.T) {
 		}
 	})
 }
+
+func TestPolicyPublishOnlyASignedImage(t *testing.T) {
+	t.Run("ST-BLD-PO03-T Publish the image hears Image signed, checks the signature again, and publishes only an image whose signature verifies", func(t *testing.T) {
+		image, signOutput, signature := signedImage(t)
+		var event appbuild.ImageSigned
+		lastEvent(t, signOutput, &event)
+		registry := newRegistry(t)
+		publish := func(event appbuild.ImageSigned, image string, signature []string) (string, string, string, error) {
+			work := filepath.Join(t.TempDir(), "work")
+			args := append(append([]string{"image", "publish", "--after", eventFile(t, event), "--image", image, "--work", work}, registry.accessArgs("application")...), signature...)
+			stdout, stderr, err := runStego(t, args...)
+			return work, stdout, stderr, err
+		}
+		work, stdout, stderr, err := publish(event, image, signature)
+		if err != nil {
+			t.Fatalf("stego image publish --after: %v\n%s", err, stderr)
+		}
+		var receipt appbuild.RegistryImageRecord
+		data, err := os.ReadFile(filepath.Join(work, "registry.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(data, &receipt); err != nil {
+			t.Fatal(err)
+		}
+		if receipt.Operation != "publish" || receipt.Reference != registry.repository("application")+"@sha256:"+event.ImageDigest || !receipt.ImageContentsVerified {
+			t.Fatalf("the publication record is %+v; expected the image sha256:%s at %s", receipt, event.ImageDigest, registry.repository("application"))
+		}
+		var published appbuild.ImagePublished
+		lastEvent(t, stdout, &published)
+		if published.ImageDigest != event.ImageDigest || published.Repository != registry.repository("application") {
+			t.Fatalf("stego image publish printed %+v; expected the image sha256:%s at %s", published, event.ImageDigest, registry.repository("application"))
+		}
+		unsigned := copyFolder(t, builtImage(t).folder)
+		otherSpdx, otherCyclonedx := signatureBundles(t, image, otherSubject)
+		otherSignature := append([]string{}, signature...)
+		otherSignature[1], otherSignature[3] = otherSpdx, otherCyclonedx
+		changed := copyFolder(t, image)
+		record, err := os.ReadFile(filepath.Join(changed, "signature.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(changed, "signature.json"), bytes.Replace(record, []byte("rekor:42"), []byte("rekor:43"), 1), 0600); err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range []struct {
+			name      string
+			event     appbuild.ImageSigned
+			image     string
+			signature []string
+			reason    string
+		}{
+			{"an unsigned image", event, unsigned, signature, "the image is not signed"},
+			{"another image", appbuild.ImageSigned{ImageDigest: strings.Repeat("5", 64), Signer: event.Signer}, image, signature, "not sha256:" + strings.Repeat("5", 64)},
+			{"another signer in the event", appbuild.ImageSigned{ImageDigest: event.ImageDigest, Signer: otherSubject}, image, signature, "not by " + otherSubject},
+			{"bundles of another signer", event, image, otherSignature, "does not verify"},
+			{"a changed signature record", event, changed, signature, "differs from the signature that verifies"},
+			{"no signature flags", event, image, nil, "requires --spdx-bundle"},
+		} {
+			before := registry.requests.Load()
+			work, _, stderr, err := publish(item.event, item.image, item.signature)
+			if err == nil || !strings.Contains(stderr, item.reason) {
+				t.Errorf("stego image publish --after with %s: %v, %q; expected a refusal that names %q", item.name, err, stderr, item.reason)
+			}
+			if registry.requests.Load() != before {
+				t.Errorf("stego image publish --after with %s reached the registry", item.name)
+			}
+			if _, err := os.Stat(filepath.Join(work, "registry.json")); !os.IsNotExist(err) {
+				t.Errorf("stego image publish --after with %s wrote registry.json", item.name)
+			}
+		}
+	})
+}
