@@ -16,7 +16,6 @@
 {"source_id":"ST-ASR-UC04-FL-S01","target_id":"ST-ASR-QRY01"}
 {"source_id":"ST-ASR-UC04-FL-S02","target_id":"ST-ASR-QRY01"}
 {"source_id":"ST-BLD-UC01-FL-S01","target_id":"ST-BLD-CMD01"}
-{"source_id":"ST-BLD-UC01-FL-S02","target_id":"ST-GEN-CMD02"}
 {"source_id":"ST-BLD-UC01-FL-S03","target_id":"ST-BLD-CMD01"}
 {"source_id":"ST-BLD-UC02-FL-S01","target_id":"ST-BLD-CMD02"}
 {"source_id":"ST-BLD-UC02-FL-S02","target_id":"ST-BLD-CMD02"}
