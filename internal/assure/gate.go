@@ -2,6 +2,7 @@ package assure
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -56,26 +57,64 @@ func proofRunPassed(proof *VerifiedProofRun, spec Spec, why string) []string {
 }
 
 // holdsRatchet is the predicate of ST-ASR-SP03, No obligation falls: every obligation that Lathe counts as
-// designed, built or proved at the base head is still counted so at the change's commit. An obligation that is
-// new at the change may arrive with no share. It returns a reason for each share an obligation fell from, by
-// obligation ID and then in the order designed, built, proved, and none when the change holds the ratchet. An
-// obligation that the change does not have at all, because it removes or renames the record or because the
-// change's branch is behind the base, is no longer counted either: it gives one reason that says it is absent and
-// names each share it had at the base.
-func holdsRatchet(base, change Measurement) []string {
-	var reasons []string
+// designed, built or proved at the base head is still counted so at the change's commit, or is named by a
+// retirement at the change whose successors are each counted so. An obligation that is new at the change may
+// arrive with no share. It returns a reason for each share an obligation fell from, by obligation ID and then in
+// the order designed, built, proved, and none when the change holds the ratchet. An obligation that the change
+// does not have at all, because it removes or renames the record or because the change's branch is behind the
+// base, is no longer counted either: when no retirement at the change names it, it gives one reason that says it
+// is absent and names each share it had at the base. When retirements name it, each is followed: each share the
+// obligation had at the base that a successor does not have at the change gives a reason that names the
+// retirement, the successor and the share; a retirement with no successor lets the obligation go. It also returns
+// each retirement it follows with no reason, by the retired obligation's ID and then the retirement's ID, as the
+// decision reports it, each once. A pattern rule's obligation in a domain, named by PatternRuleIn, is compared in
+// that domain alone: a retirement of the rule names it in each domain, and a successor that is a pattern rule
+// followed in the same domain is compared there.
+func holdsRatchet(base, change Measurement, retirements []Retirement) ([]string, []string) {
+	retiring := make(map[string][]Retirement)
+	for _, retirement := range retirements {
+		retiring[retirement.Retired] = append(retiring[retirement.Retired], retirement)
+	}
+	var reasons, followed []string
 	for _, id := range base.sortedObligations() {
 		before := base.Obligations[id]
 		after, present := change.Obligations[id]
 		if !present {
-			var had []string
+			var had []Share
 			for _, share := range allShares() {
 				if before.Has(share) {
-					had = append(had, string(share))
+					had = append(had, share)
 				}
 			}
-			if len(had) > 0 {
-				reasons = append(reasons, absentReason(id, had))
+			named := append([]Retirement(nil), retiring[id]...)
+			rule, scope, scoped := strings.Cut(id, "@")
+			if scoped {
+				named = append(named, retiring[rule]...)
+			}
+			sort.Slice(named, func(i, j int) bool { return named[i].ID < named[j].ID })
+			if len(named) == 0 {
+				if len(had) > 0 {
+					reasons = append(reasons, absentReason(id, had))
+				}
+				continue
+			}
+			for _, retirement := range named {
+				var lacking []string
+				for _, successor := range retirement.Successors {
+					if _, ok := change.Obligations[PatternRuleIn(successor, scope)]; scoped && ok {
+						successor = PatternRuleIn(successor, scope)
+					}
+					standing := change.Obligations[successor]
+					for _, share := range had {
+						if !standing.Has(share) {
+							lacking = append(lacking, retiredReason(id, retirement.ID, successor, share))
+						}
+					}
+				}
+				if line := retirementLine(retirement); len(lacking) == 0 && !slices.Contains(followed, line) {
+					followed = append(followed, line)
+				}
+				reasons = append(reasons, lacking...)
 			}
 			continue
 		}
@@ -85,7 +124,7 @@ func holdsRatchet(base, change Measurement) []string {
 			}
 		}
 	}
-	return reasons
+	return reasons, followed
 }
 
 // workflowChanges lists each file under the workflows folder that differs between the base's tree and the
@@ -152,11 +191,11 @@ type ChangeRequest struct {
 // GateChange is the handler of ST-ASR-CMD02, Gate a change. It measures the coverage at the base head and then
 // at the change's commit, verifies the proof run at the change's commit, and reads the code faults of both commits'
 // trees and specs. It refuses the change when an obligation present at the base lost its designed, built or
-// proved standing, when no proof run at the commit is verified, when an automated test record did not pass
+// proved standing and no retirement at the change carries that standing to a successor, when no proof run at the commit is verified, when an automated test record did not pass
 // there, when the change's tree has a code-standard fault that the base head's does not have by rule and key, or
 // when the only proof run is change grade and the change alters the workflows folder. A fault the base head
-// already has is reported in the decision's code faults, and is no reason. The decision names both commits and
-// both coverages, and lists every reason in the fixed order; the store keeps it. It returns an error, and no
+// already has is reported in the decision's code faults, and is no reason. Each retirement the ratchet follows is
+// reported in the decision's retirements. The decision names both commits and both coverages, and lists every reason in the fixed order; the store keeps it. It returns an error, and no
 // decision, when it cannot read what it decides on.
 func GateChange(request ChangeRequest, store AttestationStore, verifier BundleVerifier, decisions DecisionStore) (Decision, ChangeDecided, error) {
 	for _, commit := range []string{request.Commit, request.Base} {
@@ -204,7 +243,7 @@ func GateChange(request ChangeRequest, store AttestationStore, verifier BundleVe
 	for _, fault := range baseFaults {
 		atBase[[2]string{fault.Rule, fault.Key}] = true
 	}
-	causes := holdsRatchet(base, change)
+	causes, retired := holdsRatchet(base, change, spec.Retirements)
 	causes = append(causes, proofRunPassed(verification.Proof, spec, noProofRunWhy(request.Commit, verification))...)
 	for _, fault := range faults {
 		if !atBase[[2]string{fault.Rule, fault.Key}] {
@@ -225,6 +264,7 @@ func GateChange(request ChangeRequest, store AttestationStore, verifier BundleVe
 		BaseCoverage: &baseCoverage,
 		Reasons:      sortReasons(causes),
 		CodeFaults:   describeFaults(faults, atBase),
+		Retirements:  retired,
 	}
 	decision.Passed = len(decision.Reasons) == 0
 	if verification.Proof != nil {

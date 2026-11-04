@@ -20,13 +20,67 @@ import (
 )
 
 // Spec is what Assuring reads from the spec at a commit: the digest of its data files and its test records, which
-// Record a proof run reads, and its domains by ID with their titles and its technical records that name a file or
-// folder, which the code-standard predicates read.
+// Record a proof run reads, its domains by ID with their titles and its technical records that name a file or
+// folder, which the code-standard predicates read, and its retirements, which the ratchet follows.
 type Spec struct {
-	Digest    string
-	Tests     map[string]TestRecord
-	Domains   map[string]string
-	Technical []TechnicalRecord
+	Digest      string
+	Tests       map[string]TestRecord
+	Domains     map[string]string
+	Technical   []TechnicalRecord
+	Retirements []Retirement
+}
+
+// Retirement is one retirement of the spec (the product kind retirement): its ID, the ID of the obligation it
+// retires, and the records its succeeded_by links name, in ID order, none for a plain removal.
+type Retirement struct {
+	ID         string
+	Retired    string
+	Successors []string
+}
+
+// readRetirements reads the retirements from the retirement table and their successors from the succeeded_by
+// table, in ID order. A row that is not a JSON object, or that names no ID, is skipped: lathe check, which must
+// pass before the gate decides, refuses such a row.
+func readRetirements(tables map[string]SpecFile) []Retirement {
+	rows := func(table string) []map[string]string {
+		file, ok := tables[table]
+		if !ok {
+			return nil
+		}
+		var read []map[string]string
+		for _, line := range bytes.Split(file.Data, []byte("\n")) {
+			var fields map[string]json.RawMessage
+			if len(bytes.TrimSpace(line)) == 0 || json.Unmarshal(line, &fields) != nil {
+				continue
+			}
+			row := make(map[string]string, len(fields))
+			for name, raw := range fields {
+				var value string
+				if json.Unmarshal(raw, &value) == nil {
+					row[name] = value
+				}
+			}
+			read = append(read, row)
+		}
+		return read
+	}
+	successors := make(map[string][]string)
+	for _, link := range rows("succeeded_by") {
+		if link["source_id"] != "" && link["target_id"] != "" {
+			successors[link["source_id"]] = append(successors[link["source_id"]], link["target_id"])
+		}
+	}
+	var retirements []Retirement
+	for _, row := range rows("retirement") {
+		if row["id"] == "" || row["retired_id"] == "" {
+			continue
+		}
+		next := append([]string(nil), successors[row["id"]]...)
+		sort.Strings(next)
+		retirements = append(retirements, Retirement{ID: row["id"], Retired: row["retired_id"], Successors: next})
+	}
+	sort.Slice(retirements, func(i, j int) bool { return retirements[i].ID < retirements[j].ID })
+	return retirements
 }
 
 // TestRecord is one test record of the spec: its ID, the file that runs it, its state as the spec gives it, and
@@ -58,8 +112,8 @@ type SpecFile struct {
 
 // ReadSpec reads the spec's data files, the *.jsonl files of its data folder. Every *_test.jsonl file is a table
 // of test records; a test record is automated when its state is automated. The domain table gives the domains,
-// and the tables of the technical stage's kinds, Lathe's and the product's own, give the technical records that
-// name a file or folder. The digest is "sha256:" and the
+// the tables of the technical stage's kinds, Lathe's and the product's own, give the technical records that
+// name a file or folder, and the retirement and succeeded_by tables give the retirements. The digest is "sha256:" and the
 // SHA-256 of the lines "<SHA-256 of the file>  <path>", one per data file in path order, which is what
 // sha256sum data/*.jsonl | sha256sum gives in the C locale.
 func ReadSpec(files []SpecFile) (Spec, error) {
@@ -83,6 +137,7 @@ func ReadSpec(files []SpecFile) (Spec, error) {
 		tables[strings.TrimSuffix(path.Base(file.Path), ".jsonl")] = file
 	}
 	spec.Domains, spec.Technical = readTechnicalStage(tables)
+	spec.Retirements = readRetirements(tables)
 	digest := sha256.Sum256([]byte(sums.String()))
 	spec.Digest = "sha256:" + hex.EncodeToString(digest[:])
 	return spec, nil
