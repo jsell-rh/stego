@@ -13,6 +13,7 @@
 {"source_id":"ST-ASR-EN02-DM","target_id":"ST-PAT-GO-CODE-SL02"}
 {"source_id":"ST-ASR-EN03-DM","target_id":"ST-PAT-GO-CODE-SL02"}
 {"source_id":"ST-ASR-EN03-TB","target_id":"ST-PAT-GO-CODE-SL02"}
+{"source_id":"ST-ASR-ENTRY01","target_id":"ST-PAT-GO-CODE-SL03"}
 {"source_id":"ST-ASR-EV01-ET","target_id":"ST-PAT-GO-CODE-SL02"}
 {"source_id":"ST-ASR-EV02-ET","target_id":"ST-PAT-GO-CODE-SL02"}
 {"source_id":"ST-ASR-EV03-ET","target_id":"ST-PAT-GO-CODE-SL02"}
