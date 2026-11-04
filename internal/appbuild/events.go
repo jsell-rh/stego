@@ -1,5 +1,10 @@
 package appbuild
 
+import (
+	"fmt"
+	"path/filepath"
+)
+
 // The event types of Building (ST-BLD-EV01 to ST-BLD-EV06). Each is delivered
 // in process, and nothing keeps it between runs. A digest is the lower-case
 // hexadecimal SHA-256 of the bytes it names.
@@ -59,4 +64,21 @@ type ImagePublished struct {
 	// Repository is where the image was published, such as
 	// quay.io/example/service.
 	Repository string `json:"repository"`
+}
+
+// ApplicationBuiltIn gives the Application built event of a build whose
+// result folder is output: it reads the build record there, checks it as a
+// build record at the digest of the bytes it read, and names the revision,
+// the record digest and the executable digest.
+func ApplicationBuiltIn(output string) (ApplicationBuilt, error) {
+	name := filepath.Join(output, "build.json")
+	data, err := readImageBytes(name, 16<<20)
+	if err != nil {
+		return ApplicationBuilt{}, fmt.Errorf("cannot read the build record %s: %w", name, err)
+	}
+	record, err := readBuildRecord(name, digest(data))
+	if err != nil {
+		return ApplicationBuilt{}, err
+	}
+	return ApplicationBuilt{SourceRevision: record.SourceRevision, RecordDigest: digest(data), ExecutableDigest: record.Artifact.SHA256}, nil
 }

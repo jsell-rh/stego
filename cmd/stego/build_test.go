@@ -294,7 +294,12 @@ func (g buildGenerator) Generate(gen.Context) ([]gen.File, *gen.Wiring, error) {
 // module. It returns the repository and its revision.
 func buildSource(t *testing.T) (string, string) {
 	t.Helper()
-	root := t.TempDir()
+	return buildSourceIn(t, t.TempDir())
+}
+
+// buildSourceIn commits the project of buildSource in the folder root.
+func buildSourceIn(t *testing.T, root string) (string, string) {
+	t.Helper()
 	project := filepath.Join(root, "source")
 	registry := filepath.Join(root, "registry")
 	files := map[string]string{
