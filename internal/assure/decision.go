@@ -14,7 +14,9 @@ import (
 // the rule it breaks; for a change decision, each also says whether the base head has it. A change is refused
 // for a fault the base head does not have (ST-ASR-UC02-R05), a release for any (ST-ASR-UC03-R04), and each fault
 // so refused is also a reason. Attestation names the attestation the provider's action is to make of a passed
-// release decision (ST-ASR-INV09); no other decision has one.
+// release decision (ST-ASR-INV09); no other decision has one. Retirements holds, for a change decision, each
+// retirement the ratchet followed, as "retirement <ID>: <retired> succeeded by <successors>" or "retirement <ID>:
+// <retired> has no successor", by the retired obligation's ID and then the retirement's ID (ST-ASR-UC02-R01).
 type Decision struct {
 	Commit       string
 	Kind         GateKind
@@ -26,6 +28,7 @@ type Decision struct {
 	Reasons      []string
 	Attestation  *Attestation
 	CodeFaults   []string
+	Retirements  []string
 }
 
 // Text is the decision as assure prints it and keeps it in the job's output. The same decision always gives the
@@ -62,6 +65,12 @@ func (d Decision) Text() string {
 			text.WriteString(fault + "\n")
 		}
 	}
+	if len(d.Retirements) > 0 {
+		fmt.Fprintf(&text, "retirements (%d):\n", len(d.Retirements))
+		for _, retirement := range d.Retirements {
+			text.WriteString(retirement + "\n")
+		}
+	}
 	if len(d.Reasons) == 0 {
 		text.WriteString("reasons: none\n")
 		return text.String()
@@ -88,6 +97,8 @@ const (
 	noVerifiedProofRun = "no verified proof run at "
 	noObligation       = "no obligation at "
 	absentAtChange     = " is absent at the change (was "
+	retiredBy          = " is retired by "
+	butItsSuccessor    = ", but its successor "
 	isNot              = " is not "
 	codeRule           = " (ST-STD-CODE-R"
 	presentAtBase      = ", present at base"
@@ -101,8 +112,27 @@ func fellReason(obligation string, share Share) string {
 
 // absentReason is the reason that names an obligation of the base that the change does not have, with the shares
 // it had at the base.
-func absentReason(obligation string, had []string) string {
-	return obligation + absentAtChange + strings.Join(had, ", ") + " at the base)"
+func absentReason(obligation string, had []Share) string {
+	names := make([]string, 0, len(had))
+	for _, share := range had {
+		names = append(names, string(share))
+	}
+	return obligation + absentAtChange + strings.Join(names, ", ") + " at the base)"
+}
+
+// retiredReason is the reason that names an obligation of the base that a retirement at the change names, the
+// retirement, and its successor that does not have a share the obligation had at the base.
+func retiredReason(obligation, retirement, successor string, share Share) string {
+	return obligation + retiredBy + retirement + butItsSuccessor + successor + isNot + string(share)
+}
+
+// retirementLine is how a decision reports a retirement that the ratchet followed: "retirement <ID>: <retired>
+// succeeded by <successors>", or "retirement <ID>: <retired> has no successor" for a plain removal.
+func retirementLine(retirement Retirement) string {
+	if len(retirement.Successors) == 0 {
+		return "retirement " + retirement.ID + ": " + retirement.Retired + " has no successor"
+	}
+	return "retirement " + retirement.ID + ": " + retirement.Retired + " succeeded by " + strings.Join(retirement.Successors, ", ")
 }
 
 // workflowReason is the reason that names a file under the workflows folder that differs from the base head's.
@@ -155,7 +185,8 @@ func describeFaults(faults []CodeFault, base map[[2]string]bool) []string {
 }
 
 // reasonOrder is the place of a reason in the fixed order: the obligations that fell, are absent at the change,
-// or do not have a share at a release commit, by ID, each with its shares in the order designed, built, proved;
+// are retired to a successor that does not have a share, or do not have a share at a release commit, by ID, each
+// with its shares in the order designed, built, proved;
 // then the proof run (why there is none first) and the test records that did not pass, by ID; then the
 // code-standard faults, by rule and then key; then the workflow files that differ, by path.
 func reasonOrder(reason string) (int, string) {
@@ -174,6 +205,13 @@ func reasonOrder(reason string) (int, string) {
 	if obligation, share, ok := strings.Cut(reason, fellFrom); ok && !strings.Contains(obligation, " ") {
 		for i, s := range allShares() {
 			if Share(share) == s {
+				return obligationSection, obligation + "\x00" + string(rune('0'+i))
+			}
+		}
+	}
+	if obligation, rest, ok := strings.Cut(reason, retiredBy); ok && !strings.Contains(obligation, " ") {
+		for i, share := range allShares() {
+			if strings.HasSuffix(rest, isNot+string(share)) {
 				return obligationSection, obligation + "\x00" + string(rune('0'+i))
 			}
 		}
