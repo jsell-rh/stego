@@ -300,7 +300,7 @@ func TestRegistryTLSCredentialsAndPolicyFailClosed(t *testing.T) {
 }
 
 func TestRegistryRejectsCorruptDownloadAndHonorsCancellation(t *testing.T) {
-	t.Run("ST-BLD-UC06-R02-T01 A retrieved image whose bytes differ is refused", func(t *testing.T) {
+	t.Run("ST-BLD-UC07-R01-T01 A retrieved image whose bytes differ is refused", func(t *testing.T) {
 		server, ca := registryTLSFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/v2/" {
 				w.WriteHeader(200)
