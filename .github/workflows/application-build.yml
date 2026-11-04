@@ -558,6 +558,7 @@ jobs:
       - name: Refuse a wrong signer, then sign the image with both SBOM attestations
         timeout-minutes: 5
         env:
+          GH_TOKEN: ${{ github.token }}
           IMAGE_SHA256: ${{ needs[matrix.job].outputs.image-sha256 }}
           SPDX_BUNDLE: ${{ steps.attest-spdx.outputs.bundle-path }}
           CYCLONEDX_BUNDLE: ${{ steps.attest-cyclonedx.outputs.bundle-path }}
@@ -584,6 +585,7 @@ jobs:
       - name: Check the signed image with the container engine
         timeout-minutes: 8
         env:
+          GH_TOKEN: ${{ github.token }}
           SPDX_BUNDLE: ${{ steps.attest-spdx.outputs.bundle-path }}
           CYCLONEDX_BUNDLE: ${{ steps.attest-cyclonedx.outputs.bundle-path }}
         run: |
@@ -595,6 +597,7 @@ jobs:
       - name: Retrieve the signed image through the private TLS registry
         timeout-minutes: 6
         env:
+          GH_TOKEN: ${{ github.token }}
           SPDX_BUNDLE: ${{ steps.attest-spdx.outputs.bundle-path }}
           CYCLONEDX_BUNDLE: ${{ steps.attest-cyclonedx.outputs.bundle-path }}
         run: |
