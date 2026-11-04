@@ -605,4 +605,15 @@
 {"source_id":"ST-SUP-UC03-R02-T02","target_id":"ST-SUP-TD01"}
 {"source_id":"ST-SUP-UC03-R03-T02","target_id":"ST-SUP-TD01"}
 {"source_id":"ST-SUP-UC03-R03-T03","target_id":"ST-SUP-TD01"}
+{"source_id":"ST-SUP-UC04-FL-T","target_id":"ST-SUP-TD01"}
+{"source_id":"ST-SUP-UC04-R01-T01","target_id":"ST-SUP-TD01"}
+{"source_id":"ST-SUP-UC04-R01-T02","target_id":"ST-SUP-TD01"}
+{"source_id":"ST-SUP-UC04-R02-T01","target_id":"ST-SUP-TD02"}
+{"source_id":"ST-SUP-UC04-R02-T02","target_id":"ST-SUP-TD02"}
+{"source_id":"ST-SUP-UC04-R03-T01","target_id":"ST-SUP-TD01"}
+{"source_id":"ST-SUP-UC04-R03-T02","target_id":"ST-SUP-TD01"}
+{"source_id":"ST-SUP-UC04-R03-T03","target_id":"ST-SUP-TD01"}
+{"source_id":"ST-SUP-UC04-R03-T04","target_id":"ST-SUP-TD01"}
+{"source_id":"ST-SUP-UC04-R03-T05","target_id":"ST-SUP-TD01"}
+{"source_id":"ST-SUP-UC04-R03-T06","target_id":"ST-SUP-TD01"}
 {"source_id":"ST-VO61-C01-T","target_id":"ST-DECL-TD04"}
