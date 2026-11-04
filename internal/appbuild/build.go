@@ -113,6 +113,19 @@ func environment(root, sdk string, offline bool) []string {
 	return result
 }
 
+// checkSDK refuses a Go SDK whose contents differ from the pinned official
+// release, and names the inventory it found and the one it expected.
+func checkSDK(sdk string) (Inventory, error) {
+	toolchain, _, err := inventory(sdk, sdkIdentity.Files, sdkIdentity.Bytes)
+	if err != nil {
+		return Inventory{}, fmt.Errorf("Go SDK %s is not the pinned official release: its inventory cannot be read (%v); expected files=%d bytes=%d SHA-256=%s", sdk, err, sdkIdentity.Files, sdkIdentity.Bytes, sdkIdentity.SHA256)
+	}
+	if toolchain != sdkIdentity {
+		return Inventory{}, fmt.Errorf("Go SDK %s is not the pinned official release: found files=%d bytes=%d SHA-256=%s; expected files=%d bytes=%d SHA-256=%s", sdk, toolchain.Files, toolchain.Bytes, toolchain.SHA256, sdkIdentity.Files, sdkIdentity.Bytes, sdkIdentity.SHA256)
+	}
+	return toolchain, nil
+}
+
 func outside(parent, child string) bool {
 	relative, err := filepath.Rel(parent, child)
 	return err == nil && (relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)))
@@ -360,12 +373,9 @@ func Build(ctx context.Context, options Options) (*Record, error) {
 		return nil, err
 	}
 	sdk := filepath.Dir(filepath.Dir(o.Go))
-	toolchain, _, err := inventory(sdk, sdkIdentity.Files, sdkIdentity.Bytes)
+	toolchain, err := checkSDK(sdk)
 	if err != nil {
-		return nil, fmt.Errorf("Go SDK inventory inspection failed: %w", err)
-	}
-	if toolchain != sdkIdentity {
-		return nil, fmt.Errorf("Go SDK differs from the pinned official release: files=%d bytes=%d SHA-256=%s", toolchain.Files, toolchain.Bytes, toolchain.SHA256)
+		return nil, err
 	}
 	git := "/usr/bin/git"
 	gitHash, _, err := fileDigest(git)
