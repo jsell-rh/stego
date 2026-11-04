@@ -21,3 +21,4 @@
 {"id":"ST-VO58-VT","title":"registry.RuntimePin","value_object_id":"ST-VO58","file":"internal/registry/runtime.go"}
 {"id":"ST-VO59-VT","title":"matrix","value_object_id":"ST-VO59","file":"scripts/application-build-matrix.py"}
 {"id":"ST-VO61-VT","title":"money.Money","value_object_id":"ST-VO61","file":"registry/runtime/money/money.go"}
+{"id":"ST-VO62-VT","title":"gen.File","value_object_id":"ST-VO62","file":"internal/gen/gen.go"}

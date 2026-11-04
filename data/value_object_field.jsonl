@@ -46,3 +46,5 @@
 {"value_object_id":"ST-VO59","position":4,"name":"Entry point","meaning":"The executable's name.","type":"text","required":true,"example":"orders"}
 {"value_object_id":"ST-VO61","position":1,"name":"Amount","meaning":"The amount in minor units of the currency, signed.","type":"whole number","required":true,"example":"100000"}
 {"value_object_id":"ST-VO61","position":2,"name":"Currency","meaning":"The ISO 4217 code.","type":"text","required":true,"example":"EUR"}
+{"value_object_id":"ST-VO62","position":1,"name":"Path","meaning":"The path of the file, from the root of the service output.","type":"text","required":true,"example":"internal/api/handler.go"}
+{"value_object_id":"ST-VO62","position":2,"name":"Content","meaning":"The body of the file, without the generated header.","type":"text","required":true}
