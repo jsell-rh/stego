@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Stage signed application images, then publish them from checked source."""
+"""Stage signed application images, then publish them from checked source.
+
+Each image folder to publish holds the provider's two SBOM signature bundles
+beside image.json, and publication names the trusted signer.
+"""
 
 import argparse
 import hashlib
@@ -25,6 +29,27 @@ declaration = module("declaration", "application-build-matrix.py")
 CheckError = records.CheckError
 SELECTION = {"name", "module", "target", "entrypoint"}
 DIGESTS = {"build_record_sha256", "image_record_sha256", "manifest_sha256"}
+# The provider's signature bundles of the SPDX and CycloneDX SBOM attestations
+# about the image digest, beside image.json in each image folder. stego image
+# publish checks them, so only a signed image is published (ST-BLD-UC06-R01).
+BUNDLES = {"--spdx-bundle": "sbom.spdx.bundle.json", "--cyclonedx-bundle": "sbom.cdx.bundle.json"}
+SIGNER = {"issuer": "--signer-issuer", "subject": "--signer-subject", "gh": "--gh",
+          "source_repository": "--source-repository"}
+
+
+def signer_flags(signer):
+    """Give the trusted signer flags of stego image publish, refusing a missing one."""
+    if not isinstance(signer, dict) or set(signer) != set(SIGNER):
+        raise CheckError("Select the trusted signer: issuer, subject, gh and source_repository")
+    flags = []
+    for key, flag in SIGNER.items():
+        value = str(signer[key])
+        if not value:
+            raise CheckError("Select the trusted signer " + key)
+        flags.extend([flag, value])
+    if not Path(signer["gh"]).is_absolute():
+        raise CheckError("Select the GitHub CLI by its absolute path")
+    return flags
 
 
 def save(path, value):
@@ -137,8 +162,9 @@ def registry_policy(path):
 
 
 def publish(images, expected, source, compiler, compiler_sha256, repository, ca, ca_sha256,
-            output, credentials=None, token_file=None, username=None, policy_file=None):
+            output, credentials=None, token_file=None, username=None, policy_file=None, signer=None):
     images, source, compiler, ca = (path.absolute() for path in [images, source, compiler, ca])
+    signature = signer_flags(signer)
     if (credentials is None) == (token_file is None) or (token_file is None) != (username is None):
         raise CheckError("Select credentials or an explicit token file and username")
     if not isinstance(repository, str) or not repository or repository.endswith("/"):
@@ -164,16 +190,24 @@ def publish(images, expected, source, compiler, compiler_sha256, repository, ca,
         del data
         environment = {"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C",
                        "HOME": str(private), "TMPDIR": str(private), "GOMAXPROCS": "2", "GOMEMLIMIT": "512MiB"}
+        # The signature check runs gh attestation verify, which needs the provider token.
+        for name in ["GH_TOKEN", "GITHUB_TOKEN"]:
+            if os.environ.get(name):
+                environment[name] = os.environ[name]
         def command(args):
             return records.verification.control.command([str(executable), *args], private, environment,
                                                         timeout=310, limit=1 << 20)
         for image in selected["images"]:
             target = images / image["name"]
+            for name in BUNDLES.values():
+                bundle = target / name
+                if bundle.is_symlink() or not bundle.is_file():
+                    raise CheckError("The image " + image["name"] + " has no signature bundle " + name + ", so it is not published")
             command(["build", "verify-source", "--record", str(target / "build.json"),
                      "--record-sha256", image["build_record_sha256"], "--source", str(source)])
-            # stego image verify also checks the SBOM signature (ST-BLD-CLI09), which
-            # publication does not take. Export runs the same record and build
-            # checks that publication runs, before any credential exists.
+            # Export runs the same record and build checks that publication
+            # runs, before any credential exists. Publication then checks the
+            # signature too, before it opens the credentials.
             command(["image", "export", "--record", str(target / "image.json"),
                      "--record-sha256", image["image_record_sha256"], "--build-record", str(target / "build.json"),
                      "--image", str(target / "oci"), "--work", str(output / (image["name"] + "-preflight"))])
@@ -197,7 +231,9 @@ def publish(images, expected, source, compiler, compiler_sha256, repository, ca,
             command(["image", "publish", "--record", str(target / "image.json"),
                      "--record-sha256", image["image_record_sha256"], "--build-record", str(target / "build.json"),
                      "--image", str(target / "oci"), "--work", str(work), "--repository", destination,
-                     "--registry-ca", str(ca), "--registry-ca-sha256", ca_sha256, "--credentials", str(credentials), *origins])
+                     "--registry-ca", str(ca), "--registry-ca-sha256", ca_sha256, "--credentials", str(credentials),
+                     *[part for flag, name in BUNDLES.items() for part in (flag, str(target / name))], *signature,
+                     *origins])
             receipt = records.decode(records.verification.regular_bytes(work / "registry.json", 64 << 10))
             reference = destination + "@sha256:" + image["manifest_sha256"]
             expected_receipt = {"format": 1, "operation": "publish", "repository": destination,
@@ -227,6 +263,8 @@ def main():
     for name in ["credentials", "token-file", "registry-policy"]:
         publishing.add_argument("--" + name, type=Path)
     publishing.add_argument("--username")
+    for name in ["signer-issuer", "signer-subject", "gh", "source-repository"]:
+        publishing.add_argument("--" + name, required=True)
     args = parser.parse_args()
     def interrupted(_number, _frame):
         raise CheckError("Application image delivery stopped or exceeded its time limit")
@@ -239,7 +277,9 @@ def main():
     else:
         result = publish(args.images, args.set_sha256, args.source, args.compiler, args.compiler_sha256,
                          args.repository, args.registry_ca, args.registry_ca_sha256, args.output,
-                         args.credentials, args.token_file, args.username, args.registry_policy)
+                         args.credentials, args.token_file, args.username, args.registry_policy,
+                         {"issuer": args.signer_issuer, "subject": args.signer_subject, "gh": args.gh,
+                          "source_repository": args.source_repository})
     print(json.dumps(result, indent=2))
 
 
