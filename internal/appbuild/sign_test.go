@@ -264,6 +264,28 @@ func TestGitHubVerificationResultIsRead(t *testing.T) {
 	})
 }
 
+func TestGitHubVerifierEnvironment(t *testing.T) {
+	t.Run("ST-BLD-SP02-T The GitHub CLI gets the provider token and no other inherited variable", func(t *testing.T) {
+		fixed := []string{"PATH=/usr/bin:/bin", "HOME=" + os.TempDir(), "GH_NO_UPDATE_NOTIFIER=1", "GH_PROMPT_DISABLED=1"}
+		inherited := []string{"PATH=/opt/other/bin", "HOME=/home/operator", "GH_HOST=example.test", "GH_CONFIG_DIR=/home/operator/.gh",
+			"HTTPS_PROXY=http://proxy.example.test", "SSL_CERT_FILE=/tmp/ca.pem", "LD_PRELOAD=/tmp/hook.so", "SECRET=value"}
+		for name, test := range map[string]struct{ environ, want []string }{
+			"no token":      {inherited, fixed},
+			"GH_TOKEN":      {append([]string{"GH_TOKEN=first"}, inherited...), append(append([]string{}, fixed...), "GH_TOKEN=first")},
+			"both tokens":   {append(append([]string{}, inherited...), "GITHUB_TOKEN=second", "GH_TOKEN=first"), append(append([]string{}, fixed...), "GITHUB_TOKEN=second", "GH_TOKEN=first")},
+			"empty token":   {append([]string{"GH_TOKEN="}, inherited...), fixed},
+			"token as part": {append([]string{"MY_GH_TOKEN=other", "GH_TOKEN_FILE=/tmp/token"}, inherited...), fixed},
+		} {
+			t.Run(name, func(t *testing.T) {
+				got := verifierEnvironment(test.environ)
+				if strings.Join(got, "\n") != strings.Join(test.want, "\n") {
+					t.Fatalf("the GitHub CLI environment is %q, want %q", got, test.want)
+				}
+			})
+		}
+	})
+}
+
 func TestSignerIdentityIsKeylessOrKey(t *testing.T) {
 	t.Run("ST-VO50-C01-T A signer identity is a keyless pipeline identity or a key, never both", func(t *testing.T) {
 		for _, identity := range []SignerIdentity{trustedTestSigner, {PublicKeySHA256: strings.Repeat("7", 64)}} {
