@@ -43,3 +43,6 @@
 {"source_id":"ST-GEN-Q01","target_id":"ST-GEN-UC01-R04"}
 {"source_id":"ST-GEN-Q01","target_id":"ST-GEN-UC02-R02"}
 {"source_id":"ST-GEN-Q01","target_id":"ST-GEN-UC02-R02-T02"}
+{"source_id":"ST-SUP-Q04","target_id":"ST-SUP-INV07"}
+{"source_id":"ST-SUP-Q04","target_id":"ST-SUP-QRY05"}
+{"source_id":"ST-SUP-Q04","target_id":"ST-SUP-UC05-FL"}
