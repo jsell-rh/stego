@@ -8,7 +8,6 @@ import (
 
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/parser"
-	"github.com/jsell-rh/stego/internal/types"
 )
 
 // Registry holds indexed archetypes, components, and mixins loaded from a
@@ -16,38 +15,38 @@ import (
 type Registry struct {
 	source     *registrySnapshot
 	captured   []*registrySnapshot
-	archetypes map[string]*types.Archetype
-	components map[string]*types.Component
-	mixins     map[string]*types.Mixin
+	archetypes map[string]*Archetype
+	components map[string]*Component
+	mixins     map[string]*Mixin
 }
 
 // Archetypes returns all loaded archetypes.
-func (r *Registry) Archetypes() map[string]*types.Archetype {
+func (r *Registry) Archetypes() map[string]*Archetype {
 	return r.archetypes
 }
 
 // Components returns all loaded components.
-func (r *Registry) Components() map[string]*types.Component {
+func (r *Registry) Components() map[string]*Component {
 	return r.components
 }
 
 // Mixins returns all loaded mixins.
-func (r *Registry) Mixins() map[string]*types.Mixin {
+func (r *Registry) Mixins() map[string]*Mixin {
 	return r.mixins
 }
 
 // Archetype looks up an archetype by name. Returns nil if not found.
-func (r *Registry) Archetype(name string) *types.Archetype {
+func (r *Registry) Archetype(name string) *Archetype {
 	return r.archetypes[name]
 }
 
 // Component looks up a component by name. Returns nil if not found.
-func (r *Registry) Component(name string) *types.Component {
+func (r *Registry) Component(name string) *Component {
 	return r.components[name]
 }
 
 // Mixin looks up a mixin by name. Returns nil if not found.
-func (r *Registry) Mixin(name string) *types.Mixin {
+func (r *Registry) Mixin(name string) *Mixin {
 	return r.mixins[name]
 }
 
@@ -92,14 +91,14 @@ func LoadDirectories(dirs ...string) (*Registry, error) {
 		captured = append(captured, current)
 	}
 	source.hash = registryDigest(source.files)
-	r := &Registry{source: source, captured: captured, archetypes: make(map[string]*types.Archetype), components: make(map[string]*types.Component), mixins: make(map[string]*types.Mixin)}
+	r := &Registry{source: source, captured: captured, archetypes: make(map[string]*Archetype), components: make(map[string]*Component), mixins: make(map[string]*Mixin)}
 	for _, name := range r.childDirectories("archetypes") {
 		file := path.Join("archetypes", name, "archetype.yaml")
 		data, err := r.ReadFile(file)
 		if err != nil {
 			return nil, err
 		}
-		item, err := parser.ParseArchetypeFromBytes(data, file)
+		item, err := ParseArchetypeFromBytes(data, file)
 		if err != nil {
 			return nil, err
 		}
@@ -114,7 +113,7 @@ func LoadDirectories(dirs ...string) (*Registry, error) {
 		if err != nil {
 			return nil, err
 		}
-		item, err := parser.ParseComponentFromBytes(data, file)
+		item, err := ParseComponentFromBytes(data, file)
 		if err != nil {
 			return nil, err
 		}
@@ -132,7 +131,7 @@ func LoadDirectories(dirs ...string) (*Registry, error) {
 		if err != nil {
 			return nil, err
 		}
-		item, err := parser.ParseMixinFromBytes(data, file)
+		item, err := ParseMixinFromBytes(data, file)
 		if err != nil {
 			return nil, err
 		}
@@ -147,7 +146,7 @@ func LoadDirectories(dirs ...string) (*Registry, error) {
 	return r, nil
 }
 
-func (r *Registry) checkSlots(category, name string, slots []types.SlotDefinition) error {
+func (r *Registry) checkSlots(category, name string, slots []SlotDefinition) error {
 	for _, slot := range slots {
 		file := category + "/" + name + "/slots/" + slot.Name + ".proto"
 		if err := gen.ValidatePath(file); err != nil {
@@ -161,7 +160,7 @@ func (r *Registry) checkSlots(category, name string, slots []types.SlotDefinitio
 }
 
 // LoadConfig reads and parses a .stego/config.yaml file.
-func LoadConfig(path string) (*types.RegistryConfig, error) {
+func LoadConfig(path string) (*RegistryConfig, error) {
 	data, err := parser.ReadDocument(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading registry config: %w", err)
@@ -170,8 +169,8 @@ func LoadConfig(path string) (*types.RegistryConfig, error) {
 }
 
 // ParseConfig validates an already captured configuration without another file read.
-func ParseConfig(data []byte, path string) (*types.RegistryConfig, error) {
-	var cfg types.RegistryConfig
+func ParseConfig(data []byte, path string) (*RegistryConfig, error) {
+	var cfg RegistryConfig
 	if err := parser.DecodeStrict(data, path, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing registry config %s: %w", path, err)
 	}
@@ -182,7 +181,7 @@ func ParseConfig(data []byte, path string) (*types.RegistryConfig, error) {
 }
 
 // validateConfig checks that a parsed RegistryConfig has required fields.
-func validateConfig(cfg *types.RegistryConfig) error {
+func validateConfig(cfg *RegistryConfig) error {
 	if len(cfg.Pins) != 0 {
 		return fmt.Errorf("per-component pins are not supported; pin each Git registry source with ref")
 	}

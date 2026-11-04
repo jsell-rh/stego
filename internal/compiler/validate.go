@@ -12,8 +12,8 @@ import (
 	"strings"
 
 	"github.com/jsell-rh/stego/internal/gen"
-	"github.com/jsell-rh/stego/internal/parser"
 	"github.com/jsell-rh/stego/internal/ports"
+	"github.com/jsell-rh/stego/internal/registry"
 	"github.com/jsell-rh/stego/internal/types"
 )
 
@@ -70,7 +70,7 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 	}
 
 	// Component and port validation require a valid archetype.
-	var components map[string]*types.Component
+	var components map[string]*registry.Component
 	var baselineNames []string
 	if archetype != nil {
 		names, err := collectComponentNames(archetype, svcDecl, reg)
@@ -82,7 +82,7 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 			})
 		} else {
 			// Look up baseline components.
-			baselineComponents := make(map[string]*types.Component)
+			baselineComponents := make(map[string]*registry.Component)
 			allFound := true
 			for _, name := range baselineNames {
 				comp := reg.Component(name)
@@ -181,7 +181,7 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 		// Collect mixin-added slots (adds_slots) — these are defined by the
 		// mixin itself, not by any component, so they must be added to the
 		// available set separately.
-		var mixinSlots []types.SlotDefinition
+		var mixinSlots []registry.SlotDefinition
 		for _, mixinName := range svcDecl.Mixins {
 			mixin := reg.Mixin(mixinName)
 			if mixin != nil {
@@ -212,7 +212,7 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 	}
 
 	// Validate fills exist on disk and reference valid collections.
-	fillErrs, fillInfraErr := validateFillsExist(svcDecl.Slots, svcDecl.Collections, input.ProjectDir)
+	fillErrs, fillInfraErr := validateFillsExist(svcDecl.Slots, svcDecl.Collections, input.ProjectDir, input.ReadFill)
 	if fillInfraErr != nil {
 		return nil, fillInfraErr
 	}
@@ -827,7 +827,7 @@ func validateCollectionOps(collections []types.Collection) []ValidationError {
 
 // validateSlotNames checks that each slot binding references a slot defined by
 // one of the resolved components or by a mixin's adds_slots.
-func validateSlotNames(slots []types.SlotDeclaration, components map[string]*types.Component, mixinSlots []types.SlotDefinition) []ValidationError {
+func validateSlotNames(slots []types.SlotDeclaration, components map[string]*registry.Component, mixinSlots []registry.SlotDefinition) []ValidationError {
 	// Build set of available slot names across all components.
 	available := make(map[string]bool)
 	for _, comp := range components {
@@ -893,7 +893,7 @@ func validateSlotConsumption(slots []types.SlotDeclaration, generators map[strin
 		sort.Strings(available)
 		errs = append(errs, ValidationError{
 			Category: "slot",
-			Message: fmt.Sprintf("slot binding references slot %q which no resolved generator consumes (consumed slots: %v)", sb.Slot, available),
+			Message:  fmt.Sprintf("slot binding references slot %q which no resolved generator consumes (consumed slots: %v)", sb.Slot, available),
 		})
 	}
 	return errs
@@ -1103,7 +1103,7 @@ func validateMixinUniqueness(mixins []string) []ValidationError {
 // Collection field references a defined collection name. It returns validation
 // errors for missing fills or invalid collection references, and returns an
 // infrastructure Go error for unexpected filesystem or parsing failures.
-func validateFillsExist(slots []types.SlotDeclaration, collections []types.Collection, projectDir string) ([]ValidationError, error) {
+func validateFillsExist(slots []types.SlotDeclaration, collections []types.Collection, projectDir string, readFill FillReader) ([]ValidationError, error) {
 	fillNames := collectFillNames(slots)
 	if len(fillNames) == 0 {
 		return nil, nil
@@ -1130,11 +1130,14 @@ func validateFillsExist(slots []types.SlotDeclaration, collections []types.Colle
 		}
 
 		// Parse the fill and validate its Collection field.
-		fill, err := parser.ParseFill(fillPath)
+		if readFill == nil {
+			return nil, fmt.Errorf("parsing fill %q at %s: the compiler was given no fill reader", name, fillPath)
+		}
+		collection, err := readFill(fillPath)
 		if err != nil {
 			return nil, fmt.Errorf("parsing fill %q at %s: %w", name, fillPath, err)
 		}
-		if fill.Collection != "" && !collectionNames[fill.Collection] {
+		if collection != "" && !collectionNames[collection] {
 			var names []string
 			for _, c := range collections {
 				names = append(names, c.Name)
@@ -1142,7 +1145,7 @@ func validateFillsExist(slots []types.SlotDeclaration, collections []types.Colle
 			sort.Strings(names)
 			errs = append(errs, ValidationError{
 				Category: "fill",
-				Message:  fmt.Sprintf("fill %q references collection %q which is not defined (available collections: %v)", name, fill.Collection, names),
+				Message:  fmt.Sprintf("fill %q references collection %q which is not defined (available collections: %v)", name, collection, names),
 			})
 		}
 	}

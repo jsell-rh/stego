@@ -1,4 +1,4 @@
-package browserassets
+package browserassets_test
 
 import (
 	"archive/zip"
@@ -10,42 +10,45 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/jsell-rh/stego/internal/browserassets"
+	"github.com/jsell-rh/stego/internal/compiler"
 )
 
 func TestBundleAboveOneMiBRetainsBounds(t *testing.T) {
 	payload := make([]byte, (1<<20)+(256<<10))
 	_, _ = rand.New(rand.NewSource(1)).Read(payload)
-	assets := append(fixture(), Asset{Path: "assets/payload.png", Data: payload})
-	encoded, err := Encode(assets)
+	assets := append(fixture(), browserassets.Asset{Path: "assets/payload.png", Data: payload})
+	encoded, err := browserassets.Encode(assets)
 	if err != nil || len(encoded) <= 1<<20 {
 		t.Fatal("larger bounded bundle was not encoded", len(encoded), err)
 	}
-	decoded, err := Decode(encoded)
+	decoded, err := browserassets.Decode(encoded)
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := Encode(decoded)
+	again, err := browserassets.Encode(decoded)
 	if err != nil || !bytes.Equal(again, encoded) {
 		t.Fatal("larger bundle changed during round trip", err)
 	}
-	if _, err := Decode(make([]byte, MaxBundle+1)); err == nil {
+	if _, err := browserassets.Decode(make([]byte, browserassets.MaxBundle+1)); err == nil {
 		t.Fatal("oversized captured bundle was accepted")
 	}
 }
 
-func fixture() []Asset {
-	return []Asset{{"index.html", []byte(`<!doctype html><html><script src="/assets/app.js"></script></html>`)}, {"assets/app.js", []byte(`"use strict";`)}}
+func fixture() []browserassets.Asset {
+	return []browserassets.Asset{{Path: "index.html", Data: []byte(`<!doctype html><html><script src="/assets/app.js"></script></html>`)}, {Path: "assets/app.js", Data: []byte(`"use strict";`)}}
 }
 func TestBundleRoundTrip(t *testing.T) {
-	first, err := Encode(fixture())
+	first, err := browserassets.Encode(fixture())
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := Encode(fixture())
+	second, err := browserassets.Encode(fixture())
 	if err != nil || !bytes.Equal(first, second) {
 		t.Fatal("bundle changed", err)
 	}
-	decoded, err := Decode(first)
+	decoded, err := browserassets.Decode(first)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,15 +67,15 @@ func TestBundleRoundTrip(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	packed, err := PackDirectory(directory)
+	packed, err := compiler.PackBrowserAssets(directory)
 	if err != nil || !bytes.Equal(first, packed) {
 		t.Fatal("directory differs", err)
 	}
 	target := filepath.Join(t.TempDir(), "assets.zip")
-	if err := WriteFile(target, packed); err != nil {
+	if err := compiler.WriteBrowserAssets(target, packed); err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteFile(target, []byte("invalid")); err == nil {
+	if err := compiler.WriteBrowserAssets(target, []byte("invalid")); err == nil {
 		t.Fatal("invalid replacement accepted")
 	}
 	saved, err := os.ReadFile(target)
@@ -83,12 +86,12 @@ func TestBundleRoundTrip(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := PackDirectory(directory); err == nil {
+	if _, err := compiler.PackBrowserAssets(directory); err == nil {
 		t.Fatal("symbolic asset accepted")
 	}
 }
 func TestTrueTypeBundle(t *testing.T) {
-	assets := append(fixture(), Asset{"assets/symbols.ttf", []byte{0, 1, 0, 0, 255, 128}})
+	assets := append(fixture(), browserassets.Asset{Path: "assets/symbols.ttf", Data: []byte{0, 1, 0, 0, 255, 128}})
 	directory := t.TempDir()
 	if err := os.Mkdir(filepath.Join(directory, "assets"), 0755); err != nil {
 		t.Fatal(err)
@@ -98,23 +101,23 @@ func TestTrueTypeBundle(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	packed, err := PackDirectory(directory)
+	packed, err := compiler.PackBrowserAssets(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	decoded, err := Decode(packed)
+	decoded, err := browserassets.Decode(packed)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(decoded) != 3 || decoded[1].Path != assets[2].Path || !bytes.Equal(decoded[1].Data, assets[2].Data) {
 		t.Fatal("font bytes changed")
 	}
-	again, err := Encode(decoded)
+	again, err := browserassets.Encode(decoded)
 	if err != nil || !bytes.Equal(packed, again) {
 		t.Fatal("font bundle changed", err)
 	}
 	for _, name := range []string{"assets/../symbols.ttf", "assets/.symbols.ttf", "assets/symbols.ttf.js.map", "symbols.ttf"} {
-		if _, err := Encode(append(fixture(), Asset{name, assets[2].Data})); err == nil {
+		if _, err := browserassets.Encode(append(fixture(), browserassets.Asset{name, assets[2].Data})); err == nil {
 			t.Fatalf("invalid font path accepted: %s", name)
 		}
 	}
@@ -122,14 +125,14 @@ func TestTrueTypeBundle(t *testing.T) {
 
 func TestBundleRejectsInvalidEntries(t *testing.T) {
 	for _, name := range []string{"../index.html", "/index.html", "assets/../app.js", "assets/.secret.js", "assets/app.js.map", "assets/app.js?x", "assets\\app.js", "assets/dir//app.js"} {
-		assets := append(fixture(), Asset{name, []byte("x")})
-		if _, err := Encode(assets); err == nil {
+		assets := append(fixture(), browserassets.Asset{name, []byte("x")})
+		if _, err := browserassets.Encode(assets); err == nil {
 			t.Fatalf("accepted %s", name)
 		}
 	}
-	for _, assets := range [][]Asset{fixture()[1:], append(fixture(), fixture()[0]), {{"index.html", nil}}, {{"index.html", bytes.Repeat([]byte("x"), MaxFile+1)}}} {
+	for _, assets := range [][]browserassets.Asset{fixture()[1:], append(fixture(), fixture()[0]), {{"index.html", nil}}, {{"index.html", bytes.Repeat([]byte("x"), browserassets.MaxFile+1)}}} {
 
-		if _, err := Encode(assets); err == nil {
+		if _, err := browserassets.Encode(assets); err == nil {
 			t.Fatal("invalid asset set accepted")
 		}
 	}
@@ -140,15 +143,15 @@ func TestBundleRejectsInvalidEntries(t *testing.T) {
 		file.Write([]byte("x"))
 	}
 	writer.Close()
-	if _, err := Decode(duplicate.Bytes()); err == nil {
+	if _, err := browserassets.Decode(duplicate.Bytes()); err == nil {
 		t.Fatal("duplicate ZIP entry accepted")
 	}
 	var bomb bytes.Buffer
 	writer = zip.NewWriter(&bomb)
 	file, _ := writer.Create("index.html")
-	file.Write(bytes.Repeat([]byte("x"), MaxFile+1))
+	file.Write(bytes.Repeat([]byte("x"), browserassets.MaxFile+1))
 	writer.Close()
-	if _, err := Decode(bomb.Bytes()); err == nil {
+	if _, err := browserassets.Decode(bomb.Bytes()); err == nil {
 		t.Fatal("expanded ZIP limit ignored")
 	}
 }
@@ -157,16 +160,16 @@ func TestCapturedScriptPolicy(t *testing.T) {
 	input := []byte("<html><script src=\"/assets/app.js\"></script><script>" + code + "</script></html>")
 	sum := sha256.Sum256([]byte(code))
 	expected := []string{"'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"}
-	hashes, err := ScriptHashes(input, map[string]bool{"assets/app.js": true})
+	hashes, err := browserassets.ScriptHashes(input, map[string]bool{"assets/app.js": true})
 	if err != nil || !reflect.DeepEqual(hashes, expected) {
 		t.Fatal("script policy differs", hashes, err)
 	}
 	// HTML keeps the first attribute when a name occurs twice.
-	if _, err := ScriptHashes([]byte(`<script src="/assets/app.js" src="/other.js"></script>`), map[string]bool{"assets/app.js": true}); err != nil {
+	if _, err := browserassets.ScriptHashes([]byte(`<script src="/assets/app.js" src="/other.js"></script>`), map[string]bool{"assets/app.js": true}); err != nil {
 		t.Fatal("first HTML attribute was not retained", err)
 	}
 	for _, bad := range []string{`<script src="https://example.test/app.js"></script>`, `<script src="/assets/missing.js"></script>`, `<script src="/assets/app.js">alert(1)</script>`, `<script src="/other.js" src="/assets/app.js"></script>`, `<img onerror="alert(1)">`, `<style>body{color:red}</style>`, `<div style="color:red">`, `<script nonce="fixed">x</script>`, `<script>unfinished`, `<base href="https://example.test">`, `<link rel="stylesheet" href="https://example.test/app.css">`} {
-		if _, err := ScriptHashes([]byte(bad), map[string]bool{"assets/app.js": true}); err == nil {
+		if _, err := browserassets.ScriptHashes([]byte(bad), map[string]bool{"assets/app.js": true}); err == nil {
 			t.Fatalf("invalid HTML accepted: %s", bad)
 		}
 	}

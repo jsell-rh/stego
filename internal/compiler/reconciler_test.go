@@ -993,7 +993,7 @@ func TestComputePlan_UsesOutDir(t *testing.T) {
 		&State{},
 		[]byte("service: test"),
 		nil,
-		map[string]*types.Component{},
+		map[string]*registry.Component{},
 		customOutDir,
 		tmpDir,
 		"",
@@ -1073,7 +1073,7 @@ func TestFormatPlan_DeleteAction(t *testing.T) {
 }
 
 func TestResolveComponentConfig_MergesDefaults(t *testing.T) {
-	comp := &types.Component{
+	comp := &registry.Component{
 		Config: map[string]types.ConfigField{
 			"port":    {Default: 8080},
 			"timeout": {Default: 30},
@@ -1091,7 +1091,7 @@ func TestResolveComponentConfig_MergesDefaults(t *testing.T) {
 }
 
 func TestResolveComponentConfig_OverridesDefaults(t *testing.T) {
-	comp := &types.Component{
+	comp := &registry.Component{
 		Name: "my-comp",
 		Config: map[string]types.ConfigField{
 			"port": {Default: 8080},

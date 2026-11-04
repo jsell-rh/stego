@@ -5,20 +5,20 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jsell-rh/stego/internal/types"
+	"github.com/jsell-rh/stego/internal/registry"
 )
 
 // restCrudComponents returns the component set matching the spec's rest-crud archetype.
-func restCrudComponents() map[string]*types.Component {
-	return map[string]*types.Component{
+func restCrudComponents() map[string]*registry.Component {
+	return map[string]*registry.Component{
 		"rest-api": {
 			Name:    "rest-api",
 			Version: "2.1.0",
-			Requires: []types.Port{
+			Requires: []registry.Port{
 				{Name: "auth-provider"},
 				{Name: "storage-adapter"},
 			},
-			Provides: []types.Port{
+			Provides: []registry.Port{
 				{Name: "http-server"},
 				{Name: "openapi-spec"},
 			},
@@ -26,14 +26,14 @@ func restCrudComponents() map[string]*types.Component {
 		"postgres-adapter": {
 			Name:    "postgres-adapter",
 			Version: "1.4.0",
-			Provides: []types.Port{
+			Provides: []registry.Port{
 				{Name: "storage-adapter"},
 			},
 		},
 		"jwt-auth": {
 			Name:    "jwt-auth",
 			Version: "1.0.0",
-			Provides: []types.Port{
+			Provides: []registry.Port{
 				{Name: "auth-provider"},
 			},
 		},
@@ -82,10 +82,10 @@ func TestResolveRestCrudDefaults(t *testing.T) {
 
 func TestResolveServiceOverrideTakesPrecedence(t *testing.T) {
 	components := restCrudComponents()
-	components["api-key-auth"] = &types.Component{
+	components["api-key-auth"] = &registry.Component{
 		Name:    "api-key-auth",
 		Version: "1.0.0",
-		Provides: []types.Port{
+		Provides: []registry.Port{
 			{Name: "auth-provider"},
 		},
 	}
@@ -218,10 +218,10 @@ func TestResolveUnresolvedPort(t *testing.T) {
 func TestResolveAmbiguousResolvedByBinding(t *testing.T) {
 	// Two providers for storage-adapter, but archetype binding disambiguates.
 	components := restCrudComponents()
-	components["sqlite-adapter"] = &types.Component{
+	components["sqlite-adapter"] = &registry.Component{
 		Name:    "sqlite-adapter",
 		Version: "1.0.0",
-		Provides: []types.Port{
+		Provides: []registry.Port{
 			{Name: "storage-adapter"},
 		},
 	}
@@ -308,7 +308,7 @@ func TestResolveBindingToComponentThatDoesNotProvidePort(t *testing.T) {
 }
 
 func TestResolveNoRequires(t *testing.T) {
-	components := map[string]*types.Component{
+	components := map[string]*registry.Component{
 		"health-check": {
 			Name:    "health-check",
 			Version: "1.0.0",
@@ -329,17 +329,17 @@ func TestResolveNoRequires(t *testing.T) {
 
 func TestResolveMultipleUnresolvedAndInvalidBinding(t *testing.T) {
 	// Tests that all errors are reported, not just the first one.
-	components := map[string]*types.Component{
+	components := map[string]*registry.Component{
 		"comp-a": {
 			Name: "comp-a",
-			Requires: []types.Port{
+			Requires: []registry.Port{
 				{Name: "port-missing"},
 				{Name: "port-bad-binding"},
 			},
 		},
 		"wrong-provider": {
 			Name:     "wrong-provider",
-			Provides: []types.Port{{Name: "something-else"}},
+			Provides: []registry.Port{{Name: "something-else"}},
 		},
 	}
 
@@ -373,13 +373,13 @@ func TestResolveMultipleUnresolvedAndInvalidBinding(t *testing.T) {
 func TestResolveSelfResolution(t *testing.T) {
 	// A component that requires and provides the same port should not
 	// resolve to itself.
-	components := map[string]*types.Component{
+	components := map[string]*registry.Component{
 		"self-ref": {
 			Name: "self-ref",
-			Requires: []types.Port{
+			Requires: []registry.Port{
 				{Name: "some-port"},
 			},
-			Provides: []types.Port{
+			Provides: []registry.Port{
 				{Name: "some-port"},
 			},
 		},
@@ -414,24 +414,24 @@ func TestResolveSelfResolution(t *testing.T) {
 
 func TestResolveAmbiguousPort(t *testing.T) {
 	// Two components provide the same port, no binding to disambiguate.
-	components := map[string]*types.Component{
+	components := map[string]*registry.Component{
 		"consumer": {
 			Name: "consumer",
-			Requires: []types.Port{
+			Requires: []registry.Port{
 				{Name: "storage-adapter"},
 			},
 		},
 		"postgres-adapter": {
 			Name:    "postgres-adapter",
 			Version: "1.0.0",
-			Provides: []types.Port{
+			Provides: []registry.Port{
 				{Name: "storage-adapter"},
 			},
 		},
 		"sqlite-adapter": {
 			Name:    "sqlite-adapter",
 			Version: "1.0.0",
-			Provides: []types.Port{
+			Provides: []registry.Port{
 				{Name: "storage-adapter"},
 			},
 		},
@@ -473,16 +473,16 @@ func TestResolveAmbiguousPort(t *testing.T) {
 func TestResolveMutualCycle(t *testing.T) {
 	// Two components that each require what the other provides — valid as long
 	// as explicit bindings exist. This is not self-resolution.
-	components := map[string]*types.Component{
+	components := map[string]*registry.Component{
 		"comp-a": {
 			Name:     "comp-a",
-			Requires: []types.Port{{Name: "port-b"}},
-			Provides: []types.Port{{Name: "port-a"}},
+			Requires: []registry.Port{{Name: "port-b"}},
+			Provides: []registry.Port{{Name: "port-a"}},
 		},
 		"comp-b": {
 			Name:     "comp-b",
-			Requires: []types.Port{{Name: "port-a"}},
-			Provides: []types.Port{{Name: "port-b"}},
+			Requires: []registry.Port{{Name: "port-a"}},
+			Provides: []registry.Port{{Name: "port-b"}},
 		},
 	}
 
@@ -511,10 +511,10 @@ func TestResolveOverrideLoadsComponentFromRegistry(t *testing.T) {
 	// set, and exclude the replaced default (jwt-auth).
 	components := restCrudComponents()
 
-	rhSSOAuth := &types.Component{
+	rhSSOAuth := &registry.Component{
 		Name:    "rh-sso-auth",
 		Version: "1.0.0",
-		Provides: []types.Port{
+		Provides: []registry.Port{
 			{Name: "auth-provider"},
 		},
 	}
@@ -528,7 +528,7 @@ func TestResolveOverrideLoadsComponentFromRegistry(t *testing.T) {
 		ServiceOverrides: map[string]string{
 			"auth-provider": "rh-sso-auth",
 		},
-		ComponentLoader: func(name string) *types.Component {
+		ComponentLoader: func(name string) *registry.Component {
 			if name == "rh-sso-auth" {
 				return rhSSOAuth
 			}
@@ -566,10 +566,10 @@ func TestResolveOverrideReplacesArchetypeDefault(t *testing.T) {
 	// When the override component is already in the active set, the resolver
 	// should still exclude the replaced default.
 	components := restCrudComponents()
-	components["rh-sso-auth"] = &types.Component{
+	components["rh-sso-auth"] = &registry.Component{
 		Name:    "rh-sso-auth",
 		Version: "1.0.0",
-		Provides: []types.Port{
+		Provides: []registry.Port{
 			{Name: "auth-provider"},
 		},
 	}
@@ -660,7 +660,7 @@ func TestResolveOverrideNonExistentComponentInRegistry(t *testing.T) {
 		ServiceOverrides: map[string]string{
 			"auth-provider": "nonexistent-auth",
 		},
-		ComponentLoader: func(name string) *types.Component {
+		ComponentLoader: func(name string) *registry.Component {
 			return nil // not found
 		},
 	})
@@ -699,10 +699,10 @@ func TestResolveOverrideComponentDoesNotProvidePort(t *testing.T) {
 	// Override component exists in registry but doesn't provide the required port.
 	components := restCrudComponents()
 
-	wrongComponent := &types.Component{
+	wrongComponent := &registry.Component{
 		Name:    "wrong-component",
 		Version: "1.0.0",
-		Provides: []types.Port{
+		Provides: []registry.Port{
 			{Name: "something-else"},
 		},
 	}
@@ -716,7 +716,7 @@ func TestResolveOverrideComponentDoesNotProvidePort(t *testing.T) {
 		ServiceOverrides: map[string]string{
 			"auth-provider": "wrong-component",
 		},
-		ComponentLoader: func(name string) *types.Component {
+		ComponentLoader: func(name string) *registry.Component {
 			if name == "wrong-component" {
 				return wrongComponent
 			}

@@ -18,183 +18,10 @@ func fixture(name string) string {
 	return filepath.Join(testdataDir, name)
 }
 
-// --- Unified Parse dispatcher tests ---
-
-func TestParseArchetype(t *testing.T) {
-	v, err := Parse(fixture("archetype.yaml"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
-	a, ok := v.(*types.Archetype)
-	if !ok {
-		t.Fatalf("got %T, want *types.Archetype", v)
-	}
-	if a.Kind != "archetype" {
-		t.Errorf("kind = %q, want %q", a.Kind, "archetype")
-	}
-	if a.Name != "rest-crud" {
-		t.Errorf("name = %q, want %q", a.Name, "rest-crud")
-	}
-	if a.Language != "go" {
-		t.Errorf("language = %q, want %q", a.Language, "go")
-	}
-	if a.Version != "3.0.0" {
-		t.Errorf("version = %q, want %q", a.Version, "3.0.0")
-	}
-	if len(a.Components) != 4 {
-		t.Errorf("components count = %d, want 4", len(a.Components))
-	}
-	if a.DefaultAuth != "jwt-auth" {
-		t.Errorf("default_auth = %q, want %q", a.DefaultAuth, "jwt-auth")
-	}
-	if a.Conventions.Layout != "flat" {
-		t.Errorf("conventions.layout = %q, want %q", a.Conventions.Layout, "flat")
-	}
-	if a.Conventions.ErrorHandling != "problem-details-rfc" {
-		t.Errorf("conventions.error_handling = %q, want %q", a.Conventions.ErrorHandling, "problem-details-rfc")
-	}
-	if a.Conventions.Logging != "structured-json" {
-		t.Errorf("conventions.logging = %q, want %q", a.Conventions.Logging, "structured-json")
-	}
-	if a.Conventions.TestPattern != "table-driven" {
-		t.Errorf("conventions.test_pattern = %q, want %q", a.Conventions.TestPattern, "table-driven")
-	}
-	if a.Conventions.CORS != "enabled" {
-		t.Errorf("conventions.cors = %q, want %q", a.Conventions.CORS, "enabled")
-	}
-	if len(a.CompatibleMixins) != 2 {
-		t.Errorf("compatible_mixins count = %d, want 2", len(a.CompatibleMixins))
-	}
-	if len(a.Bindings) != 2 {
-		t.Errorf("bindings count = %d, want 2", len(a.Bindings))
-	}
-	if a.Bindings["storage-adapter"] != "postgres-adapter" {
-		t.Errorf("bindings[storage-adapter] = %q, want %q", a.Bindings["storage-adapter"], "postgres-adapter")
-	}
-}
-
-func TestParseComponent(t *testing.T) {
-	v, err := Parse(fixture("component.yaml"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
-	c, ok := v.(*types.Component)
-	if !ok {
-		t.Fatalf("got %T, want *types.Component", v)
-	}
-	if c.Kind != "component" {
-		t.Errorf("kind = %q, want %q", c.Kind, "component")
-	}
-	if c.Name != "rest-api" {
-		t.Errorf("name = %q, want %q", c.Name, "rest-api")
-	}
-	if c.Version != "2.1.0" {
-		t.Errorf("version = %q, want %q", c.Version, "2.1.0")
-	}
-	if len(c.Requires) != 2 {
-		t.Errorf("requires count = %d, want 2", len(c.Requires))
-	}
-	if c.Requires[0].Name != "auth-provider" {
-		t.Errorf("requires[0] = %q, want %q", c.Requires[0].Name, "auth-provider")
-	}
-	if len(c.Provides) != 2 {
-		t.Errorf("provides count = %d, want 2", len(c.Provides))
-	}
-	if len(c.Slots) != 2 {
-		t.Errorf("slots count = %d, want 2", len(c.Slots))
-	}
-	if c.Slots[0].Name != "before_create" {
-		t.Errorf("slots[0].name = %q, want %q", c.Slots[0].Name, "before_create")
-	}
-	if c.Slots[0].Proto != "stego.components.rest_api.slots.BeforeCreate" {
-		t.Errorf("slots[0].proto = %q, want full proto path", c.Slots[0].Proto)
-	}
-	if c.Slots[0].Default != "passthrough" {
-		t.Errorf("slots[0].default = %q, want %q", c.Slots[0].Default, "passthrough")
-	}
-
-	// Verify nested config: expose.items (map-of-fields) and operations.items (inline)
-	expose, ok := c.Config["expose"]
-	if !ok {
-		t.Fatal("config missing 'expose'")
-	}
-	if expose.Type != "list" {
-		t.Errorf("config.expose.type = %q, want %q", expose.Type, "list")
-	}
-	if expose.Items == nil || expose.Items.Fields == nil {
-		t.Fatal("config.expose.items.Fields is nil")
-	}
-	if len(expose.Items.Fields) != 3 {
-		t.Fatalf("config.expose.items.Fields count = %d, want 3", len(expose.Items.Fields))
-	}
-	entityCfg := expose.Items.Fields["entity"]
-	if entityCfg.Type != "entity-ref" {
-		t.Errorf("expose.items.entity.type = %q, want %q", entityCfg.Type, "entity-ref")
-	}
-	scopeCfg := expose.Items.Fields["scope"]
-	if !scopeCfg.Optional {
-		t.Error("expose.items.scope.optional = false, want true")
-	}
-	opsCfg := expose.Items.Fields["operations"]
-	if opsCfg.Items == nil || opsCfg.Items.Inline == nil {
-		t.Fatal("operations.items.Inline is nil")
-	}
-	if len(opsCfg.Items.Inline.Enum) != 5 {
-		t.Errorf("operations.items.enum count = %d, want 5", len(opsCfg.Items.Inline.Enum))
-	}
-
-	portCfg, ok := c.Config["port"]
-	if !ok {
-		t.Fatal("config missing 'port'")
-	}
-	if portCfg.Type != "int" {
-		t.Errorf("config.port.type = %q, want %q", portCfg.Type, "int")
-	}
-}
-
-func TestParseMixin(t *testing.T) {
-	v, err := Parse(fixture("mixin.yaml"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
-	m, ok := v.(*types.Mixin)
-	if !ok {
-		t.Fatalf("got %T, want *types.Mixin", v)
-	}
-	if m.Kind != "mixin" {
-		t.Errorf("kind = %q, want %q", m.Kind, "mixin")
-	}
-	if m.Name != "event-publisher" {
-		t.Errorf("name = %q, want %q", m.Name, "event-publisher")
-	}
-	if m.Version != "1.0.0" {
-		t.Errorf("version = %q, want %q", m.Version, "1.0.0")
-	}
-	if len(m.AddsComponents) != 1 || m.AddsComponents[0] != "kafka-producer" {
-		t.Errorf("adds_components = %v, want [kafka-producer]", m.AddsComponents)
-	}
-	if len(m.AddsSlots) != 1 {
-		t.Errorf("adds_slots count = %d, want 1", len(m.AddsSlots))
-	}
-	if m.AddsSlots[0].Name != "on_entity_changed" {
-		t.Errorf("adds_slots[0].name = %q, want %q", m.AddsSlots[0].Name, "on_entity_changed")
-	}
-	if m.AddsSlots[0].Default != "noop" {
-		t.Errorf("adds_slots[0].default = %q, want %q", m.AddsSlots[0].Default, "noop")
-	}
-	if m.Overrides != "none" {
-		t.Errorf("overrides = %q, want %q", m.Overrides, "none")
-	}
-}
-
 func TestParseServiceDeclaration(t *testing.T) {
-	v, err := Parse(fixture("service.yaml"))
+	sd, err := ParseServiceDeclaration(fixture("service.yaml"))
 	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
-	sd, ok := v.(*types.ServiceDeclaration)
-	if !ok {
-		t.Fatalf("got %T, want *types.ServiceDeclaration", v)
+		t.Fatalf("ParseServiceDeclaration: %v", err)
 	}
 	if sd.Kind != "service" {
 		t.Errorf("kind = %q, want %q", sd.Kind, "service")
@@ -278,63 +105,7 @@ func TestParseServiceDeclaration(t *testing.T) {
 	}
 }
 
-func TestParseFill(t *testing.T) {
-	v, err := Parse(fixture("fill.yaml"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
-	f, ok := v.(*types.Fill)
-	if !ok {
-		t.Fatalf("got %T, want *types.Fill", v)
-	}
-	if f.Kind != "fill" {
-		t.Errorf("kind = %q, want %q", f.Kind, "fill")
-	}
-	if f.Name != "admin-creation-policy" {
-		t.Errorf("name = %q, want %q", f.Name, "admin-creation-policy")
-	}
-	if f.Implements != "rest-api.before_create" {
-		t.Errorf("implements = %q, want %q", f.Implements, "rest-api.before_create")
-	}
-	if f.Collection != "org-users" {
-		t.Errorf("collection = %q, want %q", f.Collection, "org-users")
-	}
-	if f.QualifiedBy != "jsell" {
-		t.Errorf("qualified_by = %q, want %q", f.QualifiedBy, "jsell")
-	}
-}
-
 // --- Typed parser tests ---
-
-func TestParseArchetypeTyped(t *testing.T) {
-	a, err := ParseArchetype(fixture("archetype.yaml"))
-	if err != nil {
-		t.Fatalf("ParseArchetype: %v", err)
-	}
-	if a.Name != "rest-crud" {
-		t.Errorf("name = %q, want %q", a.Name, "rest-crud")
-	}
-}
-
-func TestParseComponentTyped(t *testing.T) {
-	c, err := ParseComponent(fixture("component.yaml"))
-	if err != nil {
-		t.Fatalf("ParseComponent: %v", err)
-	}
-	if c.Name != "rest-api" {
-		t.Errorf("name = %q, want %q", c.Name, "rest-api")
-	}
-}
-
-func TestParseMixinTyped(t *testing.T) {
-	m, err := ParseMixin(fixture("mixin.yaml"))
-	if err != nil {
-		t.Fatalf("ParseMixin: %v", err)
-	}
-	if m.Name != "event-publisher" {
-		t.Errorf("name = %q, want %q", m.Name, "event-publisher")
-	}
-}
 
 func TestParseServiceDeclarationTyped(t *testing.T) {
 	sd, err := ParseServiceDeclaration(fixture("service.yaml"))
@@ -346,20 +117,20 @@ func TestParseServiceDeclarationTyped(t *testing.T) {
 	}
 }
 
-func TestParseFillTyped(t *testing.T) {
-	f, err := ParseFill(fixture("fill.yaml"))
-	if err != nil {
-		t.Fatalf("ParseFill: %v", err)
-	}
-	if f.Name != "admin-creation-policy" {
-		t.Errorf("name = %q, want %q", f.Name, "admin-creation-policy")
-	}
-}
-
 // --- Error handling tests ---
 
+// document is a document with a kind, a name and a version, for the kind check
+// of ReadKind.
+type document struct {
+	Kind    string `yaml:"kind"`
+	Name    string `yaml:"name"`
+	Version string `yaml:"version"`
+}
+
+func documentKind(d *document) string { return d.Kind }
+
 func TestParseFileNotFound(t *testing.T) {
-	_, err := Parse("testdata/does-not-exist.yaml")
+	_, err := ParseServiceDeclaration("testdata/does-not-exist.yaml")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -373,7 +144,7 @@ func TestParseFileNotFound(t *testing.T) {
 }
 
 func TestParseMissingKind(t *testing.T) {
-	_, err := Parse(fixture("no_kind.yaml"))
+	_, err := ReadKind(fixture("no_kind.yaml"), "service", documentKind)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -387,7 +158,7 @@ func TestParseMissingKind(t *testing.T) {
 }
 
 func TestParseUnknownKind(t *testing.T) {
-	_, err := Parse(fixture("bad_kind.yaml"))
+	_, err := ReadKind(fixture("bad_kind.yaml"), "service", documentKind)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -398,30 +169,7 @@ func TestParseUnknownKind(t *testing.T) {
 }
 
 func TestParseInvalidYAML(t *testing.T) {
-	_, err := Parse(fixture("invalid.yaml"))
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	var pe *ParseError
-	if !errors.As(err, &pe) {
-		t.Fatalf("error type = %T, want *ParseError", err)
-	}
-}
-
-func TestParseTypedWrongKind(t *testing.T) {
-	// wrong_kind.yaml has kind: mixin, parsing as archetype should fail
-	_, err := ParseArchetype(fixture("wrong_kind.yaml"))
-	if err == nil {
-		t.Fatal("expected error for wrong kind, got nil")
-	}
-	var pe *ParseError
-	if !errors.As(err, &pe) {
-		t.Fatalf("error type = %T, want *ParseError", err)
-	}
-}
-
-func TestParseTypedFileNotFound(t *testing.T) {
-	_, err := ParseArchetype("testdata/does-not-exist.yaml")
+	_, err := ParseServiceDeclaration(fixture("invalid.yaml"))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -434,60 +182,6 @@ func TestParseTypedFileNotFound(t *testing.T) {
 // --- Round-trip tests ---
 // All round-trip tests use reflect.DeepEqual to compare the entire struct,
 // ensuring no fields are silently lost during marshal → unmarshal.
-
-func TestRoundTripArchetype(t *testing.T) {
-	a, err := ParseArchetype(fixture("archetype.yaml"))
-	if err != nil {
-		t.Fatalf("ParseArchetype: %v", err)
-	}
-	data, err := yaml.Marshal(a)
-	if err != nil {
-		t.Fatalf("Marshal: %v", err)
-	}
-	var a2 types.Archetype
-	if err := yaml.Unmarshal(data, &a2); err != nil {
-		t.Fatalf("Unmarshal round-trip: %v", err)
-	}
-	if !reflect.DeepEqual(*a, a2) {
-		t.Errorf("round-trip mismatch:\n  original: %+v\n  got:      %+v", *a, a2)
-	}
-}
-
-func TestRoundTripComponent(t *testing.T) {
-	c, err := ParseComponent(fixture("component.yaml"))
-	if err != nil {
-		t.Fatalf("ParseComponent: %v", err)
-	}
-	data, err := yaml.Marshal(c)
-	if err != nil {
-		t.Fatalf("Marshal: %v", err)
-	}
-	var c2 types.Component
-	if err := yaml.Unmarshal(data, &c2); err != nil {
-		t.Fatalf("Unmarshal round-trip: %v", err)
-	}
-	if !reflect.DeepEqual(*c, c2) {
-		t.Errorf("round-trip mismatch:\n  original: %+v\n  got:      %+v", *c, c2)
-	}
-}
-
-func TestRoundTripMixin(t *testing.T) {
-	m, err := ParseMixin(fixture("mixin.yaml"))
-	if err != nil {
-		t.Fatalf("ParseMixin: %v", err)
-	}
-	data, err := yaml.Marshal(m)
-	if err != nil {
-		t.Fatalf("Marshal: %v", err)
-	}
-	var m2 types.Mixin
-	if err := yaml.Unmarshal(data, &m2); err != nil {
-		t.Fatalf("Unmarshal round-trip: %v", err)
-	}
-	if !reflect.DeepEqual(*m, m2) {
-		t.Errorf("round-trip mismatch:\n  original: %+v\n  got:      %+v", *m, m2)
-	}
-}
 
 func TestRoundTripServiceDeclaration(t *testing.T) {
 	sd, err := ParseServiceDeclaration(fixture("service.yaml"))
@@ -504,24 +198,6 @@ func TestRoundTripServiceDeclaration(t *testing.T) {
 	}
 	if !reflect.DeepEqual(*sd, sd2) {
 		t.Errorf("round-trip mismatch:\n  original: %+v\n  got:      %+v", *sd, sd2)
-	}
-}
-
-func TestRoundTripFill(t *testing.T) {
-	f, err := ParseFill(fixture("fill.yaml"))
-	if err != nil {
-		t.Fatalf("ParseFill: %v", err)
-	}
-	data, err := yaml.Marshal(f)
-	if err != nil {
-		t.Fatalf("Marshal: %v", err)
-	}
-	var f2 types.Fill
-	if err := yaml.Unmarshal(data, &f2); err != nil {
-		t.Fatalf("Unmarshal round-trip: %v", err)
-	}
-	if !reflect.DeepEqual(*f, f2) {
-		t.Errorf("round-trip mismatch:\n  original: %+v\n  got:      %+v", *f, f2)
 	}
 }
 
@@ -585,7 +261,7 @@ collections:
 // --- ParseError includes file path and line context ---
 
 func TestParseErrorContainsPath(t *testing.T) {
-	_, err := Parse("testdata/does-not-exist.yaml")
+	_, err := ParseServiceDeclaration("testdata/does-not-exist.yaml")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -601,7 +277,7 @@ func TestParseErrorContainsPath(t *testing.T) {
 }
 
 func TestParseErrorContainsLineContext(t *testing.T) {
-	_, err := Parse(fixture("invalid.yaml"))
+	_, err := ParseServiceDeclaration(fixture("invalid.yaml"))
 	if err == nil {
 		t.Fatal("expected error for invalid YAML")
 	}
@@ -630,34 +306,6 @@ func TestParseErrorLineInfoStruct(t *testing.T) {
 	want := `test.yaml:5: unmarshal failed (near "bad_field: [")`
 	if got != want {
 		t.Errorf("Error() = %q, want %q", got, want)
-	}
-}
-
-func TestParseErrorLineInfoFromRealYAML(t *testing.T) {
-	// Feed a YAML file with a type mismatch (version: [1,2,3] where string expected)
-	// through the real parser and verify that parseErrorWithLineInfo populates
-	// Line and Context from the yaml.TypeError.
-	_, err := Parse(fixture("type_mismatch.yaml"))
-	if err == nil {
-		t.Fatal("expected error for type mismatch YAML, got nil")
-	}
-	var pe *ParseError
-	if !errors.As(err, &pe) {
-		t.Fatalf("error type = %T, want *ParseError", err)
-	}
-	if pe.Path != fixture("type_mismatch.yaml") {
-		t.Errorf("path = %q, want %q", pe.Path, fixture("type_mismatch.yaml"))
-	}
-	if pe.Line <= 0 {
-		t.Errorf("Line = %d, want > 0 (line info should be extracted from yaml.TypeError)", pe.Line)
-	}
-	if pe.Context == "" {
-		t.Errorf("Context = %q, want non-empty (should contain snippet of offending line)", pe.Context)
-	}
-	// The error message should include the line number and context
-	errMsg := pe.Error()
-	if pe.Line > 0 && !strings.Contains(errMsg, fmt.Sprintf(":%d:", pe.Line)) {
-		t.Errorf("Error() = %q, should contain line number %d", errMsg, pe.Line)
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/jsell-rh/stego/internal/compiler"
+	"github.com/jsell-rh/stego/internal/fill"
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/browserbackend"
 	"github.com/jsell-rh/stego/internal/generator/browsertelemetry"
@@ -41,10 +42,8 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/runtimeconfig"
 	"github.com/jsell-rh/stego/internal/generator/tslsearch"
 	"github.com/jsell-rh/stego/internal/generator/typescriptsdk"
-	"github.com/jsell-rh/stego/internal/parser"
 	"github.com/jsell-rh/stego/internal/registry"
 	"github.com/jsell-rh/stego/internal/slot"
-	"github.com/jsell-rh/stego/internal/types"
 	"gopkg.in/yaml.v3"
 )
 
@@ -254,7 +253,7 @@ func runFillCreate(args []string) error {
 
 	// Find which component(s) own this slot. Multiple components can define
 	// slots with the same name (spec: "duplication is cheaper than coupling").
-	var matchingComps []*types.Component
+	var matchingComps []*registry.Component
 	for _, comp := range reg.Components() {
 		for _, s := range comp.Slots {
 			if s.Name == *slotName {
@@ -268,7 +267,7 @@ func runFillCreate(args []string) error {
 		return fmt.Errorf("slot %q not found in any component", *slotName)
 	}
 
-	var ownerComp *types.Component
+	var ownerComp *registry.Component
 	if len(matchingComps) > 1 {
 		if *componentName == "" {
 			names := make([]string, len(matchingComps))
@@ -319,12 +318,12 @@ func runFillCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	fill := types.Fill{
+	manifest := fill.Fill{
 		Kind: "fill", Name: fillName,
 		Implements: ownerComp.Name + "." + *slotName,
 		Collection: *collectionName,
 	}
-	fillData, err := yaml.Marshal(fill)
+	fillData, err := yaml.Marshal(manifest)
 	if err != nil {
 		return fmt.Errorf("encoding fill.yaml: %w", err)
 	}
@@ -655,14 +654,14 @@ func runRegistryFills(args []string) error {
 			continue
 		}
 		fillYAML := filepath.Join(fillsDir, entry.Name(), "fill.yaml")
-		fill, err := parser.ParseFill(fillYAML)
+		manifest, err := fill.ParseFill(fillYAML)
 		if err != nil {
 			continue
 		}
 
 		// Match on the slot portion of the implements field (component.slot).
-		parts := strings.SplitN(fill.Implements, ".", 2)
-		implementsSlot := fill.Implements
+		parts := strings.SplitN(manifest.Implements, ".", 2)
+		implementsSlot := manifest.Implements
 		if len(parts) == 2 {
 			implementsSlot = parts[1]
 		}
@@ -673,10 +672,10 @@ func runRegistryFills(args []string) error {
 				found = true
 			}
 			qualifiedInfo := ""
-			if fill.QualifiedBy != "" {
-				qualifiedInfo = fmt.Sprintf(" (qualified by %s at %s)", fill.QualifiedBy, fill.QualifiedAt.Format(time.DateOnly))
+			if manifest.QualifiedBy != "" {
+				qualifiedInfo = fmt.Sprintf(" (qualified by %s at %s)", manifest.QualifiedBy, manifest.QualifiedAt.Format(time.DateOnly))
 			}
-			fmt.Printf("  %s%s\n", fill.Name, qualifiedInfo)
+			fmt.Printf("  %s%s\n", manifest.Name, qualifiedInfo)
 		}
 	}
 
@@ -714,6 +713,7 @@ func buildReconcilerInput() (compiler.ReconcilerInput, error) {
 		ModuleName:   moduleName,
 		RegistrySHA:  result.Ref,
 		OutDir:       outDir,
+		ReadFill:     fill.ReadCollection,
 	}, nil
 }
 
@@ -747,7 +747,7 @@ func defaultGenerators() map[string]gen.Generator {
 }
 
 // portListContains checks if a port list contains a port with the given name.
-func portListContains(ports []types.Port, name string) bool {
+func portListContains(ports []registry.Port, name string) bool {
 	for _, p := range ports {
 		if p.Name == name {
 			return true
@@ -757,7 +757,7 @@ func portListContains(ports []types.Port, name string) bool {
 }
 
 // slotListContains checks if a slot definition list contains a slot with the given name.
-func slotListContains(slots []types.SlotDefinition, name string) bool {
+func slotListContains(slots []registry.SlotDefinition, name string) bool {
 	for _, s := range slots {
 		if s.Name == name {
 			return true
@@ -767,7 +767,7 @@ func slotListContains(slots []types.SlotDefinition, name string) bool {
 }
 
 // portNames returns the names from a port list.
-func portNames(ports []types.Port) []string {
+func portNames(ports []registry.Port) []string {
 	names := make([]string, len(ports))
 	for i, p := range ports {
 		names[i] = p.Name
@@ -776,7 +776,7 @@ func portNames(ports []types.Port) []string {
 }
 
 // slotDefNames returns the names from a slot definition list.
-func slotDefNames(slots []types.SlotDefinition) []string {
+func slotDefNames(slots []registry.SlotDefinition) []string {
 	names := make([]string, len(slots))
 	for i, s := range slots {
 		names[i] = s.Name

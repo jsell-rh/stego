@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/gen"
-	"github.com/jsell-rh/stego/internal/types"
+	"github.com/jsell-rh/stego/internal/registry"
 )
 
 func TestSharedContractAssembly(t *testing.T) {
@@ -37,7 +37,7 @@ func TestSharedContractAssembly(t *testing.T) {
 
 func TestSharedContractNamespaceIsReserved(t *testing.T) {
 	for _, ns := range []string{"contracts", "contracts/storage", "Contracts/Custom"} {
-		errors := validateComponentNamespaces(map[string]*types.Component{"custom": {OutputNamespace: ns}})
+		errors := validateComponentNamespaces(map[string]*registry.Component{"custom": {OutputNamespace: ns}})
 		if len(errors) == 0 {
 			t.Fatalf("component accepted compiler namespace %q", ns)
 		}

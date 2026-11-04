@@ -53,7 +53,7 @@ func Initialize(opts InitOptions) (result *InitResult, err error) {
 		if directory == "" {
 			directory = filepath.Join(project, "registry")
 		}
-		config, err = yaml.Marshal(types.RegistryConfig{Registry: []types.RegistrySource{{URL: directory, Ref: "local"}}})
+		config, err = yaml.Marshal(registry.RegistryConfig{Registry: []registry.RegistrySource{{URL: directory, Ref: "local"}}})
 		if err != nil {
 			return nil, err
 		}

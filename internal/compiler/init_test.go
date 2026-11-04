@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/parser"
+	"github.com/jsell-rh/stego/internal/registry"
 	"github.com/jsell-rh/stego/internal/types"
 	"gopkg.in/yaml.v3"
 )
@@ -92,7 +93,7 @@ func TestInitializeDefaultRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var config types.RegistryConfig
+	var config registry.RegistryConfig
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		t.Fatal(err)
 	}

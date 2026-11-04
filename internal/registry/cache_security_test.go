@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/registry"
-	"github.com/jsell-rh/stego/internal/types"
 )
 
 func TestRegistryRejectsUnpinnedAndTraversalRefs(t *testing.T) {
@@ -20,7 +19,7 @@ func TestRegistryRejectsUnpinnedAndTraversalRefs(t *testing.T) {
 			if err := os.WriteFile(protected, []byte("keep"), 0600); err != nil {
 				t.Fatal(err)
 			}
-			writeConfig(t, project, types.RegistryConfig{Registry: []types.RegistrySource{{URL: "file:///missing.git", Ref: ref}}})
+			writeConfig(t, project, registry.RegistryConfig{Registry: []registry.RegistrySource{{URL: "file:///missing.git", Ref: ref}}})
 			t.Setenv("STEGO_REGISTRY", "")
 			_, err := registry.ResolveRegistry(registry.ResolveOptions{ProjectDir: project, CacheDir: cache})
 			if err == nil || !strings.Contains(err.Error(), "full lowercase Git commit SHA") {
@@ -43,7 +42,7 @@ func TestRegistryRejectsModifiedCacheWithoutDeletingIt(t *testing.T) {
 	initBareRepo(t, bare)
 	cloneAndPopulate(t, bare, work)
 	project := filepath.Join(root, "project")
-	writeConfig(t, project, types.RegistryConfig{Registry: []types.RegistrySource{{URL: "file://" + bare, Ref: getHeadSHA(t, work)}}})
+	writeConfig(t, project, registry.RegistryConfig{Registry: []registry.RegistrySource{{URL: "file://" + bare, Ref: getHeadSHA(t, work)}}})
 	t.Setenv("STEGO_REGISTRY", "")
 	options := registry.ResolveOptions{ProjectDir: project, CacheDir: filepath.Join(root, "cache")}
 	result, err := registry.ResolveRegistry(options)
@@ -69,7 +68,7 @@ func TestRegistryRejectsUntrackedCacheContent(t *testing.T) {
 	initBareRepo(t, bare)
 	cloneAndPopulate(t, bare, work)
 	project := filepath.Join(root, "project")
-	writeConfig(t, project, types.RegistryConfig{Registry: []types.RegistrySource{{URL: "file://" + bare, Ref: getHeadSHA(t, work)}}})
+	writeConfig(t, project, registry.RegistryConfig{Registry: []registry.RegistrySource{{URL: "file://" + bare, Ref: getHeadSHA(t, work)}}})
 	t.Setenv("STEGO_REGISTRY", "")
 	options := registry.ResolveOptions{ProjectDir: project, CacheDir: filepath.Join(root, "cache")}
 	result, err := registry.ResolveRegistry(options)
@@ -96,7 +95,7 @@ func TestConcurrentRegistryResolutionPublishesOneCheckout(t *testing.T) {
 	initBareRepo(t, bare)
 	cloneAndPopulate(t, bare, work)
 	project := filepath.Join(root, "project")
-	writeConfig(t, project, types.RegistryConfig{Registry: []types.RegistrySource{{URL: "file://" + bare, Ref: getHeadSHA(t, work)}}})
+	writeConfig(t, project, registry.RegistryConfig{Registry: []registry.RegistrySource{{URL: "file://" + bare, Ref: getHeadSHA(t, work)}}})
 	t.Setenv("STEGO_REGISTRY", "")
 	options := registry.ResolveOptions{ProjectDir: project, CacheDir: filepath.Join(root, "cache")}
 	type outcome struct {

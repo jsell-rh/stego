@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jsell-rh/stego/internal/types"
+	"github.com/jsell-rh/stego/internal/registry"
 )
 
 // Resolution maps each component name to its resolved port bindings.
@@ -18,7 +18,7 @@ type Resolution struct {
 	// ActiveComponents is the final set of components after resolution,
 	// including any override components loaded from the registry and excluding
 	// any archetype default components that were replaced by overrides.
-	ActiveComponents map[string]*types.Component
+	ActiveComponents map[string]*registry.Component
 }
 
 // ResolutionError represents a port resolution failure.
@@ -88,7 +88,7 @@ func (ib InvalidBinding) Error() string {
 type ResolveInput struct {
 	// Components is the set of all components participating in resolution,
 	// keyed by name.
-	Components map[string]*types.Component
+	Components map[string]*registry.Component
 	// ArchetypeBindings are default port->component mappings from the archetype.
 	ArchetypeBindings map[string]string
 	// ServiceOverrides are port->component mappings from the service declaration
@@ -98,7 +98,7 @@ type ResolveInput struct {
 	// service override references a component not in Components, the resolver
 	// calls this function to load it. If nil, override components must already
 	// be present in Components.
-	ComponentLoader func(name string) *types.Component
+	ComponentLoader func(name string) *registry.Component
 }
 
 // Resolve performs port resolution: for each component's required ports, it
@@ -112,7 +112,7 @@ type ResolveInput struct {
 func Resolve(input ResolveInput) (*Resolution, error) {
 	// Build the active component set: start with input components, then load
 	// any override components from the registry and exclude replaced defaults.
-	active := make(map[string]*types.Component, len(input.Components))
+	active := make(map[string]*registry.Component, len(input.Components))
 	for name, comp := range input.Components {
 		active[name] = comp
 	}
@@ -305,7 +305,7 @@ func Resolve(input ResolveInput) (*Resolution, error) {
 }
 
 // compProvidesPort checks whether the component provides the given port.
-func compProvidesPort(comp *types.Component, portName string) bool {
+func compProvidesPort(comp *registry.Component, portName string) bool {
 	for _, p := range comp.Provides {
 		if p.Name == portName {
 			return true

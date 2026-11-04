@@ -5,9 +5,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/compiler"
+	"github.com/jsell-rh/stego/internal/fill"
+	"github.com/jsell-rh/stego/internal/parser"
+	"gopkg.in/yaml.v3"
 )
 
 func TestFillNamesCannotEscapeApplicationDirectory(t *testing.T) {
@@ -164,4 +169,114 @@ func TestScaffoldDeniesUnimplementedPolicy(t *testing.T) {
 			t.Fatalf("apply changed the application fill: %v", err)
 		}
 	})
+}
+
+// --- Reading of the fill manifest (internal/fill) ---
+
+// fillFixture is a fill manifest under testdata/fill.
+func fillFixture(name string) string {
+	return filepath.Join("testdata", "fill", name)
+}
+
+func TestParseFill(t *testing.T) {
+	f, err := fill.ParseFill(fillFixture("fill.yaml"))
+	if err != nil {
+		t.Fatalf("ParseFill: %v", err)
+	}
+	if f.Kind != "fill" {
+		t.Errorf("kind = %q, want %q", f.Kind, "fill")
+	}
+	if f.Name != "admin-creation-policy" {
+		t.Errorf("name = %q, want %q", f.Name, "admin-creation-policy")
+	}
+	if f.Implements != "rest-api.before_create" {
+		t.Errorf("implements = %q, want %q", f.Implements, "rest-api.before_create")
+	}
+	if f.Collection != "org-users" {
+		t.Errorf("collection = %q, want %q", f.Collection, "org-users")
+	}
+	if f.QualifiedBy != "jsell" {
+		t.Errorf("qualified_by = %q, want %q", f.QualifiedBy, "jsell")
+	}
+}
+
+func TestParseFillTyped(t *testing.T) {
+	f, err := fill.ParseFill(fillFixture("fill.yaml"))
+	if err != nil {
+		t.Fatalf("ParseFill: %v", err)
+	}
+	if f.Name != "admin-creation-policy" {
+		t.Errorf("name = %q, want %q", f.Name, "admin-creation-policy")
+	}
+}
+
+func TestRoundTripFill(t *testing.T) {
+	f, err := fill.ParseFill(fillFixture("fill.yaml"))
+	if err != nil {
+		t.Fatalf("ParseFill: %v", err)
+	}
+	data, err := yaml.Marshal(f)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var f2 fill.Fill
+	if err := yaml.Unmarshal(data, &f2); err != nil {
+		t.Fatalf("Unmarshal round-trip: %v", err)
+	}
+	if !reflect.DeepEqual(*f, f2) {
+		t.Errorf("round-trip mismatch:\n  original: %+v\n  got:      %+v", *f, f2)
+	}
+}
+
+func TestFillRejectsDeprecatedEntityKey(t *testing.T) {
+	input := `
+kind: fill
+name: my-policy
+implements: rest-api.before_create
+entity: User
+qualified_by: tester
+qualified_at: 2026-04-01T00:00:00Z
+`
+	var f fill.Fill
+	err := yaml.Unmarshal([]byte(input), &f)
+	if err == nil {
+		t.Fatal("expected error for deprecated 'entity' key in fill declaration, got nil")
+	}
+	if !strings.Contains(err.Error(), "renamed to 'collection'") {
+		t.Errorf("error message should mention renaming to 'collection', got: %v", err)
+	}
+}
+
+func TestFillUnmarshal(t *testing.T) {
+	input := `
+kind: fill
+name: admin-creation-policy
+implements: rest-api.before_create
+collection: org-users
+qualified_by: jsell
+qualified_at: 2026-04-06T00:00:00Z
+`
+	var f fill.Fill
+	if err := yaml.Unmarshal([]byte(input), &f); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if f.Name != "admin-creation-policy" {
+		t.Errorf("name = %q, want %q", f.Name, "admin-creation-policy")
+	}
+	if f.Implements != "rest-api.before_create" {
+		t.Errorf("implements = %q, want %q", f.Implements, "rest-api.before_create")
+	}
+	if f.Collection != "org-users" {
+		t.Errorf("collection = %q, want %q", f.Collection, "org-users")
+	}
+	if f.QualifiedBy != "jsell" {
+		t.Errorf("qualified_by = %q, want %q", f.QualifiedBy, "jsell")
+	}
+}
+
+func TestStrictFillManifest(t *testing.T) {
+	err := parser.DecodeStrict([]byte("kind: fill\nqualifed_by: operator\n"), "fill.yaml", &fill.Fill{})
+	if err == nil || !strings.Contains(err.Error(), "qualifed_by") {
+		t.Fatalf("got %v, want error containing %q", err, "qualifed_by")
+	}
 }
