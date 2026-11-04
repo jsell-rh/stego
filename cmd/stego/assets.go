@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/jsell-rh/stego/internal/browserassets"
+	"github.com/jsell-rh/stego/internal/compiler"
 )
 
 func runAssets(args []string) error {
@@ -17,7 +18,7 @@ func runAssets(args []string) error {
 	if flags.NArg() != 0 || *directory == "" || *output == "" {
 		return fmt.Errorf("assets requires --directory and --output")
 	}
-	data, err := browserassets.PackDirectory(*directory)
+	data, err := compiler.PackBrowserAssets(*directory)
 	if err != nil {
 		return err
 	}
@@ -36,5 +37,5 @@ func runAssets(args []string) error {
 	if _, err := browserassets.ScriptHashes(index, names); err != nil {
 		return err
 	}
-	return browserassets.WriteFile(*output, data)
+	return compiler.WriteBrowserAssets(*output, data)
 }
