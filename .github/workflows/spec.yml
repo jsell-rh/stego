@@ -7,8 +7,8 @@ name: Specification checks
 # refuses a change under which coverage falls is Assuring's gate (ST-ASR-UC02), which runs here once
 # it is written.
 #
-# Lathe is a private repository, so the job reads it with a deploy key (read only) kept in the
-# secret LATHE_DEPLOY_KEY. The ref below is the Lathe commit stego's data is for; move it together
+# Lathe is a public repository, so the job reads it with no credential. The ref below is the Lathe commit
+# stego's data is for; move it together
 # with lathe.config.json's schema.
 
 on:
@@ -40,14 +40,7 @@ jobs:
     name: lathe check
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      LATHE_DEPLOY_KEY: ${{ secrets.LATHE_DEPLOY_KEY }}
     steps:
-      - name: Require the Lathe deploy key
-        if: env.LATHE_DEPLOY_KEY == ''
-        run: |
-          echo "::error::LATHE_DEPLOY_KEY is not set. Add a read-only deploy key for Jared4Robertson/lathe as a repository secret of that name."
-          exit 1
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           path: stego
@@ -55,7 +48,6 @@ jobs:
         with:
           repository: Jared4Robertson/lathe
           ref: ${{ env.LATHE_REF }}
-          ssh-key: ${{ secrets.LATHE_DEPLOY_KEY }}
           path: lathe
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
