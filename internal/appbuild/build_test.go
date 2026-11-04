@@ -306,7 +306,7 @@ func TestRecordRejectsChangedBuildPolicyAndInputs(t *testing.T) {
 }
 
 func TestRecordVerificationRequiresTrustedCanonicalBytes(t *testing.T) {
-	t.Run("ST-BLD-SP01-T ST-BLD-UC04-R01-T01 A record whose canonical bytes do not hash to the trusted digest is refused", func(t *testing.T) {
+	t.Run("ST-BLD-SP01-T A record whose canonical bytes do not hash to the trusted digest is refused", func(t *testing.T) {
 		r := fixtureRecord()
 		data, _ := json.MarshalIndent(r, "", "  ")
 		data = append(data, '\n')

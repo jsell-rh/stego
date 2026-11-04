@@ -2,36 +2,96 @@ package appbuild
 
 import (
 	"bytes"
+	"debug/buildinfo"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"path"
 	"reflect"
 	"regexp"
+	"runtime/debug"
+	"sort"
+	"strconv"
 )
 
 var hashPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // Verify requires the expected record digest from a trusted source. It does not
 // authenticate that source. The caller must verify provenance before this call.
-// The executable is inspected as data and is never started.
+// The executable is inspected as data and is never started. A difference
+// fails the check, and the error names each digest and build setting that
+// differs, with the recorded and the found value.
 func Verify(recordPath, artifactPath, expectedSHA256 string) (*Record, error) {
 	record, err := readBuildRecord(recordPath, expectedSHA256)
 	if err != nil {
 		return nil, err
 	}
-	actual, bytes, err := fileDigest(artifactPath)
-	if err != nil || (Artifact{actual, bytes}) != record.Artifact {
-		return nil, errors.New("application executable differs from the build record")
+	actual, size, err := fileDigest(artifactPath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read the executable %s; the check failed", artifactPath)
 	}
-	settings, err := binarySettings(artifactPath)
-	if err != nil || !reflect.DeepEqual(settings, record.BinarySettings) {
-		return nil, errors.New("application executable settings differ from the build record")
+	var settings map[string]string
+	var info *debug.BuildInfo
+	var unreadable []string
+	if settings, err = binarySettings(artifactPath); err != nil {
+		unreadable = append(unreadable, "build settings: "+err.Error())
 	}
-	if err := checkCompiledModules(artifactPath, record); err != nil {
+	if info, err = buildinfo.ReadFile(artifactPath); err != nil {
+		unreadable = append(unreadable, "compiled modules: cannot be read from the executable")
+	}
+	mismatches := executableMismatches(record, Artifact{actual, size}, settings, info)
+	reader := newVerifyReader(expectedSHA256, append(mismatches, unreadable...))
+	if err := reader.failure("the executable " + artifactPath); err != nil {
 		return nil, err
 	}
 	return record, nil
+}
+
+// executableMismatches compares what was found in an executable with its
+// record and names each difference: the executable's digest and size, each
+// build setting, and each compiled module. A nil settings map or build info
+// is not compared; the caller names it as unreadable.
+func executableMismatches(record *Record, artifact Artifact, settings map[string]string, info *debug.BuildInfo) []string {
+	var mismatches []string
+	if artifact.SHA256 != record.Artifact.SHA256 {
+		mismatches = append(mismatches, fmt.Sprintf("executable digest: recorded %s, found %s", record.Artifact.SHA256, artifact.SHA256))
+	}
+	if artifact.Size != record.Artifact.Size {
+		mismatches = append(mismatches, fmt.Sprintf("executable size: recorded %d, found %d", record.Artifact.Size, artifact.Size))
+	}
+	if settings != nil {
+		keys := map[string]bool{}
+		for key := range settings {
+			keys[key] = true
+		}
+		for key := range record.BinarySettings {
+			keys[key] = true
+		}
+		names := make([]string, 0, len(keys))
+		for key := range keys {
+			names = append(names, key)
+		}
+		sort.Strings(names)
+		for _, key := range names {
+			recorded, inRecord := record.BinarySettings[key]
+			found, inExecutable := settings[key]
+			if recorded != found || inRecord != inExecutable {
+				mismatches = append(mismatches, fmt.Sprintf("build setting %s: recorded %s, found %s", key, quoteSetting(recorded, inRecord), quoteSetting(found, inExecutable)))
+			}
+		}
+	}
+	if info != nil {
+		mismatches = append(mismatches, moduleMismatches(info, record)...)
+	}
+	return mismatches
+}
+
+func quoteSetting(value string, present bool) string {
+	if !present {
+		return "none"
+	}
+	return strconv.Quote(value)
 }
 
 func readBuildRecord(recordPath, expectedSHA256 string) (*Record, error) {
@@ -41,16 +101,19 @@ func readBuildRecord(recordPath, expectedSHA256 string) (*Record, error) {
 
 	f, err := openInput(recordPath)
 	if err != nil {
-		return nil, errors.New("cannot read application build record")
+		return nil, fmt.Errorf("cannot read the build record %s; the check failed", recordPath)
 	}
 	defer f.Close()
 	info, err := f.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Size() < 1 || info.Size() > 16<<20 {
-		return nil, errors.New("application build record size differs")
+		return nil, fmt.Errorf("cannot read the build record %s as a file of at most 16 MiB; the check failed", recordPath)
 	}
 	data, err := io.ReadAll(io.LimitReader(f, (16<<20)+1))
-	if err != nil || int64(len(data)) != info.Size() || digest(data) != expectedSHA256 {
-		return nil, errors.New("application build record digest or size differs")
+	if err != nil || int64(len(data)) != info.Size() {
+		return nil, fmt.Errorf("cannot read the build record %s; the check failed", recordPath)
+	}
+	if found := digest(data); found != expectedSHA256 {
+		return nil, fmt.Errorf("the build record %s is not trusted: expected digest %s, found %s", recordPath, expectedSHA256, found)
 	}
 	var record Record
 	decoder := json.NewDecoder(bytes.NewReader(data))

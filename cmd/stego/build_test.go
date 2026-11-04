@@ -441,4 +441,110 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 			t.Error("the record does not name telemetry off")
 		}
 	})
+	record := filepath.Join(results[0], "build.json")
+	application := filepath.Join(results[0], "application")
+	trusted := fileSHA256(t, record)
+	t.Run("ST-BLD-UC04-R01-T01 A record whose canonical bytes do not hash to the trusted digest is refused", func(t *testing.T) {
+		mustRun(t, runBuild, "verify", "--record", record, "--record-sha256", trusted, "--artifact", application)
+		wrong := strings.Repeat("0", 64)
+		_, err := capture(t, runBuild, "verify", "--record", record, "--record-sha256", wrong, "--artifact", application)
+		if err == nil || !strings.Contains(err.Error(), "expected digest "+wrong) || !strings.Contains(err.Error(), "found "+trusted) {
+			t.Fatalf("an untrusted digest was not refused with the expected and found digests: %v", err)
+		}
+		raw, err := os.ReadFile(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		duplicate := strings.Replace(string(raw), "  \"format\": 1,", "  \"format\": 1,\n  \"format\": 1,", 1)
+		copied := filepath.Join(t.TempDir(), "build.json")
+		writeProjectFile(t, copied, duplicate)
+		if _, err := capture(t, runBuild, "verify", "--record", copied, "--record-sha256", fileSHA256(t, copied), "--artifact", application); err == nil || !strings.Contains(err.Error(), "canonical") {
+			t.Fatalf("a record that is not canonical was accepted: %v", err)
+		}
+	})
+	snapshot := filepath.Join(t.TempDir(), "snapshot")
+	if err := os.Mkdir(snapshot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	archive := exec.Command("sh", "-c", "git -C \"$1\" archive --format=tar \"$2\" | tar -x -C \"$3\"", "sh", source, revision, snapshot)
+	if output, err := archive.CombinedOutput(); err != nil {
+		t.Fatalf("source snapshot: %v\n%s", err, output)
+	}
+	t.Run("ST-BLD-UC04-R01-T02 A source check refuses an untrusted record digest", func(t *testing.T) {
+		mustRun(t, runBuild, "verify-source", "--record", record, "--record-sha256", trusted, "--source", snapshot)
+		wrong := strings.Repeat("1", 64)
+		if _, err := capture(t, runBuild, "verify-source", "--record", record, "--record-sha256", wrong, "--source", snapshot); err == nil || !strings.Contains(err.Error(), "expected digest "+wrong) {
+			t.Fatalf("an untrusted digest was accepted: %v", err)
+		}
+	})
+	t.Run("ST-BLD-UC04-R02-T01 A source snapshot that differs is refused, and each changed, missing or added file is named", func(t *testing.T) {
+		changed := filepath.Join(t.TempDir(), "snapshot")
+		copyTree := exec.Command("cp", "-a", snapshot, changed)
+		if output, err := copyTree.CombinedOutput(); err != nil {
+			t.Fatalf("copy: %v\n%s", err, output)
+		}
+		writeProjectFile(t, filepath.Join(changed, "go.sum"), "changed\n")
+		if err := os.Remove(filepath.Join(changed, "service.yaml")); err != nil {
+			t.Fatal(err)
+		}
+		writeProjectFile(t, filepath.Join(changed, "extra.go"), "package extra\n")
+		_, err := capture(t, runBuild, "verify-source", "--record", record, "--record-sha256", trusted, "--source", changed)
+		if err == nil {
+			t.Fatal("a changed snapshot was accepted")
+		}
+		for _, want := range []string{"go.sum: changed", "service.yaml: missing", "extra.go: added"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the check does not name %q: %v", want, err)
+			}
+		}
+	})
+	t.Run("ST-BLD-UC04-R02-T02 An executable that differs is refused, and its recorded and found digests are named", func(t *testing.T) {
+		raw, err := os.ReadFile(application)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw[len(raw)-1] ^= 0xff
+		changed := filepath.Join(t.TempDir(), "application")
+		if err := os.WriteFile(changed, raw, 0500); err != nil {
+			t.Fatal(err)
+		}
+		var recorded appbuild.Record
+		data, _ := os.ReadFile(record)
+		if err := json.Unmarshal(data, &recorded); err != nil {
+			t.Fatal(err)
+		}
+		_, err = capture(t, runBuild, "verify", "--record", record, "--record-sha256", trusted, "--artifact", changed)
+		if err == nil || !strings.Contains(err.Error(), "executable digest: recorded "+recorded.Artifact.SHA256+", found "+fileSHA256(t, changed)) {
+			t.Fatalf("a changed executable was not refused with both digests: %v", err)
+		}
+	})
+	t.Run("ST-BLD-UC04-R03-T01 A record or an executable that cannot be read fails the check, is named, and is not changed", func(t *testing.T) {
+		before := map[string]string{record: fileSHA256(t, record), application: fileSHA256(t, application)}
+		missing := filepath.Join(t.TempDir(), "missing.json")
+		folder := t.TempDir()
+		for _, args := range [][]string{
+			{"verify", "--record", missing, "--record-sha256", trusted, "--artifact", application},
+			{"verify", "--record", folder, "--record-sha256", trusted, "--artifact", application},
+			{"verify", "--record", record, "--record-sha256", trusted, "--artifact", missing},
+			{"verify", "--record", record, "--record-sha256", trusted, "--artifact", folder},
+			{"verify-source", "--record", missing, "--record-sha256", trusted, "--source", snapshot},
+			{"verify-source", "--record", record, "--record-sha256", trusted, "--source", missing},
+		} {
+			_, err := capture(t, runBuild, args...)
+			named := false
+			for _, name := range []string{missing, folder} {
+				if err != nil && strings.Contains(err.Error(), name) && strings.Contains(err.Error(), "cannot read") {
+					named = true
+				}
+			}
+			if !named {
+				t.Errorf("stego build %v did not fail naming the input it cannot read: %v", args, err)
+			}
+		}
+		for name, digest := range before {
+			if fileSHA256(t, name) != digest {
+				t.Errorf("a failed check changed %s", name)
+			}
+		}
+	})
 }

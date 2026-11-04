@@ -33,7 +33,7 @@ func sourceFixture(t *testing.T) (string, string, string) {
 }
 
 func TestVerifySourceRejectsFileSetContentAndModeChanges(t *testing.T) {
-	t.Run("ST-BLD-DS02-T02 ST-BLD-UC04-R02-T01 A source snapshot is refused on any changed, missing or added file", func(t *testing.T) {
+	t.Run("A source snapshot is refused on any changed, missing or added file", func(t *testing.T) {
 		for _, change := range []string{"content", "missing", "added", "mode", "link", "git metadata"} {
 			t.Run(change, func(t *testing.T) {
 				source, record, hash := sourceFixture(t)
@@ -72,7 +72,7 @@ func TestVerifySourceRejectsFileSetContentAndModeChanges(t *testing.T) {
 }
 
 func TestVerifySourceRequiresTrustedRecordAndRealRoot(t *testing.T) {
-	t.Run("ST-BLD-UC04-R01-T02 A source check refuses an untrusted record digest", func(t *testing.T) {
+	t.Run("A source check refuses an untrusted record digest", func(t *testing.T) {
 		source, record, hash := sourceFixture(t)
 		if _, err := VerifySource(record, strings.Repeat("0", 64), source); err == nil {
 			t.Fatal("wrong trusted digest accepted")
@@ -88,6 +88,26 @@ func TestVerifySourceRequiresTrustedRecordAndRealRoot(t *testing.T) {
 		}
 		if _, err := VerifySource(record, hash, source); err != nil {
 			t.Fatal("valid source failed after rejections", err)
+		}
+	})
+}
+
+func TestSourceMismatchesNameEachPath(t *testing.T) {
+	t.Run("ST-BLD-DS02-T02 A source snapshot is refused on any changed, missing or added file, and each is named", func(t *testing.T) {
+		hash := func(c string) string { return strings.Repeat(c, 64) }
+		recorded := []File{{"a.go", hash("a"), false}, {"b.go", hash("b"), false}, {"c.go", hash("c"), true}, {"d.go", hash("d"), false}}
+		if mismatches := sourceMismatches(recorded, recorded); len(mismatches) != 0 {
+			t.Fatalf("the recorded files were refused: %v", mismatches)
+		}
+		found := []File{{"a.go", hash("a"), false}, {"b.go", hash("0"), false}, {"c.go", hash("c"), false}, {"e.go", hash("e"), false}}
+		mismatches := strings.Join(sourceMismatches(recorded, found), "\n")
+		for _, want := range []string{"b.go: changed, recorded " + hash("b") + ", found " + hash("0"), "c.go: executable bit recorded true, found false", "d.go: missing", "e.go: added"} {
+			if !strings.Contains(mismatches, want) {
+				t.Errorf("the check does not name %q:\n%s", want, mismatches)
+			}
+		}
+		if strings.Contains(mismatches, "a.go") {
+			t.Error("the check names a file that matches")
 		}
 	})
 }
