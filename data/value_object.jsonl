@@ -21,3 +21,4 @@
 {"id":"ST-VO58","title":"Runtime pin","description":"One version of the runtime library, fixed by module path, tagged version and the checksum that the module requirements hold for that version's contents."}
 {"id":"ST-VO59","title":"Image target","description":"One image a service's pipeline builds: which module and build target, and the executable that the image starts."}
 {"id":"ST-VO61","title":"Money","description":"An amount of one currency in integer minor units. Allocation splits an amount without losing a minor unit."}
+{"id":"ST-VO62","title":"Emitted file","description":"One file that a component's generator gives to the compiler: its path in the service output and its content. It is the shared contract between the registry's components and the compiler, so it belongs to no domain."}

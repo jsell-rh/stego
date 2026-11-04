@@ -26,7 +26,6 @@ ST-STD-CODE-R02	ST-DECL-EN01-TB	internal/parser/parser.go	ST-DECL-EN01-TB is tit
 ST-STD-CODE-R02	ST-DECL-RM01-PJ	internal/compiler/validate.go	ST-DECL-RM01-PJ is titled "ValidationResult", which is not an identifier of package compiler
 ST-STD-CODE-R02	ST-DECL-RM01-TB	internal/compiler/validate.go	ST-DECL-RM01-TB is titled "ValidationResult", which is not an identifier of package compiler
 ST-STD-CODE-R02	ST-EXT-EN01-TB	internal/parser/parser.go	ST-EXT-EN01-TB is titled "fill.yaml", which is not an identifier of package parser
-ST-STD-CODE-R02	ST-GEN-DS02-SV	internal/compiler/reconciler.go	ST-GEN-DS02-SV is titled "gen.Generator", which is not an identifier of package compiler
 ST-STD-CODE-R02	ST-GEN-EN01-TB	internal/compiler/state.go	ST-GEN-EN01-TB is titled ".stego/state.yaml", which is not an identifier of package compiler
 ST-STD-CODE-R02	ST-GEN-EN03-DM	internal/compiler/state.go	ST-GEN-EN03-DM is titled "AppliedState.Files", which is not an identifier of package compiler
 ST-STD-CODE-R02	ST-GEN-EN05-TB	internal/compiler/transaction.go	ST-GEN-EN05-TB is titled ".stego/transaction.yaml", which is not an identifier of package compiler
@@ -331,23 +330,14 @@ ST-STD-CODE-R05	cmd/stego/scaffold.go	cmd/stego/scaffold.go	no technical record 
 ST-STD-CODE-R05	internal/appbuild/modules.go	internal/appbuild/modules.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/appbuild/process_linux.go	internal/appbuild/process_linux.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/appbuild/process_other.go	internal/appbuild/process_other.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/browserapplication/config.go	internal/browserapplication/config.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/browserassets/html.go	internal/browserassets/html.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/buildidentity/render.go	internal/buildidentity/render.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/compiler/build_target.go	internal/compiler/build_target.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/compiler/constructor_metadata.go	internal/compiler/constructor_metadata.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/compiler/constructor_references.go	internal/compiler/constructor_references.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/compiler/database_access.go	internal/compiler/database_access.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/compiler/database_config.go	internal/compiler/database_config.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/compiler/database_opener.go	internal/compiler/database_opener.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/compiler/filesystem.go	internal/compiler/filesystem.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/compiler/generator_inputs.go	internal/compiler/generator_inputs.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/compiler/go_models.go	internal/compiler/go_models.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/compiler/http_diagnostics.go	internal/compiler/http_diagnostics.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/compiler/http_lifecycle.go	internal/compiler/http_lifecycle.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/compiler/http_tls.go	internal/compiler/http_tls.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/compiler/lifecycle.go	internal/compiler/lifecycle.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/compiler/lock.go	internal/compiler/lock.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/compiler/lock_other.go	internal/compiler/lock_other.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/compiler/lock_unix.go	internal/compiler/lock_unix.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/compiler/lock_windows.go	internal/compiler/lock_windows.go	no technical record names the file, directly or through a folder
@@ -359,18 +349,13 @@ ST-STD-CODE-R05	internal/compiler/symbol_names.go	internal/compiler/symbol_names
 ST-STD-CODE-R05	internal/compiler/sync_other.go	internal/compiler/sync_other.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/compiler/sync_unix.go	internal/compiler/sync_unix.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/gen/contracts.go	internal/gen/contracts.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/gen/database_access.go	internal/gen/database_access.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/gen/gen.go	internal/gen/gen.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/gen/go_models.go	internal/gen/go_models.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/gen/go_namespace.go	internal/gen/go_namespace.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/gen/http_base_path.go	internal/gen/http_base_path.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/gen/http_routes.go	internal/gen/http_routes.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/gen/input.go	internal/gen/input.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/gen/json_validation.go	internal/gen/json_validation.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/generator/browserdom/declarations.d.ts	internal/generator/browserdom/declarations.d.ts	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/generator/browserdom/generator.go	internal/generator/browserdom/generator.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/generator/browserdom/monaco-loader.cjs	internal/generator/browserdom/monaco-loader.cjs	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/generator/browserdom/runtime.js	internal/generator/browserdom/runtime.js	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/generator/browserdom/testdata/browser.test.js	internal/generator/browserdom/testdata/browser.test.js	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/generator/browserdom/testdata/monaco-adapter.test.cjs	internal/generator/browserdom/testdata/monaco-adapter.test.cjs	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/generator/browsertelemetry/declarations.d.ts	internal/generator/browsertelemetry/declarations.d.ts	no technical record names the file, directly or through a folder
@@ -386,20 +371,8 @@ ST-STD-CODE-R05	internal/generator/typescriptsdk/testdata/runtime.test.mjs	inter
 ST-STD-CODE-R05	internal/generator/typescriptsdk/testdata/session-usage.mts	internal/generator/typescriptsdk/testdata/session-usage.mts	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/generator/typescriptsdk/testdata/session.test.mjs	internal/generator/typescriptsdk/testdata/session.test.mjs	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/generator/typescriptsdk/testdata/usage.mts	internal/generator/typescriptsdk/testdata/usage.mts	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/openapicontract/enums.go	internal/openapicontract/enums.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/openapicontract/go.go	internal/openapicontract/go.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/openapicontract/input.go	internal/openapicontract/input.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/openapicontract/models.go	internal/openapicontract/models.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/registry/snapshot.go	internal/registry/snapshot.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/responsemapping/inputs.go	internal/responsemapping/inputs.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/responsemapping/json_objects.go	internal/responsemapping/json_objects.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/responsemapping/json_strings.go	internal/responsemapping/json_strings.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/slot/generate.go	internal/slot/generate.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/slot/operators.go	internal/slot/operators.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/slot/proto.go	internal/slot/proto.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/slot/scaffold.go	internal/slot/scaffold.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/types/live_unique.go	internal/types/live_unique.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	internal/types/versioned.go	internal/types/versioned.go	no technical record names the file, directly or through a folder
-ST-STD-CODE-R05	scripts/check-pinned-admission.py	scripts/check-pinned-admission.py	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	scripts/pre-commit-check-config-deletions.sh	scripts/pre-commit-check-config-deletions.sh	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	scripts/stats.sh	scripts/stats.sh	no technical record names the file, directly or through a folder
