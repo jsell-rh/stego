@@ -31,6 +31,7 @@
 {"id":"ST-BLD-UC04-FL-S04","title":"The source snapshot differs from the record's inventory, so STEGO names each path that is missing, added or changed, and exits non-zero","flow_id":"ST-BLD-UC04-FL","path":"mismatch","position":2}
 {"id":"ST-BLD-UC04-FL-S05","title":"The record or the artifact cannot be read, so STEGO reports a failed check, not a pass, and names the file","flow_id":"ST-BLD-UC04-FL","path":"unreadable","position":1}
 {"id":"ST-BLD-UC04-FL-S06","title":"The record's canonical bytes do not hash to the trusted digest, so STEGO refuses the record before it reads the artifact, and names the digest it expected and the digest it found","flow_id":"ST-BLD-UC04-FL","path":"untrusted","position":1}
+{"id":"ST-BLD-UC04-FL-S07","title":"The operator runs image verify on a local image, and STEGO reports whether it matches its record, its trusted build record and its signature","flow_id":"ST-BLD-UC04-FL","path":"main","position":3}
 {"id":"ST-BLD-UC05-FL-S01","title":"The operator runs image build from the trusted build, and STEGO writes a scratch image and its record","flow_id":"ST-BLD-UC05-FL","path":"main","position":1}
 {"id":"ST-BLD-UC05-FL-S02","title":"The provider's trusted signer signs the image and attaches both SBOMs","flow_id":"ST-BLD-UC05-FL","path":"main","position":2}
 {"id":"ST-BLD-UC05-FL-S03","title":"An untrusted build record or CA bundle stops image build","flow_id":"ST-BLD-UC05-FL","path":"refused","position":1}
