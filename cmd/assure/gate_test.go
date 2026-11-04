@@ -101,10 +101,10 @@ const (
 // a constraint of the product that is designed only. It has two workflow files, and a go.mod, so its code faults
 // can be read: the rule FX-LEND-INV02-RL names an identifier that its file does not declare (ST-STD-CODE-R02).
 var gateSpec = map[string]string{
-	"lathe.config.json":    `{"schema": 5, "data": "data", "tests": ["**/*_test.go"]}` + "\n",
+	"lathe.config.json":    `{"schema": 6, "data": "data", "tests": ["**/*_test.go"]}` + "\n",
 	"go.mod":               "module example.com/fixture\n\ngo 1.26\n",
 	"data/product.jsonl":   `{"id":"FX","title":"Fixture","description":"What Fixture is, who it is for, and what it must do."}` + "\n",
-	"data/domain.jsonl":    `{"id":"FX-LEND","title":"Lending","product_id":"FX","subdomain_type":"core","description":"Lending tools."}` + "\n",
+	"data/domain.jsonl":    `{"id":"FX-LEND","title":"Lending","product_id":"FX","position":1,"subdomain_type":"core","description":"Lending tools."}` + "\n",
 	"data/aggregate.jsonl": `{"id":"FX-LEND-A1","title":"Loan","domain_id":"FX-LEND","description":"A loan.","identity":"Loan ID"}` + "\n",
 	"data/invariant.jsonl": `{"id":"FX-LEND-INV01","title":"One loan per tool","aggregate_id":"FX-LEND-A1","statement":"A tool MUST have at most one open loan."}
 {"id":"FX-LEND-INV02","title":"Due after start","aggregate_id":"FX-LEND-A1","statement":"A loan MUST end after it starts."}

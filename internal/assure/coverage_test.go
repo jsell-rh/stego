@@ -15,9 +15,9 @@ import (
 // the product's own value object. FX-LEND-INV01 and FX-LEND-INV02 have a rule in internal/lend/rules.go and an
 // automated test, FX-LEND-INV03 has neither, and the constraint's value type names internal/lend/due.go.
 var latheSpec = map[string]string{
-	"lathe.config.json":    `{"schema": 5, "data": "data", "tests": ["**/*_test.go"]}` + "\n",
+	"lathe.config.json":    `{"schema": 6, "data": "data", "tests": ["**/*_test.go"]}` + "\n",
 	"data/product.jsonl":   `{"id":"FX","title":"Fixture","description":"What Fixture is, who it is for, and what it must do."}` + "\n",
-	"data/domain.jsonl":    `{"id":"FX-LEND","title":"Lending","product_id":"FX","subdomain_type":"core","description":"Lending tools."}` + "\n",
+	"data/domain.jsonl":    `{"id":"FX-LEND","title":"Lending","product_id":"FX","position":1,"subdomain_type":"core","description":"Lending tools."}` + "\n",
 	"data/aggregate.jsonl": `{"id":"FX-LEND-A1","title":"Loan","domain_id":"FX-LEND","description":"A loan.","identity":"Loan ID"}` + "\n",
 	"data/invariant.jsonl": `{"id":"FX-LEND-INV01","title":"One loan per tool","aggregate_id":"FX-LEND-A1","statement":"A tool MUST have at most one open loan."}
 {"id":"FX-LEND-INV02","title":"Due after start","aggregate_id":"FX-LEND-A1","statement":"A loan MUST end after it starts."}
