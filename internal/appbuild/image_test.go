@@ -130,7 +130,7 @@ func TestImageRecordAndInputBoundaries(t *testing.T) {
 	if _, err := BuildImage(ctx, ImageOptions{}); !errors.Is(err, context.Canceled) {
 		t.Fatal("cancellation lost", err)
 	}
-	if _, err := VerifyImage(ctx, "", "", "", "", ""); !errors.Is(err, context.Canceled) {
+	if _, err := VerifyImage(ctx, ImageVerifyOptions{}); !errors.Is(err, context.Canceled) {
 		t.Fatal("cancellation lost", err)
 	}
 }

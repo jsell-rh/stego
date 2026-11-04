@@ -69,7 +69,7 @@ func signFixtureOptions(t *testing.T, root string, recordSHA256 string, verifier
 	bundles := t.TempDir()
 	put(t, bundles, "spdx.json", `{"bundle":"spdx"}`)
 	put(t, bundles, "cdx.json", `{"bundle":"cdx"}`)
-	return SignOptions{Image: root, RecordSHA256: recordSHA256, SPDXBundle: filepath.Join(bundles, "spdx.json"), CycloneDXBundle: filepath.Join(bundles, "cdx.json"), Signer: trustedTestSigner, Verifier: verifier}
+	return SignOptions{Image: root, RecordSHA256: recordSHA256, Check: SignatureCheck{SPDXBundle: filepath.Join(bundles, "spdx.json"), CycloneDXBundle: filepath.Join(bundles, "cdx.json"), Signer: trustedTestSigner, Verifier: verifier}}
 }
 
 func TestImageSignatureIsAcceptableOnlyFromTheTrustedSigner(t *testing.T) {
@@ -156,12 +156,12 @@ func TestOnlyTheTrustedSignerIdentityIsAccepted(t *testing.T) {
 		other := trustedTestSigner
 		other.Subject = strings.Replace(other.Subject, "platform", "fork", 1)
 		verifier := fakeVerifier{}
-		for index, bundle := range []string{options.SPDXBundle, options.CycloneDXBundle} {
+		for index, bundle := range []string{options.Check.SPDXBundle, options.Check.CycloneDXBundle} {
 			attestation := signedSBOM(record, sboms[index])
 			attestation.Signer = other
 			verifier[bundle] = attestation
 		}
-		options.Verifier = verifier
+		options.Check.Verifier = verifier
 		if _, err := SignImage(context.Background(), options); err == nil || !strings.Contains(err.Error(), "not by the trusted signer") {
 			t.Fatal("an image signed by another identity was accepted", err)
 		}
@@ -177,28 +177,28 @@ func TestSignedImageCarriesBothSBOMs(t *testing.T) {
 			t.Run("case "+change, func(t *testing.T) {
 				root, record, recordSHA256, sboms := signFixture(t)
 				options := signFixtureOptions(t, root, recordSHA256, nil)
-				verifier := fakeVerifier{options.SPDXBundle: signedSBOM(record, sboms[0]), options.CycloneDXBundle: signedSBOM(record, sboms[1])}
+				verifier := fakeVerifier{options.Check.SPDXBundle: signedSBOM(record, sboms[0]), options.Check.CycloneDXBundle: signedSBOM(record, sboms[1])}
 				switch change {
 				case "missing CycloneDX":
-					attestation := verifier[options.CycloneDXBundle]
+					attestation := verifier[options.Check.CycloneDXBundle]
 					attestation.PredicateType = "https://slsa.dev/provenance/v1"
-					verifier[options.CycloneDXBundle] = attestation
+					verifier[options.Check.CycloneDXBundle] = attestation
 				case "SPDX twice":
-					verifier[options.CycloneDXBundle] = verifier[options.SPDXBundle]
+					verifier[options.Check.CycloneDXBundle] = verifier[options.Check.SPDXBundle]
 				case "changed predicate":
-					attestation := verifier[options.SPDXBundle]
+					attestation := verifier[options.Check.SPDXBundle]
 					attestation.Predicate = json.RawMessage(strings.Replace(string(sboms[0].Document), "v0.41.0", "v0.40.0", 1))
-					verifier[options.SPDXBundle] = attestation
+					verifier[options.Check.SPDXBundle] = attestation
 				case "changed SBOM file":
 					put(t, root, CycloneDX.FileName(), "{}\n")
 				case "unsigned bundle":
-					delete(verifier, options.CycloneDXBundle)
+					delete(verifier, options.Check.CycloneDXBundle)
 				case "removed SBOM file":
 					if err := os.Remove(filepath.Join(root, SPDX.FileName())); err != nil {
 						t.Fatal(err)
 					}
 				}
-				options.Verifier = verifier
+				options.Check.Verifier = verifier
 				signature, err := SignImage(context.Background(), options)
 				if change == "" {
 					if err != nil {
@@ -287,4 +287,14 @@ func TestSignerIdentityIsKeylessOrKey(t *testing.T) {
 			})
 		}
 	})
+}
+
+// fixtureSignatureCheck gives a check whose verifier gives both SBOM
+// attestations of the fixture image by the trusted signer.
+func fixtureSignatureCheck(t *testing.T, record *ImageRecord, sboms []SBOM) SignatureCheck {
+	t.Helper()
+	options := signFixtureOptions(t, "", "", nil)
+	check := options.Check
+	check.Verifier = fakeVerifier{check.SPDXBundle: signedSBOM(record, sboms[0]), check.CycloneDXBundle: signedSBOM(record, sboms[1])}
+	return check
 }

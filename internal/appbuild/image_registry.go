@@ -21,18 +21,22 @@ import (
 type RegistryImageOptions struct {
 	Access                                         RegistryAccess
 	Record, RecordSHA256, BuildRecord, Image, Work string
+	// Signature is the check of the image signature that retrieval runs
+	// before it writes the image (ST-BLD-UC07-R01). Publication does not use it.
+	Signature SignatureCheck
 }
 
 type RegistryImageRecord struct {
-	Format                int      `json:"format"`
-	Operation             string   `json:"operation"`
-	Repository            string   `json:"repository"`
-	Reference             string   `json:"reference"`
-	ImageRecordSHA256     string   `json:"image_record_sha256"`
-	RegistryCASHA256      string   `json:"registry_ca_sha256"`
-	TokenOrigins          []string `json:"token_origins"`
-	BlobOrigins           []string `json:"blob_origins"`
-	ImageContentsVerified bool     `json:"image_contents_verified"`
+	Format                int             `json:"format"`
+	Operation             string          `json:"operation"`
+	Repository            string          `json:"repository"`
+	Reference             string          `json:"reference"`
+	ImageRecordSHA256     string          `json:"image_record_sha256"`
+	RegistryCASHA256      string          `json:"registry_ca_sha256"`
+	TokenOrigins          []string        `json:"token_origins"`
+	BlobOrigins           []string        `json:"blob_origins"`
+	ImageContentsVerified bool            `json:"image_contents_verified"`
+	Signature             *ImageSignature `json:"signature,omitempty"`
 }
 
 func makeRegistryLayout(root string, record *ImageRecord) error {
@@ -143,6 +147,13 @@ func registryImage(ctx context.Context, options RegistryImageOptions, publish bo
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
 		return nil, errors.New("registry image checks require Linux amd64")
 	}
+	if !publish {
+		// Every retrieval input is checked before the record is read or a
+		// connection opens (ST-BLD-UC07-R02).
+		if err := options.Signature.validate(); err != nil {
+			return nil, err
+		}
+	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	record, err := readTrustedImageRecord(options.Record, options.RecordSHA256)
@@ -163,7 +174,7 @@ func registryImage(ctx context.Context, options RegistryImageOptions, publish bo
 	}
 	captured := filepath.Join(root, "source-oci")
 	if publish {
-		if _, err := VerifyImage(ctx, savedRecord, options.Image, savedBuild, options.RecordSHA256, filepath.Join(root, "source-check")); err != nil {
+		if _, _, err := verifyImageBuild(ctx, savedRecord, options.Image, savedBuild, options.RecordSHA256, filepath.Join(root, "source-check")); err != nil {
 			return nil, err
 		}
 		if err := captureRegistryLayout(ctx, options.Image, captured, record); err != nil {
@@ -200,9 +211,18 @@ func registryImage(ctx context.Context, options RegistryImageOptions, publish bo
 		_ = os.RemoveAll(staging)
 		return nil, err
 	}
-	if _, err := VerifyImage(ctx, savedRecord, staging, savedBuild, options.RecordSHA256, filepath.Join(root, "retrieved-check")); err != nil {
+	_, build, err := verifyImageBuild(ctx, savedRecord, staging, savedBuild, options.RecordSHA256, filepath.Join(root, "retrieved-check"))
+	if err != nil {
 		_ = os.RemoveAll(staging)
 		return nil, err
+	}
+	var signature *ImageSignature
+	if !publish {
+		manifest := filepath.Join(staging, "blobs", "sha256", record.Manifest.SHA256)
+		if signature, err = checkImageSignature(ctx, options.Signature, manifest, record, options.RecordSHA256, build); err != nil {
+			_ = os.RemoveAll(staging)
+			return nil, err
+		}
 	}
 	if err := os.Rename(staging, filepath.Join(root, "oci")); err != nil {
 		return nil, err
@@ -211,7 +231,7 @@ func registryImage(ctx context.Context, options RegistryImageOptions, publish bo
 	if publish {
 		operation = "publish"
 	}
-	result := &RegistryImageRecord{Format: 1, Operation: operation, Repository: options.Access.Repository, Reference: options.Access.Repository + "@sha256:" + record.Manifest.SHA256, ImageRecordSHA256: options.RecordSHA256, RegistryCASHA256: options.Access.CASHA256, TokenOrigins: append([]string{}, options.Access.TokenOrigins...), BlobOrigins: append([]string{}, options.Access.BlobOrigins...), ImageContentsVerified: true}
+	result := &RegistryImageRecord{Format: 1, Operation: operation, Repository: options.Access.Repository, Reference: options.Access.Repository + "@sha256:" + record.Manifest.SHA256, ImageRecordSHA256: options.RecordSHA256, RegistryCASHA256: options.Access.CASHA256, TokenOrigins: append([]string{}, options.Access.TokenOrigins...), BlobOrigins: append([]string{}, options.Access.BlobOrigins...), ImageContentsVerified: true, Signature: signature}
 	data, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
 		return nil, err

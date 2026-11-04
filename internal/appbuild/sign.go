@@ -154,49 +154,39 @@ func carriesBothSBOMs(attestations []VerifiedAttestation, sboms []SBOM) error {
 	return nil
 }
 
-// SignOptions selects an image folder that BuildImage wrote, the trusted
-// digest of its image record, the provider's signature bundle of each SBOM
-// attestation, the trusted signer the delivery pipeline names, and the
-// verifier of the provider's signatures.
-type SignOptions struct {
-	Image, RecordSHA256         string
+// SignatureCheck is what checks an image signature: the provider's signature
+// bundle of each SBOM attestation, the trusted signer that the delivery
+// pipeline names, and the verifier of the provider's signatures.
+type SignatureCheck struct {
 	SPDXBundle, CycloneDXBundle string
 	Signer                      SignerIdentity
 	Verifier                    AttestationVerifier
 }
 
-// SignImage carries out Sign the image where the CI provider signs for itself
-// (ST-BLD-CMD05): the provider's trusted signer has attested both SBOMs about
-// the image digest, and STEGO checks that signature. It reads the image record
-// at its trusted digest, checks the image against it, writes the SBOMs again
-// from the build record the image carries, checks each bundle and that the
-// signature is acceptable, and only then writes signature.json in the image
-// folder. It writes nothing when a check fails.
-func SignImage(ctx context.Context, options SignOptions) (*ImageSignature, error) {
-	if ctx == nil {
-		return nil, errors.New("image signing requires a context")
+// validate refuses a check with an input missing, and names the input, so a
+// caller can refuse before it reads the image or opens a connection.
+func (check SignatureCheck) validate() error {
+	if check.SPDXBundle == "" {
+		return errors.New("the signature check needs the SPDX attestation bundle")
 	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
+	if check.CycloneDXBundle == "" {
+		return errors.New("the signature check needs the CycloneDX attestation bundle")
 	}
-	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
-		return nil, errors.New("image checks require Linux amd64")
+	if err := check.Signer.Validate(); err != nil {
+		return fmt.Errorf("the trusted signer: %w", err)
 	}
-	if options.Verifier == nil {
-		return nil, errors.New("image signing requires the provider's signature verifier")
+	if check.Verifier == nil {
+		return errors.New("the signature check needs the provider's signature verifier")
 	}
-	if err := options.Signer.Validate(); err != nil {
-		return nil, fmt.Errorf("the trusted signer: %w", err)
-	}
-	record, err := readTrustedImageRecord(filepath.Join(options.Image, "image.json"), options.RecordSHA256)
-	if err != nil {
-		return nil, err
-	}
-	if err := verifyImageContents(ctx, filepath.Join(options.Image, "oci"), record, ""); err != nil {
-		return nil, err
-	}
-	build, err := readBuildRecord(filepath.Join(options.Image, "build.json"), record.BuildRecordSHA256)
-	if err != nil {
+	return nil
+}
+
+// checkImageSignature checks both SBOM attestation bundles about the image:
+// each verifies, is about the manifest that the file manifest holds, is
+// acceptable (ST-BLD-SP02), and carries the SBOM that WriteSBOMs gives from
+// the build record (ST-BLD-INV09). It gives the signature record.
+func checkImageSignature(ctx context.Context, check SignatureCheck, manifest string, record *ImageRecord, recordSHA256 string, build *Record) (*ImageSignature, error) {
+	if err := check.validate(); err != nil {
 		return nil, err
 	}
 	if build.Artifact != record.Application {
@@ -206,26 +196,19 @@ func SignImage(ctx context.Context, options SignOptions) (*ImageSignature, error
 	if err != nil {
 		return nil, err
 	}
-	for _, sbom := range sboms {
-		carried, err := readImageBytes(filepath.Join(options.Image, sbom.Format.FileName()), 64<<20)
-		if err != nil || !bytes.Equal(carried, sbom.Document) {
-			return nil, fmt.Errorf("the image's %s SBOM differs from the SBOM of its build record", sbom.Format)
-		}
-	}
-	manifest := filepath.Join(options.Image, "oci", "blobs", "sha256", record.Manifest.SHA256)
-	bundles := []string{options.SPDXBundle, options.CycloneDXBundle}
+	bundles := []string{check.SPDXBundle, check.CycloneDXBundle}
 	attestations := make([]VerifiedAttestation, 0, len(bundles))
-	signature := &ImageSignature{Format: 1, ImageRecordSHA256: options.RecordSHA256, ImageSHA256: record.Manifest.SHA256, Signer: options.Signer}
+	signature := &ImageSignature{Format: 1, ImageRecordSHA256: recordSHA256, ImageSHA256: record.Manifest.SHA256, Signer: check.Signer}
 	for index, format := range sbomFormats {
 		bundle, err := readImageBytes(bundles[index], 4<<20)
 		if err != nil {
 			return nil, fmt.Errorf("the %s signature bundle: %w", format, err)
 		}
-		attestation, err := options.Verifier.VerifyAttestation(ctx, bundles[index], manifest, format.PredicateType(), options.Signer)
+		attestation, err := check.Verifier.VerifyAttestation(ctx, bundles[index], manifest, format.PredicateType(), check.Signer)
 		if err != nil {
 			return nil, fmt.Errorf("the %s signature does not verify: %w", format, err)
 		}
-		if err := AcceptableSignature(attestation, options.Signer, record.Manifest.SHA256); err != nil {
+		if err := AcceptableSignature(attestation, check.Signer, record.Manifest.SHA256); err != nil {
 			return nil, fmt.Errorf("the %s signature is not acceptable: %w", format, err)
 		}
 		attestations = append(attestations, attestation)
@@ -239,11 +222,70 @@ func SignImage(ctx context.Context, options SignOptions) (*ImageSignature, error
 	if first.LogIndex >= 0 {
 		signature.TransparencyLogEntry = "rekor:" + strconv.FormatInt(first.LogIndex, 10)
 	}
-	data, err := json.MarshalIndent(signature, "", "  ")
+	return signature, ctx.Err()
+}
+
+// SignOptions selects an image folder that BuildImage wrote, the trusted
+// digest of its image record, and the check of the provider's signature.
+type SignOptions struct {
+	Image, RecordSHA256 string
+	Check               SignatureCheck
+}
+
+// SignImage carries out Sign the image where the CI provider signs for itself
+// (ST-BLD-CMD05): the provider's trusted signer has attested both SBOMs about
+// the image digest, and STEGO checks that signature. It refuses a missing input
+// first, reads the image record at its trusted digest, checks the image
+// against it, checks that the SBOM files the image carries are the SBOMs of
+// its build record, checks the signature, and only then writes signature.json
+// in the image folder. It writes nothing when a check fails.
+func SignImage(ctx context.Context, options SignOptions) (*ImageSignature, error) {
+	if ctx == nil {
+		return nil, errors.New("image signing requires a context")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		return nil, errors.New("image checks require Linux amd64")
+	}
+	if options.Image == "" {
+		return nil, errors.New("image signing needs the image folder")
+	}
+	if !hashPattern.MatchString(options.RecordSHA256) {
+		return nil, errors.New("image signing needs the trusted image record digest")
+	}
+	if err := options.Check.validate(); err != nil {
+		return nil, err
+	}
+	record, err := readTrustedImageRecord(filepath.Join(options.Image, "image.json"), options.RecordSHA256)
 	if err != nil {
 		return nil, err
 	}
-	if err := ctx.Err(); err != nil {
+	if err := verifyImageContents(ctx, filepath.Join(options.Image, "oci"), record, ""); err != nil {
+		return nil, err
+	}
+	build, err := readBuildRecord(filepath.Join(options.Image, "build.json"), record.BuildRecordSHA256)
+	if err != nil {
+		return nil, err
+	}
+	sboms, err := WriteSBOMs(build)
+	if err != nil {
+		return nil, err
+	}
+	for _, sbom := range sboms {
+		carried, err := readImageBytes(filepath.Join(options.Image, sbom.Format.FileName()), 64<<20)
+		if err != nil || !bytes.Equal(carried, sbom.Document) {
+			return nil, fmt.Errorf("the image's %s SBOM differs from the SBOM of its build record", sbom.Format)
+		}
+	}
+	manifest := filepath.Join(options.Image, "oci", "blobs", "sha256", record.Manifest.SHA256)
+	signature, err := checkImageSignature(ctx, options.Check, manifest, record, options.RecordSHA256, build)
+	if err != nil {
+		return nil, err
+	}
+	data, err := json.MarshalIndent(signature, "", "  ")
+	if err != nil {
 		return nil, err
 	}
 	file, err := os.OpenFile(filepath.Join(options.Image, "signature.json"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)

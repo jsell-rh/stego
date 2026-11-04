@@ -255,40 +255,86 @@ func verifyImageContents(ctx context.Context, root string, record *ImageRecord, 
 	return ctx.Err()
 }
 
-func VerifyImage(ctx context.Context, recordPath, imageRoot, buildPath, expectedSHA256, work string) (*ImageRecord, error) {
+// ImageVerifyOptions selects the image record and its trusted digest, the
+// local OCI image folder, its build record, a new private work folder, and the
+// check of the image signature.
+type ImageVerifyOptions struct {
+	Record, RecordSHA256, Image, BuildRecord, Work string
+	Check                                          SignatureCheck
+}
+
+// VerifyImage answers Get the verification of an image (ST-BLD-QRY03): the
+// image matches only when it matches its record, its trusted build record and
+// its signature by the trusted signer. It refuses a missing input by name
+// before it reads the image, and gives the verification through the reader.
+func VerifyImage(ctx context.Context, options ImageVerifyOptions) (*ImageVerification, error) {
 	if ctx == nil {
 		return nil, errors.New("image verification requires a context")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if !hashPattern.MatchString(options.RecordSHA256) {
+		return nil, errors.New("image verification needs the trusted image record digest")
+	}
+	if err := options.Check.validate(); err != nil {
+		return nil, err
+	}
+	record, build, err := verifyImageBuild(ctx, options.Record, options.Image, options.BuildRecord, options.RecordSHA256, options.Work)
+	if err != nil {
+		return nil, err
+	}
+	// Check the signature against a private copy of the checked manifest.
+	manifest := filepath.Join(options.Work, "manifest.json")
+	if _, err := captureImageInput(ctx, filepath.Join(options.Image, "blobs", "sha256", record.Manifest.SHA256), manifest, imageMetadataLimit, record.Manifest.SHA256); err != nil {
+		return nil, err
+	}
+	signature, err := checkImageSignature(ctx, options.Check, manifest, record, options.RecordSHA256, build)
+	if err != nil {
+		return nil, err
+	}
+	var reader ImageVerifyReader
+	reader.hold(ImageVerification{Record: record, Build: build, Signature: signature})
+	return reader.Verification()
+}
+
+// verifyImageBuild checks an image against its record at the trusted digest
+// and against its trusted build record, and gives both records. It checks no
+// signature: export and publication use it.
+func verifyImageBuild(ctx context.Context, recordPath, imageRoot, buildPath, expectedSHA256, work string) (*ImageRecord, *Record, error) {
+	if ctx == nil {
+		return nil, nil, errors.New("image verification requires a context")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
-		return nil, errors.New("image checks require Linux amd64")
+		return nil, nil, errors.New("image checks require Linux amd64")
 	}
 	record, err := readTrustedImageRecord(recordPath, expectedSHA256)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	root, err := newImageDirectory(work)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	savedBuild := filepath.Join(root, "build.json")
 	if _, err = captureImageInput(ctx, buildPath, savedBuild, 16<<20, record.BuildRecordSHA256); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	application := filepath.Join(root, "application")
 	if err = verifyImageContents(ctx, imageRoot, record, application); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	build, err := Verify(savedBuild, application, record.BuildRecordSHA256)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if build.Artifact != record.Application {
-		return nil, errors.New("image differs from the verified application")
+		return nil, nil, errors.New("image differs from the verified application")
 	}
-	return record, ctx.Err()
+	return record, build, ctx.Err()
 }
 
 func readTrustedImageRecord(recordPath, expectedSHA256 string) (*ImageRecord, error) {
