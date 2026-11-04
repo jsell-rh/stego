@@ -74,7 +74,19 @@ type Record struct {
 	Modules               []Module             `json:"modules"`
 	BinarySettings        map[string]string    `json:"binary_settings"`
 	Artifact              Artifact             `json:"artifact"`
+	SBOMs                 []string             `json:"sboms"`
 	IndependentBuilds     int                  `json:"independent_builds"`
+}
+
+// recordSBOMs names the SBOM files a build writes beside its record, in the
+// fixed order SPDX, then CycloneDX. A record cannot hold their digests, since
+// the SBOMs are written from the record; SHA256SUMS holds them.
+func recordSBOMs() []string {
+	names := make([]string, 0, len(sbomFormats))
+	for _, format := range sbomFormats {
+		names = append(names, format.FileName())
+	}
+	return names
 }
 
 func fixedEnvironment() map[string]string {
@@ -532,7 +544,7 @@ func Build(ctx context.Context, options Options) (*Record, error) {
 		proxy := "off"
 		recorded := cache.DownloadCache
 		cacheInventory := &recorded
-		record := &Record{Format: 1, SourceRevision: o.Revision, Source: inputs, Inputs: files, Module: o.Module, Target: o.Target, GenerationStateSHA256: stateHash, GenerationCompiler: generator, BuildCompiler: buildidentity.Current(), BuildCompilerArtifact: Artifact{compilerHash, compilerSize}, Toolchain: toolchain, GoVersion: GoVersion, GitSHA256: gitHash, Environment: buildEnvironmentRecord(), DependencyProxy: proxy, ModuleCache: cacheInventory, GoTelemetry: "off", BuildFlags: flags, Modules: modules, BinarySettings: settings, Artifact: Artifact{hash, size}, IndependentBuilds: 2}
+		record := &Record{Format: 1, SourceRevision: o.Revision, Source: inputs, Inputs: files, Module: o.Module, Target: o.Target, GenerationStateSHA256: stateHash, GenerationCompiler: generator, BuildCompiler: buildidentity.Current(), BuildCompilerArtifact: Artifact{compilerHash, compilerSize}, Toolchain: toolchain, GoVersion: GoVersion, GitSHA256: gitHash, Environment: buildEnvironmentRecord(), DependencyProxy: proxy, ModuleCache: cacheInventory, GoTelemetry: "off", BuildFlags: flags, Modules: modules, BinarySettings: settings, Artifact: Artifact{hash, size}, SBOMs: recordSBOMs(), IndependentBuilds: 2}
 		if err := checkCompiledModules(binary, record); err != nil {
 			return nil, err
 		}
@@ -607,7 +619,15 @@ func saveResult(ctx context.Context, output, firstBinary string, result *Record)
 	if err := os.WriteFile(filepath.Join(output, "build.json"), data, 0600); err != nil {
 		return err
 	}
+	// Write both SBOMs from the record alone (ST-BLD-DS01, ST-BLD-CMD03).
+	sboms, err := writeSBOMFiles(output, result)
+	if err != nil {
+		return fmt.Errorf("SBOMs: %w", err)
+	}
 	checksums := fmt.Sprintf("%s  application\n%s  build.json\n", hash, digest(data))
+	for _, sbom := range sboms {
+		checksums += fmt.Sprintf("%s  %s\n", sbom.Digest, sbom.Format.FileName())
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}

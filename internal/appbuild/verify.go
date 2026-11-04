@@ -198,6 +198,9 @@ func validateRecord(record *Record) error {
 	if err != nil || digest(data) != record.Source.SHA256 {
 		return failure
 	}
+	if !reflect.DeepEqual(record.SBOMs, recordSBOMs()) {
+		return failure
+	}
 	if len(record.Modules) == 0 || len(record.Modules) > 4096 {
 		return failure
 	}

@@ -436,8 +436,49 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 			}
 		}
 	})
+	t.Run("ST-BLD-INV06-T Two builds from the same inputs give byte-identical executables, records and SBOMs", func(t *testing.T) {
+		for _, name := range []string{"application", "build.json", "sbom.spdx.json", "sbom.cdx.json"} {
+			if fileSHA256(t, filepath.Join(results[0], name)) != fileSHA256(t, filepath.Join(results[1], name)) {
+				t.Errorf("two builds from the same inputs gave a different %s", name)
+			}
+		}
+	})
+	t.Run("ST-BLD-UC03-R04-T01 The record names every input and output, and both SBOMs are written from it", func(t *testing.T) {
+		data, err := os.ReadFile(filepath.Join(results[0], "build.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var record appbuild.Record
+		if err := json.Unmarshal(data, &record); err != nil {
+			t.Fatal(err)
+		}
+		if record.SourceRevision != revision || record.Toolchain.Files < 1 || record.ModuleCache == nil || len(record.BuildFlags) == 0 || record.GenerationStateSHA256 == "" || record.Artifact.SHA256 != fileSHA256(t, filepath.Join(results[0], "application")) {
+			t.Fatalf("the record does not name the revision, the SDK, the cache, the settings, the generation record and the executable: %+v", record)
+		}
+		if strings.Join(record.SBOMs, " ") != "sbom.spdx.json sbom.cdx.json" {
+			t.Fatalf("the record names the SBOMs %v; expected an SPDX and a CycloneDX SBOM", record.SBOMs)
+		}
+		sboms, err := appbuild.WriteSBOMs(&record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sums, err := os.ReadFile(filepath.Join(results[0], "SHA256SUMS"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, sbom := range sboms {
+			name := sbom.Format.FileName()
+			written, err := os.ReadFile(filepath.Join(results[0], name))
+			if err != nil || string(written) != string(sbom.Document) {
+				t.Errorf("the result's %s is not the SBOM the record gives: %v", name, err)
+			}
+			if !strings.Contains(string(sums), sbom.Digest+"  "+name+"\n") {
+				t.Errorf("SHA256SUMS does not list %s", name)
+			}
+		}
+	})
 	t.Run("ST-BLD-UC03-R03-T02 Builds from the same inputs give the same executable and record", func(t *testing.T) {
-		for _, name := range []string{"application", "build.json", "SHA256SUMS"} {
+		for _, name := range []string{"application", "build.json", "sbom.spdx.json", "sbom.cdx.json", "SHA256SUMS"} {
 			if fileSHA256(t, filepath.Join(results[0], name)) != fileSHA256(t, filepath.Join(results[1], name)) {
 				t.Errorf("a later build from the same inputs gave a different %s", name)
 			}
