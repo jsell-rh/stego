@@ -31,9 +31,9 @@
 {"id":"ST-DLV-EN05-DM","title":"delivery.Application","entity_id":"ST-DLV-EN05","file":"internal/delivery/argocd.go"}
 {"id":"ST-DLV-EN06-DM","title":"delivery.Candidate","entity_id":"ST-DLV-EN06","file":"internal/delivery/check.go"}
 {"id":"ST-DLV-EN07-DM","title":"delivery.CheckResult","entity_id":"ST-DLV-EN07","file":"internal/delivery/check.go"}
-{"id":"ST-EXT-EN01-DM","title":"types.Fill","entity_id":"ST-EXT-EN01","file":"internal/types/types.go"}
-{"id":"ST-EXT-EN02-DM","title":"types.FillEvidence","entity_id":"ST-EXT-EN02","file":"internal/types/fill_evidence.go"}
-{"id":"ST-EXT-EN03-DM","title":"types.FillSignOff","entity_id":"ST-EXT-EN03","file":"internal/types/fill_signoff.go"}
+{"id":"ST-EXT-EN01-DM","title":"fill.Fill","entity_id":"ST-EXT-EN01","file":"internal/fill/fill.go"}
+{"id":"ST-EXT-EN02-DM","title":"fill.FillEvidence","entity_id":"ST-EXT-EN02","file":"internal/fill/fill_evidence.go"}
+{"id":"ST-EXT-EN03-DM","title":"fill.FillSignOff","entity_id":"ST-EXT-EN03","file":"internal/fill/fill_signoff.go"}
 {"id":"ST-GEN-EN01-DM","title":"compiler.State","entity_id":"ST-GEN-EN01","file":"internal/compiler/state.go"}
 {"id":"ST-GEN-EN02-DM","title":"compiler.ComponentState","entity_id":"ST-GEN-EN02","file":"internal/compiler/state.go"}
 {"id":"ST-GEN-EN03-DM","title":"AppliedState.Files","entity_id":"ST-GEN-EN03","file":"internal/compiler/state.go"}

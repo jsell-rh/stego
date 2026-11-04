@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/jsell-rh/stego/internal/gen"
-	"github.com/jsell-rh/stego/internal/parser"
 	"github.com/jsell-rh/stego/internal/ports"
 	"github.com/jsell-rh/stego/internal/registry"
 	"github.com/jsell-rh/stego/internal/types"
@@ -213,7 +212,7 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 	}
 
 	// Validate fills exist on disk and reference valid collections.
-	fillErrs, fillInfraErr := validateFillsExist(svcDecl.Slots, svcDecl.Collections, input.ProjectDir)
+	fillErrs, fillInfraErr := validateFillsExist(svcDecl.Slots, svcDecl.Collections, input.ProjectDir, input.ReadFill)
 	if fillInfraErr != nil {
 		return nil, fillInfraErr
 	}
@@ -1104,7 +1103,7 @@ func validateMixinUniqueness(mixins []string) []ValidationError {
 // Collection field references a defined collection name. It returns validation
 // errors for missing fills or invalid collection references, and returns an
 // infrastructure Go error for unexpected filesystem or parsing failures.
-func validateFillsExist(slots []types.SlotDeclaration, collections []types.Collection, projectDir string) ([]ValidationError, error) {
+func validateFillsExist(slots []types.SlotDeclaration, collections []types.Collection, projectDir string, readFill FillReader) ([]ValidationError, error) {
 	fillNames := collectFillNames(slots)
 	if len(fillNames) == 0 {
 		return nil, nil
@@ -1131,11 +1130,14 @@ func validateFillsExist(slots []types.SlotDeclaration, collections []types.Colle
 		}
 
 		// Parse the fill and validate its Collection field.
-		fill, err := parser.ParseFill(fillPath)
+		if readFill == nil {
+			return nil, fmt.Errorf("parsing fill %q at %s: the compiler was given no fill reader", name, fillPath)
+		}
+		collection, err := readFill(fillPath)
 		if err != nil {
 			return nil, fmt.Errorf("parsing fill %q at %s: %w", name, fillPath, err)
 		}
-		if fill.Collection != "" && !collectionNames[fill.Collection] {
+		if collection != "" && !collectionNames[collection] {
 			var names []string
 			for _, c := range collections {
 				names = append(names, c.Name)
@@ -1143,7 +1145,7 @@ func validateFillsExist(slots []types.SlotDeclaration, collections []types.Colle
 			sort.Strings(names)
 			errs = append(errs, ValidationError{
 				Category: "fill",
-				Message:  fmt.Sprintf("fill %q references collection %q which is not defined (available collections: %v)", name, fill.Collection, names),
+				Message:  fmt.Sprintf("fill %q references collection %q which is not defined (available collections: %v)", name, collection, names),
 			})
 		}
 	}

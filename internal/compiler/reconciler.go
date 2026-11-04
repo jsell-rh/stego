@@ -115,7 +115,18 @@ type ReconcilerInput struct {
 	// OutDir is the output directory for generated files. Defaults to
 	// filepath.Join(ProjectDir, "out") if empty.
 	OutDir string
+
+	// ReadFill reads the collection that each fill named in a slot binding
+	// serves. Validation needs it when a slot binding names a fill whose
+	// fill.yaml exists; cmd/stego gives fill.ReadCollection.
+	ReadFill FillReader
 }
+
+// FillReader reads the fill manifest (fill.yaml) at path and gives the
+// collection the fill serves. The compiler owns this port and Extending's
+// fill package implements it, because Generating and Declaring may not import
+// Extending (ST-STD-CODE-R03).
+type FillReader func(path string) (collection string, err error)
 
 // Reconcile computes a plan by loading the service declaration, resolving the
 // archetype, running all component generators, and assembling shared files.

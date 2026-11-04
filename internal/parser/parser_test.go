@@ -105,28 +105,6 @@ func TestParseServiceDeclaration(t *testing.T) {
 	}
 }
 
-func TestParseFill(t *testing.T) {
-	f, err := ParseFill(fixture("fill.yaml"))
-	if err != nil {
-		t.Fatalf("ParseFill: %v", err)
-	}
-	if f.Kind != "fill" {
-		t.Errorf("kind = %q, want %q", f.Kind, "fill")
-	}
-	if f.Name != "admin-creation-policy" {
-		t.Errorf("name = %q, want %q", f.Name, "admin-creation-policy")
-	}
-	if f.Implements != "rest-api.before_create" {
-		t.Errorf("implements = %q, want %q", f.Implements, "rest-api.before_create")
-	}
-	if f.Collection != "org-users" {
-		t.Errorf("collection = %q, want %q", f.Collection, "org-users")
-	}
-	if f.QualifiedBy != "jsell" {
-		t.Errorf("qualified_by = %q, want %q", f.QualifiedBy, "jsell")
-	}
-}
-
 // --- Typed parser tests ---
 
 func TestParseServiceDeclarationTyped(t *testing.T) {
@@ -136,16 +114,6 @@ func TestParseServiceDeclarationTyped(t *testing.T) {
 	}
 	if sd.Name != "user-management" {
 		t.Errorf("name = %q, want %q", sd.Name, "user-management")
-	}
-}
-
-func TestParseFillTyped(t *testing.T) {
-	f, err := ParseFill(fixture("fill.yaml"))
-	if err != nil {
-		t.Fatalf("ParseFill: %v", err)
-	}
-	if f.Name != "admin-creation-policy" {
-		t.Errorf("name = %q, want %q", f.Name, "admin-creation-policy")
 	}
 }
 
@@ -230,24 +198,6 @@ func TestRoundTripServiceDeclaration(t *testing.T) {
 	}
 	if !reflect.DeepEqual(*sd, sd2) {
 		t.Errorf("round-trip mismatch:\n  original: %+v\n  got:      %+v", *sd, sd2)
-	}
-}
-
-func TestRoundTripFill(t *testing.T) {
-	f, err := ParseFill(fixture("fill.yaml"))
-	if err != nil {
-		t.Fatalf("ParseFill: %v", err)
-	}
-	data, err := yaml.Marshal(f)
-	if err != nil {
-		t.Fatalf("Marshal: %v", err)
-	}
-	var f2 types.Fill
-	if err := yaml.Unmarshal(data, &f2); err != nil {
-		t.Fatalf("Unmarshal round-trip: %v", err)
-	}
-	if !reflect.DeepEqual(*f, f2) {
-		t.Errorf("round-trip mismatch:\n  original: %+v\n  got:      %+v", *f, f2)
 	}
 }
 

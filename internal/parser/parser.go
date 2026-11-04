@@ -97,11 +97,6 @@ func ParseServiceDeclarationFromBytes(data []byte, path string) (*types.ServiceD
 
 func serviceKind(s *types.ServiceDeclaration) string { return s.Kind }
 
-// ParseFill reads and parses a fill YAML file.
-func ParseFill(path string) (*types.Fill, error) {
-	return ReadKind(path, "fill", func(f *types.Fill) string { return f.Kind })
-}
-
 // ReadKind reads a bounded YAML file and decodes it as ParseKind does.
 func ReadKind[T any](path, expectedKind string, kind func(*T) string) (*T, error) {
 	data, err := ReadDocument(path)

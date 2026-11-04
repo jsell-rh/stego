@@ -144,6 +144,15 @@ type ScalarForm interface {
 
 var scalarFormType = reflect.TypeFor[ScalarForm]()
 
+// RenamedKeys is a type whose UnmarshalYAML refuses keys that were renamed,
+// with a message that names the new key, such as the entity key of a slot
+// binding or a fill, now collection. The strict decoder accepts those keys, so
+// that the type's own message is the one reported. A fill implements it, so
+// that this package need not import Extending.
+type RenamedKeys interface {
+	YAMLRenamedKeys() []string
+}
+
 func checkSchema(data []byte, path string, node *yaml.Node, typ reflect.Type, location string) error {
 	for typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
@@ -194,8 +203,10 @@ func checkSchema(data []byte, path string, node *yaml.Node, typ reflect.Type, lo
 			// Retain the existing migration diagnostic for the old syntax.
 			fields["expose"] = reflect.TypeFor[any]()
 		}
-		if typ == reflect.TypeFor[types.SlotDeclaration]() || typ == reflect.TypeFor[types.Fill]() {
-			fields["entity"] = reflect.TypeFor[string]()
+		if renamed, ok := reflect.New(typ).Interface().(RenamedKeys); ok {
+			for _, key := range renamed.YAMLRenamedKeys() {
+				fields[key] = reflect.TypeFor[string]()
+			}
 		}
 		for i := 0; i < len(node.Content); i += 2 {
 			key, value := node.Content[i], node.Content[i+1]

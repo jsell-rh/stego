@@ -6,8 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/parser"
 )
 
 // setupValidateProject creates a temporary project with a valid service.yaml
@@ -124,6 +126,7 @@ message SlotResult {
 	}
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -188,6 +191,7 @@ collections:
 				projectDir, registryDir, _ := setupValidateProject(t)
 				writeFile(t, filepath.Join(projectDir, "service.yaml"), fmt.Sprintf(body, c.archetype))
 				input := ReconcilerInput{
+					ReadFill:    readTestFill,
 					ProjectDir:  projectDir,
 					RegistryDir: registryDir,
 					Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -244,6 +248,7 @@ bindings:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -275,6 +280,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -306,6 +312,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -337,6 +344,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -368,6 +376,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -399,6 +408,7 @@ slots: []
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -435,6 +445,7 @@ slots:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -482,6 +493,7 @@ qualified_at: 2026-04-01
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -534,6 +546,7 @@ qualified_at: 2026-04-01
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -566,6 +579,7 @@ collections:
 `)
 
 		input := ReconcilerInput{
+			ReadFill:    readTestFill,
 			ProjectDir:  projectDir,
 			RegistryDir: registryDir,
 			Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -606,6 +620,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -637,6 +652,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -685,6 +701,7 @@ qualified_at: 2026-04-01
 `)
 
 		input := ReconcilerInput{
+			ReadFill:    readTestFill,
 			ProjectDir:  projectDir,
 			RegistryDir: registryDir,
 			Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -735,6 +752,7 @@ qualified_at: 2026-04-01
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -768,6 +786,7 @@ collections:
 `)
 
 		input := ReconcilerInput{
+			ReadFill:    readTestFill,
 			ProjectDir:  projectDir,
 			RegistryDir: registryDir,
 			Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -845,6 +864,7 @@ collections:
 `)
 
 		input := ReconcilerInput{
+			ReadFill:    readTestFill,
 			ProjectDir:  projectDir,
 			RegistryDir: registryDir,
 			Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -902,6 +922,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -935,6 +956,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -966,6 +988,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -998,6 +1021,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1046,6 +1070,7 @@ slots:
 	writeFile(t, filepath.Join(fillsDir, "my-policy"), "not a directory")
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1125,6 +1150,7 @@ slots:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &slotConsumingStub{slots: []string{"on_entity_changed"}}, "stub-store": &stubGenerator{}},
@@ -1203,6 +1229,7 @@ slots:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1236,6 +1263,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1268,6 +1296,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1312,6 +1341,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1351,6 +1381,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1389,6 +1420,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1429,6 +1461,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1467,6 +1500,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1508,6 +1542,7 @@ collections:
 `)
 
 		input := ReconcilerInput{
+			ReadFill:    readTestFill,
 			ProjectDir:  projectDir,
 			RegistryDir: registryDir,
 			Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1542,6 +1577,7 @@ collections:
 `)
 
 		input := ReconcilerInput{
+			ReadFill:    readTestFill,
 			ProjectDir:  projectDir,
 			RegistryDir: registryDir,
 			Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1576,6 +1612,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1609,6 +1646,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1646,6 +1684,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1678,6 +1717,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1713,6 +1753,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1752,6 +1793,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1792,6 +1834,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1832,6 +1875,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1879,6 +1923,7 @@ collections:
 `)
 
 		input := ReconcilerInput{
+			ReadFill:    readTestFill,
 			ProjectDir:  projectDir,
 			RegistryDir: registryDir,
 			Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1913,6 +1958,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -1972,6 +2018,7 @@ qualified_at: 2026-04-01
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -2025,6 +2072,7 @@ qualified_at: 2026-04-01
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -2083,6 +2131,7 @@ qualified_at: 2026-04-01
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -2141,6 +2190,7 @@ qualified_at: 2026-04-01
 	}
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -2200,6 +2250,7 @@ qualified_at: 2026-04-01
 	}
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -2236,6 +2287,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -2267,6 +2319,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -2304,6 +2357,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -2342,6 +2396,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -2381,6 +2436,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -2418,6 +2474,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -2451,6 +2508,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -2497,6 +2555,7 @@ slots:
 `)
 
 		input := ReconcilerInput{
+			ReadFill:    readTestFill,
 			ProjectDir:  projectDir,
 			RegistryDir: registryDir,
 			Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -2550,6 +2609,7 @@ qualified_at: 2026-04-01
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -2609,6 +2669,7 @@ qualified_at: 2026-04-01
 	}
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -2662,6 +2723,7 @@ qualified_at: 2026-04-01
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -2715,6 +2777,7 @@ qualified_at: 2026-04-01
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -2770,6 +2833,7 @@ qualified_at: 2026-04-01
 	}
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -2834,6 +2898,7 @@ mixins:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -2887,6 +2952,7 @@ mixins:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -2947,6 +3013,7 @@ qualified_at: 2026-04-01
 	}
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -3003,6 +3070,7 @@ qualified_at: 2026-04-01
 	}
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -3059,6 +3127,7 @@ qualified_at: 2026-04-01
 	}
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -3117,6 +3186,7 @@ qualified_at: 2026-04-01
 	}
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -3148,6 +3218,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -3179,6 +3250,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -3211,6 +3283,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -3247,6 +3320,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -3285,6 +3359,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -3320,6 +3395,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -3352,6 +3428,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -3468,6 +3545,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -3507,6 +3585,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -3540,6 +3619,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -3572,6 +3652,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -3604,6 +3685,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -3637,6 +3719,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -3676,6 +3759,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -3709,6 +3793,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -3742,6 +3827,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -3991,6 +4077,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -4035,6 +4122,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -4068,6 +4156,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -4108,6 +4197,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -4141,6 +4231,7 @@ collections:
 `)
 
 	input := ReconcilerInput{
+		ReadFill:    readTestFill,
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -4270,6 +4361,7 @@ message SlotResult { bool ok = 1; }
 `)
 
 		input := ReconcilerInput{
+			ReadFill:    readTestFill,
 			ProjectDir:  projectDir,
 			RegistryDir: registryDir,
 			Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
@@ -4290,4 +4382,24 @@ message SlotResult { bool ok = 1; }
 			t.Fatalf("unconsumed slot binding did not fail validation: %v", result.Errors)
 		}
 	})
+}
+
+// readTestFill reads a fill manifest through the strict decoder, as
+// fill.ReadCollection does, and gives the collection it serves. The compiler's
+// tests use it because Generating may not import Extending (ST-STD-CODE-R03);
+// the tests of cmd/stego run the compiler with fill.ReadCollection.
+func readTestFill(path string) (string, error) {
+	type manifest struct {
+		Kind        string    `yaml:"kind"`
+		Name        string    `yaml:"name"`
+		Implements  string    `yaml:"implements"`
+		Collection  string    `yaml:"collection"`
+		QualifiedBy string    `yaml:"qualified_by"`
+		QualifiedAt time.Time `yaml:"qualified_at"`
+	}
+	m, err := parser.ReadKind(path, "fill", func(m *manifest) string { return m.Kind })
+	if err != nil {
+		return "", err
+	}
+	return m.Collection, nil
 }

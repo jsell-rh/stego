@@ -53,22 +53,6 @@ func TestStrictServiceInput(t *testing.T) {
 	}
 }
 
-func TestStrictOtherDeclarations(t *testing.T) {
-	tests := []struct {
-		name, input, want string
-		target            any
-	}{
-		{"fill", "kind: fill\nqualifed_by: operator\n", "qualifed_by", &types.Fill{}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := DecodeStrict([]byte(tt.input), tt.name+".yaml", tt.target); err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("got %v, want error containing %q", err, tt.want)
-			}
-		})
-	}
-}
-
 func TestStrictLimits(t *testing.T) {
 	t.Run("ST-DECL-INV04-T A declaration beyond 4 MiB or 128 levels is refused", func(t *testing.T) {
 		var service types.ServiceDeclaration

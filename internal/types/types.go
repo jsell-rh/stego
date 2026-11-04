@@ -3,7 +3,6 @@ package types
 import (
 	"fmt"
 	"sort"
-	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -229,6 +228,11 @@ type SlotDeclaration struct {
 	ShortCircuit bool     `yaml:"short_circuit,omitempty"`
 }
 
+// YAMLRenamedKeys marks SlotDeclaration as a parser.RenamedKeys: the strict
+// decoder lets the renamed entity key through, so that UnmarshalYAML reports
+// its rename.
+func (SlotDeclaration) YAMLRenamedKeys() []string { return []string{"entity"} }
+
 // UnmarshalYAML detects the deprecated `entity:` key (renamed to `collection:`
 // in the Collection type system migration) and returns a migration error.
 func (sd *SlotDeclaration) UnmarshalYAML(value *yaml.Node) error {
@@ -442,33 +446,4 @@ func (sd ServiceDeclaration) MarshalYAML() (any, error) {
 	}
 
 	return &m, nil
-}
-
-// Fill represents a human-authored implementation of a slot contract.
-type Fill struct {
-	Kind        string    `yaml:"kind"`
-	Name        string    `yaml:"name"`
-	Implements  string    `yaml:"implements"`
-	Collection  string    `yaml:"collection"`
-	QualifiedBy string    `yaml:"qualified_by"`
-	QualifiedAt time.Time `yaml:"qualified_at"`
-}
-
-// UnmarshalYAML detects the deprecated `entity:` key (renamed to `collection:`
-// in the Collection type system migration) and returns a migration error.
-func (f *Fill) UnmarshalYAML(value *yaml.Node) error {
-	if value.Kind == yaml.MappingNode {
-		for i := 0; i < len(value.Content)-1; i += 2 {
-			if value.Content[i].Value == "entity" {
-				return fmt.Errorf("the 'entity' key in fill declarations has been renamed to 'collection' — please update your fill.yaml")
-			}
-		}
-	}
-	type rawFill Fill
-	var raw rawFill
-	if err := value.Decode(&raw); err != nil {
-		return err
-	}
-	*f = Fill(raw)
-	return nil
 }

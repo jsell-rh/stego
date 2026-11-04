@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/registry"
+	"github.com/jsell-rh/stego/internal/fill"
 	"github.com/jsell-rh/stego/internal/types"
 	"gopkg.in/yaml.v3"
 )
@@ -176,18 +177,18 @@ func TestRunFillCreate(t *testing.T) {
 		t.Fatalf("fill.yaml not created: %v", err)
 	}
 
-	var fill types.Fill
-	if err := yaml.Unmarshal(data, &fill); err != nil {
+	var manifest fill.Fill
+	if err := yaml.Unmarshal(data, &manifest); err != nil {
 		t.Fatalf("fill.yaml is not valid YAML: %v", err)
 	}
-	if fill.Kind != "fill" {
-		t.Errorf("expected kind=fill, got %q", fill.Kind)
+	if manifest.Kind != "fill" {
+		t.Errorf("expected kind=fill, got %q", manifest.Kind)
 	}
-	if fill.Name != "my-policy" {
-		t.Errorf("expected name=my-policy, got %q", fill.Name)
+	if manifest.Name != "my-policy" {
+		t.Errorf("expected name=my-policy, got %q", manifest.Name)
 	}
-	if fill.Implements != "rest-api.before_create" {
-		t.Errorf("expected implements=rest-api.before_create, got %q", fill.Implements)
+	if manifest.Implements != "rest-api.before_create" {
+		t.Errorf("expected implements=rest-api.before_create, got %q", manifest.Implements)
 	}
 
 	// Verify fill.go was created.
@@ -441,15 +442,15 @@ func TestRunFillCreateWithCollection(t *testing.T) {
 		t.Fatalf("fill.yaml not created: %v", err)
 	}
 
-	var fill types.Fill
-	if err := yaml.Unmarshal(data, &fill); err != nil {
+	var manifest fill.Fill
+	if err := yaml.Unmarshal(data, &manifest); err != nil {
 		t.Fatalf("fill.yaml is not valid YAML: %v", err)
 	}
-	if fill.Collection != "org-users" {
-		t.Errorf("expected collection=org-users, got %q", fill.Collection)
+	if manifest.Collection != "org-users" {
+		t.Errorf("expected collection=org-users, got %q", manifest.Collection)
 	}
-	if fill.Implements != "rest-api.before_create" {
-		t.Errorf("expected implements=rest-api.before_create, got %q", fill.Implements)
+	if manifest.Implements != "rest-api.before_create" {
+		t.Errorf("expected implements=rest-api.before_create, got %q", manifest.Implements)
 	}
 }
 
@@ -542,12 +543,12 @@ func TestRunRegistryFills(t *testing.T) {
 	}
 
 	// Create a fill that implements before_create.
-	fill := types.Fill{
+	manifest := fill.Fill{
 		Kind:       "fill",
 		Name:       "my-fill",
 		Implements: "rest-api.before_create",
 	}
-	fillData, _ := yaml.Marshal(fill)
+	fillData, _ := yaml.Marshal(manifest)
 	if err := os.WriteFile(filepath.Join(fillDir, "fill.yaml"), fillData, 0644); err != nil {
 		t.Fatal(err)
 	}
