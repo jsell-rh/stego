@@ -10,6 +10,7 @@
 {"source_id":"ST-BLD-CH03","target_id":"ST-BLD-CLI04"}
 {"source_id":"ST-BLD-CH03","target_id":"ST-BLD-CLI06"}
 {"source_id":"ST-BLD-CH03","target_id":"ST-BLD-CLI09"}
+{"source_id":"ST-BLD-CH03","target_id":"ST-BLD-CLI10"}
 {"source_id":"ST-BLD-CH04","target_id":"ST-BLD-CLI05"}
 {"source_id":"ST-DECL-CH01","target_id":"ST-DECL-CLI01"}
 {"source_id":"ST-DECL-CH01","target_id":"ST-DECL-CLI02"}
@@ -40,3 +41,15 @@
 {"source_id":"ST-SUP-CH01","target_id":"ST-SUP-CLI01"}
 {"source_id":"ST-SUP-CH02","target_id":"ST-SUP-CLI04"}
 {"source_id":"ST-SUP-CH03","target_id":"ST-SUP-CLI05"}
+{"source_id":"ST-SUP-CH04","target_id":"ST-SUP-CLI07"}
+{"source_id":"ST-SUP-CH05","target_id":"ST-SUP-CLI08"}
+{"source_id":"ST-SUP-CH06","target_id":"ST-SUP-CLI09"}
+{"source_id":"ST-SUP-CH07","target_id":"ST-SUP-CLI10"}
+{"source_id":"ST-SUP-CH08","target_id":"ST-SUP-CLI11"}
+{"source_id":"ST-SUP-CH09","target_id":"ST-SUP-CLI12"}
+{"source_id":"ST-SUP-CH10","target_id":"ST-SUP-CLI13"}
+{"source_id":"ST-SUP-CH11","target_id":"ST-SUP-CLI14"}
+{"source_id":"ST-SUP-CH12","target_id":"ST-SUP-CLI15"}
+{"source_id":"ST-SUP-CH13","target_id":"ST-SUP-CLI16"}
+{"source_id":"ST-SUP-CH14","target_id":"ST-SUP-CLI17"}
+{"source_id":"ST-SUP-CH15","target_id":"ST-SUP-CLI18"}
