@@ -34,9 +34,9 @@
 {"id":"ST-BLD-UC05-FL-S01","title":"The operator runs image build from the trusted build, and STEGO writes a scratch image and its record","flow_id":"ST-BLD-UC05-FL","path":"main","position":1}
 {"id":"ST-BLD-UC05-FL-S02","title":"The provider's trusted signer signs the image and attaches both SBOMs","flow_id":"ST-BLD-UC05-FL","path":"main","position":2}
 {"id":"ST-BLD-UC05-FL-S03","title":"An untrusted build record or CA bundle stops image build","flow_id":"ST-BLD-UC05-FL","path":"refused","position":1}
-{"id":"ST-BLD-UC06-FL-S01","title":"The operator runs image publish, and STEGO pushes the image and reads it back","flow_id":"ST-BLD-UC06-FL","path":"main","position":1}
+{"id":"ST-BLD-UC06-FL-S01","title":"The operator runs image publish with the image's signature, and STEGO checks the signature, pushes the image and reads it back","flow_id":"ST-BLD-UC06-FL","path":"main","position":1}
 {"id":"ST-BLD-UC06-FL-S03","title":"The push fails or the read-back differs, so STEGO names the digest it pushed and the digest it read, writes no publication record, and the operator runs publish again","flow_id":"ST-BLD-UC06-FL","path":"failed","position":1}
-{"id":"ST-BLD-UC06-FL-S04","title":"The local image does not match its record, so STEGO refuses to push and names what differs","flow_id":"ST-BLD-UC06-FL","path":"refused","position":1}
+{"id":"ST-BLD-UC06-FL-S04","title":"The local image does not match its record, or its signature by the trusted signer is missing or does not verify, so STEGO refuses to push and names what differs","flow_id":"ST-BLD-UC06-FL","path":"refused","position":1}
 {"id":"ST-BLD-UC06-FL-S05","title":"The target image reference carries a tag, the CA bundle digest differs or the credentials are missing, so STEGO refuses before it opens a connection and names the input","flow_id":"ST-BLD-UC06-FL","path":"refused","position":2}
 {"id":"ST-BLD-UC06-FL-S06","title":"The operator runs image export, and STEGO checks the image and writes it as an archive that a container engine can load","flow_id":"ST-BLD-UC06-FL","path":"export","position":1}
 {"id":"ST-BLD-UC07-FL-S01","title":"A consumer runs image retrieve, and STEGO checks the image, its build and its signature","flow_id":"ST-BLD-UC07-FL","path":"main","position":1}

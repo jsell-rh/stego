@@ -34,7 +34,7 @@ func TestImageRetrieveThroughTheCommand(t *testing.T) {
 		manifest, _ := imageRecordOf(t, image)
 		registry := newRegistry(t)
 		access := registry.accessArgs("application")
-		mustStego(t, publishArgs(image, recordSHA256, filepath.Join(t.TempDir(), "published"), access)...)
+		mustStego(t, publishArgs(image, recordSHA256, filepath.Join(t.TempDir(), "published"), access, signature)...)
 		work := filepath.Join(t.TempDir(), "retrieved")
 		mustStego(t, retrieveArgs(image, recordSHA256, work, access, signature)...)
 		receipt := registryReceipt(t, work)

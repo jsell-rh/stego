@@ -33,6 +33,14 @@ class DeliveryTests(unittest.TestCase):
         self.items = [{"name": name, "module": ".", "target": "out", "entrypoint": "service",
                        "build_record_sha256": "a" * 64, "image_record_sha256": "b" * 64,
                        "manifest_sha256": ("c" if name == "api" else "d") * 64} for name in ["api", "console"]]
+        for item in self.items:
+            folder = self.images / item["name"]
+            folder.mkdir()
+            for name in delivery.BUNDLES.values():
+                (folder / name).write_bytes(b"signature bundle fixture")
+        self.signer = {"issuer": "https://token.actions.githubusercontent.com",
+                       "subject": "https://github.com/example/stego/.github/workflows/application-build.yml@refs/heads/main",
+                       "gh": "/usr/bin/gh", "source_repository": "example/stego"}
         self.save_set()
         self.calls = []
 
@@ -44,7 +52,8 @@ class DeliveryTests(unittest.TestCase):
     def publish(self, **kwargs):
         options = dict(images=self.images, expected=self.expected, source=self.root / "source",
                        compiler=self.compiler, compiler_sha256=self.compiler_sha, repository="registry.test/instance",
-                       ca=self.ca, ca_sha256="e" * 64, output=self.output, token_file=self.token, username="serviceaccount")
+                       ca=self.ca, ca_sha256="e" * 64, output=self.output, token_file=self.token, username="serviceaccount",
+                       signer=self.signer)
         options.update(kwargs)
         return delivery.publish(**options)
 
@@ -52,7 +61,7 @@ class DeliveryTests(unittest.TestCase):
         self.calls.append(args[1:3])
         self.assertEqual(Path(args[0]).read_bytes(), self.compiler.read_bytes())
         self.assertEqual(Path(args[0]).stat().st_mode & 0o777, 0o700)
-        self.assertEqual(set(env), {"PATH", "LANG", "LC_ALL", "HOME", "TMPDIR", "GOMAXPROCS", "GOMEMLIMIT"})
+        self.assertEqual(set(env) - {"GH_TOKEN", "GITHUB_TOKEN"}, {"PATH", "LANG", "LC_ALL", "HOME", "TMPDIR", "GOMAXPROCS", "GOMEMLIMIT"})
         self.assertEqual(limits, {"timeout": 310, "limit": 1 << 20})
         if args[1:3] != ["image", "publish"]:
             self.assertFalse(list(cwd.glob("credentials.json")))
@@ -62,6 +71,10 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(credential.stat().st_mode & 0o777, 0o600)
         self.assertEqual(credential.read_bytes(), b'{"username":"serviceaccount","password":"fixture.token.value"}\n')
         work = Path(args[args.index("--work") + 1])
+        for flag, name in delivery.BUNDLES.items():
+            self.assertEqual(Path(args[args.index(flag) + 1]), self.images / work.name / name)
+        for key, flag in delivery.SIGNER.items():
+            self.assertEqual(args[args.index(flag) + 1], self.signer[key])
         work.mkdir()
         selected = next(item for item in self.items if item["name"] == work.name)
         repository = "registry.test/instance/" + work.name
@@ -82,6 +95,17 @@ class DeliveryTests(unittest.TestCase):
         self.assertTrue((self.output / "source-check.json").is_file())
         self.assertEqual(list(self.output.glob(".private-*")), [])
         self.assertNotIn(b"fixture.token.value", (self.output / "publication.json").read_bytes())
+
+    def test_ST_BLD_UC06_R01_T01_an_unsigned_image_or_no_signer_is_refused_before_any_command(self):
+        (self.images / "console" / "sbom.cdx.bundle.json").unlink()
+        for name, options in [("unsigned image", {}), ("no signer", {"signer": None})]:
+            with self.subTest(name), patch.object(delivery.records.verification.control, "command") as command:
+                with self.assertRaisesRegex(delivery.CheckError, "signature bundle|trusted signer"):
+                    self.publish(output=self.root / name.replace(" ", "-"), **options)
+                if name == "no signer":
+                    command.assert_not_called()
+                self.assertNotIn(["image", "publish"], [call.args[0][1:3] for call in command.call_args_list])
+                self.assertFalse(list((self.root / name.replace(" ", "-")).glob("**/credentials.json")))
 
     def test_wrong_compiler_or_set_digest_never_executes(self):
         for key in ["expected", "compiler_sha256"]:

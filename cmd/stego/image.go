@@ -94,10 +94,12 @@ func runImage(args []string) error {
 			return fmt.Errorf("registry image commands accept no positional arguments")
 		}
 		if args[0] == "publish" {
+			signature, err := check()
+			if err != nil {
+				return err
+			}
+			options.Signature = signature
 			if *after == "" {
-				if signed := signatureFlagSet(flags); signed != "" {
-					return fmt.Errorf("image publish takes --%s only with --after", signed)
-				}
 				published, err := appbuild.PublishImage(ctx, options)
 				if err != nil {
 					return err
@@ -108,13 +110,8 @@ func runImage(args []string) error {
 			if err := readEvent(*after, &event); err != nil {
 				return err
 			}
-			signature, err := check()
-			if err != nil {
-				return err
-			}
 			image := options.Image
 			options.Image = ""
-			options.Signature = signature
 			_, raised, err := appbuild.PublishImageOnImageSigned(ctx, event, image, options)
 			if err != nil {
 				return err

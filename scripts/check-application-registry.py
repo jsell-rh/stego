@@ -20,10 +20,10 @@ GITHUB_ISSUER = 'https://token.actions.githubusercontent.com'
 
 
 def add_signature_arguments(parser):
-    # The signature check of stego image verify and image retrieve (ST-BLD-CLI09, CLI10).
+    # The signature check of stego image publish and image retrieve (ST-BLD-CLI06, CLI10).
     # The bundles are the CI provider's SBOM attestations about the image digest. A job
     # that has no bundles yet passes none, and the checks then show that an unsigned
-    # image is refused.
+    # image is neither published nor retrieved (ST-BLD-UC06-R01, ST-BLD-PO03).
     parser.add_argument('--spdx-bundle', type=Path)
     parser.add_argument('--cyclonedx-bundle', type=Path)
     parser.add_argument('--signer-issuer', default=GITHUB_ISSUER)
@@ -59,6 +59,8 @@ def main():
     parser.add_argument('--compiler-revision', default=os.environ.get('GITHUB_SHA'))
     parser.add_argument('--source', type=Path, help='Check common delivery from the complete selected source')
     add_signature_arguments(parser)
+    parser.add_argument('--image-signed', type=Path,
+                        help='The Image signed event that stego image sign printed; publish once more with --after')
     args = parser.parse_args()
     if os.environ.get('CI') != 'true':
         raise SystemExit('The registry gate requires CI')
@@ -90,17 +92,25 @@ def main():
                     '--credentials=' + str(fixture / 'credentials.json')]
             def check(label, operation, replacements=None, reason=None, omit=()):
                 options = dict(arg.split('=', 1) for arg in base)
-                if operation == 'retrieve':
-                    # Retrieval checks the signature before it writes the image (ST-BLD-UC07-R01).
-                    options.update(signature)
+                # Publication checks the signature before it pushes (ST-BLD-UC06-R01), and
+                # retrieval before it writes the image (ST-BLD-UC07-R01).
+                options.update(signature)
+                command = operation
+                if operation == 'publish-after':
+                    # The policy's way in (ST-BLD-PO03): the Image signed event and the image folder.
+                    command = 'publish'
+                    for key in ['--record', '--record-sha256', '--build-record']:
+                        del options[key]
+                    options['--after'] = str(args.image_signed)
+                    options['--image'] = str(args.image)
+                elif operation == 'publish':
+                    options['--image'] = str(args.image / 'oci')
                 options.update(replacements or {})
                 for key in omit:
                     del options[key]
                 work = args.output / label
                 options['--work'] = str(work)
-                if operation == 'publish':
-                    options['--image'] = str(args.image / 'oci')
-                result = subprocess.run([str(args.compiler), 'image', operation] + [key + '=' + value for key, value in options.items()],
+                result = subprocess.run([str(args.compiler), 'image', command] + [key + '=' + value for key, value in options.items()],
                                         capture_output=True, timeout=180)
                 if reason:
                     assert result.returncode != 0 and reason in result.stderr.decode(errors='replace'), (label, result.stderr)
@@ -108,7 +118,7 @@ def main():
                 else:
                     assert result.returncode == 0, (label, result.stderr)
                     receipt = json.loads((work / 'registry.json').read_text())
-                    assert receipt['operation'] == operation and receipt['image_contents_verified'] is True
+                    assert receipt['operation'] == command and receipt['image_contents_verified'] is True
                     assert receipt['reference'] == repository + '@sha256:' + image['manifest']['sha256']
                     assert receipt['image_record_sha256'] == sha(record)
                     for name in ['manifest', 'config', 'layer']:
@@ -116,23 +126,27 @@ def main():
                         file = work / 'oci/blobs/sha256' / expected['sha256']
                         assert file.stat().st_size == expected['size'] and sha(file) == expected['sha256']
                 cases.append({'name': label, 'operation': operation, 'expected_success': reason is None})
-            check('published', 'publish')
-            check('repeated-publication', 'publish')
             if signed:
+                check('published', 'publish')
+                check('repeated-publication', 'publish')
+                if args.image_signed is not None:
+                    check('published-after', 'publish-after')
                 check('retrieved', 'retrieve')
             else:
-                # Without the provider's bundles, the pulled image passes every
-                # other check and is then refused as unsigned and written nowhere.
-                check('retrieved-unsigned', 'retrieve', reason='the SPDX signature bundle')
-                assert not (args.output / 'retrieved-unsigned' / 'oci').exists()
+                # Without the provider's bundles, the image passes every other
+                # check and is then refused as unsigned: it is not published,
+                # so the registry holds nothing to retrieve.
+                check('published-unsigned', 'publish', reason='the SPDX signature bundle')
+            check('publish-missing-signature-flag', 'publish', reason='image publish requires --spdx-bundle', omit=('--spdx-bundle',))
             check('retrieve-missing-signature-flag', 'retrieve', reason='image retrieve requires --spdx-bundle', omit=('--spdx-bundle',))
             check('wrong-record', 'publish', {'--record-sha256': '0' * 64}, 'image record digest differs')
             check('wrong-registry-ca', 'retrieve', {'--registry-ca-sha256': '0' * 64}, 'registry CA digest differs')
-            wrong = args.output / 'wrong-credentials.json'
-            wrong.write_bytes(b'{"username":"test","password":"incorrect-fixture"}\n')
-            wrong.chmod(0o600)
-            check('wrong-credentials', 'publish', {'--credentials': str(wrong)}, 'registry publication failed')
-            wrong.unlink()
+            if signed:
+                wrong = args.output / 'wrong-credentials.json'
+                wrong.write_bytes(b'{"username":"test","password":"incorrect-fixture"}\n')
+                wrong.chmod(0o600)
+                check('wrong-credentials', 'publish', {'--credentials': str(wrong)}, 'registry publication failed')
+                wrong.unlink()
             delivery_checked = False
             if args.source is not None:
                 spec = importlib.util.spec_from_file_location('delivery', Path(__file__).with_name('application-images.py'))
@@ -155,17 +169,37 @@ def main():
                             'image_record_sha256': sha(record), 'manifest_sha256': image['manifest']['sha256']}
                     delivery.save(selected / 'images.json', {'format': 1, 'images': [item]})
                     shutil.copytree(args.image, selected / 'application')
+                    if signed:
+                        # Delivery publishes only a signed image (ST-BLD-UC06-R01): the
+                        # provider's bundles go beside the image record.
+                        for bundle, name in [(args.spdx_bundle, 'sbom.spdx.bundle.json'), (args.cyclonedx_bundle, 'sbom.cdx.bundle.json')]:
+                            shutil.copyfile(bundle, selected / 'application' / name)
+                    signer = {'issuer': args.signer_issuer, 'subject': args.signer_subject, 'gh': str(args.gh),
+                              'source_repository': args.source_repository}
                     token = args.output / 'delivery-token'
                     token.write_text('fixture-credential')
                     token.chmod(0o600)
                     try:
-                        result = delivery.publish(selected, sha(selected / 'images.json'), source, args.compiler,
-                                                  sha(args.compiler), repository.rsplit('/', 1)[0], fixture / 'ca.pem',
-                                                  sha(fixture / 'ca.pem'), args.output / 'delivery',
-                                                  token_file=token, username='test')
+                        def deliver():
+                            return delivery.publish(selected, sha(selected / 'images.json'), source, args.compiler,
+                                                    sha(args.compiler), repository.rsplit('/', 1)[0], fixture / 'ca.pem',
+                                                    sha(fixture / 'ca.pem'), args.output / 'delivery',
+                                                    token_file=token, username='test', signer=signer)
+                        if signed:
+                            result = deliver()
+                        else:
+                            # An unsigned image set is refused before any credential exists.
+                            try:
+                                deliver()
+                            except delivery.CheckError as error:
+                                assert 'signature bundle' in str(error), error
+                            else:
+                                raise AssertionError('Delivery published an unsigned image')
+                            assert not list((args.output / 'delivery').glob('**/credentials.json'))
                     finally:
                         token.unlink()
-                    assert result['images'] == {'application': repository + '@sha256:' + image['manifest']['sha256']}
+                    if signed:
+                        assert result['images'] == {'application': repository + '@sha256:' + image['manifest']['sha256']}
                     assert not list((args.output / 'delivery').glob('.private-*'))
                     delivery_checked = True
                 finally:
@@ -174,11 +208,12 @@ def main():
                         shutil.rmtree(args.output / 'delivery-inputs')
             report = {'compiler_source': args.compiler_revision, 'image_record_sha256': sha(record),
                       'manifest_sha256': image['manifest']['sha256'], 'application': image['application'],
-                      'cases': cases, 'TLS_registry_round_trip_checked': True,
+                      'cases': cases, 'TLS_registry_round_trip_checked': signed,
                       'registry_profile': 'private CI fixture', 'production_registry_checked': False,
                       'application_executed': False, 'signature_checked': signed}
             if args.source is not None:
                 report['common_delivery_checked'] = delivery_checked
+                report['common_delivery_signed'] = signed
         finally:
             if process is not None:
                 process.terminate()
