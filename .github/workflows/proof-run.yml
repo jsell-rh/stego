@@ -110,9 +110,14 @@ jobs:
           git fetch --no-tags origin "$BASE"
           merge_base="$(git merge-base "$BASE" HEAD)"
           echo "ASSURE_RATCHET_BASE=$merge_base" >> "$GITHUB_ENV"
+      # The build tests of Building run a real stego build, which accepts only the pinned official Go SDK archive,
+      # not the toolchain setup-go installs. Without it they skip, and a skipped test is no proof.
+      - name: Prepare the pinned official SDK for the build tests
+        run: python3 -B scripts/prepare-compiler-toolchain.py --download --output "$RUNNER_TEMP/pinned-sdk"
       - name: Run the Go suites
         timeout-minutes: 25
         env:
+          STEGO_TEST_PINNED_GO: ${{ runner.temp }}/pinned-sdk/go/bin/go
           STEGO_REQUIRE_NODE: '1'
           STEGO_REQUIRE_POSTGRES: '1'
           STEGO_REQUIRE_LATHE: '1'
