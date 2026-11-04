@@ -9,6 +9,6 @@
 {"id":"ST-EXT-DS01-SV","title":"fill.Digest","domain_service_id":"ST-EXT-DS01","file":"internal/fill/digest.go"}
 {"id":"ST-EXT-DS02-SV","title":"fill.VerifySignOff","domain_service_id":"ST-EXT-DS02","file":"internal/fill/signoff.go"}
 {"id":"ST-GEN-DS01-SV","title":"compiler.ComponentDigest","domain_service_id":"ST-GEN-DS01","file":"internal/compiler/component_digest.go"}
-{"id":"ST-GEN-DS02-SV","title":"gen.Generator","domain_service_id":"ST-GEN-DS02","file":"internal/gen/gen.go"}
+{"id":"ST-GEN-DS02-SV","title":"gen.Generator","domain_service_id":"ST-GEN-DS02","file":"internal/compiler/reconciler.go"}
 {"id":"ST-GEN-DS03-SV","title":"compiler.Assemble","domain_service_id":"ST-GEN-DS03","file":"internal/compiler/assembler.go"}
 {"id":"ST-GEN-DS04-SV","title":"compiler.DeriveArchitecture","domain_service_id":"ST-GEN-DS04","file":"internal/compiler/architecture.go"}
