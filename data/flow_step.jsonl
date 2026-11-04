@@ -208,10 +208,8 @@
 {"id":"ST-GEN-UC10-FL-S06","title":"Apply refuses the same service for the same reason and writes nothing, until the author moves it with the fixer","flow_id":"ST-GEN-UC10-FL","path":"past fail date","position":2}
 {"id":"ST-GEN-UC10-FL-S07","title":"The fixer cannot rewrite a construct, so it names each one with its path and writes nothing, and the agent rewrites them by hand","flow_id":"ST-GEN-UC10-FL","path":"unfixable","position":1}
 {"id":"ST-GEN-UC10-FL-S08","title":"The agent runs validate again, and STEGO accepts the declaration version or names the faults that remain","flow_id":"ST-GEN-UC10-FL","path":"unfixable","position":2}
-{"id":"ST-SUP-UC01-FL-S01","title":"The platform engineer defines each port the component provides that the registry does not hold yet","flow_id":"ST-SUP-UC01-FL","path":"main","position":1}
-{"id":"ST-SUP-UC01-FL-S02","title":"The platform engineer declares each slot the component offers, with its protobuf contract","flow_id":"ST-SUP-UC01-FL","path":"main","position":2}
-{"id":"ST-SUP-UC01-FL-S03","title":"The platform engineer adds the component with its config schema, its ports, its slots and its namespace, and STEGO accepts it before its generator runs","flow_id":"ST-SUP-UC01-FL","path":"main","position":3}
-{"id":"ST-SUP-UC01-FL-S04","title":"The platform engineer states each thing the emitted code must always do as an output contract, with the generator that builds it and the test that proves it","flow_id":"ST-SUP-UC01-FL","path":"main","position":4}
+{"id":"ST-SUP-UC01-FL-S03","title":"The platform engineer adds the component with its config schema, its ports, its slots and its namespace, and STEGO accepts it before its generator runs","flow_id":"ST-SUP-UC01-FL","path":"main","position":1}
+{"id":"ST-SUP-UC01-FL-S04","title":"The platform engineer states each thing the emitted code must always do as an output contract, with the generator that builds it and the test that proves it","flow_id":"ST-SUP-UC01-FL","path":"main","position":2}
 {"id":"ST-SUP-UC01-FL-S05","title":"The platform engineer changes what the generator emits, and releases the component at a new version","flow_id":"ST-SUP-UC01-FL","path":"change","position":1}
 {"id":"ST-SUP-UC01-FL-S06","title":"A namespace that another component of the registry claims is refused, naming both components","flow_id":"ST-SUP-UC01-FL","path":"refused","position":1}
 {"id":"ST-SUP-UC01-FL-S07","title":"A component that states no architecture role is refused, naming the component","flow_id":"ST-SUP-UC01-FL","path":"refused","position":2}
@@ -227,9 +225,8 @@
 {"id":"ST-SUP-UC03-FL-S03","title":"A required port with no provider, or with more than one, is refused, naming the port and every component involved","flow_id":"ST-SUP-UC03-FL","path":"refused","position":1}
 {"id":"ST-SUP-UC03-FL-S04","title":"A component that is not ga is refused, naming the component and its stage","flow_id":"ST-SUP-UC03-FL","path":"refused","position":2}
 {"id":"ST-SUP-UC03-FL-S05","title":"A mixin that brings a component that is not ga is refused, naming the component and its stage","flow_id":"ST-SUP-UC03-FL","path":"refused","position":3}
-{"id":"ST-SUP-UC04-FL-S01","title":"The platform engineer gives the component a port name of its own, which no ga component provides","flow_id":"ST-SUP-UC04-FL","path":"main","position":1}
-{"id":"ST-SUP-UC04-FL-S02","title":"The platform engineer adds the component at stage alpha with the date it stops working, the outcome it serves, its references or why none exists, and its promise list as output contracts","flow_id":"ST-SUP-UC04-FL","path":"main","position":2}
-{"id":"ST-SUP-UC04-FL-S03","title":"A service that wants the component accepts it by name in its declaration, with a date of its own","flow_id":"ST-SUP-UC04-FL","path":"main","position":3}
+{"id":"ST-SUP-UC04-FL-S02","title":"The platform engineer adds the component at stage alpha with the date it stops working, the outcome it serves, its references or why none exists, and its promise list as output contracts","flow_id":"ST-SUP-UC04-FL","path":"main","position":1}
+{"id":"ST-SUP-UC04-FL-S03","title":"A service that wants the component accepts it by name in its declaration, with a date of its own","flow_id":"ST-SUP-UC04-FL","path":"main","position":2}
 {"id":"ST-SUP-UC04-FL-S04","title":"A sunset date that is already past is refused","flow_id":"ST-SUP-UC04-FL","path":"refused","position":1}
 {"id":"ST-SUP-UC04-FL-S05","title":"A component that states no outcome, no reference and no reasoning, or no contract, is refused with what is missing","flow_id":"ST-SUP-UC04-FL","path":"refused","position":2}
 {"id":"ST-SUP-UC05-FL-S01","title":"The platform engineer reads every recorded service that uses the component","flow_id":"ST-SUP-UC05-FL","path":"main","position":1}
