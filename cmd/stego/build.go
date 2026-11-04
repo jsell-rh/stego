@@ -81,6 +81,14 @@ func runBuild(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	_, err := appbuild.Build(ctx, options)
-	return err
+	if _, err := appbuild.Build(ctx, options); err != nil {
+		return err
+	}
+	// The build raises Application built (ST-BLD-EV03); stego image build
+	// hears it with --after (ST-BLD-PO01).
+	event, err := appbuild.ApplicationBuiltIn(options.Output)
+	if err != nil {
+		return err
+	}
+	return printEvent(event)
 }

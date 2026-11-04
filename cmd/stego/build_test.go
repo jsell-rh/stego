@@ -294,7 +294,12 @@ func (g buildGenerator) Generate(gen.Context) ([]gen.File, *gen.Wiring, error) {
 // module. It returns the repository and its revision.
 func buildSource(t *testing.T) (string, string) {
 	t.Helper()
-	root := t.TempDir()
+	return buildSourceIn(t, t.TempDir())
+}
+
+// buildSourceIn commits the project of buildSource in the folder root.
+func buildSourceIn(t *testing.T, root string) (string, string) {
+	t.Helper()
 	project := filepath.Join(root, "source")
 	registry := filepath.Join(root, "registry")
 	files := map[string]string{
@@ -660,6 +665,32 @@ func TestBuildNeedsARecordedModuleCache(t *testing.T) {
 		}
 		if names := folderNames(t, root); len(names) != 1 {
 			t.Fatalf("a refused build made %v", names)
+		}
+	})
+}
+
+func TestBuildRecordThroughTheCommand(t *testing.T) {
+	t.Run("ST-BLD-UC03-R03-T01 stego build verify refuses a record of one build, given its own digest", func(t *testing.T) {
+		app := builtApplication(t)
+		executable := filepath.Join(app.result, "application")
+		mustStego(t, "build", "verify", "--record", filepath.Join(app.result, "build.json"), "--record-sha256", app.recordSHA256, "--artifact", executable)
+		data, err := os.ReadFile(filepath.Join(app.result, "build.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var record appbuild.Record
+		if err := json.Unmarshal(data, &record); err != nil {
+			t.Fatal(err)
+		}
+		record.IndependentBuilds = 1
+		changed, err := json.MarshalIndent(record, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		name := writeFile(t, t.TempDir(), "build.json", string(changed)+"\n", 0600)
+		_, stderr, err := runStego(t, "build", "verify", "--record", name, "--record-sha256", fileSHA256(t, name), "--artifact", executable)
+		if err == nil || !strings.Contains(stderr, "violates the build policy") {
+			t.Fatalf("stego build verify of a record of one build: %v, %q; expected a refusal by the build policy", err, stderr)
 		}
 	})
 }
