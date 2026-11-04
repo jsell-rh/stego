@@ -85,18 +85,19 @@ jobs:
       - name: Build and verify the generated example
         timeout-minutes: 30
         run: |
-          "$RUNNER_TEMP/stego" build --source="$GITHUB_WORKSPACE" --revision="$GITHUB_SHA" \
-            --module=examples/user-management --target=out --go="$RUNNER_TEMP/application-sdk/go/bin/go" \
-            --work="$RUNNER_TEMP/application-work" --output="$RUNNER_TEMP/application-result"
-          python3 scripts/check-application-build.py --compiler="$RUNNER_TEMP/stego" \
-            --result="$RUNNER_TEMP/application-result" --evidence="$RUNNER_TEMP/application-evidence" \
-            --source="$GITHUB_WORKSPACE" --revision="$GITHUB_SHA"
-      - name: Prove an offline build from a downloaded module cache
-        timeout-minutes: 30
-        run: |
           "$RUNNER_TEMP/stego" build download --source="$GITHUB_WORKSPACE" --revision="$GITHUB_SHA" \
             --module=examples/user-management --target=out --go="$RUNNER_TEMP/application-sdk/go/bin/go" \
             --output="$RUNNER_TEMP/module-cache"
+          "$RUNNER_TEMP/stego" build --source="$GITHUB_WORKSPACE" --revision="$GITHUB_SHA" \
+            --module=examples/user-management --target=out --go="$RUNNER_TEMP/application-sdk/go/bin/go" \
+            --work="$RUNNER_TEMP/application-work" --output="$RUNNER_TEMP/application-result" \
+            --module-cache="$RUNNER_TEMP/module-cache"
+          python3 scripts/check-application-build.py --compiler="$RUNNER_TEMP/stego" \
+            --result="$RUNNER_TEMP/application-result" --evidence="$RUNNER_TEMP/application-evidence" \
+            --source="$GITHUB_WORKSPACE" --revision="$GITHUB_SHA" --module-cache="$RUNNER_TEMP/module-cache"
+      - name: Prove a second offline build from the same module cache
+        timeout-minutes: 30
+        run: |
           mkdir -p "$RUNNER_TEMP/offline-evidence"
           "$RUNNER_TEMP/stego" build --source="$GITHUB_WORKSPACE" --revision="$GITHUB_SHA" \
             --module=examples/user-management --target=out --go="$RUNNER_TEMP/application-sdk/go/bin/go" \
@@ -216,19 +217,20 @@ jobs:
         run: |
           test "$(git -C ../consumer rev-parse HEAD)" = "$CONSUMER_REVISION"
           mkdir -p "$RUNNER_TEMP/application-evidence"
-          "$RUNNER_TEMP/stego" build --source="$GITHUB_WORKSPACE/consumer" --revision="$CONSUMER_REVISION" \
-            --module=. --target=out --go="$RUNNER_TEMP/application-sdk/go/bin/go" \
-            --work="$RUNNER_TEMP/application-work" --output="$RUNNER_TEMP/application-result"
-          python3 -B scripts/check-application-build.py --compiler="$RUNNER_TEMP/stego" \
-            --result="$RUNNER_TEMP/application-result" --evidence="$RUNNER_TEMP/application-evidence" \
-            --source="$GITHUB_WORKSPACE/consumer" --revision="$CONSUMER_REVISION" \
-            --compiler-revision="$GITHUB_SHA" --module=. --target=out
-      - name: Prove an offline build of the Hypershell API from a downloaded module cache
-        timeout-minutes: 30
-        run: |
           "$RUNNER_TEMP/stego" build download --source="$GITHUB_WORKSPACE/consumer" --revision="$CONSUMER_REVISION" \
             --module=. --target=out --go="$RUNNER_TEMP/application-sdk/go/bin/go" \
             --output="$RUNNER_TEMP/module-cache"
+          "$RUNNER_TEMP/stego" build --source="$GITHUB_WORKSPACE/consumer" --revision="$CONSUMER_REVISION" \
+            --module=. --target=out --go="$RUNNER_TEMP/application-sdk/go/bin/go" \
+            --work="$RUNNER_TEMP/application-work" --output="$RUNNER_TEMP/application-result" \
+            --module-cache="$RUNNER_TEMP/module-cache"
+          python3 -B scripts/check-application-build.py --compiler="$RUNNER_TEMP/stego" \
+            --result="$RUNNER_TEMP/application-result" --evidence="$RUNNER_TEMP/application-evidence" \
+            --source="$GITHUB_WORKSPACE/consumer" --revision="$CONSUMER_REVISION" \
+            --compiler-revision="$GITHUB_SHA" --module=. --target=out --module-cache="$RUNNER_TEMP/module-cache"
+      - name: Prove a second offline build of the Hypershell API from the same module cache
+        timeout-minutes: 30
+        run: |
           mkdir -p "$RUNNER_TEMP/offline-evidence"
           "$RUNNER_TEMP/stego" build --source="$GITHUB_WORKSPACE/consumer" --revision="$CONSUMER_REVISION" \
             --module=. --target=out --go="$RUNNER_TEMP/application-sdk/go/bin/go" \
