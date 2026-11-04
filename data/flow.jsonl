@@ -7,7 +7,8 @@
 {"id":"ST-BLD-UC03-FL","title":"Build a service reproducibly","use_case_id":"ST-BLD-UC03"}
 {"id":"ST-BLD-UC04-FL","title":"Check an artifact against its record","use_case_id":"ST-BLD-UC04"}
 {"id":"ST-BLD-UC05-FL","title":"Build a signed image","use_case_id":"ST-BLD-UC05"}
-{"id":"ST-BLD-UC06-FL","title":"Publish and retrieve an image","use_case_id":"ST-BLD-UC06"}
+{"id":"ST-BLD-UC06-FL","title":"Publish an image","use_case_id":"ST-BLD-UC06"}
+{"id":"ST-BLD-UC07-FL","title":"Retrieve a verified image","use_case_id":"ST-BLD-UC07"}
 {"id":"ST-DECL-UC01-FL","title":"Start a service declaration","use_case_id":"ST-DECL-UC01"}
 {"id":"ST-DECL-UC02-FL","title":"Learn what may be declared","use_case_id":"ST-DECL-UC02"}
 {"id":"ST-DECL-UC03-FL","title":"Check a declaration","use_case_id":"ST-DECL-UC03"}
