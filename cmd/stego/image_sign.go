@@ -41,19 +41,6 @@ func signatureFlags(flags *flag.FlagSet) func() (appbuild.SignatureCheck, error)
 // checks them.
 var signatureNames = []string{"spdx-bundle", "cyclonedx-bundle", "signer-issuer", "signer-subject", "gh", "source-repository"}
 
-// signatureFlagSet gives the name of the first signature flag that the
-// command line set, or "" when it set none.
-func signatureFlagSet(flags *flag.FlagSet) string {
-	set := map[string]bool{}
-	flags.Visit(func(f *flag.Flag) { set[f.Name] = true })
-	for _, name := range signatureNames {
-		if set[name] {
-			return name
-		}
-	}
-	return ""
-}
-
 // runImageSign parses stego image sign (ST-BLD-CLI05) and checks the
 // signature that the CI provider made for the image, through
 // appbuild.SignImage, which writes signature.json. It refuses a missing flag

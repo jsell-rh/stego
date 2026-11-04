@@ -15,9 +15,10 @@ import (
 // fixture, on the image of its one real build, against an in-process TLS
 // registry with basic auth.
 
-// publishArgs gives the flags of stego image publish for an image folder.
-func publishArgs(image, recordSHA256, work string, access []string) []string {
-	return append([]string{"image", "publish", "--record", filepath.Join(image, "image.json"), "--record-sha256", recordSHA256, "--image", filepath.Join(image, "oci"), "--build-record", filepath.Join(image, "build.json"), "--work", work}, access...)
+// publishArgs gives the flags of stego image publish for an image folder,
+// with the signature flags that check its signature.
+func publishArgs(image, recordSHA256, work string, access, signature []string) []string {
+	return append(append([]string{"image", "publish", "--record", filepath.Join(image, "image.json"), "--record-sha256", recordSHA256, "--image", filepath.Join(image, "oci"), "--build-record", filepath.Join(image, "build.json"), "--work", work}, access...), signature...)
 }
 
 // registryReceipt reads the publication or retrieval record of a work folder.
@@ -91,7 +92,7 @@ func registryInputRefusals(t *testing.T, registry *registryServer) []registryRef
 }
 
 func TestImagePublishThroughTheCommand(t *testing.T) {
-	t.Run("ST-BLD-UC06-R01-T01 stego image publish pushes only a verified image over TLS, and the registry then holds its exact bytes", func(t *testing.T) {
+	t.Run("ST-BLD-UC06-R01-T01 stego image publish pushes only a verified image signed by the trusted signer over TLS, and the registry then holds its exact bytes", func(t *testing.T) {
 		t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
 		image, _, signature := signedImage(t)
 		recordSHA256 := builtImage(t).recordSHA256
@@ -100,12 +101,35 @@ func TestImagePublishThroughTheCommand(t *testing.T) {
 		changed := copyFolder(t, image)
 		flipByte(t, layerBlob(t, changed))
 		work := filepath.Join(t.TempDir(), "changed")
-		_, stderr, err := runStego(t, publishArgs(changed, recordSHA256, work, registry.accessArgs("application"))...)
+		_, stderr, err := runStego(t, publishArgs(changed, recordSHA256, work, registry.accessArgs("application"), signature)...)
 		if err == nil || !strings.Contains(stderr, "image blob content differs") || registry.requests.Load() != 0 {
 			t.Fatalf("stego image publish of an image whose layer differs: %v, %q, %d registry requests; expected a refusal before any request", err, stderr, registry.requests.Load())
 		}
+		otherSpdx, otherCyclonedx := signatureBundles(t, image, otherSubject)
+		missing := filepath.Join(t.TempDir(), "missing")
+		for _, item := range []struct {
+			name      string
+			signature []string
+			reason    string
+		}{
+			{"no signature flags", nil, "image publish requires --spdx-bundle"},
+			{"no signature bundles", withSignature(signature, missing+".spdx", missing+".cdx"), "the SPDX signature bundle"},
+			{"bundles by another signer", withSignature(signature, otherSpdx, otherCyclonedx), "not by the trusted signer"},
+		} {
+			work := filepath.Join(t.TempDir(), "unsigned")
+			_, stderr, err := runStego(t, publishArgs(image, recordSHA256, work, registry.accessArgs("application"), item.signature)...)
+			if err == nil || !strings.Contains(stderr, item.reason) {
+				t.Errorf("stego image publish with %s: %v, %q; expected a refusal that names %q", item.name, err, stderr, item.reason)
+			}
+			if _, err := os.Stat(filepath.Join(work, "registry.json")); !os.IsNotExist(err) {
+				t.Errorf("stego image publish with %s wrote a publication record", item.name)
+			}
+		}
+		if registry.requests.Load() != 0 {
+			t.Fatalf("the refused publications sent the registry %d requests", registry.requests.Load())
+		}
 		work = filepath.Join(t.TempDir(), "published")
-		stdout := mustStego(t, publishArgs(image, recordSHA256, work, registry.accessArgs("application"))...)
+		stdout := mustStego(t, publishArgs(image, recordSHA256, work, registry.accessArgs("application"), signature)...)
 		receipt := registryReceipt(t, work)
 		if receipt.Operation != "publish" || receipt.Reference != registry.repository("application")+"@sha256:"+manifest || !receipt.ImageContentsVerified || receipt.ImageRecordSHA256 != recordSHA256 {
 			t.Fatalf("the publication record is %+v; expected the image sha256:%s at its explicit place", receipt, manifest)
@@ -171,13 +195,14 @@ func TestImagePublishThroughTheCommand(t *testing.T) {
 	})
 	t.Run("ST-BLD-UC06-R01-T03 stego image publish refuses each bad registry input before anything is pushed", func(t *testing.T) {
 		fixture := builtImage(t)
+		image, _, signature := signedImage(t)
 		registry := newRegistry(t)
 		for _, item := range append(registryInputRefusals(t, registry), registryRefusal{"a CA that does not sign the registry", func(args []string) []string {
 			ca, caSHA256 := imageCA(t)
 			return setFlag(setFlag(args, "registry-ca", ca), "registry-ca-sha256", caSHA256)
 		}, "registry"}) {
 			work := filepath.Join(t.TempDir(), "work")
-			_, stderr, err := runStego(t, item.change(publishArgs(fixture.folder, fixture.recordSHA256, work, registry.accessArgs("application")))...)
+			_, stderr, err := runStego(t, item.change(publishArgs(image, fixture.recordSHA256, work, registry.accessArgs("application"), signature))...)
 			if err == nil || !strings.Contains(stderr, item.reason) {
 				t.Errorf("stego image publish with %s: %v, %q; expected a refusal that names %q", item.name, err, stderr, item.reason)
 			}
@@ -191,11 +216,12 @@ func TestImagePublishThroughTheCommand(t *testing.T) {
 	})
 	t.Run("ST-BLD-UC06-R03-T01 stego image publish names a tagged reference, an untrusted CA bundle or bad credentials before it opens any connection", func(t *testing.T) {
 		fixture := builtImage(t)
+		image, _, signature := signedImage(t)
 		registry := newRegistry(t)
 		for _, item := range registryInputRefusals(t, registry)[:8] {
 			before := registry.requests.Load()
 			work := filepath.Join(t.TempDir(), "work")
-			_, stderr, err := runStego(t, item.change(publishArgs(fixture.folder, fixture.recordSHA256, work, registry.accessArgs("application")))...)
+			_, stderr, err := runStego(t, item.change(publishArgs(image, fixture.recordSHA256, work, registry.accessArgs("application"), signature))...)
 			if err == nil || !strings.Contains(stderr, item.reason) {
 				t.Errorf("stego image publish with %s: %v, %q; expected a refusal that names %q", item.name, err, stderr, item.reason)
 			}
@@ -206,10 +232,11 @@ func TestImagePublishThroughTheCommand(t *testing.T) {
 	})
 	t.Run("ST-BLD-UC06-R04-T01 A read-back that differs fails the publication, names both digests, and writes no publication record", func(t *testing.T) {
 		fixture := builtImage(t)
+		image, _, signature := signedImage(t)
 		registry := newRegistry(t)
 		registry.tamper.Store(true)
 		work := filepath.Join(t.TempDir(), "failed")
-		_, stderr, err := runStego(t, publishArgs(fixture.folder, fixture.recordSHA256, work, registry.accessArgs("application"))...)
+		_, stderr, err := runStego(t, publishArgs(image, fixture.recordSHA256, work, registry.accessArgs("application"), signature)...)
 		if err == nil || !strings.Contains(stderr, "pushed sha256:"+fixture.manifest) || !strings.Contains(stderr, "expected sha256:"+fixture.manifest) || !strings.Contains(stderr, "read sha256:") {
 			t.Fatalf("stego image publish with a registry that gives changed bytes: %v, %q; expected a failure that names the digest pushed and the digest read", err, stderr)
 		}
@@ -218,7 +245,7 @@ func TestImagePublishThroughTheCommand(t *testing.T) {
 		}
 		registry.tamper.Store(false)
 		again := filepath.Join(t.TempDir(), "again")
-		mustStego(t, publishArgs(fixture.folder, fixture.recordSHA256, again, registry.accessArgs("application"))...)
+		mustStego(t, publishArgs(image, fixture.recordSHA256, again, registry.accessArgs("application"), signature)...)
 		if receipt := registryReceipt(t, again); receipt.Reference != registry.repository("application")+"@sha256:"+fixture.manifest {
 			t.Fatalf("the publication again gave the record %+v", receipt)
 		}

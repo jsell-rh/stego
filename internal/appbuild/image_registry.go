@@ -21,8 +21,9 @@ import (
 type RegistryImageOptions struct {
 	Access                                         RegistryAccess
 	Record, RecordSHA256, BuildRecord, Image, Work string
-	// Signature is the check of the image signature that retrieval runs
-	// before it writes the image (ST-BLD-UC07-R01). Publication does not use it.
+	// Signature is the check of the image signature by the trusted signer.
+	// Publication runs it before it pushes (ST-BLD-UC06-R01, ST-BLD-PO03),
+	// and retrieval before it writes the image (ST-BLD-UC07-R01).
 	Signature SignatureCheck
 }
 
@@ -147,12 +148,11 @@ func registryImage(ctx context.Context, options RegistryImageOptions, publish bo
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
 		return nil, errors.New("registry image checks require Linux amd64")
 	}
-	if !publish {
-		// Every retrieval input is checked before the record is read or a
-		// connection opens (ST-BLD-UC07-R02).
-		if err := options.Signature.validate(); err != nil {
-			return nil, err
-		}
+	// Every signature input is checked before the record is read, a
+	// credential is opened or a connection opens (ST-BLD-UC06-R01,
+	// ST-BLD-UC07-R02): an unsigned image is never published.
+	if err := options.Signature.validate(); err != nil {
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
@@ -174,8 +174,19 @@ func registryImage(ctx context.Context, options RegistryImageOptions, publish bo
 	}
 	captured := filepath.Join(root, "source-oci")
 	if publish {
-		if _, _, err := verifyImageBuild(ctx, savedRecord, options.Image, savedBuild, options.RecordSHA256, filepath.Join(root, "source-check")); err != nil {
+		_, build, err := verifyImageBuild(ctx, savedRecord, options.Image, savedBuild, options.RecordSHA256, filepath.Join(root, "source-check"))
+		if err != nil {
 			return nil, err
+		}
+		// Only an image whose signature by the trusted signer verifies is
+		// published (ST-BLD-PO03); the check runs on a private copy of the
+		// checked manifest, before any credential is read.
+		manifest := filepath.Join(root, "source-manifest.json")
+		if _, err := captureImageInput(ctx, filepath.Join(options.Image, "blobs", "sha256", record.Manifest.SHA256), manifest, imageMetadataLimit, record.Manifest.SHA256); err != nil {
+			return nil, err
+		}
+		if _, err := checkImageSignature(ctx, options.Signature, manifest, record, options.RecordSHA256, build); err != nil {
+			return nil, fmt.Errorf("the image is not published: %w", err)
 		}
 		if err := captureRegistryLayout(ctx, options.Image, captured, record); err != nil {
 			return nil, err
