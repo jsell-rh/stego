@@ -17,14 +17,52 @@ def sha(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
+GITHUB_ISSUER = 'https://token.actions.githubusercontent.com'
+
+
+def add_signature_arguments(parser):
+    # The signature check of stego image verify and image retrieve (ST-BLD-CLI09, CLI10).
+    # The bundles are the CI provider's SBOM attestations about the image digest. A job
+    # that has no bundles yet passes none, and the checks then show that an unsigned
+    # image is refused.
+    parser.add_argument('--spdx-bundle', type=Path)
+    parser.add_argument('--cyclonedx-bundle', type=Path)
+    parser.add_argument('--signer-issuer', default=GITHUB_ISSUER)
+    parser.add_argument('--signer-subject', default=('https://github.com/' + os.environ['GITHUB_WORKFLOW_REF']) if os.environ.get('GITHUB_WORKFLOW_REF') else None)
+    parser.add_argument('--gh', type=Path, default=shutil.which('gh'))
+    parser.add_argument('--source-repository', default=os.environ.get('GITHUB_REPOSITORY'))
+
+
+def signature_options(args):
+    """Give the six signature flags as a dictionary, and whether real bundles were given."""
+    if (args.spdx_bundle is None) != (args.cyclonedx_bundle is None):
+        raise SystemExit('Select both attestation bundles, or neither')
+    for name in ['signer_subject', 'gh', 'source_repository']:
+        if not getattr(args, name):
+            raise SystemExit('Select --' + name.replace('_', '-'))
+    gh = Path(args.gh)
+    if not gh.is_absolute():
+        raise SystemExit('Select the GitHub CLI by its absolute path')
+    signed = args.spdx_bundle is not None
+    # Without bundles, the paths name files that do not exist, so the check
+    # refuses the image as unsigned after every other check passed.
+    spdx = args.spdx_bundle if signed else args.output / 'no-spdx-bundle.json'
+    cyclonedx = args.cyclonedx_bundle if signed else args.output / 'no-cyclonedx-bundle.json'
+    return {'--spdx-bundle': str(spdx), '--cyclonedx-bundle': str(cyclonedx),
+            '--signer-issuer': args.signer_issuer, '--signer-subject': args.signer_subject,
+            '--gh': str(gh), '--source-repository': args.source_repository}, signed
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ['compiler', 'application', 'trust-store', 'output']:
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--entrypoint', default='service')
     parser.add_argument('--compiler-revision', default=os.environ.get('GITHUB_SHA'))
+    add_signature_arguments(parser)
     args = parser.parse_args()
     args.output.mkdir(mode=0o700)
+    signature, signed = signature_options(args)
     build = args.application / 'build.json'
     application = args.application / 'application'
     build_record = json.loads(build.read_text())
@@ -83,14 +121,21 @@ def main():
                 assert hashlib.file_digest(stream, 'sha256').hexdigest() == identity['sha256']
     del data
 
-    def verify(label, image=first / 'oci', selected_record=first / 'image.json', expected=None, digest=None):
+    def verify(label, image=first / 'oci', selected_record=first / 'image.json', expected=None, digest=None, flags=None):
+        selected = signature if flags is None else flags
         command([args.compiler, 'image', 'verify', '--record=' + str(selected_record),
                  '--record-sha256=' + (digest or sha(selected_record)), '--image=' + str(image),
-                 '--build-record=' + str(build), '--work=' + str(args.output / ('verify-' + label))], expected=expected)
+                 '--build-record=' + str(build), '--work=' + str(args.output / ('verify-' + label))]
+                + [key + '=' + value for key, value in selected.items()], expected=expected)
         cases.append({'name': label, 'expected_success': expected is None})
 
-    verify('original')
-    verify('repeated', image=second / 'oci', selected_record=second / 'image.json')
+    # The image matches only with its signature (ST-BLD-UC04-R04). Without the
+    # provider's bundles, the same check must refuse the image as unsigned.
+    unsigned = None if signed else 'the SPDX signature bundle'
+    verify('original' if signed else 'original unsigned', expected=unsigned)
+    verify('repeated' if signed else 'repeated unsigned', image=second / 'oci', selected_record=second / 'image.json', expected=unsigned)
+    without = {key: value for key, value in signature.items() if key != '--spdx-bundle'}
+    verify('missing signature flag', flags=without, expected='image verify requires --spdx-bundle')
     verify('wrong trusted digest', digest='0' * 64, expected='image record digest differs')
     changed = args.output / 'changed-record.json'
     value = json.loads((first / 'image.json').read_text())
@@ -150,7 +195,8 @@ def main():
               'entrypoint': args.entrypoint, 'image_record_sha256': sha(first / 'image.json'), 'manifest': record['manifest'], 'configuration': record['config'],
               'application': record['application'], 'trust_store': record['trust_store'], 'cases': cases,
               'independent_images': 2, 'export': export_records[0], 'engine_id': image_id, 'engine_files_match': True, 'application_executed': False,
-              'registry_publication_checked': False, 'records_authenticated': False}
+              'registry_publication_checked': False, 'records_authenticated': False,
+              'signature_checked': signed, 'signer_subject': signature['--signer-subject']}
     (args.output / 'verification.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report))
 

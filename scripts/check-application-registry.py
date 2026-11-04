@@ -16,16 +16,54 @@ def sha(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
+GITHUB_ISSUER = 'https://token.actions.githubusercontent.com'
+
+
+def add_signature_arguments(parser):
+    # The signature check of stego image verify and image retrieve (ST-BLD-CLI09, CLI10).
+    # The bundles are the CI provider's SBOM attestations about the image digest. A job
+    # that has no bundles yet passes none, and the checks then show that an unsigned
+    # image is refused.
+    parser.add_argument('--spdx-bundle', type=Path)
+    parser.add_argument('--cyclonedx-bundle', type=Path)
+    parser.add_argument('--signer-issuer', default=GITHUB_ISSUER)
+    parser.add_argument('--signer-subject', default=('https://github.com/' + os.environ['GITHUB_WORKFLOW_REF']) if os.environ.get('GITHUB_WORKFLOW_REF') else None)
+    parser.add_argument('--gh', type=Path, default=shutil.which('gh'))
+    parser.add_argument('--source-repository', default=os.environ.get('GITHUB_REPOSITORY'))
+
+
+def signature_options(args):
+    """Give the six signature flags as a dictionary, and whether real bundles were given."""
+    if (args.spdx_bundle is None) != (args.cyclonedx_bundle is None):
+        raise SystemExit('Select both attestation bundles, or neither')
+    for name in ['signer_subject', 'gh', 'source_repository']:
+        if not getattr(args, name):
+            raise SystemExit('Select --' + name.replace('_', '-'))
+    gh = Path(args.gh)
+    if not gh.is_absolute():
+        raise SystemExit('Select the GitHub CLI by its absolute path')
+    signed = args.spdx_bundle is not None
+    # Without bundles, the paths name files that do not exist, so the check
+    # refuses the image as unsigned after every other check passed.
+    spdx = args.spdx_bundle if signed else args.output / 'no-spdx-bundle.json'
+    cyclonedx = args.cyclonedx_bundle if signed else args.output / 'no-cyclonedx-bundle.json'
+    return {'--spdx-bundle': str(spdx), '--cyclonedx-bundle': str(cyclonedx),
+            '--signer-issuer': args.signer_issuer, '--signer-subject': args.signer_subject,
+            '--gh': str(gh), '--source-repository': args.source_repository}, signed
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ['compiler', 'fixture', 'image', 'output']:
         parser.add_argument('--' + name, required=True, type=Path)
     parser.add_argument('--compiler-revision', default=os.environ.get('GITHUB_SHA'))
     parser.add_argument('--source', type=Path, help='Check common delivery from the complete selected source')
+    add_signature_arguments(parser)
     args = parser.parse_args()
     if os.environ.get('CI') != 'true':
         raise SystemExit('The registry gate requires CI')
     args.output.mkdir(mode=0o700)
+    signature, signed = signature_options(args)
     fixture = args.output / 'fixture'
     cases = []
     process = None
@@ -50,9 +88,14 @@ def main():
                     '--build-record=' + str(args.image / 'build.json'), '--repository=' + repository,
                     '--registry-ca=' + str(fixture / 'ca.pem'), '--registry-ca-sha256=' + sha(fixture / 'ca.pem'),
                     '--credentials=' + str(fixture / 'credentials.json')]
-            def check(label, operation, replacements=None, reason=None):
+            def check(label, operation, replacements=None, reason=None, omit=()):
                 options = dict(arg.split('=', 1) for arg in base)
+                if operation == 'retrieve':
+                    # Retrieval checks the signature before it writes the image (ST-BLD-UC07-R01).
+                    options.update(signature)
                 options.update(replacements or {})
+                for key in omit:
+                    del options[key]
                 work = args.output / label
                 options['--work'] = str(work)
                 if operation == 'publish':
@@ -75,7 +118,14 @@ def main():
                 cases.append({'name': label, 'operation': operation, 'expected_success': reason is None})
             check('published', 'publish')
             check('repeated-publication', 'publish')
-            check('retrieved', 'retrieve')
+            if signed:
+                check('retrieved', 'retrieve')
+            else:
+                # Without the provider's bundles, the pulled image passes every
+                # other check and is then refused as unsigned and written nowhere.
+                check('retrieved-unsigned', 'retrieve', reason='the SPDX signature bundle')
+                assert not (args.output / 'retrieved-unsigned' / 'oci').exists()
+            check('retrieve-missing-signature-flag', 'retrieve', reason='image retrieve requires --spdx-bundle', omit=('--spdx-bundle',))
             check('wrong-record', 'publish', {'--record-sha256': '0' * 64}, 'image record digest differs')
             check('wrong-registry-ca', 'retrieve', {'--registry-ca-sha256': '0' * 64}, 'registry CA digest differs')
             wrong = args.output / 'wrong-credentials.json'
@@ -126,7 +176,7 @@ def main():
                       'manifest_sha256': image['manifest']['sha256'], 'application': image['application'],
                       'cases': cases, 'TLS_registry_round_trip_checked': True,
                       'registry_profile': 'private CI fixture', 'production_registry_checked': False,
-                      'application_executed': False}
+                      'application_executed': False, 'signature_checked': signed}
             if args.source is not None:
                 report['common_delivery_checked'] = delivery_checked
         finally:

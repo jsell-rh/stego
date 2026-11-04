@@ -57,7 +57,7 @@ class DeliveryTests(unittest.TestCase):
         if args[1:3] != ["image", "publish"]:
             self.assertFalse(list(cwd.glob("credentials.json")))
             return b""
-        self.assertEqual(self.calls[:4], [["build", "verify-source"], ["image", "verify"]] * 2)
+        self.assertEqual(self.calls[:4], [["build", "verify-source"], ["image", "export"]] * 2)
         credential = Path(args[args.index("--credentials") + 1])
         self.assertEqual(credential.stat().st_mode & 0o777, 0o600)
         self.assertEqual(credential.read_bytes(), b'{"username":"serviceaccount","password":"fixture.token.value"}\n')

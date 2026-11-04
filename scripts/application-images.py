@@ -171,7 +171,10 @@ def publish(images, expected, source, compiler, compiler_sha256, repository, ca,
             target = images / image["name"]
             command(["build", "verify-source", "--record", str(target / "build.json"),
                      "--record-sha256", image["build_record_sha256"], "--source", str(source)])
-            command(["image", "verify", "--record", str(target / "image.json"),
+            # stego image verify also checks the SBOM signature (ST-BLD-CLI09), which
+            # publication does not take. Export runs the same record and build
+            # checks that publication runs, before any credential exists.
+            command(["image", "export", "--record", str(target / "image.json"),
                      "--record-sha256", image["image_record_sha256"], "--build-record", str(target / "build.json"),
                      "--image", str(target / "oci"), "--work", str(output / (image["name"] + "-preflight"))])
         save(output / "source-check.json", {"format": 1, "image_set_sha256": expected,
