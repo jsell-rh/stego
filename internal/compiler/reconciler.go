@@ -281,7 +281,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 // project-root files like go.mod), removes orphaned files, and saves the
 // new state.
 func Apply(plan *Plan, projectDir, outDir string) error {
-	return applyWithFault(plan, projectDir, outDir, nil)
+	return applyWithFault(plan, projectDir, outDir, stopHook)
 }
 
 func applyWithFault(plan *Plan, projectDir, outDir string, fault applyFault) error {
