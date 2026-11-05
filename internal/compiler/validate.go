@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"errors"
 	"fmt"
 	"go/version"
 	"os"
@@ -30,6 +31,10 @@ func FormatValidation(r *ValidationResult) string { return declaration.FormatVal
 // semantic issues are collected in ValidationResult.Errors.
 func Validate(input ReconcilerInput) (*ValidationResult, error) {
 	source, err := loadCompilationSource(input)
+	var unreadable *declarationReadError
+	if errors.As(err, &unreadable) {
+		return &ValidationResult{Errors: []ValidationError{declaration.ReadingFault(unreadable.err)}}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +45,7 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 func validateSource(input ReconcilerInput, source *compilationSource) (*ValidationResult, error) {
 	result := &ValidationResult{}
 	if err := validateBuildTarget(input.ModuleName, input.GoVersion); err != nil {
-		result.Errors = append(result.Errors, ValidationError{Category: "target", Message: err.Error()})
+		result.Errors = append(result.Errors, ValidationError{Category: "target", Rule: "build-target", Path: "build target", Found: input.ModuleName + " go" + input.GoVersion, Message: err.Error()})
 	}
 	svcDecl, reg := source.Service, source.Registry
 
@@ -48,8 +53,8 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 	archetype := reg.Archetype(svcDecl.Archetype)
 	if archetype == nil {
 		result.Errors = append(result.Errors, ValidationError{
-			Category: "archetype",
-			Message:  fmt.Sprintf("archetype %q not found in registry", svcDecl.Archetype),
+			Category: "archetype", Rule: "archetype", Path: "archetype", Found: svcDecl.Archetype, Allowed: archetypeNames(reg),
+			Message: fmt.Sprintf("archetype %q not found in registry", svcDecl.Archetype),
 		})
 	}
 
@@ -67,8 +72,8 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 		baselineNames = names
 		if err != nil {
 			result.Errors = append(result.Errors, ValidationError{
-				Category: "component",
-				Message:  err.Error(),
+				Category: "component", Rule: "component", Path: "mixins",
+				Message: err.Error(),
 			})
 		} else {
 			// Look up baseline components.
@@ -78,8 +83,8 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 				comp := reg.Component(name)
 				if comp == nil {
 					result.Errors = append(result.Errors, ValidationError{
-						Category: "component",
-						Message:  fmt.Sprintf("component %q not found in registry (referenced by archetype %q)", name, archetype.Name),
+						Category: "component", Rule: "component", Path: "archetype", Found: name,
+						Message: fmt.Sprintf("component %q not found in registry (referenced by archetype %q)", name, archetype.Name),
 					})
 					allFound = false
 				} else {
@@ -106,8 +111,8 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 				})
 				if portErr != nil {
 					result.Errors = append(result.Errors, ValidationError{
-						Category: "port",
-						Message:  portErr.Error(),
+						Category: "port", Rule: "port-binding", Path: "overrides",
+						Message: portErr.Error(),
 					})
 				} else {
 					components = resolution.ActiveComponents
@@ -116,7 +121,8 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 		}
 	}
 
-	own := declaration.Validate(svcDecl)
+	own := declaration.Validate(svcDecl, source.Undeclared...)
+	result.Errors = append(result.Errors, own.Undeclared...)
 	result.Errors = append(result.Errors, own.Service...)
 	result.Errors = append(result.Errors, applyComponentNamespaces(svcDecl.ComponentNamespaces, components)...)
 	if components != nil {
@@ -125,8 +131,8 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 		for _, name := range sortedKeys(components) {
 			if !generatorAvailable(input.Generators[name]) {
 				result.Errors = append(result.Errors, ValidationError{
-					Category: "generator",
-					Message:  fmt.Sprintf("component %q has no generator in this compiler build", name),
+					Category: "generator", Rule: "generator", Path: "archetype", Found: name,
+					Message: fmt.Sprintf("component %q has no generator in this compiler build", name),
 				})
 				continue
 			}
@@ -135,10 +141,10 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 	}
 
 	result.Errors = append(result.Errors, own.Entities...)
-	for _, entity := range svcDecl.Entities {
+	for index, entity := range svcDecl.Entities {
 		if entity.Versioned {
 			if _, supported := components["postgres-adapter"]; !supported {
-				result.Errors = append(result.Errors, ValidationError{Category: "component", Message: fmt.Sprintf("versioned entity %s requires postgres-adapter", entity.Name)})
+				result.Errors = append(result.Errors, ValidationError{Category: "component", Rule: "versioned-store", Path: fmt.Sprintf("entities[%d].versioned", index), Found: "true", Message: fmt.Sprintf("versioned entity %s requires postgres-adapter", entity.Name)})
 			}
 		}
 	}
@@ -162,7 +168,7 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 
 	result.Errors = append(result.Errors, own.Slots...)
 	if err := validateSlotVarNameUniqueness(svcDecl.Slots); err != nil {
-		result.Errors = append(result.Errors, ValidationError{Category: "slot-binding", Message: err.Error()})
+		result.Errors = append(result.Errors, ValidationError{Category: "slot-binding", Rule: "slot-variable-name", Path: "slots", Message: err.Error()})
 	}
 
 	// Validate fills exist on disk and reference valid collections.
@@ -175,7 +181,7 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 	if !result.HasErrors() {
 		resolved, err := prepareComponents(input, source, baselineNames, components)
 		if err != nil {
-			result.Errors = append(result.Errors, ValidationError{Category: "generator", Message: err.Error()})
+			result.Errors = append(result.Errors, ValidationError{Category: "generator", Rule: "generator-input", Path: "archetype", Found: svcDecl.Archetype, Message: err.Error()})
 		} else {
 			source.Resolved = resolved
 		}
@@ -200,7 +206,7 @@ func validateGeneratorGoVersion(name string, generator gen.Generator, target str
 	default:
 		return nil
 	}
-	return []ValidationError{{Category: "generator", Message: message}}
+	return []ValidationError{{Category: "generator", Rule: "generator-go-version", Path: "build target", Found: target, Message: message}}
 }
 
 // Reject typed nil implementations as well as missing map entries.
@@ -236,7 +242,7 @@ func validateSlotNames(slots []types.SlotDeclaration, components map[string]*reg
 	}
 
 	var errs []ValidationError
-	for _, sb := range slots {
+	for si, sb := range slots {
 		if !available[sb.Slot] {
 			// Collect available slot names for a helpful error message.
 			var names []string
@@ -245,8 +251,8 @@ func validateSlotNames(slots []types.SlotDeclaration, components map[string]*reg
 			}
 			sort.Strings(names)
 			errs = append(errs, ValidationError{
-				Category: "slot",
-				Message:  fmt.Sprintf("slot binding references slot %q which is not defined by any component (available slots: %v)", sb.Slot, names),
+				Category: "slot", Rule: "slot-name", Path: fmt.Sprintf("slots[%d].slot", si), Found: sb.Slot, Allowed: names,
+				Message: fmt.Sprintf("slot binding references slot %q which is not defined by any component (available slots: %v)", sb.Slot, names),
 			})
 		}
 	}
@@ -274,7 +280,7 @@ func validateSlotConsumption(slots []types.SlotDeclaration, generators map[strin
 		}
 	}
 	var errs []ValidationError
-	for _, sb := range slots {
+	for si, sb := range slots {
 		if consumed[sb.Slot] {
 			continue
 		}
@@ -284,8 +290,8 @@ func validateSlotConsumption(slots []types.SlotDeclaration, generators map[strin
 		}
 		sort.Strings(available)
 		errs = append(errs, ValidationError{
-			Category: "slot",
-			Message:  fmt.Sprintf("slot binding references slot %q which no resolved generator consumes (consumed slots: %v)", sb.Slot, available),
+			Category: "slot", Rule: "unconsumed-slot", Path: fmt.Sprintf("slots[%d].slot", si), Found: sb.Slot, Allowed: available,
+			Message: fmt.Sprintf("slot binding references slot %q which no resolved generator consumes (consumed slots: %v)", sb.Slot, available),
 		})
 	}
 	return errs
@@ -313,8 +319,8 @@ func validateFillsExist(slots []types.SlotDeclaration, collections []types.Colle
 		if _, err := os.Stat(fillPath); err != nil {
 			if os.IsNotExist(err) {
 				errs = append(errs, ValidationError{
-					Category: "fill",
-					Message:  fmt.Sprintf("fill %q referenced in slot bindings but fills/%s/fill.yaml does not exist", name, name),
+					Category: "fill", Rule: "fill-exists", Path: fillReference(slots, name), Found: name,
+					Message: fmt.Sprintf("fill %q referenced in slot bindings but fills/%s/fill.yaml does not exist", name, name),
 				})
 			} else {
 				return nil, fmt.Errorf("checking fill %q at %s: %w", name, fillPath, err)
@@ -337,8 +343,8 @@ func validateFillsExist(slots []types.SlotDeclaration, collections []types.Colle
 			}
 			sort.Strings(names)
 			errs = append(errs, ValidationError{
-				Category: "fill",
-				Message:  fmt.Sprintf("fill %q references collection %q which is not defined (available collections: %v)", name, collection, names),
+				Category: "fill", Rule: "fill-collection", Path: fillReference(slots, name), Found: collection, Allowed: names,
+				Message: fmt.Sprintf("fill %q references collection %q which is not defined (available collections: %v)", name, collection, names),
 			})
 		}
 	}
@@ -353,25 +359,52 @@ func validateLanguage(serviceLanguage, archetypeLanguage string) []ValidationErr
 
 	if serviceLanguage == "" {
 		errs = append(errs, ValidationError{
-			Category: "language",
-			Message:  "service declaration is missing the 'language' field",
+			Category: "language", Rule: "language", Path: "language", Allowed: []string{archetypeLanguage},
+			Message: "service declaration is missing the 'language' field",
 		})
 		return errs
 	}
 
 	if serviceLanguage != "go" {
 		errs = append(errs, ValidationError{
-			Category: "language",
-			Message:  fmt.Sprintf("unsupported language %q — only 'go' is supported", serviceLanguage),
+			Category: "language", Rule: "language", Path: "language", Found: serviceLanguage, Allowed: []string{"go"},
+			Message: fmt.Sprintf("unsupported language %q — only 'go' is supported", serviceLanguage),
 		})
 	}
 
 	if archetypeLanguage != "" && serviceLanguage != archetypeLanguage {
 		errs = append(errs, ValidationError{
-			Category: "language",
-			Message:  fmt.Sprintf("service language %q does not match archetype language %q", serviceLanguage, archetypeLanguage),
+			Category: "language", Rule: "language", Path: "language", Found: serviceLanguage, Allowed: []string{archetypeLanguage},
+			Message: fmt.Sprintf("service language %q does not match archetype language %q", serviceLanguage, archetypeLanguage),
 		})
 	}
 
 	return errs
+}
+
+// archetypeNames lists the archetypes the registry holds, in name order.
+func archetypeNames(reg *registry.Registry) []string {
+	names := make([]string, 0, len(reg.Archetypes()))
+	for name := range reg.Archetypes() {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// fillReference gives the path of the first slot binding place that names the fill.
+func fillReference(slots []types.SlotDeclaration, name string) string {
+	for i, binding := range slots {
+		for _, operator := range []struct {
+			name  string
+			fills []string
+		}{{"gate", binding.Gate}, {"chain", binding.Chain}, {"fan-out", binding.FanOut}} {
+			for j, fill := range operator.fills {
+				if fill == name {
+					return fmt.Sprintf("slots[%d].%s[%d]", i, operator.name, j)
+				}
+			}
+		}
+	}
+	return "slots"
 }

@@ -214,6 +214,15 @@ collections:
 					}
 					return
 				}
+				if len(result.Errors) == 1 && result.Errors[0].Rule == "one-document" {
+					// A document that cannot be read is refused with its one reading fault, which must name the field.
+					for _, w := range c.want {
+						if !strings.Contains(result.Errors[0].Message, w) {
+							t.Fatalf("reading fault %q does not name %q", result.Errors[0].Message, w)
+						}
+					}
+					return
+				}
 				for _, w := range c.want[1:] {
 					assertHasError(t, result, c.want[0], w)
 				}
@@ -1932,12 +1941,13 @@ collections:
 			GoVersion:   "1.22",
 			ModuleName:  "github.com/test/svc",
 		}
-		_, err := Validate(input)
-		if err == nil || !strings.Contains(err.Error(), `duplicate key "widgets"`) {
-			t.Fatalf("got %v, want a duplicate collection key error", err)
+		// The declaration cannot be read as one document, so the refusal is its one reading fault (ST-DECL-UC04-R06).
+		result, err := Validate(input)
+		if err != nil || len(result.Errors) != 1 || !strings.Contains(result.Errors[0].Message, `duplicate key "widgets"`) {
+			t.Fatalf("got %v, %v, want one duplicate collection key fault", result, err)
 		}
-		if !strings.Contains(err.Error(), "service.yaml:16:") {
-			t.Fatalf("error must identify the duplicate declaration: %v", err)
+		if !strings.Contains(result.Errors[0].Message, "service.yaml:16:") || result.Errors[0].Line != 16 {
+			t.Fatalf("fault must identify the duplicate declaration: %+v", result.Errors[0])
 		}
 	})
 }
