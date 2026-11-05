@@ -26,7 +26,7 @@
 {"value_object_id":"ST-VO51","position":1,"name":"Provider","meaning":"One of github-actions or konflux.","type":"text","required":true,"example":"konflux"}
 {"value_object_id":"ST-VO52","position":1,"name":"Location","meaning":"The workflow file or the bundle repository.","type":"text","required":true,"example":"example/platform/.github/workflows/stego.yml"}
 {"value_object_id":"ST-VO52","position":2,"name":"Pin","meaning":"A full 40-character commit SHA, or a sha256 OCI digest.","type":"text","required":true,"example":"sha256:4f1c..."}
-{"value_object_id":"ST-VO53","position":1,"name":"Kind","meaning":"One of secret, configuration, database, topic, identity issuer, ingress, egress, cluster permission or pod security.","type":"text","required":true,"example":"secret"}
+{"value_object_id":"ST-VO53","position":1,"name":"Kind","meaning":"One of secret, configuration, backing store, topic, identity issuer, ingress, egress, cluster permission or pod security.","type":"text","required":true,"example":"secret"}
 {"value_object_id":"ST-VO54","position":1,"name":"Result","meaning":"One of passed, failed or skipped.","type":"text","required":true,"example":"passed"}
 {"value_object_id":"ST-VO55","position":1,"name":"Total","meaning":"The obligations lathe counts, over every domain and kind.","type":"whole number","required":true,"example":"412"}
 {"value_object_id":"ST-VO55","position":2,"name":"Designed","meaning":"How many of them are designed.","type":"whole number","required":true,"example":"412"}
