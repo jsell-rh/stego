@@ -42,6 +42,12 @@ type transactionOperation struct {
 
 type applyFault func(string) error
 
+// stopHook is nil in a product build. A test build (the build tag
+// stegotesthook, apply_hook.go) sets it, so a system test can stop apply at a
+// named journal point: before_prepare, prepared, after_operation_<n>,
+// before_record and before_complete.
+var stopHook applyFault
+
 func defaultOutputMode() os.FileMode {
 	if runtime.GOOS == "windows" {
 		return 0666
@@ -333,6 +339,11 @@ func executeTransaction(project *os.Root, projectDir string, tx *transaction, fa
 	}
 	defer output.Close()
 	for index, op := range tx.Operations {
+		if op.Path == ".stego/state.yaml" {
+			if err := runApplyFault(fault, "before_record"); err != nil {
+				return err
+			}
+		}
 		root, name := project, op.Path
 		if strings.HasPrefix(name, tx.OutputDir+"/") {
 			root, name = output, strings.TrimPrefix(name, tx.OutputDir+"/")

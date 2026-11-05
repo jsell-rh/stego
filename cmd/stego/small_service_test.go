@@ -51,6 +51,9 @@ collections:
   notes: {entity: Note, operations: [create, read, list]}
 `
 
+// secondEntityDeclaration adds a second entity, Tag, with its collection.
+var secondEntityDeclaration = strings.Replace(smallServiceDeclaration, "collections:\n", "  - name: Tag\n    fields: [{name: label, type: string}]\ncollections:\n  tags: {entity: Tag, operations: [create, read]}\n", 1)
+
 // componentA is the component that R2 changes.
 const componentA = "rest-api"
 
@@ -109,9 +112,14 @@ func (s *smallService) pin(t *testing.T, commit string) {
 	s.write(t, ".stego/config.yaml", "registry:\n  - url: file://"+s.registry+"\n    ref: "+commit+"\n")
 }
 
+// write writes a file of the service with mode 0644, whatever mode a Git
+// checkout gave it.
 func (s *smallService) write(t *testing.T, name, data string) {
 	t.Helper()
-	writeFile(t, filepath.Dir(filepath.Join(s.service, name)), filepath.Base(name), data, 0o644)
+	path := writeFile(t, filepath.Dir(filepath.Join(s.service, name)), filepath.Base(name), data, 0o644)
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func (s *smallService) read(t *testing.T, name string) string {
@@ -271,7 +279,7 @@ func TestServiceRecordIsCommittedWithItsCode(t *testing.T) {
 		s := newSmallService(t)
 		parentBefore, registryBefore := tree(t, s.parent), tree(t, s.registry)
 		recordBefore := s.read(t, ".stego/state.yaml")
-		s.write(t, "service.yaml", strings.Replace(smallServiceDeclaration, "collections:\n", "  - name: Tag\n    fields: [{name: label, type: string}]\ncollections:\n  tags: {entity: Tag, operations: [create, read]}\n", 1))
+		s.write(t, "service.yaml", secondEntityDeclaration)
 		s.must(t, "apply")
 		if s.read(t, ".stego/state.yaml") == recordBefore {
 			t.Fatal("apply of a second entity left the record as it was")
