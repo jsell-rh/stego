@@ -189,6 +189,30 @@ func readRegistryFile(file *os.File, keepData bool, limit int64, buffer []byte) 
 	return registryFile{data: data.Bytes(), hash: sum, size: count}, nil
 }
 
+// InputFiles returns a copy of every captured input, by its path in the
+// registry. It does not read disk.
+func (r *Registry) InputFiles() map[string][]byte {
+	files := make(map[string][]byte, len(r.source.files))
+	for name, record := range r.source.files {
+		files[name] = bytes.Clone(record.data)
+	}
+	return files
+}
+
+// CaptureInputFiles reads the inputs of one registry folder with the rules of
+// Load, and returns each by its path in the registry. It parses no artifact.
+func CaptureInputFiles(dir string) (map[string][]byte, error) {
+	snapshot, err := captureRegistry(dir, true)
+	if err != nil {
+		return nil, fmt.Errorf("registry directory: %w", err)
+	}
+	files := make(map[string][]byte, len(snapshot.files))
+	for name, record := range snapshot.files {
+		files[name] = record.data
+	}
+	return files, nil
+}
+
 // ContentHash identifies the captured YAML and protobuf inputs, including names.
 // It does not identify compiler code, fills, or application dependencies.
 func (r *Registry) ContentHash() string { return r.source.hash }
