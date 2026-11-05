@@ -572,13 +572,21 @@ func runRegistrySearch(args []string) error {
 	if err != nil {
 		return err
 	}
-	reg, err := registry.LoadDirectories(result.Dirs...)
+	reg, err := registry.LoadSources(result.Sources...)
 	if err != nil {
 		return err
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintf(w, "NAME\tVERSION\tPROVIDES\tREQUIRES\tSLOTS\n")
+	fmt.Fprintf(w, "NAME\tVERSION\tSTAGE\tSOURCE\tPROVIDES\tREQUIRES\tSLOTS\n")
+
+	// The trust of the source that supplies each component.
+	sourceOf := map[string]registry.Trust{}
+	for _, source := range reg.Sources() {
+		for _, part := range source.Parts {
+			sourceOf[part] = source.Trust
+		}
+	}
 
 	components := reg.Components()
 	compNames := make([]string, 0, len(components))
@@ -603,8 +611,8 @@ func runRegistrySearch(args []string) error {
 		requireNames := portNames(comp.Requires)
 		slotNames := slotDefNames(comp.Slots)
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			name, comp.Version,
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			name, comp.Version, comp.Stage, sourceOf["component "+name],
 			strings.Join(provideNames, ","),
 			strings.Join(requireNames, ","),
 			strings.Join(slotNames, ","),
