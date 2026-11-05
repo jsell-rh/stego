@@ -10,7 +10,7 @@
 {"id":"ST-BLD-RM02-TB","title":"appbuild.VerifyImage","read_model_id":"ST-BLD-RM02","name":"appbuild.VerifyImage","storage":"in memory","file":"internal/appbuild/image_verify.go"}
 {"id":"ST-DECL-EN01-TB","title":"service.yaml","entity_id":"ST-DECL-EN01","name":"service.yaml","storage":"file","file":"internal/parser/parser.go"}
 {"id":"ST-DECL-RM01-TB","title":"declaration.ValidationResult","read_model_id":"ST-DECL-RM01","name":"ValidationResult","storage":"in memory","file":"internal/declaration/validate.go"}
-{"id":"ST-DIS-EN06-TB","title":"lifecycle.yaml","entity_id":"ST-DIS-EN06","name":"lifecycle.yaml","storage":"file","file":"internal/lifecycle/store.go"}
+{"id":"ST-DIS-EN06-TB","title":"lifecycle.Advisory","entity_id":"ST-DIS-EN06","name":"lifecycle/<advisory id>.json","storage":"file","file":"internal/lifecycle/store.go"}
 {"id":"ST-DIS-EN09-TB","title":"qualification.json","entity_id":"ST-DIS-EN09","name":"qualification.json","storage":"file","file":"scripts/qualify-compiler-release.py"}
 {"id":"ST-DIS-EN12-TB","title":"build.json","entity_id":"ST-DIS-EN12","name":"build.json","storage":"file","file":"scripts/verify-compiler-artifact.py"}
 {"id":"ST-DIS-RM01-TB","title":"fleet.Sweep","read_model_id":"ST-DIS-RM01","name":"fleet.Sweep","storage":"in memory","file":"internal/fleet/sweep.go"}

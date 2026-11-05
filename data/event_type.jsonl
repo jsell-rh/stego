@@ -7,8 +7,8 @@
 {"id":"ST-BLD-EV04-ET","title":"appbuild.ImageBuilt","domain_event_id":"ST-BLD-EV04","delivery":"in process","file":"internal/appbuild/events.go"}
 {"id":"ST-BLD-EV05-ET","title":"appbuild.ImageSigned","domain_event_id":"ST-BLD-EV05","delivery":"in process","file":"internal/appbuild/events.go"}
 {"id":"ST-BLD-EV06-ET","title":"appbuild.ImagePublished","domain_event_id":"ST-BLD-EV06","delivery":"in process","file":"internal/appbuild/events.go"}
-{"id":"ST-DIS-EV03-ET","title":"DigestSuperseded","domain_event_id":"ST-DIS-EV03","delivery":"outbox","file":"internal/lifecycle/events.go"}
-{"id":"ST-DIS-EV04-ET","title":"DigestWithdrawn","domain_event_id":"ST-DIS-EV04","delivery":"outbox","file":"internal/lifecycle/events.go"}
+{"id":"ST-DIS-EV03-ET","title":"lifecycle.DigestSuperseded","domain_event_id":"ST-DIS-EV03","delivery":"outbox","file":"internal/lifecycle/events.go"}
+{"id":"ST-DIS-EV04-ET","title":"lifecycle.DigestWithdrawn","domain_event_id":"ST-DIS-EV04","delivery":"outbox","file":"internal/lifecycle/events.go"}
 {"id":"ST-DIS-EV05-ET","title":"qualify","domain_event_id":"ST-DIS-EV05","delivery":"in process","file":"scripts/qualify-compiler-release.py"}
 {"id":"ST-DIS-EV06-ET","title":"verify_published_release","domain_event_id":"ST-DIS-EV06","delivery":"in process","file":"scripts/qualify-compiler-release.py"}
 {"id":"ST-DIS-EV07-ET","title":"install","domain_event_id":"ST-DIS-EV07","delivery":"in process","file":"scripts/install-compiler.py"}
