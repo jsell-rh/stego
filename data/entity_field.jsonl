@@ -249,6 +249,7 @@
 {"entity_id":"ST-SUP-EN06","position":1,"name":"Port name","meaning":"The port's name, unique in its registry.","type":"text","required":true,"example":"auth-provider"}
 {"entity_id":"ST-SUP-EN06","position":2,"name":"Meaning","meaning":"What a provider of this port undertakes to supply.","type":"text","required":true,"example":"A verified identity for each request"}
 {"entity_id":"ST-SUP-EN06","position":3,"name":"Conformance tests","meaning":"The path to the conformance test suite every provider of the port runs. A provider that has not passed it at its current digest does not graduate to ga.","type":"text","required":false,"example":"ports/auth-provider/conformance"}
+{"entity_id":"ST-SUP-EN06","position":4,"name":"Correctness tests","meaning":"The names of the tests that prove a correctness property of the port as a whole, such as the new-enemy test of authz-decision. Its conformance suite must include each one.","type":"text","required":false,"example":"new-enemy"}
 {"entity_id":"ST-SUP-EN07","position":1,"name":"Field name","meaning":"The field a provider fills.","type":"text","required":true,"example":"Identity.UserID"}
 {"entity_id":"ST-SUP-EN07","position":2,"name":"Required meaning","meaning":"What every provider must put in the field.","type":"text","required":true,"example":"The verified subject, which never changes"}
 {"entity_id":"ST-SUP-EN08","position":1,"name":"Slot name","meaning":"The slot's name, unique in its component.","type":"text","required":true,"example":"before_create"}
