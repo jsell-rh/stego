@@ -216,6 +216,7 @@
 {"id":"ST-SUP-UC01-FL-S06","title":"A namespace that another component of the registry claims is refused, naming both components","flow_id":"ST-SUP-UC01-FL","path":"refused","position":1}
 {"id":"ST-SUP-UC01-FL-S07","title":"A component that states no architecture role is refused, naming the component","flow_id":"ST-SUP-UC01-FL","path":"refused","position":2}
 {"id":"ST-SUP-UC01-FL-S08","title":"A file the component emits is the same for every declaration, so the registry refuses the component as static and names the file","flow_id":"ST-SUP-UC01-FL","path":"refused","position":3}
+{"id":"ST-SUP-UC01-FL-S09","title":"The component's schema marks a setting or a slot input as a bypass, so the registry refuses the component and names each marked setting","flow_id":"ST-SUP-UC01-FL","path":"refused","position":4}
 {"id":"ST-SUP-UC02-FL-S01","title":"The platform engineer pins the common registry at one reference","flow_id":"ST-SUP-UC02-FL","path":"main","position":1}
 {"id":"ST-SUP-UC02-FL-S02","title":"The platform engineer names a local registry that adds the team's own parts, at one reference","flow_id":"ST-SUP-UC02-FL","path":"main","position":2}
 {"id":"ST-SUP-UC02-FL-S03","title":"STEGO composes the sources into one active set, and records the reference of each","flow_id":"ST-SUP-UC02-FL","path":"main","position":3}
