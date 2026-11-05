@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 // HTTPRoute describes a registration on the protected or public multiplexer.
@@ -62,7 +63,17 @@ func ValidateHTTPRouteGroups(groups map[string][]HTTPRoute) error {
 	}
 	if hasPublic {
 		if err := registerHTTPPattern(public, "/"); err != nil {
-			return fmt.Errorf("public routes conflict with the protected fallback: %w", err)
+			var owners []string
+			for _, name := range names {
+				for _, route := range groups[name] {
+					fallback := http.NewServeMux()
+					if route.Discovery && registerHTTPPattern(fallback, "/") == nil && registerHTTPPattern(fallback, route.Pattern) != nil {
+						owners = append(owners, strconv.Quote(name))
+						break
+					}
+				}
+			}
+			return fmt.Errorf("component %s: public routes conflict with the protected fallback: %w", strings.Join(owners, ", "), err)
 		}
 	}
 	return nil
