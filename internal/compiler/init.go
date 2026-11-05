@@ -27,7 +27,8 @@ type InitResult struct {
 	Created []string
 }
 
-// Initialize prepares a project for a new declaration (ST-GEN-CMD07). It uses the configured registry, writes the
+// Initialize prepares a project for a new declaration (ST-GEN-CMD07). It uses the configured registry, or with no
+// configuration the registry of STEGO_REGISTRY or the default local registry folder, writes the
 // declaration that declaration.Scaffold makes from the archetype's facts, and publishes service.yaml last.
 // Existing files are never replaced. A failed or interrupted attempt can leave
 // complete configuration files or empty directories, but no truncated output.
@@ -52,7 +53,10 @@ func Initialize(opts InitOptions) (result *InitResult, err error) {
 	if !existed {
 		directory := os.Getenv("STEGO_REGISTRY")
 		if directory == "" {
-			directory = filepath.Join(project, "registry")
+			directory, err = DefaultRegistryFolder()
+			if err != nil {
+				return nil, err
+			}
 		}
 		config, err = yaml.Marshal(registry.RegistryConfig{Registry: []registry.RegistrySource{{URL: directory, Ref: "local"}}})
 		if err != nil {
@@ -118,6 +122,16 @@ func Initialize(opts InitOptions) (result *InitResult, err error) {
 		return nil, err
 	}
 	return &InitResult{Name: name, Created: append(created, "service.yaml")}, nil
+}
+
+// DefaultRegistryFolder is the default local registry folder: stego/registry in the user's configuration folder.
+// A project with no configuration names it as a local source when STEGO_REGISTRY is not set.
+func DefaultRegistryFolder() (string, error) {
+	folder, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("finding the default local registry folder: %w", err)
+	}
+	return filepath.Join(folder, "stego", "registry"), nil
 }
 
 func checkInitDirectory(root *os.Root, name string) error {
