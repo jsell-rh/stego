@@ -157,9 +157,11 @@ func (f *fleetFixture) paths(names ...string) []string {
 	return result
 }
 
-// offline runs the stego binary in a network namespace with no interface but loopback, as an unprivileged user,
-// so that any network call fails. bwrap gives the namespace where the kernel does not let a user call unshare -n
-// itself. When strace is present, it also records each process the run starts and each socket it opens.
+// offline runs the stego binary so that a network call cannot pass unseen. Where it can, it runs the binary in a
+// network namespace with no interface but loopback, as an unprivileged user: bwrap --unshare-net where the kernel
+// does not let a user call unshare -n itself, else unshare -rn. Where neither runs (a CI runner whose kernel
+// refuses user namespaces and that has no bwrap), strace alone watches the run, and checkStartsOnlyStegoAndGit
+// fails on any network socket it opens. strace also records each process the run starts.
 func offline(t *testing.T, dir string, env []string, args ...string) (string, []string) {
 	t.Helper()
 	binary := stegoBinary(t)
@@ -169,12 +171,17 @@ func offline(t *testing.T, dir string, env []string, args ...string) (string, []
 		sandbox = []string{"bwrap", "--unshare-net", "--dev-bind", "/", "/"}
 	case exec.Command("unshare", "-rn", "true").Run() == nil:
 		sandbox = []string{"unshare", "-rn"}
-	default:
-		t.Fatal("the test needs a network namespace without network: neither bwrap --unshare-net nor unshare -rn runs here")
+	}
+	_, straceErr := exec.LookPath("strace")
+	if sandbox == nil && straceErr != nil {
+		t.Fatal("the test needs a network namespace or strace: neither bwrap --unshare-net, unshare -rn nor strace runs here")
+	}
+	if sandbox == nil {
+		t.Log("no network namespace here: strace alone shows that the run opens no network socket")
 	}
 	trace := ""
 	command := append(slices.Clone(sandbox), binary)
-	if _, err := exec.LookPath("strace"); err == nil {
+	if straceErr == nil {
 		trace = filepath.Join(t.TempDir(), "trace")
 		command = append(slices.Clone(sandbox), "strace", "-f", "-qq", "-e", "trace=execve,socket,connect", "-o", trace, binary)
 	}
@@ -210,7 +217,7 @@ func checkStartsOnlyStegoAndGit(t *testing.T, binary string, events []string) {
 			if !strings.Contains(event, `execve("`+binary+`"`) && !strings.Contains(event, "/git\"") {
 				t.Errorf("the run started another process: %s", event)
 			}
-		case strings.Contains(event, "AF_INET"):
+		case strings.Contains(event, "AF_INET"), strings.Contains(event, "AF_NETLINK"):
 			t.Errorf("the run opened a network socket: %s", event)
 		}
 	}
