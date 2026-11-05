@@ -532,39 +532,6 @@ func TestRunRegistryInspectMissingArg(t *testing.T) {
 	}
 }
 
-func TestRunRegistryFills(t *testing.T) {
-	tmp := t.TempDir()
-	setupMinimalRegistry(t, tmp)
-
-	projDir := filepath.Join(tmp, "fillsproject")
-	fillDir := filepath.Join(projDir, "fills", "my-fill")
-	if err := os.MkdirAll(fillDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create a fill that implements before_create.
-	manifest := fill.Fill{
-		Kind:       "fill",
-		Name:       "my-fill",
-		Implements: "rest-api.before_create",
-	}
-	fillData, _ := yaml.Marshal(manifest)
-	if err := os.WriteFile(filepath.Join(fillDir, "fill.yaml"), fillData, 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	origDir, _ := os.Getwd()
-	if err := os.Chdir(projDir); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(origDir)
-	t.Setenv("STEGO_REGISTRY", filepath.Join(tmp, "registry"))
-
-	if err := runRegistryFills([]string{"--slot", "before_create"}); err != nil {
-		t.Fatalf("runRegistryFills failed: %v", err)
-	}
-}
-
 func TestRunRegistryFillsMissingSlot(t *testing.T) {
 	err := runRegistryFills([]string{})
 	if err == nil {
@@ -572,20 +539,6 @@ func TestRunRegistryFillsMissingSlot(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--slot is required") {
 		t.Errorf("expected '--slot is required' error, got: %v", err)
-	}
-}
-
-func TestRunRegistryFillsNoFillsDir(t *testing.T) {
-	tmp := t.TempDir()
-	origDir, _ := os.Getwd()
-	if err := os.Chdir(tmp); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(origDir)
-
-	// Should not error, just print "No fills directory found."
-	if err := runRegistryFills([]string{"--slot", "before_create"}); err != nil {
-		t.Fatalf("runRegistryFills should not error when fills dir missing: %v", err)
 	}
 }
 

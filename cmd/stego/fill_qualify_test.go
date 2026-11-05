@@ -169,6 +169,9 @@ func (k *fillKeys) env(home string) []string {
 type fillProject struct {
 	dir  string
 	keys *fillKeys
+	// registry is the active registry of the project, when it is not the
+	// built-in one.
+	registry string
 }
 
 // stego runs the stego binary in the project as the holder of the key, and
@@ -182,6 +185,9 @@ func (p *fillProject) stego(t *testing.T, key string, args ...string) (string, s
 		t.Fatalf("no home for the key %q", key)
 	}
 	command.Env = p.keys.env(home)
+	if p.registry != "" {
+		command.Env = append(command.Env, "STEGO_REGISTRY="+p.registry)
+	}
 	var stdout, stderr bytes.Buffer
 	command.Stdout, command.Stderr = &stdout, &stderr
 	err := command.Run()
