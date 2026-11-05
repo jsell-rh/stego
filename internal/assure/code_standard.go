@@ -192,12 +192,15 @@ func gitBlobs(root string, ids []string) ([][]byte, error) {
 }
 
 // TechnicalRecord is one record of the spec's technical stage that names a file or a folder: its ID, its kind,
-// its title, and the path it names from the product's root.
+// its title, the path it names from the product's root, and its helper files from that root, in path order. A
+// helper file (Lathe's helper_file table) is one more file the record's code is split across: it traces to the
+// record as the record's own file does.
 type TechnicalRecord struct {
-	ID    string
-	Kind  string
-	Title string
-	File  string
+	ID      string
+	Kind    string
+	Title   string
+	File    string
+	Helpers []string
 }
 
 // latheTechnicalKinds are Lathe's own kinds of the technical stage that have a file column, as the meta model of the
@@ -211,12 +214,14 @@ func latheTechnicalKinds() []string {
 }
 
 // readTechnicalStage reads, from the spec's tables by name, the domains with their titles and every technical
-// record that names a file or folder, in ID order. It reads rows as Lathe's code-file-untraced does: a column it
-// reads counts only when its value is a string, and a line that is not a JSON object is passed over. Thus a row
-// that this reader cannot use never makes ReadSpec, and so assure record, refuse the spec.
+// record that names a file or folder, in ID order, each with the helper files that the helper_file table gives it.
+// A spec without that table (data older than Lathe 8) has no helper files. It reads rows as Lathe's
+// code-file-untraced does: a column it reads counts only when its value is a string, and a line that is not a JSON
+// object is passed over. Thus a row that this reader cannot use never makes ReadSpec, and so assure record, refuse
+// the spec.
 func readTechnicalStage(tables map[string]SpecFile) (map[string]string, []TechnicalRecord) {
 	type row struct {
-		ID, Title, File, Name, Stage string
+		ID, Title, File, Name, Stage, RecordID string
 	}
 	text := func(fields map[string]json.RawMessage, column string) string {
 		var value string
@@ -238,7 +243,7 @@ func readTechnicalStage(tables map[string]SpecFile) (map[string]string, []Techni
 			}
 			read = append(read, row{
 				ID: text(fields, "id"), Title: text(fields, "title"), File: text(fields, "file"),
-				Name: text(fields, "name"), Stage: text(fields, "stage"),
+				Name: text(fields, "name"), Stage: text(fields, "stage"), RecordID: text(fields, "record_id"),
 			})
 		}
 		return read
@@ -256,11 +261,19 @@ func readTechnicalStage(tables map[string]SpecFile) (map[string]string, []Techni
 		}
 	}
 	sort.Strings(kinds)
+	helpers := make(map[string][]string)
+	for _, r := range rows("helper_file") {
+		if r.RecordID != "" && r.File != "" {
+			helpers[r.RecordID] = append(helpers[r.RecordID], normalPath(r.File))
+		}
+	}
 	var records []TechnicalRecord
 	for _, kind := range kinds {
 		for _, r := range rows(kind) {
 			if r.ID != "" && r.File != "" {
-				records = append(records, TechnicalRecord{ID: r.ID, Kind: kind, Title: r.Title, File: normalPath(r.File)})
+				files := helpers[r.ID]
+				sort.Strings(files)
+				records = append(records, TechnicalRecord{ID: r.ID, Kind: kind, Title: r.Title, File: normalPath(r.File), Helpers: files})
 			}
 		}
 	}
@@ -314,7 +327,8 @@ func goFolderOf(name string) (string, bool) {
 }
 
 // packageDomains lists, for each Go package under internal or cmd, the domains whose technical records name a
-// file the tree holds in it, or name a folder that holds it, in order. It also tells which packages a technical
+// file the tree holds in it, as the record's file or as one of its helper files, or name a folder that holds it,
+// in order. It also tells which packages a technical
 // record names at all, of a domain or of the product as a whole, such as a shared value type.
 func packageDomains(spec Spec, tree Tree) (map[string][]string, map[string]bool) {
 	packages := make(map[string]bool)
@@ -327,9 +341,11 @@ func packageDomains(spec Spec, tree Tree) (map[string][]string, map[string]bool)
 	named := make(map[string]bool)
 	for _, record := range spec.Technical {
 		var dirs []string
-		if dir, ok := goPackageOf(record.File); ok {
-			if _, held := tree.File(record.File); held {
-				dirs = append(dirs, dir)
+		for _, file := range append([]string{record.File}, record.Helpers...) {
+			if dir, ok := goPackageOf(file); ok {
+				if _, held := tree.File(file); held {
+					dirs = append(dirs, dir)
+				}
 			}
 		}
 		for dir := range packages {
@@ -360,8 +376,8 @@ func packageDomains(spec Spec, tree Tree) (map[string][]string, map[string]bool)
 }
 
 // packageOfTwoDomains is the predicate of ST-ASR-SP05 (ST-STD-CODE-R01): a Go package under internal holds a file
-// named by a technical record of one domain and a file named by a technical record of another. A shared value
-// type counts for no domain. A package under cmd composes domains, as the Product owner decided: the CLI handler
+// named by a technical record of one domain and a file named by a technical record of another. A helper file
+// counts for the domain of the record that names it. A shared value type counts for no domain. A package under cmd composes domains, as the Product owner decided: the CLI handler
 // records of several domains name it, and it belongs to no one domain, so it is not checked. It finds one fault
 // per such package, with its domains.
 func packageOfTwoDomains(spec Spec, tree Tree) []CodeFault {
@@ -524,7 +540,8 @@ func hasMember(expr ast.Expr, member string) bool {
 
 // identifierMissing is the predicate of ST-ASR-SP06 (ST-STD-CODE-R02): a technical record names a Go file that
 // exists and the package-qualified identifier in the record's title is not declared in that file. A title that
-// is not an identifier of the file's package, such as a file name, is not declared either. It reads the records
+// is not an identifier of the file's package, such as a file name, is not declared either. Only the record's own
+// file counts, not its helper files, as Lathe says of a title. It reads the records
 // whose title is their name in code, and the table records.
 func identifierMissing(spec Spec, tree Tree) []CodeFault {
 	kinds := codeTitledKinds()
@@ -1013,7 +1030,8 @@ func sourceExtensions() map[string]bool {
 }
 
 // fileWithoutRecord is the predicate of ST-ASR-SP09 (ST-STD-CODE-R05): a source file under internal, cmd, scripts
-// or registry is named by no technical record, directly or through a folder a record names. A source file is a file
+// or registry is named by no technical record, directly, as a helper file of the record, or through a folder a
+// record names. A source file is a file
 // with a source extension that is not a test file (a test glob of lathe.config.json matches it; a test record
 // traces it, and ST-STD-CODE-R04 holds it). Every other file counts, whatever its folder is named and whether or
 // not it says it is generated or is a tool's config: the rule has no such exception.
@@ -1021,6 +1039,9 @@ func fileWithoutRecord(spec Spec, tree Tree) []CodeFault {
 	named := make(map[string]bool)
 	for _, record := range spec.Technical {
 		named[record.File] = true
+		for _, helper := range record.Helpers {
+			named[helper] = true
+		}
 	}
 	extensions := sourceExtensions()
 	globs := testGlobs(tree)

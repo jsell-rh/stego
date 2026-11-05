@@ -402,6 +402,50 @@ this line is not JSON, and Lathe passes over it
 			fault("scripts/lost.sh"),
 		)
 	})
+	t.Run("ST-STD-CODE-R05-T02 A helper file is named by its record: the code standard counts it as the record's file for R05 and R01, and not for R02", func(t *testing.T) {
+		tables := map[string]string{
+			"predicate": `{"id":"ST-FXD-SP01-PR","title":"fx.holds","file":"internal/fx/named.go"}
+{"id":"ST-FXA-SP01-PR","title":"fy.checks","file":"internal/fy/fy.go"}`,
+			"helper_file": `{"record_id":"ST-FXD-SP01-PR","file":"./internal/fx/lock_unix.go"}
+{"record_id":"ST-FXD-SP01-PR","file":"internal/fy/shared.go"}
+{"record_id":"ST-FXD-SP01-PR","file":["internal/fx/lost.go"]}
+{"record_id":"ST-FXD-SP09-PR","file":"internal/fx/orphan.go"}
+this line is not JSON, and Lathe passes over it
+`,
+		}
+		tree := codeTree(map[string]string{
+			"internal/fx/named.go":     "package fx\n",
+			"internal/fx/lock_unix.go": "package fx\n\nfunc holds(x int) bool { return x > 0 }\n",
+			"internal/fx/lost.go":      "package fx\n",
+			"internal/fx/orphan.go":    "package fx\n",
+			"internal/fy/fy.go":        "package fy\n\nfunc checks(x int) bool { return x > 0 }\n",
+			"internal/fy/shared.go":    "package fy\n",
+		})
+		spec := codeSpec(t, tables)
+		for _, record := range spec.Technical {
+			if record.ID == "ST-FXD-SP01-PR" && !reflect.DeepEqual(record.Helpers, []string{"internal/fx/lock_unix.go", "internal/fy/shared.go"}) {
+				t.Fatalf("the helper files of %s are %q", record.ID, record.Helpers)
+			}
+		}
+		unnamed := func(path string) CodeFault {
+			return CodeFault{Rule: RuleNoFileWithoutRecord, Key: path, Path: path, Reason: "no technical record names the file, directly or through a folder"}
+		}
+		expectFaults(t, fileWithoutRecord(spec, tree), unnamed("internal/fx/lost.go"), unnamed("internal/fx/orphan.go"))
+		expectFaults(t, packageOfTwoDomains(spec, tree), CodeFault{
+			Rule: RuleOneDomainPerPackage, Key: "internal/fy", Path: "internal/fy",
+			Reason: "the package holds files that the records of more than one domain name: ST-FXA, ST-FXD",
+		})
+		expectFaults(t, identifierMissing(spec, tree), CodeFault{
+			Rule: RuleNamedAsRecordNames, Key: "ST-FXD-SP01-PR", Path: "internal/fx/named.go",
+			Reason: "ST-FXD-SP01-PR names fx.holds, which the file does not declare",
+		})
+
+		delete(tables, "helper_file")
+		older := codeSpec(t, tables)
+		expectFaults(t, fileWithoutRecord(older, tree),
+			unnamed("internal/fx/lock_unix.go"), unnamed("internal/fx/lost.go"), unnamed("internal/fx/orphan.go"), unnamed("internal/fy/shared.go"))
+		expectFaults(t, packageOfTwoDomains(older, tree))
+	})
 }
 
 // stubFile holds functions that read their inputs and functions that do not.
