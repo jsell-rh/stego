@@ -69,6 +69,9 @@ type Plan struct {
 	// hand-edited files (stego apply --replace-hand-edits).
 	ReplaceHandEdits bool
 
+	// saved is the saved plan that apply carries out, when it is given one.
+	saved *SavedPlan
+
 	inputManifestSHA string
 	registry         *registry.Registry
 	requirements     map[string]string
@@ -368,7 +371,15 @@ func applyWithFault(plan *Plan, projectDir, outDir string, fault applyFault) err
 	if err := plan.verifyRegistry(); err != nil {
 		return err
 	}
-	return commitTransaction(project, projectDir, plan, relative, fault)
+	if plan.saved != nil {
+		if err := plan.saved.StillApplies(plan); err != nil {
+			return err
+		}
+	}
+	if err := commitTransaction(project, projectDir, plan, relative, fault); err != nil {
+		return err
+	}
+	return removeSavedPlan(project)
 }
 
 // isProjectRootFile returns true for files that should be placed at the project
