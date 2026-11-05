@@ -42,8 +42,11 @@ func PackBrowserAssets(directory string) ([]byte, error) {
 			}
 			return nil
 		}
-		if !entry.Type().IsRegular() || !browserassets.ValidName(name) || len(assets) >= browserassets.MaxFiles {
-			return fmt.Errorf("invalid browser asset file")
+		if !entry.Type().IsRegular() {
+			return fmt.Errorf("browser asset %s is refused: it is not a regular file", name)
+		}
+		if !browserassets.ValidName(name) || len(assets) >= browserassets.MaxFiles {
+			return fmt.Errorf("browser asset %s is refused: its name is not valid, or the folder holds too many files", name)
 		}
 		file, err := root.Open(name)
 		if err != nil {
