@@ -397,6 +397,9 @@ func runPlan(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := checkPinStanding(input, plan); err != nil {
+		return err
+	}
 	if err := compiler.SavePlan(plan, input.ProjectDir); err != nil {
 		return err
 	}
@@ -428,6 +431,9 @@ func runApply(args []string) error {
 		return err
 	}
 
+	if err := checkPinStanding(input, plan); err != nil {
+		return err
+	}
 	if *savedPlan {
 		saved, err := compiler.LoadPlan(input.ProjectDir)
 		if err != nil {
@@ -483,7 +489,11 @@ func runValidate(args []string) error {
 	if result.HasErrors() {
 		return fmt.Errorf("validation failed with %d error(s)", len(result.Errors))
 	}
-	return nil
+	plan, err := compiler.Reconcile(input)
+	if err != nil {
+		return err
+	}
+	return checkPinStanding(input, plan)
 }
 
 // runDrift implements `stego drift`.
