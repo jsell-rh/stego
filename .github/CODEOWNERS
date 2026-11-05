@@ -1,3 +1,3 @@
 # Changes to the CI definitions need the repository owner's review (ST-ASR-UC02-R06, decided 2026-10-31).
-/.github/workflows/ @jsell-rh
-/.github/CODEOWNERS @jsell-rh
+/.github/workflows/ @jsell-rh @elsell
+/.github/CODEOWNERS @jsell-rh @elsell
