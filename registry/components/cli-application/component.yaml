@@ -1,6 +1,7 @@
 kind: component
 name: cli-application
 version: 1.8.1
+stage: ga
 output_namespace: cli
 config:
   factory_package:

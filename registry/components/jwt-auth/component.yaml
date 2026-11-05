@@ -1,6 +1,7 @@
 kind: component
 name: jwt-auth
 version: 2.4.0
+stage: ga
 output_namespace: internal/auth
 
 config:

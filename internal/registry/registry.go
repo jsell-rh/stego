@@ -173,6 +173,9 @@ func LoadSources(sources ...Source) (*Registry, error) {
 		if err := r.checkSlots("components", name, item.Slots); err != nil {
 			return nil, err
 		}
+		if err := checkStage(item); err != nil {
+			return nil, err
+		}
 		r.components[name] = item
 	}
 	for _, name := range r.childDirectories("mixins") {
@@ -192,6 +195,12 @@ func LoadSources(sources ...Source) (*Registry, error) {
 			return nil, err
 		}
 		r.mixins[name] = item
+	}
+	if err := checkGoldenPaths(r); err != nil {
+		return nil, err
+	}
+	if err := checkExperimentPorts(r); err != nil {
+		return nil, err
 	}
 	return r, nil
 }

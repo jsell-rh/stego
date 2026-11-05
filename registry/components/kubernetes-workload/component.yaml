@@ -1,6 +1,7 @@
 kind: component
 name: kubernetes-workload
 version: 1.0.0
+stage: ga
 output_namespace: workload
 requires: []
 provides:

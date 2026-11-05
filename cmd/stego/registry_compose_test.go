@@ -20,7 +20,7 @@ import (
 // commonRegistryFiles are the files of the common registry of ST-SUP-TD01.
 func commonRegistryFiles() map[string]string {
 	component := func(name, namespace, provides, requires, slots string) string {
-		return "kind: component\nname: " + name + "\nversion: 1.0.0\noutput_namespace: " + namespace +
+		return "kind: component\nname: " + name + "\nversion: 1.0.0\nstage: ga\noutput_namespace: " + namespace +
 			"\n\nconfig:\n  enabled:\n    type: bool\n\nrequires: " + requires + "\n\nprovides: " + provides + "\n\nslots: " + slots + "\n"
 	}
 	return map[string]string{
@@ -54,9 +54,15 @@ func commonRegistryFiles() map[string]string {
 func localRegistryFiles() map[string]string {
 	return map[string]string{
 		".gitignore": "*.log\n",
-		"components/local-a/component.yaml": "kind: component\nname: local-a\nversion: 0.1.0\noutput_namespace: internal/local\n\n" +
+		"components/local-a/component.yaml": "kind: component\nname: local-a\nversion: 0.1.0\nstage: beta\nsunset: " + daysFromToday(60) + "\noutput_namespace: internal/local\n\n" +
 			"config:\n  enabled:\n    type: bool\n\nrequires: []\n\nprovides: [local-port]\n\nslots: []\n",
 	}
+}
+
+// daysFromToday gives the date a number of days after today, as a sunset
+// date is written; a negative number gives a date before today.
+func daysFromToday(days int) string {
+	return time.Now().AddDate(0, 0, days).Format(time.DateOnly)
 }
 
 // registryRepository writes files into a new Git repository and commits them.
@@ -270,7 +276,7 @@ func TestRegistryComposeLimits(t *testing.T) {
 		for i := 3; i <= 9; i++ {
 			name := fmt.Sprintf("local-%d", i)
 			repository, commit := registryRepository(t, name+"-registry", map[string]string{
-				"components/" + name + "/component.yaml": "kind: component\nname: " + name + "\nversion: 0.1.0\noutput_namespace: internal/" + name + "\nrequires: []\nprovides: []\nslots: []\n",
+				"components/" + name + "/component.yaml": "kind: component\nname: " + name + "\nversion: 0.1.0\nstage: ga\noutput_namespace: internal/" + name + "\nrequires: []\nprovides: []\nslots: []\n",
 			})
 			sources = append(sources, pinned(repository, commit))
 		}
@@ -456,7 +462,7 @@ func TestRegistryComposePins(t *testing.T) {
 
 	t.Run("ST-SUP-UC02-R04-T02 A cached copy is used only at the pinned commit", func(t *testing.T) {
 		f := newSupplyingFixture(t)
-		other := commitRegistry(t, f.local, map[string]string{"components/other/component.yaml": "kind: component\nname: other\nversion: 0.1.0\nrequires: []\nprovides: []\nslots: []\n"})
+		other := commitRegistry(t, f.local, map[string]string{"components/other/component.yaml": "kind: component\nname: other\nversion: 0.1.0\nstage: ga\nrequires: []\nprovides: []\nslots: []\n"})
 		first := f.compose(t)
 		digest := strings.SplitN(first.accepted(t), "\n", 2)[0]
 		var cached string
@@ -501,7 +507,7 @@ func TestRegistryComposePins(t *testing.T) {
 	t.Run("ST-SUP-UC02-R04-T03 A vendored copy at another commit is refused without a fetch", func(t *testing.T) {
 		f := newSupplyingFixture(t)
 		f.compose(t).accepted(t)
-		other := commitRegistry(t, f.local, map[string]string{"components/other/component.yaml": "kind: component\nname: other\nversion: 0.1.0\nrequires: []\nprovides: []\nslots: []\n"})
+		other := commitRegistry(t, f.local, map[string]string{"components/other/component.yaml": "kind: component\nname: other\nversion: 0.1.0\nstage: ga\nrequires: []\nprovides: []\nslots: []\n"})
 		vendored(t, f, other)
 		run := f.compose(t)
 		run.refused(t, "file://"+f.local, f.localSHA, other)
@@ -521,7 +527,7 @@ func TestRegistryComposePins(t *testing.T) {
 
 	t.Run("ST-SUP-UC02-R04-T05 A vendored copy with a modified, an ignored or an untracked file is refused", func(t *testing.T) {
 		for _, change := range []struct{ file, data string }{
-			{"components/local-a/component.yaml", "kind: component\nname: local-a\nversion: 9.9.9\nrequires: []\nprovides: []\nslots: []\n"},
+			{"components/local-a/component.yaml", "kind: component\nname: local-a\nversion: 9.9.9\nstage: ga\nrequires: []\nprovides: []\nslots: []\n"},
 			{"build.log", "ignored\n"},
 			{"components/local-a/notes.yaml", "untracked: true\n"},
 		} {
@@ -572,5 +578,27 @@ func TestRegistryComposePins(t *testing.T) {
 		if strings.Contains(without.stderr, "STEGO_REGISTRY") || strings.Contains(without.stderr, "WARNING") {
 			t.Fatalf("a warning was given without the override:\n%s", without.stderr)
 		}
+	})
+}
+
+func TestRegistryComposeStages(t *testing.T) {
+	t.Run("ST-SUP-UC04-R01-T01 An alpha or beta component with no sunset date is refused", func(t *testing.T) {
+		for _, stage := range []string{"beta", "alpha"} {
+			f := newSupplyingFixture(t)
+			commonSHA := commitRegistry(t, f.common, map[string]string{
+				"components/exp-a/component.yaml": "kind: component\nname: exp-a\nversion: 0.1.0\nstage: " + stage + "\noutput_namespace: internal/exp\nrequires: []\nprovides: [exp-port]\nslots: []\n",
+			})
+			registryProject(t, f.project, "", pinned(f.common, commonSHA), pinned(f.local, f.localSHA))
+			f.compose(t).refused(t, "exp-a", "sunset date is missing")
+		}
+	})
+
+	t.Run("ST-SUP-UC05-R03-T01 A ga component that states a sunset date is refused", func(t *testing.T) {
+		f := newSupplyingFixture(t)
+		sunset := daysFromToday(30)
+		data := strings.Replace(commonRegistryFiles()["components/store-a/component.yaml"], "stage: ga\n", "stage: ga\nsunset: "+sunset+"\n", 1)
+		commonSHA := commitRegistry(t, f.common, map[string]string{"components/store-a/component.yaml": data})
+		registryProject(t, f.project, "", pinned(f.common, commonSHA), pinned(f.local, f.localSHA))
+		f.compose(t).refused(t, "store-a", "sunset date "+sunset)
 	})
 }

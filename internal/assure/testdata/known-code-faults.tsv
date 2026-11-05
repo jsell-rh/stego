@@ -241,7 +241,6 @@ ST-STD-CODE-R04	internal/parser/parser_test.go	internal/parser/parser_test.go	th
 ST-STD-CODE-R04	internal/parser/strict_test.go ST-DECL-INV02-T	internal/parser/strict_test.go	no test or subtest name in the file carries the ID of automated test record ST-DECL-INV02-T
 ST-STD-CODE-R04	internal/parser/strict_test.go ST-DECL-INV03-T	internal/parser/strict_test.go	no test or subtest name in the file carries the ID of automated test record ST-DECL-INV03-T
 ST-STD-CODE-R04	internal/ports/resolve_test.go	internal/ports/resolve_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/registry/archetype_test.go	internal/registry/archetype_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/registry/cache_security_test.go	internal/registry/cache_security_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/registry/registry_load_benchmark_test.go	internal/registry/registry_load_benchmark_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/registry/registry_test.go	internal/registry/registry_test.go	the test file names no test record's ID in a test or subtest name

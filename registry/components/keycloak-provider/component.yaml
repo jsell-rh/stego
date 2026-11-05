@@ -1,6 +1,7 @@
 kind: component
 name: keycloak-provider
 version: 0.19.0
+stage: ga
 output_namespace: keycloak
 config:
   managed_clients:

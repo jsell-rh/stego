@@ -1,8 +1,10 @@
 package registry_test
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/registry"
@@ -149,4 +151,54 @@ func TestLiveRegistryLoadsAllArchetypeComponents(t *testing.T) {
 			t.Errorf("archetype references component %q but registry does not contain it", compName)
 		}
 	}
+}
+
+func TestShippedGoldenPathsHoldOnlyGAComponents(t *testing.T) {
+	t.Run("ST-SUP-SP01-T Every archetype and mixin of the shipped registry includes only ga components", func(t *testing.T) {
+		shipped, err := registry.Load(filepath.Join(repoRoot(t), "registry"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		experiments, evaluated := 0, 0
+		evaluate := func(owner string, components []string) {
+			for _, name := range components {
+				component := shipped.Component(name)
+				if component == nil {
+					t.Fatalf("%s includes %s, which the registry does not hold", owner, name)
+				}
+				evaluated++
+				if !registry.FitForGoldenPath(component) {
+					experiments++
+					t.Errorf("%s includes %s at stage %q", owner, name, component.Stage)
+				}
+			}
+		}
+		for name, archetype := range shipped.Archetypes() {
+			evaluate("archetype "+name, archetype.Components)
+		}
+		for name, mixin := range shipped.Mixins() {
+			evaluate("mixin "+name, mixin.AddsComponents)
+		}
+		if evaluated == 0 || experiments != 0 {
+			t.Fatalf("%d experiments on golden paths among %d included components, want 0 of more than 0", experiments, evaluated)
+		}
+
+		fixture := t.TempDir()
+		for name, data := range map[string]string{
+			"components/store-a/component.yaml":  "kind: component\nname: store-a\nversion: 1.0.0\nstage: ga\nrequires: []\nprovides: []\nslots: []\n",
+			"components/beta-x/component.yaml":   "kind: component\nname: beta-x\nversion: 0.2.0\nstage: beta\nsunset: 2099-01-01\nrequires: []\nprovides: []\nslots: []\n",
+			"archetypes/svc-arch/archetype.yaml": "kind: archetype\nname: svc-arch\nlanguage: go\nversion: 1.0.0\ncomponents: [store-a, beta-x]\n",
+		} {
+			target := filepath.Join(fixture, filepath.FromSlash(name))
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(target, []byte(data), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := registry.Load(fixture); err == nil || !strings.Contains(err.Error(), "svc-arch") || !strings.Contains(err.Error(), "beta-x (beta)") || strings.Contains(err.Error(), "store-a") {
+			t.Fatalf("the archetype with a beta component was not refused naming beta-x and its stage only: %v", err)
+		}
+	})
 }

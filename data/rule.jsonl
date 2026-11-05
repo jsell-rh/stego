@@ -42,3 +42,4 @@
 {"id":"ST-GEN-INV31-RL","title":"compiler.validateSlotNames","invariant_id":"ST-GEN-INV31","file":"internal/compiler/validate.go"}
 {"id":"ST-GEN-INV32-RL","title":"compiler.validateComponentConfig","invariant_id":"ST-GEN-INV32","file":"internal/compiler/config.go"}
 {"id":"ST-SUP-INV01-RL","title":"registry.LoadSources","invariant_id":"ST-SUP-INV01","file":"internal/registry/registry.go"}
+{"id":"ST-SUP-INV03-RL","title":"registry.checkExperimentPorts","invariant_id":"ST-SUP-INV03","file":"internal/registry/stage.go"}

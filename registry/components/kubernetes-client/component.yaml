@@ -1,6 +1,7 @@
 kind: component
 name: kubernetes-client
 version: 1.16.0
+stage: ga
 output_namespace: kubernetes
 requires:
   - application-http

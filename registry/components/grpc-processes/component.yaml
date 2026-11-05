@@ -1,6 +1,7 @@
 kind: component
 name: grpc-processes
 version: 1.4.0
+stage: ga
 output_namespace: grpcapi
 config:
   response_mappings:

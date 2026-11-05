@@ -1,6 +1,7 @@
 kind: component
 name: runtime-configuration
 version: 1.0.0
+stage: ga
 output_namespace: configuration
 config:
   groups:

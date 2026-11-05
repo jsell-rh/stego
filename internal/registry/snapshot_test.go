@@ -13,7 +13,7 @@ func snapshotFixture(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	for name, data := range map[string]string{
-		"components/sample/component.yaml":    "kind: component\nname: sample\nversion: 1.0.0\nslots:\n  - name: check\n    proto: sample.Check\n",
+		"components/sample/component.yaml":    "kind: component\nname: sample\nversion: 1.0.0\nstage: ga\nslots:\n  - name: check\n    proto: sample.Check\n",
 		"components/sample/slots/check.proto": "syntax = \"proto3\";\n",
 		"common/types.proto":                  "syntax = \"proto3\";\n// Common input.\n",
 	} {

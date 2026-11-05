@@ -47,10 +47,11 @@ func applicationPreflightInput(t *testing.T, generator gen.Generator, factory st
 	}
 	writeFile(t, archPath, strings.Replace(string(arch), "  - stub-store", "  - stub-store\n  - jwt-auth", 1))
 	mkdirAll(t, filepath.Join(registry, "components/jwt-auth"))
-	writeFile(t, filepath.Join(registry, "components/jwt-auth/component.yaml"), "kind: component\nname: jwt-auth\nversion: 1.0.0\noutput_namespace: auth\nprovides: [auth-provider]\n")
+	writeFile(t, filepath.Join(registry, "components/jwt-auth/component.yaml"), "kind: component\nname: jwt-auth\nversion: 1.0.0\nstage: ga\noutput_namespace: auth\nprovides: [auth-provider]\n")
 	writeFile(t, filepath.Join(registry, "components/stub-api/component.yaml"), `kind: component
 name: stub-api
 version: 1.0.0
+stage: ga
 output_namespace: internal/api
 config:
   factory_package: {type: string, default: `+factory+`}

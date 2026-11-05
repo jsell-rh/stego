@@ -1,6 +1,7 @@
 kind: component
 name: postgres-adapter
 version: 4.13.0
+stage: ga
 output_namespace: internal/storage
 
 config:

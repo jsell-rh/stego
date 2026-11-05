@@ -408,6 +408,7 @@
 {"source_id":"ST-SUP-EV11-ET","target_id":"ST-PAT-GO-CODE-SL02"}
 {"source_id":"ST-SUP-EV12-ET","target_id":"ST-PAT-GO-CODE-SL02"}
 {"source_id":"ST-SUP-INV01-RL","target_id":"ST-PAT-GO-CODE-SL01"}
+{"source_id":"ST-SUP-INV03-RL","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-SUP-QRY01-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-SUP-QRY02-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-SUP-QRY03-H","target_id":"ST-PAT-GO-CODE-SL01"}

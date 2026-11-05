@@ -174,7 +174,7 @@ func TestDependenciesRejectRegistryEditBeforeCommit(t *testing.T) {
 func TestSlotGenerationUsesCapturedRegistryFiles(t *testing.T) {
 	root := t.TempDir()
 	for name, data := range map[string]string{
-		"components/sample/component.yaml":    "kind: component\nname: sample\nversion: 1.0.0\nslots:\n  - name: check\n    proto: sample.Check\n",
+		"components/sample/component.yaml":    "kind: component\nname: sample\nversion: 1.0.0\nstage: ga\nslots:\n  - name: check\n    proto: sample.Check\n",
 		"components/sample/slots/check.proto": "syntax = \"proto3\";\npackage sample;\nimport \"stego/common/types.proto\";\nservice Check {\n  rpc Evaluate(Request) returns (common.Result);\n}\nmessage Request {\n  string id = 1;\n}\n",
 		"common/types.proto":                  "syntax = \"proto3\";\npackage common;\nmessage Result {\n  bool ok = 1;\n}\n",
 	} {
