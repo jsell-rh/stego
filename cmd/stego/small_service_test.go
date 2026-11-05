@@ -25,8 +25,9 @@ import (
 
 // smallService is the test data set ST-GEN-TD03: a small applied service and
 // a registry in Git with two commits. R1 is the registry of the commit under
-// test; R2 changes one line of component A (rest-api, the component of the
-// HTTP server). The service folder, made by stego init and stego apply with
+// test; R2 changes one line of component A (jwt-auth, the component that
+// authenticates each request): the default of the header it reads the token
+// from, a fix that changes one generated file in A's namespace. The service folder, made by stego init and stego apply with
 // its registry pinned at R1, is its own Git repository with one commit. The
 // parent folder holds the service folder, the registry repository and a
 // sentinel file, so a test can show that a run writes nothing outside the
@@ -54,8 +55,10 @@ collections:
 // secondEntityDeclaration adds a second entity, Tag, with its collection.
 var secondEntityDeclaration = strings.Replace(smallServiceDeclaration, "collections:\n", "  - name: Tag\n    fields: [{name: label, type: string}]\ncollections:\n  tags: {entity: Tag, operations: [create, read]}\n", 1)
 
-// componentA is the component that R2 changes.
-const componentA = "rest-api"
+// componentA is the component that R2 changes, and componentANamespace its
+// output namespace.
+const componentA = "jwt-auth"
+const componentANamespace = "internal/auth/"
 
 func newSmallService(t *testing.T) *smallService {
 	t.Helper()
@@ -86,7 +89,10 @@ func newSmallService(t *testing.T) *smallService {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Dir(definition), "component.yaml", strings.Replace(string(data), "\n", "\n# R2: a fix of component A.\n", 1), 0o644)
+	if !strings.Contains(string(data), "    default: Authorization\n") {
+		t.Fatalf("component A states no default header to fix:\n%s", data)
+	}
+	writeFile(t, filepath.Dir(definition), "component.yaml", strings.Replace(string(data), "    default: Authorization\n", "    default: X-Notes-Token\n", 1), 0o644)
 	git(t, s.registry, "commit", "-q", "-am", "R2")
 	s.r2 = git(t, s.registry, "rev-parse", "HEAD")
 	git(t, s.registry, "checkout", "-q", "--detach", s.r1)
