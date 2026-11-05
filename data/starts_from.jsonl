@@ -501,7 +501,6 @@
 {"source_id":"ST-GEN-UC01-R05-T01","target_id":"ST-GEN-TD03"}
 {"source_id":"ST-GEN-UC02-FL-T","target_id":"ST-GEN-TD03"}
 {"source_id":"ST-GEN-UC02-R02-T01","target_id":"ST-GEN-TD03"}
-{"source_id":"ST-GEN-UC02-R02-T02","target_id":"ST-GEN-TD03"}
 {"source_id":"ST-GEN-UC03-FL-T","target_id":"ST-DIS-TD01"}
 {"source_id":"ST-GEN-UC03-FL-T","target_id":"ST-GEN-TD03"}
 {"source_id":"ST-GEN-UC03-R03-T01","target_id":"ST-GEN-TD03"}
