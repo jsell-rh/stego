@@ -297,8 +297,10 @@
 {"source_id":"ST-GEN-EV02-ET","target_id":"ST-PAT-GO-CODE-SL02"}
 {"source_id":"ST-GEN-EV03-ET","target_id":"ST-PAT-GO-CODE-SL02"}
 {"source_id":"ST-GEN-INV03-RL","target_id":"ST-PAT-GO-CODE-SL01"}
+{"source_id":"ST-GEN-INV04-RL","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-GEN-INV05-RL","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-GEN-INV16-RL","target_id":"ST-PAT-GO-CODE-SL01"}
+{"source_id":"ST-GEN-INV17-RL","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-GEN-INV18-RL","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-GEN-INV20-RL","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-GEN-INV21-RL","target_id":"ST-PAT-GO-CODE-SL01"}
