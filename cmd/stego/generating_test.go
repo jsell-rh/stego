@@ -226,15 +226,17 @@ func TestSameInputsGiveSameCode(t *testing.T) {
 			generatingProject(t, generatingDeclaration)
 			mustRun(t, runApply)
 			first := projectTree(t)
-			// The first apply writes go.mod but records it as missing, so
-			// the second apply rewrites the record. Until that is fixed, the
-			// test allows that one change, and ST-GEN-UC04-R01 is not proved.
-			mustRun(t, runApply)
+			if printed := mustRun(t, runApply); !strings.Contains(printed, "No changes") {
+				t.Fatalf("a second apply from the same inputs made changes:\n%s", printed)
+			}
 			second := projectTree(t)
-			for path := range second {
-				if first[path] != second[path] && path != ".stego/state.yaml" {
-					t.Fatalf("a second apply changed %s", path)
+			if !reflect.DeepEqual(first, second) {
+				for path := range second {
+					if first[path] != second[path] {
+						t.Errorf("a second apply changed %s", path)
+					}
 				}
+				t.Fatal("a second apply changed the project")
 			}
 			if printed := mustRun(t, runApply); !strings.Contains(printed, "No changes") {
 				t.Fatalf("a third apply from the same inputs made changes:\n%s", printed)
@@ -276,8 +278,29 @@ func TestApplyRemovesWhatItNoLongerGenerates(t *testing.T) {
 		if removed == 0 {
 			t.Fatal("removing a collection removed no generated file")
 		}
-		// Apply also deletes such a file when it was edited by hand, which
-		// ST-GEN-UC04-R02 forbids. That half waits for ST-GEN-UC03-R03.
+
+		// A file that the new plan no longer generates, and that was edited
+		// by hand, stops the apply, which names it and keeps it.
+		generatingProject(t, generatingDeclaration)
+		mustRun(t, runApply)
+		var edited string
+		for path := range recordedFiles(t) {
+			if strings.Contains(path, "notes") {
+				edited = path
+			}
+		}
+		if edited == "" {
+			t.Fatal("no generated file belongs to the collection notes")
+		}
+		writeProjectFile(t, filepath.Join("out", edited), "// edited by hand\n")
+		writeProjectFile(t, "service.yaml", strings.Replace(generatingDeclaration, "  notes: {entity: Note, operations: [create, read]}\n", "", 1))
+		project := projectTree(t)
+		if printed, err := capture(t, runApply); err == nil || !strings.Contains(err.Error(), edited) {
+			t.Fatalf("apply deleted or did not name the hand-edited file %s: %v\n%s", edited, err, printed)
+		}
+		if !reflect.DeepEqual(project, projectTree(t)) {
+			t.Fatal("a refused apply changed the project")
+		}
 	})
 }
 

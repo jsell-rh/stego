@@ -363,8 +363,12 @@ func runPlan(args []string) error {
 // runApply implements `stego apply`.
 func runApply(args []string) error {
 	fs := flag.NewFlagSet("apply", flag.ContinueOnError)
+	replaceHandEdits := fs.Bool("replace-hand-edits", false, "let this apply replace generated files that were edited by hand")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("apply takes no arguments")
 	}
 
 	input, err := buildReconcilerInput()
@@ -382,6 +386,7 @@ func runApply(args []string) error {
 		return nil
 	}
 
+	plan.ReplaceHandEdits = *replaceHandEdits
 	if err := compiler.Apply(plan, input.ProjectDir, input.OutDir); err != nil {
 		return err
 	}
