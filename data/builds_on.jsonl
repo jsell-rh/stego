@@ -52,6 +52,8 @@
 {"source_id":"ST-DECL-TM24","target_id":"ST-DIS-TM11"}
 {"source_id":"ST-DIS-TM03","target_id":"ST-SUP-TM01"}
 {"source_id":"ST-DIS-TM03","target_id":"ST-SUP-TM05"}
+{"source_id":"ST-DIS-TM03","target_id":"ST-SUP-TM13"}
+{"source_id":"ST-DIS-TM03","target_id":"ST-SUP-TM14"}
 {"source_id":"ST-DIS-TM04","target_id":"ST-DECL-TM01"}
 {"source_id":"ST-DIS-TM04","target_id":"ST-DIS-TM03"}
 {"source_id":"ST-DIS-TM04","target_id":"ST-DIS-TM05"}
