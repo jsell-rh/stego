@@ -1,10 +1,3 @@
-{"source_id":"ST-DIS-Q01","target_id":"ST-DIS-SP04"}
-{"source_id":"ST-DIS-Q01","target_id":"ST-DIS-UC07-R02"}
-{"source_id":"ST-DIS-Q01","target_id":"ST-DIS-UC07-R03"}
-{"source_id":"ST-DIS-Q01","target_id":"ST-GEN-INV15"}
-{"source_id":"ST-DIS-Q01","target_id":"ST-GEN-PO02"}
-{"source_id":"ST-DIS-Q01","target_id":"ST-GEN-UC03-R04"}
-{"source_id":"ST-DIS-Q01","target_id":"ST-GEN-UC04-R04"}
 {"source_id":"ST-DIS-Q02","target_id":"ST-DIS-QRY06"}
 {"source_id":"ST-DIS-Q02","target_id":"ST-DIS-UC02-R02"}
 {"source_id":"ST-DIS-Q02","target_id":"ST-DIS-UC02-R04"}
