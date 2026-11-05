@@ -43,6 +43,10 @@ func (s *probeService) Echo(ctx context.Context, r *pb.Request) (*pb.Response, e
 }
 
 func TestTLSProbe(t *testing.T) {
+	t.Run("ST-SUP-RC07-OC17-T01 The emitted TLS probe refuses an incomplete configuration", testTLSProbe)
+}
+
+func testTLSProbe(t *testing.T) {
 	t.Run("ST-SUP-RC07-OC07-T01 The emitted gRPC client requires trusted TLS, a private token and its fixed limits", func(t *testing.T) {
 		cert := httptest.NewTLSServer(http.NotFoundHandler())
 		defer cert.Close()

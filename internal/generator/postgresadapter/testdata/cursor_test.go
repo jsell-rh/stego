@@ -38,6 +38,10 @@ func cursorLogger(s *Store) *cursorQueryLog {
 }
 
 func TestCursorPagesUseDatabaseOrderWithoutCounts(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC08-T01 A cursor page follows the database order with one query", testCursorPagesUseDatabaseOrderWithoutCounts)
+}
+
+func testCursorPagesUseDatabaseOrderWithoutCounts(t *testing.T) {
 	for _, collation := range []string{"C", "und-x-icu"} {
 		t.Run(collation, func(t *testing.T) {
 			s, db := database(t, false)
@@ -224,6 +228,10 @@ func TestCursorBindsInputAndKeepsRelatedAccess(t *testing.T) {
 }
 
 func TestCursorUsesTransactionAndHonorsCancellation(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC08-T03 A cursor read shares the transaction and stops on cancellation", testCursorUsesTransactionAndHonorsCancellation)
+}
+
+func testCursorUsesTransactionAndHonorsCancellation(t *testing.T) {
 	s, db := database(t, false)
 	ctx := context.Background()
 	err := s.WithTransaction(ctx, func(ctx context.Context, tx contract.Transaction) error {

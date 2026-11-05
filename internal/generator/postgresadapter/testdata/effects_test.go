@@ -75,6 +75,10 @@ func TestEffectBindingDistinguishesEarlyDeletionAndRetainedState(t *testing.T) {
 }
 
 func TestEffectBindingFailureRollsBackAndRequiresActiveTransaction(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC09-T01 A binding write outside or after a transaction is refused and a failure blocks commit", testEffectBindingFailureRollsBackAndRequiresActiveTransaction)
+}
+
+func testEffectBindingFailureRollsBackAndRequiresActiveTransaction(t *testing.T) {
 	s, db := database(t, false)
 	ctx := context.Background()
 	digest := strings.Repeat("c", 64)

@@ -135,6 +135,10 @@ func clearPoolSettings(t *testing.T) {
 	}
 }
 func TestPoolSettingsRejectInvalidValues(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC12-T01 The emitted pool applies its defaults and bounds", testPoolSettingsRejectInvalidValues)
+}
+
+func testPoolSettingsRejectInvalidValues(t *testing.T) {
 	clearPoolSettings(t)
 	for _, tc := range []struct {
 		name   string
@@ -188,6 +192,10 @@ func poolTestDSN(t *testing.T) string {
 	return dsn
 }
 func TestPoolLimitWaitCancellationAndRelease(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC12-T02 The emitted pool holds its open limit and honors a waiting caller", testPoolLimitWaitCancellationAndRelease)
+}
+
+func testPoolLimitWaitCancellationAndRelease(t *testing.T) {
 	clearPoolSettings(t)
 	t.Setenv(poolVariables[0], "2")
 	t.Setenv(poolVariables[1], "1")

@@ -17,6 +17,10 @@ func newObservedClosureFixture(t *testing.T) *accountLifecycleFixture {
 }
 
 func TestServiceAccountLifecycleObservedClosure(t *testing.T) {
+	t.Run("ST-SUP-RC13-OC29-T01 The emitted lifecycle closes a current-ownership client found by its saved ID", testServiceAccountLifecycleObservedClosure)
+}
+
+func testServiceAccountLifecycleObservedClosure(t *testing.T) {
 	for _, prepared := range []bool{false, true} {
 		t.Run(map[bool]string{false: "direct", true: "prepared"}[prepared], func(t *testing.T) {
 			f := newObservedClosureFixture(t)
@@ -55,6 +59,10 @@ func TestServiceAccountLifecycleObservedClosure(t *testing.T) {
 }
 
 func TestServiceAccountLifecycleObservedClosureSaveFailure(t *testing.T) {
+	t.Run("ST-SUP-RC13-OC29-T03 A rejected or lost save stops the emitted closure until a retry", testServiceAccountLifecycleObservedClosureSaveFailure)
+}
+
+func testServiceAccountLifecycleObservedClosureSaveFailure(t *testing.T) {
 	for _, lost := range []bool{false, true} {
 		t.Run(map[bool]string{false: "rejected", true: "acknowledgement_lost"}[lost], func(t *testing.T) {
 			f := newObservedClosureFixture(t)
@@ -94,6 +102,10 @@ func (p *observedClosureProvider) InspectClient(ctx context.Context, b ClientBin
 }
 
 func TestServiceAccountLifecycleObservedClosureRejectsForeignOwnership(t *testing.T) {
+	t.Run("ST-SUP-RC13-OC29-T02 The emitted lifecycle refuses closure of a foreign or unconfirmed client", testServiceAccountLifecycleObservedClosureRejectsForeignOwnership)
+}
+
+func testServiceAccountLifecycleObservedClosureRejectsForeignOwnership(t *testing.T) {
 	for _, mode := range []string{"provider_id", "client_name", "current_value", "reserved_key", "mixed", "empty_legacy_key", "provider_failure", "changed_after_read"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newObservedClosureFixture(t)

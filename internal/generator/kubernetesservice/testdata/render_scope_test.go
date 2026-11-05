@@ -83,6 +83,10 @@ func TestConfigurationDigestChecksGeneratedPod(t *testing.T) {
 }
 
 func TestExistingServiceAccountRejectsInvalidGeneratedIdentity(t *testing.T) {
+	t.Run("ST-SUP-RC15-OC36-T02 The generated renderer checks the whole list before it filters", testExistingServiceAccountRejectsInvalidGeneratedIdentity)
+}
+
+func testExistingServiceAccountRejectsInvalidGeneratedIdentity(t *testing.T) {
 	fixture := func() []map[string]any {
 		return []map[string]any{
 			{"apiVersion": "v1", "kind": "ServiceAccount", "metadata": map[string]any{"name": "original", "namespace": "test"}},
