@@ -305,8 +305,8 @@ func buildSourceIn(t *testing.T, root string) (string, string) {
 	files := map[string]string{
 		filepath.Join(project, "service.yaml"):                                "kind: service\nname: tiny\narchetype: tiny-arch\nlanguage: go\nentities:\n  - name: Widget\n    fields:\n      - { name: label, type: string }\ncollections:\n  widgets:\n    entity: Widget\n    operations: [create, read]\n",
 		filepath.Join(registry, "archetypes", "tiny-arch", "archetype.yaml"):  "kind: archetype\nname: tiny-arch\nlanguage: go\nversion: 1.0.0\ncomponents:\n  - tiny-api\n  - tiny-store\nconventions:\n  layout: flat\n  error_handling: problem-details-rfc\n  logging: structured-json\n  test_pattern: table-driven\nbindings:\n  storage-adapter: tiny-store\n",
-		filepath.Join(registry, "components", "tiny-api", "component.yaml"):   "kind: component\nname: tiny-api\nversion: 1.0.0\noutput_namespace: internal/api\nrequires:\n  - storage-adapter\nprovides:\n  - http-server\nslots: []\n",
-		filepath.Join(registry, "components", "tiny-store", "component.yaml"): "kind: component\nname: tiny-store\nversion: 1.0.0\noutput_namespace: internal/storage\nrequires: []\nprovides:\n  - storage-adapter\nslots: []\n",
+		filepath.Join(registry, "components", "tiny-api", "component.yaml"):   "kind: component\nname: tiny-api\nversion: 1.0.0\nstage: ga\noutput_namespace: internal/api\nrequires:\n  - storage-adapter\nprovides:\n  - http-server\nslots: []\n",
+		filepath.Join(registry, "components", "tiny-store", "component.yaml"): "kind: component\nname: tiny-store\nversion: 1.0.0\nstage: ga\noutput_namespace: internal/storage\nrequires: []\nprovides:\n  - storage-adapter\nslots: []\n",
 	}
 	for name, data := range files {
 		writeProjectFile(t, name, data)

@@ -361,7 +361,7 @@ func TestLoadComponentNameMismatch(t *testing.T) {
 	if err := os.MkdirAll(compDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(compDir, "component.yaml"), []byte("kind: component\nname: bar\nversion: 1.0.0\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(compDir, "component.yaml"), []byte("kind: component\nname: bar\nversion: 1.0.0\nstage: ga\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	_, err := registry.Load(dir)
@@ -461,6 +461,7 @@ func TestLoadComponentMissingProtoFile(t *testing.T) {
 	yaml := `kind: component
 name: my-comp
 version: 1.0.0
+stage: ga
 slots:
   - name: before_create
     proto: stego.components.my_comp.slots.BeforeCreate
@@ -488,6 +489,7 @@ func TestLoadComponentWithProtoFiles(t *testing.T) {
 	yaml := `kind: component
 name: my-comp
 version: 1.0.0
+stage: ga
 slots:
   - name: my_slot
     proto: stego.components.my_comp.slots.MySlot
@@ -910,6 +912,7 @@ func TestComponentUnmarshalWithConfig(t *testing.T) {
 kind: component
 name: rest-api
 version: 2.1.0
+stage: ga
 config:
   port:
     type: int
@@ -984,6 +987,7 @@ func TestComponentUnmarshal(t *testing.T) {
 kind: component
 name: rest-api
 version: 2.1.0
+stage: ga
 output_namespace: internal/api
 requires:
   - auth-provider

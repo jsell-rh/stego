@@ -678,6 +678,7 @@ components:
 	compData := `kind: component
 name: rest-api
 version: 2.1.0
+stage: ga
 output_namespace: internal/api
 config:
   port:
@@ -734,6 +735,7 @@ message SlotResult {
 	jwtData := `kind: component
 name: jwt-auth
 version: 1.0.0
+stage: ga
 provides:
   - auth-provider
 `
@@ -790,6 +792,7 @@ message SlotResult {
 	compAData := `kind: component
 name: comp-a
 version: 1.0.0
+stage: ga
 slots:
   - name: before_create
     proto: stego.components.comp_a.slots.BeforeCreate
@@ -811,6 +814,7 @@ slots:
 	compBData := `kind: component
 name: comp-b
 version: 1.0.0
+stage: ga
 slots:
   - name: before_create
     proto: stego.components.comp_b.slots.BeforeCreate

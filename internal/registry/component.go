@@ -54,6 +54,8 @@ type Component struct {
 	Kind            string                       `yaml:"kind"`
 	Name            string                       `yaml:"name"`
 	Version         string                       `yaml:"version"`
+	Stage           types.Stage                  `yaml:"stage"`
+	Sunset          string                       `yaml:"sunset,omitempty"`
 	Config          map[string]types.ConfigField `yaml:"config,omitempty"`
 	Requires        []Port                       `yaml:"requires"`
 	Provides        []Port                       `yaml:"provides"`

@@ -377,7 +377,7 @@ func TestResolveRegistryCacheIsolation(t *testing.T) {
 	if err := os.MkdirAll(compDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(compDir, "component.yaml"), []byte("kind: component\nname: extra-comp\nversion: 1.0.0\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(compDir, "component.yaml"), []byte("kind: component\nname: extra-comp\nversion: 1.0.0\nstage: ga\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	gitCmd(t, workTree, "add", ".")

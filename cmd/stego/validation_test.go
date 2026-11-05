@@ -123,7 +123,7 @@ func TestCommandsRejectInvalidGoPackageNamespaces(t *testing.T) {
 			registry := t.TempDir()
 			files := map[string]string{
 				"archetypes/application/archetype.yaml": "kind: archetype\nname: application\nlanguage: go\nversion: 1.0.0\ncomponents: [controller]\n",
-				"components/controller/component.yaml":  "kind: component\nname: controller\nversion: 1.0.0\noutput_namespace: " + namespace + "\n",
+				"components/controller/component.yaml":  "kind: component\nname: controller\nversion: 1.0.0\nstage: ga\noutput_namespace: " + namespace + "\n",
 			}
 			for name, data := range files {
 				name = filepath.Join(registry, name)

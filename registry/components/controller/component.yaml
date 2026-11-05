@@ -1,6 +1,7 @@
 kind: component
 name: controller
 version: 1.25.1
+stage: ga
 output_namespace: controller
 requires: []
 provides:

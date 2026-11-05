@@ -1,6 +1,7 @@
 kind: component
 name: browser-telemetry
 version: 1.3.0
+stage: ga
 output_namespace: browsertelemetry
 config:
   service_name:

@@ -89,7 +89,7 @@ func TestRegistryCompositionRejectsShadowingAndSourceCount(t *testing.T) {
 // archetype, a mixin with its slot contract, and a port.
 func inv01CommonFiles() map[string]string {
 	return map[string]string{
-		"components/store-a/component.yaml":          "kind: component\nname: store-a\nversion: 1.0.0\noutput_namespace: internal/store\nrequires: []\nprovides: [store-port]\nslots: []\n",
+		"components/store-a/component.yaml":          "kind: component\nname: store-a\nversion: 1.0.0\nstage: ga\noutput_namespace: internal/store\nrequires: []\nprovides: [store-port]\nslots: []\n",
 		"archetypes/svc-arch/archetype.yaml":         "kind: archetype\nname: svc-arch\nlanguage: go\nversion: 1.0.0\ncomponents: [store-a]\n",
 		"mixins/extra-mixin/mixin.yaml":              "kind: mixin\nname: extra-mixin\nversion: 1.0.0\nadds_components: [store-a]\nadds_slots:\n  - name: after_extra\n    proto: stego.mixins.extra_mixin.slots.AfterExtra\noverrides: none\n",
 		"mixins/extra-mixin/slots/after_extra.proto": "syntax = \"proto3\";\n\nservice AfterExtra {}\n",
@@ -140,7 +140,7 @@ func TestLocalRegistryAddsAndNeverReplaces(t *testing.T) {
 			}
 		}
 		local := Source{Name: "local-registry at beef01", Dir: writeRegistryFolder(t, map[string]string{
-			"components/local-a/component.yaml": "kind: component\nname: local-a\nversion: 0.1.0\noutput_namespace: internal/local\nrequires: []\nprovides: [local-port]\nslots: []\n",
+			"components/local-a/component.yaml": "kind: component\nname: local-a\nversion: 0.1.0\nstage: ga\noutput_namespace: internal/local\nrequires: []\nprovides: [local-port]\nslots: []\n",
 		})}
 		active, err := LoadSources(common, local)
 		if err != nil {

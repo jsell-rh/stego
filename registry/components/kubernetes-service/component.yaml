@@ -1,6 +1,7 @@
 kind: component
 name: kubernetes-service
 version: 1.29.0
+stage: ga
 output_namespace: deploy
 config:
   local_applications:
