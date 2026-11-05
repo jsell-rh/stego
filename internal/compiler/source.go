@@ -16,6 +16,8 @@ type compilationSource struct {
 	Service     *types.ServiceDeclaration
 	Registry    *registry.Registry
 	Resolved    *resolvedCompilation
+	// Active is the active component set, once validation resolves it.
+	Active map[string]*registry.Component
 }
 
 func loadCompilationSource(input ReconcilerInput) (*compilationSource, error) {

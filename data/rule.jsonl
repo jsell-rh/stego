@@ -29,6 +29,9 @@
 {"id":"ST-DECL-INV34-RL","title":"types.ValidateVersioned","invariant_id":"ST-DECL-INV34","file":"internal/types/versioned.go"}
 {"id":"ST-DECL-INV36-RL","title":"declaration.ValidateSettings","invariant_id":"ST-DECL-INV36","file":"internal/declaration/settings.go"}
 {"id":"ST-DIS-INV09-RL","title":"build","invariant_id":"ST-DIS-INV09","file":"scripts/check-compiler-artifact.py"}
+{"id":"ST-EXT-INV02-RL","title":"fill.FillEvidence.check","invariant_id":"ST-EXT-INV02","file":"internal/fill/fill_evidence.go"}
+{"id":"ST-EXT-INV03-RL","title":"fill.assess","invariant_id":"ST-EXT-INV03","file":"internal/fill/qualification.go"}
+{"id":"ST-EXT-INV04-RL","title":"fill.requireTests","invariant_id":"ST-EXT-INV04","file":"internal/fill/fill_evidence.go"}
 {"id":"ST-GEN-INV03-RL","title":"compiler.Plan.verifyRegistry","invariant_id":"ST-GEN-INV03","file":"internal/compiler/snapshot.go"}
 {"id":"ST-GEN-INV04-RL","title":"compiler.Plan.verifyRegistry","invariant_id":"ST-GEN-INV04","file":"internal/compiler/snapshot.go"}
 {"id":"ST-GEN-INV05-RL","title":"compiler.verifySnapshots","invariant_id":"ST-GEN-INV05","file":"internal/compiler/snapshot.go"}

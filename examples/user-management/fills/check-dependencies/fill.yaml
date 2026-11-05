@@ -2,5 +2,3 @@ kind: fill
 name: check-dependencies
 implements: rest-api.before_delete
 collection: organizations
-qualified_by: jsell
-qualified_at: 2026-04-13

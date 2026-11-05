@@ -11,28 +11,28 @@ last_applied:
             .stego/config.yaml:
                 exists: true
                 sha256: 1f22e1d31edec033c594c2564b8069aa79b45707f2319448a8c234843177b8e9
-                mode: 420
+                mode: 436
             go.mod:
                 exists: true
                 sha256: 3ccb8e5ce67112425fe7c83be06bdd2b90ad6ffafeab7b37dc07eb1d8e53cd25
-                mode: 420
+                mode: 436
             go.sum:
                 exists: true
                 sha256: d81f1adbfddce67774f26734e51227138f6ceeea81f5db9e36b0fe6bbf081b3c
-                mode: 420
+                mode: 436
             service.yaml:
                 exists: true
                 sha256: 40aa411da16d99a025ea81b2c13702b86cacd06678d0825757c4865830bee705
-                mode: 420
-        sha256: 5e13eb9aab8856b5b4bb6ffd1fc81dc287bde53a24ac36cf88e32aba7f5712bb
+                mode: 436
+        sha256: ff0a1667b72c43fe0207cbc38695d2b36f859b062bd6f517d643d6d4b7414e2f
     compiler_build:
         go_version: go1.26.10
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261030220542-305f6fe7e0e6
-        vcs: git
-        revision: 305f6fe7e0e6781c186e10fec7af36a413a00580
-        source_state: clean
+        module_version: (devel)
+        vcs: unknown
+        revision: unknown
+        source_state: unknown
     service_hash: 40aa411da16d99a025ea81b2c13702b86cacd06678d0825757c4865830bee705
     registry_sha: env-override
     registry_content_sha256: 408bbbd40cf6aeb20dadfbb4d04f819eb1f576a22a8d8732cd1f43117e067450
@@ -152,10 +152,26 @@ last_applied:
         internal/storage/store.go: 50d3dc9b523f082eb1e08439ee4ca246836ff50bc41938f8ce0bc85679ac59fa
         internal/storage/transaction.go: 243f5b08893c7522ee098d2701f63c11265f999c06ea4cd33fa0c13f7f729e37
         main.go: 5d214b61c93935196cfbf2f700800bbae7a13e1b039da3b8e82faa07ea94b10b
-        slots/before_create.go: 2aebcd47bff22be0526ed5d6a76a8df617b49a2504dce4be0f73dc74cd45a12f
+        slots/after_create.go: 03242bcad46578176c9ac819f42390080ebebb94f72c480316f09740289ad80f
+        slots/after_create_operators.go: c72f22f8bd303c7e04c678806d36c11c7c95f7d0519c9fc34bf80d1d597c5e5b
+        slots/after_delete.go: 4bef3c50640584d2414a8413ccacd72bd6b6415d0b61ac45523f26f948490ed5
+        slots/after_delete_operators.go: a6b4a84c52b3eebdf56e0818c7c8f28b11c36cf75569310f51a2d5333c38a7f0
+        slots/after_patch.go: fa67b9e53655df455fce58164c308760c4ef6d151a51cad15d5f0ce5bc9110ec
+        slots/after_patch_operators.go: d7a6ccff0d8b64925a245a297d3a71985d2478ccc1b3930f10d35adfe0bd5ffa
+        slots/after_upsert.go: 3badde9ce0097b0a4e08e9b6b162d9818536993b007a36a89203dad2cc8d113b
+        slots/after_upsert_operators.go: 632c66e371b1b59d52eb017907f9a253c8852238e41605597362a665dc606086
+        slots/before_create.go: 0ed4275239c00344d9e55970778a6ab14baf77d84963089b65abfe8b7d764eb4
         slots/before_create_operators.go: e15d5fd7d4a97ec052417842126a4b336ddccf0c9b82bc501a50e9e34186e5ab
+        slots/before_delete.go: 573cf94aec922bb61cdc473d2c221e1e788c9d54f182b2394679aebf8492b3ca
+        slots/before_delete_operators.go: 63dfa5feab857c381d4d9a9e1fe37522042de5855579d73e5f9b962dd6fbd231
+        slots/before_patch.go: 1463e251d293459c98131610cd78fca96c703a3f1a6eccb684ef6d35c12fe2af
+        slots/before_patch_operators.go: aa59114eb81469cad9b2465d9029ef43a866f494f28794a1d0e16744de5d4b48
+        slots/before_upsert.go: 4c3f39b8315075d959877b31b366185a43671a0a72fda3f373037ee3253a57d8
+        slots/before_upsert_operators.go: b49a19832dfdc35f4bee4c1a9d86a0ef7d79b24f14bc8cfa18af34453c2357a1
         slots/on_entity_changed.go: a7851d889ab1a8313adbf909282ef47fbeff058b31c847097964948b14c30e64
         slots/on_entity_changed_operators.go: b1edb4b33a83bbf8e56dd4b2199944b9c673921f2caecafd1d4178ed3188a55a
+        slots/validate.go: bfe2dbba91812ffd55b30f738f52bb40e28c90c7cbd8109c7499d4c490158744
+        slots/validate_operators.go: 9a6b461075eab73624b2d67c378256162732270002904cd6aad2a0a13b6abcc0
         tracing/auth_keys.go: 06b56ab095f6f7417390be61fad5cc8860445653b823ad41667327ebc7f0c852
         tracing/browser.go: 24b3d639478fa6a18d48d1c7eddd9ee749ff07863deb6eb5aa13cbc4793f265b
         tracing/client.go: 37ee470ae71faa5e5daecd59d73b7874a0c38ea08e5eaed9d1ed2617ac241c67

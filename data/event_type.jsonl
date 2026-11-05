@@ -18,9 +18,9 @@
 {"id":"ST-DLV-EV03-ET","title":"delivery.BaseWritten","domain_event_id":"ST-DLV-EV03","delivery":"in process","file":"internal/delivery/events.go"}
 {"id":"ST-DLV-EV04-ET","title":"delivery.ApplicationWritten","domain_event_id":"ST-DLV-EV04","delivery":"in process","file":"internal/delivery/events.go"}
 {"id":"ST-DLV-EV05-ET","title":"delivery.CandidatePassed","domain_event_id":"ST-DLV-EV05","delivery":"outbox","file":"internal/delivery/events.go"}
-{"id":"ST-EXT-EV01-ET","title":"FillScaffolded","domain_event_id":"ST-EXT-EV01","delivery":"in process","file":"internal/fill/events.go"}
-{"id":"ST-EXT-EV02-ET","title":"FillTestsPassed","domain_event_id":"ST-EXT-EV02","delivery":"in process","file":"internal/fill/events.go"}
-{"id":"ST-EXT-EV03-ET","title":"FillSignedOff","domain_event_id":"ST-EXT-EV03","delivery":"in process","file":"internal/fill/events.go"}
+{"id":"ST-EXT-EV01-ET","title":"fill.FillScaffolded","domain_event_id":"ST-EXT-EV01","delivery":"in process","file":"internal/fill/events.go"}
+{"id":"ST-EXT-EV02-ET","title":"fill.FillTestsPassed","domain_event_id":"ST-EXT-EV02","delivery":"in process","file":"internal/fill/events.go"}
+{"id":"ST-EXT-EV03-ET","title":"fill.FillSignedOff","domain_event_id":"ST-EXT-EV03","delivery":"in process","file":"internal/fill/events.go"}
 {"id":"ST-GEN-EV01-ET","title":"ServiceBuildApplied","domain_event_id":"ST-GEN-EV01","delivery":"outbox","file":"internal/compiler/events.go"}
 {"id":"ST-GEN-EV02-ET","title":"ApplyRecovered","domain_event_id":"ST-GEN-EV02","delivery":"in process","file":"internal/compiler/events.go"}
 {"id":"ST-GEN-EV03-ET","title":"PlanSaved","domain_event_id":"ST-GEN-EV03","delivery":"in process","file":"internal/compiler/events.go"}
