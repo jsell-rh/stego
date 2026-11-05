@@ -173,8 +173,11 @@ func validateStatePaths(state *State) error {
 		if err := manifest.validate(); err != nil {
 			return err
 		}
-		if manifest.Files["service.yaml"].SHA256 != state.LastApplied.ServiceHash || manifest.Options.RegistryRef != state.LastApplied.RegistrySHA {
-			return fmt.Errorf("input manifest does not match the applied service or registry reference")
+		if manifest.Files["service.yaml"].SHA256 != state.LastApplied.ServiceHash {
+			return fmt.Errorf("input manifest does not match the applied service: the record names declaration digest %q and its input manifest %q", state.LastApplied.ServiceHash, manifest.Files["service.yaml"].SHA256)
+		}
+		if manifest.Options.RegistryRef != state.LastApplied.RegistrySHA {
+			return fmt.Errorf("input manifest does not match the registry reference: the record names registry reference %q and its input manifest %q", state.LastApplied.RegistrySHA, manifest.Options.RegistryRef)
 		}
 	}
 	if record := state.LastApplied.CompilerBuild; record != nil {
