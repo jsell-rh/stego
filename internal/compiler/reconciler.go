@@ -60,6 +60,15 @@ type Plan struct {
 	// StateChanged includes input and ownership changes with unchanged output.
 	StateChanged bool
 
+	// HandEdited lists, in path order, each generated file that the record
+	// lists and that is missing or no longer matches its recorded hash
+	// (ST-GEN-SP01). Apply refuses such a plan unless ReplaceHandEdits is set.
+	HandEdited []string
+
+	// ReplaceHandEdits states that the author lets this apply replace the
+	// hand-edited files (stego apply --replace-hand-edits).
+	ReplaceHandEdits bool
+
 	inputManifestSHA string
 	registry         *registry.Registry
 	requirements     map[string]string
@@ -341,6 +350,9 @@ func applyWithFault(plan *Plan, projectDir, outDir string, fault applyFault) err
 	if err := verifySnapshots(project, plan.snapshots); err != nil {
 		return err
 	}
+	if err := refuseHandEdits(plan); err != nil {
+		return err
+	}
 	lock, err := lockProject(project)
 	if err != nil {
 		return err
@@ -580,6 +592,15 @@ func generateSlotFiles(slotsPackage string, components map[string]*registry.Comp
 	return files, nil
 }
 
+// refuseHandEdits holds ST-GEN-UC03-R03: apply names every hand-edited
+// generated file and writes nothing, unless the author lets it replace them.
+func refuseHandEdits(plan *Plan) error {
+	if len(plan.HandEdited) == 0 || plan.ReplaceHandEdits {
+		return nil
+	}
+	return fmt.Errorf("apply would replace %d hand-edited generated file(s), and writes nothing: %s; restore them, or run stego apply --replace-hand-edits to replace them", len(plan.HandEdited), strings.Join(plan.HandEdited, ", "))
+}
+
 // componentPins gives each component of the active set with its version and
 // its component digest, from the registry inputs that the run captured.
 func componentPins(components map[string]*registry.Component, reg *registry.Registry) (map[string]ComponentState, error) {
@@ -654,6 +675,17 @@ func computePlan(
 			action = ActionUnchanged
 		}
 		planned = append(planned, PlannedFile{Path: f.Path, Action: action})
+		if isProjectRootFile(f.Path) && action != ActionUnchanged && manifest != nil {
+			// The run writes the module file that the generated code builds
+			// with, so the record names it as the run leaves it, and a second
+			// apply from the same inputs changes nothing (ST-GEN-UC04-R01).
+			mode := defaultOutputMode()
+			if snapshot.Exists {
+				mode = snapshot.Mode.Perm()
+			}
+			manifest.Files[name] = InputFile{Exists: true, SHA256: hash, Mode: uint32(mode)}
+			manifest.SHA256 = manifest.digest()
+		}
 	}
 
 	// Detect orphaned files: tracked in previous state but no longer generated.
@@ -671,6 +703,25 @@ func computePlan(
 			planned = append(planned, PlannedFile{Path: path, Action: ActionDelete})
 		}
 	}
+
+	var handEdited []string
+	for path, recorded := range existingHashes {
+		if isProjectRootFile(path) {
+			continue
+		}
+		name := projectFilePath(relative, path)
+		snapshot, read := snapshots[name]
+		if !read {
+			var err error
+			if _, snapshot, err = readSnapshot(root, name, maxTrackedFileBytes, false); err != nil {
+				return nil, err
+			}
+		}
+		if !snapshot.Exists || snapshot.Hash != recorded {
+			handEdited = append(handEdited, path)
+		}
+	}
+	sort.Strings(handEdited)
 
 	sort.Slice(planned, func(i, j int) bool {
 		return planned[i].Path < planned[j].Path
@@ -731,6 +782,7 @@ func computePlan(
 		return nil, err
 	}
 	return &Plan{
+		HandEdited:   handEdited,
 		StateChanged: string(oldStateData) != string(newStateData),
 		snapshots:    snapshots, projectDir: projectPath, outDir: outputPath,
 		Files:          planned,
