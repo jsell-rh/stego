@@ -1,0 +1,6 @@
+{"record_id":"ST-BLD-CMD03-H","file":"internal/appbuild/modules.go"}
+{"record_id":"ST-BLD-CMD03-H","file":"internal/appbuild/process_linux.go"}
+{"record_id":"ST-BLD-CMD03-H","file":"internal/appbuild/process_other.go"}
+{"record_id":"ST-GEN-CMD01-H","file":"internal/compiler/filesystem.go"}
+{"record_id":"ST-GEN-CMD01-H","file":"internal/compiler/sync_other.go"}
+{"record_id":"ST-GEN-CMD01-H","file":"internal/compiler/sync_unix.go"}

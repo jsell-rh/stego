@@ -1,4 +1,4 @@
-package compiler
+package appbuild
 
 import (
 	"context"
@@ -16,37 +16,34 @@ import (
 
 func TestDependencyResolutionIgnoresSavedSourceOverlay(t *testing.T) {
 	t.Run("ST-BLD-INV02-T ST-BLD-UC01-R02-T01 A saved overlay flag and ambient GOFLAGS cannot change what resolution reads", func(t *testing.T) {
-		input := snapshotTestInput(t)
-		applyInitialSnapshot(t, input)
 		write := func(name, data string) {
 			t.Helper()
 			if err := os.WriteFile(name, []byte(data), 0600); err != nil {
 				t.Fatal(err)
 			}
 		}
+		project := t.TempDir()
 		dependency := t.TempDir()
 		write(filepath.Join(dependency, "go.mod"), "module example.com/overlay\ngo 1.26.10\n")
 		write(filepath.Join(dependency, "overlay.go"), "package overlay\n")
-		modulePath := filepath.Join(input.ProjectDir, "go.mod")
-		raw, err := os.ReadFile(modulePath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		module, err := modfile.Parse(modulePath, raw, nil)
+		module, err := modfile.Parse("go.mod", []byte("module example.com/snapshot\ngo 1.26.10\n"), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if err := module.AddReplace("example.com/overlay", "", dependency, ""); err != nil {
 			t.Fatal(err)
 		}
-		raw, err = module.Format()
+		raw, err := module.Format()
 		if err != nil {
 			t.Fatal(err)
 		}
-		write(modulePath, string(raw))
-		domain := filepath.Join(input.ProjectDir, "domain.go")
+		write(filepath.Join(project, "go.mod"), string(raw))
+		domain := filepath.Join(project, "domain.go")
 		const source = "package domain\n"
 		write(domain, source)
+		// Resolution changes only the staged module file, as Generating's commit stages it.
+		stage := filepath.Join(t.TempDir(), "go.mod")
+		write(stage, string(raw))
 		outside := t.TempDir()
 		virtual := filepath.Join(outside, "virtual.go")
 		write(virtual, "package domain\nimport _ \"example.com/overlay\"\n")
@@ -66,14 +63,14 @@ func TestDependencyResolutionIgnoresSavedSourceOverlay(t *testing.T) {
 		t.Setenv("GOFLAGS", "-stego-invalid-ambient-flag")
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		if err := ResolveDependencies(ctx, input); err != nil {
+		if err := resolveModules(ctx, project, stage); err != nil {
 			t.Fatal(err)
 		}
-		raw, err = os.ReadFile(modulePath)
+		raw, err = os.ReadFile(stage)
 		if err != nil {
 			t.Fatal(err)
 		}
-		resolved, err := modfile.Parse(modulePath, raw, nil)
+		resolved, err := modfile.Parse(stage, raw, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
