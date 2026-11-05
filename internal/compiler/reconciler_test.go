@@ -863,8 +863,16 @@ func TestReconcile_RegistrySHAInState(t *testing.T) {
 	if !ok {
 		t.Fatal("expected stub-api in component state")
 	}
-	if apiState.SHA != "a1b2c3d4e5f6" {
-		t.Errorf("expected stub-api SHA = %q, got %q", "a1b2c3d4e5f6", apiState.SHA)
+	files, err := registry.CaptureInputFiles(registryDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := ComponentDigest(files, "stub-api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if apiState.SHA != digest {
+		t.Errorf("expected stub-api SHA to be its component digest %q, got %q", digest, apiState.SHA)
 	}
 }
 
@@ -992,8 +1000,9 @@ func TestComputePlan_UsesOutDir(t *testing.T) {
 		[]gen.File{genFile},
 		&State{},
 		[]byte("service: test"),
+		"test",
 		nil,
-		map[string]*registry.Component{},
+		map[string]ComponentState{},
 		customOutDir,
 		tmpDir,
 		"",
