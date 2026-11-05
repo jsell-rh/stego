@@ -107,7 +107,9 @@ func Validate(service *types.ServiceDeclaration, undeclared ...parser.Undeclared
 	}
 	faults.Service = append(faults.Service, validateConventionOverrides(service.Overrides)...)
 
+	faults.Service = append(faults.Service, validateArchetype(service.Archetype)...)
 	faults.Entities = append(faults.Entities, validateFieldTypes(service.Entities)...)
+	faults.Entities = append(faults.Entities, validateFieldDefaults(service.Entities)...)
 	for _, err := range types.ValidateVersioned(service.Entities, service.Collections) {
 		faults.Entities = append(faults.Entities, ValidationError{Category: "field-type", Rule: "versioned-metadata", Path: locate(service, err.Error()), Message: err.Error()})
 	}
@@ -126,6 +128,85 @@ func Validate(service *types.ServiceDeclaration, undeclared ...parser.Undeclared
 	faults.Slots = append(faults.Slots, validateSlotBindingFillUniqueness(service.Slots)...)
 	faults.Slots = append(faults.Slots, validateSlotBindingUniquenessCollect(service.Slots)...)
 	return faults
+}
+
+// validateArchetype checks that the declaration selects an archetype (ST-DECL-INV01). Reading refuses a list of
+// archetypes, since the archetype is one name; the compile check refuses a name the registry does not hold.
+func validateArchetype(archetype string) []ValidationError {
+	if archetype != "" {
+		return nil
+	}
+	return []ValidationError{{Category: "archetype", Rule: "archetype", Path: "archetype", Message: "the declaration selects no archetype; it must select exactly one"}}
+}
+
+// validateFieldDefaults checks that each field's default suits the type the field declares (ST-DECL-INV13): a
+// string for a string, true or false for a bool, a whole number in range for int32 and int64, a number for float
+// and double, and one of the values for an enum.
+func validateFieldDefaults(entities []types.Entity) []ValidationError {
+	var errs []ValidationError
+	for ei, e := range entities {
+		for fi, f := range e.Fields {
+			if f.Default == nil || defaultSuits(f) {
+				continue
+			}
+			fault := ValidationError{
+				Category: "field-type", Rule: "default-type", Path: fieldPath(ei, fi) + ".default", Found: fmt.Sprint(f.Default),
+				Allowed: []string{string(f.Type)},
+				Message: fmt.Sprintf("entity %q field %q has the default %v, which does not suit its type %q", e.Name, f.Name, f.Default, f.Type),
+			}
+			if f.Type == types.FieldTypeEnum {
+				fault.Allowed = append([]string(nil), f.Values...)
+			}
+			errs = append(errs, fault)
+		}
+	}
+	return errs
+}
+
+// defaultSuits tells whether a field's default suits its type. A type whose default form the format does not fix
+// (bytes, timestamp, ref, jsonb) accepts any default here.
+func defaultSuits(f types.Field) bool {
+	switch f.Type {
+	case types.FieldTypeString:
+		_, ok := f.Default.(string)
+		return ok
+	case types.FieldTypeBool:
+		_, ok := f.Default.(bool)
+		return ok
+	case types.FieldTypeInt32, types.FieldTypeInt64:
+		var value int64
+		switch number := f.Default.(type) {
+		case int:
+			value = int64(number)
+		case int64:
+			value = number
+		case uint64:
+			return f.Type == types.FieldTypeInt64 && number <= math.MaxInt64
+		default:
+			return false
+		}
+		return f.Type == types.FieldTypeInt64 || (value >= math.MinInt32 && value <= math.MaxInt32)
+	case types.FieldTypeFloat, types.FieldTypeDouble:
+		switch number := f.Default.(type) {
+		case int, int64, uint64:
+			return true
+		case float64:
+			return !math.IsNaN(number) && !math.IsInf(number, 0)
+		}
+		return false
+	case types.FieldTypeEnum:
+		text, ok := f.Default.(string)
+		if !ok {
+			return false
+		}
+		for _, value := range f.Values {
+			if value == text {
+				return true
+			}
+		}
+		return false
+	}
+	return true
 }
 
 // slotBindingKey matches the path of a key of one slot binding, such as slots[0].merge.
