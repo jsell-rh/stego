@@ -18,7 +18,8 @@ import (
 // State represents the contents of .stego/state.yaml, tracking the last
 // successful apply for change detection.
 type State struct {
-	// FormatVersion is zero for legacy state and StateFormatVersion for new state.
+	// FormatVersion is zero for legacy state, and 1 or StateFormatVersion for
+	// state that names its version.
 	FormatVersion int `yaml:"format_version,omitempty"`
 
 	// LastApplied records the state of the last successful apply.
@@ -26,7 +27,14 @@ type State struct {
 }
 
 // StateFormatVersion identifies the state format written by this compiler.
-const StateFormatVersion = 1
+// Version 2 adds service_name, and makes the sha of each component its
+// component digest (ComponentDigest) where version 1 held the registry
+// reference. This compiler reads versions 0, 1 and 2, and the next apply
+// writes version 2.
+const StateFormatVersion = 2
+
+// oldestNamedStateFormat is the first state format that names its version.
+const oldestNamedStateFormat = 1
 
 // UnmarshalYAML requires an integer when a format version is present.
 // DecodeStrict checks field names before this method runs.
@@ -52,6 +60,10 @@ type AppliedState struct {
 	// Old state can omit this record.
 	CompilerBuild *buildidentity.Record `yaml:"compiler_build,omitempty"`
 
+	// ServiceName is the name that the declaration gives the service.
+	// State before format version 2 omits it.
+	ServiceName string `yaml:"service_name,omitempty"`
+
 	// ServiceHash is the SHA-256 hash of the service.yaml content at apply time.
 	ServiceHash string `yaml:"service_hash"`
 
@@ -62,7 +74,8 @@ type AppliedState struct {
 	// An absent hash in old state means that registry content was not recorded.
 	RegistryContentSHA256 string `yaml:"registry_content_sha256,omitempty"`
 
-	// Components records the version and SHA of each component used.
+	// Components records the version and the component digest of each
+	// component used.
 	Components map[string]ComponentState `yaml:"components,omitempty"`
 
 	// Entities records the entity names and their field snapshots at apply time,
@@ -82,8 +95,8 @@ type EntityFieldState struct {
 	Hash string `yaml:"hash"` // SHA-256 of the serialized field definition
 }
 
-// ComponentState records a component's version and legacy registry reference.
-// SHA can be a local label; RegistryContentSHA256 identifies captured content.
+// ComponentState records a component's version and its component digest.
+// In state before format version 2, SHA holds the registry reference.
 type ComponentState struct {
 	Version string `yaml:"version"`
 	SHA     string `yaml:"sha,omitempty"`
@@ -150,8 +163,8 @@ func validateStatePaths(state *State) error {
 	if state == nil {
 		return fmt.Errorf("state must not be nil")
 	}
-	if state.FormatVersion != 0 && state.FormatVersion != StateFormatVersion {
-		return fmt.Errorf("unsupported state format version %d; this compiler reads legacy version 0 and version %d", state.FormatVersion, StateFormatVersion)
+	if state.FormatVersion != 0 && (state.FormatVersion < oldestNamedStateFormat || state.FormatVersion > StateFormatVersion) {
+		return fmt.Errorf("unsupported state format version %d; this compiler reads legacy version 0 and versions %d to %d", state.FormatVersion, oldestNamedStateFormat, StateFormatVersion)
 	}
 	if state.LastApplied == nil {
 		return nil
@@ -160,8 +173,11 @@ func validateStatePaths(state *State) error {
 		if err := manifest.validate(); err != nil {
 			return err
 		}
-		if manifest.Files["service.yaml"].SHA256 != state.LastApplied.ServiceHash || manifest.Options.RegistryRef != state.LastApplied.RegistrySHA {
-			return fmt.Errorf("input manifest does not match the applied service or registry reference")
+		if manifest.Files["service.yaml"].SHA256 != state.LastApplied.ServiceHash {
+			return fmt.Errorf("input manifest does not match the applied service: the record names declaration digest %q and its input manifest %q", state.LastApplied.ServiceHash, manifest.Files["service.yaml"].SHA256)
+		}
+		if manifest.Options.RegistryRef != state.LastApplied.RegistrySHA {
+			return fmt.Errorf("input manifest does not match the registry reference: the record names registry reference %q and its input manifest %q", state.LastApplied.RegistrySHA, manifest.Options.RegistryRef)
 		}
 	}
 	if record := state.LastApplied.CompilerBuild; record != nil {

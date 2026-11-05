@@ -1,0 +1,20 @@
+kind: component
+name: alpha
+version: 1.2.0
+stage: beta
+sunset: 2027-06-30
+description: Serves the sample requests over HTTP.
+output_namespace: alpha
+
+config:
+  port:
+    type: int
+
+requires: []
+
+provides:
+  - sample-endpoint
+
+slots:
+  - name: check
+    proto: slots/check.proto

@@ -63,7 +63,7 @@ func DetectDrift(projectDir, outDir string) (*DriftResult, error) {
 	}
 	state, err := decodeState(data, ".stego/state.yaml")
 	if err != nil {
-		return nil, fmt.Errorf("loading state: %w", err)
+		return nil, fmt.Errorf("the record .stego/state.yaml is broken, so no generated file can be trusted as current: %w", err)
 	}
 	if state.LastApplied == nil {
 		return nil, fmt.Errorf("no state file found — run 'stego apply' first")

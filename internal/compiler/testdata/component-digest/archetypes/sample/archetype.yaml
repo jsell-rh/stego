@@ -1,0 +1,8 @@
+kind: archetype
+name: sample
+language: go
+version: 1.0.0
+
+components:
+  - alpha
+  - beta

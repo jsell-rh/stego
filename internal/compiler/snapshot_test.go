@@ -54,6 +54,8 @@ func TestPlanReportsModifiedOutputWhenStateStillMatches(t *testing.T) {
 		if !found || !plan.HasChanges() {
 			t.Fatalf("modified output is hidden by saved hashes: %s", FormatPlan(plan))
 		}
+		// The author allows the replacement of the hand edit (ST-GEN-UC03-R03).
+		plan.ReplaceHandEdits = true
 		if err := Apply(plan, input.ProjectDir, ""); err != nil {
 			t.Fatal(err)
 		}

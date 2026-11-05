@@ -307,19 +307,12 @@ func TestReconcile_SubsequentPlanNoChanges(t *testing.T) {
 		t.Fatalf("first Apply failed: %v", err)
 	}
 
-	// The first apply created go.mod. The next plan records this new input.
+	// The first apply created go.mod, and its record names go.mod as the
+	// apply left it, so the next plan has no change (ST-GEN-UC04-R01).
+	if !plan1.NewState.LastApplied.Inputs.Files["go.mod"].Exists {
+		t.Fatal("the record does not name the module file that apply wrote")
+	}
 	plan2, err := Reconcile(reconcilerInput)
-	if err != nil {
-		t.Fatalf("second Reconcile failed: %v", err)
-	}
-
-	if plan2.hasOutputChanges() || !plan2.StateChanged || plan1.NewState.LastApplied.Inputs.Files["go.mod"].Exists || !plan2.NewState.LastApplied.Inputs.Files["go.mod"].Exists {
-		t.Fatal("bootstrap module input was not recorded")
-	}
-	if err := Apply(plan2, projectDir, outDir); err != nil {
-		t.Fatal(err)
-	}
-	plan2, err = Reconcile(reconcilerInput)
 	if err != nil || plan2.HasChanges() {
 		t.Fatal("identical inputs did not stabilize", err)
 	}
@@ -863,8 +856,16 @@ func TestReconcile_RegistrySHAInState(t *testing.T) {
 	if !ok {
 		t.Fatal("expected stub-api in component state")
 	}
-	if apiState.SHA != "a1b2c3d4e5f6" {
-		t.Errorf("expected stub-api SHA = %q, got %q", "a1b2c3d4e5f6", apiState.SHA)
+	files, err := registry.CaptureInputFiles(registryDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := ComponentDigest(files, "stub-api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if apiState.SHA != digest {
+		t.Errorf("expected stub-api SHA to be its component digest %q, got %q", digest, apiState.SHA)
 	}
 }
 
@@ -992,8 +993,9 @@ func TestComputePlan_UsesOutDir(t *testing.T) {
 		[]gen.File{genFile},
 		&State{},
 		[]byte("service: test"),
+		"test",
 		nil,
-		map[string]*registry.Component{},
+		map[string]ComponentState{},
 		customOutDir,
 		tmpDir,
 		"",
@@ -1810,7 +1812,12 @@ func TestReconcile_DeletedFileDetectedWhenStateHashMatches(t *testing.T) {
 		t.Error("expected handler.go to appear as 'generate' in plan after deletion from disk")
 	}
 
-	// Apply should recreate the file.
+	// A missing generated file is hand-edited (ST-GEN-SP01): apply refuses
+	// it, and recreates it when the author allows the replacement.
+	if err := Apply(plan2, projectDir, outDir); err == nil || !strings.Contains(err.Error(), "internal/api/handler.go") {
+		t.Fatalf("apply did not refuse and name the deleted file: %v", err)
+	}
+	plan2.ReplaceHandEdits = true
 	if err := Apply(plan2, projectDir, outDir); err != nil {
 		t.Fatalf("second Apply failed: %v", err)
 	}

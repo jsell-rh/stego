@@ -27,7 +27,7 @@
 {"id":"ST-EXT-RM02-TB","title":"fill.Qualification","read_model_id":"ST-EXT-RM02","name":"fill.Qualification","storage":"in memory","file":"internal/fill/qualification.go"}
 {"id":"ST-GEN-EN01-TB","title":".stego/state.yaml","entity_id":"ST-GEN-EN01","name":".stego/state.yaml","storage":"file","file":"internal/compiler/state.go"}
 {"id":"ST-GEN-EN05-TB","title":".stego/transaction.yaml","entity_id":"ST-GEN-EN05","name":".stego/transaction.yaml","storage":"file","file":"internal/compiler/transaction.go"}
-{"id":"ST-GEN-EN06-TB","title":".stego/plan.yaml","entity_id":"ST-GEN-EN06","name":".stego/plan.yaml","storage":"file","file":"internal/compiler/saved_plan.go"}
+{"id":"ST-GEN-EN06-TB","title":"compiler.savedPlanPath","entity_id":"ST-GEN-EN06","name":".stego/plan.yaml","storage":"file","file":"internal/compiler/saved_plan.go"}
 {"id":"ST-GEN-RM01-TB","title":"compiler.DriftResult","read_model_id":"ST-GEN-RM01","name":"compiler.DriftResult","storage":"in memory","file":"internal/compiler/drift.go"}
 {"id":"ST-GEN-RM02-TB","title":"compiler.Plan","read_model_id":"ST-GEN-RM02","name":"compiler.Plan","storage":"in memory","file":"internal/compiler/reconciler.go"}
 {"id":"ST-GEN-RM03-TB","title":"compiler.ValidationResult","read_model_id":"ST-GEN-RM03","name":"ValidationResult","storage":"in memory","file":"internal/compiler/validate.go"}
