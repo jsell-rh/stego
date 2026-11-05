@@ -56,7 +56,7 @@
 {"id":"ST-DECL-UC03-R01","title":"Checking writes nothing","use_case_id":"ST-DECL-UC03","statement":"Checking MUST NOT create, change or remove any file, whether it accepts the declaration or refuses it."}
 {"id":"ST-DECL-UC03-R02","title":"Every fault at once","use_case_id":"ST-DECL-UC03","statement":"A refusal MUST report every fault STEGO can find, and MUST NOT stop at the first one."}
 {"id":"ST-DECL-UC03-R03","title":"One checking stage","use_case_id":"ST-DECL-UC03","statement":"STEGO MUST check a declaration against one set of rules, so generation MUST NOT refuse a declaration that checking accepted."}
-{"id":"ST-DECL-UC03-R04","title":"An expired acceptance is named","use_case_id":"ST-DECL-UC03","statement":"When an acceptance is past its date, checking MUST fail and MUST name the component, the date and the successor stage it waits for."}
+{"id":"ST-DECL-UC03-R04","title":"An expired acceptance is named","use_case_id":"ST-DECL-UC03","statement":"When an acceptance is past its date, which is from the start of the next day in UTC, checking MUST fail and MUST name the component, the date and the successor stage it waits for."}
 {"id":"ST-DECL-UC04-R01","title":"A fault is structured data","use_case_id":"ST-DECL-UC04","statement":"Each fault MUST be available as structured data, and MUST NOT be available only as prose for a person."}
 {"id":"ST-DECL-UC04-R02","title":"A fault names its rule and its place","use_case_id":"ST-DECL-UC04","statement":"Each fault MUST name the rule it breaks and the path in the declaration where STEGO found it."}
 {"id":"ST-DECL-UC04-R03","title":"A fault names the allowed values","use_case_id":"ST-DECL-UC04","statement":"When the rule a fault breaks allows a stated set of values, the fault MUST name that set."}

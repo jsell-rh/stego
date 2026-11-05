@@ -86,7 +86,7 @@
 {"entity_id":"ST-DECL-EN06","position":2,"name":"Setting name","meaning":"The setting, which the component's schema must declare.","type":"text","required":true,"example":"writer_lease"}
 {"entity_id":"ST-DECL-EN06","position":3,"name":"Value","meaning":"The value, which must suit the type the component's schema states.","type":"text","required":true,"example":"off"}
 {"entity_id":"ST-DECL-EN07","position":1,"name":"Component name","meaning":"The component the service accepts, whose stage is not ga.","type":"text","required":true,"example":"rh-sso-auth"}
-{"entity_id":"ST-DECL-EN07","position":2,"name":"Accepted until","meaning":"The date the acceptance runs out, which may not be later than the component's own sunset.","type":"date","required":true,"example":"2027-03-01"}
+{"entity_id":"ST-DECL-EN07","position":2,"name":"Accepted until","meaning":"The date the acceptance runs out, which may not be later than the component's own sunset. The acceptance holds to the end of this date in UTC.","type":"date","required":true,"example":"2027-03-01"}
 {"entity_id":"ST-DECL-EN07","position":3,"name":"Reason","meaning":"Why the service accepts it, so a reader can judge the risk.","type":"text","required":true,"example":"SSO migration pilot, ticket PLAT-1234"}
 {"entity_id":"ST-DECL-EN08","position":1,"name":"Module path","meaning":"The Go module path fills may import.","type":"text","required":true,"example":"github.com/google/uuid"}
 {"entity_id":"ST-DECL-EN08","position":2,"name":"Reason","meaning":"Why the fills need it, so a reviewer can judge it.","type":"text","required":true,"example":"fills create request IDs"}
