@@ -284,3 +284,81 @@ func TestAServiceAuthorLearnsOfASupersededPin(t *testing.T) {
 		}
 	})
 }
+
+// recordDifferences gives the dotted paths of the record whose values differ between two records.
+func recordDifferences(before, after any, prefix string) []string {
+	beforeMap, isMap := before.(map[string]any)
+	afterMap, isMap2 := after.(map[string]any)
+	if !isMap || !isMap2 {
+		if fmt.Sprint(before) != fmt.Sprint(after) {
+			return []string{prefix}
+		}
+		return nil
+	}
+	var paths []string
+	keys := map[string]bool{}
+	for key := range beforeMap {
+		keys[key] = true
+	}
+	for key := range afterMap {
+		keys[key] = true
+	}
+	for key := range keys {
+		paths = append(paths, recordDifferences(beforeMap[key], afterMap[key], strings.TrimPrefix(prefix+"."+key, "."))...)
+	}
+	return paths
+}
+
+func TestAComponentFixCarriesNoUnrelatedChanges(t *testing.T) {
+	t.Run("ST-DIS-UC04-R01-T01 A consumer takes a component fix with no change outside the fixed component and no compiler change", func(t *testing.T) {
+		s := newSmallService(t)
+		headRegistry(t, s)
+		// The first apply of ST-GEN-TD03 records go.mod as an input that does not exist yet, and writes it, so
+		// a second apply at R1 updates the record with no fix at all (reported to Generating). The service takes
+		// that update first, so the diff below shows the fix alone.
+		s.must(t, "apply")
+		git(t, s.service, "add", "-A")
+		git(t, s.service, "commit", "-q", "--allow-empty", "-m", "settle the record at R1")
+		if plan := s.must(t, "plan"); !strings.Contains(plan, "No changes") && !strings.Contains(plan, "0 to generate, 0 to update, 0 to delete") {
+			t.Fatalf("the record at R1 does not settle:\n%s", plan)
+		}
+		before := s.record(t)
+		da1 := pinnedDigest(t, s, componentA)
+		s.pin(t, s.r2)
+		s.must(t, "apply")
+		changed := strings.Fields(git(t, s.service, "diff", "--name-only"))
+		namespace := "out/"
+		reg, err := registry.Load(s.registryAt(t, s.r2))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if component := reg.Component(componentA); component != nil && component.OutputNamespace != "" {
+			namespace = "out/" + component.OutputNamespace + "/"
+		}
+		for _, path := range changed {
+			if path != ".stego/state.yaml" && path != ".stego/config.yaml" && !strings.HasPrefix(path, namespace) {
+				t.Errorf("the fix of component A changed %s, outside its namespace %s and the record", path, namespace)
+			}
+		}
+		after := s.record(t)
+		for _, path := range recordDifferences(before, after, "") {
+			switch path {
+			// The registry reference is the pin in .stego/config.yaml, which the record captures as an input, the
+			// registry's ref and its content hash.
+			case "last_applied.components." + componentA + ".sha", "last_applied.registry_sha",
+				"last_applied.inputs.options.registry_ref", "last_applied.registry_content_sha256",
+				"last_applied.inputs.files..stego/config.yaml.sha256", "last_applied.inputs.sha256":
+			default:
+				t.Errorf("the record changed %s, which is neither component A's digest nor the registry reference", path)
+			}
+		}
+		if pinnedDigest(t, s, componentA) == da1 {
+			t.Error("the record keeps DA1 after the pin moved to R2")
+		}
+		beforeBuild, _ := before["last_applied"].(map[string]any)["compiler_build"].(map[string]any)
+		afterBuild, _ := after["last_applied"].(map[string]any)["compiler_build"].(map[string]any)
+		if fmt.Sprint(beforeBuild) != fmt.Sprint(afterBuild) {
+			t.Errorf("the compiler build changed: %v, was %v", afterBuild, beforeBuild)
+		}
+	})
+}
