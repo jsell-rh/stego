@@ -21,8 +21,6 @@ ST-STD-CODE-R02	ST-BLD-EN04-TB	internal/appbuild/build.go	ST-BLD-EN04-TB is titl
 ST-STD-CODE-R02	ST-BLD-EN06-TB	internal/appbuild/image.go	ST-BLD-EN06-TB is titled "image.json", which is not an identifier of package appbuild
 ST-STD-CODE-R02	ST-BLD-SP01-PR	internal/appbuild/verify.go	ST-BLD-SP01-PR names appbuild.trustedRecord, which the file does not declare
 ST-STD-CODE-R02	ST-DECL-EN01-TB	internal/parser/parser.go	ST-DECL-EN01-TB is titled "service.yaml", which is not an identifier of package parser
-ST-STD-CODE-R02	ST-DECL-RM01-PJ	internal/compiler/validate.go	ST-DECL-RM01-PJ is titled "ValidationResult", which is not an identifier of package compiler
-ST-STD-CODE-R02	ST-DECL-RM01-TB	internal/compiler/validate.go	ST-DECL-RM01-TB is titled "ValidationResult", which is not an identifier of package compiler
 ST-STD-CODE-R02	ST-EXT-EN01-TB	internal/fill/fill.go	ST-EXT-EN01-TB names fill.yaml, which the file does not declare
 ST-STD-CODE-R02	ST-GEN-EN01-TB	internal/compiler/state.go	ST-GEN-EN01-TB is titled ".stego/state.yaml", which is not an identifier of package compiler
 ST-STD-CODE-R02	ST-GEN-EN03-DM	internal/compiler/state.go	ST-GEN-EN03-DM is titled "AppliedState.Files", which is not an identifier of package compiler

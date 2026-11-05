@@ -4,3 +4,6 @@
 {"record_id":"ST-GEN-CMD01-H","file":"internal/compiler/filesystem.go"}
 {"record_id":"ST-GEN-CMD01-H","file":"internal/compiler/sync_other.go"}
 {"record_id":"ST-GEN-CMD01-H","file":"internal/compiler/sync_unix.go"}
+{"record_id":"ST-GEN-QRY03-H","file":"internal/compiler/build_target.go"}
+{"record_id":"ST-GEN-QRY03-H","file":"internal/compiler/namespace.go"}
+{"record_id":"ST-GEN-QRY03-H","file":"internal/compiler/source.go"}

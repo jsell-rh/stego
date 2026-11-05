@@ -71,6 +71,8 @@
 {"read_model_id":"ST-GEN-RM02","position":1,"name":"Path","meaning":"A generated file.","type":"text","required":true,"example":"internal/api/handler.go"}
 {"read_model_id":"ST-GEN-RM02","position":2,"name":"Action","meaning":"generate, update, delete or unchanged.","type":"text","required":true,"example":"update"}
 {"read_model_id":"ST-GEN-RM02","position":3,"name":"Generated file","meaning":"The file that the generator gave, with the content that apply writes; none for a delete.","type_value_object_id":"ST-VO62","required":false}
+{"read_model_id":"ST-GEN-RM03","position":1,"name":"Category","meaning":"The group of the fault, such as archetype, component, config, slot or field-type.","type":"text","required":true,"example":"slot"}
+{"read_model_id":"ST-GEN-RM03","position":2,"name":"Message","meaning":"The fault in a sentence for a person.","type":"text","required":true,"example":"slot binding references slot \"audit\" which no resolved generator consumes"}
 {"read_model_id":"ST-SUP-RM01","position":1,"name":"Archetype","meaning":"The archetype whose active component set the row describes.","type":"text","required":true,"example":"rest-crud"}
 {"read_model_id":"ST-SUP-RM01","position":2,"name":"Component","meaning":"A component of the active component set.","type":"text","required":true,"example":"postgres-adapter"}
 {"read_model_id":"ST-SUP-RM01","position":3,"name":"Component version","meaning":"The version the component declares.","type":"text","required":true,"example":"4.13.0"}

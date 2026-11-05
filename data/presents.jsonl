@@ -14,8 +14,8 @@
 {"source_id":"ST-BLD-CLI10","target_id":"ST-BLD-QRY04"}
 {"source_id":"ST-BLD-CLI11","target_id":"ST-BLD-CMD07"}
 {"source_id":"ST-DECL-CLI01","target_id":"ST-DECL-CMD01"}
-{"source_id":"ST-DECL-CLI02","target_id":"ST-DECL-QRY01"}
 {"source_id":"ST-DECL-CLI02","target_id":"ST-DIS-QRY03"}
+{"source_id":"ST-DECL-CLI02","target_id":"ST-GEN-QRY03"}
 {"source_id":"ST-DIS-CLI01","target_id":"ST-DIS-CMD03"}
 {"source_id":"ST-DIS-CLI02","target_id":"ST-DIS-CMD04"}
 {"source_id":"ST-DIS-CLI03","target_id":"ST-DIS-CMD05"}
