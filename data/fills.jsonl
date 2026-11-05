@@ -194,6 +194,7 @@
 {"source_id":"ST-DIS-QRY01-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DIS-QRY03-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DIS-QRY04-H","target_id":"ST-PAT-GO-CODE-SL01"}
+{"source_id":"ST-DIS-QRY06-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DIS-REPO01","target_id":"ST-PAT-GO-CODE-SL02"}
 {"source_id":"ST-DIS-REPO02","target_id":"ST-PAT-GO-CODE-SL02"}
 {"source_id":"ST-DIS-REPO03","target_id":"ST-PAT-GO-CODE-SL02"}
