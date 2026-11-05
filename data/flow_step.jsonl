@@ -157,6 +157,7 @@
 {"id":"ST-EXT-UC03-FL-S02","title":"A fill folder holds a fill manifest STEGO cannot read, so the list shows it as unreadable with its fault, and the author repairs it","flow_id":"ST-EXT-UC03-FL","path":"broken","position":1}
 {"id":"ST-EXT-UC03-FL-S03","title":"No fill implements the slot, so STEGO says so by name and names fill create as the way to add one","flow_id":"ST-EXT-UC03-FL","path":"empty","position":1}
 {"id":"ST-EXT-UC03-FL-S04","title":"The slot is one no component of the active set declares, so STEGO refuses and names the slots the set does declare","flow_id":"ST-EXT-UC03-FL","path":"refused","position":1}
+{"id":"ST-EXT-UC03-FL-S05","title":"More than one component of the active set declares the slot name, so STEGO refuses, names the components, and the agent runs registry fills again with the component","flow_id":"ST-EXT-UC03-FL","path":"ambiguous","position":1}
 {"id":"ST-EXT-UC04-FL-S01","title":"The service author runs fill status, and STEGO names each stale fill and what changed","flow_id":"ST-EXT-UC04-FL","path":"main","position":1}
 {"id":"ST-EXT-UC04-FL-S02","title":"The service author records test evidence, and STEGO records new evidence","flow_id":"ST-EXT-UC04-FL","path":"main","position":2}
 {"id":"ST-EXT-UC04-FL-S03","title":"The service author runs fill sign, and STEGO signs the new evidence","flow_id":"ST-EXT-UC04-FL","path":"main","position":3}
