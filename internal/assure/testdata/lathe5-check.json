@@ -411,7 +411,7 @@
           {
             "kind": "interface",
             "label": "Interface",
-            "stage": "interaction-design",
+            "stage": "interface-design",
             "position": 26,
             "parent_kinds": [
               "product"
@@ -429,7 +429,7 @@
           {
             "kind": "flow",
             "label": "Flow",
-            "stage": "interaction-design",
+            "stage": "interface-design",
             "position": 27,
             "parent_kinds": [
               "use_case"
@@ -443,7 +443,7 @@
           {
             "kind": "flow_step",
             "label": "Flow step",
-            "stage": "interaction-design",
+            "stage": "interface-design",
             "position": 28,
             "parent_kinds": [
               "flow"
@@ -460,7 +460,7 @@
           {
             "kind": "view",
             "label": "View",
-            "stage": "interaction-design",
+            "stage": "interface-design",
             "position": 29,
             "parent_kinds": [],
             "required_fields": [
@@ -474,7 +474,7 @@
           {
             "kind": "view_requirement",
             "label": "View requirement",
-            "stage": "interaction-design",
+            "stage": "interface-design",
             "position": 30,
             "parent_kinds": [
               "view"
@@ -490,7 +490,7 @@
           {
             "kind": "endpoint",
             "label": "Endpoint",
-            "stage": "interaction-design",
+            "stage": "interface-design",
             "position": 31,
             "parent_kinds": [
               "command",
@@ -509,7 +509,7 @@
           {
             "kind": "api_requirement",
             "label": "API requirement",
-            "stage": "interaction-design",
+            "stage": "interface-design",
             "position": 32,
             "parent_kinds": [
               "endpoint"
@@ -525,7 +525,7 @@
           {
             "kind": "integration",
             "label": "Integration",
-            "stage": "interaction-design",
+            "stage": "interface-design",
             "position": 33,
             "parent_kinds": [],
             "required_fields": [
@@ -1188,7 +1188,7 @@
             "description": "Capabilities, the use cases in them with their actors and UC requirements, and the patterns use cases and domains follow."
           },
           {
-            "stage": "interaction-design",
+            "stage": "interface-design",
             "position": 4,
             "label": "Interaction design",
             "description": "The product's interfaces and the use cases each offers, each use case's flow and its steps, and the views, endpoints and integrations the steps reach, with their requirements."
