@@ -58,11 +58,14 @@ func oneSuccessor(current Lifecycle, request SupersedeRequest) error {
 // unless a platform engineer shortens it; it is never later. With no fail date given, it gives the latest date.
 func failDateInWindow(request SupersedeRequest) (time.Time, error) {
 	if request.SuccessorReleasedOn.IsZero() {
-		return time.Time{}, fmt.Errorf("the release date of the successor %s is missing", request.Successor)
+		return time.Time{}, fmt.Errorf("the registry states no release date for the successor %s, so the window of its fail date is not known", request.Successor)
 	}
 	windows := request.Windows
 	if windows == nil {
 		windows = DefaultWindows
+	}
+	if request.SupersededStage == "" {
+		return time.Time{}, fmt.Errorf("the registry states no stage for %s, so the window of its fail date is not known", request.Superseded.Name)
 	}
 	months, known := windows[request.SupersededStage]
 	if !known {
