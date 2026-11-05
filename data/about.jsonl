@@ -27,8 +27,6 @@
 {"source_id":"ST-DLV-Q03","target_id":"ST-DLV-INV04"}
 {"source_id":"ST-DLV-Q03","target_id":"ST-DLV-PO02"}
 {"source_id":"ST-DLV-Q03","target_id":"ST-DLV-UC04-R01"}
-{"source_id":"ST-EXT-Q02","target_id":"ST-EXT-INV05"}
-{"source_id":"ST-EXT-Q02","target_id":"ST-EXT-UC01-R03"}
 {"source_id":"ST-EXT-Q03","target_id":"ST-EXT-RM01"}
 {"source_id":"ST-EXT-Q03","target_id":"ST-EXT-UC03-R01"}
 {"source_id":"ST-EXT-Q03","target_id":"ST-EXT-UC03-R02"}
