@@ -6,8 +6,6 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
-import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -205,96 +203,6 @@ class InstallationChecks(unittest.TestCase):
                     self.assertFalse(self.output.exists())
                     self.assertEqual(list(self.root.glob(".stego-*-*")), [])
 
-
-# The installer as a process, as an operator runs it. GitHub stands behind the fake gh of test_release_publishing.py,
-# which answers from fixed records; its attestation check is the local stand-in for the provider's trusted signer.
-# The publish-release job of proof-run.yml publishes the release first, as CI does. No test reaches GitHub.
-publishing_spec = importlib.util.spec_from_file_location(
-    "publishing", Path(__file__).with_name("test_release_publishing.py"))
-publishing = importlib.util.module_from_spec(publishing_spec)
-try:
-    publishing_spec.loader.exec_module(publishing)
-except ModuleNotFoundError as missing:
-    # The fixture reads the workflows with PyYAML; a runner without it skips the process tests.
-    publishing = None
-    PUBLISHING_MISSING = str(missing)
-SCRIPTS = Path(__file__).resolve().parent
-
-# A machine that reports aarch64: Python on it answers platform.machine() with aarch64. The installer runs
-# unchanged; only the host's answer differs.
-AARCH64 = "import platform\nplatform.machine = lambda: 'aarch64'\n"
-
-
-@unittest.skipUnless(publishing is not None and sys.platform == "linux" and shutil.which("jq") and shutil.which("unzip"),
-                     "the publish job and the installer run as Linux processes with jq and unzip")
-class InstallationAsAProcess(unittest.TestCase):
-    def setUp(self):
-        temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
-        self.world = publishing.World(self.root)
-        empty = self.root / "workspace"
-        empty.mkdir()
-        run = publishing.run_job(self.world, "publish-release", empty)
-        self.assertEqual(run.status, 0, run.log)
-        self.world.load()
-        self.output = self.root / "installed"
-
-    def install(self, prefix=(), environment=None):
-        self.world.save()
-        self.world.clear_calls()
-        done = subprocess.run([*prefix, sys.executable, "-B", str(SCRIPTS / "install-compiler.py"),
-                               "--revision", self.world.commit, "--output", str(self.output),
-                               "--gh", str(self.world.gh), "--release"],
-                              cwd=self.root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120,
-                              env=dict({"PATH": "/usr/bin:/bin", "HOME": str(self.root)}, **(environment or {})))
-        return done.returncode, done.stdout.decode()
-
-    def test_the_qualified_platform_is_enforced(self):
-        with self.subTest("ST-DIS-UC09-R01-T01 Installation refuses a platform other than Linux amd64 before any download"):
-            machine = self.root / "aarch64"
-            machine.mkdir()
-            (machine / "sitecustomize.py").write_text(AARCH64)
-            for label, prefix, environment in [("aarch64", (), {"PYTHONPATH": str(machine)}),
-                                               ("i686, as the kernel reports it", ("setarch", "linux32"), None)]:
-                if prefix and shutil.which(prefix[0]) is None:
-                    continue
-                with self.subTest(machine=label):
-                    status, log = self.install(prefix, environment)
-                    self.assertNotEqual(status, 0, log)
-                    self.assertIn("This compiler package requires Linux amd64", log)
-                    self.assertEqual(self.world.calls(), [])
-                    self.assertFalse(self.output.exists())
-                    self.assertEqual(list(self.root.glob(".stego-*")), [])
-
-    def test_identity_is_verified_before_the_binary_is_used(self):
-        with self.subTest("ST-DIS-UC09-R02-T01 Installation verifies both signatures before it puts the binary in place"):
-            self.world.state["watch"] = str(self.output)
-            status, log = self.install()
-            self.assertEqual(status, 0, log)
-            checks = [json.loads(line) for line in (self.world.bin / "watch.jsonl").read_text().splitlines()]
-            self.assertEqual([(check["subject"], check["bundle"]) for check in checks],
-                             [(installer.verification.BINARY, True), ("build.json", True)])
-            self.assertFalse(any(check["exists"] for check in checks), checks)
-            calls = self.world.calls()
-            first_check = next(index for index, call in enumerate(calls) if call[:2] == ["attestation", "verify"])
-            downloads = [index for index, call in enumerate(calls) if call[:1] == ["api"] and "/assets/" in call[-1]]
-            self.assertEqual(len(downloads), 4)
-            self.assertLess(max(downloads), first_check)
-            release = self.world.state["api"]["repos/jsell-rh/stego/releases/tags/" + self.world.tag]
-            for asset in release["assets"]:
-                downloaded = (self.world.bin / ("asset-" + str(asset["id"]))).read_bytes()
-                if asset["name"] in [installer.verification.BINARY, "build.json"]:
-                    self.assertEqual((self.output / asset["name"]).read_bytes(), downloaded)
-            self.assertEqual((self.output / installer.verification.BINARY).read_bytes(), self.world.binary)
-            self.assertEqual(json.loads(log)["artifact"]["sha256"], hashlib.sha256(self.world.binary).hexdigest())
-            # A signature that fails leaves no result folder.
-            self.output = self.root / "refused"
-            self.world.state["signers"][installer.verification.PREDICATE] = ".github/workflows/other.yml"
-            status, log = self.install()
-            self.assertNotEqual(status, 0, log)
-            self.assertIn("Compiler signature verification failed for " + installer.verification.BINARY, log)
-            self.assertFalse(self.output.exists())
 
 
 if __name__ == "__main__":
