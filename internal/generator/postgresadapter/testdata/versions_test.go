@@ -23,6 +23,10 @@ func versionRecord(t *testing.T, store *Store, id string) Record {
 }
 
 func TestResourceVersionCoversAllWritesAndRejectsOldObservation(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC07-T01 The revision counts every write and ignores the caller", testResourceVersionCoversAllWritesAndRejectsOldObservation)
+}
+
+func testResourceVersionCoversAllWritesAndRejectsOldObservation(t *testing.T) {
 	store, db := database(t, false)
 	ctx := context.Background()
 	row := Record{Meta: Meta{ID: "version-record"}, Name: "before", ResourceVersion: 800}
@@ -70,6 +74,10 @@ func TestResourceVersionCoversAllWritesAndRejectsOldObservation(t *testing.T) {
 }
 
 func TestResourceVersionConflictRollsBackWork(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC07-T03 A conflict rolls back the transaction's other work", testResourceVersionConflictRollsBackWork)
+}
+
+func testResourceVersionConflictRollsBackWork(t *testing.T) {
 	store, db := database(t, false)
 	ctx := context.Background()
 	if err := store.Create(ctx, "Record", Record{Meta: Meta{ID: "target"}, Name: "target"}); err != nil {
@@ -96,6 +104,10 @@ func TestResourceVersionConflictRollsBackWork(t *testing.T) {
 }
 
 func TestOnlyOneConcurrentVersionWriterSucceeds(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC07-T02 Only one concurrent conditional writer succeeds", testOnlyOneConcurrentVersionWriterSucceeds)
+}
+
+func testOnlyOneConcurrentVersionWriterSucceeds(t *testing.T) {
 	store, _ := database(t, true)
 	ctx := context.Background()
 	if err := store.Create(ctx, "Record", Record{Meta: Meta{ID: "race"}, Name: "race"}); err != nil {
@@ -129,6 +141,10 @@ func TestOnlyOneConcurrentVersionWriterSucceeds(t *testing.T) {
 }
 
 func TestVersionedIdentityAndDeletionCannotBeReversed(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC10-T03 Identity and deletion cannot be reversed", testVersionedIdentityAndDeletionCannotBeReversed)
+}
+
+func testVersionedIdentityAndDeletionCannotBeReversed(t *testing.T) {
 	store, db := database(t, false)
 	ctx := context.Background()
 	if err := store.Create(ctx, "Record", Record{Meta: Meta{ID: "retained"}, Name: "retained"}); err != nil {
@@ -155,6 +171,10 @@ func TestVersionedIdentityAndDeletionCannotBeReversed(t *testing.T) {
 }
 
 func TestVersionStartupRejectsDisabledTrigger(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC12-T04 The store refuses a disabled revision trigger", testVersionStartupRejectsDisabledTrigger)
+}
+
+func testVersionStartupRejectsDisabledTrigger(t *testing.T) {
 	store, db := database(t, false)
 	if _, err := db.Exec("ALTER TABLE records DISABLE TRIGGER stego_resource_revision"); err != nil {
 		t.Fatal(err)
@@ -437,6 +457,10 @@ func TestFailedMigrationRollsBackSchemaAndObservationContract(t *testing.T) {
 }
 
 func TestCurrentObservationsControlListsAndPredicates(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC08-T02 Every list predicate uses the current observation", testCurrentObservationsControlListsAndPredicates)
+}
+
+func testCurrentObservationsControlListsAndPredicates(t *testing.T) {
 	store, db := database(t, false)
 	ctx := context.Background()
 	const pending = "Pending \\ ' ?"

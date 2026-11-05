@@ -22,6 +22,10 @@ func options() deployment.Options {
 }
 
 func TestExistingServiceAccountPreservesWorkload(t *testing.T) {
+	t.Run("ST-SUP-RC15-OC36-T03 The generated renderer changes only the Pod account reference", testExistingServiceAccountPreservesWorkload)
+}
+
+func testExistingServiceAccountPreservesWorkload(t *testing.T) {
 	o := options()
 	o.RPCProcess, o.Scope, o.Egress = "records", "namespace", nil
 	o.OwnerLabels = map[string]string{"example.test/instance": "one"}
@@ -94,6 +98,10 @@ func TestExistingServiceAccountPreservesWorkload(t *testing.T) {
 }
 
 func TestExistingServiceAccountRejectsAmbiguousAuthority(t *testing.T) {
+	t.Run("ST-SUP-RC15-OC36-T01 The generated renderer refuses an invalid existing account or scope", testExistingServiceAccountRejectsAmbiguousAuthority)
+}
+
+func testExistingServiceAccountRejectsAmbiguousAuthority(t *testing.T) {
 	for _, workload := range []string{"api", "queue", "metadata"} {
 		o := options()
 		o.Scope, o.ExistingServiceAccount = "namespace", "external-account"

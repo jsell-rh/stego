@@ -159,6 +159,10 @@ func TestAtomicWriteAndNotifications(t *testing.T) {
 }
 
 func TestNotificationFailureRollsBack(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC09-T02 A rejected notification blocks commit", testNotificationFailureRollsBack)
+}
+
+func testNotificationFailureRollsBack(t *testing.T) {
 	for _, mode := range []string{"invalid-json", "duplicate-id", "over-limit", "oversized", "missing-schema"} {
 		t.Run(mode, func(t *testing.T) {
 			store, db := database(t, false)
@@ -457,6 +461,10 @@ func BenchmarkTransactionalCreateNotify(b *testing.B) {
 }
 
 func TestUnavailableNotificationsPreventCommit(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC09-T03 A notification without the outbox peer blocks commit", testUnavailableNotificationsPreventCommit)
+}
+
+func testUnavailableNotificationsPreventCommit(t *testing.T) {
 	store, db := database(t, false)
 	plain, err := plainstore.NewStore(store.db)
 	if err != nil {

@@ -155,6 +155,10 @@ func TestResourceStateConcurrentCreateHasOneWinner(t *testing.T) {
 }
 
 func TestResourceStateSchemaGuard(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC12-T03 The store refuses a missing or altered key index", testResourceStateSchemaGuard)
+}
+
+func testResourceStateSchemaGuard(t *testing.T) {
 	for _, change := range []string{
 		"ALTER TABLE stego_resource_state DROP CONSTRAINT stego_resource_state_pkey",
 		"DROP INDEX stego_resource_state_scope_idx",
@@ -232,6 +236,10 @@ func testResourceStateKeysRetainCoverage(t *testing.T, prepared bool) {
 }
 
 func TestResourceStateKeysRejectInvalidInput(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC06-T02 An invalid key page request runs no query", testResourceStateKeysRejectInvalidInput)
+}
+
+func testResourceStateKeysRejectInvalidInput(t *testing.T) {
 	// An uninitialized GORM handle must never receive an invalid query.
 	s := &Store{db: &gorm.DB{}}
 	for _, tc := range []struct {

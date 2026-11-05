@@ -102,6 +102,10 @@ func TestCleanupOwnersRequireDeletedStateAndCurrentRevision(t *testing.T) {
 }
 
 func TestCleanupObservationAndEventsRollbackTogether(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC09-T04 A cleanup observation and its event commit together", testCleanupObservationAndEventsRollbackTogether)
+}
+
+func testCleanupObservationAndEventsRollbackTogether(t *testing.T) {
 	store, db := database(t, false)
 	ctx := context.Background()
 	if err := store.Create(ctx, "Record", Record{Meta: Meta{ID: "rollback-cleanup"}, Name: "rollback"}); err != nil {
@@ -232,6 +236,10 @@ func TestCleanupContractChangesRequireNewObservations(t *testing.T) {
 }
 
 func TestDeletionFinalizationIsPermanentAndTransactional(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC10-T01 Finalization refuses live, incomplete, stale and unsupported resources", testDeletionFinalizationIsPermanentAndTransactional)
+}
+
+func testDeletionFinalizationIsPermanentAndTransactional(t *testing.T) {
 	s, db := database(t, false)
 	ctx := context.Background()
 	r := record("finalize")
@@ -408,6 +416,10 @@ func TestDeletionFinalizationRejectsInvalidSchema(t *testing.T) {
 }
 
 func TestDeletionFinalizationVisibilityKeepsAccessAndPages(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC10-T02 Pending deletions appear only under the deleting options and keep access", testDeletionFinalizationVisibilityKeepsAccessAndPages)
+}
+
+func testDeletionFinalizationVisibilityKeepsAccessAndPages(t *testing.T) {
 	s, _ := database(t, false)
 	ctx := context.Background()
 	for _, id := range []string{"a-live", "b-pending", "c-complete", "d-denied", "e-revoked"} {

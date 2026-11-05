@@ -320,6 +320,10 @@ func BenchmarkTargetCleanupObservation(b *testing.B) {
 }
 
 func TestOpaqueTargetValuesStayBoundParameters(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC06-T01 A target value is a bound parameter", testOpaqueTargetValuesStayBoundParameters)
+}
+
+func testOpaqueTargetValuesStayBoundParameters(t *testing.T) {
 	store, _ := database(t, true)
 	ctx := context.Background()
 	target := "region ' ? ☃ \\ [target]"
