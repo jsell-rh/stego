@@ -200,15 +200,8 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 			}
 		}
 
-		// Validate namespace.
-		if len(files) > 0 {
-			if comp.OutputNamespace == "" {
-				return nil, fmt.Errorf("generator %q produced %d file(s) but component declares no output_namespace — "+
-					"all components that generate files must declare an output_namespace", compName, len(files))
-			}
-			if err := gen.ValidateNamespace(comp.OutputNamespace, files); err != nil {
-				return nil, fmt.Errorf("generator %q: %w", compName, err)
-			}
+		if err := validateGeneratorNamespace(compName, comp, files); err != nil {
+			return nil, err
 		}
 
 		allFiles = append(allFiles, files...)
@@ -627,6 +620,22 @@ func componentPins(components map[string]*registry.Component, reg *registry.Regi
 	return pins, nil
 }
 
+// validateGeneratorNamespace holds ST-GEN-INV07: a component that generates
+// files declares an output namespace, and every file is inside it.
+func validateGeneratorNamespace(name string, component *registry.Component, files []gen.File) error {
+	if len(files) == 0 {
+		return nil
+	}
+	if component.OutputNamespace == "" {
+		return fmt.Errorf("generator %q produced %d file(s) but component declares no output_namespace — "+
+			"all components that generate files must declare an output_namespace", name, len(files))
+	}
+	if err := gen.ValidateNamespace(component.OutputNamespace, files); err != nil {
+		return fmt.Errorf("generator %q: %w", name, err)
+	}
+	return nil
+}
+
 // computePlan compares generated files against existing state to determine
 // which files need to be written and what entity changes occurred.
 func computePlan(
@@ -758,7 +767,6 @@ func computePlan(
 		}
 		entitySnapshot[e.Name] = fields
 	}
-
 
 	compilerBuild := buildidentity.Current()
 	newState := &State{

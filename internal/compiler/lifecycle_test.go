@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/gen"
@@ -56,6 +57,17 @@ func TestGeneratedHTTPLifecycle(t *testing.T) {
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("generated HTTP lifecycle: %v\n%s", err, output)
 	}
+	t.Run("ST-GEN-INV16-T The emitted failure record never formats its cause", func(t *testing.T) {
+		// The failure tests of the generated project, run on their own so that
+		// this record's outcome is theirs.
+		command := exec.Command("go", "test", "-race", "-mod=readonly", "-timeout=20s", "-count=1", "-run", "^(TestFailureRecordDoesNotFormatCause|TestFailureOutputHasDeadline|TestFailureOutputDoesNotRetry|TestFailureTaskNamesAreData)$", "-v", "./...")
+		command.Dir = project
+		command.Env = append(os.Environ(), "GOWORK=off")
+		output, err := command.CombinedOutput()
+		if err != nil || !strings.Contains(string(output), "--- PASS: TestFailureRecordDoesNotFormatCause") {
+			t.Fatalf("generated failure record: %v\n%s", err, output)
+		}
+	})
 	if os.Getenv("STEGO_CROSS_COMPILE") == "1" {
 		for _, target := range []struct{ os, arch string }{{"windows", "amd64"}, {"darwin", "arm64"}} {
 			command := exec.Command("go", "test", "-c", "-mod=readonly", "-o", filepath.Join(t.TempDir(), "http-test"))

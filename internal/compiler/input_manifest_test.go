@@ -268,3 +268,47 @@ func TestInputManifestMustMatchAppliedState(t *testing.T) {
 		}
 	})
 }
+
+func TestInputManifestIsBoundedAndCanonical(t *testing.T) {
+	t.Run("ST-GEN-INV23-T The input manifest is bounded, canonical and digested one way", func(t *testing.T) {
+		for name, change := range map[string]func(*InputManifest){
+			"1025 files": func(m *InputManifest) {
+				for i := len(m.Files); i <= maxManifestFiles; i++ {
+					m.Files[fmt.Sprintf("contracts/%04d.proto", i)] = m.Files["service.yaml"]
+				}
+			},
+			"an absolute path":           func(m *InputManifest) { m.Files["/etc/service.yaml"] = m.Files["service.yaml"] },
+			"a path under the output":    func(m *InputManifest) { m.Files["out/handler.go"] = m.Files["service.yaml"] },
+			"the private state as input": func(m *InputManifest) { m.Files[".stego/state.yaml"] = m.Files["service.yaml"] },
+		} {
+			m := manifestFixture()
+			change(m)
+			m.SHA256 = m.digest()
+			path := filepath.Join(t.TempDir(), "absent", "state.yaml")
+			err := SaveState(path, &State{LastApplied: &AppliedState{Inputs: m, ServiceHash: m.Files["service.yaml"].SHA256, RegistrySHA: m.Options.RegistryRef}})
+			if err == nil {
+				t.Fatalf("a manifest with %s was saved", name)
+			}
+			if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
+				t.Fatalf("a refused manifest with %s wrote %s: %v", name, filepath.Dir(path), err)
+			}
+		}
+
+		m := manifestFixture()
+		path := filepath.Join(t.TempDir(), "absent", "state.yaml")
+		state := &State{LastApplied: &AppliedState{Inputs: m, ServiceHash: m.Files["service.yaml"].SHA256, RegistrySHA: m.Options.RegistryRef,
+			Components: map[string]ComponentState{"large": {Version: strings.Repeat("v", parser.MaxDocumentBytes)}}}}
+		if err := SaveState(path, state); err == nil || !strings.Contains(err.Error(), "state exceeds") {
+			t.Fatalf("a record over the 4 MiB limit was saved: %v", err)
+		}
+		if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
+			t.Fatalf("a refused record over the limit wrote %s: %v", filepath.Dir(path), err)
+		}
+
+		// The digest of the fixed manifest, computed with an independent
+		// Python implementation.
+		if digest := manifestFixture().SHA256; digest != "ba23895de3506ff6083120f019051ac0f48ec2000548646e14b0a127446521a1" {
+			t.Fatalf("the digest of the fixed manifest is %s, not its vector", digest)
+		}
+	})
+}

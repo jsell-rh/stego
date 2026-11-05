@@ -10,28 +10,30 @@ import (
 )
 
 func TestAssembleRejectsAmbiguousConstructorDependencies(t *testing.T) {
-	for _, explicit := range []bool{false, true} {
-		for _, used := range []bool{false, true} {
-			for _, reverse := range []bool{false, true} {
-				consumer := &gen.Wiring{Imports: []string{"consumer"}, Constructors: []string{"consumer.NewHandler(runtime)"}}
-				if explicit {
-					consumer.ConstructorDeps = map[int][]string{0: {"runtime"}}
-				}
-				if used {
-					consumer.Routes = []string{`mux.Handle("/",handler)`}
-				}
-				producers := []ComponentWiring{{Name: "events", Wiring: &gen.Wiring{Imports: []string{"events"}, Constructors: []string{"events.NewRuntime()"}}}, {Name: "tracing", Wiring: &gen.Wiring{Imports: []string{"tracing"}, Constructors: []string{"tracing.NewRuntime()"}}}}
-				if reverse {
-					producers[0], producers[1] = producers[1], producers[0]
-				}
-				input := AssemblerInput{ModuleName: "example.com/test", GoVersion: "1.26.0", Wirings: append(producers, ComponentWiring{Name: "consumer", Wiring: consumer})}
-				files, err := Assemble(input)
-				if err == nil || len(files) != 0 || !strings.Contains(err.Error(), `ambiguous dependency "runtime" from components events, tracing`) {
-					t.Fatalf("ambiguous runtime selected (explicit=%t used=%t reverse=%t): %v", explicit, used, reverse, err)
+	t.Run("ST-GEN-INV21-T A constructor dependency names exactly one producer", func(t *testing.T) {
+		for _, explicit := range []bool{false, true} {
+			for _, used := range []bool{false, true} {
+				for _, reverse := range []bool{false, true} {
+					consumer := &gen.Wiring{Imports: []string{"consumer"}, Constructors: []string{"consumer.NewHandler(runtime)"}}
+					if explicit {
+						consumer.ConstructorDeps = map[int][]string{0: {"runtime"}}
+					}
+					if used {
+						consumer.Routes = []string{`mux.Handle("/",handler)`}
+					}
+					producers := []ComponentWiring{{Name: "events", Wiring: &gen.Wiring{Imports: []string{"events"}, Constructors: []string{"events.NewRuntime()"}}}, {Name: "tracing", Wiring: &gen.Wiring{Imports: []string{"tracing"}, Constructors: []string{"tracing.NewRuntime()"}}}}
+					if reverse {
+						producers[0], producers[1] = producers[1], producers[0]
+					}
+					input := AssemblerInput{ModuleName: "example.com/test", GoVersion: "1.26.0", Wirings: append(producers, ComponentWiring{Name: "consumer", Wiring: consumer})}
+					files, err := Assemble(input)
+					if err == nil || len(files) != 0 || !strings.Contains(err.Error(), `component "consumer" constructor 0 has ambiguous dependency "runtime" from components events, tracing`) {
+						t.Fatalf("ambiguous runtime selected (explicit=%t used=%t reverse=%t): %v", explicit, used, reverse, err)
+					}
 				}
 			}
 		}
-	}
+	})
 }
 func TestAmbiguousConstructorReferencesUseGoSyntax(t *testing.T) {
 	producers := []ComponentWiring{{Name: "first", Wiring: &gen.Wiring{Constructors: []string{"first.NewRuntime()"}}}, {Name: "second", Wiring: &gen.Wiring{Constructors: []string{"second.NewRuntime()"}}}}

@@ -127,27 +127,29 @@ func (p *preflightProbe) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, err
 }
 
 func TestAllComponentChecksRunBeforeAnyRendering(t *testing.T) {
-	input := snapshotTestInput(t)
-	first := new(preflightProbe)
-	last := &preflightProbe{check: func(gen.Context) error { return fmt.Errorf("rejected component contract") }}
-	input.Generators["stub-api"], input.Generators["stub-store"] = first, last
-	for _, plan := range []bool{false, true} {
-		if plan {
-			if value, err := Reconcile(input); value != nil || err == nil {
-				t.Fatal("rejected contract produced a plan", value, err)
+	t.Run("ST-GEN-INV20-T Every component's input check finishes before any component renders", func(t *testing.T) {
+		input := snapshotTestInput(t)
+		first := new(preflightProbe)
+		last := &preflightProbe{check: func(gen.Context) error { return fmt.Errorf("rejected component contract") }}
+		input.Generators["stub-api"], input.Generators["stub-store"] = first, last
+		for _, plan := range []bool{false, true} {
+			if plan {
+				if value, err := Reconcile(input); value != nil || err == nil {
+					t.Fatal("rejected contract produced a plan", value, err)
+				}
+			} else {
+				if result, err := Validate(input); err != nil || !result.HasErrors() {
+					t.Fatal("rejected contract passed validation", result, err)
+				}
 			}
-		} else {
-			if result, err := Validate(input); err != nil || !result.HasErrors() {
-				t.Fatal("rejected contract passed validation", result, err)
+			if first.renders != 0 || last.renders != 0 {
+				t.Fatal("rendering started before all checks passed")
 			}
 		}
-		if first.renders != 0 || last.renders != 0 {
-			t.Fatal("rendering started before all checks passed")
+		if first.checks != 2 || last.checks != 2 {
+			t.Fatal("component checks were skipped")
 		}
-	}
-	if first.checks != 2 || last.checks != 2 {
-		t.Fatal("component checks were skipped")
-	}
+	})
 }
 
 func TestGenerationUsesPreflightInputSnapshot(t *testing.T) {

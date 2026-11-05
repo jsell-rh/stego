@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -98,6 +99,75 @@ func TestCompilerBuildState(t *testing.T) {
 			if err := SaveState(statePath, state); err == nil {
 				t.Fatalf("source state %q accepted", source)
 			}
+		}
+	})
+}
+
+func TestRecordIsUpgradedAndDecodedStrictly(t *testing.T) {
+	t.Run("ST-GEN-INV25-T A record is upgraded on the next run and decoded strictly", func(t *testing.T) {
+		input := snapshotTestInput(t)
+		applyInitialSnapshot(t, input)
+		statePath := filepath.Join(input.ProjectDir, ".stego/state.yaml")
+		state, err := LoadState(statePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// A record without the compiler build is accepted and completed.
+		state.LastApplied.CompilerBuild = nil
+		if err := SaveState(statePath, state); err != nil {
+			t.Fatal(err)
+		}
+		plan, err := Reconcile(input)
+		if err != nil || !plan.StateChanged {
+			t.Fatal("a record without the compiler build was not planned for completion", err)
+		}
+		if err := Apply(plan, input.ProjectDir, ""); err != nil {
+			t.Fatal(err)
+		}
+		completed, err := LoadState(statePath)
+		if err != nil || completed.LastApplied.CompilerBuild == nil || *completed.LastApplied.CompilerBuild != buildidentity.Current() {
+			t.Fatal("the next apply did not complete the record with the compiler build", err)
+		}
+
+		// A record of another compiler build is a record change, with no output change.
+		completed.LastApplied.CompilerBuild.Revision = "0123456789abcdef0123456789abcdef01234567"
+		completed.LastApplied.CompilerBuild.VCS = "git"
+		completed.LastApplied.CompilerBuild.SourceState = "clean"
+		if err := SaveState(statePath, completed); err != nil {
+			t.Fatal(err)
+		}
+		plan, err = Reconcile(input)
+		if err != nil || !plan.StateChanged {
+			t.Fatal("a record of another compiler build is not a record change", err)
+		}
+		for _, file := range plan.Files {
+			if file.Action != ActionUnchanged {
+				t.Fatal("a change of the compiler build alone changed a generated file", file.Path)
+			}
+		}
+		if err := Apply(plan, input.ProjectDir, ""); err != nil {
+			t.Fatal(err)
+		}
+
+		// A record with an unknown field is refused, and nothing changes.
+		data, err := os.ReadFile(statePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		unknown := bytes.Replace(data, []byte("last_applied:\n"), []byte("last_applied:\n    unknown_field: 1\n"), 1)
+		if bytes.Equal(unknown, data) {
+			t.Fatal("the record has no last_applied to change")
+		}
+		if err := os.WriteFile(statePath, unknown, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		before := projectFiles(t, input.ProjectDir)
+		if plan, err := Reconcile(input); err == nil {
+			t.Fatal("a record with an unknown field was accepted", plan)
+		}
+		if !reflect.DeepEqual(before, projectFiles(t, input.ProjectDir)) {
+			t.Fatal("a refused record changed a file")
 		}
 	})
 }

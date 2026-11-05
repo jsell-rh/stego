@@ -90,12 +90,25 @@ func TestGeneratedBackgroundLifecycle(t *testing.T) {
 			if output, err := command.CombinedOutput(); err != nil {
 				t.Fatalf("generated lifecycle: %v\n%s", err, output)
 			}
-			legacy := exec.Command("go", "test", "-race", "-mod=readonly", "-timeout=20s", "-run", "TestAbnormalTaskExitStopsAndJoinsPeers", "./...")
-			legacy.Dir = project
-			legacy.Env = append(os.Environ(), "GOWORK=off", "GODEBUG=panicnil=1")
-			if output, err := legacy.CombinedOutput(); err != nil {
-				t.Fatalf("legacy nil panic lifecycle: %v\n%s", err, output)
+			// The supervisor tests of the generated project, run on their own
+			// so that each record's outcome is theirs.
+			emitted := func(t *testing.T, tests string, env ...string) {
+				t.Helper()
+				command := exec.Command("go", "test", "-race", "-mod=readonly", "-timeout=20s", "-count=1", "-run", "^("+tests+")$", "-v", "./...")
+				command.Dir = project
+				command.Env = append(append(os.Environ(), "GOWORK=off"), env...)
+				output, err := command.CombinedOutput()
+				if err != nil || strings.Count(string(output), "--- PASS: ") < strings.Count(tests, "|")+1 {
+					t.Fatalf("generated supervisor %s %v: %v\n%s", tests, env, err, output)
+				}
 			}
+			t.Run("ST-GEN-INV17-T The emitted supervisor waits for a canceled task", func(t *testing.T) {
+				emitted(t, "TestCancellationWaits|TestCanceledStart|TestTaskSignal|TestParentCancellationBeforeChildPropagation|TestCancellationKeepsOtherErrors")
+			})
+			t.Run("ST-GEN-INV18-T The emitted supervisor contains every kind of task abort", func(t *testing.T) {
+				emitted(t, "TestAbnormalTaskExitStopsAndJoinsPeers|TestTaskFailureNamesExcludeCauses")
+				emitted(t, "TestAbnormalTaskExitStopsAndJoinsPeers", "GODEBUG=panicnil=1")
+			})
 			if os.Getenv("STEGO_CROSS_COMPILE") == "1" {
 				for _, target := range []struct{ os, arch string }{{"windows", "amd64"}, {"darwin", "arm64"}} {
 					command := exec.Command("go", "test", "-c", "-mod=readonly", "-o", filepath.Join(t.TempDir(), "task-test"))
@@ -111,18 +124,24 @@ func TestGeneratedBackgroundLifecycle(t *testing.T) {
 }
 
 func TestBackgroundTaskIndexes(t *testing.T) {
-	for _, indexes := range [][]int{{-1}, {1}, {0, 0}} {
-		_, err := Assemble(AssemblerInput{ModuleName: "example.com/tasks", GoVersion: "1.26.10", Wirings: []ComponentWiring{{Name: "tasks", Wiring: &gen.Wiring{Constructors: []string{"tasks.NewWorker()"}, BackgroundTasks: indexes}}}})
-		if err == nil || !strings.Contains(err.Error(), "background task index") {
-			t.Fatalf("invalid indexes %v did not reach task validation: %v", indexes, err)
+	t.Run("ST-GEN-INV19-T The assembler checks task indexes and keeps task dependencies", func(t *testing.T) {
+		for _, indexes := range [][]int{{-1}, {1}, {0, 0}} {
+			files, err := Assemble(AssemblerInput{ModuleName: "example.com/tasks", GoVersion: "1.26.10", Wirings: []ComponentWiring{{Name: "tasks", Wiring: &gen.Wiring{Constructors: []string{"tasks.NewWorker()"}, BackgroundTasks: indexes}}}})
+			if err == nil || len(files) != 0 || !strings.Contains(err.Error(), "background task index") {
+				t.Fatalf("invalid indexes %v did not reach task validation: %v", indexes, err)
+			}
 		}
-	}
+		consumesDatabaseDependency(t)
+	})
 }
 
 //go:embed testdata/task_http_test.go
 var taskHTTPTests []byte
 
-func TestBackgroundTaskConsumesDatabaseDependency(t *testing.T) {
+// consumesDatabaseDependency checks that a worker keeps the store it depends
+// on, and the store its database connection.
+func consumesDatabaseDependency(t *testing.T) {
+	t.Helper()
 	input := AssemblerInput{Wirings: []ComponentWiring{
 		{Name: "store", Wiring: &gen.Wiring{Constructors: []string{"storage.NewStore(db)"}, NeedsDB: true}},
 		{Name: "worker", Wiring: &gen.Wiring{Constructors: []string{"worker.NewWorker(store)"}, ConstructorDeps: map[int][]string{0: {"store"}}, BackgroundTasks: []int{0}}},
