@@ -35,7 +35,7 @@ func runAssets(args []string) error {
 		}
 	}
 	if _, err := browserassets.ScriptHashes(index, names); err != nil {
-		return err
+		return fmt.Errorf("browser asset index.html is refused: %w", err)
 	}
 	return compiler.WriteBrowserAssets(*output, data)
 }
