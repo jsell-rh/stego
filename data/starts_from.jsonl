@@ -428,6 +428,8 @@
 {"source_id":"ST-EXT-UC01-R03-T01","target_id":"ST-EXT-TD01"}
 {"source_id":"ST-EXT-UC01-R03-T02","target_id":"ST-EXT-TD01"}
 {"source_id":"ST-EXT-UC01-R03-T03","target_id":"ST-EXT-TD01"}
+{"source_id":"ST-EXT-UC01-R03-T04","target_id":"ST-EXT-TD01"}
+{"source_id":"ST-EXT-UC01-R03-T05","target_id":"ST-EXT-TD01"}
 {"source_id":"ST-EXT-UC01-R04-T01","target_id":"ST-EXT-TD01"}
 {"source_id":"ST-EXT-UC02-FL-T","target_id":"ST-EXT-TD01"}
 {"source_id":"ST-EXT-UC02-FL-T","target_id":"ST-EXT-TD02"}
