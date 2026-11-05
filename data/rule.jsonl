@@ -36,9 +36,11 @@
 {"id":"ST-DECL-INV34-RL","title":"types.ValidateVersioned","invariant_id":"ST-DECL-INV34","file":"internal/types/versioned.go"}
 {"id":"ST-DECL-INV35-RL","title":"declaration.validateSlotBindingCollections","invariant_id":"ST-DECL-INV35","file":"internal/declaration/validate.go"}
 {"id":"ST-DECL-INV36-RL","title":"declaration.ValidateSettings","invariant_id":"ST-DECL-INV36","file":"internal/declaration/settings.go"}
+{"id":"ST-DIS-INV06-RL","title":"lifecycle.oneSuccessor","invariant_id":"ST-DIS-INV06","file":"internal/lifecycle/rules.go"}
 {"id":"ST-DIS-INV09-RL","title":"build","invariant_id":"ST-DIS-INV09","file":"scripts/check-compiler-artifact.py"}
 {"id":"ST-DIS-INV10-RL","title":"verify_published_release","invariant_id":"ST-DIS-INV10","file":"scripts/qualify-compiler-release.py"}
 {"id":"ST-DIS-INV11-RL","title":"provenance","invariant_id":"ST-DIS-INV11","file":".github/workflows/compiler-artifact.yml"}
+{"id":"ST-DIS-INV12-RL","title":"lifecycle.failDateInWindow","invariant_id":"ST-DIS-INV12","file":"internal/lifecycle/rules.go"}
 {"id":"ST-EXT-INV02-RL","title":"fill.FillEvidence.check","invariant_id":"ST-EXT-INV02","file":"internal/fill/fill_evidence.go"}
 {"id":"ST-EXT-INV03-RL","title":"fill.assess","invariant_id":"ST-EXT-INV03","file":"internal/fill/qualification.go"}
 {"id":"ST-EXT-INV04-RL","title":"fill.requireTests","invariant_id":"ST-EXT-INV04","file":"internal/fill/fill_evidence.go"}
