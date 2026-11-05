@@ -1,10 +1,12 @@
 package compiler
 
 import (
-	"github.com/jsell-rh/stego/internal/types"
 	"math"
 	"strings"
 	"testing"
+
+	"github.com/jsell-rh/stego/internal/declaration"
+	"github.com/jsell-rh/stego/internal/types"
 )
 
 func TestNumericBoundsMustBeFinite(t *testing.T) {
@@ -17,7 +19,7 @@ func TestNumericBoundsMustBeFinite(t *testing.T) {
 				field.Max = &value
 			}
 			found := false
-			for _, err := range validateFieldTypes([]types.Entity{{Name: "Record", Fields: []types.Field{field}}}) {
+			for _, err := range declaration.ValidateFieldTypes([]types.Entity{{Name: "Record", Fields: []types.Field{field}}}) {
 				if strings.Contains(err.Message, "numeric bounds must be finite") {
 					found = true
 				}

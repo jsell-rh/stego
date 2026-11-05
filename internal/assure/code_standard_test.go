@@ -26,7 +26,7 @@ const fixtureDomains = `{"id":"ST-FXA","title":"Assuring"}
 // records even when they name a file.
 const fixtureKinds = `{"name":"cli_handler","stage":"technical-specification","complexity":"accidental","title_form":"identifier"}
 {"name":"generator","stage":"technical-specification","complexity":"accidental"}
-{"name":"cli_command","stage":"interaction-design","complexity":"essential","title_form":"invocation"}
+{"name":"cli_command","stage":"interface-design","complexity":"essential","title_form":"invocation"}
 {"name":"note","stage":"use-cases","complexity":"essential"}
 `
 
@@ -289,7 +289,7 @@ func TestTestWithoutID(t *testing.T) {
 `,
 		})
 		tree := codeTree(map[string]string{
-			"lathe.config.json":                    `{"schema": 6, "data": "data", "tests": ["**/*_test.go", "scripts/test_*.py"]}`,
+			"lathe.config.json":                    `{"schema": 7, "data": "data", "tests": ["**/*_test.go", "scripts/test_*.py"]}`,
 			"internal/fx/fx_test.go":               fixtureTest("ST-FXD-SP01-T") + "\n// ST-FXD-SP02-T is only in this comment.\n",
 			"internal/fx/helpers_test.go":          "package fx\n\n// Helpers of the fx tests, once ST-FXD-SP01-T.\nconst fixture = \"ST-FXD-SP01-T\"\n\nfunc helper() string { return fixture }\n",
 			"internal/fx/table_test.go":            "package fx\n\nimport \"testing\"\n\nfunc TestTable(t *testing.T) {\n\tfor _, name := range []string{\"ST-FXD-SP01-T holds\"} {\n\t\tt.Run(name, func(t *testing.T) {})\n\t}\n}\n",
@@ -351,7 +351,7 @@ this line is not JSON, and Lathe passes over it
 			"specification_test": `{"id":"ST-FXD-SP01-T","state":"automated","file":"internal/fx/lost.go"}`,
 		})
 		tree := codeTree(map[string]string{
-			"lathe.config.json":                      `{"schema": 6, "data": "data", "tests": ["**/*_test.go", "scripts/test_*.py"]}`,
+			"lathe.config.json":                      `{"schema": 7, "data": "data", "tests": ["**/*_test.go", "scripts/test_*.py"]}`,
 			"internal/fx/named.go":                   "package fx\n",
 			"internal/fx/lost.go":                    "package fx\n",
 			"internal/fx/contract.go":                "package fx\n",
@@ -554,7 +554,7 @@ func TestFindTheCodeFaults(t *testing.T) {
 	t.Run("ST-ASR-DS04-T01 The code faults of a commit come from its tree and spec alone, keyed and ordered, and two readings agree", func(t *testing.T) {
 		root := codeRepository(t, map[string]string{
 			"go.mod":            "module example.com/fx\n",
-			"lathe.config.json": `{"schema": 6, "data": "data", "tests": ["**/*_test.go"]}` + "\n",
+			"lathe.config.json": `{"schema": 7, "data": "data", "tests": ["**/*_test.go"]}` + "\n",
 			"data/domain.jsonl": fixtureDomains,
 			"data/predicate.jsonl": `{"id":"ST-FXD-SP01-PR","title":"mixed.isDeclared","file":"internal/mixed/declared.go"}
 {"id":"ST-FXG-SP01-PR","title":"mixed.isGenerated","file":"internal/mixed/generated.go"}
@@ -766,7 +766,7 @@ func TestLatheTechnicalKinds(t *testing.T) {
 	t.Run("ST-ASR-SP09-T The code standard reads every kind of Lathe's own technical stage that has a file column, as the pinned Lathe's meta model lists them", func(t *testing.T) {
 		lathe := latheCLI(t)
 		root := codeRepository(t, map[string]string{
-			"lathe.config.json":  `{"schema": 6, "data": "data"}` + "\n",
+			"lathe.config.json":  `{"schema": 7, "data": "data"}` + "\n",
 			"data/product.jsonl": `{"id":"FX","title":"Fixture","description":"What Fixture is, who it is for, and what it must do."}` + "\n",
 		})
 		command := exec.Command(lathe, "meta-model", "get-meta-model", "--json", "-")

@@ -53,29 +53,6 @@ func TestStrictServiceInput(t *testing.T) {
 	}
 }
 
-func TestStrictOtherDeclarations(t *testing.T) {
-	tests := []struct {
-		name, input, want string
-		target            any
-	}{
-		{"archetype", "kind: archetype\nconventions: {loging: json}\n", "conventions.loging", &types.Archetype{}},
-		{"component", "kind: component\nconfig: {port: {type: int, defaut: 8080}}\n", "config.port.defaut", &types.Component{}},
-		{"nested component", "kind: component\nconfig: {items: {type: list, items: {name: {type: string, optonal: true}}}}\n", "items.name.optonal", &types.Component{}},
-		{"inline component", "kind: component\nconfig: {items: {type: list, items: {type: string, optonal: true}}}\n", "items.optonal", &types.Component{}},
-		{"port", "kind: component\nrequires: [{name: auth, optonal: true}]\n", "requires[0].optonal", &types.Component{}},
-		{"mixin", "kind: mixin\nadds_slots: [{name: test, protto: test}]\n", "adds_slots[0].protto", &types.Mixin{}},
-		{"fill", "kind: fill\nqualifed_by: operator\n", "qualifed_by", &types.Fill{}},
-		{"config", "registry: [{url: example, reff: abc}]\n", "registry[0].reff", &types.RegistryConfig{}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := DecodeStrict([]byte(tt.input), tt.name+".yaml", tt.target); err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("got %v, want error containing %q", err, tt.want)
-			}
-		})
-	}
-}
-
 func TestStrictLimits(t *testing.T) {
 	t.Run("ST-DECL-INV04-T A declaration beyond 4 MiB or 128 levels is refused", func(t *testing.T) {
 		var service types.ServiceDeclaration
@@ -90,7 +67,7 @@ func TestStrictLimits(t *testing.T) {
 		if err := os.WriteFile(path, []byte(strings.Repeat(" ", MaxDocumentBytes+1)), 0600); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := Parse(path); err == nil || !strings.Contains(err.Error(), "byte limit") {
+		if _, err := ParseServiceDeclaration(path); err == nil || !strings.Contains(err.Error(), "byte limit") {
 			t.Fatalf("got %v, want a file size error", err)
 		}
 	})

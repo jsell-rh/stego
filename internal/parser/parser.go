@@ -1,6 +1,7 @@
-// Package parser implements YAML file parsing for all stego file types.
-// It reads files from disk, validates the kind field, and returns
-// strongly-typed domain objects.
+// Package parser reads the declaration (service.yaml) through the strict decoder,
+// and gives the strict decoder and the kind check to the packages that read
+// their own documents: the registry (archetypes, components and mixins) and
+// fills.
 package parser
 
 import (
@@ -83,135 +84,39 @@ func lineAt(data []byte, n int) string {
 	return strings.TrimSpace(lines[n-1])
 }
 
-// kindHeader is used to peek at the kind field before full deserialization.
-type kindHeader struct {
-	Kind string `yaml:"kind"`
-}
-
-// Parse reads a YAML file and returns the appropriate typed object based on the
-// kind field. The returned value is one of:
-//   - *types.Archetype
-//   - *types.Component
-//   - *types.Mixin
-//   - *types.ServiceDeclaration
-//   - *types.Fill
-func Parse(path string) (any, error) {
-	data, err := ReadDocument(path)
-	if err != nil {
-		return nil, err
-	}
-
-	root, err := readNode(data, path)
-	if err != nil {
-		return nil, err
-	}
-	var header kindHeader
-	if err := root.Decode(&header); err != nil {
-		return nil, parseErrorWithLineInfo(data, path, fmt.Errorf("invalid YAML: %w", err))
-	}
-
-	switch header.Kind {
-	case "archetype":
-		return parseAs[types.Archetype](data, path, "archetype")
-	case "component":
-		return parseAs[types.Component](data, path, "component")
-	case "mixin":
-		return parseAs[types.Mixin](data, path, "mixin")
-	case "service":
-		return parseAs[types.ServiceDeclaration](data, path, "service")
-	case "fill":
-		return parseAs[types.Fill](data, path, "fill")
-	case "":
-		return nil, errorf(path, "missing required field: kind")
-	default:
-		return nil, errorf(path, "unknown kind: %q", header.Kind)
-	}
-}
-
-// parseAs unmarshals data into a value of type T, validates the kind field,
-// and returns a pointer to the result.
-func parseAs[T any](data []byte, path, expectedKind string) (*T, error) {
-	return parseBytes[T](data, path, expectedKind)
-}
-
-// ParseArchetype reads and parses an archetype YAML file.
-func ParseArchetype(path string) (*types.Archetype, error) {
-	return parseFile[types.Archetype](path, "archetype")
-}
-
-// ParseComponent reads and parses a component YAML file.
-func ParseComponent(path string) (*types.Component, error) {
-	return parseFile[types.Component](path, "component")
-}
-
-// ParseMixin reads and parses a mixin YAML file.
-func ParseMixin(path string) (*types.Mixin, error) {
-	return parseFile[types.Mixin](path, "mixin")
-}
-
-// ParseArchetypeFromBytes parses one captured registry document.
-func ParseArchetypeFromBytes(data []byte, path string) (*types.Archetype, error) {
-	return parseBytes[types.Archetype](data, path, "archetype")
-}
-
-// ParseComponentFromBytes parses one captured registry document.
-func ParseComponentFromBytes(data []byte, path string) (*types.Component, error) {
-	return parseBytes[types.Component](data, path, "component")
-}
-
-// ParseMixinFromBytes parses one captured registry document.
-func ParseMixinFromBytes(data []byte, path string) (*types.Mixin, error) {
-	return parseBytes[types.Mixin](data, path, "mixin")
-}
-
 // ParseServiceDeclaration reads and parses a service declaration YAML file.
 func ParseServiceDeclaration(path string) (*types.ServiceDeclaration, error) {
-	return parseFile[types.ServiceDeclaration](path, "service")
+	return ReadKind(path, "service", serviceKind)
 }
 
-// ParseFill reads and parses a fill YAML file.
-func ParseFill(path string) (*types.Fill, error) {
-	return parseFile[types.Fill](path, "fill")
+// ParseServiceDeclarationFromBytes parses a service declaration from raw YAML
+// bytes. The path is used only for error messages.
+func ParseServiceDeclarationFromBytes(data []byte, path string) (*types.ServiceDeclaration, error) {
+	return ParseKind(data, path, "service", serviceKind)
 }
 
-// kindOf returns the kind field value from a typed struct.
-// Each supported type has a Kind field populated during unmarshal.
-func kindOf(v any) string {
-	switch t := v.(type) {
-	case *types.Archetype:
-		return t.Kind
-	case *types.Component:
-		return t.Kind
-	case *types.Mixin:
-		return t.Kind
-	case *types.ServiceDeclaration:
-		return t.Kind
-	case *types.Fill:
-		return t.Kind
-	default:
-		return ""
-	}
-}
+func serviceKind(s *types.ServiceDeclaration) string { return s.Kind }
 
-// parseFile reads a YAML file, unmarshals it into T, and validates the kind.
-func parseFile[T any](path, expectedKind string) (*T, error) {
+// ReadKind reads a bounded YAML file and decodes it as ParseKind does.
+func ReadKind[T any](path, expectedKind string, kind func(*T) string) (*T, error) {
 	data, err := ReadDocument(path)
 	if err != nil {
 		return nil, err
 	}
-	return parseBytes[T](data, path, expectedKind)
+	return ParseKind(data, path, expectedKind, kind)
 }
 
-// parseBytes unmarshals data into T, validates the kind field, and returns a
+// ParseKind unmarshals data into T through the strict decoder, checks that
+// the kind field, which kind reads, is the expected kind, and returns a
 // pointer to the result. The path is used only for error messages.
-func parseBytes[T any](data []byte, path, expectedKind string) (*T, error) {
+func ParseKind[T any](data []byte, path, expectedKind string, kind func(*T) string) (*T, error) {
 	var v T
 	if err := DecodeStrict(data, path, &v); err != nil {
 		return nil, err
 	}
 
 	// Validate the kind field.
-	actual := kindOf(&v)
+	actual := kind(&v)
 	if actual == "" {
 		return nil, errorf(path, "missing required field: kind")
 	}
@@ -220,10 +125,4 @@ func parseBytes[T any](data []byte, path, expectedKind string) (*T, error) {
 	}
 
 	return &v, nil
-}
-
-// ParseServiceDeclarationFromBytes parses a service declaration from raw YAML
-// bytes. The path is used only for error messages.
-func ParseServiceDeclarationFromBytes(data []byte, path string) (*types.ServiceDeclaration, error) {
-	return parseBytes[types.ServiceDeclaration](data, path, "service")
 }

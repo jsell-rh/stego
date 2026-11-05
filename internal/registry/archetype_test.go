@@ -5,7 +5,6 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/jsell-rh/stego/internal/parser"
 	"github.com/jsell-rh/stego/internal/registry"
 )
 
@@ -25,7 +24,7 @@ func TestRestCrudArchetypeParsesFromLiveRegistry(t *testing.T) {
 	root := repoRoot(t)
 	path := filepath.Join(root, "registry", "archetypes", "rest-crud", "archetype.yaml")
 
-	a, err := parser.ParseArchetype(path)
+	a, err := registry.ParseArchetype(path)
 	if err != nil {
 		t.Fatalf("ParseArchetype() error: %v", err)
 	}

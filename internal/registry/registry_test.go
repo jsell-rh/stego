@@ -1,12 +1,17 @@
 package registry_test
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/jsell-rh/stego/internal/parser"
 	"github.com/jsell-rh/stego/internal/registry"
+	"gopkg.in/yaml.v3"
 )
 
 const testdataDir = "testdata"
@@ -549,5 +554,533 @@ func TestLoadConfigMissingRef(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "ref is required") {
 		t.Errorf("expected 'ref is required' error, got: %v", err)
+	}
+}
+
+// --- Parsing of archetype, component and mixin documents ---
+
+// parserFixture is a registry document under testdata/parser.
+func parserFixture(name string) string {
+	return filepath.Join(testdataDir, "parser", name)
+}
+
+func TestParseArchetype(t *testing.T) {
+	a, err := registry.ParseArchetype(parserFixture("archetype.yaml"))
+	if err != nil {
+		t.Fatalf("ParseArchetype: %v", err)
+	}
+	if a.Kind != "archetype" {
+		t.Errorf("kind = %q, want %q", a.Kind, "archetype")
+	}
+	if a.Name != "rest-crud" {
+		t.Errorf("name = %q, want %q", a.Name, "rest-crud")
+	}
+	if a.Language != "go" {
+		t.Errorf("language = %q, want %q", a.Language, "go")
+	}
+	if a.Version != "3.0.0" {
+		t.Errorf("version = %q, want %q", a.Version, "3.0.0")
+	}
+	if len(a.Components) != 4 {
+		t.Errorf("components count = %d, want 4", len(a.Components))
+	}
+	if a.DefaultAuth != "jwt-auth" {
+		t.Errorf("default_auth = %q, want %q", a.DefaultAuth, "jwt-auth")
+	}
+	if a.Conventions.Layout != "flat" {
+		t.Errorf("conventions.layout = %q, want %q", a.Conventions.Layout, "flat")
+	}
+	if a.Conventions.ErrorHandling != "problem-details-rfc" {
+		t.Errorf("conventions.error_handling = %q, want %q", a.Conventions.ErrorHandling, "problem-details-rfc")
+	}
+	if a.Conventions.Logging != "structured-json" {
+		t.Errorf("conventions.logging = %q, want %q", a.Conventions.Logging, "structured-json")
+	}
+	if a.Conventions.TestPattern != "table-driven" {
+		t.Errorf("conventions.test_pattern = %q, want %q", a.Conventions.TestPattern, "table-driven")
+	}
+	if a.Conventions.CORS != "enabled" {
+		t.Errorf("conventions.cors = %q, want %q", a.Conventions.CORS, "enabled")
+	}
+	if len(a.CompatibleMixins) != 2 {
+		t.Errorf("compatible_mixins count = %d, want 2", len(a.CompatibleMixins))
+	}
+	if len(a.Bindings) != 2 {
+		t.Errorf("bindings count = %d, want 2", len(a.Bindings))
+	}
+	if a.Bindings["storage-adapter"] != "postgres-adapter" {
+		t.Errorf("bindings[storage-adapter] = %q, want %q", a.Bindings["storage-adapter"], "postgres-adapter")
+	}
+}
+
+func TestParseComponent(t *testing.T) {
+	c, err := registry.ParseComponent(parserFixture("component.yaml"))
+	if err != nil {
+		t.Fatalf("ParseComponent: %v", err)
+	}
+	if c.Kind != "component" {
+		t.Errorf("kind = %q, want %q", c.Kind, "component")
+	}
+	if c.Name != "rest-api" {
+		t.Errorf("name = %q, want %q", c.Name, "rest-api")
+	}
+	if c.Version != "2.1.0" {
+		t.Errorf("version = %q, want %q", c.Version, "2.1.0")
+	}
+	if len(c.Requires) != 2 {
+		t.Errorf("requires count = %d, want 2", len(c.Requires))
+	}
+	if c.Requires[0].Name != "auth-provider" {
+		t.Errorf("requires[0] = %q, want %q", c.Requires[0].Name, "auth-provider")
+	}
+	if len(c.Provides) != 2 {
+		t.Errorf("provides count = %d, want 2", len(c.Provides))
+	}
+	if len(c.Slots) != 2 {
+		t.Errorf("slots count = %d, want 2", len(c.Slots))
+	}
+	if c.Slots[0].Name != "before_create" {
+		t.Errorf("slots[0].name = %q, want %q", c.Slots[0].Name, "before_create")
+	}
+	if c.Slots[0].Proto != "stego.components.rest_api.slots.BeforeCreate" {
+		t.Errorf("slots[0].proto = %q, want full proto path", c.Slots[0].Proto)
+	}
+	if c.Slots[0].Default != "passthrough" {
+		t.Errorf("slots[0].default = %q, want %q", c.Slots[0].Default, "passthrough")
+	}
+
+	// Verify nested config: expose.items (map-of-fields) and operations.items (inline)
+	expose, ok := c.Config["expose"]
+	if !ok {
+		t.Fatal("config missing 'expose'")
+	}
+	if expose.Type != "list" {
+		t.Errorf("config.expose.type = %q, want %q", expose.Type, "list")
+	}
+	if expose.Items == nil || expose.Items.Fields == nil {
+		t.Fatal("config.expose.items.Fields is nil")
+	}
+	if len(expose.Items.Fields) != 3 {
+		t.Fatalf("config.expose.items.Fields count = %d, want 3", len(expose.Items.Fields))
+	}
+	entityCfg := expose.Items.Fields["entity"]
+	if entityCfg.Type != "entity-ref" {
+		t.Errorf("expose.items.entity.type = %q, want %q", entityCfg.Type, "entity-ref")
+	}
+	scopeCfg := expose.Items.Fields["scope"]
+	if !scopeCfg.Optional {
+		t.Error("expose.items.scope.optional = false, want true")
+	}
+	opsCfg := expose.Items.Fields["operations"]
+	if opsCfg.Items == nil || opsCfg.Items.Inline == nil {
+		t.Fatal("operations.items.Inline is nil")
+	}
+	if len(opsCfg.Items.Inline.Enum) != 5 {
+		t.Errorf("operations.items.enum count = %d, want 5", len(opsCfg.Items.Inline.Enum))
+	}
+
+	portCfg, ok := c.Config["port"]
+	if !ok {
+		t.Fatal("config missing 'port'")
+	}
+	if portCfg.Type != "int" {
+		t.Errorf("config.port.type = %q, want %q", portCfg.Type, "int")
+	}
+}
+
+func TestParseMixin(t *testing.T) {
+	m, err := registry.ParseMixin(parserFixture("mixin.yaml"))
+	if err != nil {
+		t.Fatalf("ParseMixin: %v", err)
+	}
+	if m.Kind != "mixin" {
+		t.Errorf("kind = %q, want %q", m.Kind, "mixin")
+	}
+	if m.Name != "event-publisher" {
+		t.Errorf("name = %q, want %q", m.Name, "event-publisher")
+	}
+	if m.Version != "1.0.0" {
+		t.Errorf("version = %q, want %q", m.Version, "1.0.0")
+	}
+	if len(m.AddsComponents) != 1 || m.AddsComponents[0] != "kafka-producer" {
+		t.Errorf("adds_components = %v, want [kafka-producer]", m.AddsComponents)
+	}
+	if len(m.AddsSlots) != 1 {
+		t.Errorf("adds_slots count = %d, want 1", len(m.AddsSlots))
+	}
+	if m.AddsSlots[0].Name != "on_entity_changed" {
+		t.Errorf("adds_slots[0].name = %q, want %q", m.AddsSlots[0].Name, "on_entity_changed")
+	}
+	if m.AddsSlots[0].Default != "noop" {
+		t.Errorf("adds_slots[0].default = %q, want %q", m.AddsSlots[0].Default, "noop")
+	}
+	if m.Overrides != "none" {
+		t.Errorf("overrides = %q, want %q", m.Overrides, "none")
+	}
+}
+
+func TestParseArchetypeTyped(t *testing.T) {
+	a, err := registry.ParseArchetype(parserFixture("archetype.yaml"))
+	if err != nil {
+		t.Fatalf("ParseArchetype: %v", err)
+	}
+	if a.Name != "rest-crud" {
+		t.Errorf("name = %q, want %q", a.Name, "rest-crud")
+	}
+}
+
+func TestParseComponentTyped(t *testing.T) {
+	c, err := registry.ParseComponent(parserFixture("component.yaml"))
+	if err != nil {
+		t.Fatalf("ParseComponent: %v", err)
+	}
+	if c.Name != "rest-api" {
+		t.Errorf("name = %q, want %q", c.Name, "rest-api")
+	}
+}
+
+func TestParseMixinTyped(t *testing.T) {
+	m, err := registry.ParseMixin(parserFixture("mixin.yaml"))
+	if err != nil {
+		t.Fatalf("ParseMixin: %v", err)
+	}
+	if m.Name != "event-publisher" {
+		t.Errorf("name = %q, want %q", m.Name, "event-publisher")
+	}
+}
+
+func TestParseTypedWrongKind(t *testing.T) {
+	// wrong_kind.yaml has kind: mixin, parsing as archetype should fail
+	_, err := registry.ParseArchetype(parserFixture("wrong_kind.yaml"))
+	if err == nil {
+		t.Fatal("expected error for wrong kind, got nil")
+	}
+	var pe *parser.ParseError
+	if !errors.As(err, &pe) {
+		t.Fatalf("error type = %T, want *parser.ParseError", err)
+	}
+}
+
+func TestParseTypedFileNotFound(t *testing.T) {
+	_, err := registry.ParseArchetype(parserFixture("does-not-exist.yaml"))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var pe *parser.ParseError
+	if !errors.As(err, &pe) {
+		t.Fatalf("error type = %T, want *parser.ParseError", err)
+	}
+}
+
+func TestRoundTripArchetype(t *testing.T) {
+	a, err := registry.ParseArchetype(parserFixture("archetype.yaml"))
+	if err != nil {
+		t.Fatalf("ParseArchetype: %v", err)
+	}
+	data, err := yaml.Marshal(a)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var a2 registry.Archetype
+	if err := yaml.Unmarshal(data, &a2); err != nil {
+		t.Fatalf("Unmarshal round-trip: %v", err)
+	}
+	if !reflect.DeepEqual(*a, a2) {
+		t.Errorf("round-trip mismatch:\n  original: %+v\n  got:      %+v", *a, a2)
+	}
+}
+
+func TestRoundTripComponent(t *testing.T) {
+	c, err := registry.ParseComponent(parserFixture("component.yaml"))
+	if err != nil {
+		t.Fatalf("ParseComponent: %v", err)
+	}
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var c2 registry.Component
+	if err := yaml.Unmarshal(data, &c2); err != nil {
+		t.Fatalf("Unmarshal round-trip: %v", err)
+	}
+	if !reflect.DeepEqual(*c, c2) {
+		t.Errorf("round-trip mismatch:\n  original: %+v\n  got:      %+v", *c, c2)
+	}
+}
+
+func TestRoundTripMixin(t *testing.T) {
+	m, err := registry.ParseMixin(parserFixture("mixin.yaml"))
+	if err != nil {
+		t.Fatalf("ParseMixin: %v", err)
+	}
+	data, err := yaml.Marshal(m)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var m2 registry.Mixin
+	if err := yaml.Unmarshal(data, &m2); err != nil {
+		t.Fatalf("Unmarshal round-trip: %v", err)
+	}
+	if !reflect.DeepEqual(*m, m2) {
+		t.Errorf("round-trip mismatch:\n  original: %+v\n  got:      %+v", *m, m2)
+	}
+}
+
+func TestParseErrorLineInfoFromRealYAML(t *testing.T) {
+	// Feed a YAML file with a type mismatch (version: [1,2,3] where string expected)
+	// through the real parser and verify that parseErrorWithLineInfo populates
+	// Line and Context from the yaml.TypeError.
+	_, err := registry.ParseArchetype(parserFixture("type_mismatch.yaml"))
+	if err == nil {
+		t.Fatal("expected error for type mismatch YAML, got nil")
+	}
+	var pe *parser.ParseError
+	if !errors.As(err, &pe) {
+		t.Fatalf("error type = %T, want *parser.ParseError", err)
+	}
+	if pe.Path != parserFixture("type_mismatch.yaml") {
+		t.Errorf("path = %q, want %q", pe.Path, parserFixture("type_mismatch.yaml"))
+	}
+	if pe.Line <= 0 {
+		t.Errorf("Line = %d, want > 0 (line info should be extracted from yaml.TypeError)", pe.Line)
+	}
+	if pe.Context == "" {
+		t.Errorf("Context = %q, want non-empty (should contain snippet of offending line)", pe.Context)
+	}
+	// The error message should include the line number and context
+	errMsg := pe.Error()
+	if pe.Line > 0 && !strings.Contains(errMsg, fmt.Sprintf(":%d:", pe.Line)) {
+		t.Errorf("Error() = %q, should contain line number %d", errMsg, pe.Line)
+	}
+}
+
+func TestArchetypeUnmarshal(t *testing.T) {
+	input := `
+kind: archetype
+name: rest-crud
+language: go
+version: 3.0.0
+components:
+  - rest-api
+  - postgres-adapter
+  - otel-tracing
+  - health-check
+default_auth: jwt-auth
+conventions:
+  layout: flat
+  error_handling: problem-details-rfc
+  logging: structured-json
+  test_pattern: table-driven
+  cors: enabled
+compatible_mixins:
+  - event-publisher
+  - async-worker
+bindings:
+  storage-adapter: postgres-adapter
+  auth-provider: jwt-auth
+`
+	var a registry.Archetype
+	if err := yaml.Unmarshal([]byte(input), &a); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if a.Name != "rest-crud" {
+		t.Errorf("name = %q, want %q", a.Name, "rest-crud")
+	}
+	if len(a.Components) != 4 {
+		t.Errorf("components count = %d, want 4", len(a.Components))
+	}
+	if a.DefaultAuth != "jwt-auth" {
+		t.Errorf("default_auth = %q, want %q", a.DefaultAuth, "jwt-auth")
+	}
+	if a.Conventions.Layout != "flat" {
+		t.Errorf("conventions.layout = %q, want %q", a.Conventions.Layout, "flat")
+	}
+	if a.Conventions.CORS != "enabled" {
+		t.Errorf("conventions.cors = %q, want %q", a.Conventions.CORS, "enabled")
+	}
+	if len(a.Bindings) != 2 {
+		t.Errorf("bindings count = %d, want 2", len(a.Bindings))
+	}
+}
+
+func TestComponentUnmarshalWithConfig(t *testing.T) {
+	// Uses the spec's full component YAML, including nested items for both
+	// map-of-fields (expose.items) and leaf-list (operations.items) forms.
+	input := `
+kind: component
+name: rest-api
+version: 2.1.0
+config:
+  port:
+    type: int
+    default: 8080
+  expose:
+    type: list
+    items:
+      entity:
+        type: entity-ref
+      operations:
+        type: list
+        items:
+          enum: [create, read, update, delete, list]
+      scope:
+        type: field-ref
+        optional: true
+requires:
+  - auth-provider
+provides:
+  - http-server
+`
+	var c registry.Component
+	if err := yaml.Unmarshal([]byte(input), &c); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	expose, ok := c.Config["expose"]
+	if !ok {
+		t.Fatal("config missing 'expose' key")
+	}
+	if expose.Type != "list" {
+		t.Errorf("config.expose.type = %q, want %q", expose.Type, "list")
+	}
+	// expose.items is a map of named sub-fields
+	if expose.Items == nil || expose.Items.Fields == nil {
+		t.Fatal("config.expose.items.Fields is nil, want map with 3 entries")
+	}
+	if len(expose.Items.Fields) != 3 {
+		t.Fatalf("config.expose.items.Fields count = %d, want 3", len(expose.Items.Fields))
+	}
+	entityItem, ok := expose.Items.Fields["entity"]
+	if !ok {
+		t.Fatal("config.expose.items missing 'entity'")
+	}
+	if entityItem.Type != "entity-ref" {
+		t.Errorf("config.expose.items.entity.type = %q, want %q", entityItem.Type, "entity-ref")
+	}
+	scopeItem := expose.Items.Fields["scope"]
+	if !scopeItem.Optional {
+		t.Error("config.expose.items.scope.optional = false, want true")
+	}
+	// operations.items is a single inline types.ConfigField (leaf-list)
+	opsItem, ok := expose.Items.Fields["operations"]
+	if !ok {
+		t.Fatal("config.expose.items missing 'operations'")
+	}
+	if opsItem.Type != "list" {
+		t.Errorf("config.expose.items.operations.type = %q, want %q", opsItem.Type, "list")
+	}
+	if opsItem.Items == nil || opsItem.Items.Inline == nil {
+		t.Fatal("config.expose.items.operations.items.Inline is nil, want inline types.ConfigField")
+	}
+	if len(opsItem.Items.Inline.Enum) != 5 {
+		t.Errorf("operations.items.enum count = %d, want 5", len(opsItem.Items.Inline.Enum))
+	}
+	if opsItem.Items.Inline.Enum[0] != "create" {
+		t.Errorf("operations.items.enum[0] = %q, want %q", opsItem.Items.Inline.Enum[0], "create")
+	}
+}
+
+func TestComponentUnmarshal(t *testing.T) {
+	input := `
+kind: component
+name: rest-api
+version: 2.1.0
+output_namespace: internal/api
+requires:
+  - auth-provider
+  - storage-adapter
+provides:
+  - http-server
+  - openapi-spec
+slots:
+  - name: before_create
+    proto: stego.components.rest_api.slots.BeforeCreate
+    default: passthrough
+  - name: validate
+    proto: stego.components.rest_api.slots.Validate
+    default: passthrough
+`
+	var c registry.Component
+	if err := yaml.Unmarshal([]byte(input), &c); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if c.Name != "rest-api" {
+		t.Errorf("name = %q, want %q", c.Name, "rest-api")
+	}
+	if c.OutputNamespace != "internal/api" {
+		t.Errorf("output_namespace = %q, want %q", c.OutputNamespace, "internal/api")
+	}
+	if len(c.Requires) != 2 {
+		t.Errorf("requires count = %d, want 2", len(c.Requires))
+	}
+	if c.Requires[0].Name != "auth-provider" {
+		t.Errorf("requires[0].name = %q, want %q", c.Requires[0].Name, "auth-provider")
+	}
+	if c.Requires[1].Name != "storage-adapter" {
+		t.Errorf("requires[1].name = %q, want %q", c.Requires[1].Name, "storage-adapter")
+	}
+	if len(c.Provides) != 2 {
+		t.Errorf("provides count = %d, want 2", len(c.Provides))
+	}
+	if c.Provides[0].Name != "http-server" {
+		t.Errorf("provides[0].name = %q, want %q", c.Provides[0].Name, "http-server")
+	}
+	if len(c.Slots) != 2 {
+		t.Errorf("slots count = %d, want 2", len(c.Slots))
+	}
+	if c.Slots[0].Default != "passthrough" {
+		t.Errorf("slots[0].default = %q, want %q", c.Slots[0].Default, "passthrough")
+	}
+}
+
+func TestMixinUnmarshal(t *testing.T) {
+	input := `
+kind: mixin
+name: event-publisher
+version: 1.0.0
+adds_components:
+  - kafka-producer
+adds_slots:
+  - name: on_entity_changed
+    proto: stego.mixins.event_publisher.slots.OnEntityChanged
+    default: noop
+overrides: none
+`
+	var m registry.Mixin
+	if err := yaml.Unmarshal([]byte(input), &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if m.Name != "event-publisher" {
+		t.Errorf("name = %q, want %q", m.Name, "event-publisher")
+	}
+	if len(m.AddsComponents) != 1 || m.AddsComponents[0] != "kafka-producer" {
+		t.Errorf("adds_components = %v, want [kafka-producer]", m.AddsComponents)
+	}
+	if len(m.AddsSlots) != 1 {
+		t.Errorf("adds_slots count = %d, want 1", len(m.AddsSlots))
+	}
+	if m.Overrides != "none" {
+		t.Errorf("overrides = %q, want %q", m.Overrides, "none")
+	}
+}
+
+func TestStrictRegistryDocuments(t *testing.T) {
+	tests := []struct {
+		name, input, want string
+		target            any
+	}{
+		{"archetype", "kind: archetype\nconventions: {loging: json}\n", "conventions.loging", &registry.Archetype{}},
+		{"component", "kind: component\nconfig: {port: {type: int, defaut: 8080}}\n", "config.port.defaut", &registry.Component{}},
+		{"nested component", "kind: component\nconfig: {items: {type: list, items: {name: {type: string, optonal: true}}}}\n", "items.name.optonal", &registry.Component{}},
+		{"inline component", "kind: component\nconfig: {items: {type: list, items: {type: string, optonal: true}}}\n", "items.optonal", &registry.Component{}},
+		{"port", "kind: component\nrequires: [{name: auth, optonal: true}]\n", "requires[0].optonal", &registry.Component{}},
+		{"mixin", "kind: mixin\nadds_slots: [{name: test, protto: test}]\n", "adds_slots[0].protto", &registry.Mixin{}},
+		{"config", "registry: [{url: example, reff: abc}]\n", "registry[0].reff", &registry.RegistryConfig{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := parser.DecodeStrict([]byte(tt.input), tt.name+".yaml", tt.target); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("got %v, want error containing %q", err, tt.want)
+			}
+		})
 	}
 }

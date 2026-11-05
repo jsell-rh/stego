@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jsell-rh/stego/internal/registry"
+	"github.com/jsell-rh/stego/internal/fill"
 	"github.com/jsell-rh/stego/internal/types"
 	"gopkg.in/yaml.v3"
 )
@@ -61,7 +63,7 @@ func TestRunInit(t *testing.T) {
 	if err != nil {
 		t.Fatalf(".stego/config.yaml not created: %v", err)
 	}
-	var cfg types.RegistryConfig
+	var cfg registry.RegistryConfig
 	if err := yaml.Unmarshal(cfgData, &cfg); err != nil {
 		t.Fatalf("config.yaml is not valid YAML: %v", err)
 	}
@@ -175,18 +177,18 @@ func TestRunFillCreate(t *testing.T) {
 		t.Fatalf("fill.yaml not created: %v", err)
 	}
 
-	var fill types.Fill
-	if err := yaml.Unmarshal(data, &fill); err != nil {
+	var manifest fill.Fill
+	if err := yaml.Unmarshal(data, &manifest); err != nil {
 		t.Fatalf("fill.yaml is not valid YAML: %v", err)
 	}
-	if fill.Kind != "fill" {
-		t.Errorf("expected kind=fill, got %q", fill.Kind)
+	if manifest.Kind != "fill" {
+		t.Errorf("expected kind=fill, got %q", manifest.Kind)
 	}
-	if fill.Name != "my-policy" {
-		t.Errorf("expected name=my-policy, got %q", fill.Name)
+	if manifest.Name != "my-policy" {
+		t.Errorf("expected name=my-policy, got %q", manifest.Name)
 	}
-	if fill.Implements != "rest-api.before_create" {
-		t.Errorf("expected implements=rest-api.before_create, got %q", fill.Implements)
+	if manifest.Implements != "rest-api.before_create" {
+		t.Errorf("expected implements=rest-api.before_create, got %q", manifest.Implements)
 	}
 
 	// Verify fill.go was created.
@@ -440,15 +442,15 @@ func TestRunFillCreateWithCollection(t *testing.T) {
 		t.Fatalf("fill.yaml not created: %v", err)
 	}
 
-	var fill types.Fill
-	if err := yaml.Unmarshal(data, &fill); err != nil {
+	var manifest fill.Fill
+	if err := yaml.Unmarshal(data, &manifest); err != nil {
 		t.Fatalf("fill.yaml is not valid YAML: %v", err)
 	}
-	if fill.Collection != "org-users" {
-		t.Errorf("expected collection=org-users, got %q", fill.Collection)
+	if manifest.Collection != "org-users" {
+		t.Errorf("expected collection=org-users, got %q", manifest.Collection)
 	}
-	if fill.Implements != "rest-api.before_create" {
-		t.Errorf("expected implements=rest-api.before_create, got %q", fill.Implements)
+	if manifest.Implements != "rest-api.before_create" {
+		t.Errorf("expected implements=rest-api.before_create, got %q", manifest.Implements)
 	}
 }
 
@@ -541,12 +543,12 @@ func TestRunRegistryFills(t *testing.T) {
 	}
 
 	// Create a fill that implements before_create.
-	fill := types.Fill{
+	manifest := fill.Fill{
 		Kind:       "fill",
 		Name:       "my-fill",
 		Implements: "rest-api.before_create",
 	}
-	fillData, _ := yaml.Marshal(fill)
+	fillData, _ := yaml.Marshal(manifest)
 	if err := os.WriteFile(filepath.Join(fillDir, "fill.yaml"), fillData, 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -588,7 +590,7 @@ func TestRunRegistryFillsNoFillsDir(t *testing.T) {
 }
 
 func TestPortListContains(t *testing.T) {
-	ports := []types.Port{{Name: "http-server"}, {Name: "auth-provider"}}
+	ports := []registry.Port{{Name: "http-server"}, {Name: "auth-provider"}}
 	if !portListContains(ports, "http-server") {
 		t.Error("expected true for http-server")
 	}
@@ -598,7 +600,7 @@ func TestPortListContains(t *testing.T) {
 }
 
 func TestSlotListContains(t *testing.T) {
-	slots := []types.SlotDefinition{{Name: "before_create"}, {Name: "validate"}}
+	slots := []registry.SlotDefinition{{Name: "before_create"}, {Name: "validate"}}
 	if !slotListContains(slots, "before_create") {
 		t.Error("expected true for before_create")
 	}
@@ -608,7 +610,7 @@ func TestSlotListContains(t *testing.T) {
 }
 
 func TestPortNames(t *testing.T) {
-	ports := []types.Port{{Name: "a"}, {Name: "b"}}
+	ports := []registry.Port{{Name: "a"}, {Name: "b"}}
 	names := portNames(ports)
 	if len(names) != 2 || names[0] != "a" || names[1] != "b" {
 		t.Errorf("expected [a b], got %v", names)
@@ -616,7 +618,7 @@ func TestPortNames(t *testing.T) {
 }
 
 func TestSlotDefNames(t *testing.T) {
-	slots := []types.SlotDefinition{{Name: "x"}, {Name: "y"}}
+	slots := []registry.SlotDefinition{{Name: "x"}, {Name: "y"}}
 	names := slotDefNames(slots)
 	if len(names) != 2 || names[0] != "x" || names[1] != "y" {
 		t.Errorf("expected [x y], got %v", names)

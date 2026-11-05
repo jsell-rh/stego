@@ -79,7 +79,7 @@
 {"id":"ST-DECL-UC08-FL-S03","title":"The author asks STEGO to check the declaration, and STEGO accepts it","flow_id":"ST-DECL-UC08-FL","path":"main","position":3}
 {"id":"ST-DECL-UC08-FL-S04","title":"A money field typed as a float is refused, naming the field","flow_id":"ST-DECL-UC08-FL","path":"refused","position":1}
 {"id":"ST-DECL-UC08-FL-S05","title":"A ledger collection that allows update or delete is refused, naming the collection and the operation","flow_id":"ST-DECL-UC08-FL","path":"refused","position":2}
-{"id":"ST-DECL-UC08-FL-S06","title":"A slot binding that can update a stored balance is refused, naming the binding and the balance field","flow_id":"ST-DECL-UC08-FL","path":"refused","position":3}
+{"id":"ST-DECL-UC08-FL-S06","title":"A ledger account with a balance field is refused as a field the format does not hold, naming the field","flow_id":"ST-DECL-UC08-FL","path":"refused","position":3}
 {"id":"ST-DECL-UC08-FL-S07","title":"A transfer with one entry is refused, naming the transfer","flow_id":"ST-DECL-UC08-FL","path":"refused","position":4}
 {"id":"ST-DECL-UC09-FL-S01","title":"The author declares the modes and the mixins","flow_id":"ST-DECL-UC09-FL","path":"main","position":1}
 {"id":"ST-DECL-UC09-FL-S02","title":"The author declares each controller with its sources, resync, replicas and lease TTL, and each invariant with its kind and fields","flow_id":"ST-DECL-UC09-FL","path":"main","position":2}
@@ -142,8 +142,8 @@
 {"id":"ST-DLV-UC05-FL-S06","title":"The environment check finds an unmet requirement, so the GitOps flow stops before Argo CD syncs the overlay, and the operator completes the environment file and checks again","flow_id":"ST-DLV-UC05-FL","path":"unmet","position":1}
 {"id":"ST-DLV-UC06-FL-S01","title":"The service author applies the plan, and STEGO writes the CI file for the provider the delivery stanza names","flow_id":"ST-DLV-UC06-FL","path":"main","position":1}
 {"id":"ST-DLV-UC07-FL-S01","title":"The service author applies the plan, and STEGO writes the Kubernetes base","flow_id":"ST-DLV-UC07-FL","path":"main","position":1}
-{"id":"ST-DLV-UC07-FL-S02","title":"The Kubernetes base is written, so STEGO writes the Argo CD Application from the delivery stanza","flow_id":"ST-DLV-UC07-FL","path":"main","position":2}
-{"id":"ST-DLV-UC07-FL-S03","title":"The declaration has no delivery stanza, so the apply writes no Argo CD Application and says so in the plan, and the author adds the stanza when the service is to be delivered","flow_id":"ST-DLV-UC07-FL","path":"absent","position":1}
+{"id":"ST-DLV-UC07-FL-S02","title":"The Kubernetes base is written, so STEGO writes the Argo CD ApplicationSet from the delivery stanza","flow_id":"ST-DLV-UC07-FL","path":"main","position":2}
+{"id":"ST-DLV-UC07-FL-S03","title":"The declaration has no delivery stanza, so the apply writes no Argo CD ApplicationSet and says so in the plan, and the author adds the stanza when the service is to be delivered","flow_id":"ST-DLV-UC07-FL","path":"absent","position":1}
 {"id":"ST-DLV-UC07-FL-S04","title":"The delivery stanza names a destination, a namespace or an overlay, so apply refuses it as an undeclared field, names the path, and writes nothing","flow_id":"ST-DLV-UC07-FL","path":"refused","position":1}
 {"id":"ST-EXT-UC01-FL-S01","title":"The agent runs fill create for the slot and collection, and STEGO writes a fill and a test that compile against the slot's contract","flow_id":"ST-EXT-UC01-FL","path":"main","position":1}
 {"id":"ST-EXT-UC01-FL-S02","title":"The agent writes the rule and its tests, binds the fill in the declaration, and records test evidence, and STEGO records the fill's evidence","flow_id":"ST-EXT-UC01-FL","path":"main","position":2}
@@ -157,6 +157,7 @@
 {"id":"ST-EXT-UC03-FL-S02","title":"A fill folder holds a fill manifest STEGO cannot read, so the list shows it as unreadable with its fault, and the author repairs it","flow_id":"ST-EXT-UC03-FL","path":"broken","position":1}
 {"id":"ST-EXT-UC03-FL-S03","title":"No fill implements the slot, so STEGO says so by name and names fill create as the way to add one","flow_id":"ST-EXT-UC03-FL","path":"empty","position":1}
 {"id":"ST-EXT-UC03-FL-S04","title":"The slot is one no component of the active set declares, so STEGO refuses and names the slots the set does declare","flow_id":"ST-EXT-UC03-FL","path":"refused","position":1}
+{"id":"ST-EXT-UC03-FL-S05","title":"More than one component of the active set declares the slot name, so STEGO refuses, names the components, and the agent runs registry fills again with the component","flow_id":"ST-EXT-UC03-FL","path":"ambiguous","position":1}
 {"id":"ST-EXT-UC04-FL-S01","title":"The service author runs fill status, and STEGO names each stale fill and what changed","flow_id":"ST-EXT-UC04-FL","path":"main","position":1}
 {"id":"ST-EXT-UC04-FL-S02","title":"The service author records test evidence, and STEGO records new evidence","flow_id":"ST-EXT-UC04-FL","path":"main","position":2}
 {"id":"ST-EXT-UC04-FL-S03","title":"The service author runs fill sign, and STEGO signs the new evidence","flow_id":"ST-EXT-UC04-FL","path":"main","position":3}
@@ -215,6 +216,7 @@
 {"id":"ST-SUP-UC01-FL-S06","title":"A namespace that another component of the registry claims is refused, naming both components","flow_id":"ST-SUP-UC01-FL","path":"refused","position":1}
 {"id":"ST-SUP-UC01-FL-S07","title":"A component that states no architecture role is refused, naming the component","flow_id":"ST-SUP-UC01-FL","path":"refused","position":2}
 {"id":"ST-SUP-UC01-FL-S08","title":"A file the component emits is the same for every declaration, so the registry refuses the component as static and names the file","flow_id":"ST-SUP-UC01-FL","path":"refused","position":3}
+{"id":"ST-SUP-UC01-FL-S09","title":"The component's schema marks a setting or a slot input as a bypass, so the registry refuses the component and names each marked setting","flow_id":"ST-SUP-UC01-FL","path":"refused","position":4}
 {"id":"ST-SUP-UC02-FL-S01","title":"The platform engineer pins the common registry at one reference","flow_id":"ST-SUP-UC02-FL","path":"main","position":1}
 {"id":"ST-SUP-UC02-FL-S02","title":"The platform engineer names a local registry that adds the team's own parts, at one reference","flow_id":"ST-SUP-UC02-FL","path":"main","position":2}
 {"id":"ST-SUP-UC02-FL-S03","title":"STEGO composes the sources into one active set, and records the reference of each","flow_id":"ST-SUP-UC02-FL","path":"main","position":3}

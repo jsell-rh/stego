@@ -115,7 +115,18 @@ type ReconcilerInput struct {
 	// OutDir is the output directory for generated files. Defaults to
 	// filepath.Join(ProjectDir, "out") if empty.
 	OutDir string
+
+	// ReadFill reads the collection that each fill named in a slot binding
+	// serves. Validation needs it when a slot binding names a fill whose
+	// fill.yaml exists; cmd/stego gives fill.ReadCollection.
+	ReadFill FillReader
 }
+
+// FillReader reads the fill manifest (fill.yaml) at path and gives the
+// collection the fill serves. The compiler owns this port and Extending's
+// fill package implements it, because Generating and Declaring may not import
+// Extending (ST-STD-CODE-R03).
+type FillReader func(path string) (collection string, err error)
 
 // Reconcile computes a plan by loading the service declaration, resolving the
 // archetype, running all component generators, and assembling shared files.
@@ -352,7 +363,7 @@ func isProjectRootFile(filePath string) bool {
 
 // collectComponentNames assembles the ordered list of component names from the
 // archetype, default_auth, and any mixin-added components.
-func collectComponentNames(archetype *types.Archetype, svcDecl *types.ServiceDeclaration, reg *registry.Registry) ([]string, error) {
+func collectComponentNames(archetype *registry.Archetype, svcDecl *types.ServiceDeclaration, reg *registry.Registry) ([]string, error) {
 	// Collect the baseline component set from the archetype, default_auth,
 	// and mixins. Override-component replacement is handled by ports.Resolve().
 	seen := make(map[string]bool)
@@ -405,7 +416,7 @@ func collectComponentNames(archetype *types.Archetype, svcDecl *types.ServiceDec
 
 // resolveComponentConfig merges a component's default config values with any
 // service-level overrides for that component.
-func resolveComponentConfig(comp *types.Component, svcDecl *types.ServiceDeclaration) map[string]any {
+func resolveComponentConfig(comp *registry.Component, svcDecl *types.ServiceDeclaration) map[string]any {
 	config := make(map[string]any)
 
 	for key, field := range comp.Config {
@@ -427,7 +438,7 @@ func resolveComponentConfig(comp *types.Component, svcDecl *types.ServiceDeclara
 
 // generateSlotFiles generates Go interface and operator files for all slots
 // used by the service declaration.
-func generateSlotFiles(slotsPackage string, components map[string]*types.Component, svcDecl *types.ServiceDeclaration, reg *registry.Registry) ([]gen.File, error) {
+func generateSlotFiles(slotsPackage string, components map[string]*registry.Component, svcDecl *types.ServiceDeclaration, reg *registry.Registry) ([]gen.File, error) {
 	if slotsPackage == "" || len(svcDecl.Slots) == 0 {
 		return nil, nil
 	}
@@ -442,7 +453,7 @@ func generateSlotFiles(slotsPackage string, components map[string]*types.Compone
 
 	// Find the slot definitions and their owning components or mixins.
 	type slotInfo struct {
-		definition types.SlotDefinition
+		definition registry.SlotDefinition
 		// protoDir is the directory containing the slots/ subdirectory for this
 		// slot's proto file, relative to the captured registry root.
 		protoDir string
@@ -572,7 +583,7 @@ func computePlan(
 	existingState *State,
 	serviceData []byte,
 	entities []types.Entity,
-	components map[string]*types.Component,
+	components map[string]*registry.Component,
 	outDir string,
 	projectDir string,
 	registrySHA string,
@@ -919,19 +930,6 @@ func validateSlotCollectionsDefined(slots []types.SlotDeclaration, collections [
 		}
 	}
 	return nil
-}
-
-// conventionOverrideKeys lists YAML override keys that correspond to archetype
-// convention fields rather than port binding overrides. These keys must be
-// excluded from port resolution and instead applied to the conventions struct.
-var conventionOverrideKeys = map[string]bool{
-	"cors": true,
-}
-
-// isConventionOverrideKey returns true if the given override key is a convention
-// override rather than a port binding override.
-func isConventionOverrideKey(key string) bool {
-	return conventionOverrideKeys[key]
 }
 
 // applyConventionOverrides returns a copy of the archetype conventions with any

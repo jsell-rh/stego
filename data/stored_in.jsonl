@@ -59,6 +59,7 @@
 {"source_id":"ST-GEN-RM01-TB","target_id":"ST-STORE05"}
 {"source_id":"ST-GEN-RM02-RD","target_id":"ST-STORE05"}
 {"source_id":"ST-GEN-RM02-TB","target_id":"ST-STORE05"}
+{"source_id":"ST-GEN-RM03-TB","target_id":"ST-STORE05"}
 {"source_id":"ST-SUP-EN01-TB","target_id":"ST-STORE02"}
 {"source_id":"ST-SUP-EN02-TB","target_id":"ST-STORE02"}
 {"source_id":"ST-SUP-EN03-TB","target_id":"ST-STORE02"}

@@ -16,7 +16,7 @@
 {"kind":"output_contract","position":2,"name":"introduced_in","type":"text","required":false,"description":"The component version that introduced the contract."}
 {"kind":"output_contract","position":3,"name":"spec_doc","type":"text","required":false,"description":"The document in specs/ that recorded the contract before it became data."}
 {"kind":"output_contract","position":4,"name":"group_name","type":"text","required":false,"description":"A short heading the contract is shown under among its siblings, such as Transport or Audit."}
-{"kind":"output_contract_test","position":1,"name":"file","type":"text","required":true,"description":"The test file, from the product root. It names the test ID at the start of a test name."}
+{"kind":"output_contract_test","position":1,"name":"file","type":"text","required":false,"description":"The test file, from the product root, once it exists. It names the test ID at the start of a test name. Empty while the test is not automated yet; notes then name the level and the planned file."}
 {"kind":"output_contract_test","position":2,"name":"given","type":"text","required":false,"description":"The state the test starts from."}
 {"kind":"output_contract_test","position":3,"name":"when","type":"text","required":false,"description":"What the test does."}
 {"kind":"output_contract_test","position":4,"name":"then","type":"text","required":false,"description":"What the test expects."}

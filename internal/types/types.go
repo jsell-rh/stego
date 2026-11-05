@@ -3,7 +3,6 @@ package types
 import (
 	"fmt"
 	"sort"
-	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -98,36 +97,6 @@ type Entity struct {
 	CleanupOwners    []string            `yaml:"cleanup_owners,omitempty"`
 }
 
-// Port represents a named capability that a component requires or provides.
-// It unmarshals from either a bare string or a mapping with a "name" key.
-type Port struct {
-	Name string `yaml:"name"`
-}
-
-// UnmarshalYAML allows Port to be unmarshaled from a bare string (e.g. "- auth-provider")
-// or from a mapping (e.g. "- name: auth-provider").
-func (p *Port) UnmarshalYAML(unmarshal func(any) error) error {
-	var s string
-	if err := unmarshal(&s); err == nil {
-		p.Name = s
-		return nil
-	}
-	type raw Port
-	var r raw
-	if err := unmarshal(&r); err != nil {
-		return err
-	}
-	*p = Port(r)
-	return nil
-}
-
-// SlotDefinition represents a slot defined by a component.
-type SlotDefinition struct {
-	Name    string `yaml:"name"`
-	Proto   string `yaml:"proto"`
-	Default string `yaml:"default,omitempty"`
-}
-
 // Convention captures the archetype's conventions.
 type Convention struct {
 	Layout            string `yaml:"layout"`
@@ -137,19 +106,6 @@ type Convention struct {
 	TestPattern       string `yaml:"test_pattern"`
 	RequestValidation string `yaml:"request_validation,omitempty"`
 	CORS              string `yaml:"cors,omitempty"`
-}
-
-// Archetype represents a curated component set with conventions.
-type Archetype struct {
-	Kind             string            `yaml:"kind"`
-	Name             string            `yaml:"name"`
-	Language         string            `yaml:"language"`
-	Version          string            `yaml:"version"`
-	Components       []string          `yaml:"components"`
-	DefaultAuth      string            `yaml:"default_auth"`
-	Conventions      Convention        `yaml:"conventions"`
-	CompatibleMixins []string          `yaml:"compatible_mixins"`
-	Bindings         map[string]string `yaml:"bindings,omitempty"`
 }
 
 // ConfigFieldItems supports two YAML forms for a config field's items:
@@ -214,28 +170,6 @@ type ConfigField struct {
 	Enum     []string          `yaml:"enum,omitempty"`
 }
 
-// Component represents a deterministic code generator with its metadata.
-type Component struct {
-	Kind            string                 `yaml:"kind"`
-	Name            string                 `yaml:"name"`
-	Version         string                 `yaml:"version"`
-	Config          map[string]ConfigField `yaml:"config,omitempty"`
-	Requires        []Port                 `yaml:"requires"`
-	Provides        []Port                 `yaml:"provides"`
-	Slots           []SlotDefinition       `yaml:"slots"`
-	OutputNamespace string                 `yaml:"output_namespace,omitempty"`
-}
-
-// Mixin adds components and slots to an archetype.
-type Mixin struct {
-	Kind           string           `yaml:"kind"`
-	Name           string           `yaml:"name"`
-	Version        string           `yaml:"version"`
-	AddsComponents []string         `yaml:"adds_components"`
-	AddsSlots      []SlotDefinition `yaml:"adds_slots"`
-	Overrides      string           `yaml:"overrides"` // "none"
-}
-
 // ConcurrencyMode for upsert operations.
 type ConcurrencyMode string
 
@@ -293,6 +227,11 @@ type SlotDeclaration struct {
 	FanOut       []string `yaml:"fan-out,omitempty"`
 	ShortCircuit bool     `yaml:"short_circuit,omitempty"`
 }
+
+// YAMLRenamedKeys marks SlotDeclaration as a parser.RenamedKeys: the strict
+// decoder lets the renamed entity key through, so that UnmarshalYAML reports
+// its rename.
+func (SlotDeclaration) YAMLRenamedKeys() []string { return []string{"entity"} }
 
 // UnmarshalYAML detects the deprecated `entity:` key (renamed to `collection:`
 // in the Collection type system migration) and returns a migration error.
@@ -507,47 +446,4 @@ func (sd ServiceDeclaration) MarshalYAML() (any, error) {
 	}
 
 	return &m, nil
-}
-
-// Fill represents a human-authored implementation of a slot contract.
-type Fill struct {
-	Kind        string    `yaml:"kind"`
-	Name        string    `yaml:"name"`
-	Implements  string    `yaml:"implements"`
-	Collection  string    `yaml:"collection"`
-	QualifiedBy string    `yaml:"qualified_by"`
-	QualifiedAt time.Time `yaml:"qualified_at"`
-}
-
-// UnmarshalYAML detects the deprecated `entity:` key (renamed to `collection:`
-// in the Collection type system migration) and returns a migration error.
-func (f *Fill) UnmarshalYAML(value *yaml.Node) error {
-	if value.Kind == yaml.MappingNode {
-		for i := 0; i < len(value.Content)-1; i += 2 {
-			if value.Content[i].Value == "entity" {
-				return fmt.Errorf("the 'entity' key in fill declarations has been renamed to 'collection' — please update your fill.yaml")
-			}
-		}
-	}
-	type rawFill Fill
-	var raw rawFill
-	if err := value.Decode(&raw); err != nil {
-		return err
-	}
-	*f = Fill(raw)
-	return nil
-}
-
-// RegistrySource describes a single registry origin in .stego/config.yaml.
-type RegistrySource struct {
-	URL    string `yaml:"url"`
-	Ref    string `yaml:"ref"`
-	Path   string `yaml:"path,omitempty"`
-	Vendor string `yaml:"vendor,omitempty"`
-}
-
-// RegistryConfig represents the .stego/config.yaml file.
-type RegistryConfig struct {
-	Registry []RegistrySource  `yaml:"registry"`
-	Pins     map[string]string `yaml:"pins,omitempty"`
 }
