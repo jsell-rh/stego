@@ -3,6 +3,7 @@ package registry
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -82,4 +83,77 @@ func TestRegistryCompositionRejectsShadowingAndSourceCount(t *testing.T) {
 	if _, err := LoadDirectories(dirs...); err == nil {
 		t.Fatal("excess source list accepted")
 	}
+}
+
+// inv01CommonFiles are the parts of a small common registry: a component, an
+// archetype, a mixin with its slot contract, and a port.
+func inv01CommonFiles() map[string]string {
+	return map[string]string{
+		"components/store-a/component.yaml":          "kind: component\nname: store-a\nversion: 1.0.0\noutput_namespace: internal/store\nrequires: []\nprovides: [store-port]\nslots: []\n",
+		"archetypes/svc-arch/archetype.yaml":         "kind: archetype\nname: svc-arch\nlanguage: go\nversion: 1.0.0\ncomponents: [store-a]\n",
+		"mixins/extra-mixin/mixin.yaml":              "kind: mixin\nname: extra-mixin\nversion: 1.0.0\nadds_components: [store-a]\nadds_slots:\n  - name: after_extra\n    proto: stego.mixins.extra_mixin.slots.AfterExtra\noverrides: none\n",
+		"mixins/extra-mixin/slots/after_extra.proto": "syntax = \"proto3\";\n\nservice AfterExtra {}\n",
+		"ports/store-port/port.yaml":                 "kind: port\nname: store-port\n",
+	}
+}
+
+func writeRegistryFolder(t *testing.T, files map[string]string) string {
+	t.Helper()
+	folder := t.TempDir()
+	for name, data := range files {
+		target := filepath.Join(folder, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(target, []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return folder
+}
+
+func TestLocalRegistryAddsAndNeverReplaces(t *testing.T) {
+	t.Run("ST-SUP-INV01-T A local part with the name of a common part is refused, and a new local part is added", func(t *testing.T) {
+		commonFiles := inv01CommonFiles()
+		common := Source{Name: "common-registry at c0ffee", Dir: writeRegistryFolder(t, commonFiles)}
+		for _, part := range []struct{ kind, name string }{{"component", "store-a"}, {"archetype", "svc-arch"}, {"mixin", "extra-mixin"}, {"port", "store-port"}} {
+			for _, changed := range []bool{false, true} {
+				files := map[string]string{}
+				for name, data := range commonFiles {
+					if strings.HasPrefix(name, part.kind+"s/"+part.name+"/") {
+						if changed && strings.HasSuffix(name, ".yaml") {
+							data += "# changed\n"
+						}
+						files[name] = data
+					}
+				}
+				local := Source{Name: "local-registry at beef01", Dir: writeRegistryFolder(t, files)}
+				active, err := LoadSources(common, local)
+				if err == nil || active != nil {
+					t.Fatalf("%s %s (changed %v) replaced a common part", part.kind, part.name, changed)
+				}
+				for _, word := range []string{part.kind + ` "` + part.name + `"`, common.Name, local.Name} {
+					if !strings.Contains(err.Error(), word) {
+						t.Fatalf("the refusal does not name %q: %v", word, err)
+					}
+				}
+			}
+		}
+		local := Source{Name: "local-registry at beef01", Dir: writeRegistryFolder(t, map[string]string{
+			"components/local-a/component.yaml": "kind: component\nname: local-a\nversion: 0.1.0\noutput_namespace: internal/local\nrequires: []\nprovides: [local-port]\nslots: []\n",
+		})}
+		active, err := LoadSources(common, local)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, data := range commonFiles {
+			held, err := active.ReadFile(name)
+			if err != nil || string(held) != data {
+				t.Fatalf("the active registry does not hold %s as the common registry gives it: %v", name, err)
+			}
+		}
+		if active.Component("store-a") == nil || active.Archetype("svc-arch") == nil || active.Mixin("extra-mixin") == nil || active.Component("local-a") == nil {
+			t.Fatal("the active registry lacks a common part or local-a")
+		}
+	})
 }

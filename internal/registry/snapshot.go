@@ -21,6 +21,7 @@ import (
 
 const maxRegistryBytes = 64 << 20
 const maxRegistryFiles = 4096
+const maxRegistrySources = 8
 const maxRegistryEntries = 16384
 const maxRegistryDepth = 16
 
@@ -94,7 +95,7 @@ func captureRegistryBounded(dir string, keepData bool, byteLimit int64, fileLimi
 					return err
 				}
 				if info.Mode()&os.ModeSymlink != 0 {
-					return fmt.Errorf("registry symbolic link is not allowed: %s", relative)
+					return fmt.Errorf("registry symbolic link is not allowed: %s", filepath.Join(absolute, filepath.FromSlash(relative)))
 				}
 				if name == "." && (relative == "components" || relative == "archetypes" || relative == "mixins") && !info.IsDir() {
 					return fmt.Errorf("registry category %s must be a directory", relative)
@@ -113,7 +114,7 @@ func captureRegistryBounded(dir string, keepData bool, byteLimit int64, fileLimi
 					continue
 				}
 				if len(snapshot.files) >= fileLimit {
-					return fmt.Errorf("registry exceeds %d input files", maxRegistryFiles)
+					return fmt.Errorf("registry inputs exceed the limit of 4,096 files")
 				}
 				file, err := root.Open(relative)
 				if err != nil {

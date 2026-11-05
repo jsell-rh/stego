@@ -527,6 +527,8 @@ func runRegistry(args []string) error {
 		return runRegistryInspect(args[1:])
 	case "fills":
 		return runRegistryFills(args[1:])
+	case "compose":
+		return runRegistryCompose(args[1:], os.Stdout, os.Stderr)
 	case "--help", "-h":
 		printRegistryUsage()
 		return nil
@@ -542,6 +544,7 @@ func printRegistryUsage() {
 	fmt.Fprintln(os.Stderr, "  search     Query components by provides/requires/slots")
 	fmt.Fprintln(os.Stderr, "  inspect    Show component details")
 	fmt.Fprintln(os.Stderr, "  fills      Find existing fills for a slot")
+	fmt.Fprintln(os.Stderr, "  compose    Compose the pinned registry sources into the active set")
 }
 
 // runRegistrySearch implements `stego registry search`.

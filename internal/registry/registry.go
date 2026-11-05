@@ -4,7 +4,10 @@ package registry
 
 import (
 	"fmt"
+	"maps"
 	"path"
+	"slices"
+	"strings"
 
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/parser"
@@ -18,6 +21,7 @@ type Registry struct {
 	archetypes map[string]*Archetype
 	components map[string]*Component
 	mixins     map[string]*Mixin
+	sources    []SourceParts
 }
 
 // Archetypes returns all loaded archetypes.
@@ -63,35 +67,81 @@ func Load(dir string) (*Registry, error) {
 
 // LoadDirectories combines distinct artifacts. A later source cannot replace
 // an artifact or input path from an earlier source, even with identical bytes.
+// A refusal names each source by its folder.
 func LoadDirectories(dirs ...string) (*Registry, error) {
-	if len(dirs) < 1 || len(dirs) > 8 {
-		return nil, fmt.Errorf("registry requires one through eight sources")
+	sources := make([]Source, len(dirs))
+	for i, dir := range dirs {
+		sources[i] = Source{Name: dir, Dir: dir}
+	}
+	return LoadSources(sources...)
+}
+
+// Source is one registry source to load: the folder it was resolved to and
+// the name a refusal gives it, such as its location and its commit.
+type Source struct {
+	Name string
+	Dir  string
+}
+
+// partCategories are the folders whose children are parts of the registry:
+// one part per child folder, which no two sources may both supply.
+var partCategories = map[string]string{"components": "component", "archetypes": "archetype", "mixins": "mixin", "ports": "port"}
+
+// LoadSources captures every source before it validates any, then refuses a
+// part or an input path that two sources supply, even as identical copies,
+// naming the part and both sources, and indexes every archetype, component
+// and mixin.
+func LoadSources(sources ...Source) (*Registry, error) {
+	if len(sources) < 1 || len(sources) > maxRegistrySources {
+		return nil, fmt.Errorf("registry composition has %d sources; the limit is %d", len(sources), maxRegistrySources)
+	}
+	captured := make([]*registrySnapshot, 0, len(sources))
+	var total int64
+	files := 0
+	for _, src := range sources {
+		current, err := captureRegistryBounded(src.Dir, true, maxRegistryBytes-total, maxRegistryFiles-files)
+		if err != nil {
+			return nil, fmt.Errorf("registry source %s: %w", src.Name, err)
+		}
+		for _, file := range current.files {
+			total += file.size
+		}
+		files += len(current.files)
+		captured = append(captured, current)
 	}
 	source := &registrySnapshot{files: map[string]registryFile{}, directories: map[string]bool{}}
-	captured := make([]*registrySnapshot, 0, len(dirs))
-	var total int64
-	for _, dir := range dirs {
-		current, err := captureRegistryBounded(dir, true, maxRegistryBytes-total, maxRegistryFiles-len(source.files))
-		if err != nil {
-			return nil, fmt.Errorf("registry directory: %w", err)
-		}
-		for name := range current.directories {
-			if source.directories[name] && (path.Dir(name) == "components" || path.Dir(name) == "archetypes" || path.Dir(name) == "mixins") {
-				return nil, fmt.Errorf("registry artifact %q occurs in more than one source", name)
+	partOwner := map[string]int{}
+	fileOwner := map[string]int{}
+	for i, current := range captured {
+		for _, name := range slices.Sorted(maps.Keys(current.directories)) {
+			if kind, isPart := partCategories[path.Dir(name)]; isPart {
+				if first, exists := partOwner[name]; exists {
+					return nil, fmt.Errorf("registry %s %q occurs in more than one source: it is supplied by both %s and %s; a later source may add parts but not replace one", kind, path.Base(name), sources[first].Name, sources[i].Name)
+				}
+				partOwner[name] = i
 			}
 			source.directories[name] = true
 		}
-		for name, file := range current.files {
-			if _, exists := source.files[name]; exists {
-				return nil, fmt.Errorf("registry input %q occurs in more than one source", name)
+		for _, name := range slices.Sorted(maps.Keys(current.files)) {
+			if first, exists := fileOwner[name]; exists {
+				return nil, fmt.Errorf("registry input %s occurs in more than one source: it is supplied by both %s and %s", name, sources[first].Name, sources[i].Name)
 			}
-			source.files[name] = file
-			total += file.size
+			fileOwner[name] = i
+			source.files[name] = current.files[name]
 		}
-		captured = append(captured, current)
 	}
 	source.hash = registryDigest(source.files)
 	r := &Registry{source: source, captured: captured, archetypes: make(map[string]*Archetype), components: make(map[string]*Component), mixins: make(map[string]*Mixin)}
+	for i, src := range sources {
+		parts := SourceParts{Name: src.Name, Trust: TrustOf(i)}
+		for name, owner := range partOwner {
+			if owner == i {
+				parts.Parts = append(parts.Parts, partCategories[path.Dir(name)]+" "+path.Base(name))
+			}
+		}
+		slices.Sort(parts.Parts)
+		r.sources = append(r.sources, parts)
+	}
 	for _, name := range r.childDirectories("archetypes") {
 		file := path.Join("archetypes", name, "archetype.yaml")
 		data, err := r.ReadFile(file)
@@ -146,6 +196,20 @@ func LoadDirectories(dirs ...string) (*Registry, error) {
 	return r, nil
 }
 
+// SourceParts is one source of the active registry: its name, its trust and
+// the parts it adds, each as its kind and its name.
+type SourceParts struct {
+	Name  string
+	Trust Trust
+	Parts []string
+}
+
+// Sources gives each source of the active registry with the parts it adds,
+// in the order of composition.
+func (r *Registry) Sources() []SourceParts {
+	return r.sources
+}
+
 func (r *Registry) checkSlots(category, name string, slots []SlotDefinition) error {
 	for _, slot := range slots {
 		file := category + "/" + name + "/slots/" + slot.Name + ".proto"
@@ -183,13 +247,13 @@ func ParseConfig(data []byte, path string) (*RegistryConfig, error) {
 // validateConfig checks that a parsed RegistryConfig has required fields.
 func validateConfig(cfg *RegistryConfig) error {
 	if len(cfg.Pins) != 0 {
-		return fmt.Errorf("per-component pins are not supported; pin each Git registry source with ref")
+		return fmt.Errorf("per-component pins are not supported; pin each Git registry source with ref; remove the pins entry for %s", strings.Join(slices.Sorted(maps.Keys(cfg.Pins)), ", "))
 	}
 	if len(cfg.Registry) == 0 {
 		return fmt.Errorf("at least one registry source is required")
 	}
-	if len(cfg.Registry) > 8 {
-		return fmt.Errorf("at most eight registry sources are allowed")
+	if len(cfg.Registry) > maxRegistrySources {
+		return fmt.Errorf("%d registry sources are configured; the limit is %d", len(cfg.Registry), maxRegistrySources)
 	}
 	for i, src := range cfg.Registry {
 		if len(src.URL) > 2048 || len(src.Ref) > 128 || len(src.Path) > 1024 || len(src.Vendor) > 1024 {
