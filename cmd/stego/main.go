@@ -342,8 +342,12 @@ func runFillCreate(args []string) error {
 // runPlan implements `stego plan`.
 func runPlan(args []string) error {
 	fs := flag.NewFlagSet("plan", flag.ContinueOnError)
+	show := fs.Bool("show", false, "print the saved plan and whether it still applies, and save no plan")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("plan takes no arguments")
 	}
 
 	input, err := buildReconcilerInput()
@@ -351,12 +355,34 @@ func runPlan(args []string) error {
 		return err
 	}
 
+	if *show {
+		saved, err := compiler.LoadPlan(input.ProjectDir)
+		if err != nil {
+			return err
+		}
+		fmt.Print(compiler.FormatSavedPlan(saved))
+		plan, err := compiler.Reconcile(input)
+		if err == nil {
+			err = saved.StillApplies(plan)
+		}
+		if err != nil {
+			fmt.Printf("The saved plan does not apply: %v\n", err)
+			return nil
+		}
+		fmt.Println("The saved plan still applies.")
+		return nil
+	}
+
 	plan, err := compiler.Reconcile(input)
 	if err != nil {
 		return err
 	}
+	if err := compiler.SavePlan(plan, input.ProjectDir); err != nil {
+		return err
+	}
 
 	fmt.Print(compiler.FormatPlan(plan))
+	fmt.Println("\nSaved the plan in .stego/plan.yaml; stego apply --saved-plan carries it out.")
 	return nil
 }
 
@@ -364,6 +390,7 @@ func runPlan(args []string) error {
 func runApply(args []string) error {
 	fs := flag.NewFlagSet("apply", flag.ContinueOnError)
 	replaceHandEdits := fs.Bool("replace-hand-edits", false, "let this apply replace generated files that were edited by hand")
+	savedPlan := fs.Bool("saved-plan", false, "carry out the plan that stego plan saved, or refuse it when it is stale")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -381,7 +408,13 @@ func runApply(args []string) error {
 		return err
 	}
 
-	if !plan.HasChanges() {
+	if *savedPlan {
+		saved, err := compiler.LoadPlan(input.ProjectDir)
+		if err != nil {
+			return err
+		}
+		plan.UseSavedPlan(saved)
+	} else if !plan.HasChanges() {
 		fmt.Println("No changes. Infrastructure is up-to-date.")
 		return nil
 	}

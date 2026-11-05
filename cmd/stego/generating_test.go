@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -324,14 +325,9 @@ func TestPlanWritesNothing(t *testing.T) {
 	t.Run("ST-GEN-UC05-R01-T01 Plan leaves the output folder and the record unchanged", func(t *testing.T) {
 		generatingProject(t, generatingDeclaration)
 		mustRun(t, runPlan)
-		if tree := projectTree(t); !reflect.DeepEqual(tree, map[string]string{"service.yaml": generatingDeclaration}) {
-			t.Fatalf("plan on a new project wrote files: %v", slices.Sorted(func(yield func(string) bool) {
-				for path := range tree {
-					if !yield(path) {
-						return
-					}
-				}
-			}))
+		tree := projectTree(t)
+		if paths := slices.Sorted(maps.Keys(tree)); !slices.Equal(paths, []string{".stego/plan.yaml", "service.yaml"}) || tree["service.yaml"] != generatingDeclaration {
+			t.Fatalf("plan on a new project wrote other files than the saved plan: %v", paths)
 		}
 		mustRun(t, runApply)
 		writeProjectFile(t, "service.yaml", strings.Replace(generatingDeclaration, "{name: body, type: string}", "{name: body, type: string}, {name: author, type: string}", 1))
@@ -339,8 +335,13 @@ func TestPlanWritesNothing(t *testing.T) {
 		if printed := mustRun(t, runPlan); !strings.Contains(printed, "update:") {
 			t.Fatalf("the plan shows no change for a changed declaration:\n%s", printed)
 		}
-		if !reflect.DeepEqual(project, projectTree(t)) {
-			t.Fatal("plan changed the project")
+		after := projectTree(t)
+		if after[".stego/plan.yaml"] == "" {
+			t.Fatal("plan saved no plan under .stego")
+		}
+		delete(after, ".stego/plan.yaml")
+		if !reflect.DeepEqual(project, after) {
+			t.Fatal("plan changed a project file other than the saved plan")
 		}
 	})
 }
