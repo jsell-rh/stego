@@ -770,10 +770,15 @@ func reportDeclarableInputs(reg *registry.Registry, archetype string, structured
 	return writer.Flush()
 }
 
-// runRegistryFills implements `stego registry fills --slot <s>`.
+// runRegistryFills implements `stego registry fills --slot <s> [--component <c>]`
+// (ST-SUP-CLI06, ST-EXT-QRY01): it lists each fill of the project that
+// implements the slot of the active component set, with its collection and
+// its qualification standing, and each fill folder whose manifest it cannot
+// read. It writes nothing.
 func runRegistryFills(args []string) error {
 	fs := flag.NewFlagSet("registry fills", flag.ContinueOnError)
 	slotName := fs.String("slot", "", "slot name to search fills for (required)")
+	componentName := fs.String("component", "", "component that owns the slot (required when more than one component of the active set declares it)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -781,55 +786,49 @@ func runRegistryFills(args []string) error {
 		fs.Usage()
 		return fmt.Errorf("--slot is required")
 	}
-
-	projectDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("getting working directory: %w", err)
+	if fs.NArg() != 0 {
+		return fmt.Errorf("registry fills takes no positional arguments")
 	}
-
-	// Find fills in the project's fills/ directory.
-	fillsDir := filepath.Join(projectDir, "fills")
-	if _, err := os.Stat(fillsDir); err != nil {
-		fmt.Println("No fills directory found.")
+	input, err := buildReconcilerInput()
+	if err != nil {
+		return err
+	}
+	check, err := compiler.ResolveFillCheck(input)
+	if err != nil {
+		return err
+	}
+	ref, err := fill.ResolveSlot(check, *slotName, *componentName)
+	if err != nil {
+		return err
+	}
+	entries, err := fill.ListCatalog(check, ref)
+	if err != nil {
+		return err
+	}
+	readable := 0
+	for _, entry := range entries {
+		if entry.Unreadable == "" {
+			readable++
+		}
+	}
+	if readable == 0 {
+		fmt.Printf("No fill implements the slot %s (%s). Run stego fill create <name> --slot %s --component %s --collection <collection> to add one.\n", *slotName, ref, ref.Slot, ref.Component)
+	} else {
+		fmt.Printf("Fills that implement the slot %s (%s):\n", *slotName, ref)
+	}
+	if len(entries) == 0 {
 		return nil
 	}
-
-	entries, err := os.ReadDir(fillsDir)
-	if err != nil {
-		return fmt.Errorf("reading fills directory: %w", err)
-	}
-
-	found := false
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintf(w, "FILL\tCOLLECTION\tSTANDING\tREASON\n")
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if entry.Unreadable != "" {
+			fmt.Fprintf(w, "%s\t-\tunreadable\t%s\n", entry.Fill, entry.Unreadable)
 			continue
 		}
-		fillYAML := filepath.Join(fillsDir, entry.Name(), "fill.yaml")
-		manifest, err := fill.ParseFill(fillYAML)
-		if err != nil {
-			continue
-		}
-
-		// Match on the slot portion of the implements field (component.slot).
-		parts := strings.SplitN(manifest.Implements, ".", 2)
-		implementsSlot := manifest.Implements
-		if len(parts) == 2 {
-			implementsSlot = parts[1]
-		}
-
-		if implementsSlot == *slotName {
-			if !found {
-				fmt.Printf("Fills implementing slot %q:\n", *slotName)
-				found = true
-			}
-			fmt.Printf("  %s (%s)\n", manifest.Name, manifest.Collection)
-		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", entry.Fill, entry.Collection, entry.Standing, entry.Reason)
 	}
-
-	if !found {
-		fmt.Printf("No fills found for slot %q\n", *slotName)
-	}
-	return nil
+	return w.Flush()
 }
 
 // buildReconcilerInput creates a ReconcilerInput from environment and filesystem.
