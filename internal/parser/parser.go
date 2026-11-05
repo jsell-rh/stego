@@ -18,11 +18,20 @@ import (
 type ParseError struct {
 	Path    string
 	Line    int    // 0 means unknown
+	Column  int    // the position in the line, from 1; 0 means unknown
 	Context string // snippet of the offending line, if available
 	Err     error
+	// Bounded is true when the document is over its size or nesting limit (ST-DECL-INV04).
+	Bounded bool
 }
 
 func (e *ParseError) Error() string {
+	if e.Line > 0 && e.Column > 0 {
+		if e.Context != "" {
+			return fmt.Sprintf("%s:%d:%d: %s (near %q)", e.Path, e.Line, e.Column, e.Err, e.Context)
+		}
+		return fmt.Sprintf("%s:%d:%d: %s", e.Path, e.Line, e.Column, e.Err)
+	}
 	if e.Line > 0 {
 		if e.Context != "" {
 			return fmt.Sprintf("%s:%d: %s (near %q)", e.Path, e.Line, e.Err, e.Context)
@@ -58,6 +67,7 @@ func parseErrorWithLineInfo(data []byte, path string, underlying error) *ParseEr
 			if _, err := fmt.Sscanf(msg, "line %d:", &line); err == nil && line > 0 {
 				pe.Line = line
 				pe.Context = lineAt(data, line)
+				pe.Column = firstColumn(data, line)
 				return pe
 			}
 		}
@@ -97,6 +107,24 @@ func ParseServiceDeclarationFromBytes(data []byte, path string) (*types.ServiceD
 
 func serviceKind(s *types.ServiceDeclaration) string { return s.Kind }
 
+// ReadServiceDeclaration reads a service declaration from raw YAML bytes as the checking stage does: it reports a
+// field that the declaration format does not declare as an UndeclaredField and reads on, so that checking can
+// report it with every other fault. Any other fault of reading, or a kind that is not service, is the error.
+func ReadServiceDeclaration(data []byte, path string) (*types.ServiceDeclaration, []UndeclaredField, error) {
+	var service types.ServiceDeclaration
+	undeclared, err := DecodeCollecting(data, path, &service)
+	if err != nil {
+		return nil, nil, err
+	}
+	if service.Kind == "" {
+		return nil, nil, errorf(path, "missing required field: kind")
+	}
+	if service.Kind != "service" {
+		return nil, nil, errorf(path, "expected kind %q, got %q", "service", service.Kind)
+	}
+	return &service, undeclared, nil
+}
+
 // ReadKind reads a bounded YAML file and decodes it as ParseKind does.
 func ReadKind[T any](path, expectedKind string, kind func(*T) string) (*T, error) {
 	data, err := ReadDocument(path)
@@ -125,4 +153,13 @@ func ParseKind[T any](data []byte, path, expectedKind string, kind func(*T) stri
 	}
 
 	return &v, nil
+}
+
+// firstColumn gives the position, from 1, of the first character of line number n (1-based) that is not a space.
+func firstColumn(data []byte, n int) int {
+	lines := strings.Split(string(data), "\n")
+	if n < 1 || n > len(lines) {
+		return 0
+	}
+	return len(lines[n-1]) - len(strings.TrimLeft(lines[n-1], " ")) + 1
 }

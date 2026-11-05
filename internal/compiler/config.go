@@ -45,7 +45,7 @@ func validateComponentConfig(service *types.ServiceDeclaration, components map[s
 }
 
 func configError(path, message string) ValidationError {
-	return ValidationError{Category: "config", Message: path + ": " + message}
+	return ValidationError{Category: "config", Rule: "config", Path: path, Message: path + ": " + message}
 }
 
 func sortedKeys[T any](values map[string]T) []string {

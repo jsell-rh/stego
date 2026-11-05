@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jsell-rh/stego/internal/compiler"
+	"github.com/jsell-rh/stego/internal/declaration"
 	"github.com/jsell-rh/stego/internal/fill"
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/browserbackend"
@@ -432,8 +433,12 @@ func runApply(args []string) error {
 // runValidate implements `stego validate`.
 func runValidate(args []string) error {
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
+	structured := fs.Bool("json", false, "print the faults as one JSON document")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("validate does not accept positional arguments")
 	}
 
 	input, err := buildReconcilerInput()
@@ -446,7 +451,16 @@ func runValidate(args []string) error {
 		return err
 	}
 
-	fmt.Print(compiler.FormatValidation(result))
+	faults := declaration.NewFaultsReader(result)
+	if *structured {
+		document, err := faults.JSON()
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(document))
+	} else {
+		fmt.Print(faults.Prose())
+	}
 	if result.HasErrors() {
 		return fmt.Errorf("validation failed with %d error(s)", len(result.Errors))
 	}

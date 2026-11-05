@@ -6,6 +6,9 @@ import (
 	"io"
 	"os"
 	"reflect"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -50,17 +53,51 @@ func DecodeStrictWithLimit(data []byte, path string, target any, limit int) erro
 	if typ == nil || typ.Kind() != reflect.Pointer || reflect.ValueOf(target).IsNil() {
 		return errorf(path, "decode target must be a non-nil pointer")
 	}
-	root, err := readNodeWithLimit(data, path, limit)
+	undeclared, err := decodeCollecting(data, path, target, limit)
 	if err != nil {
 		return err
 	}
-	if err := checkSchema(data, path, root, typ.Elem(), ""); err != nil {
-		return err
-	}
-	if err := root.Decode(target); err != nil {
-		return parseErrorWithLineInfo(data, path, err)
+	if len(undeclared) > 0 {
+		first := undeclared[0]
+		return &ParseError{Path: path, Line: first.Line, Column: first.Column, Context: lineAt(data, first.Line), Err: fmt.Errorf("unknown field %q", first.Path)}
 	}
 	return nil
+}
+
+// UndeclaredField is a key that the target type does not declare: its path in the document, such as
+// slots[0].merge, the key, where it is, and the keys that are declared at that place.
+type UndeclaredField struct {
+	Path     string
+	Key      string
+	Line     int
+	Column   int
+	Declared []string
+}
+
+// DecodeCollecting reads one YAML document as DecodeStrict does, but it does not stop at a key that the target
+// type does not declare: it leaves the key out, decodes the rest, and returns every such key in document order.
+// Any other fault of reading is returned as the error.
+func DecodeCollecting(data []byte, path string, target any) ([]UndeclaredField, error) {
+	typ := reflect.TypeOf(target)
+	if typ == nil || typ.Kind() != reflect.Pointer || reflect.ValueOf(target).IsNil() {
+		return nil, errorf(path, "decode target must be a non-nil pointer")
+	}
+	return decodeCollecting(data, path, target, MaxDocumentBytes)
+}
+
+func decodeCollecting(data []byte, path string, target any, limit int) ([]UndeclaredField, error) {
+	root, err := readNodeWithLimit(data, path, limit)
+	if err != nil {
+		return nil, err
+	}
+	var undeclared []UndeclaredField
+	if err := checkSchema(data, path, root, reflect.TypeOf(target).Elem(), "", &undeclared); err != nil {
+		return nil, err
+	}
+	if err := root.Decode(target); err != nil {
+		return nil, parseErrorWithLineInfo(data, path, err)
+	}
+	return undeclared, nil
 }
 
 func readNode(data []byte, path string) (*yaml.Node, error) {
@@ -69,12 +106,14 @@ func readNode(data []byte, path string) (*yaml.Node, error) {
 
 func readNodeWithLimit(data []byte, path string, limit int) (*yaml.Node, error) {
 	if len(data) > limit {
-		return nil, errorf(path, "document exceeds the %d byte limit", limit)
+		bounded := errorf(path, "document exceeds the %d byte limit", limit)
+		bounded.Bounded = true
+		return nil, bounded
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	var document yaml.Node
 	if err := decoder.Decode(&document); err != nil {
-		return nil, parseErrorWithLineInfo(data, path, fmt.Errorf("invalid YAML: %w", err))
+		return nil, syntaxError(data, path, err)
 	}
 	var extra yaml.Node
 	if err := decoder.Decode(&extra); err != io.EOF {
@@ -93,9 +132,9 @@ func readNodeWithLimit(data []byte, path string, limit int) (*yaml.Node, error) 
 	return root, nil
 }
 
-func nodeError(data []byte, path string, node *yaml.Node, format string, args ...any) error {
+func nodeError(data []byte, path string, node *yaml.Node, format string, args ...any) *ParseError {
 	return &ParseError{
-		Path: path, Line: node.Line, Context: lineAt(data, node.Line),
+		Path: path, Line: node.Line, Column: node.Column, Context: lineAt(data, node.Line),
 		Err: fmt.Errorf(format, args...),
 	}
 }
@@ -104,7 +143,9 @@ func nodeError(data []byte, path string, node *yaml.Node, format string, args ..
 // Check all nodes, including values held in interface{} fields.
 func checkNodes(data []byte, path string, node *yaml.Node, depth int) error {
 	if depth > 128 {
-		return nodeError(data, path, node, "YAML nesting exceeds the 128 level limit")
+		bounded := nodeError(data, path, node, "YAML nesting exceeds the 128 level limit")
+		bounded.Bounded = true
+		return bounded
 	}
 	if node.Kind == yaml.AliasNode || node.Anchor != "" {
 		return nodeError(data, path, node, "YAML anchors and aliases are not supported; write each value explicitly")
@@ -153,7 +194,7 @@ type RenamedKeys interface {
 	YAMLRenamedKeys() []string
 }
 
-func checkSchema(data []byte, path string, node *yaml.Node, typ reflect.Type, location string) error {
+func checkSchema(data []byte, path string, node *yaml.Node, typ reflect.Type, location string, undeclared *[]UndeclaredField) error {
 	for typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
@@ -239,16 +280,22 @@ func checkSchema(data []byte, path string, node *yaml.Node, typ reflect.Type, lo
 			}
 			childType, ok := fields[key.Value]
 			if !ok {
-				return nodeError(data, path, key, "unknown field %q", childLocation)
+				declared := make([]string, 0, len(fields))
+				for name := range fields {
+					declared = append(declared, name)
+				}
+				sort.Strings(declared)
+				*undeclared = append(*undeclared, UndeclaredField{Path: childLocation, Key: key.Value, Line: key.Line, Column: key.Column, Declared: declared})
+				continue
 			}
-			if err := checkSchema(data, path, value, childType, childLocation); err != nil {
+			if err := checkSchema(data, path, value, childType, childLocation, undeclared); err != nil {
 				return err
 			}
 		}
 	case reflect.Slice, reflect.Array:
 		if node.Kind == yaml.SequenceNode {
 			for i, value := range node.Content {
-				if err := checkSchema(data, path, value, typ.Elem(), fmt.Sprintf("%s[%d]", location, i)); err != nil {
+				if err := checkSchema(data, path, value, typ.Elem(), fmt.Sprintf("%s[%d]", location, i), undeclared); err != nil {
 					return err
 				}
 			}
@@ -256,11 +303,56 @@ func checkSchema(data []byte, path string, node *yaml.Node, typ reflect.Type, lo
 	case reflect.Map:
 		if node.Kind == yaml.MappingNode {
 			for i := 0; i < len(node.Content); i += 2 {
-				if err := checkSchema(data, path, node.Content[i+1], typ.Elem(), location+"."+node.Content[i].Value); err != nil {
+				if err := checkSchema(data, path, node.Content[i+1], typ.Elem(), location+"."+node.Content[i].Value, undeclared); err != nil {
 					return err
 				}
 			}
 		}
 	}
 	return nil
+}
+
+// syntaxLine reads the line that a YAML syntax error names.
+var syntaxLine = regexp.MustCompile(`line (\d+):`)
+
+// syntaxError gives the place where reading of a document that is not valid YAML stopped: the line and the
+// position in the line. The YAML reader names a line but no position, and for a tab in the indentation it names
+// the line before. So a tab in the indentation of the named line or the next is the place; else the first
+// character of the named line. When the reader names no line, the place is the first line at which the document
+// read so far stops being valid YAML.
+func syntaxError(data []byte, path string, err error) *ParseError {
+	lines := strings.Split(string(data), "\n")
+	line := 0
+	if match := syntaxLine.FindStringSubmatch(err.Error()); match != nil {
+		line, _ = strconv.Atoi(match[1])
+	} else {
+		for n := 1; n <= len(lines); n++ {
+			var node yaml.Node
+			if yaml.Unmarshal([]byte(strings.Join(lines[:n], "\n")), &node) != nil {
+				line = n
+				break
+			}
+		}
+	}
+	column := 0
+	if line > 0 {
+		for _, candidate := range []int{line, line + 1} {
+			if candidate > len(lines) {
+				continue
+			}
+			text := lines[candidate-1]
+			indentation := text[:len(text)-len(strings.TrimLeft(text, " \t"))]
+			if tab := strings.IndexByte(indentation, '\t'); tab >= 0 {
+				line, column = candidate, tab+1
+				break
+			}
+		}
+		if column == 0 && line <= len(lines) {
+			text := lines[line-1]
+			column = len(text) - len(strings.TrimLeft(text, " ")) + 1
+		}
+	}
+	message := strings.TrimPrefix(err.Error(), "yaml: ")
+	message = syntaxLine.ReplaceAllString(message, "")
+	return &ParseError{Path: path, Line: line, Column: column, Context: lineAt(data, line), Err: fmt.Errorf("invalid YAML: %s", strings.TrimSpace(message))}
 }
