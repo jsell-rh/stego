@@ -79,7 +79,7 @@
 {"id":"ST-DECL-UC08-FL-S03","title":"The author asks STEGO to check the declaration, and STEGO accepts it","flow_id":"ST-DECL-UC08-FL","path":"main","position":3}
 {"id":"ST-DECL-UC08-FL-S04","title":"A money field typed as a float is refused, naming the field","flow_id":"ST-DECL-UC08-FL","path":"refused","position":1}
 {"id":"ST-DECL-UC08-FL-S05","title":"A ledger collection that allows update or delete is refused, naming the collection and the operation","flow_id":"ST-DECL-UC08-FL","path":"refused","position":2}
-{"id":"ST-DECL-UC08-FL-S06","title":"A slot binding that can update a stored balance is refused, naming the binding and the balance field","flow_id":"ST-DECL-UC08-FL","path":"refused","position":3}
+{"id":"ST-DECL-UC08-FL-S06","title":"A ledger account with a balance field is refused as a field the format does not hold, naming the field","flow_id":"ST-DECL-UC08-FL","path":"refused","position":3}
 {"id":"ST-DECL-UC08-FL-S07","title":"A transfer with one entry is refused, naming the transfer","flow_id":"ST-DECL-UC08-FL","path":"refused","position":4}
 {"id":"ST-DECL-UC09-FL-S01","title":"The author declares the modes and the mixins","flow_id":"ST-DECL-UC09-FL","path":"main","position":1}
 {"id":"ST-DECL-UC09-FL-S02","title":"The author declares each controller with its sources, resync, replicas and lease TTL, and each invariant with its kind and fields","flow_id":"ST-DECL-UC09-FL","path":"main","position":2}
