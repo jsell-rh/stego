@@ -187,6 +187,8 @@
 {"source_id":"ST-DIS-EV07-ET","target_id":"ST-PAT-GO-CODE-SL02"}
 {"source_id":"ST-DIS-EV08-ET","target_id":"ST-PAT-GO-CODE-SL02"}
 {"source_id":"ST-DIS-INV09-RL","target_id":"ST-PAT-GO-CODE-SL01"}
+{"source_id":"ST-DIS-INV10-RL","target_id":"ST-PAT-GO-CODE-SL01"}
+{"source_id":"ST-DIS-INV11-RL","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DIS-PO05-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DIS-PO06-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DIS-QRY01-H","target_id":"ST-PAT-GO-CODE-SL01"}
