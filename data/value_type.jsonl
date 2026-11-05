@@ -1,4 +1,4 @@
-{"id":"ST-VO01-VT","title":"compiler.validateSource","value_object_id":"ST-VO01","file":"internal/compiler/validate.go"}
+{"id":"ST-VO01-VT","title":"declaration.Validate","value_object_id":"ST-VO01","file":"internal/declaration/validate.go"}
 {"id":"ST-VO02-VT","title":"types.Stage","value_object_id":"ST-VO02","file":"internal/types/stage.go"}
 {"id":"ST-VO03-VT","title":"registry.Trust","value_object_id":"ST-VO03","file":"internal/registry/trust.go"}
 {"id":"ST-VO41-VT","title":"compiler.validDigest","value_object_id":"ST-VO41","file":"internal/compiler/input_manifest.go"}

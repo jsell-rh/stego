@@ -7,7 +7,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/jsell-rh/stego/internal/compiler"
+	"github.com/jsell-rh/stego/internal/appbuild"
 )
 
 func runDependencies(args []string) error {
@@ -24,7 +24,7 @@ func runDependencies(args []string) error {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
-	if err := compiler.ResolveDependencies(ctx, input); err != nil {
+	if err := appbuild.ResolveDependencies(ctx, input); err != nil {
 		return err
 	}
 	fmt.Println("Dependencies resolved. Commit go.mod and go.sum with the application changes.")

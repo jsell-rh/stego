@@ -10,9 +10,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/jsell-rh/stego/internal/declaration"
 	"github.com/jsell-rh/stego/internal/parser"
 	"github.com/jsell-rh/stego/internal/registry"
-	"github.com/jsell-rh/stego/internal/types"
 	"gopkg.in/yaml.v3"
 )
 
@@ -27,7 +27,8 @@ type InitResult struct {
 	Created []string
 }
 
-// Initialize uses the configured registry and publishes service.yaml last.
+// Initialize prepares a project for a new declaration (ST-GEN-CMD07). It uses the configured registry, writes the
+// declaration that declaration.Scaffold makes from the archetype's facts, and publishes service.yaml last.
 // Existing files are never replaced. A failed or interrupted attempt can leave
 // complete configuration files or empty directories, but no truncated output.
 func Initialize(opts InitOptions) (result *InitResult, err error) {
@@ -76,7 +77,7 @@ func Initialize(opts InitOptions) (result *InitResult, err error) {
 		return nil, fmt.Errorf("archetype %q not found in registry (available: %s)", opts.Archetype, strings.Join(available, ", "))
 	}
 	name := filepath.Base(project)
-	declaration, err := yaml.Marshal(types.ServiceDeclaration{Kind: "service", Name: name, Archetype: opts.Archetype, Language: arch.Language, Entities: []types.Entity{}, Collections: []types.Collection{}})
+	document, err := declaration.Scaffold(name, opts.Archetype, arch.Language)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +114,7 @@ func Initialize(opts InitOptions) (result *InitResult, err error) {
 		}
 		created = append(created, ".stego/config.yaml")
 	}
-	if err := createRootFile(root, "service.yaml", declaration); err != nil {
+	if err := createRootFile(root, "service.yaml", document); err != nil {
 		return nil, err
 	}
 	return &InitResult{Name: name, Created: append(created, "service.yaml")}, nil

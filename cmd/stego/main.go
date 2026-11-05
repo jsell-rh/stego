@@ -6,7 +6,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/jsell-rh/stego/internal/buildidentity"
 	"io"
 	"os"
 	"os/exec"
@@ -793,8 +792,5 @@ func runVersion(args []string, output io.Writer) error {
 	if len(args) != 1 || args[0] != "--json" {
 		return fmt.Errorf("usage: stego version [--json]")
 	}
-	return json.NewEncoder(output).Encode(struct {
-		Version string               `json:"version"`
-		Build   buildidentity.Record `json:"build"`
-	}{version, buildidentity.Current()})
+	return json.NewEncoder(output).Encode(currentIdentity(version))
 }

@@ -5,8 +5,10 @@ on:
   push:
     paths:
       - '.github/workflows/dependency-environment.yml'
-      - 'internal/compiler/dependencies.go'
-      - 'internal/compiler/dependency_environment_test.go'
+      - 'internal/appbuild/dependencies.go'
+      - 'internal/appbuild/dependencies_test.go'
+      - 'internal/compiler/transaction.go'
+      - 'internal/compiler/dependencies_test.go'
 
 permissions:
   contents: read
@@ -39,7 +41,7 @@ jobs:
           git rev-parse HEAD > "$RUNNER_TEMP/dependency-environment/source-commit"
           git archive HEAD | sha256sum > "$RUNNER_TEMP/dependency-environment/source-archive.sha256"
           go mod verify
-          go test -json -race -count=1 -mod=readonly -timeout=3m ./internal/compiler \
+          go test -json -race -count=1 -mod=readonly -timeout=3m ./internal/compiler ./internal/appbuild \
             -run '^Test(Dependency.*|ResolvedModuleCannotLowerComponentMinimum)$' \
             | tee "$RUNNER_TEMP/dependency-environment/tests.jsonl"
           python3 - "$RUNNER_TEMP/dependency-environment/tests.jsonl" <<'PYCHECK'

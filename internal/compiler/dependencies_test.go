@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/mod/modfile"
 )
@@ -166,7 +169,7 @@ func TestDependencyResolutionUsesLocalReplacementsAndPreservesThem(t *testing.T)
 		t.Setenv("GOWORK", filepath.Join(t.TempDir(), "missing.work"))
 		t.Setenv("GOFLAGS", "-mod=vendor")
 		for i := 0; i < 2; i++ {
-			if err := ResolveDependencies(context.Background(), input); err != nil {
+			if err := resolveWithModuleTools(context.Background(), input); err != nil {
 				t.Fatal(err)
 			}
 			plan, err := Reconcile(input)
@@ -204,7 +207,7 @@ func TestDependencyRecoveryCompletesBothModuleFiles(t *testing.T) {
 		if err := Recover(input.ProjectDir); err != nil {
 			t.Fatal(err)
 		}
-		if err := ResolveDependencies(context.Background(), input); err != nil {
+		if err := resolveWithModuleTools(context.Background(), input); err != nil {
 			t.Fatal(err)
 		}
 		state, err := LoadState(filepath.Join(input.ProjectDir, ".stego/state.yaml"))
@@ -222,7 +225,7 @@ func TestDependencyRecoveryCompletesBothModuleFiles(t *testing.T) {
 func TestDependencyResolutionRequiresAppliedCode(t *testing.T) {
 	t.Run("Resolution refuses a project that was never applied and names apply", func(t *testing.T) {
 		input := snapshotTestInput(t)
-		if err := ResolveDependencies(context.Background(), input); err == nil || !strings.Contains(err.Error(), "stego apply") {
+		if err := resolveWithModuleTools(context.Background(), input); err == nil || !strings.Contains(err.Error(), "stego apply") {
 			t.Fatalf("resolved unapplied code: %v", err)
 		}
 	})
@@ -307,4 +310,39 @@ func TestDependencyResolutionHoldsProjectLock(t *testing.T) {
 	if !checked {
 		t.Fatal("no dependency command ran")
 	}
+}
+
+// The module tools that Building's resolver (appbuild.ResolveDependencies) runs. The tests of Generating's
+// commit run the same tools through a runner of their own, so that a test can stop or change one command.
+type dependencyRunner func(context.Context, string, string, ...string) error
+
+var moduleToolCommands = [][]string{{"mod", "tidy"}, {"mod", "verify"}, {"list", "-mod=readonly", "-deps", "-test", "./..."}, {"mod", "tidy", "-diff"}}
+
+func resolveDependencies(ctx context.Context, input ReconcilerInput, run dependencyRunner, fault applyFault) error {
+	return commitResolvedModules(ctx, input, func(ctx context.Context, directory, modPath string) error {
+		for _, args := range moduleToolCommands {
+			if err := run(ctx, directory, modPath, args...); err != nil {
+				return err
+			}
+		}
+		return nil
+	}, fault)
+}
+
+func resolveWithModuleTools(ctx context.Context, input ReconcilerInput) error {
+	return resolveDependencies(ctx, input, runDependencyCommand, nil)
+}
+
+func runDependencyCommand(ctx context.Context, directory, modPath string, args ...string) error {
+	args = append(append([]string{}, args[:2]...), append([]string{"-modfile=" + modPath}, args[2:]...)...)
+	cmd := exec.CommandContext(ctx, "go", args...)
+	cmd.Dir = directory
+	cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS= ")
+	cmd.WaitDelay = time.Second
+	var output bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &output, &output
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("go %s failed: %w\n%s", strings.Join(args[:2], " "), err, output.String())
+	}
+	return nil
 }

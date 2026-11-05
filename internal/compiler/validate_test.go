@@ -667,7 +667,7 @@ collections:
 }
 
 func TestValidate_UnknownSlot(t *testing.T) {
-	t.Run("ST-DECL-INV10-T A binding to an undeclared slot is refused", func(t *testing.T) {
+	t.Run("ST-GEN-INV31-T A binding to a slot that no active component or bound mixin declares is refused", func(t *testing.T) {
 		projectDir, registryDir, _ := setupValidateProject(t)
 
 		writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
@@ -717,9 +717,10 @@ qualified_at: 2026-04-01
 }
 
 func TestValidate_SlotCollectionNotDefined(t *testing.T) {
-	projectDir, registryDir, _ := setupValidateProject(t)
+	t.Run("ST-DECL-INV35-T A binding to a collection the declaration does not declare is refused", func(t *testing.T) {
+		projectDir, registryDir, _ := setupValidateProject(t)
 
-	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+		writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
 name: test-service
 archetype: test-arch
 language: go
@@ -741,9 +742,9 @@ slots:
       - my-policy
 `)
 
-	fillDir := filepath.Join(projectDir, "fills", "my-policy")
-	mkdirAll(t, fillDir)
-	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+		fillDir := filepath.Join(projectDir, "fills", "my-policy")
+		mkdirAll(t, fillDir)
+		writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: my-policy
 implements: stub-api.before_create
 collection: gadgets
@@ -751,19 +752,20 @@ qualified_by: tester
 qualified_at: 2026-04-01
 `)
 
-	input := ReconcilerInput{
-		ReadFill:    readTestFill,
-		ProjectDir:  projectDir,
-		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
-		GoVersion:   "1.22",
-		ModuleName:  "github.com/test/svc",
-	}
-	result, err := Validate(input)
-	if err != nil {
-		t.Fatalf("Validate returned error: %v", err)
-	}
-	assertHasError(t, result, "slot", "gadgets")
+		input := ReconcilerInput{
+			ReadFill:    readTestFill,
+			ProjectDir:  projectDir,
+			RegistryDir: registryDir,
+			Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
+			GoVersion:   "1.22",
+			ModuleName:  "github.com/test/svc",
+		}
+		result, err := Validate(input)
+		if err != nil {
+			t.Fatalf("Validate returned error: %v", err)
+		}
+		assertHasError(t, result, "slot", "gadgets")
+	})
 }
 
 func TestValidate_MultipleErrors(t *testing.T) {
@@ -4310,7 +4312,7 @@ func (g *slotConsumingStub) ConsumedSlots() []string {
 // would wire the operator but never call it, so the bound fills would be
 // silent dead code.
 func TestValidate_UnconsumedSlotIsRejected(t *testing.T) {
-	t.Run("ST-DECL-INV11-T A binding to a slot no generator invokes is refused", func(t *testing.T) {
+	t.Run("ST-GEN-INV30-T A binding to a slot no generator invokes is refused", func(t *testing.T) {
 		projectDir, registryDir, _ := setupValidateProject(t)
 
 		fillDir := filepath.Join(projectDir, "fills", "probe")

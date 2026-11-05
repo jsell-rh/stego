@@ -8,8 +8,8 @@
 {"id":"ST-ASR-INV08-RL","title":"assure.namesEveryCause","invariant_id":"ST-ASR-INV08","file":"internal/assure/decision.go"}
 {"id":"ST-ASR-INV09-RL","title":"assure.releaseAttested","invariant_id":"ST-ASR-INV09","file":"internal/assure/release.go"}
 {"id":"ST-ASR-INV10-RL","title":"assure.reasonsInFixedOrder","invariant_id":"ST-ASR-INV10","file":"internal/assure/decision.go"}
-{"id":"ST-BLD-INV01-RL","title":"compiler.resolveDependencies","invariant_id":"ST-BLD-INV01","file":"internal/compiler/dependencies.go"}
-{"id":"ST-BLD-INV02-RL","title":"compiler.runDependencyCommand","invariant_id":"ST-BLD-INV02","file":"internal/compiler/dependencies.go"}
+{"id":"ST-BLD-INV01-RL","title":"appbuild.ResolveDependencies","invariant_id":"ST-BLD-INV01","file":"internal/appbuild/dependencies.go"}
+{"id":"ST-BLD-INV02-RL","title":"appbuild.runDependencyCommand","invariant_id":"ST-BLD-INV02","file":"internal/appbuild/dependencies.go"}
 {"id":"ST-BLD-INV03-RL","title":"appbuild.checkCachedModules","invariant_id":"ST-BLD-INV03","file":"internal/appbuild/download.go"}
 {"id":"ST-BLD-INV04-RL","title":"appbuild.offlineCache","invariant_id":"ST-BLD-INV04","file":"internal/appbuild/build.go"}
 {"id":"ST-BLD-INV06-RL","title":"appbuild.Build","invariant_id":"ST-BLD-INV06","file":"internal/appbuild/build.go"}
@@ -25,9 +25,9 @@
 {"id":"ST-DECL-INV02-RL","title":"parser.checkSchema","invariant_id":"ST-DECL-INV02","file":"internal/parser/strict.go"}
 {"id":"ST-DECL-INV03-RL","title":"parser.readNodeWithLimit","invariant_id":"ST-DECL-INV03","file":"internal/parser/strict.go"}
 {"id":"ST-DECL-INV04-RL","title":"parser.readNode","invariant_id":"ST-DECL-INV04","file":"internal/parser/strict.go"}
-{"id":"ST-DECL-INV12-RL","title":"compiler.validateComponentConfig","invariant_id":"ST-DECL-INV12","file":"internal/compiler/config.go"}
 {"id":"ST-DECL-INV33-RL","title":"types.ValidateLiveUnique","invariant_id":"ST-DECL-INV33","file":"internal/types/live_unique.go"}
 {"id":"ST-DECL-INV34-RL","title":"types.ValidateVersioned","invariant_id":"ST-DECL-INV34","file":"internal/types/versioned.go"}
+{"id":"ST-DECL-INV36-RL","title":"declaration.ValidateSettings","invariant_id":"ST-DECL-INV36","file":"internal/declaration/settings.go"}
 {"id":"ST-DIS-INV09-RL","title":"build","invariant_id":"ST-DIS-INV09","file":"scripts/check-compiler-artifact.py"}
 {"id":"ST-GEN-INV03-RL","title":"compiler.Plan.verifyRegistry","invariant_id":"ST-GEN-INV03","file":"internal/compiler/snapshot.go"}
 {"id":"ST-GEN-INV04-RL","title":"compiler.Plan.verifyRegistry","invariant_id":"ST-GEN-INV04","file":"internal/compiler/snapshot.go"}
@@ -38,3 +38,6 @@
 {"id":"ST-GEN-INV20-RL","title":"compiler.prepareComponents","invariant_id":"ST-GEN-INV20","file":"internal/compiler/preflight.go"}
 {"id":"ST-GEN-INV21-RL","title":"compiler.validateConstructorDependencies","invariant_id":"ST-GEN-INV21","file":"internal/compiler/constructor_dependencies.go"}
 {"id":"ST-GEN-INV29-RL","title":"compiler.lockProject","invariant_id":"ST-GEN-INV29","file":"internal/compiler/lock.go"}
+{"id":"ST-GEN-INV30-RL","title":"compiler.validateSlotConsumption","invariant_id":"ST-GEN-INV30","file":"internal/compiler/validate.go"}
+{"id":"ST-GEN-INV31-RL","title":"compiler.validateSlotNames","invariant_id":"ST-GEN-INV31","file":"internal/compiler/validate.go"}
+{"id":"ST-GEN-INV32-RL","title":"compiler.validateComponentConfig","invariant_id":"ST-GEN-INV32","file":"internal/compiler/config.go"}

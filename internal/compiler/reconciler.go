@@ -932,19 +932,6 @@ func validateSlotCollectionsDefined(slots []types.SlotDeclaration, collections [
 	return nil
 }
 
-// conventionOverrideKeys lists YAML override keys that correspond to archetype
-// convention fields rather than port binding overrides. These keys must be
-// excluded from port resolution and instead applied to the conventions struct.
-var conventionOverrideKeys = map[string]bool{
-	"cors": true,
-}
-
-// isConventionOverrideKey returns true if the given override key is a convention
-// override rather than a port binding override.
-func isConventionOverrideKey(key string) bool {
-	return conventionOverrideKeys[key]
-}
-
 // applyConventionOverrides returns a copy of the archetype conventions with any
 // service-level convention overrides applied. Currently supports:
 //   - cors: "disabled" → sets CORS to "" (suppresses CORS middleware generation)

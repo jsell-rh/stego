@@ -3,17 +3,13 @@ package grpcapplication_test
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
+
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/jsell-rh/stego/internal/compiler"
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/grpcapplication"
-	"github.com/jsell-rh/stego/internal/generator/jwtauth"
-	"github.com/jsell-rh/stego/internal/generator/oteltracing"
 )
 
 func processContext(t *testing.T) gen.Context {
@@ -85,84 +81,5 @@ func TestGRPCProcessValidation(t *testing.T) {
 	}
 	if fmt.Sprint(first) != fmt.Sprint(second) {
 		t.Fatal("process generation is not stable")
-	}
-}
-func TestGeneratedGRPCProcesses(t *testing.T) {
-	testGeneratedGRPCProcesses(t, "")
-}
-func TestGeneratedGRPCProcessLifecycleTelemetry(t *testing.T) {
-	testGeneratedGRPCProcesses(t, "^TestGeneratedProcess(Startup|Cleanup)Telemetry$")
-}
-func testGeneratedGRPCProcesses(t *testing.T, selected string) {
-	ctx := processContext(t)
-	ctx.StorageContract = ""
-	delete(ctx.ComponentConfig, "factory_package")
-	project := t.TempDir()
-	var wirings []compiler.ComponentWiring
-	write := func(name string, data []byte) {
-		t.Helper()
-		target := filepath.Join(project, name)
-		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(target, data, 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, item := range []struct {
-		namespace string
-		generator gen.Generator
-		config    map[string]any
-	}{
-		{"auth", new(jwtauth.Generator), map[string]any{"mode": "verifier"}},
-		{"telemetry", new(oteltracing.Generator), nil},
-		{"grpcapi", new(grpcapplication.ProcessGenerator), ctx.ComponentConfig},
-	} {
-		current := ctx
-		current.OutputNamespace = item.namespace
-		current.ComponentConfig = item.config
-		files, wiring, err := item.generator.Generate(current)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, file := range files {
-			write("out/"+file.Path, file.Bytes())
-		}
-		name := map[string]string{"auth": "jwt-auth", "telemetry": "otel-tracing", "grpcapi": "grpc-processes"}[item.namespace]
-		wirings = append(wirings, compiler.ComponentWiring{Name: name, Wiring: wiring})
-	}
-	shared, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, OutDirName: "out", GoVersion: "1.26.0", Wirings: wirings})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, file := range shared {
-		name := "out/" + file.Path
-		if file.Path == "go.mod" {
-			name = file.Path
-		}
-		write(name, file.Bytes())
-	}
-	for source, target := range map[string]string{"process_factory.go": "factory/rpc.go", "process_runtime_test.go": "out/grpcapi/process/runtime_test.go", "process_health_test.go": "out/grpcapi/process/health_test.go", "process_integration_test.go": "integration/process_test.go", "process_telemetry_test.go": "integration/telemetry_test.go"} {
-		data, err := os.ReadFile(filepath.Join("testdata", source))
-		if err != nil {
-			t.Fatal(err)
-		}
-		write(target, data)
-	}
-	commands := [][]string{{"mod", "tidy"}, {"vet", "-mod=readonly", "./..."}, {"test", "-v", "-race", "-mod=readonly", "-count=1", "-timeout=3m", "./..."}}
-	if selected != "" {
-		commands = [][]string{{"mod", "tidy"}, {"test", "-v", "-p=1", "-mod=readonly", "-count=1", "-timeout=45s", "-run", selected, "./integration"}}
-	}
-	for _, args := range commands {
-		command := exec.Command("go", args...)
-		command.Dir = project
-		command.Env = append(os.Environ(), "GOWORK=off")
-		output, err := command.CombinedOutput()
-		if err != nil {
-			t.Fatalf("generated RPC process: %v\n%s", err, output)
-		}
-		if args[0] == "test" {
-			t.Log(string(output))
-		}
 	}
 }

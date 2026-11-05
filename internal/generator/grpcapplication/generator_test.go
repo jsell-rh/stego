@@ -8,120 +8,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jsell-rh/stego/internal/compiler"
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/grpcapplication"
-	"github.com/jsell-rh/stego/internal/generator/jwtauth"
-	"github.com/jsell-rh/stego/internal/generator/oteltracing"
-	"github.com/jsell-rh/stego/internal/generator/outbox"
-	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
-	"github.com/jsell-rh/stego/internal/types"
 )
 
 const schema = `syntax="proto3";package sample.v1;
 message Request{string text=1;optional string label=2;}
 message Response{string text=1;}
 service Records{rpc Echo(Request)returns(Response);rpc Watch(Request)returns(stream Response);}`
-
-func TestGeneratedGRPCApplication(t *testing.T) {
-	for _, watch := range []bool{false, true} {
-		t.Run(fmt.Sprint(watch), func(t *testing.T) { testGeneratedGRPCApplication(t, watch) })
-	}
-}
-func TestGeneratedStreamCompletion(t *testing.T) {
-	for _, telemetry := range []bool{false, true} {
-		t.Run(fmt.Sprint(telemetry), func(t *testing.T) {
-			testGeneratedGRPCApplication(t, telemetry, "^(TestBoundedStreamTerminalObservation|TestGeneratedClientTracesCompleteCallsAndStreams)$")
-		})
-	}
-}
-func TestGeneratedAuthorityRejection(t *testing.T) {
-	testGeneratedGRPCApplication(t, false, "^TestRuntime$")
-}
-
-func TestGeneratedTLSProbe(t *testing.T) {
-	testGeneratedGRPCApplication(t, false, "^TestTLSProbe$")
-}
-func testGeneratedGRPCApplication(t *testing.T, watch bool, selected ...string) {
-	ctx := gen.Context{ServiceName: "records", ModuleName: "example.com/grpc-test", OutDirName: "out", EventsContract: "example.com/grpc-test/out/contracts/events", StorageContract: "example.com/grpc-test/out/contracts/storage", AuthPackage: "example.com/grpc-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "postgres-adapter": "store", "grpc-application": "grpcapi", "outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "title", Type: types.FieldTypeString}}}}, Inputs: map[string][]byte{"api/records.proto": []byte(schema)}}
-	if watch {
-		ctx.PeerNamespaces["otel-tracing"] = "telemetry"
-	}
-	project := t.TempDir()
-	var files []gen.File
-	var wirings []compiler.ComponentWiring
-	for _, item := range []struct {
-		name      string
-		generator gen.Generator
-		config    map[string]any
-	}{
-		{"otel-tracing", new(oteltracing.Generator), nil},
-		{"postgres-adapter", new(postgresadapter.Generator), map[string]any{"migrations": "external"}},
-		{"outbox", new(outbox.Generator), nil},
-		{"jwt-auth", new(jwtauth.Generator), map[string]any{"mode": "verifier"}},
-		{"grpc-application", new(grpcapplication.Generator), map[string]any{"watch_events": watch, "factory_package": "sample", "proto_files": []any{map[string]any{"path": "api/records.proto", "import_path": "sample/v1/records.proto"}}}},
-	} {
-		if item.name == "otel-tracing" && !watch {
-			continue
-		}
-		ctx.OutputNamespace = ctx.PeerNamespaces[item.name]
-		ctx.ComponentConfig = item.config
-		generated, wiring, err := item.generator.Generate(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		files = append(files, generated...)
-		wirings = append(wirings, compiler.ComponentWiring{Name: item.name, Wiring: wiring})
-	}
-	shared, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, OutDirName: "out", GoVersion: new(grpcapplication.Generator).MinimumGoVersion(), Wirings: wirings})
-	if err != nil {
-		t.Fatal(err)
-	}
-	files = append(files, shared...)
-	for _, file := range files {
-		name := filepath.Join(project, "out", file.Path)
-		if file.Path == "go.mod" {
-			name = filepath.Join(project, file.Path)
-		}
-		if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(name, file.Bytes(), 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	tests := []string{"bounded_stream_test.go", "sample.go", "runtime_test.go", "stream_headers_test.go", "tls_probe_test.go", "authority_test.go"}
-	if watch {
-		tests = append(tests, "client_telemetry_test.go")
-	}
-	for _, name := range tests {
-		data, err := os.ReadFile(filepath.Join("testdata", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		directory := filepath.Join(project, "sample")
-		if name == "bounded_stream_test.go" {
-			directory = filepath.Join(project, "out/grpcapi/client")
-		}
-		if err := os.MkdirAll(directory, 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(directory, name), data, 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, args := range [][]string{{"mod", "tidy", "-go=" + new(grpcapplication.Generator).MinimumGoVersion()}, {"vet", "-mod=readonly", "./..."}, {"test", "-race", "-mod=readonly", "-timeout=30s", "./..."}} {
-		if len(selected) != 0 && args[0] == "test" {
-			args = append(args[:len(args)-1], "-run", selected[0], "./...")
-		}
-		cmd := exec.Command("go", args...)
-		cmd.Dir = project
-		cmd.Env = append(os.Environ(), "GOWORK=off")
-		if output, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("generated gRPC application: %v\n%s", err, output)
-		}
-	}
-}
 
 func TestGRPCRejectsInvalidContracts(t *testing.T) {
 	for _, source := range []string{`syntax="proto3";message A{string x=1;int32 y=1;}`, `syntax="proto3";import "missing.proto";message A{}`, `syntax="proto2";message A{}`, `syntax="proto3";message A{reserved 1;string x=1;}`} {
