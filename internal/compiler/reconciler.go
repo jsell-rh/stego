@@ -254,7 +254,11 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		return nil, err
 	}
 	// Compute plan by comparing generated files against existing state.
-	plan, err := computePlan(allFiles, existingState, serviceData, svcDecl.Entities, components, outDir, input.ProjectDir, input.RegistrySHA, reg.ContentHash(), manifest)
+	pins, err := componentPins(components, reg)
+	if err != nil {
+		return nil, err
+	}
+	plan, err := computePlan(allFiles, existingState, serviceData, svcDecl.Name, svcDecl.Entities, pins, outDir, input.ProjectDir, input.RegistrySHA, reg.ContentHash(), manifest)
 	if err != nil {
 		return nil, err
 	}
@@ -576,14 +580,30 @@ func generateSlotFiles(slotsPackage string, components map[string]*registry.Comp
 	return files, nil
 }
 
+// componentPins gives each component of the active set with its version and
+// its component digest, from the registry inputs that the run captured.
+func componentPins(components map[string]*registry.Component, reg *registry.Registry) (map[string]ComponentState, error) {
+	files := reg.InputFiles()
+	pins := make(map[string]ComponentState, len(components))
+	for name, component := range components {
+		digest, err := ComponentDigest(files, name)
+		if err != nil {
+			return nil, err
+		}
+		pins[name] = ComponentState{Version: component.Version, SHA: digest}
+	}
+	return pins, nil
+}
+
 // computePlan compares generated files against existing state to determine
 // which files need to be written and what entity changes occurred.
 func computePlan(
 	generatedFiles []gen.File,
 	existingState *State,
 	serviceData []byte,
+	serviceName string,
 	entities []types.Entity,
-	components map[string]*registry.Component,
+	pins map[string]ComponentState,
 	outDir string,
 	projectDir string,
 	registrySHA string,
@@ -677,13 +697,6 @@ func computePlan(
 		entitySnapshot[e.Name] = fields
 	}
 
-	compState := make(map[string]ComponentState)
-	for name, comp := range components {
-		compState[name] = ComponentState{
-			Version: comp.Version,
-			SHA:     registrySHA,
-		}
-	}
 
 	compilerBuild := buildidentity.Current()
 	newState := &State{
@@ -691,10 +704,11 @@ func computePlan(
 		LastApplied: &AppliedState{
 			Inputs:                manifest,
 			CompilerBuild:         &compilerBuild,
+			ServiceName:           serviceName,
 			ServiceHash:           serviceHash,
 			RegistrySHA:           registrySHA,
 			RegistryContentSHA256: registryContentHash,
-			Components:            compState,
+			Components:            pins,
 			Entities:              entitySnapshot,
 			Files:                 newFileHashes,
 		},
