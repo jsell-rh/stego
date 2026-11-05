@@ -92,6 +92,8 @@ func main() {
 		err = runFill(os.Args[2:])
 	case "registry":
 		err = runRegistry(os.Args[2:])
+	case "lifecycle":
+		err = runLifecycle(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
 		printUsage()
@@ -132,6 +134,8 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  registry search     Query components by provides/requires/slots")
 	fmt.Fprintln(os.Stderr, "  registry inspect    Show component details")
 	fmt.Fprintln(os.Stderr, "  registry fills      Find existing fills for a slot")
+	fmt.Fprintln(os.Stderr, "  lifecycle supersede Record the successor of a digest, with its fail date")
+	fmt.Fprintln(os.Stderr, "  lifecycle withdraw  Record that a digest must not be used, with its fail date")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Other:")
 	fmt.Fprintln(os.Stderr, "  version         Print version")
