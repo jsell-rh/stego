@@ -51,7 +51,7 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 
 	// Validate archetype exists.
 	archetype := reg.Archetype(svcDecl.Archetype)
-	if archetype == nil {
+	if archetype == nil && svcDecl.Archetype != "" {
 		result.Errors = append(result.Errors, ValidationError{
 			Category: "archetype", Rule: "archetype", Path: "archetype", Found: svcDecl.Archetype, Allowed: archetypeNames(reg),
 			Message: fmt.Sprintf("archetype %q not found in registry", svcDecl.Archetype),
