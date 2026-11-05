@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 
 	"github.com/jsell-rh/stego/internal/declaration"
 	"github.com/jsell-rh/stego/internal/gen"
@@ -68,57 +69,9 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 	var components map[string]*registry.Component
 	var baselineNames []string
 	if archetype != nil {
-		names, err := collectComponentNames(archetype, svcDecl, reg)
-		baselineNames = names
-		if err != nil {
-			result.Errors = append(result.Errors, ValidationError{
-				Category: "component", Rule: "component", Path: "mixins",
-				Message: err.Error(),
-			})
-		} else {
-			// Look up baseline components.
-			baselineComponents := make(map[string]*registry.Component)
-			allFound := true
-			for _, name := range baselineNames {
-				comp := reg.Component(name)
-				if comp == nil {
-					result.Errors = append(result.Errors, ValidationError{
-						Category: "component", Rule: "component", Path: "archetype", Found: name,
-						Message: fmt.Sprintf("component %q not found in registry (referenced by archetype %q)", name, archetype.Name),
-					})
-					allFound = false
-				} else {
-					baselineComponents[name] = comp
-				}
-			}
-
-			// Validate port resolution (only if we resolved all baseline components).
-			if allFound {
-				servicePortOverrides := make(map[string]string)
-				for key, val := range svcDecl.Overrides {
-					if strVal, ok := val.(string); ok {
-						if declaration.IsConventionOverrideKey(key) {
-							continue
-						}
-						servicePortOverrides[key] = strVal
-					}
-				}
-				resolution, portErr := ports.Resolve(ports.ResolveInput{
-					Components:        baselineComponents,
-					ArchetypeBindings: archetype.Bindings,
-					ServiceOverrides:  servicePortOverrides,
-					ComponentLoader:   reg.Component,
-				})
-				if portErr != nil {
-					result.Errors = append(result.Errors, ValidationError{
-						Category: "port", Rule: "port-binding", Path: "overrides",
-						Message: portErr.Error(),
-					})
-				} else {
-					components = resolution.ActiveComponents
-				}
-			}
-		}
+		var faults []ValidationError
+		baselineNames, components, faults = activeSet(archetype, svcDecl, reg)
+		result.Errors = append(result.Errors, faults...)
 	}
 
 	own := declaration.Validate(svcDecl, source.Undeclared...)
@@ -407,4 +360,76 @@ func fillReference(slots []types.SlotDeclaration, name string) string {
 		}
 	}
 	return "slots"
+}
+
+// activeSet resolves the active component set of a declaration, as checking and generation read it: the archetype's
+// components, its default auth and the declared mixins' components, with the archetype's port bindings and the
+// declaration's port overrides. It gives the baseline names, and the active set when every component is found and
+// the ports resolve; else the faults.
+func activeSet(archetype *registry.Archetype, svcDecl *types.ServiceDeclaration, reg *registry.Registry) ([]string, map[string]*registry.Component, []ValidationError) {
+	var faults []ValidationError
+	baselineNames, err := collectComponentNames(archetype, svcDecl, reg)
+	if err != nil {
+		return baselineNames, nil, []ValidationError{{
+			Category: "component", Rule: "component", Path: "mixins",
+			Message: err.Error(),
+		}}
+	}
+	baselineComponents := make(map[string]*registry.Component)
+	for _, name := range baselineNames {
+		comp := reg.Component(name)
+		if comp == nil {
+			faults = append(faults, ValidationError{
+				Category: "component", Rule: "component", Path: "archetype", Found: name,
+				Message: fmt.Sprintf("component %q not found in registry (referenced by archetype %q)", name, archetype.Name),
+			})
+			continue
+		}
+		baselineComponents[name] = comp
+	}
+	// Port resolution needs every baseline component.
+	if len(faults) > 0 {
+		return baselineNames, nil, faults
+	}
+	servicePortOverrides := make(map[string]string)
+	for key, val := range svcDecl.Overrides {
+		if strVal, ok := val.(string); ok {
+			if declaration.IsConventionOverrideKey(key) {
+				continue
+			}
+			servicePortOverrides[key] = strVal
+		}
+	}
+	resolution, portErr := ports.Resolve(ports.ResolveInput{
+		Components:        baselineComponents,
+		ArchetypeBindings: archetype.Bindings,
+		ServiceOverrides:  servicePortOverrides,
+		ComponentLoader:   reg.Component,
+	})
+	if portErr != nil {
+		return baselineNames, nil, []ValidationError{{
+			Category: "port", Rule: "port-binding", Path: "overrides",
+			Message: portErr.Error(),
+		}}
+	}
+	return baselineNames, resolution.ActiveComponents, nil
+}
+
+// ActiveComponents gives the active component set of an archetype for a declaration that adds nothing to it: the
+// set whose settings and slots checking reads, so that the report of what may be declared (ST-SUP-QRY01) and
+// checking cannot disagree. It refuses an archetype the registry does not hold, naming the archetypes it holds.
+func ActiveComponents(reg *registry.Registry, archetypeName string) (map[string]*registry.Component, error) {
+	archetype := reg.Archetype(archetypeName)
+	if archetype == nil {
+		return nil, fmt.Errorf("archetype %q not found in registry (available: %s)", archetypeName, strings.Join(archetypeNames(reg), ", "))
+	}
+	_, components, faults := activeSet(archetype, &types.ServiceDeclaration{Kind: "service", Archetype: archetypeName, Language: archetype.Language}, reg)
+	if len(faults) > 0 {
+		var messages []string
+		for _, fault := range faults {
+			messages = append(messages, fault.Message)
+		}
+		return nil, fmt.Errorf("archetype %q has no active component set: %s", archetypeName, strings.Join(messages, "; "))
+	}
+	return components, nil
 }

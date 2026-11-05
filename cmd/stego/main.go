@@ -608,13 +608,17 @@ func runRegistrySearch(args []string) error {
 // runRegistryInspect implements `stego registry inspect <component>`.
 func runRegistryInspect(args []string) error {
 	fs := flag.NewFlagSet("registry inspect", flag.ContinueOnError)
+	archetype := fs.String("archetype", "", "report every input a declaration may give the archetype's active component set")
+	structured := fs.Bool("json", false, "print the report as one JSON document")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if fs.NArg() < 1 {
+	if *archetype != "" && fs.NArg() != 0 {
+		return fmt.Errorf("give a component name or --archetype, not both")
+	}
+	if *archetype == "" && fs.NArg() < 1 {
 		return fmt.Errorf("component name is required")
 	}
-	compName := fs.Arg(0)
 
 	projectDir, err := os.Getwd()
 	if err != nil {
@@ -629,6 +633,10 @@ func runRegistryInspect(args []string) error {
 	if err != nil {
 		return err
 	}
+	if *archetype != "" {
+		return reportDeclarableInputs(reg, *archetype, *structured)
+	}
+	compName := fs.Arg(0)
 
 	comp := reg.Component(compName)
 	if comp == nil {
@@ -668,6 +676,38 @@ func runRegistryInspect(args []string) error {
 		}
 	}
 	return nil
+}
+
+// reportDeclarableInputs prints what may be declared for an archetype (ST-SUP-QRY01): every component of its
+// active component set as checking reads it, each setting with its type, allowed values, default and whether it is
+// optional, and each slot with its contract. With structured it prints only one JSON document.
+func reportDeclarableInputs(reg *registry.Registry, archetype string, structured bool) error {
+	components, err := compiler.ActiveComponents(reg, archetype)
+	if err != nil {
+		return err
+	}
+	inputs := registry.NewInputsReader(archetype, components)
+	if structured {
+		document, err := inputs.JSON()
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(document))
+		return nil
+	}
+	writer := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(writer, "COMPONENT\tVERSION\tSETTING\tTYPE\tALLOWED\tOPTIONAL\tDEFAULT\tSLOT\tCONTRACT")
+	for _, row := range inputs.Rows() {
+		optional, value := "", ""
+		if row.Optional != nil {
+			optional = fmt.Sprint(*row.Optional)
+		}
+		if row.Default != nil {
+			value = fmt.Sprint(row.Default)
+		}
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", row.Component, row.ComponentVersion, row.Setting, row.SettingType, strings.Join(row.AllowedValues, ","), optional, value, row.Slot, row.SlotContract)
+	}
+	return writer.Flush()
 }
 
 // runRegistryFills implements `stego registry fills --slot <s>`.
