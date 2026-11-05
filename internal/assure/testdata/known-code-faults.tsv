@@ -244,7 +244,6 @@ ST-STD-CODE-R04	scripts/test_compiler_toolchain.py	scripts/test_compiler_toolcha
 ST-STD-CODE-R04	scripts/test_compiler_verification.py	scripts/test_compiler_verification.py	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	scripts/test_isolated_allocation.py	scripts/test_isolated_allocation.py	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	scripts/test_network_metadata.py	scripts/test_network_metadata.py	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R05	cmd/stego/scaffold.go	cmd/stego/scaffold.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/gen/contracts.go	internal/gen/contracts.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/gen/go_models.go	internal/gen/go_models.go	no technical record names the file, directly or through a folder
 ST-STD-CODE-R05	internal/gen/go_namespace.go	internal/gen/go_namespace.go	no technical record names the file, directly or through a folder

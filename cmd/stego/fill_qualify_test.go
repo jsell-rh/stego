@@ -172,6 +172,8 @@ type fillProject struct {
 	// registry is the active registry of the project, when it is not the
 	// built-in one.
 	registry string
+	// declarationExtra is added to the declaration that bind writes.
+	declarationExtra string
 }
 
 // stego runs the stego binary in the project as the holder of the key, and
@@ -236,7 +238,7 @@ type slotBinding struct{ fill, slot, collection string }
 // bind writes the declaration with the bindings, each in a gate.
 func (p *fillProject) bind(t *testing.T, bindings ...slotBinding) {
 	t.Helper()
-	service := fillBaseService
+	service := fillBaseService + p.declarationExtra
 	if len(bindings) > 0 {
 		service += "slots:\n"
 		for _, b := range bindings {

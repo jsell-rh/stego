@@ -68,7 +68,7 @@ func TestFillWorkflowBuild(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		service := `kind: service
+		declaration := `kind: service
 name: fill-workflow
 archetype: rest-crud
 language: go
@@ -80,12 +80,15 @@ collections:
   widgets:
     entity: Widget
     operations: [create, read]
-slots:
+`
+		binding := `slots:
   - collection: widgets
     slot: before_create
     gate: [policy]
 `
-		if err := os.WriteFile("service.yaml", []byte(service), 0644); err != nil {
+		// The first apply, with no fill bound, writes the slot contracts that
+		// the fill compiles against.
+		if err := os.WriteFile("service.yaml", []byte(declaration), 0644); err != nil {
 			t.Fatal(err)
 		}
 		if err := runApply(nil); err != nil {
@@ -110,6 +113,31 @@ func TestScaffoldDeniesUnimplementedPolicy(t *testing.T) {
 			t.Fatal(err)
 		}
 		if err := runDependencies(nil); err != nil {
+			t.Fatal(err)
+		}
+		// stego test records the fill's evidence, and the service author signs
+		// it with a test key that SIGNERS lists, so that apply accepts the
+		// bound fill.
+		if err := runTest(nil); err != nil {
+			t.Fatal(err)
+		}
+		keys := testFillKeys(t)
+		if err := os.WriteFile(fill.SignersFile, []byte(keys.signers), 0644); err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range keys.goEnv {
+			name, value, _ := strings.Cut(entry, "=")
+			t.Setenv(name, value)
+		}
+		t.Setenv("HOME", keys.homes["listed-ssh"])
+		t.Setenv("XDG_CONFIG_HOME", filepath.Join(keys.homes["listed-ssh"], ".config"))
+		if err := runFillSign([]string{"policy"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile("service.yaml", []byte(declaration+binding), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := runApply(nil); err != nil {
 			t.Fatal(err)
 		}
 		for _, args := range [][]string{{"test", "-mod=readonly", "./..."}, {"build", "-mod=readonly", "-o", filepath.Join(t.TempDir(), "service"), "./out"}} {

@@ -266,6 +266,7 @@ type ServiceDeclaration struct {
 	Slots               []SlotDeclaration `yaml:"slots"`
 	Mixins              []string          `yaml:"mixins,omitempty"`
 	Overrides           map[string]any    `yaml:"overrides,omitempty"`
+	FillModules         []FillModule      `yaml:"fill_modules,omitempty"`
 }
 
 // UnmarshalYAML implements custom YAML unmarshaling for ServiceDeclaration.
@@ -405,6 +406,18 @@ func (sd ServiceDeclaration) MarshalYAML() (any, error) {
 		m.Content = append(m.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "slots"},
 			sNode.Content[0],
+		)
+	}
+
+	// Fill modules.
+	if len(sd.FillModules) > 0 {
+		fNode := &yaml.Node{}
+		if err := fNode.Encode(sd.FillModules); err != nil {
+			return nil, err
+		}
+		m.Content = append(m.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "fill_modules"},
+			fNode,
 		)
 	}
 
