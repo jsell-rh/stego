@@ -4,25 +4,10 @@ package slots
 
 import "context"
 
-// Identity is generated from proto message Identity.
-type Identity struct {
-	UserID     string
-	Role       string
-	Attributes map[string]string
-}
-
 // CreateRequest is generated from proto message CreateRequest.
 type CreateRequest struct {
 	Entity string
 	Fields map[string]string
-}
-
-// SlotResult is generated from proto message SlotResult.
-type SlotResult struct {
-	Ok           bool
-	ErrorMessage string
-	Halt         bool
-	StatusCode   int32
 }
 
 // BeforeCreateRequest is generated from proto message BeforeCreateRequest.

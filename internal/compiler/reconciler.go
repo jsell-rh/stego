@@ -134,6 +134,39 @@ type ReconcilerInput struct {
 	ReadFill FillReader
 }
 
+// FillSlot is one slot of the active component set, or of a mixin of the
+// declaration, with the path of its contract in the registry.
+type FillSlot struct {
+	Ref      types.SlotRef
+	Contract string
+}
+
+// FillBinding is one fill that a slot binding names, with the slot and the
+// collection of the binding.
+type FillBinding struct {
+	Fill       string
+	Slot       string
+	Collection string
+}
+
+// FillContracts reads a slot contract and the files it imports from the
+// active registry.
+type FillContracts interface {
+	ReadFile(name string) ([]byte, error)
+	ReadProtoImport(name string) ([]byte, error)
+}
+
+// FillCheck is what a check of the fills needs from the declaration and the
+// active registry: each active slot with its contract, each fill that a slot
+// binding names, the declared collections, and the registry's contracts.
+type FillCheck struct {
+	ProjectDir  string
+	Slots       []FillSlot
+	Bindings    []FillBinding
+	Collections []string
+	Contracts   FillContracts
+}
+
 // FillReader reads the fill manifest (fill.yaml) at path and gives the
 // collection the fill serves. The compiler owns this port and Extending's
 // fill package implements it, because Generating and Declaring may not import
@@ -459,16 +492,30 @@ func resolveComponentConfig(comp *registry.Component, svcDecl *types.ServiceDecl
 // generateSlotFiles generates Go interface and operator files for all slots
 // used by the service declaration.
 func generateSlotFiles(slotsPackage string, components map[string]*registry.Component, svcDecl *types.ServiceDeclaration, reg *registry.Registry) ([]gen.File, error) {
-	if slotsPackage == "" || len(svcDecl.Slots) == 0 {
+	if slotsPackage == "" {
 		return nil, nil
 	}
 
 	pkgName := filepath.Base(slotsPackage)
 
-	// Collect unique slot names from bindings.
+	// The package holds the contract of every slot of the active component
+	// set and of the declaration's mixins, bound or not, so that a fill of any
+	// of them compiles before it is bound (ST-EXT-INV05).
 	slotNames := make(map[string]bool)
 	for _, sb := range svcDecl.Slots {
 		slotNames[sb.Slot] = true
+	}
+	for _, comp := range components {
+		for _, sd := range comp.Slots {
+			slotNames[sd.Name] = true
+		}
+	}
+	for _, mixinName := range svcDecl.Mixins {
+		if mixin := reg.Mixin(mixinName); mixin != nil {
+			for _, sd := range mixin.AddsSlots {
+				slotNames[sd.Name] = true
+			}
+		}
 	}
 
 	// Find the slot definitions and their owning components or mixins.

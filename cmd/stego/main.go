@@ -15,6 +15,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/jsell-rh/stego/internal/buildidentity"
 	"github.com/jsell-rh/stego/internal/compiler"
 	"github.com/jsell-rh/stego/internal/declaration"
 	"github.com/jsell-rh/stego/internal/fill"
@@ -127,7 +128,9 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Validation:")
 	fmt.Fprintln(os.Stderr, "  validate        Check service.yaml against registry")
-	fmt.Fprintln(os.Stderr, "  test            Run all fill tests")
+	fmt.Fprintln(os.Stderr, "  test            Run all fill tests and record their evidence")
+	fmt.Fprintln(os.Stderr, "  fill sign       Sign a fill's evidence with your key")
+	fmt.Fprintln(os.Stderr, "  fill status     Show the qualification of each bound fill")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Registry:")
 	fmt.Fprintln(os.Stderr, "  registry search     Query components by provides/requires/slots")
@@ -176,16 +179,24 @@ func runFill(args []string) error {
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Subcommands:")
 		fmt.Fprintln(os.Stderr, "  create    Scaffold a new fill with generated interface")
+		fmt.Fprintln(os.Stderr, "  sign      Sign a fill's test evidence with your key")
+		fmt.Fprintln(os.Stderr, "  status    Show the qualification of each bound fill")
 		return fmt.Errorf("fill subcommand required")
 	}
 	switch args[0] {
 	case "create":
 		return runFillCreate(args[1:])
+	case "sign":
+		return runFillSign(args[1:])
+	case "status":
+		return runFillStatus(args[1:])
 	case "--help", "-h":
 		fmt.Fprintln(os.Stderr, "Usage: stego fill <subcommand>")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Subcommands:")
 		fmt.Fprintln(os.Stderr, "  create    Scaffold a new fill with generated interface")
+		fmt.Fprintln(os.Stderr, "  sign      Sign a fill's test evidence with your key")
+		fmt.Fprintln(os.Stderr, "  status    Show the qualification of each bound fill")
 		return nil
 	default:
 		return fmt.Errorf("unknown fill subcommand: %s", args[0])
@@ -335,7 +346,7 @@ func runFillCreate(args []string) error {
 	}
 	fmt.Printf("Created fill %q for slot %q\n", fillName, *slotName)
 	fmt.Printf("  fills/%s/fill.yaml\n  fills/%s/fill.go\n", fillName, fillName)
-	fmt.Println("Bind the fill in service.yaml, then run stego apply to create its slot contracts.")
+	fmt.Println("Run stego apply to create the slot contracts, write the fill's tests, run stego test to record its evidence and stego fill sign to sign it, then bind the fill in service.yaml.")
 	fmt.Println("Implement the fill methods before use. Unfinished methods return an error.")
 	return nil
 }
@@ -492,24 +503,56 @@ func runDrift(args []string) error {
 	return nil
 }
 
-// runTest implements `stego test` by delegating to `go test ./fills/...`.
+// runTest implements `stego test` (ST-EXT-CMD02): it runs the tests of each
+// fill and records the evidence of each fill whose tests pass in its fill
+// manifest. Arguments after -- go to go test. It names each fill for which
+// it records no evidence, and why, and exits non-zero when a test fails.
 func runTest(args []string) error {
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-
-	goArgs := []string{"test", "./fills/..."}
-	// Pass any remaining args through to go test.
-	goArgs = append(goArgs, fs.Args()...)
-
-	cmd := exec.Command("go", goArgs...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("go test failed: %w", err)
+	testArgs := fs.Args()
+	input, err := buildReconcilerInput()
+	if err != nil {
+		return err
+	}
+	check, err := compiler.ResolveFillCheck(input)
+	if err != nil {
+		return err
+	}
+	run := func(dir string) error {
+		relative, err := filepath.Rel(input.ProjectDir, dir)
+		if err != nil {
+			return err
+		}
+		goArgs := append([]string{"test", "./" + filepath.ToSlash(relative) + "/..."}, testArgs...)
+		cmd := exec.Command("go", goArgs...)
+		cmd.Dir = input.ProjectDir
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+	results, err := fill.RecordEvidence(check, run, buildidentity.Current(), time.Now)
+	if err != nil {
+		return err
+	}
+	var failed []string
+	for _, result := range results {
+		switch {
+		case result.Kept:
+			fmt.Printf("fill %s: tests passed; its evidence is current and stays as it is\n", result.Fill)
+		case result.Passed != nil:
+			fmt.Printf("fill %s: tests passed; evidence recorded (fill digest %s, contract digest %s)\n", result.Fill, result.Passed.FillDigest, result.Passed.ContractDigest)
+		default:
+			fmt.Printf("fill %s: no evidence recorded: %s\n", result.Fill, result.Reason)
+		}
+		if result.Failed {
+			failed = append(failed, result.Fill)
+		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("the tests of %d fill(s) failed: %s", len(failed), strings.Join(failed, ", "))
 	}
 	return nil
 }
@@ -779,11 +822,7 @@ func runRegistryFills(args []string) error {
 				fmt.Printf("Fills implementing slot %q:\n", *slotName)
 				found = true
 			}
-			qualifiedInfo := ""
-			if manifest.QualifiedBy != "" {
-				qualifiedInfo = fmt.Sprintf(" (qualified by %s at %s)", manifest.QualifiedBy, manifest.QualifiedAt.Format(time.DateOnly))
-			}
-			fmt.Printf("  %s%s\n", manifest.Name, qualifiedInfo)
+			fmt.Printf("  %s (%s)\n", manifest.Name, manifest.Collection)
 		}
 	}
 
