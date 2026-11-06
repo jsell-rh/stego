@@ -20,7 +20,7 @@ var _ statecontract.ResourceStateKeyReader = (*Store)(nil)
 var _ statecontract.ResourceStateStore = (*Store)(nil)
 
 func init() {
-	Register("009_resource_state", func(db *gorm.DB) error {
+	Register("009_resource_state", "236507097175d2be1b910608ecee48a7b8e204e0a508519d0198a7eec82d8f34", func(db *gorm.DB) error {
 		for _, statement := range []string{"CREATE TABLE IF NOT EXISTS stego_resource_state (\n entity text COLLATE \"C\" NOT NULL,\n resource_id text COLLATE \"C\" NOT NULL,\n scope text COLLATE \"C\" NOT NULL,\n data bytea NOT NULL,\n version bigint NOT NULL,\n PRIMARY KEY(entity,resource_id,scope),\n CHECK(octet_length(entity) BETWEEN 1 AND 256),\n CHECK(octet_length(resource_id) BETWEEN 1 AND 256),\n CHECK(octet_length(scope) BETWEEN 1 AND 128),\n CHECK(octet_length(data) <= 65536),\n CHECK(version > 0)\n);", "CREATE OR REPLACE FUNCTION stego_guard_resource_state() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $guard$\nBEGIN\n IF TG_OP = 'DELETE' THEN\n  RAISE EXCEPTION 'resource state history cannot be removed' USING ERRCODE = '23514';\n END IF;\n IF NEW.entity IS DISTINCT FROM OLD.entity OR NEW.resource_id IS DISTINCT FROM OLD.resource_id\n    OR NEW.scope IS DISTINCT FROM OLD.scope OR OLD.version = 9223372036854775807\n    OR NEW.version IS DISTINCT FROM OLD.version + 1 THEN\n  RAISE EXCEPTION 'resource state identity or version differs' USING ERRCODE = '23514';\n END IF;\n RETURN NEW;\nEND;\n$guard$;", "DROP TRIGGER IF EXISTS stego_resource_state_guard ON stego_resource_state;", "CREATE TRIGGER stego_resource_state_guard BEFORE UPDATE OR DELETE ON stego_resource_state FOR EACH ROW EXECUTE FUNCTION stego_guard_resource_state();"} {
 			if err := db.Exec(statement).Error; err != nil {
 				return err
@@ -31,7 +31,7 @@ func init() {
 }
 
 func init() {
-	Register("010_resource_state_keys", func(db *gorm.DB) error {
+	Register("010_resource_state_keys", "0338445e7c7556ab86ea51c67ef3cb09f69dc1e69769aafe719ed395377d2f08", func(db *gorm.DB) error {
 		return db.Transaction(func(tx *gorm.DB) error {
 			for _, statement := range []string{"SET LOCAL lock_timeout='5000'", "SET LOCAL statement_timeout='25000'", ResourceStateKeysMigration} {
 				if err := tx.Exec(statement).Error; err != nil {

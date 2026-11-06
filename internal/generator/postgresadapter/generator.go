@@ -7,11 +7,16 @@ package postgresadapter
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"go/ast"
 	"go/format"
+	"go/parser"
+	"go/token"
 	"math"
 	"path"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -367,6 +372,9 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		}
 	}
 
+	if err := sealMigrations(ctx.OutputNamespace, files); err != nil {
+		return nil, nil, err
+	}
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
 	}
@@ -1519,7 +1527,7 @@ func generateMigrate(ns string, entities []types.Entity, guarded bool) (gen.File
 	fmt.Fprintf(&buf, "type MigrationFunc func(db *gorm.DB) error\n\n")
 
 	fmt.Fprintf(&buf, "// Migration represents a named database migration. The digest covers the\n")
-	fmt.Fprintf(&buf, "// migration identity; an edited migration changes the digest and is rejected.\n")
+	fmt.Fprintf(&buf, "// migration body; an edited migration changes the digest and is rejected.\n")
 	fmt.Fprintf(&buf, "type Migration struct {\n")
 	fmt.Fprintf(&buf, "\tName string\n")
 	fmt.Fprintf(&buf, "\tDigest string\n")
@@ -1529,16 +1537,19 @@ func generateMigrate(ns string, entities []types.Entity, guarded bool) (gen.File
 	fmt.Fprintf(&buf, "var migrations []Migration\n\n")
 
 	fmt.Fprintf(&buf, "// Digest computes the ledger digest of a migration body. The body is the\n")
-	fmt.Fprintf(&buf, "// SQL text for SQL migrations; function migrations use the registered name.\n")
+	fmt.Fprintf(&buf, "// SQL text of a SQL migration and the generated source text of a function\n")
+	fmt.Fprintf(&buf, "// migration.\n")
 	fmt.Fprintf(&buf, "func Digest(body string) string {\n")
 	fmt.Fprintf(&buf, "\tsum := sha256.Sum256([]byte(body))\n")
 	fmt.Fprintf(&buf, "\treturn hex.EncodeToString(sum[:])\n")
 	fmt.Fprintf(&buf, "}\n\n")
 
-	fmt.Fprintf(&buf, "// Register adds a function migration to the ordered migration list.\n")
-	fmt.Fprintf(&buf, "// Migration names must sort in apply order; use zero-padded number prefixes.\n")
-	fmt.Fprintf(&buf, "func Register(name string, fn MigrationFunc) {\n")
-	fmt.Fprintf(&buf, "\tmigrations = append(migrations, Migration{Name: name, Digest: Digest(name), Func: fn})\n")
+	fmt.Fprintf(&buf, "// Register adds a function migration to the ordered migration list. The\n")
+	fmt.Fprintf(&buf, "// digest is Digest of the migration's source text; STEGO computes it for\n")
+	fmt.Fprintf(&buf, "// each migration it generates. Migration names must sort in apply order;\n")
+	fmt.Fprintf(&buf, "// use zero-padded number prefixes.\n")
+	fmt.Fprintf(&buf, "func Register(name, digest string, fn MigrationFunc) {\n")
+	fmt.Fprintf(&buf, "\tmigrations = append(migrations, Migration{Name: name, Digest: digest, Func: fn})\n")
 	fmt.Fprintf(&buf, "}\n\n")
 
 	fmt.Fprintf(&buf, "// RegisterSQL adds a SQL migration to the ordered migration list. The\n")
@@ -1597,6 +1608,7 @@ func generateMigrate(ns string, entities []types.Entity, guarded bool) (gen.File
 		fmt.Fprintf(&buf, "\treturn db.Transaction(func(tx *gorm.DB) error {\n")
 		fmt.Fprintf(&buf, "\t\tapplied, err := appliedMigrations(tx)\n")
 		fmt.Fprintf(&buf, "\t\tif err != nil {return err}\n")
+		fmt.Fprintf(&buf, "\t\tif err := upgradeLedger(tx, ordered, applied); err != nil {return err}\n")
 		fmt.Fprintf(&buf, "\t\tif err := checkLedger(applied, ordered); err != nil {return err}\n")
 		fmt.Fprintf(&buf, "\t\tif len(applied) < len(ordered) {return ErrMigrationLedger}\n")
 		fmt.Fprintf(&buf, "\t\tif len(applied) > 0 && name <= applied[len(applied)-1].Name {return ErrMigrationLedger}\n")
@@ -1638,9 +1650,43 @@ func generateMigrate(ns string, entities []types.Entity, guarded bool) (gen.File
 		fmt.Fprintf(&buf, "\treturn nil\n")
 		fmt.Fprintf(&buf, "}\n\n")
 
+		fmt.Fprintf(&buf, "// legacyDigest reports whether an applied row holds the earlier digest of\n")
+		fmt.Fprintf(&buf, "// the name alone for the migration registered at the same position.\n")
+		fmt.Fprintf(&buf, "func legacyDigest(row, registered Migration) bool {\n")
+		fmt.Fprintf(&buf, "\treturn row.Name == registered.Name && row.Digest == Digest(row.Name) && row.Digest != registered.Digest\n")
+		fmt.Fprintf(&buf, "}\n\n")
+
+		fmt.Fprintf(&buf, "// upgradeLedger rewrites each row that holds the earlier digest of the name\n")
+		fmt.Fprintf(&buf, "// alone to the body digest, once, in the supplied transaction. It changes a\n")
+		fmt.Fprintf(&buf, "// row only when its name is registered at the same position and the row is\n")
+		fmt.Fprintf(&buf, "// the one the ledger holds for that name. Every other mismatch is left for\n")
+		fmt.Fprintf(&buf, "// checkLedger to refuse.\n")
+		fmt.Fprintf(&buf, "func upgradeLedger(tx *gorm.DB, registered, applied []Migration) error {\n")
+		fmt.Fprintf(&buf, "\tfor i, row := range applied {\n")
+		fmt.Fprintf(&buf, "\t\tif i >= len(registered) || !legacyDigest(row, registered[i]) {continue}\n")
+		fmt.Fprintf(&buf, "\t\tresult := tx.Exec(\"UPDATE stego_schema.migrations SET digest=? WHERE version=? AND digest=?\", registered[i].Digest, row.Name, row.Digest)\n")
+		fmt.Fprintf(&buf, "\t\tif result.Error != nil || result.RowsAffected != 1 {return ErrMigrationLedger}\n")
+		fmt.Fprintf(&buf, "\t\tapplied[i].Digest = registered[i].Digest\n")
+		fmt.Fprintf(&buf, "\t}\n")
+		fmt.Fprintf(&buf, "\treturn nil\n")
+		fmt.Fprintf(&buf, "}\n\n")
+
 		fmt.Fprintf(&buf, "// applyPending applies migrations after the recorded history, each with\n")
-		fmt.Fprintf(&buf, "// its ledger row in one transaction.\n")
+		fmt.Fprintf(&buf, "// its ledger row in one transaction. A row with the earlier name digest is\n")
+		fmt.Fprintf(&buf, "// rewritten first, in a transaction that reads the ledger again under lock.\n")
 		fmt.Fprintf(&buf, "func applyPending(db *gorm.DB, ordered, applied []Migration) error {\n")
+		fmt.Fprintf(&buf, "\tfor i := range applied {\n")
+		fmt.Fprintf(&buf, "\t\tif i >= len(ordered) || !legacyDigest(applied[i], ordered[i]) {continue}\n")
+		fmt.Fprintf(&buf, "\t\tif err := db.Transaction(func(tx *gorm.DB) error {\n")
+		fmt.Fprintf(&buf, "\t\t\tif err := tx.Exec(\"LOCK TABLE stego_schema.migrations IN SHARE ROW EXCLUSIVE MODE\").Error; err != nil {return ErrMigrationLedger}\n")
+		fmt.Fprintf(&buf, "\t\t\tcurrent, err := appliedMigrations(tx)\n")
+		fmt.Fprintf(&buf, "\t\t\tif err != nil {return err}\n")
+		fmt.Fprintf(&buf, "\t\t\tif err := upgradeLedger(tx, ordered, current); err != nil {return err}\n")
+		fmt.Fprintf(&buf, "\t\t\tapplied = current\n")
+		fmt.Fprintf(&buf, "\t\t\treturn nil\n")
+		fmt.Fprintf(&buf, "\t\t}); err != nil {return err}\n")
+		fmt.Fprintf(&buf, "\t\tbreak\n")
+		fmt.Fprintf(&buf, "\t}\n")
 		fmt.Fprintf(&buf, "\tif err := checkLedger(applied, ordered); err != nil {return err}\n")
 		fmt.Fprintf(&buf, "\tfor _, m := range ordered[len(applied):] {\n")
 		fmt.Fprintf(&buf, "\t\tif err := db.Transaction(func(tx *gorm.DB) error {\n")
@@ -1675,6 +1721,171 @@ func generateMigrate(ns string, entities []types.Entity, guarded bool) (gen.File
 		Path:    path.Join(ns, "migrate.go"),
 		Content: formatted,
 	}, nil
+}
+
+// migrationCall is one Register call of a function migration in a generated
+// file: the offset where its digest argument goes, the digest it holds, and
+// the digest of its body.
+type migrationCall struct {
+	insert int
+	digest string
+	sum    string
+}
+
+// sealMigrations writes the digest of each function migration into its
+// Register call. The digest covers the generated source text of the function
+// literal and of each package-level function, constant and variable that the
+// literal reaches, so an edit to the migration changes its digest. Types are
+// not covered: a model migration follows its models by design.
+func sealMigrations(ns string, files []gen.File) error {
+	calls, err := migrationCalls(ns, files)
+	if err != nil {
+		return err
+	}
+	for i, list := range calls {
+		content := files[i].Content
+		for j := len(list) - 1; j >= 0; j-- {
+			if list[j].digest != "" {
+				return fmt.Errorf("%s: migration digest is already set", files[i].Path)
+			}
+			at := list[j].insert
+			content = append(content[:at:at], append([]byte(strconv.Quote(list[j].sum)+", "), content[at:]...)...)
+		}
+		formatted, err := format.Source(content)
+		if err != nil {
+			return fmt.Errorf("formatting %s: %w", files[i].Path, err)
+		}
+		files[i].Content = formatted
+	}
+	// Formatting must not change a sealed body.
+	calls, err = migrationCalls(ns, files)
+	if err != nil {
+		return err
+	}
+	for i, list := range calls {
+		for _, call := range list {
+			if call.digest != call.sum {
+				return fmt.Errorf("%s: migration digest does not cover its body", files[i].Path)
+			}
+		}
+	}
+	return nil
+}
+
+// migrationCalls finds the Register calls of function migrations in the Go
+// files of the namespace, by file index, and computes the digest of each body.
+func migrationCalls(ns string, files []gen.File) (map[int][]migrationCall, error) {
+	type declaration struct {
+		node ast.Node
+		text string
+	}
+	fset := token.NewFileSet()
+	parsed := map[int]*ast.File{}
+	declarations := map[string]declaration{}
+	for i, file := range files {
+		if path.Dir(file.Path) != ns || path.Ext(file.Path) != ".go" {
+			continue
+		}
+		tree, err := parser.ParseFile(fset, file.Path, file.Content, 0)
+		if err != nil {
+			return nil, fmt.Errorf("parsing %s: %w", file.Path, err)
+		}
+		parsed[i] = tree
+		text := func(node ast.Node) string {
+			return string(file.Content[fset.Position(node.Pos()).Offset:fset.Position(node.End()).Offset])
+		}
+		for _, decl := range tree.Decls {
+			switch decl := decl.(type) {
+			case *ast.FuncDecl:
+				if decl.Recv == nil && decl.Name.Name != "init" {
+					declarations[decl.Name.Name] = declaration{decl, text(decl)}
+				}
+			case *ast.GenDecl:
+				if decl.Tok != token.CONST && decl.Tok != token.VAR {
+					continue
+				}
+				for _, spec := range decl.Specs {
+					for _, name := range spec.(*ast.ValueSpec).Names {
+						declarations[name.Name] = declaration{spec, text(spec)}
+					}
+				}
+			}
+		}
+	}
+	references := func(node ast.Node) []string {
+		var names []string
+		var visit func(ast.Node) bool
+		visit = func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.SelectorExpr:
+				ast.Inspect(n.X, visit)
+				return false
+			case *ast.Ident:
+				names = append(names, n.Name)
+			}
+			return true
+		}
+		ast.Inspect(node, visit)
+		return names
+	}
+	calls := map[int][]migrationCall{}
+	indexes := make([]int, 0, len(parsed))
+	for i := range parsed {
+		indexes = append(indexes, i)
+	}
+	sort.Ints(indexes)
+	for _, i := range indexes {
+		content := files[i].Content
+		ast.Inspect(parsed[i], func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if name, ok := call.Fun.(*ast.Ident); !ok || name.Name != "Register" || len(call.Args) < 2 || len(call.Args) > 3 {
+				return true
+			}
+			literal, ok := call.Args[len(call.Args)-1].(*ast.FuncLit)
+			if !ok {
+				return true
+			}
+			var body strings.Builder
+			body.Write(content[fset.Position(literal.Pos()).Offset:fset.Position(literal.End()).Offset])
+			reached := map[string]bool{}
+			queue := references(literal)
+			for len(queue) > 0 {
+				name := queue[0]
+				queue = queue[1:]
+				if reached[name] {
+					continue
+				}
+				if found, ok := declarations[name]; ok {
+					reached[name] = true
+					queue = append(queue, references(found.node)...)
+				}
+			}
+			names := make([]string, 0, len(reached))
+			for name := range reached {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				body.WriteString("\n")
+				body.WriteString(declarations[name].text)
+			}
+			sum := sha256.Sum256([]byte(body.String()))
+			sealed := migrationCall{insert: fset.Position(literal.Pos()).Offset, sum: hex.EncodeToString(sum[:])}
+			if len(call.Args) == 3 {
+				if digest, ok := call.Args[1].(*ast.BasicLit); ok && digest.Kind == token.STRING {
+					sealed.digest, _ = strconv.Unquote(digest.Value)
+				} else {
+					sealed.digest = "?"
+				}
+			}
+			calls[i] = append(calls[i], sealed)
+			return true
+		})
+	}
+	return calls, nil
 }
 
 // --- SessionFactory ---

@@ -1,10 +1,13 @@
 package postgresadapter
 
 import (
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -202,5 +205,44 @@ require (
 			t.Fatalf("generated schema test: %v\n%s", err, result)
 		}
 		t.Log(string(result))
+	}
+}
+
+func TestFunctionMigrationDigestCoversBody(t *testing.T) {
+	seal := func(statement string) string {
+		t.Helper()
+		source := "package storage\n\nconst probeMigration = " + strconv.Quote(statement) + "\n\nfunc init() {\n\tRegister(\"900_probe\", func(db *gorm.DB) error { return db.Exec(probeMigration).Error })\n}\n"
+		files := []gen.File{{Path: "storage/probe.go", Content: []byte(source)}}
+		if err := sealMigrations("storage", files); err != nil {
+			t.Fatal(err)
+		}
+		content := string(files[0].Content)
+		start := strings.Index(content, `Register("900_probe", "`)
+		if start < 0 {
+			t.Fatal("the migration has no digest", content)
+		}
+		digest := content[start+len(`Register("900_probe", "`):]
+		return digest[:strings.Index(digest, `"`)]
+	}
+	first := seal("CREATE TABLE probe (id boolean PRIMARY KEY)")
+	if first != seal("CREATE TABLE probe (id boolean PRIMARY KEY)") {
+		t.Fatal("the digest is unstable")
+	}
+	if first == seal("CREATE TABLE probe (id bigint PRIMARY KEY)") {
+		t.Fatal("an edited migration body kept its digest")
+	}
+	sum := sha256.Sum256([]byte("900_probe"))
+	if first == hex.EncodeToString(sum[:]) {
+		t.Fatal("the digest covers only the name")
+	}
+	ctx := basicContext()
+	ctx.ComponentConfig = map[string]any{"schema_generation": "fresh-v1"}
+	files, _, err := new(Generator).Generate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrate := findFileContent(t, files, "internal/storage/migrate.go")
+	if !strings.Contains(migrate, `Register("001_initial", "`) || strings.Contains(migrate, "Digest(name)") {
+		t.Fatal("the initial migration is not sealed by its body", migrate)
 	}
 }

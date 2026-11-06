@@ -878,7 +878,7 @@ func TestMigrationLedgerAppliesNewRegistrations(t *testing.T) {
 	if err := storage.Migrate(db); err != nil {
 		t.Fatal(err)
 	}
-	storage.Register("900_ledger_test", func(db *gorm.DB) error {
+	storage.Register("900_ledger_test", storage.Digest("900_ledger_test probe"), func(db *gorm.DB) error {
 		return db.Exec("CREATE TABLE ledger_probe (id boolean PRIMARY KEY)").Error
 	})
 	if err := storage.Migrate(db); err != nil {
@@ -903,31 +903,124 @@ func TestMigrationLedgerAppliesNewRegistrations(t *testing.T) {
 	}
 }
 
+func ledgerDigests(t *testing.T, db *gorm.DB) map[string]string {
+	t.Helper()
+	var rows []struct{ Version, Digest string }
+	if err := db.Raw("SELECT version, digest FROM stego_schema.migrations ORDER BY version").Scan(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	digests := map[string]string{}
+	for _, row := range rows {
+		digests[row.Version] = row.Digest
+	}
+	return digests
+}
+
 func TestMigrationLedgerRejectsGapsAndDrift(t *testing.T) {
-	db := schemaDB(t)
-	if err := storage.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	applied := ledgerApplied(t, db)
-	// An edited migration changes its digest; the ledger row no longer
-	// matches the registered history and the next run refuses to continue.
-	if err := db.Exec("UPDATE stego_schema.migrations SET digest='tampered' WHERE version=?", applied[0]).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := storage.Migrate(db); !errors.Is(err, storage.ErrMigrationLedger) {
-		t.Fatal("digest drift was accepted", err)
-	}
-	// A ledger row for a version the code never registered is a foreign
-	// history; it is rejected rather than trusted.
-	if err := db.Exec("UPDATE stego_schema.migrations SET digest=(SELECT digest FROM stego_schema.migrations LIMIT 1) WHERE version=?", applied[0]).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Exec("INSERT INTO stego_schema.migrations(version,digest) VALUES('zzz_foreign','x')").Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := storage.Migrate(db); !errors.Is(err, storage.ErrMigrationLedger) {
-		t.Fatal("a foreign ledger row was accepted", err)
-	}
+	t.Run("ST-SUP-RC01-OC11-T03 Digest drift and a foreign row are refused", func(t *testing.T) {
+		db := schemaDB(t)
+		if err := storage.Migrate(db); err != nil {
+			t.Fatal(err)
+		}
+		applied := ledgerApplied(t, db)
+		recorded := ledgerDigests(t, db)[applied[0]]
+		// An edited migration changes its digest; the ledger row no longer
+		// matches the registered history and the next run refuses to continue.
+		if err := db.Exec("UPDATE stego_schema.migrations SET digest='tampered' WHERE version=?", applied[0]).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := storage.Migrate(db); !errors.Is(err, storage.ErrMigrationLedger) {
+			t.Fatal("digest drift was accepted", err)
+		}
+		// A ledger row for a version the code never registered is a foreign
+		// history; it is rejected rather than trusted.
+		if err := db.Exec("UPDATE stego_schema.migrations SET digest=? WHERE version=?", recorded, applied[0]).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Exec("INSERT INTO stego_schema.migrations(version,digest) VALUES('zzz_foreign',encode(sha256('zzz_foreign'::bytea),'hex'))").Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := storage.Migrate(db); !errors.Is(err, storage.ErrMigrationLedger) {
+			t.Fatal("a foreign ledger row was accepted", err)
+		}
+	})
+	t.Run("ST-SUP-RC01-OC11-T04 An edited function migration body is refused at startup", func(t *testing.T) {
+		db := schemaDB(t)
+		if err := storage.Migrate(db); err != nil {
+			t.Fatal(err)
+		}
+		// The ledger holds the body digest the earlier source produced; the
+		// registered source differs, so startup refuses to continue.
+		applied := ledgerApplied(t, db)
+		before := ledgerDigests(t, db)
+		earlier := storage.Digest("func(db *gorm.DB) error { return nil }")
+		for _, version := range applied {
+			if before[version] == storage.Digest(version) {
+				t.Fatal("a function migration still records the digest of its name", version)
+			}
+		}
+		if err := db.Exec("UPDATE stego_schema.migrations SET digest=? WHERE version=?", earlier, applied[0]).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := storage.Migrate(db); !errors.Is(err, storage.ErrMigrationLedger) {
+			t.Fatal("an edited function migration was accepted", err)
+		}
+		if got := ledgerDigests(t, db)[applied[0]]; got != earlier {
+			t.Fatal("a refused startup changed the ledger", got)
+		}
+	})
+	t.Run("ST-SUP-RC01-OC11-T05 A name digest is rewritten once to the body digest", func(t *testing.T) {
+		db := schemaDB(t)
+		if err := storage.Migrate(db); err != nil {
+			t.Fatal(err)
+		}
+		applied := ledgerApplied(t, db)
+		body := ledgerDigests(t, db)
+		for _, version := range applied {
+			if body[version] == storage.Digest(version) {
+				t.Fatal("a function migration records the digest of its name", version)
+			}
+		}
+		// The earlier runner recorded the digest of each name.
+		if err := db.Exec("UPDATE stego_schema.migrations SET digest=encode(sha256(version::bytea),'hex')").Error; err != nil {
+			t.Fatal(err)
+		}
+		for _, version := range applied {
+			if ledgerDigests(t, db)[version] != storage.Digest(version) {
+				t.Fatal("the fixture did not record the name digest", version)
+			}
+		}
+		if err := storage.Migrate(db); err != nil {
+			t.Fatal("a registered name digest was not rewritten", err)
+		}
+		rewritten := ledgerDigests(t, db)
+		for _, version := range applied {
+			if rewritten[version] != body[version] {
+				t.Fatal("the row does not hold the body digest", version, rewritten[version])
+			}
+		}
+		var stamps []string
+		if err := db.Raw("SELECT version||' '||digest||' '||applied_at::text FROM stego_schema.migrations ORDER BY version").Scan(&stamps).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := storage.Migrate(db); err != nil {
+			t.Fatal(err)
+		}
+		var again []string
+		if err := db.Raw("SELECT version||' '||digest||' '||applied_at::text FROM stego_schema.migrations ORDER BY version").Scan(&again).Error; err != nil {
+			t.Fatal(err)
+		}
+		if strings.Join(stamps, "\n") != strings.Join(again, "\n") {
+			t.Fatal("a second migration changed the ledger", stamps, again)
+		}
+		// A name digest on a row the code did not register is not rewritten.
+		if err := db.Exec("INSERT INTO stego_schema.migrations(version,digest) VALUES('zzz_foreign',encode(sha256('zzz_foreign'::bytea),'hex'))").Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := storage.Migrate(db); !errors.Is(err, storage.ErrMigrationLedger) {
+			t.Fatal("a foreign name digest was accepted", err)
+		}
+	})
 }
 
 func TestApplyMigrationRecordsAndValidates(t *testing.T) {
