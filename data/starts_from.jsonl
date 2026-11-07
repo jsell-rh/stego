@@ -612,6 +612,13 @@
 {"source_id":"ST-GEN-UC12-R03-T01","target_id":"ST-GEN-TD04"}
 {"source_id":"ST-GEN-UC12-R04-T01","target_id":"ST-GEN-TD04"}
 {"source_id":"ST-GEN-UC12-R05-T01","target_id":"ST-GEN-TD03"}
+{"source_id":"ST-GEN-UC13-FL-T","target_id":"ST-GEN-TD04"}
+{"source_id":"ST-GEN-UC13-R01-T01","target_id":"ST-GEN-TD04"}
+{"source_id":"ST-GEN-UC13-R02-T01","target_id":"ST-GEN-TD04"}
+{"source_id":"ST-GEN-UC13-R03-T01","target_id":"ST-GEN-TD04"}
+{"source_id":"ST-GEN-UC13-R04-T01","target_id":"ST-GEN-TD04"}
+{"source_id":"ST-GEN-UC13-R05-T01","target_id":"ST-GEN-TD04"}
+{"source_id":"ST-GEN-UC13-R06-T01","target_id":"ST-GEN-TD04"}
 {"source_id":"ST-GEN-UC14-FL-T","target_id":"ST-GEN-TD03"}
 {"source_id":"ST-GEN-UC14-R01-T01","target_id":"ST-GEN-TD03"}
 {"source_id":"ST-GEN-UC14-R02-T01","target_id":"ST-GEN-TD03"}
