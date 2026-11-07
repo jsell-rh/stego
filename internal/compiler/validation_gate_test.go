@@ -24,34 +24,43 @@ type versionedGenerator struct {
 func (g versionedGenerator) MinimumGoVersion() string { return g.minimum }
 
 func TestGeneratorGoVersionGatesGeneration(t *testing.T) {
-	for _, tt := range []struct{ minimum, target, want string }{
-		{"1.25", "1.24.9", "requires Go 1.25 or later"},
-		{"1.25.1", "1.25.0", "requires Go 1.25.1 or later"},
-		{"1.25", "", "requires a valid Go target"},
-		{"1.25", "invalid", "requires a valid Go target"},
-		{"", "1.26.10", "invalid minimum Go version"},
-		{"go1.25", "1.26.10", "invalid minimum Go version"},
-	} {
-		t.Run(tt.minimum+"/"+tt.target, func(t *testing.T) {
-			input := snapshotTestInput(t)
-			input.GoVersion = tt.target
-			input.Generators["stub-api"] = rejectedInputGenerator{t}
-			input.Generators["stub-store"] = versionedGenerator{rejectedInputGenerator{t}, tt.minimum}
-			result, err := Validate(input)
-			if err != nil || !result.HasErrors() || !strings.Contains(FormatValidation(result), tt.want) {
-				t.Fatalf("version requirement passed validation: %+v, %v", result, err)
-			}
-			plan, err := Reconcile(input)
-			if plan != nil || err == nil || !strings.Contains(err.Error(), FormatValidation(result)) {
-				t.Fatalf("version requirement did not stop generation: %+v, %v", plan, err)
-			}
-			for _, name := range []string{"out", "go.mod", ".stego"} {
-				if _, err := os.Stat(filepath.Join(input.ProjectDir, name)); !os.IsNotExist(err) {
-					t.Fatalf("rejected target changed %s: %v", name, err)
+	t.Run("ST-GEN-INV22-T The build target meets every active component's minimum Go version", func(t *testing.T) {
+		for _, tt := range []struct{ minimum, target, want string }{
+			{"1.25", "1.24.9", "requires Go 1.25 or later"},
+			{"1.25.1", "1.25.0", "requires Go 1.25.1 or later"},
+			{"1.25", "", "requires a valid Go target"},
+			{"1.25", "invalid", "requires a valid Go target"},
+			{"", "1.26.10", "invalid minimum Go version"},
+			{"go1.25", "1.26.10", "invalid minimum Go version"},
+		} {
+			t.Run(tt.minimum+"/"+tt.target, func(t *testing.T) {
+				input := snapshotTestInput(t)
+				input.GoVersion = tt.target
+				input.Generators["stub-api"] = rejectedInputGenerator{t}
+				input.Generators["stub-store"] = versionedGenerator{rejectedInputGenerator{t}, tt.minimum}
+				result, err := Validate(input)
+				if err != nil || !result.HasErrors() || !strings.Contains(FormatValidation(result), tt.want) {
+					t.Fatalf("version requirement passed validation: %+v, %v", result, err)
 				}
-			}
-		})
-	}
+				if strings.HasPrefix(tt.want, "requires Go") {
+					for _, named := range []string{`"stub-store"`, tt.minimum, tt.target} {
+						if !strings.Contains(FormatValidation(result), named) {
+							t.Fatalf("the refusal does not name %s: %s", named, FormatValidation(result))
+						}
+					}
+				}
+				plan, err := Reconcile(input)
+				if plan != nil || err == nil || !strings.Contains(err.Error(), FormatValidation(result)) {
+					t.Fatalf("version requirement did not stop generation: %+v, %v", plan, err)
+				}
+				for _, name := range []string{"out", "go.mod", ".stego"} {
+					if _, err := os.Stat(filepath.Join(input.ProjectDir, name)); !os.IsNotExist(err) {
+						t.Fatalf("rejected target changed %s: %v", name, err)
+					}
+				}
+			})
+		}
+	})
 }
 
 func TestGeneratorGoVersionAcceptsSupportedTargets(t *testing.T) {

@@ -68,7 +68,6 @@ ST-STD-CODE-R04	internal/compiler/assembler_test.go	internal/compiler/assembler_
 ST-STD-CODE-R04	internal/compiler/assembly_inputs_test.go	internal/compiler/assembly_inputs_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/base_path_test.go	internal/compiler/base_path_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/component_preflight_test.go	internal/compiler/component_preflight_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/compiler/constructor_dependencies_test.go	internal/compiler/constructor_dependencies_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/constructor_metadata_test.go	internal/compiler/constructor_metadata_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/constructor_references_test.go	internal/compiler/constructor_references_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/contracts_integration_test.go	internal/compiler/contracts_integration_test.go	the test file names no test record's ID in a test or subtest name
@@ -85,18 +84,13 @@ ST-STD-CODE-R04	internal/compiler/go_namespace_test.go	internal/compiler/go_name
 ST-STD-CODE-R04	internal/compiler/http_logger_test.go	internal/compiler/http_logger_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/http_responses_test.go	internal/compiler/http_responses_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/http_routes_test.go	internal/compiler/http_routes_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/compiler/lifecycle_test.go	internal/compiler/lifecycle_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/compiler/lock_test.go	internal/compiler/lock_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/module_test.go	internal/compiler/module_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/numeric_bounds_test.go	internal/compiler/numeric_bounds_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/compiler/preflight_test.go	internal/compiler/preflight_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/protobuf_inputs_test.go	internal/compiler/protobuf_inputs_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/registry_composition_test.go	internal/compiler/registry_composition_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/resources_test.go	internal/compiler/resources_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/state_format_test.go	internal/compiler/state_format_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/state_test.go	internal/compiler/state_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/compiler/symbol_hygiene_test.go	internal/compiler/symbol_hygiene_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/compiler/task_lifecycle_test.go	internal/compiler/task_lifecycle_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/testdata/database_access_test.go	internal/compiler/testdata/database_access_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/testdata/database_config_test.go	internal/compiler/testdata/database_config_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/testdata/http_diagnostics_test.go	internal/compiler/testdata/http_diagnostics_test.go	the test file names no test record's ID in a test or subtest name

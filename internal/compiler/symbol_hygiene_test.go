@@ -171,3 +171,45 @@ func BenchmarkAssembleWithImportsAndFills(b *testing.B) {
 		}
 	}
 }
+
+func TestGeneratedSymbolNeverShadowsPredeclaredName(t *testing.T) {
+	t.Run("ST-GEN-INV24-T A generated symbol never shadows a predeclared or startup name", func(t *testing.T) {
+		files, err := Assemble(AssemblerInput{ModuleName: "example.com/symbolcheck", ServiceName: "symbols", GoVersion: "1.22", OutDirName: "out", Wirings: []ComponentWiring{{Name: "errors", Wiring: &gen.Wiring{
+			Imports: []string{"internal/error"}, Constructors: []string{"error.NewHandler()"},
+			Routes: []string{`mux.HandleFunc("GET /", handler.ServeHTTP)`},
+		}}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var main string
+		for _, file := range files {
+			if file.Path == "main.go" {
+				main = string(file.Bytes())
+			}
+		}
+		parsed, err := parser.ParseFile(token.NewFileSet(), "main.go", main, parser.ImportsOnly)
+		if err != nil {
+			t.Fatal(err)
+		}
+		alias := ""
+		for _, spec := range parsed.Imports {
+			if spec.Path.Value == `"example.com/symbolcheck/out/internal/error"` {
+				if spec.Name == nil || spec.Name.Name == "error" {
+					t.Fatalf("the import of internal/error has no distinct alias:\n%s", main)
+				}
+				alias = spec.Name.Name
+			}
+		}
+		if alias == "" || !strings.Contains(main, alias+".NewHandler()") || strings.Contains(main, " error.NewHandler()") {
+			t.Fatalf("the alias %q of internal/error is not used everywhere:\n%s", alias, main)
+		}
+
+		files, err = Assemble(AssemblerInput{ModuleName: "example.com/symbolcheck", ServiceName: "symbols", GoVersion: "1.22", OutDirName: "out", Wirings: []ComponentWiring{{Name: "fixture", Wiring: &gen.Wiring{
+			Imports: []string{"internal/fixture"}, Constructors: []string{"fixture.NewError()"},
+			Routes: []string{`mux.HandleFunc("GET /", error.ServeHTTP)`},
+		}}}})
+		if err == nil || len(files) != 0 || !strings.Contains(err.Error(), "predeclared") {
+			t.Fatalf("a constructor whose derived name is error was not refused before output: %v", err)
+		}
+	})
+}
