@@ -102,8 +102,6 @@
 {"source_id":"ST-SUP-RC32-OC06","target_id":"ST-STD-TXN-R08"}
 {"source_id":"ST-SUP-RC32-OC07","target_id":"ST-STD-TXN-R05"}
 {"source_id":"ST-SUP-RC32-OC08","target_id":"ST-STD-TXN-R11"}
-{"source_id":"ST-SUP-RC32-OC09","target_id":"ST-STD-TXN-R01"}
-{"source_id":"ST-SUP-RC32-OC09","target_id":"ST-STD-TXN-R03"}
 {"source_id":"ST-SUP-RC33-OC01","target_id":"ST-STD-TXN-R04"}
 {"source_id":"ST-SUP-RC33-OC01","target_id":"ST-STD-TXN-R09"}
 {"source_id":"ST-SUP-RC33-OC02","target_id":"ST-STD-TXN-R18"}
