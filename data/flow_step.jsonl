@@ -148,7 +148,7 @@
 {"id":"ST-EXT-UC01-FL-S01","title":"The agent runs fill create for the slot and collection, and STEGO writes a fill and a test that compile against the slot's contract","flow_id":"ST-EXT-UC01-FL","path":"main","position":1}
 {"id":"ST-EXT-UC01-FL-S02","title":"The agent writes the rule and its tests, binds the fill in the declaration, and records test evidence, and STEGO records the fill's evidence","flow_id":"ST-EXT-UC01-FL","path":"main","position":2}
 {"id":"ST-EXT-UC01-FL-S03","title":"Plan finds a bound fill that implements another slot or serves another collection, and stops","flow_id":"ST-EXT-UC01-FL","path":"misfit","position":1}
-{"id":"ST-EXT-UC01-FL-S04","title":"A fill with no test file or a forbidden import gets no evidence, and STEGO names why","flow_id":"ST-EXT-UC01-FL","path":"refused","position":1}
+{"id":"ST-EXT-UC01-FL-S04","title":"A fill with no test file, a forbidden import or a forbidden call gets no evidence, and STEGO names why","flow_id":"ST-EXT-UC01-FL","path":"refused","position":1}
 {"id":"ST-EXT-UC02-FL-S01","title":"The service author records test evidence, and STEGO records the evidence of each fill whose tests pass","flow_id":"ST-EXT-UC02-FL","path":"main","position":1}
 {"id":"ST-EXT-UC02-FL-S02","title":"The service author runs fill sign, and STEGO signs the evidence with the author's key and writes the sign-off","flow_id":"ST-EXT-UC02-FL","path":"main","position":2}
 {"id":"ST-EXT-UC02-FL-S03","title":"A fill's tests fail, so STEGO records no evidence and fill sign refuses it","flow_id":"ST-EXT-UC02-FL","path":"failed","position":1}
