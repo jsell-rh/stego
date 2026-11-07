@@ -211,6 +211,11 @@
 {"id":"ST-GEN-UC10-FL-S07","title":"The fixer cannot rewrite a construct, so it names each one with its path and writes nothing, and the agent rewrites them by hand","flow_id":"ST-GEN-UC10-FL","path":"unfixable","position":1}
 {"id":"ST-GEN-UC10-FL-S08","title":"The agent runs validate again, and STEGO accepts the declaration version or names the faults that remain","flow_id":"ST-GEN-UC10-FL","path":"unfixable","position":2}
 {"id":"ST-GEN-UC11-FL-S01","title":"The service author moves the service's pin to the promoted component, and regeneration changes no file","flow_id":"ST-GEN-UC11-FL","path":"main","position":1}
+{"id":"ST-GEN-UC12-FL-S01","title":"The author changes the entity, declares the schema change and puts its expand step at the end of the schema history","flow_id":"ST-GEN-UC12-FL","path":"main","position":1}
+{"id":"ST-GEN-UC12-FL-S02","title":"The author asks for a plan, and STEGO checks the declaration against the base and lists each new step with its kind, phase, migration, trigger and backfill","flow_id":"ST-GEN-UC12-FL","path":"main","position":2}
+{"id":"ST-GEN-UC12-FL-S03","title":"The author applies the plan, and STEGO writes the migration that only adds, the trigger that keeps both values equal and the backfill job, with the record","flow_id":"ST-GEN-UC12-FL","path":"main","position":3}
+{"id":"ST-GEN-UC12-FL-S04","title":"The author releases, and the new release runs beside the old one on the same database, with the field under its old name in the API","flow_id":"ST-GEN-UC12-FL","path":"main","position":4}
+{"id":"ST-GEN-UC12-FL-S05","title":"STEGO refuses a change that no schema step declares, writes nothing and names the schema change to declare","flow_id":"ST-GEN-UC12-FL","path":"refused","position":1}
 {"id":"ST-GEN-UC14-FL-S01","title":"The author changes the declaration and asks STEGO to check it against the base ref","flow_id":"ST-GEN-UC14-FL","path":"main","position":1}
 {"id":"ST-GEN-UC14-FL-S02","title":"STEGO names the base ref and its commit, finds that each change to a table with rows is a declared schema step, and accepts the declaration","flow_id":"ST-GEN-UC14-FL","path":"main","position":2}
 {"id":"ST-GEN-UC14-FL-S03","title":"The author reads in the documentation that the base ref stands for the version that runs now","flow_id":"ST-GEN-UC14-FL","path":"main","position":3}
