@@ -211,6 +211,12 @@
 {"id":"ST-GEN-UC10-FL-S07","title":"The fixer cannot rewrite a construct, so it names each one with its path and writes nothing, and the agent rewrites them by hand","flow_id":"ST-GEN-UC10-FL","path":"unfixable","position":1}
 {"id":"ST-GEN-UC10-FL-S08","title":"The agent runs validate again, and STEGO accepts the declaration version or names the faults that remain","flow_id":"ST-GEN-UC10-FL","path":"unfixable","position":2}
 {"id":"ST-GEN-UC11-FL-S01","title":"The service author moves the service's pin to the promoted component, and regeneration changes no file","flow_id":"ST-GEN-UC11-FL","path":"main","position":1}
+{"id":"ST-GEN-UC14-FL-S01","title":"The author changes the declaration and asks STEGO to check it against the base ref","flow_id":"ST-GEN-UC14-FL","path":"main","position":1}
+{"id":"ST-GEN-UC14-FL-S02","title":"STEGO names the base ref and its commit, finds that each change to a table with rows is a declared schema step, and accepts the declaration","flow_id":"ST-GEN-UC14-FL","path":"main","position":2}
+{"id":"ST-GEN-UC14-FL-S03","title":"The author reads in the documentation that the base ref stands for the version that runs now","flow_id":"ST-GEN-UC14-FL","path":"main","position":3}
+{"id":"ST-GEN-UC14-FL-S04","title":"STEGO refuses a change to a table with rows that no schema step declares, and names the entity, the field, the rule and the schema change and phase to declare","flow_id":"ST-GEN-UC14-FL","path":"refused","position":1}
+{"id":"ST-GEN-UC14-FL-S05","title":"STEGO refuses a base declaration that is not the one its record names","flow_id":"ST-GEN-UC14-FL","path":"refused","position":2}
+{"id":"ST-GEN-UC14-FL-S06","title":"When the base has no record, STEGO accepts any stored shape, because no release has run","flow_id":"ST-GEN-UC14-FL","path":"first release","position":1}
 {"id":"ST-SUP-UC01-FL-S03","title":"The platform engineer adds the component with its config schema, its ports, its slots and its namespace, and STEGO accepts it before its generator runs","flow_id":"ST-SUP-UC01-FL","path":"main","position":1}
 {"id":"ST-SUP-UC01-FL-S04","title":"The platform engineer states each thing the emitted code must always do as an output contract, with the generator that builds it and the test that proves it","flow_id":"ST-SUP-UC01-FL","path":"main","position":2}
 {"id":"ST-SUP-UC01-FL-S05","title":"The platform engineer changes what the generator emits, and releases the component at a new version","flow_id":"ST-SUP-UC01-FL","path":"change","position":1}
