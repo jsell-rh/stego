@@ -29,7 +29,8 @@ type EvidenceResult struct {
 // fill whose tests pass, writes its evidence into its fill manifest, with the
 // fill digest and the contract digest taken before the run (ST-EXT-CMD02).
 // It writes nothing for a fill whose manifest it cannot read against the
-// declaration, for a fill with no test file, and for a fill whose tests fail
+// declaration, for a fill with no test file or with an import it may not
+// have (ST-EXT-INV05), and for a fill whose tests fail
 // or whose files change during the run, and names why. Evidence that names
 // the fill's current state stays as it is, with its sign-off, when the tests
 // pass again. The results are in the order of the fill names.
@@ -61,6 +62,10 @@ func recordOne(check compiler.FillCheck, name string, run TestRun, build buildid
 		return result
 	}
 	if err := requireTests(before); err != nil {
+		result.Reason = err.Error()
+		return result
+	}
+	if err := checkImports(dir, check); err != nil {
 		result.Reason = err.Error()
 		return result
 	}

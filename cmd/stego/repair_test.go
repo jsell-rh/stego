@@ -129,6 +129,62 @@ func td02Project(t *testing.T, service string) string {
 	return project
 }
 
+var qualifiedPolicyFixture onceFixture
+var qualifiedPolicyDir string
+
+// qualifiedPolicy is the fill policy of ST-DECL-TD02 at the slot before_create of todos, qualified: it has a
+// test, its evidence and a sign-off by a key of ST-EXT-TD02 that the SIGNERS file it comes with lists. It is made
+// once, in a project of its own whose declaration has no fault, because stego test and stego fill sign need one.
+func qualifiedPolicy(t *testing.T) string {
+	t.Helper()
+	keys := testFillKeys(t)
+	qualifiedPolicyFixture.get(t, func() (string, error) {
+		p := &fillProject{dir: filepath.Join(fixtureRoot, "qualified-policy", "fills"), keys: keys}
+		if err := os.MkdirAll(p.dir, 0755); err != nil {
+			return "", err
+		}
+		run := func(key string, args ...string) error {
+			if stdout, stderr, err := p.stego(t, key, args...); err != nil {
+				return fmt.Errorf("stego %s: %v\n%s\n%s", strings.Join(args, " "), err, stdout, stderr)
+			}
+			return nil
+		}
+		if err := run("no-key", "init", "--archetype", "rest-crud"); err != nil {
+			return "", err
+		}
+		// Apply runs before the binding, because generation stops on a bound fill that is not qualified.
+		p.write(t, "service.yaml", td02)
+		p.write(t, "SIGNERS", keys.signers)
+		p.addFill(t, "policy", "before_create", "todos", true)
+		for _, step := range []struct{ key, args string }{{"no-key", "apply"}, {"no-key", "test"}, {"listed-ssh", "fill sign policy"}} {
+			if err := run(step.key, strings.Fields(step.args)...); err != nil {
+				return "", err
+			}
+		}
+		p.write(t, "service.yaml", td02+"slots:\n  - collection: todos\n    slot: before_create\n    gate: [policy]\n")
+		if err := run("no-key", "validate"); err != nil {
+			return "", err
+		}
+		qualifiedPolicyDir = p.dir
+		return "", nil
+	})
+	return qualifiedPolicyDir
+}
+
+// putQualifiedPolicy copies the qualified fill policy and the SIGNERS file that lists its key into the project.
+func putQualifiedPolicy(t *testing.T, project string) {
+	t.Helper()
+	source := qualifiedPolicy(t)
+	if output, err := exec.Command("cp", "-a", filepath.Join(source, "fills", "policy"), filepath.Join(project, "fills", "policy")).CombinedOutput(); err != nil {
+		t.Fatalf("copy the fill policy: %v\n%s", err, output)
+	}
+	data, err := os.ReadFile(filepath.Join(source, "SIGNERS"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	putFile(t, project, "SIGNERS", string(data))
+}
+
 // stegoRun is one run of the stego binary: what it printed and its exit code.
 type stegoRun struct {
 	stdout, stderr string
@@ -340,9 +396,7 @@ func TestRepairARefusedDeclaration(t *testing.T) {
 
 	t.Run("ST-DECL-UC04-R05-T02 Repairing one fault leaves the other faults as they were, in the same order", func(t *testing.T) {
 		project := td02Project(t, threeFaults)
-		if run := stegoIn(t, project, nil, "fill", "create", "policy", "--slot", "before_create", "--collection", "todos"); run.code != 0 {
-			t.Fatalf("stego fill create: %s", run.stderr)
-		}
+		putQualifiedPolicy(t, project)
 		first, _ := validateJSON(t, project)
 		putFile(t, project, "service.yaml", strings.Replace(threeFaults, "merge: [policy]", "gate: [policy]", 1))
 		second, _ := validateJSON(t, project)
@@ -379,9 +433,7 @@ func TestRepairARefusedDeclaration(t *testing.T) {
 
 	t.Run("ST-DECL-UC04-FL-T An agent repairs a refused declaration from the structured faults alone", func(t *testing.T) {
 		project := td02Project(t, threeFaults)
-		if run := stegoIn(t, project, nil, "fill", "create", "policy", "--slot", "before_create", "--collection", "todos"); run.code != 0 {
-			t.Fatalf("stego fill create: %s", run.stderr)
-		}
+		putQualifiedPolicy(t, project)
 		previous := map[string]bool{}
 		for attempt := 1; attempt <= 3; attempt++ {
 			document, run := validateJSON(t, project)

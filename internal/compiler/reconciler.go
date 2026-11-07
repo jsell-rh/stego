@@ -132,6 +132,11 @@ type ReconcilerInput struct {
 	// serves. Validation needs it when a slot binding names a fill whose
 	// fill.yaml exists; cmd/stego gives fill.ReadCollection.
 	ReadFill FillReader
+
+	// QualifyFills checks each fill that a slot binding names: that it fits
+	// its binding and that it is qualified. Validate, plan and apply stop on
+	// each fault it gives. cmd/stego gives fill.QualificationFaults.
+	QualifyFills FillQualifier
 }
 
 // FillSlot is one slot of the active component set, or of a mixin of the
@@ -165,7 +170,17 @@ type FillCheck struct {
 	Bindings    []FillBinding
 	Collections []string
 	Contracts   FillContracts
+	// Module is the Go module path of the service, whose package out/slots
+	// holds the slot contracts.
+	Module string
+	// FillModules are the modules that the declaration lets fills import.
+	FillModules []string
 }
+
+// FillQualifier gives a fault for each bound fill that does not fit its
+// binding or is not qualified. The compiler owns this port and Extending's
+// fill package implements it (ST-STD-CODE-R03).
+type FillQualifier func(check FillCheck) ([]string, error)
 
 // FillReader reads the fill manifest (fill.yaml) at path and gives the
 // collection the fill serves. The compiler owns this port and Extending's

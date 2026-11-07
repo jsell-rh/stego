@@ -133,6 +133,18 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 
 	if components != nil {
 		source.Active = components
+		check := fillCheck(input, svcDecl, reg, components)
+		// A compiler given no qualifier checks no qualification; cmd/stego,
+		// which runs validate, plan and apply, always gives one.
+		if len(fillErrs) == 0 && len(check.Bindings) > 0 && input.QualifyFills != nil {
+			faults, err := input.QualifyFills(check)
+			if err != nil {
+				return nil, fmt.Errorf("checking the bound fills: %w", err)
+			}
+			for _, fault := range faults {
+				result.Errors = append(result.Errors, ValidationError{Category: "fill", Message: fault})
+			}
+		}
 	}
 
 	if !result.HasErrors() {
@@ -317,6 +329,7 @@ func ResolveFillCheck(input ReconcilerInput) (FillCheck, error) {
 	if err != nil {
 		return FillCheck{}, err
 	}
+	input.QualifyFills = nil
 	result, err := validateSource(input, source)
 	if err != nil {
 		return FillCheck{}, err
@@ -324,13 +337,16 @@ func ResolveFillCheck(input ReconcilerInput) (FillCheck, error) {
 	if source.Active == nil {
 		return FillCheck{}, fmt.Errorf("the active component set cannot be resolved:\n%s", FormatValidation(result))
 	}
-	return fillCheck(input.ProjectDir, source.Service, source.Registry, source.Active), nil
+	return fillCheck(input, source.Service, source.Registry, source.Active), nil
 }
 
 // fillCheck gives the fill check of a declaration with its active component
 // set.
-func fillCheck(projectDir string, svcDecl *types.ServiceDeclaration, reg *registry.Registry, components map[string]*registry.Component) FillCheck {
-	check := FillCheck{ProjectDir: projectDir, Contracts: reg}
+func fillCheck(input ReconcilerInput, svcDecl *types.ServiceDeclaration, reg *registry.Registry, components map[string]*registry.Component) FillCheck {
+	check := FillCheck{ProjectDir: input.ProjectDir, Contracts: reg, Module: input.ModuleName}
+	for _, module := range svcDecl.FillModules {
+		check.FillModules = append(check.FillModules, module.Module)
+	}
 	for _, name := range sortedKeys(components) {
 		for _, sd := range components[name].Slots {
 			check.Slots = append(check.Slots, FillSlot{

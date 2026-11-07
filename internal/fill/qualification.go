@@ -11,6 +11,7 @@ import (
 
 	"github.com/jsell-rh/stego/internal/compiler"
 	"github.com/jsell-rh/stego/internal/types"
+	"gopkg.in/yaml.v3"
 )
 
 // Standing is where one fill stands on its way to being qualified (ST-VO45).
@@ -157,6 +158,30 @@ func ListQualification(check compiler.FillCheck) ([]Qualification, error) {
 	return NewQualificationReader(rows).Rows(), nil
 }
 
+// QualificationFaults is the compiler's compiler.FillQualifier: a fault for
+// each bound fill that does not fit its binding or is not qualified.
+func QualificationFaults(check compiler.FillCheck) ([]string, error) {
+	rows, err := ListQualification(check)
+	if err != nil {
+		return nil, err
+	}
+	var faults []string
+	for _, row := range rows {
+		if row.Standing == Qualified && row.Fits {
+			continue
+		}
+		var parts []string
+		if row.Standing != Qualified {
+			parts = append(parts, "is "+string(row.Standing))
+		}
+		if !row.Fits {
+			parts = append(parts, "does not fit its binding")
+		}
+		faults = append(faults, fmt.Sprintf("fill %q %s: %s", row.Fill, strings.Join(parts, " and "), strings.Join(row.Reasons, "; ")))
+	}
+	return faults, nil
+}
+
 // projectQualification builds the qualification of each bound fill from its
 // manifest, its files, its slot contract and SIGNERS.
 func projectQualification(check compiler.FillCheck) ([]Qualification, error) {
@@ -258,13 +283,16 @@ func findSlot(check compiler.FillCheck, ref types.SlotRef) (compiler.FillSlot, b
 // component of the active set, and one collection of the declaration. A
 // refusal names the fill and the field.
 func ReadManifest(path string, check compiler.FillCheck) (*Fill, error) {
-	f, err := ParseFill(path)
-	if err != nil {
+	name := filepath.Base(filepath.Dir(path))
+	if err := checkOneValue(path, name); err != nil {
 		return nil, err
 	}
-	name := f.Name
-	if name == "" {
-		name = filepath.Base(filepath.Dir(path))
+	f, err := ParseFill(path)
+	if err != nil {
+		return nil, fmt.Errorf("fill %q: %w", name, err)
+	}
+	if f.Name != "" {
+		name = f.Name
 	}
 	if f.Implements == "" {
 		return nil, fmt.Errorf("fill %q: implements: missing required field", name)
@@ -283,6 +311,28 @@ func ReadManifest(path string, check compiler.FillCheck) (*Fill, error) {
 		return nil, fmt.Errorf("fill %q: collection: %s is not a collection of the declaration", name, f.Collection)
 	}
 	return f, nil
+}
+
+// checkOneValue refuses a manifest whose implements or collection is not
+// one value, such as a list of slots, and names the field. The strict reader
+// refuses it too, but does not name the field.
+func checkOneValue(path, name string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("fill %q: %w", name, err)
+	}
+	var document yaml.Node
+	if yaml.Unmarshal(data, &document) != nil || len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
+		return nil
+	}
+	root := document.Content[0]
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		key := root.Content[i].Value
+		if (key == "implements" || key == "collection") && root.Content[i+1].Kind != yaml.ScalarNode {
+			return fmt.Errorf("fill %q: %s: must be exactly one value, not a list or a mapping", name, key)
+		}
+	}
+	return nil
 }
 
 // fillFolders lists the fill folders of the project, in the order of their

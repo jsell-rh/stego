@@ -878,6 +878,7 @@ func buildReconcilerInput() (compiler.ReconcilerInput, error) {
 		RegistrySHA:  result.Ref,
 		OutDir:       outDir,
 		ReadFill:     fill.ReadCollection,
+		QualifyFills: fill.QualificationFaults,
 	}, nil
 }
 
