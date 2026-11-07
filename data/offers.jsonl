@@ -47,6 +47,9 @@
 {"source_id":"ST-IF01","target_id":"ST-GEN-UC09"}
 {"source_id":"ST-IF01","target_id":"ST-GEN-UC10"}
 {"source_id":"ST-IF01","target_id":"ST-GEN-UC11"}
+{"source_id":"ST-IF01","target_id":"ST-GEN-UC12"}
+{"source_id":"ST-IF01","target_id":"ST-GEN-UC14"}
+{"source_id":"ST-IF01","target_id":"ST-GEN-UC15"}
 {"source_id":"ST-IF01","target_id":"ST-SUP-UC01"}
 {"source_id":"ST-IF01","target_id":"ST-SUP-UC02"}
 {"source_id":"ST-IF01","target_id":"ST-SUP-UC03"}

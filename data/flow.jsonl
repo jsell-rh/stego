@@ -48,6 +48,10 @@
 {"id":"ST-GEN-UC09-FL","title":"Review how a change reshapes a service","use_case_id":"ST-GEN-UC09"}
 {"id":"ST-GEN-UC10-FL","title":"Move a service to a new declaration version","use_case_id":"ST-GEN-UC10"}
 {"id":"ST-GEN-UC11-FL","title":"Move a service to a promoted component","use_case_id":"ST-GEN-UC11"}
+{"id":"ST-GEN-UC12-FL","title":"Start a change to a table with rows","use_case_id":"ST-GEN-UC12"}
+{"id":"ST-GEN-UC13-FL","title":"Backfill a changed column under the controller lease","use_case_id":"ST-GEN-UC13"}
+{"id":"ST-GEN-UC14-FL","title":"Refuse a change that breaks the running version","use_case_id":"ST-GEN-UC14"}
+{"id":"ST-GEN-UC15-FL","title":"Finish a change to a table with rows","use_case_id":"ST-GEN-UC15"}
 {"id":"ST-SUP-UC01-FL","title":"Write a component","use_case_id":"ST-SUP-UC01"}
 {"id":"ST-SUP-UC02-FL","title":"Compose a registry for a team","use_case_id":"ST-SUP-UC02"}
 {"id":"ST-SUP-UC03-FL","title":"Curate an archetype","use_case_id":"ST-SUP-UC03"}
