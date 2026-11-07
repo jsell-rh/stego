@@ -228,6 +228,12 @@
 {"id":"ST-GEN-UC14-FL-S04","title":"STEGO refuses a change to a table with rows that no schema step declares, and names the entity, the field, the rule and the schema change and phase to declare","flow_id":"ST-GEN-UC14-FL","path":"refused","position":1}
 {"id":"ST-GEN-UC14-FL-S05","title":"STEGO refuses a base declaration that is not the one its record names","flow_id":"ST-GEN-UC14-FL","path":"refused","position":2}
 {"id":"ST-GEN-UC14-FL-S06","title":"When the base has no record, STEGO accepts any stored shape, because no release has run","flow_id":"ST-GEN-UC14-FL","path":"first release","position":1}
+{"id":"ST-GEN-UC15-FL-S01","title":"The author puts the contract step of the change at the end of the schema history and asks for a plan, and STEGO lists the contract migration","flow_id":"ST-GEN-UC15-FL","path":"main","position":1}
+{"id":"ST-GEN-UC15-FL-S02","title":"The author applies the plan, and STEGO writes code that does not use the old column and the migration that drops it","flow_id":"ST-GEN-UC15-FL","path":"main","position":2}
+{"id":"ST-GEN-UC15-FL-S03","title":"The release is deployed, and its migration finds the backfill complete and drops the trigger and the old column","flow_id":"ST-GEN-UC15-FL","path":"main","position":3}
+{"id":"ST-GEN-UC15-FL-S04","title":"The author keeps the finished change in the declaration","flow_id":"ST-GEN-UC15-FL","path":"main","position":4}
+{"id":"ST-GEN-UC15-FL-S05","title":"The migration refuses while rows are left, writes no ledger row, and the release before it keeps running","flow_id":"ST-GEN-UC15-FL","path":"refused","position":1}
+{"id":"ST-GEN-UC15-FL-S06","title":"On a move to a new declaration version, the author fixes the declaration, and STEGO folds the finished changes into a new baseline","flow_id":"ST-GEN-UC15-FL","path":"new baseline","position":1}
 {"id":"ST-SUP-UC01-FL-S03","title":"The platform engineer adds the component with its config schema, its ports, its slots and its namespace, and STEGO accepts it before its generator runs","flow_id":"ST-SUP-UC01-FL","path":"main","position":1}
 {"id":"ST-SUP-UC01-FL-S04","title":"The platform engineer states each thing the emitted code must always do as an output contract, with the generator that builds it and the test that proves it","flow_id":"ST-SUP-UC01-FL","path":"main","position":2}
 {"id":"ST-SUP-UC01-FL-S05","title":"The platform engineer changes what the generator emits, and releases the component at a new version","flow_id":"ST-SUP-UC01-FL","path":"change","position":1}

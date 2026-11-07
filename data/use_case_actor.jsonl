@@ -66,6 +66,8 @@
 {"use_case_id":"ST-GEN-UC13","position":1,"role_name":"Operator"}
 {"use_case_id":"ST-GEN-UC14","position":1,"role_name":"Service author"}
 {"use_case_id":"ST-GEN-UC14","position":2,"role_name":"Agent"}
+{"use_case_id":"ST-GEN-UC15","position":1,"role_name":"Service author"}
+{"use_case_id":"ST-GEN-UC15","position":2,"role_name":"Agent"}
 {"use_case_id":"ST-SUP-UC01","position":1,"role_name":"Platform engineer"}
 {"use_case_id":"ST-SUP-UC02","position":1,"role_name":"Platform engineer"}
 {"use_case_id":"ST-SUP-UC03","position":1,"role_name":"Platform engineer"}
