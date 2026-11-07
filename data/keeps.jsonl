@@ -128,6 +128,11 @@
 {"source_id":"ST-SUP-RP10-LF05","target_id":"ST-SUP-RP10-LC10"}
 {"source_id":"ST-SUP-RP10-LF05","target_id":"ST-SUP-RP10-LC11"}
 {"source_id":"ST-SUP-RP10-LF05","target_id":"ST-SUP-RP10-LC12"}
+{"source_id":"ST-SUP-RP10-LF06","target_id":"ST-SUP-RP10-LC16"}
+{"source_id":"ST-SUP-RP10-LF06","target_id":"ST-SUP-RP10-LC17"}
+{"source_id":"ST-SUP-RP10-LF06","target_id":"ST-SUP-RP10-LC18"}
+{"source_id":"ST-SUP-RP10-LF06","target_id":"ST-SUP-RP10-LC19"}
+{"source_id":"ST-SUP-RP10-LF06","target_id":"ST-SUP-RP10-LC20"}
 {"source_id":"ST-SUP-RP11-LF01","target_id":"ST-SUP-RP11-LC01"}
 {"source_id":"ST-SUP-RP11-LF01","target_id":"ST-SUP-RP11-LC02"}
 {"source_id":"ST-SUP-RP11-LF01","target_id":"ST-SUP-RP11-LC03"}
