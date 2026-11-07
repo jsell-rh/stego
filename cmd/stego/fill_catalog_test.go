@@ -68,7 +68,7 @@ func slotsListed(t *testing.T, stderr string) []string {
 func auditHooksRegistry(t *testing.T, p *fillProject) string {
 	t.Helper()
 	registry := copyFolder(t, p.keys.registry)
-	component := "kind: component\nname: audit-hooks\nversion: 1.0.0\noutput_namespace: internal/audit\nrequires: []\nprovides: []\nslots:\n  - name: before_create\n    proto: audit.hooks.BeforeCreate\n    default: passthrough\n"
+	component := "kind: component\nname: audit-hooks\nversion: 1.0.0\nstage: ga\noutput_namespace: internal/audit\nrequires: []\nprovides: []\nslots:\n  - name: before_create\n    proto: audit.hooks.BeforeCreate\n    default: passthrough\n"
 	contract := "syntax = \"proto3\";\npackage audit.hooks;\nimport \"stego/common/types.proto\";\n\nservice BeforeCreate {\n  rpc Evaluate(BeforeCreateRequest) returns (stego.common.SlotResult);\n}\n\nmessage BeforeCreateRequest {\n  stego.common.Identity caller = 1;\n}\n"
 	if err := os.MkdirAll(filepath.Join(registry, "components/audit-hooks/slots"), 0755); err != nil {
 		t.Fatal(err)
