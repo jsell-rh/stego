@@ -97,7 +97,9 @@ def runs_at(gh, revision, directory):
         raise CheckError("The source commit has more CI runs than one bounded page")
     if len(runs) != total:
         raise CheckError("The CI run list is incomplete")
-    return [run_record(run) for run in runs]
+    # A result counts only at exactly the source commit: a run of a descendant
+    # or an ancestor in the list is never taken (ST-DIS-UC08-R01).
+    return [run for run in map(run_record, runs) if run["head_sha"] == revision]
 
 
 def select_run(runs, workflow, branches, label, identity=None):

@@ -3,10 +3,13 @@
 
 import importlib.util
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -153,6 +156,113 @@ class ArtifactChecks(unittest.TestCase):
                     path.write_text("original\n")
                 else:
                     path.unlink()
+
+
+WORKFLOW = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "compiler-artifact.yml"
+
+
+def job_condition(expression, context):
+    """Evaluate a job condition of the form a == 'x' && b != 'y', as GitHub Actions does for these terms."""
+    result = True
+    for term in expression.split("&&"):
+        found = re.fullmatch(r"\s*([\w.]+) (==|!=) '([^']*)'\s*", term)
+        if found is None:
+            raise AssertionError("the test does not evaluate the term " + term)
+        value = context[found.group(1)]
+        result = result and ((value == found.group(3)) == (found.group(2) == "=="))
+    return result
+
+
+@unittest.skipUnless(shutil.which("bash"), "the step runs with bash, as GitHub Actions runs it")
+class OnlyTheMainBranchSigningJobSigns(unittest.TestCase):
+    """The artifact workflow's job graph, read from compiler-artifact.yml, with its digest step run as a process.
+
+    GitHub Actions is the hosted CI provider: the test is its local stand-in. It evaluates each job's condition
+    for the events GitHub sends, reads the permissions each job holds, and runs the step that guards the signature
+    with bash and the real python3, as a runner does. No test reaches GitHub.
+    """
+
+    def setUp(self):
+        import yaml
+        data = yaml.safe_load(WORKFLOW.read_text())
+        self.workflow = data
+        self.jobs = data["jobs"]
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+
+    def guard(self, binary, record):
+        """Run the step that requires the exact bytes the build job checked, with the digests it gave."""
+        steps = self.jobs["provenance"]["steps"]
+        step = next(step for step in steps if step.get("name") == "Require the exact bytes checked by the build job")
+        artifact = self.root / "compiler-artifact"
+        artifact.mkdir(exist_ok=True)
+        (artifact / "stego-linux-amd64").write_bytes(b"fixture compiler; do not execute\n")
+        (artifact / "build.json").write_bytes(b'{"format": 1}\n')
+        script = self.root / "step.sh"
+        script.write_text(step["run"])
+        environment = {"PATH": "/usr/bin:/bin", "RUNNER_TEMP": str(self.root), "BINARY_SHA256": binary,
+                       "RECORD_SHA256": record}
+        done = subprocess.run([shutil.which("bash"), "-e", str(script)], cwd=self.root, env=environment,
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+        return done.returncode, done.stdout.decode(), artifact
+
+    def test_only_the_main_branch_signing_job_signs(self):
+        with self.subTest("ST-DIS-INV11-T Only the main-branch signing job signs, and only the bytes it fetched"):
+            provenance = self.jobs["provenance"]
+            condition = provenance["if"]
+            base = {"github.repository": "jsell-rh/stego"}
+            events = [
+                ("a pull request", {"github.event_name": "pull_request", "github.ref": "refs/pull/7/merge"}, False),
+                ("a push to another branch", {"github.event_name": "push", "github.ref": "refs/heads/topic"}, False),
+                ("a dispatch of another branch", {"github.event_name": "workflow_dispatch",
+                                                  "github.ref": "refs/heads/topic"}, False),
+                ("a push to main", {"github.event_name": "push", "github.ref": "refs/heads/main"}, True),
+                ("a dispatch of main", {"github.event_name": "workflow_dispatch", "github.ref": "refs/heads/main"},
+                 True)]
+            for label, context, signs in events:
+                with self.subTest(event=label):
+                    self.assertEqual(job_condition(condition, dict(base, **context)), signs, label)
+            self.assertFalse(job_condition(condition, {"github.repository": "fork/stego", "github.event_name": "push",
+                                                       "github.ref": "refs/heads/main"}))
+            # The signing job holds the only attestation permission, and the workflow grants only read access.
+            self.assertEqual(self.workflow["permissions"], {"contents": "read"})
+            self.assertEqual(provenance["permissions"], {"contents": "read", "id-token": "write",
+                                                         "attestations": "write"})
+            for name, job in self.jobs.items():
+                if name != "provenance":
+                    self.assertNotIn("id-token", job.get("permissions", {}), name)
+                    self.assertNotIn("attestations", job.get("permissions", {}), name)
+            # It signs only after a successful build, the artifact it fetched by its immutable ID, at the paths it
+            # checked, and after the step that requires the build job's digests.
+            self.assertEqual(provenance["needs"], "linux-amd64")
+            steps = provenance["steps"]
+            names = [step.get("name") for step in steps]
+            fetch = steps[names.index("Retrieve the checked artifact from this run")]
+            self.assertEqual(fetch["with"]["artifact-ids"], "${{ needs.linux-amd64.outputs.artifact-id }}")
+            guard = names.index("Require the exact bytes checked by the build job")
+            sign = names.index("Sign the compiler and build record")
+            self.assertLess(names.index("Retrieve the checked artifact from this run"), guard)
+            self.assertLess(guard, sign)
+            self.assertRegex(steps[sign]["uses"], r"^actions/attest@[0-9a-f]{40}")
+            self.assertNotIn("if", steps[sign])
+            self.assertEqual(steps[guard]["env"], {
+                "BINARY_SHA256": "${{ needs.linux-amd64.outputs.binary-sha256 }}",
+                "RECORD_SHA256": "${{ needs.linux-amd64.outputs.record-sha256 }}"})
+            self.assertEqual(steps[sign]["with"]["subject-path"].splitlines(),
+                             ["${{ runner.temp }}/compiler-artifact/stego-linux-amd64",
+                              "${{ runner.temp }}/compiler-artifact/build.json"])
+            # The guard passes when the fetched bytes are the ones the build job checked, and fails otherwise, so a
+            # job whose fetched digests differ never reaches the signing step.
+            binary = hashlib.sha256(b"fixture compiler; do not execute\n").hexdigest()
+            record = hashlib.sha256(b'{"format": 1}\n').hexdigest()
+            status, log, _ = self.guard(binary, record)
+            self.assertEqual(status, 0, log)
+            for changed in [("0" * 64, record), (binary, "0" * 64), ("not-a-digest", record)]:
+                status, log, _ = self.guard(*changed)
+                self.assertNotEqual(status, 0, changed)
+            status, log, _ = self.guard("0" * 64, record)
+            self.assertIn("The downloaded bytes differ from the checked build", log)
 
 
 if __name__ == "__main__":

@@ -63,7 +63,7 @@ class InstallationChecks(unittest.TestCase):
         return installer.install(self.revision, self.output, self.gh)
 
     def test_release_requires_both_signatures_and_publishes_captured_bytes(self):
-        with self.subTest("ST-DIS-UC09-R02-T01 Installation verifies both signatures before it puts the binary in place"):
+        with self.subTest("In process: Installation verifies both signatures before it puts the binary in place"):
             signed = []
             def authenticate(gh, path, bundle, revision, environment):
                 self.assertFalse(self.output.exists())
@@ -126,7 +126,7 @@ class InstallationChecks(unittest.TestCase):
                 with self.assertRaises(installer.CheckError):
                     installer.install("main", self.output, self.gh)
                 api.assert_not_called()
-            with self.subTest("ST-DIS-UC09-R01-T01 Installation refuses a platform other than Linux amd64 before any download"):
+            with self.subTest("In process: Installation refuses a platform other than Linux amd64 before any download"):
                 with patch.object(installer.platform, "machine", return_value="aarch64"):
                     with self.assertRaises(installer.CheckError):
                         self.install()
@@ -202,6 +202,7 @@ class InstallationChecks(unittest.TestCase):
                         api.assert_not_called()
                     self.assertFalse(self.output.exists())
                     self.assertEqual(list(self.root.glob(".stego-*-*")), [])
+
 
 
 if __name__ == "__main__":

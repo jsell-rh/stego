@@ -272,7 +272,7 @@ class QualificationChecks(unittest.TestCase):
         self.assertTrue((self.output / "qualification.json").exists())
 
     def test_release_verification_cross_checks_assets_and_notes(self):
-        with self.subTest("ST-DIS-UC08-R03-T01 Release verification cross-checks every asset digest and the release notes"):
+        with self.subTest("In process: Release verification cross-checks every asset digest and the release notes"):
             result = self.verify_release()
             self.assertEqual(result["mode"], "verify-release")
             release = result["release"]
@@ -321,7 +321,7 @@ class QualificationChecks(unittest.TestCase):
                 self.qualify()
 
     def test_incomplete_checks_job_set_fails(self):
-        with self.subTest("ST-DIS-UC08-R02-T01 Qualification fails when a required checks job is missing"):
+        with self.subTest("In process: Qualification fails when a required checks job is missing"):
             self.jobs["checks"] = self.jobs["checks"][:-1]
             with patch.object(qualification, "api", self.api):
                 with self.assertRaises(CheckError):
@@ -376,7 +376,7 @@ class QualificationChecks(unittest.TestCase):
                 self.qualify()
 
     def test_tag_pointing_elsewhere_fails_release_verification(self):
-        with self.subTest("ST-DIS-UC08-R01-T01 Verification fails when the release tag points at another commit"):
+        with self.subTest("In process: Verification fails when the release tag points at another commit"):
             def with_other_tag(gh, path, directory, **keyword):
                 if path.endswith("matching-refs/tags/" + self.tag):
                     return json.dumps([{"ref": "refs/tags/" + self.tag,
@@ -410,7 +410,7 @@ class QualificationChecks(unittest.TestCase):
         self.assertEqual(result["compiler_checks"]["head_branch"], self.tag)
 
     def test_release_verification_proves_removed_artifacts_by_signature(self):
-        with self.subTest("ST-DIS-UC08-R03-T02 Release verification proves the signed artifact run by the release signatures after its artifacts expire"):
+        with self.subTest("In process: Release verification proves the signed artifact run by the release signatures after its artifacts expire"):
             self.artifacts = []
             result = self.verify_release()
             self.assertEqual(result["signed_artifact"]["artifacts"], [])
@@ -418,7 +418,7 @@ class QualificationChecks(unittest.TestCase):
             self.assertEqual(result["release"]["signatures_name_signed_artifact_run"], 202)
 
     def test_signature_from_another_run_fails_release_verification(self):
-        with self.subTest("ST-DIS-UC08-R01-T02 Release verification fails when a release signature names another signed artifact run"):
+        with self.subTest("In process: Release verification fails when a release signature names another signed artifact run"):
             for key in list(self.signing_runs):
                 for artifacts in [self.artifact_records(), []]:
                     with self.subTest(file=key[0], source=key[1], artifacts=len(artifacts)):
@@ -437,7 +437,7 @@ class QualificationChecks(unittest.TestCase):
             self.assertFalse(self.output.exists())
 
     def test_release_verification_takes_the_run_its_signatures_name(self):
-        with self.subTest("ST-DIS-UC08-R03-T02 Release verification proves the signed artifact run by the release signatures after its artifacts expire"):
+        with self.subTest("In process: Release verification proves the signed artifact run by the release signatures after its artifacts expire"):
             newer = self.run_record(203, qualification.ARTIFACT_WORKFLOW, "main")
             self.newer_runs = [newer]
             self.artifacts = []
@@ -470,7 +470,7 @@ class QualificationChecks(unittest.TestCase):
         self.assertEqual(installer_calls, bundled)
 
     def test_missing_signed_artifacts_fail(self):
-        with self.subTest("ST-DIS-UC08-R02-T02 Qualification fails when the signed artifact run holds no artifacts or only some of them"):
+        with self.subTest("In process: Qualification fails when the signed artifact run holds no artifacts or only some of them"):
             self.artifacts = []
             with patch.object(qualification, "api", self.api):
                 with self.assertRaises(CheckError) as refused:
@@ -546,6 +546,7 @@ class SignatureRunChecks(unittest.TestCase):
             with self.subTest(refused=refused):
                 with self.assertRaises(CheckError):
                     self.runs(refused)
+
 
 
 if __name__ == "__main__":

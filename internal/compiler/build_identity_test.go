@@ -20,7 +20,7 @@ func TestCompilerBuildState(t *testing.T) {
 		t.Fatal(err)
 	}
 	var plan *Plan
-	if !t.Run("ST-DIS-UC09-R03-T02 Apply writes the current build identity into the record", func(t *testing.T) {
+	if !t.Run("In process: apply writes the current build identity into the record", func(t *testing.T) {
 		if state.LastApplied.CompilerBuild == nil || *state.LastApplied.CompilerBuild != buildidentity.Current() {
 			t.Fatal("compiler record missing")
 		}

@@ -105,7 +105,16 @@ if args[:2] == ["attestation", "verify"]:
     bundle = value("--bundle")
     if bundle is not None and sha256(Path(bundle).read_bytes()) != state["bundle"]:
         fail("the bundle does not verify")
-    results = state["attestations"].get(predicate + " " + sha256(path.read_bytes()))
+    if state.get("watch") is not None:
+        # A test that watches a folder learns whether it existed when each signature was checked.
+        with (here / "watch.jsonl").open("a") as watch:
+            watch.write(json.dumps({"subject": path.name, "bundle": bundle is not None,
+                                    "exists": Path(state["watch"]).exists()}) + "\n")
+    key = predicate + " " + sha256(path.read_bytes())
+    # The release bundle may say what the attestation store does not, when a test gives it its own results.
+    results = state.get("bundle_attestations", {}).get(key) if bundle is not None else None
+    if results is None:
+        results = state["attestations"].get(key)
     if not results:
         fail("no attestation verifies")
     print(json.dumps(results))
