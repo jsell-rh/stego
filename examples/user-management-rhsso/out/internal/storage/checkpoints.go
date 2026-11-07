@@ -18,7 +18,7 @@ const ScanCheckpointMigration = "CREATE TABLE IF NOT EXISTS stego_scan_checkpoin
 var _ checkpointcontract.CheckpointStore = (*Store)(nil)
 
 func init() {
-	Register("006_scan_checkpoints", func(db *gorm.DB) error { return db.Exec(ScanCheckpointMigration).Error })
+	Register("006_scan_checkpoints", "ebf68b56745367cb53a31400170ebc5ee9b4cb6ae6aad31e3a19c1fb8fd8aae1", func(db *gorm.DB) error { return db.Exec(ScanCheckpointMigration).Error })
 }
 
 // Check the exact key and column types before the store accepts calls.

@@ -15,7 +15,7 @@ import (
 type MigrationFunc func(db *gorm.DB) error
 
 // Migration represents a named database migration. The digest covers the
-// migration identity; an edited migration changes the digest and is rejected.
+// migration body; an edited migration changes the digest and is rejected.
 type Migration struct {
 	Name   string
 	Digest string
@@ -25,16 +25,19 @@ type Migration struct {
 var migrations []Migration
 
 // Digest computes the ledger digest of a migration body. The body is the
-// SQL text for SQL migrations; function migrations use the registered name.
+// SQL text of a SQL migration and the generated source text of a function
+// migration.
 func Digest(body string) string {
 	sum := sha256.Sum256([]byte(body))
 	return hex.EncodeToString(sum[:])
 }
 
-// Register adds a function migration to the ordered migration list.
-// Migration names must sort in apply order; use zero-padded number prefixes.
-func Register(name string, fn MigrationFunc) {
-	migrations = append(migrations, Migration{Name: name, Digest: Digest(name), Func: fn})
+// Register adds a function migration to the ordered migration list. The
+// digest is Digest of the migration's source text; STEGO computes it for
+// each migration it generates. Migration names must sort in apply order;
+// use zero-padded number prefixes.
+func Register(name, digest string, fn MigrationFunc) {
+	migrations = append(migrations, Migration{Name: name, Digest: digest, Func: fn})
 }
 
 // RegisterSQL adds a SQL migration to the ordered migration list. The
@@ -75,7 +78,7 @@ func orderedMigrations() []Migration {
 }
 
 func init() {
-	Register("001_initial", func(db *gorm.DB) error {
+	Register("001_initial", "305a38916076862a1b51aaa79fcfc85215ca113b896331ff3b27aaf40e88a421", func(db *gorm.DB) error {
 		return db.AutoMigrate(
 			&Organization{},
 			&AuditEvent{},

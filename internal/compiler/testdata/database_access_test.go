@@ -25,7 +25,7 @@ import (
 )
 
 func init() {
-	storage.Register("access_test_outbox", func(db *gorm.DB) error { return db.Exec(queue.SchemaSQL).Error })
+	storage.Register("access_test_outbox", storage.Digest(queue.SchemaSQL), func(db *gorm.DB) error { return db.Exec(queue.SchemaSQL).Error })
 }
 
 type accessFixture struct {
