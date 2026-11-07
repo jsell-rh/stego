@@ -18,12 +18,12 @@ func validateComponentNamespaces(components map[string]*registry.Component) []Va
 			continue
 		}
 		if err := gen.ValidatePath(namespace); err != nil {
-			errors = append(errors, ValidationError{Category: "namespace", Message: fmt.Sprintf("component %q: %v", name, err)})
+			errors = append(errors, ValidationError{Category: "namespace", Rule: "namespace", Path: "component_namespaces." + name, Found: namespace, Message: fmt.Sprintf("component %q: %v", name, err)})
 			continue
 		}
 		lower := strings.ToLower(namespace)
 		if lower == "contracts" || strings.HasPrefix(lower, "contracts/") {
-			errors = append(errors, ValidationError{Category: "namespace", Message: fmt.Sprintf("component %q uses compiler-owned namespace %q", name, namespace)})
+			errors = append(errors, ValidationError{Category: "namespace", Rule: "namespace", Path: "component_namespaces." + name, Found: namespace, Message: fmt.Sprintf("component %q uses compiler-owned namespace %q", name, namespace)})
 			continue
 		}
 		for _, other := range names[:i] {
@@ -31,7 +31,7 @@ func validateComponentNamespaces(components map[string]*registry.Component) []Va
 			a, b := strings.ToLower(previous), strings.ToLower(namespace)
 			if previous != "" && (a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")) {
 				errors = append(errors, ValidationError{
-					Category: "namespace", Message: fmt.Sprintf("components %q and %q have overlapping output namespaces %q and %q", other, name, previous, namespace),
+					Category: "namespace", Rule: "namespace", Path: "component_namespaces." + name, Found: namespace, Message: fmt.Sprintf("components %q and %q have overlapping output namespaces %q and %q", other, name, previous, namespace),
 				})
 			}
 		}
@@ -68,15 +68,15 @@ func applyComponentNamespaces(namespaces map[string]string, components map[strin
 		component := components[name]
 		namespace := namespaces[name]
 		if component == nil {
-			failures = append(failures, ValidationError{Category: "namespace", Message: fmt.Sprintf("component_namespaces refers to inactive component %q", name)})
+			failures = append(failures, ValidationError{Category: "namespace", Rule: "namespace", Path: "component_namespaces." + name, Found: name, Message: fmt.Sprintf("component_namespaces refers to inactive component %q", name)})
 			continue
 		}
 		if namespace == "" {
-			failures = append(failures, ValidationError{Category: "namespace", Message: fmt.Sprintf("component %q requires a nonempty output namespace", name)})
+			failures = append(failures, ValidationError{Category: "namespace", Rule: "namespace", Path: "component_namespaces." + name, Message: fmt.Sprintf("component %q requires a nonempty output namespace", name)})
 			continue
 		}
 		if err := gen.ValidateGoImportNamespace(namespace); err != nil {
-			failures = append(failures, ValidationError{Category: "namespace", Message: fmt.Sprintf("component %q: %v", name, err)})
+			failures = append(failures, ValidationError{Category: "namespace", Rule: "namespace", Path: "component_namespaces." + name, Found: namespace, Message: fmt.Sprintf("component %q: %v", name, err)})
 			continue
 		}
 		copy := *component

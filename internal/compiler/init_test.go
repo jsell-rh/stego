@@ -31,6 +31,16 @@ func initTestRegistry(t *testing.T, project, directory, archetype string) {
 	initTestFile(t, project, directory+"/archetypes/"+archetype+"/archetype.yaml", "kind: archetype\nname: "+archetype+"\nlanguage: go\nversion: 1.0.0\ncomponents: []\n")
 }
 
+// initDefaultRegistry puts a registry with the archetype in the default local registry folder of a new home
+// folder of the test.
+func initDefaultRegistry(t *testing.T, archetype string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	initTestRegistry(t, home, ".config/stego/registry", archetype)
+}
+
 func assertInitService(t *testing.T, project, archetype string) {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(project, "service.yaml"))
@@ -80,7 +90,10 @@ func TestInitializeComposedRegistry(t *testing.T) {
 func TestInitializeDefaultRegistry(t *testing.T) {
 	t.Setenv("STEGO_REGISTRY", "")
 	project := t.TempDir()
-	initTestRegistry(t, project, "registry", "example")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	initTestRegistry(t, home, ".config/stego/registry", "example")
 	result, err := Initialize(InitOptions{ProjectDir: project, Archetype: "example"})
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +110,7 @@ func TestInitializeDefaultRegistry(t *testing.T) {
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		t.Fatal(err)
 	}
-	if len(config.Registry) != 1 || config.Registry[0].URL != filepath.Join(project, "registry") || config.Registry[0].Ref != "local" {
+	if len(config.Registry) != 1 || config.Registry[0].URL != filepath.Join(home, ".config", "stego", "registry") || config.Registry[0].Ref != "local" {
 		t.Fatalf("unexpected registry config: %+v", config)
 	}
 }
@@ -198,7 +211,7 @@ func TestInitializeRejectsExistingPaths(t *testing.T) {
 func TestInitializeConcurrent(t *testing.T) {
 	t.Setenv("STEGO_REGISTRY", "")
 	project := t.TempDir()
-	initTestRegistry(t, project, "registry", "example")
+	initDefaultRegistry(t, "example")
 	start := make(chan struct{})
 	results := make(chan error, 2)
 	var workers sync.WaitGroup
@@ -240,7 +253,7 @@ func TestInitializeConcurrent(t *testing.T) {
 func TestInitializeUsesProjectLock(t *testing.T) {
 	t.Setenv("STEGO_REGISTRY", "")
 	project := t.TempDir()
-	initTestRegistry(t, project, "registry", "example")
+	initDefaultRegistry(t, "example")
 	root, err := os.OpenRoot(project)
 	if err != nil {
 		t.Fatal(err)

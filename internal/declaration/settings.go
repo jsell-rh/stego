@@ -17,7 +17,9 @@ func ValidateSettings(path string, values map[string]any, schema map[string]type
 	for _, key := range sortedKeys(values) {
 		field, ok := schema[key]
 		if !ok {
-			errors = append(errors, configError(path+"."+key, "unknown configuration field"))
+			fault := configError(path+"."+key, "unknown configuration field")
+			fault.Found, fault.Allowed = key, sortedKeys(schema)
+			errors = append(errors, fault)
 			continue
 		}
 		errors = append(errors, ValidateSettingValue(path+"."+key, values[key], field)...)
@@ -68,7 +70,9 @@ func ValidateSettingValue(path string, value any, field types.ConfigField) []Val
 		return []ValidationError{configError(path, fmt.Sprintf("unsupported configuration type %q", field.Type))}
 	}
 	if !valid {
-		return []ValidationError{configError(path, fmt.Sprintf("must have type %s; got %T", typ, value))}
+		fault := configError(path, fmt.Sprintf("must have type %s; got %T", typ, value))
+		fault.Found, fault.Allowed = fmt.Sprint(value), []string{typ}
+		return []ValidationError{fault}
 	}
 	if len(field.Enum) > 0 {
 		text, ok := value.(string)
@@ -77,7 +81,9 @@ func ValidateSettingValue(path string, value any, field types.ConfigField) []Val
 			found = found || (ok && text == allowed)
 		}
 		if !found {
-			return []ValidationError{configError(path, fmt.Sprintf("must be one of %v", field.Enum))}
+			fault := configError(path, fmt.Sprintf("must be one of %v", field.Enum))
+			fault.Found, fault.Allowed = fmt.Sprint(value), append([]string(nil), field.Enum...)
+			return []ValidationError{fault}
 		}
 	}
 	if typ != "list" || field.Items == nil {
@@ -103,7 +109,7 @@ func ValidateSettingValue(path string, value any, field types.ConfigField) []Val
 }
 
 func configError(path, message string) ValidationError {
-	return ValidationError{Category: "config", Message: path + ": " + message}
+	return ValidationError{Category: "config", Rule: "config", Path: path, Message: path + ": " + message}
 }
 
 func sortedKeys[T any](values map[string]T) []string {
