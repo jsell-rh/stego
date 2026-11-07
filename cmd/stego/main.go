@@ -94,6 +94,10 @@ func main() {
 		err = runFill(os.Args[2:])
 	case "registry":
 		err = runRegistry(os.Args[2:])
+	case "lifecycle":
+		err = runLifecycle(os.Args[2:])
+	case "fleet":
+		err = runFleet(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
 		printUsage()
@@ -136,6 +140,10 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  registry search     Query components by provides/requires/slots")
 	fmt.Fprintln(os.Stderr, "  registry inspect    Show component details")
 	fmt.Fprintln(os.Stderr, "  registry fills      Find existing fills for a slot")
+	fmt.Fprintln(os.Stderr, "  lifecycle supersede Record the successor of a digest, with its fail date")
+	fmt.Fprintln(os.Stderr, "  lifecycle withdraw  Record that a digest must not be used, with its fail date")
+	fmt.Fprintln(os.Stderr, "  fleet               Name every service that pins a component digest")
+	fmt.Fprintln(os.Stderr, "  fleet vex           Print an OpenVEX statement per service and advisory")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Other:")
 	fmt.Fprintln(os.Stderr, "  version         Print version")
@@ -389,6 +397,9 @@ func runPlan(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := checkPinStanding(input, plan); err != nil {
+		return err
+	}
 	if err := compiler.SavePlan(plan, input.ProjectDir); err != nil {
 		return err
 	}
@@ -420,6 +431,9 @@ func runApply(args []string) error {
 		return err
 	}
 
+	if err := checkPinStanding(input, plan); err != nil {
+		return err
+	}
 	if *savedPlan {
 		saved, err := compiler.LoadPlan(input.ProjectDir)
 		if err != nil {
@@ -475,7 +489,11 @@ func runValidate(args []string) error {
 	if result.HasErrors() {
 		return fmt.Errorf("validation failed with %d error(s)", len(result.Errors))
 	}
-	return nil
+	plan, err := compiler.Reconcile(input)
+	if err != nil {
+		return err
+	}
+	return checkPinStanding(input, plan)
 }
 
 // runDrift implements `stego drift`.

@@ -172,6 +172,7 @@
 {"source_id":"ST-DIS-CH02","target_id":"ST-PAT-GO-CODE-SL03"}
 {"source_id":"ST-DIS-CH03","target_id":"ST-PAT-GO-CODE-SL03"}
 {"source_id":"ST-DIS-CH04","target_id":"ST-PAT-GO-CODE-SL03"}
+{"source_id":"ST-DIS-CH05","target_id":"ST-PAT-GO-CODE-SL03"}
 {"source_id":"ST-DIS-CMD03-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DIS-CMD04-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DIS-CMD05-H","target_id":"ST-PAT-GO-CODE-SL01"}
@@ -194,14 +195,17 @@
 {"source_id":"ST-DIS-EV06-ET","target_id":"ST-PAT-GO-CODE-SL02"}
 {"source_id":"ST-DIS-EV07-ET","target_id":"ST-PAT-GO-CODE-SL02"}
 {"source_id":"ST-DIS-EV08-ET","target_id":"ST-PAT-GO-CODE-SL02"}
+{"source_id":"ST-DIS-INV06-RL","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DIS-INV09-RL","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DIS-INV10-RL","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DIS-INV11-RL","target_id":"ST-PAT-GO-CODE-SL01"}
+{"source_id":"ST-DIS-INV12-RL","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DIS-PO05-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DIS-PO06-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DIS-QRY01-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DIS-QRY03-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DIS-QRY04-H","target_id":"ST-PAT-GO-CODE-SL01"}
+{"source_id":"ST-DIS-QRY06-H","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DIS-REPO01","target_id":"ST-PAT-GO-CODE-SL02"}
 {"source_id":"ST-DIS-REPO02","target_id":"ST-PAT-GO-CODE-SL02"}
 {"source_id":"ST-DIS-REPO03","target_id":"ST-PAT-GO-CODE-SL02"}
