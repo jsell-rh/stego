@@ -186,6 +186,9 @@
 {"entity_id":"ST-DECL-EN26","position":2,"name":"Process","meaning":"The name of the process, in the processes of the grpc-processes component, that serves the method.","type":"text","required":true,"example":"records-echo"}
 {"entity_id":"ST-DECL-EN26","position":3,"name":"Method","meaning":"The unary protobuf method, as package.Service/Method, in a proto file of that process.","type":"text","required":true,"example":"sample.v1.Records/Echo"}
 {"entity_id":"ST-DECL-EN26","position":4,"name":"Fill","meaning":"The one fill that carries out the method at the process method slot.","type":"text","required":true,"example":"echo"}
+{"entity_id":"ST-DECL-EN27","position":1,"name":"Resource type","meaning":"The type in the authorization schema that Provision and Retire are decided on, with the service's own resource of that type as the resource.","type":"text","required":false,"example":"platform"}
+{"entity_id":"ST-DECL-EN27","position":2,"name":"Provision permission","meaning":"The permission that a principal needs on that resource to provision a tenant. When authorization is bound, it is required.","type":"text","required":false,"example":"provision"}
+{"entity_id":"ST-DECL-EN27","position":3,"name":"Retire permission","meaning":"The permission that a principal needs on that resource to retire a tenant. When authorization is bound, it is required.","type":"text","required":false,"example":"retire"}
 {"entity_id":"ST-DIS-EN06","position":1,"name":"Component","meaning":"The component's name.","type":"text","required":true,"example":"rest-api"}
 {"entity_id":"ST-DIS-EN06","position":2,"name":"Digest","meaning":"The component digest whose standing this is.","type_value_object_id":"ST-VO41","required":true}
 {"entity_id":"ST-DIS-EN07","position":1,"name":"Successor digest","meaning":"The digest that replaces this one. The platform engineer declares it. Kept under database_specific in the advisory.","type_value_object_id":"ST-VO41","required":true}
