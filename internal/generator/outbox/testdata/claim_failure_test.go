@@ -158,18 +158,21 @@ func TestUnknownClaimResultRecoversAfterLeaseExpiry(t *testing.T) {
 				}
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
+				// The database sets each lease end per row, so the two leases can
+				// expire microseconds apart. Collect claims until both rows return.
 				var rows []Delivery
 				for {
-					rows, err = recovered.Claim(ctx, 2, time.Minute)
+					claimed, err := recovered.Claim(ctx, 2, time.Minute)
 					if err != nil {
 						t.Fatal("lease recovery failed", err)
 					}
-					if len(rows) != 0 {
+					rows = append(rows, claimed...)
+					if len(rows) >= 2 {
 						break
 					}
 					select {
 					case <-ctx.Done():
-						t.Fatal("stored leases did not expire")
+						t.Fatalf("stored leases did not expire: %d of 2 rows recovered", len(rows))
 					case <-time.After(20 * time.Millisecond):
 					}
 				}
