@@ -131,6 +131,10 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 	}
 	result.Errors = append(result.Errors, fillErrs...)
 
+	if components != nil {
+		source.Active = components
+	}
+
 	if !result.HasErrors() {
 		resolved, err := prepareComponents(input, source, baselineNames, components)
 		if err != nil {
@@ -302,6 +306,62 @@ func validateFillsExist(slots []types.SlotDeclaration, collections []types.Colle
 		}
 	}
 	return errs, nil
+}
+
+// ResolveFillCheck reads the declaration and the active registry and gives
+// what a check of the fills needs: each slot of the active component set and
+// of the declaration's mixins, each fill that a slot binding names, and the
+// declared collections. It does not check the fills.
+func ResolveFillCheck(input ReconcilerInput) (FillCheck, error) {
+	source, err := loadCompilationSource(input)
+	if err != nil {
+		return FillCheck{}, err
+	}
+	result, err := validateSource(input, source)
+	if err != nil {
+		return FillCheck{}, err
+	}
+	if source.Active == nil {
+		return FillCheck{}, fmt.Errorf("the active component set cannot be resolved:\n%s", FormatValidation(result))
+	}
+	return fillCheck(input.ProjectDir, source.Service, source.Registry, source.Active), nil
+}
+
+// fillCheck gives the fill check of a declaration with its active component
+// set.
+func fillCheck(projectDir string, svcDecl *types.ServiceDeclaration, reg *registry.Registry, components map[string]*registry.Component) FillCheck {
+	check := FillCheck{ProjectDir: projectDir, Contracts: reg}
+	for _, name := range sortedKeys(components) {
+		for _, sd := range components[name].Slots {
+			check.Slots = append(check.Slots, FillSlot{
+				Ref:      types.SlotRef{Component: name, Slot: sd.Name},
+				Contract: "components/" + name + "/slots/" + sd.Name + ".proto",
+			})
+		}
+	}
+	for _, mixinName := range svcDecl.Mixins {
+		mixin := reg.Mixin(mixinName)
+		if mixin == nil {
+			continue
+		}
+		for _, sd := range mixin.AddsSlots {
+			check.Slots = append(check.Slots, FillSlot{
+				Ref:      types.SlotRef{Component: mixin.Name, Slot: sd.Name},
+				Contract: "mixins/" + mixin.Name + "/slots/" + sd.Name + ".proto",
+			})
+		}
+	}
+	for _, c := range svcDecl.Collections {
+		check.Collections = append(check.Collections, c.Name)
+	}
+	for _, sb := range svcDecl.Slots {
+		for _, list := range [][]string{sb.Gate, sb.Chain, sb.FanOut} {
+			for _, name := range list {
+				check.Bindings = append(check.Bindings, FillBinding{Fill: name, Slot: sb.Slot, Collection: sb.Collection})
+			}
+		}
+	}
+	return check
 }
 
 // validateLanguage checks that the service declaration's language matches the

@@ -29,9 +29,9 @@ last_applied:
         go_version: go1.26.10
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261107055844-556ef114d877
+        module_version: v0.0.0-20261107080126-87e6611adcf9
         vcs: git
-        revision: 556ef114d87758c70230266d9f4b57e665dddf7b
+        revision: 87e6611adcf935610efcb92f8d17ec3d9182cdfc
         source_state: clean
     service_name: user-management
     service_hash: df9112176f2dcaf28257689abc0fedd964b29998195268acc4804137c064b9b1
@@ -168,12 +168,24 @@ last_applied:
         main.go: 239043578639519003057e62c52bdea52aaa331a6445adda65a589ead3442214
         slots/after_create.go: 03242bcad46578176c9ac819f42390080ebebb94f72c480316f09740289ad80f
         slots/after_create_operators.go: c72f22f8bd303c7e04c678806d36c11c7c95f7d0519c9fc34bf80d1d597c5e5b
+        slots/after_delete.go: 4bef3c50640584d2414a8413ccacd72bd6b6415d0b61ac45523f26f948490ed5
+        slots/after_delete_operators.go: a6b4a84c52b3eebdf56e0818c7c8f28b11c36cf75569310f51a2d5333c38a7f0
+        slots/after_patch.go: fa67b9e53655df455fce58164c308760c4ef6d151a51cad15d5f0ce5bc9110ec
+        slots/after_patch_operators.go: d7a6ccff0d8b64925a245a297d3a71985d2478ccc1b3930f10d35adfe0bd5ffa
+        slots/after_upsert.go: 3badde9ce0097b0a4e08e9b6b162d9818536993b007a36a89203dad2cc8d113b
+        slots/after_upsert_operators.go: 632c66e371b1b59d52eb017907f9a253c8852238e41605597362a665dc606086
         slots/before_create.go: 0ed4275239c00344d9e55970778a6ab14baf77d84963089b65abfe8b7d764eb4
         slots/before_create_operators.go: e15d5fd7d4a97ec052417842126a4b336ddccf0c9b82bc501a50e9e34186e5ab
         slots/before_delete.go: 573cf94aec922bb61cdc473d2c221e1e788c9d54f182b2394679aebf8492b3ca
         slots/before_delete_operators.go: 63dfa5feab857c381d4d9a9e1fe37522042de5855579d73e5f9b962dd6fbd231
+        slots/before_patch.go: 1463e251d293459c98131610cd78fca96c703a3f1a6eccb684ef6d35c12fe2af
+        slots/before_patch_operators.go: aa59114eb81469cad9b2465d9029ef43a866f494f28794a1d0e16744de5d4b48
+        slots/before_upsert.go: 4c3f39b8315075d959877b31b366185a43671a0a72fda3f373037ee3253a57d8
+        slots/before_upsert_operators.go: b49a19832dfdc35f4bee4c1a9d86a0ef7d79b24f14bc8cfa18af34453c2357a1
         slots/on_entity_changed.go: a7851d889ab1a8313adbf909282ef47fbeff058b31c847097964948b14c30e64
         slots/on_entity_changed_operators.go: b1edb4b33a83bbf8e56dd4b2199944b9c673921f2caecafd1d4178ed3188a55a
+        slots/validate.go: bfe2dbba91812ffd55b30f738f52bb40e28c90c7cbd8109c7499d4c490158744
+        slots/validate_operators.go: 9a6b461075eab73624b2d67c378256162732270002904cd6aad2a0a13b6abcc0
         tracing/auth_keys.go: 06b56ab095f6f7417390be61fad5cc8860445653b823ad41667327ebc7f0c852
         tracing/browser.go: 24b3d639478fa6a18d48d1c7eddd9ee749ff07863deb6eb5aa13cbc4793f265b
         tracing/client.go: 37ee470ae71faa5e5daecd59d73b7874a0c38ea08e5eaed9d1ed2617ac241c67

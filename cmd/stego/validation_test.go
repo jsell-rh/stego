@@ -200,7 +200,7 @@ func TestCommandsRejectNormalizedSlotCollisions(t *testing.T) {
 	}
 	for i, slot := range []string{"before_create", "before__create"} {
 		name := []string{"first", "second"}[i]
-		files["fills/"+name+"/fill.yaml"] = "kind: fill\nname: " + name + "\nimplements: rest-api." + slot + "\ncollection: widgets\nqualified_by: tester\nqualified_at: 2026-04-01\n"
+		files["fills/"+name+"/fill.yaml"] = "kind: fill\nname: " + name + "\nimplements: rest-api." + slot + "\ncollection: widgets\n"
 	}
 	for name, data := range files {
 		if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {

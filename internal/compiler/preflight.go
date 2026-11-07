@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 
@@ -49,8 +50,10 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 	// Determine the slots package path. Slots are placed outside internal/
 	// so that fills (which live at the project root, outside out/) can import
 	// the generated slot interfaces.
+	// A project that holds fills gets the package too, before any fill is
+	// bound, so that its fills compile and their tests run (ST-EXT-INV05).
 	slotsPackage := ""
-	if len(svcDecl.Slots) > 0 {
+	if len(svcDecl.Slots) > 0 || holdsFills(input.ProjectDir) {
 		slotsPackage = "slots"
 	}
 
@@ -160,4 +163,21 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 		return nil, err
 	}
 	return resolved, nil
+}
+
+// holdsFills tells if the fills folder of the project holds at least one
+// fill folder. An empty fills folder, as stego init makes it, does not count:
+// Git keeps no empty folder, so a clone of the project would generate other
+// files.
+func holdsFills(projectDir string) bool {
+	entries, err := os.ReadDir(filepath.Join(projectDir, "fills"))
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			return true
+		}
+	}
+	return false
 }

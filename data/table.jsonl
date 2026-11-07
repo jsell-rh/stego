@@ -22,8 +22,8 @@
 {"id":"ST-DLV-EN05-TB","title":"applicationset.yaml","entity_id":"ST-DLV-EN05","name":"deploy/argocd/applicationset.yaml","storage":"file","file":"internal/delivery/argocd.go"}
 {"id":"ST-DLV-EN06-TB","title":"delivery_candidate","entity_id":"ST-DLV-EN06","name":"delivery-check.json","storage":"file","file":"internal/delivery/check.go"}
 {"id":"ST-DLV-RM01-TB","title":"delivery.CheckEnvironment","read_model_id":"ST-DLV-RM01","name":"delivery.CheckEnvironment","storage":"in memory","file":"internal/delivery/environment.go"}
-{"id":"ST-EXT-EN01-TB","title":"fill.yaml","entity_id":"ST-EXT-EN01","name":"fill.yaml","storage":"file","file":"internal/fill/fill.go"}
-{"id":"ST-EXT-RM01-TB","title":"main.runRegistryFills","read_model_id":"ST-EXT-RM01","name":"main.runRegistryFills","storage":"in memory","file":"cmd/stego/main.go"}
+{"id":"ST-EXT-EN01-TB","title":"fill.ManifestFile","entity_id":"ST-EXT-EN01","name":"fill.yaml","storage":"file","file":"internal/fill/fill.go"}
+{"id":"ST-EXT-RM01-TB","title":"fill.CatalogEntry","read_model_id":"ST-EXT-RM01","name":"fill.CatalogEntry","storage":"in memory","file":"internal/fill/catalog.go"}
 {"id":"ST-EXT-RM02-TB","title":"fill.Qualification","read_model_id":"ST-EXT-RM02","name":"fill.Qualification","storage":"in memory","file":"internal/fill/qualification.go"}
 {"id":"ST-GEN-EN01-TB","title":".stego/state.yaml","entity_id":"ST-GEN-EN01","name":".stego/state.yaml","storage":"file","file":"internal/compiler/state.go"}
 {"id":"ST-GEN-EN05-TB","title":".stego/transaction.yaml","entity_id":"ST-GEN-EN05","name":".stego/transaction.yaml","storage":"file","file":"internal/compiler/transaction.go"}

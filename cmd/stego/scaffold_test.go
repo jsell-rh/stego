@@ -195,9 +195,6 @@ func TestParseFill(t *testing.T) {
 	if f.Collection != "org-users" {
 		t.Errorf("collection = %q, want %q", f.Collection, "org-users")
 	}
-	if f.QualifiedBy != "jsell" {
-		t.Errorf("qualified_by = %q, want %q", f.QualifiedBy, "jsell")
-	}
 }
 
 func TestParseFillTyped(t *testing.T) {
@@ -234,8 +231,6 @@ kind: fill
 name: my-policy
 implements: rest-api.before_create
 entity: User
-qualified_by: tester
-qualified_at: 2026-04-01T00:00:00Z
 `
 	var f fill.Fill
 	err := yaml.Unmarshal([]byte(input), &f)
@@ -253,8 +248,6 @@ kind: fill
 name: admin-creation-policy
 implements: rest-api.before_create
 collection: org-users
-qualified_by: jsell
-qualified_at: 2026-04-06T00:00:00Z
 `
 	var f fill.Fill
 	if err := yaml.Unmarshal([]byte(input), &f); err != nil {
@@ -268,9 +261,6 @@ qualified_at: 2026-04-06T00:00:00Z
 	}
 	if f.Collection != "org-users" {
 		t.Errorf("collection = %q, want %q", f.Collection, "org-users")
-	}
-	if f.QualifiedBy != "jsell" {
-		t.Errorf("qualified_by = %q, want %q", f.QualifiedBy, "jsell")
 	}
 }
 

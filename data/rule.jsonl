@@ -39,6 +39,9 @@
 {"id":"ST-DIS-INV09-RL","title":"build","invariant_id":"ST-DIS-INV09","file":"scripts/check-compiler-artifact.py"}
 {"id":"ST-DIS-INV10-RL","title":"verify_published_release","invariant_id":"ST-DIS-INV10","file":"scripts/qualify-compiler-release.py"}
 {"id":"ST-DIS-INV11-RL","title":"provenance","invariant_id":"ST-DIS-INV11","file":".github/workflows/compiler-artifact.yml"}
+{"id":"ST-EXT-INV02-RL","title":"fill.FillEvidence.check","invariant_id":"ST-EXT-INV02","file":"internal/fill/fill_evidence.go"}
+{"id":"ST-EXT-INV03-RL","title":"fill.assess","invariant_id":"ST-EXT-INV03","file":"internal/fill/qualification.go"}
+{"id":"ST-EXT-INV04-RL","title":"fill.requireTests","invariant_id":"ST-EXT-INV04","file":"internal/fill/fill_evidence.go"}
 {"id":"ST-GEN-INV01-RL","title":"compiler.commitTransaction","invariant_id":"ST-GEN-INV01","file":"internal/compiler/transaction.go"}
 {"id":"ST-GEN-INV02-RL","title":"compiler.validateStatePaths","invariant_id":"ST-GEN-INV02","file":"internal/compiler/state.go"}
 {"id":"ST-GEN-INV03-RL","title":"compiler.Plan.verifyRegistry","invariant_id":"ST-GEN-INV03","file":"internal/compiler/snapshot.go"}
