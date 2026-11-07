@@ -314,7 +314,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			if wiring.GoModRequires == nil {
 				wiring.GoModRequires = make(map[string]string)
 			}
-			wiring.GoModRequires["github.com/getkin/kin-openapi"] = "v0.144.0"
+			wiring.GoModRequires["github.com/getkin/kin-openapi"] = "v0.149.0"
 		}
 	}
 
