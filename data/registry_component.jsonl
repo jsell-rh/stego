@@ -30,3 +30,4 @@
 {"id":"ST-SUP-RC30","title":"Idempotency","domain_id":"ST-SUP","name":"idempotency","version":"0.1.0","stage":"alpha","sunset":"2027-04-30","declaration_path":"registry/components/idempotency","generator_package":"internal/generator/idempotency"}
 {"id":"ST-SUP-RC31","title":"Ledger","domain_id":"ST-SUP","name":"ledger","version":"0.1.0","stage":"alpha","sunset":"2027-04-30","declaration_path":"registry/components/ledger","generator_package":"internal/generator/ledger"}
 {"id":"ST-SUP-RC32","title":"Command capability","domain_id":"ST-SUP","name":"command","version":"0.1.0","stage":"alpha","sunset":"2027-04-30","declaration_path":"registry/components/command","generator_package":"internal/generator/command"}
+{"id":"ST-SUP-RC33","title":"Query capability","domain_id":"ST-SUP","name":"query","version":"0.1.0","stage":"alpha","sunset":"2027-04-30","declaration_path":"registry/components/query","generator_package":"internal/generator/query"}
