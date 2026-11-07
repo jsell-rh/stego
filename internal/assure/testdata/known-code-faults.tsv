@@ -93,7 +93,6 @@ ST-STD-CODE-R04	internal/compiler/state_format_test.go	internal/compiler/state_f
 ST-STD-CODE-R04	internal/compiler/state_test.go	internal/compiler/state_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/testdata/database_access_test.go	internal/compiler/testdata/database_access_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/testdata/database_config_test.go	internal/compiler/testdata/database_config_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/compiler/testdata/http_diagnostics_test.go	internal/compiler/testdata/http_diagnostics_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/testdata/http_lifecycle_test.go	internal/compiler/testdata/http_lifecycle_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/testdata/http_tls_test.go	internal/compiler/testdata/http_tls_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/testdata/service_failure_test.go	internal/compiler/testdata/service_failure_test.go	the test file names no test record's ID in a test or subtest name
@@ -160,8 +159,6 @@ ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/scopes_live_test.go
 ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/scopes_test.go	internal/generator/keycloakprovider/testdata/scopes_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/service_account_access_test.go	internal/generator/keycloakprovider/testdata/service_account_access_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/service_account_lifecycle_live_test.go	internal/generator/keycloakprovider/testdata/service_account_lifecycle_live_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/service_account_lifecycle_observed_test.go	internal/generator/keycloakprovider/testdata/service_account_lifecycle_observed_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/service_account_lifecycle_test.go	internal/generator/keycloakprovider/testdata/service_account_lifecycle_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/service_account_tokens_test.go	internal/generator/keycloakprovider/testdata/service_account_tokens_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/kubernetesclient/testdata/pinned_admission_test.go	internal/generator/kubernetesclient/testdata/pinned_admission_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/kubernetesclient/testdata/rotation_telemetry_test.go	internal/generator/kubernetesclient/testdata/rotation_telemetry_test.go	the test file names no test record's ID in a test or subtest name
@@ -185,8 +182,6 @@ ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/allocation_service
 ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/allocation_test.go	internal/generator/kubernetesservice/testdata/allocation_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/allocation_uid_test.go	internal/generator/kubernetesservice/testdata/allocation_uid_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/render_configuration_test.go	internal/generator/kubernetesservice/testdata/render_configuration_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/render_library_test.go	internal/generator/kubernetesservice/testdata/render_library_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/generator/kubernetesservice/testdata/render_scope_test.go	internal/generator/kubernetesservice/testdata/render_scope_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/kubernetesworkload/generator_test.go	internal/generator/kubernetesworkload/generator_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/kubernetesworkload/testdata/dependency_data_test.go	internal/generator/kubernetesworkload/testdata/dependency_data_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/kubernetesworkload/testdata/updates_test.go	internal/generator/kubernetesworkload/testdata/updates_test.go	the test file names no test record's ID in a test or subtest name
@@ -207,18 +202,9 @@ ST-STD-CODE-R04	internal/generator/postgresadapter/go_models_test.go	internal/ge
 ST-STD-CODE-R04	internal/generator/postgresadapter/schema_generation_test.go	internal/generator/postgresadapter/schema_generation_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/checkpoints_test.go	internal/generator/postgresadapter/testdata/checkpoints_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/cleanup_summary_test.go	internal/generator/postgresadapter/testdata/cleanup_summary_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/cleanup_targets_test.go	internal/generator/postgresadapter/testdata/cleanup_targets_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/cleanup_test.go	internal/generator/postgresadapter/testdata/cleanup_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/conditions_test.go	internal/generator/postgresadapter/testdata/conditions_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/cursor_test.go	internal/generator/postgresadapter/testdata/cursor_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/database_pool_test.go	internal/generator/postgresadapter/testdata/database_pool_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/database_test.go	internal/generator/postgresadapter/testdata/database_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/effects_test.go	internal/generator/postgresadapter/testdata/effects_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/resource_state_scopes_test.go	internal/generator/postgresadapter/testdata/resource_state_scopes_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/resource_state_test.go	internal/generator/postgresadapter/testdata/resource_state_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/schema_generation_test.go	internal/generator/postgresadapter/testdata/schema_generation_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/transaction_test.go	internal/generator/postgresadapter/testdata/transaction_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/generator/postgresadapter/testdata/versions_test.go	internal/generator/postgresadapter/testdata/versions_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/postgresadapter/transaction_test.go	internal/generator/postgresadapter/transaction_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/postgresadapter/versions_test.go	internal/generator/postgresadapter/versions_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/postgresclient/generator_test.go	internal/generator/postgresclient/generator_test.go	the test file names no test record's ID in a test or subtest name
@@ -235,9 +221,7 @@ ST-STD-CODE-R04	internal/parser/parser_test.go	internal/parser/parser_test.go	th
 ST-STD-CODE-R04	internal/parser/strict_test.go ST-DECL-INV02-T	internal/parser/strict_test.go	no test or subtest name in the file carries the ID of automated test record ST-DECL-INV02-T
 ST-STD-CODE-R04	internal/parser/strict_test.go ST-DECL-INV03-T	internal/parser/strict_test.go	no test or subtest name in the file carries the ID of automated test record ST-DECL-INV03-T
 ST-STD-CODE-R04	internal/ports/resolve_test.go	internal/ports/resolve_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/registry/archetype_test.go	internal/registry/archetype_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/registry/cache_security_test.go	internal/registry/cache_security_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/registry/composition_test.go	internal/registry/composition_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/registry/registry_load_benchmark_test.go	internal/registry/registry_load_benchmark_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/registry/registry_test.go	internal/registry/registry_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/registry/resolve_test.go	internal/registry/resolve_test.go	the test file names no test record's ID in a test or subtest name

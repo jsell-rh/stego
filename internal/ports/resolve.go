@@ -4,6 +4,8 @@ package ports
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -312,4 +314,57 @@ func compProvidesPort(comp *registry.Component, portName string) bool {
 		}
 	}
 	return false
+}
+
+// providersOf gives the components of an active set that provide a port, in
+// name order.
+func providersOf(set map[string]*registry.Component, port string) []string {
+	var providers []string
+	for name, component := range set {
+		if compProvidesPort(component, port) {
+			providers = append(providers, name)
+		}
+	}
+	slices.Sort(providers)
+	return providers
+}
+
+// HasOneProvider evaluates ST-SUP-SP02 over the active component set of one
+// service: a port has one provider when exactly one component of the set
+// provides it. It gives nil when the port has one provider, and otherwise an
+// error that names the port and each provider, or says that none provides it.
+func HasOneProvider(set map[string]*registry.Component, port string) error {
+	switch providers := providersOf(set, port); len(providers) {
+	case 1:
+		return nil
+	case 0:
+		return fmt.Errorf("port %s has no provider in the active component set", port)
+	default:
+		return fmt.Errorf("port %s has %d providers in the active component set: %s", port, len(providers), strings.Join(providers, ", "))
+	}
+}
+
+// AnswersPorts evaluates ST-SUP-SP03: an active component set answers its
+// ports when every port that a component of the set requires has a provider
+// in that set. It gives nil when the set answers its ports, and otherwise an
+// error that names every unanswered port with the components that require it.
+func AnswersPorts(set map[string]*registry.Component) error {
+	required := map[string][]string{}
+	for name, component := range set {
+		for _, port := range component.Requires {
+			required[port.Name] = append(required[port.Name], name)
+		}
+	}
+	var unanswered []string
+	for _, port := range slices.Sorted(maps.Keys(required)) {
+		if len(providersOf(set, port)) == 0 {
+			requirers := required[port]
+			slices.Sort(requirers)
+			unanswered = append(unanswered, fmt.Sprintf("%s (required by %s)", port, strings.Join(requirers, ", ")))
+		}
+	}
+	if len(unanswered) > 0 {
+		return fmt.Errorf("the active component set leaves ports with no provider: %s", strings.Join(unanswered, "; "))
+	}
+	return nil
 }

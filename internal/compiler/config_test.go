@@ -24,6 +24,7 @@ func testInvalidComponentOverridesGateCompilation(t *testing.T) {
 			writeFile(t, filepath.Join(registry, "components/stub-api/component.yaml"), `kind: component
 name: stub-api
 version: 1.0.0
+stage: ga
 output_namespace: internal/api
 config:
   header: {type: string, default: Authorization}

@@ -94,6 +94,7 @@ bindings:
 			yaml: `kind: component
 name: stub-api
 version: 1.0.0
+stage: ga
 output_namespace: internal/api
 requires:
   - storage-adapter
@@ -107,6 +108,7 @@ slots: []
 			yaml: `kind: component
 name: stub-store
 version: 1.0.0
+stage: ga
 output_namespace: internal/storage
 requires: []
 provides:
@@ -1356,6 +1358,7 @@ func TestReconcile_ServicePortBindingOverridePassedToResolve(t *testing.T) {
 	altAuthYAML := `kind: component
 name: api-key-auth
 version: 1.0.0
+stage: ga
 requires: []
 provides:
   - auth-provider
@@ -1397,6 +1400,7 @@ bindings:
 	jwtYAML := `kind: component
 name: jwt-auth
 version: 1.0.0
+stage: ga
 requires: []
 provides:
   - auth-provider
@@ -1411,6 +1415,7 @@ slots: []
 	apiYAML := `kind: component
 name: stub-api
 version: 1.0.0
+stage: ga
 output_namespace: internal/api
 requires:
   - storage-adapter
@@ -1483,6 +1488,7 @@ func TestReconcile_OverrideLoadsComponentFromRegistryViaResolver(t *testing.T) {
 	jwtYAML := `kind: component
 name: jwt-auth
 version: 1.0.0
+stage: ga
 output_namespace: internal/auth
 requires: []
 provides:
@@ -1501,6 +1507,7 @@ slots: []
 	rhSSOYAML := `kind: component
 name: rh-sso-auth
 version: 1.0.0
+stage: ga
 output_namespace: internal/auth
 requires: []
 provides:
@@ -1540,6 +1547,7 @@ bindings:
 	apiYAML := `kind: component
 name: stub-api
 version: 1.0.0
+stage: ga
 output_namespace: internal/api
 requires:
   - storage-adapter
@@ -1636,6 +1644,7 @@ func TestReconcile_NoNamespaceComponentProducingFilesRejected(t *testing.T) {
 	noNsYAML := `kind: component
 name: no-ns-comp
 version: 1.0.0
+stage: ga
 requires: []
 provides: []
 slots: []
@@ -2184,6 +2193,7 @@ message SlotResult {
 	compYAML := `kind: component
 name: stub-api
 version: 1.0.0
+stage: ga
 output_namespace: internal/api
 requires:
   - storage-adapter
@@ -2278,6 +2288,7 @@ message SlotResult {
 	compYAML := `kind: component
 name: stub-api
 version: 1.0.0
+stage: ga
 output_namespace: internal/api
 requires:
   - storage-adapter
@@ -2391,6 +2402,7 @@ bindings: {}
 	compYAML := `kind: component
 name: stub-api
 version: 1.0.0
+stage: ga
 output_namespace: internal/api
 requires: []
 provides:
@@ -2473,6 +2485,7 @@ bindings: {}
 	compYAML := `kind: component
 name: stub-api
 version: 1.0.0
+stage: ga
 output_namespace: internal/api
 requires: []
 provides:
@@ -2562,6 +2575,7 @@ bindings:
 			yaml: `kind: component
 name: stub-api
 version: 1.0.0
+stage: ga
 output_namespace: internal/api
 requires:
   - storage-adapter
@@ -2575,6 +2589,7 @@ slots: []
 			yaml: `kind: component
 name: stub-store
 version: 1.0.0
+stage: ga
 output_namespace: internal/storage
 requires: []
 provides:
@@ -2704,6 +2719,7 @@ bindings:
 			yaml: `kind: component
 name: stub-api
 version: 1.0.0
+stage: ga
 output_namespace: internal/api
 requires:
   - storage-adapter
@@ -2717,6 +2733,7 @@ slots: []
 			yaml: `kind: component
 name: stub-store
 version: 1.0.0
+stage: ga
 output_namespace: internal/storage
 requires: []
 provides:
@@ -2839,6 +2856,7 @@ bindings:
 			yaml: `kind: component
 name: stub-api
 version: 1.0.0
+stage: ga
 output_namespace: internal/api
 requires:
   - storage-adapter
@@ -2852,6 +2870,7 @@ slots: []
 			yaml: `kind: component
 name: stub-store
 version: 1.0.0
+stage: ga
 output_namespace: internal/storage
 requires: []
 provides:
@@ -2965,6 +2984,7 @@ bindings:
 			yaml: `kind: component
 name: stub-api
 version: 1.0.0
+stage: ga
 output_namespace: internal/api
 requires:
   - storage-adapter
@@ -2978,6 +2998,7 @@ slots: []
 			yaml: `kind: component
 name: stub-store
 version: 1.0.0
+stage: ga
 output_namespace: internal/storage
 requires: []
 provides:

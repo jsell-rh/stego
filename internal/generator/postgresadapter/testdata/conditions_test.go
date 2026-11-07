@@ -137,6 +137,10 @@ func TestConditionFailureRollsBackEventsAndResource(t *testing.T) {
 	}
 }
 func TestConditionSchemaAndDataAreRequired(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC12-T05 A null condition object is refused by the trigger", testConditionSchemaAndDataAreRequired)
+}
+
+func testConditionSchemaAndDataAreRequired(t *testing.T) {
 	s, db := database(t, false)
 	ctx := context.Background()
 	row := record("condition-schema")

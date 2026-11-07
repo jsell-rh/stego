@@ -1,6 +1,7 @@
 kind: component
 name: rest-api
 version: 3.0.0
+stage: ga
 output_namespace: internal/api
 
 config:

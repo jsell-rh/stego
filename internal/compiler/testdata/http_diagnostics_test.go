@@ -13,6 +13,10 @@ import (
 )
 
 func TestHTTPDiagnosticsWithoutTelemetry(t *testing.T) {
+	t.Run("ST-SUP-RC10-OC30-T01 The emitted HTTP server reports a panic as one fixed record and keeps serving", testHTTPDiagnosticsWithoutTelemetry)
+}
+
+func testHTTPDiagnosticsWithoutTelemetry(t *testing.T) {
 	for _, abort := range []bool{false, true} {
 		listener := testListener(t)
 		var output bytes.Buffer
@@ -84,6 +88,10 @@ func (w *blockedHTTPOutput) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 func TestHTTPDiagnosticQueueAndShutdownBounds(t *testing.T) {
+	t.Run("ST-SUP-RC10-OC30-T02 The emitted fallback logger drops beyond 256 queued events", testHTTPDiagnosticQueueAndShutdownBounds)
+}
+
+func testHTTPDiagnosticQueueAndShutdownBounds(t *testing.T) {
 	output := &blockedHTTPOutput{entered: make(chan struct{}), release: make(chan struct{})}
 	logger := stegoNewHTTPErrorLog(output)
 	diagnostics := logger.Writer().(*stegoHTTPDiagnostics)
@@ -118,6 +126,10 @@ type failedHTTPOutput struct{}
 
 func (failedHTTPOutput) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
 func TestHTTPDiagnosticWriteFailureDoesNotRetry(t *testing.T) {
+	t.Run("ST-SUP-RC10-OC30-T03 The emitted fallback logger counts write failures and starts no idle worker", testHTTPDiagnosticWriteFailureDoesNotRetry)
+}
+
+func testHTTPDiagnosticWriteFailureDoesNotRetry(t *testing.T) {
 	logger := stegoNewHTTPErrorLog(failedHTTPOutput{})
 	diagnostics := logger.Writer().(*stegoHTTPDiagnostics)
 	for range 4 {

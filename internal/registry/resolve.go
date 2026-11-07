@@ -23,6 +23,9 @@ type ResolveResult struct {
 	Ref string
 	// EnvOverride is true when STEGO_REGISTRY was used.
 	EnvOverride bool
+	// Sources names each resolved source by its location, its subfolder and
+	// its reference, in declaration order, with the folder it resolved to.
+	Sources []Source
 }
 
 // ResolveOptions controls registry resolution behavior.
@@ -56,12 +59,13 @@ func ResolveRegistry(opts ResolveOptions) (*ResolveResult, error) {
 
 	// 1. Check STEGO_REGISTRY env var override.
 	if envReg := os.Getenv("STEGO_REGISTRY"); envReg != "" {
-		fmt.Fprintf(stderr, "WARNING: using STEGO_REGISTRY override: %s (config.yaml registry settings ignored)\n", envReg)
+		fmt.Fprintf(stderr, "WARNING: using STEGO_REGISTRY override: %s (config.yaml registry settings ignored: the configured registry sources are not used)\n", envReg)
 		return &ResolveResult{
 			Dir:         envReg,
 			Dirs:        []string{envReg},
 			Ref:         "env-override",
 			EnvOverride: true,
+			Sources:     []Source{{Name: envReg + " (STEGO_REGISTRY)", Dir: envReg}},
 		}, nil
 	}
 
@@ -82,36 +86,47 @@ func ResolveRegistry(opts ResolveOptions) (*ResolveResult, error) {
 		return nil, fmt.Errorf("resolving registry: no registry sources in %s", configPath)
 	}
 
-	result := &ResolveResult{}
+	locals := make([]string, len(cfg.Registry))
 	for i, src := range cfg.Registry {
 		local := src.URL
 		if !filepath.IsAbs(local) {
 			local = filepath.Join(opts.ProjectDir, local)
 		}
+		locals[i] = local
+		// A source in version control is pinned by a full commit before any
+		// source is read, so a bad pin is refused with no fetch made.
+		if (src.Vendor != "" || !isPlainDirectorySource(src.URL, local)) && !commitID.MatchString(src.Ref) {
+			return nil, fmt.Errorf("registry source %s: ref %q must be a full lowercase Git commit SHA", sourceName(src), src.Ref)
+		}
+	}
+	result := &ResolveResult{}
+	for i, src := range cfg.Registry {
+		local := locals[i]
 		var dir string
 		if src.Vendor != "" {
 			dir, err = sourceSubdirectory(opts.ProjectDir, src.Vendor)
 			if err != nil {
-				return nil, fmt.Errorf("registry[%d]: vendor: %w", i, err)
+				return nil, fmt.Errorf("registry source %s: vendor path %s: %w", sourceName(src), src.Vendor, err)
 			}
-			if !isValidCheckout(dir, src.Ref) {
-				return nil, fmt.Errorf("registry[%d]: vendored checkout differs from the pinned commit", i)
+			if err := checkCheckout(dir, src.Ref); err != nil {
+				return nil, fmt.Errorf("registry source %s: vendored copy %s: %w", sourceName(src), src.Vendor, err)
 			}
-		} else if !strings.Contains(src.URL, "://") && !strings.HasPrefix(src.URL, "git@") && isLocalDir(local) {
+		} else if isPlainDirectorySource(src.URL, local) {
 			dir = local
 		} else {
 			dir, err = resolveGitRegistry(src.URL, src.Ref, opts.CacheDir)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("registry source %s: %w", sourceName(src), err)
 			}
 		}
 		if src.Path != "" {
 			dir, err = sourceSubdirectory(dir, src.Path)
 			if err != nil {
-				return nil, fmt.Errorf("registry[%d]: path: %w", i, err)
+				return nil, fmt.Errorf("registry source %s: path %s: %w", sourceName(src), src.Path, err)
 			}
 		}
 		result.Dirs = append(result.Dirs, dir)
+		result.Sources = append(result.Sources, Source{Name: sourceName(src), Dir: dir})
 	}
 	result.Dir = result.Dirs[0]
 	result.Ref = cfg.Registry[0].Ref
@@ -120,6 +135,22 @@ func ResolveRegistry(opts ResolveOptions) (*ResolveResult, error) {
 		result.Ref = fmt.Sprintf("%x", sha256.Sum256(encoded))
 	}
 	return result, nil
+}
+
+// sourceName names a source by its location, its subfolder and its pin, so
+// a refusal and a record tell the sources apart.
+func sourceName(src RegistrySource) string {
+	name := src.URL
+	if src.Path != "" {
+		name += " (path " + src.Path + ")"
+	}
+	return name + " at " + src.Ref
+}
+
+// isPlainDirectorySource reports a source that names an existing local
+// folder and no Git address: it is read as it is, with no checkout.
+func isPlainDirectorySource(url, local string) bool {
+	return !strings.Contains(url, "://") && !strings.HasPrefix(url, "git@") && isLocalDir(local)
 }
 
 // Read each path segment under its declared root. A symbolic link cannot
@@ -135,7 +166,7 @@ func sourceSubdirectory(base, relative string) (string, error) {
 		current = filepath.Join(current, part)
 		info, err := root.Lstat(current)
 		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-			return "", fmt.Errorf("path must contain only directories without symbolic links")
+			return "", fmt.Errorf("%s: path must contain only directories without symbolic links", filepath.Join(base, current))
 		}
 	}
 	return filepath.Join(base, filepath.FromSlash(relative)), nil
@@ -156,7 +187,7 @@ var commitID = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 
 func resolveGitRegistry(url, ref, cacheDir string) (resolved string, resultErr error) {
 	if !commitID.MatchString(ref) {
-		return "", fmt.Errorf("registry ref %q must be a full lowercase Git commit SHA", ref)
+		return "", fmt.Errorf("ref %q must be a full lowercase Git commit SHA", ref)
 	}
 	if cacheDir == "" {
 		userCache, err := os.UserCacheDir()
@@ -179,7 +210,7 @@ func resolveGitRegistry(url, ref, cacheDir string) (resolved string, resultErr e
 		return checkoutDir, nil
 	}
 	if _, err := os.Lstat(checkoutDir); err == nil {
-		return "", fmt.Errorf("registry cache %s is modified or incomplete; restore the pinned checkout before retrying", checkoutDir)
+		return "", fmt.Errorf("cached copy %s is modified or incomplete for the pinned commit %s (%v); restore the pinned checkout or remove it before retrying", checkoutDir, ref, checkCheckout(checkoutDir, ref))
 	} else if !os.IsNotExist(err) {
 		return "", fmt.Errorf("checking registry cache: %w", err)
 	}
@@ -231,32 +262,47 @@ func resolveGitRegistry(url, ref, cacheDir string) (resolved string, resultErr e
 	return checkoutDir, nil
 }
 
-// isValidCheckout returns true if the directory exists and has a .git directory
-// (indicating a successful previous checkout).
+// isValidCheckout returns true if the directory is a clean Git checkout of
+// exactly the pinned commit.
 func isValidCheckout(dir, ref string) bool {
+	return checkCheckout(dir, ref) == nil
+}
+
+// checkCheckout says why a directory is not a clean Git checkout of the
+// pinned commit: it has no version-control metadata, its HEAD is another
+// commit, or it holds a modified, an ignored or an untracked file.
+func checkCheckout(dir, ref string) error {
 	for _, path := range []string{dir, filepath.Join(dir, ".git")} {
 		info, err := os.Lstat(path)
 		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-			return false
+			return fmt.Errorf("%s lacks version-control metadata (no .git folder)", dir)
 		}
 	}
-
-	// Verify the HEAD matches the expected ref.
 	cmd := exec.Command("git", "rev-parse", "HEAD")
 	cmd.Dir = dir
 	output, err := cmd.Output()
 	if err != nil {
-		return false
+		return fmt.Errorf("%s: reading HEAD: %w", dir, err)
 	}
-
-	head := strings.TrimSpace(string(output))
-	if head != ref {
-		return false
+	if head := strings.TrimSpace(string(output)); head != ref {
+		return fmt.Errorf("%s is at commit %s, not the pinned commit %s", dir, head, ref)
 	}
 	cmd = exec.Command("git", "status", "--porcelain", "--untracked-files=all", "--ignored")
 	cmd.Dir = dir
 	output, err = cmd.Output()
-	return err == nil && strings.TrimSpace(string(output)) == ""
+	if err != nil {
+		return fmt.Errorf("%s: reading git status: %w", dir, err)
+	}
+	var files []string
+	for _, line := range strings.Split(string(output), "\n") {
+		if len(line) > 3 {
+			files = append(files, line[3:])
+		}
+	}
+	if len(files) > 0 {
+		return fmt.Errorf("%s holds modified, ignored or untracked files: %s", dir, strings.Join(files, ", "))
+	}
+	return nil
 }
 
 // hashURL returns a deterministic, filesystem-safe hash of a URL.

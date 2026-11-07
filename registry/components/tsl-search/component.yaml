@@ -1,6 +1,7 @@
 kind: component
 name: tsl-search
 version: 1.0.2
+stage: ga
 output_namespace: internal/search
 
 requires:

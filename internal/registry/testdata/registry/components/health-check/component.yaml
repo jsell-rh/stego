@@ -1,6 +1,7 @@
 kind: component
 name: health-check
 version: 0.1.0
+stage: ga
 
 config: {}
 

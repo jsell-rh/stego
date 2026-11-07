@@ -74,6 +74,7 @@ bindings:
 			yaml: `kind: component
 name: stub-api
 version: 1.0.0
+stage: ga
 output_namespace: internal/api
 requires:
   - storage-adapter
@@ -91,6 +92,7 @@ slots:
 			yaml: `kind: component
 name: stub-store
 version: 1.0.0
+stage: ga
 output_namespace: internal/storage
 requires: []
 provides:
@@ -407,6 +409,7 @@ func TestValidate_UnresolvedPort(t *testing.T) {
 	writeFile(t, compPath, `kind: component
 name: stub-api
 version: 1.0.0
+stage: ga
 output_namespace: internal/api
 requires:
   - storage-adapter
@@ -4360,6 +4363,7 @@ slots:
 		writeFile(t, filepath.Join(slotDir, "component.yaml"), `kind: component
 name: slot-owner
 version: 1.0.0
+stage: ga
 slots:
   - name: resolve_field
     proto: stego.components.slot_owner.slots.ResolveField

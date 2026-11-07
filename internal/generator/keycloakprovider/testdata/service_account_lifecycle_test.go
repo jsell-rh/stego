@@ -278,6 +278,10 @@ func TestServiceAccountLifecycleClosesAbsentSavedID(t *testing.T) {
 }
 
 func TestServiceAccountLifecyclePrepareClosure(t *testing.T) {
+	t.Run("ST-SUP-RC13-OC28-T01 The emitted lifecycle saves a prepared closure without a provider call", testServiceAccountLifecyclePrepareClosure)
+}
+
+func testServiceAccountLifecyclePrepareClosure(t *testing.T) {
 	for _, legacy := range []bool{false, true} {
 		l, f := newAccountLifecycleFixture(t, legacy)
 		id := "known-id"
