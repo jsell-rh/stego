@@ -351,6 +351,9 @@ func TestMultipleKeyedWatchesOpenBeforeDiscoveryAndJoin(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	var opened, stopped atomic.Int32
+	// Each receiver reports when it waits for its second event. The action
+	// cancels only after both receivers wait, so the join is always proved.
+	waiting := make(chan struct{}, 2)
 	sources := []Source[string]{}
 	for _, prefix := range []string{"gateway:", "database:"} {
 		sources = append(sources, Source[string]{Watch: func(ctx context.Context) (func() (string, error), error) {
@@ -360,6 +363,10 @@ func TestMultipleKeyedWatchesOpenBeforeDiscoveryAndJoin(t *testing.T) {
 				if first {
 					first = false
 					return prefix + "watch", nil
+				}
+				select {
+				case waiting <- struct{}{}:
+				default:
 				}
 				<-ctx.Done()
 				stopped.Add(1)
@@ -375,12 +382,19 @@ func TestMultipleKeyedWatchesOpenBeforeDiscoveryAndJoin(t *testing.T) {
 	seen := map[string]bool{}
 	o := watchKeyOptions()
 	o.Workers = 1
-	err := RunKeyedWatches(ctx, sources, func(ctx context.Context, key string) error {
+	err := RunKeyedWatches(ctx, sources, func(_ context.Context, key string) error {
 		if opened.Load() != 2 {
 			t.Error("action preceded subscription setup")
 		}
 		seen[key] = true
 		if len(seen) == 4 {
+			for range 2 {
+				select {
+				case <-waiting:
+				case <-ctx.Done():
+					t.Error("a receiver did not wait for its second event before the deadline")
+				}
+			}
 			cancel()
 		}
 		return nil
