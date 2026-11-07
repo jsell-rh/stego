@@ -29,14 +29,14 @@ last_applied:
         go_version: go1.26.10
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261107000954-47d7f7786e7e
+        module_version: v0.0.0-20261107055844-556ef114d877
         vcs: git
-        revision: 47d7f7786e7ec233e02b11b8e01253bb675ecfd9
+        revision: 556ef114d87758c70230266d9f4b57e665dddf7b
         source_state: clean
     service_name: user-management
     service_hash: df9112176f2dcaf28257689abc0fedd964b29998195268acc4804137c064b9b1
     registry_sha: env-override
-    registry_content_sha256: 408bbbd40cf6aeb20dadfbb4d04f819eb1f576a22a8d8732cd1f43117e067450
+    registry_content_sha256: d7da98db66273daf05d6d238591e0b5507c98e4b367dd3112c357bae4e0f6b95
     components:
         health-check:
             version: 1.1.0
@@ -147,21 +147,21 @@ last_applied:
         internal/outbox/worker.go: 4bd6462127262c98ebae0a602347959c0cb56f307798e1467012744962aa69df
         internal/search/field_map.go: 295c81bb8650933ee80d04ef2261566f11c1c2b3162c77c3bd49e3cc4a634b9c
         internal/search/search.go: 659978afd6ae1f55ea9b3460f6bb35fb52282e3ad56145bdd9f80f74bba0478b
-        internal/storage/checkpoints.go: 299af4ae83eced80d5357278c2fb25e38bba6fc5d0f476a14fdb3e7890d741f7
+        internal/storage/checkpoints.go: ee16bf0dbbd0bb573fe9647bdbc1276a66f1c3712e6a13ebcb0c55f154ff205e
         internal/storage/cleanup_summary.go: 555b887cc05421187775a3fc6215626e36ab2424756ae2dc83d6b532011867d1
         internal/storage/cursor.go: 7c146bdf7de913801941900916a9243dd4925625c133e4ad56e4522c6ab4727f
         internal/storage/database.go: 2969e645f09850b504ad2725978a15d1ccad3147efb4a450d7360be23ffef627
-        internal/storage/effects.go: 37f44a6760016ab124173680be7c08a37d562b4cfba37c30515a7d23dc8f9bd9
+        internal/storage/effects.go: e98ff49578ce4167a0840eca2b0210e4dc8df641a7ad4d88691b10103c1d654c
         internal/storage/generic_dao.go: c578166d1b47439fb19fcdd817315f5d5b2818dd798b90734a91a12f2dab8b8c
-        internal/storage/migrate.go: 13840c77ab5427dc048807398f10128c687fdcb530cce19ca6909252b8414e38
+        internal/storage/migrate.go: 43de6b73991affb93d1a5ef1280d5ba7f76b57aab88d45ce4f43826b257be056
         internal/storage/migrations/000006_scan_checkpoints.sql: 148a9b3aa6ac989ce458b5d878e6f5b250ecc1f10762331dd1df0adcc82e9f95
         internal/storage/migrations/000008_effect_bindings.sql: aa6ed402091e352159c9cf88401d7287ba9ebd18236ff11eb0ac7721a8191564
         internal/storage/migrations/000009_resource_state.sql: 8a44cde312e27bafcfc1fd3cc074d75a335458d72215086100504be231c7a67d
         internal/storage/migrations/000010_resource_state_keys.sql: c5966bc9e200137b7bcae42d3e4527a0aa392d583206336cbddb588ffbbd66d6
         internal/storage/migrations/000011_resource_state_scopes.sql: 992060457b1373e45369abe0c0da2e9d3b9ffc7f5e006b07fd4bf2aa8830a056
         internal/storage/models.go: 60349f84c701f6a5118ef32ee122c84423b0b22492592741225447d8fd244567
-        internal/storage/resource_state.go: 7234e48a339bc4683635041b628d836aea024686285ee8032d05b072b02391c2
-        internal/storage/resource_state_scopes.go: 85339445ba920acf465332c3c45d5a4928ff91b370801b67d756e521344a91b7
+        internal/storage/resource_state.go: f5eec1e15b927b6d8368df105e3188bffa4c1483160b325a8911930c85e76752
+        internal/storage/resource_state_scopes.go: 0452286c0c5227e27adfaebc3bcb3c6f87b8dcb3cdca5007927613ff5780823d
         internal/storage/session_factory.go: e929bc9b643da0d29536723ed063986af2afbb89bab793daf2b00606909f05cc
         internal/storage/store.go: a8b3aea4cd50e9535287274e98367758378dce45d294efc9a952cfe452046436
         internal/storage/transaction.go: a377bd623e5bbe04edaad2d61650747ca37740fdf8d24ca762260be9fc2bc2c6
