@@ -48,6 +48,7 @@
 {"id":"ST-GEN-INV23-RL","title":"compiler.InputManifest.validate","invariant_id":"ST-GEN-INV23","file":"internal/compiler/input_manifest.go"}
 {"id":"ST-GEN-INV24-RL","title":"compiler.predeclaredName","invariant_id":"ST-GEN-INV24","file":"internal/compiler/symbol_names.go"}
 {"id":"ST-GEN-INV25-RL","title":"compiler.decodeState","invariant_id":"ST-GEN-INV25","file":"internal/compiler/state.go"}
+{"id":"ST-GEN-INV28-RL","title":"compiler.prepareComponents","invariant_id":"ST-GEN-INV28","file":"internal/compiler/preflight.go"}
 {"id":"ST-GEN-INV29-RL","title":"compiler.lockProject","invariant_id":"ST-GEN-INV29","file":"internal/compiler/lock.go"}
 {"id":"ST-GEN-INV30-RL","title":"compiler.validateSlotConsumption","invariant_id":"ST-GEN-INV30","file":"internal/compiler/validate.go"}
 {"id":"ST-GEN-INV31-RL","title":"compiler.validateSlotNames","invariant_id":"ST-GEN-INV31","file":"internal/compiler/validate.go"}
