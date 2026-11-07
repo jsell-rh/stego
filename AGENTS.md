@@ -3,7 +3,12 @@
 Use ASD-STE100 Simplified Technical English for prose.
 Commit work in atomic commits.
 
-Do not use Playwright. The user reports that it can cause a kernel panic.
+Playwright is allowed. The kernel panic it once caused on the developer
+workstation is resolved (2026-11-05).
+Local tests never need a privileged container: a test that needs a Kubernetes
+API uses envtest (kube-apiserver and etcd as plain processes) and contract
+fakes for Tekton and Argo CD; a run of real pods is a second proof in a
+cluster, never the only one (ST-STD-LOCAL).
 Do not run performance or stress tests on the developer workstation. Use CI or
 the OpenShift jshell cluster. Use the saved jshell context explicitly; do not
 change the active context. Keep cluster test resources in a dedicated namespace
