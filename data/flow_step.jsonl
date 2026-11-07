@@ -216,6 +216,7 @@
 {"id":"ST-GEN-UC12-FL-S03","title":"The author applies the plan, and STEGO writes the migration that only adds, the trigger that keeps both values equal and the backfill job, with the record","flow_id":"ST-GEN-UC12-FL","path":"main","position":3}
 {"id":"ST-GEN-UC12-FL-S04","title":"The author releases, and the new release runs beside the old one on the same database, with the field under its old name in the API","flow_id":"ST-GEN-UC12-FL","path":"main","position":4}
 {"id":"ST-GEN-UC12-FL-S05","title":"STEGO refuses a change that no schema step declares, writes nothing and names the schema change to declare","flow_id":"ST-GEN-UC12-FL","path":"refused","position":1}
+{"id":"ST-GEN-UC12-FL-S06","title":"The author adds an optional field and applies, STEGO writes its add step in the declaration and names it, and the author commits it","flow_id":"ST-GEN-UC12-FL","path":"added field","position":1}
 {"id":"ST-GEN-UC13-FL-S01","title":"The operator deploys the release with the controller mode, and one controller replica takes the backfill lease","flow_id":"ST-GEN-UC13-FL","path":"main","position":1}
 {"id":"ST-GEN-UC13-FL-S02","title":"The replica reads the checkpoint, moves one short batch with its fencing token and moves the checkpoint in the same transaction","flow_id":"ST-GEN-UC13-FL","path":"main","position":2}
 {"id":"ST-GEN-UC13-FL-S03","title":"The replica repeats the batches, and the operator sees the counts of moved and failed rows","flow_id":"ST-GEN-UC13-FL","path":"main","position":3}
