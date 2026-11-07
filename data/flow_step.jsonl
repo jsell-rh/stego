@@ -83,11 +83,12 @@
 {"id":"ST-DECL-UC08-FL-S07","title":"A transfer with one entry is refused, naming the transfer","flow_id":"ST-DECL-UC08-FL","path":"refused","position":4}
 {"id":"ST-DECL-UC09-FL-S01","title":"The author declares the modes and the mixins","flow_id":"ST-DECL-UC09-FL","path":"main","position":1}
 {"id":"ST-DECL-UC09-FL-S02","title":"The author declares each controller with its sources, resync, replicas and lease TTL, and each invariant with its kind and fields","flow_id":"ST-DECL-UC09-FL","path":"main","position":2}
-{"id":"ST-DECL-UC09-FL-S03","title":"The author asks STEGO to check the declaration, and STEGO accepts it, filling in all when no mode is declared","flow_id":"ST-DECL-UC09-FL","path":"main","position":3}
+{"id":"ST-DECL-UC09-FL-S03","title":"The author asks STEGO to check the declaration, and STEGO accepts it, filling in all when no mode is declared","flow_id":"ST-DECL-UC09-FL","path":"main","position":4}
 {"id":"ST-DECL-UC09-FL-S04","title":"A mode other than api, worker or controller is refused, naming the mode","flow_id":"ST-DECL-UC09-FL","path":"refused","position":1}
 {"id":"ST-DECL-UC09-FL-S05","title":"kafka-events without durable-events is refused, naming the missing mixin","flow_id":"ST-DECL-UC09-FL","path":"refused","position":2}
 {"id":"ST-DECL-UC09-FL-S06","title":"A controller with no lease TTL is refused, naming the controller","flow_id":"ST-DECL-UC09-FL","path":"refused","position":3}
 {"id":"ST-DECL-UC09-FL-S07","title":"An invariant of another kind, or one that lacks the fields its kind needs, is refused, naming the invariant and the field","flow_id":"ST-DECL-UC09-FL","path":"refused","position":4}
+{"id":"ST-DECL-UC09-FL-S08","title":"The author declares each schema change with its kind, and puts its steps at the end of the schema history","flow_id":"ST-DECL-UC09-FL","path":"main","position":3}
 {"id":"ST-DIS-UC02-FL-S02","title":"The platform engineer names the component digest and the checkouts to search, and STEGO reads the committed record in each checkout and names each service that pins the digest, with its version and digest","flow_id":"ST-DIS-UC02-FL","path":"main","position":1}
 {"id":"ST-DIS-UC02-FL-S03","title":"The platform engineer asks for the VEX statements of the fleet, and STEGO emits one OpenVEX statement per service and advisory, with the status affected, fixed or not_affected","flow_id":"ST-DIS-UC02-FL","path":"main","position":2}
 {"id":"ST-DIS-UC02-FL-S04","title":"A checkout with generated output and no readable record is reported as unknown","flow_id":"ST-DIS-UC02-FL","path":"unknown","position":1}
