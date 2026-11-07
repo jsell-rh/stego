@@ -18,6 +18,7 @@
 {"id":"ST-DECL-UC07-FL","title":"Declare idempotent operations","use_case_id":"ST-DECL-UC07"}
 {"id":"ST-DECL-UC08-FL","title":"Declare a ledger","use_case_id":"ST-DECL-UC08"}
 {"id":"ST-DECL-UC09-FL","title":"Declare a service's composition","use_case_id":"ST-DECL-UC09"}
+{"id":"ST-DECL-UC10-FL","title":"Declare tenant provisioning","use_case_id":"ST-DECL-UC10"}
 {"id":"ST-DIS-UC02-FL","title":"Find every service built from a component","use_case_id":"ST-DIS-UC02"}
 {"id":"ST-DIS-UC04-FL","title":"Ship a component fix without a compiler release","use_case_id":"ST-DIS-UC04"}
 {"id":"ST-DIS-UC05-FL","title":"Learn that a pinned component is superseded","use_case_id":"ST-DIS-UC05"}
