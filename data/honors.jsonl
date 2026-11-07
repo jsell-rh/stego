@@ -123,6 +123,8 @@
 {"source_id":"ST-SUP-RC35-OC06","target_id":"ST-STD-TXN-R11"}
 {"source_id":"ST-SUP-RC35-OC06","target_id":"ST-STD-TXN-R14"}
 {"source_id":"ST-SUP-RC35-OC07","target_id":"ST-STD-TXN-R16"}
+{"source_id":"ST-SUP-RC35-OC10","target_id":"ST-STD-TXN-R16"}
+{"source_id":"ST-SUP-RC35-OC11","target_id":"ST-STD-TXN-R16"}
 {"source_id":"ST-SUP-RP01-LC08","target_id":"ST-STD-TXN-R14"}
 {"source_id":"ST-SUP-RP01-LC09","target_id":"ST-STD-TXN-R14"}
 {"source_id":"ST-SUP-RP01-LC10","target_id":"ST-STD-TXN-R14"}
@@ -223,6 +225,7 @@
 {"source_id":"ST-SUP-RP10-LC19","target_id":"ST-STD-TXN-R11"}
 {"source_id":"ST-SUP-RP10-LC20","target_id":"ST-STD-TXN-R15"}
 {"source_id":"ST-SUP-RP10-LC21","target_id":"ST-STD-TXN-R11"}
+{"source_id":"ST-SUP-RP10-LC22","target_id":"ST-STD-TXN-R15"}
 {"source_id":"ST-SUP-RP11-LC01","target_id":"ST-STD-TXN-R04"}
 {"source_id":"ST-SUP-RP11-LC02","target_id":"ST-STD-TXN-R01"}
 {"source_id":"ST-SUP-RP11-LC02","target_id":"ST-STD-TXN-R03"}
