@@ -134,6 +134,13 @@
 {"entity_id":"ST-DECL-EN17","position":5,"name":"By","meaning":"The fields that scope the rule, for unique and no_overlap.","type":"text","required":false,"example":"customer_id"}
 {"entity_id":"ST-DECL-EN17","position":6,"name":"Range","meaning":"The two fields that bound the range, for no_overlap.","type":"text","required":false,"example":"starts_at, ends_at"}
 {"entity_id":"ST-DECL-EN17","position":7,"name":"Parent","meaning":"The parent entity.field that holds the limit, for sum_limit.","type":"text","required":false,"example":"customer.credit_limit"}
+{"entity_id":"ST-DECL-EN18","position":1,"name":"Command name","meaning":"The command's name, unique in the declaration.","type":"text","required":true,"example":"reserve-and-charge"}
+{"entity_id":"ST-DECL-EN18","position":2,"name":"Writes","meaning":"The entities the command may read and write, which the same declaration must declare. The command handle reaches only these.","type":"text","required":true,"example":"Reservation, Charge"}
+{"entity_id":"ST-DECL-EN18","position":3,"name":"Resource type","meaning":"The type in the authorization schema that the command acts on, when the service binds authorization.","type":"text","required":false,"example":"order"}
+{"entity_id":"ST-DECL-EN18","position":4,"name":"Permission","meaning":"The permission the caller needs on the resource before the fill runs. When authorization is bound, it is required.","type":"text","required":false,"example":"reserve"}
+{"entity_id":"ST-DECL-EN18","position":5,"name":"Fill","meaning":"The one fill that carries out the command at the command slot.","type":"text","required":true,"example":"reserve-and-charge"}
+{"entity_id":"ST-DECL-EN18","position":6,"name":"Relationships written","meaning":"The relations, as resource_type#relation, that the fill may write through its command handle. The handle exposes only those.","type":"text","required":false,"example":"order#holder"}
+{"entity_id":"ST-DECL-EN18","position":7,"name":"Effect destinations","meaning":"The outbox destinations the fill may stage effects for through its command handle, such as an event topic or a downstream service.","type":"text","required":false,"example":"billing"}
 {"entity_id":"ST-DIS-EN06","position":1,"name":"Component","meaning":"The component's name.","type":"text","required":true,"example":"rest-api"}
 {"entity_id":"ST-DIS-EN06","position":2,"name":"Digest","meaning":"The component digest whose standing this is.","type_value_object_id":"ST-VO41","required":true}
 {"entity_id":"ST-DIS-EN07","position":1,"name":"Successor digest","meaning":"The digest that replaces this one. The platform engineer declares it. Kept under database_specific in the advisory.","type_value_object_id":"ST-VO41","required":true}
