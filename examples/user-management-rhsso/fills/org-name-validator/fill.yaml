@@ -2,3 +2,40 @@ kind: fill
 name: org-name-validator
 implements: rest-api.before_create
 collection: organizations
+evidence:
+  fill_digest: 08d2200580b81240ae146b4a5bff2fc4d44e635d7e5435275e234bac1b563a41
+  contract_digest: 2257b18389d2beb5ccd5d25949f6e0d527cd6fb02436f284e8a574c1ec037655
+  passed_at: 2026-11-07T14:10:11Z
+  compiler:
+    go_version: go1.26.10
+    goos: linux
+    goarch: amd64
+    module_version: (devel)
+    vcs: unknown
+    revision: unknown
+    source_state: unknown
+  files:
+    fill.yaml: a3708f2c46ac989431a3943167ad529e1ffa25317ae4f0a41d62a418bf9eb4b9
+    validator.go: 799acdd169da12ad19bcbbfb6ae876e1b7d10248fcf5f478b4d4c2387ce84ef1
+    validator_test.go: 54a7390b21849206254dcc4b798b2934443a292aaf2c2ff02d78c99a29c122c8
+sign_off:
+  evidence_digest: de4cd94830ceadd2ee465faafa456bf047d8b8de2f16c3540cfc281d945dc72d
+  signature:
+    key_type: ssh
+    signer: 35787503+elsell@users.noreply.github.com
+    signature: |
+      -----BEGIN SSH SIGNATURE-----
+      U1NIU0lHAAAAAQAAARcAAAAHc3NoLXJzYQAAAAMBAAEAAAEBALsnksSLm9M7JucxPR5fip
+      7av8zqxlfnHPiKO4ScdopJeezbbuPmQz7KkjDKM2oLsdyeV3PZZZz051W6SC4v8mcAk6wM
+      aUo9FQq81i3h9cmgeeJf06thXUgYM0R58QPNwAquZTgvkGTBFvaBO0amv/tmfSGoqw9sYa
+      Kyum85zOVpOMPrOWR9mZqY/I8SG6nvN05jF+YDksFAArzy6DYU/4LHGIkU9NDuKAe2o1Ww
+      WUP0D2JTJIWxnskmDRqUVgtmmPzW8131Mhur+ms2l/K6Qkv8HmJzspCsZPkxhkDMougK7s
+      G/ltb8qpbwznydvO9A525OppB9qgbqpJ1Yo4Jz7usAAAAKc3RlZ28tZmlsbAAAAAAAAAAG
+      c2hhNTEyAAABFAAAAAxyc2Etc2hhMi01MTIAAAEAqHgSJj41axfN+HSwLNkmslSc4Yo5V/
+      E7WiVM4QvInC8tHV2u/zza0A9vgx446BOjziSwBm447Cu8tOQayOhIypL0FUWH0GKD123v
+      8n0O7XnONlNFrvHDcwyax6+BiMXMs0wYB/Of0pqyR039UGFLdrrhZUDo8AkwqKXX3aIGSp
+      ptq97TefF8QLI9As9ISu1zLeppwRvah3Vjyjb/zqN1qecwtFKhvZhuH/i6oDHHjABxsoaJ
+      3gOrr4Ez3sdwlrs0Q5GbIEz1bid4XxXWuwgNIjhV6KaBWa3oaUVBI38ueyk+9Dnkji0hTh
+      d7JRLo071vu4Ie2gDfUuF0bFi8QtJdmg==
+      -----END SSH SIGNATURE-----
+  signed_at: 2026-11-07T14:10:12Z
