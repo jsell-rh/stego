@@ -150,8 +150,8 @@ func newSupplyingFixture(t *testing.T) *supplyingFixture {
 	return f
 }
 
-// stegoRun is one run of the stego binary in a folder.
-type stegoRun struct {
+// composeRun is one run of the stego binary in a folder.
+type composeRun struct {
 	stdout, stderr string
 	err            error
 	trace          string
@@ -159,7 +159,7 @@ type stegoRun struct {
 
 // runStegoIn runs the stego binary in a folder with the fixture's own cache,
 // STEGO_REGISTRY unset unless env sets it, and Git tracing into a file.
-func (f *supplyingFixture) runStegoIn(t *testing.T, folder string, env []string, args ...string) stegoRun {
+func (f *supplyingFixture) runStegoIn(t *testing.T, folder string, env []string, args ...string) composeRun {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -173,18 +173,18 @@ func (f *supplyingFixture) runStegoIn(t *testing.T, folder string, env []string,
 	command.Stdout, command.Stderr = &stdout, &stderr
 	err := command.Run()
 	data, _ := os.ReadFile(trace)
-	return stegoRun{stdout: stdout.String(), stderr: stderr.String(), err: err, trace: string(data)}
+	return composeRun{stdout: stdout.String(), stderr: stderr.String(), err: err, trace: string(data)}
 }
 
 // compose runs stego registry compose in the fixture's project.
-func (f *supplyingFixture) compose(t *testing.T, env ...string) stegoRun {
+func (f *supplyingFixture) compose(t *testing.T, env ...string) composeRun {
 	t.Helper()
 	return f.runStegoIn(t, f.project, env, "registry", "compose")
 }
 
 // refused fails the test unless the run exited non-zero and its message names
 // every one of the words.
-func (r stegoRun) refused(t *testing.T, words ...string) {
+func (r composeRun) refused(t *testing.T, words ...string) {
 	t.Helper()
 	if r.err == nil {
 		t.Fatalf("the run was accepted, want a refusal\nstdout:\n%s", r.stdout)
@@ -197,7 +197,7 @@ func (r stegoRun) refused(t *testing.T, words ...string) {
 }
 
 // accepted fails the test unless the run exited 0, and gives its output.
-func (r stegoRun) accepted(t *testing.T) string {
+func (r composeRun) accepted(t *testing.T) string {
 	t.Helper()
 	if r.err != nil {
 		t.Fatalf("the run failed: %v\n%s", r.err, r.stderr)
@@ -206,7 +206,7 @@ func (r stegoRun) accepted(t *testing.T) string {
 }
 
 // fetched reports whether the Git trace shows a clone or a fetch.
-func (r stegoRun) fetched() bool {
+func (r composeRun) fetched() bool {
 	return strings.Contains(r.trace, "clone") || strings.Contains(r.trace, "fetch")
 }
 
