@@ -165,8 +165,19 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 	return resolved, nil
 }
 
-// holdsFills tells if the project has a fills folder.
+// holdsFills tells if the fills folder of the project holds at least one
+// fill folder. An empty fills folder, as stego init makes it, does not count:
+// Git keeps no empty folder, so a clone of the project would generate other
+// files.
 func holdsFills(projectDir string) bool {
-	info, err := os.Stat(filepath.Join(projectDir, "fills"))
-	return err == nil && info.IsDir()
+	entries, err := os.ReadDir(filepath.Join(projectDir, "fills"))
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			return true
+		}
+	}
+	return false
 }
