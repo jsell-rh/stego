@@ -327,29 +327,40 @@ func TestAComponentFixCarriesNoUnrelatedChanges(t *testing.T) {
 		s.pin(t, s.r2)
 		s.must(t, "apply")
 		changed := strings.Fields(git(t, s.service, "diff", "--name-only"))
-		namespace := "out/"
+		// The record keys each generated file by its path under out/.
+		namespace := ""
 		reg, err := registry.Load(s.registryAt(t, s.r2))
 		if err != nil {
 			t.Fatal(err)
 		}
 		if component := reg.Component(componentA); component != nil && component.OutputNamespace != "" {
-			namespace = "out/" + component.OutputNamespace + "/"
+			namespace = component.OutputNamespace + "/"
 		}
+		fixed := 0
 		for _, path := range changed {
-			if path != ".stego/state.yaml" && path != ".stego/config.yaml" && !strings.HasPrefix(path, namespace) {
-				t.Errorf("the fix of component A changed %s, outside its namespace %s and the record", path, namespace)
+			switch {
+			case path == ".stego/state.yaml" || path == ".stego/config.yaml":
+			case strings.HasPrefix(path, "out/"+namespace):
+				fixed++
+			default:
+				t.Errorf("the fix of component A changed %s, outside its namespace out/%s and the record", path, namespace)
 			}
+		}
+		if fixed == 0 {
+			t.Errorf("the fix of component A changed no file of its namespace out/%s: %v", namespace, changed)
 		}
 		after := s.record(t)
 		for _, path := range recordDifferences(before, after, "") {
-			switch path {
+			switch {
 			// The registry reference is the pin in .stego/config.yaml, which the record captures as an input, the
 			// registry's ref and its content hash.
-			case "last_applied.components." + componentA + ".sha", "last_applied.registry_sha",
-				"last_applied.inputs.options.registry_ref", "last_applied.registry_content_sha256",
-				"last_applied.inputs.files..stego/config.yaml.sha256", "last_applied.inputs.sha256":
+			case path == "last_applied.components."+componentA+".sha", path == "last_applied.registry_sha",
+				path == "last_applied.inputs.options.registry_ref", path == "last_applied.registry_content_sha256",
+				path == "last_applied.inputs.files..stego/config.yaml.sha256", path == "last_applied.inputs.sha256":
+			// The hash the record keeps of a generated file of component A's namespace is part of the fix.
+			case strings.HasPrefix(path, "last_applied.files."+namespace):
 			default:
-				t.Errorf("the record changed %s, which is neither component A's digest nor the registry reference", path)
+				t.Errorf("the record changed %s, which is neither component A's digest, a file of its namespace, nor the registry reference", path)
 			}
 		}
 		if pinnedDigest(t, s, componentA) == da1 {
