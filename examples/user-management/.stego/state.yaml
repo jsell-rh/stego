@@ -1,4 +1,4 @@
-format_version: 1
+format_version: 2
 last_applied:
     inputs:
         version: 1
@@ -14,53 +14,54 @@ last_applied:
                 mode: 420
             go.mod:
                 exists: true
-                sha256: 3ccb8e5ce67112425fe7c83be06bdd2b90ad6ffafeab7b37dc07eb1d8e53cd25
+                sha256: 3ae8162c5205c85cca5954d99d5e9672c6eca4d0fee375d6c75d25d5fb8e94e0
                 mode: 420
             go.sum:
                 exists: true
-                sha256: d81f1adbfddce67774f26734e51227138f6ceeea81f5db9e36b0fe6bbf081b3c
+                sha256: 1cf9a82560e42d70e9a1fe58583f545e049178554538226377d5ee25570871d4
                 mode: 420
             service.yaml:
                 exists: true
                 sha256: df9112176f2dcaf28257689abc0fedd964b29998195268acc4804137c064b9b1
                 mode: 420
-        sha256: 4e8533aeb2b06f8728da8d252e44ad4e8508da09194dec5bfb9700f842e5e431
+        sha256: 55b1c38b5f00cde8a900498bd5296d8940078eb301447633ee2676b777de587f
     compiler_build:
         go_version: go1.26.10
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261030220542-305f6fe7e0e6
+        module_version: v0.0.0-20261107000954-47d7f7786e7e
         vcs: git
-        revision: 305f6fe7e0e6781c186e10fec7af36a413a00580
+        revision: 47d7f7786e7ec233e02b11b8e01253bb675ecfd9
         source_state: clean
+    service_name: user-management
     service_hash: df9112176f2dcaf28257689abc0fedd964b29998195268acc4804137c064b9b1
     registry_sha: env-override
     registry_content_sha256: 408bbbd40cf6aeb20dadfbb4d04f819eb1f576a22a8d8732cd1f43117e067450
     components:
         health-check:
             version: 1.1.0
-            sha: env-override
+            sha: a5c76146b4e739d41cf7ab6aa1bf967493504a5fc5c4c9607fe2d6536df74dac
         jwt-auth:
             version: 2.4.0
-            sha: env-override
+            sha: 73b9e182608e923374ecd5a0c8e06684b9ef4d439b1d833f1d433d595ee0ffd9
         kafka-producer:
             version: 1.1.0
-            sha: env-override
+            sha: 20476605cc49a449c7cbcc266e16b705b6e553873e13826636c293d7f0ccc905
         otel-tracing:
             version: 1.19.0
-            sha: env-override
+            sha: e773ff6e0eb8fa18f295d68e9c60cf9326d4f6c4cb4d8013825391ae5fc87324
         outbox:
             version: 1.4.0
-            sha: env-override
+            sha: b53de1e08f609712cff4d5a4df835b65be9d7a2bf8b9a0e5cab530d25e0c580b
         postgres-adapter:
             version: 4.13.0
-            sha: env-override
+            sha: ce989807c40167e92bcaf94989f7dbbe5f6dba2289340b97b2e97dd43ce4208b
         rest-api:
             version: 3.1.0
-            sha: env-override
+            sha: 3a38c4ff2f4bf13449afb300cf56482dfdd9ace94a00169eb695606298903a59
         tsl-search:
             version: 1.0.2
-            sha: env-override
+            sha: f95bb5edb64f24c0d8acbcd9c3a43bef355a4fc843af70df0743155784ae10eb
     entities:
         AuditEvent:
             - name: source_type
