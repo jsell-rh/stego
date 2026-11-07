@@ -2,3 +2,40 @@ kind: fill
 name: rbac-policy
 implements: rest-api.before_create
 collection: org-users
+evidence:
+  fill_digest: 9a9288b8f0341bd89df3490c541bd498a5df78a6fcf175ebbc2a544a42395700
+  contract_digest: 2257b18389d2beb5ccd5d25949f6e0d527cd6fb02436f284e8a574c1ec037655
+  passed_at: 2026-11-07T14:10:09Z
+  compiler:
+    go_version: go1.26.10
+    goos: linux
+    goarch: amd64
+    module_version: (devel)
+    vcs: unknown
+    revision: unknown
+    source_state: unknown
+  files:
+    fill.yaml: de3ecfc212f1c8a201fe5911e486a74521947759bb63a1338af9bbf3fd6cec41
+    policy.go: a7f8a395d66542e940a74ff6e68ef95144a93e90cd848eb1cf68b2de4892e829
+    policy_test.go: 19cdaaf8bf0769e924290fe11d397acc5883cbb24bdcf09c8a2d33390af84483
+sign_off:
+  evidence_digest: dc056d9c2fad28c2a3e07181f951c4a3b7d49479ca27c2282d421cb4d5d6b4c8
+  signature:
+    key_type: ssh
+    signer: 35787503+elsell@users.noreply.github.com
+    signature: |
+      -----BEGIN SSH SIGNATURE-----
+      U1NIU0lHAAAAAQAAARcAAAAHc3NoLXJzYQAAAAMBAAEAAAEBALsnksSLm9M7JucxPR5fip
+      7av8zqxlfnHPiKO4ScdopJeezbbuPmQz7KkjDKM2oLsdyeV3PZZZz051W6SC4v8mcAk6wM
+      aUo9FQq81i3h9cmgeeJf06thXUgYM0R58QPNwAquZTgvkGTBFvaBO0amv/tmfSGoqw9sYa
+      Kyum85zOVpOMPrOWR9mZqY/I8SG6nvN05jF+YDksFAArzy6DYU/4LHGIkU9NDuKAe2o1Ww
+      WUP0D2JTJIWxnskmDRqUVgtmmPzW8131Mhur+ms2l/K6Qkv8HmJzspCsZPkxhkDMougK7s
+      G/ltb8qpbwznydvO9A525OppB9qgbqpJ1Yo4Jz7usAAAAKc3RlZ28tZmlsbAAAAAAAAAAG
+      c2hhNTEyAAABFAAAAAxyc2Etc2hhMi01MTIAAAEAoyFl63XLsnIUTDAijEy2CHBmIzomTf
+      r4Tl0sv/RW7+X1wgNC1hmUko4He7LDtGiZnpHlay85PA7rras9dEdtH2CdvE71aP/txk+L
+      Aa5wrCSRcS7rokWKxUmLdYo8lMyCYy7JtvEx5sQ0OAUU9k1QGGWvPka8C2gdBJ9CsXo9qj
+      rk1X8s5Zm639Blup06MibsGXFMQ1W/gnr/jh0z7KMJMDDYtxLpKDTnFn7nVmuvzDKUmfqT
+      ZjyzRangPYmUhu+nTF6ooCU8ksL983REOvuIje/cTmO6v49I+6XN1LqA6gRMI+UJeunPOU
+      4PQQwvk4gWHKMZkizwQYQyyrd/JY7ugQ==
+      -----END SSH SIGNATURE-----
+  signed_at: 2026-11-07T14:10:10Z
