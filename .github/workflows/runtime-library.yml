@@ -1,0 +1,92 @@
+name: Runtime library checks
+
+# The runtime library stego.dev/runtime is the Go module in registry/runtime (ST-SUP-TOOL11). It is tagged and
+# released with the common registry (ST-STD-RUNTIME-R04), with tags registry/runtime/vX.Y.Z, as Go names the tags of
+# a module in a subfolder. This workflow vets and tests the module, proves that the local workspace resolves it with
+# no network (ST-SUP-TOOL12), and runs apidiff against the last tag of the same major module path
+# (ST-STD-RUNTIME-R03). Before the first tag, apidiff has no base and the step says so and passes.
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  GOWORK: 'off'
+  APIDIFF_VERSION: v0.0.0-20251023183803-a4bb9ffd2546
+
+jobs:
+  runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          # apidiff needs the module's tags.
+          fetch-depth: 0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26.10'
+          cache: false
+      - name: Check the format
+        working-directory: registry/runtime
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not formatted:" >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
+      - name: Vet the module
+        working-directory: registry/runtime
+        run: go vet ./...
+      - name: Test the module
+        working-directory: registry/runtime
+        run: go test -race -count=1 -mod=readonly ./...
+      - name: Resolve the module from the local folder with no network
+        env:
+          GOPROXY: 'off'
+          GOFLAGS: -mod=readonly
+        run: |
+          probe="$RUNNER_TEMP/runtime-probe"
+          mkdir -p "$probe"
+          printf 'module example.com/runtimeprobe\n\ngo 1.26.10\n\nrequire stego.dev/runtime v0.0.0\n' > "$probe/go.mod"
+          {
+            printf 'package main\n\nimport (\n'
+            (cd registry/runtime && go list ./...) | sed 's/.*/\t_ "&"/'
+            printf ')\n\nfunc main() {}\n'
+          } > "$probe/main.go"
+          work="$(scripts/runtime-workspace.sh "$probe" "$RUNNER_TEMP/runtime.work")"
+          (cd "$probe" && GOWORK="$work" go build -o /dev/null .)
+      - name: Compare the API with the last tag
+        run: |
+          module="$(cd registry/runtime && go list -m)"
+          major="$(printf '%s\n' "$module" | sed -n 's|.*/v\([0-9][0-9]*\)$|\1|p')"
+          pattern="registry/runtime/v${major:-[01]}.*"
+          base="$(git tag --list "$pattern" --sort=-version:refname | head -n 1)"
+          if [ -z "$base" ]; then
+            echo "No tag matches $pattern yet: apidiff has no base, so the check is skipped."
+            exit 0
+          fi
+          echo "Comparing $module with $base."
+          git worktree add --detach "$RUNNER_TEMP/runtime-base" "$base"
+          if [ "$(cd "$RUNNER_TEMP/runtime-base/registry/runtime" && go list -m)" != "$module" ]; then
+            echo "The module path differs at $base: a new major module path has no base, so the check is skipped."
+            exit 0
+          fi
+          GOBIN="$RUNNER_TEMP/bin" go install "golang.org/x/exp/cmd/apidiff@$APIDIFF_VERSION"
+          (cd "$RUNNER_TEMP/runtime-base/registry/runtime" && "$RUNNER_TEMP/bin/apidiff" -m -w "$RUNNER_TEMP/base.export" "$module")
+          incompatible="$(cd registry/runtime && "$RUNNER_TEMP/bin/apidiff" -m -incompatible "$RUNNER_TEMP/base.export" "$module")"
+          if [ -n "$incompatible" ]; then
+            echo "The API is not compatible with $base (ST-STD-RUNTIME-R03). Ship a breaking change as a new major module path." >&2
+            echo "$incompatible" >&2
+            exit 1
+          fi
+          echo "The API is compatible with $base."
