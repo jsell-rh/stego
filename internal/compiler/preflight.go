@@ -18,6 +18,7 @@ type resolvedCompilation struct {
 	GoModelSources                   map[string]gen.GoModelSource
 	InputSnapshots                   map[string]fileSnapshot
 	OutDir, OutDirName, SlotsPackage string
+	HoldsFills                       bool
 }
 
 // prepareComponents resolves each context once. All checks finish before rendering.
@@ -53,7 +54,8 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 	// A project that holds fills gets the package too, before any fill is
 	// bound, so that its fills compile and their tests run (ST-EXT-INV05).
 	slotsPackage := ""
-	if len(svcDecl.Slots) > 0 || holdsFills(input.ProjectDir) {
+	fills := holdsFills(input.ProjectDir)
+	if len(svcDecl.Slots) > 0 || fills {
 		slotsPackage = "slots"
 	}
 
@@ -102,7 +104,7 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 		}
 	}
 
-	resolved := &resolvedCompilation{Components: components, Names: componentNames, Contexts: map[string]gen.Context{}, InputSnapshots: map[string]fileSnapshot{}, OutDir: outDir, OutDirName: outDirName, SlotsPackage: slotsPackage}
+	resolved := &resolvedCompilation{Components: components, Names: componentNames, Contexts: map[string]gen.Context{}, InputSnapshots: map[string]fileSnapshot{}, OutDir: outDir, OutDirName: outDirName, SlotsPackage: slotsPackage, HoldsFills: fills}
 	for _, compName := range componentNames {
 		comp := components[compName]
 		generator := input.Generators[compName]

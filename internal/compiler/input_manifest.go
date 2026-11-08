@@ -29,6 +29,10 @@ type InputOptions struct {
 	GoVersion   string `yaml:"go_version"`
 	OutputDir   string `yaml:"output_dir"`
 	RegistryRef string `yaml:"registry_ref"`
+	// HoldsFills records whether the fills folder held a fill folder. It
+	// changes the generated output (the slots package), so it is an input
+	// (ST-BLD-INV07). A version 1 manifest has no such record.
+	HoldsFills *bool `yaml:"holds_fills,omitempty"`
 }
 
 type InputFile struct {
@@ -37,8 +41,8 @@ type InputFile struct {
 	Mode   uint32 `yaml:"mode,omitempty"`
 }
 
-func newInputManifest(input ReconcilerInput, out string, snapshots map[string]fileSnapshot) (*InputManifest, error) {
-	m := &InputManifest{Version: 1, Options: InputOptions{input.ModuleName, input.GoVersion, out, input.RegistrySHA}, Files: make(map[string]InputFile, len(snapshots))}
+func newInputManifest(input ReconcilerInput, out string, holdsFills bool, snapshots map[string]fileSnapshot) (*InputManifest, error) {
+	m := &InputManifest{Version: 2, Options: InputOptions{input.ModuleName, input.GoVersion, out, input.RegistrySHA, &holdsFills}, Files: make(map[string]InputFile, len(snapshots))}
 	for name, snapshot := range snapshots {
 		if name == ".stego/state.yaml" {
 			continue
@@ -68,8 +72,11 @@ func validDigest(value string) bool {
 }
 
 func (m *InputManifest) validateFields() error {
-	if m == nil || m.Version != 1 {
+	if m == nil || m.Version < 1 || m.Version > 2 {
 		return errors.New("unsupported project input manifest version")
+	}
+	if (m.Version == 2) != (m.Options.HoldsFills != nil) {
+		return errors.New("input manifest fill presence does not suit its version")
 	}
 	if len(m.Files) < 4 || len(m.Files) > maxManifestFiles {
 		return errors.New("invalid project input manifest file count")
@@ -118,9 +125,12 @@ func (m *InputManifest) validate() error {
 }
 
 func (m *InputManifest) digest() string {
-	const prefix = "stego-project-inputs-v1\x00"
+	prefix := "stego-project-inputs-v1\x00"
+	if m.Version == 2 {
+		prefix = "stego-project-inputs-v2\x00"
+	}
 	options := []string{m.Options.ModuleName, m.Options.GoVersion, m.Options.OutputDir, m.Options.RegistryRef}
-	size := len(prefix) + 8
+	size := len(prefix) + 9
 	for _, value := range options {
 		size += 8 + len(value)
 	}
@@ -135,6 +145,13 @@ func (m *InputManifest) digest() string {
 	}
 	for _, value := range options {
 		field(value)
+	}
+	if m.Version == 2 {
+		holds := byte(0)
+		if m.Options.HoldsFills != nil && *m.Options.HoldsFills {
+			holds = 1
+		}
+		data = append(data, holds)
 	}
 	data = binary.BigEndian.AppendUint64(data, uint64(len(m.Files)))
 	for _, name := range sortedKeys(m.Files) {

@@ -125,6 +125,12 @@ func DetectDrift(projectDir, outDir string) (*DriftResult, error) {
 		}
 	}
 
+	// Whether the project holds fills changes the generated output, so a
+	// project that gains or loses its first fill drifts (ST-BLD-INV07).
+	if manifest := state.LastApplied.Inputs; manifest != nil && manifest.Options.HoldsFills != nil && *manifest.Options.HoldsFills != holdsFills(projectDir) {
+		result.Inputs = append(result.Inputs, DriftedInput{Path: "fills/"})
+	}
+
 	return result, nil
 }
 

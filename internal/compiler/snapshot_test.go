@@ -176,3 +176,66 @@ func TestPlanRecordsInputOnlyStateChange(t *testing.T) {
 		t.Fatalf("state change was not saved: %v", err)
 	}
 }
+
+func TestDetectDriftFillPresence(t *testing.T) {
+	t.Run("ST-GEN-INV05-T The record names whether the project holds fills, so drift names fills/ when the first fill comes or the last goes, and apply refuses a plan made before the first fill", func(t *testing.T) {
+		projectDir, registryDir := setupTestProject(t)
+		outDir := filepath.Join(projectDir, "out")
+		reconcile := func() *Plan {
+			t.Helper()
+			plan, err := Reconcile(ReconcilerInput{
+				ProjectDir:  projectDir,
+				RegistryDir: registryDir,
+				Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
+				GoVersion:   "1.22",
+				ModuleName:  "github.com/test/svc",
+			})
+			if err != nil {
+				t.Fatalf("Reconcile failed: %v", err)
+			}
+			return plan
+		}
+		plan := reconcile()
+		if recorded := plan.NewState.LastApplied.Inputs.Options.HoldsFills; recorded == nil || *recorded {
+			t.Fatalf("the record of a project without fills gives holds_fills %v", recorded)
+		}
+		if err := Apply(plan, projectDir, outDir); err != nil {
+			t.Fatalf("Apply failed: %v", err)
+		}
+		// An empty fills folder, as stego init makes it, is not a fill.
+		if err := os.MkdirAll(filepath.Join(projectDir, "fills"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if result, err := DetectDrift(projectDir, outDir); err != nil || result.HasDrift() {
+			t.Fatalf("an empty fills folder drifts: %+v, %v", result, err)
+		}
+
+		stale := reconcile()
+		if err := os.Mkdir(filepath.Join(projectDir, "fills", "first-fill"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		result, err := DetectDrift(projectDir, outDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Inputs) != 1 || result.Inputs[0].Path != "fills/" {
+			t.Fatalf("the first fill gives drifted inputs %+v, want fills/", result.Inputs)
+		}
+		if err := Apply(stale, projectDir, outDir); err == nil || !strings.Contains(err.Error(), "run plan again") {
+			t.Fatalf("apply accepted a plan made before the first fill: %v", err)
+		}
+
+		if err := Apply(reconcile(), projectDir, outDir); err != nil {
+			t.Fatalf("Apply with the fill failed: %v", err)
+		}
+		if result, err := DetectDrift(projectDir, outDir); err != nil || result.HasDrift() {
+			t.Fatalf("drift after apply with the fill: %+v, %v", result, err)
+		}
+		if err := os.Remove(filepath.Join(projectDir, "fills", "first-fill")); err != nil {
+			t.Fatal(err)
+		}
+		if result, err := DetectDrift(projectDir, outDir); err != nil || len(result.Inputs) != 1 || result.Inputs[0].Path != "fills/" {
+			t.Fatalf("removing the last fill gives %+v, %v, want fills/", result, err)
+		}
+	})
+}

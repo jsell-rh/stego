@@ -302,7 +302,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		return nil, err
 	}
 
-	manifest, err := newInputManifest(input, outDirName, inputSnapshots)
+	manifest, err := newInputManifest(input, outDirName, resolved.HoldsFills, inputSnapshots)
 	if err != nil {
 		return nil, err
 	}
