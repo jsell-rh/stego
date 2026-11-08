@@ -142,7 +142,7 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 				return nil, fmt.Errorf("checking the bound fills: %w", err)
 			}
 			for _, fault := range faults {
-				result.Errors = append(result.Errors, ValidationError{Category: "fill", Message: fault})
+				result.Errors = append(result.Errors, ValidationError{Category: "fill", Rule: fault.Rule, Path: fault.Path, Found: fault.Found, Message: fault.Message})
 			}
 		}
 	}
@@ -370,10 +370,14 @@ func fillCheck(input ReconcilerInput, svcDecl *types.ServiceDeclaration, reg *re
 	for _, c := range svcDecl.Collections {
 		check.Collections = append(check.Collections, c.Name)
 	}
-	for _, sb := range svcDecl.Slots {
-		for _, list := range [][]string{sb.Gate, sb.Chain, sb.FanOut} {
-			for _, name := range list {
-				check.Bindings = append(check.Bindings, FillBinding{Fill: name, Slot: sb.Slot, Collection: sb.Collection})
+	for i, sb := range svcDecl.Slots {
+		for _, operator := range []struct {
+			name  string
+			fills []string
+		}{{"gate", sb.Gate}, {"chain", sb.Chain}, {"fan-out", sb.FanOut}} {
+			for j, name := range operator.fills {
+				path := fmt.Sprintf("slots[%d].%s[%d]", i, operator.name, j)
+				check.Bindings = append(check.Bindings, FillBinding{Fill: name, Slot: sb.Slot, Collection: sb.Collection, Path: path})
 			}
 		}
 	}

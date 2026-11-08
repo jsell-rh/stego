@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -209,6 +210,36 @@ func TestFillBinding(t *testing.T) {
 		p := newFillProject(t)
 		p.bind(t, slotBinding{"qualified-fill", "before_create", "org-groups"})
 		expectRefused(t, p, "qualified-fill", "rest-api.before_create", "org-groups", "org-users")
+	})
+
+	t.Run("ST-EXT-UC01-R02-T03 Each fault of a bound fill names the path of its binding in the declaration, with the collection and the slot", func(t *testing.T) {
+		p := newFillProject(t)
+		p.write(t, "service.yaml", fillBaseService+p.declarationExtra+"slots:\n  - {slot: before_create, collection: org-users, gate: [qualified-fill, other-slot-fill, no-tests-fill]}\n")
+		stdout, stderr, err := p.stego(t, "no-key", "validate", "--json")
+		if err == nil {
+			t.Fatalf("validate accepted the bindings:\n%s", stdout)
+		}
+		var document struct {
+			Faults []struct{ Rule, Path, Found, Message string }
+		}
+		if err := json.Unmarshal([]byte(stdout), &document); err != nil {
+			t.Fatalf("validate --json printed no document: %v\n%s\n%s", err, stdout, stderr)
+		}
+		want := map[string]string{"slots[0].gate[1]": "other-slot-fill", "slots[0].gate[2]": "no-tests-fill"}
+		rules := map[string]string{"slots[0].gate[1]": "fill-fits-binding", "slots[0].gate[2]": "fill-qualified"}
+		if len(document.Faults) != len(want) {
+			t.Fatalf("got %d faults, want %d: %+v", len(document.Faults), len(want), document.Faults)
+		}
+		for _, fault := range document.Faults {
+			if want[fault.Path] != fault.Found || rules[fault.Path] != fault.Rule {
+				t.Errorf("fault %+v is not one of %v with rules %v", fault, want, rules)
+			}
+			for _, part := range []string{fault.Found, fault.Path, "org-users.before_create"} {
+				if !strings.Contains(fault.Message, part) {
+					t.Errorf("fault %q does not name %q", fault.Message, part)
+				}
+			}
+		}
 	})
 
 	t.Run("ST-EXT-UC01-R04-T01 Plan and apply refuse a bound fill with no test file, and name it", func(t *testing.T) {

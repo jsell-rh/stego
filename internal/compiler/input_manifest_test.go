@@ -128,14 +128,14 @@ func TestManifestUsesCapturedModuleBytes(t *testing.T) {
 		t.Fatal("module merge read later filesystem data", err)
 	}
 	writeFile(t, path, string(original))
-	manifest, err := newInputManifest(input, "out", snapshots)
+	manifest, err := newInputManifest(input, "out", false, snapshots)
 	if err != nil || manifest.Files["go.mod"].SHA256 != HashBytes(result.Content) {
 		t.Fatal("record does not identify consumed module", err)
 	}
 }
 
 func manifestFixture() *InputManifest {
-	m := &InputManifest{Version: 1, Options: InputOptions{"example.com/demo", "1.26.8", "out", "local"}, Files: map[string]InputFile{
+	m := &InputManifest{Version: 1, Options: InputOptions{"example.com/demo", "1.26.8", "out", "local", nil}, Files: map[string]InputFile{
 		"service.yaml": {Exists: true, SHA256: strings.Repeat("a", 64), Mode: 0644}, "go.mod": {}, "go.sum": {}, ".stego/config.yaml": {},
 	}}
 	m.SHA256 = m.digest()
@@ -143,7 +143,7 @@ func manifestFixture() *InputManifest {
 }
 func TestInputManifestRejectsMalformedState(t *testing.T) {
 	for _, change := range []func(*InputManifest){
-		func(m *InputManifest) { m.Version = 2 },
+		func(m *InputManifest) { m.Version = 3 },
 		func(m *InputManifest) {
 			for i := len(m.Files); i <= maxManifestFiles; i++ {
 				m.Files[fmt.Sprintf("extra/%d", i)] = m.Files["service.yaml"]
@@ -190,14 +190,17 @@ func TestInputManifestDigestVector(t *testing.T) {
 	for name, file := range m.Files {
 		snapshots[name] = fileSnapshot{Exists: file.Exists, Hash: file.SHA256, Mode: os.FileMode(file.Mode)}
 	}
-	moved, err := newInputManifest(input, "out", snapshots)
-	if err != nil || moved.SHA256 != m.SHA256 {
+	// A new manifest is version 2, which also digests fill presence. This
+	// value was computed with the same independent Python implementation.
+	const version2 = "3af49acb30802346258f90f397bb36a63c9d90c14a73f3e242adb4562510be7a"
+	moved, err := newInputManifest(input, "out", false, snapshots)
+	if err != nil || moved.SHA256 != version2 {
 		t.Fatal("location changed input identity", err)
 	}
 	input.ProjectDir = "/another/project"
 	input.RegistryDir = "/another/registry"
-	moved, err = newInputManifest(input, "out", snapshots)
-	if err != nil || moved.SHA256 != m.SHA256 {
+	moved, err = newInputManifest(input, "out", false, snapshots)
+	if err != nil || moved.SHA256 != version2 {
 		t.Fatal("location changed input identity", err)
 	}
 }
@@ -243,7 +246,7 @@ func BenchmarkProjectInputManifest(b *testing.B) {
 			}
 			b.ReportAllocs()
 			for b.Loop() {
-				m, err := newInputManifest(input, "out", snapshots)
+				m, err := newInputManifest(input, "out", false, snapshots)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -309,6 +312,35 @@ func TestInputManifestIsBoundedAndCanonical(t *testing.T) {
 		// Python implementation.
 		if digest := manifestFixture().SHA256; digest != "ba23895de3506ff6083120f019051ac0f48ec2000548646e14b0a127446521a1" {
 			t.Fatalf("the digest of the fixed manifest is %s, not its vector", digest)
+		}
+	})
+}
+
+func TestInputManifestFillPresence(t *testing.T) {
+	t.Run("ST-GEN-INV23-T A version 2 manifest digests whether the project holds fills, and its fields must suit its version", func(t *testing.T) {
+		with, without := manifestFixture(), manifestFixture()
+		holds, none := true, false
+		with.Version, with.Options.HoldsFills = 2, &holds
+		without.Version, without.Options.HoldsFills = 2, &none
+		with.SHA256, without.SHA256 = with.digest(), without.digest()
+		if with.SHA256 == without.SHA256 || with.SHA256 == manifestFixture().SHA256 {
+			t.Fatal("fill presence does not change the digest")
+		}
+		for _, m := range []*InputManifest{with, without, manifestFixture()} {
+			if err := m.validate(); err != nil {
+				t.Fatalf("valid manifest refused: %v", err)
+			}
+		}
+		noRecord := manifestFixture()
+		noRecord.Version = 2
+		noRecord.SHA256 = noRecord.digest()
+		oldWithRecord := manifestFixture()
+		oldWithRecord.Options.HoldsFills = &holds
+		oldWithRecord.SHA256 = oldWithRecord.digest()
+		for _, m := range []*InputManifest{noRecord, oldWithRecord} {
+			if err := m.validate(); err == nil {
+				t.Fatalf("manifest version %d with holds_fills %v accepted", m.Version, m.Options.HoldsFills)
+			}
 		}
 	})
 }

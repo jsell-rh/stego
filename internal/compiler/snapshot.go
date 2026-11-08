@@ -131,6 +131,11 @@ func verifyPlanLocation(plan *Plan, projectDir, outDir string) error {
 	if plan.snapshots == nil || plan.projectDir != project || plan.outDir != output {
 		return fmt.Errorf("plan has no snapshot for this project and output directory; run plan again")
 	}
+	if plan.NewState != nil && plan.NewState.LastApplied != nil && plan.NewState.LastApplied.Inputs != nil {
+		if recorded := plan.NewState.LastApplied.Inputs.Options.HoldsFills; recorded != nil && *recorded != holdsFills(projectDir) {
+			return fmt.Errorf("the fills folder gained or lost its fills after the plan; run plan again")
+		}
+	}
 	return nil
 }
 
