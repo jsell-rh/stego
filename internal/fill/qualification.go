@@ -171,19 +171,13 @@ func QualificationFaults(check compiler.FillCheck) ([]compiler.FillFault, error)
 	for _, row := range rows {
 		byFill[row.Fill] = row
 	}
+	// The misfit of each binding, so that a standing fault does not repeat the
+	// misfit of another binding of the same fill.
+	misfits := make([]string, len(check.Bindings))
+	misfitReasons := map[string]bool{}
 	manifests := map[string]*Fill{}
-	var faults []compiler.FillFault
-	for _, binding := range check.Bindings {
-		row, ok := byFill[binding.Fill]
-		if !ok {
-			continue
-		}
-		at := fmt.Sprintf("at %s (%s.%s)", binding.Path, binding.Collection, binding.Slot)
-		if row.Standing != Qualified {
-			faults = append(faults, compiler.FillFault{Rule: "fill-qualified", Path: binding.Path, Found: binding.Fill,
-				Message: fmt.Sprintf("fill %q is %s %s: %s", binding.Fill, row.Standing, at, strings.Join(row.Reasons, "; "))})
-		}
-		if row.Fits {
+	for i, binding := range check.Bindings {
+		if row, ok := byFill[binding.Fill]; !ok || row.Fits {
 			continue
 		}
 		f, seen := manifests[binding.Fill]
@@ -191,13 +185,32 @@ func QualificationFaults(check compiler.FillCheck) ([]compiler.FillFault, error)
 			f, _ = ReadManifest(filepath.Join(check.ProjectDir, "fills", binding.Fill, ManifestFile), check)
 			manifests[binding.Fill] = f
 		}
-		// A manifest that cannot be read already gives the untested fault above, with the reason.
-		if f == nil {
+		// A manifest that cannot be read gives the untested fault, with the reason.
+		if f != nil {
+			misfits[i] = misfit(f, slotsNamed(check, binding.Slot), binding.Collection)
+			misfitReasons[misfits[i]] = true
+		}
+	}
+	var faults []compiler.FillFault
+	for i, binding := range check.Bindings {
+		row, ok := byFill[binding.Fill]
+		if !ok {
 			continue
 		}
-		if reason := misfit(f, slotsNamed(check, binding.Slot), binding.Collection); reason != "" {
+		at := fmt.Sprintf("at %s (%s.%s)", binding.Path, binding.Collection, binding.Slot)
+		if row.Standing != Qualified {
+			var reasons []string
+			for _, reason := range row.Reasons {
+				if !misfitReasons[reason] {
+					reasons = append(reasons, reason)
+				}
+			}
+			faults = append(faults, compiler.FillFault{Rule: "fill-qualified", Path: binding.Path, Found: binding.Fill,
+				Message: fmt.Sprintf("fill %q is %s %s: %s", binding.Fill, row.Standing, at, strings.Join(reasons, "; "))})
+		}
+		if misfits[i] != "" {
 			faults = append(faults, compiler.FillFault{Rule: "fill-fits-binding", Path: binding.Path, Found: binding.Fill,
-				Message: fmt.Sprintf("fill %q does not fit its binding %s: %s", binding.Fill, at, reason)})
+				Message: fmt.Sprintf("fill %q does not fit its binding %s: %s", binding.Fill, at, misfits[i])})
 		}
 	}
 	return faults, nil
