@@ -168,6 +168,7 @@
 {"id":"ST-EXT-UC04-FL-S02","title":"The service author records test evidence, and STEGO records new evidence","flow_id":"ST-EXT-UC04-FL","path":"main","position":2}
 {"id":"ST-EXT-UC04-FL-S03","title":"The service author runs fill sign, and STEGO signs the new evidence","flow_id":"ST-EXT-UC04-FL","path":"main","position":3}
 {"id":"ST-EXT-UC04-FL-S04","title":"Plan or apply meets a stale fill, stops, and names it","flow_id":"ST-EXT-UC04-FL","path":"stopped","position":1}
+{"id":"ST-EXT-UC04-FL-S05","title":"A fill manifest holds qualified_by, so STEGO warns, and the service author runs fill upgrade before fill status","flow_id":"ST-EXT-UC04-FL","path":"old manifest","position":1}
 {"id":"ST-GEN-UC01-FL-S01","title":"The service author runs apply, and STEGO writes the generated files and the record together","flow_id":"ST-GEN-UC01-FL","path":"main","position":1}
 {"id":"ST-GEN-UC01-FL-S02","title":"The service author commits the record with the generated code","flow_id":"ST-GEN-UC01-FL","path":"main","position":2}
 {"id":"ST-GEN-UC01-FL-S03","title":"An interrupted apply leaves a journal, and plan, apply and drift refuse until the author runs recover","flow_id":"ST-GEN-UC01-FL","path":"interrupted","position":1}
