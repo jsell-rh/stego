@@ -1,12 +1,13 @@
 format_version: 2
 last_applied:
     inputs:
-        version: 1
+        version: 2
         options:
             module_name: github.com/example/service
             go_version: 1.26.10
             output_dir: out
             registry_ref: env-override
+            holds_fills: true
         files:
             .stego/config.yaml:
                 exists: true
@@ -24,14 +25,14 @@ last_applied:
                 exists: true
                 sha256: df9112176f2dcaf28257689abc0fedd964b29998195268acc4804137c064b9b1
                 mode: 420
-        sha256: 55b1c38b5f00cde8a900498bd5296d8940078eb301447633ee2676b777de587f
+        sha256: 1e30920ceb2d48a8c3da089adc7397e365fa841dc801a2f4dc84379e2231a07e
     compiler_build:
         go_version: go1.26.10
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261107140909-bc8302b9f022
+        module_version: v0.0.0-20261108140223-2300871aa15d
         vcs: git
-        revision: bc8302b9f0227bd66854b984edc64dcfc68ba332
+        revision: 2300871aa15d7b28e8d6f04d757368d957c3d209
         source_state: clean
     service_name: user-management
     service_hash: df9112176f2dcaf28257689abc0fedd964b29998195268acc4804137c064b9b1
