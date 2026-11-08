@@ -32,6 +32,7 @@
 {"source_id":"ST-EXT-CLI02","target_id":"ST-EXT-CMD02"}
 {"source_id":"ST-EXT-CLI03","target_id":"ST-EXT-CMD03"}
 {"source_id":"ST-EXT-CLI04","target_id":"ST-EXT-QRY02"}
+{"source_id":"ST-EXT-CLI05","target_id":"ST-EXT-CMD04"}
 {"source_id":"ST-GEN-CLI01","target_id":"ST-DLV-CMD01"}
 {"source_id":"ST-GEN-CLI01","target_id":"ST-DLV-CMD02"}
 {"source_id":"ST-GEN-CLI01","target_id":"ST-DLV-CMD03"}
