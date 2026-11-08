@@ -147,11 +147,23 @@ type FillSlot struct {
 }
 
 // FillBinding is one fill that a slot binding names, with the slot and the
-// collection of the binding.
+// collection of the binding, and where the declaration names the fill, such
+// as slots[1].gate[0].
 type FillBinding struct {
 	Fill       string
 	Slot       string
 	Collection string
+	Path       string
+}
+
+// FillFault is one fault of a bound fill at one binding: the rule it breaks,
+// the binding's path in the declaration, the fill it names and the fault in a
+// sentence.
+type FillFault struct {
+	Rule    string
+	Path    string
+	Found   string
+	Message string
 }
 
 // FillContracts reads a slot contract and the files it imports from the
@@ -177,10 +189,10 @@ type FillCheck struct {
 	FillModules []string
 }
 
-// FillQualifier gives a fault for each bound fill that does not fit its
-// binding or is not qualified. The compiler owns this port and Extending's
+// FillQualifier gives a fault for each binding of a fill that does not fit
+// that binding or is not qualified. The compiler owns this port and Extending's
 // fill package implements it (ST-STD-CODE-R03).
-type FillQualifier func(check FillCheck) ([]string, error)
+type FillQualifier func(check FillCheck) ([]FillFault, error)
 
 // FillReader reads the fill manifest (fill.yaml) at path and gives the
 // collection the fill serves. The compiler owns this port and Extending's

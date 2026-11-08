@@ -159,25 +159,46 @@ func ListQualification(check compiler.FillCheck) ([]Qualification, error) {
 }
 
 // QualificationFaults is the compiler's compiler.FillQualifier: a fault for
-// each bound fill that does not fit its binding or is not qualified.
-func QualificationFaults(check compiler.FillCheck) ([]string, error) {
+// each binding of a fill that does not fit that binding or is not qualified.
+// Each fault names the binding's path in the declaration and its collection
+// and slot, so an agent can go to the exact binding.
+func QualificationFaults(check compiler.FillCheck) ([]compiler.FillFault, error) {
 	rows, err := ListQualification(check)
 	if err != nil {
 		return nil, err
 	}
-	var faults []string
+	byFill := map[string]Qualification{}
 	for _, row := range rows {
-		if row.Standing == Qualified && row.Fits {
+		byFill[row.Fill] = row
+	}
+	manifests := map[string]*Fill{}
+	var faults []compiler.FillFault
+	for _, binding := range check.Bindings {
+		row, ok := byFill[binding.Fill]
+		if !ok {
 			continue
 		}
-		var parts []string
+		at := fmt.Sprintf("at %s (%s.%s)", binding.Path, binding.Collection, binding.Slot)
 		if row.Standing != Qualified {
-			parts = append(parts, "is "+string(row.Standing))
+			faults = append(faults, compiler.FillFault{Rule: "fill-qualified", Path: binding.Path, Found: binding.Fill,
+				Message: fmt.Sprintf("fill %q is %s %s: %s", binding.Fill, row.Standing, at, strings.Join(row.Reasons, "; "))})
 		}
-		if !row.Fits {
-			parts = append(parts, "does not fit its binding")
+		if row.Fits {
+			continue
 		}
-		faults = append(faults, fmt.Sprintf("fill %q %s: %s", row.Fill, strings.Join(parts, " and "), strings.Join(row.Reasons, "; ")))
+		f, seen := manifests[binding.Fill]
+		if !seen {
+			f, _ = ReadManifest(filepath.Join(check.ProjectDir, "fills", binding.Fill, ManifestFile), check)
+			manifests[binding.Fill] = f
+		}
+		// A manifest that cannot be read already gives the untested fault above, with the reason.
+		if f == nil {
+			continue
+		}
+		if reason := misfit(f, slotsNamed(check, binding.Slot), binding.Collection); reason != "" {
+			faults = append(faults, compiler.FillFault{Rule: "fill-fits-binding", Path: binding.Path, Found: binding.Fill,
+				Message: fmt.Sprintf("fill %q does not fit its binding %s: %s", binding.Fill, at, reason)})
+		}
 	}
 	return faults, nil
 }
