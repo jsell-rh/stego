@@ -2,6 +2,7 @@ package authz
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -9,14 +10,24 @@ import (
 
 // memProvider is an in-memory fake provider of both ports. view is given by owner or viewer, edit by owner. When
 // stale is set, it ignores the consistency and answers from a copy that a delete does not reach. When allowAll is
-// set, it allows every request.
+// set, it allows every request. When keyOnly is set, it reads only the key part of a resource ID, as a provider that
+// drops the tenant would.
 type memProvider struct {
 	mu       sync.Mutex
 	tuples   map[Tuple]bool
 	copy     map[Tuple]bool
 	stale    bool
 	allowAll bool
+	keyOnly  bool
 	revision int
+}
+
+// keyOf is the resource with only the key part of its ID.
+func keyOf(resource Resource) Resource {
+	if _, key, ok := splitResourceID(resource.ID); ok {
+		resource.ID = key
+	}
+	return resource
 }
 
 func newMem() *memProvider { return &memProvider{tuples: map[Tuple]bool{}, copy: map[Tuple]bool{}} }
@@ -32,6 +43,12 @@ func (m *memProvider) Evaluate(_ context.Context, request EvaluationRequest) (Ev
 	}
 	allowed := m.allowAll
 	for _, relation := range memPermissions[request.Action.Name] {
+		if m.keyOnly {
+			for tuple := range state {
+				allowed = allowed || (keyOf(tuple.Resource) == keyOf(request.Resource) && tuple.Relation == relation && tuple.Subject == request.Subject)
+			}
+			continue
+		}
 		allowed = allowed || state[Tuple{Resource: request.Resource, Relation: relation, Subject: request.Subject}]
 	}
 	return EvaluationResult{Allowed: allowed, Token: tok(m.revision)}, nil
@@ -107,10 +124,27 @@ func TestConformance(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, name := range []string{"allow view", "deny view", "allow edit", "deny edit"} {
+		for _, name := range []string{"allow view", "deny view", "allow edit", "deny edit", "other tenant view"} {
 			if c := caseOf(t, report, name); !c.Passed {
 				t.Errorf("SpiceDB failed %s: %s", name, c.Detail)
 			}
+		}
+		// A provider that reads only the key of a resource ID gives the grant of one tenant to another
+		// (ST-SUP-RP06-LC22), and fails the other-tenant case only.
+		keyOnly := newMem()
+		keyOnly.keyOnly = true
+		keyReport, err := Conform(ctx, Suite{Decision: keyOnly, Relationships: keyOnly, Permissions: suitePermissions})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if caseOf(t, keyReport, "other tenant view").Passed || !caseOf(t, keyReport, "allow view").Passed || !caseOf(t, keyReport, "deny view").Passed {
+			t.Errorf("a provider that drops the tenant gave %+v, want only the other-tenant case failed", keyReport.Cases)
+		}
+		// A grant whose resource ID has no tenant is refused before any case runs.
+		bare := append([]Permission(nil), suitePermissions...)
+		bare[0].Grant.Resource.ID = "c1"
+		if _, err := Conform(ctx, Suite{Decision: newMem(), Relationships: newMem(), Permissions: bare}); !errors.Is(err, ErrNotQualified) {
+			t.Errorf("a grant without a tenant gave %v, want ErrNotQualified", err)
 		}
 		if !report.Passed() {
 			t.Errorf("SpiceDB failed the suite: %+v", report)

@@ -2,9 +2,12 @@ package authz
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
+
+	"stego.dev/runtime/tenant"
 )
 
 // Resource is the resource of an evaluation, in the shape of OpenID AuthZEN 1.0: a type and an ID.
@@ -21,6 +24,104 @@ func (r Resource) valid() error {
 		return err
 	}
 	return validID("resource", r.ID)
+}
+
+// qualified checks the resource and that its ID is the tenant-qualified form of ResourceID, of any tenant
+// (ST-SUP-RP06-LC22). Port checks it on every evaluation; a handle and the relay also check the tenant.
+func (r Resource) qualified() error {
+	if err := r.valid(); err != nil {
+		return err
+	}
+	if _, _, ok := splitResourceID(r.ID); !ok {
+		return ErrNotQualified
+	}
+	return nil
+}
+
+// MaxResourceIDBytes is the longest resource ID that SpiceDB accepts, in bytes.
+const MaxResourceIDBytes = 1024
+
+// ErrNotQualified is the error of a resource ID that is not the tenant-qualified form of ResourceID
+// (ST-SUP-RP06-LC22).
+var ErrNotQualified = errors.New("authz: the resource ID is not the tenant-qualified form")
+
+// ErrOtherTenant is the error of a resource ID whose tenant part is not the tenant of the handle or of the delivery
+// (ST-SUP-RP06-LC22).
+var ErrOtherTenant = errors.New("authz: the resource ID names another tenant")
+
+// ResourceID returns the resource ID at the provider of the row whose key is key in tenant t (ST-SUP-RP06-LC22):
+// the unpadded base64url form of the tenant ID, a /, and the unpadded base64url form of the key. A key is unique only
+// within its tenant, so the same key in two tenants gives two IDs, and two different pairs never give one ID: the
+// two parts hold no /. The separator is / and not |, which a person's subject ID holds (SubjectOf), so a resource ID
+// never equals a person's subject ID, also when a tenant ID equals an issuer. Every resource ID that STEGO sends to the provider has this form; generated code builds each
+// one through this function and never formats one itself (ST-SUP-RC29-OC22). It refuses the zero tenant, an empty key
+// and an ID longer than MaxResourceIDBytes.
+func ResourceID(t tenant.Tenant, key string) (string, error) {
+	if t.IsZero() {
+		return "", tenant.ErrZero
+	}
+	if key == "" {
+		return "", errors.New("authz: the resource key is empty")
+	}
+	id := qualify(t.ID(), key)
+	if len(id) > MaxResourceIDBytes {
+		return "", fmt.Errorf("authz: the tenant-qualified resource ID is longer than %d bytes", MaxResourceIDBytes)
+	}
+	return id, nil
+}
+
+// NewResource returns the resource of type resourceType of the row whose key is key in tenant t, with the ID of
+// ResourceID.
+func NewResource(t tenant.Tenant, resourceType, key string) (Resource, error) {
+	id, err := ResourceID(t, key)
+	if err != nil {
+		return Resource{}, err
+	}
+	resource := Resource{Type: resourceType, ID: id}
+	if err := resource.valid(); err != nil {
+		return Resource{}, err
+	}
+	return resource, nil
+}
+
+// qualify is the tenant-qualified form of the tenant ID and the key.
+func qualify(tenantID, key string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(tenantID)) + "/" + base64.RawURLEncoding.EncodeToString([]byte(key))
+}
+
+// splitResourceID reads a tenant-qualified resource ID back into its tenant ID and key. It gives false for an ID
+// that is not exactly the form qualify writes: it writes the two parts again and compares, so each ID has one
+// reading.
+func splitResourceID(id string) (tenantID, key string, ok bool) {
+	tenantPart, keyPart, found := strings.Cut(id, "/")
+	if !found || tenantPart == "" || keyPart == "" {
+		return "", "", false
+	}
+	tenantBytes, err := base64.RawURLEncoding.DecodeString(tenantPart)
+	if err != nil {
+		return "", "", false
+	}
+	keyBytes, err := base64.RawURLEncoding.DecodeString(keyPart)
+	if err != nil {
+		return "", "", false
+	}
+	if qualify(string(tenantBytes), string(keyBytes)) != id {
+		return "", "", false
+	}
+	return string(tenantBytes), string(keyBytes), true
+}
+
+// keyIn gives the row key of the tenant-qualified resource ID id when its tenant part is the ID of t, and an error
+// otherwise: ErrNotQualified for an ID that is not the form, ErrOtherTenant for an ID of another tenant.
+func keyIn(t tenant.Tenant, id string) (string, error) {
+	tenantID, key, ok := splitResourceID(id)
+	switch {
+	case !ok:
+		return "", ErrNotQualified
+	case t.IsZero() || tenantID != t.ID():
+		return "", ErrOtherTenant
+	}
+	return key, nil
 }
 
 // Action is the action of an evaluation, in the shape of OpenID AuthZEN 1.0: its name is the permission to check.
@@ -235,9 +336,12 @@ type SearchRequest struct {
 }
 
 // SearchResult is one page of a resource search: the allowed resources, the token of the next page, which is zero
-// at the end, and the token the provider searched at.
+// at the end, and the token the provider searched at. A page of Handle.Search also holds in Keys the row key of each
+// resource, in the same order, and holds only the resources of the handle's tenant (ST-SUP-RP06-LC22); Port and a
+// provider leave Keys empty.
 type SearchResult struct {
 	Resources []Resource
+	Keys      []string
 	Next      PageToken
 	Token     Token
 }
@@ -387,8 +491,9 @@ type Floor interface {
 	Current(ctx context.Context) (Token, error)
 }
 
-// Port is the runtime's entry point to a decision provider. It refuses a request with no consistency or no subject
-// before the provider is called, raises every consistency to the revocation floor, and sends ExecuteAll for a batch
+// Port is the runtime's entry point to a decision provider. It refuses a request with no consistency or no subject,
+// and an evaluation of a resource whose ID is not the tenant-qualified form of ResourceID (ST-SUP-RP06-LC22), before
+// the provider is called, raises every consistency to the revocation floor, and sends ExecuteAll for a batch
 // that gives no semantic. It holds no relationships port.
 type Port struct {
 	provider Decision
@@ -431,7 +536,7 @@ func (p *Port) evaluate(ctx context.Context, request EvaluationRequest, floor To
 	if err := checkRequest(request.Subject, request.Action, request.Consistency); err != nil {
 		return EvaluationResult{}, err
 	}
-	if err := request.Resource.valid(); err != nil {
+	if err := request.Resource.qualified(); err != nil {
 		return EvaluationResult{}, err
 	}
 	request.Consistency = request.Consistency.raise(floor)
@@ -466,7 +571,7 @@ func (p *Port) evaluateBatch(ctx context.Context, request BatchRequest, floor To
 		if err := checkRequest(evaluation.Subject, evaluation.Action, evaluation.Consistency); err != nil {
 			return nil, err
 		}
-		if err := evaluation.Resource.valid(); err != nil {
+		if err := evaluation.Resource.qualified(); err != nil {
 			return nil, err
 		}
 		evaluation.Consistency = consistency
@@ -476,16 +581,9 @@ func (p *Port) evaluateBatch(ctx context.Context, request BatchRequest, floor To
 	return p.provider.EvaluateBatch(ctx, request)
 }
 
-// Search returns one page of a resource search at least as fresh as its consistency and the revocation floor, or
-// ErrNoSearch when the provider does not search.
-func (p *Port) Search(ctx context.Context, request SearchRequest) (SearchResult, error) {
-	floor, err := p.currentFloor(ctx)
-	if err != nil {
-		return SearchResult{}, err
-	}
-	return p.search(ctx, request, floor)
-}
-
+// search returns one page of a resource search at least as fresh as its consistency and floor, or ErrNoSearch when
+// the provider does not search. It is not exported: the results of a provider's search name every tenant, so only
+// Handle.Search, which maps them to the rows of its own tenant (ST-SUP-RP06-LC22), and the conformance suite reach it.
 func (p *Port) search(ctx context.Context, request SearchRequest, floor Token) (SearchResult, error) {
 	if !p.provider.Searches() {
 		return SearchResult{}, ErrNoSearch

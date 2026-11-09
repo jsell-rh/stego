@@ -36,8 +36,11 @@ const spiceDBImage = "authzed/spicedb:v1.57.0@sha256:a170d372c9f6b921bb6849064df
 
 // fixtureSchema is the schema of the tests: the resource type document with the relations owner and viewer and the
 // permissions view and edit, a group whose members can be viewers, a banned relation that view excludes, and a
-// caveated relation reader.
-const fixtureSchema = `definition user {}
+// caveated relation reader; and, for the tenant cases, the resource type order with a viewer relation and a folder
+// parent, and the resource type report, whose viewers' delegates may view it too.
+const fixtureSchema = `definition user {
+	relation delegate: user
+}
 
 definition group {
 	relation member: user
@@ -59,6 +62,21 @@ definition document {
 	permission view = (owner + viewer) - banned
 	permission edit = owner
 	permission read = reader
+}
+
+definition folder {
+	relation viewer: user
+}
+
+definition order {
+	relation viewer: user | group#member
+	relation parent: folder
+	permission view = viewer + parent->viewer
+}
+
+definition report {
+	relation viewer: user
+	permission view = viewer + viewer->delegate
 }
 `
 
@@ -608,7 +626,7 @@ func TestSpiceDBProvider(t *testing.T) {
 		db := startSpiceDB(t, fixtureSchema)
 		response, err := db.perms.WriteRelationships(ctx, &v1.WriteRelationshipsRequest{Updates: []*v1.RelationshipUpdate{{
 			Operation: v1.RelationshipUpdate_OPERATION_TOUCH,
-			Relationship: &v1.Relationship{Resource: spiceObject("document", "1"), Relation: "reader",
+			Relationship: &v1.Relationship{Resource: spiceObject("document", doc("1").ID), Relation: "reader",
 				Subject:        spiceSubject(user("bob"), ""),
 				OptionalCaveat: &v1.ContextualizedCaveat{CaveatName: "has_region"}},
 		}}})
@@ -671,13 +689,13 @@ func TestSpiceDBProvider(t *testing.T) {
 			t.Fatal(err)
 		}
 		delivery := outbox.Delivery{Message: outbox.Message{ID: uuid.New(), Destination: DestinationName, ResourceKey: "document:1",
-			Payload: json.RawMessage(`{"v":1,"op":"touch","revocation":"` + uuid.NewString() +
-				`","tuple":{"resource_type":"document","resource_id":"1","relation":"viewer","subject_type":"user","subject_id":"bob"}}`)},
+			Payload: json.RawMessage(`{"v":2,"op":"touch","revocation":"` + uuid.NewString() +
+				`","tuple":{"resource_type":"document","resource_id":"` + doc("1").ID + `","relation":"viewer","subject_type":"user","subject_id":"bob"}}`)},
 			Tenant: mustTenant(t, "t1")}
 		err = relay.Deliver(ctx, floorTx(t, &floorSeq{}), delivery)
 		leaks(t, err)
-		if !strings.Contains(err.Error(), "document:1#viewer") {
-			t.Errorf("the park record %q does not name document:1#viewer", err)
+		if !strings.Contains(err.Error(), doc("1").String()+"#viewer") {
+			t.Errorf("the park record %q does not name %s#viewer", err, doc("1"))
 		}
 		// A context error stays readable by kind, for a provider call and for a floor read.
 		canceled, cancel := context.WithCancel(ctx)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"net/url"
@@ -37,6 +38,30 @@ func TestMain(m *testing.M) {
 // decided is the decision that tenant.Requested takes, made with the mark of the internal seal constructor, so a
 // test can build the tenants it needs.
 type decided struct{ seal.DecisionMark }
+
+// keyOf is the row key of a resource of tenant t1, as the fake providers of the tests read it: the key part of its
+// tenant-qualified ID (ST-SUP-RP06-LC22), or "" for an ID that is not the form of t1.
+func keyOf(r authz.Resource) string {
+	tenantPart, keyPart, ok := strings.Cut(r.ID, "/")
+	if !ok || tenantPart != base64.RawURLEncoding.EncodeToString([]byte("t1")) {
+		return ""
+	}
+	key, err := base64.RawURLEncoding.DecodeString(keyPart)
+	if err != nil {
+		return ""
+	}
+	return string(key)
+}
+
+// resourceIn is the resource of the key in the tenant tenantID, as the authorization runtime builds it.
+func resourceIn(t *testing.T, tenantID, resourceType, key string) authz.Resource {
+	t.Helper()
+	resource, err := authz.NewResource(mustTenant(t, tenantID), resourceType, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resource
+}
 
 func mustTenant(t *testing.T, id string) tenant.Tenant {
 	t.Helper()
