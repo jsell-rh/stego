@@ -147,6 +147,7 @@ CREATE TABLE {s}.{entries} (
 );
 CREATE INDEX {entries}_account_txid ON {s}.{entries} (tenant_id, ledger_id, account_id, txid);
 CREATE INDEX {entries}_account_effective ON {s}.{entries} (tenant_id, ledger_id, account_id, effective_at);
+CREATE INDEX {entries}_holds ON {s}.{entries} (tenant_id, ledger_id, account_id, transfer_id) WHERE pending;
 CREATE TABLE {s}.{snapshots} (
   tenant_id text NOT NULL,
   ledger_id text NOT NULL,

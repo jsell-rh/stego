@@ -523,6 +523,74 @@ func TestPost(t *testing.T) {
 		f.post(f.runtime, "exact", dr("limited", 10), cr("plain", 10))
 		// The hot and the plain account have no limit.
 		f.post(f.runtime, "free", dr("plain", 1000), cr("hot", 1000))
+
+		// 40 goroutines at once: 20 posts and 20 pends of 50 against the limited account, which holds 1000 more,
+		// and 40 posts on the hot account. The lock serializes the limited account, so exactly 20 fit and the rest
+		// are refused; the hot account takes every post.
+		f.post(f.runtime, "fund-more", dr("hot", 1000), cr("limited", 1000))
+		start := make(chan struct{})
+		type result struct {
+			pend bool
+			err  error
+		}
+		limitedDone, hotDone := make(chan result, 40), make(chan error, 40)
+		for i := range 40 {
+			go func() {
+				<-start
+				_, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
+					p := Posting{Key: fmt.Sprintf("race-limited-%d", i), Code: "purchase", Entries: []Entry{dr("limited", 50), cr("plain", 50)}}
+					if i%2 == 1 {
+						return f.usd.Pend(f.ctx, tx, tn, p)
+					}
+					return f.usd.Post(f.ctx, tx, tn, p)
+				})
+				limitedDone <- result{pend: i%2 == 1, err: err}
+			}()
+			go func() {
+				<-start
+				_, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
+					return f.usd.Post(f.ctx, tx, tn, Posting{Key: fmt.Sprintf("race-hot-%d", i), Code: "topup", Entries: []Entry{dr("hot", 1), cr("plain", 1)}})
+				})
+				hotDone <- err
+			}()
+		}
+		close(start)
+		var posts, pends int64
+		for range 40 {
+			r := <-limitedDone
+			switch {
+			case r.err == nil && r.pend:
+				pends++
+			case r.err == nil:
+				posts++
+			case !errors.Is(r.err, ErrBelowMinimum):
+				t.Fatalf("a racing transfer on the limited account: %v", r.err)
+			}
+			if err := <-hotDone; err != nil {
+				t.Fatalf("a racing post on the hot account: %v", err)
+			}
+		}
+		if posts+pends != 20 {
+			t.Fatalf("%d posts and %d pends fit on the limited account; want 20 in all", posts, pends)
+		}
+		// limited had 40 posted and 40 held after the first part, so 0 available; now 1040 less 50 for each post,
+		// with 50 held for each pend, and 0 available.
+		if got := f.balance("limited"); got != usd(1040-50*posts) {
+			t.Fatalf("the limited balance is %v; want %d USD", got, 1040-50*posts)
+		}
+		var available int64
+		f.inTx(f.runtime, acme, func(tx *sql.Tx) error {
+			var err error
+			available, err = f.usd.available(f.ctx, tx, f.tn(acme), "limited")
+			return err
+		})
+		if available != 0 {
+			t.Fatalf("the limited account has %d available after the race; want 0", available)
+		}
+		// hot: 3 x 50 from the lock cases, -1000, +1000, and 40 x 1 from the race.
+		if got := f.balance("hot"); got != usd(150-1000+1000+40) {
+			t.Fatalf("the hot balance is %v; want 190 USD", got)
+		}
 	})
 }
 
@@ -597,11 +665,18 @@ func TestPending(t *testing.T) {
 		f.post(f.runtime, "fund", dr("hot", 1000), cr("limited", 1000))
 		p := f.pend("hold", dr("limited", 300), cr("plain", 300))
 		before := f.count("transfers", "true")
+		// The ID in upper case names the same transfer, and a retry with it returns the post.
 		posted, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
-			return f.usd.PostPending(f.ctx, tx, tn, p.ID, "post", usd(300))
+			return f.usd.PostPending(f.ctx, tx, tn, strings.ToUpper(p.ID), "post", usd(300))
 		})
 		if err != nil {
 			t.Fatal(err)
+		}
+		again, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
+			return f.usd.PostPending(f.ctx, tx, tn, strings.ToUpper(p.ID), "post", usd(300))
+		})
+		if err != nil || again.ID != posted.ID || !again.Replayed || again.PendingID != p.ID {
+			t.Fatalf("the retry with the upper-case ID: %+v, %v; want the post %s", again, err, posted.ID)
 		}
 		if posted.ID == p.ID || f.count("transfers", "true") != before+1 {
 			t.Fatalf("the post %s is not a new row", posted.ID)

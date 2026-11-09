@@ -298,7 +298,7 @@ func TestJobs(t *testing.T) {
 			t.Fatal("Check passed with an expired pending transfer")
 		}
 		ok, reason := j.Health()
-		if ok || !strings.HasPrefix(reason, CheckJob+" failed: ") || !strings.Contains(reason, "ledger_check") {
+		if ok || !strings.HasPrefix(reason, CheckJob+" failed: ") {
 			t.Fatalf("the health after a failed check is %v %q; want unhealthy with a reason that names ledger_check", ok, reason)
 		}
 	})

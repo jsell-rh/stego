@@ -528,6 +528,7 @@ func (l *Ledger) Get(ctx context.Context, tx Tx, t tenant.Tenant, id string) (Tr
 	if !isUUID(id) {
 		return Transfer{}, fmt.Errorf("%w: the transfer %q", ErrNotFound, id)
 	}
+	id = strings.ToLower(id)
 	var out Transfer
 	var kind, status, currency string
 	var amount int64
@@ -615,6 +616,8 @@ func (l *Ledger) Void(ctx context.Context, tx Tx, t tenant.Tenant, pendingID, ke
 }
 
 func (l *Ledger) settle(ctx context.Context, tx Tx, t tenant.Tenant, pendingID, key string, amount money.Money, o op) (Transfer, error) {
+	// The database gives a uuid in lower case; the comparisons with the rows it gives use that form.
+	pendingID = strings.ToLower(pendingID)
 	if t.IsZero() {
 		return Transfer{}, tenant.ErrZero
 	}
@@ -692,6 +695,7 @@ func part(entries []Entry, amount money.Money) ([]Entry, error) {
 // account with a balance limit, as Post does. A retry with the key of an earlier reversal returns that reversal.
 // A correction is a reversal and a new transfer: the package has no other change of a written transfer.
 func (l *Ledger) Reverse(ctx context.Context, tx Tx, t tenant.Tenant, transferID, key string) (Transfer, error) {
+	transferID = strings.ToLower(transferID)
 	if t.IsZero() {
 		return Transfer{}, tenant.ErrZero
 	}
