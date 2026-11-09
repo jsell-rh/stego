@@ -17,6 +17,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/stdlib"
+
+	"stego.dev/runtime/lease"
+	"stego.dev/runtime/tenant"
 )
 
 // The PostgreSQL tests read STEGO_TEST_POSTGRES_DSN, the address of a superuser of a local PostgreSQL 17 server
@@ -30,7 +33,7 @@ const (
 	otherRole      = "stego_audit_other"
 	rolePassword   = "stego-audit-test"
 	outboxStandIn  = "test_outbox"
-	leaseStandIn   = "test_leases"
+	leaseName      = "controller"
 	appTable       = "app_items"
 	rejectMessage  = "the audit table rejects"
 	testRetention  = 12
@@ -48,6 +51,7 @@ type pgFixture struct {
 	runtime *sql.DB
 	audit   *sql.DB // the audit connections of ST-SUP-RP10-LC29
 	outbox  *standInOutbox
+	trace   *statementTrace // every statement sent on the audit connections
 }
 
 type fixtureOption func(*Config)
@@ -81,7 +85,7 @@ func newPG(t *testing.T, opts ...fixtureOption) *pgFixture {
 	if _, err := rand.Read(suffix[:]); err != nil {
 		t.Fatal(err)
 	}
-	f := &pgFixture{t: t, ctx: ctx, cfg: base, db: "audit_" + hex.EncodeToString(suffix[:]), outbox: &standInOutbox{}}
+	f := &pgFixture{t: t, ctx: ctx, cfg: base, db: "audit_" + hex.EncodeToString(suffix[:]), outbox: &standInOutbox{}, trace: &statementTrace{}}
 	if _, err := admin.ExecContext(ctx, "CREATE DATABASE "+f.db+" OWNER "+ownerRole); err != nil {
 		t.Fatalf("create the database: %v", err)
 	}
@@ -90,8 +94,8 @@ func newPG(t *testing.T, opts ...fixtureOption) *pgFixture {
 			t.Errorf("drop the database %s: %v", f.db, err)
 		}
 	})
-	f.owner = f.open(ownerRole)
-	c := Config{RuntimeRole: runtimeRole, RetentionMonths: testRetention}
+	f.owner = f.open(ownerRole, nil)
+	c := Config{RuntimeRole: runtimeRole, RetentionMonths: testRetention, AnchorPeriod: time.Hour}
 	for _, o := range opts {
 		o(&c)
 	}
@@ -104,24 +108,29 @@ CREATE TABLE ` + outboxStandIn + ` (n bigserial PRIMARY KEY, tenant_id text NOT 
   key text NOT NULL, payload bytea NOT NULL);
 GRANT SELECT, INSERT ON ` + outboxStandIn + ` TO ` + runtimeRole + `;
 GRANT USAGE ON SEQUENCE ` + outboxStandIn + `_n_seq TO ` + runtimeRole + `;
-CREATE TABLE ` + leaseStandIn + ` (name text PRIMARY KEY, token bigint NOT NULL);
-INSERT INTO ` + leaseStandIn + ` VALUES ('controller', 1);
-GRANT SELECT, UPDATE ON ` + leaseStandIn + ` TO ` + runtimeRole + `;
+ ` + lease.LeasesTable + `;
+INSERT INTO leases (name) VALUES ('` + leaseName + `');
+GRANT SELECT, UPDATE ON leases TO ` + runtimeRole + `;
+CREATE TABLE test_deferred (x int UNIQUE DEFERRABLE INITIALLY DEFERRED);
+GRANT INSERT ON test_deferred TO ` + runtimeRole + `;
 CREATE TABLE ` + appTable + ` (id text PRIMARY KEY, email text);
 GRANT SELECT, INSERT ON ` + appTable + ` TO ` + runtimeRole + `;`
 	if _, err := f.owner.ExecContext(ctx, setup); err != nil {
 		t.Fatalf("apply the DDL text: %v", err)
 	}
-	f.runtime = f.open(runtimeRole)
-	f.audit = f.open(runtimeRole)
+	f.runtime = f.open(runtimeRole, nil)
+	f.audit = f.open(runtimeRole, f.trace)
 	f.maintainAll()
 	return f
 }
 
-func (f *pgFixture) open(role string) *sql.DB {
+func (f *pgFixture) open(role string, trace *statementTrace) *sql.DB {
 	cfg := f.cfg.Copy()
 	cfg.Database, cfg.User, cfg.Password = f.db, role, rolePassword
 	cfg.RuntimeParams = map[string]string{"TimeZone": "UTC"}
+	if trace != nil {
+		cfg.Tracer = trace
+	}
 	db := stdlib.OpenDB(*cfg)
 	f.t.Cleanup(func() { db.Close() })
 	return db
@@ -160,63 +169,95 @@ func (f *pgFixture) maintainAll() int {
 	return calls
 }
 
-// inTx runs fn in a transaction of db with the tenant set, when it is not empty, and commits.
-func (f *pgFixture) inTx(db *sql.DB, tenant string, fn func(tx *sql.Tx) error) error {
-	tx, err := db.BeginTx(f.ctx, nil)
+// tn returns the tenant of the ID, built as the tenant runtime builds a tenant from a column that a statement
+// read (tenant.ScanRows).
+func (f *pgFixture) tn(id string) tenant.Tenant {
+	f.t.Helper()
+	rows, err := f.owner.QueryContext(f.ctx, "SELECT $1::text", id)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		f.t.Fatal("no row")
+	}
+	t, err := tenant.ScanRows(rows)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return t
+}
+
+// inTx runs fn in a transaction of db. With a tenant it opens the transaction with tenant.Begin and commits it
+// with tenant.Commit, which checks the tenant setting (ST-SUP-RP04-LC03); with no tenant it checks that the
+// setting is still empty before the commit.
+func (f *pgFixture) inTx(db *sql.DB, id string, fn func(tx *sql.Tx) error) error {
+	if id == "" {
+		return noTenant(f.ctx, db, fn)
+	}
+	t := f.tn(id)
+	tx, err := tenant.Begin(f.ctx, db, t, nil)
 	if err != nil {
 		return err
-	}
-	if tenant != "" {
-		if _, err := tx.ExecContext(f.ctx, setTenant, tenant); err != nil {
-			tx.Rollback()
-			return err
-		}
 	}
 	if err := fn(tx); err != nil {
 		tx.Rollback()
 		return err
 	}
-	return tx.Commit()
+	return tenant.Commit(f.ctx, tx, t)
 }
 
-// begin opens a caller transaction of the tenant on the runtime pool.
-func (f *pgFixture) begin(tenant string) *sql.Tx {
+// begin opens a caller transaction of the tenant on the runtime pool with tenant.Begin.
+func (f *pgFixture) begin(id string) *sql.Tx {
 	f.t.Helper()
-	tx, err := f.runtime.BeginTx(f.ctx, nil)
+	tx, err := tenant.Begin(f.ctx, f.runtime, f.tn(id), nil)
 	if err != nil {
-		f.t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(f.ctx, setTenant, tenant); err != nil {
 		f.t.Fatal(err)
 	}
 	return tx
 }
 
-type txLog struct {
-	mu  sync.Mutex
-	txs [][]string
+// commit commits a caller transaction with tenant.Commit.
+func (f *pgFixture) commit(tx *sql.Tx, id string) error {
+	return tenant.Commit(f.ctx, tx, f.tn(id))
 }
 
-// runTx is the stand-in of the service's transaction helper on the audit connections: it sets the tenant and a
-// lock timeout, and records the statements of each transaction.
-func (f *pgFixture) runTx(log *txLog, lockTimeout string) RunTx {
-	return func(ctx context.Context, tenant string, fn func(ctx context.Context, tx Tx) error) error {
-		return f.inTx(f.audit, tenant, func(tx *sql.Tx) error {
-			if lockTimeout != "" {
-				if _, err := tx.ExecContext(ctx, "SET LOCAL lock_timeout = '"+lockTimeout+"'"); err != nil {
-					return err
-				}
-			}
-			rec := &recordingTx{Tx: tx}
-			err := fn(ctx, rec)
-			if log != nil {
-				log.mu.Lock()
-				log.txs = append(log.txs, rec.statements)
-				log.mu.Unlock()
-			}
-			return err
-		})
+// statementTrace records every statement that the connections of a pool send.
+type statementTrace struct {
+	mu   sync.Mutex
+	sqls []string
+}
+
+func (s *statementTrace) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	s.mu.Lock()
+	s.sqls = append(s.sqls, data.SQL)
+	s.mu.Unlock()
+	return ctx
+}
+
+func (s *statementTrace) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+
+func (s *statementTrace) mark() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.sqls)
+}
+
+// transactions returns the statements sent since the mark, cut into transactions at each begin.
+func (s *statementTrace) transactions(mark int) [][]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out [][]string
+	for _, q := range s.sqls[mark:] {
+		if strings.EqualFold(strings.TrimSpace(q), "begin") {
+			out = append(out, nil)
+			continue
+		}
+		if len(out) > 0 {
+			out[len(out)-1] = append(out[len(out)-1], q)
+		}
 	}
+	return out
 }
 
 type recordingTx struct {
@@ -249,14 +290,24 @@ func (r *recordingTx) QueryContext(ctx context.Context, q string, args ...any) (
 // standInOutbox is the outbox stand-in: it writes the message, with its tenant, into a table through the caller's
 // transaction, as the outbox runtime's queue does, until that runtime is on main.
 type standInOutbox struct {
-	mu   sync.Mutex
-	fail bool
+	mu        sync.Mutex
+	fail      bool
+	onEnqueue func()
+	onTx      func(ctx context.Context, tx Tx) error
 }
 
 func (o *standInOutbox) Enqueue(ctx context.Context, tx Tx, tenant, destination, key string, payload []byte) error {
 	o.mu.Lock()
-	fail := o.fail
+	fail, hook, inTx := o.fail, o.onEnqueue, o.onTx
 	o.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	if inTx != nil {
+		if err := inTx(ctx, tx); err != nil {
+			return err
+		}
+	}
 	if fail {
 		return errors.New("the outbox refuses the message")
 	}
@@ -341,11 +392,12 @@ func (f *pgFixture) recordN(w *Writer, tenant string, n int) []Event {
 		tx := f.begin(tenant)
 		e := sampleEvent(tenant, fmt.Sprintf("update-%d", i+1))
 		e.ResourceID = fmt.Sprintf("i-%d", i+1)
-		stored, err := w.Record(f.ctx, tx, []Event{e})
+		e.RequestID = fmt.Sprintf("r-%s-%d-%d", tenant, time.Now().UnixNano(), i)
+		stored, err := w.Record(f.ctx, tx, f.tn(tenant), []Event{e})
 		if err != nil {
 			f.t.Fatalf("Record: %v", err)
 		}
-		if err := tx.Commit(); err != nil {
+		if err := f.commit(tx, tenant); err != nil {
 			f.t.Fatal(err)
 		}
 		out = append(out, stored...)
@@ -406,8 +458,10 @@ func (f *pgFixture) createMonth(month time.Time) {
 }
 
 func auditStatement(q string) bool {
+	q = strings.TrimSpace(q)
 	return strings.Contains(q, EventsTable) || strings.Contains(q, HeadsTable) || strings.Contains(q, outboxStandIn) ||
-		strings.Contains(q, "lock_timeout") || strings.Contains(q, "app.tenant")
+		strings.Contains(q, "lock_timeout") || strings.Contains(q, "statement_timeout") || strings.Contains(q, "app.tenant") ||
+		strings.EqualFold(q, "commit") || strings.EqualFold(q, "rollback")
 }
 
 func containsAny(s string, needles ...string) string {
@@ -427,13 +481,13 @@ func TestRecord(t *testing.T) {
 		if _, err := tx.ExecContext(f.ctx, "INSERT INTO "+appTable+" (id) VALUES ('i-1')"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := w.Record(f.ctx, tx, []Event{sampleEvent("t1", "create")}); err != nil {
+		if _, err := w.Record(f.ctx, tx, f.tn("t1"), []Event{sampleEvent("t1", "create")}); err != nil {
 			t.Fatal(err)
 		}
 		if n := f.auditRows("t1"); n != 0 {
 			t.Fatalf("a second session sees %d audit rows before the commit, want 0", n)
 		}
-		if err := tx.Commit(); err != nil {
+		if err := f.commit(tx, "t1"); err != nil {
 			t.Fatal(err)
 		}
 		if n := f.auditRows("t1"); n != 1 {
@@ -445,7 +499,7 @@ func TestRecord(t *testing.T) {
 		f := newPG(t)
 		w := f.writer()
 		tx := f.begin("t1")
-		if _, err := w.Record(f.ctx, tx, []Event{sampleEvent("t1", "create")}); err != nil {
+		if _, err := w.Record(f.ctx, tx, f.tn("t1"), []Event{sampleEvent("t1", "create")}); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := tx.ExecContext(f.ctx, "SELECT 1"); err != nil {
@@ -469,14 +523,14 @@ func TestRecord(t *testing.T) {
 		if err := tx.Rollback(); err != nil {
 			t.Fatal(err)
 		}
-		log := &txLog{}
+		mark := f.trace.mark()
 		for _, c := range []struct {
 			outcome Outcome
 			code    string
 		}{{OutcomeDenied, "AUTHZ_DENIED"}, {OutcomeFailed, "STORE_CONFLICT"}} {
 			e := sampleEvent("t1", "reserve")
 			e.Outcome, e.ErrorCode = c.outcome, c.code
-			if _, err := w.RecordOutcome(f.ctx, f.runTx(log, ""), e); err != nil {
+			if _, err := w.RecordOutcome(f.ctx, f.audit, f.tn("t1"), e); err != nil {
 				t.Fatalf("RecordOutcome %s: %v", c.outcome, err)
 			}
 		}
@@ -488,10 +542,11 @@ func TestRecord(t *testing.T) {
 		if n := f.count("", "SELECT count(*) FROM "+appTable); n != 0 {
 			t.Errorf("the application row is in the table after the rollback")
 		}
-		if len(log.txs) != 2 {
-			t.Fatalf("%d own transactions, want 2", len(log.txs))
+		txs := f.trace.transactions(mark)
+		if len(txs) != 2 {
+			t.Fatalf("%d own transactions, want 2", len(txs))
 		}
-		for i, stmts := range log.txs {
+		for i, stmts := range txs {
 			for _, s := range stmts {
 				if !auditStatement(s) {
 					t.Errorf("own transaction %d holds a statement that is not the audit write: %s", i+1, s)
@@ -499,11 +554,11 @@ func TestRecord(t *testing.T) {
 			}
 		}
 		e := sampleEvent("t1", "reserve")
-		if _, err := w.RecordOutcome(f.ctx, f.runTx(nil, ""), e); err == nil {
+		if _, err := w.RecordOutcome(f.ctx, f.audit, f.tn("t1"), e); err == nil {
 			t.Errorf("RecordOutcome accepts the outcome ok")
 		}
 		e.Outcome = OutcomeFailed
-		if _, err := w.RecordOutcome(f.ctx, f.runTx(nil, ""), e); err == nil {
+		if _, err := w.RecordOutcome(f.ctx, f.audit, f.tn("t1"), e); err == nil {
 			t.Errorf("RecordOutcome accepts an outcome row with no error code")
 		}
 	})
@@ -514,7 +569,7 @@ func TestRecord(t *testing.T) {
 		if _, err := f.owner.ExecContext(f.ctx, "INSERT INTO "+appTable+" (id, email) VALUES ('c-1', 'a@example.com'), ('c-2', 'b@example.com')"); err != nil {
 			t.Fatal(err)
 		}
-		log := &txLog{}
+		mark := f.trace.mark()
 		for i, id := range []string{"c-1", "c-2"} {
 			tx := f.begin("t1")
 			var email string
@@ -523,11 +578,11 @@ func TestRecord(t *testing.T) {
 			}
 			e := sampleEvent("t1", "")
 			e.ResourceType, e.ResourceID = "customer", id
-			if _, err := w.RecordRead(f.ctx, f.runTx(log, "2s"), e); err != nil {
+			if _, err := w.RecordRead(f.ctx, f.audit, f.tn("t1"), e); err != nil {
 				t.Fatalf("RecordRead: %v", err)
 			}
 			if i == 0 {
-				if err := tx.Commit(); err != nil {
+				if err := f.commit(tx, "t1"); err != nil {
 					t.Fatal(err)
 				}
 			} else if err := tx.Rollback(); err != nil {
@@ -539,7 +594,7 @@ func TestRecord(t *testing.T) {
 				t.Errorf("%d read rows for %s, want 1", n, id)
 			}
 		}
-		for i, stmts := range log.txs {
+		for i, stmts := range f.trace.transactions(mark) {
 			for _, s := range stmts {
 				if !auditStatement(s) {
 					t.Errorf("read transaction %d holds a statement that is not the audit write: %s", i+1, s)
@@ -557,10 +612,10 @@ func TestRecord(t *testing.T) {
 			t.Fatal(err)
 		}
 		tx := f.begin("t1")
-		if _, err := w.Record(f.ctx, tx, []Event{e}); err != nil {
+		if _, err := w.Record(f.ctx, tx, f.tn("t1"), []Event{e}); err != nil {
 			t.Fatal(err)
 		}
-		if err := tx.Commit(); err != nil {
+		if err := f.commit(tx, "t1"); err != nil {
 			t.Fatal(err)
 		}
 		msgs := f.messages()
@@ -603,11 +658,11 @@ func TestRecord(t *testing.T) {
 			e := sampleEvent("t1", fmt.Sprintf("batch-%d", i+1))
 			batch = append(batch, e)
 		}
-		stored, err := w.Record(f.ctx, rec, batch)
+		stored, err := w.Record(f.ctx, rec, f.tn("t1"), batch)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := tx.Commit(); err != nil {
+		if err := f.commit(tx, "t1"); err != nil {
 			t.Fatal(err)
 		}
 		var seqs []int64
@@ -670,11 +725,11 @@ func TestRecord(t *testing.T) {
 		e := sampleEvent("t1", "late")
 		e.RecordedAt = time.Now().Add(-24 * time.Hour)
 		tx := f.begin("t1")
-		stored, err := w.Record(f.ctx, tx, []Event{e})
+		stored, err := w.Record(f.ctx, tx, f.tn("t1"), []Event{e})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := tx.Commit(); err != nil {
+		if err := f.commit(tx, "t1"); err != nil {
 			t.Fatal(err)
 		}
 		var got time.Time
@@ -691,6 +746,9 @@ func TestRecord(t *testing.T) {
 	t.Run("ST-SUP-RP05-LC12-T03 A read row of a fill does not wait on its own command", func(t *testing.T) {
 		f := newPG(t)
 		w := f.writer()
+		// The chain head of t1 exists first, so a command that took the chain lock before the fill returned
+		// would make the read row wait and fail this test.
+		f.recordN(w, "t1", 1)
 		cmd := f.begin("t1")
 		if _, err := cmd.ExecContext(f.ctx, "SET LOCAL lock_timeout = '2s'"); err != nil {
 			t.Fatal(err)
@@ -702,16 +760,16 @@ func TestRecord(t *testing.T) {
 		read := sampleEvent("t1", "")
 		read.ResourceType, read.ResourceID = "customer", "c-0"
 		start := time.Now()
-		if _, err := w.RecordRead(f.ctx, f.runTx(nil, "2s"), read); err != nil {
+		if _, err := w.RecordRead(f.ctx, f.audit, f.tn("t1"), read); err != nil {
 			t.Fatalf("the read row fails while its command is open: %v", err)
 		}
 		if d := time.Since(start); d > time.Second {
 			t.Errorf("the read row waited %s", d)
 		}
-		if _, err := w.Record(f.ctx, cmd, []Event{held}); err != nil {
+		if _, err := w.Record(f.ctx, cmd, f.tn("t1"), []Event{held}); err != nil {
 			t.Fatal(err)
 		}
-		if err := cmd.Commit(); err != nil {
+		if err := f.commit(cmd, "t1"); err != nil {
 			t.Fatal(err)
 		}
 		var actions []string
@@ -736,8 +794,37 @@ func TestRecord(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		if strings.Join(actions, ",") != "read,create" {
+		if strings.Join(actions, ",") != "update-1,read,create" {
 			t.Errorf("the chain holds %v, want the read row and then the write row", actions)
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC12-T04 A read row after its own command's Record fails at once", func(t *testing.T) {
+		f := newPG(t)
+		w := f.writer()
+		f.recordN(w, "t1", 1)
+		cmd := f.begin("t1")
+		defer cmd.Rollback()
+		write := sampleEvent("t1", "create")
+		write.RequestID = "req-42"
+		if _, err := w.Record(f.ctx, cmd, f.tn("t1"), []Event{write}); err != nil {
+			t.Fatal(err)
+		}
+		read := sampleEvent("t1", "")
+		read.RequestID = "req-42"
+		start := time.Now()
+		_, err := w.RecordRead(f.ctx, f.audit, f.tn("t1"), read)
+		if !errors.Is(err, ErrReadAfterRecord) {
+			t.Errorf("RecordRead after Record of the same request gives %v, want ErrReadAfterRecord", err)
+		}
+		if d := time.Since(start); d > 200*time.Millisecond {
+			t.Errorf("RecordRead waited %s, want it to fail at once", d)
+		}
+		// A read row of another request is not refused; it waits on the lock as any writer does.
+		other := sampleEvent("t1", "")
+		other.RequestID = "req-43"
+		if _, err := w.RecordRead(f.ctx, f.audit, f.tn("t1"), other); errors.Is(err, ErrReadAfterRecord) {
+			t.Errorf("RecordRead of another request is refused as a read after Record")
 		}
 	})
 
@@ -747,12 +834,14 @@ func TestRecord(t *testing.T) {
 		e := sampleEvent("t1", "update")
 		e.UserAgent = Untrusted("bad\xff\xfe\x00end")
 		e.ActorIP = Untrusted(strings.Repeat("é", 300)) // 600 bytes
+		e.RequestID = "req\x00\xff"
+		e.IdempotencyKey = strings.Repeat("k", 600)
 		tx := f.begin("t1")
-		stored, err := w.Record(f.ctx, tx, []Event{e})
+		stored, err := w.Record(f.ctx, tx, f.tn("t1"), []Event{e})
 		if err != nil {
 			t.Fatalf("Record fails on bad untrusted bytes: %v", err)
 		}
-		if err := tx.Commit(); err != nil {
+		if err := f.commit(tx, "t1"); err != nil {
 			t.Fatal(err)
 		}
 		var ua, ip string
@@ -766,6 +855,9 @@ func TestRecord(t *testing.T) {
 		}
 		if len(ip) > MaxUntrusted || !utf8Valid(ip) || ip != string(stored[0].ActorIP) || len(ip) < MaxUntrusted-1 {
 			t.Errorf("the stored address has %d bytes, valid %v, want at most %d bytes of valid UTF-8", len(ip), utf8Valid(ip), MaxUntrusted)
+		}
+		if stored[0].RequestID != "req\uFFFD" || len(stored[0].IdempotencyKey) != MaxUntrusted {
+			t.Errorf("the request ID %q and the idempotency key of %d bytes are not cleaned", stored[0].RequestID, len(stored[0].IdempotencyKey))
 		}
 		if h, _ := Hash(stored[0]); !bytes.Equal(h, stored[0].Hash) {
 			t.Errorf("the hash does not cover the cleaned values")
@@ -784,13 +876,13 @@ func TestRecord(t *testing.T) {
 		e.Outcome, e.ErrorCode = OutcomeFailed, ErrorCodeConflict
 		var ids []UUID
 		for i := 0; i < 2; i++ {
-			s, err := w.RecordOutcome(f.ctx, f.runTx(nil, ""), e)
+			s, err := w.RecordOutcome(f.ctx, f.audit, f.tn("t1"), e)
 			if err != nil {
 				t.Fatal(err)
 			}
 			ids = append(ids, s.ID)
 		}
-		s, err := w.RecordRead(f.ctx, f.runTx(nil, ""), e)
+		s, err := w.RecordRead(f.ctx, f.audit, f.tn("t1"), e)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -814,7 +906,7 @@ func TestRecord(t *testing.T) {
 		f := newPG(t)
 		w := f.writer()
 		blocker := f.begin("t1")
-		if _, err := w.Record(f.ctx, blocker, []Event{sampleEvent("t1", "create")}); err != nil {
+		if _, err := w.Record(f.ctx, blocker, f.tn("t1"), []Event{sampleEvent("t1", "create")}); err != nil {
 			t.Fatal(err)
 		}
 		defer blocker.Rollback()
@@ -825,7 +917,7 @@ func TestRecord(t *testing.T) {
 		if err := e.SetStates(Settings{}, Fields{"email": PII}, nil, map[string]any{"email": "x@example.com", "note": "note-value-9031"}); err != nil {
 			t.Fatal(err)
 		}
-		_, err := w.RecordOutcome(f.ctx, f.runTx(nil, "100ms"), e)
+		_, err := w.RecordOutcome(f.ctx, f.audit, f.tn("t1"), e)
 		if err == nil {
 			t.Fatal("RecordOutcome succeeds while the chain head is locked")
 		}
@@ -852,7 +944,7 @@ func TestRecord(t *testing.T) {
 				defer wg.Done()
 				for i := 0; i < each; i++ {
 					err := f.inTx(f.runtime, "t1", func(tx *sql.Tx) error {
-						_, err := w.Record(f.ctx, tx, []Event{sampleEvent("t1", fmt.Sprintf("w%d-%d", g, i)), sampleEvent("t1", "second")})
+						_, err := w.Record(f.ctx, tx, f.tn("t1"), []Event{sampleEvent("t1", fmt.Sprintf("w%d-%d", g, i)), sampleEvent("t1", "second")})
 						return err
 					})
 					if err != nil {
@@ -869,7 +961,7 @@ func TestRecord(t *testing.T) {
 		var findings []Finding
 		if err := f.inTx(f.runtime, "t1", func(tx *sql.Tx) error {
 			var err error
-			findings, err = Verify(f.ctx, tx, "t1", nil)
+			findings, err = Verify(f.ctx, tx, f.tn("t1"), nil)
 			return err
 		}); err != nil {
 			t.Fatal(err)

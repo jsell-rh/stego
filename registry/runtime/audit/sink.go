@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -80,9 +81,20 @@ func (d *Destination) Deliver(ctx context.Context, key string, payload []byte) e
 	}
 	switch m["kind"] {
 	case messageEvent:
+		// The message must be in canonical form, and the event's hash must cover it, before the sink gets it.
+		if !bytes.Equal(encodeTree(v), payload) {
+			return errors.New("audit: the sink message is not in canonical form")
+		}
 		e, err := eventFrom(m["event"])
 		if err != nil {
 			return fmt.Errorf("audit: the sink message: %w", err)
+		}
+		h, err := Hash(e)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(h, e.Hash) {
+			return errors.New("audit: the hash of the sink message does not cover its event")
 		}
 		err = d.sink.Append(ctx, []Event{e})
 		if errors.Is(err, ErrDuplicate) {
@@ -178,10 +190,14 @@ func eventFrom(v any) (Event, error) {
 	}
 	for _, s := range []struct {
 		name string
-		dst  *[]byte
-	}{{"before", &e.Before.raw}, {"after", &e.After.raw}, {"patch", &e.Patch.raw}} {
+		dst  *State
+	}{{"before", &e.Before}, {"after", &e.After}, {"patch", &e.Patch}} {
 		if val, present := m[s.name]; present {
-			*s.dst = encodeTree(val)
+			st, err := storedState(s.name, encodeTree(val))
+			if err != nil {
+				return Event{}, err
+			}
+			*s.dst = st
 		}
 	}
 	if e.PrevHash, err = hexField(m, "prev_hash"); err != nil {

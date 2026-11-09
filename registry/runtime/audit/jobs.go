@@ -12,6 +12,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"stego.dev/runtime/lease"
+	"stego.dev/runtime/tenant"
 )
 
 // The tables and functions of the audit record. Each table is tenant-owned (ST-STD-TXN-R01).
@@ -38,6 +41,9 @@ type Config struct {
 	Schema string
 	// RuntimeRole is the role of the running service.
 	RuntimeRole string
+	// AnchorPeriod is the anchor period of the audit-log component: a stored anchor boundary may be at most one
+	// period ahead of the database clock.
+	AnchorPeriod time.Duration
 	// RetentionMonths is the audit-log retention when the migration runs: audit_maintain drops each partition
 	// whose whole month ends before the start of the current month minus this many months.
 	RetentionMonths int
@@ -60,6 +66,9 @@ func DDL(c Config) (string, error) {
 	if !plainName.MatchString(c.Schema) || !plainName.MatchString(c.RuntimeRole) {
 		return "", errors.New("audit: the schema and the runtime role must be plain lower-case names")
 	}
+	if c.AnchorPeriod < time.Second {
+		return "", errors.New("audit: the anchor period is less than one second")
+	}
 	if c.RetentionMonths < 1 {
 		return "", errors.New("audit: the retention is less than one month")
 	}
@@ -70,6 +79,7 @@ func DDL(c Config) (string, error) {
 		"{s}", c.Schema,
 		"{role}", c.RuntimeRole,
 		"{retention}", strconv.Itoa(c.RetentionMonths),
+		"{period}", strconv.FormatInt(int64(c.AnchorPeriod/time.Second), 10)+" seconds",
 		"{clock}", c.clock,
 		"{events}", EventsTable,
 		"{heads}", HeadsTable,
@@ -135,6 +145,19 @@ CREATE TRIGGER {events}_reject_row BEFORE UPDATE OR DELETE ON {s}.{events}
   FOR EACH ROW EXECUTE FUNCTION {s}.audit_reject_change();
 CREATE TRIGGER {events}_reject_statement BEFORE UPDATE OR DELETE OR TRUNCATE ON {s}.{events}
   FOR EACH STATEMENT EXECUTE FUNCTION {s}.audit_reject_change();
+CREATE FUNCTION {s}.audit_boundary_guard() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' AND NEW.boundary < OLD.boundary THEN
+    RAISE EXCEPTION 'an anchor boundary only grows' USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.boundary > now() + interval '{period}' THEN
+    RAISE EXCEPTION 'an anchor boundary is at most one period ahead of now' USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END
+$$;
+CREATE TRIGGER {bounds}_guard BEFORE INSERT OR UPDATE ON {s}.{bounds}
+  FOR EACH ROW EXECUTE FUNCTION {s}.audit_boundary_guard();
 CREATE TRIGGER {checks}_reject_row BEFORE UPDATE OR DELETE ON {s}.{checks}
   FOR EACH ROW EXECUTE FUNCTION {s}.audit_reject_change();
 CREATE TRIGGER {checks}_reject_statement BEFORE UPDATE OR DELETE OR TRUNCATE ON {s}.{checks}
@@ -161,7 +184,7 @@ GRANT SELECT, INSERT ON {s}.{events} TO {role};
 GRANT SELECT, INSERT, UPDATE ON {s}.{heads}, {s}.{bounds} TO {role};
 GRANT SELECT ON {s}.{checks} TO {role};
 CREATE FUNCTION {s}.audit_create_partition(month date) RETURNS boolean LANGUAGE plpgsql
-  SET search_path = pg_catalog, {s}, pg_temp AS $$
+  SET search_path = pg_catalog, pg_temp AS $$
 DECLARE
   name text := '{events}_p' || to_char(month, 'YYYYMM');
 BEGIN
@@ -179,9 +202,10 @@ REVOKE ALL ON FUNCTION {s}.audit_create_partition(date) FROM PUBLIC;
 CREATE FUNCTION {s}.{maintain}()
   RETURNS TABLE (step_left boolean, checkpoint_tenant text, checkpoint_seq bigint, checkpoint_hash bytea)
   LANGUAGE plpgsql SECURITY DEFINER
-  SET search_path = pg_catalog, {s}, pg_temp
+  SET search_path = pg_catalog, pg_temp
   SET lock_timeout = '2s' AS $$
 DECLARE
+  saved text := current_setting('app.tenant', true);
   today date := (({clock}) AT TIME ZONE 'UTC')::date;
   cur date := date_trunc('month', today)::date;
   cutoff timestamp := date_trunc('month', today) - make_interval(months => {retention});
@@ -235,6 +259,8 @@ BEGIN
       WHERE inh.inhparent = '{s}.{events}'::regclass AND c.relname ~ '^{events}_p[0-9]{6}$'
         AND to_date(right(c.relname, 6), 'YYYYMM') + interval '1 month' <= cutoff);
   END IF;
+  -- The caller's transaction ends with the tenant setting it had (ST-SUP-RP04-LC03).
+  PERFORM set_config('app.tenant', coalesce(saved, ''), true);
   IF coalesce(array_length(tenants, 1), 0) = 0 THEN
     RETURN QUERY SELECT left_over, NULL::text, NULL::bigint, NULL::bytea;
   ELSE
@@ -256,19 +282,24 @@ func partitionName(month time.Time) string {
 	return fmt.Sprintf("%s%04d%02d", partitionPrefix, month.Year(), int(month.Month()))
 }
 
-// Lease is the controller lease, as the lease runtime gives it (ST-SUP-RP09-LC03). Held tells whether this
-// process holds the lease now. Fence fences a write in tx with the holder's token: it fails, with the lease
-// runtime's fenced error, when the lease row holds another token, and holds the lease row until tx ends. The jobs
-// call Fence as the last statement before COMMIT, so a holder that lost the lease while it worked commits nothing.
-type Lease interface {
-	Held() bool
-	Fence(ctx context.Context, tx Tx) error
+// LeaseOf returns the controller lease that this process holds now, or nil when it holds none. The controller
+// gives it from its lease.Client loop (ST-SUP-RP09).
+type LeaseOf func() *lease.Held
+
+// held returns the held lease, or nil when there is none or it stopped.
+func held(of LeaseOf) *lease.Held {
+	if of == nil {
+		return nil
+	}
+	h := of()
+	if h == nil || h.Err() != nil {
+		return nil
+	}
+	return h
 }
 
-// EachTenant is the per-tenant iterator of the tenant runtime (ST-SUP-RP04-LC05): it calls fn once per tenant in
-// one transaction of that tenant, commits the transaction when fn returns nil and rolls it back otherwise,
-// continues with the next tenant after a failure, and reports every failure at the end.
-type EachTenant func(ctx context.Context, fn func(ctx context.Context, tenant string, tx Tx) error) error
+// TenantsOf returns the tenants to visit, such as tenant.List of the service's schema (ST-SUP-RP04-LC07).
+type TenantsOf func(ctx context.Context) ([]tenant.Tenant, error)
 
 // AnchorConfig configures the anchor job.
 type AnchorConfig struct {
@@ -276,9 +307,11 @@ type AnchorConfig struct {
 	// Unix epoch.
 	Period time.Duration
 	// Lease is the controller lease: the job publishes only while it is held, and fences each anchor.
-	Lease Lease
-	// Each opens one transaction per tenant.
-	Each EachTenant
+	Lease LeaseOf
+	// Tenants lists the tenants of the service.
+	Tenants TenantsOf
+	// DB is the runtime role's pool: the job opens one transaction per tenant with tenant.Begin.
+	DB *sql.DB
 	// Outbox enqueues the anchor messages for the audit sink.
 	Outbox Enqueuer
 }
@@ -288,8 +321,9 @@ type Anchorer struct {
 	cfg      AnchorConfig
 	mu       sync.Mutex
 	lastTick time.Time
-	missed   map[string]time.Time
+	missed   map[string]string
 	late     atomic.Int64
+	skipped  atomic.Int64
 }
 
 // NewAnchorer returns the anchor job.
@@ -299,12 +333,12 @@ func NewAnchorer(cfg AnchorConfig) (*Anchorer, error) {
 		return nil, errors.New("audit: the anchor period is not positive")
 	case cfg.Lease == nil:
 		return nil, errors.New("audit: the anchor job needs the controller lease")
-	case cfg.Each == nil:
-		return nil, errors.New("audit: the anchor job needs the per-tenant iterator")
+	case cfg.Tenants == nil || cfg.DB == nil:
+		return nil, errors.New("audit: the anchor job needs the tenants and the database")
 	case cfg.Outbox == nil:
 		return nil, errors.New("audit: the anchor job needs an outbox")
 	}
-	return &Anchorer{cfg: cfg, missed: map[string]time.Time{}}, nil
+	return &Anchorer{cfg: cfg, missed: map[string]string{}}, nil
 }
 
 // Boundary returns the last anchor boundary at or before now: a multiple of the period since the Unix epoch.
@@ -321,93 +355,138 @@ const (
 	selectLast = `SELECT seq, hash FROM ` + EventsTable + ` WHERE tenant_id = $1 ORDER BY seq DESC LIMIT 1`
 )
 
-// Tick runs the anchor job once at the time now, while this process holds the controller lease. For each tenant
-// whose last anchored boundary is before the due boundary, it publishes at once a periodic anchor with the hash
-// of the chain's row with the highest seq and that seq as the count, read from the audit table and never from the
-// chain-head row, stores the due boundary, and fences the transaction with the lease. A boundary that it anchors
-// after it was due at an earlier Tick, or at the first Tick after this process took the lease, counts as late
-// (LateAnchors). A tenant whose due boundary is not anchored makes the job unhealthy until it is anchored. A
-// tenant with no stored boundary starts at the due boundary.
+// tickResult is what one tenant's transaction of a Tick did; it counts only once the commit succeeded.
+type tickResult struct {
+	late, skipped int64
+	future        bool
+}
+
+// Tick runs the anchor job once at the time now, while this process holds the controller lease. It visits each
+// tenant in a transaction of its own, which tenant.Begin opens and tenant.Commit commits (ST-SUP-RP04-LC03,
+// ST-SUP-RP04-LC05), and goes on after a tenant fails. For each tenant whose last anchored boundary is before the
+// due boundary, or that has no stored boundary, it publishes at once a periodic anchor with the hash of the
+// chain's row with the highest seq and that seq as the count, read from the audit table and never from the
+// chain-head row, stores the due boundary, and fences the transaction with the lease (lease.Held.Fence) as its
+// last statement. A chain with no row is not anchored, and its due boundary is stored. A boundary anchored after it
+// was due at an earlier Tick, or at the first Tick after this process took the lease, counts as late
+// (LateAnchors); each boundary passed over between the stored one and the due one counts as skipped
+// (SkippedBoundaries). A tenant whose due boundary is not anchored, or whose stored boundary is more than one
+// period after the due one, makes the job unhealthy; a tenant's miss clears only after its transaction commits. A
+// process that does not hold the lease clears its misses: the holder reports them.
+//
+// The job does not use tenant.Each: Each gives its function a tenant.Querier, which hides the *sql.Tx that
+// lease.Held.Fence takes.
 func (a *Anchorer) Tick(ctx context.Context, now time.Time) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.cfg.Lease.Held() {
+	h := held(a.cfg.Lease)
+	if h == nil {
 		a.lastTick = time.Time{}
+		clear(a.missed)
 		return nil
+	}
+	tenants, err := a.cfg.Tenants(ctx)
+	if err != nil {
+		return err
 	}
 	due := a.Boundary(now)
 	first := a.lastTick.IsZero()
 	lastTick := a.lastTick
 	a.lastTick = now
-	err := a.cfg.Each(ctx, func(ctx context.Context, tenant string, tx Tx) error {
-		var stored time.Time
-		switch err := tx.QueryRowContext(ctx, selectBoundary, tenant).Scan(&stored); {
-		case errors.Is(err, sql.ErrNoRows):
-			if _, err := tx.ExecContext(ctx, upsertBoundary, tenant, due); err != nil {
-				return a.miss(tenant, due, stmtError(ctx, "anchor boundary write", err))
-			}
-			if err := a.cfg.Lease.Fence(ctx, tx); err != nil {
-				return err
-			}
-			delete(a.missed, tenant)
-			return nil
+	var errs []error
+	for _, t := range tenants {
+		res, err := a.anchorOne(ctx, h, t, due, first, lastTick)
+		tid := t.ID()
+		switch {
 		case err != nil:
-			return a.miss(tenant, due, stmtError(ctx, "anchor boundary read", err))
-		}
-		if !stored.Before(due) {
-			delete(a.missed, tenant)
-			return nil
-		}
-		var an Anchor
-		an.Tenant, an.Kind = tenant, AnchorPeriodic
-		switch err := tx.QueryRowContext(ctx, selectLast, tenant).Scan(&an.Count, &an.Head); {
-		case errors.Is(err, sql.ErrNoRows):
-		case err != nil:
-			return a.miss(tenant, due, stmtError(ctx, "chain head read", err))
+			a.missed[tid] = "audit anchor missed for the tenant " + tid + " at the boundary " + timeText(due)
+			errs = append(errs, err)
+		case res.future:
+			a.missed[tid] = "the stored anchor boundary of the tenant " + tid + " is more than one period after " + timeText(due)
 		default:
-			key := "anchor/" + tenant + "/" + timeText(due)
-			if err := a.cfg.Outbox.Enqueue(ctx, tx, tenant, SinkDestination, key, anchorMessage(an)); err != nil {
-				return a.miss(tenant, due, stmtError(ctx, "anchor enqueue", err))
-			}
+			delete(a.missed, tid)
+			a.late.Add(res.late)
+			a.skipped.Add(res.skipped)
 		}
-		if _, err := tx.ExecContext(ctx, upsertBoundary, tenant, due); err != nil {
-			return a.miss(tenant, due, stmtError(ctx, "anchor boundary write", err))
+		if errors.Is(err, lease.ErrFenced) || errors.Is(err, lease.ErrStopped) {
+			break
 		}
-		if err := a.cfg.Lease.Fence(ctx, tx); err != nil {
-			return err
-		}
-		if first || !due.After(lastTick) {
-			a.late.Add(1)
-		}
-		// Each boundary between the stored one and the due one was due and is anchored late by this anchor.
-		if skipped := int64(due.Sub(stored)/a.cfg.Period) - 1; skipped > 0 {
-			a.late.Add(skipped)
-		}
-		delete(a.missed, tenant)
-		return nil
-	})
-	return err
+	}
+	return errors.Join(errs...)
 }
 
-func (a *Anchorer) miss(tenant string, due time.Time, err error) error {
-	a.missed[tenant] = due
-	return err
+func (a *Anchorer) anchorOne(ctx context.Context, h *lease.Held, t tenant.Tenant, due time.Time, first bool, lastTick time.Time) (tickResult, error) {
+	var res tickResult
+	tx, err := tenant.Begin(ctx, a.cfg.DB, t, nil)
+	if err != nil {
+		return res, err
+	}
+	rollback := func(err error) (tickResult, error) {
+		_ = tx.Rollback()
+		return tickResult{}, err
+	}
+	tid := t.ID()
+	var stored time.Time
+	hasStored := true
+	switch err := tx.QueryRowContext(ctx, selectBoundary, tid).Scan(&stored); {
+	case errors.Is(err, sql.ErrNoRows):
+		hasStored = false
+	case err != nil:
+		return rollback(stmtError(ctx, "anchor boundary read", err))
+	}
+	if hasStored && stored.After(due.Add(a.cfg.Period)) {
+		res.future = true
+		return res, tenant.Commit(ctx, tx, t)
+	}
+	if hasStored && !stored.Before(due) {
+		return res, tenant.Commit(ctx, tx, t)
+	}
+	an := Anchor{Tenant: tid, Kind: AnchorPeriodic}
+	switch err := tx.QueryRowContext(ctx, selectLast, tid).Scan(&an.Count, &an.Head); {
+	case errors.Is(err, sql.ErrNoRows):
+	case err != nil:
+		return rollback(stmtError(ctx, "chain head read", err))
+	default:
+		key := "anchor/" + tid + "/" + timeText(due)
+		if err := a.cfg.Outbox.Enqueue(ctx, tx, tid, SinkDestination, key, anchorMessage(an)); err != nil {
+			return rollback(stmtError(ctx, "anchor enqueue", err))
+		}
+		if hasStored && (first || !due.After(lastTick)) {
+			res.late = 1
+		}
+		if hasStored {
+			if n := int64(due.Sub(stored)/a.cfg.Period) - 1; n > 0 {
+				res.skipped = n
+			}
+		}
+	}
+	if _, err := tx.ExecContext(ctx, upsertBoundary, tid, due); err != nil {
+		return rollback(stmtError(ctx, "anchor boundary write", err))
+	}
+	if _, err := h.Fence(ctx, tx); err != nil {
+		return rollback(err)
+	}
+	return res, tenant.Commit(ctx, tx, t)
 }
 
 // LateAnchors returns how many boundaries the job anchored late.
 func (a *Anchorer) LateAnchors() int64 { return a.late.Load() }
 
-// Health returns whether the anchor job is healthy and, when it is not, the reason, which names each tenant and
-// boundary that is due and not anchored.
+// SkippedBoundaries returns how many boundaries the job passed over, because a later boundary was due when it
+// anchored.
+func (a *Anchorer) SkippedBoundaries() int64 { return a.skipped.Load() }
+
+// Health returns whether the anchor job is healthy and, when it is not, the reason, which names each tenant whose
+// due boundary is not anchored or whose stored boundary is in the future.
 func (a *Anchorer) Health() (bool, string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if len(a.missed) == 0 {
 		return true, ""
 	}
-	var parts []string
-	for tenant, b := range a.missed {
-		parts = append(parts, "audit anchor missed for the tenant "+tenant+" at the boundary "+timeText(b))
+	parts := make([]string, 0, len(a.missed))
+	for _, reason := range a.missed {
+		parts = append(parts, reason)
 	}
 	slices.Sort(parts)
 	return false, strings.Join(parts, "; ")
@@ -416,10 +495,9 @@ func (a *Anchorer) Health() (bool, string) {
 // MaintainConfig configures the maintenance loop.
 type MaintainConfig struct {
 	// Lease is the controller lease: the loop runs only while it is held, and fences each call.
-	Lease Lease
-	// RunTx opens the short transaction of each call; the maintenance calls give it the empty tenant, for a
-	// transaction with no tenant set.
-	RunTx RunTx
+	Lease LeaseOf
+	// DB is the runtime role's pool; each call is a transaction on it with no tenant set.
+	DB *sql.DB
 	// Outbox enqueues the retention anchors for the audit sink.
 	Outbox Enqueuer
 	// Now is the controller's clock; nil is time.Now.
@@ -439,8 +517,8 @@ func NewMaintainer(cfg MaintainConfig) (*Maintainer, error) {
 	switch {
 	case cfg.Lease == nil:
 		return nil, errors.New("audit: the maintenance loop needs the controller lease")
-	case cfg.RunTx == nil:
-		return nil, errors.New("audit: the maintenance loop needs a RunTx")
+	case cfg.DB == nil:
+		return nil, errors.New("audit: the maintenance loop needs the database")
 	case cfg.Outbox == nil:
 		return nil, errors.New("audit: the maintenance loop needs an outbox")
 	}
@@ -455,39 +533,79 @@ const maxSteps = 64
 
 const (
 	callMaintain = `SELECT step_left, checkpoint_tenant, checkpoint_seq, checkpoint_hash FROM ` + MaintainFunction + `()`
-	setTenant    = `SELECT set_config('app.tenant', $1, true)`
+	setTenant    = `SELECT pg_catalog.set_config('app.tenant', $1, true)`
+	readTenant   = `SELECT coalesce(pg_catalog.current_setting('app.tenant', true), '')`
+	leaseTimeout = `SET LOCAL lock_timeout = '2s'`
 	partitionOf  = `SELECT EXISTS (SELECT 1 FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid
  WHERE i.inhparent = '` + EventsTable + `'::regclass AND c.relname = $1)`
 )
 
+// ErrTenantLeft is the error of a maintenance transaction that would commit with a tenant set.
+var ErrTenantLeft = errors.New("audit: the maintenance transaction ends with a tenant set, so it is rolled back")
+
+// noTenant runs fn in a transaction of db with no tenant set, and commits it only when the tenant setting is still
+// empty, as tenant.Commit checks a tenant's transaction (ST-SUP-RP04-LC03).
+func noTenant(ctx context.Context, db *sql.DB, fn func(tx *sql.Tx) error) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return stmtError(ctx, "begin", err)
+	}
+	if err := fn(tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	var current string
+	if err := tx.QueryRowContext(ctx, readTenant).Scan(&current); err != nil {
+		_ = tx.Rollback()
+		return stmtError(ctx, "tenant check", err)
+	}
+	if current != "" {
+		_ = tx.Rollback()
+		return ErrTenantLeft
+	}
+	if err := tx.Commit(); err != nil {
+		return stmtError(ctx, "commit", err)
+	}
+	return nil
+}
+
 // Run calls audit_maintain() while this process holds the controller lease, each call in its own short
-// transaction that it fences with the lease, until the function reports no step left. Each call does at most one
-// step. For each retention checkpoint that a call writes, Run enqueues a retention anchor in the same
-// transaction, with the tenant on the outbox row. Then Run checks that the partition of the next month exists. It
-// returns the number of calls.
+// transaction with no tenant, until the function reports no step left. Each transaction first takes the lease row
+// lock (lease.Held.Fence) under a lock timeout of 2 s, before the function takes its locks on the partitions, so
+// a lost lease fails the call before it holds ACCESS EXCLUSIVE on a partition; it fences again as its last
+// statement. For each retention checkpoint that a call writes, Run enqueues a retention anchor in the same
+// transaction, with the tenant set to the checkpoint's tenant, and sets the tenant back to empty before the commit,
+// which checks it. Then Run checks that the partition of the next month exists. It returns the number of calls.
 func (m *Maintainer) Run(ctx context.Context) (int, error) {
 	calls := 0
 	for calls < maxSteps {
-		if !m.cfg.Lease.Held() {
+		h := held(m.cfg.Lease)
+		if h == nil {
 			return calls, nil
 		}
 		more := false
-		err := m.cfg.RunTx(ctx, "", func(ctx context.Context, tx Tx) error {
+		err := noTenant(ctx, m.cfg.DB, func(tx *sql.Tx) error {
+			if _, err := tx.ExecContext(ctx, leaseTimeout); err != nil {
+				return stmtError(ctx, "lock timeout", err)
+			}
+			if _, err := h.Fence(ctx, tx); err != nil {
+				return err
+			}
 			rows, err := tx.QueryContext(ctx, callMaintain)
 			if err != nil {
 				return stmtError(ctx, "maintenance call", err)
 			}
 			var anchors []Anchor
 			for rows.Next() {
-				var tenant sql.NullString
+				var tn sql.NullString
 				var seq sql.NullInt64
 				var hash []byte
-				if err := rows.Scan(&more, &tenant, &seq, &hash); err != nil {
+				if err := rows.Scan(&more, &tn, &seq, &hash); err != nil {
 					rows.Close()
 					return stmtError(ctx, "maintenance call", err)
 				}
-				if tenant.Valid {
-					anchors = append(anchors, Anchor{Tenant: tenant.String, Kind: AnchorRetention, Head: hash, Count: seq.Int64})
+				if tn.Valid {
+					anchors = append(anchors, Anchor{Tenant: tn.String, Kind: AnchorRetention, Head: hash, Count: seq.Int64})
 				}
 			}
 			rows.Close()
@@ -503,7 +621,13 @@ func (m *Maintainer) Run(ctx context.Context) (int, error) {
 					return stmtError(ctx, "retention anchor enqueue", err)
 				}
 			}
-			return m.cfg.Lease.Fence(ctx, tx)
+			if len(anchors) > 0 {
+				if _, err := tx.ExecContext(ctx, setTenant, ""); err != nil {
+					return stmtError(ctx, "tenant setting", err)
+				}
+			}
+			_, err = h.Fence(ctx, tx)
+			return err
 		})
 		calls++
 		if err != nil {
@@ -521,13 +645,12 @@ func (m *Maintainer) Run(ctx context.Context) (int, error) {
 func (m *Maintainer) Check(ctx context.Context) error {
 	next := monthStart(m.cfg.Now()).AddDate(0, 1, 0)
 	var ok bool
-	err := m.cfg.RunTx(ctx, "", func(ctx context.Context, tx Tx) error {
+	if err := noTenant(ctx, m.cfg.DB, func(tx *sql.Tx) error {
 		if err := tx.QueryRowContext(ctx, partitionOf, partitionName(next)).Scan(&ok); err != nil {
 			return stmtError(ctx, "partition check", err)
 		}
 		return nil
-	})
-	if err != nil {
+	}); err != nil {
 		return err
 	}
 	m.mu.Lock()

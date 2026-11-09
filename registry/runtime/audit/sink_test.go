@@ -119,6 +119,25 @@ func TestSink(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RP05-LC07-T05 The destination refuses a message that is not canonical or whose hash does not cover it", func(t *testing.T) {
+		e, payload := sinkMessage(t)
+		sink := &fakeSink{}
+		d, _ := NewDestination(sink)
+		spaced := bytes.Replace(payload, []byte(`"kind":`), []byte(`"kind": `), 1)
+		changed := bytes.Replace(payload, []byte(`"action":"update"`), []byte(`"action":"delete"`), 1)
+		if bytes.Equal(changed, payload) {
+			t.Fatal("the test payload holds no action to change")
+		}
+		for name, p := range map[string][]byte{"not canonical": spaced, "hash does not cover": changed} {
+			if err := d.Deliver(ctx, e.ID.String(), p); err == nil {
+				t.Errorf("the destination delivers a message that is %s", name)
+			}
+		}
+		if len(sink.appends) != 0 {
+			t.Errorf("the sink got %d Append calls, want none", len(sink.appends))
+		}
+	})
+
 	t.Run("ST-SUP-RP05-LC08-T01 The Sink port has only Append and Anchor", func(t *testing.T) {
 		typ := reflect.TypeOf((*Sink)(nil)).Elem()
 		if typ.NumMethod() != 2 {

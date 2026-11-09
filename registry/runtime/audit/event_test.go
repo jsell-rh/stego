@@ -275,9 +275,12 @@ func probe(e Event, u Untrusted) bool {
 		if _, ok := reflect.PointerTo(state).MethodByName("UnmarshalJSON"); ok {
 			t.Errorf("State has UnmarshalJSON, a way to set raw JSON")
 		}
-		// In the source, a State is made, and a state field of an event is set, only in SetStates, the redacting
-		// path, and in the two readers of stored rows, which are not exported.
-		allowed := map[string]bool{"SetStates": true, "scanEvent": true, "eventFrom": true}
+		// In the source, a State that is not empty is made only in SetStates, the redacting path, and in
+		// storedState, which reads back a record that the redacting path wrote and keeps its canonical form. No
+		// other function writes the bytes of a State, and only the two readers of stored records, scanEvent and
+		// eventFrom, call storedState. None of these is exported but SetStates.
+		makers := map[string]bool{"SetStates": true, "storedState": true}
+		callers := map[string]bool{"scanEvent": true, "eventFrom": true}
 		for _, file := range packageFiles(t) {
 			fset := token.NewFileSet()
 			node, err := parser.ParseFile(fset, file, nil, 0)
@@ -289,27 +292,37 @@ func probe(e Event, u Untrusted) bool {
 				if !ok || fn.Body == nil {
 					continue
 				}
+				name := fn.Name.Name
+				if fn.Recv != nil && len(fn.Recv.List) == 1 {
+					if id, ok := fn.Recv.List[0].Type.(*ast.Ident); ok && id.Name == "State" {
+						continue // the read methods of State
+					}
+				}
 				ast.Inspect(fn.Body, func(n ast.Node) bool {
 					switch x := n.(type) {
 					case *ast.CompositeLit:
-						if id, ok := x.Type.(*ast.Ident); ok && id.Name == "State" && len(x.Elts) > 0 && !allowed[fn.Name.Name] {
-							t.Errorf("%s: %s makes a State", fset.Position(x.Pos()), fn.Name.Name)
+						if id, ok := x.Type.(*ast.Ident); ok && id.Name == "State" && len(x.Elts) > 0 && !makers[name] {
+							t.Errorf("%s: %s makes a State", fset.Position(x.Pos()), name)
 						}
 					case *ast.AssignStmt:
 						for _, l := range x.Lhs {
-							if sel, ok := l.(*ast.SelectorExpr); ok && (sel.Sel.Name == "Before" || sel.Sel.Name == "After" || sel.Sel.Name == "Patch" || sel.Sel.Name == "raw") && !allowed[fn.Name.Name] {
-								t.Errorf("%s: %s sets %s", fset.Position(l.Pos()), fn.Name.Name, sel.Sel.Name)
+							if sel, ok := l.(*ast.SelectorExpr); ok && sel.Sel.Name == "raw" {
+								t.Errorf("%s: %s writes the bytes of a State", fset.Position(l.Pos()), name)
 							}
 						}
 					case *ast.UnaryExpr:
-						if sel, ok := x.X.(*ast.SelectorExpr); ok && x.Op == token.AND && sel.Sel.Name == "raw" && !allowed[fn.Name.Name] {
-							t.Errorf("%s: %s takes the address of a state", fset.Position(x.Pos()), fn.Name.Name)
+						if sel, ok := x.X.(*ast.SelectorExpr); ok && x.Op == token.AND && sel.Sel.Name == "raw" {
+							t.Errorf("%s: %s takes the address of the bytes of a State", fset.Position(x.Pos()), name)
+						}
+					case *ast.CallExpr:
+						if id, ok := x.Fun.(*ast.Ident); ok && id.Name == "storedState" && !callers[name] {
+							t.Errorf("%s: %s calls storedState", fset.Position(x.Pos()), name)
 						}
 					}
 					return true
 				})
-				if fn.Name.IsExported() && fn.Name.Name != "SetStates" && (allowed[fn.Name.Name]) {
-					t.Errorf("the reader %s is exported", fn.Name.Name)
+				if fn.Name.IsExported() && name != "SetStates" && (makers[name] || callers[name]) {
+					t.Errorf("%s is exported", name)
 				}
 			}
 		}

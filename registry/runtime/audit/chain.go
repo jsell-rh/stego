@@ -7,6 +7,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+
+	"stego.dev/runtime/tenant"
 )
 
 // HashSize is the size of a hash and of a prev_hash: SHA-256.
@@ -78,6 +80,12 @@ const (
 	FindingHead FindingKind = "head_differs_from_anchor"
 	// FindingTruncated is a chain whose highest seq is lower than the highest anchored count.
 	FindingTruncated FindingKind = "truncated"
+	// FindingCheckpoint is a retention checkpoint whose hash differs from an anchor at its seq, or that no
+	// retention anchor of the sink holds.
+	FindingCheckpoint FindingKind = "checkpoint_differs_from_anchor"
+	// FindingBelowCheckpoint is a row whose seq is at or below the latest retention checkpoint, which a drop
+	// removed: the checkpoint is forged, or the row was put back.
+	FindingBelowCheckpoint FindingKind = "row_at_or_below_checkpoint"
 	// FindingForged is an anchor whose count is lower than an earlier anchor's count, or whose head is not on
 	// the chain.
 	FindingForged FindingKind = "forged_anchor"
@@ -111,31 +119,38 @@ const (
  user_agent, action, resource_type, resource_id, outcome, error_code, request_id, trace_id, span_id, idempotency_key,
  before::text, after::text, patch::text, service, service_version, declaration_version, prev_hash, hash
  FROM ` + EventsTable + ` WHERE tenant_id = $1 AND seq > $2 ORDER BY seq`
-	selectTenant = `SELECT coalesce(current_setting('app.tenant', true), '')`
+	selectTenant = `SELECT coalesce(pg_catalog.current_setting('app.tenant', true), '')`
+	selectBelow  = `SELECT seq, id::text FROM ` + EventsTable + ` WHERE tenant_id = $1 AND seq <= $2 ORDER BY seq LIMIT 1`
 )
 
-// Verify walks the chain of one tenant in seq order (ST-SUP-RP05-LC06), in tx, a transaction of that tenant. It
+// Verify walks the chain of the tenant t in seq order (ST-SUP-RP05-LC06), in tx, a transaction of t that
+// tenant.Begin opened; it refuses the zero tenant before any statement. It
 // starts after the chain's latest retention checkpoint (ST-SUP-RP05-LC11), with the checkpoint's hash as the
-// first prev_hash, or at the first row with 32 zero bytes. It checks each row as it reads it, and reports the
+// first prev_hash, or at the first row with 32 zero bytes. It checks the checkpoint against the anchors at its seq,
+// and reports a row at or below it that still exists. It checks each row as it reads it, and reports the
 // first row whose seq, prev_hash or hash differs. Then it checks the periodic anchors that the sink holds for the
 // chain, in the order the sink holds them: the row whose seq is an anchor's count must have the anchor's head, the
 // highest seq must not be lower than the highest anchored count, and an anchor whose count is lower than an
 // earlier one's, or whose row is not on the chain, is forged. It keeps only the previous hash and the anchors, so
 // its memory does not grow with the chain. The anchors are values the caller read from the sink: the package has
 // no read on the sink (ST-SUP-RP05-LC08).
-func Verify(ctx context.Context, tx Tx, tenant string, anchors []Anchor) ([]Finding, error) {
+func Verify(ctx context.Context, tx Tx, t tenant.Tenant, anchors []Anchor) ([]Finding, error) {
+	if t.IsZero() {
+		return nil, tenant.ErrZero
+	}
+	tid := t.ID()
 	var set string
 	if err := tx.QueryRowContext(ctx, selectTenant).Scan(&set); err != nil {
 		return nil, stmtError(ctx, "tenant check", err)
 	}
-	if tenant == "" || set != tenant {
+	if set != tid {
 		return nil, errors.New("audit: Verify runs in a transaction of the tenant it verifies")
 	}
 	start := int64(0)
 	prev := ZeroHash()
 	var ckSeq int64
 	var ckHash []byte
-	switch err := tx.QueryRowContext(ctx, selectCheckpoint, tenant).Scan(&ckSeq, &ckHash); {
+	switch err := tx.QueryRowContext(ctx, selectCheckpoint, tid).Scan(&ckSeq, &ckHash); {
 	case err == nil:
 		start, prev = ckSeq, ckHash
 	case errors.Is(err, sql.ErrNoRows):
@@ -146,8 +161,44 @@ func Verify(ctx context.Context, tx Tx, tenant string, anchors []Anchor) ([]Find
 	byCount := map[int64][]int{}
 	var maxCount int64
 	var findings []Finding
+	if start > 0 {
+		// The checkpoint must agree with each anchor at its seq, and a retention anchor of the sink must hold
+		// it; no row at or below it may still exist.
+		retained, matched := false, false
+		for i, a := range anchors {
+			if a.Tenant != tid || a.Count != start {
+				if a.Tenant == tid && a.Kind == AnchorRetention {
+					retained = true
+				}
+				continue
+			}
+			if a.Kind == AnchorRetention {
+				retained = true
+			}
+			if bytes.Equal(a.Head, prev) {
+				if a.Kind == AnchorRetention {
+					matched = true
+				}
+				continue
+			}
+			findings = append(findings, Finding{Kind: FindingCheckpoint, Seq: start, Anchor: i, Anchored: start})
+		}
+		if retained && !matched {
+			findings = append(findings, Finding{Kind: FindingCheckpoint, Seq: start, Anchor: -1, Anchored: start})
+		}
+		var seq int64
+		var id string
+		switch err := tx.QueryRowContext(ctx, selectBelow, tid, start).Scan(&seq, &id); {
+		case err == nil:
+			u, _ := ParseUUID(id)
+			findings = append(findings, Finding{Kind: FindingBelowCheckpoint, Seq: seq, ID: u, Anchored: start})
+		case errors.Is(err, sql.ErrNoRows):
+		default:
+			return nil, stmtError(ctx, "checkpoint check", err)
+		}
+	}
 	for i, a := range anchors {
-		if a.Kind != AnchorPeriodic || a.Tenant != tenant {
+		if a.Kind != AnchorPeriodic || a.Tenant != tid {
 			continue
 		}
 		if a.Count < maxCount {
@@ -157,7 +208,7 @@ func Verify(ctx context.Context, tx Tx, tenant string, anchors []Anchor) ([]Find
 		maxCount = a.Count
 		byCount[a.Count] = append(byCount[a.Count], i)
 	}
-	rows, err := tx.QueryContext(ctx, selectChain, tenant, start)
+	rows, err := tx.QueryContext(ctx, selectChain, tid, start)
 	if err != nil {
 		return nil, stmtError(ctx, "chain read", err)
 	}
@@ -238,7 +289,17 @@ func scanEvent(rows *sql.Rows) (int64, Event, error) {
 	e.ID = u
 	e.ActorKind, e.Outcome = ActorKind(actorKind), Outcome(outcome)
 	e.ActorIP, e.UserAgent = Untrusted(ip), Untrusted(userAgent)
-	e.Before, e.After, e.Patch = State{nullJSON(before)}, State{nullJSON(after)}, State{nullJSON(patch)}
+	for _, s := range []struct {
+		name string
+		raw  sql.NullString
+		dst  *State
+	}{{"before", before, &e.Before}, {"after", after, &e.After}, {"patch", patch, &e.Patch}} {
+		st, err := storedState(s.name, nullJSON(s.raw))
+		if err != nil {
+			return 0, Event{}, err
+		}
+		*s.dst = st
+	}
 	return seq, e, nil
 }
 

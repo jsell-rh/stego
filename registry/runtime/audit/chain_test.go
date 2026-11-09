@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	"stego.dev/runtime/tenant"
 )
 
 func TestChain(t *testing.T) {
@@ -257,14 +260,20 @@ func TestChain(t *testing.T) {
 			if n != 0 {
 				t.Errorf("a transaction of t1 sees %d rows of t2", n)
 			}
-			if _, err := Verify(f.ctx, tx, "t2", nil); err == nil {
+			if _, err := Verify(f.ctx, tx, f.tn("t2"), nil); err == nil {
 				t.Errorf("Verify of t2 runs in a transaction of t1")
+			}
+			rec := &recordingTx{Tx: tx}
+			if _, err := Verify(f.ctx, rec, tenant.Tenant{}, nil); !errors.Is(err, tenant.ErrZero) || len(rec.statements) != 0 {
+				t.Errorf("Verify of the zero tenant gives %v after %d statements, want tenant.ErrZero before any", err, len(rec.statements))
 			}
 			return nil
 		}); err != nil {
 			t.Fatal(err)
 		}
 	})
+
+	t.Run("ST-SUP-RP05-LC06-T12 The verifier reports a forged retention checkpoint", forgedCheckpointTest)
 
 	t.Run("ST-SUP-RP05-LC06-T09 The verifier reports a deleted first row", func(t *testing.T) {
 		f := newPG(t)
@@ -297,6 +306,44 @@ func TestChain(t *testing.T) {
 	})
 }
 
+func forgedCheckpointTest(t *testing.T) {
+	f := newPG(t)
+	w := f.writer()
+	f.recordN(w, "t1", 3)
+	early := f.publishAnchor("t1").of("t1") // count 3
+	f.recordN(w, "t1", 2)
+	late := f.publishAnchorAt(time.Now().Add(time.Hour), "t1").of("t1") // count 5
+	anchors := append(early, late...)
+	if len(anchors) != 2 || anchors[0].Count != 3 || anchors[1].Count != 5 {
+		t.Fatalf("the sink holds %v, want anchors with the counts 3 and 5", anchors)
+	}
+	// Edit row 2 and cut rows 4 and 5, then write a checkpoint at seq 5 that hides both.
+	f.tamper("t1", "UPDATE "+EventsTable+" SET action = 'tampered' WHERE seq = 2")
+	f.tamper("t1", "DELETE FROM "+EventsTable+" WHERE seq > 3")
+	if err := f.inTx(f.owner, "t1", func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(f.ctx, "INSERT INTO "+CheckpointsTable+" (tenant_id, seq, hash, partition_name) VALUES ('t1', 5, $1, 'forged')", bytes.Repeat([]byte{9}, 32))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	findings := f.verify("t1", anchors)
+	if !hasKind(findings, FindingCheckpoint) {
+		t.Errorf("findings %v, want a finding that the checkpoint differs from the anchor at seq 5", findings)
+	}
+	if !hasKind(findings, FindingBelowCheckpoint) {
+		t.Errorf("findings %v, want a finding that rows at or below the checkpoint still exist", findings)
+	}
+}
+
+func hasKind(findings []Finding, k FindingKind) bool {
+	for _, f := range findings {
+		if f.Kind == k {
+			return true
+		}
+	}
+	return false
+}
+
 func hasFinding(findings []Finding, want Finding) bool {
 	for _, f := range findings {
 		if f.Kind == want.Kind && f.Anchored == want.Anchored && f.Found == want.Found && (want.Anchor == 0 || f.Anchor == want.Anchor) {
@@ -312,7 +359,7 @@ func (f *pgFixture) verify(tenant string, anchors []Anchor) []Finding {
 	var findings []Finding
 	if err := f.inTx(f.runtime, tenant, func(tx *sql.Tx) error {
 		var err error
-		findings, err = Verify(f.ctx, tx, tenant, anchors)
+		findings, err = Verify(f.ctx, tx, f.tn(tenant), anchors)
 		return err
 	}); err != nil {
 		f.t.Fatalf("Verify: %v", err)
@@ -320,17 +367,19 @@ func (f *pgFixture) verify(tenant string, anchors []Anchor) []Finding {
 	return findings
 }
 
-// publishAnchor runs the anchor job over two boundaries under the lease for the tenants, and delivers the new
-// anchor messages to a fake sink.
+// publishAnchor runs the anchor job once under the lease for the tenants, which anchors each chain at once, and
+// delivers the new anchor messages to a fake sink.
 func (f *pgFixture) publishAnchor(tenants ...string) *fakeSink {
+	f.t.Helper()
+	return f.publishAnchorAt(time.Now(), tenants...)
+}
+
+func (f *pgFixture) publishAnchorAt(now time.Time, tenants ...string) *fakeSink {
 	f.t.Helper()
 	before := len(f.messages())
 	a := f.anchorer(f.lease(), time.Hour, tenants...)
-	b0 := a.Boundary(time.Now())
-	for _, now := range []time.Time{b0.Add(time.Minute), b0.Add(time.Hour + time.Minute)} {
-		if err := a.Tick(f.ctx, now); err != nil {
-			f.t.Fatal(err)
-		}
+	if err := a.Tick(f.ctx, now); err != nil {
+		f.t.Fatal(err)
 	}
 	return f.deliver(f.messages()[before:])
 }

@@ -6,94 +6,108 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"stego.dev/runtime/lease"
+	"stego.dev/runtime/tenant"
 )
 
-var errFenced = errors.New("lease: fenced")
+var errFenced = lease.ErrFenced
 
-// testLease stands in for the controller lease of the lease runtime until that runtime is on main. Its token is
-// in the table test_leases; Fence locks the row FOR SHARE and fails when the row holds another token.
+// testLease is one holder of the controller lease of the lease runtime, on the leases table of the test database.
 type testLease struct {
-	f           *pgFixture
-	mu          sync.Mutex
-	held        bool
-	token       int64
-	beforeFence func()
+	f      *pgFixture
+	mu     sync.Mutex
+	client *lease.Client
+	held   *lease.Held
 }
 
+var holderSeq atomic.Int64
+
+// newLease returns a holder that does not hold the lease yet.
+func (f *pgFixture) newLease() *testLease {
+	f.t.Helper()
+	c, err := lease.New(f.runtime, leaseName, fmt.Sprintf("holder-%d", holderSeq.Add(1)), lease.Settings{})
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return &testLease{f: f, client: c}
+}
+
+// lease returns a holder that holds the lease.
 func (f *pgFixture) lease() *testLease {
-	l := &testLease{f: f}
+	l := f.newLease()
 	l.take()
 	return l
 }
 
-// take takes the lease with a higher token, as Acquire does.
+// take lets the lease of any other holder run out, as the owner, and acquires it with a higher token.
 func (l *testLease) take() {
 	l.f.t.Helper()
-	var token int64
-	if err := l.f.runtime.QueryRowContext(l.f.ctx, "UPDATE "+leaseStandIn+" SET token = token + 1 WHERE name = 'controller' RETURNING token").Scan(&token); err != nil {
+	if _, err := l.f.owner.ExecContext(l.f.ctx, "UPDATE leases SET expires_at = '-infinity' WHERE name = $1", leaseName); err != nil {
+		l.f.t.Fatal(err)
+	}
+	h, err := l.client.Acquire(l.f.ctx)
+	if err != nil {
 		l.f.t.Fatal(err)
 	}
 	l.mu.Lock()
-	l.held, l.token = true, token
+	l.held = h
 	l.mu.Unlock()
 }
 
+// lose releases the lease.
 func (l *testLease) lose() {
 	l.mu.Lock()
-	l.held = false
+	h := l.held
+	l.held = nil
 	l.mu.Unlock()
+	if h != nil {
+		if err := h.Release(l.f.ctx); err != nil {
+			l.f.t.Fatal(err)
+		}
+	}
 }
 
-func (l *testLease) Held() bool {
+// of is the LeaseOf of the holder.
+func (l *testLease) of() *lease.Held {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.held
 }
 
-func (l *testLease) Fence(ctx context.Context, tx Tx) error {
-	l.mu.Lock()
-	hook, mine := l.beforeFence, l.token
-	l.mu.Unlock()
-	if hook != nil {
-		hook()
+func (f *pgFixture) tenants(ids ...string) TenantsOf {
+	list := make([]tenant.Tenant, len(ids))
+	for i, id := range ids {
+		list[i] = f.tn(id)
 	}
-	var token int64
-	if err := tx.QueryRowContext(ctx, "SELECT token FROM "+leaseStandIn+" WHERE name = 'controller' FOR SHARE").Scan(&token); err != nil {
-		return err
-	}
-	if token != mine {
-		return errFenced
-	}
-	return nil
+	return func(context.Context) ([]tenant.Tenant, error) { return list, nil }
 }
 
-// each is the stand-in of the tenant runtime's iterator over the given tenants.
-func (f *pgFixture) each(tenants ...string) EachTenant {
-	return func(ctx context.Context, fn func(ctx context.Context, tenant string, tx Tx) error) error {
-		var errs []error
-		for _, tenant := range tenants {
-			if err := f.inTx(f.runtime, tenant, func(tx *sql.Tx) error { return fn(ctx, tenant, tx) }); err != nil {
-				errs = append(errs, err)
-			}
-		}
-		return errors.Join(errs...)
-	}
-}
-
-func (f *pgFixture) anchorer(l Lease, period time.Duration, tenants ...string) *Anchorer {
+func (f *pgFixture) anchorer(l *testLease, period time.Duration, ids ...string) *Anchorer {
 	f.t.Helper()
-	a, err := NewAnchorer(AnchorConfig{Period: period, Lease: l, Each: f.each(tenants...), Outbox: f.outbox})
+	a, err := NewAnchorer(AnchorConfig{Period: period, Lease: l.of, Tenants: f.tenants(ids...), DB: f.runtime, Outbox: f.outbox})
 	if err != nil {
 		f.t.Fatal(err)
 	}
 	return a
+}
+
+func (f *pgFixture) maintainer(now func() time.Time) *Maintainer {
+	f.t.Helper()
+	m, err := NewMaintainer(MaintainConfig{Lease: f.lease().of, DB: f.audit, Outbox: f.outbox, Now: now})
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return m
 }
 
 type anchorPayload struct {
@@ -132,10 +146,8 @@ func TestJobs(t *testing.T) {
 		t1 := f.recordN(w, "t1", 3)
 		t2 := f.recordN(w, "t2", 2)
 		a := f.anchorer(f.lease(), time.Hour, "t1", "t2")
-		for _, now := range []time.Time{clock(10, 20), clock(11, 0)} {
-			if err := a.Tick(f.ctx, now); err != nil {
-				t.Fatal(err)
-			}
+		if err := a.Tick(f.ctx, clock(10, 20)); err != nil {
+			t.Fatal(err)
 		}
 		got := f.anchorMessages("anchor/")
 		if len(got) != 2 {
@@ -153,27 +165,38 @@ func TestJobs(t *testing.T) {
 
 	t.Run("ST-SUP-RP05-LC09-T02 The anchor job anchors each fixed boundary once", func(t *testing.T) {
 		f := newPG(t)
+		a := f.anchorer(f.lease(), time.Hour, "t1", "t2")
+		// The lease is taken at 10:20 while the chains hold no row: nothing to anchor yet.
+		if err := a.Tick(f.ctx, clock(10, 20)); err != nil {
+			t.Fatal(err)
+		}
 		w := f.writer()
 		f.recordN(w, "t1", 1)
 		f.recordN(w, "t2", 1)
-		a := f.anchorer(f.lease(), time.Hour, "t1", "t2")
-		for now := clock(10, 20); !now.After(clock(13, 20)); now = now.Add(10 * time.Minute) {
+		for now := clock(10, 30); !now.After(clock(13, 20)); now = now.Add(10 * time.Minute) {
 			if err := a.Tick(f.ctx, now); err != nil {
 				t.Fatal(err)
 			}
+		}
+		// Then the clock jumps over three boundaries.
+		if err := a.Tick(f.ctx, clock(17, 20)); err != nil {
+			t.Fatal(err)
 		}
 		for _, tenant := range []string{"t1", "t2"} {
 			var keys []string
 			for _, m := range f.anchorMessages("anchor/" + tenant + "/") {
 				keys = append(keys, strings.TrimPrefix(m.key, "anchor/"+tenant+"/"))
 			}
-			want := []string{"2026-03-20T11:00:00.000000Z", "2026-03-20T12:00:00.000000Z", "2026-03-20T13:00:00.000000Z"}
+			want := []string{"2026-03-20T11:00:00.000000Z", "2026-03-20T12:00:00.000000Z", "2026-03-20T13:00:00.000000Z", "2026-03-20T17:00:00.000000Z"}
 			if strings.Join(keys, ",") != strings.Join(want, ",") {
 				t.Errorf("the anchors of %s are for %v, want %v", tenant, keys, want)
 			}
 		}
 		if n := a.LateAnchors(); n != 0 {
 			t.Errorf("%d late anchors, want 0", n)
+		}
+		if n := a.SkippedBoundaries(); n != 6 {
+			t.Errorf("%d skipped boundaries, want 6: 14:00, 15:00 and 16:00 of each chain", n)
 		}
 	})
 
@@ -182,8 +205,7 @@ func TestJobs(t *testing.T) {
 		f.recordN(f.writer(), "t1", 1)
 		lease := f.lease()
 		lease.lose()
-		other := f.lease() // another holder, with a higher token
-		_ = other
+		f.lease() // another holder, with a higher token
 		a := f.anchorer(lease, time.Hour, "t1")
 		for now := clock(10, 0); !now.After(clock(13, 0)); now = now.Add(30 * time.Minute) {
 			if err := a.Tick(f.ctx, now); err != nil {
@@ -194,10 +216,8 @@ func TestJobs(t *testing.T) {
 			t.Fatalf("%d anchor messages while another holder has the lease, want 0", len(got))
 		}
 		lease.take()
-		for _, now := range []time.Time{clock(14, 5), clock(15, 5)} {
-			if err := a.Tick(f.ctx, now); err != nil {
-				t.Fatal(err)
-			}
+		if err := a.Tick(f.ctx, clock(14, 5)); err != nil {
+			t.Fatal(err)
 		}
 		if got := f.anchorMessages("anchor/"); len(got) != 1 {
 			t.Errorf("%d anchor messages after the acquire, want 1", len(got))
@@ -207,7 +227,8 @@ func TestJobs(t *testing.T) {
 	t.Run("ST-SUP-RP05-LC09-T04 A missed anchor period is a health signal", func(t *testing.T) {
 		f := newPG(t)
 		f.recordN(f.writer(), "t1", 1)
-		a := f.anchorer(f.lease(), time.Hour, "t1")
+		lease := f.lease()
+		a := f.anchorer(lease, time.Hour, "t1")
 		if err := a.Tick(f.ctx, clock(10, 30)); err != nil {
 			t.Fatal(err)
 		}
@@ -223,57 +244,77 @@ func TestJobs(t *testing.T) {
 		if err := a.Tick(f.ctx, clock(11, 2)); err != nil {
 			t.Fatal(err)
 		}
-		if got := f.anchorMessages("anchor/"); len(got) != 1 || !strings.HasSuffix(got[0].key, "11:00:00.000000Z") {
-			t.Errorf("anchor messages %+v, want the boundary 11:00 anchored after the failure", got)
+		got := f.anchorMessages("anchor/")
+		if len(got) != 2 || !strings.HasSuffix(got[1].key, "11:00:00.000000Z") {
+			t.Errorf("anchor messages %+v, want 10:00 and then 11:00 anchored after the failure", got)
 		}
 		if healthy, _ := a.Health(); !healthy {
 			t.Errorf("the job stays unhealthy after the boundary is anchored")
+		}
+		// A transaction that fails at its commit, after the anchor was written, is a miss too: the health clears
+		// only once the commit succeeds.
+		f.outbox.mu.Lock()
+		f.outbox.onTx = func(ctx context.Context, tx Tx) error {
+			_, err := tx.ExecContext(ctx, "INSERT INTO test_deferred VALUES (1), (1)")
+			return err
+		}
+		f.outbox.mu.Unlock()
+		if err := a.Tick(f.ctx, clock(12, 1)); err == nil {
+			t.Errorf("Tick returns no error for a commit that fails")
+		}
+		if healthy, _ := a.Health(); healthy {
+			t.Errorf("the job is healthy after the anchor transaction failed at its commit")
+		}
+		f.outbox.mu.Lock()
+		f.outbox.onTx = nil
+		f.outbox.mu.Unlock()
+		// A miss of a process that then loses the lease is cleared: the new holder reports it.
+		lease.lose()
+		if err := a.Tick(f.ctx, clock(12, 2)); err != nil {
+			t.Fatal(err)
+		}
+		if healthy, reason := a.Health(); !healthy {
+			t.Errorf("a process without the lease reports %q", reason)
 		}
 	})
 
 	t.Run("ST-SUP-RP05-LC09-T05 A lease that moves at each boundary still anchors every boundary", func(t *testing.T) {
 		f := newPG(t)
 		f.recordN(f.writer(), "t1", 1)
-		la, lb := f.lease(), &testLease{f: f}
+		la, lb := f.lease(), f.newLease()
 		ra, rb := f.anchorer(la, time.Hour, "t1"), f.anchorer(lb, time.Hour, "t1")
 		if err := ra.Tick(f.ctx, clock(10, 30)); err != nil {
 			t.Fatal(err)
 		}
 		holders := []struct {
 			from, to *testLease
-			next     *Anchorer
-		}{{la, lb, rb}, {lb, la, ra}, {la, lb, rb}}
-		var late int64
+			cur, nxt *Anchorer
+		}{{la, lb, ra, rb}, {lb, la, rb, ra}, {la, lb, ra, rb}}
 		for i, h := range holders {
 			b := clock(11+i, 0)
 			// The holder ticks just before the boundary, then loses the lease; the other replica takes it just
-			// after the boundary.
-			cur := ra
-			if h.from == lb {
-				cur = rb
-			}
-			if err := cur.Tick(f.ctx, b.Add(-time.Minute)); err != nil {
+			// after the boundary and anchors at once.
+			if err := h.cur.Tick(f.ctx, b.Add(-time.Minute)); err != nil {
 				t.Fatal(err)
 			}
 			h.from.lose()
-			if err := cur.Tick(f.ctx, b.Add(-30*time.Second)); err != nil {
+			if err := h.cur.Tick(f.ctx, b.Add(-30*time.Second)); err != nil {
 				t.Fatal(err)
 			}
 			h.to.take()
-			if err := h.next.Tick(f.ctx, b.Add(20*time.Second)); err != nil {
+			if err := h.nxt.Tick(f.ctx, b.Add(20*time.Second)); err != nil {
 				t.Fatal(err)
 			}
-			late = ra.LateAnchors() + rb.LateAnchors()
-			if late != int64(i+1) {
+			if late := ra.LateAnchors() + rb.LateAnchors(); late != int64(i+1) {
 				t.Errorf("after the boundary %s the late-anchor count is %d, want %d", b.Format("15:04"), late, i+1)
 			}
 		}
 		got := f.anchorMessages("anchor/t1/")
-		if len(got) != 3 {
-			t.Fatalf("%d anchors, want one for each of the three boundaries: %+v", len(got), got)
+		if len(got) != 4 {
+			t.Fatalf("%d anchors, want one for 10:00 and one for each of the three boundaries: %+v", len(got), got)
 		}
 		for i, m := range got {
-			if want := clock(11+i, 0).Format("2006-01-02T15:04:05.000000Z"); !strings.HasSuffix(m.key, want) {
+			if want := clock(10+i, 0).Format("2006-01-02T15:04:05.000000Z"); !strings.HasSuffix(m.key, want) {
 				t.Errorf("anchor %d is for %s, want %s", i, m.key, want)
 			}
 		}
@@ -287,7 +328,6 @@ func TestJobs(t *testing.T) {
 		if err := a.Tick(f.ctx, clock(10, 30)); err != nil {
 			t.Fatal(err)
 		}
-		var before time.Time
 		readBoundary := func() time.Time {
 			var b time.Time
 			if err := f.inTx(f.owner, "t1", func(tx *sql.Tx) error {
@@ -297,15 +337,15 @@ func TestJobs(t *testing.T) {
 			}
 			return b
 		}
-		before = readBoundary()
-		lb := &testLease{f: f}
-		la.beforeFence = func() { lb.take() } // B takes the lease after A computed its anchor, before A commits
+		before, msgs := readBoundary(), len(f.anchorMessages("anchor/"))
+		lb := f.newLease()
+		f.outbox.onEnqueue = func() { lb.take() } // B takes the lease after A computed its anchor, before A commits
 		err := a.Tick(f.ctx, clock(11, 1))
 		if !errors.Is(err, errFenced) {
 			t.Errorf("A's anchor gives %v, want the fenced error", err)
 		}
-		if got := f.anchorMessages("anchor/"); len(got) != 0 {
-			t.Errorf("%d anchor messages from the fenced holder, want 0", len(got))
+		if got := len(f.anchorMessages("anchor/")); got != msgs {
+			t.Errorf("%d anchor messages from the fenced holder, want 0", got-msgs)
 		}
 		if after := readBoundary(); !after.Equal(before) {
 			t.Errorf("the stored boundary moved from %s to %s", before, after)
@@ -322,14 +362,79 @@ func TestJobs(t *testing.T) {
 			t.Fatal(err)
 		}
 		a := f.anchorer(f.lease(), time.Hour, "t1")
-		for _, now := range []time.Time{clock(10, 30), clock(11, 1)} {
-			if err := a.Tick(f.ctx, now); err != nil {
-				t.Fatal(err)
-			}
+		if err := a.Tick(f.ctx, clock(10, 30)); err != nil {
+			t.Fatal(err)
 		}
 		got := f.anchorMessages("anchor/")
 		if len(got) != 1 || got[0].Count != "5" || got[0].Head != hex.EncodeToString(rows[4].Hash) {
 			t.Errorf("anchors %+v, want the count 5 and the hash of row 5", got)
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC09-T08 A stored boundary only grows, is never far ahead, and a future one is a health signal", func(t *testing.T) {
+		f := newPG(t)
+		f.recordN(f.writer(), "t1", 1)
+		write := func(q string) error {
+			return f.inTx(f.runtime, "t1", func(tx *sql.Tx) error {
+				_, err := tx.ExecContext(f.ctx, q)
+				return err
+			})
+		}
+		if err := write("INSERT INTO " + BoundariesTable + " (tenant_id, boundary) VALUES ('t1', now() + interval '2 hours')"); err == nil {
+			t.Errorf("a boundary two periods ahead of now is stored")
+		}
+		if err := write("INSERT INTO " + BoundariesTable + " (tenant_id, boundary) VALUES ('t1', now())"); err != nil {
+			t.Fatal(err)
+		}
+		if err := write("UPDATE " + BoundariesTable + " SET boundary = boundary - interval '1 hour'"); err == nil {
+			t.Errorf("a stored boundary moves back")
+		}
+		// The job's clock is in March 2026, and the stored boundary is the database's now, far after it.
+		a := f.anchorer(f.lease(), time.Hour, "t1")
+		if err := a.Tick(f.ctx, clock(10, 30)); err != nil {
+			t.Fatal(err)
+		}
+		if healthy, reason := a.Health(); healthy || !strings.Contains(reason, "more than one period after") {
+			t.Errorf("health is %v with %q, want unhealthy for a stored boundary in the future", healthy, reason)
+		}
+		if got := f.anchorMessages("anchor/"); len(got) != 0 {
+			t.Errorf("%d anchors, want none while the stored boundary is in the future", len(got))
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC10-T10 A maintenance call takes the lease lock before it locks a partition", func(t *testing.T) {
+		f := newPG(t)
+		if _, err := f.owner.ExecContext(f.ctx, "DROP TABLE "+partitionName(monthStart(time.Now()).AddDate(0, 3, 0))); err != nil {
+			t.Fatal(err)
+		}
+		m := f.maintainer(nil)
+		// Another session holds the lease row, as an acquire that waits would.
+		blocker, err := f.owner.BeginTx(f.ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer blocker.Rollback()
+		if _, err := blocker.ExecContext(f.ctx, "SELECT 1 FROM leases WHERE name = $1 FOR UPDATE", leaseName); err != nil {
+			t.Fatal(err)
+		}
+		start := time.Now()
+		mark := f.trace.mark()
+		_, err = m.Run(f.ctx)
+		if sqlState(err) != "55P03" && !strings.Contains(fmt.Sprint(err), "lock timeout") {
+			t.Errorf("Run gives %v, want a lock timeout on the lease row", err)
+		}
+		if d := time.Since(start); d > 4*time.Second {
+			t.Errorf("Run waited %s for the lease row, want about 2 s", d)
+		}
+		if n := f.count("", "SELECT count(*) FROM pg_inherits WHERE inhparent = '"+EventsTable+"'::regclass"); n != 3 {
+			t.Errorf("%d partitions, want 3: the call must not reach the function while the lease row is locked", n)
+		}
+		for _, tx := range f.trace.transactions(mark) {
+			for _, q := range tx {
+				if strings.Contains(q, MaintainFunction) {
+					t.Errorf("the call ran audit_maintain() before it held the lease row: %s", q)
+				}
+			}
 		}
 	})
 
@@ -542,20 +647,16 @@ func TestJobs(t *testing.T) {
 		if len(logged) != 0 {
 			t.Errorf("the maintenance function holds a DELETE or a TRUNCATE: %v", logged)
 		}
-		var stmts []string
-		if err := f.inTx(f.runtime, "", func(tx *sql.Tx) error {
-			rec := &recordingTx{Tx: tx}
-			m, err := NewMaintainer(MaintainConfig{Lease: f.lease(), RunTx: func(ctx context.Context, _ string, fn func(context.Context, Tx) error) error {
-				return fn(ctx, rec)
-			}, Outbox: f.outbox})
-			if err != nil {
-				return err
-			}
-			_, err = m.Run(f.ctx)
-			stmts = rec.statements
-			return err
-		}); err != nil {
+		mark := f.trace.mark()
+		if _, err := f.maintainer(nil).Run(f.ctx); err != nil {
 			t.Fatal(err)
+		}
+		var stmts []string
+		for _, tx := range f.trace.transactions(mark) {
+			stmts = append(stmts, tx...)
+		}
+		if len(stmts) == 0 {
+			t.Fatal("the statement recorder saw no statement of the maintenance loop")
 		}
 		for _, s := range stmts {
 			if regexp.MustCompile(`(?i)\b(DELETE|TRUNCATE)\b`).MatchString(s) {
@@ -626,7 +727,7 @@ func TestJobs(t *testing.T) {
  FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner WHERE p.proname = $1`, MaintainFunction).Scan(&secdef, &owner, &nargs, &config); err != nil {
 			t.Fatal(err)
 		}
-		if !secdef || owner != ownerRole || nargs != 0 || !strings.Contains(string(config), "search_path=pg_catalog, public, pg_temp") || !strings.Contains(string(config), "lock_timeout=2s") {
+		if !secdef || owner != ownerRole || nargs != 0 || !strings.Contains(string(config), "search_path=pg_catalog, pg_temp") || !strings.Contains(string(config), "lock_timeout=2s") {
 			t.Errorf("audit_maintain: SECURITY DEFINER %v, owner %s, %d arguments, config %q", secdef, owner, nargs, config)
 		}
 		for role, want := range map[string]bool{runtimeRole: true, otherRole: false, "public": false} {
@@ -642,7 +743,7 @@ func TestJobs(t *testing.T) {
 				t.Errorf("EXECUTE for %s is %v, want %v", role, got, want)
 			}
 		}
-		other := f.open(otherRole)
+		other := f.open(otherRole, nil)
 		_, err := other.ExecContext(f.ctx, "SELECT * FROM public.audit_maintain()")
 		var pgErr *pgconn.PgError
 		if !errors.As(err, &pgErr) || pgErr.Code != "42501" {
@@ -680,11 +781,7 @@ func TestJobs(t *testing.T) {
 		if _, err := f.owner.ExecContext(f.ctx, "DROP TABLE "+partitionPrefix+"202604"); err != nil {
 			t.Fatal(err)
 		}
-		m, err := NewMaintainer(MaintainConfig{Lease: f.lease(), RunTx: f.runTx(nil, ""), Outbox: f.outbox,
-			Now: func() time.Time { return clock(9, 0) }})
-		if err != nil {
-			t.Fatal(err)
-		}
+		m := f.maintainer(func() time.Time { return clock(9, 0) })
 		if err := m.Check(f.ctx); err != nil {
 			t.Fatal(err)
 		}
@@ -705,11 +802,7 @@ func TestJobs(t *testing.T) {
 		f.createMonth(old)
 		s1 := f.seed("t1", []time.Time{old.Add(time.Hour), old.Add(2 * time.Hour)})
 		s2 := f.seed("t2", []time.Time{old.Add(time.Hour)})
-		m, err := NewMaintainer(MaintainConfig{Lease: f.lease(), RunTx: f.runTx(nil, ""), Outbox: f.outbox})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := m.Run(f.ctx); err != nil {
+		if _, err := f.maintainer(nil).Run(f.ctx); err != nil {
 			t.Fatal(err)
 		}
 		if n := f.count("", "SELECT count(*) FROM pg_class WHERE relname = $1", partitionName(old)); n != 0 {

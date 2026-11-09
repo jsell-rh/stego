@@ -218,7 +218,7 @@ func NewID(now time.Time) (UUID, error) {
 
 // New completes an event for the time now (ST-SUP-RP05-LC01, ST-SUP-RP05-LC13): it sets an ID (UUID version 7)
 // and the occurred time when they are empty, keeps each time in UTC at microsecond precision, as the table stores
-// it, cleans ActorIP and UserAgent, and validates the event.
+// it, cleans ActorIP and UserAgent, and the request values RequestID and IdempotencyKey, and validates the event.
 func New(e Event, now time.Time) (Event, error) {
 	if e.ID == (UUID{}) {
 		id, err := NewID(now)
@@ -236,6 +236,9 @@ func New(e Event, now time.Time) (Event, error) {
 	}
 	e.ActorIP = Untrusted(clean(string(e.ActorIP)))
 	e.UserAgent = Untrusted(clean(string(e.UserAgent)))
+	// The request ID and the idempotency key also come from the request, so they are cleaned the same way.
+	e.RequestID = clean(e.RequestID)
+	e.IdempotencyKey = clean(e.IdempotencyKey)
 	if err := e.Validate(); err != nil {
 		return Event{}, err
 	}
@@ -398,6 +401,20 @@ func redactAt(field, pointer string, v any, f Fields, pii map[string][]byte) (an
 		}
 		return normalize(name, v)
 	}
+}
+
+// storedState makes the State of a stored record, a row of the audit table or a sink message, from its JSON: the
+// redacting path wrote it before it was stored, and the hash of the record covers it. It keeps the canonical form,
+// so the hash comes out the same.
+func storedState(name string, raw []byte) (State, error) {
+	if len(raw) == 0 {
+		return State{}, nil
+	}
+	v, err := decodeJSON(name, raw)
+	if err != nil {
+		return State{}, err
+	}
+	return State{encodeTree(v)}, nil
 }
 
 // CanonicalRecord returns the canonical encoding of the event without prev_hash and hash: the bytes the hash
