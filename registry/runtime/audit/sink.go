@@ -206,12 +206,17 @@ func eventFrom(v any) (Event, error) {
 	if v, present := m["hash_version"]; present {
 		n, ok := v.(json.Number)
 		version, err := strconv.Atoi(string(n))
-		if !ok || err != nil || version != HashVersionCurrent {
-			return Event{}, errors.New("the field hash_version is not 2")
+		if !ok || err != nil || (version != HashVersion2 && version != HashVersionCurrent) {
+			return Event{}, errors.New("the field hash_version is not 2 or 3")
 		}
 		e.HashVersion = version
 		if e.Operation, err = text(m, "operation"); err != nil {
 			return Event{}, err
+		}
+		if version >= HashVersionCurrent {
+			if e.OnBehalfOf, err = text(m, "on_behalf_of"); err != nil {
+				return Event{}, err
+			}
 		}
 	}
 	if e.PrevHash, err = hexField(m, "prev_hash"); err != nil {

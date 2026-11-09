@@ -140,8 +140,8 @@ func TestTenantTransaction(t *testing.T) {
 			t.Fatal(err)
 		}
 		err = Commit(ctx, tx, mustTenant(t, "tenant-a"))
-		if !errors.Is(err, ErrTenantChanged) {
-			t.Fatalf("Commit after the tenant setting changed returned %v, want ErrTenantChanged", err)
+		if !errors.Is(err, ErrTenantChanged) || !errors.Is(err, ErrNotCommitted) {
+			t.Fatalf("Commit after the tenant setting changed returned %v, want ErrTenantChanged, marked as not committed", err)
 		}
 		if strings.Contains(err.Error(), "tenant-a") || strings.Contains(err.Error(), "tenant-b") {
 			t.Fatalf("the refusal names a tenant value: %v", err)
