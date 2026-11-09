@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -15,17 +16,21 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/stdlib"
 )
 
 // The PostgreSQL tests read STEGO_TEST_POSTGRES_DSN, the address of a superuser of a local PostgreSQL 17 server
-// in a container without privilege (ST-STD-LOCAL), and skip when it is not set. Each test makes a database of its
-// own, owned by the owner role, applies the DDL text there, and drops the database at the end.
+// in a container without privilege (ST-STD-LOCAL), and skip when it is not set. They reach the server through
+// pgx's database/sql driver (ST-STD-RUNTIME-R06). Each test makes a database of its own, owned by the owner role,
+// applies the DDL text there as the owner, and drops the database at the end.
 
 const (
 	ownerRole      = "stego_audit_owner"
 	runtimeRole    = "stego_audit_runtime"
+	otherRole      = "stego_audit_other"
 	rolePassword   = "stego-audit-test"
 	outboxStandIn  = "test_outbox"
+	leaseStandIn   = "test_leases"
 	appTable       = "app_items"
 	rejectMessage  = "the audit table rejects"
 	testRetention  = 12
@@ -37,27 +42,35 @@ var rolesOnce sync.Once
 type pgFixture struct {
 	t       *testing.T
 	ctx     context.Context
-	owner   *pgx.Conn
-	runtime *pgx.Conn
-	other   *pgx.Conn
 	cfg     *pgx.ConnConfig
+	db      string
+	owner   *sql.DB
+	runtime *sql.DB
+	audit   *sql.DB // the audit connections of ST-SUP-RP10-LC29
+	outbox  *standInOutbox
 }
 
-func newPG(t *testing.T) *pgFixture {
+type fixtureOption func(*Config)
+
+// withClock sets the time that audit_maintain reads, as an SQL expression.
+func withClock(sqlTime string) fixtureOption { return func(c *Config) { c.clock = sqlTime } }
+
+func newPG(t *testing.T, opts ...fixtureOption) *pgFixture {
 	t.Helper()
 	dsn := os.Getenv(postgresDSNEnv)
 	if dsn == "" {
 		t.Skip(postgresDSNEnv + " is not set: this test needs a PostgreSQL server")
 	}
 	ctx := context.Background()
-	admin, err := pgx.Connect(ctx, dsn)
+	base, err := pgx.ParseConfig(dsn)
 	if err != nil {
-		t.Fatalf("connect as the superuser: %v", err)
+		t.Fatal(err)
 	}
-	t.Cleanup(func() { admin.Close(ctx) })
+	admin := stdlib.OpenDB(*base)
+	t.Cleanup(func() { admin.Close() })
 	rolesOnce.Do(func() {
-		for _, role := range []string{ownerRole, runtimeRole} {
-			_, err := admin.Exec(ctx, fmt.Sprintf("CREATE ROLE %s LOGIN PASSWORD '%s'", role, rolePassword))
+		for _, role := range []string{ownerRole, runtimeRole, otherRole} {
+			_, err := admin.ExecContext(ctx, fmt.Sprintf("CREATE ROLE %s LOGIN PASSWORD '%s'", role, rolePassword))
 			var pgErr *pgconn.PgError
 			if err != nil && !(errors.As(err, &pgErr) && pgErr.Code == "42710") {
 				t.Fatalf("create the role %s: %v", role, err)
@@ -68,70 +81,132 @@ func newPG(t *testing.T) *pgFixture {
 	if _, err := rand.Read(suffix[:]); err != nil {
 		t.Fatal(err)
 	}
-	db := "audit_" + hex.EncodeToString(suffix[:])
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+db+" OWNER "+ownerRole); err != nil {
+	f := &pgFixture{t: t, ctx: ctx, cfg: base, db: "audit_" + hex.EncodeToString(suffix[:]), outbox: &standInOutbox{}}
+	if _, err := admin.ExecContext(ctx, "CREATE DATABASE "+f.db+" OWNER "+ownerRole); err != nil {
 		t.Fatalf("create the database: %v", err)
 	}
 	t.Cleanup(func() {
-		if _, err := admin.Exec(ctx, "DROP DATABASE "+db+" WITH (FORCE)"); err != nil {
-			t.Errorf("drop the database %s: %v", db, err)
+		if _, err := admin.ExecContext(ctx, "DROP DATABASE "+f.db+" WITH (FORCE)"); err != nil {
+			t.Errorf("drop the database %s: %v", f.db, err)
 		}
 	})
-	base, err := pgx.ParseConfig(dsn)
-	if err != nil {
-		t.Fatal(err)
+	f.owner = f.open(ownerRole)
+	c := Config{RuntimeRole: runtimeRole, RetentionMonths: testRetention}
+	for _, o := range opts {
+		o(&c)
 	}
-	f := &pgFixture{t: t, ctx: ctx, cfg: base}
-	f.owner = f.connect(db, ownerRole)
-	ddl, err := DDL(runtimeRole)
+	ddl, err := DDL(c)
 	if err != nil {
 		t.Fatal(err)
 	}
 	setup := ddl + `
-CREATE TABLE ` + outboxStandIn + ` (n bigserial PRIMARY KEY, destination text NOT NULL, key text NOT NULL, payload bytea NOT NULL);
+CREATE TABLE ` + outboxStandIn + ` (n bigserial PRIMARY KEY, tenant_id text NOT NULL, destination text NOT NULL,
+  key text NOT NULL, payload bytea NOT NULL);
 GRANT SELECT, INSERT ON ` + outboxStandIn + ` TO ` + runtimeRole + `;
 GRANT USAGE ON SEQUENCE ` + outboxStandIn + `_n_seq TO ` + runtimeRole + `;
+CREATE TABLE ` + leaseStandIn + ` (name text PRIMARY KEY, token bigint NOT NULL);
+INSERT INTO ` + leaseStandIn + ` VALUES ('controller', 1);
+GRANT SELECT, UPDATE ON ` + leaseStandIn + ` TO ` + runtimeRole + `;
 CREATE TABLE ` + appTable + ` (id text PRIMARY KEY, email text);
 GRANT SELECT, INSERT ON ` + appTable + ` TO ` + runtimeRole + `;`
-	if _, err := f.owner.Exec(ctx, setup); err != nil {
+	if _, err := f.owner.ExecContext(ctx, setup); err != nil {
 		t.Fatalf("apply the DDL text: %v", err)
 	}
-	f.inOwnerTx(func(tx pgx.Tx) error { return Maintain(ctx, tx, time.Now(), testRetention) })
-	f.runtime = f.connect(db, runtimeRole)
-	f.other = f.connect(db, runtimeRole)
+	f.runtime = f.open(runtimeRole)
+	f.audit = f.open(runtimeRole)
+	f.maintainAll()
 	return f
 }
 
-func (f *pgFixture) connect(db, role string) *pgx.Conn {
-	f.t.Helper()
+func (f *pgFixture) open(role string) *sql.DB {
 	cfg := f.cfg.Copy()
-	cfg.Database, cfg.User, cfg.Password = db, role, rolePassword
+	cfg.Database, cfg.User, cfg.Password = f.db, role, rolePassword
 	cfg.RuntimeParams = map[string]string{"TimeZone": "UTC"}
-	c, err := pgx.ConnectConfig(f.ctx, cfg)
-	if err != nil {
-		f.t.Fatalf("connect as %s: %v", role, err)
-	}
-	f.t.Cleanup(func() { c.Close(f.ctx) })
-	return c
+	db := stdlib.OpenDB(*cfg)
+	f.t.Cleanup(func() { db.Close() })
+	return db
 }
 
-func (f *pgFixture) inOwnerTx(fn func(tx pgx.Tx) error) {
+// maintainAll calls audit_maintain() as the runtime role until it reports no step left, and returns the calls.
+func (f *pgFixture) maintainAll() int {
 	f.t.Helper()
-	if err := pgx.BeginFunc(f.ctx, f.owner, fn); err != nil {
-		f.t.Fatalf("owner transaction: %v", err)
+	calls := 0
+	for ; calls < 64; calls++ {
+		var more bool
+		err := f.inTx(f.runtime, "", func(tx *sql.Tx) error {
+			rows, err := tx.QueryContext(f.ctx, callMaintain)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var tenant sql.NullString
+				var seq sql.NullInt64
+				var hash []byte
+				if err := rows.Scan(&more, &tenant, &seq, &hash); err != nil {
+					return err
+				}
+			}
+			return rows.Err()
+		})
+		if err != nil {
+			f.t.Fatalf("audit_maintain: %v", err)
+		}
+		if !more {
+			return calls + 1
+		}
 	}
+	f.t.Fatal("audit_maintain reports a step left after 64 calls")
+	return calls
 }
 
-// runTx opens short transactions on the runtime connection, as the service's transaction helper does, and
-// records the statements of each.
+// inTx runs fn in a transaction of db with the tenant set, when it is not empty, and commits.
+func (f *pgFixture) inTx(db *sql.DB, tenant string, fn func(tx *sql.Tx) error) error {
+	tx, err := db.BeginTx(f.ctx, nil)
+	if err != nil {
+		return err
+	}
+	if tenant != "" {
+		if _, err := tx.ExecContext(f.ctx, setTenant, tenant); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	if err := fn(tx); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+// begin opens a caller transaction of the tenant on the runtime pool.
+func (f *pgFixture) begin(tenant string) *sql.Tx {
+	f.t.Helper()
+	tx, err := f.runtime.BeginTx(f.ctx, nil)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(f.ctx, setTenant, tenant); err != nil {
+		f.t.Fatal(err)
+	}
+	return tx
+}
+
 type txLog struct {
 	mu  sync.Mutex
 	txs [][]string
 }
 
-func (f *pgFixture) runTx(log *txLog) RunTx {
-	return func(ctx context.Context, fn func(ctx context.Context, tx Tx) error) error {
-		return pgx.BeginFunc(ctx, f.runtime, func(tx pgx.Tx) error {
+// runTx is the stand-in of the service's transaction helper on the audit connections: it sets the tenant and a
+// lock timeout, and records the statements of each transaction.
+func (f *pgFixture) runTx(log *txLog, lockTimeout string) RunTx {
+	return func(ctx context.Context, tenant string, fn func(ctx context.Context, tx Tx) error) error {
+		return f.inTx(f.audit, tenant, func(tx *sql.Tx) error {
+			if lockTimeout != "" {
+				if _, err := tx.ExecContext(ctx, "SET LOCAL lock_timeout = '"+lockTimeout+"'"); err != nil {
+					return err
+				}
+			}
 			rec := &recordingTx{Tx: tx}
 			err := fn(ctx, rec)
 			if log != nil {
@@ -145,41 +220,48 @@ func (f *pgFixture) runTx(log *txLog) RunTx {
 }
 
 type recordingTx struct {
-	pgx.Tx
+	*sql.Tx
+	mu         sync.Mutex
 	statements []string
 }
 
-func (r *recordingTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
-	r.statements = append(r.statements, sql)
-	return r.Tx.Exec(ctx, sql, args...)
+func (r *recordingTx) add(q string) {
+	r.mu.Lock()
+	r.statements = append(r.statements, q)
+	r.mu.Unlock()
 }
 
-func (r *recordingTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
-	r.statements = append(r.statements, sql)
-	return r.Tx.QueryRow(ctx, sql, args...)
+func (r *recordingTx) ExecContext(ctx context.Context, q string, args ...any) (sql.Result, error) {
+	r.add(q)
+	return r.Tx.ExecContext(ctx, q, args...)
 }
 
-func (r *recordingTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
-	r.statements = append(r.statements, sql)
-	return r.Tx.Query(ctx, sql, args...)
+func (r *recordingTx) QueryRowContext(ctx context.Context, q string, args ...any) *sql.Row {
+	r.add(q)
+	return r.Tx.QueryRowContext(ctx, q, args...)
 }
 
-// standInOutbox is the outbox stand-in: it writes the message into a table through the caller's transaction, as
-// the outbox runtime's queue does, until that runtime is on main.
+func (r *recordingTx) QueryContext(ctx context.Context, q string, args ...any) (*sql.Rows, error) {
+	r.add(q)
+	return r.Tx.QueryContext(ctx, q, args...)
+}
+
+// standInOutbox is the outbox stand-in: it writes the message, with its tenant, into a table through the caller's
+// transaction, as the outbox runtime's queue does, until that runtime is on main.
 type standInOutbox struct {
 	mu   sync.Mutex
 	fail bool
 }
 
-func (o *standInOutbox) Enqueue(ctx context.Context, tx Tx, destination, key string, payload []byte) error {
+func (o *standInOutbox) Enqueue(ctx context.Context, tx Tx, tenant, destination, key string, payload []byte) error {
 	o.mu.Lock()
 	fail := o.fail
 	o.mu.Unlock()
 	if fail {
 		return errors.New("the outbox refuses the message")
 	}
-	_, err := tx.Exec(ctx, "INSERT INTO "+outboxStandIn+" (destination, key, payload) VALUES ($1, $2, $3)",
-		destination, key, payload)
+	_, err := tx.ExecContext(ctx, "INSERT INTO "+outboxStandIn+" (tenant_id, destination, key, payload) VALUES ($1, $2, $3, $4)",
+		tenant, destination, key, payload)
 	return err
 }
 
@@ -190,13 +272,13 @@ func (o *standInOutbox) setFail(v bool) {
 }
 
 type outboxMessage struct {
-	destination, key string
-	payload          []byte
+	tenant, destination, key string
+	payload                  []byte
 }
 
 func (f *pgFixture) messages() []outboxMessage {
 	f.t.Helper()
-	rows, err := f.other.Query(f.ctx, "SELECT destination, key, payload FROM "+outboxStandIn+" ORDER BY n")
+	rows, err := f.owner.QueryContext(f.ctx, "SELECT tenant_id, destination, key, payload FROM "+outboxStandIn+" ORDER BY n")
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -204,7 +286,7 @@ func (f *pgFixture) messages() []outboxMessage {
 	var out []outboxMessage
 	for rows.Next() {
 		var m outboxMessage
-		if err := rows.Scan(&m.destination, &m.key, &m.payload); err != nil {
+		if err := rows.Scan(&m.tenant, &m.destination, &m.key, &m.payload); err != nil {
 			f.t.Fatal(err)
 		}
 		out = append(out, m)
@@ -212,40 +294,32 @@ func (f *pgFixture) messages() []outboxMessage {
 	return out
 }
 
-func (f *pgFixture) count(sql string, args ...any) int64 {
+// count runs a count query as the owner in a transaction of the tenant ("" for none).
+func (f *pgFixture) count(tenant, q string, args ...any) int64 {
 	f.t.Helper()
 	var n int64
-	if err := f.other.QueryRow(f.ctx, sql, args...).Scan(&n); err != nil {
-		f.t.Fatalf("%s: %v", sql, err)
+	if err := f.inTx(f.owner, tenant, func(tx *sql.Tx) error { return tx.QueryRowContext(f.ctx, q, args...).Scan(&n) }); err != nil {
+		f.t.Fatalf("%s: %v", q, err)
 	}
 	return n
 }
 
-func (f *pgFixture) auditRows() int64 {
-	return f.count("SELECT count(*) FROM " + EventsTable)
+func (f *pgFixture) auditRows(tenant string) int64 {
+	return f.count(tenant, "SELECT count(*) FROM "+EventsTable)
 }
 
-func (f *pgFixture) writer(outbox Enqueuer) *Writer {
+func (f *pgFixture) writer() *Writer {
 	f.t.Helper()
-	w, err := NewWriter(outbox, nil)
+	w, err := NewWriter(f.outbox, nil)
 	if err != nil {
 		f.t.Fatal(err)
 	}
 	return w
 }
 
-func (f *pgFixture) begin() pgx.Tx {
-	f.t.Helper()
-	tx, err := f.runtime.Begin(f.ctx)
-	if err != nil {
-		f.t.Fatal(err)
-	}
-	return tx
-}
-
-func sampleEvent(service, action string) Event {
+func sampleEvent(tenant, action string) Event {
 	return Event{
-		TenantID:     "t-1",
+		TenantID:     tenant,
 		ActorID:      "user:u-7",
 		ActorKind:    ActorUser,
 		ActorIP:      "203.0.113.9",
@@ -255,85 +329,144 @@ func sampleEvent(service, action string) Event {
 		ResourceID:   "i-1",
 		Outcome:      OutcomeOK,
 		RequestID:    "r-1",
-		Service:      service,
+		Service:      "orders",
 	}
 }
 
-// recordN writes n committed rows for the service.
-func (f *pgFixture) recordN(w *Writer, service string, n int) []Event {
+// recordN writes n committed rows of the tenant, one transaction each.
+func (f *pgFixture) recordN(w *Writer, tenant string, n int) []Event {
 	f.t.Helper()
 	var out []Event
 	for i := 0; i < n; i++ {
-		tx := f.begin()
-		e := sampleEvent(service, fmt.Sprintf("update-%d", i+1))
+		tx := f.begin(tenant)
+		e := sampleEvent(tenant, fmt.Sprintf("update-%d", i+1))
 		e.ResourceID = fmt.Sprintf("i-%d", i+1)
-		stored, err := w.Record(f.ctx, tx, e)
+		stored, err := w.Record(f.ctx, tx, []Event{e})
 		if err != nil {
 			f.t.Fatalf("Record: %v", err)
 		}
-		if err := tx.Commit(f.ctx); err != nil {
+		if err := tx.Commit(); err != nil {
 			f.t.Fatal(err)
 		}
-		out = append(out, stored)
+		out = append(out, stored...)
 	}
 	return out
 }
 
-func auditStatement(sql string) bool {
-	return strings.Contains(sql, EventsTable) || strings.Contains(sql, HeadsTable) || strings.Contains(sql, outboxStandIn)
+// seed writes linked rows of the tenant with the given recorded_at values as the owner, straight into the table,
+// as rows of an earlier month would be, and moves the chain head.
+func (f *pgFixture) seed(tenant string, times []time.Time) []Event {
+	f.t.Helper()
+	var out []Event
+	err := f.inTx(f.owner, tenant, func(tx *sql.Tx) error {
+		var seq int64
+		prev := ZeroHash()
+		var last time.Time
+		err := tx.QueryRowContext(f.ctx, "SELECT seq, head, last_recorded_at FROM "+HeadsTable+" WHERE tenant_id = $1", tenant).Scan(&seq, &prev, &last)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		for i, at := range times {
+			e, err := New(sampleEvent(tenant, fmt.Sprintf("seeded-%d", i+1)), at)
+			if err != nil {
+				return err
+			}
+			e.RecordedAt = storedTime(at)
+			if e, err = Link(e, prev); err != nil {
+				return err
+			}
+			seq++
+			if _, err := tx.ExecContext(f.ctx, insertEvent, tenant, seq, e.ID.String(), e.OccurredAt, e.RecordedAt,
+				e.ActorID, string(e.ActorKind), string(e.ActorIP), string(e.UserAgent), e.Action, e.ResourceType,
+				e.ResourceID, string(e.Outcome), e.ErrorCode, e.RequestID, e.TraceID, e.SpanID, e.IdempotencyKey,
+				nil, nil, nil, e.Service, e.ServiceVersion, e.DeclarationVersion, e.PrevHash, e.Hash); err != nil {
+				return err
+			}
+			prev = e.Hash
+			last = e.RecordedAt
+			out = append(out, e)
+		}
+		_, err = tx.ExecContext(f.ctx, `INSERT INTO `+HeadsTable+` (tenant_id, seq, head, last_recorded_at) VALUES ($1, $2, $3, $4)
+ ON CONFLICT (tenant_id) DO UPDATE SET seq = EXCLUDED.seq, head = EXCLUDED.head, last_recorded_at = EXCLUDED.last_recorded_at`,
+			tenant, seq, prev, last)
+		return err
+	})
+	if err != nil {
+		f.t.Fatalf("seed: %v", err)
+	}
+	return out
+}
+
+// createMonth creates the partition of a month as the owner, through the owner's partition function.
+func (f *pgFixture) createMonth(month time.Time) {
+	f.t.Helper()
+	if _, err := f.owner.ExecContext(f.ctx, "SELECT audit_create_partition($1::date)", month.Format("2006-01-02")); err != nil {
+		f.t.Fatalf("create the partition of %s: %v", month.Format("2006-01"), err)
+	}
+}
+
+func auditStatement(q string) bool {
+	return strings.Contains(q, EventsTable) || strings.Contains(q, HeadsTable) || strings.Contains(q, outboxStandIn) ||
+		strings.Contains(q, "lock_timeout") || strings.Contains(q, "app.tenant")
+}
+
+func containsAny(s string, needles ...string) string {
+	for _, n := range needles {
+		if strings.Contains(s, n) {
+			return n
+		}
+	}
+	return ""
 }
 
 func TestRecord(t *testing.T) {
 	t.Run("ST-SUP-RP05-LC02-T01 An audit entry is visible only after the caller commits", func(t *testing.T) {
 		f := newPG(t)
-		w := f.writer(&standInOutbox{})
-		tx := f.begin()
-		if _, err := tx.Exec(f.ctx, "INSERT INTO "+appTable+" (id) VALUES ('i-1')"); err != nil {
+		w := f.writer()
+		tx := f.begin("t1")
+		if _, err := tx.ExecContext(f.ctx, "INSERT INTO "+appTable+" (id) VALUES ('i-1')"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := w.Record(f.ctx, tx, sampleEvent("alpha", "create")); err != nil {
+		if _, err := w.Record(f.ctx, tx, []Event{sampleEvent("t1", "create")}); err != nil {
 			t.Fatal(err)
 		}
-		if n := f.auditRows(); n != 0 {
+		if n := f.auditRows("t1"); n != 0 {
 			t.Fatalf("a second session sees %d audit rows before the commit, want 0", n)
 		}
-		if err := tx.Commit(f.ctx); err != nil {
+		if err := tx.Commit(); err != nil {
 			t.Fatal(err)
 		}
-		if n := f.auditRows(); n != 1 {
+		if n := f.auditRows("t1"); n != 1 {
 			t.Fatalf("a second session sees %d audit rows after the commit, want 1", n)
 		}
 	})
 
 	t.Run("ST-SUP-RP05-LC02-T02 A rolled-back caller transaction leaves no audit row", func(t *testing.T) {
 		f := newPG(t)
-		w := f.writer(&standInOutbox{})
-		tx := f.begin()
-		if _, err := w.Record(f.ctx, tx, sampleEvent("alpha", "create")); err != nil {
+		w := f.writer()
+		tx := f.begin("t1")
+		if _, err := w.Record(f.ctx, tx, []Event{sampleEvent("t1", "create")}); err != nil {
 			t.Fatal(err)
 		}
-		if s := f.runtime.PgConn().TxStatus(); s != 'T' {
-			t.Fatalf("after Record the caller's connection has the transaction status %q, want T (still open)", s)
+		if _, err := tx.ExecContext(f.ctx, "SELECT 1"); err != nil {
+			t.Fatalf("the caller's transaction is not open after Record: %v", err)
 		}
-		if _, err := tx.Exec(f.ctx, "SELECT 1"); err != nil {
-			t.Fatalf("the caller's transaction is not usable after Record: %v", err)
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("the caller's transaction cannot roll back, so Record ended it: %v", err)
 		}
-		if err := tx.Rollback(f.ctx); err != nil {
-			t.Fatal(err)
-		}
-		if n := f.auditRows(); n != 0 {
+		if n := f.auditRows("t1"); n != 0 {
 			t.Fatalf("%d audit rows after the rollback, want 0", n)
 		}
 	})
 
 	t.Run("ST-SUP-RP05-LC02-T03 A denied or failed mutation is recorded alone with its outcome and error code", func(t *testing.T) {
 		f := newPG(t)
-		w := f.writer(&standInOutbox{})
-		tx := f.begin()
-		if _, err := tx.Exec(f.ctx, "INSERT INTO "+appTable+" (id) VALUES ('i-1')"); err != nil {
+		w := f.writer()
+		tx := f.begin("t1")
+		if _, err := tx.ExecContext(f.ctx, "INSERT INTO "+appTable+" (id) VALUES ('i-1')"); err != nil {
 			t.Fatal(err)
 		}
-		if err := tx.Rollback(f.ctx); err != nil {
+		if err := tx.Rollback(); err != nil {
 			t.Fatal(err)
 		}
 		log := &txLog{}
@@ -341,18 +474,18 @@ func TestRecord(t *testing.T) {
 			outcome Outcome
 			code    string
 		}{{OutcomeDenied, "AUTHZ_DENIED"}, {OutcomeFailed, "STORE_CONFLICT"}} {
-			e := sampleEvent("alpha", "reserve")
+			e := sampleEvent("t1", "reserve")
 			e.Outcome, e.ErrorCode = c.outcome, c.code
-			if _, err := w.RecordOutcome(f.ctx, f.runTx(log), e); err != nil {
+			if _, err := w.RecordOutcome(f.ctx, f.runTx(log, ""), e); err != nil {
 				t.Fatalf("RecordOutcome %s: %v", c.outcome, err)
 			}
 		}
 		for _, c := range []struct{ outcome, code string }{{"denied", "AUTHZ_DENIED"}, {"failed", "STORE_CONFLICT"}} {
-			if n := f.count("SELECT count(*) FROM "+EventsTable+" WHERE outcome = $1 AND error_code = $2", c.outcome, c.code); n != 1 {
+			if n := f.count("t1", "SELECT count(*) FROM "+EventsTable+" WHERE outcome = $1 AND error_code = $2", c.outcome, c.code); n != 1 {
 				t.Errorf("%d committed rows with the outcome %s and the error code %s, want 1", n, c.outcome, c.code)
 			}
 		}
-		if n := f.count("SELECT count(*) FROM " + appTable); n != 0 {
+		if n := f.count("", "SELECT count(*) FROM "+appTable); n != 0 {
 			t.Errorf("the application row is in the table after the rollback")
 		}
 		if len(log.txs) != 2 {
@@ -365,46 +498,44 @@ func TestRecord(t *testing.T) {
 				}
 			}
 		}
-		e := sampleEvent("alpha", "reserve")
-		if _, err := w.RecordOutcome(f.ctx, f.runTx(nil), e); err == nil {
+		e := sampleEvent("t1", "reserve")
+		if _, err := w.RecordOutcome(f.ctx, f.runTx(nil, ""), e); err == nil {
 			t.Errorf("RecordOutcome accepts the outcome ok")
 		}
 		e.Outcome = OutcomeFailed
-		if _, err := w.RecordOutcome(f.ctx, f.runTx(nil), e); err == nil {
+		if _, err := w.RecordOutcome(f.ctx, f.runTx(nil, ""), e); err == nil {
 			t.Errorf("RecordOutcome accepts an outcome row with no error code")
 		}
 	})
 
 	t.Run("ST-SUP-RP05-LC02-T04 A read of an entity that holds a pii field is recorded with the action read in its own transaction, and stays after a rollback", func(t *testing.T) {
 		f := newPG(t)
-		w := f.writer(&standInOutbox{})
-		if _, err := f.owner.Exec(f.ctx, "INSERT INTO "+appTable+" (id, email) VALUES ('c-1', 'a@example.com'), ('c-2', 'b@example.com')"); err != nil {
+		w := f.writer()
+		if _, err := f.owner.ExecContext(f.ctx, "INSERT INTO "+appTable+" (id, email) VALUES ('c-1', 'a@example.com'), ('c-2', 'b@example.com')"); err != nil {
 			t.Fatal(err)
 		}
 		log := &txLog{}
 		for i, id := range []string{"c-1", "c-2"} {
-			tx := f.begin()
+			tx := f.begin("t1")
 			var email string
-			if err := tx.QueryRow(f.ctx, "SELECT email FROM "+appTable+" WHERE id = $1", id).Scan(&email); err != nil {
+			if err := tx.QueryRowContext(f.ctx, "SELECT email FROM "+appTable+" WHERE id = $1", id).Scan(&email); err != nil {
 				t.Fatal(err)
 			}
-			e := sampleEvent("alpha", "")
+			e := sampleEvent("t1", "")
 			e.ResourceType, e.ResourceID = "customer", id
-			// A service gives RecordRead its audit connections (ST-SUP-RP10-LC29); the test opens the own
-			// transaction on the second runtime connection, apart from the caller's open transaction.
-			if _, err := w.RecordRead(f.ctx, f.ownRunTx(log), e); err != nil {
+			if _, err := w.RecordRead(f.ctx, f.runTx(log, "2s"), e); err != nil {
 				t.Fatalf("RecordRead: %v", err)
 			}
 			if i == 0 {
-				if err := tx.Commit(f.ctx); err != nil {
+				if err := tx.Commit(); err != nil {
 					t.Fatal(err)
 				}
-			} else if err := tx.Rollback(f.ctx); err != nil {
+			} else if err := tx.Rollback(); err != nil {
 				t.Fatal(err)
 			}
 		}
 		for _, id := range []string{"c-1", "c-2"} {
-			if n := f.count("SELECT count(*) FROM "+EventsTable+" WHERE action = 'read' AND resource_type = 'customer' AND resource_id = $1 AND outcome = 'ok'", id); n != 1 {
+			if n := f.count("t1", "SELECT count(*) FROM "+EventsTable+" WHERE action = 'read' AND resource_type = 'customer' AND resource_id = $1 AND outcome = 'ok'", id); n != 1 {
 				t.Errorf("%d read rows for %s, want 1", n, id)
 			}
 		}
@@ -419,18 +550,17 @@ func TestRecord(t *testing.T) {
 
 	t.Run("ST-SUP-RP05-LC03-T06 A secret field does not reach the sink message", func(t *testing.T) {
 		f := newPG(t)
-		w := f.writer(&standInOutbox{})
-		e := sampleEvent("alpha", "update")
-		fields := Fields{"api_key": Secret}
-		if err := e.SetStates(Settings{Level: LevelChange}, fields,
+		w := f.writer()
+		e := sampleEvent("t1", "update")
+		if err := e.SetStates(Settings{Level: LevelChange}, Fields{"api_key": Secret},
 			map[string]any{"name": "a", "api_key": "sk-old-0001"}, map[string]any{"name": "b", "api_key": "sk-new-0002"}); err != nil {
 			t.Fatal(err)
 		}
-		tx := f.begin()
-		if _, err := w.Record(f.ctx, tx, e); err != nil {
+		tx := f.begin("t1")
+		if _, err := w.Record(f.ctx, tx, []Event{e}); err != nil {
 			t.Fatal(err)
 		}
-		if err := tx.Commit(f.ctx); err != nil {
+		if err := tx.Commit(); err != nil {
 			t.Fatal(err)
 		}
 		msgs := f.messages()
@@ -446,8 +576,7 @@ func TestRecord(t *testing.T) {
 
 	t.Run("ST-SUP-RP05-LC07-T02 The sink message key is the event ID", func(t *testing.T) {
 		f := newPG(t)
-		w := f.writer(&standInOutbox{})
-		stored := f.recordN(w, "alpha", 1)[0]
+		stored := f.recordN(f.writer(), "t1", 1)[0]
 		msgs := f.messages()
 		if len(msgs) != 1 {
 			t.Fatalf("%d outbox messages, want 1", len(msgs))
@@ -455,22 +584,303 @@ func TestRecord(t *testing.T) {
 		if msgs[0].key != stored.ID.String() {
 			t.Errorf("the message key is %q, want the event ID %s", msgs[0].key, stored.ID)
 		}
-		if msgs[0].destination != SinkDestination {
-			t.Errorf("the destination is %q, want %q", msgs[0].destination, SinkDestination)
+		if msgs[0].destination != SinkDestination || msgs[0].tenant != "t1" {
+			t.Errorf("the message goes to %q for the tenant %q, want %q for t1", msgs[0].destination, msgs[0].tenant, SinkDestination)
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC12-T01 Record gives a batch of events consecutive seq values under one lock", func(t *testing.T) {
+		f := newPG(t)
+		w := f.writer()
+		f.recordN(w, "t1", 2)
+		tx := f.begin("t1")
+		rec := &recordingTx{Tx: tx}
+		if _, err := rec.ExecContext(f.ctx, "INSERT INTO "+appTable+" (id) VALUES ('i-9')"); err != nil {
+			t.Fatal(err)
+		}
+		var batch []Event
+		for i := 0; i < 3; i++ {
+			e := sampleEvent("t1", fmt.Sprintf("batch-%d", i+1))
+			batch = append(batch, e)
+		}
+		stored, err := w.Record(f.ctx, rec, batch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+		var seqs []int64
+		if err := f.inTx(f.owner, "t1", func(tx *sql.Tx) error {
+			r, err := tx.QueryContext(f.ctx, "SELECT seq, action FROM "+EventsTable+" WHERE action LIKE 'batch-%' ORDER BY seq")
+			if err != nil {
+				return err
+			}
+			defer r.Close()
+			for i := 0; r.Next(); i++ {
+				var seq int64
+				var action string
+				if err := r.Scan(&seq, &action); err != nil {
+					return err
+				}
+				if action != stored[i].Action {
+					t.Errorf("seq %d holds %s, want %s in the order given", seq, action, stored[i].Action)
+				}
+				seqs = append(seqs, seq)
+			}
+			return r.Err()
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if len(seqs) != 3 || seqs[0] != 3 || seqs[1] != 4 || seqs[2] != 5 {
+			t.Errorf("the batch has the seq values %v, want [3 4 5]", seqs)
+		}
+		locks, lockAt := 0, -1
+		for i, s := range rec.statements {
+			if strings.Contains(s, "INSERT INTO "+HeadsTable) {
+				locks++
+				lockAt = i
+			}
+		}
+		if locks != 1 {
+			t.Fatalf("%d locks of the chain head, want 1", locks)
+		}
+		for _, s := range rec.statements[lockAt+1:] {
+			if !auditStatement(s) || strings.Contains(s, appTable) {
+				t.Errorf("a statement of the caller runs after the chain lock: %s", s)
+			}
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC12-T02 recorded_at is set after the lock and never falls along a chain", func(t *testing.T) {
+		f := newPG(t)
+		w := f.writer()
+		f.recordN(w, "t1", 1)
+		var dbNow time.Time
+		if err := f.owner.QueryRowContext(f.ctx, "SELECT clock_timestamp()").Scan(&dbNow); err != nil {
+			t.Fatal(err)
+		}
+		ahead := dbNow.Add(time.Hour).Truncate(time.Microsecond)
+		if err := f.inTx(f.owner, "t1", func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(f.ctx, "UPDATE "+HeadsTable+" SET last_recorded_at = $1 WHERE tenant_id = 't1'", ahead)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		e := sampleEvent("t1", "late")
+		e.RecordedAt = time.Now().Add(-24 * time.Hour)
+		tx := f.begin("t1")
+		stored, err := w.Record(f.ctx, tx, []Event{e})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+		var got time.Time
+		if err := f.inTx(f.owner, "t1", func(tx *sql.Tx) error {
+			return tx.QueryRowContext(f.ctx, "SELECT recorded_at FROM "+EventsTable+" WHERE action = 'late'").Scan(&got)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if got.Before(ahead) || !got.Equal(stored[0].RecordedAt) {
+			t.Errorf("recorded_at is %s (returned %s), want the chain's last recorded_at %s or later", got, stored[0].RecordedAt, ahead)
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC12-T03 A read row of a fill does not wait on its own command", func(t *testing.T) {
+		f := newPG(t)
+		w := f.writer()
+		cmd := f.begin("t1")
+		if _, err := cmd.ExecContext(f.ctx, "SET LOCAL lock_timeout = '2s'"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := cmd.ExecContext(f.ctx, "INSERT INTO "+appTable+" (id, email) VALUES ('c-1', 'a@example.com')"); err != nil {
+			t.Fatal(err)
+		}
+		held := sampleEvent("t1", "create") // buffered, not written yet (ST-SUP-RP10-LC06)
+		read := sampleEvent("t1", "")
+		read.ResourceType, read.ResourceID = "customer", "c-0"
+		start := time.Now()
+		if _, err := w.RecordRead(f.ctx, f.runTx(nil, "2s"), read); err != nil {
+			t.Fatalf("the read row fails while its command is open: %v", err)
+		}
+		if d := time.Since(start); d > time.Second {
+			t.Errorf("the read row waited %s", d)
+		}
+		if _, err := w.Record(f.ctx, cmd, []Event{held}); err != nil {
+			t.Fatal(err)
+		}
+		if err := cmd.Commit(); err != nil {
+			t.Fatal(err)
+		}
+		var actions []string
+		if err := f.inTx(f.owner, "t1", func(tx *sql.Tx) error {
+			r, err := tx.QueryContext(f.ctx, "SELECT seq, action FROM "+EventsTable+" ORDER BY seq")
+			if err != nil {
+				return err
+			}
+			defer r.Close()
+			for want := int64(1); r.Next(); want++ {
+				var seq int64
+				var a string
+				if err := r.Scan(&seq, &a); err != nil {
+					return err
+				}
+				if seq != want {
+					t.Errorf("seq %d follows %d", seq, want-1)
+				}
+				actions = append(actions, a)
+			}
+			return r.Err()
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Join(actions, ",") != "read,create" {
+			t.Errorf("the chain holds %v, want the read row and then the write row", actions)
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC13-T01 Bad bytes in an untrusted value do not fail the audited write", func(t *testing.T) {
+		f := newPG(t)
+		w := f.writer()
+		e := sampleEvent("t1", "update")
+		e.UserAgent = Untrusted("bad\xff\xfe\x00end")
+		e.ActorIP = Untrusted(strings.Repeat("é", 300)) // 600 bytes
+		tx := f.begin("t1")
+		stored, err := w.Record(f.ctx, tx, []Event{e})
+		if err != nil {
+			t.Fatalf("Record fails on bad untrusted bytes: %v", err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+		var ua, ip string
+		if err := f.inTx(f.owner, "t1", func(tx *sql.Tx) error {
+			return tx.QueryRowContext(f.ctx, "SELECT user_agent, actor_ip FROM "+EventsTable).Scan(&ua, &ip)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if want := "bad��end"; ua != want || string(stored[0].UserAgent) != want {
+			t.Errorf("the stored user agent is %q (hashed %q), want %q", ua, stored[0].UserAgent, want)
+		}
+		if len(ip) > MaxUntrusted || !utf8Valid(ip) || ip != string(stored[0].ActorIP) || len(ip) < MaxUntrusted-1 {
+			t.Errorf("the stored address has %d bytes, valid %v, want at most %d bytes of valid UTF-8", len(ip), utf8Valid(ip), MaxUntrusted)
+		}
+		if h, _ := Hash(stored[0]); !bytes.Equal(h, stored[0].Hash) {
+			t.Errorf("the hash does not cover the cleaned values")
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC13-T04 RecordOutcome and RecordRead give each event a new ID", func(t *testing.T) {
+		f := newPG(t)
+		w := f.writer()
+		given, err := NewID(time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		e := sampleEvent("t1", "reserve")
+		e.ID = given
+		e.Outcome, e.ErrorCode = OutcomeFailed, ErrorCodeConflict
+		var ids []UUID
+		for i := 0; i < 2; i++ {
+			s, err := w.RecordOutcome(f.ctx, f.runTx(nil, ""), e)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, s.ID)
+		}
+		s, err := w.RecordRead(f.ctx, f.runTx(nil, ""), e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, s.ID)
+		if n := f.auditRows("t1"); n != 3 {
+			t.Errorf("%d rows, want 3", n)
+		}
+		if n := f.count("t1", "SELECT count(*) FROM "+EventsTable+" WHERE id = $1::uuid", given.String()); n != 0 {
+			t.Errorf("%d rows have the given ID", n)
+		}
+		seen := map[UUID]bool{}
+		for _, id := range ids {
+			if id == given || seen[id] || id[6]>>4 != 7 {
+				t.Errorf("the ID %s is not a new UUID version 7", id)
+			}
+			seen[id] = true
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC13-T05 A failed RecordOutcome is counted and names no value", func(t *testing.T) {
+		f := newPG(t)
+		w := f.writer()
+		blocker := f.begin("t1")
+		if _, err := w.Record(f.ctx, blocker, []Event{sampleEvent("t1", "create")}); err != nil {
+			t.Fatal(err)
+		}
+		defer blocker.Rollback()
+		e := sampleEvent("t1", "reserve")
+		e.Outcome, e.ErrorCode = OutcomeDenied, "AUTHZ_DENIED"
+		e.ResourceID = "secret-resource-7781"
+		e.UserAgent = "agent-value-4410"
+		if err := e.SetStates(Settings{}, Fields{"email": PII}, nil, map[string]any{"email": "x@example.com", "note": "note-value-9031"}); err != nil {
+			t.Fatal(err)
+		}
+		_, err := w.RecordOutcome(f.ctx, f.runTx(nil, "100ms"), e)
+		if err == nil {
+			t.Fatal("RecordOutcome succeeds while the chain head is locked")
+		}
+		if v := containsAny(err.Error(), "secret-resource-7781", "agent-value-4410", "x@example.com", "note-value-9031"); v != "" {
+			t.Errorf("the error %q holds the value %q", err, v)
+		}
+		if sqlState(err) != "55P03" {
+			t.Errorf("the error has the SQLSTATE %q, want 55P03", sqlState(err))
+		}
+		if n := w.FailedOutcomes(); n != 1 {
+			t.Errorf("the failed-outcome counter is %d, want 1", n)
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC04-T06 Concurrent writers of one tenant keep one chain", func(t *testing.T) {
+		f := newPG(t)
+		w := f.writer()
+		const writers, each = 8, 5
+		var wg sync.WaitGroup
+		errs := make(chan error, writers*each)
+		for g := 0; g < writers; g++ {
+			wg.Add(1)
+			go func(g int) {
+				defer wg.Done()
+				for i := 0; i < each; i++ {
+					err := f.inTx(f.runtime, "t1", func(tx *sql.Tx) error {
+						_, err := w.Record(f.ctx, tx, []Event{sampleEvent("t1", fmt.Sprintf("w%d-%d", g, i)), sampleEvent("t1", "second")})
+						return err
+					})
+					if err != nil {
+						errs <- err
+					}
+				}
+			}(g)
+		}
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			t.Fatalf("a concurrent writer fails: %v", err)
+		}
+		var findings []Finding
+		if err := f.inTx(f.runtime, "t1", func(tx *sql.Tx) error {
+			var err error
+			findings, err = Verify(f.ctx, tx, "t1", nil)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if len(findings) != 0 {
+			t.Errorf("findings after concurrent writers: %v", findings)
+		}
+		if n := f.count("t1", "SELECT max(seq) FROM "+EventsTable); n != writers*each*2 {
+			t.Errorf("the highest seq is %d, want %d", n, writers*each*2)
 		}
 	})
 }
 
-// ownRunTx opens each own transaction on the second runtime connection, apart from the caller's.
-func (f *pgFixture) ownRunTx(log *txLog) RunTx {
-	return func(ctx context.Context, fn func(ctx context.Context, tx Tx) error) error {
-		return pgx.BeginFunc(ctx, f.other, func(tx pgx.Tx) error {
-			rec := &recordingTx{Tx: tx}
-			err := fn(ctx, rec)
-			log.mu.Lock()
-			log.txs = append(log.txs, rec.statements)
-			log.mu.Unlock()
-			return err
-		})
-	}
-}
+func utf8Valid(s string) bool { return strings.ToValidUTF8(s, "") == s }

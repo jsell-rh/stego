@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -14,8 +15,8 @@ import (
 type Sink interface {
 	// Append stores the events. When an event ID is already stored, it returns an error that wraps ErrDuplicate.
 	Append(ctx context.Context, events []Event) error
-	// Anchor stores the head and the row count of one service chain.
-	Anchor(ctx context.Context, head Head, count int64) error
+	// Anchor stores one anchor of one tenant's chain: its kind, head hash and count.
+	Anchor(ctx context.Context, anchor Anchor) error
 }
 
 // ErrDuplicate is the error a Sink wraps when it already holds an event ID.
@@ -36,7 +37,7 @@ func eventMessage(e Event) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	v, err := decodeJSON(rec)
+	v, err := decodeJSON("event", rec)
 	if err != nil {
 		return nil, err
 	}
@@ -45,10 +46,11 @@ func eventMessage(e Event) ([]byte, error) {
 
 func anchorMessage(a Anchor) []byte {
 	return encodeTree(map[string]any{
-		"kind":    messageAnchor,
-		"service": a.Head.Service,
-		"head":    hex.EncodeToString(a.Head.Hash),
-		"count":   fmt.Sprint(a.Count),
+		"kind":        messageAnchor,
+		"tenant":      a.Tenant,
+		"anchor_kind": string(a.Kind),
+		"head":        hex.EncodeToString(a.Head),
+		"count":       strconv.FormatInt(a.Count, 10),
 	})
 }
 
@@ -68,19 +70,19 @@ func NewDestination(s Sink) (*Destination, error) {
 // Deliver delivers one outbox message to the sink: an event message as one Append, an anchor message as one
 // Anchor. A duplicate event ID is a success, so a message sent again completes.
 func (d *Destination) Deliver(ctx context.Context, key string, payload []byte) error {
-	v, err := decodeJSON(payload)
+	v, err := decodeJSON("sink message", payload)
 	if err != nil {
-		return fmt.Errorf("audit: the sink message %s is not JSON: %w", key, err)
+		return err
 	}
 	m, ok := v.(map[string]any)
 	if !ok {
-		return fmt.Errorf("audit: the sink message %s is not an object", key)
+		return errors.New("audit: the sink message is not an object")
 	}
 	switch m["kind"] {
 	case messageEvent:
 		e, err := eventFrom(m["event"])
 		if err != nil {
-			return fmt.Errorf("audit: the sink message %s: %w", key, err)
+			return fmt.Errorf("audit: the sink message: %w", err)
 		}
 		err = d.sink.Append(ctx, []Event{e})
 		if errors.Is(err, ErrDuplicate) {
@@ -90,34 +92,40 @@ func (d *Destination) Deliver(ctx context.Context, key string, payload []byte) e
 	case messageAnchor:
 		a, err := anchorFrom(m)
 		if err != nil {
-			return fmt.Errorf("audit: the sink message %s: %w", key, err)
+			return fmt.Errorf("audit: the sink message: %w", err)
 		}
-		return d.sink.Anchor(ctx, a.Head, a.Count)
+		return d.sink.Anchor(ctx, a)
 	default:
-		return fmt.Errorf("audit: the sink message %s has an unknown kind", key)
+		return errors.New("audit: the sink message has an unknown kind")
 	}
 }
 
 func anchorFrom(m map[string]any) (Anchor, error) {
 	var a Anchor
 	var err error
-	if a.Head.Service, err = text(m, "service"); err != nil {
+	if a.Tenant, err = text(m, "tenant"); err != nil {
 		return a, err
 	}
-	if a.Head.Hash, err = hexField(m, "head"); err != nil {
+	kind, err := text(m, "anchor_kind")
+	if err != nil {
+		return a, err
+	}
+	a.Kind = AnchorKind(kind)
+	if a.Head, err = hexField(m, "head"); err != nil {
 		return a, err
 	}
 	c, err := text(m, "count")
 	if err != nil {
 		return a, err
 	}
-	if _, err := fmt.Sscan(c, &a.Count); err != nil {
-		return a, fmt.Errorf("count %q is not a number", c)
+	if a.Count, err = strconv.ParseInt(c, 10, 64); err != nil {
+		return a, errors.New("the field count is not a number")
 	}
 	return a, nil
 }
 
-// eventFrom reads an event from its canonical encoding (Encode).
+// eventFrom reads an event from its canonical encoding (Encode). It holds the states that the redacting path
+// wrote before the event was stored.
 func eventFrom(v any) (Event, error) {
 	m, ok := v.(map[string]any)
 	if !ok {
@@ -164,17 +172,15 @@ func eventFrom(v any) (Event, error) {
 		if err != nil {
 			return Event{}, err
 		}
-		*t.dst, err = time.Parse(time.RFC3339Nano, val)
-		if err != nil {
-			return Event{}, fmt.Errorf("%s: %w", t.name, err)
+		if *t.dst, err = time.Parse(time.RFC3339Nano, val); err != nil {
+			return Event{}, fmt.Errorf("the field %s is not a time", t.name)
 		}
 	}
 	for _, s := range []struct {
 		name string
 		dst  *[]byte
-	}{{"before", (*[]byte)(&e.Before)}, {"after", (*[]byte)(&e.After)}, {"patch", (*[]byte)(&e.Patch)}} {
-		val, present := m[s.name]
-		if present {
+	}{{"before", &e.Before.raw}, {"after", &e.After.raw}, {"patch", &e.Patch.raw}} {
+		if val, present := m[s.name]; present {
 			*s.dst = encodeTree(val)
 		}
 	}
@@ -202,7 +208,7 @@ func hexField(m map[string]any, name string) ([]byte, error) {
 	}
 	b, err := hex.DecodeString(s)
 	if err != nil {
-		return nil, fmt.Errorf("the field %s is not hex: %w", name, err)
+		return nil, fmt.Errorf("the field %s is not hex", name)
 	}
 	return b, nil
 }

@@ -13,7 +13,6 @@ import (
 type Op struct {
 	Op    string
 	Path  string
-	From  string
 	Value any
 }
 
@@ -27,8 +26,6 @@ func (p Patch) tree() []any {
 		switch o.Op {
 		case "add", "replace", "test":
 			m["value"] = o.Value
-		case "move", "copy":
-			m["from"] = o.From
 		}
 		out = append(out, m)
 	}
@@ -36,55 +33,48 @@ func (p Patch) tree() []any {
 }
 
 // Diff returns the RFC 6902 patch from the redacted before to the redacted after (ST-SUP-RP05-LC05). A nil state
-// is JSON null. A pii field whose value changed gets a replace with RedactionMarker, so the patch shows the change
-// and not the value; a secret field is in no operation.
+// is JSON null. A pii field at any depth whose value changed gets a replace with RedactionMarker, so the patch
+// shows the change and not the value; a secret field is in no operation.
 func Diff(before, after map[string]any, f Fields) (Patch, error) {
-	rb, err := Redact(before, f)
-	if err != nil {
-		return nil, err
-	}
-	ra, err := Redact(after, f)
-	if err != nil {
-		return nil, err
-	}
+	oldPII, newPII := map[string][]byte{}, map[string][]byte{}
 	var a, b any
-	if rb != nil {
-		a = rb
+	if before != nil {
+		r, err := redactAt("", "", before, f, oldPII)
+		if err != nil {
+			return nil, err
+		}
+		a = r
 	}
-	if ra != nil {
-		b = ra
+	if after != nil {
+		r, err := redactAt("", "", after, f, newPII)
+		if err != nil {
+			return nil, err
+		}
+		b = r
 	}
 	var p Patch
 	diffValue("", a, b, &p)
-	if rb != nil && ra != nil {
-		var changed []string
-		for k, s := range f {
-			if s != PII {
-				continue
-			}
-			ov, inBefore := before[k]
-			nv, inAfter := after[k]
-			if !inBefore || !inAfter {
-				continue
-			}
-			ob, err := Canonical(ov)
-			if err != nil {
-				return nil, err
-			}
-			nb, err := Canonical(nv)
-			if err != nil {
-				return nil, err
-			}
-			if !bytes.Equal(ob, nb) {
-				changed = append(changed, k)
-			}
-		}
-		sort.Strings(changed)
-		for _, k := range changed {
-			p = append(p, Op{Op: "replace", Path: "/" + escapePointer(k), Value: RedactionMarker})
+	var changed []string
+	for ptr, ov := range oldPII {
+		if nv, ok := newPII[ptr]; ok && !bytes.Equal(ov, nv) && !covered(p, ptr) {
+			changed = append(changed, ptr)
 		}
 	}
+	sort.Strings(changed)
+	for _, ptr := range changed {
+		p = append(p, Op{Op: "replace", Path: ptr, Value: RedactionMarker})
+	}
 	return p, nil
+}
+
+// covered reports an operation of p on ptr or on a member above it.
+func covered(p Patch, ptr string) bool {
+	for _, o := range p {
+		if o.Path == ptr || o.Path == "" || strings.HasPrefix(ptr, o.Path+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func diffValue(path string, a, b any, p *Patch) {
@@ -147,9 +137,9 @@ func unescapePointer(s string) string {
 
 // ParsePatch reads an RFC 6902 patch from its JSON form, such as an event's Patch.
 func ParsePatch(raw []byte) (Patch, error) {
-	v, err := decodeJSON(raw)
+	v, err := decodeJSON("patch", raw)
 	if err != nil {
-		return nil, fmt.Errorf("audit: the patch is not JSON: %w", err)
+		return nil, err
 	}
 	arr, ok := v.([]any)
 	if !ok {
@@ -166,8 +156,7 @@ func ParsePatch(raw []byte) (Patch, error) {
 		if !ok {
 			return nil, fmt.Errorf("audit: patch operation %d has no path", i)
 		}
-		from, _ := m["from"].(string)
-		p = append(p, Op{Op: op, Path: path, From: from, Value: m["value"]})
+		p = append(p, Op{Op: op, Path: path, Value: m["value"]})
 	}
 	return p, nil
 }
@@ -175,12 +164,12 @@ func ParsePatch(raw []byte) (Patch, error) {
 // Apply applies an RFC 6902 patch to a copy of doc and returns the result. It supports add, remove, replace and
 // test, the operations that Diff writes.
 func Apply(doc any, p Patch) (any, error) {
-	root, err := normalize(doc)
+	root, err := normalize("document", doc)
 	if err != nil {
 		return nil, err
 	}
 	for i, o := range p {
-		value, err := normalize(o.Value)
+		value, err := normalize("value", o.Value)
 		if err != nil {
 			return nil, err
 		}
@@ -195,10 +184,10 @@ func Apply(doc any, p Patch) (any, error) {
 			var got any
 			got, err = valueAt(root, o.Path)
 			if err == nil && !bytes.Equal(encodeTree(got), encodeTree(value)) {
-				err = fmt.Errorf("the value at %q differs", o.Path)
+				err = errors.New("the test value differs")
 			}
 		default:
-			err = fmt.Errorf("the operation %q is not supported", o.Op)
+			err = errors.New("the operation is not supported")
 		}
 		if err != nil {
 			return nil, fmt.Errorf("audit: patch operation %d: %w", i, err)
@@ -212,7 +201,7 @@ func splitPointer(path string) ([]string, error) {
 		return nil, nil
 	}
 	if path[0] != '/' {
-		return nil, fmt.Errorf("the path %q is not a JSON pointer", path)
+		return nil, errors.New("the path is not a JSON pointer")
 	}
 	parts := strings.Split(path[1:], "/")
 	for i, s := range parts {
@@ -232,13 +221,13 @@ func valueAt(root any, path string) (any, error) {
 		case map[string]any:
 			v, ok := c[k]
 			if !ok {
-				return nil, fmt.Errorf("no member %q in %q", k, path)
+				return nil, fmt.Errorf("no member at %q", path)
 			}
 			cur = v
 		case []any:
 			i, err := strconv.Atoi(k)
 			if err != nil || i < 0 || i >= len(c) {
-				return nil, fmt.Errorf("no index %q in %q", k, path)
+				return nil, fmt.Errorf("no index at %q", path)
 			}
 			cur = c[i]
 		default:
@@ -266,7 +255,7 @@ func setAt(root any, path string, value any, add bool) (any, error) {
 	switch c := parent.(type) {
 	case map[string]any:
 		if _, ok := c[last]; !ok && !add {
-			return nil, fmt.Errorf("no member %q to replace", last)
+			return nil, fmt.Errorf("no member to replace at %q", path)
 		}
 		c[last] = value
 		return root, nil
@@ -275,10 +264,10 @@ func setAt(root any, path string, value any, add bool) (any, error) {
 		if last != "-" {
 			i, err = strconv.Atoi(last)
 			if err != nil || i < 0 || i > len(c) || (!add && i == len(c)) {
-				return nil, fmt.Errorf("no index %q in %q", last, path)
+				return nil, fmt.Errorf("no index at %q", path)
 			}
 		} else if !add {
-			return nil, fmt.Errorf("no index - to replace in %q", path)
+			return nil, fmt.Errorf("no index to replace at %q", path)
 		}
 		var next []any
 		if add {
@@ -313,14 +302,14 @@ func removeAt(root any, path string) (any, error) {
 	switch c := parent.(type) {
 	case map[string]any:
 		if _, ok := c[last]; !ok {
-			return nil, fmt.Errorf("no member %q to remove", last)
+			return nil, fmt.Errorf("no member to remove at %q", path)
 		}
 		delete(c, last)
 		return root, nil
 	case []any:
 		i, err := strconv.Atoi(last)
 		if err != nil || i < 0 || i >= len(c) {
-			return nil, fmt.Errorf("no index %q in %q", last, path)
+			return nil, fmt.Errorf("no index at %q", path)
 		}
 		next := append(append(make([]any, 0, len(c)-1), c[:i]...), c[i+1:]...)
 		return setAt(root, parentPath, next, false)

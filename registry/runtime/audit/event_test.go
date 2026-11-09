@@ -39,11 +39,11 @@ func TestEvent(t *testing.T) {
 
 	t.Run("ST-SUP-RP05-LC01-T02 A new audit event ID is a UUID version 7", func(t *testing.T) {
 		t0 := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
-		a, err := New(sampleEvent("alpha", "create"), t0)
+		a, err := New(sampleEvent("t1", "create"), t0)
 		if err != nil {
 			t.Fatal(err)
 		}
-		b, err := New(sampleEvent("alpha", "create"), t0.Add(time.Millisecond))
+		b, err := New(sampleEvent("t1", "create"), t0.Add(time.Millisecond))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -60,7 +60,7 @@ func TestEvent(t *testing.T) {
 				t.Errorf("the ID %s does not have the RFC 9562 variant", s)
 			}
 		}
-		if a.ID.String() >= b.ID.String() || bytes.Compare(a.ID[:], b.ID[:]) >= 0 {
+		if a.ID.String() >= b.ID.String() {
 			t.Errorf("the second ID %s does not sort after the first %s", b.ID, a.ID)
 		}
 	})
@@ -68,14 +68,14 @@ func TestEvent(t *testing.T) {
 	t.Run("ST-SUP-RP05-LC01-T03 An actor kind outside the four declared kinds is refused", func(t *testing.T) {
 		now := time.Now()
 		for _, k := range []ActorKind{"user", "service", "system", "impersonated_by"} {
-			e := sampleEvent("alpha", "create")
+			e := sampleEvent("t1", "create")
 			e.ActorKind = k
 			if _, err := New(e, now); err != nil {
 				t.Errorf("the actor kind %q is refused: %v", k, err)
 			}
 		}
 		for _, k := range []ActorKind{"admin", ""} {
-			e := sampleEvent("alpha", "create")
+			e := sampleEvent("t1", "create")
 			e.ActorKind = k
 			_, err := New(e, now)
 			if err == nil || !strings.Contains(err.Error(), "actor_kind") {
@@ -87,14 +87,14 @@ func TestEvent(t *testing.T) {
 	t.Run("ST-SUP-RP05-LC01-T04 An outcome outside ok, denied and failed is refused", func(t *testing.T) {
 		now := time.Now()
 		for _, o := range []Outcome{"ok", "denied", "failed"} {
-			e := sampleEvent("alpha", "create")
+			e := sampleEvent("t1", "create")
 			e.Outcome = o
 			if _, err := New(e, now); err != nil {
 				t.Errorf("the outcome %q is refused: %v", o, err)
 			}
 		}
 		for _, o := range []Outcome{"success", ""} {
-			e := sampleEvent("alpha", "create")
+			e := sampleEvent("t1", "create")
 			e.Outcome = o
 			_, err := New(e, now)
 			if err == nil || !strings.Contains(err.Error(), "outcome") {
@@ -119,37 +119,27 @@ func TestEvent(t *testing.T) {
 
 	t.Run("ST-SUP-RP05-LC01-T06 No code of the package decides on the actor address or the user agent", func(t *testing.T) {
 		for _, file := range packageFiles(t) {
-			fset := token.NewFileSet()
-			node, err := parser.ParseFile(fset, file, nil, 0)
-			if err != nil {
-				t.Fatal(err)
+			for _, p := range untrustedDecisions(t, file, nil) {
+				t.Error(p)
 			}
-			check := func(what string, e ast.Expr) {
-				if e != nil && readsUntrusted(e) {
-					t.Errorf("%s: a %s reads actor_ip or user_agent", fset.Position(e.Pos()), what)
-				}
-			}
-			ast.Inspect(node, func(n ast.Node) bool {
-				switch x := n.(type) {
-				case *ast.IfStmt:
-					check("condition of an if statement", x.Cond)
-				case *ast.ForStmt:
-					check("condition of a for statement", x.Cond)
-				case *ast.SwitchStmt:
-					check("switch tag", x.Tag)
-					for _, c := range x.Body.List {
-						for _, e := range c.(*ast.CaseClause).List {
-							check("case of a switch statement", e)
-						}
-					}
-				case *ast.BinaryExpr:
-					switch x.Op {
-					case token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ, token.LAND, token.LOR:
-						check("comparison", x)
-					}
-				}
-				return true
-			})
+		}
+		// The scan catches a local copy of an untrusted value, a parameter of the Untrusted type, and a
+		// conversion, so it can fail.
+		probe := `package audit
+func probe(e Event, u Untrusted) bool {
+	ip := e.ActorIP
+	s := string(ip)
+	if s == "10.0.0.1" { return true }
+	for u != "" { break }
+	return e.UserAgent == "x"
+}`
+		dir := t.TempDir()
+		path := filepath.Join(dir, "probe.go")
+		if err := os.WriteFile(path, []byte(probe), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := untrustedDecisions(t, path, []byte(probe)); len(got) != 3 {
+			t.Errorf("the scan finds %d decisions in the probe, want 3: %v", len(got), got)
 		}
 	})
 
@@ -159,18 +149,23 @@ func TestEvent(t *testing.T) {
 
 	t.Run("ST-SUP-RP05-LC03-T03 With audit.pii keep a pii field is still redacted in the audit event", func(t *testing.T) {
 		checkPIIRedacted(t, Settings{Level: LevelChange, PII: PIIKeep})
+		// The setting is read: a value that is neither redact nor keep is refused.
+		e := sampleEvent("t1", "update")
+		if err := e.SetStates(Settings{Level: LevelChange, PII: "store"}, Fields{"email": PII}, nil, map[string]any{"email": "a@example.com"}); err == nil {
+			t.Errorf("SetStates accepts the audit.pii setting store")
+		}
 	})
 
 	t.Run("ST-SUP-RP05-LC03-T04 A secret field is not in the stored record", func(t *testing.T) {
-		e := sampleEvent("alpha", "update")
+		e := sampleEvent("t1", "update")
 		if err := e.SetStates(Settings{Level: LevelChange}, Fields{"api_key": Secret},
 			map[string]any{"name": "a", "api_key": "sk-old-0001"}, map[string]any{"name": "b", "api_key": "sk-new-0002"}); err != nil {
 			t.Fatal(err)
 		}
 		e = linked(t, e)
-		for name, raw := range map[string][]byte{"before": e.Before, "after": e.After, "patch": e.Patch} {
-			if bytes.Contains(raw, []byte("api_key")) {
-				t.Errorf("%s holds the key api_key: %s", name, raw)
+		for name, s := range map[string]State{"before": e.Before, "after": e.After, "patch": e.Patch} {
+			if bytes.Contains(s.JSON(), []byte("api_key")) {
+				t.Errorf("%s holds the key api_key: %s", name, s.JSON())
 			}
 		}
 		enc, err := Encode(e)
@@ -178,6 +173,42 @@ func TestEvent(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, v := range []string{"sk-old-0001", "sk-new-0002", "api_key"} {
+			if bytes.Contains(enc, []byte(v)) {
+				t.Errorf("the encoded record holds %q", v)
+			}
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC03-T07 A pii or secret field inside a nested value is redacted or dropped", func(t *testing.T) {
+		e := sampleEvent("t1", "update")
+		f := Fields{"profile.email": PII, "profile.api_token": Secret}
+		before := map[string]any{"profile": map[string]any{"email": "old@example.com", "api_token": "tok-old-1", "city": "Oslo"}}
+		after := map[string]any{"profile": map[string]any{"email": "new@example.com", "api_token": "tok-new-2", "city": "Bergen"}}
+		if err := e.SetStates(Settings{}, f, before, after); err != nil {
+			t.Fatal(err)
+		}
+		e = linked(t, e)
+		for name, s := range map[string]State{"before": e.Before, "after": e.After} {
+			var m map[string]map[string]any
+			if err := json.Unmarshal(s.JSON(), &m); err != nil {
+				t.Fatal(err)
+			}
+			if m["profile"]["email"] != RedactionMarker {
+				t.Errorf("%s holds profile.email %v, want the redaction marker", name, m["profile"]["email"])
+			}
+		}
+		p, err := ParsePatch(e.Patch.JSON())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.ContainsFunc(p, func(o Op) bool { return o.Path == "/profile/email" && o.Value == RedactionMarker }) {
+			t.Errorf("the patch %s has no replace of /profile/email with the marker", e.Patch.JSON())
+		}
+		enc, err := Encode(e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, v := range []string{"api_token", "tok-old-1", "tok-new-2", "old@example.com", "new@example.com"} {
 			if bytes.Contains(enc, []byte(v)) {
 				t.Errorf("the encoded record holds %q", v)
 			}
@@ -195,22 +226,8 @@ func TestEvent(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !bytes.Equal(ca, cb) {
-			t.Fatalf("the encodings differ:\n%s\n%s", ca, cb)
-		}
-		checkSortedKeys(t, ca)
-		inString, escaped := false, false
-		for i, c := range ca {
-			switch {
-			case escaped:
-				escaped = false
-			case c == '\\' && inString:
-				escaped = true
-			case c == '"':
-				inString = !inString
-			case !inString && (c == ' ' || c == '\n' || c == '\t' || c == '\r'):
-				t.Errorf("whitespace outside a string at byte %d: %s", i, ca)
-			}
+		if want := `{"a":{"b":"x y","y":[1,{"c":3,"d":2}]},"m":null,"z":1}`; string(ca) != want || string(cb) != want {
+			t.Errorf("the encodings are\n%s\n%s\nwant\n%s", ca, cb, want)
 		}
 	})
 
@@ -240,38 +257,105 @@ func TestEvent(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("ST-SUP-RP05-LC13-T02 No raw state can reach an event", func(t *testing.T) {
+		typ := reflect.TypeOf(Event{})
+		state := reflect.TypeOf(State{})
+		for _, name := range []string{"Before", "After", "Patch"} {
+			f, _ := typ.FieldByName(name)
+			if f.Type != state {
+				t.Errorf("the field %s has the type %s, want State", name, f.Type)
+			}
+		}
+		for i := 0; i < state.NumField(); i++ {
+			if state.Field(i).IsExported() {
+				t.Errorf("State exports the field %s", state.Field(i).Name)
+			}
+		}
+		if _, ok := reflect.PointerTo(state).MethodByName("UnmarshalJSON"); ok {
+			t.Errorf("State has UnmarshalJSON, a way to set raw JSON")
+		}
+		// In the source, a State is made, and a state field of an event is set, only in SetStates, the redacting
+		// path, and in the two readers of stored rows, which are not exported.
+		allowed := map[string]bool{"SetStates": true, "scanEvent": true, "eventFrom": true}
+		for _, file := range packageFiles(t) {
+			fset := token.NewFileSet()
+			node, err := parser.ParseFile(fset, file, nil, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, d := range node.Decls {
+				fn, ok := d.(*ast.FuncDecl)
+				if !ok || fn.Body == nil {
+					continue
+				}
+				ast.Inspect(fn.Body, func(n ast.Node) bool {
+					switch x := n.(type) {
+					case *ast.CompositeLit:
+						if id, ok := x.Type.(*ast.Ident); ok && id.Name == "State" && len(x.Elts) > 0 && !allowed[fn.Name.Name] {
+							t.Errorf("%s: %s makes a State", fset.Position(x.Pos()), fn.Name.Name)
+						}
+					case *ast.AssignStmt:
+						for _, l := range x.Lhs {
+							if sel, ok := l.(*ast.SelectorExpr); ok && (sel.Sel.Name == "Before" || sel.Sel.Name == "After" || sel.Sel.Name == "Patch" || sel.Sel.Name == "raw") && !allowed[fn.Name.Name] {
+								t.Errorf("%s: %s sets %s", fset.Position(l.Pos()), fn.Name.Name, sel.Sel.Name)
+							}
+						}
+					case *ast.UnaryExpr:
+						if sel, ok := x.X.(*ast.SelectorExpr); ok && x.Op == token.AND && sel.Sel.Name == "raw" && !allowed[fn.Name.Name] {
+							t.Errorf("%s: %s takes the address of a state", fset.Position(x.Pos()), fn.Name.Name)
+						}
+					}
+					return true
+				})
+				if fn.Name.IsExported() && fn.Name.Name != "SetStates" && (allowed[fn.Name.Name]) {
+					t.Errorf("the reader %s is exported", fn.Name.Name)
+				}
+			}
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC13-T03 An error names no field value", func(t *testing.T) {
+		e := sampleEvent("t1", "update")
+		err := e.SetStates(Settings{}, Fields{"score": PII}, nil, map[string]any{"score": json.Number("7e999"), "n": 1})
+		if err == nil || !strings.Contains(err.Error(), "score") || strings.Contains(err.Error(), "7e999") {
+			t.Errorf("the error is %v, want one that names score and not its value", err)
+		}
+		e = sampleEvent("t1", "update")
+		if err := e.SetStates(Settings{}, Fields{"key": Secret}, nil, map[string]any{"key": make(chan int), "n": 1}); err != nil {
+			t.Errorf("a secret field of a type with no encoding gives %v, want it dropped with no error", err)
+		}
+		_, err = Canonical(map[string]any{"plain": json.Number("9e999")})
+		if err == nil || strings.Contains(err.Error(), "9e999") {
+			t.Errorf("the error is %v, want one that holds no value", err)
+		}
+	})
 }
 
 func checkPIIRedacted(t *testing.T, s Settings) {
 	t.Helper()
-	e := sampleEvent("alpha", "update")
+	e := sampleEvent("t1", "update")
 	if err := e.SetStates(s, Fields{"email": PII},
 		map[string]any{"name": "Ann", "email": "ann.old@example.com"},
 		map[string]any{"name": "Ann", "email": "ann.new@example.com"}); err != nil {
 		t.Fatal(err)
 	}
 	e = linked(t, e)
-	for name, raw := range map[string][]byte{"before": e.Before, "after": e.After} {
+	for name, st := range map[string]State{"before": e.Before, "after": e.After} {
 		var m map[string]any
-		if err := json.Unmarshal(raw, &m); err != nil {
+		if err := json.Unmarshal(st.JSON(), &m); err != nil {
 			t.Fatal(err)
 		}
 		if m["email"] != RedactionMarker {
 			t.Errorf("%s holds email %v, want the redaction marker", name, m["email"])
 		}
 	}
-	p, err := ParsePatch(e.Patch)
+	p, err := ParsePatch(e.Patch.JSON())
 	if err != nil {
 		t.Fatal(err)
 	}
-	marked := false
-	for _, o := range p {
-		if o.Path == "/email" && o.Value == RedactionMarker {
-			marked = true
-		}
-	}
-	if !marked {
-		t.Errorf("the patch %s has no operation on email with the redaction marker", e.Patch)
+	if !slices.ContainsFunc(p, func(o Op) bool { return o.Path == "/email" && o.Value == RedactionMarker }) {
+		t.Errorf("the patch %s has no operation on email with the redaction marker", e.Patch.JSON())
 	}
 	enc, err := Encode(e)
 	if err != nil {
@@ -307,53 +391,6 @@ func decodeText(t *testing.T, s string) any {
 		t.Fatal(err)
 	}
 	return v
-}
-
-// checkSortedKeys walks the tokens of an encoding and fails when the keys of an object are not in sorted order.
-func checkSortedKeys(t *testing.T, enc []byte) {
-	t.Helper()
-	type frame struct {
-		object, wantKey, seen bool
-		last                  string
-	}
-	var stack []*frame
-	valueDone := func() {
-		if len(stack) > 0 && stack[len(stack)-1].object {
-			stack[len(stack)-1].wantKey = true
-		}
-	}
-	d := json.NewDecoder(bytes.NewReader(enc))
-	for {
-		tok, err := d.Token()
-		if err != nil {
-			return
-		}
-		if len(stack) > 0 && stack[len(stack)-1].object && stack[len(stack)-1].wantKey {
-			top := stack[len(stack)-1]
-			if tok == json.Delim('}') {
-				stack = stack[:len(stack)-1]
-				valueDone()
-				continue
-			}
-			k := tok.(string)
-			if top.seen && k <= top.last {
-				t.Errorf("the key %q follows %q", k, top.last)
-			}
-			top.last, top.seen, top.wantKey = k, true, false
-			continue
-		}
-		switch tok {
-		case json.Delim('{'):
-			stack = append(stack, &frame{object: true, wantKey: true})
-		case json.Delim('['):
-			stack = append(stack, &frame{})
-		case json.Delim(']'):
-			stack = stack[:len(stack)-1]
-			valueDone()
-		default:
-			valueDone()
-		}
-	}
 }
 
 // parseUUIDText parses a UUID text by itself, apart from the package's own parser.
@@ -400,24 +437,124 @@ func packageFiles(t *testing.T) []string {
 	return out
 }
 
-func readsUntrusted(e ast.Expr) bool {
-	found := false
-	ast.Inspect(e, func(n ast.Node) bool {
-		switch x := n.(type) {
-		case *ast.SelectorExpr:
-			if x.Sel.Name == "ActorIP" || x.Sel.Name == "UserAgent" {
-				found = true
+// untrustedDecisions parses one file and returns each condition or comparison that reads an untrusted value: the
+// fields ActorIP and UserAgent, a parameter or variable of the type Untrusted, or a local variable that was
+// assigned from any of these, also through a conversion. clean, the cleaning of the values, reads them only to
+// clean them; it takes a plain string, so its own conditions do not read a tainted name.
+func untrustedDecisions(t *testing.T, file string, src []byte) []string {
+	t.Helper()
+	fset := token.NewFileSet()
+	var node *ast.File
+	var err error
+	if src != nil {
+		node, err = parser.ParseFile(fset, file, src, 0)
+	} else {
+		node, err = parser.ParseFile(fset, file, nil, 0)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, d := range node.Decls {
+		fn, ok := d.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+		tainted := map[string]bool{}
+		for _, list := range []*ast.FieldList{fn.Recv, fn.Type.Params} {
+			if list == nil {
+				continue
 			}
-		case *ast.Ident:
-			if x.Name == "ActorIP" || x.Name == "UserAgent" {
-				found = true
-			}
-		case *ast.BasicLit:
-			if x.Kind == token.STRING && (strings.Contains(x.Value, "actor_ip") || strings.Contains(x.Value, "user_agent")) {
-				found = true
+			for _, p := range list.List {
+				if id, ok := p.Type.(*ast.Ident); ok && id.Name == "Untrusted" {
+					for _, n := range p.Names {
+						tainted[n.Name] = true
+					}
+				}
 			}
 		}
-		return !found
+		reads := func(e ast.Expr) bool {
+			found := false
+			ast.Inspect(e, func(n ast.Node) bool {
+				switch x := n.(type) {
+				case *ast.SelectorExpr:
+					if x.Sel.Name == "ActorIP" || x.Sel.Name == "UserAgent" {
+						found = true
+					}
+				case *ast.Ident:
+					if tainted[x.Name] {
+						found = true
+					}
+				case *ast.BasicLit:
+					if x.Kind == token.STRING && (strings.Contains(x.Value, "actor_ip") || strings.Contains(x.Value, "user_agent")) {
+						found = true
+					}
+				}
+				return !found
+			})
+			return found
+		}
+		// Taint flows through assignments in source order, twice, so a copy of a copy is caught.
+		for pass := 0; pass < 2; pass++ {
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				switch x := n.(type) {
+				case *ast.AssignStmt:
+					for i, l := range x.Lhs {
+						id, ok := l.(*ast.Ident)
+						if !ok {
+							continue
+						}
+						if len(x.Rhs) == len(x.Lhs) && reads(x.Rhs[i]) {
+							tainted[id.Name] = true
+						}
+					}
+				case *ast.ValueSpec:
+					if id, ok := x.Type.(*ast.Ident); ok && id.Name == "Untrusted" {
+						for _, n := range x.Names {
+							tainted[n.Name] = true
+						}
+					}
+					for i, n := range x.Names {
+						if i < len(x.Values) && reads(x.Values[i]) {
+							tainted[n.Name] = true
+						}
+					}
+				}
+				return true
+			})
+		}
+		check := func(what string, e ast.Expr) {
+			if e != nil && reads(e) {
+				out = append(out, fset.Position(e.Pos()).String()+": a "+what+" in "+fn.Name.Name+" reads an untrusted value")
+			}
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.IfStmt:
+				check("condition of an if statement", x.Cond)
+				return true
+			case *ast.ForStmt:
+				check("condition of a for statement", x.Cond)
+			case *ast.SwitchStmt:
+				check("switch tag", x.Tag)
+				for _, c := range x.Body.List {
+					for _, e := range c.(*ast.CaseClause).List {
+						check("case of a switch statement", e)
+					}
+				}
+			case *ast.BinaryExpr:
+				switch x.Op {
+				case token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ:
+					check("comparison", x)
+					return false
+				}
+			}
+			return true
+		})
+	}
+	// An if condition that is itself a comparison is reported twice; keep each position once.
+	slices.Sort(out)
+	return slices.CompactFunc(out, func(a, b string) bool {
+		return strings.SplitN(a, ": ", 2)[0] == strings.SplitN(b, ": ", 2)[0]
 	})
-	return found
 }

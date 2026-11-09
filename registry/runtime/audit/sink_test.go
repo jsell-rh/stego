@@ -38,28 +38,29 @@ func (s *fakeSink) Append(_ context.Context, events []Event) error {
 	return nil
 }
 
-func (s *fakeSink) Anchor(_ context.Context, head Head, count int64) error {
+func (s *fakeSink) Anchor(_ context.Context, a Anchor) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.anchors = append(s.anchors, Anchor{Head: head, Count: count})
+	s.anchors = append(s.anchors, a)
 	return nil
 }
 
-func (s *fakeSink) latest(service string) *Anchor {
+// of returns the anchors that the sink holds for the tenant, in the order it got them.
+func (s *fakeSink) of(tenant string) []Anchor {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for i := len(s.anchors) - 1; i >= 0; i-- {
-		if s.anchors[i].Head.Service == service {
-			a := s.anchors[i]
-			return &a
+	var out []Anchor
+	for _, a := range s.anchors {
+		if a.Tenant == tenant {
+			out = append(out, a)
 		}
 	}
-	return nil
+	return out
 }
 
 func sinkMessage(t *testing.T) (Event, []byte) {
 	t.Helper()
-	e := sampleEvent("alpha", "update")
+	e := sampleEvent("t1", "update")
 	if err := e.SetStates(Settings{Level: LevelChange}, Fields{"email": PII},
 		map[string]any{"email": "a@example.com", "n": 1}, map[string]any{"email": "b@example.com", "n": 2}); err != nil {
 		t.Fatal(err)
@@ -127,7 +128,7 @@ func TestSink(t *testing.T) {
 		errType := reflect.TypeOf((*error)(nil)).Elem()
 		want := map[string][]reflect.Type{
 			"Append": {ctxType, reflect.TypeOf([]Event{})},
-			"Anchor": {ctxType, reflect.TypeOf(Head{}), reflect.TypeOf(int64(0))},
+			"Anchor": {ctxType, reflect.TypeOf(Anchor{})},
 		}
 		for i := 0; i < typ.NumMethod(); i++ {
 			m := typ.Method(i)
@@ -145,6 +146,24 @@ func TestSink(t *testing.T) {
 					t.Errorf("the method %s has the parameter %d of type %s, want %s", m.Name, j, m.Type.In(j), p)
 				}
 			}
+		}
+		// An anchor holds the tenant, the kind, the head hash and the count, and its message keeps all four.
+		var names []string
+		at := reflect.TypeOf(Anchor{})
+		for i := 0; i < at.NumField(); i++ {
+			names = append(names, at.Field(i).Name)
+		}
+		if strings.Join(names, ",") != "Tenant,Kind,Head,Count" {
+			t.Errorf("Anchor has the fields %v, want Tenant, Kind, Head and Count", names)
+		}
+		sink := &fakeSink{}
+		d, _ := NewDestination(sink)
+		wantA := Anchor{Tenant: "t1", Kind: AnchorRetention, Head: bytes.Repeat([]byte{7}, 32), Count: 42}
+		if err := d.Deliver(ctx, "k", anchorMessage(wantA)); err != nil {
+			t.Fatal(err)
+		}
+		if got := sink.of("t1"); len(got) != 1 || got[0].Kind != wantA.Kind || got[0].Count != 42 || !bytes.Equal(got[0].Head, wantA.Head) {
+			t.Errorf("the sink holds %+v, want %+v", got, wantA)
 		}
 	})
 

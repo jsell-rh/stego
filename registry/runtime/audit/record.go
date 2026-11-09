@@ -2,41 +2,76 @@ package audit
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// Tx is the part of a database transaction that the package uses. A pgx.Tx satisfies it. The package never
-// begins, commits or rolls back a Tx it is given.
+// Tx is the part of a store transaction that the package uses (ST-STD-RUNTIME-R06). *sql.Tx satisfies it. The
+// package never commits or rolls back a Tx it is given.
 type Tx interface {
-	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-// RunTx runs fn in a new short transaction of the service, and commits it when fn returns nil. The service gives
-// it, so that its own transaction helper (tenant setting, audit connections, lock and statement timeouts) opens
-// the transaction.
-type RunTx func(ctx context.Context, fn func(ctx context.Context, tx Tx) error) error
+// RunTx runs fn in a new short transaction of the service with the tenant set, and commits it when fn returns nil
+// (ST-SUP-RP04-LC03). The service gives it, so that its own transaction helper and the audit connections
+// (ST-SUP-RP10-LC29), with their lock and statement timeouts, open the transaction.
+type RunTx func(ctx context.Context, tenant string, fn func(ctx context.Context, tx Tx) error) error
 
-// Enqueuer writes one outbox message inside the transaction tx. The outbox runtime's queue satisfies it; the
-// package names only the part it uses.
+// Enqueuer writes one outbox message, with its tenant on the outbox row, inside the transaction tx. The outbox
+// runtime's queue satisfies it; the package names only the part it uses.
 type Enqueuer interface {
-	Enqueue(ctx context.Context, tx Tx, destination, key string, payload []byte) error
+	Enqueue(ctx context.Context, tx Tx, tenant, destination, key string, payload []byte) error
+}
+
+// StatementError is the error of a statement of the package. It names the step and the SQLSTATE and holds no
+// field value and no text of the database (ST-SUP-RP05-LC13). It gives the SQLSTATE through SQLState, as a
+// database driver does, so the command runtime can tell a conflict (ST-SUP-RP10-LC25).
+type StatementError struct {
+	Step string
+	Code string
+}
+
+func (e *StatementError) Error() string {
+	if e.Code == "" {
+		return "audit: the " + e.Step + " statement failed"
+	}
+	return "audit: the " + e.Step + " statement failed with SQLSTATE " + e.Code
+}
+
+// SQLState returns the SQLSTATE of the database error, or empty.
+func (e *StatementError) SQLState() string { return e.Code }
+
+// stmtError turns a database error into an error with no value: a cancel or a deadline stays a context error.
+func stmtError(ctx context.Context, step string, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("audit: the %s statement: %w", step, ctxErr)
+	}
+	return &StatementError{Step: step, Code: sqlState(err)}
+}
+
+// sqlState returns the SQLSTATE of a database error, as the PostgreSQL drivers give it, or empty.
+func sqlState(err error) string {
+	var coded interface{ SQLState() string }
+	if errors.As(err, &coded) {
+		return coded.SQLState()
+	}
+	return ""
 }
 
 // Writer writes audit rows and enqueues each of them for the audit sink.
 type Writer struct {
-	outbox Enqueuer
-	now    func() time.Time
+	outbox         Enqueuer
+	now            func() time.Time
+	failedOutcomes atomic.Int64
 }
 
-// NewWriter returns a Writer that enqueues sink messages through outbox and reads the time from now; a nil now
-// is time.Now.
+// NewWriter returns a Writer that enqueues sink messages through outbox and reads the occurred time from now; a
+// nil now is time.Now.
 func NewWriter(outbox Enqueuer, now func() time.Time) (*Writer, error) {
 	if outbox == nil {
 		return nil, errors.New("audit: a writer needs an outbox")
@@ -47,35 +82,49 @@ func NewWriter(outbox Enqueuer, now func() time.Time) (*Writer, error) {
 	return &Writer{outbox: outbox, now: now}, nil
 }
 
-// Record inserts the audit row of a change through the caller's transaction tx and enqueues it for the audit
-// sink in the same transaction, keyed by the event ID (ST-SUP-RP05-LC02, ST-SUP-RP05-LC07). It does not commit:
-// the row commits with the change, or is gone with it. It returns the event as stored, with its ID, times,
-// prev_hash and hash.
-func (w *Writer) Record(ctx context.Context, tx Tx, e Event) (Event, error) {
-	return w.write(ctx, tx, e)
+// FailedOutcomes returns how many RecordOutcome calls failed (ST-SUP-RP05-LC13).
+func (w *Writer) FailedOutcomes() int64 { return w.failedOutcomes.Load() }
+
+// Record writes all the audit events of one transaction as one batch through the caller's transaction tx and
+// enqueues each for the audit sink in the same transaction, keyed by its ID (ST-SUP-RP05-LC02,
+// ST-SUP-RP05-LC07, ST-SUP-RP05-LC12). The caller calls it once, as its last statement before COMMIT
+// (ST-SUP-RP10-LC06): Record locks the head of the tenant's chain once, so that lock is the last one the
+// transaction takes. The events get consecutive seq values in the order given, and recorded_at is the greater of
+// the database clock and the chain's last recorded_at, read after the lock; a recorded_at that the caller gives is
+// ignored. Record does not commit. All the events must be of one tenant, the tenant of the transaction. It returns
+// the events as stored.
+func (w *Writer) Record(ctx context.Context, tx Tx, events []Event) ([]Event, error) {
+	return w.write(ctx, tx, events)
 }
 
 // RecordOutcome writes the audit row of a denied or failed mutation in its own short transaction, after the
 // caller's transaction rolled back (ST-SUP-RP05-LC02). The outcome must be denied or failed, with an error code,
-// such as ErrorCodeConflict or ErrorCodeCommitOutcomeUnknown.
+// such as ErrorCodeConflict or ErrorCodeCommitOutcomeUnknown. The event always gets a new ID. A failure is counted
+// (FailedOutcomes) and returned as an error that names no value, so the command runtime can log the event's
+// metadata (ST-SUP-RP10-LC06).
 func (w *Writer) RecordOutcome(ctx context.Context, run RunTx, e Event) (Event, error) {
 	if e.Outcome != OutcomeDenied && e.Outcome != OutcomeFailed {
-		return Event{}, fmt.Errorf("audit: an outcome row has the outcome denied or failed, not %q", string(e.Outcome))
+		w.failedOutcomes.Add(1)
+		return Event{}, errors.New("audit: an outcome row has the outcome denied or failed")
 	}
 	if e.ErrorCode == "" {
+		w.failedOutcomes.Add(1)
 		return Event{}, errors.New("audit: an outcome row needs an error_code")
 	}
-	return w.alone(ctx, run, e)
+	stored, err := w.alone(ctx, run, e)
+	if err != nil {
+		w.failedOutcomes.Add(1)
+		return Event{}, err
+	}
+	return stored, nil
 }
 
 // RecordRead writes the audit row of a read of an entity that holds a pii field in its own short transaction,
 // with the action read and the outcome ok, so the row stays when the caller's transaction rolls back
-// (ST-SUP-RP05-LC02).
+// (ST-SUP-RP05-LC02). The event always gets a new ID.
 func (w *Writer) RecordRead(ctx context.Context, run RunTx, e Event) (Event, error) {
 	e.Action = ActionRead
-	if e.Outcome == "" {
-		e.Outcome = OutcomeOK
-	}
+	e.Outcome = OutcomeOK
 	return w.alone(ctx, run, e)
 }
 
@@ -83,69 +132,98 @@ func (w *Writer) alone(ctx context.Context, run RunTx, e Event) (Event, error) {
 	if run == nil {
 		return Event{}, errors.New("audit: an own transaction needs a RunTx")
 	}
-	var stored Event
-	err := run(ctx, func(ctx context.Context, tx Tx) error {
+	e.ID = UUID{}
+	var stored []Event
+	err := run(ctx, e.TenantID, func(ctx context.Context, tx Tx) error {
 		var err error
-		stored, err = w.write(ctx, tx, e)
+		stored, err = w.write(ctx, tx, []Event{e})
 		return err
 	})
 	if err != nil {
-		return Event{}, err
+		var se *StatementError
+		if errors.As(err, &se) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return Event{}, err
+		}
+		return Event{}, &StatementError{Step: "own transaction", Code: sqlState(err)}
 	}
-	return stored, nil
+	return stored[0], nil
 }
 
 const (
-	lockHead = `INSERT INTO ` + HeadsTable + ` (service, head, row_count) VALUES ($1, $2, 0)
- ON CONFLICT (service) DO UPDATE SET service = EXCLUDED.service RETURNING head, row_count`
-	insertEvent = `INSERT INTO ` + EventsTable + ` (seq, id, occurred_at, recorded_at, tenant_id, actor_id, actor_kind,
+	// lockHead takes the row lock of the tenant's chain head and reads the head and the recorded_at to use: the
+	// greater of the database clock and the chain's last recorded_at, read after the lock.
+	lockHead = `INSERT INTO ` + HeadsTable + ` AS h (tenant_id, seq, head, last_recorded_at)
+ VALUES ($1, 0, $2, '-infinity')
+ ON CONFLICT (tenant_id) DO UPDATE SET tenant_id = EXCLUDED.tenant_id
+ RETURNING h.seq, h.head, greatest(date_trunc('microseconds', clock_timestamp()), h.last_recorded_at)`
+	insertEvent = `INSERT INTO ` + EventsTable + ` (tenant_id, seq, id, occurred_at, recorded_at, actor_id, actor_kind,
  actor_ip, user_agent, action, resource_type, resource_id, outcome, error_code, request_id, trace_id, span_id,
  idempotency_key, before, after, patch, service, service_version, declaration_version, prev_hash, hash)
- VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb,
+ VALUES ($1, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb,
  $20::jsonb, $21::jsonb, $22, $23, $24, $25, $26)`
-	moveHead = `UPDATE ` + HeadsTable + ` SET head = $2, row_count = $3 WHERE service = $1`
+	moveHead = `UPDATE ` + HeadsTable + ` SET seq = $2, head = $3, last_recorded_at = $4 WHERE tenant_id = $1`
 )
 
-// write links the event to the head of its service chain and stores it. The head row lock orders the writers of
-// one chain: the next writer waits until this transaction ends.
-func (w *Writer) write(ctx context.Context, tx Tx, e Event) (Event, error) {
+// write links the events to the head of their tenant's chain and stores them. The head row lock orders the
+// writers of one chain: the next writer waits until this transaction ends.
+func (w *Writer) write(ctx context.Context, tx Tx, events []Event) ([]Event, error) {
+	if len(events) == 0 {
+		return nil, nil
+	}
 	now := w.now()
-	if e.RecordedAt.IsZero() {
-		e.RecordedAt = now
+	prepared := make([]Event, len(events))
+	for i, e := range events {
+		e.RecordedAt = time.Time{}
+		p, err := New(e, now)
+		if err != nil {
+			return nil, err
+		}
+		if p.TenantID != events[0].TenantID {
+			return nil, errors.New("audit: the events of one Record call are of more than one tenant")
+		}
+		prepared[i] = p
 	}
-	e, err := New(e, now)
-	if err != nil {
-		return Event{}, err
-	}
+	tenant := prepared[0].TenantID
 	var (
-		prev  []byte
-		count int64
+		seq        int64
+		prev       []byte
+		recordedAt time.Time
 	)
-	if err := tx.QueryRow(ctx, lockHead, e.Service, ZeroHash()).Scan(&prev, &count); err != nil {
-		return Event{}, fmt.Errorf("audit: lock the chain head of %s: %w", e.Service, err)
+	if err := tx.QueryRowContext(ctx, lockHead, tenant, ZeroHash()).Scan(&seq, &prev, &recordedAt); err != nil {
+		return nil, stmtError(ctx, "chain lock", err)
 	}
-	e, err = Link(e, prev)
-	if err != nil {
-		return Event{}, err
+	recordedAt = storedTime(recordedAt)
+	for i := range prepared {
+		e := prepared[i]
+		e.RecordedAt = recordedAt
+		seq++
+		e, err := Link(e, prev)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, insertEvent, tenant, seq, e.ID.String(), e.OccurredAt, e.RecordedAt,
+			e.ActorID, string(e.ActorKind), string(e.ActorIP), string(e.UserAgent), e.Action, e.ResourceType,
+			e.ResourceID, string(e.Outcome), e.ErrorCode, e.RequestID, e.TraceID, e.SpanID, e.IdempotencyKey,
+			jsonArg(e.Before.raw), jsonArg(e.After.raw), jsonArg(e.Patch.raw), e.Service, e.ServiceVersion,
+			e.DeclarationVersion, e.PrevHash, e.Hash); err != nil {
+			return nil, stmtError(ctx, "audit row insert", err)
+		}
+		prev = e.Hash
+		prepared[i] = e
 	}
-	if _, err := tx.Exec(ctx, insertEvent, count+1, e.ID.String(), e.OccurredAt, e.RecordedAt, e.TenantID,
-		e.ActorID, string(e.ActorKind), string(e.ActorIP), string(e.UserAgent), e.Action, e.ResourceType,
-		e.ResourceID, string(e.Outcome), e.ErrorCode, e.RequestID, e.TraceID, e.SpanID, e.IdempotencyKey,
-		jsonArg(e.Before), jsonArg(e.After), jsonArg(e.Patch), e.Service, e.ServiceVersion, e.DeclarationVersion,
-		e.PrevHash, e.Hash); err != nil {
-		return Event{}, fmt.Errorf("audit: insert the audit row: %w", err)
+	if _, err := tx.ExecContext(ctx, moveHead, tenant, seq, prev, recordedAt); err != nil {
+		return nil, stmtError(ctx, "chain head update", err)
 	}
-	if _, err := tx.Exec(ctx, moveHead, e.Service, e.Hash, count+1); err != nil {
-		return Event{}, fmt.Errorf("audit: move the chain head of %s: %w", e.Service, err)
+	for _, e := range prepared {
+		payload, err := eventMessage(e)
+		if err != nil {
+			return nil, err
+		}
+		if err := w.outbox.Enqueue(ctx, tx, tenant, SinkDestination, e.ID.String(), payload); err != nil {
+			return nil, stmtError(ctx, "sink enqueue", err)
+		}
 	}
-	payload, err := eventMessage(e)
-	if err != nil {
-		return Event{}, err
-	}
-	if err := w.outbox.Enqueue(ctx, tx, SinkDestination, e.ID.String(), payload); err != nil {
-		return Event{}, fmt.Errorf("audit: enqueue the audit row for the sink: %w", err)
-	}
-	return e, nil
+	return prepared, nil
 }
 
 func jsonArg(raw []byte) any {

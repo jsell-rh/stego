@@ -16,38 +16,64 @@ import (
 )
 
 // Event is one audit record (ST-SUP-RP05-LC01). It has a fixed shape: these 25 fields and no other. ActorIP and
-// UserAgent come from the request and are Untrusted: the package only stores them and never decides on them.
+// UserAgent come from the request and are Untrusted: the package cleans and stores them and never decides on them.
+// Before, After and Patch are of the type State, which holds its bytes unexported: only SetStates, the redacting
+// path, makes a State that is not empty (ST-SUP-RP05-LC13).
 type Event struct {
-	ID                 UUID            `json:"id"`
-	OccurredAt         time.Time       `json:"occurred_at"`
-	RecordedAt         time.Time       `json:"recorded_at"`
-	TenantID           string          `json:"tenant_id"`
-	ActorID            string          `json:"actor_id"`
-	ActorKind          ActorKind       `json:"actor_kind"`
-	ActorIP            Untrusted       `json:"actor_ip"`
-	UserAgent          Untrusted       `json:"user_agent"`
-	Action             string          `json:"action"`
-	ResourceType       string          `json:"resource_type"`
-	ResourceID         string          `json:"resource_id"`
-	Outcome            Outcome         `json:"outcome"`
-	ErrorCode          string          `json:"error_code"`
-	RequestID          string          `json:"request_id"`
-	TraceID            string          `json:"trace_id"`
-	SpanID             string          `json:"span_id"`
-	IdempotencyKey     string          `json:"idempotency_key"`
-	Before             json.RawMessage `json:"before,omitempty"`
-	After              json.RawMessage `json:"after,omitempty"`
-	Patch              json.RawMessage `json:"patch,omitempty"`
-	Service            string          `json:"service"`
-	ServiceVersion     string          `json:"service_version"`
-	DeclarationVersion string          `json:"declaration_version"`
-	PrevHash           []byte          `json:"prev_hash"`
-	Hash               []byte          `json:"hash"`
+	ID                 UUID      `json:"id"`
+	OccurredAt         time.Time `json:"occurred_at"`
+	RecordedAt         time.Time `json:"recorded_at"`
+	TenantID           string    `json:"tenant_id"`
+	ActorID            string    `json:"actor_id"`
+	ActorKind          ActorKind `json:"actor_kind"`
+	ActorIP            Untrusted `json:"actor_ip"`
+	UserAgent          Untrusted `json:"user_agent"`
+	Action             string    `json:"action"`
+	ResourceType       string    `json:"resource_type"`
+	ResourceID         string    `json:"resource_id"`
+	Outcome            Outcome   `json:"outcome"`
+	ErrorCode          string    `json:"error_code"`
+	RequestID          string    `json:"request_id"`
+	TraceID            string    `json:"trace_id"`
+	SpanID             string    `json:"span_id"`
+	IdempotencyKey     string    `json:"idempotency_key"`
+	Before             State     `json:"before,omitzero"`
+	After              State     `json:"after,omitzero"`
+	Patch              State     `json:"patch,omitzero"`
+	Service            string    `json:"service"`
+	ServiceVersion     string    `json:"service_version"`
+	DeclarationVersion string    `json:"declaration_version"`
+	PrevHash           []byte    `json:"prev_hash"`
+	Hash               []byte    `json:"hash"`
 }
 
-// Untrusted is a value that the request supplies, such as the actor's address or user agent. The package stores
-// it as it is and never uses it in a decision (ST-SUP-RP05-LC01).
+// State is a redacted entity state or patch in canonical JSON. Its bytes are not exported, so no caller can put a
+// raw value in an event: SetStates makes it from the redacting path, and the package reads it back from stored
+// rows only.
+type State struct {
+	raw []byte
+}
+
+// JSON returns a copy of the canonical JSON, or nil for an empty State.
+func (s State) JSON() json.RawMessage { return bytes.Clone(s.raw) }
+
+// IsZero reports an empty State, which the encoding leaves out.
+func (s State) IsZero() bool { return len(s.raw) == 0 }
+
+// MarshalJSON returns the canonical JSON, or null for an empty State.
+func (s State) MarshalJSON() ([]byte, error) {
+	if len(s.raw) == 0 {
+		return []byte("null"), nil
+	}
+	return bytes.Clone(s.raw), nil
+}
+
+// Untrusted is a value that the request supplies, such as the actor's address or user agent. New cleans it; the
+// package never uses it in a decision (ST-SUP-RP05-LC01, ST-SUP-RP05-LC13).
 type Untrusted string
+
+// MaxUntrusted is the most bytes that an untrusted value keeps after New cleans it.
+const MaxUntrusted = 512
 
 // ActorKind is the kind of the actor of an event.
 type ActorKind string
@@ -91,8 +117,10 @@ const (
 	Secret Sensitivity = "secret"
 )
 
-// Fields maps the top-level field names of an entity to their declared sensitivity. A field that is not in the
-// map is plain.
+// Fields maps the path of each sensitive field of an entity to its sensitivity. A path is the member names from
+// the top of the state, joined by dots, such as email or profile.email; array elements take the path of their
+// array, so items.card applies to the member card of each element of items. A field that is not in the map is
+// plain.
 type Fields map[string]Sensitivity
 
 // Level is the audit level of a service: change records the states, metadata records no state.
@@ -120,6 +148,22 @@ type Settings struct {
 	PII   PIIMode
 }
 
+// check refuses an unknown level or audit.pii setting. Both known settings redact the audit record: keep binds
+// the source record only.
+func (s Settings) check() error {
+	switch s.Level {
+	case "", LevelChange, LevelMetadata:
+	default:
+		return errors.New("audit: the level is not change or metadata")
+	}
+	switch s.PII {
+	case "", PIIRedact, PIIKeep:
+		return nil
+	default:
+		return errors.New("audit: the audit.pii setting is not redact or keep")
+	}
+}
+
 // RedactionMarker replaces the value of every pii field in the audit record.
 const RedactionMarker = "[redacted]"
 
@@ -145,11 +189,11 @@ func (u UUID) String() string {
 func ParseUUID(s string) (UUID, error) {
 	var u UUID
 	if len(s) != 36 || s[8] != '-' || s[13] != '-' || s[18] != '-' || s[23] != '-' {
-		return u, fmt.Errorf("audit: %q is not a UUID", s)
+		return u, errors.New("audit: the text is not a UUID")
 	}
 	raw := s[0:8] + s[9:13] + s[14:18] + s[19:23] + s[24:36]
 	if _, err := hex.Decode(u[:], []byte(raw)); err != nil {
-		return u, fmt.Errorf("audit: %q is not a UUID: %w", s, err)
+		return u, errors.New("audit: the text is not a UUID")
 	}
 	return u, nil
 }
@@ -158,7 +202,7 @@ func ParseUUID(s string) (UUID, error) {
 func NewID(now time.Time) (UUID, error) {
 	var u UUID
 	if _, err := rand.Read(u[6:]); err != nil {
-		return u, fmt.Errorf("audit: read random bits for an event ID: %w", err)
+		return u, errors.New("audit: no random bits for an event ID")
 	}
 	ms := uint64(now.UnixMilli())
 	u[0] = byte(ms >> 40)
@@ -172,8 +216,9 @@ func NewID(now time.Time) (UUID, error) {
 	return u, nil
 }
 
-// New completes an event for the time now: it sets an ID (UUID version 7) and the occurred time when they are
-// empty, keeps every time in UTC at microsecond precision, as the table stores it, and validates the event.
+// New completes an event for the time now (ST-SUP-RP05-LC01, ST-SUP-RP05-LC13): it sets an ID (UUID version 7)
+// and the occurred time when they are empty, keeps each time in UTC at microsecond precision, as the table stores
+// it, cleans ActorIP and UserAgent, and validates the event.
 func New(e Event, now time.Time) (Event, error) {
 	if e.ID == (UUID{}) {
 		id, err := NewID(now)
@@ -189,48 +234,77 @@ func New(e Event, now time.Time) (Event, error) {
 	if !e.RecordedAt.IsZero() {
 		e.RecordedAt = storedTime(e.RecordedAt)
 	}
+	e.ActorIP = Untrusted(clean(string(e.ActorIP)))
+	e.UserAgent = Untrusted(clean(string(e.UserAgent)))
 	if err := e.Validate(); err != nil {
 		return Event{}, err
 	}
 	return e, nil
 }
 
+// clean is the cleaning of an untrusted value (ST-SUP-RP05-LC13): each invalid UTF-8 byte becomes U+FFFD, each
+// NUL goes, and the value is cut to at most MaxUntrusted bytes at a rune boundary. It reads the bytes only to clean
+// them; it decides nothing about the audited action.
+func clean(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+		piece := string(r)
+		if r == utf8.RuneError && size == 1 {
+			piece = string(utf8.RuneError)
+		}
+		if r == 0 {
+			continue
+		}
+		if b.Len()+len(piece) > MaxUntrusted {
+			break
+		}
+		b.WriteString(piece)
+	}
+	return b.String()
+}
+
 func storedTime(t time.Time) time.Time {
 	return t.UTC().Truncate(time.Microsecond)
 }
 
-// Validate refuses an event whose actor kind or outcome is not declared, or that names no action or service.
+// Validate refuses an event whose actor kind or outcome is not declared, or that names no action, service or
+// tenant. Its errors name the field and never the value.
 func (e Event) Validate() error {
 	switch e.ActorKind {
 	case ActorUser, ActorService, ActorSystem, ActorImpersonatedBy:
 	default:
-		return fmt.Errorf("audit: actor_kind %q is not one of user, service, system and impersonated_by", string(e.ActorKind))
+		return errors.New("audit: actor_kind is not one of user, service, system and impersonated_by")
 	}
 	switch e.Outcome {
 	case OutcomeOK, OutcomeDenied, OutcomeFailed:
 	default:
-		return fmt.Errorf("audit: outcome %q is not one of ok, denied and failed", string(e.Outcome))
+		return errors.New("audit: outcome is not one of ok, denied and failed")
 	}
-	if e.Action == "" {
+	switch {
+	case e.Action == "":
 		return errors.New("audit: action is empty")
-	}
-	if e.Service == "" {
+	case e.Service == "":
 		return errors.New("audit: service is empty")
+	case e.TenantID == "":
+		return errors.New("audit: tenant_id is empty")
 	}
 	return nil
 }
 
-// SetStates sets Before, After and Patch from the entity states before and after the action. A nil state is a
-// state that does not exist, such as the before of a create. At the metadata level the event carries no state.
-// At the change level each state is redacted (Redact) whatever the audit.pii setting, and the patch is the RFC
-// 6902 patch between the redacted states (Diff), so no pii value and no secret field reaches the event.
+// SetStates is the redacting path (ST-SUP-RP05-LC03, ST-SUP-RP05-LC13), the only way to set the states of an
+// event. A nil state is a state that does not exist, such as the before of a create. At the metadata level the
+// event carries no state. At the change level each state is redacted (Redact) whatever the audit.pii setting, and
+// the patch is the RFC 6902 patch between the redacted states (Diff), so no pii value and no secret field reaches
+// the event.
 func (e *Event) SetStates(s Settings, f Fields, before, after map[string]any) error {
-	if s.Level == LevelMetadata {
-		e.Before, e.After, e.Patch = nil, nil, nil
-		return nil
+	if err := s.check(); err != nil {
+		return err
 	}
-	if s.Level != LevelChange && s.Level != "" {
-		return fmt.Errorf("audit: level %q is not change or metadata", string(s.Level))
+	if s.Level == LevelMetadata {
+		e.Before, e.After, e.Patch = State{}, State{}, State{}
+		return nil
 	}
 	patch, err := Diff(before, after, f)
 	if err != nil {
@@ -244,11 +318,7 @@ func (e *Event) SetStates(s Settings, f Fields, before, after map[string]any) er
 	if err != nil {
 		return err
 	}
-	p, err := Canonical(patch.tree())
-	if err != nil {
-		return err
-	}
-	e.Before, e.After, e.Patch = b, a, p
+	e.Before, e.After, e.Patch = State{b}, State{a}, State{encodeTree(patch.tree())}
 	return nil
 }
 
@@ -260,29 +330,74 @@ func encodeState(state map[string]any, f Fields) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	return Canonical(r)
+	return encodeTree(r), nil
 }
 
-// Redact returns a copy of an entity state in canonical form with every pii field replaced by RedactionMarker and
-// every secret field removed (ST-SUP-RP05-LC03).
+// Redact returns a copy of an entity state in canonical form with every pii field, at any depth, replaced by
+// RedactionMarker and every secret field, at any depth, removed before it is encoded (ST-SUP-RP05-LC03). A pii
+// value is still checked to be encodable, so a change of it shows in the patch; an error names the field path and
+// never a value.
 func Redact(state map[string]any, f Fields) (map[string]any, error) {
 	if state == nil {
 		return nil, nil
 	}
-	n, err := normalize(state)
+	r, err := redactAt("", "", state, f, nil)
 	if err != nil {
 		return nil, err
 	}
-	m := n.(map[string]any)
-	for k := range m {
-		switch f[k] {
-		case PII:
-			m[k] = RedactionMarker
-		case Secret:
-			delete(m, k)
+	return r.(map[string]any), nil
+}
+
+// redactAt copies v. field is the dotted field path of v and pointer its JSON pointer; pii, when it is not nil,
+// collects the canonical encoding of each pii value by its JSON pointer.
+func redactAt(field, pointer string, v any, f Fields, pii map[string][]byte) (any, error) {
+	switch x := v.(type) {
+	case map[string]any:
+		m := make(map[string]any, len(x))
+		for k, e := range x {
+			child := k
+			if field != "" {
+				child = field + "." + k
+			}
+			cp := pointer + "/" + escapePointer(k)
+			switch f[child] {
+			case Secret:
+				continue
+			case PII:
+				n, err := normalize(child, e)
+				if err != nil {
+					return nil, err
+				}
+				if pii != nil {
+					pii[cp] = encodeTree(n)
+				}
+				m[k] = RedactionMarker
+			default:
+				r, err := redactAt(child, cp, e, f, pii)
+				if err != nil {
+					return nil, err
+				}
+				m[k] = r
+			}
 		}
+		return m, nil
+	case []any:
+		a := make([]any, len(x))
+		for i, e := range x {
+			r, err := redactAt(field, pointer+"/"+strconv.Itoa(i), e, f, pii)
+			if err != nil {
+				return nil, err
+			}
+			a[i] = r
+		}
+		return a, nil
+	default:
+		name := field
+		if name == "" {
+			name = "state"
+		}
+		return normalize(name, v)
 	}
-	return m, nil
 }
 
 // CanonicalRecord returns the canonical encoding of the event without prev_hash and hash: the bytes the hash
@@ -329,15 +444,18 @@ func recordTree(e Event) (map[string]any, error) {
 		"service_version":     e.ServiceVersion,
 		"declaration_version": e.DeclarationVersion,
 	}
-	for name, raw := range map[string]json.RawMessage{"before": e.Before, "after": e.After, "patch": e.Patch} {
-		if len(raw) == 0 {
+	for _, s := range []struct {
+		name string
+		raw  json.RawMessage
+	}{{"before", e.Before.raw}, {"after", e.After.raw}, {"patch", e.Patch.raw}} {
+		if len(s.raw) == 0 {
 			continue
 		}
-		v, err := decodeJSON(raw)
+		v, err := decodeJSON(s.name, s.raw)
 		if err != nil {
-			return nil, fmt.Errorf("audit: %s is not JSON: %w", name, err)
+			return nil, err
 		}
-		m[name] = v
+		m[s.name] = v
 	}
 	return m, nil
 }
@@ -346,24 +464,22 @@ func timeText(t time.Time) string {
 	return t.UTC().Format("2006-01-02T15:04:05.000000Z")
 }
 
-func decodeJSON(raw []byte) (any, error) {
+// decodeJSON reads one JSON value; name names it in an error, which holds no value.
+func decodeJSON(name string, raw []byte) (any, error) {
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.UseNumber()
 	var v any
-	if err := d.Decode(&v); err != nil {
-		return nil, err
+	if err := d.Decode(&v); err != nil || d.More() {
+		return nil, fmt.Errorf("audit: %s is not one JSON value", name)
 	}
-	if d.More() {
-		return nil, errors.New("more than one JSON value")
-	}
-	return normalize(v)
+	return normalize(name, v)
 }
 
 // Canonical returns the canonical encoding of a value (ST-SUP-RP05-LC04): object keys sorted at every level, no
 // insignificant whitespace, each number in its shortest exact decimal form (1.0 is 1) and each time in UTC with six
 // fraction digits. It takes the values that encoding/json decodes to, Go integers and floats, and time.Time.
 func Canonical(v any) ([]byte, error) {
-	n, err := normalize(v)
+	n, err := normalize("value", v)
 	if err != nil {
 		return nil, err
 	}
@@ -371,8 +487,8 @@ func Canonical(v any) ([]byte, error) {
 }
 
 // normalize copies a value into the canonical tree: map[string]any, []any, string, bool, nil and json.Number in
-// canonical form.
-func normalize(v any) (any, error) {
+// canonical form. field names the value in an error, which never holds the value.
+func normalize(field string, v any) (any, error) {
 	switch x := v.(type) {
 	case nil:
 		return nil, nil
@@ -381,11 +497,11 @@ func normalize(v any) (any, error) {
 	case string:
 		return x, nil
 	case json.Number:
-		return canonicalNumber(string(x))
+		return canonicalNumber(field, string(x))
 	case float64:
-		return canonicalNumber(strconv.FormatFloat(x, 'g', -1, 64))
+		return canonicalNumber(field, strconv.FormatFloat(x, 'g', -1, 64))
 	case float32:
-		return canonicalNumber(strconv.FormatFloat(float64(x), 'g', -1, 32))
+		return canonicalNumber(field, strconv.FormatFloat(float64(x), 'g', -1, 32))
 	case int:
 		return json.Number(strconv.FormatInt(int64(x), 10)), nil
 	case int8:
@@ -411,7 +527,7 @@ func normalize(v any) (any, error) {
 	case map[string]any:
 		m := make(map[string]any, len(x))
 		for k, e := range x {
-			n, err := normalize(e)
+			n, err := normalize(field+"."+k, e)
 			if err != nil {
 				return nil, err
 			}
@@ -421,7 +537,7 @@ func normalize(v any) (any, error) {
 	case []any:
 		a := make([]any, len(x))
 		for i, e := range x {
-			n, err := normalize(e)
+			n, err := normalize(field, e)
 			if err != nil {
 				return nil, err
 			}
@@ -434,24 +550,23 @@ func normalize(v any) (any, error) {
 			a[i] = e
 		}
 		return a, nil
-	case json.RawMessage:
-		return decodeJSON(x)
 	default:
-		return nil, fmt.Errorf("audit: a value of type %T has no canonical encoding", v)
+		return nil, fmt.Errorf("audit: the field %s has a type with no canonical encoding", field)
 	}
 }
 
-// canonicalNumber writes a JSON number in its shortest exact decimal form, with no exponent.
-func canonicalNumber(s string) (json.Number, error) {
+// canonicalNumber writes a JSON number in its shortest exact decimal form, with no exponent. Its error names the
+// field and not the number.
+func canonicalNumber(field, s string) (json.Number, error) {
 	if i := strings.IndexAny(s, "eE"); i >= 0 {
 		exp, err := strconv.Atoi(s[i+1:])
 		if err != nil || exp > 400 || exp < -400 {
-			return "", fmt.Errorf("audit: the number %s is out of the canonical range", s)
+			return "", fmt.Errorf("audit: the number of the field %s is out of the canonical range", field)
 		}
 	}
 	r, ok := new(big.Rat).SetString(s)
 	if !ok {
-		return "", fmt.Errorf("audit: %q is not a number", s)
+		return "", fmt.Errorf("audit: the field %s holds a number that is not a decimal", field)
 	}
 	if r.IsInt() {
 		return json.Number(r.Num().String()), nil
@@ -465,9 +580,7 @@ func canonicalNumber(s string) (json.Number, error) {
 		p.Mul(p, ten)
 		digits++
 	}
-	out := r.FloatString(digits)
-	out = strings.TrimRight(out, "0")
-	return json.Number(out), nil
+	return json.Number(strings.TrimRight(r.FloatString(digits), "0")), nil
 }
 
 func encodeTree(v any) []byte {
