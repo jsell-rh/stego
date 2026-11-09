@@ -28,6 +28,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 
+	"stego.dev/runtime/internal/pgtest"
 	"stego.dev/runtime/internal/seal"
 )
 
@@ -165,18 +166,17 @@ type pgEnv struct {
 
 const rolePassword = "tenant-test-password"
 
-// newPG makes the database of one test. The server is the local container that STEGO_TEST_POSTGRES_DSN names, a
-// superuser URL such as postgres://postgres:secret@127.0.0.1:55444/postgres?sslmode=disable; without it the test
-// is skipped.
+// TestMain gives the PostgreSQL tests of the package their local server (ST-STD-LOCAL-R04).
+func TestMain(m *testing.M) { os.Exit(pgtest.Main(m)) }
+
+// newPG makes the database of one test, with its own owner and runtime roles. The server is the local PostgreSQL
+// server of pgtest: the server that STEGO_TEST_POSTGRES_DSN names, a superuser URL, else a container that the test
+// binary starts and removes.
 func newPG(t *testing.T) *pgEnv {
 	t.Helper()
-	dsn := os.Getenv("STEGO_TEST_POSTGRES_DSN")
-	if dsn == "" {
-		t.Skip("STEGO_TEST_POSTGRES_DSN is not set: this test needs a local PostgreSQL server")
-	}
-	adminURL, err := url.Parse(dsn)
+	adminURL, err := url.Parse(pgtest.DSN(t))
 	if err != nil || adminURL.Scheme == "" {
-		t.Fatalf("STEGO_TEST_POSTGRES_DSN must be a postgres:// URL: %v", err)
+		t.Fatalf("the server URL must be a postgres:// URL: %v", err)
 	}
 	ctx := context.Background()
 	admin := openURL(t, adminURL, nil)
