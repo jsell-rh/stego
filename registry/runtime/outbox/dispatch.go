@@ -726,13 +726,9 @@ func (w *Worker) resolve(ctx context.Context, tx *sql.Tx, request ResolveRequest
 	}
 	var at time.Time
 	var seconds float64
-	err = tx.QueryRowContext(ctx, `WITH `+nowCTE+`
-		UPDATE stego_outbox.messages AS m SET state = $3, resolution = $4, resolved_by = $5, resolved_at = now.t,
-			parked_from = NULL, parked_at = NULL, available_at = now.t, failure_code = '',
-			conflicts = 0, lookups = 0,
-			done_at = CASE WHEN $3 = 'done' THEN now.t ELSE m.done_at END
-		FROM now WHERE m.id = $2 AND m.state = 'parked'
-		RETURNING now.t, pg_catalog.date_part('epoch', now.t - m.created_at)::float8`,
+	// The state changes only through the relay function resolve, which requires the transaction's tenant
+	// (ST-SUP-RP01-LC19).
+	err = tx.QueryRowContext(ctx, `SELECT o_resolved_at, o_age_seconds FROM stego_outbox.resolve($1, $2, $3, $4, $5)`,
 		w.queue.now(), request.ID, string(to), string(request.Resolution), request.Subject).Scan(&at, &seconds)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotParked

@@ -115,9 +115,14 @@ func TestTenantConnectors(t *testing.T) {
 		superGroup := env.role(t, "supergroup", "NOLOGIN SUPERUSER")
 		superMember := env.role(t, "supermember", "INHERIT")
 		adminExec(t, env.admin, "GRANT "+bypassGroup+" TO "+bypassMember, "GRANT "+superGroup+" TO "+superMember)
+		// A member of the outbox relay role could take it and change every tenant's messages.
+		relayMember := env.role(t, "relaymember", "INHERIT")
+		adminExec(t, env.admin, `DO $do$ BEGIN CREATE ROLE stego_outbox_relay NOLOGIN;
+EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $do$`, "GRANT stego_outbox_relay TO "+relayMember)
 		for role, want := range map[string]string{
 			bypassMember: "holds BYPASSRLS through its membership of " + bypassGroup,
 			superMember:  "is a superuser through its membership of " + superGroup,
+			relayMember:  "is a member of the outbox relay or hook roles stego_outbox_relay",
 		} {
 			db, err := Open(ctx, Config{DSN: env.dsn(role)})
 			if err == nil {

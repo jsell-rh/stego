@@ -61,18 +61,20 @@ func TenantOf(identity Identity) (tenant string, ok bool) {
 // decisionData is the data of a DecisionMark. Only NewDecisionMark makes one.
 type decisionData struct {
 	tenant string
+	action string
 }
 
-// DecisionMark holds the tenant ID that a decided Provision or Retire request is allowed for. Embed it in the
-// Decision type. The zero DecisionMark allows nothing.
+// DecisionMark holds the tenant ID that a decided Provision or Retire request is allowed for, and the action it was
+// decided for, provision or retire (ST-SUP-RP04-LC01). Embed it in the Decision type. The zero DecisionMark allows
+// nothing.
 type DecisionMark struct {
 	data *decisionData
 }
 
-// NewDecisionMark makes the mark of a request that the authorization port allowed for the tenant, for the
-// authorization runtime only. A denied request gets no mark: its Decision holds the zero DecisionMark.
-func NewDecisionMark(tenant string) DecisionMark {
-	return DecisionMark{data: &decisionData{tenant: tenant}}
+// NewDecisionMark makes the mark of a request that the authorization port allowed for the tenant and the action,
+// for the authorization runtime only. A denied request gets no mark: its Decision holds the zero DecisionMark.
+func NewDecisionMark(tenant, action string) DecisionMark {
+	return DecisionMark{data: &decisionData{tenant: tenant, action: action}}
 }
 
 func (m DecisionMark) sealedDecision() DecisionMark { return m }
@@ -82,20 +84,20 @@ type Decision interface {
 	sealedDecision() DecisionMark
 }
 
-// DecisionOf gives the allowed tenant ID of the decision's mark, and false for a nil decision, a zero mark, an empty
-// tenant ID, and a decision whose embedded value is nil.
-func DecisionOf(decision Decision) (tenant string, ok bool) {
+// DecisionOf gives the allowed tenant ID and the action of the decision's mark, and false for a nil decision, a zero
+// mark, an empty tenant ID or action, and a decision whose embedded value is nil.
+func DecisionOf(decision Decision) (tenant, action string, ok bool) {
 	if decision == nil {
-		return "", false
+		return "", "", false
 	}
 	defer func() {
 		if recover() != nil {
-			tenant, ok = "", false
+			tenant, action, ok = "", "", false
 		}
 	}()
 	mark := decision.sealedDecision()
-	if mark.data == nil || mark.data.tenant == "" {
-		return "", false
+	if mark.data == nil || mark.data.tenant == "" || mark.data.action == "" {
+		return "", "", false
 	}
-	return mark.data.tenant, true
+	return mark.data.tenant, mark.data.action, true
 }
