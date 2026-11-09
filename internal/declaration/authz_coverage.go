@@ -8,7 +8,7 @@ import (
 )
 
 // validateAuthorizationCoverage checks that authorization fails closed (ST-DECL-INV31): when the declaration binds
-// authorization, each entity a collection reads declares a resource type, and each operation of each collection
+// authorization, each entity a collection reads, other than an entity whose tenant is system, declares a resource type, and each operation of each collection
 // names a permission or public with a reason. Each entity and each operation left out is its own fault, so no
 // operation is unprotected by omission.
 func validateAuthorizationCoverage(service *types.ServiceDeclaration) []ValidationError {
@@ -21,6 +21,9 @@ func validateAuthorizationCoverage(service *types.ServiceDeclaration) []Validati
 		ei, entity := findEntity(service.Entities, collection.Entity)
 		if entity == nil {
 			continue // The collection check reports an entity the declaration does not declare.
+		}
+		if entity.Tenant == types.TenantSystem {
+			continue // An entity with no tenant names no resource type (validateSystemEntities).
 		}
 		if entity.ResourceType == "" {
 			if !reported[entity.Name] {

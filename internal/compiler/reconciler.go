@@ -137,6 +137,10 @@ type ReconcilerInput struct {
 	// its binding and that it is qualified. Validate, plan and apply stop on
 	// each fault it gives. cmd/stego gives fill.QualificationFaults.
 	QualifyFills FillQualifier
+
+	// CheckOnly marks a plan that stego validate makes only to read the pins it uses. Such a plan is never
+	// written, so Reconcile does not refuse it for a part of the declaration that no component can generate yet.
+	CheckOnly bool
 }
 
 // FillSlot is one slot of the active component set, or of a mixin of the
@@ -217,6 +221,11 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	}
 	if validation.HasErrors() {
 		return nil, fmt.Errorf("service validation failed:\n%s", FormatValidation(validation))
+	}
+	if !input.CheckOnly {
+		if err := authorizationGeneratorMissing(source.Service, source.Registry, input.Generators); err != nil {
+			return nil, err
+		}
 	}
 	serviceData, svcDecl, reg := source.ServiceData, source.Service, source.Registry
 	existingState, inputSnapshots, moduleData, err := captureProjectInputs(input.ProjectDir, serviceData)

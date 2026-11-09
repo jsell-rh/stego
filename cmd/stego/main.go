@@ -489,6 +489,7 @@ func runValidate(args []string) error {
 	if result.HasErrors() {
 		return fmt.Errorf("validation failed with %d error(s)", len(result.Errors))
 	}
+	input.CheckOnly = true
 	plan, err := compiler.Reconcile(input)
 	if err != nil {
 		return err

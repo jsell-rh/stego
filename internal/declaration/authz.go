@@ -212,11 +212,11 @@ func (s *AuthzSchema) grants(subjectType string) bool {
 // operation (ST-DECL-INV31). A declaration that binds no authorization and names none of it gets no fault. project
 // is the project folder; a schema path that leaves it is refused.
 func CheckAuthorization(service *types.ServiceDeclaration, project fs.FS) []ValidationError {
-	faults := validateRunsAs(service.Slots)
 	if service.Authorization == nil {
-		return append(faults, authorizationUnbound(service)...)
+		return authorizationUnbound(service)
 	}
-	faults = append(faults, validateAuthorizationSetting(service.Authorization)...)
+	faults := validateAuthorizationSetting(service.Authorization)
+	faults = append(faults, validateSystemEntities(service.Entities)...)
 	faults = append(faults, validateRelationshipParts(service.Entities)...)
 	faults = append(faults, validateAuthorizationCoverage(service)...)
 	schema, fault := readAuthzSchema(service.Authorization.SchemaPath, project)
@@ -332,19 +332,6 @@ func authorizationUnbound(service *types.ServiceDeclaration) []ValidationError {
 	return faults
 }
 
-// validateRunsAs checks that each slot binding runs as tenant or system.
-func validateRunsAs(slots []types.SlotDeclaration) []ValidationError {
-	var faults []ValidationError
-	for si, slot := range slots {
-		if slot.RunsAs == "" || slot.RunsAs == types.RunsAsTenant || slot.RunsAs == types.RunsAsSystem {
-			continue
-		}
-		faults = append(faults, ValidationError{Category: "authorization", Rule: "runs-as", Path: fmt.Sprintf("slots[%d].runs_as", si), Found: slot.RunsAs,
-			Allowed: []string{types.RunsAsTenant, types.RunsAsSystem}, Message: fmt.Sprintf("the binding of %s at %s runs as %q, which is not a principal", slot.Collection, slot.Slot, slot.RunsAs)})
-	}
-	return faults
-}
-
 // validateRelationshipParts checks that each relationship of an entity names its relation, its subject source, the
 // subject field when the source is field, and its subject type (ST-DECL-UC06-R04).
 func validateRelationshipParts(entities []types.Entity) []ValidationError {
@@ -404,6 +391,10 @@ func validateSchemaNames(service *types.ServiceDeclaration, schema *AuthzSchema)
 		faults = append(faults, ValidationError{Category: "authorization", Rule: "schema-names", Path: place, Found: name, Allowed: allowed,
 			Message: fmt.Sprintf("%s names the %s %q, which the schema %s lacks", where, kind, name, schema.Path)})
 	}
+	if schema.Defines(types.FloorMarkerType) {
+		faults = append(faults, ValidationError{Category: "authorization", Rule: "schema-names", Path: "authorization.schema_path", Found: types.FloorMarkerType,
+			Message: fmt.Sprintf("the schema %s defines %s, the floor marker that STEGO adds to the schema it writes to the provider; remove the definition %s from the schema", schema.Path, types.FloorMarkerType, types.FloorMarkerType)})
+	}
 	if subject := service.Authorization.SubjectFromIdentity; subject != "" && !schema.Defines(subject) {
 		lacks("authorization.subject_from_identity", "subject type", subject, "the authorization setting", schema.typeNames())
 	}
@@ -459,7 +450,7 @@ func SchemaLacksName(service *types.ServiceDeclaration, schema *AuthzSchema) boo
 		service = withAuthorization(service)
 	}
 	for _, fault := range validateSchemaNames(service, schema) {
-		if fault.Path != "authorization.subject_from_identity" && !strings.HasSuffix(fault.Path, ".subject_type") {
+		if fault.Path != "authorization.subject_from_identity" && fault.Path != "authorization.schema_path" && !strings.HasSuffix(fault.Path, ".subject_type") {
 			return true
 		}
 	}
@@ -541,33 +532,71 @@ func SlotRelationUnknown(service *types.ServiceDeclaration, schema *AuthzSchema)
 	return false
 }
 
-// validateSystemPrincipal checks the system principal half of ST-DECL-INV24: when a slot binding runs as system,
-// the authorization setting names a system subject type that the schema defines and that a relation of the schema
-// admits, so the system principal is a subject the schema grants relations to and never a bypass.
+// validateSystemPrincipal checks the system principal half of ST-DECL-INV24: the system subject type is
+// service_account, the one subject type the authorization runtime gives a system principal, and the schema defines
+// it and grants it relations; and when a slot binding runs as system, the authorization setting names it. So the
+// system principal is a subject the schema grants relations to, and never a bypass.
 func validateSystemPrincipal(service *types.ServiceDeclaration, schema *AuthzSchema) []ValidationError {
 	var faults []ValidationError
 	subjectType := service.Authorization.SystemSubjectType
+	if subjectType != "" {
+		fault := ValidationError{Category: "authorization", Rule: "no-bypass", Path: "authorization.system_subject_type", Found: subjectType}
+		switch {
+		case !schema.Defines(subjectType):
+			fault.Allowed = []string{types.SystemSubjectType}
+			fault.Message = fmt.Sprintf("the system subject type %q is a type that the schema %s does not define; a system principal acts as %s", subjectType, schema.Path, types.SystemSubjectType)
+		case !schema.grants(subjectType):
+			fault.Allowed = []string{types.SystemSubjectType}
+			fault.Message = fmt.Sprintf("the system subject type %q is a type that no relation of the schema %s grants; a system principal is a subject the schema grants relations to", subjectType, schema.Path)
+		case subjectType != types.SystemSubjectType:
+			fault.Allowed = []string{types.SystemSubjectType}
+			fault.Message = fmt.Sprintf("the system subject type %q is not %s, the one subject type that the authorization runtime gives a system principal", subjectType, types.SystemSubjectType)
+		default:
+			return nil
+		}
+		var bindings []string
+		for _, slot := range service.Slots {
+			if slot.RunsAs == types.RunsAsSystem {
+				bindings = append(bindings, fmt.Sprintf("the binding of %s at %s", slot.Collection, slot.Slot))
+			}
+		}
+		if len(bindings) > 0 {
+			fault.Message += "; it is the principal of " + strings.Join(bindings, " and ") + ", which runs as system"
+		}
+		return append(faults, fault)
+	}
 	for si, slot := range service.Slots {
 		if slot.RunsAs != types.RunsAsSystem {
 			continue
 		}
-		binding := fmt.Sprintf("the binding of %s at %s runs as system", slot.Collection, slot.Slot)
-		fault := ValidationError{Category: "authorization", Rule: "no-bypass", Path: fmt.Sprintf("slots[%d].runs_as", si), Found: types.RunsAsSystem}
-		switch {
-		case subjectType == "":
-			fault.Message = binding + ", but the authorization setting names no system subject type; name the subject type of the schema that a system principal acts as, such as service_account"
-		case !schema.Defines(subjectType):
-			fault.Path, fault.Found, fault.Allowed = "authorization.system_subject_type", subjectType, schema.typeNames()
-			fault.Message = fmt.Sprintf("%s as the system subject type %q, which the schema %s does not define", binding, subjectType, schema.Path)
-		case !schema.grants(subjectType):
-			fault.Path, fault.Found = "authorization.system_subject_type", subjectType
-			fault.Message = fmt.Sprintf("%s as the system subject type %q, which no relation of the schema %s grants; a system principal is a subject the schema grants relations to", binding, subjectType, schema.Path)
-		default:
-			continue
-		}
-		faults = append(faults, fault)
+		faults = append(faults, ValidationError{Category: "authorization", Rule: "no-bypass", Path: fmt.Sprintf("slots[%d].runs_as", si), Found: types.RunsAsSystem, Allowed: []string{types.SystemSubjectType},
+			Message: fmt.Sprintf("the binding of %s at %s runs as system, but the authorization setting names no system subject type; name %s, the subject type of the schema that a system principal acts as", slot.Collection, slot.Slot, types.SystemSubjectType)})
 	}
 	return faults
+}
+
+// validateSystemEntities checks that no entity whose tenant is system names a resource type or permissions: a
+// resource ID at the provider is tenant-qualified (ST-SUP-RP06-LC22), and an entity with no tenant has no tenant to
+// qualify it with. Such an entity is never exposed through a tenant request, so it needs no permission.
+func validateSystemEntities(entities []types.Entity) []ValidationError {
+	var faults []ValidationError
+	for ei, entity := range entities {
+		if entity.Tenant != types.TenantSystem {
+			continue
+		}
+		if entity.ResourceType != "" {
+			faults = append(faults, systemEntityFault(ei, entity, "resource_type", entity.ResourceType, "the resource type"))
+		}
+		if len(entity.Permissions) > 0 {
+			faults = append(faults, systemEntityFault(ei, entity, "permissions", entity.Name, "permissions"))
+		}
+	}
+	return faults
+}
+
+func systemEntityFault(ei int, entity types.Entity, key, found, what string) ValidationError {
+	return ValidationError{Category: "authorization", Rule: "system-entity-protected", Path: fmt.Sprintf("entities[%d].%s", ei, key), Found: found,
+		Message: fmt.Sprintf("entity %q has the tenant system and names %s; every resource ID at the provider is tenant-qualified, and an entity with no tenant has none to qualify it with, so remove %s or give the entity the tenant owned or shared", entity.Name, what, what)}
 }
 
 // declaredResourceTypes gives the resource types of the declared entities.

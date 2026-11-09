@@ -532,3 +532,21 @@ func checkAuthorization(service *types.ServiceDeclaration, projectDir string) ([
 	defer root.Close()
 	return declaration.CheckAuthorization(service, root.FS()), nil
 }
+
+// authorizationComponent is the registry component whose generator emits the authorization checks of a declaration
+// that binds authorization (ST-SUP-RC29).
+const authorizationComponent = "spicedb-authz"
+
+// authorizationGeneratorMissing refuses generation of a declaration that binds authorization while the registry
+// holds no authorization component with a generator, so that STEGO never generates a service without the checks
+// its declaration binds: authorization fails closed (ST-DECL-UC06-R07). Checking accepts such a declaration, since
+// the declaration has no fault; the refusal is of the registry and the compiler build, not of the declaration.
+func authorizationGeneratorMissing(service *types.ServiceDeclaration, reg *registry.Registry, generators map[string]gen.Generator) error {
+	if service.Authorization == nil {
+		return nil
+	}
+	if reg.Component(authorizationComponent) != nil && generatorAvailable(generators[authorizationComponent]) {
+		return nil
+	}
+	return fmt.Errorf("generation refused: the declaration binds authorization, but the registry holds no component %s with a generator in this compiler build, which generates the authorization checks; STEGO does not generate a service without them. stego validate accepts the declaration, and generation runs once the registry holds %s", authorizationComponent, authorizationComponent)
+}

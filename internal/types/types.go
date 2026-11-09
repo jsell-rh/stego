@@ -95,6 +95,8 @@ type Entity struct {
 	Conditions       map[string][]string `yaml:"conditions,omitempty"`
 	CleanupTargets   map[string]string   `yaml:"cleanup_targets,omitempty"`
 	CleanupOwners    []string            `yaml:"cleanup_owners,omitempty"`
+	// Tenant is owned, shared or system (ST-DECL-EN02). Omitted means owned.
+	Tenant string `yaml:"tenant,omitempty" json:"Tenant,omitempty"`
 	// EntityAuthorization holds the entity's resource type, permissions and relationships (ST-DECL-UC06).
 	EntityAuthorization `yaml:",inline"`
 }
@@ -228,6 +230,8 @@ type SlotDeclaration struct {
 	Chain        []string `yaml:"chain,omitempty"`
 	FanOut       []string `yaml:"fan-out,omitempty"`
 	ShortCircuit bool     `yaml:"short_circuit,omitempty"`
+	// RunsAs is tenant or system: the principal the fills run as (ST-DECL-EN05). Omitted means tenant.
+	RunsAs string `yaml:"runs_as,omitempty"`
 	// SlotAuthorization holds the principal the fills run as and the relations they may write (ST-DECL-UC06).
 	SlotAuthorization `yaml:",inline"`
 }

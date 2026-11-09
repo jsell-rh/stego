@@ -62,12 +62,20 @@ const (
 	RunsAsSystem = "system"
 )
 
-// SlotAuthorization holds what a slot binding states for authorization (part of ST-DECL-EN05): the principal its
-// fills run as, and the relations, as resource_type#relation, that its fills may write. It is inline in
-// SlotDeclaration.
+// TenantSystem is the tenant of an entity that has no tenant and is never exposed through a tenant request.
+const TenantSystem = "system"
+
+// SystemSubjectType is the one subject type that a system principal acts as: the authorization runtime calls every
+// system principal service_account:<name> (ST-SUP-RP06-LC07).
+const SystemSubjectType = "service_account"
+
+// FloorMarkerType is the definition of the floor marker that the authorization generator adds to the schema it
+// writes to the provider (ST-SUP-RP06-LC13), so the service's own schema does not define it.
+const FloorMarkerType = "stego_floor"
+
+// SlotAuthorization holds what a slot binding states for authorization (part of ST-DECL-EN05): the relations, as
+// resource_type#relation, that its fills may write. It is inline in SlotDeclaration.
 type SlotAuthorization struct {
-	// RunsAs is tenant or system. Omitted means tenant.
-	RunsAs string `yaml:"runs_as,omitempty" json:",omitempty"`
 	// RelationshipsWritten are the relations that a fill bound to the slot may write, as resource_type#relation.
 	RelationshipsWritten []string `yaml:"relationships_written,omitempty" json:",omitempty"`
 }

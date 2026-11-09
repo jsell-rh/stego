@@ -79,7 +79,10 @@ func authzFills(t *testing.T) string {
 		if err := run("no-key", "init", "--archetype", "rest-crud"); err != nil {
 			return "", err
 		}
-		p.write(t, "service.yaml", td03Service(t))
+		// Generation refuses a declaration that binds authorization while the registry holds no spicedb-authz
+		// (ST-DECL-UC06-R07), so the fills are generated against TD03 with its authorization left out. The slot
+		// contracts are the same: no slot contract carries the authorization of the declaration yet.
+		p.write(t, "service.yaml", withoutAuthorization(td03Service(t)))
 		p.write(t, "authz/schema.zed", td03Schema(t))
 		p.write(t, "SIGNERS", keys.signers)
 		p.addFill(t, "policy", "before_create", "todos", true)
@@ -95,6 +98,28 @@ func authzFills(t *testing.T) string {
 		return "", nil
 	})
 	return authzFillsDir
+}
+
+// withoutAuthorization is a declaration of ST-DECL-TD03 with its authorization setting and the authorization parts
+// of Todo left out.
+func withoutAuthorization(service string) string {
+	var kept []string
+	skip := false
+	for _, line := range strings.Split(service, "\n") {
+		switch {
+		case line == "authorization:":
+			skip = true
+			continue
+		case skip && strings.HasPrefix(line, "  "):
+			continue
+		}
+		skip = false
+		if strings.HasPrefix(line, "    resource_type:") || strings.HasPrefix(line, "    permissions:") || strings.HasPrefix(line, "    relationships:") || strings.HasPrefix(line, "      - {relation:") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
 }
 
 // afterCreateFill gives the files of a fill at after_create of todos that passes each request, with its test.
@@ -217,18 +242,17 @@ func TestDeclareAuthorization(t *testing.T) {
 		}
 	})
 
-	for _, c := range []struct{ id, title, line, key, name string }{
-		{"ST-DECL-UC06-R01-T02", "Authorization bound with no provider is refused, naming the missing setting", "  provider: spicedb\n", "provider", "provider"},
-		{"ST-DECL-UC06-R01-T03", "Authorization bound with no schema path is refused, naming the missing setting", "  schema_path: authz/schema.zed\n", "schema_path", "schema path"},
-		{"ST-DECL-UC06-R01-T04", "Authorization bound with no subject from identity is refused, naming the missing setting", "  subject_from_identity: user\n", "subject_from_identity", "subject from identity"},
-	} {
-		t.Run(c.id+" "+c.title, func(t *testing.T) {
-			fault := expectRefusal(t, td03Project(t, edit(t, td03, c.line, "")), "authorization-setting", "authorization."+c.key, "setting "+c.name+" is missing")
-			if fault.Path != "authorization."+c.key {
+	missingSetting := func(line, key, name string) func(t *testing.T) {
+		return func(t *testing.T) {
+			fault := expectRefusal(t, td03Project(t, edit(t, td03, line, "")), "authorization-setting", "authorization."+key, "setting "+name+" is missing")
+			if fault.Path != "authorization."+key {
 				t.Errorf("the fault is not at the missing setting: %+v", fault)
 			}
-		})
+		}
 	}
+	t.Run("ST-DECL-UC06-R01-T02 Authorization bound with no provider is refused, naming the missing setting", missingSetting("  provider: spicedb\n", "provider", "provider"))
+	t.Run("ST-DECL-UC06-R01-T03 Authorization bound with no schema path is refused, naming the missing setting", missingSetting("  schema_path: authz/schema.zed\n", "schema_path", "schema path"))
+	t.Run("ST-DECL-UC06-R01-T04 Authorization bound with no subject from identity is refused, naming the missing setting", missingSetting("  subject_from_identity: user\n", "subject_from_identity", "subject from identity"))
 
 	t.Run("ST-DECL-UC06-R01-T05 A schema path outside the service's own source is refused, naming the path", func(t *testing.T) {
 		project := td03Project(t, td03)
@@ -243,23 +267,22 @@ func TestDeclareAuthorization(t *testing.T) {
 		}
 	})
 
-	for _, c := range []struct{ id, title, old, new, name, kind string }{
-		{"ST-DECL-UC06-R02-T01", "A resource type the schema lacks is refused, naming the name and where it is used", "resource_type: document", "resource_type: archive", "archive", "resource type"},
-		{"ST-DECL-UC06-R02-T02", "A permission the schema lacks is refused, naming the name and where it is used", "delete: edit", "delete: destroy", "destroy", "permission"},
-		{"ST-DECL-UC06-R02-T03", "A relation the schema lacks is refused, naming the name and where it is used", "{relation: owner,", "{relation: approver,", "approver", "relation"},
-		{"ST-DECL-UC06-R02-T04", "A caveat parameter the schema lacks is refused, naming the name and where it is used", "    relationships:\n", "    context_fields: [request.region]\n    relationships:\n", "request.region", "caveat parameter"},
-	} {
-		t.Run(c.id+" "+c.title, func(t *testing.T) {
-			service := edit(t, td03, c.old, c.new)
-			fault := expectRefusal(t, td03Project(t, service), "schema-names", c.name, "the "+c.kind+" ")
-			if fault.Found != c.name {
-				t.Errorf("the fault does not name %s as found: %+v", c.name, fault)
+	lackingName := func(old, new, name, kind string) func(t *testing.T) {
+		return func(t *testing.T) {
+			service := edit(t, td03, old, new)
+			fault := expectRefusal(t, td03Project(t, service), "schema-names", name, "the "+kind+" ")
+			if fault.Found != name {
+				t.Errorf("the fault does not name %s as found: %+v", name, fault)
 			}
-			if _, value := resolvePath(t, []byte(service), fault.Path); value == nil || value.Value != c.name {
-				t.Errorf("the path %s does not lead to %s in the declaration", fault.Path, c.name)
+			if _, value := resolvePath(t, []byte(service), fault.Path); value == nil || value.Value != name {
+				t.Errorf("the path %s does not lead to %s in the declaration", fault.Path, name)
 			}
-		})
+		}
 	}
+	t.Run("ST-DECL-UC06-R02-T01 A resource type the schema lacks is refused, naming the name and where it is used", lackingName("resource_type: document", "resource_type: archive", "archive", "resource type"))
+	t.Run("ST-DECL-UC06-R02-T02 A permission the schema lacks is refused, naming the name and where it is used", lackingName("delete: edit", "delete: destroy", "destroy", "permission"))
+	t.Run("ST-DECL-UC06-R02-T03 A relation the schema lacks is refused, naming the name and where it is used", lackingName("{relation: owner,", "{relation: approver,", "approver", "relation"))
+	t.Run("ST-DECL-UC06-R02-T04 A caveat parameter the schema lacks is refused, naming the name and where it is used", lackingName("    relationships:\n", "    context_fields: [request.region]\n    relationships:\n", "request.region", "caveat parameter"))
 
 	t.Run("ST-DECL-UC06-R03-T03 A binding that runs as system with no system subject type is refused, naming the binding", func(t *testing.T) {
 		fault := expectRefusal(t, td03WithFills(t, td03+systemBinding), "no-bypass", "todos", "before_create", "runs as system", "names no system subject type")
@@ -319,6 +342,52 @@ func TestDeclareAuthorization(t *testing.T) {
 		expectRefusal(t, td03Project(t, public), "authorization-coverage", "todos.list", "public", "no reason")
 		reasoned := edit(t, public, "    relationships:\n", "    public_reasons: {list: the catalog is public by design}\n    relationships:\n")
 		expectAcceptance(t, td03Project(t, reasoned))
+	})
+
+	t.Run("ST-DECL-UC06-R01-T06 A schema that defines the floor marker stego_floor is refused, naming it", func(t *testing.T) {
+		project := td03Project(t, td03)
+		putFile(t, project, "authz/schema.zed", td03Schema(t)+"\ndefinition stego_floor {\n\trelation marker: stego_floor\n}\n")
+		fault := expectRefusal(t, project, "schema-names", "stego_floor", "adds to the schema it writes")
+		if fault.Found != "stego_floor" || fault.Path != "authorization.schema_path" {
+			t.Errorf("the fault does not name stego_floor at the schema path: %+v", fault)
+		}
+	})
+
+	t.Run("ST-DECL-UC06-R03-T06 A system subject type other than service_account is refused, also when the schema defines it and grants it relations", func(t *testing.T) {
+		service := edit(t, td03, "  subject_from_identity: user\n", "  subject_from_identity: user\n  system_subject_type: user\n") + systemBinding
+		fault := expectRefusal(t, td03WithFills(t, service), "no-bypass", "user", "is not service_account")
+		if fault.Path != "authorization.system_subject_type" || fault.Found != "user" || len(fault.Allowed) != 1 || fault.Allowed[0] != "service_account" {
+			t.Errorf("the fault does not name user and allow only service_account: %+v", fault)
+		}
+	})
+
+	t.Run("ST-DECL-UC06-R07-T05 An entity whose tenant is system with a resource type or permissions is refused, saying why", func(t *testing.T) {
+		system := edit(t, td03, "  - name: Todo\n", "  - name: Todo\n    tenant: system\n")
+		document, run := validateJSON(t, td03Project(t, system))
+		faults := faultsOf(document, "system-entity-protected")
+		if run.code == 0 || len(faults) != 2 {
+			t.Fatalf("want a refusal with two system-entity-protected faults, got exit %d:\n%s", run.code, run.stdout)
+		}
+		for i, key := range []string{"resource_type", "permissions"} {
+			if faults[i].Path != "entities[0]."+key || !strings.Contains(faults[i].Message, `"Todo"`) || !strings.Contains(faults[i].Message, "tenant-qualified") {
+				t.Errorf("fault %d does not name Todo, its %s and why: %+v", i, key, faults[i])
+			}
+		}
+	})
+
+	t.Run("ST-DECL-UC06-R07-T06 Generation refuses a declaration that binds authorization while the registry holds no spicedb-authz, naming the component", func(t *testing.T) {
+		project := td03Project(t, td03)
+		expectAcceptance(t, project)
+		for _, command := range []string{"plan", "apply"} {
+			run := stegoIn(t, project, nil, command)
+			output := run.stdout + run.stderr
+			if run.code == 0 || !strings.Contains(output, "generation refused") || !strings.Contains(output, "spicedb-authz") {
+				t.Errorf("stego %s did not refuse the declaration for the missing component spicedb-authz, exit %d:\n%s", command, run.code, output)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(project, "out")); !os.IsNotExist(err) {
+			t.Errorf("the refused apply wrote the output folder: %v", err)
+		}
 	})
 
 	t.Run("ST-DECL-UC06-FL-T An author binds authorization to a schema in the service source, and checking compiles it and accepts the declaration", func(t *testing.T) {
