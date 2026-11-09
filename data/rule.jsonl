@@ -32,6 +32,10 @@
 {"id":"ST-DECL-INV08-RL","title":"parser.checkNodes","invariant_id":"ST-DECL-INV08","file":"internal/parser/strict.go"}
 {"id":"ST-DECL-INV09-RL","title":"declaration.validateCollectionReferences","invariant_id":"ST-DECL-INV09","file":"internal/declaration/validate.go"}
 {"id":"ST-DECL-INV13-RL","title":"declaration.validateFieldDefaults","invariant_id":"ST-DECL-INV13","file":"internal/declaration/validate.go"}
+{"id":"ST-DECL-INV18-RL","title":"declaration.validateDefaultsLeft","invariant_id":"ST-DECL-INV18","file":"internal/declaration/reach.go"}
+{"id":"ST-DECL-INV19-RL","title":"declaration.validateTenancyClaim","invariant_id":"ST-DECL-INV19","file":"internal/declaration/tenancy.go"}
+{"id":"ST-DECL-INV20-RL","title":"declaration.validateTenantlessPaths","invariant_id":"ST-DECL-INV20","file":"internal/declaration/tenancy.go"}
+{"id":"ST-DECL-INV21-RL","title":"declaration.validateAuditValues","invariant_id":"ST-DECL-INV21","file":"internal/declaration/audit.go"}
 {"id":"ST-DECL-INV25-RL","title":"declaration.validateIdempotency","invariant_id":"ST-DECL-INV25","file":"internal/declaration/idempotency.go"}
 {"id":"ST-DECL-INV33-RL","title":"types.ValidateLiveUnique","invariant_id":"ST-DECL-INV33","file":"internal/types/live_unique.go"}
 {"id":"ST-DECL-INV34-RL","title":"types.ValidateVersioned","invariant_id":"ST-DECL-INV34","file":"internal/types/versioned.go"}

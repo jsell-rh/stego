@@ -26,6 +26,9 @@ type Setting struct {
 func ResolvedSettings(service *types.ServiceDeclaration) []Setting {
 	var settings []Setting
 	settings = append(settings, idempotencySettings(service)...)
+	settings = append(settings, tenancySettings(service)...)
+	settings = append(settings, auditSettings(service)...)
+	settings = append(settings, entitySettings(service)...)
 	return settings
 }
 
