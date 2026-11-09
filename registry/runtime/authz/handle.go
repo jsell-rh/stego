@@ -7,9 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 
 	"stego.dev/runtime/internal/seal"
 	"stego.dev/runtime/outbox"
@@ -49,6 +52,9 @@ type Config struct {
 	Retention time.Duration
 	// Clock is the clock of the retention. Nil is the system clock.
 	Clock Clock
+	// Meter gives the metric of the search results that a handle drops because they name another tenant
+	// (ST-SUP-RP06-LC22). Nil records no metric; DroppedResults counts them still.
+	Meter metric.MeterProvider
 }
 
 // Runtime is the authorization runtime of one service. It binds handles and reads revocation statuses.
@@ -60,6 +66,9 @@ type Runtime struct {
 	poll      time.Duration
 	retention time.Duration
 	clock     Clock
+
+	droppedMetric metric.Int64Counter
+	dropped       atomic.Int64
 }
 
 // New returns the authorization runtime of cfg. It refuses a configuration that lacks a part.
@@ -102,25 +111,42 @@ func New(cfg Config) (*Runtime, error) {
 	if r.clock == nil {
 		r.clock = systemClock{}
 	}
+	if cfg.Meter != nil {
+		r.droppedMetric, err = cfg.Meter.Meter(instrumentation).Int64Counter("authz.search.dropped",
+			metric.WithDescription("The resource search results that name another tenant or are not tenant-qualified, which a handle drops."))
+		if err != nil {
+			return nil, err
+		}
+	}
 	return r, nil
 }
+
+// DroppedResults returns the number of resource search results that the handles of the runtime dropped, because
+// their ID is not tenant-qualified or names another tenant than the handle's (ST-SUP-RP06-LC22).
+func (r *Runtime) DroppedResults() int64 { return r.dropped.Load() }
 
 // Port returns the runtime's decision entry point, for a worker that decides with no transaction of its own, such
 // as the outbox worker's Resolve (ST-SUP-RP01-LC17). It holds no relationships port.
 func (r *Runtime) Port() *Port { return r.port }
 
 // Decide is the decision port of the outbox worker's Resolve (ST-SUP-RP01-LC17): may the subject of request, written
-// type:id, do the permission on the resource, written type:id. It decides at the floor (ST-SUP-RP06-LC09), which it
-// reads through the Floor of the configuration, as a worker with no transaction of its own does. A deny is false
-// with no error.
+// type:id, do the permission on the resource, written type:id, which the outbox names by its key, such as
+// outbox_destination:billing. The resource is sent to the provider in the tenant-qualified form of the request's
+// tenant, the tenant of the parked message (ST-SUP-RP06-LC22), so a resolve grant in one tenant serves no other. It
+// decides at the floor (ST-SUP-RP06-LC09), which it reads through the Floor of the configuration, as a worker with no
+// transaction of its own does. A deny is false with no error.
 func (r *Runtime) Decide(ctx context.Context, request outbox.DecisionRequest) (bool, error) {
 	subjectType, subjectID, ok := strings.Cut(request.Subject, ":")
 	if !ok {
 		return false, errors.New("authz: the subject of the resolution is not type:id")
 	}
-	resourceType, resourceID, ok := strings.Cut(request.Resource, ":")
+	resourceType, key, ok := strings.Cut(request.Resource, ":")
 	if !ok {
 		return false, errors.New("authz: the resource of the resolution is not type:id")
+	}
+	resource, err := NewResource(request.Tenant, resourceType, key)
+	if err != nil {
+		return false, err
 	}
 	floor, err := r.port.currentFloor(ctx)
 	if err != nil {
@@ -129,7 +155,7 @@ func (r *Runtime) Decide(ctx context.Context, request outbox.DecisionRequest) (b
 	result, err := r.port.evaluate(ctx, EvaluationRequest{
 		Subject:     Subject{Type: subjectType, ID: subjectID},
 		Action:      Action{Name: request.Permission},
-		Resource:    Resource{Type: resourceType, ID: resourceID},
+		Resource:    resource,
 		Consistency: atFloor(floor, Token{}),
 	}, Token{})
 	if err != nil {
@@ -165,7 +191,9 @@ func ParseRelation(text string) (Relation, error) {
 // Handle is the authorization handle of one transaction, tenant and principal, which a slot fill gets
 // (ST-SUP-RP06-LC09, ST-SUP-RP06-LC10). Its evaluations decide with the principal as subject at the floor, which it
 // reads through its own transaction. Its Relate and Unrelate only enqueue tuples for the relay in the transaction's
-// outbox, for the relations it was bound with. It exposes no provider, no relationships port and no field.
+// outbox, for the relations it was bound with. Every resource it takes has the ID of ResourceID in its own tenant,
+// and it refuses any other before the provider or the outbox sees it; its Search keeps only the results of its own
+// tenant (ST-SUP-RP06-LC22). It exposes no provider, no relationships port and no field.
 type Handle struct {
 	runtime   *Runtime
 	tx        *sql.Tx
@@ -198,6 +226,15 @@ func (r *Runtime) Bind(tx *sql.Tx, t tenant.Tenant, p Principal, allowed []Relat
 // Principal returns the principal of the handle.
 func (h *Handle) Principal() Principal { return h.principal }
 
+// key gives the row key of resource, whose ID must be the tenant-qualified form of the handle's tenant
+// (ST-SUP-RP06-LC22).
+func (h *Handle) key(resource Resource) (string, error) {
+	if err := resource.valid(); err != nil {
+		return "", err
+	}
+	return keyIn(h.tenant, resource.ID)
+}
+
 // floor reads the revocation floor through the handle's own transaction, never through a second connection of the
 // pool (ST-SUP-RP06-LC09).
 func (h *Handle) floor(ctx context.Context) (Token, error) {
@@ -212,6 +249,9 @@ func (h *Handle) floor(ctx context.Context) (Token, error) {
 // as the revocation floor; only while the floor is zero, at least as fresh as the row token; and fresh when the row
 // has no token either (ST-SUP-RP06-LC09). A deny is a result with Allowed false and a nil error.
 func (h *Handle) Evaluate(ctx context.Context, action string, resource Resource, rowToken Token, c Context) (EvaluationResult, error) {
+	if _, err := h.key(resource); err != nil {
+		return EvaluationResult{}, err
+	}
 	floor, err := h.floor(ctx)
 	if err != nil {
 		return EvaluationResult{}, err
@@ -234,6 +274,11 @@ type Row struct {
 // EvaluateBatch decides action on each row in one batch evaluation, at least as fresh as the floor, or fresh while
 // the floor is zero, and returns one result per row.
 func (h *Handle) EvaluateBatch(ctx context.Context, action string, rows []Row, c Context) ([]EvaluationResult, error) {
+	for _, row := range rows {
+		if _, err := h.key(row.Resource); err != nil {
+			return nil, err
+		}
+	}
 	floor, err := h.floor(ctx)
 	if err != nil {
 		return nil, err
@@ -260,14 +305,45 @@ func (h *Handle) batch(ctx context.Context, action string, rows []Row, c Context
 // Search returns one page of the resources of resourceType that the principal may do action on, at least as fresh
 // as the revocation floor at this page, or ErrNoSearch when the provider does not search. A later page keeps the
 // first page's consistency in its page token, and the provider filters its results at this page's floor
-// (ST-SUP-RP06-LC05).
+// (ST-SUP-RP06-LC05). The page maps each result back to the key of its row, in Keys, only when the result is of
+// resourceType and its ID is the tenant-qualified form of the handle's tenant; it drops and counts every other result
+// (ST-SUP-RP06-LC22).
 func (h *Handle) Search(ctx context.Context, action, resourceType string, c Context, page Page) (SearchResult, error) {
 	floor, err := h.floor(ctx)
 	if err != nil {
 		return SearchResult{}, err
 	}
-	return h.runtime.port.search(ctx, SearchRequest{Subject: h.principal.subject, Action: Action{Name: action},
+	result, err := h.runtime.port.search(ctx, SearchRequest{Subject: h.principal.subject, Action: Action{Name: action},
 		ResourceType: resourceType, Context: c, Consistency: atFloor(floor, Token{}), Page: page}, Token{})
+	if err != nil {
+		return SearchResult{}, err
+	}
+	return h.runtime.mapSearch(ctx, h.tenant, resourceType, result), nil
+}
+
+// mapSearch keeps the results of one search page that map back to a row of tenant t: a resource of resourceType
+// whose ID is the tenant-qualified form of t, with its key in Keys. It drops every other result, one of another
+// tenant or one that is not tenant-qualified, and counts it in DroppedResults and the metric authz.search.dropped
+// (ST-SUP-RP06-LC22).
+func (r *Runtime) mapSearch(ctx context.Context, t tenant.Tenant, resourceType string, result SearchResult) SearchResult {
+	mapped := SearchResult{Next: result.Next, Token: result.Token}
+	var dropped int64
+	for _, resource := range result.Resources {
+		key, err := keyIn(t, resource.ID)
+		if err != nil || resource.Type != resourceType {
+			dropped++
+			continue
+		}
+		mapped.Resources = append(mapped.Resources, resource)
+		mapped.Keys = append(mapped.Keys, key)
+	}
+	if dropped > 0 {
+		r.dropped.Add(dropped)
+		if r.droppedMetric != nil {
+			r.droppedMetric.Add(ctx, dropped, metric.WithAttributes(attribute.String("resource_type", resourceType)))
+		}
+	}
+	return mapped
 }
 
 // List is a list of rows that a query pages through the database and filters by batch evaluation
@@ -310,7 +386,8 @@ type tenantDecision struct {
 }
 
 // DecideTenant decides the permission of action, provision or retire, on resource at the floor, for a request that
-// names the tenant tenantID (ST-SUP-RP06-LC17). On an allow it returns the decision that tenant.Requested takes,
+// names the tenant tenantID (ST-SUP-RP06-LC17). Like every evaluation of the handle, resource has the ID of
+// ResourceID in the handle's own tenant, the tenant of the principal who asks (ST-SUP-RP06-LC22). On an allow it returns the decision that tenant.Requested takes,
 // whose mark the internal seal constructor makes with exactly that tenant ID and that action, so the allow serves
 // only the one action on the one tenant, and true; on a deny it returns no decision and false.
 func (h *Handle) DecideTenant(ctx context.Context, action tenant.RequestAction, tenantID string, resource Resource, c Context) (tenant.Decision, bool, error) {
@@ -353,8 +430,9 @@ const (
 	OperationDelete Operation = "delete"
 )
 
-// payloadVersion is the version of the relay payload.
-const payloadVersion = 1
+// payloadVersion is the version of the relay payload. Version 2 holds tenant-qualified resource IDs
+// (ST-SUP-RP06-LC22); the relay refuses version 1, whose IDs are bare keys.
+const payloadVersion = 2
 
 // payload is the outbox payload of one tuple write for the relay.
 type payload struct {
@@ -377,6 +455,26 @@ func (t tupleJSON) tuple() Tuple {
 	return Tuple{Resource: Resource{Type: t.ResourceType, ID: t.ResourceID}, Relation: t.Relation,
 		Subject: Subject{Type: t.SubjectType, ID: t.SubjectID}, SubjectRelation: t.SubjectRelation}
 }
+
+// tupleKey gives the row key of the tuple's resource, whose ID must be the tenant-qualified form of t; the subject of
+// a subject set, a subject with a relation such as group#member, is a resource too and must be of t as well
+// (ST-SUP-RP06-LC22).
+func tupleKey(t tenant.Tenant, tuple Tuple) (string, error) {
+	key, err := keyIn(t, tuple.Resource.ID)
+	if err != nil {
+		return "", err
+	}
+	if tuple.SubjectRelation != "" {
+		if _, err := keyIn(t, tuple.Subject.ID); err != nil {
+			return "", err
+		}
+	}
+	return key, nil
+}
+
+// resourceKey is the outbox resource key of a tuple: its resource type and the key of its row, type:key. The outbox
+// row holds the tenant, so the key need not.
+func resourceKey(resourceType, key string) string { return resourceType + ":" + key }
 
 // Relate enqueues a touch of tuple for the relay in the transaction's outbox and returns the transaction's
 // revocation. It does not call the provider. It refuses a relation the handle was not bound with before it writes
@@ -433,6 +531,10 @@ func (h *Handle) write(ctx context.Context, operation Operation, tuple Tuple) (R
 	if err := tuple.valid(); err != nil {
 		return Revocation{}, err
 	}
+	key, err := tupleKey(h.tenant, tuple)
+	if err != nil {
+		return Revocation{}, err
+	}
 	revocation, err := h.revocation(ctx)
 	if err != nil {
 		return Revocation{}, err
@@ -455,7 +557,7 @@ func (h *Handle) write(ctx context.Context, operation Operation, tuple Tuple) (R
 	if err := h.runtime.outbox.Enqueue(ctx, h.tx, outbox.Message{
 		ID:          messageID,
 		Destination: DestinationName,
-		ResourceKey: tuple.Resource.String(),
+		ResourceKey: resourceKey(tuple.Resource.Type, key),
 		Kind:        "authz." + string(operation),
 		Payload:     body,
 		OutgoingKey: messageID.String(),

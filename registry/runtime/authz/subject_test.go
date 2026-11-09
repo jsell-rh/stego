@@ -191,7 +191,7 @@ func TestSubjects(t *testing.T) {
 			t.Fatal(err)
 		}
 		check(result.Allowed)
-		_, ok, err := handle.DecideTenant(ctx, tenant.ProvisionAction, "t9", Resource{Type: "platform", ID: "main"}, nil)
+		_, ok, err := handle.DecideTenant(ctx, tenant.ProvisionAction, "t9", Resource{Type: "platform", ID: qualify("t1", "main")}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

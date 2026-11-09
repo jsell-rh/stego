@@ -906,7 +906,7 @@ func TestHandleEvaluation(t *testing.T) {
 		allowed := mustPerson(t, "u-1").Subject()
 		fake := &recorder{allow: func(r EvaluationRequest) bool { return r.Subject == allowed }}
 		rt := newUnitRuntime(t, fake)
-		platform := Resource{Type: "platform", ID: "main"}
+		platform := Resource{Type: "platform", ID: qualify("t1", "main")}
 		decision, ok, err := bindUnit(t, rt, nil, mustPerson(t, "u-1")).DecideTenant(ctx, tenant.ProvisionAction, "ta", platform, nil)
 		if err != nil || !ok || decision == nil {
 			t.Fatalf("the allow gave %v, %t, %v", decision, ok, err)
@@ -943,7 +943,7 @@ func TestHandleEvaluation(t *testing.T) {
 	t.Run("ST-SUP-RP06-LC17-T02 DecideTenant decides the permission of the action it is given and binds the mark to it", func(t *testing.T) {
 		fake := &recorder{allow: func(r EvaluationRequest) bool { return r.Action.Name == "provision" }}
 		handle := bindUnit(t, newUnitRuntime(t, fake), nil, mustPerson(t, "u-1"))
-		platform := Resource{Type: "platform", ID: "main"}
+		platform := Resource{Type: "platform", ID: qualify("t1", "main")}
 		provision, ok, err := handle.DecideTenant(ctx, tenant.ProvisionAction, "ta", platform, nil)
 		if err != nil || !ok {
 			t.Fatalf("the provision gave %v, %t, %v", provision, ok, err)
@@ -1024,7 +1024,7 @@ func TestHandleWrites(t *testing.T) {
 			t.Fatalf("%s outbox rows for authz after the commit, want 1", n)
 		}
 		d := env.delivery(t, env.ids(t)[0])
-		message, err := readPayload(d.ResourceKey, d.Payload)
+		message, err := readPayload(d.Payload)
 		if err != nil || message.Operation != OperationTouch || message.Tuple.tuple() != viewer || d.Kind != "authz.touch" {
 			t.Fatalf("the entry is %+v, %v; want a touch of the tuple", message, err)
 		}
@@ -1042,7 +1042,7 @@ func TestHandleWrites(t *testing.T) {
 			t.Fatalf("%s outbox rows for authz, want 1", n)
 		}
 		d := env.delivery(t, env.ids(t)[0])
-		message, err := readPayload(d.ResourceKey, d.Payload)
+		message, err := readPayload(d.Payload)
 		if err != nil || message.Operation != OperationDelete || message.Tuple.tuple() != viewer || d.Kind != "authz.delete" {
 			t.Fatalf("the entry is %+v, %v; want a delete of the tuple", message, err)
 		}
@@ -1287,7 +1287,7 @@ func TestHandleWrites(t *testing.T) {
 		free := func() { releaseOnce.Do(func() { close(release) }) }
 		// The write of document:2 waits for the release.
 		fake := &fakeRelationships{heads: []Token{named("h", 5), named("h", 8)}, before: func(_ int, resource string) {
-			if resource == "2" {
+			if resource == doc("2").ID {
 				<-release
 			}
 		}}
@@ -1312,7 +1312,7 @@ func TestHandleWrites(t *testing.T) {
 		// The record keeps the floor of the last delivery: the written_at token of a write of document:2, the tuple
 		// that became done last, whichever attempt of it landed.
 		s := status(t, rt, revocation)
-		last := fake.tokensOf("2")
+		last := fake.tokensOf(doc("2").ID)
 		landed := false
 		for _, token := range last {
 			landed = landed || s.Token == token
@@ -1320,7 +1320,7 @@ func TestHandleWrites(t *testing.T) {
 		if s.State != RevocationComplete || !landed || s.Token.Text() != env.scalar(t, "SELECT token FROM {s}.authz_revocations WHERE id = $1", revocation.ID()) {
 			t.Fatalf("after the second delivery the state is %+v, want complete with a token of document:2's write %v", s, last)
 		}
-		for _, token := range fake.tokensOf("1") {
+		for _, token := range fake.tokensOf(doc("1").ID) {
 			if s.Token == token {
 				t.Fatalf("the revocation holds the token %q of the first delivery", token.Text())
 			}
@@ -1374,7 +1374,7 @@ func TestHandleWrites(t *testing.T) {
 		free := func() { releaseOnce.Do(func() { close(release) }) }
 		// The touch of document:1 waits for the release; the delete of document:2 is refused and parked.
 		relay := env.relay(t, &fakeRelationships{failDelete: refused, before: func(_ int, resource string) {
-			if resource == "1" {
+			if resource == doc("1").ID {
 				<-release
 			}
 		}})
