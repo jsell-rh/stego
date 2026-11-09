@@ -83,6 +83,8 @@ type Field struct {
 	To              string    `yaml:"to,omitempty"` // for ref type
 	Unobserved      *string   `yaml:"unobserved,omitempty"`
 	Deleting        *string   `yaml:"deleting,omitempty" json:"Deleting,omitempty"`
+	// Sensitivity is public, pii or secret (ST-DECL-EN03). Omitted means public.
+	Sensitivity string `yaml:"sensitivity,omitempty" json:"Sensitivity,omitempty"`
 }
 
 // Entity represents a domain entity with its fields.
@@ -95,6 +97,8 @@ type Entity struct {
 	Conditions       map[string][]string `yaml:"conditions,omitempty"`
 	CleanupTargets   map[string]string   `yaml:"cleanup_targets,omitempty"`
 	CleanupOwners    []string            `yaml:"cleanup_owners,omitempty"`
+	// Tenant is owned, shared or system (ST-DECL-EN02). Omitted means owned.
+	Tenant string `yaml:"tenant,omitempty" json:"Tenant,omitempty"`
 }
 
 // Convention captures the archetype's conventions.
@@ -226,6 +230,11 @@ type SlotDeclaration struct {
 	Chain        []string `yaml:"chain,omitempty"`
 	FanOut       []string `yaml:"fan-out,omitempty"`
 	ShortCircuit bool     `yaml:"short_circuit,omitempty"`
+	// RunsAs is tenant or system: the principal the fills run as (ST-DECL-EN05). Omitted means tenant.
+	RunsAs string `yaml:"runs_as,omitempty"`
+	// AuditAnnotations is the string map the fills add to the audit record of the operation. Checking refuses
+	// any other value, so it is read as any value.
+	AuditAnnotations any `yaml:"audit_annotations,omitempty"`
 }
 
 // YAMLRenamedKeys marks SlotDeclaration as a parser.RenamedKeys: the strict
@@ -267,6 +276,27 @@ type ServiceDeclaration struct {
 	Mixins              []string          `yaml:"mixins,omitempty"`
 	Overrides           map[string]any    `yaml:"overrides,omitempty"`
 	FillModules         []FillModule      `yaml:"fill_modules,omitempty"`
+	Idempotency         *Idempotency      `yaml:"idempotency,omitempty"`
+	Tenancy             *Tenancy          `yaml:"tenancy,omitempty"`
+	Audit               *Audit            `yaml:"audit,omitempty"`
+	Controllers         []Controller      `yaml:"controllers,omitempty"`
+	// Commands are the business commands that the service's own code carries out (ST-DECL-EN18).
+	Commands []Command `yaml:"commands,omitempty"`
+	// Queries are the reads that the service's own code carries out (ST-DECL-EN19).
+	Queries []Query `yaml:"queries,omitempty"`
+	// Observations are what the service's own code can observe and report (ST-DECL-EN20).
+	Observations []Observation `yaml:"observations,omitempty"`
+	// Modes are the modes the one binary runs: api, worker and controller; all three when it is empty
+	// (ST-DECL-EN01).
+	Modes []string `yaml:"modes,omitempty"`
+	// Workers are the background work that the service's own code carries out (ST-DECL-EN25).
+	Workers []Worker `yaml:"workers,omitempty"`
+	// Invariants are the rules across stored instances that the declaration states (ST-DECL-EN17).
+	Invariants []DeclaredInvariant `yaml:"invariants,omitempty"`
+	// SchemaChanges are the changes to the stored shape of the entities (ST-DECL-EN21), and SchemaHistory the
+	// ordered steps that move them (ST-DECL-EN22).
+	SchemaChanges []SchemaChange `yaml:"schema_changes,omitempty"`
+	SchemaHistory []SchemaStep   `yaml:"schema_history,omitempty"`
 }
 
 // UnmarshalYAML implements custom YAML unmarshaling for ServiceDeclaration.
@@ -418,6 +448,18 @@ func (sd ServiceDeclaration) MarshalYAML() (any, error) {
 		m.Content = append(m.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "fill_modules"},
 			fNode,
+		)
+	}
+
+	// Idempotency.
+	if sd.Idempotency != nil {
+		iNode := &yaml.Node{}
+		if err := iNode.Encode(sd.Idempotency); err != nil {
+			return nil, err
+		}
+		m.Content = append(m.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "idempotency"},
+			iNode,
 		)
 	}
 

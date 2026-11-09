@@ -181,7 +181,7 @@ func TestRun(t *testing.T) {
 		q := mustQuery(t, "order-detail", orders)
 		var kept *Handle[noProbe]
 		var keptRepo *Repository[Order]
-		var keptOrder *Loaded[Order]
+		var keptOrder Loaded[Order]
 		calls := func() map[string]error {
 			_, repoErr := Repo(kept, orders)
 			_, getErr := keptRepo.Get(context.Background(), "o-1")
@@ -237,7 +237,7 @@ func TestRun(t *testing.T) {
 		var keptRepo *Repository[Order]
 		var keptProbe openReservationsProbe
 		got, err := Run(context.Background(), rt, q, b, struct{}{},
-			func(ctx context.Context, _ struct{}, h *Handle[openReservationsProbe]) (*Loaded[Order], error) {
+			func(ctx context.Context, _ struct{}, h *Handle[openReservationsProbe]) (Loaded[Order], error) {
 				repo, err := Repo(h, orders)
 				if err != nil {
 					return nil, err
@@ -279,7 +279,7 @@ func TestRun(t *testing.T) {
 		q := mustQuery(t, "open-reservations", reservations)
 		var kept *Repository[Reservation]
 		got, err := Run(context.Background(), rt, q, bound(t, "t1", "user:u-7", "open-reservations"), struct{}{},
-			func(ctx context.Context, _ struct{}, h *Handle[noProbe]) (*Loaded[Reservation], error) {
+			func(ctx context.Context, _ struct{}, h *Handle[noProbe]) (Loaded[Reservation], error) {
 				repo, err := Repo(h, reservations)
 				if err != nil {
 					return nil, err
