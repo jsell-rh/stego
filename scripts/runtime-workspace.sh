@@ -36,6 +36,16 @@ if [ -z "$version" ]; then
 	exit 1
 fi
 
+# The go command reads the go.mod of a required version of a workspace module when it loads the full module graph,
+# which it does as soon as a package imports a module outside the workspace. A replace at the pinned version points
+# that read at the folder too, so the runtime's own dependencies resolve with no fetch of stego.dev/runtime.
+pin="$(sed -n 's|^[[:space:]]*\(require[[:space:]]\{1,\}\)\{0,1\}stego\.dev/runtime[[:space:]]\{1,\}\(v[^[:space:]]*\).*$|\2|p' "$module/go.mod" | head -n 1)"
+
 mkdir -p "$(dirname "$2")"
-printf 'go %s\n\nuse (\n\t%s\n\t%s\n)\n' "$version" "$module" "$runtime" >"$2"
+{
+	printf 'go %s\n\nuse (\n\t%s\n\t%s\n)\n' "$version" "$module" "$runtime"
+	if [ -n "$pin" ]; then
+		printf '\nreplace stego.dev/runtime %s => %s\n' "$pin" "$runtime"
+	fi
+} >"$2"
 echo "$2"
