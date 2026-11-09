@@ -18,27 +18,31 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/stdlib"
 
+	"stego.dev/runtime/internal/pgtest"
 	"stego.dev/runtime/lease"
 	"stego.dev/runtime/tenant"
 )
 
-// The PostgreSQL tests read STEGO_TEST_POSTGRES_DSN, the address of a superuser of a local PostgreSQL 17 server
-// in a container without privilege (ST-STD-LOCAL), and skip when it is not set. They reach the server through
-// pgx's database/sql driver (ST-STD-RUNTIME-R06). Each test makes a database of its own, owned by the owner role,
-// applies the DDL text there as the owner, and drops the database at the end.
+// The PostgreSQL tests run against the local PostgreSQL server of pgtest: the server that STEGO_TEST_POSTGRES_DSN
+// names, a superuser URL, else a container without privilege that the test binary starts and removes
+// (ST-STD-LOCAL-R04). They reach the server through pgx's database/sql driver (ST-STD-RUNTIME-R06). Each test
+// makes a database of its own, owned by the owner role, applies the DDL text there as the owner, and drops the
+// database at the end.
 
 const (
-	ownerRole      = "stego_audit_owner"
-	runtimeRole    = "stego_audit_runtime"
-	otherRole      = "stego_audit_other"
-	rolePassword   = "stego-audit-test"
-	outboxStandIn  = "test_outbox"
-	leaseName      = "controller"
-	appTable       = "app_items"
-	rejectMessage  = "the audit table rejects"
-	testRetention  = 12
-	postgresDSNEnv = "STEGO_TEST_POSTGRES_DSN"
+	ownerRole     = "stego_audit_owner"
+	runtimeRole   = "stego_audit_runtime"
+	otherRole     = "stego_audit_other"
+	rolePassword  = "stego-audit-test"
+	outboxStandIn = "test_outbox"
+	leaseName     = "controller"
+	appTable      = "app_items"
+	rejectMessage = "the audit table rejects"
+	testRetention = 12
 )
+
+// TestMain gives the PostgreSQL tests of the package their local server (ST-STD-LOCAL-R04).
+func TestMain(m *testing.M) { os.Exit(pgtest.Main(m)) }
 
 var rolesOnce sync.Once
 
@@ -61,10 +65,7 @@ func withClock(sqlTime string) fixtureOption { return func(c *Config) { c.clock 
 
 func newPG(t *testing.T, opts ...fixtureOption) *pgFixture {
 	t.Helper()
-	dsn := os.Getenv(postgresDSNEnv)
-	if dsn == "" {
-		t.Skip(postgresDSNEnv + " is not set: this test needs a PostgreSQL server")
-	}
+	dsn := pgtest.DSN(t)
 	ctx := context.Background()
 	base, err := pgx.ParseConfig(dsn)
 	if err != nil {
