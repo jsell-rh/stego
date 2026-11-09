@@ -299,6 +299,11 @@ func exposition(t *testing.T, m *Metrics) string {
 	return recorder.Body.String()
 }
 
+// readyQueue is a controller queue that runs and is ready, so the probe test reads the database ping only.
+type readyQueue struct{}
+
+func (readyQueue) QueueReady() bool { return true }
+
 // testPinger is the database ping of the modes readiness.
 type testPinger struct{ down atomic.Bool }
 
@@ -1139,7 +1144,9 @@ func TestTelemetryStartup(t *testing.T) {
 		}()
 		t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://"+collector.Addr().String())
 		pinger := &testPinger{}
-		health := httptest.NewServer(modes.NewReadiness(pinger).Handler(modes.Selection{modes.Controller}))
+		readiness := modes.NewReadiness(pinger)
+		readiness.WatchQueue(readyQueue{})
+		health := httptest.NewServer(readiness.Handler(modes.Selection{modes.Controller}))
 		defer health.Close()
 		var starts atomic.Int32
 		telemetry, err := NewTelemetry(func() (Providers, error) {

@@ -55,7 +55,8 @@ func (r *Readiness) Watch(backfill Staller) {
 	r.backfills = append(r.backfills, backfill)
 }
 
-// WatchQueue adds a controller queue that must run and be ready for the controller mode to be ready.
+// WatchQueue adds a controller queue that must run and be ready for the controller mode to be ready. With no watched
+// queue the controller mode is never ready, so a controller that forgets its queue cannot report ready.
 func (r *Readiness) WatchQueue(queue Queue) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -89,7 +90,7 @@ func (r *Readiness) Fail() {
 
 // Ready answers the readiness of the mode m: api is ready when the HTTP server accepts requests; worker when the
 // database is reachable; controller when the database is reachable, whether or not the replica holds the lease,
-// each controller queue it watches runs and is ready, and no backfill it watches is stalled. Every mode is not ready once the shutdown began.
+// it watches at least one controller queue and each runs and is ready, and no backfill it watches is stalled. Every mode is not ready once the shutdown began.
 func (r *Readiness) Ready(ctx context.Context, m Mode) error {
 	if r.stopping.Load() {
 		return fmt.Errorf("%s: %w: the replica is shutting down", m, ErrNotReady)
@@ -112,6 +113,9 @@ func (r *Readiness) Ready(ctx context.Context, m Mode) error {
 			backfills := append([]Staller(nil), r.backfills...)
 			queues := append([]Queue(nil), r.queues...)
 			r.mu.Unlock()
+			if len(queues) == 0 {
+				return fmt.Errorf("%s: %w: no controller queue is watched", m, ErrNotReady)
+			}
 			for _, q := range queues {
 				if !q.QueueReady() {
 					return fmt.Errorf("%s: %w: the controller queue is not running and ready", m, ErrNotReady)
