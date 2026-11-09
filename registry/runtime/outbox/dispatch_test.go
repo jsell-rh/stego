@@ -164,10 +164,20 @@ func resolvingWorker(t *testing.T, q *Queue, decider *fakeDecider) *Worker {
 
 func TestDispatchStates(t *testing.T) {
 	t.Run("ST-SUP-RP01-LC08-T01 Every allowed transition is taken and every other one is refused", func(t *testing.T) {
+		want := map[[2]State]bool{
+			{Pending, Dispatching}: true,
+			{Dispatching, Done}:    true, {Dispatching, Pending}: true, {Dispatching, OutcomeUnknown}: true, {Dispatching, Parked}: true,
+			{OutcomeUnknown, Dispatching}: true, {OutcomeUnknown, Reconciling}: true, {OutcomeUnknown, Parked}: true,
+			{Reconciling, Done}: true, {Reconciling, Pending}: true, {Reconciling, Parked}: true, {Reconciling, Reconciling}: true,
+			{Parked, Done}: true, {Parked, Pending}: true, {Parked, Discarded}: true,
+		}
 		allowed := 0
 		for _, from := range States() {
 			for _, to := range States() {
 				err := Transition(from, to)
+				if (err == nil) != want[[2]State{from, to}] {
+					t.Fatalf("%s to %s gives %v, want allowed %v", from, to, err, want[[2]State{from, to}])
+				}
 				if err == nil {
 					allowed++
 					continue
@@ -276,6 +286,23 @@ func TestDispatchOutcome(t *testing.T) {
 			if _, err := db.Exec("UPDATE stego_outbox.messages SET available_at = available_at + interval '1 day' WHERE id = $1", c.m.ID); err != nil {
 				t.Fatal(err)
 			}
+		}
+	})
+
+	t.Run("ST-SUP-RP01-LC09-T03 A handler that panics ends in outcome unknown", func(t *testing.T) {
+		db, _ := testDatabase(t)
+		q := newQueue(t, db, newClock())
+		m := message("billing", "charge:1")
+		enqueue(t, db, q, m)
+		w := newWorker(t, q, nil)
+		register(t, w, Destination{Name: "billing", Handler: func(context.Context, Delivery) error {
+			panic("the handler broke with password=hunter2")
+		}})
+		if n := cycle(t, w); n != 1 {
+			t.Fatalf("the cycle claimed %d messages", n)
+		}
+		if row := readRow(t, db, m.ID); row.State != OutcomeUnknown || row.FailureCode != "handler-panic" {
+			t.Fatalf("the panic left %+v", row)
 		}
 	})
 
@@ -530,6 +557,34 @@ func TestDispatchPark(t *testing.T) {
 		})
 		if got["destination"] != "billing" || got["state"] != "outcome_unknown" {
 			t.Fatalf("the alert event names %v", got)
+		}
+	})
+
+	t.Run("ST-SUP-RP01-LC12-T02 A parked key of one tenant does not hold back the same key of another tenant", func(t *testing.T) {
+		db, _ := testDatabase(t)
+		q := newQueue(t, db, newClock())
+		parked, other, later := message("billing", "charge:1"), message("billing", "charge:1"), message("billing", "charge:1")
+		enqueueAs(t, db, q, "tenant-a", parked)
+		enqueueAs(t, db, q, "tenant-b", other)
+		w := newWorker(t, q, nil)
+		register(t, w, Destination{Name: "billing", Handler: func(_ context.Context, d Delivery) error {
+			if d.ID == parked.ID || d.ID == later.ID {
+				return PermanentRefusal(errors.New("400"))
+			}
+			return nil
+		}})
+		for i := 0; i < 3; i++ {
+			cycle(t, w)
+		}
+		if a, b := readRow(t, db, parked.ID), readRow(t, db, other.ID); a.State != Parked || b.State != Done || b.TenantID != "tenant-b" {
+			t.Fatalf("the messages are %+v and %+v", a, b)
+		}
+		// Each tenant's parked key is its own entry of the blocked view.
+		enqueueAs(t, db, q, "tenant-b", later)
+		cycle(t, w)
+		blocked, err := q.Blocked(context.Background(), MaxBatchSize)
+		if err != nil || len(blocked) != 2 || blocked[0].TenantID != "tenant-a" || blocked[1].TenantID != "tenant-b" {
+			t.Fatalf("the blocked view is %+v %v", blocked, err)
 		}
 	})
 

@@ -54,7 +54,7 @@ func register(t testing.TB, w *Worker, d Destination) {
 // cycle runs one claim and the step of what it claimed, and returns how many messages it claimed.
 func cycle(t testing.TB, w *Worker) int {
 	t.Helper()
-	n, err := w.cycle(context.Background())
+	n, err := w.cycle(context.Background(), context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,9 +189,14 @@ func TestWorkerDelivery(t *testing.T) {
 	})
 }
 
-// faultConnector keeps the real claim write of the database and then loses its result, as a client that loses the
-// answer of a statement that committed.
-type faultConnector struct{ database *sql.DB }
+// faultConnector keeps the real write of a statement on the database and then loses its result, as a client that
+// loses the answer of a statement that committed. With loseMove false it loses the result of every statement after
+// its first row; with loseMove true it passes the claim through whole and loses the whole result of each move of a
+// claimed message, such as the acknowledgement.
+type faultConnector struct {
+	database *sql.DB
+	loseMove bool
+}
 
 func (c faultConnector) Connect(context.Context) (driver.Conn, error) { return faultConn(c), nil }
 func (faultConnector) Driver() driver.Driver                          { return faultDriver{} }
@@ -212,16 +217,23 @@ func (c faultConn) QueryContext(ctx context.Context, query string, args []driver
 	for i, value := range args {
 		values[i] = value.Value
 	}
+	move := strings.Contains(query, "state = $4,")
 	rows, err := c.database.QueryContext(ctx, query, values...)
 	if err != nil {
 		return nil, err
+	}
+	if c.loseMove && move {
+		for rows.Next() {
+		}
+		_ = rows.Close()
+		return nil, errors.New("the connection broke after the statement")
 	}
 	columns, err := rows.Columns()
 	if err != nil {
 		_ = rows.Close()
 		return nil, err
 	}
-	return &faultRows{rows: rows, columns: columns}, nil
+	return &faultRows{rows: rows, columns: columns, whole: c.loseMove}, nil
 }
 
 // faultRows gives the first row and then fails, so the client never reads the whole result.
@@ -229,12 +241,13 @@ type faultRows struct {
 	rows    *sql.Rows
 	columns []string
 	read    bool
+	whole   bool
 }
 
 func (r *faultRows) Columns() []string { return r.columns }
 func (r *faultRows) Close() error      { return r.rows.Close() }
 func (r *faultRows) Next(dest []driver.Value) error {
-	if r.read {
+	if r.read && !r.whole {
 		_ = r.rows.Close()
 		return errors.New("the connection broke")
 	}
@@ -264,19 +277,44 @@ func TestWorkerFailures(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		w := newWorker(t, newQueue(t, pool, nil), nil)
-		register(t, w, Destination{Name: "audit", Handler: func(context.Context, Delivery) error { return nil }})
+		w := newWorker(t, newQueue(t, pool, nil), func(c *WorkerConfig) { c.AttemptTimeout = 5 * time.Second })
+		entered, release := make(chan struct{}), make(chan struct{})
+		register(t, w, Destination{Name: "audit", Handler: func(context.Context, Delivery) error {
+			close(entered)
+			<-release
+			return nil
+		}})
+		cancel, result := startWorker(t, w)
+		// The pool fails while Run runs and a handler is in flight: its acknowledgement and the next claims fail.
+		<-entered
 		if err := pool.Close(); err != nil {
 			t.Fatal(err)
 		}
-		cancel, result := startWorker(t, w)
+		close(release)
 		await(t, func() bool { return w.Stats().DatabaseFailures > 0 })
 		cancel()
 		if err := <-result; !errors.Is(err, context.Canceled) {
 			t.Fatalf("Run returned %v, not the cancellation", err)
 		}
-		if w.Stats().Delivered != 0 || readRow(t, db, m.ID).State != Pending {
+		if w.Stats().Delivered != 0 {
 			t.Fatalf("a database failure counted as a delivery: %+v", w.Stats())
+		}
+		if row := readRow(t, db, m.ID); row.State != Dispatching || !row.Token.Valid {
+			t.Fatalf("the message lost its claim: %+v", row)
+		}
+
+		// The acknowledgement commits, but its result is lost: the worker counts a database failure, not a delivery.
+		n := message("audit", "two")
+		enqueue(t, db, newQueue(t, db, nil), n)
+		faulty := sql.OpenDB(faultConnector{database: db, loseMove: true})
+		t.Cleanup(func() { _ = faulty.Close() })
+		lost := newWorker(t, newQueue(t, faulty, nil), nil)
+		register(t, lost, Destination{Name: "audit", Handler: func(context.Context, Delivery) error { return nil }})
+		if got := cycle(t, lost); got != 1 {
+			t.Fatalf("the cycle claimed %d messages", got)
+		}
+		if stats := lost.Stats(); stats.Delivered != 0 || stats.DatabaseFailures != 1 {
+			t.Fatalf("a lost acknowledgement result counted as %+v", stats)
 		}
 	})
 
@@ -384,20 +422,51 @@ func TestWorkerBounds(t *testing.T) {
 	t.Run("ST-SUP-RP01-LC05-T04 Shutdown acknowledges a delivery that completed", func(t *testing.T) {
 		db, _ := testDatabase(t)
 		q := newQueue(t, db, nil)
+
+		// StopClaiming does not cancel a handler that runs: a handler that honours its context ends done.
 		m := message("audit", "one")
 		enqueue(t, db, q, m)
-		entered, exited := make(chan struct{}), make(chan struct{})
+		entered, stopped := make(chan struct{}), make(chan struct{})
 		w := newWorker(t, q, func(c *WorkerConfig) { c.AttemptTimeout = 5 * time.Second })
 		register(t, w, Destination{Name: "audit", Handler: func(ctx context.Context, _ Delivery) error {
 			close(entered)
+			<-stopped
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(100 * time.Millisecond):
+				return nil
+			}
+		}})
+		_, result := startWorker(t, w)
+		<-entered
+		w.StopClaiming()
+		close(stopped)
+		if err := w.Finish(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-result; err != nil {
+			t.Fatalf("Run after StopClaiming returned %v", err)
+		}
+		if w.Stats().Delivered != 1 || readRow(t, db, m.ID).State != Done {
+			t.Fatalf("StopClaiming lost a delivery: %+v, %+v", w.Stats(), readRow(t, db, m.ID))
+		}
+
+		// The end of the parent context cancels the handler; a success that it returns then is still recorded.
+		n := message("audit", "two")
+		enqueue(t, db, q, n)
+		entered2, exited := make(chan struct{}), make(chan struct{})
+		w2 := newWorker(t, q, func(c *WorkerConfig) { c.AttemptTimeout = 5 * time.Second })
+		register(t, w2, Destination{Name: "audit", Handler: func(ctx context.Context, _ Delivery) error {
+			close(entered2)
 			<-ctx.Done()
 			close(exited)
 			return nil
 		}})
-		cancel, result := startWorker(t, w)
-		<-entered
+		cancel, result2 := startWorker(t, w2)
+		<-entered2
 		cancel()
-		if err := <-result; !errors.Is(err, context.Canceled) {
+		if err := <-result2; !errors.Is(err, context.Canceled) {
 			t.Fatalf("Run returned %v, not the cancellation", err)
 		}
 		select {
@@ -405,11 +474,49 @@ func TestWorkerBounds(t *testing.T) {
 		default:
 			t.Fatal("the worker returned while its handler ran")
 		}
-		if w.Stats().Delivered != 1 || readRow(t, db, m.ID).State != Done {
-			t.Fatalf("shutdown lost a completed delivery: %+v", w.Stats())
+		if w2.Stats().Delivered != 1 || readRow(t, db, n.ID).State != Done {
+			t.Fatalf("shutdown lost a completed delivery: %+v", w2.Stats())
 		}
-		if count(t, db, "SELECT count(*) FROM stego_outbox.messages WHERE state NOT IN ('done', 'discarded')") != 0 {
-			t.Fatal("the queue holds an open message")
+
+		// The drain bound of Finish cancels a handler that waits; Finish waits for Run even when Run starts late.
+		o := message("audit", "three")
+		enqueue(t, db, q, o)
+		w3 := newWorker(t, q, func(c *WorkerConfig) { c.AttemptTimeout = 30 * time.Second; c.LeaseDuration = time.Minute })
+		entered3 := make(chan struct{})
+		register(t, w3, Destination{Name: "audit", Handler: func(ctx context.Context, _ Delivery) error {
+			close(entered3)
+			<-ctx.Done()
+			return ctx.Err()
+		}})
+		finished := make(chan error, 1)
+		bound, stop := context.WithCancel(context.Background())
+		defer stop()
+		go func() { finished <- w3.Finish(bound) }()
+		select {
+		case err := <-finished:
+			t.Fatalf("Finish returned %v before Run started", err)
+		case <-time.After(50 * time.Millisecond):
+		}
+		_, result3 := startWorker(t, w3)
+		<-entered3
+		w3.StopClaiming()
+		stop()
+		select {
+		case err := <-finished:
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("Finish at its drain bound returned %v", err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("Finish did not cancel the handler at its drain bound")
+		}
+		if err := <-result3; err != nil {
+			t.Fatalf("Run returned %v", err)
+		}
+		if row := readRow(t, db, o.ID); row.State != OutcomeUnknown || w3.Stats().Delivered != 0 {
+			t.Fatalf("the canceled handler left %+v", row)
+		}
+		if count(t, db, "SELECT count(*) FROM stego_outbox.messages WHERE state = 'dispatching'") != 0 {
+			t.Fatal("a message stays in dispatching")
 		}
 	})
 }
@@ -440,6 +547,34 @@ func TestWorkerMetrics(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RP01-LC07-T01 A message resolved as acted records its delay", func(t *testing.T) {
+		db, _ := testDatabase(t)
+		clock := newClock()
+		q := newQueue(t, db, clock)
+		m := message("billing", "one")
+		enqueue(t, db, q, m)
+		reader, provider := metricReader()
+		w := newWorker(t, q, func(c *WorkerConfig) {
+			c.Meter = provider
+			c.Decider = &fakeDecider{allow: true}
+			c.Auditor = tableAuditor{}
+		})
+		register(t, w, Destination{Name: "billing", Handler: func(context.Context, Delivery) error {
+			return PermanentRefusal(errors.New("400"))
+		}})
+		cycle(t, w)
+		clock.Advance(5 * time.Second)
+		resolve(t, db, w, m.ID, Acted)
+		found := collect(t, reader, "outbox.delivery.delay")
+		if len(found) != 1 {
+			t.Fatalf("outbox.delivery.delay is %+v", found)
+		}
+		histogram := found[0].Data.(metricdata.Histogram[float64])
+		if len(histogram.DataPoints) != 1 || histogram.DataPoints[0].Count != 1 || histogram.DataPoints[0].Sum != 5 {
+			t.Fatalf("the observation is %+v", histogram.DataPoints)
+		}
+	})
+
 	t.Run("ST-SUP-RP01-LC07-T02 The oldest-age gauge shows a destination that does not deliver", func(t *testing.T) {
 		db, _ := testDatabase(t)
 		clock := newClock()
@@ -455,7 +590,7 @@ func TestWorkerMetrics(t *testing.T) {
 		}})
 		register(t, w, Destination{Name: "billing", Handler: func(context.Context, Delivery) error { return nil }})
 		blocked := make(chan int, 1)
-		go func() { n, _ := w.cycle(context.Background()); blocked <- n }()
+		go func() { n, _ := w.cycle(context.Background(), context.Background()); blocked <- n }()
 		<-entered
 		if n := cycle(t, w); n != 1 || readRowByKey(t, db, "billing", "one").State != Done {
 			t.Fatal("the billing message was not delivered")
@@ -523,15 +658,26 @@ func TestWorkerRegistration(t *testing.T) {
 	})
 
 	t.Run("ST-SUP-RP01-LC14-T02 A destination with no idempotency and no lookup is accepted", func(t *testing.T) {
-		w := newWorker(t, lazyQueue(t), nil)
-		if err := w.Register(Destination{Name: "billing", Handler: nop}); err != nil {
+		db, _ := testDatabase(t)
+		q := newQueue(t, db, nil)
+		m := message("billing", "charge:1")
+		enqueue(t, db, q, m)
+		w := newWorker(t, q, nil)
+		var calls atomic.Int32
+		if err := w.Register(Destination{Name: "billing", Handler: func(context.Context, Delivery) error {
+			calls.Add(1)
+			return nil
+		}}); err != nil {
 			t.Fatal(err)
 		}
-		result := make(chan error, 1)
-		go func() { result <- w.Run(context.Background()) }()
+		_, result := startWorker(t, w)
+		await(t, func() bool { return w.Stats().Delivered == 1 })
 		w.StopClaiming()
 		if err := <-result; err != nil {
 			t.Fatalf("the worker did not start and stop: %v", err)
+		}
+		if calls.Load() != 1 || readRow(t, db, m.ID).State != Done {
+			t.Fatalf("the worker claimed no work: %d calls, %+v", calls.Load(), readRow(t, db, m.ID))
 		}
 	})
 

@@ -140,6 +140,8 @@ type outcome struct {
 // request may have reached the destination; only a success ends in done.
 func classify(err error, expired bool) outcome {
 	switch m := markOf(err); {
+	case errors.Is(err, errHandlerPanic):
+		return outcome{to: OutcomeUnknown, failureCode: "handler-panic"}
 	case err != nil && m == markConflict:
 		return outcome{to: Pending, failureCode: "delivery-conflict", conflict: true}
 	case expired:
@@ -155,6 +157,31 @@ func classify(err error, expired bool) outcome {
 	default:
 		return outcome{to: OutcomeUnknown, failureCode: "delivery-failed"}
 	}
+}
+
+// errHandlerPanic stands for a handler or lookup that panicked. It keeps no part of the panic value, which can hold
+// the payload or a credential.
+var errHandlerPanic = errors.New("outbox: the handler panicked")
+
+// callHandler calls handler and turns a panic into errHandlerPanic, so the request may have reached the destination
+// and the message ends in outcome unknown, not in a crashed worker.
+func callHandler(ctx context.Context, handler Handler, d Delivery) (err error) {
+	defer func() {
+		if recover() != nil {
+			err = errHandlerPanic
+		}
+	}()
+	return handler(ctx, d)
+}
+
+// callLookup calls lookup and turns a panic into an error, which keeps the message in reconciling.
+func callLookup(ctx context.Context, lookup Lookup, request LookupRequest) (status LookupStatus, err error) {
+	defer func() {
+		if recover() != nil {
+			status, err = StatusUnknown, errHandlerPanic
+		}
+	}()
+	return lookup(ctx, request)
 }
 
 // LookupStatus is the answer of a status lookup.
@@ -213,7 +240,7 @@ func (w *Worker) dispatch(ctx context.Context, d Delivery, reg Destination) {
 		return
 	}
 	attempt, cancel := context.WithTimeout(ctx, w.config.AttemptTimeout)
-	err := reg.Handler(attempt, d)
+	err := callHandler(attempt, reg.Handler, d)
 	expired := errors.Is(attempt.Err(), context.DeadlineExceeded)
 	cancel()
 	result := classify(err, expired)
@@ -293,8 +320,8 @@ func (w *Worker) reconcile(ctx context.Context, d Delivery, reg Destination) {
 		return
 	}
 	attempt, cancel := context.WithTimeout(ctx, w.config.AttemptTimeout)
-	status, err := reg.Lookup(attempt, LookupRequest{ID: d.ID, OutgoingKey: d.OutgoingKey, Destination: d.Destination,
-		Tenant: d.Tenant})
+	status, err := callLookup(attempt, reg.Lookup, LookupRequest{ID: d.ID, OutgoingKey: d.OutgoingKey,
+		Destination: d.Destination, Tenant: d.Tenant})
 	cancel()
 	w.lookups.Add(1)
 	switch {
@@ -498,14 +525,15 @@ func (w *Worker) Resolve(ctx context.Context, tx *sql.Tx, request ResolveRequest
 		return err
 	}
 	var at time.Time
+	var seconds float64
 	err = tx.QueryRowContext(ctx, `WITH `+nowCTE+`
 		UPDATE stego_outbox.messages AS m SET state = $3, resolution = $4, resolved_by = $5, resolved_at = now.t,
 			parked_from = NULL, parked_at = NULL, available_at = now.t, failure_code = '',
 			attempts = CASE WHEN $3 = 'pending' THEN 0 ELSE m.attempts END, conflicts = 0, lookups = 0,
 			done_at = CASE WHEN $3 = 'done' THEN now.t ELSE m.done_at END
 		FROM now WHERE m.id = $2 AND m.state = 'parked'
-		RETURNING now.t`,
-		w.queue.now(), request.ID, string(to), string(request.Resolution), request.Subject).Scan(&at)
+		RETURNING now.t, pg_catalog.date_part('epoch', now.t - m.created_at)::float8`,
+		w.queue.now(), request.ID, string(to), string(request.Resolution), request.Subject).Scan(&at, &seconds)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotParked
 	}
@@ -515,6 +543,11 @@ func (w *Worker) Resolve(ctx context.Context, tx *sql.Tx, request ResolveRequest
 	if err := w.auditor.Record(ctx, tx, AuditEntry{MessageID: request.ID, Tenant: owner, Destination: destination,
 		Subject: request.Subject, Resolution: request.Resolution, At: at}); err != nil {
 		return fmt.Errorf("outbox: write the audit row of the resolution: %w", err)
+	}
+	if to == Done {
+		// A message resolved as acted reaches done; its delay is recorded here, before the caller commits
+		// (ST-SUP-RP01-LC07). A caller that rolls back leaves one observation of a message that is not done.
+		w.metrics.delivered(ctx, destination, time.Duration(seconds*float64(time.Second)))
 	}
 	return nil
 }

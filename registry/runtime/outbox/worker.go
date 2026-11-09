@@ -98,6 +98,8 @@ type Worker struct {
 	started      atomic.Bool
 	stop         chan struct{}
 	stopOnce     sync.Once
+	drain        chan struct{}
+	drainOnce    sync.Once
 	finished     chan struct{}
 
 	delivered           atomic.Uint64
@@ -132,7 +134,8 @@ func NewWorker(queue *Queue, config WorkerConfig) (*Worker, error) {
 		return nil, errors.New("outbox: a worker limit is out of its bounds")
 	}
 	w := &Worker{queue: queue, config: config, decider: config.Decider, auditor: config.Auditor,
-		destinations: map[string]Destination{}, stop: make(chan struct{}), finished: make(chan struct{})}
+		destinations: map[string]Destination{}, stop: make(chan struct{}), drain: make(chan struct{}),
+		finished: make(chan struct{})}
 	m, err := newMetrics(config.Meter, config.Logger, w)
 	if err != nil {
 		return nil, err
@@ -203,9 +206,12 @@ func (w *Worker) Stats() WorkerStats {
 }
 
 // Run claims and steps messages with at most Concurrency at one time (ST-SUP-RC18-OC17) until StopClaiming or the
-// end of ctx. It waits for every step that started, and a step that completed is still recorded
-// (ST-SUP-RC18-OC23). A handler that ignores its deadline can hold up the end; no goroutine is left behind to hide
-// that. Run returns nil after StopClaiming and the cancellation of ctx when ctx ended, and an error on a second run.
+// end of ctx. Claims run on a claim context that StopClaiming ends; handlers and lookups run on a separate work
+// context that only the end of ctx or the drain bound of Finish ends, so StopClaiming lets every claimed message
+// finish its step (ST-SUP-RP09-LC06). Run waits for every step that started, and a step that completed is still
+// recorded (ST-SUP-RC18-OC23). A handler that ignores its context can hold up the end; no goroutine is left behind
+// to hide that. Run returns nil after StopClaiming, the cancellation of ctx when ctx ended, and an error on a second
+// run.
 func (w *Worker) Run(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("outbox: the worker needs a context")
@@ -215,14 +221,22 @@ func (w *Worker) Run(ctx context.Context) error {
 	}
 	w.started.Store(true)
 	defer close(w.finished)
-	parent := ctx
-	ctx, cancel := context.WithCancel(parent)
-	defer cancel()
+	claimCtx, stopClaims := context.WithCancel(ctx)
+	defer stopClaims()
+	workCtx, stopWork := context.WithCancel(ctx)
+	defer stopWork()
 	go func() {
 		select {
 		case <-w.stop:
-			cancel()
-		case <-ctx.Done():
+			stopClaims()
+		case <-claimCtx.Done():
+		}
+	}()
+	go func() {
+		select {
+		case <-w.drain:
+			stopWork()
+		case <-workCtx.Done():
 		}
 	}()
 	var workers sync.WaitGroup
@@ -230,39 +244,46 @@ func (w *Worker) Run(ctx context.Context) error {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
-			w.runOne(ctx)
+			w.runOne(claimCtx, workCtx)
 		}()
 	}
 	workers.Wait()
-	if err := parent.Err(); err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	return nil
 }
 
 // StopClaiming stops new claims; Run then returns once the claimed messages are finished. It is the stop step of
-// the worker mode's shutdown (ST-SUP-RP09-LC06).
+// the worker mode's shutdown (ST-SUP-RP09-LC06). It does not cancel a handler that runs.
 func (w *Worker) StopClaiming() { w.stopOnce.Do(func() { close(w.stop) }) }
 
-// Finish waits until Run returned, or until ctx ends. It is the finish step of the worker mode's shutdown.
+// Finish waits until Run returned. It is the finish step of the worker mode's shutdown, and the end of ctx is its
+// drain bound: then Finish cancels the work context of the running handlers, waits a short time for Run to record
+// their results, and returns the end of ctx. Finish also waits for a Run that has not started yet, so call it only
+// for a worker whose Run is started.
 func (w *Worker) Finish(ctx context.Context) error {
-	if !w.started.Load() {
-		return nil
-	}
 	select {
 	case <-w.finished:
 		return nil
 	case <-ctx.Done():
-		return ctx.Err()
 	}
+	w.drainOnce.Do(func() { close(w.drain) })
+	timer := time.NewTimer(operationTimeout + time.Second)
+	defer timer.Stop()
+	select {
+	case <-w.finished:
+	case <-timer.C:
+	}
+	return ctx.Err()
 }
 
-func (w *Worker) runOne(ctx context.Context) {
+func (w *Worker) runOne(claimCtx, workCtx context.Context) {
 	var databaseAttempts int64
-	for ctx.Err() == nil {
-		n, err := w.cycle(ctx)
+	for claimCtx.Err() == nil {
+		n, err := w.cycle(claimCtx, workCtx)
 		if err != nil {
-			if ctx.Err() != nil {
+			if claimCtx.Err() != nil {
 				return
 			}
 			w.databaseFailures.Add(1)
@@ -270,27 +291,27 @@ func (w *Worker) runOne(ctx context.Context) {
 				databaseAttempts++
 			}
 			delay := jitterBackoff(w.config.PollInterval, max(5*time.Second, w.config.PollInterval), databaseAttempts)
-			if !waitWorker(ctx, delay) {
+			if !waitWorker(claimCtx, delay) {
 				return
 			}
 			continue
 		}
 		databaseAttempts = 0
-		if n == 0 && !waitWorker(ctx, w.config.PollInterval) {
+		if n == 0 && !waitWorker(claimCtx, w.config.PollInterval) {
 			return
 		}
 	}
 }
 
-// cycle claims at most one message and takes its next step. It claims only when this worker can deliver, so a
-// waiting batch never spends its lease before its step starts.
-func (w *Worker) cycle(ctx context.Context) (int, error) {
-	deliveries, err := w.queue.Claim(ctx, 1, w.config.LeaseDuration)
+// cycle claims at most one message on claimCtx and takes its next step on workCtx. It claims only when this worker
+// can deliver, so a waiting batch never spends its lease before its step starts.
+func (w *Worker) cycle(claimCtx, workCtx context.Context) (int, error) {
+	deliveries, err := w.queue.Claim(claimCtx, 1, w.config.LeaseDuration)
 	if err != nil {
 		return 0, err
 	}
 	for _, d := range deliveries {
-		w.step(ctx, d)
+		w.step(workCtx, d)
 	}
 	return len(deliveries), nil
 }

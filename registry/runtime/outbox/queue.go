@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS stego_outbox.messages (
 	CHECK ((state = 'parked') = (parked_from IS NOT NULL))
 );
 
-CREATE INDEX IF NOT EXISTS messages_open_order ON stego_outbox.messages (destination, resource_key, sequence)
+CREATE INDEX IF NOT EXISTS messages_open_order ON stego_outbox.messages (tenant_id, destination, resource_key, sequence)
 	WHERE state NOT IN ('done', 'discarded');
 CREATE INDEX IF NOT EXISTS messages_due ON stego_outbox.messages (available_at, sequence)
 	WHERE state IN ('pending', 'dispatching', 'outcome_unknown', 'reconciling');
@@ -194,7 +194,6 @@ func (q *Queue) Enqueue(ctx context.Context, tx *sql.Tx, messages ...Message) er
 	if len(messages) == 0 || len(messages) > MaxBatchSize {
 		return fmt.Errorf("outbox: a batch holds 1 to %d messages", MaxBatchSize)
 	}
-	keys := make(map[int64]bool)
 	seen := make(map[uuid.UUID]bool)
 	for _, message := range messages {
 		if err := validateMessage(message); err != nil {
@@ -204,13 +203,7 @@ func (q *Queue) Enqueue(ctx context.Context, tx *sql.Tx, messages ...Message) er
 			return errors.New("outbox: a message ID is twice in the batch")
 		}
 		seen[message.ID] = true
-		keys[lockKey(message.Destination, message.ResourceKey)] = true
 	}
-	ordered := make([]int64, 0, len(keys))
-	for key := range keys {
-		ordered = append(ordered, key)
-	}
-	sort.Slice(ordered, func(i, j int) bool { return ordered[i] < ordered[j] })
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 	var tenantID sql.NullString
@@ -220,6 +213,16 @@ func (q *Queue) Enqueue(ctx context.Context, tx *sql.Tx, messages ...Message) er
 	if tenantID.String == "" {
 		return errors.New("outbox: the transaction holds no tenant; open it with tenant.Begin")
 	}
+	// The ordering key is the tenant, the destination and the resource key: two tenants never share a key.
+	keys := make(map[int64]bool)
+	for _, message := range messages {
+		keys[lockKey(tenantID.String, message.Destination, message.ResourceKey)] = true
+	}
+	ordered := make([]int64, 0, len(keys))
+	for key := range keys {
+		ordered = append(ordered, key)
+	}
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i] < ordered[j] })
 	for _, key := range ordered {
 		if _, err := tx.ExecContext(ctx, `SELECT pg_catalog.pg_advisory_xact_lock($1)`, key); err != nil {
 			return canceled(ctx, err)
@@ -250,8 +253,8 @@ func (q *Queue) Enqueue(ctx context.Context, tx *sql.Tx, messages ...Message) er
 	return nil
 }
 
-func lockKey(destination, resourceKey string) int64 {
-	hash := sha256.Sum256([]byte("stego-outbox\x00" + destination + "\x00" + resourceKey))
+func lockKey(tenantID, destination, resourceKey string) int64 {
+	hash := sha256.Sum256([]byte("stego-outbox\x00" + tenantID + "\x00" + destination + "\x00" + resourceKey))
 	return int64(binary.BigEndian.Uint64(hash[:8]))
 }
 
@@ -279,7 +282,8 @@ ready AS (
 		AND m.available_at <= now.t
 		AND (m.lease_until IS NULL OR m.lease_until <= now.t)
 		AND NOT EXISTS (SELECT 1 FROM stego_outbox.messages AS earlier
-			WHERE earlier.destination = m.destination AND earlier.resource_key = m.resource_key
+			WHERE earlier.tenant_id = m.tenant_id AND earlier.destination = m.destination
+					AND earlier.resource_key = m.resource_key
 				AND earlier.sequence < m.sequence AND earlier.state NOT IN ('done', 'discarded'))
 	ORDER BY m.sequence LIMIT $2 FOR UPDATE OF m SKIP LOCKED
 )
@@ -482,6 +486,7 @@ func (q *Queue) Retry(ctx context.Context, receipt Receipt, delay time.Duration,
 // BlockedMessage is one key whose earliest open message cannot be claimed now: it is leased, waits for its retry
 // or its next step, or is parked. It holds no payload and no error text.
 type BlockedMessage struct {
+	TenantID     string
 	Destination  string
 	ResourceKey  string
 	State        State
@@ -504,11 +509,13 @@ func (q *Queue) Blocked(ctx context.Context, limit int) ([]BlockedMessage, error
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 	rows, err := q.db.QueryContext(ctx, `WITH `+nowCTE+`
-		SELECT m.destination, m.resource_key, m.state, m.attempts, m.failure_code, m.available_at, m.created_at
+		SELECT m.tenant_id, m.destination, m.resource_key, m.state, m.attempts, m.failure_code, m.available_at,
+			m.created_at
 		FROM stego_outbox.messages AS m, now
 		WHERE m.state NOT IN ('done', 'discarded')
 			AND NOT EXISTS (SELECT 1 FROM stego_outbox.messages AS earlier
-				WHERE earlier.destination = m.destination AND earlier.resource_key = m.resource_key
+				WHERE earlier.tenant_id = m.tenant_id AND earlier.destination = m.destination
+					AND earlier.resource_key = m.resource_key
 					AND earlier.sequence < m.sequence AND earlier.state NOT IN ('done', 'discarded'))
 			AND (m.state IN ('dispatching', 'outcome_unknown', 'reconciling', 'parked')
 				OR (m.lease_until IS NOT NULL AND m.lease_until > now.t)
@@ -522,7 +529,7 @@ func (q *Queue) Blocked(ctx context.Context, limit int) ([]BlockedMessage, error
 	for rows.Next() {
 		var item BlockedMessage
 		var state string
-		if err := rows.Scan(&item.Destination, &item.ResourceKey, &state, &item.Attempts, &item.FailureCode,
+		if err := rows.Scan(&item.TenantID, &item.Destination, &item.ResourceKey, &state, &item.Attempts, &item.FailureCode,
 			&item.AvailableAt, &item.BlockedSince); err != nil {
 			return nil, canceled(ctx, err)
 		}

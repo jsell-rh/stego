@@ -150,8 +150,14 @@ func message(destination, key string) Message {
 // enqueue writes messages in one transaction of tenant-a through tenant.Begin and tenant.Commit.
 func enqueue(t testing.TB, db *sql.DB, q *Queue, messages ...Message) {
 	t.Helper()
+	enqueueAs(t, db, q, "tenant-a", messages...)
+}
+
+// enqueueAs writes messages in one transaction of the tenant tenantID.
+func enqueueAs(t testing.TB, db *sql.DB, q *Queue, tenantID string, messages ...Message) {
+	t.Helper()
 	ctx := context.Background()
-	tn := testTenant(t, "tenant-a")
+	tn := testTenant(t, tenantID)
 	tx, err := tenant.Begin(ctx, db, tn, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -383,6 +389,49 @@ func TestQueueClaim(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RP01-LC03-T02 Two workers keep the order of one key", func(t *testing.T) {
+		db, _ := testDatabase(t)
+		q := newQueue(t, db, nil)
+		first, second := message("audit", "one"), message("audit", "one")
+		enqueue(t, db, q, first, second)
+		var mu sync.Mutex
+		var order []uuid.UUID
+		entered, release := make(chan struct{}), make(chan struct{})
+		handler := func(_ context.Context, d Delivery) error {
+			if d.ID == first.ID {
+				close(entered)
+				<-release
+			}
+			mu.Lock()
+			order = append(order, d.ID)
+			mu.Unlock()
+			return nil
+		}
+		var workers []*Worker
+		for i := 0; i < 2; i++ {
+			w := newWorker(t, q, func(c *WorkerConfig) { c.AttemptTimeout = 5 * time.Second })
+			register(t, w, Destination{Name: "audit", Handler: handler})
+			workers = append(workers, w)
+			startWorker(t, w)
+		}
+		<-entered
+		// Both workers poll while the first message is in flight; the second message of its key must wait.
+		time.Sleep(200 * time.Millisecond)
+		if row := readRow(t, db, second.ID); row.State != Pending || row.Attempts != 0 {
+			t.Fatalf("the second message of the key was claimed while the first was in flight: %+v", row)
+		}
+		close(release)
+		await(t, func() bool { return workers[0].Stats().Delivered+workers[1].Stats().Delivered == 2 })
+		for _, w := range workers {
+			w.StopClaiming()
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if len(order) != 2 || order[0] != first.ID || order[1] != second.ID {
+			t.Fatalf("the delivery order is %v", order)
+		}
+	})
+
 	t.Run("ST-SUP-RP01-LC03-T02 A retry holds only its own key", func(t *testing.T) {
 		db, _ := testDatabase(t)
 		clock := newClock()
@@ -476,7 +525,7 @@ func crashHelper(mode string) {
 		}}); err != nil {
 			os.Exit(2)
 		}
-		_, _ = w.cycle(ctx)
+		_, _ = w.cycle(ctx, ctx)
 		os.Exit(2)
 	}
 	os.Exit(2)
