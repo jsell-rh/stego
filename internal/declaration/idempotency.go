@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jsell-rh/stego/internal/types"
 )
@@ -98,4 +99,47 @@ func operationList(operations []types.Operation) string {
 		names[i] = string(operation)
 	}
 	return strings.Join(names, ", ")
+}
+
+// idempotencyFingerprints are the values Fingerprint may take: only body, the fingerprint over the method, the
+// route and the canonical body that the runtime computes (ST-SUP-RP07-LC05).
+func idempotencyFingerprints() []string { return []string{"body"} }
+
+// maxIdempotencyRetention is the longest retention the runtime can keep a key for: Wrap adds the retention to the
+// completion time as a Go duration, and Purge deletes the row when that time has passed (ST-SUP-RP07-LC07). A
+// longer retention does not parse as a duration.
+const maxIdempotencyRetention = time.Duration(1<<63 - 1)
+
+// validateIdempotencyValues checks the values of the idempotency setting (ST-DECL-INV82): Fingerprint, when given,
+// is body, and Retention, when given, is a Go duration greater than zero that the runtime can hold, such as 24h or
+// 48h. Each fault names the value found and what is allowed there.
+func validateIdempotencyValues(service *types.ServiceDeclaration) []ValidationError {
+	if service == nil || service.Idempotency == nil {
+		return nil
+	}
+	var faults []ValidationError
+	if fingerprint := service.Idempotency.Fingerprint; fingerprint != "" && !slices.Contains(idempotencyFingerprints(), fingerprint) {
+		faults = append(faults, ValidationError{
+			Category: "idempotency",
+			Rule:     "idempotency-value",
+			Path:     "idempotency.fingerprint",
+			Found:    fingerprint,
+			Allowed:  idempotencyFingerprints(),
+			Message:  fmt.Sprintf("idempotency Fingerprint %q is unknown: the only fingerprint is body, which covers the method, the route and the body", fingerprint),
+		})
+	}
+	if retention := service.Idempotency.Retention; retention != "" {
+		duration, err := time.ParseDuration(retention)
+		if err != nil || duration <= 0 {
+			faults = append(faults, ValidationError{
+				Category: "idempotency",
+				Rule:     "idempotency-value",
+				Path:     "idempotency.retention",
+				Found:    retention,
+				Message: fmt.Sprintf("idempotency Retention %q is not a duration greater than zero and at most %s: give it in hours, minutes or seconds, such as 24h, 48h or 90m",
+					retention, maxIdempotencyRetention.Truncate(time.Hour)),
+			})
+		}
+	}
+	return faults
 }

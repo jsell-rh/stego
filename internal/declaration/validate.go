@@ -110,6 +110,7 @@ func Validate(service *types.ServiceDeclaration, undeclared ...parser.Undeclared
 
 	faults.Service = append(faults.Service, validateArchetype(service.Archetype)...)
 	faults.Service = append(faults.Service, validateIdempotency(service)...)
+	faults.Service = append(faults.Service, validateIdempotencyValues(service)...)
 	faults.Entities = append(faults.Entities, validateFieldTypes(service.Entities)...)
 	faults.Entities = append(faults.Entities, validateFieldDefaults(service.Entities)...)
 	for _, err := range types.ValidateVersioned(service.Entities, service.Collections) {

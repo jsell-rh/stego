@@ -75,3 +75,46 @@ func TestIdempotencyOnIgnoredMethod(t *testing.T) {
 		}
 	})
 }
+
+// td02IdempotencyValues is ST-DECL-TD02 with idempotency required on create and the setting lines given.
+func td02IdempotencyValues(t *testing.T, lines string) *types.ServiceDeclaration {
+	t.Helper()
+	data := strings.Replace(td02Fields, "%s", "      - {name: title, type: string, min_length: 1, max_length: 255}\n      - {name: done, type: bool, default: false}", 1)
+	data += "idempotency:\n  required_on: [create]\n" + lines
+	service, undeclared, err := parser.ReadServiceDeclaration([]byte(data), "service.yaml")
+	if err != nil || len(undeclared) != 0 {
+		t.Fatalf("read the declaration: %v %v", err, undeclared)
+	}
+	return service
+}
+
+func TestIdempotencyValues(t *testing.T) {
+	t.Run("ST-DECL-INV82-T An unknown fingerprint or a retention that the runtime cannot keep is refused", func(t *testing.T) {
+		for _, accepted := range []string{"", "  fingerprint: body\n", "  retention: 24h\n", "  retention: 48h\n", "  retention: 90m\n", "  retention: 2562047h\n"} {
+			if faults := Validate(td02IdempotencyValues(t, accepted)).All(); len(faults) != 0 {
+				t.Errorf("%q: want no fault, got %+v", accepted, faults)
+			}
+		}
+		for _, refused := range []struct{ path, value string }{
+			{"fingerprint", "body+query"}, {"fingerprint", "none"}, {"fingerprint", "bodyy"},
+			{"retention", "0s"}, {"retention", "-1h"}, {"retention", "1d"}, {"retention", "forever"}, {"retention", "2562048h"},
+		} {
+			var faults []ValidationError
+			for _, fault := range Validate(td02IdempotencyValues(t, "  "+refused.path+": "+refused.value+"\n")).All() {
+				if fault.Rule == "idempotency-value" {
+					faults = append(faults, fault)
+				}
+			}
+			if len(faults) != 1 || faults[0].Path != "idempotency."+refused.path || faults[0].Found != refused.value {
+				t.Errorf("%s %s: want one fault at idempotency.%s that names the value, got %+v", refused.path, refused.value, refused.path, faults)
+				continue
+			}
+			if refused.path == "fingerprint" && strings.Join(faults[0].Allowed, ",") != "body" {
+				t.Errorf("fingerprint %s: the fault allows %v, want body only", refused.value, faults[0].Allowed)
+			}
+			if refused.path == "retention" && !strings.Contains(faults[0].Message, "24h") {
+				t.Errorf("retention %s: the fault gives no example of a duration: %s", refused.value, faults[0].Message)
+			}
+		}
+	})
+}
