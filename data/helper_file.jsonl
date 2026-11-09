@@ -1,6 +1,7 @@
 {"record_id":"ST-BLD-CMD03-H","file":"internal/appbuild/modules.go"}
 {"record_id":"ST-BLD-CMD03-H","file":"internal/appbuild/process_linux.go"}
 {"record_id":"ST-BLD-CMD03-H","file":"internal/appbuild/process_other.go"}
+{"record_id":"ST-DECL-INV37-RL","file":"internal/declaration/operation.go"}
 {"record_id":"ST-DECL-RM01-PJ","file":"internal/declaration/settings_report.go"}
 {"record_id":"ST-DIS-EN06-TB","file":"registry/lifecycle/README.md"}
 {"record_id":"ST-EXT-CMD01-H","file":"cmd/stego/scaffold.go"}

@@ -144,7 +144,8 @@ because the declaration leaves it out, such as `idempotency.retention` with
 declaration that says nothing of tenancy or audit. A default that the
 declaration leaves is a setting that is not a default, such as `tenancy.kind`
 with `single`, and its reason is the setting `tenancy.reason` or
-`audit.reason`.
+`audit.reason`. Each command gets `commands[i].retry_on_conflict` with `0` and
+`commands[i].lock_timeout` with `2s` when it leaves them out.
 
 Run `stego deps` after apply and after changes to application imports. It runs Go
 module resolution, module verification, and package dependency checks. It uses
