@@ -38,13 +38,6 @@ func projectFiles(t *testing.T, project string) map[string]string {
 	return files
 }
 
-// td03 is ST-DECL-TD02 with authorization bound to a fixture schema (ST-DECL-TD03).
-const td03 = td02 + `authorization:
-  provider: spicedb
-  schema: authz/schema.zed
-  subject: {from: identity, kind: user}
-`
-
 // td04 is ST-DECL-TD02 with a EUR ledger (ST-DECL-TD04).
 const td04 = `kind: service
 name: todo-svc
@@ -102,7 +95,7 @@ func TestCheckADeclaration(t *testing.T) {
 	t.Run("ST-DECL-UC03-R03-T01 Generation refuses no declaration that checking accepted, and refuses what checking refuses with the same faults", func(t *testing.T) {
 		candidates := map[string]func(t *testing.T) string{
 			"ST-DECL-TD02": func(t *testing.T) string { return td02Project(t, td02) },
-			"ST-DECL-TD03": func(t *testing.T) string { return td02Project(t, td03) },
+			"ST-DECL-TD03": func(t *testing.T) string { return td03Project(t, td03Service(t)) },
 			"ST-DECL-TD04": func(t *testing.T) string { return td02Project(t, td04) },
 		}
 		registry, _ := declaringRegistry(t)

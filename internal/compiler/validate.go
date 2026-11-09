@@ -120,6 +120,11 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 	}
 
 	result.Errors = append(result.Errors, own.Slots...)
+	authorization, err := checkAuthorization(svcDecl, input.ProjectDir)
+	if err != nil {
+		return nil, err
+	}
+	result.Errors = append(result.Errors, authorization...)
 	if err := validateSlotVarNameUniqueness(svcDecl.Slots); err != nil {
 		result.Errors = append(result.Errors, ValidationError{Category: "slot-binding", Rule: "slot-variable-name", Path: "slots", Message: err.Error()})
 	}
@@ -512,4 +517,18 @@ func ActiveComponents(reg *registry.Registry, archetypeName string) (map[string]
 		return nil, fmt.Errorf("archetype %q has no active component set: %s", archetypeName, strings.Join(messages, "; "))
 	}
 	return components, nil
+}
+
+// checkAuthorization runs Declaring's authorization checks with the project folder opened as a root, so that the
+// schema the declaration names is read only from inside the service's own source, also through a symbolic link.
+func checkAuthorization(service *types.ServiceDeclaration, projectDir string) ([]ValidationError, error) {
+	if service.Authorization == nil || service.Authorization.SchemaPath == "" {
+		return declaration.CheckAuthorization(service, nil), nil
+	}
+	root, err := os.OpenRoot(projectDir)
+	if err != nil {
+		return nil, fmt.Errorf("opening the project folder to read the authorization schema: %w", err)
+	}
+	defer root.Close()
+	return declaration.CheckAuthorization(service, root.FS()), nil
 }

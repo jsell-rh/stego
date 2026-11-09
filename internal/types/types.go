@@ -95,6 +95,8 @@ type Entity struct {
 	Conditions       map[string][]string `yaml:"conditions,omitempty"`
 	CleanupTargets   map[string]string   `yaml:"cleanup_targets,omitempty"`
 	CleanupOwners    []string            `yaml:"cleanup_owners,omitempty"`
+	// EntityAuthorization holds the entity's resource type, permissions and relationships (ST-DECL-UC06).
+	EntityAuthorization `yaml:",inline"`
 }
 
 // Convention captures the archetype's conventions.
@@ -226,6 +228,8 @@ type SlotDeclaration struct {
 	Chain        []string `yaml:"chain,omitempty"`
 	FanOut       []string `yaml:"fan-out,omitempty"`
 	ShortCircuit bool     `yaml:"short_circuit,omitempty"`
+	// SlotAuthorization holds the principal the fills run as and the relations they may write (ST-DECL-UC06).
+	SlotAuthorization `yaml:",inline"`
 }
 
 // YAMLRenamedKeys marks SlotDeclaration as a parser.RenamedKeys: the strict
@@ -267,6 +271,7 @@ type ServiceDeclaration struct {
 	Mixins              []string          `yaml:"mixins,omitempty"`
 	Overrides           map[string]any    `yaml:"overrides,omitempty"`
 	FillModules         []FillModule      `yaml:"fill_modules,omitempty"`
+	Authorization       *Authorization    `yaml:"authorization,omitempty"`
 }
 
 // UnmarshalYAML implements custom YAML unmarshaling for ServiceDeclaration.
@@ -456,6 +461,14 @@ func (sd ServiceDeclaration) MarshalYAML() (any, error) {
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "overrides"},
 			oNode.Content[0],
 		)
+	}
+
+	if sd.Authorization != nil {
+		aNode := &yaml.Node{}
+		if err := aNode.Encode(sd.Authorization); err != nil {
+			return nil, err
+		}
+		m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "authorization"}, aNode)
 	}
 
 	return &m, nil
