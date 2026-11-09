@@ -163,6 +163,7 @@ type fakeRelationships struct {
 	before func(n int, resource string)
 	events []string
 	onHead func()
+	given  map[string][]Token
 	calls  int
 	headN  int
 	starts int
@@ -294,12 +295,24 @@ func (f *fakeRelationships) Write(ctx context.Context, touches []Tuple, deletes 
 		f.events = append(f.events, "marker")
 	}
 	token, err := f.answer()
-	if err != nil || !marker || len(f.heads) == 0 {
-		return token, err
+	if err == nil && marker && len(f.heads) > 0 {
+		token = f.heads[0]
+		f.heads = f.heads[1:]
 	}
-	token = f.heads[0]
-	f.heads = f.heads[1:]
-	return token, nil
+	if err == nil {
+		if f.given == nil {
+			f.given = map[string][]Token{}
+		}
+		f.given[resource] = append(f.given[resource], token)
+	}
+	return token, err
+}
+
+// tokensOf gives the tokens that the fake answered for writes of the resource ID resource.
+func (f *fakeRelationships) tokensOf(resource string) []Token {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]Token(nil), f.given[resource]...)
 }
 
 // mark answers a TOUCH of the floor marker alone, as Check sends it, with the next marker token.
@@ -1265,11 +1278,6 @@ func TestHandleWrites(t *testing.T) {
 		}
 		return s
 	}
-	// resolver builds a worker that can resolve, with the runtime as its decision port.
-	resolver := func(t *testing.T, env *pgEnv, rt *Runtime, relay *Relay) *outbox.Worker {
-		t.Helper()
-		return env.newWorker(t, relay, func(c *outbox.WorkerConfig) { c.Decider = rt; c.Auditor = fakeAuditor{} })
-	}
 
 	t.Run("ST-SUP-RP06-LC15-T01 A revocation of two tuples is complete only when both are done, with the floor of its last delivery", func(t *testing.T) {
 		env := newPG(t)
@@ -1277,7 +1285,7 @@ func TestHandleWrites(t *testing.T) {
 		release := make(chan struct{})
 		var releaseOnce sync.Once
 		free := func() { releaseOnce.Do(func() { close(release) }) }
-		// The write of document:2 waits for the release; the two tuples are delivered in parallel.
+		// The write of document:2 waits for the release.
 		fake := &fakeRelationships{heads: []Token{named("h", 5), named("h", 8)}, before: func(_ int, resource string) {
 			if resource == "2" {
 				<-release
@@ -1287,7 +1295,13 @@ func TestHandleWrites(t *testing.T) {
 		if s := status(t, rt, revocation); s.State != RevocationPending {
 			t.Fatalf("after the commit the state is %+v, want pending", s)
 		}
-		env.startWorker(t, env.relay(t, fake))
+		// The relay holds the floor lock while it writes, so the deliveries run one after another: one step at a
+		// time, in enqueue order, and a long attempt timeout, so the held write is not given up and sent again.
+		run(t, env.newWorker(t, env.relay(t, fake), func(c *outbox.WorkerConfig) {
+			c.Concurrency = 1
+			c.AttemptTimeout = 20 * time.Second
+			c.LeaseDuration = 45 * time.Second
+		}))
 		t.Cleanup(free)
 		env.waitState(t, ids[0], outbox.Done)
 		if s := status(t, rt, revocation); s.State != RevocationPending || !s.Token.IsZero() {
@@ -1295,8 +1309,21 @@ func TestHandleWrites(t *testing.T) {
 		}
 		free()
 		env.waitState(t, ids[1], outbox.Done)
-		if s := status(t, rt, revocation); s.State != RevocationComplete || s.Token != named("h", 8) {
-			t.Fatalf("after the second delivery the state is %+v, want complete with h-8", s)
+		// The record keeps the floor of the last delivery: the written_at token of a write of document:2, the tuple
+		// that became done last, whichever attempt of it landed.
+		s := status(t, rt, revocation)
+		last := fake.tokensOf("2")
+		landed := false
+		for _, token := range last {
+			landed = landed || s.Token == token
+		}
+		if s.State != RevocationComplete || !landed || s.Token.Text() != env.scalar(t, "SELECT token FROM {s}.authz_revocations WHERE id = $1", revocation.ID()) {
+			t.Fatalf("after the second delivery the state is %+v, want complete with a token of document:2's write %v", s, last)
+		}
+		for _, token := range fake.tokensOf("1") {
+			if s.Token == token {
+				t.Fatalf("the revocation holds the token %q of the first delivery", token.Text())
+			}
 		}
 	})
 
@@ -1351,8 +1378,23 @@ func TestHandleWrites(t *testing.T) {
 				<-release
 			}
 		}})
-		revocation, ids := twoTuples(t, env, rt)
-		worker := resolver(t, env, rt, relay)
+		// The delete is enqueued first, and the worker takes one step at a time: the relay holds the floor lock while it
+		// writes, so the held touch must come after the delete has parked.
+		tx, handle := env.begin(t, rt, "t1", mustPerson(t, "alice"), rel("document#banned"), rel("document#viewer"))
+		revocation, err := handle.Unrelate(ctx, Tuple{Resource: doc("2"), Relation: "viewer", Subject: user("bob")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := handle.Relate(ctx, Tuple{Resource: doc("1"), Relation: "banned", Subject: user("bob")}); err != nil {
+			t.Fatal(err)
+		}
+		env.commit(t, tx, "t1")
+		order := env.ids(t)
+		ids := []uuid.UUID{order[1], order[0]} // the touch of document:1, then the delete of document:2
+		worker := env.newWorker(t, relay, func(c *outbox.WorkerConfig) {
+			c.Decider, c.Auditor, c.Concurrency = rt, fakeAuditor{}, 1
+			c.AttemptTimeout, c.LeaseDuration = 20*time.Second, 45*time.Second
+		})
 		run(t, worker)
 		t.Cleanup(free)
 		env.waitState(t, ids[1], outbox.Parked)
