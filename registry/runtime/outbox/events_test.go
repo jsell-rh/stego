@@ -2,6 +2,7 @@ package outbox
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -69,9 +70,15 @@ func noEvent(t *testing.T, sub Subscription) {
 	}
 }
 
+// subscribe subscribes for tenant-a.
 func subscribe(t *testing.T, source *Source) Subscription {
 	t.Helper()
-	sub, err := source.Subscribe(context.Background())
+	return subscribeFor(t, source, "tenant-a")
+}
+
+func subscribeFor(t *testing.T, source *Source, tenantID string) Subscription {
+	t.Helper()
+	sub, err := source.Subscribe(context.Background(), testTenant(t, tenantID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +89,7 @@ func subscribe(t *testing.T, source *Source) Subscription {
 func TestEventsNotice(t *testing.T) {
 	t.Run("ST-SUP-RP01-LC01-T02 Notices reach every session after the commit, in commit order", func(t *testing.T) {
 		db, dsn := testDatabase(t)
-		q := newQueue(t, db, nil)
+		q := liveQueue(t, db)
 		first, _, _ := startSource(t, dsn)
 		second, _, _ := startSource(t, dsn)
 		a, b := subscribe(t, first), subscribe(t, second)
@@ -108,8 +115,7 @@ func TestEventsNotice(t *testing.T) {
 		}
 		for _, sub := range []Subscription{a, b} {
 			event := nextEvent(t, sub)
-			if event.ID != value.ID || event.ResourceKey != value.ResourceKey || event.Kind != value.Kind ||
-				event.Destination != value.Destination || event.TenantID != "tenant-a" {
+			if event.ID != value.ID || event.ResourceKey != value.ResourceKey || event.Destination != value.Destination {
 				t.Fatalf("the event is %+v", event)
 			}
 			data, _ := json.Marshal(event)
@@ -117,7 +123,7 @@ func TestEventsNotice(t *testing.T) {
 				t.Fatal("the notice holds the payload")
 			}
 			var found bool
-			if err := db.QueryRow(`SELECT EXISTS (SELECT 1 FROM records WHERE id = $1)`, event.ResourceKey).Scan(&found); err != nil || !found {
+			if err := admin(t, db).QueryRow(`SELECT EXISTS (SELECT 1 FROM records WHERE id = $1)`, event.ResourceKey).Scan(&found); err != nil || !found {
 				t.Fatal("the event came before the committed row")
 			}
 		}
@@ -148,9 +154,9 @@ func TestEventsBounds(t *testing.T) {
 		_, dsn := testDatabase(t)
 		source, _, _ := startSource(t, dsn)
 		slow, fast := subscribe(t, source), subscribe(t, source)
-		event := Event{ID: uuid.New(), TenantID: "tenant-a", Destination: "audit", ResourceKey: "record", Kind: "record.updated"}
+		event := Event{ID: uuid.New(), Destination: "audit", ResourceKey: "record"}
 		for range SubscriptionBuffer + 1 {
-			source.dispatch(event)
+			source.dispatch("tenant-a", event)
 			if nextEvent(t, fast).ID != event.ID {
 				t.Fatal("the fast subscriber lost an event")
 			}
@@ -161,20 +167,20 @@ func TestEventsBounds(t *testing.T) {
 		fast.Close()
 		var subs []Subscription
 		for range MaxSubscriptions {
-			sub, err := source.Subscribe(context.Background())
+			sub, err := source.Subscribe(context.Background(), testTenant(t, "tenant-a"))
 			if err != nil {
 				t.Fatal(err)
 			}
 			subs = append(subs, sub)
 		}
-		if _, err := source.Subscribe(context.Background()); !errors.Is(err, ErrEventCapacity) {
+		if _, err := source.Subscribe(context.Background(), testTenant(t, "tenant-a")); !errors.Is(err, ErrEventCapacity) {
 			t.Fatalf("the subscription limit was passed: %v", err)
 		}
 		for _, sub := range subs {
 			sub.Close()
 		}
 		ctx, cancel := context.WithCancel(context.Background())
-		sub, err := source.Subscribe(ctx)
+		sub, err := source.Subscribe(ctx, testTenant(t, "tenant-a"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -183,18 +189,18 @@ func TestEventsBounds(t *testing.T) {
 			t.Fatalf("the canceled subscription returned %v", err)
 		}
 		source.Close()
-		if _, err := source.Subscribe(context.Background()); !errors.Is(err, ErrEventSourceUnavailable) {
+		if _, err := source.Subscribe(context.Background(), testTenant(t, "tenant-a")); !errors.Is(err, ErrEventSourceUnavailable) {
 			t.Fatal("the closed source accepted a subscription")
 		}
 	})
 
 	t.Run("ST-SUP-RP01-LC05-T03 A lost notice session stops the source and its subscriptions", func(t *testing.T) {
 		db, dsn := testDatabase(t)
-		q := newQueue(t, db, nil)
+		q := liveQueue(t, db)
 		source, conn, done := startSource(t, dsn)
 		sub := subscribe(t, source)
 		pid := conn.PgConn().PID()
-		if _, err := db.Exec(`SELECT pg_terminate_backend($1)`, pid); err != nil {
+		if _, err := admin(t, db).Exec(`SELECT pg_terminate_backend($1)`, pid); err != nil {
 			t.Fatal(err)
 		}
 		select {
@@ -208,7 +214,7 @@ func TestEventsBounds(t *testing.T) {
 		if _, err := sub.Next(context.Background()); !errors.Is(err, ErrEventSourceUnavailable) {
 			t.Fatalf("the subscription outlived the session: %v", err)
 		}
-		if _, err := source.Subscribe(context.Background()); !errors.Is(err, ErrEventSourceUnavailable) {
+		if _, err := source.Subscribe(context.Background(), testTenant(t, "tenant-a")); !errors.Is(err, ErrEventSourceUnavailable) {
 			t.Fatal("the failed source took a new subscription")
 		}
 		replacement, _, _ := startSource(t, dsn)
@@ -217,6 +223,82 @@ func TestEventsBounds(t *testing.T) {
 		enqueue(t, db, q, value)
 		if nextEvent(t, next).ID != value.ID {
 			t.Fatal("the replacement source missed the notice")
+		}
+	})
+}
+
+// liveQueue is a queue of a service that declares a live event source.
+func liveQueue(t testing.TB, db *sql.DB) *Queue {
+	t.Helper()
+	q, err := New(db, Options{LiveEvents: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return q
+}
+
+func TestEventsTenant(t *testing.T) {
+	t.Run("ST-SUP-RP01-LC21-T01 A subscriber gets only its own tenant's events", func(t *testing.T) {
+		db, dsn := testDatabase(t)
+		q := liveQueue(t, db)
+		source, _, _ := startSource(t, dsn)
+		if _, err := source.Subscribe(context.Background(), tenant.Tenant{}); !errors.Is(err, tenant.ErrZero) {
+			t.Fatalf("the zero tenant gave %v", err)
+		}
+		a, b := subscribeFor(t, source, "t1"), subscribeFor(t, source, "t2")
+		one, two := message("audit", "doc:1"), message("audit", "doc:1")
+		enqueueAs(t, db, q, "t1", one)
+		enqueueAs(t, db, q, "t2", two)
+		if got := nextEvent(t, a); got.ID != one.ID {
+			t.Fatalf("t1 got %+v", got)
+		}
+		if got := nextEvent(t, b); got.ID != two.ID {
+			t.Fatalf("t2 got %+v", got)
+		}
+		noEvent(t, a)
+		noEvent(t, b)
+	})
+
+	t.Run("ST-SUP-RP01-LC21-T02 A bad notice is counted and skipped", func(t *testing.T) {
+		db, dsn := testDatabase(t)
+		q := liveQueue(t, db)
+		source, _, done := startSource(t, dsn)
+		sub := subscribeFor(t, source, "t1")
+		forged := Event{ID: uuid.New(), Destination: "audit", ResourceKey: "doc:1"}
+		payload, err := encodeNotice("t1", forged)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`SELECT pg_notify($1, $2), pg_notify($1, $3)`, NoticeChannel, "not an event", payload); err != nil {
+			t.Fatal(err)
+		}
+		if got := nextEvent(t, sub); got.ID != forged.ID {
+			t.Fatalf("the forged event is %+v", got)
+		}
+		real := message("audit", "doc:2")
+		enqueueAs(t, db, q, "t1", real)
+		if got := nextEvent(t, sub); got.ID != real.ID {
+			t.Fatalf("the real event is %+v", got)
+		}
+		if source.BadNotices() != 1 {
+			t.Fatalf("%d bad notices are counted", source.BadNotices())
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("the source stopped: %v", err)
+		default:
+		}
+		// The subscriber reads the hint again under row-level security: the forged one finds no message.
+		ctx := context.Background()
+		tx, err := tenant.Begin(ctx, db, testTenant(t, "t1"), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback() }()
+		var n int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM stego_outbox.messages WHERE id = ANY(ARRAY[$1, $2]::uuid[])`,
+			forged.ID, real.ID).Scan(&n); err != nil || n != 1 {
+			t.Fatalf("the read again found %d messages: %v", n, err)
 		}
 	})
 }

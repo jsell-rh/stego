@@ -19,7 +19,9 @@ import (
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
+	"stego.dev/runtime/audit"
 	"stego.dev/runtime/idempotency"
+	"stego.dev/runtime/tenant"
 )
 
 // fakeDestination is the fake destination billing: an HTTP server that records each request it gets with its
@@ -73,7 +75,7 @@ func newDestination(t *testing.T, answers ...string) *fakeDestination {
 	return f
 }
 
-func (f *fakeDestination) handler(ctx context.Context, d Delivery) error {
+func (f *fakeDestination) handler(ctx context.Context, _ *sql.Tx, d Delivery) error {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, f.server.URL, bytes.NewReader(d.Payload))
 	if err != nil {
 		return NotSent(err)
@@ -132,9 +134,17 @@ func (tableAuditor) Record(ctx context.Context, tx *sql.Tx, e AuditEntry) error 
 	return err
 }
 
+// resolveAs resolves a message in a transaction of tenant-a.
 func resolveAs(t *testing.T, db *sql.DB, w *Worker, id uuid.UUID, subject string, r Resolution) error {
 	t.Helper()
-	tx, err := db.BeginTx(context.Background(), nil)
+	return resolveIn(t, db, w, "tenant-a", id, subject, r)
+}
+
+// resolveIn resolves a message in a transaction of the tenant tenantID and commits it with tenant.Commit.
+func resolveIn(t *testing.T, db *sql.DB, w *Worker, tenantID string, id uuid.UUID, subject string, r Resolution) error {
+	t.Helper()
+	tn := testTenant(t, tenantID)
+	tx, err := tenant.Begin(context.Background(), db, tn, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +153,7 @@ func resolveAs(t *testing.T, db *sql.DB, w *Worker, id uuid.UUID, subject string
 	if err != nil {
 		return err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tenant.Commit(context.Background(), tx, tn); err != nil {
 		return err
 	}
 	resolved.Committed(context.Background())
@@ -265,7 +275,7 @@ func TestDispatchOutcome(t *testing.T) {
 		q := newQueue(t, db, newClock())
 		plain, notSent, transient, permanent := message("billing", "a"), message("billing", "b"), message("billing", "c"), message("billing", "d")
 		w := newWorker(t, q, nil)
-		register(t, w, Destination{Name: "billing", Handler: func(_ context.Context, d Delivery) error {
+		register(t, w, Destination{Name: "billing", Handler: func(_ context.Context, _ *sql.Tx, d Delivery) error {
 			switch d.ID {
 			case notSent.ID:
 				return NotSent(errors.New("dial failed"))
@@ -288,7 +298,7 @@ func TestDispatchOutcome(t *testing.T) {
 			if row := readRow(t, db, c.m.ID); row.State != c.want {
 				t.Fatalf("a message ended in %s, want %s", row.State, c.want)
 			}
-			if _, err := db.Exec("UPDATE stego_outbox.messages SET available_at = available_at + interval '1 day' WHERE id = $1", c.m.ID); err != nil {
+			if _, err := admin(t, db).Exec("UPDATE stego_outbox.messages SET available_at = available_at + interval '1 day' WHERE id = $1", c.m.ID); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -300,7 +310,7 @@ func TestDispatchOutcome(t *testing.T) {
 		m := message("billing", "charge:1")
 		enqueue(t, db, q, m)
 		w := newWorker(t, q, nil)
-		register(t, w, Destination{Name: "billing", Handler: func(context.Context, Delivery) error {
+		register(t, w, Destination{Name: "billing", Handler: func(context.Context, *sql.Tx, Delivery) error {
 			panic("the handler broke with password=hunter2")
 		}})
 		if n := cycle(t, w); n != 1 {
@@ -318,7 +328,7 @@ func TestDispatchOutcome(t *testing.T) {
 		runCrash(t, dsn, "handler")
 		clock := newClock()
 		w := newWorker(t, newQueue(t, db, clock), nil)
-		register(t, w, Destination{Name: "billing", Handler: func(context.Context, Delivery) error { return nil }})
+		register(t, w, Destination{Name: "billing", Handler: func(context.Context, *sql.Tx, Delivery) error { return nil }})
 		cycle(t, w)
 		if row := readRow(t, db, m.ID); row.State != OutcomeUnknown || row.Attempts != 1 || row.FailureCode != "lease-expired" {
 			t.Fatalf("the expired lease left %+v", row)
@@ -476,7 +486,7 @@ func TestDispatchReconcile(t *testing.T) {
 		w := newWorker(t, q, func(c *WorkerConfig) { c.AttemptTimeout = 10 * time.Second })
 		sent := clock.Now()
 		register(t, w, Destination{Name: "partner", Lookup: lookup.lookup, SettleTime: 30 * time.Second,
-			Handler: func(context.Context, Delivery) error {
+			Handler: func(context.Context, *sql.Tx, Delivery) error {
 				clock.Advance(time.Second)
 				return errors.New("the partner answered with a broken body")
 			}})
@@ -572,7 +582,7 @@ func TestDispatchPark(t *testing.T) {
 		enqueueAs(t, db, q, "tenant-a", parked)
 		enqueueAs(t, db, q, "tenant-b", other)
 		w := newWorker(t, q, nil)
-		register(t, w, Destination{Name: "billing", Handler: func(_ context.Context, d Delivery) error {
+		register(t, w, Destination{Name: "billing", Handler: func(_ context.Context, _ *sql.Tx, d Delivery) error {
 			if d.ID == parked.ID || d.ID == later.ID {
 				return PermanentRefusal(errors.New("400"))
 			}
@@ -599,7 +609,7 @@ func TestDispatchPark(t *testing.T) {
 		first, second, other := message("billing", "charge:1"), message("billing", "charge:1"), message("billing", "charge:2")
 		enqueue(t, db, q, first, second, other)
 		w := newWorker(t, q, nil)
-		register(t, w, Destination{Name: "billing", Handler: func(_ context.Context, d Delivery) error {
+		register(t, w, Destination{Name: "billing", Handler: func(_ context.Context, _ *sql.Tx, d Delivery) error {
 			if d.ID == first.ID {
 				return PermanentRefusal(errors.New("400"))
 			}
@@ -667,14 +677,14 @@ func TestDispatchResolve(t *testing.T) {
 		pending, reconciling, done := message("idle", "a"), message("partner", "b"), message("mail", "c")
 		enqueue(t, db, q, reconciling, done, pending)
 		w := resolvingWorker(t, q, &fakeDecider{allow: true})
-		register(t, w, Destination{Name: "partner", Handler: func(context.Context, Delivery) error { return errors.New("broken") },
+		register(t, w, Destination{Name: "partner", Handler: func(context.Context, *sql.Tx, Delivery) error { return errors.New("broken") },
 			Lookup: func(context.Context, LookupRequest) (LookupStatus, error) { return StatusUnknown, nil }, SettleTime: time.Hour})
-		register(t, w, Destination{Name: "mail", Handler: func(context.Context, Delivery) error { return nil }})
-		register(t, w, Destination{Name: "idle", MustLand: true, Handler: func(context.Context, Delivery) error { return nil }})
+		register(t, w, Destination{Name: "mail", Handler: func(context.Context, *sql.Tx, Delivery) error { return nil }})
+		register(t, w, Destination{Name: "idle", MustLand: true, Handler: func(context.Context, *sql.Tx, Delivery) error { return nil }})
 		cycle(t, w)
 		cycle(t, w)
 		cycle(t, w)
-		if _, err := db.Exec("UPDATE stego_outbox.messages SET available_at = available_at + interval '1 day' WHERE id = $1", pending.ID); err != nil {
+		if _, err := admin(t, db).Exec("UPDATE stego_outbox.messages SET available_at = available_at + interval '1 day' WHERE id = $1", pending.ID); err != nil {
 			t.Fatal(err)
 		}
 		for id, state := range map[uuid.UUID]State{pending.ID: Pending, reconciling.ID: Reconciling, done.ID: Done} {
@@ -713,7 +723,7 @@ func TestDispatchResolve(t *testing.T) {
 		m.OutgoingKey = "key-1"
 		enqueue(t, db, q, m)
 		w := resolvingWorker(t, q, &fakeDecider{allow: true})
-		register(t, w, Destination{Name: "mail", Idempotent: true, Handler: func(context.Context, Delivery) error {
+		register(t, w, Destination{Name: "mail", Idempotent: true, Handler: func(context.Context, *sql.Tx, Delivery) error {
 			return PermanentRefusal(errors.New("400"))
 		}})
 		cycle(t, w)
@@ -733,7 +743,7 @@ func TestDispatchResolve(t *testing.T) {
 	t.Run("ST-SUP-RP01-LC13-T06 The audit row of a resolution commits with the state change", func(t *testing.T) {
 		db, w, _, m := parkOne(t, &fakeDecider{allow: true}, "refuse")
 		ctx := context.Background()
-		tx, err := db.BeginTx(ctx, nil)
+		tx, err := tenant.Begin(ctx, db, testTenant(t, "tenant-a"), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -749,7 +759,7 @@ func TestDispatchResolve(t *testing.T) {
 		resolve(t, db, w, m.ID, Acted)
 		var subject, resolution string
 		var at time.Time
-		if err := db.QueryRow("SELECT subject, resolution, at FROM audit_rows WHERE message_id = $1", m.ID).Scan(&subject, &resolution, &at); err != nil {
+		if err := admin(t, db).QueryRow("SELECT subject, resolution, at FROM audit_rows WHERE message_id = $1", m.ID).Scan(&subject, &resolution, &at); err != nil {
 			t.Fatal(err)
 		}
 		row := readRow(t, db, m.ID)
@@ -765,7 +775,7 @@ func TestDispatchResolve(t *testing.T) {
 		enqueue(t, db, q, first, second)
 		w := resolvingWorker(t, q, &fakeDecider{allow: true})
 		var delivered []uuid.UUID
-		register(t, w, Destination{Name: "authz", Idempotent: true, MustLand: true, Handler: func(_ context.Context, d Delivery) error {
+		register(t, w, Destination{Name: "authz", Idempotent: true, MustLand: true, Handler: func(_ context.Context, _ *sql.Tx, d Delivery) error {
 			if d.ID == first.ID {
 				return PermanentRefusal(errors.New("bad tuple"))
 			}
@@ -820,7 +830,7 @@ func TestDispatchClaim(t *testing.T) {
 		q := newQueue(t, db, clock)
 		unknown, reconciling := message("billing", "charge:1"), message("billing", "charge:2")
 		enqueue(t, db, q, unknown, reconciling)
-		if _, err := db.Exec(`UPDATE stego_outbox.messages SET attempts = 1, dispatched_at = $3::timestamptz,
+		if _, err := admin(t, db).Exec(`UPDATE stego_outbox.messages SET attempts = 1, dispatched_at = $3::timestamptz,
 			available_at = $3::timestamptz, state = CASE WHEN id = $1 THEN 'outcome_unknown' ELSE 'reconciling' END
 			WHERE id IN ($1, $2)`, unknown.ID, reconciling.ID, clock.Now()); err != nil {
 			t.Fatal(err)
@@ -895,7 +905,7 @@ func TestDispatchPermission(t *testing.T) {
 			m := message("billing", "charge:1")
 			enqueue(t, db, q, m)
 			w := resolvingWorker(t, q, decider)
-			register(t, w, Destination{Name: "billing", Handler: func(context.Context, Delivery) error {
+			register(t, w, Destination{Name: "billing", Handler: func(context.Context, *sql.Tx, Delivery) error {
 				return PermanentRefusal(errors.New("400"))
 			}})
 			cycle(t, w)
@@ -921,7 +931,7 @@ func TestDispatchPermission(t *testing.T) {
 		q := newQueue(t, db, newClock())
 		m := message("billing", "charge:1")
 		enqueue(t, db, q, m)
-		refuse := func(context.Context, Delivery) error { return PermanentRefusal(errors.New("400")) }
+		refuse := func(context.Context, *sql.Tx, Delivery) error { return PermanentRefusal(errors.New("400")) }
 		first := resolvingWorker(t, q, &fakeDecider{allow: true})
 		register(t, first, Destination{Name: "billing", Handler: refuse})
 		cycle(t, first)
@@ -961,7 +971,7 @@ func TestDispatchConflict(t *testing.T) {
 		var mu sync.Mutex
 		calls := map[uuid.UUID]int{}
 		var twice uuid.UUID
-		register(t, w, Destination{Name: "ledger", Idempotent: true, Handler: func(_ context.Context, d Delivery) error {
+		register(t, w, Destination{Name: "ledger", Idempotent: true, Handler: func(_ context.Context, _ *sql.Tx, d Delivery) error {
 			mu.Lock()
 			defer mu.Unlock()
 			calls[d.ID]++
@@ -1020,8 +1030,337 @@ func TestDispatchConflict(t *testing.T) {
 			clock.Advance(time.Minute)
 			cycle(t, w)
 		}
-		if row := readRow(t, db, recovers.ID); row.State != Done || row.Attempts != 0 || row.Conflicts != 0 {
+		// The two conflicts are taken back and the success keeps its attempt (ST-SUP-RP01-LC22).
+		if row := readRow(t, db, recovers.ID); row.State != Done || row.Attempts != 1 || row.Conflicts != 0 {
 			t.Fatalf("the message that recovers is %+v", row)
+		}
+	})
+}
+
+func TestDispatchTenantKeys(t *testing.T) {
+	t.Run("ST-SUP-RP01-LC03-T04 The same resource key of two tenants is two keys", func(t *testing.T) {
+		db, _ := testDatabase(t)
+		q := newQueue(t, db, newClock())
+		ctx := context.Background()
+		p1, p2 := message("billing", "charge:1"), message("billing", "charge:1")
+		enqueueAs(t, db, q, "t1", p1)
+		enqueueAs(t, db, q, "t2", p2)
+		var mu sync.Mutex
+		var order []uuid.UUID
+		w := newWorker(t, q, nil)
+		register(t, w, Destination{Name: "billing", Handler: func(_ context.Context, _ *sql.Tx, d Delivery) error {
+			if d.ID == p1.ID {
+				return PermanentRefusal(errors.New("400"))
+			}
+			mu.Lock()
+			order = append(order, d.ID)
+			mu.Unlock()
+			return nil
+		}})
+		cycle(t, w)
+		cycle(t, w)
+		// Two enqueues of the key run at once, one for each tenant: they do not wait on each other.
+		s1, s2 := message("billing", "charge:1"), message("billing", "charge:1")
+		t1 := testTenant(t, "t1")
+		open, err := tenant.Begin(ctx, db, t1, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = open.Rollback() }()
+		if err := q.Enqueue(ctx, open, s1); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			enqueueAs(t, db, q, "t2", s2)
+		}()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Fatal("the enqueue of t2 waited on the open enqueue of t1")
+		}
+		if err := tenant.Commit(ctx, open, t1); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 4; i++ {
+			cycle(t, w)
+		}
+		mu.Lock()
+		got := append([]uuid.UUID(nil), order...)
+		mu.Unlock()
+		if len(got) != 2 || got[0] != p2.ID || got[1] != s2.ID {
+			t.Fatalf("t2's deliveries are %v", got)
+		}
+		if readRow(t, db, p1.ID).State != Parked || readRow(t, db, s1.ID).State != Pending {
+			t.Fatal("t1's key was not held back")
+		}
+		blocked, err := q.Blocked(ctx, MaxBatchSize)
+		if err != nil || len(blocked) != 1 || blocked[0].TenantID != "t1" || blocked[0].ResourceKey != "charge:1" {
+			t.Fatalf("the blocked view is %+v %v", blocked, err)
+		}
+	})
+}
+
+// auditOutbox is the outbox of the audit runtime's Writer in the tests: it enqueues each sink message on the queue.
+type auditOutbox struct{ q *Queue }
+
+func (o auditOutbox) Enqueue(ctx context.Context, tx audit.Tx, _, destination, key string, payload []byte) error {
+	sqlTx, ok := tx.(*sql.Tx)
+	if !ok {
+		return errors.New("the audit outbox needs a *sql.Tx")
+	}
+	return o.q.Enqueue(ctx, sqlTx, Message{ID: uuid.New(), Destination: destination, ResourceKey: key,
+		Kind: "audit.event", Payload: payload})
+}
+
+// auditWriter is the Auditor over the audit runtime's Writer: a resolution is one audit event in the chain of the
+// message's tenant.
+type auditWriter struct{ w *audit.Writer }
+
+func (a auditWriter) Record(ctx context.Context, tx *sql.Tx, e AuditEntry) error {
+	_, err := a.w.Record(ctx, tx, e.Tenant, []audit.Event{{
+		TenantID: e.Tenant.ID(), ActorID: e.Subject, ActorKind: audit.ActorUser, Action: "outbox.resolve." + string(e.Resolution),
+		ResourceType: "outbox_message", ResourceID: e.MessageID.String(), Outcome: audit.OutcomeOK, Service: "outbox-test",
+	}})
+	return err
+}
+
+func TestDispatchTenantSteps(t *testing.T) {
+	t.Run("ST-SUP-RP01-LC19-T03 A claimed message's handler and audit run in its own tenant's transaction", func(t *testing.T) {
+		db, dsn := testDatabase(t)
+		a := admin(t, db)
+		ddl, err := audit.DDL(audit.Config{RuntimeRole: runtimeUser(t, dsn), AnchorPeriod: time.Hour, RetentionMonths: 12})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := a.Exec(ddl); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 64; i++ {
+			var more bool
+			var tid sql.NullString
+			var seq sql.NullInt64
+			var hash []byte
+			if err := db.QueryRow(`SELECT step_left, checkpoint_tenant, checkpoint_seq, checkpoint_hash FROM `+audit.MaintainFunction+`()`).
+				Scan(&more, &tid, &seq, &hash); err != nil {
+				t.Fatal(err)
+			}
+			if !more {
+				break
+			}
+		}
+		q := newQueue(t, db, newClock())
+		writer, err := audit.NewWriter(auditOutbox{q: q}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m1, m2 := message("billing", "charge:1"), message("billing", "charge:1")
+		enqueueAs(t, db, q, "t1", m1)
+		enqueueAs(t, db, q, "t2", m2)
+		seen := map[uuid.UUID]string{}
+		w := newWorker(t, q, func(c *WorkerConfig) { c.Decider = &fakeDecider{allow: true}; c.Auditor = auditWriter{w: writer} })
+		register(t, w, Destination{Name: "billing", Handler: func(ctx context.Context, tx *sql.Tx, d Delivery) error {
+			var current string
+			if err := tx.QueryRowContext(ctx, `SELECT current_setting('app.tenant', true)`).Scan(&current); err != nil {
+				return NotSent(err)
+			}
+			seen[d.ID] = current
+			return PermanentRefusal(errors.New("400"))
+		}})
+		cycle(t, w)
+		cycle(t, w)
+		if seen[m1.ID] != "t1" || seen[m2.ID] != "t2" {
+			t.Fatalf("the handlers saw the tenants %v", seen)
+		}
+		if err := resolveIn(t, db, w, "t1", m1.ID, "user:ops-1", Acted); err != nil {
+			t.Fatal(err)
+		}
+		if err := resolveIn(t, db, w, "t2", m2.ID, "user:ops-2", Acted); err != nil {
+			t.Fatal(err)
+		}
+		for id, want := range map[uuid.UUID]string{m1.ID: "t1", m2.ID: "t2"} {
+			var tid string
+			if err := a.QueryRow(`SELECT tenant_id FROM `+audit.EventsTable+` WHERE resource_id = $1`, id.String()).Scan(&tid); err != nil || tid != want {
+				t.Fatalf("the audit row of %s is in the chain of %q: %v", id, tid, err)
+			}
+		}
+	})
+}
+
+func TestDispatchAttempts(t *testing.T) {
+	t.Run("ST-SUP-RP01-LC22-T01 The attempt count grows with each dispatch and a success keeps it", func(t *testing.T) {
+		db, _ := testDatabase(t)
+		clock := newClock()
+		q := newQueue(t, db, clock)
+		retried, unknown, stopped := message("billing", "a"), message("nowhere", "b"), message("billing", "c")
+		w := newWorker(t, q, nil)
+		var calls atomic.Int32
+		register(t, w, Destination{Name: "billing", Handler: func(context.Context, *sql.Tx, Delivery) error {
+			if calls.Add(1) == 1 {
+				return NotSent(errors.New("dial failed"))
+			}
+			return nil
+		}})
+		enqueue(t, db, q, retried)
+		cycle(t, w)
+		clock.Advance(time.Hour)
+		cycle(t, w)
+		if row := readRow(t, db, retried.ID); row.State != Done || row.Attempts != 2 {
+			t.Fatalf("the retried message is %+v", row)
+		}
+		enqueue(t, db, q, unknown)
+		cycle(t, w)
+		if row := readRow(t, db, unknown.ID); row.State != Pending || row.Attempts != 0 {
+			t.Fatalf("the message of an unknown destination is %+v", row)
+		}
+		if _, err := admin(t, db).Exec(`UPDATE stego_outbox.messages SET available_at = available_at + interval '1 day'
+			WHERE id = $1`, unknown.ID); err != nil {
+			t.Fatal(err)
+		}
+		enqueue(t, db, q, stopped)
+		stopping, cancel := context.WithCancel(context.Background())
+		cancel()
+		if n, err := w.cycle(context.Background(), stopping); err != nil || n != 1 {
+			t.Fatalf("the cycle claimed %d: %v", n, err)
+		}
+		if row := readRow(t, db, stopped.ID); row.State != Pending || row.Attempts != 0 || calls.Load() != 2 {
+			t.Fatalf("the message of a stopping worker is %+v", row)
+		}
+	})
+
+	t.Run("ST-SUP-RP01-LC23-T02 A must-land message is not parked for a transient failure", func(t *testing.T) {
+		db, _ := testDatabase(t)
+		clock := newClock()
+		q := newQueue(t, db, clock)
+		land, later, other := message("authz", "doc:1"), message("authz", "doc:1"), message("billing", "x")
+		enqueue(t, db, q, land, later, other)
+		reader, provider := metricReader()
+		w := newWorker(t, q, func(c *WorkerConfig) { c.MaxAttempts = 3; c.Meter = provider })
+		answers := func() Handler {
+			var n atomic.Int32
+			return func(context.Context, *sql.Tx, Delivery) error {
+				switch k := n.Add(1); {
+				case k <= 5:
+					return NotSent(errors.New("down"))
+				case k <= 10:
+					return TransientRefusal(errors.New("503"))
+				}
+				return nil
+			}
+		}
+		register(t, w, Destination{Name: "authz", Idempotent: true, MustLand: true, Handler: answers()})
+		register(t, w, Destination{Name: "billing", Handler: answers()})
+		var age float64
+		for i := 0; i < 40 && readRow(t, db, land.ID).State != Done; i++ {
+			clock.Advance(time.Hour)
+			cycle(t, w)
+			cycle(t, w)
+			if row := readRow(t, db, land.ID); row.State == Parked {
+				t.Fatalf("the must-land message parked: %+v", row)
+			}
+			if readRow(t, db, land.ID).State != Done {
+				if l := readRow(t, db, later.ID); l.State != Pending || l.Attempts != 0 {
+					t.Fatalf("the later message of the key moved: %+v", l)
+				}
+				if next := gaugeValues(t, reader)["authz"]; next <= age {
+					t.Fatalf("outbox.oldest.age of authz went from %v to %v", age, next)
+				} else {
+					age = next
+				}
+			}
+		}
+		if row := readRow(t, db, land.ID); row.State != Done || row.Attempts != 11 {
+			t.Fatalf("the must-land message is %+v", row)
+		}
+		if row := readRow(t, db, other.ID); row.State != Parked || row.Attempts != 3 {
+			t.Fatalf("the other message is %+v", row)
+		}
+	})
+}
+
+func TestDispatchStateHook(t *testing.T) {
+	t.Run("ST-SUP-RP01-LC25-T01 The state hook runs in the state change's transaction", func(t *testing.T) {
+		db, _ := testDatabase(t)
+		q := newQueue(t, db, newClock())
+		delivered, parked, failing := message("authz", "a"), message("authz", "b"), message("authz", "c")
+		delivered.Group, parked.Group, failing.Group = "rev-1", "rev-2", "rev-3"
+		enqueue(t, db, q, delivered, parked, failing)
+		w := resolvingWorker(t, q, &fakeDecider{allow: true})
+		register(t, w, Destination{Name: "authz", Idempotent: true, MustLand: true,
+			Handler: func(_ context.Context, _ *sql.Tx, d Delivery) error {
+				if d.ID == parked.ID {
+					return PermanentRefusal(errors.New("bad tuple"))
+				}
+				return nil
+			},
+			StateHook: func(ctx context.Context, tx *sql.Tx, c StateChange) error {
+				if c.ID == failing.ID {
+					return errors.New("the hook refuses")
+				}
+				_, err := tx.ExecContext(ctx, `INSERT INTO hook_rows (message_id, group_id, state, tenant_id) VALUES ($1, $2, $3, $4)`,
+					c.ID, c.Group, string(c.State), c.Tenant.ID())
+				return err
+			}})
+		for i := 0; i < 3; i++ {
+			cycle(t, w)
+		}
+		resolve(t, db, w, parked.ID, NotActed)
+		hooks := func(id uuid.UUID) string {
+			rows, err := admin(t, db).Query(`SELECT group_id || ':' || state FROM hook_rows WHERE message_id = $1 ORDER BY state`, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer rows.Close()
+			var got []string
+			for rows.Next() {
+				var v string
+				if err := rows.Scan(&v); err != nil {
+					t.Fatal(err)
+				}
+				got = append(got, v)
+			}
+			return strings.Join(got, ",")
+		}
+		if got := hooks(delivered.ID); got != "rev-1:done" {
+			t.Fatalf("the delivered message's hook rows are %q", got)
+		}
+		if got := hooks(parked.ID); got != "rev-2:parked,rev-2:pending" {
+			t.Fatalf("the parked message's hook rows are %q", got)
+		}
+		if row := readRow(t, db, failing.ID); row.State != Dispatching || hooks(failing.ID) != "" || w.Stats().StateHookFailures != 1 {
+			t.Fatalf("the failing hook left %+v", row)
+		}
+	})
+}
+
+func TestDispatchPanic(t *testing.T) {
+	t.Run("ST-SUP-RP01-LC27-T01 A panicking handler leaves the message in outcome unknown", func(t *testing.T) {
+		db, _ := testDatabase(t)
+		q := newQueue(t, db, newClock())
+		first, second := message("billing", "charge:1"), message("mail", "user:1")
+		enqueue(t, db, q, first)
+		w := newWorker(t, q, nil)
+		register(t, w, Destination{Name: "billing", Handler: func(context.Context, *sql.Tx, Delivery) error {
+			panic("password=hunter2")
+		}})
+		register(t, w, Destination{Name: "mail", Handler: func(context.Context, *sql.Tx, Delivery) error { return nil }})
+		cycle(t, w)
+		if row := readRow(t, db, first.ID); row.State != OutcomeUnknown || row.FailureCode != "handler-panic" {
+			t.Fatalf("the panic left %+v", row)
+		}
+		if _, err := admin(t, db).Exec(`UPDATE stego_outbox.messages SET available_at = available_at + interval '1 day'
+			WHERE id = $1`, first.ID); err != nil {
+			t.Fatal(err)
+		}
+		enqueue(t, db, q, second)
+		cycle(t, w)
+		var text string
+		if err := admin(t, db).QueryRow(`SELECT row_to_json(m)::text FROM stego_outbox.messages AS m WHERE id = $1`, first.ID).Scan(&text); err != nil || strings.Contains(text, "hunter2") {
+			t.Fatalf("the row holds the panic value: %s %v", text, err)
+		}
+		if readRow(t, db, second.ID).State != Done {
+			t.Fatal("the worker did not deliver after the panic")
 		}
 	})
 }

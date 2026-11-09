@@ -17,16 +17,18 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"stego.dev/runtime/internal/pgtest"
 	"stego.dev/runtime/internal/seal"
 	"stego.dev/runtime/tenant"
 )
 
-// The integration tests of this package read STEGO_TEST_POSTGRES_DSN, the DSN of a local PostgreSQL 17 server that
-// runs in an unprivileged container (ST-STD-LOCAL), and skip when it is not set. Each test makes its own database on
-// that server, applies Migration and drops the database at the end. The tests reach PostgreSQL through pgx's
-// database/sql driver (ST-STD-RUNTIME-R06).
+// The integration tests of this package use the PostgreSQL server of pgtest: the local container that pgtest
+// starts, unprivileged and pinned by digest, or the server that STEGO_TEST_POSTGRES_DSN names (ST-STD-LOCAL). Each
+// test makes its own database and runtime role, applies Migration and drops both at the end. The tests reach
+// PostgreSQL through pgx's database/sql driver (ST-STD-RUNTIME-R06).
 
 // crashEnv names the mode of the helper process of the crash tests.
 const crashEnv = "STEGO_OUTBOX_CRASH_MODE"
@@ -36,7 +38,7 @@ func TestMain(m *testing.M) {
 		crashHelper(mode)
 		return
 	}
-	os.Exit(m.Run())
+	os.Exit(pgtest.Main(m))
 }
 
 // identity is a verified identity for the tests; only a package of the runtime module can make one.
@@ -84,61 +86,88 @@ func (c *fakeClock) Set(t time.Time) {
 	c.now = t
 }
 
-func testDSN(t testing.TB) string {
+// admins maps the runtime pool of each test database to its superuser pool, which the tests use to read and set up
+// rows past row-level security.
+var admins sync.Map
+
+// admin returns the superuser pool of the test database whose runtime pool is db.
+func admin(t testing.TB, db *sql.DB) *sql.DB {
 	t.Helper()
-	dsn := os.Getenv("STEGO_TEST_POSTGRES_DSN")
-	if dsn == "" {
-		t.Skip("STEGO_TEST_POSTGRES_DSN is not set; this test needs a local PostgreSQL server")
+	a, ok := admins.Load(db)
+	if !ok {
+		t.Fatal("the pool is not a runtime pool of testDatabase")
 	}
-	return dsn
+	return a.(*sql.DB)
 }
 
-// testDatabase makes a database for one test with the queue table and an application table records, and drops it
-// at the end. It returns the database and its DSN.
+func randomSuffix(t testing.TB) string {
+	t.Helper()
+	b := make([]byte, 6)
+	if _, err := rand.Read(b); err != nil {
+		t.Fatal(err)
+	}
+	return hex.EncodeToString(b)
+}
+
+// testDatabase makes a database for one test on the server of pgtest, with a runtime role of its own that is no
+// superuser, owns nothing and holds no BYPASSRLS. As superuser it applies Migration for that role and makes the
+// application tables records and audit_rows. It returns the pool of the runtime role, which every queue and worker
+// of the test uses, and the DSN of the runtime role. The role and the database are dropped at the end.
 func testDatabase(t testing.TB) (*sql.DB, string) {
 	t.Helper()
-	dsn := testDSN(t)
-	admin, err := sql.Open("pgx", dsn)
+	server := pgtest.DSN(t)
+	root, err := sql.Open("pgx", server)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = admin.Close() })
-	suffix := make([]byte, 6)
-	if _, err := rand.Read(suffix); err != nil {
-		t.Fatal(err)
-	}
-	name := "outbox_" + hex.EncodeToString(suffix)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(func() { _ = root.Close() })
+	role := "outbox_runtime_" + randomSuffix(t)
+	password := randomSuffix(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if _, err := admin.ExecContext(ctx, "CREATE DATABASE "+name); err != nil {
+	if _, err := root.ExecContext(ctx, "CREATE ROLE "+role+" LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '"+password+"'"); err != nil {
 		t.Fatal(err)
 	}
+	// Registered before the database, so it runs after the drop of the database.
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if _, err := admin.ExecContext(ctx, "DROP DATABASE "+name+" WITH (FORCE)"); err != nil {
-			t.Errorf("drop the test database: %v", err)
+		if _, err := root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+role); err != nil {
+			t.Errorf("drop the runtime role: %v", err)
 		}
 	})
+	dsn := pgtest.Database(t, "outbox")
+	adminDB, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = adminDB.Close() })
+	ddl, err := Migration(role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adminDB.ExecContext(ctx, ddl); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adminDB.ExecContext(ctx, `CREATE TABLE records (id text PRIMARY KEY);
+		CREATE TABLE audit_rows (message_id uuid NOT NULL, tenant_id text NOT NULL, destination text NOT NULL,
+			subject text NOT NULL, resolution text NOT NULL, at timestamptz NOT NULL);
+		CREATE TABLE hook_rows (message_id uuid NOT NULL, group_id text NOT NULL, state text NOT NULL,
+			tenant_id text NOT NULL);
+		GRANT SELECT, INSERT ON records, audit_rows, hook_rows TO `+role); err != nil {
+		t.Fatal(err)
+	}
 	u, err := url.Parse(dsn)
 	if err != nil {
-		t.Fatalf("STEGO_TEST_POSTGRES_DSN must be a postgres:// URL: %v", err)
+		t.Fatal(err)
 	}
-	u.Path = "/" + name
+	u.User = url.UserPassword(role, password)
 	db, err := sql.Open("pgx", u.String())
 	if err != nil {
 		t.Fatal(err)
 	}
 	db.SetMaxOpenConns(12)
 	t.Cleanup(func() { _ = db.Close() })
-	if _, err := db.ExecContext(ctx, Migration); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.ExecContext(ctx, `CREATE TABLE records (id text PRIMARY KEY);
-		CREATE TABLE audit_rows (message_id uuid NOT NULL, tenant_id text NOT NULL, destination text NOT NULL,
-			subject text NOT NULL, resolution text NOT NULL, at timestamptz NOT NULL)`); err != nil {
-		t.Fatal(err)
-	}
+	admins.Store(db, adminDB)
+	t.Cleanup(func() { admins.Delete(db) })
 	return db, u.String()
 }
 
@@ -174,7 +203,7 @@ func enqueueAs(t testing.TB, db *sql.DB, q *Queue, tenantID string, messages ...
 func count(t testing.TB, db *sql.DB, query string, args ...any) int {
 	t.Helper()
 	var n int
-	if err := db.QueryRow(query, args...).Scan(&n); err != nil {
+	if err := admin(t, db).QueryRow(query, args...).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	return n
@@ -201,7 +230,7 @@ func readRow(t testing.TB, db *sql.DB, id uuid.UUID) stored {
 	t.Helper()
 	var s stored
 	var state string
-	if err := db.QueryRow(`SELECT state, attempts, conflicts, lookups, lease_token, outgoing_key, failure_code,
+	if err := admin(t, db).QueryRow(`SELECT state, attempts, conflicts, lookups, lease_token, outgoing_key, failure_code,
 		parked_from, available_at, resolution, resolved_by, resolved_at, tenant_id
 		FROM stego_outbox.messages WHERE id = $1`, id).Scan(&state, &s.Attempts, &s.Conflicts, &s.Lookups, &s.Token,
 		&s.OutgoingKey, &s.FailureCode, &s.ParkedFrom, &s.AvailableAt, &s.Resolution, &s.ResolvedBy, &s.ResolvedAt,
@@ -212,9 +241,22 @@ func readRow(t testing.TB, db *sql.DB, id uuid.UUID) stored {
 	return s
 }
 
+// deadLetters lists the dead letters of tenant-a in a transaction of that tenant.
+func deadLetters(t testing.TB, db *sql.DB, q *Queue, limit int) ([]DeadLetter, error) {
+	t.Helper()
+	ctx := context.Background()
+	tn := testTenant(t, "tenant-a")
+	tx, err := tenant.Begin(ctx, db, tn, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	return q.DeadLetters(ctx, tx, limit)
+}
+
 func newQueue(t testing.TB, db *sql.DB, clock Clock) *Queue {
 	t.Helper()
-	q, err := New(db, clock)
+	q, err := New(db, Options{Clock: clock})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +439,7 @@ func TestQueueClaim(t *testing.T) {
 		var mu sync.Mutex
 		var order []uuid.UUID
 		entered, release := make(chan struct{}), make(chan struct{})
-		handler := func(_ context.Context, d Delivery) error {
+		handler := func(_ context.Context, _ *sql.Tx, d Delivery) error {
 			if d.ID == first.ID {
 				close(entered)
 				<-release
@@ -485,7 +527,7 @@ func crashHelper(mode string) {
 	if err != nil {
 		os.Exit(2)
 	}
-	q, err := New(db, nil)
+	q, err := New(db, Options{})
 	if err != nil {
 		os.Exit(2)
 	}
@@ -519,7 +561,7 @@ func crashHelper(mode string) {
 		if err != nil {
 			os.Exit(2)
 		}
-		if err := w.Register(Destination{Name: "billing", Handler: func(context.Context, Delivery) error {
+		if err := w.Register(Destination{Name: "billing", Handler: func(context.Context, *sql.Tx, Delivery) error {
 			os.Exit(3)
 			return nil
 		}}); err != nil {
@@ -561,7 +603,7 @@ func TestQueueCrash(t *testing.T) {
 		q := newQueue(t, db, clock)
 		w := newWorker(t, q, nil)
 		var got []Delivery
-		register(t, w, Destination{Name: "audit", Idempotent: true, Handler: func(_ context.Context, d Delivery) error {
+		register(t, w, Destination{Name: "audit", Idempotent: true, Handler: func(_ context.Context, _ *sql.Tx, d Delivery) error {
 			got = append(got, d)
 			return nil
 		}})
@@ -641,7 +683,7 @@ func TestQueuePurge(t *testing.T) {
 		doomed, fresh := message("audit", "doomed"), message("audit", "fresh")
 		enqueue(t, db, q, doomed)
 		w := newWorker(t, q, func(c *WorkerConfig) { c.MaxAttempts = 3 })
-		register(t, w, Destination{Name: "audit", Handler: func(context.Context, Delivery) error {
+		register(t, w, Destination{Name: "audit", Handler: func(context.Context, *sql.Tx, Delivery) error {
 			return NotSent(errors.New("the sink is down"))
 		}})
 		for i := 0; i < 3; i++ {
@@ -651,7 +693,7 @@ func TestQueuePurge(t *testing.T) {
 			clock.Advance(time.Hour)
 		}
 		enqueue(t, db, q, fresh)
-		dead, err := q.DeadLetters(ctx, MaxBatchSize)
+		dead, err := deadLetters(t, db, q, MaxBatchSize)
 		if err != nil || len(dead) != 1 || dead[0].ID != doomed.ID || dead[0].Attempts != 3 ||
 			dead[0].ParkedFrom != Dispatching || dead[0].FailureCode != "attempts-exhausted" {
 			t.Fatalf("the dead letters are %+v %v", dead, err)
@@ -664,14 +706,14 @@ func TestQueuePurge(t *testing.T) {
 			count(t, db, "SELECT count(*) FROM stego_outbox.messages") != 1 {
 			t.Fatal("purge did not remove only the parked message")
 		}
-		if dead, err := q.DeadLetters(ctx, MaxBatchSize); err != nil || len(dead) != 0 {
+		if dead, err := deadLetters(t, db, q, MaxBatchSize); err != nil || len(dead) != 0 {
 			t.Fatalf("dead letters stay after the purge: %v %v", dead, err)
 		}
 		for _, limit := range []int{0, MaxBatchSize + 1} {
 			if _, err := w.Purge(ctx, limit, time.Minute); err == nil {
 				t.Fatalf("the purge limit %d was accepted", limit)
 			}
-			if _, err := q.DeadLetters(ctx, limit); err == nil {
+			if _, err := deadLetters(t, db, q, limit); err == nil {
 				t.Fatalf("the dead letter limit %d was accepted", limit)
 			}
 		}
@@ -685,7 +727,7 @@ func TestQueuePurge(t *testing.T) {
 		known, unknown := message("billing", "known"), message("billing", "unknown")
 		enqueue(t, db, q, known, unknown)
 		w := newWorker(t, q, func(c *WorkerConfig) { c.MaxAttempts = 1 })
-		register(t, w, Destination{Name: "billing", Handler: func(_ context.Context, d Delivery) error {
+		register(t, w, Destination{Name: "billing", Handler: func(_ context.Context, _ *sql.Tx, d Delivery) error {
 			if d.ID == known.ID {
 				return NotSent(errors.New("not sent"))
 			}
@@ -717,7 +759,7 @@ func TestQueuePurge(t *testing.T) {
 		m := message("authz", "document:1")
 		enqueue(t, db, q, m)
 		w := newWorker(t, q, nil)
-		register(t, w, Destination{Name: "authz", Idempotent: true, MustLand: true, Handler: func(context.Context, Delivery) error {
+		register(t, w, Destination{Name: "authz", Idempotent: true, MustLand: true, Handler: func(context.Context, *sql.Tx, Delivery) error {
 			return PermanentRefusal(errors.New("bad tuple"))
 		}})
 		cycle(t, w)
@@ -725,7 +767,7 @@ func TestQueuePurge(t *testing.T) {
 		if removed, err := w.Purge(ctx, MaxBatchSize, time.Minute); err != nil || removed != 0 {
 			t.Fatalf("purge removed %d: %v", removed, err)
 		}
-		dead, err := q.DeadLetters(ctx, MaxBatchSize)
+		dead, err := deadLetters(t, db, q, MaxBatchSize)
 		if err != nil || len(dead) != 1 || dead[0].ID != m.ID {
 			t.Fatalf("the must-land message is not listed as parked: %+v %v", dead, err)
 		}
@@ -740,7 +782,7 @@ func TestQueuePurge(t *testing.T) {
 		enqueue(t, db, q, m)
 		decider := &fakeDecider{allow: true}
 		w := newWorker(t, q, func(c *WorkerConfig) { c.Decider = decider; c.Auditor = tableAuditor{} })
-		register(t, w, Destination{Name: "authz", Idempotent: true, MustLand: true, Handler: func(context.Context, Delivery) error {
+		register(t, w, Destination{Name: "authz", Idempotent: true, MustLand: true, Handler: func(context.Context, *sql.Tx, Delivery) error {
 			return PermanentRefusal(errors.New("bad tuple"))
 		}})
 		cycle(t, w)
@@ -751,6 +793,245 @@ func TestQueuePurge(t *testing.T) {
 		}
 		if row := readRow(t, db, m.ID); row.State != Discarded {
 			t.Fatalf("the discarded message is %+v", row)
+		}
+	})
+}
+
+func TestQueueNotice(t *testing.T) {
+	t.Run("ST-SUP-RP01-LC01-T03 No notice is sent when no live event source is declared", func(t *testing.T) {
+		db, dsn := testDatabase(t)
+		q := newQueue(t, db, nil)
+		ctx := context.Background()
+		conn, err := pgx.Connect(ctx, dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = conn.Close(ctx) }()
+		if _, err := conn.Exec(ctx, "LISTEN "+NoticeChannel); err != nil {
+			t.Fatal(err)
+		}
+		m := message("audit", "one")
+		enqueue(t, db, q, m)
+		if readRow(t, db, m.ID).State != Pending {
+			t.Fatal("the message was not written")
+		}
+		wait, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+		defer cancel()
+		if n, err := conn.WaitForNotification(wait); err == nil {
+			t.Fatalf("a notice came with no live event source: %+v", n)
+		}
+	})
+}
+
+func TestQueueTenancy(t *testing.T) {
+	t.Run("ST-SUP-RP01-LC19-T01 Two tenants cannot see, write or resolve each other's messages", func(t *testing.T) {
+		db, _ := testDatabase(t)
+		q := newQueue(t, db, newClock())
+		ctx := context.Background()
+		one, two := message("billing", "charge:1"), message("billing", "charge:2")
+		enqueueAs(t, db, q, "t1", one)
+		enqueueAs(t, db, q, "t2", two)
+		w := resolvingWorker(t, q, &fakeDecider{allow: true})
+		register(t, w, Destination{Name: "billing", Handler: func(context.Context, *sql.Tx, Delivery) error {
+			return PermanentRefusal(errors.New("400"))
+		}})
+		cycle(t, w)
+		cycle(t, w)
+		before := readRow(t, db, one.ID)
+		if before.State != Parked || readRow(t, db, two.ID).State != Parked {
+			t.Fatal("the fixture messages did not park")
+		}
+		t2 := testTenant(t, "t2")
+		tx, err := tenant.Begin(ctx, db, t2, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback() }()
+		dead, err := q.DeadLetters(ctx, tx, MaxBatchSize)
+		if err != nil || len(dead) != 1 || dead[0].ID != two.ID {
+			t.Fatalf("t2 lists the dead letters %+v %v", dead, err)
+		}
+		var ids []uuid.UUID
+		rows, err := tx.QueryContext(ctx, `SELECT id FROM stego_outbox.messages`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var id uuid.UUID
+			if err := rows.Scan(&id); err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, id)
+		}
+		rows.Close()
+		if len(ids) != 1 || ids[0] != two.ID {
+			t.Fatalf("t2 reads the queue table rows %v", ids)
+		}
+		if _, err := w.Resolve(ctx, tx, ResolveRequest{ID: one.ID, Subject: "user:ops-1", Resolution: Acted}); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("t2 resolving t1's message gave %v", err)
+		}
+		if _, err := tx.ExecContext(ctx, `SAVEPOINT s`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO stego_outbox.messages (id, tenant_id, destination, resource_key,
+			kind, payload, outgoing_key, created_at, available_at) VALUES ($1, 't1', 'billing', 'x', 'k', '{}', 'k', now(), now())`,
+			uuid.New()); err == nil || !strings.Contains(err.Error(), "row-level security") {
+			t.Fatalf("an insert of a t1 row in a t2 transaction gave %v", err)
+		}
+		if _, err := tx.ExecContext(ctx, `ROLLBACK TO SAVEPOINT s`); err != nil {
+			t.Fatal(err)
+		}
+		if err := tenant.Commit(ctx, tx, t2); err != nil {
+			t.Fatal(err)
+		}
+		if after := readRow(t, db, one.ID); after != before || auditRows(t, db, one.ID) != 0 {
+			t.Fatalf("t1's message changed from %+v to %+v", before, after)
+		}
+	})
+
+	t.Run("ST-SUP-RP01-LC19-T02 Only the relay functions span tenants, and they cannot be hijacked", func(t *testing.T) {
+		db, dsn := testDatabase(t)
+		a := admin(t, db)
+		role := runtimeUser(t, dsn)
+		rows, err := a.Query(`SELECT p.proname, p.prosecdef, pg_get_userbyid(p.proowner), coalesce(array_to_string(p.proconfig, ','), ''),
+			has_function_privilege($1, p.oid, 'EXECUTE'), has_function_privilege('public', p.oid, 'EXECUTE')
+			FROM pg_proc AS p JOIN pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = 'stego_outbox' ORDER BY 1`, role)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for rows.Next() {
+			var name, owner, config string
+			var definer, runtime, public bool
+			if err := rows.Scan(&name, &definer, &owner, &config, &runtime, &public); err != nil {
+				t.Fatal(err)
+			}
+			if !definer || owner != RelayRole || config != "search_path=pg_catalog, pg_temp" || !runtime || public {
+				t.Fatalf("the function %s is definer %v, owner %s, config %q, runtime %v, public %v", name, definer, owner, config, runtime, public)
+			}
+			names = append(names, name)
+		}
+		rows.Close()
+		if strings.Join(names, ",") != "blocked,claim,move,oldest,purge_done,purge_parked,release" {
+			t.Fatalf("the relay functions are %v", names)
+		}
+		var relayCommands []string
+		rows, err = a.Query(`SELECT cmd FROM pg_policies WHERE schemaname = 'stego_outbox' AND $1 = ANY(roles) ORDER BY cmd`, RelayRole)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var cmd string
+			if err := rows.Scan(&cmd); err != nil {
+				t.Fatal(err)
+			}
+			relayCommands = append(relayCommands, cmd)
+		}
+		rows.Close()
+		if strings.Join(relayCommands, ",") != "DELETE,SELECT,UPDATE" {
+			t.Fatalf("the relay policies are for %v", relayCommands)
+		}
+		var forced, deletes bool
+		if err := a.QueryRow(`SELECT relforcerowsecurity, has_table_privilege($1, 'stego_outbox.messages', 'DELETE')
+			FROM pg_class WHERE oid = 'stego_outbox.messages'::regclass`, role).Scan(&forced, &deletes); err != nil {
+			t.Fatal(err)
+		}
+		if !forced || deletes {
+			t.Fatalf("row-level security forced %v, runtime DELETE %v", forced, deletes)
+		}
+		// The runtime role puts decoys first on its search_path and in pg_temp, then claims.
+		q := newQueue(t, db, nil)
+		m := message("billing", "charge:1")
+		enqueueAs(t, db, q, "t1", m)
+		if _, err := a.Exec(`CREATE SCHEMA decoy AUTHORIZATION ` + role); err != nil {
+			t.Fatal(err)
+		}
+		ctx := context.Background()
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = conn.Close() }()
+		for _, statement := range []string{
+			`CREATE TABLE decoy.messages (id uuid)`,
+			`CREATE FUNCTION decoy.clock_timestamp() RETURNS timestamptz LANGUAGE sql AS $$ SELECT timestamptz '2000-01-01' $$`,
+			`CREATE FUNCTION decoy.jsonb_array_elements_text(jsonb) RETURNS SETOF text LANGUAGE sql AS $$ SELECT 'billing' $$`,
+			`CREATE TEMP TABLE messages (id uuid)`,
+			`SET search_path = decoy, pg_temp, public`,
+		} {
+			if _, err := conn.ExecContext(ctx, statement); err != nil {
+				t.Fatalf("%s: %v", statement, err)
+			}
+		}
+		rows, err = conn.QueryContext(ctx, `SELECT r_tenant, r_id FROM stego_outbox.claim(NULL, 32, $1, 60000)`, uuid.New())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var claimed []string
+		for rows.Next() {
+			var tid string
+			var id uuid.UUID
+			if err := rows.Scan(&tid, &id); err != nil {
+				t.Fatal(err)
+			}
+			claimed = append(claimed, tid+"/"+id.String())
+		}
+		rows.Close()
+		if len(claimed) != 1 || claimed[0] != "t1/"+m.ID.String() {
+			t.Fatalf("the claim under decoys gave %v", claimed)
+		}
+	})
+}
+
+func TestQueueRetention(t *testing.T) {
+	t.Run("ST-SUP-RP01-LC24-T01 Done messages older than the retention are purged in batches", func(t *testing.T) {
+		db, _ := testDatabase(t)
+		clock := newClock()
+		q := newQueue(t, db, clock)
+		var old, recent []Message
+		for i := 0; i < 70; i++ {
+			old = append(old, message("audit", fmt.Sprintf("old-%d", i)))
+		}
+		for i := 0; i < 5; i++ {
+			recent = append(recent, message("audit", fmt.Sprintf("recent-%d", i)))
+		}
+		parked := message("audit", "parked")
+		for i := 0; i < len(old); i += MaxBatchSize {
+			enqueue(t, db, q, old[i:min(i+MaxBatchSize, len(old))]...)
+		}
+		enqueue(t, db, q, recent...)
+		enqueue(t, db, q, parked)
+		now := clock.Now()
+		if _, err := admin(t, db).Exec(`UPDATE stego_outbox.messages SET state = 'done', done_at = $1
+			WHERE resource_key LIKE 'old-%'`, now.Add(-2*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := admin(t, db).Exec(`UPDATE stego_outbox.messages SET state = 'done', done_at = $1
+			WHERE resource_key LIKE 'recent-%'`, now.Add(-10*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := admin(t, db).Exec(`UPDATE stego_outbox.messages SET state = 'parked', parked_from = 'dispatching',
+			parked_at = $1 WHERE resource_key = 'parked'`, now.Add(-2*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		w := newWorker(t, q, func(c *WorkerConfig) { c.Retention = time.Hour })
+		removed, batches, err := w.purgeTick(context.Background())
+		if err != nil || removed != 70 || batches != 3 {
+			t.Fatalf("the purge removed %d in %d batches: %v", removed, batches, err)
+		}
+		if n := count(t, db, "SELECT count(*) FROM stego_outbox.messages"); n != 6 {
+			t.Fatalf("%d messages stay, want the 5 recent and the parked one", n)
+		}
+		if readRow(t, db, parked.ID).State != Parked {
+			t.Fatal("the purge removed the parked message")
+		}
+		config := testConfig()
+		config.Retention = 59 * time.Minute
+		if _, err := NewWorker(q, config); err == nil {
+			t.Fatal("a retention of 59 minutes was accepted")
+		}
+		if DefaultWorkerConfig().Retention != 7*24*time.Hour {
+			t.Fatal("the default retention is not 7 days")
 		}
 	})
 }

@@ -25,9 +25,9 @@ import (
 const (
 	// MaxPayloadBytes is the largest payload of one message.
 	MaxPayloadBytes = 64 << 10
-	// MaxBatchSize is the most messages of one Enqueue call, and the largest limit of a claim or a list.
+	// MaxBatchSize is the most messages of one Enqueue call, and the largest limit of a claim, a list or a purge.
 	MaxBatchSize = 32
-	// MaxKeyBytes is the longest resource key and outgoing idempotency key, in bytes.
+	// MaxKeyBytes is the longest outgoing idempotency key, group, principal and origin, in bytes.
 	MaxKeyBytes = 255
 	// MaxResourceKeyBytes is the longest resource key, in bytes.
 	MaxResourceKeyBytes = 256
@@ -36,12 +36,48 @@ const (
 // operationTimeout bounds each statement of the queue.
 const operationTimeout = 5 * time.Second
 
-// Migration is the DDL text of the queue table stego_outbox.messages. A service applies it with its own
-// migrations. The table holds no error text and no copy of a payload other than the payload itself
-// (ST-SUP-RP01-LC06): failure_code is a short fixed label. state is one of the dispatch states of ST-SUP-RP01-LC08.
-// attempts and conflicts are two counts (ST-SUP-RC18-OC29). tenant_id is the tenant of the staging transaction
-// (ST-SUP-RC18-OC28), and outgoing_key is the idempotency key that every attempt sends (ST-SUP-RP01-LC10).
-const Migration = `CREATE SCHEMA IF NOT EXISTS stego_outbox;
+// RelayRole is the NOLOGIN role that owns the relay functions, the only code that reads and changes messages of
+// more than one tenant (ST-SUP-RP01-LC19).
+const RelayRole = "stego_outbox_relay"
+
+var rolePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
+
+// Migration returns the DDL text of the queue (ST-SUP-RP01-LC19). The migration job runs it as the table owner,
+// which must be able to create the role RelayRole, or find it, and to give it the relay functions.
+//
+// The table stego_outbox.messages holds the dispatch state, the attempt and conflict counts (ST-SUP-RC18-OC29), the
+// tenant (ST-SUP-RC18-OC28), the outgoing idempotency key (ST-SUP-RP01-LC10), the group of the state hook
+// (ST-SUP-RP01-LC25) and a short failure code, never an error text (ST-SUP-RP01-LC06). Row-level security is
+// enabled and forced. runtimeRole, the role of the running service, has one policy on the transaction-local tenant
+// setting, USING and WITH CHECK, and SELECT, INSERT and UPDATE under it: Enqueue, Resolve and DeadLetters run in a
+// transaction of one tenant. RelayRole has a policy for SELECT, UPDATE and DELETE and none for INSERT, and owns the
+// SECURITY DEFINER functions that span tenants: claim, move, release, purge_parked, purge_done, blocked and
+// oldest. Each has search_path = pg_catalog, pg_temp, names every object with its schema and changes no setting;
+// runtimeRole gets EXECUTE on them, and PUBLIC none.
+func Migration(runtimeRole string) (string, error) {
+	if !rolePattern.MatchString(runtimeRole) || runtimeRole == RelayRole {
+		return "", fmt.Errorf("outbox: %q is not a role name the migration accepts", runtimeRole)
+	}
+	return strings.ReplaceAll(migration, "{{runtime}}", `"`+runtimeRole+`"`), nil
+}
+
+// The relay functions, by their signature, for the grants and the checks.
+var relayFunctions = []string{
+	"stego_outbox.claim(timestamptz, integer, uuid, bigint)",
+	"stego_outbox.move(timestamptz, uuid, uuid, text, text, bigint, timestamptz, bigint, boolean, boolean, text, bigint)",
+	"stego_outbox.release(timestamptz, uuid, uuid, bigint, text)",
+	"stego_outbox.purge_parked(timestamptz, integer, bigint, jsonb)",
+	"stego_outbox.purge_done(timestamptz, integer, bigint)",
+	"stego_outbox.blocked(timestamptz, integer)",
+	"stego_outbox.oldest(timestamptz)",
+}
+
+const migration = `CREATE SCHEMA IF NOT EXISTS stego_outbox;
+
+DO $do$ BEGIN
+	CREATE ROLE stego_outbox_relay NOLOGIN;
+EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL;
+END $do$;
 
 CREATE TABLE IF NOT EXISTS stego_outbox.messages (
 	id uuid PRIMARY KEY,
@@ -52,6 +88,7 @@ CREATE TABLE IF NOT EXISTS stego_outbox.messages (
 	kind text NOT NULL CHECK (kind ~ '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$'),
 	payload jsonb NOT NULL CHECK (jsonb_typeof(payload) = 'object' AND octet_length(payload::text) <= 131072),
 	outgoing_key text NOT NULL CHECK (octet_length(outgoing_key) BETWEEN 1 AND 255),
+	group_id text NOT NULL DEFAULT '' CHECK (octet_length(group_id) <= 255),
 	principal text NOT NULL DEFAULT '' CHECK (octet_length(principal) <= 255),
 	origin text NOT NULL DEFAULT '' CHECK (octet_length(origin) <= 255),
 	state text NOT NULL DEFAULT 'pending' CHECK (state IN
@@ -79,14 +116,218 @@ CREATE INDEX IF NOT EXISTS messages_open_order ON stego_outbox.messages (tenant_
 	WHERE state NOT IN ('done', 'discarded');
 CREATE INDEX IF NOT EXISTS messages_due ON stego_outbox.messages (available_at, sequence)
 	WHERE state IN ('pending', 'dispatching', 'outcome_unknown', 'reconciling');
+CREATE INDEX IF NOT EXISTS messages_done ON stego_outbox.messages (done_at) WHERE state = 'done';
+
+ALTER TABLE stego_outbox.messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stego_outbox.messages FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS messages_tenant ON stego_outbox.messages;
+CREATE POLICY messages_tenant ON stego_outbox.messages TO {{runtime}}
+	USING (tenant_id = pg_catalog.current_setting('app.tenant', true))
+	WITH CHECK (tenant_id = pg_catalog.current_setting('app.tenant', true));
+DROP POLICY IF EXISTS messages_relay_select ON stego_outbox.messages;
+CREATE POLICY messages_relay_select ON stego_outbox.messages FOR SELECT TO stego_outbox_relay USING (true);
+DROP POLICY IF EXISTS messages_relay_update ON stego_outbox.messages;
+CREATE POLICY messages_relay_update ON stego_outbox.messages FOR UPDATE TO stego_outbox_relay USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS messages_relay_delete ON stego_outbox.messages;
+CREATE POLICY messages_relay_delete ON stego_outbox.messages FOR DELETE TO stego_outbox_relay USING (true);
+
+REVOKE ALL ON stego_outbox.messages FROM PUBLIC;
+GRANT USAGE ON SCHEMA stego_outbox TO {{runtime}};
+GRANT USAGE, CREATE ON SCHEMA stego_outbox TO stego_outbox_relay;
+GRANT SELECT, INSERT, UPDATE ON stego_outbox.messages TO {{runtime}};
+GRANT SELECT, UPDATE, DELETE ON stego_outbox.messages TO stego_outbox_relay;
+
+CREATE OR REPLACE FUNCTION stego_outbox.claim(p_now timestamptz, p_limit integer, p_token uuid, p_lease_ms bigint)
+RETURNS TABLE (r_tenant text, r_id uuid, r_destination text, r_resource_key text, r_kind text, r_payload jsonb,
+	r_outgoing_key text, r_principal text, r_origin text, r_group text, r_state text, r_attempts bigint,
+	r_conflicts bigint, r_lookups bigint, r_lease_until timestamptz, r_dispatched_at timestamptz)
+LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+AS $fn$
+WITH now AS (SELECT COALESCE(p_now, pg_catalog.clock_timestamp()) AS t),
+expired AS (
+	UPDATE stego_outbox.messages AS x
+	SET state = 'outcome_unknown', lease_token = NULL, lease_until = NULL, failure_code = 'lease-expired',
+		available_at = now.t, conflicts = 0
+	FROM now
+	WHERE x.id IN (SELECT e.id FROM stego_outbox.messages AS e, now
+		WHERE e.state = 'dispatching' AND e.lease_until <= now.t
+		ORDER BY e.sequence LIMIT 32 FOR UPDATE OF e SKIP LOCKED)
+	RETURNING x.id
+),
+ready AS (
+	SELECT m.id FROM stego_outbox.messages AS m, now
+	WHERE m.state IN ('pending', 'outcome_unknown', 'reconciling')
+		AND m.available_at <= now.t
+		AND (m.lease_until IS NULL OR m.lease_until <= now.t)
+		AND NOT EXISTS (SELECT 1 FROM stego_outbox.messages AS earlier
+			WHERE earlier.tenant_id = m.tenant_id AND earlier.destination = m.destination
+				AND earlier.resource_key = m.resource_key
+				AND earlier.sequence < m.sequence AND earlier.state NOT IN ('done', 'discarded'))
+	ORDER BY m.sequence LIMIT p_limit FOR UPDATE OF m SKIP LOCKED
+)
+UPDATE stego_outbox.messages AS m
+SET lease_token = p_token, lease_until = now.t + p_lease_ms * interval '1 millisecond',
+	state = CASE WHEN m.state = 'pending' THEN 'dispatching' ELSE m.state END,
+	attempts = CASE WHEN m.state = 'pending' THEN m.attempts + 1 ELSE m.attempts END,
+	dispatched_at = CASE WHEN m.state = 'pending' THEN now.t ELSE m.dispatched_at END
+FROM ready, now
+WHERE m.id = ready.id
+RETURNING m.tenant_id, m.id, m.destination, m.resource_key, m.kind, m.payload, m.outgoing_key, m.principal,
+	m.origin, m.group_id, m.state, m.attempts, m.conflicts, m.lookups, m.lease_until, m.dispatched_at
+$fn$;
+
+CREATE OR REPLACE FUNCTION stego_outbox.move(p_now timestamptz, p_id uuid, p_token uuid, p_from text, p_to text,
+	p_delay_ms bigint, p_due timestamptz, p_attempts bigint, p_conflict boolean, p_lookup boolean, p_code text,
+	p_lease_ms bigint)
+RETURNS TABLE (r_result text, r_state text, r_delay double precision, r_attempts bigint, r_conflicts bigint,
+	r_lookups bigint)
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+AS $fn$
+DECLARE
+	v_now timestamptz := COALESCE(p_now, pg_catalog.clock_timestamp());
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM (VALUES ('pending', 'dispatching'), ('dispatching', 'done'),
+		('dispatching', 'pending'), ('dispatching', 'outcome_unknown'), ('dispatching', 'parked'),
+		('outcome_unknown', 'dispatching'), ('outcome_unknown', 'reconciling'), ('outcome_unknown', 'parked'),
+		('reconciling', 'done'), ('reconciling', 'pending'), ('reconciling', 'parked'),
+		('reconciling', 'reconciling')) AS t (f, s) WHERE t.f = p_from AND t.s = p_to) THEN
+		RAISE EXCEPTION 'outbox: a message in % cannot move to %', p_from, p_to;
+	END IF;
+	UPDATE stego_outbox.messages AS m SET
+		state = p_to,
+		lease_token = CASE WHEN p_to = 'dispatching' THEN m.lease_token END,
+		lease_until = CASE WHEN p_to = 'dispatching' THEN v_now + p_lease_ms * interval '1 millisecond' END,
+		available_at = COALESCE(p_due, v_now + p_delay_ms * interval '1 millisecond'),
+		attempts = GREATEST(m.attempts + p_attempts, 0),
+		conflicts = CASE WHEN p_conflict THEN m.conflicts + 1 ELSE 0 END,
+		lookups = CASE WHEN p_lookup THEN m.lookups + 1 ELSE m.lookups END,
+		dispatched_at = CASE WHEN p_to = 'dispatching' THEN v_now ELSE m.dispatched_at END,
+		failure_code = p_code,
+		parked_from = CASE WHEN p_to = 'parked' THEN p_from END,
+		parked_at = CASE WHEN p_to = 'parked' THEN v_now END,
+		done_at = CASE WHEN p_to = 'done' THEN v_now ELSE m.done_at END
+	WHERE m.id = p_id AND m.lease_token = p_token AND m.lease_until > v_now AND m.state = p_from
+	RETURNING 'moved', m.state, pg_catalog.date_part('epoch', v_now - m.created_at), m.attempts, m.conflicts,
+		m.lookups
+	INTO r_result, r_state, r_delay, r_attempts, r_conflicts, r_lookups;
+	IF FOUND THEN
+		RETURN NEXT;
+		RETURN;
+	END IF;
+	SELECT 'not_moved', m.state, NULL, m.attempts, m.conflicts, m.lookups
+	INTO r_result, r_state, r_delay, r_attempts, r_conflicts, r_lookups
+	FROM stego_outbox.messages AS m WHERE m.id = p_id;
+	IF FOUND THEN
+		RETURN NEXT;
+	END IF;
+	RETURN;
+END
+$fn$;
+
+CREATE OR REPLACE FUNCTION stego_outbox.release(p_now timestamptz, p_id uuid, p_token uuid, p_delay_ms bigint,
+	p_code text)
+RETURNS bigint
+LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+AS $fn$
+WITH now AS (SELECT COALESCE(p_now, pg_catalog.clock_timestamp()) AS t),
+released AS (
+	UPDATE stego_outbox.messages AS m SET lease_token = NULL, lease_until = NULL,
+		available_at = now.t + p_delay_ms * interval '1 millisecond', failure_code = p_code
+	FROM now WHERE m.id = p_id AND m.lease_token = p_token AND m.lease_until > now.t
+	RETURNING 1
+)
+SELECT pg_catalog.count(*) FROM released
+$fn$;
+
+CREATE OR REPLACE FUNCTION stego_outbox.purge_parked(p_now timestamptz, p_limit integer, p_older_ms bigint,
+	p_destinations jsonb)
+RETURNS bigint
+LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+AS $fn$
+WITH now AS (SELECT COALESCE(p_now, pg_catalog.clock_timestamp()) AS t),
+removed AS (
+	DELETE FROM stego_outbox.messages WHERE id IN (
+		SELECT m.id FROM stego_outbox.messages AS m, now
+		WHERE m.state = 'parked' AND m.parked_from = 'dispatching'
+			AND m.parked_at <= now.t - p_older_ms * interval '1 millisecond'
+			AND m.destination IN (SELECT pg_catalog.jsonb_array_elements_text(p_destinations))
+		ORDER BY m.sequence LIMIT LEAST(p_limit, 32) FOR UPDATE OF m SKIP LOCKED)
+	RETURNING 1
+)
+SELECT pg_catalog.count(*) FROM removed
+$fn$;
+
+CREATE OR REPLACE FUNCTION stego_outbox.purge_done(p_now timestamptz, p_limit integer, p_older_ms bigint)
+RETURNS bigint
+LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+AS $fn$
+WITH now AS (SELECT COALESCE(p_now, pg_catalog.clock_timestamp()) AS t),
+removed AS (
+	DELETE FROM stego_outbox.messages WHERE id IN (
+		SELECT m.id FROM stego_outbox.messages AS m, now
+		WHERE m.state = 'done' AND m.done_at <= now.t - GREATEST(p_older_ms, 3600000) * interval '1 millisecond'
+		ORDER BY m.done_at LIMIT LEAST(p_limit, 32) FOR UPDATE OF m SKIP LOCKED)
+	RETURNING 1
+)
+SELECT pg_catalog.count(*) FROM removed
+$fn$;
+
+CREATE OR REPLACE FUNCTION stego_outbox.blocked(p_now timestamptz, p_limit integer)
+RETURNS TABLE (r_tenant text, r_destination text, r_resource_key text, r_state text, r_attempts bigint,
+	r_failure_code text, r_available_at timestamptz, r_created_at timestamptz)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+AS $fn$
+WITH now AS (SELECT COALESCE(p_now, pg_catalog.clock_timestamp()) AS t)
+SELECT m.tenant_id, m.destination, m.resource_key, m.state, m.attempts, m.failure_code, m.available_at, m.created_at
+FROM stego_outbox.messages AS m, now
+WHERE m.state NOT IN ('done', 'discarded')
+	AND NOT EXISTS (SELECT 1 FROM stego_outbox.messages AS earlier
+		WHERE earlier.tenant_id = m.tenant_id AND earlier.destination = m.destination
+			AND earlier.resource_key = m.resource_key
+			AND earlier.sequence < m.sequence AND earlier.state NOT IN ('done', 'discarded'))
+	AND (m.state IN ('dispatching', 'outcome_unknown', 'reconciling', 'parked')
+		OR (m.lease_until IS NOT NULL AND m.lease_until > now.t)
+		OR (m.failure_code <> '' AND m.available_at > now.t))
+ORDER BY m.sequence LIMIT LEAST(p_limit, 32)
+$fn$;
+
+CREATE OR REPLACE FUNCTION stego_outbox.oldest(p_now timestamptz)
+RETURNS TABLE (r_destination text, r_age double precision)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+AS $fn$
+WITH now AS (SELECT COALESCE(p_now, pg_catalog.clock_timestamp()) AS t)
+SELECT m.destination, GREATEST(pg_catalog.date_part('epoch', now.t - pg_catalog.min(m.created_at)), 0)
+FROM stego_outbox.messages AS m, now WHERE m.state NOT IN ('done', 'discarded')
+GROUP BY m.destination, now.t
+$fn$;
+
+DO $do$
+DECLARE
+	f text;
+BEGIN
+	FOREACH f IN ARRAY ARRAY[
+		'stego_outbox.claim(timestamptz, integer, uuid, bigint)',
+		'stego_outbox.move(timestamptz, uuid, uuid, text, text, bigint, timestamptz, bigint, boolean, boolean, text, bigint)',
+		'stego_outbox.release(timestamptz, uuid, uuid, bigint, text)',
+		'stego_outbox.purge_parked(timestamptz, integer, bigint, jsonb)',
+		'stego_outbox.purge_done(timestamptz, integer, bigint)',
+		'stego_outbox.blocked(timestamptz, integer)',
+		'stego_outbox.oldest(timestamptz)'] LOOP
+		EXECUTE 'ALTER FUNCTION ' || f || ' OWNER TO stego_outbox_relay';
+		EXECUTE 'REVOKE ALL ON FUNCTION ' || f || ' FROM PUBLIC';
+		EXECUTE 'GRANT EXECUTE ON FUNCTION ' || f || ' TO {{runtime}}';
+	END LOOP;
+END
+$do$;
 `
 
 var labelPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
 
 // Message is one message to enqueue. ID is its stable identity. OutgoingKey is the idempotency key that every
 // attempt sends to the destination: the key that idempotency.Derive gives for the message's inputs, or, when it is
-// empty, the message identity (ST-SUP-RP01-LC10). Principal and Origin are the staging principal and the name of
-// the staging command or worker, for a destination that a worker consumes (ST-SUP-RP10-LC16); both may be empty.
+// empty, the message identity (ST-SUP-RP01-LC10). Group is the group identity that the destination's state hook
+// gets (ST-SUP-RP01-LC25). Principal and Origin are the staging principal and the name of the staging command or
+// worker, for a destination that a worker consumes (ST-SUP-RP10-LC16). Group, Principal and Origin may be empty.
 type Message struct {
 	ID          uuid.UUID
 	Destination string
@@ -94,6 +335,7 @@ type Message struct {
 	Kind        string
 	Payload     json.RawMessage
 	OutgoingKey string
+	Group       string
 	Principal   string
 	Origin      string
 }
@@ -107,7 +349,8 @@ type Receipt struct {
 }
 
 // Delivery is one claimed message. Tenant is read from the tenant column of the claimed row through the tenant
-// runtime's row reader (ST-SUP-RP04-LC01), never from the payload.
+// runtime's row reader (ST-SUP-RP04-LC01), never from the payload; every later step of the message runs in a
+// transaction of that tenant (ST-SUP-RP01-LC19).
 type Delivery struct {
 	Message
 	Tenant       tenant.Tenant
@@ -125,22 +368,32 @@ type Clock interface {
 	Now() time.Time
 }
 
-// Queue is the queue table of one database.
-type Queue struct {
-	db    *sql.DB
-	clock Clock
+// Options are the settings of a queue.
+type Options struct {
+	// Clock is the clock of the queue; nil is the database clock.
+	Clock Clock
+	// LiveEvents is true when the service declares a live event source. Only then does Enqueue send a notice
+	// (ST-SUP-RP01-LC01); without one, a transaction with effects takes no notify lock at its commit.
+	LiveEvents bool
 }
 
-// New returns the queue of db. clock may be nil: the queue then uses the database clock.
-func New(db *sql.DB, clock Clock) (*Queue, error) {
+// Queue is the queue of one database. Its pool connects as the runtime role of Migration.
+type Queue struct {
+	db     *sql.DB
+	clock  Clock
+	notify bool
+}
+
+// New returns the queue of db with options.
+func New(db *sql.DB, options Options) (*Queue, error) {
 	if db == nil {
 		return nil, errors.New("outbox: the queue needs a database")
 	}
-	return &Queue{db: db, clock: clock}, nil
+	return &Queue{db: db, clock: options.Clock, notify: options.LiveEvents}, nil
 }
 
 // now is the first argument of every statement that reads the time: the clock's time, or NULL for the database
-// clock. Every statement reads it as COALESCE($1::timestamptz, clock_timestamp()).
+// clock. Every statement and relay function reads it as COALESCE($1, clock_timestamp()).
 func (q *Queue) now() any {
 	if q == nil || q.clock == nil {
 		return nil
@@ -150,30 +403,23 @@ func (q *Queue) now() any {
 
 const nowCTE = `now AS (SELECT COALESCE($1::timestamptz, pg_catalog.clock_timestamp()) AS t)`
 
-// Check verifies that the queue columns and the delivery permissions are there. It changes no row.
+// Check verifies that the queue table and the relay functions are there and that this role may run them. It
+// changes no row.
 func (q *Queue) Check(ctx context.Context) error {
 	if ctx == nil || q == nil || q.db == nil {
 		return errors.New("outbox: the check needs a context and a database")
 	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-	rows, err := q.db.QueryContext(ctx, `SELECT id, sequence, tenant_id, destination, resource_key, kind, payload,
-		outgoing_key, principal, origin, state, created_at, available_at, attempts, conflicts, lookups, lease_token,
-		lease_until, dispatched_at, failure_code, parked_from, parked_at, done_at, resolved_by, resolved_at, resolution
-		FROM stego_outbox.messages WHERE false`)
-	if err != nil {
+	var present bool
+	if err := q.db.QueryRowContext(ctx, `SELECT pg_catalog.to_regclass('stego_outbox.messages') IS NOT NULL`).Scan(&present); err != nil || !present {
 		return canceled(ctx, errors.New("outbox: the queue table is not there"))
 	}
-	if err := rows.Close(); err != nil {
-		return canceled(ctx, errors.New("outbox: the queue table check failed"))
-	}
-	var permitted bool
-	err = q.db.QueryRowContext(ctx, `SELECT
-		pg_catalog.has_table_privilege('stego_outbox.messages', 'SELECT') AND
-		pg_catalog.has_table_privilege('stego_outbox.messages', 'UPDATE') AND
-		pg_catalog.has_table_privilege('stego_outbox.messages', 'DELETE')`).Scan(&permitted)
-	if err != nil || !permitted {
-		return canceled(ctx, errors.New("outbox: the delivery permissions are not there"))
+	for _, f := range relayFunctions {
+		var permitted bool
+		if err := q.db.QueryRowContext(ctx, `SELECT pg_catalog.has_function_privilege($1, 'EXECUTE')`, f).Scan(&permitted); err != nil || !permitted {
+			return canceled(ctx, fmt.Errorf("outbox: the relay function %s is not there or may not run", f))
+		}
 	}
 	return nil
 }
@@ -181,11 +427,12 @@ func (q *Queue) Check(ctx context.Context) error {
 // ValidateMessage checks one message with no database access (ST-SUP-RC18-OC02).
 func ValidateMessage(message Message) error { return validateMessage(message) }
 
-// Enqueue writes messages inside the caller's transaction tx (ST-SUP-RP01-LC01). It checks every payload before it
-// sends a statement, then takes a transaction-scoped advisory lock for each destination and resource key in a
-// stable order before it allocates a sequence (ST-SUP-RC18-OC13), and writes each message with the tenant of the
-// transaction, which tenant.Begin set. Each message sends a notice through pg_notify, which PostgreSQL delivers only
-// after the commit, so no notice precedes it. Call Enqueue once for each transaction with the whole batch and
+// Enqueue writes messages inside the caller's transaction tx, which tenant.Begin opened (ST-SUP-RP01-LC01,
+// ST-SUP-RP01-LC19). It checks every payload before it sends a statement, then takes a transaction-scoped advisory
+// lock for each key, the tenant, the destination and the resource key, in a stable order before it allocates a
+// sequence (ST-SUP-RC18-OC13, ST-SUP-RP01-LC03), and writes each message with the tenant of the transaction under
+// the tenant policy. When the queue serves a live event source, each message sends a notice through pg_notify,
+// which PostgreSQL delivers only after the commit. Call Enqueue once for each transaction with the whole batch and
 // commit only when it succeeds; a rollback removes the messages and their notices with the application write.
 func (q *Queue) Enqueue(ctx context.Context, tx *sql.Tx, messages ...Message) error {
 	if tx == nil {
@@ -213,7 +460,6 @@ func (q *Queue) Enqueue(ctx context.Context, tx *sql.Tx, messages ...Message) er
 	if tenantID.String == "" {
 		return errors.New("outbox: the transaction holds no tenant; open it with tenant.Begin")
 	}
-	// The ordering key is the tenant, the destination and the resource key: two tenants never share a key.
 	keys := make(map[int64]bool)
 	for _, message := range messages {
 		keys[lockKey(tenantID.String, message.Destination, message.ResourceKey)] = true
@@ -235,14 +481,17 @@ func (q *Queue) Enqueue(ctx context.Context, tx *sql.Tx, messages ...Message) er
 		}
 		if _, err := tx.ExecContext(ctx, `WITH `+nowCTE+`
 			INSERT INTO stego_outbox.messages (id, tenant_id, destination, resource_key, kind, payload, outgoing_key,
-				principal, origin, created_at, available_at)
-			SELECT $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, now.t, now.t FROM now`,
+				group_id, principal, origin, created_at, available_at)
+			SELECT $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, now.t, now.t FROM now`,
 			q.now(), message.ID, tenantID.String, message.Destination, message.ResourceKey, message.Kind,
-			string(message.Payload), outgoing, message.Principal, message.Origin); err != nil {
+			string(message.Payload), outgoing, message.Group, message.Principal, message.Origin); err != nil {
 			return canceled(ctx, err)
 		}
-		notice, err := encodeEvent(Event{ID: message.ID, TenantID: tenantID.String, Destination: message.Destination,
-			ResourceKey: message.ResourceKey, Kind: message.Kind})
+		if !q.notify {
+			continue
+		}
+		notice, err := encodeNotice(tenantID.String, Event{ID: message.ID, Destination: message.Destination,
+			ResourceKey: message.ResourceKey})
 		if err != nil {
 			return err
 		}
@@ -253,54 +502,21 @@ func (q *Queue) Enqueue(ctx context.Context, tx *sql.Tx, messages ...Message) er
 	return nil
 }
 
+// lockKey is the advisory lock of one key: the tenant, the destination and the resource key (ST-SUP-RP01-LC03).
 func lockKey(tenantID, destination, resourceKey string) int64 {
 	hash := sha256.Sum256([]byte("stego-outbox\x00" + tenantID + "\x00" + destination + "\x00" + resourceKey))
 	return int64(binary.BigEndian.Uint64(hash[:8]))
 }
 
-// claimStatement first moves each dispatching message whose lease has expired to outcome unknown, then claims the
-// messages that are due, one for each key: the earliest message of the key that is not done or discarded, in
-// pending, outcome unknown or reconciling, with no live lease (ST-SUP-RP01-LC15, ST-STD-TXN-R14). Both parts lock
-// with SKIP LOCKED, so two workers never claim one message (ST-SUP-RC18-OC14). The two parts read one snapshot, so a
-// message that the first part moves still holds back its key in the second, and the key is claimed in the next
-// claim, not in this one. A claim of a pending message moves it to dispatching and counts an attempt; a claim of a
-// message in outcome unknown or reconciling keeps its state, and the worker then takes its next step.
-const claimStatement = `WITH ` + nowCTE + `,
-expired AS (
-	UPDATE stego_outbox.messages AS x
-	SET state = 'outcome_unknown', lease_token = NULL, lease_until = NULL, failure_code = 'lease-expired',
-		available_at = now.t, conflicts = 0
-	FROM now
-	WHERE x.id IN (SELECT e.id FROM stego_outbox.messages AS e, now
-		WHERE e.state = 'dispatching' AND e.lease_until <= now.t
-		ORDER BY e.sequence LIMIT 32 FOR UPDATE OF e SKIP LOCKED)
-	RETURNING x.id
-),
-ready AS (
-	SELECT m.id FROM stego_outbox.messages AS m, now
-	WHERE m.state IN ('pending', 'outcome_unknown', 'reconciling')
-		AND m.available_at <= now.t
-		AND (m.lease_until IS NULL OR m.lease_until <= now.t)
-		AND NOT EXISTS (SELECT 1 FROM stego_outbox.messages AS earlier
-			WHERE earlier.tenant_id = m.tenant_id AND earlier.destination = m.destination
-					AND earlier.resource_key = m.resource_key
-				AND earlier.sequence < m.sequence AND earlier.state NOT IN ('done', 'discarded'))
-	ORDER BY m.sequence LIMIT $2 FOR UPDATE OF m SKIP LOCKED
-)
-UPDATE stego_outbox.messages AS m
-SET lease_token = $3, lease_until = now.t + $4 * interval '1 millisecond',
-	state = CASE WHEN m.state = 'pending' THEN 'dispatching' ELSE m.state END,
-	attempts = CASE WHEN m.state = 'pending' THEN m.attempts + 1 ELSE m.attempts END,
-	dispatched_at = CASE WHEN m.state = 'pending' THEN now.t ELSE m.dispatched_at END
-FROM ready, now
-WHERE m.id = ready.id
-RETURNING m.tenant_id, m.id, m.destination, m.resource_key, m.kind, m.payload, m.outgoing_key, m.principal,
-	m.origin, m.state, m.attempts, m.conflicts, m.lookups, m.lease_until, m.dispatched_at`
-
-// Claim leases at most limit messages for lease, one for each key, and returns them. It returns no delivery when
-// the statement, a row scan or the row iteration fails (ST-SUP-RC18-OC08); the database may then still hold the
-// leases that it wrote, and they expire as any lease does (ST-SUP-RC18-OC09). A cancellation of ctx is returned as
-// such (ST-SUP-RC18-OC24).
+// Claim leases at most limit messages for lease, one for each key, through the relay function claim, the one
+// statement that spans tenants (ST-SUP-RP01-LC19, ST-STD-TXN-R14). The function first moves each dispatching
+// message whose lease has expired to outcome unknown, then claims, with SKIP LOCKED, the earliest message of each
+// key that is not done or discarded and is due, in pending, outcome unknown or reconciling (ST-SUP-RP01-LC15). Both
+// parts read one snapshot, so a key whose message the first part moves is claimed in the next claim, not in this
+// one. A claim of a pending message moves it to dispatching and counts an attempt in the same statement
+// (ST-SUP-RP01-LC22). Claim returns no delivery when the statement, a row scan or the row iteration fails
+// (ST-SUP-RC18-OC08); the database may still hold the leases it wrote, and they expire (ST-SUP-RC18-OC09). A
+// cancellation of ctx is returned as such (ST-SUP-RC18-OC24).
 func (q *Queue) Claim(ctx context.Context, limit int, lease time.Duration) ([]Delivery, error) {
 	if limit < 1 || limit > MaxBatchSize || lease < time.Second || lease > 5*time.Minute {
 		return nil, errors.New("outbox: the claim limit or the lease is out of its bounds")
@@ -317,7 +533,8 @@ func (q *Queue) Claim(ctx context.Context, limit int, lease time.Duration) ([]De
 	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-	rows, err := q.db.QueryContext(ctx, claimStatement, q.now(), limit, token, lease.Milliseconds())
+	rows, err := q.db.QueryContext(ctx, `SELECT * FROM stego_outbox.claim($1, $2, $3, $4)`, q.now(), limit, token,
+		lease.Milliseconds())
 	if err != nil {
 		return nil, canceled(ctx, err)
 	}
@@ -328,7 +545,7 @@ func (q *Queue) Claim(ctx context.Context, limit int, lease time.Duration) ([]De
 		var state string
 		var dispatched sql.NullTime
 		t, err := tenant.ScanRows(rows, &d.ID, &d.Destination, &d.ResourceKey, &d.Kind, &d.Payload, &d.OutgoingKey,
-			&d.Principal, &d.Origin, &state, &d.Attempts, &d.Conflicts, &d.Lookups, &d.LeaseUntil, &dispatched)
+			&d.Principal, &d.Origin, &d.Group, &state, &d.Attempts, &d.Conflicts, &d.Lookups, &d.LeaseUntil, &dispatched)
 		if err != nil {
 			return nil, canceled(ctx, err)
 		}
@@ -354,27 +571,6 @@ type change struct {
 	lease       time.Duration // for a move to dispatching: the new lease
 }
 
-// moveStatement moves a claimed message from the state of its receipt to $4, only while the receipt's lease is
-// live. A move to dispatching keeps the lease and renews it; every other move ends it. It returns the seconds from
-// the enqueue to now, for the delivery delay (ST-SUP-RP01-LC07).
-const moveStatement = `WITH ` + nowCTE + `
-UPDATE stego_outbox.messages AS m SET
-	state = $4,
-	lease_token = CASE WHEN $4 = 'dispatching' THEN m.lease_token END,
-	lease_until = CASE WHEN $4 = 'dispatching' THEN now.t + $12 * interval '1 millisecond' END,
-	available_at = COALESCE($6::timestamptz, now.t + $5 * interval '1 millisecond'),
-	attempts = GREATEST(m.attempts + $7, 0),
-	conflicts = CASE WHEN $8 THEN m.conflicts + 1 ELSE 0 END,
-	lookups = CASE WHEN $9 THEN m.lookups + 1 ELSE m.lookups END,
-	dispatched_at = CASE WHEN $4 = 'dispatching' THEN now.t ELSE m.dispatched_at END,
-	failure_code = $10,
-	parked_from = CASE WHEN $4 = 'parked' THEN $11 END,
-	parked_at = CASE WHEN $4 = 'parked' THEN now.t END,
-	done_at = CASE WHEN $4 = 'done' THEN now.t ELSE m.done_at END
-FROM now
-WHERE m.id = $2 AND m.lease_token = $3 AND m.lease_until > now.t AND m.state = $11
-RETURNING pg_catalog.date_part('epoch', now.t - m.created_at)::float8, m.attempts, m.conflicts, m.lookups`
-
 // moved is the result of one move.
 type moved struct {
 	delay     time.Duration // from the enqueue to the move
@@ -383,11 +579,16 @@ type moved struct {
 	lookups   int64
 }
 
-// move moves the claimed message of receipt to the state to (ST-SUP-RP01-LC08). It refuses a transition that the
-// state machine does not allow, with an error that names both states, and changes nothing. It returns false with
-// no error when the lease of the receipt is no longer live, so a late result never counts (ST-SUP-RP01-LC02). On
-// success it sets the receipt's state to the new state.
-func (q *Queue) move(ctx context.Context, receipt *Receipt, to State, c change) (bool, moved, error) {
+// querier is the part of a *sql.DB or *sql.Tx that a move uses.
+type querier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// move moves the claimed message of receipt to the state to through the relay function move, in tx when tx is not
+// nil (ST-SUP-RP01-LC08). It refuses a transition that the state machine does not allow, with an error that names
+// both states, and changes nothing. It returns false with no error when the lease of the receipt is no longer
+// live, so a late result never counts (ST-SUP-RP01-LC02). On success it sets the receipt's state to the new state.
+func (q *Queue) move(ctx context.Context, tx *sql.Tx, receipt *Receipt, to State, c change) (bool, moved, error) {
 	if receipt == nil || receipt.ID == uuid.Nil || receipt.Token == uuid.Nil {
 		return false, moved{}, errors.New("outbox: the receipt is not valid")
 	}
@@ -405,41 +606,37 @@ func (q *Queue) move(ctx context.Context, receipt *Receipt, to State, c change) 
 	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
+	var db querier = q.db
+	if tx != nil {
+		db = tx
+	}
 	var due any
 	if c.dueAt != nil {
 		due = *c.dueAt
 	}
+	var result, state string
+	var seconds sql.NullFloat64
 	var m moved
-	var seconds float64
-	err := q.db.QueryRowContext(ctx, moveStatement, q.now(), receipt.ID, receipt.Token, string(to),
-		c.delay.Milliseconds(), due, c.attempts, c.conflict, c.lookup, c.failureCode, string(receipt.State),
-		c.lease.Milliseconds()).Scan(&seconds, &m.attempts, &m.conflicts, &m.lookups)
+	err := db.QueryRowContext(ctx, `SELECT * FROM stego_outbox.move($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+		q.now(), receipt.ID, receipt.Token, string(receipt.State), string(to), c.delay.Milliseconds(), due, c.attempts,
+		c.conflict, c.lookup, c.failureCode, c.lease.Milliseconds()).Scan(&result, &state, &seconds, &m.attempts,
+		&m.conflicts, &m.lookups)
 	if errors.Is(err, sql.ErrNoRows) {
-		return false, moved{}, q.refusedMove(ctx, receipt.ID, to)
+		return false, moved{}, nil
 	}
 	if err != nil {
 		return false, moved{}, canceled(ctx, err)
 	}
-	m.delay = time.Duration(seconds * float64(time.Second))
+	if result != "moved" {
+		// The stored state does not allow the move: name both states (ST-SUP-RP01-LC08). Otherwise the lease is gone.
+		if err := Transition(State(state), to); err != nil {
+			return false, moved{}, err
+		}
+		return false, moved{}, nil
+	}
+	m.delay = time.Duration(seconds.Float64 * float64(time.Second))
 	receipt.State = to
 	return true, m, nil
-}
-
-// refusedMove finds why a move changed no row: a message whose stored state does not allow the transition gives an
-// error that names both states (ST-SUP-RP01-LC08); a message whose lease is gone gives no error.
-func (q *Queue) refusedMove(ctx context.Context, id uuid.UUID, to State) error {
-	var state string
-	err := q.db.QueryRowContext(ctx, `SELECT state FROM stego_outbox.messages WHERE id = $1`, id).Scan(&state)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return canceled(ctx, err)
-	}
-	if err := Transition(State(state), to); err != nil {
-		return err
-	}
-	return nil
 }
 
 // release ends the lease of a claimed message and keeps its state, for a message that this worker cannot take a
@@ -447,28 +644,21 @@ func (q *Queue) refusedMove(ctx context.Context, id uuid.UUID, to State) error {
 func (q *Queue) release(ctx context.Context, receipt Receipt, delay time.Duration, failureCode string) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-	result, err := q.db.ExecContext(ctx, `WITH `+nowCTE+`
-		UPDATE stego_outbox.messages AS m SET lease_token = NULL, lease_until = NULL,
-			available_at = now.t + $4 * interval '1 millisecond', failure_code = $5
-		FROM now WHERE m.id = $2 AND m.lease_token = $3 AND m.lease_until > now.t`,
-		q.now(), receipt.ID, receipt.Token, delay.Milliseconds(), failureCode)
-	return changed(ctx, result, err)
+	var n int64
+	err := q.db.QueryRowContext(ctx, `SELECT stego_outbox.release($1, $2, $3, $4, $5)`, q.now(), receipt.ID,
+		receipt.Token, delay.Milliseconds(), failureCode).Scan(&n)
+	if err != nil {
+		return false, canceled(ctx, err)
+	}
+	return n == 1, nil
 }
 
 // Acknowledge moves a delivered message to done, only while the receipt's lease is live. False means the lease is
-// gone; the message can then be delivered again with the same identity and outgoing key.
+// gone; the message can then be delivered again with the same identity and outgoing key. It keeps the attempt count
+// (ST-SUP-RP01-LC22). It runs no state hook: the worker's own steps do.
 func (q *Queue) Acknowledge(ctx context.Context, receipt Receipt) (bool, error) {
-	ok, _, err := q.move(ctx, &receipt, Done, doneChange(receipt.State))
+	ok, _, err := q.move(ctx, nil, &receipt, Done, change{})
 	return ok, err
-}
-
-// doneChange is the change of a move to done. The attempt count holds the attempts that did not succeed, the one
-// in flight included, so a move to done from dispatching takes back the attempt that succeeded.
-func doneChange(from State) change {
-	if from == Dispatching {
-		return change{attempts: -1}
-	}
-	return change{}
 }
 
 // Retry moves a claimed message back to pending after a known failure, due again after delay, with the short
@@ -479,7 +669,7 @@ func (q *Queue) Retry(ctx context.Context, receipt Receipt, delay time.Duration,
 	if !labelPattern.MatchString(failureCode) {
 		return false, errors.New("outbox: the failure code is not a short label")
 	}
-	ok, _, err := q.move(ctx, &receipt, Pending, change{delay: delay, failureCode: failureCode})
+	ok, _, err := q.move(ctx, nil, &receipt, Pending, change{delay: delay, failureCode: failureCode})
 	return ok, err
 }
 
@@ -496,9 +686,8 @@ type BlockedMessage struct {
 	BlockedSince time.Time
 }
 
-// Blocked lists the keys that cannot progress now, oldest first, once each (ST-SUP-RP01-LC06): a key whose earliest
-// message that is not done or discarded is leased, parked, or waits out a delay after a failure. A key that is
-// ready to claim is not listed. limit is 1 to MaxBatchSize.
+// Blocked lists the keys that cannot progress now, oldest first, once each, through the relay function blocked
+// (ST-SUP-RP01-LC06, ST-SUP-RP01-LC19). It is the operator's view of every tenant. limit is 1 to MaxBatchSize.
 func (q *Queue) Blocked(ctx context.Context, limit int) ([]BlockedMessage, error) {
 	if limit < 1 || limit > MaxBatchSize {
 		return nil, errors.New("outbox: the blocked limit is out of its bounds")
@@ -508,19 +697,7 @@ func (q *Queue) Blocked(ctx context.Context, limit int) ([]BlockedMessage, error
 	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-	rows, err := q.db.QueryContext(ctx, `WITH `+nowCTE+`
-		SELECT m.tenant_id, m.destination, m.resource_key, m.state, m.attempts, m.failure_code, m.available_at,
-			m.created_at
-		FROM stego_outbox.messages AS m, now
-		WHERE m.state NOT IN ('done', 'discarded')
-			AND NOT EXISTS (SELECT 1 FROM stego_outbox.messages AS earlier
-				WHERE earlier.tenant_id = m.tenant_id AND earlier.destination = m.destination
-					AND earlier.resource_key = m.resource_key
-					AND earlier.sequence < m.sequence AND earlier.state NOT IN ('done', 'discarded'))
-			AND (m.state IN ('dispatching', 'outcome_unknown', 'reconciling', 'parked')
-				OR (m.lease_until IS NOT NULL AND m.lease_until > now.t)
-				OR (m.failure_code <> '' AND m.available_at > now.t))
-		ORDER BY m.sequence LIMIT $2`, q.now(), limit)
+	rows, err := q.db.QueryContext(ctx, `SELECT * FROM stego_outbox.blocked($1, $2)`, q.now(), limit)
 	if err != nil {
 		return nil, canceled(ctx, err)
 	}
@@ -529,8 +706,8 @@ func (q *Queue) Blocked(ctx context.Context, limit int) ([]BlockedMessage, error
 	for rows.Next() {
 		var item BlockedMessage
 		var state string
-		if err := rows.Scan(&item.TenantID, &item.Destination, &item.ResourceKey, &state, &item.Attempts, &item.FailureCode,
-			&item.AvailableAt, &item.BlockedSince); err != nil {
+		if err := rows.Scan(&item.TenantID, &item.Destination, &item.ResourceKey, &state, &item.Attempts,
+			&item.FailureCode, &item.AvailableAt, &item.BlockedSince); err != nil {
 			return nil, canceled(ctx, err)
 		}
 		item.State = State(state)
@@ -555,17 +732,20 @@ type DeadLetter struct {
 	ParkedAt    time.Time
 }
 
-// DeadLetters lists the parked messages, oldest first, and no message in another state (ST-SUP-RP01-LC16).
-func (q *Queue) DeadLetters(ctx context.Context, limit int) ([]DeadLetter, error) {
+// DeadLetters lists the parked messages of the tenant of tx, oldest first, and no message in another state
+// (ST-SUP-RP01-LC16). The dead letters are the parked rows of the queue table. It runs under the tenant policy in
+// the caller's transaction, which tenant.Begin opened, so it lists no message of another tenant
+// (ST-SUP-RP01-LC19).
+func (q *Queue) DeadLetters(ctx context.Context, tx *sql.Tx, limit int) ([]DeadLetter, error) {
 	if limit < 1 || limit > MaxBatchSize {
 		return nil, errors.New("outbox: the dead letter limit is out of its bounds")
 	}
-	if q == nil || q.db == nil {
-		return nil, errors.New("outbox: the queue needs a database")
+	if tx == nil {
+		return nil, errors.New("outbox: DeadLetters needs a transaction of one tenant")
 	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-	rows, err := q.db.QueryContext(ctx, `SELECT id, destination, resource_key, kind, parked_from, attempts,
+	rows, err := tx.QueryContext(ctx, `SELECT id, destination, resource_key, kind, parked_from, attempts,
 		failure_code, created_at, parked_at
 		FROM stego_outbox.messages WHERE state = 'parked' ORDER BY sequence LIMIT $1`, limit)
 	if err != nil {
@@ -590,61 +770,42 @@ func (q *Queue) DeadLetters(ctx context.Context, limit int) ([]DeadLetter, error
 }
 
 // purge removes at most limit parked messages that were parked before olderThan, only of the destinations in
-// purgeable, and never one that left outcome unknown or reconciling (ST-SUP-RP01-LC16). A discarded message is not
-// parked, so purge never removes one.
+// purgeable, and never one that left outcome unknown or reconciling, through the relay function purge_parked
+// (ST-SUP-RP01-LC16). A discarded message is not parked, so purge never removes one.
 func (q *Queue) purge(ctx context.Context, limit int, olderThan time.Duration, purgeable []string) (int64, error) {
 	if limit < 1 || limit > MaxBatchSize || olderThan < 0 || olderThan > 90*24*time.Hour {
 		return 0, errors.New("outbox: the purge limits are out of their bounds")
+	}
+	if purgeable == nil {
+		purgeable = []string{}
 	}
 	names, err := json.Marshal(purgeable)
 	if err != nil {
 		return 0, err
 	}
-	if purgeable == nil {
-		names = []byte("[]")
-	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-	result, err := q.db.ExecContext(ctx, `WITH `+nowCTE+`
-		DELETE FROM stego_outbox.messages WHERE id IN (
-			SELECT m.id FROM stego_outbox.messages AS m, now
-			WHERE m.state = 'parked' AND m.parked_from = 'dispatching'
-				AND m.parked_at <= now.t - $3 * interval '1 millisecond'
-				AND m.destination IN (SELECT pg_catalog.jsonb_array_elements_text($4::jsonb))
-			ORDER BY m.sequence LIMIT $2 FOR UPDATE OF m SKIP LOCKED)`,
-		q.now(), limit, olderThan.Milliseconds(), string(names))
-	if err != nil {
-		return 0, canceled(ctx, err)
-	}
-	return result.RowsAffected()
+	var n int64
+	err = q.db.QueryRowContext(ctx, `SELECT stego_outbox.purge_parked($1, $2, $3, $4::jsonb)`, q.now(), limit,
+		olderThan.Milliseconds(), string(names)).Scan(&n)
+	return n, canceled(ctx, err)
 }
 
-// PurgeDone removes at most limit messages that reached done before olderThan. A done message holds back no key and
-// keeps no rule; its row only serves the delivery status of a while. A discarded message stays.
-func (q *Queue) PurgeDone(ctx context.Context, limit int, olderThan time.Duration) (int64, error) {
-	if limit < 1 || limit > MaxBatchSize || olderThan < 0 || olderThan > 90*24*time.Hour {
+// MinRetention is the shortest retention of a done message (ST-SUP-RP01-LC24).
+const MinRetention = time.Hour
+
+// purgeDone removes at most limit messages that reached done before the retention, through the relay function
+// purge_done (ST-SUP-RP01-LC24). The function itself keeps every done message younger than MinRetention.
+func (q *Queue) purgeDone(ctx context.Context, limit int, retention time.Duration) (int64, error) {
+	if limit < 1 || limit > MaxBatchSize || retention < MinRetention {
 		return 0, errors.New("outbox: the purge limits are out of their bounds")
 	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-	result, err := q.db.ExecContext(ctx, `WITH `+nowCTE+`
-		DELETE FROM stego_outbox.messages WHERE id IN (
-			SELECT m.id FROM stego_outbox.messages AS m, now
-			WHERE m.state = 'done' AND m.done_at <= now.t - $3 * interval '1 millisecond'
-			ORDER BY m.sequence LIMIT $2 FOR UPDATE OF m SKIP LOCKED)`,
-		q.now(), limit, olderThan.Milliseconds())
-	if err != nil {
-		return 0, canceled(ctx, err)
-	}
-	return result.RowsAffected()
-}
-
-func changed(ctx context.Context, result sql.Result, err error) (bool, error) {
-	if err != nil {
-		return false, canceled(ctx, err)
-	}
-	count, err := result.RowsAffected()
-	return count == 1, err
+	var n int64
+	err := q.db.QueryRowContext(ctx, `SELECT stego_outbox.purge_done($1, $2, $3)`, q.now(), limit,
+		retention.Milliseconds()).Scan(&n)
+	return n, canceled(ctx, err)
 }
 
 // canceled returns the cancellation of ctx in the place of err when ctx ended, so a canceled queue operation
@@ -666,8 +827,9 @@ func validateMessage(message Message) error {
 	if message.OutgoingKey != "" && !validText(message.OutgoingKey, MaxKeyBytes) {
 		return errors.New("outbox: the outgoing idempotency key is not valid")
 	}
-	if !validText(message.Principal, MaxKeyBytes) || !validText(message.Origin, MaxKeyBytes) {
-		return errors.New("outbox: the staging principal or origin is not valid")
+	if !validText(message.Principal, MaxKeyBytes) || !validText(message.Origin, MaxKeyBytes) ||
+		!validText(message.Group, MaxKeyBytes) {
+		return errors.New("outbox: the staging principal, origin or group is not valid")
 	}
 	if len(message.Payload) == 0 || len(message.Payload) > MaxPayloadBytes || !utf8.Valid(message.Payload) {
 		return errors.New("outbox: the payload size or encoding is not valid")

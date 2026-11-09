@@ -163,15 +163,16 @@ func classify(err error, expired bool) outcome {
 // the payload or a credential.
 var errHandlerPanic = errors.New("outbox: the handler panicked")
 
-// callHandler calls handler and turns a panic into errHandlerPanic, so the request may have reached the destination
-// and the message ends in outcome unknown, not in a crashed worker.
-func callHandler(ctx context.Context, handler Handler, d Delivery) (err error) {
+// callHandler calls handler in the message's tenant transaction tx and turns a panic into errHandlerPanic, so the
+// request may have reached the destination, the message ends in outcome unknown, and the worker keeps running
+// (ST-SUP-RP01-LC27).
+func callHandler(ctx context.Context, handler Handler, tx *sql.Tx, d Delivery) (err error) {
 	defer func() {
 		if recover() != nil {
 			err = errHandlerPanic
 		}
 	}()
-	return handler(ctx, d)
+	return handler(ctx, tx, d)
 }
 
 // callLookup calls lookup and turns a panic into an error, which keeps the message in reconciling.
@@ -205,14 +206,40 @@ type LookupRequest struct {
 // Lookup asks a destination whether it acted on a message (ST-SUP-RP01-LC11).
 type Lookup func(ctx context.Context, request LookupRequest) (LookupStatus, error)
 
+// StateChange is one change of a message's state that a destination's state hook gets (ST-SUP-RP01-LC25).
+type StateChange struct {
+	ID          uuid.UUID
+	Group       string
+	Destination string
+	Tenant      tenant.Tenant
+	State       State
+}
+
+// StateHook follows the state of a destination's messages. The worker calls it in the transaction of each change of
+// a message to done, parked, pending from parked, or discarded, in the message's tenant; an error rolls the change
+// back (ST-SUP-RP01-LC25). It must not commit.
+type StateHook func(ctx context.Context, tx *sql.Tx, change StateChange) error
+
+// hooked reports whether a change from the state from to the state to calls the state hook.
+func hooked(from, to State) bool {
+	switch to {
+	case Done, Parked, Discarded:
+		return true
+	case Pending:
+		return from == Parked
+	}
+	return false
+}
+
 // step takes the next step for one claimed message.
 func (w *Worker) step(ctx context.Context, d Delivery) {
 	reg, ok := w.destinations[d.Destination]
 	switch d.Receipt.State {
 	case Dispatching:
 		if !ok {
+			// No request is sent: the attempt is taken back (ST-SUP-RP01-LC22).
 			w.unknownDestinations.Add(1)
-			w.finish(ctx, d, Pending, change{attempts: -1, delay: w.unknownDelay(), failureCode: "destination-unknown"})
+			w.finish(ctx, d, reg, Pending, change{attempts: -1, delay: w.unknownDelay(), failureCode: "destination-unknown"})
 			return
 		}
 		w.dispatch(ctx, d, reg)
@@ -233,20 +260,40 @@ func (w *Worker) step(ctx context.Context, d Delivery) {
 	}
 }
 
-// dispatch sends a dispatching message to its handler and moves it to the state the attempt ends in.
+// exhausted reports whether the attempts of d reached the limit for a destination that may park on it: a
+// destination registered as must land is never parked for its attempt count (ST-SUP-RP01-LC12, ST-SUP-RP01-LC23).
+func (w *Worker) exhausted(d Delivery, reg Destination) bool {
+	return !reg.MustLand && d.Attempts >= w.config.MaxAttempts
+}
+
+// dispatch sends a dispatching message to its handler in a transaction of the message's tenant, and moves it to the
+// state the attempt ends in. A success moves it to done in the handler's transaction and commits both together; any
+// other end rolls the handler's transaction back and moves the message in a new one (ST-SUP-RP01-LC19).
 func (w *Worker) dispatch(ctx context.Context, d Delivery, reg Destination) {
 	if ctx.Err() != nil {
-		w.finish(ctx, d, Pending, change{attempts: -1, failureCode: "worker-stopping"})
+		// The worker stops before it sends: the attempt is taken back (ST-SUP-RP01-LC22).
+		w.finish(ctx, d, reg, Pending, change{attempts: -1, failureCode: "worker-stopping"})
+		return
+	}
+	// The transaction outlives the attempt's deadline, so a late result can still be rolled back in order.
+	txCtx := context.WithoutCancel(ctx)
+	tx, err := tenant.Begin(txCtx, w.queue.db, d.Tenant, nil)
+	if err != nil {
+		w.databaseFailures.Add(1)
+		w.finish(ctx, d, reg, Pending, change{attempts: -1, delay: w.retryDelay(1), failureCode: "database-failed"})
 		return
 	}
 	attempt, cancel := context.WithTimeout(ctx, w.config.AttemptTimeout)
-	err := callHandler(attempt, reg.Handler, d)
+	err = callHandler(attempt, reg.Handler, tx, d)
 	expired := errors.Is(attempt.Err(), context.DeadlineExceeded)
 	cancel()
 	result := classify(err, expired)
+	if result.to == Done {
+		w.apply(ctx, tx, d, reg, Done, change{})
+		return
+	}
+	_ = tx.Rollback()
 	switch result.to {
-	case Done:
-		w.finish(ctx, d, Done, doneChange(d.Receipt.State))
 	case Pending:
 		if result.conflict {
 			w.conflicts.Add(1)
@@ -254,26 +301,26 @@ func (w *Worker) dispatch(ctx context.Context, d Delivery, reg Destination) {
 			c := change{conflict: true, delay: conflictWait(n), failureCode: result.failureCode}
 			if n <= FreeConflicts {
 				c.attempts = -1
-			} else if d.Attempts >= w.config.MaxAttempts {
-				w.park(ctx, d, change{conflict: true, failureCode: "attempts-exhausted"})
+			} else if w.exhausted(d, reg) {
+				w.park(ctx, d, reg, change{conflict: true, failureCode: "attempts-exhausted"})
 				return
 			}
-			w.finish(ctx, d, Pending, c)
+			w.finish(ctx, d, reg, Pending, c)
 			return
 		}
 		w.deliveryFailures.Add(1)
-		if d.Attempts >= w.config.MaxAttempts {
-			w.park(ctx, d, change{failureCode: "attempts-exhausted"})
+		if w.exhausted(d, reg) {
+			w.park(ctx, d, reg, change{failureCode: "attempts-exhausted"})
 			return
 		}
-		w.finish(ctx, d, Pending, change{delay: w.retryDelay(d.Attempts), failureCode: result.failureCode})
+		w.finish(ctx, d, reg, Pending, change{delay: w.retryDelay(d.Attempts), failureCode: result.failureCode})
 	case OutcomeUnknown:
 		w.deliveryFailures.Add(1)
 		w.unknownOutcomes.Add(1)
-		w.finish(ctx, d, OutcomeUnknown, change{failureCode: result.failureCode})
+		w.finish(ctx, d, reg, OutcomeUnknown, change{failureCode: result.failureCode})
 	case Parked:
 		w.deliveryFailures.Add(1)
-		w.park(ctx, d, change{failureCode: result.failureCode})
+		w.park(ctx, d, reg, change{failureCode: result.failureCode})
 	}
 }
 
@@ -289,11 +336,11 @@ func (w *Worker) afterUnknown(ctx context.Context, d Delivery, reg Destination) 
 			w.releaseLease(ctx, d, 0, "worker-stopping")
 			return
 		}
-		if d.Attempts >= w.config.MaxAttempts {
-			w.park(ctx, d, change{failureCode: "attempts-exhausted"})
+		if w.exhausted(d, reg) {
+			w.park(ctx, d, reg, change{failureCode: "attempts-exhausted"})
 			return
 		}
-		ok, m, err := w.queue.move(ctx, &d.Receipt, Dispatching, change{attempts: 1, failureCode: "resend",
+		ok, m, err := w.queue.move(ctx, nil, &d.Receipt, Dispatching, change{attempts: 1, failureCode: "resend",
 			lease: w.config.LeaseDuration})
 		if !w.counted(ok, err) {
 			return
@@ -303,16 +350,16 @@ func (w *Worker) afterUnknown(ctx context.Context, d Delivery, reg Destination) 
 		w.dispatch(ctx, d, reg)
 	case reg.Lookup != nil:
 		due := d.DispatchedAt.Add(w.config.AttemptTimeout + reg.SettleTime)
-		w.finish(ctx, d, Reconciling, change{dueAt: &due, failureCode: "outcome-unknown"})
+		w.finish(ctx, d, reg, Reconciling, change{dueAt: &due, failureCode: "outcome-unknown"})
 	default:
-		w.park(ctx, d, change{failureCode: "outcome-unknown"})
+		w.park(ctx, d, reg, change{failureCode: "outcome-unknown"})
 	}
 }
 
 // reconcile asks the status lookup of a reconciling message and moves it as the answer says (ST-SUP-RP01-LC11).
 func (w *Worker) reconcile(ctx context.Context, d Delivery, reg Destination) {
 	if reg.Lookup == nil {
-		w.park(ctx, d, change{failureCode: "outcome-unknown"})
+		w.park(ctx, d, reg, change{failureCode: "outcome-unknown"})
 		return
 	}
 	if ctx.Err() != nil {
@@ -326,30 +373,58 @@ func (w *Worker) reconcile(ctx context.Context, d Delivery, reg Destination) {
 	w.lookups.Add(1)
 	switch {
 	case err == nil && status == StatusActed:
-		w.finish(ctx, d, Done, change{lookup: true})
+		w.finish(ctx, d, reg, Done, change{lookup: true})
 	case err == nil && status == StatusNotActed:
-		w.finish(ctx, d, Pending, change{lookup: true, failureCode: "lookup-not-acted"})
+		w.finish(ctx, d, reg, Pending, change{lookup: true, failureCode: "lookup-not-acted"})
 	default:
 		if d.Lookups+1 >= int64(w.config.LookupBound) {
-			w.park(ctx, d, change{lookup: true, failureCode: "lookups-exhausted"})
+			w.park(ctx, d, reg, change{lookup: true, failureCode: "lookups-exhausted"})
 			return
 		}
 		code := "lookup-unknown"
 		if err != nil {
 			code = "lookup-failed"
 		}
-		w.finish(ctx, d, Reconciling, change{lookup: true, delay: w.retryDelay(d.Lookups + 1), failureCode: code})
+		w.finish(ctx, d, reg, Reconciling, change{lookup: true, delay: w.retryDelay(d.Lookups + 1), failureCode: code})
 	}
 }
 
-// finish moves a claimed message under its lease. On done it records the delivery delay (ST-SUP-RP01-LC07).
-func (w *Worker) finish(ctx context.Context, d Delivery, to State, c change) {
+// finish moves a claimed message under its lease in a new transaction of its tenant.
+func (w *Worker) finish(ctx context.Context, d Delivery, reg Destination, to State, c change) {
+	w.apply(ctx, nil, d, reg, to, c)
+}
+
+// apply moves a claimed message under its lease in tx, or in a new transaction of the message's tenant when tx is
+// nil, calls the destination's state hook in the same transaction, and commits with tenant.Commit. A failed move,
+// hook or commit rolls everything back and changes nothing. On done it records the delivery delay
+// (ST-SUP-RP01-LC07); on parked it raises the alert (ST-SUP-RP01-LC12). It reports whether the move committed.
+func (w *Worker) apply(ctx context.Context, tx *sql.Tx, d Delivery, reg Destination, to State, c change) bool {
 	// A completed delivery is still recorded during shutdown; a database result that is not known keeps the lease.
 	finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), operationTimeout)
 	defer cancel()
-	ok, m, err := w.queue.move(finish, &d.Receipt, to, c)
+	from := d.Receipt.State
+	if tx == nil {
+		var err error
+		if tx, err = tenant.Begin(finish, w.queue.db, d.Tenant, nil); err != nil {
+			w.databaseFailures.Add(1)
+			return false
+		}
+	}
+	defer func() { _ = tx.Rollback() }()
+	ok, m, err := w.queue.move(finish, tx, &d.Receipt, to, c)
 	if !w.counted(ok, err) {
-		return
+		return false
+	}
+	if reg.StateHook != nil && hooked(from, to) {
+		if err := reg.StateHook(finish, tx, StateChange{ID: d.ID, Group: d.Group, Destination: d.Destination,
+			Tenant: d.Tenant, State: to}); err != nil {
+			w.hookFailures.Add(1)
+			return false
+		}
+	}
+	if err := tenant.Commit(finish, tx, d.Tenant); err != nil {
+		w.databaseFailures.Add(1)
+		return false
 	}
 	switch to {
 	case Done:
@@ -357,21 +432,17 @@ func (w *Worker) finish(ctx context.Context, d Delivery, to State, c change) {
 		w.metrics.delivered(finish, d.Destination, m.delay)
 	case Pending:
 		w.retried.Add(1)
+	case Parked:
+		w.parked.Add(1)
+		w.metrics.parked(finish, d.Destination, from)
 	}
+	return true
 }
 
 // park moves a claimed message to parked, records the state it left, and raises one alert event and metric that
 // name the destination and that state (ST-SUP-RP01-LC12).
-func (w *Worker) park(ctx context.Context, d Delivery, c change) {
-	from := d.Receipt.State
-	finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), operationTimeout)
-	defer cancel()
-	ok, _, err := w.queue.move(finish, &d.Receipt, Parked, c)
-	if !w.counted(ok, err) {
-		return
-	}
-	w.parked.Add(1)
-	w.metrics.parked(finish, d.Destination, from)
+func (w *Worker) park(ctx context.Context, d Delivery, reg Destination, c change) {
+	w.apply(ctx, nil, d, reg, Parked, c)
 }
 
 func (w *Worker) releaseLease(ctx context.Context, d Delivery, delay time.Duration, code string) {
@@ -446,6 +517,9 @@ type ResolveRequest struct {
 	Resolution Resolution
 }
 
+// ErrNotFound is the error of Resolve for a message that the transaction's tenant does not hold.
+var ErrNotFound = errors.New("outbox: the tenant of the transaction holds no message with this ID")
+
 // ErrNotParked is the error of Resolve for a message that is not parked.
 var ErrNotParked = errors.New("outbox: only a parked message can be resolved")
 
@@ -458,8 +532,10 @@ var ErrNotAllowed = errors.New("outbox: the subject may not resolve messages of 
 // it takes no decision from its caller. acted moves the message to done, not acted to pending with the same
 // identity and outgoing key, and discarded to discarded, which releases its key. For an idempotent destination it
 // accepts only not acted, or discarded when the destination must land; discarded is refused for a destination that
-// need not land. The audit row is written in tx with the state change. A refused resolution changes nothing. The
-// caller commits tx, with tenant.Commit when tenant.Begin opened it.
+// need not land. The audit row and the destination's state hook are written in tx with the state change. A refused
+// resolution changes nothing. tx is a transaction of one tenant, which tenant.Begin opened; Resolve runs under the
+// tenant policy, so it answers ErrNotFound for a message of another tenant (ST-SUP-RP01-LC19). The caller commits
+// tx with tenant.Commit.
 //
 // Resolve returns a Resolved. The caller calls its Committed after its own commit of tx succeeds, and only then, so
 // a message resolved as acted records its delivery delay only once it is done (ST-SUP-RP01-LC07).
@@ -506,16 +582,17 @@ func (w *Worker) resolve(ctx context.Context, tx *sql.Tx, request ResolveRequest
 	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-	rows, err := tx.QueryContext(ctx, `SELECT tenant_id, destination, state FROM stego_outbox.messages WHERE id = $1`,
-		request.ID)
+	// The read runs under the tenant policy: a message of another tenant is not found (ST-SUP-RP01-LC19).
+	rows, err := tx.QueryContext(ctx, `SELECT tenant_id, destination, state, group_id FROM stego_outbox.messages
+		WHERE id = $1`, request.ID)
 	if err != nil {
 		return canceled(ctx, err)
 	}
-	var destination, state string
+	var destination, state, group string
 	var owner tenant.Tenant
 	found := rows.Next()
 	if found {
-		owner, err = tenant.ScanRows(rows, &destination, &state)
+		owner, err = tenant.ScanRows(rows, &destination, &state, &group)
 	}
 	closeErr := rows.Close()
 	if err == nil {
@@ -528,7 +605,7 @@ func (w *Worker) resolve(ctx context.Context, tx *sql.Tx, request ResolveRequest
 		return canceled(ctx, err)
 	}
 	if !found {
-		return errors.New("outbox: no message has this ID")
+		return ErrNotFound
 	}
 	if State(state) != Parked {
 		return ErrNotParked
@@ -571,6 +648,13 @@ func (w *Worker) resolve(ctx context.Context, tx *sql.Tx, request ResolveRequest
 	if err != nil {
 		return canceled(ctx, err)
 	}
+	if reg.StateHook != nil {
+		if err := reg.StateHook(ctx, tx, StateChange{ID: request.ID, Group: group, Destination: destination,
+			Tenant: owner, State: to}); err != nil {
+			return fmt.Errorf("outbox: the state hook of %s refused the resolution: %w", destination, err)
+		}
+	}
+	// The audit row is the last write before the caller's commit, as the audit runtime asks (ST-SUP-RP05-LC12).
 	if err := w.auditor.Record(ctx, tx, AuditEntry{MessageID: request.ID, Tenant: owner, Destination: destination,
 		Subject: request.Subject, Resolution: request.Resolution, At: at}); err != nil {
 		return fmt.Errorf("outbox: write the audit row of the resolution: %w", err)

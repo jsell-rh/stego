@@ -2,6 +2,7 @@ package outbox
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -14,11 +15,14 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-// Handler delivers one message to its destination. It must return only after the delivery succeeds or fails, must
-// honor the deadline of ctx, and must send d.OutgoingKey as the idempotency key of every request. It marks an error
-// with NotSent, TransientRefusal, PermanentRefusal or Conflict when it knows the outcome; an error with no mark is
-// an outcome that is not known (ST-SUP-RP01-LC09).
-type Handler func(ctx context.Context, d Delivery) error
+// Handler delivers one message to its destination. tx is a transaction of the message's tenant, which the worker
+// opened with tenant.Begin (ST-SUP-RP01-LC19): a consumer writes through it, and the worker moves the message to
+// done in it and commits both together when the handler returns nil, or rolls it back otherwise. The handler must
+// not commit or roll back tx. It must return only after the delivery succeeds or fails, must honor the deadline of
+// ctx, and must send d.OutgoingKey as the idempotency key of every request. It marks an error with NotSent,
+// TransientRefusal, PermanentRefusal or Conflict when it knows the outcome; an error with no mark is an outcome that
+// is not known (ST-SUP-RP01-LC09). A panic is an outcome that is not known (ST-SUP-RP01-LC27).
+type Handler func(ctx context.Context, tx *sql.Tx, d Delivery) error
 
 // Destination is the registration of one destination on the worker (ST-SUP-RP01-LC14): its name, its handler,
 // whether it is idempotent, whether its messages must land, and an optional status lookup with its settle time. A
@@ -30,6 +34,9 @@ type Destination struct {
 	MustLand   bool
 	Lookup     Lookup
 	SettleTime time.Duration
+	// StateHook, when set, follows the state of the destination's messages in the transaction of each change
+	// (ST-SUP-RP01-LC25).
+	StateHook StateHook
 }
 
 // WorkerConfig holds the limits of the worker. NewWorker refuses a value outside its bounds (ST-SUP-RC18-OC16).
@@ -40,8 +47,8 @@ type WorkerConfig struct {
 	LeaseDuration  time.Duration
 	RetryMin       time.Duration
 	RetryMax       time.Duration
-	// MaxAttempts is the attempts limit: a message whose attempts reach it is parked (ST-SUP-RP01-LC12). Zero is
-	// DefaultMaxAttempts.
+	// MaxAttempts is the attempts limit, 1 to 1000: a message whose attempts reach it is parked, unless its
+	// destination must land (ST-SUP-RP01-LC12, ST-SUP-RP01-LC23). DefaultWorkerConfig gives DefaultMaxAttempts.
 	MaxAttempts int64
 	// LookupBound is the most status lookups of one message before it is parked (ST-SUP-RP01-LC11). Zero is
 	// DefaultLookups, 10.
@@ -55,7 +62,15 @@ type WorkerConfig struct {
 	Decider Decider
 	// Auditor writes the audit row of a resolution (ST-SUP-RP01-LC13). Nil refuses every resolution.
 	Auditor Auditor
+	// Retention is how long a done message stays before the purge timer removes it, at least MinRetention
+	// (ST-SUP-RP01-LC24). DefaultWorkerConfig gives DefaultRetention.
+	Retention time.Duration
+	// PurgeEvery is the period of the purge timer, 1 s to 1 h. DefaultWorkerConfig gives one minute.
+	PurgeEvery time.Duration
 }
+
+// DefaultRetention is the retention of a done message when the configuration does not change it.
+const DefaultRetention = 7 * 24 * time.Hour
 
 // DefaultMaxAttempts is the attempts limit when the configuration gives none.
 const DefaultMaxAttempts = 25
@@ -67,6 +82,7 @@ func DefaultWorkerConfig() WorkerConfig {
 		AttemptTimeout: 10 * time.Second, LeaseDuration: 30 * time.Second,
 		RetryMin: time.Second, RetryMax: 5 * time.Minute,
 		MaxAttempts: DefaultMaxAttempts, LookupBound: DefaultLookups,
+		Retention: DefaultRetention, PurgeEvery: time.Minute,
 	}
 }
 
@@ -82,6 +98,8 @@ type WorkerStats struct {
 	Conflicts           uint64
 	Lookups             uint64
 	Parked              uint64
+	StateHookFailures   uint64
+	DonePurged          uint64
 }
 
 // Worker claims messages and takes each one's next step. It is a library value: the service builds it, registers
@@ -112,15 +130,14 @@ type Worker struct {
 	conflicts           atomic.Uint64
 	lookups             atomic.Uint64
 	parked              atomic.Uint64
+	hookFailures        atomic.Uint64
+	donePurged          atomic.Uint64
 }
 
 // NewWorker builds a worker on queue with config. It refuses a limit outside its bounds.
 func NewWorker(queue *Queue, config WorkerConfig) (*Worker, error) {
 	if queue == nil || queue.db == nil {
 		return nil, errors.New("outbox: the worker needs a queue")
-	}
-	if config.MaxAttempts == 0 {
-		config.MaxAttempts = DefaultMaxAttempts
 	}
 	if config.LookupBound == 0 {
 		config.LookupBound = DefaultLookups
@@ -130,7 +147,8 @@ func NewWorker(queue *Queue, config WorkerConfig) (*Worker, error) {
 		config.AttemptTimeout < 10*time.Millisecond || config.AttemptTimeout > time.Minute ||
 		config.LeaseDuration < config.AttemptTimeout+2*operationTimeout+time.Second || config.LeaseDuration > 5*time.Minute ||
 		config.RetryMin < 10*time.Millisecond || config.RetryMax < config.RetryMin || config.RetryMax > 24*time.Hour ||
-		config.MaxAttempts < 1 || config.MaxAttempts > 1000 || config.LookupBound < 1 || config.LookupBound > 1000 {
+		config.MaxAttempts < 1 || config.MaxAttempts > 1000 || config.LookupBound < 1 || config.LookupBound > 1000 ||
+		config.Retention < MinRetention || config.PurgeEvery < time.Second || config.PurgeEvery > time.Hour {
 		return nil, errors.New("outbox: a worker limit is out of its bounds")
 	}
 	w := &Worker{queue: queue, config: config, decider: config.Decider, auditor: config.Auditor,
@@ -201,7 +219,7 @@ func (w *Worker) Stats() WorkerStats {
 		DeliveryFailures: w.deliveryFailures.Load(), DatabaseFailures: w.databaseFailures.Load(),
 		LostLeases: w.lostLeases.Load(), UnknownDestinations: w.unknownDestinations.Load(),
 		UnknownOutcomes: w.unknownOutcomes.Load(), Conflicts: w.conflicts.Load(), Lookups: w.lookups.Load(),
-		Parked: w.parked.Load(),
+		Parked: w.parked.Load(), StateHookFailures: w.hookFailures.Load(), DonePurged: w.donePurged.Load(),
 	}
 }
 
@@ -240,6 +258,11 @@ func (w *Worker) Run(ctx context.Context) error {
 		}
 	}()
 	var workers sync.WaitGroup
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		w.purgeTimer(claimCtx)
+	}()
 	for i := 0; i < w.config.Concurrency; i++ {
 		workers.Add(1)
 		go func() {
@@ -301,6 +324,41 @@ func (w *Worker) runOne(claimCtx, workCtx context.Context) {
 			return
 		}
 	}
+}
+
+// purgeTimer purges done messages every PurgeEvery until ctx ends (ST-SUP-RP01-LC24).
+func (w *Worker) purgeTimer(ctx context.Context) {
+	ticker := time.NewTicker(w.config.PurgeEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if _, _, err := w.purgeTick(ctx); err != nil && ctx.Err() == nil {
+				w.databaseFailures.Add(1)
+			}
+		}
+	}
+}
+
+// purgeTick removes the done messages older than the retention, in batches of MaxBatchSize through the relay
+// function purge_done, until a batch is not full or 1000 batches ran. It returns how many it removed and how many
+// batches ran.
+func (w *Worker) purgeTick(ctx context.Context) (int64, int, error) {
+	var removed int64
+	for batch := 1; batch <= 1000; batch++ {
+		n, err := w.queue.purgeDone(ctx, MaxBatchSize, w.config.Retention)
+		if err != nil {
+			return removed, batch, err
+		}
+		removed += n
+		w.donePurged.Add(uint64(n))
+		if n < MaxBatchSize {
+			return removed, batch, nil
+		}
+	}
+	return removed, 1000, nil
 }
 
 // cycle claims at most one message on claimCtx and takes its next step on workCtx. It claims only when this worker
@@ -464,10 +522,8 @@ func (w *Worker) oldestAges(ctx context.Context) (map[string]float64, error) {
 		ages[name] = 0
 	}
 	w.mu.Unlock()
-	rows, err := w.queue.db.QueryContext(ctx, `WITH `+nowCTE+`
-		SELECT m.destination, GREATEST(pg_catalog.date_part('epoch', now.t - min(m.created_at)), 0)::float8
-		FROM stego_outbox.messages AS m, now WHERE m.state NOT IN ('done', 'discarded')
-		GROUP BY m.destination, now.t`, w.queue.now())
+	// The relay function oldest reads every tenant's messages (ST-SUP-RP01-LC19).
+	rows, err := w.queue.db.QueryContext(ctx, `SELECT * FROM stego_outbox.oldest($1)`, w.queue.now())
 	if err != nil {
 		return nil, err
 	}
