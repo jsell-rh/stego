@@ -2,6 +2,7 @@
 {"id":"ST-ASR-TOOL02","title":"proof-run.yml","domain_id":"ST-ASR","file":".github/workflows/proof-run.yml"}
 {"id":"ST-ASR-TOOL03","title":"known-code-faults.tsv","domain_id":"ST-ASR","file":"internal/assure/testdata/known-code-faults.tsv"}
 {"id":"ST-ASR-TOOL04","title":"spec.yml","domain_id":"ST-ASR","file":".github/workflows/spec.yml"}
+{"id":"ST-ASR-TOOL05","title":"user-docs.txt","domain_id":"ST-ASR","file":"internal/assure/testdata/user-docs.txt"}
 {"id":"ST-BLD-TOOL01","title":"application-images.py","domain_id":"ST-BLD","file":"scripts/application-images.py"}
 {"id":"ST-BLD-TOOL02","title":"capture-image-ca.py","domain_id":"ST-BLD","file":"scripts/capture-image-ca.py"}
 {"id":"ST-BLD-TOOL03","title":"check-application-build.py","domain_id":"ST-BLD","file":"scripts/check-application-build.py"}
