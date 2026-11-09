@@ -64,6 +64,8 @@ func (e ValidationError) Prose() string {
 // ValidationResult collects all validation errors that a check finds.
 type ValidationResult struct {
 	Errors []ValidationError
+	// Settings are the declaration's settings with the defaults filled in, when the declaration could be read.
+	Settings *Settings
 }
 
 // HasErrors returns true if the result contains any validation errors.
@@ -108,6 +110,11 @@ func Validate(service *types.ServiceDeclaration, undeclared ...parser.Undeclared
 	faults.Service = append(faults.Service, validateConventionOverrides(service.Overrides)...)
 
 	faults.Service = append(faults.Service, validateArchetype(service.Archetype)...)
+	faults.Service = append(faults.Service, validateDefaultsLeft(service)...)
+	faults.Service = append(faults.Service, validateTenancyClaim(service)...)
+	faults.Entities = append(faults.Entities, validateEntityTenants(service.Entities)...)
+	faults.Service = append(faults.Service, validateTenantlessPaths(service)...)
+	faults.Service = append(faults.Service, validateAuditValues(service)...)
 	faults.Entities = append(faults.Entities, validateFieldTypes(service.Entities)...)
 	faults.Entities = append(faults.Entities, validateFieldDefaults(service.Entities)...)
 	for _, err := range types.ValidateVersioned(service.Entities, service.Collections) {
