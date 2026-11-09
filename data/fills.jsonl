@@ -591,6 +591,7 @@
 {"source_id":"ST-SUP-RC31-G01","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-SUP-RC32","target_id":"ST-PAT-GO-CODE-SL03"}
 {"source_id":"ST-SUP-RC32-G01","target_id":"ST-PAT-GO-CODE-SL01"}
+{"source_id":"ST-SUP-RC32-G02","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-SUP-RC33","target_id":"ST-PAT-GO-CODE-SL03"}
 {"source_id":"ST-SUP-RC33-G01","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-SUP-RC34","target_id":"ST-PAT-GO-CODE-SL03"}
