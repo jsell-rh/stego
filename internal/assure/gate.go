@@ -193,7 +193,8 @@ type ChangeRequest struct {
 // trees and specs. It refuses the change when an obligation present at the base lost its designed, built or
 // proved standing and no retirement at the change carries that standing to a successor, when no proof run at the commit is verified, when an automated test record did not pass
 // there, when the change's tree has a code-standard fault that the base head's does not have by rule and key, or
-// when the only proof run is change grade and the change alters the workflows folder. A fault the base head
+// when the change alters or removes a CLI command that a user doc names and leaves that doc as it is
+// (ST-STD-DOCS-R04), or when the only proof run is change grade and the change alters the workflows folder. A fault the base head
 // already has is reported in the decision's code faults, and is no reason. Each retirement the ratchet follows is
 // reported in the decision's retirements. The decision names both commits and both coverages, and lists every reason in the fixed order; the store keeps it. It returns an error, and no
 // decision, when it cannot read what it decides on.
@@ -227,7 +228,11 @@ func GateChange(request ChangeRequest, store AttestationStore, verifier BundleVe
 	if err != nil {
 		return Decision{}, ChangeDecided{}, err
 	}
-	faults, err := committedFaults(request.Root, request.Commit, spec)
+	tree, err := ReadCommittedTree(request.Root, request.Commit)
+	if err != nil {
+		return Decision{}, ChangeDecided{}, err
+	}
+	faults, err := CodeFaults(spec, tree)
 	if err != nil {
 		return Decision{}, ChangeDecided{}, err
 	}
@@ -235,7 +240,11 @@ func GateChange(request ChangeRequest, store AttestationStore, verifier BundleVe
 	if err != nil {
 		return Decision{}, ChangeDecided{}, err
 	}
-	baseFaults, err := committedFaults(request.Root, request.Base, baseSpec)
+	baseTree, err := ReadCommittedTree(request.Root, request.Base)
+	if err != nil {
+		return Decision{}, ChangeDecided{}, err
+	}
+	baseFaults, err := CodeFaults(baseSpec, baseTree)
 	if err != nil {
 		return Decision{}, ChangeDecided{}, err
 	}
@@ -250,6 +259,7 @@ func GateChange(request ChangeRequest, store AttestationStore, verifier BundleVe
 			causes = append(causes, codeFaultReason(fault))
 		}
 	}
+	causes = append(causes, docsLagChange(baseSpec, spec, baseTree, tree)...)
 	if verification.Proof == nil && verification.WorkflowsChanged {
 		for _, file := range changed {
 			causes = append(causes, workflowReason(file))

@@ -41,7 +41,9 @@ const (
 //     ID, so that this fault and a fault of the whole file are not one fault (the ID alone when the record names no
 //     file);
 //   - R05: the file;
-//   - R06: the record's ID.
+//   - R06: the record's ID;
+//   - ST-STD-DOCS-R01: the doc's path; R02: "<doc> <command line>", "<doc> <command line> --<flag>" or
+//     "<doc> <link target>"; R03: "<doc> <section name>", or the doc's path for a section with no end marker.
 //
 // The reason is for people to read. The same tree and spec always give the same faults.
 type CodeFault struct {
@@ -56,12 +58,14 @@ func (f CodeFault) String() string {
 }
 
 // CodeFaults is the service of the domain service ST-ASR-DS04, Find the code faults (ST-ASR-DS04-SV), which both
-// gate commands call. It runs the six predicates of the code standard over the tree at a commit and the spec at the
+// gate commands call. It runs the six predicates of the code standard and the four of the user-doc standard over the tree at a commit and the spec at the
 // same commit, and nothing else, and returns every fault, each with its key, sorted by rule, then by key, then by
 // path and reason. Thus two readings of the same commit agree, and a gate can compare two commits by rule and key.
 // The predicates: ST-ASR-SP05-PR packageOfTwoDomains (ST-STD-CODE-R01), ST-ASR-SP06-PR identifierMissing (R02),
 // ST-ASR-SP07-PR importAgainstOrder (R03), ST-ASR-SP08-PR testWithoutID (R04), ST-ASR-SP09-PR fileWithoutRecord
-// (R05) and ST-ASR-SP10-PR stubBuilt (R06). It refuses a tree whose imports it cannot resolve, as
+// (R05) and ST-ASR-SP10-PR stubBuilt (R06); and the predicates of the user-doc standard (ST-STD-DOCS):
+// ST-ASR-SP14-PR docInventoryFaults (R01), ST-ASR-SP11-PR docNamesUnknownCommand and ST-ASR-SP12-PR
+// docNamesMissingPath (R02), and ST-ASR-SP13-PR docSectionStale (R03). It refuses a tree whose imports it cannot resolve, as
 // importAgainstOrder does.
 func CodeFaults(spec Spec, tree Tree) ([]CodeFault, error) {
 	imports, err := importAgainstOrder(spec, tree)
@@ -75,6 +79,10 @@ func CodeFaults(spec Spec, tree Tree) ([]CodeFault, error) {
 	faults = append(faults, testWithoutID(spec, tree)...)
 	faults = append(faults, fileWithoutRecord(spec, tree)...)
 	faults = append(faults, stubBuilt(spec, tree)...)
+	faults = append(faults, docInventoryFaults(spec, tree)...)
+	faults = append(faults, docNamesUnknownCommand(spec, tree)...)
+	faults = append(faults, docNamesMissingPath(spec, tree)...)
+	faults = append(faults, docSectionStale(spec, tree)...)
 	sortFaults(faults)
 	return faults, nil
 }

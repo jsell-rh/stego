@@ -879,6 +879,9 @@ func TestOwnTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if *updateDocs {
+		writeDocSections(t, root)
+	}
 	spec, err := ReadCommittedSpec(root, "HEAD")
 	if err != nil {
 		t.Fatal(err)
@@ -982,5 +985,20 @@ func TestOwnTree(t *testing.T) {
 	})
 	t.Run("ST-STD-CODE-R06-T01 STEGO's own tree holds the rule: stub counted as built is not found in it", func(t *testing.T) {
 		check(t, RuleStubIsNotBuilt, stubBuilt(spec, tree))
+	})
+	t.Run("ST-STD-DOCS-R01-T01 STEGO's own tree holds the rule: the user doc inventory lists README.md, and each file it lists is a Markdown file of the tree", func(t *testing.T) {
+		docs := UserDocs(spec, tree)
+		if len(docs) == 0 || docs[0] != "README.md" {
+			t.Fatalf("the user doc inventory (%s) lists %v, want README.md first", DocInventoryRecord, docs)
+		}
+		check(t, RuleDocInventory, docInventoryFaults(spec, tree))
+	})
+	t.Run("ST-STD-DOCS-R02-T01 STEGO's own tree holds the rule: no user doc names an unknown command or flag, or links to a missing path", func(t *testing.T) {
+		faults := append(docNamesUnknownCommand(spec, tree), docNamesMissingPath(spec, tree)...)
+		sortFaults(faults)
+		check(t, RuleDocNamesResolve, faults)
+	})
+	t.Run("ST-STD-DOCS-R03-T01 STEGO's own tree holds the rule: each generated section of a user doc is what the spec gives", func(t *testing.T) {
+		check(t, RuleDocSectionsCurrent, docSectionStale(spec, tree))
 	})
 }
