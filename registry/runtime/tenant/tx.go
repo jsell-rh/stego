@@ -75,13 +75,24 @@ func (q querier) QueryRowContext(ctx context.Context, query string, args ...any)
 	return q.tx.QueryRowContext(ctx, query, args...)
 }
 
+// ErrNotCommitted matches each error of Commit that ends before COMMIT is sent: the transaction is rolled back and
+// surely did not commit, so a caller can tell it from a COMMIT whose outcome is not known (ST-SUP-RP10-LC25).
+var ErrNotCommitted = errors.New("tenant: the transaction did not commit")
+
+// notCommitted is an error of Commit before COMMIT: it matches ErrNotCommitted and unwraps to its cause.
+type notCommitted struct{ err error }
+
+func (e *notCommitted) Error() string        { return e.err.Error() }
+func (e *notCommitted) Unwrap() error        { return e.err }
+func (e *notCommitted) Is(target error) bool { return target == ErrNotCommitted }
+
 // ErrTenantChanged is the error of Commit when the tenant setting of the transaction no longer holds its tenant.
 var ErrTenantChanged = errors.New("tenant: the tenant setting of the transaction changed, so the transaction is rolled back")
 
 // Commit commits tx, which Begin opened for t, only when its tenant setting still holds t (ST-SUP-RP04-LC03). When a
 // statement of the caller changed app.tenant, with is_local true or false, it rolls the transaction back and
 // returns ErrTenantChanged, which names no tenant value, so no row of another tenant commits and the connection
-// keeps no tenant. It refuses the zero tenant before it sends a statement.
+// keeps no tenant. Each error that ends before COMMIT is sent also matches ErrNotCommitted. It refuses the zero tenant before it sends a statement.
 func Commit(ctx context.Context, tx *sql.Tx, t Tenant) error {
 	if t.IsZero() {
 		return ErrZero
@@ -92,11 +103,11 @@ func Commit(ctx context.Context, tx *sql.Tx, t Tenant) error {
 	var current sql.NullString
 	if err := tx.QueryRowContext(ctx, readTenantStatement).Scan(&current); err != nil {
 		_ = tx.Rollback()
-		return fmt.Errorf("tenant: read the tenant setting before the commit: %w", err)
+		return &notCommitted{err: fmt.Errorf("tenant: read the tenant setting before the commit: %w", err)}
 	}
 	if current.String != t.id {
 		_ = tx.Rollback()
-		return ErrTenantChanged
+		return &notCommitted{err: ErrTenantChanged}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("tenant: commit the transaction of tenant %s: %w", t.id, err)

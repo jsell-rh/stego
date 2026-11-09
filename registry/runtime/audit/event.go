@@ -15,8 +15,10 @@ import (
 	"unicode/utf8"
 )
 
-// Event is one audit record (ST-SUP-RP05-LC01). It has a fixed shape: these 27 fields and no other. Operation is the
+// Event is one audit record (ST-SUP-RP05-LC01). It has a fixed shape: these 28 fields and no other. Operation is the
 // name of the declared command, query or worker that wrote the row, or empty for a row of the runtime itself.
+// OnBehalfOf is the staging principal on whose behalf a consuming worker acted (ST-SUP-RP10-LC16), or empty; only a
+// row of hash_version 3 has one.
 // HashVersion is the version of the canonical encoding that the hash covers: New sets HashVersionCurrent, and a
 // stored row of version 1 has no operation and keeps the old encoding (ST-SUP-RP05-LC04). ActorIP and
 // UserAgent come from the request and are Untrusted: the package cleans and stores them and never decides on them.
@@ -33,6 +35,7 @@ type Event struct {
 	UserAgent          Untrusted `json:"user_agent"`
 	Action             string    `json:"action"`
 	Operation          string    `json:"operation"`
+	OnBehalfOf         string    `json:"on_behalf_of"`
 	ResourceType       string    `json:"resource_type"`
 	ResourceID         string    `json:"resource_id"`
 	Outcome            Outcome   `json:"outcome"`
@@ -102,10 +105,12 @@ const (
 )
 
 // The hash versions (ST-SUP-RP05-LC04). Version 1 is the encoding before operation existed; a verifier reads such
-// rows with it. Version 2 adds operation and hash_version to the canonical record, and every new row has it.
+// rows with it. Version 2 adds operation and hash_version to the canonical record. Version 3 adds on_behalf_of, and
+// every new row has it; rows of versions 1 and 2 still verify with their own encodings.
 const (
 	HashVersion1       = 1
-	HashVersionCurrent = 2
+	HashVersion2       = 2
+	HashVersionCurrent = 3
 )
 
 // ActionRead is the action of the audit row of a read of an entity that holds a pii field (ST-SUP-RP05-LC02).
@@ -255,6 +260,7 @@ func New(e Event, now time.Time) (Event, error) {
 	e.RequestID = clean(e.RequestID)
 	e.IdempotencyKey = clean(e.IdempotencyKey)
 	e.Operation = clean(e.Operation)
+	e.OnBehalfOf = clean(e.OnBehalfOf)
 	if err := e.Validate(); err != nil {
 		return Event{}, err
 	}
@@ -308,10 +314,13 @@ func (e Event) Validate() error {
 		return errors.New("audit: service is empty")
 	case e.TenantID == "":
 		return errors.New("audit: tenant_id is empty")
-	case e.HashVersion != 0 && e.HashVersion != HashVersion1 && e.HashVersion != HashVersionCurrent:
-		return errors.New("audit: hash_version is not 1 or 2")
-	case e.HashVersion < HashVersionCurrent && e.Operation != "":
+	case e.HashVersion != 0 && e.HashVersion != HashVersion1 && e.HashVersion != HashVersion2 &&
+		e.HashVersion != HashVersionCurrent:
+		return errors.New("audit: hash_version is not 1, 2 or 3")
+	case e.HashVersion < HashVersion2 && e.Operation != "":
 		return errors.New("audit: a row of hash_version 1 has no operation")
+	case e.HashVersion < HashVersionCurrent && e.OnBehalfOf != "":
+		return errors.New("audit: a row of hash_version 1 or 2 has no on_behalf_of")
 	}
 	return nil
 }
@@ -482,9 +491,13 @@ func recordTree(e Event) (map[string]any, error) {
 		"declaration_version": e.DeclarationVersion,
 	}
 	// A row of hash_version 1, or an event with none, keeps the encoding of version 1, with neither field.
-	if e.HashVersion >= HashVersionCurrent {
+	if e.HashVersion >= HashVersion2 {
 		m["operation"] = e.Operation
 		m["hash_version"] = json.Number(strconv.Itoa(e.HashVersion))
+	}
+	// Version 3 adds the principal on whose behalf a worker acted.
+	if e.HashVersion >= HashVersionCurrent {
+		m["on_behalf_of"] = e.OnBehalfOf
 	}
 	for _, s := range []struct {
 		name string

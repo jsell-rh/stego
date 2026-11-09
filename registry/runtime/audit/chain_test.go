@@ -143,6 +143,7 @@ func TestChain(t *testing.T) {
 		tx := f.begin("t1")
 		e := sampleEvent("t1", "update")
 		e.Operation = "reserve-and-charge"
+		e.HashVersion = HashVersion2
 		stored, err := w.Record(f.ctx, tx, f.tn("t1"), []Event{e})
 		if err != nil {
 			t.Fatal(err)
@@ -502,6 +503,51 @@ func (f *pgFixture) tamper(tenant, q string, args ...any) {
 	}
 }
 
+func TestOnBehalfOf(t *testing.T) {
+	t.Run("ST-SUP-RP05-LC01-T08 The principal on whose behalf a worker acted is stored, sent and covered by the hash of version 3", func(t *testing.T) {
+		f := newPG(t)
+		f.seedVersion1("t1")
+		w := f.writer()
+		tx := f.begin("t1")
+		v2 := sampleEvent("t1", "update")
+		v2.Operation, v2.HashVersion = "reserve-and-charge", HashVersion2
+		v3 := sampleEvent("t1", "update")
+		v3.Operation, v3.OnBehalfOf = "apply-partner-replies", "user:u-7"
+		stored, err := w.Record(f.ctx, tx, f.tn("t1"), []Event{v2, v3})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := f.commit(tx, "t1"); err != nil {
+			t.Fatal(err)
+		}
+		if n := f.count("t1", "SELECT count(*) FROM "+EventsTable+" WHERE seq = 3 AND on_behalf_of = 'user:u-7' AND hash_version = 3"); n != 1 {
+			t.Errorf("%d rows hold on_behalf_of user:u-7 with hash_version 3, want 1", n)
+		}
+		bad := sampleEvent("t1", "update")
+		bad.HashVersion, bad.OnBehalfOf = HashVersion2, "user:u-7"
+		if _, err := New(bad, time.Now()); err == nil {
+			t.Error("a row of hash_version 2 with on_behalf_of was accepted")
+		}
+		sink := f.deliver(f.messages())
+		var sent []Event
+		for _, batch := range sink.appends {
+			sent = append(sent, batch...)
+		}
+		if len(sent) != 2 || sent[1].ID != stored[1].ID || sent[1].OnBehalfOf != "user:u-7" || sent[1].HashVersion != 3 ||
+			sent[0].HashVersion != 2 || sent[0].OnBehalfOf != "" {
+			t.Errorf("the sink got %+v, want the version 2 row and the version 3 row with on_behalf_of", sent)
+		}
+		if findings := f.verify("t1", nil); len(findings) != 0 {
+			t.Fatalf("findings on a chain of rows of versions 1, 2 and 3: %v", findings)
+		}
+		f.tamper("t1", "UPDATE "+EventsTable+" SET on_behalf_of = 'user:u-8' WHERE seq = 3")
+		findings := f.verify("t1", nil)
+		if len(findings) != 1 || findings[0].Kind != FindingHash || findings[0].Seq != 3 {
+			t.Errorf("findings %v, want one hash_differs finding on row 3, whose on_behalf_of changed", findings)
+		}
+	})
+}
+
 // seedVersion1 writes the first row of the tenant's chain as a row of hash_version 1, with no operation, as the
 // runtime wrote rows before operation existed, and moves the chain head.
 func (f *pgFixture) seedVersion1(tenant string) Event {
@@ -522,7 +568,7 @@ func (f *pgFixture) seedVersion1(tenant string) Event {
 		// The hash of version 1 is made here, apart from the package's own switch of versions: the canonical record
 		// without operation and hash_version, then prev_hash, as the runtime wrote rows before operation existed.
 		v2 := e
-		v2.HashVersion = HashVersionCurrent
+		v2.HashVersion = HashVersion2
 		rec, err := CanonicalRecord(v2)
 		if err != nil {
 			return err
@@ -544,7 +590,7 @@ func (f *pgFixture) seedVersion1(tenant string) Event {
 		if _, err := tx.ExecContext(f.ctx, insertEvent, tenant, 1, e.ID.String(), e.OccurredAt, e.RecordedAt,
 			e.ActorID, string(e.ActorKind), string(e.ActorIP), string(e.UserAgent), e.Action, e.ResourceType,
 			e.ResourceID, string(e.Outcome), e.ErrorCode, e.RequestID, e.TraceID, e.SpanID, e.IdempotencyKey,
-			nil, nil, nil, e.Service, e.ServiceVersion, e.DeclarationVersion, e.PrevHash, e.Hash, e.Operation, e.HashVersion); err != nil {
+			nil, nil, nil, e.Service, e.ServiceVersion, e.DeclarationVersion, e.PrevHash, e.Hash, e.Operation, e.HashVersion, e.OnBehalfOf); err != nil {
 			return err
 		}
 		out = e

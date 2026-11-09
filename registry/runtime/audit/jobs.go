@@ -101,6 +101,7 @@ const ddlText = `CREATE TABLE {s}.{events} (
   user_agent text NOT NULL,
   action text NOT NULL,
   operation text NOT NULL DEFAULT '',
+  on_behalf_of text NOT NULL DEFAULT '',
   resource_type text NOT NULL,
   resource_id text NOT NULL,
   outcome text NOT NULL CHECK (outcome IN ('ok', 'denied', 'failed')),
@@ -115,10 +116,11 @@ const ddlText = `CREATE TABLE {s}.{events} (
   service text NOT NULL,
   service_version text NOT NULL,
   declaration_version text NOT NULL,
-  hash_version smallint NOT NULL DEFAULT 1 CHECK (hash_version IN (1, 2)),
+  hash_version smallint NOT NULL DEFAULT 1 CHECK (hash_version IN (1, 2, 3)),
   prev_hash bytea NOT NULL,
   hash bytea NOT NULL,
-  CHECK (hash_version = 2 OR operation = ''),
+  CHECK (hash_version >= 2 OR operation = ''),
+  CHECK (hash_version = 3 OR on_behalf_of = ''),
   PRIMARY KEY (tenant_id, seq, recorded_at)
 ) PARTITION BY RANGE (recorded_at);
 CREATE TABLE {s}.{heads} (

@@ -18,7 +18,7 @@ import (
 func TestEvent(t *testing.T) {
 	t.Run("ST-SUP-RP05-LC01-T01 An audit event has exactly the declared fields", func(t *testing.T) {
 		want := []string{"id", "occurred_at", "recorded_at", "tenant_id", "actor_id", "actor_kind", "actor_ip",
-			"user_agent", "action", "operation", "resource_type", "resource_id", "outcome", "error_code", "request_id", "trace_id",
+			"user_agent", "action", "operation", "on_behalf_of", "resource_type", "resource_id", "outcome", "error_code", "request_id", "trace_id",
 			"span_id", "idempotency_key", "before", "after", "patch", "service", "service_version",
 			"declaration_version", "hash_version", "prev_hash", "hash"}
 		typ := reflect.TypeOf(Event{})
@@ -27,7 +27,7 @@ func TestEvent(t *testing.T) {
 			name, _, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ",")
 			got = append(got, name)
 		}
-		if len(want) != 27 {
+		if len(want) != 28 {
 			t.Fatalf("the test lists %d names, want 27", len(want))
 		}
 		slices.Sort(got)

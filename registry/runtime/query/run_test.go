@@ -58,8 +58,8 @@ func TestRun(t *testing.T) {
 			var n int
 			var actorKind, before, after, operation string
 			if err := e.admin.QueryRowContext(context.Background(), "SELECT count(*), min(actor_kind), min(before->>'card_last4'), min(after->>'card_last4'), min(operation) FROM "+
-				audit.EventsTable+" WHERE action = 'read' AND outcome = 'ok' AND actor_id = 'user:u-7' AND resource_type = 'charge' AND resource_id = $1 AND tenant_id = 't1' AND hash_version = 2",
-				id).Scan(&n, &actorKind, &before, &after, &operation); err != nil {
+				audit.EventsTable+" WHERE action = 'read' AND outcome = 'ok' AND actor_id = 'user:u-7' AND resource_type = 'charge' AND resource_id = $1 AND tenant_id = 't1' AND hash_version = $2",
+				id, audit.HashVersionCurrent).Scan(&n, &actorKind, &before, &after, &operation); err != nil {
 				t.Fatal(err)
 			}
 			if n != 1 || actorKind != "user" {
