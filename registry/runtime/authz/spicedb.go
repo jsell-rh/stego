@@ -276,6 +276,33 @@ func (s *SpiceDB) Delete(ctx context.Context, filters []Filter, preconditions []
 	return tokenOf(response.GetDeletedAt())
 }
 
+// Write applies the touches and the deletes of exact filters in one WriteRelationships request, with
+// OPERATION_TOUCH and OPERATION_DELETE only, and returns its one written_at token.
+func (s *SpiceDB) Write(ctx context.Context, touches []Tuple, deletes []Filter, preconditions []Precondition) (Token, error) {
+	if len(touches)+len(deletes) == 0 {
+		return Token{}, errors.New("authz: Write needs at least one update")
+	}
+	updates := make([]*v1.RelationshipUpdate, 0, len(touches)+len(deletes))
+	for _, tuple := range touches {
+		if err := tuple.valid(); err != nil {
+			return Token{}, Refused(err)
+		}
+		updates = append(updates, &v1.RelationshipUpdate{Operation: v1.RelationshipUpdate_OPERATION_TOUCH,
+			Relationship: &v1.Relationship{Resource: spiceObject(tuple.Resource.Type, tuple.Resource.ID),
+				Relation: tuple.Relation, Subject: spiceSubject(tuple.Subject, tuple.SubjectRelation)}})
+	}
+	for _, filter := range deletes {
+		if !filter.Exact() {
+			return Token{}, Refused(errors.New("authz: Write deletes only filters that each name one relationship"))
+		}
+		updates = append(updates, &v1.RelationshipUpdate{Operation: v1.RelationshipUpdate_OPERATION_DELETE,
+			Relationship: &v1.Relationship{Resource: spiceObject(filter.ResourceType, filter.ResourceID),
+				Relation: filter.Relation,
+				Subject:  spiceSubject(Subject{Type: filter.SubjectType, ID: filter.SubjectID}, filter.SubjectRelation)}})
+	}
+	return s.write(ctx, updates, preconditions)
+}
+
 func (s *SpiceDB) write(ctx context.Context, updates []*v1.RelationshipUpdate, preconditions []Precondition) (Token, error) {
 	response, err := s.permissions.WriteRelationships(ctx, &v1.WriteRelationshipsRequest{
 		Updates:               updates,

@@ -72,7 +72,9 @@ func open(ctx context.Context, cfg Config) (*sql.DB, error) {
 }
 
 // checkRuntimeRole fails when the role of db, or a role it is a member of, is a superuser, holds BYPASSRLS or owns
-// a table. A member of such a role can take it with SET ROLE, so membership counts as holding it.
+// a table, and when the role of db is a member of the outbox relay role stego_outbox_relay or of a hook role, a role
+// that may run the outbox relay functions. A member of such a role can take it with SET ROLE, so membership counts
+// as holding it.
 func checkRuntimeRole(ctx context.Context, db *sql.DB) error {
 	var role string
 	if err := db.QueryRowContext(ctx, "SELECT current_user").Scan(&role); err != nil {
@@ -129,6 +131,32 @@ ORDER BY 1`)
 	}
 	if len(tables) > 0 {
 		faults = append(faults, "owns the tables "+strings.Join(tables, ", "))
+	}
+	// The runtime role must not take the outbox relay role or a hook role, the worker role that runs the relay
+	// functions and the authz state function, with SET ROLE (ST-SUP-RP06-LC21).
+	members, err := db.QueryContext(ctx, `SELECT r.rolname FROM pg_roles r
+WHERE r.rolname <> current_user AND pg_has_role(current_user, r.oid, 'MEMBER')
+	AND (r.rolname = 'stego_outbox_relay'
+		OR (pg_catalog.to_regprocedure('stego_outbox.claim(timestamptz, integer, uuid, bigint)') IS NOT NULL
+			AND pg_catalog.has_function_privilege(r.oid, 'stego_outbox.claim(timestamptz, integer, uuid, bigint)', 'EXECUTE')))
+ORDER BY r.rolname`)
+	if err != nil {
+		return fmt.Errorf("tenant: read the roles of the runtime role %s: %w", role, err)
+	}
+	defer members.Close()
+	var taken []string
+	for members.Next() {
+		var name string
+		if err := members.Scan(&name); err != nil {
+			return fmt.Errorf("tenant: read the roles of the runtime role %s: %w", role, err)
+		}
+		taken = append(taken, name)
+	}
+	if err := members.Err(); err != nil {
+		return fmt.Errorf("tenant: read the roles of the runtime role %s: %w", role, err)
+	}
+	if len(taken) > 0 {
+		faults = append(faults, "is a member of the outbox relay or hook roles "+strings.Join(taken, ", "))
 	}
 	if len(faults) > 0 {
 		return errors.New("tenant: the runtime role " + role + " " + strings.Join(faults, " and ") +

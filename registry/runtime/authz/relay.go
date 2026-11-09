@@ -248,12 +248,13 @@ func (r *Relay) uncounted(ctx context.Context, state outbox.State) {
 	}
 }
 
-// Deliver is the outbox handler of the relay. It lands one tuple write: it writes the tuple, raises the floor to the
-// provider's head under the floor lock in a transaction of its own, and only then stores the write token on the
-// owning row in tx, the worker's transaction of the delivery's tenant, which commits with done
-// (ST-SUP-RP06-LC13). It refuses, as a permanent refusal, a payload it cannot read and a write the provider refuses,
-// so the outbox parks the entry (ST-SUP-RP06-LC06); any other error may pass on a retry, which is safe because
-// touch and delete are idempotent.
+// Deliver is the outbox handler of the relay. It lands one tuple write (ST-SUP-RP06-LC13): in a short transaction
+// of its own it locks the floor row, writes the tuple, touch or delete, together with a TOUCH of the fixed marker
+// relationship in one WriteRelationships request, sets the floor to that request's one written_at token and commits;
+// only then does it store the same token on the owning row in tx, the worker's transaction of the delivery's
+// tenant, which commits with done. It refuses, as a permanent refusal, a payload it cannot read and a write the
+// provider refuses, so the outbox parks the entry (ST-SUP-RP06-LC06); any other error may pass on a retry, which is
+// safe because touch and delete are idempotent.
 func (r *Relay) Deliver(ctx context.Context, tx *sql.Tx, delivery outbox.Delivery) error {
 	if delivery.Tenant.IsZero() {
 		return outbox.PermanentRefusal(tenant.ErrZero)
@@ -266,23 +267,8 @@ func (r *Relay) Deliver(ctx context.Context, tx *sql.Tx, delivery outbox.Deliver
 		return outbox.PermanentRefusal(err)
 	}
 	tuple := message.Tuple.tuple()
-	var token Token
-	switch message.Operation {
-	case OperationTouch:
-		token, err = r.relationships.Touch(ctx, []Tuple{tuple}, nil)
-	case OperationDelete:
-		token, err = r.relationships.Delete(ctx, []Filter{FilterOf(tuple)}, nil)
-	}
+	token, err := r.writeWithFloor(ctx, message.Operation, tuple)
 	if err != nil {
-		if IsRefused(err) {
-			return outbox.PermanentRefusal(fmt.Errorf("authz: the provider refused the %s of %s: %w", message.Operation, tuple.Name(), err))
-		}
-		return fmt.Errorf("authz: the %s of %s failed: %w", message.Operation, tuple.Name(), err)
-	}
-	if token.IsZero() {
-		return fmt.Errorf("authz: the provider gave no token for the %s of %s", message.Operation, tuple.Name())
-	}
-	if err := r.raiseFloor(ctx); err != nil {
 		return err
 	}
 	if r.afterFloor != nil {
@@ -291,6 +277,59 @@ func (r *Relay) Deliver(ctx context.Context, tx *sql.Tx, delivery outbox.Deliver
 		}
 	}
 	return r.storeToken(ctx, tx, delivery, tuple, token)
+}
+
+// writeWithFloor writes the tuple and the marker in one request under the floor lock and raises the floor to the
+// request's written_at token, in one short transaction of its own. The marker write commits after the lock is
+// granted, in the same request as the tuple, so the token is at least as fresh as the tuple's write and as every
+// earlier floor, on every datastore: the floor never falls, and no two tokens are compared. No head read is used.
+// The lock is held for that one provider call only.
+func (r *Relay) writeWithFloor(ctx context.Context, operation Operation, tuple Tuple) (Token, error) {
+	floorTx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Token{}, fixed("authz: the floor transaction cannot begin", err)
+	}
+	defer func() { _ = floorTx.Rollback() }()
+	var current string
+	if err := floorTx.QueryRowContext(ctx, "SELECT token FROM "+r.schema+".authz_floor WHERE only_row FOR UPDATE").Scan(&current); err != nil {
+		return Token{}, fixed("authz: the floor row cannot be locked", err)
+	}
+	touches := []Tuple{r.marker}
+	var deletes []Filter
+	switch operation {
+	case OperationTouch:
+		touches = append([]Tuple{tuple}, r.marker)
+	case OperationDelete:
+		deletes = []Filter{FilterOf(tuple)}
+	}
+	token, err := r.relationships.Write(ctx, touches, deletes, nil)
+	if err != nil {
+		if IsRefused(err) {
+			return Token{}, outbox.PermanentRefusal(fmt.Errorf("authz: the provider refused the %s of %s: %w", operation, tuple.Name(), err))
+		}
+		return Token{}, fmt.Errorf("authz: the %s of %s failed: %w", operation, tuple.Name(), err)
+	}
+	if token.IsZero() {
+		return Token{}, fmt.Errorf("authz: the provider gave no token for the %s of %s", operation, tuple.Name())
+	}
+	if _, err := floorTx.ExecContext(ctx, "UPDATE "+r.schema+".authz_floor SET token = $1, sequence = sequence + 1 WHERE only_row",
+		token.Text()); err != nil {
+		return Token{}, fixed("authz: the floor cannot be written", err)
+	}
+	if err := floorTx.Commit(); err != nil {
+		return Token{}, fixed("authz: the floor transaction cannot commit", err)
+	}
+	return token, nil
+}
+
+// Check TOUCHes the marker relationship once, so a service whose schema does not declare it, definition stego_floor
+// { relation marker: stego_floor }, does not start. The service's own code calls it at start-up, before it runs the
+// outbox worker.
+func (r *Relay) Check(ctx context.Context) error {
+	if _, err := r.relationships.Touch(ctx, []Tuple{r.marker}, nil); err != nil {
+		return fmt.Errorf("authz: the provider refuses the floor marker %s, so the relay does not start: %w", r.marker.Name(), err)
+	}
+	return nil
 }
 
 func readPayload(resourceKey string, body []byte) (payload, error) {
@@ -317,42 +356,6 @@ func readPayload(resourceKey string, body []byte) (payload, error) {
 		return payload{}, errors.New("authz: the relay payload is for another resource key")
 	}
 	return message, nil
-}
-
-// raiseFloor raises the revocation floor in one short transaction of its own (ST-SUP-RP06-LC13): it locks the floor
-// row with SELECT ... FOR UPDATE, then TOUCHes the fixed marker relationship at the provider, then writes that
-// write's written_at token and commits. The marker write commits after the lock is granted and after the tuple's
-// write, so its token is at least as fresh as both and as every earlier floor: the floor never falls, and no two
-// tokens are compared. No head read is used, because a provider can share one head revision between callers. The
-// lock is held for that one provider call only.
-func (r *Relay) raiseFloor(ctx context.Context) error {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fixed("authz: the floor transaction cannot begin", err)
-	}
-	var current string
-	if err := tx.QueryRowContext(ctx, "SELECT token FROM "+r.schema+".authz_floor WHERE only_row FOR UPDATE").Scan(&current); err != nil {
-		_ = tx.Rollback()
-		return fixed("authz: the floor row cannot be locked", err)
-	}
-	marked, err := r.relationships.Touch(ctx, []Tuple{r.marker}, nil)
-	if err != nil {
-		_ = tx.Rollback()
-		return fmt.Errorf("authz: the floor marker cannot be written: %w", err)
-	}
-	if marked.IsZero() {
-		_ = tx.Rollback()
-		return errors.New("authz: the provider gave no token for the floor marker")
-	}
-	if _, err := tx.ExecContext(ctx, "UPDATE "+r.schema+".authz_floor SET token = $1, sequence = sequence + 1 WHERE only_row",
-		marked.Text()); err != nil {
-		_ = tx.Rollback()
-		return fixed("authz: the floor cannot be written", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fixed("authz: the floor transaction cannot commit", err)
-	}
-	return nil
 }
 
 // storeToken stores the write token on the owning row in tx, the worker's transaction of the delivery's tenant.

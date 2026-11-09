@@ -802,6 +802,7 @@ func TestQueuePurge(t *testing.T) {
 		q := newQueue(t, db, clock)
 		ctx := context.Background()
 		m := message("authz", "document:1")
+		m.MustLand, m.Idempotent = true, true
 		enqueue(t, db, q, m)
 		decider := &fakeDecider{allow: true}
 		w := newWorker(t, q, func(c *WorkerConfig) { c.Decider = decider; c.Auditor = tableAuditor{} })
@@ -887,6 +888,66 @@ func TestQueueTenancy(t *testing.T) {
 		resolved.Committed(ctx)
 		if got := readRow(t, db, m.ID); got.State != Pending || got.Resolution.String != "not_acted" {
 			t.Fatalf("the resolved message is %+v, want pending through the relay function", got)
+		}
+		// Nor can the runtime role insert a row in another state than pending.
+		itx, err := tenant.Begin(ctx, request, t1, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = itx.ExecContext(ctx, `INSERT INTO stego_outbox.messages (id, tenant_id, destination, resource_key, kind, payload,
+			outgoing_key, state, created_at, available_at) VALUES ($1, 't1', 'billing', 'x', 'k', '{}', 'k', 'done', now(), now())`, uuid.New())
+		_ = itx.Rollback()
+		if err == nil || !strings.Contains(err.Error(), "permission denied") {
+			t.Fatalf("the runtime role's INSERT of a done row gave %v, want a permission error", err)
+		}
+		// The worker role cannot update a row either.
+		wtx, err := tenant.Begin(ctx, db, t1, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = wtx.ExecContext(ctx, `UPDATE stego_outbox.messages SET state = 'done' WHERE id = $1`, m.ID)
+		_ = wtx.Rollback()
+		if err == nil || !strings.Contains(err.Error(), "permission denied") {
+			t.Fatalf("the worker role's UPDATE gave %v, want a permission error", err)
+		}
+		// Calls of the relay function resolve that the rules of ST-SUP-RP01-LC13 refuse, as the runtime role: a NULL
+		// resolution, acted on a message recorded as idempotent, and discarded on one that need not land.
+		idem := message("authz", "document:9")
+		idem.MustLand, idem.Idempotent = true, true
+		enqueueAs(t, db, q, "t1", idem)
+		register(t, w, Destination{Name: "authz", Idempotent: true, MustLand: true, Handler: func(context.Context, *sql.Tx, Delivery) error {
+			return PermanentRefusal(errors.New("400"))
+		}})
+		cycle(t, w)
+		cycle(t, w)
+		if readRow(t, db, idem.ID).State != Parked || readRow(t, db, m.ID).State != Parked {
+			t.Fatal("the fixture messages did not park")
+		}
+		call := func(id uuid.UUID, to, resolution any) error {
+			tx, err := tenant.Begin(ctx, request, t1, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = tx.Rollback() }()
+			var at time.Time
+			var age float64
+			return tx.QueryRowContext(ctx, `SELECT o_resolved_at, o_age_seconds FROM stego_outbox.resolve(NULL, $1, $2, $3, 'user:ops-1')`,
+				id, to, resolution).Scan(&at, &age)
+		}
+		for name, c := range map[string]struct {
+			id             uuid.UUID
+			to, resolution any
+		}{
+			"a NULL resolution":                     {idem.ID, "done", nil},
+			"acted on an idempotent row":            {idem.ID, "done", "acted"},
+			"discarded on a row that need not land": {m.ID, "discarded", "discarded"},
+		} {
+			if err := call(c.id, c.to, c.resolution); err == nil {
+				t.Errorf("%s was resolved", name)
+			}
+		}
+		if readRow(t, db, idem.ID).State != Parked || readRow(t, db, m.ID).State != Parked {
+			t.Fatal("a refused call changed a state")
 		}
 	})
 

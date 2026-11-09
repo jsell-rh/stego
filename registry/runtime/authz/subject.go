@@ -47,11 +47,21 @@ func SubjectOf(subjectType string, identity authn.Identity) (Subject, error) {
 		return Subject{}, errors.New("authz: the identity has no issuer or no subject")
 	}
 	subject := Subject{Type: subjectType, ID: subjectID(identity.Issuer(), identity.UserID())}
+	if len(subject.String()) > MaxSubjectBytes {
+		return Subject{}, ErrSubjectTooLong
+	}
 	if err := subject.valid(); err != nil {
 		return Subject{}, fmt.Errorf("authz: the identity does not map to a subject: %w", err)
 	}
 	return subject, nil
 }
+
+// MaxSubjectBytes is the longest subject, type:id, that SubjectOf gives, so it fits the principal column of an outbox
+// message (ST-SUP-RP10-LC16).
+const MaxSubjectBytes = 255
+
+// ErrSubjectTooLong is the error of SubjectOf for an identity whose subject would be longer than MaxSubjectBytes.
+var ErrSubjectTooLong = errors.New("authz: the subject of the identity is longer than 255 bytes")
 
 // subjectID is the subject ID of the issuer and subject pair.
 func subjectID(issuer, subject string) string {

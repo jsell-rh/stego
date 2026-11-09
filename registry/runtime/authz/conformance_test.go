@@ -171,3 +171,15 @@ func TestConformance(t *testing.T) {
 		}
 	})
 }
+
+func (m *memProvider) Write(ctx context.Context, touches []Tuple, deletes []Filter, preconditions []Precondition) (Token, error) {
+	if len(deletes) > 0 {
+		if _, err := m.Delete(ctx, deletes, preconditions); err != nil {
+			return Token{}, err
+		}
+	}
+	if len(touches) > 0 {
+		return m.Touch(ctx, touches, preconditions)
+	}
+	return tok(m.revision), nil
+}

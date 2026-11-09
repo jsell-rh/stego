@@ -148,8 +148,8 @@ func bindUnit(t *testing.T, rt *Runtime, floor *floorSeq, principal Principal, a
 }
 
 // fakeRelationships is a recording fake of the relationships port: it answers each tuple write with the next of its
-// write tokens, w-1, w-2 and on, and each TOUCH of the floor marker with the next of its marker tokens, h-1, h-2 and
-// on, unless writes or heads give others. fail, when set, gives the error of the n-th write.
+// write tokens, w-1, w-2 and on, unless writes gives others, or, for a request that also TOUCHes the floor marker,
+// with the next of heads when heads gives one. fail, when set, gives the error of the n-th write.
 type fakeRelationships struct {
 	mu      sync.Mutex
 	touches [][]Tuple
@@ -251,15 +251,61 @@ func (f *fakeRelationships) Delete(_ context.Context, filters []Filter, _ []Prec
 	return f.answer()
 }
 
-// mark answers the relay's TOUCH of the floor marker with the next of the marker tokens, h-1, h-2 and on, unless
-// heads gives others; onHead runs first. A marker write is not counted as a tuple write.
-func (f *fakeRelationships) mark(context.Context) (Token, error) {
-	if f.onHead != nil {
+// Write records the tuple part of one request of touches and deletes and answers it with one token: the next of the
+// marker tokens when the request holds the floor marker and heads gives one, otherwise the next write token. The
+// event of a request with the marker is "write+marker".
+func (f *fakeRelationships) Write(ctx context.Context, touches []Tuple, deletes []Filter, _ []Precondition) (Token, error) {
+	var tuples []Tuple
+	marker := false
+	for _, tuple := range touches {
+		if tuple == DefaultMarker {
+			marker = true
+			continue
+		}
+		tuples = append(tuples, tuple)
+	}
+	resource := ""
+	switch {
+	case len(tuples) > 0:
+		resource = tuples[0].Resource.ID
+	case len(deletes) > 0:
+		resource = deletes[0].ResourceID
+	}
+	if resource == "" {
+		return f.mark(ctx)
+	}
+	f.begin(resource)
+	if marker && f.onHead != nil {
 		f.onHead()
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.events = append(f.events, "marker")
+	if len(tuples) > 0 {
+		f.touches = append(f.touches, tuples)
+	}
+	if len(deletes) > 0 {
+		f.deletes = append(f.deletes, deletes)
+		if f.failDelete != nil {
+			f.calls++
+			return Token{}, f.failDelete
+		}
+	}
+	if marker {
+		f.events = append(f.events, "marker")
+	}
+	token, err := f.answer()
+	if err != nil || !marker || len(f.heads) == 0 {
+		return token, err
+	}
+	token = f.heads[0]
+	f.heads = f.heads[1:]
+	return token, nil
+}
+
+// mark answers a TOUCH of the floor marker alone, as Check sends it, with the next marker token.
+func (f *fakeRelationships) mark(context.Context) (Token, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.headN++
 	if len(f.heads) == 0 {
 		return named("h", f.headN), nil
@@ -1461,7 +1507,32 @@ func TestHandleWrites(t *testing.T) {
 			!strings.Contains(err.Error(), `"authz_worker"`) || strings.Count(err.Error(), "authz_worker") != 2 {
 			t.Fatalf("a relay role equal to a hook role gave %v, want an error that names the two roles", err)
 		}
+		if _, err := Migration("authz", "authz_rt", "authz_relay", "authz_rt"); err == nil || strings.Count(err.Error(), "authz_rt") != 2 {
+			t.Fatalf("a hook role equal to the runtime role gave %v, want an error that names the two roles", err)
+		}
 		env := newPG(t)
+		// A runtime role that is a member of a hook role, or of stego_outbox_relay, is refused before anything is
+		// created.
+		for _, group := range []string{env.roles[1], "stego_outbox_relay"} {
+			runtime := "authz_in_" + uuid.NewString()[:8]
+			if _, err := env.admin.ExecContext(ctx, "CREATE ROLE "+runtime+" NOLOGIN IN ROLE "+group); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _, _ = env.admin.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+runtime) })
+			text, err := Migration("refused_"+runtime, runtime, env.roles[2], env.roles[1])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := env.admin.ExecContext(ctx, "CREATE SCHEMA refused_"+runtime); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := env.admin.ExecContext(ctx, text); err == nil || !strings.Contains(err.Error(), runtime) || !strings.Contains(err.Error(), group) {
+				t.Errorf("a runtime role that is a member of %s gave %v, want an error that names the two roles", group, err)
+			}
+			if got := env.scalar(t, "SELECT pg_catalog.to_regclass('refused_"+runtime+".authz_floor')::text"); got != "" {
+				t.Errorf("the refused migration created %s", got)
+			}
+		}
 		member := "authz_member_" + uuid.NewString()[:8]
 		if _, err := env.admin.ExecContext(ctx, "CREATE ROLE "+member+" NOLOGIN IN ROLE "+env.roles[2]); err != nil {
 			t.Fatal(err)

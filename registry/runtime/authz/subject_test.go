@@ -71,6 +71,11 @@ func TestSubjects(t *testing.T) {
 		if _, err := SubjectOf("user", authn.Identity{}); err == nil {
 			t.Fatal("the zero identity maps to a subject")
 		}
+		// A subject that would not fit the 255-byte principal of an outbox message is refused with a fixed error.
+		long := identityOf(t, "https://issuer.authz.test/realms/"+strings.Repeat("r", 200), "u-42")
+		if _, err := SubjectOf("user", long); !errors.Is(err, ErrSubjectTooLong) {
+			t.Fatalf("a long issuer gave %v, want ErrSubjectTooLong", err)
+		}
 	})
 
 	t.Run("ST-SUP-RP06-LC07-T04 Two issuers with one subject value map to two subjects", func(t *testing.T) {
@@ -237,7 +242,7 @@ func TestSubjects(t *testing.T) {
 
 // stagingImporters lists, for each package of the runtime module, whether its files that are not tests import the
 // package staging and whether they call staging.NewStaging.
-func stagingImporters(t *testing.T) (importers, callers []string) {
+func stagingImporters(t *testing.T) (importers, callers, dotted []string) {
 	t.Helper()
 	root, err := filepath.Abs("..")
 	if err != nil {
@@ -270,6 +275,10 @@ func stagingImporters(t *testing.T) (importers, callers []string) {
 				if spec.Name != nil {
 					local = spec.Name.Name
 				}
+				// A dot or blank import would hide a call from this scan, so it is refused.
+				if local == "." || local == "_" {
+					dotted = append(dotted, pkg)
+				}
 			}
 		}
 		if local == "" {
@@ -296,12 +305,15 @@ func stagingImporters(t *testing.T) (importers, callers []string) {
 	}
 	sort.Strings(importers)
 	sort.Strings(callers)
-	return importers, callers
+	return importers, callers, dotted
 }
 
 func TestStagingImporters(t *testing.T) {
 	t.Run("ST-SUP-RP06-LC19-T02 Only the command runtime can make a staging value", func(t *testing.T) {
-		importers, callers := stagingImporters(t)
+		importers, callers, dotted := stagingImporters(t)
+		if len(dotted) > 0 {
+			t.Errorf("%v import the package staging with a dot or a blank name, which hides their calls", dotted)
+		}
 		for _, pkg := range importers {
 			if pkg != "stego.dev/runtime/command" && pkg != "stego.dev/runtime/authz" {
 				t.Errorf("%s imports the package staging; only the command runtime may, and authz for the type", pkg)

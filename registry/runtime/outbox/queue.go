@@ -125,6 +125,7 @@ CREATE TABLE IF NOT EXISTS stego_outbox.messages (
 	lease_until timestamptz,
 	last_token uuid,
 	must_land boolean NOT NULL DEFAULT false,
+	idempotent boolean NOT NULL DEFAULT false,
 	dispatched_at timestamptz,
 	failure_code text NOT NULL DEFAULT '' CHECK (octet_length(failure_code) <= 128),
 	parked_from text CHECK (parked_from IN ('dispatching', 'outcome_unknown', 'reconciling')),
@@ -136,6 +137,8 @@ CREATE TABLE IF NOT EXISTS stego_outbox.messages (
 	CHECK ((lease_token IS NULL) = (lease_until IS NULL)),
 	CHECK ((state = 'parked') = (parked_from IS NOT NULL))
 );
+
+ALTER TABLE stego_outbox.messages ADD COLUMN IF NOT EXISTS idempotent boolean NOT NULL DEFAULT false;
 
 CREATE INDEX IF NOT EXISTS messages_open_order ON stego_outbox.messages (tenant_id, destination, resource_key, sequence)
 	WHERE state NOT IN ('done', 'discarded');
@@ -159,11 +162,13 @@ CREATE POLICY messages_relay_delete ON stego_outbox.messages FOR DELETE TO stego
 REVOKE ALL ON stego_outbox.messages FROM PUBLIC;
 GRANT USAGE ON SCHEMA stego_outbox TO {{runtime}}, {{worker}};
 GRANT USAGE, CREATE ON SCHEMA stego_outbox TO stego_outbox_relay;
--- The request-path runtime role can neither update nor delete a message: Resolve changes a state only through the
--- relay function resolve (ST-SUP-RP01-LC19).
-REVOKE UPDATE, DELETE ON stego_outbox.messages FROM {{runtime}};
-GRANT SELECT, INSERT ON stego_outbox.messages TO {{runtime}};
-GRANT SELECT, INSERT, UPDATE ON stego_outbox.messages TO {{worker}};
+-- Neither the request-path runtime role nor the worker role can update or delete a message, and each can insert
+-- only the columns that Enqueue writes, so no row starts in a state other than pending: every state change goes
+-- through the relay functions (ST-SUP-RP01-LC19).
+REVOKE INSERT, UPDATE, DELETE ON stego_outbox.messages FROM {{runtime}}, {{worker}};
+GRANT SELECT ON stego_outbox.messages TO {{runtime}}, {{worker}};
+GRANT INSERT (id, tenant_id, destination, resource_key, kind, payload, outgoing_key, group_id, principal, origin,
+	must_land, idempotent, created_at, available_at) ON stego_outbox.messages TO {{runtime}}, {{worker}};
 GRANT SELECT, UPDATE, DELETE ON stego_outbox.messages TO stego_outbox_relay;
 
 -- The relay functions are made as their owner, so a later run of the same text replaces them.
@@ -322,16 +327,32 @@ AS $fn$
 DECLARE
 	v_now timestamptz := COALESCE(p_now, pg_catalog.clock_timestamp());
 	v_tenant text := NULLIF(pg_catalog.current_setting('app.tenant', true), '');
+	v_must_land boolean;
+	v_idempotent boolean;
 BEGIN
 	IF v_tenant IS NULL THEN
 		RAISE EXCEPTION 'outbox: a resolution runs in a transaction of one tenant';
 	END IF;
-	IF NOT ((p_resolution = 'acted' AND p_to = 'done') OR (p_resolution = 'not_acted' AND p_to = 'pending')
-		OR (p_resolution = 'discarded' AND p_to = 'discarded')) THEN
+	IF ((p_resolution = 'acted' AND p_to = 'done') OR (p_resolution = 'not_acted' AND p_to = 'pending')
+		OR (p_resolution = 'discarded' AND p_to = 'discarded')) IS NOT TRUE THEN
+		-- IS NOT TRUE also refuses a NULL resolution or state, which makes the comparison NULL.
 		RAISE EXCEPTION 'outbox: the resolution and the new state do not match';
 	END IF;
 	IF p_by IS NULL OR octet_length(p_by) NOT BETWEEN 1 AND 255 THEN
 		RAISE EXCEPTION 'outbox: a resolution needs a subject';
+	END IF;
+	SELECT m.must_land, m.idempotent INTO v_must_land, v_idempotent FROM stego_outbox.messages AS m
+		WHERE m.id = p_id AND m.state = 'parked' AND m.tenant_id = v_tenant FOR UPDATE;
+	IF NOT FOUND THEN
+		RETURN;
+	END IF;
+	-- The rules of ST-SUP-RP01-LC13, from what the row recorded at enqueue: acted is refused for an idempotent
+	-- message, and discarded for a message that need not land.
+	IF p_resolution = 'acted' AND v_idempotent THEN
+		RAISE EXCEPTION 'outbox: a message of an idempotent destination is not resolved as acted';
+	END IF;
+	IF p_resolution = 'discarded' AND NOT v_must_land THEN
+		RAISE EXCEPTION 'outbox: a message that need not land is not discarded';
 	END IF;
 	RETURN QUERY
 	UPDATE stego_outbox.messages AS m SET state = p_to, resolution = p_resolution, resolved_by = p_by,
@@ -470,6 +491,9 @@ type Message struct {
 	// MustLand is true for a message of a destination that must land, such as authz: the row keeps it, and no purge
 	// removes the message while it is parked (ST-SUP-RP01-LC16).
 	MustLand bool
+	// Idempotent is true for a message of a destination registered as idempotent, such as authz: the row keeps it,
+	// and the relay function resolve refuses to resolve it as acted (ST-SUP-RP01-LC13).
+	Idempotent bool
 }
 
 // Receipt names one claim of a message: the message, the lease token of the claim, and the state the message was
@@ -616,10 +640,11 @@ func (q *Queue) Enqueue(ctx context.Context, tx *sql.Tx, messages ...Message) er
 		}
 		if _, err := tx.ExecContext(ctx, `WITH `+nowCTE+`
 			INSERT INTO stego_outbox.messages (id, tenant_id, destination, resource_key, kind, payload, outgoing_key,
-				group_id, principal, origin, must_land, created_at, available_at)
-			SELECT $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, now.t, now.t FROM now`,
+				group_id, principal, origin, must_land, idempotent, created_at, available_at)
+			SELECT $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, now.t, now.t FROM now`,
 			q.now(), message.ID, tenantID.String, message.Destination, message.ResourceKey, message.Kind,
-			string(message.Payload), outgoing, message.Group, message.Principal, message.Origin, message.MustLand); err != nil {
+			string(message.Payload), outgoing, message.Group, message.Principal, message.Origin, message.MustLand,
+			message.Idempotent); err != nil {
 			return canceled(ctx, err)
 		}
 		if !q.notify {

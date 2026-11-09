@@ -310,21 +310,32 @@ func TestRelay(t *testing.T) {
 		worker := env.newWorker(t, env.relay(t, fake), func(c *outbox.WorkerConfig) { c.Concurrency = 1 })
 		run(t, worker)
 		env.waitState(t, first, outbox.Done)
-		if got := floorText(t, env); got != "h-1" {
-			t.Fatalf("the floor is %q after the first delivery, want h-1", got)
+		if got := floorText(t, env); got != "w-1" {
+			t.Fatalf("the floor is %q after the first delivery, want w-1, the written_at of the tuple and marker write", got)
 		}
 		env.waitState(t, env.enqueue(t, "t2", OperationTouch, Tuple{Resource: doc("2"), Relation: "viewer", Subject: user("bob")}), outbox.Done)
-		if got := floorText(t, env); got != "h-2" {
-			t.Fatalf("the floor is %q after the second delivery, want h-2", got)
+		if got := floorText(t, env); got != "w-2" {
+			t.Fatalf("the floor is %q after the second delivery, want w-2", got)
 		}
 		mu.Lock()
 		defer mu.Unlock()
-		// Each head read ran while the floor row lock was granted and before the floor commit.
-		if len(underLock) != 2 || underLock[0] != "1/" || underLock[1] != "1/h-1" {
-			t.Fatalf("at the head reads the lock and floor were %v, want [1/ 1/h-1]", underLock)
+		// Both writes, the delete and the touch, carried the floor marker in the same request.
+		markers := 0
+		for _, event := range fake.events {
+			if event == "marker" {
+				markers++
+			}
 		}
+		if markers != 2 {
+			t.Fatalf("the provider got %d requests with the floor marker, want 2: %v", markers, fake.events)
+		}
+		// Each write of the tuple and the marker ran while the floor row lock was granted and before the floor commit.
+		if len(underLock) != 2 || underLock[0] != "1/" || underLock[1] != "1/w-1" {
+			t.Fatalf("at the writes the lock and floor were %v, want [1/ 1/w-1]", underLock)
+		}
+		// The owning row holds the same written_at token as the floor.
 		if got := env.scalar(t, "SELECT string_agg(authz_token, ',' ORDER BY id) FROM {s}.documents"); got != "w-1,w-2" {
-			t.Fatalf("the rows hold %q, want the write tokens w-1,w-2", got)
+			t.Fatalf("the rows hold %q, want the tokens w-1,w-2 of their writes", got)
 		}
 	})
 
@@ -339,8 +350,8 @@ func TestRelay(t *testing.T) {
 		id := env.enqueue(t, "t1", OperationDelete, viewer)
 		env.startWorker(t, env.relay(t, fake))
 		env.waitState(t, id, outbox.Done)
-		if got := strings.Join(fake.events, ","); got != "start 1,end 1,marker" {
-			t.Fatalf("the provider got %s, want the tuple's write and then one marker TOUCH", got)
+		if got := strings.Join(fake.events, ","); got != "start 1,marker,end 1" {
+			t.Fatalf("the provider got %s, want one request with the tuple's write and the marker TOUCH", got)
 		}
 		if lockedAtMarker != "1" {
 			t.Fatalf("the marker TOUCH ran with %q floor row locks, want inside the floor lock", lockedAtMarker)
@@ -389,6 +400,14 @@ func TestRelay(t *testing.T) {
 		_, bob := real.begin(t, rt, "t1", mustPerson(t, "bob"))
 		if result, err := bob.Evaluate(ctx, "view", doc("t10"), old, nil); err != nil || result.Allowed {
 			t.Fatalf("the check after the delivery gave %+v, %v; want the revocation seen", result, err)
+		}
+		// At start-up the relay checks that the schema declares the marker, and refuses one that does not.
+		if err := real.relay(t, db.provider).Check(ctx); err != nil {
+			t.Fatalf("Check with the marker declared gave %v", err)
+		}
+		bare := startSpiceDB(t, strings.Replace(fixtureSchema, "definition stego_floor {\n\trelation marker: stego_floor\n}\n", "", 1))
+		if err := real.relay(t, bare.provider).Check(ctx); err == nil {
+			t.Fatal("Check with no marker in the schema let the relay start")
 		}
 	})
 
@@ -536,8 +555,8 @@ func person(t *testing.T, id string) Subject {
 	return mustPerson(t, id).Subject()
 }
 
-// gated is a relationships port over a real one whose TOUCH of the floor marker waits for its gate, so a test can
-// hold a relay inside its floor transaction. It records the marker tokens it gets.
+// gated is a relationships port over a real one whose write with the floor marker waits for its gate, so a test can
+// hold a relay inside its floor transaction. It records the tokens of those writes.
 type gated struct {
 	Relationships
 	entered chan struct{}
@@ -546,13 +565,16 @@ type gated struct {
 	heads   []Token
 }
 
-func (g *gated) Touch(ctx context.Context, tuples []Tuple, preconditions []Precondition) (Token, error) {
-	marker := len(tuples) == 1 && tuples[0] == DefaultMarker
+func (g *gated) Write(ctx context.Context, touches []Tuple, deletes []Filter, preconditions []Precondition) (Token, error) {
+	marker := false
+	for _, tuple := range touches {
+		marker = marker || tuple == DefaultMarker
+	}
 	if marker && g.gate != nil {
 		close(g.entered)
 		<-g.gate
 	}
-	token, err := g.Relationships.Touch(ctx, tuples, preconditions)
+	token, err := g.Relationships.Write(ctx, touches, deletes, preconditions)
 	if marker {
 		g.mu.Lock()
 		g.heads = append(g.heads, token)
@@ -593,17 +615,39 @@ func TestRevocationForgery(t *testing.T) {
 			}
 			return tenant.Commit(ctx, tx, mustTenant(t, "t1"))
 		}
-		// The runtime role enqueues it and names it as a tuple of the revocation, which its INSERT grant allows.
-		if err := asRuntime(func(tx *sql.Tx) error {
-			if err := env.queue.Enqueue(ctx, tx, other); err != nil {
-				return err
-			}
-			_, err := tx.ExecContext(ctx, "INSERT INTO authz.authz_revocation_tuples (message_id, revocation_id, tenant_id) VALUES ($1, $2, 't1')",
-				other.ID, revocation.ID())
-			return err
-		}); err != nil {
+		if err := asRuntime(func(tx *sql.Tx) error { return env.queue.Enqueue(ctx, tx, other) }); err != nil {
 			t.Fatal(err)
 		}
+		// The runtime role cannot stall the revocation with tuple rows: one for the billing message, one for a message
+		// that does not exist, and one for an authz message of an earlier transaction are each refused at the commit.
+		earlier := outbox.Message{ID: uuid.New(), Destination: DestinationName, ResourceKey: "document:9", Kind: "authz.touch",
+			Payload: []byte(`{}`), Group: revocation.ID().String()}
+		if err := asRuntime(func(tx *sql.Tx) error { return env.queue.Enqueue(ctx, tx, earlier) }); err != nil {
+			t.Fatal(err)
+		}
+		for name, message := range map[string]uuid.UUID{"the billing message": other.ID, "no message": uuid.New(),
+			"an authz message of an earlier transaction": earlier.ID} {
+			if err := asRuntime(func(tx *sql.Tx) error {
+				_, err := tx.ExecContext(ctx, "INSERT INTO authz.authz_revocation_tuples (message_id, revocation_id, tenant_id) VALUES ($1, $2, 't1')",
+					message, revocation.ID())
+				return err
+			}); err == nil {
+				t.Errorf("a tuple row for %s was committed", name)
+			}
+		}
+		// A forged tuple row for the billing message, as the superuser, so the hook role's call below can be tried.
+		conn, err := env.admin.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, statement := range []string{"SET session_replication_role = replica",
+			"INSERT INTO authz.authz_revocation_tuples (message_id, revocation_id, tenant_id) VALUES ('" + other.ID.String() + "', '" + revocation.ID().String() + "', 't1')",
+			"RESET session_replication_role"} {
+			if _, err := conn.ExecContext(ctx, statement); err != nil {
+				t.Fatal(err)
+			}
+		}
+		_ = conn.Close()
 		if err := asRuntime(func(tx *sql.Tx) error {
 			_, err := tx.ExecContext(ctx, "UPDATE stego_outbox.messages SET state = 'done' WHERE id = $1", id)
 			return err
@@ -620,12 +664,23 @@ func TestRevocationForgery(t *testing.T) {
 		}
 		// The worker role, a hook role, still gets no count for a message of another destination.
 		var counted bool
+		// The worker role cannot set a state either; the test sets the billing message done as the superuser.
+		if _, err := env.admin.ExecContext(ctx, "UPDATE stego_outbox.messages SET state = 'done' WHERE id = $1", other.ID); err != nil {
+			t.Fatal(err)
+		}
 		wtx, err := tenant.Begin(ctx, env.workerDB, mustTenant(t, "t1"), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer func() { _ = wtx.Rollback() }()
-		if _, err := wtx.ExecContext(ctx, "UPDATE stego_outbox.messages SET state = 'done' WHERE id = $1", other.ID); err != nil {
+		if _, err := wtx.ExecContext(ctx, "SAVEPOINT s"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := wtx.ExecContext(ctx, "UPDATE stego_outbox.messages SET state = 'done' WHERE id = $1", id); err == nil ||
+			!strings.Contains(err.Error(), "permission denied") {
+			t.Fatalf("the worker role's UPDATE of the message gave %v, want a permission error", err)
+		}
+		if _, err := wtx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s"); err != nil {
 			t.Fatal(err)
 		}
 		if err := wtx.QueryRowContext(ctx, "SELECT authz.authz_revocation_state($1, $2, 'done')", other.ID, revocation.ID()).Scan(&counted); err != nil || counted {

@@ -773,6 +773,10 @@ func TestDispatchResolve(t *testing.T) {
 		db, _ := testDatabase(t)
 		q := newQueue(t, db, newClock())
 		first, second := message("authz", "document:1"), message("authz", "document:1")
+		// The rows record that the destination must land and is idempotent, as its registration says.
+		for _, m := range []*Message{&first, &second} {
+			m.MustLand, m.Idempotent = true, true
+		}
 		enqueue(t, db, q, first, second)
 		w := resolvingWorker(t, q, &fakeDecider{allow: true})
 		var delivered []uuid.UUID

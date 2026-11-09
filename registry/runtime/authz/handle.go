@@ -462,6 +462,7 @@ func (h *Handle) write(ctx context.Context, operation Operation, tuple Tuple) (R
 		Group:       revocation.String(),
 		Principal:   h.principal.subject.String(),
 		MustLand:    true,
+		Idempotent:  true,
 	}); err != nil {
 		return Revocation{}, fmt.Errorf("authz: the tuple %s cannot be enqueued for the relay", tuple.Name())
 	}
@@ -605,10 +606,15 @@ func quoteName(kind, name string) (string, error) {
 // change only when the message has the destination authz and is in the state the hook reports; it refuses the state
 // done unless session_user is a hook role, and refuses to run under an isolation other than READ COMMITTED. Status
 // never reads the outbox.
-const migrationText = `DO $do$ BEGIN
-	IF pg_catalog.pg_has_role({{runtime_text}}, {{relay_text}}, 'MEMBER') THEN
-		RAISE EXCEPTION 'authz: the runtime role % is a member of the relay login role %', {{runtime_text}}, {{relay_text}};
-	END IF;
+const migrationText = `DO $do$
+DECLARE
+	v_role text;
+BEGIN
+	FOREACH v_role IN ARRAY ARRAY[{{relay_text}}, 'stego_outbox_relay'] || {{hook_array}} LOOP
+		IF pg_catalog.pg_has_role({{runtime_text}}, v_role, 'MEMBER') THEN
+			RAISE EXCEPTION 'authz: the runtime role % is a member of the role %', {{runtime_text}}, v_role;
+		END IF;
+	END LOOP;
 END $do$;
 
 CREATE TABLE {{schema}}.authz_floor (
@@ -660,6 +666,30 @@ GRANT SELECT ON {{schema}}.authz_revocation_tuples TO {{runtime_role}}, stego_ou
 GRANT INSERT (message_id, revocation_id, tenant_id) ON {{schema}}.authz_revocation_tuples TO {{runtime_role}};
 GRANT UPDATE (state) ON {{schema}}.authz_revocation_tuples TO stego_outbox_relay;
 GRANT USAGE ON SCHEMA {{schema}} TO stego_outbox_relay;
+
+-- A tuple row must name an authz outbox message of its own revocation, of its tenant, and both the message and the
+-- revocation must be written by the same transaction as the row, so the runtime role cannot stall a revocation with
+-- extra tuple rows. The check runs at the commit, after Enqueue wrote the message.
+CREATE FUNCTION {{schema}}.authz_revocation_tuple_check() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+DECLARE
+	v_epoch bigint := (pg_catalog.pg_current_xact_id()::text::bigint >> 32) << 32;
+BEGIN
+	PERFORM 1 FROM stego_outbox.messages AS m, {{schema}}.authz_revocations AS r
+		WHERE m.id = NEW.message_id AND m.destination = 'authz' AND m.group_id = NEW.revocation_id::text
+			AND m.tenant_id = NEW.tenant_id AND r.id = NEW.revocation_id AND r.tenant_id = NEW.tenant_id
+			AND pg_catalog.pg_xact_status((v_epoch | m.xmin::text::bigint)::text::xid8) = 'in progress'
+			AND pg_catalog.pg_xact_status((v_epoch | r.xmin::text::bigint)::text::xid8) = 'in progress';
+	IF NOT FOUND THEN
+		RAISE EXCEPTION 'authz: a tuple row names no authz message of its revocation from the same transaction';
+	END IF;
+	RETURN NULL;
+END
+$$;
+ALTER FUNCTION {{schema}}.authz_revocation_tuple_check() OWNER TO stego_outbox_relay;
+REVOKE ALL ON FUNCTION {{schema}}.authz_revocation_tuple_check() FROM PUBLIC;
+CREATE CONSTRAINT TRIGGER authz_revocation_tuple_check AFTER INSERT ON {{schema}}.authz_revocation_tuples
+	DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION {{schema}}.authz_revocation_tuple_check();
 
 CREATE FUNCTION {{schema}}.authz_revocation_state(p_message uuid, p_revocation uuid, p_state text) RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
@@ -736,6 +766,11 @@ func Migration(schema, runtimeRole, relayRole string, hookRoles ...string) (stri
 	}
 	if len(hookRoles) == 0 {
 		return "", errors.New("authz: the migration needs at least one hook role")
+	}
+	for _, role := range hookRoles {
+		if role == runtimeRole {
+			return "", fmt.Errorf("authz: the runtime role %s and the hook role %s must be two roles", quotedRuntime, quotedRuntime)
+		}
 	}
 	var grants strings.Builder
 	var hooks []string

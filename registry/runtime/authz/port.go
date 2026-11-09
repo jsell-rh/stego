@@ -318,11 +318,13 @@ type Precondition struct {
 }
 
 // Relationships is the relationships port (ST-SUP-RP06-LC02). Touch and Delete are idempotent on retry and return
-// the token the provider wrote at. Only the relay destination holds it: a handler, a slot fill and the handle never
-// get one.
+// the token the provider wrote at. Write applies touches and deletes of exact filters in one request, with one
+// written_at token, which the relay uses to write a tuple and the floor marker together (ST-SUP-RP06-LC13). Only the
+// relay destination holds it: a handler, a slot fill and the handle never get one.
 type Relationships interface {
 	Touch(ctx context.Context, tuples []Tuple, preconditions []Precondition) (Token, error)
 	Delete(ctx context.Context, filters []Filter, preconditions []Precondition) (Token, error)
+	Write(ctx context.Context, touches []Tuple, deletes []Filter, preconditions []Precondition) (Token, error)
 }
 
 // refusedError marks an error of a provider that refused the request itself, such as a malformed tuple or a failed
