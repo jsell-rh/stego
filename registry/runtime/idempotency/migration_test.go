@@ -15,20 +15,20 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/stdlib"
+
+	"stego.dev/runtime/internal/pgtest"
 )
 
-// testDB opens a new schema on the PostgreSQL server that STEGO_TEST_POSTGRES_DSN names, applies Migration and an
-// application table orders that the test handlers write to, and drops the schema when the test ends. The test is
-// skipped when the variable is not set; the server is a local container without privilege (ST-STD-LOCAL).
+// TestMain gives the PostgreSQL tests of the package their local server (ST-STD-LOCAL-R04).
+func TestMain(m *testing.M) { os.Exit(pgtest.Main(m)) }
+
+// testDB opens a new schema on the local PostgreSQL server of pgtest, applies Migration and an application table
+// orders that the test handlers write to, and drops the schema when the test ends.
 func testDB(t *testing.T) (db, admin *sql.DB) {
 	t.Helper()
-	dsn := os.Getenv("STEGO_TEST_POSTGRES_DSN")
-	if dsn == "" {
-		t.Skip("set STEGO_TEST_POSTGRES_DSN to run the PostgreSQL tests")
-	}
-	cfg, err := pgx.ParseConfig(dsn)
+	cfg, err := pgx.ParseConfig(pgtest.DSN(t))
 	if err != nil {
-		t.Fatalf("parse STEGO_TEST_POSTGRES_DSN: %v", err)
+		t.Fatalf("parse the server URL: %v", err)
 	}
 	admin = stdlib.OpenDB(*cfg)
 	var b [6]byte
