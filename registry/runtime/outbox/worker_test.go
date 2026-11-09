@@ -199,6 +199,7 @@ func TestWorkerDelivery(t *testing.T) {
 type faultConnector struct {
 	database   *sql.DB
 	loseCommit bool
+	failBegin  bool
 }
 
 func (c faultConnector) Connect(context.Context) (driver.Conn, error) {
@@ -223,6 +224,9 @@ func (c *faultConn) Begin() (driver.Tx, error) {
 	return c.BeginTx(context.Background(), driver.TxOptions{})
 }
 func (c *faultConn) BeginTx(ctx context.Context, _ driver.TxOptions) (driver.Tx, error) {
+	if c.failBegin {
+		return nil, errors.New("the database refuses a transaction")
+	}
 	tx, err := c.database.BeginTx(context.WithoutCancel(ctx), nil)
 	if err != nil {
 		return nil, err
@@ -269,7 +273,7 @@ func (c *faultConn) QueryContext(ctx context.Context, query string, args []drive
 		_ = rows.Close()
 		return nil, err
 	}
-	return &faultRows{rows: rows, columns: columns, whole: c.loseCommit}, nil
+	return &faultRows{rows: rows, columns: columns, whole: c.loseCommit || c.failBegin}, nil
 }
 
 // faultRows gives the first row and then fails, so the client never reads the whole result.
@@ -407,10 +411,10 @@ func TestWorkerFailures(t *testing.T) {
 			}
 		}
 		stale := Receipt{ID: m.ID, Token: old.Token.UUID, State: Dispatching}
-		if ok, _ := q.Acknowledge(context.Background(), stale); ok {
+		if ok, _ := q.acknowledge(context.Background(), stale); ok {
 			t.Fatal("the lost token had an effect")
 		}
-		if ok, _ := q.Retry(context.Background(), stale, 0, "late"); ok || readRow(t, db, m.ID).State != Done {
+		if ok, _ := q.retry(context.Background(), stale, 0, "late"); ok || readRow(t, db, m.ID).State != Done {
 			t.Fatal("the lost token moved the message")
 		}
 	})
@@ -885,6 +889,113 @@ func TestWorkerDrain(t *testing.T) {
 		}
 		if !cancelled.Load() || readRow(t, db, next.ID).State != OutcomeUnknown {
 			t.Fatalf("the drain bound left %+v, cancelled %v", readRow(t, db, next.ID), cancelled.Load())
+		}
+	})
+}
+
+func TestWorkerLease(t *testing.T) {
+	t.Run("ST-SUP-RP01-LC02-T03 A handler is not called when the lease left is short", func(t *testing.T) {
+		db, _ := testDatabase(t)
+		q := newQueue(t, db, nil)
+		m := message("audit", "one")
+		enqueue(t, db, q, m)
+		w := newWorker(t, q, nil)
+		var calls atomic.Int32
+		var deadline time.Time
+		reg := Destination{Name: "audit", Handler: func(ctx context.Context, _ *sql.Tx, _ Delivery) error {
+			calls.Add(1)
+			deadline, _ = ctx.Deadline()
+			return nil
+		}}
+		register(t, w, reg)
+		claimed, err := q.Claim(context.Background(), 1, time.Minute)
+		if err != nil || len(claimed) != 1 {
+			t.Fatalf("claim: %v %v", claimed, err)
+		}
+		d := claimed[0]
+		// The lease on the local clock holds less than the attempt and the two statements after it.
+		d.leaseEnd = time.Now().Add(w.config.AttemptTimeout + 2*operationTimeout - time.Second)
+		w.step(context.Background(), d)
+		if row := readRow(t, db, m.ID); calls.Load() != 0 || row.State != Pending || row.Attempts != 0 || row.FailureCode != "lease-short" {
+			t.Fatalf("a short lease gave %d calls and %+v", calls.Load(), row)
+		}
+		// With a lease that holds the attempt, the handler's deadline is the attempt deadline or the lease left less
+		// the two statements, whichever comes first.
+		claimed, err = q.Claim(context.Background(), 1, time.Minute)
+		if err != nil || len(claimed) != 1 {
+			t.Fatalf("claim: %v %v", claimed, err)
+		}
+		d = claimed[0]
+		d.leaseEnd = time.Now().Add(w.config.AttemptTimeout + 2*operationTimeout + 200*time.Millisecond)
+		end := d.leaseEnd
+		w.step(context.Background(), d)
+		if calls.Load() != 1 || deadline.After(end.Add(-2*operationTimeout)) || readRow(t, db, m.ID).State != Done {
+			t.Fatalf("the handler ran %d times with the deadline %v for a lease to %v", calls.Load(), deadline, end)
+		}
+	})
+
+	t.Run("ST-SUP-RP01-LC02-T03 A message that another holder finished is a lost lease", func(t *testing.T) {
+		db, _ := testDatabase(t)
+		q := newQueue(t, db, nil)
+		m := message("audit", "one")
+		enqueue(t, db, q, m)
+		w := newWorker(t, q, nil)
+		reg := Destination{Name: "audit", Handler: func(context.Context, *sql.Tx, Delivery) error { return nil }}
+		register(t, w, reg)
+		claimed, err := q.Claim(context.Background(), 1, time.Minute)
+		if err != nil || len(claimed) != 1 {
+			t.Fatalf("claim: %v %v", claimed, err)
+		}
+		if ok, err := q.acknowledge(context.Background(), claimed[0].Receipt); !ok || err != nil {
+			t.Fatalf("acknowledge: %v %v", ok, err)
+		}
+		if w.apply(context.Background(), nil, claimed[0], reg, Done, change{}) {
+			t.Fatal("a done message was moved again")
+		}
+		if s := w.Stats(); s.LostLeases != 1 || s.DatabaseFailures != 0 {
+			t.Fatalf("a done row counted as %+v", s)
+		}
+	})
+}
+
+func TestWorkerPool(t *testing.T) {
+	t.Run("ST-SUP-RP01-LC05-T01 A pool with fewer than Concurrency + 2 connections is refused", func(t *testing.T) {
+		q := lazyQueue(t)
+		q.db.SetMaxOpenConns(3)
+		config := testConfig()
+		config.Concurrency = 2
+		if _, err := NewWorker(q, config); err == nil {
+			t.Fatal("a pool of 3 was accepted for a concurrency of 2")
+		}
+		q.db.SetMaxOpenConns(4)
+		if _, err := NewWorker(q, config); err != nil {
+			t.Fatalf("a pool of 4: %v", err)
+		}
+		q.db.SetMaxOpenConns(0)
+		if _, err := NewWorker(q, config); err != nil {
+			t.Fatalf("a pool with no limit: %v", err)
+		}
+	})
+}
+
+func TestWorkerBeginFailure(t *testing.T) {
+	t.Run("ST-SUP-RP01-LC22-T01 A failed begin takes back no attempt", func(t *testing.T) {
+		db, _ := testDatabase(t)
+		m := message("audit", "one")
+		enqueue(t, db, newQueue(t, db, nil), m)
+		faulty := sql.OpenDB(faultConnector{database: db, failBegin: true})
+		t.Cleanup(func() { _ = faulty.Close() })
+		w := newWorker(t, newQueue(t, faulty, nil), nil)
+		var calls atomic.Int32
+		register(t, w, Destination{Name: "audit", Handler: func(context.Context, *sql.Tx, Delivery) error {
+			calls.Add(1)
+			return nil
+		}})
+		if n := cycle(t, w); n != 1 {
+			t.Fatalf("the cycle claimed %d", n)
+		}
+		if row := readRow(t, db, m.ID); calls.Load() != 0 || row.Attempts != 1 || w.Stats().DatabaseFailures == 0 {
+			t.Fatalf("a failed begin left %+v with %d calls", row, calls.Load())
 		}
 	})
 }

@@ -1,12 +1,17 @@
 package pgconn_test
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/binary"
 	"encoding/hex"
+	"errors"
+	"io"
+	"net"
+	"net/url"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -100,18 +105,93 @@ func TestListener(t *testing.T) {
 			t.Fatalf("the adapter delivered %+v, %v", event, err)
 		}
 
-		for _, pooled := range []string{dsn + "&pool_mode=transaction", dsn + "&options=-c%20pool_mode%3Dtransaction"} {
-			if !strings.Contains(dsn, "?") {
-				pooled = strings.Replace(pooled, "&", "?", 1)
-			}
+		// Two local stand-ins of a pooler between the client and the server: one gives the client a backend key
+		// of its own, as PgBouncer does; one passes no notification of the server to the client.
+		for name, filter := range map[string]func(byte, []byte) ([]byte, bool){
+			"own backend key": func(kind byte, body []byte) ([]byte, bool) {
+				if kind == 'K' && len(body) >= 4 {
+					body[0] ^= 0x40
+				}
+				return body, true
+			},
+			"no notifications": func(kind byte, body []byte) ([]byte, bool) { return body, kind != 'A' },
+		} {
+			pooled := proxy(t, dsn, filter)
 			l, err := pgconn.Listen(ctx, pooled)
 			if err == nil {
+				err = l.Listen(ctx, outbox.NoticeChannel)
 				_ = l.Close(ctx)
 			}
-			// The refusal comes at start, from the adapter, before any session opens.
-			if err == nil || !strings.Contains(err.Error(), "pool mode") {
-				t.Fatalf("the pooled DSN %s gave %v", pooled, err)
+			if !errors.Is(err, pgconn.ErrPooled) {
+				t.Fatalf("the stand-in pooler with %s gave %v", name, err)
 			}
 		}
+		direct, err := pgconn.Listen(ctx, dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = direct.Close(ctx) }()
+		var pid uint32
+		if err := db.QueryRowContext(ctx, `SELECT pid FROM pg_stat_activity WHERE pid = $1`, direct.PID()).Scan(&pid); err != nil || pid != direct.PID() {
+			t.Fatalf("PID %d is not a backend of the server: %v", direct.PID(), err)
+		}
 	})
+}
+
+// proxy is a local TCP stand-in between a client and the server of dsn. It passes the client's bytes as they are,
+// and passes each message of the server through filter, which may change its body or drop it. The DSN must use
+// sslmode=disable, so the stream is plain protocol messages. It returns the DSN of the stand-in.
+func proxy(t *testing.T, dsn string, filter func(kind byte, body []byte) ([]byte, bool)) string {
+	t.Helper()
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := u.Host
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			client, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer client.Close()
+				backend, err := net.Dial("tcp", server)
+				if err != nil {
+					return
+				}
+				defer backend.Close()
+				go func() { _, _ = io.Copy(backend, client) }()
+				r := bufio.NewReader(backend)
+				for {
+					head := make([]byte, 5)
+					if _, err := io.ReadFull(r, head); err != nil {
+						return
+					}
+					body := make([]byte, int(binary.BigEndian.Uint32(head[1:]))-4)
+					if _, err := io.ReadFull(r, body); err != nil {
+						return
+					}
+					out, pass := filter(head[0], body)
+					if !pass {
+						continue
+					}
+					binary.BigEndian.PutUint32(head[1:], uint32(len(out)+4))
+					if _, err := client.Write(append(head, out...)); err != nil {
+						return
+					}
+				}
+			}()
+		}
+	}()
+	u.Host = ln.Addr().String()
+	q := u.Query()
+	q.Set("sslmode", "disable")
+	u.RawQuery = q.Encode()
+	return u.String()
 }

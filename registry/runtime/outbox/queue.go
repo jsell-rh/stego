@@ -42,8 +42,13 @@ const RelayRole = "stego_outbox_relay"
 
 var rolePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
-// Migration returns the DDL text of the queue (ST-SUP-RP01-LC19). The migration job runs it as the table owner,
-// which must be able to create the role RelayRole, or find it, and to give it the relay functions.
+// Migration returns the DDL text of the queue (ST-SUP-RP01-LC19). The migration job runs it as the table owner, in
+// one transaction, as a simple query of several statements runs. The owner must be a superuser, or a role with
+// CREATEROLE: the text creates RelayRole when it is missing, and grants it to the owner WITH SET TRUE, INHERIT
+// FALSE: the text makes the relay functions under SET ROLE RelayRole, so they belong to it and a later run replaces
+// them, and INHERIT false keeps the relay policies out of the owner's own sessions. When RelayRole exists already
+// and the owner holds no SET on it, the owner needs ADMIN on it for that grant. RelayRole gets CREATE on the schema
+// only while the functions are made; the same text revokes it and resets the role.
 //
 // The table stego_outbox.messages holds the dispatch state, the attempt and conflict counts (ST-SUP-RC18-OC29), the
 // tenant (ST-SUP-RC18-OC28), the outgoing idempotency key (ST-SUP-RP01-LC10), the group of the state hook
@@ -79,6 +84,14 @@ DO $do$ BEGIN
 EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL;
 END $do$;
 
+DO $do$ BEGIN
+	-- The owner gives the relay functions to stego_outbox_relay, which needs SET on that role; INHERIT is false, so
+	-- the owner's own sessions never get the relay policies. A superuser holds SET already.
+	IF NOT pg_catalog.pg_has_role(CURRENT_USER, 'stego_outbox_relay', 'SET') THEN
+		EXECUTE pg_catalog.format('GRANT stego_outbox_relay TO %I WITH SET TRUE, INHERIT FALSE', CURRENT_USER);
+	END IF;
+END $do$;
+
 CREATE TABLE IF NOT EXISTS stego_outbox.messages (
 	id uuid PRIMARY KEY,
 	sequence bigint GENERATED ALWAYS AS IDENTITY UNIQUE NOT NULL,
@@ -100,6 +113,8 @@ CREATE TABLE IF NOT EXISTS stego_outbox.messages (
 	lookups bigint NOT NULL DEFAULT 0 CHECK (lookups >= 0),
 	lease_token uuid,
 	lease_until timestamptz,
+	last_token uuid,
+	must_land boolean NOT NULL DEFAULT false,
 	dispatched_at timestamptz,
 	failure_code text NOT NULL DEFAULT '' CHECK (octet_length(failure_code) <= 128),
 	parked_from text CHECK (parked_from IN ('dispatching', 'outcome_unknown', 'reconciling')),
@@ -137,43 +152,58 @@ GRANT USAGE, CREATE ON SCHEMA stego_outbox TO stego_outbox_relay;
 GRANT SELECT, INSERT, UPDATE ON stego_outbox.messages TO {{runtime}};
 GRANT SELECT, UPDATE, DELETE ON stego_outbox.messages TO stego_outbox_relay;
 
+-- The relay functions are made as their owner, so a later run of the same text replaces them.
+SET ROLE stego_outbox_relay;
+
 CREATE OR REPLACE FUNCTION stego_outbox.claim(p_now timestamptz, p_limit integer, p_token uuid, p_lease_ms bigint)
 RETURNS TABLE (r_tenant text, r_id uuid, r_destination text, r_resource_key text, r_kind text, r_payload jsonb,
 	r_outgoing_key text, r_principal text, r_origin text, r_group text, r_state text, r_attempts bigint,
 	r_conflicts bigint, r_lookups bigint, r_lease_until timestamptz, r_dispatched_at timestamptz)
-LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
 AS $fn$
-WITH now AS (SELECT COALESCE(p_now, pg_catalog.clock_timestamp()) AS t),
-expired AS (
-	UPDATE stego_outbox.messages AS x
-	SET state = 'outcome_unknown', lease_token = NULL, lease_until = NULL, failure_code = 'lease-expired',
-		available_at = now.t, conflicts = 0
-	FROM now
-	WHERE x.id IN (SELECT e.id FROM stego_outbox.messages AS e, now
-		WHERE e.state = 'dispatching' AND e.lease_until <= now.t
-		ORDER BY e.sequence LIMIT 32 FOR UPDATE OF e SKIP LOCKED)
-	RETURNING x.id
-),
-ready AS (
-	SELECT m.id FROM stego_outbox.messages AS m, now
-	WHERE m.state IN ('pending', 'outcome_unknown', 'reconciling')
-		AND m.available_at <= now.t
-		AND (m.lease_until IS NULL OR m.lease_until <= now.t)
-		AND NOT EXISTS (SELECT 1 FROM stego_outbox.messages AS earlier
-			WHERE earlier.tenant_id = m.tenant_id AND earlier.destination = m.destination
-				AND earlier.resource_key = m.resource_key
-				AND earlier.sequence < m.sequence AND earlier.state NOT IN ('done', 'discarded'))
-	ORDER BY m.sequence LIMIT p_limit FOR UPDATE OF m SKIP LOCKED
-)
-UPDATE stego_outbox.messages AS m
-SET lease_token = p_token, lease_until = now.t + p_lease_ms * interval '1 millisecond',
-	state = CASE WHEN m.state = 'pending' THEN 'dispatching' ELSE m.state END,
-	attempts = CASE WHEN m.state = 'pending' THEN m.attempts + 1 ELSE m.attempts END,
-	dispatched_at = CASE WHEN m.state = 'pending' THEN now.t ELSE m.dispatched_at END
-FROM ready, now
-WHERE m.id = ready.id
-RETURNING m.tenant_id, m.id, m.destination, m.resource_key, m.kind, m.payload, m.outgoing_key, m.principal,
-	m.origin, m.group_id, m.state, m.attempts, m.conflicts, m.lookups, m.lease_until, m.dispatched_at
+BEGIN
+	IF p_limit IS NULL OR p_limit < 1 OR p_limit > 32 THEN
+		RAISE EXCEPTION 'outbox: the claim limit is 1 to 32';
+	END IF;
+	IF p_lease_ms IS NULL OR p_lease_ms < 1000 OR p_lease_ms > 300000 THEN
+		RAISE EXCEPTION 'outbox: the lease is 1 s to 5 min';
+	END IF;
+	IF p_token IS NULL THEN
+		RAISE EXCEPTION 'outbox: the claim needs a lease token';
+	END IF;
+	RETURN QUERY
+	WITH now AS (SELECT COALESCE(p_now, pg_catalog.clock_timestamp()) AS t),
+	expired AS (
+		UPDATE stego_outbox.messages AS x
+		SET state = 'outcome_unknown', lease_token = NULL, lease_until = NULL, failure_code = 'lease-expired',
+			available_at = now.t, conflicts = 0
+		FROM now
+		WHERE x.id IN (SELECT e.id FROM stego_outbox.messages AS e, now
+			WHERE e.state = 'dispatching' AND e.lease_until <= now.t
+			ORDER BY e.sequence LIMIT 32 FOR UPDATE OF e SKIP LOCKED)
+		RETURNING x.id
+	),
+	ready AS (
+		SELECT m.id FROM stego_outbox.messages AS m, now
+		WHERE m.state IN ('pending', 'outcome_unknown', 'reconciling')
+			AND m.available_at <= now.t
+			AND (m.lease_until IS NULL OR m.lease_until <= now.t)
+			AND NOT EXISTS (SELECT 1 FROM stego_outbox.messages AS earlier
+				WHERE earlier.tenant_id = m.tenant_id AND earlier.destination = m.destination
+					AND earlier.resource_key = m.resource_key
+					AND earlier.sequence < m.sequence AND earlier.state NOT IN ('done', 'discarded'))
+		ORDER BY m.sequence LIMIT p_limit FOR UPDATE OF m SKIP LOCKED
+	)
+	UPDATE stego_outbox.messages AS m
+	SET lease_token = p_token, last_token = p_token, lease_until = now.t + p_lease_ms * interval '1 millisecond',
+		state = CASE WHEN m.state = 'pending' THEN 'dispatching' ELSE m.state END,
+		attempts = CASE WHEN m.state = 'pending' THEN m.attempts + 1 ELSE m.attempts END,
+		dispatched_at = CASE WHEN m.state = 'pending' THEN now.t ELSE m.dispatched_at END
+	FROM ready, now
+	WHERE m.id = ready.id
+	RETURNING m.tenant_id, m.id, m.destination, m.resource_key, m.kind, m.payload, m.outgoing_key, m.principal,
+		m.origin, m.group_id, m.state, m.attempts, m.conflicts, m.lookups, m.lease_until, m.dispatched_at;
+END
 $fn$;
 
 CREATE OR REPLACE FUNCTION stego_outbox.move(p_now timestamptz, p_id uuid, p_token uuid, p_from text, p_to text,
@@ -185,7 +215,23 @@ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
 AS $fn$
 DECLARE
 	v_now timestamptz := COALESCE(p_now, pg_catalog.clock_timestamp());
+	v_tenant text := NULLIF(pg_catalog.current_setting('app.tenant', true), '');
 BEGIN
+	IF p_attempts IS NULL OR p_attempts NOT IN (-1, 0, 1) THEN
+		RAISE EXCEPTION 'outbox: a move adds -1, 0 or 1 attempt';
+	END IF;
+	IF p_delay_ms IS NULL OR p_delay_ms < 0 OR p_delay_ms > 86400000 THEN
+		RAISE EXCEPTION 'outbox: the delay is 0 to 24 h';
+	END IF;
+	IF p_due IS NOT NULL AND (p_due < v_now - interval '1 day' OR p_due > v_now + interval '2 hours') THEN
+		RAISE EXCEPTION 'outbox: the due time is out of its bounds';
+	END IF;
+	IF p_to = 'dispatching' AND (p_lease_ms IS NULL OR p_lease_ms < 1000 OR p_lease_ms > 300000) THEN
+		RAISE EXCEPTION 'outbox: the lease is 1 s to 5 min';
+	END IF;
+	IF p_code IS NULL OR p_code !~ '^([a-zA-Z0-9][a-zA-Z0-9._-]{0,127})?$' THEN
+		RAISE EXCEPTION 'outbox: the failure code is not a short label';
+	END IF;
 	IF NOT EXISTS (SELECT 1 FROM (VALUES ('pending', 'dispatching'), ('dispatching', 'done'),
 		('dispatching', 'pending'), ('dispatching', 'outcome_unknown'), ('dispatching', 'parked'),
 		('outcome_unknown', 'dispatching'), ('outcome_unknown', 'reconciling'), ('outcome_unknown', 'parked'),
@@ -207,6 +253,7 @@ BEGIN
 		parked_at = CASE WHEN p_to = 'parked' THEN v_now END,
 		done_at = CASE WHEN p_to = 'done' THEN v_now ELSE m.done_at END
 	WHERE m.id = p_id AND m.lease_token = p_token AND m.lease_until > v_now AND m.state = p_from
+		AND (v_tenant IS NULL OR m.tenant_id = v_tenant)
 	RETURNING 'moved', m.state, pg_catalog.date_part('epoch', v_now - m.created_at), m.attempts, m.conflicts,
 		m.lookups
 	INTO r_result, r_state, r_delay, r_attempts, r_conflicts, r_lookups;
@@ -214,9 +261,11 @@ BEGIN
 		RETURN NEXT;
 		RETURN;
 	END IF;
+	-- Only the holder of the message's last claim learns its state, so the function is no state oracle.
 	SELECT 'not_moved', m.state, NULL, m.attempts, m.conflicts, m.lookups
 	INTO r_result, r_state, r_delay, r_attempts, r_conflicts, r_lookups
-	FROM stego_outbox.messages AS m WHERE m.id = p_id;
+	FROM stego_outbox.messages AS m WHERE m.id = p_id AND m.last_token = p_token
+		AND (v_tenant IS NULL OR m.tenant_id = v_tenant);
 	IF FOUND THEN
 		RETURN NEXT;
 	END IF;
@@ -227,49 +276,79 @@ $fn$;
 CREATE OR REPLACE FUNCTION stego_outbox.release(p_now timestamptz, p_id uuid, p_token uuid, p_delay_ms bigint,
 	p_code text)
 RETURNS bigint
-LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
 AS $fn$
-WITH now AS (SELECT COALESCE(p_now, pg_catalog.clock_timestamp()) AS t),
-released AS (
+DECLARE
+	v_now timestamptz := COALESCE(p_now, pg_catalog.clock_timestamp());
+	v_tenant text := NULLIF(pg_catalog.current_setting('app.tenant', true), '');
+	v_count bigint;
+BEGIN
+	IF p_delay_ms IS NULL OR p_delay_ms < 0 OR p_delay_ms > 86400000 THEN
+		RAISE EXCEPTION 'outbox: the delay is 0 to 24 h';
+	END IF;
+	IF p_code IS NULL OR p_code !~ '^([a-zA-Z0-9][a-zA-Z0-9._-]{0,127})?$' THEN
+		RAISE EXCEPTION 'outbox: the failure code is not a short label';
+	END IF;
+	-- A release keeps the state, so it is only for a message whose next step is not a send.
 	UPDATE stego_outbox.messages AS m SET lease_token = NULL, lease_until = NULL,
-		available_at = now.t + p_delay_ms * interval '1 millisecond', failure_code = p_code
-	FROM now WHERE m.id = p_id AND m.lease_token = p_token AND m.lease_until > now.t
-	RETURNING 1
-)
-SELECT pg_catalog.count(*) FROM released
+		available_at = v_now + p_delay_ms * interval '1 millisecond', failure_code = p_code
+	WHERE m.id = p_id AND m.lease_token = p_token AND m.lease_until > v_now
+		AND m.state IN ('outcome_unknown', 'reconciling') AND (v_tenant IS NULL OR m.tenant_id = v_tenant);
+	GET DIAGNOSTICS v_count = ROW_COUNT;
+	RETURN v_count;
+END
 $fn$;
 
 CREATE OR REPLACE FUNCTION stego_outbox.purge_parked(p_now timestamptz, p_limit integer, p_older_ms bigint,
 	p_destinations jsonb)
 RETURNS bigint
-LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
 AS $fn$
-WITH now AS (SELECT COALESCE(p_now, pg_catalog.clock_timestamp()) AS t),
-removed AS (
+DECLARE
+	v_now timestamptz := COALESCE(p_now, pg_catalog.clock_timestamp());
+	v_count bigint;
+BEGIN
+	IF p_limit IS NULL OR p_limit < 1 OR p_limit > 32 THEN
+		RAISE EXCEPTION 'outbox: the purge limit is 1 to 32';
+	END IF;
+	IF p_older_ms IS NULL OR p_older_ms < 0 THEN
+		RAISE EXCEPTION 'outbox: the purge age is not negative';
+	END IF;
+	IF p_destinations IS NULL OR pg_catalog.jsonb_typeof(p_destinations) <> 'array' THEN
+		RAISE EXCEPTION 'outbox: the purge needs a list of destinations';
+	END IF;
 	DELETE FROM stego_outbox.messages WHERE id IN (
-		SELECT m.id FROM stego_outbox.messages AS m, now
-		WHERE m.state = 'parked' AND m.parked_from = 'dispatching'
-			AND m.parked_at <= now.t - p_older_ms * interval '1 millisecond'
+		SELECT m.id FROM stego_outbox.messages AS m
+		WHERE m.state = 'parked' AND m.parked_from = 'dispatching' AND NOT m.must_land
+			AND m.parked_at <= v_now - p_older_ms * interval '1 millisecond'
 			AND m.destination IN (SELECT pg_catalog.jsonb_array_elements_text(p_destinations))
-		ORDER BY m.sequence LIMIT LEAST(p_limit, 32) FOR UPDATE OF m SKIP LOCKED)
-	RETURNING 1
-)
-SELECT pg_catalog.count(*) FROM removed
+		ORDER BY m.sequence LIMIT p_limit FOR UPDATE OF m SKIP LOCKED);
+	GET DIAGNOSTICS v_count = ROW_COUNT;
+	RETURN v_count;
+END
 $fn$;
 
 CREATE OR REPLACE FUNCTION stego_outbox.purge_done(p_now timestamptz, p_limit integer, p_older_ms bigint)
 RETURNS bigint
-LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
 AS $fn$
-WITH now AS (SELECT COALESCE(p_now, pg_catalog.clock_timestamp()) AS t),
-removed AS (
+DECLARE
+	v_now timestamptz := COALESCE(p_now, pg_catalog.clock_timestamp());
+	v_count bigint;
+BEGIN
+	IF p_limit IS NULL OR p_limit < 1 OR p_limit > 32 THEN
+		RAISE EXCEPTION 'outbox: the purge limit is 1 to 32';
+	END IF;
+	IF p_older_ms IS NULL OR p_older_ms < 3600000 THEN
+		RAISE EXCEPTION 'outbox: the retention is at least 1 hour';
+	END IF;
 	DELETE FROM stego_outbox.messages WHERE id IN (
-		SELECT m.id FROM stego_outbox.messages AS m, now
-		WHERE m.state = 'done' AND m.done_at <= now.t - GREATEST(p_older_ms, 3600000) * interval '1 millisecond'
-		ORDER BY m.done_at LIMIT LEAST(p_limit, 32) FOR UPDATE OF m SKIP LOCKED)
-	RETURNING 1
-)
-SELECT pg_catalog.count(*) FROM removed
+		SELECT m.id FROM stego_outbox.messages AS m
+		WHERE m.state = 'done' AND m.done_at <= v_now - p_older_ms * interval '1 millisecond'
+		ORDER BY m.done_at LIMIT p_limit FOR UPDATE OF m SKIP LOCKED);
+	GET DIAGNOSTICS v_count = ROW_COUNT;
+	RETURN v_count;
+END
 $fn$;
 
 CREATE OR REPLACE FUNCTION stego_outbox.blocked(p_now timestamptz, p_limit integer)
@@ -288,7 +367,7 @@ WHERE m.state NOT IN ('done', 'discarded')
 	AND (m.state IN ('dispatching', 'outcome_unknown', 'reconciling', 'parked')
 		OR (m.lease_until IS NOT NULL AND m.lease_until > now.t)
 		OR (m.failure_code <> '' AND m.available_at > now.t))
-ORDER BY m.sequence LIMIT LEAST(p_limit, 32)
+ORDER BY m.sequence LIMIT LEAST(GREATEST(p_limit, 1), 32)
 $fn$;
 
 CREATE OR REPLACE FUNCTION stego_outbox.oldest(p_now timestamptz)
@@ -313,12 +392,15 @@ BEGIN
 		'stego_outbox.purge_done(timestamptz, integer, bigint)',
 		'stego_outbox.blocked(timestamptz, integer)',
 		'stego_outbox.oldest(timestamptz)'] LOOP
-		EXECUTE 'ALTER FUNCTION ' || f || ' OWNER TO stego_outbox_relay';
 		EXECUTE 'REVOKE ALL ON FUNCTION ' || f || ' FROM PUBLIC';
 		EXECUTE 'GRANT EXECUTE ON FUNCTION ' || f || ' TO {{runtime}}';
 	END LOOP;
 END
 $do$;
+
+RESET ROLE;
+-- CREATE was only for the relay functions: the relay role keeps USAGE.
+REVOKE CREATE ON SCHEMA stego_outbox FROM stego_outbox_relay;
 `
 
 var labelPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
@@ -338,6 +420,9 @@ type Message struct {
 	Group       string
 	Principal   string
 	Origin      string
+	// MustLand is true for a message of a destination that must land, such as authz: the row keeps it, and no purge
+	// removes the message while it is parked (ST-SUP-RP01-LC16).
+	MustLand bool
 }
 
 // Receipt names one claim of a message: the message, the lease token of the claim, and the state the message was
@@ -360,6 +445,9 @@ type Delivery struct {
 	Lookups      int64
 	LeaseUntil   time.Time
 	DispatchedAt time.Time
+	// leaseEnd is the end of the lease on the local monotonic clock: the time the claim was sent plus the lease, so
+	// it is never later than the lease the database holds.
+	leaseEnd time.Time
 }
 
 // Clock is the clock of the queue. A nil Clock is the database clock, clock_timestamp(); a test passes a clock that
@@ -481,10 +569,10 @@ func (q *Queue) Enqueue(ctx context.Context, tx *sql.Tx, messages ...Message) er
 		}
 		if _, err := tx.ExecContext(ctx, `WITH `+nowCTE+`
 			INSERT INTO stego_outbox.messages (id, tenant_id, destination, resource_key, kind, payload, outgoing_key,
-				group_id, principal, origin, created_at, available_at)
-			SELECT $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, now.t, now.t FROM now`,
+				group_id, principal, origin, must_land, created_at, available_at)
+			SELECT $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, now.t, now.t FROM now`,
 			q.now(), message.ID, tenantID.String, message.Destination, message.ResourceKey, message.Kind,
-			string(message.Payload), outgoing, message.Group, message.Principal, message.Origin); err != nil {
+			string(message.Payload), outgoing, message.Group, message.Principal, message.Origin, message.MustLand); err != nil {
 			return canceled(ctx, err)
 		}
 		if !q.notify {
@@ -533,6 +621,7 @@ func (q *Queue) Claim(ctx context.Context, limit int, lease time.Duration) ([]De
 	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
+	sent := time.Now()
 	rows, err := q.db.QueryContext(ctx, `SELECT * FROM stego_outbox.claim($1, $2, $3, $4)`, q.now(), limit, token,
 		lease.Milliseconds())
 	if err != nil {
@@ -552,6 +641,7 @@ func (q *Queue) Claim(ctx context.Context, limit int, lease time.Duration) ([]De
 		d.Tenant = t
 		d.DispatchedAt = dispatched.Time
 		d.Receipt = Receipt{ID: d.ID, Token: token, State: State(state)}
+		d.leaseEnd = sent.Add(lease)
 		deliveries = append(deliveries, d)
 	}
 	if err := rows.Err(); err != nil {
@@ -630,7 +720,7 @@ func (q *Queue) move(ctx context.Context, tx *sql.Tx, receipt *Receipt, to State
 	if result != "moved" {
 		// The stored state does not allow the move: name both states (ST-SUP-RP01-LC08). Otherwise the lease is gone.
 		if err := Transition(State(state), to); err != nil {
-			return false, moved{}, err
+			return false, moved{}, &movedOnError{err: err}
 		}
 		return false, moved{}, nil
 	}
@@ -639,13 +729,24 @@ func (q *Queue) move(ctx context.Context, tx *sql.Tx, receipt *Receipt, to State
 	return true, m, nil
 }
 
+// movedOnError is the refusal of a move because the message moved on from the receipt's state, such as a message
+// that another holder finished: the receipt's lease is gone. It names both states (ST-SUP-RP01-LC08).
+type movedOnError struct{ err error }
+
+func (e *movedOnError) Error() string { return e.err.Error() }
+func (e *movedOnError) Unwrap() error { return e.err }
+
 // release ends the lease of a claimed message and keeps its state, for a message that this worker cannot take a
 // step for now, such as one whose destination it has no registration for.
-func (q *Queue) release(ctx context.Context, receipt Receipt, delay time.Duration, failureCode string) (bool, error) {
+func (q *Queue) release(ctx context.Context, tx *sql.Tx, receipt Receipt, delay time.Duration, failureCode string) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
+	var db querier = q.db
+	if tx != nil {
+		db = tx
+	}
 	var n int64
-	err := q.db.QueryRowContext(ctx, `SELECT stego_outbox.release($1, $2, $3, $4, $5)`, q.now(), receipt.ID,
+	err := db.QueryRowContext(ctx, `SELECT stego_outbox.release($1, $2, $3, $4, $5)`, q.now(), receipt.ID,
 		receipt.Token, delay.Milliseconds(), failureCode).Scan(&n)
 	if err != nil {
 		return false, canceled(ctx, err)
@@ -653,19 +754,20 @@ func (q *Queue) release(ctx context.Context, receipt Receipt, delay time.Duratio
 	return n == 1, nil
 }
 
-// Acknowledge moves a delivered message to done, only while the receipt's lease is live. False means the lease is
-// gone; the message can then be delivered again with the same identity and outgoing key. It keeps the attempt count
-// (ST-SUP-RP01-LC22). It runs no state hook: the worker's own steps do.
-func (q *Queue) Acknowledge(ctx context.Context, receipt Receipt) (bool, error) {
+// acknowledge moves a delivered message to done, only while the receipt's lease is live, outside a tenant
+// transaction and with no state hook; only the tests of the package use it. False means the lease is gone. It keeps
+// the attempt count (ST-SUP-RP01-LC22).
+func (q *Queue) acknowledge(ctx context.Context, receipt Receipt) (bool, error) {
 	ok, _, err := q.move(ctx, nil, &receipt, Done, change{})
 	return ok, err
 }
 
-// Retry moves a claimed message back to pending after a known failure, due again after delay, with the short
+// retry moves a claimed message back to pending, outside a tenant transaction and with no state hook; only the tests
+// of the package use it. It moves it after a known failure, due again after delay, with the short
 // failure code failureCode, never an error text that can hold a credential or the payload (ST-SUP-RP01-LC06). It
 // keeps the message's identity, payload and outgoing key, and its attempt count (ST-SUP-RC18-OC04). It never
 // removes a message. False means the lease is gone.
-func (q *Queue) Retry(ctx context.Context, receipt Receipt, delay time.Duration, failureCode string) (bool, error) {
+func (q *Queue) retry(ctx context.Context, receipt Receipt, delay time.Duration, failureCode string) (bool, error) {
 	if !labelPattern.MatchString(failureCode) {
 		return false, errors.New("outbox: the failure code is not a short label")
 	}

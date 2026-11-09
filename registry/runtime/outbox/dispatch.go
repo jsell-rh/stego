@@ -275,15 +275,35 @@ func (w *Worker) dispatch(ctx context.Context, d Delivery, reg Destination) {
 		w.finish(ctx, d, reg, Pending, change{attempts: -1, failureCode: "worker-stopping"})
 		return
 	}
-	// The transaction outlives the attempt's deadline, so a late result can still be rolled back in order.
-	txCtx := context.WithoutCancel(ctx)
-	tx, err := tenant.Begin(txCtx, w.queue.db, d.Tenant, nil)
-	if err != nil {
-		w.databaseFailures.Add(1)
-		w.finish(ctx, d, reg, Pending, change{attempts: -1, delay: w.retryDelay(1), failureCode: "database-failed"})
+	// The handler runs only while the lease, measured on the local monotonic clock from the claim, holds the attempt
+	// and the two statements after it; else the message goes back to pending unsent (ST-SUP-RP01-LC02).
+	left := time.Until(d.leaseEnd)
+	if left < w.config.AttemptTimeout+2*operationTimeout {
+		w.lostLeases.Add(1)
+		w.finish(ctx, d, reg, Pending, change{attempts: -1, failureCode: "lease-short"})
 		return
 	}
-	attempt, cancel := context.WithTimeout(ctx, w.config.AttemptTimeout)
+	// The transaction, its begin included, ends with the lease, so nothing of the attempt commits after the lease
+	// is gone.
+	txCtx, txCancel := context.WithTimeout(context.WithoutCancel(ctx), left)
+	defer txCancel()
+	tx, err := tenant.Begin(txCtx, w.queue.db, d.Tenant, nil)
+	if err == nil {
+		if left = time.Until(d.leaseEnd); left < w.config.AttemptTimeout+2*operationTimeout {
+			_ = tx.Rollback()
+			w.lostLeases.Add(1)
+			w.finish(ctx, d, reg, Pending, change{attempts: -1, failureCode: "lease-short"})
+			return
+		}
+	}
+	if err != nil {
+		// No request is sent, but a failed begin is not one of the takebacks of ST-SUP-RP01-LC22.
+		w.databaseFailures.Add(1)
+		w.finish(ctx, d, reg, Pending, change{delay: w.retryDelay(d.Attempts), failureCode: "database-failed"})
+		return
+	}
+	deadline := min(w.config.AttemptTimeout, left-2*operationTimeout)
+	attempt, cancel := context.WithTimeout(ctx, deadline)
 	err = callHandler(attempt, reg.Handler, tx, d)
 	expired := errors.Is(attempt.Err(), context.DeadlineExceeded)
 	cancel()
@@ -340,11 +360,12 @@ func (w *Worker) afterUnknown(ctx context.Context, d Delivery, reg Destination) 
 			w.park(ctx, d, reg, change{failureCode: "attempts-exhausted"})
 			return
 		}
-		ok, m, err := w.queue.move(ctx, nil, &d.Receipt, Dispatching, change{attempts: 1, failureCode: "resend",
-			lease: w.config.LeaseDuration})
-		if !w.counted(ok, err) {
+		sent := time.Now()
+		ok, m := w.resend(ctx, &d)
+		if !ok {
 			return
 		}
+		d.leaseEnd = sent.Add(w.config.LeaseDuration)
 		d.Attempts = m.attempts
 		d.Conflicts = m.conflicts
 		w.dispatch(ctx, d, reg)
@@ -354,6 +375,29 @@ func (w *Worker) afterUnknown(ctx context.Context, d Delivery, reg Destination) 
 	default:
 		w.park(ctx, d, reg, change{failureCode: "outcome-unknown"})
 	}
+}
+
+// resend moves a message in outcome unknown back to dispatching with a new lease and one more attempt, in a
+// transaction of its tenant.
+func (w *Worker) resend(ctx context.Context, d *Delivery) (bool, moved) {
+	finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), operationTimeout)
+	defer cancel()
+	tx, err := tenant.Begin(finish, w.queue.db, d.Tenant, nil)
+	if err != nil {
+		w.databaseFailures.Add(1)
+		return false, moved{}
+	}
+	defer func() { _ = tx.Rollback() }()
+	ok, m, err := w.queue.move(finish, tx, &d.Receipt, Dispatching, change{attempts: 1, failureCode: "resend",
+		lease: w.config.LeaseDuration})
+	if !w.counted(ok, err) {
+		return false, moved{}
+	}
+	if err := tenant.Commit(finish, tx, d.Tenant); err != nil {
+		w.databaseFailures.Add(1)
+		return false, moved{}
+	}
+	return true, m
 }
 
 // reconcile asks the status lookup of a reconciling message and moves it as the answer says (ST-SUP-RP01-LC11).
@@ -416,9 +460,12 @@ func (w *Worker) apply(ctx context.Context, tx *sql.Tx, d Delivery, reg Destinat
 		return false
 	}
 	if reg.StateHook != nil && hooked(from, to) {
-		if err := reg.StateHook(finish, tx, StateChange{ID: d.ID, Group: d.Group, Destination: d.Destination,
+		if err := callHook(finish, reg.StateHook, tx, StateChange{ID: d.ID, Group: d.Group, Destination: d.Destination,
 			Tenant: d.Tenant, State: to}); err != nil {
-			w.hookFailures.Add(1)
+			_ = tx.Rollback()
+			// The rollback undid the move: the message is in its old state under the same lease.
+			d.Receipt.State = from
+			w.hookFailed(ctx, d, reg, from)
 			return false
 		}
 	}
@@ -445,15 +492,60 @@ func (w *Worker) park(ctx context.Context, d Delivery, reg Destination, c change
 	w.apply(ctx, nil, d, reg, Parked, c)
 }
 
+// releaseLease ends the lease of a claimed message in outcome unknown or reconciling and keeps its state, in a
+// transaction of the message's tenant.
 func (w *Worker) releaseLease(ctx context.Context, d Delivery, delay time.Duration, code string) {
 	finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), operationTimeout)
 	defer cancel()
-	ok, err := w.queue.release(finish, d.Receipt, delay, code)
-	w.counted(ok, err)
+	tx, err := tenant.Begin(finish, w.queue.db, d.Tenant, nil)
+	if err != nil {
+		w.databaseFailures.Add(1)
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+	ok, err := w.queue.release(finish, tx, d.Receipt, delay, code)
+	if !w.counted(ok, err) {
+		return
+	}
+	if err := tenant.Commit(finish, tx, d.Tenant); err != nil {
+		w.databaseFailures.Add(1)
+	}
 }
 
-// counted counts a database failure or a lost lease, and reports whether the move took place.
+// callHook calls a state hook and turns a panic into an error, so a hook never stops the worker.
+func callHook(ctx context.Context, hook StateHook, tx *sql.Tx, change StateChange) (err error) {
+	defer func() {
+		if recover() != nil {
+			err = errors.New("outbox: the state hook panicked")
+		}
+	}()
+	return hook(ctx, tx, change)
+}
+
+// hookFailed counts and alerts on a state hook that refused a change, which is rolled back (ST-SUP-RP01-LC25), and
+// lets the message wait out a backoff instead of being claimed again at once. A message that was dispatching
+// goes to outcome unknown, because its handler may have acted; one in outcome unknown or reconciling keeps its
+// state.
+func (w *Worker) hookFailed(ctx context.Context, d Delivery, reg Destination, from State) {
+	w.hookFailures.Add(1)
+	w.metrics.hookFailed(ctx, d.Destination)
+	delay := w.retryDelay(max(d.Attempts, 1))
+	switch from {
+	case Dispatching:
+		w.apply(ctx, nil, d, reg, OutcomeUnknown, change{delay: delay, failureCode: "hook-failed"})
+	case OutcomeUnknown, Reconciling:
+		w.releaseLease(ctx, d, delay, "hook-failed")
+	}
+}
+
+// counted counts a database failure or a lost lease, and reports whether the move took place. A message that moved
+// on from the receipt's state, such as one another holder finished, is a lost lease, not a database failure.
 func (w *Worker) counted(ok bool, err error) bool {
+	var movedOn *movedOnError
+	if errors.As(err, &movedOn) {
+		w.lostLeases.Add(1)
+		return false
+	}
 	if err != nil {
 		w.databaseFailures.Add(1)
 		return false
@@ -637,7 +729,7 @@ func (w *Worker) resolve(ctx context.Context, tx *sql.Tx, request ResolveRequest
 	err = tx.QueryRowContext(ctx, `WITH `+nowCTE+`
 		UPDATE stego_outbox.messages AS m SET state = $3, resolution = $4, resolved_by = $5, resolved_at = now.t,
 			parked_from = NULL, parked_at = NULL, available_at = now.t, failure_code = '',
-			attempts = CASE WHEN $3 = 'pending' THEN 0 ELSE m.attempts END, conflicts = 0, lookups = 0,
+			conflicts = 0, lookups = 0,
 			done_at = CASE WHEN $3 = 'done' THEN now.t ELSE m.done_at END
 		FROM now WHERE m.id = $2 AND m.state = 'parked'
 		RETURNING now.t, pg_catalog.date_part('epoch', now.t - m.created_at)::float8`,
@@ -649,8 +741,10 @@ func (w *Worker) resolve(ctx context.Context, tx *sql.Tx, request ResolveRequest
 		return canceled(ctx, err)
 	}
 	if reg.StateHook != nil {
-		if err := reg.StateHook(ctx, tx, StateChange{ID: request.ID, Group: group, Destination: destination,
+		if err := callHook(ctx, reg.StateHook, tx, StateChange{ID: request.ID, Group: group, Destination: destination,
 			Tenant: owner, State: to}); err != nil {
+			w.hookFailures.Add(1)
+			w.metrics.hookFailed(ctx, destination)
 			return fmt.Errorf("outbox: the state hook of %s refused the resolution: %w", destination, err)
 		}
 	}

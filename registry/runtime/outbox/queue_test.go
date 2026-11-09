@@ -379,10 +379,10 @@ func TestQueueClaim(t *testing.T) {
 			t.Fatalf("claim: %v %v", first, err)
 		}
 		clock.Advance(2 * time.Second)
-		if ok, err := q.Acknowledge(context.Background(), first[0].Receipt); ok || err != nil {
+		if ok, err := q.acknowledge(context.Background(), first[0].Receipt); ok || err != nil {
 			t.Fatalf("an expired receipt acknowledged the message: %v %v", ok, err)
 		}
-		if ok, err := q.Retry(context.Background(), first[0].Receipt, 0, "failure"); ok || err != nil {
+		if ok, err := q.retry(context.Background(), first[0].Receipt, 0, "failure"); ok || err != nil {
 			t.Fatalf("an expired receipt retried the message: %v %v", ok, err)
 		}
 		if row := readRow(t, db, m.ID); row.State != Dispatching || row.Token.UUID != first[0].Receipt.Token {
@@ -496,10 +496,10 @@ func TestQueueClaim(t *testing.T) {
 				t.Fatal("the successor was claimed before its predecessor")
 			}
 		}
-		if ok, err := q.Retry(ctx, head.Receipt, time.Hour, "sink-unavailable"); !ok || err != nil {
+		if ok, err := q.retry(ctx, head.Receipt, time.Hour, "sink-unavailable"); !ok || err != nil {
 			t.Fatalf("retry: %v %v", ok, err)
 		}
-		if ok, err := q.Acknowledge(ctx, second.Receipt); !ok || err != nil {
+		if ok, err := q.acknowledge(ctx, second.Receipt); !ok || err != nil {
 			t.Fatalf("the other key did not progress: %v %v", ok, err)
 		}
 		if next, err := q.Claim(ctx, 32, time.Minute); err != nil || len(next) != 0 {
@@ -510,7 +510,7 @@ func TestQueueClaim(t *testing.T) {
 		if err != nil || len(next) != 1 || next[0].ID != a.ID || next[0].Attempts != 2 || string(next[0].Payload) != `{"version": 1}` {
 			t.Fatalf("the retry lost its identity or attempt count: %+v %v", next, err)
 		}
-		if ok, err := q.Acknowledge(ctx, next[0].Receipt); !ok || err != nil {
+		if ok, err := q.acknowledge(ctx, next[0].Receipt); !ok || err != nil {
 			t.Fatalf("acknowledge: %v %v", ok, err)
 		}
 		next, err = q.Claim(ctx, 32, time.Minute)
@@ -645,7 +645,7 @@ func TestQueueViews(t *testing.T) {
 		if strings.Join(keys, ",") != "moving,stuck" {
 			t.Fatalf("the blocked view is not one entry for each claimed key: %v", keys)
 		}
-		if ok, err := q.Retry(ctx, deliveries[0].Receipt, time.Minute, "delivery-failed"); !ok || err != nil {
+		if ok, err := q.retry(ctx, deliveries[0].Receipt, time.Minute, "delivery-failed"); !ok || err != nil {
 			t.Fatalf("retry: %v %v", ok, err)
 		}
 		blocked, err = q.Blocked(ctx, MaxBatchSize)
@@ -1014,10 +1014,21 @@ func TestQueueRetention(t *testing.T) {
 			parked_at = $1 WHERE resource_key = 'parked'`, now.Add(-2*time.Hour)); err != nil {
 			t.Fatal(err)
 		}
-		w := newWorker(t, q, func(c *WorkerConfig) { c.Retention = time.Hour })
-		removed, batches, err := w.purgeTick(context.Background())
-		if err != nil || removed != 70 || batches != 3 {
-			t.Fatalf("the purge removed %d in %d batches: %v", removed, batches, err)
+		// The purge timer of the worker runs every second.
+		w := newWorker(t, q, func(c *WorkerConfig) { c.Retention = time.Hour; c.PurgeEvery = time.Second })
+		// Run starts the timer; the worker has no destination, and no message is due.
+		done := make(chan error, 1)
+		go func() { done <- w.Run(context.Background()) }()
+		deadline := time.Now().Add(10 * time.Second)
+		for w.Stats().PurgeBatches < 3 && time.Now().Before(deadline) {
+			time.Sleep(20 * time.Millisecond)
+		}
+		w.StopClaiming()
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		if s := w.Stats(); s.DonePurged != 70 || s.PurgeBatches != 3 {
+			t.Fatalf("the purge timer removed %d in %d batches", s.DonePurged, s.PurgeBatches)
 		}
 		if n := count(t, db, "SELECT count(*) FROM stego_outbox.messages"); n != 6 {
 			t.Fatalf("%d messages stay, want the 5 recent and the parked one", n)
@@ -1032,6 +1043,215 @@ func TestQueueRetention(t *testing.T) {
 		}
 		if DefaultWorkerConfig().Retention != 7*24*time.Hour {
 			t.Fatal("the default retention is not 7 days")
+		}
+	})
+}
+
+// relayCall runs one statement as the runtime role in a transaction of tenant t1 and returns its error.
+func relayCall(t *testing.T, db *sql.DB, query string, args ...any) error {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := tenant.Begin(ctx, db, testTenant(t, "t1"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+	}
+	rows.Close()
+	return rows.Err()
+}
+
+func TestQueueRelayArguments(t *testing.T) {
+	t.Run("ST-SUP-RP01-LC19-T02 The relay functions refuse crafted arguments", func(t *testing.T) {
+		db, _ := testDatabase(t)
+		q := newQueue(t, db, nil)
+		mine, theirs := message("billing", "charge:1"), message("billing", "charge:2")
+		enqueueAs(t, db, q, "t1", mine)
+		enqueueAs(t, db, q, "t2", theirs)
+		token := uuid.New()
+		for _, c := range []struct {
+			name  string
+			query string
+			args  []any
+		}{
+			{"a claim of 33", `SELECT * FROM stego_outbox.claim(NULL, 33, $1, 60000)`, []any{token}},
+			{"a claim of 0", `SELECT * FROM stego_outbox.claim(NULL, 0, $1, 60000)`, []any{token}},
+			{"a lease of 9e12 ms", `SELECT * FROM stego_outbox.claim(NULL, 32, $1, 9000000000000)`, []any{token}},
+			{"a lease of 999 ms", `SELECT * FROM stego_outbox.claim(NULL, 32, $1, 999)`, []any{token}},
+			{"a claim with no token", `SELECT * FROM stego_outbox.claim(NULL, 32, NULL, 60000)`, nil},
+			{"a move of 5 attempts", `SELECT * FROM stego_outbox.move(NULL, $1, $2, 'dispatching', 'pending', 0, NULL, 5, false, false, '', 0)`, []any{mine.ID, token}},
+			{"a move of -2 attempts", `SELECT * FROM stego_outbox.move(NULL, $1, $2, 'dispatching', 'pending', 0, NULL, -2, false, false, '', 0)`, []any{mine.ID, token}},
+			{"a delay of two days", `SELECT * FROM stego_outbox.move(NULL, $1, $2, 'dispatching', 'pending', 172800000, NULL, 0, false, false, '', 0)`, []any{mine.ID, token}},
+			{"a negative delay", `SELECT * FROM stego_outbox.move(NULL, $1, $2, 'dispatching', 'pending', -1, NULL, 0, false, false, '', 0)`, []any{mine.ID, token}},
+			{"a due time in 2312", `SELECT * FROM stego_outbox.move(NULL, $1, $2, 'outcome_unknown', 'reconciling', 0, '2312-01-01', 0, false, false, '', 0)`, []any{mine.ID, token}},
+			{"a resend lease of 9e12 ms", `SELECT * FROM stego_outbox.move(NULL, $1, $2, 'outcome_unknown', 'dispatching', 0, NULL, 1, false, false, '', 9000000000000)`, []any{mine.ID, token}},
+			{"a failure code with text", `SELECT * FROM stego_outbox.move(NULL, $1, $2, 'dispatching', 'pending', 0, NULL, 0, false, false, 'password=hunter2 x', 0)`, []any{mine.ID, token}},
+			{"a release of 2 days", `SELECT stego_outbox.release(NULL, $1, $2, 172800000, '')`, []any{mine.ID, token}},
+			{"a purge of a negative age", `SELECT stego_outbox.purge_parked(NULL, 32, -1, '["billing"]')`, nil},
+			{"a purge of 33", `SELECT stego_outbox.purge_parked(NULL, 33, 0, '["billing"]')`, nil},
+			{"a purge with no list", `SELECT stego_outbox.purge_parked(NULL, 32, 0, NULL)`, nil},
+			{"a done purge of a minute", `SELECT stego_outbox.purge_done(NULL, 32, 60000)`, nil},
+		} {
+			if err := relayCall(t, db, c.query, c.args...); err == nil {
+				t.Fatalf("%s was accepted", c.name)
+			}
+		}
+		// A claim of each tenant, then the probes with the claim's token and with others.
+		claimed, err := q.Claim(context.Background(), 32, time.Minute)
+		if err != nil || len(claimed) != 2 {
+			t.Fatalf("claim: %v %v", claimed, err)
+		}
+		var mineD, theirsD Delivery
+		for _, d := range claimed {
+			if d.ID == mine.ID {
+				mineD = d
+			} else {
+				theirsD = d
+			}
+		}
+		count := func(query string, args ...any) int {
+			t.Helper()
+			ctx := context.Background()
+			tx, err := tenant.Begin(ctx, db, testTenant(t, "t1"), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = tx.Rollback() }()
+			rows, err := tx.QueryContext(ctx, query, args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer rows.Close()
+			n := 0
+			for rows.Next() {
+				n++
+			}
+			return n
+		}
+		// A token that is not the message's last claim learns nothing.
+		if n := count(`SELECT * FROM stego_outbox.move(NULL, $1, $2, 'dispatching', 'pending', 0, NULL, 0, false, false, '', 0)`, mine.ID, uuid.New()); n != 0 {
+			t.Fatalf("a wrong token got %d rows", n)
+		}
+		// In a transaction of t1, the move of t2's message with t2's own token changes nothing and says nothing.
+		if n := count(`SELECT * FROM stego_outbox.move(NULL, $1, $2, 'dispatching', 'pending', 0, NULL, 0, false, false, '', 0)`, theirs.ID, theirsD.Receipt.Token); n != 0 {
+			t.Fatalf("t1 moved or read t2's message: %d rows", n)
+		}
+		if readRow(t, db, theirs.ID).State != Dispatching {
+			t.Fatal("t1 moved t2's message")
+		}
+		// A release of a dispatching message is refused: its next step is a send, not a wait.
+		var released int64
+		if err := db.QueryRow(`SELECT stego_outbox.release(NULL, $1, $2, 0, '')`, mine.ID, mineD.Receipt.Token).Scan(&released); err != nil || released != 0 {
+			t.Fatalf("the release of a dispatching message gave %d, %v", released, err)
+		}
+		// A parked message enqueued as must land is kept by the purge, whatever list it is given.
+		land := message("billing", "charge:3")
+		land.MustLand = true
+		enqueueAs(t, db, q, "t1", land)
+		if _, err := admin(t, db).Exec(`UPDATE stego_outbox.messages SET state = 'parked', parked_from = 'dispatching',
+			parked_at = now() - interval '1 day' WHERE id = $1`, land.ID); err != nil {
+			t.Fatal(err)
+		}
+		var purged int64
+		if err := db.QueryRow(`SELECT stego_outbox.purge_parked(NULL, 32, 0, '["billing"]')`).Scan(&purged); err != nil || purged != 0 {
+			t.Fatalf("the purge removed %d must-land messages: %v", purged, err)
+		}
+	})
+
+	t.Run("ST-SUP-RP01-LC08-T01 The transition table of the relay function move is the state machine's", func(t *testing.T) {
+		db, _ := testDatabase(t)
+		for _, from := range States() {
+			for _, to := range States() {
+				err := relayCall(t, db, `SELECT * FROM stego_outbox.move(NULL, $1, $2, $3, $4, 0, NULL, 0, false, false, '', 60000)`,
+					uuid.New(), uuid.New(), string(from), string(to))
+				// The person's moves from parked go through Resolve, not through the relay function.
+				want := Transition(from, to) == nil && from != Parked
+				if (err == nil) != want {
+					t.Fatalf("move from %s to %s gave %v, want allowed %v", from, to, err, want)
+				}
+			}
+		}
+	})
+}
+
+func TestQueueMigration(t *testing.T) {
+	t.Run("ST-SUP-RP01-LC19-T02 A CREATEROLE owner that is no superuser runs the migration", func(t *testing.T) {
+		server := pgtest.DSN(t)
+		root, err := sql.Open("pgx", server)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = root.Close() })
+		suffix := randomSuffix(t)
+		owner, runtime, password := "outbox_owner_"+suffix, "outbox_rt_"+suffix, randomSuffix(t)
+		ctx := context.Background()
+		if _, err := root.ExecContext(ctx, "CREATE ROLE "+owner+" LOGIN CREATEROLE NOSUPERUSER PASSWORD '"+password+"'"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := root.ExecContext(ctx, "CREATE ROLE "+runtime+" NOLOGIN"); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			_, _ = root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+runtime)
+			_, _ = root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+owner)
+		})
+		// The relay role is shared by the server; when an earlier test made it, the owner needs ADMIN on it.
+		if _, err := root.ExecContext(ctx, `DO $$ BEGIN
+			IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stego_outbox_relay') THEN
+				EXECUTE 'GRANT stego_outbox_relay TO `+owner+` WITH ADMIN TRUE, SET FALSE, INHERIT FALSE';
+			END IF; END $$`); err != nil {
+			t.Fatal(err)
+		}
+		dsn := pgtest.Database(t, "outbox_owner")
+		if _, err := root.ExecContext(ctx, `GRANT `+runtime+` TO `+owner+` WITH ADMIN TRUE`); err != nil {
+			t.Fatal(err)
+		}
+		u, err := url.Parse(dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dbName := strings.TrimPrefix(u.Path, "/")
+		if _, err := root.ExecContext(ctx, "ALTER DATABASE "+dbName+" OWNER TO "+owner); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			_, _ = root.ExecContext(context.Background(), "DROP DATABASE IF EXISTS "+dbName+" WITH (FORCE)")
+		})
+		u.User = url.UserPassword(owner, password)
+		ownerDB, err := sql.Open("pgx", u.String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = ownerDB.Close() })
+		ddl, err := Migration(runtime)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ownerDB.ExecContext(ctx, ddl); err != nil {
+			t.Fatalf("the migration as a CREATEROLE owner: %v", err)
+		}
+		var create, set, inherit bool
+		if err := ownerDB.QueryRowContext(ctx, `SELECT has_schema_privilege('stego_outbox_relay', 'stego_outbox', 'CREATE'),
+			pg_has_role(current_user, 'stego_outbox_relay', 'SET'), pg_has_role(current_user, 'stego_outbox_relay', 'USAGE')`).
+			Scan(&create, &set, &inherit); err != nil {
+			t.Fatal(err)
+		}
+		if create || !set || inherit {
+			t.Fatalf("after the migration: relay CREATE %v, owner SET %v, owner INHERIT %v", create, set, inherit)
+		}
+		var owners int
+		if err := ownerDB.QueryRowContext(ctx, `SELECT count(*) FROM pg_proc AS p JOIN pg_namespace AS n ON n.oid = p.pronamespace
+			WHERE n.nspname = 'stego_outbox' AND pg_get_userbyid(p.proowner) = 'stego_outbox_relay'`).Scan(&owners); err != nil || owners != 7 {
+			t.Fatalf("%d relay functions belong to the relay role: %v", owners, err)
+		}
+		// The text runs again with no error.
+		if _, err := ownerDB.ExecContext(ctx, ddl); err != nil {
+			t.Fatalf("the migration a second time: %v", err)
 		}
 	})
 }

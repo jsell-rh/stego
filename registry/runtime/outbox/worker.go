@@ -100,6 +100,7 @@ type WorkerStats struct {
 	Parked              uint64
 	StateHookFailures   uint64
 	DonePurged          uint64
+	PurgeBatches        uint64
 }
 
 // Worker claims messages and takes each one's next step. It is a library value: the service builds it, registers
@@ -132,9 +133,12 @@ type Worker struct {
 	parked              atomic.Uint64
 	hookFailures        atomic.Uint64
 	donePurged          atomic.Uint64
+	purgeBatches        atomic.Uint64
 }
 
-// NewWorker builds a worker on queue with config. It refuses a limit outside its bounds.
+// NewWorker builds a worker on queue with config. It refuses a limit outside its bounds, and a pool of the queue
+// that holds fewer than Concurrency + 2 connections: each step in flight holds one connection for the transaction of
+// its tenant, the claims need one, and the purge timer one. A pool with no limit is accepted.
 func NewWorker(queue *Queue, config WorkerConfig) (*Worker, error) {
 	if queue == nil || queue.db == nil {
 		return nil, errors.New("outbox: the worker needs a queue")
@@ -150,6 +154,12 @@ func NewWorker(queue *Queue, config WorkerConfig) (*Worker, error) {
 		config.MaxAttempts < 1 || config.MaxAttempts > 1000 || config.LookupBound < 1 || config.LookupBound > 1000 ||
 		config.Retention < MinRetention || config.PurgeEvery < time.Second || config.PurgeEvery > time.Hour {
 		return nil, errors.New("outbox: a worker limit is out of its bounds")
+	}
+	// Each step in flight holds one connection for its tenant transaction, and the claim and the purge timer need
+	// one more each.
+	if limit := queue.db.Stats().MaxOpenConnections; limit > 0 && limit < config.Concurrency+2 {
+		return nil, fmt.Errorf("outbox: the pool holds at most %d connections; the worker needs Concurrency + 2 = %d",
+			limit, config.Concurrency+2)
 	}
 	w := &Worker{queue: queue, config: config, decider: config.Decider, auditor: config.Auditor,
 		destinations: map[string]Destination{}, stop: make(chan struct{}), drain: make(chan struct{}),
@@ -220,6 +230,7 @@ func (w *Worker) Stats() WorkerStats {
 		LostLeases: w.lostLeases.Load(), UnknownDestinations: w.unknownDestinations.Load(),
 		UnknownOutcomes: w.unknownOutcomes.Load(), Conflicts: w.conflicts.Load(), Lookups: w.lookups.Load(),
 		Parked: w.parked.Load(), StateHookFailures: w.hookFailures.Load(), DonePurged: w.donePurged.Load(),
+		PurgeBatches: w.purgeBatches.Load(),
 	}
 }
 
@@ -354,6 +365,7 @@ func (w *Worker) purgeTick(ctx context.Context) (int64, int, error) {
 		}
 		removed += n
 		w.donePurged.Add(uint64(n))
+		w.purgeBatches.Add(1)
 		if n < MaxBatchSize {
 			return removed, batch, nil
 		}
@@ -432,6 +444,7 @@ func waitWorker(ctx context.Context, delay time.Duration) bool {
 type metrics struct {
 	delay   metric.Float64Histogram
 	parks   metric.Int64Counter
+	hooks   metric.Int64Counter
 	logger  otellog.Logger
 	gauge   metric.Registration
 	enabled bool
@@ -456,6 +469,11 @@ func newMetrics(provider metric.MeterProvider, logs otellog.LoggerProvider, w *W
 	}
 	m.parks, err = meter.Int64Counter("outbox.parked",
 		metric.WithDescription("The messages parked, by destination and the state they left."))
+	if err != nil {
+		return nil, err
+	}
+	m.hooks, err = meter.Int64Counter("outbox.hook.failures",
+		metric.WithDescription("The state hook calls that failed or panicked, by destination."))
 	if err != nil {
 		return nil, err
 	}
@@ -506,6 +524,25 @@ func (m *metrics) parked(ctx context.Context, destination string, from State) {
 		record.SetSeverityText("WARN")
 		record.SetBody(attribute.StringValue("an outbox message is parked and waits for a person"))
 		record.AddAttributes(attribute.String("destination", destination), attribute.String("state", string(from)))
+		m.logger.Emit(ctx, record)
+	}
+}
+
+// hookFailed raises the alert event and metric of a state hook that failed, which name the destination.
+func (m *metrics) hookFailed(ctx context.Context, destination string) {
+	if m == nil {
+		return
+	}
+	if m.enabled {
+		m.hooks.Add(ctx, 1, metric.WithAttributes(attribute.String("destination", destination)))
+	}
+	if m.logger != nil {
+		var record otellog.Record
+		record.SetEventName("outbox.hook_failed")
+		record.SetSeverity(otellog.SeverityError)
+		record.SetSeverityText("ERROR")
+		record.SetBody(attribute.StringValue("an outbox state hook failed, so the state change was rolled back"))
+		record.AddAttributes(attribute.String("destination", destination))
 		m.logger.Emit(ctx, record)
 	}
 }

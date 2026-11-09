@@ -227,11 +227,11 @@ func TestDispatchStates(t *testing.T) {
 		if err != nil || len(deliveries) != 1 {
 			t.Fatalf("claim: %v %v", deliveries, err)
 		}
-		if ok, err := q.Acknowledge(context.Background(), deliveries[0].Receipt); !ok || err != nil {
+		if ok, err := q.acknowledge(context.Background(), deliveries[0].Receipt); !ok || err != nil {
 			t.Fatalf("acknowledge: %v %v", ok, err)
 		}
 		before := readRow(t, db, m.ID)
-		ok, err := q.Retry(context.Background(), deliveries[0].Receipt, 0, "late")
+		ok, err := q.retry(context.Background(), deliveries[0].Receipt, 0, "late")
 		if ok || err == nil || !strings.Contains(err.Error(), "done") || !strings.Contains(err.Error(), "pending") {
 			t.Fatalf("the move from done to pending gave %v, %v", ok, err)
 		}
@@ -735,7 +735,8 @@ func TestDispatchResolve(t *testing.T) {
 			t.Fatalf("the refused resolution changed %+v to %+v", before, after)
 		}
 		resolve(t, db, w, m.ID, NotActed)
-		if row := readRow(t, db, m.ID); row.State != Pending || row.OutgoingKey != "key-1" {
+		// Not acted keeps the attempts made (ST-SUP-RP01-LC22).
+		if row := readRow(t, db, m.ID); row.State != Pending || row.OutgoingKey != "key-1" || row.Attempts != before.Attempts || row.Attempts != 1 {
 			t.Fatalf("not acted left %+v", row)
 		}
 	})
@@ -1328,9 +1329,78 @@ func TestDispatchStateHook(t *testing.T) {
 		if got := hooks(parked.ID); got != "rev-2:parked,rev-2:pending" {
 			t.Fatalf("the parked message's hook rows are %q", got)
 		}
-		if row := readRow(t, db, failing.ID); row.State != Dispatching || hooks(failing.ID) != "" || w.Stats().StateHookFailures != 1 {
+		// The failed hook rolled the move to done back; the message waits out a backoff in outcome unknown.
+		if row := readRow(t, db, failing.ID); row.State != OutcomeUnknown || row.FailureCode != "hook-failed" ||
+			hooks(failing.ID) != "" || w.Stats().StateHookFailures != 1 {
 			t.Fatalf("the failing hook left %+v", row)
 		}
+	})
+
+	hookCase := func(t *testing.T, hook StateHook) {
+		db, _ := testDatabase(t)
+		clock := newClock()
+		q := newQueue(t, db, clock)
+		m, other := message("authz", "a"), message("mail", "b")
+		enqueue(t, db, q, m)
+		reader, provider := metricReader()
+		events := &eventExporter{}
+		logs := sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewSimpleProcessor(events)))
+		w := newWorker(t, q, func(c *WorkerConfig) { c.Meter = provider; c.Logger = logs })
+		register(t, w, Destination{Name: "authz", Idempotent: true, MustLand: true, StateHook: hook,
+			Handler: func(context.Context, *sql.Tx, Delivery) error { return nil }})
+		register(t, w, Destination{Name: "mail", Handler: func(context.Context, *sql.Tx, Delivery) error { return nil }})
+		var lastDue time.Time
+		for i := 1; i <= 3; i++ {
+			if n := cycle(t, w); n != 1 {
+				t.Fatalf("round %d claimed %d messages", i, n)
+			}
+			row := readRow(t, db, m.ID)
+			if row.State != OutcomeUnknown || row.FailureCode != "hook-failed" || !row.AvailableAt.After(clock.Now()) {
+				t.Fatalf("round %d left %+v", i, row)
+			}
+			if n := cycle(t, w); n != 0 {
+				t.Fatalf("round %d: the message was claimed again before its backoff", i)
+			}
+			if !row.AvailableAt.After(lastDue) {
+				t.Fatalf("round %d: the due time did not move on", i)
+			}
+			lastDue = row.AvailableAt
+			clock.Set(row.AvailableAt)
+		}
+		if got := w.Stats().StateHookFailures; got != 3 {
+			t.Fatalf("%d hook failures are counted", got)
+		}
+		found := collect(t, reader, "outbox.hook.failures")
+		if len(found) != 1 || found[0].Data.(metricdata.Sum[int64]).DataPoints[0].Value != 3 {
+			t.Fatalf("outbox.hook.failures is %+v", found)
+		}
+		events.mu.Lock()
+		alerts := 0
+		for _, r := range events.records {
+			if r.EventName() == "outbox.hook_failed" {
+				alerts++
+			}
+		}
+		events.mu.Unlock()
+		if alerts != 3 {
+			t.Fatalf("%d hook alerts are raised", alerts)
+		}
+		// The worker keeps running and delivers another destination's message.
+		enqueue(t, db, q, other)
+		for i := 0; i < 3 && readRow(t, db, other.ID).State != Done; i++ {
+			cycle(t, w)
+		}
+		if readRow(t, db, other.ID).State != Done {
+			t.Fatal("the worker stopped after the hook failures")
+		}
+	}
+
+	t.Run("ST-SUP-RP01-LC25-T01 A state hook that always fails backs off and raises an alert", func(t *testing.T) {
+		hookCase(t, func(context.Context, *sql.Tx, StateChange) error { return errors.New("the record store is down") })
+	})
+
+	t.Run("ST-SUP-RP01-LC25-T01 A state hook that panics is a hook failure", func(t *testing.T) {
+		hookCase(t, func(context.Context, *sql.Tx, StateChange) error { panic("the hook broke") })
 	})
 }
 
