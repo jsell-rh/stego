@@ -24,10 +24,13 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 
+	"stego.dev/runtime/authn"
+	"stego.dev/runtime/authn/authntest"
 	"stego.dev/runtime/internal/pgtest"
 	"stego.dev/runtime/internal/seal"
 )
@@ -39,18 +42,18 @@ import (
 // it can embed the seal's mark.
 type identity struct {
 	seal.IdentityMark
-	claim string
 }
 
-func (i identity) TenantClaim() (string, bool) { return i.claim, i.claim != "" }
+// identityOf is a stand-in identity with the tenant claim; an empty claim is no claim.
+func identityOf(claim string) identity { return identity{seal.NewIdentityMark(claim, claim != "")} }
 
-// decided is a stand-in for a decision of the authorization runtime.
+// decided is a stand-in for a decision of the authorization runtime. The zero value is a denied request.
 type decided struct {
 	seal.DecisionMark
-	allowed bool
 }
 
-func (d decided) Allowed() bool { return d.allowed }
+// allowedFor is a stand-in decision that allows the request for the tenant.
+func allowedFor(tenant string) decided { return decided{seal.NewDecisionMark(tenant)} }
 
 // mustTenant builds a Tenant from a column value, as List and the outbox worker do.
 func mustTenant(t *testing.T, id string) Tenant {
@@ -435,7 +438,7 @@ func TestTenantIdentity(t *testing.T) {
 			}
 		}
 
-		got, err := New(Claim(identity{claim: "tenant-a"}))
+		got, err := New(Claim(identityOf("tenant-a")))
 		if err != nil || got.ID() != "tenant-a" {
 			t.Fatalf("New(Claim(identity of tenant-a)) = %q, %v", got.ID(), err)
 		}
@@ -443,8 +446,17 @@ func TestTenantIdentity(t *testing.T) {
 		if err == nil || !none.IsZero() {
 			t.Fatalf("New(Claim(identity with no claim)) = %q, %v; want an error and no tenant", none.ID(), err)
 		}
-		if got, err := New(Requested("org-c", decided{allowed: true})); err != nil || got.ID() != "org-c" {
+		if got, err := New(Requested("org-c", allowedFor("org-c"))); err != nil || got.ID() != "org-c" {
 			t.Fatalf("New(Requested(org-c, allowed)) = %q, %v", got.ID(), err)
+		}
+		// A tenant ID with a control, format or separator character is refused, whatever its source.
+		for _, bad := range []string{"t\x00", "t\x7f", "t\u0085", "t\u202e1", "t\u200b1", "t\u20281", "t\u20291", "t\ufeff1"} {
+			if got, err := New(Claim(identityOf(bad))); err == nil {
+				t.Errorf("New(Claim(identity of %q)) = %q, want an error", bad, got.ID())
+			}
+			if got, err := New(Requested(bad, allowedFor(bad))); err == nil {
+				t.Errorf("New(Requested(%q, allowed)) = %q, want an error", bad, got.ID())
+			}
 		}
 		for name, decision := range map[string]Decision{"denied": decided{}, "nil": nil} {
 			if got, err := New(Requested("org-c", decision)); err == nil || !got.IsZero() {
@@ -510,7 +522,7 @@ func TestTenantIdentity(t *testing.T) {
 			if !ok {
 				return nil, errors.New("no token")
 			}
-			return identity{claim: claim}, nil
+			return identityOf(claim), nil
 		}
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			tenant, err := FromContext(r.Context())
@@ -715,7 +727,7 @@ func TestTenantSources(t *testing.T) {
 
 func mustRequested(t *testing.T, id string) Tenant {
 	t.Helper()
-	tenant, err := New(Requested(id, decided{allowed: true}))
+	tenant, err := New(Requested(id, allowedFor(id)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -745,7 +757,7 @@ func consume(message message) { _, _ = ` + call + ` }
 
 func TestTenantContext(t *testing.T) {
 	t.Run("ST-SUP-RP04-LC02-T01 The context returns the tenant the authentication component set", func(t *testing.T) {
-		tenant, err := New(Claim(identity{claim: "tenant-a"}))
+		tenant, err := New(Claim(identityOf("tenant-a")))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -776,6 +788,82 @@ func TestTenantContext(t *testing.T) {
 		}
 		if calls := fake.recorded(); len(calls) != 0 {
 			t.Fatalf("the database fake recorded %v, want no statement", calls)
+		}
+	})
+}
+
+// The forgeries of the security review of PR #144: types that embed a genuine Identity or Decision and declare its
+// exported method again, and types that embed a nil interface. Go gives an outer type the same method set in any
+// package, so the types below behave as the same declarations outside the runtime module do; the outside
+// declaration of forgedIdentity is type-checked in ST-SUP-RP13-LC01-T03.
+type forgedIdentity struct{ authn.Identity }
+
+func (forgedIdentity) TenantClaim() (string, bool) { return "t2", true }
+
+type nilIdentity struct{ Identity }
+
+type forgedDecision struct{ decided }
+
+func (forgedDecision) Allowed() bool { return true }
+
+type nilDecision struct{ Decision }
+
+func TestTenantEmbedding(t *testing.T) {
+	t.Run("ST-SUP-RP04-LC01-T07 An outer type cannot change the tenant of a genuine Identity or Decision", func(t *testing.T) {
+		key := authntest.NewKey(t, "k1")
+		keys, err := authn.ParseKeys(authntest.Document(key.JWK()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		const issuer = "https://issuer.authn.test/realms/r1"
+		verifier, err := authn.New(authn.Settings{Issuer: issuer, Audience: "orders-api", TenantClaim: "tenant",
+			ProblemCode: "SVC", Keys: keys})
+		if err != nil {
+			t.Fatal(err)
+		}
+		claims := authntest.Claims(issuer, "orders-api", "user-1", time.Now())
+		claims["tenant"] = "t1"
+		genuine, err := verifier.Verify(context.Background(), authntest.Mint(t, authntest.Header("k1"), claims, key))
+		if err != nil {
+			t.Fatalf("Verify: %v", err)
+		}
+		build := func(source Source) (got Tenant, err error) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("the source panicked: %v", r)
+				}
+			}()
+			return New(source)
+		}
+		if got, err := build(Claim(forgedIdentity{genuine})); err != nil || got.ID() != "t1" {
+			t.Errorf("the forged identity gave %v, %v, want t1 only", got, err)
+		}
+		forged := forgedDecision{allowedFor("t1")}
+		if got, err := build(Requested("t1", forged)); err != nil || got.ID() != "t1" {
+			t.Errorf("the forged decision for t1 gave %v, %v, want t1", got, err)
+		}
+		if got, err := build(Requested("t2", forged)); err == nil {
+			t.Errorf("the forged decision gave the tenant %v, want t2 refused", got)
+		}
+		for name, source := range map[string]Source{
+			"an embedded nil Identity":            Claim(nilIdentity{}),
+			"a zero authn.Identity":               Claim(authn.Identity{}),
+			"a forged type with a zero Identity":  Claim(forgedIdentity{}),
+			"a zero IdentityMark":                 Claim(seal.IdentityMark{}),
+			"a stand-in with a zero mark":         Claim(identity{}),
+			"a nil Identity":                      Claim(nil),
+			"an embedded nil Decision":            Requested("t1", nilDecision{}),
+			"a zero Decision":                     Requested("t1", decided{}),
+			"a forged type with a zero Decision":  Requested("t1", forgedDecision{}),
+			"a zero DecisionMark":                 Requested("t1", seal.DecisionMark{}),
+			"a nil Decision":                      Requested("t1", nil),
+			"an embedded nil pointer of Identity": Claim(struct{ *authn.Identity }{}),
+		} {
+			t.Run(name, func(t *testing.T) {
+				if got, err := build(source); err == nil {
+					t.Errorf("gave the tenant %v, want none", got)
+				}
+			})
 		}
 	})
 }
