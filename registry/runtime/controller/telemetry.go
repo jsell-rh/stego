@@ -2,23 +2,25 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	otellog "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
+	"stego.dev/runtime/otel"
 	"stego.dev/runtime/probe"
 )
 
@@ -137,6 +139,13 @@ func (m *Metrics) Snapshot() MetricsSnapshot {
 	}
 	m.mu.Unlock()
 	return s
+}
+
+// QueueReady tells whether a queue is attached and running and its source permits new actions. The controller mode
+// of the modes runtime reads it for its readiness (ST-SUP-RP09-LC05). A nil collector has no queue.
+func (m *Metrics) QueueReady() bool {
+	s := m.Snapshot()
+	return s.Running && s.Queue.Ready
 }
 
 func (m *Metrics) action(outcome int, duration time.Duration, retry bool) {
@@ -284,6 +293,7 @@ func (m *Metrics) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return 0
 	}
+	gauge("running", "An active keyed queue is attached.", boolean(s.Running))
 	gauge("ready", "The source permits new actions.", boolean(s.Queue.Ready))
 	gauge("capacity", "Maximum admitted keys.", s.Queue.Capacity)
 	gauge("queued_keys", "Admitted keys waiting for an action.", s.Queue.Queued)
@@ -525,10 +535,30 @@ func probeHealth(parent context.Context, address, path string) error {
 // Providers is the provider set of the telemetry runtime that the controller signals use. *otel.Runtime satisfies
 // it. A nil provider leaves its signal off.
 type Providers interface {
-	TracerProvider() trace.TracerProvider
+	// StartOperation starts an operation span of a registered name (ST-SUP-RP03-LC15).
+	StartOperation(ctx context.Context, parent otel.Parent, name string) (context.Context, otel.Finish, error)
 	MeterProvider() metric.MeterProvider
 	LoggerProvider() otellog.LoggerProvider
+	// Registered tells whether the runtime registered an operation span name. Start fails when a name of SpanNames
+	// is missing, so no span is dropped in silence.
+	Registered(name string) bool
+	// CollectorSet tells whether a collector endpoint was set; without one the logs also go to standard error
+	// (ST-SUP-RP02-LC20).
+	CollectorSet() bool
 	Shutdown(context.Context) error
+}
+
+// operations are the controller operations that have a span.
+var operations = [...]string{"reconcile", "scan", "watch", "cleanup"}
+
+// SpanNames are the operation span names of the controller, which the generated code registers when it starts the
+// telemetry runtime: otel.New(service, controller.SpanNames()...).
+func SpanNames() []string {
+	names := make([]string, len(operations))
+	for i, operation := range operations {
+		names[i] = "controller." + operation
+	}
+	return names
 }
 
 // ServiceEvents sends the fixed service events of the probe runtime. *probe.Runtime and *probe.Recorder satisfy it.
@@ -542,6 +572,7 @@ type ServiceEvents interface {
 type Telemetry struct {
 	start   func() (Providers, error)
 	events  ServiceEvents
+	stderr  io.Writer
 	mu      sync.Mutex
 	users   int
 	current *signals
@@ -553,7 +584,7 @@ func NewTelemetry(start func() (Providers, error), events ServiceEvents) (*Telem
 	if start == nil {
 		return nil, errors.New("controller telemetry requires a start function")
 	}
-	return &Telemetry{start: start, events: events}, nil
+	return &Telemetry{start: start, events: events, stderr: os.Stderr}, nil
 }
 
 type telemetryKey struct{}
@@ -582,7 +613,15 @@ func (t *Telemetry) Start(ctx context.Context) (context.Context, func(), error) 
 		if providers == nil {
 			return ctx, nil, errors.New("controller telemetry start returned no providers")
 		}
-		current, err := newSignals(providers)
+		current, err := newSignals(providers, t.stderr)
+		if err == nil {
+			for _, name := range SpanNames() {
+				if !providers.Registered(name) {
+					current.close()
+					return ctx, nil, errors.New("controller: the telemetry runtime does not register the span name " + name + "; start it with otel.New(service, controller.SpanNames()...)")
+				}
+			}
+		}
 		if err != nil {
 			closing, cancel := context.WithTimeout(context.Background(), providerCloseTimeout)
 			_ = providers.Shutdown(closing)
@@ -650,11 +689,12 @@ type signals struct {
 	closed    atomic.Bool
 	mu        sync.Mutex
 	queues    map[*queueRegistration]func() QueueMetrics
-	tracer    trace.Tracer
 	logger    otellog.Logger
-	duration  metric.Float64Histogram
-	retries   metric.Int64Counter
-	events    metric.Int64Counter
+	// local writes each completion and failure log as one JSON line when no collector is set.
+	local    *localLog
+	duration metric.Float64Histogram
+	retries  metric.Int64Counter
+	events   metric.Int64Counter
 }
 
 // queueRegistration names one registered queue. It has a field, so that each registration has its own address.
@@ -667,10 +707,10 @@ const instrumentScope = "stego/controller"
 var queueGauges = [...]string{"running", "capacity", "queued", "active", "retrying", "waiting", "ready"}
 
 // newSignals creates the fixed stego.controller.* instruments with no configurable label (ST-SUP-RP02-LC15).
-func newSignals(providers Providers) (*signals, error) {
+func newSignals(providers Providers, stderr io.Writer) (*signals, error) {
 	s := &signals{providers: providers, queues: make(map[*queueRegistration]func() QueueMetrics)}
-	if provider := providers.TracerProvider(); provider != nil {
-		s.tracer = provider.Tracer(instrumentScope)
+	if !providers.CollectorSet() && stderr != nil {
+		s.local = newLocalLog(stderr)
 	}
 	if provider := providers.LoggerProvider(); provider != nil {
 		s.logger = provider.Logger(instrumentScope)
@@ -729,6 +769,9 @@ func (s *signals) close() {
 	s.closed.Store(true)
 	ctx, cancel := context.WithTimeout(context.Background(), providerCloseTimeout)
 	defer cancel()
+	if s.local != nil {
+		s.local.drain(ctx)
+	}
 	_ = s.providers.Shutdown(ctx)
 }
 
@@ -776,9 +819,9 @@ func (s *signals) begin(ctx context.Context, operation string) (context.Context,
 		return ctx, func(workResult) {}
 	}
 	start := time.Now()
-	var span trace.Span
-	if s.tracer != nil {
-		ctx, span = s.tracer.Start(ctx, "controller."+operation, trace.WithNewRoot(), trace.WithTimestamp(start), trace.WithAttributes(attribute.String("operation", operation)))
+	ctx, span, err := s.providers.StartOperation(ctx, otel.Root, "controller."+operation)
+	if err != nil {
+		span = nil
 	}
 	ctx = context.WithValue(ctx, operationKey{}, struct{}{})
 	var once sync.Once
@@ -816,11 +859,7 @@ func (s *signals) begin(ctx context.Context, operation string) (context.Context,
 			}
 			s.emit(ctx, end, "controller.work.completed", "Controller work completed", severity, attrs, &duration)
 			if span != nil {
-				span.SetAttributes(attrs...)
-				if err != nil && outcome != "canceled" {
-					span.SetStatus(codes.Error, "")
-				}
-				span.End(trace.WithTimestamp(end))
+				span(otel.Outcome(outcome), retry, err != nil && outcome != "canceled")
 			}
 		})
 	}
@@ -858,7 +897,13 @@ func (s *signals) notice(ctx context.Context, phase string) {
 }
 
 func (s *signals) emit(ctx context.Context, now time.Time, event, message string, severity otellog.Severity, attrs []attribute.KeyValue, duration *float64) {
-	if s.logger == nil || s.closed.Load() {
+	if s.closed.Load() {
+		return
+	}
+	if s.local != nil && (duration != nil || severity != otellog.SeverityInfo) {
+		s.local.write(ctx, now, event, message, severity, attrs, duration)
+	}
+	if s.logger == nil {
 		return
 	}
 	var record otellog.Record
@@ -872,6 +917,99 @@ func (s *signals) emit(ctx context.Context, now time.Time, event, message string
 		record.AddAttributes(attribute.Float64("duration_seconds", *duration))
 	}
 	s.logger.Emit(ctx, record)
+}
+
+// LocalLogLimit is the most log lines that wait for standard error. A line beyond it is dropped and counted.
+const LocalLogLimit = 256
+
+// localLog writes the controller logs to standard error when no collector is set, one JSON line in one write each,
+// with the fields of the completion log and no key, payload or error text (ST-SUP-RP02-LC20). A bounded queue and one
+// writer keep a stalled standard error from blocking a worker: a line beyond the bound is dropped and counted, and
+// the close drains the queue within the shutdown limit.
+type localLog struct {
+	out     io.Writer
+	lines   chan []byte
+	dropped atomic.Uint64
+	mu      sync.Mutex
+	closed  bool
+	done    chan struct{}
+}
+
+func newLocalLog(out io.Writer) *localLog {
+	l := &localLog{out: out, lines: make(chan []byte, LocalLogLimit), done: make(chan struct{})}
+	go func() {
+		defer close(l.done)
+		for line := range l.lines {
+			_, _ = l.out.Write(line)
+		}
+	}()
+	return l
+}
+
+// put queues one line, or drops and counts it when the queue is full or closed.
+func (l *localLog) put(line []byte) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed {
+		l.dropped.Add(1)
+		return
+	}
+	select {
+	case l.lines <- line:
+	default:
+		l.dropped.Add(1)
+	}
+}
+
+// drain closes the queue and waits for the writer until ctx ends. The lines a stalled writer cannot write in time
+// are left behind.
+func (l *localLog) drain(ctx context.Context) {
+	l.mu.Lock()
+	if !l.closed {
+		l.closed = true
+		close(l.lines)
+	}
+	l.mu.Unlock()
+	select {
+	case <-l.done:
+	case <-ctx.Done():
+	}
+}
+
+type localRecord struct {
+	Time            string   `json:"time"`
+	Severity        string   `json:"severity"`
+	Event           string   `json:"event.name"`
+	Message         string   `json:"message"`
+	Operation       string   `json:"operation,omitempty"`
+	Outcome         string   `json:"outcome,omitempty"`
+	Retry           *bool    `json:"retry,omitempty"`
+	DurationSeconds *float64 `json:"duration_seconds,omitempty"`
+	TraceID         string   `json:"trace_id,omitempty"`
+	SpanID          string   `json:"span_id,omitempty"`
+}
+
+func (l *localLog) write(ctx context.Context, now time.Time, event, message string, severity otellog.Severity, attrs []attribute.KeyValue, duration *float64) {
+	record := localRecord{Time: now.UTC().Format(time.RFC3339Nano), Severity: severityText(severity), Event: event, Message: message, DurationSeconds: duration}
+	for _, kv := range attrs {
+		switch kv.Key {
+		case "operation":
+			record.Operation = kv.Value.AsString()
+		case "outcome":
+			record.Outcome = kv.Value.AsString()
+		case "retry":
+			retry := kv.Value.AsBool()
+			record.Retry = &retry
+		}
+	}
+	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
+		record.TraceID, record.SpanID = sc.TraceID().String(), sc.SpanID().String()
+	}
+	line, err := json.Marshal(record)
+	if err != nil {
+		return
+	}
+	l.put(append(line, '\n'))
 }
 
 func severityText(severity otellog.Severity) string {

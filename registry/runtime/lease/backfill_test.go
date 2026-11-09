@@ -778,6 +778,7 @@ func TestBackfillStall(t *testing.T) {
 			t.Fatal(err)
 		}
 		readiness := modes.NewReadiness(d.other)
+		readiness.WatchQueue(readyQueue{})
 		readiness.Watch(b)
 		server := httptest.NewServer(readiness.Handler(modes.Selection{modes.Controller}))
 		defer server.Close()
@@ -843,3 +844,9 @@ func probe(t *testing.T, url string) int {
 	_ = response.Body.Close()
 	return response.StatusCode
 }
+
+// readyQueue is a controller queue that runs and is ready, so the readiness of the controller mode reads the
+// backfill only.
+type readyQueue struct{}
+
+func (readyQueue) QueueReady() bool { return true }

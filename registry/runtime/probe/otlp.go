@@ -9,6 +9,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
+	"stego.dev/runtime/internal/spanevent"
 	"stego.dev/runtime/otel"
 )
 
@@ -29,6 +30,7 @@ const scope = "stego/probe"
 // lock. The temporality is the telemetry runtime's, which is cumulative.
 type otlpSink struct {
 	telemetry   *otel.Runtime
+	key         spanevent.Key // the capability to add span events, which only the probe holds
 	queue       *queue
 	logger      otellog.Logger
 	meter       metric.Meter
@@ -40,7 +42,7 @@ type otlpSink struct {
 // newOTLPSink takes the logger and the meter of the telemetry runtime, either of which may be off, and registers
 // the counters domain.probe.dropped and domain.probe.failed, labelled by sink only (ST-SUP-RP12-LC19).
 func newOTLPSink(telemetry *otel.Runtime, probe *core, console *consoleSink) (*otlpSink, error) {
-	s := &otlpSink{telemetry: telemetry, counters: map[*Observation]metric.Int64Counter{}, histograms: map[*Observation]metric.Float64Histogram{}, instruments: map[string]bool{}}
+	s := &otlpSink{telemetry: telemetry, key: spanevent.New(), counters: map[*Observation]metric.Int64Counter{}, histograms: map[*Observation]metric.Float64Histogram{}, instruments: map[string]bool{}}
 	s.queue = newQueue(s.write)
 	if provider := telemetry.LoggerProvider(); provider != nil {
 		s.logger = provider.Logger(scope)
@@ -82,7 +84,7 @@ func newOTLPSink(telemetry *otel.Runtime, probe *core, console *consoleSink) (*o
 // drop (ST-SUP-RP12-LC19).
 func (s *otlpSink) send(r *record) {
 	if r.obs.kind == Event && r.obs.class == declared && r.spanCtx.IsSampled() {
-		if s.telemetry.SpanEvent(r.spanCtx, r.obs.signal, r.time, fieldAttributes(r, true)...) {
+		if s.telemetry.SpanEvent(s.key, r.spanCtx, r.obs.signal, r.time, fieldAttributes(r, true)...) {
 			s.queue.dropped.Add(1)
 		}
 	}
