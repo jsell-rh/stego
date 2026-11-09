@@ -2,7 +2,6 @@ package tenant
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"strings"
 	"testing"
@@ -15,7 +14,7 @@ func TestTenantEach(t *testing.T) {
 		tenants := []Tenant{mustTenant(t, "tenant-a"), mustTenant(t, "tenant-b"), mustTenant(t, "tenant-c")}
 		var calls []string
 		transactions := map[string]bool{}
-		err := Each(ctx, env.runtimeDB, tenants, func(ctx context.Context, tx *sql.Tx, tenant Tenant) error {
+		err := Each(ctx, env.runtimeDB, tenants, func(ctx context.Context, tx Querier, tenant Tenant) error {
 			var setting, xid string
 			if err := tx.QueryRowContext(ctx,
 				"SELECT current_setting('app.tenant'), txid_current()::text").Scan(&setting, &xid); err != nil {
@@ -44,7 +43,7 @@ func TestTenantEach(t *testing.T) {
 		ctx := context.Background()
 		tenants := []Tenant{mustTenant(t, "tenant-a"), mustTenant(t, "tenant-b"), mustTenant(t, "tenant-c")}
 		failure := errors.New("the function fails")
-		err := Each(ctx, env.runtimeDB, tenants, func(ctx context.Context, tx *sql.Tx, tenant Tenant) error {
+		err := Each(ctx, env.runtimeDB, tenants, func(ctx context.Context, tx Querier, tenant Tenant) error {
 			if _, err := tx.ExecContext(ctx, "INSERT INTO items (tenant_id, note) VALUES ($1, 'each')", tenant.ID()); err != nil {
 				return err
 			}
@@ -82,6 +81,23 @@ func TestTenantEach(t *testing.T) {
 		}
 		if strings.Join(committed, ",") != "tenant-b" {
 			t.Fatalf("the committed rows are of %v, want tenant-b only", committed)
+		}
+
+		// A cancel while the function runs fails that tenant and the tenants after it with the error of the
+		// context, so errors.Is(err, context.Canceled) holds.
+		canceled, cancel := context.WithCancel(ctx)
+		defer cancel()
+		err = Each(canceled, env.runtimeDB, tenants, func(ctx context.Context, tx Querier, tenant Tenant) error {
+			cancel()
+			return errors.New("the function stops after the cancel")
+		})
+		if !errors.As(err, &eachErr) || len(eachErr.Failures) != 3 {
+			t.Fatalf("Each with a cancel during the function returned %v, want three failures", err)
+		}
+		for _, f := range eachErr.Failures {
+			if !errors.Is(f.Err, context.Canceled) {
+				t.Errorf("the failure of %s does not wrap context.Canceled: %v", f.Tenant.ID(), f.Err)
+			}
 		}
 	})
 }

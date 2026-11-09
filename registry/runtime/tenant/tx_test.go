@@ -79,6 +79,22 @@ func TestTenantTransaction(t *testing.T) {
 			}
 		}
 
+		// A function that sets app.tenant with is_local false inside Each fails, and Each rolls its transaction back,
+		// so the connection keeps no tenant.
+		err = Each(ctx, env.runtimeDB, []Tenant{mustTenant(t, "tenant-a")}, func(ctx context.Context, tx Querier, _ Tenant) error {
+			_, err := tx.ExecContext(ctx, "SELECT set_config('app.tenant', 'tenant-b', false)")
+			return err
+		})
+		if err == nil || !strings.Contains(err.Error(), "rolled back") {
+			t.Fatalf("Each committed a transaction whose function set the tenant tenant-b with is_local false: %v", err)
+		}
+		if err := env.runtimeDB.QueryRowContext(ctx, "SELECT current_setting('app.tenant', true)").Scan(&after); err != nil {
+			t.Fatal(err)
+		}
+		if after.String != "" {
+			t.Fatalf("after the refused commit the connection holds app.tenant = %q", after.String)
+		}
+
 		// The package source holds no session-scoped SET and no set_config with is_local false in a statement.
 		falseConfig := regexp.MustCompile(`(?is)set_config\s*\([^)]*,\s*false\s*\)`)
 		fset := token.NewFileSet()
@@ -133,10 +149,15 @@ func TestTenantPoolerGuard(t *testing.T) {
 			"SET SESSION app.tenant TO 'A'",
 			"SELECT set_config('app.tenant', 'A', false)",
 			"RESET app.tenant",
+			"/* comment */ SET app.tenant = 'A'",
+			"SELECT 1; SET app.tenant = 'A'",
+			"DO $$ BEGIN PERFORM set_config('app.tenant', 'A', false); END $$",
+			"ALTER ROLE CURRENT_USER SET app.tenant = 'A'",
+			"SET \"app\".\"tenant\" = 'A'",
 		} {
 			if err := Guard(Config{DSN: dsn, AfterConnect: []string{statement}}); err == nil ||
-				!strings.Contains(err.Error(), "app.tenant") {
-				t.Errorf("the guard did not refuse the after-connect statement %q with its setting: %v", statement, err)
+				!strings.Contains(err.Error(), "after-connect statement") {
+				t.Errorf("the guard did not refuse the after-connect statement %q: %v", statement, err)
 			}
 		}
 	})
@@ -158,6 +179,80 @@ func TestTenantPoolerGuard(t *testing.T) {
 		if err != nil {
 			t.Fatalf("the guard refused a clean connection: %v", err)
 		}
-		_ = clean.Close()
+		defer clean.Close()
+
+		// A caller that sets app.tenant with is_local false and commits by itself leaves the tenant on the
+		// connection; the guard discards that connection when it comes back to the pool, and the next statement
+		// runs on a new connection with no tenant.
+		clean.SetMaxOpenConns(1)
+		tx, err := Begin(ctx, clean, mustTenant(t, "tenant-a"), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var before int
+		if err := tx.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&before); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.ExecContext(ctx, "SELECT set_config('app.tenant', 'tenant-b', false)"); err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+		var after int
+		var value sql.NullString
+		if err := clean.QueryRowContext(ctx, "SELECT pg_backend_pid(), current_setting('app.tenant', true)").Scan(&after, &value); err != nil {
+			t.Fatal(err)
+		}
+		if after == before || value.String != "" {
+			t.Fatalf("after a session setting the pool served the connection %d (before %d) with app.tenant = %q, want a new connection with none",
+				after, before, value.String)
+		}
 	})
+}
+
+// sessionSetting reports whether statement starts with a session-scoped SET or RESET or calls set_config with
+// is_local not true, and returns the name of the setting. The test scans the statement log and the package source
+// with it; the guard itself parses no statement.
+func sessionSetting(statement string) (string, bool) {
+	words := strings.Fields(strings.ToLower(strings.TrimSpace(statement)))
+	if len(words) == 0 {
+		return "", false
+	}
+	switch words[0] {
+	case "set":
+		rest := words[1:]
+		if len(rest) > 0 && rest[0] == "local" {
+			return "", false
+		}
+		if len(rest) > 0 && rest[0] == "session" {
+			rest = rest[1:]
+		}
+		if len(rest) == 0 {
+			return "(unnamed)", true
+		}
+		name, _, _ := strings.Cut(rest[0], "=")
+		return name, true
+	case "reset":
+		if len(words) > 1 {
+			return strings.TrimSuffix(words[1], ";"), true
+		}
+		return "(unnamed)", true
+	}
+	compact := strings.Join(words, "")
+	for {
+		at := strings.Index(compact, "set_config(")
+		if at < 0 {
+			return "", false
+		}
+		compact = compact[at+len("set_config("):]
+		end := strings.Index(compact, ")")
+		if end < 0 {
+			end = len(compact)
+		}
+		args := strings.Split(compact[:end], ",")
+		if len(args) != 3 || args[2] != "true" {
+			return strings.Trim(args[0], "'\""), true
+		}
+	}
 }

@@ -27,6 +27,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
+
+	"stego.dev/runtime/internal/decision"
 )
 
 // This file holds the tests of ST-SUP-RP04-LC01 and ST-SUP-RP04-LC02 and the helpers that the tests of the package
@@ -37,15 +39,10 @@ type identity struct{ claim string }
 
 func (i identity) TenantClaim() (string, bool) { return i.claim, i.claim != "" }
 
-// allow is a stand-in for a decision of the authorization port.
-type allow bool
-
-func (a allow) Allowed() bool { return bool(a) }
-
 // mustTenant builds a Tenant from a column value, as List and the outbox worker do.
 func mustTenant(t *testing.T, id string) Tenant {
 	t.Helper()
-	var column Column
+	var column column
 	if err := column.Scan(id); err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +199,7 @@ func newPG(t *testing.T) *pgEnv {
 			" WITH CHECK (tenant_id = current_setting('app.tenant', true))",
 		"GRANT SELECT, INSERT ON items TO "+env.runtime,
 	)
-	migration, err := Migration(env.runtime)
+	migration, err := Migration("public", env.runtime)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +222,11 @@ func (e *pgEnv) roles() []string {
 func (e *pgEnv) role(t *testing.T, name string, options string) string {
 	t.Helper()
 	role := name + "_" + strings.TrimPrefix(e.name, "tenant_")
-	adminExec(t, e.admin, "CREATE ROLE "+role+" LOGIN "+options+" PASSWORD '"+rolePassword+"'")
+	login := "LOGIN "
+	if strings.Contains(options, "NOLOGIN") {
+		login = ""
+	}
+	adminExec(t, e.admin, "CREATE ROLE "+role+" "+login+options+" PASSWORD '"+rolePassword+"'")
 	previous, _ := extraRoles.Load(e.name)
 	list, _ := previous.([]string)
 	extraRoles.Store(e.name, append(list, role))
@@ -357,12 +358,14 @@ func TestTenantIdentity(t *testing.T) {
 			}
 		}
 		sort.Strings(builders)
-		if strings.Join(builders, ",") != "FromContext,New" {
-			t.Fatalf("the exported functions that return a Tenant are %v, want FromContext and New", builders)
+		if strings.Join(builders, ",") != "FromContext,New,ScanRows" {
+			t.Fatalf("the exported functions that return a Tenant are %v, want FromContext, New and ScanRows", builders)
 		}
-		newSig := scope.Lookup("New").Type().(*types.Signature)
-		if newSig.Params().Len() != 1 || newSig.Params().At(0).Type() != scope.Lookup("Source").Type() {
-			t.Fatalf("New takes %s, want one Source", newSig.Params())
+		param := func(name string, i int) types.Type {
+			return scope.Lookup(name).Type().(*types.Signature).Params().At(i).Type()
+		}
+		if sig := scope.Lookup("New").Type().(*types.Signature); sig.Params().Len() != 1 || param("New", 0) != scope.Lookup("Source").Type() {
+			t.Fatalf("New takes %s, want one Source", sig.Params())
 		}
 		source := scope.Lookup("Source").Type().Underlying().(*types.Interface)
 		for i := 0; i < source.NumMethods(); i++ {
@@ -370,13 +373,33 @@ func TestTenantIdentity(t *testing.T) {
 				t.Errorf("Source has the exported method %s, so code outside the package can be a source", source.Method(i).Name())
 			}
 		}
-		fromContext := scope.Lookup("FromContext").Type().(*types.Signature)
-		if fromContext.Params().Len() != 1 || fromContext.Params().At(0).Type().String() != "context.Context" {
-			t.Errorf("FromContext takes %s, want one context.Context", fromContext.Params())
+		if got := param("FromContext", 0).String(); got != "context.Context" {
+			t.Errorf("FromContext takes %s, want a context.Context", got)
 		}
-		claim := scope.Lookup("Claim").Type().(*types.Signature)
-		if claim.Params().Len() != 1 || claim.Params().At(0).Type() != scope.Lookup("Identity").Type() {
-			t.Errorf("Claim takes %s, want one verified Identity", claim.Params())
+		if param("Claim", 0) != scope.Lookup("Identity").Type() {
+			t.Errorf("Claim takes %s, want one verified Identity", param("Claim", 0))
+		}
+		if got := param("ScanRows", 0).String(); got != "*database/sql.Rows" {
+			t.Errorf("ScanRows takes %s, want the *sql.Rows of a statement", got)
+		}
+		// The decision of Requested is a type of an internal package of the runtime module, so the go command
+		// refuses its import from generated code, and its one field is unexported.
+		decided, ok := types.Unalias(param("Requested", 1)).(*types.Named)
+		if !ok || decided.Obj().Pkg().Path() != "stego.dev/runtime/internal/decision" {
+			t.Fatalf("Requested takes the decision %s, want stego.dev/runtime/internal/decision.Decided", param("Requested", 1))
+		}
+		decidedStruct := decided.Underlying().(*types.Struct)
+		for i := 0; i < decidedStruct.NumFields(); i++ {
+			if decidedStruct.Field(i).Exported() {
+				t.Errorf("the decision type has the exported field %s", decidedStruct.Field(i).Name())
+			}
+		}
+		for _, name := range scope.Names() {
+			if typeName, ok := scope.Lookup(name).(*types.TypeName); ok && typeName.Exported() && !types.IsInterface(typeName.Type()) {
+				if types.Implements(typeName.Type(), source) || types.Implements(types.NewPointer(typeName.Type()), source) {
+					t.Errorf("the exported type %s is a Source, so code outside the package can build it", name)
+				}
+			}
 		}
 
 		got, err := New(Claim(identity{claim: "tenant-a"}))
@@ -386,6 +409,14 @@ func TestTenantIdentity(t *testing.T) {
 		none, err := New(Claim(identity{}))
 		if err == nil || !none.IsZero() {
 			t.Fatalf("New(Claim(identity with no claim)) = %q, %v; want an error and no tenant", none.ID(), err)
+		}
+		if got, err := New(Requested("org-c", decision.New(true))); err != nil || got.ID() != "org-c" {
+			t.Fatalf("New(Requested(org-c, allowed)) = %q, %v", got.ID(), err)
+		}
+		for name, decided := range map[string]decision.Decided{"denied": decision.New(false), "zero": {}} {
+			if got, err := New(Requested("org-c", decided)); err == nil || !got.IsZero() {
+				t.Errorf("New(Requested(org-c, %s decision)) = %q, %v; want an error and no tenant", name, got.ID(), err)
+			}
 		}
 	})
 
@@ -414,10 +445,10 @@ func TestTenantIdentity(t *testing.T) {
 			"WithTenant": func() error { _, err := WithTenant(ctx, zero); return err },
 			"Begin":      func() error { _, err := Begin(ctx, db, zero, nil); return err },
 			"Each": func() error {
-				return Each(ctx, db, []Tenant{zero}, func(context.Context, *sql.Tx, Tenant) error { return nil })
+				return Each(ctx, db, []Tenant{zero}, func(context.Context, Querier, Tenant) error { return nil })
 			},
-			"Provision": func() error { return Provision(ctx, db, zero, nil) },
-			"Retire":    func() error { return Retire(ctx, db, zero, nil) },
+			"Provision": func() error { return Provision(ctx, db, "public", zero, nil) },
+			"Retire":    func() error { return Retire(ctx, db, "public", zero, nil) },
 		}
 		sort.Strings(found)
 		var listed []string
@@ -439,27 +470,13 @@ func TestTenantIdentity(t *testing.T) {
 	})
 
 	t.Run("ST-SUP-RP04-LC01-T03 A client-supplied header or body field is not accepted as a tenant source", func(t *testing.T) {
-		// A stand-in for the authentication component: it verifies the bearer token, which in this test is the
-		// tenant claim itself, builds the tenant from the verified identity and sets it in the context.
-		authenticate := func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				claim, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-				if !ok {
-					http.Error(w, "no token", http.StatusUnauthorized)
-					return
-				}
-				tenant, err := New(Claim(identity{claim: claim}))
-				if err != nil {
-					http.Error(w, err.Error(), http.StatusUnauthorized)
-					return
-				}
-				ctx, err := WithTenant(r.Context(), tenant)
-				if err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				next.ServeHTTP(w, r.WithContext(ctx))
-			})
+		// The verifier stands in for the generated authentication component: the bearer token is the tenant claim.
+		verify := func(r *http.Request) (Identity, error) {
+			claim, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if !ok {
+				return nil, errors.New("no token")
+			}
+			return identity{claim: claim}, nil
 		}
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			tenant, err := FromContext(r.Context())
@@ -469,34 +486,42 @@ func TestTenantIdentity(t *testing.T) {
 			}
 			_, _ = io.WriteString(w, tenant.ID())
 		})
-		server := httptest.NewServer(authenticate(handler))
+		server := httptest.NewServer(Middleware(verify)(handler))
 		defer server.Close()
-		request, err := http.NewRequest(http.MethodPost, server.URL, bytes.NewBufferString(`{"tenant_id":"tenant-b"}`))
-		if err != nil {
-			t.Fatal(err)
+		send := func(token string) (int, string) {
+			request, err := http.NewRequest(http.MethodPost, server.URL, bytes.NewBufferString(`{"tenant_id":"tenant-b"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if token != "" {
+				request.Header.Set("Authorization", "Bearer "+token)
+			}
+			request.Header.Set("X-Tenant-ID", "tenant-b")
+			request.Header.Set("Content-Type", "application/json")
+			response, err := server.Client().Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+			body, _ := io.ReadAll(response.Body)
+			return response.StatusCode, string(body)
 		}
-		request.Header.Set("Authorization", "Bearer tenant-a")
-		request.Header.Set("X-Tenant-ID", "tenant-b")
-		request.Header.Set("Content-Type", "application/json")
-		response, err := server.Client().Do(request)
-		if err != nil {
-			t.Fatal(err)
+		if status, body := send("tenant-a"); status != http.StatusOK || body != "tenant-a" {
+			t.Fatalf("the context holds %q (status %d), want tenant-a", body, status)
 		}
-		defer response.Body.Close()
-		body, _ := io.ReadAll(response.Body)
-		if response.StatusCode != http.StatusOK || string(body) != "tenant-a" {
-			t.Fatalf("the context holds %q (status %d), want tenant-a", body, response.StatusCode)
+		if status, body := send(""); status != http.StatusUnauthorized {
+			t.Fatalf("a request with no token and the header X-Tenant-ID got %d %q, want 401", status, body)
 		}
 	})
 
 	t.Run("ST-SUP-RP04-LC01-T04 A worker gets its tenant only from the tenant list or the outbox row", func(t *testing.T) {
 		env := newPG(t)
 		ctx := context.Background()
-		if err := Provision(ctx, env.runtimeDB, mustRequested(t, "t1"), nil); err != nil {
+		if err := Provision(ctx, env.runtimeDB, "public", mustRequested(t, "t1"), nil); err != nil {
 			t.Fatal(err)
 		}
 		var visited []string
-		if err := EachListed(ctx, env.runtimeDB, func(_ context.Context, _ *sql.Tx, t Tenant) error {
+		if err := EachListed(ctx, env.runtimeDB, "public", func(_ context.Context, _ Querier, t Tenant) error {
 			visited = append(visited, t.ID())
 			return nil
 		}); err != nil {
@@ -518,15 +543,19 @@ func TestTenantIdentity(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = tx.Rollback() }()
-		var column Column
-		var payload []byte
-		if err := tx.QueryRowContext(ctx,
-			"SELECT tenant_id, payload FROM outbox_stand_in ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED").Scan(&column, &payload); err != nil {
+		rows, err := tx.QueryContext(ctx,
+			"SELECT tenant_id, payload FROM outbox_stand_in ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED")
+		if err != nil {
 			t.Fatal(err)
 		}
-		fromRow, err := New(column)
+		if !rows.Next() {
+			t.Fatalf("the claim found no row: %v", rows.Err())
+		}
+		var payload []byte
+		fromRow, err := ScanRows(rows, &payload)
+		_ = rows.Close()
 		if err != nil || fromRow.ID() != "t2" {
-			t.Fatalf("New(the claimed row's tenant column) = %q, %v; want t2", fromRow.ID(), err)
+			t.Fatalf("ScanRows(the claimed row) = %q, %v; want t2", fromRow.ID(), err)
 		}
 
 		var message struct {
@@ -537,8 +566,9 @@ func TestTenantIdentity(t *testing.T) {
 		if err := json.Unmarshal(payload, &message); err != nil || message.Member.Tenant != "t9" {
 			t.Fatalf("the payload member tenant is %q, %v", message.Member.Tenant, err)
 		}
-		// The payload is no Source: a call of New with it, or with its member tenant, does not type-check. The
-		// control call shows that the snippet itself type-checks.
+		// The payload is no Source: a call of New with it, or with its member tenant, does not type-check, and no
+		// exported type of the package is a Source that a worker could fill from it (LC01-T01). The control call
+		// shows that the snippet itself type-checks.
 		if err := typeCheckSnippet(t, "tenant.New(tenant.Claim(nil))"); err != nil {
 			t.Fatalf("the control snippet does not type-check: %v", err)
 		}
@@ -550,7 +580,7 @@ func TestTenantIdentity(t *testing.T) {
 		if got, err := New(nil); err == nil || !got.IsZero() {
 			t.Errorf("New(nil) = %q, %v; want an error and no tenant", got.ID(), err)
 		}
-		if got, err := New(Column{}); err == nil || !got.IsZero() {
+		if got, err := New(column{}); err == nil || !got.IsZero() {
 			t.Errorf("New(a column that no statement read) = %q, %v; want an error and no tenant", got.ID(), err)
 		}
 	})
@@ -558,7 +588,7 @@ func TestTenantIdentity(t *testing.T) {
 
 func mustRequested(t *testing.T, id string) Tenant {
 	t.Helper()
-	tenant, err := New(Requested(id, allow(true)))
+	tenant, err := New(Requested(id, decision.New(true)))
 	if err != nil {
 		t.Fatal(err)
 	}

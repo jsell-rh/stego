@@ -97,6 +97,29 @@ func TestTenantConnectors(t *testing.T) {
 		if !strings.Contains(err.Error(), "BYPASSRLS") {
 			t.Errorf("the startup error does not name BYPASSRLS: %v", err)
 		}
+		// A member of a role with BYPASSRLS or of a superuser role can take that role with SET ROLE, and a
+		// superuser bypasses row-level security as well.
+		bypassGroup := env.role(t, "bypassgroup", "NOLOGIN BYPASSRLS")
+		member := env.role(t, "bypassmember", "")
+		superuser := env.role(t, "superuser", "SUPERUSER")
+		superGroup := env.role(t, "supergroup", "NOLOGIN SUPERUSER")
+		superMember := env.role(t, "supermember", "")
+		adminExec(t, env.admin, "GRANT "+bypassGroup+" TO "+member, "GRANT "+superGroup+" TO "+superMember)
+		for role, want := range map[string]string{
+			member:      "BYPASSRLS through its membership of " + bypassGroup,
+			superuser:   "is a superuser",
+			superMember: "is a superuser through its membership of " + superGroup,
+		} {
+			db, err := Open(ctx, Config{DSN: env.dsn(role)})
+			if err == nil {
+				_ = db.Close()
+				t.Errorf("the runtime connector started as the role %s", role)
+				continue
+			}
+			if !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), role) {
+				t.Errorf("the startup error for %s does not say %q: %v", role, want, err)
+			}
+		}
 		plain, err := Open(ctx, Config{DSN: env.dsn(env.runtime)})
 		if err != nil {
 			t.Fatalf("the runtime connector did not start as the plain runtime role: %v", err)

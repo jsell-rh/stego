@@ -3,6 +3,7 @@ package tenant
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"strings"
@@ -18,7 +19,7 @@ const MigrationJob = "migrate"
 // OpenOwner opens the database as the owner role, for the migration job only (ST-SUP-RP04-LC06). run names what the
 // process runs: MigrationJob, or the mode it runs, such as api, worker, controller or all. For any run other than
 // MigrationJob it refuses with an error that names the run and opens no connection. It checks cfg with Guard and
-// the first connection with CheckConnection before it returns.
+// each connection with the pooler guard's check of app.tenant before it returns.
 func OpenOwner(ctx context.Context, run string, cfg Config) (*sql.DB, error) {
 	if run != MigrationJob {
 		return nil, fmt.Errorf("tenant: the owner connector opens only in the migration job, and this process runs %q", run)
@@ -27,9 +28,9 @@ func OpenOwner(ctx context.Context, run string, cfg Config) (*sql.DB, error) {
 }
 
 // Open opens the database as the runtime role, for the api, worker and controller modes. It checks cfg with Guard,
-// the first connection with CheckConnection, and that the role owns no table, is not a superuser and holds no
-// BYPASSRLS (ST-SUP-RP04-LC06); when a check fails it closes the database and returns an error that names the role
-// and each table it owns, so startup fails.
+// each connection with the pooler guard's check of app.tenant, and that the role owns no table, is not a superuser
+// and holds no BYPASSRLS, also through a role it is a member of (ST-SUP-RP04-LC06). When a check fails it closes the
+// database and returns an error that names the role and each fault, so startup fails.
 func Open(ctx context.Context, cfg Config) (*sql.DB, error) {
 	db, err := open(ctx, cfg)
 	if err != nil {
@@ -53,42 +54,57 @@ func open(ctx context.Context, cfg Config) (*sql.DB, error) {
 	for name, value := range cfg.Params {
 		connConfig.RuntimeParams[name] = value
 	}
-	var options []stdlib.OptionOpenDB
-	if len(cfg.AfterConnect) > 0 {
-		statements := append([]string(nil), cfg.AfterConnect...)
-		options = append(options, stdlib.OptionAfterConnect(func(ctx context.Context, conn *pgx.Conn) error {
-			for _, statement := range statements {
-				if _, err := conn.Exec(ctx, statement); err != nil {
-					return fmt.Errorf("tenant: run the after-connect statement: %w", err)
-				}
+	db := stdlib.OpenDB(*connConfig,
+		stdlib.OptionAfterConnect(checkConn),
+		stdlib.OptionResetSession(func(ctx context.Context, conn *pgx.Conn) error {
+			if err := checkConn(ctx, conn); err != nil {
+				// The pool discards the connection, and the next request gets a new one.
+				return driver.ErrBadConn
 			}
 			return nil
-		}))
-	}
-	db := stdlib.OpenDB(*connConfig, options...)
-	if err := CheckConnection(ctx, db); err != nil {
+		}),
+	)
+	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
-		return nil, err
+		return nil, fmt.Errorf("tenant: open the database: %w", err)
 	}
 	return db, nil
 }
 
-// checkRuntimeRole fails when the role of db owns a table, directly or through a role it is a member of, is a
-// superuser, or holds BYPASSRLS.
+// checkRuntimeRole fails when the role of db, or a role it is a member of, is a superuser, holds BYPASSRLS or owns
+// a table. A member of such a role can take it with SET ROLE, so membership counts as holding it.
 func checkRuntimeRole(ctx context.Context, db *sql.DB) error {
 	var role string
-	var super, bypass bool
-	err := db.QueryRowContext(ctx,
-		"SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user").Scan(&role, &super, &bypass)
-	if err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT current_user").Scan(&role); err != nil {
 		return fmt.Errorf("tenant: read the runtime role: %w", err)
 	}
 	var faults []string
-	if super {
-		faults = append(faults, "is a superuser")
+	privileged, err := db.QueryContext(ctx, `SELECT r.rolname, r.rolsuper, r.rolbypassrls FROM pg_roles r
+WHERE (r.rolsuper OR r.rolbypassrls) AND pg_has_role(current_user, r.oid, 'MEMBER')
+ORDER BY r.rolname`)
+	if err != nil {
+		return fmt.Errorf("tenant: read the roles of the runtime role %s: %w", role, err)
 	}
-	if bypass {
-		faults = append(faults, "holds BYPASSRLS")
+	defer privileged.Close()
+	for privileged.Next() {
+		var name string
+		var super, bypass bool
+		if err := privileged.Scan(&name, &super, &bypass); err != nil {
+			return fmt.Errorf("tenant: read the roles of the runtime role %s: %w", role, err)
+		}
+		via := ""
+		if name != role {
+			via = " through its membership of " + name
+		}
+		if super {
+			faults = append(faults, "is a superuser"+via)
+		}
+		if bypass {
+			faults = append(faults, "holds BYPASSRLS"+via)
+		}
+	}
+	if err := privileged.Err(); err != nil {
+		return fmt.Errorf("tenant: read the roles of the runtime role %s: %w", role, err)
 	}
 	rows, err := db.QueryContext(ctx, `SELECT format('%I.%I', n.nspname, c.relname)
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace

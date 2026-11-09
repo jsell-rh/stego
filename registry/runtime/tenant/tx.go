@@ -45,6 +45,50 @@ func Begin(ctx context.Context, db *sql.DB, t Tenant, opts *sql.TxOptions) (*sql
 	return tx, nil
 }
 
+// Querier is the part of a transaction that a worker function or a provisioning hook gets: it can run statements
+// in the transaction, and it cannot commit or roll it back. The tenant runtime commits.
+type Querier interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// querier hides the *sql.Tx behind Querier, so a type assertion cannot reach Commit.
+type querier struct {
+	tx *sql.Tx
+}
+
+func (q querier) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return q.tx.ExecContext(ctx, query, args...)
+}
+
+func (q querier) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return q.tx.QueryContext(ctx, query, args...)
+}
+
+func (q querier) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return q.tx.QueryRowContext(ctx, query, args...)
+}
+
+// commitTenant commits tx only when its tenant setting still holds t, so a statement of the caller that changed
+// app.tenant, also with is_local false, rolls the transaction back and leaves no tenant on the connection.
+func commitTenant(ctx context.Context, tx *sql.Tx, t Tenant) error {
+	var current sql.NullString
+	if err := tx.QueryRowContext(ctx, "SELECT current_setting('app.tenant', true)").Scan(&current); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("tenant: read the tenant setting before the commit of tenant %s: %w", t.id, err)
+	}
+	if current.String != t.id {
+		_ = tx.Rollback()
+		return fmt.Errorf("tenant: the transaction of tenant %s holds the tenant setting %q before the commit, so it is rolled back",
+			t.id, current.String)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("tenant: commit the transaction of tenant %s: %w", t.id, err)
+	}
+	return nil
+}
+
 // Config is what a connector needs to open a database: the connection string, the extra startup parameters and the
 // statements that run on each new connection. Guard checks it before a connector opens anything.
 type Config struct {
@@ -53,7 +97,8 @@ type Config struct {
 	DSN string
 	// Params are startup parameters to add to those of the DSN.
 	Params map[string]string
-	// AfterConnect are statements that run on each new connection, before it serves a transaction.
+	// AfterConnect are statements to run on each new connection. Guard refuses every one: a statement can set a
+	// session value in more ways than a check of its text finds.
 	AfterConnect []string
 }
 
@@ -61,9 +106,9 @@ type Config struct {
 // keeps application_name per client itself.
 var allowedStartupParams = map[string]bool{"application_name": true}
 
-// Guard refuses a configuration that sets a session-scoped value: a connection option (options=-c name=value), a
-// startup parameter, or an after-connect statement that runs SET, RESET or set_config with is_local false
-// (ST-SUP-RP04-LC04). The error names each setting. A connector calls it before it opens a connection.
+// Guard refuses a configuration that can set a session-scoped value: a connection option (options=-c name=value),
+// a startup parameter other than application_name, or any after-connect statement (ST-SUP-RP04-LC04). The error
+// names each setting, and quotes each statement. A connector calls it before it opens a connection.
 func Guard(cfg Config) error {
 	parsed, err := pgx.ParseConfig(cfg.DSN)
 	if err != nil {
@@ -89,9 +134,7 @@ func Guard(cfg Config) error {
 		}
 	}
 	for _, statement := range cfg.AfterConnect {
-		if setting, ok := sessionSetting(statement); ok {
-			refused = append(refused, fmt.Sprintf("the after-connect statement sets the session value %s", setting))
-		}
+		refused = append(refused, fmt.Sprintf("the after-connect statement %q can set a session value", statement))
 	}
 	if len(refused) == 0 {
 		return nil
@@ -128,65 +171,19 @@ func settingName(assignment string) string {
 	return strings.ReplaceAll(name, "-", "_")
 }
 
-// sessionSetting reports whether statement sets a session-scoped value, and returns the name of the setting.
-// SET LOCAL and set_config with is_local true are transaction-local and pass.
-func sessionSetting(statement string) (string, bool) {
-	words := strings.Fields(strings.ToLower(strings.TrimSpace(statement)))
-	if len(words) == 0 {
-		return "", false
-	}
-	switch words[0] {
-	case "set":
-		rest := words[1:]
-		if len(rest) > 0 && rest[0] == "local" {
-			return "", false
-		}
-		if len(rest) > 0 && rest[0] == "session" {
-			rest = rest[1:]
-		}
-		if len(rest) == 0 {
-			return "(unnamed)", true
-		}
-		name, _, _ := strings.Cut(rest[0], "=")
-		return name, true
-	case "reset":
-		if len(words) > 1 {
-			return strings.TrimSuffix(words[1], ";"), true
-		}
-		return "(unnamed)", true
-	}
-	compact := strings.Join(words, "")
-	for {
-		at := strings.Index(compact, "set_config(")
-		if at < 0 {
-			return "", false
-		}
-		compact = compact[at+len("set_config("):]
-		end := strings.Index(compact, ")")
-		if end < 0 {
-			end = len(compact)
-		}
-		args := strings.Split(compact[:end], ",")
-		if len(args) != 3 || args[2] != "true" {
-			return strings.Trim(args[0], "'\""), true
-		}
-	}
-}
+// errTenantOnConnection is the error of a connection that holds app.tenant outside a transaction.
+var errTenantOnConnection = errors.New("tenant: the pooler guard refuses the connection")
 
-// CheckConnection verifies on the first connection of db that current_setting('app.tenant', true) is empty outside
-// a transaction (ST-SUP-RP04-LC04), so a role default or a pooled connection never carries a tenant to the next
-// client. A connector calls it before it returns db.
-func CheckConnection(ctx context.Context, db *sql.DB) error {
-	if db == nil {
-		return errors.New("tenant: no database")
+// checkConn verifies that current_setting('app.tenant', true) is empty on conn outside a transaction
+// (ST-SUP-RP04-LC04). The connectors run it on each new connection and each time a connection comes back to the
+// pool, so a role default or a session setting never carries a tenant to the next client.
+func checkConn(ctx context.Context, conn *pgx.Conn) error {
+	var value *string
+	if err := conn.QueryRow(ctx, "SELECT current_setting('app.tenant', true)").Scan(&value); err != nil {
+		return fmt.Errorf("tenant: read the tenant setting of the connection: %w", err)
 	}
-	var value sql.NullString
-	if err := db.QueryRowContext(ctx, "SELECT current_setting('app.tenant', true)").Scan(&value); err != nil {
-		return fmt.Errorf("tenant: read the tenant setting of the first connection: %w", err)
-	}
-	if value.Valid && value.String != "" {
-		return fmt.Errorf("tenant: the pooler guard refuses the connection: the session value %s is %q outside a transaction",
-			SettingName, value.String)
+	if value != nil && *value != "" {
+		return fmt.Errorf("%w: the session value %s is %q outside a transaction", errTenantOnConnection, SettingName, *value)
 	}
 	return nil
 }

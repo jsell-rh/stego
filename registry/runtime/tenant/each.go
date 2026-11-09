@@ -8,8 +8,9 @@ import (
 	"strings"
 )
 
-// Func is the work that Each runs for one tenant, inside the transaction that Begin opened for that tenant.
-type Func func(ctx context.Context, tx *sql.Tx, t Tenant) error
+// Func is the work that Each runs for one tenant, inside the transaction that Begin opened for that tenant. It gets
+// the transaction as a Querier, so it cannot commit; Each commits.
+type Func func(ctx context.Context, tx Querier, t Tenant) error
 
 // Failure is the failure of one tenant in a run of Each.
 type Failure struct {
@@ -77,22 +78,29 @@ func Each(ctx context.Context, db *sql.DB, tenants []Tenant, fn Func) error {
 func runOne(ctx context.Context, db *sql.DB, t Tenant, fn Func) error {
 	tx, err := Begin(ctx, db, t, nil)
 	if err != nil {
-		return err
+		return withContextErr(ctx, err)
 	}
-	if err := fn(ctx, tx, t); err != nil {
+	if err := fn(ctx, querier{tx: tx}, t); err != nil {
 		_ = tx.Rollback()
-		return err
+		return withContextErr(ctx, err)
 	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("tenant: commit the transaction of tenant %s: %w", t.id, err)
-	}
-	return nil
+	return withContextErr(ctx, commitTenant(ctx, tx, t))
 }
 
-// EachListed reads the tenant list with List and runs Each over it: the iterator of a worker tick or a controller
-// pass, which visits every provisioned tenant that is not retired, in tenant ID order (ST-SUP-RP04-LC07).
-func EachListed(ctx context.Context, db *sql.DB, fn Func) error {
-	tenants, err := List(ctx, db)
+// withContextErr adds the error of ctx to err when ctx ended, so errors.Is(err, context.Canceled) holds for a run
+// that a cancel stopped, whatever error the driver returned.
+func withContextErr(ctx context.Context, err error) error {
+	if err == nil || ctx.Err() == nil || errors.Is(err, ctx.Err()) {
+		return err
+	}
+	return fmt.Errorf("%w (%w)", err, ctx.Err())
+}
+
+// EachListed reads the tenant list of schema with List and runs Each over it: the iterator of a worker tick or a
+// controller pass, which visits every provisioned tenant that is not retired, in tenant ID order
+// (ST-SUP-RP04-LC07).
+func EachListed(ctx context.Context, db *sql.DB, schema string, fn Func) error {
+	tenants, err := List(ctx, db, schema)
 	if err != nil {
 		return err
 	}
