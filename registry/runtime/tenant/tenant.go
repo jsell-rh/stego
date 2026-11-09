@@ -60,13 +60,12 @@ type claimSource struct {
 // Claim is the source of the tenant of a verified identity, for the authentication component.
 func Claim(identity Identity) Source { return claimSource{identity: identity} }
 
+// tenantID reads the tenant claim from the identity's seal mark only, through seal.TenantOf, never from a method
+// that an outer type can declare again.
 func (s claimSource) tenantID() (string, error) {
-	if s.identity == nil {
-		return "", errors.New("tenant: no verified identity")
-	}
-	id, ok := s.identity.TenantClaim()
-	if !ok || id == "" {
-		return "", errors.New("tenant: the verified identity holds no tenant claim")
+	id, ok := seal.TenantOf(s.identity)
+	if !ok {
+		return "", errors.New("tenant: no verified identity with a tenant claim")
 	}
 	return id, nil
 }
@@ -77,13 +76,16 @@ type requestedSource struct {
 }
 
 // Requested is the source of the tenant that a Provision or Retire request names. New accepts it only when the
-// decision allowed the request (ST-SUP-RC27-OC09).
+// decision allowed the request for that same tenant (ST-SUP-RC27-OC09).
 func Requested(id string, decision Decision) Source {
 	return requestedSource{id: id, decision: decision}
 }
 
+// tenantID reads the allowed tenant from the decision's seal mark only, through seal.DecisionOf, and accepts the
+// request only for that tenant.
 func (s requestedSource) tenantID() (string, error) {
-	if s.decision == nil || !s.decision.Allowed() {
+	allowed, ok := seal.DecisionOf(s.decision)
+	if !ok || allowed != s.id {
 		return "", errors.New("tenant: the request that names the tenant is not decided as allowed")
 	}
 	return s.id, nil

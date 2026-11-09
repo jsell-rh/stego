@@ -28,13 +28,13 @@ func TestServer(t *testing.T) {
 			}
 			key := authntest.NewKey(t, "k1")
 			server.Publish(key)
-			keys, err := authn.NewKeySet(context.Background(), authn.KeySource{URL: server.URL(), Roots: server.Roots()})
+			keys, err := authn.NewKeySet(context.Background(), authn.KeySource{URL: server.URL(), CAFile: server.CAFile(t)})
 			if err != nil {
 				t.Fatalf("load the document through the remote source: %v", err)
 			}
 			defer keys.Stop()
 			const issuer = "https://issuer.authn.test/realms/r1"
-			v, err := authn.New(authn.Settings{Issuer: issuer, Audience: "orders-api", Keys: keys})
+			v, err := authn.New(authn.Settings{Issuer: issuer, Audience: "orders-api", ProblemCode: "SVC", Keys: keys})
 			if err != nil {
 				t.Fatal(err)
 			}

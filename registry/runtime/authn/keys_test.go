@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"math/big"
@@ -11,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -40,12 +43,12 @@ func fakeJWK(t *testing.T, id string, bits, exponent int) map[string]any {
 // remoteVerifier gives a verifier of the key server's key set, with a fake clock.
 func remoteVerifier(t *testing.T, server *authntest.Server, c *clock) (*Verifier, *KeySet) {
 	t.Helper()
-	set, err := newKeySet(context.Background(), KeySource{URL: server.URL(), Roots: server.Roots()},
-		keyOptions{now: c.now})
+	set, err := newKeySet(context.Background(), KeySource{URL: server.URL()},
+		keyOptions{now: c.now, roots: rootsOf(server)})
 	if err != nil {
 		t.Fatalf("newKeySet: %v", err)
 	}
-	v, err := newVerifier(Settings{Issuer: testIssuer, Audience: testAudience, Keys: set}, time.Now)
+	v, err := newVerifier(Settings{Issuer: testIssuer, Audience: testAudience, ProblemCode: "SVC", Keys: set}, time.Now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +94,7 @@ func TestKeysBounds(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		v, err := New(Settings{Issuer: testIssuer, Audience: testAudience, Keys: set})
+		v, err := New(Settings{Issuer: testIssuer, Audience: testAudience, ProblemCode: "SVC", Keys: set})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -146,7 +149,7 @@ func TestKeysSource(t *testing.T) {
 		key := authntest.NewKey(t, "k1")
 		server := authntest.NewServer(t)
 		server.Publish(key)
-		if set, err := NewKeySet(context.Background(), KeySource{URL: server.URL(), Roots: server.Roots()}); err != nil {
+		if set, err := NewKeySet(context.Background(), KeySource{URL: server.URL(), CAFile: server.CAFile(t)}); err != nil {
 			t.Fatalf("the control load failed: %v", err)
 		} else {
 			set.Stop()
@@ -162,12 +165,12 @@ func TestKeysSource(t *testing.T) {
 			}
 		}
 		t.Run("http", func(t *testing.T) {
-			refused(t, KeySource{URL: strings.Replace(server.URL(), "https://", "http://", 1), Roots: server.Roots()}, ErrSettings)
+			refused(t, KeySource{URL: strings.Replace(server.URL(), "https://", "http://", 1), CAFile: server.CAFile(t)}, ErrSettings)
 		})
 		t.Run("redirect", func(t *testing.T) {
 			// The redirect points at a URL of the same trusted server that serves a valid document, so only the
 			// refusal of the redirect stops the load.
-			if set, err := NewKeySet(context.Background(), KeySource{URL: server.OtherURL(), Roots: server.Roots()}); err != nil {
+			if set, err := NewKeySet(context.Background(), KeySource{URL: server.OtherURL(), CAFile: server.CAFile(t)}); err != nil {
 				t.Fatalf("the redirect target does not load: %v", err)
 			} else {
 				set.Stop()
@@ -175,13 +178,13 @@ func TestKeysSource(t *testing.T) {
 			server.Redirect(server.OtherURL())
 			defer server.Publish(key)
 			before := server.Requests()
-			refused(t, KeySource{URL: server.URL(), Roots: server.Roots()}, ErrKeys)
+			refused(t, KeySource{URL: server.URL(), CAFile: server.CAFile(t)}, ErrKeys)
 			if n := server.Requests() - before; n != 1 {
 				t.Errorf("the load made %d requests, want 1 and no redirect", n)
 			}
 		})
 		t.Run("untrusted certificate", func(t *testing.T) {
-			refused(t, KeySource{URL: other.URL(), Roots: server.Roots()}, ErrKeys)
+			refused(t, KeySource{URL: other.URL(), CAFile: server.CAFile(t)}, ErrKeys)
 			refused(t, KeySource{URL: other.URL()}, ErrKeys)
 		})
 		t.Run("proxy", func(t *testing.T) {
@@ -259,15 +262,14 @@ func TestKeysSource(t *testing.T) {
 		k1, k2 := authntest.NewKey(t, "k1"), authntest.NewKey(t, "k2")
 		server.Publish(k1)
 		c := newClock()
-		v, _ := remoteVerifier(t, server, c)
+		v, set := remoteVerifier(t, server, c)
 		token := tokenOf(t, k1, "k1")
 		server.Fail(http.StatusServiceUnavailable)
 		c.add(14 * time.Minute)
 		requests := server.Requests()
 		expectAccepted(t, v, token)
-		if server.Requests() == requests {
-			t.Error("a cache older than MaxAge made no refresh")
-		}
+		// The stale cache answers at once; the refresh it starts runs beside the request.
+		waitFor(t, func() bool { return server.Requests() > requests && set.idle() }, "the refresh of a cache older than MaxAge")
 		c.add(2 * time.Minute)
 		id, err := v.Verify(context.Background(), token)
 		expectRefused(t, id, err, errOutage)
@@ -307,7 +309,7 @@ func TestKeysSource(t *testing.T) {
 		var zeroSet KeySet
 		zeroSet.Stop()
 		zeroSet.Stop()
-		withZeroSet, err := New(Settings{Issuer: testIssuer, Audience: testAudience, Keys: &KeySet{}})
+		withZeroSet, err := New(Settings{Issuer: testIssuer, Audience: testAudience, ProblemCode: "SVC", Keys: &KeySet{}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -384,9 +386,173 @@ func proxyChildCase(t *testing.T) {
 		}
 		return (&net.Dialer{}).DialContext(ctx, network, address)
 	}
-	set, err := newKeySet(context.Background(), KeySource{URL: "https://" + authntest.Host + ":" + port + "/keys",
-		Roots: server.Roots()}, keyOptions{now: time.Now, dial: dial})
+	set, err := newKeySet(context.Background(), KeySource{URL: "https://" + authntest.Host + ":" + port + "/keys"},
+		keyOptions{now: time.Now, dial: dial, roots: rootsOf(server)})
 	if set != nil || !errors.Is(err, ErrKeys) {
 		t.Errorf("newKeySet gave %v, %v, want a failed load", set, err)
 	}
+}
+
+// rootsOf stands in for the system roots with the roots of the key server, through the key set's test seam.
+func rootsOf(server *authntest.Server) func() (*x509.CertPool, error) {
+	return func() (*x509.CertPool, error) { return server.Roots(), nil }
+}
+
+// waitFor waits up to 3 s for the condition.
+func waitFor(t *testing.T, done func() bool, what string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for !done() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// idle reports whether no load of the key set runs.
+func (s *KeySet) idle() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.flight == nil
+}
+
+func TestKeysMembers(t *testing.T) {
+	t.Run("ST-SUP-RP13-LC07-T02 Key document members are read by their exact names", func(t *testing.T) {
+		k0, k1 := authntest.NewKey(t, "k0"), authntest.NewKey(t, "k1")
+		cased := k1.JWK()
+		cased["Kid"], cased["KTY"], cased["N"] = cased["kid"], cased["kty"], cased["n"]
+		delete(cased, "kid")
+		delete(cased, "kty")
+		delete(cased, "n")
+		server := authntest.NewServer(t)
+		server.SetDocument(authntest.Document(k0.JWK(), cased))
+		c := newClock()
+		v, _ := remoteVerifier(t, server, c)
+		expectAccepted(t, v, tokenOf(t, k0, "k0"))
+		id, err := v.Verify(context.Background(), tokenOf(t, k1, "k1"))
+		expectRefused(t, id, err, errUnknownKey)
+
+		exact := authntest.NewServer(t)
+		exact.Publish(k0, k1)
+		v2, _ := remoteVerifier(t, exact, newClock())
+		expectAccepted(t, v2, tokenOf(t, k1, "k1"))
+
+		// A miscased top member is no key list at all.
+		if _, err := ParseKeys([]byte(`{"Keys":` + string(authntest.Document(k1.JWK()))[len(`{"keys":`):])); !errors.Is(err, errDocumentJSON) {
+			t.Errorf("a document with Keys in place of keys gave %v", err)
+		}
+	})
+}
+
+func TestKeysRoots(t *testing.T) {
+	t.Run("ST-SUP-RP13-LC08-T02 A CA file adds to the system roots", func(t *testing.T) {
+		key := authntest.NewKey(t, "k1")
+		private, public, neither := authntest.NewServer(t), authntest.NewServer(t), authntest.NewServer(t)
+		for _, s := range []*authntest.Server{private, public, neither} {
+			s.Publish(key)
+		}
+		// The test's own root set stands in for the system roots: it trusts the public server only.
+		options := keyOptions{now: time.Now, roots: rootsOf(public)}
+		caFile := private.CAFile(t)
+		for name, server := range map[string]*authntest.Server{"the CA file's server": private, "a server of the system roots": public} {
+			set, err := newKeySet(context.Background(), KeySource{URL: server.URL(), CAFile: caFile}, options)
+			if err != nil {
+				t.Errorf("the load from %s failed: %v", name, err)
+				continue
+			}
+			set.Stop()
+		}
+		if set, err := newKeySet(context.Background(), KeySource{URL: neither.URL(), CAFile: caFile}, options); set != nil || !errors.Is(err, ErrKeys) {
+			t.Errorf("a server signed by neither gave %v, %v", set, err)
+		}
+		bad := filepath.Join(t.TempDir(), "not-a-ca.pem")
+		if err := os.WriteFile(bad, []byte("no certificate"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := newKeySet(context.Background(), KeySource{URL: private.URL(), CAFile: bad}, options); !errors.Is(err, ErrSettings) || strings.Contains(err.Error(), bad) {
+			t.Errorf("a CA file with no certificate gave %v", err)
+		}
+	})
+}
+
+func TestKeysStale(t *testing.T) {
+	t.Run("ST-SUP-RP13-LC09-T02 A known key ID with a stale cache does not wait for the refresh", func(t *testing.T) {
+		server := authntest.NewServer(t)
+		k1, k2 := authntest.NewKey(t, "k1"), authntest.NewKey(t, "k2")
+		server.Publish(k1)
+		c := newClock()
+		v, set := remoteVerifier(t, server, c)
+		server.Publish(k1, k2)
+		server.Delay(2 * time.Second)
+		c.add(MaxAge)
+		requests := server.Requests()
+
+		start := time.Now()
+		expectAccepted(t, v, tokenOf(t, k1, "k1"))
+		if waited := time.Since(start); waited > time.Second {
+			t.Errorf("the known key ID waited %v for the refresh", waited)
+		}
+		waitFor(t, func() bool { return server.Requests() == requests+1 }, "the refresh that the known key ID started")
+		start = time.Now()
+		expectAccepted(t, v, tokenOf(t, k2, "k2"))
+		if waited := time.Since(start); waited < time.Second {
+			t.Errorf("the unknown key ID waited only %v, want it to wait for the refresh", waited)
+		}
+		if n := server.Requests() - requests; n != 1 {
+			t.Errorf("the two tokens made %d requests, want the one refresh", n)
+		}
+		waitFor(t, set.idle, "the end of the refresh")
+	})
+}
+
+func TestKeysPEM(t *testing.T) {
+	t.Run("ST-SUP-RP13-LC19-T01 A PEM key file verifies tokens with no key ID", func(t *testing.T) {
+		key := authntest.NewKey(t, "k1")
+		folder := t.TempDir()
+		good := filepath.Join(folder, "key-s3cr3t.pem")
+		if err := os.WriteFile(good, key.PublicPEM(), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		set, err := NewKeySet(context.Background(), KeySource{PEMFile: good})
+		if err != nil {
+			t.Fatalf("NewKeySet: %v", err)
+		}
+		v, err := New(Settings{Issuer: testIssuer, Audience: testAudience, ProblemCode: "SVC", Keys: set})
+		if err != nil {
+			t.Fatal(err)
+		}
+		claims := authntest.Claims(testIssuer, testAudience, "user-1", time.Now())
+		noKID := map[string]any{"alg": "RS256", "typ": "JWT"}
+		expectAccepted(t, v, authntest.Mint(t, noKID, claims, key))
+		id, err := v.Verify(context.Background(), authntest.Mint(t, authntest.Header("k1"), claims, key))
+		expectRefused(t, id, err, errKeyID)
+		// A key document needs a kid: a token with none is refused there.
+		doc, err := ParseKeys(authntest.Document(key.JWK()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		docVerifier, err := New(Settings{Issuer: testIssuer, Audience: testAudience, ProblemCode: "SVC", Keys: doc})
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, err = docVerifier.Verify(context.Background(), authntest.Mint(t, noKID, claims, key))
+		expectRefused(t, id, err, errKeyID)
+
+		small := filepath.Join(folder, "small-s3cr3t.pem")
+		der := x509.MarshalPKCS1PublicKey(&rsa.PublicKey{N: modulus(t, 1024), E: 65537})
+		if err := os.WriteFile(small, pem.EncodeToMemory(&pem.Block{Type: "RSA PUBLIC KEY", Bytes: der}), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for name, file := range map[string]string{"a 1024-bit key": small, "a missing file": filepath.Join(folder, "missing-s3cr3t.pem")} {
+			set, err := NewKeySet(context.Background(), KeySource{PEMFile: file})
+			if set != nil || !errors.Is(err, ErrKeys) {
+				t.Errorf("%s gave %v, %v, want a refused start", name, set, err)
+				continue
+			}
+			if strings.Contains(err.Error(), folder) || strings.Contains(err.Error(), "s3cr3t") {
+				t.Errorf("the error of %s holds the file path: %q", name, err)
+			}
+		}
+	})
 }

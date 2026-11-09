@@ -26,6 +26,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"stego.dev/runtime/authn/authntest"
+	"stego.dev/runtime/internal/seal"
 )
 
 const (
@@ -65,7 +66,7 @@ func staticVerifier(t *testing.T, change func(*Settings), keys ...*authntest.Key
 	if err != nil {
 		t.Fatalf("ParseKeys: %v", err)
 	}
-	settings := Settings{Issuer: testIssuer, Audience: testAudience, Skew: MaxSkew,
+	settings := Settings{Issuer: testIssuer, Audience: testAudience, ProblemCode: "SVC", Skew: MaxSkew,
 		RoleClaim: "realm_access.roles", TenantClaim: "tenant", Keys: set}
 	if change != nil {
 		change(&settings)
@@ -86,8 +87,9 @@ func goodClaims() map[string]any {
 }
 
 func isZero(id Identity) bool {
-	return id.issuer == "" && id.subject == "" && id.roles == nil && id.tenant == "" && !id.hasTenant &&
-		id.expires.IsZero()
+	_, hasTenant := seal.TenantOf(id)
+	return id.issuer == "" && id.subject == "" && id.roles == nil && !hasTenant && id.attributes == nil &&
+		id.username == "" && id.email == "" && id.givenName == "" && id.familyName == "" && id.expires.IsZero()
 }
 
 // expectRefused fails unless the error is the refusal want and the identity is zero.
@@ -241,7 +243,7 @@ func TestVerifySettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	valid := Settings{Issuer: testIssuer, Audience: testAudience, Skew: 60 * time.Second, Keys: set}
+	valid := Settings{Issuer: testIssuer, Audience: testAudience, ProblemCode: "SVC", Skew: 60 * time.Second, Keys: set}
 
 	t.Run("ST-SUP-RP13-LC05-T01 Trust settings are checked at construction", func(t *testing.T) {
 		if v, err := New(valid); err != nil || v == nil {
@@ -420,12 +422,12 @@ func TestVerifySecrets(t *testing.T) {
 		key := &authntest.Key{ID: secretKID, Private: authntest.NewKey(t, "x").Private}
 		server.Publish(key)
 		c := newClock()
-		set, err := newKeySet(context.Background(), KeySource{URL: server.URL(), Roots: server.Roots(), Tracer: tracer},
-			keyOptions{now: c.now})
+		set, err := newKeySet(context.Background(), KeySource{URL: server.URL(), Tracer: tracer},
+			keyOptions{now: c.now, roots: rootsOf(server)})
 		if err != nil {
 			t.Fatal(err)
 		}
-		v, err := newVerifier(Settings{Issuer: testIssuer, Audience: testAudience, RoleClaim: "realm_access.roles",
+		v, err := newVerifier(Settings{Issuer: testIssuer, Audience: testAudience, ProblemCode: "SVC", RoleClaim: "realm_access.roles",
 			TenantClaim: "tenant", Keys: set}, time.Now)
 		if err != nil {
 			t.Fatal(err)
@@ -506,7 +508,7 @@ func TestVerifySecrets(t *testing.T) {
 		} {
 			prepare()
 			_, err := NewKeySet(context.Background(), KeySource{URL: server.URL() + "?q=" + secretBody,
-				Roots: server.Roots(), Tracer: tracer})
+				CAFile: server.CAFile(t), Tracer: tracer})
 			errs = append(errs, err)
 		}
 		_, err = NewKeySet(context.Background(), KeySource{File: secretPath, Tracer: tracer})
@@ -575,12 +577,12 @@ func TestVerifyConcurrent(t *testing.T) {
 		k1, k2 := authntest.NewKey(t, "k1"), authntest.NewKey(t, "k2")
 		server.Publish(k1)
 		c := newClock()
-		set, err := newKeySet(context.Background(), KeySource{URL: server.URL(), Roots: server.Roots()},
-			keyOptions{now: c.now})
+		set, err := newKeySet(context.Background(), KeySource{URL: server.URL()},
+			keyOptions{now: c.now, roots: rootsOf(server)})
 		if err != nil {
 			t.Fatal(err)
 		}
-		v, err := newVerifier(Settings{Issuer: testIssuer, Audience: testAudience, RoleClaim: "realm_access.roles",
+		v, err := newVerifier(Settings{Issuer: testIssuer, Audience: testAudience, ProblemCode: "SVC", RoleClaim: "realm_access.roles",
 			TenantClaim: "tenant", Keys: set}, time.Now)
 		if err != nil {
 			t.Fatal(err)
@@ -614,12 +616,74 @@ func TestVerifyConcurrent(t *testing.T) {
 			}
 			a, b := ids[0], ids[i]
 			if a.issuer != b.issuer || a.subject != b.subject || !slices.Equal(a.roles, b.roles) ||
-				a.tenant != b.tenant || a.hasTenant != b.hasTenant || !a.expires.Equal(b.expires) {
+				!sameTenant(a, b) || !a.expires.Equal(b.expires) {
 				t.Errorf("caller %d got %+v, caller 0 got %+v", i, b, a)
 			}
 		}
-		if ids[0].subject != "user-1" || ids[0].tenant != "t1" {
+		if tenantID, _ := ids[0].TenantClaim(); ids[0].subject != "user-1" || tenantID != "t1" {
 			t.Errorf("the identity is %+v", ids[0])
+		}
+	})
+}
+
+func sameTenant(a, b Identity) bool {
+	at, aok := a.TenantClaim()
+	bt, bok := b.TenantClaim()
+	return at == bt && aok == bok
+}
+
+func TestVerifyExpiry(t *testing.T) {
+	t.Run("ST-SUP-RP13-LC05-T03 A token is refused at exactly exp, and every aud member must be a string", func(t *testing.T) {
+		key := authntest.NewKey(t, "k1")
+		v := staticVerifier(t, func(s *Settings) { s.Skew, s.TenantClaim = 0, "" }, key)
+		at := time.Unix(time.Now().Unix(), 0)
+		claims := authntest.Claims(testIssuer, testAudience, "user-1", at.Add(-time.Minute))
+		claims["exp"] = at.Unix()
+		token := authntest.Mint(t, authntest.Header("k1"), claims, key)
+		v.now = func() time.Time { return at.Add(-time.Second) }
+		expectAccepted(t, v, token)
+		v.now = func() time.Time { return at }
+		id, err := v.Verify(context.Background(), token)
+		expectRefused(t, id, err, errExpiry)
+
+		v.now = time.Now
+		for name, aud := range map[string]any{
+			"an array with a number": []any{testAudience, 7},
+			"an array with null":     []any{testAudience, nil},
+			"an object":              map[string]any{"aud": testAudience},
+		} {
+			t.Run(name, func(t *testing.T) {
+				c := authntest.Claims(testIssuer, testAudience, "user-1", time.Now())
+				c["aud"] = aud
+				id, err := v.Verify(context.Background(), authntest.Mint(t, authntest.Header("k1"), c, key))
+				expectRefused(t, id, err, errAudience)
+			})
+		}
+		c := authntest.Claims(testIssuer, testAudience, "user-1", time.Now())
+		c["aud"] = []string{"billing-api", testAudience}
+		expectAccepted(t, v, authntest.Mint(t, authntest.Header("k1"), c, key))
+	})
+}
+
+func TestVerifyCharacters(t *testing.T) {
+	t.Run("ST-SUP-RP13-LC06-T02 A raw token with a character outside base64url is refused", func(t *testing.T) {
+		key := authntest.NewKey(t, "k1")
+		v := staticVerifier(t, nil, key)
+		token := authntest.Mint(t, authntest.Header("k1"), goodClaims(), key)
+		expectAccepted(t, v, token)
+		// A stopped key set answers every lookup with errStopped, so errCharacter shows that the check comes
+		// before any key lookup.
+		stopped := staticVerifier(t, nil, key)
+		stopped.Stop()
+		cut := strings.LastIndex(token, ".")
+		for name, insert := range map[string]string{"padding": "=", "space": " ", "plus": "+", "newline": "\n"} {
+			t.Run(name, func(t *testing.T) {
+				bad := token[:cut] + insert + token[cut:]
+				id, err := stopped.Verify(context.Background(), bad)
+				expectRefused(t, id, err, errCharacter)
+				id, err = v.Verify(context.Background(), bad)
+				expectRefused(t, id, err, errCharacter)
+			})
 		}
 	})
 }

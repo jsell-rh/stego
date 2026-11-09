@@ -7,6 +7,8 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -196,16 +198,28 @@ func TestIdentityClaims(t *testing.T) {
 		if tenantID, ok := id.TenantClaim(); !ok || tenantID != "t1" {
 			t.Errorf("the tenant claim is %q, %v", tenantID, ok)
 		}
+		// A role path that is absent from the token gives no roles, with no fallback to another claim.
+		for name, change := range map[string]func(map[string]any){
+			"no role claim":                     func(c map[string]any) { delete(c, "realm_access") },
+			"roles under another claim only":    func(c map[string]any) { delete(c, "realm_access"); c["roles"] = []string{"admin"} },
+			"an object with no roles member":    func(c map[string]any) { c["realm_access"] = map[string]any{"groups": []string{"admin"}} },
+			"roles one level up, not an object": func(c map[string]any) { c["realm_access"] = []string{"admin"} },
+		} {
+			t.Run(name, func(t *testing.T) {
+				claims := goodClaims()
+				change(claims)
+				id := expectAccepted(t, v, authntest.Mint(t, header, claims, key))
+				if id.Roles() != nil {
+					t.Errorf("the identity has the roles %v, want none", id.Roles())
+				}
+			})
+		}
 		cases := []struct {
 			name   string
 			change func(map[string]any)
 			want   error
 		}{
-			{"roles under another claim", func(c map[string]any) {
-				delete(c, "realm_access")
-				c["roles"] = []string{"admin"}
-			}, errRoles},
-			{"roles one level up", func(c map[string]any) { c["realm_access"] = []string{"admin"} }, errRoles},
+			{"a role claim that is a string", func(c map[string]any) { c["realm_access"] = map[string]any{"roles": "admin"} }, errRoles},
 			{"129 roles", func(c map[string]any) { c["realm_access"] = map[string]any{"roles": roles(MaxRoles + 1)} }, errRoles},
 			{"a role of 257 bytes", func(c map[string]any) {
 				c["realm_access"] = map[string]any{"roles": []string{"reader", long + "r"}}
@@ -233,6 +247,98 @@ func TestIdentityClaims(t *testing.T) {
 		id = expectAccepted(t, bare, authntest.Mint(t, header, goodClaims(), key))
 		if _, ok := id.TenantClaim(); ok || id.Roles() != nil {
 			t.Errorf("a verifier with no claim paths gave roles %v and a tenant claim", id.Roles())
+		}
+	})
+}
+
+// forged is the attack of the security review of PR #144: a type that embeds a verified Identity and declares its
+// exported methods again. The check below type-checks the same declaration outside the runtime module.
+type forged struct{ Identity }
+
+func (forged) TenantClaim() (string, bool) { return "t2", true }
+func (forged) UserID() string              { return "admin" }
+func (forged) Roles() []string             { return []string{"admin"} }
+
+func TestIdentityEmbedding(t *testing.T) {
+	t.Run("ST-SUP-RP13-LC01-T03 Embedding a verified Identity and declaring its methods again changes nothing", func(t *testing.T) {
+		if err := checkOutside(t, `package outside
+
+import (
+	"stego.dev/runtime/authn"
+	"stego.dev/runtime/tenant"
+)
+
+type forged struct{ authn.Identity }
+
+func (forged) TenantClaim() (string, bool) { return "t2", true }
+func (forged) UserID() string              { return "admin" }
+func (forged) Roles() []string             { return []string{"admin"} }
+
+func use(id authn.Identity) { _ = tenant.Claim(forged{id}) }
+`); err != nil {
+			t.Fatalf("the forged type does not type-check outside the module, so the case is not the attack: %v", err)
+		}
+		key := authntest.NewKey(t, "k1")
+		v := staticVerifier(t, nil, key)
+		token := authntest.Mint(t, authntest.Header("k1"), goodClaims(), key)
+		genuine := expectAccepted(t, v, token)
+		got, err := tenant.New(tenant.Claim(forged{genuine}))
+		if err != nil || got.ID() != "t1" {
+			t.Errorf("tenant.Claim of the forged type gave %v, %v, want t1", got, err)
+		}
+		if _, err := tenant.New(tenant.Claim(forged{})); err == nil {
+			t.Error("tenant.Claim of a forged type with a zero Identity gave a tenant")
+		}
+		// The context holds only the Identity that Verify made, under a key that no other package can name.
+		var seen Identity
+		handler := v.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := context.WithValue(r.Context(), struct{}{}, forged{genuine})
+			seen, _ = FromContext(ctx)
+		}))
+		request := httptest.NewRequest(http.MethodGet, "/orders", nil)
+		request.Header.Set("Authorization", "Bearer "+token)
+		handler.ServeHTTP(httptest.NewRecorder(), request)
+		if tenantID, _ := seen.TenantClaim(); seen.UserID() != "user-1" || tenantID != "t1" || slices.Contains(seen.Roles(), "admin") {
+			t.Errorf("FromContext gave user %q, tenant %q and roles %v", seen.UserID(), tenantID, seen.Roles())
+		}
+		if _, ok := FromContext(context.WithValue(context.Background(), struct{}{}, forged{genuine})); ok {
+			t.Error("FromContext gave an Identity that no middleware put in the context")
+		}
+	})
+}
+
+func TestIdentityProfile(t *testing.T) {
+	t.Run("ST-SUP-RP13-LC18-T01 The profile claims reach the Identity", func(t *testing.T) {
+		key := authntest.NewKey(t, "k1")
+		v := staticVerifier(t, func(s *Settings) { s.AttributeClaims = []string{"department"} }, key)
+		header := authntest.Header("k1")
+		claims := goodClaims()
+		claims["preferred_username"], claims["email"] = "jdoe", "jdoe@example.com"
+		claims["given_name"], claims["family_name"], claims["department"] = "Jane", "Doe", "sales"
+		claims["other"] = "not configured"
+		id := expectAccepted(t, v, authntest.Mint(t, header, claims, key))
+		if id.Username() != "jdoe" || id.Email() != "jdoe@example.com" || id.GivenName() != "Jane" || id.FamilyName() != "Doe" {
+			t.Errorf("the profile is %q, %q, %q, %q", id.Username(), id.Email(), id.GivenName(), id.FamilyName())
+		}
+		if attributes := id.Attributes(); len(attributes) != 1 || attributes["department"] != "sales" {
+			t.Errorf("the attributes are %v, want only department", attributes)
+		}
+		none := expectAccepted(t, v, authntest.Mint(t, header, goodClaims(), key))
+		if none.Username() != "" || none.Email() != "" || none.GivenName() != "" || none.FamilyName() != "" || none.Attributes() != nil {
+			t.Errorf("a token with no profile claims gave %+v", none)
+		}
+		for name, change := range map[string]func(map[string]any){
+			"an email that is a number":   func(c map[string]any) { c["email"] = 7 },
+			"a username with NUL":         func(c map[string]any) { c["preferred_username"] = "j\x00doe" },
+			"a given name of 257 bytes":   func(c map[string]any) { c["given_name"] = strings.Repeat("j", MaxProfileBytes+1) },
+			"an attribute that is a list": func(c map[string]any) { c["department"] = []string{"sales"} },
+		} {
+			t.Run(name, func(t *testing.T) {
+				c := goodClaims()
+				change(c)
+				id, err := v.Verify(context.Background(), authntest.Mint(t, header, c, key))
+				expectRefused(t, id, err, errProfile)
+			})
 		}
 	})
 }

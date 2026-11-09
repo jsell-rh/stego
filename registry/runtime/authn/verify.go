@@ -13,10 +13,13 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"stego.dev/runtime/internal/seal"
 )
 
 // The bounds of a token (ST-SUP-RP13-LC05, ST-SUP-RP13-LC06).
@@ -55,6 +58,9 @@ const (
 	errNotReady   = refusal("the verifier is not ready")
 	errStopped    = refusal("the verifier is stopped")
 	errSize       = refusal("size")
+	errCharacter  = refusal("character")
+	errProfile    = refusal("profile claim")
+	errCredential = refusal("credential")
 	errFormat     = refusal("format")
 	errEncoding   = refusal("encoding")
 	errJSON       = refusal("JSON")
@@ -91,8 +97,20 @@ type Settings struct {
 	RoleClaim string
 	// TenantClaim is the dotted path of the tenant claim. Empty: the identity has no tenant claim.
 	TenantClaim string
+	// AttributeClaims are the names of the top-level claims that the Identity carries as attributes, at most
+	// MaxAttributes (ST-SUP-RP13-LC18).
+	AttributeClaims []string
 	// Header is the request header that Middleware reads. Empty: Authorization.
 	Header string
+	// BareToken opts the configured header in to a bare token with no Bearer scheme, for a proxy such as
+	// oauth2-proxy that forwards the token alone (ST-SUP-RP13-LC14). New refuses it for Authorization.
+	BareToken bool
+	// ProblemType is the declared error type base, such as https://api.example.com/errors/; the problem type of a
+	// refusal is the base joined to unauthorized. Empty: the type is about:blank (ST-SUP-RP13-LC17).
+	ProblemType string
+	// ProblemCode is the declared service prefix of the problem code, such as SVC; the code of a refusal is
+	// SVC-AUT-001 (ST-SUP-RP13-LC17).
+	ProblemCode string
 	// Keys is the key set that holds the verification keys.
 	Keys *KeySet
 }
@@ -105,7 +123,11 @@ type Verifier struct {
 	skew       time.Duration
 	rolePath   []string
 	tenantPath []string
+	attributes []string
 	header     string
+	bare       bool
+	problem    string
+	code       string
 	keys       *KeySet
 	now        func() time.Time
 }
@@ -141,11 +163,49 @@ func newVerifier(s Settings, now func() time.Time) (*Verifier, error) {
 	if !headerName(header) {
 		return nil, setting("the header name is not valid")
 	}
+	header = http.CanonicalHeaderKey(header)
+	if s.BareToken && header == "Authorization" {
+		return nil, setting("a bare token is only for a custom header")
+	}
+	if len(s.AttributeClaims) > MaxAttributes {
+		return nil, setting("too many attribute claims")
+	}
+	for _, name := range s.AttributeClaims {
+		if path, err := claimPath(name); err != nil || len(path) != 1 {
+			return nil, setting("an attribute claim name is not valid")
+		}
+	}
+	problem := "about:blank"
+	if s.ProblemType != "" {
+		base, err := url.Parse(s.ProblemType)
+		if err != nil || !base.IsAbs() || base.Host == "" || base.User != nil || base.RawQuery != "" ||
+			base.Fragment != "" || !clean(s.ProblemType) {
+			return nil, setting("the problem type base is not an absolute URL")
+		}
+		problem = s.ProblemType + "unauthorized"
+	}
+	if !problemPrefix(s.ProblemCode) {
+		return nil, setting("the problem code prefix is not valid")
+	}
 	if s.Keys == nil {
 		return nil, setting("the key set is missing")
 	}
 	return &Verifier{issuer: s.Issuer, audience: s.Audience, skew: s.Skew, rolePath: rolePath,
-		tenantPath: tenantPath, header: http.CanonicalHeaderKey(header), keys: s.Keys, now: now}, nil
+		tenantPath: tenantPath, attributes: slices.Clone(s.AttributeClaims), header: header, bare: s.BareToken,
+		problem: problem, code: s.ProblemCode + "-AUT-001", keys: s.Keys, now: now}, nil
+}
+
+// problemPrefix reports whether the prefix is 1 to 32 upper-case letters and digits (ST-SUP-RC20-OC03).
+func problemPrefix(prefix string) bool {
+	if prefix == "" || len(prefix) > 32 {
+		return false
+	}
+	for i := 0; i < len(prefix); i++ {
+		if c := prefix[i]; !(c >= 'A' && c <= 'Z' || c >= '0' && c <= '9') {
+			return false
+		}
+	}
+	return true
 }
 
 // Stop stops the key set of the verifier: after Stop, Verify denies every token, and a key retrieval that runs is
@@ -170,6 +230,9 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Identity, error) {
 	if len(raw) == 0 || len(raw) > MaxTokenBytes {
 		return Identity{}, errSize
 	}
+	if !tokenText(raw) {
+		return Identity{}, errCharacter
+	}
 	parts := strings.Split(raw, ".")
 	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
 		return Identity{}, errFormat
@@ -186,11 +249,11 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Identity, error) {
 	if err != nil {
 		return Identity{}, errEncoding
 	}
-	kid, err := checkHeader(headerJSON)
+	kid, hasKid, err := checkHeader(headerJSON)
 	if err != nil {
 		return Identity{}, err
 	}
-	key, err := v.keys.lookup(ctx, kid)
+	key, err := v.keys.lookup(ctx, kid, hasKid)
 	if err != nil {
 		return Identity{}, err
 	}
@@ -215,8 +278,24 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Identity, error) {
 	if err != nil {
 		return Identity{}, err
 	}
-	return Identity{issuer: issuer, subject: subject, roles: roles, tenant: tenant, hasTenant: hasTenant,
-		expires: expires}, nil
+	p, err := readProfile(claims, v.attributes)
+	if err != nil {
+		return Identity{}, err
+	}
+	return Identity{mark: seal.NewIdentityMark(tenant, hasTenant), issuer: issuer, subject: subject, roles: roles,
+		attributes: p.attributes, username: p.username, email: p.email, givenName: p.givenName,
+		familyName: p.familyName, expires: expires}, nil
+}
+
+// tokenText reports whether the raw token holds only the base64url alphabet and dots (ST-SUP-RP13-LC06).
+func tokenText(raw string) bool {
+	for i := 0; i < len(raw); i++ {
+		if c := raw[i]; !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' ||
+			c == '_' || c == '.') {
+			return false
+		}
+	}
+	return true
 }
 
 // decodeSegment decodes one base64url segment and checks that it is one JSON object that is not ambiguous.
@@ -231,30 +310,33 @@ func decodeSegment(segment string) ([]byte, error) {
 	return data, nil
 }
 
-// checkHeader checks the header and gives its key ID (ST-SUP-RP13-LC03).
-func checkHeader(data []byte) (string, error) {
+// checkHeader checks the header and gives its key ID, and whether it names one (ST-SUP-RP13-LC03).
+func checkHeader(data []byte) (string, bool, error) {
 	header, err := members(data)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	alg, ok := stringMember(header, "alg")
 	if !ok || alg != Algorithm {
-		return "", errAlgorithm
+		return "", false, errAlgorithm
 	}
 	typ, ok := stringMember(header, "typ")
 	if !ok || typ != "JWT" {
-		return "", errType
+		return "", false, errType
 	}
 	for _, name := range []string{"crit", "jku", "jwk", "x5u"} {
 		if _, present := header[name]; present {
-			return "", errHeader
+			return "", false, errHeader
 		}
+	}
+	if _, present := header["kid"]; !present {
+		return "", false, nil
 	}
 	kid, ok := stringMember(header, "kid")
 	if !ok || kid == "" || len(kid) > maxKeyIDBytes {
-		return "", errKeyID
+		return "", false, errKeyID
 	}
-	return kid, nil
+	return kid, true, nil
 }
 
 // registered checks the issuer, the audience, the subject, the issue time, the expiry and the not-before time
@@ -277,7 +359,7 @@ func (v *Verifier) registered(claims map[string]json.RawMessage) (string, string
 		return "", "", time.Time{}, errIssuedAt
 	}
 	expires, ok := numericDate(claims, "exp")
-	if !ok || !issued.Before(expires) || now.After(expires.Add(v.skew)) {
+	if !ok || !issued.Before(expires) || !now.Before(expires.Add(v.skew)) {
 		return "", "", time.Time{}, errExpiry
 	}
 	if _, present := claims["nbf"]; present {
@@ -293,20 +375,23 @@ func (v *Verifier) audienceHolds(raw json.RawMessage) bool {
 	if raw == nil {
 		return false
 	}
-	var one string
-	if err := json.Unmarshal(raw, &one); err == nil {
-		return one == v.audience
+	if len(raw) > 0 && raw[0] == '"' {
+		var one string
+		return json.Unmarshal(raw, &one) == nil && one == v.audience
 	}
-	var many []string
-	if err := json.Unmarshal(raw, &many); err != nil {
+	var many []json.RawMessage
+	if len(raw) == 0 || raw[0] != '[' || json.Unmarshal(raw, &many) != nil {
 		return false
 	}
-	for _, audience := range many {
-		if audience == v.audience {
-			return true
+	found := false
+	for _, member := range many {
+		var audience string
+		if len(member) == 0 || member[0] != '"' || json.Unmarshal(member, &audience) != nil {
+			return false
 		}
+		found = found || audience == v.audience
 	}
-	return false
+	return found
 }
 
 // numericDate reads a NumericDate claim: a finite JSON number of seconds from 0 to the end of the year 9999.

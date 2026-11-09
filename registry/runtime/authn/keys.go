@@ -1,12 +1,14 @@
 package authn
 
 import (
+	"bytes"
 	"context"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"io"
 	"math/big"
@@ -61,19 +63,24 @@ const (
 	errNoKey        = keyFault("no RSA signing key")
 	errLoad         = keyFault("load")
 	errFile         = keyFault("file")
+	errPEM          = keyFault("PEM key")
 
 	errOutage = refusal("the key set is out of date")
 )
 
-// KeySource names where the key set loads its key document: exactly one of URL and File. Generated code passes it
+// KeySource names where the key set loads its keys: exactly one of URL, File and PEMFile. Generated code passes it
 // from the declaration (ST-STD-RUNTIME-R05).
 type KeySource struct {
 	// URL is the HTTPS URL of the key document, loaded over verified TLS 1.2 or later with no redirect and no proxy.
 	URL string
+	// CAFile is the path of a PEM file of certificate authorities that the key set adds to the system roots for the
+	// URL; it never replaces them (ST-SUP-RP13-LC08).
+	CAFile string
 	// File is the path of a regular file that holds the key document.
 	File string
-	// Roots are the certificate authorities that the URL's server certificate must chain to. Nil: the system roots.
-	Roots *x509.CertPool
+	// PEMFile is the path of a PEM file that holds one RSA public key, read once at start. With it, Verify accepts
+	// only a token with no kid (ST-SUP-RP13-LC19).
+	PEMFile string
 	// Tracer records one span for each key load. Nil: no telemetry.
 	Tracer trace.Tracer
 }
@@ -85,6 +92,7 @@ type KeySet struct {
 	mu        sync.Mutex
 	ready     bool
 	keys      map[string]*rsa.PublicKey
+	single    *rsa.PublicKey
 	load      func(context.Context) ([]byte, error)
 	source    string
 	tracer    trace.Tracer
@@ -98,10 +106,11 @@ type KeySet struct {
 	transport *http.Transport
 }
 
-// keyOptions are the test seams of a key set: the clock and the dialer.
+// keyOptions are the test seams of a key set: the clock, the dialer and the system roots.
 type keyOptions struct {
-	now  func() time.Time
-	dial func(ctx context.Context, network, address string) (net.Conn, error)
+	now   func() time.Time
+	dial  func(ctx context.Context, network, address string) (net.Conn, error)
+	roots func() (*x509.CertPool, error)
 }
 
 // ParseKeys gives a fixed key set of the key document, which it never refreshes (ST-SUP-RP13-LC04, LC07).
@@ -116,15 +125,35 @@ func ParseKeys(document []byte) (*KeySet, error) {
 // NewKeySet checks the source, loads the key document once and gives the key set. It refuses a URL that is not
 // HTTPS (ST-SUP-RP13-LC08). Stop releases it.
 func NewKeySet(ctx context.Context, source KeySource) (*KeySet, error) {
-	return newKeySet(ctx, source, keyOptions{now: time.Now})
+	return newKeySet(ctx, source, keyOptions{now: time.Now, roots: x509.SystemCertPool})
 }
 
 func newKeySet(ctx context.Context, source KeySource, options keyOptions) (*KeySet, error) {
 	if ctx == nil {
 		return nil, setting("the context is missing")
 	}
-	if (source.URL == "") == (source.File == "") {
-		return nil, setting("the key source needs exactly one of a URL and a file")
+	sources := 0
+	for _, name := range []string{source.URL, source.File, source.PEMFile} {
+		if name != "" {
+			sources++
+		}
+	}
+	if sources != 1 {
+		return nil, setting("the key source needs exactly one of a URL, a key document file and a PEM file")
+	}
+	if source.CAFile != "" && source.URL == "" {
+		return nil, setting("a CA file is only for a URL")
+	}
+	if source.PEMFile != "" {
+		data, err := readFile(source.PEMFile)
+		if err != nil {
+			return nil, errPEM
+		}
+		key, err := parsePEM(data)
+		if err != nil {
+			return nil, err
+		}
+		return &KeySet{ready: true, single: key, now: options.now}, nil
 	}
 	s := &KeySet{ready: true, now: options.now, tracer: source.Tracer}
 	if s.tracer == nil {
@@ -141,10 +170,19 @@ func newKeySet(ctx context.Context, source KeySource, options keyOptions) (*KeyS
 			location.Fragment != "" || location.Opaque != "" {
 			return nil, setting("the key source is not an HTTPS URL")
 		}
-		roots := source.Roots
-		if roots == nil {
-			if roots, err = x509.SystemCertPool(); err != nil {
-				return nil, setting("the system roots are missing")
+		system := options.roots
+		if system == nil {
+			system = x509.SystemCertPool
+		}
+		roots, err := system()
+		if err != nil || roots == nil {
+			return nil, setting("the system roots are missing")
+		}
+		if source.CAFile != "" {
+			data, err := readFile(source.CAFile)
+			roots = roots.Clone()
+			if err != nil || !roots.AppendCertsFromPEM(data) {
+				return nil, setting("the CA file is not valid")
 			}
 		}
 		dial := (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext
@@ -199,11 +237,13 @@ func (s *KeySet) Stop() {
 	}
 }
 
-// lookup gives the key of the exact key ID, with no fallback to another key (ST-SUP-RP13-LC07). A known key ID of a
-// fresh cache needs no load; an unknown key ID, or a cache older than MaxAge, starts one load or waits for the one
-// that runs, unless the last attempt is less than Cooldown ago (ST-SUP-RP13-LC09, LC15). No key is given
-// OutageWindow after the last successful load (ST-SUP-RP13-LC10).
-func (s *KeySet) lookup(ctx context.Context, kid string) (*rsa.PublicKey, error) {
+// lookup gives the key of the exact key ID, with no fallback to another key (ST-SUP-RP13-LC07). A key set of a PEM
+// file gives its one key, only to a token that names no key ID (ST-SUP-RP13-LC19); a key document needs a key ID.
+// A known key ID of a fresh cache needs no load. A known key ID of a cache older than MaxAge is answered at once,
+// within OutageWindow, and starts one load unless one runs or the last attempt is less than Cooldown ago. An
+// unknown key ID, or a cache older than OutageWindow, waits for the one load that runs or starts it, under the same
+// cooldown (ST-SUP-RP13-LC09, LC10, LC15).
+func (s *KeySet) lookup(ctx context.Context, kid string, hasKid bool) (*rsa.PublicKey, error) {
 	if s == nil {
 		return nil, errNotReady
 	}
@@ -216,6 +256,18 @@ func (s *KeySet) lookup(ctx context.Context, kid string) (*rsa.PublicKey, error)
 		s.mu.Unlock()
 		return nil, errStopped
 	}
+	if s.single != nil {
+		key := s.single
+		s.mu.Unlock()
+		if hasKid {
+			return nil, errKeyID
+		}
+		return key, nil
+	}
+	if !hasKid {
+		s.mu.Unlock()
+		return nil, errKeyID
+	}
 	key := s.keys[kid]
 	if s.load == nil {
 		s.mu.Unlock()
@@ -225,27 +277,29 @@ func (s *KeySet) lookup(ctx context.Context, kid string) (*rsa.PublicKey, error)
 		return key, nil
 	}
 	now := s.now()
-	if key != nil && now.Sub(s.loaded) < MaxAge {
+	age := now.Sub(s.loaded)
+	if key != nil && age < MaxAge {
+		s.mu.Unlock()
+		return key, nil
+	}
+	cooling := now.Sub(s.attempted) < Cooldown
+	if key != nil && age < OutageWindow {
+		if s.flight == nil && !cooling {
+			s.start(ctx, now)
+		}
 		s.mu.Unlock()
 		return key, nil
 	}
 	flight := s.flight
 	if flight == nil {
-		if now.Sub(s.attempted) < Cooldown {
-			fresh := now.Sub(s.loaded) < OutageWindow
+		if cooling {
 			s.mu.Unlock()
-			switch {
-			case key == nil:
+			if key == nil {
 				return nil, errUnknownKey
-			case !fresh:
-				return nil, errOutage
 			}
-			return key, nil
+			return nil, errOutage
 		}
-		flight = make(chan struct{})
-		s.flight = flight
-		s.attempted = now
-		go s.run(ctx, flight)
+		flight = s.start(ctx, now)
 	}
 	s.mu.Unlock()
 	select {
@@ -266,6 +320,15 @@ func (s *KeySet) lookup(ctx context.Context, kid string) (*rsa.PublicKey, error)
 		return nil, errOutage
 	}
 	return key, nil
+}
+
+// start starts the one load of a refresh. The caller holds the lock.
+func (s *KeySet) start(ctx context.Context, now time.Time) chan struct{} {
+	flight := make(chan struct{})
+	s.flight = flight
+	s.attempted = now
+	go s.run(ctx, flight)
+	return flight
 }
 
 // run is the one load of a refresh. Its deadline and cancellation come from the key set, not from the request that
@@ -364,19 +427,9 @@ func readFile(name string) ([]byte, error) {
 	return data, nil
 }
 
-// jwk is one member of the keys array of a key document.
-type jwk struct {
-	KeyID      string   `json:"kid"`
-	Type       string   `json:"kty"`
-	Algorithm  string   `json:"alg"`
-	Use        string   `json:"use"`
-	Operations []string `json:"key_ops"`
-	N          string   `json:"n"`
-	E          string   `json:"e"`
-}
-
-// parseDocument reads a key document: at most MaxDocumentBytes, at most MaxKeys keys, each key ID once, and each
-// RSA signing key of MinKeyBits to MaxKeyBits with the exponent 65537. A key of another type or use is skipped.
+// parseDocument reads a key document by its exact member names, with no folding of case: at most MaxDocumentBytes,
+// at most MaxKeys keys, each key ID once, and each RSA signing key of MinKeyBits to MaxKeyBits with the exponent
+// 65537. A key of another type or use is skipped (ST-SUP-RP13-LC04, LC07).
 func parseDocument(document []byte) (map[string]*rsa.PublicKey, error) {
 	if len(document) == 0 || len(document) > MaxDocumentBytes {
 		return nil, errDocumentSize
@@ -384,47 +437,126 @@ func parseDocument(document []byte) (map[string]*rsa.PublicKey, error) {
 	if checkJSON(document) != nil {
 		return nil, errDocumentJSON
 	}
-	var set struct {
-		Keys []json.RawMessage `json:"keys"`
-	}
-	if json.Unmarshal(document, &set) != nil || set.Keys == nil {
+	top, err := members(document)
+	if err != nil {
 		return nil, errDocumentJSON
 	}
-	if len(set.Keys) == 0 || len(set.Keys) > MaxKeys {
+	var set []json.RawMessage
+	if raw, ok := top["keys"]; !ok || len(raw) == 0 || raw[0] != '[' || json.Unmarshal(raw, &set) != nil {
+		return nil, errDocumentJSON
+	}
+	if len(set) == 0 || len(set) > MaxKeys {
 		return nil, errKeyCount
 	}
-	seen := make(map[string]bool, len(set.Keys))
-	keys := make(map[string]*rsa.PublicKey, len(set.Keys))
-	for _, raw := range set.Keys {
-		var key jwk
-		if len(raw) == 0 || raw[0] != '{' || json.Unmarshal(raw, &key) != nil {
+	seen := make(map[string]bool, len(set))
+	keys := make(map[string]*rsa.PublicKey, len(set))
+	for _, raw := range set {
+		key, err := members(raw)
+		if err != nil {
 			return nil, errDocumentJSON
 		}
-		if key.KeyID == "" || len(key.KeyID) > maxKeyIDBytes || seen[key.KeyID] {
-			return nil, errDocumentKID
+		kid, hasKid := stringMember(key, "kid")
+		if _, present := key["kid"]; present {
+			if !hasKid || kid == "" || len(kid) > maxKeyIDBytes || seen[kid] {
+				return nil, errDocumentKID
+			}
+			seen[kid] = true
 		}
-		seen[key.KeyID] = true
-		if key.Type != "RSA" || (key.Algorithm != "" && key.Algorithm != Algorithm) ||
-			(key.Use != "" && key.Use != "sig") ||
-			(key.Operations != nil && (len(key.Operations) != 1 || key.Operations[0] != "verify")) {
+		if !signingKey(key) {
 			continue
 		}
-		e, err := base64.RawURLEncoding.Strict().DecodeString(key.E)
-		if err != nil || string(e) != "\x01\x00\x01" {
-			return nil, errExponent
+		if !hasKid {
+			return nil, errDocumentKID
 		}
-		n, err := base64.RawURLEncoding.Strict().DecodeString(key.N)
-		if err != nil || len(n) == 0 || n[0] == 0 {
-			return nil, errKeySize
+		public, err := rsaKey(key)
+		if err != nil {
+			return nil, err
 		}
-		modulus := new(big.Int).SetBytes(n)
-		if bits := modulus.BitLen(); bits < MinKeyBits || bits > MaxKeyBits || modulus.Bit(0) == 0 {
-			return nil, errKeySize
-		}
-		keys[key.KeyID] = &rsa.PublicKey{N: modulus, E: 65537}
+		keys[kid] = public
 	}
 	if len(keys) == 0 {
 		return nil, errNoKey
 	}
 	return keys, nil
+}
+
+// signingKey reports whether the key is an RSA key for RS256 signatures: kty RSA, alg RS256 or absent, use sig or
+// absent, and key_ops absent or exactly verify.
+func signingKey(key map[string]json.RawMessage) bool {
+	if kty, ok := stringMember(key, "kty"); !ok || kty != "RSA" {
+		return false
+	}
+	if raw, present := key["alg"]; present {
+		if alg, ok := stringMember(key, "alg"); !ok || alg != Algorithm || len(raw) == 0 {
+			return false
+		}
+	}
+	if _, present := key["use"]; present {
+		if use, ok := stringMember(key, "use"); !ok || use != "sig" {
+			return false
+		}
+	}
+	if raw, present := key["key_ops"]; present {
+		var ops []string
+		if json.Unmarshal(raw, &ops) != nil || len(ops) != 1 || ops[0] != "verify" {
+			return false
+		}
+	}
+	return true
+}
+
+// rsaKey reads the n and e members of an RSA key within the bounds.
+func rsaKey(key map[string]json.RawMessage) (*rsa.PublicKey, error) {
+	e64, _ := stringMember(key, "e")
+	e, err := base64.RawURLEncoding.Strict().DecodeString(e64)
+	if err != nil || string(e) != "\x01\x00\x01" {
+		return nil, errExponent
+	}
+	n64, _ := stringMember(key, "n")
+	n, err := base64.RawURLEncoding.Strict().DecodeString(n64)
+	if err != nil || len(n) == 0 || n[0] == 0 {
+		return nil, errKeySize
+	}
+	return boundedKey(new(big.Int).SetBytes(n), 65537)
+}
+
+// boundedKey refuses a modulus outside MinKeyBits to MaxKeyBits, an even modulus, and an exponent other than 65537.
+func boundedKey(modulus *big.Int, exponent int) (*rsa.PublicKey, error) {
+	if exponent != 65537 {
+		return nil, errExponent
+	}
+	if bits := modulus.BitLen(); bits < MinKeyBits || bits > MaxKeyBits || modulus.Bit(0) == 0 {
+		return nil, errKeySize
+	}
+	return &rsa.PublicKey{N: modulus, E: exponent}, nil
+}
+
+// parsePEM reads one PEM block of an RSA public key, PUBLIC KEY or RSA PUBLIC KEY, with nothing after it.
+func parsePEM(data []byte) (*rsa.PublicKey, error) {
+	block, rest := pem.Decode(data)
+	if block == nil || len(block.Headers) != 0 || len(bytes.TrimSpace(rest)) != 0 {
+		return nil, errPEM
+	}
+	var public *rsa.PublicKey
+	switch block.Type {
+	case "PUBLIC KEY":
+		key, err := x509.ParsePKIXPublicKey(block.Bytes)
+		if err != nil {
+			return nil, errPEM
+		}
+		rsaKey, ok := key.(*rsa.PublicKey)
+		if !ok {
+			return nil, errPEM
+		}
+		public = rsaKey
+	case "RSA PUBLIC KEY":
+		key, err := x509.ParsePKCS1PublicKey(block.Bytes)
+		if err != nil {
+			return nil, errPEM
+		}
+		public = key
+	default:
+		return nil, errPEM
+	}
+	return boundedKey(new(big.Int).Set(public.N), public.E)
 }

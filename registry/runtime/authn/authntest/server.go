@@ -25,6 +25,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -40,6 +42,7 @@ const Host = "keys.authn.test"
 type Server struct {
 	server   *httptest.Server
 	roots    *x509.CertPool
+	caPEM    []byte
 	requests atomic.Int64
 	ended    atomic.Int64
 	closing  chan struct{}
@@ -50,14 +53,15 @@ type Server struct {
 	status   int
 	redirect string
 	hang     bool
+	delay    time.Duration
 	arrived  chan struct{}
 }
 
 // NewServer starts a key server that serves an empty key set, and stops it when the test ends.
 func NewServer(t testing.TB) *Server {
 	t.Helper()
-	certificate, roots := testAuthority(t)
-	s := &Server{roots: roots, closing: make(chan struct{}), document: Document(), status: http.StatusOK,
+	certificate, roots, caPEM := testAuthority(t)
+	s := &Server{roots: roots, caPEM: caPEM, closing: make(chan struct{}), document: Document(), status: http.StatusOK,
 		arrived: make(chan struct{}, 64)}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -75,11 +79,20 @@ func NewServer(t testing.TB) *Server {
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	s.requests.Add(1)
 	s.mu.Lock()
-	document, status, redirect, hang := s.document, s.status, s.redirect, s.hang
+	document, status, redirect, hang, delay := s.document, s.status, s.redirect, s.hang, s.delay
 	s.mu.Unlock()
 	select {
 	case s.arrived <- struct{}{}:
 	default:
+	}
+	if delay > 0 {
+		select {
+		case <-time.After(delay):
+		case <-r.Context().Done():
+			return
+		case <-s.closing:
+			return
+		}
 	}
 	switch {
 	case hang:
@@ -112,6 +125,24 @@ func (s *Server) Addr() string { return s.server.Listener.Addr().String() }
 
 // Roots holds only the test certificate authority of the server.
 func (s *Server) Roots() *x509.CertPool { return s.roots }
+
+// CAFile writes the PEM certificate of the test certificate authority to a file of the test's own temporary folder
+// and gives its path, for a key source's CA file.
+func (s *Server) CAFile(t testing.TB) string {
+	t.Helper()
+	name := filepath.Join(t.TempDir(), "authntest-ca.pem")
+	if err := os.WriteFile(name, s.caPEM, 0o600); err != nil {
+		t.Fatalf("authntest: write the CA file: %v", err)
+	}
+	return name
+}
+
+// Delay makes the server hold each answer for the time before it answers.
+func (s *Server) Delay(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.delay = d
+}
 
 // Requests is the number of requests that the server got.
 func (s *Server) Requests() int { return int(s.requests.Load()) }
@@ -168,7 +199,7 @@ func (s *Server) Close() {
 }
 
 // testAuthority makes a certificate authority and a server certificate for 127.0.0.1 and Host, signed by it.
-func testAuthority(t testing.TB) (tls.Certificate, *x509.CertPool) {
+func testAuthority(t testing.TB) (tls.Certificate, *x509.CertPool, []byte) {
 	t.Helper()
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -204,7 +235,8 @@ func testAuthority(t testing.TB) (tls.Certificate, *x509.CertPool) {
 	}
 	roots := x509.NewCertPool()
 	roots.AddCert(caCert)
-	return tls.Certificate{Certificate: [][]byte{leafDER}, PrivateKey: leafKey}, roots
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
+	return tls.Certificate{Certificate: [][]byte{leafDER}, PrivateKey: leafKey}, roots, caPEM
 }
 
 // Key is an RSA signing key with its key ID.

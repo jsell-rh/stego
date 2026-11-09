@@ -2,6 +2,7 @@ package authn
 
 import (
 	"encoding/json"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -11,7 +12,7 @@ import (
 	"stego.dev/runtime/internal/seal"
 )
 
-// The bounds of the mapped claims (ST-SUP-RP13-LC13).
+// The bounds of the mapped claims (ST-SUP-RP13-LC13, LC18).
 const (
 	// MaxRoles is the most roles that the role claim may hold.
 	MaxRoles = 128
@@ -19,6 +20,10 @@ const (
 	MaxRoleBytes = 256
 	// MaxTenantBytes is the longest tenant claim.
 	MaxTenantBytes = 255
+	// MaxProfileBytes is the longest profile claim or attribute.
+	MaxProfileBytes = 256
+	// MaxAttributes is the most attribute claims that the settings may name.
+	MaxAttributes = 32
 
 	maxClaimBytes   = 1024
 	maxPathBytes    = 128
@@ -26,20 +31,25 @@ const (
 	maxKeyIDBytes   = 255
 )
 
-// mark is the seal mark of the module, embedded by an alias so that Identity has no exported field.
+// mark is the seal mark of the module, embedded by an alias so that Identity has no exported field. It holds the
+// verified tenant claim (ST-SUP-RP04-LC01).
 type mark = seal.IdentityMark
 
-// Identity is a verified identity. Only Verify makes one that holds a claim, and it embeds the seal mark of the
-// runtime module, so tenant.Claim accepts it and no package outside the runtime module can make an Identity of its
-// own (ST-SUP-RP13-LC01). It has no setter. The zero Identity holds no claim and no tenant.
+// Identity is a verified identity. Only Verify makes one that holds a claim. Its tenant claim lives in the seal mark
+// of the runtime module, made by the mark's internal constructor, so tenant.Claim reads it through seal.TenantOf: a
+// type outside the runtime module that embeds an Identity and declares TenantClaim again cannot change the tenant
+// (ST-SUP-RP13-LC01). It has no setter. The zero Identity holds no claim and no tenant.
 type Identity struct {
 	mark
-	issuer    string
-	subject   string
-	roles     []string
-	tenant    string
-	hasTenant bool
-	expires   time.Time
+	issuer     string
+	subject    string
+	roles      []string
+	attributes map[string]string
+	username   string
+	email      string
+	givenName  string
+	familyName string
+	expires    time.Time
 }
 
 // Principal is the verified issuer and subject pair that names the caller (ST-SUP-RP13-LC13).
@@ -57,11 +67,27 @@ func (id Identity) UserID() string { return id.subject }
 // Principal is the verified issuer and subject pair.
 func (id Identity) Principal() Principal { return Principal{Issuer: id.issuer, Subject: id.subject} }
 
-// Roles is a copy of the roles of the configured role claim.
+// Roles is a copy of the roles of the configured role claim; nil when the claim is absent.
 func (id Identity) Roles() []string { return slices.Clone(id.roles) }
 
-// TenantClaim is the tenant of the configured tenant claim, and false when the verifier has no tenant claim path.
-func (id Identity) TenantClaim() (string, bool) { return id.tenant, id.hasTenant }
+// TenantClaim is the tenant of the configured tenant claim, read from the seal mark, and false when the verifier has
+// no tenant claim path.
+func (id Identity) TenantClaim() (string, bool) { return seal.TenantOf(id) }
+
+// Attributes is a copy of the configured attribute claims that the token holds.
+func (id Identity) Attributes() map[string]string { return maps.Clone(id.attributes) }
+
+// Username is the preferred_username claim, empty when absent.
+func (id Identity) Username() string { return id.username }
+
+// Email is the email claim, empty when absent.
+func (id Identity) Email() string { return id.email }
+
+// GivenName is the given_name claim, empty when absent.
+func (id Identity) GivenName() string { return id.givenName }
+
+// FamilyName is the family_name claim, empty when absent.
+func (id Identity) FamilyName() string { return id.familyName }
 
 // ExpiresAt is the verified expiry.
 func (id Identity) ExpiresAt() time.Time { return id.expires }
@@ -108,14 +134,18 @@ func at(claims map[string]json.RawMessage, path []string) (json.RawMessage, bool
 	return nil, false
 }
 
-// readRoles reads the roles only at the configured path, with no fallback: the claim must be an array of at most
-// MaxRoles clean strings of at most MaxRoleBytes each. With no path, the identity has no roles.
+// readRoles reads the roles only at the configured path, with no fallback (ST-SUP-RC11-OC08). A claim that is
+// absent at the path gives no roles; a claim that is present must be an array of at most MaxRoles clean strings of
+// at most MaxRoleBytes each. With no path, the identity has no roles.
 func readRoles(claims map[string]json.RawMessage, path []string) ([]string, error) {
 	if len(path) == 0 {
 		return nil, nil
 	}
 	raw, ok := at(claims, path)
-	if !ok || len(raw) == 0 || raw[0] != '[' {
+	if !ok {
+		return nil, nil
+	}
+	if len(raw) == 0 || raw[0] != '[' {
 		return nil, errRoles
 	}
 	var values []json.RawMessage
@@ -149,6 +179,57 @@ func readTenant(claims map[string]json.RawMessage, path []string) (string, bool,
 		return "", false, errTenant
 	}
 	return tenant, true, nil
+}
+
+// profile is the profile claims of an Identity (ST-SUP-RP13-LC18).
+type profile struct {
+	attributes map[string]string
+	username   string
+	email      string
+	givenName  string
+	familyName string
+}
+
+// readProfile reads preferred_username, email, given_name, family_name and the configured attribute claims. Each is
+// a clean string of at most MaxProfileBytes when present and empty when absent; a present claim of another type is
+// refused.
+func readProfile(claims map[string]json.RawMessage, attributes []string) (profile, error) {
+	var p profile
+	for name, field := range map[string]*string{"preferred_username": &p.username, "email": &p.email,
+		"given_name": &p.givenName, "family_name": &p.familyName} {
+		value, present, err := profileClaim(claims, name)
+		if err != nil {
+			return profile{}, err
+		}
+		if present {
+			*field = value
+		}
+	}
+	for _, name := range attributes {
+		value, present, err := profileClaim(claims, name)
+		if err != nil {
+			return profile{}, err
+		}
+		if present {
+			if p.attributes == nil {
+				p.attributes = make(map[string]string, len(attributes))
+			}
+			p.attributes[name] = value
+		}
+	}
+	return p, nil
+}
+
+func profileClaim(claims map[string]json.RawMessage, name string) (string, bool, error) {
+	raw, present := claims[name]
+	if !present {
+		return "", false, nil
+	}
+	value, ok := stringMember(claims, name)
+	if !ok || len(raw) == 0 || len(value) > MaxProfileBytes || !clean(value) {
+		return "", false, errProfile
+	}
+	return value, true, nil
 }
 
 // clean reports whether the text is valid UTF-8 with no control character (NUL included), no replacement
