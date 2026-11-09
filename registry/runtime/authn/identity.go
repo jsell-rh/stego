@@ -232,14 +232,15 @@ func profileClaim(claims map[string]json.RawMessage, name string) (string, bool,
 	return value, true, nil
 }
 
-// clean reports whether the text is valid UTF-8 with no control character (NUL included), no replacement
-// character and no space at either end.
+// clean reports whether the text is valid UTF-8 with no control character (NUL included), no format character
+// (Unicode Cf, such as U+202E and U+200B), no line or paragraph separator (Zl, Zp), no replacement character and no
+// space at either end.
 func clean(text string) bool {
 	if !utf8.ValidString(text) || strings.TrimSpace(text) != text {
 		return false
 	}
 	for _, r := range text {
-		if unicode.IsControl(r) || r == utf8.RuneError {
+		if unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) || r == utf8.RuneError {
 			return false
 		}
 	}

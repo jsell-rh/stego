@@ -449,6 +449,15 @@ func TestTenantIdentity(t *testing.T) {
 		if got, err := New(Requested("org-c", allowedFor("org-c"))); err != nil || got.ID() != "org-c" {
 			t.Fatalf("New(Requested(org-c, allowed)) = %q, %v", got.ID(), err)
 		}
+		// A tenant ID with a control, format or separator character is refused, whatever its source.
+		for _, bad := range []string{"t\x00", "t\x7f", "t\u0085", "t\u202e1", "t\u200b1", "t\u20281", "t\u20291", "t\ufeff1"} {
+			if got, err := New(Claim(identityOf(bad))); err == nil {
+				t.Errorf("New(Claim(identity of %q)) = %q, want an error", bad, got.ID())
+			}
+			if got, err := New(Requested(bad, allowedFor(bad))); err == nil {
+				t.Errorf("New(Requested(%q, allowed)) = %q, want an error", bad, got.ID())
+			}
+		}
 		for name, decision := range map[string]Decision{"denied": decided{}, "nil": nil} {
 			if got, err := New(Requested("org-c", decision)); err == nil || !got.IsZero() {
 				t.Errorf("New(Requested(org-c, %s decision)) = %q, %v; want an error and no tenant", name, got.ID(), err)

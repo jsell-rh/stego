@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"unicode"
 	"unicode/utf8"
 
 	"stego.dev/runtime/internal/seal"
@@ -162,6 +163,9 @@ func validID(id string) error {
 	for _, r := range id {
 		if r < 0x20 || r == 0x7f {
 			return errors.New("tenant: the tenant ID holds a control character")
+		}
+		if unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) {
+			return errors.New("tenant: the tenant ID holds a control, format or separator character")
 		}
 	}
 	return nil

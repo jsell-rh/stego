@@ -225,6 +225,10 @@ func TestIdentityClaims(t *testing.T) {
 				c["realm_access"] = map[string]any{"roles": []string{"reader", long + "r"}}
 			}, errRoles},
 			{"a role with NUL", func(c map[string]any) { c["realm_access"] = map[string]any{"roles": []string{"ad\x00min"}} }, errRoles},
+			{"a role with U+202E", func(c map[string]any) { c["realm_access"] = map[string]any{"roles": []string{"admin\u202eresu"}} }, errRoles},
+			{"a role with U+2029", func(c map[string]any) { c["realm_access"] = map[string]any{"roles": []string{"ad\u2029min"}} }, errRoles},
+			{"a tenant with U+200B", func(c map[string]any) { c["tenant"] = "t\u200b1" }, errTenant},
+			{"a tenant with U+2028", func(c map[string]any) { c["tenant"] = "t\u20281" }, errTenant},
 			{"a role that is a number", func(c map[string]any) { c["realm_access"] = map[string]any{"roles": []any{"reader", 7}} }, errRoles},
 			{"a tenant claim that is an array", func(c map[string]any) { c["tenant"] = []string{"t1"} }, errTenant},
 			{"no tenant claim", func(c map[string]any) {
@@ -330,6 +334,9 @@ func TestIdentityProfile(t *testing.T) {
 		for name, change := range map[string]func(map[string]any){
 			"an email that is a number":   func(c map[string]any) { c["email"] = 7 },
 			"a username with NUL":         func(c map[string]any) { c["preferred_username"] = "j\x00doe" },
+			"a username with U+202E":      func(c map[string]any) { c["preferred_username"] = "j\u202eeod" },
+			"an email with U+200B":        func(c map[string]any) { c["email"] = "jdoe\u200b@example.com" },
+			"a family name with U+2028":   func(c map[string]any) { c["family_name"] = "Do\u2028e" },
 			"a given name of 257 bytes":   func(c map[string]any) { c["given_name"] = strings.Repeat("j", MaxProfileBytes+1) },
 			"an attribute that is a list": func(c map[string]any) { c["department"] = []string{"sales"} },
 		} {

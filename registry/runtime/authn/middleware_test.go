@@ -212,6 +212,11 @@ func TestMiddlewareProblem(t *testing.T) {
 				t.Errorf("the body for %s is %v, want %v", name, document, want)
 			}
 		}
+		// A base with no trailing slash is joined with one.
+		noSlash := read(t, staticVerifier(t, func(s *Settings) { s.ProblemType = "https://api.example.com/errors" }, key), http.Header{})
+		if noSlash["type"] != "https://api.example.com/errors/unauthorized" {
+			t.Errorf("with a base of no trailing slash the type is %v", noSlash["type"])
+		}
 		blank := read(t, staticVerifier(t, nil, key), http.Header{})
 		if blank["type"] != "about:blank" || blank["code"] != "SVC-AUT-001" {
 			t.Errorf("with no type base the body is %v", blank)

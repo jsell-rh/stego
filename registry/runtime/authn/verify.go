@@ -106,7 +106,8 @@ type Settings struct {
 	// oauth2-proxy that forwards the token alone (ST-SUP-RP13-LC14). New refuses it for Authorization.
 	BareToken bool
 	// ProblemType is the declared error type base, such as https://api.example.com/errors/; the problem type of a
-	// refusal is the base joined to unauthorized. Empty: the type is about:blank (ST-SUP-RP13-LC17).
+	// refusal is the base joined to unauthorized as a URL path, with or without a trailing slash on the base. Empty:
+	// the type is about:blank (ST-SUP-RP13-LC17).
 	ProblemType string
 	// ProblemCode is the declared service prefix of the problem code, such as SVC; the code of a refusal is
 	// SVC-AUT-001 (ST-SUP-RP13-LC17).
@@ -182,7 +183,12 @@ func newVerifier(s Settings, now func() time.Time) (*Verifier, error) {
 			base.Fragment != "" || !clean(s.ProblemType) {
 			return nil, setting("the problem type base is not an absolute URL")
 		}
-		problem = s.ProblemType + "unauthorized"
+		// JoinPath adds the one slash that a base with no trailing slash lacks.
+		joined, err := url.JoinPath(s.ProblemType, "unauthorized")
+		if err != nil {
+			return nil, setting("the problem type base is not an absolute URL")
+		}
+		problem = joined
 	}
 	if !problemPrefix(s.ProblemCode) {
 		return nil, setting("the problem code prefix is not valid")
