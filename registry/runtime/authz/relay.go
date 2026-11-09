@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,6 +16,7 @@ import (
 	otellog "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/metric"
 
+	"stego.dev/runtime/outbox"
 	"stego.dev/runtime/tenant"
 )
 
@@ -23,25 +25,6 @@ const DestinationName = "authz"
 
 // DefaultAlertBound is the delivery alert bound when the relay is built with none (ST-SUP-RP06-LC16).
 const DefaultAlertBound = 5 * time.Second
-
-// Delivery is one claimed outbox message for the relay: its identity, the tenant of its row, its resource key and
-// its payload. Its fields are those that the outbox runtime's delivery holds (ST-SUP-RP01-LC03); the service's own
-// code passes them from the outbox handler to Deliver. The outbox package is not imported here.
-type Delivery struct {
-	ID          uuid.UUID
-	Tenant      tenant.Tenant
-	ResourceKey string
-	Payload     json.RawMessage
-}
-
-// Registration is how the relay is registered on the outbox worker (ST-SUP-RP01-LC14): the destination authz,
-// idempotent and must land, with Deliver as its handler.
-type Registration struct {
-	Name       string
-	Idempotent bool
-	MustLand   bool
-	Handler    func(ctx context.Context, delivery Delivery) error
-}
 
 // Owner names the table of a protected entity, whose rows hold the token of their resource in authz_token: the
 // resource ID is in the column Key, the tenant in tenant_id. An empty Schema is the relay's schema.
@@ -57,16 +40,13 @@ type RelayConfig struct {
 	Name string
 	// Relationships is the relationships port, which only the relay holds.
 	Relationships Relationships
-	// DB is the database of the floor, the revocation tables and the protected entities, as the relay role.
+	// DB is the database of the floor, as the relay role, which raises the floor in a transaction of its own.
 	DB *sql.DB
 	// Schema is the schema of the tables that Migration creates.
 	Schema string
 	// Owners maps a resource type to the table of its rows. A tuple of a resource type with no owner, such as a
 	// group, stores its token on no row.
 	Owners map[string]Owner
-	// Permanent marks an error as a permanent refusal for the outbox runtime, which parks the entry and raises its
-	// alert (ST-SUP-RP01-LC12). The service's own code passes the outbox runtime's PermanentRefusal.
-	Permanent func(error) error
 	// Meter gives the alert metric of a late revocation. Nil records no metric.
 	Meter metric.MeterProvider
 	// Logger gives the alert event of a late revocation. Nil emits no event.
@@ -102,11 +82,12 @@ type Relay struct {
 	db            *sql.DB
 	schema        string
 	owners        map[string]ownerTable
-	permanent     func(error) error
 	bound         time.Duration
 
-	alerts metric.Int64Counter
-	logger otellog.Logger
+	alerts       metric.Int64Counter
+	readFailures metric.Int64Counter
+	logger       otellog.Logger
+	failures     atomic.Int64
 
 	mu    sync.Mutex
 	above bool
@@ -127,8 +108,6 @@ func NewRelay(cfg RelayConfig, options ...RelayOption) (*Relay, error) {
 		return nil, errors.New("authz: the relay has no relationships port")
 	case cfg.DB == nil:
 		return nil, errors.New("authz: the relay has no database")
-	case cfg.Permanent == nil:
-		return nil, errors.New("authz: the relay has no mark for a permanent refusal")
 	}
 	schema, err := quoteName("schema", cfg.Schema)
 	if err != nil {
@@ -156,7 +135,7 @@ func NewRelay(cfg RelayConfig, options ...RelayOption) (*Relay, error) {
 		owners[resourceType] = ownerTable{table: ownerSchema + "." + table, key: key}
 	}
 	r := &Relay{principal: principal, relationships: cfg.Relationships, db: cfg.DB, schema: schema, owners: owners,
-		permanent: cfg.Permanent, bound: DefaultAlertBound}
+		bound: DefaultAlertBound}
 	for _, option := range options {
 		if option == nil {
 			continue
@@ -168,6 +147,11 @@ func NewRelay(cfg RelayConfig, options ...RelayOption) (*Relay, error) {
 	if cfg.Meter != nil {
 		r.alerts, err = cfg.Meter.Meter(instrumentation).Int64Counter("authz.revocation.late",
 			metric.WithDescription("The times the oldest authz outbox message became older than the delivery alert bound."))
+		if err != nil {
+			return nil, err
+		}
+		r.readFailures, err = cfg.Meter.Meter(instrumentation).Int64Counter("authz.oldest_age.read_failures",
+			metric.WithDescription("The reads of the oldest age of the authz outbox messages that failed."))
 		if err != nil {
 			return nil, err
 		}
@@ -186,21 +170,51 @@ func (r *Relay) Principal() Principal { return r.principal }
 // AlertBound returns the delivery alert bound.
 func (r *Relay) AlertBound() time.Duration { return r.bound }
 
-// Destination returns the registration of the relay on the outbox worker: the destination authz, idempotent and
-// must land (ST-SUP-RP06-LC06).
-func (r *Relay) Destination() Registration {
-	return Registration{Name: DestinationName, Idempotent: true, MustLand: true, Handler: r.Deliver}
+// Destination returns the registration of the relay on the outbox worker (ST-SUP-RP06-LC06, ST-SUP-RP01-LC25): the
+// destination authz, idempotent and must land, with Deliver as its handler and Hook as its state hook.
+func (r *Relay) Destination() outbox.Destination {
+	return outbox.Destination{Name: DestinationName, Idempotent: true, MustLand: true, Handler: r.Deliver, StateHook: r.Hook}
 }
 
-// Deliver lands one tuple write. It refuses, as a permanent refusal, a payload it cannot read and a write the
-// provider refuses; any other error may pass on a retry, which is safe because touch and delete are idempotent.
-func (r *Relay) Deliver(ctx context.Context, delivery Delivery) error {
-	if delivery.Tenant.IsZero() {
-		return r.permanent(tenant.ErrZero)
+// Hook is the relay's state hook (ST-SUP-RP06-LC18): in tx, the transaction of the outbox in which a message of the
+// revocation changes state, it calls the function authz_revocation_state, which counts the change on the
+// revocation's record only when the message is in that state, and on the last done tuple stores the floor as it
+// reads it in tx. An error rolls the state change back.
+func (r *Relay) Hook(ctx context.Context, tx *sql.Tx, change outbox.StateChange) error {
+	if tx == nil {
+		return errors.New("authz: the state hook has no transaction")
 	}
-	message, err := readPayload(delivery)
+	if change.Destination != DestinationName {
+		return errors.New("authz: the state hook got a message of another destination")
+	}
+	revocation, err := uuid.Parse(change.Group)
 	if err != nil {
-		return r.permanent(err)
+		return errors.New("authz: the message names no revocation")
+	}
+	var counted bool
+	if err := tx.QueryRowContext(ctx, "SELECT "+r.schema+".authz_revocation_state($1, $2, $3)",
+		change.ID, revocation, string(change.State)).Scan(&counted); err != nil {
+		return errors.New("authz: the revocation record cannot be changed")
+	}
+	return nil
+}
+
+// Deliver is the outbox handler of the relay. It lands one tuple write: it writes the tuple, raises the floor to the
+// provider's head under the floor lock in a transaction of its own, and only then stores the write token on the
+// owning row in tx, the worker's transaction of the delivery's tenant, which commits with done
+// (ST-SUP-RP06-LC13). It refuses, as a permanent refusal, a payload it cannot read and a write the provider refuses,
+// so the outbox parks the entry (ST-SUP-RP06-LC06); any other error may pass on a retry, which is safe because
+// touch and delete are idempotent.
+func (r *Relay) Deliver(ctx context.Context, tx *sql.Tx, delivery outbox.Delivery) error {
+	if delivery.Tenant.IsZero() {
+		return outbox.PermanentRefusal(tenant.ErrZero)
+	}
+	if tx == nil {
+		return errors.New("authz: the delivery has no transaction")
+	}
+	message, err := readPayload(delivery.ResourceKey, delivery.Payload)
+	if err != nil {
+		return outbox.PermanentRefusal(err)
 	}
 	tuple := message.Tuple.tuple()
 	var token Token
@@ -212,14 +226,14 @@ func (r *Relay) Deliver(ctx context.Context, delivery Delivery) error {
 	}
 	if err != nil {
 		if IsRefused(err) {
-			return r.permanent(fmt.Errorf("authz: the provider refused %s of %s: %w", message.Operation, tuple, err))
+			return outbox.PermanentRefusal(fmt.Errorf("authz: the provider refused the %s of %s: %w", message.Operation, tuple.Name(), err))
 		}
-		return fmt.Errorf("authz: %s %s: %w", message.Operation, tuple, err)
+		return fmt.Errorf("authz: the %s of %s failed: %w", message.Operation, tuple.Name(), err)
 	}
 	if token.IsZero() {
-		return fmt.Errorf("authz: the provider gave no token for %s of %s", message.Operation, tuple)
+		return fmt.Errorf("authz: the provider gave no token for the %s of %s", message.Operation, tuple.Name())
 	}
-	if err := r.raiseFloor(ctx, token); err != nil {
+	if err := r.raiseFloor(ctx); err != nil {
 		return err
 	}
 	if r.afterFloor != nil {
@@ -227,69 +241,79 @@ func (r *Relay) Deliver(ctx context.Context, delivery Delivery) error {
 			return err
 		}
 	}
-	return r.storeToken(ctx, delivery, tuple, token)
+	return r.storeToken(ctx, tx, delivery, tuple, token)
 }
 
-func readPayload(delivery Delivery) (payload, error) {
+func readPayload(resourceKey string, body []byte) (payload, error) {
 	var message payload
-	decoder := json.NewDecoder(bytes.NewReader(delivery.Payload))
+	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&message); err != nil {
-		return payload{}, fmt.Errorf("authz: the relay payload does not decode: %w", err)
+		return payload{}, errors.New("authz: the relay payload does not decode")
 	}
 	if decoder.More() {
 		return payload{}, errors.New("authz: the relay payload holds more than one value")
 	}
 	if message.Version != payloadVersion {
-		return payload{}, fmt.Errorf("authz: the relay payload has the version %d", message.Version)
+		return payload{}, errors.New("authz: the relay payload has an unknown version")
 	}
 	if message.Operation != OperationTouch && message.Operation != OperationDelete {
-		return payload{}, fmt.Errorf("authz: the relay payload has the operation %q", message.Operation)
+		return payload{}, errors.New("authz: the relay payload has an unknown operation")
 	}
 	tuple := message.Tuple.tuple()
 	if err := tuple.valid(); err != nil {
 		return payload{}, err
 	}
-	if tuple.Resource.String() != delivery.ResourceKey {
+	if tuple.Resource.String() != resourceKey {
 		return payload{}, errors.New("authz: the relay payload is for another resource key")
 	}
 	return message, nil
 }
 
-// raiseFloor raises the revocation floor to token with one statement, in a transaction of its own, which only
-// raises the revision: a concurrent relay that holds a fresher token makes it change nothing, and the statement
-// waits at most for the one statement of the other relay (ST-SUP-RP06-LC13).
-func (r *Relay) raiseFloor(ctx context.Context, token Token) error {
-	if _, err := r.db.ExecContext(ctx, "UPDATE "+r.schema+".authz_floor SET token = $1, revision = $2::numeric "+
-		"WHERE only_row AND (revision IS NULL OR revision < $2::numeric)", token.Text(), token.Revision()); err != nil {
-		return fmt.Errorf("authz: raise the revocation floor: %w", err)
+// raiseFloor raises the revocation floor in one short transaction of its own (ST-SUP-RP06-LC13): it locks the floor
+// row with SELECT ... FOR UPDATE, then reads the provider's head with one fully consistent call, then writes that
+// head token and commits. The head is read after the lock is granted, so it is at least as fresh as this relay's
+// own write and as every earlier floor: the floor never falls, and no two tokens are compared. The lock is held
+// for that one provider call only.
+func (r *Relay) raiseFloor(ctx context.Context) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return errors.New("authz: the floor transaction cannot begin")
+	}
+	var current string
+	if err := tx.QueryRowContext(ctx, "SELECT token FROM "+r.schema+".authz_floor WHERE only_row FOR UPDATE").Scan(&current); err != nil {
+		_ = tx.Rollback()
+		return errors.New("authz: the floor row cannot be locked")
+	}
+	head, err := r.relationships.Head(ctx)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("authz: the head of the provider cannot be read: %w", err)
+	}
+	if head.IsZero() {
+		_ = tx.Rollback()
+		return errors.New("authz: the provider gave no head token")
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE "+r.schema+".authz_floor SET token = $1, sequence = sequence + 1 WHERE only_row",
+		head.Text()); err != nil {
+		_ = tx.Rollback()
+		return errors.New("authz: the floor cannot be written")
+	}
+	if err := tx.Commit(); err != nil {
+		return errors.New("authz: the floor transaction cannot commit")
 	}
 	return nil
 }
 
-// storeToken stores token on the owning row and on the tuple of its revocation, in a transaction of the delivery's
-// tenant.
-func (r *Relay) storeToken(ctx context.Context, delivery Delivery, tuple Tuple, token Token) error {
-	tx, err := tenant.Begin(ctx, r.db, delivery.Tenant, nil)
-	if err != nil {
-		return fmt.Errorf("authz: store the token: %w", err)
+// storeToken stores the write token on the owning row in tx, the worker's transaction of the delivery's tenant.
+func (r *Relay) storeToken(ctx context.Context, tx *sql.Tx, delivery outbox.Delivery, tuple Tuple, token Token) error {
+	owner, ok := r.owners[tuple.Resource.Type]
+	if !ok {
+		return nil
 	}
-	if owner, ok := r.owners[tuple.Resource.Type]; ok {
-		if _, err := tx.ExecContext(ctx, "UPDATE "+owner.table+" SET authz_token = $1 WHERE "+owner.key+
-			" = $2 AND tenant_id = $3", token.Text(), tuple.Resource.ID, delivery.Tenant.ID()); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("authz: store the token on the row of %s: %w", tuple.Resource, err)
-		}
-	}
-	if _, err := tx.ExecContext(ctx, "UPDATE "+r.schema+".authz_revocation_tuples SET token = $1, revision = $2::numeric, "+
-		"delivered_at = pg_catalog.now() WHERE message_id = $3 AND tenant_id = $4 "+
-		"AND (revision IS NULL OR revision < $2::numeric)",
-		token.Text(), token.Revision(), delivery.ID, delivery.Tenant.ID()); err != nil {
-		_ = tx.Rollback()
-		return fmt.Errorf("authz: store the token on the tuple of its revocation: %w", err)
-	}
-	if err := tenant.Commit(ctx, tx, delivery.Tenant); err != nil {
-		return fmt.Errorf("authz: store the token: %w", err)
+	if _, err := tx.ExecContext(ctx, "UPDATE "+owner.table+" SET authz_token = $1 WHERE "+owner.key+
+		" = $2 AND tenant_id = $3", token.Text(), tuple.Resource.ID, delivery.Tenant.ID()); err != nil {
+		return fmt.Errorf("authz: the token of %s cannot be stored on its row", tuple.Name())
 	}
 	return nil
 }
@@ -299,8 +323,16 @@ func (r *Relay) storeToken(ctx context.Context, delivery Delivery, tuple Tuple, 
 // raises none while the age stays above the bound, and the next alert needs the age back at or below the bound
 // first (ST-SUP-RP06-LC14).
 func (r *Relay) Observe(ctx context.Context, oldest time.Duration) {
+	r.cross(ctx, oldest > r.bound, false)
+}
+
+// ReadFailures returns the number of reads of the oldest age that failed in Watch.
+func (r *Relay) ReadFailures() int64 { return r.failures.Load() }
+
+// cross records whether the age is above the bound, and alerts on an upward crossing. A failed read counts as
+// above the bound: a broken gauge cannot hide a late revocation.
+func (r *Relay) cross(ctx context.Context, above, failed bool) {
 	r.mu.Lock()
-	above := oldest > r.bound
 	crossed := above && !r.above
 	r.above = above
 	r.mu.Unlock()
@@ -316,9 +348,13 @@ func (r *Relay) Observe(ctx context.Context, oldest time.Duration) {
 		record.SetEventName("authz.revocation.late")
 		record.SetSeverity(otellog.SeverityWarn)
 		record.SetSeverityText("WARN")
-		record.SetBody(attribute.StringValue("a revocation is not delivered within the delivery alert bound"))
+		body := "a revocation is not delivered within the delivery alert bound"
+		if failed {
+			body = "the oldest age of the authz outbox messages cannot be read"
+		}
+		record.SetBody(attribute.StringValue(body))
 		record.AddAttributes(attribute.String("destination", DestinationName),
-			attribute.Float64("bound_seconds", r.bound.Seconds()), attribute.Float64("oldest_seconds", oldest.Seconds()))
+			attribute.Float64("bound_seconds", r.bound.Seconds()), attribute.Bool("read_failed", failed))
 		r.logger.Emit(ctx, record)
 	}
 }
@@ -326,8 +362,8 @@ func (r *Relay) Observe(ctx context.Context, oldest time.Duration) {
 // OldestAge reads the age of the oldest authz outbox message that is not done, as the outbox runtime reports it.
 type OldestAge func(ctx context.Context) (time.Duration, error)
 
-// Watch reads oldest every interval and observes it, until ctx ends. The service's own code runs it beside the
-// outbox worker.
+// Watch reads oldest every interval and observes it, until ctx ends. A read that fails is counted and alerts as an
+// age above the bound (ST-SUP-RP06-LC14). The service's own code runs it beside the outbox worker.
 func (r *Relay) Watch(ctx context.Context, interval time.Duration, oldest OldestAge) error {
 	if interval <= 0 {
 		return errors.New("authz: the watch interval is not positive")
@@ -343,15 +379,25 @@ func (r *Relay) Watch(ctx context.Context, interval time.Duration, oldest Oldest
 			return ctx.Err()
 		case <-ticker.C:
 		}
-		age, err := oldest(ctx)
-		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			continue
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
-		r.Observe(ctx, age)
+		r.check(ctx, oldest)
 	}
+}
+
+// check takes one reading of oldest.
+func (r *Relay) check(ctx context.Context, oldest OldestAge) {
+	age, err := oldest(ctx)
+	if err != nil {
+		r.failures.Add(1)
+		if r.readFailures != nil {
+			r.readFailures.Add(ctx, 1, metric.WithAttributes(attribute.String("destination", DestinationName)))
+		}
+		r.cross(ctx, true, true)
+		return
+	}
+	r.Observe(ctx, age)
 }
 
 // TableFloor is the revocation floor that the relay keeps in the table authz_floor.
@@ -376,7 +422,7 @@ func NewTableFloor(db *sql.DB, schema string) (*TableFloor, error) {
 func (f *TableFloor) Current(ctx context.Context) (Token, error) {
 	var text string
 	if err := f.db.QueryRowContext(ctx, "SELECT token FROM "+f.schema+".authz_floor WHERE only_row").Scan(&text); err != nil {
-		return Token{}, fmt.Errorf("authz: read the revocation floor: %w", err)
+		return Token{}, errors.New("authz: the revocation floor cannot be read")
 	}
 	return ParseToken(text)
 }

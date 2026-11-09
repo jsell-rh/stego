@@ -3,7 +3,9 @@ package authz
 import (
 	"errors"
 	"fmt"
+	"strings"
 
+	"stego.dev/runtime/authn"
 	"stego.dev/runtime/internal/seal"
 )
 
@@ -34,22 +36,14 @@ func (s Subject) valid() error {
 	return validID("subject", s.ID)
 }
 
-// Identity is a verified identity of the authentication runtime with its user ID, the verified subject of the token
-// (ST-SUP-RP13-LC01). It is sealed: only the runtime module makes one.
-type Identity interface {
-	seal.Identity
-	UserID() string
-}
-
-// SubjectOf maps a verified identity to the subject of the declared subject type, with the identity's user ID as
-// the subject ID (ST-SUP-RP06-LC07).
-func SubjectOf(subjectType string, identity Identity) (Subject, error) {
-	if identity == nil {
-		return Subject{}, errors.New("authz: no verified identity")
-	}
+// SubjectOf maps a verified identity of the authentication runtime to the subject of the declared subject type, with
+// the identity's user ID, the verified subject of its token, as the subject ID (ST-SUP-RP06-LC07). It takes the
+// concrete authn.Identity, so no other type can declare a user ID of its own; the zero Identity has no user ID and
+// is refused.
+func SubjectOf(subjectType string, identity authn.Identity) (Subject, error) {
 	subject := Subject{Type: subjectType, ID: identity.UserID()}
 	if err := subject.valid(); err != nil {
-		return Subject{}, fmt.Errorf("authz: map the identity to a subject: %w", err)
+		return Subject{}, fmt.Errorf("authz: the identity does not map to a subject: %w", err)
 	}
 	return subject, nil
 }
@@ -71,7 +65,7 @@ type Principal struct {
 }
 
 // Person is the principal of a verified identity, as the subject of the declared subject type.
-func Person(subjectType string, identity Identity) (Principal, error) {
+func Person(subjectType string, identity authn.Identity) (Principal, error) {
 	subject, err := SubjectOf(subjectType, identity)
 	if err != nil {
 		return Principal{}, err
@@ -88,6 +82,26 @@ func System(name string) (Principal, error) {
 	subject, err := ServiceAccount(name)
 	if err != nil {
 		return Principal{}, err
+	}
+	return Principal{subject: subject}, nil
+}
+
+// StagingPrincipal is the principal of the principal column of a claimed outbox row, such as user:alice, for the
+// command runtime's RunConsumer, which decides a consumed message as its staging principal (ST-SUP-RP06-LC19). key
+// is the staging key of the internal seal package, which only the runtime module can make, so no package outside
+// the module can call it with effect. The principal maps to the subject of the identity that made the staging
+// write. It refuses a zero key, an empty or malformed column and the subject *.
+func StagingPrincipal(key seal.Staging, column string) (Principal, error) {
+	if !seal.StagingValid(key) {
+		return Principal{}, errors.New("authz: the staging principal needs the staging key")
+	}
+	subjectType, id, ok := strings.Cut(column, ":")
+	if !ok {
+		return Principal{}, errors.New("authz: the staging principal is not type:id")
+	}
+	subject := Subject{Type: subjectType, ID: id}
+	if err := subject.valid(); err != nil {
+		return Principal{}, errors.New("authz: the staging principal is not a valid subject")
 	}
 	return Principal{subject: subject}, nil
 }

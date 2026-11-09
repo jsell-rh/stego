@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/big"
 	"strings"
 )
 
@@ -29,31 +28,28 @@ type Action struct {
 	Name string
 }
 
-// Token is the opaque, comparable authorization token of a provider: the state at which a provider wrote or
-// checked (ST-SUP-RP06-LC04). It has no exported field. Text gives its text column form, which every protected row
+// Token is the opaque authorization token of a provider: the state at which a provider wrote or checked
+// (ST-SUP-RP06-LC04). It has no exported field, and the package never parses, orders or compares two tokens: the
+// revision of some SpiceDB datastores, such as the PostgreSQL datastore, is a snapshot with only a partial order,
+// and only the provider may judge how fresh a token is. Text gives its text column form, which every protected row
 // stores in authz_token, and ParseToken reads it back. The zero value is no token.
 type Token struct {
-	revision string
-	value    string
+	value string
 }
 
-// tokenPrefix starts the text form of a token, so a later form can be told apart.
-const tokenPrefix = "1:"
+// maxTokenLength is the longest token text the package accepts, in bytes.
+const maxTokenLength = 4096
 
-// NewToken builds the token of a provider from the provider's own token value and its revision, a decimal number
-// that grows with each write of the provider, such as 1730000000000000000.0000000001. A provider calls it; the
-// revision orders tokens, so the revocation floor only rises.
-func NewToken(value, revision string) (Token, error) {
+// NewToken builds the token of a provider from the provider's own token value, which it keeps byte for byte. A
+// provider calls it.
+func NewToken(value string) (Token, error) {
 	if value == "" {
 		return Token{}, errors.New("authz: a token needs a value")
 	}
-	if !cleanText(value) {
-		return Token{}, errors.New("authz: the token value holds a control character or is not valid UTF-8")
+	if len(value) > maxTokenLength || !cleanText(value) {
+		return Token{}, errors.New("authz: the token is too long, holds a control character or is not valid UTF-8")
 	}
-	if _, err := parseRevision(revision); err != nil {
-		return Token{}, err
-	}
-	return Token{revision: revision, value: value}, nil
+	return Token{value: value}, nil
 }
 
 // ParseToken reads the text column form of a token, as Text writes it. An empty text is the zero token, the value
@@ -62,72 +58,17 @@ func ParseToken(text string) (Token, error) {
 	if text == "" {
 		return Token{}, nil
 	}
-	rest, ok := strings.CutPrefix(text, tokenPrefix)
-	if !ok {
-		return Token{}, errors.New("authz: the token text has an unknown form")
-	}
-	revision, value, ok := strings.Cut(rest, ":")
-	if !ok {
-		return Token{}, errors.New("authz: the token text holds no revision")
-	}
-	return NewToken(value, revision)
+	return NewToken(text)
 }
 
 // Text returns the text column form of the token, or "" for the zero token.
-func (t Token) Text() string {
-	if t.IsZero() {
-		return ""
-	}
-	return tokenPrefix + t.revision + ":" + t.value
-}
+func (t Token) Text() string { return t.value }
 
 // Value returns the provider's own token value, for the provider that made it.
 func (t Token) Value() string { return t.value }
 
-// Revision returns the decimal revision of the token, which orders tokens of one provider.
-func (t Token) Revision() string { return t.revision }
-
 // IsZero reports whether t is no token.
 func (t Token) IsZero() bool { return t.value == "" }
-
-// fresher returns the fresher of a and b by revision; a zero token is older than any other.
-func fresher(a, b Token) Token {
-	if a.IsZero() {
-		return b
-	}
-	if b.IsZero() {
-		return a
-	}
-	ra, errA := parseRevision(a.revision)
-	rb, errB := parseRevision(b.revision)
-	if errA != nil || errB != nil {
-		// NewToken refuses a revision that does not parse, so this is a zero value that was not built here.
-		return a
-	}
-	if rb.Cmp(ra) > 0 {
-		return b
-	}
-	return a
-}
-
-func parseRevision(revision string) (*big.Rat, error) {
-	if revision == "" {
-		return nil, errors.New("authz: a token needs a revision")
-	}
-	for i, r := range revision {
-		if (r < '0' || r > '9') && !(r == '.' && i > 0 && i < len(revision)-1) {
-			return nil, fmt.Errorf("authz: the token revision %q is not a decimal number", revision)
-		}
-	}
-	if strings.Count(revision, ".") > 1 {
-		return nil, fmt.Errorf("authz: the token revision %q is not a decimal number", revision)
-	}
-	rat, ok := new(big.Rat).SetString(revision)
-	if !ok {
-		return nil, fmt.Errorf("authz: the token revision %q is not a decimal number", revision)
-	}
-	return rat, nil
-}
 
 // consistencyKind is the kind of a Consistency. Its zero value is no consistency, which every evaluation refuses.
 type consistencyKind uint8
@@ -172,27 +113,38 @@ func (c Consistency) Token() (Token, bool) {
 	return c.token, true
 }
 
-// String names the consistency, for errors and logs.
+// String names the kind of the consistency, for errors and logs. It holds no token.
 func (c Consistency) String() string {
 	switch c.kind {
 	case consistencyFresh:
 		return "fresh"
 	case consistencyAtLeast:
-		return "at_least(" + c.token.revision + ")"
+		return "at_least"
 	default:
 		return "none"
 	}
 }
 
-// raise returns c made at least as fresh as floor. Fresh stays fresh; AtLeast takes the fresher token.
+// atFloor is the consistency of a check of the handle (ST-SUP-RP06-LC09): at least as fresh as the floor; only while
+// the floor is zero, at least as fresh as the row token; and fresh when the row has no token either.
+func atFloor(floor, row Token) Consistency {
+	switch {
+	case !floor.IsZero():
+		return AtLeast(floor)
+	case !row.IsZero():
+		return AtLeast(row)
+	default:
+		return Fresh()
+	}
+}
+
+// raise makes c, which a caller of Port gave, at least as fresh as floor without comparing two tokens: Fresh stays
+// fresh, and an AtLeast under a floor that is not zero becomes Fresh, which is at least as fresh as both.
 func (c Consistency) raise(floor Token) Consistency {
-	if floor.IsZero() || c.kind == consistencyFresh {
+	if floor.IsZero() || c.kind != consistencyAtLeast {
 		return c
 	}
-	if c.kind == consistencyNone {
-		return AtLeast(floor)
-	}
-	return AtLeast(fresher(c.token, floor))
+	return Fresh()
 }
 
 // ErrNoConsistency is the error of an evaluation with the zero Consistency (ST-SUP-RP06-LC03).
@@ -236,27 +188,30 @@ type BatchRequest struct {
 }
 
 // PageToken is the opaque token of the next page of a resource search. It has no exported field: only the provider
-// whose name it holds can read its cursor. The zero value is the first page.
+// whose name it holds can read its cursor and the consistency of the search's first page, which every later page
+// sends again unchanged (ST-SUP-RP06-LC05). The zero value is the first page.
 type PageToken struct {
-	provider string
-	cursor   string
+	provider    string
+	cursor      string
+	consistency Consistency
 }
 
-// NewPageToken wraps the cursor of the provider named provider. A provider calls it.
-func NewPageToken(provider, cursor string) PageToken {
+// NewPageToken wraps the cursor of the provider named provider with the consistency of the first page. A provider
+// calls it.
+func NewPageToken(provider, cursor string, first Consistency) PageToken {
 	if cursor == "" {
 		return PageToken{}
 	}
-	return PageToken{provider: provider, cursor: cursor}
+	return PageToken{provider: provider, cursor: cursor, consistency: first}
 }
 
-// CursorFor returns the cursor of the page token for the provider named provider, and false when the token is the
-// first page or belongs to another provider.
-func (p PageToken) CursorFor(provider string) (string, bool) {
+// CursorFor returns the cursor and the first page's consistency of the page token for the provider named provider,
+// and false when the token is the first page or belongs to another provider.
+func (p PageToken) CursorFor(provider string) (string, Consistency, bool) {
 	if p.cursor == "" || p.provider != provider {
-		return "", false
+		return "", Consistency{}, false
 	}
-	return p.cursor, true
+	return p.cursor, p.consistency, true
 }
 
 // IsZero reports whether p is the first page, or the end of the search when a result gives it.
@@ -312,14 +267,9 @@ type Tuple struct {
 	SubjectRelation string
 }
 
-// String returns the tuple as type:id#relation@type:id, with #relation after the subject when it has one.
-func (t Tuple) String() string {
-	s := t.Resource.String() + "#" + t.Relation + "@" + t.Subject.String()
-	if t.SubjectRelation != "" {
-		s += "#" + t.SubjectRelation
-	}
-	return s
-}
+// Name names the tuple by its resource type, resource ID and relation only, as type:id#relation: an error, a log
+// and telemetry name a tuple so, never by its subject (ST-SUP-RP06-LC20).
+func (t Tuple) Name() string { return t.Resource.String() + "#" + t.Relation }
 
 func (t Tuple) valid() error {
 	if err := t.Resource.valid(); err != nil {
@@ -368,11 +318,13 @@ type Precondition struct {
 }
 
 // Relationships is the relationships port (ST-SUP-RP06-LC02). Touch and Delete are idempotent on retry and return
-// the token the provider wrote at. Only the relay destination holds it: a handler, a slot fill and the handle never
-// get one.
+// the token the provider wrote at. Head reads the provider's head revision with one fully consistent call, for the
+// revocation floor (ST-SUP-RP06-LC13). Only the relay destination holds it: a handler, a slot fill and the handle
+// never get one.
 type Relationships interface {
 	Touch(ctx context.Context, tuples []Tuple, preconditions []Precondition) (Token, error)
 	Delete(ctx context.Context, filters []Filter, preconditions []Precondition) (Token, error)
+	Head(ctx context.Context) (Token, error)
 }
 
 // refusedError marks an error of a provider that refused the request itself, such as a malformed tuple or a failed
@@ -456,8 +408,8 @@ func (p *Port) evaluate(ctx context.Context, request EvaluationRequest, floor To
 	return p.provider.Evaluate(ctx, request)
 }
 
-// EvaluateBatch decides a batch at least as fresh as the consistency of its requests and the revocation floor. A
-// batch that gives no semantic is sent as ExecuteAll.
+// EvaluateBatch decides a batch at the consistency of its first request, made at least as fresh as the revocation
+// floor, which it gives every request of the batch. A batch that gives no semantic is sent as ExecuteAll.
 func (p *Port) EvaluateBatch(ctx context.Context, request BatchRequest) ([]EvaluationResult, error) {
 	floor, err := p.currentFloor(ctx)
 	if err != nil {
@@ -472,23 +424,25 @@ func (p *Port) evaluateBatch(ctx context.Context, request BatchRequest, floor To
 		request.Semantic = ExecuteAll
 	case ExecuteAll, DenyOnFirstDeny, PermitOnFirstPermit:
 	default:
-		return nil, fmt.Errorf("authz: the batch semantic %q is not one of execute_all, deny_on_first_deny and permit_on_first_permit", request.Semantic)
+		return nil, errors.New("authz: the batch semantic is not one of execute_all, deny_on_first_deny and permit_on_first_permit")
 	}
+	if len(request.Evaluations) == 0 {
+		return nil, nil
+	}
+	// A batch runs at one consistency, that of its first request, raised to the floor; no two tokens are compared.
+	consistency := request.Evaluations[0].Consistency.raise(floor)
 	evaluations := make([]EvaluationRequest, len(request.Evaluations))
 	for i, evaluation := range request.Evaluations {
 		if err := checkRequest(evaluation.Subject, evaluation.Action, evaluation.Consistency); err != nil {
-			return nil, fmt.Errorf("authz: evaluation %d of the batch: %w", i, err)
+			return nil, err
 		}
 		if err := evaluation.Resource.valid(); err != nil {
-			return nil, fmt.Errorf("authz: evaluation %d of the batch: %w", i, err)
+			return nil, err
 		}
-		evaluation.Consistency = evaluation.Consistency.raise(floor)
+		evaluation.Consistency = consistency
 		evaluations[i] = evaluation
 	}
 	request.Evaluations = evaluations
-	if len(evaluations) == 0 {
-		return nil, nil
-	}
 	return p.provider.EvaluateBatch(ctx, request)
 }
 
@@ -540,7 +494,7 @@ func validType(kind, name string) error {
 	for i, r := range name {
 		ok := r == '_' || r == '/' || (r >= 'a' && r <= 'z') || (i > 0 && r >= '0' && r <= '9')
 		if !ok {
-			return fmt.Errorf("authz: the %s %q holds a character other than a-z, 0-9, _ and /", kind, name)
+			return fmt.Errorf("authz: the %s holds a character other than a-z, 0-9, _ and /", kind)
 		}
 	}
 	return nil
@@ -559,7 +513,7 @@ func validID(kind, id string) error {
 		ok := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') ||
 			strings.ContainsRune("/_|-=+", r)
 		if !ok {
-			return fmt.Errorf("authz: the %s ID %q holds a character that a provider ID cannot hold", kind, id)
+			return fmt.Errorf("authz: the %s ID holds a character that a provider ID cannot hold", kind)
 		}
 	}
 	return nil

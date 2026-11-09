@@ -93,7 +93,7 @@ func allowAndDeny(ctx context.Context, port *Port, relationships Relationships, 
 	deny := CaseResult{Name: "deny " + permission.Name}
 	token, err := relationships.Touch(ctx, []Tuple{permission.Grant}, nil)
 	if err != nil {
-		allow.Detail = fmt.Sprintf("touch %s: %v", permission.Grant, err)
+		allow.Detail = fmt.Sprintf("touch %s: %v", permission.Grant.Name(), err)
 		deny.Detail = allow.Detail
 		return []CaseResult{allow, deny}
 	}
@@ -105,12 +105,12 @@ func allowAndDeny(ctx context.Context, port *Port, relationships Relationships, 
 func newEnemy(ctx context.Context, port *Port, relationships Relationships, permission Permission) CaseResult {
 	result := CaseResult{Name: "new enemy " + permission.Name}
 	if _, err := relationships.Touch(ctx, []Tuple{permission.Grant}, nil); err != nil {
-		result.Detail = fmt.Sprintf("touch %s: %v", permission.Grant, err)
+		result.Detail = fmt.Sprintf("touch %s: %v", permission.Grant.Name(), err)
 		return result
 	}
 	token, err := relationships.Delete(ctx, []Filter{FilterOf(permission.Grant)}, nil)
 	if err != nil {
-		result.Detail = fmt.Sprintf("delete %s: %v", permission.Grant, err)
+		result.Detail = fmt.Sprintf("delete %s: %v", permission.Grant.Name(), err)
 		return result
 	}
 	result.Passed, result.Detail = expect(ctx, port, permission.Grant.Subject, permission, token, false)
@@ -121,7 +121,7 @@ func searchCase(ctx context.Context, port *Port, relationships Relationships, pe
 	result := CaseResult{Name: "search " + permission.Name}
 	token, err := relationships.Touch(ctx, []Tuple{permission.Grant}, nil)
 	if err != nil {
-		result.Detail = fmt.Sprintf("touch %s: %v", permission.Grant, err)
+		result.Detail = fmt.Sprintf("touch %s: %v", permission.Grant.Name(), err)
 		return result
 	}
 	page := Page{}
@@ -152,11 +152,11 @@ func expect(ctx context.Context, port *Port, subject Subject, permission Permiss
 	result, err := port.Evaluate(ctx, EvaluationRequest{Subject: subject, Action: Action{Name: permission.Name},
 		Resource: permission.Grant.Resource, Consistency: AtLeast(token)})
 	if err != nil {
-		return false, fmt.Sprintf("evaluate %s on %s for %s: %v", permission.Name, permission.Grant.Resource, subject, err)
+		return false, fmt.Sprintf("evaluate %s on %s: %v", permission.Name, permission.Grant.Resource, err)
 	}
 	if result.Allowed != allowed {
-		return false, fmt.Sprintf("%s on %s for %s: allowed %t, want %t", permission.Name, permission.Grant.Resource,
-			subject, result.Allowed, allowed)
+		return false, fmt.Sprintf("%s on %s: allowed %t, want %t", permission.Name, permission.Grant.Resource,
+			result.Allowed, allowed)
 	}
 	return true, ""
 }

@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,10 +19,16 @@ import (
 	"time"
 
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/encoding/protowire"
+
+	"stego.dev/runtime/internal/pgtest"
+	"stego.dev/runtime/outbox"
 )
 
 // spiceDBImage is the pinned SpiceDB image of the local stand-in (ST-STD-LOCAL-R04): version 1.57.0 at its digest.
@@ -59,6 +66,8 @@ type spiceServer struct {
 	endpoint string
 	key      string
 	err      error
+	extra    []string
+	network  string
 }
 
 // The tests use two servers. testing runs serve-testing, which keeps an in-memory datastore per preshared key, so
@@ -69,29 +78,57 @@ type spiceServer struct {
 var (
 	testingServer   spiceServer
 	quantizedServer spiceServer
+	postgresServer  spiceServer
 )
 
 // quantum is the revision quantization interval of the quantized server.
 const quantum = 4 * time.Second
 
 func TestMain(m *testing.M) {
-	code := m.Run()
-	for _, server := range []*spiceServer{&testingServer, &quantizedServer} {
-		if server.name != "" {
-			_ = exec.Command("docker", "rm", "-f", server.name).Run()
+	code := pgtest.Main(m)
+	for _, server := range []*spiceServer{&testingServer, &quantizedServer, &postgresServer} {
+		for _, name := range append([]string{server.name}, server.extra...) {
+			if name != "" {
+				_ = exec.Command("docker", "rm", "-f", name).Run()
+			}
+		}
+		if server.network != "" {
+			_ = exec.Command("docker", "network", "rm", server.network).Run()
 		}
 	}
 	os.Exit(code)
 }
 
+// needDocker fails the test when docker is not on the PATH, as pgtest does: a missing result is not a pass. Only
+// STEGO_TEST_NO_CONTAINERS=1 makes it skip.
+func needDocker(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("docker"); err != nil {
+		if os.Getenv(pgtest.NoContainersVariable) == "1" {
+			t.Skip("docker is not on the PATH, and STEGO_TEST_NO_CONTAINERS=1: this test needs a local SpiceDB container")
+		}
+		t.Fatal("docker is not on the PATH: this test needs a local SpiceDB container")
+	}
+}
+
 func startContainer(args ...string) (string, string, error) {
+	return startContainerOn("", args...)
+}
+
+// startContainerOn starts the SpiceDB image without privilege, on the docker network when one is given, and gives
+// its name and its gRPC endpoint on 127.0.0.1.
+func startContainerOn(network string, args ...string) (string, string, error) {
 	suffix := make([]byte, 6)
 	if _, err := rand.Read(suffix); err != nil {
 		return "", "", err
 	}
 	name := "stego-authz-spicedb-" + hex.EncodeToString(suffix)
-	run := exec.Command("docker", append([]string{"run", "-d", "--rm", "--name", name, "--memory", "256m", "--cpus", "1",
-		"--cap-drop", "ALL", "--security-opt", "no-new-privileges", "-p", "127.0.0.1::50051", spiceDBImage}, args...)...)
+	flags := []string{"run", "-d", "--rm", "--name", name, "--memory", "256m", "--cpus", "1",
+		"--cap-drop", "ALL", "--security-opt", "no-new-privileges", "-p", "127.0.0.1::50051"}
+	if network != "" {
+		flags = append(flags, "--network", network)
+	}
+	run := exec.Command("docker", append(append(flags, spiceDBImage), args...)...)
 	var stderr bytes.Buffer
 	run.Stderr = &stderr
 	if err := run.Run(); err != nil {
@@ -135,9 +172,7 @@ type spiceEnv struct {
 // the test when docker is not on the PATH.
 func startSpiceDB(t *testing.T, schema string) *spiceEnv {
 	t.Helper()
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker is not on the PATH: this test needs a local SpiceDB container")
-	}
+	needDocker(t)
 	testingServer.once.Do(func() {
 		testingServer.name, testingServer.endpoint, testingServer.err = startContainer("serve-testing")
 	})
@@ -148,9 +183,7 @@ func startSpiceDB(t *testing.T, schema string) *spiceEnv {
 // Tests on it use object IDs of their own.
 func startQuantizedSpiceDB(t *testing.T, schema string) *spiceEnv {
 	t.Helper()
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker is not on the PATH: this test needs a local SpiceDB container")
-	}
+	needDocker(t)
 	quantizedServer.once.Do(func() {
 		quantizedServer.key = randomKey(t)
 		quantizedServer.name, quantizedServer.endpoint, quantizedServer.err = startContainer("serve",
@@ -158,6 +191,55 @@ func startQuantizedSpiceDB(t *testing.T, schema string) *spiceEnv {
 			"--datastore-revision-quantization-interval", quantum.String(), "--telemetry-endpoint", "")
 	})
 	return connectSpiceDB(t, &quantizedServer, quantizedServer.key, schema)
+}
+
+// startPostgresSpiceDB connects the test to SpiceDB on the PostgreSQL datastore, whose revisions are snapshots: a
+// PostgreSQL container of pgtest's pinned image on a docker network of its own, the datastore migrated with the
+// pinned SpiceDB image, and SpiceDB serving it, each without privilege; TestMain removes them. Tests on it use object
+// IDs of their own.
+func startPostgresSpiceDB(t *testing.T, schema string) *spiceEnv {
+	t.Helper()
+	needDocker(t)
+	postgresServer.once.Do(func() {
+		s := &postgresServer
+		suffix := make([]byte, 6)
+		if _, err := rand.Read(suffix); err != nil {
+			s.err = err
+			return
+		}
+		s.network = "stego-authz-net-" + hex.EncodeToString(suffix)
+		if out, err := exec.Command("docker", "network", "create", s.network).CombinedOutput(); err != nil {
+			s.err = fmt.Errorf("create the docker network: %v: %s", err, out)
+			return
+		}
+		database := "stego-authz-spicedb-pg-" + hex.EncodeToString(suffix)
+		s.extra = append(s.extra, database)
+		if out, err := exec.Command("docker", "run", "-d", "--rm", "--name", database, "--network", s.network,
+			"--memory", "512m", "--cpus", "1", "--tmpfs", "/var/lib/postgresql/data", "-e", "POSTGRES_PASSWORD=spicedb",
+			pgtest.Image, "-c", "track_commit_timestamp=on").CombinedOutput(); err != nil {
+			s.err = fmt.Errorf("start the PostgreSQL container of SpiceDB: %v: %s", err, out)
+			return
+		}
+		uri := "postgres://postgres:spicedb@" + database + ":5432/postgres?sslmode=disable"
+		deadline := time.Now().Add(2 * time.Minute)
+		for {
+			out, err := exec.Command("docker", "run", "--rm", "--network", s.network, "--memory", "256m", "--cap-drop", "ALL",
+				"--security-opt", "no-new-privileges", spiceDBImage, "datastore", "migrate", "head",
+				"--datastore-engine", "postgres", "--datastore-conn-uri", uri).CombinedOutput()
+			if err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				s.err = fmt.Errorf("migrate the SpiceDB datastore: %v: %s", err, out)
+				return
+			}
+			time.Sleep(time.Second)
+		}
+		s.key = hex.EncodeToString(suffix) + "-key"
+		s.name, s.endpoint, s.err = startContainerOn(s.network, "serve", "--grpc-preshared-key", s.key,
+			"--datastore-engine", "postgres", "--datastore-conn-uri", uri, "--telemetry-endpoint", "")
+	})
+	return connectSpiceDB(t, &postgresServer, postgresServer.key, schema)
 }
 
 func connectSpiceDB(t *testing.T, server *spiceServer, key, schema string) *spiceEnv {
@@ -224,24 +306,60 @@ func zed(revision string) string {
 	return base64.StdEncoding.EncodeToString(outer)
 }
 
-// fakeSpiceDB is a fake SpiceDB gRPC server that records each request it gets.
+// fakeSpiceDB is a fake SpiceDB gRPC server that records each request it gets. Like SpiceDB, it binds the
+// consistency of a lookup into the cursors it gives and refuses a cursor sent with another consistency.
 type fakeSpiceDB struct {
 	v1.UnimplementedPermissionsServiceServer
 	mu             sync.Mutex
 	checks         []*v1.CheckPermissionRequest
+	bulks          []*v1.CheckBulkPermissionsRequest
 	writes         []*v1.WriteRelationshipsRequest
 	lookups        []*v1.LookupResourcesRequest
 	permissionship v1.CheckPermissionResponse_Permissionship
 	missing        []string
+	// fail, when set, is the error of every call.
+	fail error
+	// denied are the resource IDs that CheckBulkPermissions denies.
+	denied  map[string]bool
+	cursors map[string]string
+}
+
+func consistencyKey(c *v1.Consistency) string {
+	if c.GetFullyConsistent() {
+		return "fresh"
+	}
+	return "at_least:" + c.GetAtLeastAsFresh().GetToken()
 }
 
 func (f *fakeSpiceDB) CheckPermission(_ context.Context, request *v1.CheckPermissionRequest) (*v1.CheckPermissionResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.checks = append(f.checks, request)
+	if f.fail != nil {
+		return nil, f.fail
+	}
 	response := &v1.CheckPermissionResponse{CheckedAt: &v1.ZedToken{Token: zed("7")}, Permissionship: f.permissionship}
 	if f.permissionship == v1.CheckPermissionResponse_PERMISSIONSHIP_CONDITIONAL_PERMISSION {
 		response.PartialCaveatInfo = &v1.PartialCaveatInfo{MissingRequiredContext: f.missing}
+	}
+	return response, nil
+}
+
+func (f *fakeSpiceDB) CheckBulkPermissions(_ context.Context, request *v1.CheckBulkPermissionsRequest) (*v1.CheckBulkPermissionsResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.bulks = append(f.bulks, request)
+	if f.fail != nil {
+		return nil, f.fail
+	}
+	response := &v1.CheckBulkPermissionsResponse{CheckedAt: &v1.ZedToken{Token: zed("10")}}
+	for _, item := range request.GetItems() {
+		permissionship := v1.CheckPermissionResponse_PERMISSIONSHIP_HAS_PERMISSION
+		if f.denied[item.GetResource().GetObjectId()] {
+			permissionship = v1.CheckPermissionResponse_PERMISSIONSHIP_NO_PERMISSION
+		}
+		response.Pairs = append(response.Pairs, &v1.CheckBulkPermissionsPair{Request: item,
+			Response: &v1.CheckBulkPermissionsPair_Item{Item: &v1.CheckBulkPermissionsResponseItem{Permissionship: permissionship}}})
 	}
 	return response, nil
 }
@@ -250,6 +368,9 @@ func (f *fakeSpiceDB) WriteRelationships(_ context.Context, request *v1.WriteRel
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.writes = append(f.writes, request)
+	if f.fail != nil {
+		return nil, f.fail
+	}
 	return &v1.WriteRelationshipsResponse{WrittenAt: &v1.ZedToken{Token: zed("8")}}, nil
 }
 
@@ -257,19 +378,32 @@ func (f *fakeSpiceDB) WriteRelationships(_ context.Context, request *v1.WriteRel
 func (f *fakeSpiceDB) LookupResources(request *v1.LookupResourcesRequest, stream grpc.ServerStreamingServer[v1.LookupResourcesResponse]) error {
 	f.mu.Lock()
 	f.lookups = append(f.lookups, request)
-	f.mu.Unlock()
+	if f.cursors == nil {
+		f.cursors = map[string]string{}
+	}
 	start := 0
 	if cursor := request.GetOptionalCursor().GetToken(); cursor != "" {
+		if bound, ok := f.cursors[cursor]; !ok || bound != consistencyKey(request.GetConsistency()) {
+			f.mu.Unlock()
+			return status.Error(codes.InvalidArgument, "the cursor was made for another consistency")
+		}
 		if _, err := fmt.Sscanf(cursor, "after-%d", &start); err != nil {
+			f.mu.Unlock()
 			return err
 		}
 	}
+	key := consistencyKey(request.GetConsistency())
+	f.mu.Unlock()
 	for i := start; i < 4 && (request.GetOptionalLimit() == 0 || i-start < int(request.GetOptionalLimit())); i++ {
+		cursor := fmt.Sprintf("after-%d", i+1)
+		f.mu.Lock()
+		f.cursors[cursor] = key
+		f.mu.Unlock()
 		if err := stream.Send(&v1.LookupResourcesResponse{
 			LookedUpAt:        &v1.ZedToken{Token: zed("9")},
 			ResourceObjectId:  fmt.Sprintf("d%d", i+1),
 			Permissionship:    v1.LookupPermissionship_LOOKUP_PERMISSIONSHIP_HAS_PERMISSION,
-			AfterResultCursor: &v1.Cursor{Token: fmt.Sprintf("after-%d", i+1)},
+			AfterResultCursor: &v1.Cursor{Token: cursor},
 		}); err != nil {
 			return err
 		}
@@ -325,7 +459,7 @@ func TestSpiceDBProvider(t *testing.T) {
 
 	t.Run("ST-SUP-RP06-LC05-T02 Fresh maps to fully_consistent and at-least maps to at_least_as_fresh", func(t *testing.T) {
 		fake, provider := startFake(t)
-		token, err := NewToken(zed("5"), "5")
+		token, err := NewToken(zed("5"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -367,27 +501,48 @@ func TestSpiceDBProvider(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RP06-LC05-T04 The page token carries the after_result_cursor", func(t *testing.T) {
+	t.Run("ST-SUP-RP06-LC05-T04 A search page token keeps the first page's consistency, and later pages are filtered at the floor", func(t *testing.T) {
 		fake, provider := startFake(t)
+		fake.denied = map[string]bool{"d4": true}
+		floorFirst, err := NewToken(zed("1"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		floorLater, err := NewToken(zed("6"))
+		if err != nil {
+			t.Fatal(err)
+		}
 		request := SearchRequest{Subject: user("bob"), Action: Action{Name: "view"}, ResourceType: "document",
-			Consistency: Fresh(), Page: Page{Limit: 2}}
+			Consistency: AtLeast(floorFirst), Page: Page{Limit: 2}}
 		first, err := provider.Search(ctx, request)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(first.Resources) != 2 || first.Next.IsZero() {
-			t.Fatalf("the first page is %+v", first)
+		if len(first.Resources) != 2 || first.Next.IsZero() || len(fake.bulks) != 0 {
+			t.Fatalf("the first page is %+v with %d bulk calls", first, len(fake.bulks))
 		}
+		// The floor rises from t-1 to t-6 between the pages.
+		request.Consistency = AtLeast(floorLater)
 		request.Page.Token = first.Next
 		second, err := provider.Search(ctx, request)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("the second page: %v", err)
 		}
-		if len(fake.lookups) != 2 || fake.lookups[1].GetOptionalCursor().GetToken() != "after-2" {
-			t.Fatalf("the second lookup carries %v, want the after_result_cursor after-2", fake.lookups[1].GetOptionalCursor())
+		lookup := fake.lookups[1]
+		if lookup.GetOptionalCursor().GetToken() != "after-2" || lookup.GetConsistency().GetAtLeastAsFresh().GetToken() != floorFirst.Value() {
+			t.Fatalf("the second lookup carries %v and %v, want after-2 and the first page's consistency",
+				lookup.GetOptionalCursor(), lookup.GetConsistency())
 		}
-		if len(second.Resources) != 2 || second.Resources[0].ID != "d3" {
-			t.Fatalf("the second page is %+v", second)
+		if len(fake.bulks) != 1 || fake.bulks[0].GetConsistency().GetAtLeastAsFresh().GetToken() != floorLater.Value() {
+			t.Fatalf("the bulk calls are %v, want one at least as fresh as t-6", fake.bulks)
+		}
+		if len(second.Resources) != 1 || second.Resources[0].ID != "d3" {
+			t.Fatalf("the second page is %+v, want d3 only, which the bulk check allows", second.Resources)
+		}
+		// The fake refuses a cursor sent with another consistency, as SpiceDB does.
+		request.Page.Token = NewPageToken(spiceDBName, "after-2", AtLeast(floorLater))
+		if _, err := provider.Search(ctx, request); err == nil {
+			t.Fatal("the fake took a cursor with another consistency")
 		}
 	})
 
@@ -469,6 +624,58 @@ func TestSpiceDBProvider(t *testing.T) {
 		result, err := db.provider.Evaluate(ctx, request)
 		if err != nil || !result.Allowed {
 			t.Fatalf("with the region the check gave %+v, %v", result, err)
+		}
+	})
+
+	t.Run("ST-SUP-RP06-LC20-T01 A provider error leaks no subject, caveat value or provider message", func(t *testing.T) {
+		fake, provider := startFake(t)
+		fake.fail = status.Error(codes.InvalidArgument, "could not parse ip address string 'not-an-ip-198.51.100.77-secret'")
+		leaks := func(t *testing.T, err error) {
+			t.Helper()
+			if err == nil {
+				t.Fatal("no error")
+			}
+			if !IsRefused(err) || !errors.Is(err, ErrProvider) {
+				t.Errorf("the error %q is not marked refused", err)
+			}
+			for chain := []error{err}; len(chain) > 0; {
+				next := chain[0]
+				chain = chain[1:]
+				for _, bad := range []string{"198.51.100.77", "secret", "user:bob", "not-an-ip"} {
+					if strings.Contains(next.Error(), bad) {
+						t.Errorf("the error %q holds %s", next.Error(), bad)
+					}
+				}
+				switch e := next.(type) {
+				case interface{ Unwrap() error }:
+					if inner := e.Unwrap(); inner != nil {
+						chain = append(chain, inner)
+					}
+				case interface{ Unwrap() []error }:
+					chain = append(chain, e.Unwrap()...)
+				}
+			}
+		}
+		_, err := provider.Evaluate(ctx, EvaluationRequest{Subject: user("bob"), Action: Action{Name: "view"},
+			Resource: doc("1"), Context: Context{"ip": "not-an-ip-198.51.100.77-secret"}, Consistency: Fresh()})
+		leaks(t, err)
+		relay, err := NewRelay(RelayConfig{Name: "authz-relay", Relationships: provider, DB: fakeDB(t), Schema: "public"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		delivery := outbox.Delivery{Message: outbox.Message{ID: uuid.New(), Destination: DestinationName, ResourceKey: "document:1",
+			Payload: json.RawMessage(`{"v":1,"op":"touch","revocation":"` + uuid.NewString() +
+				`","tuple":{"resource_type":"document","resource_id":"1","relation":"viewer","subject_type":"user","subject_id":"bob"}}`)},
+			Tenant: mustTenant(t, "t1")}
+		err = relay.Deliver(ctx, floorTx(t, &floorSeq{}), delivery)
+		leaks(t, err)
+		if !strings.Contains(err.Error(), "document:1#viewer") {
+			t.Errorf("the park record %q does not name document:1#viewer", err)
+		}
+		// A validation error names no ID either.
+		_, err = provider.Touch(ctx, []Tuple{{Resource: doc("1"), Relation: "viewer", Subject: Subject{Type: "user", ID: "bob secret"}}}, nil)
+		if err == nil || strings.Contains(err.Error(), "secret") {
+			t.Errorf("a bad subject ID gave %v", err)
 		}
 	})
 }

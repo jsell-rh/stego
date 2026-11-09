@@ -7,12 +7,8 @@ import (
 	"database/sql/driver"
 	"encoding/hex"
 	"errors"
-	"go/ast"
-	"go/importer"
-	"go/parser"
-	"go/token"
-	"go/types"
-	"os"
+	"io"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
@@ -20,48 +16,90 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/stdlib"
+	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"stego.dev/runtime/internal/pgtest"
 	"stego.dev/runtime/internal/seal"
+	"stego.dev/runtime/outbox"
 	"stego.dev/runtime/tenant"
 )
 
-// The unit tests bind a handle to a real *sql.Tx of a database/sql driver of the test that holds no data: the
-// handle's evaluation sends no statement.
-type nopDriver struct{}
+// The unit tests bind a handle to a real *sql.Tx of a database/sql driver of the test. The driver answers only the
+// floor read of the handle, from the floor source that its data source name names.
+type floorDriver struct{}
 
-func (nopDriver) Open(string) (driver.Conn, error) { return nopConn{}, nil }
+var (
+	registerFloor sync.Once
+	floorSources  sync.Map // data source name -> *floorSeq
+)
 
-type nopConn struct{}
-
-func (nopConn) Prepare(string) (driver.Stmt, error) {
-	return nil, errors.New("the test driver runs no statement")
+func (floorDriver) Open(name string) (driver.Conn, error) {
+	source, ok := floorSources.Load(name)
+	if !ok {
+		return nil, errors.New("no floor source")
+	}
+	return &floorConn{floor: source.(*floorSeq)}, nil
 }
-func (nopConn) Close() error              { return nil }
-func (nopConn) Begin() (driver.Tx, error) { return nopTx{}, nil }
+
+type floorConn struct{ floor *floorSeq }
+
+func (c *floorConn) Prepare(query string) (driver.Stmt, error) {
+	if !strings.Contains(query, ".authz_floor") {
+		return nil, errors.New("the test driver answers only the floor read")
+	}
+	return floorStmt{floor: c.floor}, nil
+}
+func (c *floorConn) Close() error              { return nil }
+func (c *floorConn) Begin() (driver.Tx, error) { return nopTx{}, nil }
+
+type floorStmt struct{ floor *floorSeq }
+
+func (floorStmt) Close() error                               { return nil }
+func (floorStmt) NumInput() int                              { return -1 }
+func (floorStmt) Exec([]driver.Value) (driver.Result, error) { return nil, errors.New("no exec") }
+func (s floorStmt) Query([]driver.Value) (driver.Rows, error) {
+	token, _ := s.floor.Current(context.Background())
+	return &floorRows{value: token.Text()}, nil
+}
+
+type floorRows struct {
+	value string
+	done  bool
+}
+
+func (*floorRows) Columns() []string { return []string{"token"} }
+func (*floorRows) Close() error      { return nil }
+func (r *floorRows) Next(dest []driver.Value) error {
+	if r.done {
+		return io.EOF
+	}
+	r.done = true
+	dest[0] = r.value
+	return nil
+}
 
 type nopTx struct{}
 
 func (nopTx) Commit() error   { return nil }
 func (nopTx) Rollback() error { return nil }
 
-var registerNop sync.Once
-
-func fakeDB(t *testing.T) *sql.DB {
+func floorDB(t *testing.T, floor *floorSeq) *sql.DB {
 	t.Helper()
-	registerNop.Do(func() { sql.Register("authz-nop", nopDriver{}) })
-	db, err := sql.Open("authz-nop", "")
+	registerFloor.Do(func() { sql.Register("authz-floor", floorDriver{}) })
+	name := uuid.NewString()
+	floorSources.Store(name, floor)
+	db, err := sql.Open("authz-floor", name)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
+	t.Cleanup(func() { _ = db.Close(); floorSources.Delete(name) })
 	return db
 }
 
-func fakeTx(t *testing.T) *sql.Tx {
+// floorTx opens a transaction of the test driver whose floor reads give the tokens of floor in turn.
+func floorTx(t *testing.T, floor *floorSeq) *sql.Tx {
 	t.Helper()
-	tx, err := fakeDB(t).Begin()
+	tx, err := floorDB(t, floor).Begin()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,60 +107,38 @@ func fakeTx(t *testing.T) *sql.Tx {
 	return tx
 }
 
-// allowedDecision is an allow of the tests, for tenant.Requested.
-type allowedDecision struct{ seal.DecisionMark }
-
-func (allowedDecision) Allowed() bool { return true }
+// fakeDB is a database of the test driver with a zero floor, for a part that needs a database it does not use.
+func fakeDB(t *testing.T) *sql.DB { return floorDB(t, &floorSeq{}) }
 
 func mustTenant(t *testing.T, id string) tenant.Tenant {
 	t.Helper()
-	tn, err := tenant.New(tenant.Requested(id, allowedDecision{}))
+	tn, err := tenant.New(tenant.Requested(id, tenantDecision{DecisionMark: seal.NewDecisionMark(id)}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return tn
 }
 
-// outboxRecorder records the messages that the handle enqueues.
-type outboxRecorder struct {
-	mu       sync.Mutex
-	messages []Message
-}
-
-func (o *outboxRecorder) enqueue(_ context.Context, tx *sql.Tx, message Message) error {
-	if tx == nil {
-		return errors.New("no transaction")
-	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.messages = append(o.messages, message)
-	return nil
-}
-
-func (o *outboxRecorder) all() []Message {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	return append([]Message(nil), o.messages...)
-}
-
-func noStates(context.Context, []uuid.UUID) (map[uuid.UUID]MessageState, error) {
-	return map[uuid.UUID]MessageState{}, nil
-}
-
-func newUnitRuntime(t *testing.T, provider Decision, floor Floor) *Runtime {
+func newUnitRuntime(t *testing.T, provider Decision) *Runtime {
 	t.Helper()
-	outbox := &outboxRecorder{}
-	rt, err := New(Config{Provider: provider, Floor: floor, DB: fakeDB(t), Schema: "public", Enqueue: outbox.enqueue,
-		States: noStates})
+	queue, err := outbox.New(fakeDB(t), outbox.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt, err := New(Config{Provider: provider, DB: fakeDB(t), Schema: "public", Outbox: queue})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return rt
 }
 
-func bindUnit(t *testing.T, rt *Runtime, principal Principal, allowed ...Relation) *Handle {
+// bindUnit binds a handle of the unit runtime rt for principal to a transaction whose floor reads give floor.
+func bindUnit(t *testing.T, rt *Runtime, floor *floorSeq, principal Principal, allowed ...Relation) *Handle {
 	t.Helper()
-	handle, err := rt.Bind(fakeTx(t), mustTenant(t, "t1"), principal, allowed)
+	if floor == nil {
+		floor = &floorSeq{}
+	}
+	handle, err := rt.Bind(floorTx(t, floor), mustTenant(t, "t1"), principal, allowed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,32 +146,82 @@ func bindUnit(t *testing.T, rt *Runtime, principal Principal, allowed ...Relatio
 }
 
 // fakeRelationships is a recording fake of the relationships port: it answers each write with the next of its
-// tokens and the error that fail gives.
+// write tokens, w-1, w-2 and on, and each head read with the next of its head tokens, h-1, h-2 and on, unless
+// writes or heads give others. fail, when set, gives the error of the n-th write.
 type fakeRelationships struct {
 	mu      sync.Mutex
 	touches [][]Tuple
 	deletes [][]Filter
-	tokens  []Token
+	writes  []Token
+	heads   []Token
 	fail    func(n int) error
-	calls   int
+	// failDelete, when set, is the error of every Delete.
+	failDelete error
+	// before, when set, runs before the n-th write is answered, outside the lock.
+	before func(n int)
+	events []string
+	onHead func()
+	calls  int
+	headN  int
+	starts int
+}
+
+// begin counts one write and runs before for it.
+func (f *fakeRelationships) begin() {
+	f.mu.Lock()
+	f.starts++
+	n := f.starts
+	f.events = append(f.events, "start "+itoa(n))
+	before := f.before
+	f.mu.Unlock()
+	if before != nil {
+		before(n)
+	}
+}
+
+func (f *fakeRelationships) log() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.events...)
+}
+
+func named(prefix string, n int) Token {
+	token, err := NewToken(prefix + "-" + itoa(n))
+	if err != nil {
+		panic(err)
+	}
+	return token
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var digits []byte
+	for ; n > 0; n /= 10 {
+		digits = append([]byte{byte('0' + n%10)}, digits...)
+	}
+	return string(digits)
 }
 
 func (f *fakeRelationships) answer() (Token, error) {
 	f.calls++
+	defer func() { f.events = append(f.events, "end "+itoa(f.calls)) }()
 	if f.fail != nil {
 		if err := f.fail(f.calls); err != nil {
 			return Token{}, err
 		}
 	}
-	if len(f.tokens) == 0 {
-		return tok(f.calls), nil
+	if len(f.writes) == 0 {
+		return named("w", f.calls), nil
 	}
-	token := f.tokens[0]
-	f.tokens = f.tokens[1:]
+	token := f.writes[0]
+	f.writes = f.writes[1:]
 	return token, nil
 }
 
 func (f *fakeRelationships) Touch(_ context.Context, tuples []Tuple, _ []Precondition) (Token, error) {
+	f.begin()
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.touches = append(f.touches, tuples)
@@ -163,85 +229,164 @@ func (f *fakeRelationships) Touch(_ context.Context, tuples []Tuple, _ []Precond
 }
 
 func (f *fakeRelationships) Delete(_ context.Context, filters []Filter, _ []Precondition) (Token, error) {
+	f.begin()
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.deletes = append(f.deletes, filters)
+	if f.failDelete != nil {
+		f.calls++
+		return Token{}, f.failDelete
+	}
 	return f.answer()
 }
 
-// pgEnv is the schema of one test on the local PostgreSQL server that STEGO_TEST_POSTGRES_DSN names, a superuser
-// URL such as postgres://postgres:secret@127.0.0.1:55476/postgres?sslmode=disable. The test runs as a role of its
-// own that is not a superuser, so row-level security applies. Without the variable the test is skipped.
-type pgEnv struct {
-	admin  *sql.DB
-	db     *sql.DB
-	schema string
-	outbox *outboxRecorder
+func (f *fakeRelationships) Head(context.Context) (Token, error) {
+	if f.onHead != nil {
+		f.onHead()
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.headN++
+	if len(f.heads) == 0 {
+		return named("h", f.headN), nil
+	}
+	token := f.heads[0]
+	f.heads = f.heads[1:]
+	return token, nil
 }
 
-func newPG(t *testing.T) *pgEnv {
+// pgEnv is one database of the local PostgreSQL server of pgtest with the outbox runtime's queue and the authz
+// tables, and a runtime role, an outbox worker role and an authz relay role of its own that are not superusers, so
+// row-level security and the grants apply.
+type pgEnv struct {
+	admin    *sql.DB
+	runtime  *sql.DB
+	workerDB *sql.DB
+	relayDB  *sql.DB
+	schema   string
+	roles    [3]string // runtime, worker, relay
+	clock    *testClock
+	queue    *outbox.Queue
+	wqueue   *outbox.Queue
+}
+
+const rolePassword = "authz-test"
+
+// testClock is a clock that the test advances; a nil one is the database clock.
+type testClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func (c *testClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+func (c *testClock) add(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = c.t.Add(d)
+}
+
+func newPG(t *testing.T) *pgEnv { return newPGClock(t, nil) }
+
+// newPGClock is newPG with the queue clock clock, which may be nil for the database clock.
+func newPGClock(t *testing.T, clock *testClock) *pgEnv {
 	t.Helper()
-	dsn := os.Getenv("STEGO_TEST_POSTGRES_DSN")
-	if dsn == "" {
-		t.Skip("STEGO_TEST_POSTGRES_DSN is not set: this test needs a local PostgreSQL server")
-	}
+	server := pgtest.DSN(t)
 	ctx := context.Background()
+	root, err := sql.Open("pgx", server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	suffix := make([]byte, 6)
+	if _, err := rand.Read(suffix); err != nil {
+		t.Fatal(err)
+	}
+	tag := hex.EncodeToString(suffix)
+	roles := [3]string{"authz_rt_" + tag, "authz_worker_" + tag, "authz_relay_" + tag}
+	for _, role := range roles {
+		if _, err := root.ExecContext(ctx, "CREATE ROLE "+role+" LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '"+rolePassword+"'"); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _, _ = root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+role) })
+	}
+	dsn := pgtest.Database(t, "authz")
 	admin, err := sql.Open("pgx", dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = admin.Close() })
-	suffix := make([]byte, 6)
-	if _, err := rand.Read(suffix); err != nil {
+	t.Cleanup(func() {
+		for _, role := range roles {
+			_, _ = admin.ExecContext(context.Background(), "DROP OWNED BY "+role)
+		}
+	})
+	queueDDL, err := outbox.Migration(roles[0], roles[1])
+	if err != nil {
 		t.Fatal(err)
 	}
-	name := "authz_" + hex.EncodeToString(suffix)
-	migration, err := Migration(name, name, name)
+	schema := "authz"
+	migration, err := Migration(schema, roles[0], roles[2], roles[1])
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
-		"CREATE ROLE " + name + " LOGIN PASSWORD 'authz-test'",
-		"CREATE SCHEMA " + name,
-		"GRANT USAGE ON SCHEMA " + name + " TO " + name,
+		queueDDL,
+		"CREATE SCHEMA " + schema,
+		"GRANT USAGE ON SCHEMA " + schema + " TO " + roles[0] + ", " + roles[1] + ", " + roles[2],
 		migration,
-		"CREATE TABLE " + name + ".documents (tenant_id text NOT NULL, id text NOT NULL, authz_token text NOT NULL DEFAULT '', PRIMARY KEY (tenant_id, id))",
-		"ALTER TABLE " + name + ".documents ENABLE ROW LEVEL SECURITY",
-		"ALTER TABLE " + name + ".documents FORCE ROW LEVEL SECURITY",
-		"CREATE POLICY documents_tenant ON " + name + ".documents USING (tenant_id = current_setting('app.tenant', true)) WITH CHECK (tenant_id = current_setting('app.tenant', true))",
-		"GRANT SELECT, INSERT, UPDATE ON " + name + ".documents TO " + name,
+		"GRANT SELECT ON " + schema + ".authz_floor TO " + roles[1],
+		"CREATE TABLE " + schema + ".documents (tenant_id text NOT NULL, id text NOT NULL, authz_token text NOT NULL DEFAULT '', PRIMARY KEY (tenant_id, id))",
+		"ALTER TABLE " + schema + ".documents ENABLE ROW LEVEL SECURITY",
+		"ALTER TABLE " + schema + ".documents FORCE ROW LEVEL SECURITY",
+		"CREATE POLICY documents_tenant ON " + schema + ".documents USING (tenant_id = current_setting('app.tenant', true)) WITH CHECK (tenant_id = current_setting('app.tenant', true))",
+		"GRANT SELECT, INSERT ON " + schema + ".documents TO " + roles[0],
+		"GRANT SELECT, UPDATE (authz_token) ON " + schema + ".documents TO " + roles[1],
 	} {
 		if _, err := admin.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("%s: %v", statement, err)
+			t.Fatalf("%.80s: %v", statement, err)
 		}
 	}
-	t.Cleanup(func() {
-		_, _ = admin.ExecContext(ctx, "DROP SCHEMA "+name+" CASCADE")
-		_, _ = admin.ExecContext(ctx, "DROP OWNED BY "+name)
-		_, _ = admin.ExecContext(ctx, "DROP ROLE "+name)
-	})
-	config, err := pgx.ParseConfig(dsn)
-	if err != nil {
+	open := func(role string) *sql.DB {
+		u, err := url.Parse(dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		u.User = url.UserPassword(role, rolePassword)
+		db, err := sql.Open("pgx", u.String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = db.Close() })
+		return db
+	}
+	env := &pgEnv{admin: admin, runtime: open(roles[0]), workerDB: open(roles[1]), relayDB: open(roles[2]),
+		schema: schema, roles: roles, clock: clock}
+	var queueClock outbox.Clock
+	if clock != nil {
+		queueClock = clock
+	}
+	if env.queue, err = outbox.New(env.runtime, outbox.Options{Clock: queueClock}); err != nil {
 		t.Fatal(err)
 	}
-	config.User = name
-	config.Password = "authz-test"
-	db := stdlib.OpenDB(*config)
-	t.Cleanup(func() { _ = db.Close() })
-	return &pgEnv{admin: admin, db: db, schema: name, outbox: &outboxRecorder{}}
+	if env.wqueue, err = outbox.New(env.workerDB, outbox.Options{Clock: queueClock}); err != nil {
+		t.Fatal(err)
+	}
+	return env
 }
 
-func (e *pgEnv) runtime(t *testing.T, provider Decision, states MessageStates) *Runtime {
+func (e *pgEnv) runtimeOf(t *testing.T, provider Decision, clock Clock) *Runtime {
 	t.Helper()
-	floor, err := NewTableFloor(e.db, e.schema)
+	floor, err := NewTableFloor(e.runtime, e.schema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if states == nil {
-		states = noStates
-	}
-	rt, err := New(Config{Provider: provider, Floor: floor, DB: e.db, Schema: e.schema, Enqueue: e.outbox.enqueue,
-		States: states, Poll: 10 * time.Millisecond})
+	rt, err := New(Config{Provider: provider, Floor: floor, DB: e.runtime, Schema: e.schema, Outbox: e.queue,
+		Poll: 10 * time.Millisecond, Clock: clock})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,23 +395,65 @@ func (e *pgEnv) runtime(t *testing.T, provider Decision, states MessageStates) *
 
 func (e *pgEnv) relay(t *testing.T, relationships Relationships) *Relay {
 	t.Helper()
-	relay, err := NewRelay(RelayConfig{Name: "authz-relay", Relationships: relationships, DB: e.db, Schema: e.schema,
-		Owners: map[string]Owner{"document": {Table: "documents", Key: "id"}}, Permanent: markPermanent})
+	relay, err := NewRelay(RelayConfig{Name: "authz-relay", Relationships: relationships, DB: e.relayDB, Schema: e.schema,
+		Owners: map[string]Owner{"document": {Table: "documents", Key: "id"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return relay
 }
 
-// permanentMark stands for the outbox runtime's PermanentRefusal mark.
-type permanentMark struct{ error }
+// workerConfig is the configuration of the outbox worker of the tests: short polls and retries.
+func workerConfig() outbox.WorkerConfig {
+	config := outbox.DefaultWorkerConfig()
+	config.PollInterval = 10 * time.Millisecond
+	config.RetryMin = 10 * time.Millisecond
+	config.RetryMax = 50 * time.Millisecond
+	config.AttemptTimeout = 2 * time.Second
+	config.LeaseDuration = 15 * time.Second
+	config.PurgeEvery = time.Second
+	return config
+}
 
-func markPermanent(err error) error { return permanentMark{err} }
+// newWorker builds the outbox worker of the worker role with the relay registered, and change, when given, changes
+// its configuration first.
+func (e *pgEnv) newWorker(t *testing.T, relay *Relay, change func(*outbox.WorkerConfig)) *outbox.Worker {
+	t.Helper()
+	config := workerConfig()
+	if change != nil {
+		change(&config)
+	}
+	worker, err := outbox.NewWorker(e.wqueue, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.Register(relay.Destination()); err != nil {
+		t.Fatal(err)
+	}
+	return worker
+}
 
-// begin opens a transaction of tenant id as the test role and binds a handle to it for principal.
+// run runs worker until the test ends.
+func run(t *testing.T, worker *outbox.Worker) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); _ = worker.Run(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+}
+
+// startWorker builds and runs the outbox worker with the relay registered.
+func (e *pgEnv) startWorker(t *testing.T, relay *Relay) *outbox.Worker {
+	t.Helper()
+	worker := e.newWorker(t, relay, nil)
+	run(t, worker)
+	return worker
+}
+
+// begin opens a transaction of tenant id as the runtime role and binds a handle to it for principal.
 func (e *pgEnv) begin(t *testing.T, rt *Runtime, id string, principal Principal, allowed ...Relation) (*sql.Tx, *Handle) {
 	t.Helper()
-	tx, err := tenant.Begin(context.Background(), e.db, mustTenant(t, id), nil)
+	tx, err := tenant.Begin(context.Background(), e.runtime, mustTenant(t, id), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,16 +481,110 @@ func (e *pgEnv) scalar(t *testing.T, query string, args ...any) string {
 	return value.String
 }
 
-// deliver hands the message to the relay as the outbox worker does for a claimed row of tenant id.
-func deliver(t *testing.T, relay *Relay, id string, message Message) error {
+// ids gives the identities of the outbox messages, in enqueue order.
+func (e *pgEnv) ids(t *testing.T) []uuid.UUID {
 	t.Helper()
-	return relay.Deliver(context.Background(), Delivery{ID: message.ID, Tenant: mustTenant(t, id),
-		ResourceKey: message.ResourceKey, Payload: message.Payload})
+	rows, err := e.admin.QueryContext(context.Background(), "SELECT id FROM stego_outbox.messages ORDER BY sequence")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// state reads the dispatch state of the outbox message id.
+func (e *pgEnv) state(t *testing.T, id uuid.UUID) string {
+	t.Helper()
+	return e.scalar(t, "SELECT state FROM stego_outbox.messages WHERE id = $1", id)
+}
+
+// waitState waits until the outbox message id is in state, for at most 10 seconds.
+func (e *pgEnv) waitState(t *testing.T, id uuid.UUID, state outbox.State) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if e.state(t, id) == string(state) {
+			return
+		}
+	}
+	t.Fatalf("the message %s is %s, want %s", id, e.state(t, id), state)
+}
+
+// waitAll waits until every outbox message is in state.
+func (e *pgEnv) waitAll(t *testing.T, state outbox.State) {
+	t.Helper()
+	for _, id := range e.ids(t) {
+		e.waitState(t, id, state)
+	}
+}
+
+// delivery reads the outbox message id as the worker claims it, for a test that runs one relay by hand.
+func (e *pgEnv) delivery(t *testing.T, id uuid.UUID) outbox.Delivery {
+	t.Helper()
+	var d outbox.Delivery
+	var tenantID string
+	var body []byte
+	if err := e.admin.QueryRowContext(context.Background(), "SELECT tenant_id, destination, resource_key, kind, payload, group_id "+
+		"FROM stego_outbox.messages WHERE id = $1", id).Scan(&tenantID, &d.Destination, &d.ResourceKey, &d.Kind, &body, &d.Group); err != nil {
+		t.Fatal(err)
+	}
+	d.ID, d.Payload, d.Tenant = id, body, mustTenant(t, tenantID)
+	return d
+}
+
+// deliverByHand runs the relay's handler on the message id in a worker-role transaction of its tenant, as the
+// worker does, and commits on success; it does not change the message's state.
+func (e *pgEnv) deliverByHand(t *testing.T, relay *Relay, id uuid.UUID) error {
+	t.Helper()
+	ctx := context.Background()
+	d := e.delivery(t, id)
+	tx, err := tenant.Begin(ctx, e.workerDB, d.Tenant, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := relay.Deliver(ctx, tx, d); err != nil {
+		return err
+	}
+	return tenant.Commit(ctx, tx, d.Tenant)
+}
+
+// fakeAuditor is the auditor of a worker that resolves: it writes nothing.
+type fakeAuditor struct{}
+
+func (fakeAuditor) Record(context.Context, *sql.Tx, outbox.AuditEntry) error { return nil }
+
+// discard resolves the parked message id as discarded through the worker's Resolve, in a transaction of the
+// message's tenant as the runtime role.
+func (e *pgEnv) discard(t *testing.T, worker *outbox.Worker, id uuid.UUID) {
+	t.Helper()
+	ctx := context.Background()
+	d := e.delivery(t, id)
+	tx, err := tenant.Begin(ctx, e.runtime, d.Tenant, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	resolved, err := worker.Resolve(ctx, tx, outbox.ResolveRequest{ID: id, Subject: "user:operator", Resolution: outbox.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tenant.Commit(ctx, tx, d.Tenant); err != nil {
+		t.Fatal(err)
+	}
+	resolved.Committed(ctx)
 }
 
 func mustPerson(t *testing.T, id string) Principal {
 	t.Helper()
-	p, err := Person("user", identity{userID: id})
+	p, err := Person("user", verifiedIdentity(t, id))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,12 +617,17 @@ func atLeast(t *testing.T, c Consistency) Token {
 	return token
 }
 
+// fixedClock is a clock that the test sets.
+type fixedClock struct{ t time.Time }
+
+func (c fixedClock) Now() time.Time { return c.t }
+
 func TestHandleEvaluation(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("ST-SUP-RP06-LC04-T02 A read of one row checks at least as fresh as the row's token", func(t *testing.T) {
 		fake := &recorder{}
-		handle := bindUnit(t, newUnitRuntime(t, fake, nil), mustPerson(t, "u-7"))
+		handle := bindUnit(t, newUnitRuntime(t, fake), nil, mustPerson(t, "u-7"))
 		rowToken, err := ParseToken(tok(17).Text())
 		if err != nil {
 			t.Fatal(err)
@@ -350,27 +636,27 @@ func TestHandleEvaluation(t *testing.T) {
 			t.Fatal(err)
 		}
 		if got := atLeast(t, fake.evaluations[0].Consistency); got != tok(17) {
-			t.Fatalf("the check ran at least as fresh as %v, want t-17", got)
+			t.Fatalf("the check ran at least as fresh as %q, want t-17", got.Text())
 		}
 	})
 
-	t.Run("ST-SUP-RP06-LC04-T03 A later page runs at the fresher of the first page's token and the floor", func(t *testing.T) {
+	t.Run("ST-SUP-RP06-LC04-T03 Each page of a batch-filtered list runs at least as fresh as the floor at that page", func(t *testing.T) {
 		fake := &recorder{token: func(n int) Token { return tok(2 + n) }} // t-3 at the first call
-		floor := &floorSeq{tokens: []Token{{}, tok(1), tok(6)}}
-		handle := bindUnit(t, newUnitRuntime(t, fake, floor), mustPerson(t, "u-7"))
+		floor := &floorSeq{tokens: []Token{tok(1), tok(1), tok(6)}}
+		handle := bindUnit(t, newUnitRuntime(t, fake), floor, mustPerson(t, "u-7"))
 		list := handle.List("view", nil)
 		for page := 0; page < 3; page++ {
-			if _, err := list.Page(ctx, []Row{{Resource: doc("a")}, {Resource: doc("b")}}); err != nil {
+			if _, err := list.Page(ctx, []Row{{Resource: doc("a"), Token: tok(3)}, {Resource: doc("b")}}); err != nil {
 				t.Fatal(err)
 			}
 		}
 		if len(fake.batches) != 3 {
 			t.Fatalf("the provider got %d batch calls, want 3", len(fake.batches))
 		}
-		for i, want := range map[int]Token{1: tok(3), 2: tok(6)} {
+		for i, want := range []Token{tok(1), tok(1), tok(6)} {
 			for _, evaluation := range fake.batches[i].Evaluations {
 				if got := atLeast(t, evaluation.Consistency); got != want {
-					t.Errorf("page %d ran at least as fresh as %v, want %v", i+1, got, want)
+					t.Errorf("page %d ran at least as fresh as %q, want %q", i+1, got.Text(), want.Text())
 				}
 			}
 		}
@@ -378,7 +664,7 @@ func TestHandleEvaluation(t *testing.T) {
 
 	t.Run("ST-SUP-RP06-LC09-T02 The handle evaluates with the transaction's principal as subject", func(t *testing.T) {
 		fake := &recorder{}
-		handle := bindUnit(t, newUnitRuntime(t, fake, nil), mustPerson(t, "u-7"))
+		handle := bindUnit(t, newUnitRuntime(t, fake), nil, mustPerson(t, "u-7"))
 		if _, err := handle.Evaluate(ctx, "view", doc("1"), Token{}, nil); err != nil {
 			t.Fatal(err)
 		}
@@ -387,28 +673,34 @@ func TestHandleEvaluation(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RP06-LC09-T03 The handle evaluates at least as fresh as the row token", func(t *testing.T) {
+	t.Run("ST-SUP-RP06-LC09-T03 The handle evaluates at the row token only while the floor is zero", func(t *testing.T) {
 		fake := &recorder{}
-		handle := bindUnit(t, newUnitRuntime(t, fake, fixedFloor(Token{})), mustPerson(t, "u-7"))
-		if _, err := handle.Evaluate(ctx, "view", doc("1"), tok(5), nil); err != nil {
-			t.Fatal(err)
+		floor := &floorSeq{tokens: []Token{{}, {}, tok(9)}}
+		handle := bindUnit(t, newUnitRuntime(t, fake), floor, mustPerson(t, "u-7"))
+		for _, row := range []Token{tok(5), {}, tok(5)} {
+			if _, err := handle.Evaluate(ctx, "view", doc("1"), row, nil); err != nil {
+				t.Fatal(err)
+			}
 		}
 		if got := atLeast(t, fake.evaluations[0].Consistency); got != tok(5) {
-			t.Fatalf("the check ran at least as fresh as %v, want exactly t-5", got)
+			t.Errorf("the first check ran at %q, want exactly the row token t-5", got.Text())
+		}
+		if !fake.evaluations[1].Consistency.IsFresh() {
+			t.Errorf("the check of a row with no token ran %s, want fresh", fake.evaluations[1].Consistency)
+		}
+		if got := atLeast(t, fake.evaluations[2].Consistency); got != tok(9) {
+			t.Errorf("the check under the floor t-9 ran at %q, want t-9", got.Text())
 		}
 	})
 
 	t.Run("ST-SUP-RP06-LC10-T02 A system principal gets its service account subject", func(t *testing.T) {
 		fake := &recorder{}
-		handle := bindUnit(t, newUnitRuntime(t, fake, nil), mustSystem(t, "reconciler"))
+		handle := bindUnit(t, newUnitRuntime(t, fake), nil, mustSystem(t, "reconciler"))
 		if _, err := handle.Evaluate(ctx, "view", doc("1"), Token{}, nil); err != nil {
 			t.Fatal(err)
 		}
 		if got := fake.evaluations[0].Subject.String(); got != "service_account:reconciler" {
 			t.Fatalf("the subject is %s, want service_account:reconciler", got)
-		}
-		if _, err := Person("service_account", identity{userID: "reconciler"}); err == nil {
-			t.Fatal("a person is mapped to a service account subject")
 		}
 	})
 
@@ -474,7 +766,7 @@ func TestHandleEvaluation(t *testing.T) {
 
 	t.Run("ST-SUP-RP06-LC11-T04 A list on a provider that does not search uses batch evaluation", func(t *testing.T) {
 		fake := &recorder{allow: func(EvaluationRequest) bool { return true }}
-		handle := bindUnit(t, newUnitRuntime(t, fake, nil), mustPerson(t, "u-7"))
+		handle := bindUnit(t, newUnitRuntime(t, fake), nil, mustPerson(t, "u-7"))
 		list := handle.List("view", nil)
 		for range 2 {
 			rows, err := list.Page(ctx, []Row{{Resource: doc("a")}, {Resource: doc("b")}})
@@ -496,25 +788,24 @@ func TestHandleEvaluation(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RP06-LC13-T02 An evaluation uses the fresher of the row token and the service floor", func(t *testing.T) {
+	t.Run("ST-SUP-RP06-LC13-T02 Every evaluation runs at least as fresh as the floor", func(t *testing.T) {
 		fake := &recorder{}
-		handle := bindUnit(t, newUnitRuntime(t, fake, fixedFloor(tok(9))), mustPerson(t, "u-7"))
+		handle := bindUnit(t, newUnitRuntime(t, fake), fixedFloor(tok(9)), mustPerson(t, "u-7"))
 		for _, row := range []Token{tok(5), tok(12)} {
 			if _, err := handle.Evaluate(ctx, "view", doc("1"), row, nil); err != nil {
 				t.Fatal(err)
 			}
 		}
-		if got := atLeast(t, fake.evaluations[0].Consistency); got != tok(9) {
-			t.Errorf("the row t-5 under the floor t-9 ran at %v, want t-9", got)
-		}
-		if got := atLeast(t, fake.evaluations[1].Consistency); got != tok(12) {
-			t.Errorf("the row t-12 under the floor t-9 ran at %v, want t-12", got)
+		for i, evaluation := range fake.evaluations {
+			if got := atLeast(t, evaluation.Consistency); got != tok(9) {
+				t.Errorf("check %d ran at %q under the floor t-9, want t-9", i+1, got.Text())
+			}
 		}
 	})
 
 	t.Run("ST-SUP-RP06-LC13-T05 Batch evaluation, resource search and every list page run at least as fresh as the floor", func(t *testing.T) {
 		fake := &recorder{token: func(int) Token { return tok(2) }, search: func(SearchRequest) SearchResult { return SearchResult{} }}
-		handle := bindUnit(t, newUnitRuntime(t, fake, fixedFloor(tok(9))), mustPerson(t, "u-7"))
+		handle := bindUnit(t, newUnitRuntime(t, fake), fixedFloor(tok(9)), mustPerson(t, "u-7"))
 		if _, err := handle.EvaluateBatch(ctx, "view", []Row{{Resource: doc("a"), Token: tok(4)}}, nil); err != nil {
 			t.Fatal(err)
 		}
@@ -532,123 +823,251 @@ func TestHandleEvaluation(t *testing.T) {
 		}
 		for i, batch := range fake.batches {
 			for _, evaluation := range batch.Evaluations {
-				if got := atLeast(t, evaluation.Consistency); fresher(got, tok(9)) != got {
-					t.Errorf("batch call %d ran at %v, older than the floor t-9", i, got)
+				if got := atLeast(t, evaluation.Consistency); got != tok(9) {
+					t.Errorf("batch call %d ran at %q, want the floor t-9", i, got.Text())
 				}
 			}
 		}
 		if got := atLeast(t, fake.searchCalls[0].Consistency); got != tok(9) {
-			t.Errorf("the search ran at %v, want t-9", got)
+			t.Errorf("the search ran at %q, want t-9", got.Text())
 		}
 	})
 
-	t.Run("ST-SUP-RP06-LC17-T01 Only an allow makes the tenant runtime's Decision", func(t *testing.T) {
+	t.Run("ST-SUP-RP06-LC17-T01 Only an allow makes the tenant runtime's Decision, for the tenant it decided", func(t *testing.T) {
 		fake := &recorder{allow: func(r EvaluationRequest) bool { return r.Subject.ID == "u-1" }}
-		rt := newUnitRuntime(t, fake, nil)
+		rt := newUnitRuntime(t, fake)
 		platform := Resource{Type: "platform", ID: "main"}
-		decision, ok, err := bindUnit(t, rt, mustPerson(t, "u-1")).DecideTenant(ctx, "provision", platform, nil)
-		if err != nil || !ok || decision == nil || !decision.Allowed() {
+		decision, ok, err := bindUnit(t, rt, nil, mustPerson(t, "u-1")).DecideTenant(ctx, Provision, "ta", platform, nil)
+		if err != nil || !ok || decision == nil {
 			t.Fatalf("the allow gave %v, %t, %v", decision, ok, err)
 		}
-		made, err := tenant.New(tenant.Requested("t9", decision))
-		if err != nil || made.ID() != "t9" {
-			t.Fatalf("tenant.Requested with the allow gave %v, %v", made, err)
+		if made, err := tenant.New(tenant.Requested("ta", decision)); err != nil || made.ID() != "ta" {
+			t.Fatalf("tenant.Requested of ta with the allow gave %v, %v", made, err)
 		}
-		decision, ok, err = bindUnit(t, rt, mustPerson(t, "u-2")).DecideTenant(ctx, "provision", platform, nil)
-		if err != nil || ok || decision != nil {
-			t.Fatalf("the deny gave %v, %t, %v; want no decision", decision, ok, err)
+		if _, err := tenant.New(tenant.Requested("tb", decision)); err == nil {
+			t.Fatal("the allow for ta serves tb")
 		}
-		if len(fake.evaluations) != 2 {
-			t.Fatalf("the provider got %d evaluations, want 2", len(fake.evaluations))
+		denied, ok, err := bindUnit(t, rt, nil, mustPerson(t, "u-2")).DecideTenant(ctx, Provision, "ta", platform, nil)
+		if err != nil || ok || denied != nil {
+			t.Fatalf("the deny gave %v, %t, %v; want no decision", denied, ok, err)
 		}
-		// A package outside the runtime module cannot make a Decision.
-		src := "package outside\n\nimport \"stego.dev/runtime/tenant\"\n\ntype decision struct{}\n\n" +
-			"func (decision) Allowed() bool { return true }\n\nfunc use() { _, _ = tenant.New(tenant.Requested(\"t9\", decision{})) }\n"
-		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, "outside.go", src, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		config := types.Config{Importer: importer.ForCompiler(fset, "source", nil)}
-		_, err = config.Check("example.com/outside", fset, []*ast.File{file}, nil)
-		if err == nil || !strings.Contains(err.Error(), "sealedDecision") {
-			t.Fatalf("the outside package gave %v, want an error for the missing seal method", err)
+		// Types that embed a Decision and declare Allowed true, as a forger would. A package outside the runtime
+		// module cannot declare the seal's unexported method either, so these are the types such a package can
+		// build: none gives a tenant other than the one its genuine mark holds.
+		for name, source := range map[string]tenant.Source{
+			"the genuine allow embedded, for tb": tenant.Requested("tb", allowedForged{decision}),
+			"a nil embedded Decision":            tenant.Requested("ta", allowedForged{}),
+			"the zero value":                     tenant.Requested("ta", tenantDecision{}),
+			"no decision":                        tenant.Requested("ta", nil),
+		} {
+			if made, err := tenant.New(source); err == nil {
+				t.Errorf("%s gave the tenant %s", name, made.ID())
+			}
 		}
 	})
 }
 
+// allowedForged is a type that embeds a Decision and declares Allowed true, as a forger would.
+type allowedForged struct {
+	tenant.Decision
+}
+
+func (allowedForged) Allowed() bool { return true }
+
 func TestHandleWrites(t *testing.T) {
 	ctx := context.Background()
+	viewer := Tuple{Resource: doc("1"), Relation: "viewer", Subject: user("bob")}
+	refused := Refused(errors.New("invalid argument"))
+
+	t.Run("ST-SUP-RP06-LC09-T01 A handle is bound to its transaction and tenant", func(t *testing.T) {
+		env := newPG(t)
+		rt := env.runtimeOf(t, &recorder{}, nil)
+		tx, handle := env.begin(t, rt, "t1", mustPerson(t, "alice"), rel("document#viewer"))
+		if _, err := handle.Relate(ctx, viewer); err != nil {
+			t.Fatal(err)
+		}
+		env.commit(t, tx, "t1")
+		if got := env.scalar(t, "SELECT tenant_id FROM stego_outbox.messages"); got != "t1" {
+			t.Fatalf("the outbox row carries the tenant %q, want t1", got)
+		}
+		if _, err := handle.Relate(ctx, viewer); err == nil {
+			t.Fatal("Relate after the commit gave no error")
+		}
+	})
+
+	t.Run("ST-SUP-RP06-LC09-T04 Relate enqueues a touch tuple in the transaction's outbox", func(t *testing.T) {
+		env := newPG(t)
+		rt := env.runtimeOf(t, &recorder{}, nil)
+		tx, handle := env.begin(t, rt, "t1", mustPerson(t, "alice"), rel("document#viewer"))
+		if _, err := handle.Relate(ctx, viewer); err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Rollback(); err != nil {
+			t.Fatal(err)
+		}
+		if n := env.scalar(t, "SELECT count(*) FROM stego_outbox.messages"); n != "0" {
+			t.Fatalf("%s outbox rows after the rollback", n)
+		}
+		tx, handle = env.begin(t, rt, "t1", mustPerson(t, "alice"), rel("document#viewer"))
+		if _, err := handle.Relate(ctx, viewer); err != nil {
+			t.Fatal(err)
+		}
+		env.commit(t, tx, "t1")
+		if n := env.scalar(t, "SELECT count(*) FROM stego_outbox.messages WHERE destination = 'authz' AND resource_key = 'document:1'"); n != "1" {
+			t.Fatalf("%s outbox rows for authz after the commit, want 1", n)
+		}
+		d := env.delivery(t, env.ids(t)[0])
+		message, err := readPayload(d.ResourceKey, d.Payload)
+		if err != nil || message.Operation != OperationTouch || message.Tuple.tuple() != viewer || d.Kind != "authz.touch" {
+			t.Fatalf("the entry is %+v, %v; want a touch of the tuple", message, err)
+		}
+	})
+
+	t.Run("ST-SUP-RP06-LC09-T05 Unrelate enqueues a delete tuple in the transaction's outbox", func(t *testing.T) {
+		env := newPG(t)
+		rt := env.runtimeOf(t, &recorder{}, nil)
+		tx, handle := env.begin(t, rt, "t1", mustPerson(t, "alice"), rel("document#viewer"))
+		if _, err := handle.Unrelate(ctx, viewer); err != nil {
+			t.Fatal(err)
+		}
+		env.commit(t, tx, "t1")
+		if n := env.scalar(t, "SELECT count(*) FROM stego_outbox.messages WHERE destination = 'authz'"); n != "1" {
+			t.Fatalf("%s outbox rows for authz, want 1", n)
+		}
+		d := env.delivery(t, env.ids(t)[0])
+		message, err := readPayload(d.ResourceKey, d.Payload)
+		if err != nil || message.Operation != OperationDelete || message.Tuple.tuple() != viewer || d.Kind != "authz.delete" {
+			t.Fatalf("the entry is %+v, %v; want a delete of the tuple", message, err)
+		}
+	})
 
 	t.Run("ST-SUP-RP06-LC09-T06 Relate and Unrelate do not call the provider", func(t *testing.T) {
 		env := newPG(t)
 		fake := &recorder{}
-		rt := env.runtime(t, fake, nil)
+		rt := env.runtimeOf(t, fake, nil)
 		tx, handle := env.begin(t, rt, "t1", mustPerson(t, "alice"), rel("document#viewer"))
-		tuple := Tuple{Resource: doc("1"), Relation: "viewer", Subject: user("bob")}
-		if _, err := handle.Relate(ctx, tuple); err != nil {
+		if _, err := handle.Relate(ctx, viewer); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := handle.Unrelate(ctx, tuple); err != nil {
+		if _, err := handle.Unrelate(ctx, viewer); err != nil {
 			t.Fatal(err)
 		}
 		env.commit(t, tx, "t1")
 		if n := fake.requests(); n != 0 {
 			t.Fatalf("the provider got %d requests", n)
 		}
-		if n := len(env.outbox.all()); n != 2 {
+		if n := len(env.ids(t)); n != 2 {
 			t.Fatalf("the outbox got %d messages, want 2", n)
+		}
+	})
+
+	t.Run("ST-SUP-RP06-LC09-T07 The handle reads the floor through its own transaction", func(t *testing.T) {
+		env := newPG(t)
+		env.runtime.SetMaxOpenConns(1)
+		fake := &recorder{allow: func(EvaluationRequest) bool { return true }}
+		rt := env.runtimeOf(t, fake, nil)
+		_, handle := env.begin(t, rt, "t1", mustPerson(t, "alice"))
+		deadline, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		if _, err := handle.Evaluate(deadline, "view", doc("1"), Token{}, nil); err != nil {
+			t.Fatalf("Evaluate: %v", err)
+		}
+		if _, err := handle.EvaluateBatch(deadline, "view", []Row{{Resource: doc("1")}}, nil); err != nil {
+			t.Fatalf("EvaluateBatch: %v", err)
+		}
+		if _, err := handle.List("view", nil).Page(deadline, []Row{{Resource: doc("1")}}); err != nil {
+			t.Fatalf("Page: %v", err)
+		}
+		if n := fake.requests(); n != 3 {
+			t.Fatalf("the provider got %d requests, want 3", n)
 		}
 	})
 
 	t.Run("ST-SUP-RP06-LC10-T01 A relation outside the allowed set is refused before anything is enqueued", func(t *testing.T) {
 		env := newPG(t)
-		rt := env.runtime(t, &recorder{}, nil)
+		rt := env.runtimeOf(t, &recorder{}, nil)
 		tx, handle := env.begin(t, rt, "t1", mustPerson(t, "alice"), rel("document#viewer"))
 		_, err := handle.Relate(ctx, Tuple{Resource: doc("1"), Relation: "owner", Subject: user("bob")})
 		if err == nil || !strings.Contains(err.Error(), "document#owner") {
 			t.Fatalf("the relation owner gave %v, want an error that names document#owner", err)
 		}
 		env.commit(t, tx, "t1")
-		if n := len(env.outbox.all()); n != 0 {
-			t.Fatalf("the outbox got %d messages", n)
+		if n := env.scalar(t, "SELECT count(*) FROM stego_outbox.messages"); n != "0" {
+			t.Fatalf("%s outbox rows are written", n)
 		}
 		if n := env.scalar(t, "SELECT count(*) FROM {s}.authz_revocation_tuples"); n != "0" {
 			t.Fatalf("%s tuple rows are written", n)
 		}
 	})
 
-	t.Run("ST-SUP-RP06-LC12-T01 Wait returns the written-at token once the relay delivers the delete", func(t *testing.T) {
+	t.Run("ST-SUP-RP06-LC12-T01 Wait returns the floor of the delivery once the relay delivers the delete", func(t *testing.T) {
 		env := newPG(t)
-		rt := env.runtime(t, &recorder{}, nil)
-		relay := env.relay(t, &fakeRelationships{tokens: []Token{tok(42)}})
+		rt := env.runtimeOf(t, &recorder{}, nil)
+		env.startWorker(t, env.relay(t, &fakeRelationships{writes: []Token{named("w", 42)}, heads: []Token{named("h", 42)}}))
 		tx, handle := env.begin(t, rt, "t1", mustPerson(t, "alice"), rel("document#viewer"))
-		revocation, err := handle.Unrelate(ctx, Tuple{Resource: doc("1"), Relation: "viewer", Subject: user("bob")})
+		revocation, err := handle.Unrelate(ctx, viewer)
 		if err != nil {
 			t.Fatal(err)
 		}
 		env.commit(t, tx, "t1")
-		for _, message := range env.outbox.all() {
-			if err := deliver(t, relay, "t1", message); err != nil {
-				t.Fatal(err)
-			}
-		}
-		waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		status, err := handle.Wait(waitCtx, revocation)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if status.State != RevocationComplete || status.Token != tok(42) || status.ID != revocation.ID() {
-			t.Fatalf("Wait gave %+v, want complete with t-42", status)
+		if status.State != RevocationComplete || status.Token != named("h", 42) || status.ID != revocation.ID() {
+			t.Fatalf("Wait gave %+v, want complete with h-42", status)
+		}
+	})
+
+	t.Run("ST-SUP-RP06-LC12-T02 Wait returns pending when its context ends before the delivery", func(t *testing.T) {
+		env := newPG(t)
+		rt := env.runtimeOf(t, &recorder{}, nil)
+		tx, handle := env.begin(t, rt, "t1", mustPerson(t, "alice"), rel("document#viewer"))
+		revocation, err := handle.Unrelate(ctx, viewer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		env.commit(t, tx, "t1")
+		waitCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		defer cancel()
+		status, err := handle.Wait(waitCtx, revocation)
+		if err != nil || status.State != RevocationPending || status.ID != revocation.ID() || !status.Token.IsZero() {
+			t.Fatalf("Wait gave %+v, %v; want pending with the identity and no token", status, err)
+		}
+		if got := env.state(t, env.ids(t)[0]); got != "pending" {
+			t.Fatalf("the entry is %s, want still queued", got)
+		}
+	})
+
+	t.Run("ST-SUP-RP06-LC12-T03 Wait answers parked for a parked revocation", func(t *testing.T) {
+		env := newPG(t)
+		rt := env.runtimeOf(t, &recorder{}, nil)
+		fake := &fakeRelationships{failDelete: refused}
+		env.startWorker(t, env.relay(t, fake))
+		tx, handle := env.begin(t, rt, "t1", mustPerson(t, "alice"), rel("document#viewer"))
+		revocation, err := handle.Unrelate(ctx, viewer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		env.commit(t, tx, "t1")
+		waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		status, err := handle.Wait(waitCtx, revocation)
+		if err != nil || status.State != RevocationParked || status.ID != revocation.ID() || !status.Token.IsZero() {
+			t.Fatalf("Wait gave %+v, %v; want parked with no token", status, err)
+		}
+		if got := env.state(t, env.ids(t)[0]); got != "parked" {
+			t.Fatalf("the entry is %s, want parked", got)
 		}
 	})
 
 	t.Run("ST-SUP-RP06-LC12-T04 Wait before the commit is refused", func(t *testing.T) {
 		env := newPG(t)
-		rt := env.runtime(t, &recorder{}, nil)
+		rt := env.runtimeOf(t, &recorder{}, nil)
 		_, handle := env.begin(t, rt, "t1", mustPerson(t, "alice"), rel("document#viewer"))
-		revocation, err := handle.Unrelate(ctx, Tuple{Resource: doc("1"), Relation: "viewer", Subject: user("bob")})
+		revocation, err := handle.Unrelate(ctx, viewer)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -664,7 +1083,7 @@ func TestHandleWrites(t *testing.T) {
 
 	t.Run("ST-SUP-RP06-LC12-T05 Every tuple write of a transaction joins one revocation", func(t *testing.T) {
 		env := newPG(t)
-		rt := env.runtime(t, &recorder{}, nil)
+		rt := env.runtimeOf(t, &recorder{}, nil)
 		tx, handle := env.begin(t, rt, "t1", mustPerson(t, "alice"),
 			rel("document#banned"), rel("document#viewer"), rel("document#owner"))
 		first, err := handle.Relate(ctx, Tuple{Resource: doc("1"), Relation: "banned", Subject: user("bob")})
@@ -690,40 +1109,50 @@ func TestHandleWrites(t *testing.T) {
 		if first.ID() != second.ID() || first.ID() == uuid.Nil {
 			t.Fatalf("Relate gave %s and Unrelate gave %s, want one revocation", first.ID(), second.ID())
 		}
-		messages := env.outbox.all()
-		if len(messages) != 3 {
-			t.Fatalf("the outbox got %d messages, want 3", len(messages))
-		}
-		rows, err := env.admin.QueryContext(ctx, "SELECT message_id FROM "+env.schema+
-			".authz_revocation_tuples WHERE revocation_id = $1", first.ID())
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer rows.Close()
-		named := map[uuid.UUID]bool{}
-		for rows.Next() {
-			var id uuid.UUID
-			if err := rows.Scan(&id); err != nil {
-				t.Fatal(err)
-			}
-			named[id] = true
-		}
-		for _, message := range messages {
-			if !named[message.ID] || message.Destination != DestinationName {
-				t.Errorf("the revocation does not name the outbox entry %s for %s", message.ID, message.Destination)
-			}
-		}
-		if len(named) != 3 {
-			t.Fatalf("the revocation names %d entries, want 3", len(named))
+		if n := env.scalar(t, "SELECT count(*) FROM stego_outbox.messages AS m JOIN {s}.authz_revocation_tuples AS t "+
+			"ON t.message_id = m.id WHERE m.group_id = $1 AND t.revocation_id = $2", first.ID().String(), first.ID()); n != "3" {
+			t.Fatalf("the revocation names %s of the three outbox entries", n)
 		}
 	})
 
-	t.Run("ST-SUP-RP06-LC15-T01 A revocation of two tuples is complete only when both are done", func(t *testing.T) {
+	t.Run("ST-SUP-RP06-LC12-T06 Two handles on one transaction share one revocation", func(t *testing.T) {
 		env := newPG(t)
-		rt := env.runtime(t, &recorder{}, nil)
-		relay := env.relay(t, &fakeRelationships{tokens: []Token{tok(5), tok(8)}})
+		rt := env.runtimeOf(t, &recorder{}, nil)
 		alice := mustPerson(t, "alice")
-		tx, handle := env.begin(t, rt, "t1", alice, rel("document#banned"), rel("document#viewer"))
+		var ids []uuid.UUID
+		for run := 0; run < 2; run++ {
+			tx, first := env.begin(t, rt, "t1", alice, rel("document#banned"))
+			second, err := rt.Bind(tx, mustTenant(t, "t1"), alice, []Relation{rel("document#viewer")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			a, err := first.Relate(ctx, Tuple{Resource: doc("1"), Relation: "banned", Subject: user("bob")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := second.Unrelate(ctx, Tuple{Resource: doc("2"), Relation: "viewer", Subject: user("bob")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			env.commit(t, tx, "t1")
+			if a.ID() != b.ID() {
+				t.Fatalf("run %d: the two handles gave %s and %s", run, a.ID(), b.ID())
+			}
+			if n := env.scalar(t, "SELECT count(*) FROM stego_outbox.messages WHERE group_id = $1", a.ID().String()); n != "2" {
+				t.Fatalf("run %d: the revocation names %s outbox entries, want 2", run, n)
+			}
+			ids = append(ids, a.ID())
+		}
+		if ids[0] == ids[1] {
+			t.Fatal("two transactions share one revocation")
+		}
+	})
+
+	// twoTuples makes a revocation of a touch of document:1#banned@user:bob and a delete of
+	// document:2#viewer@user:bob for alice in t1, and gives the identities of its two outbox entries.
+	twoTuples := func(t *testing.T, env *pgEnv, rt *Runtime) (Revocation, []uuid.UUID) {
+		t.Helper()
+		tx, handle := env.begin(t, rt, "t1", mustPerson(t, "alice"), rel("document#banned"), rel("document#viewer"))
 		revocation, err := handle.Relate(ctx, Tuple{Resource: doc("1"), Relation: "banned", Subject: user("bob")})
 		if err != nil {
 			t.Fatal(err)
@@ -732,38 +1161,56 @@ func TestHandleWrites(t *testing.T) {
 			t.Fatal(err)
 		}
 		env.commit(t, tx, "t1")
-		status := func() RevocationStatus {
-			t.Helper()
-			s, err := rt.Status(ctx, mustTenant(t, "t1"), alice, revocation.ID())
-			if err != nil {
-				t.Fatal(err)
-			}
-			return s
+		return revocation, env.ids(t)
+	}
+	status := func(t *testing.T, rt *Runtime, revocation Revocation) RevocationStatus {
+		t.Helper()
+		s, err := rt.Status(ctx, mustTenant(t, "t1"), mustPerson(t, "alice"), revocation.ID())
+		if err != nil {
+			t.Fatal(err)
 		}
-		if s := status(); s.State != RevocationPending {
+		return s
+	}
+	// resolver builds a worker that can resolve, with the runtime as its decision port.
+	resolver := func(t *testing.T, env *pgEnv, rt *Runtime, relay *Relay) *outbox.Worker {
+		t.Helper()
+		return env.newWorker(t, relay, func(c *outbox.WorkerConfig) { c.Decider = rt; c.Auditor = fakeAuditor{} })
+	}
+
+	t.Run("ST-SUP-RP06-LC15-T01 A revocation of two tuples is complete only when both are done, with the floor of its last delivery", func(t *testing.T) {
+		env := newPG(t)
+		rt := env.runtimeOf(t, &recorder{}, nil)
+		release := make(chan struct{})
+		var releaseOnce sync.Once
+		free := func() { releaseOnce.Do(func() { close(release) }) }
+		fake := &fakeRelationships{heads: []Token{named("h", 5), named("h", 8)}, before: func(n int) {
+			if n == 2 {
+				<-release
+			}
+		}}
+		revocation, ids := twoTuples(t, env, rt)
+		if s := status(t, rt, revocation); s.State != RevocationPending {
 			t.Fatalf("after the commit the state is %+v, want pending", s)
 		}
-		messages := env.outbox.all()
-		if err := deliver(t, relay, "t1", messages[0]); err != nil {
-			t.Fatal(err)
-		}
-		if s := status(); s.State != RevocationPending || !s.Token.IsZero() {
+		env.startWorker(t, env.relay(t, fake))
+		t.Cleanup(free)
+		env.waitState(t, ids[0], outbox.Done)
+		if s := status(t, rt, revocation); s.State != RevocationPending || !s.Token.IsZero() {
 			t.Fatalf("after the first delivery the state is %+v, want pending", s)
 		}
-		if err := deliver(t, relay, "t1", messages[1]); err != nil {
-			t.Fatal(err)
-		}
-		if s := status(); s.State != RevocationComplete || s.Token != tok(8) {
-			t.Fatalf("after the second delivery the state is %+v, want complete with t-8", s)
+		free()
+		env.waitState(t, ids[1], outbox.Done)
+		if s := status(t, rt, revocation); s.State != RevocationComplete || s.Token != named("h", 8) {
+			t.Fatalf("after the second delivery the state is %+v, want complete with h-8", s)
 		}
 	})
 
 	t.Run("ST-SUP-RP06-LC15-T02 Another principal or tenant gets not found for a revocation", func(t *testing.T) {
 		env := newPG(t)
-		rt := env.runtime(t, &recorder{}, nil)
+		rt := env.runtimeOf(t, &recorder{}, nil)
 		alice := mustPerson(t, "alice")
 		tx, handle := env.begin(t, rt, "t1", alice, rel("document#viewer"))
-		revocation, err := handle.Relate(ctx, Tuple{Resource: doc("1"), Relation: "viewer", Subject: user("bob")})
+		revocation, err := handle.Relate(ctx, viewer)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -782,6 +1229,162 @@ func TestHandleWrites(t *testing.T) {
 			if err := read(); !errors.Is(err, ErrRevocationNotFound) {
 				t.Errorf("%s got %v, want not found", name, err)
 			}
+		}
+	})
+
+	t.Run("ST-SUP-RP06-LC15-T03 A revocation with a parked entry reports parked", func(t *testing.T) {
+		env := newPG(t)
+		rt := env.runtimeOf(t, &recorder{}, nil)
+		revocation, ids := twoTuples(t, env, rt)
+		env.startWorker(t, env.relay(t, &fakeRelationships{failDelete: refused}))
+		env.waitState(t, ids[0], outbox.Done)
+		env.waitState(t, ids[1], outbox.Parked)
+		if s := status(t, rt, revocation); s.State != RevocationParked || !s.Token.IsZero() {
+			t.Fatalf("the state is %+v, want parked with no token", s)
+		}
+	})
+
+	t.Run("ST-SUP-RP06-LC15-T04 A revocation with a discarded tuple reports failed", func(t *testing.T) {
+		env := newPG(t)
+		rt := env.runtimeOf(t, &recorder{allow: func(EvaluationRequest) bool { return true }}, nil)
+		release := make(chan struct{})
+		var releaseOnce sync.Once
+		free := func() { releaseOnce.Do(func() { close(release) }) }
+		relay := env.relay(t, &fakeRelationships{failDelete: refused, before: func(n int) {
+			if n == 1 {
+				<-release
+			}
+		}})
+		revocation, ids := twoTuples(t, env, rt)
+		worker := resolver(t, env, rt, relay)
+		run(t, worker)
+		t.Cleanup(free)
+		env.waitState(t, ids[1], outbox.Parked)
+		env.discard(t, worker, ids[1])
+		if s := status(t, rt, revocation); s.State != RevocationFailed || !s.Token.IsZero() {
+			t.Fatalf("the state is %+v, want failed with no token", s)
+		}
+		free()
+		env.waitState(t, ids[0], outbox.Done)
+		if s := status(t, rt, revocation); s.State != RevocationFailed || !s.Token.IsZero() {
+			t.Fatalf("after the first tuple is done the state is %+v, want failed", s)
+		}
+	})
+
+	t.Run("ST-SUP-RP06-LC18-T01 Status does not change when the outbox purges done tuples", func(t *testing.T) {
+		clock := &testClock{t: time.Now()}
+		env := newPGClock(t, clock)
+		rt := env.runtimeOf(t, &recorder{allow: func(EvaluationRequest) bool { return true }}, nil)
+		relay := env.relay(t, &fakeRelationships{})
+		worker := env.newWorker(t, relay, func(c *outbox.WorkerConfig) {
+			c.Decider = rt
+			c.Auditor = fakeAuditor{}
+			c.Retention = time.Hour
+		})
+		run(t, worker)
+		revocation, ids := twoTuples(t, env, rt)
+		env.waitAll(t, outbox.Done)
+		before := status(t, rt, revocation)
+		if before.State != RevocationComplete || before.Token.IsZero() {
+			t.Fatalf("the state is %+v, want complete", before)
+		}
+		clock.add(2 * time.Hour)
+		for deadline := time.Now().Add(10 * time.Second); env.scalar(t, "SELECT count(*) FROM stego_outbox.messages") != "0"; time.Sleep(50 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatal("the worker did not purge the done messages")
+			}
+		}
+		if after := status(t, rt, revocation); after != before {
+			t.Fatalf("after the purge of %v the state is %+v, want %+v", ids, after, before)
+		}
+		// A person discards the one tuple of another revocation, in a database whose provider refuses the delete.
+		other := newPG(t)
+		otherRT := other.runtimeOf(t, &recorder{allow: func(EvaluationRequest) bool { return true }}, nil)
+		refusing := other.newWorker(t, other.relay(t, &fakeRelationships{failDelete: refused}),
+			func(c *outbox.WorkerConfig) { c.Decider = otherRT; c.Auditor = fakeAuditor{} })
+		run(t, refusing)
+		tx, handle := other.begin(t, otherRT, "t1", mustPerson(t, "alice"), rel("document#viewer"))
+		discarded, err := handle.Unrelate(ctx, viewer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		other.commit(t, tx, "t1")
+		id := other.ids(t)[0]
+		other.waitState(t, id, outbox.Parked)
+		other.discard(t, refusing, id)
+		if s := status(t, otherRT, discarded); s.State != RevocationFailed {
+			t.Fatalf("the discarded revocation is %+v, want failed", s)
+		}
+	})
+
+	t.Run("ST-SUP-RP06-LC18-T02 A revocation record past its retention answers expired", func(t *testing.T) {
+		env := newPG(t)
+		rt := env.runtimeOf(t, &recorder{}, nil)
+		env.startWorker(t, env.relay(t, &fakeRelationships{}))
+		revocation, _ := twoTuples(t, env, rt)
+		env.waitAll(t, outbox.Done)
+		if s := status(t, rt, revocation); s.State != RevocationComplete {
+			t.Fatalf("the state is %+v, want complete", s)
+		}
+		// Status reads no outbox row: the runtime role loses every right on the outbox table.
+		if _, err := env.admin.ExecContext(ctx, "REVOKE ALL ON stego_outbox.messages FROM "+env.roles[0]); err != nil {
+			t.Fatal(err)
+		}
+		later := env.runtimeOf(t, &recorder{}, fixedClock{t: time.Now().Add(31 * 24 * time.Hour)})
+		if s := status(t, later, revocation); s.State != RevocationExpired {
+			t.Fatalf("31 days later the state is %+v, want expired", s)
+		}
+		if _, err := New(Config{Provider: &recorder{}, DB: env.runtime, Schema: env.schema, Outbox: env.queue,
+			Retention: 29 * 24 * time.Hour}); err == nil {
+			t.Fatal("a retention of 29 days is accepted")
+		}
+	})
+
+	t.Run("ST-SUP-RP06-LC21-T01 The runtime role cannot lower the floor or mark a revocation complete", func(t *testing.T) {
+		if _, err := Migration("authz", "same_role", "same_role"); err == nil ||
+			strings.Count(err.Error(), "same_role") != 2 {
+			t.Fatalf("one role for both gave %v, want an error that names both roles", err)
+		}
+		env := newPG(t)
+		rt := env.runtimeOf(t, &recorder{}, nil)
+		tx, handle := env.begin(t, rt, "t1", mustPerson(t, "alice"), rel("document#viewer"))
+		revocation, err := handle.Unrelate(ctx, viewer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		env.commit(t, tx, "t1")
+		id := env.ids(t)[0]
+		asRuntime := func(statement string, args ...any) error {
+			tx, err := tenant.Begin(ctx, env.runtime, mustTenant(t, "t1"), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = tx.Rollback() }()
+			if _, err := tx.ExecContext(ctx, statement, args...); err != nil {
+				return err
+			}
+			return tenant.Commit(ctx, tx, mustTenant(t, "t1"))
+		}
+		denied := func(name string, err error) {
+			t.Helper()
+			if err == nil || !strings.Contains(err.Error(), "permission denied") {
+				t.Errorf("%s gave %v, want insufficient privilege", name, err)
+			}
+		}
+		denied("the update of the floor", asRuntime("UPDATE authz.authz_floor SET token = 'old'"))
+		denied("the insert with counts", asRuntime("INSERT INTO authz.authz_revocations (id, tenant_id, principal, tuple_count, done, token) "+
+			"VALUES ($1, 't1', 'user:alice', 1, 1, 'forged')", uuid.New()))
+		denied("the update of the done count", asRuntime("UPDATE authz.authz_revocations SET done = 1 WHERE id = $1", revocation.ID()))
+		if err := asRuntime("SELECT authz.authz_revocation_state($1, $2, 'done')", id, revocation.ID()); err != nil {
+			t.Fatalf("the state function call gave %v", err)
+		}
+		if got := env.scalar(t, "SELECT done::text || '/' || token FROM {s}.authz_revocations WHERE id = $1", revocation.ID()); got != "0/" {
+			t.Fatalf("the call for a pending message changed the record to %s", got)
+		}
+		env.startWorker(t, env.relay(t, &fakeRelationships{}))
+		env.waitState(t, id, outbox.Done)
+		if got := env.scalar(t, "SELECT done::text FROM {s}.authz_revocations WHERE id = $1", revocation.ID()); got != "1" {
+			t.Fatalf("the hook of a done message counted %s, want 1", got)
 		}
 	})
 }

@@ -2,18 +2,14 @@ package authz
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
-	"fmt"
 	"io"
 	"sort"
-	"strconv"
 
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -23,9 +19,11 @@ const spiceDBName = "spicedb"
 // SpiceDB is the SpiceDB provider of the decision and relationships ports (ST-SUP-RP06-LC05). It speaks gRPC over
 // the connection that the service's own code opens, with its TLS and its preshared key, and opens no other
 // transport. It maps Fresh to fully_consistent and AtLeast to at_least_as_fresh, writes with TOUCH and DELETE only,
-// and wraps the after_result_cursor of a lookup in the opaque page token. It has no exact-snapshot path.
+// and wraps the after_result_cursor of a lookup, with the first page's consistency, in the opaque page token. It
+// has no exact-snapshot path, and it uses the ZedTokens of every datastore as they are, without parsing them.
 type SpiceDB struct {
 	permissions v1.PermissionsServiceClient
+	schema      v1.SchemaServiceClient
 }
 
 // NewSpiceDB returns the SpiceDB provider on conn.
@@ -33,7 +31,7 @@ func NewSpiceDB(conn grpc.ClientConnInterface) (*SpiceDB, error) {
 	if conn == nil {
 		return nil, errors.New("authz: no SpiceDB connection")
 	}
-	return &SpiceDB{permissions: v1.NewPermissionsServiceClient(conn)}, nil
+	return &SpiceDB{permissions: v1.NewPermissionsServiceClient(conn), schema: v1.NewSchemaServiceClient(conn)}, nil
 }
 
 // Searches reports that SpiceDB offers a resource search, through LookupResources.
@@ -68,13 +66,13 @@ func (s *SpiceDB) Evaluate(ctx context.Context, request EvaluationRequest) (Eval
 }
 
 // EvaluateBatch decides a batch with one CheckBulkPermissions call, at the consistency of the first request, which
-// Port and Handle make the same for every request of a batch. ExecuteAll returns a result for every request;
+// Port and Handle give every request of a batch. ExecuteAll returns a result for every request;
 // DenyOnFirstDeny and PermitOnFirstPermit return the results up to and with the first deny or allow.
 func (s *SpiceDB) EvaluateBatch(ctx context.Context, request BatchRequest) ([]EvaluationResult, error) {
 	if len(request.Evaluations) == 0 {
 		return nil, nil
 	}
-	consistency, err := spiceConsistency(batchConsistency(request.Evaluations))
+	consistency, err := spiceConsistency(request.Evaluations[0].Consistency)
 	if err != nil {
 		return nil, err
 	}
@@ -99,16 +97,16 @@ func (s *SpiceDB) EvaluateBatch(ctx context.Context, request BatchRequest) ([]Ev
 		return nil, spiceError("check the batch", err)
 	}
 	if len(response.GetPairs()) != len(items) {
-		return nil, fmt.Errorf("authz: SpiceDB answered %d of the %d checks of the batch", len(response.GetPairs()), len(items))
+		return nil, errors.New("authz: SpiceDB did not answer every check of the batch")
 	}
 	token, err := tokenOf(response.GetCheckedAt())
 	if err != nil {
 		return nil, err
 	}
 	results := make([]EvaluationResult, 0, len(items))
-	for i, pair := range response.GetPairs() {
+	for _, pair := range response.GetPairs() {
 		if pairError := pair.GetError(); pairError != nil {
-			return nil, spiceError(fmt.Sprintf("check %d of the batch", i), status.ErrorProto(pairError))
+			return nil, spiceError("check the batch", status.ErrorProto(pairError))
 		}
 		item := pair.GetItem()
 		result, err := resultOf(item.GetPermissionship(), item.GetPartialCaveatInfo(), token)
@@ -124,9 +122,19 @@ func (s *SpiceDB) EvaluateBatch(ctx context.Context, request BatchRequest) ([]Ev
 }
 
 // Search returns one page of a resource search with LookupResources. The page token carries the
-// after_result_cursor of the last resource of the page.
+// after_result_cursor of the last resource of the page and the consistency of the first page, which each later page
+// sends again unchanged, because SpiceDB binds the consistency into the cursor. The results of a later page are
+// then filtered with one CheckBulkPermissions call at the request's consistency, which the handle sets at the
+// floor of that page, so a later page is in force at the current floor (ST-SUP-RP06-LC05).
 func (s *SpiceDB) Search(ctx context.Context, request SearchRequest) (SearchResult, error) {
-	consistency, err := spiceConsistency(request.Consistency)
+	lookupConsistency := request.Consistency
+	cursor, first, later := request.Page.Token.CursorFor(spiceDBName)
+	if later {
+		lookupConsistency = first
+	} else if !request.Page.Token.IsZero() {
+		return SearchResult{}, errors.New("authz: the page token is not a SpiceDB page token")
+	}
+	consistency, err := spiceConsistency(lookupConsistency)
 	if err != nil {
 		return SearchResult{}, err
 	}
@@ -144,10 +152,8 @@ func (s *SpiceDB) Search(ctx context.Context, request SearchRequest) (SearchResu
 	if request.Page.Limit > 0 {
 		lookup.OptionalLimit = uint32(request.Page.Limit)
 	}
-	if cursor, ok := request.Page.Token.CursorFor(spiceDBName); ok {
+	if later {
 		lookup.OptionalCursor = &v1.Cursor{Token: cursor}
-	} else if !request.Page.Token.IsZero() {
-		return SearchResult{}, errors.New("authz: the page token is not a SpiceDB page token")
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -157,6 +163,7 @@ func (s *SpiceDB) Search(ctx context.Context, request SearchRequest) (SearchResu
 	}
 	var result SearchResult
 	var last string
+	found := 0
 	for {
 		response, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
@@ -165,6 +172,8 @@ func (s *SpiceDB) Search(ctx context.Context, request SearchRequest) (SearchResu
 		if err != nil {
 			return SearchResult{}, spiceError("search the resources", err)
 		}
+		found++
+		last = response.GetAfterResultCursor().GetToken()
 		if response.GetPermissionship() == v1.LookupPermissionship_LOOKUP_PERMISSIONSHIP_CONDITIONAL_PERMISSION {
 			return SearchResult{}, contextError(response.GetPartialCaveatInfo())
 		}
@@ -172,18 +181,34 @@ func (s *SpiceDB) Search(ctx context.Context, request SearchRequest) (SearchResu
 			continue
 		}
 		result.Resources = append(result.Resources, Resource{Type: request.ResourceType, ID: response.GetResourceObjectId()})
-		last = response.GetAfterResultCursor().GetToken()
 		if response.GetLookedUpAt() != nil {
-			token, err := tokenOf(response.GetLookedUpAt())
-			if err != nil {
+			if result.Token, err = tokenOf(response.GetLookedUpAt()); err != nil {
 				return SearchResult{}, err
 			}
-			result.Token = token
 		}
 	}
 	// A full page may have more after it; a short page is the end.
-	if request.Page.Limit > 0 && len(result.Resources) == request.Page.Limit {
-		result.Next = NewPageToken(spiceDBName, last)
+	if request.Page.Limit > 0 && found == request.Page.Limit && last != "" {
+		result.Next = NewPageToken(spiceDBName, last, lookupConsistency)
+	}
+	if later && len(result.Resources) > 0 {
+		evaluations := make([]EvaluationRequest, len(result.Resources))
+		for i, resource := range result.Resources {
+			evaluations[i] = EvaluationRequest{Subject: request.Subject, Action: request.Action, Resource: resource,
+				Context: request.Context, Consistency: request.Consistency}
+		}
+		checked, err := s.EvaluateBatch(ctx, BatchRequest{Evaluations: evaluations, Semantic: ExecuteAll})
+		if err != nil {
+			return SearchResult{}, err
+		}
+		var allowed []Resource
+		for i, check := range checked {
+			if check.Allowed {
+				allowed = append(allowed, result.Resources[i])
+			}
+			result.Token = check.Token
+		}
+		result.Resources = allowed
 	}
 	return result, nil
 }
@@ -252,6 +277,16 @@ func (s *SpiceDB) Delete(ctx context.Context, filters []Filter, preconditions []
 	return tokenOf(response.GetDeletedAt())
 }
 
+// Head reads the head revision of SpiceDB with ReadSchema, which SpiceDB always answers at its head revision, so
+// the token is at least as fresh as every write that committed before the call (ST-SUP-RP06-LC13).
+func (s *SpiceDB) Head(ctx context.Context) (Token, error) {
+	response, err := s.schema.ReadSchema(ctx, &v1.ReadSchemaRequest{})
+	if err != nil {
+		return Token{}, spiceError("read the head revision", err)
+	}
+	return tokenOf(response.GetReadAt())
+}
+
 func (s *SpiceDB) write(ctx context.Context, updates []*v1.RelationshipUpdate, preconditions []Precondition) (Token, error) {
 	response, err := s.permissions.WriteRelationships(ctx, &v1.WriteRelationshipsRequest{
 		Updates:               updates,
@@ -315,28 +350,13 @@ func spiceConsistency(consistency Consistency) (*v1.Consistency, error) {
 	return nil, ErrNoConsistency
 }
 
-// batchConsistency is the freshest consistency of the requests of a batch: Fresh when one is fresh, otherwise
-// AtLeast the freshest token.
-func batchConsistency(evaluations []EvaluationRequest) Consistency {
-	var token Token
-	for _, evaluation := range evaluations {
-		if evaluation.Consistency.IsFresh() {
-			return Fresh()
-		}
-		if t, ok := evaluation.Consistency.Token(); ok {
-			token = fresher(token, t)
-		}
-	}
-	return AtLeast(token)
-}
-
 func spiceContext(context Context) (*structpb.Struct, error) {
 	if len(context) == 0 {
 		return nil, nil
 	}
 	caveat, err := structpb.NewStruct(context)
 	if err != nil {
-		return nil, fmt.Errorf("authz: the caveat context: %w", err)
+		return nil, errors.New("authz: the caveat context holds a value that is not JSON")
 	}
 	return caveat, nil
 }
@@ -350,7 +370,7 @@ func resultOf(permissionship v1.CheckPermissionResponse_Permissionship, caveat *
 	case v1.CheckPermissionResponse_PERMISSIONSHIP_CONDITIONAL_PERMISSION:
 		return EvaluationResult{}, contextError(caveat)
 	default:
-		return EvaluationResult{}, fmt.Errorf("authz: SpiceDB answered the permissionship %s", permissionship)
+		return EvaluationResult{}, errors.New("authz: SpiceDB answered an unknown permissionship")
 	}
 }
 
@@ -360,99 +380,42 @@ func contextError(caveat *v1.PartialCaveatInfo) error {
 	return &ContextError{Missing: missing}
 }
 
-// spiceError maps a gRPC error of SpiceDB. InvalidArgument, FailedPrecondition and NotFound are refusals that a
-// retry does not change; any other error may pass on a retry.
+// ErrProvider matches every error of a provider call: errors.Is(err, ErrProvider). IsRefused tells a refusal, which
+// a retry does not change, from an error that a retry may pass; a ContextError is a third kind.
+var ErrProvider = errors.New("authz: the provider call failed")
+
+// providerError is the error of a provider call. Its text is fixed for the call and the gRPC status code, and it
+// wraps no error of the provider, so no provider message, subject ID or caveat value reaches it (ST-SUP-RP06-LC20).
+type providerError struct {
+	what string
+	code codes.Code
+}
+
+func (e *providerError) Error() string {
+	return "authz: SpiceDB: " + e.what + ": " + e.code.String()
+}
+
+func (e *providerError) Is(target error) bool { return target == ErrProvider }
+
+// spiceError maps a gRPC error of SpiceDB to a fixed text for what and its status code. InvalidArgument,
+// FailedPrecondition, NotFound and OutOfRange are refusals that a retry does not change; any other error may pass on
+// a retry.
 func spiceError(what string, err error) error {
-	wrapped := fmt.Errorf("authz: SpiceDB: %s: %w", what, err)
-	switch status.Code(err) {
+	code := status.Code(err)
+	fixed := &providerError{what: what, code: code}
+	switch code {
 	case codes.InvalidArgument, codes.FailedPrecondition, codes.NotFound, codes.OutOfRange:
-		return Refused(wrapped)
+		return Refused(fixed)
 	default:
-		return wrapped
+		return fixed
 	}
 }
 
-// tokenOf makes the Token of a ZedToken. Its revision comes from the token's own encoding: the base64 of a
-// DecodedZedToken whose v1 message holds the datastore revision as text, or whose deprecated v1 zookie holds it as
-// a number. A revision that is not a decimal number, such as one of the PostgreSQL datastore, is refused, because
-// the revocation floor needs revisions it can order.
+// tokenOf makes the Token of a ZedToken. The ZedToken is kept byte for byte and never parsed: the revision of the
+// PostgreSQL datastore is a snapshot, and only SpiceDB orders its tokens (ST-SUP-RP06-LC04).
 func tokenOf(token *v1.ZedToken) (Token, error) {
 	if token.GetToken() == "" {
 		return Token{}, errors.New("authz: SpiceDB answered with no ZedToken")
 	}
-	revision, err := zedRevision(token.GetToken())
-	if err != nil {
-		return Token{}, err
-	}
-	return NewToken(token.GetToken(), revision)
-}
-
-// Fields of SpiceDB's DecodedZedToken (proto/internal/impl/v1/impl.proto).
-const (
-	zedDeprecatedZookieField = 2
-	zedV1Field               = 3
-	zedRevisionField         = 1
-)
-
-func zedRevision(text string) (string, error) {
-	raw, err := base64.StdEncoding.DecodeString(text)
-	if err != nil {
-		return "", fmt.Errorf("authz: the ZedToken is not base64: %w", err)
-	}
-	for len(raw) > 0 {
-		number, kind, n := protowire.ConsumeTag(raw)
-		if n < 0 {
-			return "", errors.New("authz: the ZedToken does not decode")
-		}
-		raw = raw[n:]
-		if kind != protowire.BytesType || (number != zedV1Field && number != zedDeprecatedZookieField) {
-			n = protowire.ConsumeFieldValue(number, kind, raw)
-			if n < 0 {
-				return "", errors.New("authz: the ZedToken does not decode")
-			}
-			raw = raw[n:]
-			continue
-		}
-		inner, n := protowire.ConsumeBytes(raw)
-		if n < 0 {
-			return "", errors.New("authz: the ZedToken does not decode")
-		}
-		return innerRevision(number, inner)
-	}
-	return "", errors.New("authz: the ZedToken holds no revision")
-}
-
-func innerRevision(version protowire.Number, raw []byte) (string, error) {
-	for len(raw) > 0 {
-		number, kind, n := protowire.ConsumeTag(raw)
-		if n < 0 {
-			return "", errors.New("authz: the ZedToken does not decode")
-		}
-		raw = raw[n:]
-		switch {
-		case number == zedRevisionField && version == zedV1Field && kind == protowire.BytesType:
-			value, n := protowire.ConsumeBytes(raw)
-			if n < 0 {
-				return "", errors.New("authz: the ZedToken does not decode")
-			}
-			revision := string(value)
-			if _, err := parseRevision(revision); err != nil {
-				return "", fmt.Errorf("authz: the SpiceDB datastore gives revisions that cannot be ordered: %w", err)
-			}
-			return revision, nil
-		case number == zedRevisionField && version == zedDeprecatedZookieField && kind == protowire.VarintType:
-			value, n := protowire.ConsumeVarint(raw)
-			if n < 0 {
-				return "", errors.New("authz: the ZedToken does not decode")
-			}
-			return strconv.FormatUint(value, 10), nil
-		default:
-			n = protowire.ConsumeFieldValue(number, kind, raw)
-			if n < 0 {
-				return "", errors.New("authz: the ZedToken does not decode")
-			}
-			raw = raw[n:]
-		}
-	}
-	return "", errors.New("authz: the ZedToken holds no revision")
+	return NewToken(token.GetToken())
 }

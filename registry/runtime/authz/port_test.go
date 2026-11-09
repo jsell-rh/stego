@@ -2,6 +2,7 @@ package authz
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"go/ast"
 	"go/parser"
@@ -82,14 +83,8 @@ func (r *recorder) requests() int {
 	return len(r.evaluations) + len(r.batches) + len(r.searchCalls)
 }
 
-// tok is the fake token t-n, whose revision is n.
-func tok(n int) Token {
-	token, err := NewToken("t-"+strconv.Itoa(n), strconv.Itoa(n))
-	if err != nil {
-		panic(err)
-	}
-	return token
-}
+// tok is the fake token t-n.
+func tok(n int) Token { return named("t", n) }
 
 // floorSeq is a fake revocation floor that gives the next of its tokens at each read, and the last one after.
 type floorSeq struct {
@@ -248,7 +243,7 @@ func TestDecisionPort(t *testing.T) {
 			t.Errorf("PageToken has the exported fields %v", got)
 		}
 		fake := &recorder{search: func(SearchRequest) SearchResult {
-			return SearchResult{Resources: []Resource{doc("1")}, Next: NewPageToken("fake", "cursor-1")}
+			return SearchResult{Resources: []Resource{doc("1")}, Next: NewPageToken("fake", "cursor-1", Fresh())}
 		}}
 		port, err := NewPort(fake, nil)
 		if err != nil {
@@ -262,10 +257,10 @@ func TestDecisionPort(t *testing.T) {
 		if result.Next.IsZero() {
 			t.Fatal("the search gave no next page")
 		}
-		if cursor, ok := result.Next.CursorFor("fake"); !ok || cursor != "cursor-1" {
-			t.Errorf("the provider reads the cursor %q, %t", cursor, ok)
+		if cursor, first, ok := result.Next.CursorFor("fake"); !ok || cursor != "cursor-1" || !first.IsFresh() {
+			t.Errorf("the provider reads the cursor %q, %s, %t", cursor, first, ok)
 		}
-		if _, ok := result.Next.CursorFor("spicedb"); ok {
+		if _, _, ok := result.Next.CursorFor("spicedb"); ok {
 			t.Error("another provider reads the page token")
 		}
 	})
@@ -438,8 +433,8 @@ func TestConsistency(t *testing.T) {
 }
 
 func TestToken(t *testing.T) {
-	t.Run("ST-SUP-RP06-LC04-T01 A token round-trips through its text column form and compares equal", func(t *testing.T) {
-		token, err := NewToken("GhUKEzE3MzAwMDAwMDAwMDAwMDAwMDA=", "1730000000000000000.0000000001")
+	t.Run("ST-SUP-RP06-LC04-T01 A token round-trips through its text column form and is never compared", func(t *testing.T) {
+		token, err := NewToken("GhUKEzE3MzAwMDAwMDAwMDAwMDAwMDA=")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -448,20 +443,78 @@ func TestToken(t *testing.T) {
 			t.Fatal("the text form is empty")
 		}
 		back, err := ParseToken(text)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if back != token {
-			t.Fatalf("the token read back is %+v, want %+v", back, token)
+		if err != nil || back != token || back.Value() != "GhUKEzE3MzAwMDAwMDAwMDAwMDAwMDA=" {
+			t.Fatalf("the token read back is %q, %v", back.Text(), err)
 		}
 		if got := exportedFields(reflect.TypeOf(Token{})); len(got) != 0 {
 			t.Errorf("Token has the exported fields %v", got)
 		}
-		if fresher(tok(3), tok(12)) != tok(12) || fresher(tok(12), tok(3)) != tok(12) {
-			t.Error("the revision does not order the tokens as numbers")
+		// No exported method or function orders, compares or merges two tokens: none takes two tokens or a token
+		// and another token's holder, and none is named so.
+		_, files := packageSource(t)
+		tokenType := func(expr ast.Expr) bool {
+			ident, ok := expr.(*ast.Ident)
+			return ok && ident.Name == "Token"
 		}
-		if _, err := ParseToken("1:x:abc"); err == nil {
-			t.Error("a revision that is not a number is read")
+		for _, file := range files {
+			for _, decl := range file.Decls {
+				fn, ok := decl.(*ast.FuncDecl)
+				if !ok || !fn.Name.IsExported() {
+					continue
+				}
+				tokens := 0
+				if fn.Recv != nil && len(fn.Recv.List) == 1 && tokenType(fn.Recv.List[0].Type) {
+					tokens++
+				}
+				for _, param := range fn.Type.Params.List {
+					if tokenType(param.Type) {
+						tokens += max(1, len(param.Names))
+					}
+				}
+				lower := strings.ToLower(fn.Name.Name)
+				for _, word := range []string{"fresher", "compare", "less", "newer", "older", "merge", "max", "min", "order"} {
+					if strings.Contains(lower, word) {
+						t.Errorf("the package exports %s", fn.Name.Name)
+					}
+				}
+				if tokens >= 2 {
+					t.Errorf("%s takes two tokens", fn.Name.Name)
+				}
+			}
+		}
+	})
+
+	t.Run("ST-SUP-RP06-LC04-T04 Tokens of each datastore's form are used without being parsed", func(t *testing.T) {
+		forms := map[string]string{
+			"decimal (memdb, mysql, spanner)": zed("1730000000000000000"),
+			"hybrid logical clock (crdb)":     zed("1730000000000000000.0000000001"),
+			"PostgreSQL snapshot":             zed(base64.StdEncoding.EncodeToString([]byte{0x08, 0xd2, 0x09, 0x10, 0xd8, 0x09, 0x1a, 0x02, 0xd3, 0x09})),
+		}
+		for name, value := range forms {
+			token, err := NewToken(value)
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			back, err := ParseToken(token.Text())
+			if err != nil || back.Text() != value {
+				t.Fatalf("%s: the token read back is %q, %v", name, back.Text(), err)
+			}
+			fake := &recorder{}
+			rt := newUnitRuntime(t, fake)
+			person := mustPerson(t, "u-7")
+			// As a row token, while the floor is zero.
+			if _, err := bindUnit(t, rt, nil, person).Evaluate(context.Background(), "view", doc("1"), back, nil); err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			// As the floor.
+			if _, err := bindUnit(t, rt, fixedFloor(back), person).Evaluate(context.Background(), "view", doc("1"), Token{}, nil); err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			for i, request := range fake.evaluations {
+				if got := atLeast(t, request.Consistency); got.Value() != value {
+					t.Errorf("%s: request %d sent %q, want the token byte for byte", name, i, got.Value())
+				}
+			}
 		}
 	})
 }
