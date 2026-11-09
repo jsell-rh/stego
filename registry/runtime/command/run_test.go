@@ -776,9 +776,14 @@ func TestRunCommit(t *testing.T) {
 			go c.during()
 			calls := 0
 			ctx, cancel := context.WithTimeout(e.ctx, c.deadline)
+			proxy.commitPID.Store(0)
 			_, err := Run(ctx, rt, cmd, req, noBody, reserve(c.id, c.sku, &calls))
 			cancel()
 			proxy.dropCommitReply.Store(false)
+			// The cancel of pgx and the end of a connection reach the server after Run returns. The outcome of the
+			// COMMIT is fixed only once the backend that ran it is idle or has ended, so the test waits for that first,
+			// and only then lets session A go and reads the rows.
+			e.waitBackendDone(t, int(proxy.commitPID.Load()))
 			if a != nil {
 				a.commit()
 			}
@@ -966,6 +971,26 @@ func create(t *testing.T, ctx context.Context, e *env, h *Handle[testProbe], id 
 	return err
 }
 
+// waitBackendDone waits until the backend pid has ended or is idle, out of any transaction, so the outcome of its
+// last COMMIT is fixed, and fails the test after 10 s.
+func (e *env) waitBackendDone(t *testing.T, pid int) {
+	t.Helper()
+	if pid == 0 {
+		t.Fatal("the proxy saw no COMMIT")
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if e.count(`SELECT count(*) FROM pg_stat_activity WHERE pid = $1 AND state IS DISTINCT FROM 'idle'`, pid) == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	var info string
+	_ = e.admin.QueryRowContext(e.ctx, `SELECT coalesce(state, '') || ' ' || coalesce(wait_event_type, '') || ' ' || left(query, 60)
+ FROM pg_stat_activity WHERE pid = $1`, pid).Scan(&info)
+	t.Fatalf("the backend %d that ran COMMIT is still at work: %s", pid, info)
+}
+
 // terminateAtCommit ends, from the server side, the session of the runtime role that runs COMMIT.
 func (e *env) terminateAtCommit(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
@@ -1073,12 +1098,15 @@ func holdsTx(t types.Type) bool {
 	return false
 }
 
-// pgProxy is a TCP proxy to the PostgreSQL server. When dropCommitReply is set, it passes on a client's COMMIT and
-// then closes the client's connection before the server's answer comes back: the commit takes effect, and the
-// client does not know.
+// pgProxy is a TCP proxy to the PostgreSQL server. It reads the backend's process ID from the server's BackendKeyData
+// message of each connection, and keeps the one of the last connection that sent COMMIT, so a test can wait until
+// that backend has ended and its outcome is fixed. When dropCommitReply is set, it stops passing on the server's
+// messages of that connection, then passes on the client's COMMIT and closes the client's connection: the server
+// reads the COMMIT and commits, and the client never gets the answer.
 type pgProxy struct {
 	dsn             string
 	dropCommitReply atomic.Bool
+	commitPID       atomic.Int32
 }
 
 func newPGProxy(t *testing.T, target string) *pgProxy {
@@ -1114,7 +1142,39 @@ func (p *pgProxy) serve(client net.Conn, address string) {
 		return
 	}
 	defer server.Close()
-	go func() { _, _ = io.Copy(client, server) }()
+	var pid atomic.Int32
+	var drop atomic.Bool
+	go func() {
+		// The server's messages, typed after the one-byte answer to an SSL or GSS request.
+		typed := make([]byte, 5)
+		for {
+			if _, err := io.ReadFull(server, typed[:1]); err != nil {
+				return
+			}
+			if typed[0] == 'N' || typed[0] == 'G' {
+				if _, err := client.Write(typed[:1]); err != nil {
+					return
+				}
+				continue
+			}
+			if _, err := io.ReadFull(server, typed[1:]); err != nil {
+				return
+			}
+			body := make([]byte, binary.BigEndian.Uint32(typed[1:])-4)
+			if _, err := io.ReadFull(server, body); err != nil {
+				return
+			}
+			if typed[0] == 'K' && len(body) >= 4 {
+				pid.Store(int32(binary.BigEndian.Uint32(body[:4])))
+			}
+			if drop.Load() {
+				continue
+			}
+			if _, err := client.Write(append(append([]byte(nil), typed...), body...)); err != nil {
+				return
+			}
+		}
+	}()
 	header := make([]byte, 4)
 	// The messages before the startup message have no type byte: an SSL or GSS request, then the startup message.
 	for {
@@ -1141,10 +1201,19 @@ func (p *pgProxy) serve(client net.Conn, address string) {
 		if _, err := io.ReadFull(client, body); err != nil {
 			return
 		}
+		commit := typed[0] == 'Q' && strings.HasPrefix(strings.ToLower(string(body)), "commit")
+		if commit {
+			p.commitPID.Store(pid.Load())
+		}
+		armed := commit && p.dropCommitReply.Load()
+		if armed {
+			// The answer to the COMMIT must never reach the client, so the server's messages stop before it is sent.
+			drop.Store(true)
+		}
 		if _, err := server.Write(append(append([]byte(nil), typed...), body...)); err != nil {
 			return
 		}
-		if typed[0] == 'Q' && strings.HasPrefix(strings.ToLower(string(body)), "commit") && p.dropCommitReply.Load() {
+		if armed {
 			_ = client.Close()
 			time.Sleep(500 * time.Millisecond)
 			return
