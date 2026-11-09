@@ -25,20 +25,29 @@ const (
 	WorkerSlot  = "worker.worker"
 )
 
-// ValidateComposition runs the checks of a service's composition (ST-DECL-UC09): its commands, queries and observations. It reads the
+// ValidateComposition runs the checks of a service's composition (ST-DECL-UC09): its commands, queries, workers and observations. It reads the
 // declaration and the facts, and it returns every fault it finds.
 func ValidateComposition(service *types.ServiceDeclaration, facts Facts) []ValidationError {
 	var faults []ValidationError
 	faults = append(faults, validateCommandNames(service.Commands)...)
 	faults = append(faults, validateCommandWrites(service.Commands, service.Entities)...)
 	faults = append(faults, validateCommandFill(service.Commands, facts)...)
-	faults = append(faults, validateCommandEffects(service.Commands, facts)...)
+	faults = append(faults, validateCommandEffects(service.Commands, stagingFacts(service.Workers, facts))...)
 	faults = append(faults, validateQueryNames(service.Queries, service.Commands)...)
 	faults = append(faults, validateQueryReads(service.Queries, service.Entities)...)
 	faults = append(faults, validateQueryFill(service.Queries, facts)...)
 	faults = append(faults, validateOperationRoutes(service)...)
 	faults = append(faults, validateOperationRefusals(service)...)
 	faults = append(faults, validateCommandRetry(service.Commands)...)
+	faults = append(faults, validateWorkerNames(service)...)
+	faults = append(faults, validateWorkerTrigger(service.Workers, facts)...)
+	faults = append(faults, validateWorkerWrites(service.Workers, service.Entities)...)
+	faults = append(faults, validateWorkerFill(service.Workers, facts)...)
+	faults = append(faults, validateWorkerEffects(service.Workers, facts)...)
+	faults = append(faults, validateWorkerMode(service)...)
+	faults = append(faults, validateWorkerLease(service.Workers)...)
+	faults = append(faults, validateWorkerCycles(service.Workers)...)
+	faults = append(faults, validateWorkerCount(service.Workers)...)
 	faults = append(faults, validateObservationNames(service.Observations)...)
 	faults = append(faults, validateObservationKind(service.Observations)...)
 	faults = append(faults, validateObservationValue(service.Observations)...)

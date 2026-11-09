@@ -358,7 +358,7 @@ func validateOperationRoutes(svcDecl *types.ServiceDeclaration, components map[s
 }
 
 // compositionFacts reads what the checks of a service's composition need beside the declaration (ST-DECL-UC09):
-// the slot that each fill named by a command or a query implements, read through the fill slot reader, and the outbox
+// the slot that each fill named by a command, a query or a worker implements, read through the fill slot reader, and the outbox
 // destinations that the active components declare in their setting destinations (ST-SUP-RC36-OC01). A fill that
 // the project does not hold is left out, so that the check names it as missing.
 func compositionFacts(input ReconcilerInput, svcDecl *types.ServiceDeclaration, components map[string]*registry.Component) (declaration.Facts, error) {
@@ -369,6 +369,9 @@ func compositionFacts(input ReconcilerInput, svcDecl *types.ServiceDeclaration, 
 	}
 	for _, query := range svcDecl.Queries {
 		fills = append(fills, query.Fill...)
+	}
+	for _, worker := range svcDecl.Workers {
+		fills = append(fills, worker.Fill...)
 	}
 	for _, name := range fills {
 		if _, read := facts.FillSlots[name]; read || name == "" || strings.ContainsAny(name, `/\`) || name == "." || name == ".." {

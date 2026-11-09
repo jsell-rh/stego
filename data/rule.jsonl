@@ -58,6 +58,15 @@
 {"id":"ST-DECL-INV54-RL","title":"declaration.validateObservationEmitters","invariant_id":"ST-DECL-INV54","file":"internal/declaration/observation.go"}
 {"id":"ST-DECL-INV55-RL","title":"declaration.validateObservationCounts","invariant_id":"ST-DECL-INV55","file":"internal/declaration/observation.go"}
 {"id":"ST-DECL-INV56-RL","title":"declaration.validateOperationRefusals","invariant_id":"ST-DECL-INV56","file":"internal/declaration/command.go"}
+{"id":"ST-DECL-INV65-RL","title":"declaration.validateWorkerNames","invariant_id":"ST-DECL-INV65","file":"internal/declaration/worker.go"}
+{"id":"ST-DECL-INV66-RL","title":"declaration.validateWorkerTrigger","invariant_id":"ST-DECL-INV66","file":"internal/declaration/worker.go"}
+{"id":"ST-DECL-INV67-RL","title":"declaration.validateWorkerWrites","invariant_id":"ST-DECL-INV67","file":"internal/declaration/worker.go"}
+{"id":"ST-DECL-INV68-RL","title":"declaration.validateWorkerFill","invariant_id":"ST-DECL-INV68","file":"internal/declaration/worker.go"}
+{"id":"ST-DECL-INV70-RL","title":"declaration.validateWorkerEffects","invariant_id":"ST-DECL-INV70","file":"internal/declaration/worker.go"}
+{"id":"ST-DECL-INV71-RL","title":"declaration.validateWorkerMode","invariant_id":"ST-DECL-INV71","file":"internal/declaration/worker.go"}
+{"id":"ST-DECL-INV74-RL","title":"declaration.validateWorkerLease","invariant_id":"ST-DECL-INV74","file":"internal/declaration/worker.go"}
+{"id":"ST-DECL-INV76-RL","title":"declaration.validateWorkerCycles","invariant_id":"ST-DECL-INV76","file":"internal/declaration/worker.go"}
+{"id":"ST-DECL-INV79-RL","title":"declaration.validateWorkerCount","invariant_id":"ST-DECL-INV79","file":"internal/declaration/worker.go"}
 {"id":"ST-DECL-INV80-RL","title":"declaration.validateCommandRetry","invariant_id":"ST-DECL-INV80","file":"internal/declaration/command.go"}
 {"id":"ST-DECL-INV82-RL","title":"declaration.validateIdempotencyValues","invariant_id":"ST-DECL-INV82","file":"internal/declaration/idempotency.go"}
 {"id":"ST-DIS-INV06-RL","title":"lifecycle.oneSuccessor","invariant_id":"ST-DIS-INV06","file":"internal/lifecycle/rules.go"}
