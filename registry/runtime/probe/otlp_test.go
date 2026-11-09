@@ -243,7 +243,7 @@ func attributeKeys(attrs []*commonpb.KeyValue) []string {
 // newTelemetry starts the real telemetry runtime of the service orders from the process environment.
 func newTelemetry(t testing.TB) *otel.Runtime {
 	t.Helper()
-	telemetry, err := otel.New("orders")
+	telemetry, err := otel.New("orders", SpanNames()...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -686,10 +686,25 @@ func TestProbeCallSpan(t *testing.T) {
 					outcomes = append(outcomes, kv.Value.GetStringValue())
 				}
 			}
+			if s.Status.GetCode() == tracepb.Status_STATUS_CODE_ERROR {
+				t.Fatal("a call span is marked as an error; a rollback is an outcome, not an error")
+			}
 		}
 		slices.Sort(outcomes)
 		if !slices.Equal(outcomes, []string{"committed", "rolled_back"}) {
 			t.Fatal("the call spans have the outcomes", outcomes)
+		}
+	})
+
+	t.Run("ST-SUP-RP03-LC15-T03 A telemetry runtime without the call span name fails the start", func(t *testing.T) {
+		clearEnvironment(t)
+		telemetry, err := otel.New("orders")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer telemetry.Close()
+		if _, err := Start(telemetry, nil); err == nil || !strings.Contains(err.Error(), CallSpanName) {
+			t.Fatal("the probe started on a runtime without its span name", err)
 		}
 	})
 }

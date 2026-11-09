@@ -39,6 +39,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+
+	"stego.dev/runtime/internal/spanevent"
 )
 
 // The export limits of ST-SUP-RP03-LC10.
@@ -86,6 +88,8 @@ type Runtime struct {
 	records    sync.Map // spanKey to *spanRecord, for each recording span of the runtime that has not ended
 	operations map[string]bool
 	opTracer   trace.Tracer
+	live       atomic.Int64  // records of spans that have not ended
+	refused    atomic.Uint64 // spans not kept beyond SpanRecordLimit
 
 	once             sync.Once
 	closed           atomic.Bool
@@ -206,7 +210,7 @@ func (r *Runtime) startTraces(ratio float64, processor sdktrace.SpanProcessor) {
 		sdktrace.WithResource(r.resource),
 		sdktrace.WithSampler(sdktrace.TraceIDRatioBased(ratio)),
 		sdktrace.WithRawSpanLimits(sdktrace.SpanLimits{AttributeValueLengthLimit: 256, AttributeCountLimit: 8}),
-		sdktrace.WithSpanProcessor(&ownSpans{next: processor, records: &r.records}),
+		sdktrace.WithSpanProcessor(&ownSpans{next: processor, records: &r.records, live: &r.live}),
 	)
 	r.tracer = r.provider.Tracer("stego/http")
 	r.opTracer = r.provider.Tracer("stego/operation")
@@ -305,9 +309,9 @@ func (r *Runtime) ShutdownFailures() uint64 { return r.shutdownFailures.Load() }
 // in a failed export or left when shutdown ended.
 func (r *Runtime) DroppedSpans() uint64 {
 	if r.spans == nil {
-		return 0
+		return r.refused.Load()
 	}
-	return r.spans.dropped.Load()
+	return r.spans.dropped.Load() + r.refused.Load()
 }
 
 // continueTrace returns the context with the remote parent of a single valid traceparent value. Any other set of
@@ -789,7 +793,7 @@ func (r *Runtime) startSpan(ctx context.Context, tracer trace.Tracer, name strin
 	record := &spanRecord{name: name}
 	record.set(attrs...)
 	if span.IsRecording() {
-		r.records.Store(keyOf(span.SpanContext()), record)
+		r.keep(span.SpanContext(), record)
 	}
 	return ctx, span, record
 }
@@ -797,14 +801,24 @@ func (r *Runtime) startSpan(ctx context.Context, tracer trace.Tracer, name strin
 // SpanEvent adds one event of the probe runtime to a recording span of this runtime. The name starts with domain.
 // and the attributes are the declared fields of the observation and stego.outcome, at most nine. It tells whether
 // the event was dropped: the span is full or has ended, or the event is not well formed. A span that is not one of
-// this runtime's recording spans takes no event, and that is no drop.
-func (r *Runtime) SpanEvent(sc trace.SpanContext, name string, at time.Time, attrs ...attribute.KeyValue) (dropped bool) {
+// this runtime's recording spans takes no event, and that is no drop. Only the probe runtime holds a key (package
+// internal/spanevent); a zero key adds nothing. The name and each attribute key take lower-case letters, digits, dots
+// and underscores only, as an operation span name does.
+func (r *Runtime) SpanEvent(key spanevent.Key, sc trace.SpanContext, name string, at time.Time, attrs ...attribute.KeyValue) (dropped bool) {
+	if !key.Valid() {
+		return true
+	}
 	value, ok := r.records.Load(keyOf(sc))
 	if !ok {
 		return false
 	}
-	if !strings.HasPrefix(name, "domain.") || len(name) > 128 || len(attrs) > 9 {
+	if !strings.HasPrefix(name, "domain.") || len(name) > 128 || !plainName(name) || len(attrs) > 9 {
 		return true
+	}
+	for _, kv := range attrs {
+		if !plainName(string(kv.Key)) || len(kv.Key) > 64 {
+			return true
+		}
 	}
 	kept := make([]attribute.KeyValue, len(attrs))
 	for i, kv := range attrs {
@@ -824,11 +838,26 @@ func (r *Runtime) SpanEvent(sc trace.SpanContext, name string, at time.Time, att
 	return false
 }
 
+// SpanRecordLimit is the most spans of the runtime that record at one time. A span that starts beyond it is not
+// exported and is counted in DroppedSpans, so spans that are never ended cannot grow the records without bound.
+const SpanRecordLimit = 4096
+
+// keep stores the record of a recording span, or drops the span when SpanRecordLimit records are live.
+func (r *Runtime) keep(sc trace.SpanContext, record *spanRecord) {
+	if r.live.Add(1) > SpanRecordLimit {
+		r.live.Add(-1)
+		r.refused.Add(1)
+		return
+	}
+	r.records.Store(keyOf(sc), record)
+}
+
 // ownSpans gives the next processor each span of the runtime as its record holds it, and no other span: a span
 // that code started with the provider of a span in its context is not exported.
 type ownSpans struct {
 	next    sdktrace.SpanProcessor
 	records *sync.Map
+	live    *atomic.Int64
 }
 
 func (p *ownSpans) OnStart(ctx context.Context, span sdktrace.ReadWriteSpan) {
@@ -840,6 +869,7 @@ func (p *ownSpans) OnEnd(span sdktrace.ReadOnlySpan) {
 	if !ok {
 		return
 	}
+	p.live.Add(-1)
 	record := value.(*spanRecord)
 	record.mu.Lock()
 	record.ended = true
@@ -923,7 +953,12 @@ type Finish func(outcome Outcome, retry, failed bool)
 
 // operationName accepts 1 to 64 bytes of lower-case letters, digits, dots and underscores.
 func operationName(name string) bool {
-	if len(name) < 1 || len(name) > 64 {
+	return len(name) <= 64 && plainName(name)
+}
+
+// plainName accepts one or more lower-case letters, digits, dots and underscores.
+func plainName(name string) bool {
+	if name == "" {
 		return false
 	}
 	for _, c := range []byte(name) {
@@ -949,10 +984,15 @@ func (r *Runtime) register(names []string) error {
 	return nil
 }
 
+// Registered tells whether New registered the operation span name. A runtime package checks its names once when it
+// starts, so a missing name fails the start and never drops spans in silence.
+func (r *Runtime) Registered(name string) bool { return r.operations[name] }
+
 // StartOperation starts an operation span of another runtime package, with a name of the set registered at start.
 // The span carries only the fixed attributes stego.operation, stego.outcome and stego.retry and is exported with
 // the runtime's own record only, so code that holds it cannot add a name, an attribute, a status message or a span;
-// SpanEvent accepts it. Without a provider, or after Close, it returns ctx and a Finish that does nothing. An
+// SpanEvent accepts it. The returned context holds the span context only. Without a provider, or after Close, it
+// returns ctx with new IDs that do not record, and a Finish that does nothing. An
 // unregistered name is an error, and no span starts (ST-SUP-RP03-LC15).
 func (r *Runtime) StartOperation(ctx context.Context, parent Parent, name string) (context.Context, Finish, error) {
 	if ctx == nil || (parent != Root && parent != Child) {
@@ -962,7 +1002,8 @@ func (r *Runtime) StartOperation(ctx context.Context, parent Parent, name string
 		return ctx, nil, errors.New("the operation span name is not registered")
 	}
 	if r.provider == nil || r.closed.Load() {
-		return ctx, func(Outcome, bool, bool) {}, nil
+		// No span records, but the IDs exist, so the logs of the operation carry them (ST-SUP-RP02-LC20).
+		return trace.ContextWithSpanContext(ctx, localSpanContext(ctx, parent)), func(Outcome, bool, bool) {}, nil
 	}
 	options := []trace.SpanStartOption{trace.WithSpanKind(trace.SpanKindInternal), trace.WithAttributes(attribute.String(operationKey, name)), trace.WithTimestamp(time.Now())}
 	if parent == Root {
@@ -972,8 +1013,11 @@ func (r *Runtime) StartOperation(ctx context.Context, parent Parent, name string
 	record := &spanRecord{name: name}
 	record.set(attribute.String(operationKey, name))
 	if span.IsRecording() {
-		r.records.Store(keyOf(span.SpanContext()), record)
+		r.keep(span.SpanContext(), record)
 	}
+	// The caller holds the span context only, a span that does nothing: it cannot end the span early, change its end
+	// time, or add a name, an attribute or a status. Only Finish ends it.
+	ctx = trace.ContextWithSpanContext(ctx, span.SpanContext())
 	var once sync.Once
 	return ctx, func(outcome Outcome, retry, failed bool) {
 		once.Do(func() {
@@ -987,4 +1031,18 @@ func (r *Runtime) StartOperation(ctx context.Context, parent Parent, name string
 			span.End()
 		})
 	}, nil
+}
+
+// localSpanContext gives new IDs for an operation of a runtime with no provider: a root gets a new trace, a child
+// keeps the trace of ctx. The span context is not sampled.
+func localSpanContext(ctx context.Context, parent Parent) trace.SpanContext {
+	var traceID trace.TraceID
+	var spanID trace.SpanID
+	_, _ = rand.Read(spanID[:])
+	if parentContext := trace.SpanContextFromContext(ctx); parent == Child && parentContext.IsValid() {
+		traceID = parentContext.TraceID()
+	} else {
+		_, _ = rand.Read(traceID[:])
+	}
+	return trace.NewSpanContext(trace.SpanContextConfig{TraceID: traceID, SpanID: spanID})
 }

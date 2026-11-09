@@ -539,6 +539,9 @@ type Providers interface {
 	StartOperation(ctx context.Context, parent otel.Parent, name string) (context.Context, otel.Finish, error)
 	MeterProvider() metric.MeterProvider
 	LoggerProvider() otellog.LoggerProvider
+	// Registered tells whether the runtime registered an operation span name. Start fails when a name of SpanNames
+	// is missing, so no span is dropped in silence.
+	Registered(name string) bool
 	// CollectorSet tells whether a collector endpoint was set; without one the logs also go to standard error
 	// (ST-SUP-RP02-LC20).
 	CollectorSet() bool
@@ -611,6 +614,14 @@ func (t *Telemetry) Start(ctx context.Context) (context.Context, func(), error) 
 			return ctx, nil, errors.New("controller telemetry start returned no providers")
 		}
 		current, err := newSignals(providers, t.stderr)
+		if err == nil {
+			for _, name := range SpanNames() {
+				if !providers.Registered(name) {
+					current.close()
+					return ctx, nil, errors.New("controller: the telemetry runtime does not register the span name " + name + "; start it with otel.New(service, controller.SpanNames()...)")
+				}
+			}
+		}
 		if err != nil {
 			closing, cancel := context.WithTimeout(context.Background(), providerCloseTimeout)
 			_ = providers.Shutdown(closing)
@@ -699,7 +710,7 @@ var queueGauges = [...]string{"running", "capacity", "queued", "active", "retryi
 func newSignals(providers Providers, stderr io.Writer) (*signals, error) {
 	s := &signals{providers: providers, queues: make(map[*queueRegistration]func() QueueMetrics)}
 	if !providers.CollectorSet() && stderr != nil {
-		s.local = &localLog{out: stderr}
+		s.local = newLocalLog(stderr)
 	}
 	if provider := providers.LoggerProvider(); provider != nil {
 		s.logger = provider.Logger(instrumentScope)
@@ -758,6 +769,9 @@ func (s *signals) close() {
 	s.closed.Store(true)
 	ctx, cancel := context.WithTimeout(context.Background(), providerCloseTimeout)
 	defer cancel()
+	if s.local != nil {
+		s.local.drain(ctx)
+	}
 	_ = s.providers.Shutdown(ctx)
 }
 
@@ -905,11 +919,61 @@ func (s *signals) emit(ctx context.Context, now time.Time, event, message string
 	s.logger.Emit(ctx, record)
 }
 
+// LocalLogLimit is the most log lines that wait for standard error. A line beyond it is dropped and counted.
+const LocalLogLimit = 256
+
 // localLog writes the controller logs to standard error when no collector is set, one JSON line in one write each,
-// with the fields of the completion log and no key, payload or error text (ST-SUP-RP02-LC20).
+// with the fields of the completion log and no key, payload or error text (ST-SUP-RP02-LC20). A bounded queue and one
+// writer keep a stalled standard error from blocking a worker: a line beyond the bound is dropped and counted, and
+// the close drains the queue within the shutdown limit.
 type localLog struct {
-	mu  sync.Mutex
-	out io.Writer
+	out     io.Writer
+	lines   chan []byte
+	dropped atomic.Uint64
+	mu      sync.Mutex
+	closed  bool
+	done    chan struct{}
+}
+
+func newLocalLog(out io.Writer) *localLog {
+	l := &localLog{out: out, lines: make(chan []byte, LocalLogLimit), done: make(chan struct{})}
+	go func() {
+		defer close(l.done)
+		for line := range l.lines {
+			_, _ = l.out.Write(line)
+		}
+	}()
+	return l
+}
+
+// put queues one line, or drops and counts it when the queue is full or closed.
+func (l *localLog) put(line []byte) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed {
+		l.dropped.Add(1)
+		return
+	}
+	select {
+	case l.lines <- line:
+	default:
+		l.dropped.Add(1)
+	}
+}
+
+// drain closes the queue and waits for the writer until ctx ends. The lines a stalled writer cannot write in time
+// are left behind.
+func (l *localLog) drain(ctx context.Context) {
+	l.mu.Lock()
+	if !l.closed {
+		l.closed = true
+		close(l.lines)
+	}
+	l.mu.Unlock()
+	select {
+	case <-l.done:
+	case <-ctx.Done():
+	}
 }
 
 type localRecord struct {
@@ -945,9 +1009,7 @@ func (l *localLog) write(ctx context.Context, now time.Time, event, message stri
 	if err != nil {
 		return
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	_, _ = l.out.Write(append(line, '\n'))
+	l.put(append(line, '\n'))
 }
 
 func severityText(severity otellog.Severity) string {

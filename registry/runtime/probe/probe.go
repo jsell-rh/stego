@@ -412,7 +412,8 @@ func (c *Call) end(committed bool) {
 		if committed {
 			finish(otel.OutcomeCommitted, false, false)
 		} else {
-			finish(otel.OutcomeRolledBack, false, true)
+			// A rollback is an outcome of the call, not an error of the span.
+			finish(otel.OutcomeRolledBack, false, false)
 		}
 	}
 }

@@ -225,7 +225,7 @@ func TestProbeSinks(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RP12-LC19-T01 Span events beyond the limit of a span that two calls share are counted as otlp drops", func(t *testing.T) {
+	t.Run("ST-SUP-RP12-LC19-T01 Two calls on one server span each keep their span events on their own call span", func(t *testing.T) {
 		c := startCollector(t)
 		event := reservationRefused(t, CountsAttempt)
 		r := newProbe(t, newTelemetry(t), "", nil)
@@ -247,25 +247,32 @@ func TestProbeSinks(t *testing.T) {
 		if err := r.Close(context.Background()); err != nil {
 			t.Fatal(err)
 		}
-		if d := r.Delivery(); d.OTLPDropped != HoldLimit {
-			t.Fatalf("the delivery counts are %+v, want %d otlp drops for the events the span had no room for", d, HoldLimit)
+		if d := r.Delivery(); d.OTLPDropped != 0 {
+			t.Fatalf("the delivery counts are %+v, want no otlp drop: each call has its own span", d)
 		}
-		var events int
+		var calls int
 		for _, s := range c.spans() {
-			events += len(s.Events)
+			if s.Name == CallSpanName {
+				calls++
+				if len(s.Events) != otel.SpanEventLimit {
+					t.Fatalf("a call span holds %d events, want %d", len(s.Events), otel.SpanEventLimit)
+				}
+			} else if len(s.Events) != 0 {
+				t.Fatal("an event went on the server span")
+			}
 		}
-		if events != otel.SpanEventLimit || len(c.logRecords()) != 2*HoldLimit {
-			t.Fatalf("the span holds %d events and the collector %d log records, want %d and %d", events, len(c.logRecords()), otel.SpanEventLimit, 2*HoldLimit)
+		if calls != 2 || len(c.logRecords()) != 2*HoldLimit {
+			t.Fatalf("%d call spans and %d log records, want 2 and %d", calls, len(c.logRecords()), 2*HoldLimit)
 		}
 		m := c.lastMetrics()["domain.probe.dropped"]
 		var found bool
 		for _, p := range m.GetSum().DataPoints {
 			if slices.Contains(attributes(p.Attributes), "sink=otlp") {
-				found = p.GetAsInt() == HoldLimit
+				found = p.GetAsInt() == 0
 			}
 		}
 		if !found {
-			t.Fatalf("domain.probe.dropped has no series sink=otlp of %d", HoldLimit)
+			t.Fatal("domain.probe.dropped has no series sink=otlp of 0")
 		}
 	})
 

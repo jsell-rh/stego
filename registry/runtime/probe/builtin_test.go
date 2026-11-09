@@ -85,7 +85,7 @@ func TestProbeBuiltins(t *testing.T) {
 			if mode == "service-collector" {
 				c = startCollector(t)
 			}
-			telemetry, err := otel.New("orders")
+			telemetry, err := otel.New("orders", SpanNames()...)
 			if err != nil {
 				os.Exit(2)
 			}

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -24,7 +26,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	otelcodes "go.opentelemetry.io/otel/codes"
 	otellog "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/metric"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
@@ -32,7 +33,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 	tracecollector "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
@@ -75,11 +75,13 @@ func (s *logStore) all() []sdklog.Record {
 	return slices.Clone(s.records)
 }
 
-// testProviders is a provider set of the OpenTelemetry SDK with exporters in memory. Its shutdown keeps what was
-// exported, so a test reads it after the controller closes the set.
+// testProviders is the provider set of the controller tests. The spans are the real telemetry runtime's, exported
+// to a fake TLS gRPC trace collector on loopback, so the tests see only what the runtime exports. The meter and logger
+// providers are the OpenTelemetry SDK with readers in memory: the telemetry runtime hands its own on unfiltered, so
+// the controller's metrics and logs are the same with it. A start makes a new telemetry runtime, as otel.New does in a
+// service.
 type testProviders struct {
-	spans     *tracetest.SpanRecorder
-	traces    *sdktrace.TracerProvider
+	collector *traceCollector
 	reader    *sdkmetric.ManualReader
 	meters    *sdkmetric.MeterProvider
 	logs      *logStore
@@ -94,7 +96,11 @@ type testProviders struct {
 	closeDelay time.Duration
 	mu         sync.Mutex
 	order      []string // start, close and closed, in the order they ran
+	runtime    *otel.Runtime
 }
+
+// testSpanNames are the span names the test runtime registers: the controller's, the store's and a provider call's.
+func testSpanNames() []string { return append(SpanNames(), "database.query", "provider.call") }
 
 func (p *testProviders) note(step string) {
 	p.mu.Lock()
@@ -102,61 +108,78 @@ func (p *testProviders) note(step string) {
 	p.order = append(p.order, step)
 }
 
-func newProviders(sampler sdktrace.Sampler, ids sdktrace.IDGenerator) *testProviders {
-	p := &testProviders{spans: tracetest.NewSpanRecorder(), reader: sdkmetric.NewManualReader(), logs: &logStore{}}
-	res := resource.NewSchemaless(attribute.String("service.name", "controller-test"), attribute.String("service.instance.id", "instance-1"))
-	options := []sdktrace.TracerProviderOption{sdktrace.WithSampler(sampler), sdktrace.WithSpanProcessor(p.spans), sdktrace.WithResource(res)}
-	if ids != nil {
-		options = append(options, sdktrace.WithIDGenerator(ids))
-	}
-	p.traces = sdktrace.NewTracerProvider(options...)
+// newProviders starts the trace collector with the sampling ratio and makes the provider set.
+func newProviders(t *testing.T, ratio string) *testProviders {
+	t.Helper()
+	p := &testProviders{collector: startTraceCollector(t), reader: sdkmetric.NewManualReader(), logs: &logStore{}}
+	t.Setenv("OTEL_TRACES_SAMPLER_ARG", ratio)
+	res := resource.NewSchemaless(attribute.String("service.name", "controller-test"))
 	p.meters = sdkmetric.NewMeterProvider(sdkmetric.WithReader(p.reader), sdkmetric.WithResource(res))
 	p.loggers = sdklog.NewLoggerProvider(sdklog.WithProcessor(p.logs), sdklog.WithResource(res))
 	builtins, err := probe.NewBuiltins(nil, nil)
 	if err != nil {
-		panic(err)
+		t.Fatal(err)
 	}
 	p.events = probe.NewRecorder(builtins)
 	return p
 }
 
-func (p *testProviders) TracerProvider() trace.TracerProvider { return p.traces }
-func (p *testProviders) CollectorSet() bool                   { return !p.local }
+// current is the telemetry runtime of the last start.
+func (p *testProviders) current() *otel.Runtime {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.runtime
+}
 
-// StartOperation starts the operation span on the SDK tracer, as the telemetry runtime does: a root has no parent.
+func (p *testProviders) CollectorSet() bool { return !p.local }
+func (p *testProviders) Registered(name string) bool {
+	return p.current().Registered(name)
+}
 func (p *testProviders) StartOperation(ctx context.Context, parent otel.Parent, name string) (context.Context, otel.Finish, error) {
-	options := []trace.SpanStartOption{trace.WithAttributes(attribute.String("stego.operation", name))}
-	if parent == otel.Root {
-		options = append(options, trace.WithNewRoot())
-	}
-	ctx, span := p.traces.Tracer("stego/operation").Start(ctx, name, options...)
-	return ctx, func(outcome otel.Outcome, retry, failed bool) {
-		span.SetAttributes(attribute.String("stego.outcome", string(outcome)), attribute.Bool("stego.retry", retry))
-		if failed {
-			span.SetStatus(otelcodes.Error, "")
-		}
-		span.End()
-	}, nil
+	return p.current().StartOperation(ctx, parent, name)
 }
 func (p *testProviders) MeterProvider() metric.MeterProvider    { return p.meters }
 func (p *testProviders) LoggerProvider() otellog.LoggerProvider { return p.loggers }
-func (p *testProviders) Shutdown(context.Context) error {
+func (p *testProviders) Shutdown(ctx context.Context) error {
 	p.note("close")
 	if p.closing != nil {
 		p.closing()
 	}
 	time.Sleep(p.closeDelay)
+	err := p.current().Shutdown(ctx)
 	p.shutdowns.Add(1)
 	p.open.Store(false)
 	p.note("closed")
-	return nil
+	return err
 }
 
 func (p *testProviders) start() (Providers, error) {
 	p.note("start")
+	runtime, err := otel.New("controller-test", testSpanNames()...)
+	if err != nil {
+		return nil, err
+	}
+	p.mu.Lock()
+	p.runtime = runtime
+	p.mu.Unlock()
 	p.starts.Add(1)
 	p.open.Store(true)
 	return p, nil
+}
+
+// spans are the spans that the collector received. The runtime exports on close, so a test reads them after the
+// last user of the provider set gave it back.
+func (p *testProviders) spans() []*tracepb.Span { return p.collector.received() }
+
+// named are the exported spans of one name.
+func (p *testProviders) named(name string) []*tracepb.Span {
+	var out []*tracepb.Span
+	for _, span := range p.spans() {
+		if span.Name == name {
+			out = append(out, span)
+		}
+	}
+	return out
 }
 
 func newTestTelemetryWith(t *testing.T, p *testProviders) *Telemetry {
@@ -170,7 +193,7 @@ func newTestTelemetryWith(t *testing.T, p *testProviders) *Telemetry {
 
 func newTestTelemetry(t *testing.T) (*testProviders, *Telemetry) {
 	t.Helper()
-	p := newProviders(sdktrace.AlwaysSample(), nil)
+	p := newProviders(t, "1")
 	return p, newTestTelemetryWith(t, p)
 }
 
@@ -988,19 +1011,34 @@ func TestTelemetryStartup(t *testing.T) {
 		if !errors.Is(err, denied) {
 			t.Fatal(err)
 		}
-		spans := providers.spans.Ended()
 		names := map[string]int{}
-		instances := map[string]bool{}
-		for _, span := range spans {
-			names[span.Name()]++
-			for _, kv := range span.Resource().Attributes() {
-				if kv.Key == "service.instance.id" {
-					instances[kv.Value.AsString()] = true
-				}
-			}
+		for _, span := range providers.spans() {
+			names[span.Name]++
 		}
+		providers.collector.mu.Lock()
+		instances := maps.Clone(providers.collector.instances)
+		providers.collector.mu.Unlock()
 		if names["controller.scan"] != 3 || names["controller.reconcile"] != 1 || len(instances) != 1 || providers.starts.Load() != 1 || providers.shutdowns.Load() != 1 {
 			t.Fatal("setup, the nested controller and the cleanup did not share one runtime", names, instances, providers.starts.Load())
+		}
+	})
+
+	t.Run("ST-SUP-RP02-LC14-T01 A runtime that lacks a controller span name fails the start once", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+		telemetry, err := NewTelemetry(func() (Providers, error) {
+			runtime, err := otel.New("controller-test")
+			if err != nil {
+				return nil, err
+			}
+			return runtime, nil
+		}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		called := false
+		_, err = Monitor(context.Background(), "", telemetry, func(context.Context, *Metrics) (int, error) { called = true; return 0, nil })
+		if err == nil || called || !strings.Contains(err.Error(), "controller.reconcile") || telemetry.current != nil {
+			t.Fatal("a runtime without the controller span names started", err, called)
 		}
 	})
 
@@ -1151,7 +1189,7 @@ func TestTelemetryStartup(t *testing.T) {
 		var starts atomic.Int32
 		telemetry, err := NewTelemetry(func() (Providers, error) {
 			starts.Add(1)
-			runtime, err := otel.New("controller-test")
+			runtime, err := otel.New("controller-test", SpanNames()...)
 			if err != nil {
 				return nil, err
 			}
@@ -1182,7 +1220,7 @@ func TestTelemetryLogs(t *testing.T) {
 	t.Run("ST-SUP-RP02-LC15-T01 Each reconcile, scan and watch emits one completion log and one duration sample", func(t *testing.T) {
 		for _, ratio := range []float64{1, 0} {
 			t.Run(fmt.Sprint(ratio), func(t *testing.T) {
-				providers := newProviders(sdktrace.TraceIDRatioBased(ratio), nil)
+				providers := newProviders(t, fmt.Sprint(ratio))
 				telemetry := newTestTelemetryWith(t, providers)
 				ctx, cancel := context.WithCancel(context.Background())
 				_, err := Monitor(ctx, "", telemetry, func(ctx context.Context, _ *Metrics) (int, error) {
@@ -1238,14 +1276,9 @@ func TestTelemetryLogs(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var sessions []sdktrace.ReadOnlySpan
-		for _, span := range providers.spans.Ended() {
-			if span.Name() == "controller.watch" {
-				sessions = append(sessions, span)
-			}
-		}
-		sort.Slice(sessions, func(i, j int) bool { return sessions[i].StartTime().Before(sessions[j].StartTime()) })
-		if len(sessions) != 2 || sessions[0].EndTime().After(sessions[1].StartTime()) {
+		sessions := providers.named("controller.watch")
+		sort.Slice(sessions, func(i, j int) bool { return sessions[i].StartTimeUnixNano < sessions[j].StartTimeUnixNano })
+		if len(sessions) != 2 || sessions[0].EndTimeUnixNano > sessions[1].StartTimeUnixNano {
 			t.Fatal("the watch spans do not each cover one session", len(sessions))
 		}
 	})
@@ -1601,49 +1634,20 @@ func TestTelemetryCleanup(t *testing.T) {
 	})
 }
 
-// sequenceIDs gives trace and span IDs from a counter, so the sampling decisions are the same on every run.
-type sequenceIDs struct {
-	mu   sync.Mutex
-	next uint64
-}
-
-func (s *sequenceIDs) id() (out [16]byte) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.next++
-	// Spread the counter over the low half, which the ratio sampler reads.
-	value := s.next * 0x9E3779B97F4A7C15
-	for i := range 8 {
-		out[8+i] = byte(value >> (8 * i))
-		out[i] = byte(s.next >> (8 * i))
-	}
-	return out
-}
-
-func (s *sequenceIDs) NewIDs(context.Context) (trace.TraceID, trace.SpanID) {
-	id := s.id()
-	var span trace.SpanID
-	copy(span[:], id[8:])
-	return trace.TraceID(id), span
-}
-
-func (s *sequenceIDs) NewSpanID(context.Context, trace.TraceID) trace.SpanID {
-	id := s.id()
-	var span trace.SpanID
-	copy(span[:], id[8:])
-	return span
-}
-
 func TestTelemetrySpans(t *testing.T) {
+	// The spans are the real telemetry runtime's, as the trace collector receives them.
 	t.Run("ST-SUP-RP02-LC19-T01 An operation root keeps the supplied context's cancellation, deadline and ownership", func(t *testing.T) {
 		providers, telemetry := newTestTelemetry(t)
 		owned, release, err := telemetry.Start(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer release()
 		type key struct{}
-		parentCtx, parentSpan := providers.traces.Tracer("test").Start(owned, "parent")
+		parentCtx, finishParent, err := providers.current().StartOperation(owned, otel.Root, "provider.call")
+		if err != nil {
+			t.Fatal(err)
+		}
+		parent := trace.SpanContextFromContext(parentCtx)
 		deadline := time.Now().Add(time.Minute)
 		parentCtx, cancel := context.WithDeadline(context.WithValue(parentCtx, key{}, "value"), deadline)
 		var root trace.SpanContext
@@ -1661,17 +1665,17 @@ func TestTelemetrySpans(t *testing.T) {
 			}
 		})
 		finish(false)
-		parentSpan.End()
+		finishParent(otel.OutcomeSuccess, false, false)
+		release()
 		if err != nil && !errors.Is(err, context.Canceled) {
 			t.Fatal(err)
 		}
-		if root.TraceID() == parentSpan.SpanContext().TraceID() {
+		if root.TraceID() == parent.TraceID() {
 			t.Fatal("the root continued the parent trace")
 		}
-		for _, span := range providers.spans.Ended() {
-			if span.Name() == "controller.reconcile" && span.Parent().IsValid() {
-				t.Fatal("the root has a parent span")
-			}
+		spans := providers.named("controller.reconcile")
+		if len(spans) != 1 || len(spans[0].ParentSpanId) != 0 || trace.TraceID(spans[0].TraceId) != root.TraceID() {
+			t.Fatal("the exported root has a parent span or another trace", len(spans))
 		}
 	})
 
@@ -1680,55 +1684,48 @@ func TestTelemetrySpans(t *testing.T) {
 		_, err := Monitor(context.Background(), "", telemetry, func(ctx context.Context, _ *Metrics) (int, error) {
 			source := KeyedSource[string]{Observe: idleObserve, Scan: func(ctx context.Context, emit func(string) error) error { return emit("key") }}
 			return 0, RunKeyed(ctx, source, func(ctx context.Context, _ string) error {
-				// The generated store starts its span from the operation's context.
-				_, span := trace.SpanFromContext(ctx).TracerProvider().Tracer("stego/database").Start(ctx, "SELECT")
-				span.End()
+				// The store starts its span through the telemetry runtime, as a child of the operation in ctx.
+				_, finish, err := providers.current().StartOperation(ctx, otel.Child, "database.query")
+				if err != nil {
+					return err
+				}
+				finish(otel.OutcomeSuccess, false, false)
 				return denied
 			}, keyOptions())
 		})
 		if !errors.Is(err, denied) {
 			t.Fatal(err)
 		}
-		var database, reconcile sdktrace.ReadOnlySpan
-		for _, span := range providers.spans.Ended() {
-			switch span.Name() {
-			case "SELECT":
-				database = span
-			case "controller.reconcile":
-				reconcile = span
-			}
-		}
-		if database == nil || reconcile == nil || database.Parent().SpanID() != reconcile.SpanContext().SpanID() {
-			t.Fatal("the database span is not a child of the reconcile span")
+		database, reconcile := providers.named("database.query"), providers.named("controller.reconcile")
+		if len(database) != 1 || len(reconcile) != 1 || !bytes.Equal(database[0].ParentSpanId, reconcile[0].SpanId) || !bytes.Equal(database[0].TraceId, reconcile[0].TraceId) {
+			t.Fatal("the database span is not an exported child of the reconcile span", len(database), len(reconcile))
 		}
 	})
 
 	t.Run("ST-SUP-RP02-LC19-T03 Sampling applies to each operation root", func(t *testing.T) {
-		providers := newProviders(sdktrace.TraceIDRatioBased(0.5), &sequenceIDs{})
+		providers := newProviders(t, "0.5")
 		telemetry := newTestTelemetryWith(t, providers)
 		owned, release, err := telemetry.Start(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer release()
 		parent := trace.ContextWithRemoteSpanContext(owned, trace.NewSpanContext(trace.SpanContextConfig{TraceID: trace.TraceID{1}, SpanID: trace.SpanID{1}, TraceFlags: trace.FlagsSampled}))
 		decide := sdktrace.TraceIDRatioBased(0.5)
-		sampled := 0
-		traces := map[trace.TraceID]bool{}
+		sampled := map[trace.TraceID]bool{}
 		for range 100 {
 			err, finish := controllerWork(parent, "reconcile", func(ctx context.Context) error {
 				root := trace.SpanContextFromContext(ctx)
-				traces[root.TraceID()] = true
 				want := decide.ShouldSample(sdktrace.SamplingParameters{TraceID: root.TraceID()}).Decision == sdktrace.RecordAndSample
 				if root.IsSampled() != want {
 					return errors.New("the root was not sampled by its own trace ID")
 				}
-				if root.IsSampled() {
-					sampled++
+				sampled[root.TraceID()] = root.IsSampled()
+				child, finish, err := providers.current().StartOperation(ctx, otel.Child, "provider.call")
+				if err != nil {
+					return err
 				}
-				_, child := trace.SpanFromContext(ctx).TracerProvider().Tracer("child").Start(ctx, "child")
-				defer child.End()
-				if child.SpanContext().IsSampled() != root.IsSampled() {
+				defer finish(otel.OutcomeSuccess, false, false)
+				if trace.SpanContextFromContext(child).IsSampled() != root.IsSampled() {
 					return errors.New("a child did not share its root's decision")
 				}
 				return nil
@@ -1738,8 +1735,24 @@ func TestTelemetrySpans(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if len(traces) != 100 || sampled == 0 || sampled == 100 {
-			t.Fatal("the roots did not each take a decision", len(traces), sampled)
+		release()
+		count := 0
+		for _, yes := range sampled {
+			if yes {
+				count++
+			}
+		}
+		if len(sampled) != 100 || count == 0 || count == 100 {
+			t.Fatal("the roots did not each take a decision", len(sampled), count)
+		}
+		roots, children := providers.named("controller.reconcile"), providers.named("provider.call")
+		if len(roots) != count || len(children) != count {
+			t.Fatal("the exported spans do not follow the decisions", len(roots), len(children), count)
+		}
+		for _, root := range roots {
+			if !sampled[trace.TraceID(root.TraceId)] {
+				t.Fatal("a root that was not sampled was exported")
+			}
 		}
 	})
 
@@ -1763,8 +1776,8 @@ func TestTelemetrySpans(t *testing.T) {
 			t.Fatal(err)
 		}
 		var export strings.Builder
-		for _, span := range providers.spans.Ended() {
-			fmt.Fprintf(&export, "%s %v %v %v %v\n", span.Name(), span.Attributes(), span.Events(), span.Status(), span.Links())
+		for _, span := range providers.spans() {
+			fmt.Fprintf(&export, "%v\n", span)
 		}
 		for _, record := range providers.logs.all() {
 			fmt.Fprintf(&export, "%s %s %v\n", record.EventName(), record.Body().AsString(), record.SeverityText())
@@ -1779,7 +1792,7 @@ func TestTelemetrySpans(t *testing.T) {
 				t.Fatal("the export holds", marker)
 			}
 		}
-		if len(providers.spans.Ended()) == 0 || len(providers.logs.all()) == 0 {
+		if len(providers.named("controller.reconcile")) == 0 || len(providers.logs.all()) == 0 {
 			t.Fatal("nothing was exported")
 		}
 	})
@@ -1801,17 +1814,22 @@ func TestTelemetrySpans(t *testing.T) {
 			t.Fatal(err)
 		}
 		limits := sdktrace.NewSpanLimits()
-		checked := 0
-		for _, span := range providers.spans.Ended() {
-			if len(span.Attributes()) > limits.AttributeCountLimit || len(span.Links()) > limits.LinkCountLimit {
-				t.Fatal("a span is over its limits", span.Name(), len(span.Attributes()), len(span.Links()))
-			}
-			if span.Name() == "controller.reconcile" {
-				checked++
+		reconciles := providers.named("controller.reconcile")
+		for _, span := range providers.spans() {
+			if len(span.Attributes) > limits.AttributeCountLimit || len(span.Links) > limits.LinkCountLimit {
+				t.Fatal("a span is over its limits", span.Name, len(span.Attributes), len(span.Links))
 			}
 		}
-		if checked != 1 || limits.AttributeCountLimit != 128 || limits.LinkCountLimit != 128 {
-			t.Fatal("the reconcile span was not checked", checked)
+		if len(reconciles) != 1 || len(reconciles[0].Attributes) > 8 || len(reconciles[0].Links) != 0 || limits.AttributeCountLimit != 128 {
+			t.Fatal("the reconcile span holds what its callback added", len(reconciles))
+		}
+		var keys []string
+		for _, kv := range reconciles[0].Attributes {
+			keys = append(keys, kv.Key)
+		}
+		sort.Strings(keys)
+		if !slices.Equal(keys, []string{"stego.operation", "stego.outcome", "stego.retry"}) {
+			t.Fatal("the reconcile span has the attributes", keys)
 		}
 	})
 }
@@ -1820,14 +1838,23 @@ func TestTelemetrySpans(t *testing.T) {
 // runtime in the tests that need its export.
 type traceCollector struct {
 	tracecollector.UnimplementedTraceServiceServer
-	mu    sync.Mutex
-	spans []*tracepb.Span
+	mu        sync.Mutex
+	spans     []*tracepb.Span
+	instances map[string]bool // the service.instance.id of each resource that sent spans
 }
 
 func (c *traceCollector) Export(_ context.Context, request *tracecollector.ExportTraceServiceRequest) (*tracecollector.ExportTraceServiceResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for _, resource := range request.ResourceSpans {
+		for _, kv := range resource.GetResource().GetAttributes() {
+			if kv.Key == "service.instance.id" {
+				if c.instances == nil {
+					c.instances = map[string]bool{}
+				}
+				c.instances[kv.Value.GetStringValue()] = true
+			}
+		}
 		for _, scope := range resource.ScopeSpans {
 			c.spans = append(c.spans, scope.Spans...)
 		}
@@ -2013,7 +2040,77 @@ func TestTelemetryExport(t *testing.T) {
 		if len(reconciles) != 2 || reconciles[0]["outcome"] != "success" || reconciles[1]["outcome"] != "failure" || reconciles[1]["retry"] != false || reconciles[1]["severity"] != "ERROR" {
 			t.Fatal("the completion logs on standard error", reconciles)
 		}
+		traces := map[any]bool{}
+		for _, record := range reconciles {
+			traceID, _ := record["trace_id"].(string)
+			spanID, _ := record["span_id"].(string)
+			if len(traceID) != 32 || len(spanID) != 16 || traceID == strings.Repeat("0", 32) {
+				t.Fatal("a line has no trace and span IDs", record)
+			}
+			traces[traceID] = true
+		}
+		if len(traces) != 2 {
+			t.Fatal("the two reconciles do not have their own traces")
+		}
 	})
+
+	t.Run("ST-SUP-RP02-LC20-T01 A stalled standard error blocks no worker", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+		stalled := make(chan struct{})
+		defer close(stalled)
+		telemetry, err := NewTelemetry(func() (Providers, error) {
+			runtime, err := otel.New("controller-test", SpanNames()...)
+			if err != nil {
+				return nil, err
+			}
+			return runtime, nil
+		}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		telemetry.stderr = stallWriter(stalled)
+		var local *localLog
+		started := time.Now()
+		_, err = Monitor(context.Background(), "", telemetry, func(ctx context.Context, _ *Metrics) (int, error) {
+			local = signalsOf(ctx).local
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			var done atomic.Int32
+			source := KeyedSource[string]{Observe: idleObserve, Scan: func(ctx context.Context, emit func(string) error) error {
+				for i := range 2 * LocalLogLimit {
+					if err := emit(fmt.Sprint("key-", i)); err != nil {
+						return err
+					}
+				}
+				return nil
+			}}
+			o := keyOptions()
+			o.Capacity = 64
+			return 0, RunKeyed(ctx, source, func(context.Context, string) error {
+				if done.Add(1) == 2*LocalLogLimit {
+					cancel()
+				}
+				return nil
+			}, o)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if elapsed := time.Since(started); elapsed > providerCloseTimeout+2*time.Second {
+			t.Fatal("the stalled standard error held the controller or its close", elapsed)
+		}
+		if local == nil || local.dropped.Load() == 0 {
+			t.Fatal("the lines beyond the queue were not dropped and counted")
+		}
+	})
+}
+
+// stallWriter is a standard error that blocks each write until release closes.
+type stallWriter chan struct{}
+
+func (w stallWriter) Write(p []byte) (int, error) {
+	<-w
+	return len(p), nil
 }
 
 // lockedBuffer is a writer that the test reads after the writes.

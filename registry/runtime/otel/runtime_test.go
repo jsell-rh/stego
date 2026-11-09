@@ -44,6 +44,8 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
+
+	"stego.dev/runtime/internal/spanevent"
 )
 
 // collector is a fake OTLP gRPC collector on loopback with TLS. With hold set, each export waits until release, a
@@ -865,6 +867,9 @@ func TestSpanQueueShutdownRace(t *testing.T) {
 	})
 }
 
+// probeKey is the span event capability of the probe runtime, as the probe makes it.
+var probeKey = spanevent.New()
+
 // testSpan starts a span of the runtime with its record, as the runtime's own wrappers do.
 func (r *Runtime) testSpan(name string) (context.Context, trace.Span) {
 	ctx, span, _ := r.startSpan(context.Background(), r.tracer, name, trace.SpanKindInternal, time.Now())
@@ -889,7 +894,7 @@ func TestSpanOwnData(t *testing.T) {
 		handler := h.runtime.Handler(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 			forge(request.Context())
 			// The probe runtime's own event goes through SpanEvent and is kept.
-			if h.runtime.SpanEvent(trace.SpanContextFromContext(request.Context()), "domain.reservation_refused", time.Now(), attribute.String("reason", "short")) {
+			if h.runtime.SpanEvent(probeKey, trace.SpanContextFromContext(request.Context()), "domain.reservation_refused", time.Now(), attribute.String("reason", "short")) {
 				t.Error("SpanEvent dropped the probe event")
 			}
 			w.WriteHeader(http.StatusOK)
@@ -936,12 +941,12 @@ func TestSpanOwnData(t *testing.T) {
 		sc := trace.SpanContextFromContext(ctx)
 		dropped := 0
 		for range SpanEventLimit + 3 {
-			if h.runtime.SpanEvent(sc, "domain.x", time.Now()) {
+			if h.runtime.SpanEvent(probeKey, sc, "domain.x", time.Now()) {
 				dropped++
 			}
 		}
 		span.End()
-		if h.runtime.SpanEvent(sc, "domain.x", time.Now()) {
+		if h.runtime.SpanEvent(probeKey, sc, "domain.x", time.Now()) {
 			t.Fatal("an event after the end of the span was reported for a span that is no longer the runtime's")
 		}
 		if dropped != 3 || len(h.lastSpan(t).Events()) != SpanEventLimit || h.lastSpan(t).DroppedEvents() != 3 {
@@ -971,7 +976,7 @@ func TestOperationSpan(t *testing.T) {
 			span.SetStatus(otelcodes.Error, "PRIVATE message")
 			span.RecordError(errors.New("PRIVATE"))
 		}
-		if h.runtime.SpanEvent(trace.SpanContextFromContext(childCtx), "domain.reservation_refused", time.Now()) {
+		if h.runtime.SpanEvent(probeKey, trace.SpanContextFromContext(childCtx), "domain.reservation_refused", time.Now()) {
 			t.Fatal("SpanEvent did not accept the operation span")
 		}
 		finishChild(OutcomeFailure, false, true)
@@ -1015,6 +1020,94 @@ func TestOperationSpan(t *testing.T) {
 		}
 		if events := child.Events(); len(events) != 1 || events[0].Name != "domain.reservation_refused" {
 			t.Fatal("the probe event is not on the operation span", events)
+		}
+	})
+
+	t.Run("ST-SUP-RP03-LC15-T01 The caller holds a span that does nothing", func(t *testing.T) {
+		h := newHarness(t, 1)
+		if err := h.runtime.register([]string{"reconcile"}); err != nil {
+			t.Fatal(err)
+		}
+		ctx, finish, err := h.runtime.StartOperation(context.Background(), Root, "reconcile")
+		if err != nil {
+			t.Fatal(err)
+		}
+		early := time.Now().Add(-time.Hour)
+		held := trace.SpanFromContext(ctx)
+		held.SetAttributes(attribute.String("fill", "PRIVATE"))
+		held.End(trace.WithTimestamp(early))
+		if len(h.spans.Ended()) != 0 {
+			t.Fatal("the caller ended the operation span")
+		}
+		time.Sleep(time.Millisecond)
+		finish(OutcomeFailure, false, true)
+		span := h.lastSpan(t)
+		if outcome, _ := spanAttribute(span, "stego.outcome"); outcome != "failure" || span.Status().Code != otelcodes.Error || !span.EndTime().After(span.StartTime()) {
+			t.Fatal("the outcome, the status or the end time was lost", span.Status(), span.EndTime())
+		}
+		if _, ok := spanAttribute(span, "fill"); ok {
+			t.Fatal("the caller added an attribute")
+		}
+	})
+
+	t.Run("ST-SUP-RP03-LC15-T01 SpanEvent takes the probe key and plain names only", func(t *testing.T) {
+		h := newHarness(t, 1)
+		if err := h.runtime.register([]string{"reconcile"}); err != nil {
+			t.Fatal(err)
+		}
+		ctx, finish, err := h.runtime.StartOperation(context.Background(), Root, "reconcile")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sc := trace.SpanContextFromContext(ctx)
+		if !h.runtime.SpanEvent(spanevent.Key{}, sc, "domain.forged", time.Now()) {
+			t.Fatal("a zero key added an event")
+		}
+		if !h.runtime.SpanEvent(probeKey, sc, "domain.free text", time.Now()) || !h.runtime.SpanEvent(probeKey, sc, "domain.x", time.Now(), attribute.String("Free Key", "v")) {
+			t.Fatal("a free-text name or key was accepted")
+		}
+		finish(OutcomeSuccess, false, false)
+		if events := h.lastSpan(t).Events(); len(events) != 0 {
+			t.Fatal("the span holds forged events", events)
+		}
+	})
+
+	t.Run("ST-SUP-RP03-LC15-T01 Spans that never end are bounded and counted", func(t *testing.T) {
+		h := newHarness(t, 1)
+		if err := h.runtime.register([]string{"reconcile"}); err != nil {
+			t.Fatal(err)
+		}
+		for range SpanRecordLimit + 5 {
+			if _, _, err := h.runtime.StartOperation(context.Background(), Root, "reconcile"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if live := h.runtime.live.Load(); live != SpanRecordLimit || h.runtime.DroppedSpans() != 5 {
+			t.Fatal("the records are not bounded", live, h.runtime.DroppedSpans())
+		}
+	})
+
+	t.Run("ST-SUP-RP03-LC15-T01 Without a provider an operation still has IDs", func(t *testing.T) {
+		clearEnvironment(t)
+		r, err := New("records", "reconcile", "database.query")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Close()
+		if !r.Registered("reconcile") || r.Registered("scan") {
+			t.Fatal("Registered does not follow the names given to New")
+		}
+		root, _, err := r.StartOperation(context.Background(), Root, "reconcile")
+		if err != nil {
+			t.Fatal(err)
+		}
+		child, _, err := r.StartOperation(root, Child, "database.query")
+		if err != nil {
+			t.Fatal(err)
+		}
+		rc, cc := trace.SpanContextFromContext(root), trace.SpanContextFromContext(child)
+		if !rc.IsValid() || !cc.IsValid() || rc.IsSampled() || cc.TraceID() != rc.TraceID() || cc.SpanID() == rc.SpanID() {
+			t.Fatal("the operation IDs", rc, cc)
 		}
 	})
 

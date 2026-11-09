@@ -141,6 +141,7 @@ func TestProbeBinding(t *testing.T) {
 		ctx, span := recordingSpan(t, telemetry)
 		ctx = context.WithValue(ctx, claimsKey{}, map[string]string{"name": "Ada Lovelace", "email": "ada@example.com"})
 		call := r.Bind(ctx, "t1", "user:u-7", command)
+		bound := call.Probe().SpanContext()
 		call.Probe().Emit(event, Text("A-1"), Enum("short"))
 		call.Probe().Emit(counter, Enum("short"))
 		call.Returned()
@@ -158,9 +159,9 @@ func TestProbeBinding(t *testing.T) {
 		if record.EventName != "domain.reservation_refused" || !slices.Equal(got, []string{"operation=reserve-and-charge", "principal=user:u-7", "reason=short", "sku=A-1", "tenant=t1"}) {
 			t.Fatalf("the log record %s has the attributes %v", record.EventName, got)
 		}
-		sc := span.SpanContext()
-		traceID, spanID := sc.TraceID(), sc.SpanID()
-		if !bytes.Equal(record.TraceId, traceID[:]) || !bytes.Equal(record.SpanId, spanID[:]) {
+		// The bound span is the call's own child span of the server span (ST-SUP-RP03-LC15).
+		traceID, spanID := bound.TraceID(), bound.SpanID()
+		if bound.TraceID() != span.SpanContext().TraceID() || !bytes.Equal(record.TraceId, traceID[:]) || !bytes.Equal(record.SpanId, spanID[:]) {
 			t.Fatalf("the log record has the trace %x and the span %x, want those of the bound span", record.TraceId, record.SpanId)
 		}
 		var events int
@@ -188,7 +189,7 @@ func TestProbeBinding(t *testing.T) {
 				t.Fatalf("a record holds the claim %q", private)
 			}
 		}
-		if !strings.Contains(text, `"tenant":"t1","principal":"user:u-7","operation":"reserve-and-charge"`) || !strings.Contains(text, `"trace_id":"`+sc.TraceID().String()+`"`) {
+		if !strings.Contains(text, `"tenant":"t1","principal":"user:u-7","operation":"reserve-and-charge"`) || !strings.Contains(text, `"trace_id":"`+bound.TraceID().String()+`"`) {
 			t.Fatalf("the console lines are %q, want the tenant, the principal, the operation and the trace ID", text)
 		}
 	})
