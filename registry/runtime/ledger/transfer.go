@@ -23,7 +23,7 @@ var (
 	ErrAlreadyPosted = errors.New("ledger: already_posted: the pending transfer is posted already")
 	// ErrAlreadyVoided is the error of a post or a void of a pending transfer that is voided.
 	ErrAlreadyVoided = errors.New("ledger: already_voided: the pending transfer is voided already")
-	// ErrExpired is the error of a post of a pending transfer after its expiry.
+	// ErrExpired is the error of a post of a pending transfer after its expiry by the database clock.
 	ErrExpired = errors.New("ledger: expired: the pending transfer is expired")
 	// ErrExceedsPending is the error of a post of an amount larger than the pending amount.
 	ErrExceedsPending = errors.New("ledger: exceeds_pending: the amount is larger than the pending amount")
@@ -32,8 +32,10 @@ var (
 // The other errors of the package.
 var (
 	// ErrInvalid is the error of a transfer that cannot be written: fewer than two entries, debits that differ
-	// from the credits, an entry in another currency than the ledger's, an amount that is not positive, or text
-	// that is not valid UTF-8 or holds NUL.
+	// from the credits, an entry in another currency than the ledger's or on no account of the ledger, an amount
+	// that is not positive, an effective time in the future or before the close date, a post that is not a split
+	// of its pending transfer, a reversal that is not the mirror of its original, or text that is not valid UTF-8
+	// or holds a control character.
 	ErrInvalid = errors.New("ledger: the transfer is not valid")
 	// ErrBelowMinimum is the error of a transfer that would take an account with a balance limit below it.
 	ErrBelowMinimum = errors.New("ledger: the account would go below its minimum balance")
@@ -43,9 +45,12 @@ var (
 	ErrNotPosted = errors.New("ledger: the transfer is not posted")
 	// ErrAlreadyReversed is the error of a second reversal of one transfer.
 	ErrAlreadyReversed = errors.New("ledger: the transfer is reversed already")
-	// ErrKeyReused is the error of a call whose idempotency key names a transfer of another kind or of another
-	// pending or reversed transfer.
-	ErrKeyReused = errors.New("ledger: the idempotency key names another operation")
+	// ErrKeyReused is the error of a call whose idempotency key names a transfer of another body
+	// (ST-SUP-RP08-LC05). It writes nothing.
+	ErrKeyReused = errors.New("ledger: the idempotency key names a transfer of another body")
+	// ErrIsolation is the error of a write in a transaction whose isolation is not READ COMMITTED or
+	// SERIALIZABLE (ST-SUP-RP08-LC10). It comes before any write.
+	ErrIsolation = errors.New("ledger: a ledger write needs READ COMMITTED or SERIALIZABLE isolation")
 )
 
 // Side is the side of an entry, and the normal side of an account.
@@ -92,7 +97,8 @@ type Tx interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-// Settings are the declared settings of one ledger.
+// Settings are the declared settings of one ledger. DDL writes them into the owner functions, so the database and
+// the Go side read the same declaration.
 type Settings struct {
 	// ID is the ledger_id of the ledger's rows.
 	ID string
@@ -100,23 +106,23 @@ type Settings struct {
 	Currency string
 	// Schema holds the ledger tables; the empty schema is public.
 	Schema string
-	// PendingTimeout is the time a pending transfer stays open: Pend sets its expiry this long after now. Zero
-	// declares no two-phase transfers, and Pend refuses then.
+	// PendingTimeout is the time a pending transfer stays open: ledger_pend sets its expiry this long after the
+	// database clock. Zero declares no two-phase transfers, and Pend refuses then.
 	PendingTimeout time.Duration
 	// SnapshotEvery is the number of entries of an account after which the snapshot job writes a snapshot.
 	SnapshotEvery int
-	// Now is the clock of the pending expiry; nil is time.Now.
-	Now func() time.Time
+	// ClosedBefore is the declared close date: an effective time before it is refused. Zero declares none.
+	ClosedBefore time.Time
 }
 
-// Ledger is one declared ledger: its ID, its one currency, and the statements over the shared tables.
+// Ledger is one declared ledger: its ID, its one currency, and the calls of the owner functions.
 type Ledger struct {
 	id       string
 	currency money.Currency
 	schema   string
 	timeout  time.Duration
 	every    int64
-	now      func() time.Time
+	closed   time.Time
 }
 
 // New returns the ledger of the settings.
@@ -137,10 +143,7 @@ func New(s Settings) (*Ledger, error) {
 	if s.PendingTimeout < 0 || s.SnapshotEvery < 0 {
 		return nil, fmt.Errorf("ledger %s: the pending timeout and the snapshot interval must not be negative", s.ID)
 	}
-	if s.Now == nil {
-		s.Now = time.Now
-	}
-	return &Ledger{id: s.ID, currency: c, schema: s.Schema, timeout: s.PendingTimeout, every: int64(s.SnapshotEvery), now: s.Now}, nil
+	return &Ledger{id: s.ID, currency: c, schema: s.Schema, timeout: s.PendingTimeout, every: int64(s.SnapshotEvery), closed: s.ClosedBefore}, nil
 }
 
 // ID is the ledger_id.
@@ -167,10 +170,19 @@ type Account struct {
 	Hot bool
 }
 
-const insertAccount = `INSERT INTO {s}.accounts (tenant_id, ledger_id, id, code, normal, currency, min_balance, hot)
- VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+// The calls of the owner functions. Each is one statement; the function writes the transfer and its entries with
+// one INSERT (ST-SUP-RP08-LC03).
+const (
+	callOpen        = `SELECT {s}.ledger_open($1, $2, $3, $4, $5, $6, $7, $8)`
+	callPost        = `SELECT out_id::text, out_replayed FROM {s}.ledger_post($1, $2, $3, $4, $5::jsonb, $6::timestamptz)`
+	callPend        = `SELECT out_id::text, out_replayed FROM {s}.ledger_pend($1, $2, $3, $4, $5::jsonb, $6::timestamptz)`
+	callPostPending = `SELECT out_id::text, out_replayed FROM {s}.ledger_post_pending($1, $2, $3, $4::uuid, $5::jsonb)`
+	callVoid        = `SELECT out_id::text, out_replayed FROM {s}.ledger_void($1, $2, $3, $4::uuid)`
+	callReverse     = `SELECT out_id::text, out_replayed FROM {s}.ledger_reverse($1, $2, $3, $4::uuid, $5::jsonb)`
+	readIsolation   = `SELECT current_setting('transaction_isolation'), now()`
+)
 
-// Open inserts the account into the tenant's ledger, in the ledger's currency.
+// Open inserts the account into the tenant's ledger, in the ledger's currency, through ledger_open.
 func (l *Ledger) Open(ctx context.Context, tx Tx, t tenant.Tenant, a Account) error {
 	if t.IsZero() {
 		return tenant.ErrZero
@@ -187,12 +199,15 @@ func (l *Ledger) Open(ctx context.Context, tx Tx, t tenant.Tenant, a Account) er
 	if a.Hot && a.MinBalance != nil {
 		return fmt.Errorf("%w: the hot account %s has a balance limit", ErrInvalid, a.ID)
 	}
+	if _, err := l.writable(ctx, tx); err != nil {
+		return err
+	}
 	var limit sql.NullInt64
 	if a.MinBalance != nil {
 		limit = sql.NullInt64{Int64: *a.MinBalance, Valid: true}
 	}
-	if _, err := tx.ExecContext(ctx, l.q(insertAccount), t.ID(), l.id, a.ID, a.Code, string(a.Normal), l.currency.Code(), limit, a.Hot); err != nil {
-		return fmt.Errorf("ledger %s: open the account %s: %w", l.id, a.ID, err)
+	if _, err := tx.ExecContext(ctx, l.q(callOpen), t.ID(), l.id, a.ID, a.Code, string(a.Normal), l.currency.Code(), limit, a.Hot); err != nil {
+		return stateError(fmt.Errorf("ledger %s: open the account %s: %w", l.id, a.ID, err))
 	}
 	return nil
 }
@@ -206,14 +221,16 @@ type Entry struct {
 
 // Posting is what Post and Pend write.
 type Posting struct {
-	// Key is the caller's idempotency key: a retry with the same key returns the transfer of the first call. The
-	// stored key is derived from it with the tenant, so keys of two tenants never meet (ST-SUP-RP07-LC06).
+	// Key is the caller's idempotency key: a retry with the same key and the same body returns the transfer of the
+	// first call, and one with another body gets ErrKeyReused. The database stores the key derived with the tenant,
+	// so keys of two tenants never meet.
 	Key string
 	// Code is the declared transfer code, such as topup.
 	Code string
 	// Entries are the debits and credits; at least two, and the debits equal the credits.
 	Entries []Entry
-	// EffectiveAt is when the transfer takes effect for a balance at a time; zero is the time of posting.
+	// EffectiveAt is when the transfer takes effect for a balance at a time; zero is the time of posting. It may
+	// not be in the future or before the ledger's close date.
 	EffectiveAt time.Time
 }
 
@@ -231,34 +248,10 @@ type Transfer struct {
 	EffectiveAt time.Time
 	PostedAt    time.Time
 	Entries     []Entry
-	// Replayed is set when the call found the transfer of an earlier call with the same key and wrote nothing.
+	// Replayed is set when the call found the transfer of an earlier call with the same key and body and wrote
+	// nothing.
 	Replayed bool
 }
-
-// insertTransfer inserts one transfer and its entries in one statement (ST-SUP-RP08-LC03). A retry with a key
-// already used inserts nothing (ST-SUP-RP08-LC05); the entry insert then has no transfer row to join. The
-// statement triggers of the DDL text refuse the whole statement when the entries do not balance. {after} is the
-// call of an owner function that settles a pending transfer or marks a reversed one in the same statement, or
-// nothing; it runs only when the transfer row is inserted.
-const insertTransfer = `WITH t AS (
- INSERT INTO {s}.transfers (tenant_id, ledger_id, idempotency_key, kind, code, amount, currency, status, pending_id, reverses, expires_at, effective_at)
- VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::uuid, $10::uuid, $11::timestamptz, coalesce($12::timestamptz, now()))
- ON CONFLICT (ledger_id, idempotency_key) DO NOTHING RETURNING id, effective_at, posted_at
-), e AS (
- INSERT INTO {s}.entries (tenant_id, ledger_id, transfer_id, seq, account_id, side, amount, currency, pending, effective_at, posted_at)
- SELECT $1, $2, t.id, x.seq, x.account, x.side, x.amount, $7, $4 = 'pending', t.effective_at, t.posted_at
- FROM t, ROWS FROM (jsonb_to_recordset($13::jsonb) AS (account text, side text, amount bigint)) WITH ORDINALITY AS x(account, side, amount, seq)
- RETURNING 1
-), f AS ({after})
-SELECT t.id::text, t.effective_at, t.posted_at, (SELECT count(*) FROM e), (SELECT count(*) FROM f) FROM t`
-
-const (
-	afterNothing = `SELECT $14::text WHERE false`
-	afterSettle  = `SELECT {s}.ledger_settle($9::uuid, $14::text) FROM t`
-	afterReverse = `SELECT {s}.ledger_reverse($10::uuid, t.id), $14::text FROM t`
-)
-
-const selectByKey = `SELECT id::text FROM {s}.transfers WHERE tenant_id = $1 AND ledger_id = $2 AND idempotency_key = $3`
 
 const selectTransfer = `SELECT id::text, kind, code, amount, currency, status, coalesce(pending_id::text, ''),
  coalesce(reverses::text, ''), coalesce(reversed_by::text, ''), expires_at, effective_at, posted_at
@@ -267,73 +260,96 @@ const selectTransfer = `SELECT id::text, kind, code, amount, currency, status, c
 const selectEntries = `SELECT account_id, side, amount FROM {s}.entries
  WHERE tenant_id = $1 AND ledger_id = $2 AND transfer_id = $3::uuid ORDER BY seq`
 
-// lockAccounts reads the accounts of a transfer and takes the row lock of each account with a balance limit, and of
-// no other account (ST-SUP-RP08-LC03).
-const lockAccounts = `SELECT id, normal, currency, min_balance, hot FROM {s}.ledger_lock($1, $2::jsonb)`
+// selectKey reports whether the tenant's ledger holds a transfer of the caller's key, as ledger_key derives it.
+const selectKey = `SELECT EXISTS (SELECT 1 FROM {s}.transfers WHERE tenant_id = $1 AND ledger_id = $2
+ AND idempotency_key = encode(sha256(convert_to($1, 'UTF8') || '\x00'::bytea || convert_to($3, 'UTF8')), 'hex'))`
 
-// write is one transfer row to insert.
-type write struct {
-	key       string
-	kind      Kind
-	code      string
-	amount    int64
-	status    Status
-	pendingID string
-	reverses  string
-	expires   time.Time
-	effective time.Time
-	entries   []Entry
-	after     string
-	settleTo  Status
+// writable refuses a transaction whose isolation can overdraw (ST-SUP-RP08-LC10), before any write, and returns
+// the database clock of the transaction.
+func (l *Ledger) writable(ctx context.Context, tx Tx) (time.Time, error) {
+	var isolation string
+	var now time.Time
+	if err := tx.QueryRowContext(ctx, readIsolation).Scan(&isolation, &now); err != nil {
+		return time.Time{}, fmt.Errorf("ledger %s: read the isolation: %w", l.id, err)
+	}
+	if isolation != "read committed" && isolation != "serializable" {
+		return time.Time{}, fmt.Errorf("%w: the transaction is %s", ErrIsolation, isolation)
+	}
+	return now, nil
 }
 
-// Post inserts a transfer and its entries in one statement (ST-SUP-RP08-LC03). It refuses fewer than two entries,
-// debits that differ from the credits and an entry in another currency than the ledger's, before any statement.
-// It takes the row lock of each account with a balance limit, and of no other account, and refuses a transfer
-// that would take such an account below its limit. A retry with a key already used returns the original transfer
-// and inserts nothing (ST-SUP-RP08-LC05). Post does not commit.
+// Post writes a transfer and its entries through one call of ledger_post, which inserts them in one statement
+// (ST-SUP-RP08-LC03). Go refuses fewer than two entries, debits that differ from the credits and another currency
+// before the call; the function refuses them again, refuses an entry on no account of the ledger, takes the row
+// lock of each account with a balance limit, in account ID order, and of no other, and refuses a transfer that
+// takes such an account below its limit, with open pending debits counted. A retry with the same key and body
+// returns the original and inserts nothing (ST-SUP-RP08-LC05). Post does not commit.
 func (l *Ledger) Post(ctx context.Context, tx Tx, t tenant.Tenant, p Posting) (Transfer, error) {
-	return l.post(ctx, tx, t, p, Single)
+	return l.post(ctx, tx, t, p, callPost)
 }
 
-// Pend inserts a pending transfer and its entries in one statement, as Post does, with an expiry PendingTimeout
-// after now. No later call changes its amount or its entries: PostPending and Void write new rows that name it
-// (ST-SUP-RP08-LC04). The entries of a pending transfer count in no balance; a pending debit on an account with a
-// balance limit holds that amount against the limit until it is posted or voided.
+// Pend writes a pending transfer and its entries through ledger_pend, as Post does, with an expiry PendingTimeout
+// after the database clock. No later call changes its amount or its entries: PostPending and Void write new rows
+// that name it (ST-SUP-RP08-LC04). The entries of a pending transfer count in no balance; a pending debit on an
+// account with a balance limit holds that amount against the limit until it is posted, voided or expired.
 func (l *Ledger) Pend(ctx context.Context, tx Tx, t tenant.Tenant, p Posting) (Transfer, error) {
 	if l.timeout <= 0 {
 		return Transfer{}, fmt.Errorf("%w: the ledger %s declares no two-phase transfers", ErrInvalid, l.id)
 	}
-	return l.post(ctx, tx, t, p, Hold)
+	return l.post(ctx, tx, t, p, callPend)
 }
 
-func (l *Ledger) post(ctx context.Context, tx Tx, t tenant.Tenant, p Posting, kind Kind) (Transfer, error) {
+func (l *Ledger) post(ctx context.Context, tx Tx, t tenant.Tenant, p Posting, call string) (Transfer, error) {
 	if t.IsZero() {
 		return Transfer{}, tenant.ErrZero
 	}
 	if err := clean("transfer code", p.Code); err != nil {
 		return Transfer{}, err
 	}
-	amount, err := l.balanced(p.Entries)
+	if err := checkKey(p.Key); err != nil {
+		return Transfer{}, err
+	}
+	if _, err := l.balanced(p.Entries); err != nil {
+		return Transfer{}, err
+	}
+	if _, err := l.writable(ctx, tx); err != nil {
+		return Transfer{}, err
+	}
+	list, err := entriesJSON(p.Entries)
 	if err != nil {
 		return Transfer{}, err
 	}
-	key, err := deriveKey(t, l.id, p.Key)
+	return l.call(ctx, tx, t, call, t.ID(), l.id, p.Key, p.Code, list, nullTime(p.EffectiveAt))
+}
+
+// call runs one owner function and reads the transfer it wrote or replayed.
+func (l *Ledger) call(ctx context.Context, tx Tx, t tenant.Tenant, call string, args ...any) (Transfer, error) {
+	var id string
+	var replayed bool
+	if err := tx.QueryRowContext(ctx, l.q(call), args...).Scan(&id, &replayed); err != nil {
+		return Transfer{}, stateError(fmt.Errorf("ledger %s: %w", l.id, err))
+	}
+	out, err := l.Get(ctx, tx, t, id)
 	if err != nil {
 		return Transfer{}, err
 	}
-	if found, ok, err := l.byKey(ctx, tx, t, key); err != nil || ok {
-		return replay(found, err, func(f Transfer) bool { return f.Kind == kind })
+	out.Replayed = replayed
+	return out, nil
+}
+
+// entriesJSON is the entries as the owner functions take them: a JSON array of account, side and amount.
+func entriesJSON(entries []Entry) (string, error) {
+	type item struct {
+		Account string `json:"account"`
+		Side    string `json:"side"`
+		Amount  int64  `json:"amount"`
 	}
-	if err := l.limit(ctx, tx, t, p.Entries, kind == Hold); err != nil {
-		return Transfer{}, err
+	items := make([]item, len(entries))
+	for i, e := range entries {
+		items[i] = item{Account: e.Account, Side: string(e.Side), Amount: e.Amount.Amount()}
 	}
-	w := write{key: key, kind: kind, code: p.Code, amount: amount, status: Posted, effective: p.EffectiveAt, entries: p.Entries, after: afterNothing}
-	if kind == Hold {
-		w.status = Pending
-		w.expires = l.now().Add(l.timeout)
-	}
-	return l.insert(ctx, tx, t, w)
+	b, err := json.Marshal(items)
+	return string(b), err
 }
 
 // balanced checks the entries of a transfer and returns its amount, the sum of the debits.
@@ -370,154 +386,6 @@ func (l *Ledger) balanced(entries []Entry) (int64, error) {
 		return 0, fmt.Errorf("%w: the debits %d differ from the credits %d", ErrInvalid, debits.Amount(), credits.Amount())
 	}
 	return debits.Amount(), nil
-}
-
-// limit takes the row lock of each account of the entries that has a balance limit, and refuses the entries when
-// such an account would go below it. Each balance counts the posted entries, the pending debits that hold against
-// the limit, and the entries of this transfer; the entries of a pending transfer count only where they lower the
-// balance. It refuses an account that the ledger does not hold.
-func (l *Ledger) limit(ctx context.Context, tx Tx, t tenant.Tenant, entries []Entry, pending bool) error {
-	ids := make([]string, 0, len(entries))
-	seen := map[string]bool{}
-	for _, e := range entries {
-		if !seen[e.Account] {
-			seen[e.Account] = true
-			ids = append(ids, e.Account)
-		}
-	}
-	list, err := json.Marshal(ids)
-	if err != nil {
-		return err
-	}
-	rows, err := tx.QueryContext(ctx, l.q(lockAccounts), l.id, string(list))
-	if err != nil {
-		return fmt.Errorf("ledger %s: lock the accounts: %w", l.id, err)
-	}
-	type account struct {
-		normal Side
-		min    sql.NullInt64
-	}
-	accounts := map[string]account{}
-	for rows.Next() {
-		var id, normal, currency string
-		var a account
-		var hot bool
-		if err := rows.Scan(&id, &normal, &currency, &a.min, &hot); err != nil {
-			rows.Close()
-			return err
-		}
-		if currency != l.currency.Code() {
-			rows.Close()
-			return fmt.Errorf("%w: the account %s is in %s, not %s", ErrInvalid, id, currency, l.currency)
-		}
-		a.normal = Side(normal)
-		accounts[id] = a
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	for _, id := range ids {
-		a, ok := accounts[id]
-		if !ok {
-			return fmt.Errorf("%w: the account %s of the ledger %s", ErrNotFound, id, l.id)
-		}
-		if !a.min.Valid {
-			continue
-		}
-		available, err := l.available(ctx, tx, t, id)
-		if err != nil {
-			return err
-		}
-		for _, e := range entries {
-			if e.Account != id {
-				continue
-			}
-			delta := normal(e.Side, a.normal, e.Amount.Amount())
-			if pending && delta > 0 {
-				continue
-			}
-			if available, err = add(available, delta); err != nil {
-				return err
-			}
-		}
-		if available < a.min.Int64 {
-			return fmt.Errorf("%w: the account %s would have %d, below its minimum %d", ErrBelowMinimum, id, available, a.min.Int64)
-		}
-	}
-	return nil
-}
-
-// insert writes the transfer row and its entries in one statement, or finds the transfer of the same key.
-func (l *Ledger) insert(ctx context.Context, tx Tx, t tenant.Tenant, w write) (Transfer, error) {
-	type item struct {
-		Account string `json:"account"`
-		Side    string `json:"side"`
-		Amount  int64  `json:"amount"`
-	}
-	items := make([]item, len(w.entries))
-	for i, e := range w.entries {
-		items[i] = item{Account: e.Account, Side: string(e.Side), Amount: e.Amount.Amount()}
-	}
-	list, err := json.Marshal(items)
-	if err != nil {
-		return Transfer{}, err
-	}
-	statement := l.q(strings.Replace(insertTransfer, "{after}", w.after, 1))
-	var id string
-	var effective, posted time.Time
-	var nEntries, nAfter int64
-	err = tx.QueryRowContext(ctx, statement, t.ID(), l.id, w.key, string(w.kind), w.code, w.amount, l.currency.Code(), string(w.status),
-		null(w.pendingID), null(w.reverses), nullTime(w.expires), nullTime(w.effective), string(list), string(w.settleTo)).
-		Scan(&id, &effective, &posted, &nEntries, &nAfter)
-	if errors.Is(err, sql.ErrNoRows) {
-		// Another call with the same key inserted the transfer first.
-		found, ok, err := l.byKey(ctx, tx, t, w.key)
-		if err == nil && !ok {
-			err = fmt.Errorf("ledger %s: the key conflicts, and the tenant holds no transfer with it", l.id)
-		}
-		return replay(found, err, func(f Transfer) bool {
-			return f.Kind == w.kind && f.PendingID == w.pendingID && f.Reverses == w.reverses
-		})
-	}
-	if err != nil {
-		return Transfer{}, stateError(fmt.Errorf("ledger %s: insert the transfer: %w", l.id, err))
-	}
-	if nEntries != int64(len(w.entries)) {
-		return Transfer{}, fmt.Errorf("ledger %s: the statement inserted %d entries, not %d", l.id, nEntries, len(w.entries))
-	}
-	amount, _ := money.Of(w.amount, l.currency)
-	out := Transfer{ID: id, Kind: w.kind, Code: w.code, Amount: amount, Status: w.status, PendingID: w.pendingID, Reverses: w.reverses,
-		ExpiresAt: w.expires, EffectiveAt: effective, PostedAt: posted, Entries: append([]Entry(nil), w.entries...)}
-	return out, nil
-}
-
-// replay returns the transfer of an earlier call with the same key, or ErrKeyReused when that transfer is of
-// another operation.
-func replay(found Transfer, err error, same func(Transfer) bool) (Transfer, error) {
-	if err != nil {
-		return Transfer{}, err
-	}
-	if !same(found) {
-		return Transfer{}, fmt.Errorf("%w: the key names the transfer %s of kind %s", ErrKeyReused, found.ID, found.Kind)
-	}
-	found.Replayed = true
-	return found, nil
-}
-
-// byKey reads the transfer with the stored key, and reports whether there is one.
-func (l *Ledger) byKey(ctx context.Context, tx Tx, t tenant.Tenant, key string) (Transfer, bool, error) {
-	var id string
-	switch err := tx.QueryRowContext(ctx, l.q(selectByKey), t.ID(), l.id, key).Scan(&id); {
-	case errors.Is(err, sql.ErrNoRows):
-		return Transfer{}, false, nil
-	case err != nil:
-		return Transfer{}, false, fmt.Errorf("ledger %s: read the transfer of the key: %w", l.id, err)
-	}
-	found, err := l.Get(ctx, tx, t, id)
-	return found, err == nil, err
 }
 
 // Get reads the transfer with the ID and its entries from the tenant's ledger.
@@ -575,9 +443,10 @@ const (
 )
 
 // transition is the two-phase state machine (ST-SUP-RP08-LC04): it answers whether the post or void of a pending
-// transfer in the status, with the expiry, may happen now, for the amount. Its only errors are ErrAlreadyPosted,
-// ErrAlreadyVoided, ErrExpired and ErrExceedsPending. A void of an expired pending transfer is allowed, so an
-// expired one can be voided.
+// transfer in the status, with the expiry, may happen at the database time now, for the amount. Its only errors
+// are ErrAlreadyPosted, ErrAlreadyVoided, ErrExpired and ErrExceedsPending. A void of an expired pending transfer
+// is allowed, so an expired one can be voided. ledger_post_pending and ledger_void apply the same rules in the
+// database, under the row lock of the pending transfer.
 func transition(o op, status Status, now, expires time.Time, amount, pending int64) error {
 	switch status {
 	case Posted:
@@ -597,40 +466,36 @@ func transition(o op, status Status, now, expires time.Time, amount, pending int
 	return nil
 }
 
-// PostPending posts the pending transfer: it writes a new transfer row whose pending_id names the pending one,
-// with posted entries for the amount, and the post and void function changes the pending transfer's status from
-// pending to posted, in one statement; the pending row's amount and entries do not change (ST-SUP-RP08-LC04). An
-// amount below the pending amount posts that part: each side of the pending entries is split by Allocate in the
-// ratios of its amounts, and the rest is released. The errors of the state machine are ErrAlreadyPosted,
-// ErrAlreadyVoided, ErrExpired and ErrExceedsPending. A retry with the key of an earlier post returns that post.
+// PostPending posts the pending transfer through ledger_post_pending: a new transfer row whose pending_id names the
+// pending one, with posted entries for the amount, and the change of the pending status from pending to posted;
+// the pending row's amount and entries do not change (ST-SUP-RP08-LC04). An amount below the pending amount posts
+// that part: each side of the pending entries is split by Allocate in the ratios of its amounts. The function
+// refuses entries that are not such a split and a pending transfer whose expiry has passed by the database clock.
+// The errors of the state machine are ErrAlreadyPosted, ErrAlreadyVoided, ErrExpired and ErrExceedsPending. A
+// retry with the same key returns that post.
 func (l *Ledger) PostPending(ctx context.Context, tx Tx, t tenant.Tenant, pendingID, key string, amount money.Money) (Transfer, error) {
 	return l.settle(ctx, tx, t, pendingID, key, amount, opPost)
 }
 
-// Void voids the pending transfer: it writes a new transfer row of no entries whose pending_id names the pending
-// one, and the post and void function changes the pending transfer's status from pending to voided, in one
-// statement (ST-SUP-RP08-LC04). The errors of the state machine are ErrAlreadyPosted and ErrAlreadyVoided. A retry
-// with the key of an earlier void returns that void.
+// Void voids the pending transfer through ledger_void: a new transfer row of no entries whose pending_id names the
+// pending one, and the change of the pending status from pending to voided (ST-SUP-RP08-LC04). The errors of the
+// state machine are ErrAlreadyPosted and ErrAlreadyVoided. A retry with the same key returns that void.
 func (l *Ledger) Void(ctx context.Context, tx Tx, t tenant.Tenant, pendingID, key string) (Transfer, error) {
 	return l.settle(ctx, tx, t, pendingID, key, money.Money{}, opVoid)
 }
 
 func (l *Ledger) settle(ctx context.Context, tx Tx, t tenant.Tenant, pendingID, key string, amount money.Money, o op) (Transfer, error) {
-	// The database gives a uuid in lower case; the comparisons with the rows it gives use that form.
-	pendingID = strings.ToLower(pendingID)
 	if t.IsZero() {
 		return Transfer{}, tenant.ErrZero
 	}
-	stored, err := deriveKey(t, l.id, key)
-	if err != nil {
+	// The database gives a uuid in lower case; the comparisons with the rows it gives use that form.
+	pendingID = strings.ToLower(pendingID)
+	if err := checkKey(key); err != nil {
 		return Transfer{}, err
 	}
-	kind := Settle
-	if o == opVoid {
-		kind = Release
-	}
-	if found, ok, err := l.byKey(ctx, tx, t, stored); err != nil || ok {
-		return replay(found, err, func(f Transfer) bool { return f.Kind == kind && f.PendingID == pendingID })
+	now, err := l.writable(ctx, tx)
+	if err != nil {
+		return Transfer{}, err
 	}
 	p, err := l.Get(ctx, tx, t, pendingID)
 	if err != nil {
@@ -639,27 +504,38 @@ func (l *Ledger) settle(ctx context.Context, tx Tx, t tenant.Tenant, pendingID, 
 	if p.Kind != Hold {
 		return Transfer{}, fmt.Errorf("%w: the pending transfer %s of the ledger %s", ErrNotFound, pendingID, l.id)
 	}
-	if o == opPost {
-		if amount.Currency() != l.currency {
-			return Transfer{}, fmt.Errorf("%w: the amount is in %q, and the ledger %s holds only %s", ErrInvalid, amount.Currency().Code(), l.id, l.currency)
+	if o == opVoid {
+		if err := transition(o, p.Status, now, p.ExpiresAt, 0, p.Amount.Amount()); err != nil && !l.replayable(ctx, tx, t, key) {
+			return Transfer{}, fmt.Errorf("ledger %s: the pending transfer %s: %w", l.id, pendingID, err)
 		}
-		if amount.Amount() <= 0 {
-			return Transfer{}, fmt.Errorf("%w: the amount %d is not positive", ErrInvalid, amount.Amount())
-		}
+		return l.call(ctx, tx, t, callVoid, t.ID(), l.id, key, pendingID)
 	}
-	if err := transition(o, p.Status, l.now(), p.ExpiresAt, amount.Amount(), p.Amount.Amount()); err != nil {
+	if amount.Currency() != l.currency {
+		return Transfer{}, fmt.Errorf("%w: the amount is in %q, and the ledger %s holds only %s", ErrInvalid, amount.Currency().Code(), l.id, l.currency)
+	}
+	if amount.Amount() <= 0 {
+		return Transfer{}, fmt.Errorf("%w: the amount %d is not positive", ErrInvalid, amount.Amount())
+	}
+	if err := transition(o, p.Status, now, p.ExpiresAt, amount.Amount(), p.Amount.Amount()); err != nil && !l.replayable(ctx, tx, t, key) {
 		return Transfer{}, fmt.Errorf("ledger %s: the pending transfer %s: %w", l.id, pendingID, err)
 	}
-	w := write{key: stored, kind: kind, code: p.Code, pendingID: pendingID, after: afterSettle}
-	if o == opVoid {
-		w.amount, w.status, w.settleTo = p.Amount.Amount(), Voided, Voided
-	} else {
-		w.amount, w.status, w.settleTo = amount.Amount(), Posted, Posted
-		if w.entries, err = part(p.Entries, amount); err != nil {
-			return Transfer{}, err
-		}
+	entries, err := part(p.Entries, amount)
+	if err != nil {
+		return Transfer{}, err
 	}
-	return l.insert(ctx, tx, t, w)
+	list, err := entriesJSON(entries)
+	if err != nil {
+		return Transfer{}, err
+	}
+	return l.call(ctx, tx, t, callPostPending, t.ID(), l.id, key, pendingID, list)
+}
+
+// replayable reports whether the tenant's ledger holds a transfer of the key, so the call is a retry that the owner
+// function answers with the original, and not a new call that the state machine refuses.
+func (l *Ledger) replayable(ctx context.Context, tx Tx, t tenant.Tenant, key string) bool {
+	var found bool
+	err := tx.QueryRowContext(ctx, l.q(selectKey), t.ID(), l.id, key).Scan(&found)
+	return err == nil && found
 }
 
 // part splits the amount over the pending entries: the debits by the ratios of the debit amounts and the credits
@@ -688,43 +564,45 @@ func part(entries []Entry, amount money.Money) ([]Entry, error) {
 	return out, nil
 }
 
-// Reverse reverses the posted transfer: it inserts a new transfer whose entries are the original's on the opposite
-// side, with the same amounts, whose reverses names the original, and the reverse function sets reversed_by on the
-// original, in one statement (ST-SUP-RP08-LC06). It refuses a transfer that is not posted (ErrNotPosted), such as a
-// pending or voided one, and one that is reversed already (ErrAlreadyReversed). It takes the row lock of each
-// account with a balance limit, as Post does. A retry with the key of an earlier reversal returns that reversal.
-// A correction is a reversal and a new transfer: the package has no other change of a written transfer.
+// Reverse reverses the posted transfer through ledger_reverse: a new transfer whose entries are exactly the
+// original's with each side swapped, whose reverses names the original, and reversed_by set on the original
+// (ST-SUP-RP08-LC06). It refuses a transfer that is not posted (ErrNotPosted), such as a pending or voided one, and
+// one that is reversed already (ErrAlreadyReversed); the function refuses entries that are not the mirror of the
+// original. It takes the row lock of each account with a balance limit, as Post does. A retry with the same key
+// returns that reversal. A correction is a reversal and a new transfer: the package has no other change of a
+// written transfer.
 func (l *Ledger) Reverse(ctx context.Context, tx Tx, t tenant.Tenant, transferID, key string) (Transfer, error) {
-	transferID = strings.ToLower(transferID)
 	if t.IsZero() {
 		return Transfer{}, tenant.ErrZero
 	}
-	stored, err := deriveKey(t, l.id, key)
-	if err != nil {
+	transferID = strings.ToLower(transferID)
+	if err := checkKey(key); err != nil {
 		return Transfer{}, err
 	}
-	if found, ok, err := l.byKey(ctx, tx, t, stored); err != nil || ok {
-		return replay(found, err, func(f Transfer) bool { return f.Kind == Reversal && f.Reverses == transferID })
+	if _, err := l.writable(ctx, tx); err != nil {
+		return Transfer{}, err
 	}
 	o, err := l.Get(ctx, tx, t, transferID)
 	if err != nil {
 		return Transfer{}, err
 	}
-	if o.Status != Posted || o.Kind == Hold {
-		return Transfer{}, fmt.Errorf("%w: the transfer %s is %s %s", ErrNotPosted, transferID, o.Kind, o.Status)
-	}
-	if o.ReversedBy != "" {
-		return Transfer{}, fmt.Errorf("%w: the transfer %s by %s", ErrAlreadyReversed, transferID, o.ReversedBy)
+	if !l.replayable(ctx, tx, t, key) {
+		if o.Status != Posted || o.Kind == Hold {
+			return Transfer{}, fmt.Errorf("%w: the transfer %s is %s %s", ErrNotPosted, transferID, o.Kind, o.Status)
+		}
+		if o.ReversedBy != "" {
+			return Transfer{}, fmt.Errorf("%w: the transfer %s by %s", ErrAlreadyReversed, transferID, o.ReversedBy)
+		}
 	}
 	entries := make([]Entry, len(o.Entries))
 	for i, e := range o.Entries {
 		entries[i] = Entry{Account: e.Account, Side: opposite(e.Side), Amount: e.Amount}
 	}
-	if err := l.limit(ctx, tx, t, entries, false); err != nil {
+	list, err := entriesJSON(entries)
+	if err != nil {
 		return Transfer{}, err
 	}
-	w := write{key: stored, kind: Reversal, code: o.Code, amount: o.Amount.Amount(), status: Posted, reverses: transferID, entries: entries, after: afterReverse}
-	return l.insert(ctx, tx, t, w)
+	return l.call(ctx, tx, t, callReverse, t.ID(), l.id, key, transferID, list)
 }
 
 func opposite(s Side) Side {
@@ -741,32 +619,45 @@ func stateError(err error) error {
 	if !errors.As(err, &coded) {
 		return err
 	}
+	var to error
 	switch coded.SQLState() {
 	case codeAlreadyPosted:
-		return fmt.Errorf("%w: %w", ErrAlreadyPosted, err)
+		to = ErrAlreadyPosted
 	case codeAlreadyVoided:
-		return fmt.Errorf("%w: %w", ErrAlreadyVoided, err)
+		to = ErrAlreadyVoided
 	case codeAlreadyReversed:
-		return fmt.Errorf("%w: %w", ErrAlreadyReversed, err)
+		to = ErrAlreadyReversed
 	case codeNotPosted:
-		return fmt.Errorf("%w: %w", ErrNotPosted, err)
+		to = ErrNotPosted
 	case codeNoPending:
-		return fmt.Errorf("%w: %w", ErrNotFound, err)
+		to = ErrNotFound
+	case codeKeyReused:
+		to = ErrKeyReused
+	case codeBelowMinimum:
+		to = ErrBelowMinimum
+	case codeExpired:
+		to = ErrExpired
+	case codeExceedsPending:
+		to = ErrExceedsPending
+	case codeIsolation:
+		to = ErrIsolation
+	case codeEffective, codeNotSplit, codeNotMirror, "22023", "23514":
+		to = ErrInvalid
+	case "22003":
+		to = money.ErrOverflow
+	default:
+		return err
 	}
-	return err
+	return fmt.Errorf("%w: %w", to, err)
 }
 
-// deriveKey returns the stored idempotency key of the caller's key: the key derived with the tenant and the
-// ledger (ST-SUP-RP07-LC06), so a key of one tenant never meets a row of another under UNIQUE (ledger_id,
-// idempotency_key).
-func deriveKey(t tenant.Tenant, ledger, key string) (string, error) {
-	if key == "" {
-		return "", fmt.Errorf("%w: a transfer needs an idempotency key", ErrInvalid)
-	}
+// checkKey refuses an idempotency key that a text column must not get or that is longer than the idempotency
+// runtime allows (ST-SUP-RP07).
+func checkKey(key string) error {
 	if len(key) > idempotency.MaxKeyLength {
-		return "", fmt.Errorf("%w: the idempotency key is longer than %d bytes", ErrInvalid, idempotency.MaxKeyLength)
+		return fmt.Errorf("%w: the idempotency key is longer than %d bytes", ErrInvalid, idempotency.MaxKeyLength)
 	}
-	return idempotency.Derive(t.ID(), "", key, "ledger:"+ledger, "transfer"), nil
+	return clean("idempotency key", key)
 }
 
 // clean refuses text that a text column must not get: empty, longer than 255 bytes, invalid UTF-8, or with NUL or
@@ -776,7 +667,7 @@ func clean(what, s string) error {
 		return fmt.Errorf("%w: the %s %q is empty, longer than 255 bytes or not valid UTF-8", ErrInvalid, what, s)
 	}
 	for _, r := range s {
-		if r < 0x20 || r == 0x7f {
+		if r < 0x20 || (r >= 0x7f && r < 0xa0) {
 			return fmt.Errorf("%w: the %s %q holds a control character", ErrInvalid, what, s)
 		}
 	}
@@ -798,13 +689,6 @@ func isUUID(s string) bool {
 		}
 	}
 	return true
-}
-
-func null(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
 }
 
 func nullTime(t time.Time) any {

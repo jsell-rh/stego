@@ -30,11 +30,21 @@ func (c Currency) Code() string { return c.code }
 // String is the code.
 func (c Currency) String() string { return c.code }
 
+// Exponent is the ISO 4217 minor-unit exponent of the currency: the number of decimal digits of its minor unit,
+// such as 0 for JPY, 2 for USD and 3 for BHD (ST-SUP-RP08-LC12). It is -1 for the zero currency.
+func (c Currency) Exponent() int {
+	if e, ok := codes[c.code]; ok {
+		return e
+	}
+	return -1
+}
+
 // IsZero reports whether c is the zero currency, which no Money holds.
 func (c Currency) IsZero() bool { return c.code == "" }
 
 // Parse returns the currency of an ISO 4217 alphabetic code. The code is case-sensitive: usd is refused, as is a
-// code that ISO 4217 does not list, such as ZZZ, and XXX, the code of a transaction with no currency.
+// code that ISO 4217 does not list, such as ZZZ, and each code with no minor unit: XXX, the test code XTS, the
+// metals XAU, XAG, XPT and XPD, and the units XBA to XBD, XDR, XSU and XUA.
 func Parse(code string) (Currency, error) {
 	if _, ok := codes[code]; !ok {
 		return Currency{}, fmt.Errorf("%w: %q", ErrCurrency, code)
@@ -193,26 +203,27 @@ func signed(u uint64, negative bool) int64 {
 	return -int64(u)
 }
 
-// codes is the alphabetic codes of ISO 4217 list one (current currency and funds codes) as of 2025, with the codes
-// that list keeps while a currency is replaced (ANG beside XCG, BGN). It leaves out XXX, the code of a transaction
-// with no currency, which no amount can carry.
-var codes = map[string]struct{}{
-	"AED": {}, "AFN": {}, "ALL": {}, "AMD": {}, "ANG": {}, "AOA": {}, "ARS": {}, "AUD": {}, "AWG": {}, "AZN": {},
-	"BAM": {}, "BBD": {}, "BDT": {}, "BGN": {}, "BHD": {}, "BIF": {}, "BMD": {}, "BND": {}, "BOB": {}, "BOV": {},
-	"BRL": {}, "BSD": {}, "BTN": {}, "BWP": {}, "BYN": {}, "BZD": {}, "CAD": {}, "CDF": {}, "CHE": {}, "CHF": {},
-	"CHW": {}, "CLF": {}, "CLP": {}, "CNY": {}, "COP": {}, "COU": {}, "CRC": {}, "CUP": {}, "CVE": {}, "CZK": {},
-	"DJF": {}, "DKK": {}, "DOP": {}, "DZD": {}, "EGP": {}, "ERN": {}, "ETB": {}, "EUR": {}, "FJD": {}, "FKP": {},
-	"GBP": {}, "GEL": {}, "GHS": {}, "GIP": {}, "GMD": {}, "GNF": {}, "GTQ": {}, "GYD": {}, "HKD": {}, "HNL": {},
-	"HTG": {}, "HUF": {}, "IDR": {}, "ILS": {}, "INR": {}, "IQD": {}, "IRR": {}, "ISK": {}, "JMD": {}, "JOD": {},
-	"JPY": {}, "KES": {}, "KGS": {}, "KHR": {}, "KMF": {}, "KPW": {}, "KRW": {}, "KWD": {}, "KYD": {}, "KZT": {},
-	"LAK": {}, "LBP": {}, "LKR": {}, "LRD": {}, "LSL": {}, "LYD": {}, "MAD": {}, "MDL": {}, "MGA": {}, "MKD": {},
-	"MMK": {}, "MNT": {}, "MOP": {}, "MRU": {}, "MUR": {}, "MVR": {}, "MWK": {}, "MXN": {}, "MXV": {}, "MYR": {},
-	"MZN": {}, "NAD": {}, "NGN": {}, "NIO": {}, "NOK": {}, "NPR": {}, "NZD": {}, "OMR": {}, "PAB": {}, "PEN": {},
-	"PGK": {}, "PHP": {}, "PKR": {}, "PLN": {}, "PYG": {}, "QAR": {}, "RON": {}, "RSD": {}, "RUB": {}, "RWF": {},
-	"SAR": {}, "SBD": {}, "SCR": {}, "SDG": {}, "SEK": {}, "SGD": {}, "SHP": {}, "SLE": {}, "SOS": {}, "SRD": {},
-	"SSP": {}, "STN": {}, "SVC": {}, "SYP": {}, "SZL": {}, "THB": {}, "TJS": {}, "TMT": {}, "TND": {}, "TOP": {},
-	"TRY": {}, "TTD": {}, "TWD": {}, "TZS": {}, "UAH": {}, "UGX": {}, "USD": {}, "USN": {}, "UYI": {}, "UYU": {},
-	"UYW": {}, "UZS": {}, "VED": {}, "VES": {}, "VND": {}, "VUV": {}, "WST": {}, "XAF": {}, "XAG": {}, "XAU": {},
-	"XBA": {}, "XBB": {}, "XBC": {}, "XBD": {}, "XCD": {}, "XCG": {}, "XDR": {}, "XOF": {}, "XPD": {}, "XPF": {},
-	"XPT": {}, "XSU": {}, "XTS": {}, "XUA": {}, "YER": {}, "ZAR": {}, "ZMW": {}, "ZWG": {},
+// codes maps each accepted alphabetic code of ISO 4217 list one (current currency and funds codes) as of 2025 to its
+// minor-unit exponent from that list, with the codes that the list keeps while a currency is replaced (ANG beside
+// XCG, BGN). It leaves out each code whose minor unit the list gives as N.A.: XXX (no currency), XTS (testing),
+// the metals XAU, XAG, XPT and XPD, the bond market units XBA, XBB, XBC and XBD, and XDR, XSU and XUA
+// (ST-SUP-RP08-LC12).
+var codes = map[string]int{
+	"AED": 2, "AFN": 2, "ALL": 2, "AMD": 2, "ANG": 2, "AOA": 2, "ARS": 2, "AUD": 2, "AWG": 2, "AZN": 2,
+	"BAM": 2, "BBD": 2, "BDT": 2, "BGN": 2, "BHD": 3, "BIF": 0, "BMD": 2, "BND": 2, "BOB": 2, "BOV": 2,
+	"BRL": 2, "BSD": 2, "BTN": 2, "BWP": 2, "BYN": 2, "BZD": 2, "CAD": 2, "CDF": 2, "CHE": 2, "CHF": 2,
+	"CHW": 2, "CLF": 4, "CLP": 0, "CNY": 2, "COP": 2, "COU": 2, "CRC": 2, "CUP": 2, "CVE": 2, "CZK": 2,
+	"DJF": 0, "DKK": 2, "DOP": 2, "DZD": 2, "EGP": 2, "ERN": 2, "ETB": 2, "EUR": 2, "FJD": 2, "FKP": 2,
+	"GBP": 2, "GEL": 2, "GHS": 2, "GIP": 2, "GMD": 2, "GNF": 0, "GTQ": 2, "GYD": 2, "HKD": 2, "HNL": 2,
+	"HTG": 2, "HUF": 2, "IDR": 2, "ILS": 2, "INR": 2, "IQD": 3, "IRR": 2, "ISK": 0, "JMD": 2, "JOD": 3,
+	"JPY": 0, "KES": 2, "KGS": 2, "KHR": 2, "KMF": 0, "KPW": 2, "KRW": 0, "KWD": 3, "KYD": 2, "KZT": 2,
+	"LAK": 2, "LBP": 2, "LKR": 2, "LRD": 2, "LSL": 2, "LYD": 3, "MAD": 2, "MDL": 2, "MGA": 2, "MKD": 2,
+	"MMK": 2, "MNT": 2, "MOP": 2, "MRU": 2, "MUR": 2, "MVR": 2, "MWK": 2, "MXN": 2, "MXV": 2, "MYR": 2,
+	"MZN": 2, "NAD": 2, "NGN": 2, "NIO": 2, "NOK": 2, "NPR": 2, "NZD": 2, "OMR": 3, "PAB": 2, "PEN": 2,
+	"PGK": 2, "PHP": 2, "PKR": 2, "PLN": 2, "PYG": 0, "QAR": 2, "RON": 2, "RSD": 2, "RUB": 2, "RWF": 0,
+	"SAR": 2, "SBD": 2, "SCR": 2, "SDG": 2, "SEK": 2, "SGD": 2, "SHP": 2, "SLE": 2, "SOS": 2, "SRD": 2,
+	"SSP": 2, "STN": 2, "SVC": 2, "SYP": 2, "SZL": 2, "THB": 2, "TJS": 2, "TMT": 2, "TND": 3, "TOP": 2,
+	"TRY": 2, "TTD": 2, "TWD": 2, "TZS": 2, "UAH": 2, "UGX": 0, "USD": 2, "USN": 2, "UYI": 0, "UYU": 2,
+	"UYW": 4, "UZS": 2, "VED": 2, "VES": 2, "VND": 0, "VUV": 0, "WST": 2, "XAF": 0, "XCD": 2, "XCG": 2,
+	"XOF": 0, "XPF": 0, "YER": 2, "ZAR": 2, "ZMW": 2, "ZWG": 2,
 }

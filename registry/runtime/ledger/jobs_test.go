@@ -23,9 +23,12 @@ type holder struct {
 	held   atomic.Pointer[lease.Held]
 }
 
-func (f *fixture) holder() *holder {
+func (f *fixture) holder() *holder { return f.holderFor(time.Minute) }
+
+// holderFor is a replica whose lease lasts ttl.
+func (f *fixture) holderFor(ttl time.Duration) *holder {
 	f.t.Helper()
-	c, err := lease.New(f.runtime, leaseName, fmt.Sprintf("replica-%d", holderSeq.Add(1)), lease.Settings{TTL: time.Minute, Renew: 20 * time.Second})
+	c, err := lease.New(f.runtime, leaseName, fmt.Sprintf("replica-%d", holderSeq.Add(1)), lease.Settings{TTL: ttl, Renew: ttl / 2})
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -46,13 +49,16 @@ func (h *holder) take(t *testing.T) *lease.Held {
 // of is the LeaseOf of the replica: the lease it holds, or nil.
 func (h *holder) of() *lease.Held { return h.held.Load() }
 
-func (f *fixture) jobs(h *holder) *Jobs {
+func (f *fixture) jobs(h *holder) *Jobs { return f.jobsOn(h, f.runtime) }
+
+// jobsOn is the jobs of the replica on the pool db.
+func (f *fixture) jobsOn(h *holder, db *sql.DB) *Jobs {
 	f.t.Helper()
 	j, err := NewJobs(JobsConfig{
 		Ledgers: []*Ledger{f.usd},
 		Lease:   h.of,
 		Tenants: func(context.Context) ([]tenant.Tenant, error) { return []tenant.Tenant{f.tn(acme)}, nil },
-		DB:      f.runtime,
+		DB:      db,
 	})
 	if err != nil {
 		f.t.Fatal(err)
@@ -184,7 +190,7 @@ func TestJobs(t *testing.T) {
 	})
 
 	t.Run("ST-SUP-RP08-LC08-T04 Check finds an expired pending transfer that is not voided", func(t *testing.T) {
-		f := newFixture(t)
+		f := newFixture(t, withTimeout(time.Second))
 		h := f.holder()
 		h.take(t)
 		j := f.jobs(h)
@@ -198,10 +204,10 @@ func TestJobs(t *testing.T) {
 		if err := j.Check(f.ctx); err != nil {
 			t.Fatalf("Check before the expiry: %v", err)
 		}
-		f.clock.Advance(15*time.Minute + time.Second)
+		f.waitPast(p.ExpiresAt)
 		err := j.Check(f.ctx)
-		if err == nil || !strings.Contains(err.Error(), "the pending transfer "+p.ID) || strings.Contains(err.Error(), voided.ID) {
-			t.Fatalf("Check after the expiry: %v; want a failure that names %s only", err, p.ID)
+		if err == nil || !strings.Contains(err.Error(), "the expiry sweep did not void the pending transfer "+p.ID) || strings.Contains(err.Error(), voided.ID) {
+			t.Fatalf("Check after the expiry: %v; want a failure of the sweep that names %s only", err, p.ID)
 		}
 		// Once it is voided, the check passes again.
 		if _, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) { return f.usd.Void(f.ctx, tx, tn, p.ID, "void-2") }); err != nil {
@@ -231,7 +237,7 @@ func TestJobs(t *testing.T) {
 		for _, c := range registry.Components(modes.Selection{modes.Controller}) {
 			names = append(names, c.Name)
 		}
-		if strings.Join(names, ",") != SnapshotJob+","+CheckJob {
+		if strings.Join(names, ",") != SnapshotJob+","+CheckJob+","+SweepJob {
 			t.Fatalf("the controller mode runs %v", names)
 		}
 		// Another holder has the lease: this replica does no work.
@@ -282,7 +288,7 @@ func TestJobs(t *testing.T) {
 	})
 
 	t.Run("ST-SUP-RP08-LC08-T06 A failed check marks the service unhealthy", func(t *testing.T) {
-		f := newFixture(t)
+		f := newFixture(t, withTimeout(time.Second))
 		h := f.holder()
 		h.take(t)
 		j := f.jobs(h)
@@ -292,14 +298,140 @@ func TestJobs(t *testing.T) {
 		if ok, reason := j.Health(); !ok || reason != "" {
 			t.Fatalf("the health after a passed check is %v %q", ok, reason)
 		}
-		f.pend("hold", dr("dr", 5), cr("cr", 5))
-		f.clock.Advance(time.Hour)
+		p := f.pend("hold", dr("dr", 5), cr("cr", 5))
+		f.waitPast(p.ExpiresAt)
 		if err := j.Check(f.ctx); err == nil {
 			t.Fatal("Check passed with an expired pending transfer")
 		}
 		ok, reason := j.Health()
 		if ok || !strings.HasPrefix(reason, CheckJob+" failed: ") {
 			t.Fatalf("the health after a failed check is %v %q; want unhealthy with a reason that names ledger_check", ok, reason)
+		}
+	})
+
+	t.Run("ST-SUP-RP08-LC08-T07 Check verifies snapshots one after another", func(t *testing.T) {
+		f := newFixture(t, func(s *Settings) { s.SnapshotEvery = 10 })
+		h := f.holder()
+		h.take(t)
+		j := f.jobs(h)
+		for round := range 50 {
+			for i := range 10 {
+				f.post(f.runtime, fmt.Sprintf("k-%d-%d", round, i), dr("dr", int64(round+1)), cr("cr", int64(round+1)))
+			}
+			if n, err := j.Snapshot(f.ctx); err != nil || n != 2 {
+				t.Fatalf("Snapshot in round %d: %d, %v; want 2 rows", round, n, err)
+			}
+		}
+		var through string
+		f.inTx(f.owner, acme, func(tx *sql.Tx) error {
+			return tx.QueryRowContext(f.ctx, `UPDATE balance_snapshots SET amount = amount + 1 WHERE account_id = 'dr'
+ AND through_xid = (SELECT through_xid FROM balance_snapshots WHERE account_id = 'dr' ORDER BY through_xid OFFSET 24 LIMIT 1)
+ RETURNING through_xid::text`).Scan(&through)
+		})
+		// The statistics of the entries table count the rows that each scan reads. The pools are closed, so every
+		// backend has flushed its counts, and the check runs on a pool of its own, which is closed after it.
+		for _, db := range []*sql.DB{f.runtime, f.traced, f.owner} {
+			db.Close()
+		}
+		stats := f.open(ownerRole, nil)
+		entriesRead := func() int64 {
+			var last int64 = -1
+			for range 100 {
+				var n int64
+				if err := stats.QueryRowContext(f.ctx, `SELECT coalesce(seq_tup_read, 0) + coalesce(idx_tup_fetch, 0)
+ FROM pg_stat_user_tables WHERE relname = 'entries'`).Scan(&n); err != nil {
+					t.Fatal(err)
+				}
+				if n == last {
+					return n
+				}
+				last = n
+				time.Sleep(200 * time.Millisecond)
+			}
+			t.Fatal("the statistics of entries do not settle")
+			return 0
+		}
+		before := entriesRead()
+		checkDB := f.open(runtimeRole, nil)
+		err := f.jobsOn(h, checkDB).Check(f.ctx)
+		checkDB.Close()
+		time.Sleep(300 * time.Millisecond)
+		read := entriesRead() - before
+		if err == nil || strings.Count(err.Error(), "the snapshot through_xid") != 1 ||
+			!strings.Contains(err.Error(), "the snapshot through_xid "+through+" of the account dr") {
+			t.Fatalf("Check: %v; want a failure that names the snapshot %s of dr only", err, through)
+		}
+		if read < 1000 || read > 1100 {
+			t.Fatalf("Check read %d entry rows for 1000 entries; want each entry once", read)
+		}
+	})
+
+	t.Run("ST-SUP-RP08-LC08-T08 A job ends before the lease deadline", func(t *testing.T) {
+		f := newFixture(t)
+		f.post(f.runtime, "fund", dr("hot", 100), cr("limited", 100))
+		h := f.holderFor(2 * time.Second)
+		held := h.take(t)
+		j := f.jobs(h)
+		locker, err := tenant.Begin(f.ctx, f.owner, f.tn(acme), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer locker.Rollback()
+		if _, err := locker.ExecContext(f.ctx, "SELECT 1 FROM accounts WHERE id = 'limited' FOR UPDATE"); err != nil {
+			t.Fatal(err)
+		}
+		renewed := make(chan time.Duration, 1)
+		go func() {
+			f.waitForLockWait(t)
+			start := time.Now()
+			if err := held.Renew(f.ctx); err != nil {
+				t.Errorf("the renew: %v", err)
+			}
+			renewed <- time.Since(start)
+		}()
+		n, err := j.Snapshot(f.ctx)
+		ended := time.Now()
+		if sqlState(err) != "55P03" || n != 0 {
+			t.Fatalf("Snapshot under a held account lock: %d, %v; want the lock timeout", n, err)
+		}
+		if !ended.Before(held.Expires()) {
+			t.Fatalf("Snapshot ended at %v, after the lease deadline %v", ended, held.Expires())
+		}
+		if wait := <-renewed; wait > time.Second {
+			t.Fatalf("the renew waited %v for the job", wait)
+		}
+	})
+
+	t.Run("ST-SUP-RP08-LC11-T01 The sweep voids an expired hold once", func(t *testing.T) {
+		f := newFixture(t, withTimeout(time.Second))
+		p := f.pend("hold", dr("dr", 5), cr("cr", 5))
+		// Replica b holds the lease; it expires, and replica a takes it over with a higher token, so b is fenced.
+		b := f.holder()
+		b.take(t)
+		f.inTx(f.owner, acme, func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(f.ctx, "UPDATE leases SET expires_at = now() - interval '1 second' WHERE name = $1", leaseName)
+			return err
+		})
+		a := f.holder()
+		a.take(t)
+		f.waitPast(p.ExpiresAt)
+		if n, err := f.jobs(b).Sweep(f.ctx); n != 0 || !errors.Is(err, lease.ErrFenced) {
+			t.Fatalf("the sweep of the fenced replica: %d, %v; want the fenced error", n, err)
+		}
+		if n := f.count("transfers", "pending_id = $1", p.ID); n != 0 {
+			t.Fatalf("the fenced replica wrote %d voids", n)
+		}
+		ja := f.jobs(a)
+		for run, want := range []int{1, 0} {
+			if n, err := ja.Sweep(f.ctx); err != nil || n != want {
+				t.Fatalf("sweep %d: %d, %v; want %d voids", run+1, n, err, want)
+			}
+		}
+		if n := f.count("transfers", "pending_id = $1 AND kind = 'void' AND idempotency_key = ledger_key('acme', $2)", p.ID, "expire:"+p.ID); n != 1 {
+			t.Fatalf("%d voids with the key expire:%s; want 1", n, p.ID)
+		}
+		if err := ja.Check(f.ctx); err != nil {
+			t.Fatalf("Check after the sweep: %v", err)
 		}
 	})
 }

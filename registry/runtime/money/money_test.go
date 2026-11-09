@@ -179,6 +179,34 @@ func TestMoney(t *testing.T) {
 	})
 }
 
+func TestCurrencyExponent(t *testing.T) {
+	t.Run("ST-SUP-RP08-LC12-T01 Test and metal codes are refused, and each code has its exponent", func(t *testing.T) {
+		for _, code := range []string{"XTS", "XAU", "XAG", "XPT", "XPD", "XXX", "XBA", "XDR"} {
+			if c, err := Parse(code); !errors.Is(err, ErrCurrency) || !c.IsZero() {
+				t.Fatalf("Parse(%s) = %v, %v; want ErrCurrency", code, c, err)
+			}
+		}
+		for code, want := range map[string]int{"JPY": 0, "USD": 2, "BHD": 3, "EUR": 2, "KRW": 0, "KWD": 3, "CLF": 4, "XOF": 0} {
+			c, err := Parse(code)
+			if err != nil {
+				t.Fatalf("Parse(%s): %v", code, err)
+			}
+			if got := c.Exponent(); got != want {
+				t.Fatalf("the exponent of %s is %d; want %d", code, got, want)
+			}
+		}
+		if got := (Currency{}).Exponent(); got != -1 {
+			t.Fatalf("the exponent of the zero currency is %d", got)
+		}
+		// Every accepted code has an exponent of ISO 4217: 0, 2, 3 or 4.
+		for code, e := range codes {
+			if e != 0 && e != 2 && e != 3 && e != 4 {
+				t.Fatalf("the code %s has the exponent %d", code, e)
+			}
+		}
+	})
+}
+
 func hasFloat(typ types.Type) bool {
 	switch u := typ.Underlying().(type) {
 	case *types.Basic:

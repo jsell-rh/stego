@@ -16,11 +16,20 @@ import (
 	"stego.dev/runtime/tenant"
 )
 
-// The names of the two jobs, as the controller mode registers them and as the health reason names them.
+// The names of the three jobs, as the controller mode registers them and as the health reason names them.
 const (
 	SnapshotJob = "ledger_snapshot"
 	CheckJob    = "ledger_check"
+	SweepJob    = "ledger_expiry_sweep"
 )
+
+// DefaultLockTimeout is the longest a job's statement waits for a lock. A job's transaction holds the lease row
+// (lease.Held.Fence), so a renew waits for it; the timeout bounds that wait.
+const DefaultLockTimeout = time.Second
+
+// SweepKey is the idempotency key of the void that the expiry sweep writes for the pending transfer
+// (ST-SUP-RP08-LC11): expire:<transfer ID>.
+func SweepKey(transferID string) string { return "expire:" + strings.ToLower(transferID) }
 
 // LeaseOf returns the controller lease that this process holds now, or nil when it holds none. The controller
 // gives it from its lease.Client loop (ST-SUP-RP09).
@@ -29,9 +38,9 @@ type LeaseOf func() *lease.Held
 // TenantsOf returns the tenants to visit, such as tenant.List of the service's schema (ST-SUP-RP04-LC07).
 type TenantsOf func(ctx context.Context) ([]tenant.Tenant, error)
 
-// JobsConfig configures the snapshot and ledger_check jobs.
+// JobsConfig configures the snapshot, ledger_check and expiry sweep jobs.
 type JobsConfig struct {
-	// Ledgers are the declared ledgers; each ledger's SnapshotEvery sets its snapshot interval.
+	// Ledgers are the declared ledgers, all in one schema.
 	Ledgers []*Ledger
 	// Lease is the controller lease: the jobs work only while it is held, and fence each transaction.
 	Lease LeaseOf
@@ -39,10 +48,13 @@ type JobsConfig struct {
 	Tenants TenantsOf
 	// DB is the runtime role's pool: the jobs open one transaction per tenant with tenant.Begin.
 	DB *sql.DB
+	// LockTimeout is the longest a statement of a job waits for a lock; zero is DefaultLockTimeout. Each
+	// transaction also ends before the lease can expire.
+	LockTimeout time.Duration
 }
 
-// Jobs are the snapshot and ledger_check jobs (ST-SUP-RP08-LC08). The controller mode registers Components; the
-// jobs own no loop beyond them.
+// Jobs are the snapshot, ledger_check and expiry sweep jobs (ST-SUP-RP08-LC08, ST-SUP-RP08-LC11). The controller
+// mode registers Components; the jobs own no loop beyond them.
 type Jobs struct {
 	cfg JobsConfig
 
@@ -59,11 +71,19 @@ func NewJobs(cfg JobsConfig) (*Jobs, error) {
 		return nil, errors.New("ledger: the jobs need the controller lease")
 	case cfg.Tenants == nil || cfg.DB == nil:
 		return nil, errors.New("ledger: the jobs need the tenants and the database")
+	case cfg.LockTimeout < 0:
+		return nil, errors.New("ledger: the lock timeout is negative")
 	}
 	for _, l := range cfg.Ledgers {
 		if l == nil {
 			return nil, errors.New("ledger: a ledger of the jobs is nil")
 		}
+		if l.schema != cfg.Ledgers[0].schema {
+			return nil, errors.New("ledger: the ledgers of the jobs are in more than one schema")
+		}
+	}
+	if cfg.LockTimeout == 0 {
+		cfg.LockTimeout = DefaultLockTimeout
 	}
 	return &Jobs{cfg: cfg}, nil
 }
@@ -77,33 +97,53 @@ func (j *Jobs) held() *lease.Held {
 	return h
 }
 
-// writeSnapshots inserts one snapshot row for each account of the ledger that has at least $3 posted entries after
-// its latest snapshot and below the oldest running transaction ID, with the fencing token $4. The new snapshot is
-// the latest one plus those entries.
-const writeSnapshots = `WITH x AS (SELECT pg_snapshot_xmin(pg_current_snapshot()) AS xmin),
-due AS (
- SELECT a.id, s.amount AS base, s.entry_count AS base_count, sum(` + signed + `) AS delta, count(*) AS n
- FROM {s}.accounts a
- LEFT JOIN LATERAL (SELECT amount, through_xid, entry_count FROM {s}.balance_snapshots b
-  WHERE b.tenant_id = a.tenant_id AND b.ledger_id = a.ledger_id AND b.account_id = a.id
-  ORDER BY through_xid DESC LIMIT 1) s ON true
- JOIN {s}.entries e ON e.tenant_id = a.tenant_id AND e.ledger_id = a.ledger_id AND e.account_id = a.id AND NOT e.pending
-  AND (s.through_xid IS NULL OR e.txid >= s.through_xid) AND e.txid < (SELECT xmin FROM x)
- WHERE a.tenant_id = $1 AND a.ledger_id = $2
- GROUP BY a.id, s.amount, s.entry_count
- HAVING count(*) >= $3
-)
-INSERT INTO {s}.balance_snapshots (tenant_id, ledger_id, account_id, through_xid, amount, entry_count, fence_token)
-SELECT $1, $2, due.id, (SELECT xmin FROM x), coalesce(due.base, 0) + due.delta, coalesce(due.base_count, 0) + due.n, $4
-FROM due
-RETURNING account_id`
+// ErrDeadline is the error of a job transaction that would not end before the lease can expire.
+var ErrDeadline = errors.New("ledger: the lease can expire before the job's transaction ends")
+
+// inTenant runs fn in one transaction of the tenant, opened with tenant.Begin and committed with tenant.Commit. The
+// transaction ends before the lease can expire on the process clock: its context has that deadline, and its
+// statement timeout and lock timeout are set from what is left, the lock timeout at most the configured one and a
+// quarter of what is left, so a renew that waits for the lease row waits at most that long. It is fenced with the
+// lease before the first statement of the job (ST-SUP-RP08-LC08).
+func (j *Jobs) inTenant(ctx context.Context, h *lease.Held, t tenant.Tenant, fn func(ctx context.Context, tx *sql.Tx, token int64) error) error {
+	left := time.Until(h.Expires())
+	if left <= 10*time.Millisecond {
+		return fmt.Errorf("%w: %v left", ErrDeadline, left)
+	}
+	ctx, cancel := context.WithDeadline(ctx, h.Expires())
+	defer cancel()
+	lock := min(j.cfg.LockTimeout, left/4)
+	tx, err := tenant.Begin(ctx, j.cfg.DB, t, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, "SELECT set_config('lock_timeout', $1, true), set_config('statement_timeout', $2, true)",
+		fmt.Sprintf("%dms", max(lock.Milliseconds(), 1)), fmt.Sprintf("%dms", max((left/2).Milliseconds(), 1))); err != nil {
+		return fmt.Errorf("ledger: set the job's timeouts: %w", err)
+	}
+	token, err := h.Fence(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if err := fn(ctx, tx, token); err != nil {
+		return err
+	}
+	return tenant.Commit(ctx, tx, t)
+}
+
+func stopsRun(err error) bool {
+	return errors.Is(err, lease.ErrFenced) || errors.Is(err, lease.ErrStopped) || errors.Is(err, ErrDeadline)
+}
+
+const callSnapshot = `SELECT {s}.ledger_snapshot($1, $2, $3)`
 
 // Snapshot runs the snapshot job once, while this process holds the controller lease: for each tenant, in a
-// transaction of its own that tenant.Begin opens, fenced with the lease (lease.Held.Fence) before its first write,
-// and that tenant.Commit commits, it writes one balance_snapshots row for each account of each ledger that has at
-// least the declared number of posted entries after its latest snapshot (ST-SUP-RP08-LC08). Each row carries the
-// holder's fencing token. It returns the number of rows written. A process that does not hold the lease does no
-// work. A fenced or stopped lease stops the run with its error, and the tenant's transaction writes nothing.
+// transaction of its own under the lease deadline and fenced with the lease, ledger_snapshot computes and writes one
+// balance_snapshots row for each account of each ledger that has at least the declared number of posted entries
+// after its latest snapshot, with the holder's fencing token (ST-SUP-RP08-LC08). It returns the number of rows
+// written. A process that does not hold the lease does no work. A fenced or stopped lease, or a lease about to
+// expire, stops the run with its error, and the tenant's transaction writes nothing.
 func (j *Jobs) Snapshot(ctx context.Context) (int, error) {
 	h := j.held()
 	if h == nil {
@@ -116,10 +156,20 @@ func (j *Jobs) Snapshot(ctx context.Context) (int, error) {
 	written := 0
 	var errs []error
 	for _, t := range tenants {
-		n, err := j.snapshotOne(ctx, h, t)
+		n := 0
+		err := j.inTenant(ctx, h, t, func(ctx context.Context, tx *sql.Tx, token int64) error {
+			for _, l := range j.cfg.Ledgers {
+				var k int
+				if err := tx.QueryRowContext(ctx, l.q(callSnapshot), t.ID(), l.id, token).Scan(&k); err != nil {
+					return fmt.Errorf("ledger %s: write the snapshots: %w", l.id, err)
+				}
+				n += k
+			}
+			return nil
+		})
 		if err != nil {
 			errs = append(errs, fmt.Errorf("ledger snapshot of the tenant %s: %w", t.ID(), err))
-			if errors.Is(err, lease.ErrFenced) || errors.Is(err, lease.ErrStopped) {
+			if stopsRun(err) {
 				break
 			}
 			continue
@@ -129,64 +179,41 @@ func (j *Jobs) Snapshot(ctx context.Context) (int, error) {
 	return written, errors.Join(errs...)
 }
 
-func (j *Jobs) snapshotOne(ctx context.Context, h *lease.Held, t tenant.Tenant) (int, error) {
-	tx, err := tenant.Begin(ctx, j.cfg.DB, t, nil)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = tx.Rollback() }()
-	token, err := h.Fence(ctx, tx)
-	if err != nil {
-		return 0, err
-	}
-	written := 0
-	for _, l := range j.cfg.Ledgers {
-		every := max(l.every, 1)
-		rows, err := tx.QueryContext(ctx, l.q(writeSnapshots), t.ID(), l.id, every, token)
-		if err != nil {
-			return 0, fmt.Errorf("ledger %s: write the snapshots: %w", l.id, err)
-		}
-		for rows.Next() {
-			written++
-		}
-		err = errors.Join(rows.Err(), rows.Close())
-		if err != nil {
-			return 0, fmt.Errorf("ledger %s: write the snapshots: %w", l.id, err)
-		}
-	}
-	if err := tenant.Commit(ctx, tx, t); err != nil {
-		return 0, err
-	}
-	return written, nil
-}
-
-// The three findings of the check.
-const (
-	// unbalancedLedgers reads the ledgers whose entries do not sum to zero, debits less credits.
-	unbalancedLedgers = `SELECT ledger_id, sum(CASE side WHEN 'debit' THEN amount ELSE -amount END)::text FROM {s}.entries
- WHERE tenant_id = $1 AND ledger_id = ANY(SELECT jsonb_array_elements_text($2::jsonb))
- GROUP BY ledger_id HAVING sum(CASE side WHEN 'debit' THEN amount ELSE -amount END) <> 0 ORDER BY ledger_id`
-	// wrongSnapshots reads the snapshots that differ from the recomputed sum of the posted entries they cover.
-	wrongSnapshots = `SELECT b.ledger_id, b.account_id, b.through_xid::text, b.amount::text, coalesce((
-  SELECT sum(` + signed + `) FROM {s}.entries e WHERE e.tenant_id = b.tenant_id AND e.ledger_id = b.ledger_id
-  AND e.account_id = b.account_id AND NOT e.pending AND e.txid < b.through_xid), 0)::text AS recomputed
- FROM {s}.balance_snapshots b JOIN {s}.accounts a ON a.tenant_id = b.tenant_id AND a.ledger_id = b.ledger_id AND a.id = b.account_id
- WHERE b.tenant_id = $1 AND b.ledger_id = ANY(SELECT jsonb_array_elements_text($2::jsonb))
- AND b.amount <> coalesce((SELECT sum(` + signed + `) FROM {s}.entries e WHERE e.tenant_id = b.tenant_id
-  AND e.ledger_id = b.ledger_id AND e.account_id = b.account_id AND NOT e.pending AND e.txid < b.through_xid), 0)
- ORDER BY b.ledger_id, b.account_id, b.through_xid`
-	// expiredPending reads the pending transfers that are past their expiry and not voided or posted.
-	expiredPending = `SELECT ledger_id, id::text, expires_at FROM {s}.transfers
- WHERE tenant_id = $1 AND ledger_id = ANY(SELECT jsonb_array_elements_text($2::jsonb))
- AND kind = 'pending' AND status = 'pending' AND expires_at <= $3 ORDER BY ledger_id, id`
+// checkSums reads each entry of the tenant's ledgers once and sums it two ways: per ledger, debits less credits, and
+// per account and snapshot interval, on the account's normal side for the posted entries. The interval of an entry
+// is the first snapshot of its account whose through_xid is above the entry's transaction ID; entries after the
+// latest snapshot have none.
+const checkSums = `WITH x AS (
+ SELECT e.ledger_id, e.account_id, CASE e.side WHEN 'debit' THEN e.amount ELSE -e.amount END AS raw,
+  CASE WHEN e.pending THEN 0 WHEN e.side = (SELECT a.normal FROM {s}.accounts a WHERE a.tenant_id = e.tenant_id
+    AND a.ledger_id = e.ledger_id AND a.id = e.account_id) THEN e.amount ELSE -e.amount END AS normal_amount,
+  (SELECT b.through_xid FROM {s}.balance_snapshots b WHERE b.tenant_id = e.tenant_id AND b.ledger_id = e.ledger_id
+    AND b.account_id = e.account_id AND b.through_xid > e.txid ORDER BY b.through_xid LIMIT 1) AS covered_by
+ FROM {s}.entries e
+ WHERE e.tenant_id = $1 AND e.ledger_id IN (SELECT jsonb_array_elements_text($2::jsonb))
 )
+SELECT ledger_id, coalesce(account_id, ''), coalesce(covered_by::text, ''), GROUPING(account_id, covered_by),
+ sum(raw)::text, sum(normal_amount)::text
+FROM x GROUP BY GROUPING SETS ((ledger_id), (ledger_id, account_id, covered_by))`
+
+// listSnapshots reads the snapshots of the tenant's ledgers in order, one after another for each account.
+const listSnapshots = `SELECT ledger_id, account_id, through_xid::text, amount::text FROM {s}.balance_snapshots
+ WHERE tenant_id = $1 AND ledger_id = ANY(SELECT jsonb_array_elements_text($2::jsonb))
+ ORDER BY ledger_id, account_id, through_xid`
+
+// expiredPending reads the pending transfers that are past their expiry by the database clock and still pending.
+const expiredPending = `SELECT ledger_id, id::text, expires_at FROM {s}.transfers
+ WHERE tenant_id = $1 AND ledger_id = ANY(SELECT jsonb_array_elements_text($2::jsonb))
+ AND status = 'pending' AND kind = 'pending' AND expires_at <= now() ORDER BY ledger_id, id LIMIT 1000`
 
 // Check runs the ledger_check job once, while this process holds the controller lease: for each tenant, in a
-// transaction of its own that tenant.Begin opens and that is fenced with the lease, it verifies that each ledger's
-// entries sum to zero, that each snapshot equals the recomputed sum of the entries it covers, and that every
-// pending transfer past its expiry, on the ledger's clock, is voided (ST-SUP-RP08-LC08). It returns an error that
-// names each finding, and the jobs then report unhealthy (Health) until a check finds nothing. A process that does
-// not hold the lease does no work and clears the findings: the holder reports them.
+// transaction of its own under the lease deadline and fenced with the lease, it verifies that each ledger's entries
+// sum to zero and that each snapshot equals the expected balance at the snapshot before it plus the entries between
+// them, reading each entry once and never summing a snapshot from the first entry; and it reports each pending
+// transfer past its expiry that is not voided as a failure of the expiry sweep (ST-SUP-RP08-LC08,
+// ST-SUP-RP08-LC11). It returns an error that names each finding, and the jobs then report unhealthy (Health)
+// until a check finds nothing. A process that does not hold the lease does no work and clears the findings: the
+// holder reports them.
 func (j *Jobs) Check(ctx context.Context) error {
 	h := j.held()
 	if h == nil {
@@ -201,12 +228,17 @@ func (j *Jobs) Check(ctx context.Context) error {
 	var findings []string
 	var errs []error
 	for _, t := range tenants {
-		found, err := j.checkOne(ctx, h, t)
+		var found []string
+		err := j.inTenant(ctx, h, t, func(ctx context.Context, tx *sql.Tx, _ int64) error {
+			var err error
+			found, err = j.checkOne(ctx, tx, t)
+			return err
+		})
 		findings = append(findings, found...)
 		if err != nil {
 			findings = append(findings, fmt.Sprintf("the tenant %s cannot be checked: %v", t.ID(), err))
 			errs = append(errs, err)
-			if errors.Is(err, lease.ErrFenced) || errors.Is(err, lease.ErrStopped) {
+			if stopsRun(err) {
 				break
 			}
 		}
@@ -218,74 +250,152 @@ func (j *Jobs) Check(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func (j *Jobs) checkOne(ctx context.Context, h *lease.Held, t tenant.Tenant) ([]string, error) {
-	tx, err := tenant.Begin(ctx, j.cfg.DB, t, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = tx.Rollback() }()
-	if _, err := h.Fence(ctx, tx); err != nil {
-		return nil, err
-	}
+func (j *Jobs) checkOne(ctx context.Context, tx *sql.Tx, t tenant.Tenant) ([]string, error) {
 	ids := make([]string, len(j.cfg.Ledgers))
 	for i, l := range j.cfg.Ledgers {
 		ids[i] = l.id
 	}
-	list, err := jsonList(ids...)
+	list, err := json.Marshal(ids)
 	if err != nil {
 		return nil, err
 	}
-	var findings []string
-	// Every ledger shares one schema in a service; the first ledger names it.
 	first := j.cfg.Ledgers[0]
-	err = rowsOf(ctx, tx, first.q(unbalancedLedgers), []any{t.ID(), list}, func(rows *sql.Rows) error {
-		var ledger, sum string
-		if err := rows.Scan(&ledger, &sum); err != nil {
+	type interval struct{ ledger, account, through string }
+	sums := map[interval]string{}
+	var findings []string
+	err = rowsOf(ctx, tx, first.q(checkSums), []any{t.ID(), string(list)}, func(rows *sql.Rows) error {
+		var ledger, account, through, raw, normalSum string
+		var grouping int
+		if err := rows.Scan(&ledger, &account, &through, &grouping, &raw, &normalSum); err != nil {
 			return err
 		}
-		findings = append(findings, fmt.Sprintf("the ledger %s of the tenant %s does not sum to zero: debits less credits are %s", ledger, t.ID(), sum))
+		switch {
+		case grouping != 0 && raw != "0":
+			findings = append(findings, fmt.Sprintf("the ledger %s of the tenant %s does not sum to zero: debits less credits are %s", ledger, t.ID(), raw))
+		case grouping == 0 && through != "":
+			sums[interval{ledger, account, through}] = normalSum
+		}
 		return nil
 	})
 	if err != nil {
 		return findings, err
 	}
-	err = rowsOf(ctx, tx, first.q(wrongSnapshots), []any{t.ID(), list}, func(rows *sql.Rows) error {
-		var ledger, account, through, amount, recomputed string
-		if err := rows.Scan(&ledger, &account, &through, &amount, &recomputed); err != nil {
+	// Each snapshot is checked against the expected balance: the expected balance at the snapshot before it plus
+	// the entries between them. An edited snapshot fails alone; the next one is checked against the entries.
+	type key struct{ ledger, account string }
+	expected := map[key]int64{}
+	err = rowsOf(ctx, tx, first.q(listSnapshots), []any{t.ID(), string(list)}, func(rows *sql.Rows) error {
+		var ledger, account, through, amount string
+		if err := rows.Scan(&ledger, &account, &through, &amount); err != nil {
 			return err
 		}
-		findings = append(findings, fmt.Sprintf("the snapshot through_xid %s of the account %s in the ledger %s of the tenant %s holds %s, and its entries sum to %s",
-			through, account, ledger, t.ID(), amount, recomputed))
-		return nil
-	})
-	if err != nil {
-		return findings, err
-	}
-	for _, l := range j.cfg.Ledgers {
-		one, err := jsonList(l.id)
-		if err != nil {
-			return findings, err
-		}
-		err = rowsOf(ctx, tx, l.q(expiredPending), []any{t.ID(), one, l.now()}, func(rows *sql.Rows) error {
-			var ledger, id string
-			var expires time.Time
-			if err := rows.Scan(&ledger, &id, &expires); err != nil {
+		delta := int64(0)
+		if s, ok := sums[interval{ledger, account, through}]; ok {
+			n, err := parseSum(s)
+			if err != nil {
 				return err
 			}
-			findings = append(findings, fmt.Sprintf("the pending transfer %s in the ledger %s of the tenant %s expired at %s and is not voided",
-				id, ledger, t.ID(), expires.UTC().Format(time.RFC3339)))
-			return nil
-		})
-		if err != nil {
-			return findings, err
+			delta = n
 		}
+		k := key{ledger, account}
+		want, err := addInt(expected[k], delta)
+		if err != nil {
+			return err
+		}
+		expected[k] = want
+		if amount != fmt.Sprint(want) {
+			findings = append(findings, fmt.Sprintf("the snapshot through_xid %s of the account %s in the ledger %s of the tenant %s holds %s, and the snapshot before it and the entries between them give %d",
+				through, account, ledger, t.ID(), amount, want))
+		}
+		return nil
+	})
+	if err != nil {
+		return findings, err
 	}
-	return findings, tenant.Commit(ctx, tx, t)
+	err = rowsOf(ctx, tx, first.q(expiredPending), []any{t.ID(), string(list)}, func(rows *sql.Rows) error {
+		var ledger, id string
+		var expires time.Time
+		if err := rows.Scan(&ledger, &id, &expires); err != nil {
+			return err
+		}
+		findings = append(findings, fmt.Sprintf("the expiry sweep did not void the pending transfer %s in the ledger %s of the tenant %s, which expired at %s",
+			id, ledger, t.ID(), expires.UTC().Format(time.RFC3339)))
+		return nil
+	})
+	return findings, err
 }
 
-func jsonList(items ...string) (string, error) {
-	b, err := json.Marshal(items)
-	return string(b), err
+// addInt returns a + b, or an overflow error.
+func addInt(a, b int64) (int64, error) {
+	s := a + b
+	if (b > 0 && s < a) || (b < 0 && s > a) {
+		return 0, fmt.Errorf("ledger: the expected balance %d + %d overflows int64", a, b)
+	}
+	return s, nil
+}
+
+// expiredOf reads the expired pending transfers of one ledger, at most a batch.
+const expiredOf = `SELECT id::text FROM {s}.transfers
+ WHERE tenant_id = $1 AND ledger_id = $2 AND status = 'pending' AND kind = 'pending' AND expires_at <= now()
+ ORDER BY expires_at, id LIMIT 100`
+
+// Sweep runs the expiry sweep once, while this process holds the controller lease (ST-SUP-RP08-LC11): for each
+// tenant and ledger it reads the pending transfers whose expiry has passed by the database clock, and voids each
+// through Void with the idempotency key SweepKey(ID), in a transaction of its own under the lease deadline and
+// fenced with the lease, so a retry or a second replica writes no second void. It returns the number of voids it
+// wrote. A void or a post that a client made first is not an error.
+func (j *Jobs) Sweep(ctx context.Context) (int, error) {
+	h := j.held()
+	if h == nil {
+		return 0, nil
+	}
+	tenants, err := j.cfg.Tenants(ctx)
+	if err != nil {
+		return 0, err
+	}
+	voided := 0
+	var errs []error
+	for _, t := range tenants {
+		for _, l := range j.cfg.Ledgers {
+			var ids []string
+			err := j.inTenant(ctx, h, t, func(ctx context.Context, tx *sql.Tx, _ int64) error {
+				return rowsOf(ctx, tx, l.q(expiredOf), []any{t.ID(), l.id}, func(rows *sql.Rows) error {
+					var id string
+					if err := rows.Scan(&id); err != nil {
+						return err
+					}
+					ids = append(ids, id)
+					return nil
+				})
+			})
+			if err != nil {
+				errs = append(errs, fmt.Errorf("ledger %s sweep of the tenant %s: %w", l.id, t.ID(), err))
+				if stopsRun(err) {
+					return voided, errors.Join(errs...)
+				}
+				continue
+			}
+			for _, id := range ids {
+				var replayed bool
+				err := j.inTenant(ctx, h, t, func(ctx context.Context, tx *sql.Tx, _ int64) error {
+					v, err := l.Void(ctx, tx, t, id, SweepKey(id))
+					replayed = v.Replayed
+					return err
+				})
+				switch {
+				case err == nil && !replayed:
+					voided++
+				case err == nil, errors.Is(err, ErrAlreadyVoided), errors.Is(err, ErrAlreadyPosted):
+				default:
+					errs = append(errs, fmt.Errorf("ledger %s sweep of %s: %w", l.id, id, err))
+					if stopsRun(err) {
+						return voided, errors.Join(errs...)
+					}
+				}
+			}
+		}
+	}
+	return voided, errors.Join(errs...)
 }
 
 func rowsOf(ctx context.Context, tx *sql.Tx, statement string, args []any, each func(*sql.Rows) error) error {
@@ -319,10 +429,10 @@ func (j *Jobs) Health() (bool, string) {
 	return false, CheckJob + " failed: " + strings.Join(j.failures, "; ")
 }
 
-// Components returns the two jobs as components of the controller mode: each runs its job once at start and then
+// Components returns the three jobs as components of the controller mode: each runs its job once at start and then
 // every period of after, until its context ends. The generated code registers them for modes.Controller only, so
-// the api and worker modes start neither (ST-SUP-RC31-OC12). A run's error is kept in Health for the check, and
-// does not stop the component. after is the controller's clock; nil is time.After.
+// the api and worker modes start none (ST-SUP-RC31-OC12). A run's error is kept in Health for the check, and does
+// not stop the component. after is the controller's clock; nil is time.After.
 func (j *Jobs) Components(period time.Duration, after func(time.Duration) <-chan time.Time) []modes.Component {
 	if after == nil {
 		after = time.After
@@ -342,5 +452,6 @@ func (j *Jobs) Components(period time.Duration, after func(time.Duration) <-chan
 	return []modes.Component{
 		{Name: SnapshotJob, Run: loop(func(ctx context.Context) error { _, err := j.Snapshot(ctx); return err })},
 		{Name: CheckJob, Run: loop(j.Check)},
+		{Name: SweepJob, Run: loop(func(ctx context.Context) error { _, err := j.Sweep(ctx); return err })},
 	}
 }

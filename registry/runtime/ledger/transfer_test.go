@@ -34,10 +34,11 @@ import (
 // The PostgreSQL tests run against the local PostgreSQL server of pgtest: the server that STEGO_TEST_POSTGRES_DSN
 // names, a superuser URL, else a container without privilege that the test binary starts and removes
 // (ST-STD-LOCAL-R04). They reach the server through pgx's database/sql driver (ST-STD-RUNTIME-R06). Each test makes
-// a database of its own, owned by the owner role, applies the DDL text and the lease runtime's leases table there
-// as the owner, and drops the database at the end. Every test uses one ledger in USD, and the tenant acme with the
-// accounts: limited (credit normal, minimum balance 0), hot (debit normal, hot), plain (credit normal, no limit),
-// dr (debit normal) and cr (credit normal).
+// a database of its own, owned by the owner role, applies the DDL text, the CHECK constraint of the declared
+// transfer codes (as the generated migration does) and the lease runtime's leases table there as the owner, and
+// drops the database at the end. Every test uses one ledger in USD, and the tenant acme with the accounts: limited
+// (credit normal, minimum balance 0), hot (debit normal, hot), plain (credit normal, no limit), dr (debit normal)
+// and cr (credit normal).
 
 const (
 	ownerRole    = "stego_ledger_owner"
@@ -47,6 +48,8 @@ const (
 	acme         = "acme"
 	other        = "other"
 	guardMessage = "the ledger table"
+	// closedDays is how far back the declared close date of the test ledger is.
+	closedDays = 30
 )
 
 // TestMain gives the PostgreSQL tests of the package their local server (ST-STD-LOCAL-R04).
@@ -55,20 +58,21 @@ func TestMain(m *testing.M) { os.Exit(pgtest.Main(m)) }
 var rolesOnce sync.Once
 
 type fixture struct {
-	t       *testing.T
-	ctx     context.Context
-	cfg     *pgx.ConnConfig
-	db      string
-	admin   *sql.DB
-	owner   *sql.DB
-	runtime *sql.DB
-	traced  *sql.DB // runtime connections whose statements the trace records
-	trace   *statementTrace
-	clock   *fakeClock
-	usd     *Ledger
+	t        *testing.T
+	ctx      context.Context
+	cfg      *pgx.ConnConfig
+	db       string
+	admin    *sql.DB
+	owner    *sql.DB
+	runtime  *sql.DB
+	traced   *sql.DB // runtime connections whose statements the trace records
+	trace    *statementTrace
+	settings Settings
+	usd      *Ledger
 }
 
-func newFixture(t *testing.T) *fixture {
+// newFixture makes the test database. Each option changes the declared settings of the ledger.
+func newFixture(t *testing.T, opts ...func(*Settings)) *fixture {
 	t.Helper()
 	dsn := pgtest.DSN(t)
 	ctx := context.Background()
@@ -92,7 +96,11 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	f := &fixture{t: t, ctx: ctx, cfg: base, db: "ledger_" + hex.EncodeToString(suffix[:]), admin: admin, trace: &statementTrace{},
-		clock: &fakeClock{now: time.Now().UTC()}}
+		settings: Settings{ID: "usd", Currency: "USD", PendingTimeout: 15 * time.Minute, SnapshotEvery: 3,
+			ClosedBefore: time.Now().Add(-closedDays * 24 * time.Hour).UTC().Truncate(time.Second)}}
+	for _, o := range opts {
+		o(&f.settings)
+	}
 	if _, err := admin.ExecContext(ctx, "CREATE DATABASE "+f.db+" OWNER "+ownerRole); err != nil {
 		t.Fatalf("create the database: %v", err)
 	}
@@ -102,11 +110,12 @@ func newFixture(t *testing.T) *fixture {
 		}
 	})
 	f.owner = f.open(ownerRole, nil)
-	ddl, err := DDL(Config{RuntimeRole: runtimeRole})
+	ddl, err := DDL(Config{RuntimeRole: runtimeRole, Ledgers: []Settings{f.settings}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	setup := ddl + lease.LeasesTable + `;
+	setup := ddl + `ALTER TABLE transfers ADD CONSTRAINT transfers_code_declared CHECK (code IN ('topup', 'purchase'));
+` + lease.LeasesTable + `;
 INSERT INTO leases (name) VALUES ('` + leaseName + `');
 GRANT SELECT, UPDATE ON leases TO ` + runtimeRole + `;`
 	if _, err := f.owner.ExecContext(ctx, setup); err != nil {
@@ -114,12 +123,16 @@ GRANT SELECT, UPDATE ON leases TO ` + runtimeRole + `;`
 	}
 	f.runtime = f.open(runtimeRole, nil)
 	f.traced = f.open(runtimeRole, f.trace)
-	f.usd = f.ledger("usd", "USD")
+	if f.usd, err = New(f.settings); err != nil {
+		t.Fatal(err)
+	}
 	for _, id := range []string{acme, other} {
 		f.openAccounts(f.usd, id)
 	}
 	return f
 }
+
+func withTimeout(d time.Duration) func(*Settings) { return func(s *Settings) { s.PendingTimeout = d } }
 
 func (f *fixture) open(role string, trace *statementTrace) *sql.DB {
 	cfg := f.cfg.Copy()
@@ -131,15 +144,6 @@ func (f *fixture) open(role string, trace *statementTrace) *sql.DB {
 	db := stdlib.OpenDB(*cfg)
 	f.t.Cleanup(func() { db.Close() })
 	return db
-}
-
-func (f *fixture) ledger(id, currency string) *Ledger {
-	f.t.Helper()
-	l, err := New(Settings{ID: id, Currency: currency, PendingTimeout: 15 * time.Minute, SnapshotEvery: 3, Now: f.clock.Now})
-	if err != nil {
-		f.t.Fatal(err)
-	}
-	return l
 }
 
 func (f *fixture) openAccounts(l *Ledger, tenantID string) {
@@ -184,8 +188,12 @@ func (f *fixture) tn(id string) tenant.Tenant {
 // try runs fn in a transaction of the tenant on db, opened with tenant.Begin, and commits it with tenant.Commit
 // when fn returns no error; else it rolls back and returns the error.
 func (f *fixture) try(db *sql.DB, tenantID string, fn func(tx *sql.Tx) error) error {
+	return f.tryAt(db, tenantID, nil, fn)
+}
+
+func (f *fixture) tryAt(db *sql.DB, tenantID string, opts *sql.TxOptions, fn func(tx *sql.Tx) error) error {
 	t := f.tn(tenantID)
-	tx, err := tenant.Begin(f.ctx, db, t, nil)
+	tx, err := tenant.Begin(f.ctx, db, t, opts)
 	if err != nil {
 		return err
 	}
@@ -250,6 +258,14 @@ func (f *fixture) call(fn func(tx *sql.Tx, t tenant.Tenant) (Transfer, error)) (
 	return out, err
 }
 
+// raw runs one statement as the runtime role in a transaction of acme, and returns its error.
+func (f *fixture) raw(statement string, args ...any) error {
+	return f.try(f.runtime, acme, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(f.ctx, statement, args...)
+		return err
+	})
+}
+
 // count returns the number of rows of the table that match the condition, for acme, read as the owner.
 func (f *fixture) count(table, where string, args ...any) int {
 	f.t.Helper()
@@ -260,7 +276,7 @@ func (f *fixture) count(table, where string, args ...any) int {
 	return n
 }
 
-// row returns the row of the transfer as JSON, read as the owner.
+// row returns the rows of the table that match the condition as JSON, read as the owner.
 func (f *fixture) row(table, where string, args ...any) string {
 	f.t.Helper()
 	var out string
@@ -270,21 +286,31 @@ func (f *fixture) row(table, where string, args ...any) string {
 	return out
 }
 
-type fakeClock struct {
-	mu  sync.Mutex
-	now time.Time
+// available is acme's balance of the account less its open holds, as the limit counts it, read as the owner.
+func (f *fixture) available(account string) int64 {
+	f.t.Helper()
+	var n int64
+	f.inTx(f.owner, acme, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(f.ctx, "SELECT (ledger_balance('usd', $1) + ledger_holds('usd', $1))::bigint", account).Scan(&n)
+	})
+	return n
 }
 
-func (c *fakeClock) Now() time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.now
-}
-
-func (c *fakeClock) Advance(d time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.now = c.now.Add(d)
+// waitPast waits until the database clock is past the time.
+func (f *fixture) waitPast(at time.Time) {
+	f.t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		var past bool
+		if err := f.admin.QueryRowContext(f.ctx, "SELECT clock_timestamp() > $1", at).Scan(&past); err != nil {
+			f.t.Fatal(err)
+		}
+		if past {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	f.t.Fatalf("the database clock is not past %v", at)
 }
 
 // statementTrace records each statement that the traced connections send.
@@ -321,6 +347,14 @@ func sqlState(err error) string {
 	}
 	return ""
 }
+
+// rawTransfer is a raw insert of a transfer and its entries in one statement, for the owner role, which the
+// statement triggers check. $1 is the key, $2 the credit amount, $3 the currency.
+const rawTransfer = `WITH t AS (INSERT INTO transfers (tenant_id, ledger_id, idempotency_key, fingerprint, kind, code, amount, currency, status, effective_at)
+ VALUES ('acme', 'usd', $1, 'fp', 'transfer', 'topup', 100, $3, 'posted', now()) RETURNING id)
+ INSERT INTO entries (tenant_id, ledger_id, transfer_id, seq, account_id, side, amount, currency, pending, effective_at, posted_at)
+ SELECT 'acme', 'usd', t.id, x.seq, x.account, x.side, x.amount, $3, false, now(), now()
+ FROM t, (VALUES (1, 'hot', 'debit', 100), (2, 'limited', 'credit', $2::bigint)) AS x(seq, account, side, amount)`
 
 func TestPost(t *testing.T) {
 	t.Run("ST-SUP-RP08-LC03-T01 A transfer and its entries are inserted in one statement", func(t *testing.T) {
@@ -362,29 +396,37 @@ func TestPost(t *testing.T) {
 					transferCmin, transferXmin, entryCmins[i], entryXmins[i])
 			}
 		}
-		var writes []string
+		var calls int
 		for _, q := range f.trace.since(mark) {
-			if strings.Contains(q, "INSERT INTO") && (strings.Contains(q, ".transfers") || strings.Contains(q, ".entries")) {
-				writes = append(writes, q)
+			if strings.Contains(q, "INSERT") {
+				t.Fatalf("the runtime sent an INSERT: %s", q)
+			}
+			if strings.Contains(q, ".ledger_post(") {
+				calls++
 			}
 		}
-		if len(writes) != 1 || !strings.Contains(writes[0], ".transfers") || !strings.Contains(writes[0], ".entries") {
-			t.Fatalf("the statements that write transfers or entries are %q; want one that writes both", writes)
+		if calls != 1 {
+			t.Fatalf("%d calls of ledger_post; want one", calls)
 		}
 	})
 
 	t.Run("ST-SUP-RP08-LC03-T02 A transfer with one entry is refused", func(t *testing.T) {
 		f := newFixture(t)
 		_, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
-			return f.usd.Post(f.ctx, tx, tn, Posting{Key: "one", Code: "topup", Entries: []Entry{dr("hot", 0+1)}})
+			return f.usd.Post(f.ctx, tx, tn, Posting{Key: "one", Code: "topup", Entries: []Entry{dr("hot", 1)}})
 		})
 		if !errors.Is(err, ErrInvalid) {
 			t.Fatalf("Post with one entry: %v; want ErrInvalid", err)
 		}
-		// The statement trigger refuses it too, for a writer that does not go through Post.
-		err = f.try(f.runtime, acme, func(tx *sql.Tx) error {
-			_, err := tx.ExecContext(f.ctx, `WITH t AS (INSERT INTO transfers (tenant_id, ledger_id, idempotency_key, kind, code, amount, currency, status, effective_at)
- VALUES ('acme', 'usd', 'raw-one', 'transfer', 'topup', 5, 'USD', 'posted', now()) RETURNING id)
+		// ledger_post refuses it too, for a caller that does not go through Post.
+		err = f.raw(`SELECT ledger_post('acme', 'usd', 'raw-one', 'topup', '[{"account": "hot", "side": "debit", "amount": 5}]', NULL)`)
+		if sqlState(err) != "22023" {
+			t.Fatalf("ledger_post with one entry: %v; want it refused", err)
+		}
+		// The statement trigger refuses it for the owner, which may insert directly.
+		err = f.try(f.owner, acme, func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(f.ctx, `WITH t AS (INSERT INTO transfers (tenant_id, ledger_id, idempotency_key, fingerprint, kind, code, amount, currency, status, effective_at)
+ VALUES ('acme', 'usd', 'raw-one', 'fp', 'transfer', 'topup', 5, 'USD', 'posted', now()) RETURNING id)
  INSERT INTO entries (tenant_id, ledger_id, transfer_id, seq, account_id, side, amount, currency, pending, effective_at, posted_at)
  SELECT 'acme', 'usd', t.id, 1, 'hot', 'debit', 5, 'USD', false, now(), now() FROM t`)
 			return err
@@ -405,19 +447,21 @@ func TestPost(t *testing.T) {
 		if !errors.Is(err, ErrInvalid) {
 			t.Fatalf("Post of a debit of 100 and a credit of 90: %v; want ErrInvalid", err)
 		}
-		// A raw insert that does not balance, and a raw entry pair added to a balanced transfer in a second
-		// statement, are refused by the statement trigger.
-		raw := `WITH t AS (INSERT INTO transfers (tenant_id, ledger_id, idempotency_key, kind, code, amount, currency, status, effective_at)
- VALUES ('acme', 'usd', $1, 'transfer', 'topup', 100, 'USD', 'posted', now()) RETURNING id)
- INSERT INTO entries (tenant_id, ledger_id, transfer_id, seq, account_id, side, amount, currency, pending, effective_at, posted_at)
- SELECT 'acme', 'usd', t.id, x.seq, x.account, x.side, x.amount, 'USD', false, now(), now()
- FROM t, (VALUES (1, 'hot', 'debit', 100), (2, 'limited', 'credit', $2::bigint)) AS x(seq, account, side, amount)`
-		err = f.try(f.runtime, acme, func(tx *sql.Tx) error { _, err := tx.ExecContext(f.ctx, raw, "raw-unbalanced", 90); return err })
+		err = f.raw(`SELECT ledger_post('acme', 'usd', 'raw', 'topup', '[{"account": "hot", "side": "debit", "amount": 100}, {"account": "limited", "side": "credit", "amount": 90}]', NULL)`)
+		if sqlState(err) != "23514" || !strings.Contains(err.Error(), "does not balance") {
+			t.Fatalf("ledger_post unbalanced: %v; want it refused", err)
+		}
+		// For the owner, a raw insert that does not balance, and a pair of entries added in a second statement,
+		// are refused by the statement trigger.
+		err = f.try(f.owner, acme, func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(f.ctx, rawTransfer, "raw-unbalanced", 90, "USD")
+			return err
+		})
 		if sqlState(err) != "23514" || !strings.Contains(err.Error(), "does not balance") {
 			t.Fatalf("a raw unbalanced insert: %v; want the check violation of the trigger", err)
 		}
-		err = f.try(f.runtime, acme, func(tx *sql.Tx) error {
-			if _, err := tx.ExecContext(f.ctx, raw, "raw-balanced", 100); err != nil {
+		err = f.try(f.owner, acme, func(tx *sql.Tx) error {
+			if _, err := tx.ExecContext(f.ctx, rawTransfer, "raw-balanced", 100, "USD"); err != nil {
 				return err
 			}
 			_, err := tx.ExecContext(f.ctx, `INSERT INTO entries (tenant_id, ledger_id, transfer_id, seq, account_id, side, amount, currency, pending, effective_at, posted_at)
@@ -443,13 +487,14 @@ func TestPost(t *testing.T) {
 		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "EUR") {
 			t.Fatalf("Post in EUR on the USD ledger: %v; want ErrInvalid that names EUR", err)
 		}
-		// The trigger refuses an entry whose currency is not its account's.
-		err = f.try(f.runtime, acme, func(tx *sql.Tx) error {
-			_, err := tx.ExecContext(f.ctx, `WITH t AS (INSERT INTO transfers (tenant_id, ledger_id, idempotency_key, kind, code, amount, currency, status, effective_at)
- VALUES ('acme', 'usd', 'raw-eur', 'transfer', 'topup', 100, 'EUR', 'posted', now()) RETURNING id)
- INSERT INTO entries (tenant_id, ledger_id, transfer_id, seq, account_id, side, amount, currency, pending, effective_at, posted_at)
- SELECT 'acme', 'usd', t.id, x.seq, x.account, x.side, 100, 'EUR', false, now(), now()
- FROM t, (VALUES (1, 'hot', 'debit'), (2, 'limited', 'credit')) AS x(seq, account, side)`)
+		// An entry on an account of no ledger, or of the ledger of another tenant, is refused by ledger_post.
+		err = f.raw(`SELECT ledger_post('acme', 'usd', 'raw', 'topup', '[{"account": "hot", "side": "debit", "amount": 5}, {"account": "nowhere", "side": "credit", "amount": 5}]', NULL)`)
+		if sqlState(err) != "23514" || !strings.Contains(err.Error(), "nowhere") {
+			t.Fatalf("ledger_post on no account: %v; want it refused", err)
+		}
+		// For the owner, the trigger refuses an entry whose currency is not its account's.
+		err = f.try(f.owner, acme, func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(f.ctx, rawTransfer, "raw-eur", 100, "EUR")
 			return err
 		})
 		if sqlState(err) != "23514" || !strings.Contains(err.Error(), "EUR") {
@@ -578,18 +623,108 @@ func TestPost(t *testing.T) {
 		if got := f.balance("limited"); got != usd(1040-50*posts) {
 			t.Fatalf("the limited balance is %v; want %d USD", got, 1040-50*posts)
 		}
-		var available int64
-		f.inTx(f.runtime, acme, func(tx *sql.Tx) error {
-			var err error
-			available, err = f.usd.available(f.ctx, tx, f.tn(acme), "limited")
-			return err
-		})
-		if available != 0 {
+		if available := f.available("limited"); available != 0 {
 			t.Fatalf("the limited account has %d available after the race; want 0", available)
 		}
 		// hot: 3 x 50 from the lock cases, -1000, +1000, and 40 x 1 from the race.
 		if got := f.balance("hot"); got != usd(150-1000+1000+40) {
 			t.Fatalf("the hot balance is %v; want 190 USD", got)
+		}
+	})
+
+	t.Run("ST-SUP-RP08-LC03-T07 The owner function refuses a debit below the limit", func(t *testing.T) {
+		f := newFixture(t)
+		f.post(f.runtime, "fund", dr("hot", 100), cr("limited", 100))
+		before := f.row("entries", "account_id = 'limited'")
+		// A raw call of ledger_post, which no Go check stands before, that takes limited to -1.
+		over := `SELECT ledger_post('acme', 'usd', $1, 'purchase', '[{"account": "limited", "side": "debit", "amount": ` + "%d" + `}, {"account": "plain", "side": "credit", "amount": ` + "%d" + `}]', NULL)`
+		if err := f.raw(fmt.Sprintf(over, 101, 101), "over-1"); sqlState(err) != codeBelowMinimum {
+			t.Fatalf("ledger_post of a debit of 101 on a balance of 100: %v; want %s", err, codeBelowMinimum)
+		}
+		// An open pending debit of 60 makes the difference for a debit of 50.
+		f.pend("hold", dr("limited", 60), cr("plain", 60))
+		if err := f.raw(fmt.Sprintf(over, 50, 50), "over-2"); sqlState(err) != codeBelowMinimum {
+			t.Fatalf("ledger_post of 50 with 60 held of 100: %v; want %s", err, codeBelowMinimum)
+		}
+		if f.row("entries", "account_id = 'limited' AND NOT pending") != before {
+			t.Fatal("the posted entries of limited changed")
+		}
+		if got := f.balance("limited"); got != usd(100) {
+			t.Fatalf("the balance is %v; want 100 USD", got)
+		}
+		if err := f.raw(fmt.Sprintf(over, 40, 40), "fits"); err != nil {
+			t.Fatalf("ledger_post of 40 with 60 held of 100: %v", err)
+		}
+	})
+
+	t.Run("ST-SUP-RP08-LC07-T07 A future or closed-period effective_at is refused", func(t *testing.T) {
+		f := newFixture(t)
+		for name, at := range map[string]time.Time{
+			"one day ahead":         time.Now().Add(24 * time.Hour),
+			"before the close date": f.settings.ClosedBefore.Add(-time.Second),
+		} {
+			_, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
+				return f.usd.Post(f.ctx, tx, tn, Posting{Key: name, Code: "topup", Entries: []Entry{dr("hot", 5), cr("plain", 5)}, EffectiveAt: at})
+			})
+			if !errors.Is(err, ErrInvalid) || sqlState(err) != codeEffective {
+				t.Fatalf("Post effective %s: %v; want it refused by ledger_post", name, err)
+			}
+		}
+		if n := f.count("entries", "true"); n != 0 {
+			t.Fatalf("%d entries; want none", n)
+		}
+		// At the close date it is accepted.
+		if _, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
+			return f.usd.Post(f.ctx, tx, tn, Posting{Key: "at-close", Code: "topup", Entries: []Entry{dr("hot", 5), cr("plain", 5)}, EffectiveAt: f.settings.ClosedBefore})
+		}); err != nil {
+			t.Fatalf("Post at the close date: %v", err)
+		}
+	})
+
+	t.Run("ST-SUP-RP08-LC10-T01 REPEATABLE READ is refused", func(t *testing.T) {
+		f := newFixture(t)
+		o := f.post(f.runtime, "orig", dr("hot", 5), cr("plain", 5))
+		for _, level := range []sql.IsolationLevel{sql.LevelRepeatableRead, sql.LevelReadCommitted, sql.LevelSerializable} {
+			var errs []error
+			err := f.tryAt(f.runtime, acme, &sql.TxOptions{Isolation: level}, func(tx *sql.Tx) error {
+				k := level.String()
+				_, e1 := f.usd.Post(f.ctx, tx, f.tn(acme), Posting{Key: "post-" + k, Code: "topup", Entries: []Entry{dr("hot", 1), cr("plain", 1)}})
+				_, e2 := f.usd.Pend(f.ctx, tx, f.tn(acme), Posting{Key: "pend-" + k, Code: "purchase", Entries: []Entry{dr("hot", 1), cr("plain", 1)}})
+				var e3 error
+				if level != sql.LevelRepeatableRead {
+					p, err := f.usd.Post(f.ctx, tx, f.tn(acme), Posting{Key: "rev-src-" + k, Code: "topup", Entries: []Entry{dr("hot", 2), cr("plain", 2)}})
+					if err != nil {
+						return err
+					}
+					_, e3 = f.usd.Reverse(f.ctx, tx, f.tn(acme), p.ID, "rev-"+k)
+				} else {
+					_, e3 = f.usd.Reverse(f.ctx, tx, f.tn(acme), o.ID, "rev-"+k)
+				}
+				errs = []error{e1, e2, e3}
+				return nil
+			})
+			if err != nil {
+				t.Fatalf("%v: %v", level, err)
+			}
+			for i, e := range errs {
+				if level == sql.LevelRepeatableRead && !errors.Is(e, ErrIsolation) {
+					t.Fatalf("call %d at REPEATABLE READ: %v; want ErrIsolation", i, e)
+				}
+				if level != sql.LevelRepeatableRead && e != nil {
+					t.Fatalf("call %d at %v: %v", i, level, e)
+				}
+			}
+		}
+		if n := f.count("transfers", "idempotency_key = ledger_key('acme', 'post-Repeatable Read')"); n != 0 {
+			t.Fatal("a write at REPEATABLE READ")
+		}
+		// ledger_post refuses it too, for a caller that does not go through Post.
+		err := f.tryAt(f.runtime, acme, &sql.TxOptions{Isolation: sql.LevelRepeatableRead}, func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(f.ctx, `SELECT ledger_post('acme', 'usd', 'raw-rr', 'topup', '[{"account": "hot", "side": "debit", "amount": 5}, {"account": "plain", "side": "credit", "amount": 5}]', NULL)`)
+			return err
+		})
+		if sqlState(err) != codeIsolation {
+			t.Fatalf("ledger_post at REPEATABLE READ: %v; want %s", err, codeIsolation)
 		}
 	})
 }
@@ -619,15 +754,14 @@ func TestPending(t *testing.T) {
 		var status string
 		withoutStatus := "SELECT (to_jsonb(r) - 'status')::text FROM transfers r WHERE id = $1"
 		read := func() (string, string, string) {
-			var row, entries string
+			var row string
 			f.inTx(f.owner, acme, func(tx *sql.Tx) error {
 				if err := tx.QueryRowContext(f.ctx, withoutStatus, p.ID).Scan(&row); err != nil {
 					return err
 				}
 				return tx.QueryRowContext(f.ctx, "SELECT status FROM transfers WHERE id = $1", p.ID).Scan(&status)
 			})
-			entries = f.row("entries", "transfer_id = $1", p.ID)
-			return row, entries, status
+			return row, f.row("entries", "transfer_id = $1", p.ID), status
 		}
 		row1, entries1, status1 := read()
 		if status1 != "pending" {
@@ -665,18 +799,11 @@ func TestPending(t *testing.T) {
 		f.post(f.runtime, "fund", dr("hot", 1000), cr("limited", 1000))
 		p := f.pend("hold", dr("limited", 300), cr("plain", 300))
 		before := f.count("transfers", "true")
-		// The ID in upper case names the same transfer, and a retry with it returns the post.
 		posted, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
 			return f.usd.PostPending(f.ctx, tx, tn, strings.ToUpper(p.ID), "post", usd(300))
 		})
 		if err != nil {
 			t.Fatal(err)
-		}
-		again, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
-			return f.usd.PostPending(f.ctx, tx, tn, strings.ToUpper(p.ID), "post", usd(300))
-		})
-		if err != nil || again.ID != posted.ID || !again.Replayed || again.PendingID != p.ID {
-			t.Fatalf("the retry with the upper-case ID: %+v, %v; want the post %s", again, err, posted.ID)
 		}
 		if posted.ID == p.ID || f.count("transfers", "true") != before+1 {
 			t.Fatalf("the post %s is not a new row", posted.ID)
@@ -695,13 +822,9 @@ func TestPending(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got, err := f.getTransfer(part.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
 		want := []Entry{dr("limited", 33), dr("cr", 67), cr("plain", 100)}
-		if fmt.Sprint(got.Entries) != fmt.Sprint(want) || got.Amount != usd(100) {
-			t.Fatalf("the part post is %v of %v; want %v of 100 USD", got.Entries, got.Amount, want)
+		if fmt.Sprint(part.Entries) != fmt.Sprint(want) || part.Amount != usd(100) {
+			t.Fatalf("the part post is %v of %v; want %v of 100 USD", part.Entries, part.Amount, want)
 		}
 	})
 
@@ -727,8 +850,9 @@ func TestPending(t *testing.T) {
 	})
 
 	t.Run("ST-SUP-RP08-LC04-T04 A second post or void returns the state machine's error", func(t *testing.T) {
-		f := newFixture(t)
+		f := newFixture(t, withTimeout(3*time.Second))
 		f.post(f.runtime, "fund", dr("hot", 10000), cr("limited", 10000))
+		expired := f.pend("p3", dr("limited", 100), cr("plain", 100))
 		posted := f.pend("p1", dr("limited", 100), cr("plain", 100))
 		if _, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
 			return f.usd.PostPending(f.ctx, tx, tn, posted.ID, "post-p1", usd(100))
@@ -741,7 +865,7 @@ func TestPending(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		expired := f.pend("p3", dr("limited", 100), cr("plain", 100))
+		f.waitPast(expired.ExpiresAt)
 		small := f.pend("p4", dr("limited", 100), cr("plain", 100))
 		before := f.count("transfers", "true")
 		check := func(name string, want error, fn func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error)) {
@@ -762,16 +886,14 @@ func TestPending(t *testing.T) {
 		check("post more than the pending amount", ErrExceedsPending, func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
 			return f.usd.PostPending(f.ctx, tx, tn, small.ID, "again-4", usd(101))
 		})
-		f.clock.Advance(15 * time.Minute)
 		check("post an expired one", ErrExpired, func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
 			return f.usd.PostPending(f.ctx, tx, tn, expired.ID, "again-5", usd(100))
 		})
 		if after := f.count("transfers", "true"); after != before {
 			t.Fatalf("%d new rows", after-before)
 		}
-		// Two posts of one pending transfer at once: the second waits for the first, and the post function then
-		// refuses it in the database with already_posted.
-		f.clock.Advance(-15 * time.Minute)
+		// Two calls on one pending transfer at once: the second waits for the row lock of the first, and the void
+		// function then refuses it in the database with already_posted.
 		first, err := tenant.Begin(f.ctx, f.runtime, f.tn(acme), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -791,7 +913,7 @@ func TestPending(t *testing.T) {
 			t.Fatal(err)
 		}
 		if err := <-done; !errors.Is(err, ErrAlreadyPosted) || sqlState(err) != codeAlreadyPosted {
-			t.Fatalf("the void that raced the post: %v; want ErrAlreadyPosted from the post and void function", err)
+			t.Fatalf("the void that raced the post: %v; want ErrAlreadyPosted from the void function", err)
 		}
 		if n := f.count("transfers", "pending_id = $1", small.ID); n != 1 {
 			t.Fatalf("%d rows settle the pending transfer; want 1", n)
@@ -842,6 +964,54 @@ func TestPending(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("ST-SUP-RP08-LC04-T06 A post must split the pending entries on the same accounts", func(t *testing.T) {
+		f := newFixture(t)
+		f.post(f.runtime, "fund", dr("hot", 1000), cr("limited", 1000))
+		p := f.pend("hold", dr("limited", 100), cr("plain", 100))
+		call := `SELECT ledger_post_pending('acme', 'usd', $1, $2::uuid, $3::jsonb)`
+		for name, c := range map[string]struct {
+			entries, code string
+		}{
+			"other accounts":        {`[{"account": "dr", "side": "debit", "amount": 100}, {"account": "cr", "side": "credit", "amount": 100}]`, codeNotSplit},
+			"sides swapped":         {`[{"account": "plain", "side": "debit", "amount": 100}, {"account": "limited", "side": "credit", "amount": 100}]`, codeNotSplit},
+			"more than the pending": {`[{"account": "limited", "side": "debit", "amount": 150}, {"account": "plain", "side": "credit", "amount": 150}]`, codeExceedsPending},
+		} {
+			if err := f.raw(call, "crafted-"+name, p.ID, c.entries); sqlState(err) != c.code {
+				t.Fatalf("ledger_post_pending with %s: %v; want %s", name, err, c.code)
+			}
+		}
+		if n := f.count("transfers", "id = $1 AND status = 'pending'", p.ID); n != 1 {
+			t.Fatal("the pending transfer is not pending")
+		}
+		if n := f.count("transfers", "pending_id = $1", p.ID); n != 0 {
+			t.Fatalf("%d rows settle the pending transfer", n)
+		}
+		// A split on the same accounts posts.
+		if err := f.raw(call, "split", p.ID, `[{"account": "limited", "side": "debit", "amount": 40}, {"account": "plain", "side": "credit", "amount": 40}]`); err != nil {
+			t.Fatalf("a split of the pending entries: %v", err)
+		}
+	})
+
+	t.Run("ST-SUP-RP08-LC04-T07 An expired hold cannot be posted", func(t *testing.T) {
+		f := newFixture(t, withTimeout(time.Second))
+		f.post(f.runtime, "fund", dr("hot", 1000), cr("limited", 1000))
+		p := f.pend("hold", dr("limited", 100), cr("plain", 100))
+		f.waitPast(p.ExpiresAt)
+		if _, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
+			return f.usd.PostPending(f.ctx, tx, tn, p.ID, "late", usd(100))
+		}); !errors.Is(err, ErrExpired) {
+			t.Fatalf("a post after the expiry: %v; want ErrExpired", err)
+		}
+		// The function refuses it by the database clock, also for a caller that does not go through PostPending.
+		err := f.raw(`SELECT ledger_post_pending('acme', 'usd', 'late-raw', $1::uuid, '[{"account": "limited", "side": "debit", "amount": 100}, {"account": "plain", "side": "credit", "amount": 100}]')`, p.ID)
+		if sqlState(err) != codeExpired {
+			t.Fatalf("ledger_post_pending after the expiry: %v; want %s", err, codeExpired)
+		}
+		if n := f.count("transfers", "id = $1 AND status = 'pending'", p.ID); n != 1 {
+			t.Fatal("the pending transfer is not pending")
+		}
+	})
 }
 
 func (f *fixture) getTransfer(id string) (Transfer, error) {
@@ -858,36 +1028,52 @@ func TestIdempotentTransfer(t *testing.T) {
 	t.Run("ST-SUP-RP08-LC05-T01 The transfer insert uses ON CONFLICT on ledger and key with DO NOTHING RETURNING", func(t *testing.T) {
 		f := newFixture(t)
 		mark := f.trace.mark()
-		var p, posted Transfer
 		f.inTx(f.traced, acme, func(tx *sql.Tx) error {
-			var err error
-			if posted, err = f.usd.Post(f.ctx, tx, f.tn(acme), Posting{Key: "k1", Code: "topup", Entries: []Entry{dr("hot", 500), cr("limited", 500)}}); err != nil {
+			if _, err := f.usd.Post(f.ctx, tx, f.tn(acme), Posting{Key: "k1", Code: "topup", Entries: []Entry{dr("hot", 500), cr("limited", 500)}}); err != nil {
 				return err
 			}
-			if p, err = f.usd.Pend(f.ctx, tx, f.tn(acme), Posting{Key: "k2", Code: "purchase", Entries: []Entry{dr("limited", 100), cr("plain", 100)}}); err != nil {
-				return err
-			}
-			if _, err = f.usd.PostPending(f.ctx, tx, f.tn(acme), p.ID, "k3", usd(100)); err != nil {
-				return err
-			}
-			if posted, err = f.usd.Post(f.ctx, tx, f.tn(acme), Posting{Key: "k4", Code: "topup", Entries: []Entry{dr("hot", 50), cr("plain", 50)}}); err != nil {
-				return err
-			}
-			_, err = f.usd.Reverse(f.ctx, tx, f.tn(acme), posted.ID, "k5")
+			_, err := f.usd.Pend(f.ctx, tx, f.tn(acme), Posting{Key: "k2", Code: "purchase", Entries: []Entry{dr("limited", 100), cr("plain", 100)}})
 			return err
 		})
-		var inserts int
+		// The runtime sends the calls; the one insert of transfers is in ledger_insert, which every writing owner
+		// function reaches.
+		var calls []string
 		for _, q := range f.trace.since(mark) {
-			if !strings.Contains(q, "INSERT INTO {s}.transfers") && !strings.Contains(q, "INSERT INTO public.transfers") {
-				continue
+			if strings.Contains(q, "INSERT") {
+				t.Fatalf("the runtime sent an INSERT: %s", q)
 			}
-			inserts++
-			if !strings.Contains(q, "ON CONFLICT (ledger_id, idempotency_key) DO NOTHING RETURNING") {
-				t.Fatalf("the transfer insert does not hold ON CONFLICT (ledger_id, idempotency_key) DO NOTHING RETURNING:\n%s", q)
+			for _, fn := range []string{".ledger_post(", ".ledger_pend("} {
+				if strings.Contains(q, fn) {
+					calls = append(calls, fn)
+				}
 			}
 		}
-		if inserts != 5 {
-			t.Fatalf("%d transfer inserts recorded; want 5 (two posts, pend, post of the pending, reverse)", inserts)
+		if len(calls) != 2 {
+			t.Fatalf("the calls are %v; want ledger_post and ledger_pend", calls)
+		}
+		source := func(fn string) string {
+			var def string
+			f.inTx(f.owner, acme, func(tx *sql.Tx) error {
+				return tx.QueryRowContext(f.ctx, "SELECT string_agg(pg_get_functiondef(oid), ' ') FROM pg_proc WHERE proname = $1", fn).Scan(&def)
+			})
+			return def
+		}
+		insert := source("ledger_insert")
+		if strings.Count(insert, "INSERT INTO public.transfers") != 1 || !strings.Contains(insert, "ON CONFLICT (ledger_id, idempotency_key) DO NOTHING RETURNING") {
+			t.Fatalf("ledger_insert does not insert transfers with ON CONFLICT (ledger_id, idempotency_key) DO NOTHING RETURNING:\n%s", insert)
+		}
+		for _, fn := range []string{"ledger_write", "ledger_settle", "ledger_reverse"} {
+			if !strings.Contains(source(fn), "public.ledger_insert(") {
+				t.Fatalf("%s does not insert through ledger_insert", fn)
+			}
+		}
+		var others int
+		f.inTx(f.owner, acme, func(tx *sql.Tx) error {
+			return tx.QueryRowContext(f.ctx, `SELECT count(*) FROM pg_proc WHERE proname <> 'ledger_insert' AND proname LIKE 'ledger%'
+ AND prosrc ~* 'INSERT INTO [a-z_.]*(transfers|entries)'`).Scan(&others)
+		})
+		if others != 0 {
+			t.Fatalf("%d other functions insert transfers or entries", others)
 		}
 		var def string
 		f.inTx(f.owner, acme, func(tx *sql.Tx) error {
@@ -903,21 +1089,37 @@ func TestIdempotentTransfer(t *testing.T) {
 		f := newFixture(t)
 		first := f.post(f.runtime, "k1", dr("hot", 500), cr("limited", 500))
 		entries := f.count("entries", "true")
-		again := f.post(f.runtime, "k1", dr("hot", 700), cr("plain", 700))
+		again := f.post(f.runtime, "k1", dr("hot", 500), cr("limited", 500))
 		if again.ID != first.ID || again.Amount != usd(500) || !again.Replayed || fmt.Sprint(again.Entries) != fmt.Sprint(first.Entries) {
-			t.Fatalf("the retry returned %+v; want the original %+v", again, first)
+			t.Fatalf("the retry with the same body returned %+v; want the original %+v", again, first)
+		}
+		if _, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
+			return f.usd.Post(f.ctx, tx, tn, Posting{Key: "k1", Code: "topup", Entries: []Entry{dr("hot", 700), cr("plain", 700)}})
+		}); !errors.Is(err, ErrKeyReused) {
+			t.Fatalf("the retry with another body: %v; want ErrKeyReused", err)
+		}
+		// The same amount on another account is another body too.
+		if _, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
+			return f.usd.Post(f.ctx, tx, tn, Posting{Key: "k1", Code: "topup", Entries: []Entry{dr("hot", 500), cr("plain", 500)}})
+		}); !errors.Is(err, ErrKeyReused) {
+			t.Fatalf("the retry on another account: %v; want ErrKeyReused", err)
 		}
 		if n := f.count("entries", "true"); n != entries {
-			t.Fatalf("the retry inserted %d entries", n-entries)
+			t.Fatalf("the retries inserted %d entries", n-entries)
 		}
 		p := f.pend("k2", dr("limited", 100), cr("plain", 100))
 		entries = f.count("entries", "true")
-		p2 := f.pend("k2", dr("limited", 50), cr("plain", 50))
+		p2 := f.pend("k2", dr("limited", 100), cr("plain", 100))
 		if p2.ID != p.ID || p2.Amount != usd(100) || !p2.Replayed {
 			t.Fatalf("the retried pend returned %+v; want the original %+v", p2, p)
 		}
+		if _, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
+			return f.usd.Pend(f.ctx, tx, tn, Posting{Key: "k2", Code: "purchase", Entries: []Entry{dr("limited", 50), cr("plain", 50)}})
+		}); !errors.Is(err, ErrKeyReused) {
+			t.Fatalf("the retried pend with another body: %v; want ErrKeyReused", err)
+		}
 		if n := f.count("entries", "true"); n != entries {
-			t.Fatalf("the retried pend inserted %d entries", n-entries)
+			t.Fatalf("the retried pends inserted %d entries", n-entries)
 		}
 		// A retry that runs while the first call is not committed waits for it and then returns its transfer.
 		tx1, err := tenant.Begin(f.ctx, f.runtime, f.tn(acme), nil)
@@ -929,19 +1131,13 @@ func TestIdempotentTransfer(t *testing.T) {
 			t.Fatal(err)
 		}
 		done := make(chan Transfer, 1)
-		go func() { done <- f.post(f.runtime, "k5", dr("hot", 9), cr("plain", 9)) }()
+		go func() { done <- f.post(f.runtime, "k5", dr("hot", 5), cr("plain", 5)) }()
 		f.waitForLockWait(t)
 		if err := tenant.Commit(f.ctx, tx1, f.tn(acme)); err != nil {
 			t.Fatal(err)
 		}
 		if got := <-done; got.ID != racing.ID || got.Amount != usd(5) || !got.Replayed {
 			t.Fatalf("the racing retry returned %+v; want the original %+v", got, racing)
-		}
-		// A key of a post that is used for a pend names another operation.
-		if _, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
-			return f.usd.Pend(f.ctx, tx, tn, Posting{Key: "k1", Code: "topup", Entries: []Entry{dr("limited", 1), cr("plain", 1)}})
-		}); !errors.Is(err, ErrKeyReused) {
-			t.Fatalf("a pend with the key of a post: %v; want ErrKeyReused", err)
 		}
 		// The key of one tenant does not meet the transfer of another tenant.
 		var others Transfer
@@ -952,6 +1148,34 @@ func TestIdempotentTransfer(t *testing.T) {
 		})
 		if others.ID == first.ID || others.Replayed || others.Amount != usd(3) {
 			t.Fatalf("the other tenant's post with k1 returned %+v", others)
+		}
+	})
+
+	t.Run("ST-SUP-RP08-LC05-T03 A retry that names the ID in upper case is the same call", func(t *testing.T) {
+		f := newFixture(t)
+		o := f.post(f.runtime, "orig", dr("hot", 5), cr("plain", 5))
+		r1, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
+			return f.usd.Reverse(f.ctx, tx, tn, strings.ToUpper(o.ID), "rev")
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r2, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
+			return f.usd.Reverse(f.ctx, tx, tn, strings.ToUpper(o.ID), "rev")
+		})
+		if err != nil || r2.ID != r1.ID || !r2.Replayed {
+			t.Fatalf("the repeated reversal: %+v, %v; want the first reversal %s", r2, err, r1.ID)
+		}
+		// So is a post of a pending transfer.
+		f.post(f.runtime, "fund", dr("hot", 100), cr("limited", 100))
+		p := f.pend("hold", dr("limited", 10), cr("plain", 10))
+		for i := range 2 {
+			got, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
+				return f.usd.PostPending(f.ctx, tx, tn, strings.ToUpper(p.ID), "post", usd(10))
+			})
+			if err != nil || got.PendingID != p.ID || got.Replayed != (i == 1) {
+				t.Fatalf("call %d of the post with the upper-case ID: %+v, %v", i+1, got, err)
+			}
 		}
 	})
 }
@@ -966,13 +1190,9 @@ func TestReverse(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got, err := f.getTransfer(r.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
 		want := []Entry{cr("hot", 500), dr("limited", 300), dr("plain", 200)}
-		if r.ID == o.ID || got.Kind != Reversal || got.Reverses != o.ID || fmt.Sprint(got.Entries) != fmt.Sprint(want) || got.Amount != usd(500) {
-			t.Fatalf("the reversal is %+v; want entries %v that reverse %s", got, want, o.ID)
+		if r.ID == o.ID || r.Kind != Reversal || r.Reverses != o.ID || fmt.Sprint(r.Entries) != fmt.Sprint(want) || r.Amount != usd(500) {
+			t.Fatalf("the reversal is %+v; want entries %v that reverse %s", r, want, o.ID)
 		}
 		orig, err := f.getTransfer(o.ID)
 		if err != nil {
@@ -981,19 +1201,11 @@ func TestReverse(t *testing.T) {
 		if orig.ReversedBy != r.ID {
 			t.Fatalf("reversed_by of the original is %q; want %s", orig.ReversedBy, r.ID)
 		}
-		// The balances are back where they were.
-		f.inTx(f.runtime, acme, func(tx *sql.Tx) error {
-			for _, a := range []string{"hot", "limited", "plain"} {
-				b, err := f.usd.Balance(f.ctx, tx, f.tn(acme), a)
-				if err != nil {
-					return err
-				}
-				if b != usd(0) {
-					t.Errorf("the balance of %s after the reversal is %v", a, b)
-				}
+		for _, a := range []string{"hot", "limited", "plain"} {
+			if b := f.balance(a); b != usd(0) {
+				t.Errorf("the balance of %s after the reversal is %v", a, b)
 			}
-			return nil
-		})
+		}
 	})
 
 	t.Run("ST-SUP-RP08-LC06-T02 A second reversal of one transfer is refused", func(t *testing.T) {
@@ -1048,44 +1260,26 @@ func TestReverse(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		before := f.count("transfers", "true")
-		for _, id := range []string{pending.ID, toVoid.ID, void.ID} {
-			if _, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
-				return f.usd.Reverse(f.ctx, tx, tn, id, "rev-"+id)
-			}); !errors.Is(err, ErrNotPosted) {
-				t.Fatalf("the reversal of %s: %v; want ErrNotPosted", id, err)
-			}
-		}
-		// A pending transfer that was posted is reversed through its post row, not itself.
 		posted := f.pend("p3", dr("limited", 100), cr("plain", 100))
 		if _, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
 			return f.usd.PostPending(f.ctx, tx, tn, posted.ID, "post-p3", usd(100))
 		}); err != nil {
 			t.Fatal(err)
 		}
-		before = f.count("transfers", "true")
-		if _, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
-			return f.usd.Reverse(f.ctx, tx, tn, posted.ID, "rev-p3")
-		}); !errors.Is(err, ErrNotPosted) {
-			t.Fatalf("the reversal of a posted pending row: %v; want ErrNotPosted", err)
-		}
-		// The reverse function refuses a pending transfer also when it is called directly.
-		for _, id := range []string{pending.ID, posted.ID} {
-			err = f.try(f.runtime, acme, func(tx *sql.Tx) error {
-				_, err := tx.ExecContext(f.ctx, "SELECT ledger_reverse($1::uuid, gen_random_uuid())", id)
-				return err
-			})
-			if sqlState(err) != codeNotPosted {
-				t.Fatalf("ledger_reverse of the pending row %s: %v; want %s", id, err, codeNotPosted)
+		before := f.count("transfers", "true")
+		for _, id := range []string{pending.ID, toVoid.ID, void.ID, posted.ID} {
+			if _, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
+				return f.usd.Reverse(f.ctx, tx, tn, id, "rev-"+id)
+			}); !errors.Is(err, ErrNotPosted) {
+				t.Fatalf("the reversal of %s: %v; want ErrNotPosted", id, err)
 			}
 		}
-		// The reverse function refuses a pending transfer also when it is called directly.
-		err = f.try(f.runtime, acme, func(tx *sql.Tx) error {
-			_, err := tx.ExecContext(f.ctx, "SELECT ledger_reverse($1::uuid, gen_random_uuid())", pending.ID)
-			return err
-		})
-		if sqlState(err) != codeNotPosted {
-			t.Fatalf("ledger_reverse of a pending transfer: %v; want %s", err, codeNotPosted)
+		// The reverse function refuses a pending row also when it is called directly, with its mirror.
+		mirror := `[{"account": "limited", "side": "credit", "amount": 100}, {"account": "plain", "side": "debit", "amount": 100}]`
+		for _, id := range []string{pending.ID, posted.ID} {
+			if err := f.raw("SELECT ledger_reverse('acme', 'usd', $1, $2::uuid, $3::jsonb)", "raw-"+id, id, mirror); sqlState(err) != codeNotPosted {
+				t.Fatalf("ledger_reverse of the pending row %s: %v; want %s", id, err, codeNotPosted)
+			}
 		}
 		if after := f.count("transfers", "true"); after != before {
 			t.Fatalf("%d new rows", after-before)
@@ -1099,14 +1293,9 @@ func TestReverse(t *testing.T) {
 			}
 		}
 		writers := insertingExports(t)
-		allowed := []string{"Ledger.Post", "Ledger.Pend", "Ledger.PostPending", "Ledger.Void", "Ledger.Reverse"}
-		for _, w := range writers {
-			if !slices.Contains(allowed, w) {
-				t.Fatalf("the exported %s inserts transfers or entries; only %v may", w, allowed)
-			}
-		}
-		if len(writers) != len(allowed) {
-			t.Fatalf("the exported functions that insert transfers or entries are %v; want %v", writers, allowed)
+		allowed := []string{"Ledger.Pend", "Ledger.Post", "Ledger.PostPending", "Ledger.Reverse", "Ledger.Void"}
+		if fmt.Sprint(writers) != fmt.Sprint(allowed) {
+			t.Fatalf("the exported functions that write transfers or entries are %v; want %v", writers, allowed)
 		}
 	})
 }
@@ -1198,11 +1387,16 @@ func insertingExports(t *testing.T) []string {
 	pkg, files, info := typeCheck(t)
 	inserts := func(obj types.Object) bool {
 		c, ok := obj.(*types.Const)
-		if !ok || c.Pkg() != pkg || c.Val().Kind() != constant.String {
+		if !ok || c.Pkg() != pkg || c.Val().Kind() != constant.String || c.Name() == "ddlText" {
 			return false
 		}
 		s := constant.StringVal(c.Val())
-		return strings.Contains(s, "INSERT INTO {s}.transfers") || strings.Contains(s, "INSERT INTO {s}.entries")
+		for _, fn := range []string{"ledger_post(", "ledger_pend(", "ledger_post_pending(", "ledger_void(", "ledger_reverse("} {
+			if strings.Contains(s, "{s}."+fn) {
+				return true
+			}
+		}
+		return strings.Contains(s, "INSERT INTO")
 	}
 	name := func(fn *types.Func) string {
 		sig := fn.Type().(*types.Signature)
@@ -1213,7 +1407,10 @@ func insertingExports(t *testing.T) []string {
 		if p, ok := recv.(*types.Pointer); ok {
 			recv = p.Elem()
 		}
-		return recv.(*types.Named).Obj().Name() + "." + fn.Name()
+		if named, ok := recv.(*types.Named); ok {
+			return named.Obj().Name() + "." + fn.Name()
+		}
+		return "interface." + fn.Name()
 	}
 	calls := map[*types.Func][]*types.Func{}
 	direct := map[*types.Func]bool{}
@@ -1243,6 +1440,7 @@ func insertingExports(t *testing.T) []string {
 			})
 		}
 	}
+	writers := map[string]bool{"Ledger.Post": true, "Ledger.Pend": true, "Ledger.PostPending": true, "Ledger.Void": true, "Ledger.Reverse": true}
 	reaches := map[*types.Func]bool{}
 	var visit func(fn *types.Func, seen map[*types.Func]bool) bool
 	visit = func(fn *types.Func, seen map[*types.Func]bool) bool {
@@ -1254,6 +1452,10 @@ func insertingExports(t *testing.T) []string {
 		}
 		seen[fn] = true
 		for _, c := range calls[fn] {
+			// A call of one of the five writers is the writer's own write, not a second way to write.
+			if writers[name(c)] {
+				continue
+			}
 			if visit(c, seen) {
 				return true
 			}
