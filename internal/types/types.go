@@ -276,6 +276,7 @@ type ServiceDeclaration struct {
 	Mixins              []string          `yaml:"mixins,omitempty"`
 	Overrides           map[string]any    `yaml:"overrides,omitempty"`
 	FillModules         []FillModule      `yaml:"fill_modules,omitempty"`
+	Idempotency         *Idempotency      `yaml:"idempotency,omitempty"`
 	Tenancy             *Tenancy          `yaml:"tenancy,omitempty"`
 	Audit               *Audit            `yaml:"audit,omitempty"`
 	Controllers         []Controller      `yaml:"controllers,omitempty"`
@@ -430,6 +431,18 @@ func (sd ServiceDeclaration) MarshalYAML() (any, error) {
 		m.Content = append(m.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "fill_modules"},
 			fNode,
+		)
+	}
+
+	// Idempotency.
+	if sd.Idempotency != nil {
+		iNode := &yaml.Node{}
+		if err := iNode.Encode(sd.Idempotency); err != nil {
+			return nil, err
+		}
+		m.Content = append(m.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "idempotency"},
+			iNode,
 		)
 	}
 

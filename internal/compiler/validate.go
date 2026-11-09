@@ -39,12 +39,16 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	return validateSource(input, source)
+	result, err := validateSource(input, source)
+	if result != nil {
+		result.Settings = declaration.ResolvedSettings(source.Service)
+	}
+	return result, err
 }
 
 // validateSource is the common semantic gate for validate, plan, and apply.
 func validateSource(input ReconcilerInput, source *compilationSource) (*ValidationResult, error) {
-	result := &ValidationResult{Settings: declaration.FilledSettings(source.Service)}
+	result := &ValidationResult{}
 	if err := validateBuildTarget(input.ModuleName, input.GoVersion); err != nil {
 		result.Errors = append(result.Errors, ValidationError{Category: "target", Rule: "build-target", Path: "build target", Found: input.ModuleName + " go" + input.GoVersion, Message: err.Error()})
 	}

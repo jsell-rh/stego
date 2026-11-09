@@ -1,7 +1,6 @@
 package main
 
 import (
-	"slices"
 	"strings"
 	"testing"
 
@@ -28,16 +27,13 @@ func addEntities(service, entities string) string {
 }
 
 // acceptedSettings runs stego validate --json, expects exit 0 and no fault, and gives the settings it reports.
-func acceptedSettings(t *testing.T, service string) *declaration.Settings {
+func acceptedSettings(t *testing.T, service string) declaration.FaultsDocument {
 	t.Helper()
 	document, run := validateJSON(t, td02Project(t, service))
 	if run.code != 0 || !document.Accepted || len(document.Faults) != 0 {
 		t.Fatalf("stego validate refused the declaration (exit %d):\n%s%s", run.code, run.stdout, run.stderr)
 	}
-	if document.Settings == nil {
-		t.Fatalf("stego validate reported no settings:\n%s", run.stdout)
-	}
-	return document.Settings
+	return document
 }
 
 // refusedFault runs stego validate --json, expects a non-zero exit, and gives the one fault at the path given.
@@ -59,64 +55,46 @@ func refusedFault(t *testing.T, service, path string) declaration.ValidationErro
 	return found[0]
 }
 
-// entitySettings gives the reported settings of the named entity.
-func entitySettings(t *testing.T, settings *declaration.Settings, name string) declaration.EntitySettings {
+// expectSetting expects the reported setting at the path to have the value given, and to be marked as a default
+// or not, as byDefault says.
+func expectSetting(t *testing.T, document declaration.FaultsDocument, path string, value any, byDefault bool) {
 	t.Helper()
-	for _, entity := range settings.Entities {
-		if entity.Name == name {
-			return entity
-		}
-	}
-	t.Fatalf("the settings do not report the entity %s: %+v", name, settings.Entities)
-	return declaration.EntitySettings{}
-}
-
-// expectDefaults expects each path given to be marked as a default, or not, as marked says.
-func expectDefaults(t *testing.T, settings *declaration.Settings, marked bool, paths ...string) {
-	t.Helper()
-	for _, path := range paths {
-		if slices.Contains(settings.Defaults, path) != marked {
-			t.Errorf("the setting %s is marked as a default: %v, want %v (defaults %v)", path, !marked, marked, settings.Defaults)
-		}
+	setting := reportedSetting(t, document, path)
+	if setting.Value != value || setting.Default != byDefault {
+		t.Errorf("want %s %v with default %v, got %+v", path, value, byDefault, setting)
 	}
 }
 
-// expectOnByDefault expects audit on at level change with a SHA-256 chain and an anchor.
-func expectOnByDefault(t *testing.T, audit declaration.AuditSettings) {
+// expectOnByDefault expects audit on at level change with a SHA-256 chain and an anchor, each a default.
+func expectOnByDefault(t *testing.T, document declaration.FaultsDocument) {
 	t.Helper()
-	if !audit.Enabled || audit.Level != "change" || audit.Chain != "sha-256" || !audit.Anchored {
-		t.Errorf("want audit on at level change with a SHA-256 chain and an anchor, got %+v", audit)
-	}
+	expectSetting(t, document, "audit.enabled", true, true)
+	expectSetting(t, document, "audit.level", "change", true)
+	expectSetting(t, document, "audit.chain", "sha-256", true)
+	expectSetting(t, document, "audit.anchor", true, true)
 }
 
 func TestDeclareTenancyWithAuditSettings(t *testing.T) {
 	t.Run("ST-DECL-UC05-FL-T An author declares tenancy, audit, tenant kinds and sensitivity, and checking accepts them with the defaults filled in", func(t *testing.T) {
 		service := strings.Replace(tenancyClaim("org.id"), "max_length: 255}", "max_length: 255, sensitivity: pii}", 1)
 		service = addEntities(service, "  - name: Plan\n    tenant: shared\n    fields:\n      - {name: label, type: string}\n  - name: Job\n    tenant: system\n    fields:\n      - {name: state, type: string}\n")
-		settings := acceptedSettings(t, service)
-		if settings.Tenancy.Claim != "org.id" || settings.Tenancy.Kind != "pooled" {
-			t.Errorf("want pooled tenancy with the claim path org.id, got %+v", settings.Tenancy)
-		}
-		expectOnByDefault(t, settings.Audit)
-		for name, tenant := range map[string]string{"Todo": "owned", "Plan": "shared", "Job": "system"} {
-			if got := entitySettings(t, settings, name).Tenant; got != tenant {
-				t.Errorf("%s is reported %s, want %s", name, got, tenant)
-			}
-		}
-		expectDefaults(t, settings, true, "audit.level", "entities.Todo.tenant")
-		expectDefaults(t, settings, false, "tenancy.kind", "tenancy.key", "tenancy.claim", "entities.Plan.tenant", "entities.Job.tenant", "entities.Todo.fields.title.sensitivity")
-		if fields := entitySettings(t, settings, "Todo").Fields; len(fields) == 0 || fields[0].Name != "title" || fields[0].Sensitivity != "pii" {
-			t.Errorf("want title reported pii, got %+v", fields)
-		}
+		document := acceptedSettings(t, service)
+		expectSetting(t, document, "tenancy.kind", "pooled", false)
+		expectSetting(t, document, "tenancy.claim", "org.id", false)
+		expectOnByDefault(t, document)
+		expectSetting(t, document, "entities[0].tenant", "owned", true)
+		expectSetting(t, document, "entities[1].tenant", "shared", false)
+		expectSetting(t, document, "entities[2].tenant", "system", false)
+		expectSetting(t, document, "entities[0].fields[0].sensitivity", "pii", false)
+		expectSetting(t, document, "entities[0].fields[1].sensitivity", "public", true)
 	})
 
 	t.Run("ST-DECL-UC05-R01-T01 A declaration that omits tenancy and audit gets pooled tenancy and audit at level change with a SHA-256 chain and an anchor", func(t *testing.T) {
-		settings := acceptedSettings(t, td02)
-		if settings.Tenancy.Kind != "pooled" || settings.Tenancy.Key != "tenant_id" || settings.Tenancy.Claim != "tenant_id" {
-			t.Errorf("want tenancy kind pooled with the key tenant_id and the claim path tenant_id, got %+v", settings.Tenancy)
-		}
-		expectOnByDefault(t, settings.Audit)
-		expectDefaults(t, settings, true, "tenancy.kind", "tenancy.key", "tenancy.claim", "audit.enabled", "audit.level")
+		document := acceptedSettings(t, td02)
+		expectSetting(t, document, "tenancy.kind", "pooled", true)
+		expectSetting(t, document, "tenancy.key", "tenant_id", true)
+		expectSetting(t, document, "tenancy.claim", "tenant_id", true)
+		expectOnByDefault(t, document)
 	})
 
 	t.Run("ST-DECL-UC05-R02-T01 Tenancy kind single with no reason is refused, naming the setting", func(t *testing.T) {
@@ -134,26 +112,30 @@ func TestDeclareTenancyWithAuditSettings(t *testing.T) {
 	})
 
 	t.Run("ST-DECL-UC05-R02-T03 A default left with a reason is accepted", func(t *testing.T) {
-		settings := acceptedSettings(t, td02+"tenancy: {kind: single, reason: Internal tool for one organisation}\naudit: {enabled: false, reason: Stateless proxy with no data of its own}\n")
-		if len(settings.DefaultsLeft) != 2 {
-			t.Errorf("want the two defaults left reported with their reasons, got %+v", settings.DefaultsLeft)
-		}
+		document := acceptedSettings(t, td02+"tenancy: {kind: single, reason: Internal tool for one organisation}\naudit: {enabled: false, reason: Stateless proxy with no data of its own}\n")
+		expectSetting(t, document, "tenancy.kind", "single", false)
+		expectSetting(t, document, "tenancy.reason", "Internal tool for one organisation", false)
+		expectSetting(t, document, "audit.enabled", false, false)
+		expectSetting(t, document, "audit.reason", "Stateless proxy with no data of its own", false)
 	})
 
 	t.Run("ST-DECL-UC05-R03-T01 A tenancy claim that is a path in the verified token is accepted", func(t *testing.T) {
-		if settings := acceptedSettings(t, tenancyClaim("org.id")); settings.Tenancy.Claim != "org.id" {
-			t.Errorf("want the claim path org.id, got %+v", settings.Tenancy)
-		}
+		expectSetting(t, acceptedSettings(t, tenancyClaim("org.id")), "tenancy.claim", "org.id", false)
 	})
 
-	for id, claim := range map[string]string{"ST-DECL-UC05-R03-T02 A tenancy claim taken from a request header": "header.X-Tenant-ID", "ST-DECL-UC05-R03-T03 A tenancy claim taken from a body field": "body.org_id"} {
-		t.Run(id+" is refused, naming the claim", func(t *testing.T) {
-			fault := refusedFault(t, tenancyClaim(claim), "tenancy.claim")
-			if fault.Found != claim || !strings.Contains(fault.Message, "request part") {
-				t.Errorf("want a fault that names the claim %s and says that it names a request part, got %+v", claim, fault)
-			}
-		})
+	requestPart := func(t *testing.T, claim string) {
+		t.Helper()
+		fault := refusedFault(t, tenancyClaim(claim), "tenancy.claim")
+		if fault.Found != claim || !strings.Contains(fault.Message, "request part") {
+			t.Errorf("want a fault that names the claim %s and says that it names a request part, got %+v", claim, fault)
+		}
 	}
+	t.Run("ST-DECL-UC05-R03-T02 A tenancy claim taken from a request header is refused, naming the claim", func(t *testing.T) {
+		requestPart(t, "header.X-Tenant-ID")
+	})
+	t.Run("ST-DECL-UC05-R03-T03 A tenancy claim taken from a body field is refused, naming the claim", func(t *testing.T) {
+		requestPart(t, "body.org_id")
+	})
 
 	t.Run("ST-DECL-UC05-R03-T04 A tenancy claim that does not follow the token claim path grammar is refused, naming the claim", func(t *testing.T) {
 		for _, claim := range []string{"org..id", "org id"} {
@@ -169,9 +151,7 @@ func TestDeclareTenancyWithAuditSettings(t *testing.T) {
 		if fault.Found != "global" || !strings.Contains(fault.Message, `"Todo"`) || strings.Join(fault.Allowed, ",") != "owned,shared,system" {
 			t.Errorf("want a fault that names Todo, global and owned, shared and system, got %+v", fault)
 		}
-		if got := entitySettings(t, acceptedSettings(t, td02), "Todo").Tenant; got != "owned" {
-			t.Errorf("Todo is reported %s, want owned", got)
-		}
+		expectSetting(t, acceptedSettings(t, td02), "entities[0].tenant", "owned", true)
 	})
 
 	t.Run("ST-DECL-UC05-R04-T02 A collection over a system entity is refused, naming the collection and the entity", func(t *testing.T) {

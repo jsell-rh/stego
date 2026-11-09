@@ -47,13 +47,11 @@ func TestTenancyAndAuditDefaults(t *testing.T) {
 		if faults := faultsOf(service); len(faults) != 0 {
 			t.Fatalf("TD02 is refused: %+v", faults)
 		}
-		settings := FilledSettings(service)
-		if settings.Tenancy.Kind != "pooled" || settings.Tenancy.Key != "tenant_id" || settings.Tenancy.Claim != "tenant_id" || !settings.Audit.Enabled || settings.Audit.Level != "change" {
-			t.Fatalf("the settings do not hold pooled tenancy with the key and claim tenant_id and audit at level change: %+v", settings)
-		}
-		for _, path := range []string{"tenancy.kind", "tenancy.key", "tenancy.claim", "audit.level"} {
-			if !slices.Contains(settings.Defaults, path) {
-				t.Errorf("the setting %s is not marked as a default: %v", path, settings.Defaults)
+		want := map[string]any{"tenancy.kind": "pooled", "tenancy.key": "tenant_id", "tenancy.claim": "tenant_id", "audit.enabled": true, "audit.level": "change"}
+		for path, value := range want {
+			i := slices.IndexFunc(ResolvedSettings(service), func(s Setting) bool { return s.Path == path })
+			if i < 0 || ResolvedSettings(service)[i].Value != value || !ResolvedSettings(service)[i].Default {
+				t.Errorf("want %s %v marked as a default, got %+v", path, value, ResolvedSettings(service))
 			}
 		}
 	})
