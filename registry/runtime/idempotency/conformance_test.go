@@ -14,12 +14,12 @@ import (
 type wrapper func(ctx context.Context, db *sql.DB, tx *sql.Tx, req Request, h Handler) (Result, error)
 
 func reference(ctx context.Context, _ *sql.DB, tx *sql.Tx, req Request, h Handler) (Result, error) {
-	return Wrap(ctx, tx, req, h)
+	return Wrap(ctx, SQLTx(tx), req, h)
 }
 
 // noReplay runs the handler again on a matching request.
 func noReplay(ctx context.Context, _ *sql.DB, tx *sql.Tx, req Request, h Handler) (Result, error) {
-	res, err := Wrap(ctx, tx, req, h)
+	res, err := Wrap(ctx, SQLTx(tx), req, h)
 	if err == nil && res.Replayed {
 		resp, err := h(ctx)
 		return Result{Response: resp, Commit: true}, err
@@ -30,7 +30,7 @@ func noReplay(ctx context.Context, _ *sql.DB, tx *sql.Tx, req Request, h Handler
 // noFingerprint does not compare fingerprints.
 func noFingerprint(ctx context.Context, _ *sql.DB, tx *sql.Tx, req Request, h Handler) (Result, error) {
 	req.Fingerprint = "one fingerprint for every body"
-	return Wrap(ctx, tx, req, h)
+	return Wrap(ctx, SQLTx(tx), req, h)
 }
 
 // noLock does not claim the key row before the handler: it looks for a stored row, runs the handler, and inserts
@@ -109,7 +109,7 @@ func orderStore(db, admin *sql.DB, wrap wrapper) Subject {
 				if err := tx.QueryRowContext(ctx, `SELECT pg_backend_pid()`).Scan(&pid); err != nil {
 					return Response{}, err
 				}
-				if _, err := admin.ExecContext(ctx, `SELECT pg_terminate_backend($1)`, pid); err != nil {
+				if _, err := admin.ExecContext(ctx, `SELECT pg_terminate_backend($1, 5000)`, pid); err != nil {
 					return Response{}, err
 				}
 			}

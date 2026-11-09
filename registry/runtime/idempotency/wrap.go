@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -43,12 +42,39 @@ var (
 	ErrKeyMalformed = errors.New("idempotency: the Idempotency-Key header is not a structured string of 1 to 255 characters")
 )
 
-// Tx is the part of the store's open write transaction that Wrap uses. *sql.Tx satisfies it. The caller opens the
-// transaction with the tenant set, and sets lock_timeout in it before it calls Wrap (ST-SUP-RP10-LC28).
+// Tx is the part of the store's open write transaction that Wrap uses. SQLTx adapts a *sql.Tx to it; a caller that
+// must run something before each statement, such as SET LOCAL lock_timeout (ST-SUP-RP10-LC28), wraps it. Rollback
+// is in the interface so that only a transaction satisfies it, never a pool or a connection. Wrap does not call
+// Rollback: the caller ends the transaction as Result.Commit says.
+//
+// The caller opens the transaction with the tenant set, at the isolation level READ COMMITTED, and sets lock_timeout
+// in it before it calls Wrap (ST-SUP-RP10-LC28). Wrap expects READ COMMITTED: its SELECT ... FOR UPDATE NOWAIT must
+// see a key row that another transaction committed after this one began.
 type Tx interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	QueryRowContext(ctx context.Context, query string, args ...any) Row
+	Rollback() error
 }
+
+// Row is the result of Tx.QueryRowContext. *sql.Row satisfies it.
+type Row interface {
+	Scan(dest ...any) error
+}
+
+// SQLTx adapts a database/sql transaction to Tx.
+func SQLTx(tx *sql.Tx) Tx { return sqlTx{tx} }
+
+type sqlTx struct{ tx *sql.Tx }
+
+func (t sqlTx) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return t.tx.ExecContext(ctx, query, args...)
+}
+
+func (t sqlTx) QueryRowContext(ctx context.Context, query string, args ...any) Row {
+	return t.tx.QueryRowContext(ctx, query, args...)
+}
+
+func (t sqlTx) Rollback() error { return t.tx.Rollback() }
 
 // Request is what Wrap knows of one inbound request: the scope of the key, the key, and the request's
 // Fingerprint.
@@ -103,7 +129,7 @@ func (e *StatementError) Error() string {
 }
 
 const (
-	lockSQL   = `SELECT pg_try_advisory_xact_lock($1)`
+	lockSQL   = `SELECT pg_try_advisory_xact_lock($1::bigint # 'idempotency_keys'::regclass::oid::bigint)`
 	insertSQL = `INSERT INTO idempotency_keys (tenant_id, principal_id, key, fingerprint, status, locked_at, expires_at)
 VALUES ($1, $2, $3, $4, 'in_progress', $5, $6)
 ON CONFLICT DO NOTHING
@@ -191,7 +217,7 @@ func existing(ctx context.Context, tx Tx, req Request) (Result, error) {
 	var (
 		fingerprint, status string
 		code                sql.NullInt64
-		header              sql.NullString
+		header              []byte
 		body                []byte
 	)
 	err := tx.QueryRowContext(ctx, selectSQL, req.Tenant, req.Principal, req.Key).
@@ -209,7 +235,7 @@ func existing(ctx context.Context, tx Tx, req Request) (Result, error) {
 	if fingerprint != req.Fingerprint {
 		return Result{Response: Response{Status: http.StatusUnprocessableEntity}, Problem: ProblemReused}, nil
 	}
-	h, err := decodeHeader(header.String)
+	h, err := decodeHeader(header)
 	if err != nil {
 		return Result{}, &StatementError{Step: "select", Err: err}
 	}
@@ -264,7 +290,8 @@ func (req Request) check() error {
 }
 
 // lockID is the advisory lock key of the request's key scope: the first 8 bytes of a SHA-256 over a fixed name and
-// the tenant, the principal and the key, each prefixed by its length.
+// the tenant, the principal and the key, each prefixed by its length. lockSQL mixes in the OID of the key table that
+// the search path resolves, so two schemas or services in one database never share a lock.
 func (req Request) lockID() int64 {
 	sum, err := sumParts([]byte("stego.dev/runtime/idempotency"), []byte(req.Tenant), []byte(req.Principal),
 		[]byte(req.Key))
@@ -325,62 +352,95 @@ func parseString(s string) (string, bool) {
 	return "", false
 }
 
-// encodeHeader writes h as a JSON object of name to values, names in sorted order.
-func encodeHeader(h http.Header) string {
+// encodeHeader writes h losslessly as bytes: the count of names, and for each name in sorted order the name and the
+// count of its values, then each value. Each count and each string has a 4-byte big-endian length prefix, so any
+// byte, obs-text and NUL included, comes back as it was.
+func encodeHeader(h http.Header) []byte {
 	names := make([]string, 0, len(h))
 	for name := range h {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	var out bytes.Buffer
-	out.WriteByte('{')
-	for i, name := range names {
-		if i > 0 {
-			out.WriteByte(',')
+	putUint32(&out, len(names))
+	for _, name := range names {
+		putString(&out, name)
+		putUint32(&out, len(h[name]))
+		for _, v := range h[name] {
+			putString(&out, v)
 		}
-		writeString(&out, name)
-		out.WriteString(":[")
-		for j, v := range h[name] {
-			if j > 0 {
-				out.WriteByte(',')
-			}
-			writeString(&out, v)
-		}
-		out.WriteByte(']')
 	}
-	out.WriteByte('}')
-	return out.String()
+	return out.Bytes()
 }
 
-// decodeHeader reads the JSON object that encodeHeader writes.
-func decodeHeader(text string) (http.Header, error) {
+func putUint32(out *bytes.Buffer, n int) {
+	var b [4]byte
+	binary.BigEndian.PutUint32(b[:], uint32(n))
+	out.Write(b[:])
+}
+
+func putString(out *bytes.Buffer, s string) {
+	putUint32(out, len(s))
+	out.WriteString(s)
+}
+
+// decodeHeader reads the bytes that encodeHeader writes. No bytes is no header.
+func decodeHeader(data []byte) (http.Header, error) {
 	h := http.Header{}
-	if text == "" {
+	if len(data) == 0 {
 		return h, nil
 	}
-	dec := json.NewDecoder(strings.NewReader(text))
-	v, err := readValue(dec)
-	if err != nil {
-		return nil, fmt.Errorf("the stored headers are not valid JSON: %w", err)
-	}
-	obj, ok := v.(object)
-	if !ok {
-		return nil, errors.New("the stored headers are not a JSON object")
-	}
-	for name, vs := range obj {
-		list, ok := vs.([]any)
-		if !ok {
-			return nil, fmt.Errorf("the stored header %s is not a list", name)
+	r := headerReader{data: data}
+	names := r.uint32()
+	for i := uint32(0); i < names && r.err == nil; i++ {
+		name := r.string()
+		count := r.uint32()
+		if r.err == nil && uint64(count)*4 > uint64(len(r.data)) {
+			r.err = errors.New("a value count is longer than the data")
 		}
-		values := make([]string, 0, len(list))
-		for _, e := range list {
-			s, ok := e.(string)
-			if !ok {
-				return nil, fmt.Errorf("a value of the stored header %s is not a string", name)
-			}
-			values = append(values, s)
+		values := make([]string, 0, count)
+		for j := uint32(0); j < count && r.err == nil; j++ {
+			values = append(values, r.string())
 		}
 		h[name] = values
 	}
+	if r.err == nil && len(r.data) != 0 {
+		r.err = errors.New("bytes are left after the last header")
+	}
+	if r.err != nil {
+		return nil, fmt.Errorf("the stored headers are not valid: %w", r.err)
+	}
 	return h, nil
+}
+
+type headerReader struct {
+	data []byte
+	err  error
+}
+
+func (r *headerReader) uint32() uint32 {
+	if r.err != nil {
+		return 0
+	}
+	if len(r.data) < 4 {
+		r.err = errors.New("the data ends inside a length")
+		return 0
+	}
+	n := binary.BigEndian.Uint32(r.data)
+	r.data = r.data[4:]
+	return n
+}
+
+func (r *headerReader) string() string {
+	n := r.uint32()
+	if r.err != nil {
+		return ""
+	}
+	if uint64(n) > uint64(len(r.data)) {
+		r.err = errors.New("the data ends inside a string")
+		return ""
+	}
+	s := string(r.data[:n])
+	r.data = r.data[n:]
+	return s
 }

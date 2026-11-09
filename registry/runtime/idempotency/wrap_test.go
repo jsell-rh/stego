@@ -33,10 +33,12 @@ func (r *recorder) ExecContext(ctx context.Context, q string, args ...any) (sql.
 	return r.tx.ExecContext(ctx, q, args...)
 }
 
-func (r *recorder) QueryRowContext(ctx context.Context, q string, args ...any) *sql.Row {
+func (r *recorder) QueryRowContext(ctx context.Context, q string, args ...any) Row {
 	r.add(q)
 	return r.tx.QueryRowContext(ctx, q, args...)
 }
+
+func (r *recorder) Rollback() error { return r.tx.Rollback() }
 
 // handlerFunc is a test handler that gets the write transaction.
 type handlerFunc func(ctx context.Context, tx Tx) (Response, error)
@@ -47,7 +49,7 @@ func runWrap(ctx context.Context, db *sql.DB, req Request, h handlerFunc) (Resul
 	if err != nil {
 		return Result{}, err
 	}
-	res, err := Wrap(ctx, tx, req, func(ctx context.Context) (Response, error) { return h(ctx, tx) })
+	res, err := Wrap(ctx, SQLTx(tx), req, func(ctx context.Context) (Response, error) { return h(ctx, SQLTx(tx)) })
 	if err != nil || !res.Commit {
 		_ = tx.Rollback()
 		return res, err
@@ -141,13 +143,14 @@ func TestWrap(t *testing.T) {
 			t.Fatalf("Wrap = %+v, %v", res, err)
 		}
 		var (
-			status, header string
-			code           int
-			body           []byte
-			expires        time.Time
-			keyXmin        string
+			status  string
+			header  []byte
+			code    int
+			body    []byte
+			expires time.Time
+			keyXmin string
 		)
-		if err := db.QueryRowContext(ctx, `SELECT status, response_code, response_headers::text, response_body,
+		if err := db.QueryRowContext(ctx, `SELECT status, response_code, response_headers, response_body,
 			expires_at, xmin::text FROM idempotency_keys WHERE key = 'k1'`).
 			Scan(&status, &code, &header, &body, &expires, &keyXmin); err != nil {
 			t.Fatal(err)
@@ -182,7 +185,7 @@ func TestWrap(t *testing.T) {
 			if err := tx.QueryRowContext(ctx, `SELECT pg_backend_pid()`).Scan(&pid); err != nil {
 				return Response{}, err
 			}
-			if _, err := admin.ExecContext(ctx, `SELECT pg_terminate_backend($1)`, pid); err != nil {
+			if _, err := admin.ExecContext(ctx, `SELECT pg_terminate_backend($1, 5000)`, pid); err != nil {
 				return Response{}, err
 			}
 			return Response{Status: 201}, nil
@@ -263,11 +266,18 @@ func TestWrap(t *testing.T) {
 	t.Run("ST-SUP-RP07-LC03-T04 A matching request replays the stored response byte for byte", func(t *testing.T) {
 		db, _ := testDB(t)
 		runs := 0
-		first, err := runWrap(ctx, db, request("k1", "f1"), created("o1", &runs))
+		// The handler adds a value with obs-text that is not valid UTF-8 and a value with a NUL byte.
+		odd := func(ctx context.Context, tx Tx) (Response, error) {
+			resp, err := created("o1", &runs)(ctx, tx)
+			resp.Header["X-Obs-Text"] = []string{"caf\xe9"}
+			resp.Header["X-Nul"] = []string{"a\x00b", ""}
+			return resp, err
+		}
+		first, err := runWrap(ctx, db, request("k1", "f1"), odd)
 		if err != nil {
 			t.Fatal(err)
 		}
-		again, err := runWrap(ctx, db, request("k1", "f1"), created("o1", &runs))
+		again, err := runWrap(ctx, db, request("k1", "f1"), odd)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -277,6 +287,64 @@ func TestWrap(t *testing.T) {
 		}
 		if got := again.Response.Header.Values(ReplayedHeader); len(got) != 1 || got[0] != "true" {
 			t.Fatalf("Idempotent-Replayed = %q, want true", got)
+		}
+		if got := again.Response.Header["X-Obs-Text"]; len(got) != 1 || got[0] != "caf\xe9" {
+			t.Fatalf("X-Obs-Text = %q, want caf\\xe9 byte for byte", got)
+		}
+		if got := again.Response.Header["X-Nul"]; len(got) != 2 || got[0] != "a\x00b" || got[1] != "" {
+			t.Fatalf("X-Nul = %q, want a NUL value and an empty value", got)
+		}
+	})
+
+	t.Run("ST-SUP-RP07-LC03-T05 A completed key row that another transaction locks gets 409", func(t *testing.T) {
+		db, _ := testDB(t)
+		runs := 0
+		if _, err := runWrap(ctx, db, request("k1", "f1"), created("o1", &runs)); err != nil {
+			t.Fatal(err)
+		}
+		holder, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = holder.Rollback() }()
+		var key string
+		if err := holder.QueryRowContext(ctx, `SELECT key FROM idempotency_keys WHERE key = 'k1' FOR UPDATE`).Scan(&key); err != nil {
+			t.Fatal(err)
+		}
+		waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		start := time.Now()
+		res, err := runWrap(waitCtx, db, request("k1", "f1"), created("o1", &runs))
+		if err != nil || res.Response.Status != 409 || res.Problem != ProblemInProgress || runs != 1 {
+			t.Fatalf("Wrap = %+v, %v, %d runs; want 409 %s and no run", res, err, runs, ProblemInProgress)
+		}
+		if took := time.Since(start); took > time.Second {
+			t.Fatalf("Wrap took %v: the SELECT waited for the lock instead of NOWAIT", took)
+		}
+	})
+
+	t.Run("ST-SUP-RP07-LC03-T06 A key in progress in another schema of the same database does not block", func(t *testing.T) {
+		dbA, _ := testDB(t)
+		dbB, _ := testDB(t)
+		entered, release := make(chan struct{}), make(chan struct{})
+		firstDone := make(chan error, 1)
+		go func() {
+			_, err := runWrap(ctx, dbA, request("k1", "f1"), func(ctx context.Context, tx Tx) (Response, error) {
+				close(entered)
+				<-release
+				return Response{Status: 201}, writeOrder(ctx, tx, "o1")
+			})
+			firstDone <- err
+		}()
+		<-entered
+		runs := 0
+		res, err := runWrap(ctx, dbB, request("k1", "f1"), created("o1", &runs))
+		close(release)
+		if err := <-firstDone; err != nil {
+			t.Fatalf("the request in schema A: %v", err)
+		}
+		if err != nil || !res.Commit || res.Response.Status != 201 || runs != 1 {
+			t.Fatalf("the request in schema B = %+v, %v, %d runs; want 201 from one run", res, err, runs)
 		}
 	})
 
@@ -343,10 +411,17 @@ func (n noStatement) ExecContext(context.Context, string, ...any) (sql.Result, e
 	return nil, errors.New("no statement expected")
 }
 
-func (n noStatement) QueryRowContext(context.Context, string, ...any) *sql.Row {
+func (n noStatement) QueryRowContext(context.Context, string, ...any) Row {
 	n.t.Error("a statement ran")
-	return &sql.Row{}
+	return errRow{errors.New("no statement expected")}
 }
+
+func (n noStatement) Rollback() error { return nil }
+
+// errRow is a Row whose Scan fails.
+type errRow struct{ err error }
+
+func (r errRow) Scan(...any) error { return r.err }
 
 // keyService is a service with one operation that requires the key, as generated code binds it: it reads the key
 // with KeyFrom, answers an error with a 400 problem, and calls Wrap otherwise.

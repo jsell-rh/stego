@@ -65,9 +65,11 @@ func sumParts(parts ...[]byte) ([sha256.Size]byte, error) {
 // Canonical returns the canonical JSON form of body (ST-SUP-RP07-LC05): object keys sorted by their bytes, no
 // insignificant whitespace, one form for each number and one escape form for each string. Numbers keep their exact
 // decimal value, so 1, 1.0 and 1e0 have the form 1, and no integer loses digits. When an object repeats a key, the
-// last value counts, as encoding/json decodes it. An empty or all-blank body gives an empty result.
+// last value counts, as encoding/json decodes it. A string with invalid UTF-8 or a lone surrogate escape collapses
+// to U+FFFD, as encoding/json decodes it, so two such strings that differ only there have one form. A body of only
+// JSON whitespace (space, tab, line feed, carriage return) or of no bytes gives an empty result.
 func Canonical(body []byte) ([]byte, error) {
-	if len(bytes.TrimSpace(body)) == 0 {
+	if len(bytes.Trim(body, " \t\r\n")) == 0 {
 		return []byte{}, nil
 	}
 	dec := json.NewDecoder(bytes.NewReader(body))
