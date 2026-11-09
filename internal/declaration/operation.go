@@ -25,7 +25,7 @@ const (
 	WorkerSlot  = "worker.worker"
 )
 
-// ValidateComposition runs the checks of a service's composition (ST-DECL-UC09): its commands, queries, workers and observations. It reads the
+// ValidateComposition runs the checks of a service's composition (ST-DECL-UC09): its commands, queries, workers, schema changes and observations. It reads the
 // declaration and the facts, and it returns every fault it finds.
 func ValidateComposition(service *types.ServiceDeclaration, facts Facts) []ValidationError {
 	var faults []ValidationError
@@ -48,6 +48,13 @@ func ValidateComposition(service *types.ServiceDeclaration, facts Facts) []Valid
 	faults = append(faults, validateWorkerLease(service.Workers)...)
 	faults = append(faults, validateWorkerCycles(service.Workers)...)
 	faults = append(faults, validateWorkerCount(service.Workers)...)
+	faults = append(faults, validateSchemaChangeKind(service.SchemaChanges)...)
+	faults = append(faults, validateSchemaChangeEntity(service)...)
+	faults = append(faults, validateSchemaSteps(service)...)
+	faults = append(faults, validateSchemaChangeOpen(service)...)
+	faults = append(faults, validateSchemaChangeMode(service)...)
+	faults = append(faults, validateSchemaChangeValues(service)...)
+	faults = append(faults, validateSchemaChangeCount(service)...)
 	faults = append(faults, validateObservationNames(service.Observations)...)
 	faults = append(faults, validateObservationKind(service.Observations)...)
 	faults = append(faults, validateObservationValue(service.Observations)...)

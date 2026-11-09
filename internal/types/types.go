@@ -282,6 +282,12 @@ type ServiceDeclaration struct {
 	Workers []Worker `yaml:"workers,omitempty"`
 	// Controllers are the controllers that the service runs in controller mode (ST-DECL-EN16).
 	Controllers []Controller `yaml:"controllers,omitempty"`
+	// Invariants are the rules across stored instances that the declaration states (ST-DECL-EN17).
+	Invariants []DeclaredInvariant `yaml:"invariants,omitempty"`
+	// SchemaChanges are the changes to the stored shape of the entities (ST-DECL-EN21), and SchemaHistory the
+	// ordered steps that move them (ST-DECL-EN22).
+	SchemaChanges []SchemaChange `yaml:"schema_changes,omitempty"`
+	SchemaHistory []SchemaStep   `yaml:"schema_history,omitempty"`
 }
 
 // UnmarshalYAML implements custom YAML unmarshaling for ServiceDeclaration.
