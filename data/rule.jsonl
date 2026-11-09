@@ -58,6 +58,13 @@
 {"id":"ST-DECL-INV54-RL","title":"declaration.validateObservationEmitters","invariant_id":"ST-DECL-INV54","file":"internal/declaration/observation.go"}
 {"id":"ST-DECL-INV55-RL","title":"declaration.validateObservationCounts","invariant_id":"ST-DECL-INV55","file":"internal/declaration/observation.go"}
 {"id":"ST-DECL-INV56-RL","title":"declaration.validateOperationRefusals","invariant_id":"ST-DECL-INV56","file":"internal/declaration/command.go"}
+{"id":"ST-DECL-INV57-RL","title":"declaration.validateSchemaChangeKind","invariant_id":"ST-DECL-INV57","file":"internal/declaration/schema_change.go"}
+{"id":"ST-DECL-INV58-RL","title":"declaration.validateSchemaChangeEntity","invariant_id":"ST-DECL-INV58","file":"internal/declaration/schema_change.go"}
+{"id":"ST-DECL-INV59-RL","title":"declaration.validateSchemaSteps","invariant_id":"ST-DECL-INV59","file":"internal/declaration/schema_change.go"}
+{"id":"ST-DECL-INV60-RL","title":"declaration.validateSchemaChangeOpen","invariant_id":"ST-DECL-INV60","file":"internal/declaration/schema_change.go"}
+{"id":"ST-DECL-INV61-RL","title":"declaration.validateSchemaChangeMode","invariant_id":"ST-DECL-INV61","file":"internal/declaration/schema_change.go"}
+{"id":"ST-DECL-INV62-RL","title":"declaration.validateSchemaChangeValues","invariant_id":"ST-DECL-INV62","file":"internal/declaration/schema_change.go"}
+{"id":"ST-DECL-INV64-RL","title":"declaration.validateSchemaChangeCount","invariant_id":"ST-DECL-INV64","file":"internal/declaration/schema_change.go"}
 {"id":"ST-DECL-INV65-RL","title":"declaration.validateWorkerNames","invariant_id":"ST-DECL-INV65","file":"internal/declaration/worker.go"}
 {"id":"ST-DECL-INV66-RL","title":"declaration.validateWorkerTrigger","invariant_id":"ST-DECL-INV66","file":"internal/declaration/worker.go"}
 {"id":"ST-DECL-INV67-RL","title":"declaration.validateWorkerWrites","invariant_id":"ST-DECL-INV67","file":"internal/declaration/worker.go"}

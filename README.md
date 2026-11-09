@@ -149,7 +149,9 @@ with `single`, and its reason is the setting `tenancy.reason` or
 observation gets `observations[i].counts` with `attempt`. A declaration that
 names no modes gets `modes` with `api`, `worker` and `controller`, and each worker
 with an `every` trigger gets `workers[i].single` with `true` and, when it is
-single, `workers[i].lease_ttl` with `15s`.
+single, `workers[i].lease_ttl` with `15s`. Each schema change with a step gets
+`schema_changes[i].phase`, the phase of its last step in `schema_history`:
+`expand` while it is open, `contract` when it is finished.
 
 Run `stego deps` after apply and after changes to application imports. It runs Go
 module resolution, module verification, and package dependency checks. It uses
