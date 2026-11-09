@@ -236,18 +236,24 @@ func runFill[P any](ctx context.Context, rt *Runtime, q *Query, b Bound[P], body
 	return nil
 }
 
-// callFill calls the fill in body and turns a panic, or a body that does not return normally, into errPanic, which
-// does not carry the panic value.
-func callFill[P any](ctx context.Context, h *Handle[P], body func(context.Context, *Handle[P]) error) (err error) {
-	normal := false
-	defer func() {
-		if r := recover(); r != nil || !normal {
-			err = errPanic
-		}
+// callFill calls the fill in body on a goroutine of its own and waits for it. It turns a panic, or a body that does
+// not return normally, such as one that calls runtime.Goexit, into errPanic, which does not carry the panic value;
+// because only the fill's goroutine ends, Run still returns (ST-SUP-RP11-LC10).
+func callFill[P any](ctx context.Context, h *Handle[P], body func(context.Context, *Handle[P]) error) error {
+	done := make(chan error, 1)
+	go func() {
+		normal := false
+		var err error
+		defer func() {
+			if r := recover(); r != nil || !normal {
+				err = errPanic
+			}
+			done <- err
+		}()
+		err = body(ctx, h)
+		normal = true
 	}()
-	err = body(ctx, h)
-	normal = true
-	return err
+	return <-done
 }
 
 // auditor writes the read audit rows of one handle: one row for each resource of an entity with a pii field that
@@ -270,8 +276,8 @@ func (a *auditor) failure() error {
 }
 
 // audited writes the read audit row of the resource id of e, whose stored row is row, when e holds a pii field and
-// the handle has not written one for that resource yet. The row has the action read, the principal as the actor
-// and, at the change level, the redacted state. A failed write is returned and makes Run give no result, also when
+// the handle has not written one for that resource yet. The row has the action read, the principal as the actor, the
+// query name as the operation and, at the change level, the redacted state. A failed write is returned and makes Run give no result, also when
 // the fill does not return the error.
 func (c *core) audited(ctx context.Context, e *entity, id string, row Row) error {
 	if !e.pii {
@@ -296,8 +302,8 @@ func (c *core) audited(ctx context.Context, e *entity, id string, row Row) error
 	if resourceType == "" {
 		resourceType = e.spec.Name
 	}
-	event := audit.Event{ActorID: subject.String(), ActorKind: kind, ResourceType: resourceType, ResourceID: id,
-		Service: a.rt.service, RequestID: c.requestID}
+	event := audit.Event{ActorID: subject.String(), ActorKind: kind, Operation: c.query.name, ResourceType: resourceType,
+		ResourceID: id, Service: a.rt.service, RequestID: c.requestID}
 	state := row.state()
 	if err := event.SetStates(a.rt.settings, e.spec.Fields, state, state); err != nil {
 		a.failed = fmt.Errorf("query: the read audit row of %s: %w", e.spec.Name, err)

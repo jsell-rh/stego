@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -198,6 +199,19 @@ func eventFrom(v any) (Event, error) {
 				return Event{}, err
 			}
 			*s.dst = st
+		}
+	}
+	// A message of hash_version 1 has neither operation nor hash_version (ST-SUP-RP05-LC07).
+	e.HashVersion = HashVersion1
+	if v, present := m["hash_version"]; present {
+		n, ok := v.(json.Number)
+		version, err := strconv.Atoi(string(n))
+		if !ok || err != nil || version != HashVersionCurrent {
+			return Event{}, errors.New("the field hash_version is not 2")
+		}
+		e.HashVersion = version
+		if e.Operation, err = text(m, "operation"); err != nil {
+			return Event{}, err
 		}
 	}
 	if e.PrevHash, err = hexField(m, "prev_hash"); err != nil {

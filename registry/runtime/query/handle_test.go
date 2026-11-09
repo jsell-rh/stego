@@ -65,6 +65,8 @@ type fakeDecision struct {
 	calls   []authz.EvaluationRequest
 	batches [][]authz.EvaluationRequest
 	decide  func(authz.EvaluationRequest) bool
+	delay   time.Duration // each evaluation waits this long
+	down    bool          // each evaluation fails, as a provider that is down
 	search  func(authz.SearchRequest) authz.SearchResult
 	asked   []authz.SearchRequest
 }
@@ -74,8 +76,12 @@ func allowAll(authz.EvaluationRequest) bool { return true }
 func (f *fakeDecision) Evaluate(_ context.Context, r authz.EvaluationRequest) (authz.EvaluationResult, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, r)
-	decide := f.decide
+	decide, delay, down := f.decide, f.delay, f.down
 	f.mu.Unlock()
+	time.Sleep(delay)
+	if down {
+		return authz.EvaluationResult{}, errors.New("the provider is down")
+	}
 	return authz.EvaluationResult{Allowed: decide(r)}, nil
 }
 
@@ -83,8 +89,12 @@ func (f *fakeDecision) EvaluateBatch(_ context.Context, b authz.BatchRequest) ([
 	f.mu.Lock()
 	f.batches = append(f.batches, append([]authz.EvaluationRequest(nil), b.Evaluations...))
 	f.calls = append(f.calls, b.Evaluations...)
-	decide := f.decide
+	decide, delay, down := f.decide, f.delay, f.down
 	f.mu.Unlock()
+	time.Sleep(delay)
+	if down {
+		return nil, errors.New("the provider is down")
+	}
 	results := make([]authz.EvaluationResult, len(b.Evaluations))
 	for i, r := range b.Evaluations {
 		results[i] = authz.EvaluationResult{Allowed: decide(r)}
@@ -222,9 +232,9 @@ func newEnv(t *testing.T) *env {
 		authzDDL, auditDDL, "CREATE SCHEMA app", "GRANT USAGE ON SCHEMA app TO " + roles[0]}
 	for _, table := range []string{
 		"reservations (tenant_id text NOT NULL, id text NOT NULL, sku text NOT NULL, PRIMARY KEY (tenant_id, id))",
-		"orders (tenant_id text NOT NULL, id text NOT NULL, total bigint NOT NULL, authz_token text NOT NULL DEFAULT '', PRIMARY KEY (tenant_id, id))",
+		"orders (tenant_id text NOT NULL, id text NOT NULL, total bigint NOT NULL, note bytea, authz_token text NOT NULL DEFAULT '', PRIMARY KEY (tenant_id, id))",
 		"charges (tenant_id text NOT NULL, id text NOT NULL, card_last4 text NOT NULL, amount bigint NOT NULL, authz_token text NOT NULL DEFAULT '', PRIMARY KEY (tenant_id, id))",
-		"tickets (tenant_id text NOT NULL, id uuid NOT NULL, PRIMARY KEY (tenant_id, id))",
+		"tickets (tenant_id text NOT NULL, id uuid NOT NULL, authz_token text NOT NULL DEFAULT '', PRIMARY KEY (tenant_id, id))",
 	} {
 		name, _, _ := strings.Cut(table, " ")
 		statements = append(statements, "CREATE TABLE app."+table,
@@ -381,6 +391,23 @@ func chargeEntityWith(t *testing.T, search bool) *Entity[Charge] {
 	return e
 }
 
+// Ticket is a protected entity with a uuid key.
+type Ticket struct{ ID string }
+
+func ticketEntity(t *testing.T) *Entity[Ticket] {
+	t.Helper()
+	e, err := NewEntity(Spec{Name: "ticket", Schema: "app", Table: "tickets", Key: "id", Columns: []string{"id"},
+		ResourceType: "ticket", ReadPermission: "view", ListPermission: "view"},
+		func(r Row) (Ticket, error) {
+			id, err := r.Text("id")
+			return Ticket{ID: id}, err
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
 func mustQuery(t *testing.T, name string, reads ...Readable) *Query {
 	t.Helper()
 	q, err := NewQuery(name, reads...)
@@ -438,6 +465,42 @@ func TestHandle(t *testing.T) {
 		}
 		if isolation != "read committed" {
 			t.Errorf("transaction_isolation is %q, want read committed", isolation)
+		}
+	})
+
+	t.Run("ST-SUP-RP11-LC01-T03 The query handle runs only at READ COMMITTED, whatever the role's default is", func(t *testing.T) {
+		e := newEnv(t)
+		if _, err := e.admin.ExecContext(context.Background(), "ALTER ROLE "+e.runtime+" SET default_transaction_isolation = 'repeatable read'"); err != nil {
+			t.Fatal(err)
+		}
+		// New pools, whose connections start with the role's new default.
+		db, auditDB := e.open(t), e.open(t)
+		var def string
+		if err := db.QueryRowContext(context.Background(), "SHOW default_transaction_isolation").Scan(&def); err != nil || def != "repeatable read" {
+			t.Fatalf("the role's default is %q, %v; want repeatable read", def, err)
+		}
+		rt, err := New(Config{DB: db, AuditDB: auditDB, Audit: e.writer, Service: "shop"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		reservations := reservationEntity(t)
+		isolation, err := Run(context.Background(), rt, mustQuery(t, "open-reservations", reservations), bound(t, "t1", "user:u-7", "open-reservations"), struct{}{},
+			func(ctx context.Context, _ struct{}, h *Handle[noProbe]) (string, error) {
+				var isolation string
+				err := h.core.tx.QueryRowContext(ctx, "SHOW transaction_isolation").Scan(&isolation)
+				return isolation, err
+			})
+		if err != nil || isolation != "read committed" {
+			t.Errorf("Run opens its transaction at %q, %v; want read committed", isolation, err)
+		}
+		tx, err := tenant.Begin(context.Background(), db, mustTenant(t, "t1"), &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelSerializable})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = tx.Rollback() })
+		if _, err := bind(context.Background(), rt, tx, mustTenant(t, "t1"), mustPrincipal(t, "user:u-7"),
+			mustQuery(t, "open-reservations", reservations), noProbe{}); err == nil {
+			t.Error("bind takes a SERIALIZABLE transaction")
 		}
 	})
 

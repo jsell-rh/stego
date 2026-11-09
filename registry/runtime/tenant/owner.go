@@ -27,7 +27,12 @@ func OpenOwner(ctx context.Context, run string, cfg Config) (*sql.DB, error) {
 	if run != MigrationJob {
 		return nil, fmt.Errorf("tenant: the owner connector opens only in the migration job, and this process runs %q", run)
 	}
-	return open(ctx, cfg)
+	db, err := open(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	remember(db)
+	return db, nil
 }
 
 // Open opens the database as the runtime role, for the api, worker and controller modes. It checks cfg with Guard,
@@ -66,17 +71,27 @@ func remember(db *sql.DB) {
 	}, key)
 }
 
-// Opened reports whether db is a pool that Open returned: the runtime role's pool, whose connections the pooler
-// guard checks each time they come back, so a connection with a tenant set is closed. The command and query
-// runtimes take only such a pool (ST-SUP-RP10-LC30, ST-SUP-RP11-LC14). A pool of OpenOwner is not one.
+// Opened reports whether db is a pool that Open or OpenOwner returned and that is not closed (ST-SUP-RP04-LC08): a
+// pool whose connections the pooler guard checks each time they come back, so a connection with a tenant set is
+// closed. It reports false for any other pool, for a copy of a pool value, whose address differs, and for a closed
+// pool. The set holds weak pointers only, so it keeps no pool alive, and a pool made later at a reused address does
+// not match. The command and query runtimes take only a pool for which it reports true (ST-SUP-RP10-LC30,
+// ST-SUP-RP11-LC14).
 func Opened(db *sql.DB) bool {
 	if db == nil {
 		return false
 	}
 	opened.mu.Lock()
-	defer opened.mu.Unlock()
 	_, ok := opened.pools[weak.Make(db)]
-	return ok
+	opened.mu.Unlock()
+	if !ok {
+		return false
+	}
+	// A ping with a context that has ended reads only the closed flag of the pool: database/sql refuses a closed
+	// pool before it looks at the context, and it opens no connection.
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+	return errors.Is(db.PingContext(ended), context.Canceled)
 }
 
 func open(ctx context.Context, cfg Config) (*sql.DB, error) {

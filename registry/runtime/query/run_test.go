@@ -19,6 +19,7 @@ import (
 
 	"stego.dev/runtime/audit"
 	"stego.dev/runtime/authz"
+	"stego.dev/runtime/probe"
 )
 
 // readCharges is a fill that reads the charges ch-1 and ch-2 and returns their amounts.
@@ -50,19 +51,22 @@ func (e *env) count(t *testing.T, statement string, args ...any) int {
 }
 
 func TestRun(t *testing.T) {
-	// The read rows of LC08-T01 without the annotation, which waits on the spec change that answers ST-SUP-Q44.
+	// The read rows of LC08-T01: one per resource, with the action read, the actor and the query name as operation.
 	readRows := func(t *testing.T, e *env, ids ...string) {
 		t.Helper()
 		for _, id := range ids {
 			var n int
-			var actorKind, before, after string
-			if err := e.admin.QueryRowContext(context.Background(), "SELECT count(*), min(actor_kind), min(before->>'card_last4'), min(after->>'card_last4') FROM "+
-				audit.EventsTable+" WHERE action = 'read' AND outcome = 'ok' AND actor_id = 'user:u-7' AND resource_type = 'charge' AND resource_id = $1 AND tenant_id = 't1'",
-				id).Scan(&n, &actorKind, &before, &after); err != nil {
+			var actorKind, before, after, operation string
+			if err := e.admin.QueryRowContext(context.Background(), "SELECT count(*), min(actor_kind), min(before->>'card_last4'), min(after->>'card_last4'), min(operation) FROM "+
+				audit.EventsTable+" WHERE action = 'read' AND outcome = 'ok' AND actor_id = 'user:u-7' AND resource_type = 'charge' AND resource_id = $1 AND tenant_id = 't1' AND hash_version = 2",
+				id).Scan(&n, &actorKind, &before, &after, &operation); err != nil {
 				t.Fatal(err)
 			}
 			if n != 1 || actorKind != "user" {
 				t.Errorf("%s has %d read rows with the actor kind %q, want 1 row of the user user:u-7", id, n, actorKind)
+			}
+			if operation != "open-reservations" {
+				t.Errorf("the read row of %s has the operation %q, want the query name open-reservations", id, operation)
 			}
 			if before != audit.RedactionMarker || after != audit.RedactionMarker {
 				t.Errorf("the read row of %s holds card_last4 %q and %q, want it redacted", id, before, after)
@@ -215,47 +219,53 @@ func TestRun(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RP11-LC09-T01 A kept query handle reads nothing after a fill that leaves through Goexit", func(t *testing.T) {
+	t.Run("ST-SUP-RP11-LC10-T02 A fill that leaves through Goexit returns no result and leaves nothing open", func(t *testing.T) {
 		e := newEnv(t)
 		e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) VALUES ('t1', 'o-1', 5)")
 		port := &fakeDecision{decide: allowAll}
 		rt := e.runtimeOf(t, port)
 		orders := orderEntity(t, false)
 		q := mustQuery(t, "order-detail", orders)
+		obs, err := probe.Declare(probe.Spec{Name: "order_seen", Kind: probe.Event, Severity: probe.Info, EmittedBy: []string{"order-detail"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rec := probe.NewRecorder(nil)
+		b := Bound[openReservationsProbe]{Tenant: mustTenant(t, "t1"), Principal: mustPrincipal(t, "user:u-7"),
+			Call:  rec.Bind(context.Background(), "t1", "user:u-7", "order-detail"),
+			Probe: func(p *probe.Probe) openReservationsProbe { return openReservationsProbe{p: p, obs: obs} }}
 		var keptRepo *Repository[Order]
-		done := make(chan struct{})
-		returned := false
-		go func() {
-			defer close(done)
-			_, _ = Run(context.Background(), rt, q, bound(t, "t1", "user:u-7", "order-detail"), struct{}{},
-				func(ctx context.Context, _ struct{}, h *Handle[noProbe]) (struct{}, error) {
-					repo, err := Repo(h, orders)
-					if err != nil {
-						return struct{}{}, err
-					}
-					keptRepo = repo
-					if _, err := repo.Get(ctx, "o-1"); err != nil {
-						return struct{}{}, err
-					}
-					runtime.Goexit()
-					return struct{}{}, nil
-				})
-			returned = true
-		}()
-		<-done
-		if returned {
-			t.Fatal("Run returned after runtime.Goexit; the goroutine should end")
+		var keptProbe openReservationsProbe
+		got, err := Run(context.Background(), rt, q, b, struct{}{},
+			func(ctx context.Context, _ struct{}, h *Handle[openReservationsProbe]) (*Loaded[Order], error) {
+				repo, err := Repo(h, orders)
+				if err != nil {
+					return nil, err
+				}
+				keptRepo, keptProbe = repo, h.Probe()
+				order, err := repo.Get(ctx, "o-1")
+				if err != nil {
+					return nil, err
+				}
+				runtime.Goexit()
+				return order, nil
+			})
+		if !errors.Is(err, errPanic) || got != nil {
+			t.Fatalf("Run gives %v, %v; want errPanic and no result", got, err)
 		}
 		if keptRepo == nil {
 			t.Fatal("the fill did not run")
 		}
 		if _, err := keptRepo.Get(context.Background(), "o-1"); !errors.Is(err, ErrClosed) {
-			t.Errorf("Get through the handle of a fill that left through Goexit gives %v, want ErrClosed", err)
+			t.Errorf("the kept repository gives %v, want ErrClosed", err)
+		}
+		keptProbe.ReservationLookupEmpty()
+		if n := len(rec.All()); n != 0 || rec.Dropped() != 1 {
+			t.Errorf("the kept probe recorded %d emissions and dropped %d, want none recorded and 1 dropped", n, rec.Dropped())
 		}
 		if got := len(port.recorded()); got != 1 {
 			t.Errorf("the decision port has %d calls, want the 1 of the fill", got)
 		}
-		// The deferred end rolled the transaction back: no connection of the runtime role stays in it.
 		if n := e.count(t, "SELECT count(*) FROM pg_stat_activity WHERE usename = $1 AND state LIKE 'idle in transaction%'", e.runtime); n != 0 {
 			t.Errorf("%d connections of the runtime role are idle in a transaction, want none", n)
 		}

@@ -74,7 +74,8 @@ type ListRequest struct {
 }
 
 // ListResult is one page of a list: the allowed values in the order of their key, and when More is true the cursor
-// of the next page.
+// of the next page. More can be true on a page with fewer values than its limit, or none, when the call read its
+// ScanLimit rows: the fill goes on with Next.
 type ListResult[T any] struct {
 	Items []*Loaded[T]
 	Next  Cursor
@@ -83,6 +84,13 @@ type ListResult[T any] struct {
 
 // MaxLimit is the most values that one list page returns.
 const MaxLimit = 1000
+
+// ScanLimit is the most rows of the table that one list call reads, and MinChunk the fewest rows of one read
+// (ST-SUP-RP11-LC07).
+const (
+	ScanLimit = 1000
+	MinChunk  = 100
+)
 
 // List reads one page of the entity's rows in the tenant (ST-SUP-RP11-LC03, ST-SUP-RP11-LC07). For a protected
 // entity it holds only the rows that the principal may see on the query's declared permission for a list query,
@@ -137,15 +145,20 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor) 
 		" LIMIT $2"
 	next := "SELECT " + e.selectList + " FROM " + e.table + " WHERE " + TenantColumn + " = $1 AND " + e.spec.Key +
 		" > $2 ORDER BY " + e.spec.Key + " LIMIT $3"
+	// One call reads at most ScanLimit rows, in chunks of at least MinChunk, so a principal who may see few rows
+	// never makes one call read the whole table (ST-SUP-RP11-LC07).
+	chunk := max(limit, MinChunk)
 	var result ListResult[T]
 	key, started := after.after, after.started
+	scanned := 0
 	for {
+		size := min(chunk, ScanLimit-scanned)
 		var rows *sql.Rows
 		var err error
 		if started {
-			rows, err = c.tx.QueryContext(ctx, next, c.tenant.ID(), key, limit)
+			rows, err = c.tx.QueryContext(ctx, next, c.tenant.ID(), key, size)
 		} else {
-			rows, err = c.tx.QueryContext(ctx, first, c.tenant.ID(), limit)
+			rows, err = c.tx.QueryContext(ctx, first, c.tenant.ID(), size)
 		}
 		if err != nil {
 			return ListResult[T]{}, fmt.Errorf("query: list %s: %w", e.spec.Name, err)
@@ -157,6 +170,7 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor) 
 		if len(page) == 0 {
 			return result, nil
 		}
+		scanned += len(page)
 		ids := make([]string, len(page))
 		for i, row := range page {
 			if ids[i], err = row.Text(e.spec.Key); err != nil {
@@ -195,7 +209,12 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor) 
 				return result, nil
 			}
 		}
-		if len(page) < limit {
+		if len(page) < size {
+			return result, nil
+		}
+		if scanned >= ScanLimit {
+			// The scan budget of the call is spent: the next call goes on after the last key read.
+			result.Next, result.More = Cursor{after: key, started: true}, true
 			return result, nil
 		}
 	}

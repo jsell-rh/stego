@@ -52,7 +52,11 @@ func (s *Stream[T, P]) Send(ctx context.Context, value *Loaded[T]) error {
 		s.dropped.Add(1)
 		return nil
 	}
-	return s.send(value.value)
+	message, err := value.stored()
+	if err != nil {
+		return err
+	}
+	return s.send(message)
 }
 
 // StreamFill is the fill of a stream query: it gets the decoded request and the stream query handle, and sends its

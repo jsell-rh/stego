@@ -218,9 +218,10 @@ const (
  RETURNING h.seq, h.head, greatest(date_trunc('microseconds', clock_timestamp()), h.last_recorded_at)`
 	insertEvent = `INSERT INTO ` + EventsTable + ` (tenant_id, seq, id, occurred_at, recorded_at, actor_id, actor_kind,
  actor_ip, user_agent, action, resource_type, resource_id, outcome, error_code, request_id, trace_id, span_id,
- idempotency_key, before, after, patch, service, service_version, declaration_version, prev_hash, hash)
+ idempotency_key, before, after, patch, service, service_version, declaration_version, prev_hash, hash, operation,
+ hash_version)
  VALUES ($1, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb,
- $20::jsonb, $21::jsonb, $22, $23, $24, $25, $26)`
+ $20::jsonb, $21::jsonb, $22, $23, $24, $25, $26, $27, $28)`
 	moveHead = `UPDATE ` + HeadsTable + ` SET seq = $2, head = $3, last_recorded_at = $4 WHERE tenant_id = $1`
 )
 
@@ -269,7 +270,7 @@ func (w *Writer) write(ctx context.Context, tx Tx, t tenant.Tenant, events []Eve
 			e.ActorID, string(e.ActorKind), string(e.ActorIP), string(e.UserAgent), e.Action, e.ResourceType,
 			e.ResourceID, string(e.Outcome), e.ErrorCode, e.RequestID, e.TraceID, e.SpanID, e.IdempotencyKey,
 			jsonArg(e.Before.raw), jsonArg(e.After.raw), jsonArg(e.Patch.raw), e.Service, e.ServiceVersion,
-			e.DeclarationVersion, e.PrevHash, e.Hash); err != nil {
+			e.DeclarationVersion, e.PrevHash, e.Hash, e.Operation, e.HashVersion); err != nil {
 			return nil, stmtError(ctx, "audit row insert", err)
 		}
 		prev = e.Hash

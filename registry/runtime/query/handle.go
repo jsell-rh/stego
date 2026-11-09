@@ -23,6 +23,10 @@ var ErrClosed = errors.New("query: the handle is used after its fill returned")
 // read: a deny is not found, with no data from the row (ST-SUP-RP11-LC06).
 var ErrNotFound = errors.New("query: not found")
 
+// ErrUndecided is the error of a read whose permission the provider could not decide. It is the same whether or not
+// the row exists, and it holds no cause, so it tells nothing about the row (ST-SUP-RP11-LC06).
+var ErrUndecided = errors.New("query: the read could not be decided")
+
 // ErrNotRead is the error of Repo for an entity that the query does not declare it reads (ST-SUP-RP11-LC02).
 var ErrNotRead = errors.New("query: the query does not read this entity")
 
@@ -75,6 +79,10 @@ type Row struct {
 func (r Row) Value(column string) (any, bool) {
 	for i, name := range r.columns {
 		if name == column {
+			// A byte slice is copied, so a value that a load function builds never shares the stored bytes.
+			if b, ok := r.values[i].([]byte); ok {
+				return append([]byte(nil), b...), true
+			}
 			return r.values[i], true
 		}
 	}
@@ -238,7 +246,8 @@ func (e *Entity[T]) Name() string { return e.e.spec.Name }
 // copy of a loaded value carry no handle, and every operation that takes a loaded value refuses them.
 type Loaded[T any] struct {
 	self   *Loaded[T]
-	value  T
+	fields Row
+	load   func(Row) (T, error)
 	origin *core
 	entity *entity
 	id     string
@@ -246,19 +255,26 @@ type Loaded[T any] struct {
 }
 
 // newLoaded is the one constructor of a loaded value, for the reads of the handle.
-func newLoaded[T any](origin *core, e *entity, id string, token authz.Token, value T) *Loaded[T] {
-	l := &Loaded[T]{value: value, origin: origin, entity: e, id: id, token: token}
+func newLoaded[T any](origin *core, e *entity, id string, token authz.Token, row Row, load func(Row) (T, error)) *Loaded[T] {
+	l := &Loaded[T]{fields: row, load: load, origin: origin, entity: e, id: id, token: token}
 	l.self = l
 	return l
 }
 
-// Value returns a copy of the stored field values.
+// Value returns a deep copy of the stored field values (ST-SUP-RP11-LC12): each call builds a new value from the
+// stored row with the generated load function, whose byte slices Row copies, so a change to a slice or a map that
+// the fill got never changes what the handle later sends or decides on. The load function succeeded on this row
+// when the handle read it, and it is a function of the row alone.
 func (l *Loaded[T]) Value() T {
-	if l == nil {
-		var zero T
+	var zero T
+	if l == nil || l.load == nil {
 		return zero
 	}
-	return l.value
+	value, err := l.load(l.fields)
+	if err != nil {
+		return zero
+	}
+	return value
 }
 
 // ID returns the entity's ID.
@@ -267,6 +283,11 @@ func (l *Loaded[T]) ID() string {
 		return ""
 	}
 	return l.id
+}
+
+// stored returns a deep copy of the stored field values, as Value does, for a value that this handle loaded.
+func (l *Loaded[T]) stored() (T, error) {
+	return l.load(l.fields)
 }
 
 // row returns what the authorization part needs of the value: the handle that loaded it, its entity, its ID and
@@ -454,11 +475,10 @@ func (r *Repository[T]) load(row Row, token authz.Token) (*Loaded[T], error) {
 	if err != nil {
 		return nil, err
 	}
-	value, err := r.entity.load(row)
-	if err != nil {
+	if _, err := r.entity.load(row); err != nil {
 		return nil, fmt.Errorf("query: load a row of %s: %w", r.entity.e.spec.Name, err)
 	}
-	return newLoaded(r.core, &r.entity.e, id, token, value), nil
+	return newLoaded(r.core, &r.entity.e, id, token, row, r.entity.load), nil
 }
 
 // Get reads the entity whose ID is id (ST-SUP-RP11-LC03, ST-SUP-RP11-LC06). It reads the row in the bound
@@ -478,30 +498,24 @@ func (r *Repository[T]) Get(ctx context.Context, id string) (*Loaded[T], error) 
 	if err != nil {
 		return nil, fmt.Errorf("query: read %s: %w", e.spec.Name, err)
 	}
-	defer rows.Close()
-	if !rows.Next() {
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("query: read %s: %w", e.spec.Name, err)
+	found, row, token, err := readOne(rows, e)
+	if err != nil {
+		return nil, err
+	}
+	// A missing row is decided too, on the key the fill gave and a zero row token, so a missing row and a denied
+	// row cost the same calls; a row is decided on its stored key, not on the fill's form of it. A failure of the
+	// provider gives ErrUndecided either way (ST-SUP-RP11-LC06).
+	key := id
+	if found {
+		if key, err = row.Text(e.spec.Key); err != nil {
+			return nil, err
 		}
-		return nil, ErrNotFound
 	}
-	row, token, err := scanRow(rows, e)
+	allowed, err := c.allowRead(ctx, e, key, token)
 	if err != nil {
-		return nil, err
+		return nil, ErrUndecided
 	}
-	if err := rows.Close(); err != nil {
-		return nil, fmt.Errorf("query: read %s: %w", e.spec.Name, err)
-	}
-	// The decision is on the stored key of the row, not on the text the fill gave.
-	stored, err := row.Text(e.spec.Key)
-	if err != nil {
-		return nil, err
-	}
-	allowed, err := c.allowRead(ctx, e, stored, token)
-	if err != nil {
-		return nil, err
-	}
-	if !allowed {
+	if !found || !allowed {
 		return nil, ErrNotFound
 	}
 	loaded, err := r.load(row, token)
@@ -512,6 +526,25 @@ func (r *Repository[T]) Get(ctx context.Context, id string) (*Loaded[T], error) 
 		return nil, err
 	}
 	return loaded, nil
+}
+
+// readOne reads the one row of rows, if there is one, and closes rows.
+func readOne(rows *sql.Rows, e *entity) (bool, Row, authz.Token, error) {
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return false, Row{}, authz.Token{}, fmt.Errorf("query: read %s: %w", e.spec.Name, err)
+		}
+		return false, Row{}, authz.Token{}, nil
+	}
+	row, token, err := scanRow(rows, e)
+	if err != nil {
+		return false, Row{}, authz.Token{}, err
+	}
+	if err := rows.Close(); err != nil {
+		return false, Row{}, authz.Token{}, fmt.Errorf("query: read %s: %w", e.spec.Name, err)
+	}
+	return true, row, token, nil
 }
 
 // readRows reads and closes rows.

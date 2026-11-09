@@ -74,4 +74,46 @@ func TestLoaded(t *testing.T) {
 			t.Errorf("%d messages sent, want only the 1 of the loaded value", sent)
 		}
 	})
+
+	t.Run("ST-SUP-RP11-LC12-T02 A change to the value a fill got does not change what the handle sends", func(t *testing.T) {
+		e := newEnv(t)
+		e.insert(t, "INSERT INTO app.orders (tenant_id, id, total, note) VALUES ('t1', 'o-1', 5, 'abc')")
+		rt := e.runtimeOf(t, &fakeDecision{decide: allowAll})
+		type Noted struct {
+			ID   string
+			Note []byte
+		}
+		noted, err := NewEntity(Spec{Name: "order", Schema: "app", Table: "orders", Key: "id", Columns: []string{"id", "note"},
+			ResourceType: "order", ReadPermission: "view", ListPermission: "view"},
+			func(r Row) (Noted, error) {
+				id, err := r.Text("id")
+				note, _ := r.Value("note")
+				b, _ := note.([]byte)
+				return Noted{ID: id, Note: b}, err
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var sent []string
+		_, err = RunStream(context.Background(), rt, mustQuery(t, "watch-orders", noted), bound(t, "t1", "user:u-7", "watch-orders"), struct{}{}, noted,
+			func(n Noted) error { sent = append(sent, string(n.Note)); return nil },
+			func(ctx context.Context, _ struct{}, s *Stream[Noted, noProbe]) error {
+				repo, err := Repo(s.Handle(), noted)
+				if err != nil {
+					return err
+				}
+				order, err := repo.Get(ctx, "o-1")
+				if err != nil {
+					return err
+				}
+				order.Value().Note[0] = 'X'
+				return s.Send(ctx, order)
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(sent) != 1 || sent[0] != "abc" {
+			t.Errorf("the stream sent %q, want the stored note abc", sent)
+		}
+	})
 }

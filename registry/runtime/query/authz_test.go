@@ -172,7 +172,7 @@ func TestAuthz(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		order := newLoaded(h.core, &orders.e, "o-1", mustToken(t, "t5"), Order{ID: "o-1"})
+		order := newLoaded(h.core, &orders.e, "o-1", mustToken(t, "t5"), Row{columns: []string{"id", "total"}, values: []any{"o-1", int64(0)}}, orders.load)
 		allowed, err := h.Authz().Evaluate(context.Background(), "view", order)
 		if err != nil || !allowed {
 			t.Fatalf("Evaluate gives %v, %v; want an allow", allowed, err)
@@ -284,6 +284,119 @@ func TestAuthz(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RP11-LC06-T02 A missing row and a denied row cost the same calls and give the same error", func(t *testing.T) {
+		e := newEnv(t)
+		const allowed = "0000000a-0000-7000-8000-000000000001"
+		const denied = "0000000a-0000-7000-8000-000000000002"
+		const missing = "0000000a-0000-7000-8000-000000000003"
+		e.insert(t, "INSERT INTO app.tickets (tenant_id, id) VALUES ('t1', $1), ('t1', $2)", allowed, denied)
+		port := &fakeDecision{delay: 30 * time.Millisecond, decide: func(r authz.EvaluationRequest) bool { return r.Resource.ID == allowed }}
+		rt := e.runtimeOf(t, port)
+		tickets := ticketEntity(t)
+		q := mustQuery(t, "ticket-detail", tickets)
+		// get reads each ID through Get in one query and gives the error and the decision port calls of each read.
+		get := func(ids ...string) ([]error, []int, []*Loaded[Ticket]) {
+			errs, calls, values := make([]error, len(ids)), make([]int, len(ids)), make([]*Loaded[Ticket], len(ids))
+			_, err := Run(context.Background(), rt, q, bound(t, "t1", "user:u-7", "ticket-detail"), struct{}{},
+				func(ctx context.Context, _ struct{}, h *Handle[noProbe]) (struct{}, error) {
+					repo, err := Repo(h, tickets)
+					if err != nil {
+						return struct{}{}, err
+					}
+					for i, id := range ids {
+						before := len(port.recorded())
+						values[i], errs[i] = repo.Get(ctx, id)
+						calls[i] = len(port.recorded()) - before
+					}
+					return struct{}{}, nil
+				})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return errs, calls, values
+		}
+		errs, calls, _ := get(denied, missing)
+		for i, name := range []string{"denied", "missing"} {
+			if !errors.Is(errs[i], ErrNotFound) || calls[i] != 1 {
+				t.Errorf("the %s row gives %v after %d provider calls, want ErrNotFound after 1", name, errs[i], calls[i])
+			}
+		}
+		// A read by the upper-case form of a UUID is decided on the stored lower-case key.
+		before := len(port.recorded())
+		errs, _, values := get(strings.ToUpper(allowed))
+		if errs[0] != nil || values[0].Value().ID != allowed {
+			t.Errorf("the read by the upper-case UUID gives %v, %v; want the row %s", values[0].Value(), errs[0], allowed)
+		}
+		if calls := port.recorded()[before:]; len(calls) != 1 || calls[0].Resource.ID != allowed {
+			t.Errorf("the decision is on %v, want one call on the stored key %s", calls, allowed)
+		}
+		port.mu.Lock()
+		port.down = true
+		port.mu.Unlock()
+		errs, _, _ = get(denied, missing)
+		if !errors.Is(errs[0], ErrUndecided) || errs[0] == nil || errs[1] == nil || errs[0].Error() != errs[1].Error() {
+			t.Errorf("with the provider down the denied and the missing row give %v and %v, want the same ErrUndecided", errs[0], errs[1])
+		}
+	})
+
+	t.Run("ST-SUP-RP11-LC07-T02 One list call reads at most 1,000 rows and goes on with a cursor", func(t *testing.T) {
+		e := newEnv(t)
+		e.insert(t, "INSERT INTO app.tickets (tenant_id, id) SELECT 't1', lpad(to_hex(n), 32, '0')::uuid FROM generate_series(1, 3000) AS n")
+		const last = "00000000-0000-0000-0000-000000000bb8"
+		port := &fakeDecision{decide: func(r authz.EvaluationRequest) bool { return r.Resource.ID == last }}
+		rt := e.runtimeOf(t, port)
+		tickets := ticketEntity(t)
+		type call struct {
+			read, items int
+			more        bool
+		}
+		calls, err := Run(context.Background(), rt, mustQuery(t, "tickets", tickets), bound(t, "t1", "user:u-7", "tickets"), struct{}{},
+			func(ctx context.Context, _ struct{}, h *Handle[noProbe]) ([]call, error) {
+				repo, err := Repo(h, tickets)
+				if err != nil {
+					return nil, err
+				}
+				var calls []call
+				var after Cursor
+				for len(calls) < 10 {
+					before := len(port.recorded())
+					page, err := repo.List(ctx, ListRequest{Limit: 1, After: after})
+					if err != nil {
+						return nil, err
+					}
+					c := call{read: len(port.recorded()) - before, items: len(page.Items), more: page.More}
+					for _, item := range page.Items {
+						if item.ID() != last {
+							return nil, errors.New("the list holds a row that is not allowed")
+						}
+					}
+					calls = append(calls, c)
+					if !page.More {
+						return calls, nil
+					}
+					after = page.Next
+				}
+				return nil, errors.New("the list does not end")
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+		items, read := 0, 0
+		for i, c := range calls {
+			items += c.items
+			read += c.read
+			if c.read > ScanLimit {
+				t.Errorf("call %d decided %d rows, want at most %d", i, c.read, ScanLimit)
+			}
+			if i < len(calls)-1 && !c.more {
+				t.Errorf("call %d ends the list while rows remain", i)
+			}
+		}
+		if items != 1 || read != 3000 || len(calls) < 3 {
+			t.Errorf("the calls %+v give %d items after %d rows, want the allowed row once after 3,000 rows", calls, items, read)
+		}
+	})
+
 	t.Run("ST-SUP-RP11-LC07-T01 A query list holds only the allowed rows, at one token", func(t *testing.T) {
 		e := newEnv(t)
 		for i := 1; i <= 5; i++ {
@@ -304,8 +417,8 @@ func TestAuthz(t *testing.T) {
 		port.mu.Lock()
 		batches := port.batches
 		port.mu.Unlock()
-		if len(batches) < 5 {
-			t.Fatalf("%d batch evaluations, want one per page of one row, at least 5", len(batches))
+		if len(batches) < 3 {
+			t.Fatalf("%d batch evaluations, want one per call of the three calls, at least 3", len(batches))
 		}
 		for i, batch := range batches {
 			for _, r := range batch {
