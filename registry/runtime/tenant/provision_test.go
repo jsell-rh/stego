@@ -184,7 +184,7 @@ func TestTenantProvisioning(t *testing.T) {
 		for _, bad := range []string{"", strings.Repeat("x", 256), "t\nnewline"} {
 			// New refuses the ID by the same rule as the CHECK, so Provision cannot get it; the CHECK refuses it
 			// for any other writer of the table.
-			if tenant, err := New(Requested(bad, decided{allowed: true})); err == nil {
+			if tenant, err := New(Requested(bad, allowedFor(bad))); err == nil {
 				t.Errorf("New accepted the tenant ID %q", bad)
 				_ = Provision(ctx, env.runtimeDB, "public", tenant, []Hook{hook})
 			}
