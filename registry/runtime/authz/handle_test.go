@@ -18,6 +18,8 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+
 	"stego.dev/runtime/internal/pgtest"
 	"stego.dev/runtime/internal/seal"
 	"stego.dev/runtime/outbox"
@@ -112,7 +114,7 @@ func fakeDB(t *testing.T) *sql.DB { return floorDB(t, &floorSeq{}) }
 
 func mustTenant(t *testing.T, id string) tenant.Tenant {
 	t.Helper()
-	tn, err := tenant.New(tenant.Requested(id, tenantDecision{DecisionMark: seal.NewDecisionMark(id)}))
+	tn, err := tenant.New(tenant.Requested(tenant.ProvisionAction, id, tenantDecision{DecisionMark: seal.NewDecisionMark(id, "provision")}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,8 +159,8 @@ type fakeRelationships struct {
 	fail    func(n int) error
 	// failDelete, when set, is the error of every Delete.
 	failDelete error
-	// before, when set, runs before the n-th write is answered, outside the lock.
-	before func(n int)
+	// before, when set, runs before the n-th write, of the resource ID resource, is answered, outside the lock.
+	before func(n int, resource string)
 	events []string
 	onHead func()
 	calls  int
@@ -166,8 +168,8 @@ type fakeRelationships struct {
 	starts int
 }
 
-// begin counts one write and runs before for it.
-func (f *fakeRelationships) begin() {
+// begin counts one write of the resource ID resource and runs before for it.
+func (f *fakeRelationships) begin(resource string) {
 	f.mu.Lock()
 	f.starts++
 	n := f.starts
@@ -175,7 +177,7 @@ func (f *fakeRelationships) begin() {
 	before := f.before
 	f.mu.Unlock()
 	if before != nil {
-		before(n)
+		before(n, resource)
 	}
 }
 
@@ -221,7 +223,7 @@ func (f *fakeRelationships) answer() (Token, error) {
 }
 
 func (f *fakeRelationships) Touch(_ context.Context, tuples []Tuple, _ []Precondition) (Token, error) {
-	f.begin()
+	f.begin(tuples[0].Resource.ID)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.touches = append(f.touches, tuples)
@@ -229,7 +231,7 @@ func (f *fakeRelationships) Touch(_ context.Context, tuples []Tuple, _ []Precond
 }
 
 func (f *fakeRelationships) Delete(_ context.Context, filters []Filter, _ []Precondition) (Token, error) {
-	f.begin()
+	f.begin(filters[0].ResourceID)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.deletes = append(f.deletes, filters)
@@ -381,11 +383,8 @@ func newPGClock(t *testing.T, clock *testClock) *pgEnv {
 
 func (e *pgEnv) runtimeOf(t *testing.T, provider Decision, clock Clock) *Runtime {
 	t.Helper()
-	floor, err := NewTableFloor(e.runtime, e.schema)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rt, err := New(Config{Provider: provider, Floor: floor, DB: e.runtime, Schema: e.schema, Outbox: e.queue,
+	// No Floor: the runtime builds the TableFloor of DB and Schema for Port.
+	rt, err := New(Config{Provider: provider, DB: e.runtime, Schema: e.schema, Outbox: e.queue,
 		Poll: 10 * time.Millisecond, Clock: clock})
 	if err != nil {
 		t.Fatal(err)
@@ -837,17 +836,20 @@ func TestHandleEvaluation(t *testing.T) {
 		fake := &recorder{allow: func(r EvaluationRequest) bool { return r.Subject.ID == "u-1" }}
 		rt := newUnitRuntime(t, fake)
 		platform := Resource{Type: "platform", ID: "main"}
-		decision, ok, err := bindUnit(t, rt, nil, mustPerson(t, "u-1")).DecideTenant(ctx, Provision, "ta", platform, nil)
+		decision, ok, err := bindUnit(t, rt, nil, mustPerson(t, "u-1")).DecideTenant(ctx, tenant.ProvisionAction, "ta", platform, nil)
 		if err != nil || !ok || decision == nil {
 			t.Fatalf("the allow gave %v, %t, %v", decision, ok, err)
 		}
-		if made, err := tenant.New(tenant.Requested("ta", decision)); err != nil || made.ID() != "ta" {
+		if made, err := tenant.New(tenant.Requested(tenant.ProvisionAction, "ta", decision)); err != nil || made.ID() != "ta" {
 			t.Fatalf("tenant.Requested of ta with the allow gave %v, %v", made, err)
 		}
-		if _, err := tenant.New(tenant.Requested("tb", decision)); err == nil {
+		if _, err := tenant.New(tenant.Requested(tenant.ProvisionAction, "tb", decision)); err == nil {
 			t.Fatal("the allow for ta serves tb")
 		}
-		denied, ok, err := bindUnit(t, rt, nil, mustPerson(t, "u-2")).DecideTenant(ctx, Provision, "ta", platform, nil)
+		if _, err := tenant.New(tenant.Requested(tenant.RetireAction, "ta", decision)); err == nil {
+			t.Fatal("the allow to provision ta serves a retire of ta")
+		}
+		denied, ok, err := bindUnit(t, rt, nil, mustPerson(t, "u-2")).DecideTenant(ctx, tenant.ProvisionAction, "ta", platform, nil)
 		if err != nil || ok || denied != nil {
 			t.Fatalf("the deny gave %v, %t, %v; want no decision", denied, ok, err)
 		}
@@ -855,14 +857,48 @@ func TestHandleEvaluation(t *testing.T) {
 		// module cannot declare the seal's unexported method either, so these are the types such a package can
 		// build: none gives a tenant other than the one its genuine mark holds.
 		for name, source := range map[string]tenant.Source{
-			"the genuine allow embedded, for tb": tenant.Requested("tb", allowedForged{decision}),
-			"a nil embedded Decision":            tenant.Requested("ta", allowedForged{}),
-			"the zero value":                     tenant.Requested("ta", tenantDecision{}),
-			"no decision":                        tenant.Requested("ta", nil),
+			"the genuine allow embedded, for tb":    tenant.Requested(tenant.ProvisionAction, "tb", allowedForged{decision}),
+			"the genuine allow embedded, to retire": tenant.Requested(tenant.RetireAction, "ta", allowedForged{decision}),
+			"a nil embedded Decision":               tenant.Requested(tenant.ProvisionAction, "ta", allowedForged{}),
+			"the zero value":                        tenant.Requested(tenant.ProvisionAction, "ta", tenantDecision{}),
+			"no decision":                           tenant.Requested(tenant.ProvisionAction, "ta", nil),
 		} {
 			if made, err := tenant.New(source); err == nil {
 				t.Errorf("%s gave the tenant %s", name, made.ID())
 			}
+		}
+	})
+
+	t.Run("ST-SUP-RP06-LC17-T02 DecideTenant decides the permission of the action it is given and binds the mark to it", func(t *testing.T) {
+		fake := &recorder{allow: func(r EvaluationRequest) bool { return r.Action.Name == "provision" }}
+		handle := bindUnit(t, newUnitRuntime(t, fake), nil, mustPerson(t, "u-1"))
+		platform := Resource{Type: "platform", ID: "main"}
+		provision, ok, err := handle.DecideTenant(ctx, tenant.ProvisionAction, "ta", platform, nil)
+		if err != nil || !ok {
+			t.Fatalf("the provision gave %v, %t, %v", provision, ok, err)
+		}
+		retire, ok, err := handle.DecideTenant(ctx, tenant.RetireAction, "ta", platform, nil)
+		if err != nil || ok || retire != nil {
+			t.Fatalf("the retire gave %v, %t, %v; want no value", retire, ok, err)
+		}
+		if len(fake.evaluations) != 2 || fake.evaluations[0].Action.Name != "provision" || fake.evaluations[1].Action.Name != "retire" {
+			t.Fatalf("the port got %+v, want the provision permission and then the retire permission", fake.evaluations)
+		}
+		tenantID, action, ok := seal.DecisionOf(provision)
+		if !ok || tenantID != "ta" || action != "provision" {
+			t.Fatalf("the mark holds %q, %q, %t; want ta and provision", tenantID, action, ok)
+		}
+		if _, _, err := handle.DecideTenant(ctx, "delete", "ta", platform, nil); err == nil {
+			t.Fatal("an action other than provision or retire is decided")
+		}
+		// An allowed retire gives a mark of retire, which tenant.Requested takes only for a retire.
+		permissive := bindUnit(t, newUnitRuntime(t, &recorder{allow: func(EvaluationRequest) bool { return true }}), nil, mustPerson(t, "u-1"))
+		allowed, ok, err := permissive.DecideTenant(ctx, tenant.RetireAction, "ta", platform, nil)
+		if err != nil || !ok {
+			t.Fatalf("the allowed retire gave %v, %t, %v", allowed, ok, err)
+		}
+		if _, action, _ := seal.DecisionOf(allowed); action != "retire" {
+			t.Fatalf("the mark of the retire holds the action %q, want retire", action)
 		}
 	})
 }
@@ -1183,8 +1219,9 @@ func TestHandleWrites(t *testing.T) {
 		release := make(chan struct{})
 		var releaseOnce sync.Once
 		free := func() { releaseOnce.Do(func() { close(release) }) }
-		fake := &fakeRelationships{heads: []Token{named("h", 5), named("h", 8)}, before: func(n int) {
-			if n == 2 {
+		// The write of document:2 waits for the release; the two tuples are delivered in parallel.
+		fake := &fakeRelationships{heads: []Token{named("h", 5), named("h", 8)}, before: func(_ int, resource string) {
+			if resource == "2" {
 				<-release
 			}
 		}}
@@ -1250,8 +1287,9 @@ func TestHandleWrites(t *testing.T) {
 		release := make(chan struct{})
 		var releaseOnce sync.Once
 		free := func() { releaseOnce.Do(func() { close(release) }) }
-		relay := env.relay(t, &fakeRelationships{failDelete: refused, before: func(n int) {
-			if n == 1 {
+		// The touch of document:1 waits for the release; the delete of document:2 is refused and parked.
+		relay := env.relay(t, &fakeRelationships{failDelete: refused, before: func(_ int, resource string) {
+			if resource == "1" {
 				<-release
 			}
 		}})
@@ -1380,6 +1418,24 @@ func TestHandleWrites(t *testing.T) {
 		}
 		if got := env.scalar(t, "SELECT done::text || '/' || token FROM {s}.authz_revocations WHERE id = $1", revocation.ID()); got != "0/" {
 			t.Fatalf("the call for a pending message changed the record to %s", got)
+		}
+		// The relay's state hook counts and alerts on a change that the function did not count.
+		relay, err := NewRelay(RelayConfig{Name: "authz-relay", Relationships: &fakeRelationships{}, DB: env.relayDB,
+			Schema: env.schema, Meter: sdkmetric.NewMeterProvider(sdkmetric.WithReader(sdkmetric.NewManualReader()))})
+		if err != nil {
+			t.Fatal(err)
+		}
+		hookTx, err := tenant.Begin(ctx, env.workerDB, mustTenant(t, "t1"), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := relay.Hook(ctx, hookTx, outbox.StateChange{ID: id, Group: revocation.ID().String(), Destination: DestinationName,
+			Tenant: mustTenant(t, "t1"), State: outbox.Done}); err != nil {
+			t.Fatal(err)
+		}
+		_ = hookTx.Rollback()
+		if got := relay.UncountedChanges(); got != 1 {
+			t.Fatalf("the hook counted %d uncounted changes, want 1", got)
 		}
 		env.startWorker(t, env.relay(t, &fakeRelationships{}))
 		env.waitState(t, id, outbox.Done)

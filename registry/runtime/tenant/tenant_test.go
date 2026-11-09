@@ -53,7 +53,9 @@ type decided struct {
 }
 
 // allowedFor is a stand-in decision that allows the request for the tenant.
-func allowedFor(tenant string) decided { return decided{seal.NewDecisionMark(tenant)} }
+func allowedFor(tenant string) decided {
+	return decided{seal.NewDecisionMark(tenant, string(ProvisionAction))}
+}
 
 // mustTenant builds a Tenant from a column value, as List and the outbox worker do.
 func mustTenant(t *testing.T, id string) Tenant {
@@ -399,8 +401,11 @@ func TestTenantIdentity(t *testing.T) {
 		}
 		// The sources are only an Identity, the row reader and a Decision; Identity and Decision are interfaces of
 		// the internal package seal, each with an unexported method.
-		if param("Requested", 1) != scope.Lookup("Decision").Type() {
-			t.Errorf("Requested takes %s, want one Decision", param("Requested", 1))
+		if param("Requested", 2) != scope.Lookup("Decision").Type() {
+			t.Errorf("Requested takes %s, want one Decision", param("Requested", 2))
+		}
+		if param("Requested", 0) != scope.Lookup("RequestAction").Type() {
+			t.Errorf("Requested takes %s first, want the action it serves", param("Requested", 0))
 		}
 		for _, name := range []string{"Identity", "Decision"} {
 			named, ok := types.Unalias(scope.Lookup(name).Type()).(*types.Named)
@@ -446,21 +451,21 @@ func TestTenantIdentity(t *testing.T) {
 		if err == nil || !none.IsZero() {
 			t.Fatalf("New(Claim(identity with no claim)) = %q, %v; want an error and no tenant", none.ID(), err)
 		}
-		if got, err := New(Requested("org-c", allowedFor("org-c"))); err != nil || got.ID() != "org-c" {
-			t.Fatalf("New(Requested(org-c, allowed)) = %q, %v", got.ID(), err)
+		if got, err := New(Requested(ProvisionAction, "org-c", allowedFor("org-c"))); err != nil || got.ID() != "org-c" {
+			t.Fatalf("New(Requested(ProvisionAction, org-c, allowed)) = %q, %v", got.ID(), err)
 		}
 		// A tenant ID with a control, format or separator character is refused, whatever its source.
 		for _, bad := range []string{"t\x00", "t\x7f", "t\u0085", "t\u202e1", "t\u200b1", "t\u20281", "t\u20291", "t\ufeff1"} {
 			if got, err := New(Claim(identityOf(bad))); err == nil {
 				t.Errorf("New(Claim(identity of %q)) = %q, want an error", bad, got.ID())
 			}
-			if got, err := New(Requested(bad, allowedFor(bad))); err == nil {
-				t.Errorf("New(Requested(%q, allowed)) = %q, want an error", bad, got.ID())
+			if got, err := New(Requested(ProvisionAction, bad, allowedFor(bad))); err == nil {
+				t.Errorf("New(Requested(ProvisionAction, %q, allowed)) = %q, want an error", bad, got.ID())
 			}
 		}
 		for name, decision := range map[string]Decision{"denied": decided{}, "nil": nil} {
-			if got, err := New(Requested("org-c", decision)); err == nil || !got.IsZero() {
-				t.Errorf("New(Requested(org-c, %s decision)) = %q, %v; want an error and no tenant", name, got.ID(), err)
+			if got, err := New(Requested(ProvisionAction, "org-c", decision)); err == nil || !got.IsZero() {
+				t.Errorf("New(Requested(ProvisionAction, org-c, %s decision)) = %q, %v; want an error and no tenant", name, got.ID(), err)
 			}
 		}
 	})
@@ -656,7 +661,7 @@ func TestTenantSources(t *testing.T) {
 			},
 			"Decision": {
 				decls:  "type decision struct{}\n\nfunc (decision) Allowed() bool { return true }",
-				call:   `tenant.New(tenant.Requested("t9", decision{}))`,
+				call:   `tenant.New(tenant.Requested(tenant.ProvisionAction, "t9", decision{}))`,
 				method: "sealedDecision",
 			},
 		} {
@@ -727,7 +732,7 @@ func TestTenantSources(t *testing.T) {
 
 func mustRequested(t *testing.T, id string) Tenant {
 	t.Helper()
-	tenant, err := New(Requested(id, allowedFor(id)))
+	tenant, err := New(Requested(ProvisionAction, id, allowedFor(id)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -839,11 +844,14 @@ func TestTenantEmbedding(t *testing.T) {
 			t.Errorf("the forged identity gave %v, %v, want t1 only", got, err)
 		}
 		forged := forgedDecision{allowedFor("t1")}
-		if got, err := build(Requested("t1", forged)); err != nil || got.ID() != "t1" {
+		if got, err := build(Requested(ProvisionAction, "t1", forged)); err != nil || got.ID() != "t1" {
 			t.Errorf("the forged decision for t1 gave %v, %v, want t1", got, err)
 		}
-		if got, err := build(Requested("t2", forged)); err == nil {
+		if got, err := build(Requested(ProvisionAction, "t2", forged)); err == nil {
 			t.Errorf("the forged decision gave the tenant %v, want t2 refused", got)
+		}
+		if got, err := build(Requested(RetireAction, "t1", forged)); err == nil {
+			t.Errorf("the decision for provision gave the tenant %v to retire, want it refused", got)
 		}
 		for name, source := range map[string]Source{
 			"an embedded nil Identity":            Claim(nilIdentity{}),
@@ -852,11 +860,11 @@ func TestTenantEmbedding(t *testing.T) {
 			"a zero IdentityMark":                 Claim(seal.IdentityMark{}),
 			"a stand-in with a zero mark":         Claim(identity{}),
 			"a nil Identity":                      Claim(nil),
-			"an embedded nil Decision":            Requested("t1", nilDecision{}),
-			"a zero Decision":                     Requested("t1", decided{}),
-			"a forged type with a zero Decision":  Requested("t1", forgedDecision{}),
-			"a zero DecisionMark":                 Requested("t1", seal.DecisionMark{}),
-			"a nil Decision":                      Requested("t1", nil),
+			"an embedded nil Decision":            Requested(ProvisionAction, "t1", nilDecision{}),
+			"a zero Decision":                     Requested(ProvisionAction, "t1", decided{}),
+			"a forged type with a zero Decision":  Requested(ProvisionAction, "t1", forgedDecision{}),
+			"a zero DecisionMark":                 Requested(ProvisionAction, "t1", seal.DecisionMark{}),
+			"a nil Decision":                      Requested(ProvisionAction, "t1", nil),
 			"an embedded nil pointer of Identity": Claim(struct{ *authn.Identity }{}),
 		} {
 			t.Run(name, func(t *testing.T) {

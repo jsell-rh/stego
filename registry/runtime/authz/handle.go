@@ -32,8 +32,8 @@ const MinRetention = 30 * 24 * time.Hour
 type Config struct {
 	// Provider is the decision provider, such as the SpiceDB provider. The handle never exposes it.
 	Provider Decision
-	// Floor gives the revocation floor to Port, for a caller with no transaction of its own, such as a TableFloor.
-	// A handle reads the floor through its own transaction instead.
+	// Floor gives the revocation floor to Port, for a caller with no transaction of its own. Nil is the TableFloor
+	// of DB and Schema, so Port never checks below the floor. A handle reads the floor through its own transaction.
 	Floor Floor
 	// DB is the database of the revocation records, which Status reads in a transaction of its own.
 	DB *sql.DB
@@ -64,13 +64,22 @@ type Runtime struct {
 
 // New returns the authorization runtime of cfg. It refuses a configuration that lacks a part.
 func New(cfg Config) (*Runtime, error) {
-	port, err := NewPort(cfg.Provider, cfg.Floor)
+	if cfg.DB == nil {
+		return nil, errors.New("authz: no database")
+	}
+	floor := cfg.Floor
+	if floor == nil {
+		table, err := NewTableFloor(cfg.DB, cfg.Schema)
+		if err != nil {
+			return nil, err
+		}
+		floor = table
+	}
+	port, err := NewPort(cfg.Provider, floor)
 	if err != nil {
 		return nil, err
 	}
 	switch {
-	case cfg.DB == nil:
-		return nil, errors.New("authz: no database")
 	case cfg.Outbox == nil:
 		return nil, errors.New("authz: no outbox queue")
 	case cfg.Poll < 0:
@@ -194,7 +203,7 @@ func (h *Handle) Principal() Principal { return h.principal }
 func (h *Handle) floor(ctx context.Context) (Token, error) {
 	var text string
 	if err := h.tx.QueryRowContext(ctx, "SELECT token FROM "+h.runtime.schema+".authz_floor WHERE only_row").Scan(&text); err != nil {
-		return Token{}, errors.New("authz: the revocation floor cannot be read in the transaction")
+		return Token{}, fixed("authz: the revocation floor cannot be read in the transaction", err)
 	}
 	return ParseToken(text)
 }
@@ -294,16 +303,6 @@ func (l *List) Page(ctx context.Context, rows []Row) ([]Row, error) {
 	return allowed, nil
 }
 
-// TenantAction is the action of a Provision or Retire request.
-type TenantAction string
-
-const (
-	// Provision is the action of a Provision request.
-	Provision TenantAction = "provision"
-	// Retire is the action of a Retire request.
-	Retire TenantAction = "retire"
-)
-
 // tenantDecision is the decision that tenant.Requested takes. Only DecideTenant makes one, after an allow, with the
 // mark of the internal seal constructor.
 type tenantDecision struct {
@@ -312,10 +311,10 @@ type tenantDecision struct {
 
 // DecideTenant decides the permission of action, provision or retire, on resource at the floor, for a request that
 // names the tenant tenantID (ST-SUP-RP06-LC17). On an allow it returns the decision that tenant.Requested takes,
-// whose mark the internal seal constructor makes with exactly that tenant ID, and true; on a deny it returns no
-// decision and false.
-func (h *Handle) DecideTenant(ctx context.Context, action TenantAction, tenantID string, resource Resource, c Context) (tenant.Decision, bool, error) {
-	if action != Provision && action != Retire {
+// whose mark the internal seal constructor makes with exactly that tenant ID and that action, so the allow serves
+// only the one action on the one tenant, and true; on a deny it returns no decision and false.
+func (h *Handle) DecideTenant(ctx context.Context, action tenant.RequestAction, tenantID string, resource Resource, c Context) (tenant.Decision, bool, error) {
+	if action != tenant.ProvisionAction && action != tenant.RetireAction {
 		return nil, false, errors.New("authz: the tenant action is not provision or retire")
 	}
 	if tenantID == "" {
@@ -328,7 +327,7 @@ func (h *Handle) DecideTenant(ctx context.Context, action TenantAction, tenantID
 	if !result.Allowed {
 		return nil, false, nil
 	}
-	return tenantDecision{DecisionMark: seal.NewDecisionMark(tenantID)}, true, nil
+	return tenantDecision{DecisionMark: seal.NewDecisionMark(tenantID, string(action))}, true, nil
 }
 
 // Revocation names the one revocation of a transaction: every tuple that the transaction enqueues joins it, touch
@@ -525,7 +524,7 @@ func (r *Runtime) Status(ctx context.Context, t tenant.Tenant, p Principal, id u
 	}
 	if err != nil {
 		_ = tx.Rollback()
-		return RevocationStatus{}, errors.New("authz: the revocation record cannot be read")
+		return RevocationStatus{}, fixed("authz: the revocation record cannot be read", err)
 	}
 	if err := tenant.Commit(ctx, tx, t); err != nil {
 		return RevocationStatus{}, err

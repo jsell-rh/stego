@@ -387,8 +387,9 @@ var ErrProvider = errors.New("authz: the provider call failed")
 // providerError is the error of a provider call. Its text is fixed for the call and the gRPC status code, and it
 // wraps no error of the provider, so no provider message, subject ID or caveat value reaches it (ST-SUP-RP06-LC20).
 type providerError struct {
-	what string
-	code codes.Code
+	what  string
+	code  codes.Code
+	cause error
 }
 
 func (e *providerError) Error() string {
@@ -397,12 +398,21 @@ func (e *providerError) Error() string {
 
 func (e *providerError) Is(target error) bool { return target == ErrProvider }
 
+// Unwrap gives the context error of a call that its context ended, so the kind stays readable.
+func (e *providerError) Unwrap() error { return e.cause }
+
 // spiceError maps a gRPC error of SpiceDB to a fixed text for what and its status code. InvalidArgument,
 // FailedPrecondition, NotFound and OutOfRange are refusals that a retry does not change; any other error may pass on
 // a retry.
 func spiceError(what string, err error) error {
 	code := status.Code(err)
-	fixed := &providerError{what: what, code: code}
+	fixed := &providerError{what: what, code: code, cause: contextCause(err)}
+	switch code {
+	case codes.Canceled:
+		fixed.cause = context.Canceled
+	case codes.DeadlineExceeded:
+		fixed.cause = context.DeadlineExceeded
+	}
 	switch code {
 	case codes.InvalidArgument, codes.FailedPrecondition, codes.NotFound, codes.OutOfRange:
 		return Refused(fixed)

@@ -185,7 +185,7 @@ func TestRelay(t *testing.T) {
 
 	t.Run("ST-SUP-RP06-LC06-T01 The relay delivers the tuples of one resource key in order", func(t *testing.T) {
 		env := newPG(t)
-		fake := &fakeRelationships{before: func(n int) {
+		fake := &fakeRelationships{before: func(n int, _ string) {
 			if n == 1 {
 				time.Sleep(300 * time.Millisecond)
 			}
@@ -369,7 +369,7 @@ func TestRelay(t *testing.T) {
 		reader, meter, _, _ := observed(t)
 		relay, alerts := alertRelay(t)
 		blocked := make(chan struct{})
-		fake := &fakeRelationships{before: func(int) { <-blocked }}
+		fake := &fakeRelationships{before: func(int, string) { <-blocked }}
 		worker := env.newWorker(t, env.relay(t, fake), func(c *outbox.WorkerConfig) { c.Meter = meter })
 		age := oldestAge(reader)
 		step := func(want int64) {
@@ -397,7 +397,7 @@ func TestRelay(t *testing.T) {
 		again := make(chan struct{})
 		defer close(again)
 		fake.mu.Lock()
-		fake.before = func(int) { <-again }
+		fake.before = func(int, string) { <-again }
 		fake.mu.Unlock()
 		env.enqueue(t, "t1", OperationTouch, Tuple{Resource: doc("d"), Relation: "viewer", Subject: user("bob")})
 		clock.add(6 * time.Second)
@@ -594,6 +594,12 @@ func TestRevocationFloor(t *testing.T) {
 		if view(t, rt, env, "t1", d1) {
 			t.Fatal("bob can view the document after the group revocation landed")
 		}
+		// Port, which a worker with no transaction of its own uses, checks at the floor of its default TableFloor too.
+		result, err := rt.Port().Evaluate(ctx, EvaluationRequest{Subject: user("bob"), Action: Action{Name: "view"},
+			Resource: doc(d1), Consistency: AtLeast(old)})
+		if err != nil || result.Allowed {
+			t.Fatalf("Port at the old row token gave %+v, %v; want a deny at the floor", result, err)
+		}
 		inWindow(t, end)
 	})
 
@@ -710,6 +716,12 @@ func TestRevocationFloor(t *testing.T) {
 		if !view(t, rt, env, "t1", d1) {
 			t.Fatal("bob cannot view the document through the group before the revocation")
 		}
+		end := afterBoundary(t)
+		// The PostgreSQL datastore serves the first transaction after the quantization boundary: write one before
+		// the revocation, so a check at the old row token reads the state before the revocation.
+		if _, err := db.provider.Touch(ctx, []Tuple{{Resource: doc(d1 + "-other"), Relation: "viewer", Subject: user("erin")}}, nil); err != nil {
+			t.Fatal(err)
+		}
 		tx, handle := env.begin(t, rt, "t1", mustPerson(t, "alice"), rel("group#member"))
 		if _, err := handle.Unrelate(ctx, member); err != nil {
 			t.Fatal(err)
@@ -722,8 +734,10 @@ func TestRevocationFloor(t *testing.T) {
 		if rowToken(t, env, "t1", d1) != old {
 			t.Fatal("the row token of the document changed; the case needs it older than the revocation")
 		}
+		stale(t, db, d1, old)
 		if view(t, rt, env, "t1", d1) {
 			t.Fatal("bob can view the document after the group revocation landed")
 		}
+		inWindow(t, end)
 	})
 }

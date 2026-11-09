@@ -13,6 +13,7 @@ import (
 	"stego.dev/runtime/authn"
 	"stego.dev/runtime/authn/authntest"
 	"stego.dev/runtime/internal/seal"
+	"stego.dev/runtime/tenant"
 )
 
 // verifiedIdentity gives a genuine identity of the authentication runtime for the user ID userID: it mints a token
@@ -143,7 +144,7 @@ func TestSubjects(t *testing.T) {
 			t.Fatal(err)
 		}
 		check(result.Allowed)
-		_, ok, err := handle.DecideTenant(ctx, Provision, "t9", Resource{Type: "platform", ID: "main"}, nil)
+		_, ok, err := handle.DecideTenant(ctx, tenant.ProvisionAction, "t9", Resource{Type: "platform", ID: "main"}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

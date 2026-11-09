@@ -84,10 +84,12 @@ type Relay struct {
 	owners        map[string]ownerTable
 	bound         time.Duration
 
-	alerts       metric.Int64Counter
-	readFailures metric.Int64Counter
-	logger       otellog.Logger
-	failures     atomic.Int64
+	alerts           metric.Int64Counter
+	readFailures     metric.Int64Counter
+	uncountedChanges metric.Int64Counter
+	notCounted       atomic.Int64
+	logger           otellog.Logger
+	failures         atomic.Int64
 
 	mu    sync.Mutex
 	above bool
@@ -155,6 +157,11 @@ func NewRelay(cfg RelayConfig, options ...RelayOption) (*Relay, error) {
 		if err != nil {
 			return nil, err
 		}
+		r.uncountedChanges, err = cfg.Meter.Meter(instrumentation).Int64Counter("authz.revocation.uncounted",
+			metric.WithDescription("The state changes of authz messages that the revocation record did not count."))
+		if err != nil {
+			return nil, err
+		}
 	}
 	if cfg.Logger != nil {
 		r.logger = cfg.Logger.Logger(instrumentation)
@@ -194,9 +201,35 @@ func (r *Relay) Hook(ctx context.Context, tx *sql.Tx, change outbox.StateChange)
 	var counted bool
 	if err := tx.QueryRowContext(ctx, "SELECT "+r.schema+".authz_revocation_state($1, $2, $3)",
 		change.ID, revocation, string(change.State)).Scan(&counted); err != nil {
-		return errors.New("authz: the revocation record cannot be changed")
+		return fixed("authz: the revocation record cannot be changed", err)
+	}
+	if !counted {
+		r.uncounted(ctx, change.State)
 	}
 	return nil
+}
+
+// UncountedChanges returns the number of state changes that the state function did not count.
+func (r *Relay) UncountedChanges() int64 { return r.notCounted.Load() }
+
+// uncounted counts a state change that the state function did not count, because the outbox row is not in the
+// reported state or the revocation does not know the message, and raises one alert event and metric that name the
+// destination authz and the state: such a change is never dropped silently.
+func (r *Relay) uncounted(ctx context.Context, state outbox.State) {
+	r.notCounted.Add(1)
+	attributes := []attribute.KeyValue{attribute.String("destination", DestinationName), attribute.String("state", string(state))}
+	if r.uncountedChanges != nil {
+		r.uncountedChanges.Add(ctx, 1, metric.WithAttributes(attributes...))
+	}
+	if r.logger != nil {
+		var record otellog.Record
+		record.SetEventName("authz.revocation.uncounted")
+		record.SetSeverity(otellog.SeverityWarn)
+		record.SetSeverityText("WARN")
+		record.SetBody(attribute.StringValue("a state change of an authz message is not counted on its revocation"))
+		record.AddAttributes(attributes...)
+		r.logger.Emit(ctx, record)
+	}
 }
 
 // Deliver is the outbox handler of the relay. It lands one tuple write: it writes the tuple, raises the floor to the
@@ -278,12 +311,12 @@ func readPayload(resourceKey string, body []byte) (payload, error) {
 func (r *Relay) raiseFloor(ctx context.Context) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return errors.New("authz: the floor transaction cannot begin")
+		return fixed("authz: the floor transaction cannot begin", err)
 	}
 	var current string
 	if err := tx.QueryRowContext(ctx, "SELECT token FROM "+r.schema+".authz_floor WHERE only_row FOR UPDATE").Scan(&current); err != nil {
 		_ = tx.Rollback()
-		return errors.New("authz: the floor row cannot be locked")
+		return fixed("authz: the floor row cannot be locked", err)
 	}
 	head, err := r.relationships.Head(ctx)
 	if err != nil {
@@ -297,10 +330,10 @@ func (r *Relay) raiseFloor(ctx context.Context) error {
 	if _, err := tx.ExecContext(ctx, "UPDATE "+r.schema+".authz_floor SET token = $1, sequence = sequence + 1 WHERE only_row",
 		head.Text()); err != nil {
 		_ = tx.Rollback()
-		return errors.New("authz: the floor cannot be written")
+		return fixed("authz: the floor cannot be written", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return errors.New("authz: the floor transaction cannot commit")
+		return fixed("authz: the floor transaction cannot commit", err)
 	}
 	return nil
 }
@@ -386,9 +419,13 @@ func (r *Relay) Watch(ctx context.Context, interval time.Duration, oldest Oldest
 	}
 }
 
-// check takes one reading of oldest.
+// check takes one reading of oldest. A read that fails because ctx ended is the end of the watch, which Watch
+// returns, not a failed read of the gauge.
 func (r *Relay) check(ctx context.Context, oldest OldestAge) {
 	age, err := oldest(ctx)
+	if err != nil && ctx.Err() != nil {
+		return
+	}
 	if err != nil {
 		r.failures.Add(1)
 		if r.readFailures != nil {
@@ -422,7 +459,7 @@ func NewTableFloor(db *sql.DB, schema string) (*TableFloor, error) {
 func (f *TableFloor) Current(ctx context.Context) (Token, error) {
 	var text string
 	if err := f.db.QueryRowContext(ctx, "SELECT token FROM "+f.schema+".authz_floor WHERE only_row").Scan(&text); err != nil {
-		return Token{}, errors.New("authz: the revocation floor cannot be read")
+		return Token{}, fixed("authz: the revocation floor cannot be read", err)
 	}
 	return ParseToken(text)
 }

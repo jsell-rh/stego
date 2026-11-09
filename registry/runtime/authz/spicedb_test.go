@@ -193,7 +193,8 @@ func startQuantizedSpiceDB(t *testing.T, schema string) *spiceEnv {
 	return connectSpiceDB(t, &quantizedServer, quantizedServer.key, schema)
 }
 
-// startPostgresSpiceDB connects the test to SpiceDB on the PostgreSQL datastore, whose revisions are snapshots: a
+// startPostgresSpiceDB connects the test to SpiceDB on the PostgreSQL datastore, whose revisions are snapshots, with
+// the revision quantization of quantum, so a check at an old token can read a stale state, as on the quantized server: a
 // PostgreSQL container of pgtest's pinned image on a docker network of its own, the datastore migrated with the
 // pinned SpiceDB image, and SpiceDB serving it, each without privilege; TestMain removes them. Tests on it use object
 // IDs of their own.
@@ -237,7 +238,8 @@ func startPostgresSpiceDB(t *testing.T, schema string) *spiceEnv {
 		}
 		s.key = hex.EncodeToString(suffix) + "-key"
 		s.name, s.endpoint, s.err = startContainerOn(s.network, "serve", "--grpc-preshared-key", s.key,
-			"--datastore-engine", "postgres", "--datastore-conn-uri", uri, "--telemetry-endpoint", "")
+			"--datastore-engine", "postgres", "--datastore-conn-uri", uri, "--telemetry-endpoint", "",
+			"--datastore-revision-quantization-interval", quantum.String())
 	})
 	return connectSpiceDB(t, &postgresServer, postgresServer.key, schema)
 }
@@ -671,6 +673,35 @@ func TestSpiceDBProvider(t *testing.T) {
 		leaks(t, err)
 		if !strings.Contains(err.Error(), "document:1#viewer") {
 			t.Errorf("the park record %q does not name document:1#viewer", err)
+		}
+		// A context error stays readable by kind, for a provider call and for a floor read.
+		canceled, cancel := context.WithCancel(ctx)
+		cancel()
+		fake.fail = nil
+		_, err = provider.Evaluate(canceled, EvaluationRequest{Subject: user("bob"), Action: Action{Name: "view"},
+			Resource: doc("1"), Consistency: Fresh()})
+		if !errors.Is(err, context.Canceled) || !errors.Is(err, ErrProvider) {
+			t.Errorf("a canceled call gave %v, want context.Canceled and a provider error", err)
+		}
+		expired, stop := context.WithDeadline(ctx, time.Now().Add(-time.Second))
+		defer stop()
+		_, err = provider.Evaluate(expired, EvaluationRequest{Subject: user("bob"), Action: Action{Name: "view"},
+			Resource: doc("1"), Consistency: Fresh()})
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("a call past its deadline gave %v, want context.DeadlineExceeded", err)
+		}
+		floor, err := NewTableFloor(fakeDB(t), "public")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port, err := NewPort(provider, floor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = port.Evaluate(canceled, EvaluationRequest{Subject: user("bob"), Action: Action{Name: "view"},
+			Resource: doc("1"), Consistency: Fresh()})
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("a canceled floor read gave %v, want context.Canceled", err)
 		}
 		// A validation error names no ID either.
 		_, err = provider.Touch(ctx, []Tuple{{Resource: doc("1"), Relation: "viewer", Subject: Subject{Type: "user", ID: "bob secret"}}}, nil)

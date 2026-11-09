@@ -71,23 +71,38 @@ func (s claimSource) tenantID() (string, error) {
 	return id, nil
 }
 
+// RequestAction is the action of a request that names a tenant: provision or retire.
+type RequestAction string
+
+const (
+	// ProvisionAction is the action of a Provision request.
+	ProvisionAction RequestAction = "provision"
+	// RetireAction is the action of a Retire request.
+	RetireAction RequestAction = "retire"
+)
+
 type requestedSource struct {
+	action   RequestAction
 	id       string
 	decision Decision
 }
 
-// Requested is the source of the tenant that a Provision or Retire request names. New accepts it only when the
-// decision allowed the request for that same tenant (ST-SUP-RC27-OC09).
-func Requested(id string, decision Decision) Source {
-	return requestedSource{id: id, decision: decision}
+// Requested is the source of the tenant that a Provision or Retire request names, for the action the request
+// serves. New accepts it only when the decision allowed the request for that same tenant and that same action, so a
+// Decision serves only the one action on the one tenant (ST-SUP-RP04-LC01, ST-SUP-RC27-OC09).
+func Requested(action RequestAction, id string, decision Decision) Source {
+	return requestedSource{action: action, id: id, decision: decision}
 }
 
-// tenantID reads the allowed tenant from the decision's seal mark only, through seal.DecisionOf, and accepts the
-// request only for that tenant.
+// tenantID reads the allowed tenant and action from the decision's seal mark only, through seal.DecisionOf, and
+// accepts the request only for that tenant and that action.
 func (s requestedSource) tenantID() (string, error) {
-	allowed, ok := seal.DecisionOf(s.decision)
-	if !ok || allowed != s.id {
-		return "", errors.New("tenant: the request that names the tenant is not decided as allowed")
+	if s.action != ProvisionAction && s.action != RetireAction {
+		return "", errors.New("tenant: the request action is not provision or retire")
+	}
+	allowed, action, ok := seal.DecisionOf(s.decision)
+	if !ok || allowed != s.id || action != string(s.action) {
+		return "", errors.New("tenant: the request that names the tenant is not decided as allowed for its action")
 	}
 	return s.id, nil
 }

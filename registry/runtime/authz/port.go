@@ -351,6 +351,36 @@ func IsRefused(err error) bool {
 	return errors.As(err, &refused)
 }
 
+// fixedError is an error of the package with a fixed text. It wraps only a context error of its cause, so
+// errors.Is(err, context.Canceled) and errors.Is(err, context.DeadlineExceeded) hold, and no text of the cause, such
+// as a provider message, a subject or a caveat value, reaches it (ST-SUP-RP06-LC20).
+type fixedError struct {
+	text  string
+	cause error
+}
+
+func (e *fixedError) Error() string { return e.text }
+func (e *fixedError) Unwrap() error { return e.cause }
+
+// fixed returns an error with the fixed text that keeps the context error of err, if it has one.
+func fixed(text string, err error) error {
+	return &fixedError{text: text, cause: contextCause(err)}
+}
+
+// contextCause gives context.Canceled or context.DeadlineExceeded when err is one, or carries the gRPC status code of
+// one, and nil otherwise.
+func contextCause(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, context.Canceled):
+		return context.Canceled
+	case errors.Is(err, context.DeadlineExceeded):
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
 // Floor gives the service's revocation floor (ST-SUP-RP06-LC13): the token of the newest tuple write the relay
 // delivered, or the zero token when there is none yet.
 type Floor interface {
@@ -383,7 +413,7 @@ func (p *Port) currentFloor(ctx context.Context) (Token, error) {
 	}
 	floor, err := p.floor.Current(ctx)
 	if err != nil {
-		return Token{}, fmt.Errorf("authz: read the revocation floor: %w", err)
+		return Token{}, fixed("authz: the revocation floor cannot be read", err)
 	}
 	return floor, nil
 }
