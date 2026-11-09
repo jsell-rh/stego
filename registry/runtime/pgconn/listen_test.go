@@ -48,15 +48,17 @@ func TestListener(t *testing.T) {
 		if _, err := rand.Read(suffix); err != nil {
 			t.Fatal(err)
 		}
-		role := "pgconn_runtime_" + hex.EncodeToString(suffix)
-		if _, err := db.ExecContext(ctx, "CREATE ROLE "+role+" NOLOGIN"); err != nil {
-			t.Fatal(err)
+		role, worker := "pgconn_runtime_"+hex.EncodeToString(suffix), "pgconn_worker_"+hex.EncodeToString(suffix)
+		for _, r := range []string{role, worker} {
+			if _, err := db.ExecContext(ctx, "CREATE ROLE "+r+" NOLOGIN"); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				_, _ = db.ExecContext(context.Background(), "DROP OWNED BY "+r)
+				_, _ = db.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+r)
+			})
 		}
-		t.Cleanup(func() {
-			_, _ = db.ExecContext(context.Background(), "DROP OWNED BY "+role)
-			_, _ = db.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+role)
-		})
-		ddl, err := outbox.Migration(role)
+		ddl, err := outbox.Migration(role, worker)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -68,13 +70,13 @@ func TestListener(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		source, err := outbox.NewSource(ctx, listener)
+		source, err := outbox.NewSource(ctx, listener, db)
 		if err != nil {
 			t.Fatal(err)
 		}
 		go func() { _ = source.Run(ctx) }()
 		t.Cleanup(source.Close)
-		tn, err := tenant.New(tenant.Claim(identity{tenant: "t1"}))
+		tn, err := tenant.New(tenant.Claim(identity{IdentityMark: seal.NewIdentityMark("t1", true), tenant: "t1"}))
 		if err != nil {
 			t.Fatal(err)
 		}

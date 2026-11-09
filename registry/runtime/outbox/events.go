@@ -1,15 +1,12 @@
 package outbox
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"database/sql"
 	"errors"
-	"io"
 	"sync"
 	"sync/atomic"
 	"time"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -33,14 +30,6 @@ type Event struct {
 	ID          uuid.UUID
 	Destination string
 	ResourceKey string
-}
-
-// notice is the payload of one NOTIFY: the event and the tenant it is for.
-type notice struct {
-	ID          string `json:"id"`
-	TenantID    string `json:"tenant_id"`
-	Destination string `json:"destination"`
-	ResourceKey string `json:"resource_key"`
 }
 
 // Subscription is one reader of the event source.
@@ -79,6 +68,8 @@ type Listener interface {
 // the source; there is no silent reconnect, and a new source needs a new session (ST-SUP-RC18-OC10).
 type Source struct {
 	listener      Listener
+	db            *sql.DB
+	readFailures  atomic.Uint64
 	bad           atomic.Uint64
 	mu            sync.Mutex
 	subscriptions map[*subscription]struct{}
@@ -91,18 +82,19 @@ type Source struct {
 
 type subscription struct {
 	source  *Source
-	tenant  string
+	tenant  tenant.Tenant
 	queue   chan Event
 	done    chan struct{}
 	failure error
 	stop    func() bool
 }
 
-// NewSource listens on NoticeChannel through listener. LISTEN completes before any subscription can be made. On an
-// error it closes the listener.
-func NewSource(ctx context.Context, listener Listener) (*Source, error) {
-	if ctx == nil || listener == nil {
-		return nil, errors.New("outbox: the event source needs a context and a listener")
+// NewSource listens on NoticeChannel through listener. LISTEN completes before any subscription can be made. db is
+// the pool that the source reads each noticed message from again, in a transaction of each subscriber's tenant
+// (ST-SUP-RP01-LC21). On an error it closes the listener.
+func NewSource(ctx context.Context, listener Listener, db *sql.DB) (*Source, error) {
+	if ctx == nil || listener == nil || db == nil {
+		return nil, errors.New("outbox: the event source needs a context, a listener and a database")
 	}
 	check, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
@@ -112,7 +104,7 @@ func NewSource(ctx context.Context, listener Listener) (*Source, error) {
 		_ = listener.Close(closeCtx)
 		return nil, ErrEventSourceUnavailable
 	}
-	return &Source{listener: listener, subscriptions: map[*subscription]struct{}{}}, nil
+	return &Source{listener: listener, db: db, subscriptions: map[*subscription]struct{}{}}, nil
 }
 
 // Subscribe adds one subscription for the tenant t, with a bounded queue, at most MaxSubscriptions at one time
@@ -136,7 +128,7 @@ func (s *Source) Subscribe(ctx context.Context, t tenant.Tenant) (Subscription, 
 	if len(s.subscriptions) >= MaxSubscriptions {
 		return nil, ErrEventCapacity
 	}
-	sub := &subscription{source: s, tenant: t.ID(), queue: make(chan Event, SubscriptionBuffer), done: make(chan struct{})}
+	sub := &subscription{source: s, tenant: t, queue: make(chan Event, SubscriptionBuffer), done: make(chan struct{})}
 	s.subscriptions[sub] = struct{}{}
 	sub.stop = context.AfterFunc(ctx, func() { s.remove(sub, ctx.Err()) })
 	return sub, nil
@@ -200,11 +192,61 @@ func (sub *subscription) failureNow() error {
 // BadNotices counts the notices that could not be read and were skipped (ST-SUP-RP01-LC21).
 func (s *Source) BadNotices() uint64 { return s.bad.Load() }
 
+// ReadFailures counts the reads again of a noticed message that failed; that notice reaches no subscriber of the
+// tenant whose read failed.
+func (s *Source) ReadFailures() uint64 { return s.readFailures.Load() }
+
+// fanOut reads the noticed message id again under row-level security in a transaction of each subscriber's tenant,
+// and passes the event to the subscribers of each tenant whose read finds the row (ST-SUP-RP01-LC21). The event
+// holds what the read returned, never what the notice said.
+func (s *Source) fanOut(ctx context.Context, id uuid.UUID) {
+	s.mu.Lock()
+	tenants := map[string]tenant.Tenant{}
+	for sub := range s.subscriptions {
+		tenants[sub.tenant.ID()] = sub.tenant
+	}
+	s.mu.Unlock()
+	for tenantID, t := range tenants {
+		event, found, err := s.read(ctx, t, id)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			s.readFailures.Add(1)
+			continue
+		}
+		if found {
+			s.dispatch(tenantID, event)
+		}
+	}
+}
+
+// read reads the message id under the tenant policy in a read-only transaction of t.
+func (s *Source) read(ctx context.Context, t tenant.Tenant, id uuid.UUID) (Event, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+	tx, err := tenant.Begin(ctx, s.db, t, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return Event{}, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	event := Event{ID: id}
+	err = tx.QueryRowContext(ctx, `SELECT destination, resource_key FROM stego_outbox.messages WHERE id = $1`, id).
+		Scan(&event.Destination, &event.ResourceKey)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Event{}, false, nil
+	}
+	if err != nil {
+		return Event{}, false, err
+	}
+	return event, true, nil
+}
+
 func (s *Source) dispatch(tenantID string, event Event) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for sub := range s.subscriptions {
-		if sub.tenant != tenantID {
+		if sub.tenant.ID() != tenantID {
 			continue
 		}
 		select {
@@ -224,10 +266,12 @@ func (s *Source) fail() {
 	}
 }
 
-// Run reads notifications until ctx ends or the session is lost, and passes each event to the subscriptions of its
-// tenant. It is the supervised task of the source: a lost session returns ErrEventSourceUnavailable and stops every
-// subscription (ST-SUP-RP01-LC05); a notice that cannot be read is counted and skipped and stops nothing
-// (ST-SUP-RP01-LC21); the end of ctx returns nil. A source runs once.
+// Run reads notifications until ctx ends or the session is lost. A notice holds only a message identity; Run reads
+// the message again for each subscriber's tenant and passes the event to the subscribers whose tenant sees the row
+// (ST-SUP-RP01-LC21). It is the supervised task of the source: a lost session returns ErrEventSourceUnavailable and
+// stops every subscription (ST-SUP-RP01-LC05); a notice that cannot be read is counted and skipped, and a notice of
+// a message that no subscriber's tenant sees is dropped, and neither stops anything; the end of ctx returns nil. A
+// source runs once.
 func (s *Source) Run(ctx context.Context) error {
 	if ctx == nil {
 		return ErrEventSourceUnavailable
@@ -261,12 +305,12 @@ func (s *Source) Run(ctx context.Context) error {
 		if notification.Channel != NoticeChannel {
 			continue
 		}
-		tenantID, event, err := decodeNotice([]byte(notification.Payload))
+		id, err := parseNotice(notification.Payload)
 		if err != nil {
 			s.bad.Add(1)
 			continue
 		}
-		s.dispatch(tenantID, event)
+		s.fanOut(ctx, id)
 	}
 }
 
@@ -293,71 +337,11 @@ func (s *Source) Close() {
 	})
 }
 
-func encodeNotice(tenantID string, event Event) (string, error) {
-	data, err := json.Marshal(notice{ID: event.ID.String(), TenantID: tenantID, Destination: event.Destination,
-		ResourceKey: event.ResourceKey})
-	if err != nil {
-		return "", err
+// parseNotice reads one notice: the message identity in its canonical text form, and nothing else.
+func parseNotice(payload string) (uuid.UUID, error) {
+	id, err := uuid.Parse(payload)
+	if err != nil || id == uuid.Nil || id.String() != payload {
+		return uuid.Nil, errors.New("outbox: the notice is not a message identity")
 	}
-	if len(data) > MaxNoticeBytes {
-		return "", errors.New("outbox: the notice is longer than its limit")
-	}
-	return string(data), nil
-}
-
-// decodeNotice reads one notice: a JSON object with exactly the four members of a notice, each once.
-func decodeNotice(data []byte) (string, Event, error) {
-	bad := errors.New("outbox: the notice cannot be read")
-	if len(data) > MaxNoticeBytes || !utf8.Valid(data) {
-		return "", Event{}, bad
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	token, err := decoder.Token()
-	if err != nil || token != json.Delim('{') {
-		return "", Event{}, bad
-	}
-	values := map[string]string{}
-	for decoder.More() {
-		key, err := decoder.Token()
-		if err != nil {
-			return "", Event{}, bad
-		}
-		name, ok := key.(string)
-		if !ok {
-			return "", Event{}, bad
-		}
-		if _, exists := values[name]; exists {
-			return "", Event{}, bad
-		}
-		switch name {
-		case "id", "tenant_id", "destination", "resource_key":
-		default:
-			return "", Event{}, bad
-		}
-		var value string
-		if err := decoder.Decode(&value); err != nil {
-			return "", Event{}, bad
-		}
-		values[name] = value
-	}
-	if _, err := decoder.Token(); err != nil || len(values) != 4 {
-		return "", Event{}, bad
-	}
-	if _, err := decoder.Token(); err != io.EOF {
-		return "", Event{}, bad
-	}
-	id, err := uuid.Parse(values["id"])
-	if err != nil || id == uuid.Nil || id.String() != values["id"] {
-		return "", Event{}, bad
-	}
-	tenantID := values["tenant_id"]
-	if tenantID == "" || !validText(tenantID, MaxKeyBytes) {
-		return "", Event{}, bad
-	}
-	event := Event{ID: id, Destination: values["destination"], ResourceKey: values["resource_key"]}
-	if err := validateMessage(Message{ID: event.ID, Destination: event.Destination, ResourceKey: event.ResourceKey,
-		Kind: "notice", Payload: []byte(`{}`)}); err != nil {
-		return "", Event{}, bad
-	}
-	return tenantID, event, nil
+	return id, nil
 }

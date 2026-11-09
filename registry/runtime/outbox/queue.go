@@ -43,27 +43,35 @@ const RelayRole = "stego_outbox_relay"
 var rolePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
 // Migration returns the DDL text of the queue (ST-SUP-RP01-LC19). The migration job runs it as the table owner, in
-// one transaction, as a simple query of several statements runs. The owner must be a superuser, or a role with
-// CREATEROLE: the text creates RelayRole when it is missing, and grants it to the owner WITH SET TRUE, INHERIT
-// FALSE: the text makes the relay functions under SET ROLE RelayRole, so they belong to it and a later run replaces
-// them, and INHERIT false keeps the relay policies out of the owner's own sessions. When RelayRole exists already
-// and the owner holds no SET on it, the owner needs ADMIN on it for that grant. RelayRole gets CREATE on the schema
-// only while the functions are made; the same text revokes it and resets the role.
+// one transaction, as a simple query of several statements runs. The text creates RelayRole when it is missing, and
+// makes the relay functions under SET ROLE RelayRole, so they belong to it and a later run replaces them. The owner
+// therefore needs membership in RelayRole WITH SET TRUE, INHERIT TRUE, which a superuser or a role with ADMIN on
+// RelayRole grants (GRANT stego_outbox_relay TO <owner> WITH SET TRUE, INHERIT TRUE); without it the text stops,
+// before it makes the table, with an error that names that grant, and its transaction changes nothing. RelayRole gets CREATE on the schema only while the
+// functions are made; the same text revokes it and resets the role.
 //
 // The table stego_outbox.messages holds the dispatch state, the attempt and conflict counts (ST-SUP-RC18-OC29), the
 // tenant (ST-SUP-RC18-OC28), the outgoing idempotency key (ST-SUP-RP01-LC10), the group of the state hook
-// (ST-SUP-RP01-LC25) and a short failure code, never an error text (ST-SUP-RP01-LC06). Row-level security is
-// enabled and forced. runtimeRole, the role of the running service, has one policy on the transaction-local tenant
-// setting, USING and WITH CHECK, and SELECT, INSERT and UPDATE under it: Enqueue, Resolve and DeadLetters run in a
-// transaction of one tenant. RelayRole has a policy for SELECT, UPDATE and DELETE and none for INSERT, and owns the
-// SECURITY DEFINER functions that span tenants: claim, move, release, purge_parked, purge_done, blocked and
-// oldest. Each has search_path = pg_catalog, pg_temp, names every object with its schema and changes no setting;
-// runtimeRole gets EXECUTE on them, and PUBLIC none.
-func Migration(runtimeRole string) (string, error) {
-	if !rolePattern.MatchString(runtimeRole) || runtimeRole == RelayRole {
-		return "", fmt.Errorf("outbox: %q is not a role name the migration accepts", runtimeRole)
+// (ST-SUP-RP01-LC25), the must_land flag and a short failure code, never an error text (ST-SUP-RP01-LC06).
+// Row-level security is enabled and forced. runtimeRole, the request-path role, and workerRole, the role that the
+// worker mode connects as, each have the tenant policy on the transaction-local tenant setting, USING and WITH
+// CHECK, and SELECT, INSERT and UPDATE under it: Enqueue, Resolve and DeadLetters run in a transaction of one
+// tenant. RelayRole has a policy for SELECT, UPDATE and DELETE and none for INSERT, and owns the SECURITY DEFINER
+// functions that span tenants: claim, move, release, purge_parked, purge_done, blocked and oldest. Each has
+// search_path = pg_catalog, pg_temp, names every object with its schema, checks its arguments and changes no
+// setting. Only workerRole gets EXECUTE on them; runtimeRole and PUBLIC get none, so a request path can never claim,
+// move or purge a message, nor pass a clock time of its own to a relay function.
+func Migration(runtimeRole, workerRole string) (string, error) {
+	for _, role := range []string{runtimeRole, workerRole} {
+		if !rolePattern.MatchString(role) || role == RelayRole {
+			return "", fmt.Errorf("outbox: %q is not a role name the migration accepts", role)
+		}
 	}
-	return strings.ReplaceAll(migration, "{{runtime}}", `"`+runtimeRole+`"`), nil
+	if runtimeRole == workerRole {
+		return "", errors.New("outbox: the worker role must be a role apart from the runtime role")
+	}
+	text := strings.ReplaceAll(migration, "{{runtime}}", `"`+runtimeRole+`"`)
+	return strings.ReplaceAll(text, "{{worker}}", `"`+workerRole+`"`), nil
 }
 
 // The relay functions, by their signature, for the grants and the checks.
@@ -85,10 +93,11 @@ EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL;
 END $do$;
 
 DO $do$ BEGIN
-	-- The owner gives the relay functions to stego_outbox_relay, which needs SET on that role; INHERIT is false, so
-	-- the owner's own sessions never get the relay policies. A superuser holds SET already.
-	IF NOT pg_catalog.pg_has_role(CURRENT_USER, 'stego_outbox_relay', 'SET') THEN
-		EXECUTE pg_catalog.format('GRANT stego_outbox_relay TO %I WITH SET TRUE, INHERIT FALSE', CURRENT_USER);
+	-- The owner makes the relay functions as stego_outbox_relay, so it needs SET and INHERIT membership in it.
+	IF NOT (pg_catalog.pg_has_role(CURRENT_USER, 'stego_outbox_relay', 'SET')
+		AND pg_catalog.pg_has_role(CURRENT_USER, 'stego_outbox_relay', 'USAGE')) THEN
+		RAISE EXCEPTION 'outbox: the migration role % needs membership in stego_outbox_relay WITH SET TRUE, INHERIT TRUE', CURRENT_USER
+			USING HINT = 'GRANT stego_outbox_relay TO ' || pg_catalog.quote_ident(CURRENT_USER) || ' WITH SET TRUE, INHERIT TRUE';
 	END IF;
 END $do$;
 
@@ -136,7 +145,7 @@ CREATE INDEX IF NOT EXISTS messages_done ON stego_outbox.messages (done_at) WHER
 ALTER TABLE stego_outbox.messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stego_outbox.messages FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS messages_tenant ON stego_outbox.messages;
-CREATE POLICY messages_tenant ON stego_outbox.messages TO {{runtime}}
+CREATE POLICY messages_tenant ON stego_outbox.messages TO {{runtime}}, {{worker}}
 	USING (tenant_id = pg_catalog.current_setting('app.tenant', true))
 	WITH CHECK (tenant_id = pg_catalog.current_setting('app.tenant', true));
 DROP POLICY IF EXISTS messages_relay_select ON stego_outbox.messages;
@@ -147,9 +156,9 @@ DROP POLICY IF EXISTS messages_relay_delete ON stego_outbox.messages;
 CREATE POLICY messages_relay_delete ON stego_outbox.messages FOR DELETE TO stego_outbox_relay USING (true);
 
 REVOKE ALL ON stego_outbox.messages FROM PUBLIC;
-GRANT USAGE ON SCHEMA stego_outbox TO {{runtime}};
+GRANT USAGE ON SCHEMA stego_outbox TO {{runtime}}, {{worker}};
 GRANT USAGE, CREATE ON SCHEMA stego_outbox TO stego_outbox_relay;
-GRANT SELECT, INSERT, UPDATE ON stego_outbox.messages TO {{runtime}};
+GRANT SELECT, INSERT, UPDATE ON stego_outbox.messages TO {{runtime}}, {{worker}};
 GRANT SELECT, UPDATE, DELETE ON stego_outbox.messages TO stego_outbox_relay;
 
 -- The relay functions are made as their owner, so a later run of the same text replaces them.
@@ -393,7 +402,8 @@ BEGIN
 		'stego_outbox.blocked(timestamptz, integer)',
 		'stego_outbox.oldest(timestamptz)'] LOOP
 		EXECUTE 'REVOKE ALL ON FUNCTION ' || f || ' FROM PUBLIC';
-		EXECUTE 'GRANT EXECUTE ON FUNCTION ' || f || ' TO {{runtime}}';
+		EXECUTE 'REVOKE ALL ON FUNCTION ' || f || ' FROM {{runtime}}';
+		EXECUTE 'GRANT EXECUTE ON FUNCTION ' || f || ' TO {{worker}}';
 	END LOOP;
 END
 $do$;
@@ -578,12 +588,8 @@ func (q *Queue) Enqueue(ctx context.Context, tx *sql.Tx, messages ...Message) er
 		if !q.notify {
 			continue
 		}
-		notice, err := encodeNotice(tenantID.String, Event{ID: message.ID, Destination: message.Destination,
-			ResourceKey: message.ResourceKey})
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `SELECT pg_catalog.pg_notify($1, $2)`, NoticeChannel, notice); err != nil {
+		// The notice is the message identity alone: any role that can connect may LISTEN (ST-SUP-RP01-LC21).
+		if _, err := tx.ExecContext(ctx, `SELECT pg_catalog.pg_notify($1, $2)`, NoticeChannel, message.ID.String()); err != nil {
 			return canceled(ctx, err)
 		}
 	}

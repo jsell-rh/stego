@@ -34,13 +34,13 @@ func (l pgxListener) WaitForNotification(ctx context.Context) (Notification, err
 
 func (l pgxListener) Close(ctx context.Context) error { return l.conn.Close(ctx) }
 
-func startSource(t *testing.T, dsn string) (*Source, *pgx.Conn, <-chan error) {
+func startSource(t *testing.T, db *sql.DB, dsn string) (*Source, *pgx.Conn, <-chan error) {
 	t.Helper()
 	conn, err := pgx.Connect(context.Background(), dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	source, err := NewSource(context.Background(), pgxListener{conn: conn})
+	source, err := NewSource(context.Background(), pgxListener{conn: conn}, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,8 +90,8 @@ func TestEventsNotice(t *testing.T) {
 	t.Run("ST-SUP-RP01-LC01-T02 Notices reach every session after the commit, in commit order", func(t *testing.T) {
 		db, dsn := testDatabase(t)
 		q := liveQueue(t, db)
-		first, _, _ := startSource(t, dsn)
-		second, _, _ := startSource(t, dsn)
+		first, _, _ := startSource(t, db, dsn)
+		second, _, _ := startSource(t, db, dsn)
 		a, b := subscribe(t, first), subscribe(t, second)
 		ctx := context.Background()
 		tn := testTenant(t, "tenant-a")
@@ -151,8 +151,8 @@ func TestEventsNotice(t *testing.T) {
 
 func TestEventsBounds(t *testing.T) {
 	t.Run("ST-SUP-RP01-LC05-T02 The event source holds its subscription and queue bounds", func(t *testing.T) {
-		_, dsn := testDatabase(t)
-		source, _, _ := startSource(t, dsn)
+		db, dsn := testDatabase(t)
+		source, _, _ := startSource(t, db, dsn)
 		slow, fast := subscribe(t, source), subscribe(t, source)
 		event := Event{ID: uuid.New(), Destination: "audit", ResourceKey: "record"}
 		for range SubscriptionBuffer + 1 {
@@ -197,7 +197,7 @@ func TestEventsBounds(t *testing.T) {
 	t.Run("ST-SUP-RP01-LC05-T03 A lost notice session stops the source and its subscriptions", func(t *testing.T) {
 		db, dsn := testDatabase(t)
 		q := liveQueue(t, db)
-		source, conn, done := startSource(t, dsn)
+		source, conn, done := startSource(t, db, dsn)
 		sub := subscribe(t, source)
 		pid := conn.PgConn().PID()
 		if _, err := admin(t, db).Exec(`SELECT pg_terminate_backend($1)`, pid); err != nil {
@@ -217,7 +217,7 @@ func TestEventsBounds(t *testing.T) {
 		if _, err := source.Subscribe(context.Background(), testTenant(t, "tenant-a")); !errors.Is(err, ErrEventSourceUnavailable) {
 			t.Fatal("the failed source took a new subscription")
 		}
-		replacement, _, _ := startSource(t, dsn)
+		replacement, _, _ := startSource(t, db, dsn)
 		next := subscribe(t, replacement)
 		value := message("audit", "after-reconnect")
 		enqueue(t, db, q, value)
@@ -241,7 +241,7 @@ func TestEventsTenant(t *testing.T) {
 	t.Run("ST-SUP-RP01-LC21-T01 A subscriber gets only its own tenant's events", func(t *testing.T) {
 		db, dsn := testDatabase(t)
 		q := liveQueue(t, db)
-		source, _, _ := startSource(t, dsn)
+		source, _, _ := startSource(t, db, dsn)
 		if _, err := source.Subscribe(context.Background(), tenant.Tenant{}); !errors.Is(err, tenant.ErrZero) {
 			t.Fatalf("the zero tenant gave %v", err)
 		}
@@ -259,27 +259,34 @@ func TestEventsTenant(t *testing.T) {
 		noEvent(t, b)
 	})
 
-	t.Run("ST-SUP-RP01-LC21-T02 A bad notice is counted and skipped", func(t *testing.T) {
+	t.Run("ST-SUP-RP01-LC21-T02 A bad or forged notice is counted or dropped, and a notice carries only the message ID", func(t *testing.T) {
 		db, dsn := testDatabase(t)
 		q := liveQueue(t, db)
-		source, _, done := startSource(t, dsn)
+		source, _, done := startSource(t, requestPool(t, db), dsn)
 		sub := subscribeFor(t, source, "t1")
-		forged := Event{ID: uuid.New(), Destination: "audit", ResourceKey: "doc:1"}
-		payload, err := encodeNotice("t1", forged)
+		ctx := context.Background()
+		watch, err := pgx.Connect(ctx, dsn)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec(`SELECT pg_notify($1, $2), pg_notify($1, $3)`, NoticeChannel, "not an event", payload); err != nil {
+		defer func() { _ = watch.Close(ctx) }()
+		if _, err := watch.Exec(ctx, "LISTEN "+NoticeChannel); err != nil {
 			t.Fatal(err)
 		}
-		if got := nextEvent(t, sub); got.ID != forged.ID {
-			t.Fatalf("the forged event is %+v", got)
+		// A notice that is not a message identity, and a forged one: the identity of a message that does not exist.
+		forged := uuid.New()
+		if _, err := db.Exec(`SELECT pg_notify($1, $2), pg_notify($1, $3)`, NoticeChannel, "not an event", forged.String()); err != nil {
+			t.Fatal(err)
 		}
+		other := message("audit", "doc:1")
+		enqueueAs(t, db, q, "t2", other)
 		real := message("audit", "doc:2")
 		enqueueAs(t, db, q, "t1", real)
-		if got := nextEvent(t, sub); got.ID != real.ID {
-			t.Fatalf("the real event is %+v", got)
+		// The forged notice and t2's message are dropped for t1's subscriber: the next event is the real one.
+		if got := nextEvent(t, sub); got.ID != real.ID || got.Destination != "audit" || got.ResourceKey != "doc:2" {
+			t.Fatalf("the event is %+v", got)
 		}
+		noEvent(t, sub)
 		if source.BadNotices() != 1 {
 			t.Fatalf("%d bad notices are counted", source.BadNotices())
 		}
@@ -288,17 +295,14 @@ func TestEventsTenant(t *testing.T) {
 			t.Fatalf("the source stopped: %v", err)
 		default:
 		}
-		// The subscriber reads the hint again under row-level security: the forged one finds no message.
-		ctx := context.Background()
-		tx, err := tenant.Begin(ctx, db, testTenant(t, "t1"), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() { _ = tx.Rollback() }()
-		var n int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM stego_outbox.messages WHERE id = ANY(ARRAY[$1, $2]::uuid[])`,
-			forged.ID, real.ID).Scan(&n); err != nil || n != 1 {
-			t.Fatalf("the read again found %d messages: %v", n, err)
+		// A session that listens sees only message identities.
+		for _, want := range []string{"not an event", forged.String(), other.ID.String(), real.ID.String()} {
+			wait, cancel := context.WithTimeout(ctx, 3*time.Second)
+			n, err := watch.WaitForNotification(wait)
+			cancel()
+			if err != nil || n.Payload != want {
+				t.Fatalf("the listening session saw %+v, %v, want %q", n, err, want)
+			}
 		}
 	})
 }
