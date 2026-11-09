@@ -43,6 +43,12 @@ fi
 pin="$(sed -n -E 's#^[[:space:]]*(require[[:space:]]+)?stego\.dev/runtime[[:space:]]+(v[^[:space:]]+).*$#\2#p' "$module/go.mod" | head -n 1)"
 
 mkdir -p "$(dirname "$2")"
+if [ "$module" = "$runtime" ]; then
+	# The module folder is the runtime module itself: a work file that uses one folder twice is refused.
+	printf 'go %s\n\nuse %s\n' "$version" "$runtime" >"$2"
+	echo "$2"
+	exit 0
+fi
 {
 	printf 'go %s\n\nuse (\n\t%s\n\t%s\n)\n' "$version" "$module" "$runtime"
 	if [ -n "$pin" ]; then
