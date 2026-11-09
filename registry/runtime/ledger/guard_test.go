@@ -3,10 +3,12 @@ package ledger
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/stdlib"
 )
@@ -142,12 +144,12 @@ func TestGuard(t *testing.T) {
 			}
 			if runtime {
 				runs = append(runs, fn)
-				if !definer && !strings.HasPrefix(fn, "ledger_balance(") {
+				if !definer && !strings.HasPrefix(fn, "ledger_balance(") && !strings.HasPrefix(fn, "ledger_check_sums(") {
 					t.Errorf("%s, which the runtime role runs, is not SECURITY DEFINER", fn)
 				}
 			}
 		}
-		want := []string{"ledger_balance(text,text)"}
+		want := []string{"ledger_balance(text,text)", "ledger_check_sums(text,text,jsonb,xid8,xid8)"}
 		for _, fn := range OwnerFunctions {
 			want = append(want, strings.ReplaceAll(strings.ReplaceAll(fn, ", ", ","), "timestamptz", "timestamp with time zone"))
 		}
@@ -202,7 +204,7 @@ func TestGuard(t *testing.T) {
 			"void for another tenant":         {"SELECT ledger_void('other', 'usd', 'k', $1::uuid)", p.ID},
 			"reverse for another tenant":      {"SELECT ledger_reverse('other', 'usd', 'k', $1::uuid, '[]')", o.ID},
 			"snapshot for another tenant":     {"SELECT ledger_snapshot('other', 'usd', 1)"},
-			"open for another tenant":         {"SELECT ledger_open('other', 'usd', 'x', 'fees', 'credit', 'USD', NULL, false)"},
+			"open for another tenant":         {"SELECT ledger_open('other', 'usd', 'x', 'fees')"},
 			"post a negative amount":          {"SELECT ledger_post('acme', 'usd', 'k', 'topup', $1::jsonb, NULL)", negative},
 			"pend a negative amount":          {"SELECT ledger_pend('acme', 'usd', 'k', 'purchase', $1::jsonb, NULL)", negative},
 			"post pending a negative amount":  {"SELECT ledger_post_pending('acme', 'usd', 'k', $1::uuid, $2::jsonb)", p.ID, negative},
@@ -213,15 +215,16 @@ func TestGuard(t *testing.T) {
 			"post pending a null ID":          {"SELECT ledger_post_pending('acme', 'usd', 'k', NULL, $1::jsonb)", pair},
 			"void a null ID":                  {"SELECT ledger_void('acme', 'usd', 'k', NULL)"},
 			"reverse a null ID":               {"SELECT ledger_reverse('acme', 'usd', 'k', NULL, $1::jsonb)", pair},
-			"open a null ID":                  {"SELECT ledger_open('acme', 'usd', NULL, 'fees', 'credit', 'USD', NULL, false)"},
+			"open a null ID":                  {"SELECT ledger_open('acme', 'usd', NULL, 'fees')"},
 			"snapshot a null token":           {"SELECT ledger_snapshot('acme', 'usd', NULL)"},
 			"post a code not declared":        {"SELECT ledger_post('acme', 'usd', 'k', 'refund', $1::jsonb, NULL)", pair},
 			"post a null key":                 {"SELECT ledger_post('acme', 'usd', NULL, 'topup', $1::jsonb, NULL)", pair},
 			"post a ledger not declared":      {"SELECT ledger_post('acme', 'eur', 'k', 'topup', $1::jsonb, NULL)", pair},
 			"post a fraction":                 {`SELECT ledger_post('acme', 'usd', 'k', 'topup', '[{"account": "hot", "side": "debit", "amount": 1.5}, {"account": "plain", "side": "credit", "amount": 1.5}]', NULL)`},
 			"post beyond int64":               {`SELECT ledger_post('acme', 'usd', 'k', 'topup', '[{"account": "hot", "side": "debit", "amount": 9223372036854775808}, {"account": "plain", "side": "credit", "amount": 9223372036854775808}]', NULL)`},
-			"open in another currency":        {"SELECT ledger_open('acme', 'usd', 'x', 'fees', 'credit', 'EUR', NULL, false)"},
-			"open a hot account with a limit": {"SELECT ledger_open('acme', 'usd', 'x', 'fees', 'credit', 'USD', 0, true)"},
+			"open a code not declared":        {"SELECT ledger_open('acme', 'usd', 'x', 'refunds')"},
+			"open a duplicate ID":             {"SELECT ledger_open('acme', 'usd', 'limited', 'fees')"},
+			"reverse with an extra key":       {`SELECT ledger_reverse('acme', 'usd', 'k', $1::uuid, '[{"account": "hot", "side": "credit", "amount": 50, "note": "x"}, {"account": "plain", "side": "debit", "amount": 50}]')`, o.ID},
 		}
 		for name, c := range calls {
 			if err := f.raw(c[0].(string), c[1:]...); err == nil {
@@ -231,6 +234,42 @@ func TestGuard(t *testing.T) {
 		after := fmt.Sprint(f.count("transfers", "true"), f.count("entries", "true"), f.count("accounts", "true"), f.count("balance_snapshots", "true"))
 		if after != before {
 			t.Fatalf("the row counts were %s and are %s", before, after)
+		}
+		// Open maps a duplicate ID to its typed error and takes only the ID and the declared code.
+		err := f.try(f.runtime, acme, func(tx *sql.Tx) error { return f.usd.Open(f.ctx, tx, f.tn(acme), "limited", "fees") })
+		if !errors.Is(err, ErrAccountExists) {
+			t.Fatalf("Open of a duplicate ID: %v; want ErrAccountExists", err)
+		}
+		err = f.try(f.runtime, acme, func(tx *sql.Tx) error { return f.usd.Open(f.ctx, tx, f.tn(acme), "x", "refunds") })
+		if !errors.Is(err, ErrInvalid) {
+			t.Fatalf("Open of a code not declared: %v; want ErrInvalid", err)
+		}
+		var normal, currency string
+		var limit sql.NullInt64
+		var hot bool
+		f.inTx(f.runtime, acme, func(tx *sql.Tx) error {
+			if err := f.usd.Open(f.ctx, tx, f.tn(acme), "wallet-2", "customer_wallet"); err != nil {
+				return err
+			}
+			return tx.QueryRowContext(f.ctx, "SELECT normal, currency, min_balance, hot FROM accounts WHERE id = 'wallet-2'").Scan(&normal, &currency, &limit, &hot)
+		})
+		if normal != "credit" || currency != "USD" || !limit.Valid || limit.Int64 != 0 || hot {
+			t.Fatalf("the opened account is %s %s %v %v; want the declared credit USD with the limit 0", normal, currency, limit, hot)
+		}
+		// The declared text that the DDL writes into a function body holds no dollar sign, and the close date is not
+		// in the future.
+		for name, s := range map[string]Settings{
+			"a ledger ID with a dollar sign":    {ID: "u$d", Currency: "USD"},
+			"an account code with dollar signs": {ID: "usd", Currency: "USD", Accounts: []Account{{Code: "a$$b", Normal: Credit}}},
+			"a close date in the future":        {ID: "usd", Currency: "USD", ClosedBefore: time.Now().Add(time.Hour)},
+			"a hot account code with a limit":   {ID: "usd", Currency: "USD", Accounts: []Account{{Code: "a", Normal: Debit, Hot: true, MinBalance: new(int64)}}},
+		} {
+			if _, err := New(s); err == nil {
+				t.Fatalf("New with %s: accepted", name)
+			}
+			if _, err := DDL(Config{RuntimeRole: runtimeRole, Ledgers: []Settings{s}}); err == nil {
+				t.Fatalf("DDL with %s: accepted", name)
+			}
 		}
 	})
 

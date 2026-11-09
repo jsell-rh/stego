@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -16,6 +17,9 @@ import (
 )
 
 var holderSeq atomic.Int64
+
+// gracePeriod is the period of the test jobs, and so the grace that Check gives an expired hold.
+const gracePeriod = time.Second
 
 // holder is a controller replica: a client of the lease row of the real leases table, and the lease it holds.
 type holder struct {
@@ -59,6 +63,7 @@ func (f *fixture) jobsOn(h *holder, db *sql.DB) *Jobs {
 		Lease:   h.of,
 		Tenants: func(context.Context) ([]tenant.Tenant, error) { return []tenant.Tenant{f.tn(acme)}, nil },
 		DB:      db,
+		Period:  gracePeriod,
 	})
 	if err != nil {
 		f.t.Fatal(err)
@@ -95,6 +100,30 @@ func (f *fixture) snapshots(account string) []string {
 		return rows.Err()
 	})
 	return out
+}
+
+// burnTo uses transaction IDs, as subtransactions of the owner, until the next one is ahead of the next power of
+// ten by about n, so that the next n transactions cross it.
+func (f *fixture) burnTo(t *testing.T, n uint64) {
+	t.Helper()
+	var next uint64
+	if err := f.owner.QueryRowContext(f.ctx, "SELECT pg_current_xact_id()::text::bigint").Scan(&next); err != nil {
+		t.Fatal(err)
+	}
+	power := uint64(10)
+	for power <= next+n {
+		power *= 10
+	}
+	burn := power - n - next
+	if burn > 300000 {
+		t.Logf("the next transaction ID %d is too far from a power of ten; the order test does not cross one", next)
+		return
+	}
+	if _, err := f.owner.ExecContext(f.ctx, `CREATE TEMP TABLE burn (x int);
+DO $$ BEGIN FOR i IN 1..`+fmt.Sprint(burn)+` LOOP BEGIN INSERT INTO burn VALUES (i); EXCEPTION WHEN OTHERS THEN NULL; END; END LOOP; END $$;
+DROP TABLE burn`); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestJobs(t *testing.T) {
@@ -175,9 +204,12 @@ func TestJobs(t *testing.T) {
 		if n, err := j.Snapshot(f.ctx); err != nil || n != 1 {
 			t.Fatalf("Snapshot: %d, %v", n, err)
 		}
+		// A Jobs that has checked the snapshot once does not read it again; this check runs on another Jobs, as a
+		// replica that took the lease over would.
 		if err := j.Check(f.ctx); err != nil {
 			t.Fatalf("Check of a sound snapshot: %v", err)
 		}
+		j = f.jobs(h)
 		var through string
 		f.inTx(f.owner, acme, func(tx *sql.Tx) error {
 			return tx.QueryRowContext(f.ctx, "UPDATE balance_snapshots SET amount = amount + 1 WHERE account_id = 'dr' RETURNING through_xid::text").Scan(&through)
@@ -204,7 +236,12 @@ func TestJobs(t *testing.T) {
 		if err := j.Check(f.ctx); err != nil {
 			t.Fatalf("Check before the expiry: %v", err)
 		}
+		// Within one sweep period of the expiry, the sweep has its grace.
 		f.waitPast(p.ExpiresAt)
+		if err := j.Check(f.ctx); err != nil && time.Now().Before(p.ExpiresAt.Add(gracePeriod-100*time.Millisecond)) {
+			t.Fatalf("Check within the grace of the sweep: %v", err)
+		}
+		f.waitPast(p.ExpiresAt.Add(gracePeriod))
 		err := j.Check(f.ctx)
 		if err == nil || !strings.Contains(err.Error(), "the expiry sweep did not void the pending transfer "+p.ID) || strings.Contains(err.Error(), voided.ID) {
 			t.Fatalf("Check after the expiry: %v; want a failure of the sweep that names %s only", err, p.ID)
@@ -225,7 +262,7 @@ func TestJobs(t *testing.T) {
 		f.post(f.runtime, "k1", dr("dr", 10), dr("dr", 20), dr("dr", 30), cr("cr", 60))
 		// The process in the api and the worker mode starts neither job.
 		registry := modes.NewRegistry()
-		if err := registry.Register(modes.Controller, j.Components(time.Hour, nil)...); err != nil {
+		if err := registry.Register(modes.Controller, j.Components(nil)...); err != nil {
 			t.Fatal(err)
 		}
 		for _, sel := range []modes.Selection{{modes.API}, {modes.Worker}, {modes.API, modes.Worker}} {
@@ -299,7 +336,7 @@ func TestJobs(t *testing.T) {
 			t.Fatalf("the health after a passed check is %v %q", ok, reason)
 		}
 		p := f.pend("hold", dr("dr", 5), cr("cr", 5))
-		f.waitPast(p.ExpiresAt)
+		f.waitPast(p.ExpiresAt.Add(gracePeriod))
 		if err := j.Check(f.ctx); err == nil {
 			t.Fatal("Check passed with an expired pending transfer")
 		}
@@ -314,6 +351,9 @@ func TestJobs(t *testing.T) {
 		h := f.holder()
 		h.take(t)
 		j := f.jobs(h)
+		// The transaction IDs of the rounds cross a power of ten, so an order of the snapshots as text would differ
+		// from their order as xid8.
+		f.burnTo(t, 550)
 		for round := range 50 {
 			for i := range 10 {
 				f.post(f.runtime, fmt.Sprintf("k-%d-%d", round, i), dr("dr", int64(round+1)), cr("cr", int64(round+1)))
@@ -353,7 +393,8 @@ func TestJobs(t *testing.T) {
 		}
 		before := entriesRead()
 		checkDB := f.open(runtimeRole, nil)
-		err := f.jobsOn(h, checkDB).Check(f.ctx)
+		j2 := f.jobsOn(h, checkDB)
+		err := j2.Check(f.ctx)
 		checkDB.Close()
 		time.Sleep(300 * time.Millisecond)
 		read := entriesRead() - before
@@ -364,41 +405,121 @@ func TestJobs(t *testing.T) {
 		if read < 1000 || read > 1100 {
 			t.Fatalf("Check read %d entry rows for 1000 entries; want each entry once", read)
 		}
+		// The position stays before the failure, so the next check reports it again; once it is mended, the check
+		// passes, and a later check reads only the entries after the last checked position.
+		f.runtime, f.owner, f.traced = f.open(runtimeRole, nil), f.open(ownerRole, nil), f.open(runtimeRole, f.trace)
+		j2.cfg.DB = f.runtime
+		if err := j2.Check(f.ctx); err == nil || !strings.Contains(err.Error(), "the snapshot through_xid "+through+" of the account dr") {
+			t.Fatalf("the second Check: %v; want the same failure", err)
+		}
+		mark := f.trace.mark()
+		if err := f.jobsOn(h, f.traced).Check(f.ctx); err == nil {
+			t.Fatal("a new Jobs passed the check before the mend")
+		}
+		sent := strings.ToLower(strings.Join(f.trace.since(mark), "\n"))
+		if !strings.Contains(sent, "begin isolation level repeatable read") || !strings.Contains(sent, "set transaction read only") {
+			t.Fatalf("Check does not run as REPEATABLE READ READ ONLY; it sent:\n%s", sent)
+		}
+		f.inTx(f.owner, acme, func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(f.ctx, "UPDATE balance_snapshots SET amount = amount - 1 WHERE account_id = 'dr' AND through_xid = $1::xid8", through)
+			return err
+		})
+		if err := j2.Check(f.ctx); err != nil {
+			t.Fatalf("Check after the mend: %v", err)
+		}
+		for i := range 10 {
+			f.post(f.runtime, fmt.Sprintf("late-%d", i), dr("dr", 1), cr("cr", 1))
+		}
+		if n, err := j2.Snapshot(f.ctx); err != nil || n != 2 {
+			t.Fatalf("the late Snapshot: %d, %v", n, err)
+		}
+		f.runtime.Close()
+		f.owner.Close()
+		before = entriesRead()
+		checkDB = f.open(runtimeRole, nil)
+		j2.cfg.DB = checkDB
+		if err := j2.Check(f.ctx); err != nil {
+			t.Fatalf("the incremental Check: %v", err)
+		}
+		checkDB.Close()
+		time.Sleep(300 * time.Millisecond)
+		if read := entriesRead() - before; read < 20 || read > 40 {
+			t.Fatalf("the incremental Check read %d entry rows for 20 new entries", read)
+		}
 	})
 
 	t.Run("ST-SUP-RP08-LC08-T08 A job ends before the lease deadline", func(t *testing.T) {
 		f := newFixture(t)
 		f.post(f.runtime, "fund", dr("hot", 100), cr("limited", 100))
-		h := f.holderFor(2 * time.Second)
-		held := h.take(t)
-		j := f.jobs(h)
-		locker, err := tenant.Begin(f.ctx, f.owner, f.tn(acme), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer locker.Rollback()
-		if _, err := locker.ExecContext(f.ctx, "SELECT 1 FROM accounts WHERE id = 'limited' FOR UPDATE"); err != nil {
-			t.Fatal(err)
-		}
-		renewed := make(chan time.Duration, 1)
-		go func() {
-			f.waitForLockWait(t)
-			start := time.Now()
-			if err := held.Renew(f.ctx); err != nil {
-				t.Errorf("the renew: %v", err)
+		// The other session's long transaction holds the account's row lock. The job ends before the lease deadline
+		// whether it starts with the whole budget or near the end of the lease, and a renew does not wait for it.
+		for _, c := range []struct {
+			name  string
+			late  time.Duration
+			lock  time.Duration
+			codes []string
+		}{
+			{"whole budget", 0, 0, []string{"55P03"}},
+			{"long lock timeout", 0, time.Minute, []string{"55P03"}},
+			{"near the lease end", 1500 * time.Millisecond, time.Minute, []string{"55P03", ""}},
+		} {
+			h := f.holderFor(2 * time.Second)
+			held := h.take(t)
+			j, err := NewJobs(JobsConfig{Ledgers: []*Ledger{f.usd}, Lease: h.of, DB: f.runtime, LockTimeout: c.lock,
+				Tenants: func(context.Context) ([]tenant.Tenant, error) { return []tenant.Tenant{f.tn(acme)}, nil }})
+			if err != nil {
+				t.Fatal(err)
 			}
-			renewed <- time.Since(start)
-		}()
-		n, err := j.Snapshot(f.ctx)
-		ended := time.Now()
-		if sqlState(err) != "55P03" || n != 0 {
-			t.Fatalf("Snapshot under a held account lock: %d, %v; want the lock timeout", n, err)
-		}
-		if !ended.Before(held.Expires()) {
-			t.Fatalf("Snapshot ended at %v, after the lease deadline %v", ended, held.Expires())
-		}
-		if wait := <-renewed; wait > time.Second {
-			t.Fatalf("the renew waited %v for the job", wait)
+			locker, err := tenant.Begin(f.ctx, f.owner, f.tn(acme), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := locker.ExecContext(f.ctx, "SELECT 1 FROM accounts WHERE id = 'limited' FOR UPDATE"); err != nil {
+				t.Fatal(err)
+			}
+			type renew struct {
+				wait time.Duration
+				err  error
+			}
+			renewed := make(chan renew, 1)
+			started := make(chan struct{})
+			go func() {
+				<-started
+				start := time.Now()
+				err := held.Renew(f.ctx)
+				renewed <- renew{time.Since(start), err}
+			}()
+			time.Sleep(c.late)
+			done := make(chan error, 1)
+			go func() {
+				_, err := j.Snapshot(f.ctx)
+				done <- err
+			}()
+			if c.late == 0 {
+				f.waitForLockWait(t)
+			}
+			close(started)
+			err = <-done
+			ended := time.Now()
+			r := <-renewed
+			_ = locker.Rollback()
+			if !slices.Contains(c.codes, sqlState(err)) || err == nil {
+				t.Fatalf("%s: Snapshot under a held account lock: %v; want SQLSTATE %v", c.name, err, c.codes)
+			}
+			if sqlState(err) == "" && !errors.Is(err, ErrDeadline) {
+				t.Fatalf("%s: %v; want the lock timeout or ErrDeadline", c.name, err)
+			}
+			if !ended.Before(held.Expires()) {
+				t.Fatalf("%s: Snapshot ended at %v, after the lease deadline %v", c.name, ended, held.Expires())
+			}
+			// The renew waits at most for the lock timeout of the job, a quarter of its budget of half the renew
+			// slack: 125 ms for this lease.
+			if r.err != nil || r.wait > 400*time.Millisecond {
+				t.Fatalf("%s: the renew waited %v for the job: %v", c.name, r.wait, r.err)
+			}
+			if err := held.Release(f.ctx); err != nil {
+				t.Fatal(err)
+			}
 		}
 	})
 

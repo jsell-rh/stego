@@ -97,7 +97,7 @@ func newFixture(t *testing.T, opts ...func(*Settings)) *fixture {
 	}
 	f := &fixture{t: t, ctx: ctx, cfg: base, db: "ledger_" + hex.EncodeToString(suffix[:]), admin: admin, trace: &statementTrace{},
 		settings: Settings{ID: "usd", Currency: "USD", PendingTimeout: 15 * time.Minute, SnapshotEvery: 3,
-			ClosedBefore: time.Now().Add(-closedDays * 24 * time.Hour).UTC().Truncate(time.Second)}}
+			ClosedBefore: time.Now().Add(-closedDays * 24 * time.Hour).UTC().Truncate(time.Second), Accounts: declaredAccounts()}}
 	for _, o := range opts {
 		o(&f.settings)
 	}
@@ -122,6 +122,8 @@ GRANT SELECT, UPDATE ON leases TO ` + runtimeRole + `;`
 		t.Fatalf("apply the DDL text: %v", err)
 	}
 	f.runtime = f.open(runtimeRole, nil)
+	// The server of the tests has 100 connections; the tests that race many calls share these.
+	f.runtime.SetMaxOpenConns(30)
 	f.traced = f.open(runtimeRole, f.trace)
 	if f.usd, err = New(f.settings); err != nil {
 		t.Fatal(err)
@@ -146,19 +148,26 @@ func (f *fixture) open(role string, trace *statementTrace) *sql.DB {
 	return db
 }
 
+// declaredAccounts are the account codes of the test ledger.
+func declaredAccounts() []Account {
+	zero := int64(0)
+	return []Account{
+		{Code: "customer_wallet", Normal: Credit, MinBalance: &zero},
+		{Code: "settlement", Normal: Debit, Hot: true},
+		{Code: "fees", Normal: Credit},
+		{Code: "receivable", Normal: Debit},
+		{Code: "payable", Normal: Credit},
+	}
+}
+
+// testAccounts are the accounts of each tenant: limited, hot, plain, dr and cr, by their codes.
+var testAccounts = [][2]string{{"limited", "customer_wallet"}, {"hot", "settlement"}, {"plain", "fees"}, {"dr", "receivable"}, {"cr", "payable"}}
+
 func (f *fixture) openAccounts(l *Ledger, tenantID string) {
 	f.t.Helper()
-	zero := int64(0)
-	accounts := []Account{
-		{ID: "limited", Code: "customer_wallet", Normal: Credit, MinBalance: &zero},
-		{ID: "hot", Code: "settlement", Normal: Debit, Hot: true},
-		{ID: "plain", Code: "fees", Normal: Credit},
-		{ID: "dr", Code: "receivable", Normal: Debit},
-		{ID: "cr", Code: "payable", Normal: Credit},
-	}
 	f.inTx(f.runtime, tenantID, func(tx *sql.Tx) error {
-		for _, a := range accounts {
-			if err := l.Open(f.ctx, tx, f.tn(tenantID), a); err != nil {
+		for _, a := range testAccounts {
+			if err := l.Open(f.ctx, tx, f.tn(tenantID), a[0], a[1]); err != nil {
 				return err
 			}
 		}
@@ -192,7 +201,11 @@ func (f *fixture) try(db *sql.DB, tenantID string, fn func(tx *sql.Tx) error) er
 }
 
 func (f *fixture) tryAt(db *sql.DB, tenantID string, opts *sql.TxOptions, fn func(tx *sql.Tx) error) error {
-	t := f.tn(tenantID)
+	return f.tryAs(db, f.tn(tenantID), opts, fn)
+}
+
+// tryAs is try with a tenant already built. It calls no method of testing.T, so a goroutine may run it.
+func (f *fixture) tryAs(db *sql.DB, t tenant.Tenant, opts *sql.TxOptions, fn func(tx *sql.Tx) error) error {
 	tx, err := tenant.Begin(f.ctx, db, t, opts)
 	if err != nil {
 		return err
@@ -258,6 +271,18 @@ func (f *fixture) call(fn func(tx *sql.Tx, t tenant.Tenant) (Transfer, error)) (
 	return out, err
 }
 
+// callAs runs one ledger call for the tenant in a transaction of its own on the runtime pool. It calls no method of
+// testing.T, so a goroutine may run it, and reports the error to its caller.
+func (f *fixture) callAs(t tenant.Tenant, fn func(tx *sql.Tx, t tenant.Tenant) (Transfer, error)) (Transfer, error) {
+	var out Transfer
+	err := f.tryAs(f.runtime, t, nil, func(tx *sql.Tx) error {
+		var err error
+		out, err = fn(tx, t)
+		return err
+	})
+	return out, err
+}
+
 // raw runs one statement as the runtime role in a transaction of acme, and returns its error.
 func (f *fixture) raw(statement string, args ...any) error {
 	return f.try(f.runtime, acme, func(tx *sql.Tx) error {
@@ -291,7 +316,7 @@ func (f *fixture) available(account string) int64 {
 	f.t.Helper()
 	var n int64
 	f.inTx(f.owner, acme, func(tx *sql.Tx) error {
-		return tx.QueryRowContext(f.ctx, "SELECT (ledger_balance('usd', $1) + ledger_holds('usd', $1))::bigint", account).Scan(&n)
+		return tx.QueryRowContext(f.ctx, "SELECT (ledger_balance('usd', $1) + ledger_holds('usd', $1, clock_timestamp()))::bigint", account).Scan(&n)
 	})
 	return n
 }
@@ -524,8 +549,9 @@ func TestPost(t *testing.T) {
 				t.Fatal(err)
 			}
 			done := make(chan error, 1)
+			acmeT := f.tn(acme)
 			go func() {
-				_, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
+				_, err := f.callAs(acmeT, func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
 					return f.usd.Post(f.ctx, tx, tn, Posting{Key: "lock-" + c.locked, Code: "topup", Entries: c.entries})
 				})
 				done <- err
@@ -579,10 +605,11 @@ func TestPost(t *testing.T) {
 			err  error
 		}
 		limitedDone, hotDone := make(chan result, 40), make(chan error, 40)
+		acmeT := f.tn(acme)
 		for i := range 40 {
 			go func() {
 				<-start
-				_, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
+				_, err := f.callAs(acmeT, func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
 					p := Posting{Key: fmt.Sprintf("race-limited-%d", i), Code: "purchase", Entries: []Entry{dr("limited", 50), cr("plain", 50)}}
 					if i%2 == 1 {
 						return f.usd.Pend(f.ctx, tx, tn, p)
@@ -593,7 +620,7 @@ func TestPost(t *testing.T) {
 			}()
 			go func() {
 				<-start
-				_, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
+				_, err := f.callAs(acmeT, func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
 					return f.usd.Post(f.ctx, tx, tn, Posting{Key: fmt.Sprintf("race-hot-%d", i), Code: "topup", Entries: []Entry{dr("hot", 1), cr("plain", 1)}})
 				})
 				hotDone <- err
@@ -684,22 +711,13 @@ func TestPost(t *testing.T) {
 	t.Run("ST-SUP-RP08-LC10-T01 REPEATABLE READ is refused", func(t *testing.T) {
 		f := newFixture(t)
 		o := f.post(f.runtime, "orig", dr("hot", 5), cr("plain", 5))
-		for _, level := range []sql.IsolationLevel{sql.LevelRepeatableRead, sql.LevelReadCommitted, sql.LevelSerializable} {
+		for _, level := range []sql.IsolationLevel{sql.LevelRepeatableRead, sql.LevelSerializable, sql.LevelReadCommitted} {
 			var errs []error
 			err := f.tryAt(f.runtime, acme, &sql.TxOptions{Isolation: level}, func(tx *sql.Tx) error {
 				k := level.String()
 				_, e1 := f.usd.Post(f.ctx, tx, f.tn(acme), Posting{Key: "post-" + k, Code: "topup", Entries: []Entry{dr("hot", 1), cr("plain", 1)}})
 				_, e2 := f.usd.Pend(f.ctx, tx, f.tn(acme), Posting{Key: "pend-" + k, Code: "purchase", Entries: []Entry{dr("hot", 1), cr("plain", 1)}})
-				var e3 error
-				if level != sql.LevelRepeatableRead {
-					p, err := f.usd.Post(f.ctx, tx, f.tn(acme), Posting{Key: "rev-src-" + k, Code: "topup", Entries: []Entry{dr("hot", 2), cr("plain", 2)}})
-					if err != nil {
-						return err
-					}
-					_, e3 = f.usd.Reverse(f.ctx, tx, f.tn(acme), p.ID, "rev-"+k)
-				} else {
-					_, e3 = f.usd.Reverse(f.ctx, tx, f.tn(acme), o.ID, "rev-"+k)
-				}
+				_, e3 := f.usd.Reverse(f.ctx, tx, f.tn(acme), o.ID, "rev-"+k)
 				errs = []error{e1, e2, e3}
 				return nil
 			})
@@ -707,24 +725,49 @@ func TestPost(t *testing.T) {
 				t.Fatalf("%v: %v", level, err)
 			}
 			for i, e := range errs {
-				if level == sql.LevelRepeatableRead && !errors.Is(e, ErrIsolation) {
-					t.Fatalf("call %d at REPEATABLE READ: %v; want ErrIsolation", i, e)
+				if level != sql.LevelReadCommitted && !errors.Is(e, ErrIsolation) {
+					t.Fatalf("call %d at %v: %v; want ErrIsolation", i, level, e)
 				}
-				if level != sql.LevelRepeatableRead && e != nil {
-					t.Fatalf("call %d at %v: %v", i, level, e)
+				if level == sql.LevelReadCommitted && e != nil {
+					t.Fatalf("call %d at READ COMMITTED: %v", i, e)
 				}
 			}
 		}
-		if n := f.count("transfers", "idempotency_key = ledger_key('acme', 'post-Repeatable Read')"); n != 0 {
-			t.Fatal("a write at REPEATABLE READ")
+		if n := f.count("transfers", "idempotency_key IN (ledger_key('acme', 'post-Repeatable Read'), ledger_key('acme', 'post-Serializable'))"); n != 0 {
+			t.Fatal("a write at REPEATABLE READ or SERIALIZABLE")
 		}
-		// ledger_post refuses it too, for a caller that does not go through Post.
-		err := f.tryAt(f.runtime, acme, &sql.TxOptions{Isolation: sql.LevelRepeatableRead}, func(tx *sql.Tx) error {
-			_, err := tx.ExecContext(f.ctx, `SELECT ledger_post('acme', 'usd', 'raw-rr', 'topup', '[{"account": "hot", "side": "debit", "amount": 5}, {"account": "plain", "side": "credit", "amount": 5}]', NULL)`)
+		// ledger_post refuses both too, for a caller that does not go through Post.
+		for _, level := range []sql.IsolationLevel{sql.LevelRepeatableRead, sql.LevelSerializable} {
+			err := f.tryAt(f.runtime, acme, &sql.TxOptions{Isolation: level}, func(tx *sql.Tx) error {
+				_, err := tx.ExecContext(f.ctx, `SELECT ledger_post('acme', 'usd', 'raw-iso', 'topup', '[{"account": "hot", "side": "debit", "amount": 5}, {"account": "plain", "side": "credit", "amount": 5}]', NULL)`)
+				return err
+			})
+			if sqlState(err) != codeIsolation {
+				t.Fatalf("ledger_post at %v: %v; want %s", level, err, codeIsolation)
+			}
+		}
+		// Mixed isolation: while a READ COMMITTED writer holds the limited account, a SERIALIZABLE writer is refused
+		// before it waits or writes, so the two cannot overdraw the account between them.
+		f.post(f.runtime, "fund", dr("hot", 100), cr("limited", 100))
+		rc, err := tenant.Begin(f.ctx, f.runtime, f.tn(acme), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.usd.Post(f.ctx, rc, f.tn(acme), Posting{Key: "rc", Code: "purchase", Entries: []Entry{dr("limited", 60), cr("plain", 60)}}); err != nil {
+			t.Fatal(err)
+		}
+		err = f.tryAt(f.runtime, acme, &sql.TxOptions{Isolation: sql.LevelSerializable}, func(tx *sql.Tx) error {
+			_, err := f.usd.Post(f.ctx, tx, f.tn(acme), Posting{Key: "ser", Code: "purchase", Entries: []Entry{dr("limited", 60), cr("plain", 60)}})
 			return err
 		})
-		if sqlState(err) != codeIsolation {
-			t.Fatalf("ledger_post at REPEATABLE READ: %v; want %s", err, codeIsolation)
+		if !errors.Is(err, ErrIsolation) {
+			t.Fatalf("a SERIALIZABLE post beside a READ COMMITTED one: %v; want ErrIsolation", err)
+		}
+		if err := tenant.Commit(f.ctx, rc, f.tn(acme)); err != nil {
+			t.Fatal(err)
+		}
+		if got := f.balance("limited"); got != usd(40) {
+			t.Fatalf("the limited balance is %v; want 40 USD", got)
 		}
 	})
 }
@@ -902,8 +945,9 @@ func TestPending(t *testing.T) {
 			t.Fatal(err)
 		}
 		done := make(chan error, 1)
+		acmeT := f.tn(acme)
 		go func() {
-			_, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
+			_, err := f.callAs(acmeT, func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
 				return f.usd.Void(f.ctx, tx, tn, small.ID, "race-2")
 			})
 			done <- err
@@ -955,6 +999,50 @@ func TestPending(t *testing.T) {
 					t.Fatalf("%s: %v is not one of the four errors", c.name, err)
 				}
 			}
+		}
+		// The state machine in the database: ledger_post_pending and ledger_void from each state, called directly.
+		f := newFixture(t, withTimeout(2*time.Second))
+		f.post(f.runtime, "fund", dr("hot", 10000), cr("limited", 10000))
+		pend := func(key string) Transfer { return f.pend(key, dr("limited", 100), cr("plain", 100)) }
+		expired := pend("expired")
+		posted, voided := pend("posted"), pend("voided")
+		split := func(n int) string {
+			return fmt.Sprintf(`[{"account": "limited", "side": "debit", "amount": %d}, {"account": "plain", "side": "credit", "amount": %d}]`, n, n)
+		}
+		postRaw := func(key, id string, n int) error {
+			return f.raw("SELECT ledger_post_pending('acme', 'usd', $1, $2::uuid, $3::jsonb)", key, id, split(n))
+		}
+		voidRaw := func(key, id string) error { return f.raw("SELECT ledger_void('acme', 'usd', $1, $2::uuid)", key, id) }
+		if err := postRaw("db-post", posted.ID, 100); err != nil {
+			t.Fatal(err)
+		}
+		if err := voidRaw("db-void", voided.ID); err != nil {
+			t.Fatal(err)
+		}
+		f.waitPast(expired.ExpiresAt)
+		fresh := pend("fresh")
+		for _, c := range []struct {
+			name string
+			err  error
+			want error
+		}{
+			{"post a posted one", postRaw("db-1", posted.ID, 100), ErrAlreadyPosted},
+			{"void a posted one", voidRaw("db-2", posted.ID), ErrAlreadyPosted},
+			{"post a voided one", postRaw("db-3", voided.ID, 100), ErrAlreadyVoided},
+			{"void a voided one", voidRaw("db-4", voided.ID), ErrAlreadyVoided},
+			{"post an expired one", postRaw("db-5", expired.ID, 100), ErrExpired},
+			{"post above the pending amount", postRaw("db-6", fresh.ID, 101), ErrExceedsPending},
+		} {
+			got := stateError(c.err)
+			if !errors.Is(got, c.want) || !slices.ContainsFunc(four, func(e error) bool { return errors.Is(got, e) }) {
+				t.Fatalf("%s in the database: %v; want %v", c.name, c.err, c.want)
+			}
+		}
+		if err := voidRaw("db-7", expired.ID); err != nil {
+			t.Fatalf("a void of an expired one in the database: %v; want it accepted", err)
+		}
+		if err := postRaw("db-8", fresh.ID, 100); err != nil {
+			t.Fatalf("a post of a pending one in the database: %v; want it accepted", err)
 		}
 		for _, name := range exportedNames(t) {
 			for _, word := range camelWords(name) {
@@ -1010,6 +1098,27 @@ func TestPending(t *testing.T) {
 		}
 		if n := f.count("transfers", "id = $1 AND status = 'pending'", p.ID); n != 1 {
 			t.Fatal("the pending transfer is not pending")
+		}
+		// At the boundary: a transaction that began before the expiry and posts after it is refused, because the
+		// function compares the expiry with the clock after its locks, not with the start of the transaction.
+		q := f.pend("hold-2", dr("limited", 100), cr("plain", 100))
+		tx, err := tenant.Begin(f.ctx, f.runtime, f.tn(acme), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback()
+		var started time.Time
+		if err := tx.QueryRowContext(f.ctx, "SELECT now()").Scan(&started); err != nil {
+			t.Fatal(err)
+		}
+		if !started.Before(q.ExpiresAt) {
+			t.Fatalf("the transaction began at %v, not before the expiry %v", started, q.ExpiresAt)
+		}
+		f.waitPast(q.ExpiresAt)
+		_, err = tx.ExecContext(f.ctx, `SELECT ledger_post_pending('acme', 'usd', 'boundary', $1::uuid,
+ '[{"account": "limited", "side": "debit", "amount": 100}, {"account": "plain", "side": "credit", "amount": 100}]')`, q.ID)
+		if sqlState(err) != codeExpired {
+			t.Fatalf("ledger_post_pending after the expiry in a transaction that began before it: %v; want %s", err, codeExpired)
 		}
 	})
 }
@@ -1130,14 +1239,24 @@ func TestIdempotentTransfer(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		done := make(chan Transfer, 1)
-		go func() { done <- f.post(f.runtime, "k5", dr("hot", 5), cr("plain", 5)) }()
+		type result struct {
+			tr  Transfer
+			err error
+		}
+		done := make(chan result, 1)
+		acmeT := f.tn(acme)
+		go func() {
+			tr, err := f.callAs(acmeT, func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
+				return f.usd.Post(f.ctx, tx, tn, Posting{Key: "k5", Code: "topup", Entries: []Entry{dr("hot", 5), cr("plain", 5)}})
+			})
+			done <- result{tr, err}
+		}()
 		f.waitForLockWait(t)
 		if err := tenant.Commit(f.ctx, tx1, f.tn(acme)); err != nil {
 			t.Fatal(err)
 		}
-		if got := <-done; got.ID != racing.ID || got.Amount != usd(5) || !got.Replayed {
-			t.Fatalf("the racing retry returned %+v; want the original %+v", got, racing)
+		if got := <-done; got.err != nil || got.tr.ID != racing.ID || got.tr.Amount != usd(5) || !got.tr.Replayed {
+			t.Fatalf("the racing retry returned %+v, %v; want the original %+v", got.tr, got.err, racing)
 		}
 		// The key of one tenant does not meet the transfer of another tenant.
 		var others Transfer
@@ -1231,8 +1350,9 @@ func TestReverse(t *testing.T) {
 			t.Fatal(err)
 		}
 		done := make(chan error, 1)
+		acmeT := f.tn(acme)
 		go func() {
-			_, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
+			_, err := f.callAs(acmeT, func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
 				return f.usd.Reverse(f.ctx, tx, tn, o2.ID, "race-2")
 			})
 			done <- err

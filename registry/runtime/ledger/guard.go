@@ -30,7 +30,7 @@ const (
 // OwnerFunctions are the SECURITY DEFINER functions that the runtime role may run. They are the only way the runtime
 // role writes the ledger tables.
 var OwnerFunctions = []string{
-	"ledger_open(text, text, text, text, text, text, bigint, boolean)",
+	"ledger_open(text, text, text, text)",
 	"ledger_post(text, text, text, text, jsonb, timestamptz)",
 	"ledger_pend(text, text, text, text, jsonb, timestamptz)",
 	"ledger_post_pending(text, text, text, uuid, jsonb)",
@@ -42,10 +42,10 @@ var OwnerFunctions = []string{
 // innerFunctions are the functions that only the owner functions run; PUBLIC and the runtime role may not.
 var innerFunctions = []string{
 	"ledger_guard()", "ledger_check_entries()", "ledger_check_transfers()", "ledger_check_change()",
-	"ledger_declared(text)", "ledger_call(text, text)", "ledger_text(text, text)", "ledger_key(text, text)",
+	"ledger_declared(text)", "ledger_declared_account(text, text)", "ledger_call(text, text)", "ledger_text(text, text)", "ledger_key(text, text)",
 	"ledger_fingerprint(text, text, jsonb, timestamptz, uuid, uuid, bigint)", "ledger_replay(text, text, text)",
-	"ledger_entries(text, text, text, jsonb)", "ledger_holds(text, text)", "ledger_lock_limited(text, text, jsonb)",
-	"ledger_limit(text, text, jsonb, boolean)",
+	"ledger_entries(text, text, text, jsonb)", "ledger_holds(text, text, timestamptz)", "ledger_lock_limited(text, text, jsonb)",
+	"ledger_limit(text, text, jsonb, boolean, timestamptz)",
 	"ledger_insert(text, text, uuid, text, text, text, text, bigint, text, text, uuid, uuid, timestamptz, timestamptz, jsonb)",
 	"ledger_write(text, text, text, text, text, jsonb, timestamptz)",
 	"ledger_settle(text, text, text, uuid, jsonb, text)",
@@ -66,6 +66,7 @@ const (
 	codeIsolation       = "LG011"
 	codeNotSplit        = "LG012"
 	codeNotMirror       = "LG013"
+	codeDuplicate       = "LG014"
 )
 
 var plainName = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
@@ -105,7 +106,7 @@ func DDL(c Config) (string, error) {
 	if len(c.Ledgers) == 0 {
 		return "", errors.New("ledger: the DDL text needs at least one declared ledger")
 	}
-	var rows []string
+	var rows, accountRows []string
 	seen := map[string]bool{}
 	for _, s := range c.Ledgers {
 		l, err := New(s)
@@ -122,11 +123,24 @@ func DDL(c Config) (string, error) {
 		}
 		rows = append(rows, fmt.Sprintf("(%s::text, %s::text, %s, interval '%d microseconds', %d::bigint)",
 			literal(l.id), literal(l.currency.Code()), closed, l.timeout.Microseconds(), max(l.every, 1)))
+		for _, a := range l.accounts {
+			limit := "NULL::bigint"
+			if a.MinBalance != nil {
+				limit = fmt.Sprintf("%d::bigint", *a.MinBalance)
+			}
+			accountRows = append(accountRows, fmt.Sprintf("(%s::text, %s::text, %s::text, %t, %s)",
+				literal(l.id), literal(a.Code), literal(string(a.Normal)), a.Hot, limit))
+		}
+	}
+	if len(accountRows) == 0 {
+		accountRows = []string{"(NULL::text, NULL::text, NULL::text, false, NULL::bigint)"}
 	}
 	return strings.NewReplacer(
 		"{s}", c.Schema,
 		"{role}", c.RuntimeRole,
 		"{declared}", strings.Join(rows, ",\n    "),
+		"{declaredAccounts}", strings.Join(accountRows, ",\n    "),
+		"{duplicate}", codeDuplicate,
 		"{accounts}", AccountsTable,
 		"{transfers}", TransfersTable,
 		"{entries}", EntriesTable,
@@ -223,7 +237,6 @@ CREATE TABLE {s}.{entries} (
   FOREIGN KEY (tenant_id, ledger_id, transfer_id) REFERENCES {s}.{transfers} (tenant_id, ledger_id, id)
 );
 CREATE INDEX {entries}_account_txid ON {s}.{entries} (tenant_id, ledger_id, account_id, txid);
-CREATE INDEX {entries}_account_effective ON {s}.{entries} (tenant_id, ledger_id, account_id, effective_at);
 CREATE INDEX {entries}_holds ON {s}.{entries} (tenant_id, ledger_id, account_id, transfer_id) WHERE pending;
 CREATE TABLE {s}.{snapshots} (
   tenant_id text NOT NULL,
@@ -377,6 +390,20 @@ BEGIN
   END IF;
 END
 $$;
+CREATE FUNCTION {s}.ledger_declared_account(p_ledger text, p_code text, OUT normal text, OUT hot boolean,
+  OUT min_balance bigint) LANGUAGE plpgsql STABLE SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  SELECT d.normal, d.hot, d.min_balance INTO normal, hot, min_balance
+    FROM (VALUES
+    {declaredAccounts}
+    ) AS d(ledger_id, code, normal, hot, min_balance)
+    WHERE d.ledger_id = p_ledger AND d.code = p_code;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'ledger: % is not a declared account code of the ledger %', p_code, p_ledger
+      USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+END
+$$;
 CREATE FUNCTION {s}.ledger_call(p_tenant text, p_ledger text, OUT currency text, OUT closed_before timestamptz,
   OUT pending_timeout interval, OUT snapshot_every bigint)
   LANGUAGE plpgsql STABLE SET search_path = pg_catalog, pg_temp AS $$
@@ -385,8 +412,8 @@ BEGIN
     RAISE EXCEPTION 'ledger: the tenant % is not the tenant of the transaction', p_tenant
       USING ERRCODE = 'insufficient_privilege';
   END IF;
-  IF current_setting('transaction_isolation') NOT IN ('read committed', 'serializable') THEN
-    RAISE EXCEPTION 'ledger: a ledger write needs READ COMMITTED or SERIALIZABLE, not %',
+  IF current_setting('transaction_isolation') <> 'read committed' THEN
+    RAISE EXCEPTION 'ledger: a ledger write needs READ COMMITTED, not %',
       current_setting('transaction_isolation') USING ERRCODE = '{isolation}';
   END IF;
   SELECT d.currency, d.closed_before, d.pending_timeout, d.snapshot_every
@@ -444,6 +471,10 @@ BEGIN
     RAISE EXCEPTION 'ledger: each entry needs an account, a side of debit or credit and a positive int64 amount'
       USING ERRCODE = 'invalid_parameter_value';
   END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(p_entries) x, jsonb_object_keys(x) k
+      WHERE k NOT IN ('account', 'side', 'amount')) THEN
+    RAISE EXCEPTION 'ledger: an entry holds a key other than account, side and amount' USING ERRCODE = 'invalid_parameter_value';
+  END IF;
   IF EXISTS (SELECT 1 FROM jsonb_array_elements(p_entries) x WHERE (x->>'amount')::numeric > 9223372036854775807) THEN
     RAISE EXCEPTION 'ledger: an entry amount overflows int64 minor units' USING ERRCODE = 'numeric_value_out_of_range';
   END IF;
@@ -476,13 +507,37 @@ CREATE FUNCTION {s}.ledger_balance(p_ledger text, p_account text) RETURNS numeri
       WHERE b.tenant_id = a.tenant_id AND b.ledger_id = a.ledger_id AND b.account_id = a.id
       ORDER BY b.through_xid DESC LIMIT 1) s ON true
     WHERE a.tenant_id = current_setting('app.tenant', true) AND a.ledger_id = p_ledger AND a.id = p_account);
-CREATE FUNCTION {s}.ledger_holds(p_ledger text, p_account text) RETURNS numeric LANGUAGE sql STABLE
+CREATE FUNCTION {s}.ledger_check_sums(p_tenant text, p_ledger text, p_starts jsonb, p_ledger_xid xid8, p_xmin xid8)
+  RETURNS TABLE (account_id text, covered_by xid8, ledger_raw numeric, normal_sum numeric) LANGUAGE plpgsql STABLE
+  SET search_path = pg_catalog, pg_temp AS $$
+DECLARE
+  acc record;
+  start xid8;
+BEGIN
+  -- One query for each account, with its bounds as parameters, so the scan of entries is a range of the index on
+  -- account and transaction ID under row-level security, which a join could not push into the scan.
+  FOR acc IN SELECT c.id, c.normal FROM {s}.{accounts} c WHERE c.tenant_id = p_tenant AND c.ledger_id = p_ledger ORDER BY c.id LOOP
+    start := LEAST(p_ledger_xid, coalesce((p_starts ->> acc.id)::xid8, '0'::xid8));
+    RETURN QUERY SELECT acc.id, x.covered_by,
+        coalesce(sum(x.raw) FILTER (WHERE x.txid >= p_ledger_xid), 0), coalesce(sum(x.normal_amount), 0)
+      FROM (SELECT e.txid, CASE e.side WHEN 'debit' THEN e.amount ELSE -e.amount END AS raw,
+          CASE WHEN e.pending THEN 0 WHEN e.side = acc.normal THEN e.amount ELSE -e.amount END AS normal_amount,
+          (SELECT b.through_xid FROM {s}.{snapshots} b WHERE b.tenant_id = p_tenant AND b.ledger_id = p_ledger
+            AND b.account_id = acc.id AND b.through_xid > e.txid ORDER BY b.through_xid LIMIT 1) AS covered_by
+        FROM {s}.{entries} e
+        WHERE e.tenant_id = p_tenant AND e.ledger_id = p_ledger AND e.account_id = acc.id
+          AND e.txid >= start AND e.txid < p_xmin) x
+      GROUP BY x.covered_by;
+  END LOOP;
+END
+$$;
+CREATE FUNCTION {s}.ledger_holds(p_ledger text, p_account text, p_now timestamptz) RETURNS numeric LANGUAGE sql STABLE
   SET search_path = pg_catalog, pg_temp
   RETURN (SELECT coalesce(sum(LEAST(` + signedSQL + `, 0)), 0) FROM {s}.{entries} e
     JOIN {s}.{accounts} a ON a.tenant_id = e.tenant_id AND a.ledger_id = e.ledger_id AND a.id = e.account_id
     JOIN {s}.{transfers} p ON p.tenant_id = e.tenant_id AND p.ledger_id = e.ledger_id AND p.id = e.transfer_id
     WHERE e.tenant_id = current_setting('app.tenant', true) AND e.ledger_id = p_ledger AND e.account_id = p_account
-      AND e.pending AND p.status = 'pending' AND p.expires_at > now());
+      AND e.pending AND p.status = 'pending' AND p.expires_at > p_now);
 CREATE FUNCTION {s}.ledger_lock_limited(p_tenant text, p_ledger text, p_entries jsonb) RETURNS void LANGUAGE plpgsql
   SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
@@ -492,7 +547,8 @@ BEGIN
     ORDER BY c.id FOR UPDATE;
 END
 $$;
-CREATE FUNCTION {s}.ledger_limit(p_tenant text, p_ledger text, p_entries jsonb, p_pending boolean) RETURNS void
+CREATE FUNCTION {s}.ledger_limit(p_tenant text, p_ledger text, p_entries jsonb, p_pending boolean, p_now timestamptz)
+  RETURNS void
   LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 DECLARE
   acc record;
@@ -503,7 +559,7 @@ BEGIN
       WHERE c.tenant_id = p_tenant AND c.ledger_id = p_ledger AND c.min_balance IS NOT NULL
         AND c.id IN (SELECT x->>'account' FROM jsonb_array_elements(p_entries) x)
       ORDER BY c.id LOOP
-    available := {s}.ledger_balance(p_ledger, acc.id) + {s}.ledger_holds(p_ledger, acc.id);
+    available := {s}.ledger_balance(p_ledger, acc.id) + {s}.ledger_holds(p_ledger, acc.id, p_now);
     SELECT coalesce(sum(CASE WHEN x->>'side' = acc.normal THEN (x->>'amount')::numeric ELSE -(x->>'amount')::numeric END)
         FILTER (WHERE NOT p_pending OR x->>'side' <> acc.normal), 0)
       INTO delta FROM jsonb_array_elements(p_entries) x WHERE x->>'account' = acc.id;
@@ -548,6 +604,7 @@ DECLARE
   stored_key text;
   fp text;
   done uuid;
+  at timestamptz;
 BEGIN
   SELECT * INTO d FROM {s}.ledger_call(p_tenant, p_ledger);
   PERFORM {s}.ledger_text(p_key, 'idempotency key');
@@ -564,6 +621,9 @@ BEGIN
   END IF;
   total := {s}.ledger_entries(p_tenant, p_ledger, d.currency, p_entries);
   PERFORM {s}.ledger_lock_limited(p_tenant, p_ledger, p_entries);
+  -- The clock of the limit and of the expiry of holds is read after the row locks, so a call that waited for a
+  -- lock sees the time it runs at, as ledger_settle does.
+  at := clock_timestamp();
   stored_key := {s}.ledger_key(p_tenant, p_key);
   fp := {s}.ledger_fingerprint(p_kind, p_code, p_entries, p_effective, NULL, NULL, total);
   done := {s}.ledger_replay(p_ledger, stored_key, fp);
@@ -571,10 +631,10 @@ BEGIN
     RETURN QUERY SELECT done, true;
     RETURN;
   END IF;
-  PERFORM {s}.ledger_limit(p_tenant, p_ledger, p_entries, p_kind = 'pending');
+  PERFORM {s}.ledger_limit(p_tenant, p_ledger, p_entries, p_kind = 'pending', at);
   done := {s}.ledger_insert(p_tenant, p_ledger, NULL, stored_key, fp, p_kind, p_code, total, d.currency,
     CASE p_kind WHEN 'pending' THEN 'pending' ELSE 'posted' END, NULL, NULL,
-    CASE p_kind WHEN 'pending' THEN now() + d.pending_timeout END, p_effective, p_entries);
+    CASE p_kind WHEN 'pending' THEN at + d.pending_timeout END, p_effective, p_entries);
   IF done IS NULL THEN
     RETURN QUERY SELECT {s}.ledger_replay(p_ledger, stored_key, fp), true;
     RETURN;
@@ -606,6 +666,7 @@ DECLARE
   stored_key text;
   fp text;
   done uuid;
+  at timestamptz;
   prior text := current_setting('{change}', true);
 BEGIN
   SELECT * INTO d FROM {s}.ledger_call(p_tenant, p_ledger);
@@ -618,6 +679,12 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'ledger: % is not a pending transfer of the tenant', p_pending USING ERRCODE = '{nopending}';
   END IF;
+  -- The limited accounts of the pending entries are locked, in account ID order, as a post on them locks them, and
+  -- the expiry is compared with the clock after the locks: a post that counts the hold as expired and this post of
+  -- the hold cannot both pass.
+  PERFORM {s}.ledger_lock_limited(p_tenant, p_ledger, (SELECT jsonb_agg(jsonb_build_object('account', e.account_id))
+    FROM {s}.{entries} e WHERE e.tenant_id = p_tenant AND e.ledger_id = p_ledger AND e.transfer_id = p_pending));
+  at := clock_timestamp();
   IF p_to = 'posted' THEN
     total := {s}.ledger_entries(p_tenant, p_ledger, d.currency, p_entries);
   ELSE
@@ -639,7 +706,7 @@ BEGIN
     RAISE EXCEPTION 'ledger: the pending transfer % is voided already', p_pending USING ERRCODE = '{voided}';
   END IF;
   IF p_to = 'posted' THEN
-    IF p.expires_at <= now() THEN
+    IF p.expires_at <= at THEN
       RAISE EXCEPTION 'ledger: the pending transfer % expired at %', p_pending, p.expires_at USING ERRCODE = '{expired}';
     END IF;
     IF total > p.amount THEN
@@ -728,7 +795,7 @@ BEGIN
       USING ERRCODE = '{notmirror}';
   END IF;
   PERFORM {s}.ledger_lock_limited(p_tenant, p_ledger, p_entries);
-  PERFORM {s}.ledger_limit(p_tenant, p_ledger, p_entries, false);
+  PERFORM {s}.ledger_limit(p_tenant, p_ledger, p_entries, false, clock_timestamp());
   PERFORM set_config('{change}', 'reverse:' || p_original::text, true);
   UPDATE {s}.{transfers} SET reversed_by = new_id WHERE tenant_id = p_tenant AND ledger_id = p_ledger AND id = p_original;
   PERFORM set_config('{change}', coalesce(prior, ''), true);
@@ -740,27 +807,22 @@ BEGIN
   RETURN QUERY SELECT done, false;
 END
 $$;
-CREATE FUNCTION {s}.ledger_open(p_tenant text, p_ledger text, p_id text, p_code text, p_normal text, p_currency text,
-  p_min_balance bigint, p_hot boolean) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
-  SET search_path = pg_catalog, pg_temp AS $$
+CREATE FUNCTION {s}.ledger_open(p_tenant text, p_ledger text, p_id text, p_code text) RETURNS void LANGUAGE plpgsql
+  SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 DECLARE
   d record;
+  a record;
 BEGIN
   SELECT * INTO d FROM {s}.ledger_call(p_tenant, p_ledger);
   PERFORM {s}.ledger_text(p_id, 'account ID');
   PERFORM {s}.ledger_text(p_code, 'account code');
-  IF p_normal IS NULL OR p_normal NOT IN ('debit', 'credit') THEN
-    RAISE EXCEPTION 'ledger: the normal side % is not debit or credit', p_normal USING ERRCODE = 'invalid_parameter_value';
-  END IF;
-  IF p_currency IS DISTINCT FROM d.currency THEN
-    RAISE EXCEPTION 'ledger: the account is in %, and the ledger % holds only %', p_currency, p_ledger, d.currency
-      USING ERRCODE = 'invalid_parameter_value';
-  END IF;
-  IF p_hot IS NULL OR (p_hot AND p_min_balance IS NOT NULL) THEN
-    RAISE EXCEPTION 'ledger: a hot account has no balance limit' USING ERRCODE = 'invalid_parameter_value';
-  END IF;
+  SELECT * INTO a FROM {s}.ledger_declared_account(p_ledger, p_code);
   INSERT INTO {s}.{accounts} (tenant_id, ledger_id, id, code, normal, currency, min_balance, hot)
-    VALUES (p_tenant, p_ledger, p_id, p_code, p_normal, p_currency, p_min_balance, p_hot);
+    VALUES (p_tenant, p_ledger, p_id, p_code, a.normal, d.currency, a.min_balance, a.hot)
+    ON CONFLICT (tenant_id, ledger_id, id) DO NOTHING;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'ledger: the ledger % has the account % already', p_ledger, p_id USING ERRCODE = '{duplicate}';
+  END IF;
 END
 $$;
 CREATE FUNCTION {s}.ledger_snapshot(p_tenant text, p_ledger text, p_token bigint) RETURNS integer LANGUAGE plpgsql
@@ -814,8 +876,10 @@ ALTER TABLE {s}.{snapshots} FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_wall ON {s}.{snapshots}
   USING (tenant_id = current_setting('app.tenant', true)) WITH CHECK (tenant_id = current_setting('app.tenant', true));
 REVOKE ALL ON {s}.{accounts}, {s}.{transfers}, {s}.{entries}, {s}.{snapshots} FROM PUBLIC;
-REVOKE ALL ON FUNCTION {grants}, {inner}, {s}.ledger_balance(text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION {grants}, {inner}, {s}.ledger_balance(text, text),
+  {s}.ledger_check_sums(text, text, jsonb, xid8, xid8) FROM PUBLIC;
 GRANT USAGE ON SCHEMA {s} TO {role};
 GRANT SELECT ON {s}.{accounts}, {s}.{transfers}, {s}.{entries}, {s}.{snapshots} TO {role};
-GRANT EXECUTE ON FUNCTION {grants}, {s}.ledger_balance(text, text) TO {role};
+GRANT EXECUTE ON FUNCTION {grants}, {s}.ledger_balance(text, text), {s}.ledger_check_sums(text, text, jsonb, xid8, xid8)
+  TO {role};
 `

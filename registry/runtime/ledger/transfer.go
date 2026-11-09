@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -48,9 +49,12 @@ var (
 	// ErrKeyReused is the error of a call whose idempotency key names a transfer of another body
 	// (ST-SUP-RP08-LC05). It writes nothing.
 	ErrKeyReused = errors.New("ledger: the idempotency key names a transfer of another body")
-	// ErrIsolation is the error of a write in a transaction whose isolation is not READ COMMITTED or
-	// SERIALIZABLE (ST-SUP-RP08-LC10). It comes before any write.
-	ErrIsolation = errors.New("ledger: a ledger write needs READ COMMITTED or SERIALIZABLE isolation")
+	// ErrIsolation is the error of a write in a transaction whose isolation is not READ COMMITTED
+	// (ST-SUP-RP08-LC10). It comes before any write. Under REPEATABLE READ a balance read after the row lock can
+	// see an older state, and a SERIALIZABLE writer beside a READ COMMITTED writer can overdraw a limited account.
+	ErrIsolation = errors.New("ledger: a ledger write needs READ COMMITTED isolation")
+	// ErrAccountExists is the error of Open for an account ID that the tenant's ledger holds already.
+	ErrAccountExists = errors.New("ledger: the account exists already")
 )
 
 // Side is the side of an entry, and the normal side of an account.
@@ -111,8 +115,12 @@ type Settings struct {
 	PendingTimeout time.Duration
 	// SnapshotEvery is the number of entries of an account after which the snapshot job writes a snapshot.
 	SnapshotEvery int
-	// ClosedBefore is the declared close date: an effective time before it is refused. Zero declares none.
+	// ClosedBefore is the declared close date: an effective time before it is refused. Zero declares none; a
+	// date in the future is refused.
 	ClosedBefore time.Time
+	// Accounts are the declared account codes of the ledger: ledger_open opens an account of one of them, with its
+	// normal side, hot flag and balance limit.
+	Accounts []Account
 }
 
 // Ledger is one declared ledger: its ID, its one currency, and the calls of the owner functions.
@@ -123,6 +131,7 @@ type Ledger struct {
 	timeout  time.Duration
 	every    int64
 	closed   time.Time
+	accounts []Account
 }
 
 // New returns the ledger of the settings.
@@ -133,7 +142,7 @@ func New(s Settings) (*Ledger, error) {
 	if !plainName.MatchString(s.Schema) {
 		return nil, errors.New("ledger: the schema must be a plain lower-case name")
 	}
-	if err := clean("ledger ID", s.ID); err != nil {
+	if err := declared("ledger ID", s.ID); err != nil {
 		return nil, err
 	}
 	c, err := money.Parse(s.Currency)
@@ -143,7 +152,39 @@ func New(s Settings) (*Ledger, error) {
 	if s.PendingTimeout < 0 || s.SnapshotEvery < 0 {
 		return nil, fmt.Errorf("ledger %s: the pending timeout and the snapshot interval must not be negative", s.ID)
 	}
-	return &Ledger{id: s.ID, currency: c, schema: s.Schema, timeout: s.PendingTimeout, every: int64(s.SnapshotEvery), closed: s.ClosedBefore}, nil
+	if s.ClosedBefore.After(time.Now()) {
+		return nil, fmt.Errorf("ledger %s: the close date %s is in the future", s.ID, s.ClosedBefore.Format(time.RFC3339))
+	}
+	seen := map[string]bool{}
+	for _, a := range s.Accounts {
+		if err := declared("account code", a.Code); err != nil {
+			return nil, err
+		}
+		if seen[a.Code] {
+			return nil, fmt.Errorf("%w: the account code %s is declared twice", ErrInvalid, a.Code)
+		}
+		seen[a.Code] = true
+		if a.Normal != Debit && a.Normal != Credit {
+			return nil, fmt.Errorf("%w: the normal side %q of %s is not debit or credit", ErrInvalid, a.Normal, a.Code)
+		}
+		if a.Hot && a.MinBalance != nil {
+			return nil, fmt.Errorf("%w: the hot account code %s has a balance limit", ErrInvalid, a.Code)
+		}
+	}
+	return &Ledger{id: s.ID, currency: c, schema: s.Schema, timeout: s.PendingTimeout, every: int64(s.SnapshotEvery),
+		closed: s.ClosedBefore, accounts: slices.Clone(s.Accounts)}, nil
+}
+
+// declared refuses text that the DDL text writes into a function body: what clean refuses, and a dollar sign,
+// which could end the dollar quote of the body.
+func declared(what, s string) error {
+	if err := clean(what, s); err != nil {
+		return err
+	}
+	if strings.Contains(s, "$") {
+		return fmt.Errorf("%w: the %s %q holds a dollar sign", ErrInvalid, what, s)
+	}
+	return nil
 }
 
 // ID is the ledger_id.
@@ -155,11 +196,10 @@ func (l *Ledger) Currency() money.Currency { return l.currency }
 // q puts the schema into a statement.
 func (l *Ledger) q(statement string) string { return strings.ReplaceAll(statement, "{s}", l.schema) }
 
-// Account is one account of a ledger.
+// Account is one declared account code of a ledger, such as customer_wallet. Each account that Open opens is of
+// one code, and takes its normal side, balance limit and hot flag.
 type Account struct {
-	// ID is the account's ID in the ledger.
-	ID string
-	// Code is the declared account it is one of, such as customer_wallet.
+	// Code is the declared account code.
 	Code string
 	// Normal is the side on which the balance grows.
 	Normal Side
@@ -173,41 +213,33 @@ type Account struct {
 // The calls of the owner functions. Each is one statement; the function writes the transfer and its entries with
 // one INSERT (ST-SUP-RP08-LC03).
 const (
-	callOpen        = `SELECT {s}.ledger_open($1, $2, $3, $4, $5, $6, $7, $8)`
+	callOpen        = `SELECT {s}.ledger_open($1, $2, $3, $4)`
 	callPost        = `SELECT out_id::text, out_replayed FROM {s}.ledger_post($1, $2, $3, $4, $5::jsonb, $6::timestamptz)`
 	callPend        = `SELECT out_id::text, out_replayed FROM {s}.ledger_pend($1, $2, $3, $4, $5::jsonb, $6::timestamptz)`
 	callPostPending = `SELECT out_id::text, out_replayed FROM {s}.ledger_post_pending($1, $2, $3, $4::uuid, $5::jsonb)`
 	callVoid        = `SELECT out_id::text, out_replayed FROM {s}.ledger_void($1, $2, $3, $4::uuid)`
 	callReverse     = `SELECT out_id::text, out_replayed FROM {s}.ledger_reverse($1, $2, $3, $4::uuid, $5::jsonb)`
-	readIsolation   = `SELECT current_setting('transaction_isolation'), now()`
+	readIsolation   = `SELECT current_setting('transaction_isolation'), clock_timestamp()`
 )
 
-// Open inserts the account into the tenant's ledger, in the ledger's currency, through ledger_open.
-func (l *Ledger) Open(ctx context.Context, tx Tx, t tenant.Tenant, a Account) error {
+// Open opens the account with the ID in the tenant's ledger, of the declared account code, through ledger_open,
+// which takes the normal side, the balance limit and the hot flag of the code from the DDL text. It returns
+// ErrAccountExists for an ID that the ledger holds already, and ErrInvalid for a code that is not declared.
+func (l *Ledger) Open(ctx context.Context, tx Tx, t tenant.Tenant, id, code string) error {
 	if t.IsZero() {
 		return tenant.ErrZero
 	}
-	if err := clean("account ID", a.ID); err != nil {
+	if err := clean("account ID", id); err != nil {
 		return err
 	}
-	if err := clean("account code", a.Code); err != nil {
+	if err := clean("account code", code); err != nil {
 		return err
-	}
-	if a.Normal != Debit && a.Normal != Credit {
-		return fmt.Errorf("%w: the normal side %q is not debit or credit", ErrInvalid, a.Normal)
-	}
-	if a.Hot && a.MinBalance != nil {
-		return fmt.Errorf("%w: the hot account %s has a balance limit", ErrInvalid, a.ID)
 	}
 	if _, err := l.writable(ctx, tx); err != nil {
 		return err
 	}
-	var limit sql.NullInt64
-	if a.MinBalance != nil {
-		limit = sql.NullInt64{Int64: *a.MinBalance, Valid: true}
-	}
-	if _, err := tx.ExecContext(ctx, l.q(callOpen), t.ID(), l.id, a.ID, a.Code, string(a.Normal), l.currency.Code(), limit, a.Hot); err != nil {
-		return stateError(fmt.Errorf("ledger %s: open the account %s: %w", l.id, a.ID, err))
+	if _, err := tx.ExecContext(ctx, l.q(callOpen), t.ID(), l.id, id, code); err != nil {
+		return stateError(fmt.Errorf("ledger %s: open the account %s: %w", l.id, id, err))
 	}
 	return nil
 }
@@ -264,15 +296,15 @@ const selectEntries = `SELECT account_id, side, amount FROM {s}.entries
 const selectKey = `SELECT EXISTS (SELECT 1 FROM {s}.transfers WHERE tenant_id = $1 AND ledger_id = $2
  AND idempotency_key = encode(sha256(convert_to($1, 'UTF8') || '\x00'::bytea || convert_to($3, 'UTF8')), 'hex'))`
 
-// writable refuses a transaction whose isolation can overdraw (ST-SUP-RP08-LC10), before any write, and returns
-// the database clock of the transaction.
+// writable refuses a transaction whose isolation is not READ COMMITTED (ST-SUP-RP08-LC10), before any write, and
+// returns the database clock.
 func (l *Ledger) writable(ctx context.Context, tx Tx) (time.Time, error) {
 	var isolation string
 	var now time.Time
 	if err := tx.QueryRowContext(ctx, readIsolation).Scan(&isolation, &now); err != nil {
 		return time.Time{}, fmt.Errorf("ledger %s: read the isolation: %w", l.id, err)
 	}
-	if isolation != "read committed" && isolation != "serializable" {
+	if isolation != "read committed" {
 		return time.Time{}, fmt.Errorf("%w: the transaction is %s", ErrIsolation, isolation)
 	}
 	return now, nil
@@ -641,6 +673,8 @@ func stateError(err error) error {
 		to = ErrExceedsPending
 	case codeIsolation:
 		to = ErrIsolation
+	case codeDuplicate:
+		to = ErrAccountExists
 	case codeEffective, codeNotSplit, codeNotMirror, "22023", "23514":
 		to = ErrInvalid
 	case "22003":

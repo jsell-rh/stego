@@ -170,9 +170,23 @@ func TestBalance(t *testing.T) {
 		if err := debit("before"); !errors.Is(err, ErrBelowMinimum) {
 			t.Fatalf("a debit of 1 while the hold is open: %v; want ErrBelowMinimum", err)
 		}
+		// At the boundary: a transaction that began before the expiry and posts after it counts the hold as expired,
+		// because ledger_post reads the clock after its locks.
+		tx, err := tenant.Begin(f.ctx, f.runtime, f.tn(acme), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback()
+		var started time.Time
+		if err := tx.QueryRowContext(f.ctx, "SELECT now()").Scan(&started); err != nil {
+			t.Fatal(err)
+		}
+		if !started.Before(p.ExpiresAt) {
+			t.Fatalf("the transaction began at %v, not before the expiry %v", started, p.ExpiresAt)
+		}
 		f.waitPast(p.ExpiresAt)
-		if err := debit("after"); err != nil {
-			t.Fatalf("a debit of 1 after the hold expired: %v; want it accepted", err)
+		if _, err := f.usd.Post(f.ctx, tx, f.tn(acme), Posting{Key: "after", Code: "purchase", Entries: []Entry{dr("limited", 1), cr("plain", 1)}}); err != nil {
+			t.Fatalf("a debit of 1 after the hold expired, in a transaction that began before: %v; want it accepted", err)
 		}
 	})
 }
