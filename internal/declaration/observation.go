@@ -322,11 +322,12 @@ func ObservationCounts(observation types.Observation) string {
 	return observation.Counts
 }
 
-func contains(values []string, value string) bool {
-	for _, v := range values {
-		if v == value {
-			return true
-		}
+// observationSettings resolves the Counts of each observation, attempt when it is omitted (ST-DECL-INV55), at the
+// paths that the faults use.
+func observationSettings(service *types.ServiceDeclaration) []Setting {
+	var settings []Setting
+	for i, observation := range service.Observations {
+		settings = append(settings, resolved(observationPath(i)+".counts", observation.Counts, ObservationCounts(types.Observation{})))
 	}
-	return false
+	return settings
 }

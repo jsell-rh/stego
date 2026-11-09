@@ -28,7 +28,7 @@
 {"id":"ST-DECL-TM12","title":"Audit level","domain_id":"ST-DECL","meaning":"How much an audit entry holds: metadata, or change with the before and after state. change is the default.","group_name":"Audit"}
 {"id":"ST-DECL-TM13","title":"Resource type","domain_id":"ST-DECL","meaning":"The type an entity has in the authorization schema. Its permissions and relations are checked against the compiled schema.","group_name":"Authorization"}
 {"id":"ST-DECL-TM14","title":"Relationship","domain_id":"ST-DECL","meaning":"One tuple that relates a resource to a subject. Generated code and fills write one only through the outbox, never directly.","group_name":"Authorization"}
-{"id":"ST-DECL-TM15","title":"Idempotency key","domain_id":"ST-DECL","meaning":"The key a client sends with a create or an update, so a retry replays the stored response instead of acting again.","group_name":"Authorization"}
+{"id":"ST-DECL-TM15","title":"Idempotency key","domain_id":"ST-DECL","meaning":"The key a client sends with a create or a patch, so a retry replays the stored response instead of acting again.","group_name":"Authorization"}
 {"id":"ST-DECL-TM16","title":"Ledger","domain_id":"ST-DECL","meaning":"An entity of kind ledger: accounts, transfers and entries in one currency, append-only and balanced.","group_name":"Ledger"}
 {"id":"ST-DECL-TM17","title":"Ledger account","domain_id":"ST-DECL","meaning":"One account of a ledger, with a normal balance of debit or credit and an optional minimum balance.","group_name":"Ledger"}
 {"id":"ST-DECL-TM18","title":"Normal balance","domain_id":"ST-DECL","meaning":"The side an account grows on: debit or credit.","group_name":"Ledger"}
