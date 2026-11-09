@@ -7,6 +7,13 @@
 // mark itself. An outer type that embeds a genuine value cannot declare that method again, so it cannot change the
 // data; methods that an outer type can declare again, such as TenantClaim, are never read here. A zero mark, a nil
 // embedded interface or pointer, and a nil value give no tenant.
+//
+// The limit of the seal: a mark proves that the authentication runtime of this module verified a token and read its
+// tenant claim. It does not prove that the verifier the service declared did so. Generated code passes the trust
+// settings (the issuer, the audience, the key source and the claim paths) to authn.New, so code that builds its own
+// authn.Verifier with other settings gets genuine marks too. The seal stops a tenant that no verification gave; it
+// does not check the settings of the verification. Those are proved where the generated code is checked against
+// the declaration.
 package seal
 
 // identityData is the data of an IdentityMark. Only NewIdentityMark makes one.
