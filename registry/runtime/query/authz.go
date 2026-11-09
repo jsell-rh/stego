@@ -39,11 +39,21 @@ func (a *Authz) Evaluate(ctx context.Context, action string, value LoadedValue) 
 	if e.spec.ResourceType == "" {
 		return false, errors.New("query: the entity " + e.spec.Name + " has no resource type to decide on")
 	}
-	result, err := c.authz.Evaluate(ctx, action, authz.Resource{Type: e.spec.ResourceType, ID: id}, token, nil)
+	resource, err := c.resource(e, id)
+	if err != nil {
+		return false, err
+	}
+	result, err := c.authz.Evaluate(ctx, action, resource, token, nil)
 	if err != nil {
 		return false, err
 	}
 	return result.Allowed, nil
+}
+
+// resource is the resource at the provider of the row id of entity e in the handle's tenant: its ID is the
+// tenant-qualified form that the authorization runtime builds (ST-SUP-RP06-LC22, ST-SUP-RC29-OC22).
+func (c *core) resource(e *entity, id string) (authz.Resource, error) {
+	return authz.NewResource(c.tenant, e.spec.ResourceType, id)
 }
 
 // allowRead decides the read permission that the entity declares on the row id, whose token is token, at the floor
@@ -52,7 +62,11 @@ func (c *core) allowRead(ctx context.Context, e *entity, id string, token authz.
 	if e.spec.ResourceType == "" {
 		return true, nil
 	}
-	result, err := c.authz.Evaluate(ctx, e.spec.ReadPermission, authz.Resource{Type: e.spec.ResourceType, ID: id}, token, nil)
+	resource, err := c.resource(e, id)
+	if err != nil {
+		return false, err
+	}
+	result, err := c.authz.Evaluate(ctx, e.spec.ReadPermission, resource, token, nil)
 	if err != nil {
 		return false, err
 	}
@@ -74,7 +88,8 @@ type ListRequest struct {
 }
 
 // ListResult is one page of a list: the allowed values in the order of their key, and when More is true the cursor
-// of the next page. More can be true on a page with fewer values than its limit, or none, when the call read its
+// of the next page. A list by resource search orders each page by key, and its pages follow the provider's order of
+// the tenant-qualified resource IDs (ST-SUP-RP06-LC22), which is not the order of the keys. More can be true on a page with fewer values than its limit, or none, when the call read its
 // ScanLimit rows: the fill goes on with Next.
 type ListResult[T any] struct {
 	Items []*Loaded[T]
@@ -182,14 +197,23 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor) 
 		if list != nil {
 			candidates := make([]authz.Row, len(page))
 			for i := range page {
-				candidates[i] = authz.Row{Resource: authz.Resource{Type: e.spec.ResourceType, ID: ids[i]}, Token: tokens[i]}
+				resource, err := c.resource(e, ids[i])
+				if err != nil {
+					return ListResult[T]{}, err
+				}
+				candidates[i] = authz.Row{Resource: resource, Token: tokens[i]}
 			}
 			kept, err := list.Page(ctx, candidates)
 			if err != nil {
 				return ListResult[T]{}, err
 			}
+			// The kept rows are mapped back to their keys by position in candidates, never by parsing an ID.
+			byID := make(map[string]string, len(candidates))
+			for i, candidate := range candidates {
+				byID[candidate.Resource.ID] = ids[i]
+			}
 			for _, row := range kept {
-				allowed[row.Resource.ID] = true
+				allowed[byID[row.Resource.ID]] = true
 			}
 		}
 		for i, row := range page {
@@ -221,7 +245,8 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor) 
 }
 
 // searchPage asks the provider for one page of the resources the principal may see and reads their rows in the
-// tenant. A resource of another tenant has no row here and is left out.
+// tenant. The authorization handle maps each result back to its row key, in Keys, only when it is of this tenant and
+// this resource type, and drops every other result (ST-SUP-RP06-LC22).
 func (r *Repository[T]) searchPage(ctx context.Context, limit int, after Cursor) (ListResult[T], error) {
 	c := r.core
 	e := &r.entity.e
@@ -233,15 +258,10 @@ func (r *Repository[T]) searchPage(ctx context.Context, limit int, after Cursor)
 	if !found.Next.IsZero() {
 		result.Next, result.More = Cursor{page: found.Next}, true
 	}
-	if len(found.Resources) == 0 {
+	if len(found.Keys) == 0 {
 		return result, nil
 	}
-	ids := make([]string, 0, len(found.Resources))
-	for _, resource := range found.Resources {
-		if resource.Type == e.spec.ResourceType {
-			ids = append(ids, resource.ID)
-		}
-	}
+	ids := found.Keys
 	rows, err := c.tx.QueryContext(ctx, "SELECT "+e.selectList+" FROM "+e.table+" WHERE "+TenantColumn+" = $1 AND "+
 		e.spec.Key+" = ANY($2) ORDER BY "+e.spec.Key, c.tenant.ID(), ids)
 	if err != nil {
