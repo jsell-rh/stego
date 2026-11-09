@@ -11,6 +11,10 @@ const (
 	tenancyPooled = "pooled"
 	tenancySingle = "single"
 	auditChange   = "change"
+	// tenantKey and tenantClaim are the key and the claim path of the pooled tenancy that a declaration gets when
+	// it omits tenancy: tenant_id is the column name the runtime uses.
+	tenantKey   = "tenant_id"
+	tenantClaim = "tenant_id"
 )
 
 // DefaultLeftWithoutReason is satisfied by a declaration that says tenancy kind single or audit off and gives no

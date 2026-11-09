@@ -1,6 +1,7 @@
 package declaration
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -47,8 +48,13 @@ func TestTenancyAndAuditDefaults(t *testing.T) {
 			t.Fatalf("TD02 is refused: %+v", faults)
 		}
 		settings := FilledSettings(service)
-		if settings.Tenancy.Kind != "pooled" || !settings.Audit.Enabled || settings.Audit.Level != "change" {
-			t.Fatalf("the settings do not hold pooled tenancy and audit at level change: %+v", settings)
+		if settings.Tenancy.Kind != "pooled" || settings.Tenancy.Key != "tenant_id" || settings.Tenancy.Claim != "tenant_id" || !settings.Audit.Enabled || settings.Audit.Level != "change" {
+			t.Fatalf("the settings do not hold pooled tenancy with the key and claim tenant_id and audit at level change: %+v", settings)
+		}
+		for _, path := range []string{"tenancy.kind", "tenancy.key", "tenancy.claim", "audit.level"} {
+			if !slices.Contains(settings.Defaults, path) {
+				t.Errorf("the setting %s is not marked as a default: %v", path, settings.Defaults)
+			}
 		}
 	})
 	refused := []struct{ name, added, path string }{

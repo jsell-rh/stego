@@ -71,17 +71,23 @@ type DefaultLeft struct {
 	Reason  string `json:"reason"`
 }
 
-// FilledSettings reads the declaration and gives its settings with the defaults filled in: pooled tenancy, audit
+// FilledSettings reads the declaration and gives its settings with the defaults filled in: pooled tenancy with the
+// key and the claim path tenant_id, audit
 // on at level change with a SHA-256 chain, an anchor, the sink audit-sink and pii redact, the tenant owned and the
 // sensitivity public.
 func FilledSettings(service *types.ServiceDeclaration) *Settings {
 	settings := &Settings{Entities: []EntitySettings{}, DefaultsLeft: []DefaultLeft{}, Defaults: []string{}}
 	tenancy := service.Tenancy
 	if tenancy == nil {
+		// An omitted tenancy is pooled, with the key and the claim path tenant_id (ST-DECL-INV18).
+		settings.Tenancy.Kind = settings.fill("tenancy.kind", "", tenancyPooled)
+		settings.Tenancy.Key = settings.fill("tenancy.key", "", tenantKey)
+		settings.Tenancy.Claim = settings.fill("tenancy.claim", "", tenantClaim)
 		tenancy = &types.Tenancy{}
+	} else {
+		settings.Tenancy.Kind = settings.fill("tenancy.kind", tenancy.Kind, tenancyPooled)
+		settings.Tenancy.Key, settings.Tenancy.Claim, settings.Tenancy.Reason = tenancy.Key, tenancy.Claim, tenancy.Reason
 	}
-	settings.Tenancy.Kind = settings.fill("tenancy.kind", tenancy.Kind, tenancyPooled)
-	settings.Tenancy.Key, settings.Tenancy.Claim, settings.Tenancy.Reason = tenancy.Key, tenancy.Claim, tenancy.Reason
 	if settings.Tenancy.Kind == tenancySingle {
 		settings.DefaultsLeft = append(settings.DefaultsLeft, DefaultLeft{Setting: "tenancy.kind", Value: tenancySingle, Reason: tenancy.Reason})
 	}

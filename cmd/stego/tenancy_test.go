@@ -104,7 +104,7 @@ func TestDeclareTenancyWithAuditSettings(t *testing.T) {
 			}
 		}
 		expectDefaults(t, settings, true, "audit.level", "entities.Todo.tenant")
-		expectDefaults(t, settings, false, "tenancy.kind", "entities.Plan.tenant", "entities.Job.tenant", "entities.Todo.fields.title.sensitivity")
+		expectDefaults(t, settings, false, "tenancy.kind", "tenancy.key", "tenancy.claim", "entities.Plan.tenant", "entities.Job.tenant", "entities.Todo.fields.title.sensitivity")
 		if fields := entitySettings(t, settings, "Todo").Fields; len(fields) == 0 || fields[0].Name != "title" || fields[0].Sensitivity != "pii" {
 			t.Errorf("want title reported pii, got %+v", fields)
 		}
@@ -112,11 +112,11 @@ func TestDeclareTenancyWithAuditSettings(t *testing.T) {
 
 	t.Run("ST-DECL-UC05-R01-T01 A declaration that omits tenancy and audit gets pooled tenancy and audit at level change with a SHA-256 chain and an anchor", func(t *testing.T) {
 		settings := acceptedSettings(t, td02)
-		if settings.Tenancy.Kind != "pooled" {
-			t.Errorf("want tenancy kind pooled, got %+v", settings.Tenancy)
+		if settings.Tenancy.Kind != "pooled" || settings.Tenancy.Key != "tenant_id" || settings.Tenancy.Claim != "tenant_id" {
+			t.Errorf("want tenancy kind pooled with the key tenant_id and the claim path tenant_id, got %+v", settings.Tenancy)
 		}
 		expectOnByDefault(t, settings.Audit)
-		expectDefaults(t, settings, true, "tenancy.kind", "audit.enabled", "audit.level")
+		expectDefaults(t, settings, true, "tenancy.kind", "tenancy.key", "tenancy.claim", "audit.enabled", "audit.level")
 	})
 
 	t.Run("ST-DECL-UC05-R02-T01 Tenancy kind single with no reason is refused, naming the setting", func(t *testing.T) {
