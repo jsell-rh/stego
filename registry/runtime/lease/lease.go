@@ -39,8 +39,8 @@ const releaseStatement = `UPDATE leases SET expires_at='-infinity' WHERE name=$1
 const declareStatement = `INSERT INTO leases (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`
 
 // fenceStatement locks the lease row against a change of holder or token until the caller's transaction ends, and
-// reads its token (ST-SUP-RP09-LC03, ST-SUP-RP10-LC20).
-const fenceStatement = `SELECT token FROM leases WHERE name=$1 FOR SHARE`
+// reads its token and holder (ST-SUP-RP09-LC03, ST-SUP-RP10-LC20).
+const fenceStatement = `SELECT token, holder FROM leases WHERE name=$1 FOR SHARE`
 
 var (
 	// ErrTaken is the error of Acquire when another holder has an unexpired lease.
@@ -173,10 +173,15 @@ func (c *Client) update(ctx context.Context) (int64, error) {
 type Held struct {
 	client *Client
 
-	// mu orders a renew against a fence: a fence reads the token and locks the row while no renew runs.
+	// mu guards the token and the bound of the lease. No lock is held across a round trip to the database, so a
+	// write under the lease can read them while a renew waits for the row.
 	mu      sync.RWMutex
 	token   int64
+	next    int64 // the token a renew that runs can give, or 0
 	expires time.Time
+
+	// renewing lets one renew run at a time.
+	renewing sync.Mutex
 
 	// act orders the writes under the lease against the release: a release waits for every write that runs.
 	act sync.RWMutex
@@ -243,8 +248,12 @@ func (h *Held) Renew(ctx context.Context) error {
 	if err := h.active(); err != nil {
 		return err
 	}
+	h.renewing.Lock()
+	defer h.renewing.Unlock()
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	want := h.token + 1
+	h.next = want
+	h.mu.Unlock()
 	sent := h.client.clock.Now()
 	token, err := h.client.update(ctx)
 	switch {
@@ -252,15 +261,23 @@ func (h *Held) Renew(ctx context.Context) error {
 		err = fmt.Errorf("lease %s: %w: another holder has the lease", h.client.name, ErrLost)
 	case err != nil:
 		err = fmt.Errorf("%w: %w", ErrLost, err)
-	case token != h.token+1:
-		err = fmt.Errorf("lease %s: %w: the renew gave token %d, not %d", h.client.name, ErrLost, token, h.token+1)
+	case token != want:
+		err = fmt.Errorf("lease %s: %w: the renew gave token %d, not %d", h.client.name, ErrLost, token, want)
+		// The statement gave this holder the row with a token it did not expect. Make the lease expire with that
+		// token, so another holder can take it at once.
+		_, _ = h.client.db.ExecContext(context.WithoutCancel(ctx), releaseStatement, h.client.name, h.client.holder, token)
 	}
+	h.mu.Lock()
+	h.next = 0
+	if err == nil {
+		h.token = token
+		h.expires = sent.Add(h.client.ttl)
+	}
+	h.mu.Unlock()
 	if err != nil {
 		h.halt(err)
 		return err
 	}
-	h.token = token
-	h.expires = sent.Add(h.client.ttl)
 	return nil
 }
 
@@ -278,19 +295,22 @@ func (h *Held) Release(ctx context.Context) error {
 
 // Fence locks the lease row in the caller's transaction until the transaction ends, so that no other holder can
 // take the lease while it runs, and returns the holder's token for the caller's writes to carry. When the row
-// holds another token, the holder stops and Fence returns ErrFenced (ST-SUP-RP09-LC03).
+// holds another holder or token, the holder stops and Fence returns ErrFenced (ST-SUP-RP09-LC03). A renew of this
+// holder that committed but has not returned yet gives the row the next token; Fence takes that token.
 func (h *Held) Fence(ctx context.Context, tx *sql.Tx) (int64, error) {
 	if err := h.active(); err != nil {
 		return 0, err
 	}
-	h.mu.RLock()
-	defer h.mu.RUnlock()
 	var token int64
-	if err := tx.QueryRowContext(ctx, fenceStatement, h.client.name).Scan(&token); err != nil {
+	var holder string
+	if err := tx.QueryRowContext(ctx, fenceStatement, h.client.name).Scan(&token, &holder); err != nil {
 		return 0, fmt.Errorf("lease %s: fence: %w", h.client.name, err)
 	}
-	if token != h.token {
-		err := fmt.Errorf("lease %s: %w: the row holds token %d, the holder %d", h.client.name, ErrFenced, token, h.token)
+	h.mu.RLock()
+	own, next := h.token, h.next
+	h.mu.RUnlock()
+	if holder != h.client.holder || (token != own && (next == 0 || token != next)) {
+		err := fmt.Errorf("lease %s: %w: the row holds %s with token %d, the holder %s %d", h.client.name, ErrFenced, holder, token, h.client.holder, own)
 		h.halt(err)
 		return 0, err
 	}
@@ -333,7 +353,8 @@ func (h *Held) WithToken(ctx context.Context, write func(ctx context.Context, tx
 	return nil
 }
 
-// Hold acquires the lease, retrying every retry period while another holder has it, runs work with the held lease,
+// Hold acquires the lease, retrying every retry period while another holder has it and returning any other error
+// of the acquire, runs work with the held lease,
 // and renews the lease every renew interval while work runs. When a renew fails or gives another token, or a write
 // meets a higher token, it cancels work's context at once, which is within one renew interval and before the lease
 // can expire, waits for work to return, and returns the cause (ST-SUP-RP09-LC03, ST-SUP-RP09-LC04). When work
@@ -344,8 +365,8 @@ func (c *Client) Hold(ctx context.Context, work func(ctx context.Context, held *
 		if err == nil {
 			return c.hold(ctx, h, work)
 		}
-		if ctx.Err() != nil {
-			return ctx.Err()
+		if !errors.Is(err, ErrTaken) {
+			return err
 		}
 		select {
 		case <-ctx.Done():

@@ -92,7 +92,11 @@ type Backfill struct {
 	stalled    bool
 	stopping   bool
 	flushErr   error
+	flushed    bool
+	ran        bool
+	runErr     error
 	idle       chan struct{}
+	wake       chan struct{}
 }
 
 type checkpoint struct {
@@ -140,29 +144,41 @@ func (b *Backfill) Stalled() bool {
 // whose new value is unset (ST-SUP-RP09-LC11). A batch that fails, such as at the lock timeout, is rolled back
 // and run again after the retry period; a fenced batch or a stopped holder ends Run. A watcher marks the backfill
 // stalled when no batch commits for three lease durations, and emits the stall once.
-func (b *Backfill) Run(ctx context.Context, db DB, held *Held) error {
+func (b *Backfill) Run(ctx context.Context, db DB, held *Held) (runErr error) {
 	b.mu.Lock()
 	if b.running {
 		b.mu.Unlock()
 		return fmt.Errorf("backfill %s: already running", b.change)
 	}
 	b.db, b.held, b.running, b.stopping, b.flushErr = db, held, true, false, nil
+	b.ran, b.flushed, b.complete, b.runErr = true, false, false, nil
 	b.lastCommit = held.client.clock.Now()
 	b.idle = make(chan struct{})
+	b.wake = make(chan struct{})
 	b.mu.Unlock()
+	watched := make(chan struct{})
 	defer func() {
+		<-watched
 		b.mu.Lock()
-		b.running, b.stalled = false, false
+		b.running, b.stalled, b.runErr = false, false, runErr
 		close(b.idle)
 		b.mu.Unlock()
 	}()
 
 	if err := b.prepare(ctx); err != nil {
+		close(watched)
 		return err
 	}
 	watch, stopWatch := context.WithCancel(ctx)
+	// The watcher ends before Run returns, so a later Run of the same backfill shares nothing with it.
 	defer stopWatch()
-	go b.watch(watch)
+	go func() {
+		defer close(watched)
+		b.watch(watch, held)
+	}()
+	b.mu.Lock()
+	wake := b.wake
+	b.mu.Unlock()
 	for {
 		b.mu.Lock()
 		complete, stopping := b.complete, b.stopping
@@ -172,7 +188,7 @@ func (b *Backfill) Run(ctx context.Context, db DB, held *Held) error {
 			// still holds, before Run returns and the holder can release the lease.
 			err := b.flush(context.WithoutCancel(ctx))
 			b.mu.Lock()
-			b.flushErr = err
+			b.flushErr, b.flushed = err, true
 			b.mu.Unlock()
 			return err
 		}
@@ -191,15 +207,17 @@ func (b *Backfill) Run(ctx context.Context, db DB, held *Held) error {
 			return ctx.Err()
 		case <-held.Done():
 			return held.Err()
+		case <-wake:
 		case <-held.client.clock.After(held.client.retry):
 		}
 	}
 }
 
-// prepare reads the checkpoint and, for a new fill value, starts the repair pass.
+// prepare reads the checkpoint and, for a declared fill value whose digest differs from the row's, starts the
+// repair pass. A declaration with no fill value starts none.
 func (b *Backfill) prepare(ctx context.Context) error {
 	return b.inTx(ctx, func(ctx context.Context, tx *sql.Tx, row checkpoint) (checkpoint, bool, error) {
-		if row.fillDigest == b.fillDigest {
+		if b.fillDigest == "" || row.fillDigest == b.fillDigest {
 			return row, false, nil
 		}
 		row.lastKey = sql.NullString{}
@@ -262,7 +280,8 @@ func (b *Backfill) batch(ctx context.Context) error {
 	return nil
 }
 
-// inTx runs change in one transaction with the lock timeout, over the checkpoint row locked FOR UPDATE, and writes
+// inTx runs change in one transaction with the lock timeout, under the lease row locked by Fence, over the
+// checkpoint row locked FOR UPDATE, and writes
 // the row change gives with the fenced checkpoint statement when it asks to, then commits.
 func (b *Backfill) inTx(ctx context.Context, change func(ctx context.Context, tx *sql.Tx, row checkpoint) (checkpoint, bool, error)) error {
 	held := b.held
@@ -280,6 +299,11 @@ func (b *Backfill) inTx(ctx context.Context, change func(ctx context.Context, tx
 	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx, lockTimeoutStatement, fmt.Sprintf("%dms", b.lockTimeout.Milliseconds())); err != nil {
 		return fmt.Errorf("backfill %s: lock timeout: %w", b.change, err)
+	}
+	// The lease row first: a holder whose lease another holder took writes nothing (ST-SUP-RP09-LC03). The
+	// checkpoint token below stays as the second guard (ST-SUP-RP09-LC07).
+	if _, err := held.Fence(ctx, tx); err != nil {
+		return err
 	}
 	var row checkpoint
 	err = tx.QueryRowContext(ctx, readCheckpointStatement, b.change).Scan(&row.lastKey, &row.moved, &row.failed, &row.duplicates, &row.fillDigest, &row.token, &row.completed)
@@ -328,26 +352,40 @@ func (b *Backfill) checkpoint(ctx context.Context, tx *sql.Tx, row checkpoint) (
 	return row, nil
 }
 
+// ErrNotFlushed is the error of Flush when Run ended before it could flush, with the change not complete.
+var ErrNotFlushed = errors.New("backfill: Run ended with no flush")
+
 // Flush makes Run start no new batch, waits for the batch that runs, and waits for Run to write the checkpoint of
 // the last batch again with the holder's token and return. The controller's shutdown runs it under the lease,
-// before it releases the lease (ST-SUP-RP09-LC06). With no Run, it has nothing to flush.
+// before it releases the lease (ST-SUP-RP09-LC06). It returns nil when Run never ran, such as on a replica that
+// never held the lease, and when the change is complete. When Run ended with no flush and the change is not
+// complete, such as when Run's context ended first, it returns ErrNotFlushed with Run's error.
 func (b *Backfill) Flush(ctx context.Context) error {
 	b.mu.Lock()
-	if !b.running {
+	if b.running {
+		if !b.stopping {
+			b.stopping = true
+			close(b.wake)
+		}
+		idle := b.idle
 		b.mu.Unlock()
+		select {
+		case <-idle:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		b.mu.Lock()
+	}
+	defer b.mu.Unlock()
+	switch {
+	case !b.ran:
+		return nil
+	case b.flushed:
+		return b.flushErr
+	case b.complete:
 		return nil
 	}
-	b.stopping = true
-	idle := b.idle
-	b.mu.Unlock()
-	select {
-	case <-idle:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.flushErr
+	return fmt.Errorf("backfill %s: %w: %w", b.change, ErrNotFlushed, b.runErr)
 }
 
 // flush writes the checkpoint of the last batch again with the holder's token.
@@ -363,14 +401,14 @@ func (b *Backfill) flush(ctx context.Context) error {
 // watch marks the backfill stalled, and emits schema.backfill.stalled once, when it has rows left and no batch
 // committed for three lease durations. It looks once every renew interval, so it sees a stall within three lease
 // durations and one renew interval. It never stops the process (ST-SUP-RP09-LC12).
-func (b *Backfill) watch(ctx context.Context) {
-	clock := b.held.client.clock
-	bound := 3 * b.held.client.ttl
+func (b *Backfill) watch(ctx context.Context, held *Held) {
+	clock := held.client.clock
+	bound := 3 * held.client.ttl
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-clock.After(b.held.client.renew):
+		case <-clock.After(held.client.renew):
 		}
 		b.mu.Lock()
 		stall := !b.complete && !b.stalled && clock.Now().Sub(b.lastCommit) >= bound

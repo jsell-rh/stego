@@ -184,6 +184,11 @@ type Sequencer struct {
 
 // Run waits for a signal on signals, such as SIGTERM, or for ctx to end, and then runs Shutdown with a context
 // that ctx's end does not cancel, so the shutdown can finish.
+//
+// The contexts of the components, such as the one Hold and Backfill.Run take, must not be the trigger of the
+// shutdown: cancel them only after Run returns. A component context that ends first stops the backfill before
+// its flush, and Hold then releases the lease with the checkpoint not flushed; Flush reports that as
+// ErrNotFlushed.
 func (s *Sequencer) Run(ctx context.Context, selection Selection, signals <-chan os.Signal) error {
 	select {
 	case <-signals:

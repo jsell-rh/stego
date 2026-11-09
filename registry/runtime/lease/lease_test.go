@@ -414,6 +414,66 @@ func TestWriteCarriesToken(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RP09-LC03-T05 A write under the lease reads the holder's state while a renew waits for the row", func(t *testing.T) {
+		d := openDatabase(t)
+		d.exec(t, writes)
+		ctx := context.Background()
+		if err := Declare(ctx, d.db, "stego.controller"); err != nil {
+			t.Fatal(err)
+		}
+		h := acquire(t, newClient(t, d.db, "stego.controller", "h1", Settings{}))
+		before := h.Token()
+		inWrite := make(chan struct{})
+		renewWaits := make(chan struct{})
+		renewed := make(chan error, 1)
+		var reads []time.Duration
+		var nested int64
+		var nestedErr error
+		go func() {
+			<-inWrite
+			go func() { renewed <- h.Renew(ctx) }()
+			// The renew's UPDATE waits for the lease row that the write holds FOR SHARE.
+			for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+				var waiting int
+				if err := d.other.QueryRowContext(ctx, "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock'").Scan(&waiting); err != nil || waiting > 0 {
+					break
+				}
+			}
+			close(renewWaits)
+		}()
+		err := h.WithToken(ctx, func(ctx context.Context, tx *sql.Tx, token int64) error {
+			close(inWrite)
+			<-renewWaits
+			start := time.Now()
+			_ = h.Token()
+			reads = append(reads, time.Since(start))
+			start = time.Now()
+			_ = h.Expires()
+			reads = append(reads, time.Since(start))
+			start = time.Now()
+			nested, nestedErr = h.Fence(ctx, tx)
+			reads = append(reads, time.Since(start))
+			return insert("during the renew")(ctx, tx, token)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := within(t, renewed, "the renew"); err != nil {
+			t.Fatalf("the renew gave %v", err)
+		}
+		for i, took := range reads {
+			if took > time.Second {
+				t.Fatalf("read %d in the write waited %s for the renew, want no wait", i, took)
+			}
+		}
+		if nestedErr != nil || nested != before {
+			t.Fatalf("the nested fence gave %d, %v, want the token %d", nested, nestedErr, before)
+		}
+		if h.Token() != before+1 {
+			t.Fatalf("after the renew the token is %d, want %d", h.Token(), before+1)
+		}
+	})
+
 	t.Run("ST-SUP-RP09-LC03-T03 The holder's loop stops on the fenced error", func(t *testing.T) {
 		d := openDatabase(t)
 		d.exec(t, writes)
@@ -531,6 +591,10 @@ func TestHolderStops(t *testing.T) {
 		}
 		if err := within(t, result, "the end of Hold"); !errors.Is(err, ErrLost) {
 			t.Fatalf("Hold returned %v, want ErrLost", err)
+		}
+		var released bool
+		if err := d.other.QueryRowContext(context.Background(), "SELECT expires_at < now() FROM leases WHERE name='stego.controller'").Scan(&released); err != nil || !released {
+			t.Fatalf("after the token mismatch the lease is expired %v (%v), want released", released, err)
 		}
 	})
 

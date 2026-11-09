@@ -214,6 +214,36 @@ func heldLease(t *testing.T, d *database, holder string, settings Settings) *Hel
 }
 
 func TestBackfillCheckpoint(t *testing.T) {
+	t.Run("ST-SUP-RP09-LC03-T04 A backfill batch of a holder whose lease was taken writes nothing", func(t *testing.T) {
+		d := openDatabase(t)
+		it := newItems(t, d, 250)
+		ctx := context.Background()
+		a := heldLease(t, d, "a", Settings{})
+		// B takes the lease before it writes its first checkpoint; the checkpoint row still holds no higher token.
+		d.expire(t, "stego.backfill."+backfillChange)
+		b := acquire(t, newClient(t, d.db, "stego.backfill."+backfillChange, "b", Settings{}))
+		err := newBackfill(t, it, BackfillSettings{BatchSize: 100}).Run(ctx, d.db, a)
+		if !errors.Is(err, ErrFenced) {
+			t.Fatalf("the backfill of A gave %v, want ErrFenced", err)
+		}
+		if calls := it.allCalls(); len(calls) != 0 {
+			t.Fatalf("the step of A ran %d times, want none", len(calls))
+		}
+		var moved int
+		if err := d.other.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE new_value IS NOT NULL").Scan(&moved); err != nil || moved != 0 {
+			t.Fatalf("%d rows hold the new value (%v), want none", moved, err)
+		}
+		if got := checkpointRow(t, d); got.token != 0 || got.lastKey.Valid {
+			t.Fatalf("the checkpoint row is %+v, want it unchanged", got)
+		}
+		if err := newBackfill(t, it, BackfillSettings{BatchSize: 100}).Run(ctx, d.db, b); err != nil {
+			t.Fatalf("the backfill of B gave %v", err)
+		}
+		if got := checkpointRow(t, d); got.token != b.Token() || got.moved != 250 || !got.completed.Valid {
+			t.Fatalf("after B the checkpoint row is %+v, want B's token, 250 rows and complete", got)
+		}
+	})
+
 	t.Run("ST-SUP-RP09-LC07-T01 A checkpoint write with a lower token than the row's fails as fenced and changes nothing", func(t *testing.T) {
 		d := openDatabase(t)
 		it := newItems(t, d, 250)
@@ -239,13 +269,18 @@ func TestBackfillCheckpoint(t *testing.T) {
 		aResult := make(chan error, 1)
 		go func() { aResult <- aBackfill.Run(ctx, d.db, a) }()
 
-		// B takes the expired lease with a higher token and commits one batch.
+		// B commits one batch with a higher token. B holds another lease row than A, so that the lease fence of
+		// each batch does not stop A first: the checkpoint statement is then the only guard, and this test proves it.
 		deadline := time.Now().Add(10 * time.Second)
 		for checkpointRow(t, d).moved != 100 && time.Now().Before(deadline) {
 			time.Sleep(10 * time.Millisecond)
 		}
-		d.expire(t, "stego.backfill."+backfillChange)
-		b := acquire(t, newClient(t, d.db, "stego.backfill."+backfillChange, "b", Settings{}))
+		const other = "stego.backfill." + backfillChange + ".other"
+		if err := Declare(ctx, d.db, other); err != nil {
+			t.Fatal(err)
+		}
+		d.exec(t, "UPDATE leases SET token=1000 WHERE name=$1", other)
+		b := acquire(t, newClient(t, d.db, other, "b", Settings{}))
 		bWaits := make(chan struct{})
 		bObserved := &observations{onRows: func(batch int) {
 			if batch == 1 {
@@ -433,6 +468,9 @@ func TestBackfillResumes(t *testing.T) {
 		if err := first.Run(ctx, d.db, heldLease(t, d, "h1", Settings{})); !errors.Is(err, context.Canceled) {
 			t.Fatalf("the first runner gave %v, want its stop", err)
 		}
+		if err := first.Flush(context.Background()); !errors.Is(err, ErrNotFlushed) {
+			t.Fatalf("the flush of a runner that ended with no flush gave %v, want ErrNotFlushed", err)
+		}
 		if got := checkpointRow(t, d); got.lastKey.String != "200" || got.completed.Valid {
 			t.Fatalf("after two batches the checkpoint is %v, complete %v, want 200 and not complete", got.lastKey, got.completed.Valid)
 		}
@@ -498,6 +536,17 @@ func TestBackfillRepair(t *testing.T) {
 		if got := checkpointRow(t, d); !got.completed.Valid || got.fillDigest != digest {
 			t.Fatalf("after the repair the row is %+v, want complete with the new digest", got)
 		}
+		// A declaration with no fill value starts no repair pass.
+		started = len(it.allCalls())
+		if err := newBackfill(t, it, BackfillSettings{}).Run(ctx, d.db, heldLease(t, d, "h1", Settings{})); err != nil {
+			t.Fatal(err)
+		}
+		if calls := it.allCalls()[started:]; len(calls) != 0 {
+			t.Fatalf("a run with no fill value ran the step %d times, want none", len(calls))
+		}
+		if got := checkpointRow(t, d); !got.completed.Valid || got.fillDigest != digest {
+			t.Fatalf("after a run with no fill value the row is %+v, want it unchanged", got)
+		}
 	})
 }
 
@@ -517,6 +566,8 @@ func TestBackfillStall(t *testing.T) {
 		var lastCommit time.Time
 		var commitMu sync.Mutex
 		locked := make(chan struct{})
+		nextBatch := make(chan struct{})
+		checked := make(chan struct{})
 		observed := &observations{}
 		observed.onRows = func(batch int) {
 			commitMu.Lock()
@@ -527,6 +578,11 @@ func TestBackfillStall(t *testing.T) {
 					t.Error(err)
 				}
 				close(locked)
+			}
+			if batch == 2 {
+				// The first batch after the stall committed: hold the next one until the test read readiness.
+				close(nextBatch)
+				<-checked
 			}
 		}
 		b := newBackfill(t, it, BackfillSettings{BatchSize: 100, LockTimeout: 200 * time.Millisecond, Observer: observed})
@@ -569,17 +625,12 @@ func TestBackfillStall(t *testing.T) {
 			t.Fatalf("schema.backfill.stalled was emitted %d times (%v), want once within three TTLs and one renew interval", len(stalls), stalls)
 		}
 		_ = lock.Rollback()
-		deadline := time.Now().Add(5 * time.Second)
-		ready := false
-		for !ready && time.Now().Before(deadline) {
-			time.Sleep(50 * time.Millisecond)
-			commitMu.Lock()
-			committed := lastCommit.After(stallFrom)
-			commitMu.Unlock()
-			ready = committed && probe(t, server.URL+"/readyz") == http.StatusOK
-		}
-		if !ready {
-			t.Fatal("the controller stayed not ready after the next batch committed")
+		within(t, nextBatch, "the next batch")
+		code := probe(t, server.URL+"/readyz")
+		complete := checkpointRow(t, d).completed.Valid
+		close(checked)
+		if code != http.StatusOK || complete {
+			t.Fatalf("after the next batch, with the change complete %v, readiness answered %d, want 200 before the change is complete", complete, code)
 		}
 		select {
 		case err := <-result:

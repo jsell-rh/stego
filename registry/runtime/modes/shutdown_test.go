@@ -167,16 +167,21 @@ func (p *proxy) stop() {
 	}
 }
 
-// fakeClock is a clock that moves only when the test advances it; it records each wait.
+// fakeClock is a clock that moves only when the test advances it; it records each wait, and calls onWait in the
+// call that starts the wait, before anything can follow it.
 type fakeClock struct {
 	mu      sync.Mutex
 	waits   []time.Duration
 	waiters []chan time.Time
+	onWait  func(d time.Duration)
 }
 
 func (c *fakeClock) After(d time.Duration) <-chan time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.onWait != nil {
+		c.onWait(d)
+	}
 	ch := make(chan time.Time, 1)
 	c.waits = append(c.waits, d)
 	c.waiters = append(c.waiters, ch)
@@ -214,6 +219,19 @@ type steps struct {
 func (s *steps) add(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.names = append(s.names, name)
+}
+
+// addAfter adds name, and before it first adds the step that check gives when nothing is recorded yet. The lock
+// is held across the check and the adds, so two sequences that record at the same time keep their order.
+func (s *steps) addAfter(check func() string, name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.names) == 0 {
+		if first := check(); first != "" {
+			s.names = append(s.names, first)
+		}
+	}
 	s.names = append(s.names, name)
 }
 
@@ -351,12 +369,18 @@ func TestModeReadiness(t *testing.T) {
 		}
 		recorded := &steps{}
 		record := func(name string) {
-			if len(recorded.all()) == 0 && readiness.Check(ctx, Selection{All}) != nil {
-				recorded.add("readiness false")
-			}
-			recorded.add(name)
+			recorded.addAfter(func() string {
+				if readiness.Check(ctx, Selection{All}) != nil {
+					return "readiness false"
+				}
+				return "readiness true"
+			}, name)
 		}
-		server.RegisterOnShutdown(func() { record("drain") })
+		drained := make(chan struct{})
+		server.RegisterOnShutdown(func() {
+			record("drain")
+			close(drained)
+		})
 		sequencer := &Sequencer{
 			Readiness: readiness,
 			API:       &APIShutdown{Server: server},
@@ -372,6 +396,7 @@ func TestModeReadiness(t *testing.T) {
 		if err := within(t, sigterm(t, sequencer, Selection{All}), "the shutdown"); err != nil {
 			t.Fatal(err)
 		}
+		within(t, drained, "the drain")
 		got := recorded.all()
 		if len(got) < 2 || got[0] != "readiness false" {
 			t.Fatalf("the steps are %v, want readiness false first", got)
@@ -397,9 +422,11 @@ func TestModeShutdown(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		})
 		recorded := &steps{}
+		drained := make(chan struct{})
 		server.RegisterOnShutdown(func() {
 			recorded.add("drain")
 			close(release)
+			close(drained)
 		})
 		response := make(chan int, 1)
 		go func() {
@@ -412,17 +439,21 @@ func TestModeShutdown(t *testing.T) {
 			response <- r.StatusCode
 		}()
 		within(t, entered, "the request")
-		clock := &fakeClock{}
+		clock := &fakeClock{onWait: func(d time.Duration) {
+			recorded.addAfter(func() string {
+				if readiness.Ready(ctx, API) != nil {
+					return "readiness failed"
+				}
+				return "readiness ready"
+			}, fmt.Sprintf("wait %s", d))
+		}}
 		sequencer := &Sequencer{Readiness: readiness, Clock: clock, API: &APIShutdown{Server: server, PropagationDelay: 5 * time.Second}}
 		result := sigterm(t, sequencer, Selection{API})
-		waits := clock.advance(t)
-		if readiness.Ready(ctx, API) != nil {
-			recorded.add("readiness failed")
-		}
-		recorded.add(fmt.Sprintf("wait %s", waits[0]))
+		clock.advance(t)
 		if err := within(t, result, "the shutdown"); err != nil {
 			t.Fatal(err)
 		}
+		within(t, drained, "the drain")
 		if got := recorded.all(); !slices.Equal(got, []string{"readiness failed", "wait 5s", "drain"}) {
 			t.Fatalf("the steps are %v, want readiness failed, wait 5s, drain", got)
 		}
@@ -509,9 +540,11 @@ func TestModeShutdown(t *testing.T) {
 			})
 		}()
 		held := within(t, heldCh, "the lease")
+		var stopAt atomic.Int64
 		within(t, inStep, "the unflushed batch")
 		sequencer := &Sequencer{Readiness: NewReadiness(d.db), Controller: &ControllerShutdown{
 			Flush: func(ctx context.Context) error {
+				stopAt.Store(int64(len(d.rec.all())))
 				close(flushing)
 				return backfill.Flush(ctx)
 			},
@@ -523,7 +556,9 @@ func TestModeShutdown(t *testing.T) {
 		if err := within(t, holding, "the end of Hold"); err != nil {
 			t.Fatal(err)
 		}
-		released, checkpoints := -1, 0
+		// After the stop, the batch that ran commits; then the flush must write the checkpoint again with the
+		// holder's token, and only then may the lease be released.
+		released, batchCommit, flushed := -1, -1, -1
 		for i, s := range d.rec.all() {
 			switch {
 			case strings.HasPrefix(s.sql, "UPDATE stego_schema.backfills"):
@@ -533,13 +568,19 @@ func TestModeShutdown(t *testing.T) {
 				if s.args[len(s.args)-1] != held.Token() {
 					t.Fatalf("a checkpoint carries the token %v, want the holder's %d", s.args[len(s.args)-1], held.Token())
 				}
-				checkpoints++
+				if batchCommit >= 0 && flushed < 0 {
+					flushed = i
+				}
+			case s.sql == "commit" && i >= int(stopAt.Load()) && batchCommit < 0:
+				batchCommit = i
 			case strings.HasPrefix(s.sql, "UPDATE leases SET expires_at='-infinity'"):
-				released = i
+				if released < 0 {
+					released = i
+				}
 			}
 		}
-		if checkpoints < 2 || released < 0 {
-			t.Fatalf("%d checkpoints and a release at %d, want the flushed checkpoint and then the release", checkpoints, released)
+		if batchCommit < 0 || flushed < 0 || released < flushed {
+			t.Fatalf("after the stop the batch committed at %d, the flush wrote the checkpoint at %d and the release came at %d; want the flush after the batch and the release after the flush", batchCommit, flushed, released)
 		}
 		var holder string
 		var expired bool
@@ -556,7 +597,11 @@ func TestModeShutdown(t *testing.T) {
 		readiness := NewReadiness(pingOK{})
 		server, _ := serve(t, readiness, nil)
 		recorded := &steps{}
-		server.RegisterOnShutdown(func() { recorded.add("api drain") })
+		drained := make(chan struct{})
+		server.RegisterOnShutdown(func() {
+			recorded.add("api drain")
+			close(drained)
+		})
 		sequencer := &Sequencer{
 			Readiness: readiness,
 			API:       &APIShutdown{Server: server},
@@ -572,7 +617,7 @@ func TestModeShutdown(t *testing.T) {
 		if err := within(t, sigterm(t, sequencer, Selection{API, Worker}), "the shutdown"); err != nil {
 			t.Fatal(err)
 		}
-		time.Sleep(50 * time.Millisecond)
+		within(t, drained, "the drain")
 		got := recorded.all()
 		for _, name := range []string{"api drain", "worker claim stop", "worker finish"} {
 			if !slices.Contains(got, name) {

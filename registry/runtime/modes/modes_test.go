@@ -83,6 +83,11 @@ func TestParseModes(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "reporter") {
 				t.Fatalf("Parse(%v, STEGO_MODE=%q) gave %v, %v, want an error that names reporter", input.args, input.env, selection, err)
 			}
+			if running, err := registry.Start(context.Background(), selection); err == nil {
+				if err := running.Wait(); err != nil {
+					t.Fatal(err)
+				}
+			}
 		}
 		running, err := registry.Start(context.Background(), Selection{"reporter"})
 		if err == nil || !strings.Contains(err.Error(), "reporter") || running != nil {
@@ -132,8 +137,14 @@ func TestParseModes(t *testing.T) {
 			t.Fatal(err)
 		}
 		selection, err := Parse(nil, env(map[string]string{EnvironmentName: "api,reporter"}))
-		if err == nil || !strings.Contains(err.Error(), "reporter") || selection != nil {
-			t.Fatalf("STEGO_MODE=api,reporter gave %v, %v, want an error that names reporter and no selection", selection, err)
+		if err == nil || !strings.Contains(err.Error(), "reporter") {
+			t.Fatalf("STEGO_MODE=api,reporter gave %v, %v, want an error that names reporter", selection, err)
+		}
+		// Start what the parse gave: a parser that keeps api and drops reporter starts http here.
+		if running, err := registry.Start(context.Background(), selection); err == nil {
+			if err := running.Wait(); err != nil {
+				t.Fatal(err)
+			}
 		}
 		if names := s.take(); len(names) != 0 {
 			t.Fatalf("components started: %v, want none", names)
