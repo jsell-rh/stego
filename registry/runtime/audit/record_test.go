@@ -432,7 +432,7 @@ func (f *pgFixture) seed(tenant string, times []time.Time) []Event {
 			if _, err := tx.ExecContext(f.ctx, insertEvent, tenant, seq, e.ID.String(), e.OccurredAt, e.RecordedAt,
 				e.ActorID, string(e.ActorKind), string(e.ActorIP), string(e.UserAgent), e.Action, e.ResourceType,
 				e.ResourceID, string(e.Outcome), e.ErrorCode, e.RequestID, e.TraceID, e.SpanID, e.IdempotencyKey,
-				nil, nil, nil, e.Service, e.ServiceVersion, e.DeclarationVersion, e.PrevHash, e.Hash); err != nil {
+				nil, nil, nil, e.Service, e.ServiceVersion, e.DeclarationVersion, e.PrevHash, e.Hash, e.Operation, e.HashVersion); err != nil {
 				return err
 			}
 			prev = e.Hash
