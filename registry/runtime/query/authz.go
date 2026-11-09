@@ -29,10 +29,7 @@ func (a *Authz) Evaluate(ctx context.Context, action string, value LoadedValue) 
 		return false, err
 	}
 	defer c.life.leave()
-	if value == nil {
-		return false, errForeignValue
-	}
-	origin, e, id, token := value.row()
+	origin, e, id, token := rowOf(value)
 	if origin != c || e == nil {
 		return false, errForeignValue
 	}
@@ -92,7 +89,7 @@ type ListRequest struct {
 // the tenant-qualified resource IDs (ST-SUP-RP06-LC22), which is not the order of the keys. More can be true on a page with fewer values than its limit, or none, when the call read its
 // ScanLimit rows: the fill goes on with Next.
 type ListResult[T any] struct {
-	Items []*Loaded[T]
+	Items []Loaded[T]
 	Next  Cursor
 	More  bool
 }
@@ -224,7 +221,7 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor) 
 			if err != nil {
 				return ListResult[T]{}, err
 			}
-			if err := c.audited(ctx, e, loaded.id, row); err != nil {
+			if err := c.audited(ctx, e, loaded.ID(), row); err != nil {
 				return ListResult[T]{}, err
 			}
 			result.Items = append(result.Items, loaded)
@@ -276,7 +273,7 @@ func (r *Repository[T]) searchPage(ctx context.Context, limit int, after Cursor)
 		if err != nil {
 			return ListResult[T]{}, err
 		}
-		if err := c.audited(ctx, e, loaded.id, row); err != nil {
+		if err := c.audited(ctx, e, loaded.ID(), row); err != nil {
 			return ListResult[T]{}, err
 		}
 		result.Items = append(result.Items, loaded)
