@@ -284,6 +284,8 @@ type ServiceDeclaration struct {
 	Commands []Command `yaml:"commands,omitempty"`
 	// Queries are the reads that the service's own code carries out (ST-DECL-EN19).
 	Queries []Query `yaml:"queries,omitempty"`
+	// Observations are what the service's own code can observe and report (ST-DECL-EN20).
+	Observations []Observation `yaml:"observations,omitempty"`
 }
 
 // UnmarshalYAML implements custom YAML unmarshaling for ServiceDeclaration.

@@ -49,6 +49,14 @@
 {"id":"ST-DECL-INV44-RL","title":"declaration.validateQueryReads","invariant_id":"ST-DECL-INV44","file":"internal/declaration/query.go"}
 {"id":"ST-DECL-INV45-RL","title":"declaration.validateQueryFill","invariant_id":"ST-DECL-INV45","file":"internal/declaration/query.go"}
 {"id":"ST-DECL-INV47-RL","title":"declaration.validateOperationRoutes","invariant_id":"ST-DECL-INV47","file":"internal/declaration/command.go"}
+{"id":"ST-DECL-INV48-RL","title":"declaration.validateObservationNames","invariant_id":"ST-DECL-INV48","file":"internal/declaration/observation.go"}
+{"id":"ST-DECL-INV49-RL","title":"declaration.validateObservationKind","invariant_id":"ST-DECL-INV49","file":"internal/declaration/observation.go"}
+{"id":"ST-DECL-INV50-RL","title":"declaration.validateObservationValue","invariant_id":"ST-DECL-INV50","file":"internal/declaration/observation.go"}
+{"id":"ST-DECL-INV51-RL","title":"declaration.validateObservationFields","invariant_id":"ST-DECL-INV51","file":"internal/declaration/observation.go"}
+{"id":"ST-DECL-INV52-RL","title":"declaration.validateObservationPrivacy","invariant_id":"ST-DECL-INV52","file":"internal/declaration/observation.go"}
+{"id":"ST-DECL-INV53-RL","title":"declaration.validateObservationSeries","invariant_id":"ST-DECL-INV53","file":"internal/declaration/observation.go"}
+{"id":"ST-DECL-INV54-RL","title":"declaration.validateObservationEmitters","invariant_id":"ST-DECL-INV54","file":"internal/declaration/observation.go"}
+{"id":"ST-DECL-INV55-RL","title":"declaration.validateObservationCounts","invariant_id":"ST-DECL-INV55","file":"internal/declaration/observation.go"}
 {"id":"ST-DECL-INV56-RL","title":"declaration.validateOperationRefusals","invariant_id":"ST-DECL-INV56","file":"internal/declaration/command.go"}
 {"id":"ST-DECL-INV80-RL","title":"declaration.validateCommandRetry","invariant_id":"ST-DECL-INV80","file":"internal/declaration/command.go"}
 {"id":"ST-DECL-INV82-RL","title":"declaration.validateIdempotencyValues","invariant_id":"ST-DECL-INV82","file":"internal/declaration/idempotency.go"}

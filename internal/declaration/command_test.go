@@ -13,7 +13,7 @@ func compositionFaults(t *testing.T, service string, facts Facts, rules ...strin
 	t.Helper()
 	declared, undeclared, err := parser.ReadServiceDeclaration([]byte(service), "service.yaml")
 	if err != nil || len(undeclared) != 0 {
-		t.Fatalf("read the declaration: %v %v\n%s", err, undeclared, service)
+		t.Fatalf("read the declaration: %v %+v\n%s", err, undeclared, service)
 	}
 	if own := Validate(declared, undeclared...).All(); len(own) != 0 {
 		t.Fatalf("the declaration has other faults: %+v", own)
