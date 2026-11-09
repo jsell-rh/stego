@@ -2,9 +2,7 @@ package lease
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -15,11 +13,16 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
+
+	"stego.dev/runtime/internal/pgtest"
 )
 
-// The integration tests of this package read STEGO_TEST_POSTGRES_DSN, the DSN of a local PostgreSQL 17 server
-// that runs in an unprivileged container (ST-STD-LOCAL), and skip when it is not set. Each test makes its own
-// database on that server and drops it at the end.
+// The integration tests of this package run against the local PostgreSQL server of pgtest: the server that
+// STEGO_TEST_POSTGRES_DSN names, else a container that the test binary starts and removes (ST-STD-LOCAL-R04).
+// Each test makes its own database on that server and drops it at the end.
+
+// TestMain gives the PostgreSQL tests of the package their local server (ST-STD-LOCAL-R04).
+func TestMain(m *testing.M) { os.Exit(pgtest.Main(m)) }
 
 // statement is one statement that the recorder read, with the connection that sent it.
 type statement struct {
@@ -70,30 +73,11 @@ type database struct {
 
 func openDatabase(t *testing.T) *database {
 	t.Helper()
-	dsn := os.Getenv("STEGO_TEST_POSTGRES_DSN")
-	if dsn == "" {
-		t.Skip("STEGO_TEST_POSTGRES_DSN is not set; this test needs a local PostgreSQL server")
-	}
-	admin, err := sql.Open("pgx", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = admin.Close() })
-	suffix := make([]byte, 6)
-	if _, err := rand.Read(suffix); err != nil {
-		t.Fatal(err)
-	}
-	name := "lease_" + hex.EncodeToString(suffix)
 	ctx := context.Background()
-	if _, err := admin.ExecContext(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _, _ = admin.ExecContext(ctx, "DROP DATABASE "+name+" WITH (FORCE)") })
-	config, err := pgx.ParseConfig(dsn)
+	config, err := pgx.ParseConfig(pgtest.Database(t, "lease"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	config.Database = name
 	plain := config.Copy()
 	rec := &recorder{}
 	config.Tracer = rec
