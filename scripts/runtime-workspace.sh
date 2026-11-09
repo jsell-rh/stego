@@ -9,6 +9,10 @@
 # network and no fetch from stego.dev. A generated go.mod keeps its runtime pin as it is, with no replace directive
 # (ST-GEN-INV13, ST-VO58-C01). Put the work file outside the module folder, so that no committed tree holds it, and
 # do not use it for stego deps or stego build: they resolve from the pin.
+#
+# When the module folder requires stego.dev/runtime at a version, the work file also replaces that one version with
+# the folder. Without it, the go command fetches the go.mod of the pinned version to load the module graph as soon as
+# the runtime module has a requirement of its own, and the build fails with no network.
 set -euo pipefail
 
 if [ "$#" -ne 2 ]; then
@@ -36,6 +40,13 @@ if [ -z "$version" ]; then
 	exit 1
 fi
 
+pin="$(sed -n -E 's#^[[:space:]]*(require[[:space:]]+)?stego\.dev/runtime[[:space:]]+(v[^[:space:]]+).*$#\2#p' "$module/go.mod" | head -n 1)"
+
 mkdir -p "$(dirname "$2")"
-printf 'go %s\n\nuse (\n\t%s\n\t%s\n)\n' "$version" "$module" "$runtime" >"$2"
+{
+	printf 'go %s\n\nuse (\n\t%s\n\t%s\n)\n' "$version" "$module" "$runtime"
+	if [ -n "$pin" ]; then
+		printf '\nreplace stego.dev/runtime %s => %s\n' "$pin" "$runtime"
+	fi
+} >"$2"
 echo "$2"
