@@ -35,16 +35,26 @@ func New[T any](value T, clone func(T) T, ref Ref) *Value[T] {
 }
 
 // Value returns a deep copy of the stored field values, so a change to a slice or a map that the fill got never
-// changes what the handle later sends, writes or decides on (ST-SUP-RP10-LC15).
+// changes what the handle later sends, writes or decides on (ST-SUP-RP10-LC15, ST-SUP-RP11-LC12). A nil value gives
+// the zero value.
 func (v *Value[T]) Value() T {
+	if v == nil {
+		var zero T
+		return zero
+	}
 	if v.clone != nil {
 		return v.clone(v.value)
 	}
 	return v.value
 }
 
-// ID returns the ID of the row.
-func (v *Value[T]) ID() string { return v.ref.ID }
+// ID returns the ID of the row; a nil value gives the empty ID.
+func (v *Value[T]) ID() string {
+	if v == nil {
+		return ""
+	}
+	return v.ref.ID
+}
 
 func (v *Value[T]) loadedRef() (Ref, bool) {
 	if v == nil {
