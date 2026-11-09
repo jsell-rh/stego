@@ -150,9 +150,9 @@ func searchCase(ctx context.Context, port *Port, relationships Relationships, pe
 	}
 	page := Page{}
 	for range 1000 {
-		found, err := port.Search(ctx, SearchRequest{Subject: permission.Grant.Subject,
+		found, err := port.search(ctx, SearchRequest{Subject: permission.Grant.Subject,
 			Action: Action{Name: permission.Name}, ResourceType: permission.Grant.Resource.Type,
-			Consistency: AtLeast(token), Page: page})
+			Consistency: AtLeast(token), Page: page}, Token{})
 		if err != nil {
 			result.Detail = fmt.Sprintf("search: %v", err)
 			return result

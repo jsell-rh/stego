@@ -36,8 +36,11 @@ const spiceDBImage = "authzed/spicedb:v1.57.0@sha256:a170d372c9f6b921bb6849064df
 
 // fixtureSchema is the schema of the tests: the resource type document with the relations owner and viewer and the
 // permissions view and edit, a group whose members can be viewers, a banned relation that view excludes, and a
-// caveated relation reader; and the resource type order with a viewer relation, for the tenant cases.
-const fixtureSchema = `definition user {}
+// caveated relation reader; and, for the tenant cases, the resource type order with a viewer relation and a folder
+// parent, and the resource type report, whose viewers' delegates may view it too.
+const fixtureSchema = `definition user {
+	relation delegate: user
+}
 
 definition group {
 	relation member: user
@@ -61,9 +64,19 @@ definition document {
 	permission read = reader
 }
 
+definition folder {
+	relation viewer: user
+}
+
 definition order {
 	relation viewer: user | group#member
-	permission view = viewer
+	relation parent: folder
+	permission view = viewer + parent->viewer
+}
+
+definition report {
+	relation viewer: user
+	permission view = viewer + viewer->delegate
 }
 `
 

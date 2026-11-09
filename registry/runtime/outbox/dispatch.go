@@ -105,6 +105,9 @@ func Conflict(err error) error { return &markedError{mark: markConflict, err: er
 // IsConflict reports whether err is marked as a conflict.
 func IsConflict(err error) bool { return markOf(err) == markConflict }
 
+// IsPermanent reports whether err is marked as a permanent refusal, which parks the message.
+func IsPermanent(err error) bool { return markOf(err) == markPermanentRefusal }
+
 // The conflict backoff of ST-SUP-RP01-LC18.
 const (
 	ConflictWaitMin  = 100 * time.Millisecond

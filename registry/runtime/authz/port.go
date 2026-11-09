@@ -50,9 +50,10 @@ var ErrNotQualified = errors.New("authz: the resource ID is not the tenant-quali
 var ErrOtherTenant = errors.New("authz: the resource ID names another tenant")
 
 // ResourceID returns the resource ID at the provider of the row whose key is key in tenant t (ST-SUP-RP06-LC22):
-// the unpadded base64url form of the tenant ID, a |, and the unpadded base64url form of the key. A key is unique only
+// the unpadded base64url form of the tenant ID, a /, and the unpadded base64url form of the key. A key is unique only
 // within its tenant, so the same key in two tenants gives two IDs, and two different pairs never give one ID: the
-// two parts hold no |. Every resource ID that STEGO sends to the provider has this form; generated code builds each
+// two parts hold no /. The separator is / and not |, which a person's subject ID holds (SubjectOf), so a resource ID
+// never equals a person's subject ID, also when a tenant ID equals an issuer. Every resource ID that STEGO sends to the provider has this form; generated code builds each
 // one through this function and never formats one itself (ST-SUP-RC29-OC22). It refuses the zero tenant, an empty key
 // and an ID longer than MaxResourceIDBytes.
 func ResourceID(t tenant.Tenant, key string) (string, error) {
@@ -85,14 +86,14 @@ func NewResource(t tenant.Tenant, resourceType, key string) (Resource, error) {
 
 // qualify is the tenant-qualified form of the tenant ID and the key.
 func qualify(tenantID, key string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(tenantID)) + "|" + base64.RawURLEncoding.EncodeToString([]byte(key))
+	return base64.RawURLEncoding.EncodeToString([]byte(tenantID)) + "/" + base64.RawURLEncoding.EncodeToString([]byte(key))
 }
 
 // splitResourceID reads a tenant-qualified resource ID back into its tenant ID and key. It gives false for an ID
 // that is not exactly the form qualify writes: it writes the two parts again and compares, so each ID has one
 // reading.
 func splitResourceID(id string) (tenantID, key string, ok bool) {
-	tenantPart, keyPart, found := strings.Cut(id, "|")
+	tenantPart, keyPart, found := strings.Cut(id, "/")
 	if !found || tenantPart == "" || keyPart == "" {
 		return "", "", false
 	}
@@ -580,16 +581,9 @@ func (p *Port) evaluateBatch(ctx context.Context, request BatchRequest, floor To
 	return p.provider.EvaluateBatch(ctx, request)
 }
 
-// Search returns one page of a resource search at least as fresh as its consistency and the revocation floor, or
-// ErrNoSearch when the provider does not search.
-func (p *Port) Search(ctx context.Context, request SearchRequest) (SearchResult, error) {
-	floor, err := p.currentFloor(ctx)
-	if err != nil {
-		return SearchResult{}, err
-	}
-	return p.search(ctx, request, floor)
-}
-
+// search returns one page of a resource search at least as fresh as its consistency and floor, or ErrNoSearch when
+// the provider does not search. It is not exported: the results of a provider's search name every tenant, so only
+// Handle.Search, which maps them to the rows of its own tenant (ST-SUP-RP06-LC22), and the conformance suite reach it.
 func (p *Port) search(ctx context.Context, request SearchRequest, floor Token) (SearchResult, error) {
 	if !p.provider.Searches() {
 		return SearchResult{}, ErrNoSearch

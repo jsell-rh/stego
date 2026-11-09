@@ -255,8 +255,8 @@ func TestDecisionPort(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		result, err := port.Search(ctx, SearchRequest{Subject: user("bob"), Action: Action{Name: "view"},
-			ResourceType: "document", Consistency: Fresh(), Page: Page{Limit: 1}})
+		result, err := port.search(ctx, SearchRequest{Subject: user("bob"), Action: Action{Name: "view"},
+			ResourceType: "document", Consistency: Fresh(), Page: Page{Limit: 1}}, Token{})
 		if err != nil {
 			t.Fatal(err)
 		}

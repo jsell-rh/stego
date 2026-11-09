@@ -264,7 +264,7 @@ func (r *Relay) Deliver(ctx context.Context, tx *sql.Tx, delivery outbox.Deliver
 	if tx == nil {
 		return errors.New("authz: the delivery has no transaction")
 	}
-	message, err := readPayload(delivery.Payload)
+	message, err := readPayload(delivery.Payload, delivery.Tenant)
 	if err != nil {
 		return outbox.PermanentRefusal(err)
 	}
@@ -343,7 +343,14 @@ func (r *Relay) Check(ctx context.Context) error {
 	return nil
 }
 
-func readPayload(body []byte) (payload, error) {
+// payloadVersionKeys is the version of the relay payload before ST-SUP-RP06-LC22: its resource ID, and the subject
+// ID of a subject set, are the bare keys of the outbox row's tenant.
+const payloadVersionKeys = 1
+
+// readPayload reads the payload of a delivery of tenant t. A payload of version 1 holds bare keys: readPayload
+// upgrades it to the tenant-qualified form of t, the tenant of the outbox row, so a message enqueued before
+// ST-SUP-RP06-LC22 is delivered and never parks its resource key.
+func readPayload(body []byte, t tenant.Tenant) (payload, error) {
 	var message payload
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
@@ -353,7 +360,18 @@ func readPayload(body []byte) (payload, error) {
 	if decoder.More() {
 		return payload{}, errors.New("authz: the relay payload holds more than one value")
 	}
-	if message.Version != payloadVersion {
+	switch message.Version {
+	case payloadVersion:
+	case payloadVersionKeys:
+		if t.IsZero() {
+			return payload{}, tenant.ErrZero
+		}
+		message.Version = payloadVersion
+		message.Tuple.ResourceID = qualify(t.ID(), message.Tuple.ResourceID)
+		if message.Tuple.SubjectRelation != "" {
+			message.Tuple.SubjectID = qualify(t.ID(), message.Tuple.SubjectID)
+		}
+	default:
 		return payload{}, errors.New("authz: the relay payload has an unknown version")
 	}
 	if message.Operation != OperationTouch && message.Operation != OperationDelete {

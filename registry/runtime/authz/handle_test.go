@@ -1024,7 +1024,7 @@ func TestHandleWrites(t *testing.T) {
 			t.Fatalf("%s outbox rows for authz after the commit, want 1", n)
 		}
 		d := env.delivery(t, env.ids(t)[0])
-		message, err := readPayload(d.Payload)
+		message, err := readPayload(d.Payload, d.Tenant)
 		if err != nil || message.Operation != OperationTouch || message.Tuple.tuple() != viewer || d.Kind != "authz.touch" {
 			t.Fatalf("the entry is %+v, %v; want a touch of the tuple", message, err)
 		}
@@ -1042,7 +1042,7 @@ func TestHandleWrites(t *testing.T) {
 			t.Fatalf("%s outbox rows for authz, want 1", n)
 		}
 		d := env.delivery(t, env.ids(t)[0])
-		message, err := readPayload(d.Payload)
+		message, err := readPayload(d.Payload, d.Tenant)
 		if err != nil || message.Operation != OperationDelete || message.Tuple.tuple() != viewer || d.Kind != "authz.delete" {
 			t.Fatalf("the entry is %+v, %v; want a delete of the tuple", message, err)
 		}

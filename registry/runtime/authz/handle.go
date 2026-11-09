@@ -302,23 +302,52 @@ func (h *Handle) batch(ctx context.Context, action string, rows []Row, c Context
 	return results, nil
 }
 
+// maxSearchCalls is the most provider pages that one Handle.Search reads to fill its page.
+const maxSearchCalls = 50
+
+// ErrSearchExhausted is the error of Handle.Search when maxSearchCalls provider pages give no result of the handle's
+// tenant before the end of the search: an empty page is never returned before the end.
+var ErrSearchExhausted = errors.New("authz: the search read its most provider pages and found no resource of the tenant")
+
 // Search returns one page of the resources of resourceType that the principal may do action on, at least as fresh
 // as the revocation floor at this page, or ErrNoSearch when the provider does not search. A later page keeps the
 // first page's consistency in its page token, and the provider filters its results at this page's floor
 // (ST-SUP-RP06-LC05). The page maps each result back to the key of its row, in Keys, only when the result is of
 // resourceType and its ID is the tenant-qualified form of the handle's tenant; it drops and counts every other result
-// (ST-SUP-RP06-LC22).
+// (ST-SUP-RP06-LC22). Because a drop can empty a provider page, Search reads further provider pages until it has
+// page.Limit results, or one result when the limit is zero, or the search ends, at most maxSearchCalls pages; so it
+// never returns an empty page before the end, and returns ErrSearchExhausted when the bound is reached with no
+// result.
 func (h *Handle) Search(ctx context.Context, action, resourceType string, c Context, page Page) (SearchResult, error) {
 	floor, err := h.floor(ctx)
 	if err != nil {
 		return SearchResult{}, err
 	}
-	result, err := h.runtime.port.search(ctx, SearchRequest{Subject: h.principal.subject, Action: Action{Name: action},
-		ResourceType: resourceType, Context: c, Consistency: atFloor(floor, Token{}), Page: page}, Token{})
-	if err != nil {
-		return SearchResult{}, err
+	request := SearchRequest{Subject: h.principal.subject, Action: Action{Name: action}, ResourceType: resourceType,
+		Context: c, Consistency: atFloor(floor, Token{}), Page: page}
+	var filled SearchResult
+	for range maxSearchCalls {
+		if page.Limit > 0 {
+			request.Page.Limit = page.Limit - len(filled.Resources)
+		}
+		result, err := h.runtime.port.search(ctx, request, Token{})
+		if err != nil {
+			return SearchResult{}, err
+		}
+		mapped := h.runtime.mapSearch(ctx, h.tenant, resourceType, result)
+		filled.Resources = append(filled.Resources, mapped.Resources...)
+		filled.Keys = append(filled.Keys, mapped.Keys...)
+		filled.Next, filled.Token = mapped.Next, mapped.Token
+		full := len(filled.Resources) > 0 && (page.Limit == 0 || len(filled.Resources) >= page.Limit)
+		if full || filled.Next.IsZero() {
+			return filled, nil
+		}
+		request.Page.Token = filled.Next
 	}
-	return h.runtime.mapSearch(ctx, h.tenant, resourceType, result), nil
+	if len(filled.Resources) == 0 {
+		return SearchResult{}, ErrSearchExhausted
+	}
+	return filled, nil
 }
 
 // mapSearch keeps the results of one search page that map back to a row of tenant t: a resource of resourceType
@@ -431,7 +460,7 @@ const (
 )
 
 // payloadVersion is the version of the relay payload. Version 2 holds tenant-qualified resource IDs
-// (ST-SUP-RP06-LC22); the relay refuses version 1, whose IDs are bare keys.
+// (ST-SUP-RP06-LC22); the relay upgrades version 1, whose IDs are bare keys, with the outbox row's tenant.
 const payloadVersion = 2
 
 // payload is the outbox payload of one tuple write for the relay.
@@ -456,20 +485,30 @@ func (t tupleJSON) tuple() Tuple {
 		Subject: Subject{Type: t.SubjectType, ID: t.SubjectID}, SubjectRelation: t.SubjectRelation}
 }
 
-// tupleKey gives the row key of the tuple's resource, whose ID must be the tenant-qualified form of t; the subject of
-// a subject set, a subject with a relation such as group#member, is a resource too and must be of t as well
-// (ST-SUP-RP06-LC22).
+// tupleKey gives the row key of the tuple's resource, whose ID must be the tenant-qualified form of t
+// (ST-SUP-RP06-LC22). The subject must be of t too when it is a resource: a subject set, a subject with a relation
+// such as group#member, must be the tenant-qualified form of t, and a direct subject whose ID has the shape of a
+// resource ID, such as the folder of an arrow parent, must be of t. A person's subject ID holds a | and a service
+// account's name holds no /, so neither has that shape.
 func tupleKey(t tenant.Tenant, tuple Tuple) (string, error) {
 	key, err := keyIn(t, tuple.Resource.ID)
 	if err != nil {
 		return "", err
 	}
-	if tuple.SubjectRelation != "" {
-		if _, err := keyIn(t, tuple.Subject.ID); err != nil {
-			return "", err
-		}
+	if err := subjectIn(t, tuple.Subject, tuple.SubjectRelation); err != nil {
+		return "", err
 	}
 	return key, nil
+}
+
+// subjectIn checks that a subject that is a resource is of tenant t: a subject set always, a direct subject when
+// its ID has the shape of a tenant-qualified resource ID.
+func subjectIn(t tenant.Tenant, subject Subject, relation string) error {
+	if _, _, shaped := splitResourceID(subject.ID); relation == "" && !shaped {
+		return nil
+	}
+	_, err := keyIn(t, subject.ID)
+	return err
 }
 
 // resourceKey is the outbox resource key of a tuple: its resource type and the key of its row, type:key. The outbox
