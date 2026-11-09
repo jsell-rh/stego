@@ -83,8 +83,8 @@ type Field struct {
 	To              string    `yaml:"to,omitempty"` // for ref type
 	Unobserved      *string   `yaml:"unobserved,omitempty"`
 	Deleting        *string   `yaml:"deleting,omitempty" json:"Deleting,omitempty"`
-	// Sensitivity is how private the field's values are, such as pii or secret (ST-DECL-EN03).
-	Sensitivity string `yaml:"sensitivity,omitempty"`
+	// Sensitivity is public, pii or secret (ST-DECL-EN03). Omitted means public.
+	Sensitivity string `yaml:"sensitivity,omitempty" json:"Sensitivity,omitempty"`
 }
 
 // Entity represents a domain entity with its fields.
