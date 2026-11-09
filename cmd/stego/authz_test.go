@@ -242,17 +242,21 @@ func TestDeclareAuthorization(t *testing.T) {
 		}
 	})
 
-	missingSetting := func(line, key, name string) func(t *testing.T) {
-		return func(t *testing.T) {
+	missingSetting := func(t *testing.T, line, key, name string) {
+		{
 			fault := expectRefusal(t, td03Project(t, edit(t, td03, line, "")), "authorization-setting", "authorization."+key, "setting "+name+" is missing")
 			if fault.Path != "authorization."+key {
 				t.Errorf("the fault is not at the missing setting: %+v", fault)
 			}
 		}
 	}
-	t.Run("ST-DECL-UC06-R01-T02 Authorization bound with no provider is refused, naming the missing setting", missingSetting("  provider: spicedb\n", "provider", "provider"))
-	t.Run("ST-DECL-UC06-R01-T03 Authorization bound with no schema path is refused, naming the missing setting", missingSetting("  schema_path: authz/schema.zed\n", "schema_path", "schema path"))
-	t.Run("ST-DECL-UC06-R01-T04 Authorization bound with no subject from identity is refused, naming the missing setting", missingSetting("  subject_from_identity: user\n", "subject_from_identity", "subject from identity"))
+	t.Run("ST-DECL-UC06-R01-T02 Authorization bound with no provider is refused, naming the missing setting", func(t *testing.T) { missingSetting(t, "  provider: spicedb\n", "provider", "provider") })
+	t.Run("ST-DECL-UC06-R01-T03 Authorization bound with no schema path is refused, naming the missing setting", func(t *testing.T) {
+		missingSetting(t, "  schema_path: authz/schema.zed\n", "schema_path", "schema path")
+	})
+	t.Run("ST-DECL-UC06-R01-T04 Authorization bound with no subject from identity is refused, naming the missing setting", func(t *testing.T) {
+		missingSetting(t, "  subject_from_identity: user\n", "subject_from_identity", "subject from identity")
+	})
 
 	t.Run("ST-DECL-UC06-R01-T05 A schema path outside the service's own source is refused, naming the path", func(t *testing.T) {
 		project := td03Project(t, td03)
@@ -267,8 +271,8 @@ func TestDeclareAuthorization(t *testing.T) {
 		}
 	})
 
-	lackingName := func(old, new, name, kind string) func(t *testing.T) {
-		return func(t *testing.T) {
+	lackingName := func(t *testing.T, old, new, name, kind string) {
+		{
 			service := edit(t, td03, old, new)
 			fault := expectRefusal(t, td03Project(t, service), "schema-names", name, "the "+kind+" ")
 			if fault.Found != name {
@@ -279,10 +283,16 @@ func TestDeclareAuthorization(t *testing.T) {
 			}
 		}
 	}
-	t.Run("ST-DECL-UC06-R02-T01 A resource type the schema lacks is refused, naming the name and where it is used", lackingName("resource_type: document", "resource_type: archive", "archive", "resource type"))
-	t.Run("ST-DECL-UC06-R02-T02 A permission the schema lacks is refused, naming the name and where it is used", lackingName("delete: edit", "delete: destroy", "destroy", "permission"))
-	t.Run("ST-DECL-UC06-R02-T03 A relation the schema lacks is refused, naming the name and where it is used", lackingName("{relation: owner,", "{relation: approver,", "approver", "relation"))
-	t.Run("ST-DECL-UC06-R02-T04 A caveat parameter the schema lacks is refused, naming the name and where it is used", lackingName("    relationships:\n", "    context_fields: [request.region]\n    relationships:\n", "request.region", "caveat parameter"))
+	t.Run("ST-DECL-UC06-R02-T01 A resource type the schema lacks is refused, naming the name and where it is used", func(t *testing.T) {
+		lackingName(t, "resource_type: document", "resource_type: archive", "archive", "resource type")
+	})
+	t.Run("ST-DECL-UC06-R02-T02 A permission the schema lacks is refused, naming the name and where it is used", func(t *testing.T) { lackingName(t, "delete: edit", "delete: destroy", "destroy", "permission") })
+	t.Run("ST-DECL-UC06-R02-T03 A relation the schema lacks is refused, naming the name and where it is used", func(t *testing.T) {
+		lackingName(t, "{relation: owner,", "{relation: approver,", "approver", "relation")
+	})
+	t.Run("ST-DECL-UC06-R02-T04 A caveat parameter the schema lacks is refused, naming the name and where it is used", func(t *testing.T) {
+		lackingName(t, "    relationships:\n", "    context_fields: [request.region]\n    relationships:\n", "request.region", "caveat parameter")
+	})
 
 	t.Run("ST-DECL-UC06-R03-T03 A binding that runs as system with no system subject type is refused, naming the binding", func(t *testing.T) {
 		fault := expectRefusal(t, td03WithFills(t, td03+systemBinding), "no-bypass", "todos", "before_create", "runs as system", "names no system subject type")
