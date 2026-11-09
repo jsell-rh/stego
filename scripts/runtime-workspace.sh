@@ -37,5 +37,11 @@ if [ -z "$version" ]; then
 fi
 
 mkdir -p "$(dirname "$2")"
+if [ "$module" = "$runtime" ]; then
+	# The module folder is the runtime module itself: a work file that uses one folder twice is refused.
+	printf 'go %s\n\nuse %s\n' "$version" "$runtime" >"$2"
+	echo "$2"
+	exit 0
+fi
 printf 'go %s\n\nuse (\n\t%s\n\t%s\n)\n' "$version" "$module" "$runtime" >"$2"
 echo "$2"

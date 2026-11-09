@@ -100,7 +100,7 @@ const (
 	retiredBy          = " is retired by "
 	butItsSuccessor    = ", but its successor "
 	isNot              = " is not "
-	codeRule           = " (ST-STD-CODE-R"
+	codeRule           = " (ST-STD-"
 	presentAtBase      = ", present at base"
 	notAtBase          = ", not at base"
 )
