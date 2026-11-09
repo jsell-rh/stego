@@ -15,7 +15,10 @@ import (
 	"unicode/utf8"
 )
 
-// Event is one audit record (ST-SUP-RP05-LC01). It has a fixed shape: these 25 fields and no other. ActorIP and
+// Event is one audit record (ST-SUP-RP05-LC01). It has a fixed shape: these 27 fields and no other. Operation is the
+// name of the declared command, query or worker that wrote the row, or empty for a row of the runtime itself.
+// HashVersion is the version of the canonical encoding that the hash covers: New sets HashVersionCurrent, and a
+// stored row of version 1 has no operation and keeps the old encoding (ST-SUP-RP05-LC04). ActorIP and
 // UserAgent come from the request and are Untrusted: the package cleans and stores them and never decides on them.
 // Before, After and Patch are of the type State, which holds its bytes unexported: only SetStates, the redacting
 // path, makes a State that is not empty (ST-SUP-RP05-LC13).
@@ -29,6 +32,7 @@ type Event struct {
 	ActorIP            Untrusted `json:"actor_ip"`
 	UserAgent          Untrusted `json:"user_agent"`
 	Action             string    `json:"action"`
+	Operation          string    `json:"operation"`
 	ResourceType       string    `json:"resource_type"`
 	ResourceID         string    `json:"resource_id"`
 	Outcome            Outcome   `json:"outcome"`
@@ -43,6 +47,7 @@ type Event struct {
 	Service            string    `json:"service"`
 	ServiceVersion     string    `json:"service_version"`
 	DeclarationVersion string    `json:"declaration_version"`
+	HashVersion        int       `json:"hash_version"`
 	PrevHash           []byte    `json:"prev_hash"`
 	Hash               []byte    `json:"hash"`
 }
@@ -94,6 +99,13 @@ const (
 	OutcomeOK     Outcome = "ok"
 	OutcomeDenied Outcome = "denied"
 	OutcomeFailed Outcome = "failed"
+)
+
+// The hash versions (ST-SUP-RP05-LC04). Version 1 is the encoding before operation existed; a verifier reads such
+// rows with it. Version 2 adds operation and hash_version to the canonical record, and every new row has it.
+const (
+	HashVersion1       = 1
+	HashVersionCurrent = 2
 )
 
 // ActionRead is the action of the audit row of a read of an entity that holds a pii field (ST-SUP-RP05-LC02).
@@ -220,6 +232,9 @@ func NewID(now time.Time) (UUID, error) {
 // and the occurred time when they are empty, keeps each time in UTC at microsecond precision, as the table stores
 // it, cleans ActorIP and UserAgent, and the request values RequestID and IdempotencyKey, and validates the event.
 func New(e Event, now time.Time) (Event, error) {
+	if e.HashVersion == 0 {
+		e.HashVersion = HashVersionCurrent
+	}
 	if e.ID == (UUID{}) {
 		id, err := NewID(now)
 		if err != nil {
@@ -239,6 +254,7 @@ func New(e Event, now time.Time) (Event, error) {
 	// The request ID and the idempotency key also come from the request, so they are cleaned the same way.
 	e.RequestID = clean(e.RequestID)
 	e.IdempotencyKey = clean(e.IdempotencyKey)
+	e.Operation = clean(e.Operation)
 	if err := e.Validate(); err != nil {
 		return Event{}, err
 	}
@@ -292,6 +308,10 @@ func (e Event) Validate() error {
 		return errors.New("audit: service is empty")
 	case e.TenantID == "":
 		return errors.New("audit: tenant_id is empty")
+	case e.HashVersion != 0 && e.HashVersion != HashVersion1 && e.HashVersion != HashVersionCurrent:
+		return errors.New("audit: hash_version is not 1 or 2")
+	case e.HashVersion < HashVersionCurrent && e.Operation != "":
+		return errors.New("audit: a row of hash_version 1 has no operation")
 	}
 	return nil
 }
@@ -460,6 +480,11 @@ func recordTree(e Event) (map[string]any, error) {
 		"service":             e.Service,
 		"service_version":     e.ServiceVersion,
 		"declaration_version": e.DeclarationVersion,
+	}
+	// A row of hash_version 1, or an event with none, keeps the encoding of version 1, with neither field.
+	if e.HashVersion >= HashVersionCurrent {
+		m["operation"] = e.Operation
+		m["hash_version"] = json.Number(strconv.Itoa(e.HashVersion))
 	}
 	for _, s := range []struct {
 		name string

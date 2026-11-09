@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -131,6 +132,45 @@ func TestChain(t *testing.T) {
 		}
 		if !bytes.Equal(prev, make([]byte, 32)) {
 			t.Errorf("the first prev_hash is %x, want 32 zero bytes", prev)
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC01-T07 The operation is stored, sent and covered by the hash of version 2", func(t *testing.T) {
+		f := newPG(t)
+		// A row of hash_version 1, written before operation existed, still verifies with the old encoding.
+		old := f.seedVersion1("t1")
+		w := f.writer()
+		tx := f.begin("t1")
+		e := sampleEvent("t1", "update")
+		e.Operation = "reserve-and-charge"
+		stored, err := w.Record(f.ctx, tx, f.tn("t1"), []Event{e})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := f.commit(tx, "t1"); err != nil {
+			t.Fatal(err)
+		}
+		if n := f.count("t1", "SELECT count(*) FROM "+EventsTable+" WHERE seq = 2 AND operation = 'reserve-and-charge' AND hash_version = 2"); n != 1 {
+			t.Errorf("%d rows hold the operation reserve-and-charge with hash_version 2, want 1", n)
+		}
+		if n := f.count("t1", "SELECT count(*) FROM "+EventsTable+" WHERE seq = 1 AND operation = '' AND hash_version = 1 AND id = $1::uuid", old.ID.String()); n != 1 {
+			t.Errorf("the row of version 1 is not stored as version 1")
+		}
+		sink := f.deliver(f.messages())
+		var sent []Event
+		for _, batch := range sink.appends {
+			sent = append(sent, batch...)
+		}
+		if len(sent) != 1 || sent[0].ID != stored[0].ID || sent[0].Operation != "reserve-and-charge" || sent[0].HashVersion != 2 {
+			t.Errorf("the sink got %+v, want the event with the operation reserve-and-charge and hash_version 2", sent)
+		}
+		if findings := f.verify("t1", nil); len(findings) != 0 {
+			t.Fatalf("findings on a chain of a version 1 row and a version 2 row: %v", findings)
+		}
+		f.tamper("t1", "UPDATE "+EventsTable+" SET operation = 'refund' WHERE seq = 2")
+		findings := f.verify("t1", nil)
+		if len(findings) != 1 || findings[0].Kind != FindingHash || findings[0].Seq != 2 {
+			t.Errorf("findings %v, want one hash_differs finding on row 2, whose operation changed", findings)
 		}
 	})
 
@@ -460,4 +500,60 @@ func (f *pgFixture) tamper(tenant, q string, args ...any) {
 	}); err != nil {
 		f.t.Fatalf("tamper: %v", err)
 	}
+}
+
+// seedVersion1 writes the first row of the tenant's chain as a row of hash_version 1, with no operation, as the
+// runtime wrote rows before operation existed, and moves the chain head.
+func (f *pgFixture) seedVersion1(tenant string) Event {
+	f.t.Helper()
+	var out Event
+	err := f.inTx(f.owner, tenant, func(tx *sql.Tx) error {
+		now := time.Now()
+		e := sampleEvent(tenant, "seeded-v1")
+		e.HashVersion = HashVersion1
+		e, err := New(e, now)
+		if err != nil {
+			return err
+		}
+		e.RecordedAt = storedTime(now)
+		if e, err = Link(e, ZeroHash()); err != nil {
+			return err
+		}
+		// The hash of version 1 is made here, apart from the package's own switch of versions: the canonical record
+		// without operation and hash_version, then prev_hash, as the runtime wrote rows before operation existed.
+		v2 := e
+		v2.HashVersion = HashVersionCurrent
+		rec, err := CanonicalRecord(v2)
+		if err != nil {
+			return err
+		}
+		var tree map[string]any
+		d := json.NewDecoder(bytes.NewReader(rec))
+		d.UseNumber()
+		if err := d.Decode(&tree); err != nil {
+			return err
+		}
+		delete(tree, "operation")
+		delete(tree, "hash_version")
+		old, err := Canonical(tree)
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(append(old, e.PrevHash...))
+		e.Hash = sum[:]
+		if _, err := tx.ExecContext(f.ctx, insertEvent, tenant, 1, e.ID.String(), e.OccurredAt, e.RecordedAt,
+			e.ActorID, string(e.ActorKind), string(e.ActorIP), string(e.UserAgent), e.Action, e.ResourceType,
+			e.ResourceID, string(e.Outcome), e.ErrorCode, e.RequestID, e.TraceID, e.SpanID, e.IdempotencyKey,
+			nil, nil, nil, e.Service, e.ServiceVersion, e.DeclarationVersion, e.PrevHash, e.Hash, e.Operation, e.HashVersion); err != nil {
+			return err
+		}
+		out = e
+		_, err = tx.ExecContext(f.ctx, `INSERT INTO `+HeadsTable+` (tenant_id, seq, head, last_recorded_at) VALUES ($1, 1, $2, $3)`,
+			tenant, e.Hash, e.RecordedAt)
+		return err
+	})
+	if err != nil {
+		f.t.Fatalf("seed a version 1 row: %v", err)
+	}
+	return out
 }

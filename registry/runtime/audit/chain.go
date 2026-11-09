@@ -117,7 +117,8 @@ const (
 	selectCheckpoints = `SELECT seq, hash FROM ` + CheckpointsTable + ` WHERE tenant_id = $1 ORDER BY seq`
 	selectChain       = `SELECT seq, id::text, occurred_at, recorded_at, tenant_id, actor_id, actor_kind, actor_ip,
  user_agent, action, resource_type, resource_id, outcome, error_code, request_id, trace_id, span_id, idempotency_key,
- before::text, after::text, patch::text, service, service_version, declaration_version, prev_hash, hash
+ before::text, after::text, patch::text, service, service_version, declaration_version, prev_hash, hash, operation,
+ hash_version
  FROM ` + EventsTable + ` WHERE tenant_id = $1 AND seq > $2 ORDER BY seq`
 	selectTenant = `SELECT coalesce(pg_catalog.current_setting('app.tenant', true), '')`
 	selectBelow  = `SELECT seq, id::text FROM ` + EventsTable + ` WHERE tenant_id = $1 AND seq <= $2 ORDER BY seq LIMIT 1`
@@ -284,7 +285,7 @@ func scanEvent(rows *sql.Rows) (int64, Event, error) {
 	if err := rows.Scan(&seq, &id, &e.OccurredAt, &e.RecordedAt, &e.TenantID, &e.ActorID, &actorKind, &ip,
 		&userAgent, &e.Action, &e.ResourceType, &e.ResourceID, &outcome, &e.ErrorCode, &e.RequestID, &e.TraceID,
 		&e.SpanID, &e.IdempotencyKey, &before, &after, &patch, &e.Service, &e.ServiceVersion,
-		&e.DeclarationVersion, &e.PrevHash, &e.Hash); err != nil {
+		&e.DeclarationVersion, &e.PrevHash, &e.Hash, &e.Operation, &e.HashVersion); err != nil {
 		return 0, Event{}, &StatementError{Step: "chain row read", Code: sqlState(err)}
 	}
 	u, err := ParseUUID(id)

@@ -2,8 +2,12 @@ package tenant
 
 import (
 	"context"
+	"database/sql"
 	"net"
+	"reflect"
+	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -139,5 +143,108 @@ EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $do$`, "GRANT
 			t.Fatalf("the runtime connector did not start as the plain runtime role: %v", err)
 		}
 		_ = plain.Close()
+	})
+}
+
+func TestOpened(t *testing.T) {
+	t.Run("ST-SUP-RP04-LC08-T01 Opened is true only for an open pool of Open or OpenOwner", func(t *testing.T) {
+		env := newPG(t)
+		ctx := context.Background()
+		db, err := Open(ctx, Config{DSN: env.dsn(env.runtime)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = db.Close() })
+		owner, err := OpenOwner(ctx, MigrationJob, Config{DSN: env.dsn(env.owner)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = owner.Close() })
+		plain, err := sql.Open("pgx", env.dsn(env.runtime))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = plain.Close() })
+		// A copy of the pool value, made by reflection so that vet does not refuse the copy of its lock.
+		copied := reflect.New(reflect.TypeOf(db).Elem())
+		copied.Elem().Set(reflect.ValueOf(db).Elem())
+		for name, c := range map[string]struct {
+			db   *sql.DB
+			want bool
+		}{
+			"the pool of Open":        {db, true},
+			"the pool of OpenOwner":   {owner, true},
+			"a pool of sql.Open":      {plain, false},
+			"a copy of the Open pool": {copied.Interface().(*sql.DB), false},
+			"no pool":                 {nil, false},
+		} {
+			if got := Opened(c.db); got != c.want {
+				t.Errorf("Opened of %s is %v, want %v", name, got, c.want)
+			}
+		}
+		closed, err := Open(ctx, Config{DSN: env.dsn(env.runtime)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !Opened(closed) {
+			t.Fatal("Opened of a new pool of Open is false")
+		}
+		_ = closed.Close()
+		if Opened(closed) {
+			t.Error("Opened of a closed pool of Open is true")
+		}
+
+		// Earlier pools are collected; many new pools, of sql.Open and of Open, are checked by concurrent callers
+		// with no false positive.
+		for i := 0; i < 5; i++ {
+			old, err := Open(ctx, Config{DSN: env.dsn(env.runtime)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = old.Close()
+		}
+		for i := 0; i < 5; i++ {
+			runtime.GC()
+		}
+		var fresh []*sql.DB
+		for i := 0; i < 3; i++ {
+			p, err := Open(ctx, Config{DSN: env.dsn(env.runtime)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = p.Close() })
+			fresh = append(fresh, p)
+		}
+		var others []*sql.DB
+		for i := 0; i < 200; i++ {
+			p, err := sql.Open("pgx", env.dsn(env.runtime))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = p.Close() })
+			others = append(others, p)
+		}
+		var wrong atomic.Int64
+		var wg sync.WaitGroup
+		for g := 0; g < 8; g++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for _, p := range others {
+					if Opened(p) {
+						wrong.Add(1)
+					}
+				}
+				for _, p := range fresh {
+					if !Opened(p) {
+						wrong.Add(1)
+					}
+				}
+			}()
+		}
+		wg.Wait()
+		if n := wrong.Load(); n != 0 {
+			t.Errorf("%d answers of Opened were wrong under concurrent callers", n)
+		}
 	})
 }
