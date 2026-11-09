@@ -90,15 +90,63 @@ func TestTenantProvisioning(t *testing.T) {
 			t.Fatalf("the insert into stego_tenants as the runtime role returned %v, want a refusal for privilege (42501)", err)
 		}
 
-		// The table CHECK keeps the rule of a tenant ID, so no row of the list can stop the iterator.
-		for _, bad := range []string{"", "t\x01", strings.Repeat("x", 256)} {
-			if _, err := env.db.ExecContext(ctx, "INSERT INTO stego_tenants (tenant_id) VALUES ($1)", bad); err == nil {
-				t.Errorf("the tenant list accepted the tenant ID %q", bad)
+	})
+
+	t.Run("ST-SUP-RP04-LC07-T02 The provisioning functions cannot be hijacked through search_path", func(t *testing.T) {
+		env := newPG(t)
+		ctx := context.Background()
+		for _, function := range []string{"stego_provision_tenant", "stego_retire_tenant"} {
+			var config string
+			var definer bool
+			if err := env.db.QueryRowContext(ctx,
+				"SELECT array_to_string(coalesce(proconfig, '{}'), ';'), prosecdef FROM pg_proc WHERE proname = $1", function).Scan(&config, &definer); err != nil {
+				t.Fatal(err)
+			}
+			if !definer || config != "search_path=pg_catalog, pg_temp" {
+				t.Fatalf("%s has SECURITY DEFINER %v and proconfig %q, want search_path=pg_catalog, pg_temp", function, definer, config)
 			}
 		}
+		// A decoy schema first on the caller's search_path, with a table stego_tenants and functions named like
+		// the ones the provisioning statements call; each decoy function raises, so a call of one fails the test.
+		adminExec(t, env.db,
+			"CREATE SCHEMA decoy",
+			"CREATE TABLE decoy.stego_tenants (tenant_id text, provisioned_at timestamptz, retired_at timestamptz)",
+			"CREATE FUNCTION decoy.current_setting(text, boolean) RETURNS text LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'decoy current_setting'; END $$",
+			"CREATE FUNCTION decoy.set_config(text, text, boolean) RETURNS text LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'decoy set_config'; END $$",
+			"CREATE FUNCTION decoy.now() RETURNS timestamptz LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'decoy now'; END $$",
+			"GRANT USAGE ON SCHEMA decoy TO "+env.runtime,
+			"GRANT ALL ON decoy.stego_tenants TO "+env.runtime,
+			"GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA decoy TO "+env.runtime,
+		)
+		decoyURL := env.url(env.runtime, rolePassword)
+		query := decoyURL.Query()
+		query.Set("search_path", "decoy,pg_catalog,public")
+		decoyURL.RawQuery = query.Encode()
+		db := openURL(t, decoyURL, nil)
+		db.SetMaxOpenConns(1)
+		var path string
+		if err := db.QueryRowContext(ctx, "SHOW search_path").Scan(&path); err != nil || strings.ReplaceAll(path, " ", "") != "decoy,pg_catalog,public" {
+			t.Fatalf("the caller's search_path is %q (%v), want the decoy schema first", path, err)
+		}
+		if err := Provision(ctx, db, "public", mustRequested(t, "t1"), nil); err != nil {
+			t.Fatalf("Provision with the decoy search_path: %v", err)
+		}
+		if err := Retire(ctx, db, "public", mustRequested(t, "t1"), nil); err != nil {
+			t.Fatalf("Retire with the decoy search_path: %v", err)
+		}
+		var real, decoy int
+		if err := env.db.QueryRowContext(ctx, "SELECT count(*) FROM public.stego_tenants WHERE tenant_id = 't1' AND retired_at IS NOT NULL").Scan(&real); err != nil {
+			t.Fatal(err)
+		}
+		if err := env.db.QueryRowContext(ctx, "SELECT count(*) FROM decoy.stego_tenants").Scan(&decoy); err != nil {
+			t.Fatal(err)
+		}
+		if real != 1 || decoy != 0 {
+			t.Fatalf("the real tenant list holds %d retired rows of t1 and the decoy %d rows, want 1 and 0", real, decoy)
+		}
 
-		// A temporary table stego_tenants of the runtime role, on the connection that runs Provision, Retire and
-		// List, is never the tenant list: the functions and List name the table with its schema.
+		// A temporary table stego_tenants on the connection that runs Provision, Retire and List is never the
+		// tenant list either.
 		env.runtimeDB.SetMaxOpenConns(1)
 		pinned, err := env.runtimeDB.Conn(ctx)
 		if err != nil {
@@ -118,16 +166,44 @@ func TestTenantProvisioning(t *testing.T) {
 		if err := Provision(ctx, env.runtimeDB, "public", mustRequested(t, "t5"), nil); err != nil {
 			t.Fatal(err)
 		}
-		if err := env.db.QueryRowContext(ctx, "SELECT count(*) FROM stego_tenants WHERE tenant_id = 't5'").Scan(&listed); err != nil || listed != 1 {
-			t.Fatalf("after Provision of t5 the tenant list holds %d rows of t5 (%v), want 1", listed, err)
-		}
-		visited, _ = visit()
-		if strings.Join(visited, ",") != "t1,t5" {
-			t.Fatalf("with the temporary table Each visited %v, want t1 and t5", visited)
+		listed, err := List(ctx, env.runtimeDB, "public")
+		if err != nil || len(listed) != 1 || listed[0].ID() != "t5" {
+			t.Fatalf("with the temporary table List gave %v (%v), want t5 only", listed, err)
 		}
 		var temp int
-		if err := env.runtimeDB.QueryRowContext(ctx, "SELECT count(*) FROM pg_temp.stego_tenants").Scan(&temp); err != nil {
-			t.Fatalf("the temporary table is not on the connection of the test: %v", err)
+		if err := env.runtimeDB.QueryRowContext(ctx, "SELECT count(*) FROM pg_temp.stego_tenants").Scan(&temp); err != nil || temp != 1 {
+			t.Fatalf("the temporary table is not on the connection of the test (%d rows, %v)", temp, err)
+		}
+	})
+
+	t.Run("ST-SUP-RP04-LC07-T03 A tenant ID outside the CHECK is refused", func(t *testing.T) {
+		env := newPG(t)
+		ctx := context.Background()
+		hookRuns := 0
+		hook := func(context.Context, Querier, Tenant) error { hookRuns++; return nil }
+		for _, bad := range []string{"", strings.Repeat("x", 256), "t\nnewline"} {
+			// New refuses the ID by the same rule as the CHECK, so Provision cannot get it; the CHECK refuses it
+			// for any other writer of the table.
+			if tenant, err := New(Requested(bad, decided{allowed: true})); err == nil {
+				t.Errorf("New accepted the tenant ID %q", bad)
+				_ = Provision(ctx, env.runtimeDB, "public", tenant, []Hook{hook})
+			}
+			_, err := env.db.ExecContext(ctx, "INSERT INTO stego_tenants (tenant_id) VALUES ($1)", bad)
+			var pgErr *pgconn.PgError
+			if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+				t.Errorf("the CHECK did not refuse the tenant ID %q: %v", bad, err)
+			}
+		}
+		longest := strings.Repeat("x", 255)
+		if err := Provision(ctx, env.runtimeDB, "public", mustRequested(t, longest), []Hook{hook}); err != nil {
+			t.Fatalf("Provision of a tenant ID of 255 bytes: %v", err)
+		}
+		var rows int
+		if err := env.db.QueryRowContext(ctx, "SELECT count(*) FROM stego_tenants").Scan(&rows); err != nil {
+			t.Fatal(err)
+		}
+		if rows != 1 || hookRuns != 1 {
+			t.Fatalf("the tenant list holds %d rows and the hook ran %d times, want the one tenant of 255 bytes", rows, hookRuns)
 		}
 	})
 }

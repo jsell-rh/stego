@@ -175,5 +175,5 @@ func change(ctx context.Context, db *sql.DB, schema string, t Tenant, hooks []Ho
 			return fmt.Errorf("tenant: hook %d of tenant %s: %w", i, t.id, err)
 		}
 	}
-	return commitTenant(ctx, tx, t)
+	return Commit(ctx, tx, t)
 }

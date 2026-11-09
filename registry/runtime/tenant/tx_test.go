@@ -3,12 +3,14 @@ package tenant
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"go/ast"
 	"go/token"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTenantTransaction(t *testing.T) {
@@ -85,7 +87,7 @@ func TestTenantTransaction(t *testing.T) {
 			_, err := tx.ExecContext(ctx, "SELECT set_config('app.tenant', 'tenant-b', false)")
 			return err
 		})
-		if err == nil || !strings.Contains(err.Error(), "rolled back") {
+		if !errors.Is(err, ErrTenantChanged) {
 			t.Fatalf("Each committed a transaction whose function set the tenant tenant-b with is_local false: %v", err)
 		}
 		if err := env.runtimeDB.QueryRowContext(ctx, "SELECT current_setting('app.tenant', true)").Scan(&after); err != nil {
@@ -121,6 +123,93 @@ func TestTenantTransaction(t *testing.T) {
 				}
 				return true
 			})
+		}
+	})
+
+	t.Run("ST-SUP-RP04-LC03-T03 A transaction whose tenant setting changed does not commit", func(t *testing.T) {
+		env := newPG(t)
+		ctx := context.Background()
+		tx, err := Begin(ctx, env.runtimeDB, mustTenant(t, "tenant-a"), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.ExecContext(ctx, "SELECT set_config('app.tenant', 'tenant-b', true)"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.ExecContext(ctx, "INSERT INTO items (tenant_id, note) VALUES ('tenant-b', 'changed')"); err != nil {
+			t.Fatal(err)
+		}
+		err = Commit(ctx, tx, mustTenant(t, "tenant-a"))
+		if !errors.Is(err, ErrTenantChanged) {
+			t.Fatalf("Commit after the tenant setting changed returned %v, want ErrTenantChanged", err)
+		}
+		if strings.Contains(err.Error(), "tenant-a") || strings.Contains(err.Error(), "tenant-b") {
+			t.Fatalf("the refusal names a tenant value: %v", err)
+		}
+		if err := tx.Commit(); !errors.Is(err, sql.ErrTxDone) {
+			t.Fatalf("the transaction is not ended after the refusal: %v", err)
+		}
+		var rows int
+		if err := env.db.QueryRowContext(ctx, "SELECT count(*) FROM items").Scan(&rows); err != nil || rows != 0 {
+			t.Fatalf("items holds %d rows (%v) after the refused commit, want none", rows, err)
+		}
+	})
+
+	t.Run("ST-SUP-RP04-LC03-T04 A connection that comes back with a tenant set is closed", func(t *testing.T) {
+		env := newPG(t)
+		ctx := context.Background()
+		db, err := Open(ctx, Config{DSN: env.dsn(env.runtime)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		db.SetMaxOpenConns(1)
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var before int
+		if err := conn.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&before); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := conn.ExecContext(ctx, "SELECT set_config('app.tenant', 'tenant-a', false)"); err != nil {
+			t.Fatal(err)
+		}
+		_ = conn.Close() // the connection goes back to the pool with app.tenant set
+		tx, err := Begin(ctx, db, mustTenant(t, "tenant-b"), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var during int
+		if err := tx.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&during); err != nil {
+			t.Fatal(err)
+		}
+		if err := Commit(ctx, tx, mustTenant(t, "tenant-b")); err != nil {
+			t.Fatal(err)
+		}
+		if during == before {
+			t.Fatalf("the next transaction ran on the connection %d, which came back with app.tenant set", before)
+		}
+		var after int
+		var value sql.NullString
+		if err := db.QueryRowContext(ctx, "SELECT pg_backend_pid(), current_setting('app.tenant', true)").Scan(&after, &value); err != nil {
+			t.Fatal(err)
+		}
+		if value.String != "" {
+			t.Fatalf("the open connection %d holds app.tenant = %q outside a transaction", after, value.String)
+		}
+		var alive int
+		for i := 0; i < 50; i++ {
+			if err := env.db.QueryRowContext(ctx, "SELECT count(*) FROM pg_stat_activity WHERE pid = $1", before).Scan(&alive); err != nil {
+				t.Fatal(err)
+			}
+			if alive == 0 {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		if alive != 0 {
+			t.Fatalf("the connection %d is still open, want it closed", before)
 		}
 	})
 }
@@ -179,35 +268,7 @@ func TestTenantPoolerGuard(t *testing.T) {
 		if err != nil {
 			t.Fatalf("the guard refused a clean connection: %v", err)
 		}
-		defer clean.Close()
-
-		// A caller that sets app.tenant with is_local false and commits by itself leaves the tenant on the
-		// connection; the guard discards that connection when it comes back to the pool, and the next statement
-		// runs on a new connection with no tenant.
-		clean.SetMaxOpenConns(1)
-		tx, err := Begin(ctx, clean, mustTenant(t, "tenant-a"), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var before int
-		if err := tx.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&before); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := tx.ExecContext(ctx, "SELECT set_config('app.tenant', 'tenant-b', false)"); err != nil {
-			t.Fatal(err)
-		}
-		if err := tx.Commit(); err != nil {
-			t.Fatal(err)
-		}
-		var after int
-		var value sql.NullString
-		if err := clean.QueryRowContext(ctx, "SELECT pg_backend_pid(), current_setting('app.tenant', true)").Scan(&after, &value); err != nil {
-			t.Fatal(err)
-		}
-		if after == before || value.String != "" {
-			t.Fatalf("after a session setting the pool served the connection %d (before %d) with app.tenant = %q, want a new connection with none",
-				after, before, value.String)
-		}
+		_ = clean.Close()
 	})
 }
 

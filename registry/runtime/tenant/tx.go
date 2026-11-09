@@ -16,12 +16,17 @@ import (
 const SettingName = "app.tenant"
 
 // setTenantStatement is the first statement of every transaction that Begin opens (ST-SUP-RP04-LC03). Its third
-// argument true makes the setting transaction-local, so it ends with the transaction.
-const setTenantStatement = "SELECT set_config('app.tenant', $1, true)"
+// argument true makes the setting transaction-local, so it ends with the transaction. The function is named with
+// its schema, so a function set_config of the caller's search_path cannot stand in for it.
+const setTenantStatement = "SELECT pg_catalog.set_config('app.tenant', $1, true)"
+
+// readTenantStatement reads the tenant setting of the connection, with the function named with its schema.
+const readTenantStatement = "SELECT pg_catalog.current_setting('app.tenant', true)"
 
 // Begin opens a transaction on db and sets its tenant with SELECT set_config('app.tenant', $1, true) as the first
 // statement, before the caller's first statement (ST-SUP-RP04-LC03). It refuses the zero tenant before it sends a
-// statement. The caller commits or rolls back the transaction it returns.
+// statement. The caller commits the transaction it returns with Commit, which checks the tenant setting first, or
+// rolls it back.
 func Begin(ctx context.Context, db *sql.DB, t Tenant, opts *sql.TxOptions) (*sql.Tx, error) {
 	if t.IsZero() {
 		return nil, ErrZero
@@ -70,18 +75,28 @@ func (q querier) QueryRowContext(ctx context.Context, query string, args ...any)
 	return q.tx.QueryRowContext(ctx, query, args...)
 }
 
-// commitTenant commits tx only when its tenant setting still holds t, so a statement of the caller that changed
-// app.tenant, also with is_local false, rolls the transaction back and leaves no tenant on the connection.
-func commitTenant(ctx context.Context, tx *sql.Tx, t Tenant) error {
+// ErrTenantChanged is the error of Commit when the tenant setting of the transaction no longer holds its tenant.
+var ErrTenantChanged = errors.New("tenant: the tenant setting of the transaction changed, so the transaction is rolled back")
+
+// Commit commits tx, which Begin opened for t, only when its tenant setting still holds t (ST-SUP-RP04-LC03). When a
+// statement of the caller changed app.tenant, with is_local true or false, it rolls the transaction back and
+// returns ErrTenantChanged, which names no tenant value, so no row of another tenant commits and the connection
+// keeps no tenant. It refuses the zero tenant before it sends a statement.
+func Commit(ctx context.Context, tx *sql.Tx, t Tenant) error {
+	if t.IsZero() {
+		return ErrZero
+	}
+	if tx == nil {
+		return errors.New("tenant: no transaction")
+	}
 	var current sql.NullString
-	if err := tx.QueryRowContext(ctx, "SELECT current_setting('app.tenant', true)").Scan(&current); err != nil {
+	if err := tx.QueryRowContext(ctx, readTenantStatement).Scan(&current); err != nil {
 		_ = tx.Rollback()
-		return fmt.Errorf("tenant: read the tenant setting before the commit of tenant %s: %w", t.id, err)
+		return fmt.Errorf("tenant: read the tenant setting before the commit: %w", err)
 	}
 	if current.String != t.id {
 		_ = tx.Rollback()
-		return fmt.Errorf("tenant: the transaction of tenant %s holds the tenant setting %q before the commit, so it is rolled back",
-			t.id, current.String)
+		return ErrTenantChanged
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("tenant: commit the transaction of tenant %s: %w", t.id, err)
@@ -179,7 +194,7 @@ var errTenantOnConnection = errors.New("tenant: the pooler guard refuses the con
 // pool, so a role default or a session setting never carries a tenant to the next client.
 func checkConn(ctx context.Context, conn *pgx.Conn) error {
 	var value *string
-	if err := conn.QueryRow(ctx, "SELECT current_setting('app.tenant', true)").Scan(&value); err != nil {
+	if err := conn.QueryRow(ctx, readTenantStatement).Scan(&value); err != nil {
 		return fmt.Errorf("tenant: read the tenant setting of the connection: %w", err)
 	}
 	if value != nil && *value != "" {

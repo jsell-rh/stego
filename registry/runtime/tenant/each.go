@@ -84,7 +84,7 @@ func runOne(ctx context.Context, db *sql.DB, t Tenant, fn Func) error {
 		_ = tx.Rollback()
 		return withContextErr(ctx, err)
 	}
-	return withContextErr(ctx, commitTenant(ctx, tx, t))
+	return withContextErr(ctx, Commit(ctx, tx, t))
 }
 
 // withContextErr adds the error of ctx to err when ctx ended, so errors.Is(err, context.Canceled) holds for a run

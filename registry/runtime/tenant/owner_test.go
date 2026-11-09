@@ -97,18 +97,31 @@ func TestTenantConnectors(t *testing.T) {
 		if !strings.Contains(err.Error(), "BYPASSRLS") {
 			t.Errorf("the startup error does not name BYPASSRLS: %v", err)
 		}
-		// A member of a role with BYPASSRLS or of a superuser role can take that role with SET ROLE, and a
-		// superuser bypasses row-level security as well.
-		bypassGroup := env.role(t, "bypassgroup", "NOLOGIN BYPASSRLS")
-		member := env.role(t, "bypassmember", "")
+		// A superuser bypasses row-level security as BYPASSRLS does.
 		superuser := env.role(t, "superuser", "SUPERUSER")
+		if db, err := Open(ctx, Config{DSN: env.dsn(superuser)}); err == nil {
+			_ = db.Close()
+			t.Error("the runtime connector started as a superuser")
+		} else if !strings.Contains(err.Error(), "is a superuser") {
+			t.Errorf("the startup error for the superuser does not say so: %v", err)
+		}
+		plain, err := Open(ctx, Config{DSN: env.dsn(env.runtime)})
+		if err != nil {
+			t.Fatalf("the runtime connector did not start as the plain runtime role: %v", err)
+		}
+		_ = plain.Close()
+	})
+	t.Run("ST-SUP-RP04-LC06-T04 The runtime connector refuses a role that gets superuser or BYPASSRLS through membership", func(t *testing.T) {
+		env := newPG(t)
+		ctx := context.Background()
+		bypassGroup := env.role(t, "bypassgroup", "NOLOGIN BYPASSRLS")
+		bypassMember := env.role(t, "bypassmember", "INHERIT")
 		superGroup := env.role(t, "supergroup", "NOLOGIN SUPERUSER")
-		superMember := env.role(t, "supermember", "")
-		adminExec(t, env.admin, "GRANT "+bypassGroup+" TO "+member, "GRANT "+superGroup+" TO "+superMember)
+		superMember := env.role(t, "supermember", "INHERIT")
+		adminExec(t, env.admin, "GRANT "+bypassGroup+" TO "+bypassMember, "GRANT "+superGroup+" TO "+superMember)
 		for role, want := range map[string]string{
-			member:      "BYPASSRLS through its membership of " + bypassGroup,
-			superuser:   "is a superuser",
-			superMember: "is a superuser through its membership of " + superGroup,
+			bypassMember: "holds BYPASSRLS through its membership of " + bypassGroup,
+			superMember:  "is a superuser through its membership of " + superGroup,
 		} {
 			db, err := Open(ctx, Config{DSN: env.dsn(role)})
 			if err == nil {

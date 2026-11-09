@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"unicode/utf8"
 
-	"stego.dev/runtime/internal/decision"
+	"stego.dev/runtime/internal/seal"
 )
 
 // maxIDLength is the longest tenant ID the package accepts, in bytes.
@@ -36,8 +36,8 @@ func (t Tenant) IsZero() bool { return t.id == "" }
 // String returns the tenant ID.
 func (t Tenant) String() string { return t.id }
 
-// Source is a source of a tenant that New accepts (ST-SUP-RP04-LC01): Claim of a verified identity, or Requested
-// with a decided permission. Its method is unexported, so only the values that this package builds satisfy it. The
+// Source is a source of a tenant that New accepts (ST-SUP-RP04-LC01): Claim of a verified Identity, or Requested
+// with a Decision. Its method is unexported, so only the values that this package builds satisfy it. The
 // two other sources, an entry of the tenant list and the tenant column of a claimed outbox row, are columns that a
 // statement reads; List and ScanRows build those tenants. A message payload, a header or a body field is not a
 // source.
@@ -45,12 +45,13 @@ type Source interface {
 	tenantID() (string, error)
 }
 
-// Identity is the verified identity that the authentication component gives after it checks a token. TenantClaim
-// returns the tenant claim of the token and false when the token holds none. The verifier is generated code, so
-// this interface is open: see the notes of ST-SUP-RP04-LC01-T01.
-type Identity interface {
-	TenantClaim() (string, bool)
-}
+// Identity is a verified identity of the authentication runtime. It is sealed: only a package of the runtime
+// module can make one (ST-SUP-RP04-LC01).
+type Identity = seal.Identity
+
+// Decision is the decided permission of a Provision or Retire request, from the authorization runtime. It is
+// sealed: only a package of the runtime module can make one (ST-SUP-RC27-OC09).
+type Decision = seal.Decision
 
 type claimSource struct {
 	identity Identity
@@ -72,18 +73,17 @@ func (s claimSource) tenantID() (string, error) {
 
 type requestedSource struct {
 	id       string
-	decision decision.Decided
+	decision Decision
 }
 
 // Requested is the source of the tenant that a Provision or Retire request names. New accepts it only when the
-// decision allowed the request (ST-SUP-RC27-OC09). Only a package of the runtime module can build a decision.Decided
-// value, so generated code takes it from the authorization runtime and cannot make one up.
-func Requested(id string, decided decision.Decided) Source {
-	return requestedSource{id: id, decision: decided}
+// decision allowed the request (ST-SUP-RC27-OC09).
+func Requested(id string, decision Decision) Source {
+	return requestedSource{id: id, decision: decision}
 }
 
 func (s requestedSource) tenantID() (string, error) {
-	if !s.decision.Allowed() {
+	if s.decision == nil || !s.decision.Allowed() {
 		return "", errors.New("tenant: the request that names the tenant is not decided as allowed")
 	}
 	return s.id, nil

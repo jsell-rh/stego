@@ -28,16 +28,28 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 
-	"stego.dev/runtime/internal/decision"
+	"stego.dev/runtime/internal/seal"
 )
 
 // This file holds the tests of ST-SUP-RP04-LC01 and ST-SUP-RP04-LC02 and the helpers that the tests of the package
 // share: the statement recorder, the database fake and the local PostgreSQL fixture.
 
-// identity is a stand-in for the verified identity of the authentication component.
-type identity struct{ claim string }
+// identity is a stand-in for the verified identity of the authentication runtime. As a type of the runtime module
+// it can embed the seal's mark.
+type identity struct {
+	seal.IdentityMark
+	claim string
+}
 
 func (i identity) TenantClaim() (string, bool) { return i.claim, i.claim != "" }
+
+// decided is a stand-in for a decision of the authorization runtime.
+type decided struct {
+	seal.DecisionMark
+	allowed bool
+}
+
+func (d decided) Allowed() bool { return d.allowed }
 
 // mustTenant builds a Tenant from a column value, as List and the outbox worker do.
 func mustTenant(t *testing.T, id string) Tenant {
@@ -382,17 +394,38 @@ func TestTenantIdentity(t *testing.T) {
 		if got := param("ScanRows", 0).String(); got != "*database/sql.Rows" {
 			t.Errorf("ScanRows takes %s, want the *sql.Rows of a statement", got)
 		}
-		// The decision of Requested is a type of an internal package of the runtime module, so the go command
-		// refuses its import from generated code, and its one field is unexported.
-		decided, ok := types.Unalias(param("Requested", 1)).(*types.Named)
-		if !ok || decided.Obj().Pkg().Path() != "stego.dev/runtime/internal/decision" {
-			t.Fatalf("Requested takes the decision %s, want stego.dev/runtime/internal/decision.Decided", param("Requested", 1))
+		// The sources are only an Identity, the row reader and a Decision; Identity and Decision are interfaces of
+		// the internal package seal, each with an unexported method.
+		if param("Requested", 1) != scope.Lookup("Decision").Type() {
+			t.Errorf("Requested takes %s, want one Decision", param("Requested", 1))
 		}
-		decidedStruct := decided.Underlying().(*types.Struct)
-		for i := 0; i < decidedStruct.NumFields(); i++ {
-			if decidedStruct.Field(i).Exported() {
-				t.Errorf("the decision type has the exported field %s", decidedStruct.Field(i).Name())
+		for _, name := range []string{"Identity", "Decision"} {
+			named, ok := types.Unalias(scope.Lookup(name).Type()).(*types.Named)
+			if !ok || named.Obj().Pkg().Path() != "stego.dev/runtime/internal/seal" {
+				t.Fatalf("%s is %s, want an interface of stego.dev/runtime/internal/seal", name, scope.Lookup(name).Type())
 			}
+			sealed := false
+			iface := named.Underlying().(*types.Interface)
+			for i := 0; i < iface.NumMethods(); i++ {
+				sealed = sealed || !iface.Method(i).Exported()
+			}
+			if !sealed {
+				t.Errorf("%s has no unexported method, so a type outside the runtime module can satisfy it", name)
+			}
+		}
+		var sources []string
+		for _, name := range scope.Names() {
+			fn, ok := scope.Lookup(name).(*types.Func)
+			if !ok || !fn.Exported() {
+				continue
+			}
+			if sig := fn.Type().(*types.Signature); sig.Results().Len() == 1 && sig.Results().At(0).Type() == scope.Lookup("Source").Type() {
+				sources = append(sources, name)
+			}
+		}
+		sort.Strings(sources)
+		if strings.Join(sources, ",") != "Claim,Requested" {
+			t.Errorf("the exported functions that return a Source are %v, want Claim and Requested", sources)
 		}
 		for _, name := range scope.Names() {
 			if typeName, ok := scope.Lookup(name).(*types.TypeName); ok && typeName.Exported() && !types.IsInterface(typeName.Type()) {
@@ -410,11 +443,11 @@ func TestTenantIdentity(t *testing.T) {
 		if err == nil || !none.IsZero() {
 			t.Fatalf("New(Claim(identity with no claim)) = %q, %v; want an error and no tenant", none.ID(), err)
 		}
-		if got, err := New(Requested("org-c", decision.New(true))); err != nil || got.ID() != "org-c" {
+		if got, err := New(Requested("org-c", decided{allowed: true})); err != nil || got.ID() != "org-c" {
 			t.Fatalf("New(Requested(org-c, allowed)) = %q, %v", got.ID(), err)
 		}
-		for name, decided := range map[string]decision.Decided{"denied": decision.New(false), "zero": {}} {
-			if got, err := New(Requested("org-c", decided)); err == nil || !got.IsZero() {
+		for name, decision := range map[string]Decision{"denied": decided{}, "nil": nil} {
+			if got, err := New(Requested("org-c", decision)); err == nil || !got.IsZero() {
 				t.Errorf("New(Requested(org-c, %s decision)) = %q, %v; want an error and no tenant", name, got.ID(), err)
 			}
 		}
@@ -448,6 +481,7 @@ func TestTenantIdentity(t *testing.T) {
 				return Each(ctx, db, []Tenant{zero}, func(context.Context, Querier, Tenant) error { return nil })
 			},
 			"Provision": func() error { return Provision(ctx, db, "public", zero, nil) },
+			"Commit":    func() error { return Commit(ctx, nil, zero) },
 			"Retire":    func() error { return Retire(ctx, db, "public", zero, nil) },
 		}
 		sort.Strings(found)
@@ -586,9 +620,102 @@ func TestTenantIdentity(t *testing.T) {
 	})
 }
 
+func TestTenantSources(t *testing.T) {
+	t.Run("ST-SUP-RP04-LC01-T05 Identity and Decision are sealed to the runtime module", func(t *testing.T) {
+		check := func(decls, call string) error {
+			src := "package outside\n\nimport \"stego.dev/runtime/tenant\"\n\n" + decls + "\n\nfunc use() { _, _ = " + call + " }\n"
+			fset := token.NewFileSet()
+			file, err := parser.ParseFile(fset, "outside.go", src, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			config := types.Config{Importer: importer.ForCompiler(fset, "source", nil)}
+			_, err = config.Check("example.com/outside", fset, []*ast.File{file}, nil)
+			return err
+		}
+		if err := check("", `tenant.New(tenant.Claim(nil))`); err != nil {
+			t.Fatalf("the control module does not type-check: %v", err)
+		}
+		for name, c := range map[string]struct{ decls, call, method string }{
+			"Identity": {
+				decls:  "type identity struct{}\n\nfunc (identity) TenantClaim() (string, bool) { return \"t9\", true }",
+				call:   "tenant.New(tenant.Claim(identity{}))",
+				method: "sealedIdentity",
+			},
+			"Decision": {
+				decls:  "type decision struct{}\n\nfunc (decision) Allowed() bool { return true }",
+				call:   `tenant.New(tenant.Requested("t9", decision{}))`,
+				method: "sealedDecision",
+			},
+		} {
+			err := check(c.decls, c.call)
+			if err == nil || !strings.Contains(err.Error(), c.method) {
+				t.Errorf("a type outside the runtime module with the exported methods of %s gave %v, want an error for the missing method %s",
+					name, err, c.method)
+			}
+		}
+	})
+
+	t.Run("ST-SUP-RP04-LC01-T06 A tenant column becomes a Tenant only through the row reader", func(t *testing.T) {
+		env := newPG(t)
+		ctx := context.Background()
+		if err := Provision(ctx, env.runtimeDB, "public", mustRequested(t, "t1"), nil); err != nil {
+			t.Fatal(err)
+		}
+		adminExec(t, env.ownerDB,
+			"CREATE TABLE outbox_stand_in (id bigserial PRIMARY KEY, tenant_id text NOT NULL)",
+			"INSERT INTO outbox_stand_in (tenant_id) VALUES ('t2')",
+			"GRANT SELECT ON outbox_stand_in TO "+env.runtime,
+		)
+		for query, want := range map[string]string{
+			"SELECT tenant_id FROM stego_tenants":   "t1",
+			"SELECT tenant_id FROM outbox_stand_in": "t2",
+		} {
+			rows, err := env.runtimeDB.QueryContext(ctx, query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !rows.Next() {
+				t.Fatalf("%s gave no row: %v", query, rows.Err())
+			}
+			got, err := ScanRows(rows)
+			_ = rows.Close()
+			if err != nil || got.ID() != want {
+				t.Fatalf("ScanRows of %s = %q, %v; want %s", query, got.ID(), err, want)
+			}
+		}
+		// No other exported function gives a Tenant, and none of those that do takes text.
+		pkg := typeCheck(t)
+		for _, name := range pkg.Scope().Names() {
+			fn, ok := pkg.Scope().Lookup(name).(*types.Func)
+			if !ok || !fn.Exported() {
+				continue
+			}
+			sig := fn.Type().(*types.Signature)
+			gives := false
+			for i := 0; i < sig.Results().Len(); i++ {
+				gives = gives || isTenant(sig.Results().At(i).Type())
+			}
+			if !gives {
+				continue
+			}
+			switch name {
+			case "ScanRows", "New", "FromContext":
+			default:
+				t.Errorf("the exported function %s gives a Tenant", name)
+			}
+			for i := 0; i < sig.Params().Len(); i++ {
+				if basic, ok := sig.Params().At(i).Type().Underlying().(*types.Basic); ok && basic.Info()&types.IsString != 0 {
+					t.Errorf("the exported function %s gives a Tenant from text", name)
+				}
+			}
+		}
+	})
+}
+
 func mustRequested(t *testing.T, id string) Tenant {
 	t.Helper()
-	tenant, err := New(Requested(id, decision.New(true)))
+	tenant, err := New(Requested(id, decided{allowed: true}))
 	if err != nil {
 		t.Fatal(err)
 	}
