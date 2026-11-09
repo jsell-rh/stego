@@ -6,7 +6,10 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
+	"sync"
+	"weak"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -24,7 +27,12 @@ func OpenOwner(ctx context.Context, run string, cfg Config) (*sql.DB, error) {
 	if run != MigrationJob {
 		return nil, fmt.Errorf("tenant: the owner connector opens only in the migration job, and this process runs %q", run)
 	}
-	return open(ctx, cfg)
+	db, err := open(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	remember(db)
+	return db, nil
 }
 
 // Open opens the database as the runtime role, for the api, worker and controller modes. It checks cfg with Guard,
@@ -40,7 +48,50 @@ func Open(ctx context.Context, cfg Config) (*sql.DB, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	remember(db)
 	return db, nil
+}
+
+// opened holds a weak pointer to each pool that Open returned, so Opened can tell such a pool from one that
+// sql.Open or another connector made. A pool that is no longer reachable leaves the set.
+var opened = struct {
+	mu    sync.Mutex
+	pools map[weak.Pointer[sql.DB]]struct{}
+}{pools: map[weak.Pointer[sql.DB]]struct{}{}}
+
+func remember(db *sql.DB) {
+	key := weak.Make(db)
+	opened.mu.Lock()
+	opened.pools[key] = struct{}{}
+	opened.mu.Unlock()
+	runtime.AddCleanup(db, func(key weak.Pointer[sql.DB]) {
+		opened.mu.Lock()
+		delete(opened.pools, key)
+		opened.mu.Unlock()
+	}, key)
+}
+
+// Opened reports whether db is a pool that Open or OpenOwner returned and that is not closed (ST-SUP-RP04-LC08): a
+// pool whose connections the pooler guard checks each time they come back, so a connection with a tenant set is
+// closed. It reports false for any other pool, for a copy of a pool value, whose address differs, and for a closed
+// pool. The set holds weak pointers only, so it keeps no pool alive, and a pool made later at a reused address does
+// not match. The command and query runtimes take only a pool for which it reports true (ST-SUP-RP10-LC30,
+// ST-SUP-RP11-LC14).
+func Opened(db *sql.DB) bool {
+	if db == nil {
+		return false
+	}
+	opened.mu.Lock()
+	_, ok := opened.pools[weak.Make(db)]
+	opened.mu.Unlock()
+	if !ok {
+		return false
+	}
+	// A ping with a context that has ended reads only the closed flag of the pool: database/sql refuses a closed
+	// pool before it looks at the context, and it opens no connection.
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+	return errors.Is(db.PingContext(ended), context.Canceled)
 }
 
 func open(ctx context.Context, cfg Config) (*sql.DB, error) {
