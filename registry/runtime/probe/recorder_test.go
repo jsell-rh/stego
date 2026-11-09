@@ -45,6 +45,10 @@ func TestProbeRecorder(t *testing.T) {
 			})
 		}
 		group.Wait()
+		// The runtime gets its own emission and none of the recorder's.
+		own := other.Bind(context.Background(), "t1", "user:u-7", command)
+		own.Probe().Emit(seq, Enum("g0"), Integer(-1))
+		own.Commit()
 		other.Close(context.Background())
 		all := recorder.All()
 		if len(all) != goroutines*each || recorder.Dropped() != 0 {
@@ -58,8 +62,8 @@ func TestProbeRecorder(t *testing.T) {
 			}
 			next[worker]++
 		}
-		if len(stdout.all()) != 0 || other.Delivery() != (Delivery{}) {
-			t.Fatal("another sink got a record of the recorder's probe")
+		if got := stdout.all(); len(got) != 1 || !strings.Contains(got[0], `"seq":-1`) || other.Delivery() != (Delivery{}) {
+			t.Fatalf("the other runtime holds %q, want its own one emission and none of the recorder's", got)
 		}
 	})
 

@@ -147,8 +147,22 @@ func startCollector(t testing.TB) *collector {
 	return c
 }
 
-// logRecords are the log records that the collector received, in order.
+// logRecords are the log records of the probe that the collector received, in order, but telemetry.runtime.stopped,
+// which every Close sends; the completion logs of the telemetry runtime's own requests are left out too.
 func (c *collector) logRecords() []*logpb.LogRecord {
+	var out []*logpb.LogRecord
+	for _, record := range c.allLogRecords() {
+		if record.EventName != stoppedEvent && record.EventName != "http.server.request.completed" {
+			out = append(out, record)
+		}
+	}
+	return out
+}
+
+const stoppedEvent = "telemetry.runtime.stopped"
+
+// allLogRecords are all the log records that the collector received, in order.
+func (c *collector) allLogRecords() []*logpb.LogRecord {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var out []*logpb.LogRecord
@@ -291,7 +305,18 @@ func (l *lines) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
+// all are the lines but that of telemetry.runtime.stopped, which every Close writes.
 func (l *lines) all() []string {
+	var out []string
+	for _, line := range l.everything() {
+		if !strings.Contains(line, `"event.name":"`+stoppedEvent+`"`) {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+func (l *lines) everything() []string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return append([]string(nil), l.kept...)
@@ -342,14 +367,43 @@ func histogram(t testing.TB, name string, unit Unit) *Observation {
 	return declare(t, Spec{Name: name, Kind: Histogram, Severity: Info, Value: "wait", Unit: unit, EmittedBy: []string{command}})
 }
 
-// recordingSpan starts a sampled span of the telemetry runtime.
-func recordingSpan(t testing.TB, telemetry *otel.Runtime) (context.Context, trace.Span) {
+// servedSpan is the server span of one request that the telemetry runtime's Handler serves. The request waits in
+// its handler until End.
+type servedSpan struct {
+	sc      trace.SpanContext
+	release chan struct{}
+	done    chan struct{}
+}
+
+// End lets the handler return, so the Handler ends the span.
+func (s *servedSpan) End() {
+	close(s.release)
+	<-s.done
+}
+
+func (s *servedSpan) SpanContext() trace.SpanContext { return s.sc }
+
+// recordingSpan serves one request through the telemetry runtime's Handler and gives the context of its sampled
+// server span, the span that the generated handler binds a probe to.
+func recordingSpan(t testing.TB, telemetry *otel.Runtime) (context.Context, *servedSpan) {
 	t.Helper()
-	ctx, span := telemetry.TracerProvider().Tracer("test").Start(context.Background(), "reserve-and-charge")
-	if !span.IsRecording() {
-		t.Fatal("the test span is not recording")
+	s := &servedSpan{release: make(chan struct{}), done: make(chan struct{})}
+	contexts := make(chan context.Context)
+	handler := telemetry.Handler(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		contexts <- request.Context()
+		<-s.release
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	go func() {
+		defer close(s.done)
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/reservations", nil))
+	}()
+	ctx := <-contexts
+	s.sc = trace.SpanContextFromContext(ctx)
+	if !s.sc.IsSampled() {
+		t.Fatal("the server span is not sampled")
 	}
-	return ctx, span
+	return ctx, s
 }
 
 // unsampled is a context with a valid span context that is not sampled, so its span does not record.
@@ -470,8 +524,8 @@ func TestProbeOTLP(t *testing.T) {
 			t.Fatalf("no span event was exported in %d spans", len(c.spans()))
 		}
 		m := c.lastMetrics()["domain.reservations_refused"]
-		if m == nil {
-			t.Fatal("no metric domain.reservations_refused")
+		if m == nil || len(m.GetSum().DataPoints) != 1 {
+			t.Fatal("no metric domain.reservations_refused with one data point")
 		}
 		for _, p := range m.GetSum().DataPoints {
 			if got := attributeKeys(p.Attributes); !slices.Equal(got, []string{"operation", "reason", "stego.outcome"}) {

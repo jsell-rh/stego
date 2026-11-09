@@ -1,8 +1,10 @@
 package probe
 
 import (
+	"context"
 	"io"
 	"strconv"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -22,6 +24,8 @@ const (
 // observations only when STEGO_PROBE_CONSOLE turns it on (ST-SUP-RP12-LC16).
 type consoleSink struct {
 	queue    *queue
+	builtins *queue
+	mu       sync.Mutex
 	out      io.Writer
 	format   format
 	service  string
@@ -32,15 +36,50 @@ type consoleSink struct {
 func newConsoleSink(out io.Writer, f format, service, instance string) *consoleSink {
 	s := &consoleSink{out: out, format: f, service: service, instance: instance}
 	s.queue = newQueue(s.write)
+	s.builtins = newBoundedQueue(BuiltinQueueLimit, s.write)
 	return s
 }
 
-// send queues the record when the console takes it.
+// BuiltinQueueLimit is the most built-in service and worker events that the console holds in their own queue, so
+// a full queue of declared observations never drops one (ST-SUP-RP12-LC22).
+const BuiltinQueueLimit = 64
+
+// send queues the record when the console takes it: a built-in service or worker event in its own queue.
 func (s *consoleSink) send(r *record) {
-	if s.formatOf(r) == formatOff {
-		return
+	switch {
+	case r.obs.class == serviceClass || r.obs.class == workerClass:
+		s.builtins.put(r)
+	case s.formatOf(r) != formatOff:
+		s.queue.put(r)
 	}
-	s.queue.put(r)
+}
+
+func (s *consoleSink) dropped() uint64 { return s.queue.dropped.Load() + s.builtins.dropped.Load() }
+func (s *consoleSink) failed() uint64  { return s.queue.failed.Load() + s.builtins.failed.Load() }
+
+// drain writes what both queues hold, then the line of telemetry.runtime.stopped, all until ctx ends. It tells
+// whether it wrote everything.
+func (s *consoleSink) drain(ctx context.Context, stopped *record) bool {
+	ok := s.queue.drain(ctx)
+	if !s.builtins.drain(ctx) {
+		ok = false
+	}
+	if !ok {
+		return false
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if !safeWrite(s.write, stopped) {
+			s.builtins.failed.Add(1)
+		}
+	}()
+	select {
+	case <-done:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func (s *consoleSink) formatOf(r *record) format {
@@ -51,8 +90,10 @@ func (s *consoleSink) formatOf(r *record) format {
 	return s.format
 }
 
-// write writes the line of one record in one write call.
+// write writes the line of one record in one write call. The two queues share the buffer and the writer.
 func (s *consoleSink) write(r *record) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.formatOf(r) == formatLogfmt {
 		s.line = s.logfmt(s.line[:0], r)
 	} else {

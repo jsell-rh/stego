@@ -225,6 +225,50 @@ func TestProbeSinks(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RP12-LC19-T01 Span events beyond the limit of a span that two calls share are counted as otlp drops", func(t *testing.T) {
+		c := startCollector(t)
+		event := reservationRefused(t, CountsAttempt)
+		r := newProbe(t, newTelemetry(t), "", nil)
+		// A conflict reruns the command on the same server span: each attempt is a call of its own.
+		ctx, span := recordingSpan(t, r.telemetry)
+		for _, commit := range []bool{false, true} {
+			call := r.Bind(ctx, "t1", "user:u-7", command)
+			for range HoldLimit {
+				call.Probe().Emit(event, Text("A-1"), Enum("short"))
+			}
+			call.Returned()
+			if commit {
+				call.Commit()
+			} else {
+				call.Rollback()
+			}
+		}
+		span.End()
+		if err := r.Close(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if d := r.Delivery(); d.OTLPDropped != HoldLimit {
+			t.Fatalf("the delivery counts are %+v, want %d otlp drops for the events the span had no room for", d, HoldLimit)
+		}
+		var events int
+		for _, s := range c.spans() {
+			events += len(s.Events)
+		}
+		if events != otel.SpanEventLimit || len(c.logRecords()) != 2*HoldLimit {
+			t.Fatalf("the span holds %d events and the collector %d log records, want %d and %d", events, len(c.logRecords()), otel.SpanEventLimit, 2*HoldLimit)
+		}
+		m := c.lastMetrics()["domain.probe.dropped"]
+		var found bool
+		for _, p := range m.GetSum().DataPoints {
+			if slices.Contains(attributes(p.Attributes), "sink=otlp") {
+				found = p.GetAsInt() == HoldLimit
+			}
+		}
+		if !found {
+			t.Fatalf("domain.probe.dropped has no series sink=otlp of %d", HoldLimit)
+		}
+	})
+
 	t.Run("ST-SUP-RP12-LC20-T01 A refusal that rolls back is sent, and committed work only after a commit", func(t *testing.T) {
 		refusedEvent := reservationRefused(t, CountsAttempt)
 		refusedCounter := reservationsRefused(t, CountsAttempt)

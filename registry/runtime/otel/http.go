@@ -12,7 +12,6 @@ import (
 
 	"github.com/felixge/httpsnoop"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	otellog "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/metric"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
@@ -81,7 +80,7 @@ func (r *Runtime) Handler(next http.Handler) http.Handler {
 		ctx := continueTrace(request.Context(), request.Header.Values("traceparent"))
 		method := httpMethod(request.Method)
 		start := time.Now()
-		ctx, span := r.tracer.Start(ctx, "HTTP "+method, trace.WithSpanKind(trace.SpanKindServer), trace.WithAttributes(attribute.String("http.request.method", method)), trace.WithTimestamp(start))
+		ctx, span, record := r.startSpan(ctx, r.tracer, "HTTP "+method, trace.SpanKindServer, start, attribute.String("http.request.method", method))
 		observed := &routeObservation{}
 		ctx = context.WithValue(ctx, routeKey{}, observed)
 		r.signals.started(ctx, r.signals.httpActive)
@@ -89,7 +88,7 @@ func (r *Runtime) Handler(next http.Handler) http.Handler {
 		defer func() {
 			end := time.Now()
 			route := observed.load()
-			markHTTP(span, method, route, status)
+			markHTTP(record, method, route, status)
 			r.signals.httpFinished(ctx, start, end, method, route, status)
 			span.End(trace.WithTimestamp(end))
 		}()
@@ -135,21 +134,21 @@ func (o *routeObservation) load() string {
 
 // markHTTP names the span by the method and the route, and marks a status of 500 or more, or a panic (status 0),
 // with a fixed error type and no message (ST-SUP-RP03-LC05).
-func markHTTP(span trace.Span, method, route string, status int) {
+func markHTTP(span *spanRecord, method, route string, status int) {
 	if route != "" {
-		span.SetName(method + " " + route)
-		span.SetAttributes(attribute.String("http.route", route))
+		span.setName(method + " " + route)
+		span.set(attribute.String("http.route", route))
 	}
 	switch {
 	case status == 0:
-		span.SetStatus(codes.Error, "")
-		span.SetAttributes(attribute.String("error.type", "panic"))
+		span.fail()
+		span.set(attribute.String("error.type", "panic"))
 	case status >= 500:
-		span.SetAttributes(attribute.Int("http.response.status_code", status))
-		span.SetStatus(codes.Error, "")
-		span.SetAttributes(attribute.String("error.type", strconv.Itoa(status)))
+		span.set(attribute.Int("http.response.status_code", status))
+		span.fail()
+		span.set(attribute.String("error.type", strconv.Itoa(status)))
 	default:
-		span.SetAttributes(attribute.Int("http.response.status_code", status))
+		span.set(attribute.Int("http.response.status_code", status))
 	}
 }
 

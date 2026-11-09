@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -81,6 +83,7 @@ type Runtime struct {
 	meter      *sdkmetric.MeterProvider
 	logs       *sdklog.LoggerProvider
 	signals    requestSignals
+	records    sync.Map // spanKey to *spanRecord, for each recording span of the runtime that has not ended
 
 	once             sync.Once
 	closed           atomic.Bool
@@ -188,15 +191,16 @@ func dial(values settings) (*grpc.ClientConn, error) {
 }
 
 // startTraces starts the private tracer provider with the local ratio sampler and the span processor. The
-// sampler reads only the trace ID, so a remote sampled flag never changes the decision (ST-SUP-RP03-LC08). A span
-// takes the events of the probe runtime: at most 64, the emissions one call holds, each with at most nine
-// attributes, the eight fields of an observation and stego.outcome (ST-SUP-RP12-LC04). It takes no link.
+// sampler reads only the trace ID, so a remote sampled flag never changes the decision (ST-SUP-RP03-LC08). The SDK
+// span keeps no event and no link, and the processor gets each span of the runtime only as the runtime itself set
+// it (ownSpans), so code that holds the span in its context cannot add a name, an attribute, a status message, an
+// event or a span of its own (ST-SUP-RP03-LC05).
 func (r *Runtime) startTraces(ratio float64, processor sdktrace.SpanProcessor) {
 	r.provider = sdktrace.NewTracerProvider(
 		sdktrace.WithResource(r.resource),
 		sdktrace.WithSampler(sdktrace.TraceIDRatioBased(ratio)),
-		sdktrace.WithRawSpanLimits(sdktrace.SpanLimits{AttributeValueLengthLimit: 256, AttributeCountLimit: 8, EventCountLimit: 64, AttributePerEventCountLimit: 9}),
-		sdktrace.WithSpanProcessor(processor),
+		sdktrace.WithRawSpanLimits(sdktrace.SpanLimits{AttributeValueLengthLimit: 256, AttributeCountLimit: 8}),
+		sdktrace.WithSpanProcessor(&ownSpans{next: processor, records: &r.records}),
 	)
 	r.tracer = r.provider.Tracer("stego/http")
 	r.rpcTracer = r.provider.Tracer("stego/grpc")
@@ -723,3 +727,142 @@ func (e *safeLogExporter) Export(ctx context.Context, records []sdklog.Record) e
 	}
 	return nil
 }
+
+// SpanEventLimit is the most probe events that one span keeps (ST-SUP-RP12-LC04): the emissions one call holds.
+const SpanEventLimit = 64
+
+// spanKey names one span.
+type spanKey struct {
+	trace trace.TraceID
+	span  trace.SpanID
+}
+
+func keyOf(sc trace.SpanContext) spanKey { return spanKey{trace: sc.TraceID(), span: sc.SpanID()} }
+
+// spanRecord is what the runtime itself set on one of its spans: the name, the attributes, the failure mark and
+// the probe events. The span is exported with these only.
+type spanRecord struct {
+	mu            sync.Mutex
+	name          string
+	attrs         []attribute.KeyValue
+	failed        bool
+	events        []sdktrace.Event
+	droppedEvents int
+	ended         bool
+}
+
+func (s *spanRecord) setName(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.name = name
+}
+
+// set sets attributes, each key once, the last value kept.
+func (s *spanRecord) set(attrs ...attribute.KeyValue) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, kv := range attrs {
+		if i := slices.IndexFunc(s.attrs, func(old attribute.KeyValue) bool { return old.Key == kv.Key }); i >= 0 {
+			s.attrs[i] = kv
+		} else if len(s.attrs) < 8 {
+			s.attrs = append(s.attrs, kv)
+		}
+	}
+}
+
+func (s *spanRecord) fail() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failed = true
+}
+
+// startSpan starts a span of the runtime and keeps its record while it records.
+func (r *Runtime) startSpan(ctx context.Context, tracer trace.Tracer, name string, kind trace.SpanKind, start time.Time, attrs ...attribute.KeyValue) (context.Context, trace.Span, *spanRecord) {
+	ctx, span := tracer.Start(ctx, name, trace.WithSpanKind(kind), trace.WithAttributes(attrs...), trace.WithTimestamp(start))
+	record := &spanRecord{name: name}
+	record.set(attrs...)
+	if span.IsRecording() {
+		r.records.Store(keyOf(span.SpanContext()), record)
+	}
+	return ctx, span, record
+}
+
+// SpanEvent adds one event of the probe runtime to a recording span of this runtime. The name starts with domain.
+// and the attributes are the declared fields of the observation and stego.outcome, at most nine. It tells whether
+// the event was dropped: the span is full or has ended, or the event is not well formed. A span that is not one of
+// this runtime's recording spans takes no event, and that is no drop.
+func (r *Runtime) SpanEvent(sc trace.SpanContext, name string, at time.Time, attrs ...attribute.KeyValue) (dropped bool) {
+	value, ok := r.records.Load(keyOf(sc))
+	if !ok {
+		return false
+	}
+	if !strings.HasPrefix(name, "domain.") || len(name) > 128 || len(attrs) > 9 {
+		return true
+	}
+	kept := make([]attribute.KeyValue, len(attrs))
+	for i, kv := range attrs {
+		if kv.Value.Type() == attribute.STRING && len(kv.Value.AsString()) > 256 {
+			kv = attribute.String(string(kv.Key), kv.Value.AsString()[:256])
+		}
+		kept[i] = kv
+	}
+	record := value.(*spanRecord)
+	record.mu.Lock()
+	defer record.mu.Unlock()
+	if record.ended || len(record.events) >= SpanEventLimit {
+		record.droppedEvents++
+		return true
+	}
+	record.events = append(record.events, sdktrace.Event{Name: name, Attributes: kept, Time: at})
+	return false
+}
+
+// ownSpans gives the next processor each span of the runtime as its record holds it, and no other span: a span
+// that code started with the provider of a span in its context is not exported.
+type ownSpans struct {
+	next    sdktrace.SpanProcessor
+	records *sync.Map
+}
+
+func (p *ownSpans) OnStart(ctx context.Context, span sdktrace.ReadWriteSpan) {
+	p.next.OnStart(ctx, span)
+}
+
+func (p *ownSpans) OnEnd(span sdktrace.ReadOnlySpan) {
+	value, ok := p.records.LoadAndDelete(keyOf(span.SpanContext()))
+	if !ok {
+		return
+	}
+	record := value.(*spanRecord)
+	record.mu.Lock()
+	record.ended = true
+	own := &ownSpan{ReadOnlySpan: span, name: record.name, attrs: slices.Clone(record.attrs), events: slices.Clone(record.events), droppedEvents: record.droppedEvents}
+	if record.failed {
+		own.status = sdktrace.Status{Code: codes.Error}
+	}
+	record.mu.Unlock()
+	p.next.OnEnd(own)
+}
+
+func (p *ownSpans) Shutdown(ctx context.Context) error   { return p.next.Shutdown(ctx) }
+func (p *ownSpans) ForceFlush(ctx context.Context) error { return p.next.ForceFlush(ctx) }
+
+// ownSpan is an ended span with the name, the attributes, the status and the events of its record, no status
+// message and no link.
+type ownSpan struct {
+	sdktrace.ReadOnlySpan
+	name          string
+	attrs         []attribute.KeyValue
+	status        sdktrace.Status
+	events        []sdktrace.Event
+	droppedEvents int
+}
+
+func (s *ownSpan) Name() string                     { return s.name }
+func (s *ownSpan) Attributes() []attribute.KeyValue { return s.attrs }
+func (s *ownSpan) Status() sdktrace.Status          { return s.status }
+func (s *ownSpan) Events() []sdktrace.Event         { return s.events }
+func (s *ownSpan) Links() []sdktrace.Link           { return nil }
+func (s *ownSpan) DroppedAttributes() int           { return 0 }
+func (s *ownSpan) DroppedEvents() int               { return s.droppedEvents }
+func (s *ownSpan) DroppedLinks() int                { return 0 }

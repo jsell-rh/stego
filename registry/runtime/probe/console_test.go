@@ -82,9 +82,10 @@ func TestProbeConsole(t *testing.T) {
 				t.Fatalf("%s: the child wrote %q to standard error", setting, stderr)
 			}
 			lines := strings.Split(strings.TrimSuffix(stdout, "\n"), "\n")
-			if len(lines) != 3 {
-				t.Fatalf("%s: the child wrote %d lines, want 3: %q", setting, len(lines), stdout)
+			if len(lines) != 4 || !strings.Contains(lines[3], `"event.name":"telemetry.runtime.stopped"`) {
+				t.Fatalf("%s: the child wrote %d lines, want 3 and the line of telemetry.runtime.stopped: %q", setting, len(lines), stdout)
 			}
+			lines = lines[:3]
 			for i, line := range lines {
 				values := map[string]string{}
 				if setting == "json" {

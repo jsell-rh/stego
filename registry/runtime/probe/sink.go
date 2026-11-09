@@ -7,6 +7,7 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"stego.dev/runtime/otel"
 )
@@ -50,6 +51,16 @@ func (c *core) send(r *record) {
 	}
 }
 
+// safeSend is send for the end of a call: a sink that panics drops and counts the record, and the call goes on.
+func (c *core) safeSend(r *record) {
+	defer func() {
+		if recover() != nil {
+			c.dropped.Add(1)
+		}
+	}()
+	c.send(r)
+}
+
 // queue is the bounded queue of one sink: put drops and counts rather than blocks, and one goroutine writes the
 // records in order.
 type queue struct {
@@ -63,8 +74,10 @@ type queue struct {
 	stopOnce  sync.Once
 }
 
-func newQueue(write func(*record) error) *queue {
-	q := &queue{records: make(chan *record, QueueLimit), done: make(chan struct{})}
+func newQueue(write func(*record) error) *queue { return newBoundedQueue(QueueLimit, write) }
+
+func newBoundedQueue(limit int, write func(*record) error) *queue {
+	q := &queue{records: make(chan *record, limit), done: make(chan struct{})}
 	go q.run(write)
 	return q
 }
@@ -165,6 +178,7 @@ func start(telemetry *otel.Runtime, builtins *Builtins, setting string, stdout i
 		otlp, err := newOTLPSink(telemetry, r.core, r.console)
 		if err != nil {
 			r.console.queue.drain(context.Background())
+			r.console.builtins.drain(context.Background())
 			return nil, err
 		}
 		r.otlp = otlp
@@ -196,7 +210,8 @@ func (r *Runtime) Bind(ctx context.Context, tenant, principal, operation string)
 // Close stops the probe runtime and the telemetry runtime inside one shared shutdown limit: the earlier of the
 // deadline of ctx and the telemetry runtime's ShutdownTimeout. The console sink writes what it holds and the OTLP
 // sink hands what it holds to the providers while the telemetry runtime shuts down, with no budget of their own,
-// also when standard output blocks (ST-SUP-RP12-LC12). An emission after Close is dropped and counted. It is safe
+// also when standard output blocks (ST-SUP-RP12-LC12). Close sends telemetry.runtime.stopped itself, after the
+// console drain, so the caller does not send it. An emission after Close is dropped and counted. It is safe
 // to call more than once.
 func (r *Runtime) Close(ctx context.Context) error {
 	r.closeOnce.Do(func() {
@@ -206,15 +221,19 @@ func (r *Runtime) Close(ctx context.Context) error {
 		var group sync.WaitGroup
 		var drained atomic.Bool
 		drained.Store(true)
+		stopped := &record{obs: telemetryStopped, count: 1, time: time.Now()}
 		group.Go(func() {
-			if !r.console.queue.drain(ctx) {
+			if !r.console.drain(ctx, stopped) {
 				drained.Store(false)
 			}
 		})
 		var telemetryErr error
 		group.Go(func() {
-			if r.otlp != nil && !r.otlp.queue.drain(ctx) {
-				drained.Store(false)
+			if r.otlp != nil {
+				r.otlp.queue.put(stopped)
+				if !r.otlp.queue.drain(ctx) {
+					drained.Store(false)
+				}
 			}
 			telemetryErr = r.telemetry.Shutdown(ctx)
 		})
@@ -241,7 +260,7 @@ type Delivery struct {
 
 // Delivery reads the drop and failure counts of the runtime.
 func (r *Runtime) Delivery() Delivery {
-	d := Delivery{ProbeDropped: r.core.dropped.Load(), ConsoleDropped: r.console.queue.dropped.Load(), ConsoleFailed: r.console.queue.failed.Load()}
+	d := Delivery{ProbeDropped: r.core.dropped.Load(), ConsoleDropped: r.console.dropped(), ConsoleFailed: r.console.failed()}
 	if r.otlp != nil {
 		d.OTLPDropped = r.otlp.queue.dropped.Load()
 		d.OTLPFailed = r.otlp.queue.failed.Load()

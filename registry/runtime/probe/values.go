@@ -98,13 +98,24 @@ func (v Value) String() string {
 	return ""
 }
 
-// cleanText makes text valid UTF-8 with no NUL, then cuts it to at most TextLimit bytes on a rune boundary.
+// cleanText cuts text to TextLimit bytes, makes it valid UTF-8 with no NUL, then cuts it again on a rune boundary,
+// so the work is bounded by the limit and not by the length of the text.
 func cleanText(text string) string {
+	if len(text) > TextLimit {
+		text = text[:TextLimit]
+		// Drop the bytes of a rune that the cut split, at most three.
+		for i := 0; i < utf8.UTFMax-1 && len(text) > 0; i++ {
+			if r, size := utf8.DecodeLastRuneInString(text); r != utf8.RuneError || size != 1 {
+				break
+			}
+			text = text[:len(text)-1]
+		}
+	}
 	if !utf8.ValidString(text) {
-		text = strings.ToValidUTF8(text, "�")
+		text = strings.ToValidUTF8(text, "\uFFFD")
 	}
 	if strings.IndexByte(text, 0) >= 0 {
-		text = strings.ReplaceAll(text, "\x00", "�")
+		text = strings.ReplaceAll(text, "\x00", "\uFFFD")
 	}
 	if len(text) <= TextLimit {
 		return text

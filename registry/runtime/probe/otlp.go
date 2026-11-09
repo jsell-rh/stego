@@ -28,6 +28,7 @@ const scope = "stego/probe"
 // connection of its own (ST-SUP-RP12-LC14). Its goroutine is the only user of the instruments, so they need no
 // lock. The temporality is the telemetry runtime's, which is cumulative.
 type otlpSink struct {
+	telemetry   *otel.Runtime
 	queue       *queue
 	logger      otellog.Logger
 	meter       metric.Meter
@@ -39,7 +40,7 @@ type otlpSink struct {
 // newOTLPSink takes the logger and the meter of the telemetry runtime, either of which may be off, and registers
 // the counters domain.probe.dropped and domain.probe.failed, labelled by sink only (ST-SUP-RP12-LC19).
 func newOTLPSink(telemetry *otel.Runtime, probe *core, console *consoleSink) (*otlpSink, error) {
-	s := &otlpSink{counters: map[*Observation]metric.Int64Counter{}, histograms: map[*Observation]metric.Float64Histogram{}, instruments: map[string]bool{}}
+	s := &otlpSink{telemetry: telemetry, counters: map[*Observation]metric.Int64Counter{}, histograms: map[*Observation]metric.Float64Histogram{}, instruments: map[string]bool{}}
 	s.queue = newQueue(s.write)
 	if provider := telemetry.LoggerProvider(); provider != nil {
 		s.logger = provider.Logger(scope)
@@ -63,9 +64,9 @@ func newOTLPSink(telemetry *otel.Runtime, probe *core, console *consoleSink) (*o
 		if _, err := s.meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
 			o.ObserveInt64(dropped, int64(probe.dropped.Load()), probeSet)
 			o.ObserveInt64(dropped, int64(s.queue.dropped.Load()), otlpSet)
-			o.ObserveInt64(dropped, int64(console.queue.dropped.Load()), consoleSet)
+			o.ObserveInt64(dropped, int64(console.dropped()), consoleSet)
 			o.ObserveInt64(failures, int64(s.queue.failed.Load()), otlpSet)
-			o.ObserveInt64(failures, int64(console.queue.failed.Load()), consoleSet)
+			o.ObserveInt64(failures, int64(console.failed()), consoleSet)
 			return nil
 		}, dropped, failures); err != nil {
 			s.queue.drain(context.Background())
@@ -75,11 +76,15 @@ func newOTLPSink(telemetry *otel.Runtime, probe *core, console *consoleSink) (*o
 	return s, nil
 }
 
-// send adds the span event of an event to its bound span when the span is recording, at once, because the span ends
-// with its call; the log record and the metric go through the queue (ST-SUP-RP12-LC04, ST-SUP-RP12-LC08).
+// send adds the span event of an event to its bound span through the telemetry runtime, at once, because the span
+// ends with its call; the log record and the metric go through the queue (ST-SUP-RP12-LC04, ST-SUP-RP12-LC08). An
+// event that the span has no room for, because calls that share the span already filled it, is counted as an otlp
+// drop (ST-SUP-RP12-LC19).
 func (s *otlpSink) send(r *record) {
-	if r.obs.kind == Event && r.obs.class == declared && r.span != nil && r.span.IsRecording() {
-		r.span.AddEvent(r.obs.signal, trace.WithTimestamp(r.time), trace.WithAttributes(fieldAttributes(r, true)...))
+	if r.obs.kind == Event && r.obs.class == declared && r.spanCtx.IsSampled() {
+		if s.telemetry.SpanEvent(r.spanCtx, r.obs.signal, r.time, fieldAttributes(r, true)...) {
+			s.queue.dropped.Add(1)
+		}
 	}
 	s.queue.put(r)
 }

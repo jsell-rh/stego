@@ -239,11 +239,14 @@ func Declare(spec Spec) (*Observation, error) {
 			default:
 				return refuse("the field " + f.Name + " of a counter or a histogram is not an enum or a bool")
 			}
+			if series > 127 {
+				return refuse("more than 127 series")
+			}
 		}
 		o.fields = append(o.fields, checked)
 	}
-	if len(spec.EmittedBy) == 0 {
-		return refuse("it names no emitter")
+	if len(spec.EmittedBy) == 0 || len(spec.EmittedBy) > 127 {
+		return refuse("it names no emitter or more than 127")
 	}
 	for _, name := range spec.EmittedBy {
 		if !emitterName(name) || o.emitters[name] {
@@ -311,7 +314,6 @@ type record struct {
 	count     int64
 	outcome   string
 	time      time.Time
-	span      trace.Span
 	spanCtx   trace.SpanContext
 	tenant    string
 	principal string
@@ -398,7 +400,7 @@ func (c *Call) end(committed bool) {
 		} else if !committed {
 			continue
 		}
-		c.core.send(r)
+		c.core.safeSend(r)
 	}
 }
 
@@ -475,7 +477,6 @@ func (p *Probe) Emit(o *Observation, values ...Value) {
 		return
 	}
 	r.time = time.Now()
-	r.span = c.span
 	r.spanCtx = c.span.SpanContext()
 	r.tenant, r.principal, r.operation = c.tenant, c.principal, c.operation
 	c.mu.Lock()

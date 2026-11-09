@@ -117,8 +117,8 @@ func TestProbeBuiltins(t *testing.T) {
 		} {
 			stdout, _ := runChild(t, "^TestProbeBuiltins$/^ST-SUP-RP12-LC22-T01_", settings...)
 			lines := strings.Split(strings.TrimSuffix(stdout, "\n"), "\n")
-			if len(lines) != 1 {
-				t.Fatalf("%v: the child wrote %q, want one line", settings, stdout)
+			if len(lines) != 2 || !strings.HasPrefix(lines[1], `{"timestamp":"`) || !strings.Contains(lines[1], `"event.name":"telemetry.runtime.stopped"`) || strings.Contains(lines[1], "tenant") {
+				t.Fatalf("%v: the child wrote %q, want the line of service.ready and the JSON line of telemetry.runtime.stopped", settings, stdout)
 			}
 			var decoded map[string]any
 			if err := json.Unmarshal([]byte(lines[0]), &decoded); err != nil {
@@ -141,6 +141,29 @@ func TestProbeBuiltins(t *testing.T) {
 		}
 		if got, err := os.ReadFile(result); err != nil || string(got) != "1" {
 			t.Fatalf("the collector got %q log records service.ready (%v), want 1", got, err)
+		}
+	})
+
+	t.Run("ST-SUP-RP12-LC22-T01 A full queue of declared observations does not drop a built-in event", func(t *testing.T) {
+		clearEnvironment(t)
+		event := reservationRefused(t, CountsAttempt)
+		stdout := &lines{}
+		r := newProbe(t, newTelemetry(t), "json", stdout)
+		release := stdout.hold()
+		emitCalls(r, event, 1)
+		stdout.waitEntered(t)
+		emitCalls(r, event, 2*QueueLimit)
+		if r.Delivery().ConsoleDropped == 0 {
+			t.Fatal("the queue of declared observations is not full")
+		}
+		r.Service(context.Background(), ServiceReady)
+		release()
+		if err := r.Close(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		got := stdout.everything()
+		if len(got) != QueueLimit+3 || !strings.Contains(strings.Join(got, ""), `"event.name":"service.ready"`) || !strings.Contains(got[len(got)-1], `"event.name":"telemetry.runtime.stopped"`) {
+			t.Fatalf("the console holds %d lines, want %d with service.ready and telemetry.runtime.stopped last", len(got), QueueLimit+3)
 		}
 	})
 
