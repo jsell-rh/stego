@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -528,6 +529,27 @@ type decision struct {
 	after func(e evaluation)
 }
 
+// unqualified gives a resource as type:key, from its tenant-qualified ID of ST-SUP-RP06-LC22, and its tenant. An ID
+// that is not qualified gives UNQUALIFIED and the raw ID, which no test expects.
+func unqualified(r authz.Resource) string {
+	tenantPart, keyPart, ok := strings.Cut(r.ID, "/")
+	tenantID, err1 := base64.RawURLEncoding.DecodeString(tenantPart)
+	key, err2 := base64.RawURLEncoding.DecodeString(keyPart)
+	if !ok || err1 != nil || err2 != nil || len(tenantID) == 0 {
+		return "UNQUALIFIED " + r.String()
+	}
+	if want, err := authz.ResourceID(mustTenant(nopTB{}, string(tenantID)), string(key)); err != nil || want != r.ID {
+		return "UNQUALIFIED " + r.String()
+	}
+	return r.Type + ":" + string(key)
+}
+
+// nopTB is a testing.TB for helpers that cannot fail here.
+type nopTB struct{ testing.TB }
+
+func (nopTB) Helper()           {}
+func (nopTB) Fatal(args ...any) { panic(fmt.Sprint(args...)) }
+
 // evaluation is one request that the fake decision port got.
 type evaluation struct {
 	Subject, Action, Resource string
@@ -542,8 +564,8 @@ func (d *decision) setAllow(allow func(subject, action, resource string) bool) {
 
 func (d *decision) decide(request authz.EvaluationRequest) authz.EvaluationResult {
 	d.mu.Lock()
-	e := evaluation{Subject: request.Subject.String(), Action: request.Action.Name, Resource: request.Resource.String(),
-		Consistency: request.Consistency}
+	e := evaluation{Subject: request.Subject.String(), Action: request.Action.Name,
+		Resource: unqualified(request.Resource), Consistency: request.Consistency}
 	d.calls = append(d.calls, e)
 	allowed := d.allow == nil || d.allow(e.Subject, e.Action, e.Resource)
 	after := d.after

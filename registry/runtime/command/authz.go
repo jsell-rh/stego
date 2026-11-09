@@ -75,7 +75,12 @@ func (s *state) evaluate(ctx context.Context, handle *authz.Handle, action, reso
 	if err != nil {
 		return false, s.breakWith(internalf("a row of %s holds an authorization token that cannot be read", resourceType))
 	}
-	result, err := handle.Evaluate(ctx, action, authz.Resource{Type: resourceType, ID: id}, rowToken, c)
+	// The resource ID at the provider is qualified by the tenant (ST-SUP-RP06-LC22): the key is unique only in it.
+	resource, err := authz.NewResource(s.tenant, resourceType, id)
+	if err != nil {
+		return false, fmt.Errorf("%w: the key of a resource of %s", ErrNotFound, resourceType)
+	}
+	result, err := handle.Evaluate(ctx, action, resource, rowToken, c)
 	if err != nil {
 		return false, s.decisionError(ctx, "decide", err)
 	}
@@ -188,7 +193,11 @@ func (s *state) batch(ctx context.Context, handle *authz.Handle, permission, res
 		if err != nil {
 			return nil, s.breakWith(internalf("a row of %s holds an authorization token that cannot be read", resourceType))
 		}
-		rows = append(rows, authz.Row{Resource: authz.Resource{Type: resourceType, ID: meta.ID}, Token: token})
+		resource, err := authz.NewResource(s.tenant, resourceType, meta.ID)
+		if err != nil {
+			return nil, s.breakWith(internalf("a row of %s has a key that is not a resource key", resourceType))
+		}
+		rows = append(rows, authz.Row{Resource: resource, Token: token})
 		index = append(index, i)
 	}
 	if len(rows) == 0 {
