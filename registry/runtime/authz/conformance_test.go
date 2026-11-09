@@ -171,9 +171,3 @@ func TestConformance(t *testing.T) {
 		}
 	})
 }
-
-func (m *memProvider) Head(context.Context) (Token, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return tok(m.revision), nil
-}

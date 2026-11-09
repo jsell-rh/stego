@@ -26,6 +26,11 @@ const DestinationName = "authz"
 // DefaultAlertBound is the delivery alert bound when the relay is built with none (ST-SUP-RP06-LC16).
 const DefaultAlertBound = 5 * time.Second
 
+// DefaultMarker is the fixed marker relationship whose TOUCH raises the revocation floor (ST-SUP-RP06-LC13). The
+// service's schema declares it: definition stego_floor { relation marker: stego_floor }.
+var DefaultMarker = Tuple{Resource: Resource{Type: "stego_floor", ID: "floor"}, Relation: "marker",
+	Subject: Subject{Type: "stego_floor", ID: "floor"}}
+
 // Owner names the table of a protected entity, whose rows hold the token of their resource in authz_token: the
 // resource ID is in the column Key, the tenant in tenant_id. An empty Schema is the relay's schema.
 type Owner struct {
@@ -44,6 +49,9 @@ type RelayConfig struct {
 	DB *sql.DB
 	// Schema is the schema of the tables that Migration creates.
 	Schema string
+	// Marker is the fixed marker relationship that the relay TOUCHes to raise the floor. The zero Tuple is
+	// DefaultMarker.
+	Marker Tuple
 	// Owners maps a resource type to the table of its rows. A tuple of a resource type with no owner, such as a
 	// group, stores its token on no row.
 	Owners map[string]Owner
@@ -82,6 +90,7 @@ type Relay struct {
 	db            *sql.DB
 	schema        string
 	owners        map[string]ownerTable
+	marker        Tuple
 	bound         time.Duration
 
 	alerts           metric.Int64Counter
@@ -136,8 +145,15 @@ func NewRelay(cfg RelayConfig, options ...RelayOption) (*Relay, error) {
 		}
 		owners[resourceType] = ownerTable{table: ownerSchema + "." + table, key: key}
 	}
+	marker := cfg.Marker
+	if marker == (Tuple{}) {
+		marker = DefaultMarker
+	}
+	if err := marker.valid(); err != nil {
+		return nil, err
+	}
 	r := &Relay{principal: principal, relationships: cfg.Relationships, db: cfg.DB, schema: schema, owners: owners,
-		bound: DefaultAlertBound}
+		marker: marker, bound: DefaultAlertBound}
 	for _, option := range options {
 		if option == nil {
 			continue
@@ -304,10 +320,11 @@ func readPayload(resourceKey string, body []byte) (payload, error) {
 }
 
 // raiseFloor raises the revocation floor in one short transaction of its own (ST-SUP-RP06-LC13): it locks the floor
-// row with SELECT ... FOR UPDATE, then reads the provider's head with one fully consistent call, then writes that
-// head token and commits. The head is read after the lock is granted, so it is at least as fresh as this relay's
-// own write and as every earlier floor: the floor never falls, and no two tokens are compared. The lock is held
-// for that one provider call only.
+// row with SELECT ... FOR UPDATE, then TOUCHes the fixed marker relationship at the provider, then writes that
+// write's written_at token and commits. The marker write commits after the lock is granted and after the tuple's
+// write, so its token is at least as fresh as both and as every earlier floor: the floor never falls, and no two
+// tokens are compared. No head read is used, because a provider can share one head revision between callers. The
+// lock is held for that one provider call only.
 func (r *Relay) raiseFloor(ctx context.Context) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -318,17 +335,17 @@ func (r *Relay) raiseFloor(ctx context.Context) error {
 		_ = tx.Rollback()
 		return fixed("authz: the floor row cannot be locked", err)
 	}
-	head, err := r.relationships.Head(ctx)
+	marked, err := r.relationships.Touch(ctx, []Tuple{r.marker}, nil)
 	if err != nil {
 		_ = tx.Rollback()
-		return fmt.Errorf("authz: the head of the provider cannot be read: %w", err)
+		return fmt.Errorf("authz: the floor marker cannot be written: %w", err)
 	}
-	if head.IsZero() {
+	if marked.IsZero() {
 		_ = tx.Rollback()
-		return errors.New("authz: the provider gave no head token")
+		return errors.New("authz: the provider gave no token for the floor marker")
 	}
 	if _, err := tx.ExecContext(ctx, "UPDATE "+r.schema+".authz_floor SET token = $1, sequence = sequence + 1 WHERE only_row",
-		head.Text()); err != nil {
+		marked.Text()); err != nil {
 		_ = tx.Rollback()
 		return fixed("authz: the floor cannot be written", err)
 	}

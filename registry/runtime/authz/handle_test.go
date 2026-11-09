@@ -147,9 +147,9 @@ func bindUnit(t *testing.T, rt *Runtime, floor *floorSeq, principal Principal, a
 	return handle
 }
 
-// fakeRelationships is a recording fake of the relationships port: it answers each write with the next of its
-// write tokens, w-1, w-2 and on, and each head read with the next of its head tokens, h-1, h-2 and on, unless
-// writes or heads give others. fail, when set, gives the error of the n-th write.
+// fakeRelationships is a recording fake of the relationships port: it answers each tuple write with the next of its
+// write tokens, w-1, w-2 and on, and each TOUCH of the floor marker with the next of its marker tokens, h-1, h-2 and
+// on, unless writes or heads give others. fail, when set, gives the error of the n-th write.
 type fakeRelationships struct {
 	mu      sync.Mutex
 	touches [][]Tuple
@@ -184,7 +184,13 @@ func (f *fakeRelationships) begin(resource string) {
 func (f *fakeRelationships) log() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]string(nil), f.events...)
+	var events []string
+	for _, e := range f.events {
+		if e != "marker" {
+			events = append(events, e)
+		}
+	}
+	return events
 }
 
 func named(prefix string, n int) Token {
@@ -222,7 +228,10 @@ func (f *fakeRelationships) answer() (Token, error) {
 	return token, nil
 }
 
-func (f *fakeRelationships) Touch(_ context.Context, tuples []Tuple, _ []Precondition) (Token, error) {
+func (f *fakeRelationships) Touch(ctx context.Context, tuples []Tuple, _ []Precondition) (Token, error) {
+	if len(tuples) == 1 && tuples[0] == DefaultMarker {
+		return f.mark(ctx)
+	}
 	f.begin(tuples[0].Resource.ID)
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -242,12 +251,15 @@ func (f *fakeRelationships) Delete(_ context.Context, filters []Filter, _ []Prec
 	return f.answer()
 }
 
-func (f *fakeRelationships) Head(context.Context) (Token, error) {
+// mark answers the relay's TOUCH of the floor marker with the next of the marker tokens, h-1, h-2 and on, unless
+// heads gives others; onHead runs first. A marker write is not counted as a tuple write.
+func (f *fakeRelationships) mark(context.Context) (Token, error) {
 	if f.onHead != nil {
 		f.onHead()
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.events = append(f.events, "marker")
 	f.headN++
 	if len(f.heads) == 0 {
 		return named("h", f.headN), nil
@@ -341,7 +353,6 @@ func newPGClock(t *testing.T, clock *testClock) *pgEnv {
 		"CREATE SCHEMA " + schema,
 		"GRANT USAGE ON SCHEMA " + schema + " TO " + roles[0] + ", " + roles[1] + ", " + roles[2],
 		migration,
-		"GRANT SELECT ON " + schema + ".authz_floor TO " + roles[1],
 		"CREATE TABLE " + schema + ".documents (tenant_id text NOT NULL, id text NOT NULL, authz_token text NOT NULL DEFAULT '', PRIMARY KEY (tenant_id, id))",
 		"ALTER TABLE " + schema + ".documents ENABLE ROW LEVEL SECURITY",
 		"ALTER TABLE " + schema + ".documents FORCE ROW LEVEL SECURITY",
@@ -667,8 +678,8 @@ func TestHandleEvaluation(t *testing.T) {
 		if _, err := handle.Evaluate(ctx, "view", doc("1"), Token{}, nil); err != nil {
 			t.Fatal(err)
 		}
-		if got := fake.evaluations[0].Subject.String(); got != "user:u-7" {
-			t.Fatalf("the subject is %s, want user:u-7", got)
+		if got, want := fake.evaluations[0].Subject, mustPerson(t, "u-7").Subject(); got != want {
+			t.Fatalf("the subject is %s, want %s, the subject of user u-7", got, want)
 		}
 	})
 
@@ -833,7 +844,8 @@ func TestHandleEvaluation(t *testing.T) {
 	})
 
 	t.Run("ST-SUP-RP06-LC17-T01 Only an allow makes the tenant runtime's Decision, for the tenant it decided", func(t *testing.T) {
-		fake := &recorder{allow: func(r EvaluationRequest) bool { return r.Subject.ID == "u-1" }}
+		allowed := mustPerson(t, "u-1").Subject()
+		fake := &recorder{allow: func(r EvaluationRequest) bool { return r.Subject == allowed }}
 		rt := newUnitRuntime(t, fake)
 		platform := Resource{Type: "platform", ID: "main"}
 		decision, ok, err := bindUnit(t, rt, nil, mustPerson(t, "u-1")).DecideTenant(ctx, tenant.ProvisionAction, "ta", platform, nil)
@@ -1413,8 +1425,8 @@ func TestHandleWrites(t *testing.T) {
 		denied("the insert with counts", asRuntime("INSERT INTO authz.authz_revocations (id, tenant_id, principal, tuple_count, done, token) "+
 			"VALUES ($1, 't1', 'user:alice', 1, 1, 'forged')", uuid.New()))
 		denied("the update of the done count", asRuntime("UPDATE authz.authz_revocations SET done = 1 WHERE id = $1", revocation.ID()))
-		if err := asRuntime("SELECT authz.authz_revocation_state($1, $2, 'done')", id, revocation.ID()); err != nil {
-			t.Fatalf("the state function call gave %v", err)
+		if err := asRuntime("SELECT authz.authz_revocation_state($1, $2, 'done')", id, revocation.ID()); err == nil {
+			t.Fatal("the runtime role reported the state done")
 		}
 		if got := env.scalar(t, "SELECT done::text || '/' || token FROM {s}.authz_revocations WHERE id = $1", revocation.ID()); got != "0/" {
 			t.Fatalf("the call for a pending message changed the record to %s", got)
@@ -1441,6 +1453,33 @@ func TestHandleWrites(t *testing.T) {
 		env.waitState(t, id, outbox.Done)
 		if got := env.scalar(t, "SELECT done::text FROM {s}.authz_revocations WHERE id = $1", revocation.ID()); got != "1" {
 			t.Fatalf("the hook of a done message counted %s, want 1", got)
+		}
+	})
+
+	t.Run("ST-SUP-RP06-LC21-T03 Migration refuses overlapping roles", func(t *testing.T) {
+		if _, err := Migration("authz", "authz_rt", "authz_worker", "authz_worker"); err == nil ||
+			!strings.Contains(err.Error(), `"authz_worker"`) || strings.Count(err.Error(), "authz_worker") != 2 {
+			t.Fatalf("a relay role equal to a hook role gave %v, want an error that names the two roles", err)
+		}
+		env := newPG(t)
+		member := "authz_member_" + uuid.NewString()[:8]
+		if _, err := env.admin.ExecContext(ctx, "CREATE ROLE "+member+" NOLOGIN IN ROLE "+env.roles[2]); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _, _ = env.admin.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+member) })
+		migration, err := Migration("refused", member, env.roles[2], env.roles[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := env.admin.ExecContext(ctx, "CREATE SCHEMA refused"); err != nil {
+			t.Fatal(err)
+		}
+		_, err = env.admin.ExecContext(ctx, migration)
+		if err == nil || !strings.Contains(err.Error(), member) || !strings.Contains(err.Error(), env.roles[2]) {
+			t.Fatalf("a runtime role that is a member of the relay role gave %v, want an error that names the two roles", err)
+		}
+		if got := env.scalar(t, "SELECT pg_catalog.to_regclass('refused.authz_floor')::text"); got != "" {
+			t.Fatalf("the refused migration created %s", got)
 		}
 	})
 }

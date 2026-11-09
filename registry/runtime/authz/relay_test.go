@@ -2,17 +2,22 @@ package authz
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 	"github.com/google/uuid"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"stego.dev/runtime/outbox"
 	"stego.dev/runtime/tenant"
@@ -323,6 +328,70 @@ func TestRelay(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RP06-LC13-T10 The floor comes from the relay's own marker write", func(t *testing.T) {
+		env := newPG(t)
+		fake := &fakeRelationships{heads: []Token{named("m", 1)}}
+		var lockedAtMarker string
+		fake.onHead = func() {
+			_ = env.admin.QueryRowContext(ctx, "SELECT count(*)::text FROM pg_catalog.pg_locks AS l JOIN pg_catalog.pg_class AS c ON c.oid = l.relation "+
+				"WHERE c.relname = 'authz_floor' AND l.mode = 'RowShareLock' AND l.granted").Scan(&lockedAtMarker)
+		}
+		id := env.enqueue(t, "t1", OperationDelete, viewer)
+		env.startWorker(t, env.relay(t, fake))
+		env.waitState(t, id, outbox.Done)
+		if got := strings.Join(fake.events, ","); got != "start 1,end 1,marker" {
+			t.Fatalf("the provider got %s, want the tuple's write and then one marker TOUCH", got)
+		}
+		if lockedAtMarker != "1" {
+			t.Fatalf("the marker TOUCH ran with %q floor row locks, want inside the floor lock", lockedAtMarker)
+		}
+		if got := floorText(t, env); got != "m-1" {
+			t.Fatalf("the floor is %q, want the marker's written_at token m-1", got)
+		}
+		// Against a real SpiceDB whose ReadSchema answers an older revision: the relay reads no head, and a check
+		// right after the delivery sees the revocation.
+		db := startSpiceDB(t, fixtureSchema)
+		old, err := db.provider.Touch(ctx, []Tuple{{Resource: doc("t10"), Relation: "viewer", Subject: person(t, "bob")}}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var reads atomic.Int64
+		conn, err := grpc.NewClient(testingServer.endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithPerRPCCredentials(db.key),
+			grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+				if strings.HasSuffix(method, "/ReadSchema") {
+					reads.Add(1)
+					reply.(*v1.ReadSchemaResponse).ReadAt = &v1.ZedToken{Token: old.Value()}
+					return nil
+				}
+				return invoker(ctx, method, req, reply, cc, opts...)
+			}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = conn.Close() })
+		watched, err := NewSpiceDB(conn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		real := newPG(t)
+		rt := real.runtimeOf(t, db.provider, nil)
+		tx, handle := real.begin(t, rt, "t1", mustPerson(t, "alice"), rel("document#viewer"))
+		if _, err := handle.Unrelate(ctx, Tuple{Resource: doc("t10"), Relation: "viewer", Subject: person(t, "bob")}); err != nil {
+			t.Fatal(err)
+		}
+		real.commit(t, tx, "t1")
+		real.startWorker(t, real.relay(t, watched))
+		real.waitAll(t, outbox.Done)
+		if reads.Load() != 0 {
+			t.Fatalf("the relay read the head %d times", reads.Load())
+		}
+		_, bob := real.begin(t, rt, "t1", mustPerson(t, "bob"))
+		if result, err := bob.Evaluate(ctx, "view", doc("t10"), old, nil); err != nil || result.Allowed {
+			t.Fatalf("the check after the delivery gave %+v, %v; want the revocation seen", result, err)
+		}
+	})
+
 	t.Run("ST-SUP-RP06-LC13-T08 The floor is raised before the entry is done", func(t *testing.T) {
 		env := newPG(t)
 		rt := env.runtimeOf(t, &recorder{}, nil)
@@ -461,8 +530,14 @@ func TestRelay(t *testing.T) {
 	})
 }
 
-// gated is a relationships port over a real one whose Head waits for its gate, so a test can hold a relay inside its
-// floor transaction. It records the head tokens it reads.
+// person is the subject of the verified identity of the test for the user ID id, as a handle bound to it decides.
+func person(t *testing.T, id string) Subject {
+	t.Helper()
+	return mustPerson(t, id).Subject()
+}
+
+// gated is a relationships port over a real one whose TOUCH of the floor marker waits for its gate, so a test can
+// hold a relay inside its floor transaction. It records the marker tokens it gets.
 type gated struct {
 	Relationships
 	entered chan struct{}
@@ -471,22 +546,114 @@ type gated struct {
 	heads   []Token
 }
 
-func (g *gated) Head(ctx context.Context) (Token, error) {
-	if g.gate != nil {
+func (g *gated) Touch(ctx context.Context, tuples []Tuple, preconditions []Precondition) (Token, error) {
+	marker := len(tuples) == 1 && tuples[0] == DefaultMarker
+	if marker && g.gate != nil {
 		close(g.entered)
 		<-g.gate
 	}
-	head, err := g.Relationships.Head(ctx)
-	g.mu.Lock()
-	g.heads = append(g.heads, head)
-	g.mu.Unlock()
-	return head, err
+	token, err := g.Relationships.Touch(ctx, tuples, preconditions)
+	if marker {
+		g.mu.Lock()
+		g.heads = append(g.heads, token)
+		g.mu.Unlock()
+	}
+	return token, err
 }
 
 // TestRevocationFloor proves the floor against local SpiceDB servers: a group revocation, a ban and a revocation in
 // another tenant are in force on a resource whose row token is older, two relays take the floor lock in turn, and
 // the floor works on the PostgreSQL datastore. On the quantized server each case first shows that the provider
 // alone, at the old row token, still reads the state before the revocation, so the deny comes from the floor.
+func TestRevocationForgery(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("ST-SUP-RP06-LC21-T02 The runtime role cannot forge a completed revocation", func(t *testing.T) {
+		env := newPG(t)
+		rt := env.runtimeOf(t, &recorder{}, nil)
+		fake := &fakeRelationships{}
+		tx, handle := env.begin(t, rt, "t1", mustPerson(t, "alice"), rel("document#viewer"))
+		revocation, err := handle.Unrelate(ctx, Tuple{Resource: doc("1"), Relation: "viewer", Subject: user("bob")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		env.commit(t, tx, "t1")
+		id := env.ids(t)[0]
+		// A message of another destination in the same group, which the runtime role may enqueue.
+		other := outbox.Message{ID: uuid.New(), Destination: "billing", ResourceKey: "charge:1", Kind: "charge",
+			Payload: []byte(`{}`), Group: revocation.ID().String()}
+		asRuntime := func(work func(tx *sql.Tx) error) error {
+			tx, err := tenant.Begin(ctx, env.runtime, mustTenant(t, "t1"), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = tx.Rollback() }()
+			if err := work(tx); err != nil {
+				return err
+			}
+			return tenant.Commit(ctx, tx, mustTenant(t, "t1"))
+		}
+		// The runtime role enqueues it and names it as a tuple of the revocation, which its INSERT grant allows.
+		if err := asRuntime(func(tx *sql.Tx) error {
+			if err := env.queue.Enqueue(ctx, tx, other); err != nil {
+				return err
+			}
+			_, err := tx.ExecContext(ctx, "INSERT INTO authz.authz_revocation_tuples (message_id, revocation_id, tenant_id) VALUES ($1, $2, 't1')",
+				other.ID, revocation.ID())
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := asRuntime(func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, "UPDATE stego_outbox.messages SET state = 'done' WHERE id = $1", id)
+			return err
+		}); err == nil || !strings.Contains(err.Error(), "permission denied") {
+			t.Fatalf("the runtime role's UPDATE of the message gave %v, want a permission error", err)
+		}
+		for name, message := range map[string]uuid.UUID{"the authz message": id, "a message of billing": other.ID} {
+			if err := asRuntime(func(tx *sql.Tx) error {
+				_, err := tx.ExecContext(ctx, "SELECT authz.authz_revocation_state($1, $2, 'done')", message, revocation.ID())
+				return err
+			}); err == nil {
+				t.Errorf("the state function took done for %s from the runtime role", name)
+			}
+		}
+		// The worker role, a hook role, still gets no count for a message of another destination.
+		var counted bool
+		wtx, err := tenant.Begin(ctx, env.workerDB, mustTenant(t, "t1"), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = wtx.Rollback() }()
+		if _, err := wtx.ExecContext(ctx, "UPDATE stego_outbox.messages SET state = 'done' WHERE id = $1", other.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := wtx.QueryRowContext(ctx, "SELECT authz.authz_revocation_state($1, $2, 'done')", other.ID, revocation.ID()).Scan(&counted); err != nil || counted {
+			t.Fatalf("the hook role's call for a message of billing gave %t, %v; want no count", counted, err)
+		}
+		_ = wtx.Rollback()
+		if s, err := rt.Status(ctx, mustTenant(t, "t1"), mustPerson(t, "alice"), revocation.ID()); err != nil || s.State != RevocationPending {
+			t.Fatalf("the revocation is %+v, %v; want still pending", s, err)
+		}
+		if len(fake.touches)+len(fake.deletes) != 0 {
+			t.Fatal("the provider got a write")
+		}
+		// Only READ COMMITTED runs the function.
+		rtx, err := env.workerDB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = rtx.Rollback() }()
+		if _, err := rtx.ExecContext(ctx, "SELECT pg_catalog.set_config('app.tenant', 't1', true)"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := rtx.ExecContext(ctx, "SELECT authz.authz_revocation_state($1, $2, 'parked')", id, revocation.ID()); err == nil ||
+			!strings.Contains(err.Error(), "READ COMMITTED") {
+			t.Fatalf("the function under REPEATABLE READ gave %v, want a refusal", err)
+		}
+	})
+}
+
 func TestRevocationFloor(t *testing.T) {
 	ctx := context.Background()
 
@@ -542,7 +709,7 @@ func TestRevocationFloor(t *testing.T) {
 	// no stale read and the case could not fail.
 	stale := func(t *testing.T, db *spiceEnv, documentID string, old Token) {
 		t.Helper()
-		result, err := db.provider.Evaluate(ctx, EvaluationRequest{Subject: user("bob"), Action: Action{Name: "view"},
+		result, err := db.provider.Evaluate(ctx, EvaluationRequest{Subject: person(t, "bob"), Action: Action{Name: "view"},
 			Resource: doc(documentID), Consistency: AtLeast(old)})
 		if err != nil {
 			t.Fatal(err)
@@ -559,7 +726,7 @@ func TestRevocationFloor(t *testing.T) {
 	}
 	groupGrant := func(t *testing.T, db *spiceEnv, group, documentID string) (Tuple, Token) {
 		t.Helper()
-		member := Tuple{Resource: Resource{Type: "group", ID: group}, Relation: "member", Subject: user("bob")}
+		member := Tuple{Resource: Resource{Type: "group", ID: group}, Relation: "member", Subject: person(t, "bob")}
 		if _, err := db.provider.Touch(ctx, []Tuple{member}, nil); err != nil {
 			t.Fatal(err)
 		}
@@ -595,7 +762,7 @@ func TestRevocationFloor(t *testing.T) {
 			t.Fatal("bob can view the document after the group revocation landed")
 		}
 		// Port, which a worker with no transaction of its own uses, checks at the floor of its default TableFloor too.
-		result, err := rt.Port().Evaluate(ctx, EvaluationRequest{Subject: user("bob"), Action: Action{Name: "view"},
+		result, err := rt.Port().Evaluate(ctx, EvaluationRequest{Subject: person(t, "bob"), Action: Action{Name: "view"},
 			Resource: doc(d1), Consistency: AtLeast(old)})
 		if err != nil || result.Allowed {
 			t.Fatalf("Port at the old row token gave %+v, %v; want a deny at the floor", result, err)
@@ -607,7 +774,7 @@ func TestRevocationFloor(t *testing.T) {
 		env, db := newPG(t), startQuantizedSpiceDB(t, fixtureSchema)
 		rt, relay := env.runtimeOf(t, db.provider, nil), env.relay(t, db.provider)
 		_, d1 := ids(t)
-		old, err := db.provider.Touch(ctx, []Tuple{{Resource: doc(d1), Relation: "viewer", Subject: user("bob")}}, nil)
+		old, err := db.provider.Touch(ctx, []Tuple{{Resource: doc(d1), Relation: "viewer", Subject: person(t, "bob")}}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -617,7 +784,7 @@ func TestRevocationFloor(t *testing.T) {
 		}
 		end := afterBoundary(t)
 		tx, handle := env.begin(t, rt, "t1", mustPerson(t, "alice"), rel("document#banned"))
-		if _, err := handle.Relate(ctx, Tuple{Resource: doc(d1), Relation: "banned", Subject: user("bob")}); err != nil {
+		if _, err := handle.Relate(ctx, Tuple{Resource: doc(d1), Relation: "banned", Subject: person(t, "bob")}); err != nil {
 			t.Fatal(err)
 		}
 		env.commit(t, tx, "t1")
@@ -661,9 +828,9 @@ func TestRevocationFloor(t *testing.T) {
 	t.Run("ST-SUP-RP06-LC13-T07 Concurrent relays take the floor lock in turn and never lower the floor", func(t *testing.T) {
 		env, db := newPG(t), startSpiceDB(t, fixtureSchema)
 		rt := env.runtimeOf(t, db.provider, nil)
-		member := Tuple{Resource: Resource{Type: "group", ID: "g"}, Relation: "member", Subject: user("bob")}
+		member := Tuple{Resource: Resource{Type: "group", ID: "g"}, Relation: "member", Subject: person(t, "bob")}
 		grant := Tuple{Resource: doc("d1"), Relation: "viewer", Subject: Subject{Type: "group", ID: "g"}, SubjectRelation: "member"}
-		carol := Tuple{Resource: doc("d2"), Relation: "viewer", Subject: user("carol")}
+		carol := Tuple{Resource: doc("d2"), Relation: "viewer", Subject: person(t, "carol")}
 		for run := 0; run < 4; run++ {
 			if _, err := db.provider.Touch(ctx, []Tuple{member, grant, carol}, nil); err != nil {
 				t.Fatal(err)

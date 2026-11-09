@@ -83,6 +83,7 @@ var relayFunctions = []string{
 	"stego_outbox.purge_done(timestamptz, integer, bigint)",
 	"stego_outbox.blocked(timestamptz, integer)",
 	"stego_outbox.oldest(timestamptz)",
+	"stego_outbox.resolve(timestamptz, uuid, text, text, text)",
 }
 
 const migration = `CREATE SCHEMA IF NOT EXISTS stego_outbox;
@@ -158,7 +159,11 @@ CREATE POLICY messages_relay_delete ON stego_outbox.messages FOR DELETE TO stego
 REVOKE ALL ON stego_outbox.messages FROM PUBLIC;
 GRANT USAGE ON SCHEMA stego_outbox TO {{runtime}}, {{worker}};
 GRANT USAGE, CREATE ON SCHEMA stego_outbox TO stego_outbox_relay;
-GRANT SELECT, INSERT, UPDATE ON stego_outbox.messages TO {{runtime}}, {{worker}};
+-- The request-path runtime role can neither update nor delete a message: Resolve changes a state only through the
+-- relay function resolve (ST-SUP-RP01-LC19).
+REVOKE UPDATE, DELETE ON stego_outbox.messages FROM {{runtime}};
+GRANT SELECT, INSERT ON stego_outbox.messages TO {{runtime}};
+GRANT SELECT, INSERT, UPDATE ON stego_outbox.messages TO {{worker}};
 GRANT SELECT, UPDATE, DELETE ON stego_outbox.messages TO stego_outbox_relay;
 
 -- The relay functions are made as their owner, so a later run of the same text replaces them.
@@ -308,6 +313,35 @@ BEGIN
 END
 $fn$;
 
+-- resolve applies a person's resolution of one parked message of the transaction's tenant (ST-SUP-RP01-LC13,
+-- ST-SUP-RP01-LC19). It requires the transaction-local tenant and changes only a parked message of that tenant.
+CREATE OR REPLACE FUNCTION stego_outbox.resolve(p_now timestamptz, p_id uuid, p_to text, p_resolution text, p_by text)
+RETURNS TABLE (o_resolved_at timestamptz, o_age_seconds double precision)
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+AS $fn$
+DECLARE
+	v_now timestamptz := COALESCE(p_now, pg_catalog.clock_timestamp());
+	v_tenant text := NULLIF(pg_catalog.current_setting('app.tenant', true), '');
+BEGIN
+	IF v_tenant IS NULL THEN
+		RAISE EXCEPTION 'outbox: a resolution runs in a transaction of one tenant';
+	END IF;
+	IF NOT ((p_resolution = 'acted' AND p_to = 'done') OR (p_resolution = 'not_acted' AND p_to = 'pending')
+		OR (p_resolution = 'discarded' AND p_to = 'discarded')) THEN
+		RAISE EXCEPTION 'outbox: the resolution and the new state do not match';
+	END IF;
+	IF p_by IS NULL OR octet_length(p_by) NOT BETWEEN 1 AND 255 THEN
+		RAISE EXCEPTION 'outbox: a resolution needs a subject';
+	END IF;
+	RETURN QUERY
+	UPDATE stego_outbox.messages AS m SET state = p_to, resolution = p_resolution, resolved_by = p_by,
+		resolved_at = v_now, parked_from = NULL, parked_at = NULL, available_at = v_now, failure_code = '',
+		conflicts = 0, lookups = 0, done_at = CASE WHEN p_to = 'done' THEN v_now ELSE m.done_at END
+	WHERE m.id = p_id AND m.state = 'parked' AND m.tenant_id = v_tenant
+	RETURNING v_now, pg_catalog.date_part('epoch', v_now - m.created_at)::float8;
+END
+$fn$;
+
 CREATE OR REPLACE FUNCTION stego_outbox.purge_parked(p_now timestamptz, p_limit integer, p_older_ms bigint,
 	p_destinations jsonb)
 RETURNS bigint
@@ -400,11 +434,14 @@ BEGIN
 		'stego_outbox.purge_parked(timestamptz, integer, bigint, jsonb)',
 		'stego_outbox.purge_done(timestamptz, integer, bigint)',
 		'stego_outbox.blocked(timestamptz, integer)',
-		'stego_outbox.oldest(timestamptz)'] LOOP
+		'stego_outbox.oldest(timestamptz)',
+		'stego_outbox.resolve(timestamptz, uuid, text, text, text)'] LOOP
 		EXECUTE 'REVOKE ALL ON FUNCTION ' || f || ' FROM PUBLIC';
 		EXECUTE 'REVOKE ALL ON FUNCTION ' || f || ' FROM {{runtime}}';
 		EXECUTE 'GRANT EXECUTE ON FUNCTION ' || f || ' TO {{worker}}';
 	END LOOP;
+	-- Resolve runs on the request path too, in a transaction of the message's tenant.
+	EXECUTE 'GRANT EXECUTE ON FUNCTION stego_outbox.resolve(timestamptz, uuid, text, text, text) TO {{runtime}}';
 END
 $do$;
 

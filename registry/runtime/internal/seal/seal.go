@@ -101,22 +101,3 @@ func DecisionOf(decision Decision) (tenant, action string, ok bool) {
 	}
 	return mark.data.tenant, mark.data.action, true
 }
-
-// stagingData is the data of a Staging key. Only NewStaging makes one.
-type stagingData struct {
-	made bool
-}
-
-// Staging is the key of the authorization runtime's constructor of a staging principal (ST-SUP-RP06-LC19), which
-// reads the principal column of a claimed outbox row. Only NewStaging makes a key that is not zero, and only a
-// package of the runtime module can call it: the command runtime's RunConsumer holds the key. The zero Staging opens
-// nothing.
-type Staging struct {
-	data *stagingData
-}
-
-// NewStaging makes the staging key, for the command runtime's RunConsumer only.
-func NewStaging() Staging { return Staging{data: &stagingData{made: true}} }
-
-// StagingValid reports whether key is one that NewStaging made.
-func StagingValid(key Staging) bool { return key.data != nil && key.data.made }

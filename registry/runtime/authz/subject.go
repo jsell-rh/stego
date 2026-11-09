@@ -1,12 +1,13 @@
 package authz
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
 
 	"stego.dev/runtime/authn"
-	"stego.dev/runtime/internal/seal"
+	"stego.dev/runtime/internal/staging"
 )
 
 // ServiceAccountType is the subject type of a system principal: a worker, a controller or the relay calls with the
@@ -37,15 +38,24 @@ func (s Subject) valid() error {
 }
 
 // SubjectOf maps a verified identity of the authentication runtime to the subject of the declared subject type, with
-// the identity's user ID, the verified subject of its token, as the subject ID (ST-SUP-RP06-LC07). It takes the
-// concrete authn.Identity, so no other type can declare a user ID of its own; the zero Identity has no user ID and
-// is refused.
+// an ID built from both the token's issuer and its subject, the user ID (ST-SUP-RP06-LC07): the unpadded base64url
+// form of the issuer, a |, and that of the subject. The two parts hold no |, so two verifiers with the same subject
+// value never map to one subject. It takes the concrete authn.Identity, so no other type can declare a user ID of its
+// own; the zero Identity has no issuer and no subject and is refused.
 func SubjectOf(subjectType string, identity authn.Identity) (Subject, error) {
-	subject := Subject{Type: subjectType, ID: identity.UserID()}
+	if identity.Issuer() == "" || identity.UserID() == "" {
+		return Subject{}, errors.New("authz: the identity has no issuer or no subject")
+	}
+	subject := Subject{Type: subjectType, ID: subjectID(identity.Issuer(), identity.UserID())}
 	if err := subject.valid(); err != nil {
 		return Subject{}, fmt.Errorf("authz: the identity does not map to a subject: %w", err)
 	}
 	return subject, nil
+}
+
+// subjectID is the subject ID of the issuer and subject pair.
+func subjectID(issuer, subject string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(issuer)) + "|" + base64.RawURLEncoding.EncodeToString([]byte(subject))
 }
 
 // ServiceAccount returns the subject service_account:<name> of a worker, a controller or the relay.
@@ -88,11 +98,11 @@ func System(name string) (Principal, error) {
 
 // StagingPrincipal is the principal of the principal column of a claimed outbox row, such as user:alice, for the
 // command runtime's RunConsumer, which decides a consumed message as its staging principal (ST-SUP-RP06-LC19). key
-// is the staging key of the internal seal package, which only the runtime module can make, so no package outside
-// the module can call it with effect. The principal maps to the subject of the identity that made the staging
+// is the staging key of the internal package staging, whose NewStaging only the command runtime calls, so no other
+// package can call it with effect. The principal maps to the subject of the identity that made the staging
 // write. It refuses a zero key, an empty or malformed column and the subject *.
-func StagingPrincipal(key seal.Staging, column string) (Principal, error) {
-	if !seal.StagingValid(key) {
+func StagingPrincipal(key staging.Staging, column string) (Principal, error) {
+	if !staging.Valid(key) {
 		return Principal{}, errors.New("authz: the staging principal needs the staging key")
 	}
 	subjectType, id, ok := strings.Cut(column, ":")

@@ -47,6 +47,10 @@ caveat has_region(region string) {
 	region == "eu"
 }
 
+definition stego_floor {
+	relation marker: stego_floor
+}
+
 definition document {
 	relation owner: user
 	relation viewer: user | group#member
@@ -162,6 +166,7 @@ func randomKey(t *testing.T) string {
 
 // spiceEnv is the datastore of one test on the local SpiceDB server.
 type spiceEnv struct {
+	key      bearer
 	conn     *grpc.ClientConn
 	provider *SpiceDB
 	schema   v1.SchemaServiceClient
@@ -255,7 +260,7 @@ func connectSpiceDB(t *testing.T, server *spiceServer, key, schema string) *spic
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
-	env := &spiceEnv{conn: conn, schema: v1.NewSchemaServiceClient(conn), perms: v1.NewPermissionsServiceClient(conn)}
+	env := &spiceEnv{key: bearer(key), conn: conn, schema: v1.NewSchemaServiceClient(conn), perms: v1.NewPermissionsServiceClient(conn)}
 	deadline := time.Now().Add(60 * time.Second)
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

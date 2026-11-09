@@ -23,7 +23,6 @@ const spiceDBName = "spicedb"
 // has no exact-snapshot path, and it uses the ZedTokens of every datastore as they are, without parsing them.
 type SpiceDB struct {
 	permissions v1.PermissionsServiceClient
-	schema      v1.SchemaServiceClient
 }
 
 // NewSpiceDB returns the SpiceDB provider on conn.
@@ -31,7 +30,7 @@ func NewSpiceDB(conn grpc.ClientConnInterface) (*SpiceDB, error) {
 	if conn == nil {
 		return nil, errors.New("authz: no SpiceDB connection")
 	}
-	return &SpiceDB{permissions: v1.NewPermissionsServiceClient(conn), schema: v1.NewSchemaServiceClient(conn)}, nil
+	return &SpiceDB{permissions: v1.NewPermissionsServiceClient(conn)}, nil
 }
 
 // Searches reports that SpiceDB offers a resource search, through LookupResources.
@@ -275,16 +274,6 @@ func (s *SpiceDB) Delete(ctx context.Context, filters []Filter, preconditions []
 		return Token{}, spiceError("delete the relationships", err)
 	}
 	return tokenOf(response.GetDeletedAt())
-}
-
-// Head reads the head revision of SpiceDB with ReadSchema, which SpiceDB always answers at its head revision, so
-// the token is at least as fresh as every write that committed before the call (ST-SUP-RP06-LC13).
-func (s *SpiceDB) Head(ctx context.Context) (Token, error) {
-	response, err := s.schema.ReadSchema(ctx, &v1.ReadSchemaRequest{})
-	if err != nil {
-		return Token{}, spiceError("read the head revision", err)
-	}
-	return tokenOf(response.GetReadAt())
 }
 
 func (s *SpiceDB) write(ctx context.Context, updates []*v1.RelationshipUpdate, preconditions []Precondition) (Token, error) {

@@ -847,6 +847,49 @@ func TestQueueNotice(t *testing.T) {
 }
 
 func TestQueueTenancy(t *testing.T) {
+	t.Run("ST-SUP-RP01-LC19-T09 The runtime role cannot update a queue row", func(t *testing.T) {
+		db, _ := testDatabase(t)
+		q := newQueue(t, db, newClock())
+		ctx := context.Background()
+		m := message("billing", "charge:9")
+		enqueueAs(t, db, q, "t1", m)
+		w := resolvingWorker(t, q, &fakeDecider{allow: true})
+		register(t, w, Destination{Name: "billing", Handler: func(context.Context, *sql.Tx, Delivery) error {
+			return PermanentRefusal(errors.New("400"))
+		}})
+		cycle(t, w)
+		if readRow(t, db, m.ID).State != Parked {
+			t.Fatal("the fixture message did not park")
+		}
+		request := requestPool(t, db)
+		t1 := testTenant(t, "t1")
+		tx, err := tenant.Begin(ctx, request, t1, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE stego_outbox.messages SET state = 'done' WHERE id = $1`, m.ID)
+		_ = tx.Rollback()
+		if err == nil || !strings.Contains(err.Error(), "permission denied") {
+			t.Fatalf("the runtime role's UPDATE gave %v, want a permission error", err)
+		}
+		tx, err = tenant.Begin(ctx, request, t1, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback() }()
+		resolved, err := w.Resolve(ctx, tx, ResolveRequest{ID: m.ID, Subject: "user:ops-1", Resolution: NotActed})
+		if err != nil {
+			t.Fatalf("Resolve as the runtime role: %v", err)
+		}
+		if err := tenant.Commit(ctx, tx, t1); err != nil {
+			t.Fatal(err)
+		}
+		resolved.Committed(ctx)
+		if got := readRow(t, db, m.ID); got.State != Pending || got.Resolution.String != "not_acted" {
+			t.Fatalf("the resolved message is %+v, want pending through the relay function", got)
+		}
+	})
+
 	t.Run("ST-SUP-RP01-LC19-T01 Two tenants cannot see, write or resolve each other's messages", func(t *testing.T) {
 		db, _ := testDatabase(t)
 		q := newQueue(t, db, newClock())
@@ -935,7 +978,7 @@ func TestQueueTenancy(t *testing.T) {
 			names = append(names, name)
 		}
 		rows.Close()
-		if strings.Join(names, ",") != "blocked,claim,move,oldest,purge_done,purge_parked,release" {
+		if strings.Join(names, ",") != "blocked,claim,move,oldest,purge_done,purge_parked,release,resolve" {
 			t.Fatalf("the relay functions are %v", names)
 		}
 		var relayCommands []string
@@ -1259,8 +1302,13 @@ func TestQueueRelayRoles(t *testing.T) {
 			if err := rows.Scan(&name, &grantees); err != nil {
 				t.Fatal(err)
 			}
-			if grantees != runtimeUser(t, dsn) {
-				t.Fatalf("EXECUTE on %s goes to %q, want the worker role only", name, grantees)
+			want := runtimeUser(t, dsn)
+			if name == "resolve" {
+				// Resolve runs on the request path too, in a transaction of the message's tenant.
+				want = strings.Join(sortedRoles(request0, want), ",")
+			}
+			if grantees != want {
+				t.Fatalf("EXECUTE on %s goes to %q, want %q", name, grantees, want)
 			}
 		}
 		rows.Close()
@@ -1430,4 +1478,10 @@ func TestQueueMigration(t *testing.T) {
 			t.Fatalf("the migration as a role with no membership gave %v", err)
 		}
 	})
+}
+
+// sortedRoles gives the role names in the order of the regrole text sort of the EXECUTE grantee list.
+func sortedRoles(roles ...string) []string {
+	sort.Strings(roles)
+	return roles
 }
