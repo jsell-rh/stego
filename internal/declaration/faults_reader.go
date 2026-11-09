@@ -30,6 +30,7 @@ func ResolvedSettings(service *types.ServiceDeclaration) []Setting {
 	settings = append(settings, auditSettings(service)...)
 	settings = append(settings, entitySettings(service)...)
 	settings = append(settings, commandSettings(service)...)
+	settings = append(settings, observationSettings(service)...)
 	return settings
 }
 

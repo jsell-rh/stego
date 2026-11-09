@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/parser"
-	"github.com/jsell-rh/stego/internal/types"
 )
 
 // compositionFaults reads a declaration as stego validate reads it and gives the faults of its composition with
@@ -30,11 +29,6 @@ func compositionFaults(t *testing.T, service string, facts Facts, rules ...strin
 		}
 	}
 	return faults
-}
-
-// readDeclaration reads a declaration as stego validate reads it.
-func readDeclaration(service string) (*types.ServiceDeclaration, []parser.UndeclaredField, error) {
-	return parser.ReadServiceDeclaration([]byte(service), "service.yaml")
 }
 
 // commandFacts are the facts of ST-DECL-TD02 with a fill of the command slot for each name given, and the outbox
