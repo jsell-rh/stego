@@ -32,7 +32,8 @@ func (s *state) event(resourceType, id string) audit.Event {
 	return audit.Event{
 		TenantID: s.tenant.ID(), ActorID: s.principal.Subject().String(), ActorKind: actorKind(s.principal),
 		ActorIP: audit.Untrusted(s.request.ActorIP), UserAgent: audit.Untrusted(s.request.UserAgent),
-		Action: s.action, ResourceType: resourceType, ResourceID: id, Outcome: audit.OutcomeOK,
+		Action: s.action, Operation: s.action, OnBehalfOf: s.onBehalfOf, ResourceType: resourceType, ResourceID: id,
+		Outcome:   audit.OutcomeOK,
 		RequestID: s.request.RequestID, TraceID: s.traceID, SpanID: s.spanID, IdempotencyKey: s.request.Key,
 		Service: cfg.Service, ServiceVersion: cfg.ServiceVersion, DeclarationVersion: cfg.DeclarationVersion,
 	}
@@ -72,6 +73,7 @@ func (s *state) recordEvents(ctx context.Context) error {
 	if err := s.setLockTimeout(ctx); err != nil {
 		return s.fail(ctx, "audit record", err)
 	}
+	s.rt.stepped("record", s.tx)
 	if _, err := s.rt.cfg.Audit.Record(ctx, s.tx, s.tenant, s.events); err != nil {
 		return s.fail(ctx, "audit record", err)
 	}
@@ -106,7 +108,7 @@ func (rt *Runtime) RecordOutcome(ctx context.Context, req Request, action, resou
 	span := trace.SpanContextFromContext(ctx)
 	e := audit.Event{
 		TenantID: req.Tenant.ID(), ActorID: req.Principal.Subject().String(), ActorKind: actorKind(req.Principal),
-		ActorIP: audit.Untrusted(req.ActorIP), UserAgent: audit.Untrusted(req.UserAgent), Action: action,
+		ActorIP: audit.Untrusted(req.ActorIP), UserAgent: audit.Untrusted(req.UserAgent), Action: action, Operation: action,
 		ResourceType: resourceType, ResourceID: resourceID, Outcome: outcome, ErrorCode: code,
 		RequestID: req.RequestID, IdempotencyKey: req.Key,
 		Service: cfg.Service, ServiceVersion: cfg.ServiceVersion, DeclarationVersion: cfg.DeclarationVersion,

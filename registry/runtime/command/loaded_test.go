@@ -144,6 +144,11 @@ func TestLoadedCopies(t *testing.T) {
 			}
 			return profile{ID: v.ID, Attrs: attrs}
 		}
+		noClone := ps
+		noClone.Clone = nil
+		if _, err := NewEntity(noClone); err == nil {
+			t.Fatal("an entity with a map field and no Clone was accepted")
+		}
 		profiles, err := NewEntity(ps)
 		if err != nil {
 			t.Fatal(err)

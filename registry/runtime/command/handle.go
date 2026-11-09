@@ -57,6 +57,8 @@ func (e *conflictError) Is(target error) bool { return target == ErrConflict }
 type deniedError struct {
 	entity string
 	read   bool
+	// staging is true when the staging principal of a consumer was denied, and its service account allowed.
+	staging bool
 }
 
 func (e *deniedError) Error() string {
@@ -143,9 +145,12 @@ type EntitySpec[T any] struct {
 	// KeyChanged reports whether an update from before to after changes a column of the primary key, of a unique
 	// index or of a key that a foreign key references (ST-SUP-RP10-LC24).
 	KeyChanged func(before, after T) bool
-	// Clone gives a deep copy of a value, which a loaded value's Value returns (ST-SUP-RP10-LC15). Nil is a plain copy,
-	// for a type with no slice, map or pointer.
+	// Clone gives a deep copy of a value, which a loaded value's Value returns (ST-SUP-RP10-LC15). The generator gives
+	// one for every entity: a copy of the struct for one with no slice, map or pointer, and a deep copy otherwise.
 	Clone func(value T) T
+	// ValidID is the generated check of a key: it reports whether id has the form of the entity's key type, such as a
+	// uuid, so a malformed key is not found after the same decision and never fails a statement.
+	ValidID func(id string) bool
 }
 
 // Entity is the repository declaration of one entity, which NewEntity checks once.
@@ -184,8 +189,9 @@ func NewEntity[T any](spec EntitySpec[T]) (*Entity[T], error) {
 	if !strings.Contains(upper, "FOR UPDATE") || strings.Contains(upper, "NO KEY") {
 		return nil, fmt.Errorf("command: the statement SelectForDelete of %s does not lock FOR UPDATE", spec.Name)
 	}
-	if spec.Scan == nil || spec.Values == nil || spec.State == nil || spec.KeyChanged == nil {
-		return nil, fmt.Errorf("command: the entity %s needs Scan, Values, State and KeyChanged", spec.Name)
+	if spec.Scan == nil || spec.Values == nil || spec.State == nil || spec.KeyChanged == nil || spec.Clone == nil ||
+		spec.ValidID == nil {
+		return nil, fmt.Errorf("command: the entity %s needs Scan, Values, State, KeyChanged, Clone and ValidID", spec.Name)
 	}
 	if spec.LockAtMost < 0 {
 		return nil, fmt.Errorf("command: the entity %s declares a negative Lock at most", spec.Name)
@@ -342,6 +348,8 @@ type state struct {
 	az                *authz.Handle
 	staging           *authz.Handle
 	stagingPermission string
+	// onBehalfOf is the staging principal of a consumer, which its audit rows name (ST-SUP-RP10-LC16).
+	onBehalfOf string
 	// permission is a worker's declared permission (ST-SUP-RP10-LC17).
 	permission   string
 	writes       map[Declared]bool
@@ -540,7 +548,12 @@ func (r *Repository[T]) GetForDelete(ctx context.Context, id string) (Loaded[T],
 
 func (r *Repository[T]) read(ctx context.Context, id string, lock lockMode) (Loaded[T], error) {
 	s, e := r.st, r.entity
-	value, meta, err := e.spec.Scan(s.queryRow(ctx, e.spec.Select, s.tenant.ID(), id))
+	var value T
+	var meta Meta
+	err := sql.ErrNoRows
+	if e.spec.ValidID(id) {
+		value, meta, err = e.spec.Scan(s.queryRow(ctx, e.spec.Select, s.tenant.ID(), id))
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		// A row that does not exist is decided as one that exists, so a deny and a missing row give the same
 		// answer, and a failed decision the same error.
@@ -890,6 +903,11 @@ func (r *Repository[T]) Delete(ctx context.Context, from Loaded[T]) error {
 	from2, err := r.check(from, "delete")
 	if err != nil {
 		return err
+	}
+	// A delete takes the strongest lock: a value that GetForUpdate locked would make it stronger later, so it is
+	// refused as a key change is (ST-SUP-RP10-LC24).
+	if from2.lock == lockUpdate {
+		return s.breakWith(internalf("a delete of %s needs a value that GetForDelete locked, not GetForUpdate", e.spec.Name))
 	}
 	if s.mode != modeCommand {
 		if err := s.decideWrite(ctx, e.spec.ResourceType, e.spec.Name, from2.meta.ID, from2.meta.Token); err != nil {

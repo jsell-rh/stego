@@ -357,6 +357,9 @@ func spec[T any](name, resourceType, table string, cols []string, scan func(Scan
 		Delete: "DELETE FROM " + table + " WHERE tenant_id = $1 AND id = $2 AND version = $3",
 		Scan:   scan, Values: values, State: state,
 		KeyChanged: func(T, T) bool { return false },
+		// The test types have no slice, map or pointer, so a copy of the struct is a deep copy.
+		Clone:   func(v T) T { return v },
+		ValidID: func(id string) bool { return id != "" },
 	}
 }
 
@@ -1180,6 +1183,19 @@ func TestVersionedWrites(t *testing.T) {
 			if err := <-referenced; err == nil {
 				t.Fatal("the insert that referenced the old email committed after the email changed")
 			}
+		}
+		// A delete takes the lock of a key change: a value that GetForUpdate locked is refused.
+		e.seedUser("t1", "deleted", "o1", false, 0, 1)
+		_, err := e.run(e.command("delete-user", nil, e.users), e.request("t1", u7(t), "k-delete-locked", `{}`), fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
+			r := repo(t, h, e.users)
+			u, err := r.GetForUpdate(ctx, "deleted")
+			if err != nil {
+				return err
+			}
+			return r.Delete(ctx, u)
+		}))
+		if !errors.Is(err, ErrInternal) || e.count(`SELECT count(*) FROM users WHERE id = 'deleted'`) != 1 {
+			t.Fatalf("a delete of a value that GetForUpdate locked gave %v", err)
 		}
 	})
 }

@@ -109,12 +109,12 @@ func (s *state) decideRead(ctx context.Context, resourceType, permission, entity
 		}
 		return nil
 	}
-	ok, err := s.decideBoth(ctx, resourceType, meta.ID, meta.Token)
+	ok, staging, err := s.decideBoth(ctx, resourceType, meta.ID, meta.Token)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		return &deniedError{entity: entity, read: true}
+		return &deniedError{entity: entity, read: true, staging: staging}
 	}
 	return nil
 }
@@ -126,27 +126,29 @@ func (s *state) decideWrite(ctx context.Context, resourceType, entity, id, token
 	if s.mode == modeCommand || resourceType == "" {
 		return nil
 	}
-	ok, err := s.decideBoth(ctx, resourceType, id, token)
+	ok, staging, err := s.decideBoth(ctx, resourceType, id, token)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		return &deniedError{entity: entity}
+		return &deniedError{entity: entity, staging: staging}
 	}
 	return nil
 }
 
 // decideBoth decides a worker's permission with its service account as subject and, in a consumer, only after an
-// allow, the stager's permission with the staging principal as subject.
-func (s *state) decideBoth(ctx context.Context, resourceType, id, token string) (bool, error) {
-	ok, err := s.evaluate(ctx, s.az, s.permission, resourceType, id, token, nil)
+// allow, the stager's permission with the staging principal as subject. staging is true for a deny of the staging
+// principal.
+func (s *state) decideBoth(ctx context.Context, resourceType, id, token string) (ok, staging bool, err error) {
+	ok, err = s.evaluate(ctx, s.az, s.permission, resourceType, id, token, nil)
 	if err != nil || !ok {
-		return false, err
+		return false, false, err
 	}
 	if s.mode != modeConsumer {
-		return true, nil
+		return true, false, nil
 	}
-	return s.evaluate(ctx, s.staging, s.stagingPermission, resourceType, id, token, nil)
+	ok, err = s.evaluate(ctx, s.staging, s.stagingPermission, resourceType, id, token, nil)
+	return ok, !ok && err == nil, err
 }
 
 // decideList filters the rows of a list by batch evaluation (ST-SUP-RP11-LC07): a command on the entity's list

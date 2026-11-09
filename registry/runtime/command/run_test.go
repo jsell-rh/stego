@@ -261,10 +261,12 @@ func TestRunLifetime(t *testing.T) {
 	t.Run("ST-SUP-RP10-LC12-T02 A fill that ends through runtime.Goexit is treated as a panic", func(t *testing.T) {
 		// runtime.Goexit, as t.FailNow calls it, skips recover: the attempt still closes the handle and rolls back.
 		var kept *Repository[reservation]
+		var runErr error
+		var res Result
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			_, _ = e.run(cmd, e.request("t1", u7(t), "k-goexit", `{}`), fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
+			res, runErr = e.run(cmd, e.request("t1", u7(t), "k-goexit", `{}`), fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
 				kept = repo(t, h, e.reservationE)
 				if _, err := kept.Create(ctx, reservation{ID: "r-goexit", OrderID: "o1", SKU: "s"}, nil); err != nil {
 					return err
@@ -274,6 +276,9 @@ func TestRunLifetime(t *testing.T) {
 			}))
 		}()
 		<-done
+		if !errors.Is(runErr, ErrInternal) || res.Response.Status != 0 {
+			t.Fatalf("Run of a fill that ended through Goexit gave %+v, %v; want no result and an internal error", res, runErr)
+		}
 		if _, err := kept.Create(e.ctx, reservation{ID: "r-goexit-2", OrderID: "o1", SKU: "s"}, nil); !errors.Is(err, ErrClosed) {
 			t.Fatalf("the handle of a fill that ended through Goexit gave %v", err)
 		}
@@ -469,10 +474,16 @@ func TestRunConflicts(t *testing.T) {
 	})
 
 	t.Run("ST-SUP-RP10-LC25-T04 A conflict at COMMIT runs the fill again, and a lock wait of the wrapper is no conflict", func(t *testing.T) {
-		cmd := e.command("reserve-at-commit", retry(1), e.reservationE)
+		cmd := e.command("reserve-at-commit", retry(1), e.reservationE, e.chargeE)
+		e.exec(`INSERT INTO charges (tenant_id, id, amount, card_last4) VALUES ('t1', 'c-rerun', 1, '0000')`)
 		calls := 0
 		res, err := e.run(cmd, e.request("t1", u7(t), "k-commit-40001", `{}`), fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
 			calls++
+			// Each attempt reads a pii entity: the rerun's read row must not wait on, or be refused for, the audit
+			// record of the attempt that rolled back.
+			if _, err := repo(t, h, e.chargeE).Get(ctx, "c-rerun"); err != nil {
+				return err
+			}
 			_, err := repo(t, h, e.reservationE).Create(ctx, reservation{ID: "r-fail-commit", OrderID: "o1", SKU: "fail-commit"}, nil)
 			return err
 		}))
@@ -639,6 +650,82 @@ func TestRunConflicts(t *testing.T) {
 			return err
 		})
 		check("a worker tick", err, time.Since(start), 1900*time.Millisecond, 2600*time.Millisecond)
+
+		// The time left is checked again after the random wait: a wait that ends with less than 100 ms left starts no
+		// rerun. The hook of the test runs after the wait and uses up the room.
+		late := e.runtime(nil)
+		late.rerun = func(_ int, _, left time.Duration) { time.Sleep(left - 60*time.Millisecond) }
+		calls = 0
+		ctx, cancel := context.WithTimeout(e.ctx, 600*time.Millisecond)
+		_, err = Run(ctx, late, e.command("late-rerun", retry(3), e.users), e.request("t1", u7(t), "k-28-late", `{}`), noBody,
+			func(ctx context.Context, _ struct{}, h *Handle[testProbe]) (idempotency.Response, error) {
+				calls++
+				return idempotency.Response{}, e.conflictOn(ctx, h, "u2")
+			})
+		cancel()
+		if !errors.Is(err, ErrConflict) || calls != 1 {
+			t.Errorf("a wait that left less than 100 ms: %v after %d calls, want the conflict and no rerun", err, calls)
+		}
+
+		// lock_timeout is set again before each statement of the wrapper, the enqueue, the audit record and COMMIT, to
+		// the time left before the deadline less 50 ms. The hook reads it and lets 100 ms pass, so a value that was
+		// not set again is too large at the next step.
+		refreshed := e.runtime(nil)
+		deadline = time.Now().Add(1500 * time.Millisecond)
+		seen := map[string]int{}
+		refreshed.step = func(name string, tx *sql.Tx) {
+			var setting string
+			if err := tx.QueryRowContext(e.ctx, `SELECT current_setting('lock_timeout')`).Scan(&setting); err != nil {
+				t.Errorf("%s: read lock_timeout: %v", name, err)
+				return
+			}
+			got, err := time.ParseDuration(setting)
+			want := time.Until(deadline) - LockMargin
+			if err != nil || got > want+40*time.Millisecond || got < want-40*time.Millisecond {
+				t.Errorf("before %s, lock_timeout is %s, want about %s", name, setting, want)
+			}
+			seen[name]++
+			time.Sleep(100 * time.Millisecond)
+		}
+		ctx, cancel = context.WithDeadline(e.ctx, deadline)
+		_, err = Run(ctx, refreshed, e.command("refresh", nil, e.users), e.request("t1", u7(t), "k-28-refresh", `{}`), noBody,
+			func(ctx context.Context, _ struct{}, h *Handle[testProbe]) (idempotency.Response, error) {
+				r := repo(t, h, e.users)
+				u, err := r.Get(ctx, "u4")
+				if err != nil {
+					return idempotency.Response{}, err
+				}
+				v := u.Value()
+				v.Rank++
+				if u, err = r.Update(ctx, u, v); err != nil {
+					return idempotency.Response{}, err
+				}
+				err = h.Effects().Stage(ctx, "billing", "user-ranked", u, []byte(`{}`))
+				// Time passes after the fill's last statement, so a value that the enqueue did not set again is stale.
+				time.Sleep(150 * time.Millisecond)
+				return ok, err
+			})
+		cancel()
+		if err != nil || seen["wrapper"] < 2 || seen["enqueue"] != 1 || seen["record"] != 1 || seen["commit"] != 1 {
+			t.Errorf("the run gave %v and passed the steps %v", err, seen)
+		}
+
+		// A cancel just before COMMIT, after its lock_timeout is set, ends tenant.Commit before COMMIT is sent: a
+		// conflict, not an outcome that is not known.
+		canceled := e.runtime(nil)
+		ctx, cancel = context.WithCancel(e.ctx)
+		canceled.step = func(name string, _ *sql.Tx) {
+			if name == "commit" {
+				cancel()
+			}
+		}
+		_, err = Run(ctx, canceled, e.command("cancel-before", nil, e.users), e.request("t1", u7(t), "k-28-cancel", `{}`), noBody,
+			func(ctx context.Context, _ struct{}, h *Handle[testProbe]) (idempotency.Response, error) {
+				return ok, nil
+			})
+		if !errors.Is(err, ErrConflict) || errors.Is(err, ErrCommitUnknown) {
+			t.Errorf("a cancel before COMMIT gave %v, want a conflict", err)
+		}
 	})
 }
 
@@ -705,20 +792,23 @@ func TestRunCommit(t *testing.T) {
 			if n := e.count(`SELECT count(*) FROM audit_event WHERE request_id = $1 AND outcome = 'failed' AND error_code = 'commit_outcome_unknown'`, req.RequestID); n != 1 {
 				t.Fatalf("%s: %d outcome rows commit_outcome_unknown, want 1", c.name, n)
 			}
+			// Whether the commit took effect is the server's: each case accepts either outcome, and checks the retry
+			// against the one that the rows show.
+			took := e.count(`SELECT count(*) FROM reservations WHERE id = $1`, c.id) == 1
 			ownRow := e.count(`SELECT count(*) FROM audit_event WHERE resource_id = $1 AND outcome = 'ok' AND action = 'reserve-unknown'`, c.id)
-			if (ownRow == 1) != c.took {
-				t.Fatalf("%s: %d rows with the outcome ok", c.name, ownRow)
+			if (ownRow == 1) != took {
+				t.Fatalf("%s: %d rows with the outcome ok, and the commit took effect: %t", c.name, ownRow, took)
 			}
 			calls = 0
 			res, err := Run(e.ctx, rt, cmd, req, noBody, reserve(c.id, "s", &calls))
 			if err != nil {
 				t.Fatalf("%s: the request sent again gave %v", c.name, err)
 			}
-			if c.took && (!res.Replayed || calls != 0) {
-				t.Fatalf("%s: the request sent again ran the fill %d times, want a replay", c.name, calls)
+			if took && (!res.Replayed || calls != 0) {
+				t.Fatalf("%s: the commit took effect, and the request sent again ran the fill %d times, want a replay", c.name, calls)
 			}
-			if !c.took && (res.Replayed || calls != 1) {
-				t.Fatalf("%s: the request sent again ran the fill %d times, want once", c.name, calls)
+			if !took && (res.Replayed || calls != 1) {
+				t.Fatalf("%s: the commit did not take effect, and the request sent again ran the fill %d times, want once", c.name, calls)
 			}
 		}
 		if n := e.count(`SELECT count(*) FROM audit_event WHERE outcome NOT IN ('ok', 'denied', 'failed')`); n != 0 {

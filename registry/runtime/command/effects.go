@@ -1,6 +1,7 @@
 package command
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -96,7 +97,9 @@ func (f *Effects) Stage(ctx context.Context, destination, effect string, entity 
 		return err
 	}
 	message := outbox.Message{
-		ID: id, Destination: destination, ResourceKey: r.resourceKey(), Kind: effect, Payload: payload,
+		ID: id, Destination: destination, ResourceKey: r.resourceKey(), Kind: effect,
+		// A copy, so a fill that changes its payload after the call changes nothing that is staged.
+		Payload:     bytes.Clone(payload),
 		OutgoingKey: key, MustLand: d.MustLand, Idempotent: d.Idempotent,
 	}
 	if d.Consumed {
@@ -121,6 +124,7 @@ func (s *state) enqueue(ctx context.Context) error {
 	if err := s.setLockTimeout(ctx); err != nil {
 		return s.fail(ctx, "outbox enqueue", err)
 	}
+	s.rt.stepped("enqueue", s.tx)
 	if err := s.rt.cfg.Outbox.Enqueue(ctx, s.tx, s.staged...); err != nil {
 		return s.fail(ctx, "outbox enqueue", err)
 	}

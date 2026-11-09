@@ -94,9 +94,8 @@ func (e *env) consumer(w *Worker[testProbe], change func(*outbox.WorkerConfig),
 		var m map[string]string
 		return m, json.Unmarshal(payload, &m)
 	}
-	// The generated code registers a consumed destination as one that must land (ST-SUP-RC35-OC06); such a message is
-	// never parked (ST-SUP-RP01-LC23), so the tests register it as idempotent only, to see the attempts limit.
-	destinations := []outbox.Destination{{Name: "partner-replies", Idempotent: true,
+	// As the generated code does, the consumed destination is idempotent and must land (ST-SUP-RC35-OC06).
+	destinations := []outbox.Destination{{Name: "partner-replies", Idempotent: true, MustLand: true,
 		Handler: func(ctx context.Context, tx *sql.Tx, d outbox.Delivery) error {
 			return RunConsumer(ctx, e.rt, w, tx, d, decode, fill)
 		}}}
@@ -498,8 +497,11 @@ func updateOrderFrom(ctx context.Context, r *Repository[order], o Loaded[order],
 func TestConsumers(t *testing.T) {
 	clock := &testClock{}
 	e := newEnv(t, func(c *envConfig) { c.queueClock = clock })
-	e.exec(`INSERT INTO orders (tenant_id, id, status) VALUES ('t1', 'o-1', 'new'), ('t1', 'o-2', 'new')`,
+	e.exec(`INSERT INTO orders (tenant_id, id, status) VALUES ('t1', 'o-1', 'new'), ('t1', 'o-2', 'new'),
+ ('t1', 'o-3', 'new'), ('t2', 'o-1', 'new')`,
 		`INSERT INTO charges (tenant_id, id, amount, card_last4) VALUES ('t1', 'c1', 1, '0000')`)
+	// cases holds the fill of a message whose payload names a case, for the subtests that need one of their own.
+	var cases sync.Map
 	var mode atomic.Value
 	mode.Store("ok")
 	var calls atomic.Int64
@@ -509,6 +511,9 @@ func TestConsumers(t *testing.T) {
 	}, e.orders, e.chargeE)
 	e.consumer(w, func(c *outbox.WorkerConfig) { c.MaxAttempts = 3 }, func(ctx context.Context, m map[string]string, _ string, h *Handle[testProbe]) error {
 		calls.Add(1)
+		if fill, ok := cases.Load(m["case"]); ok {
+			return fill.(func(context.Context, map[string]string, *Handle[testProbe]) error)(ctx, m, h)
+		}
 		r := repo(t, h, e.orders)
 		o, err := r.Get(ctx, m["order"])
 		if err != nil {
@@ -603,18 +608,21 @@ func TestConsumers(t *testing.T) {
 			t.Fatalf("the dispatch again: %d calls, keys %v", calls.Load(), keys)
 		}
 		calls.Store(0)
+		// A message of a destination that must land is never parked at the attempts limit (ST-SUP-RP01-LC23): after
+		// 20 conflicts that count no attempt, each conflict counts one, past the limit of 3, and it stays pending.
 		mode.Store("conflict-always")
-		parked := e.stage("t1", "o-2", map[string]string{"order": "o-2", "n": "5"})
+		pending := e.stage("t1", "o-2", map[string]string{"order": "o-2", "n": "5"})
 		// The clock moves on only while the message waits in pending, to the time it is due, so no lease of a
 		// dispatch expires on the clock.
+		var state string
+		var attempts64 int64
 		for i := 0; i < 2000; i++ {
-			var state string
 			var waitMS float64
-			if err := e.admin.QueryRowContext(e.ctx, `SELECT state, extract(epoch FROM available_at) * 1000 FROM stego_outbox.messages WHERE id = $1`, parked).
-				Scan(&state, &waitMS); err != nil {
+			if err := e.admin.QueryRowContext(e.ctx, `SELECT state, attempts, extract(epoch FROM available_at) * 1000 FROM stego_outbox.messages WHERE id = $1`, pending).
+				Scan(&state, &attempts64, &waitMS); err != nil {
 				t.Fatal(err)
 			}
-			if state == "parked" {
+			if state == "parked" || (calls.Load() >= 26 && state == "pending") {
 				break
 			}
 			if state == "pending" {
@@ -624,10 +632,185 @@ func TestConsumers(t *testing.T) {
 			}
 			time.Sleep(5 * time.Millisecond)
 		}
-		e.waitState(t, parked, "parked")
 		mode.Store("ok")
-		if calls.Load() != 23 {
-			t.Fatalf("the message was parked after %d calls, want 20 conflicts with no attempt and then 3 attempts", calls.Load())
+		if state != "pending" || attempts64 < 4 {
+			t.Fatalf("after %d calls the message is %s with %d attempts, want pending with its attempts past the limit of 3",
+				calls.Load(), state, attempts64)
+		}
+		clock.add(time.Hour)
+		e.waitState(t, pending, "done")
+
+		// A delivery of the message that is in progress elsewhere holds the key row: the consumer's key insert waits
+		// until its lock timeout, and the outbox dispatches the message again with a conflict, not an attempt.
+		calls.Store(0)
+		a := e.session()
+		var held uuid.UUID
+		stager := e.runtime(nil)
+		stager.beforeCommit = func(ctx context.Context, tx *sql.Tx) error {
+			if err := tx.QueryRowContext(ctx, `SELECT id FROM stego_outbox.messages WHERE destination = 'partner-replies'
+ ORDER BY sequence DESC LIMIT 1`).Scan(&held); err != nil {
+				return err
+			}
+			a.exec(`INSERT INTO idempotency_keys (tenant_id, principal_id, key, fingerprint, status, locked_at, expires_at)
+ VALUES ('t1', 'service_account:apply-partner-replies', $1, 'f', 'in_progress', now(), now() + interval '1 hour')`, held.String())
+			return nil
+		}
+		if _, err := e.runOn(stager, e.command("reserve-and-charge", nil, e.orders), e.request("t1", u7(t), "k-held", `{}`),
+			fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
+				o, err := repo(t, h, e.orders).Get(ctx, "o-3")
+				if err != nil {
+					return err
+				}
+				return h.Effects().Stage(ctx, "partner-replies", "reply-received", o, []byte(`{"order":"o-3","n":"6"}`))
+			})); err != nil {
+			t.Fatal(err)
+		}
+		deadline = time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) && e.count(`SELECT count(*) FROM stego_outbox.messages WHERE id = $1 AND conflicts > 0`, held) == 0 {
+			time.Sleep(20 * time.Millisecond)
+		}
+		if err := e.admin.QueryRowContext(e.ctx, `SELECT attempts, conflicts FROM stego_outbox.messages WHERE id = $1`, held).
+			Scan(&attempts, &conflicts); err != nil {
+			t.Fatal(err)
+		}
+		if attempts != 0 || conflicts < 1 || calls.Load() != 0 {
+			t.Fatalf("a delivery in progress elsewhere gave %d attempts, %d conflicts and %d calls; want a conflict and no call",
+				attempts, conflicts, calls.Load())
+		}
+		_ = a.tx.Rollback()
+		clock.add(time.Hour)
+		e.waitState(t, held, "done")
+		if calls.Load() != 1 {
+			t.Fatalf("the dispatch again called the fill %d times, want once", calls.Load())
+		}
+	})
+
+	t.Run("ST-SUP-RP10-LC16-T01 The worker handle reports the service account and writes its audit rows as the worker", func(t *testing.T) {
+		sync := e.worker("sync-partner-orders", "sync", nil, e.orders)
+		var tickTenant, tickPrincipal string
+		if err := RunWorker(e.ctx, e.rt, sync, tick, mustTenant(t, "t1"), nil, tickFill(func(ctx context.Context, h *Handle[testProbe]) error {
+			tickTenant, tickPrincipal = h.Tenant().ID(), h.Principal().Subject().String()
+			_, err := updateOrder(ctx, h, e.orders, "o-3", "synced")
+			return err
+		})); err != nil {
+			t.Fatal(err)
+		}
+		if tickTenant != "t1" || tickPrincipal != "service_account:sync-partner-orders" ||
+			e.count(`SELECT count(*) FROM audit_event WHERE tenant_id = 't1' AND action = 'sync-partner-orders'
+ AND actor_id = 'service_account:sync-partner-orders' AND operation = 'sync-partner-orders' AND on_behalf_of = ''`) != 1 {
+			t.Fatalf("the worker handle reported %s and %s, or its audit row is not the worker's", tickTenant, tickPrincipal)
+		}
+		var seenTenant, seenPrincipal string
+		cases.Store("lc16", func(ctx context.Context, m map[string]string, h *Handle[testProbe]) error {
+			seenTenant, seenPrincipal = h.Tenant().ID(), h.Principal().Subject().String()
+			_, err := updateOrder(ctx, h, e.orders, "o-1", "replied")
+			return err
+		})
+		// The payload names another principal, which changes nothing: the staging principal comes from the row.
+		m := e.stage("t2", "o-1", map[string]string{"case": "lc16", "principal": "user:u-9"})
+		e.waitState(t, m, "done")
+		var principal, origin string
+		if err := e.admin.QueryRowContext(e.ctx, `SELECT principal, origin FROM stego_outbox.messages WHERE id = $1`, m).
+			Scan(&principal, &origin); err != nil {
+			t.Fatal(err)
+		}
+		if seenTenant != "t2" || seenPrincipal != "service_account:apply-partner-replies" || principal != "user:u-7" ||
+			origin != "reserve-and-charge" {
+			t.Fatalf("the consumer saw %s and %s; the row stores %s and %s", seenTenant, seenPrincipal, principal, origin)
+		}
+		if n := e.count(`SELECT count(*) FROM audit_event WHERE tenant_id = 't2' AND action = 'apply-partner-replies'
+ AND actor_id = 'service_account:apply-partner-replies' AND on_behalf_of = 'user:u-7' AND resource_id = 'o-1'`); n != 1 {
+			t.Fatalf("%d audit rows of the consumer name the service account and, on whose behalf, user:u-7; want 1", n)
+		}
+	})
+
+	t.Run("ST-SUP-RP10-LC17-T02 A user with only the command's permission cannot make the consuming worker touch a resource that the user cannot touch", func(t *testing.T) {
+		var denyO2 atomic.Bool
+		e.decision.setAllow(func(subject, action, resource string) bool {
+			switch subject {
+			case "service_account:apply-partner-replies":
+				return action == "apply" && (resource == "order:o-1" || resource == "order:o-2")
+			case "user:u-7":
+				// The command's own read of o-1 is decided too; o-2 is allowed only until the fill holds its value.
+				return (resource == "order:o-1" && (action == "view" || action == "reserve")) ||
+					(resource == "order:o-2" && action == "reserve" && !denyO2.Load())
+			}
+			return false
+		})
+		defer e.decision.setAllow(nil)
+		var after []evaluation
+		var o2Update, o2Read error
+		cases.Store("lc17", func(ctx context.Context, m map[string]string, h *Handle[testProbe]) error {
+			r := repo(t, h, e.orders)
+			o1, err := r.Get(ctx, "o-1")
+			if err != nil {
+				return err
+			}
+			o2, err := r.Get(ctx, "o-2")
+			if err != nil {
+				return err
+			}
+			denyO2.Store(true)
+			e.decision.taken()
+			if _, err := updateOrderFrom(ctx, r, o1, "applied-lc17"); err != nil {
+				return err
+			}
+			_, o2Update = updateOrderFrom(ctx, r, o2, "applied-lc17")
+			_, o2Read = r.Get(ctx, "o-2")
+			after = e.decision.taken()
+			return nil
+		})
+		m := e.stage("t1", "o-1", map[string]string{"case": "lc17", "orders": "o-1,o-2"})
+		e.waitState(t, m, "done")
+		if !errors.Is(o2Update, ErrRefused) || !errors.Is(o2Read, ErrRefused) {
+			t.Fatalf("the update of o-2 gave %v and its read %v, want the refused error", o2Update, o2Read)
+		}
+		if e.count(`SELECT count(*) FROM orders WHERE tenant_id = 't1' AND id = 'o-1' AND status = 'applied-lc17'`) != 1 ||
+			e.count(`SELECT count(*) FROM orders WHERE tenant_id = 't1' AND id = 'o-2' AND status = 'applied-lc17'`) != 0 {
+			t.Fatal("the writes are not o-1 alone")
+		}
+		var calls []string
+		for _, c := range after {
+			calls = append(calls, c.Subject+" "+c.Action+" "+c.Resource)
+			if c.Subject == "user:u-7" && c.Action == "apply" {
+				t.Errorf("user:u-7 was decided on apply: %+v", c)
+			}
+		}
+		want := "service_account:apply-partner-replies apply order:o-1,user:u-7 reserve order:o-1," +
+			"service_account:apply-partner-replies apply order:o-2,user:u-7 reserve order:o-2," +
+			"service_account:apply-partner-replies apply order:o-2,user:u-7 reserve order:o-2"
+		if strings.Join(calls, ",") != want {
+			t.Fatalf("the decisions are %v, want %s", calls, want)
+		}
+		if n := e.count(`SELECT count(*) FROM audit_event WHERE tenant_id = 't1' AND resource_id = 'o-1'
+ AND action = 'apply-partner-replies' AND on_behalf_of = 'user:u-7' AND after::text LIKE '%applied-lc17%'`); n != 1 {
+			t.Fatalf("%d audit rows of o-1 name user:u-7 on whose behalf the worker acted, want 1", n)
+		}
+	})
+
+	t.Run("ST-SUP-RP10-LC26-T02 A consumer's deny of the staging principal and a declared refusal park the message", func(t *testing.T) {
+		e.decision.setAllow(func(subject, action, resource string) bool {
+			return !(subject == "user:u-7" && action == "reserve" && resource == "order:o-2")
+		})
+		defer e.decision.setAllow(nil)
+		cases.Store("denied", func(ctx context.Context, m map[string]string, h *Handle[testProbe]) error {
+			_, err := updateOrder(ctx, h, e.orders, "o-2", "never")
+			return err
+		})
+		cases.Store("refused", func(ctx context.Context, m map[string]string, h *Handle[testProbe]) error {
+			if _, err := updateOrder(ctx, h, e.orders, "o-1", "never"); err != nil {
+				return err
+			}
+			return Refusal(errors.New("out of stock"))
+		})
+		// A parked message holds back the later messages of its key, so each case stages for an order of its own.
+		for name, order := range map[string]string{"denied": "o-1", "refused": "o-3"} {
+			calls.Store(0)
+			m := e.stage("t1", order, map[string]string{"case": name})
+			e.waitState(t, m, "parked")
+			if calls.Load() != 1 || e.count(`SELECT count(*) FROM orders WHERE status = 'never'`) != 0 || e.keyRows(m.String()) != 0 {
+				t.Fatalf("%s: parked after %d calls, with a write or a key row left", name, calls.Load())
+			}
 		}
 	})
 }

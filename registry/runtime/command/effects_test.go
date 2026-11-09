@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"stego.dev/runtime/idempotency"
 )
 
@@ -198,9 +200,12 @@ func TestEffects(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if err := h.Effects().Stage(ctx, "billing", "charge-requested", c, []byte(`{}`)); err != nil {
+			payload := []byte(`{"amount":1}`)
+			if err := h.Effects().Stage(ctx, "billing", "charge-requested", c, payload); err != nil {
 				return err
 			}
+			// A change of the payload after the call changes nothing that is staged.
+			payload[10] = '9'
 			return h.Effects().Stage(ctx, "billing", "charge-voided", c, []byte(`{}`))
 		}))
 		if err != nil {
@@ -214,6 +219,9 @@ func TestEffects(t *testing.T) {
 		}
 		if len(voided) != 1 || voided[0] == requested[0] {
 			t.Fatalf("the key of charge-voided is %v, the same as the first", voided)
+		}
+		if n := e.count(`SELECT count(*) FROM stego_outbox.messages WHERE kind = 'charge-requested' AND payload->>'amount' = '1'`); n != 1 {
+			t.Fatal("the staged payload changed after the call")
 		}
 	})
 
@@ -300,6 +308,41 @@ func charge(ctx context.Context, h *command.Handle[struct{}], c gen.LoadedCharge
 		if calls := e.decision.taken(); len(calls) != 2 || calls[1].Resource != "order:o-none" {
 			t.Fatalf("the two reads made the decisions %+v, want one each", calls)
 		}
+		// A key that does not have the form of the key type, here a uuid, is not found after the same decision, and
+		// the handle goes on.
+		e.exec(`CREATE TABLE tokens (tenant_id text NOT NULL, id uuid NOT NULL, label text NOT NULL,
+  version bigint NOT NULL DEFAULT 1, authz_token text NOT NULL DEFAULT '', PRIMARY KEY (tenant_id, id))`,
+			"GRANT SELECT ON tokens TO "+e.roles[0],
+			`INSERT INTO tokens (tenant_id, id, label) VALUES ('t1', '0b6f3f5e-0b7c-4b4e-9a53-3f2c1f0e2d11', 'first')`)
+		ts := spec("Token", "token", "tokens", []string{"label"},
+			func(s Scanner) (order, Meta, error) {
+				var v order
+				var m Meta
+				err := s.Scan(&v.ID, &v.Status, &m.Version, &m.Token)
+				m.ID = v.ID
+				return v, m, err
+			},
+			func(v order) []any { return []any{v.ID, v.Status} },
+			func(v order) map[string]any { return map[string]any{"id": v.ID, "label": v.Status} })
+		ts.Select = `SELECT id::text, label, version, authz_token FROM tokens WHERE tenant_id = $1 AND id = $2::uuid`
+		ts.ValidID = func(id string) bool { _, err := uuid.Parse(id); return err == nil }
+		tokens, err := NewEntity(ts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		th, _, tend := e.bind("t1", u7(t), e.command("read-tokens", nil, tokens))
+		defer tend()
+		e.decision.taken()
+		bad, err3 := repo(t, th, tokens).Get(e.ctx, "not-a-uuid")
+		if bad != nil || !errors.Is(err3, ErrNotFound) || strings.Replace(err3.Error(), "Token", "", 1) != strings.Replace(err2.Error(), "Order", "", 1) {
+			t.Fatalf("a malformed key gave %v, %v; want not found", bad, err3)
+		}
+		if calls := e.decision.taken(); len(calls) != 1 || calls[0].Resource != "token:not-a-uuid" {
+			t.Fatalf("the malformed key made the decisions %+v, want one", calls)
+		}
+		if got, err := repo(t, th, tokens).Get(e.ctx, "0b6f3f5e-0b7c-4b4e-9a53-3f2c1f0e2d11"); err != nil || got.Value().Status != "first" {
+			t.Fatalf("a read after the malformed key gave %v, %v; the handle broke", got, err)
+		}
 	})
 
 	t.Run("ST-SUP-RP10-LC13-T02 A pii read in a command is audited and stays after a rollback", func(t *testing.T) {
@@ -326,6 +369,22 @@ func charge(ctx context.Context, h *command.Handle[struct{}], c gen.LoadedCharge
 		}
 		if action != "read" || actor != "user:u-7" || resource != "charge:c2" || strings.Contains(row, "1881") {
 			t.Fatalf("the read row is %s by %s on %s: %s", action, actor, resource, row)
+		}
+		// A list of a pii entity is audited for each resource it returns.
+		charges, err := NewList(e.chargeE, ListSpec{Name: "all",
+			Read: `SELECT id, amount, card_last4, version, authz_token FROM charges WHERE tenant_id = $1 ORDER BY id LIMIT $2`})
+		if err != nil {
+			t.Fatal(err)
+		}
+		before = e.auditRows("t1", "read")
+		listed := 0
+		_, err = e.run(cmd, e.request("t1", u7(t), "k-pii-list", `{}`), fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
+			got, err := repo(t, h, e.chargeE).List(ctx, charges, 10)
+			listed = len(got)
+			return err
+		}))
+		if err != nil || listed < 2 || e.auditRows("t1", "read")-before != listed {
+			t.Fatalf("a list of %d charges gave %v and %d read rows", listed, err, e.auditRows("t1", "read")-before)
 		}
 	})
 }

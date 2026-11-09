@@ -55,6 +55,10 @@ func TestAuditRows(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if n := e.count(`SELECT count(*) FROM audit_event WHERE tenant_id = 't1' AND action = 'reserve-and-charge'
+ AND operation = 'reserve-and-charge' AND hash_version = 3`); n != 2 {
+			t.Fatalf("%d audit rows carry the operation reserve-and-charge, want 2", n)
+		}
 		rows, err := e.admin.QueryContext(e.ctx, `SELECT a.action, a.actor_id, a.resource_type, coalesce(a.patch::text, ''),
  coalesce(a.after::text, ''), a.xmin::text = r.xmin::text
  FROM audit_event a, reservations r WHERE a.tenant_id = 't1' AND r.id = 'r-lc06' AND a.action = 'reserve-and-charge'

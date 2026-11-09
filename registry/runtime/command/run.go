@@ -95,11 +95,14 @@ type Runtime struct {
 	beforeCommit func(ctx context.Context, tx *sql.Tx) error
 	// rerun, when set by a test, gets the random wait before each rerun and the time left after it.
 	rerun func(n int, wait, left time.Duration)
+	// step, when set by a test, runs right after lock_timeout is set before a statement of the wrapper, the enqueue,
+	// the audit record and COMMIT.
+	step func(name string, tx *sql.Tx)
 }
 
 // New checks cfg and returns the command runtime. It refuses a configuration that lacks a part, a main pool or an
 // audit pool that does not close a connection that comes back with a tenant set, as a pool that tenant.Open
-// returned does (ST-SUP-RP10-LC30), an audit pool that is the main pool or holds fewer than two connections
+// returned does, which tenant.Opened tells (ST-SUP-RP10-LC30, ST-SUP-RP04-LC08), an audit pool that is the main pool or holds fewer than two connections
 // (ST-SUP-RP10-LC29), and a telemetry runtime that does not register the names of SpanNames.
 func New(ctx context.Context, cfg Config) (*Runtime, error) {
 	switch {
@@ -113,11 +116,8 @@ func New(ctx context.Context, cfg Config) (*Runtime, error) {
 	if err := checkAuditPool(cfg.DB, cfg.AuditDB); err != nil {
 		return nil, err
 	}
-	if err := checkPool(ctx, cfg.DB, "main"); err != nil {
-		return nil, err
-	}
-	if err := checkPool(ctx, cfg.AuditDB, "audit"); err != nil {
-		return nil, err
+	if !tenant.Opened(cfg.DB) || !tenant.Opened(cfg.AuditDB) {
+		return nil, errors.New("command: the main pool and the audit pool must be pools that tenant.Open returned")
 	}
 	if cfg.Telemetry != nil {
 		for _, name := range SpanNames() {
@@ -136,39 +136,10 @@ func New(ctx context.Context, cfg Config) (*Runtime, error) {
 	return rt, nil
 }
 
-// poolMark is the session value with which checkPool marks a connection.
-const poolMark = "stego-command-pool-check"
-
-// checkPool checks that db closes a connection that comes back with a tenant set, as the pooler guard of a pool that
-// tenant.Open returned does (ST-SUP-RP10-LC30, ST-SUP-RP04-LC04): it sets app.tenant on one session with is_local
-// false, gives the connection back and takes one again. database/sql gives back the connection it got last, so a
-// pool with no guard gives the marked session again, and the check clears the mark and refuses the pool.
-func checkPool(ctx context.Context, db *sql.DB, name string) error {
-	conn, err := db.Conn(ctx)
-	if err != nil {
-		return fmt.Errorf("command: open a connection of the %s pool: %w", name, err)
+func (rt *Runtime) stepped(name string, tx *sql.Tx) {
+	if rt.step != nil {
+		rt.step(name, tx)
 	}
-	if _, err := conn.ExecContext(ctx, `SELECT pg_catalog.set_config('app.tenant', $1, false)`, poolMark); err != nil {
-		_ = conn.Close()
-		return fmt.Errorf("command: check the %s pool: %w", name, err)
-	}
-	if err := conn.Close(); err != nil {
-		return fmt.Errorf("command: check the %s pool: %w", name, err)
-	}
-	again, err := db.Conn(ctx)
-	if err != nil {
-		return fmt.Errorf("command: open a connection of the %s pool: %w", name, err)
-	}
-	defer again.Close()
-	var setting sql.NullString
-	if err := again.QueryRowContext(ctx, `SELECT pg_catalog.current_setting('app.tenant', true)`).Scan(&setting); err != nil {
-		return fmt.Errorf("command: check the %s pool: %w", name, err)
-	}
-	if setting.String != "" {
-		_, _ = again.ExecContext(ctx, `SELECT pg_catalog.set_config('app.tenant', '', false)`)
-		return fmt.Errorf("command: the %s pool keeps a connection that comes back with a tenant set; open it with tenant.Open", name)
-	}
-	return nil
 }
 
 func (rt *Runtime) record(query string, args []any) {
@@ -365,6 +336,9 @@ func runAttempt[Req, P any](ctx context.Context, rt *Runtime, cmd *Command[P], r
 	defer func() {
 		if !committed {
 			_ = tx.Rollback()
+			// The attempt's audit record rolled back with it, and it holds no chain lock any more, so a read of a
+			// rerun may write its own read row.
+			rt.cfg.Audit.Forget(req.RequestID)
 		}
 	}()
 	s := newState(ctx, rt, tx, req.Tenant, req.Principal, modeCommand, cmd.spec.Name, cmd.writes, cmd.destinations)
@@ -421,7 +395,7 @@ func runAttempt[Req, P any](ctx context.Context, rt *Runtime, cmd *Command[P], r
 		// A transient response of the fill: the wrapper stored nothing, and the attempt rolls back.
 		return Result{Response: wrapped.Response}, nil, false
 	}
-	if err := commit(ctx, s, time.Time{}); err != nil {
+	if err := commit(ctx, s); err != nil {
 		return Result{}, err, errors.Is(err, ErrConflict)
 	}
 	committed = true
@@ -444,17 +418,25 @@ func callFill[R any](ctx context.Context, s *state, call *probe.Call, fill func(
 			call.Returned()
 		}
 	}()
-	result, err, panicked := func() (result R, err error, panicked bool) {
-		returned := false
+	// The fill runs on a goroutine of its own, so a fill that ends through runtime.Goexit, which recover does not
+	// see, ends only that goroutine and counts as a panic (ST-SUP-RP10-LC12).
+	type outcome struct {
+		result   R
+		err      error
+		panicked bool
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		o := outcome{panicked: true}
 		defer func() {
-			if recover() != nil || !returned {
-				panicked = true
-			}
+			_ = recover()
+			done <- o
 		}()
-		result, err = fill(ctx)
-		returned = true
-		return result, err, false
+		r, err := fill(ctx)
+		o = outcome{result: r, err: err}
 	}()
+	o := <-done
+	result, err, panicked := o.result, o.err, o.panicked
 	ended = true
 	s.close()
 	call.Returned()
@@ -481,8 +463,10 @@ func callFill[R any](ctx context.Context, s *state, call *probe.Call, fill func(
 // commit commits the attempt's transaction with tenant.Commit (ST-SUP-RP10-LC30) after it sets lock_timeout for the
 // statements of COMMIT (ST-SUP-RP10-LC28). A conflict SQLSTATE from COMMIT is a conflict; a context error, a lost
 // connection or any error with no SQLSTATE is an outcome that is not known (ST-SUP-RP10-LC25); any other error is an
-// internal error after a rollback. When notAfter is not zero, it does not commit at or after it.
-func commit(ctx context.Context, s *state, notAfter time.Time) error {
+// internal error after a rollback. An error of tenant.Commit before COMMIT is sent is a conflict when it is a
+// conflict or a cancel, and an internal error otherwise: the transaction did not commit. A run whose context ended
+// does not commit: database/sql refuses COMMIT on a transaction whose context is done.
+func commit(ctx context.Context, s *state) error {
 	if s.rt.beforeCommit != nil {
 		if err := s.rt.beforeCommit(ctx, s.tx); err != nil {
 			return internalf("the step before COMMIT failed")
@@ -494,18 +478,17 @@ func commit(ctx context.Context, s *state, notAfter time.Time) error {
 		}
 		return internalf("the lock timeout was not set before COMMIT")
 	}
-	if ctx.Err() != nil {
-		return &conflictError{text: "the deadline passed before COMMIT"}
-	}
-	if !notAfter.IsZero() && !time.Now().Before(notAfter) {
-		return errDeadline
-	}
+	s.rt.stepped("commit", s.tx)
 	err := tenant.Commit(ctx, s.tx, s.tenant)
 	switch {
 	case err == nil:
 		return nil
 	case errors.Is(err, tenant.ErrTenantChanged):
 		return internalf("the tenant setting of the transaction changed, so it was rolled back")
+	case errors.Is(err, tenant.ErrNotCommitted) && isConflict(ctx, err):
+		return &conflictError{text: fmt.Sprintf("the step before COMMIT ended with SQLSTATE %q or the deadline", sqlState(err))}
+	case errors.Is(err, tenant.ErrNotCommitted):
+		return internalf("the step before COMMIT failed with SQLSTATE %q", sqlState(err))
 	case conflictStates[sqlState(err)]:
 		return &conflictError{text: fmt.Sprintf("COMMIT ended with SQLSTATE %q", sqlState(err))}
 	case commitKnown(sqlState(err)):
@@ -569,6 +552,7 @@ func (w wrapTx) ExecContext(ctx context.Context, query string, args ...any) (sql
 	if err := w.s.setLockTimeout(ctx); err != nil {
 		return nil, err
 	}
+	w.s.rt.stepped("wrapper", w.s.tx)
 	return w.s.exec(ctx, query, args...)
 }
 
@@ -576,6 +560,7 @@ func (w wrapTx) QueryRowContext(ctx context.Context, query string, args ...any) 
 	if err := w.s.setLockTimeout(ctx); err != nil {
 		return errRow{err: err}
 	}
+	w.s.rt.stepped("wrapper", w.s.tx)
 	return w.s.queryRow(ctx, query, args...)
 }
 

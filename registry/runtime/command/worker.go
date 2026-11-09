@@ -167,11 +167,12 @@ func RunWorker[P any](ctx context.Context, rt *Runtime, w *Worker[P], due time.T
 		}
 		return deadlineOr(ctx, notAfter, err)
 	}
-	// A run under a lease that reached its deadline never attempts COMMIT (ST-SUP-RP10-LC22).
-	if !notAfter.IsZero() && (ctx.Err() != nil || !time.Now().Before(notAfter)) {
-		return errDeadline
-	}
-	if err := commit(ctx, s, notAfter); err != nil {
+	// The transaction's context ends at the deadline, so database/sql refuses a COMMIT after it
+	// (ST-SUP-RP10-LC22). An outcome of COMMIT that is not known stays one: it is never a deadline to run again.
+	if err := commit(ctx, s); err != nil {
+		if errors.Is(err, ErrCommitUnknown) {
+			return err
+		}
 		return deadlineOr(ctx, notAfter, err)
 	}
 	committed = true
@@ -243,6 +244,7 @@ func RunConsumer[M, P any](ctx context.Context, rt *Runtime, w *Worker[P], tx *s
 	s.request = Request{RequestID: uuid.NewString(), Key: d.ID.String()}
 	s.permission = w.spec.Permission
 	s.stagingPermission = stagerPermission
+	s.onBehalfOf = stagingPrincipal.Subject().String()
 	s.lockTimeout = DefaultLockTimeout
 	message := d.ID.String()
 	s.inbound = func(id string) string { return lengthPrefixed(message, id) }
@@ -288,6 +290,12 @@ func RunConsumer[M, P any](ctx context.Context, rt *Runtime, w *Worker[P], tx *s
 		if failure.conflict {
 			return outbox.Conflict(failure.err)
 		}
+		// A deny of the staging principal and a declared refusal give the same answer on every dispatch: the
+		// message is parked, so it does not hold back its key without end (ST-SUP-RP10-LC26, ST-SUP-RC35-OC06).
+		var denied *deniedError
+		if (errors.As(failure.err, &denied) && denied.staging) || errors.Is(failure.err, errDeclaredRefusal) {
+			return outbox.PermanentRefusal(failure.err)
+		}
 		return outbox.TransientRefusal(failure.err)
 	case err != nil:
 		return outbox.TransientRefusal(internalf("the idempotency wrapper failed"))
@@ -311,6 +319,26 @@ func RunConsumer[M, P any](ctx context.Context, rt *Runtime, w *Worker[P], tx *s
 	outcome = otel.OutcomeCommitted
 	call.Commit()
 	return nil
+}
+
+// errDeclaredRefusal matches an error that Refusal marks.
+var errDeclaredRefusal = errors.New("command: a declared refusal")
+
+// declaredRefusal is a declared refusal of a fill: it matches errDeclaredRefusal and unwraps to the refusal.
+type declaredRefusal struct{ err error }
+
+func (r *declaredRefusal) Error() string        { return r.err.Error() }
+func (r *declaredRefusal) Unwrap() error        { return r.err }
+func (r *declaredRefusal) Is(target error) bool { return target == errDeclaredRefusal }
+
+// Refusal marks err as a declared refusal of a fill (ST-DECL-EN18, ST-SUP-RC32-OC09): the generated refusal value
+// of a command or a worker wraps itself with it. RunConsumer parks a message whose fill returns one, because a
+// dispatch again gives the same refusal (ST-SUP-RP10-LC26).
+func Refusal(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &declaredRefusal{err: err}
 }
 
 // consumerError marks the error of a consumer's statement for the outbox.
