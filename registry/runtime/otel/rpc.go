@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	grpccodes "google.golang.org/grpc/codes"
@@ -35,7 +34,7 @@ func (r *Runtime) TraceRPC(ctx context.Context, fullMethod string) (context.Cont
 		tracer = r.provider.Tracer("stego/grpc")
 	}
 	start := time.Now()
-	ctx, span := tracer.Start(ctx, method, trace.WithSpanKind(trace.SpanKindServer), trace.WithAttributes(attribute.String("rpc.system.name", "grpc"), attribute.String("rpc.method", method)), trace.WithTimestamp(start))
+	ctx, span, record := r.startSpan(ctx, tracer, method, trace.SpanKindServer, start, attribute.String("rpc.system.name", "grpc"), attribute.String("rpc.method", method))
 	r.signals.started(ctx, r.signals.rpcActive)
 	return ctx, func(err error) {
 		end := time.Now()
@@ -44,10 +43,10 @@ func (r *Runtime) TraceRPC(ctx context.Context, fullMethod string) (context.Cont
 			code = grpccodes.Unknown
 		}
 		name := statusNames[code]
-		span.SetAttributes(attribute.String("rpc.response.status_code", name))
+		record.set(attribute.String("rpc.response.status_code", name))
 		if rpcFailed(code) {
-			span.SetStatus(codes.Error, "")
-			span.SetAttributes(attribute.String("error.type", name))
+			record.fail()
+			record.set(attribute.String("error.type", name))
 		}
 		r.signals.rpcFinished(ctx, start, end, method, name, code)
 		span.End(trace.WithTimestamp(end))

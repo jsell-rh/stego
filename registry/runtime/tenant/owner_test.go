@@ -3,7 +3,6 @@ package tenant
 import (
 	"context"
 	"net"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -51,16 +50,13 @@ func TestTenantConnectors(t *testing.T) {
 		if got := count.Load(); got != 0 {
 			t.Fatalf("the refused calls opened %d connections, want none", got)
 		}
-		// In the migration job the connector connects: to the counting server, which closes the connection, and,
-		// when a local PostgreSQL server is set, to that server.
+		// In the migration job the connector connects: to the counting server, which closes the connection, and
+		// to the local PostgreSQL server.
 		if db, err := OpenOwner(ctx, MigrationJob, cfg); err == nil {
 			_ = db.Close()
 		}
 		if count.Load() == 0 {
 			t.Fatal("the owner connector made no connection in the migration job")
-		}
-		if os.Getenv("STEGO_TEST_POSTGRES_DSN") == "" {
-			return
 		}
 		env := newPG(t)
 		db, err := OpenOwner(ctx, MigrationJob, Config{DSN: env.dsn(env.owner)})
