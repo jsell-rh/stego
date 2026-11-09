@@ -29,6 +29,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
+	"stego.dev/runtime/modes"
 	"stego.dev/runtime/otel"
 	"stego.dev/runtime/probe"
 )
@@ -268,6 +269,16 @@ func exposition(t *testing.T, m *Metrics) string {
 		t.Fatal("metrics status", recorder.Code)
 	}
 	return recorder.Body.String()
+}
+
+// testPinger is the database ping of the modes readiness.
+type testPinger struct{ down atomic.Bool }
+
+func (p *testPinger) PingContext(context.Context) error {
+	if p.down.Load() {
+		return errors.New("database unreachable")
+	}
+	return nil
 }
 
 // privateError panics when it is formatted, so any telemetry that formats it fails the test.
@@ -1099,7 +1110,8 @@ func TestTelemetryStartup(t *testing.T) {
 			}
 		}()
 		t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://"+collector.Addr().String())
-		health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "ok\n") }))
+		pinger := &testPinger{}
+		health := httptest.NewServer(modes.NewReadiness(pinger).Handler(modes.Selection{modes.Controller}))
 		defer health.Close()
 		var starts atomic.Int32
 		telemetry, err := NewTelemetry(func() (Providers, error) {
@@ -1119,6 +1131,10 @@ func TestTelemetryStartup(t *testing.T) {
 			if code != 0 {
 				t.Fatal("the probe failed", arg, code)
 			}
+		}
+		pinger.down.Store(true)
+		if code := Process(context.Background(), []string{"--stego-probe=ready"}, ProcessOptions{HealthAddress: strings.TrimPrefix(health.URL, "http://"), Telemetry: telemetry}, func(context.Context, *Metrics) error { called = true; return nil }); code != 1 {
+			t.Fatal("a not-ready probe passed", code)
 		}
 		time.Sleep(50 * time.Millisecond)
 		if starts.Load() != 0 || connections.Load() != 0 || called {

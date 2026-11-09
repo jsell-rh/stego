@@ -363,7 +363,8 @@ func (o SweepOptions) validate() error {
 }
 
 // RunSweep owns cursors, bounded worker pools, page checks, deadlines, and fair group rotation. It validates every
-// definition before it starts telemetry, and starts no provider when its context is already cancelled; it registers
+// definition before it starts telemetry, and returns nil with no provider started when its context is already
+// cancelled, as the other entry points do; it registers
 // no keyed queue (ST-SUP-RP02-LC16). It validates the whole page before any action starts. Cursor progress covers
 // only the contiguous prefix whose actions started. Workers always stop before the next page or group. Actions must
 // tolerate repetition.
@@ -405,7 +406,7 @@ func RunSweep[T any](ctx context.Context, groups []SweepGroup[T], reconcile func
 		}
 	}
 	if ctx.Err() != nil {
-		return ctx.Err()
+		return nil
 	}
 	ctx, closeTelemetry, err := startControllerTelemetry(ctx)
 	if err != nil {

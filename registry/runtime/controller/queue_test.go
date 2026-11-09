@@ -362,6 +362,44 @@ func TestQueueBackoff(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RP02-LC10-T01 A queued action longer than the reconnect delay finishes", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		m := new(Metrics)
+		options := watchKeyOptions()
+		options.Workers = 1
+		options.Metrics = m
+		options.ReconnectDelay = 50 * time.Millisecond
+		// Each watch session gives the key and then fails at once, so the key runs while the watch reconnects.
+		source := Source[string]{Watch: func(ctx context.Context) (func() (string, error), error) {
+			sent := false
+			return func() (string, error) {
+				if !sent {
+					sent = true
+					return "slow", nil
+				}
+				return "", io.ErrUnexpectedEOF
+			}, nil
+		}, Scan: func(context.Context, func(string) error) error { return nil }}
+		var running atomic.Bool
+		err := RunKeyedWatch(ctx, source, func(ctx context.Context, _ string) error {
+			running.Store(m.Snapshot().Running)
+			select {
+			case <-time.After(200 * time.Millisecond):
+				cancel()
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}, options)
+		if err != nil || !errors.Is(ctx.Err(), context.Canceled) {
+			t.Fatal("the 200 ms action never finished", err, ctx.Err())
+		}
+		if !running.Load() {
+			t.Fatal("the collector reported no running queue while the watch reconnected")
+		}
+	})
+
 	t.Run("ST-SUP-RP02-LC10-T02 An interrupted action takes the next capped delay, not a reset delay", func(t *testing.T) {
 		q := newKeyQueue[string](1)
 		q.setReady(true)

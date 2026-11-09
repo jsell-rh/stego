@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -245,7 +244,7 @@ func TestScanSweep(t *testing.T) {
 		ctx, cancel := context.WithCancel(stoppedTelemetry(t, telemetry))
 		cancel()
 		err := RunSweep(ctx, stream(func(context.Context, string, int) (SweepPage[int], error) { return SweepPage[int]{}, nil }), func(context.Context, int) error { return nil }, sweepOptions())
-		if !errors.Is(err, context.Canceled) || providers.starts.Load() != 1 {
+		if err != nil || providers.starts.Load() != 1 {
 			t.Fatal("a cancelled sweep started a provider", err, providers.starts.Load())
 		}
 	})
@@ -453,22 +452,36 @@ func TestScanProgress(t *testing.T) {
 	})
 
 	t.Run("ST-SUP-RP02-LC17-T05 A scan starts no background work", func(t *testing.T) {
+		// Count only the goroutines that run code of the package's own files, so other tests cannot change it.
+		own := func() int {
+			buffer := make([]byte, 1<<20)
+			stacks := string(buffer[:runtime.Stack(buffer, true)])
+			count := 0
+			for _, stack := range strings.Split(stacks, "\n\n") {
+				for _, file := range []string{"queue.go:", "scan.go:", "retry.go:", "telemetry.go:"} {
+					if strings.Contains(stack, "/controller/"+file) {
+						count++
+						break
+					}
+				}
+			}
+			return count
+		}
 		settle := func() int {
 			for range 20 {
-				runtime.Gosched()
+				if own() == 0 {
+					return 0
+				}
 				time.Sleep(time.Millisecond)
 			}
-			return runtime.NumGoroutine()
+			return own()
 		}
-		before := settle()
-		var wg sync.WaitGroup
 		_, err := ScanFrom(context.Background(), "", numbered(5), func(int) error { return nil }, scanOptions())
-		wg.Wait()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if after := settle(); after != before {
-			t.Fatalf("the scan left %d goroutines", after-before)
+		if after := settle(); after != 0 {
+			t.Fatalf("the scan left %d goroutines", after)
 		}
 	})
 }

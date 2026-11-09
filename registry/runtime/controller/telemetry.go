@@ -491,7 +491,15 @@ func Process(ctx context.Context, args []string, options ProcessOptions, run fun
 	return 0
 }
 
-// probeHealth asks one health path with a one-second bound, no redirect and a four-byte body limit.
+// probeBodyLimit is the largest body that a health answer may have. The modes health handler answers "live" or
+// "ready" and a newline.
+const probeBodyLimit = 64
+
+// providerCloseTimeout bounds one close of the provider set.
+const providerCloseTimeout = 3 * time.Second
+
+// probeHealth asks one health path with a one-second bound and no redirect. Any 200 answer with a body of at most
+// probeBodyLimit bytes passes.
 func probeHealth(parent context.Context, address, path string) error {
 	ctx, cancel := context.WithTimeout(parent, time.Second)
 	defer cancel()
@@ -507,8 +515,8 @@ func probeHealth(parent context.Context, address, path string) error {
 		return err
 	}
 	defer response.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(response.Body, 4))
-	if err != nil || response.StatusCode != http.StatusOK || string(body) != "ok\n" {
+	body, err := io.ReadAll(io.LimitReader(response.Body, probeBodyLimit+1))
+	if err != nil || response.StatusCode != http.StatusOK || len(body) > probeBodyLimit {
 		return errors.New("controller probe failed")
 	}
 	return nil
@@ -576,7 +584,9 @@ func (t *Telemetry) Start(ctx context.Context) (context.Context, func(), error) 
 		}
 		current, err := newSignals(providers)
 		if err != nil {
-			_ = providers.Shutdown(context.Background())
+			closing, cancel := context.WithTimeout(context.Background(), providerCloseTimeout)
+			_ = providers.Shutdown(closing)
+			cancel()
 			return ctx, nil, err
 		}
 		t.current = current
@@ -717,7 +727,9 @@ func newSignals(providers Providers) (*signals, error) {
 
 func (s *signals) close() {
 	s.closed.Store(true)
-	_ = s.providers.Shutdown(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), providerCloseTimeout)
+	defer cancel()
+	_ = s.providers.Shutdown(ctx)
 }
 
 // attach registers one queue until the returned function runs. A sixty-fifth queue is refused.

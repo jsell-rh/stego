@@ -696,11 +696,31 @@ func RunKeyedWithResult[K ~string](parent context.Context, source KeyedSource[K]
 		return err
 	}
 	defer detach()
+	detachMetrics, err := attachMetrics(options, q)
+	if err != nil {
+		return err
+	}
+	defer detachMetrics()
 	return runKeyedWithResult(parent, source, reconcile, options, q)
 }
 
-// runKeyed can reuse a stopped queue for a new watch session.
+// attachMetrics attaches the queue to the collector for the whole run, across watch sessions and reconnects, and
+// gives the function that detaches it, which resets the gauges (ST-SUP-RP02-LC12).
+func attachMetrics[K ~string](options KeyedOptions, q *keyQueue[K]) (func(), error) {
+	if err := options.Metrics.attach(q.metrics); err != nil {
+		return nil, err
+	}
+	options.Metrics.enableCleanup(options.Cleanup != nil)
+	return options.Metrics.detach, nil
+}
+
+// runKeyed runs one keyed session on a queue that a caller made, with the collector attached for the session.
 func runKeyed[K ~string](parent context.Context, source KeyedSource[K], reconcile func(context.Context, K) error, options KeyedOptions, q *keyQueue[K]) error {
+	detach, err := attachMetrics(options, q)
+	if err != nil {
+		return err
+	}
+	defer detach()
 	return runKeyedWithResult(parent, source, func(ctx context.Context, key K) (ReconcileResult, error) {
 		return ReconcileResult{}, reconcile(ctx, key)
 	}, options, q)
@@ -710,11 +730,6 @@ func runKeyedWithResult[K ~string](parent context.Context, source KeyedSource[K]
 	if parent.Err() != nil {
 		return nil
 	}
-	if err := options.Metrics.attach(q.metrics); err != nil {
-		return err
-	}
-	defer options.Metrics.detach()
-	options.Metrics.enableCleanup(options.Cleanup != nil)
 	ctx, cancel := context.WithCancel(parent)
 	var workers sync.WaitGroup
 	defer func() { cancel(); workers.Wait() }()
@@ -776,7 +791,7 @@ func runKeyedWithResult[K ~string](parent context.Context, source KeyedSource[K]
 		}
 	})
 	for i := 0; i < count; i++ {
-		workers.Go(func() { keyWorker(ctx, q, reconcile, options, notice, fail) })
+		workers.Go(func() { keyWorker(ctx, ctx, q, reconcile, options, notice, fail) })
 	}
 	<-ctx.Done()
 	cancel()
@@ -795,10 +810,13 @@ func runKeyedWithResult[K ~string](parent context.Context, source KeyedSource[K]
 	return errors.Join(result...)
 }
 
-// keyWorker takes keys from the queue and runs their actions until ctx ends or an action fails terminally.
-func keyWorker[K ~string](ctx context.Context, q *keyQueue[K], reconcile func(context.Context, K) (ReconcileResult, error), options KeyedOptions, notice func(string, error), fail func(error)) {
-	for ctx.Err() == nil {
-		key, err := q.take(ctx)
+// keyWorker takes keys from the queue until take ends or an action fails terminally. Each action runs under run and
+// its own timeout, so an end of take stops new takes and lets a running action finish (ST-SUP-RP02-LC10). In a
+// session both contexts are the same.
+func keyWorker[K ~string](take, run context.Context, q *keyQueue[K], reconcile func(context.Context, K) (ReconcileResult, error), options KeyedOptions, notice func(string, error), fail func(error)) {
+	ctx := run
+	for take.Err() == nil {
+		key, err := q.take(take)
 		if err != nil {
 			return
 		}
@@ -835,7 +853,7 @@ func keyWorker[K ~string](ctx context.Context, q *keyQueue[K], reconcile func(co
 			fail(err)
 			return
 		}
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || take.Err() != nil {
 			return
 		}
 		if err != nil {
@@ -914,6 +932,11 @@ func RunKeyedWatchesWithResult[K ~string](ctx context.Context, sources []Source[
 		return err
 	}
 	defer detach()
+	detachMetrics, err := attachMetrics(options.KeyedOptions, q)
+	if err != nil {
+		return err
+	}
+	defer detachMetrics()
 	for ctx.Err() == nil {
 		err, finish := controllerWork(ctx, "watch", func(operation context.Context) error {
 			return keyedWatchSession(operation, sources, reconcile, options, q)
@@ -941,15 +964,17 @@ func RunKeyedWatchesWithResult[K ~string](ctx context.Context, sources []Source[
 }
 
 // drainDuringReconnect runs the keys already queued while the watch waits for its reconnect delay, so a failed
-// connection attempt does not delay them (ST-SUP-RP02-LC10). Its workers join before the next session opens, and an
-// action that the end of the delay interrupts keeps the next capped delay, as at any reconnect. It returns a terminal
-// action error.
+// connection attempt does not delay them (ST-SUP-RP02-LC10). At the end of the delay it takes no new key, lets each
+// running action finish under the parent and its own timeout, records it as any action, and joins the workers before
+// the next session opens. It returns a terminal action error.
 func drainDuringReconnect[K ~string](parent context.Context, q *keyQueue[K], reconcile func(context.Context, K) (ReconcileResult, error), options KeyedWatchOptions) error {
-	ctx, cancel := context.WithTimeout(parent, options.ReconnectDelay)
-	defer cancel()
+	run, stop := context.WithCancel(parent)
+	defer stop()
+	take, stopTaking := context.WithTimeout(run, options.ReconnectDelay)
+	defer stopTaking()
 	count := max(1, options.Workers)
 	failures := make(chan error, count)
-	fail := func(err error) { failures <- err; cancel() }
+	fail := func(err error) { failures <- err; stop() }
 	var notices sync.Mutex
 	notice := func(phase string, err error) {
 		controllerNotice(parent, phase)
@@ -962,9 +987,9 @@ func drainDuringReconnect[K ~string](parent context.Context, q *keyQueue[K], rec
 	var workers sync.WaitGroup
 	q.setReady(true)
 	for range count {
-		workers.Go(func() { keyWorker(ctx, q, reconcile, options.KeyedOptions, notice, fail) })
+		workers.Go(func() { keyWorker(take, run, q, reconcile, options.KeyedOptions, notice, fail) })
 	}
-	<-ctx.Done()
+	<-take.Done()
 	workers.Wait()
 	q.restart(options.RetryMin, options.RetryMax)
 	select {
