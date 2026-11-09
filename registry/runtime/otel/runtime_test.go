@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/pem"
+	"errors"
 	"io"
 	"log"
 	"math"
@@ -15,6 +16,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +25,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	otelcodes "go.opentelemetry.io/otel/codes"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -718,7 +721,7 @@ func TestExportLimits(t *testing.T) {
 		}
 		defer r.Close()
 		for range 300 {
-			_, span := r.tracer.Start(context.Background(), "span")
+			_, span := r.testSpan("span")
 			span.End()
 		}
 		time.Sleep(300 * time.Millisecond)
@@ -738,7 +741,7 @@ func TestExportLimits(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer r.Close()
-		_, span := r.tracer.Start(context.Background(), "held")
+		_, span := r.testSpan("held")
 		span.End()
 		waitFor(t, 4*time.Second, func() bool { return r.ExportFailures() == 1 })
 		c.mu.Lock()
@@ -754,7 +757,7 @@ func TestExportLimits(t *testing.T) {
 			c.mu.Lock()
 			batches := len(c.batches)
 			c.mu.Unlock()
-			_, span := r.tracer.Start(context.Background(), "large")
+			_, span := r.testSpan("large")
 			span.End()
 			waitFor(t, 3*time.Second, func() bool { c.mu.Lock(); defer c.mu.Unlock(); return len(c.batches) > batches })
 			time.Sleep(100 * time.Millisecond)
@@ -771,7 +774,7 @@ func TestExportLimits(t *testing.T) {
 			t.Fatal(err)
 		}
 		for range QueueSize {
-			_, span := r.tracer.Start(context.Background(), "span")
+			_, span := r.testSpan("span")
 			span.End()
 		}
 		started := time.Now()
@@ -793,7 +796,7 @@ func TestExportLimits(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, span := r.tracer.Start(context.Background(), "span")
+		_, span := r.testSpan("span")
 		span.End()
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
@@ -857,6 +860,91 @@ func TestSpanQueueShutdownRace(t *testing.T) {
 			if got := exporter.spans.Load() + int64(q.dropped.Load()); got != ended.Load() {
 				t.Fatalf("ended %d, exported and dropped %d", ended.Load(), got)
 			}
+		}
+	})
+}
+
+// testSpan starts a span of the runtime with its record, as the runtime's own wrappers do.
+func (r *Runtime) testSpan(name string) (context.Context, trace.Span) {
+	ctx, span, _ := r.startSpan(context.Background(), r.tracer, name, trace.SpanKindInternal, time.Now())
+	return ctx, span
+}
+
+func TestSpanOwnData(t *testing.T) {
+	t.Run("ST-SUP-RP03-LC05-T03 Code that holds the server span adds no event, attribute, status message, name or span", func(t *testing.T) {
+		const secret = "password=hunter2"
+		forge := func(ctx context.Context) {
+			span := trace.SpanFromContext(ctx)
+			span.RecordError(errors.New("exception.message=" + secret))
+			span.AddEvent("domain.forged", trace.WithAttributes(attribute.String("password", secret)))
+			span.AddEvent("free " + secret)
+			span.SetAttributes(attribute.String("error.type", secret), attribute.String("http.route", secret), attribute.String("password", secret))
+			span.SetStatus(otelcodes.Error, secret)
+			span.SetName(secret)
+			_, child := span.TracerProvider().Tracer("fill").Start(ctx, secret, trace.WithAttributes(attribute.String("password", secret)))
+			child.End()
+		}
+		h := newHarness(t, 1)
+		handler := h.runtime.Handler(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+			forge(request.Context())
+			// The probe runtime's own event goes through SpanEvent and is kept.
+			if h.runtime.SpanEvent(trace.SpanContextFromContext(request.Context()), "domain.reservation_refused", time.Now(), attribute.String("reason", "short")) {
+				t.Error("SpanEvent dropped the probe event")
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/items", nil))
+		ctx, finish := h.runtime.TraceRPC(context.Background(), "/sample.v1.Records/Get")
+		forge(ctx)
+		finish(nil)
+		spans := h.spans.Ended()
+		if len(spans) != 2 {
+			t.Fatalf("%d spans ended, want the HTTP and the RPC span only", len(spans))
+		}
+		for _, span := range spans {
+			text := span.Name() + " " + span.Status().Description
+			var keys []string
+			for _, attr := range span.Attributes() {
+				keys = append(keys, string(attr.Key))
+				text += " " + attr.Value.Emit()
+			}
+			for _, event := range span.Events() {
+				text += " " + event.Name
+				for _, attr := range event.Attributes {
+					text += " " + string(attr.Key) + " " + attr.Value.Emit()
+				}
+			}
+			if strings.Contains(text, "hunter2") || strings.Contains(text, "password") || strings.Contains(text, "exception") || strings.Contains(text, "forged") {
+				t.Fatalf("the span %q holds data that code in its context set: %s", span.Name(), text)
+			}
+			if span.Status().Code != otelcodes.Unset || len(span.Links()) != 0 || slices.Contains(keys, "error.type") {
+				t.Fatalf("the span %q has the status %v and the attributes %v", span.Name(), span.Status(), keys)
+			}
+		}
+		if events := spans[0].Events(); len(events) != 1 || events[0].Name != "domain.reservation_refused" {
+			t.Fatalf("the HTTP span has the events %v, want the probe event only", events)
+		}
+		if got := spans[1].Name(); got != "sample.v1.Records/Get" {
+			t.Fatalf("the RPC span is named %q", got)
+		}
+	})
+
+	t.Run("ST-SUP-RP03-LC05-T03 A span keeps at most SpanEventLimit probe events and reports the rest", func(t *testing.T) {
+		h := newHarness(t, 1)
+		ctx, span := h.runtime.testSpan("call")
+		sc := trace.SpanContextFromContext(ctx)
+		dropped := 0
+		for range SpanEventLimit + 3 {
+			if h.runtime.SpanEvent(sc, "domain.x", time.Now()) {
+				dropped++
+			}
+		}
+		span.End()
+		if h.runtime.SpanEvent(sc, "domain.x", time.Now()) {
+			t.Fatal("an event after the end of the span was reported for a span that is no longer the runtime's")
+		}
+		if dropped != 3 || len(h.lastSpan(t).Events()) != SpanEventLimit || h.lastSpan(t).DroppedEvents() != 3 {
+			t.Fatalf("SpanEvent dropped %d, the span holds %d events", dropped, len(h.lastSpan(t).Events()))
 		}
 	})
 }
