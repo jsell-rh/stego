@@ -7,8 +7,13 @@
 # The work file uses the module folder (such as a generated service) and registry/runtime. Give its path as GOWORK
 # to a go command in the module folder: the go command then reads the runtime packages from the folder, with no
 # network and no fetch from stego.dev. A generated go.mod keeps its runtime pin as it is, with no replace directive
-# (ST-GEN-INV13, ST-VO58-C01). Put the work file outside the module folder, so that no committed tree holds it, and
-# do not use it for stego deps or stego build: they resolve from the pin.
+# in it (ST-GEN-INV13, ST-VO58-C01): the only replace is the one below, in the work file. Put the work file outside
+# the module folder, so that no committed tree holds it, and do not use it for stego deps or stego build: they
+# resolve from the pin.
+#
+# When the module folder requires stego.dev/runtime at a version, the work file also replaces that one version with
+# the folder. Without it, the go command fetches the go.mod of the pinned version to load the module graph as soon as
+# the runtime module has a requirement of its own, and the build fails with no network.
 set -euo pipefail
 
 if [ "$#" -ne 2 ]; then
@@ -36,6 +41,36 @@ if [ -z "$version" ]; then
 	exit 1
 fi
 
+pin="$(sed -n -E 's#^[[:space:]]*(require[[:space:]]+)?stego\.dev/runtime[[:space:]]+(v[^[:space:]]+).*$#\2#p' "$module/go.mod" | head -n 1)"
+
 mkdir -p "$(dirname "$2")"
-printf 'go %s\n\nuse (\n\t%s\n\t%s\n)\n' "$version" "$module" "$runtime" >"$2"
+# A work file inside the module folder could be committed, and one named go.work above it is found by every go
+# command run in the folder, also by stego deps and stego build. Refuse both.
+work="$(cd "$(dirname "$2")" && pwd -P)/$(basename "$2")"
+case "$work/" in
+"$module"/*)
+	echo "runtime-workspace: the work file must be outside the module folder: $2" >&2
+	exit 2
+	;;
+esac
+if [ "$(basename "$work")" = "go.work" ]; then
+	case "$module/" in
+	"$(dirname "$work")"/*)
+		echo "runtime-workspace: a go.work above the module folder is used by every go command in it: $2" >&2
+		exit 2
+		;;
+	esac
+fi
+if [ "$module" = "$runtime" ]; then
+	# The module folder is the runtime module itself: a work file that uses one folder twice is refused.
+	printf 'go %s\n\nuse %s\n' "$version" "$runtime" >"$2"
+	echo "$2"
+	exit 0
+fi
+{
+	printf 'go %s\n\nuse (\n\t%s\n\t%s\n)\n' "$version" "$module" "$runtime"
+	if [ -n "$pin" ]; then
+		printf '\nreplace stego.dev/runtime %s => %s\n' "$pin" "$runtime"
+	fi
+} >"$2"
 echo "$2"

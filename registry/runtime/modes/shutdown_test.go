@@ -516,14 +516,14 @@ func TestModeShutdown(t *testing.T) {
 		inStep := make(chan struct{})
 		flushing := make(chan struct{})
 		var calls atomic.Int32
-		step := func(ctx context.Context, tx *sql.Tx, after sql.NullString, limit int) (lease.Batch, error) {
+		step := func(ctx context.Context, tx *sql.Tx, after *lease.Key, limit int) (lease.Batch, error) {
 			if calls.Add(1) == 2 {
 				close(inStep)
 				<-flushing
 			}
 			return moveItems(ctx, tx, after, limit)
 		}
-		backfill, err := lease.NewBackfill(change, step, lease.BackfillSettings{BatchSize: 100})
+		backfill, err := lease.NewBackfill(change, step, lease.BackfillSettings{Key: lease.KeyInteger, BatchSize: 100})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -565,8 +565,8 @@ func TestModeShutdown(t *testing.T) {
 				if released >= 0 {
 					t.Fatalf("a checkpoint was written after the release: %s", s.sql)
 				}
-				if s.args[len(s.args)-1] != held.Token() {
-					t.Fatalf("a checkpoint carries the token %v, want the holder's %d", s.args[len(s.args)-1], held.Token())
+				if s.args[7] != held.Token() {
+					t.Fatalf("a checkpoint carries the token %v, want the holder's %d", s.args[7], held.Token())
 				}
 				if batchCommit >= 0 && flushed < 0 {
 					flushed = i
@@ -584,11 +584,11 @@ func TestModeShutdown(t *testing.T) {
 		}
 		var holder string
 		var expired bool
-		var lastKey sql.NullString
+		var lastKey []byte
 		if err := d.other.QueryRowContext(ctx, "SELECT holder, expires_at < now() FROM leases").Scan(&holder, &expired); err != nil || holder != "h1" || !expired {
 			t.Fatalf("the lease row names %s, expired %v (%v), want h1 released", holder, expired, err)
 		}
-		if err := d.other.QueryRowContext(ctx, "SELECT last_key FROM stego_schema.backfills").Scan(&lastKey); err != nil || lastKey.String != "200" {
+		if err := d.other.QueryRowContext(ctx, "SELECT last_key FROM stego_schema.backfills").Scan(&lastKey); err != nil || string(lastKey) != "200" {
 			t.Fatalf("the checkpoint is %v (%v), want the flushed batch's key 200", lastKey, err)
 		}
 	})
@@ -706,8 +706,12 @@ func (w *claimWorker) finish(ctx context.Context) error {
 }
 
 // moveItems is the stand-in for a generated backfill step that copies old into new_value in key order.
-func moveItems(ctx context.Context, tx *sql.Tx, after sql.NullString, limit int) (lease.Batch, error) {
-	rows, err := tx.QueryContext(ctx, "SELECT id FROM items WHERE ($1::text IS NULL OR id > $1::bigint) AND new_value IS NULL ORDER BY id LIMIT $2 FOR UPDATE", after, limit)
+func moveItems(ctx context.Context, tx *sql.Tx, after *lease.Key, limit int) (lease.Batch, error) {
+	var arg any
+	if after != nil {
+		arg = after.Args()[0]
+	}
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM items WHERE ($1::bigint IS NULL OR id > $1::bigint) AND new_value IS NULL ORDER BY id LIMIT $2 FOR UPDATE", arg, limit)
 	if err != nil {
 		return lease.Batch{}, err
 	}
@@ -728,7 +732,7 @@ func moveItems(ctx context.Context, tx *sql.Tx, after sql.NullString, limit int)
 		}
 		batch.Read++
 		batch.Moved++
-		batch.LastKey = strconv.FormatInt(id, 10)
+		batch.LastKey = lease.IntegerKey(id)
 	}
 	return batch, rows.Err()
 }

@@ -27,9 +27,14 @@ const LeasesTable = `CREATE TABLE IF NOT EXISTS leases (
 	token bigint NOT NULL DEFAULT 0
 )`
 
-// acquireStatement is the one statement of ST-SUP-RP09-LC02 that acquires and renews a lease: it gives the lease to
+// acquireStatement is the statement of Acquire in ST-SUP-RP09-LC02: it gives the lease to
 // the holder when the holder already has it or the lease has expired, and it increments the token each time.
 const acquireStatement = `UPDATE leases SET holder=$1, expires_at=now()+make_interval(secs => $3), token=token+1 WHERE name=$2 AND (holder=$1 OR expires_at<now()) RETURNING token`
+
+// renewStatement is the statement of Renew in ST-SUP-RP09-LC02: it extends the lease and increments the token only
+// while the row still names the holder with the token it holds and the lease has not expired, so a renew after the
+// lease expired, was taken over or was released takes nothing and leaves the row as it is.
+const renewStatement = `UPDATE leases SET expires_at=now()+make_interval(secs => $4), token=token+1 WHERE name=$2 AND holder=$1 AND token=$3 AND expires_at>=now() RETURNING token`
 
 // releaseStatement makes the lease expire now, but only while the row still names the holder with its token. It
 // keeps the holder and the token, so the next acquire increments the token past every write of this holder.
@@ -242,8 +247,9 @@ func (h *Held) active() error {
 	}
 }
 
-// Renew runs the acquire statement again. When the holder no longer has the lease, the statement fails, or the
-// token is not the next one, the holder stops and Renew returns the error (ST-SUP-RP09-LC04).
+// Renew runs the renew statement with the token the holder holds. When the row no longer names the holder with that
+// token in an unexpired lease, the statement fails, or the token is not the next one, the holder stops and Renew
+// returns the error (ST-SUP-RP09-LC02, ST-SUP-RP09-LC04).
 func (h *Held) Renew(ctx context.Context) error {
 	if err := h.active(); err != nil {
 		return err
@@ -255,17 +261,15 @@ func (h *Held) Renew(ctx context.Context) error {
 	h.next = want
 	h.mu.Unlock()
 	sent := h.client.clock.Now()
-	token, err := h.client.update(ctx)
+	var token int64
+	err := h.client.db.QueryRowContext(ctx, renewStatement, h.client.holder, h.client.name, want-1, h.client.ttl.Seconds()).Scan(&token)
 	switch {
-	case errors.Is(err, ErrTaken):
-		err = fmt.Errorf("lease %s: %w: another holder has the lease", h.client.name, ErrLost)
+	case errors.Is(err, sql.ErrNoRows):
+		err = fmt.Errorf("lease %s: %w: the row no longer names this holder with token %d in an unexpired lease", h.client.name, ErrLost, want-1)
 	case err != nil:
-		err = fmt.Errorf("%w: %w", ErrLost, err)
+		err = fmt.Errorf("lease %s: %w: %w", h.client.name, ErrLost, err)
 	case token != want:
 		err = fmt.Errorf("lease %s: %w: the renew gave token %d, not %d", h.client.name, ErrLost, token, want)
-		// The statement gave this holder the row with a token it did not expect. Make the lease expire with that
-		// token, so another holder can take it at once.
-		_, _ = h.client.db.ExecContext(context.WithoutCancel(ctx), releaseStatement, h.client.name, h.client.holder, token)
 	}
 	h.mu.Lock()
 	h.next = 0

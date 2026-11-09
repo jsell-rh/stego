@@ -50,6 +50,11 @@ jobs:
       - name: Test the module
         working-directory: registry/runtime
         run: go test -race -count=1 -mod=readonly ./...
+      - name: Fetch the module graph
+        # In workspace mode the go command loads the whole module graph, with the go.mod files of requirements
+        # that no test builds. Fetch them here, so that the next step reads them from the module cache.
+        working-directory: registry/runtime
+        run: go list -m all > /dev/null
       - name: Resolve the module from the local folder with no network
         env:
           GOPROXY: 'off'

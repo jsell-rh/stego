@@ -234,7 +234,7 @@ func (noDB) BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error) {
 }
 
 func TestLeaseIsOneRow(t *testing.T) {
-	t.Run("ST-SUP-RP09-LC02-T01 Acquire and Renew run the one declared UPDATE", func(t *testing.T) {
+	t.Run("ST-SUP-RP09-LC02-T01 Acquire and Renew each run their own declared UPDATE", func(t *testing.T) {
 		d := openDatabase(t)
 		ctx := context.Background()
 		if err := Declare(ctx, d.db, "stego.controller"); err != nil {
@@ -246,18 +246,23 @@ func TestLeaseIsOneRow(t *testing.T) {
 		if err := h.Renew(ctx); err != nil {
 			t.Fatal(err)
 		}
-		want := "UPDATE leases SET holder=$1, expires_at=now()+ttl, token=token+1 WHERE name=$2 AND (holder=$1 OR expires_at<now()) RETURNING token"
+		wantAcquire := "UPDATE leases SET holder=$1, expires_at=now()+ttl, token=token+1 WHERE name=$2 AND (holder=$1 OR expires_at<now()) RETURNING token"
+		wantRenew := "UPDATE leases SET expires_at=now()+ttl, token=token+1 WHERE name=$2 AND holder=$1 AND token=$3 AND expires_at>=now() RETURNING token"
 		sent := d.rec.all()
 		if len(sent) != 2 {
 			t.Fatalf("Acquire and Renew sent %d statements, want 2: %v", len(sent), sent)
 		}
-		for i, s := range sent {
-			if got := strings.Replace(s.sql, "make_interval(secs => $3)", "ttl", 1); got != want {
-				t.Errorf("statement %d is %q, want %q with ttl as $3", i, s.sql, want)
-			}
-			if len(s.args) != 3 || s.args[0] != "h1" || s.args[1] != "stego.controller" || s.args[2] != 15.0 {
-				t.Errorf("statement %d binds %v, want h1, stego.controller and the lease of 15 s", i, s.args)
-			}
+		if got := strings.Replace(sent[0].sql, "make_interval(secs => $3)", "ttl", 1); got != wantAcquire {
+			t.Errorf("Acquire sent %q, want %q with ttl as $3", sent[0].sql, wantAcquire)
+		}
+		if a := sent[0].args; len(a) != 3 || a[0] != "h1" || a[1] != "stego.controller" || a[2] != 15.0 {
+			t.Errorf("Acquire binds %v, want h1, stego.controller and the lease of 15 s", a)
+		}
+		if got := strings.Replace(sent[1].sql, "make_interval(secs => $4)", "ttl", 1); got != wantRenew {
+			t.Errorf("Renew sent %q, want %q with ttl as $4", sent[1].sql, wantRenew)
+		}
+		if a := sent[1].args; len(a) != 4 || a[0] != "h1" || a[1] != "stego.controller" || a[2] != h.Token()-1 || a[3] != 15.0 {
+			t.Errorf("Renew binds %v, want h1, stego.controller, the token it held and the lease of 15 s", a)
 		}
 	})
 
@@ -300,6 +305,47 @@ func TestLeaseIsOneRow(t *testing.T) {
 		holder, token, _ := d.leaseRow(t, "stego.controller")
 		if holder != "h1" || token != h1.Token() {
 			t.Fatalf("the row holds %s with token %d, want h1 with %d", holder, token, h1.Token())
+		}
+	})
+
+	t.Run("ST-SUP-RP09-LC02-T06 A renew after a takeover and a release takes nothing", func(t *testing.T) {
+		d := openDatabase(t)
+		ctx := context.Background()
+		if err := Declare(ctx, d.db, "stego.controller"); err != nil {
+			t.Fatal(err)
+		}
+		a := acquire(t, newClient(t, d.db, "stego.controller", "a", Settings{}))
+		d.expire(t, "stego.controller")
+		b := acquire(t, newClient(t, d.db, "stego.controller", "b", Settings{}))
+		if err := b.Release(ctx); err != nil {
+			t.Fatal(err)
+		}
+		holder, token, expires := d.leaseRow(t, "stego.controller")
+		if err := a.Renew(ctx); !errors.Is(err, ErrLost) {
+			t.Fatalf("the renew of A gave %v, want ErrLost and no token", err)
+		}
+		if h, k, e := d.leaseRow(t, "stego.controller"); h != holder || k != token || !e.Equal(expires) || e.After(time.Now()) {
+			t.Fatalf("after the renew the row is %s, %d, %s, want B's release left as it is: %s, %d, %s", h, k, e, holder, token, expires)
+		}
+		if _, err := newClient(t, d.db, "stego.controller", "c", Settings{}).Acquire(ctx); err != nil {
+			t.Fatalf("C could not acquire the lease at once: %v", err)
+		}
+	})
+
+	t.Run("ST-SUP-RP09-LC02-T07 A renew after the lease expired takes nothing", func(t *testing.T) {
+		d := openDatabase(t)
+		ctx := context.Background()
+		if err := Declare(ctx, d.db, "stego.controller"); err != nil {
+			t.Fatal(err)
+		}
+		a := acquire(t, newClient(t, d.db, "stego.controller", "a", Settings{}))
+		d.expire(t, "stego.controller")
+		holder, token, expires := d.leaseRow(t, "stego.controller")
+		if err := a.Renew(ctx); !errors.Is(err, ErrLost) {
+			t.Fatalf("the renew after the expiry gave %v, want ErrLost and no token", err)
+		}
+		if h, k, e := d.leaseRow(t, "stego.controller"); h != holder || k != token || !e.Equal(expires) {
+			t.Fatalf("after the renew the row is %s, %d, %s, want it unchanged: %s, %d, %s", h, k, e, holder, token, expires)
 		}
 	})
 
@@ -591,10 +637,6 @@ func TestHolderStops(t *testing.T) {
 		}
 		if err := within(t, result, "the end of Hold"); !errors.Is(err, ErrLost) {
 			t.Fatalf("Hold returned %v, want ErrLost", err)
-		}
-		var released bool
-		if err := d.other.QueryRowContext(context.Background(), "SELECT expires_at < now() FROM leases WHERE name='stego.controller'").Scan(&released); err != nil || !released {
-			t.Fatalf("after the token mismatch the lease is expired %v (%v), want released", released, err)
 		}
 	})
 

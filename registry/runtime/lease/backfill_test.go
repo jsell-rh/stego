@@ -1,12 +1,15 @@
 package lease
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -109,7 +112,13 @@ func newItems(t *testing.T, d *database, rows int, bad ...int64) *items {
 	return &items{d: d}
 }
 
-func (it *items) step(ctx context.Context, tx *sql.Tx, after sql.NullString, limit int) (Batch, error) {
+func (it *items) step(ctx context.Context, tx *sql.Tx, key *Key, limit int) (Batch, error) {
+	var after sql.NullString
+	var arg any
+	if key != nil {
+		after = sql.NullString{String: key.Value, Valid: true}
+		arg = key.Args()[0]
+	}
 	it.mu.Lock()
 	n := len(it.calls)
 	it.calls = append(it.calls, call{after: after})
@@ -118,15 +127,15 @@ func (it *items) step(ctx context.Context, tx *sql.Tx, after sql.NullString, lim
 	if gate != nil {
 		gate(n)
 	}
-	result, written, err := it.move(ctx, tx, after, limit)
+	result, written, err := it.move(ctx, tx, arg, limit)
 	it.mu.Lock()
 	it.calls[n].written, it.calls[n].err = written, err
 	it.mu.Unlock()
 	return result, err
 }
 
-func (it *items) move(ctx context.Context, tx *sql.Tx, after sql.NullString, limit int) (Batch, []int64, error) {
-	rows, err := tx.QueryContext(ctx, "SELECT id, old FROM items WHERE ($1::text IS NULL OR id > $1::bigint) AND new_value IS NULL ORDER BY id LIMIT $2 FOR UPDATE", after, limit)
+func (it *items) move(ctx context.Context, tx *sql.Tx, after any, limit int) (Batch, []int64, error) {
+	rows, err := tx.QueryContext(ctx, "SELECT id, old FROM items WHERE ($1::bigint IS NULL OR id > $1::bigint) AND new_value IS NULL ORDER BY id LIMIT $2 FOR UPDATE", after, limit)
 	if err != nil {
 		return Batch{}, nil, err
 	}
@@ -151,7 +160,7 @@ func (it *items) move(ctx context.Context, tx *sql.Tx, after sql.NullString, lim
 	var written []int64
 	for _, r := range picked {
 		result.Read++
-		result.LastKey = strconv.FormatInt(r.id, 10)
+		result.LastKey = IntegerKey(r.id)
 		value, err := strconv.ParseInt(r.old, 10, 64)
 		if err != nil {
 			if it.fill == nil {
@@ -178,6 +187,8 @@ func (it *items) allCalls() []call {
 // row is the checkpoint row of the change as the second session reads it.
 type row struct {
 	lastKey    sql.NullString
+	keyType    sql.NullString
+	stored     []byte
 	moved      int64
 	failed     int64
 	fillDigest string
@@ -188,16 +199,22 @@ type row struct {
 func checkpointRow(t *testing.T, d *database) row {
 	t.Helper()
 	var r row
-	err := d.other.QueryRowContext(context.Background(), "SELECT last_key, rows_moved, failed_rows, fill_digest, token, completed_at FROM stego_schema.backfills WHERE change_id=$1", backfillChange).
-		Scan(&r.lastKey, &r.moved, &r.failed, &r.fillDigest, &r.token, &r.completed)
+	var stored []byte
+	err := d.other.QueryRowContext(context.Background(), "SELECT last_key, last_key_type, rows_moved, failed_rows, fill_digest, token, completed_at FROM stego_schema.backfills WHERE change_id=$1", backfillChange).
+		Scan(&stored, &r.keyType, &r.moved, &r.failed, &r.fillDigest, &r.token, &r.completed)
 	if err != nil {
 		t.Fatal(err)
 	}
+	r.stored = stored
+	r.lastKey = sql.NullString{String: string(stored), Valid: stored != nil}
 	return r
 }
 
 func newBackfill(t *testing.T, it *items, settings BackfillSettings) *Backfill {
 	t.Helper()
+	if settings.Key == "" {
+		settings.Key = KeyInteger
+	}
 	b, err := NewBackfill(backfillChange, it.step, settings)
 	if err != nil {
 		t.Fatal(err)
@@ -352,6 +369,176 @@ func TestBackfillProgress(t *testing.T) {
 			if change != backfillChange {
 				t.Fatalf("an emission carries %q, want only the change ID", change)
 			}
+		}
+	})
+}
+
+// keyedStep is a stand-in for a generated step that orders by the key alone, with no filter on the new value, so
+// that only the checkpoint key keeps a row from being moved twice. It records the order of the moves.
+type keyedStep struct {
+	mu    sync.Mutex
+	moved []string
+}
+
+func (k *keyedStep) record(row string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.moved = append(k.moved, row)
+}
+
+func (k *keyedStep) all() []string {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return append([]string(nil), k.moved...)
+}
+
+func newKeyedBackfill(t *testing.T, step Step, settings BackfillSettings) *Backfill {
+	t.Helper()
+	b, err := NewBackfill(backfillChange, step, settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestBackfillKeyTypes(t *testing.T) {
+	t.Run("ST-SUP-RP09-LC09-T02 An integer checkpoint compares as an integer", func(t *testing.T) {
+		d := openDatabase(t)
+		ctx := context.Background()
+		d.exec(t, "CREATE TABLE numbers (id bigint PRIMARY KEY, moves int NOT NULL DEFAULT 0)")
+		d.exec(t, "INSERT INTO numbers (id) SELECT generate_series(1, 20)")
+		d.exec(t, "INSERT INTO stego_schema.backfills (change_id) VALUES ($1)", backfillChange)
+		k := &keyedStep{}
+		step := func(ctx context.Context, tx *sql.Tx, after *Key, limit int) (Batch, error) {
+			var arg any
+			if after != nil {
+				arg = after.Args()[0]
+			}
+			rows, err := tx.QueryContext(ctx, "UPDATE numbers SET moves=moves+1 WHERE id IN (SELECT id FROM numbers WHERE ($1::bigint IS NULL OR id > $1::bigint) ORDER BY id LIMIT $2 FOR UPDATE) RETURNING id", arg, limit)
+			if err != nil {
+				return Batch{}, err
+			}
+			var ids []int64
+			for rows.Next() {
+				var id int64
+				if err := rows.Scan(&id); err != nil {
+					rows.Close()
+					return Batch{}, err
+				}
+				ids = append(ids, id)
+			}
+			rows.Close()
+			slices.Sort(ids)
+			var batch Batch
+			for _, id := range ids {
+				k.record(strconv.FormatInt(id, 10))
+				batch.Read++
+				batch.Moved++
+				batch.LastKey = IntegerKey(id)
+			}
+			return batch, rows.Err()
+		}
+		var checkpoints []string
+		observed := &observations{}
+		observed.onRows = func(int) {
+			r := checkpointRow(t, d)
+			checkpoints = append(checkpoints, r.keyType.String+":"+r.lastKey.String)
+		}
+		b := newKeyedBackfill(t, step, BackfillSettings{Key: KeyInteger, BatchSize: 9, Observer: observed})
+		// A key that compares wrong moves the same rows again and again; the bound ends such a run.
+		bounded, cancel := context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+		if err := b.Run(bounded, d.db, heldLease(t, d, "h1", Settings{})); err != nil {
+			t.Fatal(err)
+		}
+		if fmt.Sprint(checkpoints) != "[integer:9 integer:18 integer:20]" {
+			t.Fatalf("the checkpoints are %v, want 9, 18 and 20 stored as integers", checkpoints)
+		}
+		var wrong int
+		if err := d.other.QueryRowContext(ctx, "SELECT count(*) FROM numbers WHERE moves <> 1").Scan(&wrong); err != nil || wrong != 0 {
+			t.Fatalf("%d rows were not moved exactly once (%v)", wrong, err)
+		}
+		if got := checkpointRow(t, d); !got.completed.Valid || got.moved != 20 || observed.completed != 1 {
+			t.Fatalf("the change is complete %v with %d rows moved, want complete after key 20 with 20", got.completed.Valid, got.moved)
+		}
+	})
+
+	t.Run("ST-SUP-RP09-LC09-T03 A composite checkpoint resumes between two rows of one leading part", func(t *testing.T) {
+		d := openDatabase(t)
+		d.exec(t, "CREATE TABLE pairs (a integer NOT NULL, b text NOT NULL, moves int NOT NULL DEFAULT 0, PRIMARY KEY (a, b))")
+		d.exec(t, "INSERT INTO pairs (a, b) VALUES (1, 'x'), (1, 'y'), (2, 'a'), (2, 'b'), (2, 'c'), (3, 'a'), (3, 'b')")
+		d.exec(t, "INSERT INTO stego_schema.backfills (change_id) VALUES ($1)", backfillChange)
+		k := &keyedStep{}
+		step := func(ctx context.Context, tx *sql.Tx, after *Key, limit int) (Batch, error) {
+			query := "SELECT a, b FROM pairs ORDER BY a, b LIMIT $1 FOR UPDATE"
+			args := []any{limit}
+			if after != nil {
+				query = "SELECT a, b FROM pairs WHERE (a, b) > ($2::integer, $3::text) ORDER BY a, b LIMIT $1 FOR UPDATE"
+				args = append(args, after.Args()...)
+			}
+			rows, err := tx.QueryContext(ctx, query, args...)
+			if err != nil {
+				return Batch{}, err
+			}
+			type pair struct {
+				a int64
+				b string
+			}
+			var picked []pair
+			for rows.Next() {
+				var p pair
+				if err := rows.Scan(&p.a, &p.b); err != nil {
+					rows.Close()
+					return Batch{}, err
+				}
+				picked = append(picked, p)
+			}
+			rows.Close()
+			if err := rows.Err(); err != nil {
+				return Batch{}, err
+			}
+			var batch Batch
+			for _, p := range picked {
+				if _, err := tx.ExecContext(ctx, "UPDATE pairs SET moves=moves+1 WHERE a=$1 AND b=$2", p.a, p.b); err != nil {
+					return Batch{}, err
+				}
+				k.record(fmt.Sprintf("%d%s", p.a, p.b))
+				batch.Read++
+				batch.Moved++
+				batch.LastKey = CompositeKey(IntegerKey(p.a), TextKey(p.b))
+			}
+			return batch, nil
+		}
+		settings := BackfillSettings{Key: KeyComposite, KeyParts: []KeyType{KeyInteger, KeyText}, BatchSize: 3}
+		ctx, stop := context.WithCancel(context.Background())
+		defer stop()
+		first := settings
+		first.Observer = &observations{onRows: func(int) { stop() }}
+		if err := newKeyedBackfill(t, step, first).Run(ctx, d.db, heldLease(t, d, "h1", Settings{})); !errors.Is(err, context.Canceled) {
+			t.Fatalf("the first runner gave %v, want its stop after one batch", err)
+		}
+		got := checkpointRow(t, d)
+		part := func(field string) []byte {
+			return append(binary.BigEndian.AppendUint32(nil, uint32(len(field))), field...)
+		}
+		var want []byte
+		for _, field := range []string{"integer", "2", "text", "a"} {
+			want = append(want, part(field)...)
+		}
+		if got.keyType.String != "composite" || !bytes.Equal(got.stored, want) {
+			t.Fatalf("the checkpoint is %q of type %q, want the two typed, length-prefixed parts %q", got.stored, got.keyType.String, want)
+		}
+		bounded, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		if err := newKeyedBackfill(t, step, settings).Run(bounded, d.db, heldLease(t, d, "h1", Settings{})); err != nil {
+			t.Fatal(err)
+		}
+		if moved := fmt.Sprint(k.all()); moved != "[1x 1y 2a 2b 2c 3a 3b]" {
+			t.Fatalf("the rows moved in the order %s, want each once in (a, b) order", moved)
+		}
+		var wrong int
+		if err := d.other.QueryRowContext(context.Background(), "SELECT count(*) FROM pairs WHERE moves <> 1").Scan(&wrong); err != nil || wrong != 0 {
+			t.Fatalf("%d rows were not moved exactly once (%v)", wrong, err)
 		}
 	})
 }
