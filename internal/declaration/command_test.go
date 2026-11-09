@@ -7,23 +7,6 @@ import (
 	"github.com/jsell-rh/stego/internal/parser"
 )
 
-// td02 is the declaration of ST-DECL-TD02.
-const td02 = `kind: service
-name: todo-svc
-archetype: rest-crud
-language: go
-base_path: /api/todo/v1
-entities:
-  - name: Todo
-    fields:
-      - {name: title, type: string, min_length: 1, max_length: 255}
-      - {name: done, type: bool, default: false}
-collections:
-  todos:
-    entity: Todo
-    operations: [create, read, update, delete, list]
-`
-
 // compositionFaults reads a declaration as stego validate reads it and gives the faults of its composition with
 // the facts given, keeping only those of the rules named.
 func compositionFaults(t *testing.T, service string, facts Facts, rules ...string) []ValidationError {
@@ -198,6 +181,29 @@ func TestCommandRetry(t *testing.T) {
 	with := func(lines ...string) string {
 		return td02 + "commands:\n" + standardCommand("reserve-and-charge", lines...)
 	}
+	t.Run("ST-DECL-INV80-T A command with the values left out gets 0 and 2s, marked as defaults", func(t *testing.T) {
+		declared := readDeclaration(t, with())
+		got := map[string]Setting{}
+		for _, setting := range ResolvedSettings(declared) {
+			got[setting.Path] = setting
+		}
+		if s := got["commands[0].retry_on_conflict"]; s.Value != 0 || !s.Default {
+			t.Errorf("retry on conflict is %+v, want the default 0", s)
+		}
+		if s := got["commands[0].lock_timeout"]; s.Value != "2s" || !s.Default {
+			t.Errorf("lock timeout is %+v, want the default 2s", s)
+		}
+		declared = readDeclaration(t, with("retry_on_conflict: 2", "lock_timeout: 500ms"))
+		for _, setting := range ResolvedSettings(declared) {
+			got[setting.Path] = setting
+		}
+		if s := got["commands[0].retry_on_conflict"]; s.Value != 2 || s.Default {
+			t.Errorf("retry on conflict is %+v, want the stated 2", s)
+		}
+		if s := got["commands[0].lock_timeout"]; s.Value != "500ms" || s.Default {
+			t.Errorf("lock timeout is %+v, want the stated 500ms", s)
+		}
+	})
 	for _, accepted := range [][]string{nil, {"retry_on_conflict: 0"}, {"retry_on_conflict: 3"}, {"lock_timeout: 100ms"}, {"lock_timeout: 10s"}} {
 		t.Run("ST-DECL-INV80-T A command with "+strings.Join(append([]string{"the values left out"}, accepted...), ", ")+" is accepted", func(t *testing.T) {
 			wantNoFault(t, compositionFaults(t, with(accepted...), facts))

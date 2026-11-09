@@ -134,6 +134,19 @@ go build -o service ./out
 Run the following STEGO commands from the project directory that contains
 `service.yaml`. The build command keeps that working directory unchanged.
 
+`stego validate` prints every fault of the declaration, or that there is none.
+With `--json` it prints one JSON document for an agent: `accepted`, the
+`faults` (each with its rule, path, value found, allowed values and message),
+and the `settings` that checking resolved. Each setting has its `path`, its
+`value` and `default`, which is `true` when checking filled the value in
+because the declaration leaves it out, such as `idempotency.retention` with
+`24h`, or `tenancy.kind` with `pooled` and `audit.level` with `change` for a
+declaration that says nothing of tenancy or audit. A default that the
+declaration leaves is a setting that is not a default, such as `tenancy.kind`
+with `single`, and its reason is the setting `tenancy.reason` or
+`audit.reason`. Each command gets `commands[i].retry_on_conflict` with `0` and
+`commands[i].lock_timeout` with `2s` when it leaves them out.
+
 Run `stego deps` after apply and after changes to application imports. It runs Go
 module resolution, module verification, and package dependency checks. It uses
 temporary module files, then saves `go.mod` and `go.sum` with transaction recovery.
