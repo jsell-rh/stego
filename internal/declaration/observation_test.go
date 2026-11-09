@@ -243,12 +243,21 @@ func TestObservationCounts(t *testing.T) {
 	t.Run("ST-DECL-INV55-T An event with no Counts is accepted, and counts each attempt", func(t *testing.T) {
 		service := observations(refused())
 		wantNoFault(t, observationFaults(t, service))
-		declared, _, err := readDeclaration(service)
-		if err != nil {
-			t.Fatal(err)
-		}
+		declared := readDeclaration(t, service)
 		if counts := ObservationCounts(declared.Observations[0]); counts != "attempt" {
 			t.Errorf("the event counts %q, want attempt", counts)
+		}
+		found := false
+		for _, setting := range ResolvedSettings(declared) {
+			if setting.Path == "observations[0].counts" {
+				found = true
+				if setting.Value != "attempt" || !setting.Default {
+					t.Errorf("checking reports the counts %+v, want the default attempt", setting)
+				}
+			}
+		}
+		if !found {
+			t.Error("checking reports no counts of the event")
 		}
 	})
 	for _, c := range []struct{ name, service string }{

@@ -423,3 +423,17 @@ func validateSchemaChangeCount(service *types.ServiceDeclaration) []ValidationEr
 	}
 	return []ValidationError{{Category: "schema-change", Rule: "schema-change-count", Path: "schema_history", Found: strconv.Itoa(open), Message: fmt.Sprintf("%d schema changes are open at expand; at most %d may be open, so finish some with their contract steps first", open, maxOpenSchemaChanges)}}
 }
+
+// schemaChangeSettings gives the phase of each schema change, which is the phase of its last step, so that the
+// author sees which changes are open at expand and which are finished at contract. A change with no step has no
+// phase.
+func schemaChangeSettings(service *types.ServiceDeclaration) []Setting {
+	phases := schemaPhases(service.SchemaHistory)
+	var settings []Setting
+	for i, change := range service.SchemaChanges {
+		if steps := phases[change.ID]; len(steps) > 0 {
+			settings = append(settings, Setting{Path: schemaChangePath(i) + ".phase", Value: steps[len(steps)-1]})
+		}
+	}
+	return settings
+}

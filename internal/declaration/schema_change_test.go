@@ -139,10 +139,7 @@ func TestSchemaChangeMode(t *testing.T) {
 	t.Run("ST-DECL-INV61-T A rename at expand with the modes api is refused, and checking adds no mode", func(t *testing.T) {
 		service := todoFields(renamed, "[api]", []string{rename}, "todo-title-rename expand")
 		wantFault(t, schemaFaults(t, service, "schema-change-mode"), `"todo-title-rename"`, "controller")
-		declared, _, err := readDeclaration(service)
-		if err != nil {
-			t.Fatal(err)
-		}
+		declared := readDeclaration(t, service)
 		ValidateComposition(declared, Facts{})
 		if strings.Join(declared.Modes, ",") != "api" {
 			t.Errorf("checking changed the modes to %v", declared.Modes)

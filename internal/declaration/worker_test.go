@@ -182,12 +182,19 @@ func TestWorkerLease(t *testing.T) {
 		})
 	}
 	t.Run("ST-DECL-INV74-T Single and Lease TTL get their defaults", func(t *testing.T) {
-		declared, _, err := readDeclaration(workers(syncWorker()))
-		if err != nil {
-			t.Fatal(err)
-		}
+		declared := readDeclaration(t, workers(syncWorker()))
 		if w := declared.Workers[0]; !WorkerSingle(w) || WorkerLeaseTTL(w) != "15s" {
 			t.Errorf("the worker is single %v with the lease TTL %s, want true and 15s", WorkerSingle(w), WorkerLeaseTTL(w))
+		}
+		got := map[string]Setting{}
+		for _, setting := range ResolvedSettings(declared) {
+			got[setting.Path] = setting
+		}
+		if s := got["workers[0].single"]; s.Value != true || !s.Default {
+			t.Errorf("checking reports single %+v, want the default true", s)
+		}
+		if s := got["workers[0].lease_ttl"]; s.Value != "15s" || !s.Default {
+			t.Errorf("checking reports the lease TTL %+v, want the default 15s", s)
 		}
 	})
 	consumer := func(line string) string {
