@@ -291,8 +291,6 @@ type ServiceDeclaration struct {
 	Modes []string `yaml:"modes,omitempty"`
 	// Workers are the background work that the service's own code carries out (ST-DECL-EN25).
 	Workers []Worker `yaml:"workers,omitempty"`
-	// Controllers are the controllers that the service runs in controller mode (ST-DECL-EN16).
-	Controllers []Controller `yaml:"controllers,omitempty"`
 }
 
 // UnmarshalYAML implements custom YAML unmarshaling for ServiceDeclaration.

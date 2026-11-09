@@ -314,3 +314,34 @@ func validateWorkerCount(workers []types.Worker) []ValidationError {
 	}
 	return []ValidationError{{Category: "worker", Rule: "worker-count", Path: "workers", Found: strconv.Itoa(len(workers)), Message: fmt.Sprintf("the declaration has %d workers; it may have at most %d, so that each built-in worker counter stays within the series limit", len(workers), maxWorkers)}}
 }
+
+// allModes are the modes that a declaration runs when it names none.
+var allModes = []string{"api", "worker", "controller"}
+
+// modeSettings resolves the modes the binary runs: all three when the declaration names none.
+func modeSettings(service *types.ServiceDeclaration) []Setting {
+	if len(service.Modes) == 0 {
+		return []Setting{{Path: "modes", Value: append([]string(nil), allModes...), Default: true}}
+	}
+	return []Setting{{Path: "modes", Value: append([]string(nil), service.Modes...)}}
+}
+
+// workerSettings resolves Single of each worker with an every trigger, yes when it is omitted, and the lease TTL
+// of each single worker, 15s when it is omitted (ST-DECL-INV74), at the paths that the faults use.
+func workerSettings(service *types.ServiceDeclaration) []Setting {
+	var settings []Setting
+	for i, worker := range service.Workers {
+		if trigger, reason := parseTrigger(worker.Trigger); reason != "" || trigger.consumes != "" {
+			continue
+		}
+		single := Setting{Path: workerPath(i) + ".single", Value: true, Default: true}
+		if worker.Single != nil {
+			single = Setting{Path: single.Path, Value: *worker.Single}
+		}
+		settings = append(settings, single)
+		if WorkerSingle(worker) {
+			settings = append(settings, resolved(workerPath(i)+".lease_ttl", worker.LeaseTTL, WorkerLeaseTTL(types.Worker{})))
+		}
+	}
+	return settings
+}
