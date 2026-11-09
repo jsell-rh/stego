@@ -564,6 +564,20 @@ func TestWorkerMetrics(t *testing.T) {
 		}})
 		cycle(t, w)
 		clock.Advance(5 * time.Second)
+		// A resolution that the caller rolls back records no delay.
+		tx, err := db.BeginTx(context.Background(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Resolve(context.Background(), tx, ResolveRequest{ID: m.ID, Subject: "user:ops-1", Resolution: Acted}); err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Rollback(); err != nil {
+			t.Fatal(err)
+		}
+		if found := collect(t, reader, "outbox.delivery.delay"); len(found) != 0 {
+			t.Fatalf("a rolled back resolution recorded %+v", found)
+		}
 		resolve(t, db, w, m.ID, Acted)
 		found := collect(t, reader, "outbox.delivery.delay")
 		if len(found) != 1 {

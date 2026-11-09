@@ -139,10 +139,15 @@ func resolveAs(t *testing.T, db *sql.DB, w *Worker, id uuid.UUID, subject string
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := w.Resolve(context.Background(), tx, ResolveRequest{ID: id, Subject: subject, Resolution: r}); err != nil {
+	resolved, err := w.Resolve(context.Background(), tx, ResolveRequest{ID: id, Subject: subject, Resolution: r})
+	if err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	resolved.Committed(context.Background())
+	return nil
 }
 
 func resolve(t *testing.T, db *sql.DB, w *Worker, id uuid.UUID, r Resolution) {
@@ -732,7 +737,7 @@ func TestDispatchResolve(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := w.Resolve(ctx, tx, ResolveRequest{ID: m.ID, Subject: "user:ops-1", Resolution: Acted}); err != nil {
+		if _, err := w.Resolve(ctx, tx, ResolveRequest{ID: m.ID, Subject: "user:ops-1", Resolution: Acted}); err != nil {
 			t.Fatal(err)
 		}
 		if err := tx.Rollback(); err != nil {

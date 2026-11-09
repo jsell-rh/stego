@@ -460,7 +460,38 @@ var ErrNotAllowed = errors.New("outbox: the subject may not resolve messages of 
 // accepts only not acted, or discarded when the destination must land; discarded is refused for a destination that
 // need not land. The audit row is written in tx with the state change. A refused resolution changes nothing. The
 // caller commits tx, with tenant.Commit when tenant.Begin opened it.
-func (w *Worker) Resolve(ctx context.Context, tx *sql.Tx, request ResolveRequest) error {
+//
+// Resolve returns a Resolved. The caller calls its Committed after its own commit of tx succeeds, and only then, so
+// a message resolved as acted records its delivery delay only once it is done (ST-SUP-RP01-LC07).
+func (w *Worker) Resolve(ctx context.Context, tx *sql.Tx, request ResolveRequest) (Resolved, error) {
+	var resolved Resolved
+	err := w.resolve(ctx, tx, request, &resolved)
+	if err != nil {
+		return Resolved{}, err
+	}
+	return resolved, nil
+}
+
+// Resolved is a resolution that Resolve applied in the caller's transaction.
+type Resolved struct {
+	worker      *Worker
+	destination string
+	delay       time.Duration
+	done        bool
+}
+
+// Committed records what the resolution changed once the caller's transaction committed: for a message resolved
+// as acted, its delivery delay under its destination. A caller that rolls back does not call it. A second call
+// records nothing.
+func (r *Resolved) Committed(ctx context.Context) {
+	if r == nil || r.worker == nil || !r.done {
+		return
+	}
+	r.done = false
+	r.worker.metrics.delivered(ctx, r.destination, r.delay)
+}
+
+func (w *Worker) resolve(ctx context.Context, tx *sql.Tx, request ResolveRequest, out *Resolved) error {
 	if w.decider == nil {
 		return errors.New("outbox: the worker has no decision port, so it refuses every resolution")
 	}
@@ -544,10 +575,7 @@ func (w *Worker) Resolve(ctx context.Context, tx *sql.Tx, request ResolveRequest
 		Subject: request.Subject, Resolution: request.Resolution, At: at}); err != nil {
 		return fmt.Errorf("outbox: write the audit row of the resolution: %w", err)
 	}
-	if to == Done {
-		// A message resolved as acted reaches done; its delay is recorded here, before the caller commits
-		// (ST-SUP-RP01-LC07). A caller that rolls back leaves one observation of a message that is not done.
-		w.metrics.delivered(ctx, destination, time.Duration(seconds*float64(time.Second)))
-	}
+	*out = Resolved{worker: w, destination: destination, delay: time.Duration(seconds * float64(time.Second)),
+		done: to == Done}
 	return nil
 }
