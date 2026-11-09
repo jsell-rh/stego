@@ -2,9 +2,7 @@ package modes
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -24,12 +22,16 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 
+	"stego.dev/runtime/internal/pgtest"
 	"stego.dev/runtime/lease"
 )
 
-// The integration tests of this file read STEGO_TEST_POSTGRES_DSN, the DSN of a local PostgreSQL 17 server that
-// runs in an unprivileged container (ST-STD-LOCAL), and skip when it is not set. Each test makes its own database
-// on that server and drops it at the end.
+// The integration tests of this file run against the local PostgreSQL server of pgtest: the server that
+// STEGO_TEST_POSTGRES_DSN names, else a container that the test binary starts and removes (ST-STD-LOCAL-R04).
+// Each test makes its own database on that server and drops it at the end.
+
+// TestMain gives the PostgreSQL tests of the package their local server (ST-STD-LOCAL-R04).
+func TestMain(m *testing.M) { os.Exit(pgtest.Main(m)) }
 
 // recorder reads every statement that a connection of the database sends, in order.
 type recorder struct {
@@ -74,30 +76,10 @@ type database struct {
 
 func openDatabase(t *testing.T) *database {
 	t.Helper()
-	dsn := os.Getenv("STEGO_TEST_POSTGRES_DSN")
-	if dsn == "" {
-		t.Skip("STEGO_TEST_POSTGRES_DSN is not set; this test needs a local PostgreSQL server")
-	}
-	admin, err := sql.Open("pgx", dsn)
+	config, err := pgx.ParseConfig(pgtest.Database(t, "modes"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = admin.Close() })
-	suffix := make([]byte, 6)
-	if _, err := rand.Read(suffix); err != nil {
-		t.Fatal(err)
-	}
-	name := "modes_" + hex.EncodeToString(suffix)
-	ctx := context.Background()
-	if _, err := admin.ExecContext(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _, _ = admin.ExecContext(ctx, "DROP DATABASE "+name+" WITH (FORCE)") })
-	config, err := pgx.ParseConfig(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	config.Database = name
 	plain := config.Copy()
 	p := startProxy(t, net.JoinHostPort(config.Host, strconv.Itoa(int(config.Port))))
 	config.Host, config.Port = "127.0.0.1", p.port()
