@@ -76,7 +76,8 @@ func (r *ValidationResult) HasErrors() bool {
 type Faults struct {
 	// Undeclared holds the faults of the fields that the declaration format does not declare.
 	Undeclared []ValidationError
-	// Service holds the faults of the base path and the convention overrides.
+	// Service holds the faults of the base path, the convention overrides, the archetype and the idempotency
+	// setting.
 	Service []ValidationError
 	// Entities holds the faults of the field types and of the versioned entities.
 	Entities []ValidationError
@@ -96,9 +97,9 @@ func (f Faults) All() []ValidationError {
 }
 
 // Validate runs the checks that read only the declaration (ST-DECL-QRY01): the fields that the declaration format
-// does not declare, which the strict reading stage found, the base path, the convention overrides, the field
-// types, the versioned and unique-when-live entities, the collections and their operations, the mixin names and
-// the slot bindings. It reads no registry, generator or file, and it returns every fault it finds.
+// does not declare, which the strict reading stage found, the base path, the convention overrides, the
+// idempotency setting, the field types, the versioned and unique-when-live entities, the collections and their
+// operations, the mixin names and the slot bindings. It reads no registry, generator or file, and it returns every fault it finds.
 func Validate(service *types.ServiceDeclaration, undeclared ...parser.UndeclaredField) Faults {
 	var faults Faults
 	faults.Undeclared = undeclaredFaults(undeclared)
@@ -108,6 +109,7 @@ func Validate(service *types.ServiceDeclaration, undeclared ...parser.Undeclared
 	faults.Service = append(faults.Service, validateConventionOverrides(service.Overrides)...)
 
 	faults.Service = append(faults.Service, validateArchetype(service.Archetype)...)
+	faults.Service = append(faults.Service, validateIdempotency(service)...)
 	faults.Entities = append(faults.Entities, validateFieldTypes(service.Entities)...)
 	faults.Entities = append(faults.Entities, validateFieldDefaults(service.Entities)...)
 	for _, err := range types.ValidateVersioned(service.Entities, service.Collections) {

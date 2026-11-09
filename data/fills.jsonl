@@ -138,6 +138,7 @@
 {"source_id":"ST-DECL-EN06-DM","target_id":"ST-PAT-GO-CODE-SL02"}
 {"source_id":"ST-DECL-EN07-DM","target_id":"ST-PAT-GO-CODE-SL02"}
 {"source_id":"ST-DECL-EN08-DM","target_id":"ST-PAT-GO-CODE-SL02"}
+{"source_id":"ST-DECL-EN13-DM","target_id":"ST-PAT-GO-CODE-SL02"}
 {"source_id":"ST-DECL-INV01-RL","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DECL-INV02-RL","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DECL-INV03-RL","target_id":"ST-PAT-GO-CODE-SL01"}
@@ -148,6 +149,7 @@
 {"source_id":"ST-DECL-INV08-RL","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DECL-INV09-RL","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DECL-INV13-RL","target_id":"ST-PAT-GO-CODE-SL01"}
+{"source_id":"ST-DECL-INV25-RL","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DECL-INV33-RL","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DECL-INV34-RL","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-DECL-INV35-RL","target_id":"ST-PAT-GO-CODE-SL01"}
