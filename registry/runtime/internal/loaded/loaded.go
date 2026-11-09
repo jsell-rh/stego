@@ -24,14 +24,24 @@ type Ref struct {
 // Value is the loaded value of one row of the entity type T.
 type Value[T any] struct {
 	value T
+	clone func(T) T
 	ref   Ref
 }
 
-// New makes the loaded value of value with ref, for the handles of the runtime module only.
-func New[T any](value T, ref Ref) *Value[T] { return &Value[T]{value: value, ref: ref} }
+// New makes the loaded value of value with ref, for the handles of the runtime module only. clone is the generated
+// deep copy of the entity type, which Value uses; nil is a plain copy, for a type with no slice, map or pointer.
+func New[T any](value T, clone func(T) T, ref Ref) *Value[T] {
+	return &Value[T]{value: value, clone: clone, ref: ref}
+}
 
-// Value returns a copy of the stored field values.
-func (v *Value[T]) Value() T { return v.value }
+// Value returns a deep copy of the stored field values, so a change to a slice or a map that the fill got never
+// changes what the handle later sends, writes or decides on (ST-SUP-RP10-LC15).
+func (v *Value[T]) Value() T {
+	if v.clone != nil {
+		return v.clone(v.value)
+	}
+	return v.value
+}
 
 // ID returns the ID of the row.
 func (v *Value[T]) ID() string { return v.ref.ID }

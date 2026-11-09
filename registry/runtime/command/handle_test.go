@@ -702,6 +702,32 @@ func TestHandleBinding(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RP10-LC01-T03 A handle binds only to a READ COMMITTED transaction", func(t *testing.T) {
+		e.exec("ALTER ROLE " + e.roles[0] + " SET default_transaction_isolation = 'repeatable read'")
+		defer e.exec("ALTER ROLE " + e.roles[0] + " RESET default_transaction_isolation")
+		pool := e.openPool(e.dsn(e.roles[0]))
+		var level string
+		if err := pool.QueryRowContext(e.ctx, `SELECT current_setting('default_transaction_isolation')`).Scan(&level); err != nil || level != "repeatable read" {
+			t.Fatalf("the role's default isolation is %q (%v)", level, err)
+		}
+		rt := e.runtime(func(c *Config) { c.DB = pool })
+		if _, err := e.runOn(rt, cmd, e.request("t1", u7(t), "k-lc01-rr", `{}`), fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
+			_, err := repo(t, h, e.reservationE).Create(ctx, reservation{ID: "r-lc01-rr", OrderID: "o1", SKU: "s"}, nil)
+			return err
+		})); err != nil {
+			t.Fatalf("Run on a role whose default is REPEATABLE READ gave %v", err)
+		}
+		tn := mustTenant(t, "t1")
+		rr, err := tenant.Begin(e.ctx, e.pool, tn, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rr.Rollback()
+		if err := newState(e.ctx, e.rt, rr, tn, u7(t), modeCommand, "x", nil, nil).checkIsolation(e.ctx); !errors.Is(err, ErrInternal) {
+			t.Fatalf("a transaction at REPEATABLE READ gave %v, want an internal error", err)
+		}
+	})
+
 	t.Run("ST-SUP-RP10-LC02-T02 The handle reaches only the entities the command writes", func(t *testing.T) {
 		writesReservation := e.command("reserve", nil, e.reservationE)
 		h, _, end := e.bind("t1", u7(t), writesReservation)
@@ -906,16 +932,6 @@ func TestLockedReads(t *testing.T) {
 		}
 		if err := <-second; err != nil {
 			t.Fatal(err)
-		}
-		// A transaction that does not run at READ COMMITTED is refused before the fill.
-		tn := mustTenant(t, "t1")
-		rr, err := tenant.Begin(e.ctx, e.pool, tn, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer rr.Rollback()
-		if err := newState(e.ctx, e.rt, rr, tn, u7(t), modeCommand, "x", nil, nil).checkIsolation(e.ctx); !errors.Is(err, ErrInternal) {
-			t.Fatalf("a transaction at REPEATABLE READ gave %v, want an internal error", err)
 		}
 		if versionOf(seen) != 2 || seen.Value().MemberCount != 2 {
 			t.Fatalf("the second read saw version %d and %d members, want version 2 and 2 members",

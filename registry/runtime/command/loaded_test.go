@@ -1,6 +1,8 @@
 package command
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -97,6 +99,70 @@ func TestLoadedValues(t *testing.T) {
 		}
 		if err := buildFill(t, "\nfunc sku(r gen.LoadedReservation) string { return r.Value().SKU }\n"); err != nil {
 			t.Fatalf("the control fill does not compile: %v", err)
+		}
+	})
+}
+
+// profile is an entity with a map field, which its generated Clone copies deeply.
+type profile struct {
+	ID    string
+	Attrs map[string]string
+}
+
+func TestLoadedCopies(t *testing.T) {
+	t.Run("ST-SUP-RP10-LC15-T02 A change to the map of a loaded value is not written", func(t *testing.T) {
+		e := newEnv(t)
+		e.exec(`CREATE TABLE profiles (tenant_id text NOT NULL, id text NOT NULL, attrs jsonb NOT NULL,
+  version bigint NOT NULL DEFAULT 1, authz_token text NOT NULL DEFAULT '', PRIMARY KEY (tenant_id, id))`,
+			`ALTER TABLE profiles ENABLE ROW LEVEL SECURITY`, `ALTER TABLE profiles FORCE ROW LEVEL SECURITY`,
+			`CREATE POLICY profiles_tenant ON profiles USING (tenant_id = current_setting('app.tenant', true))`,
+			"GRANT SELECT, INSERT, UPDATE ON profiles TO "+e.roles[0],
+			`INSERT INTO profiles (tenant_id, id, attrs) VALUES ('t1', 'p1', '{"plan": "basic"}')`)
+		ps := spec("Profile", "", "profiles", []string{"attrs"},
+			func(s Scanner) (profile, Meta, error) {
+				var v profile
+				var m Meta
+				var raw []byte
+				if err := s.Scan(&v.ID, &raw, &m.Version, &m.Token); err != nil {
+					return v, m, err
+				}
+				m.ID = v.ID
+				return v, m, json.Unmarshal(raw, &v.Attrs)
+			},
+			func(v profile) []any { raw, _ := json.Marshal(v.Attrs); return []any{v.ID, string(raw)} },
+			func(v profile) map[string]any {
+				attrs := map[string]any{}
+				for k, a := range v.Attrs {
+					attrs[k] = a
+				}
+				return map[string]any{"id": v.ID, "attrs": attrs}
+			})
+		ps.Clone = func(v profile) profile {
+			attrs := make(map[string]string, len(v.Attrs))
+			for k, a := range v.Attrs {
+				attrs[k] = a
+			}
+			return profile{ID: v.ID, Attrs: attrs}
+		}
+		profiles, err := NewEntity(ps)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd := e.command("touch-profile", nil, profiles)
+		if _, err := e.run(cmd, e.request("t1", u7(t), "k-profile", `{}`), fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
+			r := repo(t, h, profiles)
+			p, err := r.Get(ctx, "p1")
+			if err != nil {
+				return err
+			}
+			p.Value().Attrs["plan"] = "changed"
+			_, err = r.Update(ctx, p, p.Value())
+			return err
+		})); err != nil {
+			t.Fatal(err)
+		}
+		if n := e.count(`SELECT count(*) FROM profiles WHERE id = 'p1' AND attrs->>'plan' = 'basic' AND version = 2`); n != 1 {
+			t.Fatal("the change to the map that Value returned was written")
 		}
 	})
 }

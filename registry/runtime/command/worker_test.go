@@ -605,9 +605,24 @@ func TestConsumers(t *testing.T) {
 		calls.Store(0)
 		mode.Store("conflict-always")
 		parked := e.stage("t1", "o-2", map[string]string{"order": "o-2", "n": "5"})
-		for i := 0; i < 200 && e.count(`SELECT count(*) FROM stego_outbox.messages WHERE id = $1 AND state = 'parked'`, parked) == 0; i++ {
-			clock.add(time.Minute)
-			time.Sleep(20 * time.Millisecond)
+		// The clock moves on only while the message waits in pending, to the time it is due, so no lease of a
+		// dispatch expires on the clock.
+		for i := 0; i < 2000; i++ {
+			var state string
+			var waitMS float64
+			if err := e.admin.QueryRowContext(e.ctx, `SELECT state, extract(epoch FROM available_at) * 1000 FROM stego_outbox.messages WHERE id = $1`, parked).
+				Scan(&state, &waitMS); err != nil {
+				t.Fatal(err)
+			}
+			if state == "parked" {
+				break
+			}
+			if state == "pending" {
+				if due := time.UnixMilli(int64(waitMS)).Sub(clock.Now()); due > 0 {
+					clock.add(due + time.Millisecond)
+				}
+			}
+			time.Sleep(5 * time.Millisecond)
 		}
 		e.waitState(t, parked, "parked")
 		mode.Store("ok")

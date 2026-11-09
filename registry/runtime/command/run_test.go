@@ -256,8 +256,10 @@ func TestRunLifetime(t *testing.T) {
 			e.count(`SELECT count(*) FROM stego_outbox.messages`) != outbox || e.auditRows("t1", "") != audits {
 			t.Fatal("the panic left a row")
 		}
-		// A fill that ends its goroutine through runtime.Goexit, as t.FailNow does, skips recover: the attempt still
-		// closes the handle and rolls back.
+	})
+
+	t.Run("ST-SUP-RP10-LC12-T02 A fill that ends through runtime.Goexit is treated as a panic", func(t *testing.T) {
+		// runtime.Goexit, as t.FailNow calls it, skips recover: the attempt still closes the handle and rolls back.
 		var kept *Repository[reservation]
 		done := make(chan struct{})
 		go func() {

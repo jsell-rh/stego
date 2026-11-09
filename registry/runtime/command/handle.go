@@ -143,6 +143,9 @@ type EntitySpec[T any] struct {
 	// KeyChanged reports whether an update from before to after changes a column of the primary key, of a unique
 	// index or of a key that a foreign key references (ST-SUP-RP10-LC24).
 	KeyChanged func(before, after T) bool
+	// Clone gives a deep copy of a value, which a loaded value's Value returns (ST-SUP-RP10-LC15). Nil is a plain copy,
+	// for a type with no slice, map or pointer.
+	Clone func(value T) T
 }
 
 // Entity is the repository declaration of one entity, which NewEntity checks once.
@@ -275,7 +278,7 @@ func refOf(r Ref) rowRef {
 
 // newLoaded makes the loaded value of one row that the handle state s read or wrote.
 func newLoaded[T any](value T, meta Meta, e *Entity[T], s *state, lock lockMode) Loaded[T] {
-	return loaded.New(value, loaded.Ref{Owner: s, Entity: e, EntityName: e.spec.Name, ResourceType: e.spec.ResourceType,
+	return loaded.New(value, e.spec.Clone, loaded.Ref{Owner: s, Entity: e, EntityName: e.spec.Name, ResourceType: e.spec.ResourceType,
 		ID: meta.ID, Version: meta.Version, Token: meta.Token, Lock: uint8(lock)})
 }
 
