@@ -76,7 +76,7 @@ func (f *Effects) Stage(ctx context.Context, destination, effect string, entity 
 	if entity == nil {
 		return errors.New("command: an effect needs the loaded value it is for")
 	}
-	r := entity.ref()
+	r := refOf(entity)
 	if r.st != s {
 		return s.breakWith(internalf("an effect of %s names a loaded value of another transaction", s.action))
 	}

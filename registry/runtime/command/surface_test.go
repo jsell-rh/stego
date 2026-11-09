@@ -195,7 +195,7 @@ func TestHandleSurface(t *testing.T) {
 		}
 		// No method takes SQL text: no parameter is named for a statement, and no method runs one.
 		pkg := exportedAPI(t)
-		for _, name := range []string{"Handle", "Repository", "Authz", "Effects", "loaded"} {
+		for _, name := range []string{"Handle", "Repository", "Authz", "Effects"} {
 			for _, fn := range methodsOf(pkg, name) {
 				switch fn.Name() {
 				case "Exec", "ExecContext", "Query", "QueryContext", "QueryRow", "QueryRowContext", "Prepare", "PrepareContext":

@@ -287,9 +287,18 @@ func charge(ctx context.Context, h *command.Handle[struct{}], c gen.LoadedCharge
 		defer e.decision.setAllow(nil)
 		h, _, end := e.bind("t1", u7(t), cmd)
 		defer end()
+		e.decision.taken()
 		got, err := repo(t, h, e.orders).Get(e.ctx, "o2")
 		if !errors.Is(err, ErrNotFound) || got != nil {
 			t.Fatalf("the read of the denied o2 gave %v, %v; want not found and no data", got, err)
+		}
+		// A denied row and a missing row give the same answer, each after one decision.
+		missing, err2 := repo(t, h, e.orders).Get(e.ctx, "o-none")
+		if missing != nil || !errors.Is(err2, ErrNotFound) || strings.Replace(err.Error(), "o2", "", 1) != strings.Replace(err2.Error(), "o-none", "", 1) {
+			t.Fatalf("a missing row gave %v, a denied one %v", err2, err)
+		}
+		if calls := e.decision.taken(); len(calls) != 2 || calls[1].Resource != "order:o-none" {
+			t.Fatalf("the two reads made the decisions %+v, want one each", calls)
 		}
 	})
 

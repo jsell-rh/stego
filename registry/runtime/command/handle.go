@@ -11,6 +11,7 @@ import (
 
 	"stego.dev/runtime/audit"
 	"stego.dev/runtime/authz"
+	"stego.dev/runtime/internal/loaded"
 	"stego.dev/runtime/outbox"
 	"stego.dev/runtime/tenant"
 )
@@ -202,7 +203,7 @@ func (e *Entity[T]) auditType() string {
 
 // ListSpec is one generated list of an entity. Read reads the matching rows with no lock: $1 is the tenant, $2 the
 // most rows to return, and the list's filter values follow from $3. Lock locks matching rows: $1 is the tenant, $2
-// the IDs to lock as a text array, and the same filter values follow from $3; it applies the filter again, orders by
+// the IDs to lock as a text array, which the statement casts to the type of the key, such as $2::uuid[], and the same filter values follow from $3; it applies the filter again, orders by
 // the primary key and locks FOR NO KEY UPDATE (ST-SUP-RP10-LC27). Both return the columns of the entity's Scan.
 type ListSpec struct {
 	Name string
@@ -244,32 +245,17 @@ const (
 	lockDelete
 )
 
-// loaded is the stored value of one row as one handle returned it. Its fields are unexported and only the handle
-// makes one, so a fill cannot build or convert one (ST-SUP-RP10-LC15).
-type loaded[T any] struct {
-	value  T
-	meta   Meta
-	entity *Entity[T]
-	st     *state
-	lock   lockMode
-}
-
 // Loaded is the loaded type of the entity T, such as LoadedReservation = command.Loaded[Reservation]: a pointer to a
-// value that only a handle makes. It has no exported field and no constructor, and no other type converts to it.
-type Loaded[T any] = *loaded[T]
-
-// Value returns a copy of the stored field values.
-func (l *loaded[T]) Value() T { return l.value }
-
-// ID returns the ID of the row.
-func (l *loaded[T]) ID() string { return l.meta.ID }
+// value that only a handle makes (ST-SUP-RP10-LC15). It has no exported field and no constructor, and no other type
+// converts to it. The query handle gives the same type, from the internal package loaded, so a generated probe
+// method takes the loaded value of either handle.
+type Loaded[T any] = *loaded.Value[T]
 
 // Ref is a loaded value of any entity, which an effect or a decision names (ST-SUP-RP10-LC08).
-type Ref interface {
-	ref() rowRef
-}
+type Ref = loaded.Any
 
-// rowRef is what a Ref gives the runtime: the row's resource, its token and the handle state that made it.
+// rowRef is what a Ref gives the runtime: the row's resource, its token and the handle state that made it. The
+// state of a value that another handle, such as a query handle, made is nil here.
 type rowRef struct {
 	st           *state
 	entity       string
@@ -278,12 +264,36 @@ type rowRef struct {
 	token        string
 }
 
-func (l *loaded[T]) ref() rowRef {
-	if l == nil {
+func refOf(r Ref) rowRef {
+	ref, ok := loaded.Of(r)
+	if !ok {
 		return rowRef{}
 	}
-	return rowRef{st: l.st, entity: l.entity.spec.Name, resourceType: l.entity.spec.ResourceType, id: l.meta.ID,
-		token: l.meta.Token}
+	st, _ := ref.Owner.(*state)
+	return rowRef{st: st, entity: ref.EntityName, resourceType: ref.ResourceType, id: ref.ID, token: ref.Token}
+}
+
+// newLoaded makes the loaded value of one row that the handle state s read or wrote.
+func newLoaded[T any](value T, meta Meta, e *Entity[T], s *state, lock lockMode) Loaded[T] {
+	return loaded.New(value, loaded.Ref{Owner: s, Entity: e, EntityName: e.spec.Name, ResourceType: e.spec.ResourceType,
+		ID: meta.ID, Version: meta.Version, Token: meta.Token, Lock: uint8(lock)})
+}
+
+// view is a loaded value as this package reads it.
+type view[T any] struct {
+	value  T
+	meta   Meta
+	entity any
+	st     *state
+	lock   lockMode
+	ok     bool
+}
+
+func viewOf[T any](l Loaded[T]) view[T] {
+	value, ref, ok := loaded.Fields(l)
+	st, _ := ref.Owner.(*state)
+	return view[T]{value: value, meta: Meta{ID: ref.ID, Version: ref.Version, Token: ref.Token}, entity: ref.Entity,
+		st: st, lock: lockMode(ref.Lock), ok: ok}
 }
 
 // resourceKey is the outbox resource key of the row's messages: its resource type, or its entity name, and its ID.
@@ -529,6 +539,12 @@ func (r *Repository[T]) read(ctx context.Context, id string, lock lockMode) (Loa
 	s, e := r.st, r.entity
 	value, meta, err := e.spec.Scan(s.queryRow(ctx, e.spec.Select, s.tenant.ID(), id))
 	if errors.Is(err, sql.ErrNoRows) {
+		// A row that does not exist is decided as one that exists, so a deny and a missing row give the same
+		// answer, and a failed decision the same error.
+		if err := s.decideRead(ctx, e.spec.ResourceType, e.spec.ReadPermission, e.spec.Name, Meta{ID: id}); err != nil &&
+			!errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, e.spec.Name)
 	}
 	if err != nil {
@@ -550,7 +566,7 @@ func (r *Repository[T]) read(ctx context.Context, id string, lock lockMode) (Loa
 	if err := s.auditRead(ctx, e.spec.PII, e.auditType(), meta.ID); err != nil {
 		return nil, err
 	}
-	return &loaded[T]{value: value, meta: meta, entity: e, st: s, lock: lock}, nil
+	return newLoaded(value, meta, e, s, lock), nil
 }
 
 // lockOne locks the row of id inside a savepoint. When its token moved since the read of first, it decides again and
@@ -774,7 +790,7 @@ func (r *Repository[T]) loadAll(ctx context.Context, rows []scanned[T], lock loc
 		if err := r.st.auditRead(ctx, r.entity.spec.PII, r.entity.auditType(), row.meta.ID); err != nil {
 			return nil, err
 		}
-		out = append(out, &loaded[T]{value: row.value, meta: row.meta, entity: r.entity, st: r.st, lock: lock})
+		out = append(out, newLoaded(row.value, row.meta, r.entity, r.st, lock))
 	}
 	return out, nil
 }
@@ -793,7 +809,7 @@ func (r *Repository[T]) Create(ctx context.Context, value T, parent Ref) (Loaded
 		if parent == nil {
 			return nil, fmt.Errorf("command: a worker's create of %s needs the parent resource to decide on", e.spec.Name)
 		}
-		p := parent.ref()
+		p := refOf(parent)
 		if p.st != s {
 			return nil, s.breakWith(internalf("the parent of a create of %s is a loaded value of another transaction", e.spec.Name))
 		}
@@ -814,7 +830,7 @@ func (r *Repository[T]) Create(ctx context.Context, value T, parent Ref) (Loaded
 	}
 	s.written[rowKey{e.spec.Name, meta.ID}] = meta.Version
 	// The row is new in this transaction, which holds it as strongly as a lock FOR UPDATE.
-	return &loaded[T]{value: stored, meta: meta, entity: e, st: s, lock: lockDelete}, nil
+	return newLoaded(stored, meta, e, s, lockDelete), nil
 }
 
 // Update writes value over the row of from, a loaded value of this handle, only while the row still has from's
@@ -827,20 +843,21 @@ func (r *Repository[T]) Update(ctx context.Context, from Loaded[T], value T) (Lo
 	}
 	defer r.st.leave()
 	s, e := r.st, r.entity
-	if err := r.check(from, "update"); err != nil {
+	from2, err := r.check(from, "update")
+	if err != nil {
 		return nil, err
 	}
-	if e.spec.KeyChanged(from.value, value) && from.lock != lockDelete {
+	if e.spec.KeyChanged(from2.value, value) && from2.lock != lockDelete {
 		return nil, s.breakWith(internalf("an update of a key column of %s needs a value that GetForDelete locked", e.spec.Name))
 	}
 	if s.mode != modeCommand {
-		if err := s.decideWrite(ctx, e.spec.ResourceType, e.spec.Name, from.meta.ID, from.meta.Token); err != nil {
+		if err := s.decideWrite(ctx, e.spec.ResourceType, e.spec.Name, from2.meta.ID, from2.meta.Token); err != nil {
 			return nil, err
 		}
 	}
 	step := "update " + e.spec.Name
 	row, err := s.lockedRow(ctx, step, e.spec.Update,
-		append([]any{s.tenant.ID(), from.meta.ID, from.meta.Version}, e.spec.Values(value)...)...)
+		append([]any{s.tenant.ID(), from2.meta.ID, from2.meta.Version}, e.spec.Values(value)...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -852,11 +869,11 @@ func (r *Repository[T]) Update(ctx context.Context, from Loaded[T], value T) (Lo
 	if err != nil {
 		return nil, s.fail(ctx, step, err)
 	}
-	if err := s.buffer(e.auditType(), e.spec.Fields, meta.ID, e.spec.State(from.value), e.spec.State(stored)); err != nil {
+	if err := s.buffer(e.auditType(), e.spec.Fields, meta.ID, e.spec.State(from2.value), e.spec.State(stored)); err != nil {
 		return nil, err
 	}
 	s.written[rowKey{e.spec.Name, meta.ID}] = meta.Version
-	return &loaded[T]{value: stored, meta: meta, entity: e, st: s, lock: max(from.lock, lockUpdate)}, nil
+	return newLoaded(stored, meta, e, s, max(from2.lock, lockUpdate)), nil
 }
 
 // Delete removes the row of from, a loaded value of this handle, only while the row still has from's version, as
@@ -867,11 +884,12 @@ func (r *Repository[T]) Delete(ctx context.Context, from Loaded[T]) error {
 	}
 	defer r.st.leave()
 	s, e := r.st, r.entity
-	if err := r.check(from, "delete"); err != nil {
+	from2, err := r.check(from, "delete")
+	if err != nil {
 		return err
 	}
 	if s.mode != modeCommand {
-		if err := s.decideWrite(ctx, e.spec.ResourceType, e.spec.Name, from.meta.ID, from.meta.Token); err != nil {
+		if err := s.decideWrite(ctx, e.spec.ResourceType, e.spec.Name, from2.meta.ID, from2.meta.Token); err != nil {
 			return err
 		}
 	}
@@ -879,7 +897,7 @@ func (r *Repository[T]) Delete(ctx context.Context, from Loaded[T]) error {
 	if err := s.setLockTimeout(ctx); err != nil {
 		return s.fail(ctx, step, err)
 	}
-	result, err := s.exec(ctx, e.spec.Delete, s.tenant.ID(), from.meta.ID, from.meta.Version)
+	result, err := s.exec(ctx, e.spec.Delete, s.tenant.ID(), from2.meta.ID, from2.meta.Version)
 	if err != nil {
 		return s.fail(ctx, step, err)
 	}
@@ -891,22 +909,23 @@ func (r *Repository[T]) Delete(ctx context.Context, from Loaded[T]) error {
 		s.conflict = &conflictError{text: "the version of a row of " + e.spec.Name + " moved"}
 		return s.conflict
 	}
-	if err := s.buffer(e.auditType(), e.spec.Fields, from.meta.ID, e.spec.State(from.value), nil); err != nil {
+	if err := s.buffer(e.auditType(), e.spec.Fields, from2.meta.ID, e.spec.State(from2.value), nil); err != nil {
 		return err
 	}
-	s.written[rowKey{e.spec.Name, from.meta.ID}] = -1
+	s.written[rowKey{e.spec.Name, from2.meta.ID}] = -1
 	return nil
 }
 
 // check refuses, as an internal error, a loaded value that this handle did not return and one whose row a later write
 // of this transaction changed (ST-SUP-RP10-LC24).
-func (r *Repository[T]) check(from Loaded[T], verb string) error {
+func (r *Repository[T]) check(l Loaded[T], verb string) (view[T], error) {
 	s, e := r.st, r.entity
-	if from == nil || from.st != s || from.entity != e {
-		return s.breakWith(internalf("the %s of %s takes a loaded value of another transaction", verb, e.spec.Name))
+	from := viewOf(l)
+	if !from.ok || from.st != s || from.entity != any(e) {
+		return from, s.breakWith(internalf("the %s of %s takes a loaded value of another transaction", verb, e.spec.Name))
 	}
 	if version, ok := s.written[rowKey{e.spec.Name, from.meta.ID}]; ok && version != from.meta.Version {
-		return s.breakWith(internalf("the %s of %s takes a loaded value whose row a later write changed", verb, e.spec.Name))
+		return from, s.breakWith(internalf("the %s of %s takes a loaded value whose row a later write changed", verb, e.spec.Name))
 	}
-	return nil
+	return from, nil
 }

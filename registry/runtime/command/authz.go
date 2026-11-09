@@ -33,7 +33,7 @@ func (a *Authz) Evaluate(ctx context.Context, action string, target Ref, c authz
 	if target == nil {
 		return false, ErrNoResource
 	}
-	r := target.ref()
+	r := refOf(target)
 	if r.st != s || r.resourceType == "" {
 		return false, ErrNoResource
 	}

@@ -141,6 +141,9 @@ func RunWorker[P any](ctx context.Context, rt *Runtime, w *Worker[P], due time.T
 	if err := s.setLockTimeout(ctx); err != nil {
 		return s.failRun(ctx, notAfter, "lock timeout", err)
 	}
+	if err := s.checkIsolation(ctx); err != nil {
+		return deadlineOr(ctx, notAfter, err)
+	}
 	if held != nil {
 		if _, err := held.Fence(ctx, tx); err != nil {
 			if errors.Is(err, lease.ErrFenced) {
@@ -163,6 +166,10 @@ func RunWorker[P any](ctx context.Context, rt *Runtime, w *Worker[P], due time.T
 			err = failure.err
 		}
 		return deadlineOr(ctx, notAfter, err)
+	}
+	// A run under a lease that reached its deadline never attempts COMMIT (ST-SUP-RP10-LC22).
+	if !notAfter.IsZero() && (ctx.Err() != nil || !time.Now().Before(notAfter)) {
+		return errDeadline
 	}
 	if err := commit(ctx, s, notAfter); err != nil {
 		return deadlineOr(ctx, notAfter, err)
@@ -241,6 +248,9 @@ func RunConsumer[M, P any](ctx context.Context, rt *Runtime, w *Worker[P], tx *s
 	s.inbound = func(id string) string { return lengthPrefixed(message, id) }
 	if err := s.setLockTimeout(ctx); err != nil {
 		return consumerError(s.fail(ctx, "lock timeout", err))
+	}
+	if err := s.checkIsolation(ctx); err != nil {
+		return consumerError(err)
 	}
 	if s.az, err = rt.cfg.Authz.Bind(tx, d.Tenant, w.principal, w.spec.Relations); err != nil {
 		return outbox.TransientRefusal(internalf("the authorization handle was not bound"))

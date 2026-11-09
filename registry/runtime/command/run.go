@@ -93,6 +93,8 @@ type Runtime struct {
 	// before COMMIT.
 	recorder     func(query string, args []any)
 	beforeCommit func(ctx context.Context, tx *sql.Tx) error
+	// rerun, when set by a test, gets the random wait before each rerun and the time left after it.
+	rerun func(n int, wait, left time.Duration)
 }
 
 // New checks cfg and returns the command runtime. It refuses a configuration that lacks a part, a main pool or an
@@ -300,7 +302,7 @@ func Run[Req, P any](ctx context.Context, rt *Runtime, cmd *Command[P], req Requ
 	for reruns := 0; ; reruns++ {
 		result, err, conflict := runAttempt(ctx, rt, cmd, req, reruns, decode, fill)
 		result.Attempts = reruns + 1
-		if !conflict || reruns >= cmd.spec.RetryOnConflict || !waitRerun(ctx, reruns+1) {
+		if !conflict || reruns >= cmd.spec.RetryOnConflict || !waitRerun(ctx, rt, reruns+1) {
 			return result, err
 		}
 	}
@@ -309,7 +311,7 @@ func Run[Req, P any](ctx context.Context, rt *Runtime, cmd *Command[P], req Requ
 // waitRerun waits a random time of at most n times RerunStep before the n-th rerun, capped so at least RerunRoom is
 // left before the deadline, and reports whether the rerun may start: it may not when less than RerunRoom is left
 // after the wait (ST-SUP-RP10-LC28).
-func waitRerun(ctx context.Context, n int) bool {
+func waitRerun(ctx context.Context, rt *Runtime, n int) bool {
 	wait := rand.N(time.Duration(n)*RerunStep + 1)
 	deadline, hasDeadline := ctx.Deadline()
 	if hasDeadline {
@@ -325,6 +327,13 @@ func waitRerun(ctx context.Context, n int) bool {
 	case <-ctx.Done():
 		return false
 	case <-timer.C:
+	}
+	if rt.rerun != nil {
+		left := time.Duration(-1)
+		if hasDeadline {
+			left = time.Until(deadline)
+		}
+		rt.rerun(n, wait, left)
 	}
 	return !hasDeadline || time.Until(deadline) >= RerunRoom
 }
@@ -371,6 +380,9 @@ func runAttempt[Req, P any](ctx context.Context, rt *Runtime, cmd *Command[P], r
 			return Result{}, s.fail(ctx, "lock timeout", err), true
 		}
 		return Result{}, internalf("the lock timeout was not set"), false
+	}
+	if err := s.checkIsolation(ctx); err != nil {
+		return Result{}, err, false
 	}
 	if s.az, err = rt.cfg.Authz.Bind(tx, req.Tenant, req.Principal, cmd.spec.Relations); err != nil {
 		return Result{}, internalf("the authorization handle was not bound"), false
@@ -423,15 +435,27 @@ func runAttempt[Req, P any](ctx context.Context, rt *Runtime, cmd *Command[P], r
 // as a *fillFailure.
 func callFill[R any](ctx context.Context, s *state, call *probe.Call, fill func(context.Context) (R, error)) (R, error) {
 	var zero R
+	ended := false
+	defer func() {
+		if !ended {
+			// The fill ended its goroutine with runtime.Goexit, as t.FailNow does, which recover does not see: the
+			// handle still closes, and the attempt's deferred rollback runs as for a panic.
+			s.close()
+			call.Returned()
+		}
+	}()
 	result, err, panicked := func() (result R, err error, panicked bool) {
+		returned := false
 		defer func() {
-			if recover() != nil {
+			if recover() != nil || !returned {
 				panicked = true
 			}
 		}()
 		result, err = fill(ctx)
+		returned = true
 		return result, err, false
 	}()
+	ended = true
 	s.close()
 	call.Returned()
 	switch {
@@ -502,6 +526,19 @@ func commitKnown(code string) bool {
 		return false
 	}
 	return true
+}
+
+// checkIsolation refuses a transaction that does not run at READ COMMITTED: a locked read must see the row that
+// another transaction committed after this one began, and the idempotency wrapper expects it (ST-SUP-RP07-LC03).
+func (s *state) checkIsolation(ctx context.Context) error {
+	var level string
+	if err := s.queryRow(ctx, `SELECT pg_catalog.current_setting('transaction_isolation')`).Scan(&level); err != nil {
+		return s.fail(ctx, "isolation check", err)
+	}
+	if level != "read committed" {
+		return s.breakWith(internalf("the transaction runs at %s, not at read committed", level))
+	}
+	return nil
 }
 
 // errDeadline is the error of a worker run that reached its deadline under a lease: it rolls back, and the tenant

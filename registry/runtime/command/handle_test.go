@@ -907,9 +907,19 @@ func TestLockedReads(t *testing.T) {
 		if err := <-second; err != nil {
 			t.Fatal(err)
 		}
-		if seen.meta.Version != 2 || seen.Value().MemberCount != 2 {
+		// A transaction that does not run at READ COMMITTED is refused before the fill.
+		tn := mustTenant(t, "t1")
+		rr, err := tenant.Begin(e.ctx, e.pool, tn, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rr.Rollback()
+		if err := newState(e.ctx, e.rt, rr, tn, u7(t), modeCommand, "x", nil, nil).checkIsolation(e.ctx); !errors.Is(err, ErrInternal) {
+			t.Fatalf("a transaction at REPEATABLE READ gave %v, want an internal error", err)
+		}
+		if versionOf(seen) != 2 || seen.Value().MemberCount != 2 {
 			t.Fatalf("the second read saw version %d and %d members, want version 2 and 2 members",
-				seen.meta.Version, seen.Value().MemberCount)
+				versionOf(seen), seen.Value().MemberCount)
 		}
 	})
 
@@ -1042,7 +1052,7 @@ func TestVersionedWrites(t *testing.T) {
 					return idempotency.Response{}, err
 				}
 				u, err := r.Get(ctx, id)
-				if err != nil || u.meta.Version != 3 {
+				if err != nil || versionOf(u) != 3 {
 					return idempotency.Response{}, fmt.Errorf("read %s at %v: %v", id, u, err)
 				}
 				e.exec(`UPDATE users SET rank = 40, version = 4 WHERE id = '` + id + `'`)
@@ -1332,3 +1342,6 @@ func TestLockedLists(t *testing.T) {
 }
 
 func jsonUnmarshal(raw []byte, v any) error { return json.Unmarshal(raw, v) }
+
+// versionOf is the resource version that a loaded value carries.
+func versionOf[T any](l Loaded[T]) int64 { return viewOf(l).meta.Version }
