@@ -127,17 +127,29 @@ func TestServerSpanBounds(t *testing.T) {
 	})
 	t.Run("ST-SUP-RP03-LC07-T04 Health and discovery routes stay outside the request wrappers", func(t *testing.T) {
 		h := newHarness(t, 1)
+		// The assembler's shape: a top router holds the public routes and mounts the wrapped application on /.
 		public := []string{"/livez", "/readyz", "/v1/openapi", "/v1/openapi.html", "/v1"}
-		handler := h.runtime.Handler(&countingHandler{}, public...)
+		app := http.NewServeMux()
+		app.Handle("/", &countingHandler{})
+		top := http.NewServeMux()
+		served := &countingHandler{}
 		for _, path := range public {
-			handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", path, nil))
+			top.Handle("GET "+path, served)
+		}
+		top.Handle("/", h.runtime.Handler(h.runtime.Route(app)))
+		for _, path := range public {
+			top.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", path, nil))
+		}
+		if served.calls.Load() != int32(len(public)) {
+			t.Fatal("a public route was not served by its own handler")
 		}
 		if len(h.spans.Ended()) != 0 || len(h.spans.Started()) != 0 || len(h.logs.all()) != 0 || histogramCount(h.collect(t), "http.server.request.duration") != 0 {
 			t.Fatal("a public route has a span, a metric sample or a completion log")
 		}
-		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/v1/records", nil))
-		if len(h.spans.Ended()) != 1 || len(h.logs.all()) != 1 || histogramCount(h.collect(t), "http.server.request.duration") != 1 {
-			t.Fatal("a route under the base is outside the wrappers")
+		// An encoded slash is not a public route: it reaches the wrapped application and is observed.
+		top.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/v1%2Fopenapi", nil))
+		if served.calls.Load() != int32(len(public)) || len(h.spans.Ended()) != 1 || len(h.logs.all()) != 1 || histogramCount(h.collect(t), "http.server.request.duration") != 1 {
+			t.Fatal("an encoded public path went past the wrappers unobserved")
 		}
 	})
 }

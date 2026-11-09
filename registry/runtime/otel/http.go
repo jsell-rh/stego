@@ -64,19 +64,15 @@ func (r *Runtime) startSignals(reader sdkmetric.Reader, processor sdklog.Process
 
 // Handler wraps the whole HTTP handler of a service, outside authentication and capacity admission, so the server
 // span starts before both and ends with the status the client receives (ST-SUP-RP03-LC07). It records the method,
-// the registered route pattern and the status, never the URL, a header or a body (ST-SUP-RP03-LC04). A request
-// whose path is one of public, such as /livez, /readyz and the discovery routes, goes to next with no span,
-// metric or log. Without a provider, and after Close, Handler is next itself.
-func (r *Runtime) Handler(next http.Handler, public ...string) http.Handler {
+// the registered route pattern and the status, never the URL, a header or a body (ST-SUP-RP03-LC04). The health
+// and discovery routes stay outside it: the service mounts them on its top router beside Handler, not under it.
+// Without a provider Handler is next itself, and after Close it passes each request to next.
+func (r *Runtime) Handler(next http.Handler) http.Handler {
 	if r.provider == nil {
 		return next
 	}
-	exempt := make(map[string]bool, len(public))
-	for _, route := range public {
-		exempt[route] = true
-	}
 	return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		if r.closed.Load() || exempt[request.URL.Path] {
+		if r.closed.Load() {
 			next.ServeHTTP(w, request)
 			return
 		}

@@ -299,6 +299,9 @@ func TestWithoutCollector(t *testing.T) {
 			if r.provider != nil || r.connection != nil || r.meter != nil || r.logs != nil || r.spans != nil {
 				t.Fatalf("%s: a provider or a connection exists without a collector", phase)
 			}
+			if r.TracerProvider() != nil || r.MeterProvider() != nil || r.LoggerProvider() != nil || r.CollectorSet() || r.Service() != "records" || r.Instance() == "" {
+				t.Fatalf("%s: the accessors do not tell that telemetry is absent", phase)
+			}
 			next := &countingHandler{}
 			if r.Handler(next) != http.Handler(next) || r.Route(next) != http.Handler(next) {
 				t.Fatalf("%s: the handler is not served directly", phase)
@@ -639,6 +642,9 @@ func TestSettings(t *testing.T) {
 		if r.provider == nil || r.meter == nil || r.logs == nil || r.signals.httpDuration == nil || r.signals.logger == nil {
 			t.Fatal("traces, metrics or request logs are not enabled")
 		}
+		if r.TracerProvider() == nil || r.MeterProvider() == nil || r.LoggerProvider() == nil || !r.CollectorSet() || r.Service() != "records" || len(r.Instance()) != 36 {
+			t.Fatal("the accessors do not give the private providers and the identity")
+		}
 	})
 	t.Run("ST-SUP-RP03-LC09-T02 The settings defaults are ratio 0.1, a ten-second interval and the declared service name", func(t *testing.T) {
 		values, err := readSettings("records", []string{endpoint})
@@ -654,6 +660,14 @@ func TestSettings(t *testing.T) {
 			}
 			if err != nil && !strings.Contains(err.Error(), "OTEL_EXPORTER_OTLP_PROTOCOL") {
 				t.Fatal("the error does not name the setting", err)
+			}
+		}
+	})
+	t.Run("ST-SUP-RP03-LC09-T03 An endpoint with no port is the HTTPS port 443", func(t *testing.T) {
+		for endpoint, host := range map[string]string{"https://collector.example": "collector.example:443", "https://collector.example:4317": "collector.example:4317", "https://[2001:db8::1]": "[2001:db8::1]:443"} {
+			values, err := readSettings("records", []string{"OTEL_EXPORTER_OTLP_ENDPOINT=" + endpoint})
+			if err != nil || values.origin.Host != host {
+				t.Fatalf("%s: got %v, %v, want %s", endpoint, values.origin, err, host)
 			}
 		}
 	})
@@ -751,7 +765,7 @@ func TestExportLimits(t *testing.T) {
 		}
 	})
 	t.Run("ST-SUP-RP03-LC10-T03 Shutdown gives the provider at most three seconds", func(t *testing.T) {
-		startCollector(t, true)
+		c := startCollector(t, true)
 		r, err := New("records")
 		if err != nil {
 			t.Fatal(err)
@@ -765,6 +779,34 @@ func TestExportLimits(t *testing.T) {
 		if elapsed := time.Since(started); elapsed > ShutdownTimeout+500*time.Millisecond {
 			t.Fatal("shutdown took", elapsed)
 		}
+		exported, _ := c.exported()
+		if dropped := int(r.DroppedSpans()); exported != 0 || dropped != QueueSize {
+			t.Fatalf("exported %d, dropped %d: each span must be exported or counted", exported, dropped)
+		}
+		if r.ShutdownFailures() == 0 {
+			t.Fatal("an incomplete shutdown was not counted")
+		}
+	})
+	t.Run("ST-SUP-RP03-LC10-T03 Shutdown ends by the earlier of the caller's deadline and three seconds", func(t *testing.T) {
+		startCollector(t, true)
+		r, err := New("records")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, span := r.tracer.Start(context.Background(), "span")
+		span.End()
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+		started := time.Now()
+		if err := r.Shutdown(ctx); err == nil {
+			t.Fatal("a blocked shutdown reported success")
+		}
+		if elapsed := time.Since(started); elapsed > time.Second {
+			t.Fatal("shutdown passed the caller's deadline:", elapsed)
+		}
+		if r.Shutdown(context.Background()) == nil || r.DroppedSpans() != 1 {
+			t.Fatal("a second shutdown did not return the first result, or the span was not counted")
+		}
 	})
 }
 
@@ -777,4 +819,44 @@ func waitFor(t testing.TB, limit time.Duration, done func() bool) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+// countingExporter counts the spans it exports.
+type countingExporter struct{ spans atomic.Int64 }
+
+func (e *countingExporter) ExportSpans(_ context.Context, spans []sdktrace.ReadOnlySpan) error {
+	e.spans.Add(int64(len(spans)))
+	return nil
+}
+func (e *countingExporter) Shutdown(context.Context) error { return nil }
+
+func TestSpanQueueShutdownRace(t *testing.T) {
+	t.Run("ST-SUP-RP03-LC10-T01 Spans that end during shutdown are exported or counted dropped", func(t *testing.T) {
+		sampled := trace.NewSpanContext(trace.SpanContextConfig{TraceID: trace.TraceID{1}, SpanID: trace.SpanID{1}, TraceFlags: trace.FlagsSampled})
+		span := tracetest.SpanStub{SpanContext: sampled}.Snapshot()
+		for range 20 {
+			exporter := &countingExporter{}
+			q := newSpanQueue(exporter)
+			var ended atomic.Int64
+			var group sync.WaitGroup
+			for range 4 {
+				group.Add(1)
+				go func() {
+					defer group.Done()
+					for range 200 {
+						q.OnEnd(span)
+						ended.Add(1)
+					}
+				}()
+			}
+			time.Sleep(time.Millisecond)
+			if err := q.Shutdown(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			group.Wait()
+			if got := exporter.spans.Load() + int64(q.dropped.Load()); got != ended.Load() {
+				t.Fatalf("ended %d, exported and dropped %d", ended.Load(), got)
+			}
+		}
+	})
 }

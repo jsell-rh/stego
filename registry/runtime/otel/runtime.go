@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"math"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -25,6 +26,8 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	otellog "go.opentelemetry.io/otel/log"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -85,6 +88,7 @@ type Runtime struct {
 	metricFailures   atomic.Uint64
 	logFailures      atomic.Uint64
 	shutdownFailures atomic.Uint64
+	shutdownErr      error
 }
 
 // settings are the telemetry settings of the process environment, checked (ST-SUP-RP03-LC09).
@@ -196,20 +200,23 @@ func (r *Runtime) startTraces(ratio float64, processor sdktrace.SpanProcessor) {
 	r.rpcTracer = r.provider.Tracer("stego/grpc")
 }
 
-// Close shuts the providers down together inside ShutdownTimeout, then closes the export connection. It is safe
-// to call more than once.
-func (r *Runtime) Close() {
+// Shutdown shuts the providers down together, then closes the export connection. The whole shutdown ends by the
+// earlier of the deadline of ctx and ShutdownTimeout, so a caller can share one shutdown limit with other work
+// (ST-SUP-RC17-OC29). It is safe to call more than once: a later call returns the result of the first.
+func (r *Runtime) Shutdown(ctx context.Context) error {
 	r.once.Do(func() {
 		r.closed.Store(true)
-		ctx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
+		ctx, cancel := context.WithTimeout(ctx, ShutdownTimeout)
 		defer cancel()
 		var group sync.WaitGroup
+		var failed atomic.Bool
 		shut := func(shutdown func(context.Context) error) {
 			group.Add(1)
 			go func() {
 				defer group.Done()
 				if err := shutdown(ctx); err != nil {
 					r.shutdownFailures.Add(1)
+					failed.Store(true)
 				}
 			}()
 		}
@@ -226,8 +233,48 @@ func (r *Runtime) Close() {
 		if r.connection != nil {
 			_ = r.connection.Close()
 		}
+		if failed.Load() {
+			r.shutdownErr = errors.New("telemetry shutdown did not complete")
+		}
 	})
+	return r.shutdownErr
 }
+
+// Close is Shutdown with no deadline but ShutdownTimeout.
+func (r *Runtime) Close() { _ = r.Shutdown(context.Background()) }
+
+// TracerProvider is the private tracer provider, or nil when no collector was set at start.
+func (r *Runtime) TracerProvider() trace.TracerProvider {
+	if r.provider == nil {
+		return nil
+	}
+	return r.provider
+}
+
+// MeterProvider is the private meter provider, or nil when no collector was set at start or metrics are off.
+func (r *Runtime) MeterProvider() metric.MeterProvider {
+	if r.meter == nil {
+		return nil
+	}
+	return r.meter
+}
+
+// LoggerProvider is the private logger provider, or nil when no collector was set at start or logs are off.
+func (r *Runtime) LoggerProvider() otellog.LoggerProvider {
+	if r.logs == nil {
+		return nil
+	}
+	return r.logs
+}
+
+// CollectorSet tells whether a collector endpoint was set when the runtime started.
+func (r *Runtime) CollectorSet() bool { return r.connection != nil }
+
+// Service is the service name the runtime reports.
+func (r *Runtime) Service() string { return r.service }
+
+// Instance is the random identity of this process that the runtime reports.
+func (r *Runtime) Instance() string { return r.instance }
 
 // ExportFailures counts the trace export batches that failed. It keeps no remote error text.
 func (r *Runtime) ExportFailures() uint64 { return r.traceFailures.Load() }
@@ -238,10 +285,11 @@ func (r *Runtime) MetricExportFailures() uint64 { return r.metricFailures.Load()
 // LogExportFailures counts the log export batches that failed.
 func (r *Runtime) LogExportFailures() uint64 { return r.logFailures.Load() }
 
-// ShutdownFailures counts the providers that did not shut down inside ShutdownTimeout.
+// ShutdownFailures counts the providers that did not shut down inside the shutdown limit.
 func (r *Runtime) ShutdownFailures() uint64 { return r.shutdownFailures.Load() }
 
-// DroppedSpans counts the sampled spans the full trace queue dropped.
+// DroppedSpans counts the sampled spans that were not exported: dropped by the full queue, ended after shutdown,
+// in a failed export or left when shutdown ended.
 func (r *Runtime) DroppedSpans() uint64 {
 	if r.spans == nil {
 		return 0
@@ -335,6 +383,7 @@ func safeName(name string) string {
 }
 
 // collectorOrigin accepts only a plain HTTPS origin: a host and an optional port, no user, path, query or fragment.
+// With no port, the origin is the host at port 443.
 func collectorOrigin(endpoint string) (*url.URL, error) {
 	origin, err := url.Parse(endpoint)
 	if len(endpoint) > 2048 || err != nil || origin.Scheme != "https" || origin.Hostname() == "" || origin.User != nil || origin.RawQuery != "" || origin.ForceQuery || origin.Fragment != "" || origin.Path != "" || origin.Opaque != "" {
@@ -348,6 +397,9 @@ func collectorOrigin(endpoint string) (*url.URL, error) {
 		if err != nil || port < 1 || port > 65535 || strconv.Itoa(port) != value {
 			return nil, errors.New("OTEL_EXPORTER_OTLP_ENDPOINT has an invalid port")
 		}
+	} else {
+		// The connection dials the host as it is, so an origin with no port gets the HTTPS port.
+		origin.Host = net.JoinHostPort(origin.Hostname(), "443")
 	}
 	return origin, nil
 }
@@ -483,31 +535,42 @@ func cumulative(sdkmetric.InstrumentKind) metricdata.Temporality {
 
 // spanQueue is the bounded trace queue of ST-SUP-RP03-LC03 and ST-SUP-RP03-LC10. A span that finds the queue full
 // is dropped and counted; the request never waits. One goroutine sends batches of at most BatchSize, each export
-// bounded by ExportTimeout. While an export is in flight the queue still takes spans up to QueueSize.
+// bounded by ExportTimeout and by the queue's base context, which shutdown cancels when its own deadline ends.
+// While an export is in flight the queue still takes spans up to QueueSize. Every sampled span that ends is either
+// exported or counted in dropped: a full queue, a span that ends after shutdown, a failed export and the spans left
+// when shutdown ends all count.
 type spanQueue struct {
 	exporter sdktrace.SpanExporter
 	queue    chan sdktrace.ReadOnlySpan
 	flushes  chan chan struct{}
-	stop     chan context.Context
+	stop     chan struct{}
 	done     chan struct{}
+	base     context.Context
+	cancel   context.CancelFunc
 	stopOnce sync.Once
-	closed   atomic.Bool
+	mu       sync.RWMutex
+	closed   bool
 	dropped  atomic.Uint64
 }
 
 func newSpanQueue(exporter sdktrace.SpanExporter) *spanQueue {
-	q := &spanQueue{exporter: exporter, queue: make(chan sdktrace.ReadOnlySpan, QueueSize), flushes: make(chan chan struct{}), stop: make(chan context.Context, 1), done: make(chan struct{})}
+	base, cancel := context.WithCancel(context.Background())
+	q := &spanQueue{exporter: exporter, queue: make(chan sdktrace.ReadOnlySpan, QueueSize), flushes: make(chan chan struct{}), stop: make(chan struct{}), done: make(chan struct{}), base: base, cancel: cancel}
 	go q.run()
 	return q
 }
 
 func (q *spanQueue) OnStart(context.Context, sdktrace.ReadWriteSpan) {}
 
+// OnEnd queues the span, or counts it dropped. Shutdown sets closed under the write lock, so no span enters the
+// queue after run has started its last count.
 func (q *spanQueue) OnEnd(span sdktrace.ReadOnlySpan) {
 	if !span.SpanContext().IsSampled() {
 		return
 	}
-	if q.closed.Load() {
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+	if q.closed {
 		q.dropped.Add(1)
 		return
 	}
@@ -523,47 +586,57 @@ func (q *spanQueue) run() {
 	batch := make([]sdktrace.ReadOnlySpan, 0, BatchSize)
 	timer := time.NewTimer(batchDelay)
 	defer timer.Stop()
-	send := func(ctx context.Context) {
+	send := func() {
 		if len(batch) == 0 {
 			return
 		}
-		export, cancel := context.WithTimeout(ctx, ExportTimeout)
-		_ = q.exporter.ExportSpans(export, batch)
+		export, cancel := context.WithTimeout(q.base, ExportTimeout)
+		if err := q.exporter.ExportSpans(export, batch); err != nil {
+			q.dropped.Add(uint64(len(batch)))
+		}
 		cancel()
 		clear(batch)
 		batch = batch[:0]
 	}
-	drain := func(ctx context.Context) {
-		for ctx.Err() == nil {
+	drain := func() {
+		for q.base.Err() == nil {
 			select {
 			case span := <-q.queue:
 				batch = append(batch, span)
 				if len(batch) == BatchSize {
-					send(ctx)
+					send()
 				}
 			default:
-				send(ctx)
+				send()
 				return
 			}
 		}
 	}
-	for {
+	stopped := func() bool {
+		select {
+		case <-q.stop:
+			drain()
+			q.dropped.Add(uint64(len(batch) + len(q.queue)))
+			return true
+		default:
+			return false
+		}
+	}
+	for !stopped() {
 		select {
 		case span := <-q.queue:
 			batch = append(batch, span)
 			if len(batch) == BatchSize {
-				send(context.Background())
+				send()
 				timer.Reset(batchDelay)
 			}
 		case <-timer.C:
-			send(context.Background())
+			send()
 			timer.Reset(batchDelay)
 		case reply := <-q.flushes:
-			drain(context.Background())
+			drain()
 			close(reply)
-		case ctx := <-q.stop:
-			drain(ctx)
-			return
+		case <-q.stop:
 		}
 	}
 }
@@ -585,17 +658,24 @@ func (q *spanQueue) ForceFlush(ctx context.Context) error {
 	}
 }
 
+// Shutdown stops the queue: run sends what the queue holds until ctx ends, then the base context is cancelled, the
+// export in flight returns, and run counts what is left as dropped. The exporter shuts down only after run ended.
 func (q *spanQueue) Shutdown(ctx context.Context) error {
 	q.stopOnce.Do(func() {
-		q.closed.Store(true)
-		q.stop <- ctx
+		q.mu.Lock()
+		q.closed = true
+		q.mu.Unlock()
+		close(q.stop)
 	})
 	var err error
 	select {
 	case <-q.done:
 	case <-ctx.Done():
 		err = ctx.Err()
+		q.cancel()
+		<-q.done
 	}
+	q.cancel()
 	if shutdownErr := q.exporter.Shutdown(ctx); err == nil {
 		err = shutdownErr
 	}
