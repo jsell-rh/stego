@@ -232,3 +232,26 @@ func validateCommandRetry(commands []types.Command) []ValidationError {
 	}
 	return faults
 }
+
+// The defaults of a command's Retry on conflict and Lock timeout (ST-DECL-EN18).
+const (
+	defaultRetryOnConflict = 0
+	defaultLockTimeout     = "2s"
+)
+
+// commandSettings resolves the Retry on conflict of each command, 0 when it is omitted, and its Lock timeout, 2s
+// when it is omitted, at the paths that the faults use.
+func commandSettings(service *types.ServiceDeclaration) []Setting {
+	var settings []Setting
+	for i, command := range service.Commands {
+		retry := Setting{Path: commandPath(i) + ".retry_on_conflict", Value: defaultRetryOnConflict, Default: true}
+		if command.RetryOnConflict != "" {
+			retry = Setting{Path: retry.Path, Value: command.RetryOnConflict}
+			if n, err := strconv.Atoi(command.RetryOnConflict); err == nil {
+				retry.Value = n
+			}
+		}
+		settings = append(settings, retry, resolved(commandPath(i)+".lock_timeout", command.LockTimeout, defaultLockTimeout))
+	}
+	return settings
+}

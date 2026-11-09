@@ -39,7 +39,11 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	return validateSource(input, source)
+	result, err := validateSource(input, source)
+	if result != nil {
+		result.Settings = declaration.ResolvedSettings(source.Service)
+	}
+	return result, err
 }
 
 // validateSource is the common semantic gate for validate, plan, and apply.
