@@ -275,6 +275,13 @@ type ServiceDeclaration struct {
 	Queries []Query `yaml:"queries,omitempty"`
 	// Observations are what the service's own code can observe and report (ST-DECL-EN20).
 	Observations []Observation `yaml:"observations,omitempty"`
+	// Modes are the modes the one binary runs: api, worker and controller; all three when it is empty
+	// (ST-DECL-EN01).
+	Modes []string `yaml:"modes,omitempty"`
+	// Workers are the background work that the service's own code carries out (ST-DECL-EN25).
+	Workers []Worker `yaml:"workers,omitempty"`
+	// Controllers are the controllers that the service runs in controller mode (ST-DECL-EN16).
+	Controllers []Controller `yaml:"controllers,omitempty"`
 }
 
 // UnmarshalYAML implements custom YAML unmarshaling for ServiceDeclaration.

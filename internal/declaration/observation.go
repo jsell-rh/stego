@@ -263,7 +263,7 @@ func validateObservationSeries(observations []types.Observation, entities []type
 }
 
 // validateObservationEmitters checks that each observation names at least one emitter, and that each emitter is a
-// command or a query of the declaration, or a slot binding as collection.slot, named once (ST-DECL-INV54).
+// command, a query or a worker of the declaration, or a slot binding as collection.slot, named once (ST-DECL-INV54).
 func validateObservationEmitters(service *types.ServiceDeclaration) []ValidationError {
 	declared := map[string]bool{}
 	for _, command := range service.Commands {
@@ -272,13 +272,16 @@ func validateObservationEmitters(service *types.ServiceDeclaration) []Validation
 	for _, query := range service.Queries {
 		declared[query.Name] = true
 	}
+	for _, worker := range service.Workers {
+		declared[worker.Name] = true
+	}
 	for _, binding := range service.Slots {
 		declared[binding.Collection+"."+binding.Slot] = true
 	}
 	var faults []ValidationError
 	for i, observation := range service.Observations {
 		if len(observation.EmittedBy) == 0 {
-			faults = append(faults, ValidationError{Category: "observation", Rule: "observation-emitter", Path: observationPath(i) + ".emitted_by", Allowed: sortedNames(declared), Message: fmt.Sprintf("observation %q names no emitter; name the commands, queries or slot bindings (as collection.slot) whose fills emit it", observation.Name)})
+			faults = append(faults, ValidationError{Category: "observation", Rule: "observation-emitter", Path: observationPath(i) + ".emitted_by", Allowed: sortedNames(declared), Message: fmt.Sprintf("observation %q names no emitter; name the commands, queries, workers or slot bindings (as collection.slot) whose fills emit it", observation.Name)})
 			continue
 		}
 		seen := map[string]bool{}

@@ -140,3 +140,19 @@ func TestOperationRoutes(t *testing.T) {
 		}
 	})
 }
+
+func TestWorkerFillFromProject(t *testing.T) {
+	t.Run("ST-DECL-INV68-T Checking reads the slot of a worker's fill from the project", func(t *testing.T) {
+		service := td02 + "workers:\n  - name: sync-todos\n    trigger: every 1m\n    writes: [Todo]\n    fill: sync-todos\n"
+		project := td02Project(t, service)
+		putFile(t, project, filepath.Join("fills", "sync-todos", "fill.yaml"), "kind: fill\nname: sync-todos\nimplements: "+declaration.WorkerSlot+"\n")
+		if faults := checkInProcess(t, project); len(faults) != 0 {
+			t.Fatalf("want no fault, got %+v", faults)
+		}
+		putFile(t, project, filepath.Join("fills", "sync-todos", "fill.yaml"), "kind: fill\nname: sync-todos\nimplements: "+declaration.QuerySlot+"\n")
+		faults := checkInProcess(t, project)
+		if len(faults) != 1 || faults[0].Rule != "worker-fill" || !strings.Contains(faults[0].Message, declaration.QuerySlot) {
+			t.Fatalf("want one fill fault that names %s, got %+v", declaration.QuerySlot, faults)
+		}
+	})
+}
