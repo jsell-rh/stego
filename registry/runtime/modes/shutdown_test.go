@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 
+	"stego.dev/runtime/controller"
 	"stego.dev/runtime/internal/pgtest"
 	"stego.dev/runtime/lease"
 )
@@ -340,6 +341,71 @@ func TestModeReadiness(t *testing.T) {
 		d.proxy.stop()
 		if err := readiness.Ready(ctx, Controller); !errors.Is(err, ErrNotReady) {
 			t.Fatalf("with the database stopped, controller gave %v, want not ready", err)
+		}
+	})
+
+	t.Run("ST-SUP-RP09-LC05-T05 A controller whose watch is down is not ready", func(t *testing.T) {
+		d := openDatabase(t)
+		readiness := NewReadiness(d.db)
+		metrics := new(controller.Metrics)
+		readiness.WatchQueue(metrics)
+		if err := readiness.Ready(ctx, Controller); !errors.Is(err, ErrNotReady) {
+			t.Fatalf("with no queue running, controller gave %v, want not ready", err)
+		}
+		drop, back := make(chan struct{}), make(chan struct{})
+		var watches atomic.Int32
+		source := controller.Source[string]{Watch: func(ctx context.Context) (func() (string, error), error) {
+			switch watches.Add(1) {
+			case 1:
+				return func() (string, error) {
+					select {
+					case <-drop:
+						return "", errors.New("watch down")
+					case <-ctx.Done():
+						return "", ctx.Err()
+					}
+				}, nil
+			default:
+				select {
+				case <-back:
+				default:
+					return nil, errors.New("connection refused")
+				}
+				return func() (string, error) { <-ctx.Done(); return "", ctx.Err() }, nil
+			}
+		}, Scan: func(context.Context, func(string) error) error { return nil }}
+		run, stop := context.WithCancel(ctx)
+		defer stop()
+		done := make(chan error, 1)
+		go func() {
+			done <- controller.RunKeyedWatch(run, source, func(context.Context, string) error { return nil }, controller.KeyedWatchOptions{
+				KeyedOptions:   controller.KeyedOptions{Metrics: metrics, Capacity: 4, ResyncInterval: time.Hour, Timeout: time.Second, RetryMin: time.Millisecond, RetryMax: 10 * time.Millisecond, Terminal: func(error) bool { return false }},
+				ReconnectDelay: 5 * time.Millisecond,
+			})
+		}()
+		await := func(ready bool) {
+			t.Helper()
+			deadline := time.Now().Add(5 * time.Second)
+			for (readiness.Ready(ctx, Controller) == nil) != ready {
+				if time.Now().After(deadline) {
+					t.Fatalf("the controller mode did not become ready=%t", ready)
+				}
+				time.Sleep(time.Millisecond)
+			}
+		}
+		await(true)
+		close(drop)
+		for watches.Load() < 3 {
+			time.Sleep(time.Millisecond)
+		}
+		if err := readiness.Ready(ctx, Controller); !errors.Is(err, ErrNotReady) {
+			t.Fatalf("with the watch down, controller gave %v, want not ready", err)
+		}
+		close(back)
+		await(true)
+		stop()
+		if err := <-done; err != nil {
+			t.Fatal(err)
 		}
 	})
 

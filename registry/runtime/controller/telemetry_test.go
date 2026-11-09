@@ -2,12 +2,17 @@ package controller
 
 import (
 	"context"
+	"crypto/tls"
+	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"sort"
@@ -19,6 +24,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	otelcodes "go.opentelemetry.io/otel/codes"
 	otellog "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/metric"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
@@ -28,6 +34,10 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
+	tracecollector "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	"stego.dev/runtime/modes"
 	"stego.dev/runtime/otel"
@@ -75,6 +85,7 @@ type testProviders struct {
 	logs      *logStore
 	loggers   *sdklog.LoggerProvider
 	events    *probe.Recorder
+	local     bool // no collector set, so the controller writes its logs to standard error
 	starts    atomic.Int32
 	shutdowns atomic.Int32
 	open      atomic.Bool
@@ -109,7 +120,24 @@ func newProviders(sampler sdktrace.Sampler, ids sdktrace.IDGenerator) *testProvi
 	return p
 }
 
-func (p *testProviders) TracerProvider() trace.TracerProvider   { return p.traces }
+func (p *testProviders) TracerProvider() trace.TracerProvider { return p.traces }
+func (p *testProviders) CollectorSet() bool                   { return !p.local }
+
+// StartOperation starts the operation span on the SDK tracer, as the telemetry runtime does: a root has no parent.
+func (p *testProviders) StartOperation(ctx context.Context, parent otel.Parent, name string) (context.Context, otel.Finish, error) {
+	options := []trace.SpanStartOption{trace.WithAttributes(attribute.String("stego.operation", name))}
+	if parent == otel.Root {
+		options = append(options, trace.WithNewRoot())
+	}
+	ctx, span := p.traces.Tracer("stego/operation").Start(ctx, name, options...)
+	return ctx, func(outcome otel.Outcome, retry, failed bool) {
+		span.SetAttributes(attribute.String("stego.outcome", string(outcome)), attribute.Bool("stego.retry", retry))
+		if failed {
+			span.SetStatus(otelcodes.Error, "")
+		}
+		span.End()
+	}, nil
+}
 func (p *testProviders) MeterProvider() metric.MeterProvider    { return p.meters }
 func (p *testProviders) LoggerProvider() otellog.LoggerProvider { return p.loggers }
 func (p *testProviders) Shutdown(context.Context) error {
@@ -565,7 +593,7 @@ func TestTelemetryCollector(t *testing.T) {
 				}
 			}
 		}
-		want := []string{"stego_controller_ready", "stego_controller_capacity", "stego_controller_queued_keys", "stego_controller_active_keys", "stego_controller_retry_keys", "stego_controller_admission_waiters", "stego_controller_actions_total", "stego_controller_retries_total", "stego_controller_scans_total", "stego_controller_reconnects_total", "stego_controller_action_duration_seconds"}
+		want := []string{"stego_controller_running", "stego_controller_ready", "stego_controller_capacity", "stego_controller_queued_keys", "stego_controller_active_keys", "stego_controller_retry_keys", "stego_controller_admission_waiters", "stego_controller_actions_total", "stego_controller_retries_total", "stego_controller_scans_total", "stego_controller_reconnects_total", "stego_controller_action_duration_seconds"}
 		if !slices.Equal(names, want) {
 			t.Fatalf("the instrument set is %v", names)
 		}
@@ -1779,4 +1807,222 @@ func TestTelemetrySpans(t *testing.T) {
 			t.Fatal("the reconcile span was not checked", checked)
 		}
 	})
+}
+
+// traceCollector is a fake OTLP gRPC trace collector on loopback with TLS, the receiver of the real telemetry
+// runtime in the tests that need its export.
+type traceCollector struct {
+	tracecollector.UnimplementedTraceServiceServer
+	mu    sync.Mutex
+	spans []*tracepb.Span
+}
+
+func (c *traceCollector) Export(_ context.Context, request *tracecollector.ExportTraceServiceRequest) (*tracecollector.ExportTraceServiceResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, resource := range request.ResourceSpans {
+		for _, scope := range resource.ScopeSpans {
+			c.spans = append(c.spans, scope.Spans...)
+		}
+	}
+	return &tracecollector.ExportTraceServiceResponse{}, nil
+}
+
+func (c *traceCollector) received() []*tracepb.Span {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.spans)
+}
+
+// startTraceCollector starts the fake collector and points the telemetry settings at it, with sampling ratio 1 and
+// no metric or log export.
+func startTraceCollector(t *testing.T) *traceCollector {
+	t.Helper()
+	for _, entry := range os.Environ() {
+		if name, _, _ := strings.Cut(entry, "="); strings.HasPrefix(name, "OTEL_") || strings.HasPrefix(name, "STEGO_OTEL_") {
+			t.Setenv(name, "")
+		}
+	}
+	server := httptest.NewTLSServer(http.NotFoundHandler())
+	server.Close()
+	file := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(file, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &traceCollector{}
+	grpcServer := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, Certificates: server.TLS.Certificates})))
+	tracecollector.RegisterTraceServiceServer(grpcServer, c)
+	go func() { _ = grpcServer.Serve(listener) }()
+	t.Cleanup(grpcServer.Stop)
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://"+listener.Addr().String())
+	t.Setenv("OTEL_EXPORTER_OTLP_CERTIFICATE", file)
+	t.Setenv("OTEL_TRACES_SAMPLER_ARG", "1")
+	t.Setenv("OTEL_METRICS_EXPORTER", "none")
+	t.Setenv("OTEL_LOGS_EXPORTER", "none")
+	return c
+}
+
+func TestTelemetryExport(t *testing.T) {
+	t.Run("ST-SUP-RP02-LC07-T01 Each operation is an independent root with its provider children", func(t *testing.T) {
+		collector := startTraceCollector(t)
+		var runtime *otel.Runtime
+		telemetry, err := NewTelemetry(func() (Providers, error) {
+			var err error
+			runtime, err = otel.New("controller-test", append(SpanNames(), "provider.call")...)
+			if err != nil {
+				return nil, err
+			}
+			return runtime, nil
+		}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		call := func(ctx context.Context) error {
+			_, finish, err := runtime.StartOperation(ctx, otel.Child, "provider.call")
+			if err != nil {
+				return err
+			}
+			finish(otel.OutcomeSuccess, false, false)
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		var actions atomic.Int32
+		_, err = Monitor(ctx, "", telemetry, func(ctx context.Context, _ *Metrics) (int, error) {
+			source := Source[string]{Watch: func(ctx context.Context) (func() (string, error), error) {
+				if err := call(ctx); err != nil {
+					return nil, err
+				}
+				return idle[string](ctx)
+			}, Scan: func(ctx context.Context, emit func(string) error) error {
+				if err := call(ctx); err != nil {
+					return err
+				}
+				for i := range 6 {
+					if err := emit(fmt.Sprint("key-", i)); err != nil {
+						return err
+					}
+				}
+				return nil
+			}}
+			o := watchKeyOptions()
+			o.Workers = 1
+			return 0, RunKeyedWatch(ctx, source, func(ctx context.Context, _ string) error {
+				if err := call(ctx); err != nil {
+					return err
+				}
+				if actions.Add(1) == 6 {
+					cancel()
+				}
+				return nil
+			}, o)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var spans []*tracepb.Span
+		deadline := time.Now().Add(5 * time.Second)
+		for spans = collector.received(); len(spans) < 16 && time.Now().Before(deadline); spans = collector.received() {
+			time.Sleep(10 * time.Millisecond)
+		}
+		roots := map[string]*tracepb.Span{}
+		traces := map[string]bool{}
+		var children []*tracepb.Span
+		for _, span := range spans {
+			if strings.HasPrefix(span.Name, "controller.") {
+				if len(span.ParentSpanId) != 0 || len(span.Links) != 0 {
+					t.Fatal("an operation span has a parent or a link", span.Name)
+				}
+				roots[string(span.SpanId)] = span
+				traces[string(span.TraceId)] = true
+			} else if span.Name == "provider.call" {
+				children = append(children, span)
+			}
+		}
+		if len(roots) != 8 || len(traces) != 8 || len(children) != 8 {
+			t.Fatalf("%d roots in %d traces and %d provider spans, want 8 of each", len(roots), len(traces), len(children))
+		}
+		for _, child := range children {
+			root, ok := roots[string(child.ParentSpanId)]
+			if !ok || string(root.TraceId) != string(child.TraceId) {
+				t.Fatal("a provider span is not under its operation")
+			}
+		}
+	})
+
+	t.Run("ST-SUP-RP02-LC20-T01 Without a collector, completion logs go to standard error", func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+		var stderr lockedBuffer
+		telemetry, err := NewTelemetry(func() (Providers, error) {
+			runtime, err := otel.New("controller-test", SpanNames()...)
+			if err != nil {
+				return nil, err
+			}
+			return runtime, nil
+		}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		telemetry.stderr = &stderr
+		_, err = Monitor(context.Background(), "", telemetry, func(ctx context.Context, _ *Metrics) (int, error) {
+			o := keyOptions()
+			o.Workers = 1
+			source := KeyedSource[string]{Observe: idleObserve, Scan: func(ctx context.Context, emit func(string) error) error {
+				for _, key := range []string{"KEY-MARKER-ok", "KEY-MARKER-bad"} {
+					if err := emit(key); err != nil {
+						return err
+					}
+				}
+				return nil
+			}}
+			return 0, RunKeyed(ctx, source, func(_ context.Context, key string) error {
+				if key == "KEY-MARKER-bad" {
+					return fmt.Errorf("%w: ERROR-MARKER", denied)
+				}
+				return nil
+			}, o)
+		})
+		if !errors.Is(err, denied) {
+			t.Fatal(err)
+		}
+		output := stderr.String()
+		if strings.Contains(output, "MARKER") {
+			t.Fatal("a key or error text reached standard error", output)
+		}
+		var reconciles []map[string]any
+		for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+			var record map[string]any
+			if err := json.Unmarshal([]byte(line), &record); err != nil {
+				t.Fatalf("a line is not JSON: %q", line)
+			}
+			if record["event.name"] == "controller.work.completed" && record["operation"] == "reconcile" {
+				reconciles = append(reconciles, record)
+			}
+		}
+		if len(reconciles) != 2 || reconciles[0]["outcome"] != "success" || reconciles[1]["outcome"] != "failure" || reconciles[1]["retry"] != false || reconciles[1]["severity"] != "ERROR" {
+			t.Fatal("the completion logs on standard error", reconciles)
+		}
+	})
+}
+
+// lockedBuffer is a writer that the test reads after the writes.
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
 }

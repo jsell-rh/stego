@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -945,6 +946,95 @@ func TestSpanOwnData(t *testing.T) {
 		}
 		if dropped != 3 || len(h.lastSpan(t).Events()) != SpanEventLimit || h.lastSpan(t).DroppedEvents() != 3 {
 			t.Fatalf("SpanEvent dropped %d, the span holds %d events", dropped, len(h.lastSpan(t).Events()))
+		}
+	})
+}
+
+func TestOperationSpan(t *testing.T) {
+	t.Run("ST-SUP-RP03-LC15-T01 An operation span of a registered name is exported with its own record", func(t *testing.T) {
+		h := newHarness(t, 1)
+		if err := h.runtime.register([]string{"reconcile", "scan"}); err != nil {
+			t.Fatal(err)
+		}
+		parent, _ := h.runtime.testSpan("outer")
+		rootCtx, finishRoot, err := h.runtime.StartOperation(parent, Root, "reconcile")
+		if err != nil {
+			t.Fatal(err)
+		}
+		childCtx, finishChild, err := h.runtime.StartOperation(rootCtx, Child, "scan")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, ctx := range []context.Context{rootCtx, childCtx} {
+			span := trace.SpanFromContext(ctx)
+			span.SetAttributes(attribute.String("fill", "PRIVATE"))
+			span.SetStatus(otelcodes.Error, "PRIVATE message")
+			span.RecordError(errors.New("PRIVATE"))
+		}
+		if h.runtime.SpanEvent(trace.SpanContextFromContext(childCtx), "domain.reservation_refused", time.Now()) {
+			t.Fatal("SpanEvent did not accept the operation span")
+		}
+		finishChild(OutcomeFailure, false, true)
+		finishRoot(OutcomeFailure, true, true)
+		var root, child sdktrace.ReadOnlySpan
+		for _, span := range h.spans.Ended() {
+			switch span.Name() {
+			case "reconcile":
+				root = span
+			case "scan":
+				child = span
+			}
+		}
+		if root == nil || child == nil {
+			t.Fatal("the operation spans were not exported")
+		}
+		if root.Parent().IsValid() || root.SpanContext().TraceID() == trace.SpanContextFromContext(parent).TraceID() {
+			t.Fatal("the root span continued the outer span")
+		}
+		if child.Parent().SpanID() != root.SpanContext().SpanID() {
+			t.Fatal("the child span is not under the root")
+		}
+		for _, span := range []sdktrace.ReadOnlySpan{root, child} {
+			var keys []string
+			for _, kv := range span.Attributes() {
+				keys = append(keys, string(kv.Key))
+				if strings.Contains(kv.Value.Emit(), "PRIVATE") {
+					t.Fatal("a fill value reached the span")
+				}
+			}
+			sort.Strings(keys)
+			if !slices.Equal(keys, []string{"stego.operation", "stego.outcome", "stego.retry"}) {
+				t.Fatalf("the span %s has the attributes %v", span.Name(), keys)
+			}
+			if span.Status().Code != otelcodes.Error || span.Status().Description != "" {
+				t.Fatalf("the span %s has the status %v", span.Name(), span.Status())
+			}
+			if outcome, _ := spanAttribute(span, "stego.outcome"); outcome != "failure" {
+				t.Fatalf("the span %s has the outcome %q", span.Name(), outcome)
+			}
+		}
+		if events := child.Events(); len(events) != 1 || events[0].Name != "domain.reservation_refused" {
+			t.Fatal("the probe event is not on the operation span", events)
+		}
+	})
+
+	t.Run("ST-SUP-RP03-LC15-T02 An unregistered span name is refused", func(t *testing.T) {
+		h := newHarness(t, 1)
+		if err := h.runtime.register([]string{"reconcile"}); err != nil {
+			t.Fatal(err)
+		}
+		ctx, finish, err := h.runtime.StartOperation(context.Background(), Root, "unregistered")
+		if err == nil || finish != nil || trace.SpanFromContext(ctx).SpanContext().IsValid() {
+			t.Fatal("an unregistered name started a span", err)
+		}
+		if _, _, err := h.runtime.StartOperation(context.Background(), 0, "reconcile"); err == nil {
+			t.Fatal("a span with no parent choice was started")
+		}
+		if len(h.spans.Ended()) != 0 || len(h.spans.Started()) != 0 {
+			t.Fatal("a span was started or exported")
+		}
+		if _, err := New("records", "Bad Name"); err == nil {
+			t.Fatal("an invalid name was registered")
 		}
 	})
 }

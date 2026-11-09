@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"stego.dev/runtime/otel"
 )
 
@@ -203,9 +205,27 @@ func consoleFormat(setting string) (format, error) {
 
 // Bind binds a new call of a fill to the span of ctx, the tenant ID, the principal's opaque ID and the name of the
 // command, query, worker, process method or slot binding. It reads nothing from ctx but the span.
+//
+// When the span of ctx is sampled and the telemetry runtime registered CallSpanName, Bind starts the call's own child
+// span through the runtime's operation span (ST-SUP-RP03-LC15): the probe binds to it, its span events go on it, and
+// Commit or Rollback ends it with the outcome committed or rolled_back.
 func (r *Runtime) Bind(ctx context.Context, tenant, principal, operation string) *Call {
+	if ctx != nil && trace.SpanContextFromContext(ctx).IsSampled() {
+		if child, finish, err := r.telemetry.StartOperation(ctx, otel.Child, CallSpanName); err == nil {
+			call := r.core.bind(child, tenant, principal, operation)
+			call.finish = finish
+			return call
+		}
+	}
 	return r.core.bind(ctx, tenant, principal, operation)
 }
+
+// CallSpanName is the name of the child span of each probe call.
+const CallSpanName = "probe.call"
+
+// SpanNames are the operation span names of the probe runtime, which the generated code registers when it starts the
+// telemetry runtime.
+func SpanNames() []string { return []string{CallSpanName} }
 
 // Close stops the probe runtime and the telemetry runtime inside one shared shutdown limit: the earlier of the
 // deadline of ctx and the telemetry runtime's ShutdownTimeout. The console sink writes what it holds and the OTLP

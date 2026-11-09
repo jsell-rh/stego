@@ -23,6 +23,12 @@ type Staller interface {
 	Stalled() bool
 }
 
+// Queue is a controller queue that the readiness of the controller mode reads, such as *controller.Metrics: ready
+// when a queue runs and its source permits new actions.
+type Queue interface {
+	QueueReady() bool
+}
+
 // ErrNotReady is the error of Ready when a mode is not ready.
 var ErrNotReady = errors.New("not ready")
 
@@ -34,6 +40,7 @@ type Readiness struct {
 
 	mu        sync.Mutex
 	backfills []Staller
+	queues    []Queue
 }
 
 // NewReadiness returns the readiness that pings db for the worker and controller modes.
@@ -46,6 +53,13 @@ func (r *Readiness) Watch(backfill Staller) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.backfills = append(r.backfills, backfill)
+}
+
+// WatchQueue adds a controller queue that must run and be ready for the controller mode to be ready.
+func (r *Readiness) WatchQueue(queue Queue) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.queues = append(r.queues, queue)
 }
 
 // Listener returns ln for the HTTP server of the api mode to serve on. The api mode is ready while the server
@@ -75,7 +89,7 @@ func (r *Readiness) Fail() {
 
 // Ready answers the readiness of the mode m: api is ready when the HTTP server accepts requests; worker when the
 // database is reachable; controller when the database is reachable, whether or not the replica holds the lease,
-// and no backfill it watches is stalled. Every mode is not ready once the shutdown began.
+// each controller queue it watches runs and is ready, and no backfill it watches is stalled. Every mode is not ready once the shutdown began.
 func (r *Readiness) Ready(ctx context.Context, m Mode) error {
 	if r.stopping.Load() {
 		return fmt.Errorf("%s: %w: the replica is shutting down", m, ErrNotReady)
@@ -96,7 +110,13 @@ func (r *Readiness) Ready(ctx context.Context, m Mode) error {
 		if m == Controller {
 			r.mu.Lock()
 			backfills := append([]Staller(nil), r.backfills...)
+			queues := append([]Queue(nil), r.queues...)
 			r.mu.Unlock()
+			for _, q := range queues {
+				if !q.QueueReady() {
+					return fmt.Errorf("%s: %w: the controller queue is not running and ready", m, ErrNotReady)
+				}
+			}
 			for _, b := range backfills {
 				if b.Stalled() {
 					return fmt.Errorf("%s: %w: the backfill of %s is stalled", m, ErrNotReady, b.Change())

@@ -84,6 +84,8 @@ type Runtime struct {
 	logs       *sdklog.LoggerProvider
 	signals    requestSignals
 	records    sync.Map // spanKey to *spanRecord, for each recording span of the runtime that has not ended
+	operations map[string]bool
+	opTracer   trace.Tracer
 
 	once             sync.Once
 	closed           atomic.Bool
@@ -110,8 +112,9 @@ type settings struct {
 // New reads the telemetry settings from the process environment and starts the runtime of the service with the
 // declared name. OTEL_SERVICE_NAME, when set, takes the place of the declared name. Without
 // OTEL_EXPORTER_OTLP_ENDPOINT it returns a runtime with no provider and no connection. With it, it opens one
-// verified TLS gRPC connection and does not wait for the collector (ST-SUP-RP03-LC02).
-func New(service string) (*Runtime, error) {
+// verified TLS gRPC connection and does not wait for the collector (ST-SUP-RP03-LC02). operations is the closed set
+// of operation span names that other runtime packages may start (ST-SUP-RP03-LC15); a name outside it is refused.
+func New(service string, operations ...string) (*Runtime, error) {
 	values, err := readSettings(service, os.Environ())
 	if err != nil {
 		return nil, err
@@ -121,6 +124,9 @@ func New(service string) (*Runtime, error) {
 		return nil, err
 	}
 	r := &Runtime{service: values.service, instance: instance, resource: serviceResource(values.service, instance)}
+	if err := r.register(operations); err != nil {
+		return nil, err
+	}
 	if values.endpoint == "" {
 		return r, nil
 	}
@@ -203,6 +209,7 @@ func (r *Runtime) startTraces(ratio float64, processor sdktrace.SpanProcessor) {
 		sdktrace.WithSpanProcessor(&ownSpans{next: processor, records: &r.records}),
 	)
 	r.tracer = r.provider.Tracer("stego/http")
+	r.opTracer = r.provider.Tracer("stego/operation")
 	r.rpcTracer = r.provider.Tracer("stego/grpc")
 }
 
@@ -866,3 +873,118 @@ func (s *ownSpan) Links() []sdktrace.Link           { return nil }
 func (s *ownSpan) DroppedAttributes() int           { return 0 }
 func (s *ownSpan) DroppedEvents() int               { return s.droppedEvents }
 func (s *ownSpan) DroppedLinks() int                { return 0 }
+
+// OperationLimit is the most operation span names that one runtime registers.
+const OperationLimit = 64
+
+// Parent says whether an operation span starts a new trace or continues the span of its context. The caller always
+// chooses (ST-SUP-RP03-LC15).
+type Parent uint8
+
+const (
+	// Root starts a new trace with no parent and no link.
+	Root Parent = iota + 1
+	// Child continues the span of the context, or starts a new trace when the context has none.
+	Child
+)
+
+// Outcome is the fixed outcome of an operation span.
+type Outcome string
+
+// The outcomes of an operation span.
+const (
+	OutcomeSuccess    Outcome = "success"
+	OutcomeFailure    Outcome = "failure"
+	OutcomeTimeout    Outcome = "timeout"
+	OutcomeCanceled   Outcome = "canceled"
+	OutcomePending    Outcome = "pending"
+	OutcomeCommitted  Outcome = "committed"
+	OutcomeRolledBack Outcome = "rolled_back"
+)
+
+func (o Outcome) known() bool {
+	switch o {
+	case OutcomeSuccess, OutcomeFailure, OutcomeTimeout, OutcomeCanceled, OutcomePending, OutcomeCommitted, OutcomeRolledBack:
+		return true
+	}
+	return false
+}
+
+// The fixed attribute keys of an operation span: the span name, the outcome and the retry flag.
+const (
+	operationKey = "stego.operation"
+	outcomeKey   = "stego.outcome"
+	retryKey     = "stego.retry"
+)
+
+// Finish ends an operation span once: it sets the outcome and the retry flag and, when failed is true, an error
+// status with no message. A later call does nothing.
+type Finish func(outcome Outcome, retry, failed bool)
+
+// operationName accepts 1 to 64 bytes of lower-case letters, digits, dots and underscores.
+func operationName(name string) bool {
+	if len(name) < 1 || len(name) > 64 {
+		return false
+	}
+	for _, c := range []byte(name) {
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+// register keeps the closed set of operation span names, checked once at start.
+func (r *Runtime) register(names []string) error {
+	if len(names) > OperationLimit {
+		return errors.New("too many operation span names")
+	}
+	r.operations = make(map[string]bool, len(names))
+	for _, name := range names {
+		if !operationName(name) || r.operations[name] {
+			return errors.New("an operation span name is invalid or repeated")
+		}
+		r.operations[name] = true
+	}
+	return nil
+}
+
+// StartOperation starts an operation span of another runtime package, with a name of the set registered at start.
+// The span carries only the fixed attributes stego.operation, stego.outcome and stego.retry and is exported with
+// the runtime's own record only, so code that holds it cannot add a name, an attribute, a status message or a span;
+// SpanEvent accepts it. Without a provider, or after Close, it returns ctx and a Finish that does nothing. An
+// unregistered name is an error, and no span starts (ST-SUP-RP03-LC15).
+func (r *Runtime) StartOperation(ctx context.Context, parent Parent, name string) (context.Context, Finish, error) {
+	if ctx == nil || (parent != Root && parent != Child) {
+		return ctx, nil, errors.New("an operation span requires a context and a parent choice")
+	}
+	if !r.operations[name] {
+		return ctx, nil, errors.New("the operation span name is not registered")
+	}
+	if r.provider == nil || r.closed.Load() {
+		return ctx, func(Outcome, bool, bool) {}, nil
+	}
+	options := []trace.SpanStartOption{trace.WithSpanKind(trace.SpanKindInternal), trace.WithAttributes(attribute.String(operationKey, name)), trace.WithTimestamp(time.Now())}
+	if parent == Root {
+		options = append(options, trace.WithNewRoot())
+	}
+	ctx, span := r.opTracer.Start(ctx, name, options...)
+	record := &spanRecord{name: name}
+	record.set(attribute.String(operationKey, name))
+	if span.IsRecording() {
+		r.records.Store(keyOf(span.SpanContext()), record)
+	}
+	var once sync.Once
+	return ctx, func(outcome Outcome, retry, failed bool) {
+		once.Do(func() {
+			if !outcome.known() {
+				outcome = OutcomeFailure
+			}
+			record.set(attribute.String(outcomeKey, string(outcome)), attribute.Bool(retryKey, retry))
+			if failed {
+				record.fail()
+			}
+			span.End()
+		})
+	}, nil
+}
