@@ -61,12 +61,14 @@ if [ "$(basename "$work")" = "go.work" ]; then
 		;;
 	esac
 fi
+if [ "$module" = "$runtime" ]; then
+	# The module folder is the runtime module itself: a work file that uses one folder twice is refused.
+	printf 'go %s\n\nuse %s\n' "$version" "$runtime" >"$2"
+	echo "$2"
+	exit 0
+fi
 {
-	if [ "$module" = "$runtime" ]; then
-		printf 'go %s\n\nuse %s\n' "$version" "$runtime"
-	else
-		printf 'go %s\n\nuse (\n\t%s\n\t%s\n)\n' "$version" "$module" "$runtime"
-	fi
+	printf 'go %s\n\nuse (\n\t%s\n\t%s\n)\n' "$version" "$module" "$runtime"
 	if [ -n "$pin" ]; then
 		printf '\nreplace stego.dev/runtime %s => %s\n' "$pin" "$runtime"
 	fi
