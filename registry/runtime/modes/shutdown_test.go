@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 
+	"stego.dev/runtime/controller"
 	"stego.dev/runtime/internal/pgtest"
 	"stego.dev/runtime/lease"
 )
@@ -226,6 +227,11 @@ func (s *steps) all() []string {
 // pingOK is a database that is always reachable, for the tests that need no PostgreSQL.
 type pingOK struct{}
 
+// readyQueue is a controller queue that runs and is ready. ST-SUP-RP09-LC05-T05 uses the real controller queue.
+type readyQueue struct{}
+
+func (readyQueue) QueueReady() bool { return true }
+
 func (pingOK) PingContext(context.Context) error { return nil }
 
 // serve starts an HTTP server for the api mode on the readiness listener, with handler under /work.
@@ -316,6 +322,7 @@ func TestModeReadiness(t *testing.T) {
 			t.Fatal(err)
 		}
 		readiness := NewReadiness(d.db)
+		readiness.WatchQueue(readyQueue{})
 		other, err := lease.New(d.other, "stego.controller", "other", lease.Settings{})
 		if err != nil {
 			t.Fatal(err)
@@ -343,8 +350,77 @@ func TestModeReadiness(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RP09-LC05-T05 A controller whose watch is down is not ready", func(t *testing.T) {
+		d := openDatabase(t)
+		readiness := NewReadiness(d.db)
+		if err := readiness.Ready(ctx, Controller); !errors.Is(err, ErrNotReady) {
+			t.Fatalf("with no watched queue and the database reachable, controller gave %v, want not ready", err)
+		}
+		metrics := new(controller.Metrics)
+		readiness.WatchQueue(metrics)
+		if err := readiness.Ready(ctx, Controller); !errors.Is(err, ErrNotReady) {
+			t.Fatalf("with no queue running, controller gave %v, want not ready", err)
+		}
+		drop, back := make(chan struct{}), make(chan struct{})
+		var watches atomic.Int32
+		source := controller.Source[string]{Watch: func(ctx context.Context) (func() (string, error), error) {
+			switch watches.Add(1) {
+			case 1:
+				return func() (string, error) {
+					select {
+					case <-drop:
+						return "", errors.New("watch down")
+					case <-ctx.Done():
+						return "", ctx.Err()
+					}
+				}, nil
+			default:
+				select {
+				case <-back:
+				default:
+					return nil, errors.New("connection refused")
+				}
+				return func() (string, error) { <-ctx.Done(); return "", ctx.Err() }, nil
+			}
+		}, Scan: func(context.Context, func(string) error) error { return nil }}
+		run, stop := context.WithCancel(ctx)
+		defer stop()
+		done := make(chan error, 1)
+		go func() {
+			done <- controller.RunKeyedWatch(run, source, func(context.Context, string) error { return nil }, controller.KeyedWatchOptions{
+				KeyedOptions:   controller.KeyedOptions{Metrics: metrics, Capacity: 4, ResyncInterval: time.Hour, Timeout: time.Second, RetryMin: time.Millisecond, RetryMax: 10 * time.Millisecond, Terminal: func(error) bool { return false }},
+				ReconnectDelay: 5 * time.Millisecond,
+			})
+		}()
+		await := func(ready bool) {
+			t.Helper()
+			deadline := time.Now().Add(5 * time.Second)
+			for (readiness.Ready(ctx, Controller) == nil) != ready {
+				if time.Now().After(deadline) {
+					t.Fatalf("the controller mode did not become ready=%t", ready)
+				}
+				time.Sleep(time.Millisecond)
+			}
+		}
+		await(true)
+		close(drop)
+		for watches.Load() < 3 {
+			time.Sleep(time.Millisecond)
+		}
+		if err := readiness.Ready(ctx, Controller); !errors.Is(err, ErrNotReady) {
+			t.Fatalf("with the watch down, controller gave %v, want not ready", err)
+		}
+		close(back)
+		await(true)
+		stop()
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	})
+
 	t.Run("ST-SUP-RP09-LC05-T04 A replica reports not ready as the first step of shutdown", func(t *testing.T) {
 		readiness := NewReadiness(pingOK{})
+		readiness.WatchQueue(readyQueue{})
 		server, url := serve(t, readiness, nil)
 		if code := get(t, url+"/readyz"); code != http.StatusOK {
 			t.Fatalf("before the shutdown, the replica answered %d, want ready", code)

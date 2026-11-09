@@ -57,7 +57,7 @@ func socketCount(t *testing.T) int {
 func TestProbeConsole(t *testing.T) {
 	t.Run("ST-SUP-RP12-LC07-T01 The console sink writes one JSON or logfmt line per emission to standard output", func(t *testing.T) {
 		if os.Getenv(childSetting) == "console" {
-			telemetry, err := otel.New("orders")
+			telemetry, err := otel.New("orders", SpanNames()...)
 			if err != nil {
 				os.Exit(2)
 			}

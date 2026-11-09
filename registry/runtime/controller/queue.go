@@ -382,8 +382,10 @@ func (h *keyHeap[K]) Pop() any {
 }
 
 type keyQueue[K ~string] struct {
-	mu        sync.Mutex
-	ready     bool
+	mu    sync.Mutex
+	ready bool
+	// draining lets workers take keys while the watch reconnects; the queue does not report ready meanwhile.
+	draining  bool
 	capacity  int
 	next      uint64
 	entries   map[K]*keyEntry[K]
@@ -407,6 +409,15 @@ func (q *keyQueue[K]) metrics() QueueMetrics {
 }
 
 func (q *keyQueue[K]) notify() { close(q.changed); q.changed = make(chan struct{}) }
+
+func (q *keyQueue[K]) setDraining(draining bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.draining != draining {
+		q.draining = draining
+		q.notify()
+	}
+}
 
 func (q *keyQueue[K]) setReady(ready bool) {
 	q.mu.Lock()
@@ -506,7 +517,7 @@ func (q *keyQueue[K]) take(ctx context.Context) (K, error) {
 		q.mu.Lock()
 		changed := q.changed
 		delay := time.Duration(-1)
-		if q.ready && len(q.pending) > 0 {
+		if (q.ready || q.draining) && len(q.pending) > 0 {
 			entry := q.pending[0]
 			delay = time.Until(entry.due)
 			if delay <= 0 {
@@ -985,12 +996,13 @@ func drainDuringReconnect[K ~string](parent context.Context, q *keyQueue[K], rec
 		}
 	}
 	var workers sync.WaitGroup
-	q.setReady(true)
+	q.setDraining(true)
 	for range count {
 		workers.Go(func() { keyWorker(take, run, q, reconcile, options.KeyedOptions, notice, fail) })
 	}
 	<-take.Done()
 	workers.Wait()
+	q.setDraining(false)
 	q.restart(options.RetryMin, options.RetryMax)
 	select {
 	case err := <-failures:
