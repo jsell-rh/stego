@@ -224,6 +224,7 @@ func newEnv(t *testing.T) *env {
 		"reservations (tenant_id text NOT NULL, id text NOT NULL, sku text NOT NULL, PRIMARY KEY (tenant_id, id))",
 		"orders (tenant_id text NOT NULL, id text NOT NULL, total bigint NOT NULL, authz_token text NOT NULL DEFAULT '', PRIMARY KEY (tenant_id, id))",
 		"charges (tenant_id text NOT NULL, id text NOT NULL, card_last4 text NOT NULL, amount bigint NOT NULL, authz_token text NOT NULL DEFAULT '', PRIMARY KEY (tenant_id, id))",
+		"tickets (tenant_id text NOT NULL, id uuid NOT NULL, PRIMARY KEY (tenant_id, id))",
 	} {
 		name, _, _ := strings.Cut(table, " ")
 		statements = append(statements, "CREATE TABLE app."+table,
@@ -354,10 +355,14 @@ func orderEntity(t *testing.T, search bool) *Entity[Order] {
 	return e
 }
 
-func chargeEntity(t *testing.T) *Entity[Charge] {
+func chargeEntity(t *testing.T) *Entity[Charge] { return chargeEntityWith(t, false) }
+
+// chargeEntityWith is the Charge entity, whose list uses the resource search when search is true.
+func chargeEntityWith(t *testing.T, search bool) *Entity[Charge] {
 	t.Helper()
 	e, err := NewEntity(Spec{Name: "charge", Schema: "app", Table: "charges", Key: "id", Columns: []string{"id", "card_last4", "amount"},
-		ResourceType: "charge", ReadPermission: "view", ListPermission: "view", Fields: audit.Fields{"card_last4": audit.PII}},
+		ResourceType: "charge", ReadPermission: "view", ListPermission: "view", Fields: audit.Fields{"card_last4": audit.PII},
+		Search: search},
 		func(r Row) (Charge, error) {
 			id, err := r.Text("id")
 			if err != nil {
@@ -376,9 +381,18 @@ func chargeEntity(t *testing.T) *Entity[Charge] {
 	return e
 }
 
-func mustQuery(t *testing.T, name, listPermission string, reads ...Readable) *Query {
+func mustQuery(t *testing.T, name string, reads ...Readable) *Query {
 	t.Helper()
-	q, err := NewQuery(name, listPermission, reads...)
+	q, err := NewQuery(name, reads...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return q
+}
+
+func mustListQuery(t *testing.T, name string, lists Readable, permission string, reads ...Readable) *Query {
+	t.Helper()
+	q, err := NewListQuery(name, lists, permission, reads...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,19 +402,21 @@ func mustQuery(t *testing.T, name, listPermission string, reads ...Readable) *Qu
 // noProbe is the typed probe of a query that declares no observation.
 type noProbe struct{}
 
+func newNoProbe(*probe.Probe) noProbe { return noProbe{} }
+
 // bound gives Run the tenant, the principal and a probe call of a recorder bound to them and the query name.
 func bound(t *testing.T, tenantID, subject, queryName string) Bound[noProbe] {
 	t.Helper()
 	call := probe.NewRecorder(nil).Bind(context.Background(), tenantID, subject, queryName)
-	return Bound[noProbe]{Tenant: mustTenant(t, tenantID), Principal: mustPrincipal(t, subject), Call: call}
+	return Bound[noProbe]{Tenant: mustTenant(t, tenantID), Principal: mustPrincipal(t, subject), Call: call, Probe: newNoProbe}
 }
 
 func TestHandle(t *testing.T) {
 	t.Run("ST-SUP-RP11-LC01-T01 The query handle reports the tenant and principal it was bound with", func(t *testing.T) {
 		e := newEnv(t)
 		rt := e.runtimeOf(t, &fakeDecision{decide: allowAll})
-		q := mustQuery(t, "open-reservations", "", reservationEntity(t))
-		var readOnly string
+		q := mustQuery(t, "open-reservations", reservationEntity(t))
+		var readOnly, isolation string
 		_, err := Run(context.Background(), rt, q, bound(t, "t1", "user:u-7", "open-reservations"), struct{}{},
 			func(ctx context.Context, _ struct{}, h *Handle[noProbe]) (struct{}, error) {
 				if got := h.Tenant().ID(); got != "t1" {
@@ -409,6 +425,9 @@ func TestHandle(t *testing.T) {
 				if got := h.Principal().Subject().String(); got != "user:u-7" {
 					t.Errorf("the principal is %q, want user:u-7", got)
 				}
+				if err := h.core.tx.QueryRowContext(ctx, "SHOW transaction_isolation").Scan(&isolation); err != nil {
+					return struct{}{}, err
+				}
 				return struct{}{}, h.core.tx.QueryRowContext(ctx, "SHOW transaction_read_only").Scan(&readOnly)
 			})
 		if err != nil {
@@ -416,6 +435,9 @@ func TestHandle(t *testing.T) {
 		}
 		if readOnly != "on" {
 			t.Errorf("transaction_read_only is %q, want on", readOnly)
+		}
+		if isolation != "read committed" {
+			t.Errorf("transaction_isolation is %q, want read committed", isolation)
 		}
 	})
 
@@ -430,7 +452,7 @@ func TestHandle(t *testing.T) {
 		t.Cleanup(func() { _ = tx.Rollback() })
 		reservations, charges := reservationEntity(t), chargeEntity(t)
 		h, err := bind(context.Background(), rt, tx, mustTenant(t, "t1"), mustPrincipal(t, "user:u-7"),
-			mustQuery(t, "open-reservations", "", reservations), noProbe{})
+			mustQuery(t, "open-reservations", reservations), noProbe{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -463,7 +485,7 @@ func TestHandle(t *testing.T) {
 		t.Cleanup(func() { _ = tx.Rollback() })
 		reservations := reservationEntity(t)
 		h, err := bind(context.Background(), rt, tx, mustTenant(t, "t1"), mustPrincipal(t, "user:u-7"),
-			mustQuery(t, "open-reservations", "", reservations), noProbe{})
+			mustQuery(t, "open-reservations", reservations), noProbe{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -501,10 +523,49 @@ func TestHandle(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RP11-LC03-T01 A list of the tenant's rows pages a uuid key from its first row", func(t *testing.T) {
+		e := newEnv(t)
+		e.insert(t, "INSERT INTO app.tickets (tenant_id, id) VALUES ('t1', '00000000-0000-7000-8000-000000000001'), ('t1', '00000000-0000-7000-8000-000000000002'), ('t2', '00000000-0000-7000-8000-000000000003')")
+		rt := e.runtimeOf(t, &fakeDecision{decide: allowAll})
+		tickets, err := NewEntity(Spec{Name: "ticket", Schema: "app", Table: "tickets", Key: "id", Columns: []string{"id"}},
+			func(r Row) (string, error) { return r.Text("id") })
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids, err := Run(context.Background(), rt, mustQuery(t, "tickets", tickets), bound(t, "t1", "user:u-7", "tickets"), struct{}{},
+			func(ctx context.Context, _ struct{}, h *Handle[noProbe]) ([]string, error) {
+				repo, err := Repo(h, tickets)
+				if err != nil {
+					return nil, err
+				}
+				var ids []string
+				var after Cursor
+				for {
+					page, err := repo.List(ctx, ListRequest{Limit: 1, After: after})
+					if err != nil {
+						return nil, err
+					}
+					for _, item := range page.Items {
+						ids = append(ids, item.Value())
+					}
+					if !page.More {
+						return ids, nil
+					}
+					after = page.Next
+				}
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Join(ids, ",") != "00000000-0000-7000-8000-000000000001,00000000-0000-7000-8000-000000000002" {
+			t.Errorf("the pages hold %v, want the two tickets of t1", ids)
+		}
+	})
+
 	t.Run("ST-SUP-RP11-LC04-T02 A write in the bound transaction fails in the database", func(t *testing.T) {
 		e := newEnv(t)
 		rt := e.runtimeOf(t, &fakeDecision{decide: allowAll})
-		q := mustQuery(t, "open-reservations", "", reservationEntity(t))
+		q := mustQuery(t, "open-reservations", reservationEntity(t))
 		var insertErr error
 		_, err := Run(context.Background(), rt, q, bound(t, "t1", "user:u-7", "open-reservations"), struct{}{},
 			func(ctx context.Context, _ struct{}, h *Handle[noProbe]) (struct{}, error) {

@@ -22,7 +22,8 @@ type Stream[T, P any] struct {
 // Handle returns the query handle of the stream, for the fill's reads.
 func (s *Stream[T, P]) Handle() *Handle[P] { return s.handle }
 
-// Dropped counts the messages of this stream that a deny dropped.
+// Dropped counts the messages of this stream that a deny dropped. As RunStream states, the count must never reach the
+// client.
 func (s *Stream[T, P]) Dropped() uint64 { return s.dropped.Load() }
 
 // Send sends value as one message of the stream (ST-SUP-RP11-LC13). It takes only a value that this handle loaded,
@@ -61,7 +62,8 @@ type StreamFill[Req, T, P any] func(ctx context.Context, req Req, s *Stream[T, P
 // RunStream runs one stream query as Run runs a query: one READ ONLY transaction for the whole stream, one call of
 // the fill, and the handle invalid once the fill returns. send writes one message of the entity e to the client; the
 // stream ends when ctx ends, such as at the stream's lifetime, or when the fill returns. It returns the number of
-// messages that a deny dropped.
+// messages that a deny dropped, for the service's own telemetry only: the count must never reach the client, in a
+// message, a trailer, a header or a status, because it tells the client how many resources it may not see.
 func RunStream[Req, T, P any](ctx context.Context, rt *Runtime, q *Query, b Bound[P], req Req, e *Entity[T], send func(T) error, fill StreamFill[Req, T, P]) (uint64, error) {
 	if fill == nil || send == nil || e == nil {
 		return 0, errors.New("query: a stream needs its fill, its send and its entity")

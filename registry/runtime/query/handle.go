@@ -234,9 +234,10 @@ func (e *Entity[T]) Name() string { return e.e.spec.Name }
 // ID and the token of the row. It has no exported field and no exported constructor, and the generated loaded type is
 // a pointer to it, such as type LoadedReservation = *query.Loaded[Reservation], which no composite literal and no
 // conversion from another type can make; so a fill can get a loaded value only from the handle
-// (ST-SUP-RP11-LC12). A value that the handle did not load, such as one that new makes, carries no handle and every
-// operation that takes a loaded value refuses it.
+// (ST-SUP-RP11-LC12). A value that the handle did not load, such as one that new or a composite literal makes, and a
+// copy of a loaded value carry no handle, and every operation that takes a loaded value refuses them.
 type Loaded[T any] struct {
+	self   *Loaded[T]
 	value  T
 	origin *core
 	entity *entity
@@ -246,7 +247,9 @@ type Loaded[T any] struct {
 
 // newLoaded is the one constructor of a loaded value, for the reads of the handle.
 func newLoaded[T any](origin *core, e *entity, id string, token authz.Token, value T) *Loaded[T] {
-	return &Loaded[T]{value: value, origin: origin, entity: e, id: id, token: token}
+	l := &Loaded[T]{value: value, origin: origin, entity: e, id: id, token: token}
+	l.self = l
+	return l
 }
 
 // Value returns a copy of the stored field values.
@@ -269,7 +272,8 @@ func (l *Loaded[T]) ID() string {
 // row returns what the authorization part needs of the value: the handle that loaded it, its entity, its ID and
 // its row token.
 func (l *Loaded[T]) row() (*core, *entity, string, authz.Token) {
-	if l == nil {
+	// A copy of a loaded value, such as one that *l makes, is not the value that the handle loaded.
+	if l == nil || l.self != l {
 		return nil, nil, "", authz.Token{}
 	}
 	return l.origin, l.entity, l.id, l.token
@@ -362,6 +366,13 @@ func bind[P any](ctx context.Context, rt *Runtime, tx *sql.Tx, t tenant.Tenant, 
 	}
 	if readOnly != "on" {
 		return nil, errors.New("query: the transaction of a query is not READ ONLY")
+	}
+	var isolation string
+	if err := tx.QueryRowContext(ctx, "SELECT pg_catalog.current_setting('transaction_isolation')").Scan(&isolation); err != nil {
+		return nil, fmt.Errorf("query: read the isolation of the transaction: %w", err)
+	}
+	if isolation != "read committed" {
+		return nil, errors.New("query: the transaction of a query is not READ COMMITTED")
 	}
 	c := &core{tx: tx, tenant: t, principal: p, query: q, reads: map[*entity]bool{}}
 	for _, r := range q.reads {
@@ -481,7 +492,12 @@ func (r *Repository[T]) Get(ctx context.Context, id string) (*Loaded[T], error) 
 	if err := rows.Close(); err != nil {
 		return nil, fmt.Errorf("query: read %s: %w", e.spec.Name, err)
 	}
-	allowed, err := c.allowRead(ctx, e, id, token)
+	// The decision is on the stored key of the row, not on the text the fill gave.
+	stored, err := row.Text(e.spec.Key)
+	if err != nil {
+		return nil, err
+	}
+	allowed, err := c.allowRead(ctx, e, stored, token)
 	if err != nil {
 		return nil, err
 	}

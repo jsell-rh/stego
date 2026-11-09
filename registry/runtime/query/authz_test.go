@@ -55,6 +55,8 @@ func (c *unitConn) Prepare(query string) (driver.Stmt, error) {
 	switch {
 	case strings.Contains(query, "authz_floor"):
 		return unitStmt{value: func([]driver.Value) string { return c.floor }}, nil
+	case strings.Contains(query, "transaction_isolation"):
+		return unitStmt{value: func([]driver.Value) string { return "read committed" }}, nil
 	case strings.Contains(query, "transaction_read_only"):
 		return unitStmt{value: func([]driver.Value) string { return "on" }}, nil
 	case strings.Contains(query, "set_config('app.tenant'"):
@@ -166,7 +168,7 @@ func TestAuthz(t *testing.T) {
 		rt := unitRuntime(t, port)
 		orders := orderEntity(t, false)
 		h, err := bind(context.Background(), rt, unitTxOf(t, ""), mustTenant(t, "t1"), mustPrincipal(t, "user:u-7"),
-			mustQuery(t, "order-detail", "", orders), noProbe{})
+			mustQuery(t, "order-detail", orders), noProbe{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -225,7 +227,7 @@ func TestAuthz(t *testing.T) {
 		port := &fakeDecision{decide: func(r authz.EvaluationRequest) bool { return r.Resource.ID != "o1" }}
 		rt := e.runtimeOf(t, port)
 		orders := orderEntity(t, false)
-		q := mustQuery(t, "order-detail", "", orders)
+		q := mustQuery(t, "order-detail", orders)
 		got, err := Run(context.Background(), rt, q, bound(t, "t1", "user:u-7", "order-detail"), "o1",
 			func(ctx context.Context, id string, h *Handle[noProbe]) (*Loaded[Order], error) {
 				repo, err := Repo(h, orders)
@@ -258,7 +260,7 @@ func TestAuthz(t *testing.T) {
 		port := &recordingDecision{Decision: spice.provider}
 		rt := e.runtimeOf(t, port)
 		orders := orderEntity(t, false)
-		q := mustQuery(t, "order-detail", "", orders)
+		q := mustQuery(t, "order-detail", orders)
 		_, err := Run(context.Background(), rt, q, bound(t, "t1", "user:u-7", "order-detail"), struct{}{},
 			func(ctx context.Context, _ struct{}, h *Handle[noProbe]) (struct{}, error) {
 				repo, err := Repo(h, orders)
@@ -294,7 +296,8 @@ func TestAuthz(t *testing.T) {
 		}}
 		rt := e.runtimeOf(t, port)
 		orders := orderEntity(t, false)
-		ids := listAll(t, rt, orders, mustQuery(t, "orders", "list_orders", orders), 1)
+		charges := chargeEntity(t)
+		ids := listAll(t, rt, orders, mustListQuery(t, "orders", orders, "list_orders", charges), 1)
 		if strings.Join(ids, ",") != "o-2,o-4" {
 			t.Errorf("the pages hold %v, want o-2 and o-4", ids)
 		}
@@ -314,6 +317,30 @@ func TestAuthz(t *testing.T) {
 				}
 			}
 		}
+		// The query's permission is bound to the entity it lists: a list of another entity that the query reads
+		// decides the permission that this entity declares for list.
+		e.insert(t, "INSERT INTO app.charges (tenant_id, id, card_last4, amount) VALUES ('t1', 'ch-1', '4242', 1)")
+		port.mu.Lock()
+		port.batches = nil
+		port.mu.Unlock()
+		_, err := Run(context.Background(), rt, mustListQuery(t, "orders", orders, "list_orders", charges), bound(t, "t1", "user:u-7", "orders"), struct{}{},
+			func(ctx context.Context, _ struct{}, h *Handle[noProbe]) (struct{}, error) {
+				repo, err := Repo(h, charges)
+				if err != nil {
+					return struct{}{}, err
+				}
+				_, err = repo.List(ctx, ListRequest{})
+				return struct{}{}, err
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+		port.mu.Lock()
+		batches = port.batches
+		port.mu.Unlock()
+		if len(batches) != 1 || len(batches[0]) != 1 || batches[0][0].Action.Name != "view" {
+			t.Errorf("the list of charges decides %v, want one batch on the charge's own list permission view", batches)
+		}
 	})
 
 	t.Run("ST-SUP-RP11-LC07-T01 A query list holds only the allowed rows, decided by SpiceDB", func(t *testing.T) {
@@ -329,7 +356,7 @@ func TestAuthz(t *testing.T) {
 			port := &recordingDecision{Decision: spice.provider}
 			rt := e.runtimeOf(t, port)
 			orders := orderEntity(t, search)
-			ids := listAll(t, rt, orders, mustQuery(t, "orders", "", orders), 1)
+			ids := listAll(t, rt, orders, mustQuery(t, "orders", orders), 1)
 			if strings.Join(ids, ",") != "o-1,o-4" {
 				t.Errorf("with search %v the pages hold %v, want o-1 and o-4", search, ids)
 			}

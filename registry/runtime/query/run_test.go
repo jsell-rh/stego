@@ -13,10 +13,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"stego.dev/runtime/audit"
+	"stego.dev/runtime/authz"
 )
 
 // readCharges is a fill that reads the charges ch-1 and ch-2 and returns their amounts.
@@ -48,12 +50,94 @@ func (e *env) count(t *testing.T, statement string, args ...any) int {
 }
 
 func TestRun(t *testing.T) {
+	// The read rows of LC08-T01 without the annotation, which waits on the spec change that answers ST-SUP-Q44.
+	readRows := func(t *testing.T, e *env, ids ...string) {
+		t.Helper()
+		for _, id := range ids {
+			var n int
+			var actorKind, before, after string
+			if err := e.admin.QueryRowContext(context.Background(), "SELECT count(*), min(actor_kind), min(before->>'card_last4'), min(after->>'card_last4') FROM "+
+				audit.EventsTable+" WHERE action = 'read' AND outcome = 'ok' AND actor_id = 'user:u-7' AND resource_type = 'charge' AND resource_id = $1 AND tenant_id = 't1'",
+				id).Scan(&n, &actorKind, &before, &after); err != nil {
+				t.Fatal(err)
+			}
+			if n != 1 || actorKind != "user" {
+				t.Errorf("%s has %d read rows with the actor kind %q, want 1 row of the user user:u-7", id, n, actorKind)
+			}
+			if before != audit.RedactionMarker || after != audit.RedactionMarker {
+				t.Errorf("the read row of %s holds card_last4 %q and %q, want it redacted", id, before, after)
+			}
+		}
+		if n := e.count(t, "SELECT count(*) FROM "+audit.EventsTable); n != len(ids) {
+			t.Errorf("the audit table holds %d rows, want one per resource read, %d", n, len(ids))
+		}
+	}
+	insertCharges := func(e *env) {
+		e.insert(t, "INSERT INTO app.charges (tenant_id, id, card_last4, amount) VALUES ('t1', 'ch-1', '4242', 700), ('t1', 'ch-2', '1881', 300)")
+	}
+
+	t.Run("ST-SUP-RP11-LC08-T01 A query read of pii leaves one read audit row per resource", func(t *testing.T) {
+		e := newEnv(t)
+		insertCharges(e)
+		rt := e.runtimeOf(t, &fakeDecision{decide: allowAll})
+		charges := chargeEntity(t)
+		q := mustQuery(t, "open-reservations", charges)
+		read := readCharges(charges)
+		// The fill reads ch-1 twice: the second read of the same resource writes no second row.
+		twice := func(ctx context.Context, req struct{}, h *Handle[noProbe]) ([]int64, error) {
+			amounts, err := read(ctx, req, h)
+			if err != nil {
+				return nil, err
+			}
+			repo, _ := Repo(h, charges)
+			_, err = repo.Get(ctx, "ch-1")
+			return amounts, err
+		}
+		amounts, err := Run(context.Background(), rt, q, bound(t, "t1", "user:u-7", "open-reservations"), struct{}{}, twice)
+		if err != nil || len(amounts) != 2 || amounts[0] != 700 || amounts[1] != 300 {
+			t.Fatalf("Run gives %v, %v; want the two amounts", amounts, err)
+		}
+		readRows(t, e, "ch-1", "ch-2")
+	})
+
+	t.Run("ST-SUP-RP11-LC08-T01 A query list of pii leaves one read audit row per listed resource", func(t *testing.T) {
+		for _, search := range []bool{false, true} {
+			e := newEnv(t)
+			insertCharges(e)
+			port := &fakeDecision{decide: allowAll, search: func(authz.SearchRequest) authz.SearchResult {
+				return authz.SearchResult{Resources: []authz.Resource{{Type: "charge", ID: "ch-1"}, {Type: "charge", ID: "ch-2"}}}
+			}}
+			rt := e.runtimeOf(t, port)
+			charges := chargeEntityWith(t, search)
+			q := mustQuery(t, "open-reservations", charges)
+			n, err := Run(context.Background(), rt, q, bound(t, "t1", "user:u-7", "open-reservations"), struct{}{},
+				func(ctx context.Context, _ struct{}, h *Handle[noProbe]) (int, error) {
+					repo, err := Repo(h, charges)
+					if err != nil {
+						return 0, err
+					}
+					page, err := repo.List(ctx, ListRequest{})
+					return len(page.Items), err
+				})
+			if err != nil || n != 2 {
+				t.Fatalf("with search %v the list gives %d values, %v; want 2", search, n, err)
+			}
+			port.mu.Lock()
+			asked := len(port.asked)
+			port.mu.Unlock()
+			if search != (asked > 0) {
+				t.Errorf("with search %v the provider got %d searches", search, asked)
+			}
+			readRows(t, e, "ch-1", "ch-2")
+		}
+	})
+
 	t.Run("ST-SUP-RP11-LC08-T02 A failed query audit write returns no result", func(t *testing.T) {
 		e := newEnv(t)
 		e.insert(t, "INSERT INTO app.charges (tenant_id, id, card_last4, amount) VALUES ('t1', 'ch-1', '4242', 700), ('t1', 'ch-2', '1881', 300)")
 		rt := e.runtimeOf(t, &fakeDecision{decide: allowAll})
 		charges := chargeEntity(t)
-		q := mustQuery(t, "open-reservations", "", charges)
+		q := mustQuery(t, "open-reservations", charges)
 		// The control: while the audit table takes inserts, the run gives its result and one read row per charge.
 		amounts, err := Run(context.Background(), rt, q, bound(t, "t1", "user:u-7", "open-reservations"), struct{}{}, readCharges(charges))
 		if err != nil || len(amounts) != 2 {
@@ -90,7 +174,7 @@ func TestRun(t *testing.T) {
 		port := &fakeDecision{decide: allowAll}
 		rt := e.runtimeOf(t, port)
 		orders := orderEntity(t, false)
-		q := mustQuery(t, "order-detail", "", orders)
+		q := mustQuery(t, "order-detail", orders)
 		var kept *Handle[noProbe]
 		var keptRepo *Repository[Order]
 		var keptOrder *Loaded[Order]
@@ -131,12 +215,58 @@ func TestRun(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RP11-LC09-T01 A kept query handle reads nothing after a fill that leaves through Goexit", func(t *testing.T) {
+		e := newEnv(t)
+		e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) VALUES ('t1', 'o-1', 5)")
+		port := &fakeDecision{decide: allowAll}
+		rt := e.runtimeOf(t, port)
+		orders := orderEntity(t, false)
+		q := mustQuery(t, "order-detail", orders)
+		var keptRepo *Repository[Order]
+		done := make(chan struct{})
+		returned := false
+		go func() {
+			defer close(done)
+			_, _ = Run(context.Background(), rt, q, bound(t, "t1", "user:u-7", "order-detail"), struct{}{},
+				func(ctx context.Context, _ struct{}, h *Handle[noProbe]) (struct{}, error) {
+					repo, err := Repo(h, orders)
+					if err != nil {
+						return struct{}{}, err
+					}
+					keptRepo = repo
+					if _, err := repo.Get(ctx, "o-1"); err != nil {
+						return struct{}{}, err
+					}
+					runtime.Goexit()
+					return struct{}{}, nil
+				})
+			returned = true
+		}()
+		<-done
+		if returned {
+			t.Fatal("Run returned after runtime.Goexit; the goroutine should end")
+		}
+		if keptRepo == nil {
+			t.Fatal("the fill did not run")
+		}
+		if _, err := keptRepo.Get(context.Background(), "o-1"); !errors.Is(err, ErrClosed) {
+			t.Errorf("Get through the handle of a fill that left through Goexit gives %v, want ErrClosed", err)
+		}
+		if got := len(port.recorded()); got != 1 {
+			t.Errorf("the decision port has %d calls, want the 1 of the fill", got)
+		}
+		// The deferred end rolled the transaction back: no connection of the runtime role stays in it.
+		if n := e.count(t, "SELECT count(*) FROM pg_stat_activity WHERE usename = $1 AND state LIKE 'idle in transaction%'", e.runtime); n != 0 {
+			t.Errorf("%d connections of the runtime role are idle in a transaction, want none", n)
+		}
+	})
+
 	t.Run("ST-SUP-RP11-LC10-T01 A query fill panic returns no result and hides the panic value", func(t *testing.T) {
 		e := newEnv(t)
 		e.insert(t, "INSERT INTO app.reservations (tenant_id, id, sku) VALUES ('t1', 'r-1', 'sku-1')")
 		rt := e.runtimeOf(t, &fakeDecision{decide: allowAll})
 		reservations := reservationEntity(t)
-		q := mustQuery(t, "open-reservations", "", reservations)
+		q := mustQuery(t, "open-reservations", reservations)
 		var kept *Repository[Reservation]
 		got, err := Run(context.Background(), rt, q, bound(t, "t1", "user:u-7", "open-reservations"), struct{}{},
 			func(ctx context.Context, _ struct{}, h *Handle[noProbe]) (*Loaded[Reservation], error) {

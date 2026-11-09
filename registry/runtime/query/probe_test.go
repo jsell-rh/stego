@@ -25,7 +25,6 @@ func TestProbe(t *testing.T) {
 		}
 		rec := probe.NewRecorder(nil)
 		call := rec.Bind(context.Background(), "t1", "user:u-7", "open-reservations")
-		typed := openReservationsProbe{p: call.Probe(), obs: obs}
 		// The transaction is a test double: the probe does not touch storage.
 		rt := unitRuntime(t, &fakeDecision{decide: allowAll})
 		rt.db = unitDB(t, "")
@@ -35,8 +34,9 @@ func TestProbe(t *testing.T) {
 			close(emit)
 			<-emitted
 		}
-		q := mustQuery(t, "open-reservations", "", reservationEntity(t))
-		b := Bound[openReservationsProbe]{Tenant: mustTenant(t, "t1"), Principal: mustPrincipal(t, "user:u-7"), Call: call, Probe: typed}
+		q := mustQuery(t, "open-reservations", reservationEntity(t))
+		b := Bound[openReservationsProbe]{Tenant: mustTenant(t, "t1"), Principal: mustPrincipal(t, "user:u-7"), Call: call,
+			Probe: func(p *probe.Probe) openReservationsProbe { return openReservationsProbe{p: p, obs: obs} }}
 		_, err = Run(context.Background(), rt, q, b, struct{}{},
 			func(ctx context.Context, _ struct{}, h *Handle[openReservationsProbe]) (struct{}, error) {
 				h.Probe().ReservationLookupEmpty()
@@ -66,10 +66,10 @@ func TestProbe(t *testing.T) {
 	t.Run("ST-SUP-RP11-LC11-T01 A probe call bound to another query, tenant or principal is refused", func(t *testing.T) {
 		rt := unitRuntime(t, &fakeDecision{decide: allowAll})
 		rt.db = unitDB(t, "")
-		q := mustQuery(t, "open-reservations", "", reservationEntity(t))
+		q := mustQuery(t, "open-reservations", reservationEntity(t))
 		for _, other := range [][3]string{{"t2", "user:u-7", "open-reservations"}, {"t1", "user:u-8", "open-reservations"}, {"t1", "user:u-7", "other"}} {
 			call := probe.NewRecorder(nil).Bind(context.Background(), other[0], other[1], other[2])
-			b := Bound[noProbe]{Tenant: mustTenant(t, "t1"), Principal: mustPrincipal(t, "user:u-7"), Call: call}
+			b := Bound[noProbe]{Tenant: mustTenant(t, "t1"), Principal: mustPrincipal(t, "user:u-7"), Call: call, Probe: newNoProbe}
 			ran := false
 			_, err := Run(context.Background(), rt, q, b, struct{}{}, func(context.Context, struct{}, *Handle[noProbe]) (struct{}, error) {
 				ran = true

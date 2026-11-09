@@ -30,7 +30,7 @@ func TestStream(t *testing.T) {
 		}}
 		rt := e.runtimeOf(t, port)
 		orders := orderEntity(t, false)
-		q := mustQuery(t, "watch-orders", "list_orders", orders)
+		q := mustListQuery(t, "watch-orders", orders, "list_orders")
 		var kept *Stream[Order, noProbe]
 		var keptOrder *Loaded[Order]
 		run := func(beforeThird func()) ([]string, uint64) {

@@ -2,6 +2,7 @@ package query
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 
@@ -60,8 +61,9 @@ func (c *core) allowRead(ctx context.Context, e *entity, id string, token authz.
 
 // Cursor is the position of a list: the zero Cursor is its start, and a ListResult gives the next one.
 type Cursor struct {
-	after string
-	page  authz.PageToken
+	after   string
+	started bool
+	page    authz.PageToken
 }
 
 // ListRequest is one page of a list: at most Limit allowed values after the cursor. A Limit of 0 is 100; the most
@@ -112,11 +114,11 @@ func (r *Repository[T]) List(ctx context.Context, request ListRequest) (ListResu
 	return r.tablePage(ctx, limit, request.After)
 }
 
-// permission is the permission of a list of the entity: the query's declared permission for a list query, and the
-// entity's list permission otherwise.
+// permission is the permission of a list of the entity: the query's declared permission when the query lists this
+// entity, and the entity's list permission otherwise.
 func (r *Repository[T]) permission() string {
-	if r.core.query.listPermission != "" {
-		return r.core.query.listPermission
+	if q := r.core.query; q.listEntity == &r.entity.e {
+		return q.listPermission
 	}
 	return r.entity.e.spec.ListPermission
 }
@@ -130,12 +132,21 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor) 
 	if e.spec.ResourceType != "" {
 		list = c.authz.List(r.permission(), nil)
 	}
-	statement := "SELECT " + e.selectList + " FROM " + e.table + " WHERE " + TenantColumn + " = $1 AND " + e.spec.Key +
+	// The first page has no key predicate, so a key of any type, such as uuid, needs no lowest value.
+	first := "SELECT " + e.selectList + " FROM " + e.table + " WHERE " + TenantColumn + " = $1 ORDER BY " + e.spec.Key +
+		" LIMIT $2"
+	next := "SELECT " + e.selectList + " FROM " + e.table + " WHERE " + TenantColumn + " = $1 AND " + e.spec.Key +
 		" > $2 ORDER BY " + e.spec.Key + " LIMIT $3"
 	var result ListResult[T]
-	key := after.after
+	key, started := after.after, after.started
 	for {
-		rows, err := c.tx.QueryContext(ctx, statement, c.tenant.ID(), key, limit)
+		var rows *sql.Rows
+		var err error
+		if started {
+			rows, err = c.tx.QueryContext(ctx, next, c.tenant.ID(), key, limit)
+		} else {
+			rows, err = c.tx.QueryContext(ctx, first, c.tenant.ID(), limit)
+		}
 		if err != nil {
 			return ListResult[T]{}, fmt.Errorf("query: list %s: %w", e.spec.Name, err)
 		}
@@ -152,7 +163,7 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor) 
 				return ListResult[T]{}, err
 			}
 		}
-		key = ids[len(ids)-1]
+		key, started = ids[len(ids)-1], true
 		allowed := map[string]bool{}
 		if list != nil {
 			candidates := make([]authz.Row, len(page))
@@ -180,7 +191,7 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor) 
 			}
 			result.Items = append(result.Items, loaded)
 			if len(result.Items) == limit {
-				result.Next, result.More = Cursor{after: ids[i]}, true
+				result.Next, result.More = Cursor{after: ids[i], started: true}, true
 				return result, nil
 			}
 		}
