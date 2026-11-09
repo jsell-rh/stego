@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"stego.dev/runtime/otel"
 )
 
@@ -150,7 +152,8 @@ type Runtime struct {
 	closeErr  error
 }
 
-// Start starts the probe runtime on the telemetry runtime of the service. It reads STEGO_PROBE_CONSOLE: json or
+// Start starts the probe runtime on the telemetry runtime of the service. The telemetry runtime must register the
+// names of SpanNames, or Start fails. It reads STEGO_PROBE_CONSOLE: json or
 // logfmt turns the console sink on for declared observations, and an absent, empty or off setting leaves it off for
 // them; any other value fails with fixed text (ST-SUP-RP12-LC16). The built-in service events are on the console in
 // every setting (ST-SUP-RP12-LC22). The OTLP sink is on when, and only when, the telemetry runtime has a collector
@@ -164,6 +167,9 @@ func Start(telemetry *otel.Runtime, builtins *Builtins) (*Runtime, error) {
 func start(telemetry *otel.Runtime, builtins *Builtins, setting string, stdout io.Writer) (*Runtime, error) {
 	if telemetry == nil {
 		return nil, errors.New("probe: no telemetry runtime")
+	}
+	if !telemetry.Registered(CallSpanName) {
+		return nil, errors.New("probe: the telemetry runtime does not register the span name " + CallSpanName + "; start it with otel.New(service, probe.SpanNames()...)")
 	}
 	format, err := consoleFormat(setting)
 	if err != nil {
@@ -203,9 +209,31 @@ func consoleFormat(setting string) (format, error) {
 
 // Bind binds a new call of a fill to the span of ctx, the tenant ID, the principal's opaque ID and the name of the
 // command, query, worker, process method or slot binding. It reads nothing from ctx but the span.
+//
+// When the span of ctx is sampled and the telemetry runtime registered CallSpanName, Bind starts the call's own child
+// span through the runtime's operation span (ST-SUP-RP03-LC15): the probe binds to it, its span events go on it, and
+// Commit or Rollback ends it with the outcome committed or rolled_back.
+//
+// The generated code MUST end every call: it writes defer call.Rollback() right after Bind, and calls Commit when
+// the transaction commits; a Rollback after a Commit does nothing. A call that never ends keeps its span open until
+// the telemetry runtime's bound on open spans (otel.SpanRecordLimit) drops new spans.
 func (r *Runtime) Bind(ctx context.Context, tenant, principal, operation string) *Call {
+	if ctx != nil && trace.SpanContextFromContext(ctx).IsSampled() {
+		if child, finish, err := r.telemetry.StartOperation(ctx, otel.Child, CallSpanName); err == nil {
+			call := r.core.bind(child, tenant, principal, operation)
+			call.finish = finish
+			return call
+		}
+	}
 	return r.core.bind(ctx, tenant, principal, operation)
 }
+
+// CallSpanName is the name of the child span of each probe call.
+const CallSpanName = "probe.call"
+
+// SpanNames are the operation span names of the probe runtime, which the generated code registers when it starts the
+// telemetry runtime.
+func SpanNames() []string { return []string{CallSpanName} }
 
 // Close stops the probe runtime and the telemetry runtime inside one shared shutdown limit: the earlier of the
 // deadline of ctx and the telemetry runtime's ShutdownTimeout. The console sink writes what it holds and the OTLP

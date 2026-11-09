@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
+
+	"stego.dev/runtime/otel"
 )
 
 // HoldLimit is the most emissions that one call holds until its outcome (ST-SUP-RP12-LC20).
@@ -345,6 +347,8 @@ type Call struct {
 	principal string
 	operation string
 	probe     Probe
+	// finish ends the call's own child span, when the call has one (ST-SUP-RP03-LC15).
+	finish otel.Finish
 
 	mu    sync.Mutex
 	state callState
@@ -389,6 +393,7 @@ func (c *Call) end(committed bool) {
 	c.state = ended
 	held := c.held
 	c.held = nil
+	finish := c.finish
 	c.mu.Unlock()
 	outcome := outcomeRolledBack
 	if committed {
@@ -401,6 +406,15 @@ func (c *Call) end(committed bool) {
 			continue
 		}
 		c.core.safeSend(r)
+	}
+	// The span events went on the call's span at once; the span ends after them.
+	if finish != nil {
+		if committed {
+			finish(otel.OutcomeCommitted, false, false)
+		} else {
+			// A rollback is an outcome of the call, not an error of the span.
+			finish(otel.OutcomeRolledBack, false, false)
+		}
 	}
 }
 

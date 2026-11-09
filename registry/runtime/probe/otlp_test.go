@@ -243,7 +243,7 @@ func attributeKeys(attrs []*commonpb.KeyValue) []string {
 // newTelemetry starts the real telemetry runtime of the service orders from the process environment.
 func newTelemetry(t testing.TB) *otel.Runtime {
 	t.Helper()
-	telemetry, err := otel.New("orders")
+	telemetry, err := otel.New("orders", SpanNames()...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -636,4 +636,75 @@ func waitFor(t testing.TB, done func() bool) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
+}
+
+func TestProbeCallSpan(t *testing.T) {
+	t.Run("ST-SUP-RP03-LC15-T03 The probe runtime starts a child span per call", func(t *testing.T) {
+		c := startCollector(t)
+		telemetry, err := otel.New("orders", SpanNames()...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(telemetry.Close)
+		r := newProbe(t, telemetry, "", nil)
+		refused := reservationRefused(t, CountsAttempt)
+		ctx, span := recordingSpan(t, telemetry)
+		server := span.SpanContext()
+		for _, commit := range []bool{true, false} {
+			call := r.Bind(ctx, "t1", "user:u-7", command)
+			if call.Probe().SpanContext().SpanID() == server.SpanID() || call.Probe().SpanContext().TraceID() != server.TraceID() {
+				t.Fatal("the call is not bound to a child span of the server span")
+			}
+			call.Probe().Emit(refused, Text("A-1"), Enum("short"))
+			call.Returned()
+			if commit {
+				call.Commit()
+			} else {
+				call.Rollback()
+			}
+		}
+		span.End()
+		if err := r.Close(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		var outcomes []string
+		for _, s := range c.spans() {
+			if s.Name != CallSpanName {
+				if s.SpanId != nil && trace.SpanID(s.SpanId) == server.SpanID() && len(s.Events) != 0 {
+					t.Fatal("an event of a call went on the server span")
+				}
+				continue
+			}
+			if trace.SpanID(s.ParentSpanId) != server.SpanID() {
+				t.Fatal("the call span is not a child of the server span")
+			}
+			if len(s.Events) != 1 || s.Events[0].Name != "domain.reservation_refused" {
+				t.Fatal("the call span does not hold the call's event", s.Events)
+			}
+			for _, kv := range s.Attributes {
+				if kv.Key == "stego.outcome" {
+					outcomes = append(outcomes, kv.Value.GetStringValue())
+				}
+			}
+			if s.Status.GetCode() == tracepb.Status_STATUS_CODE_ERROR {
+				t.Fatal("a call span is marked as an error; a rollback is an outcome, not an error")
+			}
+		}
+		slices.Sort(outcomes)
+		if !slices.Equal(outcomes, []string{"committed", "rolled_back"}) {
+			t.Fatal("the call spans have the outcomes", outcomes)
+		}
+	})
+
+	t.Run("ST-SUP-RP03-LC15-T03 A telemetry runtime without the call span name fails the start", func(t *testing.T) {
+		clearEnvironment(t)
+		telemetry, err := otel.New("orders")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer telemetry.Close()
+		if _, err := Start(telemetry, nil); err == nil || !strings.Contains(err.Error(), CallSpanName) {
+			t.Fatal("the probe started on a runtime without its span name", err)
+		}
+	})
 }
