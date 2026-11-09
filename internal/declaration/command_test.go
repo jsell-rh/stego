@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/parser"
+	"github.com/jsell-rh/stego/internal/types"
 )
 
 // td02 is the declaration of ST-DECL-TD02.
@@ -30,7 +31,7 @@ func compositionFaults(t *testing.T, service string, facts Facts, rules ...strin
 	t.Helper()
 	declared, undeclared, err := parser.ReadServiceDeclaration([]byte(service), "service.yaml")
 	if err != nil || len(undeclared) != 0 {
-		t.Fatalf("read the declaration: %v %v\n%s", err, undeclared, service)
+		t.Fatalf("read the declaration: %v %+v\n%s", err, undeclared, service)
 	}
 	if own := Validate(declared, undeclared...).All(); len(own) != 0 {
 		t.Fatalf("the declaration has other faults: %+v", own)
@@ -46,6 +47,11 @@ func compositionFaults(t *testing.T, service string, facts Facts, rules ...strin
 		}
 	}
 	return faults
+}
+
+// readDeclaration reads a declaration as stego validate reads it.
+func readDeclaration(service string) (*types.ServiceDeclaration, []parser.UndeclaredField, error) {
+	return parser.ReadServiceDeclaration([]byte(service), "service.yaml")
 }
 
 // commandFacts are the facts of ST-DECL-TD02 with a fill of the command slot for each name given, and the outbox

@@ -83,6 +83,8 @@ type Field struct {
 	To              string    `yaml:"to,omitempty"` // for ref type
 	Unobserved      *string   `yaml:"unobserved,omitempty"`
 	Deleting        *string   `yaml:"deleting,omitempty" json:"Deleting,omitempty"`
+	// Sensitivity is how private the field's values are, such as pii or secret (ST-DECL-EN03).
+	Sensitivity string `yaml:"sensitivity,omitempty"`
 }
 
 // Entity represents a domain entity with its fields.
@@ -271,6 +273,8 @@ type ServiceDeclaration struct {
 	Commands []Command `yaml:"commands,omitempty"`
 	// Queries are the reads that the service's own code carries out (ST-DECL-EN19).
 	Queries []Query `yaml:"queries,omitempty"`
+	// Observations are what the service's own code can observe and report (ST-DECL-EN20).
+	Observations []Observation `yaml:"observations,omitempty"`
 }
 
 // UnmarshalYAML implements custom YAML unmarshaling for ServiceDeclaration.

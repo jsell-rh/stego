@@ -19,6 +19,7 @@
 {"id":"ST-DECL-EN08-DM","title":"types.FillModule","entity_id":"ST-DECL-EN08","file":"internal/types/fill_module.go"}
 {"id":"ST-DECL-EN18-DM","title":"types.Command","entity_id":"ST-DECL-EN18","file":"internal/types/command.go"}
 {"id":"ST-DECL-EN19-DM","title":"types.Query","entity_id":"ST-DECL-EN19","file":"internal/types/query.go"}
+{"id":"ST-DECL-EN20-DM","title":"types.Observation","entity_id":"ST-DECL-EN20","file":"internal/types/observation.go"}
 {"id":"ST-DIS-EN06-DM","title":"lifecycle.Lifecycle","entity_id":"ST-DIS-EN06","file":"internal/lifecycle/types.go"}
 {"id":"ST-DIS-EN07-DM","title":"lifecycle.Supersession","entity_id":"ST-DIS-EN07","file":"internal/lifecycle/types.go"}
 {"id":"ST-DIS-EN08-DM","title":"lifecycle.Withdrawal","entity_id":"ST-DIS-EN08","file":"internal/lifecycle/types.go"}
