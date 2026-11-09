@@ -318,12 +318,11 @@ type AnchorConfig struct {
 
 // Anchorer is the anchor job (ST-SUP-RP05-LC09). The controller calls Tick with its clock; the job owns no loop.
 type Anchorer struct {
-	cfg      AnchorConfig
-	mu       sync.Mutex
-	lastTick time.Time
-	missed   map[string]string
-	late     atomic.Int64
-	skipped  atomic.Int64
+	cfg     AnchorConfig
+	mu      sync.Mutex
+	missed  map[string]string
+	late    atomic.Int64
+	skipped atomic.Int64
 }
 
 // NewAnchorer returns the anchor job.
@@ -367,10 +366,10 @@ type tickResult struct {
 // due boundary, or that has no stored boundary, it publishes at once a periodic anchor with the hash of the
 // chain's row with the highest seq and that seq as the count, read from the audit table and never from the
 // chain-head row, stores the due boundary, and fences the transaction with the lease (lease.Held.Fence) as its
-// last statement. A chain with no row is not anchored, and its due boundary is stored. A boundary anchored after it
-// was due at an earlier Tick, or at the first Tick after this process took the lease, counts as late
-// (LateAnchors); each boundary passed over between the stored one and the due one counts as skipped
-// (SkippedBoundaries). A tenant whose due boundary is not anchored, or whose stored boundary is more than one
+// last statement. A chain with no row is not anchored, and its due boundary is stored. When more than one boundary
+// is due, it publishes one anchor for the latest, and each earlier due boundary, which gets no anchor of its own,
+// counts as skipped (SkippedBoundaries). An anchor published after the next boundary is due, on the job's clock,
+// counts as late (LateAnchors). A tenant whose due boundary is not anchored, or whose stored boundary is more than one
 // period after the due one, makes the job unhealthy; a tenant's miss clears only after its transaction commits. A
 // process that does not hold the lease clears its misses: the holder reports them.
 //
@@ -381,7 +380,6 @@ func (a *Anchorer) Tick(ctx context.Context, now time.Time) error {
 	defer a.mu.Unlock()
 	h := held(a.cfg.Lease)
 	if h == nil {
-		a.lastTick = time.Time{}
 		clear(a.missed)
 		return nil
 	}
@@ -390,12 +388,12 @@ func (a *Anchorer) Tick(ctx context.Context, now time.Time) error {
 		return err
 	}
 	due := a.Boundary(now)
-	first := a.lastTick.IsZero()
-	lastTick := a.lastTick
-	a.lastTick = now
+	start := time.Now()
 	var errs []error
 	for _, t := range tenants {
-		res, err := a.anchorOne(ctx, h, t, due, first, lastTick)
+		// The time of this anchor on the job's clock: the tick's time plus the time the tick ran so far.
+		at := now.Add(time.Since(start))
+		res, err := a.anchorOne(ctx, h, t, due, at)
 		tid := t.ID()
 		switch {
 		case err != nil:
@@ -415,7 +413,7 @@ func (a *Anchorer) Tick(ctx context.Context, now time.Time) error {
 	return errors.Join(errs...)
 }
 
-func (a *Anchorer) anchorOne(ctx context.Context, h *lease.Held, t tenant.Tenant, due time.Time, first bool, lastTick time.Time) (tickResult, error) {
+func (a *Anchorer) anchorOne(ctx context.Context, h *lease.Held, t tenant.Tenant, due, at time.Time) (tickResult, error) {
 	var res tickResult
 	tx, err := tenant.Begin(ctx, a.cfg.DB, t, nil)
 	if err != nil {
@@ -451,7 +449,7 @@ func (a *Anchorer) anchorOne(ctx context.Context, h *lease.Held, t tenant.Tenant
 		if err := a.cfg.Outbox.Enqueue(ctx, tx, tid, SinkDestination, key, anchorMessage(an)); err != nil {
 			return rollback(stmtError(ctx, "anchor enqueue", err))
 		}
-		if hasStored && (first || !due.After(lastTick)) {
+		if !at.Before(due.Add(a.cfg.Period)) {
 			res.late = 1
 		}
 		if hasStored {

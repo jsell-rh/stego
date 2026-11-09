@@ -80,8 +80,8 @@ const (
 	FindingHead FindingKind = "head_differs_from_anchor"
 	// FindingTruncated is a chain whose highest seq is lower than the highest anchored count.
 	FindingTruncated FindingKind = "truncated"
-	// FindingCheckpoint is a retention checkpoint whose hash differs from an anchor at its seq, or that no
-	// retention anchor of the sink holds.
+	// FindingCheckpoint is a forged retention checkpoint: no retention anchor of the sink has its seq and hash, or
+	// a periodic anchor at its seq has another hash.
 	FindingCheckpoint FindingKind = "checkpoint_differs_from_anchor"
 	// FindingBelowCheckpoint is a row whose seq is at or below the latest retention checkpoint, which a drop
 	// removed: the checkpoint is forged, or the row was put back.
@@ -114,8 +114,8 @@ func (f Finding) String() string {
 }
 
 const (
-	selectCheckpoint = `SELECT seq, hash FROM ` + CheckpointsTable + ` WHERE tenant_id = $1 ORDER BY seq DESC LIMIT 1`
-	selectChain      = `SELECT seq, id::text, occurred_at, recorded_at, tenant_id, actor_id, actor_kind, actor_ip,
+	selectCheckpoints = `SELECT seq, hash FROM ` + CheckpointsTable + ` WHERE tenant_id = $1 ORDER BY seq`
+	selectChain       = `SELECT seq, id::text, occurred_at, recorded_at, tenant_id, actor_id, actor_kind, actor_ip,
  user_agent, action, resource_type, resource_id, outcome, error_code, request_id, trace_id, span_id, idempotency_key,
  before::text, after::text, patch::text, service, service_version, declaration_version, prev_hash, hash
  FROM ` + EventsTable + ` WHERE tenant_id = $1 AND seq > $2 ORDER BY seq`
@@ -126,8 +126,10 @@ const (
 // Verify walks the chain of the tenant t in seq order (ST-SUP-RP05-LC06), in tx, a transaction of t that
 // tenant.Begin opened; it refuses the zero tenant before any statement. It
 // starts after the chain's latest retention checkpoint (ST-SUP-RP05-LC11), with the checkpoint's hash as the
-// first prev_hash, or at the first row with 32 zero bytes. It checks the checkpoint against the anchors at its seq,
-// and reports a row at or below it that still exists. It checks each row as it reads it, and reports the
+// first prev_hash, or at the first row with 32 zero bytes. It checks each retention checkpoint against the
+// retention anchors of the sink, reports as forged a checkpoint that no retention anchor of the same seq and hash
+// confirms, and walks from the latest confirmed checkpoint; it reports a row at or below that checkpoint that
+// still exists. It checks each row as it reads it, and reports the
 // first row whose seq, prev_hash or hash differs. Then it checks the periodic anchors that the sink holds for the
 // chain, in the order the sink holds them: the row whose seq is an anchor's count must have the anchor's head, the
 // highest seq must not be lower than the highest anchored count, and an anchor whose count is lower than an
@@ -146,45 +148,48 @@ func Verify(ctx context.Context, tx Tx, t tenant.Tenant, anchors []Anchor) ([]Fi
 	if set != tid {
 		return nil, errors.New("audit: Verify runs in a transaction of the tenant it verifies")
 	}
+	// Each retention checkpoint must have a retention anchor of the same seq and hash at the sink; the walk starts
+	// after the latest checkpoint that the sink confirms, or at the first row.
+	var findings []Finding
 	start := int64(0)
 	prev := ZeroHash()
-	var ckSeq int64
-	var ckHash []byte
-	switch err := tx.QueryRowContext(ctx, selectCheckpoint, tid).Scan(&ckSeq, &ckHash); {
-	case err == nil:
-		start, prev = ckSeq, ckHash
-	case errors.Is(err, sql.ErrNoRows):
-	default:
+	cks, err := tx.QueryContext(ctx, selectCheckpoints, tid)
+	if err != nil {
+		return nil, stmtError(ctx, "checkpoint read", err)
+	}
+	for cks.Next() {
+		var seq int64
+		var hash []byte
+		if err := cks.Scan(&seq, &hash); err != nil {
+			cks.Close()
+			return nil, stmtError(ctx, "checkpoint read", err)
+		}
+		confirmed := false
+		for _, a := range anchors {
+			if a.Tenant == tid && a.Kind == AnchorRetention && a.Count == seq && bytes.Equal(a.Head, hash) {
+				confirmed = true
+			}
+		}
+		if !confirmed {
+			findings = append(findings, Finding{Kind: FindingCheckpoint, Seq: seq, Anchor: -1, Anchored: seq})
+			continue
+		}
+		start, prev = seq, hash
+	}
+	cks.Close()
+	if err := cks.Err(); err != nil {
 		return nil, stmtError(ctx, "checkpoint read", err)
 	}
 	// The periodic anchors by the seq they name.
 	byCount := map[int64][]int{}
 	var maxCount int64
-	var findings []Finding
 	if start > 0 {
-		// The checkpoint must agree with each anchor at its seq, and a retention anchor of the sink must hold
-		// it; no row at or below it may still exist.
-		retained, matched := false, false
+		// A periodic anchor at the checkpoint's seq must have its hash, and no row at or below the confirmed
+		// checkpoint may still exist.
 		for i, a := range anchors {
-			if a.Tenant != tid || a.Count != start {
-				if a.Tenant == tid && a.Kind == AnchorRetention {
-					retained = true
-				}
-				continue
+			if a.Tenant == tid && a.Kind == AnchorPeriodic && a.Count == start && !bytes.Equal(a.Head, prev) {
+				findings = append(findings, Finding{Kind: FindingCheckpoint, Seq: start, Anchor: i, Anchored: start})
 			}
-			if a.Kind == AnchorRetention {
-				retained = true
-			}
-			if bytes.Equal(a.Head, prev) {
-				if a.Kind == AnchorRetention {
-					matched = true
-				}
-				continue
-			}
-			findings = append(findings, Finding{Kind: FindingCheckpoint, Seq: start, Anchor: i, Anchored: start})
-		}
-		if retained && !matched {
-			findings = append(findings, Finding{Kind: FindingCheckpoint, Seq: start, Anchor: -1, Anchored: start})
 		}
 		var seq int64
 		var id string

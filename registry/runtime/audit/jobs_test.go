@@ -305,8 +305,10 @@ func TestJobs(t *testing.T) {
 			if err := h.nxt.Tick(f.ctx, b.Add(20*time.Second)); err != nil {
 				t.Fatal(err)
 			}
-			if late := ra.LateAnchors() + rb.LateAnchors(); late != int64(i+1) {
-				t.Errorf("after the boundary %s the late-anchor count is %d, want %d", b.Format("15:04"), late, i+1)
+			// The new holder publishes before the next boundary is due: the anchor is not late, and no boundary
+			// is passed over.
+			if n := ra.LateAnchors() + rb.LateAnchors() + ra.SkippedBoundaries() + rb.SkippedBoundaries(); n != 0 {
+				t.Errorf("after the boundary %s, %d boundaries are counted as late or skipped, want 0", b.Format("15:04"), n)
 			}
 		}
 		got := f.anchorMessages("anchor/t1/")
@@ -371,7 +373,38 @@ func TestJobs(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RP05-LC09-T08 A stored boundary only grows, is never far ahead, and a future one is a health signal", func(t *testing.T) {
+	t.Run("ST-SUP-RP05-LC09-T08 Boundaries passed over are counted as skipped", func(t *testing.T) {
+		f := newPG(t)
+		f.recordN(f.writer(), "t1", 2)
+		if err := f.inTx(f.runtime, "t1", func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(f.ctx, "INSERT INTO "+BoundariesTable+" (tenant_id, boundary) VALUES ('t1', $1)", clock(10, 0))
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		a := f.anchorer(f.lease(), time.Hour, "t1")
+		if err := a.Tick(f.ctx, clock(14, 5)); err != nil {
+			t.Fatal(err)
+		}
+		got := f.anchorMessages("anchor/t1/")
+		if len(got) != 1 || !strings.HasSuffix(got[0].key, "T14:00:00.000000Z") {
+			t.Errorf("anchors %+v, want one for 14:00", got)
+		}
+		if n := a.SkippedBoundaries(); n != 3 {
+			t.Errorf("%d skipped boundaries, want 3 for 11:00, 12:00 and 13:00", n)
+		}
+		if n := a.LateAnchors(); n != 0 {
+			t.Errorf("%d late anchors, want 0", n)
+		}
+		var b time.Time
+		if err := f.inTx(f.owner, "t1", func(tx *sql.Tx) error {
+			return tx.QueryRowContext(f.ctx, "SELECT boundary FROM "+BoundariesTable).Scan(&b)
+		}); err != nil || !b.Equal(clock(14, 0)) {
+			t.Errorf("the stored boundary is %s (%v), want 14:00", b, err)
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC09-T09 A stored boundary only grows, is never far ahead, and a future one is a health signal", func(t *testing.T) {
 		f := newPG(t)
 		f.recordN(f.writer(), "t1", 1)
 		write := func(q string) error {

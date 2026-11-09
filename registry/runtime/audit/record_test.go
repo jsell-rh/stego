@@ -834,8 +834,7 @@ func TestRecord(t *testing.T) {
 		e := sampleEvent("t1", "update")
 		e.UserAgent = Untrusted("bad\xff\xfe\x00end")
 		e.ActorIP = Untrusted(strings.Repeat("é", 300)) // 600 bytes
-		e.RequestID = "req\x00\xff"
-		e.IdempotencyKey = strings.Repeat("k", 600)
+
 		tx := f.begin("t1")
 		stored, err := w.Record(f.ctx, tx, f.tn("t1"), []Event{e})
 		if err != nil {
@@ -856,8 +855,36 @@ func TestRecord(t *testing.T) {
 		if len(ip) > MaxUntrusted || !utf8Valid(ip) || ip != string(stored[0].ActorIP) || len(ip) < MaxUntrusted-1 {
 			t.Errorf("the stored address has %d bytes, valid %v, want at most %d bytes of valid UTF-8", len(ip), utf8Valid(ip), MaxUntrusted)
 		}
-		if stored[0].RequestID != "req\uFFFD" || len(stored[0].IdempotencyKey) != MaxUntrusted {
-			t.Errorf("the request ID %q and the idempotency key of %d bytes are not cleaned", stored[0].RequestID, len(stored[0].IdempotencyKey))
+		if h, _ := Hash(stored[0]); !bytes.Equal(h, stored[0].Hash) {
+			t.Errorf("the hash does not cover the cleaned values")
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC13-T06 Bad bytes in a request ID or an idempotency key do not fail the audited write", func(t *testing.T) {
+		f := newPG(t)
+		w := f.writer()
+		e := sampleEvent("t1", "update")
+		e.RequestID = "req\x00\xff-1"
+		e.IdempotencyKey = strings.Repeat("k", 599) + "\xfe"
+		tx := f.begin("t1")
+		stored, err := w.Record(f.ctx, tx, f.tn("t1"), []Event{e})
+		if err != nil {
+			t.Fatalf("Record fails on bad request values: %v", err)
+		}
+		if err := f.commit(tx, "t1"); err != nil {
+			t.Fatal(err)
+		}
+		var rid, key string
+		if err := f.inTx(f.owner, "t1", func(tx *sql.Tx) error {
+			return tx.QueryRowContext(f.ctx, "SELECT request_id, idempotency_key FROM "+EventsTable).Scan(&rid, &key)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if rid != "req\uFFFD-1" || rid != stored[0].RequestID {
+			t.Errorf("the stored request ID is %q (hashed %q), want %q", rid, stored[0].RequestID, "req\uFFFD-1")
+		}
+		if len(key) > MaxUntrusted || !utf8Valid(key) || key != stored[0].IdempotencyKey || strings.ContainsRune(key, 0) {
+			t.Errorf("the stored key has %d bytes, valid %v, want at most %d bytes of valid UTF-8", len(key), utf8Valid(key), MaxUntrusted)
 		}
 		if h, _ := Hash(stored[0]); !bytes.Equal(h, stored[0].Hash) {
 			t.Errorf("the hash does not cover the cleaned values")

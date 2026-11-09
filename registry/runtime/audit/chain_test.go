@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -209,15 +210,19 @@ func TestChain(t *testing.T) {
 		if a := sink.of("t1"); len(a) != 1 || a[0].Count != 5 {
 			t.Fatalf("the sink holds %v, want one anchor with the count 5", a)
 		}
-		f.maintainAll()
+		before := len(f.messages())
+		if _, err := f.maintainer(nil).Run(f.ctx); err != nil {
+			t.Fatal(err)
+		}
 		if n := f.count("", "SELECT count(*) FROM pg_class WHERE relname = $1", partitionName(old)); n != 0 {
 			t.Fatalf("the old partition is not dropped")
 		}
-		if findings := f.verify("t1", sink.of("t1")); len(findings) != 0 {
+		anchors := append(sink.of("t1"), f.deliver(f.messages()[before:]).of("t1")...)
+		if findings := f.verify("t1", anchors); len(findings) != 0 {
 			t.Errorf("findings after the retention drop: %v", findings)
 		}
 		f.tamper("t1", "DELETE FROM "+EventsTable+" WHERE seq = 4")
-		findings := f.verify("t1", sink.of("t1"))
+		findings := f.verify("t1", anchors)
 		if len(findings) != 1 || findings[0].Kind != FindingSeq || findings[0].Seq != 5 {
 			t.Errorf("findings %v, want one finding that the first row after the checkpoint seq 3 has the seq 5", findings)
 		}
@@ -273,7 +278,7 @@ func TestChain(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RP05-LC06-T12 The verifier reports a forged retention checkpoint", forgedCheckpointTest)
+	t.Run("ST-SUP-RP05-LC06-T12 A checkpoint that the sink does not hold is forged", forgedCheckpointTest)
 
 	t.Run("ST-SUP-RP05-LC06-T09 The verifier reports a deleted first row", func(t *testing.T) {
 		f := newPG(t)
@@ -307,31 +312,51 @@ func TestChain(t *testing.T) {
 }
 
 func forgedCheckpointTest(t *testing.T) {
-	f := newPG(t)
-	w := f.writer()
-	f.recordN(w, "t1", 3)
-	early := f.publishAnchor("t1").of("t1") // count 3
-	f.recordN(w, "t1", 2)
-	late := f.publishAnchorAt(time.Now().Add(time.Hour), "t1").of("t1") // count 5
-	anchors := append(early, late...)
-	if len(anchors) != 2 || anchors[0].Count != 3 || anchors[1].Count != 5 {
-		t.Fatalf("the sink holds %v, want anchors with the counts 3 and 5", anchors)
-	}
-	// Edit row 2 and cut rows 4 and 5, then write a checkpoint at seq 5 that hides both.
-	f.tamper("t1", "UPDATE "+EventsTable+" SET action = 'tampered' WHERE seq = 2")
-	f.tamper("t1", "DELETE FROM "+EventsTable+" WHERE seq > 3")
-	if err := f.inTx(f.owner, "t1", func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(f.ctx, "INSERT INTO "+CheckpointsTable+" (tenant_id, seq, hash, partition_name) VALUES ('t1', 5, $1, 'forged')", bytes.Repeat([]byte{9}, 32))
+	t.Run("a checkpoint that the sink does not hold", func(t *testing.T) {
+		f := newPG(t)
+		w := f.writer()
+		f.recordN(w, "t1", 3)
+		early := f.publishAnchor("t1").of("t1") // count 3
+		rows := f.recordN(w, "t1", 2)
+		late := f.publishAnchorAt(time.Now().Add(time.Hour), "t1").of("t1") // count 5
+		anchors := append(early, late...)
+		if len(anchors) != 2 || anchors[0].Count != 3 || anchors[1].Count != 5 {
+			t.Fatalf("the sink holds %v, want periodic anchors with the counts 3 and 5", anchors)
+		}
+		f.insertCheckpoint("t1", 5, rows[1].Hash)
+		f.tamper("t1", "UPDATE "+EventsTable+" SET action = 'tampered' WHERE seq = 2")
+		f.tamper("t1", "DELETE FROM "+EventsTable+" WHERE seq > 3")
+		findings := f.verify("t1", anchors)
+		if !hasFinding(findings, Finding{Kind: FindingCheckpoint, Anchored: 5}) {
+			t.Errorf("findings %v, want a forged-checkpoint finding at seq 5", findings)
+		}
+		if !slices.ContainsFunc(findings, func(x Finding) bool { return x.Kind == FindingHash && x.Seq == 2 }) {
+			t.Errorf("findings %v, want the walk from the zero hash to report the edited row 2", findings)
+		}
+		if !hasFinding(findings, Finding{Kind: FindingTruncated, Anchored: 5, Found: 3}) {
+			t.Errorf("findings %v, want a truncation finding against the count 5", findings)
+		}
+	})
+	t.Run("a checkpoint whose hash differs from the sink's retention anchor", func(t *testing.T) {
+		f := newPG(t)
+		rows := f.recordN(f.writer(), "t1", 3)
+		f.insertCheckpoint("t1", 3, bytes.Repeat([]byte{9}, 32))
+		anchors := []Anchor{{Tenant: "t1", Kind: AnchorRetention, Head: rows[2].Hash, Count: 3}}
+		findings := f.verify("t1", anchors)
+		if !hasFinding(findings, Finding{Kind: FindingCheckpoint, Anchored: 3}) {
+			t.Errorf("findings %v, want a forged-checkpoint finding at seq 3", findings)
+		}
+	})
+}
+
+// insertCheckpoint writes a retention checkpoint as the owner, as a forger with the owner's rights would.
+func (f *pgFixture) insertCheckpoint(id string, seq int64, hash []byte) {
+	f.t.Helper()
+	if err := f.inTx(f.owner, id, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(f.ctx, "INSERT INTO "+CheckpointsTable+" (tenant_id, seq, hash, partition_name) VALUES ($1, $2, $3, 'forged')", id, seq, hash)
 		return err
 	}); err != nil {
-		t.Fatal(err)
-	}
-	findings := f.verify("t1", anchors)
-	if !hasKind(findings, FindingCheckpoint) {
-		t.Errorf("findings %v, want a finding that the checkpoint differs from the anchor at seq 5", findings)
-	}
-	if !hasKind(findings, FindingBelowCheckpoint) {
-		t.Errorf("findings %v, want a finding that rows at or below the checkpoint still exist", findings)
+		f.t.Fatal(err)
 	}
 }
 
