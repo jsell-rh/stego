@@ -1,18 +1,17 @@
 package types
 
-// Controller is one controller that the service runs in controller mode (ST-DECL-EN16): what it reconciles from,
-// how often it resyncs, how many replicas run and the lease that keeps one of them active.
+// Controller is one controller of a declaration (ST-DECL-EN16): a loop that reconciles work under a lease.
 type Controller struct {
-	// Name is the controller's name.
+	// Name is the controller's name, unique in the declaration.
 	Name string `yaml:"name"`
-	// Sources are where the controller reads changes from: scan or watch.
-	Sources []string `yaml:"sources"`
-	// Resync is how often the controller reconciles every instance again, such as 10m.
-	Resync string `yaml:"resync"`
-	// Replicas is how many instances of the controller run.
-	Replicas int `yaml:"replicas"`
-	// LeaseTTL is how long the lease of the active instance holds, such as 15s.
-	LeaseTTL string `yaml:"lease_ttl"`
-	// Tenants is how the controller goes over the tenants: each.
-	Tenants string `yaml:"tenants"`
+	// Sources are scan, watch or both: how the controller learns of work.
+	Sources []string `yaml:"sources,omitempty"`
+	// Resync is how often the controller reconciles everything again, such as 10m.
+	Resync string `yaml:"resync,omitempty"`
+	// Replicas is the number of replicas that stand by under lease election.
+	Replicas int `yaml:"replicas,omitempty"`
+	// LeaseTTL is how long a lease holds before another replica may claim it, such as 15s.
+	LeaseTTL string `yaml:"lease_ttl,omitempty"`
+	// Tenants is each: the controller iterates tenants and opens one transaction per tenant.
+	Tenants string `yaml:"tenants,omitempty"`
 }
