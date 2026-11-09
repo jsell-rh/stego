@@ -132,6 +132,9 @@ type ReconcilerInput struct {
 	// serves. Validation needs it when a slot binding names a fill whose
 	// fill.yaml exists; cmd/stego gives fill.ReadCollection.
 	ReadFill FillReader
+	// ReadFillSlot reads the slot that each fill named by a command, a query or a worker implements;
+	// cmd/stego gives fill.ReadImplements.
+	ReadFillSlot FillSlotReader
 
 	// QualifyFills checks each fill that a slot binding names: that it fits
 	// its binding and that it is qualified. Validate, plan and apply stop on
@@ -203,6 +206,10 @@ type FillQualifier func(check FillCheck) ([]FillFault, error)
 // fill package implements it, because Generating and Declaring may not import
 // Extending (ST-STD-CODE-R03).
 type FillReader func(path string) (collection string, err error)
+
+// FillSlotReader reads the fill manifest (fill.yaml) at path and gives the slot the fill implements, as
+// component.slot. The compiler owns this port and Extending's fill package implements it (ST-STD-CODE-R03).
+type FillSlotReader func(path string) (slot string, err error)
 
 // Reconcile computes a plan by loading the service declaration, resolving the
 // archetype, running all component generators, and assembling shared files.

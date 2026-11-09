@@ -643,15 +643,6 @@ func unique(names []string) []string {
 	return out
 }
 
-func contains(names []string, name string) bool {
-	for _, candidate := range names {
-		if candidate == name {
-			return true
-		}
-	}
-	return false
-}
-
 func hasField(entity types.Entity, name string) bool {
 	for _, field := range entity.Fields {
 		if field.Name == name {

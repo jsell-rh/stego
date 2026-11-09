@@ -18,7 +18,7 @@ func validateAuthorizationCoverage(service *types.ServiceDeclaration) []Validati
 	var faults []ValidationError
 	reported := map[string]bool{}
 	for _, collection := range service.Collections {
-		ei, entity := findEntity(service.Entities, collection.Entity)
+		ei, entity := entityIndex(service.Entities, collection.Entity)
 		if entity == nil {
 			continue // The collection check reports an entity the declaration does not declare.
 		}
@@ -56,8 +56,8 @@ func operationUnprotected(service *types.ServiceDeclaration) bool {
 	return len(validateAuthorizationCoverage(service)) > 0
 }
 
-// findEntity gives the index and the entity of the name, or nil.
-func findEntity(entities []types.Entity, name string) (int, *types.Entity) {
+// entityIndex gives the index and the entity of the name, or nil.
+func entityIndex(entities []types.Entity, name string) (int, *types.Entity) {
 	for i := range entities {
 		if entities[i].Name == name {
 			return i, &entities[i]
