@@ -32,7 +32,7 @@ func TestStream(t *testing.T) {
 		orders := orderEntity(t, false)
 		q := mustListQuery(t, "watch-orders", orders, "list_orders")
 		var kept *Stream[Order, noProbe]
-		var keptOrder *Loaded[Order]
+		var keptOrder Loaded[Order]
 		run := func(beforeThird func()) ([]string, uint64) {
 			var mu sync.Mutex
 			var sent []string

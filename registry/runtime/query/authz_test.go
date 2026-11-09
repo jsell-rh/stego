@@ -173,7 +173,10 @@ func TestAuthz(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		order := newLoaded(h.core, &orders.e, "o-1", mustToken(t, "t5"), Row{columns: []string{"id", "total"}, values: []any{"o-1", int64(0)}}, orders.load)
+		order, err := newLoaded(h.core, &orders.e, "o-1", mustToken(t, "t5"), Row{columns: []string{"id", "total"}, values: []any{"o-1", int64(0)}}, orders.load)
+		if err != nil {
+			t.Fatal(err)
+		}
 		allowed, err := h.Authz().Evaluate(context.Background(), "view", order)
 		if err != nil || !allowed {
 			t.Fatalf("Evaluate gives %v, %v; want an allow", allowed, err)
@@ -190,7 +193,7 @@ func TestAuthz(t *testing.T) {
 			t.Errorf("the consistency is %s, want at_least:t5", got)
 		}
 		// A value that the handle did not load carries no row token that Evaluate takes.
-		if _, err := h.Authz().Evaluate(context.Background(), "view", &Loaded[Order]{id: "o-1"}); !errors.Is(err, errForeignValue) {
+		if _, err := h.Authz().Evaluate(context.Background(), "view", zeroOf(order)); !errors.Is(err, errForeignValue) {
 			t.Errorf("Evaluate of a value that new made gives %v, want errForeignValue", err)
 		}
 		if len(port.recorded()) != 1 {
@@ -230,7 +233,7 @@ func TestAuthz(t *testing.T) {
 		orders := orderEntity(t, false)
 		q := mustQuery(t, "order-detail", orders)
 		got, err := Run(context.Background(), rt, q, bound(t, "t1", "user:u-7", "order-detail"), "o1",
-			func(ctx context.Context, id string, h *Handle[noProbe]) (*Loaded[Order], error) {
+			func(ctx context.Context, id string, h *Handle[noProbe]) (Loaded[Order], error) {
 				repo, err := Repo(h, orders)
 				if err != nil {
 					return nil, err
@@ -296,8 +299,8 @@ func TestAuthz(t *testing.T) {
 		tickets := ticketEntity(t)
 		q := mustQuery(t, "ticket-detail", tickets)
 		// get reads each ID through Get in one query and gives the error and the decision port calls of each read.
-		get := func(ids ...string) ([]error, []int, []*Loaded[Ticket]) {
-			errs, calls, values := make([]error, len(ids)), make([]int, len(ids)), make([]*Loaded[Ticket], len(ids))
+		get := func(ids ...string) ([]error, []int, []Loaded[Ticket]) {
+			errs, calls, values := make([]error, len(ids)), make([]int, len(ids)), make([]Loaded[Ticket], len(ids))
 			_, err := Run(context.Background(), rt, q, bound(t, "t1", "user:u-7", "ticket-detail"), struct{}{},
 				func(ctx context.Context, _ struct{}, h *Handle[noProbe]) (struct{}, error) {
 					repo, err := Repo(h, tickets)

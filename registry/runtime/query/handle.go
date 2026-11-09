@@ -12,6 +12,7 @@ import (
 
 	"stego.dev/runtime/audit"
 	"stego.dev/runtime/authz"
+	"stego.dev/runtime/internal/loaded"
 	"stego.dev/runtime/tenant"
 )
 
@@ -238,71 +239,66 @@ func NewEntity[T any](spec Spec, load func(Row) (T, error)) (*Entity[T], error) 
 // Name is the entity name of the declaration.
 func (e *Entity[T]) Name() string { return e.e.spec.Name }
 
-// Loaded is an entity value that a read through a handle loaded: the stored field values of one row of type T, its
-// ID and the token of the row. It has no exported field and no exported constructor, and the generated loaded type is
-// a pointer to it, such as type LoadedReservation = *query.Loaded[Reservation], which no composite literal and no
-// conversion from another type can make; so a fill can get a loaded value only from the handle
-// (ST-SUP-RP11-LC12). A value that the handle did not load, such as one that new or a composite literal makes, and a
-// copy of a loaded value carry no handle, and every operation that takes a loaded value refuses them.
-type Loaded[T any] struct {
-	self   *Loaded[T]
-	fields Row
-	load   func(Row) (T, error)
-	origin *core
-	entity *entity
-	id     string
-	token  authz.Token
-}
+// Loaded is the loaded type of the entity T, such as LoadedReservation = query.Loaded[Reservation]: a pointer to a
+// value that only a handle makes (ST-SUP-RP11-LC12). It has no exported field and no constructor, and no other type
+// converts to it. It is the same type that the command handle gives, from the internal package loaded, so a
+// generated probe method takes the loaded value of either handle (ST-SUP-RC34-OC01). A value that this handle did
+// not load, such as one that new makes, a copy of a loaded value or one that a command handle loaded, carries no
+// state of this handle, and every operation of this handle that takes a loaded value refuses it.
+type Loaded[T any] = *loaded.Value[T]
 
-// newLoaded is the one constructor of a loaded value, for the reads of the handle.
-func newLoaded[T any](origin *core, e *entity, id string, token authz.Token, row Row, load func(Row) (T, error)) *Loaded[T] {
-	l := &Loaded[T]{fields: row, load: load, origin: origin, entity: e, id: id, token: token}
-	l.self = l
-	return l
-}
+// LoadedValue is a loaded value of any entity type, as the authorization part takes it. Only a loaded value
+// implements it.
+type LoadedValue = loaded.Any
 
-// Value returns a deep copy of the stored field values (ST-SUP-RP11-LC12): each call builds a new value from the
-// stored row with the generated load function, whose byte slices Row copies, so a change to a slice or a map that
-// the fill got never changes what the handle later sends or decides on. The load function succeeded on this row
-// when the handle read it, and it is a function of the row alone.
-func (l *Loaded[T]) Value() T {
-	var zero T
-	if l == nil || l.load == nil {
-		return zero
-	}
-	value, err := l.load(l.fields)
+// newLoaded is the one constructor of a loaded value, for the reads of the handle. The value keeps the stored row,
+// and each Value builds a new value from it with the generated load function, whose byte slices Row copies, so a
+// change to a slice or a map that the fill got never changes what the handle later sends or decides on. The load
+// function succeeded on this row when the handle read it, and it is a function of the row alone.
+func newLoaded[T any](origin *core, e *entity, id string, token authz.Token, row Row, load func(Row) (T, error)) (Loaded[T], error) {
+	value, err := load(row)
 	if err != nil {
-		return zero
+		return nil, err
 	}
-	return value
-}
-
-// ID returns the entity's ID.
-func (l *Loaded[T]) ID() string {
-	if l == nil {
-		return ""
+	reload := func(T) T {
+		fresh, err := load(row)
+		if err != nil {
+			var zero T
+			return zero
+		}
+		return fresh
 	}
-	return l.id
+	issue := &issued{core: origin}
+	l := loaded.New(value, reload, loaded.Ref{Owner: issue, Entity: e, EntityName: e.spec.Name,
+		ResourceType: e.spec.ResourceType, ID: id, Token: token.Text()})
+	issue.value = l
+	return l, nil
 }
 
-// stored returns a deep copy of the stored field values, as Value does, for a value that this handle loaded.
-func (l *Loaded[T]) stored() (T, error) {
-	return l.load(l.fields)
+// issued is the owner of one loaded value: the handle that loaded it and the value itself. A copy of a loaded value,
+// such as one that *l makes, carries the same owner but is not the value that the handle loaded, so rowOf refuses it.
+type issued struct {
+	core  *core
+	value LoadedValue
 }
 
-// row returns what the authorization part needs of the value: the handle that loaded it, its entity, its ID and
-// its row token.
-func (l *Loaded[T]) row() (*core, *entity, string, authz.Token) {
-	// A copy of a loaded value, such as one that *l makes, is not the value that the handle loaded.
-	if l == nil || l.self != l {
+// rowOf returns what the authorization part needs of a loaded value: the handle that loaded it, its entity, its ID
+// and its row token. A value that no query handle loaded gives a nil handle.
+func rowOf(value LoadedValue) (*core, *entity, string, authz.Token) {
+	ref, ok := loaded.Of(value)
+	if !ok {
 		return nil, nil, "", authz.Token{}
 	}
-	return l.origin, l.entity, l.id, l.token
-}
-
-// LoadedValue is a loaded value of any entity type, as the authorization part takes it. Only *Loaded implements it.
-type LoadedValue interface {
-	row() (*core, *entity, string, authz.Token)
+	issue, _ := ref.Owner.(*issued)
+	e, _ := ref.Entity.(*entity)
+	if issue == nil || issue.core == nil || issue.value != value || e == nil {
+		return nil, nil, "", authz.Token{}
+	}
+	token, err := authz.ParseToken(ref.Token)
+	if err != nil {
+		return nil, nil, "", authz.Token{}
+	}
+	return issue.core, e, ref.ID, token
 }
 
 // life is the lifetime of one handle: open while the fill runs, then closed for good (ST-SUP-RP11-LC09). Each call
@@ -470,15 +466,16 @@ func scanRow(rows *sql.Rows, e *entity) (Row, authz.Token, error) {
 }
 
 // load runs the generated load function on a row read through the handle and makes its loaded value.
-func (r *Repository[T]) load(row Row, token authz.Token) (*Loaded[T], error) {
+func (r *Repository[T]) load(row Row, token authz.Token) (Loaded[T], error) {
 	id, err := row.Text(r.entity.e.spec.Key)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := r.entity.load(row); err != nil {
+	l, err := newLoaded(r.core, &r.entity.e, id, token, row, r.entity.load)
+	if err != nil {
 		return nil, fmt.Errorf("query: load a row of %s: %w", r.entity.e.spec.Name, err)
 	}
-	return newLoaded(r.core, &r.entity.e, id, token, row, r.entity.load), nil
+	return l, nil
 }
 
 // Get reads the entity whose ID is id (ST-SUP-RP11-LC03, ST-SUP-RP11-LC06). It reads the row in the bound
@@ -486,7 +483,7 @@ func (r *Repository[T]) load(row Row, token authz.Token) (*Loaded[T], error) {
 // at the floor through the authorization handle; a row that is not there and a deny are both ErrNotFound, with no
 // data from the row. A read of an entity with a pii field writes its audit row before Get returns the value
 // (ST-SUP-RP11-LC08).
-func (r *Repository[T]) Get(ctx context.Context, id string) (*Loaded[T], error) {
+func (r *Repository[T]) Get(ctx context.Context, id string) (Loaded[T], error) {
 	c := r.core
 	if err := c.life.enter(); err != nil {
 		return nil, err
@@ -522,7 +519,7 @@ func (r *Repository[T]) Get(ctx context.Context, id string) (*Loaded[T], error) 
 	if err != nil {
 		return nil, err
 	}
-	if err := c.audited(ctx, e, loaded.id, row); err != nil {
+	if err := c.audited(ctx, e, loaded.ID(), row); err != nil {
 		return nil, err
 	}
 	return loaded, nil

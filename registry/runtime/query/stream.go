@@ -31,7 +31,7 @@ func (s *Stream[T, P]) Dropped() uint64 { return s.dropped.Load() }
 // subject at the floor of ST-SUP-RP06-LC09 at the time of the send, which it reads through the bound READ ONLY
 // transaction alone. It sends the message only on an allow; on a deny it drops and counts the message and returns
 // nil. Once the stream ended or the fill returned, it returns ErrStreamEnded or ErrClosed and sends nothing.
-func (s *Stream[T, P]) Send(ctx context.Context, value *Loaded[T]) error {
+func (s *Stream[T, P]) Send(ctx context.Context, value Loaded[T]) error {
 	c := s.handle.core
 	if err := c.life.enter(); err != nil {
 		return err
@@ -40,7 +40,7 @@ func (s *Stream[T, P]) Send(ctx context.Context, value *Loaded[T]) error {
 	if s.ctx.Err() != nil || ctx.Err() != nil {
 		return ErrStreamEnded
 	}
-	origin, e, id, token := value.row()
+	origin, e, id, token := rowOf(value)
 	if origin != c || e != &s.entity.e {
 		return errForeignValue
 	}
@@ -52,11 +52,7 @@ func (s *Stream[T, P]) Send(ctx context.Context, value *Loaded[T]) error {
 		s.dropped.Add(1)
 		return nil
 	}
-	message, err := value.stored()
-	if err != nil {
-		return err
-	}
-	return s.send(message)
+	return s.send(value.Value())
 }
 
 // StreamFill is the fill of a stream query: it gets the decoded request and the stream query handle, and sends its
