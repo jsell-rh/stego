@@ -638,7 +638,13 @@ var ok = idempotency.Response{Status: 200, Body: []byte(`{"ok":true}`)}
 // run calls Run for the command with the fill, as the generated handler does.
 func (e *env) run(cmd *Command[testProbe], req Request,
 	fill func(ctx context.Context, h *Handle[testProbe]) (idempotency.Response, error)) (Result, error) {
-	return Run(e.ctx, e.rt, cmd, req, noBody, func(ctx context.Context, _ struct{}, h *Handle[testProbe]) (idempotency.Response, error) {
+	return e.runOn(e.rt, cmd, req, fill)
+}
+
+// runOn is run on the runtime rt.
+func (e *env) runOn(rt *Runtime, cmd *Command[testProbe], req Request,
+	fill func(ctx context.Context, h *Handle[testProbe]) (idempotency.Response, error)) (Result, error) {
+	return Run(e.ctx, rt, cmd, req, noBody, func(ctx context.Context, _ struct{}, h *Handle[testProbe]) (idempotency.Response, error) {
 		return fill(ctx, h)
 	})
 }
