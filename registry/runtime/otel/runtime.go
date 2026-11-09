@@ -188,12 +188,14 @@ func dial(values settings) (*grpc.ClientConn, error) {
 }
 
 // startTraces starts the private tracer provider with the local ratio sampler and the span processor. The
-// sampler reads only the trace ID, so a remote sampled flag never changes the decision (ST-SUP-RP03-LC08).
+// sampler reads only the trace ID, so a remote sampled flag never changes the decision (ST-SUP-RP03-LC08). A span
+// takes the events of the probe runtime: at most 64, the emissions one call holds, each with at most nine
+// attributes, the eight fields of an observation and stego.outcome (ST-SUP-RP12-LC04). It takes no link.
 func (r *Runtime) startTraces(ratio float64, processor sdktrace.SpanProcessor) {
 	r.provider = sdktrace.NewTracerProvider(
 		sdktrace.WithResource(r.resource),
 		sdktrace.WithSampler(sdktrace.TraceIDRatioBased(ratio)),
-		sdktrace.WithRawSpanLimits(sdktrace.SpanLimits{AttributeValueLengthLimit: 256, AttributeCountLimit: 8}),
+		sdktrace.WithRawSpanLimits(sdktrace.SpanLimits{AttributeValueLengthLimit: 256, AttributeCountLimit: 8, EventCountLimit: 64, AttributePerEventCountLimit: 9}),
 		sdktrace.WithSpanProcessor(processor),
 	)
 	r.tracer = r.provider.Tracer("stego/http")

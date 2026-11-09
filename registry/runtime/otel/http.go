@@ -56,7 +56,9 @@ func (r *Runtime) startSignals(reader sdkmetric.Reader, processor sdklog.Process
 		}
 	}
 	if processor != nil {
-		r.logs = sdklog.NewLoggerProvider(sdklog.WithResource(r.resource), sdklog.WithAttributeCountLimit(8), sdklog.WithAttributeValueLengthLimit(256), sdklog.WithProcessor(processor))
+		// Twelve attributes: a probe record carries the tenant, the principal, the operation, stego.outcome and up to
+		// eight declared fields (ST-SUP-RP12-LC03, ST-SUP-RP12-LC04).
+		r.logs = sdklog.NewLoggerProvider(sdklog.WithResource(r.resource), sdklog.WithAttributeCountLimit(12), sdklog.WithAttributeValueLengthLimit(256), sdklog.WithProcessor(processor))
 		r.signals.logger = r.logs.Logger("stego/requests")
 	}
 	return nil
