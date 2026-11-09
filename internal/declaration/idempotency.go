@@ -101,6 +101,39 @@ func operationList(operations []types.Operation) string {
 	return strings.Join(names, ", ")
 }
 
+// DefaultIdempotencyRetention is how long a key and its stored response are kept when the declaration gives no
+// retention (ST-DECL-UC07-R03), the default of the runtime (ST-SUP-RP07-LC07).
+const DefaultIdempotencyRetention = "24h"
+
+// DefaultIdempotencyFingerprint is the fingerprint when the declaration gives none: the method, the route and the
+// body (ST-DECL-UC07-R04).
+const DefaultIdempotencyFingerprint = "body"
+
+// idempotencySettings gives the idempotency setting as checking resolves it: Required on as declared, and the
+// retention and the fingerprint as declared or else filled in by their defaults, each default marked. A
+// declaration with no idempotency setting has none.
+func idempotencySettings(service *types.ServiceDeclaration) []Setting {
+	if service == nil || service.Idempotency == nil {
+		return nil
+	}
+	idempotency := service.Idempotency
+	requiredOn := make([]string, len(idempotency.RequiredOn))
+	for i, operation := range idempotency.RequiredOn {
+		requiredOn[i] = string(operation)
+	}
+	resolved := func(path, value, fallback string) Setting {
+		if value == "" {
+			return Setting{Path: path, Value: fallback, Default: true}
+		}
+		return Setting{Path: path, Value: value}
+	}
+	return []Setting{
+		{Path: "idempotency.required_on", Value: requiredOn},
+		resolved("idempotency.retention", idempotency.Retention, DefaultIdempotencyRetention),
+		resolved("idempotency.fingerprint", idempotency.Fingerprint, DefaultIdempotencyFingerprint),
+	}
+}
+
 // idempotencyFingerprints are the values Fingerprint may take: only body, the fingerprint over the method, the
 // route and the canonical body that the runtime computes (ST-SUP-RP07-LC05).
 func idempotencyFingerprints() []string { return []string{"body"} }

@@ -64,6 +64,8 @@ func (e ValidationError) Prose() string {
 // ValidationResult collects all validation errors that a check finds.
 type ValidationResult struct {
 	Errors []ValidationError
+	// Settings holds the settings of the declaration as checking resolved them (ResolvedSettings).
+	Settings []Setting
 }
 
 // HasErrors returns true if the result contains any validation errors.
