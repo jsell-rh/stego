@@ -124,6 +124,12 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 		result.Errors = append(result.Errors, ValidationError{Category: "slot-binding", Rule: "slot-variable-name", Path: "slots", Message: err.Error()})
 	}
 
+	facts, err := compositionFacts(input, svcDecl, components)
+	if err != nil {
+		return nil, err
+	}
+	result.Errors = append(result.Errors, declaration.ValidateComposition(svcDecl, facts)...)
+
 	// Validate fills exist on disk and reference valid collections.
 	fillErrs, fillInfraErr := validateFillsExist(svcDecl.Slots, svcDecl.Collections, input.ProjectDir, input.ReadFill)
 	if fillInfraErr != nil {
@@ -153,6 +159,7 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 			result.Errors = append(result.Errors, ValidationError{Category: "generator", Rule: "generator-input", Path: "archetype", Found: svcDecl.Archetype, Message: err.Error()})
 		} else {
 			source.Resolved = resolved
+			result.Errors = append(result.Errors, validateOperationRoutes(svcDecl, resolved.HTTPRoutes)...)
 		}
 	}
 	return result, nil
@@ -318,6 +325,79 @@ func validateFillsExist(slots []types.SlotDeclaration, collections []types.Colle
 		}
 	}
 	return errs, nil
+}
+
+// validateOperationRoutes checks that the route of each command and query conflicts with no route of the
+// active components (ST-DECL-INV47), as ST-GEN-INV28 states for the routes of components. Declaring checks the
+// method and the form of each route, and that the routes of the declaration do not conflict with each other.
+func validateOperationRoutes(svcDecl *types.ServiceDeclaration, components map[string][]gen.HTTPRoute) []ValidationError {
+	type operation struct{ kind, name, path, route string }
+	var operations []operation
+	for i, command := range svcDecl.Commands {
+		operations = append(operations, operation{"command", command.Name, fmt.Sprintf("commands[%d].route", i), command.Route})
+	}
+	for i, query := range svcDecl.Queries {
+		operations = append(operations, operation{"query", query.Name, fmt.Sprintf("queries[%d].route", i), query.Route})
+	}
+	var faults []ValidationError
+	for _, op := range operations {
+		groups := make(map[string][]gen.HTTPRoute, len(components)+1)
+		for name, routes := range components {
+			groups[name] = routes
+		}
+		groups[" "+op.kind+" "+op.name] = []gen.HTTPRoute{{Pattern: declaration.OperationPattern(svcDecl.BasePath, op.route)}}
+		if err := gen.ValidateHTTPRouteGroups(groups); err != nil {
+			faults = append(faults, ValidationError{Category: op.kind, Rule: "operation-route", Path: op.path, Found: op.route, Message: fmt.Sprintf("%s %q has the route %q, which conflicts with a route of the service: %v", op.kind, op.name, op.route, err)})
+		}
+	}
+	return faults
+}
+
+// compositionFacts reads what the checks of a service's composition need beside the declaration (ST-DECL-UC09):
+// the slot that each fill named by a command or a query implements, read through the fill slot reader, and the outbox
+// destinations that the active components declare in their setting destinations (ST-SUP-RC36-OC01). A fill that
+// the project does not hold is left out, so that the check names it as missing.
+func compositionFacts(input ReconcilerInput, svcDecl *types.ServiceDeclaration, components map[string]*registry.Component) (declaration.Facts, error) {
+	facts := declaration.Facts{FillSlots: map[string]string{}, Destinations: map[string]bool{}}
+	var fills []string
+	for _, command := range svcDecl.Commands {
+		fills = append(fills, command.Fill...)
+	}
+	for _, query := range svcDecl.Queries {
+		fills = append(fills, query.Fill...)
+	}
+	for _, name := range fills {
+		if _, read := facts.FillSlots[name]; read || name == "" || strings.ContainsAny(name, `/\`) || name == "." || name == ".." {
+			continue
+		}
+		path := filepath.Join(input.ProjectDir, "fills", name, "fill.yaml")
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return facts, fmt.Errorf("checking fill %q at %s: %w", name, path, err)
+		}
+		if input.ReadFillSlot == nil {
+			return facts, fmt.Errorf("reading fill %q at %s: the compiler was given no fill slot reader", name, path)
+		}
+		slot, err := input.ReadFillSlot(path)
+		if err != nil {
+			return facts, fmt.Errorf("reading fill %q at %s: %w", name, path, err)
+		}
+		facts.FillSlots[name] = slot
+	}
+	for name := range components {
+		config, _ := svcDecl.Overrides[name].(map[string]any)
+		destinations, _ := config["destinations"].([]any)
+		for _, item := range destinations {
+			if destination, ok := item.(map[string]any); ok {
+				if destinationName, ok := destination["name"].(string); ok && destinationName != "" {
+					facts.Destinations[destinationName] = true
+				}
+			}
+		}
+	}
+	return facts, nil
 }
 
 // ResolveFillCheck reads the declaration and the active registry and gives

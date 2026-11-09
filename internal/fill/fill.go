@@ -82,6 +82,16 @@ func ReadCollection(path string) (string, error) {
 	return f.Collection, nil
 }
 
+// ReadImplements reads the fill manifest at path and gives the slot the fill
+// implements, as component.slot. It is the compiler's compiler.FillSlotReader.
+func ReadImplements(path string) (string, error) {
+	f, err := ParseFill(path)
+	if err != nil {
+		return "", err
+	}
+	return f.Implements, nil
+}
+
 // writeSection sets one top-level key of the fill manifest at path to value,
 // or removes the key when value is nil, and keeps each other key and its
 // comments as they are. It writes a new file and renames it over the old one,

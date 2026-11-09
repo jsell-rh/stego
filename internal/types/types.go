@@ -267,6 +267,10 @@ type ServiceDeclaration struct {
 	Mixins              []string          `yaml:"mixins,omitempty"`
 	Overrides           map[string]any    `yaml:"overrides,omitempty"`
 	FillModules         []FillModule      `yaml:"fill_modules,omitempty"`
+	// Commands are the business commands that the service's own code carries out (ST-DECL-EN18).
+	Commands []Command `yaml:"commands,omitempty"`
+	// Queries are the reads that the service's own code carries out (ST-DECL-EN19).
+	Queries []Query `yaml:"queries,omitempty"`
 }
 
 // UnmarshalYAML implements custom YAML unmarshaling for ServiceDeclaration.
