@@ -1,0 +1,136 @@
+package ledger
+
+import (
+	"database/sql"
+	"errors"
+	"math"
+	"testing"
+	"time"
+
+	"stego.dev/runtime/money"
+	"stego.dev/runtime/tenant"
+)
+
+// balance reads the balance of acme's account in a transaction of its own.
+func (f *fixture) balance(account string) money.Money {
+	f.t.Helper()
+	var out money.Money
+	f.inTx(f.runtime, acme, func(tx *sql.Tx) error {
+		var err error
+		out, err = f.usd.Balance(f.ctx, tx, f.tn(acme), account)
+		return err
+	})
+	return out
+}
+
+// postAt posts a transfer for acme that takes effect at the time.
+func (f *fixture) postAt(key string, at time.Time, entries ...Entry) Transfer {
+	f.t.Helper()
+	var out Transfer
+	f.inTx(f.runtime, acme, func(tx *sql.Tx) error {
+		var err error
+		out, err = f.usd.Post(f.ctx, tx, f.tn(acme), Posting{Key: key, Code: "topup", Entries: entries, EffectiveAt: at})
+		return err
+	})
+	return out
+}
+
+func TestBalance(t *testing.T) {
+	t.Run("ST-SUP-RP08-LC07-T01 A balance is the latest snapshot plus the entries posted after it", func(t *testing.T) {
+		f := newFixture(t)
+		// 300 before the snapshot, which the snapshot of 1,000 does not match, so a Balance that sums every entry
+		// gives 550 and one that ignores the snapshot gives 550 too.
+		f.post(f.runtime, "before", dr("hot", 300), cr("cr", 300))
+		f.inTx(f.owner, acme, func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(f.ctx, `INSERT INTO balance_snapshots (tenant_id, ledger_id, account_id, through_xid, amount, entry_count, fence_token)
+ VALUES ('acme', 'usd', 'cr', pg_snapshot_xmin(pg_current_snapshot()), 1000, 1, 0)`)
+			return err
+		})
+		f.post(f.runtime, "after-1", dr("hot", 200), cr("cr", 200))
+		f.post(f.runtime, "after-2", dr("hot", 50), cr("cr", 50))
+		if got := f.balance("cr"); got != usd(1250) {
+			t.Fatalf("the balance is %v; want 1250 USD, the snapshot of 1000 and the entries of 200 and 50 after it", got)
+		}
+		// A later snapshot is the latest one.
+		f.inTx(f.owner, acme, func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(f.ctx, `INSERT INTO balance_snapshots (tenant_id, ledger_id, account_id, through_xid, amount, entry_count, fence_token)
+ VALUES ('acme', 'usd', 'cr', pg_snapshot_xmin(pg_current_snapshot()), 5, 3, 0)`)
+			return err
+		})
+		f.post(f.runtime, "after-3", dr("hot", 1), cr("cr", 1))
+		if got := f.balance("cr"); got != usd(6) {
+			t.Fatalf("the balance is %v; want 6 USD from the latest snapshot", got)
+		}
+	})
+
+	t.Run("ST-SUP-RP08-LC07-T02 A balance is signed by the account's normal side", func(t *testing.T) {
+		f := newFixture(t)
+		for _, a := range []string{"dr", "cr"} {
+			f.post(f.runtime, "debit-"+a, dr(a, 100), cr("plain", 100))
+			f.post(f.runtime, "credit-"+a, dr("hot", 30), cr(a, 30))
+		}
+		if got := f.balance("dr"); got != usd(70) {
+			t.Fatalf("the debit-normal balance is %v; want 70 USD", got)
+		}
+		if got := f.balance("cr"); got != usd(-70) {
+			t.Fatalf("the credit-normal balance is %v; want -70 USD", got)
+		}
+		// The arithmetic of the sum is exact, and a balance beyond int64 is an overflow error, not a wrapped value.
+		f.post(f.runtime, "big-1", dr("dr", math.MaxInt64), cr("plain", math.MaxInt64))
+		err := f.try(f.runtime, acme, func(tx *sql.Tx) error {
+			_, err := f.usd.Balance(f.ctx, tx, f.tn(acme), "dr")
+			return err
+		})
+		if !errors.Is(err, money.ErrOverflow) {
+			t.Fatalf("a balance of 70 + MaxInt64: %v; want ErrOverflow", err)
+		}
+		if _, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
+			return f.usd.Post(f.ctx, tx, tn, Posting{Key: "big-2", Code: "topup", Entries: []Entry{dr("dr", math.MaxInt64), dr("dr", 1), cr("plain", 1)}})
+		}); !errors.Is(err, money.ErrOverflow) {
+			t.Fatalf("debits over MaxInt64: %v; want ErrOverflow", err)
+		}
+	})
+
+	t.Run("ST-SUP-RP08-LC07-T03 A balance at a time selects entries by effective_at", func(t *testing.T) {
+		f := newFixture(t)
+		now := time.Now().UTC()
+		yesterday := now.Add(-24 * time.Hour)
+		endOfYesterday := time.Date(yesterday.Year(), yesterday.Month(), yesterday.Day(), 23, 59, 59, 999999000, time.UTC)
+		today := endOfYesterday.Add(time.Hour)
+		f.postAt("today", today, dr("dr", 40), cr("plain", 40))
+		f.postAt("yesterday", endOfYesterday.Add(-time.Hour), dr("dr", 7), cr("plain", 7))
+		var at, all money.Money
+		f.inTx(f.runtime, acme, func(tx *sql.Tx) error {
+			var err error
+			if at, err = f.usd.BalanceAt(f.ctx, tx, f.tn(acme), "dr", endOfYesterday); err != nil {
+				return err
+			}
+			all, err = f.usd.BalanceAt(f.ctx, tx, f.tn(acme), "dr", today)
+			return err
+		})
+		if at != usd(7) || all != usd(47) {
+			t.Fatalf("the balance at the end of yesterday is %v and at today's entry %v; want 7 USD and 47 USD", at, all)
+		}
+	})
+
+	t.Run("ST-SUP-RP08-LC07-T04 Every entry keeps effective_at and posted_at", func(t *testing.T) {
+		f := newFixture(t)
+		tr := f.postAt("backdated", time.Now().Add(-48*time.Hour), dr("dr", 9), cr("plain", 9))
+		var rows, ordered int
+		f.inTx(f.owner, acme, func(tx *sql.Tx) error {
+			return tx.QueryRowContext(f.ctx, `SELECT count(*), count(*) FILTER (WHERE effective_at < posted_at)
+ FROM entries WHERE transfer_id = $1 AND effective_at IS NOT NULL AND posted_at IS NOT NULL`, tr.ID).Scan(&rows, &ordered)
+		})
+		if rows != 2 || ordered != 2 {
+			t.Fatalf("%d entries keep both times and %d have effective_at before posted_at; want 2 and 2", rows, ordered)
+		}
+		var nullable int
+		f.inTx(f.owner, acme, func(tx *sql.Tx) error {
+			return tx.QueryRowContext(f.ctx, `SELECT count(*) FROM information_schema.columns WHERE table_name = 'entries'
+ AND column_name IN ('effective_at', 'posted_at') AND is_nullable = 'NO'`).Scan(&nullable)
+		})
+		if nullable != 2 {
+			t.Fatalf("%d of effective_at and posted_at are NOT NULL; want 2", nullable)
+		}
+	})
+}
