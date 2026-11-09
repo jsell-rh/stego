@@ -22,3 +22,6 @@
 {"id":"ST-SUP-TOOL08","title":"check-monaco-adapter.py","domain_id":"ST-SUP","file":"scripts/check-monaco-adapter.py"}
 {"id":"ST-SUP-TOOL09","title":"check-namespace-allocation.py","domain_id":"ST-SUP","file":"scripts/check-namespace-allocation.py"}
 {"id":"ST-SUP-TOOL10","title":"check-network-metadata.py","domain_id":"ST-SUP","file":"scripts/check-network-metadata.py"}
+{"id":"ST-SUP-TOOL11","title":"go.mod","domain_id":"ST-SUP","file":"registry/runtime/go.mod"}
+{"id":"ST-SUP-TOOL12","title":"runtime-workspace.sh","domain_id":"ST-SUP","file":"scripts/runtime-workspace.sh"}
+{"id":"ST-SUP-TOOL13","title":"runtime-library.yml","domain_id":"ST-SUP","file":".github/workflows/runtime-library.yml"}

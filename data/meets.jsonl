@@ -46,4 +46,7 @@
 {"source_id":"ST-SUP-EV05-ET","target_id":"ST-STD-TRUST-R06"}
 {"source_id":"ST-SUP-EV06-ET","target_id":"ST-STD-TRUST-R06"}
 {"source_id":"ST-SUP-SP06-PR","target_id":"ST-STD-RUNTIME-R05"}
+{"source_id":"ST-SUP-TOOL11","target_id":"ST-STD-RUNTIME-R04"}
+{"source_id":"ST-SUP-TOOL13","target_id":"ST-STD-RUNTIME-R03"}
+{"source_id":"ST-SUP-TOOL13","target_id":"ST-STD-RUNTIME-R04"}
 {"source_id":"ST-VO61-VT","target_id":"ST-STD-TXN-R12"}
