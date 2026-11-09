@@ -6,7 +6,10 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
+	"sync"
+	"weak"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -40,7 +43,40 @@ func Open(ctx context.Context, cfg Config) (*sql.DB, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	remember(db)
 	return db, nil
+}
+
+// opened holds a weak pointer to each pool that Open returned, so Opened can tell such a pool from one that
+// sql.Open or another connector made. A pool that is no longer reachable leaves the set.
+var opened = struct {
+	mu    sync.Mutex
+	pools map[weak.Pointer[sql.DB]]struct{}
+}{pools: map[weak.Pointer[sql.DB]]struct{}{}}
+
+func remember(db *sql.DB) {
+	key := weak.Make(db)
+	opened.mu.Lock()
+	opened.pools[key] = struct{}{}
+	opened.mu.Unlock()
+	runtime.AddCleanup(db, func(key weak.Pointer[sql.DB]) {
+		opened.mu.Lock()
+		delete(opened.pools, key)
+		opened.mu.Unlock()
+	}, key)
+}
+
+// Opened reports whether db is a pool that Open returned: the runtime role's pool, whose connections the pooler
+// guard checks each time they come back, so a connection with a tenant set is closed. The command and query
+// runtimes take only such a pool (ST-SUP-RP10-LC30, ST-SUP-RP11-LC14). A pool of OpenOwner is not one.
+func Opened(db *sql.DB) bool {
+	if db == nil {
+		return false
+	}
+	opened.mu.Lock()
+	defer opened.mu.Unlock()
+	_, ok := opened.pools[weak.Make(db)]
+	return ok
 }
 
 func open(ctx context.Context, cfg Config) (*sql.DB, error) {

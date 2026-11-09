@@ -1,0 +1,276 @@
+package query
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"sync"
+	"sync/atomic"
+
+	"stego.dev/runtime/audit"
+	"stego.dev/runtime/authz"
+	"stego.dev/runtime/probe"
+	"stego.dev/runtime/tenant"
+)
+
+// Config is what the query runtime of a service needs.
+type Config struct {
+	// DB is the store pool of the runtime role. It must be a pool that tenant.Open returned (ST-SUP-RP11-LC14).
+	DB *sql.DB
+	// AuditDB is the pool of the audit connections (ST-SUP-RP10-LC29), apart from DB, which only the short audit
+	// transactions of the reads of personal data use. It must be a pool that tenant.Open returned. It may be nil only
+	// when Audit is nil.
+	AuditDB *sql.DB
+	// Audit writes the read audit rows. It may be nil only for a service whose queries read no entity with a pii
+	// field; Run refuses a query that reads one.
+	Audit *audit.Writer
+	// AuditSettings are the service's audit settings: at the change level a read row holds the redacted state.
+	AuditSettings audit.Settings
+	// Authz is the authorization runtime. It may be nil only for a service that binds no authorization provider;
+	// Run refuses a query that reads a protected entity.
+	Authz *authz.Runtime
+	// Service is the service name that each audit row carries.
+	Service string
+}
+
+// Runtime is the query runtime of one service: it runs query fills, each in a READ ONLY transaction of its own.
+type Runtime struct {
+	db       *sql.DB
+	auditDB  *sql.DB
+	audit    *audit.Writer
+	settings audit.Settings
+	authz    *authz.Runtime
+	service  string
+	dropped  atomic.Uint64
+
+	// afterFill, when a test sets it, runs after the fill returned and the handle closed, before Run ends the
+	// transaction.
+	afterFill func()
+}
+
+// New returns the query runtime of cfg. It refuses a store pool or an audit pool that tenant.Open did not return,
+// so a connection that comes back to the pool with a tenant set is closed (ST-SUP-RP11-LC14, ST-SUP-RP04-LC04).
+func New(cfg Config) (*Runtime, error) {
+	if cfg.DB == nil {
+		return nil, errors.New("query: no store pool")
+	}
+	if !tenant.Opened(cfg.DB) {
+		return nil, errors.New("query: the store pool was not opened with tenant.Open")
+	}
+	if cfg.Audit != nil {
+		if cfg.AuditDB == nil {
+			return nil, errors.New("query: the audit writer needs the audit connections")
+		}
+		if !tenant.Opened(cfg.AuditDB) {
+			return nil, errors.New("query: the audit pool was not opened with tenant.Open")
+		}
+		if cfg.AuditDB == cfg.DB {
+			return nil, errors.New("query: the audit connections must be a pool apart from the store pool")
+		}
+		if cfg.Service == "" {
+			return nil, errors.New("query: the audit rows need the service name")
+		}
+	}
+	return &Runtime{db: cfg.DB, auditDB: cfg.AuditDB, audit: cfg.Audit, settings: cfg.AuditSettings, authz: cfg.Authz,
+		service: cfg.Service}, nil
+}
+
+// DroppedSends counts the messages of server streams that a deny dropped (ST-SUP-RP11-LC13).
+func (rt *Runtime) DroppedSends() uint64 { return rt.dropped.Load() }
+
+// Query is the declaration of one query as the generated code gives it to Run: its name, the entities it reads and,
+// for a list query, its declared permission.
+type Query struct {
+	name           string
+	reads          []Readable
+	listPermission string
+}
+
+// NewQuery makes the declaration of the query named name, which reads the entities reads. listPermission is the
+// query's declared permission when it is a list query, and empty otherwise.
+func NewQuery(name string, listPermission string, reads ...Readable) (*Query, error) {
+	if name == "" {
+		return nil, errors.New("query: a query needs a name")
+	}
+	seen := map[string]bool{}
+	for _, r := range reads {
+		if r == nil || r.info() == nil {
+			return nil, fmt.Errorf("query: the query %s reads a nil entity", name)
+		}
+		if seen[r.info().spec.Name] {
+			return nil, fmt.Errorf("query: the query %s reads the entity %s twice", name, r.info().spec.Name)
+		}
+		seen[r.info().spec.Name] = true
+	}
+	return &Query{name: name, reads: append([]Readable(nil), reads...), listPermission: listPermission}, nil
+}
+
+// Name is the query name.
+func (q *Query) Name() string { return q.name }
+
+// Bound is what the generated handler of one call gives Run: the verified tenant and principal, the probe call that
+// it bound to the span context, the tenant, the principal and the query name, the typed probe of the query that it
+// built on that call's Probe, and the request ID that the audit rows carry.
+type Bound[P any] struct {
+	Tenant    tenant.Tenant
+	Principal authz.Principal
+	Call      *probe.Call
+	Probe     P
+	RequestID string
+}
+
+// Fill is a query fill: it gets the decoded request and the query handle, and returns the response.
+type Fill[Req, Res, P any] func(ctx context.Context, req Req, h *Handle[P]) (Res, error)
+
+// errPanic is the error of a fill that panicked. It does not carry the panic value (ST-SUP-RP11-LC10).
+var errPanic = errors.New("query: the fill panicked")
+
+// Run runs one query: it opens a READ ONLY transaction of the tenant with tenant.Begin, binds the handle, calls the
+// fill once, and makes the handle and its probe invalid as soon as the fill returns or panics, before it ends the
+// transaction (ST-SUP-RP11-LC09, ST-SUP-RP11-LC11). When the fill returns an error or panics, Run rolls the
+// transaction back and returns no result, with an error that does not carry the panic value (ST-SUP-RP11-LC10).
+// Otherwise it commits with tenant.Commit (ST-SUP-RP11-LC14) and returns the result. Each read of personal data has
+// its audit row before Run returns, and a failed audit write gives no result (ST-SUP-RP11-LC08).
+func Run[Req, Res, P any](ctx context.Context, rt *Runtime, q *Query, b Bound[P], req Req, fill Fill[Req, Res, P]) (Res, error) {
+	var zero Res
+	if fill == nil {
+		return zero, errors.New("query: no fill")
+	}
+	var res Res
+	err := runFill(ctx, rt, q, b, func(ctx context.Context, h *Handle[P]) error {
+		var err error
+		res, err = fill(ctx, req, h)
+		return err
+	})
+	if err != nil {
+		return zero, err
+	}
+	return res, nil
+}
+
+// runFill is the part of Run and RunStream that does not depend on the request and the response: the transaction,
+// the handle, the call of the fill in body, the end of the handle and of the probe, the audit check and the end of
+// the transaction.
+func runFill[P any](ctx context.Context, rt *Runtime, q *Query, b Bound[P], body func(context.Context, *Handle[P]) error) error {
+	switch {
+	case rt == nil:
+		return errors.New("query: no runtime")
+	case q == nil:
+		return errors.New("query: no query")
+	case b.Call == nil:
+		return errors.New("query: no probe call")
+	}
+	bound := b.Call.Probe()
+	if bound.Tenant() != b.Tenant.ID() || bound.Principal() != b.Principal.Subject().String() || bound.Operation() != q.name {
+		b.Call.Returned()
+		b.Call.Rollback()
+		return errors.New("query: the probe call is not bound to the tenant, the principal and the name of the query")
+	}
+	tx, err := tenant.Begin(ctx, rt.db, b.Tenant, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		b.Call.Returned()
+		b.Call.Rollback()
+		return err
+	}
+	h, err := bind(ctx, rt, tx, b.Tenant, b.Principal, q, b.Probe)
+	if err != nil {
+		_ = tx.Rollback()
+		b.Call.Returned()
+		b.Call.Rollback()
+		return err
+	}
+	h.core.requestID = b.RequestID
+	fillErr := callFill(ctx, h, body)
+	// The handle and the probe end as soon as the fill returns or panics, before the transaction ends.
+	h.core.life.close()
+	b.Call.Returned()
+	if rt.afterFill != nil {
+		rt.afterFill()
+	}
+	if fillErr == nil {
+		fillErr = h.core.audit.failure()
+	}
+	if fillErr != nil {
+		_ = tx.Rollback()
+		b.Call.Rollback()
+		return fillErr
+	}
+	if err := tenant.Commit(ctx, tx, b.Tenant); err != nil {
+		b.Call.Rollback()
+		return err
+	}
+	b.Call.Commit()
+	return nil
+}
+
+// callFill calls the fill in body and turns a panic into errPanic, which does not carry the panic value.
+func callFill[P any](ctx context.Context, h *Handle[P], body func(context.Context, *Handle[P]) error) (err error) {
+	defer func() {
+		if recover() != nil {
+			err = errPanic
+		}
+	}()
+	return body(ctx, h)
+}
+
+// auditor writes the read audit rows of one handle: one row for each resource of an entity with a pii field that
+// the fill read, each in its own short transaction on the audit connections (ST-SUP-RP11-LC08, ST-SUP-RP05-LC02).
+type auditor struct {
+	rt     *Runtime
+	mu     sync.Mutex
+	done   map[string]bool
+	failed error
+}
+
+// failure is the first audit write that failed, which makes the query give no result.
+func (a *auditor) failure() error {
+	if a == nil {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.failed
+}
+
+// audited writes the read audit row of the resource id of e, whose stored row is row, when e holds a pii field and
+// the handle has not written one for that resource yet. The row has the action read, the principal as the actor
+// and, at the change level, the redacted state. A failed write is returned and makes Run give no result, also when
+// the fill does not return the error.
+func (c *core) audited(ctx context.Context, e *entity, id string, row Row) error {
+	if !e.pii {
+		return nil
+	}
+	a := c.audit
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.failed != nil {
+		return a.failed
+	}
+	key := e.spec.Name + "\x00" + id
+	if a.done[key] {
+		return nil
+	}
+	subject := c.principal.Subject()
+	kind := audit.ActorUser
+	if subject.Type == authz.ServiceAccountType {
+		kind = audit.ActorService
+	}
+	resourceType := e.spec.ResourceType
+	if resourceType == "" {
+		resourceType = e.spec.Name
+	}
+	event := audit.Event{ActorID: subject.String(), ActorKind: kind, ResourceType: resourceType, ResourceID: id,
+		Service: a.rt.service, RequestID: c.requestID}
+	state := row.state()
+	if err := event.SetStates(a.rt.settings, e.spec.Fields, state, state); err != nil {
+		a.failed = fmt.Errorf("query: the read audit row of %s: %w", e.spec.Name, err)
+		return a.failed
+	}
+	if _, err := a.rt.audit.RecordRead(ctx, a.rt.auditDB, c.tenant, event); err != nil {
+		a.failed = fmt.Errorf("query: the read audit row of %s: %w", e.spec.Name, err)
+		return a.failed
+	}
+	a.done[key] = true
+	return nil
+}
