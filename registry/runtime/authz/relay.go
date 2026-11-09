@@ -27,12 +27,14 @@ const DestinationName = "authz"
 const DefaultAlertBound = 5 * time.Second
 
 // DefaultMarker is the fixed marker relationship whose TOUCH raises the revocation floor (ST-SUP-RP06-LC13). The
-// service's schema declares it: definition stego_floor { relation marker: stego_floor }.
+// service's schema declares it: definition stego_floor { relation marker: stego_floor }. Its IDs are not
+// tenant-qualified (ST-SUP-RP06-LC22): the marker is one relationship of the whole service, not a row of a tenant,
+// it holds no tenant data, no evaluation or search names it, and it grants no permission; only the relay writes it.
 var DefaultMarker = Tuple{Resource: Resource{Type: "stego_floor", ID: "floor"}, Relation: "marker",
 	Subject: Subject{Type: "stego_floor", ID: "floor"}}
 
-// Owner names the table of a protected entity, whose rows hold the token of their resource in authz_token: the
-// resource ID is in the column Key, the tenant in tenant_id. An empty Schema is the relay's schema.
+// Owner names the table of a protected entity, whose rows hold the token of their resource in authz_token: the key
+// part of the tenant-qualified resource ID (ST-SUP-RP06-LC22) is in the column Key, the tenant in tenant_id. An empty Schema is the relay's schema.
 type Owner struct {
 	Schema string
 	Table  string
@@ -262,11 +264,20 @@ func (r *Relay) Deliver(ctx context.Context, tx *sql.Tx, delivery outbox.Deliver
 	if tx == nil {
 		return errors.New("authz: the delivery has no transaction")
 	}
-	message, err := readPayload(delivery.ResourceKey, delivery.Payload)
+	message, err := readPayload(delivery.Payload, delivery.Tenant)
 	if err != nil {
 		return outbox.PermanentRefusal(err)
 	}
 	tuple := message.Tuple.tuple()
+	// Every resource ID of the tuple names the tenant of the outbox row, which the staging transaction wrote from its
+	// own tenant; a tuple of another tenant, or one that is not tenant-qualified, is never written (ST-SUP-RP06-LC22).
+	key, err := tupleKey(delivery.Tenant, tuple)
+	if err != nil {
+		return outbox.PermanentRefusal(fmt.Errorf("authz: the tuple %s is refused: %w", tuple.Resource.Type+"#"+tuple.Relation, err))
+	}
+	if resourceKey(tuple.Resource.Type, key) != delivery.ResourceKey {
+		return outbox.PermanentRefusal(errors.New("authz: the relay payload is for another resource key"))
+	}
 	token, err := r.writeWithFloor(ctx, message.Operation, tuple)
 	if err != nil {
 		return err
@@ -276,7 +287,7 @@ func (r *Relay) Deliver(ctx context.Context, tx *sql.Tx, delivery outbox.Deliver
 			return err
 		}
 	}
-	return r.storeToken(ctx, tx, delivery, tuple, token)
+	return r.storeToken(ctx, tx, delivery, tuple, key, token)
 }
 
 // writeWithFloor writes the tuple and the marker in one request under the floor lock and raises the floor to the
@@ -332,7 +343,14 @@ func (r *Relay) Check(ctx context.Context) error {
 	return nil
 }
 
-func readPayload(resourceKey string, body []byte) (payload, error) {
+// payloadVersionKeys is the version of the relay payload before ST-SUP-RP06-LC22: its resource ID, and the subject
+// ID of a subject set, are the bare keys of the outbox row's tenant.
+const payloadVersionKeys = 1
+
+// readPayload reads the payload of a delivery of tenant t. A payload of version 1 holds bare keys: readPayload
+// upgrades it to the tenant-qualified form of t, the tenant of the outbox row, so a message enqueued before
+// ST-SUP-RP06-LC22 is delivered and never parks its resource key.
+func readPayload(body []byte, t tenant.Tenant) (payload, error) {
 	var message payload
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
@@ -342,7 +360,18 @@ func readPayload(resourceKey string, body []byte) (payload, error) {
 	if decoder.More() {
 		return payload{}, errors.New("authz: the relay payload holds more than one value")
 	}
-	if message.Version != payloadVersion {
+	switch message.Version {
+	case payloadVersion:
+	case payloadVersionKeys:
+		if t.IsZero() {
+			return payload{}, tenant.ErrZero
+		}
+		message.Version = payloadVersion
+		message.Tuple.ResourceID = qualify(t.ID(), message.Tuple.ResourceID)
+		if message.Tuple.SubjectRelation != "" {
+			message.Tuple.SubjectID = qualify(t.ID(), message.Tuple.SubjectID)
+		}
+	default:
 		return payload{}, errors.New("authz: the relay payload has an unknown version")
 	}
 	if message.Operation != OperationTouch && message.Operation != OperationDelete {
@@ -352,20 +381,18 @@ func readPayload(resourceKey string, body []byte) (payload, error) {
 	if err := tuple.valid(); err != nil {
 		return payload{}, err
 	}
-	if tuple.Resource.String() != resourceKey {
-		return payload{}, errors.New("authz: the relay payload is for another resource key")
-	}
 	return message, nil
 }
 
-// storeToken stores the write token on the owning row in tx, the worker's transaction of the delivery's tenant.
-func (r *Relay) storeToken(ctx context.Context, tx *sql.Tx, delivery outbox.Delivery, tuple Tuple, token Token) error {
+// storeToken stores the write token on the owning row in tx, the worker's transaction of the delivery's tenant: the
+// row of key, the key part of the tuple's tenant-qualified resource ID.
+func (r *Relay) storeToken(ctx context.Context, tx *sql.Tx, delivery outbox.Delivery, tuple Tuple, key string, token Token) error {
 	owner, ok := r.owners[tuple.Resource.Type]
 	if !ok {
 		return nil
 	}
 	if _, err := tx.ExecContext(ctx, "UPDATE "+owner.table+" SET authz_token = $1 WHERE "+owner.key+
-		" = $2 AND tenant_id = $3", token.Text(), tuple.Resource.ID, delivery.Tenant.ID()); err != nil {
+		" = $2 AND tenant_id = $3", token.Text(), key, delivery.Tenant.ID()); err != nil {
 		return fmt.Errorf("authz: the token of %s cannot be stored on its row", tuple.Name())
 	}
 	return nil

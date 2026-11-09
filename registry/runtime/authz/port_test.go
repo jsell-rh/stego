@@ -136,7 +136,13 @@ func sameSet(got []string, want ...string) bool {
 
 func user(id string) Subject { return Subject{Type: "user", ID: id} }
 
-func doc(id string) Resource { return Resource{Type: "document", ID: id} }
+// doc is the document of key id in tenant t1, with the tenant-qualified ID of ResourceID (ST-SUP-RP06-LC22).
+func doc(id string) Resource { return docIn("t1", id) }
+
+// docIn is the document of key id in the tenant tenantID.
+func docIn(tenantID, id string) Resource {
+	return Resource{Type: "document", ID: qualify(tenantID, id)}
+}
 
 // packageSource parses the package files that are not tests.
 func packageSource(t *testing.T) (*token.FileSet, []*ast.File) {
@@ -213,7 +219,7 @@ func TestDecisionPort(t *testing.T) {
 	})
 
 	t.Run("ST-SUP-RP06-LC01-T02 A batch evaluation runs every request when no semantic is given", func(t *testing.T) {
-		fake := &recorder{allow: func(r EvaluationRequest) bool { return r.Resource.ID != "1" }}
+		fake := &recorder{allow: func(r EvaluationRequest) bool { return r.Resource.ID != doc("1").ID }}
 		port, err := NewPort(fake, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -249,8 +255,8 @@ func TestDecisionPort(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		result, err := port.Search(ctx, SearchRequest{Subject: user("bob"), Action: Action{Name: "view"},
-			ResourceType: "document", Consistency: Fresh(), Page: Page{Limit: 1}})
+		result, err := port.search(ctx, SearchRequest{Subject: user("bob"), Action: Action{Name: "view"},
+			ResourceType: "document", Consistency: Fresh(), Page: Page{Limit: 1}}, Token{})
 		if err != nil {
 			t.Fatal(err)
 		}

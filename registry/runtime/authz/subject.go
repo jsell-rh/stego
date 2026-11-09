@@ -68,8 +68,13 @@ func subjectID(issuer, subject string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(issuer)) + "|" + base64.RawURLEncoding.EncodeToString([]byte(subject))
 }
 
-// ServiceAccount returns the subject service_account:<name> of a worker, a controller or the relay.
+// ServiceAccount returns the subject service_account:<name> of a worker, a controller or the relay. It refuses a
+// name with a /, the separator of a tenant-qualified resource ID (ST-SUP-RP06-LC22), so a service account never has
+// the shape of a resource.
 func ServiceAccount(name string) (Subject, error) {
+	if strings.Contains(name, "/") {
+		return Subject{}, errors.New("authz: a service account name holds a /")
+	}
 	subject := Subject{Type: ServiceAccountType, ID: name}
 	if err := subject.valid(); err != nil {
 		return Subject{}, fmt.Errorf("authz: the service account: %w", err)

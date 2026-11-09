@@ -20,7 +20,7 @@ func TestStream(t *testing.T) {
 			if r.Action.Name == "list_orders" {
 				return true
 			}
-			switch r.Resource.ID {
+			switch keyOf(r.Resource) {
 			case "o-2":
 				return false
 			case "o-3":

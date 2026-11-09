@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -182,7 +183,7 @@ func TestAuthz(t *testing.T) {
 			t.Fatalf("%d decision port calls, want 1", len(calls))
 		}
 		c := calls[0]
-		if c.Subject.String() != "user:u-7" || c.Action.Name != "view" || c.Resource.String() != "order:o-1" {
+		if c.Subject.String() != "user:u-7" || c.Action.Name != "view" || c.Resource.Type+":"+keyOf(c.Resource) != "order:o-1" {
 			t.Errorf("the call is %s %s %s, want user:u-7 view order:o-1", c.Subject, c.Action.Name, c.Resource)
 		}
 		if got := consistencyOf(c.Consistency); got != "at_least:t5" {
@@ -224,7 +225,7 @@ func TestAuthz(t *testing.T) {
 	t.Run("ST-SUP-RP11-LC06-T01 A denied query read returns no data", func(t *testing.T) {
 		e := newEnv(t)
 		e.insert(t, "INSERT INTO app.orders (tenant_id, id, total, authz_token) VALUES ('t1', 'o1', 4200, 't3')")
-		port := &fakeDecision{decide: func(r authz.EvaluationRequest) bool { return r.Resource.ID != "o1" }}
+		port := &fakeDecision{decide: func(r authz.EvaluationRequest) bool { return keyOf(r.Resource) != "o1" }}
 		rt := e.runtimeOf(t, port)
 		orders := orderEntity(t, false)
 		q := mustQuery(t, "order-detail", orders)
@@ -247,7 +248,7 @@ func TestAuthz(t *testing.T) {
 			t.Errorf("the fill got %+v of the denied order, want nothing", got.Value())
 		}
 		calls := port.recorded()
-		if len(calls) != 1 || calls[0].Action.Name != "view" || calls[0].Resource.String() != "order:o1" {
+		if len(calls) != 1 || calls[0].Action.Name != "view" || calls[0].Resource.Type+":"+keyOf(calls[0].Resource) != "order:o1" {
 			t.Errorf("the decision port calls are %v, want one for view on order:o1", calls)
 		}
 	})
@@ -290,7 +291,7 @@ func TestAuthz(t *testing.T) {
 		const denied = "0000000a-0000-7000-8000-000000000002"
 		const missing = "0000000a-0000-7000-8000-000000000003"
 		e.insert(t, "INSERT INTO app.tickets (tenant_id, id) VALUES ('t1', $1), ('t1', $2)", allowed, denied)
-		port := &fakeDecision{delay: 30 * time.Millisecond, decide: func(r authz.EvaluationRequest) bool { return r.Resource.ID == allowed }}
+		port := &fakeDecision{delay: 30 * time.Millisecond, decide: func(r authz.EvaluationRequest) bool { return keyOf(r.Resource) == allowed }}
 		rt := e.runtimeOf(t, port)
 		tickets := ticketEntity(t)
 		q := mustQuery(t, "ticket-detail", tickets)
@@ -327,7 +328,7 @@ func TestAuthz(t *testing.T) {
 		if errs[0] != nil || values[0].Value().ID != allowed {
 			t.Errorf("the read by the upper-case UUID gives %v, %v; want the row %s", values[0].Value(), errs[0], allowed)
 		}
-		if calls := port.recorded()[before:]; len(calls) != 1 || calls[0].Resource.ID != allowed {
+		if calls := port.recorded()[before:]; len(calls) != 1 || keyOf(calls[0].Resource) != allowed {
 			t.Errorf("the decision is on %v, want one call on the stored key %s", calls, allowed)
 		}
 		port.mu.Lock()
@@ -343,7 +344,7 @@ func TestAuthz(t *testing.T) {
 		e := newEnv(t)
 		e.insert(t, "INSERT INTO app.tickets (tenant_id, id) SELECT 't1', lpad(to_hex(n), 32, '0')::uuid FROM generate_series(1, 3000) AS n")
 		const last = "00000000-0000-0000-0000-000000000bb8"
-		port := &fakeDecision{decide: func(r authz.EvaluationRequest) bool { return r.Resource.ID == last }}
+		port := &fakeDecision{decide: func(r authz.EvaluationRequest) bool { return keyOf(r.Resource) == last }}
 		rt := e.runtimeOf(t, port)
 		tickets := ticketEntity(t)
 		type call struct {
@@ -405,7 +406,7 @@ func TestAuthz(t *testing.T) {
 		}
 		e.insert(t, "UPDATE authz.authz_floor SET token = 'f1'")
 		port := &fakeDecision{decide: func(r authz.EvaluationRequest) bool {
-			return r.Resource.ID == "o-2" || r.Resource.ID == "o-4"
+			return keyOf(r.Resource) == "o-2" || keyOf(r.Resource) == "o-4"
 		}}
 		rt := e.runtimeOf(t, port)
 		orders := orderEntity(t, false)
@@ -470,6 +471,9 @@ func TestAuthz(t *testing.T) {
 			rt := e.runtimeOf(t, port)
 			orders := orderEntity(t, search)
 			ids := listAll(t, rt, orders, mustQuery(t, "orders", orders), 1)
+			// A list by resource search keeps the provider's order across pages, which is the order of the
+			// tenant-qualified IDs (ST-SUP-RP06-LC22), not of the keys.
+			sort.Strings(ids)
 			if strings.Join(ids, ",") != "o-1,o-4" {
 				t.Errorf("with search %v the pages hold %v, want o-1 and o-4", search, ids)
 			}
@@ -672,10 +676,11 @@ func startSpiceDB(t *testing.T) *spiceEnv {
 // grant makes the user a viewer of the order and gives the ZedToken of the write.
 func (s *spiceEnv) grant(t *testing.T, order, user string) string {
 	t.Helper()
+	// The order is of tenant t1, in the tenant-qualified form that the runtime sends (ST-SUP-RP06-LC22).
 	response, err := s.perms.WriteRelationships(context.Background(), &v1.WriteRelationshipsRequest{Updates: []*v1.RelationshipUpdate{{
 		Operation: v1.RelationshipUpdate_OPERATION_TOUCH,
 		Relationship: &v1.Relationship{
-			Resource: &v1.ObjectReference{ObjectType: "order", ObjectId: order},
+			Resource: &v1.ObjectReference{ObjectType: "order", ObjectId: resourceIn(t, "t1", "order", order).ID},
 			Relation: "viewer",
 			Subject:  &v1.SubjectReference{Object: &v1.ObjectReference{ObjectType: "user", ObjectId: user}},
 		},

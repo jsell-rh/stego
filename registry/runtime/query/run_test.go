@@ -109,7 +109,7 @@ func TestRun(t *testing.T) {
 			e := newEnv(t)
 			insertCharges(e)
 			port := &fakeDecision{decide: allowAll, search: func(authz.SearchRequest) authz.SearchResult {
-				return authz.SearchResult{Resources: []authz.Resource{{Type: "charge", ID: "ch-1"}, {Type: "charge", ID: "ch-2"}}}
+				return authz.SearchResult{Resources: []authz.Resource{resourceIn(t, "t1", "charge", "ch-1"), resourceIn(t, "t1", "charge", "ch-2")}}
 			}}
 			rt := e.runtimeOf(t, port)
 			charges := chargeEntityWith(t, search)

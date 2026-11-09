@@ -34,7 +34,11 @@ func (e *pgEnv) enqueue(t *testing.T, id string, operation Operation, tuple Tupl
 	if err != nil {
 		t.Fatal(err)
 	}
-	return e.enqueueRaw(t, id, tuple.Resource.String(), "authz."+string(operation), body, revocation.String())
+	_, key, ok := splitResourceID(tuple.Resource.ID)
+	if !ok {
+		t.Fatalf("the tuple %s is not tenant-qualified", tuple.Name())
+	}
+	return e.enqueueRaw(t, id, resourceKey(tuple.Resource.Type, key), "authz."+string(operation), body, revocation.String())
 }
 
 func (e *pgEnv) enqueueRaw(t *testing.T, id, key, kind string, body []byte, group string) uuid.UUID {
@@ -313,7 +317,7 @@ func TestRelay(t *testing.T) {
 		if got := floorText(t, env); got != "w-1" {
 			t.Fatalf("the floor is %q after the first delivery, want w-1, the written_at of the tuple and marker write", got)
 		}
-		env.waitState(t, env.enqueue(t, "t2", OperationTouch, Tuple{Resource: doc("2"), Relation: "viewer", Subject: user("bob")}), outbox.Done)
+		env.waitState(t, env.enqueue(t, "t2", OperationTouch, Tuple{Resource: docIn("t2", "2"), Relation: "viewer", Subject: user("bob")}), outbox.Done)
 		if got := floorText(t, env); got != "w-2" {
 			t.Fatalf("the floor is %q after the second delivery, want w-2", got)
 		}
@@ -750,7 +754,7 @@ func TestRevocationFloor(t *testing.T) {
 	allowed := func(t *testing.T, rt *Runtime, env *pgEnv, tenantID, who, documentID string, row Token) bool {
 		t.Helper()
 		_, handle := env.begin(t, rt, tenantID, mustPerson(t, who))
-		result, err := handle.Evaluate(ctx, "view", doc(documentID), row, nil)
+		result, err := handle.Evaluate(ctx, "view", docIn(tenantID, documentID), row, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -762,10 +766,10 @@ func TestRevocationFloor(t *testing.T) {
 	}
 	// stale checks view with the provider alone at the old row token: it must still allow, or the stand-in shows
 	// no stale read and the case could not fail.
-	stale := func(t *testing.T, db *spiceEnv, documentID string, old Token) {
+	stale := func(t *testing.T, db *spiceEnv, tenantID, documentID string, old Token) {
 		t.Helper()
 		result, err := db.provider.Evaluate(ctx, EvaluationRequest{Subject: person(t, "bob"), Action: Action{Name: "view"},
-			Resource: doc(documentID), Consistency: AtLeast(old)})
+			Resource: docIn(tenantID, documentID), Consistency: AtLeast(old)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -779,13 +783,17 @@ func TestRevocationFloor(t *testing.T) {
 		env.startWorker(t, relay)
 		env.waitAll(t, outbox.Done)
 	}
-	groupGrant := func(t *testing.T, db *spiceEnv, group, documentID string) (Tuple, Token) {
+	// groupGrant makes bob a member of the group of t1 and gives that group view on the document of tenantID. The
+	// grant is written to the provider directly: a document of t2 with a group of t1 is only for LC13-T06, whose
+	// revocation runs in t1 and whose check runs in t2.
+	groupGrant := func(t *testing.T, db *spiceEnv, group, tenantID, documentID string) (Tuple, Token) {
 		t.Helper()
-		member := Tuple{Resource: Resource{Type: "group", ID: group}, Relation: "member", Subject: person(t, "bob")}
+		groupResource := Resource{Type: "group", ID: qualify("t1", group)}
+		member := Tuple{Resource: groupResource, Relation: "member", Subject: person(t, "bob")}
 		if _, err := db.provider.Touch(ctx, []Tuple{member}, nil); err != nil {
 			t.Fatal(err)
 		}
-		grant := Tuple{Resource: doc(documentID), Relation: "viewer", Subject: Subject{Type: "group", ID: group}, SubjectRelation: "member"}
+		grant := Tuple{Resource: docIn(tenantID, documentID), Relation: "viewer", Subject: Subject{Type: "group", ID: groupResource.ID}, SubjectRelation: "member"}
 		token, err := db.provider.Touch(ctx, []Tuple{grant}, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -797,7 +805,7 @@ func TestRevocationFloor(t *testing.T) {
 		env, db := newPG(t), startQuantizedSpiceDB(t, fixtureSchema)
 		rt, relay := env.runtimeOf(t, db.provider, nil), env.relay(t, db.provider)
 		group, d1 := ids(t)
-		member, old := groupGrant(t, db, group, d1)
+		member, old := groupGrant(t, db, group, "t1", d1)
 		insert(t, env, "t1", d1, old)
 		if !view(t, rt, env, "t1", d1) {
 			t.Fatal("bob cannot view the document through the group before the revocation")
@@ -812,7 +820,7 @@ func TestRevocationFloor(t *testing.T) {
 		if rowToken(t, env, "t1", d1) != old {
 			t.Fatal("the row token of the document changed; the case needs it older than the revocation")
 		}
-		stale(t, db, d1, old)
+		stale(t, db, "t1", d1, old)
 		if view(t, rt, env, "t1", d1) {
 			t.Fatal("bob can view the document after the group revocation landed")
 		}
@@ -850,7 +858,7 @@ func TestRevocationFloor(t *testing.T) {
 		if rowToken(t, env, "t1", d1) != old {
 			t.Fatal("the row token of the document changed; the case needs it older than the ban")
 		}
-		stale(t, db, d1, old)
+		stale(t, db, "t1", d1, old)
 		if view(t, rt, env, "t1", d1) {
 			t.Fatal("bob can view the document after the ban landed")
 		}
@@ -861,7 +869,7 @@ func TestRevocationFloor(t *testing.T) {
 		env, db := newPG(t), startQuantizedSpiceDB(t, fixtureSchema)
 		rt, relay := env.runtimeOf(t, db.provider, nil), env.relay(t, db.provider)
 		group, d2 := ids(t)
-		member, old := groupGrant(t, db, group, d2)
+		member, old := groupGrant(t, db, group, "t2", d2)
 		insert(t, env, "t2", d2, old)
 		if !view(t, rt, env, "t2", d2) {
 			t.Fatal("bob cannot view the document of t2 before the revocation")
@@ -873,7 +881,7 @@ func TestRevocationFloor(t *testing.T) {
 		}
 		env.commit(t, tx, "t1")
 		landAll(t, env, relay, "t1")
-		stale(t, db, d2, old)
+		stale(t, db, "t2", d2, old)
 		if view(t, rt, env, "t2", d2) {
 			t.Fatal("bob can view the document of t2 after the revocation in t1 landed")
 		}
@@ -883,22 +891,24 @@ func TestRevocationFloor(t *testing.T) {
 	t.Run("ST-SUP-RP06-LC13-T07 Concurrent relays take the floor lock in turn and never lower the floor", func(t *testing.T) {
 		env, db := newPG(t), startSpiceDB(t, fixtureSchema)
 		rt := env.runtimeOf(t, db.provider, nil)
-		member := Tuple{Resource: Resource{Type: "group", ID: "g"}, Relation: "member", Subject: person(t, "bob")}
-		grant := Tuple{Resource: doc("d1"), Relation: "viewer", Subject: Subject{Type: "group", ID: "g"}, SubjectRelation: "member"}
-		carol := Tuple{Resource: doc("d2"), Relation: "viewer", Subject: person(t, "carol")}
+		group := Resource{Type: "group", ID: qualify("t1", "g")}
+		member := Tuple{Resource: group, Relation: "member", Subject: person(t, "bob")}
+		grant := Tuple{Resource: doc("d1"), Relation: "viewer", Subject: Subject{Type: "group", ID: group.ID}, SubjectRelation: "member"}
+		carol := Tuple{Resource: docIn("t2", "d2"), Relation: "viewer", Subject: person(t, "carol")}
 		for run := 0; run < 4; run++ {
 			if _, err := db.provider.Touch(ctx, []Tuple{member, grant, carol}, nil); err != nil {
 				t.Fatal(err)
 			}
-			first, second := member, carol
+			// Each tuple is delivered in its own tenant: member in t1, carol in t2.
+			first, second, firstTenant, secondTenant := member, carol, "t1", "t2"
 			if run%2 == 1 {
-				first, second = carol, member
+				first, second, firstTenant, secondTenant = carol, member, "t2", "t1"
 			}
 			held := &gated{Relationships: db.provider, entered: make(chan struct{}), gate: make(chan struct{})}
 			later := &gated{Relationships: db.provider}
 			relayA, relayB := env.relay(t, held), env.relay(t, later)
 			done := make(chan error, 2)
-			idA, idB := env.enqueue(t, "t1", OperationDelete, first), env.enqueue(t, "t2", OperationDelete, second)
+			idA, idB := env.enqueue(t, firstTenant, OperationDelete, first), env.enqueue(t, secondTenant, OperationDelete, second)
 			go func() { done <- env.deliverByHand(t, relayA, idA) }()
 			<-held.entered
 			go func() { done <- env.deliverByHand(t, relayB, idB) }()
@@ -933,7 +943,7 @@ func TestRevocationFloor(t *testing.T) {
 		env, db := newPG(t), startPostgresSpiceDB(t, fixtureSchema)
 		rt, relay := env.runtimeOf(t, db.provider, nil), env.relay(t, db.provider)
 		group, d1 := ids(t)
-		member, old := groupGrant(t, db, group, d1)
+		member, old := groupGrant(t, db, group, "t1", d1)
 		insert(t, env, "t1", d1, old)
 		if !view(t, rt, env, "t1", d1) {
 			t.Fatal("bob cannot view the document through the group before the revocation")
@@ -956,10 +966,543 @@ func TestRevocationFloor(t *testing.T) {
 		if rowToken(t, env, "t1", d1) != old {
 			t.Fatal("the row token of the document changed; the case needs it older than the revocation")
 		}
-		stale(t, db, d1, old)
+		stale(t, db, "t1", d1, old)
 		if view(t, rt, env, "t1", d1) {
 			t.Fatal("bob can view the document after the group revocation landed")
 		}
 		inWindow(t, end)
+	})
+}
+
+// idProbe wraps a provider of both ports and records every object ID that STEGO sends it: the resource of each
+// evaluation, tuple write and delete, and the subject of each tuple and delete filter, direct or subject set.
+type idProbe struct {
+	Decision
+	Relationships
+	mu  sync.Mutex
+	ids []string
+}
+
+func (p *idProbe) record(ids ...string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.ids = append(p.ids, ids...)
+}
+
+func (p *idProbe) recordTuples(tuples []Tuple) {
+	for _, tuple := range tuples {
+		p.record(tuple.Resource.ID, tuple.Subject.ID)
+	}
+}
+
+func (p *idProbe) Evaluate(ctx context.Context, request EvaluationRequest) (EvaluationResult, error) {
+	p.record(request.Resource.ID)
+	return p.Decision.Evaluate(ctx, request)
+}
+
+func (p *idProbe) EvaluateBatch(ctx context.Context, request BatchRequest) ([]EvaluationResult, error) {
+	for _, evaluation := range request.Evaluations {
+		p.record(evaluation.Resource.ID)
+	}
+	return p.Decision.EvaluateBatch(ctx, request)
+}
+
+func (p *idProbe) Touch(ctx context.Context, tuples []Tuple, preconditions []Precondition) (Token, error) {
+	p.recordTuples(tuples)
+	return p.Relationships.Touch(ctx, tuples, preconditions)
+}
+
+func (p *idProbe) Delete(ctx context.Context, filters []Filter, preconditions []Precondition) (Token, error) {
+	for _, filter := range filters {
+		p.record(filter.ResourceID, filter.SubjectID)
+	}
+	return p.Relationships.Delete(ctx, filters, preconditions)
+}
+
+func (p *idProbe) Write(ctx context.Context, touches []Tuple, deletes []Filter, preconditions []Precondition) (Token, error) {
+	p.recordTuples(touches)
+	for _, filter := range deletes {
+		p.record(filter.ResourceID, filter.SubjectID)
+	}
+	return p.Relationships.Write(ctx, touches, deletes, preconditions)
+}
+
+func (p *idProbe) sent() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.ids...)
+}
+
+// droppedSum reads the metric authz.search.dropped of reader.
+func droppedSum(t *testing.T, reader sdkmetric.Reader) int64 {
+	t.Helper()
+	var data metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &data); err != nil {
+		t.Fatal(err)
+	}
+	var total int64
+	for _, scope := range data.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			if sum, ok := m.Data.(metricdata.Sum[int64]); ok && m.Name == "authz.search.dropped" {
+				for _, point := range sum.DataPoints {
+					total += point.Value
+				}
+			}
+		}
+	}
+	return total
+}
+
+func TestTenantResources(t *testing.T) {
+	ctx := context.Background()
+	order := func(t *testing.T, tenantID, key string) Resource {
+		t.Helper()
+		resource, err := NewResource(mustTenant(t, tenantID), "order", key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resource
+	}
+
+	t.Run("ST-SUP-RP06-LC22-T01 The same key in two tenants does not share a permission", func(t *testing.T) {
+		env, db := newPG(t), startSpiceDB(t, fixtureSchema)
+		for _, statement := range []string{
+			"CREATE TABLE {s}.orders (tenant_id text NOT NULL, id text NOT NULL, authz_token text NOT NULL DEFAULT '', PRIMARY KEY (tenant_id, id))",
+			"ALTER TABLE {s}.orders ENABLE ROW LEVEL SECURITY",
+			"ALTER TABLE {s}.orders FORCE ROW LEVEL SECURITY",
+			"CREATE POLICY orders_tenant ON {s}.orders USING (tenant_id = current_setting('app.tenant', true)) WITH CHECK (tenant_id = current_setting('app.tenant', true))",
+			"GRANT SELECT, UPDATE (authz_token) ON {s}.orders TO " + env.roles[1],
+			"INSERT INTO {s}.orders (tenant_id, id) VALUES ('t1', 'o-1'), ('t2', 'o-1')",
+		} {
+			if _, err := env.admin.ExecContext(ctx, strings.ReplaceAll(statement, "{s}", env.schema)); err != nil {
+				t.Fatalf("%.60s: %v", statement, err)
+			}
+		}
+		probe := &idProbe{Decision: db.provider, Relationships: db.provider}
+		reader := sdkmetric.NewManualReader()
+		rt, err := New(Config{Provider: probe, DB: env.runtime, Schema: env.schema, Outbox: env.queue,
+			Meter: sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))})
+		if err != nil {
+			t.Fatal(err)
+		}
+		relay, err := NewRelay(RelayConfig{Name: "authz-relay", Relationships: probe, DB: env.relayDB, Schema: env.schema,
+			Owners: map[string]Owner{"order": {Table: "orders", Key: "id"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		bob := mustPerson(t, "bob")
+		tx, handle := env.begin(t, rt, "t2", mustPerson(t, "alice"), rel("order#viewer"))
+		if _, err := handle.Relate(ctx, Tuple{Resource: order(t, "t2", "o-1"), Relation: "viewer", Subject: bob.Subject()}); err != nil {
+			t.Fatal(err)
+		}
+		env.commit(t, tx, "t2")
+		env.startWorker(t, relay)
+		env.waitAll(t, outbox.Done)
+		// The relay stored its token on o-1 of t2 only: the key part of the ID names the row, the tenant its tenant.
+		if got := env.scalar(t, "SELECT string_agg(tenant_id || '=' || (authz_token <> '')::text, ',' ORDER BY tenant_id) FROM {s}.orders"); got != "t1=false,t2=true" {
+			t.Fatalf("the rows hold the tokens %s, want only o-1 of t2 with a token", got)
+		}
+		type outcome struct {
+			allowed bool
+			listed  int
+			found   []string
+		}
+		check := func(tenantID string) outcome {
+			_, h := env.begin(t, rt, tenantID, bob)
+			resource := order(t, tenantID, "o-1")
+			result, err := h.Evaluate(ctx, "view", resource, Token{}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows, err := h.List("view", nil).Page(ctx, []Row{{Resource: resource}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			page, err := h.Search(ctx, "view", "order", nil, Page{Limit: 10})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return outcome{allowed: result.Allowed, listed: len(rows), found: page.Keys}
+		}
+		if got := check("t2"); !got.allowed || got.listed != 1 || len(got.found) != 1 || got.found[0] != "o-1" {
+			t.Fatalf("in t2 bob got %+v, want an allow, one listed row and the search key o-1", got)
+		}
+		// In t1 the check is a deny, which the query runtime answers as not found (ST-SUP-RP11-LC06).
+		if got := check("t1"); got.allowed || got.listed != 0 || len(got.found) != 0 {
+			t.Fatalf("in t1 bob got %+v, want a deny, an empty list and an empty search", got)
+		}
+		// The search in t1 got o-1 of t2 from SpiceDB, which looks up across tenants, and dropped it.
+		if rt.DroppedResults() != 1 || droppedSum(t, reader) != 1 {
+			t.Fatalf("the runtime dropped %d search results, metric %d; want o-1 of t2 dropped once", rt.DroppedResults(), droppedSum(t, reader))
+		}
+		// Bob's grant is removed in t2 through the handle, so a delete filter reaches the provider too.
+		tx, handle = env.begin(t, rt, "t2", mustPerson(t, "alice"), rel("order#viewer"))
+		if _, err := handle.Unrelate(ctx, Tuple{Resource: order(t, "t2", "o-1"), Relation: "viewer", Subject: bob.Subject()}); err != nil {
+			t.Fatal(err)
+		}
+		env.commit(t, tx, "t2")
+		env.waitAll(t, outbox.Done)
+		if got := check("t2"); got.allowed || got.listed != 0 {
+			t.Fatalf("in t2 bob got %+v after the delete, want a deny", got)
+		}
+		// Every object ID that went to the provider is the floor marker, the subject ID of bob, or tenant-qualified.
+		sent := probe.sent()
+		seen := map[string]bool{}
+		subjects := 0
+		for _, id := range sent {
+			switch {
+			case id == DefaultMarker.Resource.ID:
+			case id == bob.Subject().ID:
+				subjects++
+			default:
+				if _, _, ok := splitResourceID(id); !ok {
+					t.Errorf("the object ID %q went to the provider without its tenant", id)
+				}
+				seen[id] = true
+			}
+		}
+		if !seen[order(t, "t1", "o-1").ID] || !seen[order(t, "t2", "o-1").ID] || len(seen) != 2 || subjects != 2 {
+			t.Fatalf("the provider got the object IDs %v, want o-1 of t1 and of t2 in their tenant-qualified forms and bob in the touch and the delete", sent)
+		}
+	})
+
+	t.Run("ST-SUP-RP06-LC22-T02 A search result of another tenant is dropped", func(t *testing.T) {
+		fake := &recorder{search: func(SearchRequest) SearchResult {
+			return SearchResult{Resources: []Resource{order(t, "t1", "o-1"), order(t, "t2", "o-2"), {Type: "order", ID: "o-3"},
+				{Type: "document", ID: qualify("t1", "o-4")}}}
+		}}
+		reader := sdkmetric.NewManualReader()
+		queue, err := outbox.New(fakeDB(t), outbox.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rt, err := New(Config{Provider: fake, DB: fakeDB(t), Schema: "public", Outbox: queue,
+			Meter: sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))})
+		if err != nil {
+			t.Fatal(err)
+		}
+		handle := bindUnit(t, rt, nil, mustPerson(t, "bob"))
+		page, err := handle.Search(ctx, "view", "order", nil, Page{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Resources) != 1 || page.Resources[0] != order(t, "t1", "o-1") || len(page.Keys) != 1 || page.Keys[0] != "o-1" {
+			t.Fatalf("the page maps %v to the keys %v, want only o-1 of t1", page.Resources, page.Keys)
+		}
+		if rt.DroppedResults() != 3 || droppedSum(t, reader) != 3 {
+			t.Fatalf("the runtime counted %d dropped results, metric %d; want o-2 of t2, the bare ID o-3 and the document o-4", rt.DroppedResults(), droppedSum(t, reader))
+		}
+	})
+
+	t.Run("ST-SUP-RP06-LC22-T05 A search page is filled to its limit and is never empty before the end", func(t *testing.T) {
+		// pages gives the provider pages in turn: each page holds its resources and a next token, except the last.
+		searcher := func(pages ...[]Resource) *recorder {
+			return &recorder{search: func(request SearchRequest) SearchResult {
+				n := 0
+				if cursor, _, ok := request.Page.Token.CursorFor("fake"); ok {
+					n = int(cursor[0] - '0')
+				}
+				result := SearchResult{}
+				if n < len(pages) {
+					result.Resources = pages[n]
+				}
+				if n+1 < len(pages) {
+					result.Next = NewPageToken("fake", string(rune('0'+n+1)), Fresh())
+				}
+				return result
+			}}
+		}
+		foreign := []Resource{order(t, "t2", "o-9")}
+		fake := searcher(foreign, foreign, []Resource{order(t, "t1", "o-1")}, []Resource{order(t, "t1", "o-2")}, []Resource{order(t, "t1", "o-3")})
+		handle := bindUnit(t, newUnitRuntime(t, fake), nil, mustPerson(t, "bob"))
+		page, err := handle.Search(ctx, "view", "order", nil, Page{Limit: 2})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Keys) != 2 || page.Keys[0] != "o-1" || page.Keys[1] != "o-2" || page.Next.IsZero() {
+			t.Fatalf("the page holds %v with next %v, want o-1 and o-2 after two foreign pages, and a next page", page.Keys, page.Next)
+		}
+		if len(fake.searchCalls) != 4 || fake.searchCalls[3].Page.Limit != 1 || fake.searchCalls[0].Page.Limit != 2 {
+			t.Fatalf("the provider got %d calls, want 4 with the limit 2 at first and 1 for the last one", len(fake.searchCalls))
+		}
+		last, err := handle.Search(ctx, "view", "order", nil, Page{Limit: 2, Token: page.Next})
+		if err != nil || len(last.Keys) != 1 || last.Keys[0] != "o-3" || !last.Next.IsZero() {
+			t.Fatalf("the last page is %v, %v; want o-3 and the end", last.Keys, err)
+		}
+		// With no limit, one result of the tenant fills the page.
+		fake = searcher(foreign, []Resource{order(t, "t1", "o-1")}, []Resource{order(t, "t1", "o-2")})
+		handle = bindUnit(t, newUnitRuntime(t, fake), nil, mustPerson(t, "bob"))
+		if page, err := handle.Search(ctx, "view", "order", nil, Page{}); err != nil || len(page.Keys) != 1 || page.Keys[0] != "o-1" {
+			t.Fatalf("the page with no limit is %v, %v; want o-1", page.Keys, err)
+		}
+		// Only foreign pages that end give an empty page at the end, and only foreign pages that do not end stop at
+		// the bound with an error, never with an empty page and a next token.
+		fake = searcher(foreign, foreign)
+		handle = bindUnit(t, newUnitRuntime(t, fake), nil, mustPerson(t, "bob"))
+		if page, err := handle.Search(ctx, "view", "order", nil, Page{Limit: 5}); err != nil || len(page.Keys) != 0 || !page.Next.IsZero() {
+			t.Fatalf("foreign pages that end gave %v, %v; want an empty last page", page, err)
+		}
+		endless := &recorder{search: func(SearchRequest) SearchResult {
+			return SearchResult{Resources: foreign, Next: NewPageToken("fake", "more", Fresh())}
+		}}
+		handle = bindUnit(t, newUnitRuntime(t, endless), nil, mustPerson(t, "bob"))
+		if _, err := handle.Search(ctx, "view", "order", nil, Page{Limit: 5}); !errors.Is(err, ErrSearchExhausted) {
+			t.Fatalf("endless foreign pages gave %v, want ErrSearchExhausted", err)
+		}
+		if len(endless.searchCalls) != maxSearchCalls || maxSearchCalls > 50 {
+			t.Fatalf("the provider got %d calls, want the bound %d", len(endless.searchCalls), maxSearchCalls)
+		}
+	})
+
+	t.Run("ST-SUP-RP06-LC22-T03 A resource ID of another tenant, or one without a tenant, is refused before the provider and the outbox", func(t *testing.T) {
+		fake := &recorder{allow: func(EvaluationRequest) bool { return true }}
+		rt := newUnitRuntime(t, fake)
+		handle := bindUnit(t, rt, nil, mustPerson(t, "alice"), rel("order#viewer"), rel("order#parent"))
+		other, bare := order(t, "t2", "o-1"), Resource{Type: "order", ID: "o-1"}
+		for name, call := range map[string]func(Resource) error{
+			"Evaluate": func(r Resource) error { _, err := handle.Evaluate(ctx, "view", r, Token{}, nil); return err },
+			"EvaluateBatch": func(r Resource) error {
+				_, err := handle.EvaluateBatch(ctx, "view", []Row{{Resource: order(t, "t1", "o-2")}, {Resource: r}}, nil)
+				return err
+			},
+			"List": func(r Resource) error { _, err := handle.List("view", nil).Page(ctx, []Row{{Resource: r}}); return err },
+			"DecideTenant": func(r Resource) error {
+				_, _, err := handle.DecideTenant(ctx, tenant.ProvisionAction, "t9", r, nil)
+				return err
+			},
+			"Relate": func(r Resource) error {
+				_, err := handle.Relate(ctx, Tuple{Resource: r, Relation: "viewer", Subject: user("bob")})
+				return err
+			},
+			"Unrelate": func(r Resource) error {
+				_, err := handle.Unrelate(ctx, Tuple{Resource: r, Relation: "viewer", Subject: user("bob")})
+				return err
+			},
+			"Relate of a direct subject": func(r Resource) error {
+				_, err := handle.Relate(ctx, Tuple{Resource: order(t, "t1", "o-1"), Relation: "parent",
+					Subject: Subject{Type: "folder", ID: r.ID}})
+				return err
+			},
+			"Relate of a subject set": func(r Resource) error {
+				_, err := handle.Relate(ctx, Tuple{Resource: order(t, "t1", "o-1"), Relation: "viewer",
+					Subject: Subject{Type: "group", ID: r.ID}, SubjectRelation: "member"})
+				return err
+			},
+			"Port.Evaluate": func(r Resource) error {
+				_, err := rt.Port().Evaluate(ctx, EvaluationRequest{Subject: user("bob"), Action: Action{Name: "view"},
+					Resource: r, Consistency: Fresh()})
+				return err
+			},
+			"Port.EvaluateBatch": func(r Resource) error {
+				_, err := rt.Port().EvaluateBatch(ctx, BatchRequest{Evaluations: []EvaluationRequest{{Subject: user("bob"),
+					Action: Action{Name: "view"}, Resource: r, Consistency: Fresh()}}})
+				return err
+			},
+		} {
+			for kind, resource := range map[string]Resource{"of t2": other, "without a tenant": bare} {
+				if strings.HasPrefix(name, "Port.") && kind == "of t2" {
+					continue // Port has no tenant: it checks the form only.
+				}
+				if name == "Relate of a direct subject" && kind == "without a tenant" {
+					continue // A direct subject without the shape of a resource ID is a principal, such as a person.
+				}
+				want := ErrOtherTenant
+				if kind == "without a tenant" {
+					want = ErrNotQualified
+				}
+				if err := call(resource); !errors.Is(err, want) {
+					t.Errorf("%s of a resource %s gave %v, want %v", name, kind, err, want)
+				}
+			}
+		}
+		if n := fake.requests(); n != 0 {
+			t.Fatalf("the provider got %d requests for refused resource IDs", n)
+		}
+		// The relay refuses a tuple whose resource or subject set names another tenant than the outbox row, so the
+		// outbox parks it, and writes nothing.
+		relationships := &fakeRelationships{}
+		relay, err := NewRelay(RelayConfig{Name: "authz-relay", Relationships: relationships, DB: fakeDB(t), Schema: "public"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, tuple := range map[string]Tuple{
+			"a resource of t2": {Resource: order(t, "t2", "o-1"), Relation: "viewer", Subject: user("bob")},
+			"a subject set of t2": {Resource: order(t, "t1", "o-1"), Relation: "viewer",
+				Subject: Subject{Type: "group", ID: qualify("t2", "g")}, SubjectRelation: "member"},
+			"a bare resource ID": {Resource: Resource{Type: "order", ID: "o-1"}, Relation: "viewer", Subject: user("bob")},
+			"a direct subject of t2": {Resource: order(t, "t1", "o-1"), Relation: "parent",
+				Subject: Subject{Type: "folder", ID: qualify("t2", "f")}},
+		} {
+			body, err := json.Marshal(payload{Version: payloadVersion, Operation: OperationTouch, Revocation: uuid.New(),
+				Tuple: tupleJSON{ResourceType: tuple.Resource.Type, ResourceID: tuple.Resource.ID, Relation: tuple.Relation,
+					SubjectType: tuple.Subject.Type, SubjectID: tuple.Subject.ID, SubjectRelation: tuple.SubjectRelation}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			delivery := outbox.Delivery{Message: outbox.Message{ID: uuid.New(), Destination: DestinationName,
+				ResourceKey: "order:o-1", Payload: body}, Tenant: mustTenant(t, "t1")}
+			err = relay.Deliver(ctx, floorTx(t, &floorSeq{}), delivery)
+			if !errors.Is(err, ErrOtherTenant) && !errors.Is(err, ErrNotQualified) {
+				t.Errorf("the delivery of %s gave %v, want a refusal of its tenant", name, err)
+			}
+			if !outbox.IsPermanent(err) {
+				t.Errorf("the refusal of %s is not permanent, so the outbox would not park it: %v", name, err)
+			}
+		}
+		// A tuple of t1 whose key is not the resource key of its outbox row is refused too.
+		body, err := json.Marshal(payload{Version: payloadVersion, Operation: OperationTouch, Revocation: uuid.New(),
+			Tuple: tupleJSON{ResourceType: "order", ResourceID: qualify("t1", "o-2"), Relation: "viewer", SubjectType: "user", SubjectID: "bob"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := relay.Deliver(ctx, floorTx(t, &floorSeq{}), outbox.Delivery{Message: outbox.Message{ID: uuid.New(),
+			Destination: DestinationName, ResourceKey: "order:o-1", Payload: body}, Tenant: mustTenant(t, "t1")}); err == nil {
+			t.Error("the delivery of o-2 under the resource key order:o-1 is not refused")
+		}
+		if relationships.starts != 0 || len(relationships.touches) != 0 {
+			t.Fatalf("the relay wrote %d tuples of refused deliveries", len(relationships.touches))
+		}
+		// The outbox's Resolve names outbox_destination:<name>; Decide sends it in the form of the message's tenant.
+		if _, err := rt.Decide(ctx, outbox.DecisionRequest{Subject: "user:ops", Permission: "resolve",
+			Resource: "outbox_destination:billing", Tenant: mustTenant(t, "t1")}); err != nil {
+			t.Fatal(err)
+		}
+		if got := fake.evaluations[0].Resource; got.Type != "outbox_destination" || got.ID != qualify("t1", "billing") {
+			t.Fatalf("Decide sent %s, want outbox_destination of billing in the form of t1", got)
+		}
+		if _, err := rt.Decide(ctx, outbox.DecisionRequest{Subject: "user:ops", Permission: "resolve",
+			Resource: "outbox_destination:billing"}); err == nil {
+			t.Fatal("Decide with no tenant is not refused")
+		}
+	})
+
+	t.Run("ST-SUP-RP06-LC22-T06 A tenant whose ID equals an issuer cannot become a delegate of that issuer's person", func(t *testing.T) {
+		env, db := newPG(t), startSpiceDB(t, fixtureSchema)
+		rt := env.runtimeOf(t, db.provider, nil)
+		const issuer = "https://idp.authz.test/realms/r1"
+		person, err := Person("user", identityOf(t, issuer, "k"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		attacker := mustPerson(t, "mallory")
+		// The victim tenant gives the person view on its report r.
+		report, err := NewResource(mustTenant(t, "tv"), "report", "r")
+		if err != nil {
+			t.Fatal(err)
+		}
+		tx, handle := env.begin(t, rt, "tv", mustPerson(t, "alice"), rel("report#viewer"))
+		if _, err := handle.Relate(ctx, Tuple{Resource: report, Relation: "viewer", Subject: person.Subject()}); err != nil {
+			t.Fatal(err)
+		}
+		env.commit(t, tx, "tv")
+		// The attacker's tenant has the issuer as its ID, and writes a delegate tuple on its own user resource whose
+		// key is the person's subject value.
+		own, err := NewResource(mustTenant(t, issuer), "user", "k")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if own.ID == person.Subject().ID {
+			t.Fatalf("the resource %s has the ID of the person's subject", own)
+		}
+		tx, handle = env.begin(t, rt, issuer, mustPerson(t, "alice"), rel("user#delegate"))
+		if _, err := handle.Relate(ctx, Tuple{Resource: own, Relation: "delegate", Subject: attacker.Subject()}); err != nil {
+			t.Fatal(err)
+		}
+		env.commit(t, tx, issuer)
+		env.startWorker(t, env.relay(t, db.provider))
+		env.waitAll(t, outbox.Done)
+		can := func(who Principal) bool {
+			t.Helper()
+			_, h := env.begin(t, rt, "tv", who)
+			result, err := h.Evaluate(ctx, "view", report, Token{}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return result.Allowed
+		}
+		if !can(person) {
+			t.Fatal("the person cannot view the report, so the case proves nothing")
+		}
+		if can(attacker) {
+			t.Fatal("the delegate tuple of the issuer's tenant gives the attacker the victim tenant's report")
+		}
+	})
+
+	t.Run("ST-SUP-RP06-LC22-T07 A message of payload version 1 is upgraded with the tenant of its row and delivered", func(t *testing.T) {
+		env := newPG(t)
+		if _, err := env.admin.ExecContext(ctx, "INSERT INTO "+env.schema+".documents (tenant_id, id) VALUES ('t1', 'd1'), ('t2', 'd1')"); err != nil {
+			t.Fatal(err)
+		}
+		fake := &fakeRelationships{}
+		id := env.enqueueRaw(t, "t2", "document:d1", "authz.touch", []byte(`{"v":1,"op":"touch","revocation":"`+uuid.NewString()+
+			`","tuple":{"resource_type":"document","resource_id":"d1","relation":"viewer","subject_type":"group","subject_id":"g","subject_relation":"member"}}`),
+			uuid.NewString())
+		env.startWorker(t, env.relay(t, fake))
+		env.waitState(t, id, outbox.Done)
+		fake.mu.Lock()
+		touches := fake.touches
+		fake.mu.Unlock()
+		want := Tuple{Resource: docIn("t2", "d1"), Relation: "viewer", Subject: Subject{Type: "group", ID: qualify("t2", "g")}, SubjectRelation: "member"}
+		if len(touches) != 1 || len(touches[0]) != 1 || touches[0][0] != want {
+			t.Fatalf("the provider got %v, want the tuple of d1 and the group g in the form of t2", touches)
+		}
+		if got := env.scalar(t, "SELECT string_agg(tenant_id || '=' || authz_token, ',' ORDER BY tenant_id) FROM {s}.documents"); got != "t1=,t2=w-1" {
+			t.Fatalf("the rows hold %s, want the token on d1 of t2 only", got)
+		}
+	})
+
+	t.Run("ST-SUP-RP06-LC22-T04 The tenant-qualified form is exact, injective and within SpiceDB's ID rules", func(t *testing.T) {
+		t1 := mustTenant(t, "t1")
+		id, err := ResourceID(t1, "o-1")
+		if err != nil || id != "dDE/by0x" {
+			t.Fatalf("ResourceID(t1, o-1) is %q, %v; want dDE/by0x, base64url of t1, a /, and base64url of o-1", id, err)
+		}
+		forms := map[string]string{}
+		pairs := [][2]string{{"t1", "o-1"}, {"t2", "o-1"}, {"a|b", "c"}, {"a", "b|c"}, {"a/b", "c"}, {"a", "b/c"}, {"t1", "ä/:*\x00 ü"}, {"t1", "*"},
+			{"t1", strings.Repeat("k", 700)}}
+		for _, pair := range pairs {
+			id, err := ResourceID(mustTenant(t, pair[0]), pair[1])
+			if err != nil {
+				t.Fatalf("ResourceID(%q, %q): %v", pair[0], pair[1], err)
+			}
+			if earlier, ok := forms[id]; ok {
+				t.Fatalf("%q and %q give the one ID %s", earlier, pair, id)
+			}
+			forms[id] = pair[0] + "/" + pair[1]
+			reference := &v1.ObjectReference{ObjectType: "order", ObjectId: id}
+			if err := reference.Validate(); err != nil {
+				t.Errorf("SpiceDB refuses the ID of %q: %v", pair, err)
+			}
+			if tenantID, key, ok := splitResourceID(id); !ok || tenantID != pair[0] || key != pair[1] {
+				t.Errorf("the ID of %q reads back as %q, %q, %t", pair, tenantID, key, ok)
+			}
+		}
+		// The longest key that fits gives an ID of at most 1024 bytes, which SpiceDB accepts; one more byte is refused.
+		longest := (MaxResourceIDBytes - len("dDE/")) * 3 / 4
+		id, err = ResourceID(t1, strings.Repeat("k", longest))
+		if err != nil || len(id) > MaxResourceIDBytes || (&v1.ObjectReference{ObjectType: "order", ObjectId: id}).Validate() != nil {
+			t.Fatalf("the longest key gave %d bytes, %v", len(id), err)
+		}
+		if _, err := ResourceID(t1, strings.Repeat("k", longest+1)); err == nil {
+			t.Fatal("a key whose ID is longer than 1024 bytes is not refused")
+		}
+		if _, err := ResourceID(tenant.Tenant{}, "o-1"); !errors.Is(err, tenant.ErrZero) {
+			t.Fatalf("the zero tenant gave %v", err)
+		}
+		if _, err := ResourceID(t1, ""); err == nil {
+			t.Fatal("an empty key is not refused")
+		}
+		if _, err := ServiceAccount("relay/x"); err == nil {
+			t.Fatal("a service account name with a / is not refused")
+		}
+		// Only the one canonical form reads back: no padding, no other alphabet, no second |, no extra bits.
+		// A person's subject ID, base64url(issuer)|base64url(subject), never has the shape of a resource ID, also when
+		// the issuer equals a tenant ID; the | form of before is not the shape either.
+		person := subjectID("t1", "o-1")
+		for _, id := range []string{"o-1", "dDE/", "/by0x", "dDE=/by0x", "dDE/by0x/x", "dD+/by0x", "dDF/by0x", "dDE|by0x", person} {
+			if tenantID, key, ok := splitResourceID(id); ok {
+				t.Errorf("the ID %q, not a canonical form, reads back as %q, %q", id, tenantID, key)
+			}
+		}
 	})
 }
