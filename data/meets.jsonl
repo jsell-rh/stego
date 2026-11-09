@@ -1,3 +1,4 @@
+{"source_id":"ST-ASR-CMD02-H","target_id":"ST-STD-DOCS-R04"}
 {"source_id":"ST-ASR-EV03-ET","target_id":"ST-STD-TRUST-R06"}
 {"source_id":"ST-ASR-SP05-PR","target_id":"ST-STD-CODE-R01"}
 {"source_id":"ST-ASR-SP06-PR","target_id":"ST-STD-CODE-R02"}
@@ -5,6 +6,11 @@
 {"source_id":"ST-ASR-SP08-PR","target_id":"ST-STD-CODE-R04"}
 {"source_id":"ST-ASR-SP09-PR","target_id":"ST-STD-CODE-R05"}
 {"source_id":"ST-ASR-SP10-PR","target_id":"ST-STD-CODE-R06"}
+{"source_id":"ST-ASR-SP11-PR","target_id":"ST-STD-DOCS-R02"}
+{"source_id":"ST-ASR-SP12-PR","target_id":"ST-STD-DOCS-R02"}
+{"source_id":"ST-ASR-SP13-PR","target_id":"ST-STD-DOCS-R03"}
+{"source_id":"ST-ASR-SP14-PR","target_id":"ST-STD-DOCS-R01"}
+{"source_id":"ST-ASR-TOOL05","target_id":"ST-STD-DOCS-R01"}
 {"source_id":"ST-BLD-CMD06-H","target_id":"ST-STD-TRUST-R03"}
 {"source_id":"ST-BLD-CMD06-H","target_id":"ST-STD-TRUST-R04"}
 {"source_id":"ST-BLD-EV06-ET","target_id":"ST-STD-TRUST-R06"}

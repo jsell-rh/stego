@@ -8,6 +8,10 @@
 {"id":"ST-ASR-SP08-PR","title":"assure.testWithoutID","specification_id":"ST-ASR-SP08","file":"internal/assure/code_standard.go"}
 {"id":"ST-ASR-SP09-PR","title":"assure.fileWithoutRecord","specification_id":"ST-ASR-SP09","file":"internal/assure/code_standard.go"}
 {"id":"ST-ASR-SP10-PR","title":"assure.stubBuilt","specification_id":"ST-ASR-SP10","file":"internal/assure/code_standard.go"}
+{"id":"ST-ASR-SP11-PR","title":"assure.docNamesUnknownCommand","specification_id":"ST-ASR-SP11","file":"internal/assure/docs_standard.go"}
+{"id":"ST-ASR-SP12-PR","title":"assure.docNamesMissingPath","specification_id":"ST-ASR-SP12","file":"internal/assure/docs_standard.go"}
+{"id":"ST-ASR-SP13-PR","title":"assure.docSectionStale","specification_id":"ST-ASR-SP13","file":"internal/assure/docs_standard.go"}
+{"id":"ST-ASR-SP14-PR","title":"assure.docInventoryFaults","specification_id":"ST-ASR-SP14","file":"internal/assure/docs_standard.go"}
 {"id":"ST-BLD-SP01-PR","title":"appbuild.trustedRecord","specification_id":"ST-BLD-SP01","file":"internal/appbuild/verify.go"}
 {"id":"ST-BLD-SP02-PR","title":"appbuild.AcceptableSignature","specification_id":"ST-BLD-SP02","file":"internal/appbuild/sign.go"}
 {"id":"ST-DECL-SP01-PR","title":"declaration.DefaultLeftWithoutReason","specification_id":"ST-DECL-SP01","file":"internal/declaration/reach.go"}

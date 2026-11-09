@@ -28,6 +28,7 @@ type Spec struct {
 	Domains     map[string]string
 	Technical   []TechnicalRecord
 	Retirements []Retirement
+	Commands    []CLICommand
 }
 
 // Retirement is one retirement of the spec (the product kind retirement): its ID, the ID of the obligation it
@@ -138,6 +139,7 @@ func ReadSpec(files []SpecFile) (Spec, error) {
 	}
 	spec.Domains, spec.Technical = readTechnicalStage(tables)
 	spec.Retirements = readRetirements(tables)
+	spec.Commands = readCLICommands(tables)
 	digest := sha256.Sum256([]byte(sums.String()))
 	spec.Digest = "sha256:" + hex.EncodeToString(digest[:])
 	return spec, nil
