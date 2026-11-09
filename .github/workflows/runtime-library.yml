@@ -65,7 +65,7 @@ jobs:
           printf 'module example.com/runtimeprobe\n\ngo 1.26.10\n\nrequire stego.dev/runtime v0.0.0\n' > "$probe/go.mod"
           {
             printf 'package main\n\nimport (\n'
-            (cd registry/runtime && go list ./...) | sed 's/.*/\t_ "&"/'
+            (cd registry/runtime && go list ./...) | grep -v '/internal/' | sed 's/.*/\t_ "&"/'
             printf ')\n\nfunc main() {}\n'
           } > "$probe/main.go"
           work="$(scripts/runtime-workspace.sh "$probe" "$RUNNER_TEMP/runtime.work")"
