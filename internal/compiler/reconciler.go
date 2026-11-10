@@ -260,6 +260,9 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		return nil, fmt.Errorf("archetype %q pins no runtime library", svcDecl.Archetype)
 	}
 	pin := *archetype.Runtime
+	if err := checkPinMove(existingState, archetype); err != nil {
+		return nil, err
+	}
 	importsRuntime := false
 
 	// Run all component generators in archetype-declared order.
@@ -402,6 +405,10 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		return nil, err
 	}
 	plan.runtime = runtime
+	plan.NewState.LastApplied.Archetype = &ArchetypeState{Name: archetype.Name, Version: archetype.Version, Runtime: &pin, ImportsRuntime: importsRuntime}
+	if plan.StateChanged, err = stateDiffers(existingState, plan.NewState); err != nil {
+		return nil, err
+	}
 	return plan, nil
 }
 
