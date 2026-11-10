@@ -121,8 +121,20 @@ func fileImportFaults(check compiler.FillCheck, f compiler.CommandFill, dir, fil
 	var faults []fileFault
 	fset := token.NewFileSet()
 	err := filepath.WalkDir(dir, func(name string, entry fs.DirEntry, err error) error {
-		if err != nil || entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+		if err != nil {
 			return err
+		}
+		// The go tool builds no package from testdata or from a folder or file whose name starts with _ or ., so
+		// nothing there is built into the service.
+		base := entry.Name()
+		if name != dir && (base == "testdata" || strings.HasPrefix(base, "_") || strings.HasPrefix(base, ".")) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			return nil
 		}
 		file, err := parser.ParseFile(fset, name, nil, parser.ImportsOnly)
 		if err != nil {

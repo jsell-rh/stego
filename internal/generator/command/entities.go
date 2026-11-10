@@ -109,9 +109,9 @@ func planEntity(e types.Entity, byName map[string]types.Entity, tenantKey string
 		for i, r := range refs {
 			names[i] = r.decl.Name
 		}
-		return nil, fmt.Errorf("the fields %s refer to entities with a resource type; a command decides on one parent of a row, so the entity may refer to one such entity only", strings.Join(names, ", "))
+		return nil, fmt.Errorf("the fields %s refer to entities with a resource type; a command decides on one parent of a row, so the entity may refer to one such entity only (ST-SUP-Q79)", strings.Join(names, ", "))
 	case len(refs) == 1 && refs[0].pointer:
-		return nil, fmt.Errorf("the optional field %s refers to %s, which has a resource type; a command decides on the parent that a row names, so the reference must be required", refs[0].decl.Name, refs[0].decl.To)
+		return nil, fmt.Errorf("the optional field %s refers to %s, which has a resource type; a command decides on the parent that a row names, so the reference must be required (ST-SUP-Q79)", refs[0].decl.Name, refs[0].decl.To)
 	case len(refs) == 1:
 		p.parent, p.parentEntity = refs[0], refs[0].decl.To
 	}

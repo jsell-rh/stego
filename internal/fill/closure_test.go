@@ -152,6 +152,18 @@ func TestCommandFillClosure(t *testing.T) {
 			t.Errorf("the check gave %d faults, want 2", len(faults))
 		}
 	})
+	t.Run("ST-SUP-RC32-OC03-T02 Files that the go tool never builds are not read", func(t *testing.T) {
+		faults := qualifyCommandFill(t, closureTreeWith(t, map[string]string{
+			"testdata/broken.go": "this is not Go\n",
+			"testdata/exec.go":   "package x\n\nimport _ \"os/exec\"\n",
+			"_scratch/exec.go":   "package x\n\nimport _ \"os/exec\"\n",
+			".hidden/broken.go":  "not Go either\n",
+			"_ignored.go":        "package reserveandcharge\n\nimport _ \"os/exec\"\n",
+		}, "fmt", "time"))
+		if len(faults) != 0 {
+			t.Fatalf("the check read files that the go tool ignores: %v", faults)
+		}
+	})
 	t.Run("ST-SUP-RC32-OC03-T02 A command fill that imports only allow-listed packages is accepted", func(t *testing.T) {
 		if faults := qualifyCommandFill(t, closureTree(t, "fmt", "encoding/json", "time")); len(faults) != 0 {
 			t.Fatalf("the fill was refused: %v", faults)
