@@ -44,6 +44,7 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/restapi"
 	"github.com/jsell-rh/stego/internal/generator/rhssoauth"
 	"github.com/jsell-rh/stego/internal/generator/runtimeconfig"
+	"github.com/jsell-rh/stego/internal/generator/spicedbauthz"
 	"github.com/jsell-rh/stego/internal/generator/tenancy"
 	"github.com/jsell-rh/stego/internal/generator/tslsearch"
 	"github.com/jsell-rh/stego/internal/generator/typescriptsdk"
@@ -918,6 +919,7 @@ func defaultGenerators() map[string]gen.Generator {
 		"audit-log":             &auditlog.Generator{},
 		"domain-probe":          &domainprobe.Generator{},
 		"idempotency":           &idempotency.Generator{},
+		"spicedb-authz":         &spicedbauthz.Generator{},
 	}
 }
 

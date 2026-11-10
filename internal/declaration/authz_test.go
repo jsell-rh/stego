@@ -253,3 +253,45 @@ func TestAuthorizationCoverage(t *testing.T) {
 		}
 	})
 }
+
+func TestAuthorizationTenancy(t *testing.T) {
+	t.Run("ST-DECL-INV84-T A declaration that binds authorization without pooled tenancy is refused", func(t *testing.T) {
+		service, schema := td03Files(t)
+		expectAccepted(t, checkTD03(t, service, schema))
+		block := "tenancy:\n  kind: pooled\n  key: tenant_id\n  claim: tenant\n"
+		omitted := change(t, service, block, "")
+		expectOneFault(t, checkTD03(t, omitted, schema), "authorization-tenancy", "tenancy", "tenant-qualified", "pooled")
+		single := change(t, service, block, "tenancy:\n  kind: single\n  reason: one customer per deployment\n")
+		expectOneFault(t, checkTD03(t, single, schema), "authorization-tenancy", "tenancy.kind", "single", "pooled")
+		// A declaration that binds no authorization needs no tenancy.
+		unbound := withoutAuthorizationParts(t, omitted)
+		for _, fault := range checkTD03(t, unbound, schema) {
+			if fault.Rule == "authorization-tenancy" {
+				t.Errorf("a declaration without authorization gets %+v", fault)
+			}
+		}
+	})
+}
+
+// withoutAuthorizationParts is a declaration of ST-DECL-TD03 with its authorization setting and the authorization
+// parts of Todo left out.
+func withoutAuthorizationParts(t *testing.T, service string) string {
+	t.Helper()
+	service = change(t, service, "authorization:\n  provider: spicedb\n  schema_path: authz/schema.zed\n  subject_from_identity: user\n", "")
+	var kept []string
+	skip := false
+	for _, line := range strings.Split(service, "\n") {
+		switch {
+		case strings.HasPrefix(line, "    resource_type:"), strings.HasPrefix(line, "    permissions:"):
+			continue
+		case strings.HasPrefix(line, "    relationships:"):
+			skip = true
+			continue
+		case skip && strings.HasPrefix(line, "      - "):
+			continue
+		}
+		skip = false
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
+}

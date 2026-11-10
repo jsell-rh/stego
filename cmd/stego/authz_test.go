@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -79,9 +80,9 @@ func authzFills(t *testing.T) string {
 		if err := run("no-key", "init", "--archetype", "rest-crud"); err != nil {
 			return "", err
 		}
-		// Generation refuses a declaration that binds authorization while the registry holds no spicedb-authz
-		// (ST-DECL-UC06-R07), so the fills are generated against TD03 with its authorization left out. The slot
-		// contracts are the same: no slot contract carries the authorization of the declaration yet.
+		// The fills are generated against TD03 with its authorization left out, so that their qualification does not
+		// depend on the authorization wiring. The slot contracts are the same: no slot contract carries the
+		// authorization of the declaration yet.
 		p.write(t, "service.yaml", withoutAuthorization(td03Service(t)))
 		p.write(t, "authz/schema.zed", td03Schema(t))
 		p.write(t, "SIGNERS", keys.signers)
@@ -387,6 +388,7 @@ func TestDeclareAuthorization(t *testing.T) {
 
 	t.Run("ST-DECL-UC06-R07-T06 Generation refuses a declaration that binds authorization while the registry holds no spicedb-authz, naming the component", func(t *testing.T) {
 		project := td03Project(t, td03)
+		putFile(t, project, ".stego/config.yaml", registryWithout(t, "spicedb-authz"))
 		expectAcceptance(t, project)
 		for _, command := range []string{"plan", "apply"} {
 			run := stegoIn(t, project, nil, command)
@@ -398,6 +400,26 @@ func TestDeclareAuthorization(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(project, "out")); !os.IsNotExist(err) {
 			t.Errorf("the refused apply wrote the output folder: %v", err)
 		}
+	})
+
+	t.Run("ST-DECL-UC06-R07-T07 Generation runs once the registry holds spicedb-authz, and the generated service builds", func(t *testing.T) {
+		project := td03Project(t, td03)
+		expectAcceptance(t, project)
+		plan := stegoIn(t, project, nil, "plan")
+		if plan.code != 0 || !strings.Contains(plan.stdout, "internal/authz/authz.go") || !strings.Contains(plan.stdout, "internal/authz/schema.zed") {
+			t.Fatalf("stego plan did not plan the authorization wiring, exit %d:\n%s\n%s", plan.code, plan.stdout, plan.stderr)
+		}
+		if apply := stegoIn(t, project, nil, "apply"); apply.code != 0 {
+			t.Fatalf("stego apply refused the declaration, exit %d:\n%s\n%s", apply.code, apply.stdout, apply.stderr)
+		}
+		schema, err := os.ReadFile(filepath.Join(project, "out", "internal", "authz", "schema.zed"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(string(schema), td03Schema(t)) || strings.Count(string(schema), "definition stego_floor {") != 1 {
+			t.Errorf("schema.zed is not the declared schema with one floor marker definition:\n%s", schema)
+		}
+		buildWithRuntime(t, project, "./...")
 	})
 
 	t.Run("ST-DECL-UC06-FL-T An author binds authorization to a schema in the service source, and checking compiles it and accepts the declaration", func(t *testing.T) {
@@ -413,4 +435,45 @@ func TestDeclareAuthorization(t *testing.T) {
 			t.Errorf("the settings do not report that the binding runs as tenant by default: %+v", document.Settings)
 		}
 	})
+}
+
+// registryWithout gives the project configuration of a copy of the registry of ST-DECL-TD01 without the component,
+// pinned at the full commit of the copy.
+func registryWithout(t *testing.T, component string) string {
+	t.Helper()
+	source, _ := declaringRegistry(t)
+	dir := filepath.Join(t.TempDir(), "registry")
+	if output, err := exec.Command("cp", "-R", source, dir).CombinedOutput(); err != nil {
+		t.Fatalf("copy the registry: %v\n%s", err, output)
+	}
+	if err := os.RemoveAll(filepath.Join(dir, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(dir, "components", component)); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "init", "-q")
+	git(t, dir, "add", "-A")
+	git(t, dir, "commit", "-q", "-m", "fixture registry without "+component)
+	return fmt.Sprintf("registry:\n  - url: %s\n    ref: %s\n", dir, git(t, dir, "rev-parse", "HEAD"))
+}
+
+// buildWithRuntime builds the packages of the applied project against registry/runtime, through the work file of
+// scripts/runtime-workspace.sh, with the pinned Go SDK, STEGO_TEST_PINNED_GO, else the Go SDK of the test.
+func buildWithRuntime(t *testing.T, project string, packages ...string) {
+	t.Helper()
+	work := filepath.Join(t.TempDir(), "runtime.work")
+	if out, err := exec.Command(filepath.Join("..", "..", "scripts", "runtime-workspace.sh"), project, work).CombinedOutput(); err != nil {
+		t.Fatalf("runtime-workspace.sh: %v\n%s", err, out)
+	}
+	goBinary := os.Getenv("STEGO_TEST_PINNED_GO")
+	if goBinary == "" {
+		goBinary = filepath.Join(runtime.GOROOT(), "bin", "go")
+	}
+	build := exec.Command(goBinary, append([]string{"build"}, packages...)...)
+	build.Dir = project
+	build.Env = append(os.Environ(), "GOWORK="+work, "GOFLAGS=", "GOTOOLCHAIN=local")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("go build of the generated service: %v\n%s", err, out)
+	}
 }

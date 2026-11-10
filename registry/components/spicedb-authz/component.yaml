@@ -1,0 +1,23 @@
+kind: component
+name: spicedb-authz
+version: 0.2.0
+stage: alpha
+sunset: 2027-04-30
+output_namespace: internal/authz
+
+config:
+  alert_bound:
+    type: string
+    default: 5s
+  watch_interval:
+    type: string
+    default: 1s
+
+requires:
+  - auth-provider
+
+provides:
+  - authz-decision
+  - authz-relationships
+
+slots: []
