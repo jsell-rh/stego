@@ -5,7 +5,7 @@ import (
  "context"
  "database/sql"
  "errors"
- "sync"
+ {{if .Store}}"sync"{{end}}
  "time"
  "github.com/google/uuid"
  "gorm.io/gorm"
@@ -17,6 +17,7 @@ var ErrSchemaGeneration = errors.New("database schema generation is not supporte
 var ErrDatabaseRollback = errors.New("database was restored to an earlier state")
 {{if eq .Lease "single"}}var ErrWriterFenced = errors.New("store lost the writer lease to a newer process")
 {{end}}
+{{if .Store}}
 // databaseIdentity holds the unique identifier minted at bootstrap and the
 // in-process high-water mark of the monotonic write epoch. A restored backup
 // replays an old identifier or a lower epoch; either fails closed.
@@ -153,6 +154,7 @@ func (i *databaseIdentity) advance(db *gorm.DB) error {
  return ErrDatabaseRollback
 }
 
+{{end}}
 // RestoreRecord names the state a restore must preserve together with the
 // database objects in the generated backup manifest. The schema generation
 // and definition identify the schema release; the database identity and
@@ -169,6 +171,7 @@ type RestoreRecord struct {
 // point. The store stays usable; verification is read-only.
 var ErrRestore = errors.New("database does not match the recorded restore point")
 
+{{if .Store}}
 // ReadRestoreRecord reads the restore record from the live database. Record
 // it together with the backup so the restore can be verified.
 func (s *Store) ReadRestoreRecord(ctx context.Context) (RestoreRecord, error) {
@@ -198,6 +201,7 @@ func (s *Store) VerifyRestore(ctx context.Context, record RestoreRecord) error {
  return nil
 }
 
+{{end}}
 // VerifySchema reads the release marker before storage can serve requests.
 // The application role needs SELECT, but must not have schema or table DDL rights.
 func VerifySchema(db *gorm.DB) error {
@@ -209,6 +213,7 @@ func VerifySchema(db *gorm.DB) error {
   return nil
  },&sql.TxOptions{ReadOnly:true,Isolation:sql.LevelReadCommitted})
 }
+{{if .Store}}
 // ReadRestoreRecordDB and VerifyRestoreDB are the package-level forms used
 // before a Store exists. They share the Store methods' checks.
 func ReadRestoreRecordDB(db *gorm.DB) (RestoreRecord, error) {
@@ -220,6 +225,7 @@ func VerifyRestoreDB(db *gorm.DB, record RestoreRecord) error {
  return s.VerifyRestore(db.Statement.Context, record)
 }
 
+{{end}}
 // ErrMigrationLedger reports a migration ledger that does not match the
 // registered migrations: a re-application, a version gap, an edited
 // migration, or a ledger that is missing or unreadable.

@@ -149,6 +149,12 @@ type Context struct {
 	// Tenancy is the pooled tenancy of a service that has the tenancy component, and nil for any other service
 	// (ST-SUP-RC01-OC40). Generators must not change it.
 	Tenancy *Tenancy
+
+	// RuntimeData is true when the generated commands and queries on stego.dev/runtime carry all data access of
+	// the service (ST-SUP-RC20-OC37). The PostgreSQL adapter then creates each entity's table from the declaration
+	// as SQL and emits no store and no entity model (ST-SUP-RC01-OC41). The compiler sets it when the command and
+	// query generators replace the store; until then it is false and the adapter emits the GORM store.
+	RuntimeData bool
 }
 
 // Tenancy is what the generators of a pooled service read of its tenancy (ST-DECL-EN09).
