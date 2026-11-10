@@ -212,6 +212,11 @@ func renderEntity(w *writer, e *entity, tenantKey string) {
 	w.f("\tValues: func(v %s) []any {\n\t\tid := v.ID\n\t\tif id == \"\" {\n\t\t\tid = NewID()\n\t\t}\n\t\treturn []any{%s}\n\t},\n", e.goName, strings.Join(values, ", "))
 	state := []string{`"id": v.ID`}
 	for _, f := range e.fields {
+		// The audit runtime encodes plain values only, so an optional field gives its value, or nil when it is not set.
+		if f.pointer {
+			state = append(state, fmt.Sprintf("%q: stateOf(v.%s)", f.decl.Name, f.goName))
+			continue
+		}
 		state = append(state, fmt.Sprintf("%q: v.%s", f.decl.Name, f.goName))
 	}
 	w.f("\tState: func(v %s) map[string]any {\n\t\treturn map[string]any{%s}\n\t},\n", e.goName, strings.Join(state, ", "))

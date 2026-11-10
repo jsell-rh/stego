@@ -22,7 +22,11 @@ Idempotency-Key header and its 400, 409 and 422 problem responses on each
 create and patch operation of its OpenAPI document.
 
 The stage is alpha. A collection create or patch is a generated command
-(ST-SUP-RC20-OC37), so the wrapper is the one that command.Run calls. The
+(ST-SUP-RC20-OC37), so the wrapper is the one that command.Run calls. On the
+runtime data path the rest-api handlers give command.Run the client's key on
+a create and a patch, and the runtime's field fingerprint over the fields of
+the operation. A PUT, a DELETE, and a create or a patch with no header that
+does not need one, run with a key of the request's own (ST-SUP-Q86). The
 generated commands do not use the settings and the fingerprint functions
 yet, and the conformance tests are not generated yet. Until the commands
 use them, the compiler does not select this component.

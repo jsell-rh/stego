@@ -156,6 +156,9 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	if err := validateHTTPRoutePatterns(ctx, collectionMap); err != nil {
 		return err
 	}
+	if err := validateRuntimeData(ctx, entityMap); err != nil {
+		return err
+	}
 	return gen.ValidateGoPackageNamespace(ctx.OutputNamespace)
 }
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
@@ -191,8 +194,26 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		}
 	}
 
+	// On the runtime data path each collection operation is a generated command or query, and its handler calls
+	// Run (ST-SUP-RC20-OC37). The compiler does not wire the command and the query runtime into main.go yet, so the
+	// handlers get no constructor and no route in the wiring.
+	if ctx.RuntimeData {
+		collections, err := runtimeCollections(ctx, entityMap, collectionMap)
+		if err != nil {
+			return nil, nil, err
+		}
+		runtimeFiles, err := generateRuntimeHandlers(ctx, collections, slotsImportPath)
+		if err != nil {
+			return nil, nil, err
+		}
+		files = append(files, runtimeFiles...)
+	}
+
 	// Generate handler file per collection.
 	for _, eb := range ctx.Collections {
+		if ctx.RuntimeData {
+			break
+		}
 		entity, ok := entityMap[eb.Entity]
 		if !ok {
 			return nil, nil, fmt.Errorf("collection %q references unknown entity %q", eb.Name, eb.Entity)
@@ -238,7 +259,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 
 	// Generate router file.
-	routerFile, err := generateRouter(ctx.OutputNamespace, ctx.Entities, ctx.Collections, ctx.Conventions.ResponseFormat, ctx.StorageContract)
+	routerFile, err := generateRouter(ctx.OutputNamespace, ctx.Entities, ctx.Collections, ctx.Conventions.ResponseFormat, ctx.StorageContract, ctx.RuntimeData)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating router: %w", err)
 	}
@@ -882,7 +903,7 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	// Before-slots: gate and validate fire before create.
 	before, after := slotsForOp(types.OpCreate, slotParams)
 	for _, sp := range before {
-		emitBeforeSlot(buf, slotsAlias, authAlias, sp, lower, entity)
+		emitBeforeSlot(buf, slotsAlias, authAlias, sp, lower, entity, emitSlotResultCheck)
 	}
 	fmt.Fprintf(buf, "\tif err := h.store.Create(r.Context(), %q, %s); err != nil {\n", entity.Name, lower)
 	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrConflict) {\n")
@@ -1020,7 +1041,7 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	}
 	before, after := slotsForOp(types.OpUpdate, slotParams)
 	for _, sp := range before {
-		emitBeforeSlot(buf, slotsAlias, authAlias, sp, lower, entity)
+		emitBeforeSlot(buf, slotsAlias, authAlias, sp, lower, entity, emitSlotResultCheck)
 	}
 	fmt.Fprintf(buf, "\tif err := h.store.Replace(r.Context(), %q, id, %s); err != nil {\n", entity.Name, lower)
 	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
@@ -1070,7 +1091,7 @@ func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	}
 	before, after := slotsForOp(types.OpDelete, slotParams)
 	for _, sp := range before {
-		emitBeforeDeleteSlot(buf, slotsAlias, authAlias, sp, entity.Name)
+		emitBeforeDeleteSlot(buf, slotsAlias, authAlias, sp, entity.Name, emitSlotResultCheck)
 	}
 	fmt.Fprintf(buf, "\tif err := h.store.Delete(r.Context(), %q, id); err != nil {\n", entity.Name)
 	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
@@ -1352,7 +1373,7 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 
 	before, after := slotsForOp(types.OpUpsert, slotParams)
 	for _, sp := range before {
-		emitBeforeSlot(buf, slotsAlias, authAlias, sp, lower, entity)
+		emitBeforeSlot(buf, slotsAlias, authAlias, sp, lower, entity, emitSlotResultCheck)
 	}
 
 	if len(eb.UpsertKey) > 0 {
@@ -1523,7 +1544,7 @@ func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collec
 	// so that existing_entity reflects the pre-patch state from storage.
 	before, after := slotsForOp(types.OpPatch, slotParams)
 	for _, sp := range before {
-		emitBeforePatchSlot(buf, slotsAlias, authAlias, sp, lower, entity, patchFields)
+		emitBeforePatchSlot(buf, slotsAlias, authAlias, sp, lower, entity, patchFields, emitSlotResultCheck)
 	}
 
 	// Step 4: Apply non-nil fields from patch request to existing entity.
@@ -1580,7 +1601,7 @@ func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collec
 // generateRouter produces the router.go file with entity type definitions,
 // the Storage interface, Go 1.22 method+pattern route registration, and
 // helper functions.
-func generateRouter(ns string, entities []types.Entity, collections []types.Collection, responseFormat, storageContract string) (_ gen.File, retErr error) {
+func generateRouter(ns string, entities []types.Entity, collections []types.Collection, responseFormat, storageContract string, runtimeData bool) (_ gen.File, retErr error) {
 	var buf bytes.Buffer
 
 	envelope := responseFormat == "envelope"
@@ -1613,15 +1634,18 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 	// Always need context for the Storage interface.
 	fmt.Fprintf(&buf, "import (\n")
-	if storageContract == "" {
+	switch {
+	case runtimeData:
+		// The runtime data path holds no store, so the router declares no storage interface (ST-SUP-RC20-OC37).
+	case storageContract == "":
 		fmt.Fprintf(&buf, "\t\"context\"\n")
-	} else {
+	default:
 		fmt.Fprintf(&buf, "\tstegostorage %q\n", storageContract)
 	}
 	if needJSON {
 		fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
 	}
-	if storageContract == "" {
+	if storageContract == "" && !runtimeData {
 		fmt.Fprintf(&buf, "\t\"errors\"\n")
 	}
 	if needTime {
@@ -1629,14 +1653,16 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 	}
 	fmt.Fprintf(&buf, ")\n\n")
 
-	if storageContract != "" {
+	switch {
+	case runtimeData:
+	case storageContract != "":
 		for _, name := range []string{"Storage", "OrderByField", "ListOptions", "ListResult"} {
 			fmt.Fprintf(&buf, "type %s = stegostorage.%s\n", name, name)
 		}
 		for _, name := range []string{"ErrNotFound", "ErrConflict", "ErrSearch"} {
 			fmt.Fprintf(&buf, "var %s = stegostorage.%s\n", name, name)
 		}
-	} else {
+	default:
 		// ErrNotFound is returned by Storage.Get when the entity does not exist.
 		// Handlers use errors.Is to distinguish not-found from infrastructure errors.
 		fmt.Fprintf(&buf, "// ErrNotFound is returned by Storage.Get when the requested entity does not exist.\n")
@@ -3734,7 +3760,7 @@ func slotsForOp(op types.Operation, params []collectionSlotParam) (before, after
 // is populated with the decoded entity variable so that fills can inspect the
 // entity being processed. A nil guard wraps the invocation so that when no fills
 // are wired, the handler degrades to passthrough semantics.
-func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityVarName string, entity types.Entity) {
+func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityVarName string, entity types.Entity, check slotCheck) {
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
 	// Pre-compute string values for optional (pointer) fields so the map
 	// literal uses meaningful values rather than Go debug output from %v.
@@ -3788,20 +3814,7 @@ func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, para
 	fmt.Fprintf(buf, "\t\t\t\t},\n")
 	fmt.Fprintf(buf, "\t\t\t},\n")
 	if param.HasCaller {
-		if authAlias != "" {
-			// Extract authenticated caller identity from request context.
-			// The auth middleware (e.g. jwt-auth) stores an Identity in the
-			// context via context.WithValue; we retrieve it and map it to the
-			// slots.Identity type for the fill.
-			fmt.Fprintf(buf, "\t\t\tCaller: func() *%s.Identity {\n", slotsAlias)
-			fmt.Fprintf(buf, "\t\t\t\tid := %s.IdentityFromContext(r.Context())\n", authAlias)
-			fmt.Fprintf(buf, "\t\t\t\treturn &%s.Identity{UserID: id.UserID, Role: id.Role, Attributes: id.Attributes}\n", slotsAlias)
-			fmt.Fprintf(buf, "\t\t\t}(),\n")
-		} else {
-			// No auth package available; provide a non-nil Identity to prevent
-			// nil-dereference panics in fills.
-			fmt.Fprintf(buf, "\t\t\tCaller: &%s.Identity{},\n", slotsAlias)
-		}
+		emitCallerField(buf, slotsAlias, authAlias)
 	}
 	if param.HasEntityStr {
 		// Populate Entity string field for slots that need the entity name
@@ -3810,31 +3823,12 @@ func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, para
 		fmt.Fprintf(buf, "\t\t\tEntity: %q,\n", entity.Name)
 	}
 	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t\tslotResult, slotErr := h.%s.Evaluate(r.Context(), slotReq)\n", param.FieldName)
-	fmt.Fprintf(buf, "\t\tif slotErr != nil {\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(slotErr.Error()))\n")
-	fmt.Fprintf(buf, "\t\t\treturn\n")
-	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t\tif !slotResult.Ok {\n")
-	fmt.Fprintf(buf, "\t\t\tsc := http.StatusForbidden\n")
-	fmt.Fprintf(buf, "\t\t\tif slotResult.StatusCode > 0 {\n")
-	fmt.Fprintf(buf, "\t\t\t\tsc = int(slotResult.StatusCode)\n")
-	fmt.Fprintf(buf, "\t\t\t}\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, errorForStatus(sc, slotResult.ErrorMessage))\n")
-	fmt.Fprintf(buf, "\t\t\treturn\n")
-	fmt.Fprintf(buf, "\t\t}\n")
-	// Short-circuit halt: chain step returned Ok but wants to stop further
-	// processing (e.g. discard-stale-generation returning 204 no-op).
-	fmt.Fprintf(buf, "\t\tif slotResult.Halt {\n")
-	fmt.Fprintf(buf, "\t\t\tsc := http.StatusOK\n")
-	fmt.Fprintf(buf, "\t\t\tif slotResult.StatusCode > 0 {\n")
-	fmt.Fprintf(buf, "\t\t\t\tsc = int(slotResult.StatusCode)\n")
-	fmt.Fprintf(buf, "\t\t\t}\n")
-	fmt.Fprintf(buf, "\t\t\tw.WriteHeader(sc)\n")
-	fmt.Fprintf(buf, "\t\t\treturn\n")
-	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t}\n")
+	check(buf, param.FieldName)
 }
+
+// slotCheck writes the handling of the result of a before slot: on the store path the handler answers it, and on the
+// runtime data path the generated command's fill returns it (ST-SUP-RC20-OC37).
+type slotCheck func(buf *bytes.Buffer, fieldName string)
 
 // emitSlotResultCheck emits the common slot result handling code: error check,
 // rejection check (non-Ok), and halt check. Shared by all before-slot emit
@@ -3870,7 +3864,7 @@ func emitSlotResultCheck(buf *bytes.Buffer, fieldName string) {
 // The before_delete proto has a different structure from before_create: it has
 // entity (string), entity_id (string), and caller (*Identity) — no Input field.
 // The delete handler has the entity ID from the path but no decoded entity struct.
-func emitBeforeDeleteSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityName string) {
+func emitBeforeDeleteSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityName string, check slotCheck) {
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
 	fmt.Fprintf(buf, "\t\tslotReq := &%s.%s{\n", slotsAlias, param.RequestType)
 	fmt.Fprintf(buf, "\t\t\tEntity: %q,\n", entityName)
@@ -3879,7 +3873,7 @@ func emitBeforeDeleteSlot(buf *bytes.Buffer, slotsAlias string, authAlias string
 		emitCallerField(buf, slotsAlias, authAlias)
 	}
 	fmt.Fprintf(buf, "\t\t}\n")
-	emitSlotResultCheck(buf, param.FieldName)
+	check(buf, param.FieldName)
 }
 
 // emitBeforePatchSlot emits code that calls a before_patch slot operator.
@@ -3889,7 +3883,7 @@ func emitBeforeDeleteSlot(buf *bytes.Buffer, slotsAlias string, authAlias string
 // being modified) and the existing entity fetched from the store.
 // IMPORTANT: This must be called BEFORE patch fields are applied to the entity
 // variable, so that existing_entity reflects the pre-patch state from storage.
-func emitBeforePatchSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityVarName string, entity types.Entity, patchFields []types.Field) {
+func emitBeforePatchSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityVarName string, entity types.Entity, patchFields []types.Field, check slotCheck) {
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
 
 	// Build patch_fields map from non-nil patch pointer fields.
@@ -3954,13 +3948,17 @@ func emitBeforePatchSlot(buf *bytes.Buffer, slotsAlias string, authAlias string,
 		emitCallerField(buf, slotsAlias, authAlias)
 	}
 	fmt.Fprintf(buf, "\t\t}\n")
-	emitSlotResultCheck(buf, param.FieldName)
+	check(buf, param.FieldName)
 }
 
 // emitCallerField emits the Caller field of a slot request struct literal.
 // If an auth middleware alias is available, it extracts the identity from
 // the request context; otherwise it provides a non-nil empty Identity.
 func emitCallerField(buf *bytes.Buffer, slotsAlias string, authAlias string) {
+	if authAlias == runtimeIdentity {
+		fmt.Fprintf(buf, "\t\t\tCaller: callerIdentity(r.Context()),\n")
+		return
+	}
 	if authAlias != "" {
 		fmt.Fprintf(buf, "\t\t\tCaller: func() *%s.Identity {\n", slotsAlias)
 		fmt.Fprintf(buf, "\t\t\t\tid := %s.IdentityFromContext(r.Context())\n", authAlias)

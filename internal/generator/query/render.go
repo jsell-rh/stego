@@ -11,6 +11,7 @@ import (
 
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/capability"
+	"github.com/jsell-rh/stego/internal/types"
 )
 
 // The import paths of the runtime library that the generated code uses.
@@ -688,4 +689,61 @@ func must[T any](v T, err error) T {
 	return v
 }`)
 	return w.Bytes()
+}
+
+// ViewFile gives a Go file of the package pkg that holds, for each named entity, its read-only value type <Name>View
+// with no secret field, its loaded type, its load function and its query.Entity with the read and list permissions
+// that the entity declares, as the query contract holds them (ST-SUP-RC33-OC01), with the read helpers that they use.
+// It is for a generator that declares queries of its own, such as the rest-api generator for generated CRUD
+// (ST-SUP-RC20-OC37), so the read-only value has one source (ST-SUP-RC33-G02). It refuses an entity that a query
+// cannot read.
+func ViewFile(pkg string, names []string, entities []types.Entity) ([]byte, error) {
+	declared := map[string]types.Entity{}
+	for _, e := range entities {
+		declared[e.Name] = e
+	}
+	m := &model{}
+	byName := map[string]*entity{}
+	for _, name := range names {
+		e, err := entityOf(name, declared, byName, m)
+		if err != nil {
+			return nil, fmt.Errorf("query: the entity %s: %w", name, err)
+		}
+		e.value.GoType = e.value.Entity.Name + "View"
+		e.variable = capability.LowerFirst(e.value.GoType) + "Entity"
+	}
+	used := m.reads()
+	var w writer
+	w.p("package %s\n\nimport (", pkg)
+	if used[capability.ReadJSON] {
+		w.p("\"encoding/json\"")
+	}
+	if used[capability.ReadFloat] || used[capability.ReadBytes] || used[capability.ReadJSON] || used[capability.ReadInt32] {
+		w.p("\"fmt\"")
+	}
+	if used[capability.ReadTime] {
+		w.p("\"time\"")
+	}
+	w.p("")
+	if m.sensitive() {
+		w.p("%q", auditImport)
+	}
+	w.p("%q\n)\n", queryImport)
+	for _, e := range m.entities {
+		renderEntity(&w, e)
+	}
+	w.raw(`// must gives v, and panics on a declaration that the runtime refuses, which the generator's checks rule out.
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+`)
+	renderReadHelpers(&w, used)
+	source, err := format.Source(w.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("query: formatting the read-only values: %w\n%s", err, w.Bytes())
+	}
+	return source, nil
 }
