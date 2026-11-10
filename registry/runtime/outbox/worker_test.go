@@ -681,6 +681,48 @@ func TestWorkerMetrics(t *testing.T) {
 	})
 }
 
+func TestWorkerOldestAge(t *testing.T) {
+	t.Run("ST-SUP-RP01-LC29-T01 OldestAge gives the age of the oldest message that is not done, and an error on a failed read", func(t *testing.T) {
+		db, _ := testDatabase(t)
+		clock := newClock()
+		q := newQueue(t, db, clock)
+		older := message("authz", "document:1")
+		enqueue(t, db, q, older)
+		clock.Advance(time.Second)
+		enqueue(t, db, q, message("billing", "one"))
+		clock.Advance(time.Second)
+		enqueue(t, db, q, message("authz", "document:2"))
+		clock.Advance(time.Second)
+		w := newWorker(t, q, nil)
+		register(t, w, Destination{Name: "authz", Idempotent: true, MustLand: true, Handler: func(context.Context, *sql.Tx, Delivery) error {
+			return nil
+		}})
+		ctx := context.Background()
+		if age, err := w.OldestAge(ctx, "authz"); err != nil || age != 3*time.Second {
+			t.Fatalf("OldestAge of authz before the delivery gave %v, %v", age, err)
+		}
+		if n := cycle(t, w); n != 1 || readRow(t, db, older.ID).State != Done {
+			t.Fatal("the older authz message was not delivered")
+		}
+		for destination, want := range map[string]time.Duration{"authz": time.Second, "billing": 2 * time.Second, "mail": 0} {
+			if age, err := w.OldestAge(ctx, destination); err != nil || age != want {
+				t.Fatalf("OldestAge of %s gave %v, %v; want %v", destination, age, err, want)
+			}
+		}
+		var role string
+		if err := db.QueryRowContext(ctx, `SELECT current_user`).Scan(&role); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := admin(t, db).ExecContext(ctx, `REVOKE EXECUTE ON FUNCTION stego_outbox.oldest(timestamptz) FROM "`+role+`"`); err != nil {
+			t.Fatal(err)
+		}
+		age, err := w.OldestAge(ctx, "authz")
+		if err == nil || age != 0 || !strings.Contains(err.Error(), "permission denied") {
+			t.Fatalf("OldestAge with the relay function revoked gave %v, %v", age, err)
+		}
+	})
+}
+
 func readRowByKey(t testing.TB, db *sql.DB, destination, key string) stored {
 	t.Helper()
 	var id uuid.UUID
