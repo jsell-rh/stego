@@ -634,6 +634,10 @@
 {"source_id":"ST-SUP-RC26-G07","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-SUP-RC27","target_id":"ST-PAT-GO-CODE-SL03"}
 {"source_id":"ST-SUP-RC27-G01","target_id":"ST-PAT-GO-CODE-SL01"}
+{"source_id":"ST-SUP-RC27-G02","target_id":"ST-PAT-GO-CODE-SL01"}
+{"source_id":"ST-SUP-RC27-G03","target_id":"ST-PAT-GO-CODE-SL01"}
+{"source_id":"ST-SUP-RC27-G04","target_id":"ST-PAT-GO-CODE-SL01"}
+{"source_id":"ST-SUP-RC27-G05","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-SUP-RC28","target_id":"ST-PAT-GO-CODE-SL03"}
 {"source_id":"ST-SUP-RC28-G01","target_id":"ST-PAT-GO-CODE-SL01"}
 {"source_id":"ST-SUP-RC29","target_id":"ST-PAT-GO-CODE-SL03"}
