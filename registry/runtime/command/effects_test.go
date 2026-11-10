@@ -220,7 +220,7 @@ func TestEffects(t *testing.T) {
 		if len(voided) != 1 || voided[0] == requested[0] {
 			t.Fatalf("the key of charge-voided is %v, the same as the first", voided)
 		}
-		if n := e.count(`SELECT count(*) FROM stego_outbox.messages WHERE kind = 'charge-requested' AND payload->>'amount' = '1'`); n != 1 {
+		if n := e.count(`SELECT count(*) FROM stego_outbox.messages WHERE kind = 'charge-requested' AND convert_from(payload, 'UTF8')::jsonb->>'amount' = '1'`); n != 1 {
 			t.Fatal("the staged payload changed after the call")
 		}
 	})

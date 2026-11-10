@@ -63,24 +63,33 @@ func NewPurgeJob(db Execer, cfg PurgeJobConfig) (*PurgeJob, error) {
 	if j.clock == nil {
 		j.clock = systemClock{}
 	}
-	j.opts = PurgeOptions{Batch: cfg.Batch, Pause: cfg.Pause, Clock: j.clock.Now}
+	j.opts = PurgeOptions{Batch: cfg.Batch, Pause: cfg.Pause, Clock: j.clock.Now, Sleep: j.sleep}
 	return j, nil
 }
 
-// Run runs one Purge each time the interval passes, until ctx ends, and then returns ctx.Err(). It never runs two
-// purges at once, also when Run is called twice: a tick that comes while a purge runs waits for it. A purge that
-// fails is counted (Failures) and reported by Health, and the next tick runs again.
+// Run runs one Purge at start and then each time the interval passes, until ctx ends, and then returns ctx.Err().
+// Each wait, also the pause between two batches of a purge, ends when ctx ends. It never runs two purges at once,
+// also when Run is called twice: a tick that comes while a purge runs waits for it. A purge that fails is counted
+// (Failures) and reported by Health, and the next tick runs again; a purge that ctx ended is not counted as a run.
 func (j *PurgeJob) Run(ctx context.Context) error {
 	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-j.clock.After(j.interval):
-		}
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		j.purge(ctx)
+		if err := j.sleep(ctx, j.interval); err != nil {
+			return err
+		}
+	}
+}
+
+// sleep waits d on the job's clock, or until ctx ends.
+func (j *PurgeJob) sleep(ctx context.Context, d time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-j.clock.After(d):
+		return nil
 	}
 }
 
@@ -88,9 +97,12 @@ func (j *PurgeJob) purge(ctx context.Context) {
 	j.running.Lock()
 	defer j.running.Unlock()
 	n, err := Purge(ctx, j.db, j.opts)
-	j.runs.Add(1)
 	j.deleted.Add(n)
-	if err != nil && ctx.Err() == nil {
+	if ctx.Err() != nil {
+		return
+	}
+	j.runs.Add(1)
+	if err != nil {
 		j.failures.Add(1)
 		j.failed.Store(true)
 		return

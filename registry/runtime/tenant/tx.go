@@ -148,7 +148,12 @@ func connConfig(cfg Config) (*pgx.ConnConfig, error) {
 	case cfg.Conn != nil && cfg.DSN != "":
 		return nil, errors.New("tenant: give a connection configuration or a connection string, not both")
 	case cfg.Conn != nil:
-		return cfg.Conn, nil
+		// A hook of the configuration runs on each new connection and can set a session value, as an after-connect
+		// statement can (ST-SUP-RP04-LC04).
+		if cfg.Conn.AfterConnect != nil || cfg.Conn.AfterNetConnect != nil {
+			return nil, errors.New("tenant: the pooler guard refuses a connection configuration with an after-connect hook")
+		}
+		return cfg.Conn.Copy(), nil
 	}
 	parsed, err := pgx.ParseConfig(cfg.DSN)
 	if err != nil {

@@ -23,16 +23,11 @@ func TestPeriodic(t *testing.T) {
 		current.Store(held)
 		clock := newFakeClock()
 		var runs, withLease atomic.Int64
-		var deadlineOK atomic.Bool
-		deadlineOK.Store(true)
 		p, err := NewPeriodic(PeriodicConfig{Lease: current.Load, Clock: clock, Retry: 100 * time.Millisecond,
 			Jobs: []Job{{Name: "audit-anchor", Interval: time.Second, Run: func(ctx context.Context, h *Held) error {
 				n := runs.Add(1)
 				if h == current.Load() && h.Err() == nil {
 					withLease.Add(1)
-				}
-				if deadline, ok := ctx.Deadline(); !ok || !deadline.Equal(h.Expires()) {
-					deadlineOK.Store(false)
 				}
 				// Each run takes 300 ms of the process clock: the next start is 1 s after this start.
 				clock.Advance(300 * time.Millisecond)
@@ -89,8 +84,8 @@ func TestPeriodic(t *testing.T) {
 		if ok, _ := p.Health(); !ok {
 			t.Fatal("the health still reports the job after a run that succeeded")
 		}
-		if withLease.Load() != 4 || !deadlineOK.Load() {
-			t.Fatalf("%d runs got the held lease, and the deadline was the lease's expiry: %t", withLease.Load(), deadlineOK.Load())
+		if withLease.Load() != 4 {
+			t.Fatalf("%d runs got the held lease, want 4", withLease.Load())
 		}
 
 		// Another holder takes the lease: the renew fails, the holder stops, and the job runs no more.
@@ -123,6 +118,55 @@ func TestPeriodic(t *testing.T) {
 		}
 		if _, err := NewPeriodic(PeriodicConfig{Lease: current.Load, Jobs: []Job{{Name: "x", Run: func(context.Context, *Held) error { return nil }}}}); err == nil {
 			t.Fatal("a job with no interval was accepted")
+		}
+	})
+
+	t.Run("ST-SUP-RP09-LC13-T02 A run follows the renewed expiry of the lease", func(t *testing.T) {
+		d := openDatabase(t)
+		ctx := context.Background()
+		if err := Declare(ctx, d.db, "stego.controller"); err != nil {
+			t.Fatal(err)
+		}
+		leaseClock := newFakeClock()
+		held := acquire(t, newClient(t, d.db, "stego.controller", "controller-a", Settings{TTL: 15 * time.Second, Renew: 10 * time.Second, Clock: leaseClock}))
+		started, ended := make(chan struct{}, 4), make(chan error, 4)
+		p, err := NewPeriodic(PeriodicConfig{Lease: func() *Held { return held }, Clock: newFakeClock(),
+			Jobs: []Job{{Name: "long", Interval: time.Hour, Run: func(ctx context.Context, _ *Held) error {
+				started <- struct{}{}
+				<-ctx.Done()
+				ended <- ctx.Err()
+				return ctx.Err()
+			}}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		runCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		go func() { _ = p.Run(runCtx) }()
+		<-started
+		leaseClock.waitWaiters(t, 1)
+		// A renew after 10 s moves the expiry to 25 s: at 20 s, past the first expiry, the run goes on.
+		leaseClock.Advance(10 * time.Second)
+		leaseClock.waitWaiters(t, 1)
+		if err := held.Renew(ctx); err != nil {
+			t.Fatal(err)
+		}
+		leaseClock.Advance(10 * time.Second)
+		leaseClock.waitWaiters(t, 1)
+		select {
+		case err := <-ended:
+			t.Fatalf("the run ended with %v at the first expiry, after the lease was renewed", err)
+		case <-time.After(50 * time.Millisecond):
+		}
+		// With no renew, the run ends at the renewed expiry.
+		leaseClock.Advance(5 * time.Second)
+		select {
+		case err := <-ended:
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("the run ended with %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("the run went on past the lease's expiry")
 		}
 	})
 }

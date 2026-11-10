@@ -41,23 +41,48 @@ func (a *Authz) Evaluate(ctx context.Context, action string, target Ref, c authz
 }
 
 // Relate enqueues a touch of tuple for the relay in the transaction's outbox and returns the transaction's
-// revocation; it refuses a relation that the command or the worker does not declare (ST-SUP-RP06-LC10).
-func (a *Authz) Relate(ctx context.Context, tuple authz.Tuple) (authz.Revocation, error) {
-	return a.write(ctx, tuple, (*authz.Handle).Relate)
+// revocation; it refuses a relation that the command or the worker does not declare (ST-SUP-RP06-LC10). on is the
+// loaded value of this handle whose row is the tuple's resource: Relate refuses a tuple whose resource is not that
+// row, and decides on it first, so a fill cannot change the relationships of a row it may not act on. A command
+// decides its declared permission on the row, and a command that declares none may relate nothing; a worker decides
+// its own permission, and a consumer also the stager's (ST-SUP-RP10-LC05, ST-SUP-RP10-LC17). A deny is not found.
+func (a *Authz) Relate(ctx context.Context, on Ref, tuple authz.Tuple) (authz.Revocation, error) {
+	return a.write(ctx, on, tuple, (*authz.Handle).Relate)
 }
 
-// Unrelate enqueues a delete of tuple for the relay, as Relate does.
-func (a *Authz) Unrelate(ctx context.Context, tuple authz.Tuple) (authz.Revocation, error) {
-	return a.write(ctx, tuple, (*authz.Handle).Unrelate)
+// Unrelate enqueues a delete of tuple for the relay, on the row of on, as Relate does.
+func (a *Authz) Unrelate(ctx context.Context, on Ref, tuple authz.Tuple) (authz.Revocation, error) {
+	return a.write(ctx, on, tuple, (*authz.Handle).Unrelate)
 }
 
-func (a *Authz) write(ctx context.Context, tuple authz.Tuple,
+func (a *Authz) write(ctx context.Context, on Ref, tuple authz.Tuple,
 	op func(*authz.Handle, context.Context, authz.Tuple) (authz.Revocation, error)) (authz.Revocation, error) {
 	s := a.st
 	if err := s.enter(); err != nil {
 		return authz.Revocation{}, err
 	}
 	defer s.leave()
+	if on == nil {
+		return authz.Revocation{}, ErrNoResource
+	}
+	r := refOf(on)
+	if r.st != s || r.resourceType == "" {
+		return authz.Revocation{}, ErrNoResource
+	}
+	resource, err := authz.NewResource(s.tenant, r.resourceType, r.id)
+	if err != nil || tuple.Resource != resource {
+		return authz.Revocation{}, s.breakWith(internalf("a tuple of %s names another resource than the loaded value it is for", r.entity))
+	}
+	if s.mode == modeCommand {
+		if s.commandPermission == "" {
+			return authz.Revocation{}, errors.New("command: a command that declares no permission relates nothing")
+		}
+		if err := s.decideCommandOn(ctx, r.resourceType, r.entity, r.id, r.token); err != nil {
+			return authz.Revocation{}, err
+		}
+	} else if err := s.decideWrite(ctx, r.resourceType, r.entity, r.id, r.token); err != nil {
+		return authz.Revocation{}, err
+	}
 	if err := s.setLockTimeout(ctx); err != nil {
 		return authz.Revocation{}, s.fail(ctx, "relate", err)
 	}

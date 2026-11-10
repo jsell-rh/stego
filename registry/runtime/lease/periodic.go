@@ -93,8 +93,8 @@ func NewPeriodic(cfg PeriodicConfig) (*Periodic, error) {
 
 // Run runs each job until ctx ends (ST-SUP-RP09-LC13): the first run at start, and then one run each time the job's
 // interval has passed since the start of its last run. A run starts only while Lease gives a lease that has not
-// stopped; its context ends when that lease stops and has the lease's expiry as its deadline, so no run outlives the
-// lease. A job that is due while no lease is held is skipped, counted, and tried again after the retry period, so
+// stopped; its context ends when that lease stops, or when the lease's expiry passes on the lease's clock, read
+// again after each renew, so no run outlives the lease and a renewed lease keeps its run. A job that is due while no lease is held is skipped, counted, and tried again after the retry period, so
 // it runs soon after the lease is acquired. A run that fails, or panics, is counted, makes Health report the job,
 // and does not stop later runs. It is the run function of the controller mode's component PeriodicName, and it
 // returns only when ctx ends.
@@ -132,15 +132,9 @@ func (p *Periodic) runOnce(ctx context.Context, j Job) bool {
 		p.count(j.Name, func(s *JobStats) { s.Skipped++ })
 		return false
 	}
-	runCtx, cancel := context.WithDeadline(ctx, held.Expires())
+	runCtx, cancel := context.WithCancel(ctx)
 	stop := make(chan struct{})
-	go func() {
-		select {
-		case <-held.Done():
-			cancel()
-		case <-stop:
-		}
-	}()
+	go held.watch(stop, cancel)
 	err := runJob(runCtx, j, held)
 	close(stop)
 	cancel()
@@ -152,6 +146,27 @@ func (p *Periodic) runOnce(ctx context.Context, j Job) bool {
 		}
 	})
 	return true
+}
+
+// watch calls cancel when h stops or when its expiry passes on the lease's process clock, until stop closes. It
+// reads the expiry again each time it wakes, so a renew that moved the expiry keeps the run going.
+func (h *Held) watch(stop <-chan struct{}, cancel context.CancelFunc) {
+	clock := h.client.clock
+	for {
+		left := h.Expires().Sub(clock.Now())
+		if left <= 0 {
+			cancel()
+			return
+		}
+		select {
+		case <-h.Done():
+			cancel()
+			return
+		case <-stop:
+			return
+		case <-clock.After(left):
+		}
+	}
 }
 
 // runJob calls the job's run function and turns a panic into an error that holds no part of the panic value.

@@ -103,12 +103,11 @@ func open(ctx context.Context, cfg Config) (*sql.DB, error) {
 		return nil, err
 	}
 	if cfg.Conn != nil {
-		if err := verifiedTLS(cfg.Conn); err != nil {
+		// conn is a copy of the opener's configuration, made before the check, so a change of the caller's value
+		// after the check changes nothing: the pool opens with the TLS policy that the check saw.
+		if err := verifiedTLS(conn); err != nil {
 			return nil, err
 		}
-		// The opener's configuration is used as it is: a copy, so a later change of the caller's value changes
-		// nothing, with the TLS policy it holds.
-		conn = cfg.Conn.Copy()
 	}
 	if len(cfg.Params) > 0 && conn.RuntimeParams == nil {
 		conn.RuntimeParams = map[string]string{}

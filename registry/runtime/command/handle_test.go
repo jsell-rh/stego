@@ -104,6 +104,7 @@ type env struct {
 	organizations *Entity[organization]
 	users         *Entity[user]
 	reservationE  *Entity[reservation]
+	underOrder    *Entity[reservation]
 	chargeE       *Entity[charge]
 	customerE     *Entity[customer]
 	admins        *List[user]
@@ -273,8 +274,11 @@ func (e *env) openPool(dsn string) *sql.DB {
 func (e *env) runtime(change func(*Config)) *Runtime {
 	e.t.Helper()
 	cfg := Config{DB: e.pool, AuditDB: e.auditDB, Authz: e.authz, Audit: e.writer, Outbox: e.queue, Probes: e.probes,
-		Service: "orders", ServiceVersion: "1.0.0", DeclarationVersion: "d1",
-		Entities: []Declared{e.orders, e.organizations, e.users, e.reservationE, e.chargeE, e.customerE}}
+		Service: "orders", ServiceVersion: "1.0.0", DeclarationVersion: "d1"}
+	if e.rt == nil {
+		// The first runtime of the fixture registers its entities; an entity registers with one runtime only.
+		cfg.Entities = []Declared{e.orders, e.organizations, e.users, e.reservationE, e.chargeE, e.customerE}
+	}
 	if change != nil {
 		change(&cfg)
 	}
@@ -385,7 +389,7 @@ func (e *env) entities() {
 		func(v order) []any { return []any{v.ID, v.Status} },
 		func(v order) map[string]any { return map[string]any{"id": v.ID, "status": v.Status} }))
 	must(err)
-	e.reservationE, err = NewEntity(spec("Reservation", "", "reservations", []string{"order_id", "sku"},
+	reservationSpec := spec("Reservation", "", "reservations", []string{"order_id", "sku"},
 		func(s Scanner) (reservation, Meta, error) {
 			var v reservation
 			var m Meta
@@ -396,7 +400,13 @@ func (e *env) entities() {
 		func(v reservation) []any { return []any{v.ID, v.OrderID, v.SKU} },
 		func(v reservation) map[string]any {
 			return map[string]any{"id": v.ID, "order_id": v.OrderID, "sku": v.SKU}
-		}))
+		})
+	e.reservationE, err = NewEntity(reservationSpec)
+	must(err)
+	// The same table as an entity whose rows go under their order, which the generated Parent reads.
+	reservationSpec.Name = "ReservationUnderOrder"
+	reservationSpec.Parent = func(v reservation) (string, string) { return "Order", v.OrderID }
+	e.underOrder, err = NewEntity(reservationSpec)
 	must(err)
 	chargeSpec := spec("Charge", "charge", "charges", []string{"amount", "card_last4"},
 		func(s Scanner) (charge, Meta, error) {

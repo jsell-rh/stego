@@ -35,3 +35,28 @@ func TestFieldFingerprint(t *testing.T) {
 		}
 	})
 }
+
+func TestFingerprintRepeatedKeys(t *testing.T) {
+	t.Run("ST-SUP-RP07-LC05-T04 A body whose keys repeat or are equal under case folding is refused", func(t *testing.T) {
+		for name, body := range map[string]string{
+			"a repeated key":                  `{"qty":1,"qty":9}`,
+			"two keys equal under case":       `{"qty":1,"QTY":9}`,
+			"a repeated key in a deep value":  `{"lines":[{"sku":"A","sku":"B"}]}`,
+			"keys equal under simple folding": `{"K":1,"k":2}`,
+		} {
+			if _, err := Fingerprint("POST", "/orders", []byte(body)); err == nil {
+				t.Errorf("Fingerprint took a body with %s", name)
+			}
+			if _, err := FieldFingerprint("POST", "/orders", []byte(body), []string{"qty", "lines", "k"}); err == nil {
+				t.Errorf("FieldFingerprint took a body with %s", name)
+			}
+		}
+		// A repeated key in a field that is not declared is refused too: the body is read whole.
+		if _, err := FieldFingerprint("POST", "/orders", []byte(`{"qty":1,"note":"a","Note":"b"}`), []string{"qty"}); err == nil {
+			t.Error("FieldFingerprint took repeated keys outside the declared fields")
+		}
+		if _, err := Fingerprint("POST", "/orders", []byte(`{"qty":1,"sku":"A"}`)); err != nil {
+			t.Fatalf("a body with distinct keys gave %v", err)
+		}
+	})
+}

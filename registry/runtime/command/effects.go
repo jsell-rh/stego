@@ -60,7 +60,8 @@ type Effects struct {
 // the principal, the inbound key, the destination and the effect name, where the inbound key is the run's inbound
 // key and then the entity's ID, each prefixed by its length. It refuses the destinations authz and audit-sink, an
 // undeclared destination, a value of another handle, and a second effect of one name for one entity in one call,
-// and then stages nothing.
+// and then stages nothing. In a command it decides the command's permission on an entity with a resource type, as
+// a write does, and refuses an entity with none unless the value was locked or written.
 func (f *Effects) Stage(ctx context.Context, destination, effect string, entity Ref, payload json.RawMessage) error {
 	s := f.st
 	if err := s.enter(); err != nil {
@@ -80,6 +81,17 @@ func (f *Effects) Stage(ctx context.Context, destination, effect string, entity 
 	r := refOf(entity)
 	if r.st != s {
 		return s.breakWith(internalf("an effect of %s names a loaded value of another transaction", s.action))
+	}
+	// A command's effect is for a row it may act on: it decides the command's permission on an entity with a
+	// resource type, and needs a value that the handle locked or wrote for any other entity (ST-SUP-RP10-LC08).
+	if s.mode == modeCommand {
+		if r.resourceType != "" {
+			if err := s.decideCommandOn(ctx, r.resourceType, r.entity, r.id, r.token); err != nil {
+				return err
+			}
+		} else if _, written := s.written[rowKey{r.entity, r.id}]; r.lock == lockNone && !written {
+			return fmt.Errorf("command: an effect of %s for %s needs a value that the handle locked or wrote", s.action, r.entity)
+		}
 	}
 	// One effect of one name for one entity in one call; and, as two entities of two types can share an ID, never
 	// two messages with one key.

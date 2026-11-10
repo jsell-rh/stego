@@ -87,15 +87,10 @@ var ErrBadMessage = errors.New("audit: the sink message is refused")
 // with an error that matches ErrBadMessage, a message that names another tenant or that Deliver cannot read
 // (ST-SUP-RP05-LC14). An error of the sink does not match ErrBadMessage, so the outbox retries it.
 //
-// The outbox keeps a payload as jsonb, which keeps every value but not the order of the keys or the spacing, so
-// DeliverFor reads the payload back into its canonical form first; the hash of the event, which covers its canonical
-// record, still refuses a message whose values changed.
+// The outbox keeps the payload as the exact bytes that Record enqueued (ST-SUP-RP01-LC28), so an event message must
+// still be in its canonical form, byte for byte, and its hash must cover its event.
 func (d *Destination) DeliverFor(ctx context.Context, tenantID string, payload []byte) error {
-	v, err := decodeJSON("sink message", payload)
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrBadMessage, err)
-	}
-	m, err := readSinkMessage(encodeTree(v))
+	m, err := readSinkMessage(payload)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrBadMessage, err)
 	}

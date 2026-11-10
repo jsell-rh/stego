@@ -115,17 +115,17 @@ func TestCommandPermission(t *testing.T) {
 			"a third parameter": `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = $2 AND status = $3 FOR SHARE`,
 			"an update lock":    `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
 			"no tenant at all":  `SELECT authz_token FROM orders WHERE id = $2 FOR SHARE`,
+			"FOR KEY SHARE, which does not block the token update": `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = $2 FOR KEY SHARE`,
+			"a lock clause in a comment":                           `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = $2 -- FOR SHARE`,
+			"a placeholder in a comment":                           `SELECT authz_token FROM orders WHERE tenant_id = $1 /* $2 */ AND id = 'o5' FOR SHARE`,
+			"a subselect":                                          `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = (SELECT $2::text) FOR SHARE`,
 		} {
 			if _, err := NewCommand(CommandSpec[testProbe]{Name: "bad", Probe: newTestProbe, Permission: "reserve",
 				Resource: &Resource{Type: "order", Token: token, ValidID: func(string) bool { return true }}}); err == nil {
 				t.Errorf("a token statement with %s was accepted", name)
 			}
 		}
-		if _, err := NewCommand(CommandSpec[testProbe]{Name: "parent", Probe: newTestProbe, Permission: "reserve",
-			Resource: &Resource{Type: "order", Token: `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = $2 FOR KEY SHARE`,
-				ValidID: func(string) bool { return true }}}); err != nil {
-			t.Errorf("a parent's token statement FOR KEY SHARE was refused: %v", err)
-		}
+
 		if _, err := NewCommand(CommandSpec[testProbe]{Name: "half", Probe: newTestProbe, Permission: "reserve"}); err == nil {
 			t.Fatal("a command with a permission and no resource was accepted")
 		}
@@ -137,7 +137,7 @@ func TestCommandPermission(t *testing.T) {
 		cmd := e.command("reserve", func(s *CommandSpec[testProbe]) {
 			s.Permission, s.Resource = "reserve", orderResource()
 		}, e.reservationE)
-		e.decision.setRelations(relation(t, "user:u-7", "reserve", "t1", "order", "o5"))
+		e.decision.setRelations(relation(t, "user:u-7", "reserve", "t1", "order", "o5"), relation(t, "user:u-7", "view", "t1", "order", "o5"))
 		inFill, release := make(chan struct{}), make(chan struct{})
 		done := make(chan error, 1)
 		go func() {
@@ -170,6 +170,59 @@ func TestCommandPermission(t *testing.T) {
 		if d := <-wrote; d < 300*time.Millisecond {
 			t.Fatalf("the token write took %s, want it to wait for the command", d)
 		}
+
+		// The parent of a create: the command's resource is the order the new reservation goes under, read FOR
+		// SHARE too, so the revocation of the parent waits as well.
+		create := e.command("add-reservation", func(s *CommandSpec[testProbe]) {
+			s.Permission, s.Resource = "reserve", orderResource()
+		}, e.underOrder, e.orders)
+		e.exec(`UPDATE orders SET authz_token = 't5' WHERE tenant_id = 't1' AND id = 'o5'`)
+		inFill, release = make(chan struct{}), make(chan struct{})
+		go func() {
+			req := e.request("t1", u7(t), "k-lc31-parent", `{}`)
+			req.Resource = "o5"
+			_, err := e.run(create, req, func(ctx context.Context, h *Handle[testProbe]) (idempotency.Response, error) {
+				r, err := Repo(h, e.underOrder)
+				if err != nil {
+					return ok, err
+				}
+				orders, err := Repo(h, e.orders)
+				if err != nil {
+					return ok, err
+				}
+				o5, err := orders.Get(ctx, "o5")
+				if err != nil {
+					return ok, err
+				}
+				if _, err := r.Create(ctx, reservation{ID: "r-parent", OrderID: "o5", SKU: "s"}, o5); err != nil {
+					return ok, err
+				}
+				close(inFill)
+				<-release
+				return ok, nil
+			})
+			done <- err
+		}()
+		select {
+		case <-inFill:
+		case err := <-done:
+			t.Fatalf("the create command ended before its fill waited: %v", err)
+		}
+		go func() {
+			start := time.Now()
+			_, _ = e.admin.ExecContext(context.Background(), `UPDATE orders SET authz_token = 't6' WHERE tenant_id = 't1' AND id = 'o5'`)
+			wrote <- time.Since(start)
+		}()
+		select {
+		case <-wrote:
+			t.Fatal("the parent's token was written while the create that decided on it was running")
+		case <-time.After(300 * time.Millisecond):
+		}
+		close(release)
+		if err := <-done; err != nil {
+			t.Fatalf("the create command gave %v", err)
+		}
+		<-wrote
 	})
 }
 
@@ -269,6 +322,140 @@ func TestCommandPermissionOnRows(t *testing.T) {
 		if strings.Join(listed, ",") != "u2" {
 			t.Fatalf("the locked list holds %v, want only u2, on which cancel is allowed", listed)
 		}
-		_ = authz.Relation{}
+
+	})
+
+	// rowsEnv is the fixture of the tests of relationships, parents and effects: orders o5 and o6 of t1, which
+	// user:u-7 may view, and o5, the decided resource, which it may cancel.
+	rowsEnv := func(t *testing.T) (*env, func(name string, fill func(ctx context.Context, h *Handle[testProbe]) error) error,
+		func(ctx context.Context, h *Handle[testProbe], id string) Loaded[order]) {
+		e := newEnv(t)
+		e.exec(`INSERT INTO orders (tenant_id, id, status, authz_token) VALUES ('t1', 'o5', 'open', 't5'), ('t1', 'o6', 'open', 't6')`)
+		e.decision.setRelations(relation(t, "user:u-7", "cancel", "t1", "order", "o5"),
+			relation(t, "user:u-7", "view", "t1", "order", "o5"), relation(t, "user:u-7", "view", "t1", "order", "o6"))
+		owner := authz.Relation{ResourceType: "order", Name: "owner"}
+		full := e.command("cancel", func(s *CommandSpec[testProbe]) {
+			s.Permission, s.Resource, s.Relations = "cancel", orderResource(), []authz.Relation{owner}
+		}, e.orders, e.underOrder, e.reservationE)
+		step := func(name string, fill func(ctx context.Context, h *Handle[testProbe]) error) error {
+			t.Helper()
+			req := e.request("t1", u7(t), "k-lc05-"+name, `{}`)
+			req.Resource = "o5"
+			_, err := e.run(full, req, func(ctx context.Context, h *Handle[testProbe]) (idempotency.Response, error) {
+				return ok, fill(ctx, h)
+			})
+			return err
+		}
+		get := func(ctx context.Context, h *Handle[testProbe], id string) Loaded[order] {
+			o, err := repo(t, h, e.orders).Get(ctx, id)
+			if err != nil {
+				t.Fatalf("read %s: %v", id, err)
+			}
+			return o
+		}
+		return e, step, get
+	}
+
+	t.Run("ST-SUP-RP10-LC05-T04 A fill cannot change the relationships of a row it may not act on", func(t *testing.T) {
+		e, step, get := rowsEnv(t)
+		ownerTuple := func(id string) authz.Tuple {
+			r, err := authz.NewResource(mustTenant(t, "t1"), "order", id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return authz.Tuple{Resource: r, Relation: "owner", Subject: authz.Subject{Type: "user", ID: "u-9"}}
+		}
+		before := e.outboxRows("t1", "authz")
+		if err := step("relate-o6", func(ctx context.Context, h *Handle[testProbe]) error {
+			_, err := h.Authz().Relate(ctx, get(ctx, h, "o6"), ownerTuple("o6"))
+			return err
+		}); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("making u-9 owner of o6 gave %v, want not found", err)
+		}
+		if err := step("relate-other", func(ctx context.Context, h *Handle[testProbe]) error {
+			_, err := h.Authz().Relate(ctx, get(ctx, h, "o5"), ownerTuple("o6"))
+			return err
+		}); !errors.Is(err, ErrInternal) {
+			t.Fatalf("a tuple of o6 on the loaded o5 gave %v, want an internal error", err)
+		}
+		if err := step("unrelate-o6", func(ctx context.Context, h *Handle[testProbe]) error {
+			_, err := h.Authz().Unrelate(ctx, get(ctx, h, "o6"), ownerTuple("o6"))
+			return err
+		}); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("an unrelate on o6 gave %v, want not found", err)
+		}
+		if n := e.outboxRows("t1", "authz"); n != before {
+			t.Fatalf("the refused relationship writes left %d authz messages", n-before)
+		}
+		if err := step("relate-o5", func(ctx context.Context, h *Handle[testProbe]) error {
+			_, err := h.Authz().Relate(ctx, get(ctx, h, "o5"), ownerTuple("o5"))
+			return err
+		}); err != nil || e.outboxRows("t1", "authz") != before+1 {
+			t.Fatalf("making u-9 owner of the decided o5 gave %v", err)
+		}
+
+	})
+
+	t.Run("ST-SUP-RP10-LC05-T05 A create takes only the parent that the new row names", func(t *testing.T) {
+		e, step, get := rowsEnv(t)
+		if err := step("create-wrong-parent", func(ctx context.Context, h *Handle[testProbe]) error {
+			_, err := repo(t, h, e.underOrder).Create(ctx, reservation{ID: "r-o6", OrderID: "o6", SKU: "s"}, get(ctx, h, "o5"))
+			return err
+		}); !errors.Is(err, ErrInternal) {
+			t.Fatalf("a reservation of o6 under the parent o5 gave %v, want an internal error", err)
+		}
+		if err := step("create-no-parent", func(ctx context.Context, h *Handle[testProbe]) error {
+			_, err := repo(t, h, e.underOrder).Create(ctx, reservation{ID: "r-none", OrderID: "o6", SKU: "s"}, nil)
+			return err
+		}); !errors.Is(err, ErrInternal) {
+			t.Fatalf("a command's reservation with no parent gave %v, want an internal error", err)
+		}
+		if err := step("create-under-o6", func(ctx context.Context, h *Handle[testProbe]) error {
+			_, err := repo(t, h, e.underOrder).Create(ctx, reservation{ID: "r-o6", OrderID: "o6", SKU: "s"}, get(ctx, h, "o6"))
+			return err
+		}); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("a reservation under o6, on which cancel is not allowed, gave %v, want not found", err)
+		}
+		if n := e.count(`SELECT count(*) FROM reservations WHERE id IN ('r-o6', 'r-none')`); n != 0 {
+			t.Fatalf("%d refused reservations were written", n)
+		}
+		if err := step("create-under-o5", func(ctx context.Context, h *Handle[testProbe]) error {
+			_, err := repo(t, h, e.underOrder).Create(ctx, reservation{ID: "r-o5", OrderID: "o5", SKU: "s"}, get(ctx, h, "o5"))
+			return err
+		}); err != nil {
+			t.Fatalf("a reservation under the decided o5 gave %v", err)
+		}
+
+	})
+
+	t.Run("ST-SUP-RP10-LC05-T06 An effect is only for a row the command may act on", func(t *testing.T) {
+		e, step, get := rowsEnv(t)
+		e.exec(`INSERT INTO reservations (tenant_id, id, order_id, sku) VALUES ('t1', 'r-o5', 'o5', 's')`)
+		if err := step("stage-o6", func(ctx context.Context, h *Handle[testProbe]) error {
+			return h.Effects().Stage(ctx, "billing", "cancelled", get(ctx, h, "o6"), []byte(`{}`))
+		}); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("an effect for o6 gave %v, want not found", err)
+		}
+		if err := step("stage-read", func(ctx context.Context, h *Handle[testProbe]) error {
+			r, err := repo(t, h, e.reservationE).Get(ctx, "r-o5")
+			if err != nil {
+				return err
+			}
+			return h.Effects().Stage(ctx, "billing", "noted", r, []byte(`{}`))
+		}); err == nil || !strings.Contains(err.Error(), "locked or wrote") {
+			t.Fatalf("an effect for a reservation that was only read gave %v, want a refusal", err)
+		}
+		if err := step("stage-written", func(ctx context.Context, h *Handle[testProbe]) error {
+			r, err := repo(t, h, e.reservationE).Create(ctx, reservation{ID: "r-written", OrderID: "o5", SKU: "s"}, nil)
+			if err != nil {
+				return err
+			}
+			if err := h.Effects().Stage(ctx, "billing", "noted", r, []byte(`{}`)); err != nil {
+				return err
+			}
+			return h.Effects().Stage(ctx, "billing", "cancelled", get(ctx, h, "o5"), []byte(`{}`))
+		}); err != nil {
+			t.Fatalf("effects for a written reservation and the decided o5 gave %v", err)
+		}
 	})
 }

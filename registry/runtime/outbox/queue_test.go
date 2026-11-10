@@ -530,7 +530,7 @@ func TestQueueClaim(t *testing.T) {
 		}
 		clock.Advance(time.Hour)
 		next, err := q.Claim(ctx, 32, time.Minute)
-		if err != nil || len(next) != 1 || next[0].ID != a.ID || next[0].Attempts != 2 || string(next[0].Payload) != `{"version": 1}` {
+		if err != nil || len(next) != 1 || next[0].ID != a.ID || next[0].Attempts != 2 || string(next[0].Payload) != `{"version":1}` {
 			t.Fatalf("the retry lost its identity or attempt count: %+v %v", next, err)
 		}
 		if ok, err := q.acknowledge(ctx, next[0].Receipt); !ok || err != nil {

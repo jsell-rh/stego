@@ -81,6 +81,10 @@ func New(cfg Config) (*Runtime, error) {
 	if len(cfg.CursorKey) > 0 && len(cfg.CursorKey) < MinCursorKey {
 		return nil, fmt.Errorf("query: the cursor key holds fewer than %d bytes", MinCursorKey)
 	}
+	if len(cfg.CursorKey) > 0 && cfg.Service == "" {
+		// The service is associated data of each cursor: without it, two services with one key read each other's.
+		return nil, errors.New("query: a cursor key needs the service name")
+	}
 	rt := &Runtime{db: cfg.DB, auditDB: cfg.AuditDB, audit: cfg.Audit, settings: cfg.AuditSettings, authz: cfg.Authz,
 		service: cfg.Service}
 	if len(cfg.CursorKey) > 0 {

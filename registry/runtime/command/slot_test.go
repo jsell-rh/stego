@@ -37,6 +37,12 @@ func TestSlotLoaded(t *testing.T) {
 		if _, err := FromRequest(e.rt.SlotKey(), outside, request); !errors.Is(err, ErrNotRegistered) {
 			t.Fatalf("an entity that the runtime did not register gave %v, want ErrNotRegistered", err)
 		}
+		// An entity registers with one runtime only.
+		other := e.rt.cfg
+		other.Entities = []Declared{e.reservationE}
+		if _, err := New(e.ctx, other); err == nil {
+			t.Fatal("a second runtime registered an entity of the first")
+		}
 		var zero slotKey
 		if _, err := FromRequest(zero, e.reservationE, request); !errors.Is(err, ErrNoSlotKey) {
 			t.Fatalf("the zero key gave %v, want ErrNoSlotKey", err)

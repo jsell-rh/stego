@@ -172,7 +172,7 @@ func TestWorkers(t *testing.T) {
 	}
 
 	t.Run("ST-SUP-RP10-LC17-T01 A worker handle reads only allowed rows and writes only allowed resources", func(t *testing.T) {
-		w := e.worker("sync-partner-orders", "sync", nil, e.orders)
+		w := e.worker("sync-partner-orders", "sync", nil, e.orders, e.underOrder)
 		var o2 Loaded[order]
 		var listed []string
 		var writeCalls []evaluation
@@ -200,7 +200,7 @@ func TestWorkers(t *testing.T) {
 			if _, err := updateOrderFrom(ctx, r, o2, "synced"); !errors.Is(err, ErrRefused) {
 				t.Errorf("the update of o-2 gave %v, want the refused error", err)
 			}
-			if _, err := r.Create(ctx, order{ID: "o-new", Status: "new"}, o2); !errors.Is(err, ErrRefused) {
+			if _, err := repo(t, h, e.underOrder).Create(ctx, reservation{ID: "r-new", OrderID: "o-2", SKU: "s"}, o2); !errors.Is(err, ErrRefused) {
 				t.Errorf("the create under o-2 gave %v, want the refused error", err)
 			}
 			writeCalls = e.decision.taken()

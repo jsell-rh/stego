@@ -216,6 +216,14 @@ FROM stego_outbox.messages`).Scan(&id, &destination, &tenantID, &idempotent, &mu
 			t.Fatalf("the outbox row was written in transaction %s and the audit row in %s, want the same", xminRow, xminEvent)
 		}
 
+		// The outbox keeps the exact canonical bytes of the sink message.
+		var payload []byte
+		if err := e.admin.QueryRowContext(ctx, `SELECT payload FROM stego_outbox.messages`).Scan(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if string(payload) != string(sinkPayload(t, stored[0])) {
+			t.Fatalf("the outbox holds\n%s\nwant the canonical sink message\n%s", payload, sinkPayload(t, stored[0]))
+		}
 		sink := &recordingSink{}
 		auditDestination, err := audit.NewDestination(sink)
 		if err != nil {
@@ -290,6 +298,12 @@ FROM stego_outbox.messages`).Scan(&id, &destination, &tenantID, &idempotent, &mu
 		if err := s.Deliver(ctx, nil, outbox.Delivery{Tenant: t1, Message: outbox.Message{Payload: []byte(`{"kind":"event"}`)}}); !outbox.IsPermanent(err) {
 			t.Fatalf("a message that does not decode gave %v, want a permanent refusal", err)
 		}
+		// The bytes are delivered as they were stored: a sink message that is not in its canonical form, byte for
+		// byte, is refused for good and never rewritten.
+		respaced := []byte(strings.Replace(string(sinkPayload(t, got[0])), `{"event":`, `{ "event":`, 1))
+		if err := s.Deliver(ctx, nil, outbox.Delivery{Tenant: t1, Message: outbox.Message{Payload: respaced}}); !outbox.IsPermanent(err) {
+			t.Fatalf("a sink message out of its canonical form gave %v, want a permanent refusal", err)
+		}
 		if len(sink.got()) != 1 {
 			t.Fatal("a refused message reached the sink")
 		}
@@ -351,7 +365,7 @@ func TestSinkPayloadLimit(t *testing.T) {
 		if err := tenant.Commit(ctx, tx, t1); err != nil {
 			t.Fatal(err)
 		}
-		if n := e.count(t, "SELECT count(*) FROM stego_outbox.messages WHERE destination = 'audit-sink' AND octet_length(payload::text) > 200*1024"); n != 1 {
+		if n := e.count(t, "SELECT count(*) FROM stego_outbox.messages WHERE destination = 'audit-sink' AND octet_length(payload) > 200*1024"); n != 1 {
 			t.Fatalf("%d audit-sink messages above 200 KiB, want one", n)
 		}
 		// Another destination keeps the limit of 64 KiB.

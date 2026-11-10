@@ -151,19 +151,41 @@ type EntitySpec[T any] struct {
 	// ValidID is the generated check of a key: it reports whether id has the form of the entity's key type, such as a
 	// uuid, so a malformed key is not found after the same decision and never fails a statement.
 	ValidID func(id string) bool
+	// Parent is the generated reader of the parent of a new row: the name of the parent entity and the parent's ID
+	// that value names, such as Order and value.OrderID. Nil for an entity that has no parent. Create takes only that
+	// parent (ST-SUP-RP10-LC05).
+	Parent func(value T) (entity, id string)
 }
 
 // Entity is the repository declaration of one entity, which NewEntity checks once.
 type Entity[T any] struct {
 	spec EntitySpec[T]
+	// owner is the runtime that registered the entity in its Config.Entities; an entity registers with one runtime
+	// only.
+	owner *Runtime
 }
 
 // Declared is an entity that a command or a worker declares it writes: an *Entity of any type.
 type Declared interface {
 	entityName() string
+	register(rt *Runtime) error
 }
 
 func (e *Entity[T]) entityName() string { return e.spec.Name }
+
+// registerMu guards the owner of every entity.
+var registerMu sync.Mutex
+
+// register makes rt the one runtime of the entity, and refuses an entity that another runtime registered.
+func (e *Entity[T]) register(rt *Runtime) error {
+	registerMu.Lock()
+	defer registerMu.Unlock()
+	if e.owner != nil && e.owner != rt {
+		return fmt.Errorf("command: the entity %s is registered with another runtime", e.spec.Name)
+	}
+	e.owner = rt
+	return nil
+}
 
 // Name is the entity's name.
 func (e *Entity[T]) Name() string { return e.spec.Name }
@@ -268,9 +290,11 @@ type Ref = loaded.Any
 type rowRef struct {
 	st           *state
 	entity       string
+	entityRef    any
 	resourceType string
 	id           string
 	token        string
+	lock         lockMode
 }
 
 func refOf(r Ref) rowRef {
@@ -279,13 +303,37 @@ func refOf(r Ref) rowRef {
 		return rowRef{}
 	}
 	st, _ := ref.Owner.(*state)
-	return rowRef{st: st, entity: ref.EntityName, resourceType: ref.ResourceType, id: ref.ID, token: ref.Token}
+	return rowRef{st: st, entity: ref.EntityName, entityRef: ref.Entity, resourceType: ref.ResourceType, id: ref.ID,
+		token: ref.Token, lock: lockMode(ref.Lock)}
 }
 
 // newLoaded makes the loaded value of one row that the handle state s read or wrote.
 func newLoaded[T any](value T, meta Meta, e *Entity[T], s *state, lock lockMode) Loaded[T] {
 	return loaded.New(value, e.spec.Clone, loaded.Ref{Owner: s, Entity: e, EntityName: e.spec.Name, ResourceType: e.spec.ResourceType,
 		ID: meta.ID, Version: meta.Version, Token: meta.Token, Lock: uint8(lock)})
+}
+
+// checkParent refuses, as an internal error, a parent of a create of entity that is not tied to the new row: a
+// parent of another handle, of another entity or with another ID than parentOf reads from the value, a parent for an
+// entity that has none, and, for a command, no parent for an entity that has one.
+func (s *state) checkParent(entity string, hasParent bool, parentOf func() (string, string), parent Ref) error {
+	switch {
+	case parent == nil && hasParent && s.mode == modeCommand:
+		return s.breakWith(internalf("a create of %s needs the parent that the new row names", entity))
+	case parent == nil:
+		return nil
+	case !hasParent:
+		return s.breakWith(internalf("a create of %s takes no parent: the entity has none", entity))
+	}
+	p := refOf(parent)
+	if p.st != s {
+		return s.breakWith(internalf("the parent of a create of %s is a loaded value of another transaction", entity))
+	}
+	name, id := parentOf()
+	if p.entity != name || p.id != id {
+		return s.breakWith(internalf("the parent of a create of %s is not the parent that the new row names", entity))
+	}
+	return nil
 }
 
 // view is a loaded value as this package reads it.
@@ -828,9 +876,11 @@ func (r *Repository[T]) loadAll(ctx context.Context, rows []scanned[T], lock loc
 	return out, nil
 }
 
-// Create inserts value and returns it as stored, with the version the insert gave it. A command's create under a
-// parent decides the command's permission on the parent, and one with no parent is covered by the decision before
-// the fill (ST-SUP-RP10-LC05); a worker's create decides the worker's permission on parent, the loaded
+// Create inserts value and returns it as stored, with the version the insert gave it. The parent must be the
+// loaded value of this handle that the entity's Parent reads from value, the same entity and the same ID, and a
+// command must give it whenever the entity has a parent; an entity with no parent takes none. A command's create
+// decides the command's permission on the parent, and one with no parent is covered by the decision before the fill
+// (ST-SUP-RP10-LC05); a worker's create decides the worker's permission on parent, the loaded
 // parent resource that the new row goes under, before the write (ST-SUP-RP10-LC17). The audit row of the write is
 // buffered for Run (ST-SUP-RP10-LC06).
 func (r *Repository[T]) Create(ctx context.Context, value T, parent Ref) (Loaded[T], error) {
@@ -839,24 +889,16 @@ func (r *Repository[T]) Create(ctx context.Context, value T, parent Ref) (Loaded
 	}
 	defer r.st.leave()
 	s, e := r.st, r.entity
-	if s.mode != modeCommand && e.spec.ResourceType != "" {
-		if parent == nil {
-			return nil, fmt.Errorf("command: a worker's create of %s needs the parent resource to decide on", e.spec.Name)
-		}
-		p := refOf(parent)
-		if p.st != s {
-			return nil, s.breakWith(internalf("the parent of a create of %s is a loaded value of another transaction", e.spec.Name))
-		}
-		if err := s.decideWrite(ctx, p.resourceType, p.entity, p.id, p.token); err != nil {
-			return nil, err
-		}
+	if err := s.checkParent(e.spec.Name, e.spec.Parent != nil, func() (string, string) { return e.spec.Parent(value) }, parent); err != nil {
+		return nil, err
 	}
-	if s.mode == modeCommand && parent != nil {
-		// A command's create under a parent decides the command's permission on the parent (ST-SUP-RP10-LC05).
+	if s.mode != modeCommand && e.spec.ResourceType != "" && parent == nil {
+		return nil, fmt.Errorf("command: a worker's create of %s needs the parent resource to decide on", e.spec.Name)
+	}
+	if parent != nil {
+		// A create decides the permission of the command or the worker on its parent (ST-SUP-RP10-LC05,
+		// ST-SUP-RP10-LC17).
 		p := refOf(parent)
-		if p.st != s {
-			return nil, s.breakWith(internalf("the parent of a create of %s is a loaded value of another transaction", e.spec.Name))
-		}
 		if err := s.decideWrite(ctx, p.resourceType, p.entity, p.id, p.token); err != nil {
 			return nil, err
 		}

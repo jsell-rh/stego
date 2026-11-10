@@ -146,6 +146,9 @@ func New(ctx context.Context, cfg Config) (*Runtime, error) {
 		if e == nil {
 			return nil, errors.New("command: the runtime declares a nil entity")
 		}
+		if err := e.register(rt); err != nil {
+			return nil, err
+		}
 		rt.slots.entities[e] = true
 	}
 	if cfg.Logger != nil {
@@ -255,9 +258,10 @@ func checkWrites(owner string, declared []Declared) (map[Declared]bool, error) {
 }
 
 // checkResource refuses a permission without its resource, a resource without a permission, and a resource that
-// lacks a part. Its token statement must take exactly the placeholders $1, the tenant, and $2, the ID, so $12 does
-// not pass for $1, and must lock the row it reads FOR SHARE, or FOR KEY SHARE for the parent of a create, so the
-// row's token cannot change until the command's transaction ends (ST-SUP-RP10-LC31).
+// lacks a part. Its token statement, with its comments removed, must be one SELECT with no subselect, take exactly
+// the placeholders $1, the tenant, and $2, the ID, so $12 does not pass for $1, and lock the row it reads FOR SHARE,
+// also for the parent of a create, so the revocation's UPDATE of the row's token waits until the command's
+// transaction ends (ST-SUP-RP10-LC31). FOR KEY SHARE does not block that UPDATE and is refused.
 func checkResource(owner, permission string, r *Resource) error {
 	switch {
 	case permission == "" && r == nil:
@@ -267,24 +271,37 @@ func checkResource(owner, permission string, r *Resource) error {
 	case r.Type == "" || r.ValidID == nil:
 		return fmt.Errorf("command: the resource of %s needs its type and ValidID", owner)
 	}
+	statement := stripComments(r.Token)
+	if len(selectWord.FindAllString(statement, -1)) != 1 {
+		return fmt.Errorf("command: the token statement of the resource of %s is not one SELECT with no subselect", owner)
+	}
 	seen := map[string]bool{}
-	for _, m := range placeholder.FindAllStringSubmatch(r.Token, -1) {
+	for _, m := range placeholder.FindAllStringSubmatch(statement, -1) {
 		seen[m[1]] = true
 	}
 	if len(seen) != 2 || !seen["1"] || !seen["2"] {
 		return fmt.Errorf("command: the token statement of the resource of %s does not take exactly the tenant as $1 and the ID as $2", owner)
 	}
-	if !shareLock.MatchString(r.Token) {
-		return fmt.Errorf("command: the token statement of the resource of %s does not lock the row FOR SHARE or FOR KEY SHARE", owner)
+	if !shareLock.MatchString(statement) {
+		return fmt.Errorf("command: the token statement of the resource of %s does not lock the row FOR SHARE", owner)
 	}
 	return nil
 }
 
-// placeholder matches one placeholder of a statement, and shareLock a statement that ends with a share lock.
+// placeholder matches one placeholder of a statement, selectWord the word SELECT, and shareLock a statement that
+// ends with FOR SHARE. FOR KEY SHARE does not block the UPDATE of a token, so it does not count.
 var (
-	placeholder = regexp.MustCompile(`\$([0-9]+)`)
-	shareLock   = regexp.MustCompile(`(?i)\bFOR\s+(KEY\s+)?SHARE\s*;?\s*$`)
+	placeholder  = regexp.MustCompile(`\$([0-9]+)`)
+	selectWord   = regexp.MustCompile(`(?i)\bSELECT\b`)
+	shareLock    = regexp.MustCompile(`(?i)\bFOR\s+SHARE\s*;?\s*$`)
+	lineComment  = regexp.MustCompile(`--[^\n]*`)
+	blockComment = regexp.MustCompile(`(?s)/\*.*?\*/`)
 )
+
+// stripComments removes the comments of a statement, so a comment cannot look like a lock clause or a placeholder.
+func stripComments(statement string) string {
+	return lineComment.ReplaceAllString(blockComment.ReplaceAllString(statement, " "), " ")
+}
 
 // Request is what Run knows of one command request, from the generated handler.
 type Request struct {
@@ -489,7 +506,7 @@ func runAttempt[Req, P any](ctx context.Context, rt *Runtime, cmd *Command[P], r
 
 // decideCommand decides the command's declared permission on the resource id with the attempt's authorization
 // handle, before the idempotency wrapper (ST-SUP-RP10-LC31). It reads and share-locks the resource row through the
-// bound transaction, after lock_timeout, so no revocation can change its token before the commit, and decides at
+// bound transaction FOR SHARE, after lock_timeout, so no revocation can change its token before the commit, and decides at
 // the revocation floor with the same consistency whether or not the row exists, so a missing row and a denied one
 // cost the same calls, take the same time and give the same answer. An ID that is not a key of the resource is
 // denied without a statement. A command with no permission decides nothing.

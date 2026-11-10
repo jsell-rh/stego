@@ -65,32 +65,60 @@ FROM pg_policies, unnest(roles) AS r WHERE tablename = 'messages' AND policyname
 		if current == workerRole {
 			runtimeRole, workerRole = workerRole, runtimeRole
 		}
-		if _, err := a.ExecContext(ctx, `DELETE FROM stego_outbox.messages;
-ALTER TABLE stego_outbox.messages DROP CONSTRAINT messages_payload_check;
-ALTER TABLE stego_outbox.messages ADD CONSTRAINT messages_payload_check
-	CHECK (jsonb_typeof(payload) = 'object' AND octet_length(payload::text) <= 131072)`); err != nil {
+		// The payload is stored as the exact bytes that Enqueue took, with their spacing and key order.
+		exact := message("billing", "k:exact")
+		exact.Payload = []byte(`{ "z": 1,  "a": [true, null] }`)
+		if err := try(exact); err != nil {
 			t.Fatal(err)
+		}
+		var stored []byte
+		if err := admin(t, db).QueryRowContext(ctx, `SELECT payload FROM stego_outbox.messages WHERE id = $1`, exact.ID).Scan(&stored); err != nil ||
+			string(stored) != string(exact.Payload) {
+			t.Fatalf("the stored payload is %q, want the exact bytes %q: %v", stored, exact.Payload, err)
 		}
 		ddl, err := Migration(runtimeRole, workerRole)
 		if err != nil {
 			t.Fatal(err)
 		}
+		checkOID := func() (oid int64, def string) {
+			t.Helper()
+			if err := a.QueryRowContext(ctx, `SELECT oid::bigint, pg_get_constraintdef(oid) FROM pg_constraint
+WHERE conname = 'messages_payload_check' AND conrelid = 'stego_outbox.messages'::regclass`).Scan(&oid, &def); err != nil {
+				t.Fatal(err)
+			}
+			return oid, def
+		}
+		// A second run of the migration keeps a check whose definition is the same.
+		first, def := checkOID()
 		if _, err := a.ExecContext(ctx, ddl); err != nil {
 			t.Fatalf("the migration again: %v", err)
 		}
+		if again, _ := checkOID(); again != first || !strings.Contains(def, "1048576") {
+			t.Fatalf("the migration made the same check again (%d, %d) or it is %q", first, again, def)
+		}
+		// A table of an earlier migration: a jsonb payload and a check of 128 KiB.
+		if _, err := a.ExecContext(ctx, `DELETE FROM stego_outbox.messages;
+ALTER TABLE stego_outbox.messages DROP CONSTRAINT messages_payload_check;
+ALTER TABLE stego_outbox.messages ALTER COLUMN payload TYPE jsonb USING convert_from(payload, 'UTF8')::jsonb;
+ALTER TABLE stego_outbox.messages ADD CONSTRAINT messages_payload_check
+	CHECK (jsonb_typeof(payload) = 'object' AND octet_length(payload::text) <= 131072)`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := a.ExecContext(ctx, ddl); err != nil {
+			t.Fatalf("the migration on an old table: %v", err)
+		}
+		var kind string
+		if err := a.QueryRowContext(ctx, `SELECT format_type(atttypid, atttypmod) FROM pg_attribute
+WHERE attrelid = 'stego_outbox.messages'::regclass AND attname = 'payload'`).Scan(&kind); err != nil || kind != "bytea" {
+			t.Fatalf("the payload column of an old table is %q after the migration: %v", kind, err)
+		}
+		var validated bool
+		if err := a.QueryRowContext(ctx, `SELECT convalidated FROM pg_constraint
+WHERE conname = 'messages_payload_check' AND conrelid = 'stego_outbox.messages'::regclass`).Scan(&validated); err != nil || !validated {
+			t.Fatalf("the new check is not validated: %t, %v", validated, err)
+		}
 		if err := try(big("audit-sink", 900<<10)); err != nil {
 			t.Fatalf("after the migration ran again on an old table, a message of 900 KiB gave %v", err)
-		}
-		// The table takes the message of 900 KiB, with the new check.
-		var n int
-		if err := admin(t, db).QueryRowContext(ctx, `SELECT count(*) FROM stego_outbox.messages WHERE octet_length(payload::text) > 900*1024`).Scan(&n); err != nil || n != 1 {
-			t.Fatalf("%d large rows in the table: %v", n, err)
-		}
-		var check string
-		if err := admin(t, db).QueryRowContext(ctx, `SELECT pg_get_constraintdef(oid) FROM pg_constraint
-WHERE conname = 'messages_payload_check' AND conrelid = 'stego_outbox.messages'::regclass`).Scan(&check); err != nil ||
-			!strings.Contains(check, "2097152") {
-			t.Fatalf("the payload check is %q: %v", check, err)
 		}
 	})
 }

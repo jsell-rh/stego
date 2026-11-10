@@ -50,6 +50,13 @@ func (c *jobClock) Advance(d time.Duration) {
 	c.waiters = kept
 }
 
+// count is the number of timers that wait now.
+func (c *jobClock) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.waiters)
+}
+
 // waitWaiters waits on the real clock until n timers wait.
 func (c *jobClock) waitWaiters(t *testing.T, n int) {
 	t.Helper()
@@ -82,24 +89,24 @@ func TestPurgeJob(t *testing.T) {
 		done := make(chan error, 1)
 		go func() { done <- j.Run(ctx) }()
 		clock.waitWaiters(t, 1)
-		if j.Runs() != 0 || len(rec.deletes) != 0 {
-			t.Fatal("the job purged before its first tick")
+		if j.Runs() != 1 || countRows(t, db, `SELECT count(*) FROM idempotency_keys WHERE key LIKE 'old%'`) != 0 ||
+			countRows(t, db, `SELECT count(*) FROM idempotency_keys`) != 7 {
+			t.Fatalf("at start: %d runs, deletes %v; want the 7 expired rows gone", j.Runs(), rec.deletes)
 		}
 		clock.Advance(59 * time.Second)
 		time.Sleep(20 * time.Millisecond)
-		if j.Runs() != 0 {
+		if j.Runs() != 1 {
 			t.Fatal("the job purged before the interval passed")
 		}
 		clock.Advance(time.Second)
 		clock.waitWaiters(t, 1)
-		if j.Runs() != 1 || countRows(t, db, `SELECT count(*) FROM idempotency_keys WHERE key LIKE 'old%'`) != 0 ||
-			countRows(t, db, `SELECT count(*) FROM idempotency_keys`) != 7 {
-			t.Fatalf("after the first tick: %d runs, deletes %v; want the 7 expired rows gone", j.Runs(), rec.deletes)
+		if j.Runs() != 2 {
+			t.Fatalf("after the first tick: %d runs, want 2", j.Runs())
 		}
 		clock.Advance(time.Minute)
 		clock.waitWaiters(t, 1)
-		if j.Runs() != 2 || len(rec.deletes) != 2 || rec.deletes[1] != 3 {
-			t.Fatalf("after the second tick: %d runs, deletes %v; want one purge per tick", j.Runs(), rec.deletes)
+		if j.Runs() != 3 || len(rec.deletes) != 3 || rec.deletes[2] != 3 {
+			t.Fatalf("after the second tick: %d runs, deletes %v; want one purge per tick, the third of the 3 rows due by then", j.Runs(), rec.deletes)
 		}
 		cancel()
 		if err := <-done; !errors.Is(err, context.Canceled) {
@@ -107,8 +114,31 @@ func TestPurgeJob(t *testing.T) {
 		}
 		clock.Advance(time.Minute)
 		time.Sleep(20 * time.Millisecond)
-		if j.Runs() != 2 {
+		if j.Runs() != 3 {
 			t.Fatal("the job purged after its context ended")
+		}
+
+		// A purge whose pause waits on the job's clock ends with ctx, and is not counted as a run.
+		insertExpiring(t, db, "many", 5, clock.Now().Add(-time.Second))
+		paused, err := NewPurgeJob(db, PurgeJobConfig{Batch: 2, Pause: time.Hour, Clock: clock})
+		if err != nil {
+			t.Fatal(err)
+		}
+		pctx, pcancel := context.WithCancel(context.Background())
+		done = make(chan error, 1)
+		go func() { done <- paused.Run(pctx) }()
+		clock.waitWaiters(t, 1)
+		pcancel()
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("Run gave %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("the pause of a purge did not end with its context")
+		}
+		if paused.Runs() != 0 || paused.Failures() != 0 {
+			t.Fatalf("the cancelled purge counts %d runs and %d failures, want none", paused.Runs(), paused.Failures())
 		}
 
 		// A failed purge is counted and reported, and the next tick runs again.
@@ -118,12 +148,19 @@ func TestPurgeJob(t *testing.T) {
 		}
 		ctx, cancel = context.WithCancel(context.Background())
 		defer cancel()
-		go func() { _ = failing.Run(ctx) }()
-		for i := 1; i <= 2; i++ {
-			clock.waitWaiters(t, 1)
-			clock.Advance(DefaultPurgeInterval)
+		// Abandoned timers of the jobs above stay on the clock, so this part waits for the runs.
+		waitRuns := func(j *PurgeJob, n int64) {
+			t.Helper()
+			deadline := time.Now().Add(10 * time.Second)
+			for j.Runs() < n && time.Now().Before(deadline) {
+				time.Sleep(5 * time.Millisecond)
+			}
 		}
-		clock.waitWaiters(t, 1)
+		go func() { _ = failing.Run(ctx) }()
+		waitRuns(failing, 1)
+		time.Sleep(20 * time.Millisecond)
+		clock.Advance(DefaultPurgeInterval)
+		waitRuns(failing, 2)
 		if failing.Failures() != 2 || failing.Runs() != 2 {
 			t.Fatalf("the failing job has %d runs and %d failures, want 2 and 2", failing.Runs(), failing.Failures())
 		}
@@ -139,9 +176,7 @@ func TestPurgeJob(t *testing.T) {
 		}
 		go func() { _ = both.Run(ctx) }()
 		go func() { _ = both.Run(ctx) }()
-		clock.waitWaiters(t, 3)
-		clock.Advance(DefaultPurgeInterval)
-		clock.waitWaiters(t, 3)
+		waitRuns(both, 2)
 		if slow.calls != 2 || slow.max != 1 {
 			t.Fatalf("the two runs made %d purges with at most %d at once, want 2 one after the other", slow.calls, slow.max)
 		}

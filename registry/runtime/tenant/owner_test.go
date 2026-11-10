@@ -386,6 +386,20 @@ func TestOpener(t *testing.T) {
 			t.Fatal("Guard took a configuration with a session setting")
 		}
 
+		// A configuration with an after-connect hook can set a session value, and is refused.
+		hooked := opener(env.runtime)
+		hooked.AfterConnect = func(context.Context, *pgconn.PgConn) error { return nil }
+		netHooked := opener(env.runtime)
+		netHooked.AfterNetConnect = func(_ context.Context, _ *pgconn.Config, c net.Conn) (net.Conn, error) { return c, nil }
+		for name, c := range map[string]*pgx.ConnConfig{"AfterConnect": hooked, "AfterNetConnect": netHooked} {
+			if err := Guard(Config{Conn: c}); err == nil {
+				t.Errorf("Guard took a configuration with %s", name)
+			}
+			if _, err := Open(ctx, Config{Conn: c}); err == nil {
+				t.Errorf("Open took a configuration with %s", name)
+			}
+		}
+
 		// A pool without verified TLS is refused.
 		plain := opener(env.runtime)
 		plain.TLSConfig = nil

@@ -245,8 +245,11 @@ func TestCursor(t *testing.T) {
 		if err != nil || back != search {
 			t.Fatalf("the search cursor came back as %+v, %v", back, err)
 		}
-		if _, err := New(Config{DB: e.db, CursorKey: []byte("short")}); err == nil {
+		if _, err := New(Config{DB: e.db, Service: "shop", CursorKey: []byte("short")}); err == nil {
 			t.Fatal("a cursor key of 5 bytes was accepted")
+		}
+		if _, err := New(Config{DB: e.db, CursorKey: testCursorKey}); err == nil {
+			t.Fatal("a cursor key with no service name was accepted")
 		}
 	})
 }

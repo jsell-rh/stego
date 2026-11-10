@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -64,8 +65,8 @@ func sumParts(parts ...[]byte) ([sha256.Size]byte, error) {
 
 // Canonical returns the canonical JSON form of body (ST-SUP-RP07-LC05): object keys sorted by their bytes, no
 // insignificant whitespace, one form for each number and one escape form for each string. Numbers keep their exact
-// decimal value, so 1, 1.0 and 1e0 have the form 1, and no integer loses digits. When an object repeats a key, the
-// last value counts, as encoding/json decodes it. A string with invalid UTF-8 or a lone surrogate escape collapses
+// decimal value, so 1, 1.0 and 1e0 have the form 1, and no integer loses digits. An object that repeats a key, or
+// holds two keys that are equal under Unicode simple case folding, is refused (ST-SUP-RP07-LC05). A string with invalid UTF-8 or a lone surrogate escape collapses
 // to U+FFFD, as encoding/json decodes it, so two such strings that differ only there have one form. A body of only
 // JSON whitespace (space, tab, line feed, carriage return) or of no bytes gives an empty result.
 func Canonical(body []byte) ([]byte, error) {
@@ -88,6 +89,20 @@ func Canonical(body []byte) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
+// foldKey is the case-folded form of key: each rune becomes the least rune of its simple case folding orbit, so two
+// keys that strings.EqualFold matches have one form.
+func foldKey(key string) string {
+	var b strings.Builder
+	for _, r := range key {
+		least := r
+		for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+			least = min(least, f)
+		}
+		b.WriteRune(least)
+	}
+	return b.String()
+}
+
 // object is a decoded JSON object; value is one of nil, bool, string, json.Number, []value or object.
 type object map[string]any
 
@@ -102,6 +117,7 @@ func readValue(dec *json.Decoder) (any, error) {
 		switch t {
 		case '{':
 			obj := object{}
+			folded := map[string]bool{}
 			for dec.More() {
 				keyTok, err := dec.Token()
 				if err != nil {
@@ -110,6 +126,13 @@ func readValue(dec *json.Decoder) (any, error) {
 				key, ok := keyTok.(string)
 				if !ok {
 					return nil, errors.New("an object key is not a string")
+				}
+				// A key that repeats, or that equals another under case folding, is refused: a decoder of the body
+				// may read either value, so the fingerprint could cover a value the service does not act on.
+				if fold := foldKey(key); folded[fold] {
+					return nil, errors.New("an object repeats a key, or holds two keys that are equal under case folding")
+				} else {
+					folded[fold] = true
 				}
 				v, err := readValue(dec)
 				if err != nil {
