@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -118,14 +119,64 @@ func Commit(ctx context.Context, tx *sql.Tx, t Tenant) error {
 // Config is what a connector needs to open a database: the connection string, the extra startup parameters and the
 // statements that run on each new connection. Guard checks it before a connector opens anything.
 type Config struct {
-	// DSN is a PostgreSQL connection string, in URL or key=value form. The PG* environment values apply as pgx
-	// reads them, and Guard checks the result.
+	// Conn is the connection configuration that the PostgreSQL adapter's opener builds, with its verified TLS
+	// policy (ST-SUP-RP04-LC09, ST-SUP-RC01-OC01 to OC04). Open and OpenOwner open the pool with it as it is and
+	// parse no DSN; they refuse a Conn whose TLS is not verified. Give Conn or DSN, not both.
+	Conn *pgx.ConnConfig
+	// Pool are the bounds of the pool (ST-SUP-RC01-OC12), which Open sets on the pool it returns. A zero bound
+	// keeps the default of database/sql.
+	Pool PoolBounds
+	// DSN is a PostgreSQL connection string, in URL or key=value form, for a connector with no opener, such as a
+	// test. The PG* environment values apply as pgx reads them, and Guard checks the result.
 	DSN string
 	// Params are startup parameters to add to those of the DSN.
 	Params map[string]string
 	// AfterConnect are statements to run on each new connection. Guard refuses every one: a statement can set a
 	// session value in more ways than a check of its text finds.
 	AfterConnect []string
+}
+
+// PoolBounds are the bounds of a pool.
+type PoolBounds struct {
+	MaxOpen, MaxIdle         int
+	MaxLifetime, MaxIdleTime time.Duration
+}
+
+// connConfig is the connection configuration of cfg: Conn as it is, or the parsed DSN.
+func connConfig(cfg Config) (*pgx.ConnConfig, error) {
+	switch {
+	case cfg.Conn != nil && cfg.DSN != "":
+		return nil, errors.New("tenant: give a connection configuration or a connection string, not both")
+	case cfg.Conn != nil:
+		// A hook of the configuration runs on each new connection and can set a session value, as an after-connect
+		// statement can (ST-SUP-RP04-LC04).
+		if cfg.Conn.AfterConnect != nil || cfg.Conn.AfterNetConnect != nil {
+			return nil, errors.New("tenant: the pooler guard refuses a connection configuration with an after-connect hook")
+		}
+		return cfg.Conn.Copy(), nil
+	}
+	parsed, err := pgx.ParseConfig(cfg.DSN)
+	if err != nil {
+		return nil, fmt.Errorf("tenant: read the connection string: %w", err)
+	}
+	return parsed, nil
+}
+
+// errNoVerifiedTLS is the error of a connection configuration of the opener whose TLS is not verified.
+var errNoVerifiedTLS = errors.New("tenant: the connection configuration does not verify TLS")
+
+// verifiedTLS refuses a connection configuration, or one of its fallbacks, that connects without TLS or does not
+// verify the server's certificate (ST-SUP-RP04-LC09).
+func verifiedTLS(c *pgx.ConnConfig) error {
+	if c.TLSConfig == nil || c.TLSConfig.InsecureSkipVerify {
+		return errNoVerifiedTLS
+	}
+	for _, f := range c.Fallbacks {
+		if f.TLSConfig == nil || f.TLSConfig.InsecureSkipVerify {
+			return fmt.Errorf("%w: a fallback connects without verified TLS", errNoVerifiedTLS)
+		}
+	}
+	return nil
 }
 
 // allowedStartupParams are the startup parameters that set no value which differs between clients. The pooler
@@ -136,9 +187,9 @@ var allowedStartupParams = map[string]bool{"application_name": true}
 // a startup parameter other than application_name, or any after-connect statement (ST-SUP-RP04-LC04). The error
 // names each setting, and quotes each statement. A connector calls it before it opens a connection.
 func Guard(cfg Config) error {
-	parsed, err := pgx.ParseConfig(cfg.DSN)
+	parsed, err := connConfig(cfg)
 	if err != nil {
-		return fmt.Errorf("tenant: read the connection string: %w", err)
+		return err
 	}
 	var refused []string
 	params := map[string]string{}

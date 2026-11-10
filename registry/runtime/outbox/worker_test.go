@@ -405,7 +405,7 @@ func TestWorkerFailures(t *testing.T) {
 			if d.ID == n.ID {
 				want = n
 			}
-			if d.ID != want.ID || d.Kind != want.Kind || string(d.Payload) != `{"version": 1}` || d.Attempts != 2 ||
+			if d.ID != want.ID || d.Kind != want.Kind || string(d.Payload) != `{"version":1}` || d.Attempts != 2 ||
 				d.Receipt.Token == old.Token.UUID {
 				t.Fatalf("the recovered delivery %+v does not keep the contract", d)
 			}

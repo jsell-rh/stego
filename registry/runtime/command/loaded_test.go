@@ -36,6 +36,17 @@ type LoadedCharge = command.Loaded[Charge]
 func ChargeRequested(ctx context.Context, h *command.Handle[struct{}], c LoadedCharge) error {
 	return h.Effects().Stage(ctx, "billing", "charge-requested", c, []byte("{}"))
 }
+
+// Slots is the generated slot code: it holds the runtime, which no fill gets, and makes the loaded value of a
+// validated request entity.
+type Slots struct {
+	RT           *command.Runtime
+	Reservations *command.Entity[Reservation]
+}
+
+func (s Slots) BeforeCreate(r Reservation) (LoadedReservation, error) {
+	return command.FromRequest(s.RT.SlotKey(), s.Reservations, r)
+}
 `
 
 // buildFill builds a fill package with the body src in a module outside the runtime module, beside the generated
@@ -43,12 +54,22 @@ func ChargeRequested(ctx context.Context, h *command.Handle[struct{}], c LoadedC
 // checkout through the work file of scripts/runtime-workspace.sh.
 func buildFill(t *testing.T, src string) error {
 	t.Helper()
+	return buildFillWith(t, nil, src)
+}
+
+// buildFillWith is buildFill with the further imports imports in the fill package.
+func buildFillWith(t *testing.T, imports []string, src string) error {
+	t.Helper()
+	extra := ""
+	for _, path := range imports {
+		extra += "\t\"" + path + "\"\n"
+	}
 	dir := t.TempDir()
 	module := filepath.Join(dir, "outside")
 	files := map[string]string{
 		"go.mod":     "module example.com/outside\n\ngo 1.26.10\n\nrequire stego.dev/runtime v0.0.0\n",
 		"gen/gen.go": genSource,
-		"fill/fill.go": "package fill\n\nimport (\n\t\"context\"\n\n\t\"example.com/outside/gen\"\n\t\"stego.dev/runtime/command\"\n)\n\n" +
+		"fill/fill.go": "package fill\n\nimport (\n\t\"context\"\n\n\t\"example.com/outside/gen\"\n\t\"stego.dev/runtime/command\"\n" + extra + ")\n\n" +
 			"var (\n\t_ context.Context\n\t_ = gen.ChargeRequested\n\t_ *command.Handle[struct{}]\n)\n" + src,
 	}
 	for name, text := range files {

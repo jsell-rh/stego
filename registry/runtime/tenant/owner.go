@@ -98,14 +98,24 @@ func open(ctx context.Context, cfg Config) (*sql.DB, error) {
 	if err := Guard(cfg); err != nil {
 		return nil, err
 	}
-	connConfig, err := pgx.ParseConfig(cfg.DSN)
+	conn, err := connConfig(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("tenant: read the connection string: %w", err)
+		return nil, err
+	}
+	if cfg.Conn != nil {
+		// conn is a copy of the opener's configuration, made before the check, so a change of the caller's value
+		// after the check changes nothing: the pool opens with the TLS policy that the check saw.
+		if err := verifiedTLS(conn); err != nil {
+			return nil, err
+		}
+	}
+	if len(cfg.Params) > 0 && conn.RuntimeParams == nil {
+		conn.RuntimeParams = map[string]string{}
 	}
 	for name, value := range cfg.Params {
-		connConfig.RuntimeParams[name] = value
+		conn.RuntimeParams[name] = value
 	}
-	db := stdlib.OpenDB(*connConfig,
+	db := stdlib.OpenDB(*conn,
 		stdlib.OptionAfterConnect(checkConn),
 		stdlib.OptionResetSession(func(ctx context.Context, conn *pgx.Conn) error {
 			if err := checkConn(ctx, conn); err != nil {
@@ -115,6 +125,16 @@ func open(ctx context.Context, cfg Config) (*sql.DB, error) {
 			return nil
 		}),
 	)
+	if b := cfg.Pool; b.MaxOpen > 0 || b.MaxIdle > 0 || b.MaxLifetime > 0 || b.MaxIdleTime > 0 {
+		if b.MaxOpen > 0 {
+			db.SetMaxOpenConns(b.MaxOpen)
+		}
+		if b.MaxIdle > 0 {
+			db.SetMaxIdleConns(b.MaxIdle)
+		}
+		db.SetConnMaxLifetime(b.MaxLifetime)
+		db.SetConnMaxIdleTime(b.MaxIdleTime)
+	}
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("tenant: open the database: %w", err)

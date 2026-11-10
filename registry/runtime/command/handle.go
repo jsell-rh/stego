@@ -151,19 +151,41 @@ type EntitySpec[T any] struct {
 	// ValidID is the generated check of a key: it reports whether id has the form of the entity's key type, such as a
 	// uuid, so a malformed key is not found after the same decision and never fails a statement.
 	ValidID func(id string) bool
+	// Parent is the generated reader of the parent of a new row: the name of the parent entity and the parent's ID
+	// that value names, such as Order and value.OrderID. Nil for an entity that has no parent. Create takes only that
+	// parent (ST-SUP-RP10-LC05).
+	Parent func(value T) (entity, id string)
 }
 
 // Entity is the repository declaration of one entity, which NewEntity checks once.
 type Entity[T any] struct {
 	spec EntitySpec[T]
+	// owner is the runtime that registered the entity in its Config.Entities; an entity registers with one runtime
+	// only.
+	owner *Runtime
 }
 
 // Declared is an entity that a command or a worker declares it writes: an *Entity of any type.
 type Declared interface {
 	entityName() string
+	register(rt *Runtime) error
 }
 
 func (e *Entity[T]) entityName() string { return e.spec.Name }
+
+// registerMu guards the owner of every entity.
+var registerMu sync.Mutex
+
+// register makes rt the one runtime of the entity, and refuses an entity that another runtime registered.
+func (e *Entity[T]) register(rt *Runtime) error {
+	registerMu.Lock()
+	defer registerMu.Unlock()
+	if e.owner != nil && e.owner != rt {
+		return fmt.Errorf("command: the entity %s is registered with another runtime", e.spec.Name)
+	}
+	e.owner = rt
+	return nil
+}
 
 // Name is the entity's name.
 func (e *Entity[T]) Name() string { return e.spec.Name }
@@ -268,9 +290,11 @@ type Ref = loaded.Any
 type rowRef struct {
 	st           *state
 	entity       string
+	entityRef    any
 	resourceType string
 	id           string
 	token        string
+	lock         lockMode
 }
 
 func refOf(r Ref) rowRef {
@@ -279,13 +303,128 @@ func refOf(r Ref) rowRef {
 		return rowRef{}
 	}
 	st, _ := ref.Owner.(*state)
-	return rowRef{st: st, entity: ref.EntityName, resourceType: ref.ResourceType, id: ref.ID, token: ref.Token}
+	return rowRef{st: st, entity: ref.EntityName, entityRef: ref.Entity, resourceType: ref.ResourceType, id: ref.ID,
+		token: ref.Token, lock: lockMode(ref.Lock)}
 }
 
 // newLoaded makes the loaded value of one row that the handle state s read or wrote.
 func newLoaded[T any](value T, meta Meta, e *Entity[T], s *state, lock lockMode) Loaded[T] {
 	return loaded.New(value, e.spec.Clone, loaded.Ref{Owner: s, Entity: e, EntityName: e.spec.Name, ResourceType: e.spec.ResourceType,
 		ID: meta.ID, Version: meta.Version, Token: meta.Token, Lock: uint8(lock)})
+}
+
+// isChild reports whether the entity is a child: it has a Parent and no resource type, so it takes its authorization
+// from its parent (ST-SUP-RP10-LC05).
+func (r *Repository[T]) isChild() bool { return r.entity.isChild() }
+
+func (e *Entity[T]) isChild() bool { return e.spec.Parent != nil && e.spec.ResourceType == "" }
+
+// parentOf gives the parent that the loaded value ref names, for a child entity, and false for any other entity or
+// a value of another entity.
+func (e *Entity[T]) parentOf(ref Ref) (string, string, bool) {
+	l, ok := ref.(Loaded[T])
+	if !ok || !e.isChild() {
+		return "", "", false
+	}
+	value, _, ok := loaded.Fields(l)
+	if !ok {
+		return "", "", false
+	}
+	name, id := e.spec.Parent(value)
+	return name, id, true
+}
+
+// decideParents decides, for a locked read, a list, an update or a delete of a child, the permission of the command
+// or the worker on the parent that each of values names, as a create does (ST-SUP-RP10-LC05, ST-SUP-RP10-LC17):
+// parents must hold the loaded value of each such parent, tied with checkParent, and nothing else. An entity that is
+// not a child takes no parent. A deny is not found.
+func (r *Repository[T]) decideParents(ctx context.Context, verb string, parents []Ref, values ...T) error {
+	s, e := r.st, r.entity
+	if !r.isChild() {
+		if len(parents) > 0 {
+			return s.breakWith(internalf("the %s of %s takes no parent: it is not a child entity", verb, e.spec.Name))
+		}
+		return nil
+	}
+	used := make([]bool, len(parents))
+	for _, value := range values {
+		name, id := e.spec.Parent(value)
+		found := -1
+		for i, p := range parents {
+			if ref := refOf(p); p != nil && ref.st == s && ref.entity == name && ref.id == id {
+				found = i
+				break
+			}
+		}
+		if found < 0 {
+			return s.breakWith(internalf("the %s of %s needs the loaded value of the parent that the row names", verb, e.spec.Name))
+		}
+		if used[found] {
+			continue
+		}
+		used[found] = true
+		p := refOf(parents[found])
+		if err := s.decideWrite(ctx, p.resourceType, p.entity, p.id, p.token); err != nil {
+			return err
+		}
+	}
+	for _, u := range used {
+		if !u {
+			return s.breakWith(internalf("the %s of %s takes a parent that the row does not name", verb, e.spec.Name))
+		}
+	}
+	return nil
+}
+
+// decideMove decides the parents of an update. A child decides on its parent, and on the new one when the update
+// moves it (decideParents). Any other entity with a Parent, such as one with a resource type of its own, decides on
+// the new parent when the update moves it: parents must hold its loaded value, matched as checkParent matches a
+// create's parent, and nothing else; an update that keeps the parent takes no parent (ST-SUP-RP10-LC05,
+// ST-SUP-RP10-LC17).
+func (r *Repository[T]) decideMove(ctx context.Context, parents []Ref, from, value T) error {
+	s, e := r.st, r.entity
+	if r.isChild() || e.spec.Parent == nil {
+		return r.decideParents(ctx, "update", parents, from, value)
+	}
+	oldName, oldID := e.spec.Parent(from)
+	newName, newID := e.spec.Parent(value)
+	if oldName == newName && oldID == newID {
+		if len(parents) > 0 {
+			return s.breakWith(internalf("an update of %s that keeps its parent takes no parent", e.spec.Name))
+		}
+		return nil
+	}
+	if len(parents) != 1 || parents[0] == nil {
+		return s.breakWith(internalf("an update that moves %s to another parent needs the loaded value of the new parent", e.spec.Name))
+	}
+	if err := s.checkParent(e.spec.Name, true, func() (string, string) { return newName, newID }, parents[0]); err != nil {
+		return err
+	}
+	p := refOf(parents[0])
+	return s.decideWrite(ctx, p.resourceType, p.entity, p.id, p.token)
+}
+
+// checkParent refuses, as an internal error, a parent of a create of entity that is not tied to the new row: a
+// parent of another handle, of another entity or with another ID than parentOf reads from the value, a parent for an
+// entity that has none, and, for a command, no parent for an entity that has one.
+func (s *state) checkParent(entity string, hasParent bool, parentOf func() (string, string), parent Ref) error {
+	switch {
+	case parent == nil && hasParent && s.mode == modeCommand:
+		return s.breakWith(internalf("a create of %s needs the parent that the new row names", entity))
+	case parent == nil:
+		return nil
+	case !hasParent:
+		return s.breakWith(internalf("a create of %s takes no parent: the entity has none", entity))
+	}
+	p := refOf(parent)
+	if p.st != s {
+		return s.breakWith(internalf("the parent of a create of %s is a loaded value of another transaction", entity))
+	}
+	name, id := parentOf()
+	if p.entity != name || p.id != id {
+		return s.breakWith(internalf("the parent of a create of %s is not the parent that the new row names", entity))
+	}
+	return nil
 }
 
 // view is a loaded value as this package reads it.
@@ -351,9 +490,12 @@ type state struct {
 	// onBehalfOf is the staging principal of a consumer, which its audit rows name (ST-SUP-RP10-LC16).
 	onBehalfOf string
 	// permission is a worker's declared permission (ST-SUP-RP10-LC17).
-	permission   string
-	writes       map[Declared]bool
-	destinations map[string]Destination
+	permission string
+	// commandPermission is the command's declared permission, which a command's locked read and write decide too
+	// (ST-SUP-RP10-LC05); empty for a command without one and for a worker.
+	commandPermission string
+	writes            map[Declared]bool
+	destinations      map[string]Destination
 	// inbound gives the inbound key of an effect for the entity ID (ST-SUP-RP10-LC08, ST-SUP-RP10-LC21).
 	inbound func(id string) string
 	staged  []outbox.Message
@@ -521,32 +663,32 @@ func (r *Repository[T]) Get(ctx context.Context, id string) (Loaded[T], error) {
 		return nil, err
 	}
 	defer r.st.leave()
-	return r.read(ctx, id, lockNone)
+	return r.read(ctx, id, lockNone, nil)
 }
 
 // GetForUpdate reads the row of id, decides the read on it, and only then locks it with FOR NO KEY UPDATE until the
 // transaction ends, so a concurrent insert of a child row does not wait (ST-SUP-RP10-LC23). A denied row is not
 // locked and is not found. When the row's authorization token changed between the read and the lock, it decides
 // again and releases the lock of a row that is now denied.
-func (r *Repository[T]) GetForUpdate(ctx context.Context, id string) (Loaded[T], error) {
+func (r *Repository[T]) GetForUpdate(ctx context.Context, id string, parent ...Ref) (Loaded[T], error) {
 	if err := r.st.enter(); err != nil {
 		return nil, err
 	}
 	defer r.st.leave()
-	return r.read(ctx, id, lockUpdate)
+	return r.read(ctx, id, lockUpdate, parent)
 }
 
 // GetForDelete is GetForUpdate with FOR UPDATE, for a fill that deletes the row or changes a column of one of its
 // keys (ST-SUP-RP10-LC23, ST-SUP-RP10-LC24).
-func (r *Repository[T]) GetForDelete(ctx context.Context, id string) (Loaded[T], error) {
+func (r *Repository[T]) GetForDelete(ctx context.Context, id string, parent ...Ref) (Loaded[T], error) {
 	if err := r.st.enter(); err != nil {
 		return nil, err
 	}
 	defer r.st.leave()
-	return r.read(ctx, id, lockDelete)
+	return r.read(ctx, id, lockDelete, parent)
 }
 
-func (r *Repository[T]) read(ctx context.Context, id string, lock lockMode) (Loaded[T], error) {
+func (r *Repository[T]) read(ctx context.Context, id string, lock lockMode, parents []Ref) (Loaded[T], error) {
 	s, e := r.st, r.entity
 	var value T
 	var meta Meta
@@ -570,6 +712,12 @@ func (r *Repository[T]) read(ctx context.Context, id string, lock lockMode) (Loa
 		return nil, err
 	}
 	if lock != lockNone {
+		if err := s.decideCommandOn(ctx, e.spec.ResourceType, e.spec.Name, meta.ID, meta.Token); err != nil {
+			return nil, err
+		}
+		if err := r.decideParents(ctx, "locked read", parents, value); err != nil {
+			return nil, err
+		}
 		statement := e.spec.SelectForUpdate
 		if lock == lockDelete {
 			statement = e.spec.SelectForDelete
@@ -607,7 +755,11 @@ func lockOne[T any](ctx context.Context, s *state, e *Entity[T], statement, id s
 		return zero, Meta{}, s.fail(ctx, step, err)
 	}
 	if meta.Token != first.Token {
-		if err := s.decideRead(ctx, e.spec.ResourceType, e.spec.ReadPermission, e.spec.Name, meta); err != nil {
+		err := s.decideRead(ctx, e.spec.ResourceType, e.spec.ReadPermission, e.spec.Name, meta)
+		if err == nil {
+			err = s.decideCommandOn(ctx, e.spec.ResourceType, e.spec.Name, meta.ID, meta.Token)
+		}
+		if err != nil {
 			if _, rbErr := s.exec(ctx, "ROLLBACK TO SAVEPOINT stego_command_lock"); rbErr != nil {
 				return zero, Meta{}, s.fail(ctx, step, rbErr)
 			}
@@ -644,7 +796,7 @@ func (r *Repository[T]) List(ctx context.Context, l *List[T], limit int, args ..
 	if err != nil {
 		return nil, err
 	}
-	allowed, err := r.allowedRows(ctx, rows)
+	allowed, err := r.allowedRows(ctx, rows, false)
 	if err != nil {
 		return nil, err
 	}
@@ -655,7 +807,7 @@ func (r *Repository[T]) List(ctx context.Context, l *List[T], limit int, args ..
 // and locks nothing when more rows than Lock at most match, keeps the rows that the decision port allows, and locks
 // only those with l's Lock statement, in primary key order. It decides again each locked row whose token moved and
 // leaves out, and unlocks, a row that is now denied (ST-SUP-RP10-LC27). The locks stay until the transaction ends.
-func (r *Repository[T]) ListForUpdate(ctx context.Context, l *List[T], args ...any) ([]Loaded[T], error) {
+func (r *Repository[T]) ListForUpdate(ctx context.Context, l *List[T], parent Ref, args ...any) ([]Loaded[T], error) {
 	if err := r.st.enter(); err != nil {
 		return nil, err
 	}
@@ -672,9 +824,23 @@ func (r *Repository[T]) ListForUpdate(ctx context.Context, l *List[T], args ...a
 		return nil, s.breakWith(internalf("the locked list %s of %s matches more than its Lock at most %d rows",
 			l.spec.Name, e.spec.Name, e.spec.LockAtMost))
 	}
-	allowed, err := r.allowedRows(ctx, rows)
+	allowed, err := r.allowedRows(ctx, rows, true)
 	if err != nil {
 		return nil, err
+	}
+	// A child entity takes its authorization from its parent: every row of the list must name parent, and the
+	// call decides on parent once (ST-SUP-RP10-LC05).
+	var parents []Ref
+	if parent != nil {
+		parents = []Ref{parent}
+	}
+	for _, row := range allowed {
+		if err := r.decideParents(ctx, "locked list", parents, row.value); err != nil {
+			return nil, err
+		}
+	}
+	if len(allowed) == 0 && parent != nil && !r.isChild() {
+		return nil, s.breakWith(internalf("a locked list of %s takes no parent", e.spec.Name))
 	}
 	first := map[string]string{}
 	for _, row := range allowed {
@@ -707,7 +873,7 @@ func (r *Repository[T]) ListForUpdate(ctx context.Context, l *List[T], args ...a
 		}
 		denied := map[string]bool{}
 		if len(moved) > 0 {
-			ok, err := r.decideRows(ctx, moved)
+			ok, err := r.decideRows(ctx, moved, true)
 			if err != nil {
 				return nil, err
 			}
@@ -773,8 +939,8 @@ func (r *Repository[T]) scanAll(ctx context.Context, step, statement string, arg
 }
 
 // allowedRows keeps the rows that the decision port allows, in their order.
-func (r *Repository[T]) allowedRows(ctx context.Context, rows []scanned[T]) ([]scanned[T], error) {
-	ok, err := r.decideRows(ctx, rows)
+func (r *Repository[T]) allowedRows(ctx context.Context, rows []scanned[T], locked bool) ([]scanned[T], error) {
+	ok, err := r.decideRows(ctx, rows, locked)
 	if err != nil {
 		return nil, err
 	}
@@ -787,7 +953,9 @@ func (r *Repository[T]) allowedRows(ctx context.Context, rows []scanned[T]) ([]s
 	return allowed, nil
 }
 
-func (r *Repository[T]) decideRows(ctx context.Context, rows []scanned[T]) ([]bool, error) {
+// decideRows decides the rows of a list. A locked list of a command also decides the command's permission on each
+// row that the list permission allows (ST-SUP-RP10-LC05).
+func (r *Repository[T]) decideRows(ctx context.Context, rows []scanned[T], locked bool) ([]bool, error) {
 	metas := make([]Meta, len(rows))
 	for i, row := range rows {
 		metas[i] = row.meta
@@ -796,7 +964,12 @@ func (r *Repository[T]) decideRows(ctx context.Context, rows []scanned[T]) ([]bo
 	if permission == "" {
 		permission = r.entity.spec.ReadPermission
 	}
-	return r.st.decideList(ctx, r.entity.spec.ResourceType, permission, metas)
+	s := r.st
+	allowed, err := s.decideList(ctx, r.entity.spec.ResourceType, permission, metas)
+	if err != nil || !locked || s.mode != modeCommand || s.commandPermission == "" || r.entity.spec.ResourceType == "" {
+		return allowed, err
+	}
+	return s.batch(ctx, s.az, s.commandPermission, r.entity.spec.ResourceType, metas, allowed, allowed)
 }
 
 // loadAll audits each read of an entity with a pii field and makes the loaded values.
@@ -811,8 +984,11 @@ func (r *Repository[T]) loadAll(ctx context.Context, rows []scanned[T], lock loc
 	return out, nil
 }
 
-// Create inserts value and returns it as stored, with the version the insert gave it. A command's create makes no
-// decision of its own (ST-SUP-RP10-LC05); a worker's create decides the worker's permission on parent, the loaded
+// Create inserts value and returns it as stored, with the version the insert gave it. The parent must be the
+// loaded value of this handle that the entity's Parent reads from value, the same entity and the same ID, and a
+// command must give it whenever the entity has a parent; an entity with no parent takes none. A command's create
+// decides the command's permission on the parent, and one with no parent is covered by the decision before the fill
+// (ST-SUP-RP10-LC05); a worker's create decides the worker's permission on parent, the loaded
 // parent resource that the new row goes under, before the write (ST-SUP-RP10-LC17). The audit row of the write is
 // buffered for Run (ST-SUP-RP10-LC06).
 func (r *Repository[T]) Create(ctx context.Context, value T, parent Ref) (Loaded[T], error) {
@@ -821,14 +997,16 @@ func (r *Repository[T]) Create(ctx context.Context, value T, parent Ref) (Loaded
 	}
 	defer r.st.leave()
 	s, e := r.st, r.entity
-	if s.mode != modeCommand && e.spec.ResourceType != "" {
-		if parent == nil {
-			return nil, fmt.Errorf("command: a worker's create of %s needs the parent resource to decide on", e.spec.Name)
-		}
+	if err := s.checkParent(e.spec.Name, e.spec.Parent != nil, func() (string, string) { return e.spec.Parent(value) }, parent); err != nil {
+		return nil, err
+	}
+	if s.mode != modeCommand && e.spec.ResourceType != "" && parent == nil {
+		return nil, fmt.Errorf("command: a worker's create of %s needs the parent resource to decide on", e.spec.Name)
+	}
+	if parent != nil {
+		// A create decides the permission of the command or the worker on its parent (ST-SUP-RP10-LC05,
+		// ST-SUP-RP10-LC17).
 		p := refOf(parent)
-		if p.st != s {
-			return nil, s.breakWith(internalf("the parent of a create of %s is a loaded value of another transaction", e.spec.Name))
-		}
 		if err := s.decideWrite(ctx, p.resourceType, p.entity, p.id, p.token); err != nil {
 			return nil, err
 		}
@@ -853,7 +1031,7 @@ func (r *Repository[T]) Create(ctx context.Context, value T, parent Ref) (Loaded
 // version, and returns the row with its new version (ST-SUP-RP10-LC24). A moved version writes nothing, writes no
 // audit row and returns ErrConflict. A value of another transaction, a value of this transaction whose row a later
 // write changed, and a change of a key column from a value that GetForDelete did not lock are internal errors.
-func (r *Repository[T]) Update(ctx context.Context, from Loaded[T], value T) (Loaded[T], error) {
+func (r *Repository[T]) Update(ctx context.Context, from Loaded[T], value T, parents ...Ref) (Loaded[T], error) {
 	if err := r.st.enter(); err != nil {
 		return nil, err
 	}
@@ -866,10 +1044,12 @@ func (r *Repository[T]) Update(ctx context.Context, from Loaded[T], value T) (Lo
 	if e.spec.KeyChanged(from2.value, value) && from2.lock != lockDelete {
 		return nil, s.breakWith(internalf("an update of a key column of %s needs a value that GetForDelete locked", e.spec.Name))
 	}
-	if s.mode != modeCommand {
-		if err := s.decideWrite(ctx, e.spec.ResourceType, e.spec.Name, from2.meta.ID, from2.meta.Token); err != nil {
-			return nil, err
-		}
+	if err := s.decideWrite(ctx, e.spec.ResourceType, e.spec.Name, from2.meta.ID, from2.meta.Token); err != nil {
+		return nil, err
+	}
+	// A child decides on its parent, and an update that moves it to another parent on the new parent too.
+	if err := r.decideMove(ctx, parents, from2.value, value); err != nil {
+		return nil, err
 	}
 	step := "update " + e.spec.Name
 	row, err := s.lockedRow(ctx, step, e.spec.Update,
@@ -894,7 +1074,7 @@ func (r *Repository[T]) Update(ctx context.Context, from Loaded[T], value T) (Lo
 
 // Delete removes the row of from, a loaded value of this handle, only while the row still has from's version, as
 // Update states (ST-SUP-RP10-LC24).
-func (r *Repository[T]) Delete(ctx context.Context, from Loaded[T]) error {
+func (r *Repository[T]) Delete(ctx context.Context, from Loaded[T], parent ...Ref) error {
 	if err := r.st.enter(); err != nil {
 		return err
 	}
@@ -909,10 +1089,11 @@ func (r *Repository[T]) Delete(ctx context.Context, from Loaded[T]) error {
 	if from2.lock == lockUpdate {
 		return s.breakWith(internalf("a delete of %s needs a value that GetForDelete locked, not GetForUpdate", e.spec.Name))
 	}
-	if s.mode != modeCommand {
-		if err := s.decideWrite(ctx, e.spec.ResourceType, e.spec.Name, from2.meta.ID, from2.meta.Token); err != nil {
-			return err
-		}
+	if err := s.decideWrite(ctx, e.spec.ResourceType, e.spec.Name, from2.meta.ID, from2.meta.Token); err != nil {
+		return err
+	}
+	if err := r.decideParents(ctx, "delete", parent, from2.value); err != nil {
+		return err
 	}
 	step := "delete " + e.spec.Name
 	if err := s.setLockTimeout(ctx); err != nil {

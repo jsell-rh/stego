@@ -60,8 +60,9 @@ type Effects struct {
 // the principal, the inbound key, the destination and the effect name, where the inbound key is the run's inbound
 // key and then the entity's ID, each prefixed by its length. It refuses the destinations authz and audit-sink, an
 // undeclared destination, a value of another handle, and a second effect of one name for one entity in one call,
-// and then stages nothing.
-func (f *Effects) Stage(ctx context.Context, destination, effect string, entity Ref, payload json.RawMessage) error {
+// and then stages nothing. In a command it decides the command's permission on an entity with a resource type, as
+// a write does, and refuses an entity with none unless the value was locked or written.
+func (f *Effects) Stage(ctx context.Context, destination, effect string, entity Ref, payload json.RawMessage, parent ...Ref) error {
 	s := f.st
 	if err := s.enter(); err != nil {
 		return err
@@ -80,6 +81,41 @@ func (f *Effects) Stage(ctx context.Context, destination, effect string, entity 
 	r := refOf(entity)
 	if r.st != s {
 		return s.breakWith(internalf("an effect of %s names a loaded value of another transaction", s.action))
+	}
+	// An effect is for a row the command or the worker may act on (ST-SUP-RP10-LC05): a command decides its
+	// permission on an entity with a resource type; a child entity, which has a Parent and no resource type, takes
+	// the decision of its parent, whose loaded value parent must give, as a write of it does; and any other entity in
+	// a command needs a value that the handle locked or wrote.
+	child, _ := r.entityRef.(interface {
+		parentOf(Ref) (string, string, bool)
+	})
+	name, parentID, isChild := "", "", false
+	if child != nil {
+		name, parentID, isChild = child.parentOf(entity)
+	}
+	switch {
+	case isChild:
+		if len(parent) != 1 || parent[0] == nil {
+			return s.breakWith(internalf("an effect of %s for %s needs the loaded value of the parent the row names", s.action, r.entity))
+		}
+		p := refOf(parent[0])
+		if p.st != s || p.entity != name || p.id != parentID {
+			return s.breakWith(internalf("an effect of %s for %s takes a parent that the row does not name", s.action, r.entity))
+		}
+		if err := s.decideWrite(ctx, p.resourceType, p.entity, p.id, p.token); err != nil {
+			return err
+		}
+	case len(parent) > 0:
+		return s.breakWith(internalf("an effect of %s for %s takes no parent: it is not a child entity", s.action, r.entity))
+	case s.mode != modeCommand:
+	case r.resourceType != "":
+		if err := s.decideCommandOn(ctx, r.resourceType, r.entity, r.id, r.token); err != nil {
+			return err
+		}
+	default:
+		if _, written := s.written[rowKey{r.entity, r.id}]; r.lock == lockNone && !written {
+			return fmt.Errorf("command: an effect of %s for %s needs a value that the handle locked or wrote", s.action, r.entity)
+		}
 	}
 	// One effect of one name for one entity in one call; and, as two entities of two types can share an ID, never
 	// two messages with one key.

@@ -62,7 +62,7 @@ func TestEffects(t *testing.T) {
 		`INSERT INTO charges (tenant_id, id, amount, card_last4) VALUES ('t1', 'c1', 100, '4242'), ('t1', 'c2', 200, '1881')`)
 	cmd := e.command("reserve-and-charge", nil, e.orders, e.reservationE, e.chargeE)
 
-	t.Run("ST-SUP-RP10-LC05-T01 A write through the handle makes no decision call", func(t *testing.T) {
+	t.Run("ST-SUP-RP10-LC05-T01 A write of a command that declares no permission makes no decision call", func(t *testing.T) {
 		_, err := e.run(cmd, e.request("t1", u7(t), "k-lc05", `{}`), fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
 			orders := repo(t, h, e.orders)
 			o, err := orders.Get(ctx, "o1")
@@ -220,7 +220,7 @@ func TestEffects(t *testing.T) {
 		if len(voided) != 1 || voided[0] == requested[0] {
 			t.Fatalf("the key of charge-voided is %v, the same as the first", voided)
 		}
-		if n := e.count(`SELECT count(*) FROM stego_outbox.messages WHERE kind = 'charge-requested' AND payload->>'amount' = '1'`); n != 1 {
+		if n := e.count(`SELECT count(*) FROM stego_outbox.messages WHERE kind = 'charge-requested' AND convert_from(payload, 'UTF8')::jsonb->>'amount' = '1'`); n != 1 {
 			t.Fatal("the staged payload changed after the call")
 		}
 	})

@@ -104,6 +104,9 @@ type env struct {
 	organizations *Entity[organization]
 	users         *Entity[user]
 	reservationE  *Entity[reservation]
+	underOrder    *Entity[reservation]
+	ofOrder       *List[reservation]
+	typedRes      *Entity[reservation]
 	chargeE       *Entity[charge]
 	customerE     *Entity[customer]
 	admins        *List[user]
@@ -253,8 +256,8 @@ func newEnv(t *testing.T, options ...envOption) *env {
 		t.Fatal(err)
 	}
 	e.probes = probe.NewRecorder(nil)
-	e.rt = e.runtime(nil)
 	e.entities()
+	e.rt = e.runtime(nil)
 	return e
 }
 
@@ -274,6 +277,10 @@ func (e *env) runtime(change func(*Config)) *Runtime {
 	e.t.Helper()
 	cfg := Config{DB: e.pool, AuditDB: e.auditDB, Authz: e.authz, Audit: e.writer, Outbox: e.queue, Probes: e.probes,
 		Service: "orders", ServiceVersion: "1.0.0", DeclarationVersion: "d1"}
+	if e.rt == nil {
+		// The first runtime of the fixture registers its entities; an entity registers with one runtime only.
+		cfg.Entities = []Declared{e.orders, e.organizations, e.users, e.reservationE, e.chargeE, e.customerE}
+	}
 	if change != nil {
 		change(&cfg)
 	}
@@ -384,7 +391,7 @@ func (e *env) entities() {
 		func(v order) []any { return []any{v.ID, v.Status} },
 		func(v order) map[string]any { return map[string]any{"id": v.ID, "status": v.Status} }))
 	must(err)
-	e.reservationE, err = NewEntity(spec("Reservation", "", "reservations", []string{"order_id", "sku"},
+	reservationSpec := spec("Reservation", "", "reservations", []string{"order_id", "sku"},
 		func(s Scanner) (reservation, Meta, error) {
 			var v reservation
 			var m Meta
@@ -395,7 +402,25 @@ func (e *env) entities() {
 		func(v reservation) []any { return []any{v.ID, v.OrderID, v.SKU} },
 		func(v reservation) map[string]any {
 			return map[string]any{"id": v.ID, "order_id": v.OrderID, "sku": v.SKU}
-		}))
+		})
+	e.reservationE, err = NewEntity(reservationSpec)
+	must(err)
+	// The same table as an entity whose rows go under their order, which the generated Parent reads.
+	reservationSpec.Name = "ReservationUnderOrder"
+	reservationSpec.Parent = func(v reservation) (string, string) { return "Order", v.OrderID }
+	reservationSpec.LockAtMost = 3
+	e.underOrder, err = NewEntity(reservationSpec)
+	must(err)
+	// The same table as an entity with a Parent and a resource type of its own.
+	typedSpec := reservationSpec
+	typedSpec.Name, typedSpec.ResourceType = "TypedRes", "reservation"
+	typedSpec.ReadPermission, typedSpec.ListPermission = "view", "view"
+	e.typedRes, err = NewEntity(typedSpec)
+	must(err)
+	cols := "id, order_id, sku, version, authz_token"
+	e.ofOrder, err = NewList(e.underOrder, ListSpec{Name: "of-order",
+		Read: "SELECT " + cols + " FROM reservations WHERE tenant_id = $1 AND order_id = $3 ORDER BY id LIMIT $2",
+		Lock: "SELECT " + cols + " FROM reservations WHERE tenant_id = $1 AND id = ANY($2) AND order_id = $3 ORDER BY id FOR NO KEY UPDATE"})
 	must(err)
 	chargeSpec := spec("Charge", "charge", "charges", []string{"amount", "card_last4"},
 		func(s Scanner) (charge, Meta, error) {
@@ -524,7 +549,9 @@ func person(t testing.TB, subject string) authz.Principal {
 type decision struct {
 	mu    sync.Mutex
 	allow func(subject, action, resource string) bool
-	calls []evaluation
+	// relations, when set, are the only allowed requests, keyed by relation(); allow is not read then.
+	relations map[string]bool
+	calls     []evaluation
 	// after, when set, runs after each decision, outside the lock.
 	after func(e evaluation)
 }
@@ -568,6 +595,10 @@ func (d *decision) decide(request authz.EvaluationRequest) authz.EvaluationResul
 		Resource: unqualified(request.Resource), Consistency: request.Consistency}
 	d.calls = append(d.calls, e)
 	allowed := d.allow == nil || d.allow(e.Subject, e.Action, e.Resource)
+	if d.relations != nil {
+		// A provider that holds only these relationships: subject, action and the tenant-qualified resource.
+		allowed = d.relations[request.Subject.String()+" "+request.Action.Name+" "+request.Resource.String()]
+	}
 	after := d.after
 	d.mu.Unlock()
 	if after != nil {
@@ -575,6 +606,27 @@ func (d *decision) decide(request authz.EvaluationRequest) authz.EvaluationResul
 	}
 	token, _ := authz.NewToken("checked")
 	return authz.EvaluationResult{Allowed: allowed, Token: token}
+}
+
+// setRelations makes the port hold only the relationships given, each made by relation, and allow nothing else.
+func (d *decision) setRelations(relations ...string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.relations = map[string]bool{}
+	for _, r := range relations {
+		d.relations[r] = true
+	}
+}
+
+// relation is the key of one relationship of setRelations: the subject may do action on the resource key of the
+// resource type in the tenant.
+func relation(t testing.TB, subject, action, tenantID, resourceType, key string) string {
+	t.Helper()
+	r, err := authz.NewResource(mustTenant(t, tenantID), resourceType, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return subject + " " + action + " " + r.String()
 }
 
 func (d *decision) setAfter(after func(e evaluation)) {
@@ -1263,7 +1315,7 @@ func TestLockedLists(t *testing.T) {
 		listed := make(chan error, 1)
 		go func() {
 			var err error
-			got, err = r.ListForUpdate(e.ctx, e.admins, "o1")
+			got, err = r.ListForUpdate(e.ctx, e.admins, nil, "o1")
 			listed <- err
 		}()
 		e.waitLockWaits(1)
@@ -1310,7 +1362,7 @@ func TestLockedLists(t *testing.T) {
 			e.seedUser("t1", id, "o2", true, i+1, 1)
 		}
 		h, _, end := e.bind("t1", u7(t), cmd)
-		got, err := repo(t, h, e.users).ListForUpdate(e.ctx, e.admins, "o2")
+		got, err := repo(t, h, e.users).ListForUpdate(e.ctx, e.admins, nil, "o2")
 		end()
 		if err != nil || len(got) != 3 {
 			t.Fatalf("the list of three admins gave %v, %v", ids(got), err)
@@ -1318,7 +1370,7 @@ func TestLockedLists(t *testing.T) {
 		e.seedUser("t1", "v4", "o2", true, 4, 1)
 		h, _, end = e.bind("t1", u7(t), cmd)
 		defer end()
-		got, err = repo(t, h, e.users).ListForUpdate(e.ctx, e.admins, "o2")
+		got, err = repo(t, h, e.users).ListForUpdate(e.ctx, e.admins, nil, "o2")
 		if got != nil || !errors.Is(err, ErrInternal) || errors.Is(err, ErrConflict) {
 			t.Fatalf("the list of four admins gave %v, %v; want no row and an internal error", ids(got), err)
 		}
@@ -1337,7 +1389,7 @@ func TestLockedLists(t *testing.T) {
 		}
 		h2, _, end2 := e.bind("t1", u7(t), cmd)
 		defer end2()
-		if _, err := repo(t, h2, e.users).ListForUpdate(e.ctx, unlocked, "o2"); err == nil {
+		if _, err := repo(t, h2, e.users).ListForUpdate(e.ctx, unlocked, nil, "o2"); err == nil {
 			t.Fatal("ListForUpdate ran a list with no Lock statement")
 		}
 	})
@@ -1350,7 +1402,7 @@ func TestLockedLists(t *testing.T) {
 		e.decision.setAllow(deny("user:w3"))
 		defer e.decision.setAllow(nil)
 		h, _, end := e.bind("t1", u7(t), cmd)
-		got, err := repo(t, h, e.users).ListForUpdate(e.ctx, e.admins, "o3")
+		got, err := repo(t, h, e.users).ListForUpdate(e.ctx, e.admins, nil, "o3")
 		if err != nil || strings.Join(ids(got), ",") != "w1,w2" {
 			t.Fatalf("the list gave %v, %v; want w1 and w2", ids(got), err)
 		}
@@ -1375,7 +1427,7 @@ func TestLockedLists(t *testing.T) {
 		e.decision.taken()
 		h, _, end = e.bind("t1", u7(t), cmd)
 		defer end()
-		got, err = repo(t, h, e.users).ListForUpdate(e.ctx, e.admins, "o3")
+		got, err = repo(t, h, e.users).ListForUpdate(e.ctx, e.admins, nil, "o3")
 		if err != nil || strings.Join(ids(got), ",") != "w1" {
 			t.Fatalf("the second list gave %v, %v; want only w1", ids(got), err)
 		}

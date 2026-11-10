@@ -164,7 +164,8 @@ func TestWorkers(t *testing.T) {
 	e := newEnv(t)
 	e.exec(`INSERT INTO orders (tenant_id, id, status) VALUES ('t1', 'o-1', 'new'), ('t1', 'o-2', 'new'), ('t2', 'o-1', 'new'),
  ('t2', 'o-2', 'new')`,
-		`INSERT INTO charges (tenant_id, id, amount, card_last4) VALUES ('t1', 'c1', 1, '0000')`)
+		`INSERT INTO charges (tenant_id, id, amount, card_last4) VALUES ('t1', 'c1', 1, '0000')`,
+		`INSERT INTO reservations (tenant_id, id, order_id, sku) VALUES ('t1', 'r-w2', 'o-2', 's'), ('t1', 'r-w1', 'o-1', 's')`)
 	allOrders, err := NewList(e.orders, ListSpec{Name: "all",
 		Read: `SELECT id, status, version, authz_token FROM orders WHERE tenant_id = $1 ORDER BY id LIMIT $2`})
 	if err != nil {
@@ -172,7 +173,7 @@ func TestWorkers(t *testing.T) {
 	}
 
 	t.Run("ST-SUP-RP10-LC17-T01 A worker handle reads only allowed rows and writes only allowed resources", func(t *testing.T) {
-		w := e.worker("sync-partner-orders", "sync", nil, e.orders)
+		w := e.worker("sync-partner-orders", "sync", nil, e.orders, e.underOrder, e.typedRes)
 		var o2 Loaded[order]
 		var listed []string
 		var writeCalls []evaluation
@@ -200,10 +201,33 @@ func TestWorkers(t *testing.T) {
 			if _, err := updateOrderFrom(ctx, r, o2, "synced"); !errors.Is(err, ErrRefused) {
 				t.Errorf("the update of o-2 gave %v, want the refused error", err)
 			}
-			if _, err := r.Create(ctx, order{ID: "o-new", Status: "new"}, o2); !errors.Is(err, ErrRefused) {
+			if _, err := repo(t, h, e.underOrder).Create(ctx, reservation{ID: "r-new", OrderID: "o-2", SKU: "s"}, o2); !errors.Is(err, ErrRefused) {
 				t.Errorf("the create under o-2 gave %v, want the refused error", err)
 			}
 			writeCalls = e.decision.taken()
+			// A child row takes the worker's decision on its parent too (ST-SUP-RP10-LC05).
+			if _, err := repo(t, h, e.underOrder).GetForUpdate(ctx, "r-w2", o2); !errors.Is(err, ErrRefused) {
+				t.Errorf("the locked read of a child of o-2 gave %v, want the refused error", err)
+			}
+			child, err := repo(t, h, e.underOrder).Get(ctx, "r-w2")
+			if err != nil {
+				return err
+			}
+			if err := repo(t, h, e.underOrder).Delete(ctx, child, o2); !errors.Is(err, ErrRefused) {
+				t.Errorf("the delete of a child of o-2 gave %v, want the refused error", err)
+			}
+			if err := h.Effects().Stage(ctx, "billing", "noted", child, []byte(`{}`), o2); !errors.Is(err, ErrRefused) {
+				t.Errorf("an effect for a child of o-2 gave %v, want the refused error", err)
+			}
+			// A row with a resource type of its own moves under o-2 only with the worker's decision on o-2.
+			typed := repo(t, h, e.typedRes)
+			r1, err := typed.GetForUpdate(ctx, "r-w1")
+			if err != nil {
+				return err
+			}
+			if _, err := typed.Update(ctx, r1, reservation{ID: "r-w1", OrderID: "o-2", SKU: "s"}, o2); !errors.Is(err, ErrRefused) {
+				t.Errorf("moving r-w1 under o-2 gave %v, want the refused error", err)
+			}
 			return nil
 		}))
 		e.decision.setAllow(nil)
