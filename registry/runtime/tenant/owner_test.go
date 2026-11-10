@@ -369,10 +369,23 @@ func TestOpener(t *testing.T) {
 			t.Fatalf("Open with the loopback test exception gave %v", err)
 		}
 		db.Close()
-		remote := *plain
-		remote.Host = "db.example:5432"
-		if _, err := Open(ctx, Config{DSN: remote.String(), InsecureLoopback: true}); !errors.Is(err, errNoVerifiedTLS) {
-			t.Errorf("Open of a host that is not a loopback address with the exception gave %v, want the refusal", err)
+		_, port, err := net.SplitHostPort(plain.Host)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, host := range []string{"db.example:5432", "localhost:" + port} {
+			remote := *plain
+			remote.Host = host
+			if _, err := Open(ctx, Config{DSN: remote.String(), InsecureLoopback: true}); !errors.Is(err, errNoVerifiedTLS) {
+				t.Errorf("Open of the host %s, which is not a loopback IP address, with the exception gave %v, want the refusal", host, err)
+			}
+		}
+		socket := plain.Query()
+		socket.Set("host", "/var/run/postgresql")
+		viaSocket := *plain
+		viaSocket.RawQuery = socket.Encode()
+		if _, err := Open(ctx, Config{DSN: viaSocket.String(), InsecureLoopback: true}); !errors.Is(err, errNoVerifiedTLS) {
+			t.Errorf("Open of a socket path with the exception gave %v, want the refusal", err)
 		}
 	})
 	t.Run("ST-SUP-RP04-LC09-T01 A pool from the adapter's configuration keeps verified TLS and its bounds", func(t *testing.T) {

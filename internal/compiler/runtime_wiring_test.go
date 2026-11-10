@@ -93,6 +93,8 @@ func newWiringProject(t *testing.T, binary, components string) *wiringProject {
 		t.Fatal(err)
 	}
 	p.write("go.mod", "module "+wiringModule+"\n\ngo 1.26.10\n")
+	// The service's repository: a run with no record reads the record of its HEAD commit (ST-SUP-RC01-OC41).
+	p.git("init", "-q")
 	return p
 }
 
@@ -259,6 +261,17 @@ func TestRuntimeDataPath(t *testing.T) {
 			t.Errorf("the plan of a service on the runtime data path without the query generator gave %v, want a refusal that names ST-SUP-Q91:\n%s", err, output)
 		}
 
+		// A service with the two generators and no record outside a git repository is refused: the run cannot tell
+		// whether a record of a release is committed.
+		outside := newWiringProject(t, stego, runtimeArchetype)
+		if err := os.RemoveAll(filepath.Join(outside.dir, ".git")); err != nil {
+			t.Fatal(err)
+		}
+		output, err = outside.stegoRun("plan")
+		if err == nil || !strings.Contains(output, "ST-SUP-Q91") || !strings.Contains(output, "HEAD commit") {
+			t.Errorf("the plan of a service with no record outside a git repository gave %v, want a refusal that names ST-SUP-Q91:\n%s", err, output)
+		}
+
 		// A release on the GORM store whose record is committed and not checked out keeps the store when it gains
 		// the command and query generators.
 		released := newWiringProject(t, stego, storeArchetype)
@@ -270,7 +283,6 @@ func TestRuntimeDataPath(t *testing.T) {
 			t.Fatal(err)
 		}
 		released.stego("apply")
-		released.git("init", "-q")
 		released.git("add", ".stego/state.yaml")
 		released.git("commit", "-q", "-m", "the record of the release on the GORM store")
 		if err := os.Remove(filepath.Join(released.dir, ".stego", "state.yaml")); err != nil {

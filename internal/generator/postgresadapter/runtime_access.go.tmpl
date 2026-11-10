@@ -62,7 +62,8 @@ func CheckLedger(db *gorm.DB) error {
 		return ErrForeignTables
 	}
 	for i, row := range applied {
-		if (row.Name != registered[i].Name || row.Digest != registered[i].Digest) && !legacyDigest(row, registered[i]) {
+		// A row with the digest of the name alone is of a release on the GORM store: it is refused, not taken over.
+		if row.Name != registered[i].Name || row.Digest != registered[i].Digest {
 			return ErrForeignTables
 		}
 	}

@@ -1728,11 +1728,20 @@ func generateMigrate(ns string, entities []types.Entity, guarded bool, rowSecuri
 		fmt.Fprintf(&buf, "\treturn nil\n")
 		fmt.Fprintf(&buf, "}\n\n")
 
-		fmt.Fprintf(&buf, "// legacyDigest reports whether an applied row holds the earlier digest of\n")
-		fmt.Fprintf(&buf, "// the name alone for the migration registered at the same position.\n")
-		fmt.Fprintf(&buf, "func legacyDigest(row, registered Migration) bool {\n")
-		fmt.Fprintf(&buf, "\treturn row.Name == registered.Name && row.Digest == Digest(row.Name) && row.Digest != registered.Digest\n")
-		fmt.Fprintf(&buf, "}\n\n")
+		if sqlTables {
+			// On the runtime data path a row with the digest of the name alone is of a release on the GORM store,
+			// whose tables are not the SQL tables: the ledger never takes it over, and checkLedger refuses it
+			// (ST-SUP-RC01-OC41).
+			fmt.Fprintf(&buf, "// legacyDigest is false on the runtime data path: a row with the earlier digest\n")
+			fmt.Fprintf(&buf, "// of the name alone is of a release on the GORM store, and the ledger refuses it.\n")
+			fmt.Fprintf(&buf, "func legacyDigest(Migration, Migration) bool {\n\treturn false\n}\n\n")
+		} else {
+			fmt.Fprintf(&buf, "// legacyDigest reports whether an applied row holds the earlier digest of\n")
+			fmt.Fprintf(&buf, "// the name alone for the migration registered at the same position.\n")
+			fmt.Fprintf(&buf, "func legacyDigest(row, registered Migration) bool {\n")
+			fmt.Fprintf(&buf, "\treturn row.Name == registered.Name && row.Digest == Digest(row.Name) && row.Digest != registered.Digest\n")
+			fmt.Fprintf(&buf, "}\n\n")
+		}
 
 		fmt.Fprintf(&buf, "// upgradeLedger rewrites each row that holds the earlier digest of the name\n")
 		fmt.Fprintf(&buf, "// alone to the body digest, once, in the supplied transaction. It changes a\n")

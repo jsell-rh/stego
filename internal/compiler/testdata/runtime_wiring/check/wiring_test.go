@@ -41,6 +41,7 @@ import (
 	"stego.dev/runtime/tenant"
 
 	"example.com/shop/out/internal/stegoruntime"
+	"example.com/shop/out/internal/storage"
 	"example.com/shop/out/internal/tenancy"
 )
 
@@ -66,9 +67,9 @@ type service struct {
 	base   string
 	log    *bytes.Buffer
 
-	weakMigration, weakStart, foreignMigration, secondMigration, nextRelease runResult
-	foreignDB                                                                *sql.DB
-	schemaBeforeNext                                                         string
+	weakMigration, weakStart, foreignMigration, legacyMigration, secondMigration, nextRelease runResult
+	foreignDB, legacyDB                                                                       *sql.DB
+	schemaBeforeNext                                                                          string
 }
 
 // runResult is the outcome of one run of the binary.
@@ -276,6 +277,18 @@ func start(t *testing.T) *service {
 	grantSchema(t, s.foreignDB)
 	execAll(t, s.foreignDB, "CREATE TABLE orders (id uuid PRIMARY KEY, sku text)")
 	s.foreignMigration = run(binary, migration("verify-full", foreignURL), "migrate")
+	// A migration job on a database whose ledger holds the digest of the name alone for 001_initial, as a release
+	// on the GORM store wrote it, writes nothing: the ledger never takes the GORM tables over as the SQL baseline.
+	var legacyURL *url.URL
+	s.legacyDB, legacyURL = newDatabase(t, root, server)
+	grantSchema(t, s.legacyDB)
+	execAll(t, s.legacyDB, "CREATE TABLE orders (id uuid PRIMARY KEY, sku text)", "CREATE SCHEMA stego_schema",
+		"CREATE TABLE stego_schema.migrations (version text PRIMARY KEY, digest text NOT NULL)",
+		"INSERT INTO stego_schema.migrations VALUES ('001_initial', '"+storage.Digest("001_initial")+"')",
+		// The release on the GORM store made them as the owner role, as the migration job of the release does.
+		"ALTER SCHEMA stego_schema OWNER TO "+quote(stegoruntime.OwnerRole), "ALTER TABLE stego_schema.migrations OWNER TO "+quote(stegoruntime.OwnerRole),
+		"ALTER TABLE orders OWNER TO "+quote(stegoruntime.OwnerRole))
+	s.legacyMigration = run(binary, migration("verify-full", legacyURL), "migrate")
 
 	if r := run(binary, migration("verify-full", u), "migrate"); r.err != nil {
 		t.Fatalf("the migration job failed: %v\n%s", r.err, r.output)
@@ -494,6 +507,15 @@ func TestWiring(t *testing.T) {
 		}
 		if n := count(t, s.foreignDB, `SELECT count(*) FROM pg_namespace WHERE nspname IN ('stego_schema', 'stego_outbox')`); n != 0 {
 			t.Errorf("the refused migration job made %d schemas", n)
+		}
+		if s.legacyMigration.err == nil || !strings.Contains(s.legacyMigration.output, `"stage":"migrate.ledger_check"`) {
+			t.Errorf("the migration job on a database whose ledger holds the name digest of a GORM release gave %v, want the refusal of the ledger check:\n%s", s.legacyMigration.err, s.legacyMigration.output)
+		}
+		if n := count(t, s.legacyDB, `SELECT count(*) FROM stego_schema.migrations WHERE digest = $1`, storage.Digest("001_initial")); n != 1 {
+			t.Error("the refused migration job changed the ledger row of the GORM release")
+		}
+		if n := count(t, s.legacyDB, `SELECT count(*) FROM pg_namespace WHERE nspname = 'stego_outbox'`); n != 0 {
+			t.Error("the refused migration job made the outbox schema")
 		}
 		if s.nextRelease.err == nil || !strings.Contains(s.nextRelease.output, `"stage":"migrate.ledger_check"`) {
 			t.Errorf("the migration job of a release that adds an entity with no schema step gave %v, want the refusal of the ledger check:\n%s", s.nextRelease.err, s.nextRelease.output)

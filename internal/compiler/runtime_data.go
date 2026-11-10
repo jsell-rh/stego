@@ -34,7 +34,7 @@ const recordPath = ".stego/state.yaml"
 //     it would move back onto the store, whose tables its database does not hold.
 func runtimeDataPath(projectDir string, names []string) (bool, error) {
 	generators := slices.Contains(names, commandComponent) && slices.Contains(names, queryComponent)
-	state, err := recordOf(projectDir)
+	state, err := recordOf(projectDir, generators)
 	if err != nil {
 		return false, err
 	}
@@ -60,14 +60,16 @@ func dataPathOf(recorded *AppliedState, generators bool) (bool, error) {
 	}
 }
 
-// recordOf reads the project's record, or, when the project has none, the record that the HEAD commit of the
-// project's repository holds. It gives nil when there is neither; a project outside a repository has only its own.
-func recordOf(projectDir string) (*State, error) {
+// recordOf reads the project's record, or, when the project has none and the service has the command and query
+// generators, the record that the HEAD commit of the project's repository holds. It gives nil when there is
+// neither. A service without the generators is on the store with or without a committed record, so its run reads no
+// repository.
+func recordOf(projectDir string, generators bool) (*State, error) {
 	state, err := LoadState(filepath.Join(projectDir, recordPath))
 	if err != nil {
 		return nil, fmt.Errorf("reading the record to choose the data path: %w", err)
 	}
-	if state.LastApplied != nil {
+	if state.LastApplied != nil || !generators {
 		return state, nil
 	}
 	data, err := committedRecord(projectDir)
@@ -81,28 +83,53 @@ func recordOf(projectDir string) (*State, error) {
 	return committed, nil
 }
 
-// committedRecord gives the record that the HEAD commit holds at the project's folder, or nil when the project is
-// not in a repository, the repository has no commit, or the commit holds no record.
+// committedRecord gives the record that the HEAD commit holds at the project's folder, or nil when the project's
+// repository has no commit or its HEAD commit holds no record. It refuses a project that is not in a git repository,
+// and a failure of git: the run cannot tell then whether a record of a release is committed (ST-SUP-Q91).
 func committedRecord(projectDir string) ([]byte, error) {
-	top := exec.Command("git", "rev-parse", "--show-prefix")
-	top.Dir = projectDir
-	prefix, err := top.Output()
-	if err != nil {
-		return nil, nil
+	git := func(args ...string) ([]byte, int, error) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = projectDir
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			return out, exit.ExitCode(), fmt.Errorf("git %s: %s", strings.Join(args, " "), strings.TrimSpace(stderr.String()))
+		}
+		return out, 0, err
 	}
-	name := filepath.ToSlash(filepath.Join(strings.TrimSpace(string(prefix)), recordPath))
-	show := exec.Command("git", "show", "HEAD:"+name)
-	show.Dir = projectDir
-	var stderr bytes.Buffer
-	show.Stderr = &stderr
-	data, err := show.Output()
-	var exit *exec.ExitError
-	if errors.As(err, &exit) {
-		// No commit, or no record at that path in it.
+	refused := func(err error) error {
+		return fmt.Errorf("the project has no record %s, and the run cannot read the record of the HEAD commit to choose the data path, which a service with the command and query generators needs: %v; run in the service's git repository, or commit the record (ST-SUP-RC01-OC41, ST-SUP-Q91)", recordPath, err)
+	}
+	prefix, _, err := git("rev-parse", "--show-prefix")
+	if err != nil {
+		return nil, refused(err)
+	}
+	if _, code, err := git("rev-parse", "--verify", "--quiet", "HEAD^{commit}"); code == 1 {
+		// A repository with no commit holds no record.
 		return nil, nil
+	} else if err != nil {
+		return nil, refused(err)
+	}
+	name := "HEAD:" + filepath.ToSlash(filepath.Join(strings.TrimSpace(string(prefix)), recordPath))
+	kind, code, err := git("cat-file", "-t", name)
+	if code != 0 && err != nil {
+		if _, _, other := git("ls-tree", "HEAD", "--", filepath.ToSlash(filepath.Join(strings.TrimSpace(string(prefix)), recordPath))); other == nil {
+			// The HEAD commit holds no record at that path.
+			return nil, nil
+		}
+		return nil, refused(err)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("reading the committed record: %v: %s", err, strings.TrimSpace(stderr.String()))
+		return nil, refused(err)
+	}
+	if strings.TrimSpace(string(kind)) != "blob" {
+		return nil, refused(fmt.Errorf("%s is not a file", name))
+	}
+	data, _, err := git("show", name)
+	if err != nil {
+		return nil, refused(err)
 	}
 	return data, nil
 }
