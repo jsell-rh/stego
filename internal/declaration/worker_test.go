@@ -261,3 +261,15 @@ func TestWorkerCount(t *testing.T) {
 		wantFault(t, workerFaults(t, many(128), "worker-count"), "128")
 	})
 }
+
+func TestWorkerEffectStagingType(t *testing.T) {
+	stager := func(resourceType string) string {
+		return worker("sync-documents", "trigger: every 1m", "writes: [Todo]", "fill: sync", "resource_type: "+resourceType, "permission: view", "effects:\n      - {destination: document-replies, name: reply}")
+	}
+	t.Run("ST-DECL-INV70-T With authorization bound, a worker on document that stages for a worker on document is accepted", func(t *testing.T) {
+		expectAccepted(t, checkOperations(t, td03Staging(t, stager("document"), ""), operationFacts()))
+	})
+	t.Run("ST-DECL-INV70-T With authorization bound, a worker on folder that stages for a worker on document is refused", func(t *testing.T) {
+		expectOneFault(t, checkOperations(t, td03Staging(t, stager("folder"), ""), operationFacts()), "worker-effect", "sync-documents", "document-replies: reply", `"folder"`, `"document"`)
+	})
+}

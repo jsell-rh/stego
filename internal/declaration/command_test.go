@@ -236,3 +236,15 @@ func TestQueryRefusals(t *testing.T) {
 		wantFault(t, compositionFaults(t, with("{name: order_unknown, status: 404, code: conflict}"), facts, "operation-refusal"), `"open-reservations"`, `"conflict"`)
 	})
 }
+
+func TestCommandEffectStagingType(t *testing.T) {
+	command := func(resourceType string) string {
+		return standardCommand("reply", "resource_type: "+resourceType, "permission: edit", "resource_member: documentId", "effects:\n      - {destination: document-replies, name: reply}")
+	}
+	t.Run("ST-DECL-INV42-T With authorization bound, a command on document that stages for a worker on document is accepted", func(t *testing.T) {
+		expectAccepted(t, checkOperations(t, td03Staging(t, "", command("document")), operationFacts()))
+	})
+	t.Run("ST-DECL-INV42-T With authorization bound, a command on folder that stages for a worker on document is refused", func(t *testing.T) {
+		expectOneFault(t, checkOperations(t, td03Staging(t, "", command("folder")), operationFacts()), "command-effect", "reply", "document-replies: reply", `"folder"`, `"document"`)
+	})
+}

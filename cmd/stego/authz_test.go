@@ -402,6 +402,15 @@ func TestDeclareAuthorization(t *testing.T) {
 
 	t.Run("ST-DECL-UC06-FL-T An author binds authorization to a schema in the service source, and checking compiles it and accepts the declaration", func(t *testing.T) {
 		service := td03 + "slots:\n  - collection: todos\n    slot: after_create\n    chain: [relate]\n    relationships_written: [document#viewer]\n"
-		expectAcceptance(t, td03WithFills(t, service))
+		project := td03WithFills(t, service)
+		expectAcceptance(t, project)
+		document, _ := validateJSON(t, project)
+		principal := false
+		for _, setting := range document.Settings {
+			principal = principal || (setting.Path == "slots[0].runs_as" && setting.Value == "tenant" && setting.Default)
+		}
+		if !principal {
+			t.Errorf("the settings do not report that the binding runs as tenant by default: %+v", document.Settings)
+		}
 	})
 }

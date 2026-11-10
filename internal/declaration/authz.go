@@ -221,11 +221,13 @@ func CheckAuthorization(service *types.ServiceDeclaration, project fs.FS) []Vali
 	faults = append(faults, validateAuthorizationCoverage(service)...)
 	schema, fault := readAuthzSchema(service.Authorization.SchemaPath, project)
 	if fault != nil {
+		faults = append(faults, operationsAuthorization(service, nil)...)
 		return append(faults, *fault)
 	}
 	if schema == nil {
-		return faults
+		return append(faults, operationsAuthorization(service, nil)...)
 	}
+	faults = append(faults, operationsAuthorization(service, schema)...)
 	faults = append(faults, validateSchemaNames(service, schema)...)
 	faults = append(faults, validateWrittenRelations(service, schema)...)
 	faults = append(faults, validateSystemPrincipal(service, schema)...)
@@ -323,6 +325,20 @@ func authorizationUnbound(service *types.ServiceDeclaration) []ValidationError {
 		if len(a.Relationships) > 0 {
 			fault(fmt.Sprintf("entities[%d].relationships", ei), fmt.Sprintf("entity %q declares relationships", entity.Name))
 		}
+	}
+	operations := func(kind, path, resourceType, permission string, relations []string) {
+		if resourceType != "" || permission != "" || len(relations) > 0 {
+			fault(path, fmt.Sprintf("the %s at %s names a resource type, a permission or relationships written", kind, path))
+		}
+	}
+	for i, command := range service.Commands {
+		operations("command", commandPath(i), command.ResourceType, command.Permission, command.RelationshipsWritten)
+	}
+	for i, query := range service.Queries {
+		operations("query", queryPath(i), query.ResourceType, query.Permission, nil)
+	}
+	for i, worker := range service.Workers {
+		operations("worker", workerPath(i), worker.ResourceType, worker.Permission, nil)
 	}
 	for si, slot := range service.Slots {
 		if len(slot.RelationshipsWritten) > 0 {
@@ -486,7 +502,7 @@ func validateWrittenRelations(service *types.ServiceDeclaration, schema *AuthzSc
 		binding := fmt.Sprintf("the binding of %s at %s", slot.Collection, slot.Slot)
 		for wi, written := range slot.RelationshipsWritten {
 			place := fmt.Sprintf("slots[%d].relationships_written[%d]", si, wi)
-			if message := writtenRelationUnknown(written, declared, schema); message != "" {
+			if message := writtenRelationUnknown(written, declared, schema, "the service declares"); message != "" {
 				fault := ValidationError{Category: "authorization", Rule: "written-relations", Path: place, Found: written, Message: fmt.Sprintf("%s lists %q, %s", binding, written, message)}
 				if resourceType, _, ok := strings.Cut(written, "#"); ok && declared[resourceType] {
 					fault.Allowed = prefixed(resourceType+"#", sortedKeys(schema.definitions[resourceType].relations))
@@ -502,7 +518,7 @@ func validateWrittenRelations(service *types.ServiceDeclaration, schema *AuthzSc
 
 // writtenRelationUnknown says why a relation a slot binding may write is unknown, or gives "" when it is a relation
 // of the schema under the resource type of a declared entity.
-func writtenRelationUnknown(written string, declared map[string]bool, schema *AuthzSchema) string {
+func writtenRelationUnknown(written string, declared map[string]bool, schema *AuthzSchema, owner string) string {
 	resourceType, relation, ok := strings.Cut(written, "#")
 	switch {
 	case !ok || resourceType == "" || relation == "" || strings.Contains(relation, "#"):
@@ -510,7 +526,7 @@ func writtenRelationUnknown(written string, declared map[string]bool, schema *Au
 	case !schema.Defines(resourceType):
 		return fmt.Sprintf("but the schema %s lacks the resource type %s", schema.Path, resourceType)
 	case !declared[resourceType]:
-		return fmt.Sprintf("but %s is the resource type of no entity the service declares", resourceType)
+		return fmt.Sprintf("but %s is the resource type of no entity %s", resourceType, owner)
 	}
 	if _, isRelation := schema.definitions[resourceType].relations[relation]; !isRelation {
 		return fmt.Sprintf("but the schema %s lacks the relation %s of %s", schema.Path, relation, resourceType)
@@ -524,7 +540,7 @@ func SlotRelationUnknown(service *types.ServiceDeclaration, schema *AuthzSchema)
 	declared := declaredResourceTypes(service.Entities)
 	for _, slot := range service.Slots {
 		for _, written := range slot.RelationshipsWritten {
-			if writtenRelationUnknown(written, declared, schema) != "" {
+			if writtenRelationUnknown(written, declared, schema, "the service declares") != "" {
 				return true
 			}
 		}
@@ -658,4 +674,14 @@ func fieldNames(entity types.Entity) []string {
 		names = append(names, field.Name)
 	}
 	return names
+}
+
+// slotSettings resolves the principal that the fills of each slot binding run as: tenant when the binding omits it
+// (ST-DECL-EN05). A binding that runs as system states it.
+func slotSettings(service *types.ServiceDeclaration) []Setting {
+	var settings []Setting
+	for i, slot := range service.Slots {
+		settings = append(settings, resolved(fmt.Sprintf("slots[%d].runs_as", i), slot.RunsAs, types.RunsAsTenant))
+	}
+	return settings
 }
