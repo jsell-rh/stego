@@ -107,9 +107,7 @@ func checkModulePin(t *testing.T, project, version, sum string) {
 }
 
 func TestArchetypeRuntimePin(t *testing.T) {
-	// This proves ST-SUP-INV10-T but its last part: a pin that moves within one archetype version needs the record
-	// to hold the archetype and its pin (ST-GEN-Q04).
-	t.Run("An archetype pins one whole runtime library, and a service imports it and no other STEGO module", func(t *testing.T) {
+	t.Run("ST-SUP-INV10-T Every service of an archetype imports the one pinned runtime library and no other STEGO module", func(t *testing.T) {
 		for _, tc := range []struct{ name, runtime, part string }{
 			{"no pin", "", "pins no runtime library"},
 			{"no module path", "runtime:\n  version: v0.1.0\n  sum: " + pinSum + "\n", "runtime.module"},
@@ -137,6 +135,25 @@ func TestArchetypeRuntimePin(t *testing.T) {
 				t.Fatalf("the component that imports %s was not refused naming the import: %v", path, err)
 			}
 		}
+
+		moved := strings.Replace(pinSum, "2jc7", "3kd8", 1)
+		archetype := filepath.Join(registryDir, "archetypes", "svc-arch", "archetype.yaml")
+		data, err := os.ReadFile(archetype)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(archetype, []byte(strings.Replace(string(data), pinSum, moved, 1)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err = Reconcile(pinInput(project, registryDir, runtimeImporter("stego.dev/runtime/money")))
+		if err == nil || !strings.Contains(err.Error(), "svc-arch 1.0.0") || !strings.Contains(err.Error(), "must change") {
+			t.Fatalf("the pin that moved within version 1.0.0 was not refused naming svc-arch and its version: %v", err)
+		}
+		if err := os.WriteFile(archetype, []byte(strings.Replace(strings.Replace(string(data), pinSum, moved, 1), "version: 1.0.0", "version: 1.1.0", 1)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		applyPin(t, pinInput(project, registryDir, runtimeImporter("stego.dev/runtime/money")))
+		checkModulePin(t, project, "v0.1.0", moved)
 	})
 
 	t.Run("ST-GEN-INV13-T The generated module file requires the runtime library at the archetype's pin only, and a hand edit of it is drift", func(t *testing.T) {
@@ -157,9 +174,10 @@ func TestArchetypeRuntimePin(t *testing.T) {
 				t.Fatal(err)
 			}
 			for edit, text := range map[string]string{
-				"a pseudo-version": strings.Replace(string(applied), registry.RuntimeModule+" "+archetype.pin, registry.RuntimeModule+" v0.0.0-20260101000000-abcdefabcdef", 1),
-				"a replace":        string(applied) + "\nreplace stego.dev/runtime " + archetype.pin + " => ../runtime\n",
-				"a second module":  string(applied) + "\nrequire stego.dev/extra " + archetype.pin + "\n",
+				"a pseudo-version":       strings.Replace(string(applied), registry.RuntimeModule+" "+archetype.pin, registry.RuntimeModule+" v0.0.0-20260101000000-abcdefabcdef", 1),
+				"a replace":              string(applied) + "\nreplace stego.dev/runtime " + archetype.pin + " => ../runtime\n",
+				"another tagged version": strings.Replace(string(applied), registry.RuntimeModule+" "+archetype.pin, registry.RuntimeModule+" v1.9.9", 1),
+				"a second module":        string(applied) + "\nrequire stego.dev/extra " + archetype.pin + "\n",
 			} {
 				if text == string(applied) {
 					t.Fatalf("the edit %s changed nothing", edit)

@@ -115,32 +115,58 @@ func mergeRuntimeSum(data []byte, pin registry.RuntimePin) []byte {
 	return []byte(strings.Join(lines, ""))
 }
 
-// runtimeModuleDrift enforces the drift part of ST-GEN-INV13 on the module file, from the module file alone: it
-// gives a reason when go.mod requires the runtime library at a version that is not tagged, such as a
-// pseudo-version, requires another STEGO module, or replaces a STEGO module. The record does not hold the
-// archetype's pin (ST-GEN-Q04), so drift cannot tell one tagged version from another.
-func runtimeModuleDrift(data []byte) (string, error) {
+// runtimeModuleDrift enforces the drift part of ST-GEN-INV13 on the module file: it gives a reason when go.mod
+// replaces a STEGO module, requires another STEGO module, requires the runtime library at a version that is not
+// tagged, or, against the pin the record holds, at another version than the pin or not at all while generated code
+// imports it. A record before format version 3 holds no pin; then only the checks that need no pin run.
+func runtimeModuleDrift(data []byte, archetype *ArchetypeState) (string, error) {
 	file, err := modfile.Parse("go.mod", data, nil)
 	if err != nil {
 		return "", err
+	}
+	var pin *registry.RuntimePin
+	if archetype != nil && archetype.ImportsRuntime {
+		pin = archetype.Runtime
 	}
 	for _, replace := range file.Replace {
 		if registry.IsStegoModule(replace.Old.Path) {
 			return fmt.Sprintf("go.mod replaces %s, a STEGO module", replace.Old.Path), nil
 		}
 	}
+	found := false
 	for _, require := range file.Require {
 		if !registry.IsStegoModule(require.Mod.Path) {
 			continue
 		}
-		if require.Mod.Path != registry.RuntimeModule {
+		if require.Mod.Path != registry.RuntimeModule || (pin != nil && require.Mod.Path != pin.Module) {
 			return fmt.Sprintf("go.mod requires %s %s, a STEGO module that is not the runtime library", require.Mod.Path, require.Mod.Version), nil
 		}
 		if err := registry.CheckTaggedVersion(require.Mod.Path, require.Mod.Version); err != nil {
 			return fmt.Sprintf("go.mod requires %s %s, which is not a tagged version that an archetype can pin", require.Mod.Path, require.Mod.Version), nil
 		}
+		if pin != nil && require.Mod.Version != pin.Version {
+			return fmt.Sprintf("go.mod requires %s %s, but the archetype pins %s", pin.Module, require.Mod.Version, pin.Version), nil
+		}
+		found = true
+	}
+	if pin != nil && !found {
+		return fmt.Sprintf("go.mod does not require %s %s, which the generated code imports", pin.Module, pin.Version), nil
 	}
 	return "", nil
+}
+
+// checkPinMove enforces the last part of ST-SUP-INV10: only a new archetype version moves the runtime pin. It
+// refuses a run whose archetype keeps the name and the version of the last run's archetype but pins another
+// runtime library.
+func checkPinMove(state *State, archetype *registry.Archetype) error {
+	last := state.LastApplied.archetype()
+	if last == nil || last.Runtime == nil || last.Name != archetype.Name || last.Version != archetype.Version {
+		return nil
+	}
+	if *last.Runtime != *archetype.Runtime {
+		return fmt.Errorf("archetype %s %s pins %s %s %s, but the last run had %s %s %s at the same archetype version; a moved runtime pin needs a new archetype version, which must change", archetype.Name, archetype.Version, archetype.Runtime.Module, archetype.Runtime.Version, archetype.Runtime.Sum, last.Runtime.Module, last.Runtime.Version, last.Runtime.Sum)
+	}
+	return nil
 }
 
 // mergeProjectSums reads go.sum as the input snapshot recorded it and gives it with the line of the runtime pin
