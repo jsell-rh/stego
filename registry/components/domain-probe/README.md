@@ -12,5 +12,6 @@ The component also generates a constructor for fill tests on probe.Recorder for
 each probe type, the context accessor of each slot binding, and the catalog
 observations.json, which lists each observation in name order.
 
-The stage is alpha. The declaration does not yet carry observations, commands,
-queries or workers; until it does, the compiler gives this generator none.
+The compiler gives the generator the observations of service.yaml and its
+emitters: the commands, queries, workers and slot bindings (as
+collection.slot). The stage is alpha.

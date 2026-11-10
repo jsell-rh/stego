@@ -8,6 +8,7 @@ import (
 
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/registry"
+	"github.com/jsell-rh/stego/internal/types"
 )
 
 type resolvedCompilation struct {
@@ -113,6 +114,8 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 			Entities:        svcDecl.Entities,
 			Collections:     svcDecl.Collections,
 			SlotBindings:    svcDecl.Slots,
+			Observations:    svcDecl.Observations,
+			Emitters:        declaredEmitters(svcDecl),
 			ModuleName:      input.ModuleName,
 			GoVersion:       input.GoVersion,
 			SlotsPackage:    slotsPackage,
@@ -182,4 +185,27 @@ func holdsFills(projectDir string) bool {
 		}
 	}
 	return false
+}
+
+// declaredEmitters lists the commands, queries, workers and slot bindings of the declaration, in this order and in
+// declaration order, with the names that an observation's Emitted by uses: a slot binding as collection.slot
+// (ST-DECL-INV54, ST-SUP-RC34-OC03).
+func declaredEmitters(svcDecl *types.ServiceDeclaration) []gen.Emitter {
+	var emitters []gen.Emitter
+	for _, command := range svcDecl.Commands {
+		emitters = append(emitters, gen.Emitter{Name: command.Name, Kind: gen.EmitterCommand})
+	}
+	for _, query := range svcDecl.Queries {
+		emitters = append(emitters, gen.Emitter{Name: query.Name, Kind: gen.EmitterQuery})
+	}
+	for _, worker := range svcDecl.Workers {
+		emitters = append(emitters, gen.Emitter{Name: worker.Name, Kind: gen.EmitterWorker})
+	}
+	for _, binding := range svcDecl.Slots {
+		if binding.Collection == "" {
+			continue
+		}
+		emitters = append(emitters, gen.Emitter{Name: binding.Collection + "." + binding.Slot, Kind: gen.EmitterSlotBinding})
+	}
+	return emitters
 }
