@@ -1,0 +1,64 @@
+kind: service
+name: shop
+archetype: rest-crud
+language: go
+base_path: /api/shop/v1
+tenancy:
+  kind: pooled
+  key: tenant_id
+  claim: tenant
+authorization:
+  provider: spicedb
+  schema_path: authz/schema.zed
+  subject_from_identity: user
+entities:
+  - name: Order
+    resource_type: order
+    permissions: { read: view, list: browse }
+    fields:
+      - { name: status, type: string }
+      - { name: total, type: int64 }
+      - { name: api_token, type: string, sensitivity: secret }
+  - name: Charge
+    resource_type: charge
+    permissions: { read: view, list: view }
+    fields:
+      - { name: order_id, type: ref, to: Order }
+      - { name: card_last4, type: string, sensitivity: pii }
+      - { name: amount, type: int64 }
+queries:
+  - name: get-order
+    reads: [Order]
+    resource_type: order
+    permission: view
+    resource_member: orderId
+    route: GET /orders/{orderId}
+    fill: get-order
+    refusals:
+      - { name: order_unknown, status: 404, code: order.unknown }
+  - name: get-order-total
+    reads: [Order]
+    resource_type: order
+    permission: browse
+    resource_member: orderId
+    route: GET /orders/{orderId}/total
+    fill: get-order-total
+  - name: list-orders
+    reads: [Order]
+    resource_type: order
+    permission: view
+    route: GET /orders
+    fill: list-orders
+  - name: list-charges
+    reads: [Charge]
+    resource_type: charge
+    permission: view
+    route: GET /charges
+    fill: list-charges
+  - name: watch-orders
+    reads: [Order]
+    resource_type: order
+    permission: view
+    route: GET /orders/watch
+    fill: watch-orders
+    method: shop.v1.Shop/WatchOrders

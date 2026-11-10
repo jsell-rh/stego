@@ -30,3 +30,9 @@
 {"record_id":"ST-SUP-RC32-G01","file":"internal/generator/command/names.go"}
 {"record_id":"ST-SUP-RC32-G01","file":"internal/generator/command/render.go"}
 {"record_id":"ST-SUP-RC32-G01","file":"internal/generator/command/serve.go"}
+{"record_id":"ST-SUP-RC33-G01","file":"internal/generator/query/render.go"}
+{"record_id":"ST-SUP-RC33-G01","file":"internal/generator/query/testdata/fills/get-order-total/fill.go"}
+{"record_id":"ST-SUP-RC33-G01","file":"internal/generator/query/testdata/fills/get-order/fill.go"}
+{"record_id":"ST-SUP-RC33-G01","file":"internal/generator/query/testdata/fills/list-charges/fill.go"}
+{"record_id":"ST-SUP-RC33-G01","file":"internal/generator/query/testdata/fills/list-orders/fill.go"}
+{"record_id":"ST-SUP-RC33-G01","file":"internal/generator/query/testdata/fills/watch-orders/fill.go"}

@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -116,7 +117,7 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 	}
 
 	tenancy := pooledTenancy(svcDecl, componentNames)
-	commands, err := declaredCommands(input, svcDecl, components)
+	facts, err := compositionFacts(input, svcDecl, components)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +151,9 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 			StorageContract: generatedImportPath(input.ModuleName, outDirName, gen.StorageContractNamespace),
 			EventsContract:  generatedImportPath(input.ModuleName, outDirName, gen.EventsContractNamespace),
 			Tenancy:         tenancy,
-			Commands:        commands,
+			Queries:         svcDecl.Queries,
+			FillSlots:       maps.Clone(facts.FillSlots),
+			Commands:        declaredCommands(svcDecl, facts.FillSlots),
 		}
 		if compName == authorizationComponent && svcDecl.Authorization != nil && svcDecl.Authorization.SchemaPath != "" {
 			// The authorization component reads the schema that the declaration names (ST-SUP-RC29).
@@ -218,22 +221,18 @@ func holdsFills(projectDir string) bool {
 
 // declaredCommands gives the declared commands, each with the slot that its fill implements as the project's
 // fill.yaml names it (ST-SUP-RC32-OC02).
-func declaredCommands(input ReconcilerInput, svcDecl *types.ServiceDeclaration, components map[string]*registry.Component) ([]gen.Command, error) {
+func declaredCommands(svcDecl *types.ServiceDeclaration, fillSlots map[string]string) []gen.Command {
 	if len(svcDecl.Commands) == 0 {
-		return nil, nil
-	}
-	facts, err := compositionFacts(input, svcDecl, components)
-	if err != nil {
-		return nil, err
+		return nil
 	}
 	commands := make([]gen.Command, len(svcDecl.Commands))
 	for i, command := range svcDecl.Commands {
 		commands[i] = gen.Command{Command: command}
 		if len(command.Fill) == 1 {
-			commands[i].FillSlot = facts.FillSlots[command.Fill[0]]
+			commands[i].FillSlot = fillSlots[command.Fill[0]]
 		}
 	}
-	return commands, nil
+	return commands
 }
 
 // declaredEmitters lists the commands, queries, workers and slot bindings of the declaration, in this order and in

@@ -183,6 +183,19 @@ type Context struct {
 	// that its fill implements. Generators must not change them.
 	Commands []Command
 
+	// Queries are the queries of the declaration (ST-DECL-EN19), in declaration order. Generators must not change
+	// them.
+	Queries []types.Query
+
+	// FillSlots gives, for each fill that a command, a query or a worker names and that the project holds, the slot
+	// it implements as component.slot, as its fill.yaml states (ST-DECL-INV45). A fill that the project does not hold
+	// has no entry.
+	FillSlots map[string]string
+
+	// QueryStreams holds the names of the queries that are served as a server stream: the queries whose gRPC method
+	// is a server stream (ST-DECL-INV73). The compiler reads no proto file for it yet, so it is empty until the
+	// check of ST-DECL-INV73 is built.
+	QueryStreams map[string]bool
 }
 
 // Command is one declared command (ST-DECL-EN18) with what the compiler read of its fill.
