@@ -30,14 +30,14 @@ last_applied:
         go_version: go1.26.10
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261110024019-be9f6174a137
+        module_version: v0.0.0-20261110033548-b850730c9111
         vcs: git
-        revision: be9f6174a137f073be51a5e7a2ddb45e1d245982
+        revision: b850730c91117a83334a2e46faeef1248f5ee71f
         source_state: clean
     service_name: user-management
     service_hash: 40aa411da16d99a025ea81b2c13702b86cacd06678d0825757c4865830bee705
     registry_sha: env-override
-    registry_content_sha256: 40d0888cf448722738922255cb5c436e72194ed5e4ec0b34eda870de443d3969
+    registry_content_sha256: c810360feeb8ab7b8c576bce1f0692ba132b730b60d897669d0e2810545c22ea
     components:
         health-check:
             version: 1.1.0
@@ -195,4 +195,4 @@ last_applied:
         runtime:
             module: stego.dev/runtime
             version: v0.2.0
-            sum: h1:7cE3lpxtrLe2VsgV4fwOv17YgShMwYF40AfTPdNo5lw=
+            sum: h1:v5/ju+tzKRpkGsNGqSWSjn/E+tN2y87514IAFiI2IrA=
