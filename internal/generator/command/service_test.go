@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -147,20 +148,31 @@ func commandService(t *testing.T) *project {
 	})
 }
 
-// runCheck runs one subtest of the checks of the generated service, against the local PostgreSQL server of
-// STEGO_TEST_POSTGRES_DSN and a local SpiceDB container. A missing server fails the test: a missing result is not a
-// pass.
-func runCheck(t *testing.T, p *project, endpoint, key, id string) {
+// checkRun is the one run of the checks of the generated service: one go test of the check package with every
+// check, so the service is built and its test binary run once.
+type checkRun struct {
+	once   sync.Once
+	output string
+	err    error
+}
+
+// runCheck tells whether the check id of the generated service ran and passed, against the local PostgreSQL server
+// of STEGO_TEST_POSTGRES_DSN and a local SpiceDB container. The first call runs every check. A missing server
+// fails the test: a missing result is not a pass.
+func runCheck(t *testing.T, p *project, run *checkRun, endpoint, key, id string) {
 	t.Helper()
 	if os.Getenv("STEGO_TEST_POSTGRES_DSN") == "" {
 		t.Fatal("STEGO_TEST_POSTGRES_DSN is not set: this test needs a local PostgreSQL server")
 	}
-	cmd := exec.Command(pinnedGo(), "test", "-count=1", "-timeout=300s", "-v", "-run", "^TestCommand$/^"+id+"_", "./check")
-	cmd.Dir = p.dir
-	cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=-mod=mod", "GOTOOLCHAIN=local", "STEGO_TEST_SPICEDB="+endpoint, "STEGO_TEST_SPICEDB_KEY="+key)
-	output, err := cmd.CombinedOutput()
-	if err != nil || !strings.Contains(string(output), "--- PASS: TestCommand/"+id+"_") {
-		t.Fatalf("the check %s of the generated service did not run and pass: %v\n%s", id, err, output)
+	run.once.Do(func() {
+		cmd := exec.Command(pinnedGo(), "test", "-count=1", "-timeout=300s", "-v", "-run", "^TestCommand$", "./check")
+		cmd.Dir = p.dir
+		cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=-mod=mod", "GOTOOLCHAIN=local", "STEGO_TEST_SPICEDB="+endpoint, "STEGO_TEST_SPICEDB_KEY="+key)
+		output, err := cmd.CombinedOutput()
+		run.output, run.err = string(output), err
+	})
+	if !strings.Contains(run.output, "--- PASS: TestCommand/"+id+"_") {
+		t.Fatalf("the check %s of the generated service did not run and pass (go test: %v):\n%s", id, run.err, run.output)
 	}
 }
 
@@ -170,16 +182,17 @@ func TestCommandService(t *testing.T) {
 	p := commandService(t)
 	p.mustGo("vet", "./...")
 	endpoint, key := startSpiceDB(t)
-	t.Run("ST-SUP-RC32-OC04-T01 The fill runs in one transaction with the caller's tenant", func(t *testing.T) { runCheck(t, p, endpoint, key, "ST-SUP-RC32-OC04-T01") })
-	t.Run("ST-SUP-RC32-OC04-T02 An unauthenticated command never reaches the fill", func(t *testing.T) { runCheck(t, p, endpoint, key, "ST-SUP-RC32-OC04-T02") })
-	t.Run("ST-SUP-RC32-OC05-T01 A fill error leaves nothing behind", func(t *testing.T) { runCheck(t, p, endpoint, key, "ST-SUP-RC32-OC05-T01") })
-	t.Run("ST-SUP-RC32-OC05-T02 A successful command commits its writes and effects together", func(t *testing.T) { runCheck(t, p, endpoint, key, "ST-SUP-RC32-OC05-T02") })
-	t.Run("ST-SUP-RC32-OC06-T01 A denied command answers 403 and does not call the fill", func(t *testing.T) { runCheck(t, p, endpoint, key, "ST-SUP-RC32-OC06-T01") })
-	t.Run("ST-SUP-RC32-OC06-T02 A write under a parent that the principal may not act on is refused", func(t *testing.T) { runCheck(t, p, endpoint, key, "ST-SUP-RC32-OC06-T02") })
-	t.Run("ST-SUP-RC32-OC07-T01 A committed, a denied and a failed command each leave one command audit row", func(t *testing.T) { runCheck(t, p, endpoint, key, "ST-SUP-RC32-OC07-T01") })
-	t.Run("ST-SUP-RC32-OC08-T01 A retried command replays and does not call the fill again", func(t *testing.T) { runCheck(t, p, endpoint, key, "ST-SUP-RC32-OC08-T01") })
-	t.Run("ST-SUP-RC32-OC08-T02 A command without an Idempotency-Key gets 400 and does not call the fill", func(t *testing.T) { runCheck(t, p, endpoint, key, "ST-SUP-RC32-OC08-T02") })
-	t.Run("ST-SUP-RC32-OC09-T01 A command fill's error text reaches no response, audit row or completion log", func(t *testing.T) { runCheck(t, p, endpoint, key, "ST-SUP-RC32-OC09-T01") })
-	t.Run("ST-SUP-RC32-OC10-T01 A command that loses a conflict gets 409 conflict, an audit row, and runs again on a retry with the same key", func(t *testing.T) { runCheck(t, p, endpoint, key, "ST-SUP-RC32-OC10-T01") })
-	t.Run("ST-SUP-RC32-OC11-T01 HTTP and gRPC take one request message", func(t *testing.T) { runCheck(t, p, endpoint, key, "ST-SUP-RC32-OC11-T01") })
+	run := &checkRun{}
+	t.Run("ST-SUP-RC32-OC04-T01 The fill runs in one transaction with the caller's tenant", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC04-T01") })
+	t.Run("ST-SUP-RC32-OC04-T02 An unauthenticated command never reaches the fill", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC04-T02") })
+	t.Run("ST-SUP-RC32-OC05-T01 A fill error leaves nothing behind", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC05-T01") })
+	t.Run("ST-SUP-RC32-OC05-T02 A successful command commits its writes and effects together", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC05-T02") })
+	t.Run("ST-SUP-RC32-OC06-T01 A denied command answers 403 and does not call the fill", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC06-T01") })
+	t.Run("ST-SUP-RC32-OC06-T02 A write under a parent that the principal may not act on is refused", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC06-T02") })
+	t.Run("ST-SUP-RC32-OC07-T01 A committed, a denied and a failed command each leave one command audit row", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC07-T01") })
+	t.Run("ST-SUP-RC32-OC08-T01 A retried command replays and does not call the fill again", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC08-T01") })
+	t.Run("ST-SUP-RC32-OC08-T02 A command without an Idempotency-Key gets 400 and does not call the fill", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC08-T02") })
+	t.Run("ST-SUP-RC32-OC09-T01 A command fill's error text reaches no response, audit row or completion log", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC09-T01") })
+	t.Run("ST-SUP-RC32-OC10-T01 A command that loses a conflict gets 409 conflict, an audit row, and runs again on a retry with the same key", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC10-T01") })
+	t.Run("ST-SUP-RC32-OC11-T01 HTTP and gRPC take one request message", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC11-T01") })
 }
