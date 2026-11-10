@@ -5,9 +5,6 @@
 {"source_id":"ST-SUP-RC01-OC21","target_id":"ST-STD-TXN-R03"}
 {"source_id":"ST-SUP-RC01-OC40","target_id":"ST-STD-TXN-R01"}
 {"source_id":"ST-SUP-RC01-OC40","target_id":"ST-STD-TXN-R03"}
-{"source_id":"ST-SUP-RC01-OC41","target_id":"ST-STD-TXN-R01"}
-{"source_id":"ST-SUP-RC01-OC41","target_id":"ST-STD-TXN-R02"}
-{"source_id":"ST-SUP-RC01-OC41","target_id":"ST-STD-TXN-R04"}
 {"source_id":"ST-SUP-RC05-OC27","target_id":"ST-STD-TXN-R14"}
 {"source_id":"ST-SUP-RC05-OC27","target_id":"ST-STD-TXN-R15"}
 {"source_id":"ST-SUP-RC05-OC28","target_id":"ST-STD-TXN-R15"}

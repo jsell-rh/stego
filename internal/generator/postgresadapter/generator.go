@@ -290,7 +290,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	for _, entity := range ctx.Entities {
 		wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
 			Schema: "public", Name: tableName(entity.Name), Kind: "table",
-			Privileges: []string{"SELECT", "INSERT", "UPDATE", "DELETE"},
+			Privileges: runtimePrivileges(ctx, entity),
 		})
 		wiring.BackupObjects = append(wiring.BackupObjects, gen.BackupObject{
 			Schema: "public", Name: tableName(entity.Name), Kind: "table",

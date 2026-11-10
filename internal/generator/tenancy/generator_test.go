@@ -138,7 +138,7 @@ func TestMigrations(t *testing.T) {
 	// role migration fails to create.
 	suffix := strconv.FormatInt(time.Now().UnixNano(), 36)
 	tenancyCtx.ComponentConfig = map[string]any{"runtime_role": "check_runtime_" + suffix, "owner_role": "check_owner_" + suffix}
-	adapterFiles, _, err := new(postgresadapter.Generator).Generate(storageCtx)
+	adapterFiles, adapterWiring, err := new(postgresadapter.Generator).Generate(storageCtx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,6 +165,14 @@ func TestMigrations(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(project, "check", "tenancy_test.go"), tenancyTests, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// The access that the adapter declares, which the database access contract grants the runtime role.
+	access, err := json.Marshal(adapterWiring.DatabaseAccess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "check", "access.json"), access, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	tidy := exec.Command("go", "mod", "tidy", "-go=1.25.0")
 	tidy.Dir, tidy.Env = project, append(os.Environ(), "GOWORK=off")
 	if output, err := tidy.CombinedOutput(); err != nil {
@@ -188,7 +196,7 @@ func TestMigrations(t *testing.T) {
 			passed[event.Test] = true
 		}
 	}
-	for _, id := range []string{"ST-SUP-RC27-OC03-T01", "ST-SUP-RC27-OC03-T02", "ST-SUP-RC27-OC04-T01", "ST-SUP-RC27-OC04-T03", "ST-SUP-RC01-OC40-T01", "ST-SUP-RC01-OC40-T02"} {
+	for _, id := range []string{"ST-SUP-RC27-OC03-T01", "ST-SUP-RC27-OC03-T02", "ST-SUP-RC27-OC04-T01", "ST-SUP-RC27-OC04-T03", "ST-SUP-RC01-OC40-T01", "ST-SUP-RC01-OC40-T02", "ST-SUP-RC27-OC07-T01", "ST-SUP-RC27-OC07-T02"} {
 		t.Run(id+" passes in the generated service", func(t *testing.T) {
 			for name := range passed {
 				if strings.HasPrefix(name, "TestTenancy/"+id+"_") {

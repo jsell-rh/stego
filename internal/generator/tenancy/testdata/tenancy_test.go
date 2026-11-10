@@ -3,6 +3,8 @@ package check_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -12,6 +14,7 @@ import (
 	"example.com/tenancy-check/tenancy"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/stdlib"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -78,7 +81,64 @@ func migrated(t *testing.T) *sql.DB {
 	if err := storage.Migrate(db); err != nil {
 		t.Fatalf("migrate as the owner role: %v", err)
 	}
+	grant(t, admin)
 	return admin
+}
+
+// grant gives the runtime role the access that the adapter declares, as the database access contract does.
+func grant(t *testing.T, admin *sql.DB) {
+	t.Helper()
+	data, err := os.ReadFile("access.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var objects []struct {
+		Schema, Name, Kind string
+		Privileges         []string
+	}
+	if err := json.Unmarshal(data, &objects); err != nil {
+		t.Fatal(err)
+	}
+	for _, object := range objects {
+		if object.Kind != "table" || len(object.Privileges) == 0 {
+			continue
+		}
+		statement := "GRANT " + strings.Join(object.Privileges, ", ") + " ON TABLE " + pgx.Identifier{object.Schema, object.Name}.Sanitize() + " TO " + pgx.Identifier{tenancy.RuntimeRole}.Sanitize()
+		if _, err := admin.Exec(statement); err != nil {
+			t.Fatalf("%s: %v", statement, err)
+		}
+	}
+}
+
+// as runs fn in one transaction as role, with the tenant setting of tenant when it is not empty, and rolls back.
+func as(t *testing.T, db *sql.DB, role, tenant string, fn func(tx *sql.Tx) error) error {
+	t.Helper()
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("SET LOCAL ROLE " + pgx.Identifier{role}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	if tenant != "" {
+		if _, err := tx.Exec("SELECT pg_catalog.set_config('app.tenant', $1, true)", tenant); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return fn(tx)
+}
+
+// denied reports whether err is PostgreSQL's insufficient_privilege.
+func denied(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "42501"
+}
+
+// insertCatalog writes one shared Catalog row.
+func insertCatalog(tx *sql.Tx, code string) error {
+	_, err := tx.Exec("INSERT INTO public.catalogs (id, code, created_time, updated_time) VALUES ($1, $2, now(), now())", uuid.NewString(), code)
+	return err
 }
 
 func TestTenancy(t *testing.T) {
@@ -155,6 +215,51 @@ func TestTenancy(t *testing.T) {
 		}
 		if tables != 0 {
 			t.Errorf("the runtime role owns %d relations", tables)
+		}
+	})
+
+	t.Run("ST-SUP-RC27-OC07-T01 Every tenant reads a shared entity", func(t *testing.T) {
+		tx, err := db.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec("SET LOCAL ROLE " + pgx.Identifier{tenancy.OwnerRole}.Sanitize()); err != nil {
+			t.Fatal(err)
+		}
+		for _, code := range []string{"read-1", "read-2"} {
+			if err := insertCatalog(tx, code); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+		for _, tenant := range []string{"tenant-a", "tenant-b"} {
+			var count int
+			err := as(t, db, tenancy.RuntimeRole, tenant, func(tx *sql.Tx) error {
+				return tx.QueryRow("SELECT count(*) FROM public.catalogs WHERE code IN ('read-1', 'read-2')").Scan(&count)
+			})
+			if err != nil || count != 2 {
+				t.Errorf("tenant %s reads %d shared rows, error %v; want 2", tenant, count, err)
+			}
+		}
+	})
+
+	t.Run("ST-SUP-RC27-OC07-T02 Neither a tenant nor a system binding can write a shared entity", func(t *testing.T) {
+		writes := map[string]func(tx *sql.Tx) error{
+			"insert": func(tx *sql.Tx) error { return insertCatalog(tx, "write") },
+			"update": func(tx *sql.Tx) error {
+				_, err := tx.Exec("UPDATE public.catalogs SET code = 'changed'")
+				return err
+			},
+		}
+		for name, write := range writes {
+			if err := as(t, db, tenancy.RuntimeRole, "tenant-a", write); !denied(err) {
+				t.Errorf("the runtime role's %s of a shared row: %v, want a permission error", name, err)
+			}
+			if err := as(t, db, tenancy.OwnerRole, "", write); err != nil {
+				t.Errorf("the owner role's %s of a shared row: %v", name, err)
+			}
 		}
 	})
 

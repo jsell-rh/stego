@@ -147,3 +147,13 @@ func rowSecurityImport(ctx gen.Context) (string, error) {
 // TableName gives the table of an entity: the snake case plural of its name. The tenancy component names the
 // tables of its row-level security with it (ST-SUP-RC27-OC03).
 func TableName(entity string) string { return tableName(entity) }
+
+// runtimePrivileges gives the privileges of the runtime role on the table of an entity: SELECT only on a shared
+// entity of a pooled service, which only the owner role in the migration job writes (ST-SUP-RC27-OC07), and
+// every row privilege on any other table.
+func runtimePrivileges(ctx gen.Context, entity types.Entity) []string {
+	if tenantColumn(ctx) != "" && entity.Tenant == "shared" {
+		return []string{"SELECT"}
+	}
+	return []string{"SELECT", "INSERT", "UPDATE", "DELETE"}
+}
