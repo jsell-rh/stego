@@ -154,6 +154,15 @@ type Context struct {
 	// Generators must not change these maps or their nested values.
 	PeerConfigs map[string]map[string]any
 
+	// Observations are the declared observations of the service (ST-DECL-EN20),
+	// in declaration order.
+	Observations []types.Observation
+
+	// Emitters are the commands, queries, workers, process methods and slot
+	// bindings of the declaration whose fills can emit an observation, in
+	// declaration order (ST-SUP-RC34-OC03).
+	Emitters []Emitter
+
 	// Tenancy is the pooled tenancy of a service that has the tenancy component, and nil for any other service
 	// (ST-SUP-RC01-OC40). Generators must not change it.
 	Tenancy *Tenancy
@@ -163,6 +172,27 @@ type Context struct {
 	// as SQL and emits no store and no entity model (ST-SUP-RC01-OC41). The compiler sets it when the command and
 	// query generators replace the store; until then it is false and the adapter emits the GORM store.
 	RuntimeData bool
+}
+
+// EmitterKind tells how the generated code gives an emitter's fill its probe.
+type EmitterKind string
+
+// The emitter kinds. A command, query, worker or process method gets its
+// probe through its handle or its input; a slot binding gets it through the
+// context that its slot's component passes the fill (ST-SUP-RC34-OC04).
+const (
+	EmitterCommand       EmitterKind = "command"
+	EmitterQuery         EmitterKind = "query"
+	EmitterWorker        EmitterKind = "worker"
+	EmitterProcessMethod EmitterKind = "process method"
+	EmitterSlotBinding   EmitterKind = "slot binding"
+)
+
+// Emitter is one command, query, worker, process method or slot binding.
+// Name is its declared name, and collection.slot for a slot binding.
+type Emitter struct {
+	Name string
+	Kind EmitterKind
 }
 
 // Tenancy is what the generators of a pooled service read of its tenancy (ST-DECL-EN09).

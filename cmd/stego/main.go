@@ -25,6 +25,7 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/browsertelemetry"
 	"github.com/jsell-rh/stego/internal/generator/cliapplication"
 	"github.com/jsell-rh/stego/internal/generator/controller"
+	"github.com/jsell-rh/stego/internal/generator/domainprobe"
 	"github.com/jsell-rh/stego/internal/generator/gosdk"
 	"github.com/jsell-rh/stego/internal/generator/grpcapplication"
 	"github.com/jsell-rh/stego/internal/generator/healthcheck"
@@ -915,6 +916,7 @@ func defaultGenerators() map[string]gen.Generator {
 		"otel-tracing":          &oteltracing.Generator{},
 		"health-check":          &healthcheck.Generator{},
 		"audit-log":             &auditlog.Generator{},
+		"domain-probe":          &domainprobe.Generator{},
 		"idempotency":           &idempotency.Generator{},
 	}
 }
