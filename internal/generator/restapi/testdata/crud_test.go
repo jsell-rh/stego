@@ -55,19 +55,22 @@ const (
 
 definition order {
 	relation owner: user
-	permission view = owner
+	relation viewer: user
+	permission view = owner + viewer
 	permission edit = owner
 }
 
 definition customer {
 	relation owner: user
-	permission view = owner
+	relation viewer: user
+	permission view = owner + viewer
 	permission edit = owner
 }
 
 definition todo {
 	relation owner: user
-	permission view = owner
+	relation viewer: user
+	permission view = owner + viewer
 	permission edit = owner
 }
 `
@@ -89,6 +92,8 @@ type env struct {
 	mu           sync.Mutex
 	orderGate    func(*slots.BeforeCreateRequest) *slots.SlotResult
 	customerGate func(*slots.ValidateRequest) *slots.SlotResult
+	// orderAfter is the fill of orders.after_create: it records each call, and fails for the sku after-fails.
+	afterCalls []string
 }
 
 var (
@@ -226,7 +231,7 @@ func (e *env) start(dsn, endpoint, spiceKey string) {
 	e.verifier, err = authn.New(authn.Settings{Issuer: issuer, Audience: audience, TenantClaim: "tenant", ProblemCode: "CRUD", Keys: keys})
 	must(t, err)
 
-	orders := api.NewOrdersHandler(rt, slots.NewBeforeCreateGate(orderGate{e}))
+	orders := api.NewOrdersHandler(rt, slots.NewBeforeCreateChain(true, orderGate{e}), slots.NewAfterCreateGate(orderAfter{e}))
 	customers := api.NewCustomersHandler(rt, slots.NewValidateGate(customerGate{e}))
 	todos := api.NewTodosHandler(rt)
 	mux := http.NewServeMux()
@@ -249,7 +254,7 @@ func (e *env) start(dsn, endpoint, spiceKey string) {
 	e.server = httptest.NewServer(e.verifier.Middleware(mux))
 }
 
-// orderGate is the gate fill of orders.before_create.
+// orderGate is the fill of the short-circuit chain of orders.before_create.
 type orderGate struct{ e *env }
 
 func (g orderGate) Evaluate(_ context.Context, req *slots.BeforeCreateRequest) (*slots.SlotResult, error) {
@@ -262,6 +267,32 @@ func (g orderGate) Evaluate(_ context.Context, req *slots.BeforeCreateRequest) (
 		}
 	}
 	return &slots.SlotResult{Ok: true}, nil
+}
+
+// orderAfter is the fill of orders.after_create.
+type orderAfter struct{ e *env }
+
+func (g orderAfter) Evaluate(_ context.Context, req *slots.AfterCreateRequest) (*slots.SlotResult, error) {
+	g.e.mu.Lock()
+	defer g.e.mu.Unlock()
+	g.e.afterCalls = append(g.e.afterCalls, req.PersistedFields["sku"])
+	if req.PersistedFields["sku"] == "after-fails" {
+		return nil, errors.New("after slot failed: secret internal text")
+	}
+	return &slots.SlotResult{Ok: true}, nil
+}
+
+// afterCallsOf counts the calls of orders.after_create for the sku.
+func (e *env) afterCallsOf(sku string) int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	n := 0
+	for _, s := range e.afterCalls {
+		if s == sku {
+			n++
+		}
+	}
+	return n
 }
 
 // customerGate is the gate fill of customers.validate.
@@ -354,14 +385,17 @@ func (e *env) as(subject, tenantID string) caller {
 func newTenant() string { return "t-" + uuid.NewString()[:8] }
 
 // own writes the owner relation of the caller on a resource of the caller's tenant in SpiceDB.
-func (e *env) own(c caller, resourceType, id string) {
+func (e *env) own(c caller, resourceType, id string) { e.relate(c, "owner", resourceType, id) }
+
+// relate writes the relation of the caller on a resource of the caller's tenant in SpiceDB.
+func (e *env) relate(c caller, relation, resourceType, id string) {
 	t := e.t
 	t.Helper()
 	resourceID, err := authz.ResourceID(c.tenant, id)
 	must(t, err)
 	_, err = v1.NewPermissionsServiceClient(e.spice).WriteRelationships(e.ctx, &v1.WriteRelationshipsRequest{Updates: []*v1.RelationshipUpdate{{
 		Operation: v1.RelationshipUpdate_OPERATION_TOUCH,
-		Relationship: &v1.Relationship{Resource: &v1.ObjectReference{ObjectType: resourceType, ObjectId: resourceID}, Relation: "owner",
+		Relationship: &v1.Relationship{Resource: &v1.ObjectReference{ObjectType: resourceType, ObjectId: resourceID}, Relation: relation,
 			Subject: &v1.SubjectReference{Object: &v1.ObjectReference{ObjectType: "user", ObjectId: c.principal.Subject().ID}}}}}})
 	must(t, err)
 }
@@ -505,6 +539,234 @@ func TestCrud(t *testing.T) {
 		if accepted.status != http.StatusCreated {
 			t.Errorf("a create that the slot accepts answered %d %s, want 201", accepted.status, accepted.body)
 		}
+	})
+
+	t.Run("ST-SUP-RC20-OC37-T03 A write that the caller may not make, or of a missing row, is 403 and changes nothing", func(t *testing.T) {
+		e := service(t)
+		tenantID := newTenant()
+		owner, other := e.as("owner", tenantID), e.as("other", tenantID)
+		order := e.create(owner, "orders", "order", `{"sku":"own","qty":1}`)
+		customer := e.create(owner, "customers", "customer", `{"name":"Eve","api_token":"tok","plan":"free"}`)
+		todo := e.create(owner, "todos", "todo", `{"title":"keep"}`)
+		// The other caller may view each row but not edit it, so only the write's own permission refuses the write.
+		e.relate(other, "viewer", "order", order)
+		e.relate(other, "viewer", "customer", customer)
+		e.relate(other, "viewer", "todo", todo)
+		writes := []struct{ method, path, key, body string }{
+			{http.MethodPatch, "/api/v1/orders/" + order, "k-" + uuid.NewString(), `{"qty":9}`},
+			{http.MethodDelete, "/api/v1/orders/" + order, "", ""},
+			{http.MethodPut, "/api/v1/customers/" + customer, "", `{"name":"Eve","api_token":"tok","plan":"pro"}`},
+			{http.MethodDelete, "/api/v1/customers/" + customer, "", ""},
+			{http.MethodPatch, "/api/v1/todos/" + todo, "k-" + uuid.NewString(), `{"title":"changed"}`},
+			{http.MethodPut, "/api/v1/todos/" + todo, "", `{"title":"changed"}`},
+			{http.MethodDelete, "/api/v1/todos/" + todo, "", ""},
+		}
+		for _, w := range writes {
+			if r := e.send(other, w.method, w.path, w.key, w.body); r.status != http.StatusForbidden {
+				t.Errorf("%s %s as a caller who may not edit answered %d %s, want 403", w.method, w.path, r.status, r.body)
+			}
+		}
+		for _, w := range writes {
+			missing := w.path[:strings.LastIndex(w.path, "/")+1] + uuid.NewString()
+			if r := e.send(owner, w.method, missing, w.key+"-m", w.body); r.status != http.StatusForbidden {
+				t.Errorf("%s of a missing row answered %d %s, want 403", w.method, r.status, r.body)
+			}
+		}
+		if n := e.count(`SELECT count(*) FROM orders WHERE id = $1::uuid AND qty = 1`, order); n != 1 {
+			t.Errorf("the order changed: %d rows as created, want 1", n)
+		}
+		if n := e.count(`SELECT count(*) FROM customers WHERE id = $1::uuid AND plan = 'free'`, customer); n != 1 {
+			t.Errorf("the customer changed: %d rows as created, want 1", n)
+		}
+		if n := e.count(`SELECT count(*) FROM todos WHERE id = $1::uuid AND title = 'keep'`, todo); n != 1 {
+			t.Errorf("the todo changed: %d rows as created, want 1", n)
+		}
+		if n := e.count(`SELECT count(*) FROM audit_event WHERE tenant_id = $1 AND outcome = 'ok' AND action IN ('update', 'patch', 'delete')`, tenantID); n != 0 {
+			t.Errorf("%d ok audit rows of a refused write, want 0", n)
+		}
+		if n := e.count(`SELECT count(*) FROM audit_event WHERE tenant_id = $1 AND actor_id = $2 AND outcome = 'denied'`, tenantID, other.principal.Subject().String()); n != 7 {
+			t.Errorf("%d denied audit rows of the refused writes, want 7", n)
+		}
+		// A deleted row whose owner tuple stays is allowed by the decision and then not found: it is 403 too, so the
+		// answer does not tell that the row once existed.
+		gone := e.create(owner, "orders", "order", `{"sku":"gone","qty":1}`)
+		if r := e.send(owner, http.MethodDelete, "/api/v1/orders/"+gone, "", ""); r.status != http.StatusNoContent {
+			t.Fatalf("the owner's delete answered %d %s, want 204", r.status, r.body)
+		}
+		for _, method := range []string{http.MethodPatch, http.MethodDelete} {
+			if r := e.send(owner, method, "/api/v1/orders/"+gone, "k-"+uuid.NewString(), `{"qty":2}`); r.status != http.StatusForbidden {
+				t.Errorf("a %s of a deleted row answered %d %s, want 403", method, r.status, r.body)
+			}
+		}
+		if r := e.send(owner, http.MethodPatch, "/api/v1/orders/"+order, "k-"+uuid.NewString(), `{"qty":5}`); r.status != http.StatusOK {
+			t.Errorf("the owner's patch answered %d %s, want 200", r.status, r.body)
+		}
+	})
+
+	t.Run("ST-SUP-RC20-OC37-T05 A before slot that halts writes nothing and fires no after slot", func(t *testing.T) {
+		e := service(t)
+		e.mu.Lock()
+		e.orderGate = func(req *slots.BeforeCreateRequest) *slots.SlotResult {
+			if req.Input.Fields["sku"] == "halted" {
+				return &slots.SlotResult{Ok: true, Halt: true, StatusCode: http.StatusNoContent}
+			}
+			return nil
+		}
+		e.mu.Unlock()
+		defer func() { e.mu.Lock(); e.orderGate = nil; e.mu.Unlock() }()
+		a := e.as("u-1", newTenant())
+		key := "halt-" + uuid.NewString()
+		before := e.afterCallsOf("")
+		for i := 0; i < 2; i++ {
+			r := e.send(a, http.MethodPost, "/api/v1/orders", key, `{"sku":"halted","qty":1}`)
+			if r.status != http.StatusNoContent || r.header.Get("Stego-Slot-Halted") != "" {
+				t.Errorf("the halted create (call %d) answered %d with the halt mark %q, want 204 with no mark", i+1, r.status, r.header.Get("Stego-Slot-Halted"))
+			}
+		}
+		if n := e.afterCallsOf("halted") + e.afterCallsOf("") - before; n != 0 {
+			t.Errorf("the after slot ran %d times for a halted create and its replay, want 0", n)
+		}
+		if n := e.count(`SELECT count(*) FROM orders WHERE tenant_id = $1`, a.tenant.ID()); n != 0 {
+			t.Errorf("%d order rows after the halt, want 0", n)
+		}
+		if n := e.count(`SELECT count(*) FROM audit_event WHERE tenant_id = $1 AND outcome = 'ok'`, a.tenant.ID()); n != 0 {
+			t.Errorf("%d ok audit rows after the halt, want 0", n)
+		}
+		e.create(a, "orders", "order", `{"sku":"written","qty":1}`)
+		if n := e.afterCallsOf("written"); n != 1 {
+			t.Errorf("the after slot ran %d times for a create that wrote, want 1", n)
+		}
+	})
+
+	t.Run("ST-SUP-RC20-OC37-T06 A failed after slot answers the committed response with no error text", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-1", newTenant())
+		key := "after-" + uuid.NewString()
+		r := e.send(a, http.MethodPost, "/api/v1/orders", key, `{"sku":"after-fails","qty":1}`)
+		if r.status != http.StatusCreated || strings.Contains(string(r.body), "secret internal text") {
+			t.Fatalf("the create whose after slot fails answered %d %s, want the committed 201 with no error text", r.status, r.body)
+		}
+		if n := e.count(`SELECT count(*) FROM orders WHERE tenant_id = $1 AND sku = 'after-fails'`, a.tenant.ID()); n != 1 {
+			t.Errorf("%d order rows, want the committed one", n)
+		}
+		if replay := e.send(a, http.MethodPost, "/api/v1/orders", key, `{"sku":"after-fails","qty":1}`); replay.status != r.status || string(replay.body) != string(r.body) {
+			t.Errorf("the replay answered %d %s, want the same answer %d %s", replay.status, replay.body, r.status, r.body)
+		}
+		if api.AfterSlotFailures() < 1 {
+			t.Error("the failed after slot is not counted")
+		}
+	})
+
+	// tenantRoutes sends every route as the caller of tenant t1 with tenant t2 in the header, query or body.
+	tenantRoutes := func(e *env, a caller, decorate func(*http.Request)) {
+		t := e.t
+		t.Helper()
+		send := func(method, path, key, body string) reply {
+			var reader io.Reader
+			if body != "" {
+				reader = strings.NewReader(body)
+			}
+			request, err := http.NewRequest(method, e.server.URL+path, reader)
+			must(t, err)
+			request.Header.Set("Authorization", "Bearer "+a.token)
+			if key != "" {
+				request.Header.Set("Idempotency-Key", `"`+key+`"`)
+			}
+			decorate(request)
+			response, err := http.DefaultClient.Do(request)
+			must(t, err)
+			defer response.Body.Close()
+			data, err := io.ReadAll(response.Body)
+			must(t, err)
+			return reply{status: response.StatusCode, header: response.Header, body: data}
+		}
+		for _, collection := range []struct{ name, resourceType, body, change, method string }{
+			{"orders", "order", `{"sku":"t","qty":1}`, `{"qty":2}`, http.MethodPatch},
+			{"customers", "customer", `{"name":"T","api_token":"x","plan":"free"}`, `{"name":"T","api_token":"x","plan":"pro"}`, http.MethodPut},
+			{"todos", "todo", `{"title":"t"}`, `{"title":"u"}`, http.MethodPatch},
+		} {
+			created := send(http.MethodPost, "/api/v1/"+collection.name, "k-"+uuid.NewString(), collection.body)
+			if created.status != http.StatusCreated {
+				t.Fatalf("the create of %s answered %d %s", collection.name, created.status, created.body)
+			}
+			id := created.member(t, "id")
+			e.own(a, collection.resourceType, id)
+			for _, r := range []reply{
+				send(http.MethodGet, "/api/v1/"+collection.name+"/"+id, "", ""),
+				send(http.MethodGet, "/api/v1/"+collection.name, "", ""),
+				send(collection.method, "/api/v1/"+collection.name+"/"+id, "k-"+uuid.NewString(), collection.change),
+				send(http.MethodDelete, "/api/v1/"+collection.name+"/"+id, "", ""),
+			} {
+				if r.status >= 300 {
+					t.Errorf("a route of %s answered %d %s, want it served for the caller's tenant", collection.name, r.status, r.body)
+				}
+			}
+		}
+		if n := e.count(`SELECT (SELECT count(*) FROM orders WHERE tenant_id = 't2') + (SELECT count(*) FROM customers WHERE tenant_id = 't2') + (SELECT count(*) FROM todos WHERE tenant_id = 't2')`); n != 0 {
+			t.Errorf("%d rows with tenant t2, want 0", n)
+		}
+		if n := e.count(`SELECT count(*) FROM audit_event WHERE tenant_id = 't2'`); n != 0 {
+			t.Errorf("%d audit rows with tenant t2, want 0", n)
+		}
+		if n := e.count(`SELECT count(*) FROM audit_event WHERE tenant_id = $1 AND outcome = 'ok' AND action IN ('create', 'patch', 'update', 'delete')`, a.tenant.ID()); n != 9 {
+			t.Errorf("%d ok audit rows with the caller's tenant, want 9", n)
+		}
+	}
+
+	t.Run("ST-SUP-RC20-OC35-T01 Every route takes the tenant from the verified identity", func(t *testing.T) {
+		e := service(t)
+		other := e.as("u-1", newTenant())
+		orderOfT2 := e.create(other, "orders", "order", `{"sku":"t2","qty":1}`)
+		a := e.as("u-1", newTenant())
+		tenantRoutes(e, a, func(*http.Request) {})
+		// A row of another tenant is not reached by its ID: the same subject in tenant t1 may not see or change it.
+		if r := e.send(a, http.MethodGet, "/api/v1/orders/"+orderOfT2, "", ""); r.status != http.StatusNotFound {
+			t.Errorf("a read of another tenant's row answered %d %s, want 404", r.status, r.body)
+		}
+		for _, method := range []string{http.MethodPatch, http.MethodDelete} {
+			if r := e.send(a, method, "/api/v1/orders/"+orderOfT2, "k-"+uuid.NewString(), `{"qty":7}`); r.status != http.StatusForbidden {
+				t.Errorf("a %s of another tenant's row answered %d %s, want 403", method, r.status, r.body)
+			}
+		}
+		if n := e.count(`SELECT count(*) FROM orders WHERE id = $1::uuid AND tenant_id = $2 AND qty = 1`, orderOfT2, other.tenant.ID()); n != 1 {
+			t.Errorf("the row of tenant t2 changed: %d rows as created, want 1", n)
+		}
+	})
+
+	t.Run("ST-SUP-RC20-OC35-T02 A tenant in a header is not accepted", func(t *testing.T) {
+		e := service(t)
+		tenantRoutes(e, e.as("u-1", newTenant()), func(r *http.Request) {
+			r.Header.Set("X-Tenant-ID", "t2")
+			r.Header.Set("Tenant", "t2")
+		})
+	})
+
+	t.Run("ST-SUP-RC20-OC35-T03 A tenant in a query parameter is not accepted", func(t *testing.T) {
+		e := service(t)
+		tenantRoutes(e, e.as("u-1", newTenant()), func(r *http.Request) {
+			q := r.URL.Query()
+			q.Set("tenant", "t2")
+			q.Set("tenant_id", "t2")
+			r.URL.RawQuery = q.Encode()
+		})
+	})
+
+	t.Run("ST-SUP-RC20-OC35-T04 A tenant in a body field is not accepted", func(t *testing.T) {
+		e := service(t)
+		tenantRoutes(e, e.as("u-1", newTenant()), func(r *http.Request) {
+			if r.Body == nil || r.Method == http.MethodDelete || r.Method == http.MethodGet {
+				return
+			}
+			data, err := io.ReadAll(r.Body)
+			must(t, err)
+			var body map[string]any
+			must(t, json.Unmarshal(data, &body))
+			body["tenant"], body["tenant_id"] = "t2", "t2"
+			data, err = json.Marshal(body)
+			must(t, err)
+			r.Body = io.NopCloser(strings.NewReader(string(data)))
+			r.ContentLength = int64(len(data))
+		})
 	})
 
 	t.Run("ST-SUP-RC30-OC04-T01 The key row commits with the write", func(t *testing.T) {

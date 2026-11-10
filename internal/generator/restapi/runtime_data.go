@@ -114,6 +114,12 @@ func validateRuntimeData(ctx gen.Context, entities map[string]types.Entity) erro
 			switch op {
 			case types.OpUpsert:
 				return fmt.Errorf("rest-api: collection %s declares upsert, which the runtime data path does not serve yet", c.Name)
+			case types.OpUpdate, types.OpPatch, types.OpDelete:
+				// Every write of a row decides a permission on it before the fill; a write with none would run
+				// undecided (ST-SUP-RC29-OC01).
+				if p := e.Permissions[op]; p == "" || p == types.PermissionPublic {
+					return fmt.Errorf("rest-api: collection %s declares %s with the permission %q; on the runtime data path a write of a row decides a permission of %s on it", c.Name, op, p, e.ResourceType)
+				}
 			case types.OpCreate:
 				// A top-level create has no row to decide on before the fill (ST-SUP-RP10-LC31); ST-SUP-Q85 asks
 				// which resource it decides on.
@@ -200,7 +206,7 @@ func generateRuntimeHandlers(ctx gen.Context, collections []*runtimeCollection, 
 func renderRuntimeHelpers(ctx gen.Context, names []string, dataImport, slotsImportPath string, hasSlots bool, keys *idempotencyHeader) ([]byte, error) {
 	var b bytes.Buffer
 	pkg := path.Base(ctx.OutputNamespace)
-	fmt.Fprintf(&b, "package %s\n\nimport (\n\t\"context\"\n\t\"errors\"\n\t\"net\"\n\t\"net/http\"\n\t\"time\"\n\n", pkg)
+	fmt.Fprintf(&b, "package %s\n\nimport (\n\t\"context\"\n\t\"errors\"\n\t\"log/slog\"\n\t\"net\"\n\t\"net/http\"\n\t\"sync/atomic\"\n\t\"time\"\n\n", pkg)
 	fmt.Fprintf(&b, "\t\"stego.dev/runtime/audit\"\n\t\"stego.dev/runtime/authn\"\n\t\"stego.dev/runtime/authz\"\n\t\"stego.dev/runtime/command\"\n")
 	fmt.Fprintf(&b, "\t\"stego.dev/runtime/idempotency\"\n\t\"stego.dev/runtime/probe\"\n\t\"stego.dev/runtime/query\"\n\t\"stego.dev/runtime/tenant\"\n\n")
 	fmt.Fprintf(&b, "\tdata %q\n", dataImport)
@@ -278,13 +284,34 @@ type slotRefusal struct {
 
 func (r *slotRefusal) Error() string { return "a slot fill refused the request" }
 
+// haltHeader marks the response of a command that a before slot halted with no write. The key row stores it, so a
+// replay of the request is known as halted too; writeResult takes it off before the response leaves the service.
+const haltHeader = "Stego-Slot-Halted"
+
 // slotHalt is the result of a before slot fill that accepted the request and stops it with a status: the command
-// writes nothing and answers the status.
+// writes nothing and answers the status, and no after slot runs.
 func slotHalt(status int) (idempotency.Response, error) {
 	if status <= 0 {
 		status = http.StatusOK
 	}
-	return idempotency.Response{Status: status}, nil
+	return idempotency.Response{Status: status, Header: http.Header{haltHeader: {"true"}}}, nil
+}
+
+// halted tells whether a before slot halted the command of result with no write, also in a replay.
+func halted(result command.Result) bool { return result.Response.Header.Get(haltHeader) != "" }
+
+// afterSlotFailures counts the after slots that failed after their command committed.
+var afterSlotFailures atomic.Int64
+
+// AfterSlotFailures gives how many after slots failed after their command committed.
+func AfterSlotFailures() int64 { return afterSlotFailures.Load() }
+
+// afterSlotFailed records an after slot that failed after its command committed: the write and its key row are
+// stored, so the handler still answers the committed response, and the log names the slot and holds no error text
+// (ST-SUP-Q89).
+func afterSlotFailed(ctx context.Context, slot string) {
+	afterSlotFailures.Add(1)
+	slog.ErrorContext(ctx, "an after slot failed after its command committed", "slot", slot)
 }
 
 // invalidRequest is a request body that does not decode into the collection's type.
@@ -311,9 +338,11 @@ func (rt *Runtime) boundQuery(ctx context.Context, b bound, q *query.Query) quer
 }
 
 // answerWrite answers an error of Run and writes the audit row of the denied or failed write in its own short
-// transaction (ST-SUP-RC28-OC03): a slot refusal is the slot's status and outcome denied, a row that is not there is
-// 404, a deny is 403, a conflict 409 and every other error 500. No error text reaches the answer or the audit row.
-func (rt *Runtime) answerWrite(w http.ResponseWriter, r *http.Request, req command.Request, action, resourceType, kind string, err error) {
+// transaction (ST-SUP-RC28-OC03): a slot refusal is the slot's status and outcome denied, a deny is 403, a conflict
+// 409 and every other error 500. A row that is not there is 403 and outcome denied for an operation that decides a
+// permission, as a deny is, so the answer never tells that a row exists or once existed (ST-SUP-Q88), and 404
+// otherwise. No error text reaches the answer or the audit row.
+func (rt *Runtime) answerWrite(w http.ResponseWriter, r *http.Request, req command.Request, action, resourceType, kind string, decided bool, err error) {
 	var refused *slotRefusal
 	var invalid *invalidRequest
 	switch {
@@ -327,6 +356,10 @@ func (rt *Runtime) answerWrite(w http.ResponseWriter, r *http.Request, req comma
 		}
 		recordOutcome(r.Context(), rt.Commands, req, action, resourceType, outcome{status: status, code: "slot_refused", audit: audit.OutcomeDenied})
 		handleError(w, r, errorForStatus(status, refused.detail))
+		return
+	case errors.Is(err, command.ErrNotFound) && decided:
+		recordOutcome(r.Context(), rt.Commands, req, action, resourceType, outcome{status: http.StatusForbidden, code: "denied", audit: audit.OutcomeDenied})
+		handleError(w, r, Forbidden("the caller may not "+action+" this "+kind))
 		return
 	case errors.Is(err, command.ErrNotFound):
 		recordOutcome(r.Context(), rt.Commands, req, action, resourceType, outcome{status: http.StatusNotFound, code: "not_found", audit: audit.OutcomeFailed})
@@ -378,6 +411,7 @@ func writeResult(w http.ResponseWriter, result command.Result) {
 	for name, values := range result.Response.Header {
 		w.Header()[name] = values
 	}
+	w.Header().Del(haltHeader)
 	w.WriteHeader(result.Response.Status)
 	_, _ = w.Write(result.Response.Body)
 }
@@ -433,6 +467,13 @@ func emitRuntimeSlotCheck(buf *bytes.Buffer, fieldName string) {
 	fmt.Fprintf(buf, "\t\tif !slotResult.Ok {\n\t\t\treturn idempotency.Response{}, &slotRefusal{status: int(slotResult.StatusCode), detail: slotResult.ErrorMessage}\n\t\t}\n")
 	fmt.Fprintf(buf, "\t\tif slotResult.Halt {\n\t\t\treturn slotHalt(int(slotResult.StatusCode))\n\t\t}\n")
 	fmt.Fprintf(buf, "\t}\n")
+}
+
+// emitRuntimeAfterFailure is the answer of a failed after slot on the runtime data path: the command committed and
+// its response is stored, so the failure is logged with no error text and the handler answers the committed
+// response (ST-SUP-Q89).
+func emitRuntimeAfterFailure(buf *bytes.Buffer, param collectionSlotParam) {
+	fmt.Fprintf(buf, "\t\t\tafterSlotFailed(r.Context(), %q)\n", param.SlotName)
 }
 
 // runtimeHandlerWriter writes one handler file.
@@ -751,16 +792,16 @@ func (w *runtimeHandlerWriter) before(op types.Operation, patchFields []types.Fi
 	}
 }
 
-// after writes the after slots of an operation, which run after its command committed and not after a replay
-// (ST-SUP-RC20-OC34).
+// after writes the after slots of an operation, which run after its command committed and wrote, and not after a
+// replay or a before slot that halted the command with no write (ST-SUP-RC20-OC34).
 func (w *runtimeHandlerWriter) after(op types.Operation, entityVar string, patchFields []types.Field) {
 	_, after := slotsForOp(op, w.c.slots)
 	if len(after) == 0 {
 		return
 	}
-	w.f("\tif !result.Replayed && result.Response.Status < 300 {\n")
+	w.f("\tif !result.Replayed && result.Response.Status < 300 && !halted(result) {\n")
 	for _, sp := range after {
-		dispatchAfterSlot(&w.Buffer, w.slotsAlias, runtimeIdentity, sp, entityVar, w.c.entity, op, patchFields)
+		dispatchAfterSlot(&w.Buffer, w.slotsAlias, runtimeIdentity, sp, entityVar, w.c.entity, op, patchFields, emitRuntimeAfterFailure)
 	}
 	w.f("\t}\n")
 }
@@ -789,7 +830,7 @@ func (w *runtimeHandlerWriter) respond(status, value string) {
 
 // finish writes the answer of Run.
 func (w *runtimeHandlerWriter) finish(op types.Operation, resource string) {
-	w.f("\tif err != nil {\n\t\th.rt.answerWrite(w, r, req, %q, %q, %q, err)\n\t\treturn\n\t}\n", string(op), w.c.entity.ResourceType, w.c.entity.Name)
+	w.f("\tif err != nil {\n\t\th.rt.answerWrite(w, r, req, %q, %q, %q, %t, err)\n\t\treturn\n\t}\n", string(op), w.c.entity.ResourceType, w.c.entity.Name, w.c.permission(op) != "")
 	w.f("\tif result.Problem != \"\" {\n\t\tanswerKey(w, r, result)\n\t\treturn\n\t}\n")
 	_ = resource
 }
@@ -800,7 +841,7 @@ func (w *runtimeHandlerWriter) create() {
 	w.f("func (h *%sHandler) Create(w http.ResponseWriter, r *http.Request) {\n", c.pascal)
 	w.start(true)
 	w.key(types.OpCreate)
-	w.f("\tif _, err := decode%s(body); err != nil {\n\t\th.rt.answerWrite(w, r, command.Request{}, \"create\", %q, %q, err)\n\t\treturn\n\t}\n", c.pascal, e.ResourceType, e.Name)
+	w.f("\tif _, err := decode%s(body); err != nil {\n\t\th.rt.answerWrite(w, r, command.Request{}, \"create\", %q, %q, false, err)\n\t\treturn\n\t}\n", c.pascal, e.ResourceType, e.Name)
 	w.f("\tfingerprint, err := idempotency.FieldFingerprint(r.Method, r.URL.Path, body, %sCreateFields)\n\tif err != nil {\n\t\thandleError(w, r, BadRequest(\"the body is not a JSON object\"))\n\t\treturn\n\t}\n", c.camel)
 	w.f("\treq := h.rt.commandRequest(r, b, key, fingerprint, requestID, body, \"\")\n")
 	w.f("\tvar persisted %s\n", e.Name)
@@ -827,7 +868,7 @@ func (w *runtimeHandlerWriter) update() {
 	w.f("// Update runs the generated command update of %s through Run, on the row of the path's ID.\n", c.decl.Name)
 	w.f("func (h *%sHandler) Update(w http.ResponseWriter, r *http.Request) {\n\tid := r.PathValue(\"id\")\n", c.pascal)
 	w.start(true)
-	w.f("\tif _, err := decode%s(body); err != nil {\n\t\th.rt.answerWrite(w, r, command.Request{}, \"update\", %q, %q, err)\n\t\treturn\n\t}\n", c.pascal, e.ResourceType, e.Name)
+	w.f("\tif _, err := decode%s(body); err != nil {\n\t\th.rt.answerWrite(w, r, command.Request{}, \"update\", %q, %q, false, err)\n\t\treturn\n\t}\n", c.pascal, e.ResourceType, e.Name)
 	w.f("\trequestID := data.NewID()\n\tfingerprint, err := idempotency.Fingerprint(r.Method, r.URL.Path, body)\n\tif err != nil {\n\t\thandleError(w, r, BadRequest(\"the body is not a JSON object\"))\n\t\treturn\n\t}\n")
 	w.f("\treq := h.rt.commandRequest(r, b, requestKey(requestID), fingerprint, requestID, body, id)\n")
 	w.f("\tvar persisted %s\n", e.Name)
@@ -866,7 +907,7 @@ func (w *runtimeHandlerWriter) patch() {
 	} else {
 		w.f("\tif _, err := decode%sPatch(body); err != nil {\n", c.pascal)
 	}
-	w.f("\t\th.rt.answerWrite(w, r, command.Request{}, \"patch\", %q, %q, err)\n\t\treturn\n\t}\n", e.ResourceType, e.Name)
+	w.f("\t\th.rt.answerWrite(w, r, command.Request{}, \"patch\", %q, %q, false, err)\n\t\treturn\n\t}\n", e.ResourceType, e.Name)
 	w.f("\tfingerprint, err := idempotency.FieldFingerprint(r.Method, r.URL.Path, body, %sPatchFields)\n\tif err != nil {\n\t\thandleError(w, r, BadRequest(\"the body is not a JSON object\"))\n\t\treturn\n\t}\n", c.camel)
 	w.f("\treq := h.rt.commandRequest(r, b, key, fingerprint, requestID, body, id)\n")
 	w.f("\tvar persisted %s\n", e.Name)

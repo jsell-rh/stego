@@ -915,7 +915,7 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	fmt.Fprintf(buf, "\t}\n")
 	// After-slots: on_entity_changed and after_create fire after create.
 	for _, sp := range after {
-		dispatchAfterSlot(buf, slotsAlias, authAlias, sp, lower, entity, types.OpCreate, nil)
+		dispatchAfterSlot(buf, slotsAlias, authAlias, sp, lower, entity, types.OpCreate, nil, emitAfterSlotFailure)
 	}
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
 	fmt.Fprintf(buf, "\tw.WriteHeader(http.StatusCreated)\n")
@@ -1054,7 +1054,7 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	for _, sp := range after {
-		dispatchAfterSlot(buf, slotsAlias, authAlias, sp, lower, entity, types.OpUpdate, nil)
+		dispatchAfterSlot(buf, slotsAlias, authAlias, sp, lower, entity, types.OpUpdate, nil, emitAfterSlotFailure)
 	}
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
 	if envelope {
@@ -1102,7 +1102,7 @@ func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	for _, sp := range after {
-		dispatchAfterSlot(buf, slotsAlias, authAlias, sp, "", entity, types.OpDelete, nil)
+		dispatchAfterSlot(buf, slotsAlias, authAlias, sp, "", entity, types.OpDelete, nil, emitAfterSlotFailure)
 	}
 	fmt.Fprintf(buf, "\tw.WriteHeader(http.StatusNoContent)\n")
 	fmt.Fprintf(buf, "}\n\n")
@@ -1400,7 +1400,7 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	for _, sp := range after {
-		dispatchAfterSlot(buf, slotsAlias, authAlias, sp, lower, entity, types.OpUpsert, nil)
+		dispatchAfterSlot(buf, slotsAlias, authAlias, sp, lower, entity, types.OpUpsert, nil, emitAfterSlotFailure)
 	}
 	// When the upsert updated an existing row, the pre-computed ID on the
 	// local entity variable is a phantom — the DB preserved the existing
@@ -1583,7 +1583,7 @@ func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collec
 
 	// Step 7: Invoke after-slots (e.g., on_entity_changed fan-out, after_patch).
 	for _, sp := range after {
-		dispatchAfterSlot(buf, slotsAlias, authAlias, sp, lower, entity, types.OpPatch, patchFields)
+		dispatchAfterSlot(buf, slotsAlias, authAlias, sp, lower, entity, types.OpPatch, patchFields, emitAfterSlotFailure)
 	}
 
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
@@ -3969,21 +3969,30 @@ func emitCallerField(buf *bytes.Buffer, slotsAlias string, authAlias string) {
 	}
 }
 
+// afterFailure writes the answer of an after slot whose call failed, inside the if of slotErr.
+type afterFailure func(buf *bytes.Buffer, param collectionSlotParam)
+
+// emitAfterSlotFailure is the answer of a failed after slot on the store path: a 500 problem.
+func emitAfterSlotFailure(buf *bytes.Buffer, _ collectionSlotParam) {
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(slotErr.Error()))\n")
+	fmt.Fprintf(buf, "\t\t\treturn\n")
+}
+
 // dispatchAfterSlot routes after-slot emission to the correct emitter based on
 // slot name. Lifecycle after-slots (after_create, after_upsert, after_patch,
 // after_delete) receive rich request data; the legacy on_entity_changed slot
 // receives only {Entity, Action}.
-func dispatchAfterSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityVarName string, entity types.Entity, op types.Operation, patchFields []types.Field) {
+func dispatchAfterSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityVarName string, entity types.Entity, op types.Operation, patchFields []types.Field, fail afterFailure) {
 	switch param.SlotName {
 	case "after_create", "after_upsert":
-		emitAfterCreateOrUpsertSlot(buf, slotsAlias, authAlias, param, entityVarName, entity)
+		emitAfterCreateOrUpsertSlot(buf, slotsAlias, authAlias, param, entityVarName, entity, fail)
 	case "after_patch":
-		emitAfterPatchSlot(buf, slotsAlias, authAlias, param, entityVarName, entity, patchFields)
+		emitAfterPatchSlot(buf, slotsAlias, authAlias, param, entityVarName, entity, patchFields, fail)
 	case "after_delete":
-		emitAfterDeleteSlot(buf, slotsAlias, authAlias, param, entity.Name)
+		emitAfterDeleteSlot(buf, slotsAlias, authAlias, param, entity.Name, fail)
 	default:
 		// Legacy after-slot (on_entity_changed): minimal {Entity, Action} request.
-		emitAfterSlot(buf, slotsAlias, param, entity.Name, op)
+		emitAfterSlot(buf, slotsAlias, param, entity.Name, op, fail)
 	}
 }
 
@@ -3991,12 +4000,11 @@ func dispatchAfterSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, p
 // before the HTTP response is written. The request is populated with the entity
 // name and the operation that triggered the slot. A nil guard wraps the invocation
 // so that when no fills are wired, the handler degrades to passthrough semantics.
-func emitAfterSlot(buf *bytes.Buffer, slotsAlias string, param collectionSlotParam, entityName string, op types.Operation) {
+func emitAfterSlot(buf *bytes.Buffer, slotsAlias string, param collectionSlotParam, entityName string, op types.Operation, fail afterFailure) {
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
 	fmt.Fprintf(buf, "\t\tif _, slotErr := h.%s.Evaluate(r.Context(), &%s.%s{Entity: %q, Action: %q}); slotErr != nil {\n",
 		param.FieldName, slotsAlias, param.RequestType, entityName, string(op))
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(slotErr.Error()))\n")
-	fmt.Fprintf(buf, "\t\t\treturn\n")
+	fail(buf, param)
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t}\n")
 }
@@ -4005,7 +4013,7 @@ func emitAfterSlot(buf *bytes.Buffer, slotsAlias string, param collectionSlotPar
 // after_upsert slot operator after the store call succeeds. The proto request
 // has: entity (string), persisted_fields (map<string,string>), caller (*Identity).
 // The persisted entity variable is available in scope after the store call.
-func emitAfterCreateOrUpsertSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityVarName string, entity types.Entity) {
+func emitAfterCreateOrUpsertSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityVarName string, entity types.Entity, fail afterFailure) {
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
 	// Pre-compute string values for optional (pointer) fields.
 	for _, f := range entity.Fields {
@@ -4051,8 +4059,7 @@ func emitAfterCreateOrUpsertSlot(buf *bytes.Buffer, slotsAlias string, authAlias
 	}
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\tif _, slotErr := h.%s.Evaluate(r.Context(), afterReq); slotErr != nil {\n", param.FieldName)
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(slotErr.Error()))\n")
-	fmt.Fprintf(buf, "\t\t\treturn\n")
+	fail(buf, param)
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t}\n")
 }
@@ -4063,7 +4070,7 @@ func emitAfterCreateOrUpsertSlot(buf *bytes.Buffer, slotsAlias string, authAlias
 // map contains only the fields that were actually modified by the patch (the
 // non-nil pointer fields from the patch request, captured after applying them
 // to the entity so values reflect post-merge state).
-func emitAfterPatchSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityVarName string, entity types.Entity, patchFields []types.Field) {
+func emitAfterPatchSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityVarName string, entity types.Entity, patchFields []types.Field, fail afterFailure) {
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
 	// Build updated_fields map from non-nil patch pointer fields.
 	// At this point, patch fields have already been applied to the entity
@@ -4099,8 +4106,7 @@ func emitAfterPatchSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, 
 	}
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\tif _, slotErr := h.%s.Evaluate(r.Context(), afterReq); slotErr != nil {\n", param.FieldName)
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(slotErr.Error()))\n")
-	fmt.Fprintf(buf, "\t\t\treturn\n")
+	fail(buf, param)
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t}\n")
 }
@@ -4109,7 +4115,7 @@ func emitAfterPatchSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, 
 // a successful deletion. The proto request has: entity (string),
 // deleted_entity_id (string), caller (*Identity). Only the entity ID is
 // available; the full entity data no longer exists.
-func emitAfterDeleteSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityName string) {
+func emitAfterDeleteSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityName string, fail afterFailure) {
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
 	fmt.Fprintf(buf, "\t\tafterReq := &%s.%s{\n", slotsAlias, param.RequestType)
 	fmt.Fprintf(buf, "\t\t\tEntity: %q,\n", entityName)
@@ -4119,8 +4125,7 @@ func emitAfterDeleteSlot(buf *bytes.Buffer, slotsAlias string, authAlias string,
 	}
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\tif _, slotErr := h.%s.Evaluate(r.Context(), afterReq); slotErr != nil {\n", param.FieldName)
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(slotErr.Error()))\n")
-	fmt.Fprintf(buf, "\t\t\treturn\n")
+	fail(buf, param)
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t}\n")
 }

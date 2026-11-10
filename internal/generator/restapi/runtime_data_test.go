@@ -33,7 +33,7 @@ const crudModule = "example.com/crud"
 // crudContext is the context that the compiler gives the rest-api generator on the runtime data path for the test
 // service of ST-SUP-RC20-OC37: pooled tenancy, spicedb-authz with the subject type user, idempotency required on
 // create and patch with the problem base https://errors.example.com/crud/, and three collections: orders over the
-// owned entity Order (sku, qty) with create, read, list, patch and delete and a gate on before_create; customers
+// owned entity Order (sku, qty) with create, read, list, patch and delete, a short-circuit chain on before_create and a gate on after_create; customers
 // over Customer (name pii, api_token secret, plan) with create, read, list, update and delete and a gate on
 // validate (ST-SUP-RC28); and todos over Todo (title) with create, read, list, patch, update and delete
 // (ST-SUP-RC30).
@@ -70,7 +70,8 @@ func crudContext() gen.Context {
 			{Name: "todos", Entity: "Todo", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpPatch, types.OpUpdate, types.OpDelete}, Patchable: []string{"title", "done"}},
 		},
 		SlotBindings: []types.SlotDeclaration{
-			{Slot: "before_create", Collection: "orders", Gate: []string{"order-gate"}},
+			{Slot: "before_create", Collection: "orders", Chain: []string{"order-gate"}, ShortCircuit: true},
+			{Slot: "after_create", Collection: "orders", Gate: []string{"order-after"}},
 			{Slot: "validate", Collection: "customers", Gate: []string{"customer-gate"}},
 		},
 		SlotsPackage:   "slots",
@@ -364,15 +365,26 @@ func TestCrudService(t *testing.T) {
 	ctx := crudContext()
 	files := crudFiles(t, ctx)
 	t.Run("ST-SUP-RC20-OC37-T01 The handlers call Run and hold no store", func(t *testing.T) {
-		calls := handlerCalls(t, files["api/orders_handler.go"])
-		want := map[string]string{"Create": "command.Run", "Patch": "command.Run", "Delete": "command.Run", "Read": "query.Run", "List": "query.Run"}
-		for method, run := range want {
-			found := false
-			for _, call := range calls[method] {
-				found = found || call == run
+		want := map[string]string{"Create": "command.Run", "Update": "command.Run", "Patch": "command.Run", "Delete": "command.Run",
+			"Read": "query.Run", "List": "query.Run"}
+		methods := map[types.Operation]string{types.OpCreate: "Create", types.OpUpdate: "Update", types.OpPatch: "Patch",
+			types.OpDelete: "Delete", types.OpRead: "Read", types.OpList: "List"}
+		for _, c := range ctx.Collections {
+			name := "api/" + collectionToSnakeCase(c.Name) + "_handler.go"
+			source, ok := files[name]
+			if !ok {
+				t.Fatalf("no handler file %s for the collection %s", name, c.Name)
 			}
-			if !found {
-				t.Errorf("the handler %s calls %q, not %s", method, calls[method], run)
+			calls := handlerCalls(t, source)
+			for _, op := range c.Operations {
+				method := methods[op]
+				found := false
+				for _, call := range calls[method] {
+					found = found || call == want[method]
+				}
+				if !found {
+					t.Errorf("%s: the handler %s calls %q, not %s", name, method, calls[method], want[method])
+				}
 			}
 		}
 		for name, source := range files {
@@ -384,6 +396,38 @@ func TestCrudService(t *testing.T) {
 					t.Errorf("%s holds %q: a handler holds no store and opens no connection", name, refused)
 				}
 			}
+		}
+	})
+	t.Run("ST-SUP-RC20-OC37-T04 Generation refuses what the runtime data path does not serve", func(t *testing.T) {
+		cases := map[string]func(*gen.Context){
+			"a create that is not public": func(c *gen.Context) { c.Entities[0].Permissions[types.OpCreate] = "edit" },
+			"a public patch":              func(c *gen.Context) { c.Entities[0].Permissions[types.OpPatch] = "public" },
+			"a delete with no permission": func(c *gen.Context) { delete(c.Entities[0].Permissions, types.OpDelete) },
+			"an upsert": func(c *gen.Context) {
+				c.Collections[0].Operations = append(c.Collections[0].Operations, types.OpUpsert)
+				c.Collections[0].UpsertKey = []string{"sku"}
+			},
+			"implicit fields": func(c *gen.Context) { c.Collections[0].Implicit = map[string]string{"sku": "fixed"} },
+			"a path prefix":   func(c *gen.Context) { c.Collections[0].PathPrefix = "/stock" },
+			"a jsonb field": func(c *gen.Context) {
+				c.Entities[0].Fields = append(c.Entities[0].Fields, types.Field{Name: "doc", Type: types.FieldTypeJsonb})
+			},
+			"no resource type": func(c *gen.Context) { c.Entities[0].ResourceType = "" },
+			"no tenancy":       func(c *gen.Context) { c.Tenancy = nil },
+			"no authorization": func(c *gen.Context) { c.Authorization = nil },
+			"a slot it never calls": func(c *gen.Context) {
+				c.SlotBindings = append(c.SlotBindings, types.SlotDeclaration{Slot: "before_upsert", Collection: "orders", Gate: []string{"g"}})
+			},
+		}
+		for name, change := range cases {
+			c := crudContext()
+			change(&c)
+			if files, wiring, err := new(Generator).Generate(c); err == nil || files != nil || wiring != nil {
+				t.Errorf("%s: generation gave %d files and %v, want a refusal", name, len(files), err)
+			}
+		}
+		if _, _, err := new(Generator).Generate(crudContext()); err != nil {
+			t.Errorf("the test declaration is refused: %v", err)
 		}
 	})
 	p := newCrudProject(t, ctx, files)
@@ -400,6 +444,13 @@ func TestCrudService(t *testing.T) {
 var crudCheckIDs = []string{
 	"ST-SUP-RC20-OC37-T01 A collection create runs as a command",
 	"ST-SUP-RC20-OC37-T02 A refusing before slot stops the command before any write",
+	"ST-SUP-RC20-OC37-T03 A write that the caller may not make, or of a missing row, is 403 and changes nothing",
+	"ST-SUP-RC20-OC37-T05 A before slot that halts writes nothing and fires no after slot",
+	"ST-SUP-RC20-OC37-T06 A failed after slot answers the committed response with no error text",
+	"ST-SUP-RC20-OC35-T01 Every route takes the tenant from the verified identity",
+	"ST-SUP-RC20-OC35-T02 A tenant in a header is not accepted",
+	"ST-SUP-RC20-OC35-T03 A tenant in a query parameter is not accepted",
+	"ST-SUP-RC20-OC35-T04 A tenant in a body field is not accepted",
 	"ST-SUP-RC30-OC04-T01 The key row commits with the write",
 	"ST-SUP-RC30-OC04-T03 The same key from another tenant or principal is a new key",
 	"ST-SUP-RC28-OC02-T02 A committed mutation leaves exactly one audit row",
