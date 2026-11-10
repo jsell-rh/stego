@@ -20,7 +20,7 @@
 {"id":"ST-DECL-SP04-PR","title":"declaration.AuditValueUnknown","specification_id":"ST-DECL-SP04","file":"internal/declaration/audit.go"}
 {"id":"ST-DECL-SP05-PR","title":"declaration.SchemaLacksName","specification_id":"ST-DECL-SP05","file":"internal/declaration/authz.go"}
 {"id":"ST-DECL-SP06-PR","title":"declaration.SlotRelationUnknown","specification_id":"ST-DECL-SP06","file":"internal/declaration/authz.go"}
-{"id":"ST-DECL-SP07-PR","title":"declaration.BypassFlagPresent","specification_id":"ST-DECL-SP07","file":"internal/declaration/authz.go"}
+{"id":"ST-DECL-SP07-PR","title":"declaration.BypassFlagPresent","specification_id":"ST-DECL-SP07","file":"internal/declaration/bypass.go"}
 {"id":"ST-DECL-SP08-PR","title":"declaration.IdempotencyOnIgnoredMethod","specification_id":"ST-DECL-SP08","file":"internal/declaration/idempotency.go"}
 {"id":"ST-DECL-SP09-PR","title":"declaration.MoneyIsFloat","specification_id":"ST-DECL-SP09","file":"internal/declaration/ledger.go"}
 {"id":"ST-DECL-SP10-PR","title":"declaration.LedgerCurrencyInvalid","specification_id":"ST-DECL-SP10","file":"internal/declaration/ledger.go"}

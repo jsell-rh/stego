@@ -57,11 +57,15 @@ var reservedDestinations = map[string]bool{"authz": true, "audit": true}
 
 // validateCommandEffects checks each effect of each command (ST-DECL-INV42): its destination is one that an active
 // component declares or that a worker of the declaration consumes, it is not authz or audit, and its effect name is
-// unique in the command.
-func validateCommandEffects(commands []types.Command, facts Facts) []ValidationError {
+// unique in the command; and, when the declaration binds authorization and a worker consumes the destination, the
+// command's resource type is the consuming worker's.
+func validateCommandEffects(service *types.ServiceDeclaration, facts Facts) []ValidationError {
 	var faults []ValidationError
-	for i, command := range commands {
+	for i, command := range service.Commands {
 		faults = append(faults, effectFaults("command", command.Name, commandPath(i), command.Effects, "", facts)...)
+		if service.Authorization != nil {
+			faults = append(faults, stagingTypeFaults("command", command.Name, commandPath(i), command.ResourceType, command.Effects, service.Workers)...)
+		}
 	}
 	return faults
 }

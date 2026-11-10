@@ -1,0 +1,23 @@
+kind: service
+name: todo-svc
+archetype: rest-crud
+language: go
+base_path: /api/todo/v1
+authorization:
+  provider: spicedb
+  schema_path: authz/schema.zed
+  subject_from_identity: user
+entities:
+  - name: Todo
+    fields:
+      - {name: title, type: string, min_length: 1, max_length: 255}
+      - {name: done, type: bool, default: false}
+      - {name: owner_id, type: string}
+    resource_type: document
+    permissions: {create: edit, read: view, update: edit, delete: edit, list: view}
+    relationships:
+      - {relation: owner, subject_source: field, subject_field: owner_id, subject_type: user}
+collections:
+  todos:
+    entity: Todo
+    operations: [create, read, update, delete, list]

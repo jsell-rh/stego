@@ -163,13 +163,40 @@ func stagingFacts(workers []types.Worker, facts Facts) Facts {
 
 // validateWorkerEffects checks each effect of each worker (ST-DECL-INV70): its destination is one that an active
 // component declares or that another worker consumes, it is not authz, audit or the destination that the worker
-// consumes itself, and its effect name is unique in the worker.
-func validateWorkerEffects(workers []types.Worker, facts Facts) []ValidationError {
+// consumes itself, and its effect name is unique in the worker; and, when the declaration binds authorization and a
+// worker consumes the destination, the staging worker's resource type is the consuming worker's.
+func validateWorkerEffects(service *types.ServiceDeclaration, facts Facts) []ValidationError {
+	workers := service.Workers
 	known := stagingFacts(workers, facts)
 	consumed := consumedDestinations(workers)
 	var faults []ValidationError
 	for i, worker := range workers {
 		faults = append(faults, effectFaults("worker", worker.Name, workerPath(i), worker.Effects, consumed[worker.Name], known)...)
+		if service.Authorization != nil {
+			faults = append(faults, stagingTypeFaults("worker", worker.Name, workerPath(i), worker.ResourceType, worker.Effects, workers)...)
+		}
+	}
+	return faults
+}
+
+// stagingTypeFaults checks that each effect of a command or worker for a destination that a worker consumes comes
+// from the consuming worker's resource type: the consuming worker decides each action for the staging principal
+// too, on its own resource type (ST-SUP-RP10-LC17).
+func stagingTypeFaults(kind, name, path, resourceType string, effects []types.Effect, workers []types.Worker) []ValidationError {
+	consumers := map[string]types.Worker{}
+	for _, worker := range workers {
+		if trigger, reason := parseTrigger(worker.Trigger); reason == "" && trigger.consumes != "" {
+			consumers[trigger.consumes] = worker
+		}
+	}
+	var faults []ValidationError
+	for i, effect := range effects {
+		consumer, consumed := consumers[effect.Destination]
+		if !consumed || consumer.ResourceType == resourceType || consumer.Name == name {
+			continue
+		}
+		faults = append(faults, ValidationError{Category: kind, Rule: kind + "-effect", Path: fmt.Sprintf("%s.effects[%d].destination", path, i), Found: effect.String(), Allowed: []string{consumer.ResourceType},
+			Message: fmt.Sprintf("%s %q on the resource type %q stages the effect %q for %s, which the worker %q consumes on the resource type %q; the consuming worker decides each action for the staging principal on its own resource type, so stage it from %s", kind, name, resourceType, effect.String(), effect.Destination, consumer.Name, consumer.ResourceType, consumer.ResourceType)})
 	}
 	return faults
 }

@@ -36,7 +36,10 @@
 {"id":"ST-DECL-INV19-RL","title":"declaration.validateTenancyClaim","invariant_id":"ST-DECL-INV19","file":"internal/declaration/tenancy.go"}
 {"id":"ST-DECL-INV20-RL","title":"declaration.validateTenantlessPaths","invariant_id":"ST-DECL-INV20","file":"internal/declaration/tenancy.go"}
 {"id":"ST-DECL-INV21-RL","title":"declaration.validateAuditValues","invariant_id":"ST-DECL-INV21","file":"internal/declaration/audit.go"}
+{"id":"ST-DECL-INV22-RL","title":"declaration.validateSchemaNames","invariant_id":"ST-DECL-INV22","file":"internal/declaration/authz.go"}
+{"id":"ST-DECL-INV23-RL","title":"declaration.validateWrittenRelations","invariant_id":"ST-DECL-INV23","file":"internal/declaration/authz.go"}
 {"id":"ST-DECL-INV25-RL","title":"declaration.validateIdempotency","invariant_id":"ST-DECL-INV25","file":"internal/declaration/idempotency.go"}
+{"id":"ST-DECL-INV31-RL","title":"declaration.validateAuthorizationCoverage","invariant_id":"ST-DECL-INV31","file":"internal/declaration/authz_coverage.go"}
 {"id":"ST-DECL-INV33-RL","title":"types.ValidateLiveUnique","invariant_id":"ST-DECL-INV33","file":"internal/types/live_unique.go"}
 {"id":"ST-DECL-INV34-RL","title":"types.ValidateVersioned","invariant_id":"ST-DECL-INV34","file":"internal/types/versioned.go"}
 {"id":"ST-DECL-INV35-RL","title":"declaration.validateSlotBindingCollections","invariant_id":"ST-DECL-INV35","file":"internal/declaration/validate.go"}
@@ -44,10 +47,13 @@
 {"id":"ST-DECL-INV37-RL","title":"declaration.validateCommandNames","invariant_id":"ST-DECL-INV37","file":"internal/declaration/command.go"}
 {"id":"ST-DECL-INV38-RL","title":"declaration.validateCommandWrites","invariant_id":"ST-DECL-INV38","file":"internal/declaration/command.go"}
 {"id":"ST-DECL-INV39-RL","title":"declaration.validateCommandFill","invariant_id":"ST-DECL-INV39","file":"internal/declaration/command.go"}
+{"id":"ST-DECL-INV40-RL","title":"declaration.validateCommandAuthorization","invariant_id":"ST-DECL-INV40","file":"internal/declaration/authz_operations.go"}
+{"id":"ST-DECL-INV41-RL","title":"declaration.validateCommandRelations","invariant_id":"ST-DECL-INV41","file":"internal/declaration/authz_operations.go"}
 {"id":"ST-DECL-INV42-RL","title":"declaration.validateCommandEffects","invariant_id":"ST-DECL-INV42","file":"internal/declaration/command.go"}
 {"id":"ST-DECL-INV43-RL","title":"declaration.validateQueryNames","invariant_id":"ST-DECL-INV43","file":"internal/declaration/query.go"}
 {"id":"ST-DECL-INV44-RL","title":"declaration.validateQueryReads","invariant_id":"ST-DECL-INV44","file":"internal/declaration/query.go"}
 {"id":"ST-DECL-INV45-RL","title":"declaration.validateQueryFill","invariant_id":"ST-DECL-INV45","file":"internal/declaration/query.go"}
+{"id":"ST-DECL-INV46-RL","title":"declaration.validateQueryAuthorization","invariant_id":"ST-DECL-INV46","file":"internal/declaration/authz_operations.go"}
 {"id":"ST-DECL-INV47-RL","title":"declaration.validateOperationRoutes","invariant_id":"ST-DECL-INV47","file":"internal/declaration/command.go"}
 {"id":"ST-DECL-INV48-RL","title":"declaration.validateObservationNames","invariant_id":"ST-DECL-INV48","file":"internal/declaration/observation.go"}
 {"id":"ST-DECL-INV49-RL","title":"declaration.validateObservationKind","invariant_id":"ST-DECL-INV49","file":"internal/declaration/observation.go"}
@@ -69,6 +75,7 @@
 {"id":"ST-DECL-INV66-RL","title":"declaration.validateWorkerTrigger","invariant_id":"ST-DECL-INV66","file":"internal/declaration/worker.go"}
 {"id":"ST-DECL-INV67-RL","title":"declaration.validateWorkerWrites","invariant_id":"ST-DECL-INV67","file":"internal/declaration/worker.go"}
 {"id":"ST-DECL-INV68-RL","title":"declaration.validateWorkerFill","invariant_id":"ST-DECL-INV68","file":"internal/declaration/worker.go"}
+{"id":"ST-DECL-INV69-RL","title":"declaration.validateWorkerAuthorization","invariant_id":"ST-DECL-INV69","file":"internal/declaration/authz_operations.go"}
 {"id":"ST-DECL-INV70-RL","title":"declaration.validateWorkerEffects","invariant_id":"ST-DECL-INV70","file":"internal/declaration/worker.go"}
 {"id":"ST-DECL-INV71-RL","title":"declaration.validateWorkerMode","invariant_id":"ST-DECL-INV71","file":"internal/declaration/worker.go"}
 {"id":"ST-DECL-INV74-RL","title":"declaration.validateWorkerLease","invariant_id":"ST-DECL-INV74","file":"internal/declaration/worker.go"}
