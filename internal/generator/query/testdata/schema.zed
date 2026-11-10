@@ -1,0 +1,17 @@
+definition user {}
+
+definition stego_floor {
+	relation marker: stego_floor
+}
+
+definition order {
+	relation viewer: user
+	relation auditor: user
+	permission view = viewer
+	permission browse = viewer + auditor
+}
+
+definition charge {
+	relation viewer: user
+	permission view = viewer
+}

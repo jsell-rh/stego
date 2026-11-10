@@ -1,0 +1,15 @@
+kind: component
+name: query
+version: 0.1.0
+stage: alpha
+sunset: 2027-04-30
+output_namespace: queries
+
+config: {}
+
+requires: []
+
+provides:
+  - queries
+
+slots: []
