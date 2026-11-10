@@ -152,7 +152,6 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 			EventsContract:  generatedImportPath(input.ModuleName, outDirName, gen.EventsContractNamespace),
 			Tenancy:         tenancy,
 			Queries:         svcDecl.Queries,
-			Authorization:   svcDecl.Authorization,
 			FillSlots:       maps.Clone(facts.FillSlots),
 		}
 		if compName == authorizationComponent && svcDecl.Authorization != nil && svcDecl.Authorization.SchemaPath != "" {

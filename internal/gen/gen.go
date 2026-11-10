@@ -179,10 +179,6 @@ type Context struct {
 	// query generators replace the store; until then it is false and the adapter emits the GORM store.
 	RuntimeData bool
 
-	// Authorization is the authorization setting of the declaration (ST-DECL-EN11), or nil when it binds none.
-	// Generators must not change it.
-	Authorization *types.Authorization
-
 	// Queries are the queries of the declaration (ST-DECL-EN19), in declaration order. Generators must not change
 	// them.
 	Queries []types.Query
