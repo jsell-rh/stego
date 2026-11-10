@@ -8,7 +8,7 @@ version: 1.2.0
 runtime:
   module: stego.dev/runtime
   version: v0.2.0
-  sum: h1:kLkPcPtc2fSRq2oC9C1DnuBa89FWrIkDDyd5w2OvWzA=
+  sum: h1:jfAAxuaAvrBGVyAOB7WBj17qPAGOUnqjX43GeRreKLQ=
 components:
   - otel-tracing
   - grpc-processes
