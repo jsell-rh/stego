@@ -376,6 +376,34 @@ func (r *Repository[T]) decideParents(ctx context.Context, verb string, parents 
 	return nil
 }
 
+// decideMove decides the parents of an update. A child decides on its parent, and on the new one when the update
+// moves it (decideParents). Any other entity with a Parent, such as one with a resource type of its own, decides on
+// the new parent when the update moves it: parents must hold its loaded value, matched as checkParent matches a
+// create's parent, and nothing else; an update that keeps the parent takes no parent (ST-SUP-RP10-LC05,
+// ST-SUP-RP10-LC17).
+func (r *Repository[T]) decideMove(ctx context.Context, parents []Ref, from, value T) error {
+	s, e := r.st, r.entity
+	if r.isChild() || e.spec.Parent == nil {
+		return r.decideParents(ctx, "update", parents, from, value)
+	}
+	oldName, oldID := e.spec.Parent(from)
+	newName, newID := e.spec.Parent(value)
+	if oldName == newName && oldID == newID {
+		if len(parents) > 0 {
+			return s.breakWith(internalf("an update of %s that keeps its parent takes no parent", e.spec.Name))
+		}
+		return nil
+	}
+	if len(parents) != 1 || parents[0] == nil {
+		return s.breakWith(internalf("an update that moves %s to another parent needs the loaded value of the new parent", e.spec.Name))
+	}
+	if err := s.checkParent(e.spec.Name, true, func() (string, string) { return newName, newID }, parents[0]); err != nil {
+		return err
+	}
+	p := refOf(parents[0])
+	return s.decideWrite(ctx, p.resourceType, p.entity, p.id, p.token)
+}
+
 // checkParent refuses, as an internal error, a parent of a create of entity that is not tied to the new row: a
 // parent of another handle, of another entity or with another ID than parentOf reads from the value, a parent for an
 // entity that has none, and, for a command, no parent for an entity that has one.
@@ -1020,7 +1048,7 @@ func (r *Repository[T]) Update(ctx context.Context, from Loaded[T], value T, par
 		return nil, err
 	}
 	// A child decides on its parent, and an update that moves it to another parent on the new parent too.
-	if err := r.decideParents(ctx, "update", parents, from2.value, value); err != nil {
+	if err := r.decideMove(ctx, parents, from2.value, value); err != nil {
 		return nil, err
 	}
 	step := "update " + e.spec.Name

@@ -652,4 +652,56 @@ func TestCommandPermissionOnRows(t *testing.T) {
 			t.Fatalf("an effect for r5 under the decided o5 gave %v", err)
 		}
 	})
+
+	t.Run("ST-SUP-RP10-LC05-T11 A row with a resource type of its own moves only to a parent the command may act on", func(t *testing.T) {
+		e, _, get := rowsEnv(t)
+		e.exec(`INSERT INTO reservations (tenant_id, id, order_id, sku) VALUES ('t1', 'r-o5', 'o5', 's')`)
+		moving := e.command("cancel", func(s *CommandSpec[testProbe]) {
+			s.Permission, s.Resource = "cancel", orderResource()
+		}, e.orders, e.typedRes)
+		relations := []string{relation(t, "user:u-7", "cancel", "t1", "order", "o5"),
+			relation(t, "user:u-7", "view", "t1", "order", "o5"), relation(t, "user:u-7", "view", "t1", "order", "o6"),
+			relation(t, "user:u-7", "view", "t1", "reservation", "r-o5"), relation(t, "user:u-7", "cancel", "t1", "reservation", "r-o5")}
+		e.decision.setRelations(relations...)
+		move := func(name, to string, parents ...string) error {
+			req := e.request("t1", u7(t), "k-lc05-typed-"+name, `{}`)
+			req.Resource = "o5"
+			_, err := e.run(moving, req, func(ctx context.Context, h *Handle[testProbe]) (idempotency.Response, error) {
+				r := repo(t, h, e.typedRes)
+				v, err := r.GetForDelete(ctx, "r-o5")
+				if err != nil {
+					return ok, err
+				}
+				var refs []Ref
+				for _, p := range parents {
+					refs = append(refs, get(ctx, h, p))
+				}
+				_, err = r.Update(ctx, v, reservation{ID: "r-o5", OrderID: to, SKU: "s"}, refs...)
+				return ok, err
+			})
+			return err
+		}
+		if err := move("no-parent", "o6"); !errors.Is(err, ErrInternal) {
+			t.Fatalf("moving r-o5 under o6 with no parent gave %v, want an internal error", err)
+		}
+		if err := move("wrong-parent", "o6", "o5"); !errors.Is(err, ErrInternal) {
+			t.Fatalf("moving r-o5 under o6 with the parent o5 gave %v, want an internal error", err)
+		}
+		if err := move("o6", "o6", "o6"); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("moving r-o5 under o6, on which cancel is not allowed, gave %v, want not found", err)
+		}
+		if n := e.count(`SELECT count(*) FROM reservations WHERE id = 'r-o5' AND order_id = 'o5'`); n != 1 {
+			t.Fatal("r-o5 moved")
+		}
+		if err := move("keep", "o5"); err != nil {
+			t.Fatalf("an update of r-o5 that keeps its parent gave %v", err)
+		}
+		if err := move("keep-with-parent", "o5", "o5"); !errors.Is(err, ErrInternal) {
+			t.Fatalf("an update that keeps the parent with a parent value gave %v, want an internal error", err)
+		}
+		e.decision.setRelations(append(relations, relation(t, "user:u-7", "cancel", "t1", "order", "o6"))...)
+		if err := move("allowed", "o6", "o6"); err != nil {
+			t.Fatalf("moving r-o5 under o6 with cancel on o6 gave %v", err)
+		}
+	})
 }

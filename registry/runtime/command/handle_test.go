@@ -106,6 +106,7 @@ type env struct {
 	reservationE  *Entity[reservation]
 	underOrder    *Entity[reservation]
 	ofOrder       *List[reservation]
+	typedRes      *Entity[reservation]
 	chargeE       *Entity[charge]
 	customerE     *Entity[customer]
 	admins        *List[user]
@@ -409,6 +410,12 @@ func (e *env) entities() {
 	reservationSpec.Parent = func(v reservation) (string, string) { return "Order", v.OrderID }
 	reservationSpec.LockAtMost = 3
 	e.underOrder, err = NewEntity(reservationSpec)
+	must(err)
+	// The same table as an entity with a Parent and a resource type of its own.
+	typedSpec := reservationSpec
+	typedSpec.Name, typedSpec.ResourceType = "TypedRes", "reservation"
+	typedSpec.ReadPermission, typedSpec.ListPermission = "view", "view"
+	e.typedRes, err = NewEntity(typedSpec)
 	must(err)
 	cols := "id, order_id, sku, version, authz_token"
 	e.ofOrder, err = NewList(e.underOrder, ListSpec{Name: "of-order",
