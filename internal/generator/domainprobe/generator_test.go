@@ -108,12 +108,28 @@ func (s *service) goTool(args ...string) ([]byte, error) {
 	return cmd.CombinedOutput()
 }
 
+// goOutput runs the Go SDK in the module and gives its standard output and its standard error apart: with an
+// empty module cache, the go command writes the modules it downloads to standard error.
+func (s *service) goOutput(args ...string) ([]byte, []byte, error) {
+	name := os.Getenv("STEGO_TEST_PINNED_GO")
+	if name == "" {
+		name = filepath.Join(runtime.GOROOT(), "bin", "go")
+	}
+	cmd := exec.Command(name, args...)
+	cmd.Dir = s.dir
+	cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=-mod=mod", "GOTOOLCHAIN=local")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	err := cmd.Run()
+	return stdout.Bytes(), stderr.Bytes(), err
+}
+
 // probePackage type-checks the generated probe package from its source, with the export data of its imports.
 func (s *service) probePackage() (*gotypes.Package, []*ast.File, *gotypes.Info, *token.FileSet) {
 	s.t.Helper()
-	out, err := s.goTool("list", "-export", "-deps", "-json=ImportPath,Export", "./probes")
+	out, stderr, err := s.goOutput("list", "-export", "-deps", "-json=ImportPath,Export", "./probes")
 	if err != nil {
-		s.t.Fatalf("go list: %v\n%s", err, out)
+		s.t.Fatalf("go list: %v\n%s", err, stderr)
 	}
 	exports := map[string]string{}
 	for decoder := json.NewDecoder(bytes.NewReader(out)); decoder.More(); {
