@@ -3,8 +3,14 @@
 {"source_id":"ST-DECL-Q05","target_id":"ST-DECL-UC01-R05"}
 {"source_id":"ST-DECL-Q05","target_id":"ST-DECL-UC02-R04"}
 {"source_id":"ST-DECL-Q05","target_id":"ST-SUP-EN03"}
+{"source_id":"ST-DECL-Q09","target_id":"ST-DECL-CLI02"}
+{"source_id":"ST-DECL-Q09","target_id":"ST-DECL-INV18"}
+{"source_id":"ST-DECL-Q09","target_id":"ST-DECL-UC05-R01"}
+{"source_id":"ST-DECL-Q09","target_id":"ST-DECL-UC09-R01"}
 {"source_id":"ST-GEN-Q02","target_id":"ST-GEN-UC01-FL-S02"}
 {"source_id":"ST-GEN-Q02","target_id":"ST-GEN-UC01-R05"}
+{"source_id":"ST-GEN-Q05","target_id":"ST-GEN-EN04"}
+{"source_id":"ST-GEN-Q05","target_id":"ST-GEN-TM03"}
 {"source_id":"ST-SUP-Q74","target_id":"ST-STD-RUNTIME-R05"}
 {"source_id":"ST-SUP-Q74","target_id":"ST-SUP-RC32-OC04"}
 {"source_id":"ST-SUP-Q74","target_id":"ST-SUP-RC32-OC09"}

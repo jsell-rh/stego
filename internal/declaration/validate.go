@@ -324,10 +324,11 @@ func ValidateFieldTypes(entities []types.Entity) []ValidationError {
 	return validateFieldTypes(entities)
 }
 
-// FormatValidation renders the faults for a person, each from its structured fields.
+// FormatValidation renders the faults for a person, each from its structured fields. Each line it gives ends with
+// a line break, so the next text a caller prints starts on a line of its own.
 func FormatValidation(r *ValidationResult) string {
 	if !r.HasErrors() {
-		return "Validation passed. No issues found."
+		return "Validation passed. No issues found.\n"
 	}
 
 	var sb strings.Builder
