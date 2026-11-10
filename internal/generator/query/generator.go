@@ -54,9 +54,7 @@ func (*Generator) GoModels(ctx gen.Context) ([]gen.GoModel, error) {
 	}
 	models := make([]gen.GoModel, 0, len(m.entities))
 	for _, e := range m.entities {
-		if !e.local {
-			models = append(models, e.value.GoModel())
-		}
+		models = append(models, e.value.GoModel())
 	}
 	return models, gen.ValidateGoModels(models)
 }
@@ -96,8 +94,8 @@ type entity struct {
 	resourceType   string
 	readPermission string
 	listPermission string
-	// local is true for the declaration of a get query's resource that decides the query's permission in place of
-	// the entity's read permission (ST-SUP-RC33-OC05); it shares the value type of the entity it copies.
+	// local is true for the declaration that decides a get query's permission on its requested row in place of the
+	// entity's read permission (ST-SUP-RC33-OC05); it shares the value type of the entity it copies.
 	local bool
 }
 
@@ -118,6 +116,7 @@ type queryModel struct {
 	memberGo   string
 	inPath     bool
 	resource   *entity // the entity whose resource type the query acts on; nil when no read is protected
+	decide     *entity // the declaration that decides a get query's permission on its row, when it is not the read permission
 	reads      []*entity
 	refusals   []refusal
 	fillImport string
@@ -132,6 +131,7 @@ type model struct {
 	probeImport    string
 	entities       []*entity
 	queries        []*queryModel
+	decided        bool // a get query decides a permission that is not the read permission of its resource
 	basePath       string
 }
 
@@ -328,18 +328,15 @@ func checkQuery(ctx gen.Context, decl types.Query, declared map[string]types.Ent
 		q.refusals = append(q.refusals, refusal{name: r.Name, goName: q.goName + capability.MixedCase(r.Name), code: r.Code, status: r.Status})
 	}
 	if q.kind == getKind && q.resource.resourceType != "" && decl.Permission != q.resource.readPermission {
-		// The get decides the query's permission on its resource, not the entity's read permission (ST-SUP-RC33-OC05):
-		// its reads of that entity go through a declaration of its own whose read permission is the query's.
+		// The get decides the query's permission on the requested row only, not the entity's read permission
+		// (ST-SUP-RC33-OC05): the handler reads that row through a declaration of the entity of its own, in the
+		// package internal under the contract, which no fill can import. The repositories that the fill gets keep the
+		// entity's read permission, so the fill reads no other row on the query's permission.
 		local := *q.resource
-		local.variable = capability.LowerFirst(q.goName) + local.value.GoType + "Entity"
+		local.variable = capability.LowerFirst(q.goName) + "Resource"
 		local.readPermission, local.local = decl.Permission, true
-		for i, e := range q.reads {
-			if e == q.resource {
-				q.reads[i] = &local
-			}
-		}
-		q.resource = &local
-		m.entities = append(m.entities, &local)
+		q.decide = &local
+		m.decided = true
 	}
 	if err := bindFill(ctx, q); err != nil {
 		return nil, err

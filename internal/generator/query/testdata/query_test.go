@@ -40,6 +40,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	getorder "example.com/shop/fills/get-order"
+	getordertotal "example.com/shop/fills/get-order-total"
 	listorders "example.com/shop/fills/list-orders"
 	"example.com/shop/out/queries"
 	"example.com/shop/out/queries/serve"
@@ -595,7 +596,7 @@ func TestService(t *testing.T) {
 	})
 
 	t.Run("ST-SUP-RC33-OC01-T02 A secret field reaches no loaded value and no response", func(t *testing.T) {
-		for _, path := range []string{"/orders/" + o1, "/orders", "/orders/" + o2 + "/total"} {
+		for _, path := range []string{"/orders/" + o1, "/orders", "/orders/" + o1 + "/total"} {
 			status, body := s.get(t, user, path)
 			if status != http.StatusOK {
 				t.Fatalf("%s: %d %s, want 200", path, status, body)
@@ -617,21 +618,39 @@ func TestService(t *testing.T) {
 		evals, _, _ := s.rec.count()
 		// u-7 may browse o2 and may not view it: get-order-total declares browse.
 		status, body := s.get(t, user, "/orders/"+o2+"/total")
-		if status != http.StatusOK || !bytes.Contains(body, []byte(`"total":20`)) {
-			t.Fatalf("get-order-total of o2: %d %s, want 200 with the total 20", status, body)
+		if status != http.StatusOK || !bytes.Contains(body, []byte(`"id":"`+o2+`"`)) {
+			t.Fatalf("get-order-total of o2: %d %s, want 200 for o2", status, body)
 		}
 		s.rec.mu.Lock()
 		first := s.rec.evals[evals]
+		s.rec.mu.Unlock()
+		if first.Action.Name != "browse" || first.Resource.Type != "order" {
+			t.Fatalf("get-order-total decided %s on %s before the fill, want the declared permission browse on order", first.Action.Name, first.Resource.Type)
+		}
+		calls := getordertotal.Calls()
+		if status, body := s.get(t, user, "/orders/"+o4+"/total"); status != http.StatusNotFound {
+			t.Fatalf("get-order-total of o4, which u-7 may not browse: %d %s, want 404", status, body)
+		}
+		if got := getordertotal.Calls() - calls; got != 0 {
+			t.Fatalf("the fill ran %d times for o4, want never", got)
+		}
+	})
+
+	t.Run("ST-SUP-RC33-OC05-T04 A get query's declared permission reaches only the requested row", func(t *testing.T) {
+		// The fill reads o2, which u-7 may browse and may not view, while it serves o1: its repository decides view.
+		evals, _, _ := s.rec.count()
+		status, body := s.get(t, user, "/orders/"+o1+"/total")
+		if status != http.StatusOK || !bytes.Contains(body, []byte(`"peek":"not found"`)) {
+			t.Fatalf("get-order-total of o1: %d %s, want 200 with the read of o2 not found", status, body)
+		}
+		s.rec.mu.Lock()
 		var actions []string
 		for _, e := range s.rec.evals[evals:] {
 			actions = append(actions, e.Action.Name)
 		}
 		s.rec.mu.Unlock()
-		if first.Action.Name != "browse" || first.Resource.Type != "order" || slices.Contains(actions, "view") {
-			t.Fatalf("get-order-total decided %v, want the declared permission browse on order only", actions)
-		}
-		if status, body := s.get(t, user, "/orders/"+o4+"/total"); status != http.StatusNotFound {
-			t.Fatalf("get-order-total of o4, which u-7 may not browse: %d %s, want 404", status, body)
+		if !slices.Equal(actions, []string{"browse", "view"}) {
+			t.Fatalf("get-order-total decided %v, want browse on o1 before the fill and view on the fill's read of o2", actions)
 		}
 	})
 

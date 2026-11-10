@@ -26,13 +26,21 @@ const (
 // render gives the contract package and the handler package of the model.
 func render(m *model) ([]gen.File, error) {
 	var files []gen.File
+	var decide []byte
+	if m.decided {
+		decide = renderDecide(m)
+	}
 	for _, f := range []struct {
 		name   string
 		source []byte
 	}{
 		{path.Join(m.namespace, m.pkg+".go"), renderContract(m)},
 		{path.Join(m.namespace, "serve", "serve.go"), renderServe(m)},
+		{path.Join(m.namespace, "internal", "decide", "decide.go"), decide},
 	} {
+		if f.source == nil {
+			continue
+		}
 		formatted, err := format.Source(f.source)
 		if err != nil {
 			return nil, fmt.Errorf("query: formatting %s: %w\n%s", f.name, err, f.source)
@@ -132,10 +140,6 @@ func renderContract(m *model) []byte {
 // renderEntity writes the read-only value, the loaded type, the load function and the query.Entity of one entity.
 func renderEntity(w *writer, e *entity) {
 	v := e.value
-	if e.local {
-		renderSpec(w, e)
-		return
-	}
 	w.p("// %s is the read-only value of one stored %s.", v.GoType, v.Entity.Name)
 	w.p("type %s struct {", v.GoType)
 	for _, f := range v.Fields {
@@ -150,12 +154,16 @@ func renderEntity(w *writer, e *entity) {
 		w.p("if v.%s, err = %s; err != nil {\nreturn %s{}, err\n}", f.GoName, readExpr(f), v.GoType)
 	}
 	w.p("return v, nil\n}\n")
-	renderSpec(w, e)
+	renderSpec(w, e, "load"+v.GoType)
+	w.p("// Load%s builds a %s from a stored row, for the declarations of the handler package.", v.GoType, v.GoType)
+	w.p("func Load%s(r query.Row) (%s, error) { return load%s(r) }\n", v.GoType, v.GoType, v.GoType)
+	w.p("// Entity%s is the declaration of %s that the fills' repositories read through, with its read permission.", v.GoType, v.Entity.Name)
+	w.p("func Entity%s() *query.Entity[%s] { return %s }\n", v.GoType, v.GoType, e.variable)
 }
 
 // renderSpec writes the query.Entity of one entity: its table, its columns, its authorization and the sensitivity of
 // its fields.
-func renderSpec(w *writer, e *entity) {
+func renderSpec(w *writer, e *entity, load string) {
 	v := e.value
 	columns := make([]string, 0, len(v.Fields))
 	var sensitive []string
@@ -169,13 +177,16 @@ func renderSpec(w *writer, e *entity) {
 		}
 	}
 	sort.Strings(sensitive)
+	name := v.Entity.Name
 	if e.local {
-		w.p("// %s is the declaration of %s for the get query that decides the permission %s on it.", e.variable, v.Entity.Name, e.readPermission)
+		// A query reads each entity name once: the declaration that decides the requested row has a name of its own.
+		name += "/" + strings.TrimSuffix(e.variable, "Resource")
+		w.p("// %s is the declaration of %s that decides the permission %s on the requested row only.", e.variable, v.Entity.Name, e.readPermission)
 	} else {
 		w.p("// %s is the declaration of %s for the query runtime: its table, its columns, its authorization and the", e.variable, v.Entity.Name)
 		w.p("// sensitivity of its fields.")
 	}
-	w.p("var %s = must(query.NewEntity(query.Spec{Name: %q, Schema: \"public\", Table: %q, Key: \"id\",", e.variable, v.Entity.Name, v.Table)
+	w.p("var %s = must(query.NewEntity(query.Spec{Name: %q, Schema: \"public\", Table: %q, Key: \"id\",", e.variable, name, v.Table)
 	w.p("Columns: []string{%s},", strings.Join(columns, ", "))
 	if e.resourceType != "" {
 		w.p("ResourceType: %q, ReadPermission: %q, ListPermission: %q,", e.resourceType, e.readPermission, e.listPermission)
@@ -183,7 +194,7 @@ func renderSpec(w *writer, e *entity) {
 	if len(sensitive) > 0 {
 		w.p("Fields: audit.Fields{%s},", strings.Join(sensitive, ", "))
 	}
-	w.p("}, load%s))\n", v.GoType)
+	w.p("}, %s))\n", load)
 }
 
 // readExpr is the expression that reads the field's column from the row r.
@@ -273,14 +284,17 @@ func renderQueryContract(w *writer, q *queryModel) {
 			reads = append(reads, e.variable)
 		}
 	}
-	w.p("// %s is the declaration of the query %s for the query runtime.", q.queryVar(), name)
-	if q.kind == listKind && q.resource != nil {
-		w.p("var %s = must(query.NewListQuery(%q, %s, %q%s))\n", q.queryVar(), name, q.resource.variable, q.decl.Permission, prefixed(reads))
-	} else {
-		w.p("var %s = must(query.NewQuery(%q%s))\n", q.queryVar(), name, prefixed(reads))
+	// A query that reads the declaration that decides its row is declared in the package internal/decide only.
+	if q.decide == nil {
+		w.p("// %s is the declaration of the query %s for the query runtime.", q.queryVar(), name)
+		if q.kind == listKind && q.resource != nil {
+			w.p("var %s = must(query.NewListQuery(%q, %s, %q%s))\n", q.queryVar(), name, q.resource.variable, q.decl.Permission, prefixed(reads))
+		} else {
+			w.p("var %s = must(query.NewQuery(%q%s))\n", q.queryVar(), name, prefixed(reads))
+		}
+		w.p("// %s is the declaration of the query %s, which the handler runs.", q.goName, name)
+		w.p("func %s() *query.Query { return %s }\n", q.goName, q.queryVar())
 	}
-	w.p("// %s is the declaration of the query %s, which the handler runs.", q.goName, name)
-	w.p("func %s() *query.Query { return %s }\n", q.goName, q.queryVar())
 	for _, e := range q.reads {
 		w.p("// %s%s is the repository of %s through a handle of %s.", q.goName, e.value.GoType+"s", e.value.Entity.Name, name)
 		w.p("func %s%ss(h *%sHandle) (*Repository[%s], error) { return query.Repo(h, %s) }\n", q.goName, e.value.GoType, q.goName, e.value.GoType, e.variable)
@@ -427,6 +441,9 @@ func renderServe(m *model) []byte {
 		w.p("\"strconv\"")
 	}
 	w.p("\n%s %q\nprobes %q", m.pkg, m.contractImport, m.probeImport)
+	if m.decided {
+		w.p("decide %q", m.contractImport+"/internal/decide")
+	}
 	for _, q := range m.queries {
 		w.p("%s %q", q.fillAlias, q.fillImport)
 	}
@@ -548,9 +565,9 @@ func limitOf(r *http.Request) (int, error) {
 func renderServeCall(w *writer, m *model, q *queryModel) {
 	field := capability.LowerFirst(q.goName)
 	w.p("if h.%s, err = query.Serve(cfg.Runtime, query.HTTP[%s.%s, %s.%s, %s]{", field, m.pkg, q.requestType(), m.pkg, q.responseType(), q.probeType())
-	w.p("Query: %s.%s(),", m.pkg, q.goName)
+	w.p("Query: %s.%s(),", q.queryPkg(m), q.goName)
 	w.p("Bind: func(r *http.Request) (query.Bound[%s], error) {", q.probeType())
-	w.p("return bind(r.Context(), cfg, %s.%s(), probes.New%sProbe, r.Header.Get(\"X-Request-Id\"))\n},", m.pkg, q.goName, q.goName)
+	w.p("return bind(r.Context(), cfg, %s.%s(), probes.New%sProbe, r.Header.Get(\"X-Request-Id\"))\n},", q.queryPkg(m), q.goName, q.goName)
 	w.p("Decode: decode%s,", q.goName)
 	if q.kind == getKind {
 		w.p("Fill: decided%s,\nEncode: encodeValue,", q.goName)
@@ -582,8 +599,12 @@ func renderGet(w *writer, m *model, q *queryModel) {
 	w.p("// decided%s decides the permission %s on the %s of the request at the floor before it calls the fill %s,", q.goName, q.decl.Permission, e.value.Entity.Name, q.decl.Fill[0])
 	w.p("// once. A row that is not there and a deny are both not found, and neither reaches the fill.")
 	w.p("func decided%s(ctx context.Context, req %s.%s, h *%s.%sHandle) (%s.%s, error) {", q.goName, m.pkg, q.requestType(), m.pkg, q.goName, m.pkg, q.responseType())
-	w.p("repo, err := %s.%s%ss(h)\nif err != nil {\nreturn nil, err\n}", m.pkg, q.goName, e.value.GoType)
-	w.p("if _, err := repo.Get(ctx, req.%s); err != nil {\nreturn nil, err\n}", q.memberGo)
+	if q.decide != nil {
+		w.p("if err := decide.Decide%s(ctx, h, req.%s); err != nil {\nreturn nil, err\n}", q.goName, q.memberGo)
+	} else {
+		w.p("repo, err := %s.%s%ss(h)\nif err != nil {\nreturn nil, err\n}", m.pkg, q.goName, e.value.GoType)
+		w.p("if _, err := repo.Get(ctx, req.%s); err != nil {\nreturn nil, err\n}", q.memberGo)
+	}
 	w.p("return %s.Fill(ctx, req, h)\n}\n", q.fillAlias)
 }
 
@@ -607,4 +628,64 @@ func renderStream(w *writer, m *model, q *queryModel) {
 	w.p("func (h *Handlers) Stream%s(ctx context.Context, b query.Bound[%s], req %s.%s, send func(%s.%s) error) (uint64, error) {",
 		q.goName, q.probeType(), m.pkg, q.requestType(), m.pkg, e.value.GoType)
 	w.p("return query.RunStream(ctx, h.cfg.Runtime, %s.%s(), b, req, %s.%sEntity(), send, %s.Fill)\n}\n", m.pkg, q.goName, m.pkg, q.goName, q.fillAlias)
+}
+
+// queryPkg is the package that declares the query: internal/decide for a get query that decides a permission of its
+// own, else the contract.
+func (q *queryModel) queryPkg(m *model) string {
+	if q.decide != nil {
+		return "decide"
+	}
+	return m.pkg
+}
+
+// renderDecide is the package internal/decide under the contract: for each get query whose permission is not the
+// read permission of its resource, the declaration that decides that permission on the requested row, the query that
+// reads it, and the decision the handler makes before the fill (ST-SUP-RC33-OC05). A fill cannot import a package
+// under internal of the contract, so its repositories keep the entity's read permission.
+func renderDecide(m *model) []byte {
+	var w writer
+	sensitive := false
+	for _, q := range m.queries {
+		if q.decide == nil {
+			continue
+		}
+		for _, f := range q.decide.value.Fields {
+			sensitive = sensitive || f.Sensitivity == "pii" || f.Sensitivity == "secret"
+		}
+	}
+	w.p("// Package decide holds the declarations that decide the permission of a get query on its requested row, when it")
+	w.p("// is not the read permission of the entity (ST-SUP-RC33-OC05). Only the handler package imports it.")
+	w.p("package decide\n\nimport (\n\"context\"\n\n%s %q", m.pkg, m.contractImport)
+	if sensitive {
+		w.p("%q", auditImport)
+	}
+	w.p("%q\n)\n", queryImport)
+	for _, q := range m.queries {
+		e := q.decide
+		if e == nil {
+			continue
+		}
+		renderSpec(&w, e, m.pkg+".Load"+e.value.GoType)
+		var reads []string
+		for _, r := range q.reads {
+			reads = append(reads, m.pkg+".Entity"+r.value.GoType+"()")
+		}
+		w.p("// %s is the declaration of the query %s: it reads the row it decides and the entities it declares.", q.queryVar(), q.decl.Name)
+		w.p("var %s = must(query.NewQuery(%q, %s%s))\n", q.queryVar(), q.decl.Name, e.variable, prefixed(reads))
+		w.p("// %s is the declaration of the query %s, which the handler runs.", q.goName, q.decl.Name)
+		w.p("func %s() *query.Query { return %s }\n", q.goName, q.queryVar())
+		w.p("// Decide%s decides the permission %s on the %s id at the floor, before the fill of %s; a row that is not", q.goName, q.decl.Permission, e.value.Entity.Name, q.decl.Name)
+		w.p("// there and a deny are both not found.")
+		w.p("func Decide%s(ctx context.Context, h *%s.%sHandle, id string) error {", q.goName, m.pkg, q.goName)
+		w.p("repo, err := query.Repo(h, %s)\nif err != nil {\nreturn err\n}\n_, err = repo.Get(ctx, id)\nreturn err\n}\n", e.variable)
+	}
+	w.raw(`// must gives v, and panics on a declaration that the runtime refuses, which the generator's checks rule out.
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
+}`)
+	return w.Bytes()
 }
