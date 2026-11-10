@@ -211,6 +211,7 @@ func (r composeRun) fetched() bool {
 }
 
 func TestRegistryComposeSources(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-SUP-UC02-R01-T01 A local component with the name of a common component is refused, naming the part and both registries", func(t *testing.T) {
 		for _, changed := range []bool{false, true} {
 			f := newSupplyingFixture(t)
@@ -270,6 +271,7 @@ func TestRegistryComposeSources(t *testing.T) {
 }
 
 func TestRegistryComposeLimits(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-SUP-UC02-R03-T01 A composition of nine sources is refused, and one of eight is accepted", func(t *testing.T) {
 		f := newSupplyingFixture(t)
 		sources := []registrySource{pinned(f.common, f.commonSHA), pinned(f.local, f.localSHA)}
@@ -448,6 +450,7 @@ func TestRegistryComposeLimits(t *testing.T) {
 }
 
 func TestRegistryComposePins(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-SUP-UC02-R04-T01 A source pinned by a short, an upper-case or a branch reference is refused", func(t *testing.T) {
 		f := newSupplyingFixture(t)
 		for _, ref := range []string{f.localSHA[:12], strings.ToUpper(f.localSHA), "main"} {

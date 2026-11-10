@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -19,8 +22,8 @@ import (
 	"github.com/jsell-rh/stego/internal/gen"
 )
 
-// These tests run stego build and its subcommands in process, as an operator
-// does. A download or a build needs the Go SDK that STEGO pins: the tests use
+// These tests run stego build and its subcommands, in process or through the
+// binary, as an operator does. A download or a build needs the Go SDK that STEGO pins: the tests use
 // STEGO_TEST_PINNED_GO, else bin/go of the SDK that runs them, and skip only
 // when STEGO refuses that SDK as not the pinned one. A download reaches the
 // public module proxy.
@@ -356,7 +359,27 @@ func fileSHA256(t *testing.T, name string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// stegoBuild runs stego build with the arguments through the binary, with the environment of the test run and env
+// added. When the run fails, the error holds the exit status and what stego printed on standard error, and not the
+// arguments, so a check that the error names an input reads only what stego printed.
+func stegoBuild(t *testing.T, env []string, args ...string) error {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	command := exec.CommandContext(ctx, stegoBinary(t), append([]string{"build"}, args...)...)
+	command.Env = append(os.Environ(), env...)
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("%v: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
 func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
+	// The test runs stego build through the binary, with the environment of each run given, so it can run in
+	// parallel with the other tests of the binary.
+	t.Parallel()
 	source, revision := buildSource(t)
 	goTool := pinnedGo(t)
 	root := t.TempDir()
@@ -371,17 +394,16 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 		})
 	})
 	cache := filepath.Join(root, "cache")
-	_, err := capture(t, runBuild, []string{"download", "--source", source, "--revision", revision, "--target", "out/internal/api/tiny", "--go", goTool, "--output", cache}...)
+	err := stegoBuild(t, nil, "download", "--source", source, "--revision", revision, "--target", "out/internal/api/tiny", "--go", goTool, "--output", cache)
 	skipUnlessPinned(t, err)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// A credential in the caller's environment must not reach the record.
-	t.Setenv("GH_TOKEN", "stego-test-credential")
-	t.Setenv("GOFLAGS", "-race")
+	caller := []string{"GH_TOKEN=stego-test-credential", "GOFLAGS=-race"}
 	results := []string{filepath.Join(root, "first"), filepath.Join(root, "second")}
 	for index, result := range results {
-		if _, err := capture(t, runBuild, buildArgs(source, revision, goTool, filepath.Join(root, "work"+string(rune('a'+index))), result, cache)...); err != nil {
+		if err := stegoBuild(t, caller, buildArgs(source, revision, goTool, filepath.Join(root, "work"+string(rune('a'+index))), result, cache)...); err != nil {
 			t.Fatalf("build %d: %v", index+1, err)
 		}
 	}
@@ -408,7 +430,7 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = capture(t, runBuild, buildArgs(source, revision, goTool, filepath.Join(parent, "work"), filepath.Join(parent, "result"), copied)...)
+		err = stegoBuild(t, nil, buildArgs(source, revision, goTool, filepath.Join(parent, "work"), filepath.Join(parent, "result"), copied)...)
 		names := folderNames(t, parent)
 		return err, names
 	}
@@ -547,9 +569,11 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 	application := filepath.Join(results[0], "application")
 	trusted := fileSHA256(t, record)
 	t.Run("ST-BLD-UC04-R01-T01 A record whose canonical bytes do not hash to the trusted digest is refused", func(t *testing.T) {
-		mustRun(t, runBuild, "verify", "--record", record, "--record-sha256", trusted, "--artifact", application)
+		if err := stegoBuild(t, nil, "verify", "--record", record, "--record-sha256", trusted, "--artifact", application); err != nil {
+			t.Fatal(err)
+		}
 		wrong := strings.Repeat("0", 64)
-		_, err := capture(t, runBuild, "verify", "--record", record, "--record-sha256", wrong, "--artifact", application)
+		err := stegoBuild(t, nil, "verify", "--record", record, "--record-sha256", wrong, "--artifact", application)
 		if err == nil || !strings.Contains(err.Error(), "expected digest "+wrong) || !strings.Contains(err.Error(), "found "+trusted) {
 			t.Fatalf("an untrusted digest was not refused with the expected and found digests: %v", err)
 		}
@@ -560,7 +584,7 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 		duplicate := strings.Replace(string(raw), "  \"format\": 1,", "  \"format\": 1,\n  \"format\": 1,", 1)
 		copied := filepath.Join(t.TempDir(), "build.json")
 		writeProjectFile(t, copied, duplicate)
-		if _, err := capture(t, runBuild, "verify", "--record", copied, "--record-sha256", fileSHA256(t, copied), "--artifact", application); err == nil || !strings.Contains(err.Error(), "canonical") {
+		if err := stegoBuild(t, nil, "verify", "--record", copied, "--record-sha256", fileSHA256(t, copied), "--artifact", application); err == nil || !strings.Contains(err.Error(), "canonical") {
 			t.Fatalf("a record that is not canonical was accepted: %v", err)
 		}
 	})
@@ -573,9 +597,11 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 		t.Fatalf("source snapshot: %v\n%s", err, output)
 	}
 	t.Run("ST-BLD-UC04-R01-T02 A source check refuses an untrusted record digest", func(t *testing.T) {
-		mustRun(t, runBuild, "verify-source", "--record", record, "--record-sha256", trusted, "--source", snapshot)
+		if err := stegoBuild(t, nil, "verify-source", "--record", record, "--record-sha256", trusted, "--source", snapshot); err != nil {
+			t.Fatal(err)
+		}
 		wrong := strings.Repeat("1", 64)
-		if _, err := capture(t, runBuild, "verify-source", "--record", record, "--record-sha256", wrong, "--source", snapshot); err == nil || !strings.Contains(err.Error(), "expected digest "+wrong) {
+		if err := stegoBuild(t, nil, "verify-source", "--record", record, "--record-sha256", wrong, "--source", snapshot); err == nil || !strings.Contains(err.Error(), "expected digest "+wrong) {
 			t.Fatalf("an untrusted digest was accepted: %v", err)
 		}
 	})
@@ -590,7 +616,7 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 			t.Fatal(err)
 		}
 		writeProjectFile(t, filepath.Join(changed, "extra.go"), "package extra\n")
-		_, err := capture(t, runBuild, "verify-source", "--record", record, "--record-sha256", trusted, "--source", changed)
+		err := stegoBuild(t, nil, "verify-source", "--record", record, "--record-sha256", trusted, "--source", changed)
 		if err == nil {
 			t.Fatal("a changed snapshot was accepted")
 		}
@@ -615,7 +641,7 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 		if err := json.Unmarshal(data, &recorded); err != nil {
 			t.Fatal(err)
 		}
-		_, err = capture(t, runBuild, "verify", "--record", record, "--record-sha256", trusted, "--artifact", changed)
+		err = stegoBuild(t, nil, "verify", "--record", record, "--record-sha256", trusted, "--artifact", changed)
 		if err == nil || !strings.Contains(err.Error(), "executable digest: recorded "+recorded.Artifact.SHA256+", found "+fileSHA256(t, changed)) {
 			t.Fatalf("a changed executable was not refused with both digests: %v", err)
 		}
@@ -632,7 +658,7 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 			{"verify-source", "--record", missing, "--record-sha256", trusted, "--source", snapshot},
 			{"verify-source", "--record", record, "--record-sha256", trusted, "--source", missing},
 		} {
-			_, err := capture(t, runBuild, args...)
+			err := stegoBuild(t, nil, args...)
 			named := false
 			for _, name := range []string{missing, folder} {
 				if err != nil && strings.Contains(err.Error(), name) && strings.Contains(err.Error(), "cannot read") {
@@ -670,6 +696,7 @@ func TestBuildNeedsARecordedModuleCache(t *testing.T) {
 }
 
 func TestBuildRecordThroughTheCommand(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-BLD-UC03-R03-T01 stego build verify refuses a record of one build, given its own digest", func(t *testing.T) {
 		app := builtApplication(t)
 		executable := filepath.Join(app.result, "application")

@@ -137,6 +137,7 @@ func refusedIn(t *testing.T, s *smallService, wants []string, args ...string) st
 }
 
 func TestANewDigestAloneSupersedesNothing(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-DIS-UC04-R02-T03 A new digest alone supersedes nothing", func(t *testing.T) {
 		s := newSmallService(t)
 		headRegistry(t, s)
@@ -162,6 +163,7 @@ func TestANewDigestAloneSupersedesNothing(t *testing.T) {
 }
 
 func TestPastItsFailDateAPinFails(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-DIS-UC05-R03-T01 Past its fail date, validate fails for the pin", func(t *testing.T) {
 		s := newSmallService(t)
 		headRegistry(t, s)
@@ -182,6 +184,7 @@ func TestPastItsFailDateAPinFails(t *testing.T) {
 }
 
 func TestAnUnreadRegistryIsNotAPass(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-DIS-UC05-R04-T01 When the lifecycle records cannot be read, validate and plan say so and report no pin as current", func(t *testing.T) {
 		s := newSmallService(t)
 		headRegistry(t, s)
@@ -205,6 +208,7 @@ func TestAnUnreadRegistryIsNotAPass(t *testing.T) {
 }
 
 func TestAWithdrawalFailsAfterItsDate(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-DIS-UC07-R02-T01 A withdrawal with a future date is recorded, and after the date validate fails", func(t *testing.T) {
 		s := newSmallService(t)
 		headRegistry(t, s)
@@ -231,6 +235,7 @@ func TestAWithdrawalFailsAfterItsDate(t *testing.T) {
 }
 
 func TestAWithdrawnDigestTakesNoNewPin(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-DIS-UC07-R03-T01 A new pin to a withdrawn digest is refused at once, whatever its date", func(t *testing.T) {
 		s := newSmallService(t)
 		headRegistry(t, s)
@@ -250,6 +255,7 @@ func TestAWithdrawnDigestTakesNoNewPin(t *testing.T) {
 }
 
 func TestAServiceAuthorLearnsOfASupersededPin(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-DIS-UC05-FL-T A service author learns of a superseded pin while working, and past its date the pin fails", func(t *testing.T) {
 		s := newSmallService(t)
 		headRegistry(t, s)
@@ -310,6 +316,7 @@ func recordDifferences(before, after any, prefix string) []string {
 }
 
 func TestAComponentFixCarriesNoUnrelatedChanges(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-DIS-UC04-R01-T01 A consumer takes a component fix with no change outside the fixed component and no compiler change", func(t *testing.T) {
 		s := newSmallService(t)
 		headRegistry(t, s)

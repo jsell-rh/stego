@@ -36,6 +36,7 @@ func expectRefused(t *testing.T, p *fillProject, texts ...string) {
 }
 
 func TestFillGate(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-EXT-UC02-R02-T03 Plan and apply refuse a fill signed by a key that SIGNERS does not list, and name the fill", func(t *testing.T) {
 		p := newFillProject(t)
 		p.bind(t, slotBinding{"unlisted-fill", "before_create", "org-users"})
@@ -83,6 +84,7 @@ func TestFillGate(t *testing.T) {
 }
 
 func TestQualifyFillFlow(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-EXT-UC02-FL-T The service author records evidence and signs it with a listed key, and the fill becomes qualified", func(t *testing.T) {
 		p := newFillProject(t)
 		p.bind(t, slotBinding{"untested-fill", "before_create", "org-users"})
@@ -250,6 +252,7 @@ func TestFillBinding(t *testing.T) {
 }
 
 func TestFillImports(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-EXT-UC01-R03-T01 stego test records no evidence for a fill that imports a module the declaration does not list, and names the import", func(t *testing.T) {
 		p := newFillProject(t)
 		p.withFillModules(t)
@@ -358,6 +361,7 @@ func TestFillImports(t *testing.T) {
 }
 
 func TestAddServiceRuleFlow(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-EXT-UC01-FL-T An agent scaffolds a fill, writes its rule and its test, binds it, and stego test records its evidence", func(t *testing.T) {
 		p := newFillProject(t)
 		p.must(t, "no-key", "fill", "create", "admin-policy", "--slot", "before_create", "--collection", "org-users")
@@ -456,6 +460,7 @@ func TestOnlyAnAdminCreatesAnAdmin(t *testing.T) {
 }
 
 func TestRequalifyGate(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-EXT-UC04-R01-T04 Plan and apply refuse a stale fill and name it", func(t *testing.T) {
 		p := newFillProject(t)
 		p.bind(t, slotBinding{"stale-fill", "before_create", "org-users"})

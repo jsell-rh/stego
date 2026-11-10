@@ -85,6 +85,7 @@ func checkoutState(t *testing.T, checkouts []string) string {
 }
 
 func TestRegistryConsumers(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-SUP-UC05-R01-T01 stego registry consumers names every recorded service that uses a component, and no other", func(t *testing.T) {
 		f := newConsumersFixture(t)
 		checkouts := f.paths("svc-one", "svc-two", "svc-three", "svc-four")

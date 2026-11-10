@@ -282,6 +282,7 @@ func faultKeys(document declaration.FaultsDocument) []string {
 }
 
 func TestRepairARefusedDeclaration(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-DECL-UC04-R01-T01 Each fault is in the structured output, and no fault is only in prose", func(t *testing.T) {
 		project := td02Project(t, threeFaults)
 		document, run := validateJSON(t, project)

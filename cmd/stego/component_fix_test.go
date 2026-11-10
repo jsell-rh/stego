@@ -35,6 +35,7 @@ func (s *smallService) editTwoGeneratedFiles(t *testing.T) []string {
 }
 
 func TestHandEditStopsApply(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-GEN-UC03-R03-T01 Apply names every hand-edited generated file and writes nothing", func(t *testing.T) {
 		s := newSmallService(t)
 		edited := s.editTwoGeneratedFiles(t)
@@ -75,6 +76,7 @@ func TestHandEditStopsApply(t *testing.T) {
 }
 
 func TestFixLandsByRegeneration(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-GEN-UC03-R01-T01 A component fix shows as an update in the next plan, and apply lands it with no hand edit", func(t *testing.T) {
 		s := newSmallService(t)
 		middleware := filepath.Join("out", componentANamespace, "middleware.go")
@@ -109,6 +111,7 @@ func TestFixLandsByRegeneration(t *testing.T) {
 }
 
 func TestRegistryChangeWithoutOutputChange(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-GEN-UC03-R02-T01 A registry change that does not affect output changes no generated file", func(t *testing.T) {
 		s := newSmallService(t)
 		definition := filepath.Join(s.registry, "components", "health-check", "component.yaml")

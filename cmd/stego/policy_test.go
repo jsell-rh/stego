@@ -128,9 +128,19 @@ func stegoBinary(t *testing.T) string {
 // printed on standard output and on standard error.
 func runStego(t *testing.T, args ...string) (string, string, error) {
 	t.Helper()
+	return runStegoEnv(t, nil, args...)
+}
+
+// runStegoEnv runs the stego binary as runStego does, with env added to the environment of the test run, so a test
+// that sets a variable for stego alone can run in parallel.
+func runStegoEnv(t *testing.T, env []string, args ...string) (string, string, error) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	command := exec.CommandContext(ctx, stegoBinary(t), args...)
+	if env != nil {
+		command.Env = append(os.Environ(), env...)
+	}
 	var stdout, stderr bytes.Buffer
 	command.Stdout, command.Stderr = &stdout, &stderr
 	err := command.Run()
@@ -140,7 +150,13 @@ func runStego(t *testing.T, args ...string) (string, string, error) {
 // mustStego runs the stego binary and fails the test when it fails.
 func mustStego(t *testing.T, args ...string) string {
 	t.Helper()
-	stdout, stderr, err := runStego(t, args...)
+	return mustStegoEnv(t, nil, args...)
+}
+
+// mustStegoEnv runs the stego binary with env added, as runStegoEnv does, and fails the test when it fails.
+func mustStegoEnv(t *testing.T, env []string, args ...string) string {
+	t.Helper()
+	stdout, stderr, err := runStegoEnv(t, env, args...)
 	if err != nil {
 		t.Fatalf("stego %s: %v\n%s", strings.Join(args, " "), err, stderr)
 	}
@@ -426,6 +442,7 @@ func (r *registryServer) accessArgs(name string) []string {
 }
 
 func TestPolicyBuildImageFromBuiltApplication(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-BLD-PO01-T The image build hears Application built, reads the build record at its digest, and builds from the recorded executable only", func(t *testing.T) {
 		app := builtApplication(t)
 		var event appbuild.ApplicationBuilt
@@ -483,6 +500,7 @@ func TestPolicyBuildImageFromBuiltApplication(t *testing.T) {
 }
 
 func TestPolicySignBuiltImage(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-BLD-PO02-T Sign the image hears Image built, reads the image record at the built digest, and signs that digest with the trusted signer", func(t *testing.T) {
 		fixture := builtImage(t)
 		var event appbuild.ImageBuilt
@@ -539,6 +557,7 @@ func TestPolicySignBuiltImage(t *testing.T) {
 }
 
 func TestPolicyPublishOnlyASignedImage(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-BLD-PO03-T Publish the image hears Image signed, checks the signature again, and publishes only an image whose signature verifies", func(t *testing.T) {
 		image, signOutput, signature := signedImage(t)
 		var event appbuild.ImageSigned

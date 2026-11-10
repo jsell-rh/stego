@@ -200,6 +200,7 @@ func undeclaredSettingFaults(t *testing.T, project string) []string {
 }
 
 func TestLearnWhatMayBeDeclared(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-DECL-UC02-R01-T01 The report names every component of the active set, each setting with its type, and each slot", func(t *testing.T) {
 		report, run := reportFor(t, "rest-crud")
 		if run.code != 0 {

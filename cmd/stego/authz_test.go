@@ -231,6 +231,7 @@ func expectAcceptance(t *testing.T, project string) {
 const systemBinding = "slots:\n  - collection: todos\n    slot: before_create\n    gate: [policy]\n    runs_as: system\n"
 
 func TestDeclareAuthorization(t *testing.T) {
+	t.Parallel()
 	td03 := td03Service(t)
 
 	t.Run("ST-DECL-UC06-R01-T01 A declaration that names the provider, the schema path and the subject field is accepted, and its schema is compiled", func(t *testing.T) {

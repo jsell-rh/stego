@@ -126,14 +126,17 @@ func imageRecordOf(t *testing.T, folder string) (string, string) {
 }
 
 func TestImageBuildThroughTheCommand(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-BLD-UC05-R01-T01 stego image build refuses an executable or a CA bundle that is not trusted, and never reads the host's trust store", func(t *testing.T) {
 		app := builtApplication(t)
 		ca, caSHA256 := imageCA(t)
 		hostCA := writeFile(t, t.TempDir(), "host.pem", "not the explicit CA bundle\n", 0600)
-		t.Setenv("SSL_CERT_FILE", hostCA)
-		t.Setenv("SSL_CERT_DIR", filepath.Dir(hostCA))
+		// stego runs with the host's trust store pointed at a file that is not the CA bundle.
+		host := []string{"SSL_CERT_FILE=" + hostCA, "SSL_CERT_DIR=" + filepath.Dir(hostCA)}
 		output := filepath.Join(t.TempDir(), "image")
-		mustStego(t, imageBuildArgs(t, ca, caSHA256, "service", output)...)
+		if _, stderr, err := runStegoEnv(t, host, imageBuildArgs(t, ca, caSHA256, "service", output)...); err != nil {
+			t.Fatalf("stego image build: %v\n%s", err, stderr)
+		}
 		manifest, trust := imageRecordOf(t, output)
 		caBytes, err := os.ReadFile(ca)
 		if err != nil {
@@ -162,7 +165,7 @@ func TestImageBuildThroughTheCommand(t *testing.T) {
 			{"a build record whose digest is not trusted", "build-record-sha256", zero, "captured image input differs"},
 		} {
 			output := filepath.Join(t.TempDir(), "image")
-			_, stderr, err := runStego(t, setFlag(imageBuildArgs(t, ca, caSHA256, "service", output), item.flag, item.value)...)
+			_, stderr, err := runStegoEnv(t, host, setFlag(imageBuildArgs(t, ca, caSHA256, "service", output), item.flag, item.value)...)
 			if err == nil || !strings.Contains(stderr, item.reason) {
 				t.Errorf("stego image build with %s: %v, %q; expected a refusal that names %q", item.name, err, stderr, item.reason)
 			}

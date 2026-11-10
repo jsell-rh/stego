@@ -77,6 +77,7 @@ func expectOnByDefault(t *testing.T, document declaration.FaultsDocument) {
 }
 
 func TestDeclareTenancyWithAuditSettings(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-DECL-UC05-FL-T An author declares tenancy, audit, tenant kinds and sensitivity, and checking accepts them with the defaults filled in", func(t *testing.T) {
 		service := strings.Replace(tenancyClaim("org.id"), "max_length: 255}", "max_length: 255, sensitivity: pii}", 1)
 		service = addEntities(service, "  - name: Plan\n    tenant: shared\n    fields:\n      - {name: label, type: string}\n  - name: Job\n    tenant: system\n    fields:\n      - {name: state, type: string}\n")
