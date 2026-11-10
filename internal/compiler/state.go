@@ -12,6 +12,7 @@ import (
 	"github.com/jsell-rh/stego/internal/buildidentity"
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/parser"
+	"github.com/jsell-rh/stego/internal/registry"
 	"gopkg.in/yaml.v3"
 )
 
@@ -29,9 +30,10 @@ type State struct {
 // StateFormatVersion identifies the state format written by this compiler.
 // Version 2 adds service_name, and makes the sha of each component its
 // component digest (ComponentDigest) where version 1 held the registry
-// reference. This compiler reads versions 0, 1 and 2, and the next apply
-// writes version 2.
-const StateFormatVersion = 2
+// reference. Version 3 adds archetype: the archetype's name, version and
+// runtime library pin (ST-GEN-EN01). This compiler reads versions 0 to 3, and
+// the next apply writes version 3.
+const StateFormatVersion = 3
 
 // oldestNamedStateFormat is the first state format that names its version.
 const oldestNamedStateFormat = 1
@@ -85,6 +87,21 @@ type AppliedState struct {
 
 	// Files records the SHA-256 hash of each generated file.
 	Files map[string]string `yaml:"files,omitempty"`
+
+	// Archetype records the archetype of the run with its runtime library pin.
+	// State before format version 3 omits it.
+	Archetype *ArchetypeState `yaml:"archetype,omitempty"`
+}
+
+// ArchetypeState records the archetype of one run: its name, its version and
+// its runtime library pin, so a later run refuses a pin that moved within one
+// archetype version (ST-SUP-INV10), and whether generated code imports the
+// runtime library, so drift checks go.mod against the pin (ST-GEN-INV13).
+type ArchetypeState struct {
+	Name           string               `yaml:"name"`
+	Version        string               `yaml:"version"`
+	Runtime        *registry.RuntimePin `yaml:"runtime,omitempty"`
+	ImportsRuntime bool                 `yaml:"imports_runtime,omitempty"`
 }
 
 // EntityFieldState captures a field's name, type, and a hash of its full
@@ -206,4 +223,25 @@ func validateStatePaths(state *State) error {
 func HashBytes(data []byte) string {
 	h := sha256.Sum256(data)
 	return fmt.Sprintf("%x", h)
+}
+
+// archetype gives the recorded archetype, or nil for no record or state from an older release.
+func (s *AppliedState) archetype() *ArchetypeState {
+	if s == nil {
+		return nil
+	}
+	return s.Archetype
+}
+
+// stateDiffers says whether two states give different records.
+func stateDiffers(old, new *State) (bool, error) {
+	oldData, err := yaml.Marshal(old)
+	if err != nil {
+		return false, err
+	}
+	newData, err := yaml.Marshal(new)
+	if err != nil {
+		return false, err
+	}
+	return string(oldData) != string(newData), nil
 }

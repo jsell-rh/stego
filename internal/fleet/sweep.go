@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 
 	"gopkg.in/yaml.v3"
@@ -23,8 +24,9 @@ const RecordPath = ".stego/state.yaml"
 // OutputFolder is the folder of a checkout that holds generated output.
 const OutputFolder = "out"
 
-// RecordFormat is the one record format the sweep reads: format version 2 names each component's digest.
-const RecordFormat = 2
+// RecordFormats are the record formats the sweep reads: format version 2 names each component's digest, and format
+// version 3 adds the archetype with its runtime library pin.
+var RecordFormats = []int{2, 3}
 
 // maxRecordBytes bounds one record.
 const maxRecordBytes = 8 << 20
@@ -38,11 +40,21 @@ type Pin struct {
 	Digest    string `json:"digest"`
 }
 
+// Runtime is the runtime library version the service's archetype pinned at its last run (ST-DIS-RM01, Runtime
+// version): its module path, tagged version and go.sum hash.
+type Runtime struct {
+	Module  string `json:"module" yaml:"module"`
+	Version string `json:"version" yaml:"version"`
+	Sum     string `json:"sum" yaml:"sum"`
+}
+
 // Service is one checkout whose record the sweep read.
 type Service struct {
 	Name string `json:"service"`
 	Path string `json:"path"`
 	Pins []Pin  `json:"pins"`
+	// Runtime is nil for a record of format version 2, which holds no archetype.
+	Runtime *Runtime `json:"runtime,omitempty"`
 }
 
 // Unknown is one checkout without a readable record, with the reason. It is never left out of an answer.
@@ -71,6 +83,9 @@ type record struct {
 			Version string `yaml:"version"`
 			SHA     string `yaml:"sha"`
 		} `yaml:"components"`
+		Archetype *struct {
+			Runtime *Runtime `yaml:"runtime"`
+		} `yaml:"archetype"`
 	} `yaml:"last_applied"`
 }
 
@@ -109,13 +124,13 @@ func readCheckout(checkout string) (Service, *Unknown) {
 	if err := yaml.Unmarshal(data, &head); err != nil {
 		return unknown(0, "its record is not valid YAML: %v", err)
 	}
-	if head.FormatVersion != RecordFormat {
-		return unknown(head.FormatVersion, "its record has format version %d, and the sweep reads only format version %d, which names each component digest", head.FormatVersion, RecordFormat)
+	if !slices.Contains(RecordFormats, head.FormatVersion) {
+		return unknown(head.FormatVersion, "its record has format version %d, and the sweep reads only format versions 2 and 3, which name each component digest", head.FormatVersion)
 	}
 	var r record
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	if err := decoder.Decode(&r); err != nil {
-		return unknown(r.FormatVersion, "its record does not follow format version %d: %v", RecordFormat, err)
+		return unknown(r.FormatVersion, "its record does not follow format version %d: %v", head.FormatVersion, err)
 	}
 	if r.LastApplied == nil || r.LastApplied.ServiceName == "" {
 		return unknown(r.FormatVersion, "its record names no service")
@@ -126,6 +141,12 @@ func readCheckout(checkout string) (Service, *Unknown) {
 			return unknown(r.FormatVersion, "its record gives component %s no component digest of 64 lower-case hexadecimal digits", name)
 		}
 		service.Pins = append(service.Pins, Pin{Component: name, Version: component.Version, Digest: component.SHA})
+	}
+	if r.FormatVersion >= 3 {
+		if r.LastApplied.Archetype == nil || r.LastApplied.Archetype.Runtime == nil || r.LastApplied.Archetype.Runtime.Version == "" {
+			return unknown(r.FormatVersion, "its record of format version 3 names no runtime library pin")
+		}
+		service.Runtime = r.LastApplied.Archetype.Runtime
 	}
 	sort.Slice(service.Pins, func(i, j int) bool { return service.Pins[i].Component < service.Pins[j].Component })
 	return service, nil
