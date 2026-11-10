@@ -47,6 +47,9 @@ type Archetype struct {
 	Conventions      types.Convention  `yaml:"conventions"`
 	CompatibleMixins []string          `yaml:"compatible_mixins"`
 	Bindings         map[string]string `yaml:"bindings,omitempty"`
+	// Runtime is the one runtime library version that every service of the
+	// archetype imports (ST-SUP-INV10).
+	Runtime *RuntimePin `yaml:"runtime"`
 }
 
 // Component represents a deterministic code generator with its metadata.

@@ -14,7 +14,7 @@ func TestRegistryCompositionKeepsDistinctSourcesAndSnapshots(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(name), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(name, []byte("kind: archetype\nname: application\nlanguage: go\nversion: 1.0.0\ncomponents: [sample]\n"), 0600); err != nil {
+	if err := os.WriteFile(name, []byte("kind: archetype\nruntime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}\nname: application\nlanguage: go\nversion: 1.0.0\ncomponents: [sample]\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	combined, err := LoadDirectories(common, local)
@@ -90,7 +90,7 @@ func TestRegistryCompositionRejectsShadowingAndSourceCount(t *testing.T) {
 func inv01CommonFiles() map[string]string {
 	return map[string]string{
 		"components/store-a/component.yaml":          "kind: component\nname: store-a\nversion: 1.0.0\nstage: ga\noutput_namespace: internal/store\nrequires: []\nprovides: [store-port]\nslots: []\n",
-		"archetypes/svc-arch/archetype.yaml":         "kind: archetype\nname: svc-arch\nlanguage: go\nversion: 1.0.0\ncomponents: [store-a]\n",
+		"archetypes/svc-arch/archetype.yaml":         "kind: archetype\nruntime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}\nname: svc-arch\nlanguage: go\nversion: 1.0.0\ncomponents: [store-a]\n",
 		"mixins/extra-mixin/mixin.yaml":              "kind: mixin\nname: extra-mixin\nversion: 1.0.0\nadds_components: [store-a]\nadds_slots:\n  - name: after_extra\n    proto: stego.mixins.extra_mixin.slots.AfterExtra\noverrides: none\n",
 		"mixins/extra-mixin/slots/after_extra.proto": "syntax = \"proto3\";\n\nservice AfterExtra {}\n",
 		"ports/store-port/port.yaml":                 "kind: port\nname: store-port\n",

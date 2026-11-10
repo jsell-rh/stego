@@ -38,13 +38,6 @@ func projectFiles(t *testing.T, project string) map[string]string {
 	return files
 }
 
-// td03 is ST-DECL-TD02 with authorization bound to a fixture schema (ST-DECL-TD03).
-const td03 = td02 + `authorization:
-  provider: spicedb
-  schema: authz/schema.zed
-  subject: {from: identity, kind: user}
-`
-
 // td04 is ST-DECL-TD02 with a EUR ledger (ST-DECL-TD04).
 const td04 = `kind: service
 name: todo-svc
@@ -102,7 +95,7 @@ func TestCheckADeclaration(t *testing.T) {
 	t.Run("ST-DECL-UC03-R03-T01 Generation refuses no declaration that checking accepted, and refuses what checking refuses with the same faults", func(t *testing.T) {
 		candidates := map[string]func(t *testing.T) string{
 			"ST-DECL-TD02": func(t *testing.T) string { return td02Project(t, td02) },
-			"ST-DECL-TD03": func(t *testing.T) string { return td02Project(t, td03) },
+			"ST-DECL-TD03": func(t *testing.T) string { return td03Project(t, td03Service(t)) },
 			"ST-DECL-TD04": func(t *testing.T) string { return td02Project(t, td04) },
 		}
 		registry, _ := declaringRegistry(t)
@@ -132,6 +125,14 @@ func TestCheckADeclaration(t *testing.T) {
 			}
 			accepted++
 			run := stegoIn(t, project, nil, "apply")
+			if name == "ST-DECL-TD03" {
+				// Authorization fails closed (ST-DECL-UC06-R07): until the registry holds spicedb-authz, generation
+				// refuses a declaration that binds authorization. That refusal is of the registry, not of the
+				// declaration, so it carries no declaration fault; any other refusal fails the test.
+				if run.code == 0 || !strings.Contains(run.stderr+run.stdout, "generation refused") || !strings.Contains(run.stderr+run.stdout, "spicedb-authz") {
+					t.Errorf("stego apply of ST-DECL-TD03 did not refuse it for the missing component spicedb-authz:\n%s%s", run.stdout, run.stderr)
+				}
+			}
 			if strings.Contains(run.stderr+run.stdout, "validation failed") || len(proseFaults(run.stdout+run.stderr)) > 0 {
 				t.Errorf("stego apply refused %s, which stego validate accepted:\n%s%s", name, run.stdout, run.stderr)
 			}

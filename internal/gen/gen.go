@@ -145,7 +145,20 @@ type Context struct {
 	// PeerConfigs contains resolved declarations for cross-component checks.
 	// Generators must not change these maps or their nested values.
 	PeerConfigs map[string]map[string]any
+
+	// Tenancy is the pooled tenancy of a service that has the tenancy component, and nil for any other service
+	// (ST-SUP-RC01-OC40). Generators must not change it.
+	Tenancy *Tenancy
 }
+
+// Tenancy is what the generators of a pooled service read of its tenancy (ST-DECL-EN09).
+type Tenancy struct {
+	// Key is the name of the tenant column of each owned table: tenancy.key, or tenant_id when it is omitted.
+	Key string
+}
+
+// TenancyComponent is the name of the tenancy component (ST-SUP-RC27).
+const TenancyComponent = "tenancy"
 
 // File represents a single generated output file.
 type File struct {

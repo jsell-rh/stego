@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/registry"
 	"github.com/jsell-rh/stego/internal/types"
 )
 
@@ -44,6 +45,11 @@ type AssemblerInput struct {
 	// Fill imports do NOT include this prefix since fills live at the project
 	// root level (e.g. "<module>/fills/<name>").
 	OutDirName string
+
+	// Runtime is the archetype's runtime library pin when generated code
+	// imports the runtime library, and nil otherwise. go.mod then requires
+	// exactly that version (ST-GEN-INV13).
+	Runtime *registry.RuntimePin
 }
 
 // ComponentWiring pairs a component name with its generator's wiring output.
@@ -134,7 +140,7 @@ func generateGoMod(input AssemblerInput) (gen.File, error) {
 	// intra-module packages without requiring replace directives.
 
 	// Collect module dependencies from all component wirings.
-	requires, err := moduleRequirements(input.Wirings)
+	requires, err := moduleRequirements(input.Wirings, input.Runtime)
 	if err != nil {
 		return gen.File{}, err
 	}

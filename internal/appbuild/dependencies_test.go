@@ -63,7 +63,7 @@ func TestDependencyResolutionIgnoresSavedSourceOverlay(t *testing.T) {
 		t.Setenv("GOFLAGS", "-stego-invalid-ambient-flag")
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		if err := resolveModules(ctx, project, stage); err != nil {
+		if err := resolveModules(ctx, project, stage, ""); err != nil {
 			t.Fatal(err)
 		}
 		raw, err = os.ReadFile(stage)
@@ -113,7 +113,7 @@ func TestDependencyCommandsPreserveSavedProxyConfiguration(t *testing.T) {
 	t.Setenv("GOTOOLCHAIN", "local")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	err := runDependencyCommand(ctx, directory, filepath.Join(directory, "go.mod"), "mod", "tidy")
+	err := runDependencyCommand(ctx, directory, filepath.Join(directory, "go.mod"), nil, "mod", "tidy")
 	if err == nil || requests.Load() == 0 || ctx.Err() != nil {
 		t.Fatal("dependency command did not use the saved proxy configuration", requests.Load(), err)
 	}
