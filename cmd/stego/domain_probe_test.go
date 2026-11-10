@@ -101,6 +101,7 @@ func probeProject(t *testing.T) (compiler.ReconcilerInput, string) {
 }
 
 func TestDomainProbesFromDeclaration(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-SUP-RC34-OC03-T01 Each emitter's probe holds its own observations only, generated from service.yaml", func(t *testing.T) {
 		input, _ := probeProject(t)
 		plan, err := compiler.Reconcile(input)

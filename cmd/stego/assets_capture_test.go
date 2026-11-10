@@ -44,6 +44,7 @@ func captureBundle(t *testing.T, folder, output string) {
 }
 
 func TestSameFolderGivesSameBundle(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-GEN-UC07-R01-T01 Two captures of one frontend build give byte-identical bundles with sorted entries and fixed metadata", func(t *testing.T) {
 		folder := frontendBuild(t)
 		one := filepath.Join(t.TempDir(), "one.zip")

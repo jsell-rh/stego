@@ -42,6 +42,7 @@ func flipByte(t *testing.T, name string) {
 }
 
 func TestImageVerifyThroughTheCommand(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-BLD-UC04-R04-T01 stego image verify reports a match only when the record, the trusted build record and the trusted signature all pass", func(t *testing.T) {
 		image, _, signature := signedImage(t)
 		recordSHA256 := builtImage(t).recordSHA256

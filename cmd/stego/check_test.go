@@ -69,6 +69,7 @@ collections:
 `
 
 func TestCheckADeclaration(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-DECL-UC03-R02-T01 A refusal reports every fault at once", func(t *testing.T) {
 		service := strings.Replace(td02, "{name: title, type: string,", "{name: title, type: foobar,", 1)
 		service = strings.Replace(service, "      - {name: done, type: bool, default: false}\n", "      - {name: done, type: bool, default: false}\n      - {name: status, type: enum}\n", 1)

@@ -76,6 +76,7 @@ func readConfig(t *testing.T, project string) registry.RegistryConfig {
 }
 
 func TestStartAServiceDeclaration(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-DECL-UC01-R02-T01 A scaffold refuses to run when a declaration is present, and changes no existing file", func(t *testing.T) {
 		forms := map[string]func(t *testing.T, project, outside string){
 			"a file": func(t *testing.T, project, _ string) { putFile(t, project, "service.yaml", "kind: service\n") },

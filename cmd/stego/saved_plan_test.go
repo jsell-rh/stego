@@ -61,6 +61,7 @@ func plannedOutput(files []savedPlanFile) map[string]string {
 }
 
 func TestApplyCarriesOutSavedPlan(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-GEN-UC05-R03-T01 Apply of a saved plan writes exactly the files that the plan names, with the planned content", func(t *testing.T) {
 		s := newSmallService(t)
 		s.write(t, "service.yaml", tagDeclaration)
@@ -98,6 +99,7 @@ func TestApplyCarriesOutSavedPlan(t *testing.T) {
 }
 
 func TestSavedPlanFlow(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-GEN-UC05-FL-T A saved plan lists every change, and apply then makes exactly those changes", func(t *testing.T) {
 		s := newSmallService(t)
 		s.write(t, "service.yaml", tagDeclaration)
