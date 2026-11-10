@@ -2,7 +2,10 @@ package command
 
 import (
 	"fmt"
+	"go/format"
 	"strings"
+
+	"github.com/jsell-rh/stego/internal/types"
 )
 
 // probeType is the typed probe of a command: the domain probe of the command when the service has the
@@ -88,13 +91,62 @@ func renderContract(m *model) []byte {
 			w.f("var %s = &Refusal{command: %q, name: %q, status: %d, code: %q}\n\n", r.goName, c.decl.Name, r.name, r.status, r.code)
 		}
 	}
-	w.f("%s", contractHelpers)
+	w.f("%s%s", refusalHelpers, entityHelpers)
 	return w.Bytes()
 }
 
-// contractHelpers are the helpers of the contract package. They are the same for every declaration; ST-SUP-Q74 asks
-// whether they move into the runtime library (ST-STD-RUNTIME-R05).
-const contractHelpers = `// Refusal is a declared refusal of a command (ST-SUP-RC32-OC09). Only the values of this package exist: a fill
+// EntityFile gives a Go file of the package pkg that holds the repository declarations on the command runtime of the
+// named entities, as the command contract holds them (ST-SUP-RP10-LC02): for each entity its row type, its loaded
+// type, its command.Entity declaration with the statements of ST-SUP-RP10-LC23 and ST-SUP-RP10-LC24, and its
+// repository accessor, with the helpers that they use. Each statement takes the tenant column tenantKey as $1. It is
+// for a generator that declares commands of its own, such as the rest-api generator for generated CRUD
+// (ST-SUP-RC20-OC37), so the entity code has one source. It refuses an entity that a command cannot write.
+func EntityFile(pkg string, names []string, entities []types.Entity, tenantKey string) ([]byte, error) {
+	byName := map[string]types.Entity{}
+	for _, e := range entities {
+		byName[e.Name] = e
+	}
+	m := &model{tenantKey: tenantKey}
+	for _, name := range names {
+		e, ok := byName[name]
+		if !ok {
+			return nil, fmt.Errorf("command: the entity %s is not declared", name)
+		}
+		p, err := planEntity(e, byName, tenantKey)
+		if err != nil {
+			return nil, fmt.Errorf("command: the entity %s: %w", name, err)
+		}
+		m.entities = append(m.entities, p)
+	}
+	w := &writer{}
+	w.f("package %s\n\nimport (\n", pkg)
+	if m.usesBytes() {
+		w.f("\t\"bytes\"\n")
+	}
+	w.f("\t\"crypto/rand\"\n\t\"encoding/hex\"\n")
+	if m.usesTime() {
+		w.f("\t\"time\"\n")
+	}
+	w.f("\n")
+	if m.usesAudit() {
+		w.f("\t\"stego.dev/runtime/audit\"\n")
+	}
+	w.f("\t\"stego.dev/runtime/command\"\n)\n\n")
+	for _, e := range m.entities {
+		renderEntity(w, e, tenantKey)
+	}
+	w.f("%s", entityHelpers)
+	source, err := format.Source(w.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("command: formatting the entity declarations: %w", err)
+	}
+	return source, nil
+}
+
+// refusalHelpers are the refusal helpers of the contract package, and entityHelpers the helpers of the entity
+// declarations. They are the same for every declaration; ST-SUP-Q74 asks whether they move into the runtime library
+// (ST-STD-RUNTIME-R05).
+const refusalHelpers = `// Refusal is a declared refusal of a command (ST-SUP-RC32-OC09). Only the values of this package exist: a fill
 // returns one of them, and the handler answers it with its status and code. Its fields are not exported, so a fill
 // cannot make one of its own.
 type Refusal struct {
@@ -117,7 +169,9 @@ func (r *Refusal) Status() int { return r.status }
 // Code is the fixed code of the refusal.
 func (r *Refusal) Code() string { return r.code }
 
-// mustEntity gives a checked repository declaration. The generator checked each declaration, so it does not fail.
+`
+
+const entityHelpers = `// mustEntity gives a checked repository declaration. The generator checked each declaration, so it does not fail.
 func mustEntity[T any](e *command.Entity[T], err error) *command.Entity[T] {
 	if err != nil {
 		panic(err)
@@ -164,6 +218,14 @@ func clonePointer[T any](p *T) *T {
 	}
 	v := *p
 	return &v
+}
+
+// stateOf gives the value that p points to for an audit state, or nil when p is nil.
+func stateOf[T any](p *T) any {
+	if p == nil {
+		return nil
+	}
+	return *p
 }
 
 // equalPointer tells whether two pointers point to equal values or are both nil.

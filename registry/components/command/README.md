@@ -23,6 +23,10 @@ refusal with its status and code, a conflict with 409 and the code conflict
 write the audit row of a denied or a failed command in its own short
 transaction.
 
+The rest-api component uses the same entity declarations and the same
+handler steps around Run for generated CRUD on the runtime data path
+(ST-SUP-RC20-OC37), so this code has one source.
+
 The stage is alpha. The service needs pooled tenancy with the tenant column
 tenant_id and authorization with subject_from_identity. The main wiring of the
 command runtime and of the gRPC methods (ST-SUP-RC07-OC19) is not generated
