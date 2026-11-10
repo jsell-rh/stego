@@ -95,3 +95,9 @@ The generated view uses it only after deletion and before finalization. List
 filters, cursor filters, counts, ordering, and `CurrentObservations` use the same
 value. Retained reads preserve the stored observation for diagnosis. The
 application declares its words; the storage runtime owns the projection.
+
+On the runtime data path the adapter emits no store and no entity model. It
+also emits runtime_access.go: TenantConfig gives the runtime library's
+connectors the configuration of OpenDatabase, with its verified TLS policy, its
+loopback test mode and its pool bounds; CheckLedger lets the migration job
+refuse, before it writes, a database whose tables this release did not make.

@@ -1595,4 +1595,36 @@ func TestHandleWrites(t *testing.T) {
 			t.Fatalf("the refused migration created %s", got)
 		}
 	})
+	t.Run("ST-SUP-RP06-LC21-T04 Migration runs again on a database that it made, in one transaction", func(t *testing.T) {
+		env := newPG(t)
+		migration, err := Migration("authz", env.roles[0], env.roles[2], env.roles[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		shape := func() string {
+			return env.scalar(t, `SELECT (SELECT count(*) FROM authz.authz_floor)::text || '/' ||
+ (SELECT count(*) FROM pg_catalog.pg_policies WHERE schemaname = 'authz')::text || '/' ||
+ (SELECT count(*) FROM pg_catalog.pg_trigger g JOIN pg_catalog.pg_class c ON c.oid = g.tgrelid
+   JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'authz' AND NOT g.tgisinternal)::text || '/' ||
+ (SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+   JOIN pg_catalog.pg_roles r ON r.oid = p.proowner WHERE n.nspname = 'authz' AND r.rolname = 'stego_outbox_relay')::text`)
+		}
+		before := shape()
+		for run := 1; run <= 2; run++ {
+			tx, err := env.admin.BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tx.ExecContext(ctx, migration); err != nil {
+				_ = tx.Rollback()
+				t.Fatalf("run %d of the migration on a database that it made: %v", run, err)
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if after := shape(); after != before || before != "1/3/1/2" {
+			t.Errorf("floor rows, policies, triggers and relay functions are %s after two more runs and %s before, want 1/3/1/2 both: one floor row, the two revocation policies and the policy of the test table, the tuple check trigger and the two relay functions", after, before)
+		}
+	})
 }

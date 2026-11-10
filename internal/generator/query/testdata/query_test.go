@@ -349,12 +349,12 @@ func start(t *testing.T) *shop {
 	q := runtimeURL.Query()
 	q.Set("sslmode", "disable")
 	runtimeURL.RawQuery = q.Encode()
-	db, err := tenant.Open(ctx, tenant.Config{DSN: runtimeURL.String()})
+	db, err := tenant.Open(ctx, tenant.Config{InsecureLoopback: true, DSN: runtimeURL.String()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	auditDB, err := tenant.Open(ctx, tenant.Config{DSN: direct.String()})
+	auditDB, err := tenant.Open(ctx, tenant.Config{InsecureLoopback: true, DSN: direct.String()})
 	if err != nil {
 		t.Fatal(err)
 	}

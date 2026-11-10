@@ -1,0 +1,13 @@
+definition user {}
+
+definition order {
+	relation owner: user
+	relation viewer: user
+	permission view = owner + viewer
+	permission edit = owner
+}
+
+definition note {
+	relation viewer: user
+	permission view = viewer
+}

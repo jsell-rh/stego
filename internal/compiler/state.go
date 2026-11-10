@@ -31,9 +31,10 @@ type State struct {
 // Version 2 adds service_name, and makes the sha of each component its
 // component digest (ComponentDigest) where version 1 held the registry
 // reference. Version 3 adds archetype: the archetype's name, version and
-// runtime library pin (ST-GEN-EN01). This compiler reads versions 0 to 3, and
-// the next apply writes version 3.
-const StateFormatVersion = 3
+// runtime library pin (ST-GEN-EN01). Version 4 adds data_path: the data path of
+// the run, runtime or store (ST-SUP-RC01-OC41). This compiler reads versions 0
+// to 4, and the next apply writes version 4.
+const StateFormatVersion = 4
 
 // oldestNamedStateFormat is the first state format that names its version.
 const oldestNamedStateFormat = 1
@@ -91,7 +92,20 @@ type AppliedState struct {
 	// Archetype records the archetype of the run with its runtime library pin.
 	// State before format version 3 omits it.
 	Archetype *ArchetypeState `yaml:"archetype,omitempty"`
+
+	// DataPath is the data path of the run: DataPathRuntime when the generated
+	// commands and queries carry all data access, DataPathStore when the GORM
+	// store does (ST-SUP-RC01-OC41). State before format version 4 omits it,
+	// and its service is on the store, because the runtime data path came
+	// with format version 4.
+	DataPath string `yaml:"data_path,omitempty"`
 }
+
+// The data paths of a record (ST-SUP-RC01-OC41).
+const (
+	DataPathRuntime = "runtime"
+	DataPathStore   = "store"
+)
 
 // ArchetypeState records the archetype of one run: its name, its version and
 // its runtime library pin, so a later run refuses a pin that moved within one

@@ -58,7 +58,10 @@ type Config struct {
 // the events table, on each of its partitions and on the checkpoints; row-level security enabled and forced on the
 // four tables with one policy on the transaction-local tenant setting; the grants of the runtime role
 // (ST-STD-TXN-R06); and the owner function audit_maintain(), SECURITY DEFINER with a fixed search_path and a lock
-// timeout, with EXECUTE for the runtime role only.
+// timeout, with EXECUTE for the runtime role only. The text runs again with no error on a database that it made:
+// each table is made only when it is missing, each function and trigger is replaced, and each policy is dropped
+// before it is made again, so the migration job can run on every release (ST-SUP-RP05-LC10). Run it in one
+// transaction.
 func DDL(c Config) (string, error) {
 	if c.Schema == "" {
 		c.Schema = "public"
@@ -89,7 +92,7 @@ func DDL(c Config) (string, error) {
 	).Replace(ddlText), nil
 }
 
-const ddlText = `CREATE TABLE {s}.{events} (
+const ddlText = `CREATE TABLE IF NOT EXISTS {s}.{events} (
   tenant_id text NOT NULL,
   seq bigint NOT NULL,
   id uuid NOT NULL,
@@ -123,17 +126,17 @@ const ddlText = `CREATE TABLE {s}.{events} (
   CHECK (hash_version = 3 OR on_behalf_of = ''),
   PRIMARY KEY (tenant_id, seq, recorded_at)
 ) PARTITION BY RANGE (recorded_at);
-CREATE TABLE {s}.{heads} (
+CREATE TABLE IF NOT EXISTS {s}.{heads} (
   tenant_id text PRIMARY KEY,
   seq bigint NOT NULL,
   head bytea NOT NULL,
   last_recorded_at timestamptz NOT NULL
 );
-CREATE TABLE {s}.{bounds} (
+CREATE TABLE IF NOT EXISTS {s}.{bounds} (
   tenant_id text PRIMARY KEY,
   boundary timestamptz NOT NULL
 );
-CREATE TABLE {s}.{checks} (
+CREATE TABLE IF NOT EXISTS {s}.{checks} (
   tenant_id text NOT NULL,
   seq bigint NOT NULL,
   hash bytea NOT NULL,
@@ -141,16 +144,16 @@ CREATE TABLE {s}.{checks} (
   written_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (tenant_id, seq)
 );
-CREATE FUNCTION {s}.audit_reject_change() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+CREATE OR REPLACE FUNCTION {s}.audit_reject_change() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   RAISE EXCEPTION 'the audit table rejects %', TG_OP USING ERRCODE = 'insufficient_privilege';
 END
 $$;
-CREATE TRIGGER {events}_reject_row BEFORE UPDATE OR DELETE ON {s}.{events}
+CREATE OR REPLACE TRIGGER {events}_reject_row BEFORE UPDATE OR DELETE ON {s}.{events}
   FOR EACH ROW EXECUTE FUNCTION {s}.audit_reject_change();
-CREATE TRIGGER {events}_reject_statement BEFORE UPDATE OR DELETE OR TRUNCATE ON {s}.{events}
+CREATE OR REPLACE TRIGGER {events}_reject_statement BEFORE UPDATE OR DELETE OR TRUNCATE ON {s}.{events}
   FOR EACH STATEMENT EXECUTE FUNCTION {s}.audit_reject_change();
-CREATE FUNCTION {s}.audit_boundary_guard() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+CREATE OR REPLACE FUNCTION {s}.audit_boundary_guard() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   IF TG_OP = 'UPDATE' AND NEW.boundary < OLD.boundary THEN
     RAISE EXCEPTION 'an anchor boundary only grows' USING ERRCODE = 'check_violation';
@@ -161,26 +164,30 @@ BEGIN
   RETURN NEW;
 END
 $$;
-CREATE TRIGGER {bounds}_guard BEFORE INSERT OR UPDATE ON {s}.{bounds}
+CREATE OR REPLACE TRIGGER {bounds}_guard BEFORE INSERT OR UPDATE ON {s}.{bounds}
   FOR EACH ROW EXECUTE FUNCTION {s}.audit_boundary_guard();
-CREATE TRIGGER {checks}_reject_row BEFORE UPDATE OR DELETE ON {s}.{checks}
+CREATE OR REPLACE TRIGGER {checks}_reject_row BEFORE UPDATE OR DELETE ON {s}.{checks}
   FOR EACH ROW EXECUTE FUNCTION {s}.audit_reject_change();
-CREATE TRIGGER {checks}_reject_statement BEFORE UPDATE OR DELETE OR TRUNCATE ON {s}.{checks}
+CREATE OR REPLACE TRIGGER {checks}_reject_statement BEFORE UPDATE OR DELETE OR TRUNCATE ON {s}.{checks}
   FOR EACH STATEMENT EXECUTE FUNCTION {s}.audit_reject_change();
 ALTER TABLE {s}.{events} ENABLE ROW LEVEL SECURITY;
 ALTER TABLE {s}.{events} FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_wall ON {s}.{events};
 CREATE POLICY tenant_wall ON {s}.{events}
   USING (tenant_id = current_setting('app.tenant', true)) WITH CHECK (tenant_id = current_setting('app.tenant', true));
 ALTER TABLE {s}.{heads} ENABLE ROW LEVEL SECURITY;
 ALTER TABLE {s}.{heads} FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_wall ON {s}.{heads};
 CREATE POLICY tenant_wall ON {s}.{heads}
   USING (tenant_id = current_setting('app.tenant', true)) WITH CHECK (tenant_id = current_setting('app.tenant', true));
 ALTER TABLE {s}.{bounds} ENABLE ROW LEVEL SECURITY;
 ALTER TABLE {s}.{bounds} FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_wall ON {s}.{bounds};
 CREATE POLICY tenant_wall ON {s}.{bounds}
   USING (tenant_id = current_setting('app.tenant', true)) WITH CHECK (tenant_id = current_setting('app.tenant', true));
 ALTER TABLE {s}.{checks} ENABLE ROW LEVEL SECURITY;
 ALTER TABLE {s}.{checks} FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_wall ON {s}.{checks};
 CREATE POLICY tenant_wall ON {s}.{checks}
   USING (tenant_id = current_setting('app.tenant', true)) WITH CHECK (tenant_id = current_setting('app.tenant', true));
 REVOKE ALL ON {s}.{events}, {s}.{heads}, {s}.{bounds}, {s}.{checks} FROM PUBLIC;
@@ -188,7 +195,7 @@ GRANT USAGE ON SCHEMA {s} TO {role};
 GRANT SELECT, INSERT ON {s}.{events} TO {role};
 GRANT SELECT, INSERT, UPDATE ON {s}.{heads}, {s}.{bounds} TO {role};
 GRANT SELECT ON {s}.{checks} TO {role};
-CREATE FUNCTION {s}.audit_create_partition(month date) RETURNS boolean LANGUAGE plpgsql
+CREATE OR REPLACE FUNCTION {s}.audit_create_partition(month date) RETURNS boolean LANGUAGE plpgsql
   SET search_path = pg_catalog, pg_temp AS $$
 DECLARE
   name text := '{events}_p' || to_char(month, 'YYYYMM');
@@ -204,7 +211,7 @@ BEGIN
 END
 $$;
 REVOKE ALL ON FUNCTION {s}.audit_create_partition(date) FROM PUBLIC;
-CREATE FUNCTION {s}.{maintain}()
+CREATE OR REPLACE FUNCTION {s}.{maintain}()
   RETURNS TABLE (step_left boolean, checkpoint_tenant text, checkpoint_seq bigint, checkpoint_hash bytea)
   LANGUAGE plpgsql SECURITY DEFINER
   SET search_path = pg_catalog, pg_temp

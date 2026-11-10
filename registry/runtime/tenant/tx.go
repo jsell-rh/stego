@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 	"time"
@@ -134,6 +135,11 @@ type Config struct {
 	// AfterConnect are statements to run on each new connection. Guard refuses every one: a statement can set a
 	// session value in more ways than a check of its text finds.
 	AfterConnect []string
+	// InsecureLoopback lets Conn or DSN connect without verified TLS when the host and every fallback is a loopback
+	// IP address, for a local test only, as the PostgreSQL adapter's loopback test mode does. Without
+	// it, Open and OpenOwner refuse a configuration or a connection string whose TLS does not verify the server,
+	// such as sslmode disable, prefer or require (ST-SUP-RP04-LC09).
+	InsecureLoopback bool
 }
 
 // PoolBounds are the bounds of a pool.
@@ -164,6 +170,31 @@ func connConfig(cfg Config) (*pgx.ConnConfig, error) {
 
 // errNoVerifiedTLS is the error of a connection configuration of the opener whose TLS is not verified.
 var errNoVerifiedTLS = errors.New("tenant: the connection configuration does not verify TLS")
+
+// transport refuses a connection configuration that connects without verified TLS, unless insecureLoopback is set
+// and every target of it is a loopback IP address (ST-SUP-RP04-LC09).
+func transport(c *pgx.ConnConfig, insecureLoopback bool) error {
+	err := verifiedTLS(c)
+	if err == nil || !insecureLoopback {
+		return err
+	}
+	if !local(c.Host) {
+		return fmt.Errorf("%w, and the host %q is not a loopback address", err, c.Host)
+	}
+	for _, f := range c.Fallbacks {
+		if !local(f.Host) {
+			return fmt.Errorf("%w, and the fallback host %q is not a loopback address", err, f.Host)
+		}
+	}
+	return nil
+}
+
+// local tells whether host is a loopback IP address, as the PostgreSQL adapter's loopback test mode requires: a
+// name such as localhost, which a resolver can map elsewhere, and a socket path are not.
+func local(host string) bool {
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
 
 // verifiedTLS refuses a connection configuration, or one of its fallbacks, that connects without TLS or does not
 // verify the server's certificate (ST-SUP-RP04-LC09).

@@ -175,14 +175,20 @@ func tableModule(t *testing.T) (map[string]bool, string) {
 			write(security)
 		}
 	}
-	goMod := "module " + tablesModule + "\n\ngo 1.25.0\n\nrequire (\n github.com/google/uuid v1.6.0\n github.com/jackc/pgx/v5 v5.11.0\n gorm.io/gorm v1.25.12\n gorm.io/driver/postgres v1.5.11\n)\n"
+	// The runtime data path takes the connection configuration of the runtime library's connectors from the adapter
+	// (runtime_access.go), so the module requires the runtime library of this repository's registry/runtime folder.
+	runtimeDir, err := filepath.Abs(filepath.Join("..", "..", "..", "registry", "runtime"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	goMod := "module " + tablesModule + "\n\ngo 1.26.10\n\nrequire (\n github.com/google/uuid v1.6.0\n github.com/jackc/pgx/v5 v5.11.0\n gorm.io/gorm v1.25.12\n gorm.io/driver/postgres v1.5.11\n stego.dev/runtime v0.6.0\n)\n\nreplace stego.dev/runtime => " + runtimeDir + "\n"
 	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte(goMod), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(project, "check", "tables_test.go"), tablesTests, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tidy := exec.Command("go", "mod", "tidy", "-go=1.25.0")
+	tidy := exec.Command("go", "mod", "tidy")
 	tidy.Dir, tidy.Env = project, append(os.Environ(), "GOWORK=off")
 	if output, err := tidy.CombinedOutput(); err != nil {
 		t.Fatalf("go mod tidy: %v\n%s", err, output)

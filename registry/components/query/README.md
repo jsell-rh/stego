@@ -10,9 +10,10 @@ its package under fills. It gets the decoded request and one read-only query
 handle.
 
 Each get and list query gets one handler on query.Serve of the runtime library
-(stego.dev/runtime/query), which serve.Handlers.Routes mounts. The compiler
-does not mount the routes in main.go yet: no component wires the query
-runtime, the verifier and the probes there yet. The handler verifies the
+(stego.dev/runtime/query), which serve.Handlers.Routes mounts. On the runtime
+data path the compiler makes the handlers with the query runtime, the verifier
+and the probes, and main.go registers the route of each query. The handler
+verifies the
 caller, opens one READ ONLY transaction of the caller's tenant and calls the
 fill once. A get query decides its declared permission on its resource before
 the fill: a deny is not found, as a missing row is. A list query pages with

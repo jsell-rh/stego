@@ -471,6 +471,40 @@ func TestJobs(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RP05-LC10-T11 The DDL text runs again on a database that it made, in one transaction", func(t *testing.T) {
+		f := newPG(t)
+		ddl, err := DDL(Config{RuntimeRole: runtimeRole, AnchorPeriod: time.Hour, RetentionMonths: 12})
+		if err != nil {
+			t.Fatal(err)
+		}
+		shape := func() string {
+			var text string
+			if err := f.owner.QueryRowContext(f.ctx, `SELECT (SELECT count(*) FROM pg_inherits WHERE inhparent = '`+EventsTable+`'::regclass)::text || '/' ||
+ (SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND policyname = 'tenant_wall')::text || '/' ||
+ (SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname LIKE 'audit%')::text`).Scan(&text); err != nil {
+				t.Fatal(err)
+			}
+			return text
+		}
+		before := shape()
+		for run := 1; run <= 2; run++ {
+			tx, err := f.owner.BeginTx(f.ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tx.ExecContext(f.ctx, ddl); err != nil {
+				_ = tx.Rollback()
+				t.Fatalf("run %d of the DDL text on a database that it made: %v", run, err)
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if after := shape(); after != before {
+			t.Errorf("partitions, policies and triggers are %s after two more runs, want %s as before", after, before)
+		}
+	})
+
 	t.Run("ST-SUP-RP05-LC10-T01 The audit table is partitioned by month on recorded_at", func(t *testing.T) {
 		f := newPG(t)
 		var strategy, column string

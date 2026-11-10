@@ -37,6 +37,7 @@ The component needs pooled tenancy with the tenant column tenant_id: every
 resource ID at the provider is tenant-qualified, and the relay stores the
 token on the owning row by tenant_id.
 
-The stage is alpha. The generated commands and queries do not call the
-wiring yet (ST-SUP-RC32, ST-SUP-RC33), and the service's main does not run
-the relay yet.
+The stage is alpha. On the runtime data path the service's main makes the
+authorization runtime with NewRuntime for the generated commands and queries,
+and its migration job runs Migration and then WriteSchema before the service
+starts. The service's main does not run the relay and the watch yet.

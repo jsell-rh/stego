@@ -758,17 +758,17 @@ BEGIN
 	END LOOP;
 END $do$;
 
-CREATE TABLE {{schema}}.authz_floor (
+CREATE TABLE IF NOT EXISTS {{schema}}.authz_floor (
 	only_row boolean PRIMARY KEY DEFAULT true CHECK (only_row),
 	token text NOT NULL DEFAULT '' CHECK (octet_length(token) <= 4096),
 	sequence bigint NOT NULL DEFAULT 0
 );
-INSERT INTO {{schema}}.authz_floor (only_row) VALUES (true);
+INSERT INTO {{schema}}.authz_floor (only_row) VALUES (true) ON CONFLICT (only_row) DO NOTHING;
 REVOKE ALL ON {{schema}}.authz_floor FROM PUBLIC;
 GRANT SELECT ON {{schema}}.authz_floor TO {{runtime_role}}, {{relay_role}}, stego_outbox_relay;
 GRANT UPDATE (token, sequence) ON {{schema}}.authz_floor TO {{relay_role}};
 
-CREATE TABLE {{schema}}.authz_revocations (
+CREATE TABLE IF NOT EXISTS {{schema}}.authz_revocations (
 	id uuid PRIMARY KEY,
 	tenant_id text NOT NULL CHECK (octet_length(tenant_id) BETWEEN 1 AND 255),
 	principal text NOT NULL CHECK (octet_length(principal) BETWEEN 1 AND 1200),
@@ -782,6 +782,7 @@ CREATE TABLE {{schema}}.authz_revocations (
 );
 ALTER TABLE {{schema}}.authz_revocations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE {{schema}}.authz_revocations FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS authz_revocations_tenant ON {{schema}}.authz_revocations;
 CREATE POLICY authz_revocations_tenant ON {{schema}}.authz_revocations
 	USING (tenant_id = pg_catalog.current_setting('app.tenant', true))
 	WITH CHECK (tenant_id = pg_catalog.current_setting('app.tenant', true));
@@ -790,15 +791,16 @@ GRANT SELECT ON {{schema}}.authz_revocations TO {{runtime_role}}, stego_outbox_r
 GRANT INSERT (id, tenant_id, principal, tuple_count) ON {{schema}}.authz_revocations TO {{runtime_role}};
 GRANT UPDATE (tuple_count, done, parked, discarded, token, completed_at) ON {{schema}}.authz_revocations TO stego_outbox_relay;
 
-CREATE TABLE {{schema}}.authz_revocation_tuples (
+CREATE TABLE IF NOT EXISTS {{schema}}.authz_revocation_tuples (
 	message_id uuid PRIMARY KEY,
 	revocation_id uuid NOT NULL REFERENCES {{schema}}.authz_revocations (id),
 	tenant_id text NOT NULL CHECK (octet_length(tenant_id) BETWEEN 1 AND 255),
 	state text NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'done', 'parked', 'discarded'))
 );
-CREATE INDEX authz_revocation_tuples_revocation ON {{schema}}.authz_revocation_tuples (revocation_id);
+CREATE INDEX IF NOT EXISTS authz_revocation_tuples_revocation ON {{schema}}.authz_revocation_tuples (revocation_id);
 ALTER TABLE {{schema}}.authz_revocation_tuples ENABLE ROW LEVEL SECURITY;
 ALTER TABLE {{schema}}.authz_revocation_tuples FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS authz_revocation_tuples_tenant ON {{schema}}.authz_revocation_tuples;
 CREATE POLICY authz_revocation_tuples_tenant ON {{schema}}.authz_revocation_tuples
 	USING (tenant_id = pg_catalog.current_setting('app.tenant', true))
 	WITH CHECK (tenant_id = pg_catalog.current_setting('app.tenant', true));
@@ -811,7 +813,7 @@ GRANT USAGE ON SCHEMA {{schema}} TO stego_outbox_relay;
 -- A tuple row must name an authz outbox message of its own revocation, of its tenant, and both the message and the
 -- revocation must be written by the same transaction as the row, so the runtime role cannot stall a revocation with
 -- extra tuple rows. The check runs at the commit, after Enqueue wrote the message.
-CREATE FUNCTION {{schema}}.authz_revocation_tuple_check() RETURNS trigger
+CREATE OR REPLACE FUNCTION {{schema}}.authz_revocation_tuple_check() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 DECLARE
 	v_epoch bigint := (pg_catalog.pg_current_xact_id()::text::bigint >> 32) << 32;
@@ -829,10 +831,11 @@ END
 $$;
 ALTER FUNCTION {{schema}}.authz_revocation_tuple_check() OWNER TO stego_outbox_relay;
 REVOKE ALL ON FUNCTION {{schema}}.authz_revocation_tuple_check() FROM PUBLIC;
+DROP TRIGGER IF EXISTS authz_revocation_tuple_check ON {{schema}}.authz_revocation_tuples;
 CREATE CONSTRAINT TRIGGER authz_revocation_tuple_check AFTER INSERT ON {{schema}}.authz_revocation_tuples
 	DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION {{schema}}.authz_revocation_tuple_check();
 
-CREATE FUNCTION {{schema}}.authz_revocation_state(p_message uuid, p_revocation uuid, p_state text) RETURNS boolean
+CREATE OR REPLACE FUNCTION {{schema}}.authz_revocation_state(p_message uuid, p_revocation uuid, p_state text) RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 DECLARE
 	v_tenant text := pg_catalog.current_setting('app.tenant', true);
@@ -888,7 +891,10 @@ GRANT EXECUTE ON FUNCTION {{schema}}.authz_revocation_state(uuid, uuid, text) TO
 // and nothing else; hookRoles are the roles that call the outbox state hook, such as the outbox worker role, and
 // only they may report the state done. It refuses a runtime role that equals the relay login role, a relay login
 // role that equals a hook role, and no hook role; the text refuses a runtime role that is a member of the relay login
-// role before it creates anything.
+// role before it creates anything. The text runs again with no error on a database that it made: each table and
+// index is made only when it is missing, the floor row only once, each function and trigger is replaced, and each
+// policy is dropped before it is made again, so the migration job can run on every release. Run it in one
+// transaction.
 func Migration(schema, runtimeRole, relayRole string, hookRoles ...string) (string, error) {
 	quotedSchema, err := quoteName("schema", schema)
 	if err != nil {

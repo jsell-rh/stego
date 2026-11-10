@@ -278,6 +278,9 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	if err := checkPinMove(existingState, archetype); err != nil {
 		return nil, err
 	}
+	if err := checkDataPathSnapshot(existingState, componentNames, resolved.RuntimeData); err != nil {
+		return nil, err
+	}
 	importsRuntime := false
 
 	// Run all component generators in archetype-declared order.
@@ -289,6 +292,11 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		generator := input.Generators[compName]
 
 		ctx := resolved.Contexts[compName]
+		if resolved.RuntimeData && slices.Contains(authProviders([]string{compName}, components), compName) {
+			// The verifier of the runtime library takes the place of the auth provider on the runtime data path,
+			// with its declared settings (ST-SUP-RP13); its own package would be dead code.
+			continue
+		}
 
 		files, wiring, err := generator.Generate(ctx)
 		if err != nil {
@@ -329,6 +337,22 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 
 		allFiles = append(allFiles, files...)
 		wirings = append(wirings, ComponentWiring{Name: compName, Wiring: wiring})
+	}
+
+	// On the runtime data path the compiler wires the runtime library into main.go (ST-SUP-RC01-OC41).
+	if resolved.RuntimeData {
+		files, wiring, err := runtimeWiring(runtimeWiringInput{ModuleName: input.ModuleName, OutDirName: outDirName, Service: svcDecl,
+			ServiceData: serviceData, Components: components, Names: componentNames, Wirings: wirings})
+		if err != nil {
+			return nil, err
+		}
+		uses, err := runtimeImports("the runtime wiring", files, pin)
+		if err != nil {
+			return nil, err
+		}
+		importsRuntime = importsRuntime || uses
+		allFiles = append(allFiles, files...)
+		wirings = append(wirings, wiring)
 	}
 
 	// Generate slot interfaces and operators if slots are configured.
@@ -421,6 +445,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	}
 	plan.runtime = runtime
 	plan.NewState.LastApplied.Archetype = &ArchetypeState{Name: archetype.Name, Version: archetype.Version, Runtime: &pin, ImportsRuntime: importsRuntime}
+	plan.NewState.LastApplied.DataPath = dataPathName(resolved.RuntimeData)
 	if plan.StateChanged, err = stateDiffers(existingState, plan.NewState); err != nil {
 		return nil, err
 	}
