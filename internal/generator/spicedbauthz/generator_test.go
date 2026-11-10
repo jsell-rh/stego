@@ -347,8 +347,8 @@ func resourceIDScan(t *testing.T, source string) (built int, formatted []string)
 	}
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Name.Name == "Migration" {
-			// Migration builds SQL text, not resource IDs.
+		if !ok || fn.Name.Name == "Migration" || fn.Name.Name == "WriteSchema" {
+			// Migration builds SQL text and WriteSchema an error text, not resource IDs.
 			continue
 		}
 		ast.Inspect(fn, func(n ast.Node) bool {
@@ -584,7 +584,7 @@ func TestGeneratedAuthzWiring(t *testing.T) {
 		"ST-SUP-RC29-OC05-T01", "ST-SUP-RC29-OC05-T02", "ST-SUP-RC29-OC05-T03", "ST-SUP-RC29-OC05-T04",
 		"ST-SUP-RC29-OC06-T01", "ST-SUP-RC29-OC06-T02", "ST-SUP-RC29-OC06-T03",
 		"ST-SUP-RC29-OC07-T01", "ST-SUP-RC29-OC07-T02", "ST-SUP-RC29-OC07-T03", "ST-SUP-RC29-OC07-T04",
-		"ST-SUP-RC29-OC07-T05", "ST-SUP-RC29-OC07-T06",
+		"ST-SUP-RC29-OC07-T05", "ST-SUP-RC29-OC07-T06", "ST-SUP-RC29-OC23-T01",
 	} {
 		t.Run(id, func(t *testing.T) {
 			s.t = t

@@ -30,7 +30,9 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 
 	stegoauthz "stego.dev/runtime/authz"
 	"stego.dev/runtime/outbox"
@@ -905,6 +907,7 @@ func (bearer) RequireTransportSecurity() bool { return false }
 type spiceEnv struct {
 	provider *stegoauthz.SpiceDB
 	perms    v1.PermissionsServiceClient
+	conn     *grpc.ClientConn
 }
 
 // spiceDB connects the test to a datastore of its own on the local SpiceDB server and writes schema to it, as the
@@ -927,7 +930,15 @@ func spiceDB(t *testing.T, schema string) *spiceEnv {
 	deadline := time.Now().Add(60 * time.Second)
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_, err = v1.NewSchemaServiceClient(conn).WriteSchema(ctx, &v1.WriteSchemaRequest{Schema: schema})
+		if schema == "" {
+			// An empty datastore: the server is ready when it answers that it holds no schema.
+			_, err = v1.NewSchemaServiceClient(conn).ReadSchema(ctx, &v1.ReadSchemaRequest{})
+			if status.Code(err) == codes.NotFound {
+				err = nil
+			}
+		} else {
+			_, err = v1.NewSchemaServiceClient(conn).WriteSchema(ctx, &v1.WriteSchemaRequest{Schema: schema})
+		}
 		cancel()
 		if err == nil {
 			break
@@ -941,7 +952,7 @@ func spiceDB(t *testing.T, schema string) *spiceEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &spiceEnv{provider: provider, perms: v1.NewPermissionsServiceClient(conn)}
+	return &spiceEnv{provider: provider, perms: v1.NewPermissionsServiceClient(conn), conn: conn}
 }
 
 // count reads the relationships of the resource type at the newest state of the provider.
@@ -983,3 +994,72 @@ func (fakeDecision) Search(context.Context, stegoauthz.SearchRequest) (stegoauth
 }
 
 func (fakeDecision) Searches() bool { return false }
+
+// schemaText reads the schema that the provider holds.
+func (e *spiceEnv) schemaText(t *testing.T) string {
+	t.Helper()
+	read, err := v1.NewSchemaServiceClient(e.conn).ReadSchema(context.Background(), &v1.ReadSchemaRequest{})
+	if status.Code(err) == codes.NotFound {
+		return ""
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return read.GetSchemaText()
+}
+
+func TestSchemaWrite(t *testing.T) {
+	t.Run("ST-SUP-RC29-OC23-T01 The migration job writes the schema, and refuses one that removes a definition or relation with relationships", func(t *testing.T) {
+		needPostgres(t)
+		ctx := context.Background()
+		archive := "\ndefinition archive {\n\trelation owner: user\n}\n"
+		editor := strings.Replace(Schema, "definition document {\n", "definition document {\n\trelation editor: user\n", 1)
+		if editor == Schema {
+			t.Fatal("Schema has no definition document")
+		}
+		marker := stegoauthz.Tuple{Resource: stegoauthz.Resource{Type: "stego_floor", ID: "floor"}, Relation: "marker",
+			Subject: stegoauthz.Subject{Type: "stego_floor", ID: "floor"}}
+		for _, c := range []struct {
+			name, held string
+			tuple      *stegoauthz.Tuple
+			refused    bool
+		}{
+			{"an empty datastore", "", nil, false},
+			{"a removed definition with no relationship", Schema + archive, nil, false},
+			{"a removed definition with a relationship", Schema + archive, &stegoauthz.Tuple{Resource: stegoauthz.Resource{Type: "archive", ID: "a1"},
+				Relation: "owner", Subject: stegoauthz.Subject{Type: "user", ID: "u1"}}, true},
+			{"a removed relation with a relationship", editor, &stegoauthz.Tuple{Resource: stegoauthz.Resource{Type: "document", ID: "d1"},
+				Relation: "editor", Subject: stegoauthz.Subject{Type: "user", ID: "u1"}}, true},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				spice := spiceDB(t, c.held)
+				if c.tuple != nil {
+					if _, err := spice.provider.Touch(ctx, []stegoauthz.Tuple{*c.tuple}, nil); err != nil {
+						t.Fatal(err)
+					}
+				}
+				before := spice.schemaText(t)
+				err := WriteSchema(ctx, spice.conn)
+				after := spice.schemaText(t)
+				if c.refused {
+					if err == nil || !strings.Contains(err.Error(), "refuses the schema") {
+						t.Fatalf("WriteSchema gives %v, want the refusal", err)
+					}
+					if after != before {
+						t.Errorf("the refused write changed the schema:\n%s", after)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatalf("WriteSchema: %v", err)
+				}
+				if strings.Contains(after, "archive") || !strings.Contains(after, "definition stego_floor") {
+					t.Errorf("the provider holds\n%s\nwant the emitted Schema", after)
+				}
+				if _, err := spice.provider.Touch(ctx, []stegoauthz.Tuple{marker}, nil); err != nil {
+					t.Errorf("the floor marker cannot be written after WriteSchema: %v", err)
+				}
+			})
+		}
+	})
+}

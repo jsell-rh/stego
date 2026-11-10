@@ -222,7 +222,7 @@ func read(ctx gen.Context) (plan, error) {
 // ST-SUP-RC29-OC13). The generator refuses what checking refuses, naming each fault, before any file is written.
 func checkDeclaration(ctx gen.Context, source []byte) error {
 	service := &types.ServiceDeclaration{Name: ctx.ServiceName, Authorization: ctx.Authorization, Entities: ctx.Entities,
-		Collections: ctx.Collections, Slots: ctx.SlotBindings}
+		Collections: ctx.Collections, Slots: ctx.SlotBindings, Tenancy: &types.Tenancy{Kind: "pooled", Key: ctx.Tenancy.Key}}
 	faults := declaration.CheckAuthorization(service, fstest.MapFS{ctx.Authorization.SchemaPath: &fstest.MapFile{Data: source}})
 	if len(faults) == 0 {
 		return nil
@@ -286,8 +286,8 @@ func render(p plan) []byte {
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "// Package %s is the authorization wiring of the service on the authorization runtime\n// stego.dev/runtime/authz (ST-SUP-RC29).\n", p.Package)
 	fmt.Fprintf(&b, "package %s\n\n", p.Package)
-	b.WriteString("import (\n\t\"context\"\n\t\"database/sql\"\n\t\"strings\"\n\t\"time\"\n\n")
-	b.WriteString("\totellog \"go.opentelemetry.io/otel/log\"\n\t\"go.opentelemetry.io/otel/metric\"\n\n")
+	b.WriteString("import (\n\t\"context\"\n\t\"database/sql\"\n\t\"fmt\"\n\t\"strings\"\n\t\"time\"\n\n")
+	b.WriteString("\tv1 \"github.com/authzed/authzed-go/proto/authzed/api/v1\"\n\totellog \"go.opentelemetry.io/otel/log\"\n\t\"go.opentelemetry.io/otel/metric\"\n\t\"google.golang.org/grpc\"\n\n")
 	fmt.Fprintf(&b, "\tstegoauthz %q\n\t\"stego.dev/runtime/outbox\"\n", RuntimePackage)
 	if len(p.Entities) > 0 {
 		b.WriteString("\t\"stego.dev/runtime/tenant\"\n")
@@ -295,7 +295,7 @@ func render(p plan) []byte {
 	b.WriteString(")\n\n")
 
 	fmt.Fprintf(&b, "// Schema is the service's schema %s with the floor marker definition %s added, which the relay\n", p.SchemaPath, types.FloorMarkerType)
-	b.WriteString("// touches to raise the revocation floor (ST-SUP-RP06-LC13); schema.zed holds the same text. The deployment\n// writes it to the provider; generation never does (ST-SUP-RC29-OC13).\n")
+	b.WriteString("// touches to raise the revocation floor (ST-SUP-RP06-LC13); schema.zed holds the same text. The migration\n// job writes it to the provider with WriteSchema (ST-SUP-RC29-OC23); generation never does (ST-SUP-RC29-OC13).\n")
 	fmt.Fprintf(&b, "const Schema = %s\n\n", goText(p.Schema))
 	b.WriteString("// DatabaseSchema is the SQL schema of the protected tables and of the authorization tables.\n")
 	fmt.Fprintf(&b, "const DatabaseSchema = %q\n\n", databaseSchema)
@@ -361,6 +361,18 @@ func Migration(runtimeRole, relayRole, workerRole string) (string, error) {
 		fmt.Fprintf(&b, "\tstatements.WriteString(\"GRANT SELECT (%s, id), UPDATE (%s) ON %s TO \" + worker + \";\\n\")\n", TenantColumn, TokenColumn, table)
 	}
 	b.WriteString(`	return text + statements.String(), nil
+}
+
+// WriteSchema writes Schema to SpiceDB through WriteSchema, for the migration job to run before the service starts,
+// so the schema is versioned with the release (ST-SUP-RC29-OC23). SpiceDB refuses, and writes nothing, when the
+// schema it holds has a definition or a relation that Schema removes and that still has relationships; WriteSchema
+// then gives that refusal, and the release does not start. conn is a connection to SpiceDB with a key that may
+// write the schema.
+func WriteSchema(ctx context.Context, conn grpc.ClientConnInterface) error {
+	if _, err := v1.NewSchemaServiceClient(conn).WriteSchema(ctx, &v1.WriteSchemaRequest{Schema: Schema}); err != nil {
+		return fmt.Errorf("authz: SpiceDB refuses the schema of the release, which would remove a definition or a relation that has relationships, or cannot take it: %w", err)
+	}
+	return nil
 }
 
 // NewRuntime returns the authorization runtime of the service, which binds the handles of its transactions and
