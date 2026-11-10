@@ -314,7 +314,7 @@ func (w *Worker) Finish(ctx context.Context) error {
 
 func (w *Worker) runOne(claimCtx, workCtx context.Context) {
 	var databaseAttempts int64
-	for claimCtx.Err() == nil {
+	for w.claiming(claimCtx) {
 		n, err := w.cycle(claimCtx, workCtx)
 		if err != nil {
 			if claimCtx.Err() != nil {
@@ -334,6 +334,18 @@ func (w *Worker) runOne(claimCtx, workCtx context.Context) {
 		if n == 0 && !waitWorker(claimCtx, w.config.PollInterval) {
 			return
 		}
+	}
+}
+
+// claiming reports whether a new claim may start: StopClaiming was not called and claimCtx did not end. It reads the
+// stop channel itself, so no claim starts after StopClaiming returned, also before the goroutine of Run ends
+// claimCtx. A claim that started before StopClaiming completes, and its message takes its step.
+func (w *Worker) claiming(claimCtx context.Context) bool {
+	select {
+	case <-w.stop:
+		return false
+	default:
+		return claimCtx.Err() == nil
 	}
 }
 
