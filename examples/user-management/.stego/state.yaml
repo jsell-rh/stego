@@ -30,14 +30,14 @@ last_applied:
         go_version: go1.26.10
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261108140223-2300871aa15d
+        module_version: v0.0.0-20261110005003-163a2c5a90ab
         vcs: git
-        revision: 2300871aa15d7b28e8d6f04d757368d957c3d209
+        revision: 163a2c5a90abca74e14d5030d9cd92220faa4c1f
         source_state: clean
     service_name: user-management
     service_hash: df9112176f2dcaf28257689abc0fedd964b29998195268acc4804137c064b9b1
     registry_sha: env-override
-    registry_content_sha256: d7da98db66273daf05d6d238591e0b5507c98e4b367dd3112c357bae4e0f6b95
+    registry_content_sha256: 36097ad6db4cb0117135b0c17f29867ccf1df96d7723a5459bc508881b3a012c
     components:
         health-check:
             version: 1.1.0
@@ -202,3 +202,10 @@ last_applied:
         tracing/service.go: c385c803aa9c54e37436cfb4a004a1ad468317b6d435498407a706dae9bcdac5
         tracing/signals.go: 3adee95980b02c32284916b7e46083f2cc0d0dc8394ca402c49177290ec163cb
         tracing/startup.go: ba2cc8272fddb2c9c18cf10199b7ffe3df430ea88f3d02a6902e00908d154160
+    archetype:
+        name: rest-crud
+        version: 3.1.0
+        runtime:
+            module: stego.dev/runtime
+            version: v0.1.0
+            sum: h1:qif5aa3hg4Ud8mVQ9bKJn9KDaM2wYJzaTYNZ/liNmGQ=
