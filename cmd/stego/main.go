@@ -41,6 +41,7 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/restapi"
 	"github.com/jsell-rh/stego/internal/generator/rhssoauth"
 	"github.com/jsell-rh/stego/internal/generator/runtimeconfig"
+	"github.com/jsell-rh/stego/internal/generator/tenancy"
 	"github.com/jsell-rh/stego/internal/generator/tslsearch"
 	"github.com/jsell-rh/stego/internal/generator/typescriptsdk"
 	"github.com/jsell-rh/stego/internal/registry"
@@ -904,6 +905,7 @@ func defaultGenerators() map[string]gen.Generator {
 		"outbox":                &outbox.Generator{},
 		"kafka-producer":        &kafkaproducer.Generator{},
 		"postgres-adapter":      &postgresadapter.Generator{},
+		"tenancy":               &tenancy.Generator{},
 		"tsl-search":            &tslsearch.Generator{},
 		"jwt-auth":              &jwtauth.Generator{},
 		"rh-sso-auth":           &rhssoauth.Generator{},

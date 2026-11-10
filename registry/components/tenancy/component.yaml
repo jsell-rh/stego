@@ -1,0 +1,17 @@
+kind: component
+name: tenancy
+version: 0.2.0
+stage: alpha
+sunset: "2027-04-30"
+output_namespace: internal/tenancy
+
+config:
+  runtime_role:
+    type: string
+  owner_role:
+    type: string
+
+requires: []
+provides:
+  - tenant-isolation
+slots: []
