@@ -305,7 +305,6 @@ hand; see [Specification checks](#specification-checks).
 | `stego fill sign` | `stego fill sign <name>` |
 | `stego fill status` | `stego fill status` |
 | `stego fleet` | `stego fleet --digest <digest> <checkout>...` |
-| `stego fleet measures` | `stego fleet measures [--json] <checkout>...` |
 | `stego fleet vex` | `stego fleet vex --registry <folder> <checkout>...` |
 | `stego image build` | `stego image build (--build-record <file> --build-record-sha256 <digest> --application <file> \| --after <file> --build-result <folder>) --trust-store <file> --trust-store-sha256 <digest> [--entrypoint <name>] --output <folder>` |
 | `stego image export` | `stego image export --record <file> --record-sha256 <digest> --image <folder> --build-record <file> --work <folder>` |
