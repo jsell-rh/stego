@@ -75,31 +75,35 @@ func goCommand(t *testing.T, project string, args ...string) string {
 
 // runEmitted runs one subtest of testdata/emitted_test.go in the emitted module. A test that needs PostgreSQL
 // skips without STEGO_TEST_POSTGRES_DSN, and fails without it when STEGO_REQUIRE_POSTGRES=1.
-func runEmitted(project, id string, postgres bool) func(t *testing.T) {
-	return func(t *testing.T) {
-		if postgres && os.Getenv("STEGO_TEST_POSTGRES_DSN") == "" {
-			if os.Getenv("STEGO_REQUIRE_POSTGRES") == "1" {
-				t.Fatal("PostgreSQL integration tests require STEGO_TEST_POSTGRES_DSN")
-			}
-			t.Skip("STEGO_TEST_POSTGRES_DSN is not set")
+func runEmitted(t *testing.T, project, id string, postgres bool) {
+	t.Helper()
+	if postgres && os.Getenv("STEGO_TEST_POSTGRES_DSN") == "" {
+		if os.Getenv("STEGO_REQUIRE_POSTGRES") == "1" {
+			t.Fatal("PostgreSQL integration tests require STEGO_TEST_POSTGRES_DSN")
 		}
-		output := goCommand(t, project, "test", "-count=1", "-timeout=60s", "-v", "-run", "^TestEmitted$/^"+id+"_", "./internal/idempotency")
-		if !strings.Contains(output, "--- PASS: TestEmitted/"+id+"_") {
-			t.Fatalf("the emitted test %s did not run and pass:\n%s", id, output)
-		}
+		t.Skip("STEGO_TEST_POSTGRES_DSN is not set")
+	}
+	output := goCommand(t, project, "test", "-count=1", "-timeout=60s", "-v", "-run", "^TestEmitted$/^"+id+"_", "./internal/idempotency")
+	if !strings.Contains(output, "--- PASS: TestEmitted/"+id+"_") {
+		t.Fatalf("the emitted test %s did not run and pass:\n%s", id, output)
 	}
 }
 
 func TestEmittedPackage(t *testing.T) {
 	project := emittedProject(t)
-	t.Run("ST-SUP-RC30-OC03-T01 The fingerprint covers the method, the path and the canonical body",
-		runEmitted(project, "ST-SUP-RC30-OC03-T01", false))
-	t.Run("ST-SUP-RC30-OC03-T02 The query string is not in the fingerprint",
-		runEmitted(project, "ST-SUP-RC30-OC03-T02", false))
-	t.Run("ST-SUP-RC30-OC03-T03 Only declared fields are canonicalised",
-		runEmitted(project, "ST-SUP-RC30-OC03-T03", false))
-	t.Run("ST-SUP-RC30-OC04-T04 The emitted migration makes the key table scoped by tenant, principal and key",
-		runEmitted(project, "ST-SUP-RC30-OC04-T04", true))
-	t.Run("ST-SUP-RC30-OC04-T06 The purge job deletes the expired key rows and keeps the live ones",
-		runEmitted(project, "ST-SUP-RC30-OC04-T06", true))
+	t.Run("ST-SUP-RC30-OC03-T01 The fingerprint covers the method, the path and the canonical body", func(t *testing.T) {
+		runEmitted(t, project, "ST-SUP-RC30-OC03-T01", false)
+	})
+	t.Run("ST-SUP-RC30-OC03-T02 The query string is not in the fingerprint", func(t *testing.T) {
+		runEmitted(t, project, "ST-SUP-RC30-OC03-T02", false)
+	})
+	t.Run("ST-SUP-RC30-OC03-T03 Only declared fields are canonicalised", func(t *testing.T) {
+		runEmitted(t, project, "ST-SUP-RC30-OC03-T03", false)
+	})
+	t.Run("ST-SUP-RC30-OC04-T04 The emitted migration makes the key table scoped by tenant, principal and key", func(t *testing.T) {
+		runEmitted(t, project, "ST-SUP-RC30-OC04-T04", true)
+	})
+	t.Run("ST-SUP-RC30-OC04-T06 The purge job deletes the expired key rows and keeps the live ones", func(t *testing.T) {
+		runEmitted(t, project, "ST-SUP-RC30-OC04-T06", true)
+	})
 }
