@@ -1,7 +1,9 @@
 // Package postgresadapter implements the postgres-adapter component Generator.
 // It produces GORM-based model structs, a Store implementation with CRUD + list
 // + upsert methods, migration code, SessionFactory, and GenericDao from the
-// service declaration's entities.
+// service declaration's entities. On the runtime data path
+// (gen.Context.RuntimeData) it emits instead the tables as SQL from the
+// declaration and no store or model (tables.go, ST-SUP-RC01-OC41).
 package postgresadapter
 
 import (
@@ -64,6 +66,9 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	}
 	if len(ctx.Entities) == 0 {
 		return gen.ValidateGoPackageNamespace(ctx.OutputNamespace)
+	}
+	if err := validateRuntimeData(ctx); err != nil {
+		return err
 	}
 
 	for _, entity := range ctx.Entities {
@@ -178,6 +183,9 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		wiring := &gen.Wiring{NeedsDB: true, Imports: []string{ctx.OutputNamespace}, DatabaseOpener: &gen.DatabaseOpenerSpec{Namespace: ctx.OutputNamespace, Function: "OpenDatabase"}, GoModRequires: map[string]string{"github.com/jackc/pgx/v5": "v5.11.0"}}
 		return []gen.File{file}, wiring, nil
 	}
+	if ctx.RuntimeData {
+		return generateRuntimeData(ctx)
+	}
 	// Build upsert key lookup: entity name → list of upsert key field sets.
 	// Each collection with an upsert_key contributes a composite unique index.
 	upsertKeys := make(map[string][][]string)
@@ -201,7 +209,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	migrateFile, err := generateMigrate(ctx.OutputNamespace, ctx.Entities, ctx.ComponentConfig["schema_generation"] != nil, rowSecurity)
+	migrateFile, err := generateMigrate(ctx.OutputNamespace, ctx.Entities, ctx.ComponentConfig["schema_generation"] != nil, rowSecurity, false)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating migrate: %w", err)
 	}
@@ -287,15 +295,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			"gorm.io/driver/postgres": "v1.5.11",
 		},
 	}
-	for _, entity := range ctx.Entities {
-		wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
-			Schema: "public", Name: tableName(entity.Name), Kind: "table",
-			Privileges: runtimePrivileges(ctx, entity),
-		})
-		wiring.BackupObjects = append(wiring.BackupObjects, gen.BackupObject{
-			Schema: "public", Name: tableName(entity.Name), Kind: "table",
-		})
-	}
+	entityAccess(ctx, wiring)
 	if ctx.StorageContract != "" {
 		for _, name := range []string{"stego_scan_checkpoints", "stego_effect_bindings", "stego_resource_state", "stego_resource_state_scopes"} {
 			wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
@@ -328,31 +328,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			gen.BackupObject{Schema: "public", Name: "stego_resource_revision", Kind: "trigger"},
 		)
 	}
-	if ctx.ComponentConfig["schema_generation"] != nil {
-		wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
-			Schema: "stego_schema", Name: "generation", Kind: "table", Privileges: []string{"SELECT"},
-		})
-		wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
-			Schema: "stego_schema", Name: "identity", Kind: "table", Privileges: []string{"SELECT"},
-		})
-		wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
-			Schema: "stego_schema", Name: "epoch_seq", Kind: "sequence", Privileges: []string{"SELECT", "USAGE"},
-		})
-		if LeaseEnabled(ctx.ComponentConfig) {
-			wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
-				Schema: "stego_schema", Name: "writer_lease", Kind: "table", Privileges: []string{"UPDATE", "SELECT"},
-			})
-		}
-		wiring.BackupObjects = append(wiring.BackupObjects,
-			gen.BackupObject{Schema: "stego_schema", Name: "generation", Kind: "table"},
-			gen.BackupObject{Schema: "stego_schema", Name: "identity", Kind: "table"},
-			gen.BackupObject{Schema: "stego_schema", Name: "epoch_seq", Kind: "sequence"},
-			gen.BackupObject{Schema: "stego_schema", Name: "migrations", Kind: "table"},
-		)
-		if LeaseEnabled(ctx.ComponentConfig) {
-			wiring.BackupObjects = append(wiring.BackupObjects, gen.BackupObject{Schema: "stego_schema", Name: "writer_lease", Kind: "table"})
-		}
-	}
+	schemaGenerationAccess(ctx, wiring)
 	file, err := generateDatabaseOpener(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -387,6 +363,51 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 
 	return files, wiring, nil
+}
+
+// entityAccess adds the table of each entity to the database access that the runtime role is granted and to the
+// backup manifest. The runtime role holds only the privileges of ST-SUP-RC27-OC07 and ST-STD-TXN-R03.
+func entityAccess(ctx gen.Context, wiring *gen.Wiring) {
+	for _, entity := range ctx.Entities {
+		wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
+			Schema: "public", Name: tableName(entity.Name), Kind: "table",
+			Privileges: runtimePrivileges(ctx, entity),
+		})
+		wiring.BackupObjects = append(wiring.BackupObjects, gen.BackupObject{
+			Schema: "public", Name: tableName(entity.Name), Kind: "table",
+		})
+	}
+}
+
+// schemaGenerationAccess adds the objects of the schema generation marker and of the migration ledger to the
+// database access and to the backup manifest, when the service declares schema_generation.
+func schemaGenerationAccess(ctx gen.Context, wiring *gen.Wiring) {
+	if ctx.ComponentConfig["schema_generation"] == nil {
+		return
+	}
+	wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
+		Schema: "stego_schema", Name: "generation", Kind: "table", Privileges: []string{"SELECT"},
+	})
+	wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
+		Schema: "stego_schema", Name: "identity", Kind: "table", Privileges: []string{"SELECT"},
+	})
+	wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
+		Schema: "stego_schema", Name: "epoch_seq", Kind: "sequence", Privileges: []string{"SELECT", "USAGE"},
+	})
+	if LeaseEnabled(ctx.ComponentConfig) {
+		wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
+			Schema: "stego_schema", Name: "writer_lease", Kind: "table", Privileges: []string{"UPDATE", "SELECT"},
+		})
+	}
+	wiring.BackupObjects = append(wiring.BackupObjects,
+		gen.BackupObject{Schema: "stego_schema", Name: "generation", Kind: "table"},
+		gen.BackupObject{Schema: "stego_schema", Name: "identity", Kind: "table"},
+		gen.BackupObject{Schema: "stego_schema", Name: "epoch_seq", Kind: "sequence"},
+		gen.BackupObject{Schema: "stego_schema", Name: "migrations", Kind: "table"},
+	)
+	if LeaseEnabled(ctx.ComponentConfig) {
+		wiring.BackupObjects = append(wiring.BackupObjects, gen.BackupObject{Schema: "stego_schema", Name: "writer_lease", Kind: "table"})
+	}
 }
 
 // reservedTypeNames is the union of: (1) Go keywords, (2) Go predeclared
@@ -1555,7 +1576,9 @@ func emitHelpers(buf *bytes.Buffer) {
 
 // generateMigrate produces migrate.go with migration infrastructure and the
 // initial migration using GORM AutoMigrate.
-func generateMigrate(ns string, entities []types.Entity, guarded bool, rowSecurity string) (gen.File, error) {
+// On the runtime data path (sqlTables) 001_initial is the SQL migration of
+// InitialTables, and no model is migrated (ST-SUP-RC01-OC41).
+func generateMigrate(ns string, entities []types.Entity, guarded bool, rowSecurity string, sqlTables bool) (gen.File, error) {
 	var buf bytes.Buffer
 
 	// Sort entities by ref dependencies so referenced tables are created first.
@@ -1755,14 +1778,18 @@ func generateMigrate(ns string, entities []types.Entity, guarded bool, rowSecuri
 
 	// Initial migration registration.
 	fmt.Fprintf(&buf, "func init() {\n")
-	fmt.Fprintf(&buf, "\tRegister(\"001_initial\", func(db *gorm.DB) error {\n")
-	fmt.Fprintf(&buf, "\t\treturn db.AutoMigrate(\n")
-	for _, e := range sorted {
-		fmt.Fprintf(&buf, "\t\t\t&%s{},\n", e.Name)
+	if sqlTables {
+		fmt.Fprintf(&buf, "\tRegisterSQL(\"001_initial\", %s)\n", tablesConstant)
+	} else {
+		fmt.Fprintf(&buf, "\tRegister(\"001_initial\", func(db *gorm.DB) error {\n")
+		fmt.Fprintf(&buf, "\t\treturn db.AutoMigrate(\n")
+		for _, e := range sorted {
+			fmt.Fprintf(&buf, "\t\t\t&%s{},\n", e.Name)
+		}
+		fmt.Fprintf(&buf, "\t\t)\n")
+		fmt.Fprintf(&buf, "\t})\n")
 	}
-	fmt.Fprintf(&buf, "\t\t)\n")
-	fmt.Fprintf(&buf, "\t})\n")
-	if hasVersioned(entities) {
+	if hasVersioned(entities) && !sqlTables {
 		fmt.Fprintln(&buf, `Register("002_resource_versions", func(db *gorm.DB) error { return db.Transaction(migrateResourceVersions) })`)
 	}
 	if rowSecurity != "" {

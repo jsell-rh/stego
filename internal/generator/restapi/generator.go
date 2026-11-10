@@ -252,7 +252,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	files = append(files, errorsFile)
 
 	// Generate OpenAPI spec.
-	openapiFile, err := generateOpenAPI(ctx.OutputNamespace, ctx.Entities, ctx.Collections, collectionMap, ctx.BasePath, ctx.Conventions.ResponseFormat)
+	openapiFile, err := generateOpenAPI(ctx.OutputNamespace, ctx.Entities, ctx.Collections, collectionMap, ctx.BasePath, ctx.Conventions.ResponseFormat, idempotencyKeys(ctx))
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating openapi spec: %w", err)
 	}
@@ -2200,7 +2200,7 @@ func generateValidation(ns string) (gen.File, error) {
 }
 
 // generateOpenAPI produces an OpenAPI 3.0 spec as JSON.
-func generateOpenAPI(ns string, entities []types.Entity, collections []types.Collection, collectionMap map[string]types.Collection, basePath string, responseFormat string) (gen.File, error) {
+func generateOpenAPI(ns string, entities []types.Entity, collections []types.Collection, collectionMap map[string]types.Collection, basePath string, responseFormat string, keys *idempotencyHeader) (gen.File, error) {
 	entityMap := make(map[string]types.Entity, len(entities))
 	for _, e := range entities {
 		entityMap[e.Name] = e
@@ -2553,6 +2553,12 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 			}
 		}
 
+		if op, ok := collectionOps["post"]; ok {
+			collectionOps["post"] = keys.apply(op, types.OpCreate)
+		}
+		if op, ok := itemOps["patch"]; ok {
+			itemOps["patch"] = keys.apply(op, types.OpPatch)
+		}
 		if len(collectionOps) > 0 {
 			spec.Paths[collectionPath] = openAPIPathItem{Operations: collectionOps}
 		}
@@ -4396,4 +4402,52 @@ func generateDiscovery(ns string, serviceName string, basePath string, collectio
 		Path:    path.Join(ns, "discovery.go"),
 		Content: formatted,
 	}, nil
+}
+
+// idempotencyHeader is what the OpenAPI document states of the Idempotency-Key header (ST-SUP-RC30-OC01): the
+// operations that require it, and the problem type URIs of its 400, 409 and 422 responses. Nil states nothing.
+type idempotencyHeader struct {
+	required             map[types.Operation]bool
+	missing, busy, reuse string
+}
+
+// idempotencyKeys reads the declaration's idempotency setting when the idempotency component is in the service,
+// and gives nil otherwise. The problem types join the slugs of stego.dev/runtime/idempotency to the problem base.
+func idempotencyKeys(ctx gen.Context) *idempotencyHeader {
+	if ctx.Idempotency == nil || ctx.PeerNamespaces["idempotency"] == "" {
+		return nil
+	}
+	keys := &idempotencyHeader{required: map[types.Operation]bool{},
+		missing: ctx.ErrorTypeBase + "idempotency-key-missing",
+		busy:    ctx.ErrorTypeBase + "idempotency-key-in-progress",
+		reuse:   ctx.ErrorTypeBase + "idempotency-key-reused"}
+	for _, op := range ctx.Idempotency.RequiredOn {
+		keys.required[op] = true
+	}
+	return keys
+}
+
+// apply adds the Idempotency-Key header parameter to a create or patch operation, required when Required on names
+// the operation and accepted otherwise, with its 400, 409 and 422 problem responses. A GET, PUT or DELETE
+// operation never gets it, because the service ignores the key there.
+func (k *idempotencyHeader) apply(op openAPIOperation, operation types.Operation) openAPIOperation {
+	if k == nil {
+		return op
+	}
+	op.Parameters = append(append([]openAPIParam{}, op.Parameters...), openAPIParam{
+		Name:        "Idempotency-Key",
+		In:          "header",
+		Required:    k.required[operation],
+		Description: "A structured string of 1 to 255 characters. A retry with the same key and body gets the stored response with Idempotent-Replayed: true.",
+		Schema:      openAPISchema{Type: "string"},
+	})
+	responses := make(map[string]openAPIResponse, len(op.Responses)+3)
+	for code, response := range op.Responses {
+		responses[code] = response
+	}
+	responses["400"] = openAPIResponse{Description: "Problem " + k.missing + ": the Idempotency-Key header is absent or malformed"}
+	responses["409"] = openAPIResponse{Description: "Problem " + k.busy + ": a request with this key is not complete"}
+	responses["422"] = openAPIResponse{Description: "Problem " + k.reuse + ": the key was used with another request"}
+	op.Responses = responses
+	return op
 }
