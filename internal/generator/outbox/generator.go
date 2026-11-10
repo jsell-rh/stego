@@ -1,4 +1,6 @@
-// Package outbox generates a PostgreSQL queue for durable notifications.
+// Package outbox generates the durable outbox of a service. On the runtime data path (gen.Context.RuntimeData) it
+// emits only the wiring on stego.dev/runtime/outbox (runtime.go, ST-SUP-RC18-OC30); on the store path it emits the
+// PostgreSQL queue, its migration, the worker and the live event source that the GORM store and its peers call.
 package outbox
 
 import (
@@ -36,13 +38,18 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	if err := gen.ValidateGoPackageNamespace(ns); err != nil {
 		return err
 	}
-
+	if ctx.RuntimeData {
+		return validateRuntime(ctx)
+	}
 	return nil
 }
 
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err := g.ValidateContext(ctx); err != nil {
 		return nil, nil, err
+	}
+	if ctx.RuntimeData {
+		return generateRuntime(ctx)
 	}
 	ns := ctx.OutputNamespace
 	files := []gen.File{
