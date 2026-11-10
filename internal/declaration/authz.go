@@ -216,6 +216,7 @@ func CheckAuthorization(service *types.ServiceDeclaration, project fs.FS) []Vali
 		return authorizationUnbound(service)
 	}
 	faults := validateAuthorizationSetting(service.Authorization)
+	faults = append(faults, validateAuthorizationTenancy(service)...)
 	faults = append(faults, validateSystemEntities(service.Entities)...)
 	faults = append(faults, validateRelationshipParts(service.Entities)...)
 	faults = append(faults, validateAuthorizationCoverage(service)...)
@@ -275,6 +276,23 @@ func readAuthzSchema(schemaPath string, project fs.FS) (*AuthzSchema, *Validatio
 		return nil, fault(err.Error())
 	}
 	return schema, nil
+}
+
+// validateAuthorizationTenancy checks that a declaration that binds authorization declares pooled tenancy
+// (ST-DECL-INV84): every resource ID at the provider is tenant-qualified (ST-SUP-RP06-LC22), and only a stated
+// pooled tenancy selects the tenancy component that gives each table its tenant column (ST-GEN-INV37), so an
+// omitted tenancy, which relies on the default, is refused as well as kind single.
+func validateAuthorizationTenancy(service *types.ServiceDeclaration) []ValidationError {
+	tenancy := service.Tenancy
+	switch {
+	case tenancy == nil:
+		return []ValidationError{{Category: "authorization", Rule: "authorization-tenancy", Path: "tenancy",
+			Message: "the declaration binds authorization but does not declare tenancy; every resource ID at the provider is tenant-qualified, so declare tenancy with kind pooled, its key and its claim"}}
+	case tenancy.Kind != "" && tenancy.Kind != "pooled":
+		return []ValidationError{{Category: "authorization", Rule: "authorization-tenancy", Path: "tenancy.kind", Found: tenancy.Kind,
+			Allowed: []string{"pooled"}, Message: fmt.Sprintf("the declaration binds authorization with tenancy kind %q; every resource ID at the provider is tenant-qualified, so declare tenancy with kind pooled", tenancy.Kind)}}
+	}
+	return nil
 }
 
 // validateAuthorizationSetting checks that the authorization setting names a known provider, the schema path and

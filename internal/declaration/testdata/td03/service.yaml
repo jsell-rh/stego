@@ -3,6 +3,13 @@ name: todo-svc
 archetype: rest-crud
 language: go
 base_path: /api/todo/v1
+tenancy:
+  kind: pooled
+  key: tenant_id
+  claim: tenant
+experimental_acceptances:
+  - {component: spicedb-authz, accepted_until: 2027-04-30, reason: the authorization tests take the alpha component}
+  - {component: tenancy, accepted_until: 2027-04-30, reason: authorization needs pooled tenancy}
 authorization:
   provider: spicedb
   schema_path: authz/schema.zed

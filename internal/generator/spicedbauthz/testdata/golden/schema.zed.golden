@@ -1,0 +1,20 @@
+definition user {}
+
+definition service_account {}
+
+definition document {
+	relation owner: user
+	relation viewer: user
+	permission view = owner + viewer
+	permission edit = owner
+}
+
+definition project {
+	relation owner: user
+	permission view = owner
+	permission edit = owner
+}
+
+definition stego_floor {
+	relation marker: stego_floor
+}

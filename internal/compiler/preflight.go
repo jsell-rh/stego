@@ -145,6 +145,7 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 			Audit:           svcDecl.Audit,
 			PortBindings:    portBindings,
 			Idempotency:     svcDecl.Idempotency,
+			Authorization:   svcDecl.Authorization,
 			PeerNamespaces:  peerNamespaces,
 			PeerConfigs:     peerConfigs,
 			StorageContract: generatedImportPath(input.ModuleName, outDirName, gen.StorageContractNamespace),
@@ -152,6 +153,14 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 			Tenancy:         tenancy,
 			Queries:         svcDecl.Queries,
 			FillSlots:       maps.Clone(facts.FillSlots),
+		}
+		if compName == authorizationComponent && svcDecl.Authorization != nil && svcDecl.Authorization.SchemaPath != "" {
+			// The authorization component reads the schema that the declaration names (ST-SUP-RC29).
+			ctx.Inputs, err = captureGeneratorInputs(input.ProjectDir, outDirName,
+				[]gen.InputFile{{Path: svcDecl.Authorization.SchemaPath, MaxBytes: declaration.MaxSchemaBytes}}, resolved.InputSnapshots)
+			if err != nil {
+				return nil, fmt.Errorf("generator %q inputs: %w", compName, err)
+			}
 		}
 		if provider, ok := generator.(gen.InputProvider); ok {
 			names, err := provider.InputFiles(ctx.ComponentConfig)

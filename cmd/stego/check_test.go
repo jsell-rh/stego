@@ -125,13 +125,10 @@ func TestCheckADeclaration(t *testing.T) {
 			}
 			accepted++
 			run := stegoIn(t, project, nil, "apply")
-			if name == "ST-DECL-TD03" {
-				// Authorization fails closed (ST-DECL-UC06-R07): until the registry holds spicedb-authz, generation
-				// refuses a declaration that binds authorization. That refusal is of the registry, not of the
-				// declaration, so it carries no declaration fault; any other refusal fails the test.
-				if run.code == 0 || !strings.Contains(run.stderr+run.stdout, "generation refused") || !strings.Contains(run.stderr+run.stdout, "spicedb-authz") {
-					t.Errorf("stego apply of ST-DECL-TD03 did not refuse it for the missing component spicedb-authz:\n%s%s", run.stdout, run.stderr)
-				}
+			if name == "ST-DECL-TD03" && run.code != 0 {
+				// The registry holds spicedb-authz (ST-SUP-RC29), so the authorization of TD03 no longer fails closed
+				// (ST-DECL-UC06-R07): generation must accept it.
+				t.Errorf("stego apply refused ST-DECL-TD03, which the registry's spicedb-authz generates:\n%s%s", run.stdout, run.stderr)
 			}
 			if strings.Contains(run.stderr+run.stdout, "validation failed") || len(proseFaults(run.stdout+run.stderr)) > 0 {
 				t.Errorf("stego apply refused %s, which stego validate accepted:\n%s%s", name, run.stdout, run.stderr)

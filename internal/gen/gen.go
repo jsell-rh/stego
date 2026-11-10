@@ -132,6 +132,12 @@ type Context struct {
 	// nil when the declaration has none. Generators must not change it.
 	Idempotency *types.Idempotency
 
+	// Authorization is the declaration's authorization setting (ST-DECL-EN11),
+	// or nil when the declaration binds none. The compiler captures the schema
+	// it names into Inputs for the authorization component (ST-SUP-RC29).
+	// Generators must not change it.
+	Authorization *types.Authorization
+
 	// StorageContract is the full import path of the compiler-owned storage
 	// contract. A generator that uses it must request StorageV1 in its wiring.
 	// Empty selects standalone definitions without shared contract assembly.

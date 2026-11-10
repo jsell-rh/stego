@@ -23,6 +23,7 @@
 {"record_id":"ST-GEN-QRY03-H","file":"internal/compiler/build_target.go"}
 {"record_id":"ST-GEN-QRY03-H","file":"internal/compiler/namespace.go"}
 {"record_id":"ST-GEN-QRY03-H","file":"internal/compiler/source.go"}
+{"record_id":"ST-SUP-RC18-G01","file":"internal/generator/outbox/runtime.go"}
 {"record_id":"ST-SUP-RC33-G01","file":"internal/generator/query/render.go"}
 {"record_id":"ST-SUP-RC33-G01","file":"internal/generator/query/testdata/fills/get-order/fill.go"}
 {"record_id":"ST-SUP-RC33-G01","file":"internal/generator/query/testdata/fills/list-charges/fill.go"}
