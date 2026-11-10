@@ -1461,84 +1461,124 @@ func TestQueueRelayRoles(t *testing.T) {
 
 func TestQueueMigration(t *testing.T) {
 	t.Run("ST-SUP-RP01-LC19-T08 The migration leaves the relay role no CREATE on the schema", func(t *testing.T) {
-		server := pgtest.DSN(t)
-		root, err := sql.Open("pgx", server)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = root.Close() })
-		suffix := randomSuffix(t)
-		member, stranger := "outbox_owner_"+suffix, "outbox_stranger_"+suffix
-		runtime, worker, password := "outbox_rt_"+suffix, "outbox_wk_"+suffix, randomSuffix(t)
-		ctx := context.Background()
-		for _, r := range []string{member, stranger} {
-			if _, err := root.ExecContext(ctx, "CREATE ROLE "+r+" LOGIN CREATEROLE NOSUPERUSER PASSWORD '"+password+"'"); err != nil {
-				t.Fatal(err)
-			}
-		}
-		for _, r := range []string{runtime, worker} {
-			if _, err := root.ExecContext(ctx, "CREATE ROLE "+r+" NOLOGIN"); err != nil {
-				t.Fatal(err)
-			}
-		}
-		t.Cleanup(func() {
-			for _, r := range []string{runtime, worker, member, stranger} {
-				_, _ = root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+r)
-			}
-		})
-		if _, err := root.ExecContext(ctx, `DO $$ BEGIN CREATE ROLE stego_outbox_relay NOLOGIN;
-			EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$`); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := root.ExecContext(ctx, `GRANT stego_outbox_relay TO `+member+` WITH SET TRUE, INHERIT TRUE`); err != nil {
-			t.Fatal(err)
-		}
-		ddl, err := Migration(runtime, worker)
-		if err != nil {
-			t.Fatal(err)
-		}
-		run := func(owner string) error {
-			t.Helper()
-			dsn := pgtest.Database(t, "outbox_owner")
-			u, err := url.Parse(dsn)
-			if err != nil {
-				t.Fatal(err)
-			}
-			name := strings.TrimPrefix(u.Path, "/")
-			if _, err := root.ExecContext(ctx, "ALTER DATABASE "+name+" OWNER TO "+owner); err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() {
-				_, _ = root.ExecContext(context.Background(), "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
-			})
-			u.User = url.UserPassword(owner, password)
-			ownerDB, err := sql.Open("pgx", u.String())
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer func() { _ = ownerDB.Close() }()
-			if _, err := ownerDB.ExecContext(ctx, ddl); err != nil {
-				return err
-			}
-			var create bool
-			if err := ownerDB.QueryRowContext(ctx, `SELECT has_schema_privilege('stego_outbox_relay', 'stego_outbox', 'CREATE')`).Scan(&create); err != nil {
-				t.Fatal(err)
-			}
-			if create {
-				t.Fatal("the relay role keeps CREATE on the schema")
-			}
-			// The text runs again with no error.
-			_, err = ownerDB.ExecContext(ctx, ddl)
-			return err
-		}
-		if err := run(member); err != nil {
+		f := newMigrationFixture(t)
+		member, stranger := f.owner("outbox_owner", "CREATEROLE", true), f.owner("outbox_stranger", "CREATEROLE", false)
+		if err := f.run(member); err != nil {
 			t.Fatalf("the migration as a member of the relay role: %v", err)
 		}
-		err = run(stranger)
+		err := f.run(stranger)
 		if err == nil || !strings.Contains(err.Error(), "needs membership in stego_outbox_relay WITH SET TRUE, INHERIT TRUE") {
 			t.Fatalf("the migration as a role with no membership gave %v", err)
 		}
 	})
+	t.Run("ST-SUP-RP01-LC19-T10 A migration owner without CREATEROLE runs the migration again", func(t *testing.T) {
+		f := newMigrationFixture(t)
+		owner := f.owner("outbox_plain", "NOCREATEROLE", true)
+		var createRole bool
+		if err := f.root.QueryRowContext(context.Background(),
+			`SELECT rolcreaterole FROM pg_catalog.pg_roles WHERE rolname = $1`, owner).Scan(&createRole); err != nil {
+			t.Fatal(err)
+		}
+		if createRole {
+			t.Fatal("the owner has CREATEROLE")
+		}
+		if err := f.run(owner); err != nil {
+			t.Fatalf("the migration as an owner without CREATEROLE: %v", err)
+		}
+	})
+}
+
+// migrationFixture holds a server with the relay role, a runtime role and a worker role, and the migration text for
+// them.
+type migrationFixture struct {
+	t        *testing.T
+	root     *sql.DB
+	password string
+	ddl      string
+}
+
+func newMigrationFixture(t *testing.T) *migrationFixture {
+	t.Helper()
+	root, err := sql.Open("pgx", pgtest.DSN(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	suffix := randomSuffix(t)
+	runtime, worker := "outbox_rt_"+suffix, "outbox_wk_"+suffix
+	ctx := context.Background()
+	for _, r := range []string{runtime, worker} {
+		if _, err := root.ExecContext(ctx, "CREATE ROLE "+r+" NOLOGIN"); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _, _ = root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+r) })
+	}
+	if _, err := root.ExecContext(ctx, `DO $$ BEGIN CREATE ROLE stego_outbox_relay NOLOGIN;
+		EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$`); err != nil {
+		t.Fatal(err)
+	}
+	ddl, err := Migration(runtime, worker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &migrationFixture{t: t, root: root, password: randomSuffix(t), ddl: ddl}
+}
+
+// owner makes a login role with the given attribute, not a superuser, and grants it SET and INHERIT membership in
+// the relay role when member is true.
+func (f *migrationFixture) owner(prefix, attribute string, member bool) string {
+	f.t.Helper()
+	ctx := context.Background()
+	r := prefix + "_" + randomSuffix(f.t)
+	if _, err := f.root.ExecContext(ctx, "CREATE ROLE "+r+" LOGIN "+attribute+" NOSUPERUSER PASSWORD '"+f.password+"'"); err != nil {
+		f.t.Fatal(err)
+	}
+	f.t.Cleanup(func() { _, _ = f.root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+r) })
+	if member {
+		if _, err := f.root.ExecContext(ctx, `GRANT stego_outbox_relay TO `+r+` WITH SET TRUE, INHERIT TRUE`); err != nil {
+			f.t.Fatal(err)
+		}
+	}
+	return r
+}
+
+// run gives a new database to owner, runs the migration in it as owner, checks that the relay role keeps no CREATE
+// on the schema, and runs the migration a second time.
+func (f *migrationFixture) run(owner string) error {
+	t := f.t
+	t.Helper()
+	ctx := context.Background()
+	dsn := pgtest.Database(t, "outbox_owner")
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := strings.TrimPrefix(u.Path, "/")
+	if _, err := f.root.ExecContext(ctx, "ALTER DATABASE "+name+" OWNER TO "+owner); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = f.root.ExecContext(context.Background(), "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
+	})
+	u.User = url.UserPassword(owner, f.password)
+	ownerDB, err := sql.Open("pgx", u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ownerDB.Close() }()
+	if _, err := ownerDB.ExecContext(ctx, f.ddl); err != nil {
+		return err
+	}
+	var create bool
+	if err := ownerDB.QueryRowContext(ctx, `SELECT has_schema_privilege('stego_outbox_relay', 'stego_outbox', 'CREATE')`).Scan(&create); err != nil {
+		t.Fatal(err)
+	}
+	if create {
+		t.Fatal("the relay role keeps CREATE on the schema")
+	}
+	// The text runs again with no error.
+	_, err = ownerDB.ExecContext(ctx, f.ddl)
+	return err
 }
 
 // sortedRoles gives the role names in the order of the regrole text sort of the EXECUTE grantee list.
