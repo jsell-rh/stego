@@ -75,9 +75,12 @@ type Plan struct {
 	inputManifestSHA string
 	registry         *registry.Registry
 	requirements     map[string]string
-	snapshots        map[string]fileSnapshot
-	projectDir       string
-	outDir           string
+	// runtime is the archetype's runtime pin when generated code imports the
+	// runtime library, and nil otherwise.
+	runtime    *registry.RuntimePin
+	snapshots  map[string]fileSnapshot
+	projectDir string
+	outDir     string
 }
 
 // HasChanges returns true if the plan includes any generate, update, delete,
@@ -140,6 +143,10 @@ type ReconcilerInput struct {
 	// its binding and that it is qualified. Validate, plan and apply stop on
 	// each fault it gives. cmd/stego gives fill.QualificationFaults.
 	QualifyFills FillQualifier
+
+	// CheckOnly marks a plan that stego validate makes only to read the pins it uses. Such a plan is never
+	// written, so Reconcile does not refuse it for a part of the declaration that no component can generate yet.
+	CheckOnly bool
 }
 
 // FillSlot is one slot of the active component set, or of a mixin of the
@@ -225,6 +232,11 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	if validation.HasErrors() {
 		return nil, fmt.Errorf("service validation failed:\n%s", FormatValidation(validation))
 	}
+	if !input.CheckOnly {
+		if err := authorizationGeneratorMissing(source.Service, source.Registry, input.Generators); err != nil {
+			return nil, err
+		}
+	}
 	serviceData, svcDecl, reg := source.ServiceData, source.Service, source.Registry
 	existingState, inputSnapshots, moduleData, err := captureProjectInputs(input.ProjectDir, serviceData)
 	if err != nil {
@@ -239,6 +251,16 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		}
 		inputSnapshots[name] = snapshot
 	}
+
+	// Every generated file may import the runtime library only at the
+	// archetype's pin (ST-SUP-INV10); the registry refuses an archetype
+	// without one.
+	archetype := reg.Archetype(svcDecl.Archetype)
+	if archetype == nil || archetype.Runtime == nil {
+		return nil, fmt.Errorf("archetype %q pins no runtime library", svcDecl.Archetype)
+	}
+	pin := *archetype.Runtime
+	importsRuntime := false
 
 	// Run all component generators in archetype-declared order.
 	var allFiles []gen.File
@@ -270,6 +292,22 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		if err := validateGeneratorNamespace(compName, comp, files); err != nil {
 			return nil, err
 		}
+		uses, err := runtimeImports("component "+compName, files, pin)
+		if err != nil {
+			return nil, err
+		}
+		importsRuntime = importsRuntime || uses
+		var wired []string
+		if wiring != nil {
+			wired = wiring.Imports
+		}
+		for _, path := range wired {
+			uses, err := runtimeImport(path, pin)
+			if err != nil {
+				return nil, fmt.Errorf("component %s wires the import %s into main.go: %w", compName, path, err)
+			}
+			importsRuntime = importsRuntime || uses
+		}
 
 		allFiles = append(allFiles, files...)
 		wirings = append(wirings, ComponentWiring{Name: compName, Wiring: wiring})
@@ -281,6 +319,15 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		return nil, fmt.Errorf("generating slot files: %w", err)
 	}
 	allFiles = append(allFiles, slotFiles...)
+	uses, err := runtimeImports("the slot generator", slotFiles, pin)
+	if err != nil {
+		return nil, err
+	}
+	importsRuntime = importsRuntime || uses
+	var runtime *registry.RuntimePin
+	if importsRuntime {
+		runtime = &pin
+	}
 
 	// Validate that slot binding collections are in the collections list. Slot
 	// operators are injected into handler constructors, which only exist for
@@ -299,6 +346,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		SlotBindings: svcDecl.Slots,
 		SlotsPackage: slotsPackage,
 		OutDirName:   outDirName,
+		Runtime:      runtime,
 	}
 	sharedFiles, err := Assemble(assemblerInput)
 	if err != nil {
@@ -311,6 +359,13 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 				return nil, err
 			}
 		}
+	}
+	if runtime != nil {
+		sum, err := mergeProjectSums(input.ProjectDir, inputSnapshots["go.sum"], *runtime)
+		if err != nil {
+			return nil, err
+		}
+		sharedFiles = append(sharedFiles, sum)
 	}
 	allFiles = append(allFiles, sharedFiles...)
 
@@ -342,10 +397,11 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	if err := plan.verifyRegistry(); err != nil {
 		return nil, err
 	}
-	plan.requirements, err = moduleRequirements(wirings)
+	plan.requirements, err = moduleRequirements(wirings, runtime)
 	if err != nil {
 		return nil, err
 	}
+	plan.runtime = runtime
 	return plan, nil
 }
 

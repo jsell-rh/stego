@@ -39,7 +39,7 @@ func TestGoModelDeclarationMatchesGeneratedStorage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	file, err := generateModels("store", ctx.Entities, nil)
+	file, err := generateModels("store", ctx.Entities, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}

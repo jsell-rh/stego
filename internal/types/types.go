@@ -99,6 +99,8 @@ type Entity struct {
 	CleanupOwners    []string            `yaml:"cleanup_owners,omitempty"`
 	// Tenant is owned, shared or system (ST-DECL-EN02). Omitted means owned.
 	Tenant string `yaml:"tenant,omitempty" json:"Tenant,omitempty"`
+	// EntityAuthorization holds the entity's resource type, permissions and relationships (ST-DECL-UC06).
+	EntityAuthorization `yaml:",inline"`
 }
 
 // Convention captures the archetype's conventions.
@@ -232,6 +234,8 @@ type SlotDeclaration struct {
 	ShortCircuit bool     `yaml:"short_circuit,omitempty"`
 	// RunsAs is tenant or system: the principal the fills run as (ST-DECL-EN05). Omitted means tenant.
 	RunsAs string `yaml:"runs_as,omitempty"`
+	// SlotAuthorization holds the relations its fills may write (ST-DECL-UC06).
+	SlotAuthorization `yaml:",inline"`
 	// AuditAnnotations is the string map the fills add to the audit record of the operation. Checking refuses
 	// any other value, so it is read as any value.
 	AuditAnnotations any `yaml:"audit_annotations,omitempty"`
@@ -297,6 +301,7 @@ type ServiceDeclaration struct {
 	// ordered steps that move them (ST-DECL-EN22).
 	SchemaChanges []SchemaChange `yaml:"schema_changes,omitempty"`
 	SchemaHistory []SchemaStep   `yaml:"schema_history,omitempty"`
+	Authorization *Authorization `yaml:"authorization,omitempty"`
 }
 
 // UnmarshalYAML implements custom YAML unmarshaling for ServiceDeclaration.
@@ -498,6 +503,14 @@ func (sd ServiceDeclaration) MarshalYAML() (any, error) {
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "overrides"},
 			oNode.Content[0],
 		)
+	}
+
+	if sd.Authorization != nil {
+		aNode := &yaml.Node{}
+		if err := aNode.Encode(sd.Authorization); err != nil {
+			return nil, err
+		}
+		m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "authorization"}, aNode)
 	}
 
 	return &m, nil

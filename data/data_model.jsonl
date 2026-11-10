@@ -19,6 +19,8 @@
 {"id":"ST-DECL-EN08-DM","title":"types.FillModule","entity_id":"ST-DECL-EN08","file":"internal/types/fill_module.go"}
 {"id":"ST-DECL-EN09-DM","title":"types.Tenancy","entity_id":"ST-DECL-EN09","file":"internal/types/tenancy.go"}
 {"id":"ST-DECL-EN10-DM","title":"types.Audit","entity_id":"ST-DECL-EN10","file":"internal/types/audit.go"}
+{"id":"ST-DECL-EN11-DM","title":"types.Authorization","entity_id":"ST-DECL-EN11","file":"internal/types/authorization.go"}
+{"id":"ST-DECL-EN12-DM","title":"types.Relationship","entity_id":"ST-DECL-EN12","file":"internal/types/authorization.go"}
 {"id":"ST-DECL-EN13-DM","title":"types.Idempotency","entity_id":"ST-DECL-EN13","file":"internal/types/idempotency.go"}
 {"id":"ST-DECL-EN16-DM","title":"types.Controller","entity_id":"ST-DECL-EN16","file":"internal/types/controller.go"}
 {"id":"ST-DECL-EN17-DM","title":"types.DeclaredInvariant","entity_id":"ST-DECL-EN17","file":"internal/types/declared_invariant.go"}

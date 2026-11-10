@@ -319,7 +319,7 @@ type dependencyRunner func(context.Context, string, string, ...string) error
 var moduleToolCommands = [][]string{{"mod", "tidy"}, {"mod", "verify"}, {"list", "-mod=readonly", "-deps", "-test", "./..."}, {"mod", "tidy", "-diff"}}
 
 func resolveDependencies(ctx context.Context, input ReconcilerInput, run dependencyRunner, fault applyFault) error {
-	return commitResolvedModules(ctx, input, func(ctx context.Context, directory, modPath string) error {
+	return commitResolvedModules(ctx, input, func(ctx context.Context, directory, modPath, _ string) error {
 		for _, args := range moduleToolCommands {
 			if err := run(ctx, directory, modPath, args...); err != nil {
 				return err

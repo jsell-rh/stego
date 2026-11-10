@@ -67,6 +67,7 @@ collections:
 		t.Fatal(err)
 	}
 	archYAML := `kind: archetype
+runtime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}
 name: test-arch
 language: go
 version: 1.0.0
@@ -498,6 +499,7 @@ func TestReconcile_ValidatesServiceAgainstRegistry(t *testing.T) {
 	// that lists it).
 	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
 	archYAML := `kind: archetype
+runtime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}
 name: test-arch
 language: go
 version: 1.0.0
@@ -1371,6 +1373,7 @@ slots: []
 	// Update archetype to include both auth components and bindings.
 	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
 	archYAML := `kind: archetype
+runtime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}
 name: test-arch
 language: go
 version: 1.0.0
@@ -1522,6 +1525,7 @@ slots: []
 	// rh-sso-auth is NOT in the components list.
 	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
 	archYAML := `kind: archetype
+runtime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}
 name: test-arch
 language: go
 version: 1.0.0
@@ -1656,6 +1660,7 @@ slots: []
 	// Add no-ns-comp to the archetype.
 	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
 	archYAML := `kind: archetype
+runtime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}
 name: test-arch
 language: go
 version: 1.0.0
@@ -1841,6 +1846,7 @@ func TestCollectComponentNames_IncompatibleMixinRejected(t *testing.T) {
 	// Update archetype to declare compatible_mixins.
 	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
 	archYAML := `kind: archetype
+runtime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}
 name: test-arch
 language: go
 version: 1.0.0
@@ -1907,6 +1913,7 @@ func TestCollectComponentNames_CompatibleMixinAccepted(t *testing.T) {
 	// Update archetype to declare compatible_mixins.
 	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
 	archYAML := `kind: archetype
+runtime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}
 name: test-arch
 language: go
 version: 1.0.0
@@ -1964,6 +1971,7 @@ func TestCollectComponentNames_NoCompatibleMixinsFieldAllowsAny(t *testing.T) {
 	// Archetype without compatible_mixins — any mixin should be allowed.
 	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
 	archYAML := `kind: archetype
+runtime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}
 name: test-arch
 language: go
 version: 1.0.0
@@ -2021,6 +2029,7 @@ func TestCollectComponentNames_EmptyCompatibleMixinsRejectsAll(t *testing.T) {
 	// means any mixin is acceptable.
 	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
 	archYAML := `kind: archetype
+runtime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}
 name: test-arch
 language: go
 version: 1.0.0
@@ -2379,6 +2388,7 @@ collections:
 		t.Fatal(err)
 	}
 	archYAML := `kind: archetype
+runtime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}
 name: test-arch
 language: go
 version: 1.0.0
@@ -2462,6 +2472,7 @@ collections:
 		t.Fatal(err)
 	}
 	archYAML := `kind: archetype
+runtime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}
 name: test-arch
 language: rust
 version: 1.0.0
@@ -2548,6 +2559,7 @@ overrides:
 		t.Fatal(err)
 	}
 	archYAML := `kind: archetype
+runtime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}
 name: test-arch
 language: go
 version: 1.0.0
@@ -2692,6 +2704,7 @@ collections:
 		t.Fatal(err)
 	}
 	archYAML := `kind: archetype
+runtime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}
 name: test-arch
 language: go
 version: 1.0.0
@@ -2829,6 +2842,7 @@ overrides:
 		t.Fatal(err)
 	}
 	archYAML := `kind: archetype
+runtime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}
 name: test-arch
 language: go
 version: 1.0.0
@@ -2957,6 +2971,7 @@ overrides:
 		t.Fatal(err)
 	}
 	archYAML := `kind: archetype
+runtime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}
 name: test-arch
 language: go
 version: 1.0.0
