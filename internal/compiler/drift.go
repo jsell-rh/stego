@@ -128,7 +128,7 @@ func DetectDrift(projectDir, outDir string) (*DriftResult, error) {
 	}
 
 	// go.mod belongs to the application, but its STEGO requirements do not:
-	// it requires the runtime library at exactly the recorded pin, no other
+	// it requires the runtime library only at a tagged version, no other
 	// STEGO module and no replacement of one, and a hand edit of that is
 	// drift (ST-GEN-INV13).
 	moduleData, moduleSnapshot, err := readSnapshot(root, "go.mod", maxTrackedFileBytes, true)
@@ -136,7 +136,7 @@ func DetectDrift(projectDir, outDir string) (*DriftResult, error) {
 		return nil, err
 	}
 	if moduleSnapshot.Exists {
-		reason, err := runtimeModuleDrift(moduleData, state.LastApplied.Archetype)
+		reason, err := runtimeModuleDrift(moduleData)
 		if err != nil {
 			return nil, err
 		}

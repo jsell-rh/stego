@@ -115,38 +115,30 @@ func mergeRuntimeSum(data []byte, pin registry.RuntimePin) []byte {
 	return []byte(strings.Join(lines, ""))
 }
 
-// runtimeModuleDrift enforces the drift part of ST-GEN-INV13 on the module file: it gives a reason when go.mod
-// requires the runtime library at another version than the recorded pin, lacks the pin that generated code
-// imports, requires another STEGO module, or replaces a STEGO module.
-func runtimeModuleDrift(data []byte, archetype *ArchetypeState) (string, error) {
+// runtimeModuleDrift enforces the drift part of ST-GEN-INV13 on the module file, from the module file alone: it
+// gives a reason when go.mod requires the runtime library at a version that is not tagged, such as a
+// pseudo-version, requires another STEGO module, or replaces a STEGO module. The record does not hold the
+// archetype's pin (ST-GEN-Q04), so drift cannot tell one tagged version from another.
+func runtimeModuleDrift(data []byte) (string, error) {
 	file, err := modfile.Parse("go.mod", data, nil)
 	if err != nil {
 		return "", err
-	}
-	var pin *registry.RuntimePin
-	if archetype != nil && archetype.ImportsRuntime {
-		pin = archetype.Runtime
 	}
 	for _, replace := range file.Replace {
 		if registry.IsStegoModule(replace.Old.Path) {
 			return fmt.Sprintf("go.mod replaces %s, a STEGO module", replace.Old.Path), nil
 		}
 	}
-	found := false
 	for _, require := range file.Require {
 		if !registry.IsStegoModule(require.Mod.Path) {
 			continue
 		}
-		if pin == nil || require.Mod.Path != pin.Module {
-			return fmt.Sprintf("go.mod requires %s %s, a STEGO module that is not the runtime pin", require.Mod.Path, require.Mod.Version), nil
+		if require.Mod.Path != registry.RuntimeModule {
+			return fmt.Sprintf("go.mod requires %s %s, a STEGO module that is not the runtime library", require.Mod.Path, require.Mod.Version), nil
 		}
-		if require.Mod.Version != pin.Version {
-			return fmt.Sprintf("go.mod requires %s %s, but the archetype pins %s", pin.Module, require.Mod.Version, pin.Version), nil
+		if err := registry.CheckTaggedVersion(require.Mod.Path, require.Mod.Version); err != nil {
+			return fmt.Sprintf("go.mod requires %s %s, which is not a tagged version that an archetype can pin", require.Mod.Path, require.Mod.Version), nil
 		}
-		found = true
-	}
-	if pin != nil && !found {
-		return fmt.Sprintf("go.mod does not require %s %s, which the generated code imports", pin.Module, pin.Version), nil
 	}
 	return "", nil
 }
@@ -169,20 +161,6 @@ func mergeProjectSums(projectDir string, recorded fileSnapshot, pin registry.Run
 	return gen.File{Path: "go.sum", Content: mergeRuntimeSum(data, pin)}, nil
 }
 
-// checkPinMove enforces the last part of ST-SUP-INV10: only a new archetype version moves the runtime pin. It
-// refuses a run whose archetype keeps the name and the version of the last run's archetype but pins another
-// runtime library.
-func checkPinMove(state *State, archetype *registry.Archetype) error {
-	last := state.LastApplied.archetype()
-	if last == nil || last.Runtime == nil || last.Name != archetype.Name || last.Version != archetype.Version {
-		return nil
-	}
-	if *last.Runtime != *archetype.Runtime {
-		return fmt.Errorf("archetype %s %s pins %s %s %s, but the last run had %s %s %s at the same version; a moved runtime pin needs a new archetype version, which must change", archetype.Name, archetype.Version, archetype.Runtime.Module, archetype.Runtime.Version, archetype.Runtime.Sum, last.Runtime.Module, last.Runtime.Version, last.Runtime.Sum)
-	}
-	return nil
-}
-
 // stageRuntimeProxy is the local stand-in for the module proxy that serves the runtime pin (ST-STD-RUNTIME-R04,
 // ST-PAT-LOCAL-TEST): when generated code imports the runtime library and the common registry's runtime folder is
 // the pinned version, it writes that version in the proxy layout under stage, adds the pin and the hash of its
@@ -190,15 +168,14 @@ func checkPinMove(state *State, archetype *registry.Archetype) error {
 // same bytes as from the release, with no fetch of the module path's host. It gives "" when the service imports no
 // runtime library or the folder holds another version; the go command then reads the pin from its proxies.
 func stageRuntimeProxy(plan *Plan, stageRoot *os.Root, stage string) (string, error) {
-	recorded := plan.NewState.LastApplied.archetype()
-	if recorded == nil || !recorded.ImportsRuntime || recorded.Runtime == nil || plan.registry == nil {
+	if plan.runtime == nil || plan.registry == nil {
 		return "", nil
 	}
 	folder := plan.registry.RuntimeFolder()
 	if folder == "" {
 		return "", nil
 	}
-	pin := *recorded.Runtime
+	pin := *plan.runtime
 	escaped, err := module.EscapePath(pin.Module)
 	if err != nil {
 		return "", err

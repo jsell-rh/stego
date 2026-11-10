@@ -75,9 +75,12 @@ type Plan struct {
 	inputManifestSHA string
 	registry         *registry.Registry
 	requirements     map[string]string
-	snapshots        map[string]fileSnapshot
-	projectDir       string
-	outDir           string
+	// runtime is the archetype's runtime pin when generated code imports the
+	// runtime library, and nil otherwise.
+	runtime    *registry.RuntimePin
+	snapshots  map[string]fileSnapshot
+	projectDir string
+	outDir     string
 }
 
 // HasChanges returns true if the plan includes any generate, update, delete,
@@ -248,9 +251,6 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		return nil, fmt.Errorf("archetype %q pins no runtime library", svcDecl.Archetype)
 	}
 	pin := *archetype.Runtime
-	if err := checkPinMove(existingState, archetype); err != nil {
-		return nil, err
-	}
 	importsRuntime := false
 
 	// Run all component generators in archetype-declared order.
@@ -392,10 +392,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	if err != nil {
 		return nil, err
 	}
-	plan.NewState.LastApplied.Archetype = &ArchetypeState{Name: archetype.Name, Version: archetype.Version, Runtime: &pin, ImportsRuntime: importsRuntime}
-	if plan.StateChanged, err = stateDiffers(existingState, plan.NewState); err != nil {
-		return nil, err
-	}
+	plan.runtime = runtime
 	return plan, nil
 }
 

@@ -42,20 +42,30 @@ func (p RuntimePin) Validate() error {
 	if p.Version == "" {
 		return errors.New("runtime.version is missing: a runtime pin names a tagged version")
 	}
-	if !semver.IsValid(p.Version) || semver.Canonical(p.Version) != p.Version || semver.Build(p.Version) != "" {
-		return fmt.Errorf("runtime.version %q is not a tagged version such as v1.4.2; a branch is not a version", p.Version)
-	}
-	if module.IsPseudoVersion(p.Version) {
-		return fmt.Errorf("runtime.version %q is a pseudo-version; a runtime pin names a tagged version", p.Version)
-	}
-	if err := module.Check(p.Module, p.Version); err != nil {
-		return fmt.Errorf("runtime.version %q does not fit runtime.module %q: %w", p.Version, p.Module, err)
+	if err := CheckTaggedVersion(p.Module, p.Version); err != nil {
+		return err
 	}
 	if p.Sum == "" {
 		return errors.New("runtime.sum is missing: a runtime pin names the go.sum hash of its version")
 	}
 	if !moduleSum.MatchString(p.Sum) {
 		return fmt.Errorf("runtime.sum %q is not a go.sum hash h1:<44 base64 characters>", p.Sum)
+	}
+	return nil
+}
+
+// CheckTaggedVersion refuses a version of a module that is not a tagged version: a branch, a version that is not
+// canonical, a pseudo-version, or one that does not fit the module path's major version. The error names the
+// field runtime.version.
+func CheckTaggedVersion(modulePath, version string) error {
+	if !semver.IsValid(version) || semver.Canonical(version) != version || semver.Build(version) != "" {
+		return fmt.Errorf("runtime.version %q is not a tagged version such as v1.4.2; a branch is not a version", version)
+	}
+	if module.IsPseudoVersion(version) {
+		return fmt.Errorf("runtime.version %q is a pseudo-version; a runtime pin names a tagged version", version)
+	}
+	if err := module.Check(modulePath, version); err != nil {
+		return fmt.Errorf("runtime.version %q does not fit runtime.module %q: %w", version, modulePath, err)
 	}
 	return nil
 }
