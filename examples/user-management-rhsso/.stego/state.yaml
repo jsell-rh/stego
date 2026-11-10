@@ -30,9 +30,9 @@ last_applied:
         go_version: go1.26.10
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261110005003-163a2c5a90ab
+        module_version: v0.0.0-20261110011657-0ab1a04ef851
         vcs: git
-        revision: 163a2c5a90abca74e14d5030d9cd92220faa4c1f
+        revision: 0ab1a04ef851b9abf438a690515d082652c2cf98
         source_state: clean
     service_name: user-management
     service_hash: 40aa411da16d99a025ea81b2c13702b86cacd06678d0825757c4865830bee705
@@ -189,10 +189,3 @@ last_applied:
         tracing/service.go: c385c803aa9c54e37436cfb4a004a1ad468317b6d435498407a706dae9bcdac5
         tracing/signals.go: 3adee95980b02c32284916b7e46083f2cc0d0dc8394ca402c49177290ec163cb
         tracing/startup.go: ba2cc8272fddb2c9c18cf10199b7ffe3df430ea88f3d02a6902e00908d154160
-    archetype:
-        name: rest-crud
-        version: 3.1.0
-        runtime:
-            module: stego.dev/runtime
-            version: v0.1.0
-            sum: h1:qif5aa3hg4Ud8mVQ9bKJn9KDaM2wYJzaTYNZ/liNmGQ=
