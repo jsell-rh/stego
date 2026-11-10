@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -232,13 +233,7 @@ func checkSchema(data []byte, path string, node *yaml.Node, typ reflect.Type, lo
 			return nil // The typed decoder reports an invalid value shape.
 		}
 		fields := make(map[string]reflect.Type)
-		for i := 0; i < typ.NumField(); i++ {
-			field := typ.Field(i)
-			name := strings.Split(field.Tag.Get("yaml"), ",")[0]
-			if field.IsExported() && name != "-" && name != "" {
-				fields[name] = field.Type
-			}
-		}
+		declaredFields(typ, fields)
 		if typ == reflect.TypeFor[types.ServiceDeclaration]() {
 			fields["collections"] = reflect.TypeFor[map[string]types.Collection]()
 			// Retain the existing migration diagnostic for the old syntax.
@@ -310,6 +305,23 @@ func checkSchema(data []byte, path string, node *yaml.Node, typ reflect.Type, lo
 		}
 	}
 	return nil
+}
+
+// declaredFields adds the keys that the struct type declares, with the type of each, to fields. The keys of a
+// struct field marked inline are the struct's own keys, as the YAML decoder reads them.
+func declaredFields(typ reflect.Type, fields map[string]reflect.Type) {
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		options := strings.Split(field.Tag.Get("yaml"), ",")
+		name := options[0]
+		if field.IsExported() && name == "" && field.Type.Kind() == reflect.Struct && slices.Contains(options[1:], "inline") {
+			declaredFields(field.Type, fields)
+			continue
+		}
+		if field.IsExported() && name != "-" && name != "" {
+			fields[name] = field.Type
+		}
+	}
 }
 
 // syntaxLine reads the line that a YAML syntax error names.

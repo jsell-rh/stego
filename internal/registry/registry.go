@@ -155,6 +155,9 @@ func LoadSources(sources ...Source) (*Registry, error) {
 		if item.Name != name {
 			return nil, fmt.Errorf("archetype name mismatch: directory %q but YAML name %q in %s", name, item.Name, file)
 		}
+		if err := checkRuntimePin(item); err != nil {
+			return nil, fmt.Errorf("%s: %w", file, err)
+		}
 		r.archetypes[name] = item
 	}
 	for _, name := range r.childDirectories("components") {

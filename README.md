@@ -145,7 +145,8 @@ declaration that says nothing of tenancy or audit. A default that the
 declaration leaves is a setting that is not a default, such as `tenancy.kind`
 with `single`, and its reason is the setting `tenancy.reason` or
 `audit.reason`. Each command gets `commands[i].retry_on_conflict` with `0` and
-`commands[i].lock_timeout` with `2s` when it leaves them out, and each
+`commands[i].lock_timeout` with `2s` when it leaves them out, each slot
+binding gets `slots[i].runs_as` with `tenant` when it does not run as system, and each
 observation gets `observations[i].counts` with `attempt`. A declaration that
 names no modes gets `modes` with `api`, `worker` and `controller`, and each worker
 with an `every` trigger gets `workers[i].single` with `true` and, when it is

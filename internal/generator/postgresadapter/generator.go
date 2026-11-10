@@ -37,6 +37,9 @@ func (*Generator) MinimumGoVersion() string { return "1.25.0" }
 
 // ValidateContext checks storage names, constraints, and migration settings.
 func (*Generator) ValidateContext(ctx gen.Context) error {
+	if err := validateTenantColumn(ctx); err != nil {
+		return err
+	}
 	if _, err := schemaGeneration(ctx); err != nil {
 		return err
 	}
@@ -184,7 +187,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		}
 	}
 
-	modelsFile, err := generateModels(ctx.OutputNamespace, ctx.Entities, upsertKeys)
+	modelsFile, err := generateModels(ctx.OutputNamespace, ctx.Entities, upsertKeys, tenantColumn(ctx))
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating models: %w", err)
 	}
@@ -194,7 +197,11 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, fmt.Errorf("generating store: %w", err)
 	}
 
-	migrateFile, err := generateMigrate(ctx.OutputNamespace, ctx.Entities, ctx.ComponentConfig["schema_generation"] != nil)
+	rowSecurity, err := rowSecurityImport(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	migrateFile, err := generateMigrate(ctx.OutputNamespace, ctx.Entities, ctx.ComponentConfig["schema_generation"] != nil, rowSecurity)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating migrate: %w", err)
 	}
@@ -283,7 +290,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	for _, entity := range ctx.Entities {
 		wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
 			Schema: "public", Name: tableName(entity.Name), Kind: "table",
-			Privileges: []string{"SELECT", "INSERT", "UPDATE", "DELETE"},
+			Privileges: runtimePrivileges(ctx, entity),
 		})
 		wiring.BackupObjects = append(wiring.BackupObjects, gen.BackupObject{
 			Schema: "public", Name: tableName(entity.Name), Kind: "table",
@@ -425,6 +432,8 @@ var reservedTypeNames = map[string]bool{
 	"transactionTimeout":          true,
 	"sqlTransaction":              true,
 	"stegooutbox":                 true,
+	"stegotenancy":                true,
+	"TenantMeta":                  true,
 	"stegostorage":                true,
 	"stegolookup":                 true,
 	"ErrNotificationsUnavailable": true,
@@ -496,7 +505,7 @@ var reservedTypeNames = map[string]bool{
 
 // generateModels produces models.go with Meta base struct and entity struct
 // definitions using GORM struct tags.
-func generateModels(ns string, entities []types.Entity, upsertKeys map[string][][]string) (gen.File, error) {
+func generateModels(ns string, entities []types.Entity, upsertKeys map[string][][]string, key string) (gen.File, error) {
 	var buf bytes.Buffer
 
 	needTime := true // Meta always uses time.Time
@@ -556,6 +565,33 @@ func generateModels(ns string, entities []types.Entity, upsertKeys map[string][]
 	fmt.Fprintf(&buf, "\treturn nil\n")
 	fmt.Fprintf(&buf, "}\n\n")
 
+	owned := map[string]bool{}
+	for _, e := range entities {
+		owned[e.Name] = key != "" && ownedEntity(e)
+	}
+	if key != "" {
+		// An owned entity embeds TenantMeta: its ID is the second column of the primary key after the tenant
+		// column, and the entity names its own deleted_at index, which the tenant column leads
+		// (ST-SUP-RC01-OC40).
+		fmt.Fprintf(&buf, "// TenantMeta is the base model of an owned entity, whose primary key is the tenant column and ID.\n")
+		fmt.Fprintf(&buf, "type TenantMeta struct {\n")
+		fmt.Fprintf(&buf, "\tID          string    `json:\"id\" gorm:\"primaryKey\"`\n")
+		fmt.Fprintf(&buf, "\tCreatedTime time.Time `json:\"created_time\" gorm:\"autoCreateTime\"`\n")
+		fmt.Fprintf(&buf, "\tUpdatedTime time.Time `json:\"updated_time\" gorm:\"autoUpdateTime\"`\n")
+		fmt.Fprintf(&buf, "}\n\n")
+		fmt.Fprintf(&buf, "// BeforeCreate is a GORM hook that auto-generates a UUID v7 for ID on create.\n")
+		fmt.Fprintf(&buf, "func (m *TenantMeta) BeforeCreate(tx *gorm.DB) error {\n")
+		fmt.Fprintf(&buf, "\tif m.ID == \"\" {\n")
+		fmt.Fprintf(&buf, "\t\tid, err := uuid.NewV7()\n")
+		fmt.Fprintf(&buf, "\t\tif err != nil {\n")
+		fmt.Fprintf(&buf, "\t\t\treturn fmt.Errorf(\"generating UUID v7: %%w\", err)\n")
+		fmt.Fprintf(&buf, "\t\t}\n")
+		fmt.Fprintf(&buf, "\t\tm.ID = id.String()\n")
+		fmt.Fprintf(&buf, "\t}\n")
+		fmt.Fprintf(&buf, "\treturn nil\n")
+		fmt.Fprintf(&buf, "}\n\n")
+	}
+
 	// Entity structs.
 	for _, e := range entities {
 		// Build upsert key index lookup for this entity.
@@ -570,9 +606,30 @@ func generateModels(ns string, entities []types.Entity, upsertKeys map[string][]
 			}
 		}
 
+		tags := map[string]string{}
+		for _, f := range e.Fields {
+			gormTag := buildGormTag(e.Name, f)
+			if e.IsObservationField(f.Name) {
+				gormTag += ";->"
+			}
+			// Append upsert key composite unique indexes.
+			if idxNames, ok := upsertIdxByField[f.Name]; ok {
+				for _, idx := range idxNames {
+					gormTag += ";uniqueIndex:" + idx
+				}
+			}
+			tags[f.Name] = gormTag
+		}
+
 		fmt.Fprintf(&buf, "// %s represents the %s entity.\n", e.Name, e.Name)
 		fmt.Fprintf(&buf, "type %s struct {\n", e.Name)
-		fmt.Fprintf(&buf, "\tMeta\n")
+		if owned[e.Name] {
+			fmt.Fprintf(&buf, "\t%s string `json:\"-\" gorm:%q`\n", tenantField, leadIndexes(e, key, tags))
+			fmt.Fprintf(&buf, "\t%s\n", tenantMeta)
+			fmt.Fprintf(&buf, "\tDeletedAt gorm.DeletedAt `json:\"-\" gorm:%q`\n", "index:idx_"+tableName(e.Name)+"_deleted_at")
+		} else {
+			fmt.Fprintf(&buf, "\tMeta\n")
+		}
 		if e.Versioned {
 			fmt.Fprintln(&buf, "ResourceVersion int64 `json:\"-\" gorm:\"column:stego_revision;type:bigint;not null;default:1;->\"`")
 		}
@@ -593,16 +650,7 @@ func generateModels(ns string, entities []types.Entity, upsertKeys map[string][]
 		for _, f := range e.Fields {
 			goName := toPascalCase(f.Name)
 			goType := fieldTypeToGo(f)
-			gormTag := buildGormTag(e.Name, f)
-			if e.IsObservationField(f.Name) {
-				gormTag += ";->"
-			}
-			// Append upsert key composite unique indexes.
-			if idxNames, ok := upsertIdxByField[f.Name]; ok {
-				for _, idx := range idxNames {
-					gormTag += ";uniqueIndex:" + idx
-				}
-			}
+			gormTag := tags[f.Name]
 			jsonTag := f.Name
 			if f.Optional {
 				jsonTag += ",omitempty"
@@ -613,8 +661,12 @@ func generateModels(ns string, entities []types.Entity, upsertKeys map[string][]
 			// via AutoMigrate).
 			if f.Type == types.FieldTypeRef && f.To != "" {
 				refFieldName := toPascalCase(f.Name) + "Ref"
-				fmt.Fprintf(&buf, "\t%s *%s `json:\"-\" gorm:\"foreignKey:%s\"`\n",
-					refFieldName, f.To, goName)
+				foreignKey := "foreignKey:" + goName
+				if owned[e.Name] {
+					foreignKey = tenantForeignKey(goName, f.To, owned)
+				}
+				fmt.Fprintf(&buf, "\t%s *%s `json:\"-\" gorm:%q`\n",
+					refFieldName, f.To, foreignKey)
 			}
 		}
 		fmt.Fprintf(&buf, "}\n\n")
@@ -1503,7 +1555,7 @@ func emitHelpers(buf *bytes.Buffer) {
 
 // generateMigrate produces migrate.go with migration infrastructure and the
 // initial migration using GORM AutoMigrate.
-func generateMigrate(ns string, entities []types.Entity, guarded bool) (gen.File, error) {
+func generateMigrate(ns string, entities []types.Entity, guarded bool, rowSecurity string) (gen.File, error) {
 	var buf bytes.Buffer
 
 	// Sort entities by ref dependencies so referenced tables are created first.
@@ -1520,6 +1572,9 @@ func generateMigrate(ns string, entities []types.Entity, guarded bool) (gen.File
 	fmt.Fprintf(&buf, "\t\"sort\"\n")
 	fmt.Fprintf(&buf, "\n")
 	fmt.Fprintf(&buf, "\t\"gorm.io/gorm\"\n")
+	if rowSecurity != "" {
+		fmt.Fprintf(&buf, "\tstegotenancy %q\n", rowSecurity)
+	}
 	fmt.Fprintf(&buf, ")\n\n")
 
 	// Migration infrastructure.
@@ -1709,6 +1764,10 @@ func generateMigrate(ns string, entities []types.Entity, guarded bool) (gen.File
 	fmt.Fprintf(&buf, "\t})\n")
 	if hasVersioned(entities) {
 		fmt.Fprintln(&buf, `Register("002_resource_versions", func(db *gorm.DB) error { return db.Transaction(migrateResourceVersions) })`)
+	}
+	if rowSecurity != "" {
+		// The row-level security of the tenancy component comes after every table it covers (ST-SUP-RC27-OC03).
+		fmt.Fprintln(&buf, `RegisterSQL("100_tenancy_row_security", stegotenancy.RowSecurity)`)
 	}
 	fmt.Fprintf(&buf, "}\n")
 

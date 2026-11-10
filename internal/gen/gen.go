@@ -150,6 +150,10 @@ type Context struct {
 	// bindings of the declaration whose fills can emit an observation, in
 	// declaration order (ST-SUP-RC34-OC03).
 	Emitters []Emitter
+
+	// Tenancy is the pooled tenancy of a service that has the tenancy component, and nil for any other service
+	// (ST-SUP-RC01-OC40). Generators must not change it.
+	Tenancy *Tenancy
 }
 
 // EmitterKind tells how the generated code gives an emitter's fill its probe.
@@ -172,6 +176,15 @@ type Emitter struct {
 	Name string
 	Kind EmitterKind
 }
+
+// Tenancy is what the generators of a pooled service read of its tenancy (ST-DECL-EN09).
+type Tenancy struct {
+	// Key is the name of the tenant column of each owned table: tenancy.key, or tenant_id when it is omitted.
+	Key string
+}
+
+// TenancyComponent is the name of the tenancy component (ST-SUP-RC27).
+const TenancyComponent = "tenancy"
 
 // File represents a single generated output file.
 type File struct {

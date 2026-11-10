@@ -1,0 +1,16 @@
+definition user {}
+definition service_account {}
+definition folder {
+	relation viewer: user
+}
+
+caveat ip_allowed(ip ipaddress) {
+	ip.in_cidr('10.0.0.0/8')
+}
+
+definition document {
+	relation owner: user
+	relation viewer: user | service_account
+	permission view = viewer + owner
+	permission edit = owner
+}
