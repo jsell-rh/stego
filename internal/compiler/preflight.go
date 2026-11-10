@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/jsell-rh/stego/internal/declaration"
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/registry"
 	"github.com/jsell-rh/stego/internal/types"
@@ -105,6 +106,15 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 		}
 	}
 
+	// The ports that the declaration binds: each override whose value is a
+	// component name (ST-DECL-EN10 binds the audit sink this way).
+	portBindings := map[string]string{}
+	for key, value := range svcDecl.Overrides {
+		if component, ok := value.(string); ok && !declaration.IsConventionOverrideKey(key) {
+			portBindings[key] = component
+		}
+	}
+
 	tenancy := pooledTenancy(svcDecl, componentNames)
 	resolved := &resolvedCompilation{Components: components, Names: componentNames, Contexts: map[string]gen.Context{}, InputSnapshots: map[string]fileSnapshot{}, OutDir: outDir, OutDirName: outDirName, SlotsPackage: slotsPackage, HoldsFills: fills}
 	for _, compName := range componentNames {
@@ -127,6 +137,8 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 			BasePath:        svcDecl.BasePath,
 			ServiceName:     svcDecl.Name,
 			ErrorTypeBase:   svcDecl.ErrorTypeBase,
+			Audit:           svcDecl.Audit,
+			PortBindings:    portBindings,
 			Idempotency:     svcDecl.Idempotency,
 			PeerNamespaces:  peerNamespaces,
 			PeerConfigs:     peerConfigs,
