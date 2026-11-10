@@ -21,6 +21,7 @@ var (
 	identifier    = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
 	relationText  = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}#[a-z][a-z0-9_]{0,62}$`)
 	sqlName       = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
+	effectName    = regexp.MustCompile(`^[a-z][a-z0-9_.-]{0,62}$`)
 )
 
 // refusalStatus holds the statuses that a declared refusal may have (ST-DECL-INV56).

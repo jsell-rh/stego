@@ -5,7 +5,7 @@ package command
 // yet, as it has for a query (ST-SUP-RP11-LC17); until it has, the generator writes them once per service.
 func renderServe(m *model) []byte {
 	w := &writer{}
-	w.f("package %s\n\nimport (\n\t\"context\"\n\t\"crypto/rand\"\n\t\"encoding/hex\"\n\t\"errors\"\n\t\"io\"\n\t\"net\"\n\t\"net/http\"\n\t\"strconv\"\n\t\"strings\"\n\t\"time\"\n\n", handlersFolder)
+	w.f("package %s\n\nimport (\n\t\"context\"\n\t\"errors\"\n\t\"io\"\n\t\"net\"\n\t\"net/http\"\n\t\"strconv\"\n\t\"strings\"\n\t\"time\"\n\n", handlersFolder)
 	w.f("\t\"google.golang.org/grpc/codes\"\n\t\"google.golang.org/grpc/metadata\"\n\t\"google.golang.org/grpc/status\"\n\t\"google.golang.org/protobuf/encoding/protojson\"\n\t\"google.golang.org/protobuf/proto\"\n\n")
 	w.f("\t\"stego.dev/runtime/audit\"\n\t\"stego.dev/runtime/authn\"\n\t\"stego.dev/runtime/authz\"\n\t\"stego.dev/runtime/command\"\n\t\"stego.dev/runtime/idempotency\"\n")
 	if m.probeImport == "" {
@@ -27,6 +27,9 @@ type Options struct {
 
 // MaxRequestBody is the most bytes of a request body that a command handler reads.
 const MaxRequestBody = 1 << 20
+
+// outcomeTimeout bounds the write of the audit row of a denied or failed command.
+const outcomeTimeout = 5 * time.Second
 
 // rpcKeyMetadata is the gRPC request metadata that holds the idempotency key (ST-SUP-RC07-OC19).
 const rpcKeyMetadata = "idempotency-key"
@@ -134,7 +137,11 @@ func run[Req, Res proto.Message, P any](ctx context.Context, rt *command.Runtime
 		return result, nil
 	}
 	o := outcomeOf(err, s.refusals)
-	_ = rt.RecordOutcome(ctx, req, s.name, s.resourceType, req.Resource, o.audit, o.code)
+	// The outcome row is written also when the request was cancelled or ran past its deadline, within its own
+	// short time.
+	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), outcomeTimeout)
+	defer cancel()
+	_ = rt.RecordOutcome(recordCtx, req, s.name, s.resourceType, req.Resource, o.audit, o.code)
 	return result, &o
 }
 
@@ -229,17 +236,23 @@ func serveRPC[Req, Res proto.Message, P any](rt *command.Runtime, s spec[Req, Re
 		if err != nil {
 			return none, status.Error(codes.InvalidArgument, idempotency.ProblemMissing)
 		}
-		body, err := protojson.Marshal(request)
+		// The body that Run decodes is the deterministic binary form of the message, and the fingerprint is over the
+		// canonical JSON form of protojson, which Fingerprint makes, so one message gives one fingerprint.
+		body, err := proto.MarshalOptions{Deterministic: true}.Marshal(request)
 		if err != nil {
 			return none, status.Error(codes.InvalidArgument, "the request message does not encode")
 		}
-		fingerprint, err := idempotency.Fingerprint("RPC", s.name, body)
+		text, err := protojson.Marshal(request)
+		if err != nil {
+			return none, status.Error(codes.InvalidArgument, "the request message does not encode")
+		}
+		fingerprint, err := idempotency.Fingerprint("RPC", s.name, text)
 		if err != nil {
 			return none, status.Error(codes.InvalidArgument, "the request message does not encode")
 		}
 		decode := func(body []byte) (Req, error) {
 			request := s.newRequest()
-			if err := protojson.Unmarshal(body, request); err != nil {
+			if err := proto.Unmarshal(body, request); err != nil {
 				return request, errBadRequest
 			}
 			return request, nil
@@ -334,17 +347,8 @@ func remoteIP(addr string) string {
 	return host
 }
 
-// newRequestID gives the ID of one request, a random UUID, which its audit rows carry.
-func newRequestID() string {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		panic(err)
-	}
-	b[6] = b[6]&0x0f | 0x40
-	b[8] = b[8]&0x3f | 0x80
-	h := hex.EncodeToString(b[:])
-	return h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:32]
-}
+// newRequestID gives the ID of one request, which its audit rows carry.
+func newRequestID() string { return commands.NewID() }
 
 // mustCommand gives a checked command declaration. The generator checked each declaration, so it does not fail.
 func mustCommand[P any](c *command.Command[P], err error) *command.Command[P] {
@@ -361,25 +365,5 @@ func mustRelation(text string) authz.Relation {
 		panic(err)
 	}
 	return r
-}
-
-// validUUID tells whether id is a UUID in its text form, the key type of every entity.
-func validUUID(id string) bool {
-	if len(id) != 36 {
-		return false
-	}
-	for i := 0; i < len(id); i++ {
-		c := id[i]
-		switch {
-		case i == 8 || i == 13 || i == 18 || i == 23:
-			if c != '-' {
-				return false
-			}
-		case c >= '0' && c <= '9', c >= 'a' && c <= 'f', c >= 'A' && c <= 'F':
-		default:
-			return false
-		}
-	}
-	return true
 }
 `

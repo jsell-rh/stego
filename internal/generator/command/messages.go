@@ -68,9 +68,16 @@ type messageField struct {
 	goName, protoName, jsonName string
 	kind                        protoreflect.Kind
 	list                        bool
+	// presence is true for a proto3 optional field or a member of a oneof, whose zero value is not the same as
+	// not set.
+	presence bool
 }
 
-func (f *messageField) isString() bool { return f.kind == protoreflect.StringKind && !f.list }
+// isString tells whether the field is a plain string field, which a path parameter or the resource member can be:
+// not a list, a map, a proto3 optional field or a member of a oneof.
+func (f *messageField) isString() bool {
+	return f.kind == protoreflect.StringKind && !f.list && !f.presence
+}
 
 // field finds a field of the message by its JSON name or its proto name.
 func (m *message) field(name string) *messageField {
@@ -175,7 +182,8 @@ func compileMessages(ctx gen.Context) (*messages, error) {
 			}
 			for _, f := range msg.Fields {
 				m.fields = append(m.fields, &messageField{goName: f.GoName, protoName: string(f.Desc.Name()),
-					jsonName: f.Desc.JSONName(), kind: f.Desc.Kind(), list: f.Desc.IsList() || f.Desc.IsMap()})
+					jsonName: f.Desc.JSONName(), kind: f.Desc.Kind(), list: f.Desc.IsList() || f.Desc.IsMap(),
+					presence: f.Desc.HasOptionalKeyword() || f.Desc.ContainingOneof() != nil})
 			}
 			ms.byName[m.name] = m
 		}

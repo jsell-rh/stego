@@ -24,6 +24,12 @@ const (
 // github.com/jackc/pgx/v5, all bound by replace, so go list needs no network.
 func closureTree(t *testing.T, fillImports ...string) string {
 	t.Helper()
+	return closureTreeWith(t, nil, fillImports...)
+}
+
+// closureTreeWith is closureTree with extra files of the fill, by name in its folder.
+func closureTreeWith(t *testing.T, extra map[string]string, fillImports ...string) string {
+	t.Helper()
 	root := t.TempDir()
 	var body strings.Builder
 	body.WriteString("package reserveandcharge\n\nimport (\n")
@@ -42,6 +48,9 @@ func closureTree(t *testing.T, fillImports ...string) string {
 		"mods/dbhelper/helper.go":               "package dbhelper\n\nimport _ \"database/sql\"\n",
 		"mods/pgx/go.mod":                       "module github.com/jackc/pgx/v5\n\ngo 1.26\n",
 		"mods/pgx/pgx.go":                       "package pgx\n",
+	}
+	for name, text := range extra {
+		files["fills/reserve-and-charge/"+name] = text
 	}
 	for name, text := range files {
 		path := filepath.Join(root, filepath.FromSlash(name))
@@ -122,6 +131,25 @@ func TestCommandFillClosure(t *testing.T) {
 					}
 				}
 			})
+		}
+	})
+	t.Run("ST-SUP-RC32-OC03-T01 A file that go list does not build for this platform or these tags is checked too", func(t *testing.T) {
+		faults := qualifyCommandFill(t, closureTreeWith(t, map[string]string{
+			"evil_windows.go": "package reserveandcharge\n\nimport _ \"os/exec\"\n",
+			"tagged.go":       "//go:build stego_secret\n\npackage reserveandcharge\n\nimport _ \"github.com/jackc/pgx/v5\"\n",
+		}, "fmt"))
+		var text []string
+		for _, f := range faults {
+			text = append(text, f.Message)
+		}
+		joined := strings.Join(text, "\n")
+		for _, want := range []string{"may not import os/exec, which its file evil_windows.go imports", "may not import github.com/jackc/pgx/v5, which its file tagged.go imports"} {
+			if !strings.Contains(joined, want) {
+				t.Errorf("the faults %q do not hold %q", joined, want)
+			}
+		}
+		if len(faults) != 2 {
+			t.Errorf("the check gave %d faults, want 2", len(faults))
 		}
 	})
 	t.Run("ST-SUP-RC32-OC03-T02 A command fill that imports only allow-listed packages is accepted", func(t *testing.T) {

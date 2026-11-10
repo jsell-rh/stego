@@ -6,11 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -83,15 +87,73 @@ func checkClosure(check compiler.FillCheck, f compiler.CommandFill) ([]string, e
 		return nil, nil
 	}
 	fillPackage := strings.TrimSuffix(check.Module, "/") + "/fills/" + f.Fill
-	if _, err := os.Stat(filepath.Join(check.ProjectDir, "go.mod")); errors.Is(err, os.ErrNotExist) {
-		if err := checkImports(dir, compiler.FillCheck{Module: check.Module, FillModules: check.FillModules}, f.Contract); err != nil {
-			return []string{fmt.Sprintf("fill %q: %v", f.Fill, err)}, nil
-		}
-		return nil, nil
-	}
-	packages, err := listDeps(check.ProjectDir, f.Fill, fillPackage)
+	// go list sees the files of the host platform with no build tags only, so the fill's own imports are also read
+	// from every Go file that is not a test file, whatever its platform suffix or build constraint.
+	own, err := fileImportFaults(check, f, dir, fillPackage)
 	if err != nil {
 		return nil, err
+	}
+	var faults []string
+	refused := map[string]bool{}
+	if _, err := os.Stat(filepath.Join(check.ProjectDir, "go.mod")); err == nil {
+		if faults, refused, err = closureFaults(check, f, fillPackage); err != nil {
+			return nil, err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	// A package that the closure already names with its chain is not named again for its file.
+	for _, fault := range own {
+		if !refused[fault.path] {
+			faults = append(faults, fault.text)
+		}
+	}
+	return faults, nil
+}
+
+// fileFault is one refused import of one file of a fill.
+type fileFault struct{ path, text string }
+
+// fileImportFaults reads the imports of every Go file of the fill that is not a test file, whatever its platform
+// suffix or build constraint, and holds each to the import rule as the closure check does. A fault names the fill,
+// the file and the refused package.
+func fileImportFaults(check compiler.FillCheck, f compiler.CommandFill, dir, fillPackage string) ([]fileFault, error) {
+	var faults []fileFault
+	fset := token.NewFileSet()
+	err := filepath.WalkDir(dir, func(name string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			return err
+		}
+		file, err := parser.ParseFile(fset, name, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+		relative, _ := filepath.Rel(dir, name)
+		for _, spec := range file.Imports {
+			path, err := strconv.Unquote(spec.Path.Value)
+			if err != nil {
+				return err
+			}
+			listed := listedPackage{ImportPath: path, Standard: standardLibrary(path) && path != "C"}
+			if _, allowed := judgeImport(check, f.Contract, fillPackage, path, listed); !allowed {
+				faults = append(faults, fileFault{path: path, text: fmt.Sprintf("fill %q may not import %s, which its file %s imports; a fill imports only its slot contract %s, the listed fill modules and the fill allow list of the standard library",
+					f.Fill, path, filepath.ToSlash(relative), f.Contract)})
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("reading the imports of the fill %s: %w", f.Fill, err)
+	}
+	sort.Slice(faults, func(i, j int) bool { return faults[i].text < faults[j].text })
+	return faults, nil
+}
+
+// closureFaults follows the import closure that go list -deps gives for one command fill.
+func closureFaults(check compiler.FillCheck, f compiler.CommandFill, fillPackage string) ([]string, map[string]bool, error) {
+	packages, err := listDeps(check.ProjectDir, f.Fill, fillPackage)
+	if err != nil {
+		return nil, nil, err
 	}
 	var roots []string
 	for path := range packages {
@@ -100,7 +162,7 @@ func checkClosure(check compiler.FillCheck, f compiler.CommandFill) ([]string, e
 		}
 	}
 	if len(roots) == 0 {
-		return []string{fmt.Sprintf("fill %q has no Go package at %s", f.Fill, fillPackage)}, nil
+		return []string{fmt.Sprintf("fill %q has no Go package at %s", f.Fill, fillPackage)}, nil, nil
 	}
 	sort.Strings(roots)
 	parent := map[string]string{}
@@ -143,7 +205,9 @@ func checkClosure(check compiler.FillCheck, f compiler.CommandFill) ([]string, e
 	}
 	sort.Strings(names)
 	faults := broken
+	named := map[string]bool{}
 	for _, name := range names {
+		named[name] = true
 		chain := []string{name}
 		for at := refused[name]; at != ""; at = parent[at] {
 			chain = append([]string{at}, chain...)
@@ -151,7 +215,7 @@ func checkClosure(check compiler.FillCheck, f compiler.CommandFill) ([]string, e
 		faults = append(faults, fmt.Sprintf("fill %q may not import %s, which it reaches through %s; a fill imports only its slot contract %s, the listed fill modules and the fill allow list of the standard library",
 			f.Fill, name, strings.Join(chain, " -> "), f.Contract))
 	}
-	return faults, nil
+	return faults, named, nil
 }
 
 // judgeImport tells whether a package that a fill package or a listed module package imports is allowed, and

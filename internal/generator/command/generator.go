@@ -274,8 +274,12 @@ func (m *model) planCommand(c gen.Command, byName map[string]types.Entity, plann
 		}
 		cmd.relations = append(cmd.relations, text)
 	}
-	seen := map[string]bool{}
+	seen, named := map[string]bool{}, map[string]bool{}
 	for _, effect := range decl.Effects {
+		if !effectName.MatchString(effect.Name) || named[effect.Name] {
+			return nil, fmt.Errorf("command: the command %s declares the effect %q, whose name is missing, not a lower-case name or given twice", decl.Name, effect.String())
+		}
+		named[effect.Name] = true
 		if effect.Destination == "" || effect.Destination == "authz" || effect.Destination == "audit" || effect.Destination == "audit-sink" {
 			return nil, fmt.Errorf("command: the command %s stages for the destination %q, which is not an effect destination", decl.Name, effect.Destination)
 		}
@@ -358,6 +362,10 @@ func (m *model) planPermission(cmd *command, byName map[string]types.Entity) err
 		return fmt.Errorf("command: the resource of the command %s is the entity %s, which is not owned by a tenant", decl.Name, owner.Name)
 	}
 	cmd.resource = &resource{resourceType: decl.ResourceType, table: tableName(owner.Name), keyCast: "uuid"}
+	// The runtime checks the token statement at start against one form of plain identifiers (ST-SUP-RP10-LC31).
+	if !sqlName.MatchString(cmd.resource.table) {
+		return fmt.Errorf("command: the resource table %q of the command %s is not a plain SQL name", cmd.resource.table, decl.Name)
+	}
 	f := cmd.request.field(decl.ResourceMember)
 	if f == nil || !f.isString() {
 		return fmt.Errorf("command: the resource member %s of the command %s is not a string field of the message %s", decl.ResourceMember, decl.Name, cmd.request.name)

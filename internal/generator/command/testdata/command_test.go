@@ -61,14 +61,20 @@ const (
 
 definition order {
 	relation owner: user
+	relation viewer: user
 	relation holder: user
 	permission reserve = owner
+	permission view = owner + viewer
+}
+
+definition hold {
+	relation owner: user
 	permission view = owner
 }
 `
 )
 
-var tables = []string{"orders", "reservations", "charges"}
+var tables = []string{"orders", "reservations", "charges", "holds"}
 
 // env is the running service: its database with the runtime role, its runtime and its HTTP server.
 type env struct {
@@ -356,6 +362,11 @@ func (c caller) subject() string { return c.principal.Subject().ID }
 // order seeds an Order row of the caller's tenant, owned in SpiceDB by owner (the caller, or another subject when
 // owner is given), and gives its ID.
 func (e *env) order(c caller, owner ...string) string {
+	return e.orderWith(c, "owner", owner...)
+}
+
+// orderWith seeds an Order row whose subject has the relation on it.
+func (e *env) orderWith(c caller, relation string, owner ...string) string {
 	t := e.t
 	t.Helper()
 	id := uuid.NewString()
@@ -369,7 +380,7 @@ func (e *env) order(c caller, owner ...string) string {
 	must(t, err)
 	_, err = v1.NewPermissionsServiceClient(e.spice).WriteRelationships(e.ctx, &v1.WriteRelationshipsRequest{Updates: []*v1.RelationshipUpdate{{
 		Operation: v1.RelationshipUpdate_OPERATION_TOUCH,
-		Relationship: &v1.Relationship{Resource: &v1.ObjectReference{ObjectType: "order", ObjectId: resourceID}, Relation: "owner",
+		Relationship: &v1.Relationship{Resource: &v1.ObjectReference{ObjectType: "order", ObjectId: resourceID}, Relation: relation,
 			Subject: &v1.SubjectReference{Object: &v1.ObjectReference{ObjectType: "user", ObjectId: subject}}}}}})
 	must(t, err)
 	return id
@@ -596,6 +607,50 @@ func TestCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RC32-OC06-T02 A write under a parent that the principal may not act on is refused", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-7", "tA", time.Now().Add(time.Hour))
+		own := e.order(a)
+		// The caller may view the other order but has no reserve on it.
+		other := e.orderWith(a, "viewer")
+		var underOwn, underOther, noParent error
+		e.behave(t, func(ctx context.Context, request *commands.ReserveAndChargeRequest, h *commands.ReserveAndChargeHandle) (*commands.ReserveAndChargeResponse, error) {
+			orders, err := commands.OrderRepository(h)
+			if err != nil {
+				return nil, err
+			}
+			holds, err := commands.HoldRepository(h)
+			if err != nil {
+				return nil, err
+			}
+			x, err := orders.Get(ctx, own)
+			if err != nil {
+				return nil, err
+			}
+			_, underOwn = holds.Create(ctx, commands.Hold{OrderID: own}, x)
+			y, err := orders.Get(ctx, other)
+			if err != nil {
+				return nil, err
+			}
+			_, underOther = holds.Create(ctx, commands.Hold{OrderID: other}, y)
+			_, noParent = holds.Create(ctx, commands.Hold{OrderID: other}, nil)
+			return &commands.ReserveAndChargeResponse{}, nil
+		})
+		e.post(a.token, "oc06-t02", own, body)
+		if underOwn != nil {
+			t.Errorf("the create under the decided order gave %v, want it written", underOwn)
+		}
+		if !errors.Is(underOther, command.ErrNotFound) {
+			t.Errorf("the create under an order without reserve gave %v, want not found", underOther)
+		}
+		if noParent == nil {
+			t.Error("a create that names the other order with no parent was written")
+		}
+		if n := e.count(`SELECT count(*) FROM holds WHERE order_id = $1`, other); n != 0 {
+			t.Errorf("%d holds were written under the order without reserve", n)
+		}
+	})
+
 	t.Run("ST-SUP-RC32-OC07-T01 A committed, a denied and a failed command each leave one command audit row", func(t *testing.T) {
 		e := service(t)
 		a := e.as("u-7", "tA", time.Now().Add(time.Hour))
@@ -634,6 +689,21 @@ func TestCommand(t *testing.T) {
 		if second.status != first.status || !bytes.Equal(second.body, first.body) || second.header.Get(idempotency.ReplayedHeader) != "true" {
 			t.Errorf("the second answer %d %s with replayed %q is not the first %d %s", second.status, second.body,
 				second.header.Get(idempotency.ReplayedHeader), first.status, first.body)
+		}
+		// Over gRPC, the same message with the same key has the same fingerprint, so it replays too.
+		rpc, err := handlers.ReserveAndChargeRPC(e.rt, e.fills.ReserveAndCharge, handlers.Options{})
+		must(t, err)
+		ctx, err := e.verifier.Authenticate(e.ctx, "Bearer "+a.token)
+		must(t, err)
+		ctx = metadata.NewIncomingContext(ctx, metadata.Pairs("idempotency-key", `"rpc-k1-`+order+`"`))
+		e.calls.Store(0)
+		message := &commands.ReserveAndChargeRequest{OrderId: order, Sku: "sku-1", Qty: 2, AmountCents: 1250, CardLast4: "4242"}
+		firstRPC, err := rpc(ctx, message)
+		must(t, err)
+		secondRPC, err := rpc(ctx, proto.Clone(message).(*commands.ReserveAndChargeRequest))
+		must(t, err)
+		if e.calls.Load() != 1 || !proto.Equal(firstRPC, secondRPC) {
+			t.Errorf("the gRPC retry ran the fill %d times, or answered %v after %v", e.calls.Load(), secondRPC, firstRPC)
 		}
 	})
 
@@ -732,6 +802,16 @@ func TestCommand(t *testing.T) {
 		}
 		if n := e.count(`SELECT count(*) FROM audit_event WHERE tenant_id = $1 AND resource_id = $2 AND outcome = 'failed' AND error_code = 'conflict'`, a.tenant.ID(), order); n != 2 {
 			t.Errorf("the conflicts left %d audit rows failed conflict, want 2", n)
+		}
+		// A call whose request is cancelled still leaves its audit row, written in its own short transaction.
+		cancelled := e.order(a)
+		gone, cancel := context.WithCancel(ctx)
+		cancel()
+		if _, err := rpc(gone, &commands.ReserveAndChargeRequest{OrderId: cancelled, Sku: "sku-1", Qty: 2}); err == nil {
+			t.Error("the cancelled call succeeded")
+		}
+		if n := e.count(`SELECT count(*) FROM audit_event WHERE tenant_id = $1 AND resource_id = $2 AND outcome = 'failed'`, a.tenant.ID(), cancelled); n != 1 {
+			t.Errorf("the cancelled call left %d failed audit rows, want 1", n)
 		}
 		reservecharge.Behavior = reservecharge.ReserveAndCharge
 		e.calls.Store(0)

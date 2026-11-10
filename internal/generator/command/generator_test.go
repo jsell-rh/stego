@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -68,6 +69,14 @@ entities:
     fields:
       - name: sku
         type: string
+  - name: Hold
+    resource_type: hold
+    permissions:
+      read: view
+    fields:
+      - name: order_id
+        type: ref
+        to: Order
   - name: Reservation
     fields:
       - name: order_id
@@ -87,7 +96,7 @@ entities:
         sensitivity: pii
 commands:
   - name: reserve-and-charge
-    writes: [Reservation, Charge]
+    writes: [Reservation, Charge, Order, Hold]
     resource_type: order
     permission: reserve
     resource_member: orderId
@@ -285,6 +294,29 @@ func TestContract(t *testing.T) {
 		}
 		if !strings.Contains(string(files["commands/handlers/fills.go"]), "ReserveAndCharge: fillReserveAndCharge.New()") {
 			t.Error("the handler of reserve-and-charge is not bound to the fill reserve-and-charge")
+		}
+	})
+
+	t.Run("ST-SUP-RC32-OC06-T02 The parent of a row is the one entity with a resource type that it refers to", func(t *testing.T) {
+		files := generated(t, commandContext(t, declaration(t), commandSlot))
+		if !regexp.MustCompile(`Parent: +func\(v Hold\) \(string, string\) \{ return "Order", v.OrderID \},`).Match(files["commands/commands.go"]) {
+			t.Error("the entity Hold, which has a resource type of its own and refers to Order, has no Parent")
+		}
+		for name, change := range map[string]func(*types.Entity){
+			"two parents": func(e *types.Entity) {
+				e.Fields = append(e.Fields, types.Field{Name: "other_id", Type: types.FieldTypeRef, To: "Order"})
+			},
+			"an optional parent": func(e *types.Entity) { e.Fields[0].Optional = true },
+		} {
+			svc := declaration(t)
+			for i := range svc.Entities {
+				if svc.Entities[i].Name == "Hold" {
+					change(&svc.Entities[i])
+				}
+			}
+			if err := new(Generator).ValidateContext(commandContext(t, svc, commandSlot)); err == nil || !strings.Contains(err.Error(), "Hold") {
+				t.Errorf("%s: generation gave %v, want a fault that names Hold", name, err)
+			}
 		}
 	})
 

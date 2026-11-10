@@ -94,14 +94,25 @@ func planEntity(e types.Entity, byName map[string]types.Entity, tenantKey string
 		if f.Unique || len(f.UniqueComposite) > 0 {
 			p.keys = append(p.keys, ef)
 		}
-		if f.Type == types.FieldTypeRef && !f.Optional && byName[f.To].ResourceType != "" {
+		if f.Type == types.FieldTypeRef && byName[f.To].ResourceType != "" {
 			refs = append(refs, ef)
 		}
 		p.fields = append(p.fields, ef)
 	}
-	// An entity with no resource type of its own whose one required reference names an entity with a resource type
-	// is a child of that resource: its create decides the command's permission on the parent (ST-SUP-RP10-LC05).
-	if e.ResourceType == "" && len(refs) == 1 {
+	// An entity whose one reference names an entity with a resource type goes under that parent: its create, and a
+	// move of a row to another parent, decide the command's permission on the parent that the row names, whether or
+	// not the entity has a resource type of its own (ST-SUP-RP10-LC05). Two such references, or an optional one,
+	// would leave a parent that nothing decides on, so they are refused.
+	switch {
+	case len(refs) > 1:
+		names := make([]string, len(refs))
+		for i, r := range refs {
+			names[i] = r.decl.Name
+		}
+		return nil, fmt.Errorf("the fields %s refer to entities with a resource type; a command decides on one parent of a row, so the entity may refer to one such entity only", strings.Join(names, ", "))
+	case len(refs) == 1 && refs[0].pointer:
+		return nil, fmt.Errorf("the optional field %s refers to %s, which has a resource type; a command decides on the parent that a row names, so the reference must be required", refs[0].decl.Name, refs[0].decl.To)
+	case len(refs) == 1:
 		p.parent, p.parentEntity = refs[0], refs[0].decl.To
 	}
 	return p, nil
@@ -198,7 +209,7 @@ func renderEntity(w *writer, e *entity, tenantKey string) {
 	for _, f := range e.fields {
 		values = append(values, "v."+f.goName)
 	}
-	w.f("\tValues: func(v %s) []any {\n\t\tid := v.ID\n\t\tif id == \"\" {\n\t\t\tid = newID()\n\t\t}\n\t\treturn []any{%s}\n\t},\n", e.goName, strings.Join(values, ", "))
+	w.f("\tValues: func(v %s) []any {\n\t\tid := v.ID\n\t\tif id == \"\" {\n\t\t\tid = NewID()\n\t\t}\n\t\treturn []any{%s}\n\t},\n", e.goName, strings.Join(values, ", "))
 	state := []string{`"id": v.ID`}
 	for _, f := range e.fields {
 		state = append(state, fmt.Sprintf("%q: v.%s", f.decl.Name, f.goName))
@@ -231,7 +242,7 @@ func renderEntity(w *writer, e *entity, tenantKey string) {
 		}
 		w.f("\t\treturn v\n\t},\n")
 	}
-	w.f("\tValidID: validUUID,\n")
+	w.f("\tValidID: ValidUUID,\n")
 	if e.parent != nil {
 		w.f("\tParent: func(v %s) (string, string) { return %q, v.%s },\n", e.goName, e.parentEntity, e.parent.goName)
 	}

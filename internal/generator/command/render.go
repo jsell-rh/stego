@@ -92,7 +92,8 @@ func renderContract(m *model) []byte {
 	return w.Bytes()
 }
 
-// contractHelpers are the helpers of the contract package.
+// contractHelpers are the helpers of the contract package. They are the same for every declaration; ST-SUP-Q74 asks
+// whether they move into the runtime library (ST-STD-RUNTIME-R05).
 const contractHelpers = `// Refusal is a declared refusal of a command (ST-SUP-RC32-OC09). Only the values of this package exist: a fill
 // returns one of them, and the handler answers it with its status and code. Its fields are not exported, so a fill
 // cannot make one of its own.
@@ -124,8 +125,8 @@ func mustEntity[T any](e *command.Entity[T], err error) *command.Entity[T] {
 	return e
 }
 
-// newID gives a new random UUID, the key of a new row.
-func newID() string {
+// NewID gives a new random UUID, the key of a new row and the ID of a request.
+func NewID() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		panic(err)
@@ -136,8 +137,8 @@ func newID() string {
 	return h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:32]
 }
 
-// validUUID tells whether id is a UUID in its text form, the key type of every entity.
-func validUUID(id string) bool {
+// ValidUUID tells whether id is a UUID in its text form, the key type of every entity.
+func ValidUUID(id string) bool {
 	if len(id) != 36 {
 		return false
 	}
@@ -281,7 +282,7 @@ func renderCommandHandlers(w *writer, m *model, c *command) {
 	}
 	r := c.resource
 	token := fmt.Sprintf("SELECT authz_token FROM %s WHERE %s = $1 AND id = $2::%s FOR SHARE", r.table, m.tenantKey, r.keyCast)
-	w.f("\tPermission: %q,\n\tResource: &command.Resource{Type: %q, Token: %q, ValidID: validUUID},\n}))\n\n", c.decl.Permission, r.resourceType, token)
+	w.f("\tPermission: %q,\n\tResource: &command.Resource{Type: %q, Token: %q, ValidID: commands.ValidUUID},\n}))\n\n", c.decl.Permission, r.resourceType, token)
 	spec := fmt.Sprintf("spec[*commands.%s, *commands.%s, %s]", c.request.name, c.response.name, probe)
 	w.f("// %sSpec is what varies with the declaration of %s.\nfunc %sSpec(fill commands.%sFill, options Options) %s {\n", lower, c.decl.Name, lower, c.goName, spec)
 	w.f("\treturn %s{\n\t\tname: %q,\n\t\tcommand: %sCommand,\n\t\tresourceType: %q,\n", spec, c.decl.Name, lower, r.resourceType)
