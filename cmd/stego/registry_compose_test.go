@@ -38,7 +38,7 @@ func commonRegistryFiles() map[string]string {
 		"components/tenancy/component.yaml":   component("tenancy", "internal/tenancy", "[]", "[]", "[]"),
 		"components/audit-log/component.yaml": component("audit-log", "internal/audit", "[]", "[]", "[]"),
 		"components/extra-a/component.yaml":   component("extra-a", "internal/extra", "[]", "[]", "[]"),
-		"archetypes/svc-arch/archetype.yaml": "kind: archetype\nname: svc-arch\nlanguage: go\nversion: 1.0.0\n" +
+		"archetypes/svc-arch/archetype.yaml": "kind: archetype\nruntime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}\nname: svc-arch\nlanguage: go\nversion: 1.0.0\n" +
 			"components:\n  - api-a\n  - store-a\n  - auth-a\n  - tenancy\n  - audit-log\n" +
 			"conventions:\n  layout: flat\n  logging: structured-json\n  cors: disabled\n" +
 			"compatible_mixins:\n  - extra-mixin\nbindings:\n  store-port: store-a\n  auth-port: auth-a\n",

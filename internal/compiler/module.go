@@ -9,6 +9,7 @@ import (
 
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/parser"
+	"github.com/jsell-rh/stego/internal/registry"
 	"golang.org/x/mod/modfile"
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
@@ -16,8 +17,14 @@ import (
 
 // moduleRequirements uses Go's minimum version selection order. A component
 // cannot lower the version required by another component.
-func moduleRequirements(wirings []ComponentWiring) (map[string]string, error) {
+//
+// runtime is the archetype's runtime pin when generated code imports the runtime library, and nil otherwise; the
+// requirements then hold it, and a component may require no STEGO module at another version (ST-GEN-INV13).
+func moduleRequirements(wirings []ComponentWiring, runtime *registry.RuntimePin) (map[string]string, error) {
 	requires := make(map[string]string)
+	if runtime != nil {
+		requires[runtime.Module] = runtime.Version
+	}
 	for _, component := range wirings {
 		if component.Wiring == nil {
 			continue
@@ -28,6 +35,9 @@ func moduleRequirements(wirings []ComponentWiring) (map[string]string, error) {
 				return nil, err
 			}
 			for path, v := range definition.GoModRequires {
+				if err := runtimeRequirement(component.Name, path, v, runtime); err != nil {
+					return nil, err
+				}
 				if semver.Compare(v, requires[path]) > 0 {
 					requires[path] = v
 				}
@@ -40,6 +50,9 @@ func moduleRequirements(wirings []ComponentWiring) (map[string]string, error) {
 			}
 			if module.CanonicalVersion(v) != v {
 				return nil, fmt.Errorf("component %q requires a canonical version for %s: %q", component.Name, path, v)
+			}
+			if err := runtimeRequirement(component.Name, path, v, runtime); err != nil {
+				return nil, err
 			}
 			if semver.Compare(v, requires[path]) > 0 {
 				requires[path] = v
@@ -130,7 +143,10 @@ func mergeCapturedModule(data []byte, exists bool, required gen.File) (gen.File,
 		existing[req.Mod.Path] = req.Mod.Version
 	}
 	for _, req := range want.Require {
-		if semver.Compare(existing[req.Mod.Path], req.Mod.Version) >= 0 {
+		// The runtime library is required at exactly the archetype's pin,
+		// never at a higher version (ST-GEN-INV13).
+		exact := registry.IsStegoModule(req.Mod.Path)
+		if (exact && existing[req.Mod.Path] == req.Mod.Version) || (!exact && semver.Compare(existing[req.Mod.Path], req.Mod.Version) >= 0) {
 			continue
 		}
 		if err := current.AddRequire(req.Mod.Path, req.Mod.Version); err != nil {

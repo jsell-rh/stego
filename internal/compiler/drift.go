@@ -14,6 +14,8 @@ import (
 // since the last apply.
 type DriftedFile struct {
 	Path string
+	// Reason says what changed, when the path alone does not.
+	Reason string
 }
 
 // DriftedInput represents a project source input recorded in the input
@@ -125,6 +127,24 @@ func DetectDrift(projectDir, outDir string) (*DriftResult, error) {
 		}
 	}
 
+	// go.mod belongs to the application, but its STEGO requirements do not:
+	// it requires the runtime library at exactly the recorded pin, no other
+	// STEGO module and no replacement of one, and a hand edit of that is
+	// drift (ST-GEN-INV13).
+	moduleData, moduleSnapshot, err := readSnapshot(root, "go.mod", maxTrackedFileBytes, true)
+	if err != nil {
+		return nil, err
+	}
+	if moduleSnapshot.Exists {
+		reason, err := runtimeModuleDrift(moduleData, state.LastApplied.Archetype)
+		if err != nil {
+			return nil, err
+		}
+		if reason != "" {
+			result.Modified = append(result.Modified, DriftedFile{Path: "go.mod", Reason: reason})
+		}
+	}
+
 	// Whether the project holds fills changes the generated output, so a
 	// project that gains or loses its first fill drifts (ST-BLD-INV07).
 	if manifest := state.LastApplied.Inputs; manifest != nil && manifest.Options.HoldsFills != nil && *manifest.Options.HoldsFills != holdsFills(projectDir) {
@@ -144,6 +164,10 @@ func FormatDrift(r *DriftResult) string {
 	if len(r.Modified)+len(r.Deleted) > 0 {
 		fmt.Fprintf(&sb, "Drift detected in %d file(s):\n\n", len(r.Modified)+len(r.Deleted))
 		for _, f := range r.Modified {
+			if f.Reason != "" {
+				fmt.Fprintf(&sb, "  modified: %s (%s)\n", f.Path, f.Reason)
+				continue
+			}
 			fmt.Fprintf(&sb, "  modified: %s\n", f.Path)
 		}
 		for _, f := range r.Deleted {

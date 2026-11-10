@@ -12,6 +12,7 @@ import (
 	"github.com/jsell-rh/stego/internal/buildidentity"
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/parser"
+	"github.com/jsell-rh/stego/internal/registry"
 	"gopkg.in/yaml.v3"
 )
 
@@ -85,6 +86,21 @@ type AppliedState struct {
 
 	// Files records the SHA-256 hash of each generated file.
 	Files map[string]string `yaml:"files,omitempty"`
+
+	// Archetype records the archetype of the run with its runtime library pin.
+	// State from older releases omits it.
+	Archetype *ArchetypeState `yaml:"archetype,omitempty"`
+}
+
+// ArchetypeState records the archetype of one run: its name, its version and
+// its runtime library pin, so a later run refuses a pin that moved within one
+// archetype version (ST-SUP-INV10), and whether generated code imports the
+// runtime library, so drift checks go.mod against the pin (ST-GEN-INV13).
+type ArchetypeState struct {
+	Name           string               `yaml:"name"`
+	Version        string               `yaml:"version"`
+	Runtime        *registry.RuntimePin `yaml:"runtime,omitempty"`
+	ImportsRuntime bool                 `yaml:"imports_runtime,omitempty"`
 }
 
 // EntityFieldState captures a field's name, type, and a hash of its full
@@ -206,4 +222,25 @@ func validateStatePaths(state *State) error {
 func HashBytes(data []byte) string {
 	h := sha256.Sum256(data)
 	return fmt.Sprintf("%x", h)
+}
+
+// archetype gives the recorded archetype, or nil for no record or state from an older release.
+func (s *AppliedState) archetype() *ArchetypeState {
+	if s == nil {
+		return nil
+	}
+	return s.Archetype
+}
+
+// stateDiffers says whether two states give different records.
+func stateDiffers(old, new *State) (bool, error) {
+	oldData, err := yaml.Marshal(old)
+	if err != nil {
+		return false, err
+	}
+	newData, err := yaml.Marshal(new)
+	if err != nil {
+		return false, err
+	}
+	return string(oldData) != string(newData), nil
 }
