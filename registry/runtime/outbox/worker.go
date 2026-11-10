@@ -559,6 +559,17 @@ func (m *metrics) hookFailed(ctx context.Context, destination string) {
 	}
 }
 
+// OldestAge gives the age of the oldest message of destination that is not done, or zero when it has none
+// (ST-SUP-RP01-LC29). It reads through the same relay function as the gauge outbox.oldest.age (ST-SUP-RP01-LC07), so
+// a caller such as the relay's watch reads it with no metric pipeline. A read that fails gives an error, never zero.
+func (w *Worker) OldestAge(ctx context.Context, destination string) (time.Duration, error) {
+	ages, err := w.oldestAges(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("outbox: read the oldest age of %q: %w", destination, err)
+	}
+	return time.Duration(ages[destination] * float64(time.Second)), nil
+}
+
 // oldestAges reads the age of the oldest message of each destination that is not done, and gives 0 for each
 // registered destination with no such message (ST-SUP-RP01-LC07). A discarded message is not waiting, so it does
 // not count.
