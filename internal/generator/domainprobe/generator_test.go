@@ -237,3 +237,77 @@ func receiverType(fn *ast.FuncDecl) string {
 	}
 	return ""
 }
+
+// enumFill is a fill package that passes an untyped string constant and a converted value that the declaration
+// does not declare, and a test of it that records what the probe sends and drops.
+const enumFill = `package enum
+
+import "example.com/reservations/probes"
+
+// Untyped passes the untyped string constant "short".
+func Untyped(p probes.ReserveAndChargeProbe, r probes.LoadedReservation) { p.ReservationRefused(r, "short") }
+
+// Converted passes a value that the declaration does not declare.
+func Converted(p probes.ReserveAndChargeProbe, r probes.LoadedReservation) {
+	p.ReservationRefused(r, probes.ReservationRefusedReason("lost"))
+}
+
+// Count emits reservations_refused with the reason given.
+func Count(p probes.ReserveAndChargeProbe, reason probes.ReservationsRefusedReason) { p.ReservationsRefused(reason) }
+`
+
+const enumFillTest = `package enum
+
+import (
+	"testing"
+
+	"example.com/reservations/probes"
+	"stego.dev/runtime/probe"
+)
+
+func TestEnum(t *testing.T) {
+	t.Run("ST-SUP-RC34-OC02-T01 the declared value is sent and a value outside the set is dropped and counted", func(t *testing.T) {
+		recorder := probe.NewRecorder(nil)
+		p, call := probes.RecordReserveAndCharge(recorder)
+		Count(p, "short")
+		Count(p, probes.ReservationsRefusedReason("lost"))
+		call.Commit()
+		recorder.ExpectEmitted(t, "reservations_refused", probe.FieldValue{Name: "reason", Value: "short"})
+		if got := len(recorder.Emissions("reservations_refused")); got != 1 {
+			t.Errorf("%d emissions of reservations_refused, want 1", got)
+		}
+		if recorder.Dropped() != 1 {
+			t.Errorf("%d emissions dropped, want the one of lost", recorder.Dropped())
+		}
+	})
+}
+`
+
+func TestEnumField(t *testing.T) {
+	t.Run("ST-SUP-RC34-OC02-T01 An enum field is a named type with one constant per value", func(t *testing.T) {
+		s := generateService(t, reservationContext())
+		pkg, _, _, _ := s.probePackage()
+		obj := pkg.Scope().Lookup("ReservationRefusedReason")
+		if obj == nil {
+			t.Fatal("the probe package declares no ReservationRefusedReason")
+		}
+		named, ok := obj.Type().(*gotypes.Named)
+		if basic, isBasic := obj.Type().Underlying().(*gotypes.Basic); !ok || !isBasic || basic.Kind() != gotypes.String {
+			t.Fatalf("ReservationRefusedReason is %s, want a named string type", obj.Type())
+		}
+		var constants []string
+		for _, name := range pkg.Scope().Names() {
+			if c, isConst := pkg.Scope().Lookup(name).(*gotypes.Const); isConst && gotypes.Identical(c.Type(), named) {
+				constants = append(constants, name)
+			}
+		}
+		if strings.Join(constants, " ") != "ReservationRefusedReasonExpired ReservationRefusedReasonShort" {
+			t.Errorf("the constants of ReservationRefusedReason are %v", constants)
+		}
+		s.write("fills/enum/enum.go", enumFill)
+		s.write("fills/enum/enum_test.go", enumFillTest)
+		if out, err := s.goTool("test", "-count=1", "./fills/enum"); err != nil {
+			t.Fatalf("the fills that pass \"short\" and ReservationRefusedReason(\"lost\") do not both compile and pass: %v\n%s", err, out)
+		}
+	})
+}
