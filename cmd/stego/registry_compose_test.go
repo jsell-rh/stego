@@ -29,16 +29,16 @@ func commonRegistryFiles() map[string]string {
 			"fields:\n  - name: id\n    meaning: The identity of the entity.\n  - name: version\n    meaning: A count of the changes to the entity that starts at 1.\nconformance: conformance/store-port\n",
 		"ports/auth-port/port.yaml": "kind: port\nname: auth-port\nundertakes: Names the caller of a request.\n" +
 			"fields:\n  - name: subject\n    meaning: The identity of the caller.\nconformance: conformance/auth-port\n",
-		"components/store-a/component.yaml":   component("store-a", "internal/store", "[store-port]", "[]", "[]"),
-		"components/auth-a/component.yaml":    component("auth-a", "internal/auth", "[auth-port]", "[]", "[]"),
-		"components/api-a/component.yaml":     component("api-a", "internal/api", "[]", "[store-port, auth-port]", "\n  - name: before_create\n    proto: stego.components.api_a.slots.BeforeCreate\n"),
+		"components/store-a/component.yaml": component("store-a", "internal/store", "[store-port]", "[]", "[]"),
+		"components/auth-a/component.yaml":  component("auth-a", "internal/auth", "[auth-port]", "[]", "[]"),
+		"components/api-a/component.yaml":   component("api-a", "internal/api", "[]", "[store-port, auth-port]", "\n  - name: before_create\n    proto: stego.components.api_a.slots.BeforeCreate\n"),
 		"components/api-a/slots/before_create.proto": "syntax = \"proto3\";\n\npackage stego.components.api_a.slots;\n\n" +
 			"message BeforeCreateRequest {\n  string entity = 1;\n  string actor = 2;\n}\n\nmessage BeforeCreateResponse {}\n\n" +
 			"service BeforeCreate {\n  rpc Check(BeforeCreateRequest) returns (BeforeCreateResponse);\n}\n",
 		"components/tenancy/component.yaml":   component("tenancy", "internal/tenancy", "[]", "[]", "[]"),
 		"components/audit-log/component.yaml": component("audit-log", "internal/audit", "[]", "[]", "[]"),
 		"components/extra-a/component.yaml":   component("extra-a", "internal/extra", "[]", "[]", "[]"),
-		"archetypes/svc-arch/archetype.yaml": "kind: archetype\nruntime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}\nname: svc-arch\nlanguage: go\nversion: 1.0.0\n" +
+		"archetypes/svc-arch/archetype.yaml": "kind: archetype\nruntime: {module: github.com/jsell-rh/stego/registry/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}\nname: svc-arch\nlanguage: go\nversion: 1.0.0\n" +
 			"components:\n  - api-a\n  - store-a\n  - auth-a\n  - tenancy\n  - audit-log\n" +
 			"conventions:\n  layout: flat\n  logging: structured-json\n  cors: disabled\n" +
 			"compatible_mixins:\n  - extra-mixin\nbindings:\n  store-port: store-a\n  auth-port: auth-a\n",

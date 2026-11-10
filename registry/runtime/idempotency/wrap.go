@@ -293,7 +293,7 @@ func (req Request) check() error {
 // the tenant, the principal and the key, each prefixed by its length. lockSQL mixes in the OID of the key table that
 // the search path resolves, so two schemas or services in one database never share a lock.
 func (req Request) lockID() int64 {
-	sum, err := sumParts([]byte("stego.dev/runtime/idempotency"), []byte(req.Tenant), []byte(req.Principal),
+	sum, err := sumParts([]byte("github.com/jsell-rh/stego/registry/runtime/idempotency"), []byte(req.Tenant), []byte(req.Principal),
 		[]byte(req.Key))
 	if err != nil {
 		panic(err) // check keeps every part short.

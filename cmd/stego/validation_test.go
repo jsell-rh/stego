@@ -77,7 +77,7 @@ func TestCommandsRejectInvalidApplicationFactories(t *testing.T) {
 			if err := os.MkdirAll(arch, 0755); err != nil {
 				t.Fatal(err)
 			}
-			declaration := "kind: archetype\nruntime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}\nname: application\nlanguage: go\nversion: 1.0.0\ncomponents: [" + component + ", postgres-adapter]\ndefault_auth: jwt-auth\nbindings:\n  storage-adapter: postgres-adapter\n  auth-provider: jwt-auth\n"
+			declaration := "kind: archetype\nruntime: {module: github.com/jsell-rh/stego/registry/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}\nname: application\nlanguage: go\nversion: 1.0.0\ncomponents: [" + component + ", postgres-adapter]\ndefault_auth: jwt-auth\nbindings:\n  storage-adapter: postgres-adapter\n  auth-provider: jwt-auth\n"
 			if err := os.WriteFile(filepath.Join(arch, "archetype.yaml"), []byte(declaration), 0600); err != nil {
 				t.Fatal(err)
 			}
@@ -122,7 +122,7 @@ func TestCommandsRejectInvalidGoPackageNamespaces(t *testing.T) {
 		t.Run(namespace, func(t *testing.T) {
 			registry := t.TempDir()
 			files := map[string]string{
-				"archetypes/application/archetype.yaml": "kind: archetype\nruntime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}\nname: application\nlanguage: go\nversion: 1.0.0\ncomponents: [controller]\n",
+				"archetypes/application/archetype.yaml": "kind: archetype\nruntime: {module: github.com/jsell-rh/stego/registry/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}\nname: application\nlanguage: go\nversion: 1.0.0\ncomponents: [controller]\n",
 				"components/controller/component.yaml":  "kind: component\nname: controller\nversion: 1.0.0\nstage: ga\noutput_namespace: " + namespace + "\n",
 			}
 			for name, data := range files {

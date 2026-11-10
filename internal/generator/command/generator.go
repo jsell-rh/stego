@@ -1,5 +1,5 @@
 // Package command generates the per-service code of the command capability (ST-SUP-RC32) on the command runtime
-// stego.dev/runtime/command (ST-SUP-RP10). For each declared command it emits the command slot contract (the typed
+// github.com/jsell-rh/stego/registry/runtime/command (ST-SUP-RP10). For each declared command it emits the command slot contract (the typed
 // request and response messages, the fill type and the command handle), the typed refusals, the repository
 // declarations of the entities that the command writes, the command declaration with its permission and resource,
 // the probe wiring through the domain probes (ST-SUP-RC34), and one HTTP handler and one gRPC handler that call the
@@ -26,7 +26,7 @@ type Generator struct{}
 const (
 	commandSlot    = "command.command"
 	probeComponent = "domain-probe"
-	runtimeModule  = "stego.dev/runtime"
+	runtimeModule  = "github.com/jsell-rh/stego/registry/runtime"
 	protobufModule = "google.golang.org/protobuf"
 	protobufPin    = "v1.36.12"
 	grpcModule     = "google.golang.org/grpc"

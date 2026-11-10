@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"stego.dev/runtime/audit"
+	"github.com/jsell-rh/stego/registry/runtime/audit"
 )
 
 // states runs the redacting path of the audit runtime with the emitted settings and the emitted fields of an

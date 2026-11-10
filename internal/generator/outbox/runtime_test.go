@@ -94,7 +94,7 @@ func TestRuntimeOutput(t *testing.T) {
 			t.Fatalf("the outbox emits %s, want its wiring %s only", got, runtimeFile)
 		}
 		source := string(files["outbox"][0].Bytes())
-		for _, want := range []string{`"stego.dev/runtime/outbox"`, "outbox.Migration(runtimeRole, workerRole)", "outbox.NewWorker(queue, config)"} {
+		for _, want := range []string{`"github.com/jsell-rh/stego/registry/runtime/outbox"`, "outbox.Migration(runtimeRole, workerRole)", "outbox.NewWorker(queue, config)"} {
 			if !strings.Contains(source, want) {
 				t.Fatalf("the outbox wiring holds no %s", want)
 			}
@@ -158,7 +158,7 @@ func generateService(t *testing.T) *service {
 		t.Fatal(err)
 	}
 	s := &service{t: t, dir: t.TempDir()}
-	s.write("go.mod", "module "+moduleName+"\n\ngo 1.26.10\n\nrequire stego.dev/runtime v0.0.0\n\nreplace stego.dev/runtime => "+runtimeDir+"\n")
+	s.write("go.mod", "module "+moduleName+"\n\ngo 1.26.10\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.0.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n")
 	sum, err := os.ReadFile(filepath.Join(runtimeDir, "go.sum"))
 	if err != nil {
 		t.Fatal(err)

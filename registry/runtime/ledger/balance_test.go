@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"stego.dev/runtime/money"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/money"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // balance reads the balance of acme's account in a transaction of its own.

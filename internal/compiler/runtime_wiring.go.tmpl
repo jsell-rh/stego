@@ -26,17 +26,17 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
-	"stego.dev/runtime/audit"
-	"stego.dev/runtime/authn"
-	stegoauthz "stego.dev/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/audit"
+	"github.com/jsell-rh/stego/registry/runtime/authn"
+	stegoauthz "github.com/jsell-rh/stego/registry/runtime/authz"
 {{- if or .Commands .API}}
-	"stego.dev/runtime/command"
+	"github.com/jsell-rh/stego/registry/runtime/command"
 {{- end}}
-	"stego.dev/runtime/idempotency"
-	"stego.dev/runtime/otel"
-	"stego.dev/runtime/probe"
-	"stego.dev/runtime/query"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/idempotency"
+	"github.com/jsell-rh/stego/registry/runtime/otel"
+	"github.com/jsell-rh/stego/registry/runtime/probe"
+	"github.com/jsell-rh/stego/registry/runtime/query"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 
 	svcaudit {{printf "%q" .Audit}}
 	svcauthz {{printf "%q" .Authz}}

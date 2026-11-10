@@ -13,7 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"stego.dev/runtime/idempotency"
+	"github.com/jsell-rh/stego/registry/runtime/idempotency"
 )
 
 // lp is a part of an inbound key: its length in bytes as a 4-byte big-endian unsigned integer, then the part.

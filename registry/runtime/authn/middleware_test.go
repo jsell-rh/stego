@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"stego.dev/runtime/authn/authntest"
+	"github.com/jsell-rh/stego/registry/runtime/authn/authntest"
 )
 
 func TestMiddleware(t *testing.T) {

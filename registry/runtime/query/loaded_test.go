@@ -14,7 +14,7 @@ import (
 // constructor that a fill must not reach.
 const genSource = `package gen
 
-import "stego.dev/runtime/query"
+import "github.com/jsell-rh/stego/registry/runtime/query"
 
 type Reservation struct{ ID, SKU string }
 
@@ -26,14 +26,14 @@ var _ = newLoadedReservation
 `
 
 // buildFill builds a fill package with the body src in a module outside the runtime module, beside the generated
-// package gen, and gives the error of go build with its output. The module resolves stego.dev/runtime from this
+// package gen, and gives the error of go build with its output. The module resolves github.com/jsell-rh/stego/registry/runtime from this
 // checkout through the work file of scripts/runtime-workspace.sh.
 func buildFill(t *testing.T, src string) error {
 	t.Helper()
 	dir := t.TempDir()
 	module := filepath.Join(dir, "outside")
 	files := map[string]string{
-		"go.mod":       "module example.com/outside\n\ngo 1.26.10\n\nrequire stego.dev/runtime v0.0.0\n",
+		"go.mod":       "module example.com/outside\n\ngo 1.26.10\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.0.0\n",
 		"gen/gen.go":   genSource,
 		"fill/fill.go": "package fill\n\nimport \"example.com/outside/gen\"\n\nvar _ gen.LoadedReservation\n" + src,
 	}

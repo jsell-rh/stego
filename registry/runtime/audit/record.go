@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // Tx is the part of a store transaction that the package uses (ST-STD-RUNTIME-R06). *sql.Tx satisfies it. The

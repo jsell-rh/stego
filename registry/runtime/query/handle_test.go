@@ -19,14 +19,14 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/stdlib"
 
-	"stego.dev/runtime/audit"
-	"stego.dev/runtime/authz"
-	"stego.dev/runtime/internal/pgtest"
-	"stego.dev/runtime/internal/seal"
-	"stego.dev/runtime/internal/staging"
-	"stego.dev/runtime/outbox"
-	"stego.dev/runtime/probe"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/audit"
+	"github.com/jsell-rh/stego/registry/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/internal/pgtest"
+	"github.com/jsell-rh/stego/registry/runtime/internal/seal"
+	"github.com/jsell-rh/stego/registry/runtime/internal/staging"
+	"github.com/jsell-rh/stego/registry/runtime/outbox"
+	"github.com/jsell-rh/stego/registry/runtime/probe"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 func TestMain(m *testing.M) {

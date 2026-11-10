@@ -14,9 +14,9 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	"stego.dev/runtime/internal/seal"
-	"stego.dev/runtime/outbox"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/internal/seal"
+	"github.com/jsell-rh/stego/registry/runtime/outbox"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // Clock is the clock of the revocation retention. A lease.Clock satisfies it.

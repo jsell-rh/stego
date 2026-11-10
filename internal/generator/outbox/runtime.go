@@ -12,7 +12,7 @@ import (
 
 // The outbox on the runtime (ST-SUP-RC18-OC30). When the generated commands and queries carry all data access
 // (gen.Context.RuntimeData), the queue table, its policies and its relay functions come from the runtime outbox
-// migration, outbox.Migration of the pinned stego.dev/runtime (ST-SUP-RP01-LC19), and this component emits only
+// migration, outbox.Migration of the pinned github.com/jsell-rh/stego/registry/runtime (ST-SUP-RP01-LC19), and this component emits only
 // what varies with the declaration (ST-STD-RUNTIME-R05): the destinations of the service with their payload
 // limits, the migration call with the roles, and the wiring of the queue and the worker. It emits no queue table,
 // no queue code and no worker code of its own, and no grant: the runtime migration grants the runtime role and the
@@ -23,9 +23,9 @@ const runtimeFile = "outbox.go"
 
 // The runtime packages that the emitted wiring imports.
 const (
-	runtimeOutbox      = "stego.dev/runtime/outbox"
-	runtimeAudit       = "stego.dev/runtime/audit"
-	runtimeAuditOutbox = "stego.dev/runtime/audit/auditoutbox"
+	runtimeOutbox      = "github.com/jsell-rh/stego/registry/runtime/outbox"
+	runtimeAudit       = "github.com/jsell-rh/stego/registry/runtime/audit"
+	runtimeAuditOutbox = "github.com/jsell-rh/stego/registry/runtime/audit/auditoutbox"
 )
 
 // auditComponent is the component whose audit sink is a destination of the outbox (ST-SUP-RC28-OC07).
@@ -108,7 +108,7 @@ func generateRuntime(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 // renderRuntime writes the source of the outbox wiring package.
 func renderRuntime(p runtimePlan) []byte {
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "// Package %s is the outbox wiring of the service on the outbox runtime, stego.dev/runtime/outbox\n", p.Package)
+	fmt.Fprintf(&b, "// Package %s is the outbox wiring of the service on the outbox runtime, github.com/jsell-rh/stego/registry/runtime/outbox\n", p.Package)
 	b.WriteString("// (ST-SUP-RC18-OC30). The queue table, its policies and its relay functions come from the runtime migration; this\n// package names the destinations of the service and wires the queue and the worker.\n")
 	fmt.Fprintf(&b, "package %s\n\nimport (\n\t\"database/sql\"\n", p.Package)
 	if p.Audit {

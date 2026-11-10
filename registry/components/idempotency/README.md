@@ -1,5 +1,5 @@
 This component generates the per-service part of the inbound idempotency
-key, on top of the runtime library stego.dev/runtime/idempotency. The key
+key, on top of the runtime library github.com/jsell-rh/stego/registry/runtime/idempotency. The key
 table, the transaction wrapper, the canonical JSON fingerprint and Purge
 are in the runtime library.
 

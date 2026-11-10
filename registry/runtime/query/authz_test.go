@@ -24,9 +24,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"stego.dev/runtime/authz"
-	"stego.dev/runtime/internal/pgtest"
-	"stego.dev/runtime/outbox"
+	"github.com/jsell-rh/stego/registry/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/internal/pgtest"
+	"github.com/jsell-rh/stego/registry/runtime/outbox"
 )
 
 // unitDriver is a database/sql driver of the unit tests. It answers only the two reads that a handle makes outside

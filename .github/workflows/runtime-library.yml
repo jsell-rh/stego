@@ -1,8 +1,8 @@
 name: Runtime library checks
 
-# The runtime library stego.dev/runtime is the Go module in registry/runtime (ST-SUP-TOOL11). It is tagged and
-# released with the common registry (ST-STD-RUNTIME-R04), with tags registry/runtime/vX.Y.Z, as Go names the tags of
-# a module in a subfolder. This workflow vets and tests the module, proves that the local workspace resolves it with
+# The runtime library github.com/jsell-rh/stego/registry/runtime is the Go module in registry/runtime
+# (ST-SUP-TOOL11). It is tagged and released with the common registry (ST-STD-RUNTIME-R04), with tags
+# registry/runtime/vX.Y.Z, as Go names the tags of a module in a subfolder. This workflow vets and tests the module, proves that the local workspace resolves it with
 # no network (ST-SUP-TOOL12), and runs apidiff against the last tag of the same major module path
 # (ST-STD-RUNTIME-R03). Before the first tag, apidiff has no base and the step says so and passes.
 
@@ -62,7 +62,7 @@ jobs:
         run: |
           probe="$RUNNER_TEMP/runtime-probe"
           mkdir -p "$probe"
-          printf 'module example.com/runtimeprobe\n\ngo 1.26.10\n\nrequire stego.dev/runtime v0.0.0\n' > "$probe/go.mod"
+          printf 'module example.com/runtimeprobe\n\ngo 1.26.10\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.0.0\n' > "$probe/go.mod"
           {
             printf 'package main\n\nimport (\n'
             (cd registry/runtime && go list ./...) | grep -v '/internal/' | sed 's/.*/\t_ "&"/'

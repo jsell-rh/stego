@@ -14,12 +14,12 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"stego.dev/runtime/audit"
-	"stego.dev/runtime/authz"
-	"stego.dev/runtime/internal/seal"
-	"stego.dev/runtime/internal/staging"
-	"stego.dev/runtime/probe"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/audit"
+	"github.com/jsell-rh/stego/registry/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/internal/seal"
+	"github.com/jsell-rh/stego/registry/runtime/internal/staging"
+	"github.com/jsell-rh/stego/registry/runtime/probe"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // testCursorKey is the cursor key of the tests: 32 fixed bytes.

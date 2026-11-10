@@ -25,10 +25,10 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/stdlib"
 
-	"stego.dev/runtime/internal/pgtest"
-	"stego.dev/runtime/lease"
-	"stego.dev/runtime/money"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/internal/pgtest"
+	"github.com/jsell-rh/stego/registry/runtime/lease"
+	"github.com/jsell-rh/stego/registry/runtime/money"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // The PostgreSQL tests run against the local PostgreSQL server of pgtest: the server that STEGO_TEST_POSTGRES_DSN
@@ -1458,7 +1458,7 @@ func typeCheck(t *testing.T) (*types.Package, []*ast.File, *types.Info) {
 	}
 	info := &types.Info{Uses: map[*ast.Ident]types.Object{}, Defs: map[*ast.Ident]types.Object{}}
 	config := types.Config{Importer: importer.ForCompiler(fset, "source", nil)}
-	pkg, err := config.Check("stego.dev/runtime/ledger", fset, files, info)
+	pkg, err := config.Check("github.com/jsell-rh/stego/registry/runtime/ledger", fset, files, info)
 	if err != nil {
 		t.Fatalf("type-check the package: %v", err)
 	}

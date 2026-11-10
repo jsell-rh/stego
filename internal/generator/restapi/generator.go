@@ -4418,7 +4418,7 @@ type idempotencyHeader struct {
 }
 
 // idempotencyKeys reads the declaration's idempotency setting when the idempotency component is in the service,
-// and gives nil otherwise. The problem types join the slugs of stego.dev/runtime/idempotency to the problem base.
+// and gives nil otherwise. The problem types join the slugs of github.com/jsell-rh/stego/registry/runtime/idempotency to the problem base.
 func idempotencyKeys(ctx gen.Context) *idempotencyHeader {
 	if ctx.Idempotency == nil || ctx.PeerNamespaces["idempotency"] == "" {
 		return nil

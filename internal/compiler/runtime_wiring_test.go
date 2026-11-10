@@ -179,7 +179,7 @@ func (p *wiringProject) useLocalRuntime() {
 	if err != nil {
 		p.t.Fatal(err)
 	}
-	p.write("go.mod", p.read("go.mod")+"\nreplace stego.dev/runtime => "+runtimeDir+"\n")
+	p.write("go.mod", p.read("go.mod")+"\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n")
 }
 
 // planned gives the paths that a plan output lists with the action given.

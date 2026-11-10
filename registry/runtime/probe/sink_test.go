@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"stego.dev/runtime/otel"
+	"github.com/jsell-rh/stego/registry/runtime/otel"
 )
 
 // emitCalls emits n events in calls of at most HoldLimit emissions, each a fill that returns, then commits.

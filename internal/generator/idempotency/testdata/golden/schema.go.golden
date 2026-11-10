@@ -4,7 +4,7 @@
 
 package idempotency
 
-import stegoidempotency "stego.dev/runtime/idempotency"
+import stegoidempotency "github.com/jsell-rh/stego/registry/runtime/idempotency"
 
 // SchemaSQL creates the key table idempotency_keys. It is the runtime's Migration, and the service applies it
 // with its own migrations.

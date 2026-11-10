@@ -2,7 +2,7 @@ package e2e
 
 // This file runs inside the module of the generated test service shop (testdata/service.yaml): its query contract
 // out/queries, its handlers out/queries/serve and its probes out/probes, as the generators emit them, and the fills of
-// testdata/fills. It serves the handlers over HTTP with httptest, on the query runtime of stego.dev/runtime, against
+// testdata/fills. It serves the handlers over HTTP with httptest, on the query runtime of github.com/jsell-rh/stego/registry/runtime, against
 // the local PostgreSQL server of STEGO_TEST_POSTGRES_DSN and the local SpiceDB server of STEGO_TEST_SPICEDB_ENDPOINT,
 // with the authentication runtime's verifier on a local key. A wire recorder between the store pool and PostgreSQL
 // reads every statement of the query transactions, and a recorder around the SpiceDB provider reads every decision.
@@ -45,14 +45,14 @@ import (
 	"example.com/shop/out/queries"
 	"example.com/shop/out/queries/serve"
 
-	"stego.dev/runtime/audit"
-	"stego.dev/runtime/authn"
-	"stego.dev/runtime/authn/authntest"
-	"stego.dev/runtime/authz"
-	"stego.dev/runtime/outbox"
-	"stego.dev/runtime/probe"
-	"stego.dev/runtime/query"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/audit"
+	"github.com/jsell-rh/stego/registry/runtime/authn"
+	"github.com/jsell-rh/stego/registry/runtime/authn/authntest"
+	"github.com/jsell-rh/stego/registry/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/outbox"
+	"github.com/jsell-rh/stego/registry/runtime/probe"
+	"github.com/jsell-rh/stego/registry/runtime/query"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 //go:embed tables.sql

@@ -35,10 +35,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"stego.dev/runtime/authn"
-	"stego.dev/runtime/authn/authntest"
-	"stego.dev/runtime/authz"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/authn"
+	"github.com/jsell-rh/stego/registry/runtime/authn/authntest"
+	"github.com/jsell-rh/stego/registry/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 
 	"example.com/shop/out/internal/stegoruntime"
 	"example.com/shop/out/internal/storage"

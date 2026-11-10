@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"stego.dev/runtime/audit"
-	"stego.dev/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/audit"
+	"github.com/jsell-rh/stego/registry/runtime/authz"
 )
 
 // errForeignValue is the error of a call that takes a loaded value that this handle did not load.

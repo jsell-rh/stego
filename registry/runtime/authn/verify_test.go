@@ -25,8 +25,8 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
-	"stego.dev/runtime/authn/authntest"
-	"stego.dev/runtime/internal/seal"
+	"github.com/jsell-rh/stego/registry/runtime/authn/authntest"
+	"github.com/jsell-rh/stego/registry/runtime/internal/seal"
 )
 
 const (

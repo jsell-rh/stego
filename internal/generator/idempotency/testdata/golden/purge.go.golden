@@ -10,7 +10,7 @@ import (
 	"errors"
 	"time"
 
-	stegoidempotency "stego.dev/runtime/idempotency"
+	stegoidempotency "github.com/jsell-rh/stego/registry/runtime/idempotency"
 )
 
 // PurgeInterval is the wait between two runs of Purge.

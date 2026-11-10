@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"stego.dev/runtime/lease"
-	"stego.dev/runtime/otel"
+	"github.com/jsell-rh/stego/registry/runtime/lease"
+	"github.com/jsell-rh/stego/registry/runtime/otel"
 )
 
 // The schema backfill observations are what a backfill of the lease runtime takes.

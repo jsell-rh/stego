@@ -46,7 +46,7 @@ the fills is essential complexity.
 A service whose archetype holds the command and query components, and whose
 record does not state the GORM store, runs on the runtime data path: its
 commands, its queries and its collection operations run on the runtime library
-stego.dev/runtime. The record states the data path of each run, so the service
+github.com/jsell-rh/stego/registry/runtime. The record states the data path of each run, so the service
 stays on it. Its main reads the deployment settings from the environment, and
 takes the issuer and the audience that the declaration states for jwt-auth. Its
 binary with the one argument `migrate` is the migration job: it runs as the owner

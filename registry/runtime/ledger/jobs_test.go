@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"stego.dev/runtime/lease"
-	"stego.dev/runtime/modes"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/lease"
+	"github.com/jsell-rh/stego/registry/runtime/modes"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 var holderSeq atomic.Int64

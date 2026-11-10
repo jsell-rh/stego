@@ -5,7 +5,7 @@ name it in Emitted by and no other method.
 
 A method takes loaded entity values, enum constants, bools and measures. It has
 no free text, no context and no result. It calls the probe runtime
-(stego.dev/runtime/probe) only, which sends the observation to the telemetry
+(github.com/jsell-rh/stego/registry/runtime/probe) only, which sends the observation to the telemetry
 runtime and to the local console sink.
 
 The component also generates a constructor for fill tests on probe.Recorder for

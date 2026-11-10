@@ -16,10 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"stego.dev/runtime/authn"
-	"stego.dev/runtime/authn/authntest"
-	"stego.dev/runtime/internal/staging"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/authn"
+	"github.com/jsell-rh/stego/registry/runtime/authn/authntest"
+	"github.com/jsell-rh/stego/registry/runtime/internal/staging"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // verifiedIdentity gives a genuine identity of the authentication runtime for the user ID userID: it mints a token
@@ -232,7 +232,7 @@ func TestSubjects(t *testing.T) {
 			t.Error("the zero staging key gave a principal")
 		}
 		// A package outside the module cannot import the internal package staging, so it cannot make the key.
-		err = buildOutside(t, "package outside\n\nimport (\n\t\"stego.dev/runtime/authz\"\n\t\"stego.dev/runtime/internal/staging\"\n)\n\n"+
+		err = buildOutside(t, "package outside\n\nimport (\n\t\"github.com/jsell-rh/stego/registry/runtime/authz\"\n\t\"github.com/jsell-rh/stego/registry/runtime/internal/staging\"\n)\n\n"+
 			"func Use() { _, _ = authz.StagingPrincipal(staging.NewStaging(), \"user:alice\") }\n")
 		if err == nil || !strings.Contains(err.Error(), "internal package") {
 			t.Fatalf("the outside package gave %v, want the build to refuse the internal package", err)
@@ -263,13 +263,13 @@ func stagingImporters(t *testing.T) (importers, callers, dotted []string) {
 			return err
 		}
 		rel, _ := filepath.Rel(root, filepath.Dir(path))
-		pkg := "stego.dev/runtime/" + filepath.ToSlash(rel)
-		if pkg == "stego.dev/runtime/internal/staging" {
+		pkg := "github.com/jsell-rh/stego/registry/runtime/" + filepath.ToSlash(rel)
+		if pkg == "github.com/jsell-rh/stego/registry/runtime/internal/staging" {
 			return nil
 		}
 		local := ""
 		for _, spec := range file.Imports {
-			if spec.Path.Value == `"stego.dev/runtime/internal/staging"` {
+			if spec.Path.Value == `"github.com/jsell-rh/stego/registry/runtime/internal/staging"` {
 				seen[pkg] = true
 				local = "staging"
 				if spec.Name != nil {
@@ -315,26 +315,26 @@ func TestStagingImporters(t *testing.T) {
 			t.Errorf("%v import the package staging with a dot or a blank name, which hides their calls", dotted)
 		}
 		for _, pkg := range importers {
-			if pkg != "stego.dev/runtime/command" && pkg != "stego.dev/runtime/authz" {
+			if pkg != "github.com/jsell-rh/stego/registry/runtime/command" && pkg != "github.com/jsell-rh/stego/registry/runtime/authz" {
 				t.Errorf("%s imports the package staging; only the command runtime may, and authz for the type", pkg)
 			}
 		}
 		for _, pkg := range callers {
-			if pkg != "stego.dev/runtime/command" {
+			if pkg != "github.com/jsell-rh/stego/registry/runtime/command" {
 				t.Errorf("%s calls staging.NewStaging; only the command runtime may", pkg)
 			}
 		}
 		if len(importers) == 0 {
 			t.Fatal("the scan found no importer: authz names the type, so the scan read nothing")
 		}
-		err := buildOutside(t, "package outside\n\nimport \"stego.dev/runtime/internal/staging\"\n\nvar _ = staging.NewStaging()\n")
+		err := buildOutside(t, "package outside\n\nimport \"github.com/jsell-rh/stego/registry/runtime/internal/staging\"\n\nvar _ = staging.NewStaging()\n")
 		if err == nil || !strings.Contains(err.Error(), "internal package") {
 			t.Fatalf("the outside package gave %v, want the build to refuse it", err)
 		}
 	})
 }
 
-// buildOutside builds a package of a module outside the runtime module, which resolves stego.dev/runtime from this
+// buildOutside builds a package of a module outside the runtime module, which resolves github.com/jsell-rh/stego/registry/runtime from this
 // checkout through the work file of scripts/runtime-workspace.sh, and gives the build's error with its output.
 func buildOutside(t *testing.T, src string) error {
 	t.Helper()
@@ -343,7 +343,7 @@ func buildOutside(t *testing.T, src string) error {
 	if err := os.MkdirAll(module, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(module, "go.mod"), []byte("module example.com/outside\n\ngo 1.26.10\n\nrequire stego.dev/runtime v0.0.0\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(module, "go.mod"), []byte("module example.com/outside\n\ngo 1.26.10\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.0.0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(module, "outside.go"), []byte(src), 0o644); err != nil {

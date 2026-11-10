@@ -1,4 +1,4 @@
-module stego.dev/runtime
+module github.com/jsell-rh/stego/registry/runtime
 
 go 1.26.10
 

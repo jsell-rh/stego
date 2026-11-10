@@ -18,11 +18,11 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"stego.dev/runtime/internal/pgtest"
-	"stego.dev/runtime/internal/seal"
-	"stego.dev/runtime/outbox"
-	"stego.dev/runtime/pgconn"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/internal/pgtest"
+	"github.com/jsell-rh/stego/registry/runtime/internal/seal"
+	"github.com/jsell-rh/stego/registry/runtime/outbox"
+	"github.com/jsell-rh/stego/registry/runtime/pgconn"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // The test uses the PostgreSQL server of pgtest (ST-STD-LOCAL).

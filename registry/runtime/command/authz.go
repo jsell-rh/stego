@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"stego.dev/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/authz"
 )
 
 // ErrNoResource is the error of an evaluation with no loaded value of the handle: every decision of a fill is on a

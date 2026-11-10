@@ -10,7 +10,7 @@ its package under fills. It gets the decoded request and one read-only query
 handle.
 
 Each get and list query gets one handler on query.Serve of the runtime library
-(stego.dev/runtime/query), which serve.Handlers.Routes mounts. On the runtime
+(github.com/jsell-rh/stego/registry/runtime/query), which serve.Handlers.Routes mounts. On the runtime
 data path the compiler makes the handlers with the query runtime, the verifier
 and the probes, and main.go registers the route of each query. The handler
 verifies the

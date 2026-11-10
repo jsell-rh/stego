@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // State is a dispatch state of a message (ST-SUP-RP01-LC08).

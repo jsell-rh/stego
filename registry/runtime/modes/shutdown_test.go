@@ -22,9 +22,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 
-	"stego.dev/runtime/controller"
-	"stego.dev/runtime/internal/pgtest"
-	"stego.dev/runtime/lease"
+	"github.com/jsell-rh/stego/registry/runtime/controller"
+	"github.com/jsell-rh/stego/registry/runtime/internal/pgtest"
+	"github.com/jsell-rh/stego/registry/runtime/lease"
 )
 
 // The integration tests of this file run against the local PostgreSQL server of pgtest: the server that

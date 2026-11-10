@@ -19,7 +19,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"stego.dev/runtime/internal/seal"
+	"github.com/jsell-rh/stego/registry/runtime/internal/seal"
 )
 
 // The bounds of a token (ST-SUP-RP13-LC05, ST-SUP-RP13-LC06).

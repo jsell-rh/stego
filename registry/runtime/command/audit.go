@@ -10,8 +10,8 @@ import (
 	otellog "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/trace"
 
-	"stego.dev/runtime/audit"
-	"stego.dev/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/audit"
+	"github.com/jsell-rh/stego/registry/runtime/authz"
 )
 
 // ErrorCodeInternal is the fixed error code of a command that fails with an internal error.

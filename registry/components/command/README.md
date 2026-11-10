@@ -1,5 +1,5 @@
 This component generates the commands of a service on the command runtime
-(stego.dev/runtime/command). It generates only what changes with the
+(github.com/jsell-rh/stego/registry/runtime/command). It generates only what changes with the
 declaration. For each declared command it generates:
 
 - the command slot contract in the package commands, which the fill imports:

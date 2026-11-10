@@ -9,7 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"stego.dev/runtime/internal/seal"
+	"github.com/jsell-rh/stego/registry/runtime/internal/seal"
 )
 
 // The bounds of the mapped claims (ST-SUP-RP13-LC13, LC18).

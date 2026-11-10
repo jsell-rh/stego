@@ -14,9 +14,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"stego.dev/runtime/idempotency"
-	"stego.dev/runtime/lease"
-	"stego.dev/runtime/outbox"
+	"github.com/jsell-rh/stego/registry/runtime/idempotency"
+	"github.com/jsell-rh/stego/registry/runtime/lease"
+	"github.com/jsell-rh/stego/registry/runtime/outbox"
 )
 
 // tick is the tick of the worker tests: due at 1793966400 seconds since the Unix epoch, a multiple of 1m.

@@ -17,13 +17,13 @@ import (
 	otellog "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/trace"
 
-	"stego.dev/runtime/audit"
-	"stego.dev/runtime/authz"
-	"stego.dev/runtime/idempotency"
-	"stego.dev/runtime/otel"
-	"stego.dev/runtime/outbox"
-	"stego.dev/runtime/probe"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/audit"
+	"github.com/jsell-rh/stego/registry/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/idempotency"
+	"github.com/jsell-rh/stego/registry/runtime/otel"
+	"github.com/jsell-rh/stego/registry/runtime/outbox"
+	"github.com/jsell-rh/stego/registry/runtime/probe"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // The timings of ST-SUP-RP10-LC25 and ST-SUP-RP10-LC28.
@@ -153,7 +153,7 @@ func New(ctx context.Context, cfg Config) (*Runtime, error) {
 		rt.slots.entities[e] = true
 	}
 	if cfg.Logger != nil {
-		rt.logger = cfg.Logger.Logger("stego.dev/runtime/command")
+		rt.logger = cfg.Logger.Logger("github.com/jsell-rh/stego/registry/runtime/command")
 	}
 	return rt, nil
 }

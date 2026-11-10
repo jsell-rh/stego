@@ -16,8 +16,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"stego.dev/runtime/lease"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/lease"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 var errFenced = lease.ErrFenced

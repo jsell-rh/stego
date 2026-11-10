@@ -112,7 +112,7 @@ func TestComponentDigest(t *testing.T) {
 		root := copyDigestFixture(t, false, 0o644, time.Now())
 		before := digestOf(t, root, "alpha")
 		editDigestFile(t, root, "components/beta/component.yaml", "version: 0.4.0", "version: 0.4.1")
-		writeDigestFile(t, root, "archetypes/other/archetype.yaml", "kind: archetype\nruntime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}\nname: other\nlanguage: go\nversion: 1.0.0\ncomponents: [beta]\n")
+		writeDigestFile(t, root, "archetypes/other/archetype.yaml", "kind: archetype\nruntime: {module: github.com/jsell-rh/stego/registry/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}\nname: other\nlanguage: go\nversion: 1.0.0\ncomponents: [beta]\n")
 		editDigestFile(t, root, "registry.yaml", "component-digest-fixture", "component-digest-fixture-renamed")
 		if after := digestOf(t, root, "alpha"); after != before {
 			t.Fatalf("a change outside component alpha changed its digest from %s to %s", before, after)

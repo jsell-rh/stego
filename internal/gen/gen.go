@@ -173,7 +173,7 @@ type Context struct {
 	// (ST-SUP-RC01-OC40). Generators must not change it.
 	Tenancy *Tenancy
 
-	// RuntimeData is true when the generated commands and queries on stego.dev/runtime carry all data access of
+	// RuntimeData is true when the generated commands and queries on github.com/jsell-rh/stego/registry/runtime carry all data access of
 	// the service (ST-SUP-RC20-OC37). The PostgreSQL adapter then creates each entity's table from the declaration
 	// as SQL and emits no store and no entity model (ST-SUP-RC01-OC41). The compiler sets it for a service that has
 	// the command and the query generators and whose record is not of a release on the GORM store; for any other

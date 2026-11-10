@@ -7,11 +7,11 @@ func renderServe(m *model) []byte {
 	w := &writer{}
 	w.f("package %s\n\nimport (\n\t\"context\"\n\t\"errors\"\n\t\"io\"\n\t\"net\"\n\t\"net/http\"\n\t\"strconv\"\n\t\"strings\"\n\t\"time\"\n\n", handlersFolder)
 	w.f("\t\"google.golang.org/grpc/codes\"\n\t\"google.golang.org/grpc/metadata\"\n\t\"google.golang.org/grpc/status\"\n\t\"google.golang.org/protobuf/encoding/protojson\"\n\t\"google.golang.org/protobuf/proto\"\n\n")
-	w.f("\t\"stego.dev/runtime/audit\"\n\t\"stego.dev/runtime/authn\"\n\t\"stego.dev/runtime/authz\"\n\t\"stego.dev/runtime/command\"\n\t\"stego.dev/runtime/idempotency\"\n")
+	w.f("\t\"github.com/jsell-rh/stego/registry/runtime/audit\"\n\t\"github.com/jsell-rh/stego/registry/runtime/authn\"\n\t\"github.com/jsell-rh/stego/registry/runtime/authz\"\n\t\"github.com/jsell-rh/stego/registry/runtime/command\"\n\t\"github.com/jsell-rh/stego/registry/runtime/idempotency\"\n")
 	if m.probeImport == "" {
-		w.f("\t\"stego.dev/runtime/probe\"\n")
+		w.f("\t\"github.com/jsell-rh/stego/registry/runtime/probe\"\n")
 	}
-	w.f("\t\"stego.dev/runtime/tenant\"\n\n\tcommands %q\n)\n\n%s%s", m.contractImport, serveSource, RunHelpers)
+	w.f("\t\"github.com/jsell-rh/stego/registry/runtime/tenant\"\n\n\tcommands %q\n)\n\n%s%s", m.contractImport, serveSource, RunHelpers)
 	if m.probeImport == "" {
 		w.f("\n// noProbe is the typed probe of a service that has no domain probes.\nfunc noProbe(*probe.Probe) struct{} { return struct{}{} }\n")
 	}

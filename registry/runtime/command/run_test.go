@@ -26,8 +26,8 @@ import (
 	"testing"
 	"time"
 
-	"stego.dev/runtime/audit"
-	"stego.dev/runtime/idempotency"
+	"github.com/jsell-rh/stego/registry/runtime/audit"
+	"github.com/jsell-rh/stego/registry/runtime/idempotency"
 )
 
 // runTriggers are the deferred constraint triggers of the COMMIT cases on reservations: a SKU fail-commit raises

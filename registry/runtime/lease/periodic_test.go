@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"stego.dev/runtime/modes"
+	"github.com/jsell-rh/stego/registry/runtime/modes"
 )
 
 func TestPeriodic(t *testing.T) {

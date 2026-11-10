@@ -135,7 +135,7 @@ func shopProject(t *testing.T) string {
 	}
 	write("go.sum", sums)
 	write("go.mod", []byte("module "+shopModule+"\n\ngo "+new(Generator).MinimumGoVersion()+
-		"\n\nrequire stego.dev/runtime v0.6.0\n\nreplace stego.dev/runtime => "+runtimeFolder+"\n"))
+		"\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.6.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeFolder+"\n"))
 	goCommand(t, project, nil, "mod", "tidy")
 	goCommand(t, project, nil, "vet", "./...")
 	goCommand(t, project, nil, "build", "./...")
@@ -296,7 +296,7 @@ func checkSlotTypes(t *testing.T, project string) {
 			t.Errorf("%s takes %s second, want the decoded request %s", name, got, request)
 		}
 		handle, ok := params.At(2).Type().(*types.Pointer)
-		if !ok || !strings.HasPrefix(handle.Elem().String(), "stego.dev/runtime/query.Handle[") {
+		if !ok || !strings.HasPrefix(handle.Elem().String(), "github.com/jsell-rh/stego/registry/runtime/query.Handle[") {
 			t.Errorf("%s takes %s third, want *query.Handle", name, params.At(2).Type())
 		}
 		for i := 0; i < params.Len(); i++ {

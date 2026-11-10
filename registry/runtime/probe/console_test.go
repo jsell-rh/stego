@@ -11,7 +11,7 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
-	"stego.dev/runtime/otel"
+	"github.com/jsell-rh/stego/registry/runtime/otel"
 )
 
 // childSetting runs a test again as a child process, which writes to its real standard output.
