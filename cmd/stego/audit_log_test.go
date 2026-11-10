@@ -1,0 +1,190 @@
+package main
+
+import (
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strings"
+	"testing"
+
+	"golang.org/x/mod/modfile"
+
+	"github.com/jsell-rh/stego/internal/compiler"
+	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/generator/auditlog"
+	"github.com/jsell-rh/stego/internal/registry"
+)
+
+// emptyAuditSink is the generator of the stand-in component that provides the audit-sink port in a test registry:
+// the platform binds the port, and the stand-in emits nothing.
+type emptyAuditSink struct{}
+
+func (emptyAuditSink) Generate(gen.Context) ([]gen.File, *gen.Wiring, error) {
+	return nil, &gen.Wiring{}, nil
+}
+
+// compiledService writes a test registry with the archetype audit-arch, which has the runtime pin of the shipped
+// rest-crud archetype and the components audit-log and platform-sink, and a project of the service customers on
+// it whose declaration is service. It gives the reconciler input and the pin.
+func compiledService(t *testing.T, service string) (compiler.ReconcilerInput, registry.RuntimePin) {
+	t.Helper()
+	shipped, err := registry.Load(filepath.Join("..", "..", "registry"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin := *shipped.Archetype("rest-crud").Runtime
+	component, err := os.ReadFile(filepath.Join("..", "..", "registry", "components", "audit-log", "component.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An archetype may hold ga components only (ST-SUP-SP01), and audit-log provides no port, so no override
+	// brings it in: the test registry holds it at stage ga. How a service takes the alpha component is
+	// ST-SUP-Q67.
+	ga := strings.Replace(string(component), "stage: alpha\nsunset: 2027-04-30\n", "stage: ga\n", 1)
+	if ga == string(component) {
+		t.Fatal("the component declaration has no alpha stage with the sunset 2027-04-30")
+	}
+	parent := t.TempDir()
+	common, project := filepath.Join(parent, "registry"), filepath.Join(parent, "customers")
+	files := map[string]string{
+		filepath.Join(common, "archetypes/audit-arch/archetype.yaml"): "kind: archetype\nname: audit-arch\nlanguage: go\nversion: 1.0.0\n" +
+			"runtime:\n  module: " + pin.Module + "\n  version: " + pin.Version + "\n  sum: " + pin.Sum + "\n" +
+			"components: [audit-log, platform-sink]\nconventions:\n  layout: flat\n",
+		filepath.Join(common, "components/audit-log/component.yaml"): ga,
+		filepath.Join(common, "components/platform-sink/component.yaml"): "kind: component\nname: platform-sink\nversion: 1.0.0\nstage: ga\n" +
+			"output_namespace: internal/platformsink\nrequires: []\nprovides: [audit-sink]\nslots: []\n",
+		filepath.Join(project, "service.yaml"): service,
+	}
+	for name, data := range files {
+		if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(name, []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return compiler.ReconcilerInput{
+		ProjectDir: project, RegistryDir: common, GoVersion: "1.26.10", ModuleName: "example.com/customers",
+		Generators: map[string]gen.Generator{"audit-log": new(auditlog.Generator), "platform-sink": emptyAuditSink{}},
+	}, pin
+}
+
+// customerService is the declaration of the RC28 test records as service.yaml: audit at level metadata with pii
+// keep and a retention of 6 months, the audit-sink port bound, and the entity Customer.
+const customerService = `kind: service
+name: customers
+archetype: audit-arch
+language: go
+audit:
+  level: metadata
+  pii: keep
+  retention: 6 months
+entities:
+  - name: Customer
+    fields:
+      - { name: name, type: string, sensitivity: pii }
+      - { name: api_token, type: string, sensitivity: secret }
+      - { name: plan, type: string }
+overrides:
+  audit-sink: platform-sink
+`
+
+// TestAuditLogCompiledService generates the audit wiring through the compiler from a service declaration, on the runtime
+// pin of the archetype, and builds it against registry/runtime through the work file of
+// scripts/runtime-workspace.sh.
+func TestAuditLogCompiledService(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a generated service")
+	}
+	input, pin := compiledService(t, customerService)
+	plan, err := compiler.Reconcile(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := compiler.Apply(plan, input.ProjectDir, ""); err != nil {
+		t.Fatal(err)
+	}
+	read := func(name string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(input.ProjectDir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+
+	t.Run("ST-SUP-RC28-OC01-T01 The emitted redaction settings come from the declaration through the compiler", func(t *testing.T) {
+		source := read("out/internal/auditlog/audit.go")
+		for _, want := range []string{
+			"var Settings = audit.Settings{Level: audit.LevelMetadata, PII: audit.PIIKeep}",
+			`var CustomerFields = audit.Fields{"api_token": audit.Secret, "name": audit.PII}`,
+			`"Customer": true,`,
+			"const RetentionMonths = 6",
+			"const AnchorPeriod = 3600 * time.Second",
+		} {
+			if !strings.Contains(source, want) {
+				t.Errorf("the emitted audit wiring lacks %q:\n%s", want, source)
+			}
+		}
+	})
+
+	t.Run("ST-SUP-RC28-OC06-T02 The database access contract grants SELECT and INSERT only on audit_event", func(t *testing.T) {
+		var access struct {
+			Objects []gen.DatabaseObject `json:"objects"`
+		}
+		if err := json.Unmarshal([]byte(read("out/contracts/databaseaccess/access.json")), &access); err != nil {
+			t.Fatal(err)
+		}
+		var events []string
+		for _, o := range access.Objects {
+			if o.Name == "audit_event" {
+				events = o.Privileges
+			}
+		}
+		if !slices.Equal(events, []string{"INSERT", "SELECT"}) {
+			t.Fatalf("the contract grants %v on audit_event, want INSERT and SELECT only", events)
+		}
+	})
+
+	t.Run("ST-SUP-RC28-OC01-T01 The emitted redaction settings build on the runtime pin of the archetype", func(t *testing.T) {
+		module, err := modfile.Parse("go.mod", []byte(read("go.mod")), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		required := ""
+		for _, r := range module.Require {
+			if registry.IsStegoModule(r.Mod.Path) {
+				required += r.Mod.Path + " " + r.Mod.Version + ";"
+			}
+		}
+		if required != pin.Module+" "+pin.Version+";" || len(module.Replace) != 0 {
+			t.Fatalf("go.mod requires %q with %d replace directives, want only the pin %s %s", required, len(module.Replace), pin.Module, pin.Version)
+		}
+		work := filepath.Join(t.TempDir(), "runtime.work")
+		script := exec.Command(filepath.Join("..", "..", "scripts", "runtime-workspace.sh"), input.ProjectDir, work)
+		if out, err := script.CombinedOutput(); err != nil {
+			t.Fatalf("runtime-workspace.sh: %v\n%s", err, out)
+		}
+		name := os.Getenv("STEGO_TEST_PINNED_GO")
+		if name == "" {
+			name = filepath.Join(runtime.GOROOT(), "bin", "go")
+		}
+		build := exec.Command(name, "vet", "./out/internal/auditlog")
+		build.Dir = input.ProjectDir
+		build.Env = append(os.Environ(), "GOWORK="+work, "GOFLAGS=", "GOTOOLCHAIN=local")
+		if out, err := build.CombinedOutput(); err != nil {
+			t.Fatalf("go vet of the compiled audit wiring: %v\n%s", err, out)
+		}
+	})
+
+	t.Run("ST-SUP-RC28-OC07-T02 The compiler refuses a service that does not bind the audit-sink port", func(t *testing.T) {
+		unbound := strings.Replace(customerService, "overrides:\n  audit-sink: platform-sink\n", "", 1)
+		input, _ := compiledService(t, unbound)
+		if _, err := compiler.Reconcile(input); err == nil || !strings.Contains(err.Error(), "audit-sink") {
+			t.Fatalf("Reconcile of a service with no audit-sink binding: %v, want a refusal that names audit-sink", err)
+		}
+	})
+}

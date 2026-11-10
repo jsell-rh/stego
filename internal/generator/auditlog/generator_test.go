@@ -23,8 +23,6 @@ import (
 // The tests of the generated module. They are copied into the generated package and run there with the pinned Go
 // SDK against the runtime module of this repository.
 var (
-	//go:embed testdata/fixture_test.go
-	fixtureTests string
 	//go:embed testdata/migration_test.go
 	migrationTests string
 	//go:embed testdata/redaction_test.go
@@ -279,7 +277,7 @@ func generateService(t *testing.T, ctx gen.Context) *service {
 	for _, f := range generate(t, ctx) {
 		s.write(f.Path, string(f.Bytes()))
 	}
-	for name, text := range map[string]string{"fixture_test.go": fixtureTests, "migration_test.go": migrationTests,
+	for name, text := range map[string]string{"migration_test.go": migrationTests,
 		"redaction_test.go": redactionTests, "sink_test.go": sinkTests} {
 		s.write(filepath.Join(ctx.OutputNamespace, name), text)
 	}
