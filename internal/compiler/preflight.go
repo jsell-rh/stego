@@ -8,6 +8,7 @@ import (
 
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/registry"
+	"github.com/jsell-rh/stego/internal/types"
 )
 
 type resolvedCompilation struct {
@@ -104,6 +105,7 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 		}
 	}
 
+	tenancy := pooledTenancy(svcDecl, componentNames)
 	resolved := &resolvedCompilation{Components: components, Names: componentNames, Contexts: map[string]gen.Context{}, InputSnapshots: map[string]fileSnapshot{}, OutDir: outDir, OutDirName: outDirName, SlotsPackage: slotsPackage, HoldsFills: fills}
 	for _, compName := range componentNames {
 		comp := components[compName]
@@ -127,6 +129,7 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 			PeerConfigs:     peerConfigs,
 			StorageContract: generatedImportPath(input.ModuleName, outDirName, gen.StorageContractNamespace),
 			EventsContract:  generatedImportPath(input.ModuleName, outDirName, gen.EventsContractNamespace),
+			Tenancy:         tenancy,
 		}
 		if provider, ok := generator.(gen.InputProvider); ok {
 			names, err := provider.InputFiles(ctx.ComponentConfig)
@@ -182,4 +185,29 @@ func holdsFills(projectDir string) bool {
 		}
 	}
 	return false
+}
+
+// pooledTenancy gives the tenancy that the generators read: the key of a pooled tenancy, tenant_id when the
+// declaration omits it, for a service that has the tenancy component, and nil for any other service
+// (ST-SUP-RC01-OC40, ST-DECL-INV18).
+func pooledTenancy(service *types.ServiceDeclaration, componentNames []string) *gen.Tenancy {
+	present := false
+	for _, name := range componentNames {
+		if name == gen.TenancyComponent {
+			present = true
+		}
+	}
+	if !present {
+		return nil
+	}
+	key := "tenant_id"
+	if tenancy := service.Tenancy; tenancy != nil {
+		if tenancy.Kind != "" && tenancy.Kind != "pooled" {
+			return nil
+		}
+		if tenancy.Key != "" {
+			key = tenancy.Key
+		}
+	}
+	return &gen.Tenancy{Key: key}
 }
