@@ -25,8 +25,9 @@ const RecordPath = ".stego/state.yaml"
 const OutputFolder = "out"
 
 // RecordFormats are the record formats the sweep reads: format version 2 names each component's digest, and format
-// version 3 adds the archetype with its runtime library pin.
-var RecordFormats = []int{2, 3}
+// version 3 adds the archetype with its runtime library pin, and format version 4 adds the data path, which the sweep
+// does not read.
+var RecordFormats = []int{2, 3, 4}
 
 // maxRecordBytes bounds one record.
 const maxRecordBytes = 8 << 20
@@ -125,7 +126,7 @@ func readCheckout(checkout string) (Service, *Unknown) {
 		return unknown(0, "its record is not valid YAML: %v", err)
 	}
 	if !slices.Contains(RecordFormats, head.FormatVersion) {
-		return unknown(head.FormatVersion, "its record has format version %d, and the sweep reads only format versions 2 and 3, which name each component digest", head.FormatVersion)
+		return unknown(head.FormatVersion, "its record has format version %d, and the sweep reads only format versions 2, 3 and 4, which name each component digest", head.FormatVersion)
 	}
 	var r record
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
@@ -144,7 +145,7 @@ func readCheckout(checkout string) (Service, *Unknown) {
 	}
 	if r.FormatVersion >= 3 {
 		if r.LastApplied.Archetype == nil || r.LastApplied.Archetype.Runtime == nil || r.LastApplied.Archetype.Runtime.Version == "" {
-			return unknown(r.FormatVersion, "its record of format version 3 names no runtime library pin")
+			return unknown(r.FormatVersion, "its record of format version %d names no runtime library pin", r.FormatVersion)
 		}
 		service.Runtime = r.LastApplied.Archetype.Runtime
 	}

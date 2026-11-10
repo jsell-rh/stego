@@ -1,18 +1,24 @@
 // Package check runs the generated service of the runtime wiring test as an operator runs it: the migration job and
 // then the service binary, built from the generated main.go, against a local PostgreSQL server
-// (STEGO_TEST_POSTGRES_DSN) and a local SpiceDB container (STEGO_TEST_SPICEDB), and sends it one collection call,
-// one command and one query over HTTP.
+// (STEGO_TEST_POSTGRES_DSN) with verified TLS and a local SpiceDB container (STEGO_TEST_SPICEDB), and sends it one
+// collection call, one command and one query over HTTP.
 package check
 
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"net/url"
@@ -44,17 +50,31 @@ const (
 	password = "wiring-check"
 )
 
-// service is the running service: its database, its SpiceDB and its address.
+// migratorRole is the login of the migration job: the owner role, as the outbox migration of the runtime library
+// needs (ST-SUP-RP01-LC19), and never the runtime role.
+var migratorRole = stegoruntime.OwnerRole
+
+// service is the running service: its database, its SpiceDB and its address, and the results of the runs of the
+// binary before the checks.
 type service struct {
-	t       *testing.T
-	ctx     context.Context
-	admin   *sql.DB
-	dbName  string
-	spice   *grpc.ClientConn
-	key     *authntest.Key
-	base    string
-	process *exec.Cmd
-	log     *bytes.Buffer
+	t      *testing.T
+	ctx    context.Context
+	admin  *sql.DB
+	dbName string
+	spice  *grpc.ClientConn
+	key    *authntest.Key
+	base   string
+	log    *bytes.Buffer
+
+	weakMigration, weakStart, foreignMigration, secondMigration, nextRelease runResult
+	foreignDB                                                                *sql.DB
+	schemaBeforeNext                                                         string
+}
+
+// runResult is the outcome of one run of the binary.
+type runResult struct {
+	err    error
+	output string
 }
 
 func must(t testing.TB, err error) {
@@ -64,7 +84,7 @@ func must(t testing.TB, err error) {
 	}
 }
 
-// exec runs each statement on db.
+// execAll runs each statement on db.
 func execAll(t *testing.T, db *sql.DB, statements ...string) {
 	t.Helper()
 	for _, statement := range statements {
@@ -77,44 +97,104 @@ func execAll(t *testing.T, db *sql.DB, statements ...string) {
 // quote quotes one SQL name.
 func quote(name string) string { return `"` + strings.ReplaceAll(name, `"`, `""`) + `"` }
 
-// prepare makes a database of its own and the roles that the database administrator makes before the first
-// migration job: the runtime and owner roles of the tenancy component, the worker and relay roles, the owner's
-// membership in the relay role of the outbox runtime, CREATE on public for that relay role, and a login of the
-// runtime role.
-func prepare(t *testing.T, dsn string) (*sql.DB, string, string) {
-	root, err := sql.Open("pgx", dsn)
+// serverTLS writes a server certificate for localhost, signed by a new CA, into the data folder of the server with
+// COPY TO PROGRAM, and turns TLS on with ALTER SYSTEM and a reload, as the runtime's tenant tests do. It turns TLS off
+// again when the test ends, and gives the PEM file of the CA.
+func serverTLS(t *testing.T, root *sql.DB) string {
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	must(t, err)
-	t.Cleanup(func() { root.Close() })
+	caTemplate := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "wiring test CA"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(24 * time.Hour), IsCA: true,
+		KeyUsage: x509.KeyUsageCertSign, BasicConstraintsValid: true}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	must(t, err)
+	ca, err := x509.ParseCertificate(caDER)
+	must(t, err)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	must(t, err)
+	serverDER, err := x509.CreateCertificate(rand.Reader, &x509.Certificate{SerialNumber: big.NewInt(2),
+		Subject: pkix.Name{CommonName: "localhost"}, DNSNames: []string{"localhost"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(24 * time.Hour),
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}, ca, &key.PublicKey, caKey)
+	must(t, err)
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	must(t, err)
+	var dataDir string
+	must(t, root.QueryRow("SHOW data_directory").Scan(&dataDir))
+	write := func(name, text string) {
+		lines := strings.Split(strings.TrimSpace(text), "\n")
+		quoted := make([]string, len(lines))
+		for i, l := range lines {
+			quoted[i] = "('" + l + "')"
+		}
+		// The server reads a key only when no group or other may read it, so the file is written with umask 077.
+		execAll(t, root, "COPY (SELECT line FROM (VALUES "+strings.Join(quoted, ", ")+") AS v(line)) TO PROGRAM 'rm -f "+
+			dataDir+"/"+name+" && umask 077 && cat > "+dataDir+"/"+name+"'")
+	}
+	write("stego_wiring_server.crt", string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: serverDER})))
+	write("stego_wiring_server.key", string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})))
+	execAll(t, root, "ALTER SYSTEM SET ssl_cert_file = 'stego_wiring_server.crt'", "ALTER SYSTEM SET ssl_key_file = 'stego_wiring_server.key'",
+		"ALTER SYSTEM SET ssl = on", "SELECT pg_reload_conf()")
+	t.Cleanup(func() {
+		for _, statement := range []string{"ALTER SYSTEM RESET ssl", "ALTER SYSTEM RESET ssl_cert_file", "ALTER SYSTEM RESET ssl_key_file", "SELECT pg_reload_conf()"} {
+			_, _ = root.Exec(statement)
+		}
+	})
+	time.Sleep(300 * time.Millisecond)
+	return writeFile(t, "ca.pem", pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}))
+}
+
+// newDatabase makes a database of its own on the server, and gives its admin pool and its URL as the admin.
+func newDatabase(t *testing.T, root *sql.DB, server *url.URL) (*sql.DB, *url.URL) {
 	suffix := make([]byte, 6)
 	_, _ = rand.Read(suffix)
 	name := "wiring_" + hex.EncodeToString(suffix)
 	execAll(t, root, "CREATE DATABASE "+name)
-	roles := []string{stegoruntime.RuntimeRole, stegoruntime.OwnerRole, stegoruntime.WorkerRole, stegoruntime.RelayRole}
-	t.Cleanup(func() {
-		_, _ = root.Exec("DROP DATABASE IF EXISTS " + name + " WITH (FORCE)")
-		for _, role := range roles {
-			_, _ = root.Exec("DROP ROLE IF EXISTS " + quote(role))
-		}
-	})
-	u, err := url.Parse(dsn)
-	must(t, err)
+	t.Cleanup(func() { _, _ = root.Exec("DROP DATABASE IF EXISTS " + name + " WITH (FORCE)") })
+	u := *server
 	u.Path = "/" + name
 	admin, err := sql.Open("pgx", u.String())
 	must(t, err)
 	t.Cleanup(func() { admin.Close() })
+	return admin, &u
+}
+
+// prepare makes what the database administrator makes before the first migration job: the runtime and owner roles
+// of the tenancy component, the worker and relay roles, the owner's membership in the relay role of the outbox
+// runtime, CREATE on public for that relay role, a login of the runtime role, and a login of the owner role for
+// the migration job.
+func prepare(t *testing.T, admin *sql.DB) {
 	execAll(t, admin, tenancy.Roles,
 		"CREATE ROLE "+quote(stegoruntime.WorkerRole)+" NOLOGIN NOINHERIT",
 		"CREATE ROLE "+quote(stegoruntime.RelayRole)+" NOLOGIN NOINHERIT",
 		"DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stego_outbox_relay') THEN CREATE ROLE stego_outbox_relay NOLOGIN; END IF; END $$",
 		"GRANT stego_outbox_relay TO "+quote(stegoruntime.OwnerRole)+" WITH SET TRUE, INHERIT TRUE",
-		// The authorization migration gives its state hook function to stego_outbox_relay, which then needs CREATE on
-		// the schema of the protected tables (ST-SUP-Q92).
-		"GRANT CREATE ON SCHEMA public TO stego_outbox_relay",
 		"ALTER ROLE "+quote(stegoruntime.RuntimeRole)+" LOGIN PASSWORD '"+password+"'",
+		"ALTER ROLE "+quote(migratorRole)+" LOGIN PASSWORD '"+password+"'",
 	)
-	migration := u.String()
-	u.User = url.UserPassword(stegoruntime.RuntimeRole, password)
-	return admin, migration, u.String()
+}
+
+// grantSchema gives the relay role of the outbox runtime CREATE on public of the database, which the authorization
+// migration needs to give its state hook function to that role (ST-SUP-Q92).
+func grantSchema(t *testing.T, admin *sql.DB) {
+	execAll(t, admin, "GRANT CREATE ON SCHEMA public TO stego_outbox_relay")
+}
+
+// withTLS gives the URL of role on u, on the host localhost, with sslmode mode; verify-full also names the CA file.
+func withTLS(u *url.URL, role, mode, caFile string) string {
+	v := *u
+	v.User = url.UserPassword(role, password)
+	if _, port, err := net.SplitHostPort(v.Host); err == nil {
+		v.Host = net.JoinHostPort("localhost", port)
+	}
+	q := v.Query()
+	q.Set("sslmode", mode)
+	q.Del("sslrootcert")
+	if mode == "verify-full" {
+		q.Set("sslrootcert", caFile)
+	}
+	v.RawQuery = q.Encode()
+	return v.String()
 }
 
 // freePort gives a free loopback TCP port.
@@ -125,61 +205,110 @@ func freePort(t *testing.T) string {
 	return fmt.Sprint(listener.Addr().(*net.TCPAddr).Port)
 }
 
-// write writes data to a new file of the test and gives its path.
-func write(t *testing.T, name string, data []byte) string {
+// writeFile writes data to a new file of the test and gives its path.
+func writeFile(t *testing.T, name string, data []byte) string {
 	file := filepath.Join(t.TempDir(), name)
 	must(t, os.WriteFile(file, data, 0o600))
 	return file
 }
 
-// start runs the migration job and starts the service binary, and waits until it answers.
+// noTestMode turns the loopback test mode of the adapter off, which the CI checks turn on for their fixtures: every
+// run of the binary needs verified TLS to the database.
+const noTestMode = "STEGO_DATABASE_ALLOW_INSECURE_LOOPBACK=0"
+
+// run runs binary with args and the environment env, and waits at most a minute.
+func run(binary string, env []string, args ...string) runResult {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binary, args...)
+	cmd.Env = append(append(os.Environ(), env...), noTestMode)
+	output, err := cmd.CombinedOutput()
+	return runResult{err: err, output: string(output)}
+}
+
+// start prepares the database and runs the binary: the migration job with TLS that does not verify the server, on
+// a database that holds a foreign table, and twice on its own database; the service with TLS that does not verify
+// the server, and then the service with verified TLS, until it answers. It then runs the migration job of the next
+// release, whose declaration adds an entity.
 func start(t *testing.T) *service {
-	dsn, endpoint, binary := os.Getenv("STEGO_TEST_POSTGRES_DSN"), os.Getenv("STEGO_TEST_SPICEDB"), os.Getenv("STEGO_WIRING_BINARY")
-	if dsn == "" || endpoint == "" || binary == "" {
-		t.Fatal("the check needs STEGO_TEST_POSTGRES_DSN, STEGO_TEST_SPICEDB and STEGO_WIRING_BINARY: a missing result is not a pass")
+	dsn, endpoint := os.Getenv("STEGO_TEST_POSTGRES_DSN"), os.Getenv("STEGO_TEST_SPICEDB")
+	binary, next := os.Getenv("STEGO_WIRING_BINARY"), os.Getenv("STEGO_WIRING_NEXT_BINARY")
+	if dsn == "" || endpoint == "" || binary == "" || next == "" {
+		t.Fatal("the check needs STEGO_TEST_POSTGRES_DSN, STEGO_TEST_SPICEDB, STEGO_WIRING_BINARY and STEGO_WIRING_NEXT_BINARY: a missing result is not a pass")
 	}
-	spiceKey := os.Getenv("STEGO_TEST_SPICEDB_KEY")
-	s := &service{t: t, ctx: context.Background(), log: &bytes.Buffer{}}
-	var migration, runtimeDSN string
-	s.admin, migration, runtimeDSN = prepare(t, dsn)
-	u, err := url.Parse(migration)
+	server, err := url.Parse(dsn)
 	must(t, err)
+	root, err := sql.Open("pgx", dsn)
+	must(t, err)
+	t.Cleanup(func() { root.Close() })
+	s := &service{t: t, ctx: context.Background(), log: &bytes.Buffer{}}
+	// The roles belong to the server: they are dropped after the databases, whose cleanups run first.
+	t.Cleanup(func() {
+		for _, role := range []string{stegoruntime.RuntimeRole, stegoruntime.WorkerRole, stegoruntime.RelayRole, stegoruntime.OwnerRole} {
+			if _, err := root.Exec("DROP ROLE IF EXISTS " + quote(role)); err != nil {
+				t.Errorf("drop the role %s: %v", role, err)
+			}
+		}
+	})
+	var u *url.URL
+	s.admin, u = newDatabase(t, root, server)
 	s.dbName = strings.TrimPrefix(u.Path, "/")
+	prepare(t, s.admin)
+	grantSchema(t, s.admin)
+	ca := serverTLS(t, root)
+
+	spiceKey := os.Getenv("STEGO_TEST_SPICEDB_KEY")
 	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithPerRPCCredentials(bearer(spiceKey)))
 	must(t, err)
 	t.Cleanup(func() { conn.Close() })
 	s.spice = conn
+	spice := []string{"STEGO_SPICEDB_ENDPOINT=" + endpoint, "STEGO_SPICEDB_KEY_FILE=" + writeFile(t, "spicedb.key", []byte(spiceKey)),
+		"STEGO_SPICEDB_INSECURE_LOOPBACK=1"}
+	migration := func(mode string, target *url.URL) []string {
+		return append(append([]string{}, spice...), "STEGO_MIGRATION_DATABASE_URL="+withTLS(target, migratorRole, mode, ca))
+	}
+
+	// A migration job with TLS that does not verify the server writes nothing.
+	s.weakMigration = run(binary, migration("prefer", u), "migrate")
+	// A migration job on a database that holds a table of the declaration and no ledger writes nothing.
+	var foreignURL *url.URL
+	s.foreignDB, foreignURL = newDatabase(t, root, server)
+	grantSchema(t, s.foreignDB)
+	execAll(t, s.foreignDB, "CREATE TABLE orders (id uuid PRIMARY KEY, sku text)")
+	s.foreignMigration = run(binary, migration("verify-full", foreignURL), "migrate")
+
+	if r := run(binary, migration("verify-full", u), "migrate"); r.err != nil {
+		t.Fatalf("the migration job failed: %v\n%s", r.err, r.output)
+	}
+	s.secondMigration = run(binary, migration("verify-full", u), "migrate")
 
 	s.key = authntest.NewKey(t, "k1")
 	cursor := make([]byte, 32)
 	_, _ = rand.Read(cursor)
-	settings := []string{
-		"STEGO_SPICEDB_ENDPOINT=" + endpoint, "STEGO_SPICEDB_KEY_FILE=" + write(t, "spicedb.key", []byte(spiceKey)),
-		"STEGO_SPICEDB_INSECURE_LOOPBACK=1",
-	}
-	job := exec.Command(binary, "migrate")
-	job.Env = append(os.Environ(), append(settings, "STEGO_MIGRATION_DATABASE_URL="+migration)...)
-	if output, err := job.CombinedOutput(); err != nil {
-		t.Fatalf("the migration job failed: %v\n%s", err, output)
-	}
+	keys := writeFile(t, "keys.json", authntest.Document(s.key.JWK()))
+	cursorFile := writeFile(t, "cursor.key", cursor)
 	port := freePort(t)
 	s.base = "http://127.0.0.1:" + port
-	s.process = exec.Command(binary)
-	s.process.Env = append(os.Environ(), append(settings,
-		"PORT="+port, "DATABASE_URL="+runtimeDSN, "STEGO_DATABASE_ALLOW_INSECURE_LOOPBACK=1",
-		"STEGO_AUTHN_ISSUER="+issuer, "STEGO_AUTHN_AUDIENCE="+audience,
-		"STEGO_AUTHN_KEYS_FILE="+write(t, "keys.json", authntest.Document(s.key.JWK())),
-		"STEGO_QUERY_CURSOR_KEY_FILE="+write(t, "cursor.key", cursor), "STEGO_SERVICE_VERSION=1.0.0")...)
-	s.process.Stdout, s.process.Stderr = s.log, s.log
-	must(t, s.process.Start())
+	serviceEnv := func(mode string) []string {
+		return append(append([]string{}, spice...),
+			"PORT="+port, "DATABASE_URL="+withTLS(u, stegoruntime.RuntimeRole, mode, ca), "STEGO_AUTHN_KEYS_FILE="+keys,
+			"STEGO_QUERY_CURSOR_KEY_FILE="+cursorFile, "STEGO_SERVICE_VERSION=1.0.0")
+	}
+	// A service with TLS that does not verify the server does not start.
+	s.weakStart = run(binary, serviceEnv("disable"))
+
+	process := exec.Command(binary)
+	process.Env = append(append(os.Environ(), serviceEnv("verify-full")...), noTestMode)
+	process.Stdout, process.Stderr = s.log, s.log
+	must(t, process.Start())
+	exited := make(chan struct{})
+	go func() { _ = process.Wait(); close(exited) }()
 	t.Cleanup(func() {
-		_ = s.process.Process.Signal(os.Interrupt)
-		done := make(chan struct{})
-		go func() { _ = s.process.Wait(); close(done) }()
+		_ = process.Process.Signal(os.Interrupt)
 		select {
-		case <-done:
+		case <-exited:
 		case <-time.After(10 * time.Second):
-			_ = s.process.Process.Kill()
+			_ = process.Process.Kill()
 		}
 		if t.Failed() {
 			t.Logf("service log:\n%s", s.log)
@@ -191,13 +320,24 @@ func start(t *testing.T) *service {
 		if err == nil {
 			response.Body.Close()
 			if status = response.StatusCode; status == http.StatusOK {
-				return s
+				break
 			}
 		}
-		if time.Now().After(deadline) || s.process.ProcessState != nil {
+		select {
+		case <-exited:
+			t.Fatalf("the service stopped before it answered /livez:\n%s", s.log)
+		default:
+		}
+		if time.Now().After(deadline) {
 			t.Fatalf("the service does not answer /livez with 200: %d %v\n%s", status, err, s.log)
 		}
 	}
+	schema, err := v1.NewSchemaServiceClient(s.spice).ReadSchema(s.ctx, &v1.ReadSchemaRequest{})
+	must(t, err)
+	s.schemaBeforeNext = schema.SchemaText
+	// The next release adds an entity, whose table is not in the baseline of the ledger.
+	s.nextRelease = run(next, migration("verify-full", u), "migrate")
+	return s
 }
 
 // bearer sends the preshared key of the local SpiceDB server on each call.
@@ -215,16 +355,19 @@ type caller struct {
 	token   string
 }
 
-// as mints a token for subject in tenantID.
-func (s *service) as(subject, tenantID string) caller {
+// as mints a token for subject in tenantID, for the declared audience or the audience aud.
+func (s *service) as(subject, tenantID string, aud ...string) caller {
 	t := s.t
 	claims := authntest.Claims(issuer, audience, subject, time.Now())
+	if len(aud) > 0 {
+		claims["aud"] = aud[0]
+	}
 	claims["tenant"] = tenantID
 	claims["exp"] = time.Now().Add(time.Hour).Unix()
 	token := authntest.Mint(t, authntest.Header("k1"), claims, s.key)
 	keys, err := authn.ParseKeys(authntest.Document(s.key.JWK()))
 	must(t, err)
-	verifier, err := authn.New(authn.Settings{Issuer: issuer, Audience: audience, TenantClaim: "tenant", ProblemCode: "CHECK", Keys: keys})
+	verifier, err := authn.New(authn.Settings{Issuer: issuer, Audience: claims["aud"].(string), TenantClaim: "tenant", ProblemCode: "CHECK", Keys: keys})
 	must(t, err)
 	defer verifier.Stop()
 	id, err := verifier.Verify(s.ctx, token)
@@ -292,11 +435,11 @@ func (s *service) send(c *caller, method, path, key, body string) reply {
 	return reply{status: response.StatusCode, body: data}
 }
 
-func (s *service) count(query string, args ...any) int {
-	s.t.Helper()
+func count(t *testing.T, db *sql.DB, query string, args ...any) int {
+	t.Helper()
 	var n int
-	if err := s.admin.QueryRowContext(s.ctx, query, args...).Scan(&n); err != nil {
-		s.t.Fatalf("%s: %v", query, err)
+	if err := db.QueryRow(query, args...).Scan(&n); err != nil {
+		t.Fatalf("%s: %v", query, err)
 	}
 	return n
 }
@@ -308,30 +451,68 @@ func TestWiring(t *testing.T) {
 
 	t.Run("ST-SUP-RC01-OC21-T03 The generated migration job runs as the owner role and the service as the runtime role", func(t *testing.T) {
 		s.t = t
-		if n := s.count(`SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tableowner <> $1`, stegoruntime.OwnerRole); n != 0 {
+		if n := count(t, s.admin, `SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tableowner <> $1`, stegoruntime.OwnerRole); n != 0 {
 			t.Errorf("%d tables of public are not owned by the owner role %s", n, stegoruntime.OwnerRole)
 		}
-		if n := s.count(`SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename IN ('orders', 'notes', 'idempotency_keys')`); n != 3 {
+		if n := count(t, s.admin, `SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename IN ('orders', 'notes', 'idempotency_keys')`); n != 3 {
 			t.Errorf("the migration job made %d of the tables orders, notes and idempotency_keys", n)
 		}
-		if n := s.count(`SELECT count(*) FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner WHERE r.rolname = $1`, stegoruntime.RuntimeRole); n != 0 {
+		if n := count(t, s.admin, `SELECT count(*) FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner WHERE r.rolname = $1`, stegoruntime.RuntimeRole); n != 0 {
 			t.Errorf("the runtime role owns %d relations", n)
 		}
-		if n := s.count(`SELECT count(*) FROM pg_stat_activity WHERE datname = $1 AND usename = $2`, s.dbName, stegoruntime.RuntimeRole); n == 0 {
+		if n := count(t, s.admin, `SELECT count(*) FROM pg_stat_activity WHERE datname = $1 AND usename = $2`, s.dbName, stegoruntime.RuntimeRole); n == 0 {
 			t.Error("the service holds no connection as the runtime role")
 		}
-		if n := s.count(`SELECT count(*) FROM pg_stat_activity WHERE datname = $1 AND backend_type = 'client backend' AND usename NOT IN ($2, current_user)`, s.dbName, stegoruntime.RuntimeRole); n != 0 {
+		if n := count(t, s.admin, `SELECT count(*) FROM pg_stat_activity WHERE datname = $1 AND backend_type = 'client backend' AND usename NOT IN ($2, current_user)`, s.dbName, stegoruntime.RuntimeRole); n != 0 {
 			t.Errorf("the service holds %d connections as another role than the runtime role", n)
+		}
+		if n := count(t, s.admin, `SELECT count(*) FROM pg_stat_activity WHERE usename = $1`, migratorRole); n != 0 {
+			t.Errorf("%d connections use the login of the migration job after it ended", n)
+		}
+	})
+
+	t.Run("ST-SUP-RC01-OC41-T04 The runtime pool is opened through tenant.Open with the adapter's verified TLS configuration", func(t *testing.T) {
+		s.t = t
+		if n := count(t, s.admin, `SELECT count(*) FROM pg_stat_activity a JOIN pg_stat_ssl l ON l.pid = a.pid WHERE a.datname = $1 AND a.usename = $2 AND NOT l.ssl`, s.dbName, stegoruntime.RuntimeRole); n != 0 {
+			t.Errorf("%d connections of the service do not use TLS", n)
+		}
+		if s.weakStart.err == nil {
+			t.Errorf("the service started with sslmode disable:\n%s", s.weakStart.output)
+		}
+		if s.weakMigration.err == nil || !strings.Contains(s.weakMigration.output, `"stage":"migrate.settings"`) {
+			t.Errorf("the migration job with sslmode prefer gave %v, want a refusal of its settings:\n%s", s.weakMigration.err, s.weakMigration.output)
+		}
+	})
+
+	t.Run("ST-SUP-RC01-OC41-T07 The generated migration job runs again on its own database and refuses a database with tables it did not make", func(t *testing.T) {
+		s.t = t
+		if s.secondMigration.err != nil {
+			t.Errorf("the second run of the migration job failed: %v\n%s", s.secondMigration.err, s.secondMigration.output)
+		}
+		if s.foreignMigration.err == nil || !strings.Contains(s.foreignMigration.output, `"stage":"migrate.ledger_check"`) {
+			t.Errorf("the migration job on a database with a table of the declaration and no ledger gave %v, want the refusal of the ledger check:\n%s", s.foreignMigration.err, s.foreignMigration.output)
+		}
+		if n := count(t, s.foreignDB, `SELECT count(*) FROM pg_namespace WHERE nspname IN ('stego_schema', 'stego_outbox')`); n != 0 {
+			t.Errorf("the refused migration job made %d schemas", n)
+		}
+		if s.nextRelease.err == nil || !strings.Contains(s.nextRelease.output, `"stage":"migrate.ledger_check"`) {
+			t.Errorf("the migration job of a release that adds an entity with no schema step gave %v, want the refusal of the ledger check:\n%s", s.nextRelease.err, s.nextRelease.output)
+		}
+		if n := count(t, s.admin, `SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename = 'tags'`); n != 0 {
+			t.Error("the refused migration job of the next release made the table tags")
+		}
+		schema, err := v1.NewSchemaServiceClient(s.spice).ReadSchema(s.ctx, &v1.ReadSchemaRequest{})
+		must(t, err)
+		if schema.SchemaText != s.schemaBeforeNext {
+			t.Error("the refused migration job of the next release wrote the authorization schema")
 		}
 	})
 
 	t.Run("ST-SUP-RC29-OC23-T02 The generated migration job writes the schema to SpiceDB before the service starts", func(t *testing.T) {
 		s.t = t
-		schema, err := v1.NewSchemaServiceClient(s.spice).ReadSchema(s.ctx, &v1.ReadSchemaRequest{})
-		must(t, err)
 		for _, want := range []string{"definition order", "definition note", "definition stego_floor"} {
-			if !strings.Contains(schema.SchemaText, want) {
-				t.Errorf("SpiceDB holds no %q after the migration job:\n%s", want, schema.SchemaText)
+			if !strings.Contains(s.schemaBeforeNext, want) {
+				t.Errorf("SpiceDB holds no %q after the migration job:\n%s", want, s.schemaBeforeNext)
 			}
 		}
 	})
@@ -340,6 +521,10 @@ func TestWiring(t *testing.T) {
 		s.t = t
 		if got := s.send(nil, http.MethodGet, "/orders", "", ""); got.status != http.StatusUnauthorized {
 			t.Errorf("a list with no token answered %d %s, want 401", got.status, got.body)
+		}
+		stranger := s.as("u-"+uuid.NewString()[:8], owner.tenant.ID(), "another-service")
+		if got := s.send(&stranger, http.MethodGet, "/orders", "", ""); got.status != http.StatusUnauthorized {
+			t.Errorf("a list with a token for another audience than the declared one answered %d %s, want 401", got.status, got.body)
 		}
 		created := s.send(&owner, http.MethodPost, "/orders", "k-"+uuid.NewString(), `{"sku":"a1","qty":2}`)
 		if created.status != http.StatusCreated {
@@ -351,7 +536,7 @@ func TestWiring(t *testing.T) {
 		if read.status != http.StatusOK || read.member(t, "sku") != "a1" {
 			t.Fatalf("the read answered %d %s, want 200 with sku a1", read.status, read.body)
 		}
-		if n := s.count(`SELECT count(*) FROM orders WHERE id = $1 AND tenant_id = $2`, order, owner.tenant.ID()); n != 1 {
+		if n := count(t, s.admin, `SELECT count(*) FROM orders WHERE id = $1 AND tenant_id = $2`, order, owner.tenant.ID()); n != 1 {
 			t.Errorf("the orders table holds %d rows of the order in the caller's tenant, want 1", n)
 		}
 	})
@@ -365,7 +550,7 @@ func TestWiring(t *testing.T) {
 		if got.status != http.StatusCreated {
 			t.Fatalf("the command answered %d %s, want 201", got.status, got.body)
 		}
-		if n := s.count(`SELECT count(*) FROM notes WHERE order_id = $1 AND text = 'hello' AND tenant_id = $2`, order, owner.tenant.ID()); n != 1 {
+		if n := count(t, s.admin, `SELECT count(*) FROM notes WHERE order_id = $1 AND text = 'hello' AND tenant_id = $2`, order, owner.tenant.ID()); n != 1 {
 			t.Errorf("the notes table holds %d notes of the command, want 1", n)
 		}
 		other := s.as("u-"+uuid.NewString()[:8], owner.tenant.ID())

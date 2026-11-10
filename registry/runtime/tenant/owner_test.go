@@ -52,7 +52,7 @@ func TestTenantConnectors(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		address, count := countingServer(t)
-		cfg := Config{DSN: "postgres://owner:secret@" + address + "/service?sslmode=disable&connect_timeout=2"}
+		cfg := Config{InsecureLoopback: true, DSN: "postgres://owner:secret@" + address + "/service?sslmode=disable&connect_timeout=2"}
 		for _, mode := range []string{"api", "worker", "controller", "all"} {
 			db, err := OpenOwner(ctx, mode, cfg)
 			if err == nil {
@@ -75,7 +75,7 @@ func TestTenantConnectors(t *testing.T) {
 			t.Fatal("the owner connector made no connection in the migration job")
 		}
 		env := newPG(t)
-		db, err := OpenOwner(ctx, MigrationJob, Config{DSN: env.dsn(env.owner)})
+		db, err := OpenOwner(ctx, MigrationJob, Config{InsecureLoopback: true, DSN: env.dsn(env.owner)})
 		if err != nil {
 			t.Fatalf("the owner connector did not open in the migration job: %v", err)
 		}
@@ -87,7 +87,7 @@ func TestTenantConnectors(t *testing.T) {
 		ctx := context.Background()
 		owning := env.role(t, "owning", "")
 		adminExec(t, env.db, "CREATE TABLE owned (id int)", "ALTER TABLE owned OWNER TO "+owning)
-		db, err := Open(ctx, Config{DSN: env.dsn(owning)})
+		db, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(owning)})
 		if err == nil {
 			_ = db.Close()
 			t.Fatal("the runtime connector started as a role that owns a table")
@@ -101,7 +101,7 @@ func TestTenantConnectors(t *testing.T) {
 		env := newPG(t)
 		ctx := context.Background()
 		bypassing := env.role(t, "bypassing", "BYPASSRLS")
-		db, err := Open(ctx, Config{DSN: env.dsn(bypassing)})
+		db, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(bypassing)})
 		if err == nil {
 			_ = db.Close()
 			t.Fatal("the runtime connector started as a role with BYPASSRLS")
@@ -111,13 +111,13 @@ func TestTenantConnectors(t *testing.T) {
 		}
 		// A superuser bypasses row-level security as BYPASSRLS does.
 		superuser := env.role(t, "superuser", "SUPERUSER")
-		if db, err := Open(ctx, Config{DSN: env.dsn(superuser)}); err == nil {
+		if db, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(superuser)}); err == nil {
 			_ = db.Close()
 			t.Error("the runtime connector started as a superuser")
 		} else if !strings.Contains(err.Error(), "is a superuser") {
 			t.Errorf("the startup error for the superuser does not say so: %v", err)
 		}
-		plain, err := Open(ctx, Config{DSN: env.dsn(env.runtime)})
+		plain, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(env.runtime)})
 		if err != nil {
 			t.Fatalf("the runtime connector did not start as the plain runtime role: %v", err)
 		}
@@ -140,7 +140,7 @@ EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $do$`, "GRANT
 			superMember:  "is a superuser through its membership of " + superGroup,
 			relayMember:  "is a member of the outbox relay or hook roles stego_outbox_relay",
 		} {
-			db, err := Open(ctx, Config{DSN: env.dsn(role)})
+			db, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(role)})
 			if err == nil {
 				_ = db.Close()
 				t.Errorf("the runtime connector started as the role %s", role)
@@ -150,7 +150,7 @@ EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $do$`, "GRANT
 				t.Errorf("the startup error for %s does not say %q: %v", role, want, err)
 			}
 		}
-		plain, err := Open(ctx, Config{DSN: env.dsn(env.runtime)})
+		plain, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(env.runtime)})
 		if err != nil {
 			t.Fatalf("the runtime connector did not start as the plain runtime role: %v", err)
 		}
@@ -162,12 +162,12 @@ func TestOpened(t *testing.T) {
 	t.Run("ST-SUP-RP04-LC08-T01 Opened is true only for an open pool of Open or OpenOwner", func(t *testing.T) {
 		env := newPG(t)
 		ctx := context.Background()
-		db, err := Open(ctx, Config{DSN: env.dsn(env.runtime)})
+		db, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(env.runtime)})
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = db.Close() })
-		owner, err := OpenOwner(ctx, MigrationJob, Config{DSN: env.dsn(env.owner)})
+		owner, err := OpenOwner(ctx, MigrationJob, Config{InsecureLoopback: true, DSN: env.dsn(env.owner)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -194,7 +194,7 @@ func TestOpened(t *testing.T) {
 				t.Errorf("Opened of %s is %v, want %v", name, got, c.want)
 			}
 		}
-		closed, err := Open(ctx, Config{DSN: env.dsn(env.runtime)})
+		closed, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(env.runtime)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -209,7 +209,7 @@ func TestOpened(t *testing.T) {
 		// Earlier pools are collected; many new pools, of sql.Open and of Open, are checked by concurrent callers
 		// with no false positive.
 		for i := 0; i < 5; i++ {
-			old, err := Open(ctx, Config{DSN: env.dsn(env.runtime)})
+			old, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(env.runtime)})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -220,7 +220,7 @@ func TestOpened(t *testing.T) {
 		}
 		var fresh []*sql.DB
 		for i := 0; i < 3; i++ {
-			p, err := Open(ctx, Config{DSN: env.dsn(env.runtime)})
+			p, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(env.runtime)})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -336,6 +336,45 @@ func serverTLS(t *testing.T, admin *sql.DB) *x509.CertPool {
 }
 
 func TestOpener(t *testing.T) {
+	t.Run("ST-SUP-RP04-LC09-T02 A connection string whose TLS does not verify the server is refused", func(t *testing.T) {
+		env := newPG(t)
+		ctx := context.Background()
+		for _, mode := range []string{"disable", "prefer", "require", "allow"} {
+			for _, role := range []string{env.runtime, env.owner} {
+				u := env.url(role, rolePassword)
+				q := u.Query()
+				q.Set("sslmode", mode)
+				u.RawQuery = q.Encode()
+				if db, err := Open(ctx, Config{DSN: u.String()}); !errors.Is(err, errNoVerifiedTLS) {
+					if db != nil {
+						db.Close()
+					}
+					t.Errorf("Open of %s with sslmode %s gave %v, want the refusal of TLS that does not verify the server", role, mode, err)
+				}
+				if db, err := OpenOwner(ctx, MigrationJob, Config{DSN: u.String()}); !errors.Is(err, errNoVerifiedTLS) {
+					if db != nil {
+						db.Close()
+					}
+					t.Errorf("OpenOwner of %s with sslmode %s gave %v, want the refusal of TLS that does not verify the server", role, mode, err)
+				}
+			}
+		}
+		// The loopback test exception opens a loopback server with no TLS, and only a loopback server.
+		plain := env.url(env.runtime, rolePassword)
+		q := plain.Query()
+		q.Set("sslmode", "disable")
+		plain.RawQuery = q.Encode()
+		db, err := Open(ctx, Config{DSN: plain.String(), InsecureLoopback: true})
+		if err != nil {
+			t.Fatalf("Open with the loopback test exception gave %v", err)
+		}
+		db.Close()
+		remote := *plain
+		remote.Host = "db.example:5432"
+		if _, err := Open(ctx, Config{DSN: remote.String(), InsecureLoopback: true}); !errors.Is(err, errNoVerifiedTLS) {
+			t.Errorf("Open of a host that is not a loopback address with the exception gave %v, want the refusal", err)
+		}
+	})
 	t.Run("ST-SUP-RP04-LC09-T01 A pool from the adapter's configuration keeps verified TLS and its bounds", func(t *testing.T) {
 		env := newPG(t)
 		ctx := context.Background()

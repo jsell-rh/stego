@@ -158,7 +158,7 @@ func TestTenantTransaction(t *testing.T) {
 	t.Run("ST-SUP-RP04-LC03-T04 A connection that comes back with a tenant set is closed", func(t *testing.T) {
 		env := newPG(t)
 		ctx := context.Background()
-		db, err := Open(ctx, Config{DSN: env.dsn(env.runtime)})
+		db, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(env.runtime)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -217,7 +217,7 @@ func TestTenantTransaction(t *testing.T) {
 func TestTenantPoolerGuard(t *testing.T) {
 	t.Run("ST-SUP-RP04-LC04-T01 The pooler guard refuses a session-scoped option, startup parameter or statement", func(t *testing.T) {
 		const dsn = "postgres://runtime@127.0.0.1:5432/service?sslmode=disable"
-		if err := Guard(Config{DSN: dsn}); err != nil {
+		if err := Guard(Config{InsecureLoopback: true, DSN: dsn}); err != nil {
 			t.Fatalf("the guard refused a clean configuration: %v", err)
 		}
 		for name, cfg := range map[string]Config{
@@ -244,7 +244,7 @@ func TestTenantPoolerGuard(t *testing.T) {
 			"ALTER ROLE CURRENT_USER SET app.tenant = 'A'",
 			"SET \"app\".\"tenant\" = 'A'",
 		} {
-			if err := Guard(Config{DSN: dsn, AfterConnect: []string{statement}}); err == nil ||
+			if err := Guard(Config{InsecureLoopback: true, DSN: dsn, AfterConnect: []string{statement}}); err == nil ||
 				!strings.Contains(err.Error(), "after-connect statement") {
 				t.Errorf("the guard did not refuse the after-connect statement %q: %v", statement, err)
 			}
@@ -256,7 +256,7 @@ func TestTenantPoolerGuard(t *testing.T) {
 		ctx := context.Background()
 		defaulted := env.role(t, "defaulted", "")
 		adminExec(t, env.admin, "ALTER ROLE "+defaulted+" SET app.tenant = 'tenant-a'")
-		db, err := Open(ctx, Config{DSN: env.dsn(defaulted)})
+		db, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(defaulted)})
 		if err == nil {
 			_ = db.Close()
 			t.Fatal("the guard accepted a connection whose role default sets app.tenant")
@@ -264,7 +264,7 @@ func TestTenantPoolerGuard(t *testing.T) {
 		if !strings.Contains(err.Error(), "app.tenant") {
 			t.Errorf("the refusal does not name the setting: %v", err)
 		}
-		clean, err := Open(ctx, Config{DSN: env.dsn(env.runtime)})
+		clean, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(env.runtime)})
 		if err != nil {
 			t.Fatalf("the guard refused a clean connection: %v", err)
 		}

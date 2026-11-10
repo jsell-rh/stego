@@ -53,6 +53,7 @@ type runtimeWiringData struct {
 	Audit, Authz, Outbox, Storage, Tenancy, Idempotency, API, Commands, Queries     string
 	Service, DeclarationVersion, SubjectType, TenantClaim, ProblemType, ProblemCode string
 	WorkerRole, RelayRole                                                           string
+	Issuer, Audience, Header, KeyFile, RoleClaim                                    string
 	Grants                                                                          []string
 }
 
@@ -110,6 +111,9 @@ func runtimeWiring(in runtimeWiringInput) ([]gen.File, ComponentWiring, error) {
 	if data.ProblemCode == "" {
 		return nil, ComponentWiring{}, fmt.Errorf("the service name %q gives no problem code prefix", svc.Name)
 	}
+	if err := declaredAuthentication(in, &data); err != nil {
+		return nil, ComponentWiring{}, err
+	}
 	data.Grants = runtimeGrants(in.Wirings)
 	source, err := renderRuntimeWiring(data)
 	if err != nil {
@@ -123,7 +127,7 @@ func runtimeWiring(in runtimeWiringInput) ([]gen.File, ComponentWiring, error) {
 		ConstructorDeferCalls:   map[int]string{0: "Close()"},
 		MiddlewareConstructor:   new(int),
 		MiddlewareWrapExpr:      "%s.Middleware(%s)",
-		MigrationJob:            &gen.MigrationJobSpec{Namespace: RuntimeWiringNamespace, Function: "Migrate"},
+		MigrationJob:            &gen.MigrationJobSpec{Namespace: RuntimeWiringNamespace, Function: "Migrate", Stage: "MigrationStage"},
 		GoModRequires: map[string]string{
 			"google.golang.org/grpc":  "v1.83.2",
 			"gorm.io/gorm":            "v1.25.12",
@@ -214,50 +218,95 @@ func problemCode(service string) string {
 	return code.String()
 }
 
-// migrationJobExpression gives the call of the migration job that a consumed wiring selects, with the import alias
-// that main.go gives its package, or "" when no wiring selects one. It refuses two migration jobs and one whose
-// package the wiring does not import.
-func migrationJobExpression(input AssemblerInput, imports importResult, consumed map[int]bool) (string, error) {
-	expression := ""
+// migrationJobExpression gives the call of the migration job that a consumed wiring selects and the expression of
+// the stage of its failure, with the import alias that main.go gives its package, or "" when no wiring selects
+// one. It refuses two migration jobs and one whose package the wiring does not import.
+func migrationJobExpression(input AssemblerInput, imports importResult, consumed map[int]bool) (string, string, error) {
+	call, stage := "", ""
 	for i, component := range input.Wirings {
 		if component.Wiring == nil || component.Wiring.MigrationJob == nil {
 			continue
 		}
 		job := component.Wiring.MigrationJob
-		if expression != "" {
-			return "", fmt.Errorf("multiple components declare a migration job")
+		if call != "" {
+			return "", "", fmt.Errorf("multiple components declare a migration job")
 		}
-		if !consumed[i] || !slices.Contains(component.Wiring.Imports, job.Namespace) || !token.IsIdentifier(job.Function) || !ast.IsExported(job.Function) {
-			return "", fmt.Errorf("component %q has an invalid migration job", component.Name)
+		valid := func(name string) bool { return token.IsIdentifier(name) && ast.IsExported(name) }
+		if !consumed[i] || !slices.Contains(component.Wiring.Imports, job.Namespace) || !valid(job.Function) || (job.Stage != "" && !valid(job.Stage)) {
+			return "", "", fmt.Errorf("component %q has an invalid migration job", component.Name)
 		}
 		name := path.Base(job.Namespace)
 		if renamed := imports.Renames[i][name]; renamed != "" {
 			name = renamed
 		}
-		expression = name + "." + job.Function + "(context.Background())"
+		call = name + "." + job.Function + "(context.Background())"
+		stage = `"migrate"`
+		if job.Stage != "" {
+			stage = name + "." + job.Stage + "(err)"
+		}
 	}
-	return expression, nil
+	return call, stage, nil
 }
 
 // writeMigrationJob writes the start of main that runs the migration job, and not the service, when the process has
-// the one argument migrate (tenant.MigrationJob). A failure is reported at the stage migrate, with no error text, as
+// the one argument migrate (tenant.MigrationJob). A failure is reported with its stage and with no error text, as
 // every failure of the service is.
-func writeMigrationJob(buf *bytes.Buffer, expression string) {
-	if expression == "" {
+func writeMigrationJob(buf *bytes.Buffer, call, stage string) {
+	if call == "" {
 		return
 	}
-	fmt.Fprintf(buf, "\tif len(os.Args) == 2 && os.Args[1] == %q {\n\t\tif err := %s; err != nil {\n\t\t\tstegoReportFailure(os.Stderr, &stegoServiceFailure{stage: %q, cause: err})\n\t\t\tos.Exit(1)\n\t\t}\n\t\treturn\n\t}\n", "migrate", expression, "migrate")
+	fmt.Fprintf(buf, "\tif len(os.Args) == 2 && os.Args[1] == %q {\n\t\tif err := %s; err != nil {\n\t\t\tstegoReportFailure(os.Stderr, &stegoServiceFailure{stage: %s, cause: err})\n\t\t\tos.Exit(1)\n\t\t}\n\t\treturn\n\t}\n", "migrate", call, stage)
 }
 
-// replaceAuthMiddleware takes the primary auth middleware off the wirings of the components, such as the auth
-// provider of the archetype: on the runtime data path the verifier of the runtime library authenticates each
-// request and binds the identity that the command and query runtimes read (ST-SUP-RP13), so the runtime wiring
-// declares the one primary middleware.
-func replaceAuthMiddleware(wirings []ComponentWiring) {
-	for _, component := range wirings {
-		if component.Wiring != nil && component.Wiring.MiddlewareConstructor != nil {
-			component.Wiring.MiddlewareConstructor = nil
-			component.Wiring.MiddlewareWrapExpr = ""
+// jwtAuthComponent is the auth provider whose settings the verifier of the runtime data path takes.
+const jwtAuthComponent = "jwt-auth"
+
+// authProviders gives the components of the service that provide auth-provider.
+func authProviders(names []string, components map[string]*registry.Component) []string {
+	var providers []string
+	for _, name := range names {
+		if c := components[name]; c != nil {
+			for _, p := range c.Provides {
+				if p.Name == "auth-provider" {
+					providers = append(providers, name)
+				}
+			}
 		}
 	}
+	return providers
+}
+
+// declaredAuthentication gives the verifier of the runtime data path the settings that the declaration states for
+// its auth provider: issuer, audience, header, public_key_file and roles_claim of jwt-auth, which win over the
+// settings of the deployment. On the runtime data path the verifier of the runtime library authenticates each
+// request and binds the identity that the command and query runtimes read (ST-SUP-RP13), so the compiler does not
+// generate the auth provider's own package; it refuses another auth provider, whose settings the verifier cannot
+// take.
+func declaredAuthentication(in runtimeWiringInput, data *runtimeWiringData) error {
+	for _, name := range authProviders(in.Names, in.Components) {
+		if name != jwtAuthComponent {
+			return fmt.Errorf("the runtime data path authenticates with the verifier of the runtime library, which takes the settings of %s only; the auth provider %s is not served on it yet", jwtAuthComponent, name)
+		}
+		config := resolveComponentConfig(in.Components[name], in.Service)
+		text := func(key string) (string, error) {
+			value, present := config[key]
+			if !present || value == nil {
+				return "", nil
+			}
+			s, ok := value.(string)
+			if !ok {
+				return "", fmt.Errorf("the setting %s of %s must be text", key, name)
+			}
+			return s, nil
+		}
+		for key, target := range map[string]*string{"issuer": &data.Issuer, "audience": &data.Audience, "header": &data.Header,
+			"public_key_file": &data.KeyFile, "roles_claim": &data.RoleClaim} {
+			value, err := text(key)
+			if err != nil {
+				return err
+			}
+			*target = value
+		}
+	}
+	return nil
 }

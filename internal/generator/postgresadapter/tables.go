@@ -1,7 +1,9 @@
 package postgresadapter
 
 import (
+	"bytes"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"fmt"
 	"go/format"
@@ -9,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"text/template"
 
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/types"
@@ -345,6 +348,35 @@ func generateTables(ctx gen.Context) ([]gen.File, error) {
 	}, nil
 }
 
+//go:embed runtime_access.go.tmpl
+var runtimeAccessSource string
+
+// generateRuntimeAccess gives runtime_access.go of the runtime data path: TenantConfig, the configuration of the
+// runtime library's connectors from the adapter's opener, and CheckLedger, the read-only check of the migration job
+// that refuses a database with tables this release did not make.
+func generateRuntimeAccess(ctx gen.Context) (gen.File, error) {
+	t, err := template.New("runtime-access").Parse(runtimeAccessSource)
+	if err != nil {
+		return gen.File{}, err
+	}
+	var tables []string
+	for _, entity := range ctx.Entities {
+		tables = append(tables, tableName(entity.Name))
+	}
+	var output bytes.Buffer
+	if err := t.Execute(&output, struct {
+		Package string
+		Tables  []string
+	}{path.Base(ctx.OutputNamespace), tables}); err != nil {
+		return gen.File{}, err
+	}
+	code, err := format.Source(output.Bytes())
+	if err != nil {
+		return gen.File{}, fmt.Errorf("formatting runtime_access.go: %w", err)
+	}
+	return gen.File{Path: path.Join(ctx.OutputNamespace, "runtime_access.go"), Content: code}, nil
+}
+
 // generateRuntimeData gives the files and the wiring of the runtime data path: the database opener, the schema
 // generation marker, the migration ledger with 001_initial as the SQL of InitialTables and, in a pooled service,
 // the row-level security of the tenancy component after it. It emits no models.go, store.go, session factory,
@@ -372,7 +404,11 @@ func generateRuntimeData(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	files = append(files, migrateFile, schemaFile, opener)
+	access, err := generateRuntimeAccess(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	files = append(files, migrateFile, schemaFile, opener, access)
 	base := path.Base(ctx.OutputNamespace)
 	wiring := &gen.Wiring{
 		Imports:        []string{ctx.OutputNamespace},

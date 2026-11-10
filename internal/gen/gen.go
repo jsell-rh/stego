@@ -434,10 +434,14 @@ type DatabaseOpenerSpec struct {
 	Function  string
 }
 
-// MigrationJobSpec names the generated function of the migration job.
+// MigrationJobSpec names the generated function of the migration job and,
+// when Stage is set, a generated function with signature func(error) string
+// in the same package that gives the stage of a failure, which the failure
+// record names in place of migrate. The stage holds no error text.
 type MigrationJobSpec struct {
 	Namespace string
 	Function  string
+	Stage     string
 }
 
 // MiddlewareSpec describes a middleware constructor and how it wraps the

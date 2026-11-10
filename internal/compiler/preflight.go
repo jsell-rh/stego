@@ -120,9 +120,14 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 	}
 
 	tenancy := pooledTenancy(svcDecl, componentNames)
-	runtimeData, err := runtimeDataPath(input.ProjectDir, componentNames, components)
+	runtimeData, err := runtimeDataPath(input.ProjectDir, componentNames)
 	if err != nil {
 		return nil, err
+	}
+	if runtimeData {
+		// The verifier of the runtime library binds the identity on the runtime data path; no generator imports the
+		// auth provider's package.
+		authPackage = ""
 	}
 	facts, err := compositionFacts(input, svcDecl, components)
 	if err != nil {

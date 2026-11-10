@@ -162,12 +162,12 @@ func TestNoOutputWithoutRecord(t *testing.T) {
 }
 
 func TestRecordFormatIsVersioned(t *testing.T) {
-	t.Run("ST-GEN-UC01-R04-T01 The record carries format version 3 and exactly the fields documented for it", func(t *testing.T) {
+	t.Run("ST-GEN-UC01-R04-T01 The record carries format version 4 and exactly the fields documented for it", func(t *testing.T) {
 		generatingProject(t, generatingDeclaration)
 		mustRun(t, runApply)
 		record := plainRecord(t)
-		if record["format_version"] != 3 {
-			t.Fatalf("format version is %v, not 3", record["format_version"])
+		if record["format_version"] != 4 {
+			t.Fatalf("format version is %v, not 4", record["format_version"])
 		}
 		// A change to these fields is a change to the documented format, and
 		// must come with a new format version. True marks a field that apply
@@ -175,12 +175,13 @@ func TestRecordFormatIsVersioned(t *testing.T) {
 		// Version 2 adds service_name, and makes the sha of each component
 		// its component digest, where version 1 held the registry reference.
 		// Version 3 adds archetype, with the archetype's runtime library pin.
+		// Version 4 adds data_path, the data path of the run.
 		documented := map[string]bool{
 			"format_version": true, "last_applied": true,
 			"last_applied.compiler_build": true, "last_applied.components": true, "last_applied.entities": true,
 			"last_applied.files": true, "last_applied.inputs": true, "last_applied.registry_content_sha256": true,
 			"last_applied.service_hash": true, "last_applied.service_name": true, "last_applied.registry_sha": false,
-			"last_applied.archetype": true,
+			"last_applied.archetype": true, "last_applied.data_path": true,
 		}
 		found := map[string]bool{}
 		for name, value := range record {
@@ -193,12 +194,12 @@ func TestRecordFormatIsVersioned(t *testing.T) {
 		}
 		for name := range found {
 			if _, ok := documented[name]; !ok {
-				t.Errorf("the record has %s, which format version 3 does not document", name)
+				t.Errorf("the record has %s, which format version 4 does not document", name)
 			}
 		}
 		for name, always := range documented {
 			if always && !found[name] {
-				t.Errorf("the record lacks %s, which format version 3 documents", name)
+				t.Errorf("the record lacks %s, which format version 4 documents", name)
 			}
 		}
 	})

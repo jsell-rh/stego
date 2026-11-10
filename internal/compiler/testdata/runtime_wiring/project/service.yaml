@@ -22,6 +22,9 @@ experimental_acceptances:
   - {component: audit-log, accepted_until: 2027-04-30, reason: the runtime data path audits each write}
   - {component: idempotency, accepted_until: 2027-04-30, reason: the runtime data path keys each create}
 overrides:
+  jwt-auth:
+    issuer: https://issuer.wiring.test/realms/r1
+    audience: wiring-shop
   postgres-adapter:
     schema_generation: tables-v1
     writer_lease: "off"

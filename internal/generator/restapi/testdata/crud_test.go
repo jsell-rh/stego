@@ -181,9 +181,9 @@ func (e *env) start(dsn, endpoint, spiceKey string) {
 	}
 	u.User = url.UserPassword(roles[0], password)
 	runtimeDSN := u.String()
-	pool, err := tenant.Open(e.ctx, tenant.Config{DSN: runtimeDSN})
+	pool, err := tenant.Open(e.ctx, tenant.Config{InsecureLoopback: true, DSN: runtimeDSN})
 	must(t, err)
-	auditDB, err := tenant.Open(e.ctx, tenant.Config{DSN: runtimeDSN})
+	auditDB, err := tenant.Open(e.ctx, tenant.Config{InsecureLoopback: true, DSN: runtimeDSN})
 	must(t, err)
 	maintainAudit(t, e.ctx, pool)
 	queue, err := outbox.New(pool, outbox.Options{})

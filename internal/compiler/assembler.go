@@ -236,7 +236,7 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		return gen.File{}, err
 	}
 
-	migration, err := migrationJobExpression(input, imports, consumedWirings)
+	migration, migrationStage, err := migrationJobExpression(input, imports, consumedWirings)
 	if err != nil {
 		return gen.File{}, err
 	}
@@ -245,7 +245,7 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	}
 	if fallible {
 		buf.WriteString("func main() {\n")
-		writeMigrationJob(&buf, migration)
+		writeMigrationJob(&buf, migration, migrationStage)
 		buf.WriteString("\tif err := run(); err != nil {\n\t\tstegoReportFailure(os.Stderr, err)\n\t\tos.Exit(1)\n\t}\n}\n\nfunc run() (stegoErr error) {\n\tstegoStage := \"startup\"\n")
 		buf.WriteString("\tdefer func() { if stegoErr != nil { stegoErr = &stegoServiceFailure{stage: stegoStage, cause: stegoErr")
 		if hasTasks {

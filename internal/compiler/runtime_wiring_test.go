@@ -9,7 +9,6 @@ import (
 	"regexp"
 	goruntime "runtime"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
@@ -40,46 +39,24 @@ func wiringGoEnv(extra ...string) []string {
 		"PATH="+filepath.Dir(wiringPinnedGo())+string(os.PathListSeparator)+os.Getenv("PATH")), extra...)
 }
 
-var (
-	wiringStegoOnce sync.Once
-	wiringStego     string
-	wiringStegoErr  error
-)
-
-// stegoBinary builds the stego binary of this commit once for the test binary.
+// stegoBinary builds the stego binary of this commit into a folder of the test.
 func stegoBinary(t *testing.T) string {
 	t.Helper()
-	wiringStegoOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "stego-wiring-bin-")
-		if err != nil {
-			wiringStegoErr = err
-			return
-		}
-		wiringStego = filepath.Join(dir, "stego")
-		cmd := exec.Command(wiringPinnedGo(), "build", "-o", wiringStego, "./cmd/stego")
-		cmd.Dir = filepath.Join("..", "..")
-		cmd.Env = wiringGoEnv()
-		if output, err := cmd.CombinedOutput(); err != nil {
-			wiringStegoErr = &buildError{output: string(output), err: err}
-		}
-	})
-	if wiringStegoErr != nil {
-		t.Fatalf("building stego: %v", wiringStegoErr)
+	binary := filepath.Join(t.TempDir(), "stego")
+	cmd := exec.Command(wiringPinnedGo(), "build", "-o", binary, "./cmd/stego")
+	cmd.Dir = filepath.Join("..", "..")
+	cmd.Env = wiringGoEnv()
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("building stego: %v\n%s", err, output)
 	}
-	return wiringStego
+	return binary
 }
-
-type buildError struct {
-	output string
-	err    error
-}
-
-func (e *buildError) Error() string { return e.err.Error() + "\n" + e.output }
 
 // wiringProject is one project folder of the test service with a registry copy of its own.
 type wiringProject struct {
-	t   *testing.T
-	dir string
+	t      *testing.T
+	dir    string
+	binary string
 }
 
 // runtimeArchetype is the components list of the rest-crud archetype of the registry copy on the runtime data path:
@@ -87,14 +64,17 @@ type wiringProject struct {
 // without tsl-search, which the runtime data path does not serve.
 const runtimeArchetype = "components:\n  - rest-api\n  - postgres-adapter\n  - tenancy\n  - domain-probe\n  - command\n  - query\n  - outbox\n  - otel-tracing\n  - health-check\n"
 
+// noQueryArchetype is runtimeArchetype without the query generator.
+const noQueryArchetype = "components:\n  - rest-api\n  - postgres-adapter\n  - tenancy\n  - domain-probe\n  - command\n  - outbox\n  - otel-tracing\n  - health-check\n"
+
 // storeArchetype is runtimeArchetype without the command and query generators: a service on the GORM store.
 const storeArchetype = "components:\n  - rest-api\n  - postgres-adapter\n  - tenancy\n  - domain-probe\n  - outbox\n  - otel-tracing\n  - health-check\n"
 
 // newWiringProject copies the registry of this repository with the components of the archetype given, each alpha
 // component of the test staged as ga, and the project files of the fixture into a new folder.
-func newWiringProject(t *testing.T, components string) *wiringProject {
+func newWiringProject(t *testing.T, binary, components string) *wiringProject {
 	t.Helper()
-	p := &wiringProject{t: t, dir: t.TempDir()}
+	p := &wiringProject{t: t, dir: t.TempDir(), binary: binary}
 	if err := os.CopyFS(filepath.Join(p.dir, "registry"), os.DirFS(filepath.Join("..", "..", "registry"))); err != nil {
 		t.Fatal(err)
 	}
@@ -151,14 +131,31 @@ func (p *wiringProject) read(name string) string {
 // stego runs the stego binary in the project with its registry copy.
 func (p *wiringProject) stego(args ...string) string {
 	p.t.Helper()
-	cmd := exec.Command(stegoBinary(p.t), args...)
-	cmd.Dir = p.dir
-	cmd.Env = wiringGoEnv("STEGO_REGISTRY="+filepath.Join(p.dir, "registry"), "STEGO_MODULE="+wiringModule)
-	output, err := cmd.CombinedOutput()
+	output, err := p.stegoRun(args...)
 	if err != nil {
 		p.t.Fatalf("stego %s: %v\n%s", strings.Join(args, " "), err, output)
 	}
-	return string(output)
+	return output
+}
+
+// stegoRun runs the stego binary in the project with its registry copy and gives its output and its error.
+func (p *wiringProject) stegoRun(args ...string) (string, error) {
+	p.t.Helper()
+	cmd := exec.Command(p.binary, args...)
+	cmd.Dir = p.dir
+	cmd.Env = wiringGoEnv("STEGO_REGISTRY="+filepath.Join(p.dir, "registry"), "STEGO_MODULE="+wiringModule)
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
+// git runs git in the project.
+func (p *wiringProject) git(args ...string) {
+	p.t.Helper()
+	cmd := exec.Command("git", append([]string{"-c", "user.name=wiring", "-c", "user.email=wiring@example.com", "-c", "commit.gpgsign=false"}, args...)...)
+	cmd.Dir = p.dir
+	if output, err := cmd.CombinedOutput(); err != nil {
+		p.t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
+	}
 }
 
 // goCommand runs the pinned go command in the project.
@@ -198,8 +195,9 @@ func TestRuntimeDataPath(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the stego binary")
 	}
+	stego := stegoBinary(t)
 	t.Run("ST-SUP-RC01-OC41-T05 The runtime data path is switched on only for a service with no record at its base ref", func(t *testing.T) {
-		fresh := newWiringProject(t, runtimeArchetype)
+		fresh := newWiringProject(t, stego, runtimeArchetype)
 		generated := planned(fresh.stego("plan"), "generate")
 		for _, want := range []string{RuntimeWiringNamespace + "/runtime.go", "internal/storage/tables.go", "commands/handlers/handlers.go", "queries/serve/serve.go"} {
 			if !generated[want] {
@@ -211,10 +209,14 @@ func TestRuntimeDataPath(t *testing.T) {
 				t.Errorf("the plan of the service with no record generates the store file %s", refused)
 			}
 		}
+		fresh.stego("apply")
+		if !strings.Contains(fresh.read(".stego/state.yaml"), "data_path: runtime") {
+			t.Error("the record of the service with no record before does not state the runtime data path")
+		}
 
 		// The release on the GORM store: the same declaration without its commands and queries, generated with no
 		// command and no query generator. Then the declaration and the archetype gain them.
-		released := newWiringProject(t, storeArchetype)
+		released := newWiringProject(t, stego, storeArchetype)
 		full := released.read("service.yaml")
 		store := full[:strings.Index(full, "commands:")]
 		store = strings.Replace(store, "  command:\n    proto_files:\n      - {path: proto/shop.proto, import_path: shop/v1/shop.proto}\n", "", 1)
@@ -223,8 +225,8 @@ func TestRuntimeDataPath(t *testing.T) {
 			t.Fatal(err)
 		}
 		released.stego("apply")
-		if !strings.Contains(released.read(".stego/state.yaml"), "internal/storage/store.go") {
-			t.Fatal("the release on the GORM store records no store file")
+		if record := released.read(".stego/state.yaml"); !strings.Contains(record, "data_path: store") || !strings.Contains(record, "internal/storage/store.go") {
+			t.Fatal("the record of the release on the GORM store does not state the store data path")
 		}
 		released.write("service.yaml", full)
 		if err := os.CopyFS(filepath.Join(released.dir, "fills"), os.DirFS(filepath.Join(wiringFixture, "project", "fills"))); err != nil {
@@ -244,13 +246,57 @@ func TestRuntimeDataPath(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RC01-OC41-T08 The record holds a service on its data path, also when the project has no record checked out", func(t *testing.T) {
+		// A service on the runtime data path that loses the query generator is refused, and the fault names
+		// ST-SUP-Q91.
+		runtime := newWiringProject(t, stego, runtimeArchetype)
+		runtime.stego("apply")
+		runtime.useLocalRuntime()
+		runtime.goCommand("mod", "tidy")
+		runtime.archetype(noQueryArchetype)
+		output, err := runtime.stegoRun("plan")
+		if err == nil || !strings.Contains(output, "ST-SUP-Q91") || !strings.Contains(output, "runtime data path") {
+			t.Errorf("the plan of a service on the runtime data path without the query generator gave %v, want a refusal that names ST-SUP-Q91:\n%s", err, output)
+		}
+
+		// A release on the GORM store whose record is committed and not checked out keeps the store when it gains
+		// the command and query generators.
+		released := newWiringProject(t, stego, storeArchetype)
+		full := released.read("service.yaml")
+		store := full[:strings.Index(full, "commands:")]
+		store = strings.Replace(store, "  command:\n    proto_files:\n      - {path: proto/shop.proto, import_path: shop/v1/shop.proto}\n", "", 1)
+		released.write("service.yaml", store)
+		if err := os.RemoveAll(filepath.Join(released.dir, "fills")); err != nil {
+			t.Fatal(err)
+		}
+		released.stego("apply")
+		released.git("init", "-q")
+		released.git("add", ".stego/state.yaml")
+		released.git("commit", "-q", "-m", "the record of the release on the GORM store")
+		if err := os.Remove(filepath.Join(released.dir, ".stego", "state.yaml")); err != nil {
+			t.Fatal(err)
+		}
+		released.write("service.yaml", full)
+		if err := os.CopyFS(filepath.Join(released.dir, "fills"), os.DirFS(filepath.Join(wiringFixture, "project", "fills"))); err != nil {
+			t.Fatal(err)
+		}
+		released.archetype(runtimeArchetype)
+		released.useLocalRuntime()
+		released.goCommand("mod", "download")
+		output = released.stego("plan")
+		if generated := planned(output, "generate"); generated[RuntimeWiringNamespace+"/runtime.go"] || generated["internal/storage/tables.go"] ||
+			planned(output, "delete")["internal/storage/store.go"] || !generated["commands/handlers/handlers.go"] {
+			t.Errorf("the plan of a release on the GORM store with its record committed and not checked out does not keep the store:\n%s", output)
+		}
+	})
+
 	t.Run("ST-SUP-RC01-OC41-T06 An example on the GORM store keeps its generated output", func(t *testing.T) {
 		for _, example := range []string{"user-management", "user-management-rhsso"} {
 			p := &wiringProject{t: t, dir: t.TempDir()}
 			if err := os.CopyFS(p.dir, os.DirFS(filepath.Join("..", "..", "examples", example))); err != nil {
 				t.Fatal(err)
 			}
-			cmd := exec.Command(stegoBinary(t), "plan")
+			cmd := exec.Command(stego, "plan")
 			cmd.Dir = p.dir
 			registryDir, err := filepath.Abs(filepath.Join("..", "..", "registry"))
 			if err != nil {
@@ -266,6 +312,9 @@ func TestRuntimeDataPath(t *testing.T) {
 			}
 			if strings.Contains(p.read(".stego/plan.yaml"), RuntimeWiringNamespace) {
 				t.Errorf("the plan of the example %s holds the runtime wiring", example)
+			}
+			if !strings.Contains(p.read(".stego/state.yaml"), "data_path: store") {
+				t.Errorf("the record of the example %s does not state the store data path", example)
 			}
 		}
 	})
@@ -306,6 +355,8 @@ func startWiringSpiceDB(t *testing.T) (string, string) {
 // record it proves.
 var wiringCheckIDs = []string{
 	"ST-SUP-RC01-OC21-T03 The generated migration job runs as the owner role and the service as the runtime role",
+	"ST-SUP-RC01-OC41-T04 The runtime pool is opened through tenant.Open with the adapter's verified TLS configuration",
+	"ST-SUP-RC01-OC41-T07 The generated migration job runs again on its own database and refuses a database with tables it did not make",
 	"ST-SUP-RC29-OC23-T02 The generated migration job writes the schema to SpiceDB before the service starts",
 	"ST-SUP-RC20-OC37-T07 A collection create and read reach the generated handlers through the generated main.go",
 	"ST-SUP-RC32-OC02-T03 A declared command reaches its fill through the generated main.go",
@@ -323,7 +374,8 @@ func TestRuntimeWiring(t *testing.T) {
 	if os.Getenv("STEGO_TEST_POSTGRES_DSN") == "" {
 		t.Fatal("STEGO_TEST_POSTGRES_DSN is not set: this test needs a local PostgreSQL server")
 	}
-	p := newWiringProject(t, runtimeArchetype)
+	stego := stegoBinary(t)
+	p := newWiringProject(t, stego, runtimeArchetype)
 	p.stego("apply")
 	check, err := os.ReadFile(filepath.Join(wiringFixture, "check", "wiring_test.go"))
 	if err != nil {
@@ -335,10 +387,20 @@ func TestRuntimeWiring(t *testing.T) {
 	p.goCommand("vet", "./out/...")
 	binary := filepath.Join(p.dir, "bin", "service")
 	p.goCommand("build", "-o", binary, "./out")
+	// The next release adds the entity Tag with no schema step.
+	next := newWiringProject(t, stego, runtimeArchetype)
+	declaration := next.read("service.yaml")
+	next.write("service.yaml", strings.Replace(declaration, "entities:\n", "entities:\n  - name: Tag\n    fields:\n      - {name: label, type: string}\n", 1))
+	next.stego("apply")
+	next.useLocalRuntime()
+	next.goCommand("mod", "tidy")
+	nextBinary := filepath.Join(next.dir, "bin", "service")
+	next.goCommand("build", "-o", nextBinary, "./out")
 	endpoint, key := startWiringSpiceDB(t)
 	cmd := exec.Command(wiringPinnedGo(), "test", "-count=1", "-timeout=300s", "-v", "-run", "^TestWiring$", "./out/wiringcheck")
 	cmd.Dir = p.dir
-	cmd.Env = wiringGoEnv("STEGO_TEST_SPICEDB="+endpoint, "STEGO_TEST_SPICEDB_KEY="+key, "STEGO_WIRING_BINARY="+binary)
+	cmd.Env = wiringGoEnv("STEGO_TEST_SPICEDB="+endpoint, "STEGO_TEST_SPICEDB_KEY="+key, "STEGO_WIRING_BINARY="+binary,
+		"STEGO_WIRING_NEXT_BINARY="+nextBinary)
 	output, runErr := cmd.CombinedOutput()
 	for _, id := range wiringCheckIDs {
 		t.Run(id, func(t *testing.T) {

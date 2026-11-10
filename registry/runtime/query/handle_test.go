@@ -299,7 +299,7 @@ func newEnv(t *testing.T) *env {
 // open opens a pool of the runtime role with tenant.Open.
 func (e *env) open(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := tenant.Open(context.Background(), tenant.Config{DSN: e.dsn})
+	db, err := tenant.Open(context.Background(), tenant.Config{InsecureLoopback: true, DSN: e.dsn})
 	if err != nil {
 		t.Fatal(err)
 	}
