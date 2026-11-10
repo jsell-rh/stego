@@ -8,7 +8,7 @@ version: 1.3.0
 runtime:
   module: stego.dev/runtime
   version: v0.1.0
-  sum: h1:qif5aa3hg4Ud8mVQ9bKJn9KDaM2wYJzaTYNZ/liNmGQ=
+  sum: h1:LBQv5u8LCsWvwtBuRBSnvN3h7IWSNQHlDW4Og0dSH2g=
 components:
   - postgres-adapter
   - otel-tracing
