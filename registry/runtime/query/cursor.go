@@ -1,7 +1,10 @@
 package query
 
 import (
-	"crypto/hmac"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/hkdf"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
@@ -26,7 +29,7 @@ var ErrNoCursorKey = errors.New("query: the runtime has no cursor key")
 
 // The parts of the text form of a cursor.
 const (
-	cursorVersion = 1
+	cursorVersion = 2
 	cursorTable   = 0
 	cursorSearch  = 1
 
@@ -35,19 +38,20 @@ const (
 	consistencyAtLeast = 2
 )
 
-// cursorDomain separates the MAC of a cursor from every other MAC that the key could make.
-const cursorDomain = "stego.dev/runtime/query cursor v1"
+// cursorDomain separates the key and the associated data of a cursor from every other use of the cursor key.
+const cursorDomain = "stego.dev/runtime/query cursor v2"
 
 // CursorText gives the text form of c for the next HTTP request of the query q, which the tenant t and the
-// principal p run (ST-SUP-RP11-LC15). The text is opaque to the client: it holds the position and a keyed MAC
-// (HMAC-SHA256 with the runtime's cursor key) over the position, the query name, the tenant and the principal, so
-// ParseCursor refuses it when it is changed or used for another query, tenant or principal. The zero cursor, the
-// start of a list, gives the empty text.
+// principal p run (ST-SUP-RP11-LC15). The position is sealed with AES-256-GCM under a key that HKDF-SHA256 derives
+// from the runtime's cursor key, with a random nonce, and with the service, the query name, the tenant and the
+// principal as associated data. So the text shows no key, no provider cursor and no token, and ParseCursor refuses
+// it when it is changed or used for another service, query, tenant or principal. The zero cursor, the start of a
+// list, gives the empty text.
 func (rt *Runtime) CursorText(q *Query, t tenant.Tenant, p authz.Principal, c Cursor) (string, error) {
 	if c == (Cursor{}) {
 		return "", nil
 	}
-	if len(rt.cursorKey) == 0 {
+	if rt.cursorAEAD == nil {
 		return "", ErrNoCursorKey
 	}
 	if q == nil || t.IsZero() || p.IsZero() {
@@ -74,33 +78,35 @@ func (rt *Runtime) CursorText(q *Query, t tenant.Tenant, p authz.Principal, c Cu
 			payload = append(payload, consistencyNone)
 		}
 	}
-	mac := rt.cursorMAC(q, t, p, payload)
-	return base64.RawURLEncoding.EncodeToString(append(payload, mac...)), nil
+	nonce := make([]byte, rt.cursorAEAD.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return "", err
+	}
+	sealed := rt.cursorAEAD.Seal(nonce, nonce, payload, rt.cursorData(q, t, p))
+	return base64.RawURLEncoding.EncodeToString(append([]byte{cursorVersion}, sealed...)), nil
 }
 
 // ParseCursor reads the text form of a cursor of the query q for the tenant t and the principal p (ST-SUP-RP11-LC15).
 // The empty text is the start of the list. It refuses, with ErrBadCursor and with no row read, a text that does not
-// decode, whose MAC does not match because the text was changed, or that another query, tenant or principal got.
+// decode, that does not open because it was changed, or that another service, query, tenant or principal got.
 func (rt *Runtime) ParseCursor(q *Query, t tenant.Tenant, p authz.Principal, text string) (Cursor, error) {
 	if text == "" {
 		return Cursor{}, nil
 	}
-	if len(rt.cursorKey) == 0 {
+	if rt.cursorAEAD == nil {
 		return Cursor{}, ErrNoCursorKey
 	}
 	if q == nil || t.IsZero() || p.IsZero() || len(text) > MaxCursorText {
 		return Cursor{}, ErrBadCursor
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(text)
-	if err != nil || len(raw) < sha256.Size+2 {
+	nonceSize := rt.cursorAEAD.NonceSize()
+	if err != nil || len(raw) < 1+nonceSize+rt.cursorAEAD.Overhead() || raw[0] != cursorVersion {
 		return Cursor{}, ErrBadCursor
 	}
-	payload, mac := raw[:len(raw)-sha256.Size], raw[len(raw)-sha256.Size:]
-	if !hmac.Equal(mac, rt.cursorMAC(q, t, p, payload)) {
-		return Cursor{}, ErrBadCursor
-	}
-	// The MAC matched, so the payload is one that CursorText wrote; it is still read with checks.
-	if payload[0] != cursorVersion {
+	nonce, sealed := raw[1:1+nonceSize], raw[1+nonceSize:]
+	payload, err := rt.cursorAEAD.Open(nil, nonce, sealed, rt.cursorData(q, t, p))
+	if err != nil || len(payload) < 2 || payload[0] != cursorVersion {
 		return Cursor{}, ErrBadCursor
 	}
 	rest := payload[2:]
@@ -147,17 +153,27 @@ func (rt *Runtime) ParseCursor(q *Query, t tenant.Tenant, p authz.Principal, tex
 	}
 }
 
-// cursorMAC is the HMAC-SHA256 of the payload of a cursor, bound to the query name, the tenant and the principal.
-// Each part is length-prefixed, so no two sets of parts give the same input.
-func (rt *Runtime) cursorMAC(q *Query, t tenant.Tenant, p authz.Principal, payload []byte) []byte {
-	m := hmac.New(sha256.New, rt.cursorKey)
-	var input []byte
-	for _, part := range []string{cursorDomain, q.name, t.ID(), p.Subject().String()} {
-		input = appendText(input, part)
+// cursorData is the associated data of a sealed cursor: the service, the query name, the tenant and the principal,
+// each length-prefixed, so no two sets of parts give the same data.
+func (rt *Runtime) cursorData(q *Query, t tenant.Tenant, p authz.Principal) []byte {
+	var data []byte
+	for _, part := range []string{cursorDomain, rt.service, q.name, t.ID(), p.Subject().String()} {
+		data = appendText(data, part)
 	}
-	input = append(input, payload...)
-	m.Write(input)
-	return m.Sum(nil)
+	return data
+}
+
+// newCursorAEAD derives the cursor key with HKDF-SHA256 from key and returns its AES-256-GCM.
+func newCursorAEAD(key []byte) (cipher.AEAD, error) {
+	derived, err := hkdf.Key(sha256.New, key, nil, cursorDomain, 32)
+	if err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(derived)
+	if err != nil {
+		return nil, err
+	}
+	return cipher.NewGCM(block)
 }
 
 // appendText appends text with its length as a uvarint.

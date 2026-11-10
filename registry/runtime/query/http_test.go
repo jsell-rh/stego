@@ -104,6 +104,7 @@ func listOrders(t *testing.T, rt *Runtime, q *Query, orders *Entity[Order], fill
 
 type served struct {
 	status      int
+	cache       string
 	contentType string
 	body        string
 	IDs         []string `json:"ids"`
@@ -119,7 +120,7 @@ func get(t *testing.T, h http.Handler, path, tenantID, subject string) served {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	body, _ := io.ReadAll(w.Result().Body)
-	s := served{status: w.Code, contentType: w.Header().Get("Content-Type"), body: string(body)}
+	s := served{status: w.Code, cache: w.Header().Get("Cache-Control"), contentType: w.Header().Get("Content-Type"), body: string(body)}
 	if w.Code == http.StatusOK {
 		if err := json.Unmarshal(body, &s); err != nil {
 			t.Fatalf("the body %q does not decode: %v", body, err)
@@ -131,7 +132,7 @@ func get(t *testing.T, h http.Handler, path, tenantID, subject string) served {
 // wantProblem checks that s is the problem response of status, with the fixed fields only.
 func wantProblem(t *testing.T, s served, status int, forbidden ...string) {
 	t.Helper()
-	if s.status != status || s.contentType != "application/problem+json" {
+	if s.status != status || s.contentType != "application/problem+json" || s.cache != "no-store" {
 		t.Fatalf("the response is %d %s %s, want the problem response %d", s.status, s.contentType, s.body, status)
 	}
 	var p map[string]any
@@ -175,16 +176,21 @@ func TestCursor(t *testing.T) {
 			t.Fatalf("the cursor %q shows its key", first.Next)
 		}
 		raw, err := base64.RawURLEncoding.DecodeString(first.Next)
-		if err != nil || strings.Contains(string(raw), "list-orders") || strings.Contains(string(raw), "u-7") {
-			t.Fatalf("the cursor %q is not opaque: %v", first.Next, err)
+		if err != nil {
+			t.Fatalf("the cursor %q does not decode: %v", first.Next, err)
+		}
+		// The key o2 would show with its length prefix, as the position holds it.
+		for _, visible := range []string{"\x02o2", "list-orders", "user:u-7"} {
+			if strings.Contains(string(raw), visible) {
+				t.Fatalf("the decoded cursor shows %q", visible)
+			}
 		}
 		second := get(t, h, cursorPath(first.Next), "t1", "user:u-7")
 		if second.status != http.StatusOK || strings.Join(second.IDs, ",") != "o3,o4" {
 			t.Fatalf("the unchanged cursor gave %d %v, want o3 and o4", second.status, second.IDs)
 		}
 
-		// One byte of the payload changed: a key that sorts after o2, so a cursor that the MAC did not cover would
-		// skip rows.
+		// One byte of the sealed position changed, and one byte of the tag.
 		changed := append([]byte(nil), raw...)
 		changed[len(changed)-33] ^= 0x01
 		flipped := base64.RawURLEncoding.EncodeToString(changed)
@@ -196,7 +202,7 @@ func TestCursor(t *testing.T) {
 			text, tn, subject string
 		}{
 			"a byte of the position changed": {h, flipped, "t1", "user:u-7"},
-			"a byte of the MAC changed":      {h, base64.RawURLEncoding.EncodeToString(macChanged), "t1", "user:u-7"},
+			"a byte of the tag changed":      {h, base64.RawURLEncoding.EncodeToString(macChanged), "t1", "user:u-7"},
 			"another query":                  {hOther, first.Next, "t1", "user:u-7"},
 			"another tenant":                 {h, first.Next, "t2", "user:u-7"},
 			"another principal":              {h, first.Next, "t1", "user:u-9"},
@@ -217,6 +223,23 @@ func TestCursor(t *testing.T) {
 		text, err := rt.CursorText(q, mustTenant(t, "t1"), mustPrincipal(t, "user:u-7"), search)
 		if err != nil {
 			t.Fatal(err)
+		}
+		rawSearch, err := base64.RawURLEncoding.DecodeString(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, visible := range []string{"spicedb", "page-2", "zed-7"} {
+			if strings.Contains(string(rawSearch), visible) {
+				t.Fatalf("the decoded search cursor shows %q", visible)
+			}
+		}
+		// The same key in another service opens no cursor of this one.
+		otherService, err := New(Config{DB: e.db, Service: "billing", CursorKey: testCursorKey})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := otherService.ParseCursor(q, mustTenant(t, "t1"), mustPrincipal(t, "user:u-7"), text); !errors.Is(err, ErrBadCursor) {
+			t.Fatalf("another service opened the cursor: %v", err)
 		}
 		back, err := rt.ParseCursor(q, mustTenant(t, "t1"), mustPrincipal(t, "user:u-7"), text)
 		if err != nil || back != search {
@@ -283,8 +306,46 @@ func TestServe(t *testing.T) {
 		if fills.Load() != 1 {
 			t.Fatalf("the bad cursor reached the fill")
 		}
-		r := httptest.NewRequest(http.MethodPost, "/orders", nil)
+		if page.cache != "no-store" {
+			t.Fatalf("the list response has Cache-Control %q, want no-store", page.cache)
+		}
+		// A provider that fails is a read that could not be decided: 503, not 500.
+		decision.mu.Lock()
+		decision.down = true
+		decision.mu.Unlock()
+		wantProblem(t, get(t, list, "/orders", "t1", "user:u-7"), http.StatusServiceUnavailable, "the provider is down")
+		decision.mu.Lock()
+		decision.down = false
+		decision.mu.Unlock()
+
+		// Decode reads at most MaxRequestBody bytes of the body.
+		var read atomic.Int64
+		bodyQuery := mustQuery(t, "body-order", orders)
+		withBody, err := Serve(rt, HTTP[string, Order, noProbe]{Query: bodyQuery, Bind: headerBind(bodyQuery),
+			Decode: func(r *http.Request, _ Cursor) (string, error) {
+				n, err := io.Copy(io.Discard, r.Body)
+				read.Store(n)
+				if err != nil {
+					return "", ErrBadRequest
+				}
+				return "o1", nil
+			},
+			Fill:   func(context.Context, string, *Handle[noProbe]) (Order, error) { return Order{ID: "o1"}, nil },
+			Encode: func(Order, string) ([]byte, error) { return []byte(`{}`), nil }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		big := httptest.NewRequest(http.MethodGet, "/order", strings.NewReader(strings.Repeat("x", MaxRequestBody+1)))
+		big.Header.Set("X-Tenant", "t1")
+		big.Header.Set("X-Subject", "user:u-7")
 		w := httptest.NewRecorder()
+		withBody.ServeHTTP(w, big)
+		if w.Code != http.StatusBadRequest || read.Load() > MaxRequestBody {
+			t.Fatalf("a body above the limit gave %d after %d bytes read, want 400 within the limit", w.Code, read.Load())
+		}
+
+		r := httptest.NewRequest(http.MethodPost, "/orders", nil)
+		w = httptest.NewRecorder()
 		list.ServeHTTP(w, r)
 		if w.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("a POST gave %d, want 405", w.Code)

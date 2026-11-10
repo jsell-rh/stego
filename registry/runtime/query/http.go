@@ -7,6 +7,9 @@ import (
 	"strconv"
 )
 
+// MaxRequestBody is the most bytes of a request body that Serve lets Decode read.
+const MaxRequestBody = 1 << 20
+
 // CursorParameter is the URL query parameter that holds the text form of a list cursor (ST-SUP-RP11-LC15).
 const CursorParameter = "cursor"
 
@@ -54,9 +57,10 @@ var titles = map[int]string{
 
 // Serve returns the HTTP handler of the query that s declares (ST-SUP-RP11-LC17): for each GET request it binds the
 // verified identity, reads the cursor parameter with ParseCursor, before any transaction and so with no row read,
-// decodes the request, runs the query with Run, and writes the response as JSON with 200. It maps each refusal to a
+// decodes the request, whose body it limits to MaxRequestBody, runs the query with Run, and writes the response as
+// JSON with 200 and Cache-Control: no-store, as it does each problem response. It maps each refusal to a
 // problem response: a bad cursor or request to 400, a failed bind to 401, a row that is not there or is denied to
-// 404, a read that could not be decided to 503, and every other error to 500. A problem response holds no error
+// 404, a read that could not be decided, also a list whose provider fails, to 503, and every other error to 500. A problem response holds no error
 // text and no data of a row. It refuses a list declaration when the runtime has no cursor key.
 func Serve[Req, Res, P any](rt *Runtime, s HTTP[Req, Res, P]) (http.Handler, error) {
 	switch {
@@ -64,10 +68,15 @@ func Serve[Req, Res, P any](rt *Runtime, s HTTP[Req, Res, P]) (http.Handler, err
 		return nil, errors.New("query: no runtime")
 	case s.Query == nil || s.Bind == nil || s.Decode == nil || s.Fill == nil || s.Encode == nil:
 		return nil, errors.New("query: Serve needs the query, Bind, Decode, Fill and Encode")
-	case s.Next != nil && len(rt.cursorKey) == 0:
+	case s.Next != nil && rt.cursorAEAD == nil:
 		return nil, ErrNoCursorKey
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A query response holds data of one principal: no cache keeps it.
+		w.Header().Set("Cache-Control", "no-store")
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBody)
+		}
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", http.MethodGet)
 			writeProblem(w, http.StatusMethodNotAllowed)

@@ -351,9 +351,12 @@ type state struct {
 	// onBehalfOf is the staging principal of a consumer, which its audit rows name (ST-SUP-RP10-LC16).
 	onBehalfOf string
 	// permission is a worker's declared permission (ST-SUP-RP10-LC17).
-	permission   string
-	writes       map[Declared]bool
-	destinations map[string]Destination
+	permission string
+	// commandPermission is the command's declared permission, which a command's locked read and write decide too
+	// (ST-SUP-RP10-LC05); empty for a command without one and for a worker.
+	commandPermission string
+	writes            map[Declared]bool
+	destinations      map[string]Destination
 	// inbound gives the inbound key of an effect for the entity ID (ST-SUP-RP10-LC08, ST-SUP-RP10-LC21).
 	inbound func(id string) string
 	staged  []outbox.Message
@@ -570,6 +573,9 @@ func (r *Repository[T]) read(ctx context.Context, id string, lock lockMode) (Loa
 		return nil, err
 	}
 	if lock != lockNone {
+		if err := s.decideCommandOn(ctx, e.spec.ResourceType, e.spec.Name, meta.ID, meta.Token); err != nil {
+			return nil, err
+		}
 		statement := e.spec.SelectForUpdate
 		if lock == lockDelete {
 			statement = e.spec.SelectForDelete
@@ -607,7 +613,11 @@ func lockOne[T any](ctx context.Context, s *state, e *Entity[T], statement, id s
 		return zero, Meta{}, s.fail(ctx, step, err)
 	}
 	if meta.Token != first.Token {
-		if err := s.decideRead(ctx, e.spec.ResourceType, e.spec.ReadPermission, e.spec.Name, meta); err != nil {
+		err := s.decideRead(ctx, e.spec.ResourceType, e.spec.ReadPermission, e.spec.Name, meta)
+		if err == nil {
+			err = s.decideCommandOn(ctx, e.spec.ResourceType, e.spec.Name, meta.ID, meta.Token)
+		}
+		if err != nil {
 			if _, rbErr := s.exec(ctx, "ROLLBACK TO SAVEPOINT stego_command_lock"); rbErr != nil {
 				return zero, Meta{}, s.fail(ctx, step, rbErr)
 			}
@@ -644,7 +654,7 @@ func (r *Repository[T]) List(ctx context.Context, l *List[T], limit int, args ..
 	if err != nil {
 		return nil, err
 	}
-	allowed, err := r.allowedRows(ctx, rows)
+	allowed, err := r.allowedRows(ctx, rows, false)
 	if err != nil {
 		return nil, err
 	}
@@ -672,7 +682,7 @@ func (r *Repository[T]) ListForUpdate(ctx context.Context, l *List[T], args ...a
 		return nil, s.breakWith(internalf("the locked list %s of %s matches more than its Lock at most %d rows",
 			l.spec.Name, e.spec.Name, e.spec.LockAtMost))
 	}
-	allowed, err := r.allowedRows(ctx, rows)
+	allowed, err := r.allowedRows(ctx, rows, true)
 	if err != nil {
 		return nil, err
 	}
@@ -707,7 +717,7 @@ func (r *Repository[T]) ListForUpdate(ctx context.Context, l *List[T], args ...a
 		}
 		denied := map[string]bool{}
 		if len(moved) > 0 {
-			ok, err := r.decideRows(ctx, moved)
+			ok, err := r.decideRows(ctx, moved, true)
 			if err != nil {
 				return nil, err
 			}
@@ -773,8 +783,8 @@ func (r *Repository[T]) scanAll(ctx context.Context, step, statement string, arg
 }
 
 // allowedRows keeps the rows that the decision port allows, in their order.
-func (r *Repository[T]) allowedRows(ctx context.Context, rows []scanned[T]) ([]scanned[T], error) {
-	ok, err := r.decideRows(ctx, rows)
+func (r *Repository[T]) allowedRows(ctx context.Context, rows []scanned[T], locked bool) ([]scanned[T], error) {
+	ok, err := r.decideRows(ctx, rows, locked)
 	if err != nil {
 		return nil, err
 	}
@@ -787,7 +797,9 @@ func (r *Repository[T]) allowedRows(ctx context.Context, rows []scanned[T]) ([]s
 	return allowed, nil
 }
 
-func (r *Repository[T]) decideRows(ctx context.Context, rows []scanned[T]) ([]bool, error) {
+// decideRows decides the rows of a list. A locked list of a command also decides the command's permission on each
+// row that the list permission allows (ST-SUP-RP10-LC05).
+func (r *Repository[T]) decideRows(ctx context.Context, rows []scanned[T], locked bool) ([]bool, error) {
 	metas := make([]Meta, len(rows))
 	for i, row := range rows {
 		metas[i] = row.meta
@@ -796,7 +808,12 @@ func (r *Repository[T]) decideRows(ctx context.Context, rows []scanned[T]) ([]bo
 	if permission == "" {
 		permission = r.entity.spec.ReadPermission
 	}
-	return r.st.decideList(ctx, r.entity.spec.ResourceType, permission, metas)
+	s := r.st
+	allowed, err := s.decideList(ctx, r.entity.spec.ResourceType, permission, metas)
+	if err != nil || !locked || s.mode != modeCommand || s.commandPermission == "" || r.entity.spec.ResourceType == "" {
+		return allowed, err
+	}
+	return s.batch(ctx, s.az, s.commandPermission, r.entity.spec.ResourceType, metas, allowed, allowed)
 }
 
 // loadAll audits each read of an entity with a pii field and makes the loaded values.
@@ -811,8 +828,9 @@ func (r *Repository[T]) loadAll(ctx context.Context, rows []scanned[T], lock loc
 	return out, nil
 }
 
-// Create inserts value and returns it as stored, with the version the insert gave it. A command's create makes no
-// decision of its own (ST-SUP-RP10-LC05); a worker's create decides the worker's permission on parent, the loaded
+// Create inserts value and returns it as stored, with the version the insert gave it. A command's create under a
+// parent decides the command's permission on the parent, and one with no parent is covered by the decision before
+// the fill (ST-SUP-RP10-LC05); a worker's create decides the worker's permission on parent, the loaded
 // parent resource that the new row goes under, before the write (ST-SUP-RP10-LC17). The audit row of the write is
 // buffered for Run (ST-SUP-RP10-LC06).
 func (r *Repository[T]) Create(ctx context.Context, value T, parent Ref) (Loaded[T], error) {
@@ -825,6 +843,16 @@ func (r *Repository[T]) Create(ctx context.Context, value T, parent Ref) (Loaded
 		if parent == nil {
 			return nil, fmt.Errorf("command: a worker's create of %s needs the parent resource to decide on", e.spec.Name)
 		}
+		p := refOf(parent)
+		if p.st != s {
+			return nil, s.breakWith(internalf("the parent of a create of %s is a loaded value of another transaction", e.spec.Name))
+		}
+		if err := s.decideWrite(ctx, p.resourceType, p.entity, p.id, p.token); err != nil {
+			return nil, err
+		}
+	}
+	if s.mode == modeCommand && parent != nil {
+		// A command's create under a parent decides the command's permission on the parent (ST-SUP-RP10-LC05).
 		p := refOf(parent)
 		if p.st != s {
 			return nil, s.breakWith(internalf("the parent of a create of %s is a loaded value of another transaction", e.spec.Name))
@@ -866,10 +894,8 @@ func (r *Repository[T]) Update(ctx context.Context, from Loaded[T], value T) (Lo
 	if e.spec.KeyChanged(from2.value, value) && from2.lock != lockDelete {
 		return nil, s.breakWith(internalf("an update of a key column of %s needs a value that GetForDelete locked", e.spec.Name))
 	}
-	if s.mode != modeCommand {
-		if err := s.decideWrite(ctx, e.spec.ResourceType, e.spec.Name, from2.meta.ID, from2.meta.Token); err != nil {
-			return nil, err
-		}
+	if err := s.decideWrite(ctx, e.spec.ResourceType, e.spec.Name, from2.meta.ID, from2.meta.Token); err != nil {
+		return nil, err
 	}
 	step := "update " + e.spec.Name
 	row, err := s.lockedRow(ctx, step, e.spec.Update,
@@ -909,10 +935,8 @@ func (r *Repository[T]) Delete(ctx context.Context, from Loaded[T]) error {
 	if from2.lock == lockUpdate {
 		return s.breakWith(internalf("a delete of %s needs a value that GetForDelete locked, not GetForUpdate", e.spec.Name))
 	}
-	if s.mode != modeCommand {
-		if err := s.decideWrite(ctx, e.spec.ResourceType, e.spec.Name, from2.meta.ID, from2.meta.Token); err != nil {
-			return err
-		}
+	if err := s.decideWrite(ctx, e.spec.ResourceType, e.spec.Name, from2.meta.ID, from2.meta.Token); err != nil {
+		return err
 	}
 	step := "delete " + e.spec.Name
 	if err := s.setLockTimeout(ctx); err != nil {

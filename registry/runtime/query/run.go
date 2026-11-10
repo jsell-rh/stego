@@ -1,8 +1,8 @@
 package query
 
 import (
-	"bytes"
 	"context"
+	"crypto/cipher"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -48,7 +48,7 @@ type Runtime struct {
 	service  string
 	dropped  atomic.Uint64
 
-	cursorKey []byte
+	cursorAEAD cipher.AEAD
 
 	// afterFill, when a test sets it, runs after the fill returned and the handle closed, before Run ends the
 	// transaction.
@@ -81,8 +81,16 @@ func New(cfg Config) (*Runtime, error) {
 	if len(cfg.CursorKey) > 0 && len(cfg.CursorKey) < MinCursorKey {
 		return nil, fmt.Errorf("query: the cursor key holds fewer than %d bytes", MinCursorKey)
 	}
-	return &Runtime{db: cfg.DB, auditDB: cfg.AuditDB, audit: cfg.Audit, settings: cfg.AuditSettings, authz: cfg.Authz,
-		service: cfg.Service, cursorKey: bytes.Clone(cfg.CursorKey)}, nil
+	rt := &Runtime{db: cfg.DB, auditDB: cfg.AuditDB, audit: cfg.Audit, settings: cfg.AuditSettings, authz: cfg.Authz,
+		service: cfg.Service}
+	if len(cfg.CursorKey) > 0 {
+		aead, err := newCursorAEAD(cfg.CursorKey)
+		if err != nil {
+			return nil, err
+		}
+		rt.cursorAEAD = aead
+	}
+	return rt, nil
 }
 
 // DroppedSends counts the messages of server streams that a deny dropped (ST-SUP-RP11-LC13).

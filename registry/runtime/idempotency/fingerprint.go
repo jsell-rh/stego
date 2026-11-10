@@ -289,3 +289,43 @@ func canonicalNumber(n string) (string, error) {
 	}
 	return b.String(), nil
 }
+
+// FieldFingerprint returns the fingerprint of a request over the declared body fields only (ST-SUP-RP07-LC10): it
+// decodes the JSON body, keeps the top-level members that fields names, and returns Fingerprint over the method, the
+// path of target without its query and the canonical form of the kept body. An empty body keeps nothing. A body
+// that is not one JSON object is an error.
+func FieldFingerprint(method, target string, body []byte, fields []string) (string, error) {
+	path, _, _ := strings.Cut(target, "?")
+	kept := []byte{}
+	if len(bytes.Trim(body, " \t\r\n")) != 0 {
+		dec := json.NewDecoder(bytes.NewReader(body))
+		dec.UseNumber()
+		v, err := readValue(dec)
+		if err != nil {
+			return "", fmt.Errorf("idempotency: the body is not valid JSON: %w", err)
+		}
+		if _, err := dec.Token(); err != io.EOF {
+			return "", errors.New("idempotency: the body holds more than one JSON value")
+		}
+		all, ok := v.(object)
+		if !ok {
+			return "", errors.New("idempotency: the body is not a JSON object")
+		}
+		named := object{}
+		for _, f := range fields {
+			if member, ok := all[f]; ok {
+				named[f] = member
+			}
+		}
+		var out bytes.Buffer
+		if err := writeValue(&out, named); err != nil {
+			return "", err
+		}
+		kept = out.Bytes()
+	}
+	sum, err := sumParts([]byte(method), []byte(path), kept)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(sum[:]), nil
+}

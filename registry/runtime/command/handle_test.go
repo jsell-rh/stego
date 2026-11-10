@@ -253,8 +253,8 @@ func newEnv(t *testing.T, options ...envOption) *env {
 		t.Fatal(err)
 	}
 	e.probes = probe.NewRecorder(nil)
-	e.rt = e.runtime(nil)
 	e.entities()
+	e.rt = e.runtime(nil)
 	return e
 }
 
@@ -273,7 +273,8 @@ func (e *env) openPool(dsn string) *sql.DB {
 func (e *env) runtime(change func(*Config)) *Runtime {
 	e.t.Helper()
 	cfg := Config{DB: e.pool, AuditDB: e.auditDB, Authz: e.authz, Audit: e.writer, Outbox: e.queue, Probes: e.probes,
-		Service: "orders", ServiceVersion: "1.0.0", DeclarationVersion: "d1"}
+		Service: "orders", ServiceVersion: "1.0.0", DeclarationVersion: "d1",
+		Entities: []Declared{e.orders, e.organizations, e.users, e.reservationE, e.chargeE, e.customerE}}
 	if change != nil {
 		change(&cfg)
 	}
@@ -524,7 +525,9 @@ func person(t testing.TB, subject string) authz.Principal {
 type decision struct {
 	mu    sync.Mutex
 	allow func(subject, action, resource string) bool
-	calls []evaluation
+	// relations, when set, are the only allowed requests, keyed by relation(); allow is not read then.
+	relations map[string]bool
+	calls     []evaluation
 	// after, when set, runs after each decision, outside the lock.
 	after func(e evaluation)
 }
@@ -568,6 +571,10 @@ func (d *decision) decide(request authz.EvaluationRequest) authz.EvaluationResul
 		Resource: unqualified(request.Resource), Consistency: request.Consistency}
 	d.calls = append(d.calls, e)
 	allowed := d.allow == nil || d.allow(e.Subject, e.Action, e.Resource)
+	if d.relations != nil {
+		// A provider that holds only these relationships: subject, action and the tenant-qualified resource.
+		allowed = d.relations[request.Subject.String()+" "+request.Action.Name+" "+request.Resource.String()]
+	}
 	after := d.after
 	d.mu.Unlock()
 	if after != nil {
@@ -575,6 +582,27 @@ func (d *decision) decide(request authz.EvaluationRequest) authz.EvaluationResul
 	}
 	token, _ := authz.NewToken("checked")
 	return authz.EvaluationResult{Allowed: allowed, Token: token}
+}
+
+// setRelations makes the port hold only the relationships given, each made by relation, and allow nothing else.
+func (d *decision) setRelations(relations ...string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.relations = map[string]bool{}
+	for _, r := range relations {
+		d.relations[r] = true
+	}
+}
+
+// relation is the key of one relationship of setRelations: the subject may do action on the resource key of the
+// resource type in the tenant.
+func relation(t testing.TB, subject, action, tenantID, resourceType, key string) string {
+	t.Helper()
+	r, err := authz.NewResource(mustTenant(t, tenantID), resourceType, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return subject + " " + action + " " + r.String()
 }
 
 func (d *decision) setAfter(after func(e evaluation)) {

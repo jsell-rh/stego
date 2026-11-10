@@ -210,7 +210,7 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor) 
 						return ListResult[T]{}, err
 					}
 				}
-				return ListResult[T]{}, err
+				return ListResult[T]{}, ErrUndecided
 			}
 			// The kept rows are mapped back to their keys by position in candidates, never by parsing an ID.
 			byID := make(map[string]string, len(candidates))
@@ -256,8 +256,12 @@ func (r *Repository[T]) searchPage(ctx context.Context, limit int, after Cursor)
 	c := r.core
 	e := &r.entity.e
 	found, err := c.authz.Search(ctx, r.permission(), e.spec.ResourceType, nil, authz.Page{Token: after.page, Limit: limit})
-	if err != nil {
+	if errors.Is(err, authz.ErrNoSearch) {
 		return ListResult[T]{}, err
+	}
+	if err != nil {
+		// A provider that fails gives the same error as an undecided read.
+		return ListResult[T]{}, ErrUndecided
 	}
 	var result ListResult[T]
 	if !found.Next.IsZero() {

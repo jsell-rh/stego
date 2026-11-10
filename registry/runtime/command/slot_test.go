@@ -25,6 +25,18 @@ func TestSlotLoaded(t *testing.T) {
 		if _, err := FromRequest((*Runtime)(nil).SlotKey(), e.reservationE, request); !errors.Is(err, ErrNoSlotKey) {
 			t.Fatalf("the key of no runtime gave %v, want ErrNoSlotKey", err)
 		}
+		if _, err := FromRequest(new(Runtime).SlotKey(), e.reservationE, request); !errors.Is(err, ErrNoSlotKey) {
+			t.Fatalf("the key of a runtime that New did not make gave %v, want ErrNoSlotKey", err)
+		}
+		// An entity that a fill or another module builds with NewEntity is not an entity of this runtime, even with
+		// the same declaration.
+		outside, err := NewEntity(e.reservationE.spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := FromRequest(e.rt.SlotKey(), outside, request); !errors.Is(err, ErrNotRegistered) {
+			t.Fatalf("an entity that the runtime did not register gave %v, want ErrNotRegistered", err)
+		}
 		var zero slotKey
 		if _, err := FromRequest(zero, e.reservationE, request); !errors.Is(err, ErrNoSlotKey) {
 			t.Fatalf("the zero key gave %v, want ErrNoSlotKey", err)

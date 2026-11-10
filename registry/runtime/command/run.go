@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/http"
-	"strings"
+	"regexp"
 	"sync/atomic"
 	"time"
 
@@ -82,6 +82,9 @@ type Config struct {
 	Outbox *outbox.Queue
 	// Probes binds the probe call of each attempt (ST-SUP-RP10-LC14).
 	Probes Probes
+	// Entities are the entities of the service. FromRequest makes a loaded value only of one of them
+	// (ST-SUP-RP10-LC32).
+	Entities []Declared
 	// Telemetry starts the operation spans of SpanNames, or nil for none.
 	Telemetry *otel.Runtime
 	// Logger gives the log of an outcome row that was not written (ST-SUP-RP10-LC06). Nil logs nothing.
@@ -92,8 +95,11 @@ type Config struct {
 
 // Runtime is the command runtime of one service.
 type Runtime struct {
-	cfg             Config
-	logger          otellog.Logger
+	cfg    Config
+	logger otellog.Logger
+	// slots is set only by New: a Runtime that New did not make, such as new(Runtime), gives a slot key that
+	// FromRequest refuses (ST-SUP-RP10-LC32).
+	slots           *slotSeal
 	outcomeFailures atomic.Int64
 	// recorder and beforeCommit are set only by the tests of the package: the statement recorder, and a step just
 	// before COMMIT.
@@ -135,7 +141,13 @@ func New(ctx context.Context, cfg Config) (*Runtime, error) {
 	if cfg.AuditSettings.Level == "" {
 		cfg.AuditSettings.Level = audit.LevelChange
 	}
-	rt := &Runtime{cfg: cfg}
+	rt := &Runtime{cfg: cfg, slots: &slotSeal{entities: map[Declared]bool{}}}
+	for _, e := range cfg.Entities {
+		if e == nil {
+			return nil, errors.New("command: the runtime declares a nil entity")
+		}
+		rt.slots.entities[e] = true
+	}
 	if cfg.Logger != nil {
 		rt.logger = cfg.Logger.Logger("stego.dev/runtime/command")
 	}
@@ -243,7 +255,9 @@ func checkWrites(owner string, declared []Declared) (map[Declared]bool, error) {
 }
 
 // checkResource refuses a permission without its resource, a resource without a permission, and a resource that
-// lacks a part or reads its token with a statement that does not take the tenant as $1 and the ID as $2.
+// lacks a part. Its token statement must take exactly the placeholders $1, the tenant, and $2, the ID, so $12 does
+// not pass for $1, and must lock the row it reads FOR SHARE, or FOR KEY SHARE for the parent of a create, so the
+// row's token cannot change until the command's transaction ends (ST-SUP-RP10-LC31).
 func checkResource(owner, permission string, r *Resource) error {
 	switch {
 	case permission == "" && r == nil:
@@ -252,11 +266,25 @@ func checkResource(owner, permission string, r *Resource) error {
 		return fmt.Errorf("command: %s declares a permission without its resource, or a resource without a permission", owner)
 	case r.Type == "" || r.ValidID == nil:
 		return fmt.Errorf("command: the resource of %s needs its type and ValidID", owner)
-	case !strings.Contains(r.Token, "$1") || !strings.Contains(r.Token, "$2"):
-		return fmt.Errorf("command: the token statement of the resource of %s does not take the tenant as $1 and the ID as $2", owner)
+	}
+	seen := map[string]bool{}
+	for _, m := range placeholder.FindAllStringSubmatch(r.Token, -1) {
+		seen[m[1]] = true
+	}
+	if len(seen) != 2 || !seen["1"] || !seen["2"] {
+		return fmt.Errorf("command: the token statement of the resource of %s does not take exactly the tenant as $1 and the ID as $2", owner)
+	}
+	if !shareLock.MatchString(r.Token) {
+		return fmt.Errorf("command: the token statement of the resource of %s does not lock the row FOR SHARE or FOR KEY SHARE", owner)
 	}
 	return nil
 }
+
+// placeholder matches one placeholder of a statement, and shareLock a statement that ends with a share lock.
+var (
+	placeholder = regexp.MustCompile(`\$([0-9]+)`)
+	shareLock   = regexp.MustCompile(`(?i)\bFOR\s+(KEY\s+)?SHARE\s*;?\s*$`)
+)
 
 // Request is what Run knows of one command request, from the generated handler.
 type Request struct {
@@ -394,6 +422,7 @@ func runAttempt[Req, P any](ctx context.Context, rt *Runtime, cmd *Command[P], r
 	}()
 	s := newState(ctx, rt, tx, req.Tenant, req.Principal, modeCommand, cmd.spec.Name, cmd.writes, cmd.destinations)
 	s.request = req
+	s.commandPermission = cmd.spec.Permission
 	s.lockTimeout = cmd.spec.LockTimeout
 	if s.lockTimeout == 0 {
 		s.lockTimeout = DefaultLockTimeout
@@ -459,10 +488,11 @@ func runAttempt[Req, P any](ctx context.Context, rt *Runtime, cmd *Command[P], r
 }
 
 // decideCommand decides the command's declared permission on the resource id with the attempt's authorization
-// handle, before the idempotency wrapper (ST-SUP-RP10-LC31). It reads the row's token through the bound transaction,
-// after lock_timeout, and decides on a zero token when the tenant holds no such row, so a missing row and a denied
-// one cost the same calls and give the same answer. An ID that is not a key of the resource is denied without a
-// statement. A command with no permission decides nothing.
+// handle, before the idempotency wrapper (ST-SUP-RP10-LC31). It reads and share-locks the resource row through the
+// bound transaction, after lock_timeout, so no revocation can change its token before the commit, and decides at
+// the revocation floor with the same consistency whether or not the row exists, so a missing row and a denied one
+// cost the same calls, take the same time and give the same answer. An ID that is not a key of the resource is
+// denied without a statement. A command with no permission decides nothing.
 func (s *state) decideCommand(ctx context.Context, permission string, r *Resource, id string) error {
 	if r == nil {
 		return nil
@@ -478,7 +508,11 @@ func (s *state) decideCommand(ctx context.Context, permission string, r *Resourc
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return s.fail(ctx, "read the token of the resource", err)
 	}
-	allowed, err := s.evaluate(ctx, s.az, permission, r.Type, id, token.String, nil)
+	// The row's token is not given to the decision: a missing row has none, and the floor alone gives one
+	// consistency for both. While the floor is zero, the decision is fresh, which is at least as fresh as any
+	// token of the row.
+	_ = token
+	allowed, err := s.evaluate(ctx, s.az, permission, r.Type, id, "", nil)
 	switch {
 	case errors.Is(err, ErrNotFound):
 		// The ID makes no resource ID at the provider (ST-SUP-RP06-LC22): no principal may act on it.

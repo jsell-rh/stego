@@ -124,11 +124,14 @@ func (s *state) decideRead(ctx context.Context, resourceType, permission, entity
 	return nil
 }
 
-// decideWrite decides a worker's write on one resource, before the write (ST-SUP-RP10-LC17). A command makes no
-// decision per write: its declared permission, decided before the fill, covers its declared writes
-// (ST-SUP-RP10-LC05).
+// decideWrite decides a write on one resource, before the write. A worker decides its own permission
+// (ST-SUP-RP10-LC17); a command decides its declared permission on the row, so a fill cannot write a row other than
+// the decided resource without the same permission on it, and a deny answers as not found (ST-SUP-RP10-LC05).
 func (s *state) decideWrite(ctx context.Context, resourceType, entity, id, token string) error {
-	if s.mode == modeCommand || resourceType == "" {
+	if s.mode == modeCommand {
+		return s.decideCommandOn(ctx, resourceType, entity, id, token)
+	}
+	if resourceType == "" {
 		return nil
 	}
 	ok, staging, err := s.decideBoth(ctx, resourceType, id, token)
@@ -137,6 +140,23 @@ func (s *state) decideWrite(ctx context.Context, resourceType, entity, id, token
 	}
 	if !ok {
 		return &deniedError{entity: entity, staging: staging}
+	}
+	return nil
+}
+
+// decideCommandOn decides the command's declared permission on one row of an entity with a resource type, at the
+// floor and the row's token, for a locked read or a write of a command (ST-SUP-RP10-LC05). A deny is ErrNotFound. A
+// command with no permission, a worker and an entity with no resource type decide nothing here.
+func (s *state) decideCommandOn(ctx context.Context, resourceType, entity, id, token string) error {
+	if s.mode != modeCommand || s.commandPermission == "" || resourceType == "" {
+		return nil
+	}
+	ok, err := s.evaluate(ctx, s.az, s.commandPermission, resourceType, id, token, nil)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrNotFound, entity)
 	}
 	return nil
 }
