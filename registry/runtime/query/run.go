@@ -1,6 +1,7 @@
 package query
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -32,6 +33,9 @@ type Config struct {
 	Authz *authz.Runtime
 	// Service is the service name that each audit row carries.
 	Service string
+	// CursorKey is the key of the MAC of the text form of a list cursor (ST-SUP-RP11-LC15): at least MinCursorKey
+	// random bytes, the same in every replica of the service, and secret. Without it, a cursor has no text form.
+	CursorKey []byte
 }
 
 // Runtime is the query runtime of one service: it runs query fills, each in a READ ONLY transaction of its own.
@@ -43,6 +47,8 @@ type Runtime struct {
 	authz    *authz.Runtime
 	service  string
 	dropped  atomic.Uint64
+
+	cursorKey []byte
 
 	// afterFill, when a test sets it, runs after the fill returned and the handle closed, before Run ends the
 	// transaction.
@@ -72,8 +78,11 @@ func New(cfg Config) (*Runtime, error) {
 			return nil, errors.New("query: the audit rows need the service name")
 		}
 	}
+	if len(cfg.CursorKey) > 0 && len(cfg.CursorKey) < MinCursorKey {
+		return nil, fmt.Errorf("query: the cursor key holds fewer than %d bytes", MinCursorKey)
+	}
 	return &Runtime{db: cfg.DB, auditDB: cfg.AuditDB, audit: cfg.Audit, settings: cfg.AuditSettings, authz: cfg.Authz,
-		service: cfg.Service}, nil
+		service: cfg.Service, cursorKey: bytes.Clone(cfg.CursorKey)}, nil
 }
 
 // DroppedSends counts the messages of server streams that a deny dropped (ST-SUP-RP11-LC13).
@@ -275,6 +284,49 @@ func (a *auditor) failure() error {
 	return a.failed
 }
 
+// auditedFailure writes the read audit row of a read of the resource id of e that failed with the fixed error code
+// code (ST-SUP-RP11-LC16), when e holds a pii field: the action read, the outcome failed, the code and no state,
+// so the row holds no error text and no data of the row. A failed write makes Run give no result, as for audited.
+func (c *core) auditedFailure(ctx context.Context, e *entity, id, code string) error {
+	if !e.pii {
+		return nil
+	}
+	a := c.audit
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.failed != nil {
+		return a.failed
+	}
+	key := e.spec.Name + "\x00" + id + "\x00" + code
+	if a.done[key] {
+		return nil
+	}
+	event := c.readEvent(e, id)
+	event.ErrorCode = code
+	if _, err := a.rt.audit.RecordRead(ctx, a.rt.auditDB, c.tenant, event); err != nil {
+		a.failed = fmt.Errorf("query: the read audit row of %s: %w", e.spec.Name, err)
+		return a.failed
+	}
+	a.done[key] = true
+	return nil
+}
+
+// readEvent is the read audit event of the resource id of e: the principal as the actor and the query name as the
+// operation.
+func (c *core) readEvent(e *entity, id string) audit.Event {
+	subject := c.principal.Subject()
+	kind := audit.ActorUser
+	if subject.Type == authz.ServiceAccountType {
+		kind = audit.ActorService
+	}
+	resourceType := e.spec.ResourceType
+	if resourceType == "" {
+		resourceType = e.spec.Name
+	}
+	return audit.Event{ActorID: subject.String(), ActorKind: kind, Operation: c.query.name, ResourceType: resourceType,
+		ResourceID: id, Service: c.audit.rt.service, RequestID: c.requestID}
+}
+
 // audited writes the read audit row of the resource id of e, whose stored row is row, when e holds a pii field and
 // the handle has not written one for that resource yet. The row has the action read, the principal as the actor, the
 // query name as the operation and, at the change level, the redacted state. A failed write is returned and makes Run give no result, also when
@@ -293,17 +345,7 @@ func (c *core) audited(ctx context.Context, e *entity, id string, row Row) error
 	if a.done[key] {
 		return nil
 	}
-	subject := c.principal.Subject()
-	kind := audit.ActorUser
-	if subject.Type == authz.ServiceAccountType {
-		kind = audit.ActorService
-	}
-	resourceType := e.spec.ResourceType
-	if resourceType == "" {
-		resourceType = e.spec.Name
-	}
-	event := audit.Event{ActorID: subject.String(), ActorKind: kind, Operation: c.query.name, ResourceType: resourceType,
-		ResourceID: id, Service: a.rt.service, RequestID: c.requestID}
+	event := c.readEvent(e, id)
 	state := row.state()
 	if err := event.SetStates(a.rt.settings, e.spec.Fields, state, state); err != nil {
 		a.failed = fmt.Errorf("query: the read audit row of %s: %w", e.spec.Name, err)

@@ -72,45 +72,95 @@ func NewDestination(s Sink) (*Destination, error) {
 // Deliver delivers one outbox message to the sink: an event message as one Append, an anchor message as one
 // Anchor. A duplicate event ID is a success, so a message sent again completes.
 func (d *Destination) Deliver(ctx context.Context, key string, payload []byte) error {
-	v, err := decodeJSON("sink message", payload)
+	m, err := readSinkMessage(payload)
 	if err != nil {
 		return err
 	}
+	return d.send(ctx, m)
+}
+
+// ErrBadMessage matches the error of DeliverFor for a sink message that a retry cannot deliver: it does not decode,
+// is not in canonical form, has a hash that does not cover its event, or names a tenant other than its outbox row's.
+var ErrBadMessage = errors.New("audit: the sink message is refused")
+
+// DeliverFor delivers one sink message of the outbox row of the tenant tenantID, as Deliver does, and first refuses,
+// with an error that matches ErrBadMessage, a message that names another tenant or that Deliver cannot read
+// (ST-SUP-RP05-LC14). An error of the sink does not match ErrBadMessage, so the outbox retries it.
+//
+// The outbox keeps a payload as jsonb, which keeps every value but not the order of the keys or the spacing, so
+// DeliverFor reads the payload back into its canonical form first; the hash of the event, which covers its canonical
+// record, still refuses a message whose values changed.
+func (d *Destination) DeliverFor(ctx context.Context, tenantID string, payload []byte) error {
+	v, err := decodeJSON("sink message", payload)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrBadMessage, err)
+	}
+	m, err := readSinkMessage(encodeTree(v))
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrBadMessage, err)
+	}
+	if tenantID == "" || m.tenantID != tenantID {
+		return fmt.Errorf("%w: it names another tenant than its outbox row", ErrBadMessage)
+	}
+	return d.send(ctx, m)
+}
+
+// checkedMessage is one sink message that readSinkMessage checked: an event or an anchor.
+type checkedMessage struct {
+	event    *Event
+	anchor   *Anchor
+	tenantID string
+}
+
+// readSinkMessage reads and checks one sink message: an event message must be in canonical form and its hash must
+// cover its event before the sink gets it.
+func readSinkMessage(payload []byte) (checkedMessage, error) {
+	v, err := decodeJSON("sink message", payload)
+	if err != nil {
+		return checkedMessage{}, err
+	}
 	m, ok := v.(map[string]any)
 	if !ok {
-		return errors.New("audit: the sink message is not an object")
+		return checkedMessage{}, errors.New("audit: the sink message is not an object")
 	}
 	switch m["kind"] {
 	case messageEvent:
-		// The message must be in canonical form, and the event's hash must cover it, before the sink gets it.
 		if !bytes.Equal(encodeTree(v), payload) {
-			return errors.New("audit: the sink message is not in canonical form")
+			return checkedMessage{}, errors.New("audit: the sink message is not in canonical form")
 		}
 		e, err := eventFrom(m["event"])
 		if err != nil {
-			return fmt.Errorf("audit: the sink message: %w", err)
+			return checkedMessage{}, fmt.Errorf("audit: the sink message: %w", err)
 		}
 		h, err := Hash(e)
 		if err != nil {
-			return err
+			return checkedMessage{}, err
 		}
 		if !bytes.Equal(h, e.Hash) {
-			return errors.New("audit: the hash of the sink message does not cover its event")
+			return checkedMessage{}, errors.New("audit: the hash of the sink message does not cover its event")
 		}
-		err = d.sink.Append(ctx, []Event{e})
-		if errors.Is(err, ErrDuplicate) {
-			return nil
-		}
-		return err
+		return checkedMessage{event: &e, tenantID: e.TenantID}, nil
 	case messageAnchor:
 		a, err := anchorFrom(m)
 		if err != nil {
-			return fmt.Errorf("audit: the sink message: %w", err)
+			return checkedMessage{}, fmt.Errorf("audit: the sink message: %w", err)
 		}
-		return d.sink.Anchor(ctx, a)
+		return checkedMessage{anchor: &a, tenantID: a.Tenant}, nil
 	default:
-		return errors.New("audit: the sink message has an unknown kind")
+		return checkedMessage{}, errors.New("audit: the sink message has an unknown kind")
 	}
+}
+
+// send gives one checked message to the sink.
+func (d *Destination) send(ctx context.Context, m checkedMessage) error {
+	if m.anchor != nil {
+		return d.sink.Anchor(ctx, *m.anchor)
+	}
+	err := d.sink.Append(ctx, []Event{*m.event})
+	if errors.Is(err, ErrDuplicate) {
+		return nil
+	}
+	return err
 }
 
 func anchorFrom(m map[string]any) (Anchor, error) {

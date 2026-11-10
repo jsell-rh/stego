@@ -510,6 +510,10 @@ func (r *Repository[T]) Get(ctx context.Context, id string) (Loaded[T], error) {
 	}
 	allowed, err := c.allowRead(ctx, e, key, token)
 	if err != nil {
+		// The failed read of personal data has its audit row too, with the fixed code (ST-SUP-RP11-LC16).
+		if err := c.auditedFailure(ctx, e, key, audit.ErrorCodeUndecided); err != nil {
+			return nil, err
+		}
 		return nil, ErrUndecided
 	}
 	if !found || !allowed {

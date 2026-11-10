@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"stego.dev/runtime/audit"
 	"stego.dev/runtime/authz"
 )
 
@@ -202,6 +203,13 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor) 
 			}
 			kept, err := list.Page(ctx, candidates)
 			if err != nil {
+				// Each row of personal data that the page read and could not decide has its failed read row
+				// (ST-SUP-RP11-LC16).
+				for _, id := range ids {
+					if err := c.auditedFailure(ctx, e, id, audit.ErrorCodeUndecided); err != nil {
+						return ListResult[T]{}, err
+					}
+				}
 				return ListResult[T]{}, err
 			}
 			// The kept rows are mapped back to their keys by position in candidates, never by parsing an ID.

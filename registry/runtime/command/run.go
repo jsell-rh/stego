@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -51,6 +52,11 @@ func SpanNames() []string { return []string{AttemptSpanName, WorkerSpanName, Con
 // is lost during it or the deadline cancels it (ST-SUP-RP10-LC25, ST-SUP-RP10-LC28). It is an internal error: Run
 // does not run the fill again, and the handler writes the outcome row commit_outcome_unknown.
 var ErrCommitUnknown = &internalError{text: "the outcome of COMMIT is not known"}
+
+// ErrDenied is the error of Run when the principal may not run the command on the resource that the request names:
+// the authorization handle denied the command's declared permission on it (ST-SUP-RP10-LC31). Run did not call the
+// fill and wrote no key row; the handler answers it with 403 and writes the outcome row denied.
+var ErrDenied = errors.New("command: the principal may not run the command on its resource")
 
 // errPanic is the error of a fill that panicked. It holds no part of the panic value (ST-SUP-RP10-LC12).
 var errPanic = &internalError{text: "the fill panicked"}
@@ -176,6 +182,24 @@ type CommandSpec[P any] struct {
 	LockTimeout time.Duration
 	// Probe wraps the probe of one call in the command's typed probe (ST-SUP-RP10-LC14).
 	Probe func(*probe.Probe) P
+	// Permission is the command's declared permission, which Run decides on Resource before the fill
+	// (ST-SUP-RP10-LC31). A command with a permission declares its resource, and one without declares neither.
+	Permission string
+	// Resource is the resource on which Run decides Permission: for a command that creates, the parent that the
+	// new resource goes under.
+	Resource *Resource
+}
+
+// Resource is the generated declaration of the resource of a command (ST-SUP-RP10-LC31): its resource type at the
+// provider, the statement that reads the authorization token of its row, and the check of an ID.
+type Resource struct {
+	// Type is the resource type at the provider, such as order.
+	Type string
+	// Token reads the authz_token of the resource row: the tenant is $1 and the ID $2. It gives one text column, or
+	// no row when the tenant holds no such row.
+	Token string
+	// ValidID tells whether id is a key of the resource, such as a uuid.
+	ValidID func(id string) bool
 }
 
 // Command is one checked command declaration.
@@ -201,6 +225,9 @@ func NewCommand[P any](spec CommandSpec[P]) (*Command[P], error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := checkResource(spec.Name, spec.Permission, spec.Resource); err != nil {
+		return nil, err
+	}
 	return &Command[P]{spec: spec, writes: writes, destinations: destinations}, nil
 }
 
@@ -215,6 +242,22 @@ func checkWrites(owner string, declared []Declared) (map[Declared]bool, error) {
 	return writes, nil
 }
 
+// checkResource refuses a permission without its resource, a resource without a permission, and a resource that
+// lacks a part or reads its token with a statement that does not take the tenant as $1 and the ID as $2.
+func checkResource(owner, permission string, r *Resource) error {
+	switch {
+	case permission == "" && r == nil:
+		return nil
+	case permission == "" || r == nil:
+		return fmt.Errorf("command: %s declares a permission without its resource, or a resource without a permission", owner)
+	case r.Type == "" || r.ValidID == nil:
+		return fmt.Errorf("command: the resource of %s needs its type and ValidID", owner)
+	case !strings.Contains(r.Token, "$1") || !strings.Contains(r.Token, "$2"):
+		return fmt.Errorf("command: the token statement of the resource of %s does not take the tenant as $1 and the ID as $2", owner)
+	}
+	return nil
+}
+
 // Request is what Run knows of one command request, from the generated handler.
 type Request struct {
 	// Tenant is the tenant of the verified identity, and Principal the principal that the handler decided.
@@ -225,6 +268,9 @@ type Request struct {
 	Fingerprint string
 	// Body is the request body, which Run decodes again for each attempt (ST-SUP-RP10-LC25).
 	Body []byte
+	// Resource is the ID of the resource that the request names, on which Run decides the command's permission
+	// (ST-SUP-RP10-LC31). A command with no permission ignores it.
+	Resource string
 	// RequestID, ActorIP and UserAgent go to the audit rows.
 	RequestID          string
 	ActorIP, UserAgent string
@@ -256,7 +302,12 @@ type Fill[Req, P any] func(ctx context.Context, request Req, h *Handle[P]) (idem
 // rolls the attempt back and runs the fill again, after a random wait, while fewer reruns than the command's Retry
 // on conflict have run and the deadline leaves room (ST-SUP-RP10-LC25, ST-SUP-RP10-LC28).
 //
-// Run returns the fill's own error as it is, ErrConflict after the last attempt, ErrCommitUnknown when the outcome of
+// Before the idempotency wrapper, and so before the fill and before any key row, each attempt decides the command's
+// declared permission on the resource that the request names through the bound authorization handle, at the floor
+// of ST-SUP-RP06-LC09 and the row's token, which it reads in the attempt's transaction; a deny ends Run with
+// ErrDenied (ST-SUP-RP10-LC31).
+//
+// Run returns the fill's own error as it is, ErrDenied for a deny, ErrConflict after the last attempt, ErrCommitUnknown when the outcome of
 // COMMIT is not known, and an internal error for a panic, which carries no part of the panic value
 // (ST-SUP-RP10-LC12), and for every other fault.
 func Run[Req, P any](ctx context.Context, rt *Runtime, cmd *Command[P], req Request,
@@ -361,6 +412,9 @@ func runAttempt[Req, P any](ctx context.Context, rt *Runtime, cmd *Command[P], r
 	if s.az, err = rt.cfg.Authz.Bind(tx, req.Tenant, req.Principal, cmd.spec.Relations); err != nil {
 		return Result{}, internalf("the authorization handle was not bound"), false
 	}
+	if err := s.decideCommand(ctx, cmd.spec.Permission, cmd.spec.Resource, req.Resource); err != nil {
+		return Result{}, err, errors.Is(err, ErrConflict)
+	}
 	call := rt.cfg.Probes.Bind(ctx, req.Tenant.ID(), req.Principal.Subject().String(), cmd.spec.Name)
 	defer call.Rollback()
 	h := &Handle[P]{st: s, probe: cmd.spec.Probe(call.Probe())}
@@ -402,6 +456,42 @@ func runAttempt[Req, P any](ctx context.Context, rt *Runtime, cmd *Command[P], r
 	outcome = otel.OutcomeCommitted
 	call.Commit()
 	return Result{Response: wrapped.Response}, nil, false
+}
+
+// decideCommand decides the command's declared permission on the resource id with the attempt's authorization
+// handle, before the idempotency wrapper (ST-SUP-RP10-LC31). It reads the row's token through the bound transaction,
+// after lock_timeout, and decides on a zero token when the tenant holds no such row, so a missing row and a denied
+// one cost the same calls and give the same answer. An ID that is not a key of the resource is denied without a
+// statement. A command with no permission decides nothing.
+func (s *state) decideCommand(ctx context.Context, permission string, r *Resource, id string) error {
+	if r == nil {
+		return nil
+	}
+	if id == "" || !r.ValidID(id) {
+		return ErrDenied
+	}
+	if err := s.setLockTimeout(ctx); err != nil {
+		return s.fail(ctx, "lock timeout", err)
+	}
+	var token sql.NullString
+	err := s.queryRow(ctx, r.Token, s.tenant.ID(), id).Scan(&token)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return s.fail(ctx, "read the token of the resource", err)
+	}
+	allowed, err := s.evaluate(ctx, s.az, permission, r.Type, id, token.String, nil)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		// The ID makes no resource ID at the provider (ST-SUP-RP06-LC22): no principal may act on it.
+		return ErrDenied
+	case errors.Is(err, ErrConflict) || errors.Is(err, ErrInternal):
+		return err
+	case err != nil:
+		return internalf("the permission of the command was not decided")
+	}
+	if !allowed {
+		return ErrDenied
+	}
+	return nil
 }
 
 // callFill calls fill, ends the handle and the probe call when it returns or panics, and then, when the call met no

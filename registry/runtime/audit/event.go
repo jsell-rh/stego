@@ -122,6 +122,9 @@ const (
 	ErrorCodeConflict = "conflict"
 	// ErrorCodeCommitOutcomeUnknown is the error code of a command whose COMMIT has an outcome that is not known.
 	ErrorCodeCommitOutcomeUnknown = "commit_outcome_unknown"
+	// ErrorCodeUndecided is the error code of a read of personal data whose permission the decision port could not
+	// decide (ST-SUP-RP11-LC16).
+	ErrorCodeUndecided = "undecided"
 )
 
 // Sensitivity is the declared sensitivity of an entity field.

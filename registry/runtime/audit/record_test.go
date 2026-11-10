@@ -910,6 +910,8 @@ func TestRecord(t *testing.T) {
 			}
 			ids = append(ids, s.ID)
 		}
+		// A read row that succeeded carries no error code (ST-SUP-RP11-LC16).
+		e.ErrorCode = ""
 		s, err := w.RecordRead(f.ctx, f.audit, f.tn("t1"), e)
 		if err != nil {
 			t.Fatal(err)

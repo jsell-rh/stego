@@ -318,6 +318,16 @@ func (p PageToken) CursorFor(provider string) (string, Consistency, bool) {
 // IsZero reports whether p is the first page, or the end of the search when a result gives it.
 func (p PageToken) IsZero() bool { return p.cursor == "" }
 
+// Provider returns the name of the provider whose cursor the page token holds, or empty for the first page. With
+// CursorFor and NewPageToken, a runtime that keeps the token between two requests can store it and make it again
+// (ST-SUP-RP11-LC15); it is still the provider's own cursor, which only that provider reads.
+func (p PageToken) Provider() string {
+	if p.cursor == "" {
+		return ""
+	}
+	return p.provider
+}
+
 // Page is the page of a resource search: the token of the page and the most resources to return.
 type Page struct {
 	Token PageToken

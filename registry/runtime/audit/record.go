@@ -171,15 +171,24 @@ func (w *Writer) RecordOutcome(ctx context.Context, db *sql.DB, t tenant.Tenant,
 }
 
 // RecordRead writes the audit row of a read of an entity that holds a pii field in its own short transaction,
-// with the action read and the outcome ok, so the row stays when the caller's transaction rolls back
-// (ST-SUP-RP05-LC02). The event always gets a new ID. It fails at once with ErrReadAfterRecord, and waits on no
-// lock, when the event's request already called Record. It opens its transaction on db as RecordOutcome does.
+// with the action read, so the row stays when the caller's transaction rolls back (ST-SUP-RP05-LC02). A read that
+// succeeded has the outcome ok and no error code; a read that failed carries its fixed error code, such as
+// ErrorCodeUndecided, and the outcome failed, and no error text (ST-SUP-RP11-LC16). Any other error code is
+// refused. The event always gets a new ID. It fails at once with ErrReadAfterRecord, and waits on no lock, when
+// the event's request already called Record. It opens its transaction on db as RecordOutcome does.
 func (w *Writer) RecordRead(ctx context.Context, db *sql.DB, t tenant.Tenant, e Event) (Event, error) {
 	if w.hasRecorded(clean(e.RequestID), w.now()) {
 		return Event{}, ErrReadAfterRecord
 	}
+	switch e.ErrorCode {
+	case "":
+		e.Outcome = OutcomeOK
+	case ErrorCodeUndecided:
+		e.Outcome = OutcomeFailed
+	default:
+		return Event{}, errors.New("audit: a read row carries no error code but a fixed read error code")
+	}
 	e.Action = ActionRead
-	e.Outcome = OutcomeOK
 	return w.alone(ctx, db, t, e)
 }
 
