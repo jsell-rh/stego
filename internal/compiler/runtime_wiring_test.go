@@ -307,8 +307,8 @@ func TestRuntimeDataPath(t *testing.T) {
 			if err != nil {
 				t.Fatalf("stego plan of %s: %v\n%s", example, err, output)
 			}
-			if !strings.Contains(string(output), "Summary: 0 to generate, 0 to update, 0 to delete") {
-				t.Errorf("the plan of the example %s changes its generated output:\n%s", example, output)
+			if !strings.Contains(string(output), "Summary: 0 to generate, 0 to update, 0 to delete") || strings.Contains(string(output), "compiler state") {
+				t.Errorf("the plan of the example %s changes its generated output or its record:\n%s", example, output)
 			}
 			if strings.Contains(p.read(".stego/plan.yaml"), RuntimeWiringNamespace) {
 				t.Errorf("the plan of the example %s holds the runtime wiring", example)
