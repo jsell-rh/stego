@@ -1,0 +1,3 @@
+kind: fill
+name: get-order-summary
+implements: query.query

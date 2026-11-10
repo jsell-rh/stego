@@ -331,6 +331,23 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		wirings = append(wirings, ComponentWiring{Name: compName, Wiring: wiring})
 	}
 
+	// On the runtime data path the compiler wires the runtime library into main.go (ST-SUP-RC01-OC41).
+	if resolved.RuntimeData {
+		replaceAuthMiddleware(wirings)
+		files, wiring, err := runtimeWiring(runtimeWiringInput{ModuleName: input.ModuleName, OutDirName: outDirName, Service: svcDecl,
+			ServiceData: serviceData, Components: components, Names: componentNames, Wirings: wirings})
+		if err != nil {
+			return nil, err
+		}
+		uses, err := runtimeImports("the runtime wiring", files, pin)
+		if err != nil {
+			return nil, err
+		}
+		importsRuntime = importsRuntime || uses
+		allFiles = append(allFiles, files...)
+		wirings = append(wirings, wiring)
+	}
+
 	// Generate slot interfaces and operators if slots are configured.
 	slotFiles, err := generateSlotFiles(slotsPackage, components, svcDecl, reg)
 	if err != nil {

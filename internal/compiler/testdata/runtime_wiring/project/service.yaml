@@ -1,0 +1,65 @@
+kind: service
+name: wiring-shop
+archetype: rest-crud
+language: go
+base_path: /api/shop/v1
+error_type_base: https://errors.example.com/shop/
+tenancy:
+  kind: pooled
+  key: tenant_id
+  claim: tenant
+authorization:
+  provider: spicedb
+  schema_path: authz/schema.zed
+  subject_from_identity: user
+audit:
+  level: change
+idempotency:
+  required_on: [create]
+experimental_acceptances:
+  - {component: tenancy, accepted_until: 2027-04-30, reason: the runtime data path needs pooled tenancy}
+  - {component: spicedb-authz, accepted_until: 2027-04-30, reason: the runtime data path decides each permission}
+  - {component: audit-log, accepted_until: 2027-04-30, reason: the runtime data path audits each write}
+  - {component: idempotency, accepted_until: 2027-04-30, reason: the runtime data path keys each create}
+overrides:
+  postgres-adapter:
+    schema_generation: tables-v1
+    writer_lease: "off"
+  command:
+    proto_files:
+      - {path: proto/shop.proto, import_path: shop/v1/shop.proto}
+entities:
+  - name: Order
+    resource_type: order
+    permissions: {create: public, read: view, list: view, patch: edit, delete: edit}
+    public_reasons: {create: a new order has no resource to decide on before it exists}
+    fields:
+      - {name: sku, type: string}
+      - {name: qty, type: int32}
+  - name: Note
+    resource_type: note
+    permissions: {read: view}
+    fields:
+      - {name: order_id, type: string}
+      - {name: text, type: string}
+collections:
+  orders:
+    entity: Order
+    operations: [create, read, list, patch, delete]
+    patchable: [qty]
+commands:
+  - name: add-note
+    writes: [Note]
+    resource_type: order
+    permission: edit
+    resource_member: orderId
+    route: POST /orders/{orderId}/notes
+    fill: add-note
+queries:
+  - name: get-order-summary
+    reads: [Order]
+    resource_type: order
+    permission: view
+    resource_member: orderId
+    route: GET /orders/{orderId}/summary
+    fill: get-order-summary

@@ -175,8 +175,9 @@ type Context struct {
 
 	// RuntimeData is true when the generated commands and queries on stego.dev/runtime carry all data access of
 	// the service (ST-SUP-RC20-OC37). The PostgreSQL adapter then creates each entity's table from the declaration
-	// as SQL and emits no store and no entity model (ST-SUP-RC01-OC41). The compiler sets it when the command and
-	// query generators replace the store; until then it is false and the adapter emits the GORM store.
+	// as SQL and emits no store and no entity model (ST-SUP-RC01-OC41). The compiler sets it for a service that has
+	// the command and the query generators and whose record is not of a release on the GORM store; for any other
+	// service it is false and the adapter emits the GORM store.
 	RuntimeData bool
 
 	// Commands are the declared commands of the service (ST-DECL-EN18), in declaration order, each with the slot
@@ -403,6 +404,13 @@ type Wiring struct {
 	// that do not use a constructor from the factory's component.
 	DatabaseOpener *DatabaseOpenerSpec
 
+	// MigrationJob selects a generated function with signature
+	// func(context.Context) error that main.go runs in place of the service
+	// when the process is started with the one argument migrate, the
+	// migration job of the runtime library (tenant.MigrationJob). Only one
+	// component can supply it.
+	MigrationJob *MigrationJobSpec
+
 	// DiscoveryRoutes lists route registration expressions for main.go
 	// assembly that must be registered OUTSIDE the auth middleware chain.
 	// These are unauthenticated documentation/discovery endpoints (e.g.
@@ -422,6 +430,12 @@ type Wiring struct {
 
 // DatabaseOpenerSpec names a generated SQL pool factory.
 type DatabaseOpenerSpec struct {
+	Namespace string
+	Function  string
+}
+
+// MigrationJobSpec names the generated function of the migration job.
+type MigrationJobSpec struct {
 	Namespace string
 	Function  string
 }

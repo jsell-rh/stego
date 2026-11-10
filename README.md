@@ -43,6 +43,14 @@ the fills is essential complexity.
    Validate, plan and apply stop on a bound fill that is not qualified.
    The output has no runtime dependency on STEGO.
 
+A service whose archetype holds the command and query components, and whose
+project has no record of a release on the GORM store, runs on the runtime data
+path: its commands, its queries and its collection operations run on the
+runtime library stego.dev/runtime. Its main reads the deployment settings from
+the environment, and its binary with the one argument `migrate` is the
+migration job, which makes the tables, the tables of the runtime library and the
+authorization schema before the service starts.
+
 The [Go SDK component](registry/components/go-sdk/README.md) generates typed
 HTTPS clients from captured OpenAPI contracts. Its transport and optional
 telemetry come from STEGO.

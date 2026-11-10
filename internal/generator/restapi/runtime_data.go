@@ -137,6 +137,36 @@ func validateRuntimeData(ctx gen.Context, entities map[string]types.Entity) erro
 	return nil
 }
 
+// RuntimeService is the variable of main.go that holds the runtime wiring of the service on the runtime data path,
+// which the compiler builds; its method CollectionRuntime gives the Runtime of the collection handlers.
+const RuntimeService = "service"
+
+// runtimeWiring adds to wiring one constructor per collection, which takes the Runtime of the runtime wiring and the
+// operators of the collection's bound slots, and one literal route per operation (ST-SUP-RC20-OC33).
+func runtimeWiring(ctx gen.Context, collections []*runtimeCollection, wiring *gen.Wiring) error {
+	if wiring.ConstructorCollections == nil {
+		wiring.ConstructorCollections = map[int]string{}
+	}
+	if wiring.ConstructorDeps == nil {
+		wiring.ConstructorDeps = map[int][]string{}
+	}
+	for _, c := range collections {
+		index := len(wiring.Constructors)
+		wiring.Constructors = append(wiring.Constructors,
+			fmt.Sprintf("%s.New%sHandler(%s.CollectionRuntime())", path.Base(ctx.OutputNamespace), c.pascal, RuntimeService))
+		wiring.ConstructorCollections[index] = c.decl.Name
+		wiring.ConstructorDeps[index] = []string{RuntimeService}
+		for _, op := range c.decl.Operations {
+			route, err := collectionHTTPRoute(op, c.hrefBase)
+			if err != nil {
+				return err
+			}
+			wiring.Routes = append(wiring.Routes, fmt.Sprintf("mux.HandleFunc(%q, %sHandler.%s)", route.pattern(), c.camel, route.handler))
+		}
+	}
+	return nil
+}
+
 // runtimeCollections gives the collections of the context on the runtime data path.
 func runtimeCollections(ctx gen.Context, entities map[string]types.Entity, collectionMap map[string]types.Collection) ([]*runtimeCollection, error) {
 	var out []*runtimeCollection

@@ -1,0 +1,443 @@
+// Package stegoruntime wires the runtime library into the service on the runtime data path (ST-SUP-RC01-OC41,
+// ST-SUP-RC20-OC37): the pools of the runtime role, the verifier, the authorization runtime, the audit writer, the
+// outbox queue, the probes and the command and query runtimes, from the settings of the declaration and of the
+// deployment. Migrate is the migration job of the service. The compiler writes this package for each service.
+package stegoruntime
+
+import (
+	"context"
+	"crypto/tls"
+	"database/sql"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"strings"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
+
+	"stego.dev/runtime/audit"
+	"stego.dev/runtime/authn"
+	stegoauthz "stego.dev/runtime/authz"
+{{- if or .Commands .API}}
+	"stego.dev/runtime/command"
+{{- end}}
+	"stego.dev/runtime/idempotency"
+	"stego.dev/runtime/otel"
+	"stego.dev/runtime/probe"
+	"stego.dev/runtime/query"
+	"stego.dev/runtime/tenant"
+
+	svcaudit {{printf "%q" .Audit}}
+	svcauthz {{printf "%q" .Authz}}
+	svcoutbox {{printf "%q" .Outbox}}
+	svcstorage {{printf "%q" .Storage}}
+	svctenancy {{printf "%q" .Tenancy}}
+{{- if .Idempotency}}
+	svcidempotency {{printf "%q" .Idempotency}}
+{{- end}}
+{{- if .API}}
+	api {{printf "%q" .API}}
+{{- end}}
+{{- if .Commands}}
+	commandhandlers {{printf "%q" .Commands}}
+{{- end}}
+{{- if .Queries}}
+	queryserve {{printf "%q" .Queries}}
+{{- end}}
+)
+
+// The declaration of the service.
+const (
+	// Service is the name of the service, which its audit rows and its telemetry carry.
+	Service = {{printf "%q" .Service}}
+	// DeclarationVersion is the SHA-256 of the declaration, which each audit row carries.
+	DeclarationVersion = {{printf "%q" .DeclarationVersion}}
+	// subjectType is the subject type of the schema that a verified identity maps to.
+	subjectType = {{printf "%q" .SubjectType}}
+	// tenantClaim is the dotted path of the claim that names the caller's tenant.
+	tenantClaim = {{printf "%q" .TenantClaim}}
+	// problemType and problemCode are the problem base and the problem code prefix of a refused credential.
+	problemType = {{printf "%q" .ProblemType}}
+	problemCode = {{printf "%q" .ProblemCode}}
+)
+
+// The roles of the database. RuntimeRole and OwnerRole are the tenancy component's. WorkerRole is the role that the
+// outbox worker connects as and RelayRole the login role of the authorization relay; the database administrator
+// creates both, with no login of the runtime role, before the first migration job.
+const (
+	RuntimeRole = svctenancy.RuntimeRole
+	OwnerRole   = svctenancy.OwnerRole
+	WorkerRole  = {{printf "%q" .WorkerRole}}
+	RelayRole   = {{printf "%q" .RelayRole}}
+)
+
+// The settings of the deployment, which the process environment gives.
+const (
+	// DatabaseURLSetting is the connection string of the runtime role.
+	DatabaseURLSetting = "DATABASE_URL"
+	// MigrationDatabaseURLSetting is the connection string of the migration job: a login that is the owner role or
+	// may SET ROLE to it.
+	MigrationDatabaseURLSetting = "STEGO_MIGRATION_DATABASE_URL"
+	// IssuerSetting and AudienceSetting are the issuer and the audience that each bearer token must name.
+	IssuerSetting   = "STEGO_AUTHN_ISSUER"
+	AudienceSetting = "STEGO_AUTHN_AUDIENCE"
+	// KeysURLSetting and KeysFileSetting name the key document of the issuer: one of the two.
+	KeysURLSetting  = "STEGO_AUTHN_KEYS_URL"
+	KeysFileSetting = "STEGO_AUTHN_KEYS_FILE"
+	// SpiceDBEndpointSetting is the address of SpiceDB, and SpiceDBKeyFileSetting the file of its preshared key.
+	SpiceDBEndpointSetting = "STEGO_SPICEDB_ENDPOINT"
+	SpiceDBKeyFileSetting  = "STEGO_SPICEDB_KEY_FILE"
+	// SpiceDBInsecureLoopbackSetting set to 1 lets the connection to a loopback SpiceDB address go without TLS, for
+	// a local test only; every other address needs verified TLS.
+	SpiceDBInsecureLoopbackSetting = "STEGO_SPICEDB_INSECURE_LOOPBACK"
+	// CursorKeyFileSetting is the file of the key of the list cursors: at least query.MinCursorKey bytes, the same
+	// in every replica.
+	CursorKeyFileSetting = "STEGO_QUERY_CURSOR_KEY_FILE"
+	// VersionSetting is the version of the release, which each audit row carries.
+	VersionSetting = "STEGO_SERVICE_VERSION"
+)
+
+// grants are the privileges of the runtime role on the objects of the database access contract and on the
+// idempotency keys, each without its grantee, which the migration job grants after it made the objects.
+var grants = []string{
+{{- range .Grants}}
+	{{printf "%q" .}},
+{{- end}}
+}
+
+// Runtime holds the runtime library objects of the running service.
+type Runtime struct {
+	pool, auditDB *sql.DB
+	keys          *authn.KeySet
+	verifier      *authn.Verifier
+	spice         *grpc.ClientConn
+	telemetry     *otel.Runtime
+	probes        *probe.Runtime
+	authz         *stegoauthz.Runtime
+	writer        *audit.Writer
+	commands      *command.Runtime
+	collections   *command.Runtime
+	queries       *query.Runtime
+	routes        *http.ServeMux
+}
+
+// NewService builds the runtime of the service from the settings of the deployment and the declaration. It opens
+// the main pool and the audit pool of the runtime role through tenant.Open, connects to SpiceDB, and makes the
+// command and query handlers, which Routes serves.
+func NewService(ctx context.Context) (rt *Runtime, err error) {
+	rt = &Runtime{}
+	defer func() {
+		if err != nil {
+			rt.Close()
+			rt = nil
+		}
+	}()
+	dsn, err := required(DatabaseURLSetting)
+	if err != nil {
+		return nil, err
+	}
+	if rt.pool, err = tenant.Open(ctx, tenant.Config{DSN: dsn}); err != nil {
+		return nil, err
+	}
+	if rt.auditDB, err = tenant.Open(ctx, tenant.Config{DSN: dsn}); err != nil {
+		return nil, err
+	}
+	queue, err := svcoutbox.NewQueue(rt.pool, nil)
+	if err != nil {
+		return nil, err
+	}
+	auditQueue, err := svcoutbox.AuditQueue(queue)
+	if err != nil {
+		return nil, err
+	}
+	if rt.writer, err = audit.NewWriter(auditQueue, nil); err != nil {
+		return nil, err
+	}
+	if rt.spice, err = spiceDB(); err != nil {
+		return nil, err
+	}
+	provider, err := stegoauthz.NewSpiceDB(rt.spice)
+	if err != nil {
+		return nil, err
+	}
+	if rt.authz, err = svcauthz.NewRuntime(rt.pool, provider, queue, nil); err != nil {
+		return nil, err
+	}
+	if rt.telemetry, err = otel.New(Service, probe.SpanNames()...); err != nil {
+		return nil, err
+	}
+	if rt.probes, err = probe.Start(rt.telemetry, nil); err != nil {
+		return nil, err
+	}
+	if rt.keys, err = keySet(ctx); err != nil {
+		return nil, err
+	}
+	issuer, err := required(IssuerSetting)
+	if err != nil {
+		return nil, err
+	}
+	audience, err := required(AudienceSetting)
+	if err != nil {
+		return nil, err
+	}
+	if rt.verifier, err = authn.New(authn.Settings{Issuer: issuer, Audience: audience, TenantClaim: tenantClaim,
+		ProblemType: problemType, ProblemCode: problemCode, Keys: rt.keys}); err != nil {
+		return nil, err
+	}
+	rt.routes = http.NewServeMux()
+{{- if or .Commands .API}}
+	config := command.Config{DB: rt.pool, AuditDB: rt.auditDB, Authz: rt.authz, Audit: rt.writer, AuditSettings: svcaudit.Settings,
+		Outbox: queue, Probes: rt.probes, Service: Service, ServiceVersion: os.Getenv(VersionSetting), DeclarationVersion: DeclarationVersion}
+{{- end}}
+{{- if .Commands}}
+	config.Entities = commandhandlers.Entities()
+	if rt.commands, err = command.New(ctx, config); err != nil {
+		return nil, err
+	}
+	if err = commandhandlers.Register(rt.routes, rt.commands, commandhandlers.BoundFills(), commandhandlers.Options{Retention: retention}); err != nil {
+		return nil, err
+	}
+{{- end}}
+{{- if .API}}
+	config.Entities = api.Entities()
+	if rt.collections, err = command.New(ctx, config); err != nil {
+		return nil, err
+	}
+{{- end}}
+	cursorKey, err := cursorKey()
+	if err != nil {
+		return nil, err
+	}
+	if rt.queries, err = query.New(query.Config{DB: rt.pool, AuditDB: rt.auditDB, Audit: rt.writer, AuditSettings: svcaudit.Settings,
+		Authz: rt.authz, Service: Service, CursorKey: cursorKey}); err != nil {
+		return nil, err
+	}
+{{- if .Queries}}
+	queries, err := queryserve.New(queryserve.Config{Runtime: rt.queries, Verifier: rt.verifier, Probes: rt.probes, SubjectType: subjectType})
+	if err != nil {
+		return nil, err
+	}
+	queries.Routes(rt.routes)
+{{- end}}
+	return rt, nil
+}
+
+// retention is how long a completed idempotency key is kept: the declared retention, or zero for the runtime's
+// default.
+const retention = {{if .Idempotency}}svcidempotency.Retention{{else}}0{{end}}
+
+// Middleware verifies the bearer token of each request before next; a request whose token the verifier refuses is
+// answered 401 and reaches no handler.
+func (rt *Runtime) Middleware(next http.Handler) http.Handler { return rt.verifier.Middleware(next) }
+
+// Routes serves the declared commands and queries, each at its route.
+func (rt *Runtime) Routes() http.Handler { return rt.routes }
+{{- if .API}}
+
+// CollectionRuntime gives the Runtime of the collection handlers: their own command runtime, the query runtime and
+// the probes.
+func (rt *Runtime) CollectionRuntime() *api.Runtime {
+	return &api.Runtime{Commands: rt.collections, Queries: rt.queries, Probes: rt.probes, Retention: retention}
+}
+{{- end}}
+
+// Close releases what NewService opened.
+func (rt *Runtime) Close() error {
+	var errs []error
+	if rt.probes != nil {
+		errs = append(errs, rt.probes.Close(context.Background()))
+	}
+	if rt.telemetry != nil {
+		errs = append(errs, rt.telemetry.Shutdown(context.Background()))
+	}
+	if rt.verifier != nil {
+		rt.verifier.Stop()
+	}
+	if rt.keys != nil {
+		rt.keys.Stop()
+	}
+	if rt.spice != nil {
+		errs = append(errs, rt.spice.Close())
+	}
+	for _, db := range []*sql.DB{rt.auditDB, rt.pool} {
+		if db != nil {
+			errs = append(errs, db.Close())
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// Migrate is the migration job of the service (tenant.MigrationJob). It connects with STEGO_MIGRATION_DATABASE_URL
+// on one connection as the owner role and, in this order: runs the ledger of the PostgreSQL adapter, which creates
+// the tables of the declaration and their row-level security; creates the outbox queue, the audit tables, the
+// idempotency keys and the authorization tables of the runtime library; grants the runtime role its privileges;
+// makes the audit partitions of this month and the next; and writes the authorization schema to SpiceDB, which
+// refuses a schema that removes a definition or a relation that has relationships (ST-SUP-RC29-OC23).
+func Migrate(ctx context.Context) error {
+	dsn, err := required(MigrationDatabaseURLSetting)
+	if err != nil {
+		return err
+	}
+	db, err := tenant.OpenOwner(ctx, tenant.MigrationJob, tenant.Config{DSN: dsn})
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	if _, err := db.ExecContext(ctx, "SET ROLE "+quote(OwnerRole)); err != nil {
+		return fmt.Errorf("migrate: set the owner role: %w", err)
+	}
+	ledger, err := gorm.Open(postgres.New(postgres.Config{Conn: db}), &gorm.Config{Logger: gormlogger.Discard, DisableAutomaticPing: true})
+	if err != nil {
+		return err
+	}
+	if err := svcstorage.Migrate(ledger); err != nil {
+		return fmt.Errorf("migrate: tables: %w", err)
+	}
+	queueText, err := svcoutbox.Migration(RuntimeRole, WorkerRole)
+	if err != nil {
+		return err
+	}
+	auditText, err := svcaudit.Migration(RuntimeRole)
+	if err != nil {
+		return err
+	}
+	authzText, err := svcauthz.Migration(RuntimeRole, RelayRole, WorkerRole)
+	if err != nil {
+		return err
+	}
+	steps := []struct{ name, text string }{
+		{"outbox queue", queueText},
+		{"audit tables", auditText},
+		{"idempotency keys", idempotency.Migration},
+		{"authorization tables", authzText},
+		{"runtime grants", granted()},
+	}
+	for _, step := range steps {
+		// A step can reset the role, as the outbox migration does after it made the relay functions, so each step
+		// sets the owner role again.
+		if _, err := db.ExecContext(ctx, "SET ROLE "+quote(OwnerRole)+";\n"+step.text); err != nil {
+			return fmt.Errorf("migrate: %s: %w", step.name, err)
+		}
+	}
+	if err := maintainAudit(ctx, db); err != nil {
+		return err
+	}
+	conn, err := spiceDB()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	return svcauthz.WriteSchema(ctx, conn)
+}
+
+// granted gives the statements of grants to the runtime role.
+func granted() string {
+	var text strings.Builder
+	for _, grant := range grants {
+		text.WriteString(grant + " TO " + quote(RuntimeRole) + ";\n")
+	}
+	return text.String()
+}
+
+// maintainAudit runs the audit partition maintenance until it has no step left, so the partitions of this month
+// and the next exist before the service writes an audit row.
+func maintainAudit(ctx context.Context, db *sql.DB) error {
+	for range 64 {
+		var more bool
+		if err := db.QueryRowContext(ctx, "SELECT step_left FROM "+audit.MaintainFunction+"()").Scan(&more); err != nil {
+			return fmt.Errorf("migrate: audit partitions: %w", err)
+		}
+		if !more {
+			return nil
+		}
+	}
+	return errors.New("migrate: the audit partition maintenance did not finish")
+}
+
+// spiceDB connects to the SpiceDB of SpiceDBEndpointSetting with the preshared key of SpiceDBKeyFileSetting, over
+// verified TLS, or without TLS to a loopback address when SpiceDBInsecureLoopbackSetting is 1.
+func spiceDB() (*grpc.ClientConn, error) {
+	endpoint, err := required(SpiceDBEndpointSetting)
+	if err != nil {
+		return nil, err
+	}
+	keyFile, err := required(SpiceDBKeyFileSetting)
+	if err != nil {
+		return nil, err
+	}
+	key, err := os.ReadFile(keyFile)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", SpiceDBKeyFileSetting, err)
+	}
+	token := strings.TrimSpace(string(key))
+	if token == "" {
+		return nil, fmt.Errorf("%s names an empty key", SpiceDBKeyFileSetting)
+	}
+	transport := credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})
+	plaintext := false
+	switch os.Getenv(SpiceDBInsecureLoopbackSetting) {
+	case "", "0":
+	case "1":
+		host, _, err := net.SplitHostPort(endpoint)
+		if ip := net.ParseIP(host); err != nil || ip == nil || !ip.IsLoopback() {
+			return nil, fmt.Errorf("%s allows no TLS only for a loopback address, not %q", SpiceDBInsecureLoopbackSetting, endpoint)
+		}
+		transport, plaintext = insecure.NewCredentials(), true
+	default:
+		return nil, fmt.Errorf("%s must be 0 or 1", SpiceDBInsecureLoopbackSetting)
+	}
+	return grpc.NewClient(endpoint, grpc.WithTransportCredentials(transport), grpc.WithPerRPCCredentials(presharedKey{token: token, plaintext: plaintext}))
+}
+
+// presharedKey sends the preshared key of SpiceDB on each call.
+type presharedKey struct {
+	token     string
+	plaintext bool
+}
+
+func (k presharedKey) GetRequestMetadata(context.Context, ...string) (map[string]string, error) {
+	return map[string]string{"authorization": "Bearer " + k.token}, nil
+}
+
+func (k presharedKey) RequireTransportSecurity() bool { return !k.plaintext }
+
+// keySet loads the key document of the issuer from KeysURLSetting or KeysFileSetting.
+func keySet(ctx context.Context) (*authn.KeySet, error) {
+	return authn.NewKeySet(ctx, authn.KeySource{URL: os.Getenv(KeysURLSetting), File: os.Getenv(KeysFileSetting)})
+}
+
+// cursorKey reads the key of the list cursors from CursorKeyFileSetting.
+func cursorKey() ([]byte, error) {
+	name, err := required(CursorKeyFileSetting)
+	if err != nil {
+		return nil, err
+	}
+	key, err := os.ReadFile(name)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", CursorKeyFileSetting, err)
+	}
+	if len(key) < query.MinCursorKey {
+		return nil, fmt.Errorf("%s names a key of %d bytes; the cursor key needs at least %d", CursorKeyFileSetting, len(key), query.MinCursorKey)
+	}
+	return key, nil
+}
+
+// required gives the value of the setting name, or an error that names it when it is empty.
+func required(name string) (string, error) {
+	value := os.Getenv(name)
+	if value == "" {
+		return "", fmt.Errorf("the setting %s is not set", name)
+	}
+	return value, nil
+}
+
+// quote quotes one SQL name.
+func quote(name string) string { return `"` + strings.ReplaceAll(name, `"`, `""`) + `"` }

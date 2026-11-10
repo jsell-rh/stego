@@ -236,8 +236,17 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		return gen.File{}, err
 	}
 
+	migration, err := migrationJobExpression(input, imports, consumedWirings)
+	if err != nil {
+		return gen.File{}, err
+	}
+	if migration != "" && (!fallible || !(hasRoutes || hasTasks)) {
+		return gen.File{}, fmt.Errorf("the migration job needs a service with routes or background tasks")
+	}
 	if fallible {
-		buf.WriteString("func main() {\n\tif err := run(); err != nil {\n\t\tstegoReportFailure(os.Stderr, err)\n\t\tos.Exit(1)\n\t}\n}\n\nfunc run() (stegoErr error) {\n\tstegoStage := \"startup\"\n")
+		buf.WriteString("func main() {\n")
+		writeMigrationJob(&buf, migration)
+		buf.WriteString("\tif err := run(); err != nil {\n\t\tstegoReportFailure(os.Stderr, err)\n\t\tos.Exit(1)\n\t}\n}\n\nfunc run() (stegoErr error) {\n\tstegoStage := \"startup\"\n")
 		buf.WriteString("\tdefer func() { if stegoErr != nil { stegoErr = &stegoServiceFailure{stage: stegoStage, cause: stegoErr")
 		if hasTasks {
 			buf.WriteString(", tasks: stegoTaskNames(stegoErr), abortedTasks: stegoAbortedTaskNames(stegoErr)")

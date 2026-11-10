@@ -195,8 +195,8 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 
 	// On the runtime data path each collection operation is a generated command or query, and its handler calls
-	// Run (ST-SUP-RC20-OC37). The compiler does not wire the command and the query runtime into main.go yet, so the
-	// handlers get no constructor and no route in the wiring.
+	// Run (ST-SUP-RC20-OC37). Each handler takes the Runtime that the compiler's runtime wiring builds, the value
+	// service.CollectionRuntime() of main.go, and the operators of its bound slots.
 	if ctx.RuntimeData {
 		collections, err := runtimeCollections(ctx, entityMap, collectionMap)
 		if err != nil {
@@ -207,6 +207,9 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			return nil, nil, err
 		}
 		files = append(files, runtimeFiles...)
+		if err := runtimeWiring(ctx, collections, wiring); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	// Generate handler file per collection.
