@@ -22,8 +22,8 @@ import (
 	"github.com/jsell-rh/stego/internal/types"
 )
 
-// SinkPort is the port of the audit sink, which the platform binds (ST-DECL-EN10). A declaration's audit.sink
-// names another port binding in its place.
+// SinkPort is the port of the audit sink, which the platform binds (ST-DECL-EN10, ST-GEN-INV37). A declaration's
+// audit.sink names another port binding in its place.
 const SinkPort = "audit-sink"
 
 // The tables of the audit runtime (ST-SUP-RP05-LC10), in the schema of the service.
@@ -61,8 +61,8 @@ type entityPlan struct {
 
 type fieldPlan struct{ Name, Sensitivity string }
 
-// ValidateContext refuses a context that the audit wiring cannot serve: audit that is off, an audit sink port that
-// the declaration does not bind (ST-SUP-RC28-OC07), an anchor period or a retention that is not valid, and an
+// ValidateContext refuses a context that the audit wiring cannot serve: audit that is off, an audit.sink that names a
+// port the declaration does not bind (ST-SUP-RC28-OC07; the platform binds audit-sink, ST-GEN-INV37), an anchor period or a retention that is not valid, and an
 // entity name that is not a Go name.
 func (*Generator) ValidateContext(ctx gen.Context) error {
 	_, err := read(ctx)
@@ -84,8 +84,10 @@ func read(ctx gen.Context) (plan, error) {
 	if sink == "" {
 		sink = SinkPort
 	}
-	if _, bound := ctx.PortBindings[sink]; !bound {
-		return plan{}, fmt.Errorf("audit-log: the service does not bind the port %s, which the audit-log component requires for the audit sink", sink)
+	// The platform binds audit-sink (ST-GEN-INV37); another port that audit.sink names must be a binding of the
+	// declaration.
+	if _, bound := ctx.PortBindings[sink]; !bound && sink != SinkPort {
+		return plan{}, fmt.Errorf("audit-log: the service does not bind the port %s, which its audit.sink names for the audit sink", sink)
 	}
 	p := plan{Package: path.Base(ctx.OutputNamespace), Level: "change", PII: "redact"}
 	switch audit.Level {

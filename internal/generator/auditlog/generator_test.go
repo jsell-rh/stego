@@ -121,16 +121,22 @@ func TestComponent(t *testing.T) {
 		if len(provides) != 0 {
 			t.Fatalf("provides = %v, want none", provides)
 		}
+		// The platform binds audit-sink (ST-GEN-INV37): a service that binds no port generates.
 		ctx := customerContext(t, nil)
-		ctx.PortBindings = map[string]string{"auth-provider": "jwt-auth"}
-		if _, _, err := new(Generator).Generate(ctx); err == nil || !strings.Contains(err.Error(), "audit-sink") {
-			t.Fatalf("Generate without the audit-sink port: %v, want a refusal that names audit-sink", err)
+		ctx.PortBindings = map[string]string{}
+		if _, _, err := new(Generator).Generate(ctx); err != nil {
+			t.Fatalf("Generate with audit-sink left to the platform: %v", err)
 		}
-		if err := new(Generator).ValidateContext(ctx); err == nil || !strings.Contains(err.Error(), "audit-sink") {
-			t.Fatalf("ValidateContext without the audit-sink port: %v, want a refusal that names audit-sink", err)
+		// An audit.sink that names a port the service does not bind is refused, naming the port.
+		ctx.Audit = &types.Audit{Sink: "audit-archive"}
+		if _, _, err := new(Generator).Generate(ctx); err == nil || !strings.Contains(err.Error(), "audit-archive") {
+			t.Fatalf("Generate with audit.sink unbound: %v, want a refusal that names audit-archive", err)
 		}
-		// The declaration's audit.sink names the port binding in its place.
-		ctx.Audit = &types.Audit{Sink: "auth-provider"}
+		if err := new(Generator).ValidateContext(ctx); err == nil || !strings.Contains(err.Error(), "audit-archive") {
+			t.Fatalf("ValidateContext with audit.sink unbound: %v, want a refusal that names audit-archive", err)
+		}
+		// The declaration's audit.sink names a port binding in place of audit-sink.
+		ctx.PortBindings = map[string]string{"audit-archive": "archive-sink"}
 		if _, _, err := new(Generator).Generate(ctx); err != nil {
 			t.Fatalf("Generate with audit.sink bound: %v", err)
 		}

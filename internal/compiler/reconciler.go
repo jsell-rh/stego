@@ -236,6 +236,9 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		if err := authorizationGeneratorMissing(source.Service, source.Registry, input.Generators); err != nil {
 			return nil, err
 		}
+		if err := selectedComponentMissing(source.Service, source.Registry); err != nil {
+			return nil, err
+		}
 	}
 	serviceData, svcDecl, reg := source.ServiceData, source.Service, source.Registry
 	existingState, inputSnapshots, moduleData, err := captureProjectInputs(input.ProjectDir, serviceData)
@@ -558,6 +561,15 @@ func collectComponentNames(archetype *registry.Archetype, svcDecl *types.Service
 				seen[compName] = true
 				names = append(names, compName)
 			}
+		}
+	}
+
+	// The infrastructure components that the declared settings select, which the registry holds
+	// (ST-GEN-INV37). A selected component is not part of the archetype or a mixin.
+	for _, s := range selectComponents(svcDecl) {
+		if !seen[s.Component] && reg.Component(s.Component) != nil {
+			seen[s.Component] = true
+			names = append(names, s.Component)
 		}
 	}
 

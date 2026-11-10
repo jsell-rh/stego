@@ -18,17 +18,10 @@ import (
 	"github.com/jsell-rh/stego/internal/registry"
 )
 
-// emptyAuditSink is the generator of the stand-in component that provides the audit-sink port in a test registry:
-// the platform binds the port, and the stand-in emits nothing.
-type emptyAuditSink struct{}
-
-func (emptyAuditSink) Generate(gen.Context) ([]gen.File, *gen.Wiring, error) {
-	return nil, &gen.Wiring{}, nil
-}
-
 // compiledService writes a test registry with the archetype audit-arch, which has the runtime pin of the shipped
-// rest-crud archetype and the components audit-log and platform-sink, and a project of the service customers on
-// it whose declaration is service. It gives the reconciler input and the pin.
+// rest-crud archetype and no component, and the shipped audit-log component at stage alpha, and a project of the
+// service customers on it whose declaration is service. Its audit setting selects audit-log (ST-GEN-INV37). It
+// gives the reconciler input and the pin.
 func compiledService(t *testing.T, service string) (compiler.ReconcilerInput, registry.RuntimePin) {
 	t.Helper()
 	shipped, err := registry.Load(filepath.Join("..", "..", "registry"))
@@ -40,23 +33,14 @@ func compiledService(t *testing.T, service string) (compiler.ReconcilerInput, re
 	if err != nil {
 		t.Fatal(err)
 	}
-	// An archetype may hold ga components only (ST-SUP-SP01), and audit-log provides no port, so no override
-	// brings it in: the test registry holds it at stage ga. How a service takes the alpha component is
-	// ST-SUP-Q67.
-	ga := strings.Replace(string(component), "stage: alpha\nsunset: 2027-04-30\n", "stage: ga\n", 1)
-	if ga == string(component) {
-		t.Fatal("the component declaration has no alpha stage with the sunset 2027-04-30")
-	}
 	parent := t.TempDir()
 	common, project := filepath.Join(parent, "registry"), filepath.Join(parent, "customers")
 	files := map[string]string{
 		filepath.Join(common, "archetypes/audit-arch/archetype.yaml"): "kind: archetype\nname: audit-arch\nlanguage: go\nversion: 1.0.0\n" +
 			"runtime:\n  module: " + pin.Module + "\n  version: " + pin.Version + "\n  sum: " + pin.Sum + "\n" +
-			"components: [audit-log, platform-sink]\nconventions:\n  layout: flat\n",
-		filepath.Join(common, "components/audit-log/component.yaml"): ga,
-		filepath.Join(common, "components/platform-sink/component.yaml"): "kind: component\nname: platform-sink\nversion: 1.0.0\nstage: ga\n" +
-			"output_namespace: internal/platformsink\nrequires: []\nprovides: [audit-sink]\nslots: []\n",
-		filepath.Join(project, "service.yaml"): service,
+			"components: []\nconventions:\n  layout: flat\n",
+		filepath.Join(common, "components/audit-log/component.yaml"): string(component),
+		filepath.Join(project, "service.yaml"):                       service,
 	}
 	for name, data := range files {
 		if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
@@ -68,12 +52,13 @@ func compiledService(t *testing.T, service string) (compiler.ReconcilerInput, re
 	}
 	return compiler.ReconcilerInput{
 		ProjectDir: project, RegistryDir: common, GoVersion: "1.26.10", ModuleName: "example.com/customers",
-		Generators: map[string]gen.Generator{"audit-log": new(auditlog.Generator), "platform-sink": emptyAuditSink{}},
+		Generators: map[string]gen.Generator{"audit-log": new(auditlog.Generator)},
 	}, pin
 }
 
 // customerService is the declaration of the RC28 test records as service.yaml: audit at level metadata with pii
-// keep and a retention of 6 months, the audit-sink port bound, and the entity Customer.
+// keep and a retention of 6 months, which selects audit-log, an experimental acceptance of audit-log, the
+// audit-sink port left to the platform, and the entity Customer.
 const customerService = `kind: service
 name: customers
 archetype: audit-arch
@@ -88,8 +73,10 @@ entities:
       - { name: name, type: string, sensitivity: pii }
       - { name: api_token, type: string, sensitivity: secret }
       - { name: plan, type: string }
-overrides:
-  audit-sink: platform-sink
+experimental_acceptances:
+  - component: audit-log
+    accepted_until: 2027-04-30
+    reason: The audit-log builder proves the compiler path
 `
 
 // TestAuditLogCompiledService generates the audit wiring through the compiler from a service declaration, on the runtime
@@ -180,11 +167,12 @@ func TestAuditLogCompiledService(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RC28-OC07-T02 The compiler refuses a service that does not bind the audit-sink port", func(t *testing.T) {
-		unbound := strings.Replace(customerService, "overrides:\n  audit-sink: platform-sink\n", "", 1)
+	t.Run("ST-SUP-RC28-OC07-T02 The compiler leaves audit-sink to the platform and refuses an audit.sink that names no binding", func(t *testing.T) {
+		// The service above binds no port: the platform binds audit-sink (ST-GEN-INV37), so it generated.
+		unbound := strings.Replace(customerService, "  retention: 6 months\n", "  retention: 6 months\n  sink: audit-archive\n", 1)
 		input, _ := compiledService(t, unbound)
-		if _, err := compiler.Reconcile(input); err == nil || !strings.Contains(err.Error(), "audit-sink") {
-			t.Fatalf("Reconcile of a service with no audit-sink binding: %v, want a refusal that names audit-sink", err)
+		if _, err := compiler.Reconcile(input); err == nil || !strings.Contains(err.Error(), "audit-archive") {
+			t.Fatalf("Reconcile of a service whose audit.sink names no binding: %v, want a refusal that names audit-archive", err)
 		}
 	})
 }
