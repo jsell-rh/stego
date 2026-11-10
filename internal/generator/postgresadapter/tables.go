@@ -1,0 +1,403 @@
+package postgresadapter
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"go/format"
+	"path"
+	"sort"
+	"strconv"
+	"strings"
+
+	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/types"
+)
+
+// The tables of the runtime data path (ST-SUP-RC01-OC41): when the generated commands and queries carry all data
+// access (gen.Context.RuntimeData), the migration 001_initial is the SQL text of the tables of the declaration, and
+// the adapter emits no store, no entity model and no GORM AutoMigrate. The migration ledger, the schema generation
+// marker and the row-level security of the tenancy component stay as they are, so the SQL tables go through the
+// same ledger as every other migration (ST-SUP-RC01-OC11).
+//
+// The shape of each table is fixed by the declaration alone and in this order: the tenant column of an owned
+// entity in a pooled service (ST-SUP-RC01-OC40), the key id, each declared field, created_time and updated_time,
+// the resource version that a write carries (ST-SUP-RC01-OC07, ST-SUP-RP10-LC24) and, for a protected entity, the
+// authorization token (ST-SUP-RC29-OC06). The tables follow their references and then their names, never the order
+// of the declaration, so that the same entities give the same body and the same ledger digest.
+
+// tablesFile is the Go file of the runtime data path that holds the SQL text of 001_initial, and tablesConstant
+// the name of that constant.
+const (
+	tablesFile     = "tables.go"
+	tablesConstant = "InitialTables"
+)
+
+// tableColumns are the columns of every table that the declaration does not name, after its fields.
+const (
+	createdColumn = "created_time"
+	updatedColumn = "updated_time"
+	versionColumn = "version"
+	tokenColumn   = "authz_token"
+	keyColumn     = "id"
+)
+
+// storeOnly names the declaration settings of an entity that only the GORM store carries out: the runtime data
+// path has no deleted rows, no observations and no conditions, so it refuses them rather than drop them.
+func storeOnly(entity types.Entity) string {
+	switch {
+	case len(entity.GenerationFields) > 0:
+		return "generation_fields"
+	case len(entity.Observations) > 0:
+		return "observations"
+	case len(entity.Conditions) > 0:
+		return "conditions"
+	case len(entity.CleanupOwners) > 0:
+		return "cleanup_owners"
+	case len(entity.CleanupTargets) > 0:
+		return "cleanup_targets"
+	}
+	return ""
+}
+
+// validateRuntimeData refuses a service that the runtime data path cannot serve, with the setting to change. The
+// migration ledger exists only with schema_generation, and a SQL table cannot be created twice, so the path needs
+// it; the single-writer lease and the storage contract fence and serve the store, which the path does not emit.
+func validateRuntimeData(ctx gen.Context) error {
+	if !ctx.RuntimeData {
+		return nil
+	}
+	if ctx.ComponentConfig["schema_generation"] == nil {
+		return fmt.Errorf("the runtime data path needs schema_generation: its tables are SQL migrations, which only the migration ledger applies once")
+	}
+	if LeaseEnabled(ctx.ComponentConfig) {
+		return fmt.Errorf("the runtime data path needs writer_lease off: the single-writer lease fences the store, which the runtime data path does not emit")
+	}
+	if ctx.StorageContract != "" {
+		return fmt.Errorf("the runtime data path emits no store, so it cannot serve the storage contract %s", ctx.StorageContract)
+	}
+	if ctx.PeerNamespaces["tsl-search"] != "" {
+		return fmt.Errorf("the runtime data path emits no store, so it cannot serve the tsl-search component")
+	}
+	for _, entity := range ctx.Entities {
+		if setting := storeOnly(entity); setting != "" {
+			return fmt.Errorf("entity %s: %s needs the GORM store, which the runtime data path does not emit", entity.Name, setting)
+		}
+		// PostgreSQL cuts a longer name to 63 bytes, so two long names could become one column or one table.
+		if table := tableName(entity.Name); len(table) > 63 {
+			return fmt.Errorf("entity %s: the table name %s is longer than 63 bytes, which PostgreSQL cuts", entity.Name, table)
+		}
+		for _, field := range entity.Fields {
+			if len(field.Name) > 63 {
+				return fmt.Errorf("entity %s: the field name %s is longer than 63 bytes, which PostgreSQL cuts", entity.Name, field.Name)
+			}
+		}
+	}
+	return nil
+}
+
+// sqlIdentifier quotes a name as a PostgreSQL identifier. The names that the declaration gives are checked to the
+// characters of validFieldNamePattern, so a quote is the only character to double.
+func sqlIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+// sqlString quotes a value as a PostgreSQL string literal.
+func sqlString(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
+// sqlName joins the parts of a constraint or an index name. PostgreSQL keeps 63 bytes of a name, so a longer name
+// keeps its first 46 bytes and adds 16 hexadecimal digits of the digest of the whole name, which keeps it unique.
+func sqlName(parts ...string) string {
+	name := strings.Join(parts, "_")
+	if len(name) <= 63 {
+		return name
+	}
+	sum := sha256.Sum256([]byte(name))
+	return name[:46] + "_" + hex.EncodeToString(sum[:8])
+}
+
+// columnType gives the PostgreSQL type of a declared field. A reference holds the key of the row it refers to,
+// which is a uuid.
+func columnType(field types.Field) (string, error) {
+	switch field.Type {
+	case types.FieldTypeString:
+		if field.MaxLength != nil {
+			return fmt.Sprintf("character varying(%d)", *field.MaxLength), nil
+		}
+		return "text", nil
+	case types.FieldTypeEnum:
+		return "text", nil
+	case types.FieldTypeRef:
+		return "uuid", nil
+	case types.FieldTypeInt32:
+		return "integer", nil
+	case types.FieldTypeInt64:
+		return "bigint", nil
+	case types.FieldTypeFloat:
+		return "real", nil
+	case types.FieldTypeDouble:
+		return "double precision", nil
+	case types.FieldTypeBool:
+		return "boolean", nil
+	case types.FieldTypeBytes:
+		return "bytea", nil
+	case types.FieldTypeTimestamp:
+		return "timestamp with time zone", nil
+	case types.FieldTypeJsonb:
+		return "jsonb", nil
+	}
+	return "", fmt.Errorf("field %s: the type %q has no column type", field.Name, field.Type)
+}
+
+// columnDefault gives the DEFAULT clause of a declared field's default, or "" when it has none. Checking has
+// matched the default to the field's type (ST-DECL-EN03); a text default of a timestamp or a jsonb field is a
+// literal that PostgreSQL reads as the column's type when the migration runs.
+func columnDefault(field types.Field) (string, error) {
+	switch value := field.Default.(type) {
+	case nil:
+		return "", nil
+	case string:
+		return " DEFAULT " + sqlString(value), nil
+	case bool:
+		return " DEFAULT " + strconv.FormatBool(value), nil
+	case int:
+		return " DEFAULT " + strconv.Itoa(value), nil
+	case int64:
+		return " DEFAULT " + strconv.FormatInt(value, 10), nil
+	case uint64:
+		return " DEFAULT " + strconv.FormatUint(value, 10), nil
+	case float64:
+		return " DEFAULT " + strconv.FormatFloat(value, 'g', -1, 64), nil
+	}
+	return "", fmt.Errorf("field %s: the default %v has no SQL literal", field.Name, field.Default)
+}
+
+// columnChecks gives the CHECK expressions of a declared field: its length bounds, its numeric bounds, the finite
+// value of a bounded float, and the declared values of an enum. A pattern stays with request validation, because
+// PostgreSQL's regular expressions are not the RE2 expressions that the API checks.
+func columnChecks(field types.Field) []string {
+	column := sqlIdentifier(field.Name)
+	var checks []string
+	if field.MinLength != nil {
+		checks = append(checks, fmt.Sprintf("char_length(%s) >= %d", column, *field.MinLength))
+	}
+	if field.Min != nil {
+		checks = append(checks, column+" >= "+strconv.FormatFloat(*field.Min, 'g', -1, 64))
+	}
+	if field.Max != nil {
+		checks = append(checks, column+" <= "+strconv.FormatFloat(*field.Max, 'g', -1, 64))
+	}
+	if (field.Min != nil || field.Max != nil) && (field.Type == types.FieldTypeFloat || field.Type == types.FieldTypeDouble) {
+		checks = append(checks, column+" NOT IN ('NaN'::double precision, 'Infinity'::double precision, '-Infinity'::double precision)")
+	}
+	if field.Type == types.FieldTypeEnum && len(field.Values) > 0 {
+		values := make([]string, len(field.Values))
+		for i, value := range field.Values {
+			values[i] = sqlString(value)
+		}
+		checks = append(checks, column+" IN ("+strings.Join(values, ", ")+")")
+	}
+	return checks
+}
+
+// tableOrder gives the entities in the order of their tables: each table after the tables its references need,
+// and else by table name, so the order of the declaration does not change the migration body.
+func tableOrder(entities []types.Entity) ([]types.Entity, error) {
+	named := append([]types.Entity(nil), entities...)
+	sort.SliceStable(named, func(i, j int) bool { return tableName(named[i].Name) < tableName(named[j].Name) })
+	return topoSortEntities(named)
+}
+
+// uniqueKeys gives the column lists of the unique indexes of an entity: each unique field, each unique_composite
+// group once, and each upsert key of a collection over the entity, in that order. A unique_when_live field is
+// unique over all rows, because a command's delete removes the row and leaves no deleted row to leave out.
+func uniqueKeys(entity types.Entity, upsertKeys [][]string) [][]string {
+	var keys [][]string
+	seen := map[string]bool{}
+	add := func(columns []string) {
+		id := strings.Join(columns, "\x00")
+		if seen[id] {
+			return
+		}
+		seen[id] = true
+		keys = append(keys, columns)
+	}
+	for _, field := range entity.Fields {
+		if field.Unique {
+			add([]string{field.Name})
+		}
+	}
+	for _, field := range entity.Fields {
+		if len(field.UniqueComposite) > 0 {
+			add(field.UniqueComposite)
+		}
+	}
+	for _, key := range upsertKeys {
+		add(key)
+	}
+	return keys
+}
+
+// tablesSQL gives the SQL text of 001_initial on the runtime data path: one CREATE TABLE for each entity and one
+// CREATE UNIQUE INDEX for each of its unique keys, from the declaration alone (ST-SUP-RC01-OC41). In a pooled
+// service the tenant column leads the table, its primary key, every index and every foreign key to another owned
+// table (ST-SUP-RC01-OC40).
+func tablesSQL(ctx gen.Context) (string, error) {
+	ordered, err := tableOrder(ctx.Entities)
+	if err != nil {
+		return "", err
+	}
+	key := tenantColumn(ctx)
+	owned := map[string]bool{}
+	for _, entity := range ctx.Entities {
+		owned[entity.Name] = key != "" && ownedEntity(entity)
+	}
+	upsertKeys := map[string][][]string{}
+	for _, collection := range ctx.Collections {
+		if len(collection.UpsertKey) > 0 {
+			upsertKeys[collection.Entity] = append(upsertKeys[collection.Entity], collection.UpsertKey)
+		}
+	}
+	var out strings.Builder
+	for _, entity := range ordered {
+		table := tableName(entity.Name)
+		lead := []string{}
+		if owned[entity.Name] {
+			lead = []string{sqlIdentifier(key)}
+		}
+		var lines []string
+		if owned[entity.Name] {
+			lines = append(lines, sqlIdentifier(key)+" text NOT NULL DEFAULT current_setting('app.tenant')")
+		}
+		lines = append(lines, sqlIdentifier(keyColumn)+" uuid NOT NULL")
+		var constraints []string
+		for _, field := range entity.Fields {
+			columnTypeName, err := columnType(field)
+			if err != nil {
+				return "", fmt.Errorf("entity %s: %w", entity.Name, err)
+			}
+			line := sqlIdentifier(field.Name) + " " + columnTypeName
+			if !field.Optional && !field.Computed {
+				line += " NOT NULL"
+			}
+			fieldDefault, err := columnDefault(field)
+			if err != nil {
+				return "", fmt.Errorf("entity %s: %w", entity.Name, err)
+			}
+			lines = append(lines, line+fieldDefault)
+			if checks := columnChecks(field); len(checks) > 0 {
+				constraints = append(constraints, "CONSTRAINT "+sqlIdentifier(sqlName(table, field.Name, "check"))+" CHECK ("+strings.Join(checks, " AND ")+")")
+			}
+		}
+		lines = append(lines,
+			sqlIdentifier(createdColumn)+" timestamp with time zone NOT NULL DEFAULT now()",
+			sqlIdentifier(updatedColumn)+" timestamp with time zone NOT NULL DEFAULT now()",
+			sqlIdentifier(versionColumn)+" bigint NOT NULL DEFAULT 1")
+		if entity.ResourceType != "" {
+			lines = append(lines, sqlIdentifier(tokenColumn)+" text NOT NULL DEFAULT ''")
+		}
+		primary := append(append([]string{}, lead...), sqlIdentifier(keyColumn))
+		lines = append(lines, "CONSTRAINT "+sqlIdentifier(sqlName(table, "pkey"))+" PRIMARY KEY ("+strings.Join(primary, ", ")+")")
+		lines = append(lines, constraints...)
+		for _, field := range entity.Fields {
+			if field.Type != types.FieldTypeRef || field.To == "" {
+				continue
+			}
+			from, to := []string{sqlIdentifier(field.Name)}, []string{sqlIdentifier(keyColumn)}
+			if owned[entity.Name] && owned[field.To] {
+				from, to = append(append([]string{}, lead...), from...), append(append([]string{}, lead...), to...)
+			}
+			lines = append(lines, "CONSTRAINT "+sqlIdentifier(sqlName(table, field.Name, "fkey"))+" FOREIGN KEY ("+strings.Join(from, ", ")+
+				") REFERENCES public."+sqlIdentifier(tableName(field.To))+" ("+strings.Join(to, ", ")+")")
+		}
+		fmt.Fprintf(&out, "CREATE TABLE public.%s (\n  %s\n);\n", sqlIdentifier(table), strings.Join(lines, ",\n  "))
+		for _, columns := range uniqueKeys(entity, upsertKeys[entity.Name]) {
+			quoted := append([]string{}, lead...)
+			for _, column := range columns {
+				quoted = append(quoted, sqlIdentifier(column))
+			}
+			fmt.Fprintf(&out, "CREATE UNIQUE INDEX %s ON public.%s (%s);\n", sqlIdentifier(sqlName(append([]string{table}, append(columns, "key")...)...)),
+				sqlIdentifier(table), strings.Join(quoted, ", "))
+		}
+	}
+	return out.String(), nil
+}
+
+// generateTables gives the files of the tables on the runtime data path: the SQL text of 001_initial as the
+// constant InitialTables, which the migration ledger registers, and the same text as migrations/001_initial.sql
+// for a reader and for an operator who runs the migrations outside the service.
+func generateTables(ctx gen.Context) ([]gen.File, error) {
+	body, err := tablesSQL(ctx)
+	if err != nil {
+		return nil, err
+	}
+	source := fmt.Sprintf("package %s\n\n// %s creates the table of each entity of the declaration, the body of the migration 001_initial.\nconst %s = %q\n",
+		path.Base(ctx.OutputNamespace), tablesConstant, tablesConstant, body)
+	formatted, err := format.Source([]byte(source))
+	if err != nil {
+		return nil, fmt.Errorf("formatting tables: %w", err)
+	}
+	return []gen.File{
+		{Path: path.Join(ctx.OutputNamespace, tablesFile), Content: formatted},
+		{Path: path.Join(ctx.OutputNamespace, "migrations", "001_initial.sql"), Content: []byte(body)},
+	}, nil
+}
+
+// generateRuntimeData gives the files and the wiring of the runtime data path: the database opener, the schema
+// generation marker, the migration ledger with 001_initial as the SQL of InitialTables and, in a pooled service,
+// the row-level security of the tenancy component after it. It emits no models.go, store.go, session factory,
+// generic DAO or transaction code, so no entity model or store is there to call (ST-SUP-RC01-OC41). The ledger
+// runner still takes a *gorm.DB in the migration job; the grants of the runtime role are the same as on the store
+// path (ST-SUP-RC27-OC07, ST-STD-TXN-R03).
+func generateRuntimeData(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	files, err := generateTables(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	rowSecurity, err := rowSecurityImport(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	migrateFile, err := generateMigrate(ctx.OutputNamespace, ctx.Entities, true, rowSecurity, true)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generating migrate: %w", err)
+	}
+	schemaFile, err := generateSchemaGeneration(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	opener, err := generateDatabaseOpener(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	files = append(files, migrateFile, schemaFile, opener)
+	base := path.Base(ctx.OutputNamespace)
+	wiring := &gen.Wiring{
+		Imports:        []string{ctx.OutputNamespace},
+		NeedsDB:        true,
+		DBBackend:      "gorm",
+		PostDBCalls:    []string{base + ".Migrate(db)"},
+		DatabaseOpener: &gen.DatabaseOpenerSpec{Namespace: ctx.OutputNamespace, Function: "OpenDatabase"},
+		GoModRequires: map[string]string{
+			"github.com/google/uuid":  "v1.6.0",
+			"github.com/jackc/pgx/v5": "v5.11.0",
+			"gorm.io/gorm":            "v1.25.12",
+			"gorm.io/driver/postgres": "v1.5.11",
+		},
+	}
+	entityAccess(ctx, wiring)
+	schemaGenerationAccess(ctx, wiring)
+	if value, _ := ctx.ComponentConfig["migrations"].(string); value == "external" {
+		wiring.PostDBCalls = nil
+		wiring.VerifyDatabaseAccess = true
+	}
+	if err := sealMigrations(ctx.OutputNamespace, files); err != nil {
+		return nil, nil, err
+	}
+	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
+		return nil, nil, err
+	}
+	return files, wiring, nil
+}
