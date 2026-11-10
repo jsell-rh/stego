@@ -41,6 +41,7 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/outbox"
 	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
 	"github.com/jsell-rh/stego/internal/generator/postgresclient"
+	querygen "github.com/jsell-rh/stego/internal/generator/query"
 	"github.com/jsell-rh/stego/internal/generator/restapi"
 	"github.com/jsell-rh/stego/internal/generator/rhssoauth"
 	"github.com/jsell-rh/stego/internal/generator/runtimeconfig"
@@ -919,6 +920,7 @@ func defaultGenerators() map[string]gen.Generator {
 		"audit-log":             &auditlog.Generator{},
 		"domain-probe":          &domainprobe.Generator{},
 		"idempotency":           &idempotency.Generator{},
+		"query":                 &querygen.Generator{},
 		"spicedb-authz":         &spicedbauthz.Generator{},
 	}
 }

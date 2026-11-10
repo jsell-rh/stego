@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -116,6 +117,10 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 	}
 
 	tenancy := pooledTenancy(svcDecl, componentNames)
+	facts, err := compositionFacts(input, svcDecl, components)
+	if err != nil {
+		return nil, err
+	}
 	resolved := &resolvedCompilation{Components: components, Names: componentNames, Contexts: map[string]gen.Context{}, InputSnapshots: map[string]fileSnapshot{}, OutDir: outDir, OutDirName: outDirName, SlotsPackage: slotsPackage, HoldsFills: fills}
 	for _, compName := range componentNames {
 		comp := components[compName]
@@ -146,6 +151,8 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 			StorageContract: generatedImportPath(input.ModuleName, outDirName, gen.StorageContractNamespace),
 			EventsContract:  generatedImportPath(input.ModuleName, outDirName, gen.EventsContractNamespace),
 			Tenancy:         tenancy,
+			Queries:         svcDecl.Queries,
+			FillSlots:       maps.Clone(facts.FillSlots),
 		}
 		if compName == authorizationComponent && svcDecl.Authorization != nil && svcDecl.Authorization.SchemaPath != "" {
 			// The authorization component reads the schema that the declaration names (ST-SUP-RC29).

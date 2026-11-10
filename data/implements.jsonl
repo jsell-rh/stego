@@ -763,6 +763,8 @@
 {"source_id":"ST-SUP-RC33-G01","target_id":"ST-SUP-RC33-OC05"}
 {"source_id":"ST-SUP-RC33-G01","target_id":"ST-SUP-RC33-OC06"}
 {"source_id":"ST-SUP-RC33-G01","target_id":"ST-SUP-RC33-OC07"}
+{"source_id":"ST-SUP-RC33-G02","target_id":"ST-SUP-RC33-OC01"}
+{"source_id":"ST-SUP-RC33-G02","target_id":"ST-SUP-RC33-OC02"}
 {"source_id":"ST-SUP-RC34-G01","target_id":"ST-SUP-RC34-OC01"}
 {"source_id":"ST-SUP-RC34-G01","target_id":"ST-SUP-RC34-OC02"}
 {"source_id":"ST-SUP-RC34-G01","target_id":"ST-SUP-RC34-OC03"}
