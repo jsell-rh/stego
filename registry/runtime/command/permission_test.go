@@ -124,9 +124,12 @@ func TestCommandPermission(t *testing.T) {
 			"a WITH":                                               `WITH o AS (SELECT * FROM orders) SELECT authz_token FROM o WHERE tenant_id = $1 AND id = $2 FOR SHARE`,
 			"a TABLE":                                              `TABLE orders`,
 			"a VALUES":                                             `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = $2 FOR SHARE; VALUES ($1, $2)`,
-			"a second statement":                                   `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = $2 FOR SHARE; SELECT 1`,
-			"a placeholder in a comment":                           `SELECT authz_token FROM orders WHERE tenant_id = $1 /* $2 */ AND id = 'o5' FOR SHARE`,
-			"a subselect":                                          `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = (SELECT $2::text) FOR SHARE`,
+			"probe 1, a materialized WITH over TABLE":               `WITH x AS MATERIALIZED (TABLE orders) SELECT authz_token FROM x WHERE tenant_id = $1 AND id = $2 FOR SHARE`,
+			"probe 2, FOR KEY SHARE behind a quoted comment opener": `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = $2 AND note <> '/*' FOR KEY SHARE --*/ FOR SHARE`,
+			"probe 3, a quoted comment opener and a line comment":   `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = $2 AND note <> '/*' --*/ FOR SHARE`,
+			"a second statement":                                    `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = $2 FOR SHARE; SELECT 1`,
+			"a placeholder in a comment":                            `SELECT authz_token FROM orders WHERE tenant_id = $1 /* $2 */ AND id = 'o5' FOR SHARE`,
+			"a subselect":                                           `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = (SELECT $2::text) FOR SHARE`,
 		} {
 			if _, err := NewCommand(CommandSpec[testProbe]{Name: "bad", Probe: newTestProbe, Permission: "reserve",
 				Resource: &Resource{Type: "order", Token: token, ValidID: func(string) bool { return true }}}); err == nil {
