@@ -12,9 +12,13 @@ import (
 var td02WithPatch = strings.Replace(td02, "operations: [create, read, update, delete, list]\n",
 	"operations: [create, read, update, delete, list, patch]\n    patchable: [title, done]\n", 1)
 
-// withIdempotency gives the declaration with idempotency required on the operations given.
+// withIdempotency gives the declaration with idempotency required on the operations given. The stated idempotency
+// selects the idempotency component, which is alpha, so the declaration accepts it (ST-GEN-INV37). The
+// idempotency block stays last, so a caller can add its retention and fingerprint. The idempotency generator needs
+// error_type_base for its problem types (ST-SUP-RC30).
 func withIdempotency(service, requiredOn string) string {
-	return service + "idempotency:\n  required_on: [" + requiredOn + "]\n"
+	return service + "error_type_base: https://errors.example.com/\n" + "experimental_acceptances:\n  - {component: idempotency, accepted_until: 2027-04-30, reason: idempotency builder pilot}\n" +
+		"idempotency:\n  required_on: [" + requiredOn + "]\n"
 }
 
 // reportedSetting gives the setting at the path in the settings that stego validate --json reports.
