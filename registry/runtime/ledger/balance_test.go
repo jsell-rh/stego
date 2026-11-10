@@ -23,6 +23,16 @@ func (f *fixture) balance(account string) money.Money {
 	return out
 }
 
+// dbNow is the database clock.
+func (f *fixture) dbNow() time.Time {
+	f.t.Helper()
+	var now time.Time
+	if err := f.admin.QueryRowContext(f.ctx, "SELECT clock_timestamp()").Scan(&now); err != nil {
+		f.t.Fatal(err)
+	}
+	return now
+}
+
 // postAt posts a transfer for acme that takes effect at the time.
 func (f *fixture) postAt(key string, at time.Time, entries ...Entry) Transfer {
 	f.t.Helper()
@@ -93,29 +103,29 @@ func TestBalance(t *testing.T) {
 
 	t.Run("ST-SUP-RP08-LC07-T03 A balance at a time selects entries by effective_at", func(t *testing.T) {
 		f := newFixture(t)
-		now := time.Now().UTC()
-		yesterday := now.Add(-24 * time.Hour)
-		endOfYesterday := time.Date(yesterday.Year(), yesterday.Month(), yesterday.Day(), 23, 59, 59, 999999000, time.UTC)
-		today := endOfYesterday.Add(time.Hour)
-		f.postAt("today", today, dr("dr", 40), cr("plain", 40))
-		f.postAt("yesterday", endOfYesterday.Add(-time.Hour), dr("dr", 7), cr("plain", 7))
-		var at, all money.Money
+		// Every time is fixed relative to the database clock and lies in the past, so the bound on EffectiveAt never
+		// refuses it, whatever the hour the test runs at.
+		now := f.dbNow()
+		older, newer := now.Add(-2*time.Hour), now.Add(-time.Hour)
+		f.postAt("newer", newer, dr("dr", 40), cr("plain", 40))
+		f.postAt("older", older, dr("dr", 7), cr("plain", 7))
+		var between, all money.Money
 		f.inTx(f.runtime, acme, func(tx *sql.Tx) error {
 			var err error
-			if at, err = f.usd.BalanceAt(f.ctx, tx, f.tn(acme), "dr", endOfYesterday); err != nil {
+			if between, err = f.usd.BalanceAt(f.ctx, tx, f.tn(acme), "dr", now.Add(-90*time.Minute)); err != nil {
 				return err
 			}
-			all, err = f.usd.BalanceAt(f.ctx, tx, f.tn(acme), "dr", today)
+			all, err = f.usd.BalanceAt(f.ctx, tx, f.tn(acme), "dr", newer)
 			return err
 		})
-		if at != usd(7) || all != usd(47) {
-			t.Fatalf("the balance at the end of yesterday is %v and at today's entry %v; want 7 USD and 47 USD", at, all)
+		if between != usd(7) || all != usd(47) {
+			t.Fatalf("the balance 90 minutes ago is %v and at the newer entry %v; want 7 USD and 47 USD", between, all)
 		}
 	})
 
 	t.Run("ST-SUP-RP08-LC07-T04 Every entry keeps effective_at and posted_at", func(t *testing.T) {
 		f := newFixture(t)
-		tr := f.postAt("backdated", time.Now().Add(-48*time.Hour), dr("dr", 9), cr("plain", 9))
+		tr := f.postAt("backdated", f.dbNow().Add(-48*time.Hour), dr("dr", 9), cr("plain", 9))
 		var rows, ordered int
 		f.inTx(f.owner, acme, func(tx *sql.Tx) error {
 			return tx.QueryRowContext(f.ctx, `SELECT count(*), count(*) FILTER (WHERE effective_at < posted_at)
