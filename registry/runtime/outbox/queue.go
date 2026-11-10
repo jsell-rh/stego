@@ -46,7 +46,8 @@ const RelayRole = "stego_outbox_relay"
 var rolePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
 // Migration returns the DDL text of the queue (ST-SUP-RP01-LC19). The migration job runs it as the table owner, in
-// one transaction, as a simple query of several statements runs. The text creates RelayRole when it is missing, and
+// one transaction, as a simple query of several statements runs. The text creates RelayRole only when it is missing,
+// so an owner without CREATEROLE can run it again once RelayRole exists, and
 // makes the relay functions under SET ROLE RelayRole, so they belong to it and a later run replaces them. The owner
 // therefore needs membership in RelayRole WITH SET TRUE, INHERIT TRUE, which a superuser or a role with ADMIN on
 // RelayRole grants (GRANT stego_outbox_relay TO <owner> WITH SET TRUE, INHERIT TRUE); without it the text stops,
@@ -92,7 +93,11 @@ var relayFunctions = []string{
 const migration = `CREATE SCHEMA IF NOT EXISTS stego_outbox;
 
 DO $do$ BEGIN
-	CREATE ROLE stego_outbox_relay NOLOGIN;
+	-- Only a role with CREATEROLE can run CREATE ROLE, even for a role that exists, so the text creates the role
+	-- only when it is missing. A run at the same time that creates it first is not an error.
+	IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'stego_outbox_relay') THEN
+		CREATE ROLE stego_outbox_relay NOLOGIN;
+	END IF;
 EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL;
 END $do$;
 
