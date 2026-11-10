@@ -17,7 +17,7 @@ var td02WithPatch = strings.Replace(td02, "operations: [create, read, update, de
 // idempotency block stays last, so a caller can add its retention and fingerprint. The idempotency generator needs
 // error_type_base for its problem types (ST-SUP-RC30).
 func withIdempotency(service, requiredOn string) string {
-	return service + "error_type_base: https://errors.example.com/\n" + "experimental_acceptances:\n  - {component: idempotency, accepted_until: 2027-04-30, reason: idempotency builder pilot}\n" +
+	return service + "error_type_base: https://errors.example.com/\n" + acceptanceOf("idempotency", "idempotency builder pilot") +
 		"idempotency:\n  required_on: [" + requiredOn + "]\n"
 }
 

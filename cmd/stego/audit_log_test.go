@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,7 +60,7 @@ func compiledService(t *testing.T, service string) (compiler.ReconcilerInput, re
 // customerService is the declaration of the RC28 test records as service.yaml: audit at level metadata with pii
 // keep and a retention of 6 months, which selects audit-log, an experimental acceptance of audit-log, the
 // audit-sink port left to the platform, and the entity Customer.
-const customerService = `kind: service
+var customerService = `kind: service
 name: customers
 archetype: audit-arch
 language: go
@@ -73,11 +74,7 @@ entities:
       - { name: name, type: string, sensitivity: pii }
       - { name: api_token, type: string, sensitivity: secret }
       - { name: plan, type: string }
-experimental_acceptances:
-  - component: audit-log
-    accepted_until: 2027-04-30
-    reason: The audit-log builder proves the compiler path
-`
+` + acceptanceOf("audit-log", "The audit-log builder proves the compiler path")
 
 // TestAuditLogCompiledService generates the audit wiring through the compiler from a service declaration, on the runtime
 // pin of the archetype, and builds it against registry/runtime through the work file of
@@ -175,4 +172,18 @@ func TestAuditLogCompiledService(t *testing.T) {
 			t.Fatalf("Reconcile of a service whose audit.sink names no binding: %v, want a refusal that names audit-archive", err)
 		}
 	})
+}
+
+// acceptanceOf gives the experimental_acceptances block that accepts the shipped component name until its own
+// sunset, which it reads from registry/components, so that a new sunset of the component does not break a test
+// (ST-DECL-EN07, ST-GEN-INV37).
+func acceptanceOf(name, reason string) string {
+	c, err := registry.ParseComponent(filepath.Join("..", "..", "registry", "components", name, "component.yaml"))
+	if err != nil {
+		panic(fmt.Sprintf("read the component %s: %v", name, err))
+	}
+	if c.Sunset == "" {
+		panic("the component " + name + " has no sunset date")
+	}
+	return "experimental_acceptances:\n  - {component: " + name + ", accepted_until: " + c.Sunset + ", reason: " + reason + "}\n"
 }

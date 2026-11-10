@@ -14,11 +14,9 @@ import (
 // tenancyClaim is ST-DECL-TD02 with pooled tenancy, the key org_id and the claim given. The stated tenancy selects
 // the tenancy component, which is alpha, so the declaration accepts it (ST-GEN-INV37).
 func tenancyClaim(claim string) string {
-	return td02 + "tenancy:\n  kind: pooled\n  key: org_id\n  claim: \"" + claim + "\"\n" + acceptTenancy
+	return td02 + "tenancy:\n  kind: pooled\n  key: org_id\n  claim: \"" + claim + "\"\n" +
+		acceptanceOf("tenancy", "tenancy builder pilot")
 }
-
-// acceptTenancy is the experimental acceptance of the tenancy component (ST-DECL-EN07).
-const acceptTenancy = "experimental_acceptances:\n  - {component: tenancy, accepted_until: 2027-04-30, reason: tenancy builder pilot}\n"
 
 // withProvisioner is ST-DECL-TD02 with the controller provisioner, complete in each field but its tenants.
 func withProvisioner(tenants string) string {
