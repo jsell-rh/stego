@@ -9,6 +9,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"regexp"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -258,10 +259,14 @@ func checkWrites(owner string, declared []Declared) (map[Declared]bool, error) {
 }
 
 // checkResource refuses a permission without its resource, a resource without a permission, and a resource that
-// lacks a part. Its token statement, with its comments removed, must be one SELECT with no subselect, take exactly
-// the placeholders $1, the tenant, and $2, the ID, so $12 does not pass for $1, and lock the row it reads FOR SHARE,
-// also for the parent of a create, so the revocation's UPDATE of the row's token waits until the command's
-// transaction ends (ST-SUP-RP10-LC31). FOR KEY SHARE does not block that UPDATE and is refused.
+// lacks a part. Its token statement must match, as a whole, the one form
+//
+//	SELECT <column> FROM <table> WHERE tenant_id = $1 AND <key> = $2[::<type>] FOR SHARE[;]
+//
+// with plain identifiers only, so it reads one row of the tenant by its key and locks it FOR SHARE, which makes the
+// revocation's UPDATE of the row's token wait until the command's transaction ends (ST-SUP-RP10-LC31). Quotes,
+// dollar quotes, comments, parentheses, WITH, TABLE and VALUES are refused, and FOR KEY SHARE, which does not block
+// that UPDATE, does not match.
 func checkResource(owner, permission string, r *Resource) error {
 	switch {
 	case permission == "" && r == nil:
@@ -271,37 +276,23 @@ func checkResource(owner, permission string, r *Resource) error {
 	case r.Type == "" || r.ValidID == nil:
 		return fmt.Errorf("command: the resource of %s needs its type and ValidID", owner)
 	}
-	statement := stripComments(r.Token)
-	if len(selectWord.FindAllString(statement, -1)) != 1 {
-		return fmt.Errorf("command: the token statement of the resource of %s is not one SELECT with no subselect", owner)
+	if strings.ContainsAny(r.Token, `'"()`) || strings.Contains(r.Token, "$$") || strings.Contains(r.Token, "--") ||
+		strings.Contains(r.Token, "/*") || refusedWord.MatchString(r.Token) {
+		return fmt.Errorf("command: the token statement of the resource of %s holds a quote, a comment, a parenthesis, WITH, TABLE or VALUES", owner)
 	}
-	seen := map[string]bool{}
-	for _, m := range placeholder.FindAllStringSubmatch(statement, -1) {
-		seen[m[1]] = true
-	}
-	if len(seen) != 2 || !seen["1"] || !seen["2"] {
-		return fmt.Errorf("command: the token statement of the resource of %s does not take exactly the tenant as $1 and the ID as $2", owner)
-	}
-	if !shareLock.MatchString(statement) {
-		return fmt.Errorf("command: the token statement of the resource of %s does not lock the row FOR SHARE", owner)
+	if !tokenStatement.MatchString(r.Token) {
+		return fmt.Errorf("command: the token statement of the resource of %s is not SELECT <column> FROM <table> WHERE tenant_id = $1 AND <key> = $2 FOR SHARE", owner)
 	}
 	return nil
 }
 
-// placeholder matches one placeholder of a statement, selectWord the word SELECT, and shareLock a statement that
-// ends with FOR SHARE. FOR KEY SHARE does not block the UPDATE of a token, so it does not count.
+// tokenStatement is the one form of the token statement of a resource, and refusedWord the words that it never
+// holds.
 var (
-	placeholder  = regexp.MustCompile(`\$([0-9]+)`)
-	selectWord   = regexp.MustCompile(`(?i)\bSELECT\b`)
-	shareLock    = regexp.MustCompile(`(?i)\bFOR\s+SHARE\s*;?\s*$`)
-	lineComment  = regexp.MustCompile(`--[^\n]*`)
-	blockComment = regexp.MustCompile(`(?s)/\*.*?\*/`)
+	tokenStatement = regexp.MustCompile(`(?i)^\s*SELECT\s+[a-z_][a-z0-9_]*\s+FROM\s+[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)?\s+` +
+		`WHERE\s+tenant_id\s*=\s*\$1\s+AND\s+[a-z_][a-z0-9_]*\s*=\s*\$2(::[a-z_][a-z0-9_]*)?\s+FOR\s+SHARE\s*;?\s*$`)
+	refusedWord = regexp.MustCompile(`(?i)\b(WITH|TABLE|VALUES)\b`)
 )
-
-// stripComments removes the comments of a statement, so a comment cannot look like a lock clause or a placeholder.
-func stripComments(statement string) string {
-	return lineComment.ReplaceAllString(blockComment.ReplaceAllString(statement, " "), " ")
-}
 
 // Request is what Run knows of one command request, from the generated handler.
 type Request struct {

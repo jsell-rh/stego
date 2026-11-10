@@ -104,8 +104,29 @@ ALTER TABLE stego_outbox.messages ADD CONSTRAINT messages_payload_check
 	CHECK (jsonb_typeof(payload) = 'object' AND octet_length(payload::text) <= 131072)`); err != nil {
 			t.Fatal(err)
 		}
+		// An open audit-sink message of the old table stops the migration until it is drained.
+		if _, err := a.ExecContext(ctx, `INSERT INTO stego_outbox.messages (id, tenant_id, destination, resource_key, kind,
+  payload, outgoing_key, created_at, available_at) VALUES (gen_random_uuid(), 'tenant-a', 'audit-sink', 'e1', 'audit.sink',
+  '{"kind":"event"}', 'e1', now(), now())`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := a.ExecContext(ctx, ddl); err == nil || !strings.Contains(err.Error(), "drain them first") {
+			t.Fatalf("the migration with an open audit-sink message gave %v, want a refusal that says to drain it", err)
+		}
+		var kindBefore string
+		if err := a.QueryRowContext(ctx, `SELECT format_type(atttypid, atttypmod) FROM pg_attribute
+WHERE attrelid = 'stego_outbox.messages'::regclass AND attname = 'payload'`).Scan(&kindBefore); err != nil || kindBefore != "jsonb" {
+			t.Fatalf("the refused migration left the payload column %q: %v", kindBefore, err)
+		}
+		if _, err := a.ExecContext(ctx, `DELETE FROM stego_outbox.messages WHERE destination = 'audit-sink'`); err != nil {
+			t.Fatal(err)
+		}
 		if _, err := a.ExecContext(ctx, ddl); err != nil {
 			t.Fatalf("the migration on an old table: %v", err)
+		}
+		var forced bool
+		if err := a.QueryRowContext(ctx, `SELECT relforcerowsecurity FROM pg_class WHERE oid = 'stego_outbox.messages'::regclass`).Scan(&forced); err != nil || !forced {
+			t.Fatalf("row-level security is not forced after the migration: %t, %v", forced, err)
 		}
 		var kind string
 		if err := a.QueryRowContext(ctx, `SELECT format_type(atttypid, atttypmod) FROM pg_attribute

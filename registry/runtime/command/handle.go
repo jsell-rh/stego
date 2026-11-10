@@ -313,6 +313,69 @@ func newLoaded[T any](value T, meta Meta, e *Entity[T], s *state, lock lockMode)
 		ID: meta.ID, Version: meta.Version, Token: meta.Token, Lock: uint8(lock)})
 }
 
+// isChild reports whether the entity is a child: it has a Parent and no resource type, so it takes its authorization
+// from its parent (ST-SUP-RP10-LC05).
+func (r *Repository[T]) isChild() bool { return r.entity.isChild() }
+
+func (e *Entity[T]) isChild() bool { return e.spec.Parent != nil && e.spec.ResourceType == "" }
+
+// parentOf gives the parent that the loaded value ref names, for a child entity, and false for any other entity or
+// a value of another entity.
+func (e *Entity[T]) parentOf(ref Ref) (string, string, bool) {
+	l, ok := ref.(Loaded[T])
+	if !ok || !e.isChild() {
+		return "", "", false
+	}
+	value, _, ok := loaded.Fields(l)
+	if !ok {
+		return "", "", false
+	}
+	name, id := e.spec.Parent(value)
+	return name, id, true
+}
+
+// decideParents decides, for a locked read, a list, an update or a delete of a child, the permission of the command
+// or the worker on the parent that each of values names, as a create does (ST-SUP-RP10-LC05, ST-SUP-RP10-LC17):
+// parents must hold the loaded value of each such parent, tied with checkParent, and nothing else. An entity that is
+// not a child takes no parent. A deny is not found.
+func (r *Repository[T]) decideParents(ctx context.Context, verb string, parents []Ref, values ...T) error {
+	s, e := r.st, r.entity
+	if !r.isChild() {
+		if len(parents) > 0 {
+			return s.breakWith(internalf("the %s of %s takes no parent: it is not a child entity", verb, e.spec.Name))
+		}
+		return nil
+	}
+	used := make([]bool, len(parents))
+	for _, value := range values {
+		name, id := e.spec.Parent(value)
+		found := -1
+		for i, p := range parents {
+			if ref := refOf(p); p != nil && ref.st == s && ref.entity == name && ref.id == id {
+				found = i
+				break
+			}
+		}
+		if found < 0 {
+			return s.breakWith(internalf("the %s of %s needs the loaded value of the parent that the row names", verb, e.spec.Name))
+		}
+		if used[found] {
+			continue
+		}
+		used[found] = true
+		p := refOf(parents[found])
+		if err := s.decideWrite(ctx, p.resourceType, p.entity, p.id, p.token); err != nil {
+			return err
+		}
+	}
+	for _, u := range used {
+		if !u {
+			return s.breakWith(internalf("the %s of %s takes a parent that the row does not name", verb, e.spec.Name))
+		}
+	}
+	return nil
+}
+
 // checkParent refuses, as an internal error, a parent of a create of entity that is not tied to the new row: a
 // parent of another handle, of another entity or with another ID than parentOf reads from the value, a parent for an
 // entity that has none, and, for a command, no parent for an entity that has one.
@@ -572,32 +635,32 @@ func (r *Repository[T]) Get(ctx context.Context, id string) (Loaded[T], error) {
 		return nil, err
 	}
 	defer r.st.leave()
-	return r.read(ctx, id, lockNone)
+	return r.read(ctx, id, lockNone, nil)
 }
 
 // GetForUpdate reads the row of id, decides the read on it, and only then locks it with FOR NO KEY UPDATE until the
 // transaction ends, so a concurrent insert of a child row does not wait (ST-SUP-RP10-LC23). A denied row is not
 // locked and is not found. When the row's authorization token changed between the read and the lock, it decides
 // again and releases the lock of a row that is now denied.
-func (r *Repository[T]) GetForUpdate(ctx context.Context, id string) (Loaded[T], error) {
+func (r *Repository[T]) GetForUpdate(ctx context.Context, id string, parent ...Ref) (Loaded[T], error) {
 	if err := r.st.enter(); err != nil {
 		return nil, err
 	}
 	defer r.st.leave()
-	return r.read(ctx, id, lockUpdate)
+	return r.read(ctx, id, lockUpdate, parent)
 }
 
 // GetForDelete is GetForUpdate with FOR UPDATE, for a fill that deletes the row or changes a column of one of its
 // keys (ST-SUP-RP10-LC23, ST-SUP-RP10-LC24).
-func (r *Repository[T]) GetForDelete(ctx context.Context, id string) (Loaded[T], error) {
+func (r *Repository[T]) GetForDelete(ctx context.Context, id string, parent ...Ref) (Loaded[T], error) {
 	if err := r.st.enter(); err != nil {
 		return nil, err
 	}
 	defer r.st.leave()
-	return r.read(ctx, id, lockDelete)
+	return r.read(ctx, id, lockDelete, parent)
 }
 
-func (r *Repository[T]) read(ctx context.Context, id string, lock lockMode) (Loaded[T], error) {
+func (r *Repository[T]) read(ctx context.Context, id string, lock lockMode, parents []Ref) (Loaded[T], error) {
 	s, e := r.st, r.entity
 	var value T
 	var meta Meta
@@ -622,6 +685,9 @@ func (r *Repository[T]) read(ctx context.Context, id string, lock lockMode) (Loa
 	}
 	if lock != lockNone {
 		if err := s.decideCommandOn(ctx, e.spec.ResourceType, e.spec.Name, meta.ID, meta.Token); err != nil {
+			return nil, err
+		}
+		if err := r.decideParents(ctx, "locked read", parents, value); err != nil {
 			return nil, err
 		}
 		statement := e.spec.SelectForUpdate
@@ -713,7 +779,7 @@ func (r *Repository[T]) List(ctx context.Context, l *List[T], limit int, args ..
 // and locks nothing when more rows than Lock at most match, keeps the rows that the decision port allows, and locks
 // only those with l's Lock statement, in primary key order. It decides again each locked row whose token moved and
 // leaves out, and unlocks, a row that is now denied (ST-SUP-RP10-LC27). The locks stay until the transaction ends.
-func (r *Repository[T]) ListForUpdate(ctx context.Context, l *List[T], args ...any) ([]Loaded[T], error) {
+func (r *Repository[T]) ListForUpdate(ctx context.Context, l *List[T], parent Ref, args ...any) ([]Loaded[T], error) {
 	if err := r.st.enter(); err != nil {
 		return nil, err
 	}
@@ -733,6 +799,20 @@ func (r *Repository[T]) ListForUpdate(ctx context.Context, l *List[T], args ...a
 	allowed, err := r.allowedRows(ctx, rows, true)
 	if err != nil {
 		return nil, err
+	}
+	// A child entity takes its authorization from its parent: every row of the list must name parent, and the
+	// call decides on parent once (ST-SUP-RP10-LC05).
+	var parents []Ref
+	if parent != nil {
+		parents = []Ref{parent}
+	}
+	for _, row := range allowed {
+		if err := r.decideParents(ctx, "locked list", parents, row.value); err != nil {
+			return nil, err
+		}
+	}
+	if len(allowed) == 0 && parent != nil && !r.isChild() {
+		return nil, s.breakWith(internalf("a locked list of %s takes no parent", e.spec.Name))
 	}
 	first := map[string]string{}
 	for _, row := range allowed {
@@ -923,7 +1003,7 @@ func (r *Repository[T]) Create(ctx context.Context, value T, parent Ref) (Loaded
 // version, and returns the row with its new version (ST-SUP-RP10-LC24). A moved version writes nothing, writes no
 // audit row and returns ErrConflict. A value of another transaction, a value of this transaction whose row a later
 // write changed, and a change of a key column from a value that GetForDelete did not lock are internal errors.
-func (r *Repository[T]) Update(ctx context.Context, from Loaded[T], value T) (Loaded[T], error) {
+func (r *Repository[T]) Update(ctx context.Context, from Loaded[T], value T, parents ...Ref) (Loaded[T], error) {
 	if err := r.st.enter(); err != nil {
 		return nil, err
 	}
@@ -937,6 +1017,10 @@ func (r *Repository[T]) Update(ctx context.Context, from Loaded[T], value T) (Lo
 		return nil, s.breakWith(internalf("an update of a key column of %s needs a value that GetForDelete locked", e.spec.Name))
 	}
 	if err := s.decideWrite(ctx, e.spec.ResourceType, e.spec.Name, from2.meta.ID, from2.meta.Token); err != nil {
+		return nil, err
+	}
+	// A child decides on its parent, and an update that moves it to another parent on the new parent too.
+	if err := r.decideParents(ctx, "update", parents, from2.value, value); err != nil {
 		return nil, err
 	}
 	step := "update " + e.spec.Name
@@ -962,7 +1046,7 @@ func (r *Repository[T]) Update(ctx context.Context, from Loaded[T], value T) (Lo
 
 // Delete removes the row of from, a loaded value of this handle, only while the row still has from's version, as
 // Update states (ST-SUP-RP10-LC24).
-func (r *Repository[T]) Delete(ctx context.Context, from Loaded[T]) error {
+func (r *Repository[T]) Delete(ctx context.Context, from Loaded[T], parent ...Ref) error {
 	if err := r.st.enter(); err != nil {
 		return err
 	}
@@ -978,6 +1062,9 @@ func (r *Repository[T]) Delete(ctx context.Context, from Loaded[T]) error {
 		return s.breakWith(internalf("a delete of %s needs a value that GetForDelete locked, not GetForUpdate", e.spec.Name))
 	}
 	if err := s.decideWrite(ctx, e.spec.ResourceType, e.spec.Name, from2.meta.ID, from2.meta.Token); err != nil {
+		return err
+	}
+	if err := r.decideParents(ctx, "delete", parent, from2.value); err != nil {
 		return err
 	}
 	step := "delete " + e.spec.Name

@@ -155,6 +155,17 @@ BEGIN
 	PERFORM pg_catalog.set_config('lock_timeout', '5s', true);
 	IF (SELECT pg_catalog.format_type(a.atttypid, a.atttypmod) FROM pg_catalog.pg_attribute AS a
 		WHERE a.attrelid = 'stego_outbox.messages'::regclass AND a.attname = 'payload') = 'jsonb' THEN
+		-- jsonb kept the values of a payload but not its bytes, so an audit-sink message stored before this change
+		-- is no longer the canonical form that the sink checks, and would park. The migration runs only when no
+		-- such message is open. The owner sees every row only while row-level security is not forced on it; the
+		-- change is undone with the transaction when the check fails.
+		ALTER TABLE stego_outbox.messages NO FORCE ROW LEVEL SECURITY;
+		IF EXISTS (SELECT 1 FROM stego_outbox.messages AS m WHERE m.destination = 'audit-sink'
+			AND m.state NOT IN ('done', 'discarded')) THEN
+			RAISE EXCEPTION 'outbox: open audit-sink messages are stored as jsonb; drain them first, then run this migration again'
+				USING HINT = 'run the outbox worker until no audit-sink message is pending, dispatching, outcome_unknown, reconciling or parked';
+		END IF;
+		ALTER TABLE stego_outbox.messages FORCE ROW LEVEL SECURITY;
 		ALTER TABLE stego_outbox.messages DROP CONSTRAINT IF EXISTS messages_payload_check;
 		ALTER TABLE stego_outbox.messages ALTER COLUMN payload TYPE bytea
 			USING pg_catalog.convert_to(payload::text, 'UTF8');

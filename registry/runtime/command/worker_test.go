@@ -164,7 +164,8 @@ func TestWorkers(t *testing.T) {
 	e := newEnv(t)
 	e.exec(`INSERT INTO orders (tenant_id, id, status) VALUES ('t1', 'o-1', 'new'), ('t1', 'o-2', 'new'), ('t2', 'o-1', 'new'),
  ('t2', 'o-2', 'new')`,
-		`INSERT INTO charges (tenant_id, id, amount, card_last4) VALUES ('t1', 'c1', 1, '0000')`)
+		`INSERT INTO charges (tenant_id, id, amount, card_last4) VALUES ('t1', 'c1', 1, '0000')`,
+		`INSERT INTO reservations (tenant_id, id, order_id, sku) VALUES ('t1', 'r-w2', 'o-2', 's')`)
 	allOrders, err := NewList(e.orders, ListSpec{Name: "all",
 		Read: `SELECT id, status, version, authz_token FROM orders WHERE tenant_id = $1 ORDER BY id LIMIT $2`})
 	if err != nil {
@@ -204,6 +205,20 @@ func TestWorkers(t *testing.T) {
 				t.Errorf("the create under o-2 gave %v, want the refused error", err)
 			}
 			writeCalls = e.decision.taken()
+			// A child row takes the worker's decision on its parent too (ST-SUP-RP10-LC05).
+			if _, err := repo(t, h, e.underOrder).GetForUpdate(ctx, "r-w2", o2); !errors.Is(err, ErrRefused) {
+				t.Errorf("the locked read of a child of o-2 gave %v, want the refused error", err)
+			}
+			child, err := repo(t, h, e.underOrder).Get(ctx, "r-w2")
+			if err != nil {
+				return err
+			}
+			if err := repo(t, h, e.underOrder).Delete(ctx, child, o2); !errors.Is(err, ErrRefused) {
+				t.Errorf("the delete of a child of o-2 gave %v, want the refused error", err)
+			}
+			if err := h.Effects().Stage(ctx, "billing", "noted", child, []byte(`{}`), o2); !errors.Is(err, ErrRefused) {
+				t.Errorf("an effect for a child of o-2 gave %v, want the refused error", err)
+			}
 			return nil
 		}))
 		e.decision.setAllow(nil)

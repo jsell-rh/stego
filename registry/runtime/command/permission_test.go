@@ -117,6 +117,14 @@ func TestCommandPermission(t *testing.T) {
 			"no tenant at all":  `SELECT authz_token FROM orders WHERE id = $2 FOR SHARE`,
 			"FOR KEY SHARE, which does not block the token update": `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = $2 FOR KEY SHARE`,
 			"a lock clause in a comment":                           `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = $2 -- FOR SHARE`,
+			"an OR that widens the read":                           `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = $2 OR true FOR SHARE`,
+			"a UNION":                                              `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = $2 UNION SELECT authz_token FROM orders WHERE tenant_id = $1 FOR SHARE`,
+			"a quoted literal":                                     `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = $2 AND status <> 'x' FOR SHARE`,
+			"a dollar quote":                                       `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = $2 AND status <> $$x$$ FOR SHARE`,
+			"a WITH":                                               `WITH o AS (SELECT * FROM orders) SELECT authz_token FROM o WHERE tenant_id = $1 AND id = $2 FOR SHARE`,
+			"a TABLE":                                              `TABLE orders`,
+			"a VALUES":                                             `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = $2 FOR SHARE; VALUES ($1, $2)`,
+			"a second statement":                                   `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = $2 FOR SHARE; SELECT 1`,
 			"a placeholder in a comment":                           `SELECT authz_token FROM orders WHERE tenant_id = $1 /* $2 */ AND id = 'o5' FOR SHARE`,
 			"a subselect":                                          `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = (SELECT $2::text) FOR SHARE`,
 		} {
@@ -126,6 +134,13 @@ func TestCommandPermission(t *testing.T) {
 			}
 		}
 
+		for _, token := range []string{`SELECT authz_token FROM app.orders WHERE tenant_id = $1 AND id = $2::uuid FOR SHARE`,
+			"select authz_token\n  from orders\n where tenant_id = $1 and id = $2 for share;"} {
+			if _, err := NewCommand(CommandSpec[testProbe]{Name: "good", Probe: newTestProbe, Permission: "reserve",
+				Resource: &Resource{Type: "order", Token: token, ValidID: func(string) bool { return true }}}); err != nil {
+				t.Errorf("the token statement %q was refused: %v", token, err)
+			}
+		}
 		if _, err := NewCommand(CommandSpec[testProbe]{Name: "half", Probe: newTestProbe, Permission: "reserve"}); err == nil {
 			t.Fatal("a command with a permission and no resource was accepted")
 		}
@@ -311,7 +326,7 @@ func TestCommandPermissionOnRows(t *testing.T) {
 		req.Resource = "o5"
 		var listed []string
 		if _, err := e.run(withUsers, req, func(ctx context.Context, h *Handle[testProbe]) (idempotency.Response, error) {
-			rows, err := repo(t, h, e.users).ListForUpdate(ctx, e.admins, "org1")
+			rows, err := repo(t, h, e.users).ListForUpdate(ctx, e.admins, nil, "org1")
 			for _, u := range rows {
 				listed = append(listed, u.Value().ID)
 			}
@@ -456,6 +471,182 @@ func TestCommandPermissionOnRows(t *testing.T) {
 			return h.Effects().Stage(ctx, "billing", "cancelled", get(ctx, h, "o5"), []byte(`{}`))
 		}); err != nil {
 			t.Fatalf("effects for a written reservation and the decided o5 gave %v", err)
+		}
+	})
+
+	// The child rows of the probes: r5 under o5, which the command may act on, and r6 under o6, which it may not.
+	children := func(t *testing.T) (*env, func(string, func(context.Context, *Handle[testProbe]) error) error,
+		func(context.Context, *Handle[testProbe], string) Loaded[order]) {
+		e, step, get := rowsEnv(t)
+		e.exec(`INSERT INTO reservations (tenant_id, id, order_id, sku) VALUES ('t1', 'r5', 'o5', 's'), ('t1', 'r6', 'o6', 's')`)
+		return e, step, get
+	}
+
+	t.Run("ST-SUP-RP10-LC05-T07 An update of a child row decides on its parent", func(t *testing.T) {
+		e, step, get := children(t)
+		for name, c := range map[string]struct {
+			fill func(ctx context.Context, h *Handle[testProbe]) error
+			want error
+		}{
+			"a locked read with no parent": {func(ctx context.Context, h *Handle[testProbe]) error {
+				_, err := repo(t, h, e.underOrder).GetForUpdate(ctx, "r6")
+				return err
+			}, ErrInternal},
+			"a locked read under o6": {func(ctx context.Context, h *Handle[testProbe]) error {
+				_, err := repo(t, h, e.underOrder).GetForUpdate(ctx, "r6", get(ctx, h, "o6"))
+				return err
+			}, ErrNotFound},
+			"a locked list under o6": {func(ctx context.Context, h *Handle[testProbe]) error {
+				_, err := repo(t, h, e.underOrder).ListForUpdate(ctx, e.ofOrder, get(ctx, h, "o6"), "o6")
+				return err
+			}, ErrNotFound},
+			"a locked list whose rows name another parent": {func(ctx context.Context, h *Handle[testProbe]) error {
+				_, err := repo(t, h, e.underOrder).ListForUpdate(ctx, e.ofOrder, get(ctx, h, "o5"), "o6")
+				return err
+			}, ErrInternal},
+			"an update under o6": {func(ctx context.Context, h *Handle[testProbe]) error {
+				r := repo(t, h, e.underOrder)
+				v, err := r.Get(ctx, "r6")
+				if err != nil {
+					return err
+				}
+				_, err = r.Update(ctx, v, reservation{ID: "r6", OrderID: "o6", SKU: "changed"}, get(ctx, h, "o6"))
+				return err
+			}, ErrNotFound},
+		} {
+			if err := step("update-"+strings.ReplaceAll(name, " ", "-"), c.fill); !errors.Is(err, c.want) {
+				t.Fatalf("%s gave %v, want %v", name, err, c.want)
+			}
+		}
+		if n := e.count(`SELECT count(*) FROM reservations WHERE id = 'r6' AND sku = 's'`); n != 1 {
+			t.Fatal("the fill changed r6")
+		}
+		if err := step("update-r5", func(ctx context.Context, h *Handle[testProbe]) error {
+			r := repo(t, h, e.underOrder)
+			o5 := get(ctx, h, "o5")
+			v, err := r.GetForUpdate(ctx, "r5", o5)
+			if err != nil {
+				return err
+			}
+			if _, err := r.ListForUpdate(ctx, e.ofOrder, o5, "o5"); err != nil {
+				return err
+			}
+			_, err = r.Update(ctx, v, reservation{ID: "r5", OrderID: "o5", SKU: "changed"}, o5)
+			return err
+		}); err != nil {
+			t.Fatalf("an update of r5 under the decided o5 gave %v", err)
+		}
+	})
+
+	t.Run("ST-SUP-RP10-LC05-T08 A child row moves only to a parent the command may act on", func(t *testing.T) {
+		e, step, get := children(t)
+		move := func(parents ...string) func(ctx context.Context, h *Handle[testProbe]) error {
+			return func(ctx context.Context, h *Handle[testProbe]) error {
+				r := repo(t, h, e.underOrder)
+				var refs []Ref
+				for _, p := range parents {
+					refs = append(refs, get(ctx, h, p))
+				}
+				v, err := r.GetForUpdate(ctx, "r5", refs[0])
+				if err != nil {
+					return err
+				}
+				_, err = r.Update(ctx, v, reservation{ID: "r5", OrderID: "o6", SKU: "s"}, refs...)
+				return err
+			}
+		}
+		if err := step("move-to-o6", move("o5", "o6")); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("moving r5 under o6 gave %v, want not found", err)
+		}
+		if err := step("move-without-new-parent", move("o5")); !errors.Is(err, ErrInternal) {
+			t.Fatalf("moving r5 with no value of the new parent gave %v, want an internal error", err)
+		}
+		if n := e.count(`SELECT count(*) FROM reservations WHERE id = 'r5' AND order_id = 'o5'`); n != 1 {
+			t.Fatal("r5 moved")
+		}
+		e.decision.setRelations(relation(t, "user:u-7", "cancel", "t1", "order", "o5"), relation(t, "user:u-7", "cancel", "t1", "order", "o6"),
+			relation(t, "user:u-7", "view", "t1", "order", "o5"), relation(t, "user:u-7", "view", "t1", "order", "o6"))
+		if err := step("move-allowed", move("o5", "o6")); err != nil {
+			t.Fatalf("moving r5 under o6 with cancel on both gave %v", err)
+		}
+	})
+
+	t.Run("ST-SUP-RP10-LC05-T09 A delete of a child row decides on its parent", func(t *testing.T) {
+		e, step, get := children(t)
+		for name, c := range map[string]struct {
+			fill func(ctx context.Context, h *Handle[testProbe]) error
+			want error
+		}{
+			"a locked read for delete under o6": {func(ctx context.Context, h *Handle[testProbe]) error {
+				_, err := repo(t, h, e.underOrder).GetForDelete(ctx, "r6", get(ctx, h, "o6"))
+				return err
+			}, ErrNotFound},
+			"a delete under o6": {func(ctx context.Context, h *Handle[testProbe]) error {
+				r := repo(t, h, e.underOrder)
+				v, err := r.Get(ctx, "r6")
+				if err != nil {
+					return err
+				}
+				return r.Delete(ctx, v, get(ctx, h, "o6"))
+			}, ErrNotFound},
+			"a delete with no parent": {func(ctx context.Context, h *Handle[testProbe]) error {
+				r := repo(t, h, e.underOrder)
+				v, err := r.Get(ctx, "r6")
+				if err != nil {
+					return err
+				}
+				return r.Delete(ctx, v)
+			}, ErrInternal},
+		} {
+			if err := step("delete-"+strings.ReplaceAll(name, " ", "-"), c.fill); !errors.Is(err, c.want) {
+				t.Fatalf("%s gave %v, want %v", name, err, c.want)
+			}
+		}
+		if n := e.count(`SELECT count(*) FROM reservations WHERE id = 'r6'`); n != 1 {
+			t.Fatal("the fill deleted r6")
+		}
+		if err := step("delete-r5", func(ctx context.Context, h *Handle[testProbe]) error {
+			r := repo(t, h, e.underOrder)
+			o5 := get(ctx, h, "o5")
+			v, err := r.GetForDelete(ctx, "r5", o5)
+			if err != nil {
+				return err
+			}
+			return r.Delete(ctx, v, o5)
+		}); err != nil {
+			t.Fatalf("a delete of r5 under the decided o5 gave %v", err)
+		}
+	})
+
+	t.Run("ST-SUP-RP10-LC05-T10 An effect for a child row decides on its parent", func(t *testing.T) {
+		e, step, get := children(t)
+		stage := func(id string, parents ...string) func(ctx context.Context, h *Handle[testProbe]) error {
+			return func(ctx context.Context, h *Handle[testProbe]) error {
+				v, err := repo(t, h, e.underOrder).Get(ctx, id)
+				if err != nil {
+					return err
+				}
+				var refs []Ref
+				for _, p := range parents {
+					refs = append(refs, get(ctx, h, p))
+				}
+				return h.Effects().Stage(ctx, "billing", "noted", v, []byte(`{}`), refs...)
+			}
+		}
+		if err := step("stage-r6", stage("r6", "o6")); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("an effect for r6 under o6 gave %v, want not found", err)
+		}
+		if err := step("stage-r6-none", stage("r6")); !errors.Is(err, ErrInternal) {
+			t.Fatalf("an effect for r6 with no parent gave %v, want an internal error", err)
+		}
+		if err := step("stage-r6-o5", stage("r6", "o5")); !errors.Is(err, ErrInternal) {
+			t.Fatalf("an effect for r6 with the parent o5 gave %v, want an internal error", err)
+		}
+		if n := e.count(`SELECT count(*) FROM stego_outbox.messages WHERE destination = 'billing'`); n != 0 {
+			t.Fatalf("%d refused effects were enqueued", n)
+		}
+		if err := step("stage-r5", stage("r5", "o5")); err != nil {
+			t.Fatalf("an effect for r5 under the decided o5 gave %v", err)
 		}
 	})
 }
