@@ -60,6 +60,9 @@ var tablesSQL string
 //go:embed schema.zed
 var schemaZed string
 
+// secretToken is the value of the secret field api_token of every Order.
+const secretToken = "tok-secret-1f0c"
+
 const (
 	issuer   = "https://issuer.shop.test"
 	audience = "shop"
@@ -312,7 +315,7 @@ func start(t *testing.T) *shop {
 		}
 	}
 	for _, row := range [][]any{{"t1", o1, "open", 10}, {"t1", o2, "open", 20}, {"t1", o3, "paid", 30}, {"t1", o4, "open", 40}, {"t2", o5, "open", 50}} {
-		if _, err := admin.ExecContext(ctx, "INSERT INTO public.orders (tenant_id, id, status, total) VALUES ($1, $2, $3, $4)", row...); err != nil {
+		if _, err := admin.ExecContext(ctx, "INSERT INTO public.orders (tenant_id, id, status, total, api_token) VALUES ($1, $2, $3, $4, $5)", append(row, secretToken)...); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -588,6 +591,47 @@ func TestService(t *testing.T) {
 		if !slices.ContainsFunc(statements, func(text string) bool { return strings.Contains(text, "t1") }) &&
 			!slices.ContainsFunc(statements, func(text string) bool { return setTenant.MatchString(text) }) {
 			t.Fatalf("no statement sets the tenant t1: %q", statements)
+		}
+	})
+
+	t.Run("ST-SUP-RC33-OC01-T02 A secret field reaches no loaded value and no response", func(t *testing.T) {
+		for _, path := range []string{"/orders/" + o1, "/orders", "/orders/" + o2 + "/total"} {
+			status, body := s.get(t, user, path)
+			if status != http.StatusOK {
+				t.Fatalf("%s: %d %s, want 200", path, status, body)
+			}
+			if bytes.Contains(body, []byte(secretToken)) || bytes.Contains(body, []byte("api_token")) {
+				t.Fatalf("%s answers %s, which holds the secret field api_token", path, body)
+			}
+		}
+		s.wire.take()
+		s.get(t, user, "/orders/"+o1)
+		for _, text := range s.wire.take() {
+			if strings.Contains(text, "api_token") {
+				t.Fatalf("the query read the secret column: %s", text)
+			}
+		}
+	})
+
+	t.Run("ST-SUP-RC33-OC05-T03 A get query decides its declared permission only, before the fill", func(t *testing.T) {
+		evals, _, _ := s.rec.count()
+		// u-7 may browse o2 and may not view it: get-order-total declares browse.
+		status, body := s.get(t, user, "/orders/"+o2+"/total")
+		if status != http.StatusOK || !bytes.Contains(body, []byte(`"total":20`)) {
+			t.Fatalf("get-order-total of o2: %d %s, want 200 with the total 20", status, body)
+		}
+		s.rec.mu.Lock()
+		first := s.rec.evals[evals]
+		var actions []string
+		for _, e := range s.rec.evals[evals:] {
+			actions = append(actions, e.Action.Name)
+		}
+		s.rec.mu.Unlock()
+		if first.Action.Name != "browse" || first.Resource.Type != "order" || slices.Contains(actions, "view") {
+			t.Fatalf("get-order-total decided %v, want the declared permission browse on order only", actions)
+		}
+		if status, body := s.get(t, user, "/orders/"+o4+"/total"); status != http.StatusNotFound {
+			t.Fatalf("get-order-total of o4, which u-7 may not browse: %d %s, want 404", status, body)
 		}
 	})
 

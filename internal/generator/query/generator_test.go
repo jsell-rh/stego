@@ -51,6 +51,7 @@ func shopContext(t *testing.T) gen.Context {
 		Tenancy:        &gen.Tenancy{Key: "tenant_id"},
 		PeerNamespaces: map[string]string{"query": "queries", probeComponent: "probes"},
 		FillSlots:      fills, QueryStreams: map[string]bool{"watch-orders": true}, RuntimeData: true,
+		Authorization: decl.Authorization,
 	}
 }
 
@@ -85,8 +86,8 @@ func TestGenerator(t *testing.T) {
 				aliases[rest] = spec.Name.Name
 			}
 		}
-		if len(aliases) != 4 {
-			t.Fatalf("serve.go imports the fills %v, want the four fills of the four queries", aliases)
+		if len(aliases) != 5 {
+			t.Fatalf("serve.go imports the fills %v, want the five fills of the five queries", aliases)
 		}
 		// Each fill alias is used in the function bodies by exactly the code of its own query.
 		uses := map[string]map[string]bool{}
@@ -113,24 +114,24 @@ func TestGenerator(t *testing.T) {
 			}
 			return true
 		})
-		want := map[string]string{"get-order": "decidedGetOrder", "list-orders": "New", "list-charges": "New",
-			"watch-orders": "StreamWatchOrders"}
+		want := map[string]string{"get-order": "decidedGetOrder", "get-order-total": "decidedGetOrderTotal", "list-orders": "New",
+			"list-charges": "New", "watch-orders": "StreamWatchOrders"}
 		for fill, function := range want {
 			used := uses[aliases[fill]]
 			if len(used) != 1 || !used[function] {
 				t.Errorf("the fill %s is called from %v, want from %s only", fill, used, function)
 			}
 		}
-		if strings.Count(string(source), "query.Serve(") != 3 {
-			t.Errorf("serve.go has %d query.Serve calls, want one for each of the three get and list queries", strings.Count(string(source), "query.Serve("))
+		if strings.Count(string(source), "query.Serve(") != 4 {
+			t.Errorf("serve.go has %d query.Serve calls, want one for each of the four get and list queries", strings.Count(string(source), "query.Serve("))
 		}
-		for _, route := range []string{"GET /api/shop/v1/orders/{orderId}", "GET /api/shop/v1/orders", "GET /api/shop/v1/charges"} {
+		for _, route := range []string{"GET /api/shop/v1/orders/{orderId}", "GET /api/shop/v1/orders/{orderId}/total", "GET /api/shop/v1/orders", "GET /api/shop/v1/charges"} {
 			if routes[route] != 1 {
 				t.Errorf("Routes mounts %s %d times, want once", route, routes[route])
 			}
 		}
-		if len(routes) != 3 {
-			t.Errorf("Routes mounts %v, want the three routes of the get and list queries", routes)
+		if len(routes) != 4 {
+			t.Errorf("Routes mounts %v, want the four routes of the get and list queries", routes)
 		}
 	})
 
@@ -151,6 +152,50 @@ func TestGenerator(t *testing.T) {
 		delete(ctx.FillSlots, "get-order")
 		if _, _, err := new(Generator).Generate(ctx); err == nil || !strings.Contains(err.Error(), "fills/get-order/fill.yaml") {
 			t.Fatalf("Generate with a fill the project does not hold: %v, want a fault that names its fill.yaml", err)
+		}
+	})
+
+	t.Run("ST-SUP-RC33-OC02-T03 A query that the query runtime cannot serve is refused at generation", func(t *testing.T) {
+		index := func(ctx gen.Context, name string) int {
+			for i, q := range ctx.Queries {
+				if q.Name == name {
+					return i
+				}
+			}
+			t.Fatalf("no query %s", name)
+			return -1
+		}
+		cases := map[string]struct {
+			change func(*gen.Context)
+			want   []string
+		}{
+			"a route that net/http refuses": {func(c *gen.Context) { c.Queries[index(*c, "get-order")].Route = "GET /orders/{" },
+				[]string{"get-order", "net/http"}},
+			"two routes that conflict": {func(c *gen.Context) {
+				c.Queries[index(*c, "get-order-total")].Route = "GET /orders/{id}"
+				c.Queries[index(*c, "get-order-total")].ResourceMember = "id"
+			}, []string{"get-order", "net/http"}},
+			"a gRPC method that the compiler does not classify": {func(c *gen.Context) { delete(c.QueryStreams, "watch-orders") },
+				[]string{"watch-orders", "shop.v1.Shop/WatchOrders", "ST-SUP-Q82"}},
+			"a stream that does not declare the read permission": {func(c *gen.Context) { c.Queries[index(*c, "watch-orders")].Permission = "browse" },
+				[]string{"watch-orders", "browse", "view"}},
+			"an entity with no resource type while authorization is bound": {func(c *gen.Context) {
+				c.Entities[1].ResourceType = ""
+			}, []string{"list-charges", "Charge", "ST-STD-TXN-R18"}},
+		}
+		for name, c := range cases {
+			ctx := shopContext(t)
+			c.change(&ctx)
+			files, wiring, err := new(Generator).Generate(ctx)
+			if err == nil || len(files) != 0 || wiring != nil {
+				t.Errorf("%s: Generate gave %d files and the error %v, want a refusal and no file", name, len(files), err)
+				continue
+			}
+			for _, want := range c.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("%s: the fault %q does not name %s", name, err, want)
+				}
+			}
 		}
 	})
 }

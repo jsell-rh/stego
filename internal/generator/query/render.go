@@ -132,6 +132,10 @@ func renderContract(m *model) []byte {
 // renderEntity writes the read-only value, the loaded type, the load function and the query.Entity of one entity.
 func renderEntity(w *writer, e *entity) {
 	v := e.value
+	if e.local {
+		renderSpec(w, e)
+		return
+	}
 	w.p("// %s is the read-only value of one stored %s.", v.GoType, v.Entity.Name)
 	w.p("type %s struct {", v.GoType)
 	for _, f := range v.Fields {
@@ -146,6 +150,13 @@ func renderEntity(w *writer, e *entity) {
 		w.p("if v.%s, err = %s; err != nil {\nreturn %s{}, err\n}", f.GoName, readExpr(f), v.GoType)
 	}
 	w.p("return v, nil\n}\n")
+	renderSpec(w, e)
+}
+
+// renderSpec writes the query.Entity of one entity: its table, its columns, its authorization and the sensitivity of
+// its fields.
+func renderSpec(w *writer, e *entity) {
+	v := e.value
 	columns := make([]string, 0, len(v.Fields))
 	var sensitive []string
 	for _, f := range v.Fields {
@@ -158,8 +169,12 @@ func renderEntity(w *writer, e *entity) {
 		}
 	}
 	sort.Strings(sensitive)
-	w.p("// %s is the declaration of %s for the query runtime: its table, its columns, its authorization and the", e.variable, v.Entity.Name)
-	w.p("// sensitivity of its fields.")
+	if e.local {
+		w.p("// %s is the declaration of %s for the get query that decides the permission %s on it.", e.variable, v.Entity.Name, e.readPermission)
+	} else {
+		w.p("// %s is the declaration of %s for the query runtime: its table, its columns, its authorization and the", e.variable, v.Entity.Name)
+		w.p("// sensitivity of its fields.")
+	}
 	w.p("var %s = must(query.NewEntity(query.Spec{Name: %q, Schema: \"public\", Table: %q, Key: \"id\",", e.variable, v.Entity.Name, v.Table)
 	w.p("Columns: []string{%s},", strings.Join(columns, ", "))
 	if e.resourceType != "" {
@@ -564,18 +579,11 @@ func renderGet(w *writer, m *model, q *queryModel) {
 	w.p("func decode%s(r *http.Request, _ query.Cursor) (%s.%s, error) {", q.goName, m.pkg, q.requestType())
 	w.p("id := %s\nif id == \"\" {\nreturn %s.%s{}, query.ErrBadRequest\n}", q.memberRead(), m.pkg, q.requestType())
 	w.p("return %s.%s{%s: id}, nil\n}\n", m.pkg, q.requestType(), q.memberGo)
-	w.p("// decided%s decides the permission %s on the %s of the request before it calls the fill %s, once. The read", q.goName, q.decl.Permission, e.value.Entity.Name, q.decl.Fill[0])
-	w.p("// decides the read permission of %s at the floor; a row that is not there and a deny are both not found, and", e.value.Entity.Name)
-	w.p("// neither reaches the fill.")
+	w.p("// decided%s decides the permission %s on the %s of the request at the floor before it calls the fill %s,", q.goName, q.decl.Permission, e.value.Entity.Name, q.decl.Fill[0])
+	w.p("// once. A row that is not there and a deny are both not found, and neither reaches the fill.")
 	w.p("func decided%s(ctx context.Context, req %s.%s, h *%s.%sHandle) (%s.%s, error) {", q.goName, m.pkg, q.requestType(), m.pkg, q.goName, m.pkg, q.responseType())
 	w.p("repo, err := %s.%s%ss(h)\nif err != nil {\nreturn nil, err\n}", m.pkg, q.goName, e.value.GoType)
-	if q.decl.Permission == e.readPermission {
-		w.p("if _, err := repo.Get(ctx, req.%s); err != nil {\nreturn nil, err\n}", q.memberGo)
-	} else {
-		w.p("loaded, err := repo.Get(ctx, req.%s)\nif err != nil {\nreturn nil, err\n}", q.memberGo)
-		w.p("allowed, err := h.Authz().Evaluate(ctx, %q, loaded)\nif err != nil {\nreturn nil, query.ErrUndecided\n}", q.decl.Permission)
-		w.p("if !allowed {\nreturn nil, query.ErrNotFound\n}")
-	}
+	w.p("if _, err := repo.Get(ctx, req.%s); err != nil {\nreturn nil, err\n}", q.memberGo)
 	w.p("return %s.Fill(ctx, req, h)\n}\n", q.fillAlias)
 }
 

@@ -215,7 +215,7 @@ func TestService(t *testing.T) {
 		}
 	}
 	for _, id := range []string{
-		"ST-SUP-RC33-OC04-T01", "ST-SUP-RC33-OC04-T02", "ST-SUP-RP11-LC17-T01", "ST-SUP-RC33-OC05-T02",
+		"ST-SUP-RC33-OC01-T02", "ST-SUP-RC33-OC05-T03", "ST-SUP-RC33-OC04-T01", "ST-SUP-RC33-OC04-T02", "ST-SUP-RP11-LC17-T01", "ST-SUP-RC33-OC05-T02",
 		"ST-SUP-RP11-LC15-T01", "ST-SUP-RC33-OC06-T01", "ST-SUP-RC33-OC06-T02", "ST-SUP-RP11-LC13-T01",
 	} {
 		t.Run(id+" passes in the generated service", func(t *testing.T) {
@@ -265,7 +265,17 @@ func checkSlotTypes(t *testing.T, project string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"GetOrderFill", "ListOrdersFill", "ListChargesFill"} {
+	if order := pkg.Scope().Lookup("Order"); order == nil {
+		t.Fatal("the contract declares no Order")
+	} else {
+		fields := order.Type().Underlying().(*types.Struct)
+		for i := 0; i < fields.NumFields(); i++ {
+			if fields.Field(i).Name() == "ApiToken" {
+				t.Fatal("the read-only value Order holds the secret field api_token")
+			}
+		}
+	}
+	for _, name := range []string{"GetOrderFill", "GetOrderTotalFill", "ListOrdersFill", "ListChargesFill"} {
 		object := pkg.Scope().Lookup(name)
 		if object == nil {
 			t.Fatalf("the contract declares no %s", name)

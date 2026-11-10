@@ -18,6 +18,7 @@ entities:
     fields:
       - { name: status, type: string }
       - { name: total, type: int64 }
+      - { name: api_token, type: string, sensitivity: secret }
   - name: Charge
     resource_type: charge
     permissions: { read: view, list: view }
@@ -35,6 +36,13 @@ queries:
     fill: get-order
     refusals:
       - { name: order_unknown, status: 404, code: order.unknown }
+  - name: get-order-total
+    reads: [Order]
+    resource_type: order
+    permission: browse
+    resource_member: orderId
+    route: GET /orders/{orderId}/total
+    fill: get-order-total
   - name: list-orders
     reads: [Order]
     resource_type: order
@@ -53,3 +61,4 @@ queries:
     permission: view
     route: GET /orders/watch
     fill: watch-orders
+    method: shop.v1.Shop/WatchOrders

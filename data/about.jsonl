@@ -17,3 +17,6 @@
 {"source_id":"ST-SUP-Q83","target_id":"ST-EXT-INV05"}
 {"source_id":"ST-SUP-Q83","target_id":"ST-EXT-UC01-R03"}
 {"source_id":"ST-SUP-Q83","target_id":"ST-SUP-RC33-OC01"}
+{"source_id":"ST-SUP-Q84","target_id":"ST-STD-RUNTIME-R05"}
+{"source_id":"ST-SUP-Q84","target_id":"ST-SUP-RC33"}
+{"source_id":"ST-SUP-Q84","target_id":"ST-SUP-RP11-LC17"}

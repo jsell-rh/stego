@@ -46,6 +46,11 @@ queries:
 // queryProject is a project with queryDeclaration and its fills, and a copy of the registry whose rest-crud
 // archetype holds the tenancy, domain-probe and query components. The fill of get-note implements the slot slot.
 func queryProject(t *testing.T, slot string) compiler.ReconcilerInput {
+	return queryProjectOf(t, queryDeclaration, slot)
+}
+
+// queryProjectOf is queryProject with the declaration service.
+func queryProjectOf(t *testing.T, service, slot string) compiler.ReconcilerInput {
 	t.Helper()
 	project := t.TempDir()
 	registry := filepath.Join(project, "registry")
@@ -73,7 +78,7 @@ func queryProject(t *testing.T, slot string) compiler.ReconcilerInput {
 			t.Fatal(err)
 		}
 	}
-	putFile(t, project, "service.yaml", queryDeclaration)
+	putFile(t, project, "service.yaml", service)
 	putFile(t, project, "fills/get-note/fill.yaml", "kind: fill\nname: get-note\nimplements: "+slot+"\n")
 	putFile(t, project, "fills/list-notes/fill.yaml", "kind: fill\nname: list-notes\nimplements: "+declaration.QuerySlot+"\n")
 	return compiler.ReconcilerInput{ProjectDir: project, RegistryDir: registry, GoVersion: "1.26.10", ModuleName: "example.com/notes",
@@ -117,6 +122,18 @@ func TestQueriesFromDeclaration(t *testing.T) {
 		_, err := compiler.Reconcile(input)
 		if err == nil || !strings.Contains(err.Error(), "get-note") {
 			t.Fatalf("Reconcile with a query fill of the command slot: %v, want a fault that names the query and the fill", err)
+		}
+		if _, statErr := os.Stat(filepath.Join(input.ProjectDir, "out")); !os.IsNotExist(statErr) {
+			t.Fatalf("the refused generation wrote out: %v", statErr)
+		}
+	})
+
+	t.Run("ST-SUP-RC33-OC02-T03 A stream query is refused until the compiler can tell it is one, generated from service.yaml", func(t *testing.T) {
+		stream := strings.Replace(queryDeclaration, "    fill: list-notes\n", "    fill: list-notes\n    method: notes.v1.Notes/WatchNotes\n", 1)
+		input := queryProjectOf(t, stream, declaration.QuerySlot)
+		_, err := compiler.Reconcile(input)
+		if err == nil || !strings.Contains(err.Error(), "list-notes") || !strings.Contains(err.Error(), "ST-SUP-Q82") {
+			t.Fatalf("Reconcile of a query served by a gRPC method: %v, want a fault that names list-notes and ST-SUP-Q82", err)
 		}
 		if _, statErr := os.Stat(filepath.Join(input.ProjectDir, "out")); !os.IsNotExist(statErr) {
 			t.Fatalf("the refused generation wrote out: %v", statErr)

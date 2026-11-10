@@ -9,12 +9,18 @@ contract, not a protobuf message. The fill of a query is the function Fill of
 its package under fills. It gets the decoded request and one read-only query
 handle.
 
-Each get and list query is served through query.Serve of the runtime library
-(stego.dev/runtime/query). The handler verifies the caller, opens one READ
-ONLY transaction of the caller's tenant and calls the fill once. A get query
-decides its permission on its resource before the fill: a deny is not found,
-as a missing row is. A list query pages with the sealed cursor of the runtime.
-A stream query gets a run function on query.RunStream for its transport.
+Each get and list query gets one handler on query.Serve of the runtime library
+(stego.dev/runtime/query), which serve.Handlers.Routes mounts. The compiler
+does not mount the routes in main.go yet: no component wires the query
+runtime, the verifier and the probes there yet. The handler verifies the
+caller, opens one READ ONLY transaction of the caller's tenant and calls the
+fill once. A get query decides its declared permission on its resource before
+the fill: a deny is not found, as a missing row is. A list query pages with
+the sealed cursor of the runtime. A stream query gets a run function on
+query.RunStream for its transport; a query with a gRPC method is refused until
+the compiler tells a server stream from a unary method.
+
+A secret field is never read: the read-only value and the reads leave it out.
 
 The component needs pooled tenancy with the key tenant_id and the
 domain-probe component. The stage is alpha.

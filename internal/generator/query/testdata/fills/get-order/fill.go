@@ -22,9 +22,11 @@ func Fill(ctx context.Context, req queries.GetOrderRequest, h *queries.GetOrderH
 	if err != nil {
 		return nil, err
 	}
+	// A row that went away after the decision before the fill is not found, which the handler answers 404. The
+	// refusal order_unknown would be answered 500 until query.Serve answers a declared refusal (ST-SUP-Q81).
 	order, err := repo.Get(ctx, req.OrderID)
 	if errors.Is(err, queries.ErrNotFound) {
-		return nil, queries.GetOrderOrderUnknown()
+		return nil, err
 	}
 	if err != nil {
 		return nil, err

@@ -8,6 +8,7 @@ package query
 
 import (
 	"fmt"
+	"net/http"
 	"path"
 	"regexp"
 	"slices"
@@ -53,7 +54,9 @@ func (*Generator) GoModels(ctx gen.Context) ([]gen.GoModel, error) {
 	}
 	models := make([]gen.GoModel, 0, len(m.entities))
 	for _, e := range m.entities {
-		models = append(models, e.value.GoModel())
+		if !e.local {
+			models = append(models, e.value.GoModel())
+		}
 	}
 	return models, gen.ValidateGoModels(models)
 }
@@ -93,6 +96,9 @@ type entity struct {
 	resourceType   string
 	readPermission string
 	listPermission string
+	// local is true for the declaration of a get query's resource that decides the query's permission in place of
+	// the entity's read permission (ST-SUP-RC33-OC05); it shares the value type of the entity it copies.
+	local bool
 }
 
 // refusal is one declared refusal of a query.
@@ -186,7 +192,30 @@ func plan(ctx gen.Context) (*model, error) {
 		routes[route] = decl.Name
 		m.queries = append(m.queries, q)
 	}
+	if err := checkRoutes(m.queries); err != nil {
+		return nil, err
+	}
 	return m, nil
+}
+
+// checkRoutes mounts the pattern of each get and list query on a net/http ServeMux, as the handlers do, so a pattern
+// that the mux refuses or two that conflict are refused at generation, naming the query, and never panic at start.
+func checkRoutes(queries []*queryModel) (err error) {
+	mux := http.NewServeMux()
+	var current *queryModel
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("query: the query %s has the route %q, which net/http refuses: %v", current.decl.Name, current.decl.Route, r)
+		}
+	}()
+	for _, q := range queries {
+		if q.kind == streamKind {
+			continue
+		}
+		current = q
+		mux.Handle(q.method+" "+q.path, http.NotFoundHandler())
+	}
+	return nil
 }
 
 // generatedImport is the import path of a generated package in the namespace ns.
@@ -226,6 +255,13 @@ func checkQuery(ctx gen.Context, decl types.Query, declared map[string]types.Ent
 		}
 		q.reads = append(q.reads, e)
 	}
+	if ctx.Authorization != nil {
+		for _, e := range q.reads {
+			if e.resourceType == "" {
+				return nil, refuse("reads %s, which declares no resource type while the declaration binds authorization (ST-STD-TXN-R18)", e.value.Entity.Name)
+			}
+		}
+	}
 	protected := slices.ContainsFunc(q.reads, func(e *entity) bool { return e.resourceType != "" })
 	if protected || decl.ResourceType != "" || decl.Permission != "" {
 		if decl.ResourceType == "" || !permissionRe.MatchString(decl.Permission) {
@@ -247,6 +283,13 @@ func checkQuery(ctx gen.Context, decl types.Query, declared map[string]types.Ent
 		if q.resource == nil && len(q.reads) != 1 {
 			return nil, refuse("is a stream of more than one entity; give it the resource type of the entity it sends")
 		}
+		if e := q.sent(); decl.Permission != e.readPermission {
+			return nil, refuse("is a stream with the permission %s, and Send decides the read permission %s of %s; a stream query declares the read permission of the entity it sends", decl.Permission, e.readPermission, e.value.Entity.Name)
+		}
+	case decl.Method != "":
+		// The compiler does not tell a server stream from a unary method yet (ST-DECL-INV73), so the generator cannot
+		// classify the query (ST-SUP-Q82).
+		return nil, refuse("is served by the gRPC method %s, which the query generator does not serve until the compiler tells a server stream from a unary method (ST-DECL-INV73, ST-SUP-Q82)", decl.Method)
 	case decl.ResourceMember != "":
 		q.kind = getKind
 	default:
@@ -283,6 +326,20 @@ func checkQuery(ctx gen.Context, decl types.Query, declared map[string]types.Ent
 		}
 		names[r.Name] = true
 		q.refusals = append(q.refusals, refusal{name: r.Name, goName: q.goName + capability.MixedCase(r.Name), code: r.Code, status: r.Status})
+	}
+	if q.kind == getKind && q.resource.resourceType != "" && decl.Permission != q.resource.readPermission {
+		// The get decides the query's permission on its resource, not the entity's read permission (ST-SUP-RC33-OC05):
+		// its reads of that entity go through a declaration of its own whose read permission is the query's.
+		local := *q.resource
+		local.variable = capability.LowerFirst(q.goName) + local.value.GoType + "Entity"
+		local.readPermission, local.local = decl.Permission, true
+		for i, e := range q.reads {
+			if e == q.resource {
+				q.reads[i] = &local
+			}
+		}
+		q.resource = &local
+		m.entities = append(m.entities, &local)
 	}
 	if err := bindFill(ctx, q); err != nil {
 		return nil, err
