@@ -453,8 +453,10 @@ func Recover(projectDir string) error {
 }
 
 // ModuleResolver runs Building's module tools in the project folder against the staged module file at
-// modPath, and changes only the staged go.mod and go.sum.
-type ModuleResolver func(ctx context.Context, projectDir, modPath string) error
+// modPath, and changes only the staged go.mod and go.sum. runtimeProxy is a module proxy folder that serves the
+// archetype's runtime pin from the common registry's runtime folder, to put before the other proxies, or "" when
+// the service imports no runtime library or the folder does not hold the pinned version.
+type ModuleResolver func(ctx context.Context, projectDir, modPath, runtimeProxy string) error
 
 // CommitResolvedModules is Generating's one operation for Building's module resolution (ST-BLD-CMD01). It
 // refuses a project whose generated code is not current, holds the project lock, stages go.mod and go.sum,
@@ -539,7 +541,11 @@ func commitResolvedModules(ctx context.Context, input ReconcilerInput, resolve M
 		}
 	}
 	modPath := filepath.Join(stage, "go.mod")
-	if err := resolve(ctx, plan.projectDir, modPath); err != nil {
+	runtimeProxy, err := stageRuntimeProxy(plan, stageRoot, stage)
+	if err != nil {
+		return err
+	}
+	if err := resolve(ctx, plan.projectDir, modPath, runtimeProxy); err != nil {
 		return err
 	}
 	resolved := make(map[string][]byte)

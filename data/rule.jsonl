@@ -102,6 +102,7 @@
 {"id":"ST-GEN-INV07-RL","title":"compiler.validateGeneratorNamespace","invariant_id":"ST-GEN-INV07","file":"internal/compiler/reconciler.go"}
 {"id":"ST-GEN-INV08-RL","title":"compiler.validateTransactionPath","invariant_id":"ST-GEN-INV08","file":"internal/compiler/transaction.go"}
 {"id":"ST-GEN-INV09-RL","title":"compiler.Reconcile","invariant_id":"ST-GEN-INV09","file":"internal/compiler/reconciler.go"}
+{"id":"ST-GEN-INV13-RL","title":"compiler.runtimeRequirement","invariant_id":"ST-GEN-INV13","file":"internal/compiler/runtime_pin.go"}
 {"id":"ST-GEN-INV16-RL","title":"compiler.serviceFailureSource","invariant_id":"ST-GEN-INV16","file":"internal/compiler/service_failure.go"}
 {"id":"ST-GEN-INV17-RL","title":"compiler.taskLifecycleSource","invariant_id":"ST-GEN-INV17","file":"internal/compiler/task_lifecycle.go"}
 {"id":"ST-GEN-INV18-RL","title":"compiler.taskLifecycleSource","invariant_id":"ST-GEN-INV18","file":"internal/compiler/task_lifecycle.go"}
@@ -119,3 +120,4 @@
 {"id":"ST-GEN-INV32-RL","title":"compiler.validateComponentConfig","invariant_id":"ST-GEN-INV32","file":"internal/compiler/config.go"}
 {"id":"ST-SUP-INV01-RL","title":"registry.LoadSources","invariant_id":"ST-SUP-INV01","file":"internal/registry/registry.go"}
 {"id":"ST-SUP-INV03-RL","title":"registry.checkExperimentPorts","invariant_id":"ST-SUP-INV03","file":"internal/registry/stage.go"}
+{"id":"ST-SUP-INV10-RL","title":"registry.checkRuntimePin","invariant_id":"ST-SUP-INV10","file":"internal/registry/runtime.go"}

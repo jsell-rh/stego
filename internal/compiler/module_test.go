@@ -19,7 +19,7 @@ func TestModuleRequirementsUseHighestVersion(t *testing.T) {
 				GoModRequires: map[string]string{"example.com/dependency": version},
 			}})
 		}
-		result, err := moduleRequirements(wirings)
+		result, err := moduleRequirements(wirings, nil)
 		if err != nil || result["example.com/dependency"] != "v1.12.0" {
 			t.Fatalf("requirements = %v, error = %v", result, err)
 		}
@@ -178,13 +178,13 @@ func TestRuntimeDependenciesRequirePatchedUnicodeNormalization(t *testing.T) {
 				requirements["golang.org/x/text"] = "v0.41.0"
 				want = "v0.41.0"
 			}
-			result, err := moduleRequirements([]ComponentWiring{{Name: "runtime", Wiring: &gen.Wiring{GoModRequires: requirements}}})
+			result, err := moduleRequirements([]ComponentWiring{{Name: "runtime", Wiring: &gen.Wiring{GoModRequires: requirements}}}, nil)
 			if err != nil || result["golang.org/x/text"] != want {
 				t.Fatalf("runtime minimum for %s: %v %v", dependency.path, result, err)
 			}
 		}
 	}
-	result, err := moduleRequirements([]ComponentWiring{{Name: "independent", Wiring: &gen.Wiring{GoModRequires: map[string]string{"example.com/module": "v1.0.0"}}}})
+	result, err := moduleRequirements([]ComponentWiring{{Name: "independent", Wiring: &gen.Wiring{GoModRequires: map[string]string{"example.com/module": "v1.0.0"}}}}, nil)
 	if err != nil || result["golang.org/x/text"] != "" {
 		t.Fatal("unrelated service acquired a runtime dependency", result, err)
 	}
@@ -202,7 +202,7 @@ func TestRuntimeTransitiveSecurityMinimums(t *testing.T) {
 			if selected == "v1.99.0" {
 				want = selected
 			}
-			result, err := moduleRequirements([]ComponentWiring{{Name: "runtime", Wiring: &gen.Wiring{GoModRequires: map[string]string{tc.parent: tc.parentVersion, tc.path: selected}}}})
+			result, err := moduleRequirements([]ComponentWiring{{Name: "runtime", Wiring: &gen.Wiring{GoModRequires: map[string]string{tc.parent: tc.parentVersion, tc.path: selected}}}}, nil)
 			if err != nil || result[tc.path] != want {
 				t.Fatalf("minimum %s: %v %v", tc.path, result, err)
 			}
