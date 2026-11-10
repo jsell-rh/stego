@@ -120,6 +120,10 @@ type Context struct {
 	// use "about:blank" per RFC 9457.
 	ErrorTypeBase string
 
+	// Idempotency is the declaration's idempotency setting (ST-DECL-EN13), or
+	// nil when the declaration has none. Generators must not change it.
+	Idempotency *types.Idempotency
+
 	// StorageContract is the full import path of the compiler-owned storage
 	// contract. A generator that uses it must request StorageV1 in its wiring.
 	// Empty selects standalone definitions without shared contract assembly.

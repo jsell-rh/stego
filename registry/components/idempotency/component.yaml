@@ -1,0 +1,15 @@
+kind: component
+name: idempotency
+version: 0.1.0
+stage: alpha
+sunset: 2027-04-30
+output_namespace: internal/idempotency
+
+config: {}
+
+requires: []
+
+provides:
+  - idempotency-keys
+
+slots: []
