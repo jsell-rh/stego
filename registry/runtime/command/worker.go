@@ -11,14 +11,14 @@ import (
 
 	"github.com/google/uuid"
 
-	"stego.dev/runtime/authz"
-	"stego.dev/runtime/idempotency"
-	"stego.dev/runtime/internal/staging"
-	"stego.dev/runtime/lease"
-	"stego.dev/runtime/otel"
-	"stego.dev/runtime/outbox"
-	"stego.dev/runtime/probe"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/idempotency"
+	"github.com/jsell-rh/stego/registry/runtime/internal/staging"
+	"github.com/jsell-rh/stego/registry/runtime/lease"
+	"github.com/jsell-rh/stego/registry/runtime/otel"
+	"github.com/jsell-rh/stego/registry/runtime/outbox"
+	"github.com/jsell-rh/stego/registry/runtime/probe"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // ErrDeadline matches the error of a worker run that reached its deadline under a lease and rolled back before the

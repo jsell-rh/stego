@@ -19,8 +19,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"stego.dev/runtime/outbox"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/outbox"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // enqueue writes the outbox message of one tuple write for the relay in a transaction of tenant id, through the

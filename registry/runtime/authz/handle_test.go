@@ -20,10 +20,10 @@ import (
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
-	"stego.dev/runtime/internal/pgtest"
-	"stego.dev/runtime/internal/seal"
-	"stego.dev/runtime/outbox"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/internal/pgtest"
+	"github.com/jsell-rh/stego/registry/runtime/internal/seal"
+	"github.com/jsell-rh/stego/registry/runtime/outbox"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // The unit tests bind a handle to a real *sql.Tx of a database/sql driver of the test. The driver answers only the

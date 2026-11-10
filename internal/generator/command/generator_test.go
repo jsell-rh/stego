@@ -236,11 +236,11 @@ func TestContract(t *testing.T) {
 		}
 		handle, ok := params.At(2).Type().(*gotypes.Pointer)
 		named, _ := gotypes.Unalias(handle.Elem()).(*gotypes.Named)
-		if !ok || named == nil || named.Obj().Pkg().Path() != "stego.dev/runtime/command" || named.Obj().Name() != "Handle" {
+		if !ok || named == nil || named.Obj().Pkg().Path() != "github.com/jsell-rh/stego/registry/runtime/command" || named.Obj().Name() != "Handle" {
 			t.Errorf("the third parameter is %s, want *command.Handle", params.At(2).Type())
 		}
 		for i := 0; i < params.Len(); i++ {
-			for _, refused := range []string{"database/sql", "net", "net/http", "stego.dev/runtime/authz.Runtime", "github.com/authzed", "github.com/jackc"} {
+			for _, refused := range []string{"database/sql", "net", "net/http", "github.com/jsell-rh/stego/registry/runtime/authz.Runtime", "github.com/authzed", "github.com/jackc"} {
 				if strings.Contains(params.At(i).Type().String(), refused) {
 					t.Errorf("the parameter %s has a type of %s", params.At(i).Type(), refused)
 				}
@@ -415,7 +415,7 @@ func newProject(t *testing.T, ctx gen.Context, extra map[string][]byte) *project
 	}
 	p.write("go.sum", sums)
 	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo "+new(Generator).MinimumGoVersion()+
-		"\n\nrequire stego.dev/runtime v0.2.0\n\nreplace stego.dev/runtime => "+runtimeDir+"\n"))
+		"\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.2.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
 	p.mustGo("mod", "tidy")
 	return p
 }

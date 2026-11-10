@@ -9,10 +9,10 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"stego.dev/runtime/audit"
-	"stego.dev/runtime/authz"
-	"stego.dev/runtime/probe"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/audit"
+	"github.com/jsell-rh/stego/registry/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/probe"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // Config is what the query runtime of a service needs.

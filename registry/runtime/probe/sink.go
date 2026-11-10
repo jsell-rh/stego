@@ -11,7 +11,7 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
-	"stego.dev/runtime/otel"
+	"github.com/jsell-rh/stego/registry/runtime/otel"
 )
 
 // QueueLimit is the most records that the queue of one sink holds before it drops (ST-SUP-RP12-LC08).

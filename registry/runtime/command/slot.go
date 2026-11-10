@@ -3,7 +3,7 @@ package command
 import (
 	"errors"
 
-	"stego.dev/runtime/internal/loaded"
+	"github.com/jsell-rh/stego/registry/runtime/internal/loaded"
 )
 
 // slotKey is the key of the generated slot code of one service (ST-SUP-RP10-LC32). Its type is not exported, so no

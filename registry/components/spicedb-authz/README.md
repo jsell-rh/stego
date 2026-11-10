@@ -1,6 +1,6 @@
 This component generates the per-service authorization wiring of a service
 that binds authorization to SpiceDB, on top of the runtime library
-stego.dev/runtime/authz. The ports, the SpiceDB provider, the consistency
+github.com/jsell-rh/stego/registry/runtime/authz. The ports, the SpiceDB provider, the consistency
 floor, the relay, the revocation records and the handle are in the runtime
 library.
 

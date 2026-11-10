@@ -18,7 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"stego.dev/runtime/modes"
+	"github.com/jsell-rh/stego/registry/runtime/modes"
 )
 
 const backfillChange = "ST-CHG-01"

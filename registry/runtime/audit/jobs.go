@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"stego.dev/runtime/lease"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/lease"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // The tables and functions of the audit record. Each table is tenant-owned (ST-STD-TXN-R01).

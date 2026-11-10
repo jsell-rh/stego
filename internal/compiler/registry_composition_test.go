@@ -47,7 +47,7 @@ func TestComposedRegistryRejectsLocalChangeBeforeApply(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("kind: archetype\nruntime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}\nname: extension\nlanguage: go\nversion: 1.0.0\ncomponents: [stub-api]\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("kind: archetype\nruntime: {module: github.com/jsell-rh/stego/registry/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}\nname: extension\nlanguage: go\nversion: 1.0.0\ncomponents: [stub-api]\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	input.RegistryDirs = []string{input.RegistryDir, local}

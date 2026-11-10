@@ -39,9 +39,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	"stego.dev/runtime/modes"
-	"stego.dev/runtime/otel"
-	"stego.dev/runtime/probe"
+	"github.com/jsell-rh/stego/registry/runtime/modes"
+	"github.com/jsell-rh/stego/registry/runtime/otel"
+	"github.com/jsell-rh/stego/registry/runtime/probe"
 )
 
 // The telemetry runtime of the runtime library is a provider set of this package.

@@ -70,9 +70,9 @@ func renderContract(m *model) []byte {
 	}
 	w.f("\n")
 	if m.usesAudit() {
-		w.f("\t\"stego.dev/runtime/audit\"\n")
+		w.f("\t\"github.com/jsell-rh/stego/registry/runtime/audit\"\n")
 	}
-	w.f("\t\"stego.dev/runtime/command\"\n")
+	w.f("\t\"github.com/jsell-rh/stego/registry/runtime/command\"\n")
 	if m.probeImport != "" {
 		w.f("\n\tprobes %q\n", m.probeImport)
 	}
@@ -129,9 +129,9 @@ func EntityFile(pkg string, names []string, entities []types.Entity, tenantKey s
 	}
 	w.f("\n")
 	if m.usesAudit() {
-		w.f("\t\"stego.dev/runtime/audit\"\n")
+		w.f("\t\"github.com/jsell-rh/stego/registry/runtime/audit\"\n")
 	}
-	w.f("\t\"stego.dev/runtime/command\"\n)\n\n")
+	w.f("\t\"github.com/jsell-rh/stego/registry/runtime/command\"\n)\n\n")
 	for _, e := range m.entities {
 		renderEntity(w, e, tenantKey)
 	}
@@ -249,9 +249,9 @@ func renderHandlers(m *model) []byte {
 	}
 	w.f("\n")
 	if m.hasRelations() {
-		w.f("\t\"stego.dev/runtime/authz\"\n")
+		w.f("\t\"github.com/jsell-rh/stego/registry/runtime/authz\"\n")
 	}
-	w.f("\t\"stego.dev/runtime/command\"\n\n\tcommands %q\n", m.contractImport)
+	w.f("\t\"github.com/jsell-rh/stego/registry/runtime/command\"\n\n\tcommands %q\n", m.contractImport)
 	if m.probeImport != "" {
 		w.f("\tprobes %q\n", m.probeImport)
 	}

@@ -18,7 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // The limits of the queue (ST-SUP-RC18-OC02).

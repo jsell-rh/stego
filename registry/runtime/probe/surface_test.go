@@ -22,7 +22,7 @@ type exportImporter struct {
 }
 
 func (i *exportImporter) Import(path string) (*types.Package, error) {
-	if path == "stego.dev/runtime/probe" && i.probe != nil {
+	if path == "github.com/jsell-rh/stego/registry/runtime/probe" && i.probe != nil {
 		return i.probe, nil
 	}
 	return i.gc.Import(path)
@@ -65,7 +65,7 @@ func checkPackage(t *testing.T) (*types.Package, *exportImporter, *token.FileSet
 		files = append(files, file)
 	}
 	config := types.Config{Importer: imp}
-	pkg, err := config.Check("stego.dev/runtime/probe", fset, files, nil)
+	pkg, err := config.Check("github.com/jsell-rh/stego/registry/runtime/probe", fset, files, nil)
 	if err != nil {
 		t.Fatalf("type-check the package: %v", err)
 	}
@@ -142,7 +142,7 @@ const generatedProbe = `package probes
 import (
 	"context"
 
-	"stego.dev/runtime/probe"
+	"github.com/jsell-rh/stego/registry/runtime/probe"
 )
 
 type ReservationRefusedReason string

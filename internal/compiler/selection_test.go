@@ -20,7 +20,7 @@ func selectionRegistry(t *testing.T) *registry.Registry {
 	t.Helper()
 	dir := t.TempDir()
 	files := map[string]string{
-		"archetypes/plain/archetype.yaml": "kind: archetype\nruntime: {module: stego.dev/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}\n" +
+		"archetypes/plain/archetype.yaml": "kind: archetype\nruntime: {module: github.com/jsell-rh/stego/registry/runtime, version: v0.1.0, sum: 'h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='}\n" +
 			"name: plain\nlanguage: go\nversion: 1.0.0\ncomponents: [api]\nconventions:\n  layout: flat\n",
 		"components/api/component.yaml": "kind: component\nname: api\nversion: 1.0.0\nstage: ga\noutput_namespace: internal/api\nrequires: []\nprovides: [http-api]\nslots: []\n",
 	}

@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // NoticeChannel is the PostgreSQL notification channel of the outbox notices.
@@ -53,7 +53,7 @@ type Notification struct {
 
 // Listener is one dedicated database session that listens for notifications. The library takes database/sql only,
 // and database/sql has no notification API, so the source takes this interface; the runtime gives its one adapter
-// in the connector package stego.dev/runtime/pgconn, the one package that imports the driver (ST-SUP-RP01-LC20,
+// in the connector package github.com/jsell-rh/stego/registry/runtime/pgconn, the one package that imports the driver (ST-SUP-RP01-LC20,
 // ST-STD-RUNTIME-R06).
 type Listener interface {
 	// Listen subscribes the session to channel.

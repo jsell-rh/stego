@@ -206,7 +206,7 @@ func TestGolden(t *testing.T) {
 	})
 }
 
-// runtimeConstant reads the text of a string constant of the runtime package stego.dev/runtime/idempotency from
+// runtimeConstant reads the text of a string constant of the runtime package github.com/jsell-rh/stego/registry/runtime/idempotency from
 // its source in this repository's registry/runtime folder.
 func runtimeConstant(t *testing.T, file, name string) string {
 	t.Helper()

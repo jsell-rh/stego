@@ -40,7 +40,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	"stego.dev/runtime/internal/spanevent"
+	"github.com/jsell-rh/stego/registry/runtime/internal/spanevent"
 )
 
 // The export limits of ST-SUP-RP03-LC10.

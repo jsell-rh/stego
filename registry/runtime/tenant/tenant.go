@@ -9,7 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"stego.dev/runtime/internal/seal"
+	"github.com/jsell-rh/stego/registry/runtime/internal/seal"
 )
 
 // maxIDLength is the longest tenant ID the package accepts, in bytes.

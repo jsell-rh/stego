@@ -22,9 +22,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 
-	"stego.dev/runtime/audit"
-	"stego.dev/runtime/outbox"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/audit"
+	"github.com/jsell-rh/stego/registry/runtime/outbox"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 
 	"example.com/orders/internal/auditlog"
 	"example.com/orders/internal/idempotency"

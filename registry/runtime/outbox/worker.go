@@ -462,7 +462,7 @@ type metrics struct {
 	enabled bool
 }
 
-const instrumentation = "stego.dev/runtime/outbox"
+const instrumentation = "github.com/jsell-rh/stego/registry/runtime/outbox"
 
 func newMetrics(provider metric.MeterProvider, logs otellog.LoggerProvider, w *Worker) (*metrics, error) {
 	m := &metrics{}

@@ -26,7 +26,7 @@ func TestSweepReadsTheRuntimePin(t *testing.T) {
 		body := "last_applied:\n    service_name: %s\n    components:\n        jwt-auth: {version: 2.4.0, sha: " + digest + "}\n"
 		older := writeRecord(t, "format_version: 2\n"+strings.Replace(body, "%s", "alpha", 1))
 		current := writeRecord(t, "format_version: 3\n"+strings.Replace(body, "%s", "bravo", 1)+
-			"    archetype:\n        name: rest-crud\n        version: 3.1.0\n        runtime:\n            module: stego.dev/runtime\n            version: v0.1.0\n            sum: h1:LBQv5u8LCsWvwtBuRBSnvN3h7IWSNQHlDW4Og0dSH2g=\n")
+			"    archetype:\n        name: rest-crud\n        version: 3.1.0\n        runtime:\n            module: github.com/jsell-rh/stego/registry/runtime\n            version: v0.1.0\n            sum: h1:LBQv5u8LCsWvwtBuRBSnvN3h7IWSNQHlDW4Og0dSH2g=\n")
 		pinless := writeRecord(t, "format_version: 3\n"+strings.Replace(body, "%s", "charlie", 1))
 		future := writeRecord(t, "format_version: 4\n"+strings.Replace(body, "%s", "delta", 1))
 
@@ -37,7 +37,7 @@ func TestSweepReadsTheRuntimePin(t *testing.T) {
 		if sweep.Services[0].Runtime != nil {
 			t.Fatalf("the format 2 record gave the runtime %+v", sweep.Services[0].Runtime)
 		}
-		want := Runtime{Module: "stego.dev/runtime", Version: "v0.1.0", Sum: "h1:LBQv5u8LCsWvwtBuRBSnvN3h7IWSNQHlDW4Og0dSH2g="}
+		want := Runtime{Module: "github.com/jsell-rh/stego/registry/runtime", Version: "v0.1.0", Sum: "h1:LBQv5u8LCsWvwtBuRBSnvN3h7IWSNQHlDW4Og0dSH2g="}
 		if got := sweep.Services[1].Runtime; got == nil || *got != want {
 			t.Fatalf("the format 3 record gave the runtime %+v, want %+v", got, want)
 		}

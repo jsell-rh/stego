@@ -464,7 +464,7 @@ func typeCheck(t *testing.T) *types.Package {
 		files = append(files, file)
 	}
 	config := types.Config{Importer: importer.ForCompiler(fset, "source", nil)}
-	pkg, err := config.Check("stego.dev/runtime/money", fset, files, nil)
+	pkg, err := config.Check("github.com/jsell-rh/stego/registry/runtime/money", fset, files, nil)
 	if err != nil {
 		t.Fatalf("type-check the package: %v", err)
 	}

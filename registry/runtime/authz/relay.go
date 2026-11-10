@@ -16,8 +16,8 @@ import (
 	otellog "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/metric"
 
-	"stego.dev/runtime/outbox"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/outbox"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // DestinationName is the name of the outbox destination of the relay.
@@ -187,7 +187,7 @@ func NewRelay(cfg RelayConfig, options ...RelayOption) (*Relay, error) {
 	return r, nil
 }
 
-const instrumentation = "stego.dev/runtime/authz"
+const instrumentation = "github.com/jsell-rh/stego/registry/runtime/authz"
 
 // Principal returns the relay's principal, service_account:<name>.
 func (r *Relay) Principal() Principal { return r.principal }

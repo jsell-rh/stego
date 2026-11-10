@@ -29,10 +29,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 
-	"stego.dev/runtime/authn"
-	"stego.dev/runtime/authn/authntest"
-	"stego.dev/runtime/internal/pgtest"
-	"stego.dev/runtime/internal/seal"
+	"github.com/jsell-rh/stego/registry/runtime/authn"
+	"github.com/jsell-rh/stego/registry/runtime/authn/authntest"
+	"github.com/jsell-rh/stego/registry/runtime/internal/pgtest"
+	"github.com/jsell-rh/stego/registry/runtime/internal/seal"
 )
 
 // This file holds the tests of ST-SUP-RP04-LC01 and ST-SUP-RP04-LC02 and the helpers that the tests of the package
@@ -301,7 +301,7 @@ func typeCheck(t *testing.T) *types.Package {
 	fset := token.NewFileSet()
 	files := packageFiles(t, fset)
 	config := types.Config{Importer: importer.ForCompiler(fset, "source", nil)}
-	pkg, err := config.Check("stego.dev/runtime/tenant", fset, files, nil)
+	pkg, err := config.Check("github.com/jsell-rh/stego/registry/runtime/tenant", fset, files, nil)
 	if err != nil {
 		t.Fatalf("type-check the package: %v", err)
 	}
@@ -330,7 +330,7 @@ func packageFiles(t *testing.T, fset *token.FileSet) []*ast.File {
 
 func isTenant(typ types.Type) bool {
 	named, ok := types.Unalias(typ).(*types.Named)
-	return ok && named.Obj().Pkg() != nil && named.Obj().Pkg().Path() == "stego.dev/runtime/tenant" &&
+	return ok && named.Obj().Pkg() != nil && named.Obj().Pkg().Path() == "github.com/jsell-rh/stego/registry/runtime/tenant" &&
 		named.Obj().Name() == "Tenant"
 }
 
@@ -409,8 +409,8 @@ func TestTenantIdentity(t *testing.T) {
 		}
 		for _, name := range []string{"Identity", "Decision"} {
 			named, ok := types.Unalias(scope.Lookup(name).Type()).(*types.Named)
-			if !ok || named.Obj().Pkg().Path() != "stego.dev/runtime/internal/seal" {
-				t.Fatalf("%s is %s, want an interface of stego.dev/runtime/internal/seal", name, scope.Lookup(name).Type())
+			if !ok || named.Obj().Pkg().Path() != "github.com/jsell-rh/stego/registry/runtime/internal/seal" {
+				t.Fatalf("%s is %s, want an interface of github.com/jsell-rh/stego/registry/runtime/internal/seal", name, scope.Lookup(name).Type())
 			}
 			sealed := false
 			iface := named.Underlying().(*types.Interface)
@@ -640,7 +640,7 @@ func TestTenantIdentity(t *testing.T) {
 func TestTenantSources(t *testing.T) {
 	t.Run("ST-SUP-RP04-LC01-T05 Identity and Decision are sealed to the runtime module", func(t *testing.T) {
 		check := func(decls, call string) error {
-			src := "package outside\n\nimport \"stego.dev/runtime/tenant\"\n\n" + decls + "\n\nfunc use() { _, _ = " + call + " }\n"
+			src := "package outside\n\nimport \"github.com/jsell-rh/stego/registry/runtime/tenant\"\n\n" + decls + "\n\nfunc use() { _, _ = " + call + " }\n"
 			fset := token.NewFileSet()
 			file, err := parser.ParseFile(fset, "outside.go", src, 0)
 			if err != nil {
@@ -744,7 +744,7 @@ func typeCheckSnippet(t *testing.T, call string) error {
 	t.Helper()
 	src := `package worker
 
-import "stego.dev/runtime/tenant"
+import "github.com/jsell-rh/stego/registry/runtime/tenant"
 
 type message struct{ Member struct{ Tenant string } }
 

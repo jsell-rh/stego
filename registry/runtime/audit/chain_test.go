@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 func TestChain(t *testing.T) {

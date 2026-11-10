@@ -9,8 +9,8 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
-	"stego.dev/runtime/internal/spanevent"
-	"stego.dev/runtime/otel"
+	"github.com/jsell-rh/stego/registry/runtime/internal/spanevent"
+	"github.com/jsell-rh/stego/registry/runtime/otel"
 )
 
 // The fixed bucket boundaries of a domain histogram, by unit (ST-SUP-RP12-LC15). Those of s are the boundaries of

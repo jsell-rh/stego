@@ -31,7 +31,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	"stego.dev/runtime/otel"
+	"github.com/jsell-rh/stego/registry/runtime/otel"
 )
 
 // collector is a fake OTLP gRPC collector on loopback with TLS, the receiver of the telemetry runtime in these

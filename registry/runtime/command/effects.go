@@ -10,10 +10,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"stego.dev/runtime/audit"
-	"stego.dev/runtime/authz"
-	"stego.dev/runtime/idempotency"
-	"stego.dev/runtime/outbox"
+	"github.com/jsell-rh/stego/registry/runtime/audit"
+	"github.com/jsell-rh/stego/registry/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/idempotency"
+	"github.com/jsell-rh/stego/registry/runtime/outbox"
 )
 
 // Destination is one outbox destination that a command or a worker declares it stages effects for: its name, whether

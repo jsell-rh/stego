@@ -28,7 +28,7 @@ import (
 	"context"
 	"fmt"
 
-	"stego.dev/runtime/money"
+	"github.com/jsell-rh/stego/registry/runtime/money"
 )
 
 // Task prints one allocation of the runtime library.
@@ -108,7 +108,7 @@ func (g staticGenerator) Generate(gen.Context) ([]gen.File, *gen.Wiring, error) 
 // offlineGo is the environment of a go command with no network: the pinned Go SDK first on PATH, a private module
 // cache, as the only module proxy the download cache of this machine's module cache, so the third-party modules
 // that the runtime library requires come from it, and a sum database at a closed local port. Nothing can reach
-// stego.dev or any other host, and a checksum that go.sum lacks fails the command.
+// github.com or any other host, and a checksum that go.sum lacks fails the command.
 func offlineGo(t *testing.T, goTool, modules string, extra ...string) []string {
 	t.Helper()
 	cache := strings.TrimSpace(goOutput(t, exec.Command(goTool, "env", "GOMODCACHE")))
@@ -267,7 +267,7 @@ func TestRuntimePinBuildsWithNoNetwork(t *testing.T) {
 		workspace.Dir = input.ProjectDir
 		workspace.Env = offlineGo(t, goTool, empty, "GOWORK="+work)
 		goOutput(t, workspace)
-		if entries, err := os.ReadDir(filepath.Join(empty, "cache", "download", "stego.dev")); err == nil && len(entries) > 0 {
+		if entries, err := os.ReadDir(filepath.Join(empty, "cache", "download", "github.com", "jsell-rh", "stego")); err == nil && len(entries) > 0 {
 			t.Fatalf("the workspace build put the runtime library in the module cache: %v", entries)
 		}
 		if line := runAllocation(t, binary); line != want {

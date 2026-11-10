@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"stego.dev/runtime/audit"
-	"stego.dev/runtime/authz"
-	"stego.dev/runtime/internal/loaded"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/audit"
+	"github.com/jsell-rh/stego/registry/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/internal/loaded"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // ErrClosed is the error of every method of a handle, of its repositories and of its authorization part after the

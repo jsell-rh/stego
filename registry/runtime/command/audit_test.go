@@ -12,7 +12,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 
-	"stego.dev/runtime/audit"
+	"github.com/jsell-rh/stego/registry/runtime/audit"
 )
 
 // logRecorder keeps the log records that a logger provider exports.

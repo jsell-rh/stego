@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // HashSize is the size of a hash and of a prev_hash: SHA-256.

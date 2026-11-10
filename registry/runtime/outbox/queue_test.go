@@ -20,9 +20,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"stego.dev/runtime/internal/pgtest"
-	"stego.dev/runtime/internal/seal"
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/internal/pgtest"
+	"github.com/jsell-rh/stego/registry/runtime/internal/seal"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // The integration tests of this package use the PostgreSQL server of pgtest: the local container that pgtest

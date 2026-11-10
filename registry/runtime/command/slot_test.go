@@ -75,7 +75,7 @@ func TestSlotLoaded(t *testing.T) {
 			"a literal of the key":       {nil, "\nvar _, _ = command.FromRequest(command.slotKey{}, " + entity + ", gen.Reservation{})\n", "slotKey"},
 			"a nil key":                  {nil, "\nvar _, _ = command.FromRequest(nil, " + entity + ", gen.Reservation{})\n", "cannot use nil"},
 			"a variable of the key type": {nil, "\nvar k command.slotKey\n", "slotKey"},
-			"the loaded constructor": {[]string{"stego.dev/runtime/internal/loaded"},
+			"the loaded constructor": {[]string{"github.com/jsell-rh/stego/registry/runtime/internal/loaded"},
 				"\nvar _ = loaded.New(gen.Reservation{}, nil, loaded.Ref{})\n", "use of internal package"},
 			"a composite literal": {nil, "\nvar _ = gen.LoadedReservation{}\n", "invalid composite literal type"},
 		} {

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"stego.dev/runtime/audit"
+	"github.com/jsell-rh/stego/registry/runtime/audit"
 )
 
 // fakeSink is a stand-in for the audit-sink port: it keeps what it is given and reaches no outside system.

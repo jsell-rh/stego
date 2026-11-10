@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 
-	"stego.dev/runtime/internal/pgtest"
+	"github.com/jsell-rh/stego/registry/runtime/internal/pgtest"
 )
 
 // The integration tests of this package run against the local PostgreSQL server of pgtest: the server that

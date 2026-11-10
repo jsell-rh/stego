@@ -19,22 +19,22 @@ func pinArchetype(runtime string) string {
 func TestRuntimePin(t *testing.T) {
 	t.Run("ST-VO58-C01-T A runtime pin names a module path, a tagged version and its checksum, never a branch, a pseudo-version or a replace", func(t *testing.T) {
 		sum := "h1:2jc7mdW5JmAEJw0KYdJKSGW/vx5dqWB1LfkmGdo9GNk="
-		accepted, err := registry.ParseArchetypeFromBytes([]byte(pinArchetype("runtime:\n  module: stego.dev/runtime\n  version: v0.4.1\n  sum: "+sum+"\n")), "archetype.yaml")
+		accepted, err := registry.ParseArchetypeFromBytes([]byte(pinArchetype("runtime:\n  module: github.com/jsell-rh/stego/registry/runtime\n  version: v0.4.1\n  sum: "+sum+"\n")), "archetype.yaml")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if accepted.Runtime == nil || *accepted.Runtime != (registry.RuntimePin{Module: "stego.dev/runtime", Version: "v0.4.1", Sum: sum}) {
+		if accepted.Runtime == nil || *accepted.Runtime != (registry.RuntimePin{Module: "github.com/jsell-rh/stego/registry/runtime", Version: "v0.4.1", Sum: sum}) {
 			t.Fatalf("pin = %+v", accepted.Runtime)
 		}
 		if err := accepted.Runtime.Validate(); err != nil {
 			t.Fatalf("the tagged pin was refused: %v", err)
 		}
 		for _, tc := range []struct{ name, block, field string }{
-			{"no checksum", "runtime:\n  module: stego.dev/runtime\n  version: v0.4.1\n", "runtime.sum"},
-			{"a branch", "runtime:\n  module: stego.dev/runtime\n  version: main\n  sum: " + sum + "\n", "runtime.version"},
-			{"a sum that is no go.sum hash", "runtime:\n  module: stego.dev/runtime\n  version: v0.4.1\n  sum: sha256:abc\n", "runtime.sum"},
-			{"a pseudo-version", "runtime:\n  module: stego.dev/runtime\n  version: v0.0.0-20260101000000-abcdefabcdef\n  sum: " + sum + "\n", "runtime.version"},
-			{"a replace directive", "runtime:\n  module: stego.dev/runtime\n  version: v0.4.1\n  sum: " + sum + "\n  replace: ../runtime\n", "replace"},
+			{"no checksum", "runtime:\n  module: github.com/jsell-rh/stego/registry/runtime\n  version: v0.4.1\n", "runtime.sum"},
+			{"a branch", "runtime:\n  module: github.com/jsell-rh/stego/registry/runtime\n  version: main\n  sum: " + sum + "\n", "runtime.version"},
+			{"a sum that is no go.sum hash", "runtime:\n  module: github.com/jsell-rh/stego/registry/runtime\n  version: v0.4.1\n  sum: sha256:abc\n", "runtime.sum"},
+			{"a pseudo-version", "runtime:\n  module: github.com/jsell-rh/stego/registry/runtime\n  version: v0.0.0-20260101000000-abcdefabcdef\n  sum: " + sum + "\n", "runtime.version"},
+			{"a replace directive", "runtime:\n  module: github.com/jsell-rh/stego/registry/runtime\n  version: v0.4.1\n  sum: " + sum + "\n  replace: ../runtime\n", "replace"},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				archetype, err := registry.ParseArchetypeFromBytes([]byte(pinArchetype(tc.block)), "archetype.yaml")

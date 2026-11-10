@@ -34,9 +34,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
-	stegoauthz "stego.dev/runtime/authz"
-	"stego.dev/runtime/outbox"
-	"stego.dev/runtime/tenant"
+	stegoauthz "github.com/jsell-rh/stego/registry/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/outbox"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // described is one authz outbox message read back: its operation, its relation and its subject, and the revocation it

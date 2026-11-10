@@ -46,7 +46,7 @@ the fills is essential complexity.
 A service whose archetype holds the command and query components, and whose
 record does not state the GORM store, runs on the runtime data path: its
 commands, its queries and its collection operations run on the runtime library
-stego.dev/runtime. The record states the data path of each run, so the service
+github.com/jsell-rh/stego/registry/runtime. The record states the data path of each run, so the service
 stays on it. Its main reads the deployment settings from the environment:
 `DATABASE_URL` or `DATABASE_URL_FILE` for the runtime role, `STEGO_SPICEDB_ENDPOINT`
 and `STEGO_SPICEDB_KEY_FILE` for SpiceDB, `STEGO_QUERY_CURSOR_KEY_FILE` for the key

@@ -15,7 +15,7 @@ import (
 	"testing"
 )
 
-const modulePath = "stego.dev/runtime"
+const modulePath = "github.com/jsell-rh/stego/registry/runtime"
 
 // surface walks the method sets of the handle's types to any depth by reflection: the handle, the repository and the
 // loaded value that Repo and its methods give, and every type that their exported methods take or return. It walks
@@ -267,7 +267,7 @@ func TestHandleSurface(t *testing.T) {
 					}
 					continue
 				}
-				for _, banned := range []string{"io.Writer", "log.Logger", "slog.Logger", "stego.dev/runtime/probe."} {
+				for _, banned := range []string{"io.Writer", "log.Logger", "slog.Logger", "github.com/jsell-rh/stego/registry/runtime/probe."} {
 					if strings.Contains(text, banned) {
 						t.Errorf("Handle.%s returns %s", fn.Name(), text)
 					}
@@ -277,7 +277,7 @@ func TestHandleSurface(t *testing.T) {
 					for _, inner := range methodsOf(pkg, named.Obj().Name()) {
 						r := inner.Type().(*types.Signature).Results()
 						for j := range r.Len() {
-							for _, banned := range []string{"io.Writer", "log.Logger", "slog.Logger", "stego.dev/runtime/probe."} {
+							for _, banned := range []string{"io.Writer", "log.Logger", "slog.Logger", "github.com/jsell-rh/stego/registry/runtime/probe."} {
 								if strings.Contains(r.At(j).Type().String(), banned) {
 									t.Errorf("%s.%s returns %s", named.Obj().Name(), inner.Name(), r.At(j).Type())
 								}

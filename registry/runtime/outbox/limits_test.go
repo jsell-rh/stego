@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 func TestPayloadLimits(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"stego.dev/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // Resource is the resource of an evaluation, in the shape of OpenID AuthZEN 1.0: a type and an ID.

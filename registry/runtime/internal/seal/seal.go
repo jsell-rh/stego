@@ -1,6 +1,6 @@
 // Package seal holds the sealed tenant sources of the tenant runtime (ST-SUP-RP04-LC01). The data of an Identity
 // and of a Decision lives in a mark of this package, and only the constructors of this package make a mark that is
-// not zero. Only a package of stego.dev/runtime can import this package: the authentication runtime makes the
+// not zero. Only a package of github.com/jsell-rh/stego/registry/runtime can import this package: the authentication runtime makes the
 // marks of its Identity values and the authorization runtime the marks of its Decision values.
 //
 // TenantOf and DecisionOf read the data of the mark through an unexported method of this package, which returns the

@@ -15,8 +15,8 @@ import (
 )
 
 // The runtime data path (gen.Context.RuntimeData) of the rest-api component: each declared collection operation is
-// one generated command on stego.dev/runtime/command (create, update, patch, delete) or one query on
-// stego.dev/runtime/query (read, list), and each handler calls that command's or query's Run. The handlers open no
+// one generated command on github.com/jsell-rh/stego/registry/runtime/command (create, update, patch, delete) or one query on
+// github.com/jsell-rh/stego/registry/runtime/query (read, list), and each handler calls that command's or query's Run. The handlers open no
 // database connection and hold no store; the bound before slots run in the command's fill, before its write, and
 // the after slots run after the command committed, so tenancy, idempotency, audit and authorization are applied once,
 // by the runtime (ST-SUP-RC20-OC37).
@@ -237,8 +237,8 @@ func renderRuntimeHelpers(ctx gen.Context, names []string, dataImport, slotsImpo
 	var b bytes.Buffer
 	pkg := path.Base(ctx.OutputNamespace)
 	fmt.Fprintf(&b, "package %s\n\nimport (\n\t\"context\"\n\t\"errors\"\n\t\"log/slog\"\n\t\"net\"\n\t\"net/http\"\n\t\"sync/atomic\"\n\t\"time\"\n\n", pkg)
-	fmt.Fprintf(&b, "\t\"stego.dev/runtime/audit\"\n\t\"stego.dev/runtime/authn\"\n\t\"stego.dev/runtime/authz\"\n\t\"stego.dev/runtime/command\"\n")
-	fmt.Fprintf(&b, "\t\"stego.dev/runtime/idempotency\"\n\t\"stego.dev/runtime/probe\"\n\t\"stego.dev/runtime/query\"\n\t\"stego.dev/runtime/tenant\"\n\n")
+	fmt.Fprintf(&b, "\t\"github.com/jsell-rh/stego/registry/runtime/audit\"\n\t\"github.com/jsell-rh/stego/registry/runtime/authn\"\n\t\"github.com/jsell-rh/stego/registry/runtime/authz\"\n\t\"github.com/jsell-rh/stego/registry/runtime/command\"\n")
+	fmt.Fprintf(&b, "\t\"github.com/jsell-rh/stego/registry/runtime/idempotency\"\n\t\"github.com/jsell-rh/stego/registry/runtime/probe\"\n\t\"github.com/jsell-rh/stego/registry/runtime/query\"\n\t\"github.com/jsell-rh/stego/registry/runtime/tenant\"\n\n")
 	fmt.Fprintf(&b, "\tdata %q\n", dataImport)
 	if hasSlots {
 		fmt.Fprintf(&b, "\tslots %q\n", slotsImportPath)
@@ -557,10 +557,10 @@ func renderRuntimeHandler(ctx gen.Context, c *runtimeCollection, dataImport, slo
 		w.f("\t\"github.com/google/uuid\"\n\n")
 	}
 	if hasWrite {
-		w.f("\t\"stego.dev/runtime/command\"\n\t\"stego.dev/runtime/idempotency\"\n")
+		w.f("\t\"github.com/jsell-rh/stego/registry/runtime/command\"\n\t\"github.com/jsell-rh/stego/registry/runtime/idempotency\"\n")
 	}
 	if c.ops[types.OpRead] || c.ops[types.OpList] {
-		w.f("\t\"stego.dev/runtime/query\"\n")
+		w.f("\t\"github.com/jsell-rh/stego/registry/runtime/query\"\n")
 	}
 	w.f("\n\tdata %q\n", dataImport)
 	if len(c.slots) > 0 {

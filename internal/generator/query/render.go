@@ -16,12 +16,12 @@ import (
 
 // The import paths of the runtime library that the generated code uses.
 const (
-	queryImport = "stego.dev/runtime/query"
-	auditImport = "stego.dev/runtime/audit"
-	authnImport = "stego.dev/runtime/authn"
-	authzImport = "stego.dev/runtime/authz"
-	probeImport = "stego.dev/runtime/probe"
-	tenImport   = "stego.dev/runtime/tenant"
+	queryImport = "github.com/jsell-rh/stego/registry/runtime/query"
+	auditImport = "github.com/jsell-rh/stego/registry/runtime/audit"
+	authnImport = "github.com/jsell-rh/stego/registry/runtime/authn"
+	authzImport = "github.com/jsell-rh/stego/registry/runtime/authz"
+	probeImport = "github.com/jsell-rh/stego/registry/runtime/probe"
+	tenImport   = "github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // render gives the contract package and the handler package of the model.

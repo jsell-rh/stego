@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"stego.dev/runtime/authz"
-	"stego.dev/runtime/idempotency"
+	"github.com/jsell-rh/stego/registry/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/idempotency"
 )
 
 // orderResource is the generated resource declaration of a command on an order: its token statement share-locks

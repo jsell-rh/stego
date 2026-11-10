@@ -2,7 +2,7 @@
 // through a command handle (ST-SUP-RP10-LC15) or a query handle (ST-SUP-RP11) gave. The two handles share the one
 // type, so a generated probe method takes the loaded type of an entity from either handle (ST-SUP-RC34-OC01).
 //
-// Value has no exported field, and only New makes one. Only a package of stego.dev/runtime can import this package,
+// Value has no exported field, and only New makes one. Only a package of github.com/jsell-rh/stego/registry/runtime can import this package,
 // so a fill cannot call New or Of: the generated loaded type is a pointer to Value, such as
 // command.Loaded[Reservation], which no composite literal and no conversion from another type can make.
 package loaded

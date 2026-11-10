@@ -53,7 +53,7 @@ func emittedProject(t *testing.T) string {
 	}
 	write("go.sum", sums)
 	write("go.mod", []byte("module example.com/idempotency-test\n\ngo "+new(Generator).MinimumGoVersion()+
-		"\n\nrequire stego.dev/runtime v0.1.0\n\nreplace stego.dev/runtime => "+runtimeFolder+"\n"))
+		"\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.1.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeFolder+"\n"))
 	for _, args := range [][]string{{"mod", "tidy"}, {"vet", "./..."}} {
 		goCommand(t, project, args...)
 	}

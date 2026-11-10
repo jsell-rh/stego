@@ -16,7 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"stego.dev/runtime/outbox"
+	"github.com/jsell-rh/stego/registry/runtime/outbox"
 )
 
 // ProbeTimeout bounds the wait for the session's own notice when the listener checks the session.

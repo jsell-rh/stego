@@ -3,7 +3,7 @@
 // type for each emitter with one typed method for each observation it emits,
 // the constructors that the handles, the slot components and the fill tests
 // bind a probe with, and the catalog observations.json. The emit function,
-// the sinks and Recorder live in the runtime library stego.dev/runtime/probe
+// the sinks and Recorder live in the runtime library github.com/jsell-rh/stego/registry/runtime/probe
 // (ST-SUP-RP12); the generated code holds only what varies with the
 // declaration (ST-STD-RUNTIME-R05).
 package domainprobe
@@ -62,8 +62,8 @@ func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 
 // The import paths of the runtime library that the probe package uses.
 const (
-	probeImport   = "stego.dev/runtime/probe"
-	commandImport = "stego.dev/runtime/command"
+	probeImport   = "github.com/jsell-rh/stego/registry/runtime/probe"
+	commandImport = "github.com/jsell-rh/stego/registry/runtime/command"
 )
 
 // fieldKind is the kind of one declared field.

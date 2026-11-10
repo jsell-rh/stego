@@ -3,7 +3,7 @@
 // the runtime library (ST-SUP-RP11-LC17): the handler verifies the caller, opens one READ ONLY transaction of the
 // caller's tenant through query.Run, decides a get query's permission on its resource before the fill and calls the
 // fill once with a query handle. The handle, its authorization part, Run, Serve and the sealed list cursor live in
-// stego.dev/runtime/query; the generated code holds only what varies with the declaration (ST-STD-RUNTIME-R05).
+// github.com/jsell-rh/stego/registry/runtime/query; the generated code holds only what varies with the declaration (ST-STD-RUNTIME-R05).
 package query
 
 import (
@@ -25,7 +25,7 @@ const Slot = "query.query"
 // probeComponent is the component whose typed probes the query handles carry (ST-SUP-RC34-OC04).
 const probeComponent = "domain-probe"
 
-// tenantColumn is the tenant column that the query runtime adds to each read (stego.dev/runtime/query.TenantColumn).
+// tenantColumn is the tenant column that the query runtime adds to each read (github.com/jsell-rh/stego/registry/runtime/query.TenantColumn).
 const tenantColumn = "tenant_id"
 
 // Generator is the generator of the query component.

@@ -20,8 +20,8 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
-	"stego.dev/runtime/otel"
-	"stego.dev/runtime/probe"
+	"github.com/jsell-rh/stego/registry/runtime/otel"
+	"github.com/jsell-rh/stego/registry/runtime/probe"
 )
 
 // The outcome of one completed action, in the order of the action counters.
