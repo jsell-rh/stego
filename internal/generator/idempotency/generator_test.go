@@ -21,15 +21,21 @@ const todoBase = "https://errors.example.com/todo/"
 
 // todoContext is the context of the test declaration: the idempotency component with Required on, the retention
 // and the problem base given, Fingerprint body, and the owned entity Todo in the collection todos with create, read,
-// list, patch, update and delete.
+// list, patch, update and delete. Todo has the fields title, done and note, which a create gives, and the
+// server-managed created_at; title and done are patchable.
 func todoContext(requiredOn []types.Operation, retention, base string) gen.Context {
 	return gen.Context{
 		OutputNamespace: "internal/idempotency",
 		ErrorTypeBase:   base,
 		Idempotency:     &types.Idempotency{RequiredOn: requiredOn, Retention: retention, Fingerprint: "body"},
-		Entities:        []types.Entity{{Name: "Todo", Fields: []types.Field{{Name: "title", Type: "string"}}}},
-		Collections: []types.Collection{{Name: "todos", Entity: "Todo", Operations: []types.Operation{
-			types.OpCreate, types.OpRead, types.OpList, types.OpPatch, types.OpUpdate, types.OpDelete}}},
+		Entities: []types.Entity{{Name: "Todo", Fields: []types.Field{
+			{Name: "title", Type: types.FieldTypeString},
+			{Name: "done", Type: types.FieldTypeBool, Optional: true},
+			{Name: "note", Type: types.FieldTypeString, Optional: true},
+			{Name: "created_at", Type: types.FieldTypeTimestamp},
+		}}},
+		Collections: []types.Collection{{Name: "todos", Entity: "Todo", Patchable: []string{"title", "done"},
+			Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpPatch, types.OpUpdate, types.OpDelete}}},
 	}
 }
 
@@ -144,6 +150,11 @@ func TestSettings(t *testing.T) {
 				}
 			}
 		}
+		for i, name := range []string{"ProblemMissing", "ProblemInProgress", "ProblemReused"} {
+			if want := runtimeConstant(t, "wrap.go", name); ProblemSlugs[i] != want {
+				t.Errorf("problem slug %q is not the runtime's %s %q", ProblemSlugs[i], name, want)
+			}
+		}
 		if _, _, err := new(Generator).Generate(todoContext([]types.Operation{types.OpCreate}, "", "")); err == nil ||
 			!strings.Contains(err.Error(), "error_type_base") {
 			t.Fatalf("a declaration with no problem base: error %v, want one that names error_type_base", err)
@@ -166,23 +177,63 @@ func TestSettings(t *testing.T) {
 	})
 }
 
-// TestGolden compares the emitted settings of the test declaration with testdata/settings.go.golden. Set
-// STEGO_UPDATE_GOLDEN=1 to write the file again.
+// TestGolden compares each emitted file of the test declaration with its copy in testdata/golden. Set
+// STEGO_UPDATE_GOLDEN=1 to write the copies again.
 func TestGolden(t *testing.T) {
-	t.Run("ST-SUP-RC30-OC01-T05 golden settings", func(t *testing.T) {
-		got := generated(t, todoContext([]types.Operation{types.OpCreate, types.OpPatch}, "48h", todoBase))["internal/idempotency/settings.go"]
-		golden := filepath.Join("testdata", "settings.go.golden")
-		if os.Getenv("STEGO_UPDATE_GOLDEN") == "1" {
-			if err := os.WriteFile(golden, got, 0o644); err != nil {
+	t.Run("ST-SUP-RC30-OC01-T05 golden output", func(t *testing.T) {
+		files := generated(t, todoContext([]types.Operation{types.OpCreate, types.OpPatch}, "48h", todoBase))
+		if len(files) != 4 {
+			t.Fatalf("emitted %d files, want schema.go, settings.go, fingerprint.go and purge.go", len(files))
+		}
+		for name, got := range files {
+			golden := filepath.Join("testdata", "golden", filepath.Base(name)+".golden")
+			if os.Getenv("STEGO_UPDATE_GOLDEN") == "1" {
+				if err := os.MkdirAll(filepath.Dir(golden), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(golden, got, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			want, err := os.ReadFile(golden)
+			if err != nil {
 				t.Fatal(err)
 			}
-		}
-		want, err := os.ReadFile(golden)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Equal(got, want) {
-			t.Fatalf("the emitted settings differ from %s:\n%s", golden, got)
+			if !bytes.Equal(got, want) {
+				t.Errorf("%s differs from %s:\n%s", name, golden, got)
+			}
 		}
 	})
+}
+
+// runtimeConstant reads the text of a string constant of the runtime package stego.dev/runtime/idempotency from
+// its source in this repository's registry/runtime folder.
+func runtimeConstant(t *testing.T, file, name string) string {
+	t.Helper()
+	source := filepath.Join("..", "..", "..", "registry", "runtime", "idempotency", file)
+	tree, err := parser.ParseFile(token.NewFileSet(), source, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", source, err)
+	}
+	text, found := "", false
+	ast.Inspect(tree, func(node ast.Node) bool {
+		spec, ok := node.(*ast.ValueSpec)
+		if !ok {
+			return true
+		}
+		for i, ident := range spec.Names {
+			if ident.Name == name && i < len(spec.Values) {
+				if literal, ok := spec.Values[i].(*ast.BasicLit); ok {
+					if value, err := strconv.Unquote(literal.Value); err == nil {
+						text, found = value, true
+					}
+				}
+			}
+		}
+		return true
+	})
+	if !found {
+		t.Fatalf("%s holds no string constant %s", source, name)
+	}
+	return text
 }
