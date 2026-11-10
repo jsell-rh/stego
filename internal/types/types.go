@@ -99,6 +99,9 @@ type Entity struct {
 	CleanupOwners    []string            `yaml:"cleanup_owners,omitempty"`
 	// Tenant is owned, shared or system (ST-DECL-EN02). Omitted means owned.
 	Tenant string `yaml:"tenant,omitempty" json:"Tenant,omitempty"`
+	// Kind is data or ledger (ST-DECL-EN02). Omitted means data. A ledger entity selects the ledger component
+	// (ST-GEN-INV37).
+	Kind string `yaml:"kind,omitempty" json:"Kind,omitempty"`
 	// EntityAuthorization holds the entity's resource type, permissions and relationships (ST-DECL-UC06).
 	EntityAuthorization `yaml:",inline"`
 }
@@ -302,6 +305,8 @@ type ServiceDeclaration struct {
 	SchemaChanges []SchemaChange `yaml:"schema_changes,omitempty"`
 	SchemaHistory []SchemaStep   `yaml:"schema_history,omitempty"`
 	Authorization *Authorization `yaml:"authorization,omitempty"`
+	// ExperimentalAcceptances are the components that are not ga that the service accepts (ST-DECL-EN07).
+	ExperimentalAcceptances []ExperimentalAcceptance `yaml:"experimental_acceptances,omitempty"`
 }
 
 // UnmarshalYAML implements custom YAML unmarshaling for ServiceDeclaration.

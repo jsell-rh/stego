@@ -230,6 +230,10 @@ func Resolve(input ResolveInput) (*Resolution, error) {
 			portName := req.Name
 
 			bound, ok := effectiveBindings[portName]
+			if !ok && PlatformBinds(portName) {
+				// The platform binds the port, so it needs no provider in the set (ST-GEN-INV37).
+				continue
+			}
 			if !ok {
 				// No binding exists — classify based on how many providers exist.
 				// Exclude self from provider list for this check.
@@ -333,11 +337,15 @@ func providersOf(set map[string]*registry.Component, port string) []string {
 // service: a port has one provider when exactly one component of the set
 // provides it. It gives nil when the port has one provider, and otherwise an
 // error that names the port and each provider, or says that none provides it.
+// A port that the platform binds, such as audit-sink, needs no provider.
 func HasOneProvider(set map[string]*registry.Component, port string) error {
 	switch providers := providersOf(set, port); len(providers) {
 	case 1:
 		return nil
 	case 0:
+		if PlatformBinds(port) {
+			return nil
+		}
 		return fmt.Errorf("port %s has no provider in the active component set", port)
 	default:
 		return fmt.Errorf("port %s has %d providers in the active component set: %s", port, len(providers), strings.Join(providers, ", "))
@@ -348,6 +356,7 @@ func HasOneProvider(set map[string]*registry.Component, port string) error {
 // ports when every port that a component of the set requires has a provider
 // in that set. It gives nil when the set answers its ports, and otherwise an
 // error that names every unanswered port with the components that require it.
+// A port that the platform binds, such as audit-sink, needs no provider.
 func AnswersPorts(set map[string]*registry.Component) error {
 	required := map[string][]string{}
 	for name, component := range set {
@@ -357,7 +366,7 @@ func AnswersPorts(set map[string]*registry.Component) error {
 	}
 	var unanswered []string
 	for _, port := range slices.Sorted(maps.Keys(required)) {
-		if len(providersOf(set, port)) == 0 {
+		if len(providersOf(set, port)) == 0 && !PlatformBinds(port) {
 			requirers := required[port]
 			slices.Sort(requirers)
 			unanswered = append(unanswered, fmt.Sprintf("%s (required by %s)", port, strings.Join(requirers, ", ")))
@@ -368,3 +377,10 @@ func AnswersPorts(set map[string]*registry.Component) error {
 	}
 	return nil
 }
+
+// platformPorts are the ports that the platform binds (ST-GEN-INV37, ST-SUP-SP02, ST-SUP-SP03): no component of
+// the active set needs to provide one, and a component that requires one needs no provider in the set.
+var platformPorts = map[string]bool{"audit-sink": true}
+
+// PlatformBinds says whether the platform binds the port, such as audit-sink.
+func PlatformBinds(port string) bool { return platformPorts[port] }

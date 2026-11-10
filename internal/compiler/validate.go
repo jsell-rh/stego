@@ -76,6 +76,7 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 		var faults []ValidationError
 		baselineNames, components, faults = activeSet(archetype, svcDecl, reg)
 		result.Errors = append(result.Errors, faults...)
+		result.Errors = append(result.Errors, validateSelectedComponents(svcDecl, reg)...)
 	}
 
 	own := declaration.Validate(svcDecl, source.Undeclared...)

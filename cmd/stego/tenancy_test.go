@@ -11,9 +11,11 @@ import (
 // the commit under test in a project of ST-DECL-TD01 with ST-DECL-TD02 changed in one named place, and reads the
 // structured output of stego validate --json (ST-DECL-CLI02), with the settings that checking reports.
 
-// tenancyClaim is ST-DECL-TD02 with pooled tenancy, the key org_id and the claim given.
+// tenancyClaim is ST-DECL-TD02 with pooled tenancy, the key org_id and the claim given. The stated tenancy selects
+// the tenancy component, which is alpha, so the declaration accepts it (ST-GEN-INV37).
 func tenancyClaim(claim string) string {
-	return td02 + "tenancy:\n  kind: pooled\n  key: org_id\n  claim: \"" + claim + "\"\n"
+	return td02 + "tenancy:\n  kind: pooled\n  key: org_id\n  claim: \"" + claim + "\"\n" +
+		acceptanceOf("tenancy", "tenancy builder pilot")
 }
 
 // withProvisioner is ST-DECL-TD02 with the controller provisioner, complete in each field but its tenants.
