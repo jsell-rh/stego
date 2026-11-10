@@ -11,6 +11,7 @@ import (
 
 // Use the registry schema and normal compiler path, not only the generator.
 func TestAllocationCompilation(t *testing.T) {
+	t.Parallel()
 	project := t.TempDir()
 	registry := filepath.Join(project, "registry")
 	if err := os.CopyFS(registry, os.DirFS("../../registry")); err != nil {

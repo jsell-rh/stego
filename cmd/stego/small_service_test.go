@@ -206,6 +206,7 @@ func (s *smallService) registryAt(t *testing.T, commit string) string {
 }
 
 func TestServiceRecordNamesItsInputs(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-GEN-UC01-R01-T01 The record names the service, the compiler, the registry and each component used with its version and digest", func(t *testing.T) {
 		s := newSmallService(t)
 		applied, _ := s.record(t)["last_applied"].(map[string]any)
@@ -281,6 +282,7 @@ func TestServiceRecordNamesItsInputs(t *testing.T) {
 }
 
 func TestServiceRecordIsCommittedWithItsCode(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-GEN-UC01-R05-T01 The record is written inside the service's repository, and one commit holds it with the code it describes", func(t *testing.T) {
 		s := newSmallService(t)
 		parentBefore, registryBefore := tree(t, s.parent), tree(t, s.registry)

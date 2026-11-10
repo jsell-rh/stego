@@ -1029,11 +1029,22 @@ func TestLockedReads(t *testing.T) {
 			barrier.Add(2)
 			results := make(chan Result, 2)
 			errs := make(chan error, 2)
+			// locked gets one value for each attempt that holds the lock of o2. A rerun waits for the lock of the
+			// attempt that survived the deadlock before its own child insert. Without this wait, the rerun's key
+			// share lock can come before the survivor's lock, and the two then deadlock a second time.
+			locked := make(chan struct{}, 4)
 			for i := range 2 {
 				go func() {
 					calls := 0
 					result, err := e.run(cmd, e.request("t1", u7(t), fmt.Sprintf("k-%s-%d", name, i), `{}`), func(ctx context.Context, h *Handle[testProbe]) (idempotency.Response, error) {
 						calls++
+						if calls > 1 {
+							select {
+							case <-locked:
+							case <-time.After(time.Minute):
+								return idempotency.Response{}, errors.New("the attempt that survived the deadlock did not get the lock")
+							}
+						}
 						users, err := Repo(h, e.users)
 						if err != nil {
 							return idempotency.Response{}, err
@@ -1054,6 +1065,9 @@ func TestLockedReads(t *testing.T) {
 							_, err = orgs.GetForDelete(ctx, "o2")
 						} else {
 							_, err = orgs.GetForUpdate(ctx, "o2")
+						}
+						if err == nil {
+							locked <- struct{}{}
 						}
 						return ok, err
 					})

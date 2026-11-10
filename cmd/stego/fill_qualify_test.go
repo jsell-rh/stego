@@ -674,6 +674,7 @@ func contractDigest(t *testing.T, p *fillProject, slot string) string {
 }
 
 func TestFillEvidenceInvariants(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-EXT-INV02-T Recorded evidence holds the fill digest and the contract digest of the passing run, and keeps them after a later change", func(t *testing.T) {
 		p := newFillProject(t)
 		fillDigest, err := fill.Digest(p.path("fills/untested-fill"))

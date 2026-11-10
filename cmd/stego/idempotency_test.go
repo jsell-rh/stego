@@ -34,6 +34,7 @@ func reportedSetting(t *testing.T, document declaration.FaultsDocument, path str
 }
 
 func TestDeclareIdempotentOperations(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-DECL-UC07-R03-T01 Idempotency with no retention gets 24h", func(t *testing.T) {
 		document, run := validateJSON(t, td02Project(t, withIdempotency(td02, "create")))
 		if run.code != 0 || !document.Accepted {

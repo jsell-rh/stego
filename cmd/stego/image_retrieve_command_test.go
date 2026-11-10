@@ -28,6 +28,7 @@ func noImageWritten(t *testing.T, label, work string) {
 }
 
 func TestImageRetrieveThroughTheCommand(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-BLD-UC07-R01-T01 stego image retrieve checks the pulled image against its record, its build record and its signature before it writes it", func(t *testing.T) {
 		image, _, signature := signedImage(t)
 		recordSHA256 := builtImage(t).recordSHA256

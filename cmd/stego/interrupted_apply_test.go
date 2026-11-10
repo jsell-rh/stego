@@ -136,6 +136,7 @@ func (s *smallService) matchesRecord(t *testing.T) {
 }
 
 func TestRecoverCompletesInterruptedApply(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-GEN-UC06-R01-T01 Recover completes an interrupted apply, so the files and the record match the record apply was writing", func(t *testing.T) {
 		s := newSmallService(t)
 		committed := tree(t, s.service)
@@ -174,6 +175,7 @@ func TestRecoverCompletesInterruptedApply(t *testing.T) {
 }
 
 func TestRecoverRefusesConflict(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-GEN-UC06-R02-T01 Recover refuses, and changes nothing, when a journaled file matches neither of its states", func(t *testing.T) {
 		s := newSmallService(t)
 		s.write(t, "service.yaml", tagDeclaration)
@@ -199,6 +201,7 @@ func TestRecoverRefusesConflict(t *testing.T) {
 }
 
 func TestPendingJournalStopsEveryRun(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-GEN-UC06-R03-T01 Plan, apply and drift each refuse while a journal is pending, change nothing and name recover", func(t *testing.T) {
 		s := newSmallService(t)
 		s.write(t, "service.yaml", tagDeclaration)
@@ -217,6 +220,7 @@ func TestPendingJournalStopsEveryRun(t *testing.T) {
 }
 
 func TestInterruptedApplyFlow(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-GEN-UC06-FL-T After an interrupted apply, drift names recover, and recover makes the files and the record agree", func(t *testing.T) {
 		s := newSmallService(t)
 		s.write(t, "service.yaml", tagDeclaration)
@@ -243,6 +247,7 @@ func TestInterruptedApplyFlow(t *testing.T) {
 }
 
 func TestRecordFlow(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-GEN-UC01-FL-T An apply writes the code and its record together, and one commit holds both", func(t *testing.T) {
 		s := newSmallService(t)
 		s.write(t, "service.yaml", secondEntityDeclaration)
@@ -286,6 +291,7 @@ func TestRecordFlow(t *testing.T) {
 }
 
 func TestApplySavesWholeOrNothing(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-GEN-A1-SR01-T01 A crash at any point of apply leaves the old record with the old files, or the new record with the new files after the next run", func(t *testing.T) {
 		s := newSmallService(t)
 		oldRecord, oldFiles := s.read(t, ".stego/state.yaml"), tree(t, s.service)

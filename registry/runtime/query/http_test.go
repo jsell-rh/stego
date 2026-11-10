@@ -1,6 +1,7 @@
 package query
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -153,6 +154,29 @@ func cursorPath(text string) string {
 	return "/orders?" + CursorParameter + "=" + url.QueryEscape(text)
 }
 
+// wantSealedOnly decodes the cursor text and checks, with no search in random bytes, that it is exactly the cursor
+// version, a nonce of the AEAD's size, and the AEAD seal of position under that nonce with the associated data of
+// the query, the tenant and the principal. So the text holds no other byte, and the position shows only as its
+// seal. It gives the decoded bytes.
+func wantSealedOnly(t *testing.T, rt *Runtime, q *Query, tn, subject, text string, position []byte) []byte {
+	t.Helper()
+	raw, err := base64.RawURLEncoding.DecodeString(text)
+	if err != nil {
+		t.Fatalf("the cursor %q does not decode: %v", text, err)
+	}
+	nonceSize := rt.cursorAEAD.NonceSize()
+	size := 1 + nonceSize + len(position) + rt.cursorAEAD.Overhead()
+	if len(raw) != size || raw[0] != cursorVersion {
+		t.Fatalf("the cursor %q has %d bytes, want version %d and %d bytes", text, len(raw), cursorVersion, size)
+	}
+	nonce := raw[1 : 1+nonceSize]
+	want := rt.cursorAEAD.Seal(nil, nonce, position, rt.cursorData(q, mustTenant(t, tn), mustPrincipal(t, subject)))
+	if !bytes.Equal(raw[1+nonceSize:], want) {
+		t.Fatalf("the cursor %q is not the seal of its position %q", text, position)
+	}
+	return raw
+}
+
 func TestCursor(t *testing.T) {
 	t.Run("ST-SUP-RP11-LC15-T01 A changed or moved cursor is refused", func(t *testing.T) {
 		e := newEnv(t)
@@ -172,19 +196,9 @@ func TestCursor(t *testing.T) {
 		if first.status != http.StatusOK || strings.Join(first.IDs, ",") != "o1,o2" || first.Next == "" {
 			t.Fatalf("the first page is %d %v %q, want o1 and o2 with a cursor", first.status, first.IDs, first.Next)
 		}
-		if strings.Contains(first.Next, "o2") {
-			t.Fatalf("the cursor %q shows its key", first.Next)
-		}
-		raw, err := base64.RawURLEncoding.DecodeString(first.Next)
-		if err != nil {
-			t.Fatalf("the cursor %q does not decode: %v", first.Next, err)
-		}
-		// The key o2 would show with its length prefix, as the position holds it.
-		for _, visible := range []string{"\x02o2", "list-orders", "user:u-7"} {
-			if strings.Contains(string(raw), visible) {
-				t.Fatalf("the decoded cursor shows %q", visible)
-			}
-		}
+		// The position of the first page is the key o2. The text holds only the version, the nonce and the
+		// AEAD seal of that position, so it shows no key, query or principal.
+		raw := wantSealedOnly(t, rt, q, "t1", "user:u-7", first.Next, appendText([]byte{cursorVersion, cursorTable}, "o2"))
 		second := get(t, h, cursorPath(first.Next), "t1", "user:u-7")
 		if second.status != http.StatusOK || strings.Join(second.IDs, ",") != "o3,o4" {
 			t.Fatalf("the unchanged cursor gave %d %v, want o3 and o4", second.status, second.IDs)
@@ -224,15 +238,12 @@ func TestCursor(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		rawSearch, err := base64.RawURLEncoding.DecodeString(text)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, visible := range []string{"spicedb", "page-2", "zed-7"} {
-			if strings.Contains(string(rawSearch), visible) {
-				t.Fatalf("the decoded search cursor shows %q", visible)
-			}
-		}
+		// The search position holds the provider spicedb, its cursor page-2 and the token zed-7; the text holds
+		// only their seal.
+		searchPosition := appendText([]byte{cursorVersion, cursorSearch}, "spicedb")
+		searchPosition = appendText(searchPosition, "page-2")
+		searchPosition = appendText(append(searchPosition, consistencyAtLeast), token.Text())
+		wantSealedOnly(t, rt, q, "t1", "user:u-7", text, searchPosition)
 		// The same key in another service opens no cursor of this one.
 		otherService, err := New(Config{DB: e.db, Service: "billing", CursorKey: testCursorKey})
 		if err != nil {

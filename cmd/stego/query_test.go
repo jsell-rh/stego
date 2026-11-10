@@ -86,6 +86,7 @@ func queryProjectOf(t *testing.T, service, slot string) compiler.ReconcilerInput
 }
 
 func TestQueriesFromDeclaration(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-SUP-RC33-OC02-T01 One handler is emitted per query, bound to its fill, generated from service.yaml", func(t *testing.T) {
 		plan, err := compiler.Reconcile(queryProject(t, declaration.QuerySlot))
 		if err != nil {

@@ -35,6 +35,7 @@ func readFile(t *testing.T, path string) []byte {
 }
 
 func TestFillRequalification(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-EXT-UC04-R01-T01 A change to a qualified fill's code makes it stale", func(t *testing.T) {
 		p := newFillProject(t)
 		p.bind(t, slotBinding{"qualified-fill", "before_create", "org-users"})

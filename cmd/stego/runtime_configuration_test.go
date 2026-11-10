@@ -10,6 +10,7 @@ import (
 )
 
 func TestRuntimeConfigurationCompilation(t *testing.T) {
+	t.Parallel()
 	project := t.TempDir()
 	registry := filepath.Join(project, "registry")
 	if err := os.CopyFS(registry, os.DirFS("../../registry")); err != nil {

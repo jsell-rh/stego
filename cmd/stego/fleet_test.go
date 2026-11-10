@@ -242,6 +242,7 @@ func fleetLines(t *testing.T, output string) map[string][]string {
 }
 
 func TestFindEveryServiceBuiltFromADigest(t *testing.T) {
+	t.Parallel()
 	f := newFleet(t)
 	t.Run("ST-DIS-UC02-R01-T01 The fleet query answers from the records alone with no network and no service", func(t *testing.T) {
 		args := append([]string{"fleet", "--digest", fleetD1}, f.order...)

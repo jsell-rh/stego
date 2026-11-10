@@ -116,6 +116,7 @@ func expectFills(t *testing.T, rows map[string]catalogRow, want map[string]catal
 }
 
 func TestFillCatalog(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-EXT-UC03-R01-T01 The list of fills for a slot shows each fill that implements it, with its collection and standing", func(t *testing.T) {
 		p := newFillProject(t)
 		rows, stdout := p.catalog(t, "--slot", "before_create")

@@ -55,6 +55,7 @@ func reportsCurrent(output string, paths []string) bool {
 }
 
 func TestBrokenRecordIsReported(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-GEN-UC02-R02-T01 A record whose registry reference differs from the one its input manifest holds is reported as broken", func(t *testing.T) {
 		s := newSmallService(t)
 		paths := s.generatedFiles(t)
@@ -78,6 +79,7 @@ func TestBrokenRecordIsReported(t *testing.T) {
 }
 
 func TestDriftFlowOfTrust(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-GEN-UC02-FL-T Drift names each generated file that no longer matches its hash, and a broken record is reported as broken", func(t *testing.T) {
 		s := newSmallService(t)
 		paths := s.generatedFiles(t)
