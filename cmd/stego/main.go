@@ -28,6 +28,7 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/grpcapplication"
 	"github.com/jsell-rh/stego/internal/generator/healthcheck"
 	"github.com/jsell-rh/stego/internal/generator/httpapplication"
+	"github.com/jsell-rh/stego/internal/generator/idempotency"
 	"github.com/jsell-rh/stego/internal/generator/jwtauth"
 	"github.com/jsell-rh/stego/internal/generator/kafkaproducer"
 	"github.com/jsell-rh/stego/internal/generator/keycloakprovider"
@@ -909,6 +910,7 @@ func defaultGenerators() map[string]gen.Generator {
 		"rh-sso-auth":           &rhssoauth.Generator{},
 		"otel-tracing":          &oteltracing.Generator{},
 		"health-check":          &healthcheck.Generator{},
+		"idempotency":           &idempotency.Generator{},
 	}
 }
 

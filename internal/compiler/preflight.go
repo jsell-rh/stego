@@ -123,6 +123,7 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 			BasePath:        svcDecl.BasePath,
 			ServiceName:     svcDecl.Name,
 			ErrorTypeBase:   svcDecl.ErrorTypeBase,
+			Idempotency:     svcDecl.Idempotency,
 			PeerNamespaces:  peerNamespaces,
 			PeerConfigs:     peerConfigs,
 			StorageContract: generatedImportPath(input.ModuleName, outDirName, gen.StorageContractNamespace),
