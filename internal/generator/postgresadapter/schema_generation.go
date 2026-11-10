@@ -87,7 +87,12 @@ func generateSchemaGeneration(ctx gen.Context) (gen.File, error) {
 		return gen.File{}, err
 	}
 	hash := sha256.Sum256(declaration)
-	data := struct{ Package, Generation, Definition, Lease string }{path.Base(ctx.OutputNamespace), generation, hex.EncodeToString(hash[:]), lease}
+	// Store is false on the runtime data path, which emits no store: the store's identity, fence and restore
+	// methods are left out, and the bootstrap, the marker check and the ledger read stay (ST-SUP-RC01-OC41).
+	data := struct {
+		Package, Generation, Definition, Lease string
+		Store                                  bool
+	}{path.Base(ctx.OutputNamespace), generation, hex.EncodeToString(hash[:]), lease, !ctx.RuntimeData}
 	var output bytes.Buffer
 	t, err := template.New("schema-generation").Parse(schemaGenerationTemplate)
 	if err != nil {

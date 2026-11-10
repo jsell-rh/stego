@@ -137,6 +137,7 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 			ErrorTypeBase:   svcDecl.ErrorTypeBase,
 			Audit:           svcDecl.Audit,
 			PortBindings:    portBindings,
+			Idempotency:     svcDecl.Idempotency,
 			PeerNamespaces:  peerNamespaces,
 			PeerConfigs:     peerConfigs,
 			StorageContract: generatedImportPath(input.ModuleName, outDirName, gen.StorageContractNamespace),
