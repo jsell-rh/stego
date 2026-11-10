@@ -41,7 +41,7 @@ func readPinStanding(input compiler.ReconcilerInput, plan *compiler.Plan, now ti
 	}
 	sort.Slice(pins, func(i, j int) bool { return pins[i].Name < pins[j].Name })
 	if state, err := compiler.LoadState(filepath.Join(input.ProjectDir, ".stego", "state.yaml")); err == nil &&
-		state.FormatVersion == compiler.StateFormatVersion && state.LastApplied != nil {
+		state.FormatVersion >= 2 && state.LastApplied != nil {
 		for name, pin := range state.LastApplied.Components {
 			report.held[lifecycle.Subject{Kind: lifecycle.ComponentPackage, Name: name, Digest: pin.SHA}] = true
 		}
