@@ -197,6 +197,18 @@ type FillCheck struct {
 	Module string
 	// FillModules are the modules that the declaration lets fills import.
 	FillModules []string
+	// CommandFills are the fills that the commands of the declaration name, with the import path of the command
+	// slot contract, whose import closure the qualifier checks (ST-SUP-RC32-OC03).
+	CommandFills []CommandFill
+}
+
+// CommandFill is the one fill of one command: the fill, the command, where the declaration names it, such as
+// commands[0].fill, and the import path of the command slot contract package that the fill may import.
+type CommandFill struct {
+	Fill     string
+	Command  string
+	Path     string
+	Contract string
 }
 
 // FillQualifier gives a fault for each binding of a fill that does not fit

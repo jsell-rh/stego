@@ -179,6 +179,10 @@ type Context struct {
 	// query generators replace the store; until then it is false and the adapter emits the GORM store.
 	RuntimeData bool
 
+	// Commands are the declared commands of the service (ST-DECL-EN18), in declaration order, each with the slot
+	// that its fill implements. Generators must not change them.
+	Commands []Command
+
 	// Queries are the queries of the declaration (ST-DECL-EN19), in declaration order. Generators must not change
 	// them.
 	Queries []types.Query
@@ -192,6 +196,14 @@ type Context struct {
 	// is a server stream (ST-DECL-INV73). The compiler reads no proto file for it yet, so it is empty until the
 	// check of ST-DECL-INV73 is built.
 	QueryStreams map[string]bool
+}
+
+// Command is one declared command (ST-DECL-EN18) with what the compiler read of its fill.
+type Command struct {
+	types.Command
+	// FillSlot is the slot that the command's one fill implements, as component.slot, as its fill.yaml names it,
+	// or empty when the project holds no such fill.
+	FillSlot string
 }
 
 // EmitterKind tells how the generated code gives an emitter's fill its probe.

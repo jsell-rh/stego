@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"io/fs"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,8 +19,8 @@ import (
 // module, the Go standard library and the modules the declaration lists for
 // fills (ST-EXT-INV05). A test file, whose name ends in _test.go, is not
 // built into the service, so it may import any module of go.mod. The fault
-// names the file and the import.
-func checkImports(dir string, check compiler.FillCheck) error {
+// names the file and the import. A command fill may import its command slot contract, which other names.
+func checkImports(dir string, check compiler.FillCheck, other ...string) error {
 	contracts := strings.TrimSuffix(check.Module, "/") + "/out/slots"
 	var faults []string
 	fset := token.NewFileSet()
@@ -37,7 +38,7 @@ func checkImports(dir string, check compiler.FillCheck) error {
 			if err != nil {
 				return err
 			}
-			if path == contracts || standardLibrary(path) || listedModule(path, check.FillModules) {
+			if path == contracts || slices.Contains(other, path) || standardLibrary(path) || listedModule(path, check.FillModules) {
 				continue
 			}
 			faults = append(faults, fmt.Sprintf("the file %s imports %s", filepath.ToSlash(relative), path))

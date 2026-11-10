@@ -1,0 +1,22 @@
+kind: component
+name: command
+version: 0.1.0
+stage: alpha
+sunset: 2027-04-30
+output_namespace: commands
+
+config:
+  proto_files:
+    type: list
+    items:
+      path:
+        type: string
+      import_path:
+        type: string
+
+requires: []
+
+provides:
+  - commands
+
+slots: []
