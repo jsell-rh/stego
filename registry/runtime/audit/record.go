@@ -61,6 +61,17 @@ func sqlState(err error) string {
 	return ""
 }
 
+// MaxSinkMessage is the largest sink message of one event: the payload limit of the audit-sink outbox destination
+// (ST-SUP-RP05-LC14).
+const MaxSinkMessage = 1 << 20
+
+// sinkMessageMargin covers a recorded time that encodes longer than the time of the size check.
+const sinkMessageMargin = 64
+
+// ErrTooLarge is the error of Record for an event whose sink message is larger than MaxSinkMessage. It names no
+// value; Record sends no statement then.
+var ErrTooLarge = errors.New("audit: the audit event is larger than the audit sink takes")
+
 // Writer writes audit rows and enqueues each of them for the audit sink.
 type Writer struct {
 	outbox         Enqueuer
@@ -267,6 +278,24 @@ func (w *Writer) write(ctx context.Context, tx Tx, t tenant.Tenant, events []Eve
 			return nil, err
 		}
 		prepared[i] = p
+	}
+	// Each sink message must fit the audit-sink destination's payload limit. The size is known before any statement
+	// is sent, with the hash, the previous hash and the recorded time at their full size, so a command whose event
+	// is too large fails before its first write and never half-way (ST-SUP-RP05-LC14).
+	for _, p := range prepared {
+		sized := p
+		sized.RecordedAt = now
+		sized, err := Link(sized, ZeroHash())
+		if err != nil {
+			return nil, err
+		}
+		payload, err := eventMessage(sized)
+		if err != nil {
+			return nil, err
+		}
+		if len(payload)+sinkMessageMargin > MaxSinkMessage {
+			return nil, ErrTooLarge
+		}
 	}
 	tid := t.ID()
 	var (

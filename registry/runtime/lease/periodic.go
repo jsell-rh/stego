@@ -19,7 +19,7 @@ const PeriodicName = "periodic-jobs"
 type Job struct {
 	// Name names the job in its counts and its health.
 	Name string
-	// Interval is the job's declared interval: the time from the end of one run to the start of the next.
+	// Interval is the job's declared interval: the time from the start of one run to the start of the next.
 	Interval time.Duration
 	// Run runs the job once under held, the lease that the controller holds. Its context ends when the lease
 	// stops. An error, or a panic, is a failed run.
@@ -44,6 +44,9 @@ type PeriodicConfig struct {
 	Jobs []Job
 	// Clock is the process clock of the intervals; nil is the system clock.
 	Clock Clock
+	// Retry is the wait before the next try after a due run found no lease held: the lease's retry period, zero
+	// for DefaultRetry, so a job runs soon after the controller acquires the lease.
+	Retry time.Duration
 }
 
 // Periodic is the periodic job component of the controller mode.
@@ -51,6 +54,7 @@ type Periodic struct {
 	lease func() *Held
 	jobs  []Job
 	clock Clock
+	retry time.Duration
 
 	mu    sync.Mutex
 	stats map[string]*JobStats
@@ -65,6 +69,13 @@ func NewPeriodic(cfg PeriodicConfig) (*Periodic, error) {
 	p := &Periodic{lease: cfg.Lease, jobs: append([]Job(nil), cfg.Jobs...), clock: cfg.Clock, stats: map[string]*JobStats{}}
 	if p.clock == nil {
 		p.clock = systemClock{}
+	}
+	p.retry = cfg.Retry
+	if p.retry == 0 {
+		p.retry = DefaultRetry
+	}
+	if p.retry < 0 {
+		return nil, errors.New("lease: the retry period of the periodic jobs is negative")
 	}
 	for _, j := range p.jobs {
 		switch {
@@ -81,10 +92,12 @@ func NewPeriodic(cfg PeriodicConfig) (*Periodic, error) {
 }
 
 // Run runs each job until ctx ends (ST-SUP-RP09-LC13): the first run at start, and then one run each time the job's
-// interval has passed since the end of its last run. A run starts only while Lease gives a lease that has not
-// stopped, and its context ends when that lease stops; a job that is due while no lease is held is skipped, not run
-// late. A run that fails, or panics, is counted, makes Health report the job, and does not stop later runs. It is
-// the run function of the controller mode's component PeriodicName, and it returns only when ctx ends.
+// interval has passed since the start of its last run. A run starts only while Lease gives a lease that has not
+// stopped; its context ends when that lease stops and has the lease's expiry as its deadline, so no run outlives the
+// lease. A job that is due while no lease is held is skipped, counted, and tried again after the retry period, so
+// it runs soon after the lease is acquired. A run that fails, or panics, is counted, makes Health report the job,
+// and does not stop later runs. It is the run function of the controller mode's component PeriodicName, and it
+// returns only when ctx ends.
 func (p *Periodic) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
 	for _, j := range p.jobs {
@@ -92,11 +105,15 @@ func (p *Periodic) Run(ctx context.Context) error {
 		go func(j Job) {
 			defer wg.Done()
 			for {
-				p.runOnce(ctx, j)
+				start := p.clock.Now()
+				wait := p.retry
+				if p.runOnce(ctx, j) {
+					wait = max(j.Interval-p.clock.Now().Sub(start), 0)
+				}
 				select {
 				case <-ctx.Done():
 					return
-				case <-p.clock.After(j.Interval):
+				case <-p.clock.After(wait):
 				}
 			}
 		}(j)
@@ -105,17 +122,17 @@ func (p *Periodic) Run(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// runOnce runs j once when the lease is held, and counts the outcome.
-func (p *Periodic) runOnce(ctx context.Context, j Job) {
+// runOnce runs j once when the lease is held, counts the outcome, and reports whether it ran.
+func (p *Periodic) runOnce(ctx context.Context, j Job) bool {
 	if ctx.Err() != nil {
-		return
+		return false
 	}
 	held := p.lease()
 	if held == nil || held.Err() != nil {
 		p.count(j.Name, func(s *JobStats) { s.Skipped++ })
-		return
+		return false
 	}
-	runCtx, cancel := context.WithCancel(ctx)
+	runCtx, cancel := context.WithDeadline(ctx, held.Expires())
 	stop := make(chan struct{})
 	go func() {
 		select {
@@ -134,6 +151,7 @@ func (p *Periodic) runOnce(ctx context.Context, j Job) {
 			s.Failures++
 		}
 	})
+	return true
 }
 
 // runJob calls the job's run function and turns a panic into an error that holds no part of the panic value.

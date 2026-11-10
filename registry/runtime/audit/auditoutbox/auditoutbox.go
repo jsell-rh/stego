@@ -38,10 +38,20 @@ type Queue struct {
 
 var _ audit.Enqueuer = (*Queue)(nil)
 
-// NewQueue returns the adapter of the outbox queue q.
+// PayloadLimits are the payload limits that the outbox queue of the adapter takes: audit-sink up to
+// audit.MaxSinkMessage. The generated wiring gives them as outbox.Options.PayloadLimits.
+func PayloadLimits() map[string]int {
+	return map[string]int{audit.SinkDestination: audit.MaxSinkMessage}
+}
+
+// NewQueue returns the adapter of the outbox queue q. It refuses a queue whose payload limit for audit-sink is
+// below audit.MaxSinkMessage, so an event that the Writer takes never fails at the enqueue.
 func NewQueue(q *outbox.Queue) (*Queue, error) {
 	if q == nil {
 		return nil, errors.New("auditoutbox: the adapter needs the outbox queue")
+	}
+	if q.PayloadLimit(audit.SinkDestination) < audit.MaxSinkMessage {
+		return nil, errors.New("auditoutbox: the outbox queue does not take audit sink messages of 1 MiB; give it PayloadLimits")
 	}
 	return &Queue{queue: q}, nil
 }

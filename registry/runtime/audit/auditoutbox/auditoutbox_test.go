@@ -9,10 +9,12 @@ import (
 	"errors"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"stego.dev/runtime/audit"
@@ -157,7 +159,7 @@ func TestSinkThroughOutbox(t *testing.T) {
 	t.Run("ST-SUP-RP05-LC14-T01 An audit row reaches the sink through the runtime adapter", func(t *testing.T) {
 		e := newEnv(t)
 		ctx := context.Background()
-		queue, err := outbox.New(e.runtime, outbox.Options{})
+		queue, err := outbox.New(e.runtime, outbox.Options{PayloadLimits: PayloadLimits()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -307,4 +309,100 @@ func sinkPayload(t *testing.T, e audit.Event) []byte {
 		t.Fatal(err)
 	}
 	return append(append([]byte(`{"event":`), rec...), []byte(`,"kind":"event"}`)...)
+}
+
+// bigEvent is an audit event of t1 whose after state holds a note of size bytes.
+func bigEvent(t *testing.T, requestID string, size int) audit.Event {
+	t.Helper()
+	e := audit.Event{TenantID: "t1", ActorID: "user:u-7", ActorKind: audit.ActorUser, Action: "update",
+		ResourceType: "order", ResourceID: "o1", Outcome: audit.OutcomeOK, RequestID: requestID, Service: "orders"}
+	if err := e.SetStates(audit.Settings{Level: audit.LevelChange}, audit.Fields{}, map[string]any{"note": ""},
+		map[string]any{"note": strings.Repeat("x", size)}); err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
+func TestSinkPayloadLimit(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	t1 := mustTenant(t, "t1")
+	queue, err := outbox.New(e.runtime, outbox.Options{PayloadLimits: PayloadLimits()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, err := NewQueue(queue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := audit.NewWriter(adapter, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("ST-SUP-RP05-LC14-T02 An audit event above 64 KiB reaches the outbox of audit-sink", func(t *testing.T) {
+		tx, err := tenant.Begin(ctx, e.runtime, t1, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writer.Record(ctx, tx, t1, []audit.Event{bigEvent(t, "r-big", 200<<10)}); err != nil {
+			t.Fatalf("Record of an event of 200 KiB: %v", err)
+		}
+		if err := tenant.Commit(ctx, tx, t1); err != nil {
+			t.Fatal(err)
+		}
+		if n := e.count(t, "SELECT count(*) FROM stego_outbox.messages WHERE destination = 'audit-sink' AND octet_length(payload::text) > 200*1024"); n != 1 {
+			t.Fatalf("%d audit-sink messages above 200 KiB, want one", n)
+		}
+		// Another destination keeps the limit of 64 KiB.
+		tx, err = tenant.Begin(ctx, e.runtime, t1, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback()
+		payload := []byte(`{"note":"` + strings.Repeat("x", 70<<10) + `"}`)
+		if err := queue.Enqueue(ctx, tx, outbox.Message{ID: uuid.New(), Destination: "billing", ResourceKey: "charge:1",
+			Kind: "charge", Payload: payload}); err == nil {
+			t.Fatal("a billing message of 70 KiB was taken")
+		}
+		// A queue without the limit of audit-sink is refused at start.
+		plain, err := outbox.New(e.runtime, outbox.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := NewQueue(plain); err == nil {
+			t.Fatal("the adapter took a queue whose audit-sink limit is 64 KiB")
+		}
+		if _, err := outbox.New(e.runtime, outbox.Options{PayloadLimits: map[string]int{"audit-sink": 2 << 20}}); err == nil {
+			t.Fatal("a payload limit of 2 MiB was taken")
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC14-T03 An audit event above 1 MiB is refused before any write", func(t *testing.T) {
+		before := e.count(t, "SELECT count(*) FROM stego_outbox.messages")
+		tx, err := tenant.Begin(ctx, e.runtime, t1, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback()
+		if _, err := writer.Record(ctx, tx, t1, []audit.Event{bigEvent(t, "r-small", 10), bigEvent(t, "r-huge", 1<<20)}); !errors.Is(err, audit.ErrTooLarge) {
+			t.Fatalf("Record of an event of 1 MiB gave %v, want ErrTooLarge", err)
+		}
+		if strings.Contains(audit.ErrTooLarge.Error(), "xxx") {
+			t.Fatal("the error holds a value of the event")
+		}
+		// No statement was sent: the transaction is still good, and it commits with no audit row and no message.
+		if _, err := tx.ExecContext(ctx, "SELECT 1"); err != nil {
+			t.Fatalf("the transaction failed after the refusal: %v", err)
+		}
+		if err := tenant.Commit(ctx, tx, t1); err != nil {
+			t.Fatal(err)
+		}
+		if n := e.count(t, "SELECT count(*) FROM "+audit.EventsTable+" WHERE request_id IN ('r-small', 'r-huge')"); n != 0 {
+			t.Fatalf("%d audit rows of the refused batch", n)
+		}
+		if n := e.count(t, "SELECT count(*) FROM stego_outbox.messages"); n != before {
+			t.Fatal("the refused batch enqueued a message")
+		}
+	})
 }

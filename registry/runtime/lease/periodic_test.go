@@ -17,18 +17,25 @@ func TestPeriodic(t *testing.T) {
 		if err := Declare(ctx, d.db, "stego.controller"); err != nil {
 			t.Fatal(err)
 		}
-		held := acquire(t, newClient(t, d.db, "stego.controller", "controller-a", Settings{}))
+		client := newClient(t, d.db, "stego.controller", "controller-a", Settings{})
+		held := acquire(t, client)
 		var current atomic.Pointer[Held]
 		current.Store(held)
 		clock := newFakeClock()
-		var runs atomic.Int64
-		var withLease atomic.Int64
-		p, err := NewPeriodic(PeriodicConfig{Lease: current.Load, Clock: clock, Jobs: []Job{{Name: "audit-anchor",
-			Interval: time.Second, Run: func(ctx context.Context, h *Held) error {
+		var runs, withLease atomic.Int64
+		var deadlineOK atomic.Bool
+		deadlineOK.Store(true)
+		p, err := NewPeriodic(PeriodicConfig{Lease: current.Load, Clock: clock, Retry: 100 * time.Millisecond,
+			Jobs: []Job{{Name: "audit-anchor", Interval: time.Second, Run: func(ctx context.Context, h *Held) error {
 				n := runs.Add(1)
-				if h == held && h.Err() == nil {
+				if h == current.Load() && h.Err() == nil {
 					withLease.Add(1)
 				}
+				if deadline, ok := ctx.Deadline(); !ok || !deadline.Equal(h.Expires()) {
+					deadlineOK.Store(false)
+				}
+				// Each run takes 300 ms of the process clock: the next start is 1 s after this start.
+				clock.Advance(300 * time.Millisecond)
 				if n == 2 {
 					return errors.New("the sink is down")
 				}
@@ -59,10 +66,11 @@ func TestPeriodic(t *testing.T) {
 			t.Fatalf("%d runs at start, want one", n)
 		}
 		for i := 2; i <= 4; i++ {
-			clock.Advance(999 * time.Millisecond)
+			// The last run started 1 s ago less 1 ms: 300 ms of it went in the run, so 699 ms are left to wait.
+			clock.Advance(699 * time.Millisecond)
 			time.Sleep(20 * time.Millisecond)
 			if n := runs.Load(); n != int64(i-1) {
-				t.Fatalf("%d runs before the interval passed, want %d", n, i-1)
+				t.Fatalf("%d runs before the interval from the last start passed, want %d", n, i-1)
 			}
 			clock.Advance(time.Millisecond)
 			clock.waitWaiters(t, 1)
@@ -81,8 +89,8 @@ func TestPeriodic(t *testing.T) {
 		if ok, _ := p.Health(); !ok {
 			t.Fatal("the health still reports the job after a run that succeeded")
 		}
-		if withLease.Load() != 4 {
-			t.Fatalf("%d runs got the held lease, want 4", withLease.Load())
+		if withLease.Load() != 4 || !deadlineOK.Load() {
+			t.Fatalf("%d runs got the held lease, and the deadline was the lease's expiry: %t", withLease.Load(), deadlineOK.Load())
 		}
 
 		// Another holder takes the lease: the renew fails, the holder stops, and the job runs no more.
@@ -90,18 +98,24 @@ func TestPeriodic(t *testing.T) {
 		if err := held.Renew(ctx); !errors.Is(err, ErrLost) {
 			t.Fatalf("the renew gave %v, want ErrLost", err)
 		}
+		clock.Advance(700 * time.Millisecond)
+		clock.waitWaiters(t, 1)
+		// After a skip the job tries again at the retry period, not at the interval.
 		for range 2 {
-			clock.Advance(time.Second)
+			clock.Advance(100 * time.Millisecond)
 			clock.waitWaiters(t, 1)
 		}
-		if s := stats(); runs.Load() != 4 || s.Runs != 4 || s.Skipped != 2 {
-			t.Fatalf("after the lease was lost the counts are %+v with %d runs, want no run and 2 skips", s, runs.Load())
-		}
-		current.Store(nil)
-		clock.Advance(time.Second)
-		clock.waitWaiters(t, 1)
 		if s := stats(); runs.Load() != 4 || s.Skipped != 3 {
-			t.Fatalf("with no lease the counts are %+v, want a third skip", s)
+			t.Fatalf("after the lease was lost the counts are %+v with %d runs, want no run and 3 skips", s, runs.Load())
+		}
+		// The controller acquires the lease again: the job runs at the next retry, not one interval later.
+		d.expire(t, "stego.controller")
+		again := acquire(t, client)
+		current.Store(again)
+		clock.Advance(100 * time.Millisecond)
+		clock.waitWaiters(t, 1)
+		if n := runs.Load(); n != 5 || withLease.Load() != 5 {
+			t.Fatalf("%d runs (%d with the lease) after the lease was acquired again, want 5", n, withLease.Load())
 		}
 		cancel()
 		if err := running.Wait(); err != nil {

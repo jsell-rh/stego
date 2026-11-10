@@ -174,7 +174,7 @@ func TestCommandPermission(t *testing.T) {
 }
 
 func TestCommandPermissionOnRows(t *testing.T) {
-	t.Run("ST-SUP-RP10-LC05-T02 A fill cannot act on another row without the command's permission on it", func(t *testing.T) {
+	t.Run("ST-SUP-RP10-LC05-T03 A fill cannot act on another row without the command's permission on it", func(t *testing.T) {
 		e := newEnv(t)
 		e.exec(`INSERT INTO orders (tenant_id, id, status, authz_token) VALUES ('t1', 'o5', 'open', 't5'), ('t1', 'o6', 'open', 't6')`)
 		cmd := e.command("cancel", func(s *CommandSpec[testProbe]) {
@@ -214,8 +214,12 @@ func TestCommandPermissionOnRows(t *testing.T) {
 			}
 			return r.Delete(ctx, o)
 		}
+		lockedRead := func(ctx context.Context, r *Repository[order], id string) error {
+			_, err := r.GetForUpdate(ctx, id)
+			return err
+		}
 		for name, change := range map[string]func(context.Context, *Repository[order], string) error{
-			"a locked read and update": update, "a read and update": plainUpdate, "a delete": del} {
+			"a locked read": lockedRead, "a locked read and update": update, "a read and update": plainUpdate, "a delete": del} {
 			if err := act("o6", change); !errors.Is(err, ErrNotFound) {
 				t.Fatalf("%s of o6 gave %v, want not found", name, err)
 			}
@@ -238,6 +242,32 @@ func TestCommandPermissionOnRows(t *testing.T) {
 			relation(t, "user:u-7", "cancel", "t1", "order", "o6"), relation(t, "user:u-7", "view", "t1", "order", "o6"))
 		if err := act("o6", update); err != nil {
 			t.Fatalf("the update of o6 with cancel on it gave %v", err)
+		}
+
+		// A locked list keeps only the rows on which the command's permission is allowed too.
+		e.seedOrg("t1", "org1", 2)
+		e.seedUser("t1", "u1", "org1", true, 2, 1)
+		e.seedUser("t1", "u2", "org1", true, 1, 1)
+		e.decision.setRelations(relation(t, "user:u-7", "cancel", "t1", "order", "o5"),
+			relation(t, "user:u-7", "view", "t1", "user", "u1"), relation(t, "user:u-7", "view", "t1", "user", "u2"),
+			relation(t, "user:u-7", "cancel", "t1", "user", "u2"))
+		withUsers := e.command("cancel", func(s *CommandSpec[testProbe]) {
+			s.Permission, s.Resource = "cancel", orderResource()
+		}, e.orders, e.users)
+		req := e.request("t1", u7(t), "k-lc05-list", `{}`)
+		req.Resource = "o5"
+		var listed []string
+		if _, err := e.run(withUsers, req, func(ctx context.Context, h *Handle[testProbe]) (idempotency.Response, error) {
+			rows, err := repo(t, h, e.users).ListForUpdate(ctx, e.admins, "org1")
+			for _, u := range rows {
+				listed = append(listed, u.Value().ID)
+			}
+			return ok, err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Join(listed, ",") != "u2" {
+			t.Fatalf("the locked list holds %v, want only u2, on which cancel is allowed", listed)
 		}
 		_ = authz.Relation{}
 	})

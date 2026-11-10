@@ -62,7 +62,7 @@ func TestEffects(t *testing.T) {
 		`INSERT INTO charges (tenant_id, id, amount, card_last4) VALUES ('t1', 'c1', 100, '4242'), ('t1', 'c2', 200, '1881')`)
 	cmd := e.command("reserve-and-charge", nil, e.orders, e.reservationE, e.chargeE)
 
-	t.Run("ST-SUP-RP10-LC05-T01 A write through the handle makes no decision call", func(t *testing.T) {
+	t.Run("ST-SUP-RP10-LC05-T01 A write of a command that declares no permission makes no decision call", func(t *testing.T) {
 		_, err := e.run(cmd, e.request("t1", u7(t), "k-lc05", `{}`), fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
 			orders := repo(t, h, e.orders)
 			o, err := orders.Get(ctx, "o1")

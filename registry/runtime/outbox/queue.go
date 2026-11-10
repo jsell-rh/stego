@@ -23,8 +23,11 @@ import (
 
 // The limits of the queue (ST-SUP-RC18-OC02).
 const (
-	// MaxPayloadBytes is the largest payload of one message.
+	// MaxPayloadBytes is the largest payload of one message of a destination that sets no limit of its own.
 	MaxPayloadBytes = 64 << 10
+	// MaxDestinationPayloadBytes is the largest limit that Options.PayloadLimits may set for one destination, such
+	// as audit-sink (ST-SUP-RP05-LC14).
+	MaxDestinationPayloadBytes = 1 << 20
 	// MaxBatchSize is the most messages of one Enqueue call, and the largest limit of a claim, a list or a purge.
 	MaxBatchSize = 32
 	// MaxKeyBytes is the longest outgoing idempotency key, group, principal and origin, in bytes.
@@ -109,7 +112,7 @@ CREATE TABLE IF NOT EXISTS stego_outbox.messages (
 	destination text NOT NULL CHECK (destination ~ '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$'),
 	resource_key text NOT NULL CHECK (octet_length(resource_key) BETWEEN 1 AND 256),
 	kind text NOT NULL CHECK (kind ~ '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$'),
-	payload jsonb NOT NULL CHECK (jsonb_typeof(payload) = 'object' AND octet_length(payload::text) <= 131072),
+	payload jsonb NOT NULL CONSTRAINT messages_payload_check CHECK (jsonb_typeof(payload) = 'object' AND octet_length(payload::text) <= 2097152),
 	outgoing_key text NOT NULL CHECK (octet_length(outgoing_key) BETWEEN 1 AND 255),
 	group_id text NOT NULL DEFAULT '' CHECK (octet_length(group_id) <= 255),
 	principal text NOT NULL DEFAULT '' CHECK (octet_length(principal) <= 255),
@@ -139,6 +142,12 @@ CREATE TABLE IF NOT EXISTS stego_outbox.messages (
 );
 
 ALTER TABLE stego_outbox.messages ADD COLUMN IF NOT EXISTS idempotent boolean NOT NULL DEFAULT false;
+
+-- A destination may carry up to 1 MiB (MaxDestinationPayloadBytes); jsonb's text form of such a payload can be
+-- longer than its JSON, so the table takes twice that. A table of an earlier migration gets the new check.
+ALTER TABLE stego_outbox.messages DROP CONSTRAINT IF EXISTS messages_payload_check;
+ALTER TABLE stego_outbox.messages ADD CONSTRAINT messages_payload_check
+	CHECK (jsonb_typeof(payload) = 'object' AND octet_length(payload::text) <= 2097152);
 
 CREATE INDEX IF NOT EXISTS messages_open_order ON stego_outbox.messages (tenant_id, destination, resource_key, sequence)
 	WHERE state NOT IN ('done', 'discarded');
@@ -534,6 +543,9 @@ type Options struct {
 	// LiveEvents is true when the service declares a live event source. Only then does Enqueue send a notice
 	// (ST-SUP-RP01-LC01); without one, a transaction with effects takes no notify lock at its commit.
 	LiveEvents bool
+	// PayloadLimits sets the largest payload of the messages of a destination, from 1 byte to
+	// MaxDestinationPayloadBytes. A destination it does not name takes MaxPayloadBytes.
+	PayloadLimits map[string]int
 }
 
 // Queue is the queue of one database. Its pool connects as the runtime role of Migration.
@@ -541,6 +553,7 @@ type Queue struct {
 	db     *sql.DB
 	clock  Clock
 	notify bool
+	limits map[string]int
 }
 
 // New returns the queue of db with options.
@@ -548,7 +561,22 @@ func New(db *sql.DB, options Options) (*Queue, error) {
 	if db == nil {
 		return nil, errors.New("outbox: the queue needs a database")
 	}
-	return &Queue{db: db, clock: options.Clock, notify: options.LiveEvents}, nil
+	limits := make(map[string]int, len(options.PayloadLimits))
+	for destination, limit := range options.PayloadLimits {
+		if !labelPattern.MatchString(destination) || limit < 1 || limit > MaxDestinationPayloadBytes {
+			return nil, fmt.Errorf("outbox: the payload limit of %q is not a destination with 1 to %d bytes", destination, MaxDestinationPayloadBytes)
+		}
+		limits[destination] = limit
+	}
+	return &Queue{db: db, clock: options.Clock, notify: options.LiveEvents, limits: limits}, nil
+}
+
+// PayloadLimit returns the largest payload that the queue takes for a message of destination.
+func (q *Queue) PayloadLimit(destination string) int {
+	if limit, ok := q.limits[destination]; ok {
+		return limit
+	}
+	return MaxPayloadBytes
 }
 
 // now is the first argument of every statement that reads the time: the clock's time, or NULL for the database
@@ -584,7 +612,7 @@ func (q *Queue) Check(ctx context.Context) error {
 }
 
 // ValidateMessage checks one message with no database access (ST-SUP-RC18-OC02).
-func ValidateMessage(message Message) error { return validateMessage(message) }
+func ValidateMessage(message Message) error { return validateMessage(message, MaxPayloadBytes) }
 
 // Enqueue writes messages inside the caller's transaction tx, which tenant.Begin opened (ST-SUP-RP01-LC01,
 // ST-SUP-RP01-LC19). It checks every payload before it sends a statement, then takes a transaction-scoped advisory
@@ -602,7 +630,7 @@ func (q *Queue) Enqueue(ctx context.Context, tx *sql.Tx, messages ...Message) er
 	}
 	seen := make(map[uuid.UUID]bool)
 	for _, message := range messages {
-		if err := validateMessage(message); err != nil {
+		if err := validateMessage(message, q.PayloadLimit(message.Destination)); err != nil {
 			return err
 		}
 		if seen[message.ID] {
@@ -987,7 +1015,7 @@ func canceled(ctx context.Context, err error) error {
 	return err
 }
 
-func validateMessage(message Message) error {
+func validateMessage(message Message, limit int) error {
 	if message.ID == uuid.Nil || !labelPattern.MatchString(message.Destination) || !labelPattern.MatchString(message.Kind) {
 		return errors.New("outbox: the message identity, destination or kind is not valid")
 	}
@@ -1001,7 +1029,7 @@ func validateMessage(message Message) error {
 		!validText(message.Group, MaxKeyBytes) {
 		return errors.New("outbox: the staging principal, origin or group is not valid")
 	}
-	if len(message.Payload) == 0 || len(message.Payload) > MaxPayloadBytes || !utf8.Valid(message.Payload) {
+	if len(message.Payload) == 0 || len(message.Payload) > limit || !utf8.Valid(message.Payload) {
 		return errors.New("outbox: the payload size or encoding is not valid")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(message.Payload))
