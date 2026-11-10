@@ -4,8 +4,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
+
+	"github.com/jsell-rh/stego/internal/compiler"
 )
 
 // projectFiles reads every file of a project folder, by its path in the folder, leaving out the apply lock, which
@@ -169,6 +172,10 @@ func TestCheckADeclaration(t *testing.T) {
 		if run.code != 0 || !document.Accepted || len(document.Faults) != 0 {
 			t.Fatalf("ST-DECL-TD02 is not accepted:\n%s%s", run.stdout, run.stderr)
 		}
+		prose := stegoIn(t, project, nil, "validate")
+		if want := acceptedReport(t); prose.code != 0 || prose.stdout != want {
+			t.Fatalf("stego validate on ST-DECL-TD02 exits %d and prints\n%q\nwant\n%q", prose.code, prose.stdout, want)
+		}
 		putFile(t, project, "service.yaml", threeFaults)
 		document, run = validateJSON(t, project)
 		if run.code == 0 || len(document.Faults) != 3 {
@@ -179,4 +186,29 @@ func TestCheckADeclaration(t *testing.T) {
 			t.Errorf("checking made, changed or removed a file")
 		}
 	})
+}
+
+// acceptedReport is the whole standard output that stego validate prints for ST-DECL-TD02 when it accepts it: the
+// line that says no fault was found, then the standing of each component pin on lines of its own. The pins are
+// read from the record that stego apply writes in a second project with the same declaration and registry.
+func acceptedReport(t *testing.T) string {
+	t.Helper()
+	applied := td02Project(t, td02)
+	if run := stegoIn(t, applied, nil, "apply"); run.code != 0 {
+		t.Fatalf("stego apply on ST-DECL-TD02 exits %d:\n%s%s", run.code, run.stdout, run.stderr)
+	}
+	state, err := compiler.LoadState(filepath.Join(applied, ".stego", "state.yaml"))
+	if err != nil || state.LastApplied == nil || len(state.LastApplied.Components) == 0 {
+		t.Fatalf("stego apply wrote no component pins: %v", err)
+	}
+	names := make([]string, 0, len(state.LastApplied.Components))
+	for name := range state.LastApplied.Components {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	want := "Validation passed. No issues found.\nPin standing:\n"
+	for _, name := range names {
+		want += "  current " + name + " " + state.LastApplied.Components[name].SHA + "\n"
+	}
+	return want
 }

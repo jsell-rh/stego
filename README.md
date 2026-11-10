@@ -47,12 +47,19 @@ A service whose archetype holds the command and query components, and whose
 record does not state the GORM store, runs on the runtime data path: its
 commands, its queries and its collection operations run on the runtime library
 stego.dev/runtime. The record states the data path of each run, so the service
-stays on it. Its main reads the deployment settings from the environment, and
-takes the issuer and the audience that the declaration states for jwt-auth. Its
-binary with the one argument `migrate` is the migration job: it runs as the owner
-role over verified TLS, refuses a database with tables that it did not make, and
-writes the authorization schema, the tables and the tables of the runtime library
-before the service starts. It runs again on every release.
+stays on it. Its main reads the deployment settings from the environment:
+`DATABASE_URL` or `DATABASE_URL_FILE` for the runtime role, `STEGO_SPICEDB_ENDPOINT`
+and `STEGO_SPICEDB_KEY_FILE` for SpiceDB, `STEGO_QUERY_CURSOR_KEY_FILE` for the key
+of the list cursors, and `STEGO_SERVICE_VERSION` for the release that each audit
+row names. It takes the issuer and the audience that the declaration states for
+jwt-auth; when the declaration states none, it reads `STEGO_AUTHN_ISSUER` and
+`STEGO_AUTHN_AUDIENCE`. When the declaration states no public key file, it reads
+the key document of the issuer from `STEGO_AUTHN_KEYS_URL` or `STEGO_AUTHN_KEYS_FILE`.
+Its binary with the one argument `migrate` is the migration job: it reads
+`STEGO_MIGRATION_DATABASE_URL` or `STEGO_MIGRATION_DATABASE_URL_FILE`, runs as the
+owner role over verified TLS, refuses a database with tables that it did not make,
+and writes the authorization schema, the tables and the tables of the runtime
+library before the service starts. It runs again on every release.
 
 The [Go SDK component](registry/components/go-sdk/README.md) generates typed
 HTTPS clients from captured OpenAPI contracts. Its transport and optional
@@ -203,8 +210,11 @@ error. Deferred resource cleanup runs before process exit. These defaults serve
 the current request-response API. Long-lived streams need a separate deadline
 policy. Network deadlines do not stop application code that ignores cancellation.
 
-Before you start the service, set `STEGO_AUTH_ISSUER`, `STEGO_AUTH_AUDIENCE`, and
-`STEGO_AUTH_PUBLIC_KEY_FILE`. The key file must contain one RSA public key in PEM
+The service of this quick start is on the GORM store, because its archetype does
+not hold the command and query components. Before you start it, set
+`STEGO_AUTH_ISSUER`, `STEGO_AUTH_AUDIENCE`, and `STEGO_AUTH_PUBLIC_KEY_FILE`. A
+service on the runtime data path reads the `STEGO_AUTHN_` settings above instead.
+The key file must contain one RSA public key in PEM
 format. The default authentication component verifies RS256 signatures and
 requires the configured issuer and audience, a subject, an issue time, and an
 expiry. It accepts the `JWT` token type. Incomplete settings stop startup. Restart
@@ -305,7 +315,6 @@ hand; see [Specification checks](#specification-checks).
 | `stego fill sign` | `stego fill sign <name>` |
 | `stego fill status` | `stego fill status` |
 | `stego fleet` | `stego fleet --digest <digest> <checkout>...` |
-| `stego fleet measures` | `stego fleet measures [--json] <checkout>...` |
 | `stego fleet vex` | `stego fleet vex --registry <folder> <checkout>...` |
 | `stego image build` | `stego image build (--build-record <file> --build-record-sha256 <digest> --application <file> \| --after <file> --build-result <folder>) --trust-store <file> --trust-store-sha256 <digest> [--entrypoint <name>] --output <folder>` |
 | `stego image export` | `stego image export --record <file> --record-sha256 <digest> --image <folder> --build-record <file> --work <folder>` |
