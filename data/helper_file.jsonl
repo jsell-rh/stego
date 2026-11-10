@@ -6,6 +6,7 @@
 {"record_id":"ST-DIS-EN06-TB","file":"registry/lifecycle/README.md"}
 {"record_id":"ST-EXT-CMD01-H","file":"cmd/stego/scaffold.go"}
 {"record_id":"ST-EXT-CMD02-H","file":"internal/fill/evidence.go"}
+{"record_id":"ST-EXT-INV05-RL","file":"internal/fill/closure.go"}
 {"record_id":"ST-GEN-CMD01-H","file":"internal/compiler/apply_hook.go"}
 {"record_id":"ST-GEN-CMD01-H","file":"internal/compiler/filesystem.go"}
 {"record_id":"ST-GEN-CMD01-H","file":"internal/compiler/sync_other.go"}
@@ -24,3 +25,8 @@
 {"record_id":"ST-GEN-QRY03-H","file":"internal/compiler/namespace.go"}
 {"record_id":"ST-GEN-QRY03-H","file":"internal/compiler/source.go"}
 {"record_id":"ST-SUP-RC18-G01","file":"internal/generator/outbox/runtime.go"}
+{"record_id":"ST-SUP-RC32-G01","file":"internal/generator/command/entities.go"}
+{"record_id":"ST-SUP-RC32-G01","file":"internal/generator/command/messages.go"}
+{"record_id":"ST-SUP-RC32-G01","file":"internal/generator/command/names.go"}
+{"record_id":"ST-SUP-RC32-G01","file":"internal/generator/command/render.go"}
+{"record_id":"ST-SUP-RC32-G01","file":"internal/generator/command/serve.go"}

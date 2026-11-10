@@ -178,6 +178,19 @@ type Context struct {
 	// as SQL and emits no store and no entity model (ST-SUP-RC01-OC41). The compiler sets it when the command and
 	// query generators replace the store; until then it is false and the adapter emits the GORM store.
 	RuntimeData bool
+
+	// Commands are the declared commands of the service (ST-DECL-EN18), in declaration order, each with the slot
+	// that its fill implements. Generators must not change them.
+	Commands []Command
+
+}
+
+// Command is one declared command (ST-DECL-EN18) with what the compiler read of its fill.
+type Command struct {
+	types.Command
+	// FillSlot is the slot that the command's one fill implements, as component.slot, as its fill.yaml names it,
+	// or empty when the project holds no such fill.
+	FillSlot string
 }
 
 // EmitterKind tells how the generated code gives an emitter's fill its probe.

@@ -24,6 +24,7 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/browserbackend"
 	"github.com/jsell-rh/stego/internal/generator/browsertelemetry"
 	"github.com/jsell-rh/stego/internal/generator/cliapplication"
+	"github.com/jsell-rh/stego/internal/generator/command"
 	"github.com/jsell-rh/stego/internal/generator/controller"
 	"github.com/jsell-rh/stego/internal/generator/domainprobe"
 	"github.com/jsell-rh/stego/internal/generator/gosdk"
@@ -920,6 +921,7 @@ func defaultGenerators() map[string]gen.Generator {
 		"domain-probe":          &domainprobe.Generator{},
 		"idempotency":           &idempotency.Generator{},
 		"spicedb-authz":         &spicedbauthz.Generator{},
+		"command":               &command.Generator{},
 	}
 }
 

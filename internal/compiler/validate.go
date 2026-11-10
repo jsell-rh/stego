@@ -152,7 +152,7 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 		check := fillCheck(input, svcDecl, reg, components)
 		// A compiler given no qualifier checks no qualification; cmd/stego,
 		// which runs validate, plan and apply, always gives one.
-		if len(fillErrs) == 0 && len(check.Bindings) > 0 && input.QualifyFills != nil {
+		if len(fillErrs) == 0 && (len(check.Bindings) > 0 || len(check.CommandFills) > 0) && input.QualifyFills != nil {
 			faults, err := input.QualifyFills(check)
 			if err != nil {
 				return nil, fmt.Errorf("checking the bound fills: %w", err)
@@ -433,6 +433,9 @@ func ResolveFillCheck(input ReconcilerInput) (FillCheck, error) {
 	return fillCheck(input, source.Service, source.Registry, source.Active), nil
 }
 
+// commandComponent is the component that generates the commands (ST-SUP-RC32).
+const commandComponent = "command"
+
 // fillCheck gives the fill check of a declaration with its active component
 // set.
 func fillCheck(input ReconcilerInput, svcDecl *types.ServiceDeclaration, reg *registry.Registry, components map[string]*registry.Component) FillCheck {
@@ -462,6 +465,22 @@ func fillCheck(input ReconcilerInput, svcDecl *types.ServiceDeclaration, reg *re
 	}
 	for _, c := range svcDecl.Collections {
 		check.Collections = append(check.Collections, c.Name)
+	}
+	// The fill of each command imports the command slot contract of the command component (ST-SUP-RC32-OC03).
+	if command := components[commandComponent]; command != nil && command.OutputNamespace != "" {
+		outDirName := "out"
+		if input.OutDir != "" {
+			if relative, err := outputRelative(input.ProjectDir, input.OutDir); err == nil {
+				outDirName = relative
+			}
+		}
+		contract := generatedImportPath(input.ModuleName, outDirName, command.OutputNamespace)
+		for i, c := range svcDecl.Commands {
+			if len(c.Fill) == 1 && c.Fill[0] != "" && !strings.ContainsAny(c.Fill[0], `/\.`) {
+				check.CommandFills = append(check.CommandFills, CommandFill{Fill: c.Fill[0], Command: c.Name,
+					Path: fmt.Sprintf("commands[%d].fill", i), Contract: contract})
+			}
+		}
 	}
 	for i, sb := range svcDecl.Slots {
 		for _, operator := range []struct {
