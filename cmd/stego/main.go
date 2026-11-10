@@ -20,6 +20,7 @@ import (
 	"github.com/jsell-rh/stego/internal/declaration"
 	"github.com/jsell-rh/stego/internal/fill"
 	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/generator/auditlog"
 	"github.com/jsell-rh/stego/internal/generator/browserbackend"
 	"github.com/jsell-rh/stego/internal/generator/browsertelemetry"
 	"github.com/jsell-rh/stego/internal/generator/cliapplication"
@@ -909,6 +910,7 @@ func defaultGenerators() map[string]gen.Generator {
 		"rh-sso-auth":           &rhssoauth.Generator{},
 		"otel-tracing":          &oteltracing.Generator{},
 		"health-check":          &healthcheck.Generator{},
+		"audit-log":             &auditlog.Generator{},
 	}
 }
 

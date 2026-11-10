@@ -120,6 +120,14 @@ type Context struct {
 	// use "about:blank" per RFC 9457.
 	ErrorTypeBase string
 
+	// Audit is the audit setting of the service declaration (ST-DECL-EN10), or
+	// nil when the declaration omits it, which means audit at level change.
+	Audit *types.Audit
+
+	// PortBindings maps each port that the service declaration binds to the
+	// component it binds the port to: the overrides whose value is a name.
+	PortBindings map[string]string
+
 	// StorageContract is the full import path of the compiler-owned storage
 	// contract. A generator that uses it must request StorageV1 in its wiring.
 	// Empty selects standalone definitions without shared contract assembly.

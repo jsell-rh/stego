@@ -1,0 +1,21 @@
+kind: component
+name: audit-log
+version: 0.1.0
+stage: alpha
+sunset: 2027-04-30
+output_namespace: internal/auditlog
+
+config:
+  anchor_period:
+    type: string
+    default: 1h
+  retention_months:
+    type: int
+    default: 13
+
+requires:
+  - audit-sink
+
+provides: []
+
+slots: []
