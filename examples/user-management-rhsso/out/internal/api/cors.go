@@ -5,26 +5,19 @@ package api
 import (
 	"net/http"
 	"os"
-	"strings"
 )
 
-// NewCORSMiddleware returns HTTP middleware for cross-origin requests.
+// NewCORSMiddleware returns HTTP middleware that sets CORS headers on all
+// responses and handles OPTIONS preflight requests with 204 No Content.
 //
 // Environment variables:
-//   - CORS_ALLOWED_ORIGINS: comma-separated list of the allowed origins, such as
-//     https://app.example.com; with none, the middleware sets no CORS header
+//   - CORS_ALLOWED_ORIGINS: comma-separated list of allowed origins (default: *)
 //   - CORS_ALLOWED_METHODS: allowed HTTP methods (default: GET,POST,PATCH,PUT,DELETE,OPTIONS)
 //   - CORS_ALLOWED_HEADERS: allowed request headers (default: Content-Type,Authorization)
-//
-// A request whose Origin is one of the allowed origins gets that origin back in
-// Access-Control-Allow-Origin; an origin that is not listed gets no CORS header.
-// Each answer carries Vary: Origin, and an OPTIONS preflight gets 204 No Content.
 func NewCORSMiddleware() func(http.Handler) http.Handler {
-	allowed := map[string]bool{}
-	for _, origin := range strings.Split(os.Getenv("CORS_ALLOWED_ORIGINS"), ",") {
-		if origin = strings.TrimSpace(origin); origin != "" {
-			allowed[origin] = true
-		}
+	allowedOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")
+	if allowedOrigins == "" {
+		allowedOrigins = "*"
 	}
 	allowedMethods := os.Getenv("CORS_ALLOWED_METHODS")
 	if allowedMethods == "" {
@@ -36,16 +29,10 @@ func NewCORSMiddleware() func(http.Handler) http.Handler {
 	}
 
 	return func(next http.Handler) http.Handler {
-		if len(allowed) == 0 {
-			return next
-		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Add("Vary", "Origin")
-			if origin := r.Header.Get("Origin"); allowed[origin] {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Methods", allowedMethods)
-				w.Header().Set("Access-Control-Allow-Headers", allowedHeaders)
-			}
+			w.Header().Set("Access-Control-Allow-Origin", allowedOrigins)
+			w.Header().Set("Access-Control-Allow-Methods", allowedMethods)
+			w.Header().Set("Access-Control-Allow-Headers", allowedHeaders)
 
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
