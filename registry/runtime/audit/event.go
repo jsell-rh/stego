@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -353,7 +354,13 @@ func (e *Event) SetStates(s Settings, f Fields, before, after map[string]any) er
 	if err != nil {
 		return err
 	}
-	e.Before, e.After, e.Patch = State{b}, State{a}, State{encodeTree(patch.tree())}
+	encoded := encodeTree(patch.tree())
+	// A safety net under the field budgets of Diff: the patch is at most three times the two states and 4 KiB a
+	// field, so the event stays linear in its input (ST-SUP-RP05-LC05).
+	if limit := 3*(len(b)+len(a)) + 4096*(len(before)+len(after)+1); len(encoded) > limit {
+		return fmt.Errorf("audit: the patch of the state is larger than its bound")
+	}
+	e.Before, e.After, e.Patch = State{b}, State{a}, State{encoded}
 	return nil
 }
 
@@ -376,6 +383,9 @@ func Redact(state map[string]any, f Fields) (map[string]any, error) {
 	if state == nil {
 		return nil, nil
 	}
+	if err := checkStateDepth(state); err != nil {
+		return nil, err
+	}
 	r, err := redactAt("", "", state, f, nil)
 	if err != nil {
 		return nil, err
@@ -383,9 +393,35 @@ func Redact(state map[string]any, f Fields) (map[string]any, error) {
 	return r.(map[string]any), nil
 }
 
-// redactAt copies v. field is the dotted field path of v and pointer its JSON pointer; pii, when it is not nil,
-// collects the canonical encoding of each pii value by its JSON pointer.
+// redactor redacts states with the field sensitivities f. prefixes holds each dotted path that is a field of f or
+// above one, so only the members on such a path need their names: below any other member no field is pii or secret,
+// and its value is copied into canonical form with no name built. pii, when it is not nil, collects the canonical
+// encoding of each pii value by its JSON pointer.
+type redactor struct {
+	f        Fields
+	prefixes map[string]bool
+	pii      map[string][]byte
+}
+
+func newRedactor(f Fields, pii map[string][]byte) *redactor {
+	r := &redactor{f: f, prefixes: map[string]bool{}, pii: pii}
+	for name := range f {
+		for i := range name {
+			if name[i] == '.' {
+				r.prefixes[name[:i]] = true
+			}
+		}
+		r.prefixes[name] = true
+	}
+	return r
+}
+
+// redactAt copies v. field is the dotted field path of v and pointer its JSON pointer.
 func redactAt(field, pointer string, v any, f Fields, pii map[string][]byte) (any, error) {
+	return newRedactor(f, pii).at(field, pointer, v)
+}
+
+func (r *redactor) at(field, pointer string, v any) (any, error) {
 	switch x := v.(type) {
 	case map[string]any:
 		m := make(map[string]any, len(x))
@@ -394,8 +430,17 @@ func redactAt(field, pointer string, v any, f Fields, pii map[string][]byte) (an
 			if field != "" {
 				child = field + "." + k
 			}
+			if !r.prefixes[child] {
+				// No field at or below child is pii or secret.
+				n, err := normalizeAt(&fieldName{key: child}, e)
+				if err != nil {
+					return nil, err
+				}
+				m[k] = n
+				continue
+			}
 			cp := pointer + "/" + escapePointer(k)
-			switch f[child] {
+			switch r.f[child] {
 			case Secret:
 				continue
 			case PII:
@@ -403,27 +448,42 @@ func redactAt(field, pointer string, v any, f Fields, pii map[string][]byte) (an
 				if err != nil {
 					return nil, err
 				}
-				if pii != nil {
-					pii[cp] = encodeTree(n)
+				if r.pii != nil {
+					r.pii[cp] = encodeTree(n)
 				}
 				m[k] = RedactionMarker
 			default:
-				r, err := redactAt(child, cp, e, f, pii)
+				n, err := r.at(child, cp, e)
 				if err != nil {
 					return nil, err
 				}
-				m[k] = r
+				m[k] = n
 			}
 		}
 		return m, nil
+	case json.RawMessage:
+		// A JSON value, such as the state of a jsonb column, is decoded and redacted as a nested value; an empty one
+		// is a NULL column. An error names the field and not the value.
+		if len(x) == 0 {
+			return nil, nil
+		}
+		name := field
+		if name == "" {
+			name = "state"
+		}
+		decoded, err := decodeFieldJSON(name, x)
+		if err != nil {
+			return nil, err
+		}
+		return r.at(field, pointer, decoded)
 	case []any:
 		a := make([]any, len(x))
 		for i, e := range x {
-			r, err := redactAt(field, pointer+"/"+strconv.Itoa(i), e, f, pii)
+			n, err := r.at(field, pointer+"/"+strconv.Itoa(i), e)
 			if err != nil {
 				return nil, err
 			}
-			a[i] = r
+			a[i] = n
 		}
 		return a, nil
 	default:
@@ -533,6 +593,104 @@ func decodeJSON(name string, raw []byte) (any, error) {
 	return normalize(name, v)
 }
 
+// MaxDepth is the most levels of objects and arrays in the value of a field of a state, such as a jsonb field
+// (ST-SUP-RP05-LC04). A state can hold client JSON, so the bound keeps the work of the redaction, the encoding and the
+// patch linear in the size of the state.
+const MaxDepth = 64
+
+// decodeFieldJSON reads the JSON text of a field of a state, refuses a value that nests deeper than MaxDepth
+// before any other work on it, and gives it in its canonical form. Its error names the field and no value.
+func decodeFieldJSON(name string, raw []byte) (any, error) {
+	d := json.NewDecoder(bytes.NewReader(raw))
+	d.UseNumber()
+	var v any
+	if err := d.Decode(&v); err != nil || d.More() {
+		return nil, fmt.Errorf("audit: %s is not one JSON value", name)
+	}
+	if !within(v, MaxDepth) {
+		return nil, fmt.Errorf("audit: the field %s nests deeper than %d levels", name, MaxDepth)
+	}
+	// A short number text such as 1e-400 has a long canonical form, so the canonical forms of the numbers of the
+	// value may be at most twice its text and one number more, before any of them is made.
+	if numberGrowth(v) > 2*len(raw)+maxNumberText {
+		return nil, fmt.Errorf("audit: the numbers of the field %s have a canonical form much longer than its text", name)
+	}
+	return normalize(name, v)
+}
+
+// numberGrowth gives the length that the canonical forms of the numbers of a decoded value come to at most: for each
+// number, the digits of its mantissa, the size of its exponent and two characters for a sign and a point.
+func numberGrowth(v any) int {
+	switch x := v.(type) {
+	case json.Number:
+		digits, exp := numberParts(string(x))
+		return digits + abs(exp) + 2
+	case map[string]any:
+		n := 0
+		for _, e := range x {
+			n += numberGrowth(e)
+		}
+		return n
+	case []any:
+		n := 0
+		for _, e := range x {
+			n += numberGrowth(e)
+		}
+		return n
+	}
+	return 0
+}
+
+// numberParts gives the count of the digits of the mantissa of a number text and its exponent, 0 when it has none or
+// the exponent is not a whole number that fits.
+func numberParts(s string) (digits, exp int) {
+	mantissa := s
+	if i := strings.IndexAny(s, "eE"); i >= 0 {
+		exp, _ = strconv.Atoi(s[i+1:])
+		mantissa = s[:i]
+	}
+	for _, c := range mantissa {
+		if c >= '0' && c <= '9' {
+			digits++
+		}
+	}
+	return digits, exp
+}
+
+// checkStateDepth refuses a state whose fields nest deeper than MaxDepth levels.
+func checkStateDepth(state map[string]any) error {
+	if state != nil && !within(state, MaxDepth+1) {
+		return fmt.Errorf("audit: a field of the state nests deeper than %d levels", MaxDepth)
+	}
+	return nil
+}
+
+// within tells whether v has at most levels levels of objects and arrays. It stops at the bound, so its work does
+// not grow with a deeper value.
+func within(v any, levels int) bool {
+	switch x := v.(type) {
+	case map[string]any:
+		if levels == 0 {
+			return false
+		}
+		for _, e := range x {
+			if !within(e, levels-1) {
+				return false
+			}
+		}
+	case []any:
+		if levels == 0 {
+			return false
+		}
+		for _, e := range x {
+			if !within(e, levels-1) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // Canonical returns the canonical encoding of a value (ST-SUP-RP05-LC04): object keys sorted at every level, no
 // insignificant whitespace, each number in its shortest exact decimal form (1.0 is 1) and each time in UTC with six
 // fraction digits. It takes the values that encoding/json decodes to, Go integers and floats, and time.Time.
@@ -547,19 +705,55 @@ func Canonical(v any) ([]byte, error) {
 // normalize copies a value into the canonical tree: map[string]any, []any, string, bool, nil and json.Number in
 // canonical form. field names the value in an error, which never holds the value.
 func normalize(field string, v any) (any, error) {
+	return normalizeAt(&fieldName{key: field}, v)
+}
+
+// fieldName is the dotted name of a value in a nested value, made into text only for an error, so the work of a
+// deep or wide value does not grow with the length of its names.
+type fieldName struct {
+	parent *fieldName
+	key    string
+}
+
+func (n *fieldName) String() string {
+	var keys []string
+	for ; n != nil; n = n.parent {
+		keys = append(keys, n.key)
+	}
+	slices.Reverse(keys)
+	return strings.Join(keys, ".")
+}
+
+// number gives the canonical form of the number text s of the value named name.
+func number(name *fieldName, s string) (any, error) {
+	n, err := canonicalNumber("", s)
+	if err != nil {
+		_, err = canonicalNumber(name.String(), s)
+		return nil, err
+	}
+	return n, nil
+}
+
+func normalizeAt(name *fieldName, v any) (any, error) {
 	switch x := v.(type) {
 	case nil:
 		return nil, nil
+	case json.RawMessage:
+		// A JSON value, such as the state of a jsonb column; an empty one is a NULL column.
+		if len(x) == 0 {
+			return nil, nil
+		}
+		return decodeFieldJSON(name.String(), x)
 	case bool:
 		return x, nil
 	case string:
 		return x, nil
 	case json.Number:
-		return canonicalNumber(field, string(x))
+		return number(name, string(x))
 	case float64:
-		return canonicalNumber(field, strconv.FormatFloat(x, 'g', -1, 64))
+		return number(name, strconv.FormatFloat(x, 'g', -1, 64))
 	case float32:
-		return canonicalNumber(field, strconv.FormatFloat(float64(x), 'g', -1, 32))
+		return number(name, strconv.FormatFloat(float64(x), 'g', -1, 32))
 	case int:
 		return json.Number(strconv.FormatInt(int64(x), 10)), nil
 	case int8:
@@ -585,7 +779,7 @@ func normalize(field string, v any) (any, error) {
 	case map[string]any:
 		m := make(map[string]any, len(x))
 		for k, e := range x {
-			n, err := normalize(field+"."+k, e)
+			n, err := normalizeAt(&fieldName{parent: name, key: k}, e)
 			if err != nil {
 				return nil, err
 			}
@@ -595,7 +789,7 @@ func normalize(field string, v any) (any, error) {
 	case []any:
 		a := make([]any, len(x))
 		for i, e := range x {
-			n, err := normalize(field, e)
+			n, err := normalizeAt(name, e)
 			if err != nil {
 				return nil, err
 			}
@@ -609,18 +803,103 @@ func normalize(field string, v any) (any, error) {
 		}
 		return a, nil
 	default:
-		return nil, fmt.Errorf("audit: the field %s has a type with no canonical encoding", field)
+		return nil, fmt.Errorf("audit: the field %s has a type with no canonical encoding", name)
 	}
 }
 
+// shiftDecimal gives the canonical form of the plain decimal mantissa times ten to the power exp, by moving its
+// point in the text, so the work is linear in the length of the form. It gives false for a mantissa that is not an
+// optional minus, digits and an optional point with digits after it.
+func shiftDecimal(mantissa string, exp int) (string, bool) {
+	negative := strings.HasPrefix(mantissa, "-")
+	body := strings.TrimPrefix(mantissa, "-")
+	whole, fraction, hasPoint := strings.Cut(body, ".")
+	if whole == "" || (hasPoint && fraction == "") || strings.Trim(whole, "0123456789") != "" || strings.Trim(fraction, "0123456789") != "" {
+		return "", false
+	}
+	digits := whole + fraction
+	point := len(whole) + exp
+	var text string
+	switch {
+	case point <= 0:
+		text = "0." + strings.Repeat("0", -point) + digits
+	case point >= len(digits):
+		text = digits + strings.Repeat("0", point-len(digits))
+	default:
+		text = digits[:point] + "." + digits[point:]
+	}
+	intPart, fracPart, _ := strings.Cut(text, ".")
+	intPart = strings.TrimLeft(intPart, "0")
+	if intPart == "" {
+		intPart = "0"
+	}
+	fracPart = strings.TrimRight(fracPart, "0")
+	if fracPart != "" {
+		text = intPart + "." + fracPart
+	} else {
+		text = intPart
+	}
+	if negative && text != "0" {
+		text = "-" + text
+	}
+	return text, true
+}
+
+// plainInteger tells whether s is an optional minus and decimal digits with no leading zero.
+func plainInteger(s string) bool {
+	digits := strings.TrimPrefix(s, "-")
+	if digits == "" || (len(digits) > 1 && digits[0] == '0') {
+		return false
+	}
+	for i := 0; i < len(digits); i++ {
+		if digits[i] < '0' || digits[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// abs is the size of an exponent.
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+// maxNumberText is the longest text of a number that the canonical encoding takes. A state can hold client JSON,
+// such as a jsonb field, so a bound keeps the work of one number small; the error names the field only.
+const maxNumberText = 1100
+
 // canonicalNumber writes a JSON number in its shortest exact decimal form, with no exponent. Its error names the
-// field and not the number.
+// field and not the number. The count of fraction digits comes from the decimal text, so the work is linear in the
+// length of the text, which is at most maxNumberText characters, with an exponent of at most 400.
 func canonicalNumber(field, s string) (json.Number, error) {
+	if len(s) > maxNumberText {
+		return "", fmt.Errorf("audit: the number of the field %s is longer than %d characters", field, maxNumberText)
+	}
+	if plainInteger(s) {
+		// An integer in its shortest form is already canonical; -0 is 0.
+		if s == "-0" {
+			return "0", nil
+		}
+		return json.Number(s), nil
+	}
+	mantissa, exp := s, 0
 	if i := strings.IndexAny(s, "eE"); i >= 0 {
-		exp, err := strconv.Atoi(s[i+1:])
-		if err != nil || exp > 400 || exp < -400 {
+		e, err := strconv.Atoi(s[i+1:])
+		if err != nil || e > 400 || e < -400 {
 			return "", fmt.Errorf("audit: the number of the field %s is out of the canonical range", field)
 		}
+		mantissa, exp = s[:i], e
+	}
+	// The canonical form has about as many characters as the digits of the mantissa and the size of the exponent,
+	// so a short text such as 1e-400 cannot give a long one.
+	if digitsOf, _ := numberParts(mantissa); digitsOf+abs(exp) > maxNumberText {
+		return "", fmt.Errorf("audit: the canonical form of the number of the field %s is longer than %d characters", field, maxNumberText)
+	}
+	if text, ok := shiftDecimal(mantissa, exp); ok {
+		return json.Number(text), nil
 	}
 	r, ok := new(big.Rat).SetString(s)
 	if !ok {
@@ -629,15 +908,12 @@ func canonicalNumber(field, s string) (json.Number, error) {
 	if r.IsInt() {
 		return json.Number(r.Num().String()), nil
 	}
-	// The value is a finite decimal: its denominator divides a power of ten.
+	// The value has at most the fraction digits of its mantissa, less its exponent.
 	digits := 0
-	ten := big.NewInt(10)
-	p := big.NewInt(1)
-	rem := new(big.Int)
-	for rem.Mod(p, r.Denom()).Sign() != 0 {
-		p.Mul(p, ten)
-		digits++
+	if j := strings.IndexByte(mantissa, '.'); j >= 0 {
+		digits = len(strings.TrimRight(mantissa[j+1:], "0"))
 	}
+	digits = max(digits-exp, 0)
 	return json.Number(strings.TrimRight(r.FloatString(digits), "0")), nil
 }
 

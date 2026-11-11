@@ -50,7 +50,7 @@ func (*Generator) GoModels(ctx gen.Context) ([]gen.GoModel, error) {
 		return nil, nil
 	}
 	m, err := plan(ctx)
-	if err != nil {
+	if err != nil || m == nil {
 		return nil, err
 	}
 	models := make([]gen.GoModel, 0, len(m.entities))
@@ -67,6 +67,9 @@ func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	m, err := plan(ctx)
 	if err != nil {
 		return nil, nil, err
+	}
+	if m == nil {
+		return nil, &gen.Wiring{}, nil
 	}
 	files, err := render(m)
 	if err != nil {
@@ -151,7 +154,8 @@ var (
 // refusalStatus are the statuses that a declared refusal may have (ST-DECL-INV56).
 var refusalStatus = map[int]bool{400: true, 403: true, 404: true, 409: true, 412: true, 422: true}
 
-// plan checks the context and builds the model.
+// plan checks the context and builds the model. It gives no model for a service that declares no query: the
+// component is then in the service only because its archetype holds it, and it emits nothing (ST-SUP-RC20-OC39).
 func plan(ctx gen.Context) (*model, error) {
 	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
 		return nil, err
@@ -160,7 +164,7 @@ func plan(ctx gen.Context) (*model, error) {
 		return nil, fmt.Errorf("query: the query component has no component settings")
 	}
 	if len(ctx.Queries) == 0 {
-		return nil, fmt.Errorf("query: the query component serves the declared queries, and the declaration declares none")
+		return nil, nil
 	}
 	if ctx.Tenancy == nil || ctx.Tenancy.Key != tenantColumn {
 		return nil, fmt.Errorf("query: the query runtime reads tenant-owned tables with the tenant column %s; declare pooled tenancy with that key", tenantColumn)

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -212,6 +213,287 @@ func probe(e Event, u Untrusted) bool {
 			if bytes.Contains(enc, []byte(v)) {
 				t.Errorf("the encoded record holds %q", v)
 			}
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC03-T08 A JSON value of a jsonb field is redacted at any depth and stored as its JSON value", func(t *testing.T) {
+		e := sampleEvent("t1", "update")
+		f := Fields{"profile.email": PII, "profile.api_token": Secret}
+		before := map[string]any{"profile": json.RawMessage(`{"email":"old@example.com","api_token":"tok-old-1","city":"Oslo","n":1.0}`), "note": json.RawMessage(nil)}
+		after := map[string]any{"profile": json.RawMessage(`{"email":"new@example.com","api_token":"tok-new-2","city":"Bergen","n":2}`), "note": json.RawMessage(`[1,2]`)}
+		if err := e.SetStates(Settings{Level: LevelChange}, f, before, after); err != nil {
+			t.Fatal(err)
+		}
+		e = linked(t, e)
+		if want := `{"note":null,"profile":{"city":"Oslo","email":"` + RedactionMarker + `","n":1}}`; string(e.Before.JSON()) != want {
+			t.Errorf("before is %s, want %s", e.Before.JSON(), want)
+		}
+		if want := `{"note":[1,2],"profile":{"city":"Bergen","email":"` + RedactionMarker + `","n":2}}`; string(e.After.JSON()) != want {
+			t.Errorf("after is %s, want %s", e.After.JSON(), want)
+		}
+		p, err := ParsePatch(e.Patch.JSON())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.ContainsFunc(p, func(o Op) bool { return o.Path == "/profile/email" && o.Value == RedactionMarker }) ||
+			!slices.ContainsFunc(p, func(o Op) bool { return o.Path == "/profile/city" }) {
+			t.Errorf("the patch %s has no change of /profile/email with the marker and of /profile/city", e.Patch.JSON())
+		}
+		enc, err := Encode(e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, v := range []string{"api_token", "tok-old-1", "tok-new-2", "old@example.com", "new@example.com"} {
+			if bytes.Contains(enc, []byte(v)) {
+				t.Errorf("the encoded record holds %q", v)
+			}
+		}
+		// JSON text that does not decode is refused, and the error names the field and not the value.
+		bad := sampleEvent("t1", "update")
+		err = bad.SetStates(Settings{Level: LevelChange}, Fields{}, nil, map[string]any{"profile": json.RawMessage(`{"secret-value"`)})
+		if err == nil || !strings.Contains(err.Error(), "profile") || strings.Contains(err.Error(), "secret-value") {
+			t.Errorf("SetStates with JSON text that does not decode gave %v, want an error that names profile and not the value", err)
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC04-T07 A number of a client JSON value costs little, and an overlong one is refused", func(t *testing.T) {
+		// PostgreSQL keeps a jsonb number with 16383 fraction digits, so a body of 1 MiB can hold 63 of them.
+		build := func(fraction int) json.RawMessage {
+			var b strings.Builder
+			b.WriteString("[")
+			for i := range 63 {
+				if i > 0 {
+					b.WriteString(",")
+				}
+				b.WriteString("0." + strings.Repeat("1", fraction-1) + "3")
+			}
+			b.WriteString("]")
+			return json.RawMessage(b.String())
+		}
+		huge := build(16383)
+		start := time.Now()
+		e := sampleEvent("t1", "update")
+		err := e.SetStates(Settings{Level: LevelChange}, Fields{}, map[string]any{"doc": huge}, map[string]any{"doc": huge})
+		if err == nil || !strings.Contains(err.Error(), "doc") || strings.Contains(err.Error(), "1111") {
+			t.Errorf("SetStates with numbers of 16383 fraction digits gave %v, want a refusal that names doc and not the value", err)
+		}
+		// The refusal comes after the JSON text is decoded, which takes about 100 ms under the race detector on CI;
+		// the former count of digits took 3.7 s here. The bound is loose so that the race run does not flake.
+		if d := time.Since(start); d > time.Second {
+			t.Errorf("SetStates with 63 numbers of 16383 fraction digits took %v, want under 1 s", d)
+		}
+		// The longest accepted number keeps its exact value, and 63 of them in before and after stay cheap.
+		long := build(1097)
+		start = time.Now()
+		e = sampleEvent("t1", "update")
+		if err := e.SetStates(Settings{Level: LevelChange}, Fields{}, map[string]any{"doc": long}, map[string]any{"doc": long}); err != nil {
+			t.Fatalf("SetStates with numbers of 1099 characters: %v", err)
+		}
+		// The bound is loose for a run under the race detector; the old count of digits took seconds here.
+		if d := time.Since(start); d > time.Second {
+			t.Errorf("SetStates with 63 numbers of 1099 characters took %v, want under 1 s", d)
+		}
+		if want := "0." + strings.Repeat("1", 1096) + "3"; !bytes.Contains(e.After.JSON(), []byte(want)) {
+			t.Errorf("the after state does not hold the exact number")
+		}
+		for text, want := range map[string]string{"1.2500e1": "12.5", "1.25e-3": "0.00125", "-0.10": "-0.1", "5E2": "500", "2.000": "2"} {
+			got, err := canonicalNumber("n", text)
+			if err != nil || string(got) != want {
+				t.Errorf("the canonical form of %s is %q (%v), want %s", text, got, err, want)
+			}
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC04-T08 A deep JSON value is refused at the depth bound, and a deep update at the bound stays cheap", func(t *testing.T) {
+		// nested gives an object of depth levels, each level with one key of 100 characters, and leaf at the bottom.
+		nested := func(levels int, leaf string) json.RawMessage {
+			key := strings.Repeat("k", 100)
+			var b strings.Builder
+			for range levels {
+				b.WriteString(`{"` + key + `":`)
+			}
+			b.WriteString(leaf)
+			b.WriteString(strings.Repeat("}", levels))
+			return json.RawMessage(b.String())
+		}
+		deep := nested(9000, "1")
+		start := time.Now()
+		e := sampleEvent("t1", "update")
+		err := e.SetStates(Settings{Level: LevelChange}, Fields{}, map[string]any{"doc": deep}, map[string]any{"doc": nested(9000, "2")})
+		if err == nil || !strings.Contains(err.Error(), "doc") || !strings.Contains(err.Error(), "64") || strings.Contains(err.Error(), "kkk") {
+			t.Errorf("SetStates with a value of depth 9000 gave %v, want a refusal that names doc and the bound and no value", err)
+		}
+		if d := time.Since(start); d > time.Second {
+			t.Errorf("SetStates with a value of depth 9000 took %v, want under 1 s", d)
+		}
+		e = sampleEvent("t1", "create")
+		if err := e.SetStates(Settings{Level: LevelChange}, Fields{}, nil, map[string]any{"doc": nested(65, "1")}); err == nil {
+			t.Errorf("SetStates accepts a value of depth 65")
+		}
+		// At the bound, a large leaf that changes in one member keeps the work linear: the patch compares members,
+		// not the encoding of each level.
+		leaf := func(last string) string {
+			items := make([]string, 0, 30000)
+			for i := range 30000 {
+				items = append(items, strconv.Itoa(i))
+			}
+			items[len(items)-1] = last
+			return "[" + strings.Join(items, ",") + "]"
+		}
+		start = time.Now()
+		e = sampleEvent("t1", "update")
+		if err := e.SetStates(Settings{Level: LevelChange}, Fields{}, map[string]any{"doc": nested(63, leaf("1"))}, map[string]any{"doc": nested(63, leaf("2"))}); err != nil {
+			t.Fatalf("SetStates with a value of depth 64: %v", err)
+		}
+		if d := time.Since(start); d > time.Second {
+			t.Errorf("an update of a value of depth 64 took %v, want under 1 s", d)
+		}
+		p, err := ParsePatch(e.Patch.JSON())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(p) != 1 || !strings.HasSuffix(p[0].Path, "/29999") || p[0].Op != "replace" {
+			t.Errorf("the patch has %d operations, want one replace of the last member: %.200s", len(p), e.Patch.JSON())
+		}
+		// The patch compares members and not the encoding of each level, so its work is linear also for a value
+		// deeper than the bound, which only the internal compare sees.
+		tree := func(levels int, leaf any) any {
+			v := leaf
+			for range levels {
+				v = map[string]any{strings.Repeat("k", 100): v}
+			}
+			return v
+		}
+		start = time.Now()
+		var ops Patch
+		diffValue("", tree(5000, json.Number("1")), tree(5000, json.Number("2")), &ops)
+		if d := time.Since(start); d > time.Second || len(ops) != 1 || ops[0].Op != "replace" {
+			t.Errorf("the compare of two values of depth 5000 took %v and gave %d operations, want one replace in under 1 s", d, len(ops))
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC04-T09 A number whose canonical form is long is refused, also when its text is short", func(t *testing.T) {
+		if _, err := canonicalNumber("n", "1e-400"); err != nil {
+			t.Errorf("the number 1e-400 is refused: %v", err)
+		}
+		if _, err := canonicalNumber("n", "1"+"."+strings.Repeat("1", 800)+"e-400"); err == nil || !strings.Contains(err.Error(), "n") {
+			t.Errorf("a number of 801 mantissa digits and the exponent -400 gave %v, want a refusal that names the field", err)
+		}
+		// A JSON array of 1 MiB of 1e-400 would give about 60 MB of canonical text: it is refused before any is made.
+		items := make([]string, 0, 150000)
+		for range 150000 {
+			items = append(items, "1e-400")
+		}
+		raw := json.RawMessage("[" + strings.Join(items, ",") + "]")
+		start := time.Now()
+		e := sampleEvent("t1", "create")
+		err := e.SetStates(Settings{Level: LevelChange}, Fields{}, nil, map[string]any{"doc": raw})
+		if err == nil || !strings.Contains(err.Error(), "doc") || strings.Contains(err.Error(), "1e-400") {
+			t.Errorf("SetStates with 150000 numbers 1e-400 gave %v, want a refusal that names doc and no value", err)
+		}
+		if d := time.Since(start); d > time.Second {
+			t.Errorf("the refusal took %v, want under 1 s", d)
+		}
+		// A few such numbers are kept.
+		e = sampleEvent("t1", "create")
+		if err := e.SetStates(Settings{Level: LevelChange}, Fields{}, nil, map[string]any{"doc": json.RawMessage(`[1e-400, 2.5e3]`)}); err != nil {
+			t.Errorf("SetStates with two numbers: %v", err)
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC05-T04 The patch of a field stays within a small multiple of the field's size for any shape", func(t *testing.T) {
+		long := strings.Repeat("L", 400_000)
+		members := func(n int, value string) string {
+			items := make([]string, n)
+			for i := range items {
+				items[i] = `"` + strconv.Itoa(i) + `":` + value
+			}
+			return strings.Join(items, ",")
+		}
+		cases := []struct{ name, before, after string }{
+			{"1000 adds under a 400 KB key", `{"` + long + `":{}}`, `{"` + long + `":{` + members(1000, "1") + `}}`},
+			{"4000 adds under a 400 KB key", `{"` + long + `":{}}`, `{"` + long + `":{` + members(4000, "1") + `}}`},
+			{"4000 array adds under a 400 KB key", `{"` + long + `":[]}`, `{"` + long + `":[` + strings.Repeat("1,", 3999) + `1]}`},
+			{"4000 replaces under a 400 KB key", `{"` + long + `":[` + strings.Repeat("1,", 3999) + `1]}`, `{"` + long + `":[` + strings.Repeat("2,", 3999) + `2]}`},
+			{"1000 changes under 1 KB keys", `{` + strings.Replace(members(1000, "1"), `":`, strings.Repeat("k", 1000)+`":`, -1) + `}`, `{` + strings.Replace(members(1000, "2"), `":`, strings.Repeat("k", 1000)+`":`, -1) + `}`},
+		}
+		for _, c := range cases {
+			start := time.Now()
+			e := sampleEvent("t1", "update")
+			if err := e.SetStates(Settings{Level: LevelChange}, Fields{}, map[string]any{"doc": json.RawMessage(c.before)}, map[string]any{"doc": json.RawMessage(c.after)}); err != nil {
+				t.Fatalf("%s: %v", c.name, err)
+			}
+			input := len(c.before) + len(c.after)
+			if n := len(e.Patch.JSON()); n > 3*input+4096 {
+				t.Errorf("%s: the patch is %d bytes for an input of %d, want at most 3 times the input and 4 KiB", c.name, n, input)
+			}
+			if d := time.Since(start); d > 2*time.Second {
+				t.Errorf("%s took %v, want under 2 s, also under the race detector", c.name, d)
+			}
+			// The patch applied to before gives after.
+			before, _ := decodeJSON("before", e.Before.JSON())
+			p, err := ParsePatch(e.Patch.JSON())
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := Apply(before, p)
+			if err != nil {
+				t.Fatalf("%s: applying the patch: %v", c.name, err)
+			}
+			want, _ := decodeJSON("after", e.After.JSON())
+			if !bytes.Equal(encodeTree(got), encodeTree(want)) {
+				t.Errorf("%s: the patch applied to before does not give after", c.name)
+			}
+		}
+		// A field whose changes are small keeps its member operations.
+		e := sampleEvent("t1", "update")
+		if err := e.SetStates(Settings{Level: LevelChange}, Fields{}, map[string]any{"doc": json.RawMessage(`{"a":1,"b":2}`)}, map[string]any{"doc": json.RawMessage(`{"a":1,"b":3}`)}); err != nil {
+			t.Fatal(err)
+		}
+		if string(e.Patch.JSON()) != `[{"op":"replace","path":"/doc/b","value":3}]` {
+			t.Errorf("the patch of a small change is %s, want one replace of /doc/b", e.Patch.JSON())
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC05-T05 Many changed pii values nested in a field cost linear time", func(t *testing.T) {
+		build := func(n int, e string, num int) json.RawMessage {
+			items := make([]string, n)
+			for i := range items {
+				items[i] = `{"e":"` + e + `","n":` + strconv.Itoa(num) + `}`
+			}
+			return json.RawMessage("[" + strings.Join(items, ",") + "]")
+		}
+		// The time grows with the count as the input does: five times the values take well under 25 times the time,
+		// which a cost of the pii values times the operations would take. The ratio holds under the race detector.
+		run := func(n int) time.Duration {
+			b, a := build(n, "a@example.com", 1), build(n, "b@example.com", 2)
+			start := time.Now()
+			e := sampleEvent("t1", "update")
+			if err := e.SetStates(Settings{Level: LevelChange}, Fields{"m.e": PII}, map[string]any{"m": b}, map[string]any{"m": a}); err != nil {
+				t.Fatal(err)
+			}
+			d := time.Since(start)
+			if bytes.Contains(e.Patch.JSON(), []byte("example.com")) {
+				t.Error("the patch holds a pii value")
+			}
+			return d
+		}
+		run(1000) // warm up
+		small, large := run(10_000), run(50_000)
+		if large > 10*small+50*time.Millisecond || large > 10*time.Second {
+			t.Errorf("50000 changed pii values took %v and 10000 took %v, want linear growth", large, small)
+		}
+		// Each pii value that changed is marked once, under its own pointer.
+		e := sampleEvent("t1", "update")
+		if err := e.SetStates(Settings{Level: LevelChange}, Fields{"m.e": PII}, map[string]any{"m": build(3, "a@example.com", 1)}, map[string]any{"m": build(3, "b@example.com", 1)}); err != nil {
+			t.Fatal(err)
+		}
+		p, err := ParsePatch(e.Patch.JSON())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(p) != 3 || p[0].Path != "/m/0/e" || p[0].Value != RedactionMarker {
+			t.Errorf("the patch is %s, want one marker replace for each changed pii value", e.Patch.JSON())
 		}
 	})
 

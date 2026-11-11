@@ -1130,6 +1130,132 @@ func TestCrud(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RC20-OC37-T08 A jsonb field is written, read and patched as JSON on the runtime data path", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-1", newTenant())
+		id := e.create(a, "todos", "todo", `{"title":"with meta","meta":{"tags":["a","b"],"n":1}}`)
+		if n := e.count(`SELECT count(*) FROM todos WHERE id = $1::uuid AND meta = '{"n":1,"tags":["a","b"]}'::jsonb`, id); n != 1 {
+			t.Errorf("%d Todo rows whose jsonb column holds the created value, want 1", n)
+		}
+		meta := func(r reply) any {
+			t.Helper()
+			if r.status != http.StatusOK {
+				t.Fatalf("the read answered %d %s, want 200", r.status, r.body)
+			}
+			return r.object(t)["meta"]
+		}
+		got, _ := json.Marshal(meta(e.send(a, http.MethodGet, "/api/v1/todos/"+id, "", "")))
+		if string(got) != `{"n":1,"tags":["a","b"]}` {
+			t.Errorf("the read gave meta %s, want the created JSON value", got)
+		}
+		patched := e.send(a, http.MethodPatch, "/api/v1/todos/"+id, "k-"+uuid.NewString(), `{"meta":[1,2]}`)
+		if patched.status != http.StatusOK {
+			t.Fatalf("the patch answered %d %s, want 200", patched.status, patched.body)
+		}
+		if n := e.count(`SELECT count(*) FROM todos WHERE id = $1::uuid AND meta = '[1,2]'::jsonb AND title = 'with meta'`, id); n != 1 {
+			t.Errorf("%d Todo rows with the patched jsonb value and the title kept, want 1", n)
+		}
+		// An optional jsonb field that the body does not give is NULL in its column and absent from the answer.
+		bare := e.create(a, "todos", "todo", `{"title":"no meta"}`)
+		if n := e.count(`SELECT count(*) FROM todos WHERE id = $1::uuid AND meta IS NULL`, bare); n != 1 {
+			t.Errorf("%d Todo rows with a NULL meta, want 1", n)
+		}
+		read := e.send(a, http.MethodGet, "/api/v1/todos/"+bare, "", "")
+		if _, ok := read.object(t)["meta"]; ok || read.status != http.StatusOK {
+			t.Errorf("the read of a Todo with no meta answered %d %s, want 200 with no meta member", read.status, read.body)
+		}
+		list := e.send(a, http.MethodGet, "/api/v1/todos", "", "")
+		if list.status != http.StatusOK || !strings.Contains(string(list.body), `"meta":[1,2]`) {
+			t.Errorf("the list answered %d %s, want 200 with the jsonb value of the row", list.status, list.body)
+		}
+	})
+
+	t.Run("ST-SUP-RC28-OC01-T06 A secret jsonb field reaches neither the audit rows, the answer nor the stored response", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-1", newTenant())
+		first, second := "vault-"+uuid.NewString(), "vault-"+uuid.NewString()
+		key := "k-" + uuid.NewString()
+		created := e.send(a, http.MethodPost, "/api/v1/customers", key, `{"name":"Vic","api_token":"tok","plan":"free","vault":{"pin":"`+first+`"}}`)
+		if created.status != http.StatusCreated {
+			t.Fatalf("the create answered %d %s, want 201", created.status, created.body)
+		}
+		id := created.member(t, "id")
+		e.own(a, "customer", id)
+		r := e.send(a, http.MethodPut, "/api/v1/customers/"+id, "", `{"name":"Vic","api_token":"tok","plan":"pro","vault":{"pin":"`+second+`"}}`)
+		if r.status != http.StatusOK {
+			t.Fatalf("the update answered %d %s, want 200", r.status, r.body)
+		}
+		read := e.send(a, http.MethodGet, "/api/v1/customers/"+id, "", "")
+		for name, body := range map[string][]byte{"create": created.body, "update": r.body, "read": read.body} {
+			if strings.Contains(string(body), first) || strings.Contains(string(body), second) || strings.Contains(string(body), "vault") {
+				t.Errorf("the answer of the %s holds the secret jsonb field: %s", name, body)
+			}
+		}
+		rows, err := e.admin.QueryContext(e.ctx, `SELECT row_to_json(a)::text FROM audit_event a WHERE tenant_id = $1`, a.tenant.ID())
+		must(t, err)
+		defer rows.Close()
+		n := 0
+		for rows.Next() {
+			var row string
+			must(t, rows.Scan(&row))
+			n++
+			if strings.Contains(row, first) || strings.Contains(row, second) || strings.Contains(row, "vault") {
+				t.Errorf("an audit row holds the secret jsonb field: %s", row)
+			}
+		}
+		must(t, rows.Err())
+		if n < 2 {
+			t.Errorf("%d audit rows of the tenant, want the create and the update rows", n)
+		}
+		// The audit messages of the tenant in the outbox, which the audit sink gets, hold no secret jsonb field.
+		if n := e.count(`SELECT count(*) FROM stego_outbox.messages WHERE tenant_id = $1 AND kind = 'audit.event'`, a.tenant.ID()); n < 2 {
+			t.Errorf("%d audit messages of the tenant in the outbox, want the create and the update", n)
+		}
+		if n := e.count(`SELECT count(*) FROM stego_outbox.messages WHERE tenant_id = $1 AND (position(convert_to($2, 'UTF8') in payload) > 0 OR position(convert_to($3, 'UTF8') in payload) > 0 OR position(convert_to('vault', 'UTF8') in payload) > 0)`, a.tenant.ID(), first, second); n != 0 {
+			t.Errorf("%d outbox messages of the tenant hold the secret jsonb field, want 0", n)
+		}
+		if n := e.count(`SELECT count(*) FROM idempotency_keys WHERE tenant_id = $1 AND key = $2 AND status = 'completed' AND position(convert_to($3, 'UTF8') in coalesce(response_body, '')) = 0 AND position(convert_to('vault', 'UTF8') in coalesce(response_body, '')) = 0`, a.tenant.ID(), key, first); n != 1 {
+			t.Errorf("%d completed key rows whose stored response holds no secret jsonb field, want 1", n)
+		}
+		if n := e.count(`SELECT count(*) FROM customers WHERE id = $1::uuid AND vault->>'pin' = $2`, id, second); n != 1 {
+			t.Errorf("%d source rows that hold the secret jsonb value it was given, want 1", n)
+		}
+	})
+
+	t.Run("ST-SUP-RC28-OC01-T07 A pii jsonb field is the redaction marker in the before, the after and the patch", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-1", newTenant())
+		first, second := "mail-"+uuid.NewString(), "mail-"+uuid.NewString()
+		id := e.create(a, "customers", "customer", `{"name":"Pia","api_token":"tok","plan":"free","contact":{"email":"`+first+`"}}`)
+		if r := e.send(a, http.MethodPut, "/api/v1/customers/"+id, "", `{"name":"Pia","api_token":"tok","plan":"free","contact":{"email":"`+second+`"}}`); r.status != http.StatusOK {
+			t.Fatalf("the update answered %d %s, want 200", r.status, r.body)
+		}
+		var before, after, patch, row string
+		must(t, e.admin.QueryRowContext(e.ctx, `SELECT before::text, after::text, patch::text, row_to_json(a)::text FROM audit_event a WHERE tenant_id = $1 AND action = 'update' AND resource_id = $2`, a.tenant.ID(), id).Scan(&before, &after, &patch, &row))
+		for name, state := range map[string]string{"before": before, "after": after} {
+			var m map[string]any
+			must(t, json.Unmarshal([]byte(state), &m))
+			if m["contact"] != audit.RedactionMarker {
+				t.Errorf("the %s of the update holds contact %v, want the redaction marker", name, m["contact"])
+			}
+		}
+		var ops []map[string]any
+		must(t, json.Unmarshal([]byte(patch), &ops))
+		found := false
+		for _, op := range ops {
+			found = found || (op["path"] == "/contact" && op["value"] == audit.RedactionMarker)
+		}
+		if !found {
+			t.Errorf("the patch %s has no change of /contact to the redaction marker", patch)
+		}
+		if strings.Contains(row, first) || strings.Contains(row, second) {
+			t.Errorf("the audit row holds the pii jsonb value: %s", row)
+		}
+		if n := e.count(`SELECT count(*) FROM customers WHERE id = $1::uuid AND contact->>'email' = $2`, id, second); n != 1 {
+			t.Errorf("%d source rows that hold the pii jsonb value, want 1", n)
+		}
+	})
+
 	t.Run("ST-SUP-RC28-OC01-T03 A secret field reaches neither before, after nor the stored row", func(t *testing.T) {
 		e := service(t)
 		a := e.as("u-1", newTenant())

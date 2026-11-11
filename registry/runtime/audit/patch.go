@@ -36,6 +36,12 @@ func (p Patch) tree() []any {
 // is JSON null. A pii field at any depth whose value changed gets a replace with RedactionMarker, so the patch
 // shows the change and not the value; a secret field is in no operation.
 func Diff(before, after map[string]any, f Fields) (Patch, error) {
+	if err := checkStateDepth(before); err != nil {
+		return nil, err
+	}
+	if err := checkStateDepth(after); err != nil {
+		return nil, err
+	}
 	oldPII, newPII := map[string][]byte{}, map[string][]byte{}
 	var a, b any
 	if before != nil {
@@ -53,10 +59,14 @@ func Diff(before, after map[string]any, f Fields) (Patch, error) {
 		b = r
 	}
 	var p Patch
-	diffValue("", a, b, &p)
+	diffStates(a, b, &p)
+	paths := make(map[string]bool, len(p))
+	for _, o := range p {
+		paths[o.Path] = true
+	}
 	var changed []string
 	for ptr, ov := range oldPII {
-		if nv, ok := newPII[ptr]; ok && !bytes.Equal(ov, nv) && !covered(p, ptr) {
+		if nv, ok := newPII[ptr]; ok && !bytes.Equal(ov, nv) && !covered(paths, ptr) {
 			changed = append(changed, ptr)
 		}
 	}
@@ -67,20 +77,138 @@ func Diff(before, after map[string]any, f Fields) (Patch, error) {
 	return p, nil
 }
 
-// covered reports an operation of p on ptr or on a member above it.
-func covered(p Patch, ptr string) bool {
-	for _, o := range p {
-		if o.Path == ptr || o.Path == "" || strings.HasPrefix(ptr, o.Path+"/") {
+// covered reports an operation on ptr or on a member above it. paths holds the path of each operation, so the
+// check reads one entry for each segment of ptr, which is at most MaxDepth+1 long.
+func covered(paths map[string]bool, ptr string) bool {
+	if paths[""] || paths[ptr] {
+		return true
+	}
+	for i := 1; i < len(ptr); i++ {
+		if ptr[i] == '/' && paths[ptr[:i]] {
 			return true
 		}
 	}
 	return false
 }
 
-func diffValue(path string, a, b any, p *Patch) {
-	if bytes.Equal(encodeTree(a), encodeTree(b)) {
+// opOverhead is the bytes that one operation adds to the encoded patch beside its path and value.
+const opOverhead = 32
+
+// fieldBudget is the most bytes that the operations of one field of a state may take, in paths and fixed parts:
+// twice the size of the field's two values and 4 KiB. Beyond it the field gets one replace of its whole value, so
+// the patch stays linear in the size of the states for any shape (ST-SUP-RP05-LC05).
+func fieldBudget(a, b any) int {
+	return 2*(len(encodeTree(a))+len(encodeTree(b))) + 4096
+}
+
+// diffStates appends the operations from the state a to the state b, one field at a time. The operations of a
+// field that would pass its budget are replaced by one replace of the field.
+func diffStates(a, b any, p *Patch) {
+	am, aIsMap := a.(map[string]any)
+	bm, bIsMap := b.(map[string]any)
+	if !aIsMap || !bIsMap {
+		diffValue("", a, b, p)
 		return
 	}
+	keys := make([]string, 0, len(am)+len(bm))
+	for k := range am {
+		keys = append(keys, k)
+	}
+	for k := range bm {
+		if _, ok := am[k]; !ok {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		segment := escapePointer(k)
+		av, inA := am[k]
+		bv, inB := bm[k]
+		switch {
+		case inA && !inB:
+			*p = append(*p, Op{Op: "remove", Path: "/" + segment})
+		case !inA && inB:
+			*p = append(*p, Op{Op: "add", Path: "/" + segment, Value: bv})
+		default:
+			var field Patch
+			d := differ{segments: []string{segment}, p: &field, budget: fieldBudget(av, bv)}
+			d.diff(av, bv)
+			if d.over {
+				field = Patch{{Op: "replace", Path: "/" + segment, Value: bv}}
+			}
+			*p = append(*p, field...)
+		}
+	}
+}
+
+// diffValue appends the operations from a to b at path. It recurses into the members of two objects and of two
+// arrays, and compares only two values that are not both objects or both arrays, so its work is linear in the
+// size of the two values. The path of a member is made only for an operation.
+func diffValue(path string, a, b any, p *Patch) {
+	d := differ{p: p}
+	if path != "" {
+		d.segments = []string{strings.TrimPrefix(path, "/")}
+	}
+	d.diff(a, b)
+}
+
+// differ holds the escaped segments of the JSON pointer of the value it compares.
+type differ struct {
+	segments []string
+	p        *Patch
+	// budget, when it is not 0, is the most bytes that the paths and fixed parts of the operations may take; over
+	// tells that they would pass it, and the compare then stops.
+	budget, used int
+	over         bool
+}
+
+// spend counts the bytes of one operation at the current path and tells whether it fits the budget.
+func (d *differ) spend(segment string) bool {
+	if d.budget == 0 {
+		return true
+	}
+	n := opOverhead + len(segment)
+	for _, s := range d.segments {
+		n += len(s) + 1
+	}
+	d.used += n
+	if d.used > d.budget {
+		d.over = true
+		return false
+	}
+	return true
+}
+
+func (d *differ) path() string {
+	if len(d.segments) == 0 {
+		return ""
+	}
+	return "/" + strings.Join(d.segments, "/")
+}
+
+func (d *differ) op(op string, segment string, value any, withValue bool) {
+	if d.over || !d.spend(segment) {
+		return
+	}
+	d.segments = append(d.segments, segment)
+	o := Op{Op: op, Path: d.path()}
+	if withValue {
+		o.Value = value
+	}
+	*d.p = append(*d.p, o)
+	d.segments = d.segments[:len(d.segments)-1]
+}
+
+func (d *differ) child(segment string, a, b any) {
+	if d.over {
+		return
+	}
+	d.segments = append(d.segments, segment)
+	d.diff(a, b)
+	d.segments = d.segments[:len(d.segments)-1]
+}
+
+func (d *differ) diff(a, b any) {
 	am, aIsMap := a.(map[string]any)
 	bm, bIsMap := b.(map[string]any)
 	if aIsMap && bIsMap {
@@ -95,16 +223,15 @@ func diffValue(path string, a, b any, p *Patch) {
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			child := path + "/" + escapePointer(k)
 			av, inA := am[k]
 			bv, inB := bm[k]
 			switch {
 			case inA && !inB:
-				*p = append(*p, Op{Op: "remove", Path: child})
+				d.op("remove", escapePointer(k), nil, false)
 			case !inA && inB:
-				*p = append(*p, Op{Op: "add", Path: child, Value: bv})
+				d.op("add", escapePointer(k), bv, true)
 			default:
-				diffValue(child, av, bv, p)
+				d.child(escapePointer(k), av, bv)
 			}
 		}
 		return
@@ -114,17 +241,23 @@ func diffValue(path string, a, b any, p *Patch) {
 	if aIsArr && bIsArr {
 		n := min(len(aa), len(ba))
 		for i := 0; i < n; i++ {
-			diffValue(path+"/"+strconv.Itoa(i), aa[i], ba[i], p)
+			d.child(strconv.Itoa(i), aa[i], ba[i])
 		}
 		for i := n; i < len(ba); i++ {
-			*p = append(*p, Op{Op: "add", Path: path + "/" + strconv.Itoa(i), Value: ba[i]})
+			d.op("add", strconv.Itoa(i), ba[i], true)
 		}
 		for i := len(aa) - 1; i >= n; i-- {
-			*p = append(*p, Op{Op: "remove", Path: path + "/" + strconv.Itoa(i)})
+			d.op("remove", strconv.Itoa(i), nil, false)
 		}
 		return
 	}
-	*p = append(*p, Op{Op: "replace", Path: path, Value: b})
+	if !aIsMap && !bIsMap && !aIsArr && !bIsArr && bytes.Equal(encodeTree(a), encodeTree(b)) {
+		return
+	}
+	if d.over || !d.spend("") {
+		return
+	}
+	*d.p = append(*d.p, Op{Op: "replace", Path: d.path(), Value: b})
 }
 
 func escapePointer(s string) string {

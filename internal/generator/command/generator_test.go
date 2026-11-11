@@ -362,6 +362,32 @@ func TestContract(t *testing.T) {
 			t.Error("the preflight check accepts a fill of another slot")
 		}
 	})
+
+	t.Run("ST-SUP-RC32-OC02-T04 A service that declares no command gets no command output", func(t *testing.T) {
+		// The archetypes hold the command component (ST-SUP-RC20-OC39), so a service with collections only has it.
+		ctx := commandContext(t, declaration(t), commandSlot)
+		ctx.Commands = nil
+		ctx.ComponentConfig = map[string]any{}
+		ctx.Inputs = nil
+		ctx.Tenancy, ctx.Authorization = nil, nil
+		inputs, err := new(Generator).InputFiles(ctx.ComponentConfig)
+		if err != nil || len(inputs) != 0 {
+			t.Fatalf("InputFiles with no proto_files gave %v, %v; want no input and no fault", inputs, err)
+		}
+		if err := new(Generator).ValidateContext(ctx); err != nil {
+			t.Fatalf("ValidateContext refuses a service with no command: %v", err)
+		}
+		files, wiring, err := new(Generator).Generate(ctx)
+		if err != nil || len(files) != 0 || wiring == nil || len(wiring.GoModRequires) != 0 {
+			t.Fatalf("Generate with no command gave %d files, wiring %+v and %v; want no file, an empty wiring and no fault", len(files), wiring, err)
+		}
+		// The proto files hold the messages of the declared commands: with no command they serve nothing.
+		with := commandContext(t, declaration(t), commandSlot)
+		with.Commands = nil
+		if _, _, err := new(Generator).Generate(with); err == nil || !strings.Contains(err.Error(), "proto_files") {
+			t.Fatalf("Generate with proto_files and no command gave %v, want a fault that names proto_files", err)
+		}
+	})
 }
 
 // pinnedGo is the Go command that builds the generated service: STEGO_TEST_PINNED_GO, else bin/go of the SDK that

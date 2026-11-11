@@ -155,6 +155,25 @@ func TestGenerator(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RC33-OC02-T05 A service that declares no query gets no query output", func(t *testing.T) {
+		// The archetypes hold the query component (ST-SUP-RC20-OC39), so a service with collections only has it.
+		ctx := shopContext(t)
+		ctx.Queries, ctx.Emitters, ctx.FillSlots, ctx.QueryStreams = nil, nil, nil, nil
+		ctx.Tenancy, ctx.Authorization = nil, nil
+		delete(ctx.PeerNamespaces, probeComponent)
+		if err := new(Generator).ValidateContext(ctx); err != nil {
+			t.Fatalf("ValidateContext refuses a service with no query: %v", err)
+		}
+		files, wiring, err := new(Generator).Generate(ctx)
+		if err != nil || len(files) != 0 || wiring == nil {
+			t.Fatalf("Generate with no query gave %d files, wiring %v and %v; want no file, an empty wiring and no fault", len(files), wiring, err)
+		}
+		models, err := new(Generator).GoModels(ctx)
+		if err != nil || len(models) != 0 {
+			t.Fatalf("GoModels with no query gave %d models and %v; want none", len(models), err)
+		}
+	})
+
 	t.Run("ST-SUP-RC33-OC02-T03 A query that the query runtime cannot serve is refused at generation", func(t *testing.T) {
 		index := func(ctx gen.Context, name string) int {
 			for i, q := range ctx.Queries {
