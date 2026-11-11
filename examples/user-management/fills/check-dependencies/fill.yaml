@@ -2,22 +2,6 @@ kind: fill
 name: check-dependencies
 implements: rest-api.before_delete
 collection: organizations
-evidence:
-  fill_digest: f22ec8e3cc363b033f08f45e9448d1598bba3fc376e645957aca64d897865e22
-  contract_digest: 4035c3a8f6dcc45b679fd82e0a50c01eea98cb4904c593abf0e7d10bfe525670
-  passed_at: 2026-11-07T14:10:08Z
-  compiler:
-    go_version: go1.26.10
-    goos: linux
-    goarch: amd64
-    module_version: (devel)
-    vcs: unknown
-    revision: unknown
-    source_state: unknown
-  files:
-    checker.go: 1661a353c769905e3cfaeef4d21ee5228b29edbfdb0f3ba9b0f51b8f0c7b8377
-    checker_test.go: cade81104ba503cbfd8ae0b292a3f0b11fa744ac600e722027a09e415b033a73
-    fill.yaml: 01aa53970c52eb04060c557161deddc788562c39f8c5a7e49405d82cd0375f54
 sign_off:
   evidence_digest: 0c92bfae294203c793b9e8a4e3b919f4177d5da6a3e95ce270bff8bba5fc9ac8
   signature:
@@ -39,3 +23,19 @@ sign_off:
       eGFM0RZkU+N4XrHUrf0KU+DYJZrWLUEQ==
       -----END SSH SIGNATURE-----
   signed_at: 2026-11-07T14:10:10Z
+evidence:
+  fill_digest: e2263400f107dd30933993b9571fb87983f4ba66092059bbdfbd2a66d2531b94
+  contract_digest: 4035c3a8f6dcc45b679fd82e0a50c01eea98cb4904c593abf0e7d10bfe525670
+  passed_at: 2026-11-11T13:52:52Z
+  compiler:
+    go_version: go1.26.11
+    goos: linux
+    goarch: amd64
+    module_version: (devel)
+    vcs: unknown
+    revision: unknown
+    source_state: unknown
+  files:
+    checker.go: 2e6dd147fe5bba1cd2c128ec360eaf1fa7ddfb2935838bfaf032a449e47dec98
+    checker_test.go: cade81104ba503cbfd8ae0b292a3f0b11fa744ac600e722027a09e415b033a73
+    fill.yaml: 01aa53970c52eb04060c557161deddc788562c39f8c5a7e49405d82cd0375f54

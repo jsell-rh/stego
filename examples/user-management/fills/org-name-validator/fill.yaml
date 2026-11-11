@@ -2,22 +2,6 @@ kind: fill
 name: org-name-validator
 implements: rest-api.before_create
 collection: organizations
-evidence:
-  fill_digest: 08d2200580b81240ae146b4a5bff2fc4d44e635d7e5435275e234bac1b563a41
-  contract_digest: 2257b18389d2beb5ccd5d25949f6e0d527cd6fb02436f284e8a574c1ec037655
-  passed_at: 2026-11-07T14:10:08Z
-  compiler:
-    go_version: go1.26.10
-    goos: linux
-    goarch: amd64
-    module_version: (devel)
-    vcs: unknown
-    revision: unknown
-    source_state: unknown
-  files:
-    fill.yaml: a3708f2c46ac989431a3943167ad529e1ffa25317ae4f0a41d62a418bf9eb4b9
-    validator.go: 799acdd169da12ad19bcbbfb6ae876e1b7d10248fcf5f478b4d4c2387ce84ef1
-    validator_test.go: 54a7390b21849206254dcc4b798b2934443a292aaf2c2ff02d78c99a29c122c8
 sign_off:
   evidence_digest: fe946b2676a12d9694c5a4287997dcf2a3f816e012a7ebfcae307cdeb5324ecc
   signature:
@@ -39,3 +23,19 @@ sign_off:
       6jPdj4/LZgTLGpppe/WV6qCOT7sUY2gw==
       -----END SSH SIGNATURE-----
   signed_at: 2026-11-07T14:10:10Z
+evidence:
+  fill_digest: e51a702c229bdfb559556323b3247249f1b6bec6d57152be765b9af03cda2b31
+  contract_digest: 2257b18389d2beb5ccd5d25949f6e0d527cd6fb02436f284e8a574c1ec037655
+  passed_at: 2026-11-11T13:52:52Z
+  compiler:
+    go_version: go1.26.11
+    goos: linux
+    goarch: amd64
+    module_version: (devel)
+    vcs: unknown
+    revision: unknown
+    source_state: unknown
+  files:
+    fill.yaml: a3708f2c46ac989431a3943167ad529e1ffa25317ae4f0a41d62a418bf9eb4b9
+    validator.go: 6dea768fcdb8c866dbfdf56217fd84e074233b13a6a2dd2c7e4139d59cb239c7
+    validator_test.go: 54a7390b21849206254dcc4b798b2934443a292aaf2c2ff02d78c99a29c122c8

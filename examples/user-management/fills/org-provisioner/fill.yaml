@@ -2,22 +2,6 @@ kind: fill
 name: org-provisioner
 implements: rest-api.before_create
 collection: organizations
-evidence:
-  fill_digest: c27b31b5c26c1544dea49008794bf5f93da6c7e33c7a38adacc102a4313aeaa9
-  contract_digest: 2257b18389d2beb5ccd5d25949f6e0d527cd6fb02436f284e8a574c1ec037655
-  passed_at: 2026-11-07T14:10:09Z
-  compiler:
-    go_version: go1.26.10
-    goos: linux
-    goarch: amd64
-    module_version: (devel)
-    vcs: unknown
-    revision: unknown
-    source_state: unknown
-  files:
-    fill.yaml: 69269863d0b410ceceb9c17e1a289a0bc2920e1763b019a8b0720cf123355f2f
-    provisioner.go: b48eb8d7e7af1d9fd5a2daded3f238de0e6a08c2920991bc474aac86f69d85f4
-    provisioner_test.go: ff8badd8c6ad1efdedee431424e50a040bd6f59a4f5377b18231b521be3d6d8c
 sign_off:
   evidence_digest: 414fc91239bca556c9769f626fe7b0f8f2a0403499ccef9b3eb4064c4b627ac0
   signature:
@@ -39,3 +23,19 @@ sign_off:
       C0r4+g8qTggzZvAcaAf18i1NSlsnowmA==
       -----END SSH SIGNATURE-----
   signed_at: 2026-11-07T14:10:10Z
+evidence:
+  fill_digest: a61fbc6201b1a9c1814f6cf0f4818e50a5cc60829bfc51b9df3f9267b0bb4464
+  contract_digest: 2257b18389d2beb5ccd5d25949f6e0d527cd6fb02436f284e8a574c1ec037655
+  passed_at: 2026-11-11T13:52:52Z
+  compiler:
+    go_version: go1.26.11
+    goos: linux
+    goarch: amd64
+    module_version: (devel)
+    vcs: unknown
+    revision: unknown
+    source_state: unknown
+  files:
+    fill.yaml: 69269863d0b410ceceb9c17e1a289a0bc2920e1763b019a8b0720cf123355f2f
+    provisioner.go: 4fb7f345b4c6cc266f671abc445c4f0b0cb70beab9c66a6524f3f4664a20bd91
+    provisioner_test.go: ff8badd8c6ad1efdedee431424e50a040bd6f59a4f5377b18231b521be3d6d8c
