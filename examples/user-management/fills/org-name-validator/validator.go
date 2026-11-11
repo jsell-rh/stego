@@ -2,7 +2,6 @@ package org_name_validator
 
 import (
 	"context"
-	"net/http"
 	"strings"
 
 	"github.com/example/service/out/slots"
@@ -30,7 +29,7 @@ func (v *OrgNameValidator) Evaluate(_ context.Context, req *slots.BeforeCreateRe
 		if strings.Contains(lower, r) {
 			return &slots.SlotResult{
 				Ok:           false,
-				StatusCode:   int32(http.StatusBadRequest),
+				StatusCode:   400, // HTTP 400 Bad Request
 				ErrorMessage: "organization name must not contain reserved word: " + r,
 			}, nil
 		}

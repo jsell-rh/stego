@@ -454,11 +454,18 @@ func runApply(args []string) error {
 	}
 
 	plan.ReplaceHandEdits = *replaceHandEdits
+	_, statErr := os.Stat(filepath.Join(input.ProjectDir, "go.mod"))
+	firstGeneration := errors.Is(statErr, os.ErrNotExist)
 	if err := compiler.Apply(plan, input.ProjectDir, input.OutDir); err != nil {
 		return err
 	}
 
 	fmt.Print(compiler.FormatPlan(plan))
+	if firstGeneration {
+		if err := recheckFills(); err != nil {
+			return err
+		}
+	}
 	fmt.Println("\nApply complete!")
 	return nil
 }
@@ -582,6 +589,33 @@ func runTest(args []string) error {
 		return fmt.Errorf("the tests of %d fill(s) failed: %s", len(failed), strings.Join(failed, ", "))
 	}
 	return nil
+}
+
+// recheckFills holds the fills to the fill rules again after the project's first generation, now that go.mod exists
+// and go list can follow their import closure (ST-EXT-UC01-R03): before it, the check reads only the fills' own
+// files. A fault fails the apply, so no fill reaches stego build unchecked.
+func recheckFills() error {
+	input, err := buildReconcilerInput()
+	if err != nil {
+		return err
+	}
+	check, err := compiler.ResolveFillCheck(input)
+	if err != nil {
+		return err
+	}
+	faults, err := input.QualifyFills(check)
+	if err != nil {
+		return fmt.Errorf("checking the fills after the first generation: %w", err)
+	}
+	if len(faults) == 0 {
+		fmt.Println("\nThe fills were checked again with the go.mod of the first generation.")
+		return nil
+	}
+	lines := make([]string, len(faults))
+	for i, fault := range faults {
+		lines[i] = "  [" + fault.Rule + "] " + fault.Path + ": " + fault.Message
+	}
+	return fmt.Errorf("the first generation is written, but its fills break the fill rules now that go.mod exists; fix them before stego build:\n%s", strings.Join(lines, "\n"))
 }
 
 // runRegistry dispatches registry subcommands.

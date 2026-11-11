@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jsell-rh/stego/internal/fill"
 )
@@ -103,5 +105,52 @@ func TestFillRequalification(t *testing.T) {
 		if !bytes.Equal(before, p.read(t, "fills/stale-fill/fill.yaml")) {
 			t.Fatal("fill sign changed the manifest of stale-fill")
 		}
+	})
+}
+
+// qualifyAsBefore changes policy.go of qualified-fill and gives it evidence and a sign-off over the changed files,
+// as if the fill was qualified under an earlier rule that allowed the change.
+func qualifyAsBefore(t *testing.T, p *fillProject, change func(file string)) {
+	t.Helper()
+	change("fills/qualified-fill/policy.go")
+	dir := p.path("fills/qualified-fill")
+	digest, err := fill.Digest(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := fill.FileDigests(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence := fill.FillEvidence{FillDigest: digest, ContractDigest: contractDigest(t, p, "before_create"), PassedAt: time.Now().UTC().Truncate(time.Second), Files: files}
+	if err := fill.WriteEvidence(p.path("fills/qualified-fill/fill.yaml"), evidence); err != nil {
+		t.Fatal(err)
+	}
+	p.must(t, "listed-ssh", "fill", "sign", "qualified-fill")
+	p.bind(t, slotBinding{"qualified-fill", "before_create", "org-users"})
+}
+
+func TestFillStatusRules(t *testing.T) {
+	t.Run("ST-EXT-UC04-R02-T02 fill status names a qualified fill that the import rule now refuses, with the import", func(t *testing.T) {
+		p := newFillProject(t)
+		qualifyAsBefore(t, p, func(file string) { p.addImport(t, file, "reflect", "reflect.TypeOf") })
+		line := expectStanding(t, p.must(t, "no-key", "fill", "status"), "qualified-fill", fill.Untested)
+		if !strings.Contains(line, "may not import reflect,") {
+			t.Errorf("fill status does not name the import of reflect: %s", line)
+		}
+		expectRefused(t, p, "qualified-fill", "may not import reflect,")
+	})
+	t.Run("ST-EXT-UC04-R02-T03 fill status names a qualified fill that now prints to standard output, with the call", func(t *testing.T) {
+		p := newFillProject(t)
+		qualifyAsBefore(t, p, func(file string) {
+			p.addImport(t, file, "fmt", "fmt.Sprint")
+			p.write(t, file, string(p.read(t, file))+"\nfunc say() { fmt.Println(\"reserve failed\") }\n")
+		})
+		at := fmt.Sprintf("policy.go:%d uses fmt.Println", lineOf(t, p, "fills/qualified-fill/policy.go", "fmt.Println(\"reserve failed\")"))
+		line := expectStanding(t, p.must(t, "no-key", "fill", "status"), "qualified-fill", fill.Untested)
+		if !strings.Contains(line, at) {
+			t.Errorf("fill status does not name %s: %s", at, line)
+		}
+		expectRefused(t, p, "qualified-fill", at)
 	})
 }
