@@ -17,9 +17,6 @@ import (
 	legacyrouter "github.com/getkin/kin-openapi/routers/legacy"
 )
 
-// MaxRequestBody is the most bytes of a request body that a handler reads.
-const MaxRequestBody = 1 << 20
-
 //go:embed openapi.json
 var openAPISpec []byte
 

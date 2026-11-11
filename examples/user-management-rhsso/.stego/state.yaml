@@ -30,9 +30,9 @@ last_applied:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261111142006-eac6da6ab09e
+        module_version: v0.0.0-20261111154136-545e9f79e9cb
         vcs: git
-        revision: eac6da6ab09ee94eacb59f74f20fc87c5da09e74
+        revision: 545e9f79e9cb6c806e4eaebf2bce0c7293dc1996
         source_state: clean
     service_name: user-management
     service_hash: 40aa411da16d99a025ea81b2c13702b86cacd06678d0825757c4865830bee705
@@ -111,14 +111,14 @@ last_applied:
         http_tls_open_unix.go: 52087320dbcef0e1455e7ec7bddfb1bf6b6ae05a17231041f167fb7e7ba338e2
         internal/api/cors.go: 5b7863e6f7fa7f104ffbc0f97418542b07bc428766642a1856de26eac9e1fc2c
         internal/api/discovery.go: 31cf4a80ece098d319dad61a8c861282481707c57deeaab8af29485c6ded4f85
-        internal/api/errors.go: ef0a217eac895b508f5c89534d68ab2a4471c729144ec07fb94723ec20062340
+        internal/api/errors.go: a0f775fe07fdda9889497e6856ca8e598fe262a842a7068633834f31011c8634
         internal/api/handler_all_users.go: da16f9091a7ef4042d39cf13ec6b145632ecc44b44b8c458e5adae31094957eb
-        internal/api/handler_org_settings.go: d462fb0a9b2e4d521532cee9d96af118ff029aebc5f6fe30708277cc81d6131c
-        internal/api/handler_org_users.go: efb8efd69e953d8a8b2045b46bb8f3c98bd151a44585d2f15c6cff4a463ea22d
-        internal/api/handler_organizations.go: eb2c982d8e50142042770198f0ccddeea8f3458b9a55f10296a2ff5668aead0a
+        internal/api/handler_org_settings.go: 7ffbd86db11d105f75e19842d7696e4ecf9e1071aa33065c1b5242834caeea61
+        internal/api/handler_org_users.go: 83d043cfecc5a46489d704a4b9c16582a1fbb1b746c7eab4800b6690242d70a0
+        internal/api/handler_organizations.go: 3da409aa374103b691b00592743adf1da0981a13f00ef236e31b2d9eed8b714f
         internal/api/openapi.json: 08df6ad682de142074f28805f1b4b8fba825e9fec3a172e32b17aeacb0b5d32a
         internal/api/router.go: 1c1a75eee7f5b48a92d7b7fade930f53b4a61dded8b9476ff75d674d73f93739
-        internal/api/validation.go: 8bc2eedfef251f5f1b897848b8510c00d90ac495d4ebe05ad181a2698c1cdaf2
+        internal/api/validation.go: df178f48fa19a0702e37c90b401f6ba0079a1d279ce54ad5d48cc1deee29cf7d
         internal/auth/context.go: dc4df6c35a2224b222d5e5899a37642d1ad57493c3cad21b4d496aa9e0491160
         internal/auth/grants.go: 91a304d5e8a6f764287a39cfc58d6b7c5d63359853dde87d9b9cd809de83dca8
         internal/auth/jwks.go: a8112269eb448cd7162747c7c97755f6e6f40d8360243e4939399d842726ab09

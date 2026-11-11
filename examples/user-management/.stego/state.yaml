@@ -30,9 +30,9 @@ last_applied:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261111142006-eac6da6ab09e
+        module_version: v0.0.0-20261111154136-545e9f79e9cb
         vcs: git
-        revision: eac6da6ab09ee94eacb59f74f20fc87c5da09e74
+        revision: 545e9f79e9cb6c806e4eaebf2bce0c7293dc1996
         source_state: clean
     service_name: user-management
     service_hash: df9112176f2dcaf28257689abc0fedd964b29998195268acc4804137c064b9b1
@@ -124,16 +124,16 @@ last_applied:
         http_tls_open_unix.go: 52087320dbcef0e1455e7ec7bddfb1bf6b6ae05a17231041f167fb7e7ba338e2
         internal/api/cors.go: 5b7863e6f7fa7f104ffbc0f97418542b07bc428766642a1856de26eac9e1fc2c
         internal/api/discovery.go: e8cebc8947ec7d3b9b268edf03f07277cde0dd116e2d464d5310b75dc3b3b2a3
-        internal/api/errors.go: ef0a217eac895b508f5c89534d68ab2a4471c729144ec07fb94723ec20062340
+        internal/api/errors.go: a0f775fe07fdda9889497e6856ca8e598fe262a842a7068633834f31011c8634
         internal/api/handler_all_users.go: da16f9091a7ef4042d39cf13ec6b145632ecc44b44b8c458e5adae31094957eb
-        internal/api/handler_org_audit_events.go: db5cc2832cf1dc609a8773d4c56e533ad2c211794e8cc6111143d8dfaf3679f2
-        internal/api/handler_org_settings.go: d462fb0a9b2e4d521532cee9d96af118ff029aebc5f6fe30708277cc81d6131c
-        internal/api/handler_org_users.go: d1423ac9741992b45140ea106cfb162ffef4f738d40a08e6d1d10fbc3f5b0794
-        internal/api/handler_organizations.go: 533e899a7c2743411722252e4239c191af8db5d144af397ad62a1ee26b2570a3
-        internal/api/handler_user_audit_events.go: 95bf11e8d8a5da36301ec966073054f75366b6b04cde43582b2c9a11e3f85a33
+        internal/api/handler_org_audit_events.go: 41c87da1a9ac083942a2230d4898a4c63c158bba11b5cc187c2f3fb015a25e49
+        internal/api/handler_org_settings.go: 7ffbd86db11d105f75e19842d7696e4ecf9e1071aa33065c1b5242834caeea61
+        internal/api/handler_org_users.go: 54ecbdea84ae5a77c19fd946fbe6b5f143e095046cd0ece5143c15e650203e6e
+        internal/api/handler_organizations.go: 144efaec01e56841718ffcc3310d536e037e85d6d3125b2c52618bce7f3e64bc
+        internal/api/handler_user_audit_events.go: 5f37bf6fafc39c956730f36172d689ff94fec47d3785a12376191de045e2b489
         internal/api/openapi.json: aecafa38321aad0624c54d97851685fe2617a60894d298b751568a1674c9dca1
         internal/api/router.go: 08c97fe08ce92b73b8f57cf02fc3d3cf5f96a144be10681e1f009d1f5c41e7a7
-        internal/api/validation.go: 8bc2eedfef251f5f1b897848b8510c00d90ac495d4ebe05ad181a2698c1cdaf2
+        internal/api/validation.go: df178f48fa19a0702e37c90b401f6ba0079a1d279ce54ad5d48cc1deee29cf7d
         internal/auth/grants.go: 91a304d5e8a6f764287a39cfc58d6b7c5d63359853dde87d9b9cd809de83dca8
         internal/auth/jwks.go: a8112269eb448cd7162747c7c97755f6e6f40d8360243e4939399d842726ab09
         internal/auth/key_source.go: f54757d1354b0649ce023659de975cf38abcc1b7d204bc860dbea54c4d1909bb
