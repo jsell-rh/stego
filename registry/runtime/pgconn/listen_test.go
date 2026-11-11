@@ -51,6 +51,12 @@ func TestListener(t *testing.T) {
 			t.Fatal(err)
 		}
 		role, worker := "pgconn_runtime_"+hex.EncodeToString(suffix), "pgconn_worker_"+hex.EncodeToString(suffix)
+		relay := "pgconn_" + hex.EncodeToString(suffix) + outbox.RelaySuffix
+		// The migration makes the relay role.
+		t.Cleanup(func() {
+			_, _ = db.ExecContext(context.Background(), "DROP OWNED BY "+relay)
+			_, _ = db.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+relay)
+		})
 		for _, r := range []string{role, worker} {
 			if _, err := db.ExecContext(ctx, "CREATE ROLE "+r+" NOLOGIN"); err != nil {
 				t.Fatal(err)
@@ -60,7 +66,7 @@ func TestListener(t *testing.T) {
 				_, _ = db.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+r)
 			})
 		}
-		ddl, err := outbox.Migration(role, worker)
+		ddl, err := outbox.Migration(relay, role, worker)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -742,7 +743,9 @@ func quoteName(kind, name string) (string, error) {
 // read it, and the relay login role may update it and nothing else. The revocation records are tenant-owned, with
 // row-level security enabled and forced: the runtime role may read them and insert a new revocation and its tuples,
 // never a count or a token. The counts and the token change only through the function authz_revocation_state, which
-// the NOLOGIN role stego_outbox_relay owns, apart from the relay login role, and which the outbox state hook calls.
+// the NOLOGIN outbox relay role of the service owns, apart from the relay login role, and which the outbox state hook
+// calls. The outbox relay role makes both functions itself, under SET LOCAL ROLE, with CREATE on the schema only
+// while it makes them, so the owner needs only SET membership in it.
 // The function reads the state of the outbox message through the one relay policy of the queue table, and counts a
 // change only when the message has the destination authz and is in the state the hook reports; it refuses the state
 // done unless session_user is a hook role, and refuses to run under an isolation other than READ COMMITTED. Status
@@ -751,7 +754,7 @@ const migrationText = `DO $do$
 DECLARE
 	v_role text;
 BEGIN
-	FOREACH v_role IN ARRAY ARRAY[{{relay_text}}, 'stego_outbox_relay'] || {{hook_array}} LOOP
+	FOREACH v_role IN ARRAY ARRAY[{{relay_text}}, {{outbox_relay_text}}] || {{hook_array}} LOOP
 		IF pg_catalog.pg_has_role({{runtime_text}}, v_role, 'MEMBER') THEN
 			RAISE EXCEPTION 'authz: the runtime role % is a member of the role %', {{runtime_text}}, v_role;
 		END IF;
@@ -765,7 +768,7 @@ CREATE TABLE IF NOT EXISTS {{schema}}.authz_floor (
 );
 INSERT INTO {{schema}}.authz_floor (only_row) VALUES (true) ON CONFLICT (only_row) DO NOTHING;
 REVOKE ALL ON {{schema}}.authz_floor FROM PUBLIC;
-GRANT SELECT ON {{schema}}.authz_floor TO {{runtime_role}}, {{relay_role}}, stego_outbox_relay;
+GRANT SELECT ON {{schema}}.authz_floor TO {{runtime_role}}, {{relay_role}}, {{outbox_relay}};
 GRANT UPDATE (token, sequence) ON {{schema}}.authz_floor TO {{relay_role}};
 
 CREATE TABLE IF NOT EXISTS {{schema}}.authz_revocations (
@@ -787,9 +790,9 @@ CREATE POLICY authz_revocations_tenant ON {{schema}}.authz_revocations
 	USING (tenant_id = pg_catalog.current_setting('app.tenant', true))
 	WITH CHECK (tenant_id = pg_catalog.current_setting('app.tenant', true));
 REVOKE ALL ON {{schema}}.authz_revocations FROM PUBLIC;
-GRANT SELECT ON {{schema}}.authz_revocations TO {{runtime_role}}, stego_outbox_relay;
+GRANT SELECT ON {{schema}}.authz_revocations TO {{runtime_role}}, {{outbox_relay}};
 GRANT INSERT (id, tenant_id, principal, tuple_count) ON {{schema}}.authz_revocations TO {{runtime_role}};
-GRANT UPDATE (tuple_count, done, parked, discarded, token, completed_at) ON {{schema}}.authz_revocations TO stego_outbox_relay;
+GRANT UPDATE (tuple_count, done, parked, discarded, token, completed_at) ON {{schema}}.authz_revocations TO {{outbox_relay}};
 
 CREATE TABLE IF NOT EXISTS {{schema}}.authz_revocation_tuples (
 	message_id uuid PRIMARY KEY,
@@ -805,10 +808,25 @@ CREATE POLICY authz_revocation_tuples_tenant ON {{schema}}.authz_revocation_tupl
 	USING (tenant_id = pg_catalog.current_setting('app.tenant', true))
 	WITH CHECK (tenant_id = pg_catalog.current_setting('app.tenant', true));
 REVOKE ALL ON {{schema}}.authz_revocation_tuples FROM PUBLIC;
-GRANT SELECT ON {{schema}}.authz_revocation_tuples TO {{runtime_role}}, stego_outbox_relay;
+GRANT SELECT ON {{schema}}.authz_revocation_tuples TO {{runtime_role}}, {{outbox_relay}};
 GRANT INSERT (message_id, revocation_id, tenant_id) ON {{schema}}.authz_revocation_tuples TO {{runtime_role}};
-GRANT UPDATE (state) ON {{schema}}.authz_revocation_tuples TO stego_outbox_relay;
-GRANT USAGE ON SCHEMA {{schema}} TO stego_outbox_relay;
+GRANT UPDATE (state) ON {{schema}}.authz_revocation_tuples TO {{outbox_relay}};
+GRANT USAGE ON SCHEMA {{schema}} TO {{outbox_relay}};
+
+-- The outbox relay role makes the two functions itself, so the role that runs the text needs only SET membership in
+-- it. CREATE on the schema is given for that alone and taken back below, in the same transaction.
+SELECT pg_catalog.set_config('stego.authz_migration_role', CURRENT_USER, true),
+	pg_catalog.set_config('stego.authz_relay_create', '', true);
+DO $do$ BEGIN
+	IF NOT pg_catalog.pg_has_role(CURRENT_USER, {{outbox_relay_text}}, 'SET') THEN
+		RAISE EXCEPTION 'authz: the migration role % needs membership in % WITH SET TRUE', CURRENT_USER, {{outbox_relay_text}};
+	END IF;
+	IF NOT pg_catalog.has_schema_privilege({{outbox_relay_text}}, {{schema_text}}, 'CREATE') THEN
+		EXECUTE 'GRANT CREATE ON SCHEMA ' || {{schema_quoted_text}} || ' TO {{outbox_relay}}';
+		PERFORM pg_catalog.set_config('stego.authz_relay_create', 'granted', true);
+	END IF;
+END $do$;
+SET LOCAL ROLE {{outbox_relay}};
 
 -- A tuple row must name an authz outbox message of its own revocation, of its tenant, and both the message and the
 -- revocation must be written by the same transaction as the row, so the runtime role cannot stall a revocation with
@@ -829,11 +847,7 @@ BEGIN
 	RETURN NULL;
 END
 $$;
-ALTER FUNCTION {{schema}}.authz_revocation_tuple_check() OWNER TO stego_outbox_relay;
 REVOKE ALL ON FUNCTION {{schema}}.authz_revocation_tuple_check() FROM PUBLIC;
-DROP TRIGGER IF EXISTS authz_revocation_tuple_check ON {{schema}}.authz_revocation_tuples;
-CREATE CONSTRAINT TRIGGER authz_revocation_tuple_check AFTER INSERT ON {{schema}}.authz_revocation_tuples
-	DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION {{schema}}.authz_revocation_tuple_check();
 
 CREATE OR REPLACE FUNCTION {{schema}}.authz_revocation_state(p_message uuid, p_revocation uuid, p_state text) RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
@@ -878,24 +892,43 @@ BEGIN
 	RETURN true;
 END
 $$;
-ALTER FUNCTION {{schema}}.authz_revocation_state(uuid, uuid, text) OWNER TO stego_outbox_relay;
 REVOKE ALL ON FUNCTION {{schema}}.authz_revocation_state(uuid, uuid, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION {{schema}}.authz_revocation_state(uuid, uuid, text) TO {{runtime_role}};
-{{hook_grants}}`
+{{hook_grants}}
+-- The role that runs the text makes the trigger, which needs EXECUTE on the trigger function; PostgreSQL calls a
+-- trigger function only as a trigger. Then it takes its own role back and the CREATE that it gave. Both role changes
+-- are local to the transaction, so the role of the session is the same after it.
+DO $do$
+DECLARE
+	v_role text := pg_catalog.current_setting('stego.authz_migration_role');
+BEGIN
+	EXECUTE 'GRANT EXECUTE ON FUNCTION ' || {{schema_quoted_text}} || '.authz_revocation_tuple_check() TO ' || pg_catalog.quote_ident(v_role);
+	EXECUTE pg_catalog.format('SET LOCAL ROLE %I', v_role);
+	IF pg_catalog.current_setting('stego.authz_relay_create') = 'granted' THEN
+		EXECUTE 'REVOKE CREATE ON SCHEMA ' || {{schema_quoted_text}} || ' FROM {{outbox_relay}}';
+	END IF;
+END
+$do$;
+DROP TRIGGER IF EXISTS authz_revocation_tuple_check ON {{schema}}.authz_revocation_tuples;
+CREATE CONSTRAINT TRIGGER authz_revocation_tuple_check AFTER INSERT ON {{schema}}.authz_revocation_tuples
+	DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION {{schema}}.authz_revocation_tuple_check();
+`
 
 // Migration returns the SQL text that creates the revocation floor authz_floor, the revocation records and the
 // function of the outbox state hook in schema, for the migration job to run as the owner role after the migration of
-// the outbox runtime, whose table the function reads (ST-SUP-RP06-LC21). The function belongs to the NOLOGIN role
-// stego_outbox_relay of the outbox runtime, so the owner role needs the membership that the outbox migration names.
+// the outbox runtime, whose table the function reads (ST-SUP-RP06-LC21). The functions belong to outboxRelayRole,
+// the NOLOGIN relay role of this service alone, <service role prefix>_outbox_relay, which the outbox migration
+// names; the owner role needs the membership WITH SET TRUE that the outbox migration names, and no INHERIT.
 // runtimeRole is the role the service runs as; relayRole is the login role of the relay, which may update the floor
 // and nothing else; hookRoles are the roles that call the outbox state hook, such as the outbox worker role, and
 // only they may report the state done. It refuses a runtime role that equals the relay login role, a relay login
-// role that equals a hook role, and no hook role; the text refuses a runtime role that is a member of the relay login
-// role before it creates anything. The text runs again with no error on a database that it made: each table and
+// role that equals a hook role, no hook role, and an outbox relay role that is not a lower-case SQL name ending
+// with outbox.RelaySuffix or that equals one of the other roles; the text refuses a runtime role that is a member of
+// the relay login role or of the outbox relay role before it creates anything. The text runs again with no error on a database that it made: each table and
 // index is made only when it is missing, the floor row only once, each function and trigger is replaced, and each
 // policy is dropped before it is made again, so the migration job can run on every release. Run it in one
 // transaction.
-func Migration(schema, runtimeRole, relayRole string, hookRoles ...string) (string, error) {
+func Migration(schema, runtimeRole, relayRole, outboxRelayRole string, hookRoles ...string) (string, error) {
 	quotedSchema, err := quoteName("schema", schema)
 	if err != nil {
 		return "", err
@@ -913,6 +946,15 @@ func Migration(schema, runtimeRole, relayRole string, hookRoles ...string) (stri
 	}
 	if len(hookRoles) == 0 {
 		return "", errors.New("authz: the migration needs at least one hook role")
+	}
+	if !outboxRelayPattern.MatchString(outboxRelayRole) || !strings.HasSuffix(outboxRelayRole, outbox.RelaySuffix) ||
+		outboxRelayRole == outbox.RelaySuffix[1:] {
+		return "", fmt.Errorf("authz: the outbox relay role %q is not a <service role prefix>%s role", outboxRelayRole, outbox.RelaySuffix)
+	}
+	for _, role := range append([]string{runtimeRole, relayRole}, hookRoles...) {
+		if role == outboxRelayRole {
+			return "", fmt.Errorf("authz: the outbox relay role %s must be a role apart from the runtime, relay and hook roles", outboxRelayRole)
+		}
 	}
 	for _, role := range hookRoles {
 		if role == runtimeRole {
@@ -934,8 +976,12 @@ func Migration(schema, runtimeRole, relayRole string, hookRoles ...string) (stri
 	}
 	return strings.NewReplacer("{{schema}}", quotedSchema, "{{runtime_role}}", quotedRuntime,
 		"{{relay_role}}", quotedRelay, "{{runtime_text}}", sqlText(runtimeRole), "{{relay_text}}", sqlText(relayRole),
+		"{{outbox_relay}}", `"`+outboxRelayRole+`"`, "{{outbox_relay_text}}", sqlText(outboxRelayRole), "{{schema_text}}", sqlText(schema), "{{schema_quoted_text}}", sqlText(quotedSchema),
 		"{{hook_array}}", "ARRAY["+strings.Join(hooks, ", ")+"]", "{{hook_grants}}", grants.String()).Replace(migrationText), nil
 }
+
+// outboxRelayPattern is a lower-case SQL name of at most 63 characters, which needs no quotes.
+var outboxRelayPattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
 // sqlText quotes text as an SQL string literal.
 func sqlText(text string) string { return "'" + strings.ReplaceAll(text, "'", "''") + "'" }

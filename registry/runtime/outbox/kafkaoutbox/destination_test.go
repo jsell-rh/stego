@@ -70,6 +70,9 @@ func newEnv(t *testing.T) *env {
 		}
 		t.Cleanup(func() { _, _ = root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+role) })
 	}
+	// The outbox migration makes the outbox relay role of the test; it is dropped after the database.
+	outboxRelay := "ko_" + tag + outbox.RelaySuffix
+	t.Cleanup(func() { _, _ = root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+outboxRelay) })
 	database := pgtest.Database(t, "kafkaoutbox")
 	admin, err := sql.Open("pgx", database)
 	if err != nil {
@@ -81,7 +84,7 @@ func newEnv(t *testing.T) *env {
 			_, _ = admin.ExecContext(context.Background(), "DROP OWNED BY "+role)
 		}
 	})
-	ddl, err := outbox.Migration(roles[0], roles[1])
+	ddl, err := outbox.Migration(outboxRelay, roles[0], roles[1])
 	if err != nil {
 		t.Fatal(err)
 	}

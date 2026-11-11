@@ -276,6 +276,8 @@ func (svc *Service) startWorker(ctx context.Context, c StartConfig, w *Workers) 
 	if err != nil {
 		return nil, err
 	}
+	// The worker role is the one role that runs the outbox relay functions (ST-SUP-RP01-LC19).
+	cfg.Claims = true
 	if w.workerDB, err = tenant.Open(ctx, cfg); err != nil {
 		return nil, err
 	}
