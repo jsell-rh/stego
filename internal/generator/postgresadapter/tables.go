@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"go/format"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -316,6 +317,12 @@ func tablesSQL(ctx gen.Context) (string, error) {
 				") REFERENCES public."+sqlIdentifier(tableName(field.To))+" ("+strings.Join(to, ", ")+")")
 		}
 		fmt.Fprintf(&out, "CREATE TABLE public.%s (\n  %s\n);\n", sqlIdentifier(table), strings.Join(lines, ",\n  "))
+		// A list filters a table on its scope field, its implicit fields and the fields of its search, each with the
+		// tenant: an index of each keeps a filtered list from scanning the tenant's whole table (ST-SUP-RP11-LC20).
+		for _, column := range searchColumns(entity, ctx.Collections) {
+			fmt.Fprintf(&out, "CREATE INDEX %s ON public.%s (%s);\n", sqlIdentifier(sqlName(table, column, "search")),
+				sqlIdentifier(table), strings.Join(append(append([]string{}, lead...), sqlIdentifier(column)), ", "))
+		}
 		for _, columns := range uniqueKeys(entity, upsertKeys[entity.Name]) {
 			quoted := append([]string{}, lead...)
 			for _, column := range columns {
@@ -326,6 +333,39 @@ func tablesSQL(ctx gen.Context) (string, error) {
 		}
 	}
 	return out.String(), nil
+}
+
+// searchColumns gives the columns of the entity that a list of a collection over it filters on, in the entity's
+// order: the scope field and the implicit fields of each collection with list, and the fields that its search takes,
+// which are the fields that are not pii or secret, of a text, enum, number or bool type.
+func searchColumns(entity types.Entity, collections []types.Collection) []string {
+	filtered := map[string]bool{}
+	listed := false
+	for _, c := range collections {
+		if c.Entity != entity.Name || !slices.Contains(c.Operations, types.OpList) {
+			continue
+		}
+		listed = true
+		for field := range c.Scope {
+			filtered[field] = true
+		}
+		for field := range c.Implicit {
+			filtered[field] = true
+		}
+	}
+	if !listed {
+		return nil
+	}
+	var columns []string
+	for _, f := range entity.Fields {
+		searchable := f.Sensitivity == "" && (f.Type == types.FieldTypeString || f.Type == types.FieldTypeEnum ||
+			f.Type == types.FieldTypeInt32 || f.Type == types.FieldTypeInt64 || f.Type == types.FieldTypeFloat ||
+			f.Type == types.FieldTypeDouble || f.Type == types.FieldTypeBool)
+		if filtered[f.Name] || searchable {
+			columns = append(columns, f.Name)
+		}
+	}
+	return columns
 }
 
 // generateTables gives the files of the tables on the runtime data path: the SQL text of 001_initial as the

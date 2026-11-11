@@ -149,7 +149,7 @@ func reversed(s []string) []string {
 
 func TestParseSearch(t *testing.T) {
 	t.Run("ST-SUP-RP11-LC20-T02 A list search is read into equality conditions of declared fields only", func(t *testing.T) {
-		fields := map[string]FieldKind{"name": KindText, "qty": KindInt, "weight": KindFloat, "done": KindBool}
+		fields := map[string]FieldKind{"name": KindText, "qty": KindInt64, "small": KindInt32, "weight": KindFloat, "done": KindBool}
 		for text, want := range map[string][]Equal{
 			"":             nil,
 			"name = 'a b'": {{Field: "name", Value: "a b"}},
@@ -158,7 +158,7 @@ func TestParseSearch(t *testing.T) {
 			"  name = 'x'  ":            {{Field: "name", Value: "x"}},
 			"name = 'x'' OR ''1''=''1'": {{Field: "name", Value: "x' OR '1'='1"}},
 		} {
-			got, err := ParseSearch(text, fields)
+			got, err := ParseSearch(text, fields, MaxFilter)
 			if err != nil || fmt.Sprint(got) != fmt.Sprint(want) {
 				t.Errorf("ParseSearch(%q) = %v, %v; want %v", text, got, err, want)
 			}
@@ -168,10 +168,83 @@ func TestParseSearch(t *testing.T) {
 			"secret = 'x'", "name = 'x' and name = 'y'", "name = 'x' or qty = 1", "name != 'x'", "name = x",
 			"qty = 'x'", "qty = 1.5", "done = yes", "name = 'open", "name = 'x' and", "(name = 'x')",
 			"name = 'x'; DROP TABLE t", strings.Repeat("a", MaxSearch+1), "name = '\xff'", many,
+			"small = 2147483648", "qty = 9223372036854775808", "name = 'a\x00b'",
 		} {
-			if got, err := ParseSearch(text, fields); !errors.Is(err, ErrBadRequest) || got != nil || strings.Contains(err.Error(), "DROP") {
+			if got, err := ParseSearch(text, fields, MaxFilter); !errors.Is(err, ErrBadRequest) || got != nil || strings.Contains(err.Error(), "DROP") {
 				t.Errorf("ParseSearch(%.40q) = %v, %v; want a refusal that holds no part of the text", text, got, err)
 			}
+		}
+		// The room of a list with a scope and implicit fields is smaller.
+		if _, err := ParseSearch("name = 'x' and qty = 1", fields, 1); !errors.Is(err, ErrBadRequest) {
+			t.Errorf("two conditions with room for one gave %v, want ErrBadRequest", err)
+		}
+		if got, err := ParseSearch("name = 'x'", fields, 1); err != nil || len(got) != 1 {
+			t.Errorf("one condition with room for one gave %v, %v", got, err)
+		}
+	})
+}
+
+func TestListFilterCost(t *testing.T) {
+	t.Run("ST-SUP-RP11-LC20-T03 A list call decides as often whether rows it may not see match or not, a sensitive field neither filters nor orders, and each statement has a time limit", func(t *testing.T) {
+		e := newEnv(t)
+		// Every order of total 7 is denied, and no order has total 8.
+		port := &fakeDecision{decide: func(r authz.EvaluationRequest) bool { return !strings.HasSuffix(keyOf(r.Resource), "-7") }}
+		rt := e.servedRuntime(t, port)
+		for i := range 20 {
+			e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) VALUES ('t1', $1, $2)", fmt.Sprintf("o-%02d-%d", i, 7), 7)
+		}
+		orders := orderEntity(t, false)
+		q := mustListQuery(t, "list-orders", orders, "view")
+		batchesOf := func(where []Equal) int {
+			before := len(port.batches)
+			page, err := Run(context.Background(), rt, q, bound(t, "t1", "user:u-7", q.Name()), struct{}{},
+				func(ctx context.Context, _ struct{}, h *Handle[noProbe]) (ListResult[Order], error) {
+					repo, err := Repo(h, orders)
+					if err != nil {
+						return ListResult[Order]{}, err
+					}
+					return repo.List(ctx, ListRequest{Limit: 5, Where: where})
+				})
+			if err != nil || len(page.Items) != 0 {
+				t.Fatalf("the list of %v gave %d rows and %v, want none", where, len(page.Items), err)
+			}
+			port.mu.Lock()
+			defer port.mu.Unlock()
+			return len(port.batches) - before
+		}
+		hidden, none := batchesOf([]Equal{{Field: "total", Value: int64(7)}}), batchesOf([]Equal{{Field: "total", Value: int64(8)}})
+		if hidden != 1 || none != 1 {
+			t.Errorf("a call whose filter matches only rows that the caller may not see made %d batch decisions, and one that matches no row %d; want 1 and 1", hidden, none)
+		}
+
+		// A pii field neither filters nor orders a list: a match would tell its value.
+		charges := chargeEntity(t)
+		qc := mustListQuery(t, "list-charges", charges, "view")
+		for name, request := range map[string]ListRequest{
+			"a filter on pii": {Where: []Equal{{Field: "card_last4", Value: "4242"}}},
+			"an order on pii": {Order: []OrderBy{{Field: "card_last4"}}},
+		} {
+			_, err := Run(context.Background(), rt, qc, bound(t, "t1", "user:u-7", qc.Name()), struct{}{},
+				func(ctx context.Context, _ struct{}, h *Handle[noProbe]) (ListResult[Charge], error) {
+					repo, err := Repo(h, charges)
+					if err != nil {
+						return ListResult[Charge]{}, err
+					}
+					return repo.List(ctx, request)
+				})
+			if !errors.Is(err, ErrBadRequest) {
+				t.Errorf("%s gave %v, want ErrBadRequest", name, err)
+			}
+		}
+
+		// Each statement of the query's transaction ends within the time limit.
+		var limit string
+		_, err := Run(context.Background(), rt, q, bound(t, "t1", "user:u-7", q.Name()), struct{}{},
+			func(ctx context.Context, _ struct{}, h *Handle[noProbe]) (struct{}, error) {
+				return struct{}{}, h.core.tx.QueryRowContext(ctx, "SHOW statement_timeout").Scan(&limit)
+			})
+		if err != nil || limit != "5s" {
+			t.Errorf("the statement time limit of a query is %q (%v), want 5s", limit, err)
 		}
 	})
 }

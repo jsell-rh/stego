@@ -88,16 +88,19 @@ func (c *runtimeCollection) hrefExpr(v string) string {
 }
 
 // searchKind gives the kind of the values of a field that a list search may name, or empty for a field that a
-// search does not take: a secret field, a ref, and a field of a jsonb, bytes or timestamp type.
+// search does not take: a pii or secret field, whose match would tell its value (ST-SUP-RP11-LC20), a ref, and a
+// field of a jsonb, bytes or timestamp type.
 func searchKind(f types.Field) string {
-	if f.Sensitivity == "secret" {
+	if f.Sensitivity != "" {
 		return ""
 	}
 	switch f.Type {
 	case types.FieldTypeString, types.FieldTypeEnum:
 		return "KindText"
-	case types.FieldTypeInt32, types.FieldTypeInt64:
-		return "KindInt"
+	case types.FieldTypeInt32:
+		return "KindInt32"
+	case types.FieldTypeInt64:
+		return "KindInt64"
 	case types.FieldTypeFloat, types.FieldTypeDouble:
 		return "KindFloat"
 	case types.FieldTypeBool:
@@ -204,6 +207,9 @@ func validateRuntimeScope(ctx gen.Context, c types.Collection, e types.Entity, e
 		}
 	}
 	for name, value := range c.Implicit {
+		if slices.Contains(c.Patchable, name) {
+			return fmt.Errorf("rest-api: collection %s lets a patch change its implicit field %s, which moves a row to another collection", c.Name, name)
+		}
 		f, ok := field(name)
 		if !ok || (f.Type != types.FieldTypeString && f.Type != types.FieldTypeEnum) || (f.Type == types.FieldTypeEnum && !slices.Contains(f.Values, value)) {
 			return fmt.Errorf("rest-api: collection %s has the implicit field %s, which is not a text or enum field that takes its value", c.Name, name)
@@ -780,6 +786,9 @@ func renderRuntimeHandler(ctx gen.Context, c *runtimeCollection, dataImport, slo
 	}
 	needUUID := w.envelope && c.ops[types.OpCreate]
 	w.f("package %s\n\nimport (\n\t\"context\"\n\t\"encoding/json\"\n", path.Base(ctx.OutputNamespace))
+	if c.ops[types.OpList] {
+		w.f("\t\"errors\"\n")
+	}
 	if needFmt {
 		w.f("\t\"fmt\"\n")
 	}
@@ -901,7 +910,7 @@ func (w *runtimeHandlerWriter) declarations() {
 		}
 	}
 	if c.ops[types.OpList] {
-		w.f("// %sSearchFields are the fields that a list search may name, with the kind of their values: the declared\n// fields that are not secret or implicit, of a text, number or bool type (ST-SUP-RP11-LC20).\nvar %sSearchFields = map[string]query.FieldKind{", c.camel, c.camel)
+		w.f("// %sSearchFields are the fields that a list search may name, with the kind of their values: the declared\n// fields that are not pii, secret or implicit, of a text, number or bool type (ST-SUP-RP11-LC20).\nvar %sSearchFields = map[string]query.FieldKind{", c.camel, c.camel)
 		implicit := map[string]bool{}
 		for _, kv := range c.implicit {
 			implicit[kv[0]] = true
@@ -1335,6 +1344,17 @@ func (w *runtimeHandlerWriter) update() {
 	w.f("\twriteResult(w, result)\n}\n\n")
 }
 
+// storedValue gives the expression of the value of the implicit field name of the stored row, for an optional
+// field the value it points to or the empty text.
+func (w *runtimeHandlerWriter) storedValue(name string) string {
+	for _, f := range w.c.entity.Fields {
+		if f.Name == name && f.Optional {
+			return fmt.Sprintf("command.StateOf(stored.%s)", toPascalCase(name))
+		}
+	}
+	return "stored." + toPascalCase(name)
+}
+
 // forceScope writes the server values of the scope field and the implicit fields of a written value: the scope
 // field from scope, and each implicit field from its declared value (ST-SUP-RC20-OC23, ST-SUP-RC20-OC24).
 func (w *runtimeHandlerWriter) forceScope(scope string) {
@@ -1387,9 +1407,17 @@ func (w *runtimeHandlerWriter) lockRow() {
 	w.f("\t\trepo, err := data.%sRepository(ch)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", e.Name)
 	w.f("\t\tfrom, err := repo.GetForDelete(ctx, id)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n")
 	w.f("\t\tstored := %s\n\t\t_ = stored\n", w.fromData("from.Value()"))
+	// A row of another parent, or with other implicit values, is not found in this collection (ST-SUP-RC20-OC23,
+	// ST-SUP-RC20-OC24).
+	var checks []string
 	if w.c.scope != "" {
-		// A row of another parent is not found in this collection (ST-SUP-RC20-OC24).
-		w.f("\t\tif stored.%s != scope {\n\t\t\treturn idempotency.Response{}, command.ErrNotFound\n\t\t}\n", toPascalCase(w.c.scope))
+		checks = append(checks, fmt.Sprintf("stored.%s != scope", toPascalCase(w.c.scope)))
+	}
+	for _, kv := range w.c.implicit {
+		checks = append(checks, fmt.Sprintf("%s != %q", w.storedValue(kv[0]), kv[1]))
+	}
+	if len(checks) > 0 {
+		w.f("\t\tif %s {\n\t\t\treturn idempotency.Response{}, command.ErrNotFound\n\t\t}\n", strings.Join(checks, " || "))
 	}
 }
 
@@ -1417,6 +1445,7 @@ func (w *runtimeHandlerWriter) patch() {
 			w.f("\t\tif patch.%s != nil {\n\t\t\t%s.%s = *patch.%s\n\t\t}\n", name, c.lower, name, name)
 		}
 	}
+	w.forceScope("stored." + toPascalCase(c.scope))
 	for _, f := range e.Fields {
 		switch {
 		case f.Name == "updated_by":
@@ -1488,15 +1517,20 @@ func (w *runtimeHandlerWriter) list() {
 	w.start(false)
 	w.f("\tlimit := 100\n\tif text := r.URL.Query().Get(\"pageSize\"); text != \"\" {\n\t\tn, err := strconv.Atoi(text)\n\t\tif err != nil || n < 1 {\n\t\t\thandleError(w, r, BadRequest(\"pageSize must be a whole number of at least 1\"))\n\t\t\treturn\n\t\t}\n\t\tlimit = min(n, query.MaxLimit)\n\t}\n")
 	var fields []string
+	// A pii or secret field orders no list: the order would tell its value (ST-SUP-RP11-LC20).
 	for _, f := range e.Fields {
-		if f.Sensitivity != "secret" {
+		if f.Sensitivity == "" {
 			fields = append(fields, fmt.Sprintf("%q: true", f.Name))
 		}
 	}
 	w.f("\torder, err := listOrder(r.URL.Query().Get(\"orderBy\"), map[string]bool{%s})\n\tif err != nil {\n\t\thandleError(w, r, BadRequest(err.Error()))\n\t\treturn\n\t}\n", strings.Join(fields, ", "))
 	// The filter of the list: the conditions of the search, then the scope field and the implicit fields, which
 	// the search may not name again (ST-SUP-RP11-LC20, ST-SUP-RC20-OC23, ST-SUP-RC20-OC24).
-	w.f("\twhere, err := query.ParseSearch(r.URL.Query().Get(\"search\"), %sSearchFields)\n\tif err != nil {\n\t\thandleError(w, r, BadRequest(\"the search is not valid\"))\n\t\treturn\n\t}\n", c.camel)
+	own := len(c.implicit)
+	if c.scope != "" {
+		own++
+	}
+	w.f("\twhere, err := query.ParseSearch(r.URL.Query().Get(\"search\"), %sSearchFields, query.MaxFilter-%d)\n\tif err != nil {\n\t\thandleError(w, r, BadRequest(\"the search is not valid\"))\n\t\treturn\n\t}\n", c.camel, own)
 	if c.scope != "" {
 		w.f("\twhere = append(where, query.Equal{Field: %q, Value: scope})\n", c.scope)
 	}
@@ -1509,6 +1543,7 @@ func (w *runtimeHandlerWriter) list() {
 	w.f("\t\tresult, err := repo.List(ctx, request)\n\t\tif err != nil {\n\t\t\treturn %sPage{}, err\n\t\t}\n", c.camel)
 	w.f("\t\tpage := %sPage{next: result.Next, more: result.More}\n\t\tfor _, item := range result.Items {\n\t\t\tpage.items = append(page.items, %sFromView(item.Value()))\n\t\t}\n\t\treturn page, nil\n\t})\n", c.camel, c.camel)
 	w.f("\tif isBadCursor(err) {\n\t\thandleError(w, r, BadRequest(\"the cursor is not valid\"))\n\t\treturn\n\t}\n")
+	w.f("\tif errors.Is(err, query.ErrBadRequest) {\n\t\thandleError(w, r, BadRequest(\"the list request is not valid\"))\n\t\treturn\n\t}\n")
 	w.f("\tif err != nil {\n\t\thandleError(w, r, InternalError(\"internal error\"))\n\t\treturn\n\t}\n")
 	w.f("\titems := make([]any, 0, len(page.items))\n\tfor _, item := range page.items {\n\t\titems = append(items, %sPresented(item))\n\t}\n", c.camel)
 	w.f("\tw.Header().Set(\"Content-Type\", \"application/json\")\n")

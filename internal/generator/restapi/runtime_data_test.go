@@ -69,7 +69,7 @@ func crudContext() gen.Context {
 			EntityAuthorization: types.EntityAuthorization{ResourceType: "book", Permissions: permissions(types.OpUpdate, types.OpPatch, types.OpDelete), PublicReasons: reasons,
 				References: map[string]types.Reference{"folder_id": {Relation: "folder", Permission: "edit"}}}},
 		types.Entity{Name: "Event", Fields: []types.Field{{Name: "source", Type: types.FieldTypeString}, {Name: "note", Type: types.FieldTypeString}},
-			EntityAuthorization: types.EntityAuthorization{ResourceType: "event", Permissions: permissions(), PublicReasons: reasons}},
+			EntityAuthorization: types.EntityAuthorization{ResourceType: "event", Permissions: permissions(types.OpUpdate, types.OpPatch, types.OpDelete), PublicReasons: reasons}},
 	)
 	return gen.Context{
 		ModuleName:      crudModule,
@@ -85,7 +85,7 @@ func crudContext() gen.Context {
 			{Name: "todos", Entity: "Todo", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpPatch, types.OpUpdate, types.OpDelete}, Patchable: []string{"title", "done", "meta"}},
 			{Name: "folders", Entity: "Folder", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpDelete}},
 			{Name: "folder-books", Entity: "Book", Scope: map[string]string{"folder_id": "Folder"}, Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpUpdate, types.OpPatch, types.OpDelete}, Patchable: []string{"title"}},
-			{Name: "red-events", Entity: "Event", PathPrefix: "/red-events", Implicit: map[string]string{"source": "red"}, Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList}},
+			{Name: "red-events", Entity: "Event", PathPrefix: "/red-events", Implicit: map[string]string{"source": "red"}, Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpUpdate, types.OpPatch, types.OpDelete}, Patchable: []string{"note"}},
 			{Name: "blue-events", Entity: "Event", PathPrefix: "/blue-events", Implicit: map[string]string{"source": "blue"}, Operations: []types.Operation{types.OpCreate, types.OpList}},
 		},
 		SlotBindings: []types.SlotDeclaration{
@@ -179,7 +179,7 @@ func slotFiles(t testing.TB, ctx gen.Context) map[string][]byte {
 func crudTables(t testing.TB, ctx gen.Context) []byte {
 	t.Helper()
 	adapter := gen.Context{OutputNamespace: "storage", ModuleName: ctx.ModuleName, ServiceName: ctx.ServiceName, RuntimeData: true,
-		Tenancy: ctx.Tenancy, Entities: ctx.Entities, PeerNamespaces: map[string]string{"postgres-adapter": "storage", gen.TenancyComponent: "tenancy"},
+		Tenancy: ctx.Tenancy, Entities: ctx.Entities, Collections: ctx.Collections, PeerNamespaces: map[string]string{"postgres-adapter": "storage", gen.TenancyComponent: "tenancy"},
 		ComponentConfig: map[string]any{"schema_generation": "tables-v1", "writer_lease": "off"}}
 	files, _, err := new(postgresadapter.Generator).Generate(adapter)
 	if err != nil {
@@ -283,7 +283,7 @@ func newCrudProject(t *testing.T, ctx gen.Context, files map[string][]byte) *cru
 		t.Fatal(err)
 	}
 	p.write("go.sum", sums)
-	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.27.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
+	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.29.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
 	p.mustGo("mod", "tidy")
 	return p
 }
@@ -428,6 +428,9 @@ func TestCrudService(t *testing.T) {
 			},
 			"an implicit field of a number type":           func(c *gen.Context) { c.Collections[0].Implicit = map[string]string{"qty": "1"} },
 			"a path parameter that is not the scope field": func(c *gen.Context) { c.Collections[0].PathPrefix = "/stock/{sku}" },
+			"an implicit field that a patch may change": func(c *gen.Context) {
+				c.Collections[5].Patchable = append(c.Collections[5].Patchable, "source")
+			},
 			"a scope field that a patch may change": func(c *gen.Context) {
 				c.Collections[4].Patchable = append(c.Collections[4].Patchable, "folder_id")
 			},
@@ -491,4 +494,7 @@ var crudCheckIDs = []string{
 	"ST-SUP-RC20-OC24-T05 A scoped collection on the runtime data path checks each row against the parent of the path",
 	"ST-SUP-RC20-OC23-T04 Implicit fields are forced and filtered on the runtime data path, under their path prefixes",
 	"ST-SUP-RC20-OC37-T09 A list search on the runtime data path filters on declared fields with bound values",
+	"ST-SUP-RC20-OC23-T05 A write of a row of another implicit value is not found and changes nothing, and a patch keeps the implicit value",
+	"ST-SUP-RC20-OC24-T06 A list cursor of one parent is refused for another",
+	"ST-SUP-RP11-LC20-T04 A search of the generated service uses the index of its field, and a sensitive field neither searches nor orders",
 }

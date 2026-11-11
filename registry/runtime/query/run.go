@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
@@ -169,6 +170,13 @@ var errPanic = errors.New("query: the fill panicked")
 // floor read sees the newest committed revocation.
 var txOptions = &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelReadCommitted}
 
+// StatementTimeout is the most time that one statement of a query runs, and statementTimeoutSQL its setting in the
+// query's transaction.
+const (
+	StatementTimeout    = 5 * time.Second
+	statementTimeoutSQL = "SET LOCAL statement_timeout = '5s'"
+)
+
 // Run runs one query: it opens a READ ONLY transaction of the tenant at READ COMMITTED with tenant.Begin, binds the
 // handle, calls the fill once, and makes the handle and its probe invalid as soon as the fill returns, panics or
 // leaves through runtime.Goexit, before it ends the transaction (ST-SUP-RP11-LC09, ST-SUP-RP11-LC11). When the fill
@@ -214,6 +222,14 @@ func runFill[P any](ctx context.Context, rt *Runtime, q *Query, b Bound[P], body
 	}
 	tx, err := tenant.Begin(ctx, rt.db, b.Tenant, txOptions)
 	if err != nil {
+		b.Call.Returned()
+		b.Call.Rollback()
+		return err
+	}
+	// Each statement of the query ends within StatementTimeout, so a list with a filter that matches few rows of a
+	// large table cannot hold the connection (ST-SUP-RP11-LC07, ST-SUP-RP11-LC20).
+	if _, err := tx.ExecContext(ctx, statementTimeoutSQL); err != nil {
+		_ = tx.Rollback()
 		b.Call.Returned()
 		b.Call.Rollback()
 		return err
