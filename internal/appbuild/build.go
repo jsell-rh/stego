@@ -89,11 +89,11 @@ func recordSBOMs() []string {
 	return names
 }
 
+// fixedEnvironment is the environment of every build step: the target settings that the fill check shares
+// (compiler.TargetBuildSettings) and the settings of the build alone.
 func fixedEnvironment() map[string]string {
-	return map[string]string{
-		"GOENV": "off", "GOWORK": "off", "GOFLAGS": "", "GOTOOLCHAIN": "local",
-		"GOOS": "linux", "GOARCH": "amd64", "GOAMD64": "v1", "CGO_ENABLED": "0",
-		"GOEXPERIMENT": "", "GOFIPS140": "off", "GOCACHEPROG": "",
+	values := map[string]string{
+		"GOFLAGS": "", "GOCACHEPROG": "",
 		"GOPROXY": "https://proxy.golang.org", "GOSUMDB": "sum.golang.org",
 		"GOPRIVATE": "", "GONOPROXY": "", "GONOSUMDB": "", "GOINSECURE": "",
 		"GOAUTH": "off", "GOVCS": "*:off", "GOMAXPROCS": "2", "GOMEMLIMIT": "1536MiB",
@@ -101,6 +101,10 @@ func fixedEnvironment() map[string]string {
 		"GIT_TERMINAL_PROMPT": "0", "GIT_NO_REPLACE_OBJECTS": "1",
 		"LANG": "C", "LC_ALL": "C", "TZ": "UTC",
 	}
+	for key, value := range compiler.TargetBuildSettings() {
+		values[key] = value
+	}
+	return values
 }
 
 func environment(root, sdk string, offline bool) []string {

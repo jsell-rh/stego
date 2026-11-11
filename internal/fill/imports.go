@@ -1,13 +1,11 @@
 package fill
 
 import (
-	"fmt"
+	"errors"
 	"go/parser"
 	"go/token"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,6 +20,7 @@ const runtimeModule = "github.com/jsell-rh/stego/registry/runtime"
 const (
 	querySlot   = "query.query"
 	commandSlot = "command.command"
+	workerSlot  = "worker.worker"
 )
 
 // slotContracts gives the packages that a fill of the slot implements may import besides the standard library and
@@ -40,6 +39,10 @@ func slotContracts(check compiler.FillCheck, fill, implements string) []string {
 			if f.Fill == fill {
 				contract = f.Contract
 			}
+		}
+	case workerSlot:
+		if check.WorkerContract != "" {
+			contract = check.WorkerContract
 		}
 	}
 	return append([]string{contract}, contractRuntimeImports(check, contract)...)
@@ -79,45 +82,30 @@ func contractRuntimeImports(check compiler.FillCheck, contract string) []string 
 	return out
 }
 
-// checkImports refuses a fill whose Go files that are built into the service import anything but the contract
-// package of its slot and the runtime packages that the contract reaches (slotContracts), the Go standard library and
-// the modules the declaration lists for fills (ST-EXT-INV05). A test file, whose name ends in _test.go, is not built
-// into the service, so it may import any module of go.mod. The fault names the file and the import.
+// checkImports refuses a fill that breaks the fill rules (ST-EXT-INV05, ST-EXT-UC01-R03, ST-EXT-UC01-R05,
+// ST-EXT-UC01-R07): a Go file that is built into the service, or a package that the fill reaches through a listed fill
+// module, that imports anything but the contract package of its slot and the runtime packages that the contract
+// reaches (slotContracts), a listed fill module or a package of the fill allow list of the standard library, that
+// holds a file that is not Go source, a function without a body or a refused directive, or that uses a refused
+// function. A test file, whose name ends in _test.go, is not built into the service, so it may import any module of
+// go.mod. The fault names the file and the import, the file or the call.
 func checkImports(dir string, check compiler.FillCheck, fill, implements string) error {
-	admitted := slotContracts(check, fill, implements)
-	contracts := admitted[0]
-	var faults []string
-	fset := token.NewFileSet()
-	err := filepath.WalkDir(dir, func(name string, entry fs.DirEntry, err error) error {
-		if err != nil || entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			return err
-		}
-		file, err := parser.ParseFile(fset, name, nil, parser.ImportsOnly)
-		if err != nil {
-			return err
-		}
-		relative, _ := filepath.Rel(dir, name)
-		for _, spec := range file.Imports {
-			path, err := strconv.Unquote(spec.Path.Value)
-			if err != nil {
-				return err
-			}
-			if slices.Contains(admitted, path) || standardLibrary(path) || listedModule(path, check.FillModules) {
-				continue
-			}
-			faults = append(faults, fmt.Sprintf("the file %s imports %s", filepath.ToSlash(relative), path))
-		}
-		return nil
-	})
+	packages, err := listFills(check, []string{fill})
+	if err != nil {
+		return err
+	}
+	faults, err := fillFaults(check, dir, fill, slotContracts(check, fill, implements), packages)
 	if err != nil {
 		return err
 	}
 	if len(faults) == 0 {
 		return nil
 	}
-	sort.Strings(faults)
-	allowed := append([]string{contracts, "the standard library"}, check.FillModules...)
-	return fmt.Errorf("%s, which a fill may not import; a fill imports only %s", strings.Join(faults, "; "), strings.Join(allowed, ", "))
+	texts := make([]string, len(faults))
+	for i, fault := range faults {
+		texts[i] = fault.text
+	}
+	return errors.New(strings.Join(texts, "; "))
 }
 
 // standardLibrary tells if an import path is a package of the Go standard
@@ -125,17 +113,4 @@ func checkImports(dir string, check compiler.FillCheck, fill, implements string)
 func standardLibrary(path string) bool {
 	first, _, _ := strings.Cut(path, "/")
 	return !strings.Contains(first, ".")
-}
-
-// listedModule tells if an import path is a package of a listed module: the
-// module path itself, or a path under it. A path that only starts with the
-// module path's text, such as github.com/google/uuidx for
-// github.com/google/uuid, is not.
-func listedModule(path string, modules []string) bool {
-	for _, module := range modules {
-		if path == module || strings.HasPrefix(path, module+"/") {
-			return true
-		}
-	}
-	return false
 }
