@@ -25,6 +25,11 @@ const adapter = "postgres-adapter"
 // policyName is the name of the one tenant policy of each owned table.
 const policyName = "stego_tenant"
 
+// MigrationLoginSetting is the setting in which the operator names the login of the migration job when it is not
+// the owner role itself but a member of it, such as SET stego.migration_login = 'shop_migrator' before the role
+// migration; the role migration then accepts that one member of the owner role (ST-SUP-RC27-OC04).
+const MigrationLoginSetting = "stego.migration_login"
+
 // roleName is the grammar of a role name: a lower-case SQL name that the database access contract accepts.
 var roleName = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
@@ -236,7 +241,9 @@ func purgeRole(runtime string) string {
 // hand. Before it changes anything it refuses a role of its names that exists and is not this service's alone: one
 // that holds a privilege on another database, or owns one, where the owner of this service holds no CREATE, so the
 // role migration of this service may run on more than one database of the cluster; one that can log in where the service makes it NOLOGIN
-// (the purge and outbox relay roles), or one that is a member of a role that the text does not grant it.
+// (the purge and outbox relay roles), one that is a member of a role that the text does not grant it, or one that has
+// a member, or a holder of ADMIN, that the text does not grant: the owner in the purge and outbox relay roles, and in
+// the owner role the migration login that the operator names in MigrationLoginSetting.
 func roleMigration(runtime, owner, worker, relay, purge, outboxRelay string) string {
 	flags := "NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"
 	var text strings.Builder
@@ -244,7 +251,8 @@ func roleMigration(runtime, owner, worker, relay, purge, outboxRelay string) str
 	// database that is not a database of this service (one where this text gave the owner CREATE), can log in where
 	// the service makes it NOLOGIN, or is a member of a role that this text does not grant it, is another service's
 	// or someone else's, and the text stops before it changes anything.
-	text.WriteString("DO $$\nDECLARE\n\tv_role text;\n\tv_login boolean;\n\tv_fault text;\nBEGIN\n")
+	text.WriteString("DO $$\nDECLARE\n\tv_role text;\n\tv_login boolean;\n\tv_fault text;\n\tv_members text;\n\t" +
+		"v_migration text := NULLIF(pg_catalog.current_setting('" + MigrationLoginSetting + "', true), '');\nBEGIN\n")
 	fmt.Fprintf(&text, "\tFOR v_role, v_login IN VALUES ('%s', true), ('%s', true), ('%s', true), ('%s', true), ('%s', false), ('%s', false) LOOP\n", owner, runtime, worker, relay, purge, outboxRelay)
 	fmt.Fprintf(&text, "\t\tSELECT CASE\n"+
 		"\t\t\tWHEN EXISTS (SELECT 1 FROM pg_catalog.pg_database AS d WHERE d.datname <> pg_catalog.current_database()\n"+
@@ -257,7 +265,17 @@ func roleMigration(runtime, owner, worker, relay, purge, outboxRelay string) str
 		"\t\t\t\tWHERE m.member = r.oid AND NOT (r.rolname = '%s' AND g.rolname IN ('%s', '%s')))\n"+
 		"\t\t\t\tTHEN 'is a member of a role that this service does not grant'\n"+
 		"\t\tEND INTO v_fault FROM pg_catalog.pg_roles AS r WHERE r.rolname = v_role;\n", owner, owner, purge, outboxRelay)
-	text.WriteString("\t\tIF v_fault IS NOT NULL THEN\n\t\t\tRAISE EXCEPTION 'tenancy: the role % exists and is not a role of this service alone: it %; give the service role names of its own', v_role, v_fault;\n\t\tEND IF;\n\tEND LOOP;\n")
+	text.WriteString("\t\tIF v_fault IS NOT NULL THEN\n\t\t\tRAISE EXCEPTION 'tenancy: the role % exists and is not a role of this service alone: it %; give the service role names of its own', v_role, v_fault;\n\t\tEND IF;\n")
+	// No one may be a member of a role of the service, or hold ADMIN on it, but the members that this text grants:
+	// the owner in the purge and outbox relay roles, without ADMIN, and the migration login that the operator names
+	// in the owner role. A role that a login with CREATEROLE made holds that login as a member with ADMIN.
+	fmt.Fprintf(&text, "\t\tSELECT pg_catalog.string_agg(mr.rolname || CASE WHEN m.admin_option THEN ' with ADMIN' ELSE '' END, ', ' ORDER BY mr.rolname)\n"+
+		"\t\t\tINTO v_members FROM pg_catalog.pg_auth_members AS m JOIN pg_catalog.pg_roles AS g ON g.oid = m.roleid\n"+
+		"\t\t\tJOIN pg_catalog.pg_roles AS mr ON mr.oid = m.member\n"+
+		"\t\t\tWHERE g.rolname = v_role AND NOT (NOT m.admin_option AND (\n"+
+		"\t\t\t\t(g.rolname IN ('%s', '%s') AND mr.rolname = '%s')\n"+
+		"\t\t\t\tOR (g.rolname = '%s' AND mr.rolname IS NOT DISTINCT FROM v_migration)));\n", purge, outboxRelay, owner, owner)
+	text.WriteString("\t\tIF v_members IS NOT NULL THEN\n\t\t\tRAISE EXCEPTION 'tenancy: the role % exists and is not a role of this service alone: it has the members %, which this service does not grant; name the migration login in " + MigrationLoginSetting + " or revoke them', v_role, v_members;\n\t\tEND IF;\n\tEND LOOP;\n")
 	for _, role := range []string{owner, runtime, worker, relay} {
 		fmt.Fprintf(&text, "\tIF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '%s') THEN\n\t\tCREATE ROLE %s %s;\n\tEND IF;\n", role, quote(role), flags)
 	}

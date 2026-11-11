@@ -817,6 +817,72 @@ func TestForeignRoles(t *testing.T) {
 			exec("REVOKE ALL ON DATABASE " + other + " FROM " + q(c.role))
 			exec("DROP ROLE " + q(c.role))
 		}
+		// A login with CREATEROLE that made the owner and runtime roles first holds ADMIN on them as a member, and a
+		// role of another service granted the runtime role is a member of it: each is refused with the member named
+		// (finding G1 of the security review of PR #213).
+		prov := "prov_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+		exec("CREATE ROLE " + prov + " LOGIN CREATEROLE PASSWORD 'prov'")
+		t.Cleanup(func() { _, _ = server.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+prov) })
+		pc := cfg.Copy()
+		pc.User, pc.Password = prov, "prov"
+		provDB := stdlib.OpenDB(*pc)
+		for _, role := range []string{tenancy.OwnerRole, tenancy.RuntimeRole} {
+			if _, err := provDB.ExecContext(ctx, "CREATE ROLE "+q(role)+" NOLOGIN"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		provDB.Close()
+		member := "x_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12] + "_owner"
+		exec("CREATE ROLE " + member + " NOLOGIN")
+		t.Cleanup(func() { _, _ = server.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+member) })
+		run := func(setting string) error {
+			t.Helper()
+			name := "tenancy_member_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+			exec("CREATE DATABASE " + name)
+			defer exec("DROP DATABASE " + name + " WITH (FORCE)")
+			ac := cfg.Copy()
+			ac.Database = name
+			admin := stdlib.OpenDB(*ac)
+			admin.SetMaxOpenConns(1)
+			defer admin.Close()
+			if setting != "" {
+				if _, err := admin.ExecContext(ctx, "SET stego.migration_login = '"+setting+"'"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, err := admin.ExecContext(ctx, tenancy.Roles)
+			return err
+		}
+		if err := run(""); err == nil || !strings.Contains(err.Error(), "has the members "+prov+" with ADMIN") {
+			t.Errorf("the role migration over roles that %s made gave %v, want a refusal that names %s with ADMIN", prov, err, prov)
+		}
+		exec("DROP ROLE " + q(tenancy.OwnerRole))
+		exec("DROP ROLE " + q(tenancy.RuntimeRole))
+		exec("CREATE ROLE " + q(tenancy.RuntimeRole) + " NOLOGIN")
+		exec("GRANT " + q(tenancy.RuntimeRole) + " TO " + member)
+		if err := run(""); err == nil || !strings.Contains(err.Error(), tenancy.RuntimeRole) || !strings.Contains(err.Error(), "has the members "+member) {
+			t.Errorf("the role migration over a runtime role that %s is a member of gave %v, want a refusal that names both", member, err)
+		}
+		exec("DROP ROLE " + q(tenancy.RuntimeRole))
+		// The owner role may have one member: the migration login that the operator names in stego.migration_login.
+		login := "migrator_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+		exec("CREATE ROLE " + login + " LOGIN")
+		t.Cleanup(func() { _, _ = server.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+login) })
+		exec("CREATE ROLE " + q(tenancy.OwnerRole) + " NOLOGIN")
+		exec("GRANT " + q(tenancy.OwnerRole) + " TO " + login + " WITH SET TRUE, INHERIT FALSE")
+		if err := run(""); err == nil || !strings.Contains(err.Error(), "has the members "+login) {
+			t.Errorf("the role migration with a migration login that is not named gave %v, want a refusal that names it", err)
+		}
+		if err := run(login); err != nil {
+			t.Errorf("the role migration with the migration login named in stego.migration_login: %v", err)
+		}
+		exec("GRANT " + q(tenancy.OwnerRole) + " TO " + login + " WITH ADMIN TRUE")
+		if err := run(login); err == nil || !strings.Contains(err.Error(), login+" with ADMIN") {
+			t.Errorf("the role migration with a named migration login that holds ADMIN gave %v, want a refusal", err)
+		}
+		for _, role := range []string{tenancy.RuntimeRole, tenancy.WorkerRole, tenancy.RelayRole, tenancy.PurgeRole, tenancy.OutboxRelayRole, tenancy.OwnerRole} {
+			exec("DROP ROLE IF EXISTS " + q(role))
+		}
 		// The role migration of this service runs on a second database of its own: the roles hold privileges on the
 		// first, where the text gave the owner CREATE, so they are this service's.
 		var names []string

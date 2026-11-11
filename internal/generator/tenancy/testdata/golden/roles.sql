@@ -3,6 +3,8 @@ DECLARE
 	v_role text;
 	v_login boolean;
 	v_fault text;
+	v_members text;
+	v_migration text := NULLIF(pg_catalog.current_setting('stego.migration_login', true), '');
 BEGIN
 	FOR v_role, v_login IN VALUES ('tenancy_check_owner', true), ('tenancy_check_runtime', true), ('tenancy_check_worker', true), ('tenancy_check_relay', true), ('tenancy_check_idempotency_purge', false), ('tenancy_check_outbox_relay', false) LOOP
 		SELECT CASE
@@ -18,6 +20,15 @@ BEGIN
 		END INTO v_fault FROM pg_catalog.pg_roles AS r WHERE r.rolname = v_role;
 		IF v_fault IS NOT NULL THEN
 			RAISE EXCEPTION 'tenancy: the role % exists and is not a role of this service alone: it %; give the service role names of its own', v_role, v_fault;
+		END IF;
+		SELECT pg_catalog.string_agg(mr.rolname || CASE WHEN m.admin_option THEN ' with ADMIN' ELSE '' END, ', ' ORDER BY mr.rolname)
+			INTO v_members FROM pg_catalog.pg_auth_members AS m JOIN pg_catalog.pg_roles AS g ON g.oid = m.roleid
+			JOIN pg_catalog.pg_roles AS mr ON mr.oid = m.member
+			WHERE g.rolname = v_role AND NOT (NOT m.admin_option AND (
+				(g.rolname IN ('tenancy_check_idempotency_purge', 'tenancy_check_outbox_relay') AND mr.rolname = 'tenancy_check_owner')
+				OR (g.rolname = 'tenancy_check_owner' AND mr.rolname IS NOT DISTINCT FROM v_migration)));
+		IF v_members IS NOT NULL THEN
+			RAISE EXCEPTION 'tenancy: the role % exists and is not a role of this service alone: it has the members %, which this service does not grant; name the migration login in stego.migration_login or revoke them', v_role, v_members;
 		END IF;
 	END LOOP;
 	IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'tenancy_check_owner') THEN
