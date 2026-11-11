@@ -54,6 +54,8 @@ type Parts struct {
 	// commands: each set that is not empty gets a command runtime of its own, since an entity registers with one
 	// runtime only.
 	Commands, Collections []command.Declared
+	// Workers are the parts of the worker and controller modes, which Start runs (ST-SUP-RP14-LC04).
+	Workers WorkerParts
 }
 
 func (p Parts) check() error {
@@ -70,6 +72,8 @@ func (p Parts) check() error {
 
 // Service holds the runtime library objects of one running service, which New gives.
 type Service struct {
+	parts         Parts
+	provider      *authz.SpiceDB
 	pool, auditDB *sql.DB
 	keys          *authn.KeySet
 	verifier      *authn.Verifier
@@ -93,7 +97,7 @@ func New(ctx context.Context, s Settings, p Parts) (_ *Service, err error) {
 	if err := p.check(); err != nil {
 		return nil, err
 	}
-	svc := &Service{}
+	svc := &Service{parts: p}
 	defer func() {
 		// What a failed step left open is closed.
 		if err != nil {
@@ -126,11 +130,10 @@ func New(ctx context.Context, s Settings, p Parts) (_ *Service, err error) {
 	if err := reach(ctx, svc.spice); err != nil {
 		return nil, err
 	}
-	provider, err := authz.NewSpiceDB(svc.spice)
-	if err != nil {
+	if svc.provider, err = authz.NewSpiceDB(svc.spice); err != nil {
 		return nil, err
 	}
-	if svc.authz, err = p.NewAuthz(svc.pool, provider, svc.queue); err != nil {
+	if svc.authz, err = p.NewAuthz(svc.pool, svc.provider, svc.queue); err != nil {
 		return nil, err
 	}
 	if svc.telemetry, err = otel.New(p.Service, probe.SpanNames()...); err != nil {

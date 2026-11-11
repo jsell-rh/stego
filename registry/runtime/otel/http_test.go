@@ -234,15 +234,15 @@ func observedCalls(t *testing.T, r *Runtime) []string {
 	server := httptest.NewServer(withDeadline(r.Handler(authenticate(capacity(r.Route(mux))))))
 	defer server.Close()
 	client := server.Client()
-	call := func(path, token string) {
+	// describe makes one call and gives what the client sees; call notes it at once.
+	describe := func(path, token string) string {
 		request, _ := http.NewRequest("GET", server.URL+path, nil)
 		if token != "" {
 			request.Header.Set("Authorization", token)
 		}
 		response, err := client.Do(request)
 		if err != nil {
-			note("%s error %v", path, err)
-			return
+			return fmt.Sprintf("%s error %v", path, err)
 		}
 		body, _ := io.ReadAll(response.Body)
 		response.Body.Close()
@@ -253,8 +253,9 @@ func observedCalls(t *testing.T, r *Runtime) []string {
 			}
 		}
 		sort.Strings(headers)
-		note("%s status %d headers %v body %q", path, response.StatusCode, headers, body)
+		return fmt.Sprintf("%s status %d headers %v body %q", path, response.StatusCode, headers, body)
 	}
+	call := func(path, token string) { note("%s", describe(path, token)) }
 	token := "Bearer token-value"
 	call("/v1/records/private-id", token)
 	call("/v1/records/private-id", "")
@@ -265,8 +266,11 @@ func observedCalls(t *testing.T, r *Runtime) []string {
 	close(release)
 	<-held
 	call("/v1/stream", token)
+	// The client's view of the drained call is noted after the shutdown returned: the client reads the answer and
+	// the server's Shutdown returns at about the same time, so only the order of the server's own steps is fixed.
 	drained := make(chan struct{})
-	go func() { call("/v1/drain", token); close(drained) }()
+	var drainedCall string
+	go func() { drainedCall = describe("/v1/drain", token); close(drained) }()
 	<-draining
 	note("shutdown began")
 	shutdownDone := make(chan error)
@@ -275,6 +279,7 @@ func observedCalls(t *testing.T, r *Runtime) []string {
 	close(shutdownBegun)
 	note("shutdown returned %v", <-shutdownDone)
 	<-drained
+	note("%s", drainedCall)
 	ctx, cancel := context.WithDeadline(metadata.NewIncomingContext(context.Background(), metadata.Pairs("traceparent", parent)), deadline)
 	defer cancel()
 	got, finish := r.TraceRPC(ctx, "/sample.v1.Records/Get")
