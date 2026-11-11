@@ -4,7 +4,9 @@ name: Runtime library checks
 # (ST-SUP-TOOL11). It is tagged and released with the common registry (ST-STD-RUNTIME-R04), with tags
 # registry/runtime/vX.Y.Z, as Go names the tags of a module in a subfolder. This workflow vets and tests the module, proves that the local workspace resolves it with
 # no network (ST-SUP-TOOL12), and runs apidiff against the last tag of the same major module path
-# (ST-STD-RUNTIME-R03). Before the first tag, apidiff has no base and the step says so and passes.
+# (ST-STD-RUNTIME-R03). Before the first tag, apidiff has no base and the step says so and passes. It also
+# verifies the module's dependencies against go.sum and scans the module for known vulnerabilities, as the
+# compiler checks do for the other modules; vulnerability-scan.yml scans every module on main each week.
 
 on:
   workflow_dispatch:
@@ -21,6 +23,8 @@ concurrency:
 env:
   GOWORK: 'off'
   APIDIFF_VERSION: v0.0.0-20251023183803-a4bb9ffd2546
+  # The same govulncheck as checks.yml and vulnerability-scan.yml: move them together.
+  GOVULNCHECK_VERSION: v1.4.0
 
 jobs:
   runtime:
@@ -31,6 +35,7 @@ jobs:
         with:
           # apidiff needs the module's tags.
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.26.11'
@@ -44,9 +49,15 @@ jobs:
             echo "$unformatted" >&2
             exit 1
           fi
+      - name: Verify the module's dependencies
+        working-directory: registry/runtime
+        run: go mod verify
       - name: Vet the module
         working-directory: registry/runtime
         run: go vet ./...
+      - name: Scan the module for vulnerabilities
+        working-directory: registry/runtime
+        run: go run "golang.org/x/vuln/cmd/govulncheck@$GOVULNCHECK_VERSION" ./...
       - name: Test the module
         working-directory: registry/runtime
         run: go test -race -count=1 -mod=readonly ./...
