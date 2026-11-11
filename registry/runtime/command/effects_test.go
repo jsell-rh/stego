@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -24,6 +26,46 @@ func lp(parts ...string) string {
 		b = append(b, p...)
 	}
 	return string(b)
+}
+
+// holdsValue tells whether the JSON text holds value as one of its values, also inside a value that is JSON text
+// itself. It compares whole values: a timestamp or a hash whose digits hold the text is not the value.
+func holdsValue(t *testing.T, text, value string) bool {
+	t.Helper()
+	var v any
+	if err := json.Unmarshal([]byte(text), &v); err != nil {
+		t.Fatalf("the audit row is not JSON: %v", err)
+	}
+	var walk func(any) bool
+	walk = func(v any) bool {
+		switch v := v.(type) {
+		case string:
+			if v == value {
+				return true
+			}
+			var inner any
+			trimmed := strings.TrimSpace(v)
+			if (strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")) && json.Unmarshal([]byte(trimmed), &inner) == nil {
+				return walk(inner)
+			}
+		case float64:
+			return fmt.Sprint(v) == value
+		case map[string]any:
+			for _, item := range v {
+				if walk(item) {
+					return true
+				}
+			}
+		case []any:
+			for _, item := range v {
+				if walk(item) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return walk(v)
 }
 
 // outgoingKeys reads the outgoing keys of the tenant's messages for destination, kind and resource key.
@@ -423,7 +465,7 @@ func charge(ctx context.Context, h *command.Handle[struct{}], c gen.LoadedCharge
  FROM audit_event a WHERE tenant_id = 't1' ORDER BY seq DESC LIMIT 1`).Scan(&action, &actor, &resource, &row); err != nil {
 			t.Fatal(err)
 		}
-		if action != "read" || actor != "user:u-7" || resource != "charge:c2" || strings.Contains(row, "1881") {
+		if action != "read" || actor != "user:u-7" || resource != "charge:c2" || holdsValue(t, row, "1881") {
 			t.Fatalf("the read row is %s by %s on %s: %s", action, actor, resource, row)
 		}
 		// A list of a pii entity is audited for each resource it returns.
