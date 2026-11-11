@@ -199,8 +199,8 @@ type Context struct {
 	Destinations []Destination
 
 	// QueryStreams holds the names of the queries that are served as a server stream: the queries whose gRPC method
-	// is a server stream (ST-DECL-INV73). The compiler reads no proto file for it yet, so it is empty until the
-	// check of ST-DECL-INV73 is built.
+	// is a server stream of the proto files of the grpc-application component, which the compiler reads for the check
+	// of ST-DECL-INV73 (ST-SUP-RC33-OC08). Generators must not change it.
 	QueryStreams map[string]bool
 }
 

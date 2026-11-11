@@ -15,6 +15,9 @@ type Facts struct {
 	FillSlots map[string]string
 	// Destinations holds the outbox destinations that a component of the active component set declares.
 	Destinations map[string]bool
+	// GRPCMethods gives the kind of each method, as package.Service/Method, of the services of the proto files of the
+	// grpc-application component. It is nil when that component is not active (ST-DECL-INV73).
+	GRPCMethods map[string]MethodKind
 }
 
 // The slots that the fills of commands, queries and workers implement. Each capability component (ST-SUP-RC32,
@@ -36,6 +39,7 @@ func ValidateComposition(service *types.ServiceDeclaration, facts Facts) []Valid
 	faults = append(faults, validateQueryNames(service.Queries, service.Commands)...)
 	faults = append(faults, validateQueryReads(service.Queries, service.Entities)...)
 	faults = append(faults, validateQueryFill(service.Queries, facts)...)
+	faults = append(faults, validateGRPCMethods(service, facts)...)
 	faults = append(faults, validateOperationRoutes(service)...)
 	faults = append(faults, validateOperationRefusals(service)...)
 	faults = append(faults, validateCommandRetry(service.Commands)...)

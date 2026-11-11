@@ -366,7 +366,8 @@ func validateOperationRoutes(svcDecl *types.ServiceDeclaration, components map[s
 // compositionFacts reads what the checks of a service's composition need beside the declaration (ST-DECL-UC09):
 // the slot that each fill named by a command, a query or a worker implements, read through the fill slot reader, and the outbox
 // destinations that the active components declare in their setting destinations (ST-SUP-RC36-OC01). A fill that
-// the project does not hold is left out, so that the check names it as missing.
+// the project does not hold is left out, so that the check names it as missing. It also reads the kind of each gRPC
+// method of the proto files of the grpc-application component (ST-DECL-INV73).
 func compositionFacts(input ReconcilerInput, svcDecl *types.ServiceDeclaration, components map[string]*registry.Component) (declaration.Facts, error) {
 	facts := declaration.Facts{FillSlots: map[string]string{}, Destinations: map[string]bool{}}
 	var fills []string
@@ -399,6 +400,11 @@ func compositionFacts(input ReconcilerInput, svcDecl *types.ServiceDeclaration, 
 		}
 		facts.FillSlots[name] = slot
 	}
+	methods, err := grpcMethodFacts(input.ProjectDir, svcDecl, components)
+	if err != nil {
+		return facts, err
+	}
+	facts.GRPCMethods = methods
 	for name := range components {
 		config, _ := svcDecl.Overrides[name].(map[string]any)
 		destinations, _ := config["destinations"].([]any)

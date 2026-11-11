@@ -129,12 +129,13 @@ func TestQueriesFromDeclaration(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RC33-OC02-T03 A stream query is refused until the compiler can tell it is one, generated from service.yaml", func(t *testing.T) {
+	t.Run("ST-SUP-RC33-OC02-T03 A query with a gRPC method and no gRPC application is refused, generated from service.yaml", func(t *testing.T) {
 		stream := strings.Replace(queryDeclaration, "    fill: list-notes\n", "    fill: list-notes\n    method: notes.v1.Notes/WatchNotes\n", 1)
 		input := queryProjectOf(t, stream, declaration.QuerySlot)
 		_, err := compiler.Reconcile(input)
-		if err == nil || !strings.Contains(err.Error(), "list-notes") || !strings.Contains(err.Error(), "ST-SUP-Q82") {
-			t.Fatalf("Reconcile of a query served by a gRPC method: %v, want a fault that names list-notes and ST-SUP-Q82", err)
+		if err == nil || !strings.Contains(err.Error(), "list-notes") || !strings.Contains(err.Error(), "notes.v1.Notes/WatchNotes") ||
+			!strings.Contains(err.Error(), "grpc-application") {
+			t.Fatalf("Reconcile of a query served by a gRPC method with no grpc-application: %v, want a fault that names list-notes, the method and grpc-application (ST-DECL-INV73)", err)
 		}
 		if _, statErr := os.Stat(filepath.Join(input.ProjectDir, "out")); !os.IsNotExist(statErr) {
 			t.Fatalf("the refused generation wrote out: %v", statErr)

@@ -315,6 +315,17 @@ var errSinkNotBound = errors.New("the audit-sink port is not bound")
 
 // Routes serves the declared commands and queries, each at its route.
 func (rt *Runtime) Routes() http.Handler { return rt.routes }
+
+// Service gives the runtime library objects of the running service, on which the gRPC application serves the
+// methods of the declared commands and queries (ST-SUP-RC07-OC19).
+func (rt *Runtime) Service() *service.Service { return rt.svc }
+
+// Retention is how long a completed idempotency key is kept, for the command handlers of the gRPC application.
+func (rt *Runtime) Retention() time.Duration { return retention }
+
+// ServesAPI tells whether the process runs the api mode: only then does the gRPC application serve
+// (ST-SUP-RP09-LC01).
+func (rt *Runtime) ServesAPI() bool { return rt.selection.Has(modes.API) }
 {{- if .API}}
 
 // CollectionRuntime gives the Runtime of the collection handlers: their own command runtime, the query runtime and
