@@ -203,6 +203,32 @@ type FillCheck struct {
 	// QueryContract is the import path of the query slot contract package, out/queries, which a fill of the query
 	// slot imports (ST-EXT-INV05); empty when the service has no query component.
 	QueryContract string
+	// QueryFills are the fills that the queries of the declaration name when the query component is active, whose
+	// import closure the qualifier checks (ST-SUP-RC33-OC03).
+	QueryFills []QueryFill
+	// WorkerFills are the fills that the workers of the declaration name, with WorkerContract, the import path of
+	// the worker slot contract package when a component named worker is active, so that worker fills are held to
+	// the fill rules as every fill is (ST-SUP-RC35-OC03).
+	WorkerFills    []QueryFill
+	WorkerContract string
+}
+
+// TargetBuildSettings are the Go settings of the platform that a generated service is built for: Linux on amd64 at
+// the v1 level, with no cgo, no experiment and no Go environment file. The application build sets them, and the
+// fill check lists a fill's packages with them, so both see the same files and imports, whatever the host's settings.
+func TargetBuildSettings() map[string]string {
+	return map[string]string{
+		"GOENV": "off", "GOWORK": "off", "GOTOOLCHAIN": "local", "GOOS": "linux", "GOARCH": "amd64", "GOAMD64": "v1",
+		"CGO_ENABLED": "0", "GOEXPERIMENT": "", "GOFIPS140": "off",
+	}
+}
+
+// QueryFill is the one fill of one query or one worker: the fill, the query or worker and where the declaration
+// names it, such as queries[0].fill or workers[0].fill.
+type QueryFill struct {
+	Fill  string
+	Query string
+	Path  string
 }
 
 // CommandFill is the one fill of one command: the fill, the command, where the declaration names it, such as

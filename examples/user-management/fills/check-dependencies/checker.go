@@ -2,7 +2,6 @@ package check_dependencies
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/example/service/out/slots"
 )
@@ -33,7 +32,7 @@ func (c *DependencyChecker) Evaluate(_ context.Context, req *slots.BeforeDeleteR
 func EvaluateWithDependents(_ context.Context, req *slots.BeforeDeleteRequest) (*slots.SlotResult, error) {
 	return &slots.SlotResult{
 		Ok:           false,
-		StatusCode:   int32(http.StatusConflict),
+		StatusCode:   409, // HTTP 409 Conflict
 		ErrorMessage: "cannot delete organization " + req.EntityID + ": active resources exist",
 	}, nil
 }

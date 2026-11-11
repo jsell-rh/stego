@@ -182,6 +182,9 @@ func td03WithFills(t *testing.T, service string) string {
 		t.Fatal(err)
 	}
 	putFile(t, project, "SIGNERS", string(data))
+	// The fills import the contract of the module example.com/fills, where they were qualified. The project names
+	// that module in its go.mod, so the fill check can hold their imports before the first generation.
+	putFile(t, project, "go.mod", "module example.com/fills\n\ngo 1.26.11\n")
 	return project
 }
 
