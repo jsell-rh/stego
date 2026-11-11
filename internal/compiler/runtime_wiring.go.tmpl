@@ -299,7 +299,8 @@ func (rt *Runtime) Readiness() http.Handler {
 	})
 }
 
-// tenantSchema is the schema of the tenant list stego_tenants that the audit jobs visit (ST-SUP-RP04-LC07).
+// tenantSchema is the schema of the tenant list stego_tenants that the migration job makes and the audit jobs visit
+// (ST-SUP-RP04-LC07).
 const tenantSchema = "public"
 
 // heldSink holds every audit-sink message in the outbox: no system receives them until the platform binds the port
@@ -328,8 +329,8 @@ func (rt *Runtime) CollectionRuntime() *api.Runtime {
 func (rt *Runtime) Close() error { return rt.svc.Close() }
 
 // Migrate is the migration job of the service (tenant.MigrationJob), which the service runtime runs in its fixed
-// order on one connection (ST-SUP-RP14-LC03): the ledger check and the ledger of the PostgreSQL adapter, the schema
-// of the authorization component, the outbox, audit, idempotency and authorization migrations of the runtime library,
+// order on one connection (ST-SUP-RP14-LC03): the ledger check and the ledger of the PostgreSQL adapter with the
+// tenant list of the tenant runtime, the schema of the authorization component, the outbox, audit, idempotency and authorization migrations of the runtime library,
 // the grants of the runtime role and the audit partitions.
 func Migrate(ctx context.Context) error {
 	settings, err := service.ReadMigrationSettings()
@@ -354,7 +355,7 @@ func Migrate(ctx context.Context) error {
 		Ledger:      func(ctx context.Context, conn *sql.Conn) error { return withLedger(ctx, conn, svcstorage.Migrate) },
 		Outbox:      queueText, Audit: auditText, Authorization: authzText,
 		WriteSchema: func(ctx context.Context, conn grpc.ClientConnInterface) error { return svcauthz.WriteSchema(ctx, conn) },
-		Grants:      grants,
+		Grants:      grants, TenantSchema: tenantSchema,
 	})
 }
 
