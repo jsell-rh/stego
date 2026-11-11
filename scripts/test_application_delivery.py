@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import yaml
+
 spec = importlib.util.spec_from_file_location("delivery", Path(__file__).with_name("application-images.py"))
 delivery = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(delivery)
@@ -246,6 +248,29 @@ class DeliveryTests(unittest.TestCase):
                 delivery.stage(declared, policy, self.images, "123", "1", self.output, Path("/usr/bin/gh"))
         self.assertFalse(self.output.exists())
         self.assertEqual(list(self.root.glob(".stego-images-*")), [])
+
+
+class SigningRefTests(unittest.TestCase):
+    def test_image_sign_jobs(self):
+        with self.subTest("ST-BLD-UC05-R03-T03 The image sign jobs of STEGO's image workflows run only at main"):
+            workflows = Path(__file__).resolve().parent.parent / ".github" / "workflows"
+
+            def job(name, key):
+                return yaml.safe_load((workflows / name).read_text())["jobs"][key]
+
+            provenance = job("application-build.yml", "provenance")
+            self.assertEqual(provenance["if"],
+                             "github.repository == 'jsell-rh/stego' && github.event_name == 'push' && github.ref == 'refs/heads/main'")
+            sign = job("application-target.yml", "sign")
+            self.assertEqual(sign["if"],
+                             "github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')")
+            # Only these two jobs of the image workflows may get an identity token and write attestations.
+            for name in ["application-build.yml", "application-target.yml", "application-images.yml", "consumer-images.yml"]:
+                for key, value in yaml.safe_load((workflows / name).read_text())["jobs"].items():
+                    permissions = value.get("permissions") or {}
+                    if value.get("uses") or permissions.get("id-token") != "write":
+                        continue
+                    self.assertIn((name, key), [("application-build.yml", "provenance"), ("application-target.yml", "sign")])
 
 
 if __name__ == "__main__":

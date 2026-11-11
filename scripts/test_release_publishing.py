@@ -841,5 +841,25 @@ class QualificationReadsTheReleaseDecision(unittest.TestCase):
                 world.decide(passed=True)
 
 
+class VulnerabilityScanModules(unittest.TestCase):
+    # No design record owns STEGO's own dependency scan yet (question ST-ASR-Q01), so this test names no record.
+    def test_the_weekly_scan_covers_every_go_module_of_the_repository(self):
+        scan = workflow("vulnerability-scan.yml")
+        self.assertEqual(set(scan["on"]), {"workflow_dispatch", "schedule"})
+        self.assertEqual(scan["jobs"]["scan"]["if"], "github.ref == 'refs/heads/main'")
+        script = [step["run"] for step in scan["jobs"]["scan"]["steps"] if step.get("name") == "Scan every module"][0]
+        listing = re.search(r"\$\((git ls-files [^)]*)\)", script).group(1)
+        listed = subprocess.run(["bash", "-c", listing], cwd=ROOT, check=True, capture_output=True, text=True).stdout.split()
+        tracked = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, check=True, capture_output=True).stdout.decode().split("\0")
+        modules = sorted({str(Path(path).parent) for path in tracked
+                          if Path(path).name == "go.mod" and "testdata" not in Path(path).parts})
+        self.assertEqual(listed, modules)
+        self.assertIn("registry/runtime", modules)
+        pins = {name: re.findall(r"govulncheck@(v[0-9.]+)|GOVULNCHECK_VERSION: (v[0-9.]+)", (WORKFLOWS / name).read_text())
+                for name in ["checks.yml", "runtime-library.yml", "vulnerability-scan.yml"]}
+        versions = {version for found in pins.values() for pair in found for version in pair if version}
+        self.assertEqual(len(versions), 1, pins)
+
+
 if __name__ == "__main__":
     unittest.main()
