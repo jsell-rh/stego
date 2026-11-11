@@ -41,30 +41,38 @@ func TestGenerator(t *testing.T) {
 		if auth, err := g.RuntimeAuth(context(with("algorithms", nil))); err != nil || strings.Join(auth.Algorithms, ",") != "RS256" {
 			t.Fatalf("no algorithms gave %+v, %v, want RS256 alone", auth, err)
 		}
+		if auth, err := g.RuntimeAuth(context(with("subject_claim", "oid"))); err != nil || auth.SubjectClaim != "oid" {
+			t.Fatalf("the subject claim oid gave %+v, %v, want oid", auth, err)
+		}
 		files, wiring, err := g.Generate(context(good()))
 		if err != nil || len(files) != 0 || wiring == nil || len(wiring.Constructors) != 0 || len(wiring.Imports) != 0 {
 			t.Fatalf("Generate gave %d files and %+v, %v, want no file and no wiring (ST-SUP-RC37-OC04)", len(files), wiring, err)
 		}
 		for name, config := range map[string]map[string]any{
-			"an http issuer":             with("issuer", "http://sso.example.com/realms/shop"),
-			"an issuer with a query":     with("issuer", "https://sso.example.com/realms/shop?x=1"),
-			"an issuer with a user":      with("issuer", "https://u@sso.example.com/realms/shop"),
-			"an issuer with a fragment":  with("issuer", "https://sso.example.com/realms/shop#a"),
-			"no issuer":                  with("issuer", nil),
-			"no audience":                with("audience", nil),
-			"an audience with a space":   with("audience", " orders-api"),
-			"alg none":                   with("algorithms", []any{"none"}),
-			"HS256":                      with("algorithms", []any{"HS256"}),
-			"PS256":                      with("algorithms", []any{"RS256", "PS256"}),
-			"RS256 twice":                with("algorithms", []any{"RS256", "RS256"}),
-			"algorithms not a list":      with("algorithms", "RS256"),
-			"an algorithm not text":      with("algorithms", []any{256}),
-			"the subject claim exp":      with("subject_claim", "exp"),
-			"a subject claim path":       with("subject_claim", "a.b"),
-			"a role claim with a space":  with("roles_claim", "realm access"),
-			"a header with a colon":      with("header", "X-Token:"),
-			"a relative CA file":         with("ca_file", "certs/ca.pem"),
-			"an issuer that is not text": with("issuer", 7),
+			"an http issuer":                       with("issuer", "http://sso.example.com/realms/shop"),
+			"an issuer with a query":               with("issuer", "https://sso.example.com/realms/shop?x=1"),
+			"an issuer with a user":                with("issuer", "https://u@sso.example.com/realms/shop"),
+			"an issuer with a fragment":            with("issuer", "https://sso.example.com/realms/shop#a"),
+			"no issuer":                            with("issuer", nil),
+			"no audience":                          with("audience", nil),
+			"an audience with a space":             with("audience", " orders-api"),
+			"alg none":                             with("algorithms", []any{"none"}),
+			"HS256":                                with("algorithms", []any{"HS256"}),
+			"PS256":                                with("algorithms", []any{"RS256", "PS256"}),
+			"RS256 twice":                          with("algorithms", []any{"RS256", "RS256"}),
+			"algorithms not a list":                with("algorithms", "RS256"),
+			"an algorithm not text":                with("algorithms", []any{256}),
+			"the subject claim exp":                with("subject_claim", "exp"),
+			"the subject claim email":              with("subject_claim", "email"),
+			"the subject claim preferred_username": with("subject_claim", "preferred_username"),
+			"the subject claim upn":                with("subject_claim", "upn"),
+			"an issuer with a trailing space":      with("issuer", "https://sso.example.com/realms/shop "),
+			"an issuer with a leading space":       with("issuer", " https://sso.example.com/realms/shop"),
+			"a subject claim path":                 with("subject_claim", "a.b"),
+			"a role claim with a space":            with("roles_claim", "realm access"),
+			"a header with a colon":                with("header", "X-Token:"),
+			"a relative CA file":                   with("ca_file", "certs/ca.pem"),
+			"an issuer that is not text":           with("issuer", 7),
 		} {
 			t.Run(name, func(t *testing.T) {
 				if err := g.ValidateContext(context(config)); err == nil || !strings.Contains(err.Error(), Component) {

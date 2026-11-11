@@ -42,9 +42,18 @@ const (
 // allowList is the fixed allow list of the algorithms (ST-SUP-RP13-LC03): no none, no HMAC and no other algorithm.
 var allowList = []string{AlgorithmRS256, AlgorithmES256}
 
-// registeredClaims are the registered claims other than sub, which a subject claim must not name
-// (ST-SUP-RP13-LC13).
-var registeredClaims = []string{"iss", "aud", "exp", "nbf", "iat", "jti"}
+// subjectClaims is the allow list of the subject claim (ST-SUP-RP13-LC13): sub, and oid, the immutable object ID
+// of Microsoft Entra ID. A claim that the user or the provider can change, such as email, preferred_username or
+// upn, could map two accounts to one subject, so it is refused (security review of PR #202).
+var subjectClaims = []string{"sub", "oid"}
+
+// tokenTypes are the typ header values of an access token that Verify accepts: JWT, and at+jwt in its short and its
+// media type form (RFC 9068, ST-SUP-RP13-LC03).
+var tokenTypes = []string{"JWT", "at+jwt", "application/at+jwt"}
+
+// idTokenClaims are the claims that mark an ID token, which is not an access token, so Verify refuses a token that
+// holds one (ST-SUP-RP13-LC03).
+var idTokenClaims = []string{"at_hash", "c_hash", "nonce"}
 
 // ErrDenied is the error of each refused token: errors.Is(err, ErrDenied) holds for every refusal of Verify and of
 // the key set. Its text and the text of each refusal are fixed and hold no token, claim, key ID, key document,
@@ -81,6 +90,7 @@ const (
 	errUnicode    = refusal("Unicode")
 	errAlgorithm  = refusal("algorithm")
 	errType       = refusal("type")
+	errIDToken    = refusal("id token")
 	errHeader     = refusal("header member")
 	errKeyID      = refusal("key ID")
 	errUnknownKey = refusal("unknown key")
@@ -159,7 +169,7 @@ func New(s Settings) (*Verifier, error) { return newVerifier(s, time.Now) }
 func newVerifier(s Settings, now func() time.Time) (*Verifier, error) {
 	issuer, err := url.Parse(s.Issuer)
 	if err != nil || issuer.Scheme != "https" || issuer.Host == "" || issuer.User != nil || issuer.Fragment != "" ||
-		issuer.RawQuery != "" || issuer.Opaque != "" {
+		issuer.RawQuery != "" || issuer.Opaque != "" || !httpsURL(s.Issuer) {
 		return nil, setting("the issuer is not an HTTPS URL")
 	}
 	if s.Audience == "" || !clean(s.Audience) {
@@ -181,8 +191,8 @@ func newVerifier(s Settings, now func() time.Time) (*Verifier, error) {
 	if subject == "" {
 		subject = "sub"
 	}
-	if path, err := claimPath(subject); err != nil || len(path) != 1 || slices.Contains(registeredClaims, subject) {
-		return nil, setting("the subject claim name is not valid")
+	if !slices.Contains(subjectClaims, subject) {
+		return nil, setting("the subject claim is not sub or oid")
 	}
 	rolePath, err := claimPath(s.RoleClaim)
 	if err != nil {
@@ -311,6 +321,11 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Identity, error) {
 	if err != nil {
 		return Identity{}, err
 	}
+	for _, name := range idTokenClaims {
+		if _, present := claims[name]; present {
+			return Identity{}, errIDToken
+		}
+	}
 	issuer, subject, expires, err := v.registered(claims)
 	if err != nil {
 		return Identity{}, err
@@ -367,7 +382,7 @@ func checkHeader(data []byte, algorithms []string) (string, string, bool, error)
 		return "", "", false, errAlgorithm
 	}
 	typ, ok := stringMember(header, "typ")
-	if !ok || typ != "JWT" {
+	if !ok || !slices.Contains(tokenTypes, typ) {
 		return "", "", false, errType
 	}
 	for _, name := range []string{"crit", "jku", "jwk", "x5u"} {

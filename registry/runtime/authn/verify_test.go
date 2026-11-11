@@ -245,7 +245,9 @@ func TestVerifyAlgorithm(t *testing.T) {
 			value  any
 			want   error
 		}{
-			{"typ at+jwt", "typ", "at+jwt", errType},
+			{"typ JOSE", "typ", "JOSE", errType},
+			{"typ at+JWT in another case", "typ", "AT+JWT", errType},
+			{"typ not text", "typ", 7, errType},
 			{"crit", "crit", []string{"exp"}, errHeader},
 			{"jku", "jku", "https://attacker.authn.test/keys", errHeader},
 			{"jwk", "jwk", key.JWK(), errHeader},
@@ -257,6 +259,28 @@ func TestVerifyAlgorithm(t *testing.T) {
 				header[c.member] = c.value
 				id, err := v.Verify(context.Background(), authntest.Mint(t, header, goodClaims(), key))
 				expectRefused(t, id, err, c.want)
+			})
+		}
+	})
+}
+
+func TestTokenKind(t *testing.T) {
+	t.Run("ST-SUP-RP13-LC03-T03 A token shaped as an ID token is refused, and an at+jwt access token passes", func(t *testing.T) {
+		key := authntest.NewKey(t, "k1")
+		v := staticVerifier(t, nil, key)
+		// An access token of RFC 9068 names its type at+jwt, in the short or the media type form.
+		for _, typ := range []string{"JWT", "at+jwt", "application/at+jwt"} {
+			header := authntest.Header("k1")
+			header["typ"] = typ
+			expectAccepted(t, v, authntest.Mint(t, header, goodClaims(), key))
+		}
+		// An ID token holds at_hash, c_hash or nonce; each marks the token as no access token.
+		for _, marker := range []string{"at_hash", "c_hash", "nonce"} {
+			t.Run(marker, func(t *testing.T) {
+				claims := goodClaims()
+				claims[marker] = "abc"
+				id, err := v.Verify(context.Background(), authntest.Mint(t, authntest.Header("k1"), claims, key))
+				expectRefused(t, id, err, errIDToken)
 			})
 		}
 	})
@@ -295,10 +319,11 @@ func TestVerifySettings(t *testing.T) {
 			t.Fatalf("New refused valid settings: %v", err)
 		}
 		cases := map[string]func(*Settings){
-			"http issuer":    func(s *Settings) { s.Issuer = "http://issuer.authn.test/realms/r1" },
-			"empty audience": func(s *Settings) { s.Audience = "" },
-			"skew of 61 s":   func(s *Settings) { s.Skew = 61 * time.Second },
-			"skew of -1 s":   func(s *Settings) { s.Skew = -time.Second },
+			"http issuer":                  func(s *Settings) { s.Issuer = "http://issuer.authn.test/realms/r1" },
+			"issuer with a trailing space": func(s *Settings) { s.Issuer = "https://issuer.authn.test/realms/r1 " },
+			"empty audience":               func(s *Settings) { s.Audience = "" },
+			"skew of 61 s":                 func(s *Settings) { s.Skew = 61 * time.Second },
+			"skew of -1 s":                 func(s *Settings) { s.Skew = -time.Second },
 		}
 		for name, change := range cases {
 			t.Run(name, func(t *testing.T) {

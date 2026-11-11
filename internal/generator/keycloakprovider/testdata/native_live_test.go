@@ -137,6 +137,13 @@ func testLiveNativeClients(t *testing.T, c *Client, ctx context.Context, caFile 
 			if access["iss"] != c.Issuer() || access["sub"] != nativeTestSubject || access["azp"] != b.ClientID || !nativeAudience(access["aud"], b.ClientID) || id["iss"] != c.Issuer() || !nativeAudience(id["aud"], b.ClientID) || id["sub"] != nativeTestSubject || id["nonce"] != nonce {
 				t.Fatal("native signed identity differs")
 			}
+			// The runtime verifier refuses a token with at_hash, c_hash or nonce as an ID token (ST-SUP-RP13-LC03), so the
+			// access token of an authorization code flow with a nonce must hold none of them.
+			for _, marker := range []string{"nonce", "at_hash", "c_hash"} {
+				if _, ok := access[marker]; ok {
+					t.Fatal("the native access token holds the ID token claim " + marker)
+				}
+			}
 			pieces := strings.Split(item.claim, ".")
 			object, ok := access[pieces[0]].(map[string]any)
 			if !ok {
