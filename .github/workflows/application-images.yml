@@ -1,5 +1,9 @@
 name: Build and sign declared application images
 
+# A caller of this reusable workflow signs only when it runs at refs/heads/main: in a called workflow, github.ref
+# is the caller's ref, so a run on another branch, a pull request or a tag builds the images and signs none. A
+# consumer that wants signed images calls this workflow from a run at main, by a push or by hand.
+
 on:
   workflow_call:
     inputs:
