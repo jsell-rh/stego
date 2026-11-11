@@ -164,6 +164,10 @@ func workerRoles(runtime string) (string, string) {
 // outboxRelayRole is the NOLOGIN role of the outbox runtime that owns its relay functions (ST-SUP-RP01-LC19).
 const outboxRelayRole = "stego_outbox_relay"
 
+// idempotencyPurgeRole is the NOLOGIN role of the idempotency runtime that owns its purge function
+// (ST-SUP-RP07-LC11).
+const idempotencyPurgeRole = "stego_idempotency_purge"
+
 // roleMigration gives the migration that creates the roles of the service: the owner, runtime, worker and relay
 // roles (ST-SUP-RC27-OC04). None can log in until a deployment gives it a login, is a superuser, creates roles or
 // databases, replicates or bypasses row-level security; the runtime, worker and relay roles inherit nothing. The
@@ -171,8 +175,11 @@ const outboxRelayRole = "stego_outbox_relay"
 // make temporary tables, so the runtime role gets only the grants of the database access contract. It makes the
 // outbox relay role of the runtime when it is missing, gives the owner role membership in it WITH SET TRUE,
 // INHERIT TRUE, so the outbox migration can make the relay functions, and gives it CREATE on public, so the
-// authorization migration can give it its state hook function (ST-SUP-RP06-LC21). So the first migration job needs
-// no role or grant that the database administrator makes by hand.
+// authorization migration can give it its state hook function (ST-SUP-RP06-LC21). It makes the idempotency purge
+// role of the runtime when it is missing, which inherits nothing, gives the owner role membership in it WITH SET
+// TRUE, INHERIT TRUE and gives it USAGE and CREATE on public, so the idempotency migration can make the purge
+// function owned by it (ST-SUP-RP07-LC11). So the first migration job needs no role or grant that the database
+// administrator makes by hand.
 func roleMigration(runtime, owner, worker, relay string) string {
 	flags := "NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"
 	var text strings.Builder
@@ -185,6 +192,7 @@ func roleMigration(runtime, owner, worker, relay string) string {
 	for _, role := range []string{runtime, worker, relay} {
 		fmt.Fprintf(&text, "\tEXECUTE pg_catalog.format('GRANT CONNECT ON DATABASE %%I TO %s', pg_catalog.current_database());\n", quote(role))
 	}
+	fmt.Fprintf(&text, "\tIF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '%s') THEN\n\t\tCREATE ROLE %s %s NOINHERIT;\n\tEND IF;\n", idempotencyPurgeRole, quote(idempotencyPurgeRole), flags)
 	text.WriteString("END\n$$;\n")
 	fmt.Fprintf(&text, "ALTER ROLE %s %s;\n", quote(owner), flags)
 	for _, role := range []string{runtime, worker, relay} {
@@ -197,6 +205,9 @@ func roleMigration(runtime, owner, worker, relay string) string {
 	}
 	fmt.Fprintf(&text, "GRANT %s TO %s WITH SET TRUE, INHERIT TRUE;\n", quote(outboxRelayRole), quote(owner))
 	fmt.Fprintf(&text, "GRANT CREATE ON SCHEMA public TO %s;\n", quote(outboxRelayRole))
+	fmt.Fprintf(&text, "ALTER ROLE %s %s NOINHERIT;\n", quote(idempotencyPurgeRole), flags)
+	fmt.Fprintf(&text, "GRANT %s TO %s WITH SET TRUE, INHERIT TRUE;\n", quote(idempotencyPurgeRole), quote(owner))
+	fmt.Fprintf(&text, "GRANT USAGE, CREATE ON SCHEMA public TO %s;\n", quote(idempotencyPurgeRole))
 	return text.String()
 }
 

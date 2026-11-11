@@ -351,27 +351,47 @@ func TestKeyTableTenancy(t *testing.T) {
 		if !definer || owner != PurgeRole || config != "search_path=pg_catalog, pg_temp" || public {
 			t.Fatalf("the purge function: definer %v, owner %s, config %q, PUBLIC execute %v", definer, owner, config, public)
 		}
-		// The purge role may lock a row and delete it, but never insert or change one.
-		tx, err := db.BeginTx(ctx, nil)
-		if err != nil {
-			t.Fatal(err)
+		// The purge role can change no key row and insert none, also in a transaction whose app.tenant names the
+		// tenant of the row, where the tenant policy admits the row.
+		var flags string
+		if err := db.QueryRowContext(ctx, `SELECT rolcanlogin::text || rolsuper::text || rolbypassrls::text || rolinherit::text
+			FROM pg_roles WHERE rolname = $1`, PurgeRole).Scan(&flags); err != nil || flags != "falsefalsefalsefalse" {
+			t.Fatalf("the purge role can log in, is a superuser, bypasses row-level security or inherits (%s): %v", flags, err)
 		}
-		defer func() { _ = tx.Rollback() }()
-		if _, err := tx.ExecContext(ctx, "SET LOCAL ROLE "+PurgeRole); err != nil {
-			t.Fatal(err)
+		var privileges string
+		if err := db.QueryRowContext(ctx, `SELECT string_agg(privilege_type, ',' ORDER BY privilege_type)
+			FROM information_schema.role_table_grants WHERE grantee = $1 AND table_schema = $2 AND table_name = 'idempotency_keys'`,
+			PurgeRole, schema).Scan(&privileges); err != nil || privileges != "DELETE,SELECT" {
+			t.Fatalf("the purge role holds %q on the key table, want DELETE,SELECT: %v", privileges, err)
 		}
-		if _, err := tx.ExecContext(ctx, "SAVEPOINT s"); err != nil {
-			t.Fatal(err)
+		for _, tenantSet := range []bool{false, true} {
+			for _, statement := range []string{
+				`UPDATE idempotency_keys SET expires_at = now() + interval '1 day' WHERE tenant_id = 't1'`,
+				`INSERT INTO idempotency_keys (tenant_id, principal_id, key, fingerprint, status, locked_at, expires_at)
+					VALUES ('t1', 'p1', 'k', 'f', 'in_progress', now(), now())`,
+			} {
+				func() {
+					tx, err := db.BeginTx(ctx, nil)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer func() { _ = tx.Rollback() }()
+					if tenantSet {
+						if _, err := tx.ExecContext(ctx, "SELECT pg_catalog.set_config('app.tenant', 't1', true)"); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if _, err := tx.ExecContext(ctx, "SET LOCAL ROLE "+PurgeRole); err != nil {
+						t.Fatal(err)
+					}
+					if _, err := tx.ExecContext(ctx, statement); pgCode(err) != "42501" {
+						t.Fatalf("the purge role (app.tenant set %v) ran %.40s: %v", tenantSet, statement, err)
+					}
+				}()
+			}
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE idempotency_keys SET expires_at = now() + interval '1 day'`); pgCode(err) != "42501" {
-			t.Fatalf("the purge role changed a key row: %v", err)
-		}
-		if _, err := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT s"); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO idempotency_keys (tenant_id, principal_id, key, fingerprint,
-			status, locked_at, expires_at) VALUES ('t3', 'p1', 'k', 'f', 'in_progress', now(), now())`); pgCode(err) != "42501" {
-			t.Fatalf("the purge role inserted a key row: %v", err)
+		if n := countRows(t, db, "SELECT count(*) FROM idempotency_keys WHERE key = 'live' AND expires_at > now() + interval '2 hours'"); n != 0 {
+			t.Fatalf("%d live keys were moved forward", n)
 		}
 	})
 
@@ -381,11 +401,10 @@ func TestKeyTableTenancy(t *testing.T) {
 		if _, err := db.ExecContext(ctx, Migration); err != nil {
 			t.Fatalf("a second run as the superuser: %v", err)
 		}
-		// An owner that is no superuser, with the membership and the schema grants that the role migration gives.
+		// An owner that is no superuser and owns the schema, with the membership that the role migration gives; the
+		// purge role gets CREATE on the schema only for the change of owner.
 		owner, ownerDB := loginRole(t, admin, schema, "idem_owner")
 		for _, grant := range []string{
-			"GRANT USAGE, CREATE ON SCHEMA " + schema + " TO " + owner,
-			"GRANT CREATE ON SCHEMA " + schema + " TO " + PurgeRole,
 			"GRANT " + PurgeRole + " TO " + owner + " WITH SET TRUE, INHERIT TRUE",
 		} {
 			if _, err := admin.ExecContext(ctx, grant); err != nil {
@@ -399,9 +418,6 @@ func TestKeyTableTenancy(t *testing.T) {
 		if _, err := admin.ExecContext(ctx, "CREATE SCHEMA "+schema+" AUTHORIZATION "+owner); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := admin.ExecContext(ctx, "GRANT CREATE ON SCHEMA "+schema+" TO "+PurgeRole); err != nil {
-			t.Fatal(err)
-		}
 		for run := 1; run <= 2; run++ {
 			if _, err := ownerDB.ExecContext(ctx, Migration); err != nil {
 				t.Fatalf("run %d as the owner role: %v", run, err)
@@ -409,8 +425,12 @@ func TestKeyTableTenancy(t *testing.T) {
 		}
 		var policies int
 		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pg_policies WHERE schemaname = $1 AND tablename = 'idempotency_keys'`,
-			schema).Scan(&policies); err != nil || policies != 4 {
-			t.Fatalf("%d policies on the key table after two runs, want the tenant policy and three of the purge role: %v", policies, err)
+			schema).Scan(&policies); err != nil || policies != 3 {
+			t.Fatalf("%d policies on the key table after two runs, want the tenant policy and two of the purge role: %v", policies, err)
+		}
+		var create bool
+		if err := db.QueryRowContext(ctx, "SELECT has_schema_privilege($1, $2, 'CREATE')", PurgeRole, schema).Scan(&create); err != nil || create {
+			t.Fatalf("the purge role keeps CREATE on the schema after the runs: %v, %v", create, err)
 		}
 	})
 }

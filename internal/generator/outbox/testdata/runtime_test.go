@@ -79,6 +79,13 @@ func newEnv(t *testing.T) *env {
 	// The relay role is one role of the cluster; the owner makes the relay functions as it.
 	exec(`DO $$ BEGIN CREATE ROLE ` + outbox.RelayRole + ` NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$`)
 	exec("GRANT " + outbox.RelayRole + " TO " + ownerRole + " WITH SET TRUE, INHERIT TRUE")
+	// So is the idempotency purge role; the owner makes the purge function as it, as the tenancy role migration
+	// allows (ST-SUP-RP07-LC11).
+	exec(`DO $$ BEGIN CREATE ROLE stego_idempotency_purge NOLOGIN NOINHERIT; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$`)
+	exec("GRANT stego_idempotency_purge TO " + ownerRole + " WITH SET TRUE, INHERIT TRUE")
+	t.Cleanup(func() {
+		_, _ = admin.ExecContext(context.Background(), "REVOKE stego_idempotency_purge FROM "+ownerRole)
+	})
 	// The runtime migration runs CREATE ROLE for the relay role also when the role is there, so the owner needs
 	// CREATEROLE, though it creates no role here.
 	exec("ALTER ROLE " + ownerRole + " CREATEROLE")

@@ -135,10 +135,15 @@ func TestTenantConnectors(t *testing.T) {
 		relayMember := env.role(t, "relaymember", "INHERIT")
 		adminExec(t, env.admin, `DO $do$ BEGIN CREATE ROLE stego_outbox_relay NOLOGIN;
 EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $do$`, "GRANT stego_outbox_relay TO "+relayMember)
+		// A member of the idempotency purge role could take it and read or delete every tenant's key rows.
+		purgeMember := env.role(t, "purgemember", "INHERIT")
+		adminExec(t, env.admin, `DO $do$ BEGIN CREATE ROLE stego_idempotency_purge NOLOGIN NOINHERIT;
+EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $do$`, "GRANT stego_idempotency_purge TO "+purgeMember)
 		for role, want := range map[string]string{
 			bypassMember: "holds BYPASSRLS through its membership of " + bypassGroup,
 			superMember:  "is a superuser through its membership of " + superGroup,
-			relayMember:  "is a member of the outbox relay or hook roles stego_outbox_relay",
+			relayMember:  "is a member of the outbox relay, idempotency purge or hook roles stego_outbox_relay",
+			purgeMember:  "is a member of the outbox relay, idempotency purge or hook roles stego_idempotency_purge",
 		} {
 			db, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(role)})
 			if err == nil {

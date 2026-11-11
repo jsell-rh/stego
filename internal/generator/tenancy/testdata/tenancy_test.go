@@ -227,6 +227,24 @@ func TestTenancy(t *testing.T) {
 				t.Errorf("the role %s is a member of stego_outbox_relay: %v, %v", role, member, err)
 			}
 		}
+		// The idempotency purge role inherits nothing, cannot log in or bypass row-level security, and the owner may
+		// take it to make the purge function (ST-SUP-RP07-LC11); no runtime, worker or relay role is a member.
+		var login, purgeInherit, purgeBypass, purgeSuper bool
+		if err := db.QueryRowContext(ctx, "SELECT rolcanlogin, rolinherit, rolbypassrls, rolsuper FROM pg_roles WHERE rolname = 'stego_idempotency_purge'").
+			Scan(&login, &purgeInherit, &purgeBypass, &purgeSuper); err != nil || login || purgeInherit || purgeBypass || purgeSuper {
+			t.Errorf("stego_idempotency_purge: LOGIN %v, INHERIT %v, BYPASSRLS %v, superuser %v, %v", login, purgeInherit, purgeBypass, purgeSuper, err)
+		}
+		if err := db.QueryRowContext(ctx, `SELECT m.set_option, m.inherit_option FROM pg_auth_members m
+ JOIN pg_roles g ON g.oid = m.roleid JOIN pg_roles r ON r.oid = m.member
+ WHERE g.rolname = 'stego_idempotency_purge' AND r.rolname = $1`, tenancy.OwnerRole).Scan(&set, &inherit); err != nil || !set || !inherit {
+			t.Errorf("the owner role's membership in stego_idempotency_purge: SET %v, INHERIT %v, %v", set, inherit, err)
+		}
+		for _, role := range []string{tenancy.RuntimeRole, tenancy.WorkerRole, tenancy.RelayRole} {
+			var member bool
+			if err := db.QueryRowContext(ctx, "SELECT pg_has_role($1, 'stego_idempotency_purge', 'MEMBER')", role).Scan(&member); err != nil || member {
+				t.Errorf("the role %s is a member of stego_idempotency_purge: %v, %v", role, member, err)
+			}
+		}
 	})
 
 	t.Run("ST-SUP-RC27-OC04-T03 The runtime role has no BYPASSRLS and owns no table", func(t *testing.T) {

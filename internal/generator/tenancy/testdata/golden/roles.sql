@@ -20,6 +20,9 @@ BEGIN
 	EXECUTE pg_catalog.format('GRANT CONNECT ON DATABASE %I TO "tenancy_check_runtime"', pg_catalog.current_database());
 	EXECUTE pg_catalog.format('GRANT CONNECT ON DATABASE %I TO "tenancy_check_worker"', pg_catalog.current_database());
 	EXECUTE pg_catalog.format('GRANT CONNECT ON DATABASE %I TO "tenancy_check_relay"', pg_catalog.current_database());
+	IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'stego_idempotency_purge') THEN
+		CREATE ROLE "stego_idempotency_purge" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+	END IF;
 END
 $$;
 ALTER ROLE "tenancy_check_owner" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
@@ -33,3 +36,6 @@ GRANT USAGE ON SCHEMA public TO "tenancy_check_worker";
 GRANT USAGE ON SCHEMA public TO "tenancy_check_relay";
 GRANT "stego_outbox_relay" TO "tenancy_check_owner" WITH SET TRUE, INHERIT TRUE;
 GRANT CREATE ON SCHEMA public TO "stego_outbox_relay";
+ALTER ROLE "stego_idempotency_purge" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+GRANT "stego_idempotency_purge" TO "tenancy_check_owner" WITH SET TRUE, INHERIT TRUE;
+GRANT USAGE, CREATE ON SCHEMA public TO "stego_idempotency_purge";

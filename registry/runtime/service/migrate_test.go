@@ -24,6 +24,7 @@ import (
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/idempotency"
 	"github.com/jsell-rh/stego/registry/runtime/internal/pgtest"
 	"github.com/jsell-rh/stego/registry/runtime/outbox"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
@@ -166,13 +167,15 @@ func newFixture(t *testing.T) *fixture {
 		"CREATE ROLE " + f.relay + " NOLOGIN NOINHERIT",
 		"DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '" + outbox.RelayRole + "') THEN CREATE ROLE " + outbox.RelayRole + " NOLOGIN; END IF; END $$",
 		"GRANT " + outbox.RelayRole + " TO " + f.owner + " WITH SET TRUE, INHERIT TRUE",
+		"DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '" + idempotency.PurgeRole + "') THEN CREATE ROLE " + idempotency.PurgeRole + " NOLOGIN NOINHERIT; END IF; END $$",
+		"GRANT " + idempotency.PurgeRole + " TO " + f.owner + " WITH SET TRUE, INHERIT TRUE",
 		"GRANT CREATE ON DATABASE " + name + " TO " + f.owner,
 	} {
 		if _, err := root.ExecContext(context.Background(), statement); err != nil {
 			t.Fatalf("%.60s: %v", statement, err)
 		}
 	}
-	if _, err := f.admin.ExecContext(context.Background(), "GRANT CREATE ON SCHEMA public TO "+f.owner+", "+outbox.RelayRole); err != nil {
+	if _, err := f.admin.ExecContext(context.Background(), "GRANT CREATE ON SCHEMA public TO "+f.owner+", "+outbox.RelayRole+", "+idempotency.PurgeRole); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
