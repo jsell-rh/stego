@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
+	"github.com/jsell-rh/stego/registry/runtime/audit/auditsink"
 	"github.com/jsell-rh/stego/registry/runtime/idempotency"
 	"github.com/jsell-rh/stego/registry/runtime/lease"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
@@ -28,6 +29,7 @@ const (
 	StepTables              = "tables"
 	StepOutboxQueue         = "outbox_queue"
 	StepAuditTables         = "audit_tables"
+	StepAuditSink           = "audit_sink"
 	StepIdempotencyKeys     = "idempotency_keys"
 	StepAuthorizationTables = "authorization_tables"
 	StepRuntimeGrants       = "runtime_grants"
@@ -39,8 +41,9 @@ const (
 // gives Migrate: the roles, the adapter's connection configuration and ledger, the ordered migration texts of the
 // component packages, the schema writer and the grants of the runtime role.
 type Migration struct {
-	// OwnerRole is the role that owns the database objects; RuntimeRole the role that the service connects as.
-	OwnerRole, RuntimeRole string
+	// OwnerRole is the role that owns the database objects; RuntimeRole the role that the service connects as;
+	// WorkerRole the role that the worker mode connects as, which writes the default audit sink (ST-SUP-RP05-LC15).
+	OwnerRole, RuntimeRole, WorkerRole string
 	// TenantConfig gives the connection configuration of the PostgreSQL adapter for a connection string.
 	TenantConfig func(dsn string) (tenant.Config, error)
 	// LedgerCheck reads the database and refuses one whose tables this release did not make, writing nothing; Ledger
@@ -100,7 +103,7 @@ var stepped func(step string, conn *sql.Conn)
 // its own schema. It stops at the first step that fails, with a StepError that names the step. Each step runs again
 // on a database that it made, so the job runs on every release.
 func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
-	if m.OwnerRole == "" || m.RuntimeRole == "" || m.TenantConfig == nil || m.LedgerCheck == nil || m.Ledger == nil ||
+	if m.OwnerRole == "" || m.RuntimeRole == "" || m.WorkerRole == "" || m.TenantConfig == nil || m.LedgerCheck == nil || m.Ledger == nil ||
 		m.WriteSchema == nil || m.Outbox == "" || m.Audit == "" || m.Authorization == "" {
 		return failed(StepSettings, errors.New("the migration job needs its roles, the adapter, the ledger, the migration texts and the schema writer"))
 	}
@@ -156,6 +159,10 @@ func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
 	if err != nil {
 		return failed(StepSettings, err)
 	}
+	sinkTable, err := auditsink.Migration(m.WorkerRole)
+	if err != nil {
+		return failed(StepSettings, err)
+	}
 	if err := step(StepTables, func() error {
 		if _, err := conn.ExecContext(ctx, asOwner); err != nil {
 			return err
@@ -175,6 +182,7 @@ func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
 	texts := []struct{ name, text string }{
 		{StepOutboxQueue, m.Outbox},
 		{StepAuditTables, m.Audit + ";\n" + controllerLease(m.RuntimeRole)},
+		{StepAuditSink, sinkTable},
 		{StepIdempotencyKeys, idempotency.Migration},
 		{StepAuthorizationTables, m.Authorization},
 		{StepRuntimeGrants, granted(m.Grants, m.RuntimeRole)},

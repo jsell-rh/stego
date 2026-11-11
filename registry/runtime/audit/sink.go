@@ -34,6 +34,13 @@ const (
 	messageAnchor = "anchor"
 )
 
+// EventMessage gives the canonical sink message of the event e, the bytes that Record enqueues for the sink and that a
+// sink of the auditsink package stores or sends as the entry (ST-SUP-RP05-LC07).
+func EventMessage(e Event) ([]byte, error) { return eventMessage(e) }
+
+// AnchorMessage gives the canonical sink message of the anchor a, the bytes that the anchor job enqueues for the sink.
+func AnchorMessage(a Anchor) []byte { return anchorMessage(a) }
+
 func eventMessage(e Event) ([]byte, error) {
 	rec, err := Encode(e)
 	if err != nil {
