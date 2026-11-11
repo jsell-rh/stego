@@ -47,6 +47,9 @@ func TestSettings(t *testing.T) {
 			"a token file that does not exist":      {Settings{URL: url, TokenFile: "/nonexistent/token"}, TokenFileSetting},
 			"an empty token file":                   {Settings{URL: url, TokenFile: writeFile(t, "empty", nil)}, TokenFileSetting},
 			"a token file with a control character": {Settings{URL: url, TokenFile: writeFile(t, "two", []byte("s3cret\nline"))}, TokenFileSetting},
+			"a token file with a carriage return":   {Settings{URL: url, TokenFile: writeFile(t, "cr", []byte("s3cret\rline"))}, TokenFileSetting},
+			"a token file with CR and LF inside":    {Settings{URL: url, TokenFile: writeFile(t, "crlf", []byte("s3cret\r\nline\n"))}, TokenFileSetting},
+			"a token file with a NUL":               {Settings{URL: url, TokenFile: writeFile(t, "nul", []byte("s3cret\x00x"))}, TokenFileSetting},
 		} {
 			_, err := New(c.settings, nil)
 			if err == nil || !strings.Contains(err.Error(), c.want) {

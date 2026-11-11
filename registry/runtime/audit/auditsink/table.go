@@ -1,10 +1,12 @@
 package auditsink
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
 
@@ -49,6 +51,10 @@ func Migration(workerRole string) (string, error) {
 	}, ";\n") + ";\n", nil
 }
 
+// ErrConflict is the error of an entry whose ID the default table holds with another entry. It does not wrap
+// audit.ErrDuplicate, so the outbox keeps the message and sends it again.
+var ErrConflict = errors.New("auditsink: the default sink holds another entry under the ID")
+
 // TableSink is the default sink: it writes each entry as one row of stego_audit_sink.entries, keyed by its ID. A
 // resend of an entry with an ID that the table holds stores nothing new. It has no update, no delete and no read.
 type TableSink struct {
@@ -65,8 +71,9 @@ func NewTableSink(db *sql.DB) (*TableSink, error) {
 	return &TableSink{db: db}, nil
 }
 
-// Append stores the events in one transaction. When the table already holds an event's ID, that row is left as it
-// is, and Append returns an error that wraps audit.ErrDuplicate after it stores the others.
+// Append stores the events in one transaction. When the table already holds an event's ID with the same entry, that
+// row is left as it is, and Append returns an error that wraps audit.ErrDuplicate after it stores the others; when
+// it holds another entry under the ID, Append stores nothing and returns ErrConflict.
 func (s *TableSink) Append(ctx context.Context, events []audit.Event) error {
 	entries, err := eventEntries(events)
 	if err != nil {
@@ -103,6 +110,18 @@ func (s *TableSink) store(ctx context.Context, entries []Entry) error {
 			return fmt.Errorf("auditsink: the default sink: %w", err)
 		}
 		if n, err := result.RowsAffected(); err == nil && n == 0 {
+			// The table holds a row under the ID: it is a resend only when the row holds the same entry. Another row
+			// under the ID is a conflict, which keeps the message in the outbox, and the log names the ID only.
+			var kind, tenantID string
+			var hash, body []byte
+			if err := tx.QueryRowContext(ctx, "SELECT kind, tenant_id, hash, body FROM "+Schema+"."+Table+" WHERE entry_id = $1",
+				e.ID).Scan(&kind, &tenantID, &hash, &body); err != nil {
+				return fmt.Errorf("auditsink: the default sink: %w", err)
+			}
+			if kind != e.Kind || tenantID != e.Tenant || !bytes.Equal(hash, e.Hash) || !bytes.Equal(body, e.Body) {
+				slog.WarnContext(ctx, "auditsink: the default sink holds another entry under the ID of an entry", "entry_id", e.ID)
+				return ErrConflict
+			}
 			held++
 		}
 	}

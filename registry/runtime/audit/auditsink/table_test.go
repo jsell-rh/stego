@@ -35,6 +35,7 @@ type env struct {
 	admin                    *sql.DB
 	runtime, worker          *sql.DB
 	ownerRole, workerRole    string
+	runtimeRole              string
 	queue                    *auditoutbox.Queue
 	writer                   *audit.Writer
 	runtimeQueue, workerSide *outbox.Queue
@@ -96,7 +97,7 @@ func newEnv(t *testing.T) *env {
 			t.Fatalf("audit_maintain: %v", err)
 		}
 	}
-	e := &env{admin: admin, ownerRole: roles[0], workerRole: roles[2]}
+	e := &env{admin: admin, ownerRole: roles[0], runtimeRole: roles[1], workerRole: roles[2]}
 	e.migrate(t)
 	open := func(role string) *sql.DB {
 		v := *u
@@ -326,6 +327,24 @@ func TestTableSink(t *testing.T) {
 		if owner != e.ownerRole || publicUse {
 			t.Fatalf("the default table is owned by %s and the public role has USAGE %t, want %s and false", owner, publicUse, e.ownerRole)
 		}
+		// By the catalog: the runtime role of the api mode has no privilege on the table, and the worker role has no
+		// privilege but SELECT and INSERT.
+		for _, c := range []struct {
+			role, privilege string
+			want            bool
+		}{
+			{e.runtimeRole, "SELECT", false}, {e.runtimeRole, "INSERT", false}, {e.runtimeRole, "UPDATE", false}, {e.runtimeRole, "DELETE", false},
+			{e.workerRole, "SELECT", true}, {e.workerRole, "INSERT", true}, {e.workerRole, "UPDATE", false}, {e.workerRole, "DELETE", false},
+			{e.workerRole, "TRUNCATE", false}, {e.workerRole, "TRIGGER", false}, {e.workerRole, "REFERENCES", false},
+		} {
+			var has bool
+			if err := e.admin.QueryRowContext(ctx, `SELECT has_table_privilege($1, 'stego_audit_sink.entries', $2)`, c.role, c.privilege).Scan(&has); err != nil {
+				t.Fatal(err)
+			}
+			if has != c.want {
+				t.Errorf("the role %s has %s on the default table: %t, want %t", c.role, c.privilege, has, c.want)
+			}
+		}
 		// The migration runs again on a database that it made.
 		e.migrate(t)
 	})
@@ -357,6 +376,39 @@ func TestTableSink(t *testing.T) {
 		stop()
 		if !landed || e.count(t, "SELECT count(*) FROM "+Schema+"."+Table+" WHERE entry_id = $1", event.ID.String()) != 1 {
 			t.Fatalf("the entry did not land once the table took it")
+		}
+	})
+}
+
+func TestTableConflict(t *testing.T) {
+	t.Run("ST-SUP-RP05-LC15-T04 A row of another entry under a queued ID keeps the message in the outbox", func(t *testing.T) {
+		e := newEnv(t)
+		ctx := context.Background()
+		event := e.record(t, "t1", "r1", nil)
+		// The attack of the security review of PR #204: the worker role writes a row under the ID of a queued event
+		// before the worker delivers it.
+		if _, err := e.worker.ExecContext(ctx, "INSERT INTO "+Schema+"."+Table+" (entry_id, kind, tenant_id, hash, body) VALUES ($1, 'event', 't1', $2, 'forged')",
+			event.ID.String(), event.Hash); err != nil {
+			t.Fatal(err)
+		}
+		sink, err := NewTableSink(e.worker)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := sink.Append(ctx, []audit.Event{event}); !errors.Is(err, ErrConflict) || errors.Is(err, audit.ErrDuplicate) {
+			t.Fatalf("Append over another entry gave %v, want ErrConflict and no audit.ErrDuplicate", err)
+		}
+		stop := e.startWorker(t, sink)
+		kept := waitFor(func() bool {
+			return e.count(t, "SELECT count(*) FROM stego_outbox.messages WHERE id = $1::uuid AND attempts >= 2 AND state <> 'done'", event.ID.String()) == 1
+		})
+		stop()
+		if !kept {
+			t.Fatalf("the message of the event left the outbox over a row of another entry")
+		}
+		var body string
+		if err := e.admin.QueryRowContext(ctx, "SELECT convert_from(body, 'UTF8') FROM "+Schema+"."+Table+" WHERE entry_id = $1", event.ID.String()).Scan(&body); err != nil || body != "forged" {
+			t.Fatalf("the row under the ID is %q, %v, want the forged row left as it is", body, err)
 		}
 	})
 }

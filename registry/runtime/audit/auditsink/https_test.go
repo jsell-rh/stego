@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -70,6 +71,7 @@ func (a *authority) issue(t *testing.T, name string, server bool) (tls.Certifica
 		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour)}
 	if server {
 		template.ExtKeyUsage, template.IPAddresses = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, []net.IP{net.ParseIP("127.0.0.1")}
+		template.DNSNames = []string{"audit-sink.test"}
 	} else {
 		template.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
 	}
@@ -186,6 +188,16 @@ func (s *standIn) setAnswer(answer func() (int, *collogs.ExportLogsServiceRespon
 	s.answer = answer
 }
 
+// mustSink makes the HTTPS sink of the settings and fails the test when it is refused.
+func mustSink(t *testing.T, s Settings) *HTTPSSink {
+	t.Helper()
+	sink, err := NewHTTPSSink(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sink
+}
+
 // rejecting is the answer of a partial success that rejects n log records.
 func rejecting(n int64) func() (int, *collogs.ExportLogsServiceResponse) {
 	return func() (int, *collogs.ExportLogsServiceResponse) {
@@ -215,6 +227,27 @@ func records(req *collogs.ExportLogsServiceRequest) []*logs.LogRecord {
 }
 
 func TestHTTPSSink(t *testing.T) {
+	// HTTPS_PROXY names a listener that counts its connections, set before the first send, because the proxy
+	// settings of the environment are read once in a process. A loopback host is never sent through a proxy.
+	proxy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proxy.Close()
+	var proxied atomic.Int32
+	go func() {
+		for {
+			conn, err := proxy.Accept()
+			if err != nil {
+				return
+			}
+			proxied.Add(1)
+			_ = conn.Close()
+		}
+	}()
+	t.Setenv("HTTPS_PROXY", "http://"+proxy.Addr().String())
+	t.Setenv("https_proxy", "http://"+proxy.Addr().String())
+	t.Setenv("NO_PROXY", "")
 	e := newEnv(t)
 	anchor := audit.Anchor{Tenant: "t1", Kind: audit.AnchorRetention, Head: bytes.Repeat([]byte{9}, 32), Count: 3}
 	event := e.record(t, "t1", "r1", nil)
@@ -337,6 +370,30 @@ func TestHTTPSSink(t *testing.T) {
 		}
 		if err := wrong.Anchor(ctx, anchor); !errors.Is(err, errNotAccepted) || !strings.Contains(err.Error(), "certificate") || len(s.requests()) != before {
 			t.Errorf("a send with another CA gave %v, want a refused certificate and no request", err)
+		}
+		// The sink uses no proxy: HTTPS_PROXY names the listener of the test, which counts its connections, and the
+		// sink sends to a host name that is not loopback, which a dialer of the test resolves to the stand-in.
+		_, port, _ := net.SplitHostPort(s.server.Listener.Addr().String())
+		named, err := NewHTTPSSink(Settings{URL: "https://audit-sink.test:" + port + "/v1/logs", TokenFile: token, CAFile: caFile})
+		if err != nil {
+			t.Fatal(err)
+		}
+		dialer := &net.Dialer{}
+		named.client.Transport.(*http.Transport).DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+			if address != "audit-sink.test:"+port {
+				return nil, errors.New("the test dials only the stand-in")
+			}
+			return dialer.DialContext(ctx, network, s.server.Listener.Addr().String())
+		}
+		before = len(s.requests())
+		if err := named.Anchor(ctx, anchor); err != nil || proxied.Load() != 0 || len(s.requests()) != before+1 {
+			t.Errorf("the send by host name gave %v with %d proxy connections and %d requests, want an accepted send, no proxy connection and one request",
+				err, proxied.Load(), len(s.requests())-before)
+		}
+		// A failed send to a URL with a secret in its query gives an error without the query.
+		closed := mustSink(t, Settings{URL: "https://127.0.0.1:1/v1/logs?key=s3cret-query", TokenFile: token, CAFile: caFile})
+		if err := closed.Anchor(ctx, anchor); err == nil || strings.Contains(err.Error(), "s3cret") || strings.Contains(err.Error(), "key=") {
+			t.Errorf("a failed send to a URL with a query gave %v, want an error without the query", err)
 		}
 		// A client certificate of another authority is refused by the endpoint.
 		_, badCert, badKey := other.issue(t, "intruder", false)
