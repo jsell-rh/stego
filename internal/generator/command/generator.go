@@ -41,6 +41,10 @@ func (*Generator) ConsumedSlots() []string { return []string{} }
 
 // InputFiles names the proto files of the command messages, which the compiler reads for the generator.
 func (*Generator) InputFiles(config map[string]any) ([]gen.InputFile, error) {
+	if _, set := config["proto_files"]; !set {
+		// A service that declares no command has no command messages (ST-SUP-RC20-OC39).
+		return nil, nil
+	}
 	items, err := protoSources(config)
 	if err != nil {
 		return nil, err
@@ -63,6 +67,9 @@ func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	m, err := plan(ctx)
 	if err != nil {
 		return nil, nil, err
+	}
+	if m == nil {
+		return nil, &gen.Wiring{}, nil
 	}
 	files, err := m.messageFiles()
 	if err != nil {
@@ -174,7 +181,9 @@ type refusal struct {
 }
 
 // plan checks the context and builds the model. It refuses, naming the command, each declaration that the
-// generated code or the runtime's checks would refuse, so the emitted code never fails at start.
+// generated code or the runtime's checks would refuse, so the emitted code never fails at start. It gives no model
+// for a service that declares no command: the component is then in the service only because its archetype holds it,
+// and it emits nothing (ST-SUP-RC20-OC39).
 func plan(ctx gen.Context) (*model, error) {
 	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
 		return nil, err
@@ -196,7 +205,10 @@ func plan(ctx gen.Context) (*model, error) {
 		m.probeImport = path.Join(ctx.ModuleName, ctx.OutDirName, ns)
 	}
 	if len(ctx.Commands) == 0 {
-		return nil, fmt.Errorf("command: the declaration declares no command; remove the command component or declare a command")
+		if _, set := ctx.ComponentConfig["proto_files"]; set {
+			return nil, fmt.Errorf("command: the setting proto_files holds the messages of the declared commands, and the declaration declares no command; remove the setting or declare a command")
+		}
+		return nil, nil
 	}
 	if ctx.Tenancy == nil || ctx.Tenancy.Key != "tenant_id" {
 		return nil, fmt.Errorf("command: a command runs in the transaction of one tenant, so the service needs pooled tenancy with the tenant column tenant_id")
