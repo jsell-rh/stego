@@ -1,6 +1,7 @@
 // Package authntest is the local key server and token minter of the authentication runtime, for tests only
 // (ST-SUP-RP13-LC16). The key server serves a key document over TLS on 127.0.0.1 with a test certificate authority
-// that it makes, and stops when the test ends. The minter signs the header and the claims that a test gives with
+// that it makes, and stops when the test ends; it also serves the discovery document of an OpenID Connect issuer on
+// the server, for any issuer path. The minter signs the header and the claims that a test gives with
 // the key that the test gives, also when they are not valid. No hosted identity provider and no network is used.
 //
 // Only a test file may import this package.
@@ -27,6 +28,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -40,30 +42,47 @@ const Host = "keys.authn.test"
 // Server is a local key server: an HTTPS server on 127.0.0.1 with a certificate of its own test certificate
 // authority. It serves the key document that the test sets, or the failure, redirect or hang that the test asks for.
 type Server struct {
-	server   *httptest.Server
-	roots    *x509.CertPool
-	caPEM    []byte
-	requests atomic.Int64
-	ended    atomic.Int64
-	closing  chan struct{}
-	once     sync.Once
+	server    *httptest.Server
+	roots     *x509.CertPool
+	caPEM     []byte
+	requests  atomic.Int64
+	discovers atomic.Int64
+	ended     atomic.Int64
+	closing   chan struct{}
+	once      sync.Once
 
-	mu       sync.Mutex
-	document []byte
-	status   int
-	redirect string
-	hang     bool
-	delay    time.Duration
-	arrived  chan struct{}
+	mu        sync.Mutex
+	document  []byte
+	discovery []byte
+	moved     string
+	status    int
+	redirect  string
+	hang      bool
+	delay     time.Duration
+	arrived   chan struct{}
 }
+
+// WellKnown is the path that the discovery document of an issuer has below the issuer.
+const WellKnown = "/.well-known/openid-configuration"
 
 // NewServer starts a key server that serves an empty key set, and stops it when the test ends.
 func NewServer(t testing.TB) *Server {
 	t.Helper()
+	return NewServerAt(t, "127.0.0.1:0")
+}
+
+// NewServerAt starts a key server as NewServer does, on the loopback address given, such as 127.0.0.1:8443, for a
+// test that must name the issuer before the server starts.
+func NewServerAt(t testing.TB, address string) *Server {
+	t.Helper()
+	host, _, err := net.SplitHostPort(address)
+	if err != nil || host != "127.0.0.1" {
+		t.Fatalf("authntest: the address %q is not on 127.0.0.1", address)
+	}
 	certificate, roots, caPEM := testAuthority(t)
 	s := &Server{roots: roots, caPEM: caPEM, closing: make(chan struct{}), document: Document(), status: http.StatusOK,
 		arrived: make(chan struct{}, 64)}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		t.Fatalf("authntest: listen on 127.0.0.1: %v", err)
 	}
@@ -77,9 +96,23 @@ func NewServer(t testing.TB) *Server {
 }
 
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
-	s.requests.Add(1)
+	issuerPath, discovery := strings.CutSuffix(r.URL.Path, WellKnown)
+	if discovery {
+		s.discovers.Add(1)
+	} else {
+		s.requests.Add(1)
+	}
 	s.mu.Lock()
 	document, status, redirect, hang, delay := s.document, s.status, s.redirect, s.hang, s.delay
+	if discovery && s.moved != "" && s.server.URL+r.URL.Path != s.moved {
+		redirect = s.moved
+	}
+	if discovery {
+		document = s.discovery
+		if document == nil {
+			document = Discovery(s.server.URL+issuerPath, s.URL())
+		}
+	}
 	s.mu.Unlock()
 	select {
 	case s.arrived <- struct{}{}:
@@ -102,7 +135,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		case <-s.closing:
 		}
 		return
-	case redirect != "" && r.URL.Path == "/keys":
+	case redirect != "" && (r.URL.Path == "/keys" || discovery):
 		http.Redirect(w, r, redirect, http.StatusFound)
 		return
 	case status != http.StatusOK:
@@ -119,6 +152,29 @@ func (s *Server) URL() string { return s.server.URL + "/keys" }
 // OtherURL is a second URL of the same server that serves the key document too, also while Redirect holds, as the
 // target of a redirect.
 func (s *Server) OtherURL() string { return s.server.URL + "/other" }
+
+// Issuer is the issuer URL of the path on the server, such as /realms/test. The server serves its discovery document
+// at the issuer and WellKnown: the one that SetDiscovery sets, else one with the issuer and URL as its jwks_uri.
+func (s *Server) Issuer(path string) string { return s.server.URL + path }
+
+// SetDiscovery makes the server serve the document as the discovery document of every issuer, also when it is not
+// valid. Nil serves the document of each issuer again.
+func (s *Server) SetDiscovery(document []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.discovery = bytes.Clone(document)
+}
+
+// RedirectDiscovery makes the server answer each request for a discovery document other than the one at the
+// location with a redirect to the location. Empty ends it.
+func (s *Server) RedirectDiscovery(location string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.moved = location
+}
+
+// Discoveries is the number of requests for a discovery document that the server got. Requests does not count them.
+func (s *Server) Discoveries() int { return int(s.discovers.Load()) }
 
 // Addr is the host and port that the server listens on.
 func (s *Server) Addr() string { return s.server.Listener.Addr().String() }
@@ -144,7 +200,7 @@ func (s *Server) Delay(d time.Duration) {
 	s.delay = d
 }
 
-// Requests is the number of requests that the server got.
+// Requests is the number of requests that the server got, other than those for a discovery document.
 func (s *Server) Requests() int { return int(s.requests.Load()) }
 
 // Abandoned is the number of held requests that the client gave up before the server stopped.
@@ -160,8 +216,11 @@ func (s *Server) SetDocument(document []byte) {
 	s.document, s.status, s.redirect, s.hang = bytes.Clone(document), http.StatusOK, "", false
 }
 
+// JWKer is a test key that gives its public key as a JSON Web Key: a *Key or an *ECKey.
+type JWKer interface{ JWK() map[string]any }
+
 // Publish makes the server serve the key document of the keys.
-func (s *Server) Publish(keys ...*Key) {
+func (s *Server) Publish(keys ...JWKer) {
 	jwks := make([]map[string]any, 0, len(keys))
 	for _, key := range keys {
 		jwks = append(jwks, key.JWK())
@@ -239,6 +298,22 @@ func testAuthority(t testing.TB) (tls.Certificate, *x509.CertPool, []byte) {
 	return tls.Certificate{Certificate: [][]byte{leafDER}, PrivateKey: leafKey}, roots, caPEM
 }
 
+// Discovery is the discovery document of an OpenID Connect issuer with its key set URL.
+func Discovery(issuer, jwksURI string) []byte {
+	data, err := json.Marshal(map[string]any{
+		"issuer": issuer, "jwks_uri": jwksURI,
+		"authorization_endpoint":                issuer + "/protocol/openid-connect/auth",
+		"token_endpoint":                        issuer + "/protocol/openid-connect/token",
+		"response_types_supported":              []string{"code"},
+		"subject_types_supported":               []string{"public"},
+		"id_token_signing_alg_values_supported": []string{"RS256", "ES256"},
+	})
+	if err != nil {
+		panic("authntest: encode the discovery document: " + err.Error())
+	}
+	return data
+}
+
 // Key is an RSA signing key with its key ID.
 type Key struct {
 	ID      string
@@ -276,6 +351,35 @@ func RSAJWK(id string, public *rsa.PublicKey) map[string]any {
 	}
 }
 
+// ECKey is a P-256 signing key with its key ID, for ES256.
+type ECKey struct {
+	ID      string
+	Private *ecdsa.PrivateKey
+}
+
+// NewECKey makes a P-256 key with the key ID.
+func NewECKey(t testing.TB, id string) *ECKey {
+	t.Helper()
+	private, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("authntest: make an EC key: %v", err)
+	}
+	return &ECKey{ID: id, Private: private}
+}
+
+// JWK is the public key as a JSON Web Key member of a key document, for use sig and alg ES256.
+func (k *ECKey) JWK() map[string]any {
+	point, err := k.Private.PublicKey.Bytes()
+	if err != nil {
+		panic("authntest: encode the EC key: " + err.Error())
+	}
+	return map[string]any{
+		"kid": k.ID, "kty": "EC", "crv": "P-256", "alg": "ES256", "use": "sig",
+		"x": base64.RawURLEncoding.EncodeToString(point[1:33]),
+		"y": base64.RawURLEncoding.EncodeToString(point[33:65]),
+	}
+}
+
 // Document is the key document that holds the keys.
 func Document(keys ...map[string]any) []byte {
 	if keys == nil {
@@ -302,9 +406,14 @@ func Header(kid string) map[string]any {
 	return map[string]any{"alg": "RS256", "typ": "JWT", "kid": kid}
 }
 
+// HeaderOf is the header of a token of the algorithm with the key ID.
+func HeaderOf(alg, kid string) map[string]any {
+	return map[string]any{"alg": alg, "typ": "JWT", "kid": kid}
+}
+
 // Mint makes a compact token of the header and the claims, signed with the key by the alg member of the header.
 // The header and the claims are raw JSON bytes, used as they are, or a value that Mint encodes as JSON. The key is
-// a *Key or an *rsa.PrivateKey for RS256 and PS256, an *ecdsa.PrivateKey for ES256, a []byte secret for HS256, and
+// a *Key or an *rsa.PrivateKey for RS256 and PS256, an *ECKey or an *ecdsa.PrivateKey for ES256, a []byte secret for HS256, and
 // nil for none. Mint signs with the key it is given whatever key ID the header names.
 func Mint(t testing.TB, header, claims any, key any) string {
 	t.Helper()
@@ -341,6 +450,9 @@ func (e signError) Error() string { return string(e) }
 
 func sign(alg string, input []byte, key any) ([]byte, error) {
 	if k, ok := key.(*Key); ok {
+		key = k.Private
+	}
+	if k, ok := key.(*ECKey); ok {
 		key = k.Private
 	}
 	digest := sha256.Sum256(input)

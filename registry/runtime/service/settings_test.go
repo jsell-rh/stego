@@ -29,7 +29,7 @@ func TestSettings(t *testing.T) {
 		}
 		set := func(t *testing.T, env map[string]string) {
 			for _, name := range []string{DatabaseURLSetting, DatabaseURLFileSetting, MigrationDatabaseURLSetting,
-				MigrationDatabaseURLFileSetting, IssuerSetting, AudienceSetting, KeysURLSetting, KeysFileSetting,
+				MigrationDatabaseURLFileSetting, IssuerSetting, AudienceSetting, KeysURLSetting, KeysFileSetting, CAFileSetting,
 				SpiceDBEndpointSetting, SpiceDBKeyFileSetting, SpiceDBInsecureLoopbackSetting, CursorKeyFileSetting, VersionSetting} {
 				t.Setenv(name, env[name])
 			}
@@ -89,6 +89,42 @@ func TestSettings(t *testing.T) {
 			}
 			if _, err := ReadSettings(Auth{KeyFile: "/etc/keys/issuer.pem"}); err == nil || !strings.Contains(err.Error(), KeysURLSetting) {
 				t.Fatalf("a keys setting beside a declared key file gave %v", err)
+			}
+		})
+		t.Run("ST-SUP-RP14-LC01-T02 A declaration with discovery takes no key document and the CA file", func(t *testing.T) {
+			ca := writeFile(t, "ca.pem", []byte("CA"))
+			oidc := Auth{Issuer: "https://declared.example/realms/r1", Discovery: true, Algorithms: []string{"RS256", "ES256"},
+				SubjectClaim: "oid"}
+			set(t, with(map[string]string{IssuerSetting: "", KeysURLSetting: "", CAFileSetting: ca}))
+			s, err := ReadSettings(oidc)
+			if err != nil || !s.Discovery || s.KeysURL != "" || s.KeysFile != "" || s.CAFile != ca || s.Issuer != oidc.Issuer ||
+				len(s.Algorithms) != 2 || s.SubjectClaim != "oid" {
+				t.Fatalf("the settings of a declaration with discovery are %+v, %v", s, err)
+			}
+			stated := oidc
+			stated.CAFile = "/etc/stego/declared-ca.pem"
+			set(t, with(map[string]string{IssuerSetting: "", KeysURLSetting: ""}))
+			if s, err := ReadSettings(stated); err != nil || s.CAFile != stated.CAFile {
+				t.Fatalf("the declared CA file gave %+v, %v", s, err)
+			}
+			for name, c := range map[string]struct {
+				env   map[string]string
+				auth  Auth
+				names string
+			}{
+				"a key URL beside discovery":       {map[string]string{IssuerSetting: ""}, oidc, KeysURLSetting},
+				"a key file beside discovery":      {map[string]string{IssuerSetting: "", KeysURLSetting: "", KeysFileSetting: "/k-" + secretValue}, oidc, KeysFileSetting},
+				"discovery and a public key file":  {map[string]string{IssuerSetting: "", KeysURLSetting: ""}, Auth{Issuer: oidc.Issuer, Discovery: true, KeyFile: "/k.pem"}, KeysURLSetting},
+				"a CA file other than the stated":  {map[string]string{IssuerSetting: "", KeysURLSetting: "", CAFileSetting: "/other-" + secretValue}, stated, CAFileSetting},
+				"a CA file beside a key file only": {map[string]string{KeysURLSetting: "", KeysFileSetting: keys, CAFileSetting: ca}, Auth{}, CAFileSetting},
+			} {
+				t.Run(name, func(t *testing.T) {
+					set(t, with(c.env))
+					_, err := ReadSettings(c.auth)
+					if err == nil || !strings.Contains(err.Error(), c.names) || strings.Contains(err.Error(), secretValue) {
+						t.Fatalf("%s gave %v, want a refusal that names %s and holds no value", name, err, c.names)
+					}
+				})
 			}
 		})
 		refused := map[string]map[string]string{

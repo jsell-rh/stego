@@ -191,6 +191,51 @@ func TestVerifyAlgorithm(t *testing.T) {
 				expectRefused(t, id, err, c.want)
 			})
 		}
+
+		// A verifier whose settings name both algorithms of the allow list, with an RSA and a P-256 key: each
+		// algorithm passes with its own key only.
+		ec := authntest.NewECKey(t, "e1")
+		set, err := ParseKeys(authntest.Document(key.JWK(), ec.JWK()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		both, err := New(Settings{Issuer: testIssuer, Audience: testAudience, ProblemCode: "SVC", Keys: set,
+			Algorithms: []string{AlgorithmRS256, AlgorithmES256}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectAccepted(t, both, authntest.Mint(t, authntest.HeaderOf("RS256", "k1"), claims, key))
+		expectAccepted(t, both, authntest.Mint(t, authntest.HeaderOf("ES256", "e1"), claims, ec))
+		for _, c := range []struct {
+			name  string
+			token string
+		}{
+			// An ES256 token that names the RSA key, and an RS256 token that names the P-256 key.
+			{"ES256 with the RSA key ID", authntest.Mint(t, authntest.HeaderOf("ES256", "k1"), claims, ec)},
+			{"RS256 with the P-256 key ID", rs256Under(t, authntest.HeaderOf("RS256", "e1"), claims, key)},
+			{"PS256", authntest.Mint(t, authntest.HeaderOf("PS256", "k1"), claims, key)},
+			{"HS256 with the RSA key as the secret", authntest.Mint(t, authntest.HeaderOf("HS256", "k1"), claims, key.PublicPEM())},
+			{"none signed", rs256Under(t, authntest.HeaderOf("none", "k1"), claims, key)},
+		} {
+			t.Run("both: "+c.name, func(t *testing.T) {
+				id, err := both.Verify(context.Background(), c.token)
+				expectRefused(t, id, err, errAlgorithm)
+			})
+		}
+		// An ES256 verifier refuses an RS256 token, and New refuses every algorithm outside the allow list.
+		esOnly, err := New(Settings{Issuer: testIssuer, Audience: testAudience, ProblemCode: "SVC", Keys: set,
+			Algorithms: []string{AlgorithmES256}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, err := esOnly.Verify(context.Background(), authntest.Mint(t, authntest.HeaderOf("RS256", "k1"), claims, key))
+		expectRefused(t, id, err, errAlgorithm)
+		for _, algorithms := range [][]string{{"none"}, {"HS256"}, {"PS256"}, {"rs256"}, {"RS256", "RS256"}, {""}} {
+			if _, err := New(Settings{Issuer: testIssuer, Audience: testAudience, ProblemCode: "SVC", Keys: set,
+				Algorithms: algorithms}); !errors.Is(err, ErrSettings) {
+				t.Errorf("New with the algorithms %q gave %v, want a refusal of the settings", algorithms, err)
+			}
+		}
 	})
 
 	t.Run("ST-SUP-RP13-LC03-T02 Unsupported headers are refused", func(t *testing.T) {
@@ -683,6 +728,78 @@ func TestVerifyCharacters(t *testing.T) {
 				expectRefused(t, id, err, errCharacter)
 				id, err = v.Verify(context.Background(), bad)
 				expectRefused(t, id, err, errCharacter)
+			})
+		}
+	})
+}
+
+func TestVerifyES256(t *testing.T) {
+	t.Run("ST-SUP-RP13-LC22-T01 An ES256 token is verified with a P-256 key of 32-byte coordinates on the curve", func(t *testing.T) {
+		ec := authntest.NewECKey(t, "e1")
+		set, err := ParseKeys(authntest.Document(ec.JWK()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		v, err := New(Settings{Issuer: testIssuer, Audience: testAudience, ProblemCode: "SVC", Keys: set,
+			Algorithms: []string{AlgorithmES256}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		claims := goodClaims()
+		good := authntest.Mint(t, authntest.HeaderOf("ES256", "e1"), claims, ec)
+		expectAccepted(t, v, good)
+
+		// The signature is the 64 bytes of r and s; a DER signature, a short one and one of another key are refused.
+		head, body, _ := strings.Cut(good, ".")
+		body, _, _ = strings.Cut(body, ".")
+		input := head + "." + body
+		digest := sha256.Sum256([]byte(input))
+		der, err := ecdsa.SignASN1(rand.Reader, ec.Private, digest[:])
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := base64.RawURLEncoding.DecodeString(good[len(input)+1:])
+		other := authntest.NewECKey(t, "e1")
+		for name, token := range map[string]string{
+			"DER signature":     input + "." + base64.RawURLEncoding.EncodeToString(der),
+			"63-byte signature": input + "." + base64.RawURLEncoding.EncodeToString(raw[:63]),
+			"another key":       authntest.Mint(t, authntest.HeaderOf("ES256", "e1"), claims, other),
+		} {
+			t.Run(name, func(t *testing.T) {
+				id, err := v.Verify(context.Background(), token)
+				expectRefused(t, id, err, errSignature)
+			})
+		}
+
+		// The key document: a point off the curve, a short coordinate and a coordinate that is not base64url are
+		// refused; a key of P-384 and a key whose alg is RS256 are skipped.
+		jwk := func(change func(map[string]any)) map[string]any {
+			k := ec.JWK()
+			change(k)
+			return k
+		}
+		y, _ := base64.RawURLEncoding.DecodeString(ec.JWK()["y"].(string))
+		y[31] ^= 1
+		for name, key := range map[string]map[string]any{
+			"a point off the curve": jwk(func(k map[string]any) { k["y"] = base64.RawURLEncoding.EncodeToString(y) }),
+			"a 31-byte x":           jwk(func(k map[string]any) { k["x"] = base64.RawURLEncoding.EncodeToString(y[:31]) }),
+			"an x with padding":     jwk(func(k map[string]any) { k["x"] = base64.URLEncoding.EncodeToString(y) }),
+		} {
+			t.Run(name, func(t *testing.T) {
+				if _, err := ParseKeys(authntest.Document(key)); !errors.Is(err, errECKey) {
+					t.Fatalf("the key document gave %v, want the refusal %q", err, errECKey)
+				}
+			})
+		}
+		for name, key := range map[string]map[string]any{
+			"P-384":     jwk(func(k map[string]any) { k["crv"] = "P-384" }),
+			"alg RS256": jwk(func(k map[string]any) { k["alg"] = "RS256" }),
+			"use enc":   jwk(func(k map[string]any) { k["use"] = "enc" }),
+		} {
+			t.Run(name, func(t *testing.T) {
+				if _, err := ParseKeys(authntest.Document(key)); !errors.Is(err, errNoKey) {
+					t.Fatalf("the key document gave %v, want the key skipped and the refusal %q", err, errNoKey)
+				}
 			})
 		}
 	})

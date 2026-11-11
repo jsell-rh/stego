@@ -6,11 +6,13 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
 	"github.com/jsell-rh/stego/registry/runtime/audit/auditoutbox"
+	"github.com/jsell-rh/stego/registry/runtime/authn"
 	"github.com/jsell-rh/stego/registry/runtime/authn/authntest"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
 	"github.com/jsell-rh/stego/registry/runtime/command"
@@ -235,5 +237,45 @@ func TestNew(t *testing.T) {
 		if _, err := New(context.Background(), settings, missing); err == nil {
 			t.Fatal("New took parts with no connection configuration")
 		}
+
+		t.Run("ST-SUP-RP14-LC05-T01 The verifier of a declared issuer comes from its discovery document, and a refused start names its stage", func(t *testing.T) {
+			provider := authntest.NewServer(t)
+			es := authntest.NewECKey(t, "e1")
+			provider.Publish(es)
+			issuer := provider.Issuer("/realms/todo")
+			oidc := settings
+			oidc.KeysFile, oidc.Issuer, oidc.Discovery, oidc.CAFile = "", issuer, true, provider.CAFile(t)
+			oidc.Algorithms, oidc.SubjectClaim = []string{authn.AlgorithmES256}, "oid"
+			svc, err := New(context.Background(), oidc, parts(nil, nil))
+			if err != nil {
+				t.Fatalf("New with the discovery of the issuer gave %v", err)
+			}
+			defer func() { _ = svc.Close() }()
+			claims := authntest.Claims(issuer, "todo", "user-1", time.Now())
+			claims["oid"], claims["tenant"] = "object-7", "t1"
+			id, err := svc.Verifier().Verify(context.Background(), authntest.Mint(t, authntest.HeaderOf("ES256", "e1"), claims, es))
+			if err != nil || id.UserID() != "object-7" || provider.Discoveries() != 1 {
+				t.Fatalf("the verifier gave %q, %v after %d discovery requests, want object-7 after one", id.UserID(), err, provider.Discoveries())
+			}
+			_, refused := svc.Verifier().Verify(context.Background(), authntest.Mint(t, authntest.Header("e1"), claims, authntest.NewKey(t, "e1")))
+			if refused == nil {
+				t.Fatal("the verifier with the declared algorithm ES256 accepted an RS256 header")
+			}
+			if StartStage(refused) != "" || StartStage(errors.New("other")) != "" {
+				t.Fatal("StartStage named a stage for a failure that is not of the key source")
+			}
+
+			provider.SetDiscovery(authntest.Discovery("https://other.authn.test/realms/todo", provider.URL()))
+			_, err = New(context.Background(), oidc, parts(nil, nil))
+			if stage := StartStage(err); err == nil || stage != "service.start.authn.discovery" {
+				t.Fatalf("New with a discovery document of another issuer gave %v at the stage %q", err, stage)
+			}
+			keyURL := settings
+			keyURL.KeysFile, keyURL.KeysURL = "", provider.URL()
+			_, err = New(context.Background(), keyURL, parts(nil, nil))
+			if stage := StartStage(err); err == nil || stage != "service.start.authn.keys" {
+				t.Fatalf("New with a key URL that the system roots do not trust gave %v at the stage %q", err, stage)
+			}
+		})
 	})
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto"
+	"crypto/ecdsa"
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
@@ -11,6 +12,7 @@ import (
 	"errors"
 	"io"
 	"math"
+	"math/big"
 	"net/http"
 	"net/url"
 	"slices"
@@ -30,9 +32,19 @@ const (
 	MaxDepth = 32
 	// MaxSkew is the largest clock skew that New accepts.
 	MaxSkew = 60 * time.Second
-	// Algorithm is the one algorithm of the allow list.
-	Algorithm = "RS256"
+	// AlgorithmRS256 and AlgorithmES256 are the algorithms of the fixed allow list (ST-SUP-RP13-LC03).
+	AlgorithmRS256 = "RS256"
+	AlgorithmES256 = "ES256"
+	// Algorithm is the algorithm that a verifier accepts when its settings name none.
+	Algorithm = AlgorithmRS256
 )
+
+// allowList is the fixed allow list of the algorithms (ST-SUP-RP13-LC03): no none, no HMAC and no other algorithm.
+var allowList = []string{AlgorithmRS256, AlgorithmES256}
+
+// registeredClaims are the registered claims other than sub, which a subject claim must not name
+// (ST-SUP-RP13-LC13).
+var registeredClaims = []string{"iss", "aud", "exp", "nbf", "iat", "jti"}
 
 // ErrDenied is the error of each refused token: errors.Is(err, ErrDenied) holds for every refusal of Verify and of
 // the key set. Its text and the text of each refusal are fixed and hold no token, claim, key ID, key document,
@@ -91,6 +103,11 @@ type Settings struct {
 	Issuer string
 	// Audience is the value that the aud claim, or one member of it, must equal exactly.
 	Audience string
+	// Algorithms are the algorithms that the verifier accepts, each from the fixed allow list RS256 and ES256 and
+	// each once. Empty: RS256 alone (ST-SUP-RP13-LC03).
+	Algorithms []string
+	// SubjectClaim is the name of the top-level claim that holds the subject. Empty: sub (ST-SUP-RP13-LC13).
+	SubjectClaim string
 	// Skew is the clock skew that the expiry, issue time and not-before checks allow, from 0 to MaxSkew.
 	Skew time.Duration
 	// RoleClaim is the dotted path of the role claim, such as realm_access.roles. Empty: the identity has no roles.
@@ -121,6 +138,8 @@ type Settings struct {
 type Verifier struct {
 	issuer     string
 	audience   string
+	algorithms []string
+	subject    string
 	skew       time.Duration
 	rolePath   []string
 	tenantPath []string
@@ -148,6 +167,22 @@ func newVerifier(s Settings, now func() time.Time) (*Verifier, error) {
 	}
 	if s.Skew < 0 || s.Skew > MaxSkew {
 		return nil, setting("the clock skew is out of range")
+	}
+	algorithms := slices.Clone(s.Algorithms)
+	if len(algorithms) == 0 {
+		algorithms = []string{Algorithm}
+	}
+	for i, alg := range algorithms {
+		if !slices.Contains(allowList, alg) || slices.Contains(algorithms[:i], alg) {
+			return nil, setting("an algorithm is not in the allow list")
+		}
+	}
+	subject := s.SubjectClaim
+	if subject == "" {
+		subject = "sub"
+	}
+	if path, err := claimPath(subject); err != nil || len(path) != 1 || slices.Contains(registeredClaims, subject) {
+		return nil, setting("the subject claim name is not valid")
 	}
 	rolePath, err := claimPath(s.RoleClaim)
 	if err != nil {
@@ -196,9 +231,9 @@ func newVerifier(s Settings, now func() time.Time) (*Verifier, error) {
 	if s.Keys == nil {
 		return nil, setting("the key set is missing")
 	}
-	return &Verifier{issuer: s.Issuer, audience: s.Audience, skew: s.Skew, rolePath: rolePath,
-		tenantPath: tenantPath, attributes: slices.Clone(s.AttributeClaims), header: header, bare: s.BareToken,
-		problem: problem, code: s.ProblemCode + "-AUT-001", keys: s.Keys, now: now}, nil
+	return &Verifier{issuer: s.Issuer, audience: s.Audience, algorithms: algorithms, subject: subject, skew: s.Skew,
+		rolePath: rolePath, tenantPath: tenantPath, attributes: slices.Clone(s.AttributeClaims), header: header,
+		bare: s.BareToken, problem: problem, code: s.ProblemCode + "-AUT-001", keys: s.Keys, now: now}, nil
 }
 
 // problemPrefix reports whether the prefix is 1 to 32 upper-case letters and digits (ST-SUP-RC20-OC03).
@@ -255,7 +290,7 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Identity, error) {
 	if err != nil {
 		return Identity{}, errEncoding
 	}
-	kid, hasKid, err := checkHeader(headerJSON)
+	alg, kid, hasKid, err := checkHeader(headerJSON, v.algorithms)
 	if err != nil {
 		return Identity{}, err
 	}
@@ -263,8 +298,12 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Identity, error) {
 	if err != nil {
 		return Identity{}, err
 	}
+	// The algorithm of the token is the one algorithm of its key (ST-SUP-RP13-LC03).
+	if key.alg != alg {
+		return Identity{}, errAlgorithm
+	}
 	digest := sha256.Sum256([]byte(raw[:len(parts[0])+1+len(parts[1])]))
-	if rsa.VerifyPKCS1v15(key, crypto.SHA256, digest[:], signature) != nil {
+	if !key.verifies(digest[:], signature) {
 		return Identity{}, errSignature
 	}
 	// The signature holds: the claims may now be read.
@@ -316,33 +355,51 @@ func decodeSegment(segment string) ([]byte, error) {
 	return data, nil
 }
 
-// checkHeader checks the header and gives its key ID, and whether it names one (ST-SUP-RP13-LC03).
-func checkHeader(data []byte) (string, bool, error) {
+// checkHeader checks the header and gives its algorithm, its key ID, and whether it names one: the algorithm must be
+// one that the verifier accepts (ST-SUP-RP13-LC03).
+func checkHeader(data []byte, algorithms []string) (string, string, bool, error) {
 	header, err := members(data)
 	if err != nil {
-		return "", false, err
+		return "", "", false, err
 	}
 	alg, ok := stringMember(header, "alg")
-	if !ok || alg != Algorithm {
-		return "", false, errAlgorithm
+	if !ok || !slices.Contains(algorithms, alg) {
+		return "", "", false, errAlgorithm
 	}
 	typ, ok := stringMember(header, "typ")
 	if !ok || typ != "JWT" {
-		return "", false, errType
+		return "", "", false, errType
 	}
 	for _, name := range []string{"crit", "jku", "jwk", "x5u"} {
 		if _, present := header[name]; present {
-			return "", false, errHeader
+			return "", "", false, errHeader
 		}
 	}
 	if _, present := header["kid"]; !present {
-		return "", false, nil
+		return alg, "", false, nil
 	}
 	kid, ok := stringMember(header, "kid")
 	if !ok || kid == "" || len(kid) > maxKeyIDBytes {
-		return "", false, errKeyID
+		return "", "", false, errKeyID
 	}
-	return kid, true, nil
+	return alg, kid, true, nil
+}
+
+// verifies reports whether the signature over the SHA-256 digest holds with the key: RSASSA-PKCS1-v1_5 for RS256,
+// and for ES256 the 64 bytes of r and s, each of 32 bytes, as RFC 7518 section 3.4 states (ST-SUP-RP13-LC22).
+func (k publicKey) verifies(digest, signature []byte) bool {
+	switch {
+	case k.alg == AlgorithmRS256 && k.rsa != nil:
+		return rsa.VerifyPKCS1v15(k.rsa, crypto.SHA256, digest, signature) == nil
+	case k.alg == AlgorithmES256 && k.ec != nil:
+		if len(signature) != 2*ECCoordinateBytes {
+			return false
+		}
+		r := new(big.Int).SetBytes(signature[:ECCoordinateBytes])
+		s := new(big.Int).SetBytes(signature[ECCoordinateBytes:])
+		return ecdsa.Verify(k.ec, digest, r, s)
+	}
+	return false
 }
 
 // registered checks the issuer, the audience, the subject, the issue time, the expiry and the not-before time
@@ -355,7 +412,7 @@ func (v *Verifier) registered(claims map[string]json.RawMessage) (string, string
 	if !v.audienceHolds(claims["aud"]) {
 		return "", "", time.Time{}, errAudience
 	}
-	subject, ok := stringMember(claims, "sub")
+	subject, ok := stringMember(claims, v.subject)
 	if !ok || subject == "" || len(subject) > maxClaimBytes || !clean(subject) {
 		return "", "", time.Time{}, errSubject
 	}

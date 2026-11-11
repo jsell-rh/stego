@@ -142,14 +142,18 @@ func New(ctx context.Context, s Settings, p Parts) (_ *Service, err error) {
 	if svc.probes, err = probe.Start(svc.telemetry, nil); err != nil {
 		return nil, err
 	}
-	source := authn.KeySource{URL: s.KeysURL, File: s.KeysFile}
-	if s.KeyFile != "" {
+	source := authn.KeySource{URL: s.KeysURL, File: s.KeysFile, CAFile: s.CAFile}
+	switch {
+	case s.Discovery:
+		source = authn.KeySource{Issuer: s.Issuer, CAFile: s.CAFile}
+	case s.KeyFile != "":
 		source = authn.KeySource{PEMFile: s.KeyFile}
 	}
 	if svc.keys, err = authn.NewKeySet(ctx, source); err != nil {
 		return nil, err
 	}
-	if svc.verifier, err = authn.New(authn.Settings{Issuer: s.Issuer, Audience: s.Audience, TenantClaim: p.TenantClaim,
+	if svc.verifier, err = authn.New(authn.Settings{Issuer: s.Issuer, Audience: s.Audience, Algorithms: s.Algorithms,
+		SubjectClaim: s.SubjectClaim, TenantClaim: p.TenantClaim,
 		Header: s.Header, RoleClaim: s.RoleClaim, ProblemType: p.ProblemType, ProblemCode: p.ProblemCode,
 		Keys: svc.keys}); err != nil {
 		return nil, err
@@ -216,6 +220,19 @@ func (k presharedKey) GetRequestMetadata(context.Context, ...string) (map[string
 }
 
 func (k presharedKey) RequireTransportSecurity() bool { return !k.plaintext }
+
+// StartStage gives the stage of a start that New refused, for the failure record of the process, which holds no
+// error text (ST-SUP-RP14-LC05): service.start.authn.discovery for a discovery document that the key set refused,
+// service.start.authn.keys for another key source that it refused, and empty for every other failure.
+func StartStage(err error) string {
+	switch {
+	case errors.Is(err, authn.ErrDiscovery):
+		return "service.start.authn.discovery"
+	case errors.Is(err, authn.ErrKeys):
+		return "service.start.authn.keys"
+	}
+	return ""
+}
 
 // Verifier is the verifier of the bearer tokens; Middleware verifies the token of each request before next.
 func (svc *Service) Verifier() *authn.Verifier { return svc.verifier }
