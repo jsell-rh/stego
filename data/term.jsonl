@@ -68,7 +68,7 @@
 {"id":"ST-EXT-TM07","title":"Fill manifest","domain_id":"ST-EXT","meaning":"The one file in a fill's folder that states the fill's name, the slot it implements and the collection it serves, and that holds the result of its tests and its signature."}
 {"id":"ST-GEN-TM01","title":"Record","domain_id":"ST-GEN","meaning":"The part of STEGO's state file in the service's sources that says what a service's generated code was built from: the service, the compiler build, the registry content, every component pin and the hash of every generated file."}
 {"id":"ST-GEN-TM02","title":"Component pin","domain_id":"ST-GEN","meaning":"The version and digest of one component that a service is built from."}
-{"id":"ST-GEN-TM03","title":"Drift","domain_id":"ST-GEN","meaning":"A difference between a generated file and the hash its record holds, or between a recorded input and the file on disk."}
+{"id":"ST-GEN-TM03","title":"Drift","domain_id":"ST-GEN","meaning":"A difference between a generated file and the hash its record holds, or between a recorded input and the file on disk; the mode of an input is compared only as version control keeps it, the owner execute bit (the Product owner decided on 2026-11-11)."}
 {"id":"ST-GEN-TM04","title":"Hand edit","domain_id":"ST-GEN","meaning":"A change to a generated file that no generation run made."}
 {"id":"ST-GEN-TM05","title":"Journal","domain_id":"ST-GEN","meaning":"The file, in STEGO's working state in the service's sources, that holds an apply in progress, so recovery can complete it."}
 {"id":"ST-GEN-TM06","title":"Saved plan","domain_id":"ST-GEN","meaning":"A plan that making a plan saved in STEGO's working state in the service's sources, which apply carries out exactly. It is local, never committed."}
