@@ -236,7 +236,6 @@ ST-STD-CODE-R04	scripts/test_allocation_control_identity.py	scripts/test_allocat
 ST-STD-CODE-R04	scripts/test_allocation_peer_bindings.py	scripts/test_allocation_peer_bindings.py	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	scripts/test_allocation_pods.py	scripts/test_allocation_pods.py	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	scripts/test_allocation_setup.py	scripts/test_allocation_setup.py	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	scripts/test_application_delivery.py	scripts/test_application_delivery.py	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	scripts/test_application_matrix.py	scripts/test_application_matrix.py	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	scripts/test_capture_image_ca.py	scripts/test_capture_image_ca.py	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	scripts/test_compiler_toolchain.py	scripts/test_compiler_toolchain.py	the test file names no test record's ID in a test or subtest name
