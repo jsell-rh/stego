@@ -702,6 +702,58 @@ func TestService(t *testing.T) {
 		if last.Action.Name != "view" || last.Resource.Type != "order" {
 			t.Fatalf("the decision before the fill is %s on %s, want the query's permission view on order", last.Action.Name, last.Resource.Type)
 		}
+		// The fill's declared refusal is answered with its status and its code through the generated lookup
+		// queries.Declared (ST-SUP-RC33-OC07).
+		if _, err := s.admin.ExecContext(context.Background(), `UPDATE orders SET status = 'lost' WHERE id = $1::uuid`, o3); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _, _ = s.admin.ExecContext(context.Background(), `UPDATE orders SET status = 'paid' WHERE id = $1::uuid`, o3) }()
+		status, body := s.get(t, user, "/orders/"+o3)
+		if status != http.StatusNotFound || !bytes.Contains(body, []byte(`"code":"order.unknown"`)) {
+			t.Fatalf("the refusal order_unknown answered %d %s, want 404 with the code order.unknown", status, body)
+		}
+	})
+
+	t.Run("ST-SUP-RC33-OC05-T01 A denied query answers 404 and does not call the fill", func(t *testing.T) {
+		// The row o4 holds the token t5, and the revocation floor is a newer token that SpiceDB gave: the decision
+		// before the fill runs at the floor, not at the row's token (ST-SUP-RP06-LC09).
+		_, err := s.admin.ExecContext(context.Background(), `UPDATE orders SET authz_token = 't5' WHERE id = $1::uuid`, o4)
+		if err != nil {
+			t.Fatal(err)
+		}
+		written, err := s.perms.WriteRelationships(context.Background(), &v1.WriteRelationshipsRequest{Updates: []*v1.RelationshipUpdate{{
+			Operation: v1.RelationshipUpdate_OPERATION_TOUCH,
+			Relationship: &v1.Relationship{Resource: &v1.ObjectReference{ObjectType: "order", ObjectId: "floor-mark"}, Relation: "viewer",
+				Subject: &v1.SubjectReference{Object: &v1.ObjectReference{ObjectType: "user", ObjectId: "nobody"}}}}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		floorText := written.GetWrittenAt().GetToken()
+		if _, err := s.admin.ExecContext(context.Background(), `UPDATE authz.authz_floor SET token = $1`, floorText); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _, _ = s.admin.ExecContext(context.Background(), `UPDATE authz.authz_floor SET token = ''`) }()
+		calls := getorder.Calls()
+		evals, _, _ := s.rec.count()
+		status, body := s.get(t, user, "/orders/"+o4)
+		missingStatus, missingBody := s.get(t, user, "/orders/"+o9)
+		if status != http.StatusNotFound || missingStatus != http.StatusNotFound || !bytes.Equal(body, missingBody) {
+			t.Fatalf("the denied get-order answered %d %s and the missing one %d %s, want the same 404", status, body, missingStatus, missingBody)
+		}
+		if got := getorder.Calls() - calls; got != 0 {
+			t.Fatalf("the fill ran %d times, want never", got)
+		}
+		s.rec.mu.Lock()
+		decided := append([]authz.EvaluationRequest(nil), s.rec.evals[evals:]...)
+		s.rec.mu.Unlock()
+		floor, err := authz.ParseToken(floorText)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(decided) != 2 || decided[0].Action.Name != "view" || decided[0].Resource.Type != "order" ||
+			decided[0].Resource.ID != resourceID("t1", o4) || decided[0].Consistency != authz.AtLeast(floor) {
+			t.Fatalf("the decisions were %+v, want view on order:o4 at least as fresh as the floor, and one for the missing row", decided)
+		}
 	})
 
 	t.Run("ST-SUP-RC33-OC05-T02 A list query is decided row by row on its declared permission", func(t *testing.T) {

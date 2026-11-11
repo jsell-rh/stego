@@ -19,9 +19,6 @@ const (
 	queryImport = "github.com/jsell-rh/stego/registry/runtime/query"
 	auditImport = "github.com/jsell-rh/stego/registry/runtime/audit"
 	authnImport = "github.com/jsell-rh/stego/registry/runtime/authn"
-	authzImport = "github.com/jsell-rh/stego/registry/runtime/authz"
-	probeImport = "github.com/jsell-rh/stego/registry/runtime/probe"
-	tenImport   = "github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // render gives the contract package and the handler package of the model.
@@ -104,10 +101,6 @@ func renderContract(m *model) []byte {
 	if used[capability.ReadJSON] {
 		w.p("\"encoding/json\"")
 	}
-	w.p("\"errors\"")
-	if used[capability.ReadFloat] || used[capability.ReadBytes] || used[capability.ReadJSON] || used[capability.ReadInt32] {
-		w.p("\"fmt\"")
-	}
 	if used[capability.ReadTime] {
 		w.p("\"time\"")
 	}
@@ -133,8 +126,7 @@ func renderContract(m *model) []byte {
 	for _, q := range m.queries {
 		renderQueryContract(&w, q)
 	}
-	renderRefusalType(&w)
-	renderReadHelpers(&w, used)
+	renderRefusalType(&w, m)
 	return w.Bytes()
 }
 
@@ -207,17 +199,17 @@ func readExpr(f capability.Field) string {
 	case capability.ReadInt:
 		return "r.Int(" + c + ")"
 	case capability.ReadInt32:
-		return "readInt32(r, " + c + ")"
+		return "r.Int32(" + c + ")"
 	case capability.ReadBool:
 		return "r.Bool(" + c + ")"
 	case capability.ReadTime:
 		return "r.Time(" + c + ")"
 	case capability.ReadFloat:
-		return "readFloat(r, " + c + ")"
+		return "r.Float(" + c + ")"
 	case capability.ReadBytes:
-		return "readBytes(r, " + c + ")"
+		return "r.Bytes(" + c + ")"
 	}
-	return "readJSON(r, " + c + ")"
+	return "r.JSON(" + c + ")"
 }
 
 // requestType is the Go type of a query's request.
@@ -307,7 +299,8 @@ func renderQueryContract(w *writer, q *queryModel) {
 	}
 	for _, r := range q.refusals {
 		w.p("// %s is the refusal %s of %s, with the status %d and the code %s. Its text is the code alone.", r.goName, r.name, name, r.status, r.code)
-		w.p("func %s() error { return &Refusal{query: %q, name: %q, status: %d, code: %q} }\n", r.goName, name, r.name, r.status, r.code)
+		w.p("func %s() error { return %s }\n", r.goName, capability.LowerFirst(r.goName))
+		w.p("var %s = query.NewRefusal(%q, %q, %d, %q)\n", capability.LowerFirst(r.goName), name, r.name, r.status, r.code)
 	}
 }
 
@@ -319,33 +312,38 @@ func prefixed(names []string) string {
 	return ", " + strings.Join(names, ", ")
 }
 
-// renderRefusalType writes the refusal type and the constructor helper of the contract package.
-func renderRefusalType(w *writer) {
-	w.raw(`// Refusal is one refusal that a query declares (ST-SUP-RC33-OC07). Its fields are unexported, so a fill returns
-// only the refusal values of this package, and its text is its code alone, never a text of the fill.
-type Refusal struct {
-	query, name, code string
-	status            int
-}
+// renderRefusalType writes the refusal type of the runtime, the lookup Declared of the declared refusals of each
+// query, which the handler gives query.HTTP as its refusal lookup (ST-SUP-RC33-OC07, ST-SUP-RP11-LC17), and the
+// constructor helper of the contract package.
+func renderRefusalType(w *writer, m *model) {
+	w.raw(`// Refusal is one refusal that a query declares (ST-SUP-RC33-OC07): the runtime's type. A fill returns only the
+// refusal values of this package, which Declared knows by identity, and its text is its code alone.
+type Refusal = query.Refusal
 
-// Error is the refusal's code.
-func (r *Refusal) Error() string {
-	if r == nil {
-		return "refused"
+`)
+	w.p("// declared are the refusal lookups of the queries that declare refusals, by query name.\nvar declared = map[string]func(error) (int, string, bool){")
+	for _, q := range m.queries {
+		if len(q.refusals) == 0 {
+			continue
+		}
+		var values []string
+		for _, r := range q.refusals {
+			values = append(values, capability.LowerFirst(r.goName))
+		}
+		w.p("%q: query.Lookup(%s),", q.decl.Name, strings.Join(values, ", "))
 	}
-	return r.code
-}
-
-// Declared gives the status and the code of a refusal that the query named queryName declares, and false for every
-// other error, such as a refusal of another query or one that new made.
+	w.p("}\n")
+	w.raw(`// Declared gives the status and the code of a refusal that the query named queryName declares, and false for every
+// other error, such as a refusal of another query or one that a fill made.
 func Declared(queryName string, err error) (int, string, bool) {
-	var r *Refusal
-	if !errors.As(err, &r) || r == nil || r.query == "" || r.query != queryName {
+	lookup, ok := declared[queryName]
+	if !ok {
 		return 0, "", false
 	}
-	return r.status, r.code, true
+	return lookup(err)
 }
-
+`)
+	w.raw(`
 // must gives v, and panics on a declaration that the runtime refuses, which the generator's checks rule out.
 func must[T any](v T, err error) T {
 	if err != nil {
@@ -356,91 +354,20 @@ func must[T any](v T, err error) T {
 `)
 }
 
-// renderReadHelpers writes the read helpers of the column kinds that query.Row does not read itself.
-func renderReadHelpers(w *writer, used map[string]bool) {
-	if used[capability.ReadInt32] {
-		w.raw(`// readInt32 reads an integer column; NULL is 0.
-func readInt32(r query.Row, column string) (int32, error) {
-	v, err := r.Int(column)
-	if err != nil {
-		return 0, err
-	}
-	if v < -1<<31 || v > 1<<31-1 {
-		return 0, fmt.Errorf("the column %s holds a value out of the int32 range", column)
-	}
-	return int32(v), nil
-}
-`)
-	}
-	if used[capability.ReadFloat] {
-		w.raw(`// readFloat reads a floating point column; NULL is 0.
-func readFloat(r query.Row, column string) (float64, error) {
-	v, _ := r.Value(column)
-	switch x := v.(type) {
-	case nil:
-		return 0, nil
-	case float64:
-		return x, nil
-	case float32:
-		return float64(x), nil
-	}
-	return 0, fmt.Errorf("the column %s is not a number", column)
-}
-`)
-	}
-	if used[capability.ReadBytes] {
-		w.raw(`// readBytes reads a bytea column; NULL is nil.
-func readBytes(r query.Row, column string) ([]byte, error) {
-	v, _ := r.Value(column)
-	switch x := v.(type) {
-	case nil:
-		return nil, nil
-	case []byte:
-		return x, nil
-	}
-	return nil, fmt.Errorf("the column %s is not bytes", column)
-}
-`)
-	}
-	if used[capability.ReadJSON] {
-		w.raw(`// readJSON reads a jsonb column; NULL is nil.
-func readJSON(r query.Row, column string) (json.RawMessage, error) {
-	v, _ := r.Value(column)
-	switch x := v.(type) {
-	case nil:
-		return nil, nil
-	case []byte:
-		return json.RawMessage(x), nil
-	case string:
-		return json.RawMessage(x), nil
-	}
-	return nil, fmt.Errorf("the column %s is not a document", column)
-}
-`)
-	}
-}
-
 // renderServe is the handler package: one handler per get and list query, served through query.Serve and bound to
-// the query's one fill, and the run function of each stream query (ST-SUP-RC33-OC02, ST-SUP-RP11-LC17).
+// the query's one fill, and the run of each stream query (ST-SUP-RC33-OC02, ST-SUP-RP11-LC17). The bind, the limit,
+// the page body and the refusal lookup are the runtime's (ST-STD-RUNTIME-R05).
 func renderServe(m *model) []byte {
 	var w writer
-	hasList, hasGet, hasHTTP := false, false, false
+	hasHTTP, hasStream := false, false
 	for _, q := range m.queries {
-		hasList = hasList || q.kind == listKind
-		hasGet = hasGet || q.kind == getKind
 		hasHTTP = hasHTTP || q.kind != streamKind
+		hasStream = hasStream || q.kind == streamKind
 	}
 	w.p("// Package serve serves the declared queries of the service (ST-SUP-RC33): one handler for each get and list")
 	w.p("// query through query.Serve, and the run of each stream query through query.RunStream, each bound to the query's")
 	w.p("// one fill.")
-	w.p("package serve\n\nimport (\n\"context\"")
-	if hasHTTP {
-		w.p("\"encoding/json\"")
-	}
-	w.p("\"errors\"\n\"net/http\"")
-	if hasList {
-		w.p("\"strconv\"")
-	}
+	w.p("package serve\n\nimport (\n\"context\"\n\"errors\"\n\"net/http\"")
 	w.p("\n%s %q\nprobes %q", m.pkg, m.contractImport, m.probeImport)
 	if m.decided {
 		w.p("decide %q", m.contractImport+"/internal/decide")
@@ -448,14 +375,8 @@ func renderServe(m *model) []byte {
 	for _, q := range m.queries {
 		w.p("%s %q", q.fillAlias, q.fillImport)
 	}
-	w.p("\n%q\n%q\n%q\n%q\n%q\n)\n", authnImport, authzImport, probeImport, queryImport, tenImport)
-	w.raw(`// Probes binds the probe call of one query call to its span context, tenant, principal and query name; the probe
-// runtime and its recorder do.
-type Probes interface {
-	Bind(ctx context.Context, tenant, principal, operation string) *probe.Call
-}
-
-// Config is what the query handlers need.
+	w.p("\n%q\n%q\n)\n", authnImport, queryImport)
+	w.raw(`// Config is what the query handlers need.
 type Config struct {
 	// Runtime runs each query fill in a READ ONLY transaction of the caller's tenant. A list query needs its cursor
 	// key.
@@ -463,7 +384,7 @@ type Config struct {
 	// Verifier verifies the bearer token of each request before its handler binds the call (ST-SUP-RC33-OC04).
 	Verifier *authn.Verifier
 	// Probes binds the probe call of each query call.
-	Probes Probes
+	Probes query.Probes
 	// SubjectType is the authorization subject type that a verified identity maps to, such as user.
 	SubjectType string
 }
@@ -514,49 +435,9 @@ type Handlers struct {
 			renderStream(&w, m, q)
 		}
 	}
-	w.raw(`// bind gives the bound call of a query for the verified identity of ctx: the tenant of its verified claim, the
-// principal of its subject and the probe call of the query, bound to both and to the query name. An error is 401.
-func bind[P any](ctx context.Context, cfg Config, q *query.Query, newProbe func(*probe.Probe) P, requestID string) (query.Bound[P], error) {
-	id, ok := authn.FromContext(ctx)
-	if !ok {
-		return query.Bound[P]{}, errors.New("serve: the request holds no verified identity")
-	}
-	t, err := tenant.New(tenant.Claim(id))
-	if err != nil {
-		return query.Bound[P]{}, err
-	}
-	p, err := authz.Person(cfg.SubjectType, id)
-	if err != nil {
-		return query.Bound[P]{}, err
-	}
-	call := cfg.Probes.Bind(ctx, t.ID(), p.Subject().String(), q.Name())
-	return query.Bound[P]{Tenant: t, Principal: p, Call: call, Probe: newProbe, RequestID: requestID}, nil
-}
-`)
-	if hasGet {
-		w.raw(`// encodeValue writes the response of a get query as JSON.
-func encodeValue(res any, _ string) ([]byte, error) { return json.Marshal(res) }
-`)
-	}
-	if hasList {
-		w.raw(`// page is the body of a list response: its items and the sealed text of the next cursor, absent at the end.
-type page struct {
-	Items any    ` + "`json:\"items\"`" + `
-	Next  string ` + "`json:\"next,omitempty\"`" + `
-}
-
-// limitOf reads the limit parameter of a list request: absent is 0, the default page.
-func limitOf(r *http.Request) (int, error) {
-	text := r.URL.Query().Get("limit")
-	if text == "" {
-		return 0, nil
-	}
-	limit, err := strconv.Atoi(text)
-	if err != nil || limit < 1 || limit > query.MaxLimit {
-		return 0, query.ErrBadRequest
-	}
-	return limit, nil
-}
+	if !hasStream {
+		w.raw(`// noStream keeps the import of context for a service with no stream query.
+var _ context.Context
 `)
 	}
 	return w.Bytes()
@@ -567,16 +448,16 @@ func renderServeCall(w *writer, m *model, q *queryModel) {
 	field := capability.LowerFirst(q.goName)
 	w.p("if h.%s, err = query.Serve(cfg.Runtime, query.HTTP[%s.%s, %s.%s, %s]{", field, m.pkg, q.requestType(), m.pkg, q.responseType(), q.probeType())
 	w.p("Query: %s.%s(),", q.queryPkg(m), q.goName)
-	w.p("Bind: func(r *http.Request) (query.Bound[%s], error) {", q.probeType())
-	w.p("return bind(r.Context(), cfg, %s.%s(), probes.New%sProbe, r.Header.Get(\"X-Request-Id\"))\n},", q.queryPkg(m), q.goName, q.goName)
+	w.p("Bind: query.BindHTTP(cfg.Probes, cfg.SubjectType, %s.%s(), probes.New%sProbe),", q.queryPkg(m), q.goName, q.goName)
 	w.p("Decode: decode%s,", q.goName)
 	if q.kind == getKind {
-		w.p("Fill: decided%s,\nEncode: encodeValue,", q.goName)
+		w.p("Fill: decided%s,\nEncode: query.EncodeValue[%s.%s],", q.goName, m.pkg, q.responseType())
 	} else {
 		w.p("Fill: %s.Fill,", q.fillAlias)
 		w.p("Next: func(res %s.%s) query.Cursor { return res.Next },", m.pkg, q.responseType())
-		w.p("Encode: func(res %s.%s, next string) ([]byte, error) { return json.Marshal(page{Items: res.Items, Next: next}) },", m.pkg, q.responseType())
+		w.p("Encode: func(res %s.%s, next string) ([]byte, error) { return query.EncodePage(res.Items, next) },", m.pkg, q.responseType())
 	}
+	w.p("Refusal: func(err error) (int, string, bool) { return %s.Declared(%q, err) },", m.pkg, q.decl.Name)
 	w.p("}); err != nil {\nreturn nil, err\n}")
 }
 
@@ -613,7 +494,7 @@ func renderGet(w *writer, m *model, q *queryModel) {
 func renderList(w *writer, m *model, q *queryModel) {
 	w.p("// decode%s reads the request of %s: the cursor after which the page starts and the page's limit.", q.goName, q.decl.Name)
 	w.p("func decode%s(r *http.Request, after query.Cursor) (%s.%s, error) {", q.goName, m.pkg, q.requestType())
-	w.p("limit, err := limitOf(r)\nif err != nil {\nreturn %s.%s{}, err\n}", m.pkg, q.requestType())
+	w.p("limit, err := query.Limit(r)\nif err != nil {\nreturn %s.%s{}, err\n}", m.pkg, q.requestType())
 	w.p("return %s.%s{After: after, Limit: limit}, nil\n}\n", m.pkg, q.requestType())
 }
 
@@ -623,7 +504,7 @@ func renderStream(w *writer, m *model, q *queryModel) {
 	e := q.sent()
 	w.p("// Bind%s gives the bound call of the stream %s for the verified identity of ctx.", q.goName, q.decl.Name)
 	w.p("func (h *Handlers) Bind%s(ctx context.Context, requestID string) (query.Bound[%s], error) {", q.goName, q.probeType())
-	w.p("return bind(ctx, h.cfg, %s.%s(), probes.New%sProbe, requestID)\n}\n", m.pkg, q.goName, q.goName)
+	w.p("return query.BindContext(ctx, h.cfg.Probes, h.cfg.SubjectType, %s.%s(), probes.New%sProbe, requestID)\n}\n", m.pkg, q.goName, q.goName)
 	w.p("// Stream%s runs the stream %s with its fill %s in one READ ONLY transaction: send writes each allowed %s to", q.goName, q.decl.Name, q.decl.Fill[0], e.value.Entity.Name)
 	w.p("// the client. The count of dropped values that it returns is for the service's own telemetry, never the client.")
 	w.p("func (h *Handlers) Stream%s(ctx context.Context, b query.Bound[%s], req %s.%s, send func(%s.%s) error) (uint64, error) {",
@@ -693,7 +574,7 @@ func must[T any](v T, err error) T {
 
 // ViewFile gives a Go file of the package pkg that holds, for each named entity, its read-only value type <Name>View
 // with no secret field, its loaded type, its load function and its query.Entity with the read and list permissions
-// that the entity declares, as the query contract holds them (ST-SUP-RC33-OC01), with the read helpers that they use.
+// that the entity declares, as the query contract holds them (ST-SUP-RC33-OC01); the row reads are the runtime's.
 // It is for a generator that declares queries of its own, such as the rest-api generator for generated CRUD
 // (ST-SUP-RC20-OC37), so the read-only value has one source (ST-SUP-RC33-G02). It refuses an entity that a query
 // cannot read.
@@ -718,9 +599,6 @@ func ViewFile(pkg string, names []string, entities []types.Entity) ([]byte, erro
 	if used[capability.ReadJSON] {
 		w.p("\"encoding/json\"")
 	}
-	if used[capability.ReadFloat] || used[capability.ReadBytes] || used[capability.ReadJSON] || used[capability.ReadInt32] {
-		w.p("\"fmt\"")
-	}
 	if used[capability.ReadTime] {
 		w.p("\"time\"")
 	}
@@ -740,7 +618,6 @@ func must[T any](v T, err error) T {
 	return v
 }
 `)
-	renderReadHelpers(&w, used)
 	source, err := format.Source(w.Bytes())
 	if err != nil {
 		return nil, fmt.Errorf("query: formatting the read-only values: %w\n%s", err, w.Bytes())
