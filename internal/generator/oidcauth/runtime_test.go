@@ -67,15 +67,6 @@ type project struct {
 	address string
 }
 
-// shipped reports whether the registry ships oidc-auth. Its declaration, testdata/component.yaml, and the
-// registration of its generator wait on ST-SUP-Q99: an alpha component must not provide the port auth-provider of
-// the ga jwt-auth and rh-sso-auth (ST-SUP-INV03), and the compiler holds a generator for exactly the components that
-// the registry ships (ST-STD-TRUST-R01).
-func shipped() bool {
-	_, err := os.Stat(filepath.Join("..", "..", "..", "registry", "components", Component, "component.yaml"))
-	return err == nil
-}
-
 // newProject copies the registry of this repository, with the components of the runtime data path in rest-crud and
 // each alpha component of the test staged as ga; then the fixture project, whose declaration signs in with the
 // provider and names the issuer at the address of a free loopback port.
@@ -89,11 +80,8 @@ func newProject(t *testing.T, stego, provider string) *project {
 	archetype := filepath.Join(registry, "archetypes", "rest-crud", "archetype.yaml")
 	p.write(archetype, regexp.MustCompile(`(?s)components:\n(  - [a-z-]+\n)+`).ReplaceAllString(p.read(archetype), runtimeComponents))
 	sunset := regexp.MustCompile(`sunset: "?[0-9-]+"?\n`)
-	for _, name := range []string{"tenancy", "command", "query", "domain-probe", "audit-log", "idempotency", "spicedb-authz", Component} {
+	for _, name := range []string{"tenancy", "command", "query", "domain-probe", "audit-log", "idempotency", "spicedb-authz"} {
 		file := filepath.Join(registry, "components", name, "component.yaml")
-		if _, err := os.Stat(file); err != nil && name == Component {
-			continue
-		}
 		p.write(file, sunset.ReplaceAllString(strings.Replace(p.read(file), "stage: alpha\n", "stage: ga\n", 1), ""))
 	}
 	if err := os.CopyFS(p.dir, os.DirFS(fixture)); err != nil {
@@ -109,9 +97,8 @@ func newProject(t *testing.T, stego, provider string) *project {
 	}
 	for old, replacement := range map[string]string{
 		"  jwt-auth:\n    issuer: https://issuer.wiring.test/realms/r1\n    audience: wiring-shop\n": auth,
-		"name: wiring-shop\n":         "name: " + name + "\n",
-		"  claim: tenant\n":           "  claim: org_id\n",
-		"experimental_acceptances:\n": "experimental_acceptances:\n  - {component: oidc-auth, accepted_until: 2027-04-30, reason: sign-in with any OpenID Connect provider}\n",
+		"name: wiring-shop\n": "name: " + name + "\n",
+		"  claim: tenant\n":   "  claim: org_id\n",
 	} {
 		if !strings.Contains(text, old) {
 			t.Fatalf("the fixture declaration holds no %q", old)
@@ -252,8 +239,8 @@ func (p *project) checkRuns(binary, provider, issuerPath, endpoint, key string, 
 	}
 }
 
-// TestOIDCService generates, builds and runs a service with rh-sso-auth and, once the registry ships oidc-auth
-// (ST-SUP-Q99), one with oidc-auth, one after the other: both use the one PostgreSQL server, whose roles belong to the
+// TestOIDCService generates, builds and runs a service with rh-sso-auth and one with oidc-auth, which the registry
+// ships at ga (ST-SUP-Q99), one after the other: both use the one PostgreSQL server, whose roles belong to the
 // server. A missing server fails the test: a missing result is not a pass.
 func TestOIDCService(t *testing.T) {
 	if testing.Short() {
@@ -299,11 +286,6 @@ func TestOIDCService(t *testing.T) {
 	sso.checkRuns(binary, "rh-sso-auth", "/auth/realms/redhat-external", endpoint, key,
 		"ST-SUP-RC21-OC15-T01 A service with rh-sso-auth on the runtime data path gets the oidc-auth verifier with the Red Hat SSO settings")
 
-	if !shipped() {
-		// The records of ST-SUP-RC37-OC01-T01 to OC04-T01 stay not automated until the registry ships oidc-auth.
-		t.Logf("the registry does not ship %s yet (ST-SUP-Q99): its service is not generated", Component)
-		return
-	}
 	oidc := newProject(t, stego, Component)
 	if output, err := oidc.run("apply"); err != nil {
 		t.Fatalf("stego apply of the service with oidc-auth: %v\n%s", err, output)
