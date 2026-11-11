@@ -53,7 +53,11 @@ var tokenTypes = []string{"JWT", "at+jwt", "application/at+jwt"}
 
 // idTokenClaims are the claims that mark an ID token, which is not an access token, so Verify refuses a token that
 // holds one (ST-SUP-RP13-LC03).
-var idTokenClaims = []string{"at_hash", "c_hash", "nonce"}
+var idTokenClaims = []string{"at_hash", "c_hash", "nonce", "events"}
+
+// otherTokenKinds are the values of the payload claim typ that name a token of another kind: Keycloak's ID, refresh
+// and logout tokens (ST-SUP-RP13-LC03).
+var otherTokenKinds = []string{"ID", "Refresh", "Logout"}
 
 // ErrDenied is the error of each refused token: errors.Is(err, ErrDenied) holds for every refusal of Verify and of
 // the key set. Its text and the text of each refusal are fixed and hold no token, claim, key ID, key document,
@@ -169,7 +173,7 @@ func New(s Settings) (*Verifier, error) { return newVerifier(s, time.Now) }
 func newVerifier(s Settings, now func() time.Time) (*Verifier, error) {
 	issuer, err := url.Parse(s.Issuer)
 	if err != nil || issuer.Scheme != "https" || issuer.Host == "" || issuer.User != nil || issuer.Fragment != "" ||
-		issuer.RawQuery != "" || issuer.Opaque != "" || !httpsURL(s.Issuer) {
+		issuer.RawQuery != "" || issuer.ForceQuery || issuer.Opaque != "" || !httpsURL(s.Issuer) {
 		return nil, setting("the issuer is not an HTTPS URL")
 	}
 	if s.Audience == "" || !clean(s.Audience) {
@@ -323,6 +327,12 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Identity, error) {
 	}
 	for _, name := range idTokenClaims {
 		if _, present := claims[name]; present {
+			return Identity{}, errIDToken
+		}
+	}
+	if kind, present := claims["typ"]; present {
+		var name string
+		if json.Unmarshal(kind, &name) != nil || slices.Contains(otherTokenKinds, name) {
 			return Identity{}, errIDToken
 		}
 	}

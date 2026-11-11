@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/jsell-rh/stego/internal/gen"
 )
@@ -161,6 +162,9 @@ func text(config map[string]any, key string) (string, error) {
 
 // clean reports whether the text holds no control, format or separator character other than the space.
 func clean(s string) bool {
+	if !utf8.ValidString(s) {
+		return false
+	}
 	for _, r := range s {
 		if r != ' ' && (unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r)) {
 			return false

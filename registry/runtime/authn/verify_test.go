@@ -275,7 +275,20 @@ func TestTokenKind(t *testing.T) {
 			expectAccepted(t, v, authntest.Mint(t, header, goodClaims(), key))
 		}
 		// An ID token holds at_hash, c_hash or nonce; each marks the token as no access token.
-		for _, marker := range []string{"at_hash", "c_hash", "nonce"} {
+		// A Keycloak access token names its kind Bearer in the payload claim typ.
+		bearer := goodClaims()
+		bearer["typ"] = "Bearer"
+		expectAccepted(t, v, authntest.Mint(t, authntest.Header("k1"), bearer, key))
+		// Keycloak's ID, refresh and logout tokens name their kind in typ, and a logout token holds events.
+		for _, kind := range []any{"ID", "Refresh", "Logout", 7} {
+			t.Run(fmt.Sprint("typ ", kind), func(t *testing.T) {
+				claims := goodClaims()
+				claims["typ"] = kind
+				id, err := v.Verify(context.Background(), authntest.Mint(t, authntest.Header("k1"), claims, key))
+				expectRefused(t, id, err, errIDToken)
+			})
+		}
+		for _, marker := range []string{"at_hash", "c_hash", "nonce", "events"} {
 			t.Run(marker, func(t *testing.T) {
 				claims := goodClaims()
 				claims[marker] = "abc"
@@ -321,6 +334,7 @@ func TestVerifySettings(t *testing.T) {
 		cases := map[string]func(*Settings){
 			"http issuer":                  func(s *Settings) { s.Issuer = "http://issuer.authn.test/realms/r1" },
 			"issuer with a trailing space": func(s *Settings) { s.Issuer = "https://issuer.authn.test/realms/r1 " },
+			"issuer with an empty query":   func(s *Settings) { s.Issuer = "https://issuer.authn.test/realms/r1?" },
 			"empty audience":               func(s *Settings) { s.Audience = "" },
 			"skew of 61 s":                 func(s *Settings) { s.Skew = 61 * time.Second },
 			"skew of -1 s":                 func(s *Settings) { s.Skew = -time.Second },
