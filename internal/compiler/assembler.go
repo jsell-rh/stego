@@ -1211,7 +1211,16 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollec
 		if cw.Wiring.ConstructorReturnsError[entry.ConstructorIndex] {
 			fmt.Fprintf(buf, "\tstegoStage = %q\n", fmt.Sprintf("component[%d].constructor[%d]", entry.WiringIndex, entry.ConstructorIndex))
 			fmt.Fprintf(buf, "\t%s, err := %s\n", varName, expr)
-			buf.WriteString("\tif err != nil {\n\t\treturn err\n\t}\n")
+			if stage := cw.Wiring.ConstructorStages[entry.ConstructorIndex]; stage != "" {
+				// The constructor's package names the stage of a refused start, with no error text (ST-SUP-RP14-LC05).
+				stage, err := renameConstructorReferences(stage, constructorValues, imports.Renames[entry.WiringIndex], imports.PackageAliases, nil)
+				if err != nil {
+					return nil, fmt.Errorf("component %q: %w", cw.Name, err)
+				}
+				fmt.Fprintf(buf, "\tif err != nil {\n\t\tif stage := %s; stage != \"\" {\n\t\t\tstegoStage = stage\n\t\t}\n\t\treturn err\n\t}\n", stage)
+			} else {
+				buf.WriteString("\tif err != nil {\n\t\treturn err\n\t}\n")
+			}
 		} else {
 			fmt.Fprintf(buf, "\t%s := %s\n", varName, expr)
 		}

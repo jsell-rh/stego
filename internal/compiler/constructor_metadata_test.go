@@ -28,6 +28,10 @@ func TestConstructorMetadataIndexesMustExist(t *testing.T) {
 		{"collections", func(w *gen.Wiring, i int) { w.ConstructorCollections = map[int]string{i: "items"} }},
 		{"dependencies", func(w *gen.Wiring, i int) { w.ConstructorDeps = map[int][]string{i: {}} }},
 		{"cleanup", func(w *gen.Wiring, i int) { w.ConstructorDeferCalls = map[int]string{i: "Close()"} }},
+		{"stage", func(w *gen.Wiring, i int) {
+			w.ConstructorReturnsError = map[int]bool{i: true}
+			w.ConstructorStages = map[int]string{i: "fixture.StartStage(err)"}
+		}},
 		{"HTTP error logger", func(w *gen.Wiring, i int) { w.HTTPErrorLogger = &i }},
 		{"primary middleware", func(w *gen.Wiring, i int) { w.MiddlewareConstructor = &i; w.MiddlewareWrapExpr = "%s(%s)" }},
 		{"inner middleware", func(w *gen.Wiring, i int) {

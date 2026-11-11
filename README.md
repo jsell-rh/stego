@@ -55,6 +55,10 @@ row names. It takes the issuer and the audience that the declaration states for
 jwt-auth; when the declaration states none, it reads `STEGO_AUTHN_ISSUER` and
 `STEGO_AUTHN_AUDIENCE`. When the declaration states no public key file, it reads
 the key document of the issuer from `STEGO_AUTHN_KEYS_URL` or `STEGO_AUTHN_KEYS_FILE`.
+With rh-sso-auth it finds the key document through the discovery document of the
+declared issuer, a Red Hat SSO realm, takes the tenant from the claim `org_id`, and
+reads no key document setting. `STEGO_AUTHN_CA_FILE` adds certificate authorities
+for the key document or the discovery document.
 The binary runs the modes that the `--mode` option or `STEGO_MODE` selects: api,
 worker and controller, all by default. The worker mode also reads
 `STEGO_WORKER_DATABASE_URL` or `STEGO_WORKER_DATABASE_URL_FILE` for the worker role,

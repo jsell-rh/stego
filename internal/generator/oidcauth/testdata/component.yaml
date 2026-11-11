@@ -1,0 +1,41 @@
+kind: component
+name: oidc-auth
+version: 0.1.0
+stage: alpha
+sunset: 2027-04-30
+output_namespace: internal/auth
+
+# Sign-in with any OpenID Connect provider on the runtime data path (ST-SUP-RC37). The verifier of the runtime
+# library finds the key set of the issuer through its discovery document and verifies each token; the component
+# emits no code of its own. This declaration waits on ST-SUP-Q99 before it moves to registry/components: an alpha
+# component must not provide the port auth-provider, which the ga jwt-auth and rh-sso-auth provide (ST-SUP-INV03).
+# The tests stage it as ga in their copy of the registry.
+config:
+  issuer:
+    type: string
+  audience:
+    type: string
+  algorithms:
+    type: list
+    items:
+      type: string
+    default: ["RS256"]
+  subject_claim:
+    type: string
+    default: sub
+  roles_claim:
+    type: string
+    optional: true
+  header:
+    type: string
+    default: Authorization
+  ca_file:
+    type: string
+    optional: true
+
+requires: []
+
+provides:
+  - auth-provider
+
+slots: []
