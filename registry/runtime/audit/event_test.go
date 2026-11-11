@@ -276,8 +276,10 @@ func probe(e Event, u Untrusted) bool {
 		if err == nil || !strings.Contains(err.Error(), "doc") || strings.Contains(err.Error(), "1111") {
 			t.Errorf("SetStates with numbers of 16383 fraction digits gave %v, want a refusal that names doc and not the value", err)
 		}
-		if d := time.Since(start); d > 100*time.Millisecond {
-			t.Errorf("SetStates with 63 numbers of 16383 fraction digits took %v, want under 100 ms", d)
+		// The refusal comes after the JSON text is decoded, which takes about 100 ms under the race detector on CI;
+		// the former count of digits took 3.7 s here. The bound is loose so that the race run does not flake.
+		if d := time.Since(start); d > time.Second {
+			t.Errorf("SetStates with 63 numbers of 16383 fraction digits took %v, want under 1 s", d)
 		}
 		// The longest accepted number keeps its exact value, and 63 of them in before and after stay cheap.
 		long := build(1097)
