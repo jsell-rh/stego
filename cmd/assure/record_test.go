@@ -419,13 +419,51 @@ class Fix(unittest.TestCase):
 				if action, pin, ok := strings.Cut(step.Uses, "@"); step.Uses != "" && (!ok || len(pin) != 40 || action == "") {
 					t.Fatalf("step %q uses %s, which is not pinned to a commit", step.Name, step.Uses)
 				}
-				if strings.Contains(step.Run, "go run -C cmd/assure -mod=readonly . record") {
+				if strings.Contains(step.Run, `"$RUNNER_TEMP/record/assure" record`) {
 					record = &job.Steps[i]
 				}
 			}
 		}
 		if record == nil || !strings.Contains(record.Run, `--predicate "$RUNNER_TEMP/`) || !strings.Contains(record.Run, `--commit "$COMMIT"`) {
 			t.Fatal("the suites job does not record the proof run at the commit, under the runner's temporary folder")
+		}
+		// assure record is built from the pull request's base commit, or the commit pushed, before any step runs
+		// code of the change: every step before the build only checks out or sets up a tool, and a Go setup
+		// before it restores no cache, which a run of the change could have saved. The build makes its folder
+		// read-only.
+		built, goSetups := -1, 0
+		for i, step := range suites.Steps {
+			if step.Name == "Build assure record from the base commit" {
+				built = i
+				break
+			}
+			if step.Uses == "" {
+				t.Fatalf("the suites job runs %q before it builds assure record from the base commit", step.Name)
+			}
+			if strings.HasPrefix(step.Uses, "actions/setup-go@") {
+				goSetups++
+				if step.With["cache"] != "false" {
+					t.Fatalf("the Go setup before the build of assure record has cache %q, want false: it would restore a cache before the build", step.With["cache"])
+				}
+			}
+		}
+		if built < 0 || goSetups == 0 {
+			t.Fatal("the suites job does not set up Go with no cache and build assure record from the base commit")
+		}
+		build := suites.Steps[built]
+		if build.WorkingDirectory != "base/cmd/assure" || build.Env["GOWORK"] != "off" ||
+			build.Run != "mkdir -p \"$RUNNER_TEMP/record\"\ngo build -mod=readonly -trimpath -o \"$RUNNER_TEMP/record/assure\" .\nchmod -R a-w \"$RUNNER_TEMP/record\"\n" {
+			t.Fatalf("the suites job builds assure record with %+v, not in the base checkout's cmd/assure into a read-only folder under the runner's temporary folder", build)
+		}
+		var base *workflowStep
+		for i, step := range suites.Steps[:built] {
+			if step.With["path"] == "base" {
+				base = &suites.Steps[i]
+			}
+		}
+		if base == nil || !strings.HasPrefix(base.Uses, "actions/checkout@") || base.With["ref"] != "${{ github.event.pull_request.base.sha || env.COMMIT }}" ||
+			base.With["persist-credentials"] != "false" {
+			t.Fatalf("the suites job checks out %+v as the base, not the pull request's base commit or the commit pushed", base)
 		}
 		if workflow.Env["COMMIT"] != "${{ github.event.pull_request.head.sha || github.sha }}" {
 			t.Fatalf("the commit is %q, want the pull request's head or the commit pushed", workflow.Env["COMMIT"])
@@ -457,11 +495,13 @@ class Fix(unittest.TestCase):
 }
 
 type workflowStep struct {
-	ID   string            `yaml:"id"`
-	Name string            `yaml:"name"`
-	Uses string            `yaml:"uses"`
-	Run  string            `yaml:"run"`
-	With map[string]string `yaml:"with"`
+	ID               string            `yaml:"id"`
+	Name             string            `yaml:"name"`
+	Uses             string            `yaml:"uses"`
+	Run              string            `yaml:"run"`
+	With             map[string]string `yaml:"with"`
+	Env              map[string]string `yaml:"env"`
+	WorkingDirectory string            `yaml:"working-directory"`
 }
 
 type workflowJob struct {

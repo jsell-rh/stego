@@ -749,7 +749,7 @@ steps:
   - name: Build the pinned Lathe
     working-directory: lathe/lathe
     run: |
-      if ! { npm ci --no-audit --no-fund && ./node_modules/.bin/tsc -p tsconfig.build.json && chmod +x dist/bin/lathe.js; }; then
+      if ! { npm ci --ignore-scripts --no-audit --no-fund && ./node_modules/.bin/tsc -p tsconfig.build.json && chmod +x dist/bin/lathe.js; }; then
         echo "::error::The gate did not run: the pinned Lathe did not build. This is no decision on the change."
         exit 1
       fi
@@ -1865,7 +1865,7 @@ func gateReleaseJob() allowedJob {
 			{"uses": pinned("actions/setup-go"), "with": map[string]any{"go-version": anyScalar{}, "cache": "false"}},
 			{"uses": pinned("actions/setup-node"), "with": map[string]any{"node-version": anyScalar{}}},
 			{"name": "Build the pinned Lathe", "working-directory": "lathe/lathe",
-				"run": "npm ci --no-audit --no-fund\n./node_modules/.bin/tsc -p tsconfig.build.json\nchmod +x dist/bin/lathe.js\n"},
+				"run": "npm ci --ignore-scripts --no-audit --no-fund\n./node_modules/.bin/tsc -p tsconfig.build.json\nchmod +x dist/bin/lathe.js\n"},
 			{"name": "Build assure", "working-directory": "stego/cmd/assure", "env": map[string]any{"GOWORK": "off"},
 				"run": "mkdir -p \"$RUNNER_TEMP/release\"\ngo build -mod=readonly -trimpath -o \"$RUNNER_TEMP/release/assure\" .\n"},
 			{"name": "Remove the Go problem matcher", "run": `echo "::remove-matcher owner=go::"`},
