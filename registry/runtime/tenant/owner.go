@@ -94,7 +94,13 @@ func Opened(db *sql.DB) bool {
 	return errors.Is(db.PingContext(ended), context.Canceled)
 }
 
-func open(ctx context.Context, cfg Config) (*sql.DB, error) {
+// Connection gives the connection configuration that Open and OpenOwner open with, after the checks that they make
+// before any connection: Guard, which refuses a session setting (ST-SUP-RP04-LC04), and the transport check, which
+// refuses a configuration or a connection string whose TLS does not verify the server, unless cfg.InsecureLoopback
+// holds and every target is a loopback IP address (ST-SUP-RP04-LC09). A connector that opens a session of its own,
+// such as the listener of pgconn (ST-SUP-RP01-LC20), opens it with this configuration and checks each session with
+// CheckSession. The result is a copy, so a change of the caller's value after the check changes nothing.
+func Connection(cfg Config) (*pgx.ConnConfig, error) {
 	if err := Guard(cfg); err != nil {
 		return nil, err
 	}
@@ -113,6 +119,19 @@ func open(ctx context.Context, cfg Config) (*sql.DB, error) {
 	}
 	for name, value := range cfg.Params {
 		conn.RuntimeParams[name] = value
+	}
+	return conn, nil
+}
+
+// CheckSession is the pooler guard's check of one session (ST-SUP-RP04-LC04): current_setting('app.tenant', true)
+// must be empty outside a transaction. Open and OpenOwner run it on each new connection and each time a connection
+// comes back to the pool.
+func CheckSession(ctx context.Context, conn *pgx.Conn) error { return checkConn(ctx, conn) }
+
+func open(ctx context.Context, cfg Config) (*sql.DB, error) {
+	conn, err := Connection(cfg)
+	if err != nil {
+		return nil, err
 	}
 	db := stdlib.OpenDB(*conn,
 		stdlib.OptionAfterConnect(checkConn),
@@ -143,7 +162,9 @@ func open(ctx context.Context, cfg Config) (*sql.DB, error) {
 
 // checkRuntimeRole fails when the role of db, or a role it is a member of, is a superuser, holds BYPASSRLS or owns
 // a table, and when the role of db is a member of the outbox relay role stego_outbox_relay or of a hook role, a role
-// that may run the outbox relay functions. A member of such a role can take it with SET ROLE, so membership counts
+// that may run the outbox relay functions, or of an idempotency purge role, <service role prefix>_idempotency_purge
+// or the owner of a purge function idempotency_keys_purge, which reads and deletes the key rows of every tenant
+// (ST-SUP-RP07-LC11). A member of such a role can take it with SET ROLE, so membership counts
 // as holding it.
 func checkRuntimeRole(ctx context.Context, db *sql.DB) error {
 	var role string
@@ -203,10 +224,12 @@ ORDER BY 1`)
 		faults = append(faults, "owns the tables "+strings.Join(tables, ", "))
 	}
 	// The runtime role must not take the outbox relay role or a hook role, the worker role that runs the relay
-	// functions and the authz state function, with SET ROLE (ST-SUP-RP06-LC21).
+	// functions and the authz state function (ST-SUP-RP06-LC21), or the idempotency purge role (ST-SUP-RP07-LC11),
+	// with SET ROLE.
 	members, err := db.QueryContext(ctx, `SELECT r.rolname FROM pg_roles r
 WHERE r.rolname <> current_user AND pg_has_role(current_user, r.oid, 'MEMBER')
-	AND (r.rolname = 'stego_outbox_relay'
+	AND (r.rolname = 'stego_outbox_relay' OR r.rolname LIKE '%\_idempotency\_purge'
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_proc AS p WHERE p.proname = 'idempotency_keys_purge' AND p.proowner = r.oid)
 		OR (pg_catalog.to_regprocedure('stego_outbox.claim(timestamptz, integer, uuid, bigint)') IS NOT NULL
 			AND pg_catalog.has_function_privilege(r.oid, 'stego_outbox.claim(timestamptz, integer, uuid, bigint)', 'EXECUTE')))
 ORDER BY r.rolname`)
@@ -226,7 +249,7 @@ ORDER BY r.rolname`)
 		return fmt.Errorf("tenant: read the roles of the runtime role %s: %w", role, err)
 	}
 	if len(taken) > 0 {
-		faults = append(faults, "is a member of the outbox relay or hook roles "+strings.Join(taken, ", "))
+		faults = append(faults, "is a member of the outbox relay, idempotency purge or hook roles "+strings.Join(taken, ", "))
 	}
 	if len(faults) > 0 {
 		return errors.New("tenant: the runtime role " + role + " " + strings.Join(faults, " and ") +

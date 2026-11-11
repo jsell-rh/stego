@@ -508,9 +508,10 @@ func renderList(w *writer, m *model, q *queryModel) {
 // and gives each message to send; RunStream decides each value when the fill sends it (ST-SUP-RP11-LC13).
 func renderStream(w *writer, m *model, q *queryModel) {
 	e := q.sent()
-	w.p("// Bind%s gives the bound call of the stream %s for the verified identity of ctx.", q.goName, q.decl.Name)
-	w.p("func (h *Handlers) Bind%s(ctx context.Context, requestID string) (query.Bound[%s], error) {", q.goName, q.probeType())
-	w.p("return query.BindContext(ctx, h.cfg.Probes, h.cfg.SubjectType, %s.%s(), probes.New%sProbe, requestID)\n}\n", m.pkg, q.goName, q.goName)
+	w.p("// Bind%s gives the bound call of the stream %s for the verified identity of ctx, with a request ID that the", q.goName, q.decl.Name)
+	w.p("// server makes (ST-SUP-RP11-LC19).")
+	w.p("func (h *Handlers) Bind%s(ctx context.Context) (query.Bound[%s], error) {", q.goName, q.probeType())
+	w.p("return query.BindContext(ctx, h.cfg.Probes, h.cfg.SubjectType, %s.%s(), probes.New%sProbe, query.NewRequestID())\n}\n", m.pkg, q.goName, q.goName)
 	w.p("// Stream%s runs the stream %s with its fill %s in one READ ONLY transaction: send writes each allowed %s to", q.goName, q.decl.Name, q.decl.Fill[0], e.value.Entity.Name)
 	w.p("// the client. The count of dropped values that it returns is for the service's own telemetry, never the client.")
 	w.p("func (h *Handlers) Stream%s(ctx context.Context, b query.Bound[%s], req %s.%s, send func(%s.%s) error) (uint64, error) {",

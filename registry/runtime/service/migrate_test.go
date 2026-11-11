@@ -77,8 +77,8 @@ func TestMigrate(t *testing.T) {
 		}
 		// The job made the objects and the grants of the runtime role, and the partitions of the audit table.
 		var granted bool
-		if err := f.admin.QueryRow(`SELECT has_table_privilege($1, 'public.orders', 'INSERT') AND has_table_privilege($1, 'public.idempotency_keys', 'DELETE')
- AND to_regclass('stego_outbox.messages') IS NOT NULL AND to_regclass('public.authz_floor') IS NOT NULL`, f.runtime).Scan(&granted); err != nil || !granted {
+		if err := f.admin.QueryRow(`SELECT has_table_privilege($1, 'public.orders', 'INSERT') AND has_table_privilege($1, 'public.idempotency_keys', 'UPDATE')
+ AND has_function_privilege($1, 'public.idempotency_keys_purge(timestamptz, integer)', 'EXECUTE') AND to_regclass('stego_outbox.messages') IS NOT NULL AND to_regclass('public.authz_floor') IS NOT NULL`, f.runtime).Scan(&granted); err != nil || !granted {
 			t.Fatalf("the job did not make the objects and the grants of the runtime role: %v", err)
 		}
 		// The tables step made the tenant list of the tenant runtime, owned by the owner role, which the runtime role
@@ -149,6 +149,7 @@ type fixture struct {
 	admin                         *sql.DB
 	database                      string // the superuser URL of the database
 	owner, runtime, worker, relay string
+	purge                         string
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -156,7 +157,8 @@ func newFixture(t *testing.T) *fixture {
 	suffix := make([]byte, 5)
 	_, _ = rand.Read(suffix)
 	tag := hex.EncodeToString(suffix)
-	f := &fixture{t: t, owner: "svc_owner_" + tag, runtime: "svc_rt_" + tag, worker: "svc_worker_" + tag, relay: "svc_relay_" + tag}
+	f := &fixture{t: t, owner: "svc_owner_" + tag, runtime: "svc_rt_" + tag, worker: "svc_worker_" + tag, relay: "svc_relay_" + tag,
+		purge: "svc_" + tag + "_idempotency_purge"}
 	root, err := sql.Open("pgx", pgtest.DSN(t))
 	if err != nil {
 		t.Fatal(err)
@@ -175,21 +177,30 @@ func newFixture(t *testing.T) *fixture {
 		"CREATE ROLE " + f.relay + " NOLOGIN NOINHERIT",
 		"DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '" + outbox.RelayRole + "') THEN CREATE ROLE " + outbox.RelayRole + " NOLOGIN; END IF; END $$",
 		"GRANT " + outbox.RelayRole + " TO " + f.owner + " WITH SET TRUE, INHERIT TRUE",
+		"CREATE ROLE " + f.purge + " NOLOGIN NOINHERIT",
+		"GRANT " + f.purge + " TO " + f.owner + " WITH SET TRUE, INHERIT FALSE",
 		"GRANT CREATE ON DATABASE " + name + " TO " + f.owner,
 	} {
 		if _, err := root.ExecContext(context.Background(), statement); err != nil {
 			t.Fatalf("%.60s: %v", statement, err)
 		}
 	}
-	if _, err := f.admin.ExecContext(context.Background(), "GRANT CREATE ON SCHEMA public TO "+f.owner+", "+outbox.RelayRole); err != nil {
-		t.Fatal(err)
+	// As the tenancy role migration gives them: the owner may grant CREATE on public, which the idempotency
+	// migration gives the purge role only while it makes the purge function.
+	for _, statement := range []string{
+		"GRANT CREATE ON SCHEMA public TO " + f.owner + " WITH GRANT OPTION",
+		"GRANT CREATE ON SCHEMA public TO " + outbox.RelayRole,
+	} {
+		if _, err := f.admin.ExecContext(context.Background(), statement); err != nil {
+			t.Fatal(err)
+		}
 	}
 	t.Cleanup(func() {
-		for _, role := range []string{f.runtime, f.worker, f.relay, f.owner} {
+		for _, role := range []string{f.runtime, f.worker, f.relay, f.owner, f.purge} {
 			_, _ = f.admin.ExecContext(context.Background(), "DROP OWNED BY "+role)
 		}
 		_, _ = root.ExecContext(context.Background(), "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
-		for _, role := range []string{f.runtime, f.worker, f.relay, f.owner} {
+		for _, role := range []string{f.runtime, f.worker, f.relay, f.owner, f.purge} {
 			_, _ = root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+role)
 		}
 	})
@@ -248,7 +259,7 @@ func (f *fixture) migration(calls *int) Migration {
 		t.Fatal(err)
 	}
 	return Migration{
-		OwnerRole: f.owner, RuntimeRole: f.runtime, WorkerRole: f.worker, TenantConfig: tenantConfig(nil),
+		OwnerRole: f.owner, RuntimeRole: f.runtime, WorkerRole: f.worker, PurgeRole: f.purge, TenantConfig: tenantConfig(nil),
 		LedgerCheck: func(ctx context.Context, conn *sql.Conn) error {
 			var foreign bool
 			if err := conn.QueryRowContext(ctx, `SELECT to_regclass('public.foreign_orders') IS NOT NULL`).Scan(&foreign); err != nil {
@@ -275,7 +286,7 @@ func (f *fixture) migration(calls *int) Migration {
 			return err
 		},
 		Grants: []string{`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "public"."orders"`,
-			`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "public"."idempotency_keys"`},
+			`GRANT SELECT, INSERT, UPDATE ON TABLE "public"."idempotency_keys"`},
 	}
 }
 

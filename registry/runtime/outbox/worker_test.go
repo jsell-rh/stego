@@ -625,7 +625,8 @@ func TestWorkerMetrics(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := w.Resolve(context.Background(), tx, ResolveRequest{ID: m.ID, Subject: "user:ops-1", Resolution: Acted}); err != nil {
+		if _, err := w.Resolve(context.Background(), tx, ResolveRequest{ID: m.ID, Destination: m.Destination,
+			Principal: person("user:ops-1"), Resolution: Acted}); err != nil {
 			t.Fatal(err)
 		}
 		if err := tx.Rollback(); err != nil {

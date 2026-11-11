@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/google/uuid"
+
 	"github.com/jsell-rh/stego/registry/runtime/authn"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
 	"github.com/jsell-rh/stego/registry/runtime/otel"
@@ -241,12 +243,14 @@ type Probes interface {
 	Bind(ctx context.Context, tenant, principal, operation string) *probe.Call
 }
 
-// RequestIDHeader is the request header whose value is the request ID of the audit rows of a query.
-const RequestIDHeader = "X-Request-Id"
+// NewRequestID gives a new request ID for the audit rows of one query call: a random UUID that the server makes, as
+// the command runtime makes one for a command (ST-SUP-RP11-LC19). No value of the client is the request ID.
+func NewRequestID() string { return uuid.NewString() }
 
 // BindContext gives the bound call of the query q for the verified identity of ctx (ST-SUP-RP11-LC17): the tenant of
 // its verified claim, the principal of subjectType that its subject maps to, and the probe call of probes bound to
-// both and to the query name, with newProbe as the typed probe constructor and requestID for the audit rows. A
+// both and to the query name, with newProbe as the typed probe constructor. requestID is a request ID that the
+// server made for the call, such as NewRequestID gives, never a value of the client; empty gets a new one. A
 // context with no verified identity, or one whose claim gives no tenant, is not bound: an error that Serve answers
 // with 401.
 func BindContext[P any](ctx context.Context, probes Probes, subjectType string, q *Query, newProbe func(*probe.Probe) P,
@@ -266,15 +270,19 @@ func BindContext[P any](ctx context.Context, probes Probes, subjectType string, 
 	if err != nil {
 		return Bound[P]{}, err
 	}
+	if requestID == "" {
+		requestID = NewRequestID()
+	}
 	call := probes.Bind(ctx, t.ID(), p.Subject().String(), q.Name())
 	return Bound[P]{Tenant: t, Principal: p, Call: call, Probe: newProbe, RequestID: requestID}, nil
 }
 
-// BindHTTP gives the Bind of HTTP for the query q: BindContext of the request's context, with the request ID of
-// RequestIDHeader.
+// BindHTTP gives the Bind of HTTP for the query q: BindContext of the request's context, with a new request ID that
+// the server makes. A request ID header of the client, such as X-Request-Id, is not read, so it never reaches an
+// audit row (ST-SUP-RP11-LC19).
 func BindHTTP[P any](probes Probes, subjectType string, q *Query, newProbe func(*probe.Probe) P) func(r *http.Request) (Bound[P], error) {
 	return func(r *http.Request) (Bound[P], error) {
-		return BindContext(r.Context(), probes, subjectType, q, newProbe, r.Header.Get(RequestIDHeader))
+		return BindContext(r.Context(), probes, subjectType, q, newProbe, NewRequestID())
 	}
 }
 

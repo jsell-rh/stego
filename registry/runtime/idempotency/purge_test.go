@@ -3,24 +3,39 @@ package idempotency
 import (
 	"context"
 	"database/sql"
-	"strings"
 	"testing"
 	"time"
 )
 
-// countingExecer records each DELETE that Purge runs and the rows it removed.
+// countingExecer records each batch of Purge, a transaction of its own, and the key rows there were when it began, so
+// batches gives the rows that each batch removed.
 type countingExecer struct {
-	db      *sql.DB
-	deletes []int64
+	db     *sql.DB
+	before []int64
 }
 
-func (c *countingExecer) ExecContext(ctx context.Context, q string, args ...any) (sql.Result, error) {
-	res, err := c.db.ExecContext(ctx, q, args...)
-	if err == nil && strings.HasPrefix(strings.TrimSpace(q), "DELETE") {
-		n, _ := res.RowsAffected()
-		c.deletes = append(c.deletes, n)
+func (c *countingExecer) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
+	var n int64
+	if err := c.db.QueryRowContext(ctx, `SELECT count(*) FROM idempotency_keys`).Scan(&n); err != nil {
+		return nil, err
 	}
-	return res, err
+	c.before = append(c.before, n)
+	return c.db.BeginTx(ctx, opts)
+}
+
+// batches gives the rows that each batch removed, once the purge has ended.
+func (c *countingExecer) batches() []int64 {
+	var now int64
+	_ = c.db.QueryRow(`SELECT count(*) FROM idempotency_keys`).Scan(&now)
+	out := make([]int64, len(c.before))
+	for i, n := range c.before {
+		next := now
+		if i+1 < len(c.before) {
+			next = c.before[i+1]
+		}
+		out[i] = n - next
+	}
+	return out
 }
 
 func insertExpiring(t *testing.T, db *sql.DB, prefix string, n int, expires time.Time) {
@@ -64,11 +79,11 @@ func TestPurge(t *testing.T) {
 		if err != nil || n != 2500 {
 			t.Fatalf("Purge = %d, %v; want 2500", n, err)
 		}
-		if len(rec.deletes) < 3 || len(rec.deletes) > 4 {
-			t.Fatalf("%d DELETE statements %v, want three or four", len(rec.deletes), rec.deletes)
+		if len(rec.batches()) < 3 || len(rec.batches()) > 4 {
+			t.Fatalf("%d DELETE statements %v, want three or four", len(rec.batches()), rec.batches())
 		}
 		var sum int64
-		for _, d := range rec.deletes {
+		for _, d := range rec.batches() {
 			if d > 1000 {
 				t.Fatalf("a DELETE removed %d rows, more than the batch of 1000", d)
 			}
@@ -77,8 +92,8 @@ func TestPurge(t *testing.T) {
 		if sum != 2500 {
 			t.Fatalf("the DELETE statements removed %d rows, want 2500", sum)
 		}
-		if len(pauses) != len(rec.deletes)-1 {
-			t.Fatalf("%d pauses for %d batches, want one between each two", len(pauses), len(rec.deletes))
+		if len(pauses) != len(rec.batches())-1 {
+			t.Fatalf("%d pauses for %d batches, want one between each two", len(pauses), len(rec.batches()))
 		}
 		for _, p := range pauses {
 			if p != 250*time.Millisecond {
@@ -87,6 +102,47 @@ func TestPurge(t *testing.T) {
 		}
 		if got := countRows(t, db, `SELECT count(*) FROM idempotency_keys`); got != 0 {
 			t.Fatalf("%d rows left, want 0", got)
+		}
+	})
+}
+
+func TestPurgeLimits(t *testing.T) {
+	t.Run("ST-SUP-RP07-LC07-T04 A batch that waits on a locked key row ends after the lock timeout, and the next run removes it", func(t *testing.T) {
+		ctx := context.Background()
+		db, _ := testDB(t)
+		insertExpiring(t, db, "old", 3, time.Now().Add(-time.Hour))
+		holder, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = holder.Rollback() }()
+		var key string
+		if err := holder.QueryRowContext(ctx, `SELECT key FROM idempotency_keys WHERE key = 'old1' FOR UPDATE`).Scan(&key); err != nil {
+			t.Fatal(err)
+		}
+		start := time.Now()
+		_, err = Purge(ctx, db, PurgeOptions{Sleep: func(context.Context, time.Duration) error { return nil }})
+		took := time.Since(start)
+		if pgCode(err) != "55P03" || took < PurgeLockTimeout || took > PurgeLockTimeout+5*time.Second {
+			t.Fatalf("Purge with a locked row gave %v after %v, want a lock timeout after about %v", err, took, PurgeLockTimeout)
+		}
+		if n := countRows(t, db, `SELECT count(*) FROM idempotency_keys`); n != 3 {
+			t.Fatalf("the batch that timed out removed rows: %d left, want 3", n)
+		}
+		// The limits hold only in the transaction of the batch.
+		var lock, statement string
+		if err := db.QueryRowContext(ctx, `SELECT current_setting('lock_timeout'), current_setting('statement_timeout')`).Scan(&lock, &statement); err != nil || lock != "0" || statement != "0" {
+			t.Fatalf("the session keeps lock_timeout %q and statement_timeout %q: %v", lock, statement, err)
+		}
+		if err := holder.Rollback(); err != nil {
+			t.Fatal(err)
+		}
+		if n, err := Purge(ctx, db, PurgeOptions{Sleep: func(context.Context, time.Duration) error { return nil }}); err != nil || n != 3 {
+			t.Fatalf("the next run gave %d, %v; want the 3 expired rows", n, err)
+		}
+		// The statement timeout is SET LOCAL in the transaction of the batch.
+		if limitsSQL != `SELECT pg_catalog.set_config('lock_timeout', '1s', true), pg_catalog.set_config('statement_timeout', '30s', true)` {
+			t.Fatalf("the limits of a batch are %s", limitsSQL)
 		}
 	})
 }
