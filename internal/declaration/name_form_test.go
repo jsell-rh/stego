@@ -42,6 +42,8 @@ func TestNameForms(t *testing.T) {
 			{"a field name in camel case", "{name: title,", "{name: myTitle,", "entities[0].fields[0].name", "myTitle"},
 			{"a collection name with a brace", "  todos:", "  \"to}dos\":", "collections.to}dos", "to}dos"},
 			{"a collection name with a newline", "  todos:", "  \"to\\ndos\":", "collections.to\ndos", "to\ndos"},
+			{"a slot fill name with a dot", "    operations: [create, read, update, delete, list]\n", "    operations: [create, read, update, delete, list]\nslots:\n  - {slot: before_create, collection: todos, gate: [ok-fill, \"../x\"]}\n", "slots[0].gate[1]", "../x"},
+			{"a slot fill name with a quote", "    operations: [create, read, update, delete, list]\n", "    operations: [create, read, update, delete, list]\nslots:\n  - {slot: before_create, collection: todos, chain: [\"a\\\"b\"]}\n", "slots[0].chain[0]", "a\"b"},
 		}
 		for _, c := range cases {
 			faults := nameFaults(t, c.old, c.new)

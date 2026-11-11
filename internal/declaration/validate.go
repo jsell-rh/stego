@@ -235,9 +235,11 @@ var (
 	collectionNameForm = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 	entityNameForm     = regexp.MustCompile(`^[A-Z][A-Za-z0-9]{0,62}$`)
 	fieldNameForm      = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
+	fillNameForm       = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 )
 
-// validateNameForms gives one fault for each service, collection, entity and field name outside its form
+// validateNameForms gives one fault for each service, collection, entity, field and slot-binding fill name outside
+// its form
 // (ST-DECL-INV86), with its path and the form.
 func validateNameForms(service *types.ServiceDeclaration) []ValidationError {
 	var faults []ValidationError
@@ -256,6 +258,17 @@ func validateNameForms(service *types.ServiceDeclaration) []ValidationError {
 	}
 	for _, c := range service.Collections {
 		check("collection", collectionPath(c.Name), c.Name, collectionNameForm)
+	}
+	// A fill that a slot binding names becomes a Go import alias and a folder under fills (ST-DECL-INV86).
+	for i, sb := range service.Slots {
+		for _, operator := range []struct {
+			name  string
+			fills []string
+		}{{"gate", sb.Gate}, {"chain", sb.Chain}, {"fan-out", sb.FanOut}} {
+			for j, name := range operator.fills {
+				check("fill", fmt.Sprintf("%s.%s[%d]", slotPath(i), operator.name, j), name, fillNameForm)
+			}
+		}
 	}
 	return faults
 }

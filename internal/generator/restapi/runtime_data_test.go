@@ -596,3 +596,58 @@ func TestCORSOrigins(t *testing.T) {
 		}
 	})
 }
+
+// storeBodyCheck is a test of the generated api package of the GORM store path: a body over MaxRequestBody that the
+// validation middleware passes on, because a %2F in a path parameter matches no route of the document, still gets 413
+// from the body reader that the handlers use.
+const storeBodyCheck = `package api
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+func TestStoreBodyLimit(t *testing.T) {
+	reached := false
+	handler := NewValidationMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+		if _, err := readBody(w, r); err != nil {
+			handleError(w, r, bodyError(err))
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	large := httptest.NewRequest(http.MethodPut, "/users/a%2Fb", strings.NewReader(strings.Repeat("a", 3<<20)))
+	large.Header.Set("Content-Type", "application/json")
+	answer := httptest.NewRecorder()
+	handler.ServeHTTP(answer, large)
+	if answer.Code != http.StatusRequestEntityTooLarge || !reached {
+		t.Fatalf("a 3 MiB body with an encoded slash got %d, handler reached %v", answer.Code, reached)
+	}
+}
+`
+
+func TestStoreBodyLimit(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC21-T05 On the GORM store path a body over MaxRequestBody gets 413 also when no route of the document matches", func(t *testing.T) {
+		ctx := basicContext()
+		ctx.Conventions.RequestValidation = "openapi-schema"
+		files := crudFiles(t, ctx)
+		for name, data := range files {
+			if strings.Contains(name, "handler_") && strings.Contains(string(data), "io.ReadAll(") {
+				t.Errorf("%s reads a body with no limit", name)
+			}
+		}
+		p := &crudProject{t: t, dir: t.TempDir()}
+		for name, data := range files {
+			p.write("api/"+filepath.Base(name), data)
+		}
+		p.write("api/body_test.go", []byte(storeBodyCheck))
+		p.write("go.mod", []byte("module example.com/store\n\ngo 1.26.11\n\nrequire github.com/getkin/kin-openapi v0.149.0\n"))
+		p.mustGo("mod", "tidy")
+		if output, err := p.goCommand(nil, "test", "-count=1", "-run", "^TestStoreBodyLimit$", "./api"); err != nil {
+			t.Fatalf("the body limit check failed: %v\n%s", err, output)
+		}
+	})
+}

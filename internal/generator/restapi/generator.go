@@ -272,7 +272,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	files = append(files, routerFile)
 
 	// Generate errors file with RFC 9457 Problem Details support.
-	errorsFile, err := generateErrors(ctx.OutputNamespace, ctx.ServiceName, ctx.ErrorTypeBase)
+	errorsFile, err := generateErrors(ctx.OutputNamespace, ctx.ServiceName, ctx.ErrorTypeBase, !ctx.RuntimeData)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating errors: %w", err)
 	}
@@ -323,7 +323,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			}
 		}
 		if hasBodyOps {
-			validationFile, err := generateValidation(ctx.OutputNamespace, !ctx.RuntimeData)
+			validationFile, err := generateValidation(ctx.OutputNamespace)
 			if err != nil {
 				return nil, nil, fmt.Errorf("generating validation middleware: %w", err)
 			}
@@ -660,7 +660,9 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 			break
 		}
 	}
-	needIO := hasCreate || hasUpsert || hasUpdate || hasPatch
+	// The handlers read their bodies through readBody (errors.go), so they import no io.
+	needIO := false
+	_ = hasCreate || hasUpsert || hasUpdate || hasPatch
 
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 	fmt.Fprintf(&buf, "import (\n")
@@ -871,9 +873,10 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	fmt.Fprintf(buf, "func (h *%sHandler) Create(w http.ResponseWriter, r *http.Request) {\n", collPascal)
 	emitParentCheck(buf, eb)
 	// Read body bytes to support kind validation before struct decode.
-	fmt.Fprintf(buf, "\tbodyBytes, err := io.ReadAll(r.Body)\n")
+	// readBody reads at most MaxRequestBody bytes (errors.go); a larger body gets 413.
+	fmt.Fprintf(buf, "\tbodyBytes, err := readBody(w, r)\n")
 	fmt.Fprintf(buf, "\tif err != nil {\n")
-	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
+	fmt.Fprintf(buf, "\t\thandleError(w, r, bodyError(err))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	// Validate kind field if present in request body: must match entity name.
@@ -1016,9 +1019,10 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 		}
 	}
 	// Read body bytes to support kind validation before struct decode.
-	fmt.Fprintf(buf, "\tbodyBytes, err := io.ReadAll(r.Body)\n")
+	// readBody reads at most MaxRequestBody bytes (errors.go); a larger body gets 413.
+	fmt.Fprintf(buf, "\tbodyBytes, err := readBody(w, r)\n")
 	fmt.Fprintf(buf, "\tif err != nil {\n")
-	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
+	fmt.Fprintf(buf, "\t\thandleError(w, r, bodyError(err))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	emitKindValidation(buf, entity)
@@ -1339,9 +1343,10 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	fmt.Fprintf(buf, "func (h *%sHandler) Upsert(w http.ResponseWriter, r *http.Request) {\n", collPascal)
 	emitParentCheck(buf, eb)
 	// Read body bytes to support kind validation before struct decode.
-	fmt.Fprintf(buf, "\tbodyBytes, err := io.ReadAll(r.Body)\n")
+	// readBody reads at most MaxRequestBody bytes (errors.go); a larger body gets 413.
+	fmt.Fprintf(buf, "\tbodyBytes, err := readBody(w, r)\n")
 	fmt.Fprintf(buf, "\tif err != nil {\n")
-	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
+	fmt.Fprintf(buf, "\t\thandleError(w, r, bodyError(err))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	emitKindValidation(buf, entity)
@@ -1533,9 +1538,10 @@ func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collec
 	// The PatchRequest struct only contains patchable fields, so Go's decoder
 	// silently discards unknown keys like "kind". We must read the raw body
 	// first to inspect the kind field before struct decode.
-	fmt.Fprintf(buf, "\tbodyBytes, err := io.ReadAll(r.Body)\n")
+	// readBody reads at most MaxRequestBody bytes (errors.go); a larger body gets 413.
+	fmt.Fprintf(buf, "\tbodyBytes, err := readBody(w, r)\n")
 	fmt.Fprintf(buf, "\tif err != nil {\n")
-	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
+	fmt.Fprintf(buf, "\t\thandleError(w, r, bodyError(err))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	emitKindValidation(buf, entity)
@@ -1806,7 +1812,12 @@ func deriveErrorPrefix(serviceName string) string {
 
 // generateErrors produces the errors.go file with RFC 9457 Problem Details
 // types, error constructors, and a handleError function for serialization.
-func generateErrors(ns string, serviceName string, errorTypeBase string) (gen.File, error) {
+//
+// On the GORM store path (bodyLimit), errors.go also holds MaxRequestBody,
+// readBody and bodyError, through which each handler reads its request body and
+// answers a body over the limit with 413; runtime.go declares MaxRequestBody on
+// the runtime data path.
+func generateErrors(ns string, serviceName string, errorTypeBase string, bodyLimit bool) (gen.File, error) {
 	var buf bytes.Buffer
 
 	prefix := deriveErrorPrefix(serviceName)
@@ -1814,10 +1825,16 @@ func generateErrors(ns string, serviceName string, errorTypeBase string) (gen.Fi
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 	fmt.Fprintf(&buf, "import (\n")
 	fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
+	if bodyLimit {
+		fmt.Fprintf(&buf, "\t\"errors\"\n\t\"io\"\n")
+	}
 	fmt.Fprintf(&buf, "\t\"net/http\"\n")
 	fmt.Fprintf(&buf, "\t\"strings\"\n")
 	fmt.Fprintf(&buf, "\t\"time\"\n")
 	fmt.Fprintf(&buf, ")\n\n")
+	if bodyLimit {
+		buf.WriteString(bodyLimitSource)
+	}
 
 	// ServiceError struct.
 	fmt.Fprintf(&buf, "// ServiceError represents an RFC 9457 Problem Details error response.\n")
@@ -2092,13 +2109,33 @@ func generateCORS(ns string) (gen.File, error) {
 	}, nil
 }
 
+// bodyLimitSource is the part of errors.go on the GORM store path that bounds each request body that a handler reads.
+const bodyLimitSource = `// MaxRequestBody is the most bytes of a request body that a handler reads.
+const MaxRequestBody = 1 << 20
+
+// readBody reads at most MaxRequestBody bytes of the request body.
+func readBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+	return io.ReadAll(http.MaxBytesReader(w, r.Body, MaxRequestBody))
+}
+
+// bodyError gives the problem of a body that cannot be read: 413 for a body
+// over MaxRequestBody, else 400.
+func bodyError(err error) *ServiceError {
+	if tooLarge := new(http.MaxBytesError); errors.As(err, &tooLarge) {
+		return errorForStatus(http.StatusRequestEntityTooLarge, "the request body is larger than the limit")
+	}
+	return BadRequest(err.Error())
+}
+
+`
+
 // generateValidation produces the validation.go file with OpenAPI request body
 // validation middleware. The generated file embeds the openapi.json spec and
 // uses kin-openapi to validate POST, PUT, and PATCH request bodies at runtime.
 // It reads at most MaxRequestBody bytes of a body and answers a larger body
-// with 413; declareLimit declares MaxRequestBody, which runtime.go declares on
-// the runtime data path.
-func generateValidation(ns string, declareLimit bool) (gen.File, error) {
+// with 413; runtime.go declares MaxRequestBody on the runtime data path, and
+// errors.go on the GORM store path.
+func generateValidation(ns string) (gen.File, error) {
 	var buf bytes.Buffer
 	pkg := path.Base(ns)
 
@@ -2117,11 +2154,6 @@ func generateValidation(ns string, declareLimit bool) (gen.File, error) {
 	fmt.Fprintf(&buf, "\t\"github.com/getkin/kin-openapi/openapi3filter\"\n")
 	fmt.Fprintf(&buf, "\tlegacyrouter \"github.com/getkin/kin-openapi/routers/legacy\"\n")
 	fmt.Fprintf(&buf, ")\n\n")
-
-	if declareLimit {
-		fmt.Fprintf(&buf, "// MaxRequestBody is the most bytes of a request body that a handler reads.\n")
-		fmt.Fprintf(&buf, "const MaxRequestBody = 1 << 20\n\n")
-	}
 
 	// Embedded OpenAPI spec.
 	fmt.Fprintf(&buf, "//go:embed openapi.json\n")

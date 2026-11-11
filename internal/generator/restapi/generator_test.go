@@ -8775,8 +8775,8 @@ func TestGenerate_UpsertKindValidationAndServerManagedFields(t *testing.T) {
 		}
 
 		// Upsert must use io.ReadAll for body reading.
-		if !strings.Contains(handler, "io.ReadAll(r.Body)") {
-			t.Error("upsert handler must use io.ReadAll for body reading")
+		if !strings.Contains(handler, "bodyBytes, err := readBody(w, r)") {
+			t.Error("upsert handler must read the body through readBody, at most MaxRequestBody bytes")
 		}
 		// Kind validation must reject non-string values (checklist item 234).
 		if !strings.Contains(handler, `err != nil || kind != "Setting"`) {
@@ -8811,8 +8811,8 @@ func TestGenerate_UpdateHandlerKindValidation(t *testing.T) {
 		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
 
 		// Update handler must use io.ReadAll for body reading.
-		if !strings.Contains(handler, "io.ReadAll(r.Body)") {
-			t.Error("update handler must use io.ReadAll for body reading")
+		if !strings.Contains(handler, "bodyBytes, err := readBody(w, r)") {
+			t.Error("update handler must read the body through readBody, at most MaxRequestBody bytes")
 		}
 		// Update handler must validate kind field.
 		if !strings.Contains(handler, `rawMap["kind"]`) {
@@ -8949,8 +8949,8 @@ func TestGenerate_PatchHandlerKindValidation(t *testing.T) {
 		// Patch handler must use io.ReadAll for body reading (the PatchRequest
 		// struct does not include "kind", so json.NewDecoder would silently
 		// discard it — checklist item 235).
-		if !strings.Contains(handler, "io.ReadAll(r.Body)") {
-			t.Error("patch handler must use io.ReadAll for body reading")
+		if !strings.Contains(handler, "bodyBytes, err := readBody(w, r)") {
+			t.Error("patch handler must read the body through readBody, at most MaxRequestBody bytes")
 		}
 		// Patch handler must validate kind field.
 		if !strings.Contains(handler, `rawMap["kind"]`) {
