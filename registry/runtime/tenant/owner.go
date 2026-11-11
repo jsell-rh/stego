@@ -94,7 +94,13 @@ func Opened(db *sql.DB) bool {
 	return errors.Is(db.PingContext(ended), context.Canceled)
 }
 
-func open(ctx context.Context, cfg Config) (*sql.DB, error) {
+// Connection gives the connection configuration that Open and OpenOwner open with, after the checks that they make
+// before any connection: Guard, which refuses a session setting (ST-SUP-RP04-LC04), and the transport check, which
+// refuses a configuration or a connection string whose TLS does not verify the server, unless cfg.InsecureLoopback
+// holds and every target is a loopback IP address (ST-SUP-RP04-LC09). A connector that opens a session of its own,
+// such as the listener of pgconn (ST-SUP-RP01-LC20), opens it with this configuration and checks each session with
+// CheckSession. The result is a copy, so a change of the caller's value after the check changes nothing.
+func Connection(cfg Config) (*pgx.ConnConfig, error) {
 	if err := Guard(cfg); err != nil {
 		return nil, err
 	}
@@ -113,6 +119,19 @@ func open(ctx context.Context, cfg Config) (*sql.DB, error) {
 	}
 	for name, value := range cfg.Params {
 		conn.RuntimeParams[name] = value
+	}
+	return conn, nil
+}
+
+// CheckSession is the pooler guard's check of one session (ST-SUP-RP04-LC04): current_setting('app.tenant', true)
+// must be empty outside a transaction. Open and OpenOwner run it on each new connection and each time a connection
+// comes back to the pool.
+func CheckSession(ctx context.Context, conn *pgx.Conn) error { return checkConn(ctx, conn) }
+
+func open(ctx context.Context, cfg Config) (*sql.DB, error) {
+	conn, err := Connection(cfg)
+	if err != nil {
+		return nil, err
 	}
 	db := stdlib.OpenDB(*conn,
 		stdlib.OptionAfterConnect(checkConn),

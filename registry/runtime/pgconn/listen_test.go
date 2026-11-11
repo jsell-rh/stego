@@ -12,6 +12,8 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -66,7 +68,7 @@ func TestListener(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		listener, err := pgconn.Listen(ctx, dsn)
+		listener, err := pgconn.Listen(ctx, loopback(dsn))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -119,7 +121,7 @@ func TestListener(t *testing.T) {
 			"no notifications": func(kind byte, body []byte) ([]byte, bool) { return body, kind != 'A' },
 		} {
 			pooled := proxy(t, dsn, filter)
-			l, err := pgconn.Listen(ctx, pooled)
+			l, err := pgconn.Listen(ctx, loopback(pooled))
 			if err == nil {
 				err = l.Listen(ctx, outbox.NoticeChannel)
 				_ = l.Close(ctx)
@@ -128,7 +130,7 @@ func TestListener(t *testing.T) {
 				t.Fatalf("the stand-in pooler with %s gave %v", name, err)
 			}
 		}
-		direct, err := pgconn.Listen(ctx, dsn)
+		direct, err := pgconn.Listen(ctx, loopback(dsn))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -136,6 +138,108 @@ func TestListener(t *testing.T) {
 		var pid uint32
 		if err := db.QueryRowContext(ctx, `SELECT pid FROM pg_stat_activity WHERE pid = $1`, direct.PID()).Scan(&pid); err != nil || pid != direct.PID() {
 			t.Fatalf("PID %d is not a backend of the server: %v", direct.PID(), err)
+		}
+	})
+}
+
+// loopback is the configuration of the local test server of dsn, which the test reaches without TLS on a loopback
+// IP address, as the adapter's loopback test mode allows.
+func loopback(dsn string) tenant.Config { return tenant.Config{DSN: dsn, InsecureLoopback: true} }
+
+// countingServer is a local TCP stand-in of a hostile server: it counts the connections it accepts and closes each
+// at once. It returns the address and the count.
+func countingServer(t *testing.T) (string, *atomic.Int64) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	var accepted atomic.Int64
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			accepted.Add(1)
+			_ = c.Close()
+		}
+	}()
+	return ln.Addr().String(), &accepted
+}
+
+func TestListenerChecks(t *testing.T) {
+	t.Run("ST-SUP-RP01-LC20-T02 The listener makes the checks of tenant.Open before and after it connects", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		addr, accepted := countingServer(t)
+		_, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// A DSN whose TLS does not verify the server is refused before any connection, so no startup message and no
+		// password reach the server.
+		for _, mode := range []string{"disable", "allow", "prefer", "require"} {
+			dsn := "postgres://victim:s3cret-pass@" + addr + "/db?sslmode=" + mode
+			if l, err := pgconn.Listen(ctx, tenant.Config{DSN: dsn}); err == nil {
+				_ = l.Close(ctx)
+				t.Fatalf("Listen took sslmode=%s", mode)
+			}
+			if n := accepted.Load(); n != 0 {
+				t.Fatalf("with sslmode=%s the server got %d connections, want none", mode, n)
+			}
+		}
+		// The loopback test mode allows no TLS only for a loopback IP address, never a name.
+		if _, err := pgconn.Listen(ctx, tenant.Config{DSN: "postgres://victim:s3cret-pass@localhost:" + port + "/db?sslmode=disable",
+			InsecureLoopback: true}); err == nil {
+			t.Fatal("Listen took the name localhost without TLS")
+		}
+		// The pooler guard refuses a session setting before any connection.
+		for _, dsn := range []string{
+			"postgres://victim:s3cret-pass@" + addr + "/db?sslmode=disable&options=-c%20app.tenant%3Dt1",
+			"postgres://victim:s3cret-pass@" + addr + "/db?sslmode=disable&search_path=evil",
+		} {
+			if _, err := pgconn.Listen(ctx, loopback(dsn)); err == nil || !strings.Contains(err.Error(), "pooler guard") {
+				t.Fatalf("Listen took the session setting of %s: %v", dsn, err)
+			}
+		}
+		if n := accepted.Load(); n != 0 {
+			t.Fatalf("the server got %d connections, want none", n)
+		}
+
+		// A session that carries a tenant outside a transaction, here from a role default, is refused after the
+		// connect.
+		dsn := pgtest.Database(t, "pgconn")
+		db, err := sql.Open("pgx", dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = db.Close() })
+		suffix := make([]byte, 6)
+		if _, err := rand.Read(suffix); err != nil {
+			t.Fatal(err)
+		}
+		role := "pgconn_tenant_" + hex.EncodeToString(suffix)
+		for _, statement := range []string{
+			"CREATE ROLE " + role + " LOGIN PASSWORD 'pgconn-test'",
+			"ALTER ROLE " + role + " SET app.tenant = 't1'",
+		} {
+			if _, err := db.ExecContext(ctx, statement); err != nil {
+				t.Fatal(err)
+			}
+		}
+		t.Cleanup(func() { _, _ = db.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+role) })
+		u, err := url.Parse(dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		u.User = url.UserPassword(role, "pgconn-test")
+		if l, err := pgconn.Listen(ctx, loopback(u.String())); err == nil {
+			_ = l.Close(ctx)
+			t.Fatal("Listen took a session that carries app.tenant")
+		} else if !strings.Contains(err.Error(), "pooler guard") {
+			t.Fatalf("Listen refused the session for another reason: %v", err)
 		}
 	})
 }
