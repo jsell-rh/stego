@@ -2,27 +2,6 @@ kind: fill
 name: org-provisioner
 implements: rest-api.before_create
 collection: organizations
-sign_off:
-  evidence_digest: 414fc91239bca556c9769f626fe7b0f8f2a0403499ccef9b3eb4064c4b627ac0
-  signature:
-    key_type: ssh
-    signer: 35787503+elsell@users.noreply.github.com
-    signature: |
-      -----BEGIN SSH SIGNATURE-----
-      U1NIU0lHAAAAAQAAARcAAAAHc3NoLXJzYQAAAAMBAAEAAAEBALsnksSLm9M7JucxPR5fip
-      7av8zqxlfnHPiKO4ScdopJeezbbuPmQz7KkjDKM2oLsdyeV3PZZZz051W6SC4v8mcAk6wM
-      aUo9FQq81i3h9cmgeeJf06thXUgYM0R58QPNwAquZTgvkGTBFvaBO0amv/tmfSGoqw9sYa
-      Kyum85zOVpOMPrOWR9mZqY/I8SG6nvN05jF+YDksFAArzy6DYU/4LHGIkU9NDuKAe2o1Ww
-      WUP0D2JTJIWxnskmDRqUVgtmmPzW8131Mhur+ms2l/K6Qkv8HmJzspCsZPkxhkDMougK7s
-      G/ltb8qpbwznydvO9A525OppB9qgbqpJ1Yo4Jz7usAAAAKc3RlZ28tZmlsbAAAAAAAAAAG
-      c2hhNTEyAAABFAAAAAxyc2Etc2hhMi01MTIAAAEAd2LuaUAU81EV5h4OBvbPY/7va0BYup
-      cz6Gqj5K3mhWxu6MCImaovbXxryj4dQQGPTrWDzom3vkJJsUQZtzq4kO3zSefa4q1rJnke
-      e0lAntxc/vqmd4m21eLsyHMm6WfckMNEev7aOiJTCRWyyLeTA0vn4xOtzKRI0peDua0ZRN
-      lf6453FrKkDuIIySJAj3vxzqAbHsSh/theIf5z/a1fKbvZRd2SCKNUnsPkUTGCSuNRbZMH
-      8EcEswWn//oAE0lHVyr83PObHCpKP+ugnBu8c6sKdayR1OFBoRtUrHU+dtbHG6Sxfsbd7i
-      C0r4+g8qTggzZvAcaAf18i1NSlsnowmA==
-      -----END SSH SIGNATURE-----
-  signed_at: 2026-11-07T14:10:10Z
 evidence:
   fill_digest: d9b35dc17d0b127110e88f0a49f609b5727939043258574cc66e1166949c2036
   contract_digest: 2257b18389d2beb5ccd5d25949f6e0d527cd6fb02436f284e8a574c1ec037655
@@ -39,3 +18,24 @@ evidence:
     fill.yaml: 69269863d0b410ceceb9c17e1a289a0bc2920e1763b019a8b0720cf123355f2f
     provisioner.go: 7fe9983b235cace1f7a8e431d5b92166e206a3014cd2dccd07e8926d5150f0e9
     provisioner_test.go: ff8badd8c6ad1efdedee431424e50a040bd6f59a4f5377b18231b521be3d6d8c
+sign_off:
+  evidence_digest: 7f8bbacefe95584a1b5bcf4809ad86e9ae22f77ea86875c3723d9453030aa74c
+  signature:
+    key_type: ssh
+    signer: 35787503+elsell@users.noreply.github.com
+    signature: |
+      -----BEGIN SSH SIGNATURE-----
+      U1NIU0lHAAAAAQAAARcAAAAHc3NoLXJzYQAAAAMBAAEAAAEBALsnksSLm9M7JucxPR5fip
+      7av8zqxlfnHPiKO4ScdopJeezbbuPmQz7KkjDKM2oLsdyeV3PZZZz051W6SC4v8mcAk6wM
+      aUo9FQq81i3h9cmgeeJf06thXUgYM0R58QPNwAquZTgvkGTBFvaBO0amv/tmfSGoqw9sYa
+      Kyum85zOVpOMPrOWR9mZqY/I8SG6nvN05jF+YDksFAArzy6DYU/4LHGIkU9NDuKAe2o1Ww
+      WUP0D2JTJIWxnskmDRqUVgtmmPzW8131Mhur+ms2l/K6Qkv8HmJzspCsZPkxhkDMougK7s
+      G/ltb8qpbwznydvO9A525OppB9qgbqpJ1Yo4Jz7usAAAAKc3RlZ28tZmlsbAAAAAAAAAAG
+      c2hhNTEyAAABFAAAAAxyc2Etc2hhMi01MTIAAAEAZyojTPi2lFAIIqzsKGWRgz6k/V56pY
+      qAVrmnRG1dpxJ0vnYb7AuzfmiAMMEg8UnveDxfHCG2BgxJtxO7maUG0lfIZkuisUkqnhR5
+      awYTtfhCjciE1QUs9y//dKpWlQvpA7v1K7OBDJwxCzghDbJyQDW6JH3AK1OBnCThY0D2GZ
+      mGhk6jC4GA3wPvG5SPfNTlZl8iQ0emYzyi5U0OgYML6hki5wFG0VjcJ+2K/ArWIHOkyPQ1
+      7wbfGULxa7sZAj8esyTNBy2lteKuU227x2wHI1z6DXlIY52/1uXyDCb4wEeaz1d6fqQ+cZ
+      imzI3PstSjKAPgqOlOJC2haRBQcvE8tg==
+      -----END SSH SIGNATURE-----
+  signed_at: 2026-11-11T16:40:13Z
