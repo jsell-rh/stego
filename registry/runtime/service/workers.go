@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
+	"github.com/jsell-rh/stego/registry/runtime/audit/auditsink"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
 	"github.com/jsell-rh/stego/registry/runtime/lease"
 	"github.com/jsell-rh/stego/registry/runtime/modes"
@@ -64,6 +65,9 @@ type WorkerSettings struct {
 	WorkerDatabaseURL string
 	// RelayDatabaseURL is the connection string of the relay login role, or empty for a service with no relay.
 	RelayDatabaseURL string
+	// AuditSink are the settings of the system that the audit-sink port binds: an HTTPS endpoint, or the default
+	// table in the service database (ST-SUP-RP05-LC15).
+	AuditSink auditsink.Settings
 }
 
 // ReadWorkerSettings reads the connection settings of the worker mode from the process environment by their fixed
@@ -80,6 +84,9 @@ func ReadWorkerSettings(relay bool) (WorkerSettings, error) {
 			return WorkerSettings{}, err
 		}
 	}
+	if s.AuditSink, err = auditsink.ReadSettings(); err != nil {
+		return WorkerSettings{}, err
+	}
 	return s, nil
 }
 
@@ -87,8 +94,8 @@ func ReadWorkerSettings(relay bool) (WorkerSettings, error) {
 // the generated code gives in Parts: the constructors of the service's component packages and the declared values.
 type WorkerParts struct {
 	// NewWorker gives the outbox worker on queue with config, with the destinations of the service's components
-	// registered on it, such as the audit sink (ST-SUP-RC18-OC30).
-	NewWorker func(queue *outbox.Queue, config outbox.WorkerConfig) (*outbox.Worker, error)
+	// registered on it, such as the audit sink on sink, the system of the worker settings (ST-SUP-RC18-OC30).
+	NewWorker func(queue *outbox.Queue, config outbox.WorkerConfig, sink audit.Sink) (*outbox.Worker, error)
 	// NewRelay builds the authorization relay on the relay role's pool and registers it on the worker as the
 	// destination authz (ST-SUP-RP06-LC06). Nil: the service has no relay.
 	NewRelay func(ctx context.Context, db *sql.DB, relationships authz.Relationships, worker *outbox.Worker,
@@ -280,7 +287,11 @@ func (svc *Service) startWorker(ctx context.Context, c StartConfig, w *Workers) 
 	if err != nil {
 		return nil, err
 	}
-	if w.worker, err = p.NewWorker(queue, config); err != nil {
+	sink, err := auditsink.New(c.Workers.AuditSink, w.workerDB)
+	if err != nil {
+		return nil, err
+	}
+	if w.worker, err = p.NewWorker(queue, config, sink); err != nil {
 		return nil, err
 	}
 	set := []modes.Component{{Name: OutboxWorkerName, Run: w.worker.Run}}
