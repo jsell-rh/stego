@@ -49,6 +49,10 @@ type runtimeWiringInput struct {
 	// QueryStreams are the queries that a server stream serves over gRPC only, which get no HTTP route
 	// (ST-SUP-RC33-OC08).
 	QueryStreams map[string]bool
+	// Generators and Contexts are the generators of the components and their resolved contexts: an auth provider
+	// whose generator is a gen.RuntimeAuthProvider gives the verifier its settings (ST-SUP-RC37).
+	Generators map[string]gen.Generator
+	Contexts   map[string]gen.Context
 }
 
 // runtimeWiringData is the data of the template of the runtime wiring package.
@@ -56,7 +60,12 @@ type runtimeWiringData struct {
 	Audit, Authz, Outbox, Storage, Tenancy, Idempotency, API, Commands, Queries     string
 	Service, DeclarationVersion, SubjectType, TenantClaim, ProblemType, ProblemCode string
 	Issuer, Audience, Header, KeyFile, RoleClaim                                    string
-	Grants                                                                          []string
+	// Discovery, CAFile, SubjectClaim and Algorithms are the settings of an auth provider that the verifier serves
+	// through the discovery document of its issuer, such as oidc-auth (ST-SUP-RC37).
+	Discovery            bool
+	CAFile, SubjectClaim string
+	Algorithms           []string
+	Grants               []string
 }
 
 // runtimeWiring gives the runtime wiring package of a service on the runtime data path and its wiring of main.go
@@ -122,13 +131,15 @@ func runtimeWiring(in runtimeWiringInput) ([]gen.File, ComponentWiring, error) {
 		ConstructorResources:    map[int][]gen.Resource{0: {gen.ServiceContext}},
 		ConstructorReturnsError: map[int]bool{0: true},
 		ConstructorDeferCalls:   map[int]string{0: "Close()"},
+		// A start that the key source refused names its stage, with no error text (ST-SUP-RP14-LC05).
+		ConstructorStages: map[int]string{0: path.Base(RuntimeWiringNamespace) + ".StartStage(err)"},
 		// Run starts the workers of the selected modes and stops them when the process stops (ST-SUP-RP14-LC04).
 		BackgroundTasks: []int{0},
 		// The readiness of the modes, outside the request wrappers (ST-SUP-RP09-LC05).
-		DiscoveryRoutes: []string{`topMux.Handle("GET /readyz/modes", service.Readiness())`},
-		MiddlewareConstructor:   new(int),
-		MiddlewareWrapExpr:      "%s.Middleware(%s)",
-		MigrationJob:            &gen.MigrationJobSpec{Namespace: RuntimeWiringNamespace, Function: "Migrate", Stage: "MigrationStage"},
+		DiscoveryRoutes:       []string{`topMux.Handle("GET /readyz/modes", service.Readiness())`},
+		MiddlewareConstructor: new(int),
+		MiddlewareWrapExpr:    "%s.Middleware(%s)",
+		MigrationJob:          &gen.MigrationJobSpec{Namespace: RuntimeWiringNamespace, Function: "Migrate", Stage: "MigrationStage"},
 		GoModRequires: map[string]string{
 			"google.golang.org/grpc":  "v1.83.2",
 			"gorm.io/gorm":            "v1.25.12",
@@ -280,15 +291,29 @@ func authProviders(names []string, components map[string]*registry.Component) []
 }
 
 // declaredAuthentication gives the verifier of the runtime data path the settings that the declaration states for
-// its auth provider: issuer, audience, header, public_key_file and roles_claim of jwt-auth, which win over the
-// settings of the deployment. On the runtime data path the verifier of the runtime library authenticates each
+// its auth provider, which win over the settings of the deployment: issuer, audience, header, public_key_file and
+// roles_claim of jwt-auth; or the settings that an auth provider such as oidc-auth or rh-sso-auth gives as a
+// gen.RuntimeAuthProvider, whose key set the verifier finds through the discovery document of the issuer
+// (ST-SUP-RC37, ST-SUP-RC21-OC15). On the runtime data path the verifier of the runtime library authenticates each
 // request and binds the identity that the command and query runtimes read (ST-SUP-RP13), so the compiler does not
 // generate the auth provider's own package; it refuses another auth provider, whose settings the verifier cannot
-// take.
+// take, and a provider whose tenant claim is not the declared tenancy claim.
 func declaredAuthentication(in runtimeWiringInput, data *runtimeWiringData) error {
 	for _, name := range authProviders(in.Names, in.Components) {
+		if provider, ok := in.Generators[name].(gen.RuntimeAuthProvider); ok {
+			auth, err := provider.RuntimeAuth(in.Contexts[name])
+			if err != nil {
+				return fmt.Errorf("component %q: %w", name, err)
+			}
+			if auth.TenantClaim != "" && auth.TenantClaim != data.TenantClaim {
+				return fmt.Errorf("the auth provider %s gives the tenant in the claim %s, so the tenancy claim of the declaration must be %s", name, auth.TenantClaim, auth.TenantClaim)
+			}
+			data.Issuer, data.Audience, data.Header, data.RoleClaim = auth.Issuer, auth.Audience, auth.Header, auth.RoleClaim
+			data.Discovery, data.CAFile, data.SubjectClaim, data.Algorithms = true, auth.CAFile, auth.SubjectClaim, auth.Algorithms
+			continue
+		}
 		if name != jwtAuthComponent {
-			return fmt.Errorf("the runtime data path authenticates with the verifier of the runtime library, which takes the settings of %s only; the auth provider %s is not served on it yet", jwtAuthComponent, name)
+			return fmt.Errorf("the runtime data path authenticates with the verifier of the runtime library, which takes the settings of %s, %s and rh-sso-auth only; the auth provider %s is not served on it", jwtAuthComponent, "oidc-auth", name)
 		}
 		config := resolveComponentConfig(in.Components[name], in.Service)
 		text := func(key string) (string, error) {

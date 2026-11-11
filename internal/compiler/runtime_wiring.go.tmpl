@@ -68,6 +68,11 @@ const (
 	declaredHeader    = {{printf "%q" .Header}}
 	declaredKeyFile   = {{printf "%q" .KeyFile}}
 	declaredRoleClaim = {{printf "%q" .RoleClaim}}
+{{- if .Discovery}}
+	// The auth provider finds the key set through the discovery document of the issuer (ST-SUP-RC37).
+	declaredCAFile       = {{printf "%q" .CAFile}}
+	declaredSubjectClaim = {{printf "%q" .SubjectClaim}}
+{{- end}}
 )
 
 // The roles of the database, which the role migration of the tenancy component makes (ST-SUP-RC27-OC04). WorkerRole
@@ -90,6 +95,7 @@ const (
 	AudienceSetting                 = service.AudienceSetting
 	KeysURLSetting                  = service.KeysURLSetting
 	KeysFileSetting                 = service.KeysFileSetting
+	CAFileSetting                   = service.CAFileSetting
 	SpiceDBEndpointSetting          = service.SpiceDBEndpointSetting
 	SpiceDBKeyFileSetting           = service.SpiceDBKeyFileSetting
 	SpiceDBInsecureLoopbackSetting  = service.SpiceDBInsecureLoopbackSetting
@@ -125,7 +131,12 @@ type Runtime struct {
 
 // declared are the settings of the verifier that the declaration states.
 var declared = service.Auth{Issuer: declaredIssuer, Audience: declaredAudience, Header: declaredHeader, KeyFile: declaredKeyFile,
-	RoleClaim: declaredRoleClaim}
+	RoleClaim: declaredRoleClaim{{if .Discovery}}, Discovery: true, CAFile: declaredCAFile, SubjectClaim: declaredSubjectClaim,
+	Algorithms: []string{ {{- range $i, $a := .Algorithms}}{{if $i}}, {{end}}{{printf "%q" $a}}{{end -}} }{{end}}}
+
+// StartStage names the stage of a start that the key source refused, for the failure record of the process, which
+// holds no error text (ST-SUP-RP14-LC05).
+func StartStage(err error) string { return service.StartStage(err) }
 
 // parts are what varies with the declaration of the service, which service.New takes. The outbox worker gets the
 // destinations of the service's components{{if .API}} and the after slots of the collections (ST-SUP-RC20-OC34){{end}}.

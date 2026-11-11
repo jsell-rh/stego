@@ -45,6 +45,24 @@ type SlotConsumer interface {
 	ConsumedSlots() []string
 }
 
+// RuntimeAuth is what an auth provider states for the verifier of the
+// runtime data path (ST-SUP-RP13): the verifier takes the key set of the
+// issuer from its discovery document (ST-SUP-RP13-LC21). An empty field is
+// not stated. TenantClaim, when set, is the one tenant claim that the
+// provider gives, and the declared tenancy claim must be the same.
+type RuntimeAuth struct {
+	Issuer, Audience, Header, RoleClaim, SubjectClaim, TenantClaim, CAFile string
+	Algorithms                                                             []string
+}
+
+// RuntimeAuthProvider is an auth provider that the verifier of the runtime
+// data path serves through the discovery document of its issuer, such as
+// oidc-auth (ST-SUP-RC37). The compiler takes its settings in place of its
+// generated code.
+type RuntimeAuthProvider interface {
+	RuntimeAuth(ctx Context) (RuntimeAuth, error)
+}
+
 // InputProvider declares source files before generation. The compiler reads
 // each file once and checks its snapshot again before it applies output.
 type InputProvider interface {
@@ -395,6 +413,14 @@ type Wiring struct {
 	// `defer jwtHandler.Stop()` after `jwtHandler := auth.NewJWTHandler()`.
 	// The assembler prepends the disambiguated variable name and a dot.
 	ConstructorDeferCalls map[int]string
+
+	// ConstructorStages maps the index of a constructor that returns an
+	// error to a call of a function of the constructor's package,
+	// func(error) string, on the error err, that names the stage of a
+	// refused start, such as "stegoruntime.StartStage(err)". When it gives a
+	// stage, main reports that stage in place of the constructor's own; the
+	// failure record still holds no error text (ST-SUP-RP14-LC05).
+	ConstructorStages map[int]string
 
 	// OuterMiddlewares lists middleware constructors that wrap the HTTP
 	// handler OUTSIDE the auth middleware layer. These are the outermost

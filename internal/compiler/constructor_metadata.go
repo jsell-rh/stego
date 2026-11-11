@@ -2,10 +2,15 @@ package compiler
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 
 	"github.com/jsell-rh/stego/internal/gen"
 )
+
+// stageFunction is a call of a stage function of a constructor's package on
+// the error err: a package name and an exported function name.
+var stageFunction = regexp.MustCompile(`^[a-z][a-z0-9]*\.[A-Z][A-Za-z0-9]*\(err\)$`)
 
 // Validate all constructor references before unused constructors are removed.
 // A bad reference must not silently remove middleware, cleanup, or dependency
@@ -72,6 +77,14 @@ func validateConstructorMetadata(wirings []ComponentWiring) error {
 		for _, index := range constructorMetadataIndexes(w.ConstructorDeferCalls) {
 			if err := check(index, "cleanup"); err != nil {
 				return err
+			}
+		}
+		for _, index := range constructorMetadataIndexes(w.ConstructorStages) {
+			if err := check(index, "stage"); err != nil {
+				return err
+			}
+			if !w.ConstructorReturnsError[index] || !stageFunction.MatchString(w.ConstructorStages[index]) {
+				return fmt.Errorf("component %q gives constructor %d a stage function %q that is not a function of a package for a constructor that returns an error", component.Name, index, w.ConstructorStages[index])
 			}
 		}
 		if w.MiddlewareConstructor != nil {
