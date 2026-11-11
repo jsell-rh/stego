@@ -33,7 +33,7 @@ func buildFill(t *testing.T, src string) error {
 	dir := t.TempDir()
 	module := filepath.Join(dir, "outside")
 	files := map[string]string{
-		"go.mod":       "module example.com/outside\n\ngo 1.26.10\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.0.0\n",
+		"go.mod":       "module example.com/outside\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.0.0\n",
 		"gen/gen.go":   genSource,
 		"fill/fill.go": "package fill\n\nimport \"example.com/outside/gen\"\n\nvar _ gen.LoadedReservation\n" + src,
 	}

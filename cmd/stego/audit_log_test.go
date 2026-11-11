@@ -52,7 +52,7 @@ func compiledService(t *testing.T, service string) (compiler.ReconcilerInput, re
 		}
 	}
 	return compiler.ReconcilerInput{
-		ProjectDir: project, RegistryDir: common, GoVersion: "1.26.10", ModuleName: "example.com/customers",
+		ProjectDir: project, RegistryDir: common, GoVersion: "1.26.11", ModuleName: "example.com/customers",
 		Generators: map[string]gen.Generator{"audit-log": new(auditlog.Generator)},
 	}, pin
 }

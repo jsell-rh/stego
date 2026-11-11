@@ -32,7 +32,7 @@ const tenantColumn = "tenant_id"
 type Generator struct{}
 
 // MinimumGoVersion is the Go version of the runtime library that the generated code imports.
-func (*Generator) MinimumGoVersion() string { return "1.26.10" }
+func (*Generator) MinimumGoVersion() string { return "1.26.11" }
 
 // ValidateContext checks the declared queries before any code is rendered, with the checks of Generate.
 func (*Generator) ValidateContext(ctx gen.Context) error {

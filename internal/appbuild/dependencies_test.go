@@ -24,9 +24,9 @@ func TestDependencyResolutionIgnoresSavedSourceOverlay(t *testing.T) {
 		}
 		project := t.TempDir()
 		dependency := t.TempDir()
-		write(filepath.Join(dependency, "go.mod"), "module example.com/overlay\ngo 1.26.10\n")
+		write(filepath.Join(dependency, "go.mod"), "module example.com/overlay\ngo 1.26.11\n")
 		write(filepath.Join(dependency, "overlay.go"), "package overlay\n")
-		module, err := modfile.Parse("go.mod", []byte("module example.com/snapshot\ngo 1.26.10\n"), nil)
+		module, err := modfile.Parse("go.mod", []byte("module example.com/snapshot\ngo 1.26.11\n"), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -95,7 +95,7 @@ func TestDependencyCommandsPreserveSavedProxyConfiguration(t *testing.T) {
 	defer proxy.Close()
 	directory := t.TempDir()
 	for name, data := range map[string]string{
-		"go.mod":    "module example.com/proxycheck\ngo 1.26.10\nrequire example.invalid/stego-proxy-check v1.0.0\n",
+		"go.mod":    "module example.com/proxycheck\ngo 1.26.11\nrequire example.invalid/stego-proxy-check v1.0.0\n",
 		"domain.go": "package proxycheck\nimport _ \"example.invalid/stego-proxy-check\"\n",
 	} {
 		if err := os.WriteFile(filepath.Join(directory, name), []byte(data), 0600); err != nil {

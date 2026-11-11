@@ -274,7 +274,7 @@ func generateService(t *testing.T, ctx gen.Context) *service {
 		t.Fatal(err)
 	}
 	s := &service{t: t, dir: t.TempDir()}
-	s.write("go.mod", "module "+ctx.ModuleName+"\n\ngo 1.26.10\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.0.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n")
+	s.write("go.mod", "module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.0.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n")
 	sum, err := os.ReadFile(filepath.Join(runtimeDir, "go.sum"))
 	if err != nil {
 		t.Fatal(err)

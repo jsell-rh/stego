@@ -1,6 +1,6 @@
 module github.com/jsell-rh/stego/cmd/assure
 
-go 1.26.10
+go 1.26.11
 
 require (
 	github.com/jsell-rh/stego/internal/assure v0.0.0

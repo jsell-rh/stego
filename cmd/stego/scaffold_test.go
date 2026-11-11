@@ -56,7 +56,7 @@ func TestFillWorkflowBuild(t *testing.T) {
 		t.Chdir(project)
 		t.Setenv("STEGO_REGISTRY", registry)
 		t.Setenv("STEGO_MODULE", "example.com/fill-workflow")
-		t.Setenv("STEGO_GO_VERSION", "1.26.10")
+		t.Setenv("STEGO_GO_VERSION", "1.26.11")
 		t.Setenv("GOWORK", "off")
 		if err := runInit([]string{"--archetype", "rest-crud"}); err != nil {
 			t.Fatal(err)

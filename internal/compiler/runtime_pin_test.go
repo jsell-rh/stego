@@ -54,7 +54,7 @@ func pinProject(t *testing.T, version, runtime string) (string, string) {
 // pinInput is the reconciler input of a pin project whose component hello emits file.
 func pinInput(project, registryDir string, file gen.File) ReconcilerInput {
 	return ReconcilerInput{
-		ProjectDir: project, RegistryDir: registryDir, GoVersion: "1.26.10", ModuleName: "example.com/svc",
+		ProjectDir: project, RegistryDir: registryDir, GoVersion: "1.26.11", ModuleName: "example.com/svc",
 		Generators: map[string]gen.Generator{"hello": &stubGenerator{files: []gen.File{file}, wiring: &gen.Wiring{
 			Imports: []string{"internal/hello"}, Constructors: []string{"hello.NewTask()"}, BackgroundTasks: []int{0},
 		}}},

@@ -81,7 +81,7 @@ func queryProjectOf(t *testing.T, service, slot string) compiler.ReconcilerInput
 	putFile(t, project, "service.yaml", service)
 	putFile(t, project, "fills/get-note/fill.yaml", "kind: fill\nname: get-note\nimplements: "+slot+"\n")
 	putFile(t, project, "fills/list-notes/fill.yaml", "kind: fill\nname: list-notes\nimplements: "+declaration.QuerySlot+"\n")
-	return compiler.ReconcilerInput{ProjectDir: project, RegistryDir: registry, GoVersion: "1.26.10", ModuleName: "example.com/notes",
+	return compiler.ReconcilerInput{ProjectDir: project, RegistryDir: registry, GoVersion: "1.26.11", ModuleName: "example.com/notes",
 		Generators: defaultGenerators(), OutDir: filepath.Join(project, "out"), ReadFill: fill.ReadCollection, ReadFillSlot: fill.ReadImplements}
 }
 
