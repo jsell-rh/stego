@@ -28,7 +28,7 @@ import (
 type Generator struct{}
 
 // MinimumGoVersion is the Go version of the runtime module that the probes import.
-func (*Generator) MinimumGoVersion() string { return "1.26.10" }
+func (*Generator) MinimumGoVersion() string { return "1.26.11" }
 
 // ValidateContext checks the declared observations and emitters before any code is rendered.
 func (*Generator) ValidateContext(ctx gen.Context) error {

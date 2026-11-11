@@ -214,7 +214,7 @@ func ProjectModuleSettings(projectDir, name, goVersion string) (string, string, 
 		name = "github.com/example/service"
 	}
 	if goVersion == "" {
-		goVersion = "1.26.10"
+		goVersion = "1.26.11"
 	}
 	if err := validateBuildTarget(name, goVersion); err != nil {
 		return "", "", err

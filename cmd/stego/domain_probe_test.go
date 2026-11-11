@@ -95,7 +95,7 @@ func probeProject(t *testing.T) (compiler.ReconcilerInput, string) {
 	putFile(t, project, "service.yaml", probeDeclaration)
 	putFile(t, project, "fills/reserve-and-charge/fill.yaml", "kind: fill\nname: reserve-and-charge\nimplements: "+declaration.CommandSlot+"\n")
 	putFile(t, project, "fills/open-reservations/fill.yaml", "kind: fill\nname: open-reservations\nimplements: "+declaration.QuerySlot+"\n")
-	input := compiler.ReconcilerInput{ProjectDir: project, RegistryDir: registry, GoVersion: "1.26.10", ModuleName: "example.com/reservations",
+	input := compiler.ReconcilerInput{ProjectDir: project, RegistryDir: registry, GoVersion: "1.26.11", ModuleName: "example.com/reservations",
 		Generators: defaultGenerators(), OutDir: filepath.Join(project, "out"), ReadFill: fill.ReadCollection, ReadFillSlot: fill.ReadImplements}
 	return input, project
 }

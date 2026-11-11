@@ -34,7 +34,7 @@ const (
 )
 
 // MinimumGoVersion is the Go version of the runtime module that the generated code imports.
-func (*Generator) MinimumGoVersion() string { return "1.26.10" }
+func (*Generator) MinimumGoVersion() string { return "1.26.11" }
 
 // ConsumedSlots is empty: a command fill is bound by the command's fill, not by a slot binding.
 func (*Generator) ConsumedSlots() []string { return []string{} }

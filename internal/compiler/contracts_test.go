@@ -9,7 +9,7 @@ import (
 )
 
 func TestSharedContractAssembly(t *testing.T) {
-	input := AssemblerInput{ModuleName: "example.com/shared", GoVersion: "1.26.10", Wirings: []ComponentWiring{
+	input := AssemblerInput{ModuleName: "example.com/shared", GoVersion: "1.26.11", Wirings: []ComponentWiring{
 		{Name: "first", Wiring: &gen.Wiring{Contracts: []gen.Contract{gen.StorageV1, gen.StorageV1}}},
 		{Name: "second", Wiring: &gen.Wiring{Contracts: []gen.Contract{gen.StorageV1}}},
 	}}

@@ -50,7 +50,7 @@ const databaseSchema = "public"
 type Generator struct{}
 
 // MinimumGoVersion is the Go version of the runtime module that the generated code imports.
-func (*Generator) MinimumGoVersion() string { return "1.26.10" }
+func (*Generator) MinimumGoVersion() string { return "1.26.11" }
 
 // plan is what the emitted code holds, read from the context.
 type plan struct {

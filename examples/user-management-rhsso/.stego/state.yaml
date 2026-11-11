@@ -4,7 +4,7 @@ last_applied:
         version: 2
         options:
             module_name: github.com/example/service
-            go_version: 1.26.10
+            go_version: 1.26.11
             output_dir: out
             registry_ref: env-override
             holds_fills: true
@@ -15,7 +15,7 @@ last_applied:
                 mode: 420
             go.mod:
                 exists: true
-                sha256: 3ae8162c5205c85cca5954d99d5e9672c6eca4d0fee375d6c75d25d5fb8e94e0
+                sha256: 333ba7d4ddd5b93b8e5541c743ba13ccea46da37f686a61dbc40a5b9d487982d
                 mode: 420
             go.sum:
                 exists: true
@@ -25,19 +25,19 @@ last_applied:
                 exists: true
                 sha256: 40aa411da16d99a025ea81b2c13702b86cacd06678d0825757c4865830bee705
                 mode: 420
-        sha256: 20b7375efd067fdc1c63f86fe9230a23db6a23c163b325d41241abcc07d98023
+        sha256: 1daa93726650c5cf104d0d968782f8c4ebf361136b8c5045f9a93d6fab70214d
     compiler_build:
-        go_version: go1.26.10
+        go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261111034552-23066e610f78
+        module_version: v0.0.0-20261111042309-527ce9620b4b
         vcs: git
-        revision: 23066e610f78c38a7d4c9ec0675d531c3f391108
+        revision: 527ce9620b4b0e23363f8b85e422335120a40171
         source_state: clean
     service_name: user-management
     service_hash: 40aa411da16d99a025ea81b2c13702b86cacd06678d0825757c4865830bee705
     registry_sha: env-override
-    registry_content_sha256: e7f6a2f525902a4e4235bca997ace440bffcc977a33e0c8d457ac0a4f35b7d96
+    registry_content_sha256: 6c825d0def5dd0b64f57776a3dbf19663c63b2699f6ed09bebecd20aecca5ee5
     components:
         health-check:
             version: 1.1.0
@@ -191,9 +191,9 @@ last_applied:
         tracing/startup.go: ba2cc8272fddb2c9c18cf10199b7ffe3df430ea88f3d02a6902e00908d154160
     archetype:
         name: rest-crud
-        version: 3.8.0
+        version: 3.9.0
         runtime:
             module: github.com/jsell-rh/stego/registry/runtime
-            version: v0.7.0
-            sum: h1:uYckJnB0MU76x4zIayKblSVadUtbOh9jZq7xtIf4uL4=
+            version: v0.8.0
+            sum: h1:f+lMdM8tDQ0ml7uCNril7eFCwlk8YmIhzdnRJLlcsHw=
     data_path: store

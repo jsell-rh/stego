@@ -58,7 +58,7 @@ func TestGeneratedBackgroundLifecycle(t *testing.T) {
 			if withHTTP {
 				wiring.Routes = []string{`mux.Handle("/", http.NotFoundHandler())`}
 			}
-			files, err := Assemble(AssemblerInput{ModuleName: "example.com/tasks", GoVersion: "1.26.10", Wirings: []ComponentWiring{
+			files, err := Assemble(AssemblerInput{ModuleName: "example.com/tasks", GoVersion: "1.26.11", Wirings: []ComponentWiring{
 				{Name: "tasks", Wiring: wiring},
 				{Name: "duplicate-name", Wiring: &gen.Wiring{Imports: []string{"internal/tasks"}, Constructors: []string{"tasks.NewWorker(resource)"}, ConstructorDeps: map[int][]string{0: {"resource"}}, BackgroundTasks: []int{0}}},
 			}})
@@ -126,7 +126,7 @@ func TestGeneratedBackgroundLifecycle(t *testing.T) {
 func TestBackgroundTaskIndexes(t *testing.T) {
 	t.Run("ST-GEN-INV19-T The assembler checks task indexes and keeps task dependencies", func(t *testing.T) {
 		for _, indexes := range [][]int{{-1}, {1}, {0, 0}} {
-			files, err := Assemble(AssemblerInput{ModuleName: "example.com/tasks", GoVersion: "1.26.10", Wirings: []ComponentWiring{{Name: "tasks", Wiring: &gen.Wiring{Constructors: []string{"tasks.NewWorker()"}, BackgroundTasks: indexes}}}})
+			files, err := Assemble(AssemblerInput{ModuleName: "example.com/tasks", GoVersion: "1.26.11", Wirings: []ComponentWiring{{Name: "tasks", Wiring: &gen.Wiring{Constructors: []string{"tasks.NewWorker()"}, BackgroundTasks: indexes}}}})
 			if err == nil || len(files) != 0 || !strings.Contains(err.Error(), "background task index") {
 				t.Fatalf("invalid indexes %v did not reach task validation: %v", indexes, err)
 			}

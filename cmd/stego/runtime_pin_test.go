@@ -87,7 +87,7 @@ func runtimeService(t *testing.T) (compiler.ReconcilerInput, registry.RuntimePin
 		}
 	}
 	return compiler.ReconcilerInput{
-		ProjectDir: project, RegistryDir: common, GoVersion: "1.26.10", ModuleName: "example.com/svc",
+		ProjectDir: project, RegistryDir: common, GoVersion: "1.26.11", ModuleName: "example.com/svc",
 		Generators: map[string]gen.Generator{"hello": staticGenerator{
 			files:  []gen.File{{Path: "internal/hello/hello.go", Content: []byte(allocationTask)}},
 			wiring: &gen.Wiring{Imports: []string{"internal/hello"}, Constructors: []string{"hello.NewTask()"}, BackgroundTasks: []int{0}},

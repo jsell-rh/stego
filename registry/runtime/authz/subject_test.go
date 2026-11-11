@@ -343,7 +343,7 @@ func buildOutside(t *testing.T, src string) error {
 	if err := os.MkdirAll(module, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(module, "go.mod"), []byte("module example.com/outside\n\ngo 1.26.10\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.0.0\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(module, "go.mod"), []byte("module example.com/outside\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.0.0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(module, "outside.go"), []byte(src), 0o644); err != nil {

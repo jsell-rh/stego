@@ -45,7 +45,7 @@ func generatingProject(t *testing.T, declaration string) {
 	t.Chdir(t.TempDir())
 	t.Setenv("STEGO_REGISTRY", registry)
 	t.Setenv("STEGO_MODULE", "example.com/generating")
-	t.Setenv("STEGO_GO_VERSION", "1.26.10")
+	t.Setenv("STEGO_GO_VERSION", "1.26.11")
 	writeProjectFile(t, "service.yaml", declaration)
 }
 
