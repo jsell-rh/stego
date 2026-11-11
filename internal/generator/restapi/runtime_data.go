@@ -37,12 +37,14 @@ var runtimeSlots = map[string]bool{
 	"after_create": true, "after_patch": true, "after_delete": true, "on_entity_changed": true,
 }
 
-// runtimeFieldTypes are the field types whose Go types are the same in the API type and in the command runtime's
-// row type, so a handler converts one into the other.
+// runtimeFieldTypes are the field types that a handler converts between the API type and the command runtime's row
+// type.
 var runtimeFieldTypes = map[types.FieldType]bool{
 	types.FieldTypeString: true, types.FieldTypeEnum: true, types.FieldTypeRef: true, types.FieldTypeInt32: true,
 	types.FieldTypeInt64: true, types.FieldTypeFloat: true, types.FieldTypeDouble: true, types.FieldTypeBool: true,
 	types.FieldTypeTimestamp: true,
+	// A jsonb field is json.RawMessage in the API type and []byte in the row type: the handler converts it.
+	types.FieldTypeJsonb: true,
 }
 
 // runtimeCollection is one collection on the runtime data path.
@@ -835,12 +837,16 @@ func (w *runtimeHandlerWriter) helpers() {
 		if f.Type == types.FieldTypeFloat {
 			expr = "float32(" + expr + ")"
 		}
-		if f.Optional {
+		switch {
+		case f.Optional && f.Type == types.FieldTypeJsonb:
+			expr = c.camel + "JSON(" + expr + ")"
+		case f.Optional:
 			expr = "ptrOf(" + expr + ")"
 		}
 		w.f(", %s: %s", name, expr)
 	}
 	w.f("}\n}\n\n")
+	w.converters()
 	w.f("// %sPresented gives the response value of one %s: its secret fields are cleared, so no response and no stored\n// response holds them.\n", c.camel, e.Name)
 	w.f("func %sPresented(v %s) any {\n", c.camel, e.Name)
 	for _, f := range e.Fields {
@@ -880,6 +886,79 @@ func (w *runtimeHandlerWriter) helpers() {
 		w.f("\tif kindRaw, ok := rawMap[\"kind\"]; ok {\n\t\tvar kind string\n\t\tif err := json.Unmarshal(kindRaw, &kind); err != nil || kind != %q {\n\t\t\treturn %sPatchRequest{}, &invalidRequest{problem: BadRequest(\"kind must be %s\")}\n\t\t}\n\t}\n", e.Name, c.pascal, e.Name)
 		w.f("\tvar patch %sPatchRequest\n\tif err := json.Unmarshal(bodyBytes, &patch); err != nil {\n\t\treturn %sPatchRequest{}, &invalidRequest{problem: BadRequest(\"the body does not decode into the patch of %s\")}\n\t}\n\treturn patch, nil\n}\n\n", c.pascal, c.pascal, e.Name)
 	}
+}
+
+// hasJSON tells whether the collection's entity has a jsonb field. Its API type holds the field as json.RawMessage
+// (a pointer to one when the field is optional), and the command runtime's row type as []byte, so a struct
+// conversion between the two does not compile and the handler converts field by field.
+func (w *runtimeHandlerWriter) hasJSON() bool {
+	for _, f := range w.c.entity.Fields {
+		if f.Type == types.FieldTypeJsonb {
+			return true
+		}
+	}
+	return false
+}
+
+// toData gives the expression of the command runtime's row value of the API value expr.
+func (w *runtimeHandlerWriter) toData(expr string) string {
+	if w.hasJSON() {
+		return w.c.camel + "ToData(" + expr + ")"
+	}
+	return "data." + w.c.entity.Name + "(" + expr + ")"
+}
+
+// fromData gives the expression of the API value of the command runtime's row value expr.
+func (w *runtimeHandlerWriter) fromData(expr string) string {
+	if w.hasJSON() {
+		return w.c.camel + "FromData(" + expr + ")"
+	}
+	return w.c.entity.Name + "(" + expr + ")"
+}
+
+// converters writes, for an entity with a jsonb field, the field by field conversions between the API value and the
+// command runtime's row value. An optional jsonb field that is not set is nil in both, so it is NULL in its column
+// and absent from a response.
+func (w *runtimeHandlerWriter) converters() {
+	if !w.hasJSON() {
+		return
+	}
+	c, e := w.c, w.c.entity
+	for _, f := range e.Fields {
+		if f.Type == types.FieldTypeJsonb && f.Optional {
+			w.f("// %sJSON gives the API value of an optional jsonb column: nil when the column is NULL.\n", c.camel)
+			w.f("func %sJSON(v []byte) *json.RawMessage {\n\tif v == nil {\n\t\treturn nil\n\t}\n\tr := json.RawMessage(v)\n\treturn &r\n}\n\n", c.camel)
+			w.f("// %sJSONBytes gives the column value of an optional jsonb field: nil, which is NULL, when it is not set.\n", c.camel)
+			w.f("func %sJSONBytes(v *json.RawMessage) []byte {\n\tif v == nil {\n\t\treturn nil\n\t}\n\treturn []byte(*v)\n}\n\n", c.camel)
+			break
+		}
+	}
+	field := func(f types.Field, to bool) string {
+		name := toPascalCase(f.Name)
+		switch {
+		case f.Type != types.FieldTypeJsonb:
+			return "v." + name
+		case f.Optional && to:
+			return c.camel + "JSONBytes(v." + name + ")"
+		case f.Optional:
+			return c.camel + "JSON(v." + name + ")"
+		case to:
+			return "[]byte(v." + name + ")"
+		}
+		return "json.RawMessage(v." + name + ")"
+	}
+	w.f("// %sToData gives the command runtime's row value of an API value of %s.\n", c.camel, e.Name)
+	w.f("func %sToData(v %s) data.%s {\n\treturn data.%s{ID: v.ID", c.camel, e.Name, e.Name, e.Name)
+	for _, f := range e.Fields {
+		w.f(", %s: %s", toPascalCase(f.Name), field(f, true))
+	}
+	w.f("}\n}\n\n")
+	w.f("// %sFromData gives the API value of a command runtime's row value of %s.\n", c.camel, e.Name)
+	w.f("func %sFromData(v data.%s) %s {\n\treturn %s{ID: v.ID", c.camel, e.Name, e.Name, e.Name)
+	for _, f := range e.Fields {
+		w.f(", %s: %s", toPascalCase(f.Name), field(f, false))
+	}
+	w.f("}\n}\n\n")
 }
 
 // zeroOf is the zero value of a Go type of a field.
@@ -1132,8 +1211,8 @@ func (w *runtimeHandlerWriter) create() {
 	w.populateCreate()
 	w.before(types.OpCreate, nil)
 	w.f("\t\trepo, err := data.%sRepository(ch)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", e.Name)
-	w.f("\t\tcreated, err := repo.Create(ctx, data.%s(%s), nil)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", e.Name, c.lower)
-	w.f("\t\tpersisted = %s(created.Value())\n", e.Name)
+	w.f("\t\tcreated, err := repo.Create(ctx, %s, nil)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", w.toData(c.lower))
+	w.f("\t\tpersisted = %s\n", w.fromData("created.Value()"))
 	w.after(types.OpCreate, "persisted", "created", nil)
 	w.respond("http.StatusCreated", "persisted")
 	w.f("\t})\n")
@@ -1155,8 +1234,8 @@ func (w *runtimeHandlerWriter) update() {
 	w.f("\t\t%s.ID = id\n", c.lower)
 	w.populateUpdate()
 	w.before(types.OpUpdate, nil)
-	w.f("\t\tupdated, err := repo.Update(ctx, from, data.%s(%s))\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", e.Name, c.lower)
-	w.f("\t\tpersisted = %s(updated.Value())\n", e.Name)
+	w.f("\t\tupdated, err := repo.Update(ctx, from, %s)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", w.toData(c.lower))
+	w.f("\t\tpersisted = %s\n", w.fromData("updated.Value()"))
 	w.after(types.OpUpdate, "persisted", "updated", nil)
 	w.respond("http.StatusOK", "persisted")
 	w.f("\t})\n")
@@ -1169,7 +1248,7 @@ func (w *runtimeHandlerWriter) lockRow() {
 	e := w.c.entity
 	w.f("\t\trepo, err := data.%sRepository(ch)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", e.Name)
 	w.f("\t\tfrom, err := repo.GetForDelete(ctx, id)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n")
-	w.f("\t\tstored := %s(from.Value())\n\t\t_ = stored\n", e.Name)
+	w.f("\t\tstored := %s\n\t\t_ = stored\n", w.fromData("from.Value()"))
 }
 
 func (w *runtimeHandlerWriter) patch() {
@@ -1204,8 +1283,8 @@ func (w *runtimeHandlerWriter) patch() {
 			w.setField(f, "time.Now().UTC()")
 		}
 	}
-	w.f("\t\tupdated, err := repo.Update(ctx, from, data.%s(%s))\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", e.Name, c.lower)
-	w.f("\t\tpersisted = %s(updated.Value())\n", e.Name)
+	w.f("\t\tupdated, err := repo.Update(ctx, from, %s)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", w.toData(c.lower))
+	w.f("\t\tpersisted = %s\n", w.fromData("updated.Value()"))
 	w.after(types.OpPatch, "persisted", "updated", fields)
 	w.respond("http.StatusOK", "persisted")
 	w.f("\t})\n")

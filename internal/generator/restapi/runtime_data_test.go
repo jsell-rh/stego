@@ -34,9 +34,9 @@ const crudModule = "example.com/crud"
 // service of ST-SUP-RC20-OC37: pooled tenancy, spicedb-authz with the subject type user, idempotency required on
 // create and patch with the problem base https://errors.example.com/crud/, and three collections: orders over the
 // owned entity Order (sku, qty) with create, read, list, patch and delete, a short-circuit chain on before_create and a gate on after_create; customers
-// over Customer (name pii, api_token secret, plan) with create, read, list, update and delete and a gate on
-// validate (ST-SUP-RC28); and todos over Todo (title) with create, read, list, patch, update and delete
-// (ST-SUP-RC30).
+// over Customer (name pii, api_token secret, plan, vault a secret jsonb, contact a pii jsonb) with create, read, list, update and delete and a gate on
+// validate (ST-SUP-RC28); and todos over Todo (title, done, and meta of type jsonb) with create, read, list, patch,
+// update and delete (ST-SUP-RC30).
 func crudContext() gen.Context {
 	public := map[types.Operation]string{types.OpCreate: "public"}
 	reasons := map[types.Operation]string{types.OpCreate: "a new row has no resource to decide on before it exists"}
@@ -51,9 +51,12 @@ func crudContext() gen.Context {
 		{Name: "Order", Fields: []types.Field{{Name: "sku", Type: types.FieldTypeString}, {Name: "qty", Type: types.FieldTypeInt32}},
 			EntityAuthorization: types.EntityAuthorization{ResourceType: "order", Permissions: permissions(types.OpPatch, types.OpDelete), PublicReasons: reasons}},
 		{Name: "Customer", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString, Sensitivity: "pii"},
-			{Name: "api_token", Type: types.FieldTypeString, Sensitivity: "secret"}, {Name: "plan", Type: types.FieldTypeString}},
+			{Name: "api_token", Type: types.FieldTypeString, Sensitivity: "secret"}, {Name: "plan", Type: types.FieldTypeString},
+			{Name: "vault", Type: types.FieldTypeJsonb, Sensitivity: "secret", Optional: true},
+			{Name: "contact", Type: types.FieldTypeJsonb, Sensitivity: "pii", Optional: true}},
 			EntityAuthorization: types.EntityAuthorization{ResourceType: "customer", Permissions: permissions(types.OpUpdate, types.OpDelete), PublicReasons: reasons}},
-		{Name: "Todo", Fields: []types.Field{{Name: "title", Type: types.FieldTypeString}, {Name: "done", Type: types.FieldTypeBool, Optional: true}},
+		{Name: "Todo", Fields: []types.Field{{Name: "title", Type: types.FieldTypeString}, {Name: "done", Type: types.FieldTypeBool, Optional: true},
+			{Name: "meta", Type: types.FieldTypeJsonb, Optional: true}},
 			EntityAuthorization: types.EntityAuthorization{ResourceType: "todo", Permissions: permissions(types.OpPatch, types.OpUpdate, types.OpDelete), PublicReasons: reasons}},
 	}
 	return gen.Context{
@@ -67,7 +70,7 @@ func crudContext() gen.Context {
 		Collections: []types.Collection{
 			{Name: "orders", Entity: "Order", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpPatch, types.OpDelete}, Patchable: []string{"qty"}},
 			{Name: "customers", Entity: "Customer", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpUpdate, types.OpDelete}},
-			{Name: "todos", Entity: "Todo", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpPatch, types.OpUpdate, types.OpDelete}, Patchable: []string{"title", "done"}},
+			{Name: "todos", Entity: "Todo", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpPatch, types.OpUpdate, types.OpDelete}, Patchable: []string{"title", "done", "meta"}},
 		},
 		SlotBindings: []types.SlotDeclaration{
 			{Slot: "before_create", Collection: "orders", Chain: []string{"order-gate"}, ShortCircuit: true},
@@ -264,7 +267,7 @@ func newCrudProject(t *testing.T, ctx gen.Context, files map[string][]byte) *cru
 		t.Fatal(err)
 	}
 	p.write("go.sum", sums)
-	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.13.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
+	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.18.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
 	p.mustGo("mod", "tidy")
 	return p
 }
@@ -409,8 +412,8 @@ func TestCrudService(t *testing.T) {
 			},
 			"implicit fields": func(c *gen.Context) { c.Collections[0].Implicit = map[string]string{"sku": "fixed"} },
 			"a path prefix":   func(c *gen.Context) { c.Collections[0].PathPrefix = "/stock" },
-			"a jsonb field": func(c *gen.Context) {
-				c.Entities[0].Fields = append(c.Entities[0].Fields, types.Field{Name: "doc", Type: types.FieldTypeJsonb})
+			"a bytes field": func(c *gen.Context) {
+				c.Entities[0].Fields = append(c.Entities[0].Fields, types.Field{Name: "doc", Type: types.FieldTypeBytes})
 			},
 			"no resource type": func(c *gen.Context) { c.Entities[0].ResourceType = "" },
 			"no tenancy":       func(c *gen.Context) { c.Tenancy = nil },
@@ -460,6 +463,9 @@ var crudCheckIDs = []string{
 	"ST-SUP-RC28-OC04-T03 A list that returns a pii field writes one read audit row per returned resource, at most one page",
 	"ST-SUP-RC28-OC01-T03 A secret field reaches neither before, after nor the stored row",
 	"ST-SUP-RC20-OC38-T01 A list on the runtime data path pages by cursor in the requested order, with no total",
+	"ST-SUP-RC20-OC37-T08 A jsonb field is written, read and patched as JSON on the runtime data path",
+	"ST-SUP-RC28-OC01-T06 A secret jsonb field reaches neither the audit rows, the answer nor the stored response",
+	"ST-SUP-RC28-OC01-T07 A pii jsonb field is the redaction marker in the before, the after and the patch",
 }
 
 // bodyLimitCheck is a test of the generated api package: the validation middleware answers a body larger than
