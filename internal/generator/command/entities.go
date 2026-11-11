@@ -224,6 +224,12 @@ func renderEntity(w *writer, e *entity, tenantKey string) {
 			state = append(state, fmt.Sprintf("%q: command.StateOf(v.%s)", f.decl.Name, f.goName))
 			continue
 		}
+		// A jsonb column holds JSON text: its state is that JSON value, which the audit runtime decodes and redacts
+		// at any depth (ST-SUP-RP05-LC03). A NULL column is nil.
+		if f.decl.Type == types.FieldTypeJsonb {
+			state = append(state, fmt.Sprintf("%q: json.RawMessage(v.%s)", f.decl.Name, f.goName))
+			continue
+		}
 		state = append(state, fmt.Sprintf("%q: v.%s", f.decl.Name, f.goName))
 	}
 	w.f("\tState: func(v %s) map[string]any {\n\t\treturn map[string]any{%s}\n\t},\n", e.goName, strings.Join(state, ", "))

@@ -178,13 +178,15 @@ func folderTree(root, commit, folder string) (string, error) {
 }
 
 // ChangeRequest is what Gate a change reads: the repository that holds both commits, the change's commit and the
-// base head, the provider's trusted signer and the change's own reference, and the path of the Lathe CLI.
+// base head, the provider's trusted signer and the change's own reference, the provider's record of commits,
+// which gives the parents of the merge commit a change-grade proof run ran at, and the path of the Lathe CLI.
 type ChangeRequest struct {
 	Root      string
 	Commit    string
 	Base      string
 	Trusted   TrustedSigner
 	ChangeRef string
+	Commits   CommitParents
 	Lathe     string
 }
 
@@ -220,7 +222,7 @@ func GateChange(request ChangeRequest, store AttestationStore, verifier BundleVe
 		return Decision{}, ChangeDecided{}, err
 	}
 	verification, err := VerifyAttestation(request.Commit, store, verifier,
-		Trust{Signer: request.Trusted, ChangeRef: request.ChangeRef, WorkflowChanges: changed})
+		Trust{Signer: request.Trusted, ChangeRef: request.ChangeRef, Base: request.Base, WorkflowChanges: changed, Commits: request.Commits})
 	if err != nil {
 		return Decision{}, ChangeDecided{}, err
 	}

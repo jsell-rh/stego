@@ -124,6 +124,71 @@ func (g GitHubAttestations) Fetch(commit string) ([][]byte, error) {
 	return bundles, nil
 }
 
+// Parents reads the parents of a commit, in order, from GitHub's git commits API at API, for the repository
+// Slug, with Token when there is one. A pull request's run runs at the merge commit of refs/pull/N/merge, which
+// is not in the change's history, so only GitHub can give it. GitHub answers 404 when it keeps no such commit;
+// Parents then gives none. It refuses an answer about another commit, and a parent that is not a full commit ID.
+func (g GitHubAttestations) Parents(commit string) ([]string, error) {
+	if !fullCommit(commit) {
+		return nil, fmt.Errorf("commit %q is not a full 40-character commit ID", commit)
+	}
+	api, err := url.Parse(strings.TrimSuffix(g.API, "/"))
+	if err != nil || api.Scheme != "https" || api.Host == "" {
+		return nil, fmt.Errorf("the GitHub API URL %q is not an https URL", g.API)
+	}
+	if !validSlug(g.Slug) {
+		return nil, fmt.Errorf("the GitHub repository %q is not owner/name", g.Slug)
+	}
+	client := g.Client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	request, err := http.NewRequest(http.MethodGet, api.String()+"/repos/"+g.Slug+"/git/commits/"+commit, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if g.Token != "" {
+		request.Header.Set("Authorization", "Bearer "+g.Token)
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	response.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	if response.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub answers %s for the commit %s: %s", response.Status, commit, strings.TrimSpace(string(body)))
+	}
+	var answer struct {
+		SHA     string `json:"sha"`
+		Parents []struct {
+			SHA string `json:"sha"`
+		} `json:"parents"`
+	}
+	if err := json.Unmarshal(body, &answer); err != nil {
+		return nil, fmt.Errorf("GitHub's commit %s: %w", commit, err)
+	}
+	if answer.SHA != commit {
+		return nil, fmt.Errorf("GitHub answers about the commit %q, not about %s", answer.SHA, commit)
+	}
+	parents := make([]string, 0, len(answer.Parents))
+	for _, parent := range answer.Parents {
+		if !fullCommit(parent.SHA) {
+			return nil, fmt.Errorf("GitHub gives the parent %q of %s, which is not a full commit ID", parent.SHA, commit)
+		}
+		parents = append(parents, parent.SHA)
+	}
+	return parents, nil
+}
+
 // validSlug tells if the text is a GitHub repository's owner/name.
 func validSlug(slug string) bool {
 	owner, name, ok := strings.Cut(slug, "/")
