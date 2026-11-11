@@ -29,7 +29,7 @@ var ErrNoCursorKey = errors.New("query: the runtime has no cursor key")
 
 // The parts of the text form of a cursor.
 const (
-	cursorVersion = 2
+	cursorVersion = 3
 	cursorTable   = 0
 	cursorSearch  = 1
 	cursorOrdered = 2
@@ -66,9 +66,11 @@ func (rt *Runtime) CursorText(q *Query, t tenant.Tenant, p authz.Principal, c Cu
 		payload = appendText(payload, c.order)
 		payload = appendText(payload, c.values)
 		payload = appendText(payload, c.after)
+		payload = appendText(payload, c.filter)
 	case c.page.IsZero():
 		payload = append(payload, cursorTable)
 		payload = appendText(payload, c.after)
+		payload = appendText(payload, c.filter)
 	default:
 		provider := c.page.Provider()
 		cursor, first, _ := c.page.CursorFor(provider)
@@ -120,19 +122,21 @@ func (rt *Runtime) ParseCursor(q *Query, t tenant.Tenant, p authz.Principal, tex
 	rest := payload[2:]
 	switch payload[1] {
 	case cursorTable:
-		after, rest, ok := readText(rest)
-		if !ok || len(rest) != 0 {
+		after, rest, ok1 := readText(rest)
+		filter, rest, ok2 := readText(rest)
+		if !ok1 || !ok2 || len(rest) != 0 {
 			return Cursor{}, ErrBadCursor
 		}
-		return Cursor{after: after, started: true}, nil
+		return Cursor{after: after, started: true, filter: filter}, nil
 	case cursorOrdered:
 		order, rest, ok1 := readText(rest)
 		values, rest, ok2 := readText(rest)
 		after, rest, ok3 := readText(rest)
-		if !ok1 || !ok2 || !ok3 || len(rest) != 0 || order == "" {
+		filter, rest, ok4 := readText(rest)
+		if !ok1 || !ok2 || !ok3 || !ok4 || len(rest) != 0 || order == "" {
 			return Cursor{}, ErrBadCursor
 		}
-		return Cursor{after: after, started: true, order: order, values: values}, nil
+		return Cursor{after: after, started: true, order: order, values: values, filter: filter}, nil
 	case cursorSearch:
 		provider, rest, ok1 := readText(rest)
 		cursor, rest, ok2 := readText(rest)

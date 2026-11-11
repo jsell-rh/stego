@@ -2,8 +2,10 @@ package query
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -87,6 +89,9 @@ type Cursor struct {
 	// order (encodePosition).
 	order  string
 	values string
+	// filter is the digest of the filter of the list (filterDigest), so a cursor is refused for another filter
+	// (ST-SUP-RP11-LC20).
+	filter string
 }
 
 // ListRequest is one page of a list: at most Limit allowed values after the cursor. A Limit of 0 is 100; the most
@@ -96,6 +101,68 @@ type ListRequest struct {
 	Limit int
 	After Cursor
 	Order []OrderBy
+	// Where keeps only the rows whose declared fields equal the given values, all of them (ST-SUP-RP11-LC20). Each
+	// field is a column of the entity's Spec and each value goes to the statement as a parameter, never as text.
+	Where []Equal
+}
+
+// Equal is one condition of the filter of a list: the column Field of the entity's Spec equals Value. Value is a
+// string, a bool, an int, int32 or int64, or a float64; NULL matches no condition.
+type Equal struct {
+	Field string
+	Value any
+}
+
+// MaxFilter is the most conditions of the filter of a list.
+const MaxFilter = 8
+
+// checkFilter refuses, before any row is read, a filter of more than MaxFilter conditions, a field that the entity
+// does not declare or that the filter names twice, and a value of another type (ST-SUP-RP11-LC20). Its error names
+// the field and not the value.
+func (e *entity) checkFilter(where []Equal) error {
+	if len(where) > MaxFilter {
+		return fmt.Errorf("%w: a list of %s filters on at most %d fields", ErrBadRequest, e.spec.Name, MaxFilter)
+	}
+	seen := map[string]bool{}
+	for _, w := range where {
+		if !slices.Contains(e.spec.Columns, w.Field) || seen[w.Field] {
+			return fmt.Errorf("%w: the entity %s declares no filter field %q, or the filter names it twice", ErrBadRequest, e.spec.Name, w.Field)
+		}
+		seen[w.Field] = true
+		switch w.Value.(type) {
+		case string, bool, int, int32, int64, float64:
+		default:
+			return fmt.Errorf("%w: the filter value of the field %s of %s has a type that a filter does not take", ErrBadRequest, w.Field, e.spec.Name)
+		}
+	}
+	return nil
+}
+
+// filterDigest is the text that a cursor holds of a filter: a SHA-256 digest of its conditions in field order, each
+// with the type and the value, so that a cursor of one filter is refused for another, and the cursor stays short.
+func filterDigest(where []Equal) string {
+	if len(where) == 0 {
+		return ""
+	}
+	sorted := slices.Clone(where)
+	slices.SortFunc(sorted, func(a, b Equal) int { return strings.Compare(a.Field, b.Field) })
+	h := sha256.New()
+	for _, w := range sorted {
+		fmt.Fprintf(h, "%d:%s%d:%T%d:%v", len(w.Field), w.Field, len(fmt.Sprintf("%T", w.Value)), w.Value, len(fmt.Sprint(w.Value)), w.Value)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// filterSQL gives the predicate of a filter, " AND field = $n" for each condition, with its parameters numbered from
+// first, and the values.
+func filterSQL(where []Equal, first int) (string, []any) {
+	var b strings.Builder
+	args := make([]any, 0, len(where))
+	for i, w := range where {
+		fmt.Fprintf(&b, " AND %s = $%d", w.Field, first+i)
+		args = append(args, w.Value)
+	}
+	return b.String(), args
 }
 
 // OrderBy is one field of the order of a list: a column of the entity's Spec, and its direction. NULL values come
@@ -160,6 +227,13 @@ func (r *Repository[T]) List(ctx context.Context, request ListRequest) (ListResu
 		return ListResult[T]{}, fmt.Errorf("query: a list page holds 1 to %d values", MaxLimit)
 	}
 	e := &r.entity.e
+	if err := e.checkFilter(request.Where); err != nil {
+		return ListResult[T]{}, err
+	}
+	filter := filterDigest(request.Where)
+	if (request.After.started || !request.After.page.IsZero()) && request.After.filter != filter {
+		return ListResult[T]{}, ErrBadCursor
+	}
 	if len(request.Order) > 0 {
 		// An order of declared fields reads the table in that order, with the key last (ST-SUP-RP11-LC18); a resource
 		// search has the provider's order, so it is not used.
@@ -172,18 +246,19 @@ func (r *Repository[T]) List(ctx context.Context, request ListRequest) (ListResu
 		if _, err := decodePosition(request.After.values, len(request.Order), request.After.started); err != nil {
 			return ListResult[T]{}, err
 		}
-		return r.tablePage(ctx, limit, request.After, request.Order)
+		return r.tablePage(ctx, limit, request.After, request.Order, request.Where)
 	}
 	if request.After.order != "" {
 		return ListResult[T]{}, ErrBadCursor
 	}
-	if e.spec.ResourceType != "" && e.spec.Search && c.authz != nil {
+	// A resource search has no filter of the table's columns, so a filtered list pages the table.
+	if e.spec.ResourceType != "" && e.spec.Search && c.authz != nil && len(request.Where) == 0 {
 		result, err := r.searchPage(ctx, limit, request.After)
 		if !errors.Is(err, authz.ErrNoSearch) {
 			return result, err
 		}
 	}
-	return r.tablePage(ctx, limit, request.After, nil)
+	return r.tablePage(ctx, limit, request.After, nil, request.Where)
 }
 
 // MaxOrder is the most fields of the order of a list.
@@ -209,7 +284,7 @@ func (e *entity) checkOrder(order []OrderBy) error {
 // rows after the position values and key, or from the start when started is false, in the order of the fields and
 // then of the key, with NULL values last in either direction. A position value that is NULL has no row after it on
 // its field but the rows that are NULL there too.
-func (e *entity) orderedStatement(order []OrderBy, started bool, values []any, key string, size int) (string, []any) {
+func (e *entity) orderedStatement(order []OrderBy, started bool, values []any, key string, size int, where []Equal) (string, []any) {
 	var by []string
 	for _, o := range order {
 		if o.Descending {
@@ -224,7 +299,7 @@ func (e *entity) orderedStatement(order []OrderBy, started bool, values []any, k
 		args = append(args, v)
 		return "$" + strconv.Itoa(len(args)+1)
 	}
-	where := ""
+	after := ""
 	if started {
 		var alternatives, equal []string
 		for i, o := range order {
@@ -244,11 +319,13 @@ func (e *entity) orderedStatement(order []OrderBy, started bool, values []any, k
 		}
 		last := e.spec.Key + " > " + param(key)
 		alternatives = append(alternatives, "("+strings.Join(append(equal, last), " AND ")+")")
-		where = " AND (" + strings.Join(alternatives, " OR ") + ")"
+		after = " AND (" + strings.Join(alternatives, " OR ") + ")"
 	}
+	filter, filterArgs := filterSQL(where, len(args)+2)
+	args = append(args, filterArgs...)
 	limit := param(size)
-	return "SELECT " + e.selectList + " FROM " + e.table + " WHERE " + TenantColumn + " = $1" + where + " ORDER BY " +
-		strings.Join(by, ", ") + " LIMIT " + limit, args
+	return "SELECT " + e.selectList + " FROM " + e.table + " WHERE " + TenantColumn + " = $1" + filter + after +
+		" ORDER BY " + strings.Join(by, ", ") + " LIMIT " + limit, args
 }
 
 // position gives the encoded position values of a row on the fields of order, which a cursor of the list holds:
@@ -356,7 +433,7 @@ func (r *Repository[T]) permission() string {
 
 // tablePage pages the table by its key, or in order and then by its key, and keeps the allowed rows of each page,
 // until it holds limit values or the table ends.
-func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, order []OrderBy) (ListResult[T], error) {
+func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, order []OrderBy, where []Equal) (ListResult[T], error) {
 	c := r.core
 	e := &r.entity.e
 	var list *authz.List
@@ -364,10 +441,14 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, 
 		list = c.authz.List(r.permission(), nil)
 	}
 	// The first page has no key predicate, so a key of any type, such as uuid, needs no lowest value.
-	first := "SELECT " + e.selectList + " FROM " + e.table + " WHERE " + TenantColumn + " = $1 ORDER BY " + e.spec.Key +
-		" LIMIT $2"
-	next := "SELECT " + e.selectList + " FROM " + e.table + " WHERE " + TenantColumn + " = $1 AND " + e.spec.Key +
-		" > $2 ORDER BY " + e.spec.Key + " LIMIT $3"
+	// The filter's values are the parameters after the tenant ($2 on), and then come the key and the limit.
+	filter, filterArgs := filterSQL(where, 2)
+	n := len(filterArgs) + 2
+	first := "SELECT " + e.selectList + " FROM " + e.table + " WHERE " + TenantColumn + " = $1" + filter + " ORDER BY " +
+		e.spec.Key + " LIMIT $" + strconv.Itoa(n)
+	next := "SELECT " + e.selectList + " FROM " + e.table + " WHERE " + TenantColumn + " = $1" + filter + " AND " +
+		e.spec.Key + " > $" + strconv.Itoa(n) + " ORDER BY " + e.spec.Key + " LIMIT $" + strconv.Itoa(n+1)
+	digest := filterDigest(where)
 	// One call reads at most ScanLimit rows, in chunks of at least MinChunk, so a principal who may see few rows
 	// never makes one call read the whole table (ST-SUP-RP11-LC07).
 	chunk := max(limit, MinChunk)
@@ -388,12 +469,12 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, 
 			if err != nil {
 				return ListResult[T]{}, err
 			}
-			statement, args := e.orderedStatement(order, started, at, key, size)
+			statement, args := e.orderedStatement(order, started, at, key, size, where)
 			rows, err = c.tx.QueryContext(ctx, statement, append([]any{c.tenant.ID()}, args...)...)
 		case started:
-			rows, err = c.tx.QueryContext(ctx, next, c.tenant.ID(), key, size)
+			rows, err = c.tx.QueryContext(ctx, next, append(append([]any{c.tenant.ID()}, filterArgs...), key, size)...)
 		default:
-			rows, err = c.tx.QueryContext(ctx, first, c.tenant.ID(), size)
+			rows, err = c.tx.QueryContext(ctx, first, append(append([]any{c.tenant.ID()}, filterArgs...), size)...)
 		}
 		if err != nil {
 			return ListResult[T]{}, fmt.Errorf("query: list %s: %w", e.spec.Name, err)
@@ -465,7 +546,7 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, 
 			}
 			result.Items = append(result.Items, loaded)
 			if len(result.Items) == limit {
-				result.Next, result.More = Cursor{after: ids[i], started: true, order: ordered, values: positions[i]}, true
+				result.Next, result.More = Cursor{after: ids[i], started: true, order: ordered, values: positions[i], filter: digest}, true
 				return result, nil
 			}
 		}
@@ -474,7 +555,7 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, 
 		}
 		if scanned >= ScanLimit {
 			// The scan budget of the call is spent: the next call goes on after the last row read.
-			result.Next, result.More = Cursor{after: key, started: true, order: ordered, values: values}, true
+			result.Next, result.More = Cursor{after: key, started: true, order: ordered, values: values, filter: digest}, true
 			return result, nil
 		}
 	}
