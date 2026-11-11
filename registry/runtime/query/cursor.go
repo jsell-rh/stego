@@ -32,6 +32,7 @@ const (
 	cursorVersion = 2
 	cursorTable   = 0
 	cursorSearch  = 1
+	cursorOrdered = 2
 
 	consistencyNone    = 0
 	consistencyFresh   = 1
@@ -58,10 +59,17 @@ func (rt *Runtime) CursorText(q *Query, t tenant.Tenant, p authz.Principal, c Cu
 		return "", errors.New("query: a cursor needs its query, tenant and principal")
 	}
 	payload := []byte{cursorVersion}
-	if c.page.IsZero() {
+	switch {
+	case c.order != "":
+		// A list in order holds the order, the position of each order field and the key (ST-SUP-RP11-LC18).
+		payload = append(payload, cursorOrdered)
+		payload = appendText(payload, c.order)
+		payload = appendText(payload, c.values)
+		payload = appendText(payload, c.after)
+	case c.page.IsZero():
 		payload = append(payload, cursorTable)
 		payload = appendText(payload, c.after)
-	} else {
+	default:
 		provider := c.page.Provider()
 		cursor, first, _ := c.page.CursorFor(provider)
 		payload = append(payload, cursorSearch)
@@ -117,6 +125,14 @@ func (rt *Runtime) ParseCursor(q *Query, t tenant.Tenant, p authz.Principal, tex
 			return Cursor{}, ErrBadCursor
 		}
 		return Cursor{after: after, started: true}, nil
+	case cursorOrdered:
+		order, rest, ok1 := readText(rest)
+		values, rest, ok2 := readText(rest)
+		after, rest, ok3 := readText(rest)
+		if !ok1 || !ok2 || !ok3 || len(rest) != 0 || order == "" {
+			return Cursor{}, ErrBadCursor
+		}
+		return Cursor{after: after, started: true, order: order, values: values}, nil
 	case cursorSearch:
 		provider, rest, ok1 := readText(rest)
 		cursor, rest, ok2 := readText(rest)

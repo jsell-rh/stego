@@ -1,10 +1,17 @@
 package query
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
+
+	"github.com/jsell-rh/stego/registry/runtime/authn"
+	"github.com/jsell-rh/stego/registry/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/otel"
+	"github.com/jsell-rh/stego/registry/runtime/probe"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // MaxRequestBody is the most bytes of a request body that Serve lets Decode read.
@@ -35,14 +42,22 @@ type HTTP[Req, Res, P any] struct {
 	Next func(res Res) Cursor
 	// Encode writes the response body: res, and next, the text form of the next cursor, empty at the end.
 	Encode func(res Res, next string) ([]byte, error)
+	// Refusal is the refusal lookup, which the generated code sets to queries.Declared: it gives the declared status
+	// and code of an error of the fill that is a refusal that the query declares, and false for every other error.
+	// Nil knows no refusal (ST-SUP-RP11-LC17).
+	Refusal func(err error) (status int, code string, ok bool)
 }
 
-// problem is a problem response (RFC 9457). It holds a fixed title and the status only: no error text and no data
-// of a row.
+// ErrorCodeInternal is the fixed code of a query that failed with an error that is not a declared refusal.
+const ErrorCodeInternal = "internal"
+
+// problem is a problem response (RFC 9457). It holds a fixed title, the status and, for a declared refusal or a
+// failed query, the fixed code only: no error text and no data of a row.
 type problem struct {
 	Type   string `json:"type"`
 	Title  string `json:"title"`
 	Status int    `json:"status"`
+	Code   string `json:"code,omitempty"`
 }
 
 // The fixed titles of the problem responses.
@@ -110,7 +125,18 @@ func Serve[Req, Res, P any](rt *Runtime, s HTTP[Req, Res, P]) (http.Handler, err
 		ran = true
 		res, err := Run(r.Context(), rt, s.Query, b, req, s.Fill)
 		if err != nil {
-			writeProblem(w, statusOf(err))
+			status, code := statusOf(err), ""
+			if s.Refusal != nil {
+				if declared, declaredCode, ok := s.Refusal(err); ok && declared >= 400 && declared <= 599 {
+					status, code = declared, declaredCode
+				}
+			}
+			if code == "" && status == http.StatusInternalServerError {
+				code = ErrorCodeInternal
+			}
+			// The completion log of the request holds the fixed code, never the error text (ST-SUP-RP03-LC12).
+			otel.SetErrorCode(r.Context(), code)
+			writeCodedProblem(w, status, code)
 			return
 		}
 		next := ""
@@ -147,10 +173,140 @@ func statusOf(err error) int {
 }
 
 // writeProblem writes the problem response of status.
-func writeProblem(w http.ResponseWriter, status int) {
-	body, _ := json.Marshal(problem{Type: "about:blank", Title: titles[status], Status: status})
+func writeProblem(w http.ResponseWriter, status int) { writeCodedProblem(w, status, "") }
+
+// writeCodedProblem writes the problem response of status with the fixed code, when there is one.
+func writeCodedProblem(w http.ResponseWriter, status int, code string) {
+	title := titles[status]
+	if title == "" {
+		title = http.StatusText(status)
+	}
+	body, _ := json.Marshal(problem{Type: "about:blank", Title: title, Status: status, Code: code})
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(status)
 	_, _ = w.Write(body)
 }
+
+// Refusal is one refusal that a query declares (ST-SUP-RC33-OC07): the query, its name, its HTTP status and its
+// fixed code. Its fields are unexported: the generated contract makes each declared value once with NewRefusal, and
+// its lookup knows only those values, so a refusal that a fill makes itself is answered 500 internal. Its text is
+// its code alone, never a text of the fill.
+type Refusal struct {
+	query, name, code string
+	status            int
+}
+
+// NewRefusal makes the refusal name of the query named query, with its status and its fixed code. The generated
+// contract calls it once for each declared refusal.
+func NewRefusal(query, name string, status int, code string) *Refusal {
+	return &Refusal{query: query, name: name, status: status, code: code}
+}
+
+// Error is the refusal's code.
+func (r *Refusal) Error() string {
+	if r == nil {
+		return "refused"
+	}
+	return r.code
+}
+
+// Query is the query that declares the refusal, Name its declared name, Status its HTTP status and Code its fixed
+// code.
+func (r *Refusal) Query() string { return r.query }
+func (r *Refusal) Name() string  { return r.name }
+func (r *Refusal) Status() int   { return r.status }
+func (r *Refusal) Code() string  { return r.code }
+
+// Lookup gives the refusal lookup of HTTP for the declared refusals of one query: it knows an error that is one of
+// declared, by identity, and no other error.
+func Lookup(declared ...*Refusal) func(error) (int, string, bool) {
+	return func(err error) (int, string, bool) {
+		var r *Refusal
+		if !errors.As(err, &r) {
+			return 0, "", false
+		}
+		for _, d := range declared {
+			if d != nil && d == r {
+				return r.status, r.code, true
+			}
+		}
+		return 0, "", false
+	}
+}
+
+// Probes binds the probe call of one query call to its span context, tenant, principal and query name: the probe
+// runtime, or its Recorder in a test.
+type Probes interface {
+	Bind(ctx context.Context, tenant, principal, operation string) *probe.Call
+}
+
+// RequestIDHeader is the request header whose value is the request ID of the audit rows of a query.
+const RequestIDHeader = "X-Request-Id"
+
+// BindContext gives the bound call of the query q for the verified identity of ctx (ST-SUP-RP11-LC17): the tenant of
+// its verified claim, the principal of subjectType that its subject maps to, and the probe call of probes bound to
+// both and to the query name, with newProbe as the typed probe constructor and requestID for the audit rows. A
+// context with no verified identity, or one whose claim gives no tenant, is not bound: an error that Serve answers
+// with 401.
+func BindContext[P any](ctx context.Context, probes Probes, subjectType string, q *Query, newProbe func(*probe.Probe) P,
+	requestID string) (Bound[P], error) {
+	if probes == nil || q == nil || newProbe == nil || subjectType == "" {
+		return Bound[P]{}, errors.New("query: a bind needs the probes, the subject type, the query and its probe")
+	}
+	id, ok := authn.FromContext(ctx)
+	if !ok {
+		return Bound[P]{}, errors.New("query: the request holds no verified identity")
+	}
+	t, err := tenant.New(tenant.Claim(id))
+	if err != nil {
+		return Bound[P]{}, err
+	}
+	p, err := authz.Person(subjectType, id)
+	if err != nil {
+		return Bound[P]{}, err
+	}
+	call := probes.Bind(ctx, t.ID(), p.Subject().String(), q.Name())
+	return Bound[P]{Tenant: t, Principal: p, Call: call, Probe: newProbe, RequestID: requestID}, nil
+}
+
+// BindHTTP gives the Bind of HTTP for the query q: BindContext of the request's context, with the request ID of
+// RequestIDHeader.
+func BindHTTP[P any](probes Probes, subjectType string, q *Query, newProbe func(*probe.Probe) P) func(r *http.Request) (Bound[P], error) {
+	return func(r *http.Request) (Bound[P], error) {
+		return BindContext(r.Context(), probes, subjectType, q, newProbe, r.Header.Get(RequestIDHeader))
+	}
+}
+
+// LimitParameter is the URL query parameter that holds the most values of a list page.
+const LimitParameter = "limit"
+
+// Limit reads the limit parameter of a list request (ST-SUP-RP11-LC17): absent is 0, the default page; a value
+// that is not a whole number from 1 to MaxLimit is ErrBadRequest, which Serve answers with 400.
+func Limit(r *http.Request) (int, error) {
+	text := r.URL.Query().Get(LimitParameter)
+	if text == "" {
+		return 0, nil
+	}
+	limit, err := strconv.Atoi(text)
+	if err != nil || limit < 1 || limit > MaxLimit {
+		return 0, ErrBadRequest
+	}
+	return limit, nil
+}
+
+// page is the body of a list response: its items and the sealed text of the next cursor, absent at the end. It has
+// no total (ST-SUP-RP11-LC18).
+type page struct {
+	Items any    `json:"items"`
+	Next  string `json:"next,omitempty"`
+}
+
+// EncodePage writes the body of a list response as JSON: the items and next, the text of the next cursor, which is
+// empty at the end of the list (ST-SUP-RP11-LC17). It is the Encode of a list query.
+func EncodePage(items any, next string) ([]byte, error) {
+	return json.Marshal(page{Items: items, Next: next})
+}
+
+// EncodeValue writes the response of a get query as JSON. It is the Encode of a get query.
+func EncodeValue[Res any](res Res, _ string) ([]byte, error) { return json.Marshal(res) }

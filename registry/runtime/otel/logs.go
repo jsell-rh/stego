@@ -67,6 +67,20 @@ func withErrorCode(ctx context.Context) context.Context {
 	return context.WithValue(ctx, errorCodeKey{}, &errorCode{})
 }
 
+// WithErrorCode gives ctx a place for the fixed error code of its call, as Handler and TraceRPC do, for a server
+// that has no telemetry runtime or for a test of a handler; ErrorCode reads it.
+func WithErrorCode(ctx context.Context) context.Context { return withErrorCode(ctx) }
+
+// ErrorCode gives the fixed error code that SetErrorCode gave the call of ctx, and false when it gave none.
+func ErrorCode(ctx context.Context) (string, bool) {
+	if holder, ok := ctx.Value(errorCodeKey{}).(*errorCode); ok {
+		if code := holder.code.Load(); code != nil {
+			return *code, true
+		}
+	}
+	return "", false
+}
+
 // errorCodeOf gives the completion log attribute of the fixed error code of the call of ctx, when the handler gave
 // one.
 func errorCodeOf(ctx context.Context) []attribute.KeyValue {
