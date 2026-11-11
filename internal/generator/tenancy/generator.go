@@ -182,7 +182,10 @@ func purgeRole(runtime string) string {
 // creates roles or databases, replicates or bypasses row-level security; the runtime, worker, relay and purge roles
 // inherit nothing. CONNECT, CREATE and TEMPORARY on the database are revoked from PUBLIC, and CONNECT goes only to
 // the owner, runtime, worker and relay roles of this service, so a role of another service in the same cluster
-// cannot connect to its database. The owner may create in the database and in the schema public, and may grant
+// cannot connect to its database. PostgreSQL checks CONNECT only when a session starts, so the text commits the
+// revoke, with a COMMIT of its own, and then refuses to go on while a session of a role that is not a role of this
+// service, nor a superuser, is open in the database, other than its own; the refusal names how many and no role,
+// and the text runs again once they are closed. It terminates no session. The owner may create in the database and in the schema public, and may grant
 // CREATE on public, which the idempotency migration gives the purge role only while it makes the purge function; the
 // public role may not create in public, so the runtime role gets only the grants of the database access contract. It
 // makes the outbox relay role of the runtime when it is missing, gives the owner role membership in it WITH SET TRUE,
@@ -205,6 +208,16 @@ func roleMigration(runtime, owner, worker, relay, purge string) string {
 		fmt.Fprintf(&text, "\tEXECUTE pg_catalog.format('GRANT CONNECT ON DATABASE %%I TO %s', pg_catalog.current_database());\n", quote(role))
 	}
 	text.WriteString("END\n$$;\n")
+	// CONNECT is checked only when a session starts, so the revoke is committed first, and then no session of
+	// another role may still be open in the database: one opened before the revoke would keep its access.
+	text.WriteString("COMMIT;\n")
+	text.WriteString("DO $$\nDECLARE\n\tv_open bigint;\nBEGIN\n")
+	fmt.Fprintf(&text, "\tSELECT pg_catalog.count(*) INTO v_open FROM pg_catalog.pg_stat_activity AS a\n"+
+		"\t\tLEFT JOIN pg_catalog.pg_roles AS r ON r.oid = a.usesysid\n"+
+		"\t\tWHERE a.datname = pg_catalog.current_database() AND a.pid <> pg_catalog.pg_backend_pid()\n"+
+		"\t\t\tAND a.backend_type = 'client backend' AND NOT COALESCE(r.rolsuper, false)\n"+
+		"\t\t\tAND COALESCE(r.rolname, '') NOT IN ('%s', '%s', '%s', '%s');\n", owner, runtime, worker, relay)
+	text.WriteString("\tIF v_open > 0 THEN\n\t\tRAISE EXCEPTION 'tenancy: % sessions of roles that are not roles of this service are open in this database; close them, then run the role migration again', v_open;\n\tEND IF;\nEND\n$$;\n")
 	fmt.Fprintf(&text, "ALTER ROLE %s %s;\n", quote(owner), flags)
 	for _, role := range []string{runtime, worker, relay, purge} {
 		fmt.Fprintf(&text, "ALTER ROLE %s %s NOINHERIT;\n", quote(role), flags)

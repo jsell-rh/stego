@@ -453,3 +453,76 @@ func TestTwoServices(t *testing.T) {
 		}
 	})
 }
+
+func TestOpenSessions(t *testing.T) {
+	t.Run("ST-SUP-RC27-OC04-T07 The role migration refuses while a session of another role is open in the database", func(t *testing.T) {
+		dsn := os.Getenv("STEGO_TEST_POSTGRES_DSN")
+		if dsn == "" {
+			t.Fatal("STEGO_TEST_POSTGRES_DSN names no PostgreSQL server")
+		}
+		cfg, err := pgx.ParseConfig(dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		server := stdlib.OpenDB(*cfg)
+		t.Cleanup(func() { server.Close() })
+		ctx := context.Background()
+		suffix := strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+		name, foreign := "tenancy_open_"+suffix, "foreign_"+suffix
+		const password = "open-sessions"
+		if _, err := server.ExecContext(ctx, "CREATE ROLE "+foreign+" LOGIN PASSWORD '"+password+"'"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := server.ExecContext(ctx, "CREATE DATABASE "+name); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			_, _ = server.ExecContext(context.Background(), "DROP DATABASE "+name+" WITH (FORCE)")
+			for _, role := range []string{foreign, tenancy.RuntimeRole, tenancy.WorkerRole, tenancy.RelayRole, tenancy.PurgeRole, tenancy.OwnerRole} {
+				_, _ = server.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+pgx.Identifier{role}.Sanitize())
+			}
+		})
+		// A role of no service opens a session in the new database before the role migration, and keeps it.
+		fc := cfg.Copy()
+		fc.User, fc.Password, fc.Database = foreign, password, name
+		held, err := pgx.ConnectConfig(ctx, fc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ac := cfg.Copy()
+		ac.Database = name
+		admin := stdlib.OpenDB(*ac)
+		admin.SetMaxOpenConns(1)
+		t.Cleanup(func() { admin.Close() })
+		_, err = admin.ExecContext(ctx, tenancy.Roles)
+		if err == nil || !strings.Contains(err.Error(), "1 sessions of roles that are not roles of this service") || strings.Contains(err.Error(), foreign) {
+			t.Fatalf("the role migration with a foreign session open gave %v, want a refusal that counts it and names no role", err)
+		}
+		// The session is refused nothing and is not terminated: the migration only refuses.
+		if err := held.Ping(ctx); err != nil {
+			t.Fatalf("the foreign session was ended: %v", err)
+		}
+		// The revoke of CONNECT holds, so the role can open no new session.
+		if c, err := pgx.ConnectConfig(ctx, fc); err == nil {
+			_ = c.Close(ctx)
+			t.Fatal("the foreign role opened a new session after the revoke")
+		} else if !denied(err) {
+			t.Fatalf("a new foreign session gave %v, want a refusal of CONNECT", err)
+		}
+		if err := held.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+		// The server ends the backend a moment after the client closes; the migration then passes.
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			_, err = admin.ExecContext(ctx, tenancy.Roles)
+			if err == nil || time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if err != nil {
+			t.Fatalf("the role migration after the foreign session closed: %v", err)
+		}
+	})
+}
