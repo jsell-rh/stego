@@ -282,7 +282,7 @@
 {"entity_id":"ST-GEN-EN04","position":1,"name":"Path","meaning":"The file's path in the project.","type":"text","required":true,"example":"service.yaml"}
 {"entity_id":"ST-GEN-EN04","position":2,"name":"Exists","meaning":"Whether the file existed when apply read it.","type":"yes/no","required":true,"example":"true"}
 {"entity_id":"ST-GEN-EN04","position":3,"name":"Hash","meaning":"The digest of the file's content, when it exists.","type_value_object_id":"ST-VO41","required":false,"column_name":"sha256"}
-{"entity_id":"ST-GEN-EN04","position":4,"name":"Mode","meaning":"The file's permission bits, when it exists.","type":"whole number","required":false,"example":"420"}
+{"entity_id":"ST-GEN-EN04","position":4,"name":"Mode","meaning":"The file's mode as version control keeps it, when it exists: 493 (0755) when the owner execute bit is set, else 420 (0644); STEGO records only this value, and drift and plan compare only it, so a umask gives no drift. The Product owner decided on 2026-11-11.","type":"whole number","required":false,"example":"420"}
 {"entity_id":"ST-GEN-EN05","position":1,"name":"Output folder","meaning":"The output folder the apply writes to.","type":"text","required":true,"column_name":"output_dir","example":"out"}
 {"entity_id":"ST-GEN-EN05","position":2,"name":"Expected files","meaning":"The state each file must have before the apply writes it.","type":"text","required":true,"column_name":"expected"}
 {"entity_id":"ST-GEN-EN05","position":3,"name":"Operations","meaning":"Each file write in order, with the file's state before and after it.","type":"text","required":true}
