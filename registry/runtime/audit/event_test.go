@@ -401,6 +401,102 @@ func probe(e Event, u Untrusted) bool {
 		}
 	})
 
+	t.Run("ST-SUP-RP05-LC05-T04 The patch of a field stays within a small multiple of the field's size for any shape", func(t *testing.T) {
+		long := strings.Repeat("L", 400_000)
+		members := func(n int, value string) string {
+			items := make([]string, n)
+			for i := range items {
+				items[i] = `"` + strconv.Itoa(i) + `":` + value
+			}
+			return strings.Join(items, ",")
+		}
+		cases := []struct{ name, before, after string }{
+			{"1000 adds under a 400 KB key", `{"` + long + `":{}}`, `{"` + long + `":{` + members(1000, "1") + `}}`},
+			{"4000 adds under a 400 KB key", `{"` + long + `":{}}`, `{"` + long + `":{` + members(4000, "1") + `}}`},
+			{"4000 array adds under a 400 KB key", `{"` + long + `":[]}`, `{"` + long + `":[` + strings.Repeat("1,", 3999) + `1]}`},
+			{"4000 replaces under a 400 KB key", `{"` + long + `":[` + strings.Repeat("1,", 3999) + `1]}`, `{"` + long + `":[` + strings.Repeat("2,", 3999) + `2]}`},
+			{"1000 changes under 1 KB keys", `{` + strings.Replace(members(1000, "1"), `":`, strings.Repeat("k", 1000)+`":`, -1) + `}`, `{` + strings.Replace(members(1000, "2"), `":`, strings.Repeat("k", 1000)+`":`, -1) + `}`},
+		}
+		for _, c := range cases {
+			start := time.Now()
+			e := sampleEvent("t1", "update")
+			if err := e.SetStates(Settings{Level: LevelChange}, Fields{}, map[string]any{"doc": json.RawMessage(c.before)}, map[string]any{"doc": json.RawMessage(c.after)}); err != nil {
+				t.Fatalf("%s: %v", c.name, err)
+			}
+			input := len(c.before) + len(c.after)
+			if n := len(e.Patch.JSON()); n > 3*input+4096 {
+				t.Errorf("%s: the patch is %d bytes for an input of %d, want at most 3 times the input and 4 KiB", c.name, n, input)
+			}
+			if d := time.Since(start); d > 2*time.Second {
+				t.Errorf("%s took %v, want under 2 s, also under the race detector", c.name, d)
+			}
+			// The patch applied to before gives after.
+			before, _ := decodeJSON("before", e.Before.JSON())
+			p, err := ParsePatch(e.Patch.JSON())
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := Apply(before, p)
+			if err != nil {
+				t.Fatalf("%s: applying the patch: %v", c.name, err)
+			}
+			want, _ := decodeJSON("after", e.After.JSON())
+			if !bytes.Equal(encodeTree(got), encodeTree(want)) {
+				t.Errorf("%s: the patch applied to before does not give after", c.name)
+			}
+		}
+		// A field whose changes are small keeps its member operations.
+		e := sampleEvent("t1", "update")
+		if err := e.SetStates(Settings{Level: LevelChange}, Fields{}, map[string]any{"doc": json.RawMessage(`{"a":1,"b":2}`)}, map[string]any{"doc": json.RawMessage(`{"a":1,"b":3}`)}); err != nil {
+			t.Fatal(err)
+		}
+		if string(e.Patch.JSON()) != `[{"op":"replace","path":"/doc/b","value":3}]` {
+			t.Errorf("the patch of a small change is %s, want one replace of /doc/b", e.Patch.JSON())
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC05-T05 Many changed pii values nested in a field cost linear time", func(t *testing.T) {
+		build := func(n int, e string, num int) json.RawMessage {
+			items := make([]string, n)
+			for i := range items {
+				items[i] = `{"e":"` + e + `","n":` + strconv.Itoa(num) + `}`
+			}
+			return json.RawMessage("[" + strings.Join(items, ",") + "]")
+		}
+		// The time grows with the count as the input does: five times the values take well under 25 times the time,
+		// which a cost of the pii values times the operations would take. The ratio holds under the race detector.
+		run := func(n int) time.Duration {
+			b, a := build(n, "a@example.com", 1), build(n, "b@example.com", 2)
+			start := time.Now()
+			e := sampleEvent("t1", "update")
+			if err := e.SetStates(Settings{Level: LevelChange}, Fields{"m.e": PII}, map[string]any{"m": b}, map[string]any{"m": a}); err != nil {
+				t.Fatal(err)
+			}
+			d := time.Since(start)
+			if bytes.Contains(e.Patch.JSON(), []byte("example.com")) {
+				t.Error("the patch holds a pii value")
+			}
+			return d
+		}
+		run(1000) // warm up
+		small, large := run(10_000), run(50_000)
+		if large > 10*small+50*time.Millisecond || large > 10*time.Second {
+			t.Errorf("50000 changed pii values took %v and 10000 took %v, want linear growth", large, small)
+		}
+		// Each pii value that changed is marked once, under its own pointer.
+		e := sampleEvent("t1", "update")
+		if err := e.SetStates(Settings{Level: LevelChange}, Fields{"m.e": PII}, map[string]any{"m": build(3, "a@example.com", 1)}, map[string]any{"m": build(3, "b@example.com", 1)}); err != nil {
+			t.Fatal(err)
+		}
+		p, err := ParsePatch(e.Patch.JSON())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(p) != 3 || p[0].Path != "/m/0/e" || p[0].Value != RedactionMarker {
+			t.Errorf("the patch is %s, want one marker replace for each changed pii value", e.Patch.JSON())
+		}
+	})
+
 	t.Run("ST-SUP-RP05-LC04-T01 The canonical encoding sorts keys and has no insignificant whitespace", func(t *testing.T) {
 		a := decodeText(t, `{"z": 1, "a": {"y": [1, {"d": 2, "c": 3}], "b": "x y"}, "m": null}`)
 		b := decodeText(t, "{\n  \"m\": null,\n  \"a\": {\"b\": \"x y\", \"y\": [1, {\"c\": 3, \"d\": 2}]},\n  \"z\": 1\n}")

@@ -354,7 +354,13 @@ func (e *Event) SetStates(s Settings, f Fields, before, after map[string]any) er
 	if err != nil {
 		return err
 	}
-	e.Before, e.After, e.Patch = State{b}, State{a}, State{encodeTree(patch.tree())}
+	encoded := encodeTree(patch.tree())
+	// A safety net under the field budgets of Diff: the patch is at most three times the two states and 4 KiB a
+	// field, so the event stays linear in its input (ST-SUP-RP05-LC05).
+	if limit := 3*(len(b)+len(a)) + 4096*(len(before)+len(after)+1); len(encoded) > limit {
+		return fmt.Errorf("audit: the patch of the state is larger than its bound")
+	}
+	e.Before, e.After, e.Patch = State{b}, State{a}, State{encoded}
 	return nil
 }
 
@@ -801,6 +807,44 @@ func normalizeAt(name *fieldName, v any) (any, error) {
 	}
 }
 
+// shiftDecimal gives the canonical form of the plain decimal mantissa times ten to the power exp, by moving its
+// point in the text, so the work is linear in the length of the form. It gives false for a mantissa that is not an
+// optional minus, digits and an optional point with digits after it.
+func shiftDecimal(mantissa string, exp int) (string, bool) {
+	negative := strings.HasPrefix(mantissa, "-")
+	body := strings.TrimPrefix(mantissa, "-")
+	whole, fraction, hasPoint := strings.Cut(body, ".")
+	if whole == "" || (hasPoint && fraction == "") || strings.Trim(whole, "0123456789") != "" || strings.Trim(fraction, "0123456789") != "" {
+		return "", false
+	}
+	digits := whole + fraction
+	point := len(whole) + exp
+	var text string
+	switch {
+	case point <= 0:
+		text = "0." + strings.Repeat("0", -point) + digits
+	case point >= len(digits):
+		text = digits + strings.Repeat("0", point-len(digits))
+	default:
+		text = digits[:point] + "." + digits[point:]
+	}
+	intPart, fracPart, _ := strings.Cut(text, ".")
+	intPart = strings.TrimLeft(intPart, "0")
+	if intPart == "" {
+		intPart = "0"
+	}
+	fracPart = strings.TrimRight(fracPart, "0")
+	if fracPart != "" {
+		text = intPart + "." + fracPart
+	} else {
+		text = intPart
+	}
+	if negative && text != "0" {
+		text = "-" + text
+	}
+	return text, true
+}
+
 // plainInteger tells whether s is an optional minus and decimal digits with no leading zero.
 func plainInteger(s string) bool {
 	digits := strings.TrimPrefix(s, "-")
@@ -853,6 +897,9 @@ func canonicalNumber(field, s string) (json.Number, error) {
 	// so a short text such as 1e-400 cannot give a long one.
 	if digitsOf, _ := numberParts(mantissa); digitsOf+abs(exp) > maxNumberText {
 		return "", fmt.Errorf("audit: the canonical form of the number of the field %s is longer than %d characters", field, maxNumberText)
+	}
+	if text, ok := shiftDecimal(mantissa, exp); ok {
+		return json.Number(text), nil
 	}
 	r, ok := new(big.Rat).SetString(s)
 	if !ok {
