@@ -7,3 +7,7 @@
 /cmd/assure/ @jsell-rh @elsell
 /scripts/run-python-tests.py @jsell-rh @elsell
 **/SIGNERS @jsell-rh @elsell
+# The list of known code-standard faults may only shrink, and a test holds that (ST-STD-CODE). A change that fixes a
+# fault removes its line, so this file needs no owner review. A later line wins, and a pattern with no owner leaves
+# the file with no owner.
+/internal/assure/testdata/known-code-faults.tsv
