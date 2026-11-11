@@ -1,0 +1,31 @@
+definition user {}
+
+definition organization {
+	relation owner: user
+	relation viewer: user
+	permission view = owner + viewer
+	permission edit = owner
+}
+
+definition member {
+	relation organization: organization
+	relation owner: user
+	permission view = owner + organization->view
+	permission edit = owner + organization->edit
+}
+
+definition org_setting {
+	relation organization: organization
+	permission view = organization->view
+	permission edit = organization->edit
+}
+
+definition audit_event {
+	relation owner: user
+	permission view = owner
+	permission edit = owner
+}
+
+definition stego_floor {
+	relation marker: stego_floor
+}

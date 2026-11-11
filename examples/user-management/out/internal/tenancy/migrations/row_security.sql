@@ -1,0 +1,16 @@
+ALTER TABLE public."organizations" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public."organizations" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS stego_tenant ON public."organizations";
+CREATE POLICY stego_tenant ON public."organizations" USING ("tenant_id" = pg_catalog.current_setting('app.tenant', true)) WITH CHECK ("tenant_id" = pg_catalog.current_setting('app.tenant', true));
+ALTER TABLE public."users" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public."users" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS stego_tenant ON public."users";
+CREATE POLICY stego_tenant ON public."users" USING ("tenant_id" = pg_catalog.current_setting('app.tenant', true)) WITH CHECK ("tenant_id" = pg_catalog.current_setting('app.tenant', true));
+ALTER TABLE public."org_settings" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public."org_settings" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS stego_tenant ON public."org_settings";
+CREATE POLICY stego_tenant ON public."org_settings" USING ("tenant_id" = pg_catalog.current_setting('app.tenant', true)) WITH CHECK ("tenant_id" = pg_catalog.current_setting('app.tenant', true));
+ALTER TABLE public."audit_events" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public."audit_events" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS stego_tenant ON public."audit_events";
+CREATE POLICY stego_tenant ON public."audit_events" USING ("tenant_id" = pg_catalog.current_setting('app.tenant', true)) WITH CHECK ("tenant_id" = pg_catalog.current_setting('app.tenant', true));

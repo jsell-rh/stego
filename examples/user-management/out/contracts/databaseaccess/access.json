@@ -1,0 +1,122 @@
+{
+  "format": 1,
+  "objects": [
+    {
+      "component": "audit-log",
+      "schema": "public",
+      "name": "audit_anchor_boundaries",
+      "kind": "table",
+      "privileges": [
+        "INSERT",
+        "SELECT",
+        "UPDATE"
+      ]
+    },
+    {
+      "component": "audit-log",
+      "schema": "public",
+      "name": "audit_chain_heads",
+      "kind": "table",
+      "privileges": [
+        "INSERT",
+        "SELECT",
+        "UPDATE"
+      ]
+    },
+    {
+      "component": "audit-log",
+      "schema": "public",
+      "name": "audit_event",
+      "kind": "table",
+      "privileges": [
+        "INSERT",
+        "SELECT"
+      ]
+    },
+    {
+      "component": "postgres-adapter",
+      "schema": "public",
+      "name": "audit_events",
+      "kind": "table",
+      "privileges": [
+        "DELETE",
+        "INSERT",
+        "SELECT",
+        "UPDATE"
+      ]
+    },
+    {
+      "component": "audit-log",
+      "schema": "public",
+      "name": "audit_retention_checkpoints",
+      "kind": "table",
+      "privileges": [
+        "SELECT"
+      ]
+    },
+    {
+      "component": "postgres-adapter",
+      "schema": "public",
+      "name": "org_settings",
+      "kind": "table",
+      "privileges": [
+        "DELETE",
+        "INSERT",
+        "SELECT",
+        "UPDATE"
+      ]
+    },
+    {
+      "component": "postgres-adapter",
+      "schema": "public",
+      "name": "organizations",
+      "kind": "table",
+      "privileges": [
+        "DELETE",
+        "INSERT",
+        "SELECT",
+        "UPDATE"
+      ]
+    },
+    {
+      "component": "postgres-adapter",
+      "schema": "public",
+      "name": "users",
+      "kind": "table",
+      "privileges": [
+        "DELETE",
+        "INSERT",
+        "SELECT",
+        "UPDATE"
+      ]
+    },
+    {
+      "component": "postgres-adapter",
+      "schema": "stego_schema",
+      "name": "epoch_seq",
+      "kind": "sequence",
+      "privileges": [
+        "SELECT",
+        "USAGE"
+      ]
+    },
+    {
+      "component": "postgres-adapter",
+      "schema": "stego_schema",
+      "name": "generation",
+      "kind": "table",
+      "privileges": [
+        "SELECT"
+      ]
+    },
+    {
+      "component": "postgres-adapter",
+      "schema": "stego_schema",
+      "name": "identity",
+      "kind": "table",
+      "privileges": [
+        "SELECT"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,117 @@
+{
+  "format": 1,
+  "objects": [
+    {
+      "component": "audit-log",
+      "object": {
+        "schema": "public",
+        "name": "audit_anchor_boundaries",
+        "kind": "table"
+      }
+    },
+    {
+      "component": "audit-log",
+      "object": {
+        "schema": "public",
+        "name": "audit_chain_heads",
+        "kind": "table"
+      }
+    },
+    {
+      "component": "audit-log",
+      "object": {
+        "schema": "public",
+        "name": "audit_event",
+        "kind": "table"
+      }
+    },
+    {
+      "component": "audit-log",
+      "object": {
+        "schema": "public",
+        "name": "audit_maintain",
+        "kind": "function"
+      }
+    },
+    {
+      "component": "audit-log",
+      "object": {
+        "schema": "public",
+        "name": "audit_retention_checkpoints",
+        "kind": "table"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "public",
+        "name": "org_settings",
+        "kind": "table"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "public",
+        "name": "organizations",
+        "kind": "table"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "public",
+        "name": "users",
+        "kind": "table"
+      }
+    },
+    {
+      "component": "outbox",
+      "object": {
+        "schema": "stego_outbox",
+        "name": "messages",
+        "kind": "table"
+      }
+    },
+    {
+      "component": "outbox",
+      "object": {
+        "schema": "stego_outbox",
+        "name": "messages_sequence_seq",
+        "kind": "sequence"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "stego_schema",
+        "name": "epoch_seq",
+        "kind": "sequence"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "stego_schema",
+        "name": "generation",
+        "kind": "table"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "stego_schema",
+        "name": "identity",
+        "kind": "table"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "stego_schema",
+        "name": "migrations",
+        "kind": "table"
+      }
+    }
+  ]
+}
