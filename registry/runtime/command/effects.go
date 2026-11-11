@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/google/uuid"
 
@@ -18,12 +19,15 @@ import (
 
 // Destination is one outbox destination that a command or a worker declares it stages effects for: its name, whether
 // its messages must land and whether it is idempotent, as the destination is registered on the outbox worker, and
-// whether a worker consumes it, so each message stores the staging principal and stager (ST-SUP-RP10-LC16).
+// whether a worker consumes it, so each message stores the staging principal and stager (ST-SUP-RP10-LC16). Effects
+// are the effect names that the declaration states for the destination: a command's Stage refuses every other name
+// (ST-SUP-RP10-LC07), and a worker that states none may stage any name.
 type Destination struct {
 	Name       string
 	MustLand   bool
 	Idempotent bool
 	Consumed   bool
+	Effects    []string
 }
 
 // reservedDestinations are the destinations that only the authorization handle and the audit runtime write to
@@ -43,6 +47,12 @@ func checkDestinations(owner string, destinations []Destination) (map[string]Des
 		if _, ok := byName[d.Name]; ok {
 			return nil, fmt.Errorf("command: %s declares the destination %s twice", owner, d.Name)
 		}
+		for i, effect := range d.Effects {
+			if effect == "" || slices.Contains(d.Effects[:i], effect) {
+				return nil, fmt.Errorf("command: %s declares an empty or a repeated effect name for the destination %s", owner, d.Name)
+			}
+		}
+		d.Effects = slices.Clone(d.Effects)
 		byName[d.Name] = d
 	}
 	return byName, nil
@@ -59,7 +69,8 @@ type Effects struct {
 // with payload, a JSON value (ST-SUP-RP10-LC08). The message's outgoing idempotency key is Derive over the tenant,
 // the principal, the inbound key, the destination and the effect name, where the inbound key is the run's inbound
 // key and then the entity's ID, each prefixed by its length. It refuses the destinations authz and audit-sink, an
-// undeclared destination, a value of another handle, and a second effect of one name for one entity in one call,
+// undeclared destination, in a command an effect name that the command does not declare for the destination, which
+// breaks the call so it rolls back, a value of another handle, and a second effect of one name for one entity in one call,
 // and then stages nothing. In a command it decides the command's permission on an entity with a resource type, as
 // a write does, and refuses an entity with none unless the value was locked or written.
 func (f *Effects) Stage(ctx context.Context, destination, effect string, entity Ref, payload json.RawMessage, parent ...Ref) error {
@@ -75,6 +86,10 @@ func (f *Effects) Stage(ctx context.Context, destination, effect string, entity 
 	if !ok {
 		return fmt.Errorf("command: %s does not declare the destination %s", s.action, destination)
 	}
+	// A command stages only the effect names that its declaration states for the destination (ST-SUP-RP10-LC07).
+	if (s.mode == modeCommand || len(d.Effects) > 0) && !slices.Contains(d.Effects, effect) {
+		return s.breakWith(internalf("%s does not declare the effect %s for the destination %s", s.action, effect, destination))
+	}
 	if entity == nil {
 		return errors.New("command: an effect needs the loaded value it is for")
 	}
@@ -87,23 +102,28 @@ func (f *Effects) Stage(ctx context.Context, destination, effect string, entity 
 	// the decision of its parent, whose loaded value parent must give, as a write of it does; and any other entity in
 	// a command needs a value that the handle locked or wrote.
 	child, _ := r.entityRef.(interface {
-		parentOf(Ref) (string, string, bool)
+		parentsOf(Ref) ([]reference, bool)
 	})
-	name, parentID, isChild := "", "", false
+	var refs []reference
+	isChild := false
 	if child != nil {
-		name, parentID, isChild = child.parentOf(entity)
+		refs, isChild = child.parentsOf(entity)
 	}
+	parent = nonNil(parent)
 	switch {
 	case isChild:
-		if len(parent) != 1 || parent[0] == nil {
-			return s.breakWith(internalf("an effect of %s for %s needs the loaded value of the parent the row names", s.action, r.entity))
-		}
-		p := refOf(parent[0])
-		if p.st != s || p.entity != name || p.id != parentID {
-			return s.breakWith(internalf("an effect of %s for %s takes a parent that the row does not name", s.action, r.entity))
-		}
-		if err := s.decideWrite(ctx, p.resourceType, p.entity, p.id, p.token); err != nil {
+		used := make([]bool, len(parent))
+		rows, err := s.matchParents("effect", r.entity, refs, parent, used)
+		if err != nil {
 			return err
+		}
+		if err := s.allUsed("effect", r.entity, used); err != nil {
+			return err
+		}
+		for _, p := range rows {
+			if err := s.decideWrite(ctx, p.resourceType, p.entity, p.id, p.token); err != nil {
+				return err
+			}
 		}
 	case len(parent) > 0:
 		return s.breakWith(internalf("an effect of %s for %s takes no parent: it is not a child entity", s.action, r.entity))

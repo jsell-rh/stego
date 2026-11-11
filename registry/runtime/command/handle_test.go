@@ -407,7 +407,8 @@ func (e *env) entities() {
 	must(err)
 	// The same table as an entity whose rows go under their order, which the generated Parent reads.
 	reservationSpec.Name = "ReservationUnderOrder"
-	reservationSpec.Parent = func(v reservation) (string, string) { return "Order", v.OrderID }
+	reservationSpec.Parent = []Reference[reservation]{{Entity: "Order", ResourceType: "order",
+		ID: func(v reservation) string { return v.OrderID }}}
 	reservationSpec.LockAtMost = 3
 	e.underOrder, err = NewEntity(reservationSpec)
 	must(err)
@@ -674,6 +675,10 @@ func (d *decision) taken() []evaluation {
 	return calls
 }
 
+// billingEffects are the effect names that the test commands declare for the destination billing.
+var billingEffects = []string{"cancelled", "charge-refunded", "charge-requested", "charge-voided", "noted",
+	"reservation-made", "reserved", "user-ranked"}
+
 // testProbe is the typed probe of the test commands and workers.
 type testProbe struct{ p *probe.Probe }
 
@@ -683,8 +688,8 @@ func newTestProbe(p *probe.Probe) testProbe { return testProbe{p: p} }
 func (e *env) command(name string, change func(*CommandSpec[testProbe]), writes ...Declared) *Command[testProbe] {
 	e.t.Helper()
 	spec := CommandSpec[testProbe]{Name: name, Writes: writes, Probe: newTestProbe,
-		Destinations: []Destination{{Name: "billing", Idempotent: true}, {Name: "partner-replies", Idempotent: true,
-			MustLand: true, Consumed: true}}}
+		Destinations: []Destination{{Name: "billing", Idempotent: true, Effects: billingEffects}, {Name: "partner-replies",
+			Idempotent: true, MustLand: true, Consumed: true, Effects: []string{"reply-received"}}}}
 	if change != nil {
 		change(&spec)
 	}
@@ -745,7 +750,8 @@ func (e *env) bindOn(db *sql.DB, tenantID string, p authz.Principal, cmd *Comman
 	s.lockTimeout = DefaultLockTimeout
 	s.request = Request{Key: "k-bind", RequestID: "req-bind"}
 	s.inbound = commandInbound("k-bind")
-	if s.az, err = e.authz.Bind(tx, tn, p, cmd.spec.Relations); err != nil {
+	s.ownRelations = cmd.own
+	if s.az, err = e.authz.Bind(tx, tn, p, cmd.bound); err != nil {
 		e.t.Fatal(err)
 	}
 	call := e.probes.Bind(e.ctx, tenantID, p.Subject().String(), cmd.spec.Name)

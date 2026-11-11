@@ -20,6 +20,7 @@ type entity struct {
 	deep         bool         // a field is a pointer or a slice, so Clone copies it
 	parent       *entityField // the reference to the parent resource, or nil
 	parentEntity string
+	parentType   string         // the resource type of the parent entity
 	keys         []*entityField // the fields of a unique key besides the ID (ST-SUP-RP10-LC24)
 }
 
@@ -113,7 +114,7 @@ func planEntity(e types.Entity, byName map[string]types.Entity, tenantKey string
 	case len(refs) == 1 && refs[0].pointer:
 		return nil, fmt.Errorf("the optional field %s refers to %s, which has a resource type; a command decides on the parent that a row names, so the reference must be required (ST-SUP-Q79)", refs[0].decl.Name, refs[0].decl.To)
 	case len(refs) == 1:
-		p.parent, p.parentEntity = refs[0], refs[0].decl.To
+		p.parent, p.parentEntity, p.parentType = refs[0], refs[0].decl.To, byName[refs[0].decl.To].ResourceType
 	}
 	return p, nil
 }
@@ -249,7 +250,8 @@ func renderEntity(w *writer, e *entity, tenantKey string) {
 	}
 	w.f("\tValidID: ValidUUID,\n")
 	if e.parent != nil {
-		w.f("\tParent: func(v %s) (string, string) { return %q, v.%s },\n", e.goName, e.parentEntity, e.parent.goName)
+		w.f("\tParent: []command.Reference[%s]{{Entity: %q, ResourceType: %q, ID: func(v %s) string { return v.%s }}},\n",
+			e.goName, e.parentEntity, e.parentType, e.goName, e.parent.goName)
 	}
 	w.f("}))\n\n")
 	w.f("// %sRepository gives the repository of %s of a command handle; the handle refuses an entity that its command does\n// not declare it writes.\n", e.goName, e.decl.Name)

@@ -3,8 +3,10 @@ package query
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 	"sync"
@@ -121,6 +123,71 @@ func (r Row) Int(column string) (int64, error) {
 		return x, nil
 	default:
 		return 0, fmt.Errorf("query: the column %s is not an integer", column)
+	}
+}
+
+// Int32 returns the value of an integer column that holds a 32-bit integer; NULL is 0. A value out of the int32
+// range is an error.
+func (r Row) Int32(column string) (int32, error) {
+	v, err := r.Int(column)
+	if err != nil {
+		return 0, err
+	}
+	if v < math.MinInt32 || v > math.MaxInt32 {
+		return 0, fmt.Errorf("query: the column %s holds a value out of the int32 range", column)
+	}
+	return int32(v), nil
+}
+
+// Float returns the value of a floating point column; NULL is 0.
+func (r Row) Float(column string) (float64, error) {
+	v, ok := r.Value(column)
+	if !ok {
+		return 0, fmt.Errorf("query: the row has no column %s", column)
+	}
+	switch x := v.(type) {
+	case nil:
+		return 0, nil
+	case float64:
+		return x, nil
+	case float32:
+		return float64(x), nil
+	default:
+		return 0, fmt.Errorf("query: the column %s is not a number", column)
+	}
+}
+
+// Bytes returns the value of a bytea column, a copy; NULL is nil.
+func (r Row) Bytes(column string) ([]byte, error) {
+	v, ok := r.Value(column)
+	if !ok {
+		return nil, fmt.Errorf("query: the row has no column %s", column)
+	}
+	switch x := v.(type) {
+	case nil:
+		return nil, nil
+	case []byte:
+		return x, nil
+	default:
+		return nil, fmt.Errorf("query: the column %s is not bytes", column)
+	}
+}
+
+// JSON returns the value of a jsonb column, a copy; NULL is nil.
+func (r Row) JSON(column string) (json.RawMessage, error) {
+	v, ok := r.Value(column)
+	if !ok {
+		return nil, fmt.Errorf("query: the row has no column %s", column)
+	}
+	switch x := v.(type) {
+	case nil:
+		return nil, nil
+	case []byte:
+		return json.RawMessage(x), nil
+	case string:
+		return json.RawMessage(x), nil
+	default:
+		return nil, fmt.Errorf("query: the column %s is not a document", column)
 	}
 }
 

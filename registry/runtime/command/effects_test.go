@@ -194,6 +194,62 @@ func TestEffects(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RP10-LC07-T05 Stage refuses an effect name that the command does not declare", func(t *testing.T) {
+		declared := e.command("charge", func(spec *CommandSpec[testProbe]) {
+			spec.Destinations = []Destination{{Name: "billing", MustLand: true, Idempotent: true, Effects: []string{"charge-requested"}}}
+		}, e.chargeE)
+		stage := func(effect string) func(ctx context.Context, h *Handle[testProbe]) error {
+			return func(ctx context.Context, h *Handle[testProbe]) error {
+				c, err := repo(t, h, e.chargeE).Get(ctx, "c2")
+				if err != nil {
+					return err
+				}
+				if err := h.Effects().Stage(ctx, "billing", effect, c, []byte(`{"amount":200}`)); err != nil {
+					if !strings.Contains(err.Error(), effect) {
+						t.Errorf("the stage of %s gave %v, want an error that names the effect", effect, err)
+					}
+					return nil
+				}
+				return nil
+			}
+		}
+		if _, err := e.run(declared, e.request("t1", u7(t), "k-lc07-t05-a", `{}`), fillOf(stage("charge-requested"))); err != nil {
+			t.Fatal(err)
+		}
+		var mustLand, idempotent bool
+		if err := e.admin.QueryRowContext(e.ctx, `SELECT must_land, idempotent FROM stego_outbox.messages
+ WHERE destination = 'billing' AND kind = 'charge-requested' AND resource_key LIKE '%c2%'`).Scan(&mustLand, &idempotent); err != nil {
+			t.Fatalf("the declared effect is not in the outbox after the commit: %v", err)
+		}
+		if !mustLand || !idempotent {
+			t.Fatalf("the declared effect has must_land %v and idempotent %v, want both as declared", mustLand, idempotent)
+		}
+		// The audit rows go to the audit sink on their own; the effects of the command are the other rows.
+		effects := `SELECT count(*) FROM stego_outbox.messages WHERE destination <> 'audit-sink'`
+		before := e.count(effects)
+		_, err := e.run(declared, e.request("t1", u7(t), "k-lc07-t05-b", `{}`), fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
+			c, err := repo(t, h, e.chargeE).Get(ctx, "c2")
+			if err != nil {
+				return err
+			}
+			v := c.Value()
+			v.Amount = 1
+			if _, err := repo(t, h, e.chargeE).Update(ctx, c, v); err != nil {
+				return err
+			}
+			return stage("refund")(ctx, h)
+		}))
+		if err == nil || !errors.Is(err, ErrInternal) {
+			t.Fatalf("the run that staged an undeclared effect gave %v, want an internal error", err)
+		}
+		if n := e.count(effects); n != before {
+			t.Fatalf("the refused effect left %d outbox rows", n-before)
+		}
+		if e.count(`SELECT count(*) FROM charges WHERE id = 'c2' AND amount = 200`) != 1 || e.keyRows("k-lc07-t05-b") != 0 {
+			t.Fatal("the transaction of the refused effect was not rolled back")
+		}
+	})
+
 	t.Run("ST-SUP-RP10-LC08-T01 A staged effect carries the scoped outgoing key with its entity", func(t *testing.T) {
 		_, err := e.run(cmd, e.request("t1", u7(t), "k1", `{}`), fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
 			c, err := repo(t, h, e.chargeE).Get(ctx, "c1")
