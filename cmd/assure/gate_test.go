@@ -77,14 +77,23 @@ func (s fixtureStore) Fetch(commit string) ([][]byte, error) {
 
 // Parents gives the parents of the commit as GitHub keeps them: for the merge commit of a commit of the
 // repository, pullMerge, the commit's first parent and the commit; for a commit of the repository, its own
-// parents; and none for any other commit. The commits of the repository are those its refs and its reflog
+// parents; for the merge commit of a commit into another commit of the repository, pullMergeInto, those two
+// commits; and none for any other commit. The commits of the repository are those its refs and its reflog
 // reach, as each fixture commit is made on a detached HEAD.
 func (s fixtureStore) Parents(commit string) ([]string, error) {
 	listed, err := exec.Command("git", "rev-list", "--all", "--reflog", "--parents").Output()
 	if err != nil {
 		return nil, err
 	}
-	for _, line := range strings.Split(strings.TrimSpace(string(listed)), "\n") {
+	lines := strings.Split(strings.TrimSpace(string(listed)), "\n")
+	for _, into := range lines {
+		for _, line := range lines {
+			if into != "" && line != "" && pullMergeInto(strings.Fields(into)[0], strings.Fields(line)[0]) == commit {
+				return []string{strings.Fields(into)[0], strings.Fields(line)[0]}, nil
+			}
+		}
+	}
+	for _, line := range lines {
 		fields := strings.Fields(line)
 		if len(fields) == 0 {
 			continue
@@ -107,6 +116,13 @@ func (s fixtureStore) Parents(commit string) ([]string, error) {
 // run runs: in these tests, the SHA-1 of the commit ID and a fixed text.
 func pullMerge(commit string) string {
 	sum := sha1.Sum([]byte("refs/pull/N/merge of " + commit))
+	return hex.EncodeToString(sum[:])
+}
+
+// pullMergeInto is the merge commit of refs/pull/N/merge of the commit into the branch whose head is into, as
+// GitHub makes it for a pull request whose base is that branch.
+func pullMergeInto(into, commit string) string {
+	sum := sha1.Sum([]byte("refs/pull/N/merge of " + commit + " into " + into))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -569,7 +585,7 @@ func TestGateChange(t *testing.T) {
 		decided(t, "a change-grade proof run with the workflows folder as the base's", g.gate(t, same, g.base, g.keep(t, "same", proofRun(same, pullRef, 14, outcomes...))), 0)
 	})
 
-	t.Run("ST-ASR-UC02-R06-T02 A proof run signed at the change's own ref by a run at the merge of another commit is refused", func(t *testing.T) {
+	t.Run("ST-ASR-UC02-R06-T02 A proof run signed at the change's own ref by a run at a merge of another commit, or into another branch, is refused", func(t *testing.T) {
 		g := newGateRepository(t)
 		outcomes := []string{"FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed"}
 		// The earlier head of the pull request alters the proof run workflow; the later head leaves the workflows
@@ -592,6 +608,14 @@ func TestGateChange(t *testing.T) {
 			statement.SourceDigest = check.source
 			decided(t, name, g.gate(t, later, g.base, g.keep(t, "earlier", statement)), 1, refused(check.source, check.parents))
 		}
+		// The pull request's base was another branch, whose head alters the proof run workflow, before it was
+		// retargeted to main: a run at the merge of the later head into that branch ran its workflow.
+		into := pullMergeInto(earlier, later)
+		statement := proofRun(later, pullRef, 70, outcomes...)
+		statement.SourceDigest = into
+		decided(t, "a run at the merge of the later head into another branch", g.gate(t, later, g.base, g.keep(t, "into", statement)), 1,
+			noVerifiedProofRunAt(later)+": the attestation at rekor:70 is refused: it is signed at the change's own reference "+pullRef+
+				" by a run at the merge commit "+into+", whose first parent "+earlier+" is not the base head \""+g.base+"\"")
 		decided(t, "a run at the merge of the later head", g.gate(t, later, g.base, g.keep(t, "later", proofRun(later, pullRef, 71, outcomes...))), 0)
 	})
 

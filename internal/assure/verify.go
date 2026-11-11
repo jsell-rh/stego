@@ -154,12 +154,14 @@ func readStatement(payload []byte) (SignedStatement, error) {
 }
 
 // Trust is what a gate trusts a proof run's signature at: the provider's trusted signer, the change's own
-// reference, each file under the workflows folder that differs between the base head's tree and the change's
-// tree, and the provider's record of commits, which gives the parents of the commit a change-grade run ran at.
-// With no record of commits, no change-grade proof run counts.
+// reference, the base head the change is gated against, each file under the workflows folder that differs
+// between the base head's tree and the change's tree, and the provider's record of commits, which gives the
+// parents of the commit a change-grade run ran at. With no base or no record of commits, no change-grade proof
+// run counts.
 type Trust struct {
 	Signer          TrustedSigner
 	ChangeRef       string
+	Base            string
 	WorkflowChanges []string
 	Commits         CommitParents
 }
@@ -177,9 +179,9 @@ type CommitParents interface {
 // repository and the ref the signer ran at. Its signer, from the certificate, must be the trusted signer at a
 // grade: release grade at main, for any tree, when the certificate's source digest, the commit the signing run ran
 // at, is the commit; change grade at the change's own reference, only when the source digest is a merge commit
-// of that reference whose second parent is the commit, so the run ran the CI definition of the merge of the
-// commit and not of another commit, and only while no file under the workflows folder differs from the base
-// head's. sourceParents are the parents of the source digest, as the provider gives them. It returns the grade,
+// of that reference whose first parent is the base head and whose second parent is the commit, so the run ran
+// the CI definition of the merge of the commit into the base and not of another commit or into another branch,
+// and only while no file under the workflows folder differs from the base head's. sourceParents are the parents of the source digest, as the provider gives them. It returns the grade,
 // and a refusal that says why when the statement fails. A change-grade statement that fails only on the
 // workflows folder returns ChangeGrade with the refusal, so the gate can name each file.
 func attestationVerified(statement SignedStatement, commit string, trust Trust, sourceParents []string) (TrustGrade, error) {
@@ -224,12 +226,18 @@ func attestationVerified(statement SignedStatement, commit string, trust Trust, 
 		}
 		return grade, nil
 	case ChangeGrade:
-		// A pull request's run runs at its merge commit, whose second parent is the pull request's head. A run
-		// at the merge of another commit, such as an earlier head with another CI definition, ran another
-		// definition than the one the gate compares with the base, so its statement is no evidence for the commit.
+		// A pull request's run runs at its merge commit, whose first parent is the base and whose second parent
+		// is the pull request's head. A run at the merge of another commit, such as an earlier head with another
+		// CI definition, or at a merge into another branch, such as one the pull request had before it was
+		// retargeted, ran another definition than the one the gate compares with the base, so its statement is no
+		// evidence for the commit.
 		if !fullCommit(statement.SourceDigest) || len(sourceParents) != 2 || sourceParents[1] != commit {
 			return NoGrade, refuse("it is signed at the change's own reference %s by a run at commit %q, which is not a merge commit whose second parent is the commit %s (its parents: %s)",
 				trust.ChangeRef, statement.SourceDigest, commit, parentsText(sourceParents))
+		}
+		if !fullCommit(trust.Base) || sourceParents[0] != trust.Base {
+			return NoGrade, refuse("it is signed at the change's own reference %s by a run at the merge commit %s, whose first parent %s is not the base head %q",
+				trust.ChangeRef, statement.SourceDigest, sourceParents[0], trust.Base)
 		}
 		if len(trust.WorkflowChanges) > 0 {
 			return grade, refuse("it is signed at the change's own reference %s, and the change alters the workflows folder: %s",

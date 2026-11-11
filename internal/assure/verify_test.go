@@ -192,8 +192,8 @@ func TestVerify(t *testing.T) {
 	trusted := TrustedSigner{Issuer: GitHubIssuer, Workflow: trustedWorkflow}
 
 	t.Run("ST-ASR-SP02-T An attestation is verified only for the commit, the proof run type and the trusted signer at a grade the change allows", func(t *testing.T) {
-		clean := Trust{Signer: trusted, ChangeRef: changeRef}
-		altered := Trust{Signer: trusted, ChangeRef: changeRef, WorkflowChanges: []string{".github/workflows/checks.yml", ".github/workflows/proof-run.yml"}}
+		clean := Trust{Signer: trusted, ChangeRef: changeRef, Base: mergeBase}
+		altered := Trust{Signer: trusted, ChangeRef: changeRef, Base: mergeBase, WorkflowChanges: []string{".github/workflows/checks.yml", ".github/workflows/proof-run.yml"}}
 		merged := []string{mergeBase, commit}
 		for name, check := range map[string]struct {
 			trust Trust
@@ -268,7 +268,7 @@ func TestVerify(t *testing.T) {
 	t.Run("ST-ASR-SP02-T A statement signed at the change's own reference counts only when its run ran at a merge commit whose second parent is the commit", func(t *testing.T) {
 		// The probe of the security baseline of 2026-11-11: a run at refs/pull/7/merge at an earlier merge commit,
 		// of another head with a changed workflow, signs a proof run about the commit.
-		clean := Trust{Signer: trusted, ChangeRef: changeRef}
+		clean := Trust{Signer: trusted, ChangeRef: changeRef, Base: mergeBase}
 		earlier := proofRunStatement(t, commit, changeRef, 1)
 		earlier.SourceDigest = mergeOf(other)
 		var refusal *Refusal
@@ -292,6 +292,23 @@ func TestVerify(t *testing.T) {
 				t.Fatalf("a run at %s: grade %q, %v; want a refusal with no grade", name, grade, err)
 			}
 		}
+		// A merge of the commit into another branch than the base, such as the branch a pull request had before
+		// it was retargeted to main, ran that branch's CI definition; and with no base to gate against, no
+		// change-grade statement counts.
+		elsewhere := strings.Repeat("e1", 20)
+		for name, check := range map[string]struct {
+			trust   Trust
+			parents []string
+		}{
+			"a merge of the commit into another branch": {clean, []string{elsewhere, commit}},
+			"no base to gate against":                   {Trust{Signer: trusted, ChangeRef: changeRef}, []string{mergeBase, commit}},
+			"a base that is not a full commit ID":       {Trust{Signer: trusted, ChangeRef: changeRef, Base: mergeBase[:7]}, []string{mergeBase, commit}},
+		} {
+			grade, err := attestationVerified(proofRunStatement(t, commit, changeRef, 1), commit, check.trust, check.parents)
+			if !errors.As(err, &refusal) || refusal.Rule != "attestationVerified" || grade != NoGrade || !strings.Contains(refusal.Reason, "is not the base head") {
+				t.Fatalf("a run at %s: grade %q, %v; want a refusal with no grade", name, grade, err)
+			}
+		}
 		if grade, err := attestationVerified(proofRunStatement(t, commit, changeRef, 1), commit, clean, []string{mergeBase, commit}); err != nil || grade != ChangeGrade {
 			t.Fatalf("a run at the merge commit of the commit: grade %q, %v; want change grade", grade, err)
 		}
@@ -300,8 +317,8 @@ func TestVerify(t *testing.T) {
 		// change-grade proof run counts, and the statement at main still counts.
 		bundles := [][]byte{bundleOf(t, earlier)}
 		for name, trust := range map[string]Trust{
-			"a record that keeps the earlier merge": {Signer: trusted, ChangeRef: changeRef, Commits: merges(commit, other)},
-			"no record of commits":                  {Signer: trusted, ChangeRef: changeRef},
+			"a record that keeps the earlier merge": {Signer: trusted, ChangeRef: changeRef, Base: mergeBase, Commits: merges(commit, other)},
+			"no record of commits":                  {Signer: trusted, ChangeRef: changeRef, Base: mergeBase},
 		} {
 			verification, err := VerifyAttestation(commit, &memoryStore{bundles: map[string][][]byte{commit: bundles}}, statementVerifier{}, trust)
 			if err != nil || verification.Proof != nil || len(verification.Refused) != 1 || verification.WorkflowsChanged {
@@ -309,12 +326,12 @@ func TestVerify(t *testing.T) {
 			}
 		}
 		verification, err := VerifyAttestation(commit, &memoryStore{bundles: map[string][][]byte{commit: {bundleOf(t, proofRunStatement(t, commit, changeRef, 2))}}},
-			statementVerifier{}, Trust{Signer: trusted, ChangeRef: changeRef})
+			statementVerifier{}, Trust{Signer: trusted, ChangeRef: changeRef, Base: mergeBase})
 		if err != nil || verification.Proof != nil {
 			t.Fatalf("a true change-grade statement with no record of commits: %+v, %v; want no proof run", verification, err)
 		}
 		verification, err = VerifyAttestation(commit, &memoryStore{bundles: map[string][][]byte{commit: {bundleOf(t, proofRunStatement(t, commit, MainRef, 3))}}},
-			statementVerifier{}, Trust{Signer: trusted, ChangeRef: changeRef})
+			statementVerifier{}, Trust{Signer: trusted, ChangeRef: changeRef, Base: mergeBase})
 		if err != nil || verification.Proof == nil || verification.Proof.Grade != ReleaseGrade {
 			t.Fatalf("a statement at main with no record of commits: %+v, %v; want the release-grade proof run", verification, err)
 		}
@@ -331,7 +348,7 @@ func TestVerify(t *testing.T) {
 		commits := memoryCommits{parents: map[string][]string{
 			"9609dbfd7ade7168ff18d49af5df240f6334778e": {"d7643951379de746ff1d7d812a2333900dc209de", fixture.Commit},
 		}}
-		trust := Trust{Signer: trusted, ChangeRef: "refs/pull/24/merge", Commits: commits}
+		trust := Trust{Signer: trusted, ChangeRef: "refs/pull/24/merge", Base: "d7643951379de746ff1d7d812a2333900dc209de", Commits: commits}
 		store := &memoryStore{bundles: map[string][][]byte{fixture.Commit: {fixture.Bundle}}}
 		verification, err := VerifyAttestation(fixture.Commit, store, verifier, trust)
 		if err != nil {
@@ -439,7 +456,7 @@ func TestVerify(t *testing.T) {
 	})
 
 	t.Run("ST-ASR-DS03-T02 Of several verified proof runs the release-grade one and then the newest is taken in any order, and a store that cannot answer is an error", func(t *testing.T) {
-		trust := Trust{Signer: trusted, ChangeRef: changeRef, Commits: merges(commit)}
+		trust := Trust{Signer: trusted, ChangeRef: changeRef, Base: mergeBase, Commits: merges(commit)}
 		oldChange := bundleOf(t, proofRunStatement(t, commit, changeRef, 10, "ST-FIX-INV01-T failed"))
 		newChange := bundleOf(t, proofRunStatement(t, commit, changeRef, 30, "ST-FIX-INV01-T passed"))
 		release := bundleOf(t, proofRunStatement(t, commit, MainRef, 20, "ST-FIX-INV01-T skipped"))
@@ -470,7 +487,7 @@ func TestVerify(t *testing.T) {
 			t.Fatal("a store that cannot answer gives no error")
 		}
 		if _, err := VerifyAttestation(commit, &memoryStore{bundles: map[string][][]byte{commit: {newChange}}}, statementVerifier{},
-			Trust{Signer: trusted, ChangeRef: changeRef, Commits: memoryCommits{err: errors.New("GitHub answers 502")}}); err == nil {
+			Trust{Signer: trusted, ChangeRef: changeRef, Base: mergeBase, Commits: memoryCommits{err: errors.New("GitHub answers 502")}}); err == nil {
 			t.Fatal("a record of commits that cannot answer gives no error")
 		}
 		if verification, err := VerifyAttestation(commit, &memoryStore{}, statementVerifier{}, trust); err != nil || verification.Proof != nil || len(verification.Refused) != 0 {

@@ -222,7 +222,7 @@ func GateChange(request ChangeRequest, store AttestationStore, verifier BundleVe
 		return Decision{}, ChangeDecided{}, err
 	}
 	verification, err := VerifyAttestation(request.Commit, store, verifier,
-		Trust{Signer: request.Trusted, ChangeRef: request.ChangeRef, WorkflowChanges: changed, Commits: request.Commits})
+		Trust{Signer: request.Trusted, ChangeRef: request.ChangeRef, Base: request.Base, WorkflowChanges: changed, Commits: request.Commits})
 	if err != nil {
 		return Decision{}, ChangeDecided{}, err
 	}
