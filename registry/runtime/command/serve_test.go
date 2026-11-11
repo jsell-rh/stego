@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
 
+	"github.com/jsell-rh/stego/registry/runtime/audit"
 	"github.com/jsell-rh/stego/registry/runtime/authn"
 	"github.com/jsell-rh/stego/registry/runtime/authn/authntest"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
@@ -245,5 +247,99 @@ func TestServe(t *testing.T) {
 			}
 		}()
 		Must(0, errors.New("refused"))
+	})
+}
+
+func TestServeHelpers(t *testing.T) {
+	t.Run("ST-SUP-RP10-LC34-T01 The bind, the outcome map and the outcome row serve a handler that decodes its own body", func(t *testing.T) {
+		e := newEnv(t)
+		key := authntest.NewKey(t, "k1")
+		set, err := authn.ParseKeys(authntest.Document(key.JWK()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		verifier, err := authn.New(authn.Settings{Issuer: "https://issuer.example", Audience: "orders", ProblemCode: "ORDERS",
+			Keys: set, TenantClaim: "tenant"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(verifier.Stop)
+		mint := func(tenantID string) string {
+			claims := authntest.Claims("https://issuer.example", "orders", "u-7", time.Now())
+			if tenantID != "" {
+				claims["tenant"] = tenantID
+			}
+			return "Bearer " + authntest.Mint(t, authntest.Header("k1"), claims, key)
+		}
+
+		// The bind gives the tenant of the verified claim and the principal of the subject type, and refuses a
+		// context with no verified identity and an identity with no tenant claim.
+		ctx, err := verifier.Authenticate(context.Background(), mint("t1"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		identity, _ := authn.FromContext(ctx)
+		caller, err := authz.Person("user", identity)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := BindIdentity(ctx, "user")
+		if err != nil || b.Tenant.ID() != "t1" || b.Principal.Subject() != caller.Subject() {
+			t.Fatalf("BindIdentity gave %+v, %v; want the tenant t1 and the caller's principal of the type user", b, err)
+		}
+		if _, err := BindIdentity(context.Background(), "user"); err == nil {
+			t.Fatal("BindIdentity bound a context with no verified identity")
+		}
+		noTenant, err := verifier.Authenticate(context.Background(), mint(""))
+		if err == nil {
+			if _, err := BindIdentity(noTenant, "user"); err == nil {
+				t.Fatal("BindIdentity bound an identity with no tenant claim")
+			}
+		}
+
+		// The outcome map gives the status, the fixed code and the audit outcome of each error of Run, and no error
+		// text; a refusal that is not declared is an other error.
+		const secret = "jane.doe@example.com"
+		declared := NewRefusal("reserve", "short_stock", http.StatusUnprocessableEntity, "reserve.short_stock")
+		for _, c := range []struct {
+			name   string
+			err    error
+			want   Outcome
+			answer string
+		}{
+			{"declared refusal", fmt.Errorf("wrapped: %w", declared), Outcome{http.StatusUnprocessableEntity, "reserve.short_stock", audit.OutcomeFailed}, "reserve.short_stock"},
+			{"refusal not declared", NewRefusal("reserve", "short_stock", http.StatusUnprocessableEntity, "reserve.short_stock"), Outcome{http.StatusInternalServerError, ErrorCodeInternal, audit.OutcomeFailed}, ErrorCodeInternal},
+			{"deny", ErrDenied, Outcome{http.StatusNotFound, ErrorCodeDenied, audit.OutcomeDenied}, ErrorCodeDenied},
+			{"conflict", &conflictError{text: "moved"}, Outcome{http.StatusConflict, audit.ErrorCodeConflict, audit.OutcomeFailed}, audit.ErrorCodeConflict},
+			{"commit of unknown outcome", ErrCommitUnknown, Outcome{http.StatusInternalServerError, audit.ErrorCodeCommitOutcomeUnknown, audit.OutcomeFailed}, ErrorCodeInternal},
+			{"another error", errors.New("no stock for " + secret), Outcome{http.StatusInternalServerError, ErrorCodeInternal, audit.OutcomeFailed}, ErrorCodeInternal},
+		} {
+			got := OutcomeOf(c.err, declared)
+			if got != c.want || got.AnswerCode() != c.answer || strings.Contains(fmt.Sprint(got), secret) {
+				t.Fatalf("%s: OutcomeOf gave %+v with the answer code %q, want %+v and %q", c.name, got, got.AnswerCode(), c.want, c.answer)
+			}
+		}
+
+		// The outcome row is written in its own transaction with the outcome and the fixed code, also when the
+		// request's context has ended, and the code goes to the completion log.
+		req := e.request("t1", u7(t), "k-helpers", `{}`)
+		req.Resource = "o9"
+		cancelled, cancel := context.WithCancel(otel.WithErrorCode(context.Background()))
+		cancel()
+		before := e.auditRows("t1", "reserve")
+		if err := e.rt.RecordFailure(cancelled, req, "reserve", "order", OutcomeOf(ErrCommitUnknown)); err != nil {
+			t.Fatalf("RecordFailure gave %v", err)
+		}
+		var outcome, code, resource string
+		if err := e.admin.QueryRowContext(e.ctx, `SELECT outcome, coalesce(error_code, ''), resource_type || ':' || resource_id
+ FROM audit_event WHERE tenant_id = 't1' AND action = 'reserve' ORDER BY seq DESC LIMIT 1`).Scan(&outcome, &code, &resource); err != nil {
+			t.Fatal(err)
+		}
+		if e.auditRows("t1", "reserve") != before+1 || outcome != "failed" || code != audit.ErrorCodeCommitOutcomeUnknown || resource != "order:o9" {
+			t.Fatalf("RecordFailure wrote %s %q on %s, want one row failed commit_outcome_unknown on order:o9", outcome, code, resource)
+		}
+		if logged, _ := otel.ErrorCode(cancelled); logged != ErrorCodeInternal {
+			t.Fatalf("the completion log has the code %q, want %s", logged, ErrorCodeInternal)
+		}
 	})
 }

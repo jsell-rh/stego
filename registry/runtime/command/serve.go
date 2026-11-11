@@ -39,8 +39,8 @@ const ErrorCodeDenied = "denied"
 // message or whose path parameter differs from its body. Serve answers it with 400.
 var ErrBadRequest = errors.New("command: the request does not decode into the request message")
 
-// outcomeTimeout bounds the write of the audit row of a denied or failed command.
-const outcomeTimeout = 5 * time.Second
+// OutcomeTimeout bounds the write of the audit row of a denied or failed command.
+const OutcomeTimeout = 5 * time.Second
 
 // Refusal is one refusal that a command declares (ST-SUP-RC32-OC09): the command, its name, its HTTP status and its
 // fixed code. Its fields are unexported: the generated contract makes each declared value once with NewRefusal, and
@@ -106,72 +106,88 @@ func (s ServeSpec[Req, Res, P]) check(rt *Runtime) error {
 	return nil
 }
 
-// outcome is how Serve answers an error of Run: the status, the fixed code and the audit outcome.
-type outcome struct {
-	status int
-	code   string
-	audit  audit.Outcome
+// Outcome is how a command handler answers an error of Run (ST-SUP-RP10-LC34): the HTTP status, the fixed code and
+// the audit outcome. It holds no error text.
+type Outcome struct {
+	Status int
+	Code   string
+	Audit  audit.Outcome
 }
 
-// outcomeOf maps an error of Run to its answer (ST-SUP-RP10-LC33): a declared refusal of the spec is its status and
-// code; ErrDenied is 404 denied, the same answer as a missing row of a read (ST-SUP-RP11-LC06); a conflict after the
-// last attempt is 409 conflict; a COMMIT whose outcome is not known and every other error are 500 internal, the
-// first with the audit code commit_outcome_unknown. No error text reaches the answer, the audit row or the log.
-func outcomeOf(err error, refusals []*Refusal) outcome {
+// OutcomeOf maps an error of Run to its answer (ST-SUP-RP10-LC33, ST-SUP-RP10-LC34): a declared refusal among
+// refusals is its status and code; ErrDenied is 404 denied, the same answer as a missing row of a read
+// (ST-SUP-RP11-LC06); a conflict after the last attempt is 409 conflict; a COMMIT whose outcome is not known and
+// every other error are 500 internal, the first with the audit code commit_outcome_unknown. A refusal that is not
+// one of refusals is an other error. No error text reaches the answer, the audit row or the log. Serve uses it, and
+// so does a handler that decodes its own body, such as the handlers of generated CRUD.
+func OutcomeOf(err error, refusals ...*Refusal) Outcome {
 	var refused *Refusal
 	if errors.As(err, &refused) {
 		for _, r := range refusals {
 			if r != nil && r == refused {
-				return outcome{status: r.status, code: r.code, audit: audit.OutcomeFailed}
+				return Outcome{Status: r.status, Code: r.code, Audit: audit.OutcomeFailed}
 			}
 		}
 	}
 	if errors.Is(err, ErrDenied) {
-		return outcome{status: http.StatusNotFound, code: ErrorCodeDenied, audit: audit.OutcomeDenied}
+		return Outcome{Status: http.StatusNotFound, Code: ErrorCodeDenied, Audit: audit.OutcomeDenied}
 	}
 	code := ErrorCode(err)
 	if code == audit.ErrorCodeConflict {
-		return outcome{status: http.StatusConflict, code: code, audit: audit.OutcomeFailed}
+		return Outcome{Status: http.StatusConflict, Code: code, Audit: audit.OutcomeFailed}
 	}
-	return outcome{status: http.StatusInternalServerError, code: code, audit: audit.OutcomeFailed}
+	return Outcome{Status: http.StatusInternalServerError, Code: code, Audit: audit.OutcomeFailed}
 }
 
-// answerCode is the code of an answer: the audit code commit_outcome_unknown is internal to a client.
-func (o outcome) answerCode() string {
-	if o.code == audit.ErrorCodeCommitOutcomeUnknown {
+// AnswerCode is the code of the answer to the client: the audit code commit_outcome_unknown is internal to a client.
+func (o Outcome) AnswerCode() string {
+	if o.Code == audit.ErrorCodeCommitOutcomeUnknown {
 		return ErrorCodeInternal
 	}
-	return o.code
+	return o.Code
 }
 
-// bound is the verified tenant and principal of a request.
-type bound struct {
-	tenant    tenant.Tenant
-	principal authz.Principal
+// Bound is the verified tenant and principal of a request.
+type Bound struct {
+	Tenant    tenant.Tenant
+	Principal authz.Principal
 }
 
-// bindIdentity takes the tenant from the verified claim of ctx and maps the verified identity to its principal of
-// subjectType (ST-SUP-RC32-OC04). A context with no verified identity, or one with no tenant claim, is not bound.
-func bindIdentity(ctx context.Context, subjectType string) (bound, error) {
+// BindIdentity takes the tenant from the verified claim of ctx and maps the verified identity to its principal of
+// subjectType (ST-SUP-RC32-OC04, ST-SUP-RP10-LC34). A context with no verified identity, or one with no tenant
+// claim, is not bound. A handler binds before it opens any transaction, and answers 401 when it cannot.
+func BindIdentity(ctx context.Context, subjectType string) (Bound, error) {
 	identity, ok := authn.FromContext(ctx)
 	if !ok {
-		return bound{}, errors.New("command: no verified identity")
+		return Bound{}, errors.New("command: no verified identity")
 	}
 	t, err := tenant.New(tenant.Claim(identity))
 	if err != nil {
-		return bound{}, err
+		return Bound{}, err
 	}
 	p, err := authz.Person(subjectType, identity)
 	if err != nil {
-		return bound{}, err
+		return Bound{}, err
 	}
-	return bound{tenant: t, principal: p}, nil
+	return Bound{Tenant: t, Principal: p}, nil
+}
+
+// RecordFailure writes the outcome audit row of a request whose Run ended in an error, with the action, the resource
+// type, the request's resource and the outcome and fixed code of o (ST-SUP-RC32-OC07, ST-SUP-RP10-LC34). It runs in
+// its own short transaction within OutcomeTimeout, which the end of ctx does not cancel, so the row is written also
+// when the request was cancelled or ran past its deadline. It gives the fixed code to the completion log of ctx
+// (ST-SUP-RP03-LC12).
+func (rt *Runtime) RecordFailure(ctx context.Context, req Request, action, resourceType string, o Outcome) error {
+	otel.SetErrorCode(ctx, o.AnswerCode())
+	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), OutcomeTimeout)
+	defer cancel()
+	return rt.RecordOutcome(recordCtx, req, action, resourceType, req.Resource, o.Audit, o.Code)
 }
 
 // serveRun runs the command in Run and, when it ends in an error, writes the command's audit row in its own short
 // transaction with the outcome denied or failed and its fixed code, and gives the code to the completion log.
 func serveRun[Req, Res proto.Message, P any](ctx context.Context, rt *Runtime, s ServeSpec[Req, Res, P], req Request,
-	decode func([]byte) (Req, error)) (Result, *outcome) {
+	decode func([]byte) (Req, error)) (Result, *Outcome) {
 	result, err := Run(ctx, rt, s.Command, req, decode, func(ctx context.Context, request Req, h *Handle[P]) (idempotency.Response, error) {
 		response, err := s.Fill(ctx, request, h)
 		if err != nil {
@@ -189,11 +205,8 @@ func serveRun[Req, Res proto.Message, P any](ctx context.Context, rt *Runtime, s
 	if err == nil {
 		return result, nil
 	}
-	o := outcomeOf(err, s.Refusals)
-	otel.SetErrorCode(ctx, o.answerCode())
-	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), outcomeTimeout)
-	defer cancel()
-	_ = rt.RecordOutcome(recordCtx, req, s.Command.spec.Name, s.ResourceType, req.Resource, o.audit, o.code)
+	o := OutcomeOf(err, s.Refusals...)
+	_ = rt.RecordFailure(ctx, req, s.Command.spec.Name, s.ResourceType, o)
 	return result, &o
 }
 
@@ -215,7 +228,7 @@ func Serve[Req, Res proto.Message, P any](rt *Runtime, s ServeSpec[Req, Res, P])
 			writeProblem(w, http.StatusMethodNotAllowed, "", "")
 			return
 		}
-		b, err := bindIdentity(r.Context(), s.SubjectType)
+		b, err := BindIdentity(r.Context(), s.SubjectType)
 		if err != nil {
 			writeProblem(w, http.StatusUnauthorized, "", "")
 			return
@@ -254,13 +267,13 @@ func Serve[Req, Res proto.Message, P any](rt *Runtime, s ServeSpec[Req, Res, P])
 			writeProblem(w, http.StatusBadRequest, "", "")
 			return
 		}
-		req := Request{Tenant: b.tenant, Principal: b.principal, Key: key, Fingerprint: fingerprint, Body: body,
+		req := Request{Tenant: b.Tenant, Principal: b.Principal, Key: key, Fingerprint: fingerprint, Body: body,
 			Resource: s.Resource(request), RequestID: NewID(), ActorIP: remoteIP(r.RemoteAddr),
 			UserAgent: r.UserAgent(), Retention: s.Retention}
 		result, failed := serveRun(r.Context(), rt, s, req, decode)
 		switch {
 		case failed != nil:
-			writeProblem(w, failed.status, "", failed.answerCode())
+			writeProblem(w, failed.Status, "", failed.AnswerCode())
 		case result.Problem != "":
 			writeProblem(w, result.Response.Status, result.Problem, "")
 		default:
@@ -284,7 +297,7 @@ func ServeRPC[Req, Res proto.Message, P any](rt *Runtime, s ServeSpec[Req, Res, 
 	}
 	return func(ctx context.Context, request Req) (Res, error) {
 		var none Res
-		b, err := bindIdentity(ctx, s.SubjectType)
+		b, err := BindIdentity(ctx, s.SubjectType)
 		if err != nil {
 			return none, status.Error(codes.Unauthenticated, "unauthenticated")
 		}
@@ -314,12 +327,12 @@ func ServeRPC[Req, Res proto.Message, P any](rt *Runtime, s ServeSpec[Req, Res, 
 			}
 			return request, nil
 		}
-		req := Request{Tenant: b.tenant, Principal: b.principal, Key: key, Fingerprint: fingerprint, Body: body,
+		req := Request{Tenant: b.Tenant, Principal: b.Principal, Key: key, Fingerprint: fingerprint, Body: body,
 			Resource: s.Resource(request), RequestID: NewID(), Retention: s.Retention}
 		result, failed := serveRun(ctx, rt, s, req, decode)
 		switch {
 		case failed != nil:
-			return none, status.Error(RPCCode(failed.status), failed.answerCode())
+			return none, status.Error(RPCCode(failed.Status), failed.AnswerCode())
 		case result.Problem == idempotency.ProblemInProgress:
 			return none, status.Error(codes.Aborted, result.Problem)
 		case result.Problem != "":
