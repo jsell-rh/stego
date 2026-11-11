@@ -1,0 +1,4 @@
+kind: fill
+name: order-created
+implements: rest-api.after_create
+collection: orders

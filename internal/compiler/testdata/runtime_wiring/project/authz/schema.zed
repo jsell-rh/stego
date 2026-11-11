@@ -8,6 +8,7 @@ definition order {
 }
 
 definition note {
+	relation order: order
 	relation viewer: user
-	permission view = viewer
+	permission view = viewer + order->view
 }

@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -29,6 +30,8 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
 	"github.com/jsell-rh/stego/registry/runtime/authn"
@@ -95,8 +98,62 @@ type env struct {
 	mu           sync.Mutex
 	orderGate    func(*slots.BeforeCreateRequest) *slots.SlotResult
 	customerGate func(*slots.ValidateRequest) *slots.SlotResult
-	// orderAfter is the fill of orders.after_create: it records each call, and fails for the sku after-fails.
+	// orderAfter is the fill of orders.after_create: it records each call, and fails the first call for the sku
+	// after-fails and the first two for the sku after-flaky.
 	afterCalls []string
+	// metrics reads the metrics of the after slots, and logs holds the log lines of the service.
+	metrics *sdkmetric.ManualReader
+	logs    *lockedBuffer
+}
+
+// lockedBuffer is the log of the service, which the slog handler and the checks share.
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+// counter gives the sum of the counter name of the after slots for the slot.
+func (e *env) counter(name, slot string) int64 {
+	var data metricdata.ResourceMetrics
+	must(e.t, e.metrics.Collect(e.ctx, &data))
+	var n int64
+	for _, scope := range data.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			sum, ok := m.Data.(metricdata.Sum[int64])
+			if !ok || m.Name != name {
+				continue
+			}
+			for _, point := range sum.DataPoints {
+				if value, _ := point.Attributes.Value("slot"); value.AsString() == slot {
+					n += point.Value
+				}
+			}
+		}
+	}
+	return n
+}
+
+// eventually waits until ok holds, at most 30 s.
+func (e *env) eventually(what string, ok func() bool) {
+	e.t.Helper()
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if ok() {
+			return
+		}
+	}
+	e.t.Fatalf("after 30 s: %s", what)
 }
 
 var (
@@ -226,7 +283,26 @@ func (e *env) start(dsn, endpoint, spiceKey string) {
 	queries, err := query.New(query.Config{DB: pool, AuditDB: auditDB, Audit: writer, AuditSettings: settings, Authz: az,
 		Service: "crud", CursorKey: cursorKey})
 	must(t, err)
-	rt := &api.Runtime{Commands: commands, Queries: queries, Probes: probes}
+	// The after slots run in the outbox worker on the worker role, as the service runtime runs them
+	// (ST-SUP-RC20-OC34), with a metric reader and the log of the service.
+	e.metrics = sdkmetric.NewManualReader()
+	after := api.NewAfterSlots()
+	must(t, after.Meter(sdkmetric.NewMeterProvider(sdkmetric.WithReader(e.metrics))))
+	e.logs = &lockedBuffer{}
+	slog.SetDefault(slog.New(slog.NewJSONHandler(e.logs, nil)))
+	u.User = url.UserPassword(roles[1], password)
+	workerPool, err := tenant.Open(e.ctx, tenant.Config{InsecureLoopback: true, DSN: u.String()})
+	must(t, err)
+	workerQueue, err := outbox.New(workerPool, outbox.Options{})
+	must(t, err)
+	config := outbox.DefaultWorkerConfig()
+	config.PollInterval, config.RetryMin, config.RetryMax = 20*time.Millisecond, 50*time.Millisecond, 200*time.Millisecond
+	worker, err := outbox.NewWorker(workerQueue, config)
+	must(t, err)
+	must(t, worker.Register(outbox.Destination{Name: api.AfterSlotsDestination, Idempotent: true, MustLand: true,
+		Handler: func(ctx context.Context, _ *sql.Tx, d outbox.Delivery) error { return after.Deliver(ctx, d) }}))
+	go func() { _ = worker.Run(context.Background()) }()
+	rt := &api.Runtime{Commands: commands, Queries: queries, Probes: probes, AfterSlots: after}
 
 	e.key = authntest.NewKey(t, "k1")
 	keys, err := authn.ParseKeys(authntest.Document(e.key.JWK()))
@@ -278,8 +354,15 @@ type orderAfter struct{ e *env }
 func (g orderAfter) Evaluate(_ context.Context, req *slots.AfterCreateRequest) (*slots.SlotResult, error) {
 	g.e.mu.Lock()
 	defer g.e.mu.Unlock()
-	g.e.afterCalls = append(g.e.afterCalls, req.PersistedFields["sku"])
-	if req.PersistedFields["sku"] == "after-fails" {
+	sku := req.PersistedFields["sku"]
+	g.e.afterCalls = append(g.e.afterCalls, sku)
+	calls := 0
+	for _, s := range g.e.afterCalls {
+		if s == sku {
+			calls++
+		}
+	}
+	if (sku == "after-fails" && calls <= 1) || (sku == "after-flaky" && calls <= 2) {
 		return nil, errors.New("after slot failed: secret internal text")
 	}
 	return &slots.SlotResult{Ok: true}, nil
@@ -636,8 +719,9 @@ func TestCrud(t *testing.T) {
 			t.Errorf("%d ok audit rows after the halt, want 0", n)
 		}
 		e.create(a, "orders", "order", `{"sku":"written","qty":1}`)
-		if n := e.afterCallsOf("written"); n != 1 {
-			t.Errorf("the after slot ran %d times for a create that wrote, want 1", n)
+		e.eventually("the outbox worker runs the after slot of a create that wrote", func() bool { return e.afterCallsOf("written") == 1 })
+		if n := e.afterCallsOf("halted"); n != 0 {
+			t.Errorf("the after slot ran %d times for a halted create, want 0", n)
 		}
 	})
 
@@ -655,8 +739,38 @@ func TestCrud(t *testing.T) {
 		if replay := e.send(a, http.MethodPost, "/api/v1/orders", key, `{"sku":"after-fails","qty":1}`); replay.status != r.status || string(replay.body) != string(r.body) {
 			t.Errorf("the replay answered %d %s, want the same answer %d %s", replay.status, replay.body, r.status, r.body)
 		}
-		if api.AfterSlotFailures() < 1 {
-			t.Error("the failed after slot is not counted")
+		e.eventually("the failed after slot is counted and runs again", func() bool { return api.AfterSlotFailures() >= 1 && e.afterCallsOf("after-fails") == 2 })
+	})
+
+	t.Run("ST-SUP-RC20-OC34-T03 A failed after slot is retried through the outbox, never reaches the answer, and each failure and retry is visible", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-1", newTenant())
+		slot := "orders.after_create"
+		failures, retries := e.counter("rest_api.after_slot.failures", slot), e.counter("rest_api.after_slot.retries", slot)
+		r := e.send(a, http.MethodPost, "/api/v1/orders", "flaky-"+uuid.NewString(), `{"sku":"after-flaky","qty":1}`)
+		if r.status != http.StatusCreated || strings.Contains(string(r.body), "secret internal text") {
+			t.Fatalf("the create whose after slot fails twice answered %d %s, want the committed 201 with no error text", r.status, r.body)
+		}
+		e.eventually("the outbox worker runs the after slot three times", func() bool { return e.afterCallsOf("after-flaky") == 3 })
+		e.eventually("the message of the after slot is done", func() bool {
+			return e.count(`SELECT count(*) FROM stego_outbox.messages WHERE tenant_id = $1 AND destination = $2 AND state <> 'done'`, a.tenant.ID(), api.AfterSlotsDestination) == 0
+		})
+		time.Sleep(300 * time.Millisecond)
+		if n := e.afterCallsOf("after-flaky"); n != 3 {
+			t.Errorf("the after slot ran %d times, want 3: two failures and one pass", n)
+		}
+		if got := e.counter("rest_api.after_slot.failures", slot) - failures; got != 2 {
+			t.Errorf("the failure metric of %s grew by %d, want 2", slot, got)
+		}
+		if got := e.counter("rest_api.after_slot.retries", slot) - retries; got != 2 {
+			t.Errorf("the retry metric of %s grew by %d, want 2", slot, got)
+		}
+		logs := e.logs.String()
+		if strings.Contains(logs, "secret internal text") {
+			t.Error("a log line holds the error text of the after slot")
+		}
+		if strings.Count(logs, `"slot":"`+slot+`"`) < 4 {
+			t.Errorf("the log has fewer than four lines that name the slot %s, want one for each failure and each retry:\n%s", slot, logs)
 		}
 	})
 
