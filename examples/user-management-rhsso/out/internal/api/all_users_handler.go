@@ -5,6 +5,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -18,7 +19,7 @@ import (
 var allUsersListQuery = mustQuery(query.NewListQuery("list", data.EntityUserView(), "view"))
 
 // allUsersSearchFields are the fields that a list search may name, with the kind of their values: the declared
-// fields that are not secret or implicit, of a text, number or bool type (ST-SUP-RP11-LC20).
+// fields that are not pii, secret or implicit, of a text, number or bool type (ST-SUP-RP11-LC20).
 var allUsersSearchFields = map[string]query.FieldKind{"email": query.KindText, "display_name": query.KindText, "role": query.KindText}
 
 // AllUsersHandler serves the collection all-users on the command and the query runtime (ST-SUP-RC20-OC37): each
@@ -100,7 +101,7 @@ func (h *AllUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, BadRequest(err.Error()))
 		return
 	}
-	where, err := query.ParseSearch(r.URL.Query().Get("search"), allUsersSearchFields)
+	where, err := query.ParseSearch(r.URL.Query().Get("search"), allUsersSearchFields, query.MaxFilter-0)
 	if err != nil {
 		handleError(w, r, BadRequest("the search is not valid"))
 		return
@@ -129,6 +130,10 @@ func (h *AllUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 	})
 	if isBadCursor(err) {
 		handleError(w, r, BadRequest("the cursor is not valid"))
+		return
+	}
+	if errors.Is(err, query.ErrBadRequest) {
+		handleError(w, r, BadRequest("the list request is not valid"))
 		return
 	}
 	if err != nil {

@@ -65,12 +65,14 @@ const (
 )
 
 // The roles of the database, which the role migration of the tenancy component makes (ST-SUP-RC27-OC04). WorkerRole
-// is the role that the outbox worker connects as and RelayRole the role of the authorization relay.
+// is the role that the outbox worker connects as, RelayRole the role of the authorization relay and PurgeRole the
+// role of this service that owns the purge function of the idempotency key table (ST-SUP-RP07-LC11).
 const (
 	RuntimeRole = svctenancy.RuntimeRole
 	OwnerRole   = svctenancy.OwnerRole
 	WorkerRole  = svctenancy.WorkerRole
 	RelayRole   = svctenancy.RelayRole
+	PurgeRole   = svctenancy.PurgeRole
 )
 
 // The settings of the deployment, which the process environment gives by the fixed names of the service runtime
@@ -110,7 +112,7 @@ var grants = []string{
 	"GRANT INSERT, SELECT, UPDATE ON TABLE \"public\".\"audit_chain_heads\"",
 	"GRANT INSERT, SELECT, UPDATE ON TABLE \"public\".\"audit_anchor_boundaries\"",
 	"GRANT SELECT ON TABLE \"public\".\"audit_retention_checkpoints\"",
-	"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE \"public\".\"idempotency_keys\"",
+	"GRANT SELECT, INSERT, UPDATE ON TABLE \"public\".\"idempotency_keys\"",
 }
 
 // Runtime holds the runtime of the running service, which the service runtime wires (ST-SUP-RP14-LC02), and the
@@ -331,7 +333,7 @@ func Migrate(ctx context.Context) error {
 		return &service.StepError{Step: service.StepSettings, Err: err}
 	}
 	return service.Migrate(ctx, settings, service.Migration{
-		OwnerRole: OwnerRole, RuntimeRole: RuntimeRole, WorkerRole: WorkerRole, TenantConfig: svcstorage.TenantConfig,
+		OwnerRole: OwnerRole, RuntimeRole: RuntimeRole, WorkerRole: WorkerRole, PurgeRole: PurgeRole, TenantConfig: svcstorage.TenantConfig,
 		LedgerCheck: func(ctx context.Context, conn *sql.Conn) error { return withLedger(ctx, conn, svcstorage.CheckLedger) },
 		Ledger:      func(ctx context.Context, conn *sql.Conn) error { return withLedger(ctx, conn, svcstorage.Migrate) },
 		Outbox:      queueText, Audit: auditText, Authorization: authzText,

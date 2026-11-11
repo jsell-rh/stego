@@ -5,6 +5,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -42,7 +43,7 @@ var organizationsDeleteCommand = mustCommand(command.NewCommand(command.CommandS
 var organizationsListQuery = mustQuery(query.NewListQuery("list", data.EntityOrganizationView(), "view"))
 
 // organizationsSearchFields are the fields that a list search may name, with the kind of their values: the declared
-// fields that are not secret or implicit, of a text, number or bool type (ST-SUP-RP11-LC20).
+// fields that are not pii, secret or implicit, of a text, number or bool type (ST-SUP-RP11-LC20).
 var organizationsSearchFields = map[string]query.FieldKind{"name": query.KindText, "description": query.KindText}
 
 // organizationsCreateFields are the body fields that the fingerprint of a create covers (ST-SUP-RC30-OC03).
@@ -288,7 +289,7 @@ func (h *OrganizationsHandler) List(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, BadRequest(err.Error()))
 		return
 	}
-	where, err := query.ParseSearch(r.URL.Query().Get("search"), organizationsSearchFields)
+	where, err := query.ParseSearch(r.URL.Query().Get("search"), organizationsSearchFields, query.MaxFilter-0)
 	if err != nil {
 		handleError(w, r, BadRequest("the search is not valid"))
 		return
@@ -317,6 +318,10 @@ func (h *OrganizationsHandler) List(w http.ResponseWriter, r *http.Request) {
 	})
 	if isBadCursor(err) {
 		handleError(w, r, BadRequest("the cursor is not valid"))
+		return
+	}
+	if errors.Is(err, query.ErrBadRequest) {
+		handleError(w, r, BadRequest("the list request is not valid"))
 		return
 	}
 	if err != nil {

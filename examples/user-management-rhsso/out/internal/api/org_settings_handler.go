@@ -5,6 +5,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -32,8 +33,8 @@ var orgSettingsUpsertCommand = mustCommand(command.NewCommand(command.CommandSpe
 var orgSettingsUpsertKey = command.Must(command.NewList(data.OrgSettingEntity, command.ListSpec{Name: "upsert-key", Read: "SELECT \"id\"::text, \"org_id\", \"key\", \"value\", \"generation\", \"version\", \"authz_token\" FROM public.\"org_settings\" WHERE \"tenant_id\" = $1 AND \"org_id\" = $3 AND \"key\" = $4 ORDER BY \"id\" LIMIT $2"}))
 
 // orgSettingsSearchFields are the fields that a list search may name, with the kind of their values: the declared
-// fields that are not secret or implicit, of a text, number or bool type (ST-SUP-RP11-LC20).
-var orgSettingsSearchFields = map[string]query.FieldKind{"key": query.KindText, "generation": query.KindInt}
+// fields that are not pii, secret or implicit, of a text, number or bool type (ST-SUP-RP11-LC20).
+var orgSettingsSearchFields = map[string]query.FieldKind{"key": query.KindText, "generation": query.KindInt64}
 
 // OrgSettingsHandler serves the collection org-settings on the command and the query runtime (ST-SUP-RC20-OC37): each
 // operation calls the Run of its generated command or query, and the handler holds no store.
@@ -124,7 +125,7 @@ func (h *OrgSettingsHandler) List(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, BadRequest(err.Error()))
 		return
 	}
-	where, err := query.ParseSearch(r.URL.Query().Get("search"), orgSettingsSearchFields)
+	where, err := query.ParseSearch(r.URL.Query().Get("search"), orgSettingsSearchFields, query.MaxFilter-1)
 	if err != nil {
 		handleError(w, r, BadRequest("the search is not valid"))
 		return
@@ -154,6 +155,10 @@ func (h *OrgSettingsHandler) List(w http.ResponseWriter, r *http.Request) {
 	})
 	if isBadCursor(err) {
 		handleError(w, r, BadRequest("the cursor is not valid"))
+		return
+	}
+	if errors.Is(err, query.ErrBadRequest) {
+		handleError(w, r, BadRequest("the list request is not valid"))
 		return
 	}
 	if err != nil {

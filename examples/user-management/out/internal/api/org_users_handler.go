@@ -5,6 +5,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -61,7 +62,7 @@ var orgUsersPatchCommand = mustCommand(command.NewCommand(command.CommandSpec[st
 }))
 
 // orgUsersSearchFields are the fields that a list search may name, with the kind of their values: the declared
-// fields that are not secret or implicit, of a text, number or bool type (ST-SUP-RP11-LC20).
+// fields that are not pii, secret or implicit, of a text, number or bool type (ST-SUP-RP11-LC20).
 var orgUsersSearchFields = map[string]query.FieldKind{"email": query.KindText, "display_name": query.KindText, "role": query.KindText}
 
 // orgUsersCreateFields are the body fields that the fingerprint of a create covers (ST-SUP-RC30-OC03).
@@ -528,7 +529,7 @@ func (h *OrgUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, BadRequest(err.Error()))
 		return
 	}
-	where, err := query.ParseSearch(r.URL.Query().Get("search"), orgUsersSearchFields)
+	where, err := query.ParseSearch(r.URL.Query().Get("search"), orgUsersSearchFields, query.MaxFilter-1)
 	if err != nil {
 		handleError(w, r, BadRequest("the search is not valid"))
 		return
@@ -558,6 +559,10 @@ func (h *OrgUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 	})
 	if isBadCursor(err) {
 		handleError(w, r, BadRequest("the cursor is not valid"))
+		return
+	}
+	if errors.Is(err, query.ErrBadRequest) {
+		handleError(w, r, BadRequest("the list request is not valid"))
 		return
 	}
 	if err != nil {
@@ -644,6 +649,7 @@ func (h *OrgUsersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 		if patch.Metadata != nil {
 			user.Metadata = ptrOf(*patch.Metadata)
 		}
+		user.OrgID = stored.OrgID
 		var parents []command.Ref
 		if user.OrgID != stored.OrgID {
 			refs, err := data.OrganizationRepository(ch)

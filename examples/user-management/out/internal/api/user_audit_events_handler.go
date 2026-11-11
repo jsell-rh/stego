@@ -5,6 +5,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -29,7 +30,7 @@ var userAuditEventsCreateCommand = mustCommand(command.NewCommand(command.Comman
 var userAuditEventsListQuery = mustQuery(query.NewListQuery("list", data.EntityAuditEventView(), "view"))
 
 // userAuditEventsSearchFields are the fields that a list search may name, with the kind of their values: the declared
-// fields that are not secret or implicit, of a text, number or bool type (ST-SUP-RP11-LC20).
+// fields that are not pii, secret or implicit, of a text, number or bool type (ST-SUP-RP11-LC20).
 var userAuditEventsSearchFields = map[string]query.FieldKind{"source_id": query.KindText, "action": query.KindText}
 
 // userAuditEventsCreateFields are the body fields that the fingerprint of a create covers (ST-SUP-RC30-OC03).
@@ -202,7 +203,7 @@ func (h *UserAuditEventsHandler) List(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, BadRequest(err.Error()))
 		return
 	}
-	where, err := query.ParseSearch(r.URL.Query().Get("search"), userAuditEventsSearchFields)
+	where, err := query.ParseSearch(r.URL.Query().Get("search"), userAuditEventsSearchFields, query.MaxFilter-1)
 	if err != nil {
 		handleError(w, r, BadRequest("the search is not valid"))
 		return
@@ -232,6 +233,10 @@ func (h *UserAuditEventsHandler) List(w http.ResponseWriter, r *http.Request) {
 	})
 	if isBadCursor(err) {
 		handleError(w, r, BadRequest("the cursor is not valid"))
+		return
+	}
+	if errors.Is(err, query.ErrBadRequest) {
+		handleError(w, r, BadRequest("the list request is not valid"))
 		return
 	}
 	if err != nil {

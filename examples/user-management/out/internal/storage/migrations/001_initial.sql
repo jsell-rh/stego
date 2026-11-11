@@ -11,6 +11,9 @@ CREATE TABLE public."audit_events" (
   "authz_token" text NOT NULL DEFAULT '',
   CONSTRAINT "audit_events_pkey" PRIMARY KEY ("tenant_id", "id")
 );
+CREATE INDEX "audit_events_source_type_search" ON public."audit_events" ("tenant_id", "source_type");
+CREATE INDEX "audit_events_source_id_search" ON public."audit_events" ("tenant_id", "source_id");
+CREATE INDEX "audit_events_action_search" ON public."audit_events" ("tenant_id", "action");
 CREATE TABLE public."organizations" (
   "tenant_id" text NOT NULL DEFAULT current_setting('app.tenant'),
   "id" uuid NOT NULL,
@@ -23,6 +26,8 @@ CREATE TABLE public."organizations" (
   CONSTRAINT "organizations_pkey" PRIMARY KEY ("tenant_id", "id"),
   CONSTRAINT "organizations_name_check" CHECK (char_length("name") >= 1)
 );
+CREATE INDEX "organizations_name_search" ON public."organizations" ("tenant_id", "name");
+CREATE INDEX "organizations_description_search" ON public."organizations" ("tenant_id", "description");
 CREATE UNIQUE INDEX "organizations_name_key" ON public."organizations" ("tenant_id", "name");
 CREATE TABLE public."org_settings" (
   "tenant_id" text NOT NULL DEFAULT current_setting('app.tenant'),
@@ -38,6 +43,9 @@ CREATE TABLE public."org_settings" (
   CONSTRAINT "org_settings_pkey" PRIMARY KEY ("tenant_id", "id"),
   CONSTRAINT "org_settings_org_id_fkey" FOREIGN KEY ("tenant_id", "org_id") REFERENCES public."organizations" ("tenant_id", "id")
 );
+CREATE INDEX "org_settings_org_id_search" ON public."org_settings" ("tenant_id", "org_id");
+CREATE INDEX "org_settings_key_search" ON public."org_settings" ("tenant_id", "key");
+CREATE INDEX "org_settings_generation_search" ON public."org_settings" ("tenant_id", "generation");
 CREATE UNIQUE INDEX "org_settings_org_id_key_key" ON public."org_settings" ("tenant_id", "org_id", "key");
 CREATE TABLE public."users" (
   "tenant_id" text NOT NULL DEFAULT current_setting('app.tenant'),
@@ -56,4 +64,8 @@ CREATE TABLE public."users" (
   CONSTRAINT "users_role_check" CHECK ("role" IN ('admin', 'member', 'viewer')),
   CONSTRAINT "users_org_id_fkey" FOREIGN KEY ("tenant_id", "org_id") REFERENCES public."organizations" ("tenant_id", "id")
 );
+CREATE INDEX "users_email_search" ON public."users" ("tenant_id", "email");
+CREATE INDEX "users_display_name_search" ON public."users" ("tenant_id", "display_name");
+CREATE INDEX "users_role_search" ON public."users" ("tenant_id", "role");
+CREATE INDEX "users_org_id_search" ON public."users" ("tenant_id", "org_id");
 CREATE UNIQUE INDEX "users_email_key" ON public."users" ("tenant_id", "email");
