@@ -44,18 +44,20 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           path: stego
+          persist-credentials: false
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           repository: Jared4Robertson/lathe
           ref: ${{ env.LATHE_REF }}
           path: lathe
+          persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '24.18.1'
       - name: Build the pinned Lathe
         working-directory: lathe/lathe
         run: |
-          npm ci --no-audit --no-fund
+          npm ci --ignore-scripts --no-audit --no-fund
           ./node_modules/.bin/tsc -p tsconfig.build.json
           chmod +x dist/bin/lathe.js
       - name: Load and check the specification

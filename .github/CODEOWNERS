@@ -1,3 +1,9 @@
 # Changes to the CI definitions need the repository owner's review (ST-ASR-UC02-R06, decided 2026-10-31).
 /.github/workflows/ @jsell-rh @elsell
 /.github/CODEOWNERS @jsell-rh @elsell
+# The gate's own code, the runner that reports the Python outcomes of a proof run, and the keys that may qualify a
+# fill (ST-EXT-TM04) need the same review.
+/internal/assure/ @jsell-rh @elsell
+/cmd/assure/ @jsell-rh @elsell
+/scripts/run-python-tests.py @jsell-rh @elsell
+**/SIGNERS @jsell-rh @elsell
