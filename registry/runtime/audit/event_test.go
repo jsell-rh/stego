@@ -255,6 +255,52 @@ func probe(e Event, u Untrusted) bool {
 		}
 	})
 
+	t.Run("ST-SUP-RP05-LC04-T07 A number of a client JSON value costs little, and an overlong one is refused", func(t *testing.T) {
+		// PostgreSQL keeps a jsonb number with 16383 fraction digits, so a body of 1 MiB can hold 63 of them.
+		build := func(fraction int) json.RawMessage {
+			var b strings.Builder
+			b.WriteString("[")
+			for i := range 63 {
+				if i > 0 {
+					b.WriteString(",")
+				}
+				b.WriteString("0." + strings.Repeat("1", fraction-1) + "3")
+			}
+			b.WriteString("]")
+			return json.RawMessage(b.String())
+		}
+		huge := build(16383)
+		start := time.Now()
+		e := sampleEvent("t1", "update")
+		err := e.SetStates(Settings{Level: LevelChange}, Fields{}, map[string]any{"doc": huge}, map[string]any{"doc": huge})
+		if err == nil || !strings.Contains(err.Error(), "doc") || strings.Contains(err.Error(), "1111") {
+			t.Errorf("SetStates with numbers of 16383 fraction digits gave %v, want a refusal that names doc and not the value", err)
+		}
+		if d := time.Since(start); d > 100*time.Millisecond {
+			t.Errorf("SetStates with 63 numbers of 16383 fraction digits took %v, want under 100 ms", d)
+		}
+		// The longest accepted number keeps its exact value, and 63 of them in before and after stay cheap.
+		long := build(1097)
+		start = time.Now()
+		e = sampleEvent("t1", "update")
+		if err := e.SetStates(Settings{Level: LevelChange}, Fields{}, map[string]any{"doc": long}, map[string]any{"doc": long}); err != nil {
+			t.Fatalf("SetStates with numbers of 1099 characters: %v", err)
+		}
+		// The bound is loose for a run under the race detector; the old count of digits took seconds here.
+		if d := time.Since(start); d > time.Second {
+			t.Errorf("SetStates with 63 numbers of 1099 characters took %v, want under 1 s", d)
+		}
+		if want := "0." + strings.Repeat("1", 1096) + "3"; !bytes.Contains(e.After.JSON(), []byte(want)) {
+			t.Errorf("the after state does not hold the exact number")
+		}
+		for text, want := range map[string]string{"1.2500e1": "12.5", "1.25e-3": "0.00125", "-0.10": "-0.1", "5E2": "500", "2.000": "2"} {
+			got, err := canonicalNumber("n", text)
+			if err != nil || string(got) != want {
+				t.Errorf("the canonical form of %s is %q (%v), want %s", text, got, err, want)
+			}
+		}
+	})
+
 	t.Run("ST-SUP-RP05-LC04-T01 The canonical encoding sorts keys and has no insignificant whitespace", func(t *testing.T) {
 		a := decodeText(t, `{"z": 1, "a": {"y": [1, {"d": 2, "c": 3}], "b": "x y"}, "m": null}`)
 		b := decodeText(t, "{\n  \"m\": null,\n  \"a\": {\"b\": \"x y\", \"y\": [1, {\"c\": 3, \"d\": 2}]},\n  \"z\": 1\n}")

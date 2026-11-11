@@ -34,7 +34,7 @@ const crudModule = "example.com/crud"
 // service of ST-SUP-RC20-OC37: pooled tenancy, spicedb-authz with the subject type user, idempotency required on
 // create and patch with the problem base https://errors.example.com/crud/, and three collections: orders over the
 // owned entity Order (sku, qty) with create, read, list, patch and delete, a short-circuit chain on before_create and a gate on after_create; customers
-// over Customer (name pii, api_token secret, plan) with create, read, list, update and delete and a gate on
+// over Customer (name pii, api_token secret, plan, vault a secret jsonb, contact a pii jsonb) with create, read, list, update and delete and a gate on
 // validate (ST-SUP-RC28); and todos over Todo (title, done, and meta of type jsonb) with create, read, list, patch,
 // update and delete (ST-SUP-RC30).
 func crudContext() gen.Context {
@@ -51,7 +51,9 @@ func crudContext() gen.Context {
 		{Name: "Order", Fields: []types.Field{{Name: "sku", Type: types.FieldTypeString}, {Name: "qty", Type: types.FieldTypeInt32}},
 			EntityAuthorization: types.EntityAuthorization{ResourceType: "order", Permissions: permissions(types.OpPatch, types.OpDelete), PublicReasons: reasons}},
 		{Name: "Customer", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString, Sensitivity: "pii"},
-			{Name: "api_token", Type: types.FieldTypeString, Sensitivity: "secret"}, {Name: "plan", Type: types.FieldTypeString}},
+			{Name: "api_token", Type: types.FieldTypeString, Sensitivity: "secret"}, {Name: "plan", Type: types.FieldTypeString},
+			{Name: "vault", Type: types.FieldTypeJsonb, Sensitivity: "secret", Optional: true},
+			{Name: "contact", Type: types.FieldTypeJsonb, Sensitivity: "pii", Optional: true}},
 			EntityAuthorization: types.EntityAuthorization{ResourceType: "customer", Permissions: permissions(types.OpUpdate, types.OpDelete), PublicReasons: reasons}},
 		{Name: "Todo", Fields: []types.Field{{Name: "title", Type: types.FieldTypeString}, {Name: "done", Type: types.FieldTypeBool, Optional: true},
 			{Name: "meta", Type: types.FieldTypeJsonb, Optional: true}},
@@ -265,7 +267,7 @@ func newCrudProject(t *testing.T, ctx gen.Context, files map[string][]byte) *cru
 		t.Fatal(err)
 	}
 	p.write("go.sum", sums)
-	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.14.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
+	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.15.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
 	p.mustGo("mod", "tidy")
 	return p
 }
@@ -462,4 +464,6 @@ var crudCheckIDs = []string{
 	"ST-SUP-RC28-OC01-T03 A secret field reaches neither before, after nor the stored row",
 	"ST-SUP-RC20-OC38-T01 A list on the runtime data path pages by cursor in the requested order, with no total",
 	"ST-SUP-RC20-OC37-T08 A jsonb field is written, read and patched as JSON on the runtime data path",
+	"ST-SUP-RC28-OC01-T06 A secret jsonb field reaches neither the audit rows, the answer nor the stored response",
+	"ST-SUP-RC28-OC01-T07 A pii jsonb field is the redaction marker in the before, the after and the patch",
 }

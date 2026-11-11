@@ -634,14 +634,24 @@ func normalize(field string, v any) (any, error) {
 	}
 }
 
+// maxNumberText is the longest text of a number that the canonical encoding takes. A state can hold client JSON,
+// such as a jsonb field, so a bound keeps the work of one number small; the error names the field only.
+const maxNumberText = 1100
+
 // canonicalNumber writes a JSON number in its shortest exact decimal form, with no exponent. Its error names the
-// field and not the number.
+// field and not the number. The count of fraction digits comes from the decimal text, so the work is linear in the
+// length of the text, which is at most maxNumberText characters, with an exponent of at most 400.
 func canonicalNumber(field, s string) (json.Number, error) {
+	if len(s) > maxNumberText {
+		return "", fmt.Errorf("audit: the number of the field %s is longer than %d characters", field, maxNumberText)
+	}
+	mantissa, exp := s, 0
 	if i := strings.IndexAny(s, "eE"); i >= 0 {
-		exp, err := strconv.Atoi(s[i+1:])
-		if err != nil || exp > 400 || exp < -400 {
+		e, err := strconv.Atoi(s[i+1:])
+		if err != nil || e > 400 || e < -400 {
 			return "", fmt.Errorf("audit: the number of the field %s is out of the canonical range", field)
 		}
+		mantissa, exp = s[:i], e
 	}
 	r, ok := new(big.Rat).SetString(s)
 	if !ok {
@@ -650,15 +660,12 @@ func canonicalNumber(field, s string) (json.Number, error) {
 	if r.IsInt() {
 		return json.Number(r.Num().String()), nil
 	}
-	// The value is a finite decimal: its denominator divides a power of ten.
+	// The value has at most the fraction digits of its mantissa, less its exponent.
 	digits := 0
-	ten := big.NewInt(10)
-	p := big.NewInt(1)
-	rem := new(big.Int)
-	for rem.Mod(p, r.Denom()).Sign() != 0 {
-		p.Mul(p, ten)
-		digits++
+	if j := strings.IndexByte(mantissa, '.'); j >= 0 {
+		digits = len(strings.TrimRight(mantissa[j+1:], "0"))
 	}
+	digits = max(digits-exp, 0)
 	return json.Number(strings.TrimRight(r.FloatString(digits), "0")), nil
 }
 
