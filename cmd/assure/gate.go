@@ -130,12 +130,16 @@ func gateChange(commit, base, lathe string, stdout io.Writer, getenv func(string
 		return assure.Decision{}, err
 	}
 	defer done()
+	// The store that keeps the attestations also gives the parents of the merge commit a change-grade proof run
+	// ran at. A store that cannot give them leaves no record of commits, and then no change-grade proof run counts.
+	commits, _ := store.(assure.CommitParents)
 	decision, _, err := assure.GateChange(assure.ChangeRequest{
 		Root:      root,
 		Commit:    commit,
 		Base:      base,
 		Trusted:   job.Trusted,
 		ChangeRef: job.ChangeRef,
+		Commits:   commits,
 		Lathe:     lathe,
 	}, store, verifier, assure.JobOutput{Repository: root, Out: stdout, Summary: getenv("GITHUB_STEP_SUMMARY")})
 	return decision, err
