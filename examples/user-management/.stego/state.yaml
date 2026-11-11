@@ -30,9 +30,9 @@ last_applied:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261111110652-fdecaac82bd9
+        module_version: v0.0.0-20261111142006-eac6da6ab09e
         vcs: git
-        revision: fdecaac82bd93fcc64c3769d47abfba73c34f340
+        revision: eac6da6ab09ee94eacb59f74f20fc87c5da09e74
         source_state: clean
     service_name: user-management
     service_hash: df9112176f2dcaf28257689abc0fedd964b29998195268acc4804137c064b9b1
@@ -122,7 +122,7 @@ last_applied:
         health/health.go: 303258996e35b5a3dd592d8d7a2ec7b8a63067edf2dd8bc946f22bb7f7d3dbeb
         http_tls_open_other.go: 76811bb166da158cbbdf0d6fb4ce32491dcb95f2f3a4e0e0e9f0341224a9a00d
         http_tls_open_unix.go: 52087320dbcef0e1455e7ec7bddfb1bf6b6ae05a17231041f167fb7e7ba338e2
-        internal/api/cors.go: 9d2b3589a6f06b05aaac95e711c60e82af3adb0ba31b1c26d2e6ef2f178f92c1
+        internal/api/cors.go: 5b7863e6f7fa7f104ffbc0f97418542b07bc428766642a1856de26eac9e1fc2c
         internal/api/discovery.go: e8cebc8947ec7d3b9b268edf03f07277cde0dd116e2d464d5310b75dc3b3b2a3
         internal/api/errors.go: ef0a217eac895b508f5c89534d68ab2a4471c729144ec07fb94723ec20062340
         internal/api/handler_all_users.go: da16f9091a7ef4042d39cf13ec6b145632ecc44b44b8c458e5adae31094957eb
@@ -133,7 +133,7 @@ last_applied:
         internal/api/handler_user_audit_events.go: 95bf11e8d8a5da36301ec966073054f75366b6b04cde43582b2c9a11e3f85a33
         internal/api/openapi.json: aecafa38321aad0624c54d97851685fe2617a60894d298b751568a1674c9dca1
         internal/api/router.go: 08c97fe08ce92b73b8f57cf02fc3d3cf5f96a144be10681e1f009d1f5c41e7a7
-        internal/api/validation.go: 253e7e3b01729f58b834bec96802d022edc584d786d4691c5ddb33750de62a16
+        internal/api/validation.go: 8bc2eedfef251f5f1b897848b8510c00d90ac495d4ebe05ad181a2698c1cdaf2
         internal/auth/grants.go: 91a304d5e8a6f764287a39cfc58d6b7c5d63359853dde87d9b9cd809de83dca8
         internal/auth/jwks.go: a8112269eb448cd7162747c7c97755f6e6f40d8360243e4939399d842726ab09
         internal/auth/key_source.go: f54757d1354b0649ce023659de975cf38abcc1b7d204bc860dbea54c4d1909bb
