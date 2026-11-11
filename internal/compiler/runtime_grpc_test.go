@@ -63,7 +63,9 @@ func TestRuntimeGRPC(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs a generated service")
 	}
-	t.Parallel()
+	// Not parallel: the check turns TLS on in the PostgreSQL server with a certificate of its own and resets it at its
+	// end, as the check of TestRuntimeWiring does, so the two must not run at the same time. A test that is not
+	// parallel ends before the parallel tests of the package go on.
 	if os.Getenv("STEGO_TEST_POSTGRES_DSN") == "" {
 		t.Fatal("STEGO_TEST_POSTGRES_DSN is not set: this test needs a local PostgreSQL server")
 	}
