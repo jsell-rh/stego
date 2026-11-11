@@ -200,7 +200,9 @@ func (s *service) as(subject, tenantID string, roles ...string) caller {
 	t := s.t
 	claims := authntest.Claims(issuer, audience, subject, time.Now())
 	claims["tenant"] = tenantID
-	claims["roles"] = roles
+	if len(roles) > 0 {
+		claims["roles"] = roles
+	}
 	claims["exp"] = time.Now().Add(time.Hour).Unix()
 	token := authntest.Mint(t, authntest.Header("k1"), claims, s.key)
 	keys, err := authn.ParseKeys(authntest.Document(s.key.JWK()))
@@ -331,8 +333,15 @@ func TestExample(t *testing.T) {
 			t.Errorf("the search of all users gave %d users, want 1", len(items))
 		}
 		// The upsert of org-settings creates the row of its key and then updates it.
-		first := s.send(owner, http.MethodPut, "/organizations/"+org+"/settings", `{"key":"theme","value":{"dark":true},"generation":1}`)
-		second := s.send(owner, http.MethodPut, "/organizations/"+org+"/settings", `{"key":"theme","value":{"dark":false},"generation":2}`)
+		first := s.send(owner, http.MethodPut, "/organizations/"+org+"/orgsettings", `{"key":"theme","value":{"dark":true},"generation":1}`)
+		// The relay writes the relation of the new setting to its organization after the commit; the setting is
+		// seen, and found by its key, once SpiceDB holds it.
+		for deadline := time.Now().Add(30 * time.Second); len(s.send(owner, http.MethodGet, "/organizations/"+org+"/orgsettings", "").items(t)) == 0; time.Sleep(200 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatalf("the relay did not write the relation of the setting to its organization:\n%s", s.log)
+			}
+		}
+		second := s.send(owner, http.MethodPut, "/organizations/"+org+"/orgsettings", `{"key":"theme","value":{"dark":false},"generation":2}`)
 		if first.status != http.StatusCreated || second.status != http.StatusOK || first.member(t, "id") != second.member(t, "id") {
 			t.Errorf("the upserts answered %d %s and %d %s, want 201 and 200 for one row", first.status, first.body, second.status, second.body)
 		}

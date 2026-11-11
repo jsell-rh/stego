@@ -11,12 +11,6 @@ import (
 // exampleFixture is the folder of the check that runs the example user-management on the runtime data path.
 const exampleFixture = "testdata/runtime_example"
 
-// exampleCheckIDs are the checks of the example that TestRuntimeExample runs, each with the ID of the test record it
-// proves.
-var exampleCheckIDs = []string{
-	"ST-SUP-RC20-OC39-T02 The example user-management runs on the runtime data path with its scoped collections, upsert, implicit fields and fills",
-}
-
 // TestRuntimeExample copies the example user-management as it is committed, with its generated output and its
 // record, builds it with the pinned Go against the runtime module of this repository, and runs the check of
 // testdata/runtime_example/check in its module once: the check runs the migration job and the service binary
@@ -52,12 +46,10 @@ func TestRuntimeExample(t *testing.T) {
 	cmd.Dir = p.dir
 	cmd.Env = wiringGoEnv("STEGO_TEST_SPICEDB="+endpoint, "STEGO_TEST_SPICEDB_KEY="+key, "STEGO_EXAMPLE_BINARY="+binary)
 	output, runErr := cmd.CombinedOutput()
-	for _, id := range exampleCheckIDs {
-		t.Run(id, func(t *testing.T) {
-			name := strings.ReplaceAll(id, " ", "_")
-			if !strings.Contains(string(output), "--- PASS: TestExample/"+name+" ") {
-				t.Fatalf("the check %s of the example did not run and pass (go test: %v):\n%s", strings.SplitN(id, " ", 2)[0], runErr, output)
-			}
-		})
-	}
+	t.Run("ST-SUP-RC20-OC39-T02 The example user-management runs on the runtime data path with its scoped collections, upsert, implicit fields and fills", func(t *testing.T) {
+		name := "ST-SUP-RC20-OC39-T02_The_example_user-management_runs_on_the_runtime_data_path_with_its_scoped_collections,_upsert,_implicit_fields_and_fills"
+		if !strings.Contains(string(output), "--- PASS: TestExample/"+name+" ") {
+			t.Fatalf("the check of the example did not run and pass (go test: %v):\n%s", runErr, output)
+		}
+	})
 }
