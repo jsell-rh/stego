@@ -57,7 +57,12 @@ func TestFillPrint(t *testing.T) {
 		for _, name := range []string{"println-copy", "printf-copy", "print-copy"} {
 			cases = append(cases, callCase(t, p, name, calls[name], shown[name], true))
 		}
-		expectLines(t, p, runFillCases(t, p, cases), cases, calls)
+		cases = append(cases, fillCase{name: "testdata-copy", change: func(name string) {
+			p.addImport(t, "fills/"+name+"/policy.go", "example.com/fills/fills/"+name+"/testdata/td", "td.P")
+			p.write(t, "fills/"+name+"/testdata/td/td.go", "package td\n\nimport \"fmt\"\n\n// P prints.\nvar P = fmt.Println\n")
+		}, texts: []string{"may not import example.com/fills/fills/testdata-copy/testdata/td,", "testdata/td/td.go:6 uses fmt.Println"}})
+		stdout := runFillCases(t, p, cases)
+		expectLines(t, p, stdout, cases[:3], calls)
 	})
 
 	t.Run("ST-EXT-UC01-R05-T02 stego test records no evidence for a fill that prints through a listed module", func(t *testing.T) {
@@ -82,14 +87,16 @@ func TestFillPrint(t *testing.T) {
 			"default": "log.Default().SetOutput(&b)", "fatalf": `log.Fatalf("x")`, "panicln": `log.Panicln("x")`,
 			"logger-fatal": `log.New(&b, "", 0).Fatal("x")`, "set-default": "slog.SetDefault(slog.New(slog.NewTextHandler(&b, nil)))",
 			"set-level": "slog.SetLogLoggerLevel(slog.LevelDebug)", "print": `print("x")`, "println": `println("x")`,
+			"writer": "_ = log.Writer()", "go": "go func() {}()",
 		}
 		shown := map[string]string{
 			"set-output": "log.SetOutput", "set-flags": "log.SetFlags", "set-prefix": "log.SetPrefix", "default": "log.Default",
 			"fatalf": "log.Fatalf", "panicln": "log.Panicln", "logger-fatal": "the method Fatal", "set-default": "log/slog.SetDefault",
 			"set-level": "log/slog.SetLogLoggerLevel", "print": "the builtin print,", "println": "the builtin println",
+			"writer": "log.Writer", "go": "starts a goroutine with a go statement",
 		}
 		var cases []fillCase
-		for _, name := range []string{"set-output", "set-flags", "set-prefix", "default", "fatalf", "panicln", "logger-fatal", "set-default", "set-level", "print", "println"} {
+		for _, name := range []string{"set-output", "set-flags", "set-prefix", "default", "fatalf", "panicln", "logger-fatal", "set-default", "set-level", "print", "println", "writer", "go"} {
 			cases = append(cases, callCase(t, p, "logger-"+name, calls[name], shown[name], true))
 			calls["logger-"+name] = calls[name]
 		}

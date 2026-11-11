@@ -20,6 +20,7 @@ const runtimeModule = "github.com/jsell-rh/stego/registry/runtime"
 const (
 	querySlot   = "query.query"
 	commandSlot = "command.command"
+	workerSlot  = "worker.worker"
 )
 
 // slotContracts gives the packages that a fill of the slot implements may import besides the standard library and
@@ -38,6 +39,10 @@ func slotContracts(check compiler.FillCheck, fill, implements string) []string {
 			if f.Fill == fill {
 				contract = f.Contract
 			}
+		}
+	case workerSlot:
+		if check.WorkerContract != "" {
+			contract = check.WorkerContract
 		}
 	}
 	return append([]string{contract}, contractRuntimeImports(check, contract)...)

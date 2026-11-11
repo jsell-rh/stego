@@ -236,3 +236,75 @@ func TestQueryFillClosure(t *testing.T) {
 		}
 	})
 }
+
+func TestFillClosureBuildSettings(t *testing.T) {
+	t.Run("ST-SUP-RC32-OC03-T03 The closure is read with the service build's settings, whatever the host's", func(t *testing.T) {
+		t.Setenv("CGO_ENABLED", "1")
+		cases := []struct {
+			name, refused string
+			files         map[string]string
+		}{
+			{"a fill file for builds with no cgo reaches os/exec through a listed module", "may not import os/exec,", map[string]string{
+				"fills/reserve-and-charge/nocgo.go": "//go:build !cgo\n\npackage reserveandcharge\n\nimport _ \"" + closureHelper + "/exe\"\n",
+				"mods/dbhelper/exe/exe.go":          "package exe\n\nimport _ \"os/exec\"\n",
+			}},
+			{"a listed module file for builds with no cgo imports os/exec", "may not import os/exec,", map[string]string{
+				"mods/dbhelper/run/run.go":        "package run\n",
+				"mods/dbhelper/run/run_nocgo.go":  "//go:build !cgo\n\npackage run\n\nimport _ \"os/exec\"\n",
+				"fills/reserve-and-charge/run.go": "package reserveandcharge\n\nimport _ \"" + closureHelper + "/run\"\n",
+			}},
+			{"a listed module file that the build leaves out imports os/exec", "which the service build leaves out, imports os/exec", map[string]string{
+				"mods/dbhelper/win/win.go":         "package win\n",
+				"mods/dbhelper/win/win_windows.go": "package win\n\nimport _ \"os/exec\"\n",
+				"fills/reserve-and-charge/win.go":  "package reserveandcharge\n\nimport _ \"" + closureHelper + "/win\"\n",
+			}},
+			{"a fill file that the build leaves out imports a listed package that go list does not report", "does not report", map[string]string{
+				"mods/dbhelper/exe/exe.go":                  "package exe\n\nimport _ \"os/exec\"\n",
+				"fills/reserve-and-charge/leave_windows.go": "package reserveandcharge\n\nimport _ \"" + closureHelper + "/exe\"\n",
+			}},
+		}
+		for _, c := range cases {
+			t.Run(c.name, func(t *testing.T) {
+				root := closureTree(t, "fmt")
+				for name, text := range c.files {
+					writeFile(t, root, name, text)
+				}
+				var texts []string
+				for _, f := range qualifyCommandFill(t, root) {
+					texts = append(texts, f.Message)
+				}
+				if joined := strings.Join(texts, "\n"); !strings.Contains(joined, c.refused) {
+					t.Errorf("the faults %q do not hold %q", joined, c.refused)
+				}
+			})
+		}
+	})
+}
+
+func TestWorkerFillClosure(t *testing.T) {
+	t.Run("ST-SUP-RC35-OC03-T02 A worker fill is held to the fill rules with its worker contract", func(t *testing.T) {
+		t.Setenv("GOPROXY", "off")
+		t.Setenv("GOTOOLCHAIN", "local")
+		if pinned := os.Getenv("STEGO_TEST_PINNED_GO"); pinned != "" {
+			before := GoCommand
+			GoCommand = pinned
+			t.Cleanup(func() { GoCommand = before })
+		}
+		root := closureTree(t, "net")
+		writeFile(t, root, "out/workers/workers.go", "package workers\n")
+		data, err := os.ReadFile(filepath.Join(root, "fills", "reserve-and-charge", "fill.go"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, root, "fills/reserve-and-charge/fill.go", strings.Replace(string(data), closureContract, closureModule+"/out/workers", 1))
+		faults, err := QualificationFaults(compiler.FillCheck{ProjectDir: root, Module: closureModule, FillModules: []string{closureHelper},
+			WorkerContract: closureModule + "/out/workers",
+			WorkerFills:    []compiler.QueryFill{{Fill: "reserve-and-charge", Query: "sync-orders", Path: "workers[0].fill"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(faults) != 1 || faults[0].Path != "workers[0].fill" || !strings.Contains(faults[0].Message, "may not import net,") {
+			t.Fatalf("got %+v, want one fault for the import of net at workers[0].fill", faults)
+		}
+	})
+}

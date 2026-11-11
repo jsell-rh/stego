@@ -49,7 +49,8 @@ var refusedCalls = map[string]map[string]string{
 	"log": {
 		"SetOutput": "changes the standard logger", "SetFlags": "changes the standard logger",
 		"SetPrefix": "changes the standard logger", "Default": "gives the standard logger to change",
-		"Fatal": "stops the service", "Fatalf": "stops the service", "Fatalln": "stops the service",
+		"Writer": "gives the writer of the standard logger, which bypasses it",
+		"Fatal":  "stops the service", "Fatalf": "stops the service", "Fatalln": "stops the service",
 		"Panic": "stops the service", "Panicf": "stops the service", "Panicln": "stops the service",
 	},
 	"log/slog": {"SetDefault": "changes the standard logger", "SetLogLoggerLevel": "changes the standard logger"},
@@ -128,7 +129,7 @@ type ruleTarget struct {
 
 // declaredFillFaults holds every fill that the declaration names, at every slot, to the fill rules (ST-EXT-UC01-R03,
 // ST-EXT-UC01-R05, ST-EXT-UC01-R07, ST-SUP-RC32-OC03, ST-SUP-RC33-OC03): the fill of each command, of each query and
-// of each slot binding, each with the contract of its own slot. A fault names the fill, where the declaration names
+// of each worker and of each slot binding, each with the contract of its own slot. A fault names the fill, where the declaration names
 // it, and the refused package, file or call.
 func declaredFillFaults(check compiler.FillCheck) ([]compiler.FillFault, error) {
 	var targets []ruleTarget
@@ -145,6 +146,9 @@ func declaredFillFaults(check compiler.FillCheck) ([]compiler.FillFault, error) 
 	}
 	for _, f := range check.QueryFills {
 		add(f.Fill, f.Path, querySlot)
+	}
+	for _, f := range check.WorkerFills {
+		add(f.Fill, f.Path, workerSlot)
 	}
 	for _, binding := range check.Bindings {
 		f, err := ReadManifest(filepath.Join(check.ProjectDir, "fills", binding.Fill, ManifestFile), check)
@@ -189,7 +193,7 @@ func fillFaults(check compiler.FillCheck, dir, fill string, contracts []string, 
 		return nil, nil
 	}
 	fillPackage := strings.TrimSuffix(check.Module, "/") + "/fills/" + fill
-	own, err := treeFaults(check, fill, dir, fillPackage, contracts, packages == nil)
+	own, err := treeFaults(check, fill, dir, fillPackage, contracts, packages)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +243,11 @@ func listFills(check compiler.FillCheck, fills []string) (map[string]listedPacka
 	defer cancel()
 	cmd := exec.CommandContext(ctx, GoCommand, append([]string{"list", "-e", "-deps", "-json=" + listedFields}, patterns...)...)
 	cmd.Dir = check.ProjectDir
-	cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=-mod=readonly")
+	// The service's build settings, not the host's, so go list sees the files and imports that the build sees.
+	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=readonly")
+	for key, value := range compiler.TargetBuildSettings() {
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
 	cmd.WaitDelay = time.Second
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -269,7 +277,8 @@ func listFills(check compiler.FillCheck, fills []string) (map[string]listedPacka
 //
 // Before the project's first generation (pending), go.mod does not fix the service's module yet, so a generated
 // contract package is admitted under any module path; the closure check holds the module once go.mod exists.
-func treeFaults(check compiler.FillCheck, fill, dir, fillPackage string, contracts []string, pending bool) ([]ruleFault, error) {
+func treeFaults(check compiler.FillCheck, fill, dir, fillPackage string, contracts []string, packages map[string]listedPackage) ([]ruleFault, error) {
+	pending := packages == nil
 	var faults []ruleFault
 	byFolder := map[string][]string{}
 	err := filepath.WalkDir(dir, func(name string, entry fs.DirEntry, err error) error {
@@ -322,9 +331,16 @@ func treeFaults(check compiler.FillCheck, fill, dir, fillPackage string, contrac
 					return nil, err
 				}
 				listed := listedPackage{ImportPath: path, Standard: standardLibrary(path) && path != "C"}
-				if _, allowed := judgeImport(check, contracts, fillPackage, path, listed); !allowed && !(pending && pendingContract(check, contracts, path)) {
+				follow, allowed := judgeImport(check, contracts, fillPackage, path, listed)
+				switch {
+				case !allowed && !(pending && pendingContract(check, contracts, path)):
 					faults = append(faults, ruleFault{rule: ruleImports, path: path, text: fmt.Sprintf("fill %q: the file %s imports %s, which a fill may not import; a fill imports only its slot contract %s, the listed fill modules and the fill allow list of the standard library",
 						fill, relative, path, contracts[0])})
+				case allowed && follow && !pending && packages[path].ImportPath == "":
+					// A file that the service build does not build imports a package that go list did not follow,
+					// so its closure is not checked.
+					faults = append(faults, ruleFault{rule: ruleImports, path: path, text: fmt.Sprintf("fill %q: the file %s imports %s, which go list with the service's build settings does not report, so its imports cannot be checked",
+						fill, relative, path)})
 				}
 			}
 			for _, text := range sourceFaults(file, relative, files) {
@@ -351,8 +367,10 @@ func pendingContract(check compiler.FillCheck, contracts []string, path string) 
 // closureFaults follows the import closure that go list -deps gives for one fill.
 func closureFaults(check compiler.FillCheck, fill, fillPackage string, contracts []string, packages map[string]listedPackage) []ruleFault {
 	var roots []string
+	// The roots are the fill's packages that ./... names; go list -deps also reports a package under a folder that
+	// starts with _ or . or is testdata when a root imports it, and that import is refused (judgeImport).
 	for path := range packages {
-		if underPath(path, fillPackage) {
+		if underPath(path, fillPackage) && !hiddenPath(strings.TrimPrefix(path, fillPackage)) {
 			roots = append(roots, path)
 		}
 	}
@@ -377,7 +395,7 @@ func closureFaults(check compiler.FillCheck, fill, fillPackage string, contracts
 		}
 		// The files of the fill's own packages are read from its folder (treeFaults).
 		if !underPath(path, fillPackage) {
-			faults = append(faults, modulePackageFaults(fill, p)...)
+			faults = append(faults, modulePackageFaults(check, contracts, fillPackage, fill, p, packages)...)
 		}
 		imports := append([]string(nil), p.Imports...)
 		sort.Strings(imports)
@@ -387,6 +405,18 @@ func closureFaults(check compiler.FillCheck, fill, fillPackage string, contracts
 			}
 			follow, allowed := judgeImport(check, contracts, fillPackage, imported, packages[imported])
 			if !allowed {
+				if _, ok := refused[imported]; !ok {
+					refused[imported] = path
+					// A package of the fill that the go tool builds only when it is imported by its path, under a
+					// folder whose name starts with _ or . or is testdata, is not read from the fill folder; its
+					// files are named here.
+					if underPath(imported, fillPackage) {
+						faults = append(faults, modulePackageFaults(check, contracts, fillPackage, fill, packages[imported], packages)...)
+					}
+				}
+				continue
+			}
+			if follow && packages[imported].ImportPath == "" {
 				if _, ok := refused[imported]; !ok {
 					refused[imported] = path
 				}
@@ -447,26 +477,55 @@ func importingFiles(p listedPackage, path string) []string {
 	return slices.Compact(names)
 }
 
-// modulePackageFaults holds one package of a listed fill module that a fill reaches to the rules on files and calls.
-func modulePackageFaults(fill string, p listedPackage) []ruleFault {
+// modulePackageFaults holds one package that a fill reaches, of a listed fill module or of the fill under a folder
+// that the fill folder check does not read, to the rules on files and calls. The imports of its files that the
+// service build leaves out (IgnoredGoFiles) are judged as well, because go list does not follow them: each must be
+// allowed, and a package to follow must be one that go list reports.
+func modulePackageFaults(check compiler.FillCheck, contracts []string, fillPackage, fill string, p listedPackage, packages map[string]listedPackage) []ruleFault {
 	var faults []ruleFault
+	if p.Dir == "" {
+		return nil
+	}
 	if other := p.otherFiles(); len(other) > 0 {
 		faults = append(faults, ruleFault{rule: ruleFiles, text: fmt.Sprintf("fill %q reaches %s, which holds the files %s that are not Go source files; a package that a fill reaches holds only Go source files",
 			fill, p.ImportPath, strings.Join(other, ", "))})
 	}
+	ignored := map[string]bool{}
 	var names []string
 	for _, name := range append(append([]string(nil), p.GoFiles...), p.IgnoredGoFiles...) {
 		if !strings.HasSuffix(name, "_test.go") {
 			names = append(names, filepath.Join(p.Dir, name))
 		}
 	}
+	for _, name := range p.IgnoredGoFiles {
+		ignored[filepath.Join(p.Dir, name)] = true
+	}
 	files, err := parseFiles(names)
 	if err != nil {
 		return append(faults, ruleFault{rule: ruleFiles, text: fmt.Sprintf("fill %q reaches %s, whose files cannot be read: %v", fill, p.ImportPath, err)})
 	}
 	for _, file := range files {
-		for _, text := range sourceFaults(file, p.ImportPath+"/"+filepath.Base(file.name), files) {
+		shown := p.ImportPath + "/" + filepath.Base(file.name)
+		for _, text := range sourceFaults(file, shown, files) {
 			faults = append(faults, ruleFault{rule: ruleCalls, text: fmt.Sprintf("fill %q reaches a package whose file %s", fill, text)})
+		}
+		if !ignored[file.name] {
+			continue
+		}
+		for _, spec := range file.ast.Imports {
+			path, err := strconv.Unquote(spec.Path.Value)
+			if err != nil {
+				continue
+			}
+			listed, reported := packages[path]
+			if !reported {
+				listed = listedPackage{ImportPath: path, Standard: standardLibrary(path) && path != "C"}
+			}
+			follow, allowed := judgeImport(check, contracts, fillPackage, path, listed)
+			if !allowed || (follow && !reported) {
+				faults = append(faults, ruleFault{rule: ruleImports, text: fmt.Sprintf("fill %q reaches %s, whose file %s, which the service build leaves out, imports %s; a package that a fill reaches imports only what a fill may import, and only packages that go list reports",
+					fill, p.ImportPath, filepath.Base(file.name), path)})
+			}
 		}
 	}
 	return faults
@@ -571,6 +630,8 @@ func sourceFaults(file sourceFile, shown string, pkg []sourceFile) []string {
 			if stopMethods[n.Sel.Name] {
 				faults = append(faults, fmt.Sprintf("%s uses the method %s, which stops the service when it is a method of a *log.Logger; a fill may not use a method of this name", at(n.Sel.Pos()), n.Sel.Name))
 			}
+		case *ast.GoStmt:
+			faults = append(faults, fmt.Sprintf("%s starts a goroutine with a go statement; a fill runs only in the call that the service makes", at(n.Pos())))
 		case *ast.CallExpr:
 			if fn, ok := n.Fun.(*ast.Ident); ok && fn.Obj == nil && (fn.Name == "print" || fn.Name == "println") && !declared[fn.Name] {
 				faults = append(faults, fmt.Sprintf("%s uses the builtin %s, which writes to standard error past the standard logger; a fill may not use it", at(n.Pos()), fn.Name))
@@ -592,7 +653,7 @@ func judgeImport(check compiler.FillCheck, contracts []string, fillPackage, path
 	case inModules(path, driverModules):
 		return false, false
 	case underPath(path, fillPackage):
-		return true, true
+		return true, !hiddenPath(strings.TrimPrefix(path, fillPackage))
 	case inModules(path, check.FillModules):
 		// A listed module path with no dot in its first element is not a module that a proxy serves, and a reader
 		// can take it for a package of the standard library.
@@ -600,6 +661,17 @@ func judgeImport(check compiler.FillCheck, contracts []string, fillPackage, path
 	default:
 		return false, false
 	}
+}
+
+// hiddenPath tells whether a relative package path has an element that starts with _ or . or is testdata, which the
+// go tool leaves out of a ./... pattern and the fill folder check does not read.
+func hiddenPath(relative string) bool {
+	for _, element := range strings.Split(relative, "/") {
+		if element == "testdata" || strings.HasPrefix(element, "_") || strings.HasPrefix(element, ".") {
+			return true
+		}
+	}
+	return false
 }
 
 // underPath tells whether path is base or a package under it.

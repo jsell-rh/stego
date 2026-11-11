@@ -634,9 +634,14 @@ func TestFillAllowList(t *testing.T) {
 			{"embed-copy", func(name string) {
 				appendTo(name, "\n//go:embed policy.go\nvar source string\n")
 			}, []string{"holds the directive //go:embed"}},
+			{"hidden-copy", func(name string) {
+				p.addImport(t, policy(name), "example.com/fills/fills/"+name+"/_sub", "sub.W")
+				p.write(t, "fills/"+name+"/_sub/sub.go", "package sub\n\n// W is in w_amd64.s.\nfunc W(fd uintptr, p *byte, n uintptr) uintptr\n")
+				p.write(t, "fills/"+name+"/_sub/w_amd64.s", "#include \"textflag.h\"\n\nTEXT ·W(SB),NOSPLIT,$0-32\n\tMOVQ $1, AX\n\tSYSCALL\n\tMOVQ AX, ret+24(FP)\n\tRET\n")
+			}, []string{"may not import example.com/fills/fills/hidden-copy/_sub,", "holds the files w_amd64.s", "_sub/sub.go:4 declares the function W with no body"}},
 			{"cgo-copy", func(name string) {
 				p.write(t, "fills/"+name+"/cgo.go", "package untested_fill\n\n// int one(void) { return 1; }\nimport \"C\"\n")
-			}, []string{"may not import C,", "(cgo.go) -> C"}},
+			}, []string{"the file cgo.go imports C, which a fill may not import"}},
 		}
 		runFillCases(t, p, cases)
 	})
