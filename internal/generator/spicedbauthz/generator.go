@@ -136,7 +136,8 @@ func read(ctx gen.Context) (plan, error) {
 		return plan{}, fmt.Errorf("spicedb-authz: the tenant column is %q; the relay stores each token on its owning row by the tenant column %s, so declare tenancy with the key %s", ctx.Tenancy.Key, TenantColumn, TenantColumn)
 	}
 	source, ok := ctx.Inputs[setting.SchemaPath]
-	if setting.SchemaPath == "" || !ok {
+	// The schema path is written into a Go comment, so it must be a clean path with no control character.
+	if err := gen.ValidatePath(setting.SchemaPath); setting.SchemaPath == "" || !ok || err != nil {
 		return plan{}, fmt.Errorf("spicedb-authz: the schema %q that the authorization setting names is not among the inputs of the generator", setting.SchemaPath)
 	}
 	if err := checkDeclaration(ctx, source); err != nil {

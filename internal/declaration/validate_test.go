@@ -50,6 +50,7 @@ func TestValidateFieldDefaults(t *testing.T) {
 		{"a string with the default 12", "title", "12", "string", []string{"- {name: title, type: string, default: 12}", done}},
 		{"an int with the default 1.5", "count", "1.5", "int32", []string{title, done, "- {name: count, type: int32, default: 1.5}"}},
 		{"an enum with the default archived", "state", "archived", "enum", []string{title, done, "- {name: state, type: enum, values: [open, closed], default: archived}"}},
+		{"a timestamp generation with a default", "generation", "x; panic(1)", "timestamp", []string{title, done, `- {name: generation, type: timestamp, default: "x; panic(1)"}`}},
 	}
 	for _, c := range refused {
 		t.Run("ST-DECL-INV13-T A field default that does not suit the field's type is refused: "+c.name, func(t *testing.T) {

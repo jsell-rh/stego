@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -283,4 +287,84 @@ func ProviderTestRuntime()(*Runtime,*tracetest.SpanRecorder){
 		t.Fatal("real Keycloak provider result is missing")
 	}
 	t.Logf("%s", output)
+}
+
+// managedWith gives the context of one managed gateway kind with the client_id and the attribute key given.
+func managedWith(clientID, key string) gen.Context {
+	c := fixture()
+	c.ComponentConfig = map[string]any{"managed_clients": []any{map[string]any{"kind": "gateway", "client_id": clientID, "ids": []any{"gateway"},
+		"attributes": []any{map[string]any{"key": key, "value": "{gateway}"}}}}}
+	return c
+}
+
+func TestManagedClientForms(t *testing.T) {
+	t.Run("ST-SUP-RC13-OC18-T02 A managed-client attribute key or client_id placeholder outside its form is refused before generation", func(t *testing.T) {
+		cases := map[string]gen.Context{
+			"a key that closes the Go string":           managedWith("gw-{gateway}", `x": "y"}; panic(1); _ = map[string]string{"z`),
+			"a key with an upper-case letter":           managedWith("gw-{gateway}", "Gateway"),
+			"a key with a newline":                      managedWith("gw-{gateway}", "gateway\nid"),
+			"a key of 112 characters":                   managedWith("gw-{gateway}", strings.Repeat("a", 112)),
+			"a key that starts with a dot":              managedWith("gw-{gateway}", ".gateway"),
+			"a client_id placeholder with code":         managedWith("gw-{func()string{panic(1)}()}", "hypershell.gateway"),
+			"a client_id placeholder not an id":         managedWith("gw-{account}", "hypershell.gateway"),
+			"a client_id with a lone brace":             managedWith("gw-{gateway}}", "hypershell.gateway"),
+			"a client_id placeholder that calls panic":  managedWith("gw-{panic(1)}", "hypershell.gateway"),
+			"a client_id placeholder that converts":     managedWith("gw-{string(rune(65))}", "hypershell.gateway"),
+			"a client_id placeholder with spaces":       managedWith("gw-{ gateway }", "hypershell.gateway"),
+			"an empty client_id placeholder":            managedWith("gw-{}", "hypershell.gateway"),
+			"a client_id placeholder that slices an id": managedWith("gw-{gateway[:0]}", "hypershell.gateway"),
+		}
+		for name, c := range cases {
+			g := new(Generator)
+			checked := g.ValidateContext(c)
+			files, _, err := g.Generate(c)
+			if err == nil || files != nil {
+				t.Errorf("%s: generation accepted it", name)
+			}
+			if checked == nil {
+				t.Errorf("%s: the context check accepted it", name)
+			}
+		}
+		files, _, err := new(Generator).Generate(managedWith("gw-{gateway}-x", "a.b-c_d"+strings.Repeat("e", 104)))
+		if err != nil {
+			t.Fatalf("a key of 111 characters in the form was refused: %v", err)
+		}
+		for _, f := range files {
+			if strings.HasSuffix(f.Path, "managed_clients.go") && !strings.Contains(string(f.Content), `ClientID: "gw-" + gateway + "-x",`) {
+				t.Errorf("the client name does not keep its literal after the placeholder:\n%s", f.Content)
+			}
+		}
+	})
+	t.Run("ST-SUP-RC13-OC18-T03 The emitted identity helpers write each attribute key as a quoted Go string", func(t *testing.T) {
+		key := `x": "y"}; panic(1); _ = map[string]string{"z`
+		kind := managedKind{Kind: "gateway", Name: "Gateway", IDs: []string{"gateway"}, ClientID: "gw-{gateway}", Legacy: true,
+			Attributes: []managedAttribute{{Key: key, Value: "{gateway}", ValueExpr: "gateway"}}}
+		data := struct {
+			Package     string
+			Managed     []managedKind
+			LegacyKinds bool
+		}{"keycloak", []managedKind{kind}, false}
+		code, err := render("managed_clients.go", data)
+		if err != nil {
+			t.Fatalf("the template did not render a key with quotes: %v", err)
+		}
+		for _, want := range []string{strconv.Quote("stego.owner."+key) + ": gateway", strconv.Quote(key) + ": gateway",
+			strconv.Quote(key) + ": " + strconv.Quote("stego.owner."+key)} {
+			if !strings.Contains(string(code), want) {
+				t.Errorf("the emitted helpers do not hold %s:\n%s", want, code)
+			}
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), "managed_clients.go", code, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(file, func(node ast.Node) bool {
+			if call, ok := node.(*ast.CallExpr); ok {
+				if name, ok := call.Fun.(*ast.Ident); ok && name.Name == "panic" {
+					t.Errorf("the key reached the code as a call of panic:\n%s", code)
+				}
+			}
+			return true
+		})
+	})
 }
