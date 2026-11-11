@@ -69,8 +69,6 @@
 {"source_id":"ST-SUP-Q90","target_id":"ST-SUP-RC29-OC23"}
 {"source_id":"ST-SUP-Q91","target_id":"ST-GEN-UC14-R02"}
 {"source_id":"ST-SUP-Q91","target_id":"ST-SUP-RC01-OC41"}
-{"source_id":"ST-SUP-Q93","target_id":"ST-GEN-UC12"}
-{"source_id":"ST-SUP-Q93","target_id":"ST-SUP-RC01-OC41"}
 {"source_id":"ST-SUP-Q94","target_id":"ST-SUP-RC15-OC17"}
 {"source_id":"ST-SUP-Q94","target_id":"ST-SUP-RC16-OC08"}
 {"source_id":"ST-SUP-Q94","target_id":"ST-VO56"}

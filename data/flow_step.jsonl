@@ -196,6 +196,7 @@
 {"id":"ST-GEN-UC05-FL-S02","title":"The service author reads the saved plan","flow_id":"ST-GEN-UC05-FL","path":"main","position":2}
 {"id":"ST-GEN-UC05-FL-S03","title":"The service author runs apply with the saved plan, and STEGO writes exactly what it names","flow_id":"ST-GEN-UC05-FL","path":"main","position":3}
 {"id":"ST-GEN-UC05-FL-S04","title":"An input, the record or a generated file changed after planning, so apply refuses the plan and the author plans again","flow_id":"ST-GEN-UC05-FL","path":"stale","position":1}
+{"id":"ST-GEN-UC05-FL-S05","title":"The declaration adds an entity on the runtime data path, so the plan warns that the migration job will be refused until the schema steps are built","flow_id":"ST-GEN-UC05-FL","path":"warned","position":1}
 {"id":"ST-GEN-UC06-FL-S01","title":"Plan, apply and drift refuse while a journal is pending, and name recover","flow_id":"ST-GEN-UC06-FL","path":"main","position":1}
 {"id":"ST-GEN-UC06-FL-S02","title":"The service author runs recover, and STEGO completes the journal","flow_id":"ST-GEN-UC06-FL","path":"main","position":2}
 {"id":"ST-GEN-UC06-FL-S03","title":"A journaled file matches neither of its states, so recover names it and changes nothing","flow_id":"ST-GEN-UC06-FL","path":"conflict","position":1}
