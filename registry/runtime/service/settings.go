@@ -174,7 +174,8 @@ func ReadMigrationSettings() (MigrationSettings, error) {
 	return MigrationSettings{DatabaseURL: url, SpiceDB: spice}, nil
 }
 
-// readSpiceDB reads the address of SpiceDB, its preshared key from the key file, and the loopback test mode.
+// readSpiceDB reads the address of SpiceDB, its preshared key from the key file, with the checks of settingFile,
+// and the loopback test mode.
 func readSpiceDB() (SpiceDB, error) {
 	var s SpiceDB
 	var err error
@@ -185,9 +186,9 @@ func readSpiceDB() (SpiceDB, error) {
 	if err != nil {
 		return SpiceDB{}, err
 	}
-	key, err := os.ReadFile(name)
+	key, err := settingFile(SpiceDBKeyFileSetting, name)
 	if err != nil {
-		return SpiceDB{}, settingError(SpiceDBKeyFileSetting, "names no readable file")
+		return SpiceDB{}, err
 	}
 	if s.Key = strings.TrimSpace(string(key)); s.Key == "" {
 		return SpiceDB{}, settingError(SpiceDBKeyFileSetting, "names an empty key")
@@ -206,15 +207,16 @@ func readSpiceDB() (SpiceDB, error) {
 	return s, nil
 }
 
-// cursorKey reads the key of the list cursors from the file of CursorKeyFileSetting.
+// cursorKey reads the key of the list cursors from the file of CursorKeyFileSetting, with the checks of
+// settingFile.
 func cursorKey() ([]byte, error) {
 	name, err := required(CursorKeyFileSetting)
 	if err != nil {
 		return nil, err
 	}
-	key, err := os.ReadFile(name)
+	key, err := settingFile(CursorKeyFileSetting, name)
 	if err != nil {
-		return nil, settingError(CursorKeyFileSetting, "names no readable file")
+		return nil, err
 	}
 	if len(key) < query.MinCursorKey {
 		return nil, settingError(CursorKeyFileSetting, fmt.Sprintf("names a key of fewer than %d bytes", query.MinCursorKey))
@@ -250,9 +252,38 @@ func required(name string) (string, error) {
 // errNoConnectionFile is the refusal of a connection string file that is not a safe regular file.
 var errNoConnectionFile = errors.New("names no readable connection string file")
 
+// errNoSettingFile is the refusal of a file of a setting that is not a safe regular file.
+var errNoSettingFile = errors.New("names no safe readable file: an absolute path of a regular file of at most 64 KiB that no group or other may write")
+
+// maxSettingFile is the largest file of a setting, in bytes.
+const maxSettingFile = 65536
+
+// settingFile reads the file at path that the setting name names, with the checks of a connection string file: an
+// absolute path of a regular file of at most 64 KiB, which it opens without waiting on a FIFO, that has no execute
+// bit for its owner and that no group or other may write or execute. A refusal names the setting and not the path.
+func settingFile(name, path string) ([]byte, error) {
+	invalid := settingError(name, errNoSettingFile.Error())
+	if !filepath.IsAbs(path) {
+		return nil, invalid
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, invalid
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxSettingFile || info.Mode().Perm()&0o137 != 0 {
+		return nil, invalid
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxSettingFile+1))
+	if err != nil || len(data) > maxSettingFile {
+		return nil, invalid
+	}
+	return data, nil
+}
+
 // connectionString gives the connection string of the setting name, or of the file that the setting fileName
-// names: one of the two. The file is a regular file of at most 64 KiB that no group or other may write, at an
-// absolute path, with one line.
+// names: one of the two. The file passes the checks of settingFile and holds one line.
 func connectionString(name, fileName string) (string, error) {
 	value, file := os.Getenv(name), os.Getenv(fileName)
 	if (value == "") == (file == "") {
@@ -262,20 +293,8 @@ func connectionString(name, fileName string) (string, error) {
 		return value, nil
 	}
 	invalid := settingError(fileName, errNoConnectionFile.Error())
-	if !filepath.IsAbs(file) {
-		return "", invalid
-	}
-	f, err := os.OpenFile(file, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	data, err := settingFile(fileName, file)
 	if err != nil {
-		return "", invalid
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() > 65536 || info.Mode().Perm()&0o137 != 0 {
-		return "", invalid
-	}
-	data, err := io.ReadAll(io.LimitReader(f, 65537))
-	if err != nil || len(data) > 65536 {
 		return "", invalid
 	}
 	value = strings.TrimSuffix(strings.TrimSuffix(string(data), "\n"), "\r")
