@@ -22,6 +22,7 @@ import (
 	"github.com/jsell-rh/stego/registry/runtime/audit"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
 	"github.com/jsell-rh/stego/registry/runtime/idempotency"
+	"github.com/jsell-rh/stego/registry/runtime/internal/kafkatest"
 	"github.com/jsell-rh/stego/registry/runtime/internal/pgtest"
 	"github.com/jsell-rh/stego/registry/runtime/internal/seal"
 	"github.com/jsell-rh/stego/registry/runtime/internal/staging"
@@ -31,7 +32,7 @@ import (
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
-func TestMain(m *testing.M) { os.Exit(pgtest.Main(m)) }
+func TestMain(m *testing.M) { os.Exit(kafkatest.Wrap(func() int { return pgtest.Main(m) })) }
 
 // The test entities, as the generated code declares them: their Go types, and their tables with the tenant, the
 // resource version and the authorization token on each row, with row-level security on the tenant setting.
