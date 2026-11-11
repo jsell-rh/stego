@@ -287,11 +287,12 @@ func start(t *testing.T) *shop {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = admin.Close() })
-	queueDDL, err := outbox.Migration(roles[0], roles[1])
+	// The outbox relay role of the test service, one role of the server, which the outbox migration makes.
+	queueDDL, err := outbox.Migration("shop_check"+outbox.RelaySuffix, roles[0], roles[1])
 	if err != nil {
 		t.Fatal(err)
 	}
-	authzDDL, err := authz.Migration("authz", roles[0], roles[2], roles[1])
+	authzDDL, err := authz.Migration("authz", roles[0], roles[2], "shop_check"+outbox.RelaySuffix, roles[1])
 	if err != nil {
 		t.Fatal(err)
 	}

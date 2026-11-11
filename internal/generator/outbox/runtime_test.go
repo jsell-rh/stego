@@ -94,7 +94,7 @@ func TestRuntimeOutput(t *testing.T) {
 			t.Fatalf("the outbox emits %s, want its wiring %s only", got, runtimeFile)
 		}
 		source := string(files["outbox"][0].Bytes())
-		for _, want := range []string{`"github.com/jsell-rh/stego/registry/runtime/outbox"`, "outbox.Migration(runtimeRole, workerRole)", "outbox.NewWorker(queue, config)"} {
+		for _, want := range []string{`"github.com/jsell-rh/stego/registry/runtime/outbox"`, "outbox.Migration(relayRole, runtimeRole, workerRole)", "outbox.NewWorker(queue, config)"} {
 			if !strings.Contains(source, want) {
 				t.Fatalf("the outbox wiring holds no %s", want)
 			}

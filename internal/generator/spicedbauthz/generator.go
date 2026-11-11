@@ -347,9 +347,10 @@ func render(p plan) []byte {
 // each protected table, creates the revocation floor authz_floor and the revocation records with the runtime's
 // Migration (ST-SUP-RP06-LC21), and grants workerRole, which stores each token on its owning row, UPDATE on
 // authz_token only. runtimeRole is the role the service runs as; relayRole is the login role of the relay, which may
-// update the floor and nothing else.
-func Migration(runtimeRole, relayRole, workerRole string) (string, error) {
-	text, err := stegoauthz.Migration(DatabaseSchema, runtimeRole, relayRole, workerRole)
+// update the floor and nothing else; outboxRelayRole is the outbox relay role of this service alone, which owns the
+// state hook functions.
+func Migration(runtimeRole, relayRole, outboxRelayRole, workerRole string) (string, error) {
+	text, err := stegoauthz.Migration(DatabaseSchema, runtimeRole, relayRole, outboxRelayRole, workerRole)
 	if err != nil {
 		return "", err
 	}

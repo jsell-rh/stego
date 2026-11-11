@@ -76,7 +76,7 @@ FROM pg_policies, unnest(roles) AS r WHERE tablename = 'messages' AND policyname
 			string(stored) != string(exact.Payload) {
 			t.Fatalf("the stored payload is %q, want the exact bytes %q: %v", stored, exact.Payload, err)
 		}
-		ddl, err := Migration(runtimeRole, workerRole)
+		ddl, err := Migration(relayRole(t, db), runtimeRole, workerRole)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -338,9 +338,11 @@ type pgEnv struct {
 	relayDB  *sql.DB
 	schema   string
 	roles    [3]string // runtime, worker, relay
-	clock    *testClock
-	queue    *outbox.Queue
-	wqueue   *outbox.Queue
+	// outboxRelay is the NOLOGIN outbox relay role of the test, which owns the relay and state hook functions.
+	outboxRelay string
+	clock       *testClock
+	queue       *outbox.Queue
+	wqueue      *outbox.Queue
 }
 
 const rolePassword = "authz-test"
@@ -387,6 +389,9 @@ func newPGClock(t *testing.T, clock *testClock) *pgEnv {
 		}
 		t.Cleanup(func() { _, _ = root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+role) })
 	}
+	// The outbox migration makes the outbox relay role of the test; it is dropped after the database.
+	outboxRelay := "authz_" + tag + outbox.RelaySuffix
+	t.Cleanup(func() { _, _ = root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+outboxRelay) })
 	dsn := pgtest.Database(t, "authz")
 	admin, err := sql.Open("pgx", dsn)
 	if err != nil {
@@ -394,16 +399,16 @@ func newPGClock(t *testing.T, clock *testClock) *pgEnv {
 	}
 	t.Cleanup(func() { _ = admin.Close() })
 	t.Cleanup(func() {
-		for _, role := range roles {
+		for _, role := range append(roles[:], outboxRelay) {
 			_, _ = admin.ExecContext(context.Background(), "DROP OWNED BY "+role)
 		}
 	})
-	queueDDL, err := outbox.Migration(roles[0], roles[1])
+	queueDDL, err := outbox.Migration(outboxRelay, roles[0], roles[1])
 	if err != nil {
 		t.Fatal(err)
 	}
 	schema := "authz"
-	migration, err := Migration(schema, roles[0], roles[2], roles[1])
+	migration, err := Migration(schema, roles[0], roles[2], outboxRelay, roles[1])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,7 +442,7 @@ func newPGClock(t *testing.T, clock *testClock) *pgEnv {
 		return db
 	}
 	env := &pgEnv{admin: admin, runtime: open(roles[0]), workerDB: open(roles[1]), relayDB: open(roles[2]),
-		schema: schema, roles: roles, clock: clock}
+		schema: schema, roles: roles, outboxRelay: outboxRelay, clock: clock}
 	var queueClock outbox.Clock
 	if clock != nil {
 		queueClock = clock
@@ -1480,7 +1485,7 @@ func TestHandleWrites(t *testing.T) {
 	})
 
 	t.Run("ST-SUP-RP06-LC21-T01 The runtime role cannot lower the floor or mark a revocation complete", func(t *testing.T) {
-		if _, err := Migration("authz", "same_role", "same_role"); err == nil ||
+		if _, err := Migration("authz", "same_role", "same_role", "same"+outbox.RelaySuffix); err == nil ||
 			strings.Count(err.Error(), "same_role") != 2 {
 			t.Fatalf("one role for both gave %v, want an error that names both roles", err)
 		}
@@ -1546,23 +1551,36 @@ func TestHandleWrites(t *testing.T) {
 	})
 
 	t.Run("ST-SUP-RP06-LC21-T03 Migration refuses overlapping roles", func(t *testing.T) {
-		if _, err := Migration("authz", "authz_rt", "authz_worker", "authz_worker"); err == nil ||
+		if _, err := Migration("authz", "authz_rt", "authz_worker", "authz"+outbox.RelaySuffix, "authz_worker"); err == nil ||
 			!strings.Contains(err.Error(), `"authz_worker"`) || strings.Count(err.Error(), "authz_worker") != 2 {
 			t.Fatalf("a relay role equal to a hook role gave %v, want an error that names the two roles", err)
 		}
-		if _, err := Migration("authz", "authz_rt", "authz_relay", "authz_rt"); err == nil || strings.Count(err.Error(), "authz_rt") != 2 {
+		if _, err := Migration("authz", "authz_rt", "authz_relay", "authz"+outbox.RelaySuffix, "authz_rt"); err == nil || strings.Count(err.Error(), "authz_rt") != 2 {
 			t.Fatalf("a hook role equal to the runtime role gave %v, want an error that names the two roles", err)
 		}
+		// The outbox relay role is a lower-case name of the form <service role prefix>_outbox_relay, apart from the
+		// other roles.
+		for _, outboxRelay := range []string{"", "stego_relay", "outbox_relay", "Shop" + outbox.RelaySuffix, "shop" + outbox.RelaySuffix + "'", "authz_relay"} {
+			if _, err := Migration("authz", "authz_rt", "authz_relay", outboxRelay, "authz_worker"); err == nil {
+				t.Errorf("the outbox relay role %q is accepted", outboxRelay)
+			}
+		}
+		for _, other := range [][3]string{{"x" + outbox.RelaySuffix, "authz_relay", "authz_worker"}, {"authz_rt", "x" + outbox.RelaySuffix, "authz_worker"},
+			{"authz_rt", "authz_relay", "x" + outbox.RelaySuffix}} {
+			if _, err := Migration("authz", other[0], other[1], "x"+outbox.RelaySuffix, other[2]); err == nil {
+				t.Errorf("the outbox relay role equal to another role of %v is accepted", other)
+			}
+		}
 		env := newPG(t)
-		// A runtime role that is a member of a hook role, or of stego_outbox_relay, is refused before anything is
+		// A runtime role that is a member of a hook role, or of the outbox relay role, is refused before anything is
 		// created.
-		for _, group := range []string{env.roles[1], "stego_outbox_relay"} {
+		for _, group := range []string{env.roles[1], env.outboxRelay} {
 			runtime := "authz_in_" + uuid.NewString()[:8]
 			if _, err := env.admin.ExecContext(ctx, "CREATE ROLE "+runtime+" NOLOGIN IN ROLE "+group); err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _, _ = env.admin.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+runtime) })
-			text, err := Migration("refused_"+runtime, runtime, env.roles[2], env.roles[1])
+			text, err := Migration("refused_"+runtime, runtime, env.roles[2], env.outboxRelay, env.roles[1])
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1581,7 +1599,7 @@ func TestHandleWrites(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _, _ = env.admin.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+member) })
-		migration, err := Migration("refused", member, env.roles[2], env.roles[1])
+		migration, err := Migration("refused", member, env.roles[2], env.outboxRelay, env.roles[1])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1598,7 +1616,7 @@ func TestHandleWrites(t *testing.T) {
 	})
 	t.Run("ST-SUP-RP06-LC21-T04 Migration runs again on a database that it made, in one transaction", func(t *testing.T) {
 		env := newPG(t)
-		migration, err := Migration("authz", env.roles[0], env.roles[2], env.roles[1])
+		migration, err := Migration("authz", env.roles[0], env.roles[2], env.outboxRelay, env.roles[1])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1608,7 +1626,7 @@ func TestHandleWrites(t *testing.T) {
  (SELECT count(*) FROM pg_catalog.pg_trigger g JOIN pg_catalog.pg_class c ON c.oid = g.tgrelid
    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'authz' AND NOT g.tgisinternal)::text || '/' ||
  (SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-   JOIN pg_catalog.pg_roles r ON r.oid = p.proowner WHERE n.nspname = 'authz' AND r.rolname = 'stego_outbox_relay')::text`)
+   JOIN pg_catalog.pg_roles r ON r.oid = p.proowner WHERE n.nspname = 'authz' AND r.rolname = $1)::text`, env.outboxRelay)
 		}
 		before := shape()
 		for run := 1; run <= 2; run++ {

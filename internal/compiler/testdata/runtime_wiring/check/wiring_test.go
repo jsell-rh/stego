@@ -161,8 +161,8 @@ func newDatabase(t *testing.T, root *sql.DB, server *url.URL) (*sql.DB, *url.URL
 }
 
 // prepare runs what the database administrator runs before the first migration job: the role migration of the
-// tenancy component, which makes the owner, runtime, worker and relay roles, the owner's membership in the relay role
-// of the outbox runtime and that role's CREATE on public (ST-SUP-RC27-OC04), and a login of each role, which a
+// tenancy component, which makes the owner, runtime, worker and relay roles and the purge and outbox relay roles of
+// the service, with the owner's SET membership in the last two (ST-SUP-RC27-OC04), and a login of each role, which a
 // deployment gives. No other role or grant is made by hand.
 func prepare(t *testing.T, admin *sql.DB) {
 	execAll(t, admin, tenancy.Roles)

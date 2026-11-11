@@ -142,11 +142,12 @@ func renderRuntime(p runtimePlan) []byte {
 	fmt.Fprintf(&b, "const formerTable = %q\n\n", formerTable)
 
 	b.WriteString(`// Migration returns the statements that create the queue table, its policies and its relay functions, for
-// runtimeRole, the request-path role, and workerRole, the role that the worker mode connects as. The owner role runs
-// them in the migration job, in one transaction; it needs membership in outbox.RelayRole WITH SET TRUE, INHERIT
-// TRUE. The text is the runtime migration (ST-SUP-RP01-LC19) after the step that replaces the former queue table.
-func Migration(runtimeRole, workerRole string) (string, error) {
-	text, err := outbox.Migration(runtimeRole, workerRole)
+// relayRole, the outbox relay role of this service alone, which owns the relay functions, runtimeRole, the
+// request-path role, and workerRole, the role that the worker mode connects as. The owner role runs them in the
+// migration job, in one transaction; it needs membership in relayRole WITH SET TRUE, and no INHERIT. The text is the
+// runtime migration (ST-SUP-RP01-LC19) after the step that replaces the former queue table.
+func Migration(relayRole, runtimeRole, workerRole string) (string, error) {
+	text, err := outbox.Migration(relayRole, runtimeRole, workerRole)
 	if err != nil {
 		return "", err
 	}

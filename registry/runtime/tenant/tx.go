@@ -140,6 +140,9 @@ type Config struct {
 	// it, Open and OpenOwner refuse a configuration or a connection string whose TLS does not verify the server,
 	// such as sslmode disable, prefer or require (ST-SUP-RP04-LC09).
 	InsecureLoopback bool
+	// Claims is true for the pool of the worker mode, whose role may run the outbox relay functions, such as
+	// stego_outbox.claim (ST-SUP-RP01-LC19). Open refuses a role of any other pool that may run them itself.
+	Claims bool
 }
 
 // PoolBounds are the bounds of a pool.

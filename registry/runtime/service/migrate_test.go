@@ -149,7 +149,7 @@ type fixture struct {
 	admin                         *sql.DB
 	database                      string // the superuser URL of the database
 	owner, runtime, worker, relay string
-	purge                         string
+	purge, outboxRelay            string
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -158,7 +158,7 @@ func newFixture(t *testing.T) *fixture {
 	_, _ = rand.Read(suffix)
 	tag := hex.EncodeToString(suffix)
 	f := &fixture{t: t, owner: "svc_owner_" + tag, runtime: "svc_rt_" + tag, worker: "svc_worker_" + tag, relay: "svc_relay_" + tag,
-		purge: "svc_" + tag + "_idempotency_purge"}
+		purge: "svc_" + tag + "_idempotency_purge", outboxRelay: "svc_" + tag + outbox.RelaySuffix}
 	root, err := sql.Open("pgx", pgtest.DSN(t))
 	if err != nil {
 		t.Fatal(err)
@@ -175,8 +175,8 @@ func newFixture(t *testing.T) *fixture {
 		"CREATE ROLE " + f.runtime + " LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '" + rolePassword + "'",
 		"CREATE ROLE " + f.worker + " NOLOGIN NOINHERIT",
 		"CREATE ROLE " + f.relay + " NOLOGIN NOINHERIT",
-		"DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '" + outbox.RelayRole + "') THEN CREATE ROLE " + outbox.RelayRole + " NOLOGIN; END IF; END $$",
-		"GRANT " + outbox.RelayRole + " TO " + f.owner + " WITH SET TRUE, INHERIT TRUE",
+		"CREATE ROLE " + f.outboxRelay + " NOLOGIN NOINHERIT",
+		"GRANT " + f.outboxRelay + " TO " + f.owner + " WITH SET TRUE, INHERIT FALSE",
 		"CREATE ROLE " + f.purge + " NOLOGIN NOINHERIT",
 		"GRANT " + f.purge + " TO " + f.owner + " WITH SET TRUE, INHERIT FALSE",
 		"GRANT CREATE ON DATABASE " + name + " TO " + f.owner,
@@ -185,22 +185,21 @@ func newFixture(t *testing.T) *fixture {
 			t.Fatalf("%.60s: %v", statement, err)
 		}
 	}
-	// As the tenancy role migration gives them: the owner may grant CREATE on public, which the idempotency
-	// migration gives the purge role only while it makes the purge function.
+	// As the tenancy role migration gives them: the owner may grant CREATE on public, which the idempotency and
+	// authorization migrations give the purge role and the outbox relay role only while they make their functions.
 	for _, statement := range []string{
 		"GRANT CREATE ON SCHEMA public TO " + f.owner + " WITH GRANT OPTION",
-		"GRANT CREATE ON SCHEMA public TO " + outbox.RelayRole,
 	} {
 		if _, err := f.admin.ExecContext(context.Background(), statement); err != nil {
 			t.Fatal(err)
 		}
 	}
 	t.Cleanup(func() {
-		for _, role := range []string{f.runtime, f.worker, f.relay, f.owner, f.purge} {
+		for _, role := range []string{f.runtime, f.worker, f.relay, f.owner, f.purge, f.outboxRelay} {
 			_, _ = f.admin.ExecContext(context.Background(), "DROP OWNED BY "+role)
 		}
 		_, _ = root.ExecContext(context.Background(), "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
-		for _, role := range []string{f.runtime, f.worker, f.relay, f.owner, f.purge} {
+		for _, role := range []string{f.runtime, f.worker, f.relay, f.owner, f.purge, f.outboxRelay} {
 			_, _ = root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+role)
 		}
 	})
@@ -246,7 +245,7 @@ CREATE POLICY orders_tenant ON public.orders USING (tenant_id = current_setting(
 // migration is the migration job of the test service, with a schema writer that writes into calls.
 func (f *fixture) migration(calls *int) Migration {
 	t := f.t
-	queue, err := outbox.Migration(f.runtime, f.worker)
+	queue, err := outbox.Migration(f.outboxRelay, f.runtime, f.worker)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +253,7 @@ func (f *fixture) migration(calls *int) Migration {
 	if err != nil {
 		t.Fatal(err)
 	}
-	authzText, err := authz.Migration("public", f.runtime, f.relay, f.worker)
+	authzText, err := authz.Migration("public", f.runtime, f.relay, f.outboxRelay, f.worker)
 	if err != nil {
 		t.Fatal(err)
 	}

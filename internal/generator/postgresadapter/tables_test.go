@@ -153,7 +153,7 @@ func tableModule(t *testing.T) (map[string]bool, string) {
 		}
 	}
 	suffix := strconv.FormatInt(time.Now().UnixNano(), 36)
-	roles := map[string]any{"runtime_role": "tables_runtime_" + suffix, "owner_role": "tables_owner_" + suffix}
+	roles := map[string]any{"runtime_role": "tables_" + suffix + "_runtime", "owner_role": "tables_" + suffix + "_owner"}
 	for _, service := range []struct {
 		ctx    gen.Context
 		access string
@@ -181,7 +181,7 @@ func tableModule(t *testing.T) (map[string]bool, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	goMod := "module " + tablesModule + "\n\ngo 1.26.11\n\nrequire (\n github.com/google/uuid v1.6.0\n github.com/jackc/pgx/v5 v5.11.0\n gorm.io/gorm v1.25.12\n gorm.io/driver/postgres v1.5.11\n github.com/jsell-rh/stego/registry/runtime v0.32.0\n)\n\nreplace github.com/jsell-rh/stego/registry/runtime => " + runtimeDir + "\n"
+	goMod := "module " + tablesModule + "\n\ngo 1.26.11\n\nrequire (\n github.com/google/uuid v1.6.0\n github.com/jackc/pgx/v5 v5.11.0\n gorm.io/gorm v1.25.12\n gorm.io/driver/postgres v1.5.11\n github.com/jsell-rh/stego/registry/runtime v0.35.0\n)\n\nreplace github.com/jsell-rh/stego/registry/runtime => " + runtimeDir + "\n"
 	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte(goMod), 0o644); err != nil {
 		t.Fatal(err)
 	}
