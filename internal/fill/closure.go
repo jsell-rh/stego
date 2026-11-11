@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"go/ast"
+	"go/build"
 	"go/parser"
 	"go/token"
 	"io"
@@ -54,6 +55,8 @@ var refusedCalls = map[string]map[string]string{
 		"Panic": "stops the service", "Panicf": "stops the service", "Panicln": "stops the service",
 	},
 	"log/slog": {"SetDefault": "changes the standard logger", "SetLogLoggerLevel": "changes the standard logger"},
+	"time":     {"AfterFunc": "starts a goroutine"},
+	"context":  {"AfterFunc": "starts a goroutine"},
 }
 
 // stopMethods are the methods of a *log.Logger that stop the service (ST-EXT-UC01-R07). The check reads no types,
@@ -275,8 +278,9 @@ func listFills(check compiler.FillCheck, fills []string) (map[string]listedPacka
 // that is not a test file imports only what the rule allows and holds no function without a body, no refused
 // directive and no refused function. A fault names the fill and the file.
 //
-// Before the project's first generation (pending), go.mod does not fix the service's module yet, so a generated
-// contract package is admitted under any module path; the closure check holds the module once go.mod exists.
+// Before the project's first generation (pending) there is no go.mod and no go list: an import of a listed fill module,
+// and of a contract package under another module than the declared one, cannot be checked and is a fault, and stego
+// apply checks the fills again once it has written go.mod.
 func treeFaults(check compiler.FillCheck, fill, dir, fillPackage string, contracts []string, packages map[string]listedPackage) ([]ruleFault, error) {
 	pending := packages == nil
 	var faults []ruleFault
@@ -333,7 +337,12 @@ func treeFaults(check compiler.FillCheck, fill, dir, fillPackage string, contrac
 				listed := listedPackage{ImportPath: path, Standard: standardLibrary(path) && path != "C"}
 				follow, allowed := judgeImport(check, contracts, fillPackage, path, listed)
 				switch {
-				case !allowed && !(pending && pendingContract(check, contracts, path)):
+				case pending && (pendingContract(check, contracts, path) && !slices.Contains(contracts, path) || allowed && follow && !underPath(path, fillPackage)):
+					// Before the first generation there is no go.mod and no go list, so neither the import closure
+					// of a listed module nor a contract of another module than the declared one can be checked.
+					faults = append(faults, ruleFault{rule: ruleImports, path: path, text: fmt.Sprintf("fill %q: the file %s imports %s, which cannot be checked before the project's first generation: there is no go.mod to list its closure with, or it is not a package of the declared module %s",
+						fill, relative, path, check.Module)})
+				case !allowed:
 					faults = append(faults, ruleFault{rule: ruleImports, path: path, text: fmt.Sprintf("fill %q: the file %s imports %s, which a fill may not import; a fill imports only its slot contract %s, the listed fill modules and the fill allow list of the standard library",
 						fill, relative, path, contracts[0])})
 				case allowed && follow && !pending && packages[path].ImportPath == "":
@@ -343,7 +352,7 @@ func treeFaults(check compiler.FillCheck, fill, dir, fillPackage string, contrac
 						fill, relative, path)})
 				}
 			}
-			for _, text := range sourceFaults(file, relative, files) {
+			for _, text := range sourceFaults(file, relative, builtFiles(files)) {
 				faults = append(faults, ruleFault{rule: ruleCalls, text: fmt.Sprintf("fill %q: the file %s", fill, text)})
 			}
 		}
@@ -352,8 +361,8 @@ func treeFaults(check compiler.FillCheck, fill, dir, fillPackage string, contrac
 	return faults, nil
 }
 
-// pendingContract tells whether path is a generated contract package of contracts, such as out/slots, under another
-// module path than the one the check gives.
+// pendingContract tells whether path is a generated contract package of contracts, such as out/slots, under any
+// module path.
 func pendingContract(check compiler.FillCheck, contracts []string, path string) bool {
 	for _, contract := range contracts {
 		relative, ok := strings.CutPrefix(contract, strings.TrimSuffix(check.Module, "/")+"/")
@@ -506,7 +515,7 @@ func modulePackageFaults(check compiler.FillCheck, contracts []string, fillPacka
 	}
 	for _, file := range files {
 		shown := p.ImportPath + "/" + filepath.Base(file.name)
-		for _, text := range sourceFaults(file, shown, files) {
+		for _, text := range sourceFaults(file, shown, listedBuilt(files, p)) {
 			faults = append(faults, ruleFault{rule: ruleCalls, text: fmt.Sprintf("fill %q reaches a package whose file %s", fill, text)})
 		}
 		if !ignored[file.name] {
@@ -553,6 +562,37 @@ func parseFiles(names []string) ([]sourceFile, error) {
 	return files, nil
 }
 
+// targetContext is the go/build context of the service build (compiler.TargetBuildSettings): Linux on amd64 with no
+// cgo.
+var targetContext = func() build.Context {
+	c := build.Default
+	c.GOOS, c.GOARCH, c.CgoEnabled = "linux", "amd64", false
+	c.BuildTags, c.ToolTags = nil, []string{"amd64.v1"}
+	return c
+}()
+
+// builtFiles gives the files of one fill folder that the service build compiles.
+func builtFiles(files []sourceFile) []sourceFile {
+	var built []sourceFile
+	for _, file := range files {
+		if ok, err := targetContext.MatchFile(filepath.Dir(file.name), filepath.Base(file.name)); err == nil && ok {
+			built = append(built, file)
+		}
+	}
+	return built
+}
+
+// listedBuilt gives the files of a package that go list reports as compiled by the service build (GoFiles).
+func listedBuilt(files []sourceFile, p listedPackage) []sourceFile {
+	var built []sourceFile
+	for _, file := range files {
+		if slices.Contains(p.GoFiles, filepath.Base(file.name)) {
+			built = append(built, file)
+		}
+	}
+	return built
+}
+
 // packageNames gives the names that the files of one package declare at package level.
 func packageNames(files []sourceFile) map[string]bool {
 	declared := map[string]bool{}
@@ -581,8 +621,9 @@ func packageNames(files []sourceFile) map[string]bool {
 }
 
 // sourceFaults gives a sentence for each function without a body, each refused directive and each use of a refused
-// function in one Go file, shown by the name given, with its line. pkg is every file of the file's package, which
-// tells the names the package declares itself, so a function of the package named print is not the builtin.
+// function in one Go file, shown by the name given, with its line. pkg is the files of the file's package that the
+// service build compiles, which tell the names the package declares itself, so a function of the package named print
+// is not the builtin; a file that the build leaves out declares nothing that the built files see.
 func sourceFaults(file sourceFile, shown string, pkg []sourceFile) []string {
 	var faults []string
 	at := func(pos token.Pos) string { return fmt.Sprintf("%s:%d", shown, file.fset.Position(pos).Line) }
@@ -612,14 +653,36 @@ func sourceFaults(file sourceFile, shown string, pkg []sourceFile) []string {
 			}
 		}
 	}
+	// A package-level variable whose initializer holds a function literal runs code when the service starts, or
+	// keeps it to run later; other package-level calls, such as errors.New or regexp.MustCompile, stay allowed.
+	for _, decl := range file.ast.Decls {
+		if gen, ok := decl.(*ast.GenDecl); ok && gen.Tok == token.VAR {
+			for _, spec := range gen.Specs {
+				for _, value := range spec.(*ast.ValueSpec).Values {
+					ast.Inspect(value, func(node ast.Node) bool {
+						if literal, ok := node.(*ast.FuncLit); ok {
+							faults = append(faults, fmt.Sprintf("%s gives a package-level variable a function literal; a fill declares its functions as functions", at(literal.Pos())))
+							return false
+						}
+						return true
+					})
+				}
+			}
+		}
+	}
 	ast.Inspect(file.ast, func(node ast.Node) bool {
 		switch n := node.(type) {
 		case *ast.FuncDecl:
 			if n.Body == nil {
 				faults = append(faults, fmt.Sprintf("%s declares the function %s with no body; a fill gives every function a Go body", at(n.Pos()), n.Name.Name))
 			}
+			if n.Recv == nil && n.Name.Name == "init" {
+				faults = append(faults, fmt.Sprintf("%s declares an init function, which runs when the service starts; a fill runs only in the call that the service makes", at(n.Pos())))
+			}
 		case *ast.SelectorExpr:
-			if x, ok := n.X.(*ast.Ident); ok && x.Obj == nil && !declared[x.Name] {
+			// A name that this file imports is the package in this file: Go refuses a package-level name that
+			// repeats it in a built file, so a name that another file declares does not change it.
+			if x, ok := n.X.(*ast.Ident); ok && x.Obj == nil {
 				if path, isImport := imported[x.Name]; isImport {
 					if why, refused := refusedCalls[path][n.Sel.Name]; refused {
 						faults = append(faults, fmt.Sprintf("%s uses %s.%s, which %s; a fill may not use it", at(n.Pos()), path, n.Sel.Name, why))

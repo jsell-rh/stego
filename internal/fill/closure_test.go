@@ -308,3 +308,34 @@ func TestWorkerFillClosure(t *testing.T) {
 		}
 	})
 }
+
+func TestPendingFillCheck(t *testing.T) {
+	t.Run("ST-SUP-RC32-OC03-T04 Before the first generation an import that cannot be checked is a fault", func(t *testing.T) {
+		cases := []struct{ name, imported, want string }{
+			{"a listed module", closureHelper, "imports " + closureHelper + ", which cannot be checked before the project's first generation"},
+			{"the contract of another module", "example.com/other/out/commands", "imports example.com/other/out/commands, which cannot be checked"},
+		}
+		for _, c := range cases {
+			t.Run(c.name, func(t *testing.T) {
+				root := closureTree(t, c.imported)
+				if err := os.Remove(filepath.Join(root, "go.mod")); err != nil {
+					t.Fatal(err)
+				}
+				var texts []string
+				for _, f := range qualifyCommandFill(t, root) {
+					texts = append(texts, f.Message)
+				}
+				if joined := strings.Join(texts, "\n"); !strings.Contains(joined, c.want) {
+					t.Errorf("the faults %q do not hold %q", joined, c.want)
+				}
+			})
+		}
+		root := closureTree(t, "fmt")
+		if err := os.Remove(filepath.Join(root, "go.mod")); err != nil {
+			t.Fatal(err)
+		}
+		if faults := qualifyCommandFill(t, root); len(faults) != 0 {
+			t.Errorf("a fill of its declared contract and fmt got faults before the first generation: %v", faults)
+		}
+	})
+}

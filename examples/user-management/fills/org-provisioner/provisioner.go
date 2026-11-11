@@ -42,6 +42,6 @@ func (p *OrgProvisioner) Evaluate(_ context.Context, req *slots.BeforeCreateRequ
 			StatusCode: 204, // HTTP 204 No Content
 		}, nil
 	}
-	log.Printf("provisioning resources for organization: %s", name)
+	log.Printf("provisioning resources for organization: %q", name)
 	return &slots.SlotResult{Ok: true}, nil
 }

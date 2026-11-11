@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -137,11 +138,13 @@ var fixtureModules = map[string]map[string]string{
 	// whose function has no Go body and comes from an assembly file, for ST-EXT-UC01-R03-T06, ST-EXT-UC01-R05-T02
 	// and ST-EXT-UC01-R03-T10.
 	"example.com/helpers": {
-		"dbutil/dbutil.go": "package dbutil\n\nimport \"database/sql\"\n\n// Drivers names the database drivers.\nfunc Drivers() []string { return sql.Drivers() }\n",
-		"say/say.go":       "package say\n\nimport \"fmt\"\n\n// Hello greets.\nfunc Hello() {\n\tfmt.Println(\"hello\")\n}\n",
-		"raw/raw.go":       "package raw\n\n// Write writes with no import.\nfunc Write(fd uintptr, p *byte, n uintptr) uintptr\n",
-		"raw/raw_amd64.s":  "#include \"textflag.h\"\n\nTEXT ·Write(SB),NOSPLIT,$0-32\n\tMOVQ $1, AX\n\tSYSCALL\n\tMOVQ AX, ret+24(FP)\n\tRET\n",
-		"raw/raw_arm64.s":  "#include \"textflag.h\"\n\nTEXT ·Write(SB),NOSPLIT,$0-32\n\tRET\n",
+		"dbutil/dbutil.go":    "package dbutil\n\nimport \"database/sql\"\n\n// Drivers names the database drivers.\nfunc Drivers() []string { return sql.Drivers() }\n",
+		"say/say.go":          "package say\n\nimport \"fmt\"\n\n// Hello greets.\nfunc Hello() {\n\tfmt.Println(\"hello\")\n}\n",
+		"shadow/s.go":         "package shadow\n\nimport \"fmt\"\n\n// Hello greets.\nfunc Hello() {\n\tfmt.Println(\"hello\")\n\tprintln(\"hello\")\n}\n",
+		"shadow/s_windows.go": "package shadow\n\nvar fmt int\n\nfunc println(...any) {}\n",
+		"raw/raw.go":          "package raw\n\n// Write writes with no import.\nfunc Write(fd uintptr, p *byte, n uintptr) uintptr\n",
+		"raw/raw_amd64.s":     "#include \"textflag.h\"\n\nTEXT ·Write(SB),NOSPLIT,$0-32\n\tMOVQ $1, AX\n\tSYSCALL\n\tMOVQ AX, ret+24(FP)\n\tRET\n",
+		"raw/raw_arm64.s":     "#include \"textflag.h\"\n\nTEXT ·Write(SB),NOSPLIT,$0-32\n\tRET\n",
 	},
 	"github.com/stretchr/testify": {"assert/assert.go": "package assert\n\nimport \"testing\"\n\n// True fails the test when the value is false.\nfunc True(t testing.TB, value bool) bool {\n\tif !value {\n\t\tt.Error(\"not true\")\n\t}\n\treturn value\n}\n"},
 }
@@ -695,5 +698,22 @@ func TestFillAllowList(t *testing.T) {
 		before := p.read(t, "fills/untested-fill/fill.yaml")
 		stdout, _, _ := p.stego(t, "no-key", "test")
 		expectNoEvidence(t, p, stdout, "untested-fill", before, "may not import evilmod/x", "policy.go")
+	})
+}
+
+func TestFirstGenerationRecheck(t *testing.T) {
+	t.Run("ST-EXT-UC01-R03-T13 The first stego apply checks the fills again once it has written go.mod", func(t *testing.T) {
+		p := &fillProject{dir: filepath.Join(t.TempDir(), "fills"), keys: testFillKeys(t)}
+		if err := os.MkdirAll(p.dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		p.must(t, "no-key", "init", "--archetype", "rest-crud")
+		p.bind(t)
+		if _, err := os.Stat(p.path("go.mod")); err == nil {
+			t.Fatal("the project has a go.mod before its first generation")
+		}
+		if stdout := p.must(t, "no-key", "apply"); !strings.Contains(stdout, "The fills were checked again with the go.mod of the first generation.") {
+			t.Fatalf("the first apply did not check the fills again:\n%s", stdout)
+		}
 	})
 }

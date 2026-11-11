@@ -24,8 +24,8 @@ func callCase(t *testing.T, p *fillProject, name, call, shown string, refused bo
 	t.Helper()
 	c := fillCase{name: name, change: func(name string) {
 		file := "fills/" + name + "/policy.go"
-		p.replace(t, file, "import (\n\t\"context\"\n", "import (\n\t\"context\"\n\t\"fmt\"\n\t\"log\"\n\t\"log/slog\"\n\t\"strings\"\n")
-		p.write(t, file, string(p.read(t, file))+"\nvar _, _, _ = fmt.Sprint, log.Print, slog.Info\n\nfunc use(sku string) {\n\tvar b strings.Builder\n\t_, _ = sku, &b\n\t"+call+"\n}\n")
+		p.replace(t, file, "import (\n\t\"context\"\n", "import (\n\t\"context\"\n\t\"fmt\"\n\t\"log\"\n\t\"log/slog\"\n\t\"strings\"\n\t\"time\"\n")
+		p.write(t, file, string(p.read(t, file))+"\nvar _, _, _, _ = fmt.Sprint, log.Print, slog.Info, time.Now\n\nfunc use(sku string) {\n\tvar b strings.Builder\n\t_, _ = sku, &b\n\t"+call+"\n}\n")
 	}}
 	if refused {
 		c.texts = []string{shown, "policy.go:"}
@@ -72,6 +72,13 @@ func TestFillPrint(t *testing.T) {
 		before := p.read(t, "fills/untested-fill/fill.yaml")
 		stdout, _, _ := p.stego(t, "no-key", "test")
 		expectNoEvidence(t, p, stdout, "untested-fill", before, "example.com/helpers/say/say.go:7 uses fmt.Println")
+
+		// A file of the listed module that the service build leaves out declares fmt and println, which does not hide
+		// the calls of the built file.
+		p.addImport(t, "fills/untested-fill-2/policy.go", "example.com/helpers/shadow", "shadow.Hello")
+		before = p.read(t, "fills/untested-fill-2/fill.yaml")
+		stdout, _, _ = p.stego(t, "no-key", "test")
+		expectNoEvidence(t, p, stdout, "untested-fill-2", before, "example.com/helpers/shadow/s.go:7 uses fmt.Println", "example.com/helpers/shadow/s.go:8 uses the builtin println")
 	})
 
 	t.Run("ST-EXT-UC01-R05-T03 stego test records evidence for a fill that formats text without printing it", func(t *testing.T) {
@@ -88,18 +95,40 @@ func TestFillPrint(t *testing.T) {
 			"logger-fatal": `log.New(&b, "", 0).Fatal("x")`, "set-default": "slog.SetDefault(slog.New(slog.NewTextHandler(&b, nil)))",
 			"set-level": "slog.SetLogLoggerLevel(slog.LevelDebug)", "print": `print("x")`, "println": `println("x")`,
 			"writer": "_ = log.Writer()", "go": "go func() {}()",
+			"time-after": "time.AfterFunc(0, nil)", "context-after": "context.AfterFunc(context.Background(), nil)",
 		}
 		shown := map[string]string{
 			"set-output": "log.SetOutput", "set-flags": "log.SetFlags", "set-prefix": "log.SetPrefix", "default": "log.Default",
 			"fatalf": "log.Fatalf", "panicln": "log.Panicln", "logger-fatal": "the method Fatal", "set-default": "log/slog.SetDefault",
 			"set-level": "log/slog.SetLogLoggerLevel", "print": "the builtin print,", "println": "the builtin println",
 			"writer": "log.Writer", "go": "starts a goroutine with a go statement",
+			"time-after": "time.AfterFunc", "context-after": "context.AfterFunc",
 		}
 		var cases []fillCase
-		for _, name := range []string{"set-output", "set-flags", "set-prefix", "default", "fatalf", "panicln", "logger-fatal", "set-default", "set-level", "print", "println", "writer", "go"} {
+		for _, name := range []string{"set-output", "set-flags", "set-prefix", "default", "fatalf", "panicln", "logger-fatal", "set-default", "set-level", "print", "println", "writer", "go", "time-after", "context-after"} {
 			cases = append(cases, callCase(t, p, "logger-"+name, calls[name], shown[name], true))
 			calls["logger-"+name] = calls[name]
 		}
-		expectLines(t, p, runFillCases(t, p, cases), cases, calls)
+		cases = append(cases,
+			fillCase{name: "logger-init", change: func(name string) {
+				p.write(t, "fills/"+name+"/policy.go", string(p.read(t, "fills/"+name+"/policy.go"))+"\nfunc init() {}\n")
+			}, texts: []string{"declares an init function"}},
+			fillCase{name: "logger-literal", change: func(name string) {
+				p.write(t, "fills/"+name+"/policy.go", string(p.read(t, "fills/"+name+"/policy.go"))+"\nvar later = []func(){func() {}}\n")
+			}, texts: []string{"gives a package-level variable a function literal"}},
+			fillCase{name: "logger-shadow", change: func(name string) {
+				file := "fills/" + name + "/policy.go"
+				p.replace(t, file, "import (\n\t\"context\"\n", "import (\n\t\"context\"\n\t\"fmt\"\n\t\"log\"\n\t\"log/slog\"\n")
+				p.write(t, file, string(p.read(t, file))+"\nfunc shadowed() {\n\tfmt.Println(\"x\")\n\t_ = log.Writer()\n\tslog.SetDefault(nil)\n\tprintln(\"x\")\n}\n")
+				p.write(t, "fills/"+name+"/shadow_windows.go", "package untested_fill\n\nvar fmt, log, slog int\n\nfunc println(...any) {}\n")
+			}, texts: []string{"uses fmt.Println", "uses log.Writer", "uses log/slog.SetDefault", "uses the builtin println"}},
+			fillCase{name: "logger-shadow-built", change: func(name string) {
+				file := "fills/" + name + "/policy.go"
+				p.replace(t, file, "import (\n\t\"context\"\n", "import (\n\t\"context\"\n\t\"fmt\"\n")
+				p.write(t, file, string(p.read(t, file))+"\nfunc shadowed() { fmt.Println(\"x\") }\n")
+				p.write(t, "fills/"+name+"/shadow.go", "package untested_fill\n\nvar fmt int\n")
+			}, texts: []string{"uses fmt.Println"}},
+		)
+		expectLines(t, p, runFillCases(t, p, cases), cases[:len(cases)-4], calls)
 	})
 }
