@@ -24,6 +24,7 @@ var httpLifecycleTests []byte
 var httpTLSTests []byte
 
 func TestGeneratedHTTPLifecycle(t *testing.T) {
+	t.Parallel()
 	files, err := Assemble(AssemblerInput{
 		ModuleName: "example.com/http-lifecycle", GoVersion: "1.26.11",
 		Wirings: []ComponentWiring{{Name: "api", Wiring: &gen.Wiring{
@@ -81,6 +82,7 @@ func TestGeneratedHTTPLifecycle(t *testing.T) {
 }
 
 func TestConstructorFailureReturnsAfterCleanup(t *testing.T) {
+	t.Parallel()
 	input := AssemblerInput{
 		ModuleName: "example.com/lifecycle", GoVersion: "1.26.11",
 		Wirings: []ComponentWiring{{Name: "api", Wiring: &gen.Wiring{

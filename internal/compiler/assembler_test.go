@@ -1,14 +1,70 @@
 package compiler
 
 import (
+	"fmt"
 	"go/parser"
 	"go/token"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/types"
 )
+
+// The fixtures that the tests of this package share read-only: the stego binary of this commit and the generated
+// projects that several tests run checks in. Each fixture is made once per test run, in fixtureRoot, by the first
+// test that needs it. A test that shares a fixture does not change it: it keeps its own state in its own folders.
+// A project that is shared builds once, so the tests that run other checks in it use the build cache of the first.
+// TestMain removes the fixture folder.
+
+var fixtureRoot string
+
+func TestMain(m *testing.M) {
+	root, err := os.MkdirTemp("", "stego-compiler-fixture-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	fixtureRoot = root
+	code := m.Run()
+	// A go command can keep read-only files; make the folders writable to remove them.
+	_ = filepath.WalkDir(root, func(name string, entry os.DirEntry, err error) error {
+		if err == nil && entry.IsDir() {
+			_ = os.Chmod(name, 0o700)
+		}
+		return nil
+	})
+	_ = os.RemoveAll(root)
+	os.Exit(code)
+}
+
+// SharedFixture is one folder that the tests of this package share read-only. The tests of compiler_test use it
+// too.
+type SharedFixture struct {
+	once sync.Once
+	dir  string
+}
+
+// Dir gives the folder of the fixture. The first test that calls it makes the folder with make, which can stop
+// that test. When make did not complete, each test that needs the fixture fails.
+func (f *SharedFixture) Dir(t *testing.T, make func(t *testing.T, dir string)) string {
+	t.Helper()
+	f.once.Do(func() {
+		dir, err := os.MkdirTemp(fixtureRoot, "shared-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		make(t, dir)
+		f.dir = dir
+	})
+	if f.dir == "" {
+		t.Fatal("the shared fixture was not made: see the first test that needs it")
+	}
+	return f.dir
+}
 
 func TestAssemble_MinimalService(t *testing.T) {
 	input := AssemblerInput{

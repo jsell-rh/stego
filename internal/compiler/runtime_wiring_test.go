@@ -39,17 +39,20 @@ func wiringGoEnv(extra ...string) []string {
 		"PATH="+filepath.Dir(wiringPinnedGo())+string(os.PathListSeparator)+os.Getenv("PATH")), extra...)
 }
 
-// stegoBinary builds the stego binary of this commit into a folder of the test.
+// stegoFixture is the stego binary of this commit, which the tests share.
+var stegoFixture SharedFixture
+
+// stegoBinary builds the stego binary of this commit once per test run and gives its path.
 func stegoBinary(t *testing.T) string {
 	t.Helper()
-	binary := filepath.Join(t.TempDir(), "stego")
-	cmd := exec.Command(wiringPinnedGo(), "build", "-o", binary, "./cmd/stego")
-	cmd.Dir = filepath.Join("..", "..")
-	cmd.Env = wiringGoEnv()
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("building stego: %v\n%s", err, output)
-	}
-	return binary
+	return filepath.Join(stegoFixture.Dir(t, func(t *testing.T, dir string) {
+		cmd := exec.Command(wiringPinnedGo(), "build", "-o", filepath.Join(dir, "stego"), "./cmd/stego")
+		cmd.Dir = filepath.Join("..", "..")
+		cmd.Env = wiringGoEnv()
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("building stego: %v\n%s", err, output)
+		}
+	}), "stego")
 }
 
 // wiringProject is one project folder of the test service with a registry copy of its own.
@@ -197,6 +200,7 @@ func TestRuntimeDataPath(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the stego binary")
 	}
+	t.Parallel()
 	stego := stegoBinary(t)
 	t.Run("ST-SUP-RC01-OC41-T05 The runtime data path is switched on only for a service with no record at its base ref", func(t *testing.T) {
 		fresh := newWiringProject(t, stego, runtimeArchetype)
@@ -392,6 +396,7 @@ func TestRuntimeWiring(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs a generated service")
 	}
+	t.Parallel()
 	if os.Getenv("STEGO_TEST_POSTGRES_DSN") == "" {
 		t.Fatal("STEGO_TEST_POSTGRES_DSN is not set: this test needs a local PostgreSQL server")
 	}
