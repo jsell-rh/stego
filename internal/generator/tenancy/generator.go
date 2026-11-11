@@ -9,6 +9,7 @@ import (
 	"go/format"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/jsell-rh/stego/internal/gen"
@@ -65,13 +66,19 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 	security := rowSecurity(ctx.Entities, ctx.Tenancy.Key)
 	worker, relay := workerRoles(runtime)
-	purge := purgeRole(runtime)
-	for _, role := range []string{worker, relay, purge} {
+	purge, outboxRelay := purgeRole(runtime), outboxRelayRole(runtime)
+	for _, role := range []string{worker, relay, purge, outboxRelay} {
 		if !roleName.MatchString(role) {
 			return nil, nil, fmt.Errorf("the role %q is not a lower-case SQL name of at most 63 characters; set a shorter runtime_role", role)
 		}
 	}
-	roleText := roleMigration(runtime, owner, worker, relay, purge)
+	all := []string{owner, runtime, worker, relay, purge, outboxRelay}
+	for i, role := range all {
+		if slices.Contains(all[i+1:], role) {
+			return nil, nil, fmt.Errorf("the role %q is two roles of the service; set runtime_role and owner_role so each role has a name of its own", role)
+		}
+	}
+	roleText := roleMigration(runtime, owner, worker, relay, purge, outboxRelay)
 	ns := ctx.OutputNamespace
 	source := fmt.Sprintf(`package %s
 
@@ -92,16 +99,21 @@ const (
 // (ST-SUP-RP07-LC11); the migration job gives it to the idempotency migration.
 const PurgeRole = %q
 
+// OutboxRelayRole is the NOLOGIN role of this service alone that owns the outbox relay functions and the state hook
+// functions of the authorization tables (ST-SUP-RP01-LC19); the migration job gives it to the outbox and
+// authorization migrations.
+const OutboxRelayRole = %q
+
 // RowSecurity enables and forces row-level security on every owned table, with one policy on the tenant column
 // (ST-SUP-RC27-OC03). The PostgreSQL adapter registers it in its migration ledger after the tables.
 const RowSecurity = %q
 
-// Roles creates the runtime, owner, worker, relay and idempotency purge roles, gives CONNECT on the database only to
-// the roles of the service, the owner's membership in the outbox relay role and that role's CREATE on the schema
-// public, and the owner's SET membership in the purge role (ST-SUP-RC27-OC04). The database administrator runs it once, before the
-// migration job; a deployment gives each role its login and credential.
+// Roles creates the runtime, owner, worker, relay, idempotency purge and outbox relay roles, gives CONNECT on the
+// database only to the roles of the service, and the owner's SET membership, with no INHERIT, in the purge role and
+// the outbox relay role (ST-SUP-RC27-OC04). The database administrator runs it once, before the migration job; a
+// deployment gives each role its login and credential.
 const Roles = %q
-`, path.Base(ns), runtime, owner, worker, relay, purge, security, roleText)
+`, path.Base(ns), runtime, owner, worker, relay, purge, outboxRelay, security, roleText)
 	formatted, err := format.Source([]byte(source))
 	if err != nil {
 		return nil, nil, fmt.Errorf("formatting the tenancy package: %w", err)
@@ -167,8 +179,12 @@ func workerRoles(runtime string) (string, string) {
 	return base + "_worker", base + "_relay"
 }
 
-// outboxRelayRole is the NOLOGIN role of the outbox runtime that owns its relay functions (ST-SUP-RP01-LC19).
-const outboxRelayRole = "stego_outbox_relay"
+// outboxRelayRole gives the outbox relay role of the runtime role: its name without the suffix _runtime, with
+// _outbox_relay, such as shop_outbox_relay for shop_runtime. It is one role for each service, which owns the outbox
+// relay functions and the state hook functions of the authorization tables (ST-SUP-RP01-LC19).
+func outboxRelayRole(runtime string) string {
+	return strings.TrimSuffix(runtime, "_runtime") + "_outbox_relay"
+}
 
 // purgeRole gives the idempotency purge role of the runtime role: its name without the suffix _runtime, with
 // _idempotency_purge, such as shop_idempotency_purge for shop_runtime. It is one role for each service, which owns
@@ -177,10 +193,10 @@ func purgeRole(runtime string) string {
 	return strings.TrimSuffix(runtime, "_runtime") + "_idempotency_purge"
 }
 
-// roleMigration gives the migration that creates the roles of the service: the owner, runtime, worker, relay and
-// idempotency purge roles (ST-SUP-RC27-OC04). None can log in until a deployment gives it a login, is a superuser,
-// creates roles or databases, replicates or bypasses row-level security; the runtime, worker, relay and purge roles
-// inherit nothing. CONNECT, CREATE and TEMPORARY on the database are revoked from PUBLIC, and CONNECT goes only to
+// roleMigration gives the migration that creates the roles of the service: the owner, runtime, worker, relay,
+// idempotency purge and outbox relay roles (ST-SUP-RC27-OC04). None can log in until a deployment gives it a login,
+// is a superuser, creates roles or databases, replicates or bypasses row-level security; the runtime, worker, relay,
+// purge and outbox relay roles inherit nothing. CONNECT, CREATE and TEMPORARY on the database are revoked from PUBLIC, and CONNECT goes only to
 // the owner, runtime, worker and relay roles of this service, so a role of another service in the same cluster
 // cannot connect to its database. PostgreSQL checks CONNECT only when a session starts, so the text commits the
 // revoke, with a COMMIT of its own, and then refuses to go on while a session of a role that is not a role of this
@@ -188,20 +204,24 @@ func purgeRole(runtime string) string {
 // and the text runs again once they are closed. It terminates no session. The owner may create in the database and in the schema public, and may grant
 // CREATE on public, which the idempotency migration gives the purge role only while it makes the purge function; the
 // public role may not create in public, so the runtime role gets only the grants of the database access contract. It
-// makes the outbox relay role of the runtime when it is missing, gives the owner role membership in it WITH SET TRUE,
-// INHERIT TRUE, so the outbox migration can make the relay functions, and gives it CREATE on public, so the
-// authorization migration can give it its state hook function (ST-SUP-RP06-LC21). It gives the owner membership in
-// the purge role WITH SET TRUE, INHERIT FALSE, so the idempotency migration can make the purge function as that
-// role, and the owner cannot read or delete the key rows of every tenant through it (ST-SUP-RP07-LC11). So the first
-// migration job needs no role or grant that the database administrator makes by hand.
-func roleMigration(runtime, owner, worker, relay, purge string) string {
+// gives the owner membership in the purge role WITH SET TRUE, INHERIT FALSE, so the idempotency migration can make
+// the purge function as that role, and the owner cannot read or delete the key rows of every tenant through it
+// (ST-SUP-RP07-LC11). It gives the owner membership in the outbox relay role of the service WITH SET TRUE, INHERIT
+// FALSE, so the outbox and authorization migrations can make the relay and state hook functions as that role, and
+// the owner does not hold its rights on the messages of every tenant (ST-SUP-RP01-LC19); the outbox relay role gets
+// no CREATE on public, which the authorization migration gives it only while it makes its state hook functions
+// (ST-SUP-RP06-LC21). So the first migration job needs no role or grant that the database administrator makes by
+// hand.
+func roleMigration(runtime, owner, worker, relay, purge, outboxRelay string) string {
 	flags := "NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"
 	var text strings.Builder
 	text.WriteString("DO $$\nBEGIN\n")
-	for _, role := range []string{owner, runtime, worker, relay, outboxRelayRole} {
+	for _, role := range []string{owner, runtime, worker, relay} {
 		fmt.Fprintf(&text, "\tIF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '%s') THEN\n\t\tCREATE ROLE %s %s;\n\tEND IF;\n", role, quote(role), flags)
 	}
-	fmt.Fprintf(&text, "\tIF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '%s') THEN\n\t\tCREATE ROLE %s %s NOINHERIT;\n\tEND IF;\n", purge, quote(purge), flags)
+	for _, role := range []string{purge, outboxRelay} {
+		fmt.Fprintf(&text, "\tIF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '%s') THEN\n\t\tCREATE ROLE %s %s NOINHERIT;\n\tEND IF;\n", role, quote(role), flags)
+	}
 	fmt.Fprintf(&text, "\tEXECUTE pg_catalog.format('REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE %%I FROM PUBLIC', pg_catalog.current_database());\n")
 	fmt.Fprintf(&text, "\tEXECUTE pg_catalog.format('GRANT CONNECT, CREATE ON DATABASE %%I TO %s', pg_catalog.current_database());\n", quote(owner))
 	for _, role := range []string{runtime, worker, relay} {
@@ -219,7 +239,7 @@ func roleMigration(runtime, owner, worker, relay, purge string) string {
 		"\t\t\tAND COALESCE(r.rolname, '') NOT IN ('%s', '%s', '%s', '%s');\n", owner, runtime, worker, relay)
 	text.WriteString("\tIF v_open > 0 THEN\n\t\tRAISE EXCEPTION 'tenancy: % sessions of roles that are not roles of this service are open in this database; close them, then run the role migration again', v_open;\n\tEND IF;\nEND\n$$;\n")
 	fmt.Fprintf(&text, "ALTER ROLE %s %s;\n", quote(owner), flags)
-	for _, role := range []string{runtime, worker, relay, purge} {
+	for _, role := range []string{runtime, worker, relay, purge, outboxRelay} {
 		fmt.Fprintf(&text, "ALTER ROLE %s %s NOINHERIT;\n", quote(role), flags)
 	}
 	text.WriteString("REVOKE CREATE ON SCHEMA public FROM PUBLIC;\n")
@@ -228,9 +248,9 @@ func roleMigration(runtime, owner, worker, relay, purge string) string {
 	for _, role := range []string{runtime, worker, relay} {
 		fmt.Fprintf(&text, "GRANT USAGE ON SCHEMA public TO %s;\n", quote(role))
 	}
-	fmt.Fprintf(&text, "GRANT %s TO %s WITH SET TRUE, INHERIT TRUE;\n", quote(outboxRelayRole), quote(owner))
-	fmt.Fprintf(&text, "GRANT CREATE ON SCHEMA public TO %s;\n", quote(outboxRelayRole))
-	fmt.Fprintf(&text, "GRANT %s TO %s WITH SET TRUE, INHERIT FALSE;\n", quote(purge), quote(owner))
+	for _, role := range []string{purge, outboxRelay} {
+		fmt.Fprintf(&text, "GRANT %s TO %s WITH SET TRUE, INHERIT FALSE;\n", quote(role), quote(owner))
+	}
 	return text.String()
 }
 

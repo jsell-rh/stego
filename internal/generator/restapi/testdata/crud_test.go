@@ -210,9 +210,10 @@ func (e *env) start(dsn, endpoint, spiceKey string) {
 	u.Path = "/" + name
 	e.admin, err = sql.Open("pgx", u.String())
 	must(t, err)
-	queueDDL, err := outbox.Migration(roles[0], roles[1])
+	// The outbox relay role of the test service, one role of the server, which the outbox migration makes.
+	queueDDL, err := outbox.Migration("crud_check"+outbox.RelaySuffix, roles[0], roles[1])
 	must(t, err)
-	authzDDL, err := authz.Migration("authz", roles[0], roles[2], roles[1])
+	authzDDL, err := authz.Migration("authz", roles[0], roles[2], "crud_check"+outbox.RelaySuffix, roles[1])
 	must(t, err)
 	auditDDL, err := audit.DDL(audit.Config{RuntimeRole: roles[0], AnchorPeriod: time.Hour, RetentionMonths: 12})
 	must(t, err)

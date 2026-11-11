@@ -39,20 +39,23 @@ const (
 // operationTimeout bounds each statement of the queue.
 const operationTimeout = 5 * time.Second
 
-// RelayRole is the NOLOGIN role that owns the relay functions, the only code that reads and changes messages of
-// more than one tenant (ST-SUP-RP01-LC19).
-const RelayRole = "stego_outbox_relay"
+// RelaySuffix ends the name of the relay role of a service: <service role prefix>_outbox_relay, such as
+// shop_outbox_relay, which the tenancy role migration makes for that service alone (ST-SUP-RP01-LC19).
+const RelaySuffix = "_outbox_relay"
 
 var rolePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
 // Migration returns the DDL text of the queue (ST-SUP-RP01-LC19). The migration job runs it as the table owner, in
-// one transaction, as a simple query of several statements runs. The text creates RelayRole only when it is missing,
-// so an owner without CREATEROLE can run it again once RelayRole exists, and
-// makes the relay functions under SET ROLE RelayRole, so they belong to it and a later run replaces them. The owner
-// therefore needs membership in RelayRole WITH SET TRUE, INHERIT TRUE, which a superuser or a role with ADMIN on
-// RelayRole grants (GRANT stego_outbox_relay TO <owner> WITH SET TRUE, INHERIT TRUE); without it the text stops,
-// before it makes the table, with an error that names that grant, and its transaction changes nothing. RelayRole gets CREATE on the schema only while the
-// functions are made; the same text revokes it and resets the role.
+// one transaction, as a simple query of several statements runs. relayRole is the NOLOGIN relay role of this
+// service alone, <service role prefix>_outbox_relay, which owns the relay functions, the only code that reads and
+// changes messages of more than one tenant. The text creates relayRole only when it is missing, NOLOGIN, NOSUPERUSER,
+// NOBYPASSRLS and NOINHERIT, so an owner without CREATEROLE can run it again once the tenancy role migration made
+// it, and makes the relay functions under SET ROLE relayRole, so they belong to it and a later run replaces them.
+// The owner therefore needs membership in relayRole WITH SET TRUE; INHERIT FALSE is enough, and the tenancy role
+// migration grants it so, so the owner does not hold the relay role's rights on the messages of every tenant.
+// Without SET the text stops, before it makes the table, with an error that names that grant, and its transaction
+// changes nothing. relayRole gets CREATE on the schema stego_outbox only while the functions are made; the same text
+// revokes it and resets the role. It gets no CREATE on any other schema.
 //
 // The table stego_outbox.messages holds the dispatch state, the attempt and conflict counts (ST-SUP-RC18-OC29), the
 // tenant (ST-SUP-RC18-OC28), the outgoing idempotency key (ST-SUP-RP01-LC10), the group of the state hook
@@ -60,22 +63,27 @@ var rolePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 // Row-level security is enabled and forced. runtimeRole, the request-path role, and workerRole, the role that the
 // worker mode connects as, each have the tenant policy on the transaction-local tenant setting, USING and WITH
 // CHECK, and SELECT, INSERT and UPDATE under it: Enqueue, Resolve and DeadLetters run in a transaction of one
-// tenant. RelayRole has a policy for SELECT, UPDATE and DELETE and none for INSERT, and owns the SECURITY DEFINER
+// tenant. relayRole has a policy for SELECT, UPDATE and DELETE and none for INSERT, and owns the SECURITY DEFINER
 // functions that span tenants: claim, move, release, purge_parked, purge_done, blocked and oldest. Each has
 // search_path = pg_catalog, pg_temp, names every object with its schema, checks its arguments and changes no
 // setting. Only workerRole gets EXECUTE on them; runtimeRole and PUBLIC get none, so a request path can never claim,
-// move or purge a message, nor pass a clock time of its own to a relay function.
-func Migration(runtimeRole, workerRole string) (string, error) {
-	for _, role := range []string{runtimeRole, workerRole} {
-		if !rolePattern.MatchString(role) || role == RelayRole {
+// move or purge a message, nor pass a clock time of its own to a relay function. Migration refuses a role name that
+// is not a lower-case SQL name of at most 63 characters, a relay role whose name does not end with RelaySuffix, and
+// one name for two of the roles.
+func Migration(relayRole, runtimeRole, workerRole string) (string, error) {
+	for _, role := range []string{relayRole, runtimeRole, workerRole} {
+		if !rolePattern.MatchString(role) {
 			return "", fmt.Errorf("outbox: %q is not a role name the migration accepts", role)
 		}
 	}
-	if runtimeRole == workerRole {
-		return "", errors.New("outbox: the worker role must be a role apart from the runtime role")
+	if !strings.HasSuffix(relayRole, RelaySuffix) || relayRole == RelaySuffix[1:] {
+		return "", fmt.Errorf("outbox: the relay role %q is not a <service role prefix>%s role", relayRole, RelaySuffix)
 	}
-	text := strings.ReplaceAll(migration, "{{runtime}}", `"`+runtimeRole+`"`)
-	return strings.ReplaceAll(text, "{{worker}}", `"`+workerRole+`"`), nil
+	if runtimeRole == workerRole || relayRole == runtimeRole || relayRole == workerRole {
+		return "", errors.New("outbox: the relay, runtime and worker roles must be three roles")
+	}
+	return strings.NewReplacer("{{relay}}", `"`+relayRole+`"`, "{{relay_text}}", "'"+relayRole+"'",
+		"{{runtime}}", `"`+runtimeRole+`"`, "{{worker}}", `"`+workerRole+`"`).Replace(migration), nil
 }
 
 // The relay functions, by their signature, for the grants and the checks.
@@ -94,19 +102,19 @@ const migration = `CREATE SCHEMA IF NOT EXISTS stego_outbox;
 
 DO $do$ BEGIN
 	-- Only a role with CREATEROLE can run CREATE ROLE, even for a role that exists, so the text creates the role
-	-- only when it is missing. A run at the same time that creates it first is not an error.
-	IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'stego_outbox_relay') THEN
-		CREATE ROLE stego_outbox_relay NOLOGIN;
+	-- only when it is missing; the tenancy role migration makes it. A run at the same time that creates it first is
+	-- not an error.
+	IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = {{relay_text}}) THEN
+		CREATE ROLE {{relay}} NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
 	END IF;
 EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL;
 END $do$;
 
 DO $do$ BEGIN
-	-- The owner makes the relay functions as stego_outbox_relay, so it needs SET and INHERIT membership in it.
-	IF NOT (pg_catalog.pg_has_role(CURRENT_USER, 'stego_outbox_relay', 'SET')
-		AND pg_catalog.pg_has_role(CURRENT_USER, 'stego_outbox_relay', 'USAGE')) THEN
-		RAISE EXCEPTION 'outbox: the migration role % needs membership in stego_outbox_relay WITH SET TRUE, INHERIT TRUE', CURRENT_USER
-			USING HINT = 'GRANT stego_outbox_relay TO ' || pg_catalog.quote_ident(CURRENT_USER) || ' WITH SET TRUE, INHERIT TRUE';
+	-- The owner makes the relay functions as the relay role, so it needs SET membership in it; it needs no INHERIT.
+	IF NOT pg_catalog.pg_has_role(CURRENT_USER, {{relay_text}}, 'SET') THEN
+		RAISE EXCEPTION 'outbox: the migration role % needs membership in % WITH SET TRUE', CURRENT_USER, {{relay_text}}
+			USING HINT = 'GRANT ' || pg_catalog.quote_ident({{relay_text}}) || ' TO ' || pg_catalog.quote_ident(CURRENT_USER) || ' WITH SET TRUE, INHERIT FALSE';
 	END IF;
 END $do$;
 
@@ -200,15 +208,15 @@ CREATE POLICY messages_tenant ON stego_outbox.messages TO {{runtime}}, {{worker}
 	USING (tenant_id = pg_catalog.current_setting('app.tenant', true))
 	WITH CHECK (tenant_id = pg_catalog.current_setting('app.tenant', true));
 DROP POLICY IF EXISTS messages_relay_select ON stego_outbox.messages;
-CREATE POLICY messages_relay_select ON stego_outbox.messages FOR SELECT TO stego_outbox_relay USING (true);
+CREATE POLICY messages_relay_select ON stego_outbox.messages FOR SELECT TO {{relay}} USING (true);
 DROP POLICY IF EXISTS messages_relay_update ON stego_outbox.messages;
-CREATE POLICY messages_relay_update ON stego_outbox.messages FOR UPDATE TO stego_outbox_relay USING (true) WITH CHECK (true);
+CREATE POLICY messages_relay_update ON stego_outbox.messages FOR UPDATE TO {{relay}} USING (true) WITH CHECK (true);
 DROP POLICY IF EXISTS messages_relay_delete ON stego_outbox.messages;
-CREATE POLICY messages_relay_delete ON stego_outbox.messages FOR DELETE TO stego_outbox_relay USING (true);
+CREATE POLICY messages_relay_delete ON stego_outbox.messages FOR DELETE TO {{relay}} USING (true);
 
 REVOKE ALL ON stego_outbox.messages FROM PUBLIC;
 GRANT USAGE ON SCHEMA stego_outbox TO {{runtime}}, {{worker}};
-GRANT USAGE, CREATE ON SCHEMA stego_outbox TO stego_outbox_relay;
+GRANT USAGE, CREATE ON SCHEMA stego_outbox TO {{relay}};
 -- Neither the request-path runtime role nor the worker role can update or delete a message, and each can insert
 -- only the columns that Enqueue writes, so no row starts in a state other than pending: every state change goes
 -- through the relay functions (ST-SUP-RP01-LC19).
@@ -216,10 +224,10 @@ REVOKE INSERT, UPDATE, DELETE ON stego_outbox.messages FROM {{runtime}}, {{worke
 GRANT SELECT ON stego_outbox.messages TO {{runtime}}, {{worker}};
 GRANT INSERT (id, tenant_id, destination, resource_key, kind, payload, outgoing_key, group_id, principal, origin,
 	must_land, idempotent, created_at, available_at) ON stego_outbox.messages TO {{runtime}}, {{worker}};
-GRANT SELECT, UPDATE, DELETE ON stego_outbox.messages TO stego_outbox_relay;
+GRANT SELECT, UPDATE, DELETE ON stego_outbox.messages TO {{relay}};
 
 -- The relay functions are made as their owner, so a later run of the same text replaces them.
-SET ROLE stego_outbox_relay;
+SET ROLE {{relay}};
 
 -- The claim gives the payload as bytea; a claim of an earlier migration gave jsonb, and a function's result type
 -- changes only when the function is made again.
@@ -525,7 +533,7 @@ $do$;
 
 RESET ROLE;
 -- CREATE was only for the relay functions: the relay role keeps USAGE.
-REVOKE CREATE ON SCHEMA stego_outbox FROM stego_outbox_relay;
+REVOKE CREATE ON SCHEMA stego_outbox FROM {{relay}};
 `
 
 var labelPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)

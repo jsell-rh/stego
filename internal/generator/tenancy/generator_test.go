@@ -113,6 +113,15 @@ func TestGenerator(t *testing.T) {
 		if _, _, err := new(Generator).Generate(same); err == nil || !strings.Contains(err.Error(), "must differ") {
 			t.Errorf("one name for both roles is not refused: %v", err)
 		}
+		// The owner role may not take the name of a role that the migration names from the runtime role, such as the
+		// outbox relay role of the service.
+		for _, owner := range []string{"svc_outbox_relay", "svc_idempotency_purge", "svc_worker", "svc_relay"} {
+			taken := ctx
+			taken.ComponentConfig = map[string]any{"runtime_role": "svc_runtime", "owner_role": owner}
+			if _, _, err := new(Generator).Generate(taken); err == nil || !strings.Contains(err.Error(), "two roles of the service") {
+				t.Errorf("the owner role %s, a role of the service, is not refused: %v", owner, err)
+			}
+		}
 	})
 }
 
@@ -164,7 +173,21 @@ func TestMigrations(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	goMod := "module " + module + "\n\ngo 1.25.0\n\nrequire (\n github.com/google/uuid v1.6.0\n github.com/jackc/pgx/v5 v5.11.0\n gorm.io/gorm v1.25.12\n gorm.io/driver/postgres v1.5.11\n)\n"
+	// The check runs the outbox and authorization migrations of the runtime library of this repository for the roles
+	// of each service (ST-SUP-RC27-OC04-T08), so the module requires it from the registry/runtime folder.
+	runtimeDir, err := filepath.Abs(filepath.Join("..", "..", "..", "registry", "runtime"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sums, err := os.ReadFile(filepath.Join(runtimeDir, "go.sum"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "go.sum"), sums, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	goMod := "module " + module + "\n\ngo 1.25.0\n\nrequire (\n github.com/google/uuid v1.6.0\n github.com/jackc/pgx/v5 v5.11.0\n gorm.io/gorm v1.25.12\n gorm.io/driver/postgres v1.5.11\n" +
+		" github.com/jsell-rh/stego/registry/runtime v0.2.0\n)\n\nreplace github.com/jsell-rh/stego/registry/runtime => " + runtimeDir + "\n"
 	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte(goMod), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +205,7 @@ func TestMigrations(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(project, "check", "access.json"), access, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tidy := exec.Command("go", "mod", "tidy", "-go=1.25.0")
+	tidy := exec.Command("go", "mod", "tidy")
 	tidy.Dir, tidy.Env = project, append(os.Environ(), "GOWORK=off")
 	if output, err := tidy.CombinedOutput(); err != nil {
 		t.Fatalf("go mod tidy: %v\n%s", err, output)
@@ -205,10 +228,11 @@ func TestMigrations(t *testing.T) {
 			passed[event.Test] = true
 		}
 	}
-	for _, id := range []string{"ST-SUP-RC27-OC03-T01", "ST-SUP-RC27-OC03-T02", "ST-SUP-RC27-OC04-T01", "ST-SUP-RC27-OC04-T03", "ST-SUP-RC27-OC04-T05", "ST-SUP-RC01-OC40-T01", "ST-SUP-RC01-OC40-T02", "ST-SUP-RC27-OC07-T01", "ST-SUP-RC27-OC07-T02", "ST-SUP-RC27-OC04-T06", "ST-SUP-RC27-OC04-T07"} {
+	for _, id := range []string{"ST-SUP-RC27-OC03-T01", "ST-SUP-RC27-OC03-T02", "ST-SUP-RC27-OC04-T01", "ST-SUP-RC27-OC04-T03", "ST-SUP-RC27-OC04-T05", "ST-SUP-RC01-OC40-T01", "ST-SUP-RC01-OC40-T02", "ST-SUP-RC27-OC07-T01", "ST-SUP-RC27-OC07-T02", "ST-SUP-RC27-OC04-T06", "ST-SUP-RC27-OC04-T07", "ST-SUP-RC27-OC04-T08"} {
 		t.Run(id+" passes in the generated service", func(t *testing.T) {
 			for name := range passed {
-				if strings.HasPrefix(name, "TestTenancy/"+id+"_") || strings.HasPrefix(name, "TestTwoServices/"+id+"_") || strings.HasPrefix(name, "TestOpenSessions/"+id+"_") {
+				if strings.HasPrefix(name, "TestTenancy/"+id+"_") || strings.HasPrefix(name, "TestTwoServices/"+id+"_") || strings.HasPrefix(name, "TestOpenSessions/"+id+"_") ||
+					strings.HasPrefix(name, "TestRelayRoles/"+id+"_") {
 					return
 				}
 			}
