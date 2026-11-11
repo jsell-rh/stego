@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -73,6 +72,8 @@ entities:
     resource_type: hold
     permissions:
       read: view
+    references:
+      order_id: {relation: order, permission: reserve}
     fields:
       - name: order_id
         type: ref
@@ -133,6 +134,9 @@ func declaration(t testing.TB) *types.ServiceDeclaration {
 
 // commandContext is the context that the compiler gives the command generator for the declaration, with the fill
 // reserve-and-charge implementing slot.
+// yes is the true of a declared delivery property.
+var yes = true
+
 func commandContext(t testing.TB, svc *types.ServiceDeclaration, slot string) gen.Context {
 	t.Helper()
 	var commands []gen.Command
@@ -149,6 +153,7 @@ func commandContext(t testing.TB, svc *types.ServiceDeclaration, slot string) ge
 		Commands:        commands,
 		Authorization:   svc.Authorization,
 		Tenancy:         &gen.Tenancy{Key: "tenant_id"},
+		Destinations:    []gen.Destination{{Name: "billing", Component: "outbox", MustLand: &yes, Idempotent: &yes}},
 		Observations:    svc.Observations,
 		PeerNamespaces:  map[string]string{"domain-probe": "probes", "command": "commands"},
 		ComponentConfig: map[string]any{"proto_files": []any{map[string]any{"path": "proto/orders.proto", "import_path": "orders/v1/orders.proto"}}},
@@ -208,6 +213,31 @@ func exportImporter(t *testing.T, p *project, fset *token.FileSet, pattern strin
 }
 
 func TestContract(t *testing.T) {
+	t.Run("ST-SUP-RC32-OC12-T01 The generated CommandSpec holds the declared delivery properties and effect names", func(t *testing.T) {
+		svc := declaration(t)
+		svc.Commands[0].Effects = append(svc.Commands[0].Effects, types.Effect{Destination: "notify", Name: "reserved"})
+		ctx := commandContext(t, svc, commandSlot)
+		no := false
+		ctx.Destinations = append(ctx.Destinations, gen.Destination{Name: "notify", Component: "outbox", MustLand: &no, Idempotent: &no})
+		handlers := string(generated(t, ctx)["commands/handlers/handlers.go"])
+		for _, want := range []string{
+			`{Name: "billing", MustLand: true, Idempotent: true, Effects: []string{"charge-requested"}}`,
+			`{Name: "notify", MustLand: false, Idempotent: false, Effects: []string{"reserved"}}`,
+		} {
+			if !strings.Contains(handlers, want) {
+				t.Errorf("the CommandSpec of reserve-and-charge does not hold %s:\n%s", want, handlers)
+			}
+		}
+		ctx.Destinations[1].MustLand = nil
+		if _, _, err := new(Generator).Generate(ctx); err == nil || !strings.Contains(err.Error(), "notify") || !strings.Contains(err.Error(), "must_land") {
+			t.Fatalf("a destination with no must_land gave %v, want a refusal that names notify and must_land", err)
+		}
+		ctx.Destinations = ctx.Destinations[:1]
+		if _, _, err := new(Generator).Generate(ctx); err == nil || !strings.Contains(err.Error(), "notify") {
+			t.Fatalf("an effect for a destination that no component declares gave %v", err)
+		}
+	})
+
 	t.Run("ST-SUP-RC32-OC01-T01 The fill gets the request and one command handle", func(t *testing.T) {
 		p := newProject(t, commandContext(t, declaration(t), commandSlot), map[string][]byte{"fills/reserve-and-charge/fill.go": serviceFill})
 		fset := token.NewFileSet()
@@ -297,25 +327,25 @@ func TestContract(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RC32-OC06-T02 The parent of a row is the one entity with a resource type that it refers to", func(t *testing.T) {
+	t.Run("ST-SUP-RC32-OC06-T02 Each reference of a row to an entity with a resource type is in its Parent list", func(t *testing.T) {
 		files := generated(t, commandContext(t, declaration(t), commandSlot))
-		if !regexp.MustCompile(`Parent: +\[\]command\.Reference\[Hold\]\{\{Entity: "Order", ResourceType: "order", ID: func\(v Hold\) string \{ return v.OrderID \}\}\},`).Match(files["commands/commands.go"]) {
-			t.Error("the entity Hold, which has a resource type of its own and refers to Order, has no Parent")
+		want := `{Entity: "Order", ResourceType: "order", ID: func(v Hold) string { return v.OrderID }, Permission: "reserve", Relation: "order"}`
+		if !strings.Contains(string(files["commands/commands.go"]), want) {
+			t.Errorf("the entity Hold, which refers to Order, does not have the Parent %s:\n%s", want, files["commands/commands.go"])
 		}
-		for name, change := range map[string]func(*types.Entity){
-			"two parents": func(e *types.Entity) {
-				e.Fields = append(e.Fields, types.Field{Name: "other_id", Type: types.FieldTypeRef, To: "Order"})
-			},
-			"an optional parent": func(e *types.Entity) { e.Fields[0].Optional = true },
-		} {
-			svc := declaration(t)
-			for i := range svc.Entities {
-				if svc.Entities[i].Name == "Hold" {
-					change(&svc.Entities[i])
-				}
+		// A second reference and an optional one are references of the list too; the optional one is not set when
+		// its field is nil.
+		svc := declaration(t)
+		for i := range svc.Entities {
+			if svc.Entities[i].Name == "Hold" {
+				svc.Entities[i].Fields = append(svc.Entities[i].Fields, types.Field{Name: "other_id", Type: types.FieldTypeRef, To: "Order", Optional: true})
+				svc.Entities[i].References["other_id"] = types.Reference{Relation: "order", Permission: "view"}
 			}
-			if err := new(Generator).ValidateContext(commandContext(t, svc, commandSlot)); err == nil || !strings.Contains(err.Error(), "Hold") {
-				t.Errorf("%s: generation gave %v, want a fault that names Hold", name, err)
+		}
+		contract := string(generated(t, commandContext(t, svc, commandSlot))["commands/commands.go"])
+		for _, want := range []string{want, `{Entity: "Order", ResourceType: "order", ID: func(v Hold) string {`, `if v.OtherID == nil {`, `Permission: "view"`} {
+			if !strings.Contains(contract, want) {
+				t.Errorf("the Parent list of Hold with two references does not hold %s:\n%s", want, contract)
 			}
 		}
 	})

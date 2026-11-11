@@ -541,7 +541,7 @@ func TestCrud(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RC20-OC37-T03 A write that the caller may not make, or of a missing row, is 403 and changes nothing", func(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC37-T03 A write that the caller may not make, or of a missing row, is 404 and changes nothing", func(t *testing.T) {
 		e := service(t)
 		tenantID := newTenant()
 		owner, other := e.as("owner", tenantID), e.as("other", tenantID)
@@ -562,14 +562,14 @@ func TestCrud(t *testing.T) {
 			{http.MethodDelete, "/api/v1/todos/" + todo, "", ""},
 		}
 		for _, w := range writes {
-			if r := e.send(other, w.method, w.path, w.key, w.body); r.status != http.StatusForbidden {
-				t.Errorf("%s %s as a caller who may not edit answered %d %s, want 403", w.method, w.path, r.status, r.body)
+			if r := e.send(other, w.method, w.path, w.key, w.body); r.status != http.StatusNotFound {
+				t.Errorf("%s %s as a caller who may not edit answered %d %s, want 404", w.method, w.path, r.status, r.body)
 			}
 		}
 		for _, w := range writes {
 			missing := w.path[:strings.LastIndex(w.path, "/")+1] + uuid.NewString()
-			if r := e.send(owner, w.method, missing, w.key+"-m", w.body); r.status != http.StatusForbidden {
-				t.Errorf("%s of a missing row answered %d %s, want 403", w.method, r.status, r.body)
+			if r := e.send(owner, w.method, missing, w.key+"-m", w.body); r.status != http.StatusNotFound {
+				t.Errorf("%s of a missing row answered %d %s, want 404", w.method, r.status, r.body)
 			}
 		}
 		if n := e.count(`SELECT count(*) FROM orders WHERE id = $1::uuid AND qty = 1`, order); n != 1 {
@@ -587,15 +587,15 @@ func TestCrud(t *testing.T) {
 		if n := e.count(`SELECT count(*) FROM audit_event WHERE tenant_id = $1 AND actor_id = $2 AND outcome = 'denied'`, tenantID, other.principal.Subject().String()); n != 7 {
 			t.Errorf("%d denied audit rows of the refused writes, want 7", n)
 		}
-		// A deleted row whose owner tuple stays is allowed by the decision and then not found: it is 403 too, so the
+		// A deleted row whose owner tuple stays is allowed by the decision and then not found: it is 404 too, so the
 		// answer does not tell that the row once existed.
 		gone := e.create(owner, "orders", "order", `{"sku":"gone","qty":1}`)
 		if r := e.send(owner, http.MethodDelete, "/api/v1/orders/"+gone, "", ""); r.status != http.StatusNoContent {
 			t.Fatalf("the owner's delete answered %d %s, want 204", r.status, r.body)
 		}
 		for _, method := range []string{http.MethodPatch, http.MethodDelete} {
-			if r := e.send(owner, method, "/api/v1/orders/"+gone, "k-"+uuid.NewString(), `{"qty":2}`); r.status != http.StatusForbidden {
-				t.Errorf("a %s of a deleted row answered %d %s, want 403", method, r.status, r.body)
+			if r := e.send(owner, method, "/api/v1/orders/"+gone, "k-"+uuid.NewString(), `{"qty":2}`); r.status != http.StatusNotFound {
+				t.Errorf("a %s of a deleted row answered %d %s, want 404", method, r.status, r.body)
 			}
 		}
 		if r := e.send(owner, http.MethodPatch, "/api/v1/orders/"+order, "k-"+uuid.NewString(), `{"qty":5}`); r.status != http.StatusOK {
@@ -724,8 +724,8 @@ func TestCrud(t *testing.T) {
 			t.Errorf("a read of another tenant's row answered %d %s, want 404", r.status, r.body)
 		}
 		for _, method := range []string{http.MethodPatch, http.MethodDelete} {
-			if r := e.send(a, method, "/api/v1/orders/"+orderOfT2, "k-"+uuid.NewString(), `{"qty":7}`); r.status != http.StatusForbidden {
-				t.Errorf("a %s of another tenant's row answered %d %s, want 403", method, r.status, r.body)
+			if r := e.send(a, method, "/api/v1/orders/"+orderOfT2, "k-"+uuid.NewString(), `{"qty":7}`); r.status != http.StatusNotFound {
+				t.Errorf("a %s of another tenant's row answered %d %s, want 404", method, r.status, r.body)
 			}
 		}
 		if n := e.count(`SELECT count(*) FROM orders WHERE id = $1::uuid AND tenant_id = $2 AND qty = 1`, orderOfT2, other.tenant.ID()); n != 1 {

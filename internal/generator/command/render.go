@@ -64,7 +64,7 @@ func renderContract(m *model) []byte {
 	if m.usesBytes() {
 		w.f("\t\"bytes\"\n")
 	}
-	w.f("\t\"context\"\n\t\"crypto/rand\"\n\t\"encoding/hex\"\n")
+	w.f("\t\"context\"\n")
 	if m.usesTime() {
 		w.f("\t\"time\"\n")
 	}
@@ -88,10 +88,10 @@ func renderContract(m *model) []byte {
 		w.f("type %sFill func(ctx context.Context, request *%s, h *%sHandle) (*%s, error)\n\n", c.goName, c.request.name, c.goName, c.response.name)
 		for _, r := range c.refusals {
 			w.f("// %s is the refusal %s of %s: the handler answers it with %d and the code %s.\n", r.goName, r.name, c.decl.Name, r.status, r.code)
-			w.f("var %s = &Refusal{command: %q, name: %q, status: %d, code: %q}\n\n", r.goName, c.decl.Name, r.name, r.status, r.code)
+			w.f("var %s = command.NewRefusal(%q, %q, %d, %q)\n\n", r.goName, c.decl.Name, r.name, r.status, r.code)
 		}
 	}
-	w.f("%s%s", refusalHelpers, entityHelpers)
+	w.f("%s", refusalHelpers)
 	return w.Bytes()
 }
 
@@ -123,7 +123,6 @@ func EntityFile(pkg string, names []string, entities []types.Entity, tenantKey s
 	if m.usesBytes() {
 		w.f("\t\"bytes\"\n")
 	}
-	w.f("\t\"crypto/rand\"\n\t\"encoding/hex\"\n")
 	if m.usesTime() {
 		w.f("\t\"time\"\n")
 	}
@@ -135,7 +134,6 @@ func EntityFile(pkg string, names []string, entities []types.Entity, tenantKey s
 	for _, e := range m.entities {
 		renderEntity(w, e, tenantKey)
 	}
-	w.f("%s", entityHelpers)
 	source, err := format.Source(w.Bytes())
 	if err != nil {
 		return nil, fmt.Errorf("command: formatting the entity declarations: %w", err)
@@ -143,120 +141,35 @@ func EntityFile(pkg string, names []string, entities []types.Entity, tenantKey s
 	return source, nil
 }
 
-// refusalHelpers are the refusal helpers of the contract package, and entityHelpers the helpers of the entity
-// declarations. They are the same for every declaration; ST-SUP-Q74 asks whether they move into the runtime library
-// (ST-STD-RUNTIME-R05).
-const refusalHelpers = `// Refusal is a declared refusal of a command (ST-SUP-RC32-OC09). Only the values of this package exist: a fill
-// returns one of them, and the handler answers it with its status and code. Its fields are not exported, so a fill
-// cannot make one of its own.
-type Refusal struct {
-	command, name, code string
-	status              int
-}
-
-// Error names the command and the refusal, and no value of a request or a row.
-func (r *Refusal) Error() string { return "command " + r.command + ": refused: " + r.name }
-
-// Command is the command that declares the refusal.
-func (r *Refusal) Command() string { return r.command }
-
-// Name is the declared name of the refusal.
-func (r *Refusal) Name() string { return r.name }
-
-// Status is the HTTP status of the refusal.
-func (r *Refusal) Status() int { return r.status }
-
-// Code is the fixed code of the refusal.
-func (r *Refusal) Code() string { return r.code }
-
-`
-
-const entityHelpers = `// mustEntity gives a checked repository declaration. The generator checked each declaration, so it does not fail.
-func mustEntity[T any](e *command.Entity[T], err error) *command.Entity[T] {
-	if err != nil {
-		panic(err)
-	}
-	return e
-}
-
-// NewID gives a new random UUID, the key of a new row and the ID of a request.
-func NewID() string {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		panic(err)
-	}
-	b[6] = b[6]&0x0f | 0x40
-	b[8] = b[8]&0x3f | 0x80
-	h := hex.EncodeToString(b[:])
-	return h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:32]
-}
-
-// ValidUUID tells whether id is a UUID in its text form, the key type of every entity.
-func ValidUUID(id string) bool {
-	if len(id) != 36 {
-		return false
-	}
-	for i := 0; i < len(id); i++ {
-		c := id[i]
-		switch {
-		case i == 8 || i == 13 || i == 18 || i == 23:
-			if c != '-' {
-				return false
-			}
-		case c >= '0' && c <= '9', c >= 'a' && c <= 'f', c >= 'A' && c <= 'F':
-		default:
-			return false
-		}
-	}
-	return true
-}
-
-// clonePointer gives a copy of the value that p points to.
-func clonePointer[T any](p *T) *T {
-	if p == nil {
-		return nil
-	}
-	v := *p
-	return &v
-}
-
-// stateOf gives the value that p points to for an audit state, or nil when p is nil.
-func stateOf[T any](p *T) any {
-	if p == nil {
-		return nil
-	}
-	return *p
-}
-
-// equalPointer tells whether two pointers point to equal values or are both nil.
-func equalPointer[T comparable](a, b *T) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-	return *a == *b
-}
+// refusalHelpers name the refusal type of the runtime in the contract package (ST-SUP-RP10-LC33): a fill returns
+// one of the declared values, which Serve knows by identity.
+const refusalHelpers = `// Refusal is a declared refusal of a command (ST-SUP-RC32-OC09): the runtime's type. Only the values of this
+// package are declared: a fill returns one of them, and the handler answers it with its status and code.
+type Refusal = command.Refusal
 `
 
 // renderHandlers writes the handlers package: the command declarations with their permission and resource, the
-// entities of the runtime, and one HTTP handler and one gRPC handler for each command.
+// entities of the runtime, and one ServeSpec for each command, which command.Serve and command.ServeRPC serve
+// (ST-SUP-RP10-LC33). Only what varies with the declaration is emitted (ST-STD-RUNTIME-R05).
 func renderHandlers(m *model) []byte {
 	w := &writer{}
 	w.f("// Package %s holds the generated handlers of the commands of the service (ST-SUP-RC32-OC02): one HTTP handler\n", handlersFolder)
-	w.f("// and one gRPC handler for each declared command, each bound to the one fill that the command names.\n")
-	w.f("package %s\n\nimport (\n\t\"context\"\n\t\"net/http\"\n", handlersFolder)
-	if m.hasLockTimeout() {
-		w.f("\t\"time\"\n")
-	}
-	w.f("\n")
+	w.f("// and one gRPC handler for each declared command, each bound to the one fill that the command names, served by\n// command.Serve and command.ServeRPC of the runtime library.\n")
+	w.f("package %s\n\nimport (\n\t\"context\"\n\t\"net/http\"\n\t\"time\"\n\n", handlersFolder)
 	if m.hasRelations() {
 		w.f("\t\"github.com/jsell-rh/stego/registry/runtime/authz\"\n")
 	}
-	w.f("\t\"github.com/jsell-rh/stego/registry/runtime/command\"\n\n\tcommands %q\n", m.contractImport)
+	w.f("\t\"github.com/jsell-rh/stego/registry/runtime/command\"\n")
+	if m.probeImport == "" {
+		w.f("\t\"github.com/jsell-rh/stego/registry/runtime/probe\"\n")
+	}
+	w.f("\n\tcommands %q\n", m.contractImport)
 	if m.probeImport != "" {
 		w.f("\tprobes %q\n", m.probeImport)
 	}
 	w.f(")\n\n")
 	w.f("// subjectType is the subject type of the schema that a verified identity maps to.\nconst subjectType = %q\n\n", m.subjectType)
+	w.f("// Options are the settings of the command handlers.\ntype Options struct {\n\t// Retention is how long a completed idempotency key is kept; zero is the runtime's default.\n\tRetention time.Duration\n}\n\n")
 	w.f("// Entities are the entities that the commands write, for the Entities of the command runtime's Config.\nfunc Entities() []command.Declared {\n\treturn []command.Declared{")
 	for i, e := range m.entities {
 		if i > 0 {
@@ -275,6 +188,9 @@ func renderHandlers(m *model) []byte {
 		w.f("\t{\n\t\th, err := %s(rt, fills.%s, options)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tmux.Handle(%q, h)\n\t}\n", c.goName, c.goName, c.pattern)
 	}
 	w.f("\treturn nil\n}\n\n")
+	if m.probeImport == "" {
+		w.f("// noProbe is the typed probe of a service that has no domain probes.\nfunc noProbe(*probe.Probe) struct{} { return struct{}{} }\n\n")
+	}
 	for _, c := range m.commands {
 		renderCommandHandlers(w, m, c)
 	}
@@ -299,12 +215,12 @@ func (m *model) hasRelations() bool {
 	return false
 }
 
-// renderCommandHandlers writes the command declaration and the handlers of one command.
+// renderCommandHandlers writes the command declaration, the ServeSpec and the handlers of one command.
 func renderCommandHandlers(w *writer, m *model, c *command) {
 	lower := strings.ToLower(c.goName[:1]) + c.goName[1:]
 	probe := m.probeType(c)
 	w.f("// %sCommand is the declaration of the command %s (ST-SUP-RP10-LC31, ST-SUP-RC32-OC10).\n", lower, c.decl.Name)
-	w.f("var %sCommand = mustCommand(command.NewCommand(command.CommandSpec[%s]{\n", lower, probe)
+	w.f("var %sCommand = command.Must(command.NewCommand(command.CommandSpec[%s]{\n", lower, probe)
 	w.f("\tName: %q,\n\tWrites: []command.Declared{", c.decl.Name)
 	for i, e := range c.writes {
 		if i > 0 {
@@ -319,7 +235,8 @@ func renderCommandHandlers(w *writer, m *model, c *command) {
 			if i > 0 {
 				w.f(", ")
 			}
-			w.f("{Name: %q, MustLand: true, Idempotent: true, Effects: []string{", d)
+			declared := m.destinations[d]
+			w.f("{Name: %q, MustLand: %t, Idempotent: %t, Effects: []string{", d, declared.mustLand, declared.idempotent)
 			for j, name := range c.effectNames[d] {
 				if j > 0 {
 					w.f(", ")
@@ -336,7 +253,7 @@ func renderCommandHandlers(w *writer, m *model, c *command) {
 			if i > 0 {
 				w.f(", ")
 			}
-			w.f("mustRelation(%q)", r)
+			w.f("command.Must(authz.ParseRelation(%q))", r)
 		}
 		w.f("},\n")
 	}
@@ -351,37 +268,38 @@ func renderCommandHandlers(w *writer, m *model, c *command) {
 	}
 	r := c.resource
 	token := fmt.Sprintf("SELECT authz_token FROM %s WHERE %s = $1 AND id = $2::%s FOR SHARE", r.table, m.tenantKey, r.keyCast)
-	w.f("\tPermission: %q,\n\tResource: &command.Resource{Type: %q, Token: %q, ValidID: commands.ValidUUID},\n}))\n\n", c.decl.Permission, r.resourceType, token)
-	spec := fmt.Sprintf("spec[*commands.%s, *commands.%s, %s]", c.request.name, c.response.name, probe)
+	w.f("\tPermission: %q,\n\tResource: &command.Resource{Type: %q, Token: %q, ValidID: command.ValidUUID},\n}))\n\n", c.decl.Permission, r.resourceType, token)
+	spec := fmt.Sprintf("command.ServeSpec[*commands.%s, *commands.%s, %s]", c.request.name, c.response.name, probe)
 	w.f("// %sSpec is what varies with the declaration of %s.\nfunc %sSpec(fill commands.%sFill, options Options) %s {\n", lower, c.decl.Name, lower, c.goName, spec)
-	w.f("\treturn %s{\n\t\tname: %q,\n\t\tcommand: %sCommand,\n\t\tresourceType: %q,\n", spec, c.decl.Name, lower, r.resourceType)
+	w.f("\tspec := %s{\n\t\tCommand: %sCommand,\n\t\tResourceType: %q,\n\t\tSubjectType: subjectType,\n", spec, lower, r.resourceType)
 	status := "http.StatusOK"
 	if c.creates {
 		status = "http.StatusCreated"
 	}
-	w.f("\t\tstatus: %s,\n", status)
-	w.f("\t\tnewRequest: func() *commands.%s { return &commands.%s{} },\n", c.request.name, c.request.name)
-	w.f("\t\tnewResponse: func() *commands.%s { return &commands.%s{} },\n", c.response.name, c.response.name)
-	w.f("\t\tpath: func(r *http.Request, request *commands.%s) error {\n", c.request.name)
-	for _, p := range c.params {
-		w.f("\t\t\tif err := setPath(&request.%s, r.PathValue(%q)); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n", p.field.goName, p.name)
+	w.f("\t\tStatus: %s,\n", status)
+	w.f("\t\tNewRequest: func() *commands.%s { return &commands.%s{} },\n", c.request.name, c.request.name)
+	w.f("\t\tNewResponse: func() *commands.%s { return &commands.%s{} },\n", c.response.name, c.response.name)
+	if len(c.params) > 0 {
+		w.f("\t\tPath: func(r *http.Request, request *commands.%s) error {\n", c.request.name)
+		for _, p := range c.params {
+			w.f("\t\t\tif err := command.SetPath(&request.%s, r.PathValue(%q)); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n", p.field.goName, p.name)
+		}
+		w.f("\t\t\treturn nil\n\t\t},\n")
 	}
-	w.f("\t\t\treturn nil\n\t\t},\n")
-	w.f("\t\tresource: func(request *commands.%s) string { return request.%s },\n", c.request.name, c.member.goName)
-	w.f("\t\tfill: func(ctx context.Context, request *commands.%s, h *command.Handle[%s]) (*commands.%s, error) {\n\t\t\treturn fill(ctx, request, h)\n\t\t},\n", c.request.name, probe, c.response.name)
-	w.f("\t\thasFill: fill != nil,\n")
-	w.f("\t\trefusals: []*commands.Refusal{")
+	w.f("\t\tResource: func(request *commands.%s) string { return request.%s },\n", c.request.name, c.member.goName)
+	w.f("\t\tRefusals: []*command.Refusal{")
 	for i, ref := range c.refusals {
 		if i > 0 {
 			w.f(", ")
 		}
 		w.f("commands.%s", ref.goName)
 	}
-	w.f("},\n\t\toptions: options,\n\t}\n}\n\n")
-	w.f("// %s gives the HTTP handler of the command %s at %s: it calls the one fill %s through Run.\n", c.goName, c.decl.Name, c.pattern, c.decl.Fill[0])
-	w.f("func %s(rt *command.Runtime, fill commands.%sFill, options Options) (http.Handler, error) {\n\treturn serveHTTP(rt, %sSpec(fill, options))\n}\n\n", c.goName, c.goName, lower)
+	w.f("},\n\t\tKeyRequired: true,\n\t\tRetention: options.Retention,\n\t}\n")
+	w.f("\tif fill != nil {\n\t\tspec.Fill = func(ctx context.Context, request *commands.%s, h *command.Handle[%s]) (*commands.%s, error) {\n\t\t\treturn fill(ctx, request, h)\n\t\t}\n\t}\n\treturn spec\n}\n\n", c.request.name, probe, c.response.name)
+	w.f("// %s gives the HTTP handler of the command %s at %s: it calls the one fill %s through command.Serve.\n", c.goName, c.decl.Name, c.pattern, c.decl.Fill[0])
+	w.f("func %s(rt *command.Runtime, fill commands.%sFill, options Options) (http.Handler, error) {\n\treturn command.Serve(rt, %sSpec(fill, options))\n}\n\n", c.goName, c.goName, lower)
 	w.f("// %sRPC gives the gRPC handler of the command %s: the same fill, handle, transaction, permission, audit and\n// idempotency as its HTTP handler, with the idempotency key from the idempotency-key request metadata.\n", c.goName, c.decl.Name)
-	w.f("func %sRPC(rt *command.Runtime, fill commands.%sFill, options Options) (func(context.Context, *commands.%s) (*commands.%s, error), error) {\n\treturn serveRPC(rt, %sSpec(fill, options))\n}\n\n", c.goName, c.goName, c.request.name, c.response.name, lower)
+	w.f("func %sRPC(rt *command.Runtime, fill commands.%sFill, options Options) (func(context.Context, *commands.%s) (*commands.%s, error), error) {\n\treturn command.ServeRPC(rt, %sSpec(fill, options))\n}\n\n", c.goName, c.goName, c.request.name, c.response.name, lower)
 }
 
 // renderFills writes the binding of each command to the one fill that it names (ST-SUP-RC32-OC02): the fill folder

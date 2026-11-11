@@ -17,11 +17,19 @@ type entity struct {
 	resourceType string
 	read, list   string
 	pii          bool
-	deep         bool         // a field is a pointer or a slice, so Clone copies it
-	parent       *entityField // the reference to the parent resource, or nil
-	parentEntity string
-	parentType   string         // the resource type of the parent entity
-	keys         []*entityField // the fields of a unique key besides the ID (ST-SUP-RP10-LC24)
+	deep         bool // a field is a pointer or a slice, so Clone copies it
+	// references are the references of the entity to entities with a resource type, in field order, which the
+	// generated Parent list declares (ST-SUP-RP10-LC05, ST-DECL-EN02).
+	references []reference
+	keys       []*entityField // the fields of a unique key besides the ID (ST-SUP-RP10-LC24)
+}
+
+// reference is one reference of an entity to an entity with a resource type: the field, the referenced entity and
+// its resource type, and the relation and the permission that the declaration names for it.
+type reference struct {
+	field                *entityField
+	entity, resourceType string
+	relation, permission string
 }
 
 // entityField is one declared field of an entity.
@@ -100,21 +108,19 @@ func planEntity(e types.Entity, byName map[string]types.Entity, tenantKey string
 		}
 		p.fields = append(p.fields, ef)
 	}
-	// An entity whose one reference names an entity with a resource type goes under that parent: its create, and a
-	// move of a row to another parent, decide the command's permission on the parent that the row names, whether or
-	// not the entity has a resource type of its own (ST-SUP-RP10-LC05). Two such references, or an optional one,
-	// would leave a parent that nothing decides on, so they are refused.
-	switch {
-	case len(refs) > 1:
-		names := make([]string, len(refs))
-		for i, r := range refs {
-			names[i] = r.decl.Name
+	// Each reference to an entity with a resource type is a reference of the generated Parent list: a create and a
+	// move decide the permission that the declaration names for it on the referenced row, and the runtime writes its
+	// relation (ST-SUP-RP10-LC05, ST-DECL-EN02). The check of ST-DECL-INV85 holds every one to its References; a
+	// reference with none decides the command's own permission and writes no relation.
+	for _, f := range refs {
+		to := byName[f.decl.To]
+		declared := e.References[f.decl.Name]
+		relation := declared.Relation
+		if p.resourceType == "" {
+			relation = ""
 		}
-		return nil, fmt.Errorf("the fields %s refer to entities with a resource type; a command decides on one parent of a row, so the entity may refer to one such entity only (ST-SUP-Q79)", strings.Join(names, ", "))
-	case len(refs) == 1 && refs[0].pointer:
-		return nil, fmt.Errorf("the optional field %s refers to %s, which has a resource type; a command decides on the parent that a row names, so the reference must be required (ST-SUP-Q79)", refs[0].decl.Name, refs[0].decl.To)
-	case len(refs) == 1:
-		p.parent, p.parentEntity, p.parentType = refs[0], refs[0].decl.To, byName[refs[0].decl.To].ResourceType
+		p.references = append(p.references, reference{field: f, entity: to.Name, resourceType: to.ResourceType,
+			relation: relation, permission: declared.Permission})
 	}
 	return p, nil
 }
@@ -172,7 +178,7 @@ func renderEntity(w *writer, e *entity, tenantKey string) {
 	w.f("// Loaded%s is a loaded value of %s: only a read or a write through a command handle makes one.\ntype Loaded%s = command.Loaded[%s]\n\n", e.goName, e.decl.Name, e.goName, e.goName)
 	selectRow, forUpdate, forDelete, insert, update, remove := e.statements(tenantKey)
 	w.f("// %sEntity is the repository declaration of %s (ST-SUP-RP10-LC02).\n", e.goName, e.decl.Name)
-	w.f("var %sEntity = mustEntity(command.NewEntity(command.EntitySpec[%s]{\n", e.goName, e.goName)
+	w.f("var %sEntity = command.Must(command.NewEntity(command.EntitySpec[%s]{\n", e.goName, e.goName)
 	w.f("\tName: %q,\n", e.decl.Name)
 	if e.resourceType != "" {
 		w.f("\tResourceType: %q,\n\tReadPermission: %q,\n", e.resourceType, e.read)
@@ -210,12 +216,12 @@ func renderEntity(w *writer, e *entity, tenantKey string) {
 	for _, f := range e.fields {
 		values = append(values, "v."+f.goName)
 	}
-	w.f("\tValues: func(v %s) []any {\n\t\tid := v.ID\n\t\tif id == \"\" {\n\t\t\tid = NewID()\n\t\t}\n\t\treturn []any{%s}\n\t},\n", e.goName, strings.Join(values, ", "))
+	w.f("\tValues: func(v %s) []any {\n\t\tid := v.ID\n\t\tif id == \"\" {\n\t\t\tid = command.NewID()\n\t\t}\n\t\treturn []any{%s}\n\t},\n", e.goName, strings.Join(values, ", "))
 	state := []string{`"id": v.ID`}
 	for _, f := range e.fields {
 		// The audit runtime encodes plain values only, so an optional field gives its value, or nil when it is not set.
 		if f.pointer {
-			state = append(state, fmt.Sprintf("%q: stateOf(v.%s)", f.decl.Name, f.goName))
+			state = append(state, fmt.Sprintf("%q: command.StateOf(v.%s)", f.decl.Name, f.goName))
 			continue
 		}
 		state = append(state, fmt.Sprintf("%q: v.%s", f.decl.Name, f.goName))
@@ -228,7 +234,7 @@ func renderEntity(w *writer, e *entity, tenantKey string) {
 			continue
 		}
 		if f.pointer {
-			changed = append(changed, fmt.Sprintf("!equalPointer(before.%s, after.%s)", f.goName, f.goName))
+			changed = append(changed, fmt.Sprintf("!command.EqualPointer(before.%s, after.%s)", f.goName, f.goName))
 			continue
 		}
 		changed = append(changed, fmt.Sprintf("before.%s != after.%s", f.goName, f.goName))
@@ -243,15 +249,29 @@ func renderEntity(w *writer, e *entity, tenantKey string) {
 			case f.slice:
 				w.f("\t\tv.%s = bytes.Clone(v.%s)\n", f.goName, f.goName)
 			case f.pointer:
-				w.f("\t\tv.%s = clonePointer(v.%s)\n", f.goName, f.goName)
+				w.f("\t\tv.%s = command.ClonePointer(v.%s)\n", f.goName, f.goName)
 			}
 		}
 		w.f("\t\treturn v\n\t},\n")
 	}
-	w.f("\tValidID: ValidUUID,\n")
-	if e.parent != nil {
-		w.f("\tParent: []command.Reference[%s]{{Entity: %q, ResourceType: %q, ID: func(v %s) string { return v.%s }}},\n",
-			e.goName, e.parentEntity, e.parentType, e.goName, e.parent.goName)
+	w.f("\tValidID: command.ValidUUID,\n")
+	if len(e.references) > 0 {
+		w.f("\tParent: []command.Reference[%s]{\n", e.goName)
+		for _, r := range e.references {
+			id := fmt.Sprintf("func(v %s) string { return v.%s }", e.goName, r.field.goName)
+			if r.field.pointer {
+				id = fmt.Sprintf("func(v %s) string {\n\t\tif v.%s == nil {\n\t\t\treturn \"\"\n\t\t}\n\t\treturn *v.%s\n\t}", e.goName, r.field.goName, r.field.goName)
+			}
+			w.f("\t\t{Entity: %q, ResourceType: %q, ID: %s", r.entity, r.resourceType, id)
+			if r.permission != "" {
+				w.f(", Permission: %q", r.permission)
+			}
+			if r.relation != "" {
+				w.f(", Relation: %q", r.relation)
+			}
+			w.f("},\n")
+		}
+		w.f("\t},\n")
 	}
 	w.f("}))\n\n")
 	w.f("// %sRepository gives the repository of %s of a command handle; the handle refuses an entity that its command does\n// not declare it writes.\n", e.goName, e.decl.Name)

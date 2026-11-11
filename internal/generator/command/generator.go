@@ -76,10 +76,6 @@ func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("command: formatting the handlers package: %w", err)
 	}
-	serve, err := format.Source(renderServe(m))
-	if err != nil {
-		return nil, nil, fmt.Errorf("command: formatting the serve helpers: %w", err)
-	}
 	bound, err := format.Source(renderFills(m))
 	if err != nil {
 		return nil, nil, fmt.Errorf("command: formatting the fill binding: %w", err)
@@ -88,7 +84,6 @@ func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		gen.File{Path: path.Join(ctx.OutputNamespace, "commands.go"), Content: contract},
 		gen.File{Path: path.Join(ctx.OutputNamespace, handlersFolder, "fills.go"), Content: bound},
 		gen.File{Path: path.Join(ctx.OutputNamespace, handlersFolder, "handlers.go"), Content: handlers},
-		gen.File{Path: path.Join(ctx.OutputNamespace, handlersFolder, "serve.go"), Content: serve},
 	)
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
@@ -115,6 +110,26 @@ type model struct {
 	entities       []*entity // the entities that a command writes, in declaration order
 	commands       []*command
 	names          map[string]string
+	// destinations are the declared outbox destinations by name, with their delivery (ST-SUP-RC32-OC12).
+	destinations map[string]delivery
+}
+
+// delivery is the declared delivery of one outbox destination.
+type delivery struct{ mustLand, idempotent bool }
+
+// declaredDeliveries reads the destinations that the components declare, and refuses one that leaves must_land or
+// idempotent out, naming the destination and the property (ST-SUP-RC32-OC12).
+func declaredDeliveries(destinations []gen.Destination) (map[string]delivery, error) {
+	out := map[string]delivery{}
+	for _, d := range destinations {
+		for property, value := range map[string]*bool{"must_land": d.MustLand, "idempotent": d.Idempotent} {
+			if value == nil {
+				return nil, fmt.Errorf("command: the destination %s of the component %s does not declare %s; the setting destinations declares must_land and idempotent for each destination (ST-SUP-RC32-OC12)", d.Name, d.Component, property)
+			}
+		}
+		out[d.Name] = delivery{mustLand: *d.MustLand, idempotent: *d.Idempotent}
+	}
+	return out, nil
 }
 
 // command is one checked command.
@@ -191,6 +206,11 @@ func plan(ctx gen.Context) (*model, error) {
 		return nil, fmt.Errorf("command: a command decides its permission before the fill, so the service needs authorization with subject_from_identity")
 	}
 	m.subjectType = ctx.Authorization.SubjectFromIdentity
+	deliveries, err := declaredDeliveries(ctx.Destinations)
+	if err != nil {
+		return nil, err
+	}
+	m.destinations = deliveries
 	msgs, err := compileMessages(ctx)
 	if err != nil {
 		return nil, err
@@ -285,6 +305,9 @@ func (m *model) planCommand(c gen.Command, byName map[string]types.Entity, plann
 		named[effect.Name] = true
 		if effect.Destination == "" || effect.Destination == "authz" || effect.Destination == "audit" || effect.Destination == "audit-sink" {
 			return nil, fmt.Errorf("command: the command %s stages for the destination %q, which is not an effect destination", decl.Name, effect.Destination)
+		}
+		if _, ok := m.destinations[effect.Destination]; !ok {
+			return nil, fmt.Errorf("command: the command %s stages for the destination %q, which no component declares in its setting destinations (ST-SUP-RC32-OC12)", decl.Name, effect.Destination)
 		}
 		if !seen[effect.Destination] {
 			seen[effect.Destination] = true

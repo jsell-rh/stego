@@ -166,6 +166,7 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 			Queries:         svcDecl.Queries,
 			FillSlots:       maps.Clone(facts.FillSlots),
 			Commands:        declaredCommands(svcDecl, facts.FillSlots),
+			Destinations:    declaredDestinations(svcDecl, componentNames),
 			RuntimeData:     runtimeData,
 		}
 		if runtimeData {
@@ -299,4 +300,33 @@ func pooledTenancy(service *types.ServiceDeclaration, componentNames []string) *
 		}
 	}
 	return &gen.Tenancy{Key: key}
+}
+
+// declaredDestinations gives the outbox destinations that the components of the service declare in their setting
+// destinations, with the declared must_land and idempotent of each, nil when the setting leaves one out
+// (ST-SUP-RC32-OC12), in the order of the components and of the setting.
+func declaredDestinations(svcDecl *types.ServiceDeclaration, componentNames []string) []gen.Destination {
+	var out []gen.Destination
+	for _, name := range componentNames {
+		config, _ := svcDecl.Overrides[name].(map[string]any)
+		items, _ := config["destinations"].([]any)
+		for _, item := range items {
+			destination, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			d := gen.Destination{Component: name}
+			d.Name, _ = destination["name"].(string)
+			if v, ok := destination["must_land"].(bool); ok {
+				d.MustLand = &v
+			}
+			if v, ok := destination["idempotent"].(bool); ok {
+				d.Idempotent = &v
+			}
+			if d.Name != "" {
+				out = append(out, d)
+			}
+		}
+	}
+	return out
 }

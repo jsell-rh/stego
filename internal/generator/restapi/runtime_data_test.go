@@ -444,7 +444,7 @@ func TestCrudService(t *testing.T) {
 var crudCheckIDs = []string{
 	"ST-SUP-RC20-OC37-T01 A collection create runs as a command",
 	"ST-SUP-RC20-OC37-T02 A refusing before slot stops the command before any write",
-	"ST-SUP-RC20-OC37-T03 A write that the caller may not make, or of a missing row, is 403 and changes nothing",
+	"ST-SUP-RC20-OC37-T03 A write that the caller may not make, or of a missing row, is 404 and changes nothing",
 	"ST-SUP-RC20-OC37-T05 A before slot that halts writes nothing and fires no after slot",
 	"ST-SUP-RC20-OC37-T06 A failed after slot answers the committed response with no error text",
 	"ST-SUP-RC20-OC35-T01 Every route takes the tenant from the verified identity",

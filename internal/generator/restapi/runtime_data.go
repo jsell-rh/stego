@@ -364,14 +364,15 @@ func (rt *Runtime) commandRequest(r *http.Request, b bound, key, fingerprint, re
 // boundQuery gives the bound call of a read for the verified tenant and principal, with its probe call.
 func (rt *Runtime) boundQuery(ctx context.Context, b bound, q *query.Query) query.Bound[struct{}] {
 	call := rt.Probes.Bind(ctx, b.tenant.ID(), b.principal.Subject().String(), q.Name())
-	return query.Bound[struct{}]{Tenant: b.tenant, Principal: b.principal, Call: call, Probe: noProbe, RequestID: data.NewID()}
+	return query.Bound[struct{}]{Tenant: b.tenant, Principal: b.principal, Call: call, Probe: noProbe, RequestID: command.NewID()}
 }
 
 // answerWrite answers an error of Run and writes the audit row of the denied or failed write in its own short
-// transaction (ST-SUP-RC28-OC03): a slot refusal is the slot's status and outcome denied, a deny is 403, a conflict
-// 409 and every other error 500. A row that is not there is 403 and outcome denied for an operation that decides a
-// permission, as a deny is, so the answer never tells that a row exists or once existed (ST-SUP-Q88), and 404
-// otherwise. No error text reaches the answer or the audit row.
+// transaction (ST-SUP-RC28-OC03): a slot refusal is the slot's status and outcome denied, a deny is 404, the same
+// answer as a missing row, a conflict 409 and every other error 500. A row that is not there is 404 and outcome
+// denied for an operation that decides a permission, as a deny is, so the answer never tells that a row exists or
+// once existed (ST-SUP-RC20-OC37, ST-SUP-RP10-LC31), and 404 not_found otherwise. No error text reaches the answer or
+// the audit row.
 func (rt *Runtime) answerWrite(w http.ResponseWriter, r *http.Request, req command.Request, action, resourceType, kind string, decided bool, err error) {
 	var refused *slotRefusal
 	var invalid *invalidRequest
@@ -388,8 +389,8 @@ func (rt *Runtime) answerWrite(w http.ResponseWriter, r *http.Request, req comma
 		handleError(w, r, errorForStatus(status, refused.detail))
 		return
 	case errors.Is(err, command.ErrNotFound) && decided:
-		recordOutcome(r.Context(), rt.Commands, req, action, resourceType, outcome{status: http.StatusForbidden, code: "denied", audit: audit.OutcomeDenied})
-		handleError(w, r, Forbidden("the caller may not "+action+" this "+kind))
+		recordOutcome(r.Context(), rt.Commands, req, action, resourceType, outcome{status: http.StatusNotFound, code: "denied", audit: audit.OutcomeDenied})
+		handleError(w, r, NotFound(kind, req.Resource))
 		return
 	case errors.Is(err, command.ErrNotFound):
 		recordOutcome(r.Context(), rt.Commands, req, action, resourceType, outcome{status: http.StatusNotFound, code: "not_found", audit: audit.OutcomeFailed})
@@ -399,8 +400,8 @@ func (rt *Runtime) answerWrite(w http.ResponseWriter, r *http.Request, req comma
 	o := failedOutcome(err)
 	recordOutcome(r.Context(), rt.Commands, req, action, resourceType, o)
 	switch o.status {
-	case http.StatusForbidden:
-		handleError(w, r, Forbidden("the caller may not "+action+" this "+kind))
+	case http.StatusNotFound:
+		handleError(w, r, NotFound(kind, req.Resource))
 	case http.StatusConflict:
 		handleError(w, r, Conflict("the "+kind+" changed during the request"))
 	default:
@@ -635,7 +636,7 @@ func (w *runtimeHandlerWriter) declarations() {
 			w.f("var %s = mustCommand(command.NewCommand(command.CommandSpec[struct{}]{\n\tName: %q,\n\tWrites: []command.Declared{data.%sEntity},\n\tProbe: noProbe,\n", w.commandVar(op), string(op), e.Name)
 			if p := c.permission(op); p != "" && op != types.OpCreate {
 				token := fmt.Sprintf("SELECT authz_token FROM %s WHERE tenant_id = $1 AND id = $2::uuid FOR SHARE", table)
-				w.f("\tPermission: %q,\n\tResource: &command.Resource{Type: %q, Token: %q, ValidID: data.ValidUUID},\n", p, e.ResourceType, token)
+				w.f("\tPermission: %q,\n\tResource: &command.Resource{Type: %q, Token: %q, ValidID: command.ValidUUID},\n", p, e.ResourceType, token)
 			}
 			w.f("}))\n\n")
 		}
@@ -841,7 +842,7 @@ func (w *runtimeHandlerWriter) after(op types.Operation, entityVar string, patch
 func (w *runtimeHandlerWriter) key(op types.Operation) {
 	required := w.keys != nil && w.keys.required[op]
 	w.f("\tkey, err := idempotency.KeyFrom(r.Header, %t)\n\tif err != nil {\n\t\tkeyMissing(w, r)\n\t\treturn\n\t}\n", required)
-	w.f("\trequestID := data.NewID()\n\tif key == \"\" {\n\t\tkey = requestKey(requestID)\n\t}\n")
+	w.f("\trequestID := command.NewID()\n\tif key == \"\" {\n\t\tkey = requestKey(requestID)\n\t}\n")
 }
 
 // start writes the binding of the verified caller and the read of the body.
@@ -879,7 +880,7 @@ func (w *runtimeHandlerWriter) create() {
 	if w.envelope {
 		w.f("\t\tid, err := uuid.NewV7()\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n\t\t%s.ID = id.String()\n", c.lower)
 	} else {
-		w.f("\t\t%s.ID = data.NewID()\n", c.lower)
+		w.f("\t\t%s.ID = command.NewID()\n", c.lower)
 	}
 	w.populateCreate()
 	w.before(types.OpCreate, nil)
@@ -899,7 +900,7 @@ func (w *runtimeHandlerWriter) update() {
 	w.f("func (h *%sHandler) Update(w http.ResponseWriter, r *http.Request) {\n\tid := r.PathValue(\"id\")\n", c.pascal)
 	w.start(true)
 	w.f("\tif _, err := decode%s(body); err != nil {\n\t\th.rt.answerWrite(w, r, command.Request{}, \"update\", %q, %q, false, err)\n\t\treturn\n\t}\n", c.pascal, e.ResourceType, e.Name)
-	w.f("\trequestID := data.NewID()\n\tfingerprint, err := idempotency.Fingerprint(r.Method, r.URL.Path, body)\n\tif err != nil {\n\t\thandleError(w, r, BadRequest(\"the body is not a JSON object\"))\n\t\treturn\n\t}\n")
+	w.f("\trequestID := command.NewID()\n\tfingerprint, err := idempotency.Fingerprint(r.Method, r.URL.Path, body)\n\tif err != nil {\n\t\thandleError(w, r, BadRequest(\"the body is not a JSON object\"))\n\t\treturn\n\t}\n")
 	w.f("\treq := h.rt.commandRequest(r, b, requestKey(requestID), fingerprint, requestID, body, id)\n")
 	w.f("\tvar persisted %s\n", e.Name)
 	w.f("\tresult, err := command.Run(r.Context(), h.rt.Commands, %s, req, decode%s, func(ctx context.Context, %s %s, ch *command.Handle[struct{}]) (idempotency.Response, error) {\n", w.commandVar(types.OpUpdate), c.pascal, c.lower, e.Name)
@@ -978,7 +979,7 @@ func (w *runtimeHandlerWriter) remove() {
 	w.f("// Delete runs the generated command delete of %s through Run, and answers 204 with no body (ST-SUP-RC20-OC32).\n", c.decl.Name)
 	w.f("func (h *%sHandler) Delete(w http.ResponseWriter, r *http.Request) {\n\tid := r.PathValue(\"id\")\n", c.pascal)
 	w.start(false)
-	w.f("\trequestID := data.NewID()\n\tfingerprint, err := idempotency.Fingerprint(r.Method, r.URL.Path, nil)\n\tif err != nil {\n\t\thandleError(w, r, InternalError(\"internal error\"))\n\t\treturn\n\t}\n")
+	w.f("\trequestID := command.NewID()\n\tfingerprint, err := idempotency.Fingerprint(r.Method, r.URL.Path, nil)\n\tif err != nil {\n\t\thandleError(w, r, InternalError(\"internal error\"))\n\t\treturn\n\t}\n")
 	w.f("\treq := h.rt.commandRequest(r, b, requestKey(requestID), fingerprint, requestID, nil, id)\n")
 	w.f("\tresult, err := command.Run(r.Context(), h.rt.Commands, %s, req, func([]byte) (struct{}, error) { return struct{}{}, nil }, func(ctx context.Context, _ struct{}, ch *command.Handle[struct{}]) (idempotency.Response, error) {\n", w.commandVar(types.OpDelete))
 	w.lockRow()
@@ -995,7 +996,7 @@ func (w *runtimeHandlerWriter) read() {
 	w.f("// Read runs the query read of %s through query.Run: a row that is not there and a deny are both 404\n// (ST-SUP-RP11-LC06), and a read of a pii field has its audit row (ST-SUP-RC28-OC04).\n", c.decl.Name)
 	w.f("func (h *%sHandler) Read(w http.ResponseWriter, r *http.Request) {\n\tid := r.PathValue(\"id\")\n", c.pascal)
 	w.start(false)
-	w.f("\tif !data.ValidUUID(id) {\n\t\thandleError(w, r, NotFound(%q, id))\n\t\treturn\n\t}\n", e.Name)
+	w.f("\tif !command.ValidUUID(id) {\n\t\thandleError(w, r, NotFound(%q, id))\n\t\treturn\n\t}\n", e.Name)
 	q := w.commandVar(types.OpRead)
 	w.f("\tvalue, err := query.Run(r.Context(), h.rt.Queries, %s, h.rt.boundQuery(r.Context(), b, %s), id, func(ctx context.Context, id string, qh *query.Handle[struct{}]) (%s, error) {\n", q, q, e.Name)
 	w.f("\t\trepo, err := query.Repo(qh, data.Entity%sView())\n\t\tif err != nil {\n\t\t\treturn %s{}, err\n\t\t}\n", e.Name, e.Name)

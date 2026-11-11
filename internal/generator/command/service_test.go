@@ -187,7 +187,7 @@ func TestCommandService(t *testing.T) {
 	t.Run("ST-SUP-RC32-OC04-T02 An unauthenticated command never reaches the fill", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC04-T02") })
 	t.Run("ST-SUP-RC32-OC05-T01 A fill error leaves nothing behind", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC05-T01") })
 	t.Run("ST-SUP-RC32-OC05-T02 A successful command commits its writes and effects together", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC05-T02") })
-	t.Run("ST-SUP-RC32-OC06-T01 A denied command answers 403 and does not call the fill", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC06-T01") })
+	t.Run("ST-SUP-RC32-OC06-T01 A denied command answers 404 and does not call the fill", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC06-T01") })
 	t.Run("ST-SUP-RC32-OC06-T02 A write under a parent that the principal may not act on is refused", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC06-T02") })
 	t.Run("ST-SUP-RC32-OC07-T01 A committed, a denied and a failed command each leave one command audit row", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC07-T01") })
 	t.Run("ST-SUP-RC32-OC08-T01 A retried command replays and does not call the fill again", func(t *testing.T) { runCheck(t, p, run, endpoint, key, "ST-SUP-RC32-OC08-T01") })
