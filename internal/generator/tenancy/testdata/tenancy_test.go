@@ -44,7 +44,7 @@ func migrated(t *testing.T) *sql.DB {
 	t.Cleanup(func() { server.Close() })
 	// The roles belong to the server, not to the database: drop them after the database, so each run creates them.
 	t.Cleanup(func() {
-		for _, role := range []string{tenancy.RuntimeRole, tenancy.OwnerRole} {
+		for _, role := range []string{tenancy.RuntimeRole, tenancy.WorkerRole, tenancy.RelayRole, tenancy.OwnerRole} {
 			if _, err := server.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+pgx.Identifier{role}.Sanitize()); err != nil {
 				t.Error(err)
 			}
@@ -197,6 +197,34 @@ func TestTenancy(t *testing.T) {
 			}
 			if owner != tenancy.OwnerRole {
 				t.Errorf("table %s is owned by %s, want %s", table, owner, tenancy.OwnerRole)
+			}
+		}
+	})
+
+	t.Run("ST-SUP-RC27-OC04-T05 The role migration makes the worker and relay roles, the relay membership and the CREATE grant", func(t *testing.T) {
+		for _, role := range []string{tenancy.WorkerRole, tenancy.RelayRole} {
+			var inherit, bypass, super bool
+			if err := db.QueryRowContext(ctx, "SELECT rolinherit, rolbypassrls, rolsuper FROM pg_roles WHERE rolname = $1", role).Scan(&inherit, &bypass, &super); err != nil {
+				t.Fatalf("role %s: %v", role, err)
+			}
+			if inherit || bypass || super {
+				t.Errorf("role %s: INHERIT %v, BYPASSRLS %v, superuser %v", role, inherit, bypass, super)
+			}
+		}
+		var set, inherit bool
+		if err := db.QueryRowContext(ctx, `SELECT m.set_option, m.inherit_option FROM pg_auth_members m
+ JOIN pg_roles g ON g.oid = m.roleid JOIN pg_roles r ON r.oid = m.member
+ WHERE g.rolname = 'stego_outbox_relay' AND r.rolname = $1`, tenancy.OwnerRole).Scan(&set, &inherit); err != nil || !set || !inherit {
+			t.Errorf("the owner role's membership in stego_outbox_relay: SET %v, INHERIT %v, %v", set, inherit, err)
+		}
+		var create bool
+		if err := db.QueryRowContext(ctx, "SELECT has_schema_privilege('stego_outbox_relay', 'public', 'CREATE')").Scan(&create); err != nil || !create {
+			t.Errorf("stego_outbox_relay has CREATE on public: %v, %v", create, err)
+		}
+		for _, role := range []string{tenancy.RuntimeRole, tenancy.WorkerRole, tenancy.RelayRole} {
+			var member bool
+			if err := db.QueryRowContext(ctx, "SELECT pg_has_role($1, 'stego_outbox_relay', 'MEMBER')", role).Scan(&member); err != nil || member {
+				t.Errorf("the role %s is a member of stego_outbox_relay: %v, %v", role, member, err)
 			}
 		}
 	})

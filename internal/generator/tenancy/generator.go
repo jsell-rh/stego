@@ -64,7 +64,13 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 	security := rowSecurity(ctx.Entities, ctx.Tenancy.Key)
-	roleText := roleMigration(runtime, owner)
+	worker, relay := workerRoles(runtime)
+	for _, role := range []string{worker, relay} {
+		if !roleName.MatchString(role) {
+			return nil, nil, fmt.Errorf("the role %q is not a lower-case SQL name of at most 63 characters; set a shorter runtime_role", role)
+		}
+	}
+	roleText := roleMigration(runtime, owner, worker, relay)
 	ns := ctx.OutputNamespace
 	source := fmt.Sprintf(`package %s
 
@@ -74,14 +80,22 @@ const RuntimeRole = %q
 // OwnerRole is the role that owns the tables, for the migration job only.
 const OwnerRole = %q
 
+// WorkerRole is the role that the worker mode connects as, the only role that claims outbox messages, and
+// RelayRole the role that the authorization relay connects as (ST-SUP-RC27-OC04).
+const (
+	WorkerRole = %q
+	RelayRole  = %q
+)
+
 // RowSecurity enables and forces row-level security on every owned table, with one policy on the tenant column
 // (ST-SUP-RC27-OC03). The PostgreSQL adapter registers it in its migration ledger after the tables.
 const RowSecurity = %q
 
-// Roles creates the runtime role and the owner role (ST-SUP-RC27-OC04). The database administrator runs it once,
-// before the migration job; a deployment gives each role its login and credential.
+// Roles creates the runtime, owner, worker and relay roles, the owner's membership in the outbox relay role and
+// that role's CREATE on the schema public (ST-SUP-RC27-OC04). The database administrator runs it once, before the
+// migration job; a deployment gives each role its login and credential.
 const Roles = %q
-`, path.Base(ns), runtime, owner, security, roleText)
+`, path.Base(ns), runtime, owner, worker, relay, security, roleText)
 	formatted, err := format.Source([]byte(source))
 	if err != nil {
 		return nil, nil, fmt.Errorf("formatting the tenancy package: %w", err)
@@ -140,26 +154,49 @@ func rowSecurity(entities []types.Entity, key string) string {
 	return text.String()
 }
 
-// roleMigration gives the migration that creates the two roles. Neither role can log in, is a superuser, creates
-// roles or databases, replicates or bypasses row-level security; the runtime role inherits nothing. The owner may
-// create in the database and in the schema public, and the public role may neither create in public nor make
-// temporary tables, so the runtime role gets only the grants of the database access contract.
-func roleMigration(runtime, owner string) string {
+// workerRoles gives the worker role and the relay role of the runtime role: its name without the suffix _runtime,
+// with _worker and _relay, such as shop_worker and shop_relay for shop_runtime.
+func workerRoles(runtime string) (string, string) {
+	base := strings.TrimSuffix(runtime, "_runtime")
+	return base + "_worker", base + "_relay"
+}
+
+// outboxRelayRole is the NOLOGIN role of the outbox runtime that owns its relay functions (ST-SUP-RP01-LC19).
+const outboxRelayRole = "stego_outbox_relay"
+
+// roleMigration gives the migration that creates the roles of the service: the owner, runtime, worker and relay
+// roles (ST-SUP-RC27-OC04). None can log in until a deployment gives it a login, is a superuser, creates roles or
+// databases, replicates or bypasses row-level security; the runtime, worker and relay roles inherit nothing. The
+// owner may create in the database and in the schema public, and the public role may neither create in public nor
+// make temporary tables, so the runtime role gets only the grants of the database access contract. It makes the
+// outbox relay role of the runtime when it is missing, gives the owner role membership in it WITH SET TRUE,
+// INHERIT TRUE, so the outbox migration can make the relay functions, and gives it CREATE on public, so the
+// authorization migration can give it its state hook function (ST-SUP-RP06-LC21). So the first migration job needs
+// no role or grant that the database administrator makes by hand.
+func roleMigration(runtime, owner, worker, relay string) string {
 	flags := "NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"
 	var text strings.Builder
 	text.WriteString("DO $$\nBEGIN\n")
-	for _, role := range []string{owner, runtime} {
+	for _, role := range []string{owner, runtime, worker, relay, outboxRelayRole} {
 		fmt.Fprintf(&text, "\tIF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '%s') THEN\n\t\tCREATE ROLE %s %s;\n\tEND IF;\n", role, quote(role), flags)
 	}
 	fmt.Fprintf(&text, "\tEXECUTE pg_catalog.format('REVOKE CREATE, TEMPORARY ON DATABASE %%I FROM PUBLIC', pg_catalog.current_database());\n")
 	fmt.Fprintf(&text, "\tEXECUTE pg_catalog.format('GRANT CONNECT, CREATE ON DATABASE %%I TO %s', pg_catalog.current_database());\n", quote(owner))
-	fmt.Fprintf(&text, "\tEXECUTE pg_catalog.format('GRANT CONNECT ON DATABASE %%I TO %s', pg_catalog.current_database());\n", quote(runtime))
+	for _, role := range []string{runtime, worker, relay} {
+		fmt.Fprintf(&text, "\tEXECUTE pg_catalog.format('GRANT CONNECT ON DATABASE %%I TO %s', pg_catalog.current_database());\n", quote(role))
+	}
 	text.WriteString("END\n$$;\n")
 	fmt.Fprintf(&text, "ALTER ROLE %s %s;\n", quote(owner), flags)
-	fmt.Fprintf(&text, "ALTER ROLE %s %s NOINHERIT;\n", quote(runtime), flags)
+	for _, role := range []string{runtime, worker, relay} {
+		fmt.Fprintf(&text, "ALTER ROLE %s %s NOINHERIT;\n", quote(role), flags)
+	}
 	text.WriteString("REVOKE CREATE ON SCHEMA public FROM PUBLIC;\n")
 	fmt.Fprintf(&text, "GRANT USAGE, CREATE ON SCHEMA public TO %s;\n", quote(owner))
-	fmt.Fprintf(&text, "GRANT USAGE ON SCHEMA public TO %s;\n", quote(runtime))
+	for _, role := range []string{runtime, worker, relay} {
+		fmt.Fprintf(&text, "GRANT USAGE ON SCHEMA public TO %s;\n", quote(role))
+	}
+	fmt.Fprintf(&text, "GRANT %s TO %s WITH SET TRUE, INHERIT TRUE;\n", quote(outboxRelayRole), quote(owner))
+	fmt.Fprintf(&text, "GRANT CREATE ON SCHEMA public TO %s;\n", quote(outboxRelayRole))
 	return text.String()
 }
 
