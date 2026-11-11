@@ -150,8 +150,13 @@ type Qualification struct {
 // ListQualification answers ST-EXT-QRY02: each fill that the declaration
 // binds, with its standing and its fit, in the order of the fill names. It
 // writes nothing.
+//
+// A fill whose evidence and sign-off are current but that breaks a fill rule
+// now (declaredFillFaults: an import, a file or a call) shows as untested, with
+// each fault as a reason, because stego test would record no evidence for it
+// (decision on ST-EXT-Q06).
 func ListQualification(check compiler.FillCheck) ([]Qualification, error) {
-	rows, err := projectQualification(check)
+	rows, err := projectQualification(check, true)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +186,13 @@ func QualificationFaults(check compiler.FillCheck) ([]compiler.FillFault, error)
 
 // bindingFaults gives a fault for each binding of a fill that does not fit that binding or is not qualified.
 func bindingFaults(check compiler.FillCheck) ([]compiler.FillFault, error) {
-	rows, err := ListQualification(check)
+	// The rule faults reach the compiler through declaredFillFaults, so the
+	// binding faults do not repeat them.
+	projected, err := projectQualification(check, false)
+	if err != nil {
+		return nil, err
+	}
+	rows := NewQualificationReader(projected).Rows()
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +247,9 @@ func bindingFaults(check compiler.FillCheck) ([]compiler.FillFault, error) {
 
 // projectQualification builds the qualification of each bound fill from its
 // manifest, its files, its slot contract and SIGNERS.
-func projectQualification(check compiler.FillCheck) ([]Qualification, error) {
+// With rules, a fill that breaks a fill rule gets each fault as a reason, and a
+// qualified fill becomes untested.
+func projectQualification(check compiler.FillCheck, rules bool) ([]Qualification, error) {
 	signers, err := ReadSigners(check.ProjectDir)
 	if err != nil {
 		return nil, err
@@ -250,6 +263,12 @@ func projectQualification(check compiler.FillCheck) ([]Qualification, error) {
 		bindings[binding.Fill] = append(bindings[binding.Fill], binding)
 	}
 	sort.Strings(names)
+	var packages map[string]listedPackage
+	if rules {
+		if packages, err = listFills(check, names); err != nil {
+			return nil, err
+		}
+	}
 	var rows []Qualification
 	for _, name := range names {
 		row := Qualification{Fill: name, Fits: true}
@@ -275,6 +294,18 @@ func projectQualification(check compiler.FillCheck) ([]Qualification, error) {
 		row.Standing = standing
 		if reason != "" {
 			row.Reasons = append(row.Reasons, reason)
+		}
+		if rules {
+			faults, err := fillFaults(check, dir, name, slotContracts(check, name, f.Implements), packages)
+			if err != nil {
+				return nil, err
+			}
+			for _, fault := range faults {
+				row.Reasons = append(row.Reasons, fault.text)
+			}
+			if len(faults) > 0 && row.Standing == Qualified {
+				row.Standing = Untested
+			}
 		}
 		rows = append(rows, row)
 	}

@@ -3,10 +3,6 @@
 {"source_id":"ST-DECL-Q05","target_id":"ST-DECL-UC01-R05"}
 {"source_id":"ST-DECL-Q05","target_id":"ST-DECL-UC02-R04"}
 {"source_id":"ST-DECL-Q05","target_id":"ST-SUP-EN03"}
-{"source_id":"ST-EXT-Q05","target_id":"ST-EXT-UC01-R03"}
-{"source_id":"ST-EXT-Q05","target_id":"ST-EXT-UC01-R07"}
-{"source_id":"ST-EXT-Q06","target_id":"ST-EXT-UC04-R02"}
-{"source_id":"ST-EXT-Q06","target_id":"ST-VO45"}
 {"source_id":"ST-GEN-Q02","target_id":"ST-GEN-UC01-FL-S02"}
 {"source_id":"ST-GEN-Q02","target_id":"ST-GEN-UC01-R05"}
 {"source_id":"ST-SUP-Q98","target_id":"ST-SUP-RC18-OC30"}
