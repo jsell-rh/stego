@@ -345,14 +345,14 @@ func TestExample(t *testing.T) {
 		if first.status != http.StatusCreated || second.status != http.StatusOK || first.member(t, "id") != second.member(t, "id") {
 			t.Errorf("the upserts answered %d %s and %d %s, want 201 and 200 for one row", first.status, first.body, second.status, second.body)
 		}
-		// The audit events of a user carry the implicit source type, under the path prefix of their collection.
-		event := s.send(owner, http.MethodPost, "/user-events", `{"source_type":"Organization","source_id":"`+userID+`","action":"login"}`)
+		// The activity entries of a user carry the implicit source type, under the path prefix of their collection.
+		event := s.send(owner, http.MethodPost, "/user-activity", `{"source_type":"Organization","source_id":"`+userID+`","action":"login"}`)
 		if event.status != http.StatusCreated || event.member(t, "source_type") != "User" {
-			t.Errorf("the create of a user event answered %d %s, want 201 with the source type User", event.status, event.body)
+			t.Errorf("the create of a user activity entry answered %d %s, want 201 with the source type User", event.status, event.body)
 		}
-		s.relate(owner, "audit_event", event.member(t, "id"), "owner")
-		if items := s.send(owner, http.MethodGet, "/org-events", "").items(t); len(items) != 0 {
-			t.Errorf("the list of organization events holds %d events, want none", len(items))
+		s.relate(owner, "activity_entry", event.member(t, "id"), "owner")
+		if items := s.send(owner, http.MethodGet, "/org-activity", "").items(t); len(items) != 0 {
+			t.Errorf("the list of organization activity holds %d entries, want none", len(items))
 		}
 		// Another tenant sees none of it.
 		stranger := s.as("u-owner", "t-other", "admin")

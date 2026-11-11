@@ -342,7 +342,7 @@ It runs on the runtime data path and demonstrates the rest-crud archetype:
 - **Patch** operation with pointer-field request struct for partial updates
 - **Upsert** with natural-key conflict resolution
 - **List search** (`?search=field = 'value' and ...` on list endpoints)
-- **Implicit fields** under path prefixes (`/user-events`, `/org-events`)
+- **Implicit fields** under path prefixes (`/user-activity`, `/org-activity`)
 - **OpenAPI validation** middleware via kin-openapi
 - **Slot wiring**: gate (RBAC policy), fan-out (welcome message), and
   short-circuit chain (org name validation + provisioning)

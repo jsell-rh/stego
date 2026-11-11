@@ -40,4 +40,6 @@ token on the owning row by tenant_id.
 The stage is ga. On the runtime data path the service's main makes the
 authorization runtime with NewRuntime for the generated commands and queries,
 and its migration job runs Migration and then WriteSchema before the service
-starts. The service's main does not run the relay and the watch yet.
+starts. In the worker mode the service runtime runs the relay on the relay
+role, which writes the relations of each committed write to the provider, and
+the watch of the relay.

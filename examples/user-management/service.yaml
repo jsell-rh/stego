@@ -51,10 +51,10 @@ entities:
       - { name: value, type: jsonb }
       - { name: generation, type: int64 }
 
-  - name: AuditEvent
-    resource_type: audit_event
+  - name: ActivityEntry
+    resource_type: activity_entry
     permissions: {create: public, read: view, list: view}
-    public_reasons: {create: an audit event of a caller has no resource to decide on before it exists}
+    public_reasons: {create: an activity entry of a caller has no resource to decide on before it exists}
     fields:
       - { name: source_type, type: string, max_length: 50 }
       - { name: source_id, type: string, max_length: 255 }
@@ -82,15 +82,15 @@ collections:
     operations: [list, upsert]
     upsert_key: [org_id, key]
 
-  user-audit-events:
-    entity: AuditEvent
-    path_prefix: /user-events
+  user-activity:
+    entity: ActivityEntry
+    path_prefix: /user-activity
     implicit: { source_type: "User" }
     operations: [create, list]
 
-  org-audit-events:
-    entity: AuditEvent
-    path_prefix: /org-events
+  org-activity:
+    entity: ActivityEntry
+    path_prefix: /org-activity
     implicit: { source_type: "Organization" }
     operations: [create, list]
 
