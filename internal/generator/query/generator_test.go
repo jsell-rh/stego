@@ -175,8 +175,6 @@ func TestGenerator(t *testing.T) {
 				c.Queries[index(*c, "get-order-total")].Route = "GET /orders/{id}"
 				c.Queries[index(*c, "get-order-total")].ResourceMember = "id"
 			}, []string{"get-order", "net/http"}},
-			"a gRPC method that the compiler does not classify": {func(c *gen.Context) { delete(c.QueryStreams, "watch-orders") },
-				[]string{"watch-orders", "shop.v1.Shop/WatchOrders", "ST-SUP-Q82"}},
 			"a stream that does not declare the read permission": {func(c *gen.Context) { c.Queries[index(*c, "watch-orders")].Permission = "browse" },
 				[]string{"watch-orders", "browse", "view"}},
 			"an entity with no resource type while authorization is bound": {func(c *gen.Context) {

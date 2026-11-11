@@ -78,6 +78,7 @@
 {"id":"ST-DECL-INV69-RL","title":"declaration.validateWorkerAuthorization","invariant_id":"ST-DECL-INV69","file":"internal/declaration/authz_operations.go"}
 {"id":"ST-DECL-INV70-RL","title":"declaration.validateWorkerEffects","invariant_id":"ST-DECL-INV70","file":"internal/declaration/worker.go"}
 {"id":"ST-DECL-INV71-RL","title":"declaration.validateWorkerMode","invariant_id":"ST-DECL-INV71","file":"internal/declaration/worker.go"}
+{"id":"ST-DECL-INV73-RL","title":"declaration.validateGRPCMethods","invariant_id":"ST-DECL-INV73","file":"internal/declaration/grpc.go"}
 {"id":"ST-DECL-INV74-RL","title":"declaration.validateWorkerLease","invariant_id":"ST-DECL-INV74","file":"internal/declaration/worker.go"}
 {"id":"ST-DECL-INV76-RL","title":"declaration.validateWorkerCycles","invariant_id":"ST-DECL-INV76","file":"internal/declaration/worker.go"}
 {"id":"ST-DECL-INV79-RL","title":"declaration.validateWorkerCount","invariant_id":"ST-DECL-INV79","file":"internal/declaration/worker.go"}
