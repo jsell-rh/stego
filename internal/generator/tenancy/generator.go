@@ -51,6 +51,29 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	if runtime == owner {
 		return fmt.Errorf("the runtime role and the owner role are both %q; they must differ, so the runtime role owns nothing", runtime)
 	}
+	return checkPrefix(strings.TrimSuffix(runtime, "_runtime"))
+}
+
+// roleSuffixes are the endings that the role names of a service add to its role prefix.
+var roleSuffixes = []string{"_runtime", "_owner", "_worker", "_relay", "_idempotency_purge", "_outbox_relay"}
+
+// checkPrefix refuses a role prefix with which a role name of this service can be a role name of another service in
+// the same cluster: when one suffix ends with another, such as _outbox_relay with _relay, a prefix that ends with the
+// part before it, _outbox, gives the relay role shop_outbox_relay, which is the outbox relay role of the prefix shop
+// (ST-SUP-RC27-OC04). Decided by the orchestrator under the Product owner's delegation, 2026-11-11 (ST-SUP-Q107, a).
+func checkPrefix(prefix string) error {
+	for _, long := range roleSuffixes {
+		for _, short := range roleSuffixes {
+			if long == short || !strings.HasSuffix(long, short) {
+				continue
+			}
+			part := strings.TrimSuffix(long, short)
+			if strings.HasSuffix(prefix, part) {
+				return fmt.Errorf("the role prefix %q ends with %s, so its role %s%s is the role %s%s of the prefix %q of another service; set a runtime_role whose prefix does not end with %s",
+					prefix, part, prefix, short, strings.TrimSuffix(prefix, part), long, strings.TrimSuffix(prefix, part), part)
+			}
+		}
+	}
 	return nil
 }
 

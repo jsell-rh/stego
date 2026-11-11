@@ -72,6 +72,34 @@ func golden(t *testing.T, name, got string) {
 }
 
 func TestGenerator(t *testing.T) {
+	t.Run("ST-SUP-RC27-OC04-T09 A role prefix whose role names can be another service's role names is refused", func(t *testing.T) {
+		_, ctx := contexts()
+		// The service name shop-outbox gives the prefix shop_outbox, whose relay role shop_outbox_relay is the outbox
+		// relay role of the prefix shop; a runtime_role setting gives the same prefix.
+		named := ctx
+		named.ServiceName = "shop-outbox"
+		set := ctx
+		set.ComponentConfig = map[string]any{"runtime_role": "shop_outbox_runtime", "owner_role": "shop_owner"}
+		bare := ctx
+		bare.ComponentConfig = map[string]any{"runtime_role": "shop_outbox", "owner_role": "shop_owner"}
+		for name, c := range map[string]gen.Context{"service name": named, "runtime_role": set, "runtime_role without _runtime": bare} {
+			if err := new(Generator).ValidateContext(c); err == nil || !strings.Contains(err.Error(), "shop_outbox_relay") || !strings.Contains(err.Error(), `"shop"`) {
+				t.Errorf("the prefix shop_outbox from the %s is not refused with the clash it names: %v", name, err)
+			}
+			if _, _, err := new(Generator).Generate(c); err == nil {
+				t.Errorf("Generate takes the prefix shop_outbox from the %s", name)
+			}
+		}
+		// A prefix that only holds outbox, not at its end, is taken, and so are the prefixes of the other services.
+		for _, runtime := range []string{"outbox_shop_runtime", "shop_outboxes_runtime", "shop_runtime", "outbox_runtime"} {
+			c := ctx
+			c.ComponentConfig = map[string]any{"runtime_role": runtime, "owner_role": "x_owner"}
+			if err := new(Generator).ValidateContext(c); err != nil {
+				t.Errorf("the runtime role %s is refused: %v", runtime, err)
+			}
+		}
+	})
+
 	t.Run("ST-SUP-RC27-OC03-T04 The row-level security migration of the declaration is its golden text", func(t *testing.T) {
 		_, ctx := contexts()
 		files, _, err := new(Generator).Generate(ctx)
