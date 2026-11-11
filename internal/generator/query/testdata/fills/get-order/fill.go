@@ -31,9 +31,13 @@ func Fill(ctx context.Context, req queries.GetOrderRequest, h *queries.GetOrderH
 	if err != nil {
 		return nil, err
 	}
-	// An order whose status is lost is the declared refusal order_unknown.
-	if order.Value().Status == "lost" {
+	// An order whose status is lost is the declared refusal order_unknown, and one whose status is broken an error
+	// whose text is private (ST-SUP-RC33-OC07).
+	switch order.Value().Status {
+	case "lost":
 		return nil, queries.GetOrderOrderUnknown()
+	case "broken":
+		return nil, errors.New("the fill failed for a@example.com in select 1")
 	}
 	return order.Value(), nil
 }

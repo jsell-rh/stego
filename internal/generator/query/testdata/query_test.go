@@ -49,6 +49,7 @@ import (
 	"github.com/jsell-rh/stego/registry/runtime/authn"
 	"github.com/jsell-rh/stego/registry/runtime/authn/authntest"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/otel"
 	"github.com/jsell-rh/stego/registry/runtime/outbox"
 	"github.com/jsell-rh/stego/registry/runtime/probe"
 	"github.com/jsell-rh/stego/registry/runtime/query"
@@ -215,12 +216,15 @@ func (bearer) RequireTransportSecurity() bool { return false }
 
 // shop is the running test service.
 type shop struct {
-	url   string
-	admin *sql.DB
-	wire  *wire
-	rec   *decisions
-	key   *authntest.Key
-	perms v1.PermissionsServiceClient
+	// codes holds the code of the completion log of each request, in order.
+	codesMu sync.Mutex
+	codes   []string
+	url     string
+	admin   *sql.DB
+	wire    *wire
+	rec     *decisions
+	key     *authntest.Key
+	perms   v1.PermissionsServiceClient
 }
 
 func randomHex(t *testing.T, n int) string {
@@ -443,7 +447,16 @@ func start(t *testing.T) *shop {
 			_ = encoder.Encode(map[string]string{"error": "the stream failed"})
 		}
 	})))
-	server := httptest.NewServer(mux)
+	// The completion log of each request gets its fixed code through the context, as the telemetry runtime's request
+	// wrapper gives it (ST-SUP-RP03-LC12).
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := otel.WithErrorCode(r.Context())
+		mux.ServeHTTP(w, r.WithContext(ctx))
+		code, _ := otel.ErrorCode(ctx)
+		s.codesMu.Lock()
+		s.codes = append(s.codes, code)
+		s.codesMu.Unlock()
+	}))
 	t.Cleanup(server.Close)
 	s.url = server.URL + "/api/shop/v1"
 	s.wire.take()
@@ -707,10 +720,62 @@ func TestService(t *testing.T) {
 		if _, err := s.admin.ExecContext(context.Background(), `UPDATE orders SET status = 'lost' WHERE id = $1::uuid`, o3); err != nil {
 			t.Fatal(err)
 		}
-		defer func() { _, _ = s.admin.ExecContext(context.Background(), `UPDATE orders SET status = 'paid' WHERE id = $1::uuid`, o3) }()
+		defer func() {
+			_, _ = s.admin.ExecContext(context.Background(), `UPDATE orders SET status = 'paid' WHERE id = $1::uuid`, o3)
+		}()
 		status, body := s.get(t, user, "/orders/"+o3)
 		if status != http.StatusNotFound || !bytes.Contains(body, []byte(`"code":"order.unknown"`)) {
 			t.Fatalf("the refusal order_unknown answered %d %s, want 404 with the code order.unknown", status, body)
+		}
+	})
+
+	t.Run("ST-SUP-RC33-OC07-T01 A query fill's error text reaches no response, audit row or completion log", func(t *testing.T) {
+		lastCode := func() string {
+			s.codesMu.Lock()
+			defer s.codesMu.Unlock()
+			return s.codes[len(s.codes)-1]
+		}
+		var auditBefore int
+		if err := s.admin.QueryRow("SELECT count(*) FROM audit_event").Scan(&auditBefore); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			_, _ = s.admin.ExecContext(context.Background(), `UPDATE orders SET status = 'paid' WHERE id = $1::uuid`, o3)
+		}()
+		// The fill returns an error whose text holds an email and SQL text: 500 with the code internal only.
+		if _, err := s.admin.ExecContext(context.Background(), `UPDATE orders SET status = 'broken' WHERE id = $1::uuid`, o3); err != nil {
+			t.Fatal(err)
+		}
+		status, body := s.get(t, user, "/orders/"+o3)
+		if status != http.StatusInternalServerError || !bytes.Contains(body, []byte(`"code":"internal"`)) || lastCode() != "internal" {
+			t.Fatalf("the failed fill answered %d %s with the log code %q, want 500 and the code internal in both", status, body, lastCode())
+		}
+		for _, private := range []string{"a@example.com", "select 1"} {
+			if bytes.Contains(body, []byte(private)) || strings.Contains(lastCode(), private) {
+				t.Fatalf("the answer %s or the log code %q holds %q", body, lastCode(), private)
+			}
+		}
+		// The declared refusal: 404 with the code order.unknown in the answer and the completion log.
+		if _, err := s.admin.ExecContext(context.Background(), `UPDATE orders SET status = 'lost' WHERE id = $1::uuid`, o3); err != nil {
+			t.Fatal(err)
+		}
+		status, body = s.get(t, user, "/orders/"+o3)
+		if status != http.StatusNotFound || !bytes.Contains(body, []byte(`"code":"order.unknown"`)) || lastCode() != "order.unknown" {
+			t.Fatalf("the refusal order_unknown answered %d %s with the log code %q, want 404 and the code order.unknown in both", status, body, lastCode())
+		}
+		// The read audit rows stay as the reads were: no row takes the code of the outcome, and none holds the
+		// private text (ST-SUP-Q95, option (a)).
+		var rows int
+		if err := s.admin.QueryRow(`SELECT count(*) FROM audit_event WHERE error_code IN ('internal', 'order.unknown')
+ OR to_jsonb(audit_event)::text LIKE '%a@example.com%' OR to_jsonb(audit_event)::text LIKE '%select 1%'`).Scan(&rows); err != nil {
+			t.Fatal(err)
+		}
+		var auditAfter int
+		if err := s.admin.QueryRow("SELECT count(*) FROM audit_event").Scan(&auditAfter); err != nil {
+			t.Fatal(err)
+		}
+		if rows != 0 || auditAfter != auditBefore {
+			t.Fatalf("%d audit rows hold the outcome code or the private text, and the queries wrote %d audit rows of an entity with no pii field, want none", rows, auditAfter-auditBefore)
 		}
 	})
 
