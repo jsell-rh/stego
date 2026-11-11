@@ -11,6 +11,7 @@ import (
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
 	"github.com/jsell-rh/stego/registry/runtime/idempotency"
+	"github.com/jsell-rh/stego/registry/runtime/lease"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
@@ -90,7 +91,8 @@ var stepped func(step string, conn *sql.Conn)
 // connection configuration, and runs, as the owner role and in this order: the read-only ledger check, which
 // refuses a database whose tables this release did not make and writes nothing; WriteSchema, which SpiceDB refuses
 // for a schema that removes what has relationships, so a refused schema leaves the database as it was; the ledger of
-// the adapter; the outbox, audit, idempotency and authorization migrations, each in one transaction; the grants of
+// the adapter; the outbox, audit, idempotency and authorization migrations, each in one transaction, the audit step
+// with the lease table and the row of the controller lease (ControllerLease); the grants of
 // the runtime role; the audit partitions of this month and the next; and WriteSchema again, so the release ends on
 // its own schema. It stops at the first step that fails, with a StepError that names the step. Each step runs again
 // on a database that it made, so the job runs on every release.
@@ -153,7 +155,7 @@ func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
 	}
 	texts := []struct{ name, text string }{
 		{StepOutboxQueue, m.Outbox},
-		{StepAuditTables, m.Audit},
+		{StepAuditTables, m.Audit + ";\n" + controllerLease(m.RuntimeRole)},
 		{StepIdempotencyKeys, idempotency.Migration},
 		{StepAuthorizationTables, m.Authorization},
 		{StepRuntimeGrants, granted(m.Grants, m.RuntimeRole)},
@@ -172,6 +174,14 @@ func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
 		return err
 	}
 	return step(StepSchemaAgain, func() error { return m.WriteSchema(ctx, spice) })
+}
+
+// controllerLease gives the statements of the lease table and the row of the controller lease, under which the audit
+// jobs run (ST-SUP-RP14-LC04), with SELECT and UPDATE on the table for the runtime role, the role of the lease
+// client; the table belongs to no tenant. Each statement runs again with no error on a database that it made.
+func controllerLease(runtimeRole string) string {
+	return lease.LeasesTable + ";\nINSERT INTO leases (name) VALUES ('" + ControllerLease + "') ON CONFLICT (name) DO NOTHING;\n" +
+		"GRANT SELECT, UPDATE ON TABLE leases TO " + quote(runtimeRole) + ";\n"
 }
 
 // granted gives the statements of the grants to the runtime role.
