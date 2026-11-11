@@ -1,15 +1,14 @@
 kind: component
 name: oidc-auth
 version: 0.1.0
-stage: alpha
-sunset: 2027-04-30
+stage: ga
 output_namespace: internal/auth
 
 # Sign-in with any OpenID Connect provider on the runtime data path (ST-SUP-RC37). The verifier of the runtime
 # library finds the key set of the issuer through its discovery document and verifies each token; the component
-# emits no code of its own. This declaration waits on ST-SUP-Q99 before it moves to registry/components: an alpha
-# component must not provide the port auth-provider, which the ga jwt-auth and rh-sso-auth provide (ST-SUP-INV03).
-# The tests stage it as ga in their copy of the registry.
+# emits no code of its own. It enters at ga (ST-SUP-Q99, Product owner, 2026-11-11), so it provides the port
+# auth-provider beside the ga jwt-auth and rh-sso-auth (ST-SUP-INV03).
+
 config:
   issuer:
     type: string
