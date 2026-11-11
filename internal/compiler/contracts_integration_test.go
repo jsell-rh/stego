@@ -42,6 +42,7 @@ func Create(ctx context.Context, store storage.Transactor, value any, event stor
 `
 
 func TestSharedStorageDomainAndHTTP(t *testing.T) {
+	t.Parallel()
 	dsn, required := os.Getenv("STEGO_TEST_POSTGRES_DSN"), os.Getenv("STEGO_REQUIRE_POSTGRES")
 	if required == "1" && dsn == "" {
 		t.Fatal("PostgreSQL integration tests require STEGO_TEST_POSTGRES_DSN")
@@ -125,6 +126,7 @@ func TestSharedStorageDomainAndHTTP(t *testing.T) {
 }
 
 func TestGeneratedHealth(t *testing.T) {
+	t.Parallel()
 	runtimeTests := generatorTestdata(t, "healthcheck", "health_test.go")
 	serviceTests := generatorTestdata(t, "healthcheck", "service_test.go")
 	ctx := gen.Context{ModuleName: "example.com/probes", OutputNamespace: "health"}
@@ -165,19 +167,55 @@ func NewHandler()http.Handler{return http.HandlerFunc(func(w http.ResponseWriter
 	}
 }
 
-func TestGeneratedApplicationEndpoint(t *testing.T) { testGeneratedApplicationEndpoint(t, "") }
+func TestGeneratedApplicationEndpoint(t *testing.T) {
+	t.Parallel()
+	testGeneratedApplicationEndpoint(t, "")
+}
 
 func TestGeneratedAcceptedDeletionEndpoint(t *testing.T) {
+	t.Parallel()
 	testGeneratedApplicationEndpoint(t, "^Test(NoContentEndpoint|DynamicReplyPreservesStatusAndBodyRules)$")
 }
 
 func TestGeneratedHTTPSPeerCertificatePin(t *testing.T) {
+	t.Parallel()
 	testGeneratedApplicationEndpoint(t, "^TestHTTPSPeerCertificatePin$")
 }
 
+// httpApplicationFixture is the generated HTTP application project that the tests of the HTTP application share.
+var httpApplicationFixture compiler.SharedFixture
+
+// testGeneratedApplicationEndpoint runs the tests of the generated HTTP application project, or the ones that match
+// the pattern.
 func testGeneratedApplicationEndpoint(t *testing.T, pattern string) {
+	t.Helper()
+	project := httpApplicationFixture.Dir(t, makeHTTPApplication)
+	args := []string{"test", "-race", "-mod=readonly", "-count=1", "-timeout=30s", "./..."}
+	if pattern != "" {
+		args = append(args, "-run="+pattern)
+	}
+	command := exec.Command("go", args...)
+	command.Dir = project
+	command.Env = append(os.Environ(), "GOWORK=off")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("generated HTTP application: %v\n%s", err, output)
+	}
+	if os.Getenv("STEGO_BENCH_PROJECTION") == "1" {
+		command := exec.Command("go", "test", "-run=^$", "-bench=^BenchmarkProjectionPage$", "-benchtime=200ms", "-count=3", "./sample")
+		command.Dir = project
+		command.Env = append(os.Environ(), "GOWORK=off")
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("projection benchmark: %v\n%s", err, output)
+		}
+		t.Logf("projection benchmark:\n%s", output)
+	}
+}
+
+// makeHTTPApplication generates the HTTP application project into the folder given and tidies it.
+func makeHTTPApplication(t *testing.T, project string) {
+	t.Helper()
 	ctx := gen.Context{ModuleName: "example.com/http-test", OutDirName: "out", StorageContract: "example.com/http-test/out/contracts/storage", AuthPackage: "example.com/http-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "postgres-adapter": "store", "http-application": "application"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "title", Type: types.FieldTypeString}}}}}
-	project := t.TempDir()
 	var files []gen.File
 	var wirings []compiler.ComponentWiring
 	for _, item := range []struct {
@@ -234,26 +272,11 @@ func testGeneratedApplicationEndpoint(t *testing.T, pattern string) {
 	if err := os.WriteFile(filepath.Join(project, "out", "application", "client", "completion_test.go"), completionTest, 0644); err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{{"mod", "tidy"}, {"test", "-race", "-mod=readonly", "-timeout=30s", "./..."}} {
-		if args[0] == "test" && pattern != "" {
-			args = append(args, "-run="+pattern)
-		}
-		command := exec.Command("go", args...)
-		command.Dir = project
-		command.Env = append(os.Environ(), "GOWORK=off")
-		if output, err := command.CombinedOutput(); err != nil {
-			t.Fatalf("generated HTTP application: %v\n%s", err, output)
-		}
-	}
-	if os.Getenv("STEGO_BENCH_PROJECTION") == "1" {
-		command := exec.Command("go", "test", "-run=^$", "-bench=^BenchmarkProjectionPage$", "-benchtime=200ms", "-count=3", "./sample")
-		command.Dir = project
-		command.Env = append(os.Environ(), "GOWORK=off")
-		output, err := command.CombinedOutput()
-		if err != nil {
-			t.Fatalf("projection benchmark: %v\n%s", err, output)
-		}
-		t.Logf("projection benchmark:\n%s", output)
+	command := exec.Command("go", "mod", "tidy")
+	command.Dir = project
+	command.Env = append(os.Environ(), "GOWORK=off")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("generated HTTP application: %v\n%s", err, output)
 	}
 }
 
@@ -276,33 +299,66 @@ func TestApplicationRequiresVerifierProducer(t *testing.T) {
 }
 
 func TestGeneratedGRPCApplication(t *testing.T) {
+	t.Parallel()
 	for _, watch := range []bool{false, true} {
-		t.Run(fmt.Sprint(watch), func(t *testing.T) { testGeneratedGRPCApplication(t, watch) })
+		t.Run(fmt.Sprint(watch), func(t *testing.T) {
+			t.Parallel()
+			testGeneratedGRPCApplication(t, watch)
+		})
 	}
 }
 
 func TestGeneratedStreamCompletion(t *testing.T) {
+	t.Parallel()
 	for _, telemetry := range []bool{false, true} {
 		t.Run(fmt.Sprint(telemetry), func(t *testing.T) {
+			t.Parallel()
 			testGeneratedGRPCApplication(t, telemetry, "^(TestBoundedStreamTerminalObservation|TestGeneratedClientTracesCompleteCallsAndStreams)$")
 		})
 	}
 }
 
 func TestGeneratedAuthorityRejection(t *testing.T) {
+	t.Parallel()
 	testGeneratedGRPCApplication(t, false, "^TestRuntime$")
 }
 
 func TestGeneratedTLSProbe(t *testing.T) {
+	t.Parallel()
 	testGeneratedGRPCApplication(t, false, "^TestTLSProbe$")
 }
 
+// grpcApplicationFixtures are the generated gRPC application projects, without and with telemetry, that the tests
+// of the gRPC application share.
+var grpcApplicationFixtures [2]compiler.SharedFixture
+
+// testGeneratedGRPCApplication runs the tests of the generated gRPC application project, or only the selected ones.
 func testGeneratedGRPCApplication(t *testing.T, watch bool, selected ...string) {
+	t.Helper()
+	fixture := &grpcApplicationFixtures[0]
+	if watch {
+		fixture = &grpcApplicationFixtures[1]
+	}
+	project := fixture.Dir(t, func(t *testing.T, project string) { makeGRPCApplication(t, project, watch) })
+	args := []string{"test", "-race", "-mod=readonly", "-count=1", "-timeout=30s", "./..."}
+	if len(selected) != 0 {
+		args = append(args[:len(args)-1], "-run", selected[0], "./...")
+	}
+	cmd := exec.Command("go", args...)
+	cmd.Dir = project
+	cmd.Env = append(os.Environ(), "GOWORK=off")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("generated gRPC application: %v\n%s", err, output)
+	}
+}
+
+// makeGRPCApplication generates the gRPC application project into the folder given, and tidies and vets it.
+func makeGRPCApplication(t *testing.T, project string, watch bool) {
+	t.Helper()
 	ctx := gen.Context{ServiceName: "records", ModuleName: "example.com/grpc-test", OutDirName: "out", EventsContract: "example.com/grpc-test/out/contracts/events", StorageContract: "example.com/grpc-test/out/contracts/storage", AuthPackage: "example.com/grpc-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "postgres-adapter": "store", "grpc-application": "grpcapi", "outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "title", Type: types.FieldTypeString}}}}, Inputs: map[string][]byte{"api/records.proto": []byte(grpcSchema)}}
 	if watch {
 		ctx.PeerNamespaces["otel-tracing"] = "telemetry"
 	}
-	project := t.TempDir()
 	var files []gen.File
 	var wirings []compiler.ComponentWiring
 	for _, item := range []struct {
@@ -365,10 +421,7 @@ func testGeneratedGRPCApplication(t *testing.T, watch bool, selected ...string) 
 			t.Fatal(err)
 		}
 	}
-	for _, args := range [][]string{{"mod", "tidy", "-go=" + new(grpcapplication.Generator).MinimumGoVersion()}, {"vet", "-mod=readonly", "./..."}, {"test", "-race", "-mod=readonly", "-timeout=30s", "./..."}} {
-		if len(selected) != 0 && args[0] == "test" {
-			args = append(args[:len(args)-1], "-run", selected[0], "./...")
-		}
+	for _, args := range [][]string{{"mod", "tidy", "-go=" + new(grpcapplication.Generator).MinimumGoVersion()}, {"vet", "-mod=readonly", "./..."}} {
 		cmd := exec.Command("go", args...)
 		cmd.Dir = project
 		cmd.Env = append(os.Environ(), "GOWORK=off")
@@ -379,18 +432,47 @@ func testGeneratedGRPCApplication(t *testing.T, watch bool, selected ...string) 
 }
 
 func TestGeneratedGRPCProcesses(t *testing.T) {
+	t.Parallel()
 	testGeneratedGRPCProcesses(t, "")
 }
 
 func TestGeneratedGRPCProcessLifecycleTelemetry(t *testing.T) {
+	t.Parallel()
 	testGeneratedGRPCProcesses(t, "^TestGeneratedProcess(Startup|Cleanup)Telemetry$")
 }
 
+// grpcProcessesFixture is the generated RPC process project that the tests of the RPC processes share.
+var grpcProcessesFixture compiler.SharedFixture
+
+// testGeneratedGRPCProcesses vets the generated RPC process project and runs all its tests with the race detector,
+// or runs only the selected tests of its integration package.
 func testGeneratedGRPCProcesses(t *testing.T, selected string) {
+	t.Helper()
+	project := grpcProcessesFixture.Dir(t, makeGRPCProcesses)
+	commands := [][]string{{"vet", "-mod=readonly", "./..."}, {"test", "-v", "-race", "-mod=readonly", "-count=1", "-timeout=3m", "./..."}}
+	if selected != "" {
+		commands = [][]string{{"test", "-v", "-p=1", "-mod=readonly", "-count=1", "-timeout=45s", "-run", selected, "./integration"}}
+	}
+	for _, args := range commands {
+		command := exec.Command("go", args...)
+		command.Dir = project
+		command.Env = append(os.Environ(), "GOWORK=off")
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("generated RPC process: %v\n%s", err, output)
+		}
+		if args[0] == "test" {
+			t.Log(string(output))
+		}
+	}
+}
+
+// makeGRPCProcesses generates the RPC process project into the folder given and tidies it.
+func makeGRPCProcesses(t *testing.T, project string) {
+	t.Helper()
 	ctx := grpcProcessContext(t)
 	ctx.StorageContract = ""
 	delete(ctx.ComponentConfig, "factory_package")
-	project := t.TempDir()
 	var wirings []compiler.ComponentWiring
 	write := func(name string, data []byte) {
 		t.Helper()
@@ -442,21 +524,11 @@ func testGeneratedGRPCProcesses(t *testing.T, selected string) {
 		}
 		write(target, data)
 	}
-	commands := [][]string{{"mod", "tidy"}, {"vet", "-mod=readonly", "./..."}, {"test", "-v", "-race", "-mod=readonly", "-count=1", "-timeout=3m", "./..."}}
-	if selected != "" {
-		commands = [][]string{{"mod", "tidy"}, {"test", "-v", "-p=1", "-mod=readonly", "-count=1", "-timeout=45s", "-run", selected, "./integration"}}
-	}
-	for _, args := range commands {
-		command := exec.Command("go", args...)
-		command.Dir = project
-		command.Env = append(os.Environ(), "GOWORK=off")
-		output, err := command.CombinedOutput()
-		if err != nil {
-			t.Fatalf("generated RPC process: %v\n%s", err, output)
-		}
-		if args[0] == "test" {
-			t.Log(string(output))
-		}
+	command := exec.Command("go", "mod", "tidy")
+	command.Dir = project
+	command.Env = append(os.Environ(), "GOWORK=off")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("generated RPC process: %v\n%s", err, output)
 	}
 }
 

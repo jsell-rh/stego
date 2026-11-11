@@ -42,12 +42,14 @@ func (*Context) Run(ctx context.Context) error {
 `
 
 func TestGeneratedBackgroundLifecycle(t *testing.T) {
+	t.Parallel()
 	for _, withHTTP := range []bool{false, true} {
 		name := "worker-only"
 		if withHTTP {
 			name = "http-and-workers"
 		}
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			wiring := &gen.Wiring{
 				Imports:               []string{"internal/tasks"},
 				Constructors:          []string{"tasks.NewResource()", "tasks.NewWorker(resource)", "tasks.NewContext(resource)"},

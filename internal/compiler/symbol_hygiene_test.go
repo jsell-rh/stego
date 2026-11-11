@@ -20,6 +20,7 @@ import (
 // Import paths can end in a predeclared Go name. Such an import must not
 // change the meaning of error, nil, make, or other names in generated startup.
 func TestGeneratedImportsPreserveLanguageAndStartupNames(t *testing.T) {
+	t.Parallel()
 	project := t.TempDir()
 	const module = "example.com/symbolcheck"
 	input := AssemblerInput{ModuleName: module, ServiceName: "symbols", GoVersion: "1.22", OutDirName: "out"}

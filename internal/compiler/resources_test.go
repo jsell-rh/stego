@@ -11,6 +11,7 @@ import (
 )
 
 func TestResourceArgumentsUseTheSelectedDatabase(t *testing.T) {
+	t.Parallel()
 	dsn := os.Getenv("STEGO_TEST_POSTGRES_DSN")
 	if dsn == "" {
 		if os.Getenv("STEGO_REQUIRE_POSTGRES") == "1" {

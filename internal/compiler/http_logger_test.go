@@ -26,6 +26,7 @@ func TestHTTPLoggerSelectionMustBeUnambiguous(t *testing.T) {
 }
 
 func TestHTTPLoggerConsumesItsConstructorAndUsesItsName(t *testing.T) {
+	t.Parallel()
 	index := 0
 	for _, routes := range []bool{false, true} {
 		for _, tasks := range []bool{false, true} {

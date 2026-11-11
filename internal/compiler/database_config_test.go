@@ -12,6 +12,7 @@ import (
 var databaseConfigTests []byte
 
 func TestGeneratedDatabaseConfiguration(t *testing.T) {
+	t.Parallel()
 	project := t.TempDir()
 	files := map[string][]byte{
 		"go.mod":         []byte("module example.com/databaseconfig\ngo 1.26.11\n"),
