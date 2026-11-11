@@ -1,6 +1,7 @@
 package auditsink
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/ecdsa"
@@ -227,7 +228,7 @@ func records(req *collogs.ExportLogsServiceRequest) []*logs.LogRecord {
 }
 
 func TestHTTPSSink(t *testing.T) {
-	// HTTPS_PROXY names a listener that counts its connections, set before the first send, because the proxy
+	// HTTPS_PROXY names a listener that counts its tunnels to the sink's host, set before the first send, because the proxy
 	// settings of the environment are read once in a process. A loopback host is never sent through a proxy.
 	proxy, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -241,8 +242,15 @@ func TestHTTPSSink(t *testing.T) {
 			if err != nil {
 				return
 			}
-			proxied.Add(1)
-			_ = conn.Close()
+			// Only a tunnel to the host of the sink counts: another process of the machine may connect to the port.
+			go func(conn net.Conn) {
+				defer conn.Close()
+				_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+				line, _ := bufio.NewReader(conn).ReadString('\n')
+				if strings.Contains(line, "audit-sink.test") {
+					proxied.Add(1)
+				}
+			}(conn)
 		}
 	}()
 	t.Setenv("HTTPS_PROXY", "http://"+proxy.Addr().String())
