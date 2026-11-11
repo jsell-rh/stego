@@ -22,8 +22,6 @@ import (
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/sumdb/dirhash"
 	modzip "golang.org/x/mod/zip"
-
-	"github.com/jsell-rh/stego/internal/registry"
 )
 
 // ModuleCacheRecord describes the download cache produced by Download. The
@@ -63,6 +61,13 @@ const ProxySource = "https://proxy.golang.org"
 // revision: the folder of the runtime library's module path in STEGO's own
 // repository.
 const RuntimeFolder = "registry/runtime"
+
+// RuntimeModule is the module path of the runtime library, the path that
+// Supplying gives it (RuntimeModule). Building may not import
+// Supplying (ST-STD-CODE-R03), so the path is stated here again; the system
+// tests of ST-BLD-UC02-R05 build their fixture from RuntimeModule,
+// so a difference fails them.
+const RuntimeModule = "github.com/jsell-rh/stego/registry/runtime"
 
 // maxGoModBytes limits a go.mod file that STEGO reads.
 const maxGoModBytes = 1 << 20
@@ -307,7 +312,7 @@ func runtimePin(name string) (*moduleVersion, error) {
 		return nil, fmt.Errorf("the module requirements %s do not parse: %w", filepath.Base(name), err)
 	}
 	for _, require := range file.Require {
-		if require.Mod.Path == registry.RuntimeModule {
+		if require.Mod.Path == RuntimeModule {
 			return &moduleVersion{require.Mod.Path, require.Mod.Version}, nil
 		}
 	}
@@ -614,7 +619,7 @@ func validateModuleCacheRecord(record *ModuleCacheRecord) error {
 		if module.Check(cached.Path, cached.Version) != nil || !validModuleSum(cached.Sum) {
 			return fmt.Errorf("module cache record lists an invalid module %s %s", cached.Path, cached.Version)
 		}
-		if cached.Source != ProxySource && (cached.Source != RuntimeFolderSource || cached.Path != registry.RuntimeModule) {
+		if cached.Source != ProxySource && (cached.Source != RuntimeFolderSource || cached.Path != RuntimeModule) {
 			return fmt.Errorf("module cache record names the source %q for %s %s; only the runtime library can come from %s", cached.Source, cached.Path, cached.Version, RuntimeFolder)
 		}
 		if index > 0 {

@@ -13,8 +13,6 @@ import (
 	"runtime/debug"
 	"sort"
 	"strconv"
-
-	"github.com/jsell-rh/stego/internal/registry"
 )
 
 var hashPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -225,7 +223,7 @@ func validateModule(module Module, replacement bool) error {
 	}
 	// Only the runtime library, as a remote module that nothing replaces, can
 	// come from the runtime folder of the source revision (ST-BLD-UC02-R05).
-	if module.Source != "" && (module.Source != RuntimeFolderSource || module.Path != registry.RuntimeModule || replacement || module.Replacement != nil || module.LocalPath != "") {
+	if module.Source != "" && (module.Source != RuntimeFolderSource || module.Path != RuntimeModule || replacement || module.Replacement != nil || module.LocalPath != "") {
 		return errors.New("invalid module source")
 	}
 	if module.Replacement != nil {

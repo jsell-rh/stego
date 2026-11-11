@@ -3,14 +3,15 @@ package appbuild
 import (
 	"archive/zip"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"golang.org/x/mod/module"
 	"golang.org/x/mod/sumdb/dirhash"
-
-	"github.com/jsell-rh/stego/internal/registry"
+	modzip "golang.org/x/mod/zip"
 )
 
 // putModuleZip writes a module zip into a download cache and returns its
@@ -113,23 +114,40 @@ func TestReadSumsKeepsZipHashesOnly(t *testing.T) {
 }
 
 // runtimeFixture writes a small runtime library folder and gives the go.sum
-// hashes of its zip and of its go.mod at version, as stego deps computes
-// them (registry.WriteRuntimeArchive).
+// hashes of its zip and of its go.mod at version, as the go command and
+// stego deps compute them.
 func runtimeFixture(t *testing.T, folder, version string) (string, string) {
 	t.Helper()
-	put(t, folder, "go.mod", "module "+registry.RuntimeModule+"\n\ngo 1.26\n")
+	put(t, folder, "go.mod", "module "+RuntimeModule+"\n\ngo 1.26\n")
 	put(t, folder, "LICENSE", "license\n")
 	put(t, filepath.Join(folder, "probe"), "probe.go", "package probe\n\n// Ready is true.\nconst Ready = true\n")
-	archive, err := registry.WriteRuntimeArchive(folder, registry.RuntimeModule, version, filepath.Join(t.TempDir(), "runtime.zip"))
+	zipPath := filepath.Join(t.TempDir(), "runtime.zip")
+	file, err := os.Create(zipPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return archive.Sum, archive.ModSum
+	if err := modzip.CreateFromDir(file, module.Version{Path: RuntimeModule, Version: version}, folder); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	sum, err := dirhash.HashZip(zipPath, dirhash.Hash1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	modSum, err := dirhash.Hash1([]string{"go.mod"}, func(string) (io.ReadCloser, error) {
+		return os.Open(filepath.Join(folder, "go.mod"))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sum, modSum
 }
 
 func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 	const version = "v0.99.0"
-	pin := &moduleVersion{registry.RuntimeModule, version}
+	pin := &moduleVersion{RuntimeModule, version}
 	t.Run("ST-BLD-UC02-R05-T05 A runtime folder that hashes to the pin is staged in the proxy layout, and no folder or no pin stages nothing", func(t *testing.T) {
 		folder := filepath.Join(t.TempDir(), "runtime")
 		sum, modSum := runtimeFixture(t, folder, version)
@@ -144,7 +162,7 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 			t.Fatalf("the served zip hashes to %s, expected %s: %v", found, sum, err)
 		}
 		mod, err := os.ReadFile(filepath.Join(versions, version+".mod"))
-		if err != nil || string(mod) != "module "+registry.RuntimeModule+"\n\ngo 1.26\n" {
+		if err != nil || string(mod) != "module "+RuntimeModule+"\n\ngo 1.26\n" {
 			t.Fatalf("the served go.mod is %q: %v", mod, err)
 		}
 		if served, err := stageRuntimeFolder(folder, nil, nil, nil, filepath.Join(t.TempDir(), "proxy"), t.TempDir()); served != nil || err != nil {
@@ -164,7 +182,7 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 			if err == nil || served != nil {
 				t.Fatalf("a folder whose %s differs from go.sum was served", name)
 			}
-			for _, part := range []string{registry.RuntimeModule + " " + version, wrong} {
+			for _, part := range []string{RuntimeModule + " " + version, wrong} {
 				if !strings.Contains(err.Error(), part) {
 					t.Errorf("the refusal of a %s that differs does not name %s: %v", name, part, err)
 				}
@@ -206,7 +224,7 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 	t.Run("ST-BLD-UC02-R05-T07 The cache record and the build record name the runtime folder as the source of the pin only", func(t *testing.T) {
 		sum := "h1:" + strings.Repeat("A", 43) + "="
 		record := ModuleCacheRecord{Format: moduleCacheFormat, SourceRevision: strings.Repeat("a", 40), Module: ".", Target: "cmd", GoVersion: GoVersion, GitSHA256: strings.Repeat("b", 64), DownloadCache: Inventory{strings.Repeat("c", 64), 4, 100}, DependencyProxy: ProxySource,
-			Modules: []CachedModule{{registry.RuntimeModule, version, sum, RuntimeFolderSource}, {"golang.org/x/text", "v0.1.0", sum, ProxySource}}}
+			Modules: []CachedModule{{RuntimeModule, version, sum, RuntimeFolderSource}, {"golang.org/x/text", "v0.1.0", sum, ProxySource}}}
 		if err := validateModuleCacheRecord(&record); err != nil {
 			t.Fatal(err)
 		}
@@ -215,7 +233,7 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 		if err := validateModuleCacheRecord(&changed); err == nil {
 			t.Fatal("a cache record that names the runtime folder as the source of another module was accepted")
 		}
-		modules := []Module{{Path: registry.RuntimeModule, Version: version, Sum: sum, GoModSum: sum}, {Path: "golang.org/x/text", Version: "v0.1.0", Sum: sum, GoModSum: sum}, {Path: "example.test/main", LocalPath: "."}}
+		modules := []Module{{Path: RuntimeModule, Version: version, Sum: sum, GoModSum: sum}, {Path: "golang.org/x/text", Version: "v0.1.0", Sum: sum, GoModSum: sum}, {Path: "example.test/main", LocalPath: "."}}
 		recordModuleSources(modules, &record)
 		if modules[0].Source != RuntimeFolderSource || modules[1].Source != "" || modules[2].Source != "" {
 			t.Fatalf("the build record names the sources %q, %q and %q; expected only the runtime pin from %s", modules[0].Source, modules[1].Source, modules[2].Source, RuntimeFolderSource)
@@ -230,7 +248,7 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 		if err := validateModule(other, false); err == nil {
 			t.Fatal("a build record that names the runtime folder as the source of another module was accepted")
 		}
-		changedSum := []Module{{Path: registry.RuntimeModule, Version: version, Sum: "h1:" + strings.Repeat("B", 43) + "=", GoModSum: sum}}
+		changedSum := []Module{{Path: RuntimeModule, Version: version, Sum: "h1:" + strings.Repeat("B", 43) + "=", GoModSum: sum}}
 		recordModuleSources(changedSum, &record)
 		if changedSum[0].Source != "" {
 			t.Fatal("a module whose hash differs from the cache record was named as from the runtime folder")
