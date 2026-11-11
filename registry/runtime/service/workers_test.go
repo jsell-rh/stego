@@ -325,8 +325,13 @@ func TestWorkers(t *testing.T) {
 		if stats, ok := all.Periodic().Stats(AnchorJobName); !ok || stats.Runs < 1 {
 			t.Fatalf("the periodic component ran the anchor job %d times, want at least once at start", stats.Runs)
 		}
-		if stats, ok := all.Periodic().Stats(MaintainJobName); !ok || stats.Runs < 1 || stats.LastFailed {
-			t.Fatalf("the periodic component ran the maintenance %d times, the last failed %v", stats.Runs, stats.LastFailed)
+		// The two jobs start at once, so the maintenance may end after the anchor that the test waited for.
+		eventually(t, "the periodic component runs the maintenance once at start", func() bool {
+			stats, ok := all.Periodic().Stats(MaintainJobName)
+			return ok && stats.Runs >= 1
+		})
+		if stats, _ := all.Periodic().Stats(MaintainJobName); stats.LastFailed {
+			t.Fatal("the last maintenance failed")
 		}
 
 		// A second replica of the controller mode does not take the lease while the first holds it.

@@ -24,7 +24,6 @@ import (
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
-	"github.com/jsell-rh/stego/registry/runtime/idempotency"
 	"github.com/jsell-rh/stego/registry/runtime/internal/pgtest"
 	"github.com/jsell-rh/stego/registry/runtime/outbox"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
@@ -141,6 +140,7 @@ type fixture struct {
 	admin                         *sql.DB
 	database                      string // the superuser URL of the database
 	owner, runtime, worker, relay string
+	purge                         string
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -148,7 +148,8 @@ func newFixture(t *testing.T) *fixture {
 	suffix := make([]byte, 5)
 	_, _ = rand.Read(suffix)
 	tag := hex.EncodeToString(suffix)
-	f := &fixture{t: t, owner: "svc_owner_" + tag, runtime: "svc_rt_" + tag, worker: "svc_worker_" + tag, relay: "svc_relay_" + tag}
+	f := &fixture{t: t, owner: "svc_owner_" + tag, runtime: "svc_rt_" + tag, worker: "svc_worker_" + tag, relay: "svc_relay_" + tag,
+		purge: "svc_" + tag + "_idempotency_purge"}
 	root, err := sql.Open("pgx", pgtest.DSN(t))
 	if err != nil {
 		t.Fatal(err)
@@ -167,23 +168,30 @@ func newFixture(t *testing.T) *fixture {
 		"CREATE ROLE " + f.relay + " NOLOGIN NOINHERIT",
 		"DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '" + outbox.RelayRole + "') THEN CREATE ROLE " + outbox.RelayRole + " NOLOGIN; END IF; END $$",
 		"GRANT " + outbox.RelayRole + " TO " + f.owner + " WITH SET TRUE, INHERIT TRUE",
-		"DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '" + idempotency.PurgeRole + "') THEN CREATE ROLE " + idempotency.PurgeRole + " NOLOGIN NOINHERIT; END IF; END $$",
-		"GRANT " + idempotency.PurgeRole + " TO " + f.owner + " WITH SET TRUE, INHERIT TRUE",
+		"CREATE ROLE " + f.purge + " NOLOGIN NOINHERIT",
+		"GRANT " + f.purge + " TO " + f.owner + " WITH SET TRUE, INHERIT FALSE",
 		"GRANT CREATE ON DATABASE " + name + " TO " + f.owner,
 	} {
 		if _, err := root.ExecContext(context.Background(), statement); err != nil {
 			t.Fatalf("%.60s: %v", statement, err)
 		}
 	}
-	if _, err := f.admin.ExecContext(context.Background(), "GRANT CREATE ON SCHEMA public TO "+f.owner+", "+outbox.RelayRole+", "+idempotency.PurgeRole); err != nil {
-		t.Fatal(err)
+	// As the tenancy role migration gives them: the owner may grant CREATE on public, which the idempotency
+	// migration gives the purge role only while it makes the purge function.
+	for _, statement := range []string{
+		"GRANT CREATE ON SCHEMA public TO " + f.owner + " WITH GRANT OPTION",
+		"GRANT CREATE ON SCHEMA public TO " + outbox.RelayRole,
+	} {
+		if _, err := f.admin.ExecContext(context.Background(), statement); err != nil {
+			t.Fatal(err)
+		}
 	}
 	t.Cleanup(func() {
-		for _, role := range []string{f.runtime, f.worker, f.relay, f.owner} {
+		for _, role := range []string{f.runtime, f.worker, f.relay, f.owner, f.purge} {
 			_, _ = f.admin.ExecContext(context.Background(), "DROP OWNED BY "+role)
 		}
 		_, _ = root.ExecContext(context.Background(), "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
-		for _, role := range []string{f.runtime, f.worker, f.relay, f.owner} {
+		for _, role := range []string{f.runtime, f.worker, f.relay, f.owner, f.purge} {
 			_, _ = root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+role)
 		}
 	})
@@ -242,7 +250,7 @@ func (f *fixture) migration(calls *int) Migration {
 		t.Fatal(err)
 	}
 	return Migration{
-		OwnerRole: f.owner, RuntimeRole: f.runtime, TenantConfig: tenantConfig(nil),
+		OwnerRole: f.owner, RuntimeRole: f.runtime, PurgeRole: f.purge, TenantConfig: tenantConfig(nil),
 		LedgerCheck: func(ctx context.Context, conn *sql.Conn) error {
 			var foreign bool
 			if err := conn.QueryRowContext(ctx, `SELECT to_regclass('public.foreign_orders') IS NOT NULL`).Scan(&foreign); err != nil {
@@ -269,8 +277,7 @@ func (f *fixture) migration(calls *int) Migration {
 			return err
 		},
 		Grants: []string{`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "public"."orders"`,
-			`GRANT SELECT, INSERT, UPDATE ON TABLE "public"."idempotency_keys"`,
-			`GRANT EXECUTE ON FUNCTION "public"."idempotency_keys_purge"(timestamptz, integer)`},
+			`GRANT SELECT, INSERT, UPDATE ON TABLE "public"."idempotency_keys"`},
 	}
 }
 

@@ -16,11 +16,20 @@ const (
 	DefaultPurgePause = 100 * time.Millisecond
 )
 
-// Querier runs one statement on its own and gives its one row. *sql.DB satisfies it, and then each batch of Purge
-// is a short transaction of its own.
+// Querier opens a transaction. *sql.DB satisfies it, and then each batch of Purge is a short transaction of its own.
 type Querier interface {
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
 }
+
+// The limits of one batch of Purge, set with SET LOCAL in its transaction: a batch that waits longer for a row lock
+// or runs longer ends with an error, and the next run of the purge job tries again.
+const (
+	PurgeLockTimeout      = time.Second
+	PurgeStatementTimeout = 30 * time.Second
+)
+
+// limitsSQL sets PurgeLockTimeout and PurgeStatementTimeout for the transaction of one batch.
+const limitsSQL = `SELECT pg_catalog.set_config('lock_timeout', '1s', true), pg_catalog.set_config('statement_timeout', '30s', true)`
 
 // PurgeOptions sets Purge. A zero field takes its default.
 type PurgeOptions struct {
@@ -42,7 +51,8 @@ const purgeSQL = `SELECT ` + PurgeFunction + `($1, $2)`
 // opts.Pause between two batches, and returns how many rows it deleted (ST-SUP-RP07-LC07). Each batch is one call of
 // the purge function idempotency_keys_purge, one DELETE of at most the batch size, which spans tenants under the
 // key table's row-level security (ST-SUP-RP07-LC11); the function takes no time later than the database's clock.
-// It stops after the first batch that removes fewer rows than the batch size. It never deletes row by row, and needs
+// Each batch is a transaction of its own with SET LOCAL lock_timeout of PurgeLockTimeout and statement_timeout of
+// PurgeStatementTimeout; a batch that a timeout ends gives its error, and the next run tries again. It stops after the first batch that removes fewer rows than the batch size. It never deletes row by row, and needs
 // no TTL index. It refuses a batch above MaxPurgeBatch.
 func Purge(ctx context.Context, db Querier, opts PurgeOptions) (int64, error) {
 	batch := opts.Batch
@@ -71,8 +81,8 @@ func Purge(ctx context.Context, db Querier, opts PurgeOptions) (int64, error) {
 				return total, err
 			}
 		}
-		var n int64
-		if err := db.QueryRowContext(ctx, purgeSQL, clock(), batch).Scan(&n); err != nil {
+		n, err := purgeBatch(ctx, db, clock(), batch)
+		if err != nil {
 			return total, err
 		}
 		total += n
@@ -80,6 +90,23 @@ func Purge(ctx context.Context, db Querier, opts PurgeOptions) (int64, error) {
 			return total, nil
 		}
 	}
+}
+
+// purgeBatch runs one call of the purge function in a transaction of its own, with the limits of a batch.
+func purgeBatch(ctx context.Context, db Querier, now time.Time, batch int) (int64, error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, limitsSQL); err != nil {
+		return 0, err
+	}
+	var n int64
+	if err := tx.QueryRowContext(ctx, purgeSQL, now, batch).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, tx.Commit()
 }
 
 func sleepTimer(ctx context.Context, d time.Duration) error {

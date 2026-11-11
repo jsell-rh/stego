@@ -162,8 +162,9 @@ func open(ctx context.Context, cfg Config) (*sql.DB, error) {
 
 // checkRuntimeRole fails when the role of db, or a role it is a member of, is a superuser, holds BYPASSRLS or owns
 // a table, and when the role of db is a member of the outbox relay role stego_outbox_relay or of a hook role, a role
-// that may run the outbox relay functions, or of the idempotency purge role stego_idempotency_purge, which reads and
-// deletes the key rows of every tenant (ST-SUP-RP07-LC11). A member of such a role can take it with SET ROLE, so membership counts
+// that may run the outbox relay functions, or of an idempotency purge role, <service role prefix>_idempotency_purge
+// or the owner of a purge function idempotency_keys_purge, which reads and deletes the key rows of every tenant
+// (ST-SUP-RP07-LC11). A member of such a role can take it with SET ROLE, so membership counts
 // as holding it.
 func checkRuntimeRole(ctx context.Context, db *sql.DB) error {
 	var role string
@@ -227,7 +228,8 @@ ORDER BY 1`)
 	// with SET ROLE.
 	members, err := db.QueryContext(ctx, `SELECT r.rolname FROM pg_roles r
 WHERE r.rolname <> current_user AND pg_has_role(current_user, r.oid, 'MEMBER')
-	AND (r.rolname IN ('stego_outbox_relay', 'stego_idempotency_purge')
+	AND (r.rolname = 'stego_outbox_relay' OR r.rolname LIKE '%\_idempotency\_purge'
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_proc AS p WHERE p.proname = 'idempotency_keys_purge' AND p.proowner = r.oid)
 		OR (pg_catalog.to_regprocedure('stego_outbox.claim(timestamptz, integer, uuid, bigint)') IS NOT NULL
 			AND pg_catalog.has_function_privilege(r.oid, 'stego_outbox.claim(timestamptz, integer, uuid, bigint)', 'EXECUTE')))
 ORDER BY r.rolname`)

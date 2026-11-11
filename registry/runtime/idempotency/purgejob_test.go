@@ -91,7 +91,7 @@ func TestPurgeJob(t *testing.T) {
 		clock.waitWaiters(t, 1)
 		if j.Runs() != 1 || countRows(t, db, `SELECT count(*) FROM idempotency_keys WHERE key LIKE 'old%'`) != 0 ||
 			countRows(t, db, `SELECT count(*) FROM idempotency_keys`) != 7 {
-			t.Fatalf("at start: %d runs, deletes %v; want the 7 expired rows gone", j.Runs(), rec.deletes)
+			t.Fatalf("at start: %d runs, deletes %v; want the 7 expired rows gone", j.Runs(), rec.batches())
 		}
 		clock.Advance(59 * time.Second)
 		time.Sleep(20 * time.Millisecond)
@@ -105,8 +105,8 @@ func TestPurgeJob(t *testing.T) {
 		}
 		clock.Advance(time.Minute)
 		clock.waitWaiters(t, 1)
-		if j.Runs() != 3 || len(rec.deletes) != 3 || rec.deletes[2] != 3 {
-			t.Fatalf("after the second tick: %d runs, deletes %v; want one purge per tick, the third of the 3 rows due by then", j.Runs(), rec.deletes)
+		if j.Runs() != 3 || len(rec.batches()) != 3 || rec.batches()[2] != 3 {
+			t.Fatalf("after the second tick: %d runs, deletes %v; want one purge per tick, the third of the 3 rows due by then", j.Runs(), rec.batches())
 		}
 		cancel()
 		if err := <-done; !errors.Is(err, context.Canceled) {
@@ -186,8 +186,8 @@ func TestPurgeJob(t *testing.T) {
 // failingQuerier is a database that is down: each statement fails.
 type failingQuerier struct{ db *sql.DB }
 
-func (f failingQuerier) QueryRowContext(ctx context.Context, q string, args ...any) *sql.Row {
-	return f.db.QueryRowContext(ctx, q, args...)
+func (f failingQuerier) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
+	return f.db.BeginTx(ctx, opts)
 }
 
 // closedDB is a pool that is closed, so each statement on it fails at once.
@@ -201,8 +201,7 @@ func closedDB(t *testing.T) *sql.DB {
 	return closed
 }
 
-// slowQuerier takes 50 ms for each statement and records the most statements that ran at once; each statement
-// gives no deleted row.
+// slowQuerier takes 50 ms to begin each batch and records the most batches that began at once.
 type slowQuerier struct {
 	db          *sql.DB
 	mu          sync.Mutex
@@ -210,7 +209,7 @@ type slowQuerier struct {
 	calls       int
 }
 
-func (s *slowQuerier) QueryRowContext(ctx context.Context, _ string, _ ...any) *sql.Row {
+func (s *slowQuerier) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
 	s.mu.Lock()
 	s.active++
 	s.calls++
@@ -220,5 +219,5 @@ func (s *slowQuerier) QueryRowContext(ctx context.Context, _ string, _ ...any) *
 	s.mu.Lock()
 	s.active--
 	s.mu.Unlock()
-	return s.db.QueryRowContext(ctx, `SELECT 0::bigint`)
+	return s.db.BeginTx(ctx, opts)
 }

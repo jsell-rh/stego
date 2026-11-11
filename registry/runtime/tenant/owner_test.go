@@ -137,13 +137,24 @@ func TestTenantConnectors(t *testing.T) {
 EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $do$`, "GRANT stego_outbox_relay TO "+relayMember)
 		// A member of the idempotency purge role could take it and read or delete every tenant's key rows.
 		purgeMember := env.role(t, "purgemember", "INHERIT")
-		adminExec(t, env.admin, `DO $do$ BEGIN CREATE ROLE stego_idempotency_purge NOLOGIN NOINHERIT;
-EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $do$`, "GRANT stego_idempotency_purge TO "+purgeMember)
+		purgeRole := "shop_" + strings.TrimPrefix(env.name, "tenant_") + "_idempotency_purge"
+		adminExec(t, env.admin, "CREATE ROLE "+purgeRole+" NOLOGIN NOINHERIT", "GRANT "+purgeRole+" TO "+purgeMember)
+		t.Cleanup(func() { _, _ = env.admin.Exec("DROP ROLE IF EXISTS " + purgeRole) })
+		// A role of another name that owns a purge function counts as a purge role too.
+		ownerMember := env.role(t, "fnmember", "INHERIT")
+		fnOwner := env.role(t, "fnowner", "NOLOGIN NOINHERIT")
+		adminExec(t, env.db, "CREATE FUNCTION public.idempotency_keys_purge(timestamptz, integer) RETURNS bigint LANGUAGE sql AS 'SELECT 0::bigint'",
+			"ALTER FUNCTION public.idempotency_keys_purge(timestamptz, integer) OWNER TO "+fnOwner)
+		adminExec(t, env.admin, "GRANT "+fnOwner+" TO "+ownerMember)
+		t.Cleanup(func() {
+			_, _ = env.db.Exec("DROP FUNCTION IF EXISTS public.idempotency_keys_purge(timestamptz, integer)")
+		})
 		for role, want := range map[string]string{
 			bypassMember: "holds BYPASSRLS through its membership of " + bypassGroup,
 			superMember:  "is a superuser through its membership of " + superGroup,
 			relayMember:  "is a member of the outbox relay, idempotency purge or hook roles stego_outbox_relay",
-			purgeMember:  "is a member of the outbox relay, idempotency purge or hook roles stego_idempotency_purge",
+			purgeMember:  "is a member of the outbox relay, idempotency purge or hook roles " + purgeRole,
+			ownerMember:  "is a member of the outbox relay, idempotency purge or hook roles " + fnOwner,
 		} {
 			db, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(role)})
 			if err == nil {

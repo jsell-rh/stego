@@ -6,6 +6,8 @@ package idempotency
 
 import stegoidempotency "github.com/jsell-rh/stego/registry/runtime/idempotency"
 
-// SchemaSQL creates the key table idempotency_keys. It is the runtime's Migration, and the service applies it
-// with its own migrations.
-const SchemaSQL = stegoidempotency.Migration
+// SchemaSQL gives the text that creates the key table idempotency_keys for the purge role and the runtime role
+// of the service. It is the runtime's Migration, and the service applies it with its own migrations.
+func SchemaSQL(purgeRole, runtimeRole string) (string, error) {
+	return stegoidempotency.Migration(purgeRole, runtimeRole)
+}

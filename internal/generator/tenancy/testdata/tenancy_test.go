@@ -12,6 +12,7 @@ import (
 
 	"example.com/tenancy-check/storage"
 	"example.com/tenancy-check/tenancy"
+	"example.com/tenancy-check/tenancyb"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -44,7 +45,7 @@ func migrated(t *testing.T) *sql.DB {
 	t.Cleanup(func() { server.Close() })
 	// The roles belong to the server, not to the database: drop them after the database, so each run creates them.
 	t.Cleanup(func() {
-		for _, role := range []string{tenancy.RuntimeRole, tenancy.WorkerRole, tenancy.RelayRole, tenancy.OwnerRole} {
+		for _, role := range []string{tenancy.RuntimeRole, tenancy.WorkerRole, tenancy.RelayRole, tenancy.PurgeRole, tenancy.OwnerRole} {
 			if _, err := server.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+pgx.Identifier{role}.Sanitize()); err != nil {
 				t.Error(err)
 			}
@@ -227,22 +228,28 @@ func TestTenancy(t *testing.T) {
 				t.Errorf("the role %s is a member of stego_outbox_relay: %v, %v", role, member, err)
 			}
 		}
-		// The idempotency purge role inherits nothing, cannot log in or bypass row-level security, and the owner may
-		// take it to make the purge function (ST-SUP-RP07-LC11); no runtime, worker or relay role is a member.
+		// The idempotency purge role is the service's own, inherits nothing, cannot log in or bypass row-level
+		// security, and the owner may only SET it (ST-SUP-RP07-LC11); no runtime, worker or relay role is a member.
+		if tenancy.PurgeRole != strings.TrimSuffix(tenancy.RuntimeRole, "_runtime")+"_idempotency_purge" {
+			t.Errorf("the purge role is %s, want the service's own", tenancy.PurgeRole)
+		}
 		var login, purgeInherit, purgeBypass, purgeSuper bool
-		if err := db.QueryRowContext(ctx, "SELECT rolcanlogin, rolinherit, rolbypassrls, rolsuper FROM pg_roles WHERE rolname = 'stego_idempotency_purge'").
+		if err := db.QueryRowContext(ctx, "SELECT rolcanlogin, rolinherit, rolbypassrls, rolsuper FROM pg_roles WHERE rolname = $1", tenancy.PurgeRole).
 			Scan(&login, &purgeInherit, &purgeBypass, &purgeSuper); err != nil || login || purgeInherit || purgeBypass || purgeSuper {
-			t.Errorf("stego_idempotency_purge: LOGIN %v, INHERIT %v, BYPASSRLS %v, superuser %v, %v", login, purgeInherit, purgeBypass, purgeSuper, err)
+			t.Errorf("%s: LOGIN %v, INHERIT %v, BYPASSRLS %v, superuser %v, %v", tenancy.PurgeRole, login, purgeInherit, purgeBypass, purgeSuper, err)
 		}
 		if err := db.QueryRowContext(ctx, `SELECT m.set_option, m.inherit_option FROM pg_auth_members m
  JOIN pg_roles g ON g.oid = m.roleid JOIN pg_roles r ON r.oid = m.member
- WHERE g.rolname = 'stego_idempotency_purge' AND r.rolname = $1`, tenancy.OwnerRole).Scan(&set, &inherit); err != nil || !set || !inherit {
-			t.Errorf("the owner role's membership in stego_idempotency_purge: SET %v, INHERIT %v, %v", set, inherit, err)
+ WHERE g.rolname = $1 AND r.rolname = $2`, tenancy.PurgeRole, tenancy.OwnerRole).Scan(&set, &inherit); err != nil || !set || inherit {
+			t.Errorf("the owner role's membership in %s: SET %v, INHERIT %v, want SET only: %v", tenancy.PurgeRole, set, inherit, err)
+		}
+		if err := db.QueryRowContext(ctx, "SELECT has_schema_privilege($1, 'public', 'CREATE')", tenancy.PurgeRole).Scan(&create); err != nil || create {
+			t.Errorf("%s has CREATE on public: %v, %v", tenancy.PurgeRole, create, err)
 		}
 		for _, role := range []string{tenancy.RuntimeRole, tenancy.WorkerRole, tenancy.RelayRole} {
 			var member bool
-			if err := db.QueryRowContext(ctx, "SELECT pg_has_role($1, 'stego_idempotency_purge', 'MEMBER')", role).Scan(&member); err != nil || member {
-				t.Errorf("the role %s is a member of stego_idempotency_purge: %v, %v", role, member, err)
+			if err := db.QueryRowContext(ctx, "SELECT pg_has_role($1, $2, 'MEMBER')", role, tenancy.PurgeRole).Scan(&member); err != nil || member {
+				t.Errorf("the role %s is a member of %s: %v, %v", role, tenancy.PurgeRole, member, err)
 			}
 		}
 	})
@@ -356,6 +363,93 @@ WHERE i.indrelid = $1::regclass`, "public."+table)
 			if tenant != 0 {
 				t.Errorf("table %s has a tenant column", table)
 			}
+		}
+	})
+}
+
+// database creates a fresh database on the server, runs roles in it as the administrator, and gives its name.
+func database(t *testing.T, server *sql.DB, cfg *pgx.ConnConfig, roles string) string {
+	t.Helper()
+	ctx := context.Background()
+	name := "tenancy_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	if _, err := server.ExecContext(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := server.ExecContext(context.Background(), "DROP DATABASE "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)"); err != nil {
+			t.Error(err)
+		}
+	})
+	c := cfg.Copy()
+	c.Database = name
+	admin := stdlib.OpenDB(*c)
+	defer admin.Close()
+	if _, err := admin.ExecContext(ctx, roles); err != nil {
+		t.Fatalf("role migration: %v", err)
+	}
+	return name
+}
+
+func TestTwoServices(t *testing.T) {
+	t.Run("ST-SUP-RC27-OC04-T06 Two services in one cluster cannot reach each other's databases", func(t *testing.T) {
+		dsn := os.Getenv("STEGO_TEST_POSTGRES_DSN")
+		if dsn == "" {
+			t.Fatal("STEGO_TEST_POSTGRES_DSN names no PostgreSQL server")
+		}
+		cfg, err := pgx.ParseConfig(dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		server := stdlib.OpenDB(*cfg)
+		t.Cleanup(func() { server.Close() })
+		ctx := context.Background()
+		rolesA := []string{tenancy.RuntimeRole, tenancy.WorkerRole, tenancy.RelayRole, tenancy.PurgeRole, tenancy.OwnerRole}
+		rolesB := []string{tenancyb.RuntimeRole, tenancyb.WorkerRole, tenancyb.RelayRole, tenancyb.PurgeRole, tenancyb.OwnerRole}
+		// The roles belong to the server: drop them after the databases.
+		t.Cleanup(func() {
+			for _, role := range append(append([]string{}, rolesA...), rolesB...) {
+				_, _ = server.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+pgx.Identifier{role}.Sanitize())
+			}
+		})
+		a := database(t, server, cfg, tenancy.Roles)
+		b := database(t, server, cfg, tenancyb.Roles)
+		if tenancy.PurgeRole == tenancyb.PurgeRole {
+			t.Fatalf("the two services share the purge role %s", tenancy.PurgeRole)
+		}
+		const password = "two-services"
+		for _, role := range []string{tenancy.OwnerRole, tenancy.RuntimeRole, tenancy.WorkerRole, tenancy.RelayRole} {
+			if _, err := server.ExecContext(ctx, "ALTER ROLE "+pgx.Identifier{role}.Sanitize()+" LOGIN PASSWORD '"+password+"'"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		connect := func(role, database string) error {
+			c := cfg.Copy()
+			c.User, c.Password, c.Database = role, password, database
+			conn, err := pgx.ConnectConfig(ctx, c)
+			if err == nil {
+				_ = conn.Close(ctx)
+			}
+			return err
+		}
+		// Each role of service A connects to its own database and to no other: PUBLIC has no CONNECT.
+		for _, role := range []string{tenancy.OwnerRole, tenancy.RuntimeRole, tenancy.WorkerRole, tenancy.RelayRole} {
+			if err := connect(role, a); err != nil {
+				t.Fatalf("%s cannot connect to its own database: %v", role, err)
+			}
+			if err := connect(role, b); !denied(err) {
+				t.Fatalf("%s of service A connected to the database of service B: %v", role, err)
+			}
+		}
+		var public bool
+		if err := server.QueryRowContext(ctx, "SELECT has_database_privilege('public', $1, 'CONNECT')", b).Scan(&public); err != nil || public {
+			t.Fatalf("PUBLIC keeps CONNECT on the database of service B: %v, %v", public, err)
+		}
+		// The owner of A is no member of the purge role of B, so it cannot read or delete B's key rows or replace
+		// its purge function through it; and it only SETs its own purge role, which gives it none of its rights.
+		var memberB, usageA, setA bool
+		if err := server.QueryRowContext(ctx, `SELECT pg_has_role($1, $2, 'MEMBER'), pg_has_role($1, $3, 'USAGE'), pg_has_role($1, $3, 'SET')`,
+			tenancy.OwnerRole, tenancyb.PurgeRole, tenancy.PurgeRole).Scan(&memberB, &usageA, &setA); err != nil || memberB || usageA || !setA {
+			t.Fatalf("the owner of A: member of B's purge role %v, privileges of its own purge role %v, SET of it %v: %v", memberB, usageA, setA, err)
 		}
 	})
 }

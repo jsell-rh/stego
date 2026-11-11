@@ -22,6 +22,19 @@ import (
 // TestMain gives the PostgreSQL tests of the package their local server (ST-STD-LOCAL-R04).
 func TestMain(m *testing.M) { os.Exit(pgtest.Main(m)) }
 
+// testPurgeRole is the purge role of the tests, as the tenancy role migration names one for a service.
+const testPurgeRole = "idem_test_idempotency_purge"
+
+// testMigration is the migration text for testPurgeRole.
+func testMigration(t *testing.T) string {
+	t.Helper()
+	text, err := Migration(testPurgeRole, "idem_test_runtime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return text
+}
+
 // testDB opens a new schema on the local PostgreSQL server of pgtest, applies Migration and an application table
 // orders that the test handlers write to, and drops the schema when the test ends.
 func testDB(t *testing.T) (db, admin *sql.DB) {
@@ -46,7 +59,12 @@ func testDB(t *testing.T) (db, admin *sql.DB) {
 		_, _ = admin.ExecContext(context.Background(), "DROP SCHEMA "+schema+" CASCADE")
 		_ = admin.Close()
 	})
-	if _, err := db.ExecContext(ctx, Migration); err != nil {
+	// The runtime role of the tests, which the migration gives EXECUTE on the purge function, is one role of the
+	// server.
+	if _, err := admin.ExecContext(ctx, `DO $$ BEGIN CREATE ROLE idem_test_runtime NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, testMigration(t)); err != nil {
 		t.Fatalf("apply Migration: %v", err)
 	}
 	if _, err := db.ExecContext(ctx, `CREATE TABLE orders (id text PRIMARY KEY, note text)`); err != nil {
@@ -348,20 +366,20 @@ func TestKeyTableTenancy(t *testing.T) {
 			schema, PurgeFunction).Scan(&definer, &owner, &config, &public); err != nil {
 			t.Fatal(err)
 		}
-		if !definer || owner != PurgeRole || config != "search_path=pg_catalog, pg_temp" || public {
+		if !definer || owner != testPurgeRole || config != "search_path=pg_catalog, pg_temp" || public {
 			t.Fatalf("the purge function: definer %v, owner %s, config %q, PUBLIC execute %v", definer, owner, config, public)
 		}
 		// The purge role can change no key row and insert none, also in a transaction whose app.tenant names the
 		// tenant of the row, where the tenant policy admits the row.
 		var flags string
 		if err := db.QueryRowContext(ctx, `SELECT rolcanlogin::text || rolsuper::text || rolbypassrls::text || rolinherit::text
-			FROM pg_roles WHERE rolname = $1`, PurgeRole).Scan(&flags); err != nil || flags != "falsefalsefalsefalse" {
+			FROM pg_roles WHERE rolname = $1`, testPurgeRole).Scan(&flags); err != nil || flags != "falsefalsefalsefalse" {
 			t.Fatalf("the purge role can log in, is a superuser, bypasses row-level security or inherits (%s): %v", flags, err)
 		}
 		var privileges string
 		if err := db.QueryRowContext(ctx, `SELECT string_agg(privilege_type, ',' ORDER BY privilege_type)
 			FROM information_schema.role_table_grants WHERE grantee = $1 AND table_schema = $2 AND table_name = 'idempotency_keys'`,
-			PurgeRole, schema).Scan(&privileges); err != nil || privileges != "DELETE,SELECT" {
+			testPurgeRole, schema).Scan(&privileges); err != nil || privileges != "DELETE,SELECT" {
 			t.Fatalf("the purge role holds %q on the key table, want DELETE,SELECT: %v", privileges, err)
 		}
 		for _, tenantSet := range []bool{false, true} {
@@ -381,7 +399,7 @@ func TestKeyTableTenancy(t *testing.T) {
 							t.Fatal(err)
 						}
 					}
-					if _, err := tx.ExecContext(ctx, "SET LOCAL ROLE "+PurgeRole); err != nil {
+					if _, err := tx.ExecContext(ctx, "SET LOCAL ROLE "+testPurgeRole); err != nil {
 						t.Fatal(err)
 					}
 					if _, err := tx.ExecContext(ctx, statement); pgCode(err) != "42501" {
@@ -398,20 +416,20 @@ func TestKeyTableTenancy(t *testing.T) {
 	t.Run("ST-SUP-RP07-LC11-T03 The migration runs again with no error", func(t *testing.T) {
 		db, admin := testDB(t)
 		schema := schemaOf(t, db)
-		if _, err := db.ExecContext(ctx, Migration); err != nil {
+		if _, err := db.ExecContext(ctx, testMigration(t)); err != nil {
 			t.Fatalf("a second run as the superuser: %v", err)
 		}
-		// An owner that is no superuser and owns the schema, with the membership that the role migration gives; the
-		// purge role gets CREATE on the schema only for the change of owner.
+		// An owner that is no superuser and owns the schema, with the membership that the role migration gives (SET
+		// TRUE, INHERIT FALSE); the purge role gets CREATE on the schema only while it makes the function.
 		owner, ownerDB := loginRole(t, admin, schema, "idem_owner")
 		for _, grant := range []string{
-			"GRANT " + PurgeRole + " TO " + owner + " WITH SET TRUE, INHERIT TRUE",
+			"GRANT " + testPurgeRole + " TO " + owner + " WITH SET TRUE, INHERIT FALSE",
 		} {
 			if _, err := admin.ExecContext(ctx, grant); err != nil {
 				t.Fatal(err)
 			}
 		}
-		t.Cleanup(func() { _, _ = admin.ExecContext(context.Background(), "REVOKE "+PurgeRole+" FROM "+owner) })
+		t.Cleanup(func() { _, _ = admin.ExecContext(context.Background(), "REVOKE "+testPurgeRole+" FROM "+owner) })
 		if _, err := admin.ExecContext(ctx, "DROP SCHEMA "+schema+" CASCADE"); err != nil {
 			t.Fatal(err)
 		}
@@ -419,7 +437,7 @@ func TestKeyTableTenancy(t *testing.T) {
 			t.Fatal(err)
 		}
 		for run := 1; run <= 2; run++ {
-			if _, err := ownerDB.ExecContext(ctx, Migration); err != nil {
+			if _, err := ownerDB.ExecContext(ctx, testMigration(t)); err != nil {
 				t.Fatalf("run %d as the owner role: %v", run, err)
 			}
 		}
@@ -429,8 +447,22 @@ func TestKeyTableTenancy(t *testing.T) {
 			t.Fatalf("%d policies on the key table after two runs, want the tenant policy and two of the purge role: %v", policies, err)
 		}
 		var create bool
-		if err := db.QueryRowContext(ctx, "SELECT has_schema_privilege($1, $2, 'CREATE')", PurgeRole, schema).Scan(&create); err != nil || create {
+		if err := db.QueryRowContext(ctx, "SELECT has_schema_privilege($1, $2, 'CREATE')", testPurgeRole, schema).Scan(&create); err != nil || create {
 			t.Fatalf("the purge role keeps CREATE on the schema after the runs: %v, %v", create, err)
+		}
+	})
+}
+
+func TestMigrationRole(t *testing.T) {
+	t.Run("ST-SUP-RP07-LC11-T04 The migration takes the purge role of the service and refuses a bad name", func(t *testing.T) {
+		text, err := Migration("shop_idempotency_purge", "shop_runtime")
+		if err != nil || !strings.Contains(text, "TO shop_idempotency_purge") || strings.Contains(text, "{{purge}}") {
+			t.Fatalf("Migration of shop_idempotency_purge: %v", err)
+		}
+		for _, bad := range []string{"", "Shop", "shop purge", "shop;drop", `shop"x`, strings.Repeat("a", 64)} {
+			if _, err := Migration(bad, "shop_runtime"); err == nil {
+				t.Errorf("Migration took the role name %q", bad)
+			}
 		}
 	})
 }
