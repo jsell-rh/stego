@@ -78,12 +78,14 @@ func TestDatabaseOpenerUsesRenamedImport(t *testing.T) {
 }
 
 func TestDatabasePoolClosesOnStartupFailure(t *testing.T) {
+	t.Parallel()
 	for _, backend := range []string{"sql", "gorm"} {
 		t.Run(backend, func(t *testing.T) { testDatabaseStartupFailure(t, backend, false) })
 	}
 }
 
 func TestIndependentDatabasePoolClosesOnStartupFailure(t *testing.T) {
+	t.Parallel()
 	testDatabaseStartupFailure(t, "sql", true)
 }
 

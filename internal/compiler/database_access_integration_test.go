@@ -19,6 +19,7 @@ import (
 var databaseAccessTests []byte
 
 func TestGeneratedDatabaseAccess(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("STEGO_REQUIRE_POSTGRES") == "1" && os.Getenv("STEGO_TEST_POSTGRES_DSN") == "" {
 		t.Fatal("database access checks require PostgreSQL")
 	}
