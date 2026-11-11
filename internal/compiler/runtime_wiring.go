@@ -46,6 +46,9 @@ type runtimeWiringInput struct {
 	Names                  []string
 	// Wirings are the wirings of the component generators, whose database objects the runtime role is granted.
 	Wirings []ComponentWiring
+	// QueryStreams are the queries that a server stream serves over gRPC only, which get no HTTP route
+	// (ST-SUP-RC33-OC08).
+	QueryStreams map[string]bool
 	// Generators and Contexts are the generators of the components and their resolved contexts: an auth provider
 	// whose generator is a gen.RuntimeAuthProvider gives the verifier its settings (ST-SUP-RC37).
 	Generators map[string]gen.Generator
@@ -68,19 +71,15 @@ type runtimeWiringData struct {
 // runtimeWiring gives the runtime wiring package of a service on the runtime data path and its wiring of main.go
 // (ST-SUP-RC01-OC41, ST-SUP-RC20-OC37): one constructor, NewService, whose value is the variable service of main.go;
 // the verifier as the auth middleware; one literal route for each declared command and query, each served by the
-// routes of the command and the query handlers; and the migration job. The collection handlers take
-// service.CollectionRuntime() through the rest-api wiring. It refuses a service that lacks a component the wiring
-// calls, and a command with a gRPC method, which the runtime data path does not serve yet (ST-SUP-RC07-OC19).
+// routes of the command and the query handlers, but none of a stream query, which gRPC alone serves
+// (ST-SUP-RC33-OC08); and the migration job. The collection handlers take service.CollectionRuntime() through the
+// rest-api wiring, and the gRPC application takes the service itself (ST-SUP-RC07-OC19). It refuses a service that
+// lacks a component the wiring calls.
 func runtimeWiring(in runtimeWiringInput) ([]gen.File, ComponentWiring, error) {
 	svc := in.Service
 	for _, name := range runtimeWiringComponents {
 		if !slices.Contains(in.Names, name) {
 			return nil, ComponentWiring{}, fmt.Errorf("the runtime data path needs the component %s, which the runtime wiring calls; add it to the archetype or select it by its setting", name)
-		}
-	}
-	for _, c := range svc.Commands {
-		if c.Method != "" {
-			return nil, ComponentWiring{}, fmt.Errorf("command %q has the gRPC method %s, which the runtime data path does not register yet (ST-SUP-RC07-OC19)", c.Name, c.Method)
 		}
 	}
 	if svc.Authorization == nil || svc.Authorization.SubjectFromIdentity == "" {
@@ -153,7 +152,9 @@ func runtimeWiring(in runtimeWiringInput) ([]gen.File, ComponentWiring, error) {
 		routes = append(routes, c.Route)
 	}
 	for _, q := range svc.Queries {
-		routes = append(routes, q.Route)
+		if !in.QueryStreams[q.Name] {
+			routes = append(routes, q.Route)
+		}
 	}
 	for _, route := range routes {
 		method, target, ok := strings.Cut(route, " ")

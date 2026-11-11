@@ -55,6 +55,9 @@ type Migration struct {
 	WriteSchema func(ctx context.Context, conn grpc.ClientConnInterface) error
 	// Grants are the GRANT statements of the runtime role, each without its grantee.
 	Grants []string
+	// TenantSchema is the schema of the tenant list stego_tenants, which the tables step makes with the migration
+	// text of the tenant runtime (ST-SUP-RP04-LC07); empty is public.
+	TenantSchema string
 	// Timeout is the longest time that the job runs; zero is MigrationTimeout.
 	Timeout time.Duration
 }
@@ -91,7 +94,7 @@ var stepped func(step string, conn *sql.Conn)
 // connection configuration, and runs, as the owner role and in this order: the read-only ledger check, which
 // refuses a database whose tables this release did not make and writes nothing; WriteSchema, which SpiceDB refuses
 // for a schema that removes what has relationships, so a refused schema leaves the database as it was; the ledger of
-// the adapter; the outbox, audit, idempotency and authorization migrations, each in one transaction, the audit step
+// the adapter and then the tenant list of the tenant runtime (tenant.Migration) in TenantSchema; the outbox, audit, idempotency and authorization migrations, each in one transaction, the audit step
 // with the lease table and the row of the controller lease (ControllerLease); the grants of
 // the runtime role; the audit partitions of this month and the next; and WriteSchema again, so the release ends on
 // its own schema. It stops at the first step that fails, with a StepError that names the step. Each step runs again
@@ -145,11 +148,27 @@ func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
 	if err := step(StepAuthorizationSchema, func() error { return m.WriteSchema(ctx, spice) }); err != nil {
 		return err
 	}
+	tenants := m.TenantSchema
+	if tenants == "" {
+		tenants = "public"
+	}
+	tenantList, err := tenant.Migration(tenants, m.RuntimeRole)
+	if err != nil {
+		return failed(StepSettings, err)
+	}
 	if err := step(StepTables, func() error {
 		if _, err := conn.ExecContext(ctx, asOwner); err != nil {
 			return err
 		}
-		return m.Ledger(ctx, conn)
+		if err := m.Ledger(ctx, conn); err != nil {
+			return err
+		}
+		// The tenant list is the same for every service, and its text runs again on a database that it made
+		// (ST-SUP-Q97).
+		return ownerStep(ctx, conn, m.OwnerRole, func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, tenantList)
+			return err
+		})
 	}); err != nil {
 		return err
 	}

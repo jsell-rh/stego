@@ -81,6 +81,14 @@ func TestMigrate(t *testing.T) {
  AND to_regclass('stego_outbox.messages') IS NOT NULL AND to_regclass('public.authz_floor') IS NOT NULL`, f.runtime).Scan(&granted); err != nil || !granted {
 			t.Fatalf("the job did not make the objects and the grants of the runtime role: %v", err)
 		}
+		// The tables step made the tenant list of the tenant runtime, owned by the owner role, which the runtime role
+		// reads and writes only through its functions (ST-SUP-RP04-LC07, ST-SUP-Q97).
+		var listed bool
+		if err := f.admin.QueryRow(`SELECT has_table_privilege($1, 'public.stego_tenants', 'SELECT') AND NOT has_table_privilege($1, 'public.stego_tenants', 'INSERT')
+ AND has_function_privilege($1, 'public.stego_provision_tenant(text)', 'EXECUTE')
+ AND (SELECT tableowner FROM pg_tables WHERE schemaname = 'public' AND tablename = 'stego_tenants') = $2`, f.runtime, f.owner).Scan(&listed); err != nil || !listed {
+			t.Fatalf("the job did not make the tenant list for the runtime role: %v", err)
+		}
 		var partitions int
 		if err := f.admin.QueryRow(`SELECT count(*) FROM pg_inherits WHERE inhparent = 'public.audit_event'::regclass`).Scan(&partitions); err != nil || partitions < 2 {
 			t.Fatalf("the job made %d audit partitions, want this month and the next: %v", partitions, err)
