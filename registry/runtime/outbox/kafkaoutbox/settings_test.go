@@ -8,7 +8,7 @@ import (
 )
 
 // allSettings are the names of every setting, which each case of the settings test clears first.
-var allSettings = []string{BrokersSetting, BrokersFileSetting, TopicSetting, TopicFileSetting, CAFileSetting,
+var allSettings = []string{BrokersSetting, BrokersFileSetting, BrokerHostsSetting, BrokerHostsFileSetting, TopicSetting, TopicFileSetting, CAFileSetting,
 	ClientCertFileSetting, ClientKeyFileSetting, SASLMechanismSetting, UsernameSetting, UsernameFileSetting,
 	PasswordFileSetting, TokenFileSetting, InsecureLoopbackSetting}
 
@@ -28,6 +28,7 @@ func TestSettings(t *testing.T) {
 		userFile := write("user", "svc-orders\n")
 		passwordFile := write("password", secret+"\n")
 		secretFile := write("secret-broker", secret+":9093\n")
+		hostsFile := write("hosts", "127.0.0.1,::1\n")
 		cases := []struct {
 			name, refused string
 			env           map[string]string
@@ -43,6 +44,12 @@ func TestSettings(t *testing.T) {
 					ClientCertFile: "/run/c.pem", ClientKeyFile: "/run/k.pem", CAFile: "/run/ca.pem"}},
 			{name: "loopback without TLS", env: map[string]string{BrokersSetting: "127.0.0.1:9092,[::1]:9092", InsecureLoopbackSetting: "1"},
 				want: Settings{Brokers: []string{"127.0.0.1:9092", "[::1]:9092"}, InsecureLoopback: true}},
+			{name: "a broker host list from its file", env: map[string]string{BrokersSetting: "127.0.0.1:9092", InsecureLoopbackSetting: "1",
+				BrokerHostsFileSetting: hostsFile}, want: Settings{Brokers: []string{"127.0.0.1:9092"}, BrokerHosts: []string{"127.0.0.1", "::1"}, InsecureLoopback: true}},
+			{name: "a seed outside the broker host list", refused: BrokersSetting, env: map[string]string{BrokersSetting: "k:9093",
+				BrokerHostsSetting: "j", ClientCertFileSetting: "/c", ClientKeyFileSetting: "/k"}},
+			{name: "a broker host with a port", refused: BrokerHostsSetting, env: map[string]string{BrokersSetting: "k:9093",
+				BrokerHostsSetting: "k,k:9093", ClientCertFileSetting: "/c", ClientKeyFileSetting: "/k"}},
 			{name: "no broker", refused: BrokersSetting, env: map[string]string{SASLMechanismSetting: MechanismOAuthBearer, TokenFileSetting: "/run/token"}},
 			{name: "a value and its file", refused: BrokersSetting + " and " + BrokersFileSetting,
 				env: map[string]string{BrokersSetting: "k:9093", BrokersFileSetting: brokersFile}},
@@ -90,7 +97,8 @@ func TestSettings(t *testing.T) {
 				if strings.Join(got.Brokers, ",") != strings.Join(c.want.Brokers, ",") || got.Topic != c.want.Topic ||
 					got.Mechanism != c.want.Mechanism || got.Username != c.want.Username || got.PasswordFile != c.want.PasswordFile ||
 					got.TokenFile != c.want.TokenFile || got.CAFile != c.want.CAFile || got.ClientCertFile != c.want.ClientCertFile ||
-					got.ClientKeyFile != c.want.ClientKeyFile || got.InsecureLoopback != c.want.InsecureLoopback {
+					got.ClientKeyFile != c.want.ClientKeyFile || got.InsecureLoopback != c.want.InsecureLoopback ||
+					strings.Join(got.BrokerHosts, ",") != strings.Join(c.want.BrokerHosts, ",") {
 					t.Errorf("%s: read %+v, want %+v", c.name, got, c.want)
 				}
 				continue

@@ -22,6 +22,11 @@ const (
 	// BrokersSetting is the comma-separated list of the seed brokers, each host:port, 1 to 16.
 	BrokersSetting     = "STEGO_KAFKA_BROKERS"
 	BrokersFileSetting = "STEGO_KAFKA_BROKERS_FILE"
+	// BrokerHostsSetting is the comma-separated list of the hosts that the destination may dial, at most 64: the
+	// seed brokers and every broker that a broker names in its metadata. Unset: the destination dials each broker that
+	// a broker names, as a Kafka client does, held only to verified TLS, or to loopback in the insecure loopback mode.
+	BrokerHostsSetting     = "STEGO_KAFKA_BROKER_HOSTS"
+	BrokerHostsFileSetting = "STEGO_KAFKA_BROKER_HOSTS_FILE"
 	// TopicSetting is the declared topic of every message. Unset: each message goes to the topic of its event type,
 	// the kind of its outbox message.
 	TopicSetting     = "STEGO_KAFKA_TOPIC"
@@ -55,6 +60,9 @@ const (
 // MaxBrokers is the most seed brokers of the settings.
 const MaxBrokers = 16
 
+// MaxBrokerHosts is the most hosts of the broker host list.
+const MaxBrokerHosts = 64
+
 // maxValue is the largest value file and secret file that the destination reads.
 const maxValue = 16 << 10
 
@@ -69,6 +77,8 @@ var topicPattern = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,249}$`)
 type Settings struct {
 	// Brokers are the seed brokers, each host:port.
 	Brokers []string
+	// BrokerHosts are the hosts that the destination may dial, or empty for each broker that a broker names.
+	BrokerHosts []string
 	// Topic is the declared topic, or empty for the topic of each message's event type.
 	Topic string
 	// CAFile, ClientCertFile and ClientKeyFile are the absolute paths of the TLS files.
@@ -98,6 +108,13 @@ func ReadSettings() (Settings, error) {
 	}
 	if brokers != "" {
 		s.Brokers = strings.Split(brokers, ",")
+	}
+	hosts, err := value(BrokerHostsSetting, BrokerHostsFileSetting)
+	if err != nil {
+		return Settings{}, err
+	}
+	if hosts != "" {
+		s.BrokerHosts = strings.Split(hosts, ",")
 	}
 	if s.Topic, err = value(TopicSetting, TopicFileSetting); err != nil {
 		return Settings{}, err
@@ -165,6 +182,25 @@ func (s Settings) Check() error {
 			return settingError(BrokersSetting, "names one broker twice")
 		}
 		seen[broker] = true
+	}
+	if len(s.BrokerHosts) > MaxBrokerHosts {
+		return settingError(BrokerHostsSetting, fmt.Sprintf("names more than %d hosts", MaxBrokerHosts))
+	}
+	allowed := map[string]bool{}
+	for _, host := range s.BrokerHosts {
+		if host == "" || len(host) > 253 || strings.ContainsAny(host, "/\\@ ,[]") || strings.ContainsFunc(host, control) ||
+			strings.Contains(host, ":") && net.ParseIP(host) == nil {
+			return settingError(BrokerHostsSetting, "must be a comma-separated list of host names or IP addresses with no port")
+		}
+		allowed[strings.ToLower(host)] = true
+	}
+	if len(allowed) > 0 {
+		for _, broker := range s.Brokers {
+			host, _, _ := net.SplitHostPort(broker)
+			if !allowed[strings.ToLower(host)] {
+				return settingError(BrokersSetting, "names a host that "+BrokerHostsSetting+" does not hold")
+			}
+		}
 	}
 	if s.Topic != "" && !validTopic(s.Topic) {
 		return settingError(TopicSetting, "must be a Kafka topic name of [a-zA-Z0-9._-], at most 249 characters, not . or .. and not starting with __")

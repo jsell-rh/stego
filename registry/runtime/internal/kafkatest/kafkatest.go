@@ -3,8 +3,9 @@
 //
 // A package's TestMain calls Wrap around its other test main. A test calls Start. The broker is one container of
 // Image per test binary, which the first test that needs it starts and which Wrap removes when the tests end. It runs
-// with podman when podman is on PATH and can start it, else with docker, without privilege, with 512 MiB of memory and
-// one CPU, its data on a tmpfs, its ports published on 127.0.0.1 only, and with a time limit (the binary's
+// with podman when podman is on PATH and can start it, else with docker, without privilege or capabilities, as the
+// test's own user, with 512 MiB of memory, one CPU and at most 512 processes, a read-only root file system and its
+// data on a tmpfs, its ports published on 127.0.0.1 only, and with a time limit (the binary's
 // -test.timeout and one minute, else one hour), so that it stops also when the test binary is killed.
 //
 // The broker has four listeners, each reached through a proxy of this package on 127.0.0.1, whose address the
@@ -217,7 +218,7 @@ func run(path string) (*Broker, error) {
 		`listener.name.sasl.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required unsecuredLoginStringClaim_sub="broker";`,
 		"",
 	}, "\n")
-	if err := os.WriteFile(filepath.Join(folder, "server.properties"), []byte(properties), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(folder, "server.properties"), []byte(properties), 0o600); err != nil {
 		return nil, err
 	}
 	life := defaultLife
@@ -227,15 +228,26 @@ func run(path string) (*Broker, error) {
 		}
 	}
 	name := fmt.Sprintf("stego-kafkatest-%d-%s", os.Getpid(), suffix())
+	// The broker runs as the test's own user, so it reads the keys of the folder, which only that user may read. Its
+	// root file system is read-only, and it writes only to its tmpfs folders.
 	args := []string{"run", "--detach", "--rm", "--name", name,
-		"--memory", "512m", "--cpus", "1",
-		"--security-opt", "no-new-privileges",
+		"--memory", "512m", "--cpus", "1", "--pids-limit", "512",
+		"--security-opt", "no-new-privileges", "--cap-drop", "ALL", "--read-only",
+		"--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()),
 		"--tmpfs", "/var/lib/kafka/data:rw,size=256m,mode=1777",
+		"--tmpfs", "/opt/kafka/config:rw,size=16m,mode=1777",
+		"--tmpfs", "/opt/kafka/logs:rw,size=64m,mode=1777",
+		// The broker loads the native library of a compression codec from /tmp.
+		"--tmpfs", "/tmp:rw,exec,size=64m,mode=1777",
 		"--volume", folder + ":/mnt/shared/config:ro",
 		"--env", "CLUSTER_ID=" + clusterID(),
 		"--env", "KAFKA_HEAP_OPTS=-Xmx256m -Xms256m"}
 	for _, port := range names {
 		args = append(args, "--publish", "127.0.0.1::"+port)
+	}
+	if filepath.Base(path) == "podman" {
+		// Rootless podman maps the test's user to the same user in the container only with keep-id.
+		args = append(args, "--userns", "keep-id")
 	}
 	args = append(args, "--entrypoint", "timeout", Image, fmt.Sprintf("%ds", int(life.Seconds())), "/etc/kafka/docker/run")
 	mu.Lock()
@@ -281,7 +293,7 @@ func run(path string) (*Broker, error) {
 }
 
 // writeFiles writes the test CA, the broker's key and certificate for 127.0.0.1 and localhost, a client certificate,
-// and another CA. The folder and its files are readable by the user of the container, which is not the test's user.
+// and another CA. The folder and the keys are for the test's user only; the broker runs as that user.
 func (b *Broker) writeFiles() error {
 	caKey, caCert, err := certificate(nil, nil, "stego kafkatest CA", true)
 	if err != nil {
@@ -307,12 +319,9 @@ func (b *Broker) writeFiles() error {
 		"client-key.pem": keyPEM(clientKey),
 	}
 	for name, data := range files {
-		if err := os.WriteFile(filepath.Join(b.Dir, name), data, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(b.Dir, name), data, 0o600); err != nil {
 			return err
 		}
-	}
-	if err := os.Chmod(b.Dir, 0o755); err != nil {
-		return err
 	}
 	b.CAFile, b.OtherCAFile = filepath.Join(b.Dir, "ca.pem"), filepath.Join(b.Dir, "other-ca.pem")
 	b.ClientCertFile, b.ClientKeyFile = filepath.Join(b.Dir, "client.pem"), filepath.Join(b.Dir, "client-key.pem")

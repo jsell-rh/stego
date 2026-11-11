@@ -119,7 +119,7 @@ func (e *env) plain(topic string) Settings {
 // destination builds the destination of s and closes it when the test ends.
 func destination(t *testing.T, s Settings) *Destination {
 	t.Helper()
-	d, err := New(s)
+	d, err := New(s, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,15 +227,17 @@ func header(t *testing.T, r *kgo.Record, key string) string {
 func TestDelivery(t *testing.T) {
 	e := newEnv(t)
 
-	t.Run("ST-SUP-RP01-LC30-T02 One entity's events arrive in their order, on one partition", func(t *testing.T) {
+	t.Run("ST-SUP-RP01-LC30-T02 One entity's events arrive in their order, on one partition, keyed by tenant and entity", func(t *testing.T) {
 		topic := topicName("orders")
 		e.broker.CreateTopic(t, topic, 3)
 		e.work(t, destination(t, e.plain(topic)), nil)
-		keys := []string{"order:o-1", "order:o-2", "order:o-3", "order:o-4"}
+		// Two tenants with the same two entity IDs: four entities, four keys.
+		keys := []string{"t1/order:o-1", "t1/order:o-2", "t2/order:o-1", "t2/order:o-2"}
 		const each = 8
 		for n := range each {
 			for _, key := range keys {
-				e.event(t, "t1", "order.changed", key, map[string]any{"key": key, "n": n})
+				tenantID, entity, _ := strings.Cut(key, "/")
+				e.event(t, tenantID, "order.changed", entity, map[string]any{"key": key, "n": n})
 			}
 		}
 		records := e.broker.Records(t, topic, each*len(keys), time.Minute, 2*time.Second)
@@ -253,8 +255,9 @@ func TestDelivery(t *testing.T) {
 			if err := json.Unmarshal(r.Value, &body); err != nil {
 				t.Fatal(err)
 			}
-			if string(r.Key) != body.Key {
-				t.Fatalf("the record key is %q, want the entity %q", r.Key, body.Key)
+			tenantID, entity, _ := strings.Cut(body.Key, "/")
+			if string(r.Key) != tenantID+"\x1f"+entity || header(t, r, HeaderTenant) != tenantID {
+				t.Fatalf("the record key is %q, want the tenant %s, the separator and the entity %s", r.Key, tenantID, entity)
 			}
 			if p, seen := partition[body.Key]; seen && p != r.Partition {
 				t.Fatalf("%s is on the partitions %d and %d", body.Key, p, r.Partition)
@@ -359,7 +362,7 @@ func TestDelivery(t *testing.T) {
 		}
 		for _, record := range records {
 			if header(t, record, HeaderEventID) != id.String() || header(t, record, HeaderIdempotencyKey) != "key-"+id.String() ||
-				string(record.Key) != "order:o-7" {
+				string(record.Key) != "t1\x1forder:o-7" {
 				t.Fatalf("a record carries the event ID %q and key %q, want %s and order:o-7",
 					header(t, record, HeaderEventID), record.Key, id)
 			}
@@ -442,10 +445,18 @@ func TestSecurity(t *testing.T) {
 		if err := send(t, good); err != nil {
 			t.Fatalf("a send with the CA and the client certificate: %v", err)
 		}
-		otherCA := destination(t, Settings{Brokers: []string{broker.TLS}, Topic: topic, CAFile: broker.OtherCAFile,
-			ClientCertFile: broker.ClientCertFile, ClientKeyFile: broker.ClientKeyFile})
-		if err := send(t, otherCA); err == nil {
-			t.Fatal("a broker whose certificate the CA file did not sign was taken")
+		logs := &recorder{}
+		otherCA, err := New(Settings{Brokers: []string{broker.TLS}, Topic: topic, CAFile: broker.OtherCAFile,
+			ClientCertFile: broker.ClientCertFile, ClientKeyFile: broker.ClientKeyFile}, logs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer otherCA.Close()
+		if err := send(t, otherCA); err == nil || err.Error() != errTLSVerify.Error() {
+			t.Fatalf("a broker whose certificate the CA file did not sign gave %v, want %q", err, errTLSVerify)
+		}
+		if got := logs.got(); len(got) == 0 || got[0] != FailureTLSVerification {
+			t.Fatalf("logged %v, want %s", got, FailureTLSVerification)
 		}
 		// The SASL listener takes TLS with no client certificate; with SCRAM below. Here the TLS listener requires one.
 		noCert := destination(t, Settings{Brokers: []string{broker.TLS}, Topic: topic, CAFile: broker.CAFile,
@@ -454,7 +465,7 @@ func TestSecurity(t *testing.T) {
 			t.Fatal("the listener that requires a client certificate took a send with none")
 		}
 		if _, err := New(Settings{Brokers: []string{broker.TLS}, CAFile: write(t, "ca", "not a certificate"),
-			ClientCertFile: broker.ClientCertFile, ClientKeyFile: broker.ClientKeyFile}); err == nil ||
+			ClientCertFile: broker.ClientCertFile, ClientKeyFile: broker.ClientKeyFile}, nil); err == nil ||
 			!strings.Contains(err.Error(), CAFileSetting) {
 			t.Fatalf("a CA file with no certificate gave %v, want a refusal that names %s", err, CAFileSetting)
 		}
@@ -464,12 +475,18 @@ func TestSecurity(t *testing.T) {
 	t.Run("ST-SUP-RP01-LC32-T03 SCRAM-SHA-512 reads the password file again at each authentication", func(t *testing.T) {
 		broker.SetSCRAM(t, "svc-orders", "right-password")
 		password := write(t, "password", "wrong-password\n")
-		d := destination(t, Settings{Brokers: []string{broker.SASL}, Topic: topic, CAFile: broker.CAFile,
-			Mechanism: MechanismSCRAMSHA512, Username: "svc-orders", PasswordFile: password})
-		if err := send(t, d); err == nil {
-			t.Fatal("a wrong password was taken")
-		} else if strings.Contains(err.Error(), "wrong-password") {
-			t.Fatalf("the error %q holds the password", err)
+		logs := &recorder{}
+		d, err := New(Settings{Brokers: []string{broker.SASL}, Topic: topic, CAFile: broker.CAFile,
+			Mechanism: MechanismSCRAMSHA512, Username: "svc-orders", PasswordFile: password}, logs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer d.Close()
+		if err := send(t, d); err == nil || err.Error() != errSASL.Error() {
+			t.Fatalf("a wrong password gave %v, want %q", err, errSASL)
+		}
+		if got := logs.got(); len(got) == 0 || got[0] != FailureSASL {
+			t.Fatalf("logged %v, want %s", got, FailureSASL)
 		}
 		if err := os.WriteFile(password, []byte("right-password\n"), 0o600); err != nil {
 			t.Fatal(err)
@@ -481,11 +498,14 @@ func TestSecurity(t *testing.T) {
 	})
 
 	t.Run("ST-SUP-RP01-LC32-T04 OAUTHBEARER reads the token file again at each authentication", func(t *testing.T) {
-		token := write(t, "token", kafkatest.Token("svc-orders", time.Now().Add(-time.Minute))+"\n")
+		expired := kafkatest.Token("svc-orders", time.Now().Add(-time.Minute))
+		token := write(t, "token", expired+"\n")
 		d := destination(t, Settings{Brokers: []string{broker.SASL}, Topic: topic, CAFile: broker.CAFile,
 			Mechanism: MechanismOAuthBearer, TokenFile: token})
-		if err := send(t, d); err == nil {
-			t.Fatal("an expired token was taken")
+		if err := send(t, d); err == nil || err.Error() != errSASL.Error() {
+			t.Fatalf("an expired token gave %v, want %q", err, errSASL)
+		} else if strings.Contains(err.Error(), expired) || strings.Contains(err.Error(), strings.Split(expired, ".")[1]) {
+			t.Fatalf("the error %q holds the token", err)
 		}
 		if err := os.WriteFile(token, []byte(kafkatest.Token("svc-orders", time.Now().Add(time.Hour))), 0o600); err != nil {
 			t.Fatal(err)

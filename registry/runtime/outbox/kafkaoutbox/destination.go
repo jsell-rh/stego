@@ -8,10 +8,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"net"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+	otellog "go.opentelemetry.io/otel/log"
 
 	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -50,6 +54,9 @@ const (
 	PingTimeout = 2 * time.Second
 	// DeliveryTimeout bounds one record in the client when the attempt's context sets no earlier end.
 	DeliveryTimeout = time.Minute
+	// MaxReadBytes is the largest answer that the client reads from a broker. The client allocates the size that an
+	// answer announces before it reads it, so the bound keeps a hostile broker from making it allocate more.
+	MaxReadBytes = 16 << 20
 	// UnknownTopicRetries is how often the client sends a record again to a topic that the broker does not know
 	// before the attempt fails.
 	UnknownTopicRetries = 2
@@ -65,15 +72,51 @@ const (
 // ErrClosed is the error of a delivery after Close.
 var ErrClosed = errors.New("kafkaoutbox: the destination is closed")
 
-// errUnavailable is the error of a delivery that sent nothing because no broker answered. It holds no broker
-// address and no detail of the client's error.
-var errUnavailable = errors.New("kafkaoutbox: no broker answered, so the record was not sent")
+// The errors of a delivery, one for each class of failure. Each is fixed text: it holds no broker address, no
+// credential and no detail of the client's error.
+var (
+	errUnavailable    = errors.New("kafkaoutbox: no broker answered, so the record was not sent")
+	errTLSVerify      = errors.New("kafkaoutbox: the certificate of a broker did not verify")
+	errSASL           = errors.New("kafkaoutbox: a broker refused the SASL authentication")
+	errSCRAMBounds    = errors.New("kafkaoutbox: the SCRAM challenge of a broker is out of its bounds")
+	errBrokerRefused  = errors.New("kafkaoutbox: a broker named an address that the settings do not allow")
+	errUnknownOutcome = errors.New("kafkaoutbox: the outcome of the record is not known")
+)
+
+// The failure classes of the log event kafka.delivery_failed.
+const (
+	FailureTLSVerification = "tls-verification"
+	FailureSASL            = "sasl-authentication"
+	FailureSCRAMBounds     = "scram-bounds"
+	FailureBrokerRefused   = "broker-not-allowed"
+)
+
+// failure gives the fixed error and the failure class of a client error, or errUnavailable and "" when the error is
+// of no class that the destination tells apart.
+func failure(err error) (error, string) {
+	var verify *tls.CertificateVerificationError
+	var authority x509.UnknownAuthorityError
+	var host x509.HostnameError
+	var invalid x509.CertificateInvalidError
+	switch {
+	case errors.Is(err, errBrokerRefused):
+		return errBrokerRefused, FailureBrokerRefused
+	case errors.Is(err, errSCRAMBounds):
+		return errSCRAMBounds, FailureSCRAMBounds
+	case errors.As(err, &verify), errors.As(err, &authority), errors.As(err, &host), errors.As(err, &invalid):
+		return errTLSVerify, FailureTLSVerification
+	case errors.Is(err, kerr.SaslAuthenticationFailed), errors.Is(err, errSASL):
+		return errSASL, FailureSASL
+	}
+	return errUnavailable, ""
+}
 
 // Destination is the Kafka destination of the outbox worker. It holds one client, which it opens again after an
 // attempt whose outcome is not known, so a new attempt never shares a producer whose state is not known.
 type Destination struct {
 	options []kgo.Opt
 	topic   string
+	logger  otellog.Logger
 
 	mu      sync.Mutex
 	session *session
@@ -90,15 +133,27 @@ func (s *session) close() { s.once.Do(s.client.Close) }
 // New gives the Kafka destination of the settings. It checks them, loads the CA file and the client certificate, and
 // refuses a file that does not load with an error that names its setting and holds no secret. It opens no connection:
 // the first delivery does. The client verifies each broker's certificate against the system roots and the CA file,
-// asks for the acknowledgement of all in-sync replicas, and produces idempotently.
-func New(s Settings) (*Destination, error) {
+// asks for the acknowledgement of all in-sync replicas, and produces idempotently. It dials every broker, a seed or one
+// that a broker names in its metadata, through one dialer that holds it to the settings. logs gives the event
+// kafka.delivery_failed of a failure of a named class; nil emits none.
+func New(s Settings, logs otellog.LoggerProvider) (*Destination, error) {
 	if err := s.Check(); err != nil {
 		return nil, err
+	}
+	dialer := &brokerDialer{loopbackOnly: s.InsecureLoopback}
+	if len(s.BrokerHosts) > 0 {
+		dialer.hosts = map[string]bool{}
+		for _, h := range s.BrokerHosts {
+			dialer.hosts[strings.ToLower(h)] = true
+		}
 	}
 	options := []kgo.Opt{
 		kgo.SeedBrokers(append([]string(nil), s.Brokers...)...),
 		kgo.ClientID("stego-outbox"),
-		kgo.DialTimeout(DialTimeout),
+		kgo.Dialer(dialer.dial),
+		kgo.BrokerMaxReadBytes(MaxReadBytes),
+		// The destination fetches nothing; the fetch bound only has to stay within the read bound.
+		kgo.FetchMaxBytes(MaxReadBytes),
 		kgo.RequiredAcks(kgo.AllISRAcks()),
 		kgo.ProducerLinger(0),
 		kgo.RecordDeliveryTimeout(DeliveryTimeout),
@@ -114,7 +169,7 @@ func New(s Settings) (*Destination, error) {
 		if err != nil {
 			return nil, err
 		}
-		options = append(options, kgo.DialTLSConfig(config))
+		dialer.tls = config
 	}
 	switch s.Mechanism {
 	case MechanismSCRAMSHA512:
@@ -128,15 +183,69 @@ func New(s Settings) (*Destination, error) {
 		})}))
 	case MechanismOAuthBearer:
 		file := s.TokenFile
-		options = append(options, kgo.SASL(oauth.Oauth(func(context.Context) (oauth.Auth, error) {
+		options = append(options, kgo.SASL(refusedOAuth{oauth.Oauth(func(context.Context) (oauth.Auth, error) {
 			token, err := readSecret(TokenFileSetting, file)
 			if err != nil {
 				return oauth.Auth{}, err
 			}
 			return oauth.Auth{Token: token}, nil
-		})))
+		})}))
 	}
-	return &Destination{options: options, topic: s.Topic}, nil
+	d := &Destination{options: options, topic: s.Topic}
+	if logs != nil {
+		d.logger = logs.Logger("github.com/jsell-rh/stego/registry/runtime/outbox/kafkaoutbox")
+	}
+	return d, nil
+}
+
+// brokerDialer dials each broker for the client: a seed, or a broker that a broker names in its metadata. With hosts,
+// it refuses a host that the list does not hold. In the insecure loopback mode it resolves the host, refuses it unless
+// every address is a loopback address, and dials that address, so no broker gets a plaintext connection elsewhere.
+// Else it dials TLS with the host as the server name, so the broker's certificate is verified for that host.
+type brokerDialer struct {
+	tls          *tls.Config
+	loopbackOnly bool
+	hosts        map[string]bool
+}
+
+func (b *brokerDialer) dial(ctx context.Context, network, address string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, errBrokerRefused
+	}
+	if b.hosts != nil && !b.hosts[strings.ToLower(host)] {
+		return nil, errBrokerRefused
+	}
+	target := address
+	if b.loopbackOnly {
+		ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		if err != nil {
+			return nil, err
+		}
+		if len(ips) == 0 {
+			return nil, errBrokerRefused
+		}
+		for _, ip := range ips {
+			if !ip.IP.IsLoopback() {
+				return nil, errBrokerRefused
+			}
+		}
+		target = net.JoinHostPort(ips[0].IP.String(), port)
+	}
+	conn, err := (&net.Dialer{Timeout: DialTimeout}).DialContext(ctx, network, target)
+	if err != nil || b.tls == nil {
+		return conn, err
+	}
+	config := b.tls.Clone()
+	config.ServerName = host
+	client := tls.Client(conn, config)
+	handshake, cancel := context.WithTimeout(ctx, DialTimeout)
+	defer cancel()
+	if err := client.HandshakeContext(handshake); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return client, nil
 }
 
 // tlsConfig gives the verified TLS configuration of the settings: TLS 1.2 at least, the system roots and the CA file,
@@ -179,8 +288,8 @@ func (d *Destination) Registration() outbox.Destination {
 }
 
 // Deliver is the outbox handler of the Kafka destination (ST-SUP-RP01-LC30, ST-SUP-RP01-LC31). It publishes the
-// message as one record to the declared topic, or to the topic of its event type, with the resource key of the
-// message as the record key and the event ID, the idempotency key, the event type and the tenant as headers, and
+// message as one record to the declared topic, or to the topic of its event type, with Key of its tenant and its
+// resource key as the record key and the event ID, the idempotency key, the event type and the tenant as headers, and
 // returns nil only when the broker acknowledged the record. It first asks a broker for its metadata, and marks the
 // attempt not sent when none answers, so the outbox waits out a backoff. A refusal by the broker is transient, or
 // permanent for a record that the broker can never take; any other end, and the end of the attempt's deadline, is an
@@ -197,7 +306,9 @@ func (d *Destination) Deliver(ctx context.Context, _ *sql.Tx, delivery outbox.De
 	if err := ping(ctx, s.client); err != nil {
 		// No record was sent. A broker that does not answer may hold a connection the client must not use again.
 		d.invalidate(s)
-		return outbox.NotSent(errUnavailable)
+		fixed, class := failure(err)
+		d.failed(ctx, class)
+		return outbox.NotSent(fixed)
 	}
 	result := make(chan error, 1)
 	s.client.Produce(ctx, record, func(_ *kgo.Record, err error) { result <- err })
@@ -234,7 +345,24 @@ func (d *Destination) outcome(s *session, err error) error {
 		}
 	}
 	d.invalidate(s)
-	return errors.New("kafkaoutbox: the outcome of the record is not known")
+	if _, class := failure(err); class != "" {
+		d.failed(context.Background(), class)
+	}
+	return errUnknownOutcome
+}
+
+// failed emits the event kafka.delivery_failed for a failure of a named class: the class, and nothing else.
+func (d *Destination) failed(ctx context.Context, class string) {
+	if d.logger == nil || class == "" {
+		return
+	}
+	var record otellog.Record
+	record.SetEventName("kafka.delivery_failed")
+	record.SetSeverity(otellog.SeverityWarn)
+	record.SetSeverityText("WARN")
+	record.SetBody(attribute.StringValue("a Kafka delivery failed: " + class))
+	record.AddAttributes(attribute.String("failure", class))
+	d.logger.Emit(ctx, record)
 }
 
 // record builds the record of one outbox message. It refuses a message with no tenant, no resource key, a payload
@@ -258,7 +386,7 @@ func (d *Destination) record(delivery outbox.Delivery) (*kgo.Record, error) {
 	}
 	return &kgo.Record{
 		Topic: topic,
-		Key:   []byte(delivery.ResourceKey),
+		Key:   []byte(Key(delivery.Tenant.ID(), delivery.ResourceKey)),
 		Value: bytes.Clone(delivery.Payload),
 		Headers: []kgo.RecordHeader{
 			{Key: HeaderEventID, Value: []byte(delivery.ID.String())},
@@ -269,6 +397,14 @@ func (d *Destination) record(delivery outbox.Delivery) (*kgo.Record, error) {
 		},
 	}, nil
 }
+
+// KeySeparator separates the tenant from the resource key in a record key. A tenant ID holds no control character
+// (ST-SUP-RP04-LC01), so the tenant of a key is the text before its first separator.
+const KeySeparator = "\x1f"
+
+// Key gives the record key of a message of tenantID with resourceKey: the tenant, KeySeparator and the resource key,
+// so two tenants with one entity ID never share a key (ST-SUP-RP01-LC30).
+func Key(tenantID, resourceKey string) string { return tenantID + KeySeparator + resourceKey }
 
 // ping asks a broker for its metadata within PingTimeout and half of the time that ctx has left, so a broker that does
 // not answer leaves the attempt time to end as not sent before its deadline.
@@ -340,7 +476,7 @@ type boundedSession struct {
 
 func (s *boundedSession) Challenge(challenge []byte) (bool, []byte, error) {
 	if len(challenge) > maxSCRAMChallenge {
-		return false, nil, errors.New("kafkaoutbox: the SCRAM challenge of the broker is too large")
+		return false, nil, errSCRAMBounds
 	}
 	if !s.checked {
 		s.checked = true
@@ -349,14 +485,36 @@ func (s *boundedSession) Challenge(challenge []byte) (bool, []byte, error) {
 			if v, ok := strings.CutPrefix(field, "i="); ok {
 				n, err := strconv.Atoi(v)
 				if iterations != -1 || err != nil {
-					return false, nil, errors.New("kafkaoutbox: the SCRAM challenge of the broker has no one iteration count")
+					return false, nil, errSCRAMBounds
 				}
 				iterations = n
 			}
 		}
 		if iterations < minSCRAMIterations || iterations > maxSCRAMIterations {
-			return false, nil, errors.New("kafkaoutbox: the SCRAM iteration count of the broker is out of its bounds")
+			return false, nil, errSCRAMBounds
 		}
 	}
 	return s.Session.Challenge(challenge)
+}
+
+// refusedOAuth marks the refusal of an OAUTHBEARER token as errSASL. A broker that refuses a token answers with an
+// error document in a challenge (RFC 7628), which the OAUTHBEARER library reports as unexpected data.
+type refusedOAuth struct{ sasl.Mechanism }
+
+func (m refusedOAuth) Authenticate(ctx context.Context, host string) (sasl.Session, []byte, error) {
+	s, first, err := m.Mechanism.Authenticate(ctx, host)
+	if err != nil {
+		return nil, nil, err
+	}
+	return refusedSession{s}, first, nil
+}
+
+type refusedSession struct{ sasl.Session }
+
+func (s refusedSession) Challenge(challenge []byte) (bool, []byte, error) {
+	done, response, err := s.Session.Challenge(challenge)
+	if err != nil && len(challenge) > 0 {
+		return false, nil, errSASL
+	}
+	return done, response, err
 }

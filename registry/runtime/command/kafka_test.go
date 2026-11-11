@@ -44,7 +44,7 @@ func TestKafkaEvent(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		destination, err := kafkaoutbox.New(kafkaoutbox.Settings{Brokers: []string{broker.Plain.Addr()}, InsecureLoopback: true})
+		destination, err := kafkaoutbox.New(kafkaoutbox.Settings{Brokers: []string{broker.Plain.Addr()}, InsecureLoopback: true}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -74,8 +74,8 @@ func TestKafkaEvent(t *testing.T) {
 			t.Fatalf("the topic holds %d records, want the one event", len(records))
 		}
 		r := records[0]
-		if string(r.Key) != "order:o-k1" || key != "order:o-k1" {
-			t.Fatalf("the record key is %q and the message key %q, want the entity order:o-k1", r.Key, key)
+		if string(r.Key) != "t1\x1forder:o-k1" || key != "order:o-k1" {
+			t.Fatalf("the record key is %q and the message key %q, want the tenant t1, the separator and the entity order:o-k1", r.Key, key)
 		}
 		if string(r.Value) != payload {
 			t.Fatalf("the record value is %s, want the staged payload %s", r.Value, payload)
