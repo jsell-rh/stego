@@ -215,6 +215,46 @@ func probe(e Event, u Untrusted) bool {
 		}
 	})
 
+	t.Run("ST-SUP-RP05-LC03-T08 A JSON value of a jsonb field is redacted at any depth and stored as its JSON value", func(t *testing.T) {
+		e := sampleEvent("t1", "update")
+		f := Fields{"profile.email": PII, "profile.api_token": Secret}
+		before := map[string]any{"profile": json.RawMessage(`{"email":"old@example.com","api_token":"tok-old-1","city":"Oslo","n":1.0}`), "note": json.RawMessage(nil)}
+		after := map[string]any{"profile": json.RawMessage(`{"email":"new@example.com","api_token":"tok-new-2","city":"Bergen","n":2}`), "note": json.RawMessage(`[1,2]`)}
+		if err := e.SetStates(Settings{Level: LevelChange}, f, before, after); err != nil {
+			t.Fatal(err)
+		}
+		e = linked(t, e)
+		if want := `{"note":null,"profile":{"city":"Oslo","email":"` + RedactionMarker + `","n":1}}`; string(e.Before.JSON()) != want {
+			t.Errorf("before is %s, want %s", e.Before.JSON(), want)
+		}
+		if want := `{"note":[1,2],"profile":{"city":"Bergen","email":"` + RedactionMarker + `","n":2}}`; string(e.After.JSON()) != want {
+			t.Errorf("after is %s, want %s", e.After.JSON(), want)
+		}
+		p, err := ParsePatch(e.Patch.JSON())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.ContainsFunc(p, func(o Op) bool { return o.Path == "/profile/email" && o.Value == RedactionMarker }) ||
+			!slices.ContainsFunc(p, func(o Op) bool { return o.Path == "/profile/city" }) {
+			t.Errorf("the patch %s has no change of /profile/email with the marker and of /profile/city", e.Patch.JSON())
+		}
+		enc, err := Encode(e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, v := range []string{"api_token", "tok-old-1", "tok-new-2", "old@example.com", "new@example.com"} {
+			if bytes.Contains(enc, []byte(v)) {
+				t.Errorf("the encoded record holds %q", v)
+			}
+		}
+		// JSON text that does not decode is refused, and the error names the field and not the value.
+		bad := sampleEvent("t1", "update")
+		err = bad.SetStates(Settings{Level: LevelChange}, Fields{}, nil, map[string]any{"profile": json.RawMessage(`{"secret-value"`)})
+		if err == nil || !strings.Contains(err.Error(), "profile") || strings.Contains(err.Error(), "secret-value") {
+			t.Errorf("SetStates with JSON text that does not decode gave %v, want an error that names profile and not the value", err)
+		}
+	})
+
 	t.Run("ST-SUP-RP05-LC04-T01 The canonical encoding sorts keys and has no insignificant whitespace", func(t *testing.T) {
 		a := decodeText(t, `{"z": 1, "a": {"y": [1, {"d": 2, "c": 3}], "b": "x y"}, "m": null}`)
 		b := decodeText(t, "{\n  \"m\": null,\n  \"a\": {\"b\": \"x y\", \"y\": [1, {\"c\": 3, \"d\": 2}]},\n  \"z\": 1\n}")

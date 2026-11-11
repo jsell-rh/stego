@@ -1130,6 +1130,46 @@ func TestCrud(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RC20-OC37-T08 A jsonb field is written, read and patched as JSON on the runtime data path", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-1", newTenant())
+		id := e.create(a, "todos", "todo", `{"title":"with meta","meta":{"tags":["a","b"],"n":1}}`)
+		if n := e.count(`SELECT count(*) FROM todos WHERE id = $1::uuid AND meta = '{"n":1,"tags":["a","b"]}'::jsonb`, id); n != 1 {
+			t.Errorf("%d Todo rows whose jsonb column holds the created value, want 1", n)
+		}
+		meta := func(r reply) any {
+			t.Helper()
+			if r.status != http.StatusOK {
+				t.Fatalf("the read answered %d %s, want 200", r.status, r.body)
+			}
+			return r.object(t)["meta"]
+		}
+		got, _ := json.Marshal(meta(e.send(a, http.MethodGet, "/api/v1/todos/"+id, "", "")))
+		if string(got) != `{"n":1,"tags":["a","b"]}` {
+			t.Errorf("the read gave meta %s, want the created JSON value", got)
+		}
+		patched := e.send(a, http.MethodPatch, "/api/v1/todos/"+id, "k-"+uuid.NewString(), `{"meta":[1,2]}`)
+		if patched.status != http.StatusOK {
+			t.Fatalf("the patch answered %d %s, want 200", patched.status, patched.body)
+		}
+		if n := e.count(`SELECT count(*) FROM todos WHERE id = $1::uuid AND meta = '[1,2]'::jsonb AND title = 'with meta'`, id); n != 1 {
+			t.Errorf("%d Todo rows with the patched jsonb value and the title kept, want 1", n)
+		}
+		// An optional jsonb field that the body does not give is NULL in its column and absent from the answer.
+		bare := e.create(a, "todos", "todo", `{"title":"no meta"}`)
+		if n := e.count(`SELECT count(*) FROM todos WHERE id = $1::uuid AND meta IS NULL`, bare); n != 1 {
+			t.Errorf("%d Todo rows with a NULL meta, want 1", n)
+		}
+		read := e.send(a, http.MethodGet, "/api/v1/todos/"+bare, "", "")
+		if _, ok := read.object(t)["meta"]; ok || read.status != http.StatusOK {
+			t.Errorf("the read of a Todo with no meta answered %d %s, want 200 with no meta member", read.status, read.body)
+		}
+		list := e.send(a, http.MethodGet, "/api/v1/todos", "", "")
+		if list.status != http.StatusOK || !strings.Contains(string(list.body), `"meta":[1,2]`) {
+			t.Errorf("the list answered %d %s, want 200 with the jsonb value of the row", list.status, list.body)
+		}
+	})
+
 	t.Run("ST-SUP-RC28-OC01-T03 A secret field reaches neither before, after nor the stored row", func(t *testing.T) {
 		e := service(t)
 		a := e.as("u-1", newTenant())

@@ -40,6 +40,18 @@ func (m *model) usesBytes() bool {
 	return false
 }
 
+// usesJSON tells whether an entity has a jsonb field, whose audit state is its JSON value.
+func (m *model) usesJSON() bool {
+	for _, e := range m.entities {
+		for _, f := range e.fields {
+			if f.decl.Type == types.FieldTypeJsonb {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (m *model) usesAudit() bool {
 	for _, e := range m.entities {
 		for _, f := range e.fields {
@@ -65,6 +77,9 @@ func renderContract(m *model) []byte {
 		w.f("\t\"bytes\"\n")
 	}
 	w.f("\t\"context\"\n")
+	if m.usesJSON() {
+		w.f("\t\"encoding/json\"\n")
+	}
 	if m.usesTime() {
 		w.f("\t\"time\"\n")
 	}
@@ -122,6 +137,9 @@ func EntityFile(pkg string, names []string, entities []types.Entity, tenantKey s
 	w.f("package %s\n\nimport (\n", pkg)
 	if m.usesBytes() {
 		w.f("\t\"bytes\"\n")
+	}
+	if m.usesJSON() {
+		w.f("\t\"encoding/json\"\n")
 	}
 	if m.usesTime() {
 		w.f("\t\"time\"\n")

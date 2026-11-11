@@ -416,6 +416,21 @@ func redactAt(field, pointer string, v any, f Fields, pii map[string][]byte) (an
 			}
 		}
 		return m, nil
+	case json.RawMessage:
+		// A JSON value, such as the state of a jsonb column, is decoded and redacted as a nested value; an empty one
+		// is a NULL column. An error names the field and not the value.
+		if len(x) == 0 {
+			return nil, nil
+		}
+		name := field
+		if name == "" {
+			name = "state"
+		}
+		decoded, err := decodeJSON(name, x)
+		if err != nil {
+			return nil, err
+		}
+		return redactAt(field, pointer, decoded, f, pii)
 	case []any:
 		a := make([]any, len(x))
 		for i, e := range x {
@@ -550,6 +565,12 @@ func normalize(field string, v any) (any, error) {
 	switch x := v.(type) {
 	case nil:
 		return nil, nil
+	case json.RawMessage:
+		// A JSON value, such as the state of a jsonb column; an empty one is a NULL column.
+		if len(x) == 0 {
+			return nil, nil
+		}
+		return decodeJSON(field, x)
 	case bool:
 		return x, nil
 	case string:
