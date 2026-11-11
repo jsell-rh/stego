@@ -182,7 +182,66 @@ func (p *wiringProject) useLocalRuntime() {
 	if err != nil {
 		p.t.Fatal(err)
 	}
-	p.write("go.mod", p.read("go.mod")+"\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n")
+	replace := "replace github.com/jsell-rh/stego/registry/runtime => " + runtimeDir
+	if mod := p.read("go.mod"); !strings.Contains(mod, replace) {
+		p.write("go.mod", mod+"\n"+replace+"\n")
+	}
+}
+
+// afterSlotBinding binds the fill order-created of testdata/runtime_wiring/after at orders.after_create.
+const afterSlotBinding = "slots:\n  - collection: orders\n    slot: after_create\n    fan-out:\n      - order-created\n"
+
+// applyWithAfterSlot applies the project with the after slot of orders bound to a qualified fill, as a service
+// author does (ST-EXT-UC02): a first apply writes the slot contracts with no binding, stego test records the fill's
+// evidence, a key that SIGNERS lists signs it, and a second apply binds and wires it.
+func (p *wiringProject) applyWithAfterSlot() {
+	t := p.t
+	t.Helper()
+	if err := os.CopyFS(filepath.Join(p.dir, "fills"), os.DirFS(filepath.Join(wiringFixture, "after", "fills"))); err != nil {
+		t.Fatal(err)
+	}
+	p.stego("apply")
+	p.useLocalRuntime()
+	p.goCommand("mod", "tidy")
+	keys := t.TempDir()
+	key := filepath.Join(keys, "signer")
+	if output, err := exec.Command("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "signer", "-f", key).CombinedOutput(); err != nil {
+		t.Fatalf("ssh-keygen: %v\n%s", err, output)
+	}
+	public, err := os.ReadFile(key + ".pub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := strings.Fields(string(public))
+	p.write("SIGNERS", "signer@example.com "+fields[0]+" "+fields[1]+"\n")
+	home := filepath.Join(keys, "home")
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, pair := range [][2]string{{"gpg.format", "ssh"}, {"user.signingkey", key}} {
+		cmd := exec.Command("git", "config", "--global", pair[0], pair[1])
+		cmd.Env = append(os.Environ(), "HOME="+home, "XDG_CONFIG_HOME="+filepath.Join(home, ".config"))
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git config: %v\n%s", err, output)
+		}
+	}
+	signed := func(args ...string) string {
+		cmd := exec.Command(p.binary, args...)
+		cmd.Dir = p.dir
+		cmd.Env = wiringGoEnv("STEGO_REGISTRY="+filepath.Join(p.dir, "registry"), "STEGO_MODULE="+wiringModule, "GOFLAGS=-mod=mod",
+			"HOME="+home, "XDG_CONFIG_HOME="+filepath.Join(home, ".config"))
+		output, _ := cmd.CombinedOutput()
+		return string(output)
+	}
+	if output := signed("test"); !strings.Contains(output, "fill order-created: tests passed") {
+		t.Fatalf("stego test did not record the evidence of order-created:\n%s", output)
+	}
+	if output := signed("fill", "sign", "order-created"); !strings.Contains(output, "signed_at") {
+		t.Fatalf("stego fill sign order-created:\n%s", output)
+	}
+	declaration := p.read("service.yaml")
+	p.write("service.yaml", strings.Replace(declaration, "commands:\n", afterSlotBinding+"commands:\n", 1))
+	p.stego("apply")
 }
 
 // planned gives the paths that a plan output lists with the action given.
@@ -249,6 +308,40 @@ func TestRuntimeDataPath(t *testing.T) {
 		}
 		if planned(output, "delete")["internal/storage/store.go"] || !planned(output, "generate")["commands/handlers/handlers.go"] {
 			t.Errorf("the plan of the service with a release on the GORM store does not keep the store and add the commands:\n%s", output)
+		}
+	})
+
+	t.Run("ST-SUP-RC11-OC31-T01 A service on the runtime data path gets no jwt-auth middleware and its verifier takes the declared settings", func(t *testing.T) {
+		runtime := newWiringProject(t, stego, runtimeArchetype)
+		runtime.stego("apply")
+		if _, err := os.Stat(filepath.Join(runtime.dir, "out", "internal", "auth")); !os.IsNotExist(err) {
+			t.Errorf("the service on the runtime data path has the jwt-auth package out/internal/auth: %v", err)
+		}
+		main := runtime.read("out/main.go")
+		if strings.Contains(main, "/out/internal/auth\"") || strings.Contains(main, "NewAuthMiddleware") {
+			t.Error("the main.go of the service on the runtime data path wires the jwt-auth middleware")
+		}
+		if !strings.Contains(main, "service.Middleware(") {
+			t.Error("the main.go of the service on the runtime data path does not wrap the routes in the runtime verifier")
+		}
+		wiring := runtime.read("out/" + RuntimeWiringNamespace + "/runtime.go")
+		for _, want := range []string{`declaredIssuer    = "https://issuer.wiring.test/realms/r1"`, `declaredAudience  = "wiring-shop"`} {
+			if !strings.Contains(wiring, want) {
+				t.Errorf("the runtime verifier does not take the declared setting %s", want)
+			}
+		}
+		// The same declaration on the store path keeps the jwt-auth middleware.
+		store := newWiringProject(t, stego, storeArchetype)
+		full := store.read("service.yaml")
+		declaration := full[:strings.Index(full, "commands:")]
+		declaration = strings.Replace(declaration, "  command:\n    proto_files:\n      - {path: proto/shop.proto, import_path: shop/v1/shop.proto}\n", "", 1)
+		store.write("service.yaml", declaration)
+		if err := os.RemoveAll(filepath.Join(store.dir, "fills")); err != nil {
+			t.Fatal(err)
+		}
+		store.stego("apply")
+		if storeMain := store.read("out/main.go"); !strings.Contains(storeMain, "/out/internal/auth\"") {
+			t.Error("the main.go of the service on the store path does not wire the jwt-auth middleware")
 		}
 	})
 
@@ -386,6 +479,7 @@ var wiringCheckIDs = []string{
 	"ST-SUP-RC20-OC37-T07 A collection create and read reach the generated handlers through the generated main.go",
 	"ST-SUP-RC32-OC02-T03 A declared command reaches its fill through the generated main.go",
 	"ST-SUP-RC33-OC02-T04 A declared query reaches its fill through the generated main.go",
+	"ST-SUP-RP14-LC04-T02 The generated service runs its workers through the service runtime",
 }
 
 // TestRuntimeWiring generates the test service with stego apply, builds it with the pinned Go, and runs the check of
@@ -402,7 +496,7 @@ func TestRuntimeWiring(t *testing.T) {
 	}
 	stego := stegoBinary(t)
 	p := newWiringProject(t, stego, runtimeArchetype)
-	p.stego("apply")
+	p.applyWithAfterSlot()
 	check, err := os.ReadFile(filepath.Join(wiringFixture, "check", "wiring_test.go"))
 	if err != nil {
 		t.Fatal(err)

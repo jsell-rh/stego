@@ -160,25 +160,35 @@ func newDatabase(t *testing.T, root *sql.DB, server *url.URL) (*sql.DB, *url.URL
 	return admin, &u
 }
 
-// prepare makes what the database administrator makes before the first migration job: the runtime and owner roles
-// of the tenancy component, the worker and relay roles, the owner's membership in the relay role of the outbox
-// runtime, CREATE on public for that relay role, a login of the runtime role, and a login of the owner role for
-// the migration job.
+// prepare runs what the database administrator runs before the first migration job: the role migration of the
+// tenancy component, which makes the owner, runtime, worker and relay roles, the owner's membership in the relay role
+// of the outbox runtime and that role's CREATE on public (ST-SUP-RC27-OC04), and a login of each role, which a
+// deployment gives. No other role or grant is made by hand.
 func prepare(t *testing.T, admin *sql.DB) {
-	execAll(t, admin, tenancy.Roles,
-		"CREATE ROLE "+quote(stegoruntime.WorkerRole)+" NOLOGIN NOINHERIT",
-		"CREATE ROLE "+quote(stegoruntime.RelayRole)+" NOLOGIN NOINHERIT",
-		"DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stego_outbox_relay') THEN CREATE ROLE stego_outbox_relay NOLOGIN; END IF; END $$",
-		"GRANT stego_outbox_relay TO "+quote(stegoruntime.OwnerRole)+" WITH SET TRUE, INHERIT TRUE",
-		"ALTER ROLE "+quote(stegoruntime.RuntimeRole)+" LOGIN PASSWORD '"+password+"'",
-		"ALTER ROLE "+quote(migratorRole)+" LOGIN PASSWORD '"+password+"'",
-	)
+	execAll(t, admin, tenancy.Roles)
+	for _, role := range []string{stegoruntime.RuntimeRole, stegoruntime.WorkerRole, stegoruntime.RelayRole, migratorRole} {
+		execAll(t, admin, "ALTER ROLE "+quote(role)+" LOGIN PASSWORD '"+password+"'")
+	}
 }
 
-// grantSchema gives the relay role of the outbox runtime CREATE on public of the database, which the authorization
-// migration needs to give its state hook function to that role (ST-SUP-Q92).
-func grantSchema(t *testing.T, admin *sql.DB) {
-	execAll(t, admin, "GRANT CREATE ON SCHEMA public TO stego_outbox_relay")
+// grantSchema prepares another database of the server as prepare does: the role migration runs on each database,
+// since the grants on the database and its schema public are the database's, and it gives each role its login again.
+func grantSchema(t *testing.T, admin *sql.DB) { prepare(t, admin) }
+
+// tenantList makes the tenant list stego_tenants as the owner role, which no migration of the runtime data path makes
+// yet (ST-SUP-Q97), so the audit jobs have the tenants to visit.
+func tenantList(t *testing.T, admin *sql.DB) {
+	text, err := tenant.Migration("public", stegoruntime.RuntimeRole)
+	must(t, err)
+	tx, err := admin.Begin()
+	must(t, err)
+	defer tx.Rollback()
+	for _, statement := range []string{"SET LOCAL ROLE " + quote(stegoruntime.OwnerRole), text} {
+		if _, err := tx.Exec(statement); err != nil {
+			t.Fatalf("%.80s: %v", statement, err)
+		}
+	}
+	must(t, tx.Commit())
 }
 
 // withTLS gives the URL of role on u, on the host localhost, with sslmode mode; verify-full also names the CA file.
@@ -255,7 +265,6 @@ func start(t *testing.T) *service {
 	s.admin, u = newDatabase(t, root, server)
 	s.dbName = strings.TrimPrefix(u.Path, "/")
 	prepare(t, s.admin)
-	grantSchema(t, s.admin)
 	ca := serverTLS(t, root)
 
 	spiceKey := os.Getenv("STEGO_TEST_SPICEDB_KEY")
@@ -293,6 +302,7 @@ func start(t *testing.T) *service {
 	if r := run(binary, migration("verify-full", u), "migrate"); r.err != nil {
 		t.Fatalf("the migration job failed: %v\n%s", r.err, r.output)
 	}
+	tenantList(t, s.admin)
 	s.secondMigration = run(binary, migration("verify-full", u), "migrate")
 
 	s.key = authntest.NewKey(t, "k1")
@@ -305,6 +315,8 @@ func start(t *testing.T) *service {
 	serviceEnv := func(mode string) []string {
 		return append(append([]string{}, spice...),
 			"PORT="+port, "DATABASE_URL="+withTLS(u, stegoruntime.RuntimeRole, mode, ca), "STEGO_AUTHN_KEYS_FILE="+keys,
+			"STEGO_WORKER_DATABASE_URL="+withTLS(u, stegoruntime.WorkerRole, mode, ca),
+			"STEGO_RELAY_DATABASE_URL="+withTLS(u, stegoruntime.RelayRole, mode, ca),
 			"STEGO_QUERY_CURSOR_KEY_FILE="+cursorFile, "STEGO_SERVICE_VERSION=1.0.0")
 	}
 	// A service with TLS that does not verify the server does not start.
@@ -476,8 +488,10 @@ func TestWiring(t *testing.T) {
 		if n := count(t, s.admin, `SELECT count(*) FROM pg_stat_activity WHERE datname = $1 AND usename = $2`, s.dbName, stegoruntime.RuntimeRole); n == 0 {
 			t.Error("the service holds no connection as the runtime role")
 		}
-		if n := count(t, s.admin, `SELECT count(*) FROM pg_stat_activity WHERE datname = $1 AND backend_type = 'client backend' AND usename NOT IN ($2, current_user)`, s.dbName, stegoruntime.RuntimeRole); n != 0 {
-			t.Errorf("the service holds %d connections as another role than the runtime role", n)
+		// The worker mode connects as the worker role and the relay as the relay role (ST-SUP-RP14-LC04); the
+		// request path holds no other role.
+		if n := count(t, s.admin, `SELECT count(*) FROM pg_stat_activity WHERE datname = $1 AND backend_type = 'client backend' AND usename NOT IN ($2, $3, $4, current_user)`, s.dbName, stegoruntime.RuntimeRole, stegoruntime.WorkerRole, stegoruntime.RelayRole); n != 0 {
+			t.Errorf("the service holds %d connections as another role than the runtime, worker and relay roles", n)
 		}
 		if n := count(t, s.admin, `SELECT count(*) FROM pg_stat_activity WHERE usename = $1`, migratorRole); n != 0 {
 			t.Errorf("%d connections use the login of the migration job after it ended", n)
@@ -486,7 +500,7 @@ func TestWiring(t *testing.T) {
 
 	t.Run("ST-SUP-RC01-OC41-T04 The runtime pool is opened through tenant.Open with the adapter's verified TLS configuration", func(t *testing.T) {
 		s.t = t
-		if n := count(t, s.admin, `SELECT count(*) FROM pg_stat_activity a JOIN pg_stat_ssl l ON l.pid = a.pid WHERE a.datname = $1 AND a.usename = $2 AND NOT l.ssl`, s.dbName, stegoruntime.RuntimeRole); n != 0 {
+		if n := count(t, s.admin, `SELECT count(*) FROM pg_stat_activity a JOIN pg_stat_ssl l ON l.pid = a.pid WHERE a.datname = $1 AND a.usename IN ($2, $3, $4) AND NOT l.ssl`, s.dbName, stegoruntime.RuntimeRole, stegoruntime.WorkerRole, stegoruntime.RelayRole); n != 0 {
 			t.Errorf("%d connections of the service do not use TLS", n)
 		}
 		if s.weakStart.err == nil {
@@ -579,6 +593,68 @@ func TestWiring(t *testing.T) {
 		if got := s.send(&other, http.MethodPost, "/orders/"+order+"/notes", "k-"+uuid.NewString(), `{"text":"denied"}`); got.status != http.StatusNotFound {
 			t.Errorf("the command of a caller who may not edit the order answered %d %s, want 404", got.status, got.body)
 		}
+	})
+
+	t.Run("ST-SUP-RP14-LC04-T02 The generated service runs its workers through the service runtime", func(t *testing.T) {
+		s.t = t
+		if order == "" {
+			t.Fatal("no order: the collection check did not pass")
+		}
+		eventually := func(what string, ok func() bool) {
+			t.Helper()
+			for deadline := time.Now().Add(60 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+				if ok() {
+					return
+				}
+			}
+			t.Fatalf("after 60 s: %s\n%s", what, s.log)
+		}
+		// The after slot of the create is an effect of its command: the outbox worker of the worker mode runs it, as
+		// the worker role, and the message is done (ST-SUP-RC20-OC34, ST-SUP-RC18-OC25).
+		eventually("the after slot of the create is delivered", func() bool {
+			return count(t, s.admin, `SELECT count(*) FROM stego_outbox.messages WHERE tenant_id = $1 AND destination = 'rest-api.after-slots' AND state = 'done'`, owner.tenant.ID()) == 1
+		})
+		if n := count(t, s.admin, `SELECT count(*) FROM pg_stat_activity WHERE datname = $1 AND usename = $2`, s.dbName, stegoruntime.WorkerRole); n == 0 {
+			t.Error("the service holds no connection as the worker role")
+		}
+		// The command add-note writes a Note that refers to the order: the relay, as the relay role, writes the
+		// relation note#order of the reference to SpiceDB (ST-SUP-RP10-LC05, ST-SUP-RP06-LC06), so the owner of the
+		// order may view the note.
+		created := s.send(&owner, http.MethodPost, "/orders/"+order+"/notes", "k-"+uuid.NewString(), `{"text":"relayed"}`)
+		if created.status != http.StatusCreated {
+			t.Fatalf("the command answered %d %s, want 201", created.status, created.body)
+		}
+		var note string
+		must(t, s.admin.QueryRow(`SELECT id::text FROM notes WHERE text = 'relayed' AND tenant_id = $1`, owner.tenant.ID()).Scan(&note))
+		noteID, err := authz.ResourceID(owner.tenant, note)
+		must(t, err)
+		eventually("the relay writes the relation of the note to its order", func() bool {
+			answer, err := v1.NewPermissionsServiceClient(s.spice).CheckPermission(s.ctx, &v1.CheckPermissionRequest{
+				Consistency: &v1.Consistency{Requirement: &v1.Consistency_FullyConsistent{FullyConsistent: true}},
+				Resource:    &v1.ObjectReference{ObjectType: "note", ObjectId: noteID}, Permission: "view",
+				Subject: &v1.SubjectReference{Object: &v1.ObjectReference{ObjectType: "user", ObjectId: owner.subject}}})
+			return err == nil && answer.GetPermissionship() == v1.CheckPermissionResponse_PERMISSIONSHIP_HAS_PERMISSION
+		})
+		// The anchor job of the controller mode anchors the chain of the tenant under the controller lease, at the
+		// declared anchor period of 2 s: the boundary is stored and the anchor is in the outbox for the audit sink.
+		execAll(t, s.admin, "INSERT INTO stego_tenants (tenant_id) VALUES ('"+owner.tenant.ID()+"') ON CONFLICT DO NOTHING")
+		eventually("the anchor job anchors the chain of the tenant", func() bool {
+			return count(t, s.admin, `SELECT count(*) FROM audit_anchor_boundaries WHERE tenant_id = $1`, owner.tenant.ID()) == 1 &&
+				count(t, s.admin, `SELECT (SELECT count(*) FROM stego_outbox.messages WHERE tenant_id = $1 AND destination = 'audit-sink')
+ - (SELECT count(*) FROM audit_event WHERE tenant_id = $1)`, owner.tenant.ID()) >= 1
+		})
+		if n := count(t, s.admin, `SELECT count(*) FROM leases WHERE name = 'stego.controller' AND expires_at > now()`); n != 1 {
+			t.Errorf("%d holders of the controller lease, want one", n)
+		}
+		// The readiness of the modes answers every mode ready.
+		eventually("every mode is ready", func() bool {
+			response, err := http.Get(s.base + "/readyz/modes")
+			if err != nil {
+				return false
+			}
+			defer response.Body.Close()
+			return response.StatusCode == http.StatusOK
+		})
 	})
 
 	t.Run("ST-SUP-RC33-OC02-T04 A declared query reaches its fill through the generated main.go", func(t *testing.T) {

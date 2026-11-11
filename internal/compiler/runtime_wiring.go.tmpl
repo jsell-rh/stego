@@ -8,7 +8,12 @@ package stegoruntime
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"log/slog"
 	"net/http"
+	"os"
+	"sync"
+	"time"
 
 	"google.golang.org/grpc"
 	"gorm.io/driver/postgres"
@@ -17,6 +22,7 @@ import (
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
 	stegoauthz "github.com/jsell-rh/stego/registry/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/modes"
 	"github.com/jsell-rh/stego/registry/runtime/outbox"
 	"github.com/jsell-rh/stego/registry/runtime/service"
 
@@ -64,14 +70,13 @@ const (
 	declaredRoleClaim = {{printf "%q" .RoleClaim}}
 )
 
-// The roles of the database. RuntimeRole and OwnerRole are the tenancy component's. WorkerRole is the role that the
-// outbox worker connects as and RelayRole the login role of the authorization relay; the database administrator
-// creates both, with no login of the runtime role, before the first migration job.
+// The roles of the database, which the role migration of the tenancy component makes (ST-SUP-RC27-OC04). WorkerRole
+// is the role that the outbox worker connects as and RelayRole the role of the authorization relay.
 const (
 	RuntimeRole = svctenancy.RuntimeRole
 	OwnerRole   = svctenancy.OwnerRole
-	WorkerRole  = {{printf "%q" .WorkerRole}}
-	RelayRole   = {{printf "%q" .RelayRole}}
+	WorkerRole  = svctenancy.WorkerRole
+	RelayRole   = svctenancy.RelayRole
 )
 
 // The settings of the deployment, which the process environment gives by the fixed names of the service runtime
@@ -90,6 +95,10 @@ const (
 	SpiceDBInsecureLoopbackSetting  = service.SpiceDBInsecureLoopbackSetting
 	CursorKeyFileSetting            = service.CursorKeyFileSetting
 	VersionSetting                  = service.VersionSetting
+	WorkerDatabaseURLSetting        = service.WorkerDatabaseURLSetting
+	WorkerDatabaseURLFileSetting    = service.WorkerDatabaseURLFileSetting
+	RelayDatabaseURLSetting         = service.RelayDatabaseURLSetting
+	RelayDatabaseURLFileSetting     = service.RelayDatabaseURLFileSetting
 )
 
 // grants are the privileges of the runtime role on the objects of the database access contract and on the
@@ -103,16 +112,24 @@ var grants = []string{
 // Runtime holds the runtime of the running service, which the service runtime wires (ST-SUP-RP14-LC02), and the
 // routes of its declared commands and queries.
 type Runtime struct {
-	svc    *service.Service
-	routes *http.ServeMux
+	svc       *service.Service
+{{- if .API}}
+	afterSlots *api.AfterSlots
+{{- end}}
+	routes    *http.ServeMux
+	selection modes.Selection
+
+	mu      sync.Mutex
+	workers *service.Workers
 }
 
 // declared are the settings of the verifier that the declaration states.
 var declared = service.Auth{Issuer: declaredIssuer, Audience: declaredAudience, Header: declaredHeader, KeyFile: declaredKeyFile,
 	RoleClaim: declaredRoleClaim}
 
-// parts are what varies with the declaration of the service, which service.New takes.
-func parts() service.Parts {
+// parts are what varies with the declaration of the service, which service.New takes. The outbox worker gets the
+// destinations of the service's components{{if .API}} and the after slots of the collections (ST-SUP-RC20-OC34){{end}}.
+func parts({{if .API}}afterSlots *api.AfterSlots{{end}}) service.Parts {
 	return service.Parts{
 		Service: Service, DeclarationVersion: DeclarationVersion, SubjectType: subjectType, TenantClaim: tenantClaim,
 		ProblemType: problemType, ProblemCode: problemCode, TenantConfig: svcstorage.TenantConfig,
@@ -122,6 +139,23 @@ func parts() service.Parts {
 			return svcauthz.NewRuntime(db, provider, q, nil)
 		},
 		AuditSettings: svcaudit.Settings,
+		Workers: service.WorkerParts{
+			NewWorker: func(q *outbox.Queue, config outbox.WorkerConfig) (*outbox.Worker, error) {
+				w, err := svcoutbox.NewWorker(q, config, svcoutbox.Ports{AuditSink: heldSink{}})
+				if err != nil {
+					return nil, err
+				}
+{{- if .API}}
+				if err := w.Register(outbox.Destination{Name: api.AfterSlotsDestination, Idempotent: true, MustLand: true,
+					Handler: func(ctx context.Context, _ *sql.Tx, d outbox.Delivery) error { return afterSlots.Deliver(ctx, d) }}); err != nil {
+					return nil, err
+				}
+{{- end}}
+				return w, nil
+			},
+			NewRelay: svcauthz.NewRelay, WatchInterval: svcauthz.WatchInterval,
+			AuditJobs: svcaudit.Jobs, AnchorPeriod: svcaudit.AnchorPeriod, TenantSchema: tenantSchema,
+		},
 {{- if .Commands}}
 		Commands: commandhandlers.Entities(),
 {{- end}}
@@ -134,15 +168,32 @@ func parts() service.Parts {
 // NewService builds the runtime of the service through the service runtime, from the settings of the deployment and
 // the declaration (ST-SUP-RP14), and makes the command and query handlers, which Routes serves.
 func NewService(ctx context.Context) (rt *Runtime, err error) {
+	selection, err := modes.Parse(os.Args[1:], os.Getenv)
+	if err != nil {
+		return nil, err
+	}
 	settings, err := service.ReadSettings(declared)
 	if err != nil {
 		return nil, err
 	}
+{{- if .API}}
+	afterSlots := api.NewAfterSlots()
+	svc, err := service.New(ctx, settings, parts(afterSlots))
+	if err != nil {
+		return nil, err
+	}
+	rt = &Runtime{svc: svc, routes: http.NewServeMux(), selection: selection, afterSlots: afterSlots}
+	if err = afterSlots.Meter(svc.Telemetry().MeterProvider()); err != nil {
+		_ = rt.Close()
+		return nil, err
+	}
+{{- else}}
 	svc, err := service.New(ctx, settings, parts())
 	if err != nil {
 		return nil, err
 	}
-	rt = &Runtime{svc: svc, routes: http.NewServeMux()}
+	rt = &Runtime{svc: svc, routes: http.NewServeMux(), selection: selection}
+{{- end}}
 	defer func() {
 		if err != nil {
 			_ = rt.Close()
@@ -169,8 +220,97 @@ func NewService(ctx context.Context) (rt *Runtime, err error) {
 const retention = {{if .Idempotency}}svcidempotency.Retention{{else}}0{{end}}
 
 // Middleware verifies the bearer token of each request before next; a request whose token the verifier refuses is
-// answered 401 and reaches no handler.
-func (rt *Runtime) Middleware(next http.Handler) http.Handler { return rt.svc.Middleware(next) }
+// answered 401 and reaches no handler. A process that does not run the api mode serves no request of the service:
+// each is answered 503, and only the probes answer (ST-SUP-RP09-LC01).
+func (rt *Runtime) Middleware(next http.Handler) http.Handler {
+	if !rt.selection.Has(modes.API) {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "this process does not run the api mode", http.StatusServiceUnavailable)
+		})
+	}
+	return rt.svc.Middleware(next)
+}
+
+// ShutdownBound bounds the shutdown of the workers after the process is told to stop.
+const ShutdownBound = 30 * time.Second
+
+// Run starts the workers of the selected modes through the service runtime (ST-SUP-RP14-LC04): in the worker mode
+// the outbox worker on the worker role, the relay on the relay role and the relay's watch; in the controller mode the
+// audit jobs under the controller lease. It returns when ctx ends, after the workers stopped within ShutdownBound.
+func (rt *Runtime) Run(ctx context.Context) error {
+	var workerSettings service.WorkerSettings
+	if rt.selection.Has(modes.Worker) {
+		var err error
+		if workerSettings, err = service.ReadWorkerSettings(true); err != nil {
+			return err
+		}
+		slog.WarnContext(ctx, "the audit-sink port is not bound: audit messages stay in the outbox until it is (ST-SUP-Q98)", "port", audit.SinkDestination)
+	}
+	// The api mode starts no component of the service runtime: its HTTP server is main's, and the health check
+	// answers its readiness. The workers run for the worker and controller modes.
+	var background modes.Selection
+	for _, m := range []modes.Mode{modes.Worker, modes.Controller} {
+		if rt.selection.Has(m) {
+			background = append(background, m)
+		}
+	}
+	if len(background) == 0 {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	workers, err := rt.svc.Start(ctx, service.StartConfig{Selection: background, Workers: workerSettings})
+	if err != nil {
+		return err
+	}
+	rt.mu.Lock()
+	rt.workers = workers
+	rt.mu.Unlock()
+	<-ctx.Done()
+	stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ShutdownBound)
+	defer cancel()
+	if err := workers.Shutdown(stopCtx); err != nil {
+		return err
+	}
+	return ctx.Err()
+}
+
+// Readiness answers the readiness of the worker and controller modes that the process runs, and names each worker
+// that stopped and each job that is not healthy (ST-SUP-RP09-LC05); before Run started the workers they are not
+// ready. A process that runs neither mode is ready here.
+func (rt *Runtime) Readiness() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rt.mu.Lock()
+		workers := rt.workers
+		rt.mu.Unlock()
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		var err error
+		switch {
+		case workers != nil:
+			err = workers.Ready(r.Context())
+		case rt.selection.Has(modes.Worker) || rt.selection.Has(modes.Controller):
+			err = errors.New("the workers have not started")
+		}
+		if err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(err.Error() + "\n"))
+			return
+		}
+		_, _ = w.Write([]byte("ready\n"))
+	})
+}
+
+// tenantSchema is the schema of the tenant list stego_tenants that the audit jobs visit (ST-SUP-RP04-LC07).
+const tenantSchema = "public"
+
+// heldSink holds every audit-sink message in the outbox: no system receives them until the platform binds the port
+// (ST-SUP-Q98). Each delivery is refused as transient, so the message stays, is retried with backoff and is never
+// lost; the destination must land (ST-SUP-RP05-LC14).
+type heldSink struct{}
+
+func (heldSink) Append(context.Context, []audit.Event) error { return errSinkNotBound }
+func (heldSink) Anchor(context.Context, audit.Anchor) error  { return errSinkNotBound }
+
+var errSinkNotBound = errors.New("the audit-sink port is not bound")
 
 // Routes serves the declared commands and queries, each at its route.
 func (rt *Runtime) Routes() http.Handler { return rt.routes }
@@ -179,7 +319,8 @@ func (rt *Runtime) Routes() http.Handler { return rt.routes }
 // CollectionRuntime gives the Runtime of the collection handlers: their own command runtime, the query runtime and
 // the probes.
 func (rt *Runtime) CollectionRuntime() *api.Runtime {
-	return &api.Runtime{Commands: rt.svc.Collections(), Queries: rt.svc.Queries(), Probes: rt.svc.Probes(), Retention: retention}
+	return &api.Runtime{Commands: rt.svc.Collections(), Queries: rt.svc.Queries(), Probes: rt.svc.Probes(), Retention: retention,
+		AfterSlots: rt.afterSlots}
 }
 {{- end}}
 

@@ -52,7 +52,6 @@ type runtimeWiringInput struct {
 type runtimeWiringData struct {
 	Audit, Authz, Outbox, Storage, Tenancy, Idempotency, API, Commands, Queries     string
 	Service, DeclarationVersion, SubjectType, TenantClaim, ProblemType, ProblemCode string
-	WorkerRole, RelayRole                                                           string
 	Issuer, Audience, Header, KeyFile, RoleClaim                                    string
 	Grants                                                                          []string
 }
@@ -89,12 +88,11 @@ func runtimeWiring(in runtimeWiringInput) ([]gen.File, ComponentWiring, error) {
 		return generatedImportPath(in.ModuleName, in.OutDirName, path.Join(append([]string{c.OutputNamespace}, sub...)...))
 	}
 	digest := sha256.Sum256(in.ServiceData)
-	role := strings.ToLower(strings.NewReplacer("-", "_", ".", "_").Replace(svc.Name))
 	data := runtimeWiringData{
 		Audit: pkg(auditComponent), Authz: pkg(authorizationComponent), Outbox: pkg("outbox"), Storage: pkg(adapterComponent),
 		Tenancy: pkg(gen.TenancyComponent), Service: svc.Name, DeclarationVersion: hex.EncodeToString(digest[:]),
 		SubjectType: svc.Authorization.SubjectFromIdentity, TenantClaim: svc.Tenancy.Claim, ProblemType: svc.ErrorTypeBase,
-		ProblemCode: problemCode(svc.Name), WorkerRole: role + "_worker", RelayRole: role + "_relay",
+		ProblemCode: problemCode(svc.Name),
 	}
 	if slices.Contains(in.Names, idempotencyComponent) && svc.Idempotency != nil {
 		data.Idempotency = pkg(idempotencyComponent)
@@ -125,6 +123,10 @@ func runtimeWiring(in runtimeWiringInput) ([]gen.File, ComponentWiring, error) {
 		ConstructorResources:    map[int][]gen.Resource{0: {gen.ServiceContext}},
 		ConstructorReturnsError: map[int]bool{0: true},
 		ConstructorDeferCalls:   map[int]string{0: "Close()"},
+		// Run starts the workers of the selected modes and stops them when the process stops (ST-SUP-RP14-LC04).
+		BackgroundTasks: []int{0},
+		// The readiness of the modes, outside the request wrappers (ST-SUP-RP09-LC05).
+		DiscoveryRoutes: []string{`topMux.Handle("GET /readyz/modes", service.Readiness())`},
 		MiddlewareConstructor:   new(int),
 		MiddlewareWrapExpr:      "%s.Middleware(%s)",
 		MigrationJob:            &gen.MigrationJobSpec{Namespace: RuntimeWiringNamespace, Function: "Migrate", Stage: "MigrationStage"},
