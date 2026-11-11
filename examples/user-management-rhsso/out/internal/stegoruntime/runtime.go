@@ -65,14 +65,16 @@ const (
 )
 
 // The roles of the database, which the role migration of the tenancy component makes (ST-SUP-RC27-OC04). WorkerRole
-// is the role that the outbox worker connects as, RelayRole the role of the authorization relay and PurgeRole the
-// role of this service that owns the purge function of the idempotency key table (ST-SUP-RP07-LC11).
+// is the role that the outbox worker connects as, RelayRole the role of the authorization relay, PurgeRole the
+// role of this service that owns the purge function of the idempotency key table (ST-SUP-RP07-LC11) and
+// OutboxRelayRole the role of this service that owns the outbox relay functions (ST-SUP-RP01-LC19).
 const (
-	RuntimeRole = svctenancy.RuntimeRole
-	OwnerRole   = svctenancy.OwnerRole
-	WorkerRole  = svctenancy.WorkerRole
-	RelayRole   = svctenancy.RelayRole
-	PurgeRole   = svctenancy.PurgeRole
+	RuntimeRole     = svctenancy.RuntimeRole
+	OwnerRole       = svctenancy.OwnerRole
+	WorkerRole      = svctenancy.WorkerRole
+	RelayRole       = svctenancy.RelayRole
+	PurgeRole       = svctenancy.PurgeRole
+	OutboxRelayRole = svctenancy.OutboxRelayRole
 )
 
 // The settings of the deployment, which the process environment gives by the fixed names of the service runtime
@@ -320,7 +322,7 @@ func Migrate(ctx context.Context) error {
 	if err != nil {
 		return &service.StepError{Step: service.StepSettings, Err: err}
 	}
-	queueText, err := svcoutbox.Migration(RuntimeRole, WorkerRole)
+	queueText, err := svcoutbox.Migration(OutboxRelayRole, RuntimeRole, WorkerRole)
 	if err != nil {
 		return &service.StepError{Step: service.StepSettings, Err: err}
 	}
@@ -328,7 +330,7 @@ func Migrate(ctx context.Context) error {
 	if err != nil {
 		return &service.StepError{Step: service.StepSettings, Err: err}
 	}
-	authzText, err := svcauthz.Migration(RuntimeRole, RelayRole, WorkerRole)
+	authzText, err := svcauthz.Migration(RuntimeRole, RelayRole, OutboxRelayRole, WorkerRole)
 	if err != nil {
 		return &service.StepError{Step: service.StepSettings, Err: err}
 	}
