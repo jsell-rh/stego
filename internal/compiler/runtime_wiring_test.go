@@ -480,6 +480,7 @@ var wiringCheckIDs = []string{
 	"ST-SUP-RC32-OC02-T03 A declared command reaches its fill through the generated main.go",
 	"ST-SUP-RC33-OC02-T04 A declared query reaches its fill through the generated main.go",
 	"ST-SUP-RP14-LC04-T02 The generated service runs its workers through the service runtime",
+	"ST-SUP-RP14-LC04-T03 The generated worker delivers each audit entry and anchor to the default table",
 }
 
 // TestRuntimeWiring generates the test service with stego apply, builds it with the pinned Go, and runs the check of
