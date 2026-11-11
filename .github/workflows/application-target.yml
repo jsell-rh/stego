@@ -175,9 +175,10 @@ jobs:
             ${{ runner.temp }}/image-evidence/export-*/export.json
 
   sign:
-    # A consumer must select this workflow, branch, and exact commit. A signature
-    # from a candidate branch does not authorize a production release.
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    # A consumer must select this workflow, branch, and exact commit. Only a run
+    # at main signs: a candidate branch gets no signature, so its images cannot
+    # be taken for main's.
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 12

@@ -366,9 +366,10 @@ jobs:
             ${{ runner.temp }}/image-evidence/export-*/export.json
 
   provenance:
-    # A consumer must select this workflow, branch, and exact commit. A signature
-    # from a candidate branch does not authorize a production release.
-    if: github.repository == 'jsell-rh/stego' && github.event_name == 'push'
+    # A consumer must select this workflow, branch, and exact commit. Only a push
+    # to main signs: a candidate branch gets no signature, so its images cannot
+    # be taken for main's.
+    if: github.repository == 'jsell-rh/stego' && github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [application, hypershell-api]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
