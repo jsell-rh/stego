@@ -145,6 +145,18 @@ func TestTenantConnectors(t *testing.T) {
 			"REVOKE ALL ON FUNCTION stego_outbox.claim(timestamptz, integer, uuid, bigint) FROM PUBLIC",
 			"ALTER FUNCTION stego_outbox.claim(timestamptz, integer, uuid, bigint) OWNER TO "+claimOwner)
 		adminExec(t, env.admin, "GRANT "+claimOwner+" TO "+claimMember)
+		// A role that may run claim itself is refused for every pool but the worker mode's, and a role whose own name
+		// is an outbox relay or purge role name is refused for every pool.
+		claimer := env.role(t, "claimer", "INHERIT")
+		adminExec(t, env.db, "GRANT EXECUTE ON FUNCTION stego_outbox.claim(timestamptz, integer, uuid, bigint) TO "+claimer)
+		tag := strings.TrimPrefix(env.name, "tenant_")
+		named := map[string]string{}
+		for _, suffix := range []string{"_outbox_relay", "_idempotency_purge"} {
+			role := "own_" + tag + suffix
+			adminExec(t, env.admin, "CREATE ROLE "+role+" LOGIN NOINHERIT PASSWORD '"+rolePassword+"'")
+			t.Cleanup(func() { _, _ = env.admin.Exec("DROP ROLE IF EXISTS " + role) })
+			named[role] = "is named as an outbox relay or idempotency purge role"
+		}
 		t.Cleanup(func() { _, _ = env.db.Exec("DROP SCHEMA IF EXISTS stego_outbox CASCADE") })
 		// A member of the idempotency purge role could take it and read or delete every tenant's key rows.
 		purgeMember := env.role(t, "purgemember", "INHERIT")
@@ -178,6 +190,28 @@ func TestTenantConnectors(t *testing.T) {
 				t.Errorf("the startup error for %s does not say %q: %v", role, want, err)
 			}
 		}
+		for role, want := range named {
+			for _, claims := range []bool{false, true} {
+				db, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(role), Claims: claims})
+				if err == nil {
+					_ = db.Close()
+					t.Errorf("the runtime connector started as the role %s (Claims %v)", role, claims)
+				} else if !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), role) {
+					t.Errorf("the startup error for %s does not say %q: %v", role, want, err)
+				}
+			}
+		}
+		if db, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(claimer)}); err == nil {
+			_ = db.Close()
+			t.Error("the runtime connector started as a role that may run claim itself")
+		} else if !strings.Contains(err.Error(), "may run the outbox relay function stego_outbox.claim") {
+			t.Errorf("the startup error for %s does not name claim: %v", claimer, err)
+		}
+		worker, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(claimer), Claims: true})
+		if err != nil {
+			t.Fatalf("the worker mode's pool did not start as a role that may run claim: %v", err)
+		}
+		_ = worker.Close()
 		plain, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(env.runtime)})
 		if err != nil {
 			t.Fatalf("the runtime connector did not start as the plain runtime role: %v", err)

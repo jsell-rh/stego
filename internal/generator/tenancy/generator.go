@@ -9,7 +9,6 @@ import (
 	"go/format"
 	"path"
 	"regexp"
-	"slices"
 	"strings"
 
 	"github.com/jsell-rh/stego/internal/gen"
@@ -44,12 +43,11 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	if ctx.PeerNamespaces[adapter] == "" {
 		return fmt.Errorf("the %s component needs the %s component, whose tables it keeps apart", gen.TenancyComponent, adapter)
 	}
-	runtime, owner, err := roles(ctx)
+	// roles gives the runtime and owner roles of one prefix, so they differ and every role of the service has a
+	// name of its own.
+	runtime, _, err := roles(ctx)
 	if err != nil {
 		return err
-	}
-	if runtime == owner {
-		return fmt.Errorf("the runtime role and the owner role are both %q; they must differ, so the runtime role owns nothing", runtime)
 	}
 	return checkPrefix(strings.TrimSuffix(runtime, "_runtime"))
 }
@@ -93,12 +91,6 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	for _, role := range []string{worker, relay, purge, outboxRelay} {
 		if !roleName.MatchString(role) {
 			return nil, nil, fmt.Errorf("the role %q is not a lower-case SQL name of at most 63 characters; set a shorter runtime_role", role)
-		}
-	}
-	all := []string{owner, runtime, worker, relay, purge, outboxRelay}
-	for i, role := range all {
-		if slices.Contains(all[i+1:], role) {
-			return nil, nil, fmt.Errorf("the role %q is two roles of the service; set runtime_role and owner_role so each role has a name of its own", role)
 		}
 	}
 	roleText := roleMigration(runtime, owner, worker, relay, purge, outboxRelay)
@@ -173,6 +165,13 @@ func roles(ctx gen.Context) (string, string, error) {
 			return "", "", fmt.Errorf("the role %q is not a lower-case SQL name of at most 63 characters; set runtime_role and owner_role", role)
 		}
 	}
+	// Every role name of the service is its prefix and a suffix of its own, so a set runtime_role or owner_role is a
+	// role of one prefix and cannot name a role of another service (ST-SUP-Q107, a; decided by orchestrator under
+	// owner delegation, 2026-11-11).
+	if !strings.HasSuffix(runtime, "_runtime") || !strings.HasSuffix(owner, "_owner") ||
+		strings.TrimSuffix(runtime, "_runtime") != strings.TrimSuffix(owner, "_owner") || runtime == "_runtime" {
+		return "", "", fmt.Errorf("the runtime role %q and the owner role %q must be <prefix>_runtime and <prefix>_owner of one prefix; set runtime_role and owner_role so", runtime, owner)
+	}
 	return runtime, owner, nil
 }
 
@@ -234,11 +233,31 @@ func purgeRole(runtime string) string {
 // the owner does not hold its rights on the messages of every tenant (ST-SUP-RP01-LC19); the outbox relay role gets
 // no CREATE on public, which the authorization migration gives it only while it makes its state hook functions
 // (ST-SUP-RP06-LC21). So the first migration job needs no role or grant that the database administrator makes by
-// hand.
+// hand. Before it changes anything it refuses a role of its names that exists and is not this service's alone: one
+// that holds a privilege on another database, or owns one, where the owner of this service holds no CREATE, so the
+// role migration of this service may run on more than one database of the cluster; one that can log in where the service makes it NOLOGIN
+// (the purge and outbox relay roles), or one that is a member of a role that the text does not grant it.
 func roleMigration(runtime, owner, worker, relay, purge, outboxRelay string) string {
 	flags := "NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"
 	var text strings.Builder
-	text.WriteString("DO $$\nBEGIN\n")
+	// A role of these names that exists already must be this service's alone: one that holds a privilege on another
+	// database that is not a database of this service (one where this text gave the owner CREATE), can log in where
+	// the service makes it NOLOGIN, or is a member of a role that this text does not grant it, is another service's
+	// or someone else's, and the text stops before it changes anything.
+	text.WriteString("DO $$\nDECLARE\n\tv_role text;\n\tv_login boolean;\n\tv_fault text;\nBEGIN\n")
+	fmt.Fprintf(&text, "\tFOR v_role, v_login IN VALUES ('%s', true), ('%s', true), ('%s', true), ('%s', true), ('%s', false), ('%s', false) LOOP\n", owner, runtime, worker, relay, purge, outboxRelay)
+	fmt.Fprintf(&text, "\t\tSELECT CASE\n"+
+		"\t\t\tWHEN EXISTS (SELECT 1 FROM pg_catalog.pg_database AS d WHERE d.datname <> pg_catalog.current_database()\n"+
+		"\t\t\t\tAND (d.datdba = r.oid OR EXISTS (SELECT 1 FROM pg_catalog.aclexplode(d.datacl) AS a WHERE a.grantee = r.oid))\n"+
+		"\t\t\t\tAND NOT EXISTS (SELECT 1 FROM pg_catalog.aclexplode(d.datacl) AS a JOIN pg_catalog.pg_roles AS o ON o.oid = a.grantee\n"+
+		"\t\t\t\t\tWHERE o.rolname = '%s' AND a.privilege_type = 'CREATE'))\n"+
+		"\t\t\t\tTHEN 'holds a privilege on another database, which is not a database of this service'\n"+
+		"\t\t\tWHEN r.rolcanlogin AND NOT v_login THEN 'can log in'\n"+
+		"\t\t\tWHEN EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members AS m JOIN pg_catalog.pg_roles AS g ON g.oid = m.roleid\n"+
+		"\t\t\t\tWHERE m.member = r.oid AND NOT (r.rolname = '%s' AND g.rolname IN ('%s', '%s')))\n"+
+		"\t\t\t\tTHEN 'is a member of a role that this service does not grant'\n"+
+		"\t\tEND INTO v_fault FROM pg_catalog.pg_roles AS r WHERE r.rolname = v_role;\n", owner, owner, purge, outboxRelay)
+	text.WriteString("\t\tIF v_fault IS NOT NULL THEN\n\t\t\tRAISE EXCEPTION 'tenancy: the role % exists and is not a role of this service alone: it %; give the service role names of its own', v_role, v_fault;\n\t\tEND IF;\n\tEND LOOP;\n")
 	for _, role := range []string{owner, runtime, worker, relay} {
 		fmt.Fprintf(&text, "\tIF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '%s') THEN\n\t\tCREATE ROLE %s %s;\n\tEND IF;\n", role, quote(role), flags)
 	}

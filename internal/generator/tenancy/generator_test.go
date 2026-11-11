@@ -79,10 +79,8 @@ func TestGenerator(t *testing.T) {
 		named := ctx
 		named.ServiceName = "shop-outbox"
 		set := ctx
-		set.ComponentConfig = map[string]any{"runtime_role": "shop_outbox_runtime", "owner_role": "shop_owner"}
-		bare := ctx
-		bare.ComponentConfig = map[string]any{"runtime_role": "shop_outbox", "owner_role": "shop_owner"}
-		for name, c := range map[string]gen.Context{"service name": named, "runtime_role": set, "runtime_role without _runtime": bare} {
+		set.ComponentConfig = map[string]any{"runtime_role": "shop_outbox_runtime", "owner_role": "shop_outbox_owner"}
+		for name, c := range map[string]gen.Context{"service name": named, "runtime_role": set} {
 			if err := new(Generator).ValidateContext(c); err == nil || !strings.Contains(err.Error(), "shop_outbox_relay") || !strings.Contains(err.Error(), `"shop"`) {
 				t.Errorf("the prefix shop_outbox from the %s is not refused with the clash it names: %v", name, err)
 			}
@@ -91,11 +89,25 @@ func TestGenerator(t *testing.T) {
 			}
 		}
 		// A prefix that only holds outbox, not at its end, is taken, and so are the prefixes of the other services.
-		for _, runtime := range []string{"outbox_shop_runtime", "shop_outboxes_runtime", "shop_runtime", "outbox_runtime"} {
+		for _, prefix := range []string{"outbox_shop", "shop_outboxes", "shop", "outbox"} {
 			c := ctx
-			c.ComponentConfig = map[string]any{"runtime_role": runtime, "owner_role": "x_owner"}
+			c.ComponentConfig = map[string]any{"runtime_role": prefix + "_runtime", "owner_role": prefix + "_owner"}
 			if err := new(Generator).ValidateContext(c); err != nil {
-				t.Errorf("the runtime role %s is refused: %v", runtime, err)
+				t.Errorf("the prefix %s is refused: %v", prefix, err)
+			}
+		}
+		// A set runtime_role or owner_role is <prefix>_runtime and <prefix>_owner of one prefix, so it cannot name a
+		// role of another service, such as the roles of the prefix shop.
+		for _, set := range []map[string]any{
+			{"runtime_role": "shop_outbox_relay"}, {"runtime_role": "shop_worker"}, {"runtime_role": "shop_owner"},
+			{"owner_role": "shop_outbox_relay"}, {"owner_role": "shop_owner"},
+			{"runtime_role": "x_runtime", "owner_role": "shop_owner"}, {"runtime_role": "shop_runtime", "owner_role": "app_owner"},
+			{"runtime_role": "_runtime", "owner_role": "_owner"},
+		} {
+			c := ctx
+			c.ComponentConfig = set
+			if err := new(Generator).ValidateContext(c); err == nil || !strings.Contains(err.Error(), "of one prefix") {
+				t.Errorf("the settings %v are not refused: %v", set, err)
 			}
 		}
 	})
@@ -138,17 +150,8 @@ func TestGenerator(t *testing.T) {
 		}
 		same := ctx
 		same.ComponentConfig = map[string]any{"runtime_role": "svc", "owner_role": "svc"}
-		if _, _, err := new(Generator).Generate(same); err == nil || !strings.Contains(err.Error(), "must differ") {
+		if _, _, err := new(Generator).Generate(same); err == nil || !strings.Contains(err.Error(), "of one prefix") {
 			t.Errorf("one name for both roles is not refused: %v", err)
-		}
-		// The owner role may not take the name of a role that the migration names from the runtime role, such as the
-		// outbox relay role of the service.
-		for _, owner := range []string{"svc_outbox_relay", "svc_idempotency_purge", "svc_worker", "svc_relay"} {
-			taken := ctx
-			taken.ComponentConfig = map[string]any{"runtime_role": "svc_runtime", "owner_role": owner}
-			if _, _, err := new(Generator).Generate(taken); err == nil || !strings.Contains(err.Error(), "two roles of the service") {
-				t.Errorf("the owner role %s, a role of the service, is not refused: %v", owner, err)
-			}
 		}
 	})
 }
@@ -174,7 +177,7 @@ func TestMigrations(t *testing.T) {
 	// Role names of their own, so a role that an earlier run left on the server cannot stand in for one that the
 	// role migration fails to create.
 	suffix := strconv.FormatInt(time.Now().UnixNano(), 36)
-	tenancyCtx.ComponentConfig = map[string]any{"runtime_role": "check_runtime_" + suffix, "owner_role": "check_owner_" + suffix}
+	tenancyCtx.ComponentConfig = map[string]any{"runtime_role": "check_" + suffix + "_runtime", "owner_role": "check_" + suffix + "_owner"}
 	adapterFiles, adapterWiring, err := new(postgresadapter.Generator).Generate(storageCtx)
 	if err != nil {
 		t.Fatal(err)
@@ -256,11 +259,11 @@ func TestMigrations(t *testing.T) {
 			passed[event.Test] = true
 		}
 	}
-	for _, id := range []string{"ST-SUP-RC27-OC03-T01", "ST-SUP-RC27-OC03-T02", "ST-SUP-RC27-OC04-T01", "ST-SUP-RC27-OC04-T03", "ST-SUP-RC27-OC04-T05", "ST-SUP-RC01-OC40-T01", "ST-SUP-RC01-OC40-T02", "ST-SUP-RC27-OC07-T01", "ST-SUP-RC27-OC07-T02", "ST-SUP-RC27-OC04-T06", "ST-SUP-RC27-OC04-T07", "ST-SUP-RC27-OC04-T08"} {
+	for _, id := range []string{"ST-SUP-RC27-OC03-T01", "ST-SUP-RC27-OC03-T02", "ST-SUP-RC27-OC04-T01", "ST-SUP-RC27-OC04-T03", "ST-SUP-RC27-OC04-T05", "ST-SUP-RC01-OC40-T01", "ST-SUP-RC01-OC40-T02", "ST-SUP-RC27-OC07-T01", "ST-SUP-RC27-OC07-T02", "ST-SUP-RC27-OC04-T06", "ST-SUP-RC27-OC04-T07", "ST-SUP-RC27-OC04-T08", "ST-SUP-RC27-OC04-T10"} {
 		t.Run(id+" passes in the generated service", func(t *testing.T) {
 			for name := range passed {
 				if strings.HasPrefix(name, "TestTenancy/"+id+"_") || strings.HasPrefix(name, "TestTwoServices/"+id+"_") || strings.HasPrefix(name, "TestOpenSessions/"+id+"_") ||
-					strings.HasPrefix(name, "TestRelayRoles/"+id+"_") {
+					strings.HasPrefix(name, "TestRelayRoles/"+id+"_") || strings.HasPrefix(name, "TestForeignRoles/"+id+"_") {
 					return
 				}
 			}

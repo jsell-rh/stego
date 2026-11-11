@@ -753,3 +753,91 @@ func TestRelayRoles(t *testing.T) {
 		}
 	})
 }
+
+func TestForeignRoles(t *testing.T) {
+	t.Run("ST-SUP-RC27-OC04-T10 The role migration refuses a role of its names that is not this service's alone", func(t *testing.T) {
+		dsn := os.Getenv("STEGO_TEST_POSTGRES_DSN")
+		if dsn == "" {
+			t.Fatal("STEGO_TEST_POSTGRES_DSN names no PostgreSQL server")
+		}
+		cfg, err := pgx.ParseConfig(dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		server := stdlib.OpenDB(*cfg)
+		t.Cleanup(func() { server.Close() })
+		ctx := context.Background()
+		exec := func(statement string) {
+			t.Helper()
+			if _, err := server.ExecContext(ctx, statement); err != nil {
+				t.Fatalf("%s: %v", statement, err)
+			}
+		}
+		// The database of another service, on which a role of one of these names holds CONNECT.
+		other := "tenancy_other_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+		exec("CREATE DATABASE " + other)
+		t.Cleanup(func() {
+			_, _ = server.ExecContext(context.Background(), "DROP DATABASE IF EXISTS "+other+" WITH (FORCE)")
+		})
+		foreign := "foreign_group_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+		exec("CREATE ROLE " + foreign + " NOLOGIN")
+		t.Cleanup(func() { _, _ = server.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+foreign) })
+		q := func(role string) string { return pgx.Identifier{role}.Sanitize() }
+		for _, c := range []struct {
+			role, setup, fault string
+			kept               string // a query that is true while the role keeps what it had
+		}{
+			{tenancy.OwnerRole, "CREATE ROLE " + q(tenancy.OwnerRole) + " LOGIN; GRANT CONNECT ON DATABASE " + other + " TO " + q(tenancy.OwnerRole),
+				"holds a privilege on another database, which is not a database of this service", "SELECT has_database_privilege('" + tenancy.OwnerRole + "', '" + other + "', 'CONNECT') AND rolcanlogin FROM pg_roles WHERE rolname = '" + tenancy.OwnerRole + "'"},
+			{tenancy.OutboxRelayRole, "CREATE ROLE " + q(tenancy.OutboxRelayRole) + " LOGIN",
+				"can log in", "SELECT rolcanlogin FROM pg_roles WHERE rolname = '" + tenancy.OutboxRelayRole + "'"},
+			{tenancy.RuntimeRole, "CREATE ROLE " + q(tenancy.RuntimeRole) + " NOLOGIN IN ROLE " + foreign,
+				"is a member of a role that this service does not grant", "SELECT pg_has_role('" + tenancy.RuntimeRole + "', '" + foreign + "', 'MEMBER')"},
+		} {
+			exec(c.setup)
+			name := "tenancy_foreign_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+			exec("CREATE DATABASE " + name)
+			ac := cfg.Copy()
+			ac.Database = name
+			admin := stdlib.OpenDB(*ac)
+			_, err := admin.ExecContext(ctx, tenancy.Roles)
+			admin.Close()
+			if err == nil || !strings.Contains(err.Error(), c.role) || !strings.Contains(err.Error(), c.fault) {
+				t.Errorf("the role migration with a role %s that %s gave %v, want a refusal that names both", c.role, c.fault, err)
+			}
+			var kept, public bool
+			if err := server.QueryRowContext(ctx, c.kept).Scan(&kept); err != nil || !kept {
+				t.Errorf("the refused migration changed the role %s: %v, %v", c.role, kept, err)
+			}
+			// The refusal comes before the revoke of CONNECT from PUBLIC, so the text changed nothing.
+			if err := server.QueryRowContext(ctx, "SELECT has_database_privilege('public', $1, 'CONNECT')", name).Scan(&public); err != nil || !public {
+				t.Errorf("the refused migration revoked CONNECT on %s: %v, %v", name, public, err)
+			}
+			exec("DROP DATABASE " + name + " WITH (FORCE)")
+			exec("REVOKE ALL ON DATABASE " + other + " FROM " + q(c.role))
+			exec("DROP ROLE " + q(c.role))
+		}
+		// The role migration of this service runs on a second database of its own: the roles hold privileges on the
+		// first, where the text gave the owner CREATE, so they are this service's.
+		var names []string
+		for range 2 {
+			name := "tenancy_own_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+			exec("CREATE DATABASE " + name)
+			names = append(names, name)
+			ac := cfg.Copy()
+			ac.Database = name
+			admin := stdlib.OpenDB(*ac)
+			_, err := admin.ExecContext(ctx, tenancy.Roles)
+			admin.Close()
+			if err != nil {
+				t.Errorf("the role migration on database %d of this service: %v", len(names), err)
+			}
+		}
+		for _, name := range names {
+			exec("DROP DATABASE " + name + " WITH (FORCE)")
+		}
+		for _, role := range []string{tenancy.RuntimeRole, tenancy.WorkerRole, tenancy.RelayRole, tenancy.PurgeRole, tenancy.OutboxRelayRole, tenancy.OwnerRole} {
+			exec("DROP ROLE IF EXISTS " + q(role))
+		}
+	})
+}

@@ -1,5 +1,25 @@
 DO $$
+DECLARE
+	v_role text;
+	v_login boolean;
+	v_fault text;
 BEGIN
+	FOR v_role, v_login IN VALUES ('tenancy_check_owner', true), ('tenancy_check_runtime', true), ('tenancy_check_worker', true), ('tenancy_check_relay', true), ('tenancy_check_idempotency_purge', false), ('tenancy_check_outbox_relay', false) LOOP
+		SELECT CASE
+			WHEN EXISTS (SELECT 1 FROM pg_catalog.pg_database AS d WHERE d.datname <> pg_catalog.current_database()
+				AND (d.datdba = r.oid OR EXISTS (SELECT 1 FROM pg_catalog.aclexplode(d.datacl) AS a WHERE a.grantee = r.oid))
+				AND NOT EXISTS (SELECT 1 FROM pg_catalog.aclexplode(d.datacl) AS a JOIN pg_catalog.pg_roles AS o ON o.oid = a.grantee
+					WHERE o.rolname = 'tenancy_check_owner' AND a.privilege_type = 'CREATE'))
+				THEN 'holds a privilege on another database, which is not a database of this service'
+			WHEN r.rolcanlogin AND NOT v_login THEN 'can log in'
+			WHEN EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members AS m JOIN pg_catalog.pg_roles AS g ON g.oid = m.roleid
+				WHERE m.member = r.oid AND NOT (r.rolname = 'tenancy_check_owner' AND g.rolname IN ('tenancy_check_idempotency_purge', 'tenancy_check_outbox_relay')))
+				THEN 'is a member of a role that this service does not grant'
+		END INTO v_fault FROM pg_catalog.pg_roles AS r WHERE r.rolname = v_role;
+		IF v_fault IS NOT NULL THEN
+			RAISE EXCEPTION 'tenancy: the role % exists and is not a role of this service alone: it %; give the service role names of its own', v_role, v_fault;
+		END IF;
+	END LOOP;
 	IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'tenancy_check_owner') THEN
 		CREATE ROLE "tenancy_check_owner" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 	END IF;

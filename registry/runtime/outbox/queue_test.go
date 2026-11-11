@@ -1516,6 +1516,55 @@ func TestQueueMigration(t *testing.T) {
 		if err := f.run(owner); err != nil {
 			t.Fatalf("the migration as an owner without CREATEROLE: %v", err)
 		}
+		// A migration login that holds only SET membership in a NOLOGIN owner takes the owner with SET LOCAL ROLE,
+		// as the migration job does; the text returns to the owner, not to the login, so it passes twice.
+		ctx := context.Background()
+		nologin := f.owner("outbox_group", "NOCREATEROLE", true)
+		migrator := f.owner("outbox_login", "NOCREATEROLE", false)
+		if _, err := f.root.ExecContext(ctx, "ALTER ROLE "+nologin+" NOLOGIN"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.root.ExecContext(ctx, "GRANT "+nologin+" TO "+migrator+" WITH SET TRUE, INHERIT FALSE"); err != nil {
+			t.Fatal(err)
+		}
+		dsn := pgtest.Database(t, "outbox_login")
+		u, err := url.Parse(dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.root.ExecContext(ctx, "ALTER DATABASE "+strings.TrimPrefix(u.Path, "/")+" OWNER TO "+nologin); err != nil {
+			t.Fatal(err)
+		}
+		u.User = url.UserPassword(migrator, f.password)
+		login, err := sql.Open("pgx", u.String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = login.Close() }()
+		for run := 1; run <= 2; run++ {
+			tx, err := login.BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tx.ExecContext(ctx, "SET LOCAL ROLE "+nologin); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tx.ExecContext(ctx, f.ddl); err != nil {
+				_ = tx.Rollback()
+				t.Fatalf("run %d of the migration by a login with SET membership only in the owner: %v", run, err)
+			}
+			var role string
+			if err := tx.QueryRowContext(ctx, "SELECT current_user").Scan(&role); err != nil || role != nologin {
+				t.Fatalf("the text left the role %s, want the owner %s: %v", role, nologin, err)
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var create bool
+		if err := login.QueryRowContext(ctx, "SELECT has_schema_privilege($1, 'stego_outbox', 'CREATE')", f.relay).Scan(&create); err != nil || create {
+			t.Fatalf("the relay role keeps CREATE on stego_outbox: %v, %v", create, err)
+		}
 	})
 }
 

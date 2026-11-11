@@ -44,7 +44,7 @@ func Open(ctx context.Context, cfg Config) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := checkRuntimeRole(ctx, db); err != nil {
+	if err := checkRuntimeRole(ctx, db, cfg.Claims); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -167,7 +167,7 @@ func open(ctx context.Context, cfg Config) (*sql.DB, error) {
 // prefix>_idempotency_purge or the owner of a purge function idempotency_keys_purge, which reads and deletes the key
 // rows of every tenant (ST-SUP-RP07-LC11). A member of such a role can take it with SET ROLE, so membership counts
 // as holding it.
-func checkRuntimeRole(ctx context.Context, db *sql.DB) error {
+func checkRuntimeRole(ctx context.Context, db *sql.DB, claims bool) error {
 	var role string
 	if err := db.QueryRowContext(ctx, "SELECT current_user").Scan(&role); err != nil {
 		return fmt.Errorf("tenant: read the runtime role: %w", err)
@@ -251,6 +251,23 @@ ORDER BY r.rolname`)
 	}
 	if len(taken) > 0 {
 		faults = append(faults, "is a member of the outbox relay, idempotency purge or hook roles "+strings.Join(taken, ", "))
+	}
+	// The role itself must not be an outbox relay or purge role by its name, and, unless it is the role of the
+	// worker mode's pool, must not run the relay functions itself (ST-SUP-RP01-LC19). A role with no USAGE on the
+	// schema stego_outbox, such as the relay login role, cannot run them.
+	var named, runs bool
+	if err := db.QueryRowContext(ctx, `SELECT current_user LIKE '%\_outbox\_relay' OR current_user LIKE '%\_idempotency\_purge',
+	CASE WHEN pg_catalog.to_regnamespace('stego_outbox') IS NULL
+			OR NOT pg_catalog.has_schema_privilege(current_user, 'stego_outbox', 'USAGE') THEN false
+		ELSE COALESCE(pg_catalog.to_regprocedure('stego_outbox.claim(timestamptz, integer, uuid, bigint)') IS NOT NULL
+			AND pg_catalog.has_function_privilege(current_user, 'stego_outbox.claim(timestamptz, integer, uuid, bigint)', 'EXECUTE'), false) END`).Scan(&named, &runs); err != nil {
+		return fmt.Errorf("tenant: read the roles of the runtime role %s: %w", role, err)
+	}
+	if named {
+		faults = append(faults, "is named as an outbox relay or idempotency purge role")
+	}
+	if runs && !claims {
+		faults = append(faults, "may run the outbox relay function stego_outbox.claim, which only the worker mode's role may")
 	}
 	if len(faults) > 0 {
 		return errors.New("tenant: the runtime role " + role + " " + strings.Join(faults, " and ") +

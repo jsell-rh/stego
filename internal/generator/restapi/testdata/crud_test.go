@@ -295,7 +295,7 @@ func (e *env) start(dsn, endpoint, spiceKey string) {
 	e.logs = &lockedBuffer{}
 	slog.SetDefault(slog.New(slog.NewJSONHandler(e.logs, nil)))
 	u.User = url.UserPassword(roles[1], password)
-	workerPool, err := tenant.Open(e.ctx, tenant.Config{InsecureLoopback: true, DSN: u.String()})
+	workerPool, err := tenant.Open(e.ctx, tenant.Config{InsecureLoopback: true, DSN: u.String(), Claims: true})
 	must(t, err)
 	workerQueue, err := outbox.New(workerPool, outbox.Options{})
 	must(t, err)

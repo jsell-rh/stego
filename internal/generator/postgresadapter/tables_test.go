@@ -153,7 +153,7 @@ func tableModule(t *testing.T) (map[string]bool, string) {
 		}
 	}
 	suffix := strconv.FormatInt(time.Now().UnixNano(), 36)
-	roles := map[string]any{"runtime_role": "tables_runtime_" + suffix, "owner_role": "tables_owner_" + suffix}
+	roles := map[string]any{"runtime_role": "tables_" + suffix + "_runtime", "owner_role": "tables_" + suffix + "_owner"}
 	for _, service := range []struct {
 		ctx    gen.Context
 		access string

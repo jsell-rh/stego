@@ -50,12 +50,13 @@ var rolePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 // service alone, <service role prefix>_outbox_relay, which owns the relay functions, the only code that reads and
 // changes messages of more than one tenant. The text creates relayRole only when it is missing, NOLOGIN, NOSUPERUSER,
 // NOBYPASSRLS and NOINHERIT, so an owner without CREATEROLE can run it again once the tenancy role migration made
-// it, and makes the relay functions under SET ROLE relayRole, so they belong to it and a later run replaces them.
+// it, and makes the relay functions under SET LOCAL ROLE relayRole, so they belong to it and a later run replaces them.
 // The owner therefore needs membership in relayRole WITH SET TRUE; INHERIT FALSE is enough, and the tenancy role
 // migration grants it so, so the owner does not hold the relay role's rights on the messages of every tenant.
 // Without SET the text stops, before it makes the table, with an error that names that grant, and its transaction
 // changes nothing. relayRole gets CREATE on the schema stego_outbox only while the functions are made; the same text
-// revokes it and resets the role. It gets no CREATE on any other schema.
+// revokes it and returns to the role that ran the text, with SET LOCAL ROLE, so a migration login with SET
+// membership only in the owner runs it, and the role of the session is the same after the transaction. It gets no CREATE on any other schema.
 //
 // The table stego_outbox.messages holds the dispatch state, the attempt and conflict counts (ST-SUP-RC18-OC29), the
 // tenant (ST-SUP-RC18-OC28), the outgoing idempotency key (ST-SUP-RP01-LC10), the group of the state hook
@@ -227,7 +228,10 @@ GRANT INSERT (id, tenant_id, destination, resource_key, kind, payload, outgoing_
 GRANT SELECT, UPDATE, DELETE ON stego_outbox.messages TO {{relay}};
 
 -- The relay functions are made as their owner, so a later run of the same text replaces them.
-SET ROLE {{relay}};
+-- The role that runs the text is kept, so the text returns to it, not to the login of the session, which may hold
+-- only SET membership in the owner.
+SELECT pg_catalog.set_config('stego.outbox_migration_role', CURRENT_USER, true);
+SET LOCAL ROLE {{relay}};
 
 -- The claim gives the payload as bytea; a claim of an earlier migration gave jsonb, and a function's result type
 -- changes only when the function is made again.
@@ -531,7 +535,9 @@ BEGIN
 END
 $do$;
 
-RESET ROLE;
+DO $do$ BEGIN
+	EXECUTE pg_catalog.format('SET LOCAL ROLE %I', pg_catalog.current_setting('stego.outbox_migration_role'));
+END $do$;
 -- CREATE was only for the relay functions: the relay role keeps USAGE.
 REVOKE CREATE ON SCHEMA stego_outbox FROM {{relay}};
 `
