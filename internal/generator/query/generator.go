@@ -1,6 +1,7 @@
 // Package query is the generator of the query component (ST-SUP-RC33). For each query of the declaration it emits
 // the query slot contract, which the query's one fill implements, and one HTTP handler served through query.Serve of
-// the runtime library (ST-SUP-RP11-LC17): the handler verifies the caller, opens one READ ONLY transaction of the
+// the runtime library (ST-SUP-RP11-LC17), with the gRPC handler of a query that a gRPC method serves through
+// query.ServeRPC or query.ServeStream (ST-SUP-RP11-LC19); a stream query gets no HTTP handler (ST-SUP-RC33-OC08): the handler verifies the caller, opens one READ ONLY transaction of the
 // caller's tenant through query.Run, decides a get query's permission on its resource before the fill and calls the
 // fill once with a query handle. The handle, its authorization part, Run, Serve and the sealed list cursor live in
 // github.com/jsell-rh/stego/registry/runtime/query; the generated code holds only what varies with the declaration (ST-STD-RUNTIME-R05).
@@ -121,6 +122,9 @@ type queryModel struct {
 	refusals   []refusal
 	fillImport string
 	fillAlias  string
+	// rpc is true for a get or list query that a unary gRPC method also serves (ST-SUP-RC07-OC19); a stream query is
+	// served over gRPC alone (ST-SUP-RC33-OC08).
+	rpc bool
 }
 
 // model is what the generator renders.
@@ -286,15 +290,12 @@ func checkQuery(ctx gen.Context, decl types.Query, declared map[string]types.Ent
 		if e := q.sent(); decl.Permission != e.readPermission {
 			return nil, refuse("is a stream with the permission %s, and Send decides the read permission %s of %s; a stream query declares the read permission of the entity it sends", decl.Permission, e.readPermission, e.value.Entity.Name)
 		}
-	case decl.Method != "":
-		// The compiler does not tell a server stream from a unary method yet (ST-DECL-INV73), so the generator cannot
-		// classify the query (ST-SUP-Q82).
-		return nil, refuse("is served by the gRPC method %s, which the query generator does not serve until the compiler tells a server stream from a unary method (ST-DECL-INV73, ST-SUP-Q82)", decl.Method)
 	case decl.ResourceMember != "":
 		q.kind = getKind
 	default:
 		q.kind = listKind
 	}
+	q.rpc = decl.Method != "" && q.kind != streamKind
 	if decl.ResourceMember != "" {
 		if !memberName.MatchString(decl.ResourceMember) {
 			return nil, refuse("names the resource member %q, which is not a member name in lower camel case", decl.ResourceMember)

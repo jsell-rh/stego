@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package shop.v1;
+
+import "shop/v1/shop.proto";
+
+// Shop serves the commands and queries of the test service over gRPC.
+service Shop {
+  // AddNote is the command add-note.
+  rpc AddNote(AddNoteRequest) returns (AddNoteResponse);
+  // GetOrderSummary is the query get-order-summary.
+  rpc GetOrderSummary(GetOrderSummaryRequest) returns (OrderSummary);
+  // WatchOrders is the stream query watch-orders.
+  rpc WatchOrders(WatchOrdersRequest) returns (stream OrderSummary);
+  // CancelOrder is a method that no command or query names.
+  rpc CancelOrder(GetOrderSummaryRequest) returns (OrderSummary);
+}
+
+// GetOrderSummaryRequest names the order of get-order-summary.
+message GetOrderSummaryRequest {
+  string order_id = 1;
+}
+
+// OrderSummary is one order.
+message OrderSummary {
+  string id = 1;
+  string sku = 2;
+  int32 qty = 3;
+}
+
+// WatchOrdersRequest opens the stream of watch-orders.
+message WatchOrdersRequest {}

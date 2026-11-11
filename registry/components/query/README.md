@@ -17,9 +17,16 @@ verifies the
 caller, opens one READ ONLY transaction of the caller's tenant and calls the
 fill once. A get query decides its declared permission on its resource before
 the fill: a deny is not found, as a missing row is. A list query pages with
-the sealed cursor of the runtime. A stream query gets a run function on
-query.RunStream for its transport; a query with a gRPC method is refused until
-the compiler tells a server stream from a unary method.
+the sealed cursor of the runtime.
+
+A query with a gRPC method is also served over gRPC by the grpc-application
+component (ST-SUP-RC07-OC19), with the same fill, decision and refusals:
+query.ServeRPC reads the request from the method's message and writes the
+JSON body of the HTTP handler into its response message. The compiler marks a
+query whose method is a server stream as a stream query from the proto files
+(ST-SUP-RC33-OC08). A stream query is served over gRPC only, through
+query.ServeStream on its run function on query.RunStream, and gets no HTTP
+route.
 
 A secret field is never read: the read-only value and the reads leave it out.
 

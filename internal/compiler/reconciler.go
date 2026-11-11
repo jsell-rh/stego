@@ -345,7 +345,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	// On the runtime data path the compiler wires the runtime library into main.go (ST-SUP-RC01-OC41).
 	if resolved.RuntimeData {
 		files, wiring, err := runtimeWiring(runtimeWiringInput{ModuleName: input.ModuleName, OutDirName: outDirName, Service: svcDecl,
-			ServiceData: serviceData, Components: components, Names: componentNames, Wirings: wirings})
+			ServiceData: serviceData, Components: components, Names: componentNames, Wirings: wirings, QueryStreams: resolved.QueryStreams})
 		if err != nil {
 			return nil, err
 		}

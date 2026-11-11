@@ -30,5 +30,7 @@ handler steps around Run for generated CRUD on the runtime data path
 The stage is alpha. The service needs pooled tenancy with the tenant column
 tenant_id and authorization with subject_from_identity. On the runtime data
 path the compiler makes the command runtime and the handlers, and main.go
-registers the route of each command. The gRPC methods (ST-SUP-RC07-OC19) are
-not registered yet: the runtime data path refuses a command with a method.
+registers the route of each command. A command with a gRPC method is also
+served over gRPC by the grpc-application component (ST-SUP-RC07-OC19): its
+gRPC handler takes the same request message, and the idempotency key comes
+from the idempotency-key request metadata.
