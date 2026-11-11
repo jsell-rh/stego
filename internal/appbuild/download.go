@@ -1,6 +1,7 @@
 package appbuild
 
 import (
+	"archive/zip"
 	"bufio"
 	"bytes"
 	"context"
@@ -17,8 +18,12 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/mod/modfile"
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/sumdb/dirhash"
+	modzip "golang.org/x/mod/zip"
+
+	"github.com/jsell-rh/stego/internal/registry"
 )
 
 // ModuleCacheRecord describes the download cache produced by Download. The
@@ -37,17 +42,35 @@ type ModuleCacheRecord struct {
 	DependencyProxy string         `json:"dependency_proxy"`
 }
 
-// CachedModule is one module zip in a module cache: its path, its version and
-// the hash that go.sum states for it, which its bytes match.
+// CachedModule is one module zip in a module cache: its path, its version,
+// the hash that go.sum states for it, which its bytes match, and the source
+// that supplied it (ST-BLD-UC02-R05).
 type CachedModule struct {
 	Path    string `json:"path"`
 	Version string `json:"version"`
 	Sum     string `json:"sum"`
+	Source  string `json:"source"`
 }
 
 // moduleCacheFormat is the format of module-cache.json. Format 2 lists each
-// module zip by path, version and hash.
-const moduleCacheFormat = 2
+// module zip by path, version and hash; format 3 adds the source of each.
+const moduleCacheFormat = 3
+
+// ProxySource names the public module proxy as the source of a module.
+const ProxySource = "https://proxy.golang.org"
+
+// RuntimeFolder is the common registry's runtime folder in the source
+// revision: the folder of the runtime library's module path in STEGO's own
+// repository.
+const RuntimeFolder = "registry/runtime"
+
+// maxGoModBytes limits a go.mod file that STEGO reads.
+const maxGoModBytes = 1 << 20
+
+// RuntimeFolderSource names the common registry's runtime folder of the
+// source revision as the source of a module. Only the runtime pin can have
+// it (ST-BLD-UC02-R05).
+const RuntimeFolderSource = "source:" + RuntimeFolder
 
 // DownloadOptions selects the source revision and the new cache directory.
 type DownloadOptions struct {
@@ -124,9 +147,27 @@ func Download(ctx context.Context, options DownloadOptions) (*ModuleCacheRecord,
 	if err := checkModules(snapshot, module, map[string]bool{}); err != nil {
 		return nil, err
 	}
-	sums, err := readSums(filepath.Join(module, "go.sum"))
+	sums, modSums, err := readSumFile(filepath.Join(module, "go.sum"))
 	if err != nil {
 		return nil, err
+	}
+	// The runtime pin comes from the common registry's runtime folder of the
+	// source revision when that folder hashes to the pin (ST-BLD-UC02-R05).
+	// It is served as a file proxy before the public proxy, which still
+	// supplies every other module.
+	pin, err := runtimePin(filepath.Join(module, "go.mod"))
+	if err != nil {
+		return nil, err
+	}
+	served, err := stageRuntimeFolder(filepath.Join(snapshot, filepath.FromSlash(RuntimeFolder)), pin, sums, modSums, filepath.Join(root, "runtime-proxy"), filepath.Join(root, "tmp"))
+	if err != nil {
+		return nil, err
+	}
+	if served != nil {
+		env, err = withRuntimeProxy(env, filepath.Join(root, "runtime-proxy"))
+		if err != nil {
+			return nil, err
+		}
 	}
 	// Download every module with the fixed environment. The Go toolchain
 	// checks every zip against the sum database and go.sum.
@@ -135,12 +176,18 @@ func Download(ctx context.Context, options DownloadOptions) (*ModuleCacheRecord,
 			return nil, ctx.Err()
 		}
 		single := environment(filepath.Join(root, "single"), sdk, false)
-		return nil, diagnoseDownload(ctx, filepath.Join(root, "single"), single, o.Go, sums)
+		return nil, diagnoseDownload(ctx, filepath.Join(root, "single"), single, o.Go, sums, served)
 	}
 	cacheRoot := filepath.Join(root, "modules")
 	modules, err := checkCachedModules(filepath.Join(cacheRoot, "cache", "download"), sums)
 	if err != nil {
 		return nil, err
+	}
+	for index := range modules {
+		modules[index].Source = ProxySource
+		if served != nil && modules[index].Path == served.path && modules[index].Version == served.version {
+			modules[index].Source = RuntimeFolderSource
+		}
 	}
 	download, _, err := inventory(filepath.Join(cacheRoot, "cache", "download"), maxFiles, maxBytes)
 	if err != nil {
@@ -149,7 +196,7 @@ func Download(ctx context.Context, options DownloadOptions) (*ModuleCacheRecord,
 	if download.Files == 0 {
 		return nil, errors.New("module download produced no cache")
 	}
-	record := &ModuleCacheRecord{Format: moduleCacheFormat, SourceRevision: o.Revision, Module: o.Module, Target: o.Target, GoVersion: GoVersion, GitSHA256: gitHash, DownloadCache: download, Modules: modules, DependencyProxy: "https://proxy.golang.org"}
+	record := &ModuleCacheRecord{Format: moduleCacheFormat, SourceRevision: o.Revision, Module: o.Module, Target: o.Target, GoVersion: GoVersion, GitSHA256: gitHash, DownloadCache: download, Modules: modules, DependencyProxy: ProxySource}
 	if err := validateModuleCacheRecord(record); err != nil {
 		return nil, err
 	}
@@ -211,11 +258,19 @@ type moduleVersion struct{ path, version string }
 // readSums reads the hashes of the module zips that go.sum states. Lines for
 // go.mod files are not zips and are skipped.
 func readSums(name string) (map[moduleVersion]string, error) {
+	sums, _, err := readSumFile(name)
+	return sums, err
+}
+
+// readSumFile reads go.sum: the hashes of the module zips, and apart from
+// them the hashes of the go.mod files.
+func readSumFile(name string) (map[moduleVersion]string, map[moduleVersion]string, error) {
 	data, err := os.ReadFile(name)
 	if err != nil {
-		return nil, fmt.Errorf("cannot read the module requirements' checksums %s", filepath.Base(name))
+		return nil, nil, fmt.Errorf("cannot read the module requirements' checksums %s", filepath.Base(name))
 	}
 	sums := map[moduleVersion]string{}
+	modSums := map[moduleVersion]string{}
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
@@ -223,18 +278,211 @@ func readSums(name string) (map[moduleVersion]string, error) {
 			continue
 		}
 		if len(fields) != 3 || !validModuleSum(fields[2]) {
-			return nil, errors.New("go.sum holds a malformed line")
+			return nil, nil, errors.New("go.sum holds a malformed line")
 		}
-		if strings.HasSuffix(fields[1], "/go.mod") {
+		target := sums
+		version := fields[1]
+		if strings.HasSuffix(version, "/go.mod") {
+			target = modSums
+			version = strings.TrimSuffix(version, "/go.mod")
+		}
+		key := moduleVersion{fields[0], version}
+		if previous, ok := target[key]; ok && previous != fields[2] {
+			return nil, nil, fmt.Errorf("go.sum states two hashes for %s %s", key.path, fields[1])
+		}
+		target[key] = fields[2]
+	}
+	return sums, modSums, scanner.Err()
+}
+
+// runtimePin gives the version of the runtime library that the module's
+// go.mod requires, or nil when it requires none.
+func runtimePin(name string) (*moduleVersion, error) {
+	data, err := os.ReadFile(name)
+	if err != nil || len(data) > maxGoModBytes {
+		return nil, fmt.Errorf("cannot read the module requirements %s", filepath.Base(name))
+	}
+	file, err := modfile.ParseLax(name, data, nil)
+	if err != nil {
+		return nil, fmt.Errorf("the module requirements %s do not parse: %w", filepath.Base(name), err)
+	}
+	for _, require := range file.Require {
+		if require.Mod.Path == registry.RuntimeModule {
+			return &moduleVersion{require.Mod.Path, require.Mod.Version}, nil
+		}
+	}
+	return nil, nil
+}
+
+// stageRuntimeFolder enforces ST-BLD-UC02-R05. When go.mod requires the
+// runtime pin and the source revision holds the common registry's runtime
+// folder, it writes the module zip of that folder as the pin, in the module
+// proxy layout under proxy, and gives the pin. It first refuses a folder that
+// holds a link or a special file. It hashes the zip it wrote, and the go.mod
+// inside that zip, and refuses either when it differs from go.sum, before any
+// byte of the zip goes into the proxy; the refusal names the module, its
+// version, the hash go.sum states and the hash it found. It gives nil when
+// go.mod requires no runtime library or the source holds no runtime folder;
+// the public proxy then supplies every module.
+func stageRuntimeFolder(folder string, pin *moduleVersion, sums, modSums map[moduleVersion]string, proxy, scratch string) (*moduleVersion, error) {
+	if pin == nil {
+		return nil, nil
+	}
+	info, err := os.Lstat(folder)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("the runtime folder %s is a link or a file; expected a folder", RuntimeFolder)
+	}
+	if err := checkPlainTree(folder); err != nil {
+		return nil, err
+	}
+	if _, err := os.Lstat(filepath.Join(folder, "go.mod")); err != nil {
+		return nil, nil
+	}
+	stated, ok := sums[*pin]
+	if !ok {
+		return nil, fmt.Errorf("module %s %s: go.sum states no hash for it, so the runtime folder %s cannot be checked", pin.path, pin.version, RuntimeFolder)
+	}
+	statedMod, ok := modSums[*pin]
+	if !ok {
+		return nil, fmt.Errorf("module %s %s: go.sum states no hash for its go.mod, so the runtime folder %s cannot be checked", pin.path, pin.version, RuntimeFolder)
+	}
+	work, err := os.MkdirTemp(scratch, "runtime-")
+	if err != nil {
+		return nil, err
+	}
+	defer removeTree(work)
+	zipPath := filepath.Join(work, "module.zip")
+	file, err := os.OpenFile(zipPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	err = modzip.CreateFromDir(file, module.Version{Path: pin.path, Version: pin.version}, folder)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return nil, fmt.Errorf("module %s %s: the runtime folder %s gives no module zip: %w", pin.path, pin.version, RuntimeFolder, err)
+	}
+	found, err := dirhash.HashZip(zipPath, dirhash.Hash1)
+	if err != nil {
+		return nil, err
+	}
+	if found != stated {
+		return nil, fmt.Errorf("module %s %s differs from go.sum: go.sum states %s, the runtime folder %s is %s", pin.path, pin.version, stated, RuntimeFolder, found)
+	}
+	modData, err := zipGoMod(zipPath, *pin)
+	if err != nil {
+		return nil, err
+	}
+	foundMod, err := dirhash.Hash1([]string{"go.mod"}, func(string) (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(modData)), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if foundMod != statedMod {
+		return nil, fmt.Errorf("module %s %s go.mod differs from go.sum: go.sum states %s, the runtime folder %s is %s", pin.path, pin.version, statedMod, RuntimeFolder, foundMod)
+	}
+	escapedPath, err := module.EscapePath(pin.path)
+	if err != nil {
+		return nil, err
+	}
+	escapedVersion, err := module.EscapeVersion(pin.version)
+	if err != nil {
+		return nil, err
+	}
+	versions := filepath.Join(proxy, filepath.FromSlash(escapedPath), "@v")
+	if err := os.MkdirAll(versions, 0o700); err != nil {
+		return nil, err
+	}
+	infoData := fmt.Sprintf("{\"Version\":%q}\n", pin.version)
+	for name, data := range map[string][]byte{escapedVersion + ".mod": modData, escapedVersion + ".info": []byte(infoData)} {
+		if err := os.WriteFile(filepath.Join(versions, name), data, 0o600); err != nil {
+			return nil, err
+		}
+	}
+	if err := os.Rename(zipPath, filepath.Join(versions, escapedVersion+".zip")); err != nil {
+		return nil, err
+	}
+	return pin, nil
+}
+
+// checkPlainTree refuses a folder that holds a link or a special file, at any
+// depth, and names it. The walk does not follow links, so it reads nothing
+// outside the folder.
+func checkPlainTree(folder string) error {
+	return filepath.WalkDir(folder, func(name string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() || entry.Type().IsRegular() {
+			return nil
+		}
+		relative, relErr := filepath.Rel(folder, name)
+		if relErr != nil {
+			relative = name
+		}
+		return fmt.Errorf("the runtime folder %s holds %s, a link or a special file; expected only files and folders", RuntimeFolder, filepath.ToSlash(relative))
+	})
+}
+
+// zipGoMod reads the go.mod of a module zip, the bytes whose hash go.sum
+// states for module@version/go.mod.
+func zipGoMod(zipPath string, pin moduleVersion) ([]byte, error) {
+	reader, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	want := pin.path + "@" + pin.version + "/go.mod"
+	for _, entry := range reader.File {
+		if entry.Name != want {
 			continue
 		}
-		key := moduleVersion{fields[0], fields[1]}
-		if previous, ok := sums[key]; ok && previous != fields[2] {
-			return nil, fmt.Errorf("go.sum states two hashes for %s %s", key.path, key.version)
+		if entry.UncompressedSize64 > maxGoModBytes {
+			return nil, errors.New("the runtime go.mod exceeds its limit")
 		}
-		sums[key] = fields[2]
+		input, err := entry.Open()
+		if err != nil {
+			return nil, err
+		}
+		data, err := io.ReadAll(io.LimitReader(input, maxGoModBytes+1))
+		if len(data) > maxGoModBytes {
+			err = errors.New("the runtime go.mod exceeds its limit")
+		}
+		closeErr := input.Close()
+		if err != nil {
+			return nil, err
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
+		return data, nil
 	}
-	return sums, scanner.Err()
+	return nil, fmt.Errorf("module %s %s: the runtime folder %s has no go.mod", pin.path, pin.version, RuntimeFolder)
+}
+
+// withRuntimeProxy gives the environment with the runtime proxy before the
+// public module proxy. The go command asks the public proxy only for a module
+// that the runtime proxy does not hold.
+func withRuntimeProxy(env []string, proxy string) ([]string, error) {
+	if !filepath.IsAbs(proxy) || strings.ContainsAny(proxy, ",|") {
+		return nil, fmt.Errorf("the runtime proxy folder %s cannot be named in GOPROXY", proxy)
+	}
+	result := make([]string, 0, len(env))
+	for _, value := range env {
+		if strings.HasPrefix(value, "GOPROXY=") {
+			value = "GOPROXY=file://" + filepath.ToSlash(proxy) + "," + ProxySource
+		}
+		result = append(result, value)
+	}
+	return result, nil
 }
 
 // checkCachedModules enforces ST-BLD-INV03: every module zip in the download
@@ -299,9 +547,13 @@ func checkCachedModules(download string, sums map[moduleVersion]string) ([]Cache
 // time and outside the service's module, where only the sum database checks
 // it, and compares each zip with go.sum. It names the first module that the
 // proxy cannot supply or whose hash differs.
-func diagnoseDownload(ctx context.Context, root string, env []string, goTool string, sums map[moduleVersion]string) error {
+func diagnoseDownload(ctx context.Context, root string, env []string, goTool string, sums map[moduleVersion]string, served *moduleVersion) error {
 	keys := make([]moduleVersion, 0, len(sums))
 	for key := range sums {
+		// The runtime folder already matched go.sum for the pin it serves.
+		if served != nil && key == *served {
+			continue
+		}
 		keys = append(keys, key)
 	}
 	sort.Slice(keys, func(i, j int) bool {
@@ -343,7 +595,7 @@ func diagnoseDownload(ctx context.Context, root string, env []string, goTool str
 
 // validateModuleCacheRecord checks the recorded cache policy.
 func validateModuleCacheRecord(record *ModuleCacheRecord) error {
-	if record.Format != moduleCacheFormat || record.GoVersion != GoVersion || !revisionPattern.MatchString(record.SourceRevision) || !hashPattern.MatchString(record.GitSHA256) || record.DependencyProxy != "https://proxy.golang.org" {
+	if record.Format != moduleCacheFormat || record.GoVersion != GoVersion || !revisionPattern.MatchString(record.SourceRevision) || !hashPattern.MatchString(record.GitSHA256) || record.DependencyProxy != ProxySource {
 		return errors.New("module cache record violates the build policy")
 	}
 	if record.Module != "." && !safePath(record.Module) {
@@ -361,6 +613,9 @@ func validateModuleCacheRecord(record *ModuleCacheRecord) error {
 	for index, cached := range record.Modules {
 		if module.Check(cached.Path, cached.Version) != nil || !validModuleSum(cached.Sum) {
 			return fmt.Errorf("module cache record lists an invalid module %s %s", cached.Path, cached.Version)
+		}
+		if cached.Source != ProxySource && (cached.Source != RuntimeFolderSource || cached.Path != registry.RuntimeModule) {
+			return fmt.Errorf("module cache record names the source %q for %s %s; only the runtime library can come from %s", cached.Source, cached.Path, cached.Version, RuntimeFolder)
 		}
 		if index > 0 {
 			previous := record.Modules[index-1]
