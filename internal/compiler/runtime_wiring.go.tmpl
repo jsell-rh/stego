@@ -153,8 +153,8 @@ func parts({{if .API}}afterSlots *api.AfterSlots{{end}}) service.Parts {
 		},
 		AuditSettings: svcaudit.Settings,
 		Workers: service.WorkerParts{
-			NewWorker: func(q *outbox.Queue, config outbox.WorkerConfig) (*outbox.Worker, error) {
-				w, err := svcoutbox.NewWorker(q, config, svcoutbox.Ports{AuditSink: heldSink{}})
+			NewWorker: func(q *outbox.Queue, config outbox.WorkerConfig, sink audit.Sink) (*outbox.Worker, error) {
+				w, err := svcoutbox.NewWorker(q, config, svcoutbox.Ports{AuditSink: sink})
 				if err != nil {
 					return nil, err
 				}
@@ -257,7 +257,9 @@ func (rt *Runtime) Run(ctx context.Context) error {
 		if workerSettings, err = service.ReadWorkerSettings(true); err != nil {
 			return err
 		}
-		slog.WarnContext(ctx, "the audit-sink port is not bound: audit messages stay in the outbox until it is (ST-SUP-Q98)", "port", audit.SinkDestination)
+		// The audit-sink port binds the HTTPS endpoint of the settings, or else the default table in the service
+		// database (ST-SUP-RP05-LC15, ST-SUP-RP05-LC16).
+		slog.InfoContext(ctx, "the audit sink", "port", audit.SinkDestination, "https", workerSettings.AuditSink.HTTPS())
 	}
 	// The api mode starts no component of the service runtime: its HTTP server is main's, and the health check
 	// answers its readiness. The workers run for the worker and controller modes.
@@ -316,16 +318,6 @@ func (rt *Runtime) Readiness() http.Handler {
 // (ST-SUP-RP04-LC07).
 const tenantSchema = "public"
 
-// heldSink holds every audit-sink message in the outbox: no system receives them until the platform binds the port
-// (ST-SUP-Q98). Each delivery is refused as transient, so the message stays, is retried with backoff and is never
-// lost; the destination must land (ST-SUP-RP05-LC14).
-type heldSink struct{}
-
-func (heldSink) Append(context.Context, []audit.Event) error { return errSinkNotBound }
-func (heldSink) Anchor(context.Context, audit.Anchor) error  { return errSinkNotBound }
-
-var errSinkNotBound = errors.New("the audit-sink port is not bound")
-
 // Routes serves the declared commands and queries, each at its route.
 func (rt *Runtime) Routes() http.Handler { return rt.routes }
 
@@ -374,7 +366,7 @@ func Migrate(ctx context.Context) error {
 		return &service.StepError{Step: service.StepSettings, Err: err}
 	}
 	return service.Migrate(ctx, settings, service.Migration{
-		OwnerRole: OwnerRole, RuntimeRole: RuntimeRole, PurgeRole: PurgeRole, TenantConfig: svcstorage.TenantConfig,
+		OwnerRole: OwnerRole, RuntimeRole: RuntimeRole, WorkerRole: WorkerRole, PurgeRole: PurgeRole, TenantConfig: svcstorage.TenantConfig,
 		LedgerCheck: func(ctx context.Context, conn *sql.Conn) error { return withLedger(ctx, conn, svcstorage.CheckLedger) },
 		Ledger:      func(ctx context.Context, conn *sql.Conn) error { return withLedger(ctx, conn, svcstorage.Migrate) },
 		Outbox:      queueText, Audit: auditText, Authorization: authzText,

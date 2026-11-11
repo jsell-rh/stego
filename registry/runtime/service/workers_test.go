@@ -19,6 +19,7 @@ import (
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
 	"github.com/jsell-rh/stego/registry/runtime/audit/auditoutbox"
+	"github.com/jsell-rh/stego/registry/runtime/audit/auditsink"
 	"github.com/jsell-rh/stego/registry/runtime/authn/authntest"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
 	"github.com/jsell-rh/stego/registry/runtime/command"
@@ -60,6 +61,8 @@ func (s *recordingSink) counts() (events, anchors int) {
 type deliveries struct {
 	mu      sync.Mutex
 	tenants []string
+	// given is the audit sink that Start gave NewWorker, the system of the worker settings.
+	given audit.Sink
 }
 
 func (d *deliveries) handler(_ context.Context, _ *sql.Tx, delivery outbox.Delivery) error {
@@ -79,7 +82,10 @@ func (d *deliveries) list() []string {
 // authorization and audit packages give them.
 func workerParts(sink audit.Sink, notify *deliveries) WorkerParts {
 	return WorkerParts{
-		NewWorker: func(queue *outbox.Queue, config outbox.WorkerConfig) (*outbox.Worker, error) {
+		NewWorker: func(queue *outbox.Queue, config outbox.WorkerConfig, given audit.Sink) (*outbox.Worker, error) {
+			notify.mu.Lock()
+			notify.given = given
+			notify.mu.Unlock()
 			w, err := outbox.NewWorker(queue, config)
 			if err != nil {
 				return nil, err
@@ -187,6 +193,12 @@ func TestWorkers(t *testing.T) {
 		if _, err := svc.Start(ctx, StartConfig{Selection: modes.Selection{modes.Worker}}); err == nil || !strings.Contains(err.Error(), WorkerDatabaseURLSetting) || strings.Contains(err.Error(), rolePassword) {
 			t.Fatalf("Start of the worker mode with no worker role gave %v", err)
 		}
+		// A worker mode whose audit sink setting is not valid is refused by the setting's name (ST-SUP-RP05-LC17).
+		badSink := workerSettings
+		badSink.AuditSink = auditsink.Settings{TokenFile: "/run/token"}
+		if _, err := svc.Start(ctx, StartConfig{Selection: modes.Selection{modes.Worker}, Workers: badSink}); err == nil || !strings.Contains(err.Error(), auditsink.TokenFileSetting) {
+			t.Fatalf("Start of the worker mode with a bad audit sink setting gave %v", err)
+		}
 		// The api mode alone starts no worker and holds no lease.
 		api, err := svc.Start(ctx, StartConfig{Selection: modes.Selection{modes.API}})
 		if err != nil {
@@ -252,6 +264,13 @@ func TestWorkers(t *testing.T) {
 			Holder: "replica-a", LeaseSettings: leases, WorkerConfig: &fast})
 		if err != nil {
 			t.Fatal(err)
+		}
+		// With no sink URL the worker gets the default sink, the table in the service database (ST-SUP-RP05-LC15).
+		notify.mu.Lock()
+		given := notify.given
+		notify.mu.Unlock()
+		if _, ok := given.(*auditsink.TableSink); !ok {
+			t.Fatalf("Start gave NewWorker the audit sink %T, want the default table", given)
 		}
 		shutdownDone := false
 		t.Cleanup(func() {
@@ -399,6 +418,12 @@ func TestWorkers(t *testing.T) {
 		if _, err := ReadWorkerSettings(true); err == nil || !strings.Contains(err.Error(), RelayDatabaseURLSetting) {
 			t.Fatalf("ReadWorkerSettings with no relay setting gave %v", err)
 		}
+		// The audit sink settings are read with the worker settings, and a bad one is refused by its name.
+		t.Setenv(auditsink.URLSetting, "http://collector.test/v1/logs")
+		if _, err := ReadWorkerSettings(false); err == nil || !strings.Contains(err.Error(), auditsink.URLSetting) {
+			t.Fatalf("ReadWorkerSettings with an http sink URL gave %v", err)
+		}
+		t.Setenv(auditsink.URLSetting, "")
 		t.Setenv(WorkerDatabaseURLFileSetting, "")
 		if _, err := ReadWorkerSettings(false); err == nil || !strings.Contains(err.Error(), WorkerDatabaseURLSetting) || strings.Contains(err.Error(), "marker") {
 			t.Fatalf("ReadWorkerSettings with no worker setting gave %v", err)
