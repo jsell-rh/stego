@@ -4,10 +4,29 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
 )
+
+// MaxRequestBody is the most bytes of a request body that a handler reads.
+const MaxRequestBody = 1 << 20
+
+// readBody reads at most MaxRequestBody bytes of the request body.
+func readBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+	return io.ReadAll(http.MaxBytesReader(w, r.Body, MaxRequestBody))
+}
+
+// bodyError gives the problem of a body that cannot be read: 413 for a body
+// over MaxRequestBody, else 400.
+func bodyError(err error) *ServiceError {
+	if tooLarge := new(http.MaxBytesError); errors.As(err, &tooLarge) {
+		return errorForStatus(http.StatusRequestEntityTooLarge, "the request body is larger than the limit")
+	}
+	return BadRequest(err.Error())
+}
 
 // ServiceError represents an RFC 9457 Problem Details error response.
 type ServiceError struct {

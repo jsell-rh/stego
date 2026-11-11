@@ -186,6 +186,11 @@ func isLocalDir(path string) bool {
 var commitID = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 
 func resolveGitRegistry(url, ref, cacheDir string) (resolved string, resultErr error) {
+	// The clone passes the address after "--", and an address that starts with "-" is refused before git runs, so
+	// git never reads it as an option.
+	if strings.HasPrefix(url, "-") {
+		return "", fmt.Errorf("registry address %q starts with \"-\", which git would read as an option", url)
+	}
 	if !commitID.MatchString(ref) {
 		return "", fmt.Errorf("ref %q must be a full lowercase Git commit SHA", ref)
 	}

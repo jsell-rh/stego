@@ -5,7 +5,6 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -55,9 +54,9 @@ func (h *OrgUsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if !h.checkAncestors(w, r) {
 		return
 	}
-	bodyBytes, err := io.ReadAll(r.Body)
+	bodyBytes, err := readBody(w, r)
 	if err != nil {
-		handleError(w, r, BadRequest(err.Error()))
+		handleError(w, r, bodyError(err))
 		return
 	}
 	{
@@ -213,9 +212,9 @@ func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, NotFound("User", id))
 		return
 	}
-	bodyBytes, err := io.ReadAll(r.Body)
+	bodyBytes, err := readBody(w, r)
 	if err != nil {
-		handleError(w, r, BadRequest(err.Error()))
+		handleError(w, r, bodyError(err))
 		return
 	}
 	{
@@ -467,9 +466,9 @@ func (h *OrgUsersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, NotFound("User", id))
 		return
 	}
-	bodyBytes, err := io.ReadAll(r.Body)
+	bodyBytes, err := readBody(w, r)
 	if err != nil {
-		handleError(w, r, BadRequest(err.Error()))
+		handleError(w, r, bodyError(err))
 		return
 	}
 	{

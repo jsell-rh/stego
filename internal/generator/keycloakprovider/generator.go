@@ -74,23 +74,32 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		names = append(names, "client_cursor.go", "client_lifecycle.go", "lifecycle_gate.go", "native_lifecycle.go", "browser_lifecycle.go", "service_account_lifecycle.go")
 	}
 	for _, name := range names {
-		input, err := sources.ReadFile(name + ".tmpl")
+		code, err := render(name, data)
 		if err != nil {
 			return nil, nil, err
-		}
-		t, err := template.New(name).Parse(string(input))
-		if err != nil {
-			return nil, nil, err
-		}
-		var out bytes.Buffer
-		if err = t.Execute(&out, data); err != nil {
-			return nil, nil, err
-		}
-		code, err := format.Source(out.Bytes())
-		if err != nil {
-			return nil, nil, fmt.Errorf("keycloak-provider %s: %w", name, err)
 		}
 		files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, name), Content: code})
 	}
 	return files, &gen.Wiring{}, gen.ValidateNamespace(ctx.OutputNamespace, files)
+}
+
+// render executes the template of one emitted file with the data and formats the Go source.
+func render(name string, data any) ([]byte, error) {
+	input, err := sources.ReadFile(name + ".tmpl")
+	if err != nil {
+		return nil, err
+	}
+	t, err := template.New(name).Parse(string(input))
+	if err != nil {
+		return nil, err
+	}
+	var out bytes.Buffer
+	if err = t.Execute(&out, data); err != nil {
+		return nil, err
+	}
+	code, err := format.Source(out.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("keycloak-provider %s: %w", name, err)
+	}
+	return code, nil
 }
