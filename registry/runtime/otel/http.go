@@ -83,6 +83,7 @@ func (r *Runtime) Handler(next http.Handler) http.Handler {
 		ctx, span, record := r.startSpan(ctx, r.tracer, "HTTP "+method, trace.SpanKindServer, start, attribute.String("http.request.method", method))
 		observed := &routeObservation{}
 		ctx = context.WithValue(ctx, routeKey{}, observed)
+		ctx = withErrorCode(ctx)
 		r.signals.started(ctx, r.signals.httpActive)
 		status := 0
 		defer func() {
