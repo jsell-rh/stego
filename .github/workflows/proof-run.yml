@@ -77,6 +77,15 @@ jobs:
           ref: ${{ env.LATHE_REF }}
           path: lathe
           persist-credentials: false
+      # assure record is built from the pull request's base commit, as the gate job builds assure (ST-ASR-UC02-R07),
+      # so the change's source cannot alter the code that writes its proof run. On a push it is the commit pushed.
+      # It is built before any step runs code of the change. The change's tests still run in this job, so this does
+      # not make the outcomes more than change grade.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha || env.COMMIT }}
+          path: base
+          persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.26.11'
@@ -85,6 +94,13 @@ jobs:
             stego/go.sum
             stego/internal/assure/go.sum
             stego/cmd/assure/go.sum
+      - name: Build assure record from the base commit
+        working-directory: base/cmd/assure
+        env:
+          GOWORK: 'off'
+        run: |
+          mkdir -p "$RUNNER_TEMP/record"
+          go build -mod=readonly -trimpath -o "$RUNNER_TEMP/record/assure" .
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '24.18.1'
@@ -136,7 +152,7 @@ jobs:
       - name: Record the proof run
         run: >-
           mkdir -p "$RUNNER_TEMP/proof-run" &&
-          go run -C cmd/assure -mod=readonly . record
+          "$RUNNER_TEMP/record/assure" record
           --commit "$COMMIT"
           --go-json "$RUNNER_TEMP/go-test.json"
           --python-json "$RUNNER_TEMP/python-tests.json"
