@@ -1,5 +1,7 @@
 {"source_id":"ST-ASR-Q01","target_id":"ST-ASR-TOOL06"}
 {"source_id":"ST-ASR-Q01","target_id":"ST-STD-TRUST"}
+{"source_id":"ST-BLD-Q01","target_id":"ST-BLD-UC02-R03"}
+{"source_id":"ST-BLD-Q01","target_id":"ST-SUP-INV10"}
 {"source_id":"ST-DECL-Q05","target_id":"ST-DECL-UC01-R01"}
 {"source_id":"ST-DECL-Q05","target_id":"ST-DECL-UC01-R04"}
 {"source_id":"ST-DECL-Q05","target_id":"ST-DECL-UC01-R05"}
