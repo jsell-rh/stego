@@ -273,6 +273,7 @@ definition organization {
 
 definition member {
 	relation self: user
+	relation org: organization
 	relation org_admin: user
 	permission view = self + org_admin
 	permission manage = org_admin
@@ -310,7 +311,9 @@ definition audit_event {
 					Relationships: []types.Relationship{{Relation: "admin", SubjectSource: types.SubjectSourceCaller, SubjectType: "user"}}}},
 			{Name: "User", Fields: []types.Field{{Name: "email", Type: types.FieldTypeString}, {Name: "org_id", Type: types.FieldTypeRef, To: "Organization"}},
 				EntityAuthorization: types.EntityAuthorization{ResourceType: "member", Permissions: all,
-					Relationships: []types.Relationship{{Relation: "self", SubjectSource: types.SubjectSourceCaller, SubjectType: "user"}}}},
+					Relationships: []types.Relationship{{Relation: "self", SubjectSource: types.SubjectSourceCaller, SubjectType: "user"}},
+					// The reference to the organization is a relation that the runtime writes (ST-DECL-INV85).
+					References: map[string]types.Reference{"org_id": {Relation: "org", Permission: "manage"}}}},
 			{Name: "OrgSetting", Fields: []types.Field{{Name: "key", Type: types.FieldTypeString}},
 				EntityAuthorization: types.EntityAuthorization{ResourceType: "setting", Permissions: all}},
 			{Name: "AuditEvent", Fields: []types.Field{{Name: "action", Type: types.FieldTypeString}},

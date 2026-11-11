@@ -193,10 +193,23 @@ type Context struct {
 	// has no entry.
 	FillSlots map[string]string
 
+	// Destinations are the outbox destinations that the components of the service declare in their setting
+	// destinations, each with its declared delivery (ST-SUP-RC32-OC12), in the order of the components and of the
+	// setting. Generators must not change them.
+	Destinations []Destination
+
 	// QueryStreams holds the names of the queries that are served as a server stream: the queries whose gRPC method
 	// is a server stream (ST-DECL-INV73). The compiler reads no proto file for it yet, so it is empty until the
 	// check of ST-DECL-INV73 is built.
 	QueryStreams map[string]bool
+}
+
+// Destination is one outbox destination that a component declares in its setting destinations: its name, the
+// component, and whether its messages must land and whether the destination is idempotent, nil when the setting
+// leaves the property out (ST-SUP-RC32-OC12).
+type Destination struct {
+	Name, Component      string
+	MustLand, Idempotent *bool
 }
 
 // Command is one declared command (ST-DECL-EN18) with what the compiler read of its fill.

@@ -69,6 +69,7 @@ definition order {
 
 definition hold {
 	relation owner: user
+	relation order: order
 	permission view = owner
 }
 `
@@ -578,15 +579,33 @@ func TestCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RC32-OC06-T01 A denied command answers 403 and does not call the fill", func(t *testing.T) {
+	t.Run("ST-SUP-RC32-OC06-T01 A denied command answers 404 and does not call the fill", func(t *testing.T) {
 		e := service(t)
 		a := e.as("u-7", "tA", time.Now().Add(time.Hour))
 		order := e.order(a, "someone-else")
+		// The row holds the token t5 and the revocation floor is a newer token: the decision runs at the floor, not at the row's
+		// token, because Run decides a missing and an existing row at one consistency (ST-SUP-RP10-LC31).
+		_, err := e.admin.ExecContext(e.ctx, `UPDATE orders SET authz_token = 't5' WHERE id = $1`, order)
+		must(t, err)
+		// The floor is a token that SpiceDB gave, of a write after the order's relationship.
+		written, err := v1.NewPermissionsServiceClient(e.spice).WriteRelationships(e.ctx, &v1.WriteRelationshipsRequest{Updates: []*v1.RelationshipUpdate{{
+			Operation: v1.RelationshipUpdate_OPERATION_TOUCH,
+			Relationship: &v1.Relationship{Resource: &v1.ObjectReference{ObjectType: "order", ObjectId: "floor-mark"}, Relation: "owner",
+				Subject: &v1.SubjectReference{Object: &v1.ObjectReference{ObjectType: "user", ObjectId: "nobody"}}}}}})
+		must(t, err)
+		floorText := written.GetWrittenAt().GetToken()
+		_, err = e.admin.ExecContext(e.ctx, `UPDATE authz.authz_floor SET token = $1`, floorText)
+		must(t, err)
+		defer func() { _, _ = e.admin.ExecContext(e.ctx, `UPDATE authz.authz_floor SET token = ''`) }()
 		e.behave(t, reservecharge.ReserveAndCharge)
 		e.decision.taken()
 		got := e.post(a.token, "oc06-t01", order, body)
-		if got.status != http.StatusForbidden {
-			t.Fatalf("the answer is %d %s, want 403", got.status, got.body)
+		if got.status != http.StatusNotFound {
+			t.Fatalf("the answer is %d %s, want 404", got.status, got.body)
+		}
+		missing := e.post(a.token, "oc06-t01-missing", uuid.NewString(), body)
+		if missing.status != http.StatusNotFound || string(missing.body) != string(got.body) {
+			t.Fatalf("a missing order answered %d %s, want the same 404 as the deny %s", missing.status, missing.body, got.body)
 		}
 		if e.calls.Load() != 0 {
 			t.Errorf("the fill ran %d times", e.calls.Load())
@@ -594,13 +613,16 @@ func TestCommand(t *testing.T) {
 		calls := e.decision.taken()
 		want, err := authz.ResourceID(a.tenant, order)
 		must(t, err)
-		if len(calls) != 1 || calls[0].Action.Name != "reserve" || calls[0].Resource.Type != "order" || calls[0].Resource.ID != want ||
+		if len(calls) != 2 || calls[0].Action.Name != "reserve" || calls[0].Resource.Type != "order" || calls[0].Resource.ID != want ||
 			calls[0].Subject != a.principal.Subject() {
-			t.Fatalf("the decision port got %+v, want one call for reserve on order:%s", calls, want)
+			t.Fatalf("the decision port got %+v, want a call for reserve on order:%s and one for the missing order", calls, want)
 		}
-		// The revocation floor of the service is zero, so the decision is fresh (ST-SUP-RP06-LC09, ST-SUP-RP10-LC31).
-		if calls[0].Consistency != authz.Fresh() {
-			t.Errorf("the decision ran at %+v, want fresh at the zero floor", calls[0].Consistency)
+		floor, err := authz.ParseToken(floorText)
+		must(t, err)
+		for _, call := range calls {
+			if call.Consistency != authz.AtLeast(floor) {
+				t.Errorf("the decision ran at %+v, want at least the floor and not the row token t5", call.Consistency)
+			}
 		}
 		if e.keyRows("oc06-t01") != 0 || e.auditRows(a, "denied", order) != 1 {
 			t.Error("a deny wrote a key row, or no denied audit row")
@@ -659,7 +681,7 @@ func TestCommand(t *testing.T) {
 		if got := e.post(a.token, "oc07-ok", ok, body); got.status != http.StatusCreated {
 			t.Fatalf("the allowed command answered %d %s", got.status, got.body)
 		}
-		if got := e.post(a.token, "oc07-denied", denied, body); got.status != http.StatusForbidden {
+		if got := e.post(a.token, "oc07-denied", denied, body); got.status != http.StatusNotFound {
 			t.Fatalf("the denied command answered %d", got.status)
 		}
 		reservecharge.Behavior = func(context.Context, *commands.ReserveAndChargeRequest, *commands.ReserveAndChargeHandle) (*commands.ReserveAndChargeResponse, error) {

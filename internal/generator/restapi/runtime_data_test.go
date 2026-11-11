@@ -264,7 +264,7 @@ func newCrudProject(t *testing.T, ctx gen.Context, files map[string][]byte) *cru
 		t.Fatal(err)
 	}
 	p.write("go.sum", sums)
-	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.9.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
+	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.10.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
 	p.mustGo("mod", "tidy")
 	return p
 }
@@ -444,7 +444,7 @@ func TestCrudService(t *testing.T) {
 var crudCheckIDs = []string{
 	"ST-SUP-RC20-OC37-T01 A collection create runs as a command",
 	"ST-SUP-RC20-OC37-T02 A refusing before slot stops the command before any write",
-	"ST-SUP-RC20-OC37-T03 A write that the caller may not make, or of a missing row, is 403 and changes nothing",
+	"ST-SUP-RC20-OC37-T03 A write that the caller may not make, or of a missing row, is 404 and changes nothing",
 	"ST-SUP-RC20-OC37-T05 A before slot that halts writes nothing and fires no after slot",
 	"ST-SUP-RC20-OC37-T06 A failed after slot answers the committed response with no error text",
 	"ST-SUP-RC20-OC35-T01 Every route takes the tenant from the verified identity",
@@ -458,4 +458,5 @@ var crudCheckIDs = []string{
 	"ST-SUP-RC28-OC04-T01 A single read of an entity with a pii field writes one read audit row",
 	"ST-SUP-RC28-OC04-T03 A list that returns a pii field writes one read audit row per returned resource, at most one page",
 	"ST-SUP-RC28-OC01-T03 A secret field reaches neither before, after nor the stored row",
+	"ST-SUP-RC20-OC38-T01 A list on the runtime data path pages by cursor in the requested order, with no total",
 }

@@ -54,6 +54,17 @@ type EntityAuthorization struct {
 	ContextFields []string `yaml:"context_fields,omitempty" json:",omitempty"`
 	// Relationships are the tuples the generated code writes for each row.
 	Relationships []Relationship `yaml:"relationships,omitempty" json:",omitempty"`
+	// References maps each field that refers to an entity with a resource type to the relation of the service's
+	// schema that the runtime writes from this row to the referenced row, and the permission that a create and a move
+	// decide on the referenced row (ST-DECL-EN02, ST-DECL-INV85).
+	References map[string]Reference `yaml:"references,omitempty" json:",omitempty"`
+}
+
+// Reference is the relation and the permission of one reference to an entity with a resource type, named as the
+// service's own schema names them (ST-DECL-EN02).
+type Reference struct {
+	Relation   string `yaml:"relation"`
+	Permission string `yaml:"permission"`
 }
 
 // Principals that the fills of a slot binding run as.

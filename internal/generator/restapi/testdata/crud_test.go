@@ -4,6 +4,7 @@
 package check
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -11,11 +12,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -541,7 +544,7 @@ func TestCrud(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RC20-OC37-T03 A write that the caller may not make, or of a missing row, is 403 and changes nothing", func(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC37-T03 A write that the caller may not make, or of a missing row, is 404 and changes nothing", func(t *testing.T) {
 		e := service(t)
 		tenantID := newTenant()
 		owner, other := e.as("owner", tenantID), e.as("other", tenantID)
@@ -562,14 +565,14 @@ func TestCrud(t *testing.T) {
 			{http.MethodDelete, "/api/v1/todos/" + todo, "", ""},
 		}
 		for _, w := range writes {
-			if r := e.send(other, w.method, w.path, w.key, w.body); r.status != http.StatusForbidden {
-				t.Errorf("%s %s as a caller who may not edit answered %d %s, want 403", w.method, w.path, r.status, r.body)
+			if r := e.send(other, w.method, w.path, w.key, w.body); r.status != http.StatusNotFound {
+				t.Errorf("%s %s as a caller who may not edit answered %d %s, want 404", w.method, w.path, r.status, r.body)
 			}
 		}
 		for _, w := range writes {
 			missing := w.path[:strings.LastIndex(w.path, "/")+1] + uuid.NewString()
-			if r := e.send(owner, w.method, missing, w.key+"-m", w.body); r.status != http.StatusForbidden {
-				t.Errorf("%s of a missing row answered %d %s, want 403", w.method, r.status, r.body)
+			if r := e.send(owner, w.method, missing, w.key+"-m", w.body); r.status != http.StatusNotFound {
+				t.Errorf("%s of a missing row answered %d %s, want 404", w.method, r.status, r.body)
 			}
 		}
 		if n := e.count(`SELECT count(*) FROM orders WHERE id = $1::uuid AND qty = 1`, order); n != 1 {
@@ -587,15 +590,15 @@ func TestCrud(t *testing.T) {
 		if n := e.count(`SELECT count(*) FROM audit_event WHERE tenant_id = $1 AND actor_id = $2 AND outcome = 'denied'`, tenantID, other.principal.Subject().String()); n != 7 {
 			t.Errorf("%d denied audit rows of the refused writes, want 7", n)
 		}
-		// A deleted row whose owner tuple stays is allowed by the decision and then not found: it is 403 too, so the
+		// A deleted row whose owner tuple stays is allowed by the decision and then not found: it is 404 too, so the
 		// answer does not tell that the row once existed.
 		gone := e.create(owner, "orders", "order", `{"sku":"gone","qty":1}`)
 		if r := e.send(owner, http.MethodDelete, "/api/v1/orders/"+gone, "", ""); r.status != http.StatusNoContent {
 			t.Fatalf("the owner's delete answered %d %s, want 204", r.status, r.body)
 		}
 		for _, method := range []string{http.MethodPatch, http.MethodDelete} {
-			if r := e.send(owner, method, "/api/v1/orders/"+gone, "k-"+uuid.NewString(), `{"qty":2}`); r.status != http.StatusForbidden {
-				t.Errorf("a %s of a deleted row answered %d %s, want 403", method, r.status, r.body)
+			if r := e.send(owner, method, "/api/v1/orders/"+gone, "k-"+uuid.NewString(), `{"qty":2}`); r.status != http.StatusNotFound {
+				t.Errorf("a %s of a deleted row answered %d %s, want 404", method, r.status, r.body)
 			}
 		}
 		if r := e.send(owner, http.MethodPatch, "/api/v1/orders/"+order, "k-"+uuid.NewString(), `{"qty":5}`); r.status != http.StatusOK {
@@ -724,8 +727,8 @@ func TestCrud(t *testing.T) {
 			t.Errorf("a read of another tenant's row answered %d %s, want 404", r.status, r.body)
 		}
 		for _, method := range []string{http.MethodPatch, http.MethodDelete} {
-			if r := e.send(a, method, "/api/v1/orders/"+orderOfT2, "k-"+uuid.NewString(), `{"qty":7}`); r.status != http.StatusForbidden {
-				t.Errorf("a %s of another tenant's row answered %d %s, want 403", method, r.status, r.body)
+			if r := e.send(a, method, "/api/v1/orders/"+orderOfT2, "k-"+uuid.NewString(), `{"qty":7}`); r.status != http.StatusNotFound {
+				t.Errorf("a %s of another tenant's row answered %d %s, want 404", method, r.status, r.body)
 			}
 		}
 		if n := e.count(`SELECT count(*) FROM orders WHERE id = $1::uuid AND tenant_id = $2 AND qty = 1`, orderOfT2, other.tenant.ID()); n != 1 {
@@ -920,6 +923,96 @@ func TestCrud(t *testing.T) {
 		}
 		if n := e.count(`SELECT count(*) FROM audit_event WHERE tenant_id = $1 AND action = 'read' AND NOT (resource_id = ANY($2))`, a.tenant.ID(), returned); n != 0 {
 			t.Errorf("%d read rows name a resource that no list returned, or the collection", n)
+		}
+	})
+
+	t.Run("ST-SUP-RC20-OC38-T01 A list on the runtime data path pages by cursor in the requested order, with no total", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-1", newTenant())
+		type order struct {
+			ID  string
+			SKU string
+			Qty float64
+		}
+		var created []order
+		for _, o := range []order{{SKU: "c", Qty: 3}, {SKU: "a", Qty: 1}, {SKU: "b", Qty: 3}, {SKU: "a", Qty: 2}, {SKU: "d", Qty: 5}} {
+			o.ID = e.create(a, "orders", "order", fmt.Sprintf(`{"sku":%q,"qty":%d}`, o.SKU, int(o.Qty)))
+			created = append(created, o)
+		}
+		page := func(path string) ([]order, string) {
+			t.Helper()
+			r := e.send(a, http.MethodGet, path, "", "")
+			if r.status != http.StatusOK {
+				t.Fatalf("GET %s answered %d %s, want 200", path, r.status, r.body)
+			}
+			var body map[string]any
+			if err := json.Unmarshal(r.body, &body); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := body["total"]; ok {
+				t.Fatalf("the page %s holds a total: %s", path, r.body)
+			}
+			var out []order
+			items, _ := body["items"].([]any)
+			for _, item := range items {
+				m, _ := item.(map[string]any)
+				id, _ := m["id"].(string)
+				sku, _ := m["sku"].(string)
+				qty, _ := m["qty"].(float64)
+				out = append(out, order{ID: id, SKU: sku, Qty: qty})
+			}
+			next, _ := body["next"].(string)
+			return out, next
+		}
+		all := func(query string) []order {
+			t.Helper()
+			var got []order
+			items, next := page("/api/v1/orders?pageSize=2&" + query)
+			for pages := 0; ; pages++ {
+				if len(items) > 2 {
+					t.Fatalf("a page of %s holds %d orders, want at most 2", query, len(items))
+				}
+				got = append(got, items...)
+				if next == "" || pages > 10 {
+					break
+				}
+				items, next = page("/api/v1/orders?pageSize=2&" + query + "&cursor=" + url.QueryEscape(next))
+			}
+			return got
+		}
+		want := slices.Clone(created)
+		slices.SortStableFunc(want, func(x, y order) int {
+			if x.Qty != y.Qty {
+				return cmp.Compare(y.Qty, x.Qty)
+			}
+			return strings.Compare(x.ID, y.ID)
+		})
+		if got := all("orderBy=" + url.QueryEscape("qty desc")); !slices.Equal(got, want) {
+			t.Fatalf("orderBy qty desc gave %v, want %v", got, want)
+		}
+		two := slices.Clone(created)
+		slices.SortStableFunc(two, func(x, y order) int {
+			if x.SKU != y.SKU {
+				return strings.Compare(x.SKU, y.SKU)
+			}
+			if x.Qty != y.Qty {
+				return cmp.Compare(y.Qty, x.Qty)
+			}
+			return strings.Compare(x.ID, y.ID)
+		})
+		if got := all("orderBy=" + url.QueryEscape("sku asc,qty desc")); !slices.Equal(got, two) {
+			t.Fatalf("orderBy sku asc,qty desc gave %v, want %v", got, two)
+		}
+		// With no orderBy, the newest order comes first (ST-SUP-RC20-OC11).
+		newest := slices.Clone(created)
+		slices.Reverse(newest)
+		if got := all(""); !slices.Equal(got, newest) {
+			t.Fatalf("the list with no orderBy gave %v, want the newest first %v", got, newest)
+		}
+		for _, bad := range []string{"secret", "qty up", "qty desc desc"} {
+			if r := e.send(a, http.MethodGet, "/api/v1/orders?orderBy="+url.QueryEscape(bad), "", ""); r.status != http.StatusBadRequest {
+				t.Errorf("orderBy %q answered %d %s, want 400", bad, r.status, r.body)
+			}
 		}
 	})
 

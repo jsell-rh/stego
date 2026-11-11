@@ -1,42 +1,24 @@
-// Package stegoruntime wires the runtime library into the service on the runtime data path (ST-SUP-RC01-OC41,
-// ST-SUP-RC20-OC37): the pools of the runtime role, the verifier, the authorization runtime, the audit writer, the
-// outbox queue, the probes and the command and query runtimes, from the settings of the declaration and of the
-// deployment. Migrate is the migration job of the service. The compiler writes this package for each service.
+// Package stegoruntime gives the service runtime of the runtime library (ST-SUP-RP14) what varies with the declaration
+// of the service on the runtime data path (ST-SUP-RC01-OC41, ST-SUP-RC20-OC37): the names, the grants and the
+// constructors of the component packages; service.New wires the runtimes and service.Migrate runs the migration job
+// (ST-STD-RUNTIME-R05). It registers the routes of the declared commands and queries. The compiler writes this
+// package for each service.
 package stegoruntime
 
 import (
 	"context"
-	"crypto/tls"
 	"database/sql"
-	"errors"
-	"fmt"
-	"io"
-	"net"
 	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
-	"syscall"
-	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
-	"github.com/jsell-rh/stego/registry/runtime/authn"
 	stegoauthz "github.com/jsell-rh/stego/registry/runtime/authz"
-{{- if or .Commands .API}}
-	"github.com/jsell-rh/stego/registry/runtime/command"
-{{- end}}
-	"github.com/jsell-rh/stego/registry/runtime/idempotency"
-	"github.com/jsell-rh/stego/registry/runtime/otel"
-	"github.com/jsell-rh/stego/registry/runtime/probe"
-	"github.com/jsell-rh/stego/registry/runtime/query"
-	"github.com/jsell-rh/stego/registry/runtime/tenant"
+	"github.com/jsell-rh/stego/registry/runtime/outbox"
+	"github.com/jsell-rh/stego/registry/runtime/service"
 
 	svcaudit {{printf "%q" .Audit}}
 	svcauthz {{printf "%q" .Authz}}
@@ -82,9 +64,6 @@ const (
 	declaredRoleClaim = {{printf "%q" .RoleClaim}}
 )
 
-// migrationTimeout is the longest time that the migration job runs.
-const migrationTimeout = 10 * time.Minute
-
 // The roles of the database. RuntimeRole and OwnerRole are the tenancy component's. WorkerRole is the role that the
 // outbox worker connects as and RelayRole the login role of the authorization relay; the database administrator
 // creates both, with no login of the runtime role, before the first migration job.
@@ -95,33 +74,22 @@ const (
 	RelayRole   = {{printf "%q" .RelayRole}}
 )
 
-// The settings of the deployment, which the process environment gives.
+// The settings of the deployment, which the process environment gives by the fixed names of the service runtime
+// (ST-SUP-RP14-LC01).
 const (
-	// DatabaseURLSetting is the connection string of the runtime role, and DatabaseURLFileSetting the absolute path of
-	// a file that holds it: one of the two.
-	DatabaseURLSetting     = "DATABASE_URL"
-	DatabaseURLFileSetting = "DATABASE_URL_FILE"
-	// MigrationDatabaseURLSetting is the connection string of the migration job: a login that is the owner role or
-	// may SET ROLE to it, and never the runtime role. MigrationDatabaseURLFileSetting is a file that holds it.
-	MigrationDatabaseURLSetting     = "STEGO_MIGRATION_DATABASE_URL"
-	MigrationDatabaseURLFileSetting = "STEGO_MIGRATION_DATABASE_URL_FILE"
-	// IssuerSetting and AudienceSetting are the issuer and the audience that each bearer token must name.
-	IssuerSetting   = "STEGO_AUTHN_ISSUER"
-	AudienceSetting = "STEGO_AUTHN_AUDIENCE"
-	// KeysURLSetting and KeysFileSetting name the key document of the issuer: one of the two.
-	KeysURLSetting  = "STEGO_AUTHN_KEYS_URL"
-	KeysFileSetting = "STEGO_AUTHN_KEYS_FILE"
-	// SpiceDBEndpointSetting is the address of SpiceDB, and SpiceDBKeyFileSetting the file of its preshared key.
-	SpiceDBEndpointSetting = "STEGO_SPICEDB_ENDPOINT"
-	SpiceDBKeyFileSetting  = "STEGO_SPICEDB_KEY_FILE"
-	// SpiceDBInsecureLoopbackSetting set to 1 lets the connection to a loopback SpiceDB address go without TLS, for
-	// a local test only; every other address needs verified TLS.
-	SpiceDBInsecureLoopbackSetting = "STEGO_SPICEDB_INSECURE_LOOPBACK"
-	// CursorKeyFileSetting is the file of the key of the list cursors: at least query.MinCursorKey bytes, the same
-	// in every replica.
-	CursorKeyFileSetting = "STEGO_QUERY_CURSOR_KEY_FILE"
-	// VersionSetting is the version of the release, which each audit row carries.
-	VersionSetting = "STEGO_SERVICE_VERSION"
+	DatabaseURLSetting              = service.DatabaseURLSetting
+	DatabaseURLFileSetting          = service.DatabaseURLFileSetting
+	MigrationDatabaseURLSetting     = service.MigrationDatabaseURLSetting
+	MigrationDatabaseURLFileSetting = service.MigrationDatabaseURLFileSetting
+	IssuerSetting                   = service.IssuerSetting
+	AudienceSetting                 = service.AudienceSetting
+	KeysURLSetting                  = service.KeysURLSetting
+	KeysFileSetting                 = service.KeysFileSetting
+	SpiceDBEndpointSetting          = service.SpiceDBEndpointSetting
+	SpiceDBKeyFileSetting           = service.SpiceDBKeyFileSetting
+	SpiceDBInsecureLoopbackSetting  = service.SpiceDBInsecureLoopbackSetting
+	CursorKeyFileSetting            = service.CursorKeyFileSetting
+	VersionSetting                  = service.VersionSetting
 )
 
 // grants are the privileges of the runtime role on the objects of the database access contract and on the
@@ -132,120 +100,62 @@ var grants = []string{
 {{- end}}
 }
 
-// Runtime holds the runtime library objects of the running service.
+// Runtime holds the runtime of the running service, which the service runtime wires (ST-SUP-RP14-LC02), and the
+// routes of its declared commands and queries.
 type Runtime struct {
-	pool, auditDB *sql.DB
-	keys          *authn.KeySet
-	verifier      *authn.Verifier
-	spice         *grpc.ClientConn
-	telemetry     *otel.Runtime
-	probes        *probe.Runtime
-	authz         *stegoauthz.Runtime
-	writer        *audit.Writer
-	commands      *command.Runtime
-	collections   *command.Runtime
-	queries       *query.Runtime
-	routes        *http.ServeMux
+	svc    *service.Service
+	routes *http.ServeMux
 }
 
-// NewService builds the runtime of the service from the settings of the deployment and the declaration. It opens
-// the main pool and the audit pool of the runtime role through tenant.Open with the PostgreSQL adapter's verified
-// TLS configuration, connects to SpiceDB, and makes the command and query handlers, which Routes serves.
+// declared are the settings of the verifier that the declaration states.
+var declared = service.Auth{Issuer: declaredIssuer, Audience: declaredAudience, Header: declaredHeader, KeyFile: declaredKeyFile,
+	RoleClaim: declaredRoleClaim}
+
+// parts are what varies with the declaration of the service, which service.New takes.
+func parts() service.Parts {
+	return service.Parts{
+		Service: Service, DeclarationVersion: DeclarationVersion, SubjectType: subjectType, TenantClaim: tenantClaim,
+		ProblemType: problemType, ProblemCode: problemCode, TenantConfig: svcstorage.TenantConfig,
+		NewQueue:   func(db *sql.DB) (*outbox.Queue, error) { return svcoutbox.NewQueue(db, nil) },
+		AuditQueue: func(q *outbox.Queue) (audit.Enqueuer, error) { return svcoutbox.AuditQueue(q) },
+		NewAuthz: func(db *sql.DB, provider stegoauthz.Decision, q *outbox.Queue) (*stegoauthz.Runtime, error) {
+			return svcauthz.NewRuntime(db, provider, q, nil)
+		},
+		AuditSettings: svcaudit.Settings,
+{{- if .Commands}}
+		Commands: commandhandlers.Entities(),
+{{- end}}
+{{- if .API}}
+		Collections: api.Entities(),
+{{- end}}
+	}
+}
+
+// NewService builds the runtime of the service through the service runtime, from the settings of the deployment and
+// the declaration (ST-SUP-RP14), and makes the command and query handlers, which Routes serves.
 func NewService(ctx context.Context) (rt *Runtime, err error) {
-	rt = &Runtime{}
+	settings, err := service.ReadSettings(declared)
+	if err != nil {
+		return nil, err
+	}
+	svc, err := service.New(ctx, settings, parts())
+	if err != nil {
+		return nil, err
+	}
+	rt = &Runtime{svc: svc, routes: http.NewServeMux()}
 	defer func() {
 		if err != nil {
-			rt.Close()
+			_ = rt.Close()
 			rt = nil
 		}
 	}()
-	dsn, err := databaseURL(DatabaseURLSetting, DatabaseURLFileSetting)
-	if err != nil {
-		return nil, err
-	}
-	pools, err := svcstorage.TenantConfig(dsn)
-	if err != nil {
-		return nil, err
-	}
-	if rt.pool, err = tenant.Open(ctx, pools); err != nil {
-		return nil, err
-	}
-	if rt.auditDB, err = tenant.Open(ctx, pools); err != nil {
-		return nil, err
-	}
-	queue, err := svcoutbox.NewQueue(rt.pool, nil)
-	if err != nil {
-		return nil, err
-	}
-	auditQueue, err := svcoutbox.AuditQueue(queue)
-	if err != nil {
-		return nil, err
-	}
-	if rt.writer, err = audit.NewWriter(auditQueue, nil); err != nil {
-		return nil, err
-	}
-	if rt.spice, err = spiceDB(); err != nil {
-		return nil, err
-	}
-	provider, err := stegoauthz.NewSpiceDB(rt.spice)
-	if err != nil {
-		return nil, err
-	}
-	if rt.authz, err = svcauthz.NewRuntime(rt.pool, provider, queue, nil); err != nil {
-		return nil, err
-	}
-	if rt.telemetry, err = otel.New(Service, probe.SpanNames()...); err != nil {
-		return nil, err
-	}
-	if rt.probes, err = probe.Start(rt.telemetry, nil); err != nil {
-		return nil, err
-	}
-	if rt.keys, err = keySet(ctx); err != nil {
-		return nil, err
-	}
-	issuer, err := declared(IssuerSetting, declaredIssuer)
-	if err != nil {
-		return nil, err
-	}
-	audience, err := declared(AudienceSetting, declaredAudience)
-	if err != nil {
-		return nil, err
-	}
-	if rt.verifier, err = authn.New(authn.Settings{Issuer: issuer, Audience: audience, TenantClaim: tenantClaim,
-		Header: declaredHeader, RoleClaim: declaredRoleClaim, ProblemType: problemType, ProblemCode: problemCode,
-		Keys: rt.keys}); err != nil {
-		return nil, err
-	}
-	rt.routes = http.NewServeMux()
-{{- if or .Commands .API}}
-	config := command.Config{DB: rt.pool, AuditDB: rt.auditDB, Authz: rt.authz, Audit: rt.writer, AuditSettings: svcaudit.Settings,
-		Outbox: queue, Probes: rt.probes, Service: Service, ServiceVersion: os.Getenv(VersionSetting), DeclarationVersion: DeclarationVersion}
-{{- end}}
 {{- if .Commands}}
-	config.Entities = commandhandlers.Entities()
-	if rt.commands, err = command.New(ctx, config); err != nil {
-		return nil, err
-	}
-	if err = commandhandlers.Register(rt.routes, rt.commands, commandhandlers.BoundFills(), commandhandlers.Options{Retention: retention}); err != nil {
+	if err = commandhandlers.Register(rt.routes, svc.Commands(), commandhandlers.BoundFills(), commandhandlers.Options{Retention: retention}); err != nil {
 		return nil, err
 	}
 {{- end}}
-{{- if .API}}
-	config.Entities = api.Entities()
-	if rt.collections, err = command.New(ctx, config); err != nil {
-		return nil, err
-	}
-{{- end}}
-	cursorKey, err := cursorKey()
-	if err != nil {
-		return nil, err
-	}
-	if rt.queries, err = query.New(query.Config{DB: rt.pool, AuditDB: rt.auditDB, Audit: rt.writer, AuditSettings: svcaudit.Settings,
-		Authz: rt.authz, Service: Service, CursorKey: cursorKey}); err != nil {
-		return nil, err
-	}
 {{- if .Queries}}
-	queries, err := queryserve.New(queryserve.Config{Runtime: rt.queries, Verifier: rt.verifier, Probes: rt.probes, SubjectType: subjectType})
+	queries, err := queryserve.New(queryserve.Config{Runtime: svc.Queries(), Verifier: svc.Verifier(), Probes: svc.Probes(), SubjectType: subjectType})
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +170,7 @@ const retention = {{if .Idempotency}}svcidempotency.Retention{{else}}0{{end}}
 
 // Middleware verifies the bearer token of each request before next; a request whose token the verifier refuses is
 // answered 401 and reaches no handler.
-func (rt *Runtime) Middleware(next http.Handler) http.Handler { return rt.verifier.Middleware(next) }
+func (rt *Runtime) Middleware(next http.Handler) http.Handler { return rt.svc.Middleware(next) }
 
 // Routes serves the declared commands and queries, each at its route.
 func (rt *Runtime) Routes() http.Handler { return rt.routes }
@@ -269,324 +179,53 @@ func (rt *Runtime) Routes() http.Handler { return rt.routes }
 // CollectionRuntime gives the Runtime of the collection handlers: their own command runtime, the query runtime and
 // the probes.
 func (rt *Runtime) CollectionRuntime() *api.Runtime {
-	return &api.Runtime{Commands: rt.collections, Queries: rt.queries, Probes: rt.probes, Retention: retention}
+	return &api.Runtime{Commands: rt.svc.Collections(), Queries: rt.svc.Queries(), Probes: rt.svc.Probes(), Retention: retention}
 }
 {{- end}}
 
 // Close releases what NewService opened.
-func (rt *Runtime) Close() error {
-	var errs []error
-	if rt.probes != nil {
-		errs = append(errs, rt.probes.Close(context.Background()))
-	}
-	if rt.telemetry != nil {
-		errs = append(errs, rt.telemetry.Shutdown(context.Background()))
-	}
-	if rt.verifier != nil {
-		rt.verifier.Stop()
-	}
-	if rt.keys != nil {
-		rt.keys.Stop()
-	}
-	if rt.spice != nil {
-		errs = append(errs, rt.spice.Close())
-	}
-	for _, db := range []*sql.DB{rt.auditDB, rt.pool} {
-		if db != nil {
-			errs = append(errs, db.Close())
-		}
-	}
-	return errors.Join(errs...)
-}
+func (rt *Runtime) Close() error { return rt.svc.Close() }
 
-// Migrate is the migration job of the service (tenant.MigrationJob), with a time limit. It opens the database with
-// STEGO_MIGRATION_DATABASE_URL through tenant.OpenOwner, with the adapter's verified TLS configuration, and runs
-// every step on one connection, each step as the owner role. It first reads the database, and refuses one whose
-// tables this release did not make, such as the tables of a release on the GORM store, writing nothing. It then
-// writes the authorization schema to SpiceDB, which refuses, and writes nothing, a schema that removes a definition
-// or a relation that has relationships (ST-SUP-RC29-OC23), so a refused schema leaves the database as it was. Then,
-// in this order: the ledger of the PostgreSQL adapter, which creates the tables of the declaration and their
-// row-level security; the outbox queue, the audit tables, the idempotency keys and the authorization tables of the
-// runtime library, each in one transaction; the grants of the runtime role; and the audit partitions of this month
-// and the next. Each step runs again on a database that it made, so the job runs on every release.
-func Migrate(parent context.Context) error {
-	ctx, cancel := context.WithTimeout(parent, migrationTimeout)
-	defer cancel()
-	dsn, err := databaseURL(MigrationDatabaseURLSetting, MigrationDatabaseURLFileSetting)
+// Migrate is the migration job of the service (tenant.MigrationJob), which the service runtime runs in its fixed
+// order on one connection (ST-SUP-RP14-LC03): the ledger check and the ledger of the PostgreSQL adapter, the schema
+// of the authorization component, the outbox, audit, idempotency and authorization migrations of the runtime library,
+// the grants of the runtime role and the audit partitions.
+func Migrate(ctx context.Context) error {
+	settings, err := service.ReadMigrationSettings()
 	if err != nil {
-		return failed("settings", err)
-	}
-	config, err := svcstorage.TenantConfig(dsn)
-	if err != nil {
-		return failed("settings", err)
-	}
-	db, err := tenant.OpenOwner(ctx, tenant.MigrationJob, config)
-	if err != nil {
-		return failed("open", err)
-	}
-	defer db.Close()
-	conn, err := db.Conn(ctx)
-	if err != nil {
-		return failed("open", err)
-	}
-	defer conn.Close()
-	asOwner := "SET ROLE " + quote(OwnerRole)
-	if _, err := conn.ExecContext(ctx, asOwner); err != nil {
-		return failed("owner_role", err)
-	}
-	ledger, err := gorm.Open(postgres.New(postgres.Config{Conn: conn}), &gorm.Config{Logger: gormlogger.Discard, DisableAutomaticPing: true})
-	if err != nil {
-		return failed("open", err)
-	}
-	if err := svcstorage.CheckLedger(ledger.WithContext(ctx)); err != nil {
-		return failed("ledger_check", err)
+		return &service.StepError{Step: service.StepSettings, Err: err}
 	}
 	queueText, err := svcoutbox.Migration(RuntimeRole, WorkerRole)
 	if err != nil {
-		return failed("settings", err)
+		return &service.StepError{Step: service.StepSettings, Err: err}
 	}
 	auditText, err := svcaudit.Migration(RuntimeRole)
 	if err != nil {
-		return failed("settings", err)
+		return &service.StepError{Step: service.StepSettings, Err: err}
 	}
 	authzText, err := svcauthz.Migration(RuntimeRole, RelayRole, WorkerRole)
 	if err != nil {
-		return failed("settings", err)
+		return &service.StepError{Step: service.StepSettings, Err: err}
 	}
-	spice, err := spiceDB()
+	return service.Migrate(ctx, settings, service.Migration{
+		OwnerRole: OwnerRole, RuntimeRole: RuntimeRole, TenantConfig: svcstorage.TenantConfig,
+		LedgerCheck: func(ctx context.Context, conn *sql.Conn) error { return withLedger(ctx, conn, svcstorage.CheckLedger) },
+		Ledger:      func(ctx context.Context, conn *sql.Conn) error { return withLedger(ctx, conn, svcstorage.Migrate) },
+		Outbox:      queueText, Audit: auditText, Authorization: authzText,
+		WriteSchema: func(ctx context.Context, conn grpc.ClientConnInterface) error { return svcauthz.WriteSchema(ctx, conn) },
+		Grants:      grants,
+	})
+}
+
+// withLedger runs a step of the PostgreSQL adapter's ledger on the migration job's connection.
+func withLedger(ctx context.Context, conn *sql.Conn, step func(*gorm.DB) error) error {
+	ledger, err := gorm.Open(postgres.New(postgres.Config{Conn: conn}), &gorm.Config{Logger: gormlogger.Discard, DisableAutomaticPing: true})
 	if err != nil {
-		return failed("authorization_schema", err)
+		return err
 	}
-	defer spice.Close()
-	if err := svcauthz.WriteSchema(ctx, spice); err != nil {
-		return failed("authorization_schema", err)
-	}
-	if _, err := conn.ExecContext(ctx, asOwner); err != nil {
-		return failed("owner_role", err)
-	}
-	if err := svcstorage.Migrate(ledger.WithContext(ctx)); err != nil {
-		return failed("tables", err)
-	}
-	steps := []struct{ name, text string }{
-		{"outbox_queue", queueText},
-		{"audit_tables", auditText},
-		{"idempotency_keys", idempotency.Migration},
-		{"authorization_tables", authzText},
-		{"runtime_grants", granted()},
-	}
-	for _, step := range steps {
-		if err := ownerStep(ctx, conn, func(tx *sql.Tx) error {
-			_, err := tx.ExecContext(ctx, step.text)
-			return err
-		}); err != nil {
-			return failed(step.name, err)
-		}
-	}
-	if err := maintainAudit(ctx, conn); err != nil {
-		return failed("audit_partitions", err)
-	}
-	return nil
+	return step(ledger.WithContext(ctx))
 }
-
-// stepError is the failure of one step of the migration job.
-type stepError struct {
-	step string
-	err  error
-}
-
-func (e *stepError) Error() string { return "migrate: " + e.step + ": " + e.err.Error() }
-func (e *stepError) Unwrap() error { return e.err }
-
-// failed gives the failure of the step of the migration job.
-func failed(step string, err error) error { return &stepError{step: step, err: err} }
 
 // MigrationStage gives the stage of a failure of Migrate, such as migrate.ledger_check, which names the step and no
 // error text, for the failure record of the process.
-func MigrationStage(err error) string {
-	var step *stepError
-	if errors.As(err, &step) {
-		return "migrate." + step.step
-	}
-	return "migrate"
-}
-
-// granted gives the statements of grants to the runtime role.
-func granted() string {
-	var text strings.Builder
-	for _, grant := range grants {
-		text.WriteString(grant + " TO " + quote(RuntimeRole) + ";\n")
-	}
-	return text.String()
-}
-
-// ownerStep runs one step of the migration job in one transaction on conn, as the owner role from its start: a step
-// can reset the role, as the outbox migration does after it made the relay functions.
-func ownerStep(ctx context.Context, conn *sql.Conn, step func(*sql.Tx) error) error {
-	tx, err := conn.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, "SET LOCAL ROLE "+quote(OwnerRole)); err != nil {
-		return err
-	}
-	if err := step(tx); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-// maintainAudit runs the audit partition maintenance until it has no step left, so the partitions of this month
-// and the next exist before the service writes an audit row.
-func maintainAudit(ctx context.Context, conn *sql.Conn) error {
-	for range 64 {
-		var more bool
-		if err := ownerStep(ctx, conn, func(tx *sql.Tx) error {
-			return tx.QueryRowContext(ctx, "SELECT step_left FROM "+audit.MaintainFunction+"()").Scan(&more)
-		}); err != nil {
-			return err
-		}
-		if !more {
-			return nil
-		}
-	}
-	return errors.New("the audit partition maintenance did not finish")
-}
-
-// spiceDB connects to the SpiceDB of SpiceDBEndpointSetting with the preshared key of SpiceDBKeyFileSetting, over
-// verified TLS, or without TLS to a loopback address when SpiceDBInsecureLoopbackSetting is 1.
-func spiceDB() (*grpc.ClientConn, error) {
-	endpoint, err := required(SpiceDBEndpointSetting)
-	if err != nil {
-		return nil, err
-	}
-	keyFile, err := required(SpiceDBKeyFileSetting)
-	if err != nil {
-		return nil, err
-	}
-	key, err := os.ReadFile(keyFile)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", SpiceDBKeyFileSetting, err)
-	}
-	token := strings.TrimSpace(string(key))
-	if token == "" {
-		return nil, fmt.Errorf("%s names an empty key", SpiceDBKeyFileSetting)
-	}
-	transport := credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})
-	plaintext := false
-	switch os.Getenv(SpiceDBInsecureLoopbackSetting) {
-	case "", "0":
-	case "1":
-		host, _, err := net.SplitHostPort(endpoint)
-		if ip := net.ParseIP(host); err != nil || ip == nil || !ip.IsLoopback() {
-			return nil, fmt.Errorf("%s allows no TLS only for a loopback address, not %q", SpiceDBInsecureLoopbackSetting, endpoint)
-		}
-		transport, plaintext = insecure.NewCredentials(), true
-	default:
-		return nil, fmt.Errorf("%s must be 0 or 1", SpiceDBInsecureLoopbackSetting)
-	}
-	return grpc.NewClient(endpoint, grpc.WithTransportCredentials(transport), grpc.WithPerRPCCredentials(presharedKey{token: token, plaintext: plaintext}))
-}
-
-// presharedKey sends the preshared key of SpiceDB on each call.
-type presharedKey struct {
-	token     string
-	plaintext bool
-}
-
-func (k presharedKey) GetRequestMetadata(context.Context, ...string) (map[string]string, error) {
-	return map[string]string{"authorization": "Bearer " + k.token}, nil
-}
-
-func (k presharedKey) RequireTransportSecurity() bool { return !k.plaintext }
-
-// keySet loads the key of the issuer from the public key file that the declaration states, or the key document of
-// KeysURLSetting or KeysFileSetting.
-func keySet(ctx context.Context) (*authn.KeySet, error) {
-	if declaredKeyFile != "" {
-		if os.Getenv(KeysURLSetting) != "" || os.Getenv(KeysFileSetting) != "" {
-			return nil, fmt.Errorf("the declaration states the public key file %q, so the settings %s and %s must not be set", declaredKeyFile, KeysURLSetting, KeysFileSetting)
-		}
-		return authn.NewKeySet(ctx, authn.KeySource{PEMFile: declaredKeyFile})
-	}
-	return authn.NewKeySet(ctx, authn.KeySource{URL: os.Getenv(KeysURLSetting), File: os.Getenv(KeysFileSetting)})
-}
-
-// declared gives the value that the declaration states, or the setting name when it states none. A setting that
-// is set to another value than the stated one is refused: the declaration wins.
-func declared(name, stated string) (string, error) {
-	value := os.Getenv(name)
-	if stated == "" {
-		if value == "" {
-			return "", fmt.Errorf("the setting %s is not set, and the declaration states no value for it", name)
-		}
-		return value, nil
-	}
-	if value != "" && value != stated {
-		return "", fmt.Errorf("the setting %s is %q, and the declaration states %q: the declared value wins, and the setting may only match it", name, value, stated)
-	}
-	return stated, nil
-}
-
-// databaseURL gives the connection string of the setting name, or of the file that the setting fileName names: one
-// of the two, as the service's main reads DATABASE_URL and DATABASE_URL_FILE. The file is a regular file of at most
-// 64 KiB that no group or other may write, at an absolute path.
-func databaseURL(name, fileName string) (string, error) {
-	value, file := os.Getenv(name), os.Getenv(fileName)
-	if (value == "") == (file == "") {
-		return "", fmt.Errorf("set exactly one of the settings %s and %s", name, fileName)
-	}
-	if file == "" {
-		return value, nil
-	}
-	invalid := fmt.Errorf("the setting %s names no readable connection string file", fileName)
-	if !filepath.IsAbs(file) {
-		return "", invalid
-	}
-	f, err := os.OpenFile(file, os.O_RDONLY|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return "", invalid
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() > 65536 || info.Mode().Perm()&0o137 != 0 {
-		return "", invalid
-	}
-	data, err := io.ReadAll(io.LimitReader(f, 65537))
-	if err != nil || len(data) > 65536 {
-		return "", invalid
-	}
-	value = strings.TrimSuffix(strings.TrimSuffix(string(data), "\n"), "\r")
-	if value == "" || strings.ContainsAny(value, "\x00\r\n") {
-		return "", invalid
-	}
-	return value, nil
-}
-
-// cursorKey reads the key of the list cursors from CursorKeyFileSetting.
-func cursorKey() ([]byte, error) {
-	name, err := required(CursorKeyFileSetting)
-	if err != nil {
-		return nil, err
-	}
-	key, err := os.ReadFile(name)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", CursorKeyFileSetting, err)
-	}
-	if len(key) < query.MinCursorKey {
-		return nil, fmt.Errorf("%s names a key of %d bytes; the cursor key needs at least %d", CursorKeyFileSetting, len(key), query.MinCursorKey)
-	}
-	return key, nil
-}
-
-// required gives the value of the setting name, or an error that names it when it is empty.
-func required(name string) (string, error) {
-	value := os.Getenv(name)
-	if value == "" {
-		return "", fmt.Errorf("the setting %s is not set", name)
-	}
-	return value, nil
-}
-
-// quote quotes one SQL name.
-func quote(name string) string { return `"` + strings.ReplaceAll(name, `"`, `""`) + `"` }
+func MigrationStage(err error) string { return service.Stage(err) }

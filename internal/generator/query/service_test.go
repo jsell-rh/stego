@@ -135,7 +135,7 @@ func shopProject(t *testing.T) string {
 	}
 	write("go.sum", sums)
 	write("go.mod", []byte("module "+shopModule+"\n\ngo "+new(Generator).MinimumGoVersion()+
-		"\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.9.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeFolder+"\n"))
+		"\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.10.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeFolder+"\n"))
 	goCommand(t, project, nil, "mod", "tidy")
 	goCommand(t, project, nil, "vet", "./...")
 	goCommand(t, project, nil, "build", "./...")
@@ -215,7 +215,7 @@ func TestService(t *testing.T) {
 		}
 	}
 	for _, id := range []string{
-		"ST-SUP-RC33-OC01-T02", "ST-SUP-RC33-OC05-T03", "ST-SUP-RC33-OC05-T04", "ST-SUP-RC33-OC04-T01", "ST-SUP-RC33-OC04-T02", "ST-SUP-RP11-LC17-T01", "ST-SUP-RC33-OC05-T02",
+		"ST-SUP-RC33-OC01-T02", "ST-SUP-RC33-OC05-T03", "ST-SUP-RC33-OC05-T04", "ST-SUP-RC33-OC04-T01", "ST-SUP-RC33-OC04-T02", "ST-SUP-RP11-LC17-T01", "ST-SUP-RC33-OC05-T02", "ST-SUP-RC33-OC05-T01",
 		"ST-SUP-RP11-LC15-T01", "ST-SUP-RC33-OC06-T01", "ST-SUP-RC33-OC06-T02", "ST-SUP-RP11-LC13-T01",
 	} {
 		t.Run(id+" passes in the generated service", func(t *testing.T) {

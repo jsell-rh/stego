@@ -30,7 +30,7 @@ func codedGet(t *testing.T, h http.Handler, path, tenantID, subject string) (ser
 }
 
 func TestServeHelpers(t *testing.T) {
-	t.Run("ST-SUP-RP11-LC17-T01 The serving helpers of the runtime: refusals, bind, limit, page and row reads", func(t *testing.T) {
+	t.Run("ST-SUP-RP11-LC17-T02 A declared refusal is answered with its status and code, and any other error with 500 internal", func(t *testing.T) {
 		e := newEnv(t)
 		rt := e.servedRuntime(t, &fakeDecision{decide: allowAll})
 		orders := orderEntity(t, false)
@@ -88,6 +88,13 @@ func TestServeHelpers(t *testing.T) {
 			t.Fatalf("a refusal with no lookup gave %d with the log code %q, want 500 internal", s.status, code)
 		}
 
+	})
+
+	t.Run("ST-SUP-RP11-LC17-T01 The serving helpers of the runtime: bind, limit, page and row reads", func(t *testing.T) {
+		e := newEnv(t)
+		rt := e.servedRuntime(t, &fakeDecision{decide: allowAll})
+		orders := orderEntity(t, false)
+		e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) VALUES ('t1', 'o1', 4711)")
 		// BindHTTP binds the verified identity: the tenant of its claim, its subject and the probe call of the query.
 		key := authntest.NewKey(t, "k1")
 		set, err := authn.ParseKeys(authntest.Document(key.JWK()))
