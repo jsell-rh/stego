@@ -154,12 +154,22 @@ func readStatement(payload []byte) (SignedStatement, error) {
 }
 
 // Trust is what a gate trusts a proof run's signature at: the provider's trusted signer, the change's own
-// reference, and each file under the workflows folder that differs between the base head's tree and the
-// change's tree.
+// reference, the base head the change is gated against, each file under the workflows folder that differs
+// between the base head's tree and the change's tree, and the provider's record of commits, which gives the
+// parents of the commit a change-grade run ran at. With no base or no record of commits, no change-grade proof
+// run counts.
 type Trust struct {
 	Signer          TrustedSigner
 	ChangeRef       string
+	Base            string
 	WorkflowChanges []string
+	Commits         CommitParents
+}
+
+// CommitParents reads a commit's parents, in order, from the provider that keeps the repository, such as GitHub's
+// API. It gives none for a commit the provider does not keep, and an error when the provider cannot answer.
+type CommitParents interface {
+	Parents(commit string) ([]string, error)
 }
 
 // attestationVerified is the predicate of ST-ASR-SP02, Attestation is verified. The statement, which a
@@ -168,11 +178,13 @@ type Trust struct {
 // ProofRunPredicateType. The certificate's source repository and source ref must be the trusted workflow's
 // repository and the ref the signer ran at. Its signer, from the certificate, must be the trusted signer at a
 // grade: release grade at main, for any tree, when the certificate's source digest, the commit the signing run ran
-// at, is the commit; change grade at the change's own reference, only while no file under the workflows
-// folder differs from the base head's. It returns the grade, and a refusal that says why when the statement
-// fails. A change-grade statement that fails only on the workflows folder returns ChangeGrade with the refusal,
-// so the gate can name each file.
-func attestationVerified(statement SignedStatement, commit string, trust Trust) (TrustGrade, error) {
+// at, is the commit; change grade at the change's own reference, only when the source digest is a merge commit
+// of that reference whose first parent is the base head and whose second parent is the commit, so the run ran
+// the CI definition of the merge of the commit into the base and not of another commit or into another branch,
+// and only while no file under the workflows folder differs from the base head's. sourceParents are the parents of the source digest, as the provider gives them. It returns the grade,
+// and a refusal that says why when the statement fails. A change-grade statement that fails only on the
+// workflows folder returns ChangeGrade with the refusal, so the gate can name each file.
+func attestationVerified(statement SignedStatement, commit string, trust Trust, sourceParents []string) (TrustGrade, error) {
 	refuse := func(format string, args ...any) error {
 		return &Refusal{Rule: "attestationVerified", Reason: fmt.Sprintf(format, args...)}
 	}
@@ -214,6 +226,19 @@ func attestationVerified(statement SignedStatement, commit string, trust Trust) 
 		}
 		return grade, nil
 	case ChangeGrade:
+		// A pull request's run runs at its merge commit, whose first parent is the base and whose second parent
+		// is the pull request's head. A run at the merge of another commit, such as an earlier head with another
+		// CI definition, or at a merge into another branch, such as one the pull request had before it was
+		// retargeted, ran another definition than the one the gate compares with the base, so its statement is no
+		// evidence for the commit.
+		if !fullCommit(statement.SourceDigest) || len(sourceParents) != 2 || sourceParents[1] != commit {
+			return NoGrade, refuse("it is signed at the change's own reference %s by a run at commit %q, which is not a merge commit whose second parent is the commit %s (its parents: %s)",
+				trust.ChangeRef, statement.SourceDigest, commit, parentsText(sourceParents))
+		}
+		if !fullCommit(trust.Base) || sourceParents[0] != trust.Base {
+			return NoGrade, refuse("it is signed at the change's own reference %s by a run at the merge commit %s, whose first parent %s is not the base head %q",
+				trust.ChangeRef, statement.SourceDigest, sourceParents[0], trust.Base)
+		}
 		if len(trust.WorkflowChanges) > 0 {
 			return grade, refuse("it is signed at the change's own reference %s, and the change alters the workflows folder: %s",
 				trust.ChangeRef, strings.Join(trust.WorkflowChanges, ", "))
@@ -239,6 +264,28 @@ func attestationVerified(statement SignedStatement, commit string, trust Trust) 
 	}
 	return NoGrade, refuse("it is signed by %s (issuer %s), not by %s at %s or at the change's own reference (%s)",
 		statement.Signer.Subject, statement.Signer.Issuer, trust.Signer.Workflow, MainRef, changeRef)
+}
+
+// parentsText names the parents of a commit for a refusal, or says that there are none.
+func parentsText(parents []string) string {
+	if len(parents) == 0 {
+		return "none"
+	}
+	return strings.Join(parents, ", ")
+}
+
+// sourceParents reads the parents of the commit that a change-grade run ran at, when the statement is signed at
+// the change's own reference by the trusted workflow, and none otherwise. With no record of commits, it gives
+// none, so the statement is refused.
+func sourceParents(statement SignedStatement, trust Trust) ([]string, error) {
+	if trust.Signer.Grade(statement.Signer, trust.ChangeRef) != ChangeGrade || !fullCommit(statement.SourceDigest) || trust.Commits == nil {
+		return nil, nil
+	}
+	parents, err := trust.Commits.Parents(statement.SourceDigest)
+	if err != nil {
+		return nil, fmt.Errorf("the parents of %s, the commit a change-grade proof run ran at: %w", statement.SourceDigest, err)
+	}
+	return parents, nil
 }
 
 // VerifiedProofRun is a proof run whose attestation passed every check, with the grade of its signature.
@@ -271,9 +318,12 @@ type ChangeGradeAttestation struct {
 // VerifyAttestation is the service of ST-ASR-DS03, Verify an attestation. It fetches every proof run
 // attestation the store keeps for the commit, by the commit, and accepts one only when the verifier checks its
 // bundle and attestationVerified accepts its statement, and its predicate is a whole proof run about the commit.
+// For a statement signed at the change's own reference, it reads the parents of the commit the run ran at from
+// the trust's record of commits.
 // Any failed check refuses that attestation whole; nothing of it is kept. When it accepts more than one, it takes
 // a release-grade one over a change-grade one, then the newest by its transparency log entry, so the same
-// attestations always give the same proof run. A store that cannot answer is an error, not a refusal.
+// attestations always give the same proof run. A store or a record of commits that cannot answer is an error,
+// not a refusal.
 func VerifyAttestation(commit string, store AttestationStore, verifier BundleVerifier, trust Trust) (Verification, error) {
 	if !fullCommit(commit) {
 		return Verification{}, fmt.Errorf("commit %q is not a full 40-character commit ID", commit)
@@ -292,7 +342,11 @@ func VerifyAttestation(commit string, store AttestationStore, verifier BundleVer
 			continue
 		}
 		where := "the attestation at rekor:" + strconv.FormatInt(statement.LogIndex, 10)
-		grade, err := attestationVerified(statement, commit, trust)
+		parents, err := sourceParents(statement, trust)
+		if err != nil {
+			return Verification{}, err
+		}
+		grade, err := attestationVerified(statement, commit, trust, parents)
 		if err != nil {
 			reason := where + " is refused: " + err.Error()
 			verification.Refused = append(verification.Refused, reason)
