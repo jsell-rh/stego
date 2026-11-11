@@ -576,8 +576,8 @@ func TestWiring(t *testing.T) {
 			t.Errorf("the notes table holds %d notes of the command, want 1", n)
 		}
 		other := s.as("u-"+uuid.NewString()[:8], owner.tenant.ID())
-		if got := s.send(&other, http.MethodPost, "/orders/"+order+"/notes", "k-"+uuid.NewString(), `{"text":"denied"}`); got.status != http.StatusForbidden {
-			t.Errorf("the command of a caller who may not edit the order answered %d %s, want 403", got.status, got.body)
+		if got := s.send(&other, http.MethodPost, "/orders/"+order+"/notes", "k-"+uuid.NewString(), `{"text":"denied"}`); got.status != http.StatusNotFound {
+			t.Errorf("the command of a caller who may not edit the order answered %d %s, want 404", got.status, got.body)
 		}
 	})
 
