@@ -30,14 +30,14 @@ last_applied:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261111190344-4e2c3fca8b8c
+        module_version: v0.0.0-20261111193821-40aecd63b0ed
         vcs: git
-        revision: 4e2c3fca8b8c6ee1bca5c7ed192251d5197d38af
+        revision: 40aecd63b0ed49ee4555e691928dfb7ca1410b89
         source_state: clean
     service_name: user-management
     service_hash: df9112176f2dcaf28257689abc0fedd964b29998195268acc4804137c064b9b1
     registry_sha: env-override
-    registry_content_sha256: 7a82185a1fc3fa416fb014664c20b05102f842eafc617ff8ca73f8284aeccb12
+    registry_content_sha256: e007f6d79e96c21e37fd216d3faa029279e860bc6fea691a64df1cfb3150f145
     components:
         health-check:
             version: 1.1.0
@@ -204,9 +204,9 @@ last_applied:
         tracing/startup.go: ba2cc8272fddb2c9c18cf10199b7ffe3df430ea88f3d02a6902e00908d154160
     archetype:
         name: rest-crud
-        version: 3.27.0
+        version: 3.31.0
         runtime:
             module: github.com/jsell-rh/stego/registry/runtime
-            version: v0.26.0
-            sum: h1:BlZH1OHphiaYDDJpIVYDDLT88M+QY+OLDd5f6pO6DNo=
+            version: v0.30.0
+            sum: h1:hKn0LIK0Z+FpjPBF1b4kp8Y6NkJZkiKlWfX/EzwbDw8=
     data_path: store
