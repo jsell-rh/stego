@@ -29,7 +29,8 @@ var orgSettingsUpsertCommand = mustCommand(command.NewCommand(command.CommandSpe
 	Probe:  noProbe,
 }))
 
-// orgSettingsUpsertKey finds the row of an upsert by its natural key org_id, key (ST-SUP-RC20-OC13).
+// orgSettingsUpsertKey finds the row of an upsert by org_id, key: its natural key, with its scope and implicit fields
+// (ST-SUP-RC20-OC13).
 var orgSettingsUpsertKey = command.Must(command.NewList(data.OrgSettingEntity, command.ListSpec{Name: "upsert-key", Read: "SELECT \"id\"::text, \"org_id\", \"key\", \"value\", \"generation\", \"version\", \"authz_token\" FROM public.\"org_settings\" WHERE \"tenant_id\" = $1 AND \"org_id\" = $3 AND \"key\" = $4 ORDER BY \"id\" LIMIT $2"}))
 
 // orgSettingsSearchFields are the fields that a list search may name, with the kind of their values: the declared
@@ -106,7 +107,7 @@ func (h *OrgSettingsHandler) List(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, Unauthorized("the request is not authenticated"))
 		return
 	}
-	scope := r.PathValue("org_id")
+	scope := canonicalID(r.PathValue("org_id"))
 	if !command.ValidUUID(scope) {
 		handleError(w, r, NotFound("Organization", scope))
 		return
@@ -190,7 +191,7 @@ func (h *OrgSettingsHandler) Upsert(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, Unauthorized("the request is not authenticated"))
 		return
 	}
-	scope := r.PathValue("org_id")
+	scope := canonicalID(r.PathValue("org_id"))
 	if !command.ValidUUID(scope) {
 		handleError(w, r, NotFound("Organization", scope))
 		return
@@ -229,6 +230,7 @@ func (h *OrgSettingsHandler) Upsert(w http.ResponseWriter, r *http.Request) {
 			}
 			orgsetting.ID = id.String()
 			var parents []command.Ref
+			orgsetting.OrgID = canonicalID(orgsetting.OrgID)
 			{
 				refs, err := data.OrganizationRepository(ch)
 				if err != nil {
@@ -265,9 +267,13 @@ func (h *OrgSettingsHandler) Upsert(w http.ResponseWriter, r *http.Request) {
 		}
 		stored := orgSettingsFromData(from.Value())
 		orgsetting.ID = stored.ID
+		if stored.OrgID != scope {
+			return idempotency.Response{}, command.ErrNotFound
+		}
 		orgsetting.Generation = stored.Generation + 1
 		orgsetting.OrgID = scope
 		var parents []command.Ref
+		orgsetting.OrgID = canonicalID(orgsetting.OrgID)
 		if orgsetting.OrgID != stored.OrgID {
 			refs, err := data.OrganizationRepository(ch)
 			if err != nil {

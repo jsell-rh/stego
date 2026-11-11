@@ -185,8 +185,8 @@ func OrgSettingRepository[P any](h *command.Handle[P]) (*command.Repository[OrgS
 	return command.Repo(h, OrgSettingEntity)
 }
 
-// AuditEvent is a row of the entity AuditEvent, as its command handle reads and writes it.
-type AuditEvent struct {
+// ActivityEntry is a row of the entity ActivityEntry, as its command handle reads and writes it.
+type ActivityEntry struct {
 	ID         string
 	SourceType string
 	SourceID   string
@@ -194,50 +194,50 @@ type AuditEvent struct {
 	Detail     []byte
 }
 
-// LoadedAuditEvent is a loaded value of AuditEvent: only a read or a write through a command handle makes one.
-type LoadedAuditEvent = command.Loaded[AuditEvent]
+// LoadedActivityEntry is a loaded value of ActivityEntry: only a read or a write through a command handle makes one.
+type LoadedActivityEntry = command.Loaded[ActivityEntry]
 
-// AuditEventEntity is the repository declaration of AuditEvent (ST-SUP-RP10-LC02).
-var AuditEventEntity = command.Must(command.NewEntity(command.EntitySpec[AuditEvent]{
-	Name:            "AuditEvent",
-	ResourceType:    "audit_event",
+// ActivityEntryEntity is the repository declaration of ActivityEntry (ST-SUP-RP10-LC02).
+var ActivityEntryEntity = command.Must(command.NewEntity(command.EntitySpec[ActivityEntry]{
+	Name:            "ActivityEntry",
+	ResourceType:    "activity_entry",
 	ReadPermission:  "view",
 	ListPermission:  "view",
-	Select:          "SELECT \"id\"::text, \"source_type\", \"source_id\", \"action\", \"detail\", \"version\", \"authz_token\" FROM public.\"audit_events\" WHERE \"tenant_id\" = $1 AND \"id\" = $2::uuid",
-	SelectForUpdate: "SELECT \"id\"::text, \"source_type\", \"source_id\", \"action\", \"detail\", \"version\", \"authz_token\" FROM public.\"audit_events\" WHERE \"tenant_id\" = $1 AND \"id\" = $2::uuid FOR NO KEY UPDATE",
-	SelectForDelete: "SELECT \"id\"::text, \"source_type\", \"source_id\", \"action\", \"detail\", \"version\", \"authz_token\" FROM public.\"audit_events\" WHERE \"tenant_id\" = $1 AND \"id\" = $2::uuid FOR UPDATE",
-	Insert:          "INSERT INTO public.\"audit_events\" (\"tenant_id\", \"id\", \"source_type\", \"source_id\", \"action\", \"detail\") VALUES ($1, $2::uuid, $3, $4, $5, $6) RETURNING \"id\"::text, \"source_type\", \"source_id\", \"action\", \"detail\", \"version\", \"authz_token\"",
-	Update:          "UPDATE public.\"audit_events\" SET \"source_type\" = $5, \"source_id\" = $6, \"action\" = $7, \"detail\" = $8, \"version\" = \"version\" + 1, \"updated_time\" = now() WHERE \"tenant_id\" = $1 AND \"id\" = $2::uuid AND \"version\" = $3 AND \"id\" = $4::uuid RETURNING \"id\"::text, \"source_type\", \"source_id\", \"action\", \"detail\", \"version\", \"authz_token\"",
-	Delete:          "DELETE FROM public.\"audit_events\" WHERE \"tenant_id\" = $1 AND \"id\" = $2::uuid AND \"version\" = $3",
-	Scan: func(row command.Scanner) (AuditEvent, command.Meta, error) {
-		var v AuditEvent
+	Select:          "SELECT \"id\"::text, \"source_type\", \"source_id\", \"action\", \"detail\", \"version\", \"authz_token\" FROM public.\"activity_entries\" WHERE \"tenant_id\" = $1 AND \"id\" = $2::uuid",
+	SelectForUpdate: "SELECT \"id\"::text, \"source_type\", \"source_id\", \"action\", \"detail\", \"version\", \"authz_token\" FROM public.\"activity_entries\" WHERE \"tenant_id\" = $1 AND \"id\" = $2::uuid FOR NO KEY UPDATE",
+	SelectForDelete: "SELECT \"id\"::text, \"source_type\", \"source_id\", \"action\", \"detail\", \"version\", \"authz_token\" FROM public.\"activity_entries\" WHERE \"tenant_id\" = $1 AND \"id\" = $2::uuid FOR UPDATE",
+	Insert:          "INSERT INTO public.\"activity_entries\" (\"tenant_id\", \"id\", \"source_type\", \"source_id\", \"action\", \"detail\") VALUES ($1, $2::uuid, $3, $4, $5, $6) RETURNING \"id\"::text, \"source_type\", \"source_id\", \"action\", \"detail\", \"version\", \"authz_token\"",
+	Update:          "UPDATE public.\"activity_entries\" SET \"source_type\" = $5, \"source_id\" = $6, \"action\" = $7, \"detail\" = $8, \"version\" = \"version\" + 1, \"updated_time\" = now() WHERE \"tenant_id\" = $1 AND \"id\" = $2::uuid AND \"version\" = $3 AND \"id\" = $4::uuid RETURNING \"id\"::text, \"source_type\", \"source_id\", \"action\", \"detail\", \"version\", \"authz_token\"",
+	Delete:          "DELETE FROM public.\"activity_entries\" WHERE \"tenant_id\" = $1 AND \"id\" = $2::uuid AND \"version\" = $3",
+	Scan: func(row command.Scanner) (ActivityEntry, command.Meta, error) {
+		var v ActivityEntry
 		var m command.Meta
 		err := row.Scan(&v.ID, &v.SourceType, &v.SourceID, &v.Action, &v.Detail, &m.Version, &m.Token)
 		m.ID = v.ID
 		return v, m, err
 	},
-	Values: func(v AuditEvent) []any {
+	Values: func(v ActivityEntry) []any {
 		id := v.ID
 		if id == "" {
 			id = command.NewID()
 		}
 		return []any{id, v.SourceType, v.SourceID, v.Action, v.Detail}
 	},
-	State: func(v AuditEvent) map[string]any {
+	State: func(v ActivityEntry) map[string]any {
 		return map[string]any{"id": v.ID, "source_type": v.SourceType, "source_id": v.SourceID, "action": v.Action, "detail": json.RawMessage(v.Detail)}
 	},
-	KeyChanged: func(before, after AuditEvent) bool {
+	KeyChanged: func(before, after ActivityEntry) bool {
 		return before.ID != after.ID
 	},
-	Clone: func(v AuditEvent) AuditEvent {
+	Clone: func(v ActivityEntry) ActivityEntry {
 		v.Detail = bytes.Clone(v.Detail)
 		return v
 	},
 	ValidID: command.ValidUUID,
 }))
 
-// AuditEventRepository gives the repository of AuditEvent of a command handle; the handle refuses an entity that its command does
+// ActivityEntryRepository gives the repository of ActivityEntry of a command handle; the handle refuses an entity that its command does
 // not declare it writes.
-func AuditEventRepository[P any](h *command.Handle[P]) (*command.Repository[AuditEvent], error) {
-	return command.Repo(h, AuditEventEntity)
+func ActivityEntryRepository[P any](h *command.Handle[P]) (*command.Repository[ActivityEntry], error) {
+	return command.Repo(h, ActivityEntryEntity)
 }

@@ -32,8 +32,8 @@ type OrgSetting struct {
 	Generation int64           `json:"generation"`
 }
 
-// AuditEvent represents the AuditEvent entity.
-type AuditEvent struct {
+// ActivityEntry represents the ActivityEntry entity.
+type ActivityEntry struct {
 	ID         string           `json:"id,omitempty"`
 	SourceType string           `json:"source_type"`
 	SourceID   string           `json:"source_id"`

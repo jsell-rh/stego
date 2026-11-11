@@ -2,6 +2,18 @@
   "format": 1,
   "objects": [
     {
+      "component": "postgres-adapter",
+      "schema": "public",
+      "name": "activity_entries",
+      "kind": "table",
+      "privileges": [
+        "DELETE",
+        "INSERT",
+        "SELECT",
+        "UPDATE"
+      ]
+    },
+    {
       "component": "audit-log",
       "schema": "public",
       "name": "audit_anchor_boundaries",
@@ -31,18 +43,6 @@
       "privileges": [
         "INSERT",
         "SELECT"
-      ]
-    },
-    {
-      "component": "postgres-adapter",
-      "schema": "public",
-      "name": "audit_events",
-      "kind": "table",
-      "privileges": [
-        "DELETE",
-        "INSERT",
-        "SELECT",
-        "UPDATE"
       ]
     },
     {

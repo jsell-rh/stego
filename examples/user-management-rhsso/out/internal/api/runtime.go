@@ -280,6 +280,15 @@ func keyMissing(w http.ResponseWriter, r *http.Request) {
 	handleError(w, r, problem)
 }
 
+// canonicalID gives the lower-case form of a UUID, the form that the rows and the relations hold, so that an
+// upper-case UUID in a path or a body names the same row (ST-SUP-RC20-OC24). Another text stays as it is.
+func canonicalID(id string) string {
+	if command.ValidUUID(id) {
+		return strings.ToLower(id)
+	}
+	return id
+}
+
 // answerRead answers an error of a read: a row that is not there or that the caller may not read is 404, and every
 // other error 500 (ST-SUP-RP11-LC06).
 func answerRead(w http.ResponseWriter, r *http.Request, kind, id string, err error) {

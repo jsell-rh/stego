@@ -40,7 +40,7 @@ const (
 
 // Entities are the entities that the generated commands write, for the Entities of the command runtime's Config.
 func Entities() []command.Declared {
-	return []command.Declared{data.OrganizationEntity, data.UserEntity, data.OrgSettingEntity, data.AuditEventEntity}
+	return []command.Declared{data.OrganizationEntity, data.UserEntity, data.OrgSettingEntity, data.ActivityEntryEntity}
 }
 
 // Runtime is what the handlers of the collections run on (ST-SUP-RC20-OC37): the command runtime for each write, the
@@ -278,6 +278,15 @@ func keyMissing(w http.ResponseWriter, r *http.Request) {
 	problem := BadRequest("the Idempotency-Key header is absent or malformed")
 	problem.Type = keyMissingType
 	handleError(w, r, problem)
+}
+
+// canonicalID gives the lower-case form of a UUID, the form that the rows and the relations hold, so that an
+// upper-case UUID in a path or a body names the same row (ST-SUP-RC20-OC24). Another text stays as it is.
+func canonicalID(id string) string {
+	if command.ValidUUID(id) {
+		return strings.ToLower(id)
+	}
+	return id
 }
 
 // answerRead answers an error of a read: a row that is not there or that the caller may not read is 404, and every

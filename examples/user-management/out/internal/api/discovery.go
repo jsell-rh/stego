@@ -54,12 +54,12 @@ func NewDiscoveryHandler() *DiscoveryHandler {
       "href": "/api/user-mgmt/v1/users"
     },
     {
-      "kind": "AuditEventList",
-      "href": "/api/user-mgmt/v1/user-events"
+      "kind": "ActivityEntryList",
+      "href": "/api/user-mgmt/v1/user-activity"
     },
     {
-      "kind": "AuditEventList",
-      "href": "/api/user-mgmt/v1/org-events"
+      "kind": "ActivityEntryList",
+      "href": "/api/user-mgmt/v1/org-activity"
     }
   ]
 }`),

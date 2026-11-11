@@ -46,7 +46,7 @@ definition org_setting {
 	permission edit = organization->edit
 }
 
-definition audit_event {
+definition activity_entry {
 	relation owner: user
 	permission view = owner
 	permission edit = owner
@@ -97,19 +97,19 @@ var Operations = []Operation{
 	{Collection: "all-users", Operation: "list", ResourceType: "member", Permission: "view"},
 	{Collection: "org-settings", Operation: "list", ResourceType: "org_setting", Permission: "view"},
 	{Collection: "org-settings", Operation: "upsert", ResourceType: "org_setting", Permission: "edit"},
-	{Collection: "user-audit-events", Operation: "create", ResourceType: "audit_event", Public: true, Reason: "an audit event of a caller has no resource to decide on before it exists"},
-	{Collection: "user-audit-events", Operation: "list", ResourceType: "audit_event", Permission: "view"},
-	{Collection: "org-audit-events", Operation: "create", ResourceType: "audit_event", Public: true, Reason: "an audit event of a caller has no resource to decide on before it exists"},
-	{Collection: "org-audit-events", Operation: "list", ResourceType: "audit_event", Permission: "view"},
+	{Collection: "user-activity", Operation: "create", ResourceType: "activity_entry", Public: true, Reason: "an activity entry of a caller has no resource to decide on before it exists"},
+	{Collection: "user-activity", Operation: "list", ResourceType: "activity_entry", Permission: "view"},
+	{Collection: "org-activity", Operation: "create", ResourceType: "activity_entry", Public: true, Reason: "an activity entry of a caller has no resource to decide on before it exists"},
+	{Collection: "org-activity", Operation: "list", ResourceType: "activity_entry", Permission: "view"},
 }
 
 // Owners maps each protected resource type to the table of its rows, whose authz_token holds the token of the
 // row's last tuple write; the relay stores it there (ST-SUP-RC29-OC06).
 var Owners = map[string]stegoauthz.Owner{
-	"organization": {Schema: DatabaseSchema, Table: "organizations", Key: "id"},
-	"member":       {Schema: DatabaseSchema, Table: "users", Key: "id"},
-	"org_setting":  {Schema: DatabaseSchema, Table: "org_settings", Key: "id"},
-	"audit_event":  {Schema: DatabaseSchema, Table: "audit_events", Key: "id"},
+	"organization":   {Schema: DatabaseSchema, Table: "organizations", Key: "id"},
+	"member":         {Schema: DatabaseSchema, Table: "users", Key: "id"},
+	"org_setting":    {Schema: DatabaseSchema, Table: "org_settings", Key: "id"},
+	"activity_entry": {Schema: DatabaseSchema, Table: "activity_entries", Key: "id"},
 }
 
 // OrganizationResource gives the resource organization of the Organization row of key in tenant t, with the tenant-qualified ID of the
@@ -130,10 +130,10 @@ func OrgSettingResource(t tenant.Tenant, key string) (stegoauthz.Resource, error
 	return stegoauthz.NewResource(t, "org_setting", key)
 }
 
-// AuditEventResource gives the resource audit_event of the AuditEvent row of key in tenant t, with the tenant-qualified ID of the
+// ActivityEntryResource gives the resource activity_entry of the ActivityEntry row of key in tenant t, with the tenant-qualified ID of the
 // runtime (ST-SUP-RC29-OC22, ST-SUP-RP06-LC22).
-func AuditEventResource(t tenant.Tenant, key string) (stegoauthz.Resource, error) {
-	return stegoauthz.NewResource(t, "audit_event", key)
+func ActivityEntryResource(t tenant.Tenant, key string) (stegoauthz.Resource, error) {
+	return stegoauthz.NewResource(t, "activity_entry", key)
 }
 
 // Migration returns the statements of the authorization tables of the service, for the migration job to run as
@@ -156,8 +156,8 @@ func Migration(runtimeRole, relayRole, outboxRelayRole, workerRole string) (stri
 	statements.WriteString("GRANT SELECT (tenant_id, id), UPDATE (authz_token) ON public.\"users\" TO " + worker + ";\n")
 	statements.WriteString("ALTER TABLE public.\"org_settings\" ADD COLUMN IF NOT EXISTS authz_token text NOT NULL DEFAULT '' CHECK (octet_length(authz_token) <= 4096);\n")
 	statements.WriteString("GRANT SELECT (tenant_id, id), UPDATE (authz_token) ON public.\"org_settings\" TO " + worker + ";\n")
-	statements.WriteString("ALTER TABLE public.\"audit_events\" ADD COLUMN IF NOT EXISTS authz_token text NOT NULL DEFAULT '' CHECK (octet_length(authz_token) <= 4096);\n")
-	statements.WriteString("GRANT SELECT (tenant_id, id), UPDATE (authz_token) ON public.\"audit_events\" TO " + worker + ";\n")
+	statements.WriteString("ALTER TABLE public.\"activity_entries\" ADD COLUMN IF NOT EXISTS authz_token text NOT NULL DEFAULT '' CHECK (octet_length(authz_token) <= 4096);\n")
+	statements.WriteString("GRANT SELECT (tenant_id, id), UPDATE (authz_token) ON public.\"activity_entries\" TO " + worker + ";\n")
 	return text + statements.String(), nil
 }
 

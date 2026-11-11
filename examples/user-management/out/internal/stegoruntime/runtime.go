@@ -41,7 +41,7 @@ const (
 	// Service is the name of the service, which its audit rows and its telemetry carry.
 	Service = "user-management"
 	// DeclarationVersion is the SHA-256 of the declaration, which each audit row carries.
-	DeclarationVersion = "3cc7eff7fb1187e7bbf19450ed119890dd5b0a053b9944550e6d23f1c9bf6049"
+	DeclarationVersion = "e12b2dedf65be6fa32a1eadd2693d5fe4a9c91fcb5f5e848bbcc80184df111d0"
 	// subjectType is the subject type of the schema that a verified identity maps to.
 	subjectType = "user"
 	// tenantClaim is the dotted path of the claim that names the caller's tenant.
@@ -103,7 +103,7 @@ var grants = []string{
 	"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE \"public\".\"organizations\"",
 	"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE \"public\".\"users\"",
 	"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE \"public\".\"org_settings\"",
-	"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE \"public\".\"audit_events\"",
+	"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE \"public\".\"activity_entries\"",
 	"GRANT USAGE ON SCHEMA \"stego_schema\"",
 	"GRANT SELECT ON TABLE \"stego_schema\".\"generation\"",
 	"GRANT SELECT ON TABLE \"stego_schema\".\"identity\"",

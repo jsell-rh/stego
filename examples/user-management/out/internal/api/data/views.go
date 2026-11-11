@@ -170,8 +170,8 @@ func LoadOrgSettingView(r query.Row) (OrgSettingView, error) { return loadOrgSet
 // EntityOrgSettingView is the declaration of OrgSetting that the fills' repositories read through, with its read permission.
 func EntityOrgSettingView() *query.Entity[OrgSettingView] { return orgSettingViewEntity }
 
-// AuditEventView is the read-only value of one stored AuditEvent.
-type AuditEventView struct {
+// ActivityEntryView is the read-only value of one stored ActivityEntry.
+type ActivityEntryView struct {
 	ID          string          `json:"id"`
 	SourceType  string          `json:"source_type"`
 	SourceID    string          `json:"source_id"`
@@ -181,49 +181,49 @@ type AuditEventView struct {
 	UpdatedTime time.Time       `json:"updated_time"`
 }
 
-// LoadedAuditEventView is a AuditEvent that a read through a query handle loaded. Only a handle makes one (ST-SUP-RP11-LC12).
-type LoadedAuditEventView = query.Loaded[AuditEventView]
+// LoadedActivityEntryView is a ActivityEntry that a read through a query handle loaded. Only a handle makes one (ST-SUP-RP11-LC12).
+type LoadedActivityEntryView = query.Loaded[ActivityEntryView]
 
-// loadAuditEventView builds a AuditEventView from a stored row. It is a function of the row alone.
-func loadAuditEventView(r query.Row) (AuditEventView, error) {
-	var v AuditEventView
+// loadActivityEntryView builds a ActivityEntryView from a stored row. It is a function of the row alone.
+func loadActivityEntryView(r query.Row) (ActivityEntryView, error) {
+	var v ActivityEntryView
 	var err error
 	if v.ID, err = r.Text("id"); err != nil {
-		return AuditEventView{}, err
+		return ActivityEntryView{}, err
 	}
 	if v.SourceType, err = r.Text("source_type"); err != nil {
-		return AuditEventView{}, err
+		return ActivityEntryView{}, err
 	}
 	if v.SourceID, err = r.Text("source_id"); err != nil {
-		return AuditEventView{}, err
+		return ActivityEntryView{}, err
 	}
 	if v.Action, err = r.Text("action"); err != nil {
-		return AuditEventView{}, err
+		return ActivityEntryView{}, err
 	}
 	if v.Detail, err = r.JSON("detail"); err != nil {
-		return AuditEventView{}, err
+		return ActivityEntryView{}, err
 	}
 	if v.CreatedTime, err = r.Time("created_time"); err != nil {
-		return AuditEventView{}, err
+		return ActivityEntryView{}, err
 	}
 	if v.UpdatedTime, err = r.Time("updated_time"); err != nil {
-		return AuditEventView{}, err
+		return ActivityEntryView{}, err
 	}
 	return v, nil
 }
 
-// auditEventViewEntity is the declaration of AuditEvent for the query runtime: its table, its columns, its authorization and the
+// activityEntryViewEntity is the declaration of ActivityEntry for the query runtime: its table, its columns, its authorization and the
 // sensitivity of its fields.
-var auditEventViewEntity = must(query.NewEntity(query.Spec{Name: "AuditEvent", Schema: "public", Table: "audit_events", Key: "id",
+var activityEntryViewEntity = must(query.NewEntity(query.Spec{Name: "ActivityEntry", Schema: "public", Table: "activity_entries", Key: "id",
 	Columns:      []string{"id", "source_type", "source_id", "action", "detail", "created_time", "updated_time"},
-	ResourceType: "audit_event", ReadPermission: "view", ListPermission: "view",
-}, loadAuditEventView))
+	ResourceType: "activity_entry", ReadPermission: "view", ListPermission: "view",
+}, loadActivityEntryView))
 
-// LoadAuditEventView builds a AuditEventView from a stored row, for the declarations of the handler package.
-func LoadAuditEventView(r query.Row) (AuditEventView, error) { return loadAuditEventView(r) }
+// LoadActivityEntryView builds a ActivityEntryView from a stored row, for the declarations of the handler package.
+func LoadActivityEntryView(r query.Row) (ActivityEntryView, error) { return loadActivityEntryView(r) }
 
-// EntityAuditEventView is the declaration of AuditEvent that the fills' repositories read through, with its read permission.
-func EntityAuditEventView() *query.Entity[AuditEventView] { return auditEventViewEntity }
+// EntityActivityEntryView is the declaration of ActivityEntry that the fills' repositories read through, with its read permission.
+func EntityActivityEntryView() *query.Entity[ActivityEntryView] { return activityEntryViewEntity }
 
 // must gives v, and panics on a declaration that the runtime refuses, which the generator's checks rule out.
 func must[T any](v T, err error) T {

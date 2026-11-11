@@ -5,12 +5,12 @@
     "version": "1.0.0"
   },
   "paths": {
-    "/api/user-mgmt/v1/org-events": {
+    "/api/user-mgmt/v1/org-activity": {
       "get": {
-        "summary": "List AuditEvent entities via org-audit-events",
-        "operationId": "listOrgAuditEvents",
+        "summary": "List ActivityEntry entities via org-activity",
+        "operationId": "listOrgActivity",
         "tags": [
-          "org-audit-events"
+          "org-activity"
         ],
         "parameters": [
           {
@@ -85,7 +85,7 @@
                       "items": {
                         "allOf": [
                           {
-                            "$ref": "#/components/schemas/AuditEvent"
+                            "$ref": "#/components/schemas/ActivityEntry"
                           },
                           {
                             "type": "object",
@@ -124,17 +124,17 @@
         }
       },
       "post": {
-        "summary": "Create AuditEvent via org-audit-events",
-        "operationId": "createOrgAuditEvents",
+        "summary": "Create ActivityEntry via org-activity",
+        "operationId": "createOrgActivity",
         "tags": [
-          "org-audit-events"
+          "org-activity"
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuditEventCreateRequest"
+                "$ref": "#/components/schemas/ActivityEntryCreateRequest"
               }
             }
           }
@@ -147,7 +147,7 @@
                 "schema": {
                   "allOf": [
                     {
-                      "$ref": "#/components/schemas/AuditEvent"
+                      "$ref": "#/components/schemas/ActivityEntry"
                     },
                     {
                       "type": "object",
@@ -1033,12 +1033,12 @@
         }
       }
     },
-    "/api/user-mgmt/v1/user-events": {
+    "/api/user-mgmt/v1/user-activity": {
       "get": {
-        "summary": "List AuditEvent entities via user-audit-events",
-        "operationId": "listUserAuditEvents",
+        "summary": "List ActivityEntry entities via user-activity",
+        "operationId": "listUserActivity",
         "tags": [
-          "user-audit-events"
+          "user-activity"
         ],
         "parameters": [
           {
@@ -1113,7 +1113,7 @@
                       "items": {
                         "allOf": [
                           {
-                            "$ref": "#/components/schemas/AuditEvent"
+                            "$ref": "#/components/schemas/ActivityEntry"
                           },
                           {
                             "type": "object",
@@ -1152,17 +1152,17 @@
         }
       },
       "post": {
-        "summary": "Create AuditEvent via user-audit-events",
-        "operationId": "createUserAuditEvents",
+        "summary": "Create ActivityEntry via user-activity",
+        "operationId": "createUserActivity",
         "tags": [
-          "user-audit-events"
+          "user-activity"
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AuditEventCreateRequest"
+                "$ref": "#/components/schemas/ActivityEntryCreateRequest"
               }
             }
           }
@@ -1175,7 +1175,7 @@
                 "schema": {
                   "allOf": [
                     {
-                      "$ref": "#/components/schemas/AuditEvent"
+                      "$ref": "#/components/schemas/ActivityEntry"
                     },
                     {
                       "type": "object",
@@ -1321,7 +1321,7 @@
   },
   "components": {
     "schemas": {
-      "AuditEvent": {
+      "ActivityEntry": {
         "type": "object",
         "properties": {
           "action": {
@@ -1346,7 +1346,7 @@
           "action"
         ]
       },
-      "AuditEventCreateRequest": {
+      "ActivityEntryCreateRequest": {
         "type": "object",
         "properties": {
           "action": {

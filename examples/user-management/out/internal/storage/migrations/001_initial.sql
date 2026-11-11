@@ -1,4 +1,4 @@
-CREATE TABLE public."audit_events" (
+CREATE TABLE public."activity_entries" (
   "tenant_id" text NOT NULL DEFAULT current_setting('app.tenant'),
   "id" uuid NOT NULL,
   "source_type" character varying(50) NOT NULL,
@@ -9,11 +9,11 @@ CREATE TABLE public."audit_events" (
   "updated_time" timestamp with time zone NOT NULL DEFAULT now(),
   "version" bigint NOT NULL DEFAULT 1,
   "authz_token" text NOT NULL DEFAULT '',
-  CONSTRAINT "audit_events_pkey" PRIMARY KEY ("tenant_id", "id")
+  CONSTRAINT "activity_entries_pkey" PRIMARY KEY ("tenant_id", "id")
 );
-CREATE INDEX "audit_events_source_type_search" ON public."audit_events" ("tenant_id", "source_type");
-CREATE INDEX "audit_events_source_id_search" ON public."audit_events" ("tenant_id", "source_id");
-CREATE INDEX "audit_events_action_search" ON public."audit_events" ("tenant_id", "action");
+CREATE INDEX "activity_entries_source_type_search" ON public."activity_entries" ("tenant_id", "source_type");
+CREATE INDEX "activity_entries_source_id_search" ON public."activity_entries" ("tenant_id", "source_id");
+CREATE INDEX "activity_entries_action_search" ON public."activity_entries" ("tenant_id", "action");
 CREATE TABLE public."organizations" (
   "tenant_id" text NOT NULL DEFAULT current_setting('app.tenant'),
   "id" uuid NOT NULL,

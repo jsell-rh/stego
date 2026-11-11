@@ -106,8 +106,8 @@ func run() (stegoErr error) {
 	orgUsersHandler := api.NewOrgUsersHandler(service.CollectionRuntime(), beforeCreateOrgUsersGate, afterCreateOrgUsersFanOut)
 	allUsersHandler := api.NewAllUsersHandler(service.CollectionRuntime())
 	orgSettingsHandler := api.NewOrgSettingsHandler(service.CollectionRuntime())
-	userAuditEventsHandler := api.NewUserAuditEventsHandler(service.CollectionRuntime())
-	orgAuditEventsHandler := api.NewOrgAuditEventsHandler(service.CollectionRuntime())
+	userActivityHandler := api.NewUserActivityHandler(service.CollectionRuntime())
+	orgActivityHandler := api.NewOrgActivityHandler(service.CollectionRuntime())
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/user-mgmt/v1/organizations", organizationsHandler.Create)
@@ -123,10 +123,10 @@ func run() (stegoErr error) {
 	mux.HandleFunc("GET /api/user-mgmt/v1/users", allUsersHandler.List)
 	mux.HandleFunc("GET /api/user-mgmt/v1/organizations/{org_id}/orgsettings", orgSettingsHandler.List)
 	mux.HandleFunc("PUT /api/user-mgmt/v1/organizations/{org_id}/orgsettings", orgSettingsHandler.Upsert)
-	mux.HandleFunc("POST /api/user-mgmt/v1/user-events", userAuditEventsHandler.Create)
-	mux.HandleFunc("GET /api/user-mgmt/v1/user-events", userAuditEventsHandler.List)
-	mux.HandleFunc("POST /api/user-mgmt/v1/org-events", orgAuditEventsHandler.Create)
-	mux.HandleFunc("GET /api/user-mgmt/v1/org-events", orgAuditEventsHandler.List)
+	mux.HandleFunc("POST /api/user-mgmt/v1/user-activity", userActivityHandler.Create)
+	mux.HandleFunc("GET /api/user-mgmt/v1/user-activity", userActivityHandler.List)
+	mux.HandleFunc("POST /api/user-mgmt/v1/org-activity", orgActivityHandler.Create)
+	mux.HandleFunc("GET /api/user-mgmt/v1/org-activity", orgActivityHandler.List)
 
 	port := os.Getenv("PORT")
 	if port == "" {

@@ -35,7 +35,7 @@ func TenantConfig(dsn string) (tenant.Config, error) {
 var ErrForeignTables = errors.New("the database holds tables of the declaration that its ledger does not record, or a ledger that is not the history of this release, such as the tables of a release on the GORM store; the migration job writes nothing (ST-SUP-Q91)")
 
 // declaredTables are the tables of the entities of the declaration.
-var declaredTables = []string{"organizations", "users", "org_settings", "audit_events"}
+var declaredTables = []string{"organizations", "users", "org_settings", "activity_entries"}
 
 // CheckLedger reads the database and refuses it, with ErrForeignTables, when its ledger is not a prefix of the
 // migrations of this release, or when it has no ledger and holds a table of the declaration. It writes nothing; the

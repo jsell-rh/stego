@@ -2,6 +2,14 @@
   "format": 1,
   "objects": [
     {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "public",
+        "name": "activity_entries",
+        "kind": "table"
+      }
+    },
+    {
       "component": "audit-log",
       "object": {
         "schema": "public",
@@ -22,14 +30,6 @@
       "object": {
         "schema": "public",
         "name": "audit_event",
-        "kind": "table"
-      }
-    },
-    {
-      "component": "postgres-adapter",
-      "object": {
-        "schema": "public",
-        "name": "audit_events",
         "kind": "table"
       }
     },

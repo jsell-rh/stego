@@ -19,10 +19,10 @@ var roleName = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 type object struct{ schema, name, kind, privileges string }
 
 var objects = []object{
+	{"public", "activity_entries", "table", "DELETE,INSERT,SELECT,UPDATE"},
 	{"public", "audit_anchor_boundaries", "table", "INSERT,SELECT,UPDATE"},
 	{"public", "audit_chain_heads", "table", "INSERT,SELECT,UPDATE"},
 	{"public", "audit_event", "table", "INSERT,SELECT"},
-	{"public", "audit_events", "table", "DELETE,INSERT,SELECT,UPDATE"},
 	{"public", "audit_retention_checkpoints", "table", "SELECT"},
 	{"public", "org_settings", "table", "DELETE,INSERT,SELECT,UPDATE"},
 	{"public", "organizations", "table", "DELETE,INSERT,SELECT,UPDATE"},

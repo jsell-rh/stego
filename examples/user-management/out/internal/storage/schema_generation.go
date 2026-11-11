@@ -14,7 +14,7 @@ import (
 )
 
 const SchemaGeneration = "tables-v1"
-const SchemaDefinition = "c1efc1f814557451864cd8a760d65d12ba63329b82f8bbbe185c4ba65810fd28"
+const SchemaDefinition = "389aee52eeb822e1af503d129e715128852729c979954674879c9b50c8c0b982"
 
 var ErrSchemaGeneration = errors.New("database schema generation is not supported")
 var ErrDatabaseRollback = errors.New("database was restored to an earlier state")

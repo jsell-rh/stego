@@ -20,7 +20,7 @@ definition org_setting {
 	permission edit = organization->edit
 }
 
-definition audit_event {
+definition activity_entry {
 	relation owner: user
 	permission view = owner
 	permission edit = owner

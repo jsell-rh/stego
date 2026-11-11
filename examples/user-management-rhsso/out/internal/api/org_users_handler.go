@@ -176,7 +176,7 @@ func (h *OrgUsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, Unauthorized("the request is not authenticated"))
 		return
 	}
-	scope := r.PathValue("org_id")
+	scope := canonicalID(r.PathValue("org_id"))
 	if !command.ValidUUID(scope) {
 		handleError(w, r, NotFound("Organization", scope))
 		return
@@ -247,6 +247,7 @@ func (h *OrgUsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 			return idempotency.Response{}, err
 		}
 		var parents []command.Ref
+		user.OrgID = canonicalID(user.OrgID)
 		{
 			refs, err := data.OrganizationRepository(ch)
 			if err != nil {
@@ -283,13 +284,13 @@ func (h *OrgUsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 // Read runs the query read of org-users through query.Run: a row that is not there and a deny are both 404
 // (ST-SUP-RP11-LC06), and a read of a pii field has its audit row (ST-SUP-RC28-OC04).
 func (h *OrgUsersHandler) Read(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := canonicalID(r.PathValue("id"))
 	b, err := command.BindIdentity(r.Context(), subjectType)
 	if err != nil {
 		handleError(w, r, Unauthorized("the request is not authenticated"))
 		return
 	}
-	scope := r.PathValue("org_id")
+	scope := canonicalID(r.PathValue("org_id"))
 	if !command.ValidUUID(scope) {
 		handleError(w, r, NotFound("Organization", scope))
 		return
@@ -322,13 +323,13 @@ func (h *OrgUsersHandler) Read(w http.ResponseWriter, r *http.Request) {
 
 // Update runs the generated command update of org-users through Run, on the row of the path's ID.
 func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := canonicalID(r.PathValue("id"))
 	b, err := command.BindIdentity(r.Context(), subjectType)
 	if err != nil {
 		handleError(w, r, Unauthorized("the request is not authenticated"))
 		return
 	}
-	scope := r.PathValue("org_id")
+	scope := canonicalID(r.PathValue("org_id"))
 	if !command.ValidUUID(scope) {
 		handleError(w, r, NotFound("Organization", scope))
 		return
@@ -367,6 +368,7 @@ func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 		user.ID = id
 		user.OrgID = stored.OrgID
 		var parents []command.Ref
+		user.OrgID = canonicalID(user.OrgID)
 		if user.OrgID != stored.OrgID {
 			refs, err := data.OrganizationRepository(ch)
 			if err != nil {
@@ -402,13 +404,13 @@ func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 // Delete runs the generated command delete of org-users through Run, and answers 204 with no body (ST-SUP-RC20-OC32).
 func (h *OrgUsersHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := canonicalID(r.PathValue("id"))
 	b, err := command.BindIdentity(r.Context(), subjectType)
 	if err != nil {
 		handleError(w, r, Unauthorized("the request is not authenticated"))
 		return
 	}
-	scope := r.PathValue("org_id")
+	scope := canonicalID(r.PathValue("org_id"))
 	if !command.ValidUUID(scope) {
 		handleError(w, r, NotFound("Organization", scope))
 		return
@@ -465,7 +467,7 @@ func (h *OrgUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, Unauthorized("the request is not authenticated"))
 		return
 	}
-	scope := r.PathValue("org_id")
+	scope := canonicalID(r.PathValue("org_id"))
 	if !command.ValidUUID(scope) {
 		handleError(w, r, NotFound("Organization", scope))
 		return
@@ -544,13 +546,13 @@ func (h *OrgUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 // Patch runs the generated command patch of org-users through Run: it changes only the fields that the request
 // gives (ST-SUP-RC20-OC15).
 func (h *OrgUsersHandler) Patch(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := canonicalID(r.PathValue("id"))
 	b, err := command.BindIdentity(r.Context(), subjectType)
 	if err != nil {
 		handleError(w, r, Unauthorized("the request is not authenticated"))
 		return
 	}
-	scope := r.PathValue("org_id")
+	scope := canonicalID(r.PathValue("org_id"))
 	if !command.ValidUUID(scope) {
 		handleError(w, r, NotFound("Organization", scope))
 		return
@@ -606,6 +608,7 @@ func (h *OrgUsersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 		}
 		user.OrgID = stored.OrgID
 		var parents []command.Ref
+		user.OrgID = canonicalID(user.OrgID)
 		if user.OrgID != stored.OrgID {
 			refs, err := data.OrganizationRepository(ch)
 			if err != nil {

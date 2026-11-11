@@ -189,7 +189,7 @@ func (h *OrganizationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 // Read runs the query read of organizations through query.Run: a row that is not there and a deny are both 404
 // (ST-SUP-RP11-LC06), and a read of a pii field has its audit row (ST-SUP-RC28-OC04).
 func (h *OrganizationsHandler) Read(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := canonicalID(r.PathValue("id"))
 	b, err := command.BindIdentity(r.Context(), subjectType)
 	if err != nil {
 		handleError(w, r, Unauthorized("the request is not authenticated"))
@@ -220,7 +220,7 @@ func (h *OrganizationsHandler) Read(w http.ResponseWriter, r *http.Request) {
 
 // Delete runs the generated command delete of organizations through Run, and answers 204 with no body (ST-SUP-RC20-OC32).
 func (h *OrganizationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := canonicalID(r.PathValue("id"))
 	b, err := command.BindIdentity(r.Context(), subjectType)
 	if err != nil {
 		handleError(w, r, Unauthorized("the request is not authenticated"))

@@ -23,10 +23,10 @@ const RetentionMonths = 13
 // Fields gives the sensitive fields of each entity by entity name, which its audit rows redact: a pii field is
 // replaced by the redaction marker, and a secret field is never stored (ST-SUP-RC28-OC01).
 var Fields = map[string]audit.Fields{
-	"Organization": OrganizationFields,
-	"User":         UserFields,
-	"OrgSetting":   OrgSettingFields,
-	"AuditEvent":   AuditEventFields,
+	"Organization":  OrganizationFields,
+	"User":          UserFields,
+	"OrgSetting":    OrgSettingFields,
+	"ActivityEntry": ActivityEntryFields,
 }
 
 // OrganizationFields are the sensitive fields of the entity Organization.
@@ -38,16 +38,16 @@ var UserFields = audit.Fields{}
 // OrgSettingFields are the sensitive fields of the entity OrgSetting.
 var OrgSettingFields = audit.Fields{}
 
-// AuditEventFields are the sensitive fields of the entity AuditEvent.
-var AuditEventFields = audit.Fields{}
+// ActivityEntryFields are the sensitive fields of the entity ActivityEntry.
+var ActivityEntryFields = audit.Fields{}
 
 // PII tells, by entity name, whether the entity holds a pii field: each read of such an entity is audited
 // (ST-SUP-RC28-OC04).
 var PII = map[string]bool{
-	"Organization": false,
-	"User":         false,
-	"OrgSetting":   false,
-	"AuditEvent":   false,
+	"Organization":  false,
+	"User":          false,
+	"OrgSetting":    false,
+	"ActivityEntry": false,
 }
 
 // Migration returns the statements that create the audit tables of the service, granted to runtimeRole
