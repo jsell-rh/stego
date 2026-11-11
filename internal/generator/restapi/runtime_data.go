@@ -121,10 +121,11 @@ func validateRuntimeData(ctx gen.Context, entities map[string]types.Entity) erro
 					return fmt.Errorf("rest-api: collection %s declares %s with the permission %q; on the runtime data path a write of a row decides a permission of %s on it", c.Name, op, p, e.ResourceType)
 				}
 			case types.OpCreate:
-				// A top-level create has no row to decide on before the fill (ST-SUP-RP10-LC31); ST-SUP-Q85 asks
-				// which resource it decides on.
+				// A top-level create is decided on the service-level resource of the tenant provisioning
+				// (ST-SUP-RC29-OC01, ST-SUP-RC27-OC09), whose resource type the declaration does not name until the
+				// tenant provisioning is built (ST-DECL-UC10); until then it must be public.
 				if e.Permissions[op] != types.PermissionPublic {
-					return fmt.Errorf("rest-api: collection %s declares create with the permission %q; on the runtime data path a create of a top-level entity has no resource to decide on, so it must be public with a reason (ST-SUP-Q85)", c.Name, e.Permissions[op])
+					return fmt.Errorf("rest-api: collection %s declares create with the permission %q; on the runtime data path a create of a top-level entity is decided on the service-level resource of the tenant provisioning (ST-SUP-RC29-OC01), which the declaration cannot name yet (ST-DECL-UC10), so it must be public with a reason", c.Name, e.Permissions[op])
 				}
 			}
 		}
@@ -236,7 +237,7 @@ func generateRuntimeHandlers(ctx gen.Context, collections []*runtimeCollection, 
 func renderRuntimeHelpers(ctx gen.Context, names []string, dataImport, slotsImportPath string, hasSlots bool, keys *idempotencyHeader) ([]byte, error) {
 	var b bytes.Buffer
 	pkg := path.Base(ctx.OutputNamespace)
-	fmt.Fprintf(&b, "package %s\n\nimport (\n\t\"context\"\n\t\"errors\"\n\t\"log/slog\"\n\t\"net\"\n\t\"net/http\"\n\t\"sync/atomic\"\n\t\"time\"\n\n", pkg)
+	fmt.Fprintf(&b, "package %s\n\nimport (\n\t\"context\"\n\t\"errors\"\n\t\"log/slog\"\n\t\"net\"\n\t\"net/http\"\n\t\"strings\"\n\t\"sync/atomic\"\n\t\"time\"\n\n", pkg)
 	fmt.Fprintf(&b, "\t\"github.com/jsell-rh/stego/registry/runtime/audit\"\n\t\"github.com/jsell-rh/stego/registry/runtime/authn\"\n\t\"github.com/jsell-rh/stego/registry/runtime/authz\"\n\t\"github.com/jsell-rh/stego/registry/runtime/command\"\n")
 	fmt.Fprintf(&b, "\t\"github.com/jsell-rh/stego/registry/runtime/idempotency\"\n\t\"github.com/jsell-rh/stego/registry/runtime/probe\"\n\t\"github.com/jsell-rh/stego/registry/runtime/query\"\n\t\"github.com/jsell-rh/stego/registry/runtime/tenant\"\n\n")
 	fmt.Fprintf(&b, "\tdata %q\n", dataImport)
@@ -259,6 +260,7 @@ func renderRuntimeHelpers(ctx gen.Context, names []string, dataImport, slotsImpo
 	}
 	b.WriteString("}\n}\n\n")
 	b.WriteString(runtimeHelpers)
+	b.WriteString(listOrderHelper)
 	b.WriteString(command.RunHelpers)
 	if hasSlots {
 		b.WriteString(slotCallerHelper)
@@ -269,6 +271,44 @@ func renderRuntimeHelpers(ctx gen.Context, names []string, dataImport, slotsImpo
 	}
 	return formatted, nil
 }
+
+// listOrderHelper reads the orderBy parameter of a list on the runtime data path (ST-SUP-RC20-OC38).
+const listOrderHelper = `// errOrder is the error of an orderBy that names a field that is not declared, or a direction that is not asc or
+// desc.
+var errOrder = errors.New("orderBy names a field that is not declared or a direction that is not asc or desc")
+
+// listOrder reads the orderBy parameter of a list: a comma-separated list of declared fields, each with asc or desc,
+// asc when it names none. With no orderBy the order is created_time descending (ST-SUP-RC20-OC11). The key is the last
+// tie-breaker of every order, which the query runtime adds (ST-SUP-RP11-LC18).
+func listOrder(text string, fields map[string]bool) ([]query.OrderBy, error) {
+	if strings.TrimSpace(text) == "" {
+		return []query.OrderBy{{Field: "created_time", Descending: true}}, nil
+	}
+	var order []query.OrderBy
+	for _, part := range strings.Split(text, ",") {
+		words := strings.Fields(part)
+		if len(words) == 0 || len(words) > 2 || !fields[words[0]] {
+			return nil, errOrder
+		}
+		o := query.OrderBy{Field: words[0]}
+		if len(words) == 2 {
+			switch strings.ToLower(words[1]) {
+			case "asc":
+			case "desc":
+				o.Descending = true
+			default:
+				return nil, errOrder
+			}
+		}
+		order = append(order, o)
+	}
+	return order, nil
+}
+
+// isBadCursor tells whether err is a cursor of another order, which a list answers with 400.
+func isBadCursor(err error) bool { return errors.Is(err, query.ErrBadCursor) }
+
+`
 
 // runtimeHelpers are the parts of runtime.go after its constants. They are the same for every declaration; ST-SUP-Q74
 // and ST-SUP-Q84 ask whether such code moves into the runtime library (ST-STD-RUNTIME-R05).
@@ -1013,11 +1053,19 @@ func (w *runtimeHandlerWriter) list() {
 	w.f("func (h *%sHandler) List(w http.ResponseWriter, r *http.Request) {\n", c.pascal)
 	w.start(false)
 	w.f("\tlimit := 100\n\tif text := r.URL.Query().Get(\"pageSize\"); text != \"\" {\n\t\tn, err := strconv.Atoi(text)\n\t\tif err != nil || n < 1 {\n\t\t\thandleError(w, r, BadRequest(\"pageSize must be a whole number of at least 1\"))\n\t\t\treturn\n\t\t}\n\t\tlimit = min(n, query.MaxLimit)\n\t}\n")
+	var fields []string
+	for _, f := range e.Fields {
+		if f.Sensitivity != "secret" {
+			fields = append(fields, fmt.Sprintf("%q: true", f.Name))
+		}
+	}
+	w.f("\torder, err := listOrder(r.URL.Query().Get(\"orderBy\"), map[string]bool{%s})\n\tif err != nil {\n\t\thandleError(w, r, BadRequest(err.Error()))\n\t\treturn\n\t}\n", strings.Join(fields, ", "))
 	w.f("\tvar after query.Cursor\n\tif text := r.URL.Query().Get(\"cursor\"); text != \"\" {\n\t\tif after, err = h.rt.Queries.ParseCursor(%s, b.tenant, b.principal, text); err != nil {\n\t\t\thandleError(w, r, BadRequest(\"the cursor is not valid\"))\n\t\t\treturn\n\t\t}\n\t}\n", q)
-	w.f("\tpage, err := query.Run(r.Context(), h.rt.Queries, %s, h.rt.boundQuery(r.Context(), b, %s), query.ListRequest{Limit: limit, After: after}, func(ctx context.Context, request query.ListRequest, qh *query.Handle[struct{}]) (%sPage, error) {\n", q, q, c.camel)
+	w.f("\tpage, err := query.Run(r.Context(), h.rt.Queries, %s, h.rt.boundQuery(r.Context(), b, %s), query.ListRequest{Limit: limit, After: after, Order: order}, func(ctx context.Context, request query.ListRequest, qh *query.Handle[struct{}]) (%sPage, error) {\n", q, q, c.camel)
 	w.f("\t\trepo, err := query.Repo(qh, data.Entity%sView())\n\t\tif err != nil {\n\t\t\treturn %sPage{}, err\n\t\t}\n", e.Name, c.camel)
 	w.f("\t\tresult, err := repo.List(ctx, request)\n\t\tif err != nil {\n\t\t\treturn %sPage{}, err\n\t\t}\n", c.camel)
 	w.f("\t\tpage := %sPage{next: result.Next, more: result.More}\n\t\tfor _, item := range result.Items {\n\t\t\tpage.items = append(page.items, %sFromView(item.Value()))\n\t\t}\n\t\treturn page, nil\n\t})\n", c.camel, c.camel)
+	w.f("\tif isBadCursor(err) {\n\t\thandleError(w, r, BadRequest(\"the cursor is not valid\"))\n\t\treturn\n\t}\n")
 	w.f("\tif err != nil {\n\t\thandleError(w, r, InternalError(\"internal error\"))\n\t\treturn\n\t}\n")
 	w.f("\titems := make([]any, 0, len(page.items))\n\tfor _, item := range page.items {\n\t\titems = append(items, %sPresented(item))\n\t}\n", c.camel)
 	w.f("\tw.Header().Set(\"Content-Type\", \"application/json\")\n")

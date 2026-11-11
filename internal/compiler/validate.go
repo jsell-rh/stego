@@ -482,6 +482,16 @@ func fillCheck(input ReconcilerInput, svcDecl *types.ServiceDeclaration, reg *re
 			}
 		}
 	}
+	// The fill of a query imports the query slot contract of the query component (ST-EXT-INV05).
+	if q := components[queryComponent]; q != nil && q.OutputNamespace != "" {
+		outDirName := "out"
+		if input.OutDir != "" {
+			if relative, err := outputRelative(input.ProjectDir, input.OutDir); err == nil {
+				outDirName = relative
+			}
+		}
+		check.QueryContract = generatedImportPath(input.ModuleName, outDirName, q.OutputNamespace)
+	}
 	for i, sb := range svcDecl.Slots {
 		for _, operator := range []struct {
 			name  string

@@ -65,7 +65,7 @@ func recordOne(check compiler.FillCheck, name string, run TestRun, build buildid
 		result.Reason = err.Error()
 		return result
 	}
-	if err := checkImports(dir, check); err != nil {
+	if err := checkImports(dir, check, name, f.Implements); err != nil {
 		result.Reason = err.Error()
 		return result
 	}

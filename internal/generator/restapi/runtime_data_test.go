@@ -458,4 +458,5 @@ var crudCheckIDs = []string{
 	"ST-SUP-RC28-OC04-T01 A single read of an entity with a pii field writes one read audit row",
 	"ST-SUP-RC28-OC04-T03 A list that returns a pii field writes one read audit row per returned resource, at most one page",
 	"ST-SUP-RC28-OC01-T03 A secret field reaches neither before, after nor the stored row",
+	"ST-SUP-RC20-OC38-T01 A list on the runtime data path pages by cursor in the requested order, with no total",
 }

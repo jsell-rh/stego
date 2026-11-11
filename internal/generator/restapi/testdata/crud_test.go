@@ -4,6 +4,7 @@
 package check
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -11,11 +12,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -920,6 +923,96 @@ func TestCrud(t *testing.T) {
 		}
 		if n := e.count(`SELECT count(*) FROM audit_event WHERE tenant_id = $1 AND action = 'read' AND NOT (resource_id = ANY($2))`, a.tenant.ID(), returned); n != 0 {
 			t.Errorf("%d read rows name a resource that no list returned, or the collection", n)
+		}
+	})
+
+	t.Run("ST-SUP-RC20-OC38-T01 A list on the runtime data path pages by cursor in the requested order, with no total", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-1", newTenant())
+		type order struct {
+			ID  string
+			SKU string
+			Qty float64
+		}
+		var created []order
+		for _, o := range []order{{SKU: "c", Qty: 3}, {SKU: "a", Qty: 1}, {SKU: "b", Qty: 3}, {SKU: "a", Qty: 2}, {SKU: "d", Qty: 5}} {
+			o.ID = e.create(a, "orders", "order", fmt.Sprintf(`{"sku":%q,"qty":%d}`, o.SKU, int(o.Qty)))
+			created = append(created, o)
+		}
+		page := func(path string) ([]order, string) {
+			t.Helper()
+			r := e.send(a, http.MethodGet, path, "", "")
+			if r.status != http.StatusOK {
+				t.Fatalf("GET %s answered %d %s, want 200", path, r.status, r.body)
+			}
+			var body map[string]any
+			if err := json.Unmarshal(r.body, &body); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := body["total"]; ok {
+				t.Fatalf("the page %s holds a total: %s", path, r.body)
+			}
+			var out []order
+			items, _ := body["items"].([]any)
+			for _, item := range items {
+				m, _ := item.(map[string]any)
+				id, _ := m["id"].(string)
+				sku, _ := m["sku"].(string)
+				qty, _ := m["qty"].(float64)
+				out = append(out, order{ID: id, SKU: sku, Qty: qty})
+			}
+			next, _ := body["next"].(string)
+			return out, next
+		}
+		all := func(query string) []order {
+			t.Helper()
+			var got []order
+			items, next := page("/api/v1/orders?pageSize=2&" + query)
+			for pages := 0; ; pages++ {
+				if len(items) > 2 {
+					t.Fatalf("a page of %s holds %d orders, want at most 2", query, len(items))
+				}
+				got = append(got, items...)
+				if next == "" || pages > 10 {
+					break
+				}
+				items, next = page("/api/v1/orders?pageSize=2&" + query + "&cursor=" + url.QueryEscape(next))
+			}
+			return got
+		}
+		want := slices.Clone(created)
+		slices.SortStableFunc(want, func(x, y order) int {
+			if x.Qty != y.Qty {
+				return cmp.Compare(y.Qty, x.Qty)
+			}
+			return strings.Compare(x.ID, y.ID)
+		})
+		if got := all("orderBy=" + url.QueryEscape("qty desc")); !slices.Equal(got, want) {
+			t.Fatalf("orderBy qty desc gave %v, want %v", got, want)
+		}
+		two := slices.Clone(created)
+		slices.SortStableFunc(two, func(x, y order) int {
+			if x.SKU != y.SKU {
+				return strings.Compare(x.SKU, y.SKU)
+			}
+			if x.Qty != y.Qty {
+				return cmp.Compare(y.Qty, x.Qty)
+			}
+			return strings.Compare(x.ID, y.ID)
+		})
+		if got := all("orderBy=" + url.QueryEscape("sku asc,qty desc")); !slices.Equal(got, two) {
+			t.Fatalf("orderBy sku asc,qty desc gave %v, want %v", got, two)
+		}
+		// With no orderBy, the newest order comes first (ST-SUP-RC20-OC11).
+		newest := slices.Clone(created)
+		slices.Reverse(newest)
+		if got := all(""); !slices.Equal(got, newest) {
+			t.Fatalf("the list with no orderBy gave %v, want the newest first %v", got, newest)
+		}
+		for _, bad := range []string{"secret", "qty up", "qty desc desc"} {
+			if r := e.send(a, http.MethodGet, "/api/v1/orders?orderBy="+url.QueryEscape(bad), "", ""); r.status != http.StatusBadRequest {
+				t.Errorf("orderBy %q answered %d %s, want 400", bad, r.status, r.body)
+			}
 		}
 	})
 

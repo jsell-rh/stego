@@ -200,6 +200,9 @@ type FillCheck struct {
 	// CommandFills are the fills that the commands of the declaration name, with the import path of the command
 	// slot contract, whose import closure the qualifier checks (ST-SUP-RC32-OC03).
 	CommandFills []CommandFill
+	// QueryContract is the import path of the query slot contract package, out/queries, which a fill of the query
+	// slot imports (ST-EXT-INV05); empty when the service has no query component.
+	QueryContract string
 }
 
 // CommandFill is the one fill of one command: the fill, the command, where the declaration names it, such as
