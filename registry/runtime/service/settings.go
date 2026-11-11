@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -26,9 +27,13 @@ const (
 	// IssuerSetting and AudienceSetting are the issuer and the audience that each bearer token must name.
 	IssuerSetting   = "STEGO_AUTHN_ISSUER"
 	AudienceSetting = "STEGO_AUTHN_AUDIENCE"
-	// KeysURLSetting and KeysFileSetting name the key document of the issuer: one of the two.
+	// KeysURLSetting and KeysFileSetting name the key document of the issuer: one of the two, and neither when the
+	// declaration states discovery or a public key file.
 	KeysURLSetting  = "STEGO_AUTHN_KEYS_URL"
 	KeysFileSetting = "STEGO_AUTHN_KEYS_FILE"
+	// CAFileSetting is the PEM file of certificate authorities that the verifier adds to the system roots for the
+	// discovery document and the key document of the issuer; it never replaces them (ST-SUP-RP13-LC08).
+	CAFileSetting = "STEGO_AUTHN_CA_FILE"
 	// SpiceDBEndpointSetting is the address of SpiceDB, and SpiceDBKeyFileSetting the file of its preshared key.
 	SpiceDBEndpointSetting = "STEGO_SPICEDB_ENDPOINT"
 	SpiceDBKeyFileSetting  = "STEGO_SPICEDB_KEY_FILE"
@@ -43,9 +48,18 @@ const (
 )
 
 // Auth are the settings of the verifier that the declaration states through the settings of its auth provider,
-// such as jwt-auth; an empty one is not stated. A stated setting wins: the environment may only match it.
+// such as jwt-auth or oidc-auth; an empty one is not stated. A stated setting wins: the environment may only match it.
 type Auth struct {
 	Issuer, Audience, Header, KeyFile, RoleClaim string
+	// Discovery states that the key set comes from the discovery document of the issuer (ST-SUP-RP13-LC21), as
+	// oidc-auth states it; the environment then names no key document.
+	Discovery bool
+	// CAFile is the CA file that the declaration states for the discovery document and the key document.
+	CAFile string
+	// Algorithms are the declared accepted signing algorithms, and SubjectClaim the declared subject claim; empty
+	// gives the verifier's own default, RS256 and sub (ST-SUP-RP13-LC03, LC13).
+	Algorithms   []string
+	SubjectClaim string
 }
 
 // SpiceDB is how the service reaches SpiceDB: its address, its preshared key and whether a loopback address goes
@@ -63,8 +77,15 @@ type Settings struct {
 	// Issuer and Audience are the issuer and the audience of the bearer tokens.
 	Issuer, Audience string
 	// KeysURL and KeysFile name the key document of the issuer, and KeyFile the public key file that the
-	// declaration states: one of the three.
+	// declaration states: one of the three, or none when Discovery holds.
 	KeysURL, KeysFile, KeyFile string
+	// Discovery states that the key set comes from the discovery document of the issuer, and CAFile is the CA file
+	// that adds to the system roots for it and for a key URL.
+	Discovery bool
+	CAFile    string
+	// Algorithms and SubjectClaim are the declared accepted algorithms and subject claim, or empty.
+	Algorithms   []string
+	SubjectClaim string
 	// Header and RoleClaim are the token header and the role claim that the declaration states, or empty.
 	Header, RoleClaim string
 	// SpiceDB is how the service reaches SpiceDB.
@@ -104,14 +125,30 @@ func ReadSettings(stated Auth) (Settings, error) {
 		return Settings{}, err
 	}
 	s.Header, s.RoleClaim = stated.Header, stated.RoleClaim
+	s.Algorithms, s.SubjectClaim = slices.Clone(stated.Algorithms), stated.SubjectClaim
 	s.KeysURL, s.KeysFile = os.Getenv(KeysURLSetting), os.Getenv(KeysFileSetting)
+	if s.CAFile = os.Getenv(CAFileSetting); stated.CAFile != "" {
+		if s.CAFile != "" && s.CAFile != stated.CAFile {
+			return Settings{}, settingError(CAFileSetting, "differs from the value that the declaration states, which wins")
+		}
+		s.CAFile = stated.CAFile
+	}
 	switch {
+	case stated.Discovery && stated.KeyFile != "":
+		return Settings{}, settingError(KeysURLSetting+" or "+KeysFileSetting, "has no source: the declaration states both discovery and a public key file")
+	case stated.Discovery && (s.KeysURL != "" || s.KeysFile != ""):
+		return Settings{}, settingError(KeysURLSetting+" or "+KeysFileSetting, "must not be set: the declaration states discovery through the issuer")
+	case stated.Discovery:
+		s.Discovery = true
 	case stated.KeyFile != "" && (s.KeysURL != "" || s.KeysFile != ""):
 		return Settings{}, settingError(KeysURLSetting+" or "+KeysFileSetting, "must not be set: the declaration states a public key file")
 	case stated.KeyFile != "":
 		s.KeyFile = stated.KeyFile
 	case (s.KeysURL == "") == (s.KeysFile == ""):
 		return Settings{}, settingError(KeysURLSetting+" or "+KeysFileSetting, "must be set, one of the two")
+	}
+	if s.CAFile != "" && s.KeysURL == "" && !s.Discovery {
+		return Settings{}, settingError(CAFileSetting, "is only for a key URL or discovery through the issuer")
 	}
 	if s.SpiceDB, err = readSpiceDB(); err != nil {
 		return Settings{}, err

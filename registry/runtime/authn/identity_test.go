@@ -2,6 +2,7 @@ package authn
 
 import (
 	"context"
+	"errors"
 	"go/ast"
 	"go/importer"
 	"go/parser"
@@ -251,6 +252,34 @@ func TestIdentityClaims(t *testing.T) {
 		id = expectAccepted(t, bare, authntest.Mint(t, header, goodClaims(), key))
 		if _, ok := id.TenantClaim(); ok || id.Roles() != nil {
 			t.Errorf("a verifier with no claim paths gave roles %v and a tenant claim", id.Roles())
+		}
+	})
+
+	t.Run("ST-SUP-RP13-LC13-T02 The subject comes from the configured subject claim only", func(t *testing.T) {
+		key := authntest.NewKey(t, "k1")
+		header := authntest.Header("k1")
+		byOID := staticVerifier(t, func(s *Settings) { s.SubjectClaim = "oid" }, key)
+		claims := goodClaims()
+		claims["oid"] = "object-7"
+		id := expectAccepted(t, byOID, authntest.Mint(t, header, claims, key))
+		if want := (Principal{Issuer: testIssuer, Subject: "object-7"}); id.Principal() != want || id.UserID() != "object-7" {
+			t.Errorf("the principal is %+v, want %+v", id.Principal(), want)
+		}
+		// A token with sub and no oid gives no subject from sub.
+		delete(claims, "oid")
+		got, err := byOID.Verify(context.Background(), authntest.Mint(t, header, claims, key))
+		expectRefused(t, got, err, errSubject)
+		// With no subject claim configured, the subject is sub, and oid is not read.
+		bySub := staticVerifier(t, nil, key)
+		claims["oid"] = "object-7"
+		if id := expectAccepted(t, bySub, authntest.Mint(t, header, claims, key)); id.UserID() != "user-1" {
+			t.Errorf("the default subject is %q, want sub user-1", id.UserID())
+		}
+		for _, name := range []string{"exp", "iss", "aud", "iat", "nbf", "jti", "a.b", "has space"} {
+			_, err := New(Settings{Issuer: testIssuer, Audience: testAudience, ProblemCode: "SVC", Keys: bySub.keys, SubjectClaim: name})
+			if !errors.Is(err, ErrSettings) {
+				t.Errorf("New with the subject claim %q gave %v, want a refusal of the settings", name, err)
+			}
 		}
 	})
 }
