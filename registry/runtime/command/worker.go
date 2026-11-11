@@ -336,10 +336,10 @@ func (r *declaredRefusal) Error() string        { return r.err.Error() }
 func (r *declaredRefusal) Unwrap() error        { return r.err }
 func (r *declaredRefusal) Is(target error) bool { return target == errDeclaredRefusal }
 
-// Refusal marks err as a declared refusal of a fill (ST-DECL-EN18, ST-SUP-RC32-OC09): the generated refusal value
-// of a command or a worker wraps itself with it. RunConsumer parks a message whose fill returns one, because a
-// dispatch again gives the same refusal (ST-SUP-RP10-LC26).
-func Refusal(err error) error {
+// Refused marks err as a declared refusal of a fill (ST-DECL-EN18, ST-SUP-RC32-OC09); a *Refusal is one without
+// it. RunConsumer parks a message whose fill returns one, because a dispatch again gives the same refusal
+// (ST-SUP-RP10-LC26).
+func Refused(err error) error {
 	if err == nil {
 		return nil
 	}

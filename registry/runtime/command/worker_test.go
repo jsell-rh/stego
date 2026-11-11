@@ -825,7 +825,7 @@ func TestConsumers(t *testing.T) {
 			if _, err := updateOrder(ctx, h, e.orders, "o-1", "never"); err != nil {
 				return err
 			}
-			return Refusal(errors.New("out of stock"))
+			return Refused(errors.New("out of stock"))
 		})
 		// A parked message holds back the later messages of its key, so each case stages for an order of its own.
 		for name, order := range map[string]string{"denied": "o-1", "refused": "o-3"} {
