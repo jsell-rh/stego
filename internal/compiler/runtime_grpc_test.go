@@ -18,8 +18,7 @@ const grpcFixture = "testdata/runtime_grpc"
 
 // rpcRuntimeArchetype is the components list of the rpc-service archetype of the registry copy on the runtime data
 // path: the command and query generators with the PostgreSQL adapter, the tenancy, domain-probe and outbox components
-// that the runtime wiring calls, and the gRPC application in place of grpc-processes. The shipped archetypes move to
-// the runtime data path in a later step.
+// that the runtime wiring calls, and the gRPC application in place of grpc-processes.
 const rpcRuntimeArchetype = "components:\n  - postgres-adapter\n  - tenancy\n  - domain-probe\n  - command\n  - query\n  - outbox\n  - grpc-application\n  - otel-tracing\n  - health-check\n"
 
 // newGRPCProject copies the registry of this repository with the rpc-service archetype on the runtime data path, each
@@ -30,11 +29,10 @@ func newGRPCProject(t *testing.T, binary string) *wiringProject {
 	if err := os.CopyFS(filepath.Join(p.dir, "registry"), os.DirFS(filepath.Join("..", "..", "registry"))); err != nil {
 		t.Fatal(err)
 	}
+	// The shipped rpc-service is on the runtime data path (ST-SUP-Q104 (a)); the copy holds its component list as
+	// the test states it, so a later change of the archetype shows here.
 	archetype := filepath.Join("registry", "archetypes", "rpc-service", "archetype.yaml")
-	text := regexp.MustCompile(`(?s)components:\n(  - [a-z-]+\n)+`).ReplaceAllString(p.read(archetype), rpcRuntimeArchetype)
-	// The PostgreSQL adapter gives the storage port that grpc-application requires; grpc-processes is not active.
-	text = strings.Replace(text, "  application-grpc-processes: grpc-processes\n", "", 1)
-	p.write(archetype, strings.Replace(text, "bindings:\n", "bindings:\n  storage-adapter: postgres-adapter\n", 1))
+	p.write(archetype, regexp.MustCompile(`(?s)components:\n(  - [a-z-]+\n)+`).ReplaceAllString(p.read(archetype), rpcRuntimeArchetype))
 	sunset := regexp.MustCompile(`sunset: "?[0-9-]+"?\n`)
 	for _, name := range []string{"tenancy", "command", "query", "domain-probe", "audit-log", "idempotency", "spicedb-authz"} {
 		file := filepath.Join("registry", "components", name, "component.yaml")

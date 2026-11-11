@@ -31,4 +31,4 @@ route.
 A secret field is never read: the read-only value and the reads leave it out.
 
 The component needs pooled tenancy with the key tenant_id and the
-domain-probe component. The stage is alpha.
+domain-probe component. The stage is ga.

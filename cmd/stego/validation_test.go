@@ -227,10 +227,9 @@ func TestCommandsRejectNormalizedSlotCollisions(t *testing.T) {
 }
 
 func TestCommandsRejectUnsupportedDependencyTarget(t *testing.T) {
-	registry, err := filepath.Abs("../../registry")
-	if err != nil {
-		t.Fatal(err)
-	}
+	// The target minimums of the tracing dependency are those of the rest-crud of the GORM store path, whose
+	// generators need no Go 1.26.11 (ST-SUP-RC20-OC39).
+	registry := storeRegistry(t)
 	t.Chdir(t.TempDir())
 	t.Setenv("STEGO_REGISTRY", registry)
 	t.Setenv("STEGO_MODULE", "example.com/target")

@@ -439,6 +439,30 @@ func TestRunConflicts(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RP10-LC25-T07 A unique violation is a conflict: the fill runs again as declared and then answers ErrConflict", func(t *testing.T) {
+		rt := e.runtime(nil)
+		rt.rerun = func(int, time.Duration, time.Duration) {}
+		calls := 0
+		create := func(id string) func(context.Context, *Handle[testProbe]) (idempotency.Response, error) {
+			return fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
+				calls++
+				_, err := repo(t, h, e.users).Create(ctx, user{ID: id, OrgID: "o1", Email: "lc25-dup@example.com"}, nil)
+				return err
+			})
+		}
+		if _, err := e.runOn(rt, e.command("create-first", retry(1), e.users), e.request("t1", u7(t), "k-lc25-dup-a", `{}`), create("u-lc25-dup-a")); err != nil {
+			t.Fatal(err)
+		}
+		calls = 0
+		// A second user with the same e-mail address breaks the unique key of the tenant: two attempts, then
+		// ErrConflict, and no row and no key row.
+		_, err := e.runOn(rt, e.command("create-again", retry(1), e.users), e.request("t1", u7(t), "k-lc25-dup-b", `{}`), create("u-lc25-dup-b"))
+		if !errors.Is(err, ErrConflict) || calls != 2 || e.keyRows("k-lc25-dup-b") != 0 ||
+			e.count(`SELECT count(*) FROM users WHERE id = 'u-lc25-dup-b'`) != 0 {
+			t.Fatalf("a duplicate unique value: %v after %d calls, want ErrConflict after 2", err, calls)
+		}
+	})
+
 	t.Run("ST-SUP-RP10-LC25-T02 A fill that ignores a conflict cannot commit", func(t *testing.T) {
 		cmd := e.command("ignore-conflict", retry(0), e.users, e.chargeE)
 		outbox := e.count(`SELECT count(*) FROM stego_outbox.messages`)

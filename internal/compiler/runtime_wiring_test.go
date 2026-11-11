@@ -399,7 +399,7 @@ func TestRuntimeDataPath(t *testing.T) {
 		}
 	})
 
-	t.Run("ST-SUP-RC01-OC41-T06 An example on the GORM store keeps its generated output", func(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC41-T06 An example on the runtime data path keeps its generated output", func(t *testing.T) {
 		for _, example := range []string{"user-management", "user-management-rhsso"} {
 			p := &wiringProject{t: t, dir: t.TempDir()}
 			if err := os.CopyFS(p.dir, os.DirFS(filepath.Join("..", "..", "examples", example))); err != nil {
@@ -419,20 +419,20 @@ func TestRuntimeDataPath(t *testing.T) {
 			if !strings.Contains(string(output), "Summary: 0 to generate, 0 to update, 0 to delete") {
 				t.Errorf("the plan of the example %s changes its generated output:\n%s", example, output)
 			}
-			if strings.Contains(p.read(".stego/plan.yaml"), RuntimeWiringNamespace) {
-				t.Errorf("the plan of the example %s holds the runtime wiring", example)
+			if !strings.Contains(p.read(".stego/state.yaml"), "data_path: runtime") {
+				t.Errorf("the record of the example %s does not state the runtime data path", example)
 			}
-			if !strings.Contains(p.read(".stego/state.yaml"), "data_path: store") {
-				t.Errorf("the record of the example %s does not state the store data path", example)
+			if _, err := os.Stat(filepath.Join(p.dir, "out", "internal", "storage", "store.go")); err == nil {
+				t.Errorf("the example %s holds the GORM store", example)
 			}
-			// An apply writes the record again, with the compiler of this commit: it states the store still.
+			// An apply writes the record again, with the compiler of this commit: it states the runtime data path still.
 			apply := exec.Command(stego, "apply")
 			apply.Dir, apply.Env = p.dir, cmd.Env
 			if output, err := apply.CombinedOutput(); err != nil {
 				t.Fatalf("stego apply of %s: %v\n%s", example, err, output)
 			}
-			if record := p.read(".stego/state.yaml"); !strings.Contains(record, "data_path: store") || strings.Contains(record, RuntimeWiringNamespace) {
-				t.Errorf("the record that apply writes for the example %s does not state the store data path", example)
+			if record := p.read(".stego/state.yaml"); !strings.Contains(record, "data_path: runtime") || !strings.Contains(record, RuntimeWiringNamespace) {
+				t.Errorf("the record that apply writes for the example %s does not state the runtime data path and its wiring", example)
 			}
 		}
 	})

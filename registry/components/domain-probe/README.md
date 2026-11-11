@@ -14,4 +14,4 @@ observations.json, which lists each observation in name order.
 
 The compiler gives the generator the observations of service.yaml and its
 emitters: the commands, queries, workers and slot bindings (as
-collection.slot). The stage is alpha.
+collection.slot). The stage is ga.

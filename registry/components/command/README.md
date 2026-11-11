@@ -27,7 +27,7 @@ The rest-api component uses the same entity declarations and the same
 handler steps around Run for generated CRUD on the runtime data path
 (ST-SUP-RC20-OC37), so this code has one source.
 
-The stage is alpha. The service needs pooled tenancy with the tenant column
+The stage is ga. The service needs pooled tenancy with the tenant column
 tenant_id and authorization with subject_from_identity. On the runtime data
 path the compiler makes the command runtime and the handlers, and main.go
 registers the route of each command. A command with a gRPC method is also

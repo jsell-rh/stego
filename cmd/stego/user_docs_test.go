@@ -11,6 +11,13 @@ import (
 // yamlBlockPattern is a fenced YAML block of a Markdown doc, with its body.
 var yamlBlockPattern = regexp.MustCompile("(?s)```ya?ml\n(.*?)```")
 
+// zedBlockPattern is a fenced SpiceDB schema block of a user doc, and schemaPathPattern the schema path of a
+// declaration.
+var (
+	zedBlockPattern   = regexp.MustCompile("(?s)```zed\n(.*?)```")
+	schemaPathPattern = regexp.MustCompile(`(?m)^\s+schema_path: (\S+)$`)
+)
+
 // userDocs reads the user doc inventory (ST-ASR-TOOL05): one path from the repository's root per line, a line that
 // starts with # being a comment.
 func userDocs(t *testing.T) []string {
@@ -47,6 +54,17 @@ func TestUserDocDeclarations(t *testing.T) {
 				found++
 				project := t.TempDir()
 				putFile(t, project, "service.yaml", block[1])
+				// The declaration's SpiceDB schema is the doc's zed block, at the declared schema path; a
+				// project with no record is in a Git repository, whose HEAD commit the compiler reads to choose
+				// the data path (ST-SUP-RC01-OC41).
+				if path := schemaPathPattern.FindStringSubmatch(block[1]); path != nil {
+					schema := zedBlockPattern.FindStringSubmatch(string(data))
+					if schema == nil {
+						t.Fatalf("%s, YAML block %d: the declaration names the schema %s, and the doc holds no zed block", doc, i+1, path[1])
+					}
+					putFile(t, project, path[1], schema[1])
+				}
+				git(t, project, "init", "-q")
 				if err := os.MkdirAll(filepath.Join(project, "fills"), 0o755); err != nil {
 					t.Fatal(err)
 				}

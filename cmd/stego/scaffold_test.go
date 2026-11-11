@@ -48,10 +48,9 @@ func TestFillScaffoldRejectsExistingDirectoryAndLinks(t *testing.T) {
 // No database or HTTP server is needed for this contract check.
 func TestFillWorkflowBuild(t *testing.T) {
 	t.Run("ST-EXT-UC01-R01-T01 A scaffolded fill compiles against its slot contract, and its test runs in the generated service", func(t *testing.T) {
-		registry, err := filepath.Abs("../../registry")
-		if err != nil {
-			t.Fatal(err)
-		}
+		// The fill workflow builds a rest-crud service of the GORM store path until the store path is removed
+		// (ST-SUP-RC20-OC39).
+		registry := storeRegistry(t)
 		project := t.TempDir()
 		t.Chdir(project)
 		t.Setenv("STEGO_REGISTRY", registry)

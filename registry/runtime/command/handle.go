@@ -70,9 +70,10 @@ func (e *deniedError) Is(target error) bool {
 	return target == ErrRefused || (e.read && target == ErrNotFound)
 }
 
-// conflictStates are the SQLSTATE values that are a conflict (ST-SUP-RP10-LC25): serialization failure, deadlock and
-// lock not available, which a lock timeout raises.
-var conflictStates = map[string]bool{"40001": true, "40P01": true, "55P03": true}
+// conflictStates are the SQLSTATE values that are a conflict (ST-SUP-RP10-LC25): serialization failure, deadlock,
+// lock not available, which a lock timeout raises, and unique violation, which a concurrent write of the same unique
+// value raises: a rerun sees the other row.
+var conflictStates = map[string]bool{"40001": true, "40P01": true, "55P03": true, "23505": true}
 
 // sqlState returns the SQLSTATE of a database error, as the PostgreSQL drivers and the audit runtime give it.
 func sqlState(err error) string {

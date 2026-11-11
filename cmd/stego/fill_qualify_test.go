@@ -137,7 +137,10 @@ func testFillKeys(t *testing.T) *fillKeys {
 		}
 		values := strings.Split(strings.TrimSpace(string(out)), "\n")
 		k.goEnv = []string{"GOMODCACHE=" + values[0], "GOCACHE=" + values[1], "GOPATH=" + values[2]}
-		if k.registry, err = filepath.Abs("../../registry"); err != nil {
+		// The fill fixture is a rest-crud project of the GORM store path until the store path is removed
+		// (ST-SUP-RC20-OC39).
+		k.registry = filepath.Join(fixtureRoot, "fill-store-registry")
+		if err := storeRegistryInto(k.registry); err != nil {
 			return "", err
 		}
 		return "", nil

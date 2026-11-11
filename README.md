@@ -126,8 +126,16 @@ Set up environment and initialize a new project:
 export STEGO_REGISTRY=/path/to/stego/registry
 export PATH="/path/to/stego:$PATH"
 mkdir my-service && cd my-service
+git init
 stego init --archetype rest-crud
 ```
+
+Make the project in its own Git repository. Each shipped archetype generates
+the service on the runtime data path: generated commands and queries carry all
+data access, in the transaction of one tenant, and each operation is decided
+for the verified caller. Until the former data path is removed, STEGO reads the
+record of the repository's HEAD commit to choose the data path, and it refuses
+a project with no record outside a Git repository.
 
 Consumers can compose a pinned common registry with local application
 extensions (a retired record, in git history). Common component copies are not
@@ -145,8 +153,26 @@ language: go
 base_path: /api/my-svc/v1
 error_type_base: https://api.example.com/errors/
 
+tenancy:
+  kind: pooled
+  key: tenant_id
+  claim: tenant
+authorization:
+  provider: spicedb
+  schema_path: authz/schema.zed
+  subject_from_identity: user
+audit:
+  level: change
+overrides:
+  postgres-adapter:
+    schema_generation: tables-v1
+    writer_lease: "off"
+
 entities:
   - name: Todo
+    resource_type: todo
+    permissions: {create: public, read: view, list: view, update: edit, delete: edit}
+    public_reasons: {create: a new todo has no resource to decide on before it exists}
     fields:
       - { name: title, type: string, min_length: 1, max_length: 255 }
       - { name: completed, type: bool, default: false }
@@ -155,6 +181,22 @@ collections:
   todos:
     entity: Todo
     operations: [create, read, update, delete, list]
+```
+
+The service needs pooled tenancy, SpiceDB authorization and the audit log. Each entity names
+its resource type and the permission of each operation. A create of a
+top-level entity is public, with a reason. Put the SpiceDB schema at
+`authz/schema.zed`:
+
+```zed
+definition user {}
+
+definition todo {
+	relation owner: user
+	relation viewer: user
+	permission view = owner + viewer
+	permission edit = owner
+}
 ```
 
 Generate and build:
@@ -289,18 +331,24 @@ programs can still observe separate file replacements during apply.
 ## Run the example
 
 A complete example with fills is included in `examples/user-management/`.
-It demonstrates all rest-crud archetype features:
+It runs on the runtime data path and demonstrates the rest-crud archetype:
 
+- **Tenancy and authorization**: each operation runs in the caller's tenant and
+  is decided in SpiceDB (`authz/schema.zed`), and each write leaves an audit row
 - **Collections** with multi-path access (org-scoped users + global user list)
 - **base_path** for route prefixing (`/api/user-mgmt/v1`)
 - **RFC 9457** error responses with `application/problem+json`
-- **Envelope** response format with pagination (`page`, `size`, `total`, `items`)
+- **Envelope** response format with cursor pagination (`items`, `next`)
 - **Patch** operation with pointer-field request struct for partial updates
-- **Upsert** with natural-key conflict resolution and optimistic concurrency
-- **TSL search** integration (`?search=` on all list endpoints)
+- **Upsert** with natural-key conflict resolution
+- **List search** (`?search=field = 'value' and ...` on list endpoints)
+- **Implicit fields** under path prefixes (`/user-events`, `/org-events`)
 - **OpenAPI validation** middleware via kin-openapi
-- **Slot wiring**: gate (RBAC policy), fan-out (notifications + audit), and
+- **Slot wiring**: gate (RBAC policy), fan-out (welcome message), and
   short-circuit chain (org name validation + provisioning)
+
+The event-publisher mixin and its `on_entity_changed` fills return to the
+example when the runtime outbox delivers to Kafka.
 
 ```bash
 export STEGO_REGISTRY=/path/to/stego/registry

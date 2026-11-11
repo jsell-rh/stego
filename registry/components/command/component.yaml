@@ -1,8 +1,7 @@
 kind: component
 name: command
-version: 0.1.0
-stage: alpha
-sunset: 2027-04-30
+version: 1.0.0
+stage: ga
 output_namespace: commands
 
 config:

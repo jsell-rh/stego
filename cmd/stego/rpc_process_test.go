@@ -36,10 +36,8 @@ func rpcFactory(t *testing.T) []byte {
 }
 
 func TestRPCProcessCommandsWithoutStorage(t *testing.T) {
-	registry, err := filepath.Abs("../../registry")
-	if err != nil {
-		t.Fatal(err)
-	}
+	// grpc-processes is in the rpc-service of the GORM store path until the store path is removed (ST-SUP-RC20-OC39).
+	registry := storeRegistry(t)
 	factory := rpcFactory(t)
 	project := t.TempDir()
 	t.Chdir(project)

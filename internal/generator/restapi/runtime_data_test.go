@@ -68,6 +68,9 @@ func crudContext() gen.Context {
 		types.Entity{Name: "Book", Fields: []types.Field{{Name: "folder_id", Type: types.FieldTypeRef, To: "Folder"}, {Name: "title", Type: types.FieldTypeString}},
 			EntityAuthorization: types.EntityAuthorization{ResourceType: "book", Permissions: permissions(types.OpUpdate, types.OpPatch, types.OpDelete), PublicReasons: reasons,
 				References: map[string]types.Reference{"folder_id": {Relation: "folder", Permission: "edit"}}}},
+		types.Entity{Name: "Setting", Fields: []types.Field{{Name: "folder_id", Type: types.FieldTypeRef, To: "Folder"}, {Name: "name", Type: types.FieldTypeString}, {Name: "value", Type: types.FieldTypeString}},
+			EntityAuthorization: types.EntityAuthorization{ResourceType: "setting", Permissions: map[types.Operation]string{types.OpRead: "view", types.OpList: "view", types.OpUpsert: "edit"},
+				References: map[string]types.Reference{"folder_id": {Relation: "folder", Permission: "edit"}}}},
 		types.Entity{Name: "Event", Fields: []types.Field{{Name: "source", Type: types.FieldTypeString}, {Name: "note", Type: types.FieldTypeString}},
 			EntityAuthorization: types.EntityAuthorization{ResourceType: "event", Permissions: permissions(), PublicReasons: reasons}},
 	)
@@ -85,6 +88,7 @@ func crudContext() gen.Context {
 			{Name: "todos", Entity: "Todo", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpPatch, types.OpUpdate, types.OpDelete}, Patchable: []string{"title", "done", "meta"}},
 			{Name: "folders", Entity: "Folder", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpDelete}},
 			{Name: "folder-books", Entity: "Book", Scope: map[string]string{"folder_id": "Folder"}, Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpUpdate, types.OpPatch, types.OpDelete}, Patchable: []string{"title"}},
+			{Name: "folder-settings", Entity: "Setting", Scope: map[string]string{"folder_id": "Folder"}, Operations: []types.Operation{types.OpList, types.OpUpsert}, UpsertKey: []string{"folder_id", "name"}},
 			{Name: "red-events", Entity: "Event", PathPrefix: "/red-events", Implicit: map[string]string{"source": "red"}, Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList}},
 			{Name: "blue-events", Entity: "Event", PathPrefix: "/blue-events", Implicit: map[string]string{"source": "blue"}, Operations: []types.Operation{types.OpCreate, types.OpList}},
 		},
@@ -179,7 +183,7 @@ func slotFiles(t testing.TB, ctx gen.Context) map[string][]byte {
 func crudTables(t testing.TB, ctx gen.Context) []byte {
 	t.Helper()
 	adapter := gen.Context{OutputNamespace: "storage", ModuleName: ctx.ModuleName, ServiceName: ctx.ServiceName, RuntimeData: true,
-		Tenancy: ctx.Tenancy, Entities: ctx.Entities, PeerNamespaces: map[string]string{"postgres-adapter": "storage", gen.TenancyComponent: "tenancy"},
+		Tenancy: ctx.Tenancy, Entities: ctx.Entities, Collections: ctx.Collections, PeerNamespaces: map[string]string{"postgres-adapter": "storage", gen.TenancyComponent: "tenancy"},
 		ComponentConfig: map[string]any{"schema_generation": "tables-v1", "writer_lease": "off"}}
 	files, _, err := new(postgresadapter.Generator).Generate(adapter)
 	if err != nil {
@@ -283,7 +287,7 @@ func newCrudProject(t *testing.T, ctx gen.Context, files map[string][]byte) *cru
 		t.Fatal(err)
 	}
 	p.write("go.sum", sums)
-	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.27.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
+	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.28.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
 	p.mustGo("mod", "tidy")
 	return p
 }
@@ -385,9 +389,9 @@ func TestCrudService(t *testing.T) {
 	files := crudFiles(t, ctx)
 	t.Run("ST-SUP-RC20-OC37-T01 The handlers call Run and hold no store", func(t *testing.T) {
 		want := map[string]string{"Create": "command.Run", "Update": "command.Run", "Patch": "command.Run", "Delete": "command.Run",
-			"Read": "query.Run", "List": "query.Run"}
+			"Upsert": "command.Run", "Read": "query.Run", "List": "query.Run"}
 		methods := map[types.Operation]string{types.OpCreate: "Create", types.OpUpdate: "Update", types.OpPatch: "Patch",
-			types.OpDelete: "Delete", types.OpRead: "Read", types.OpList: "List"}
+			types.OpDelete: "Delete", types.OpUpsert: "Upsert", types.OpRead: "Read", types.OpList: "List"}
 		for _, c := range ctx.Collections {
 			name := "api/" + collectionToSnakeCase(c.Name) + "_handler.go"
 			source, ok := files[name]
@@ -419,13 +423,12 @@ func TestCrudService(t *testing.T) {
 	})
 	t.Run("ST-SUP-RC20-OC37-T04 Generation refuses what the runtime data path does not serve", func(t *testing.T) {
 		cases := map[string]func(*gen.Context){
-			"a create that is not public": func(c *gen.Context) { c.Entities[0].Permissions[types.OpCreate] = "edit" },
-			"a public patch":              func(c *gen.Context) { c.Entities[0].Permissions[types.OpPatch] = "public" },
-			"a delete with no permission": func(c *gen.Context) { delete(c.Entities[0].Permissions, types.OpDelete) },
-			"an upsert": func(c *gen.Context) {
-				c.Collections[0].Operations = append(c.Collections[0].Operations, types.OpUpsert)
-				c.Collections[0].UpsertKey = []string{"sku"}
-			},
+			"a create that is not public":                  func(c *gen.Context) { c.Entities[0].Permissions[types.OpCreate] = "edit" },
+			"a public patch":                               func(c *gen.Context) { c.Entities[0].Permissions[types.OpPatch] = "public" },
+			"a delete with no permission":                  func(c *gen.Context) { delete(c.Entities[0].Permissions, types.OpDelete) },
+			"an upsert with optimistic concurrency":        func(c *gen.Context) { c.Collections[5].Concurrency = types.ConcurrencyOptimistic },
+			"an upsert with no key":                        func(c *gen.Context) { c.Collections[5].UpsertKey = nil },
+			"an upsert of a row with no permission":        func(c *gen.Context) { delete(c.Entities[5].Permissions, types.OpUpsert) },
 			"an implicit field of a number type":           func(c *gen.Context) { c.Collections[0].Implicit = map[string]string{"qty": "1"} },
 			"a path parameter that is not the scope field": func(c *gen.Context) { c.Collections[0].PathPrefix = "/stock/{sku}" },
 			"a scope field that a patch may change": func(c *gen.Context) {
@@ -491,4 +494,5 @@ var crudCheckIDs = []string{
 	"ST-SUP-RC20-OC24-T05 A scoped collection on the runtime data path checks each row against the parent of the path",
 	"ST-SUP-RC20-OC23-T04 Implicit fields are forced and filtered on the runtime data path, under their path prefixes",
 	"ST-SUP-RC20-OC37-T09 A list search on the runtime data path filters on declared fields with bound values",
+	"ST-SUP-RC20-OC13-T03 An upsert on the runtime data path creates the row of its key with 201 and updates it with 200",
 }

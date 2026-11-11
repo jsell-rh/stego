@@ -30,8 +30,10 @@ var declaringRegistryDir, declaringRegistryCommit string
 func declaringRegistry(t *testing.T) (string, string) {
 	t.Helper()
 	declaringRegistryFixture.get(t, func() (string, error) {
-		source, err := filepath.Abs("../../registry")
-		if err != nil {
+		// ST-DECL-TD01 is a rest-crud service of the GORM store path until the store path is removed
+		// (ST-SUP-RC20-OC39).
+		source := filepath.Join(fixtureRoot, "declaring-store-registry")
+		if err := storeRegistryInto(source); err != nil {
 			return "", err
 		}
 		declaringRegistryDir = filepath.Join(fixtureRoot, "declaring-registry")

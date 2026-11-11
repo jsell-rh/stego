@@ -176,14 +176,14 @@ func TestAuditLogCompiledService(t *testing.T) {
 
 // acceptanceOf gives the experimental_acceptances block that accepts the shipped component name until its own
 // sunset, which it reads from registry/components, so that a new sunset of the component does not break a test
-// (ST-DECL-EN07, ST-GEN-INV37).
+// (ST-DECL-EN07, ST-GEN-INV37). A ga component needs no acceptance, and gets no block.
 func acceptanceOf(name, reason string) string {
 	c, err := registry.ParseComponent(filepath.Join("..", "..", "registry", "components", name, "component.yaml"))
 	if err != nil {
 		panic(fmt.Sprintf("read the component %s: %v", name, err))
 	}
 	if c.Sunset == "" {
-		panic("the component " + name + " has no sunset date")
+		return ""
 	}
 	return "experimental_acceptances:\n  - {component: " + name + ", accepted_until: " + c.Sunset + ", reason: " + reason + "}\n"
 }

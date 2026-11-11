@@ -16,7 +16,7 @@ provides no port. The anchor period is a setting of this component
 (anchor_period, a Go duration). The retention is retention_months, and the
 declaration's audit.retention ("13 months") replaces it.
 
-The stage is alpha. The writer and the sink destination wait on the outbox
+The stage is ga. The writer and the sink destination wait on the outbox
 adapter of the audit runtime (ST-SUP-RP05-LC14), and the registration of the
 jobs in controller mode waits on the periodic job of the modes runtime
 (ST-SUP-RP09-LC13).

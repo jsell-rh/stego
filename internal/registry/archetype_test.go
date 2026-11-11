@@ -40,14 +40,14 @@ func TestRestCrudArchetypeParsesFromLiveRegistry(t *testing.T) {
 	if a.Language != "go" {
 		t.Errorf("Language = %q, want %q", a.Language, "go")
 	}
-	if a.Version != "3.28.0" {
-		t.Errorf("Version = %q, want %q", a.Version, "3.28.0")
+	if a.Version != "3.29.0" {
+		t.Errorf("Version = %q, want %q", a.Version, "3.29.0")
 	}
 	if a.DefaultAuth != "jwt-auth" {
 		t.Errorf("DefaultAuth = %q, want %q", a.DefaultAuth, "jwt-auth")
 	}
 
-	wantComponents := []string{"rest-api", "postgres-adapter", "tsl-search", "otel-tracing", "health-check"}
+	wantComponents := []string{"rest-api", "postgres-adapter", "domain-probe", "command", "query", "outbox", "otel-tracing", "health-check"}
 	if len(a.Components) != len(wantComponents) {
 		t.Fatalf("Components count = %d, want %d", len(a.Components), len(wantComponents))
 	}

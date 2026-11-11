@@ -151,7 +151,9 @@ func validateRuntimeData(ctx gen.Context, entities map[string]types.Entity) erro
 		for _, op := range c.Operations {
 			switch op {
 			case types.OpUpsert:
-				return fmt.Errorf("rest-api: collection %s declares upsert, which the runtime data path does not serve yet", c.Name)
+				if err := validateRuntimeUpsert(c, e, entities); err != nil {
+					return err
+				}
 			case types.OpUpdate, types.OpPatch, types.OpDelete:
 				// Every write of a row decides a permission on it before the fill; a write with none would run
 				// undecided (ST-SUP-RC29-OC01).
@@ -227,6 +229,40 @@ func validateRuntimeScope(ctx gen.Context, c types.Collection, e types.Entity, e
 		if param != scope {
 			return fmt.Errorf("rest-api: collection %s has the path parameter %s, which is not its scope field; the runtime data path checks only the scope field", c.Name, param)
 		}
+	}
+	return nil
+}
+
+// validateRuntimeUpsert refuses an upsert that the handlers on the runtime data path cannot serve: one with no
+// upsert key or a key field that is not a required field of the entity, one with optimistic concurrency, whose
+// incoming generation ST-SUP-RC20-OC17 clears (ST-SUP-Q105), one whose update of a stored row decides no
+// permission, and one whose insert decides nothing: an entity with no reference to an entity with a resource type
+// needs a public create, with its reason (ST-SUP-RC20-OC13).
+func validateRuntimeUpsert(c types.Collection, e types.Entity, entities map[string]types.Entity) error {
+	if len(c.UpsertKey) == 0 {
+		return fmt.Errorf("rest-api: collection %s declares upsert with no upsert_key", c.Name)
+	}
+	for _, key := range c.UpsertKey {
+		ok := false
+		for _, f := range e.Fields {
+			ok = ok || (f.Name == key && !f.Optional && f.Type != types.FieldTypeJsonb && f.Type != types.FieldTypeBytes)
+		}
+		if !ok {
+			return fmt.Errorf("rest-api: collection %s has the upsert key field %s, which is not a required field of %s of a plain type", c.Name, key, e.Name)
+		}
+	}
+	if c.Concurrency == types.ConcurrencyOptimistic {
+		return fmt.Errorf("rest-api: collection %s declares optimistic concurrency on upsert, which the runtime data path does not serve: ST-SUP-RC20-OC17 clears the incoming generation that ST-SUP-RC20-OC14 compares (ST-SUP-Q105)", c.Name)
+	}
+	if p := e.Permissions[types.OpUpsert]; p == "" || p == types.PermissionPublic {
+		return fmt.Errorf("rest-api: collection %s declares upsert with the permission %q; on the runtime data path an upsert of a stored row decides a permission of %s on it", c.Name, p, e.ResourceType)
+	}
+	referred := false
+	for _, f := range e.Fields {
+		referred = referred || (f.Type == types.FieldTypeRef && entities[f.To].ResourceType != "")
+	}
+	if !referred && e.Permissions[types.OpCreate] != types.PermissionPublic {
+		return fmt.Errorf("rest-api: collection %s declares upsert of %s, which refers to no entity with a resource type, so the insert of a new row is decided on nothing: declare create public with a reason", c.Name, e.Name)
 	}
 	return nil
 }
@@ -749,6 +785,8 @@ var afterCall = regexp.MustCompile(`(?m)^(\t*)if _, slotErr := h\.(\w+)\.Evaluat
 
 // runtimeHandlerWriter writes one handler file.
 type runtimeHandlerWriter struct {
+	// upsertRead is the Read statement of the lookup of an upsert by its natural key.
+	upsertRead string
 	bytes.Buffer
 	c          *runtimeCollection
 	ctx        gen.Context
@@ -763,12 +801,19 @@ func (w *runtimeHandlerWriter) f(format string, args ...any) { fmt.Fprintf(&w.Bu
 // type, and one method per declared operation that calls Run.
 func renderRuntimeHandler(ctx gen.Context, c *runtimeCollection, dataImport, slotsImportPath string, keys *idempotencyHeader) ([]byte, error) {
 	w := &runtimeHandlerWriter{c: c, ctx: ctx, keys: keys, envelope: ctx.Conventions.ResponseFormat == "envelope"}
+	if c.ops[types.OpUpsert] {
+		read, err := command.KeyListRead(c.entity.Name, ctx.Entities, ctx.Tenancy.Key, c.decl.UpsertKey)
+		if err != nil {
+			return nil, err
+		}
+		w.upsertRead = read
+	}
 	if len(c.slots) > 0 {
 		w.slotsAlias = "slots"
 	}
 	e := c.entity
-	hasWrite := c.ops[types.OpCreate] || c.ops[types.OpUpdate] || c.ops[types.OpPatch] || c.ops[types.OpDelete]
-	hasBody := c.ops[types.OpCreate] || c.ops[types.OpUpdate] || c.ops[types.OpPatch]
+	hasWrite := c.ops[types.OpCreate] || c.ops[types.OpUpdate] || c.ops[types.OpPatch] || c.ops[types.OpDelete] || c.ops[types.OpUpsert]
+	hasBody := c.ops[types.OpCreate] || c.ops[types.OpUpdate] || c.ops[types.OpPatch] || c.ops[types.OpUpsert]
 	needTime, needFmt := false, false
 	for _, f := range e.Fields {
 		if f.Type == types.FieldTypeTimestamp && (hasBody || f.Sensitivity == "secret") {
@@ -778,7 +823,7 @@ func renderRuntimeHandler(ctx gen.Context, c *runtimeCollection, dataImport, slo
 	if len(c.slots) > 0 && needsFmtForSlotFields(e) {
 		needFmt = true
 	}
-	needUUID := w.envelope && c.ops[types.OpCreate]
+	needUUID := w.envelope && (c.ops[types.OpCreate] || c.ops[types.OpUpsert])
 	w.f("package %s\n\nimport (\n\t\"context\"\n\t\"encoding/json\"\n", path.Base(ctx.OutputNamespace))
 	if needFmt {
 		w.f("\t\"fmt\"\n")
@@ -797,9 +842,8 @@ func renderRuntimeHandler(ctx gen.Context, c *runtimeCollection, dataImport, slo
 	if needUUID {
 		w.f("\t\"github.com/google/uuid\"\n\n")
 	}
-	if hasWrite || c.ops[types.OpRead] || c.scope != "" {
-		w.f("\t\"github.com/jsell-rh/stego/registry/runtime/command\"\n")
-	}
+	// Each handler binds the verified identity through command.BindIdentity.
+	w.f("\t\"github.com/jsell-rh/stego/registry/runtime/command\"\n")
 	if hasWrite {
 		w.f("\t\"github.com/jsell-rh/stego/registry/runtime/idempotency\"\n")
 	}
@@ -851,6 +895,8 @@ func renderRuntimeHandler(ctx gen.Context, c *runtimeCollection, dataImport, slo
 			w.patch()
 		case types.OpDelete:
 			w.remove()
+		case types.OpUpsert:
+			w.upsert()
 		}
 	}
 	formatted, err := format.Source(w.Bytes())
@@ -893,12 +939,17 @@ func (w *runtimeHandlerWriter) declarations() {
 			if effects := w.afterEffects(op); len(effects) > 0 {
 				w.f("\tDestinations: []command.Destination{{Name: AfterSlotsDestination, Idempotent: true, MustLand: true, Effects: []string{%s}}},\n", quoteAll(effects))
 			}
-			if p := c.permission(op); p != "" && op != types.OpCreate {
+			// A create and an upsert have no row to decide on before the fill: an upsert decides its permission on
+			// the stored row in the fill.
+			if p := c.permission(op); p != "" && op != types.OpCreate && op != types.OpUpsert {
 				token := fmt.Sprintf("SELECT authz_token FROM %s WHERE tenant_id = $1 AND id = $2::uuid FOR SHARE", table)
 				w.f("\tPermission: %q,\n\tResource: &command.Resource{Type: %q, Token: %q, ValidID: command.ValidUUID},\n", p, e.ResourceType, token)
 			}
 			w.f("}))\n\n")
 		}
+	}
+	if c.ops[types.OpUpsert] {
+		w.f("// %sUpsertKey finds the row of an upsert by its natural key %s (ST-SUP-RC20-OC13).\nvar %sUpsertKey = command.Must(command.NewList(data.%sEntity, command.ListSpec{Name: \"upsert-key\", Read: %q}))\n\n", c.camel, strings.Join(c.decl.UpsertKey, ", "), c.camel, e.Name, w.upsertRead)
 	}
 	if c.ops[types.OpList] {
 		w.f("// %sSearchFields are the fields that a list search may name, with the kind of their values: the declared\n// fields that are not secret or implicit, of a text, number or bool type (ST-SUP-RP11-LC20).\nvar %sSearchFields = map[string]query.FieldKind{", c.camel, c.camel)
@@ -994,7 +1045,7 @@ func (w *runtimeHandlerWriter) helpers() {
 	} else {
 		w.f("\treturn v\n}\n\n")
 	}
-	if c.ops[types.OpCreate] || c.ops[types.OpUpdate] {
+	if c.ops[types.OpCreate] || c.ops[types.OpUpdate] || c.ops[types.OpUpsert] {
 		w.f("// decode%s gives the %s of a create or an update body. A kind member that is not %s is refused, and the\n// client values of the server-managed fields are cleared (ST-SUP-RC20-OC17, ST-SUP-RC20-OC19).\n", c.pascal, e.Name, e.Name)
 		w.f("func decode%s(bodyBytes []byte) (%s, error) {\n", c.pascal, e.Name)
 		w.f("\tvar rawMap map[string]json.RawMessage\n\tif err := json.Unmarshal(bodyBytes, &rawMap); err != nil {\n\t\treturn %s{}, &invalidRequest{problem: BadRequest(\"the body is not a JSON object\")}\n\t}\n", e.Name)
@@ -1379,6 +1430,55 @@ func (w *runtimeHandlerWriter) parents(stored string) {
 		w.f("\t\t\trefs, err := data.%sRepository(ch)\n\t\t\tif err != nil {\n\t\t\t\treturn idempotency.Response{}, err\n\t\t\t}\n", f.To)
 		w.f("\t\t\tparent, err := refs.Get(ctx, %s)\n\t\t\tif err != nil {\n\t\t\t\treturn idempotency.Response{}, err\n\t\t\t}\n\t\t\tparents = append(parents, parent)\n\t\t}\n", id)
 	}
+}
+
+// upsert writes the upsert of the collection: one generated command that finds the row of the natural key with no
+// lock; a new row is created as a create is, and decided on the rows it refers to; a stored row is locked, decided on
+// the upsert permission, and updated as an update is. It answers 201 for an insert and 200 for an update
+// (ST-SUP-RC20-OC13). Two upserts of one new key that run at once meet the unique key: the later one runs again as
+// a conflict and updates the row (ST-SUP-RP10-LC25).
+func (w *runtimeHandlerWriter) upsert() {
+	c, e := w.c, w.c.entity
+	w.f("// Upsert runs the generated command upsert of %s through Run: it creates the row of the natural key %s, or\n// updates the stored one, and answers 201 or 200 (ST-SUP-RC20-OC13).\n", c.decl.Name, strings.Join(c.decl.UpsertKey, ", "))
+	w.f("func (h *%sHandler) Upsert(w http.ResponseWriter, r *http.Request) {\n", c.pascal)
+	w.start(true)
+	w.f("\tif _, err := decode%s(body); err != nil {\n\t\th.rt.answerWrite(w, r, command.Request{}, \"upsert\", %q, %q, false, err)\n\t\treturn\n\t}\n", c.pascal, e.ResourceType, e.Name)
+	w.f("\trequestID := command.NewID()\n\tfingerprint, err := idempotency.Fingerprint(r.Method, r.URL.Path, body)\n\tif err != nil {\n\t\thandleError(w, r, BadRequest(\"the body is not a JSON object\"))\n\t\treturn\n\t}\n")
+	w.f("\treq := h.rt.commandRequest(r, b, requestKey(requestID), fingerprint, requestID, body, \"\")\n")
+	w.f("\tvar persisted %s\n", e.Name)
+	w.f("\tresult, err := command.Run(r.Context(), h.rt.Commands, %s, req, decode%s, func(ctx context.Context, %s %s, ch *command.Handle[struct{}]) (idempotency.Response, error) {\n", w.commandVar(types.OpUpsert), c.pascal, c.lower, e.Name)
+	w.populateCreate()
+	w.forceScope("scope")
+	w.f("\t\trepo, err := data.%sRepository(ch)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", e.Name)
+	var keys []string
+	for _, key := range c.decl.UpsertKey {
+		keys = append(keys, c.lower+"."+toPascalCase(key))
+	}
+	w.f("\t\tfound, err := repo.List(ctx, %sUpsertKey, 1, %s)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", c.camel, strings.Join(keys, ", "))
+	w.f("\t\tif len(found) == 0 {\n")
+	if w.envelope {
+		w.f("\t\tid, err := uuid.NewV7()\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n\t\t%s.ID = id.String()\n", c.lower)
+	} else {
+		w.f("\t\t%s.ID = command.NewID()\n", c.lower)
+	}
+	w.parents("")
+	w.f("\t\tcreated, err := repo.Create(ctx, %s, parents...)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", w.toData(c.lower))
+	w.f("\t\tpersisted = %s\n", w.fromData("created.Value()"))
+	w.respond("http.StatusCreated", "persisted")
+	w.f("\t\t}\n")
+	w.f("\t\tfrom, err := repo.GetForUpdate(ctx, found[0].ID())\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n")
+	w.f("\t\t// A stored row is decided on the upsert permission; a deny is not found (ST-SUP-RP11-LC06).\n")
+	w.f("\t\tallowed, err := ch.Authz().Evaluate(ctx, %q, from, nil)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n\t\tif !allowed {\n\t\t\treturn idempotency.Response{}, command.ErrNotFound\n\t\t}\n", e.Permissions[types.OpUpsert])
+	w.f("\t\tstored := %s\n\t\t%s.ID = stored.ID\n", w.fromData("from.Value()"), c.lower)
+	w.populateUpdate()
+	w.forceScope("scope")
+	w.parents("stored")
+	w.f("\t\tupdated, err := repo.Update(ctx, from, %s, parents...)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", w.toData(c.lower))
+	w.f("\t\tpersisted = %s\n", w.fromData("updated.Value()"))
+	w.respond("http.StatusOK", "persisted")
+	w.f("\t})\n")
+	w.finish(types.OpUpsert, "")
+	w.f("\twriteResult(w, result)\n}\n\n")
 }
 
 // lockRow writes the locked read of the row of the path's ID in a command's fill, as stored.

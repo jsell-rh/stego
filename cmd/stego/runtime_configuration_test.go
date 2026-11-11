@@ -13,7 +13,7 @@ func TestRuntimeConfigurationCompilation(t *testing.T) {
 	t.Parallel()
 	project := t.TempDir()
 	registry := filepath.Join(project, "registry")
-	if err := os.CopyFS(registry, os.DirFS("../../registry")); err != nil {
+	if err := os.CopyFS(registry, os.DirFS(storeRegistry(t))); err != nil {
 		t.Fatal(err)
 	}
 	archetype := filepath.Join(registry, "archetypes/rest-crud/archetype.yaml")
