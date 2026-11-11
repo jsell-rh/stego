@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
 	"github.com/jsell-rh/stego/registry/runtime/idempotency"
+	"github.com/jsell-rh/stego/registry/runtime/internal/seal"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
@@ -149,7 +151,8 @@ func resolveIn(t *testing.T, db *sql.DB, w *Worker, tenantID string, id uuid.UUI
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	resolved, err := w.Resolve(context.Background(), tx, ResolveRequest{ID: id, Subject: subject, Resolution: r})
+	resolved, err := w.Resolve(context.Background(), tx, ResolveRequest{ID: id, Destination: destinationOf(t, tx, id),
+		Principal: person(subject), Resolution: r})
 	if err != nil {
 		return err
 	}
@@ -158,6 +161,27 @@ func resolveIn(t *testing.T, db *sql.DB, w *Worker, tenantID string, id uuid.UUI
 	}
 	resolved.Committed(context.Background())
 	return nil
+}
+
+// testPrincipal is a principal with a seal mark, as authz.Person gives; the package cannot import the
+// authorization runtime, which imports it.
+type testPrincipal struct{ seal.PrincipalMark }
+
+// person is the principal of the subject subject.
+func person(subject string) Principal { return testPrincipal{seal.NewPrincipalMark(subject)} }
+
+// destinationOf is the destination of the message id that tx sees, or none when tx does not see it.
+func destinationOf(t *testing.T, tx *sql.Tx, id uuid.UUID) string {
+	t.Helper()
+	var destination string
+	err := tx.QueryRowContext(context.Background(), `SELECT destination FROM stego_outbox.messages WHERE id = $1`, id).Scan(&destination)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "none"
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return destination
 }
 
 func resolve(t *testing.T, db *sql.DB, w *Worker, id uuid.UUID, r Resolution) {
@@ -748,7 +772,8 @@ func TestDispatchResolve(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := w.Resolve(ctx, tx, ResolveRequest{ID: m.ID, Subject: "user:ops-1", Resolution: Acted}); err != nil {
+		if _, err := w.Resolve(ctx, tx, ResolveRequest{ID: m.ID, Destination: m.Destination, Principal: person("user:ops-1"),
+			Resolution: Acted}); err != nil {
 			t.Fatal(err)
 		}
 		if err := tx.Rollback(); err != nil {
@@ -961,6 +986,94 @@ func TestDispatchPermission(t *testing.T) {
 		}
 		if calls.Load() != 3 {
 			t.Fatal("not every case ran")
+		}
+	})
+}
+
+func TestResolveDecidesFirst(t *testing.T) {
+	t.Run("ST-SUP-RP01-LC17-T03 Resolve decides the permission first and takes only a principal of the authorization runtime", func(t *testing.T) {
+		db, _ := testDatabase(t)
+		q := newQueue(t, db, newClock())
+		parked, pending, other := message("billing", "charge:1"), message("billing", "charge:2"), message("billing", "charge:3")
+		enqueue(t, db, q, parked)
+		refuse := func(context.Context, *sql.Tx, Delivery) error { return PermanentRefusal(errors.New("400")) }
+		first := resolvingWorker(t, q, &fakeDecider{allow: true})
+		register(t, first, Destination{Name: "billing", Handler: refuse})
+		cycle(t, first)
+		enqueue(t, db, q, pending)
+		enqueueAs(t, db, q, "tenant-b", other)
+		ctx := context.Background()
+		try := func(w *Worker, request ResolveRequest) error {
+			t.Helper()
+			tx, err := tenant.Begin(ctx, db, testTenant(t, "tenant-a"), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = tx.Rollback() }()
+			_, err = w.Resolve(ctx, tx, request)
+			return err
+		}
+		// A deny gives one answer for a parked message, a pending one, one of another tenant and one that is not
+		// there, and the decision port is asked about the named destination in the tenant of the transaction.
+		deny := &fakeDecider{allow: false}
+		denied := resolvingWorker(t, q, deny)
+		register(t, denied, Destination{Name: "billing", Handler: refuse})
+		var answers []string
+		for _, id := range []uuid.UUID{parked.ID, pending.ID, other.ID, uuid.New()} {
+			err := try(denied, ResolveRequest{ID: id, Destination: "billing", Principal: person("user:ops-1"), Resolution: Acted})
+			if !errors.Is(err, ErrNotAllowed) {
+				t.Fatalf("the denied resolution of %s gave %v, want ErrNotAllowed", id, err)
+			}
+			answers = append(answers, err.Error())
+		}
+		for _, a := range answers[1:] {
+			if a != answers[0] {
+				t.Fatalf("the denied resolutions gave the answers %q", answers)
+			}
+		}
+		deny.mu.Lock()
+		calls := slices.Clone(deny.calls)
+		deny.mu.Unlock()
+		if len(calls) != 4 {
+			t.Fatalf("the decision port got %d calls, want one for each resolution", len(calls))
+		}
+		for _, call := range calls {
+			if call.Subject != "user:ops-1" || call.Resource != "outbox_destination:billing" || call.Tenant.ID() != "tenant-a" {
+				t.Fatalf("the decision request is %+v", call)
+			}
+		}
+		// After an allow, the caller learns that a message is not there, is of another destination or is not parked.
+		allowed := resolvingWorker(t, q, &fakeDecider{allow: true})
+		register(t, allowed, Destination{Name: "billing", Handler: refuse})
+		register(t, allowed, Destination{Name: "ledger", Handler: refuse})
+		for _, c := range []struct {
+			request ResolveRequest
+			want    error
+		}{
+			{ResolveRequest{ID: uuid.New(), Destination: "billing", Principal: person("user:ops-1"), Resolution: Acted}, ErrNotFound},
+			{ResolveRequest{ID: other.ID, Destination: "billing", Principal: person("user:ops-1"), Resolution: Acted}, ErrNotFound},
+			{ResolveRequest{ID: parked.ID, Destination: "ledger", Principal: person("user:ops-1"), Resolution: Acted}, ErrNotFound},
+			{ResolveRequest{ID: pending.ID, Destination: "billing", Principal: person("user:ops-1"), Resolution: Acted}, ErrNotParked},
+		} {
+			if err := try(allowed, c.request); !errors.Is(err, c.want) {
+				t.Fatalf("the allowed resolution %+v gave %v, want %v", c.request, err, c.want)
+			}
+		}
+		// A principal that the authorization runtime did not make is refused before the decision port is asked.
+		counted := &fakeDecider{allow: true}
+		strict := resolvingWorker(t, q, counted)
+		register(t, strict, Destination{Name: "billing", Handler: refuse})
+		for name, p := range map[string]Principal{"no principal": nil, "a zero mark": testPrincipal{},
+			"a nil embedded principal": struct{ Principal }{}} {
+			if err := try(strict, ResolveRequest{ID: parked.ID, Destination: "billing", Principal: p, Resolution: Acted}); err == nil {
+				t.Fatalf("Resolve took %s", name)
+			}
+		}
+		counted.mu.Lock()
+		n := len(counted.calls)
+		counted.mu.Unlock()
+		if n != 0 || readRow(t, db, parked.ID).State != Parked {
+			t.Fatalf("the refused principals reached the decision port %d times or changed the message", n)
 		}
 	})
 }
