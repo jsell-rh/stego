@@ -69,8 +69,8 @@ func TestServeHelpers(t *testing.T) {
 		}
 		// Another error, and a refusal that the lookup does not know, are 500 internal with no error text.
 		for name, err := range map[string]error{
-			"an error whose text holds an email":   errors.New("no order for jane.doe@example.com"),
-			"a refusal of another query":           other,
+			"an error whose text holds an email":  errors.New("no order for jane.doe@example.com"),
+			"a refusal of another query":          other,
 			"a refusal that the fill made itself": NewRefusal("get-order", "order_unknown", http.StatusNotFound, "order.unknown"),
 		} {
 			failWith = err
