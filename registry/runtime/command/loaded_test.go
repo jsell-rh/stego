@@ -67,7 +67,7 @@ func buildFillWith(t *testing.T, imports []string, src string) error {
 	dir := t.TempDir()
 	module := filepath.Join(dir, "outside")
 	files := map[string]string{
-		"go.mod":     "module example.com/outside\n\ngo 1.26.10\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.0.0\n",
+		"go.mod":     "module example.com/outside\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.0.0\n",
 		"gen/gen.go": genSource,
 		"fill/fill.go": "package fill\n\nimport (\n\t\"context\"\n\n\t\"example.com/outside/gen\"\n\t\"github.com/jsell-rh/stego/registry/runtime/command\"\n" + extra + ")\n\n" +
 			"var (\n\t_ context.Context\n\t_ = gen.ChargeRequested\n\t_ *command.Handle[struct{}]\n)\n" + src,

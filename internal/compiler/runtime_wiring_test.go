@@ -92,7 +92,7 @@ func newWiringProject(t *testing.T, binary, components string) *wiringProject {
 	if err := os.CopyFS(p.dir, os.DirFS(filepath.Join(wiringFixture, "project"))); err != nil {
 		t.Fatal(err)
 	}
-	p.write("go.mod", "module "+wiringModule+"\n\ngo 1.26.10\n")
+	p.write("go.mod", "module "+wiringModule+"\n\ngo 1.26.11\n")
 	// The service's repository: a run with no record reads the record of its HEAD commit (ST-SUP-RC01-OC41).
 	p.git("init", "-q")
 	return p

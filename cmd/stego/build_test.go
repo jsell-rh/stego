@@ -66,7 +66,7 @@ func tinySource(t *testing.T, files map[string]string) (string, string) {
 	t.Helper()
 	repository := filepath.Join(t.TempDir(), "source")
 	content := map[string]string{
-		"go.mod":           "module example.com/tiny\n\ngo 1.26.10\n\nrequire " + tinyModule + " " + tinyVersion + "\n",
+		"go.mod":           "module example.com/tiny\n\ngo 1.26.11\n\nrequire " + tinyModule + " " + tinyVersion + "\n",
 		"go.sum":           tinyModule + " " + tinyVersion + " " + tinySum + "\n" + tinyModule + " " + tinyVersion + "/go.mod " + tinyModSum + "\n",
 		"cmd/tiny/main.go": "package main\n\nimport _ \"" + tinyModule + "\"\n\nfunc main() {}\n",
 	}
@@ -188,7 +188,7 @@ func TestBuildDownloadLeavesNothingWhenItFails(t *testing.T) {
 		missing := "example.invalid/stego-missing"
 		sum := "h1:" + strings.Repeat("A", 42) + "E="
 		source, revision := tinySource(t, map[string]string{
-			"go.mod":           "module example.com/tiny\n\ngo 1.26.10\n\nrequire " + missing + " v1.0.0\n",
+			"go.mod":           "module example.com/tiny\n\ngo 1.26.11\n\nrequire " + missing + " v1.0.0\n",
 			"go.sum":           missing + " v1.0.0 " + sum + "\n" + missing + " v1.0.0/go.mod " + sum + "\n",
 			"cmd/tiny/main.go": "package main\n\nimport _ \"" + missing + "\"\n\nfunc main() {}\n",
 		})
@@ -315,7 +315,7 @@ func buildSourceIn(t *testing.T, root string) (string, string) {
 		writeProjectFile(t, name, data)
 	}
 	input := compiler.ReconcilerInput{
-		ProjectDir: project, RegistryDir: registry, ModuleName: "example.com/tiny", GoVersion: "1.26.10",
+		ProjectDir: project, RegistryDir: registry, ModuleName: "example.com/tiny", GoVersion: "1.26.11",
 		Generators: map[string]gen.Generator{
 			"tiny-api":   buildGenerator{[]gen.File{{Path: "internal/api/tiny/main.go", Content: []byte("package main\n\nimport _ \"" + tinyModule + "\"\n\nfunc main() {}\n")}}},
 			"tiny-store": buildGenerator{},

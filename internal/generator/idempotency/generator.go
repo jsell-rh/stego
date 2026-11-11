@@ -46,7 +46,7 @@ var keyMethods = map[types.Operation]string{types.OpCreate: "POST", types.OpPatc
 type Generator struct{}
 
 // MinimumGoVersion is the Go version of the runtime module that the generated code imports.
-func (*Generator) MinimumGoVersion() string { return "1.26.10" }
+func (*Generator) MinimumGoVersion() string { return "1.26.11" }
 
 // settings is the idempotency setting of one declaration, resolved for the generated code.
 type settings struct {

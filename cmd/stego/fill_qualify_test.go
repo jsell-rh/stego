@@ -162,7 +162,7 @@ func (k *fillKeys) env(home string) []string {
 	env = append(env, k.goEnv...)
 	return append(env, "HOME="+home, "GNUPGHOME="+k.gnupgHome, "XDG_CONFIG_HOME="+filepath.Join(home, ".config"), "XDG_CACHE_HOME="+filepath.Join(home, ".cache"),
 		"GOWORK=off", "GOTOOLCHAIN=local", "GOFLAGS=-mod=mod", "GIT_CONFIG_NOSYSTEM=1",
-		"STEGO_REGISTRY="+k.registry, "STEGO_MODULE=example.com/fills", "STEGO_GO_VERSION=1.26.10")
+		"STEGO_REGISTRY="+k.registry, "STEGO_MODULE=example.com/fills", "STEGO_GO_VERSION=1.26.11")
 }
 
 // fillProject is one copy of the project of ST-EXT-TD01.

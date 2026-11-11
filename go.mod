@@ -1,6 +1,6 @@
 module github.com/jsell-rh/stego
 
-go 1.26.10
+go 1.26.11
 
 require (
 	cel.dev/cel-go v0.32.0

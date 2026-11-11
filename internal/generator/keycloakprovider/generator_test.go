@@ -151,7 +151,7 @@ func testGeneratedProviderWith(t *testing.T, supply func() gen.Context, telemetr
 	}
 	tracingImport := ""
 	var module strings.Builder
-	module.WriteString("module example.com/provider\ngo 1.26.10\n")
+	module.WriteString("module example.com/provider\ngo 1.26.11\n")
 	authContext := c
 	authContext.OutputNamespace = "auth"
 	authContext.ComponentConfig = map[string]any{"mode": "verifier"}

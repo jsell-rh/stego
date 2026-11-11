@@ -42,7 +42,7 @@ var retentionText = regexp.MustCompile(`^([1-9][0-9]{0,3}) months?$`)
 type Generator struct{}
 
 // MinimumGoVersion is the Go version of the runtime module.
-func (*Generator) MinimumGoVersion() string { return "1.26.10" }
+func (*Generator) MinimumGoVersion() string { return "1.26.11" }
 
 // plan is what the emitted code holds, read from the context.
 type plan struct {

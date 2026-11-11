@@ -17,16 +17,16 @@ import subprocess
 import time
 
 
-GO_VERSION = "go1.26.10"
+GO_VERSION = "go1.26.11"
 # Reviewed against https://go.dev/dl/?mode=json&include=all. The inventory
 # records the archive's file paths, bytes, and executable bits.
 GO_RELEASE = {
-    "url": "https://dl.google.com/go/go1.26.10.linux-amd64.tar.gz",
-    "sha256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5",
-    "size": 66936659,
+    "url": "https://dl.google.com/go/go1.26.11.linux-amd64.tar.gz",
+    "sha256": "9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec",
+    "size": 66999944,
     "inventory": {
-        "sha256": "9ba41b7539289f8b3c624f7ed8639e0a19fb2a059480c484371f4b30e26f6345",
-        "files": 15045, "bytes": 232612406,
+        "sha256": "70f525efa7ced94a0e551446237611a4185c8fba26433f67dd1be13894f30c84",
+        "files": 15048, "bytes": 232821816,
     },
 }
 SETTINGS = {

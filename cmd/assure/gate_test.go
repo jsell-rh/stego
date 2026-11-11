@@ -648,7 +648,7 @@ steps:
       persist-credentials: false
   - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
     with:
-      go-version: '1.26.10'
+      go-version: '1.26.11'
       cache: false
   - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
     with:

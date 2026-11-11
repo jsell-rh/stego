@@ -125,7 +125,7 @@ func TestDependenciesFollowTheCapturedSource(t *testing.T) {
 			t.Fatal(err)
 		}
 		dependency := t.TempDir()
-		writeProjectFile(t, filepath.Join(dependency, "go.mod"), "module example.com/overlay\ngo 1.26.10\n")
+		writeProjectFile(t, filepath.Join(dependency, "go.mod"), "module example.com/overlay\ngo 1.26.11\n")
 		writeProjectFile(t, filepath.Join(dependency, "overlay.go"), "package overlay\n")
 		raw, err := os.ReadFile("go.mod")
 		if err != nil {
@@ -178,7 +178,7 @@ func TestDependenciesFollowTheCapturedSource(t *testing.T) {
 	})
 	t.Run("ST-BLD-UC01-R02-T02 Resolution ignores an ambient vendor flag and a missing go.work", func(t *testing.T) {
 		dependencyProject(t)
-		writeProjectFile(t, "local/go.mod", "module example.com/local\ngo 1.26.10\n")
+		writeProjectFile(t, "local/go.mod", "module example.com/local\ngo 1.26.11\n")
 		writeProjectFile(t, "local/local.go", "package local\n")
 		raw, err := os.ReadFile("go.mod")
 		if err != nil {

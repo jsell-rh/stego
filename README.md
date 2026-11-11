@@ -88,7 +88,7 @@ workflows through the generated runtime.
 
 ## Prerequisites
 
-- Go 1.26.10+ ([install](https://go.dev/dl/))
+- Go 1.26.11+ ([install](https://go.dev/dl/))
 
 ## Build from source
 
