@@ -57,7 +57,7 @@ jobs:
       - name: Build the pinned Lathe
         working-directory: lathe/lathe
         run: |
-          npm ci --no-audit --no-fund
+          npm ci --ignore-scripts --no-audit --no-fund
           ./node_modules/.bin/tsc -p tsconfig.build.json
           chmod +x dist/bin/lathe.js
       - name: Load and check the specification

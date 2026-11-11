@@ -91,7 +91,7 @@ jobs:
       - name: Build the pinned Lathe
         working-directory: lathe/lathe
         run: |
-          npm ci --no-audit --no-fund
+          npm ci --ignore-scripts --no-audit --no-fund
           ./node_modules/.bin/tsc -p tsconfig.build.json
           chmod +x dist/bin/lathe.js
       - name: Install the pinned Lathe
@@ -230,7 +230,7 @@ jobs:
       - name: Build the pinned Lathe
         working-directory: lathe/lathe
         run: |
-          if ! { npm ci --no-audit --no-fund && ./node_modules/.bin/tsc -p tsconfig.build.json && chmod +x dist/bin/lathe.js; }; then
+          if ! { npm ci --ignore-scripts --no-audit --no-fund && ./node_modules/.bin/tsc -p tsconfig.build.json && chmod +x dist/bin/lathe.js; }; then
             echo "::error::The gate did not run: the pinned Lathe did not build. This is no decision on the change."
             exit 1
           fi
@@ -322,7 +322,7 @@ jobs:
       - name: Build the pinned Lathe
         working-directory: lathe/lathe
         run: |
-          npm ci --no-audit --no-fund
+          npm ci --ignore-scripts --no-audit --no-fund
           ./node_modules/.bin/tsc -p tsconfig.build.json
           chmod +x dist/bin/lathe.js
       - name: Build assure
