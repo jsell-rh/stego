@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/jsell-rh/stego/internal/gen"
 )
@@ -21,8 +22,10 @@ const Component = "oidc-auth"
 // Algorithms is the allow list of the runtime verifier (ST-SUP-RP13-LC03): a declaration may accept only these.
 var Algorithms = []string{"RS256", "ES256"}
 
-// registeredClaims are the registered claims other than sub, which the subject claim must not name.
-var registeredClaims = []string{"iss", "aud", "exp", "nbf", "iat", "jti"}
+// SubjectClaims is the allow list of the subject claim, as the runtime verifier holds it (ST-SUP-RP13-LC13): sub,
+// and oid, the immutable object ID of Microsoft Entra ID. A claim that the user or the provider can change, such as
+// email, preferred_username or upn, could map two accounts to one subject (ST-SUP-RC37-OC03).
+var SubjectClaims = []string{"sub", "oid"}
 
 // Generator is the generator of oidc-auth.
 type Generator struct{}
@@ -84,8 +87,8 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 
 // Configure checks the sign-in that a component states and gives its runtime settings: an issuer that is an HTTPS
 // URL with no user, query or fragment (ST-SUP-RC37-OC01), an audience, accepted algorithms of the allow list each
-// once (ST-SUP-RC37-OC02), a subject claim that is a top-level claim and not a registered claim other than sub, a
-// role claim that is a dotted path (ST-SUP-RC37-OC03), a header that is an HTTP field name and an absolute CA file.
+// once (ST-SUP-RC37-OC02), a subject claim of the allow list sub and oid, a role claim that is a dotted path
+// (ST-SUP-RC37-OC03), a header that is an HTTP field name and an absolute CA file.
 // The checks are those of the runtime verifier, so a declaration it would refuse at start is refused at generation.
 // The component name names the component in each refusal.
 func Configure(component string, c Config) (gen.RuntimeAuth, error) {
@@ -93,8 +96,11 @@ func Configure(component string, c Config) (gen.RuntimeAuth, error) {
 		return gen.RuntimeAuth{}, fmt.Errorf("the setting "+format+" of "+component, args...)
 	}
 	issuer, err := url.Parse(c.Issuer)
+	// The check of the runtime verifier: an HTTPS URL with a host and no user or fragment, which is the same text
+	// after TrimSpace and holds no control character (ST-SUP-RP13-LC05), and no query.
 	if c.Issuer == "" || err != nil || issuer.Scheme != "https" || issuer.Hostname() == "" || issuer.User != nil ||
-		issuer.RawQuery != "" || issuer.ForceQuery || issuer.Fragment != "" || issuer.Opaque != "" || !clean(c.Issuer) {
+		issuer.RawQuery != "" || issuer.ForceQuery || issuer.Fragment != "" || issuer.Opaque != "" || !clean(c.Issuer) ||
+		strings.TrimSpace(c.Issuer) != c.Issuer {
 		return refuse("issuer must be the HTTPS URL of the provider, with no user, query or fragment;")
 	}
 	if c.Audience == "" || !clean(c.Audience) || strings.TrimSpace(c.Audience) != c.Audience {
@@ -113,8 +119,8 @@ func Configure(component string, c Config) (gen.RuntimeAuth, error) {
 	if subject == "" {
 		subject = "sub"
 	}
-	if !claimName(subject) || slices.Contains(registeredClaims, subject) {
-		return refuse("subject_claim must be a top-level claim name other than a registered claim;")
+	if !slices.Contains(SubjectClaims, subject) {
+		return refuse("subject_claim must be sub or oid, a claim that the user cannot change;")
 	}
 	if c.RoleClaim != "" {
 		segments := strings.Split(c.RoleClaim, ".")
@@ -156,6 +162,9 @@ func text(config map[string]any, key string) (string, error) {
 
 // clean reports whether the text holds no control, format or separator character other than the space.
 func clean(s string) bool {
+	if !utf8.ValidString(s) {
+		return false
+	}
 	for _, r := range s {
 		if r != ' ' && (unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r)) {
 			return false
