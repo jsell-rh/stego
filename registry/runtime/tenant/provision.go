@@ -27,8 +27,9 @@ const (
 // through the two functions, which run as the owner and change only the tenant of the transaction. Each function
 // has the fixed search_path pg_catalog, pg_temp and names its table with its schema, so no table or function that
 // a caller creates, in pg_temp or elsewhere, can stand in for them. The CHECK keeps the rule of a tenant ID, so no
-// row can stop the iterator.
-const migrationText = `CREATE TABLE {{schema}}.stego_tenants (
+// row can stop the iterator. Each statement runs again with no error on a database that the text made, so the
+// migration job runs it on every release (ST-SUP-RP04-LC07).
+const migrationText = `CREATE TABLE IF NOT EXISTS {{schema}}.stego_tenants (
 	tenant_id text PRIMARY KEY CHECK (octet_length(tenant_id) BETWEEN 1 AND 255 AND tenant_id !~ '[\x01-\x1f\x7f]'),
 	provisioned_at timestamptz NOT NULL DEFAULT now(),
 	retired_at timestamptz
@@ -37,7 +38,7 @@ const migrationText = `CREATE TABLE {{schema}}.stego_tenants (
 REVOKE ALL ON {{schema}}.stego_tenants FROM PUBLIC;
 GRANT SELECT ON {{schema}}.stego_tenants TO {{runtime_role}};
 
-CREATE FUNCTION {{schema}}.stego_provision_tenant(p_tenant text) RETURNS boolean
+CREATE OR REPLACE FUNCTION {{schema}}.stego_provision_tenant(p_tenant text) RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
 	IF p_tenant IS NULL OR p_tenant = '' OR p_tenant IS DISTINCT FROM pg_catalog.current_setting('app.tenant', true) THEN
@@ -48,7 +49,7 @@ BEGIN
 END
 $$;
 
-CREATE FUNCTION {{schema}}.stego_retire_tenant(p_tenant text) RETURNS boolean
+CREATE OR REPLACE FUNCTION {{schema}}.stego_retire_tenant(p_tenant text) RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
 	IF p_tenant IS NULL OR p_tenant = '' OR p_tenant IS DISTINCT FROM pg_catalog.current_setting('app.tenant', true) THEN
@@ -78,7 +79,8 @@ func quoteName(kind, name string) (string, error) {
 
 // Migration returns the SQL text that creates the tenant list stego_tenants and its two write functions in schema,
 // for the migration job to run as the owner role. runtimeRole is the role the service runs as: it may read the
-// table and call the functions, and it can write the table only through them (ST-SUP-RP04-LC07).
+// table and call the functions, and it can write the table only through them (ST-SUP-RP04-LC07). The text runs
+// again with no error on a database that it made.
 func Migration(schema, runtimeRole string) (string, error) {
 	quotedSchema, err := quoteName("schema", schema)
 	if err != nil {

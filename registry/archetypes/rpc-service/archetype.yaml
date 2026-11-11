@@ -8,7 +8,7 @@ version: 1.13.0
 runtime:
   module: github.com/jsell-rh/stego/registry/runtime
   version: v0.12.0
-  sum: h1:wbtBGqDtT4KNY9MU6Do1p7VJ278tULi1sjAGnJhXATs=
+  sum: h1:NU2jutZpUtRgoyRltFG1uzFqWJGJUItAfSeodZCraoc=
 components:
   - otel-tracing
   - grpc-processes

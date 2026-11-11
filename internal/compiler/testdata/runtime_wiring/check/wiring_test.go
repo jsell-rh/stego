@@ -175,22 +175,6 @@ func prepare(t *testing.T, admin *sql.DB) {
 // since the grants on the database and its schema public are the database's, and it gives each role its login again.
 func grantSchema(t *testing.T, admin *sql.DB) { prepare(t, admin) }
 
-// tenantList makes the tenant list stego_tenants as the owner role, which no migration of the runtime data path makes
-// yet (ST-SUP-Q97), so the audit jobs have the tenants to visit.
-func tenantList(t *testing.T, admin *sql.DB) {
-	text, err := tenant.Migration("public", stegoruntime.RuntimeRole)
-	must(t, err)
-	tx, err := admin.Begin()
-	must(t, err)
-	defer tx.Rollback()
-	for _, statement := range []string{"SET LOCAL ROLE " + quote(stegoruntime.OwnerRole), text} {
-		if _, err := tx.Exec(statement); err != nil {
-			t.Fatalf("%.80s: %v", statement, err)
-		}
-	}
-	must(t, tx.Commit())
-}
-
 // withTLS gives the URL of role on u, on the host localhost, with sslmode mode; verify-full also names the CA file.
 func withTLS(u *url.URL, role, mode, caFile string) string {
 	v := *u
@@ -302,7 +286,6 @@ func start(t *testing.T) *service {
 	if r := run(binary, migration("verify-full", u), "migrate"); r.err != nil {
 		t.Fatalf("the migration job failed: %v\n%s", r.err, r.output)
 	}
-	tenantList(t, s.admin)
 	s.secondMigration = run(binary, migration("verify-full", u), "migrate")
 
 	s.key = authntest.NewKey(t, "k1")
