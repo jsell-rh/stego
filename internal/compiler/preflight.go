@@ -25,6 +25,8 @@ type resolvedCompilation struct {
 	// RuntimeData is the data path of the service: true when the generated commands and queries carry all data
 	// access (ST-SUP-RC01-OC41).
 	RuntimeData bool
+	// QueryStreams are the queries whose gRPC method is a server stream (ST-SUP-RC33-OC08), which get no HTTP route.
+	QueryStreams map[string]bool
 }
 
 // prepareComponents resolves each context once. All checks finish before rendering.
@@ -133,7 +135,7 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 	if err != nil {
 		return nil, err
 	}
-	resolved := &resolvedCompilation{Components: components, Names: componentNames, Contexts: map[string]gen.Context{}, InputSnapshots: map[string]fileSnapshot{}, OutDir: outDir, OutDirName: outDirName, SlotsPackage: slotsPackage, HoldsFills: fills, RuntimeData: runtimeData}
+	resolved := &resolvedCompilation{Components: components, Names: componentNames, Contexts: map[string]gen.Context{}, InputSnapshots: map[string]fileSnapshot{}, OutDir: outDir, OutDirName: outDirName, SlotsPackage: slotsPackage, HoldsFills: fills, RuntimeData: runtimeData, QueryStreams: declaration.QueryStreams(svcDecl, facts)}
 	for _, compName := range componentNames {
 		comp := components[compName]
 		generator := input.Generators[compName]
@@ -168,6 +170,7 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 			Commands:        declaredCommands(svcDecl, facts.FillSlots),
 			Destinations:    declaredDestinations(svcDecl, componentNames),
 			RuntimeData:     runtimeData,
+			QueryStreams:    declaration.QueryStreams(svcDecl, facts),
 		}
 		if runtimeData {
 			// The runtime data path emits no store and no live event source, so no component serves the storage or the

@@ -18,6 +18,9 @@
 {"record_id":"ST-GEN-DS03-SV","file":"internal/compiler/resources.go"}
 {"record_id":"ST-GEN-DS03-SV","file":"internal/compiler/runtime_wiring.go"}
 {"record_id":"ST-GEN-DS03-SV","file":"internal/compiler/runtime_wiring.go.tmpl"}
+{"record_id":"ST-GEN-DS03-SV","file":"internal/compiler/testdata/runtime_grpc/project/fills/add-note/fill.go"}
+{"record_id":"ST-GEN-DS03-SV","file":"internal/compiler/testdata/runtime_grpc/project/fills/get-order-summary/fill.go"}
+{"record_id":"ST-GEN-DS03-SV","file":"internal/compiler/testdata/runtime_grpc/project/fills/watch-orders/fill.go"}
 {"record_id":"ST-GEN-DS03-SV","file":"internal/compiler/testdata/runtime_wiring/after/fills/order-created/fill.go"}
 {"record_id":"ST-GEN-DS03-SV","file":"internal/compiler/testdata/runtime_wiring/project/fills/add-note/fill.go"}
 {"record_id":"ST-GEN-DS03-SV","file":"internal/compiler/testdata/runtime_wiring/project/fills/get-order-summary/fill.go"}
@@ -28,6 +31,7 @@
 {"record_id":"ST-GEN-INV29-RL","file":"internal/compiler/lock_unix.go"}
 {"record_id":"ST-GEN-INV29-RL","file":"internal/compiler/lock_windows.go"}
 {"record_id":"ST-GEN-QRY03-H","file":"internal/compiler/build_target.go"}
+{"record_id":"ST-GEN-QRY03-H","file":"internal/compiler/grpc_methods.go"}
 {"record_id":"ST-GEN-QRY03-H","file":"internal/compiler/namespace.go"}
 {"record_id":"ST-GEN-QRY03-H","file":"internal/compiler/source.go"}
 {"record_id":"ST-SUP-RC01-G20","file":"internal/generator/postgresadapter/runtime_access.go.tmpl"}

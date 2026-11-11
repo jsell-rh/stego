@@ -31,6 +31,9 @@ type Generator struct{}
 func (*Generator) MinimumGoVersion() string { return "1.26.0" }
 
 func (*Generator) ValidateContext(ctx gen.Context) error {
+	if ctx.RuntimeData {
+		return validateRuntimeData(ctx)
+	}
 	if err := validateContext(ctx); err != nil {
 		return err
 	}
@@ -79,6 +82,11 @@ func validateContext(ctx gen.Context) error {
 }
 
 func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	if ctx.RuntimeData {
+		// The runtime data path serves the declared methods through the command and query runtimes
+		// (ST-SUP-RC07-OC19).
+		return generateRuntimeData(ctx)
+	}
 	if err := validateContext(ctx); err != nil {
 		return nil, nil, err
 	}

@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/bufbuild/protocompile"
+	"github.com/bufbuild/protocompile/linker"
+	"github.com/jsell-rh/stego/internal/declaration"
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/grpcapplication/grpcgen"
 	"github.com/jsell-rh/stego/internal/responsemapping"
@@ -94,18 +96,7 @@ func prepareProto(ctx gen.Context) (*protogen.Plugin, error) {
 	if err != nil {
 		return nil, err
 	}
-	text := map[string]string{}
-	names := make([]string, len(items))
-	for i, item := range items {
-		data, ok := ctx.Inputs[item.File]
-		if !ok {
-			return nil, fmt.Errorf("missing compiler input %q", item.File)
-		}
-		text[item.Import] = string(data)
-		names[i] = item.Import
-	}
-	compiler := protocompile.Compiler{Resolver: protocompile.WithStandardImports(&protocompile.SourceResolver{Accessor: protocompile.SourceAccessorFromMap(text)}), MaxParallelism: 1, SourceInfoMode: protocompile.SourceInfoStandard}
-	linked, err := compiler.Compile(context.Background(), names...)
+	text, names, linked, err := compileSources(items, ctx.Inputs)
 	if err != nil {
 		return nil, err
 	}
@@ -159,6 +150,62 @@ func prepareProto(ctx gen.Context) (*protogen.Plugin, error) {
 		}
 	}
 	return plugin, nil
+}
+
+// compileSources compiles the proto files of items from their text in inputs, by project path. It gives the text and
+// the import path of each file, and the linked files.
+func compileSources(items []source, inputs map[string][]byte) (map[string]string, []string, linker.Files, error) {
+	text := map[string]string{}
+	names := make([]string, len(items))
+	for i, item := range items {
+		data, ok := inputs[item.File]
+		if !ok {
+			return nil, nil, nil, fmt.Errorf("missing compiler input %q", item.File)
+		}
+		text[item.Import] = string(data)
+		names[i] = item.Import
+	}
+	compiler := protocompile.Compiler{Resolver: protocompile.WithStandardImports(&protocompile.SourceResolver{Accessor: protocompile.SourceAccessorFromMap(text)}), MaxParallelism: 1, SourceInfoMode: protocompile.SourceInfoStandard}
+	linked, err := compiler.Compile(context.Background(), names...)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return text, names, linked, nil
+}
+
+// Methods gives the kind of each method, as package.Service/Method, of the services of the proto files that the
+// setting proto_files of config names, whose text inputs holds by project path. Checking reads it to hold each
+// command's and query's gRPC method to its kind (ST-DECL-INV73), and the compiler marks each query on a server stream
+// as a stream query from it (ST-SUP-RC33-OC08).
+func Methods(config map[string]any, inputs map[string][]byte) (map[string]declaration.MethodKind, error) {
+	items, err := sources(config)
+	if err != nil {
+		return nil, err
+	}
+	_, _, linked, err := compileSources(items, inputs)
+	if err != nil {
+		return nil, fmt.Errorf("the proto files of grpc-application do not compile: %w", err)
+	}
+	methods := map[string]declaration.MethodKind{}
+	for _, file := range linked {
+		for i := 0; i < file.Services().Len(); i++ {
+			service := file.Services().Get(i)
+			for j := 0; j < service.Methods().Len(); j++ {
+				m := service.Methods().Get(j)
+				kind := declaration.MethodUnary
+				switch {
+				case m.IsStreamingClient() && m.IsStreamingServer():
+					kind = declaration.MethodBidiStream
+				case m.IsStreamingClient():
+					kind = declaration.MethodClientStream
+				case m.IsStreamingServer():
+					kind = declaration.MethodServerStream
+				}
+				methods[string(service.FullName())+"/"+string(m.Name())] = kind
+			}
+		}
+	}
+	return methods, nil
 }
 
 func generateProto(ctx gen.Context) ([]gen.File, []string, error) {

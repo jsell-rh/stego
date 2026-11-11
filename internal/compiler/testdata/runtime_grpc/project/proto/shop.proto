@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package shop.v1;
+
+// AddNoteRequest is the request of add-note.
+message AddNoteRequest {
+  string order_id = 1;
+  string text = 2;
+}
+
+// AddNoteResponse is the response of add-note.
+message AddNoteResponse {
+  string note_id = 1;
+}

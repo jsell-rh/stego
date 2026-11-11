@@ -19,6 +19,7 @@ const (
 	queryImport = "github.com/jsell-rh/stego/registry/runtime/query"
 	auditImport = "github.com/jsell-rh/stego/registry/runtime/audit"
 	authnImport = "github.com/jsell-rh/stego/registry/runtime/authn"
+	protoImport = "google.golang.org/protobuf/proto"
 )
 
 // render gives the contract package and the handler package of the model.
@@ -359,10 +360,11 @@ func must[T any](v T, err error) T {
 // the page body and the refusal lookup are the runtime's (ST-STD-RUNTIME-R05).
 func renderServe(m *model) []byte {
 	var w writer
-	hasHTTP, hasStream := false, false
+	hasHTTP, hasStream, hasRPC := false, false, false
 	for _, q := range m.queries {
 		hasHTTP = hasHTTP || q.kind != streamKind
 		hasStream = hasStream || q.kind == streamKind
+		hasRPC = hasRPC || q.rpc || q.kind == streamKind
 	}
 	w.p("// Package serve serves the declared queries of the service (ST-SUP-RC33): one handler for each get and list")
 	w.p("// query through query.Serve, and the run of each stream query through query.RunStream, each bound to the query's")
@@ -374,6 +376,9 @@ func renderServe(m *model) []byte {
 	}
 	for _, q := range m.queries {
 		w.p("%s %q", q.fillAlias, q.fillImport)
+	}
+	if hasRPC {
+		w.p("\n%q", protoImport)
 	}
 	w.p("\n%q\n%q\n)\n", authnImport, queryImport)
 	w.raw(`// Config is what the query handlers need.
@@ -434,6 +439,7 @@ type Handlers struct {
 		case streamKind:
 			renderStream(&w, m, q)
 		}
+		renderRPC(&w, m, q)
 	}
 	if !hasStream {
 		w.raw(`// noStream keeps the import of context for a service with no stream query.
@@ -510,6 +516,57 @@ func renderStream(w *writer, m *model, q *queryModel) {
 	w.p("func (h *Handlers) Stream%s(ctx context.Context, b query.Bound[%s], req %s.%s, send func(%s.%s) error) (uint64, error) {",
 		q.goName, q.probeType(), m.pkg, q.requestType(), m.pkg, e.value.GoType)
 	w.p("return query.RunStream(ctx, h.cfg.Runtime, %s.%s(), b, req, %s.%sEntity(), send, %s.Fill)\n}\n", m.pkg, q.goName, m.pkg, q.goName, q.fillAlias)
+}
+
+// renderRPC writes the gRPC handler of a query that a gRPC method serves (ST-SUP-RC07-OC19): a get or list query
+// through query.ServeRPC, with the fill, the decision, Next, Encode and the refusal lookup of its HTTP handler, and a
+// stream query through query.ServeStream on its Stream function (ST-SUP-RC33-OC08). The handler is generic in the
+// method's messages, which the gRPC application gives with the functions that read the request members of the
+// message: the resource member of a get or stream query, and the cursor and the limit of a list query.
+func renderRPC(w *writer, m *model, q *queryModel) {
+	if !q.rpc && q.kind != streamKind {
+		return
+	}
+	req := m.pkg + "." + q.requestType()
+	bind := fmt.Sprintf("query.BindRPC(h.cfg.Probes, h.cfg.SubjectType, %s.%s(), probes.New%sProbe)", q.queryPkg(m), q.goName, q.goName)
+	refusal := fmt.Sprintf("func(err error) (int, string, bool) { return %s.Declared(%q, err) }", m.pkg, q.decl.Name)
+	switch q.kind {
+	case getKind:
+		w.p("// Serve%sRPC gives the unary gRPC handler of %s for the method's messages In and Out: the HTTP handler's", q.goName, q.decl.Name)
+		w.p("// decision and fill on the %s that member reads from the request message. An empty member is not valid.", q.resource.value.Entity.Name)
+		w.p("func Serve%sRPC[In any, Out proto.Message](h *Handlers, member func(In) string, newOut func() Out) (func(context.Context, In) (Out, error), error) {", q.goName)
+		w.p("if h == nil || member == nil || newOut == nil {\nreturn nil, errors.New(\"serve: the gRPC handler of %s needs the handlers, the member and the response\")\n}", q.decl.Name)
+		w.p("return query.ServeRPC(h.cfg.Runtime, query.RPC[In, Out, %s, %s.%s, %s]{", req, m.pkg, q.responseType(), q.probeType())
+		w.p("Query: %s.%s(),\nBind: %s,", q.queryPkg(m), q.goName, bind)
+		w.p("Decode: func(in In, _ query.Cursor) (%s, error) {\nid := member(in)\nif id == \"\" {\nreturn %s{}, query.ErrBadRequest\n}\nreturn %s{%s: id}, nil\n},", req, req, req, q.memberGo)
+		w.p("Fill: decided%s,\nEncode: query.EncodeValue[%s.%s],\nNewResponse: newOut,\nRefusal: %s,\n})\n}\n", q.goName, m.pkg, q.responseType(), refusal)
+	case listKind:
+		w.p("// Serve%sRPC gives the unary gRPC handler of %s for the method's messages In and Out: the HTTP handler's fill", q.goName, q.decl.Name)
+		w.p("// on the page after the cursor that cursor reads from the request message, of at most the values that limit")
+		w.p("// reads, 0 for the default; the response message takes the items and the cursor of the next page as next.")
+		w.p("func Serve%sRPC[In any, Out proto.Message](h *Handlers, cursor func(In) string, limit func(In) int64, newOut func() Out) (func(context.Context, In) (Out, error), error) {", q.goName)
+		w.p("if h == nil || cursor == nil || newOut == nil {\nreturn nil, errors.New(\"serve: the gRPC handler of %s needs the handlers, the cursor and the response\")\n}", q.decl.Name)
+		w.p("return query.ServeRPC(h.cfg.Runtime, query.RPC[In, Out, %s, %s.%s, %s]{", req, m.pkg, q.responseType(), q.probeType())
+		w.p("Query: %s.%s(),\nBind: %s,\nCursor: cursor,", q.queryPkg(m), q.goName, bind)
+		w.p("Decode: func(in In, after query.Cursor) (%s, error) {\nvar n int64\nif limit != nil {\nn = limit(in)\n}\nif n < 0 || n > query.MaxLimit {\nreturn %s{}, query.ErrBadRequest\n}\nreturn %s{After: after, Limit: int(n)}, nil\n},", req, req, req)
+		w.p("Fill: %s.Fill,", q.fillAlias)
+		w.p("Next: func(res %s.%s) query.Cursor { return res.Next },", m.pkg, q.responseType())
+		w.p("Encode: func(res %s.%s, next string) ([]byte, error) { return query.EncodePage(res.Items, next) },", m.pkg, q.responseType())
+		w.p("NewResponse: newOut,\nRefusal: %s,\n})\n}\n", refusal)
+	case streamKind:
+		e := q.sent()
+		w.p("// Serve%sStream gives the server stream handler of %s for the method's messages In and Out, the only", q.goName, q.decl.Name)
+		w.p("// handler of the query (ST-SUP-RC33-OC08): it runs Stream%s once, and sends each allowed %s as one message.", q.goName, e.value.Entity.Name)
+		params, decode := "", fmt.Sprintf("func(In) (%s, error) { return %s{}, nil }", req, req)
+		if q.member != "" {
+			params = "member func(In) string, "
+			decode = fmt.Sprintf("func(in In) (%s, error) {\nif member == nil {\nreturn %s{}, query.ErrBadRequest\n}\nid := member(in)\nif id == \"\" {\nreturn %s{}, query.ErrBadRequest\n}\nreturn %s{%s: id}, nil\n}", req, req, req, req, q.memberGo)
+		}
+		w.p("func Serve%sStream[In any, Out proto.Message](h *Handlers, %snewOut func() Out) (func(context.Context, In, func(Out) error) error, error) {", q.goName, params)
+		w.p("if h == nil || newOut == nil {\nreturn nil, errors.New(\"serve: the stream handler of %s needs the handlers and the message\")\n}", q.decl.Name)
+		w.p("return query.ServeStream(query.StreamRPC[In, Out, %s, %s.%s, %s]{", req, m.pkg, e.value.GoType, q.probeType())
+		w.p("Bind: %s,\nDecode: %s,\nStream: h.Stream%s,\nNewMessage: newOut,\nRefusal: %s,\n})\n}\n", bind, decode, q.goName, refusal)
+	}
 }
 
 // queryPkg is the package that declares the query: internal/decide for a get query that decides a permission of its

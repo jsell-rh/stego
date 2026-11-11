@@ -1,3 +1,18 @@
+On the runtime data path this component serves the gRPC methods that the
+declared commands and queries name (ST-SUP-RC07-OC19). It takes the setting
+proto_files only. A proto file of the command component's proto_files keeps
+the Go package of the command contract, so a command takes one request
+message over HTTP and gRPC. Each declared method is served by the generated
+handler of its command or query, with the same verification, transaction,
+permission, audit and idempotency as over HTTP; a method that no declaration
+names answers Unimplemented. A get query reads its resource member from a
+string field of the request message; a list query reads the fields cursor
+and limit, and its response message has the fields items and next. The
+service serves gRPC in the api mode only, at STEGO_GRPC_ADDR with the TLS
+certificate STEGO_GRPC_TLS_CERT and its key STEGO_GRPC_TLS_KEY.
+
+On the GORM store path the description below applies.
+
 This component generates protobuf bindings and a gRPC runtime. The application
 registers domain services through its configured factory. The runtime supplies
 TLS, verified identity, request and stream limits, and shutdown.

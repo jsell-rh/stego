@@ -1,0 +1,78 @@
+kind: service
+name: grpc-shop
+archetype: rpc-service
+language: go
+base_path: /api/shop/v1
+error_type_base: https://errors.example.com/shop/
+tenancy:
+  kind: pooled
+  key: tenant_id
+  claim: tenant
+authorization:
+  provider: spicedb
+  schema_path: authz/schema.zed
+  subject_from_identity: user
+audit:
+  level: change
+idempotency:
+  required_on: [create]
+experimental_acceptances:
+  - {component: tenancy, accepted_until: 2027-04-30, reason: the runtime data path needs pooled tenancy}
+  - {component: spicedb-authz, accepted_until: 2027-04-30, reason: the runtime data path decides each permission}
+  - {component: audit-log, accepted_until: 2027-04-30, reason: the runtime data path audits each write}
+  - {component: idempotency, accepted_until: 2027-04-30, reason: the runtime data path keys each command}
+overrides:
+  jwt-auth:
+    issuer: https://issuer.grpc.test/realms/r1
+    audience: grpc-shop
+  postgres-adapter:
+    schema_generation: tables-v1
+    writer_lease: "off"
+  command:
+    proto_files:
+      - {path: proto/shop.proto, import_path: shop/v1/shop.proto}
+  grpc-application:
+    proto_files:
+      - {path: proto/shop.proto, import_path: shop/v1/shop.proto}
+      - {path: proto/shop_service.proto, import_path: shop/v1/shop_service.proto}
+entities:
+  - name: Order
+    resource_type: order
+    permissions: {read: view, list: view}
+    fields:
+      - {name: sku, type: string}
+      - {name: qty, type: int32}
+      - {name: email, type: string, sensitivity: pii}
+  - name: Note
+    resource_type: note
+    permissions: {read: view}
+    references:
+      order_id: {relation: order, permission: edit}
+    fields:
+      - {name: order_id, type: ref, to: Order}
+      - {name: text, type: string}
+commands:
+  - name: add-note
+    writes: [Note, Order]
+    resource_type: order
+    permission: edit
+    resource_member: orderId
+    route: POST /orders/{orderId}/notes
+    method: shop.v1.Shop/AddNote
+    fill: add-note
+queries:
+  - name: get-order-summary
+    reads: [Order]
+    resource_type: order
+    permission: view
+    resource_member: orderId
+    route: GET /orders/{orderId}/summary
+    method: shop.v1.Shop/GetOrderSummary
+    fill: get-order-summary
+  - name: watch-orders
+    reads: [Order]
+    resource_type: order
+    permission: view
+    route: GET /orders/watch
+    method: shop.v1.Shop/WatchOrders
+    fill: watch-orders
