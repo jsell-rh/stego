@@ -188,6 +188,7 @@
 {"source_id":"ST-DIS-UC11-FL-S04","target_id":"ST-DIS-UC11-R01"}
 {"source_id":"ST-DIS-UC11-FL-S04","target_id":"ST-DIS-UC11-R04"}
 {"source_id":"ST-DIS-UC11-FL-S05","target_id":"ST-DIS-UC11-R03"}
+{"source_id":"ST-DIS-UC11-FL-S06","target_id":"ST-DIS-UC11-R06"}
 {"source_id":"ST-DLV-UC01-FL-S01","target_id":"ST-DLV-UC01-R01"}
 {"source_id":"ST-DLV-UC01-FL-S01","target_id":"ST-DLV-UC01-R02"}
 {"source_id":"ST-DLV-UC01-FL-S01","target_id":"ST-DLV-UC01-R03"}
