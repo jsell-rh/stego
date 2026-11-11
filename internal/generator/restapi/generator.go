@@ -159,6 +159,9 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	if err := validateRuntimeData(ctx, entityMap); err != nil {
 		return err
 	}
+	if err := generationDefaults(ctx.Entities); err != nil {
+		return err
+	}
 	return gen.ValidateGoPackageNamespace(ctx.OutputNamespace)
 }
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
@@ -2895,8 +2898,8 @@ func emitPopulateServerManagedFieldsCreate(buf *bytes.Buffer, varName string, en
 				fmt.Fprintf(buf, "\t%s.%s = time.Now()\n", varName, goName)
 			}
 		case f.Name == "generation":
-			if f.Default != nil {
-				fmt.Fprintf(buf, "\t%s.%s = %v\n", varName, goName, f.Default)
+			if literal, err := defaultLiteral(f); f.Default != nil && err == nil {
+				fmt.Fprintf(buf, "\t%s.%s = %s\n", varName, goName, literal)
 			}
 		}
 	}

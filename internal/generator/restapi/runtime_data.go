@@ -6,6 +6,7 @@ import (
 	"go/format"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/jsell-rh/stego/internal/gen"
@@ -896,6 +897,50 @@ func zeroOf(goType string) string {
 	return "nil"
 }
 
+// defaultLiteral gives the Go literal of a field's default: strconv.Quote of a string default of a string field, and
+// the decimal or boolean text of an integer or boolean default of an integer or boolean field. Any other default is
+// refused, so no default text reaches the generated code as code.
+func defaultLiteral(f types.Field) (string, error) {
+	switch value := f.Default.(type) {
+	case string:
+		if f.Type == types.FieldTypeString {
+			return strconv.Quote(value), nil
+		}
+	case bool:
+		if f.Type == types.FieldTypeBool {
+			return strconv.FormatBool(value), nil
+		}
+	case int:
+		if f.Type == types.FieldTypeInt32 || f.Type == types.FieldTypeInt64 {
+			return strconv.FormatInt(int64(value), 10), nil
+		}
+	case int64:
+		if f.Type == types.FieldTypeInt32 || f.Type == types.FieldTypeInt64 {
+			return strconv.FormatInt(value, 10), nil
+		}
+	case uint64:
+		if f.Type == types.FieldTypeInt64 {
+			return strconv.FormatUint(value, 10), nil
+		}
+	}
+	return "", fmt.Errorf("the field %s of type %s has the default %#v, which is not a string, an integer or a boolean of its type", f.Name, f.Type, f.Default)
+}
+
+// generationDefaults refuses an entity whose generation field has a default with no Go literal (defaultLiteral),
+// because the handlers write that default into the generated code.
+func generationDefaults(entities []types.Entity) error {
+	for _, e := range entities {
+		for _, f := range e.Fields {
+			if f.Name == "generation" && f.Default != nil {
+				if _, err := defaultLiteral(f); err != nil {
+					return fmt.Errorf("entity %s: %w", e.Name, err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // populateCreate writes the server values of a new row: the created_by and updated_by fields from the verified
 // caller, each timestamp field at the time of the change and the generation from its default (ST-SUP-RC20-OC17).
 func (w *runtimeHandlerWriter) populateCreate() {
@@ -908,7 +953,9 @@ func (w *runtimeHandlerWriter) populateCreate() {
 		case f.Type == types.FieldTypeTimestamp:
 			w.setField(f, "time.Now().UTC()")
 		case f.Name == "generation" && f.Default != nil:
-			w.f("\t\t%s.%s = %v\n", c.lower, name, f.Default)
+			// ValidateContext refused a default that has no Go literal (generationDefaults).
+			literal, _ := defaultLiteral(f)
+			w.f("\t\t%s.%s = %s\n", c.lower, name, literal)
 		}
 	}
 }

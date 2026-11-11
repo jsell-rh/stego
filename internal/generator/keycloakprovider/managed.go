@@ -208,8 +208,12 @@ func (k managedKind) identityChecks() ([]string, error) {
 			missing = append(missing, match[1])
 		}
 	}
-	for _, match := range clientIDPlaceholder.FindAllString(k.ClientID, -1) {
-		check(match)
+	// Each {text} of the client-name template becomes Go code in the emitted helpers, so its text must have the id
+	// form and be a declared id.
+	for _, match := range clientIDPlaceholder.FindAllStringSubmatch(k.ClientID, -1) {
+		if !managedIDName.MatchString(match[1]) || !known[match[1]] {
+			missing = append(missing, match[1])
+		}
 	}
 	for _, attribute := range k.Attributes {
 		check(attribute.Value)

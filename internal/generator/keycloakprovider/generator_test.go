@@ -300,14 +300,19 @@ func managedWith(clientID, key string) gen.Context {
 func TestManagedClientForms(t *testing.T) {
 	t.Run("ST-SUP-RC13-OC18-T02 A managed-client attribute key or client_id placeholder outside its form is refused before generation", func(t *testing.T) {
 		cases := map[string]gen.Context{
-			"a key that closes the Go string":   managedWith("gw-{gateway}", `x": "y"}; panic(1); _ = map[string]string{"z`),
-			"a key with an upper-case letter":   managedWith("gw-{gateway}", "Gateway"),
-			"a key with a newline":              managedWith("gw-{gateway}", "gateway\nid"),
-			"a key of 112 characters":           managedWith("gw-{gateway}", strings.Repeat("a", 112)),
-			"a key that starts with a dot":      managedWith("gw-{gateway}", ".gateway"),
-			"a client_id placeholder with code": managedWith("gw-{func()string{panic(1)}()}", "hypershell.gateway"),
-			"a client_id placeholder not an id": managedWith("gw-{account}", "hypershell.gateway"),
-			"a client_id with a lone brace":     managedWith("gw-{gateway}}", "hypershell.gateway"),
+			"a key that closes the Go string":           managedWith("gw-{gateway}", `x": "y"}; panic(1); _ = map[string]string{"z`),
+			"a key with an upper-case letter":           managedWith("gw-{gateway}", "Gateway"),
+			"a key with a newline":                      managedWith("gw-{gateway}", "gateway\nid"),
+			"a key of 112 characters":                   managedWith("gw-{gateway}", strings.Repeat("a", 112)),
+			"a key that starts with a dot":              managedWith("gw-{gateway}", ".gateway"),
+			"a client_id placeholder with code":         managedWith("gw-{func()string{panic(1)}()}", "hypershell.gateway"),
+			"a client_id placeholder not an id":         managedWith("gw-{account}", "hypershell.gateway"),
+			"a client_id with a lone brace":             managedWith("gw-{gateway}}", "hypershell.gateway"),
+			"a client_id placeholder that calls panic":  managedWith("gw-{panic(1)}", "hypershell.gateway"),
+			"a client_id placeholder that converts":     managedWith("gw-{string(rune(65))}", "hypershell.gateway"),
+			"a client_id placeholder with spaces":       managedWith("gw-{ gateway }", "hypershell.gateway"),
+			"an empty client_id placeholder":            managedWith("gw-{}", "hypershell.gateway"),
+			"a client_id placeholder that slices an id": managedWith("gw-{gateway[:0]}", "hypershell.gateway"),
 		}
 		for name, c := range cases {
 			g := new(Generator)
