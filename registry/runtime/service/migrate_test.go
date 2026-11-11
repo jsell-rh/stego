@@ -54,7 +54,7 @@ func TestMigrate(t *testing.T) {
 		endpoint, key := startSpiceDB(t)
 		f := newFixture(t)
 		settings := MigrationSettings{DatabaseURL: f.database, SpiceDB: SpiceDB{Endpoint: endpoint, Key: key, InsecureLoopback: true}}
-		want := []string{StepOwnerRole, StepLedgerCheck, StepAuthorizationSchema, StepTables, StepOutboxQueue, StepAuditTables,
+		want := []string{StepOwnerRole, StepLedgerCheck, StepAuthorizationSchema, StepTables, StepOutboxQueue, StepAuditTables, StepAuditSink,
 			StepIdempotencyKeys, StepAuthorizationTables, StepRuntimeGrants, StepAuditPartitions, StepSchemaAgain}
 		run := func(m Migration) (*steps, error) {
 			s := &steps{backends: map[int]bool{}}
@@ -88,6 +88,15 @@ func TestMigrate(t *testing.T) {
  AND has_function_privilege($1, 'public.stego_provision_tenant(text)', 'EXECUTE')
  AND (SELECT tableowner FROM pg_tables WHERE schemaname = 'public' AND tablename = 'stego_tenants') = $2`, f.runtime, f.owner).Scan(&listed); err != nil || !listed {
 			t.Fatalf("the job did not make the tenant list for the runtime role: %v", err)
+		}
+		// The audit sink step made the default table of the audit sink, owned by the owner role, with SELECT and INSERT
+		// and no UPDATE, DELETE or TRUNCATE for the worker role (ST-SUP-RP05-LC15).
+		var sinkTable bool
+		if err := f.admin.QueryRow(`SELECT has_table_privilege($1, 'stego_audit_sink.entries', 'SELECT') AND has_table_privilege($1, 'stego_audit_sink.entries', 'INSERT')
+ AND NOT has_table_privilege($1, 'stego_audit_sink.entries', 'UPDATE') AND NOT has_table_privilege($1, 'stego_audit_sink.entries', 'DELETE')
+ AND NOT has_table_privilege($1, 'stego_audit_sink.entries', 'TRUNCATE') AND NOT has_table_privilege($2, 'stego_audit_sink.entries', 'SELECT')
+ AND (SELECT tableowner FROM pg_tables WHERE schemaname = 'stego_audit_sink' AND tablename = 'entries') = $3`, f.worker, f.runtime, f.owner).Scan(&sinkTable); err != nil || !sinkTable {
+			t.Fatalf("the job did not make the default audit sink for the worker role: %v", err)
 		}
 		var partitions int
 		if err := f.admin.QueryRow(`SELECT count(*) FROM pg_inherits WHERE inhparent = 'public.audit_event'::regclass`).Scan(&partitions); err != nil || partitions < 2 {
@@ -239,7 +248,7 @@ func (f *fixture) migration(calls *int) Migration {
 		t.Fatal(err)
 	}
 	return Migration{
-		OwnerRole: f.owner, RuntimeRole: f.runtime, TenantConfig: tenantConfig(nil),
+		OwnerRole: f.owner, RuntimeRole: f.runtime, WorkerRole: f.worker, TenantConfig: tenantConfig(nil),
 		LedgerCheck: func(ctx context.Context, conn *sql.Conn) error {
 			var foreign bool
 			if err := conn.QueryRowContext(ctx, `SELECT to_regclass('public.foreign_orders') IS NOT NULL`).Scan(&foreign); err != nil {
