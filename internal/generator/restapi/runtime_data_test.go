@@ -87,6 +87,7 @@ func crudContext() gen.Context {
 			{Name: "folder-books", Entity: "Book", Scope: map[string]string{"folder_id": "Folder"}, Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpUpdate, types.OpPatch, types.OpDelete}, Patchable: []string{"title"}},
 			{Name: "red-events", Entity: "Event", PathPrefix: "/red-events", Implicit: map[string]string{"source": "red"}, Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpUpdate, types.OpPatch, types.OpDelete}, Patchable: []string{"note"}},
 			{Name: "blue-events", Entity: "Event", PathPrefix: "/blue-events", Implicit: map[string]string{"source": "blue"}, Operations: []types.Operation{types.OpCreate, types.OpList}},
+			{Name: "books", Entity: "Book", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate}},
 		},
 		SlotBindings: []types.SlotDeclaration{
 			{Slot: "before_create", Collection: "orders", Chain: []string{"order-gate"}, ShortCircuit: true},
@@ -496,6 +497,7 @@ var crudCheckIDs = []string{
 	"ST-SUP-RC20-OC37-T09 A list search on the runtime data path filters on declared fields with bound values",
 	"ST-SUP-RC20-OC23-T05 A write of a row of another implicit value is not found and changes nothing, and a patch keeps the implicit value",
 	"ST-SUP-RC20-OC24-T06 A list cursor of one parent is refused for another",
+	"ST-SUP-RC20-OC24-T07 An upper-case UUID in a path or a ref names the same row as its lower-case form",
 	"ST-SUP-RP11-LC20-T04 A search of the generated service uses the index of its field, and a sensitive field neither searches nor orders",
 }
 
