@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -300,6 +301,103 @@ func probe(e Event, u Untrusted) bool {
 			if err != nil || string(got) != want {
 				t.Errorf("the canonical form of %s is %q (%v), want %s", text, got, err, want)
 			}
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC04-T08 A deep JSON value is refused at the depth bound, and a deep update at the bound stays cheap", func(t *testing.T) {
+		// nested gives an object of depth levels, each level with one key of 100 characters, and leaf at the bottom.
+		nested := func(levels int, leaf string) json.RawMessage {
+			key := strings.Repeat("k", 100)
+			var b strings.Builder
+			for range levels {
+				b.WriteString(`{"` + key + `":`)
+			}
+			b.WriteString(leaf)
+			b.WriteString(strings.Repeat("}", levels))
+			return json.RawMessage(b.String())
+		}
+		deep := nested(9000, "1")
+		start := time.Now()
+		e := sampleEvent("t1", "update")
+		err := e.SetStates(Settings{Level: LevelChange}, Fields{}, map[string]any{"doc": deep}, map[string]any{"doc": nested(9000, "2")})
+		if err == nil || !strings.Contains(err.Error(), "doc") || !strings.Contains(err.Error(), "64") || strings.Contains(err.Error(), "kkk") {
+			t.Errorf("SetStates with a value of depth 9000 gave %v, want a refusal that names doc and the bound and no value", err)
+		}
+		if d := time.Since(start); d > time.Second {
+			t.Errorf("SetStates with a value of depth 9000 took %v, want under 1 s", d)
+		}
+		e = sampleEvent("t1", "create")
+		if err := e.SetStates(Settings{Level: LevelChange}, Fields{}, nil, map[string]any{"doc": nested(65, "1")}); err == nil {
+			t.Errorf("SetStates accepts a value of depth 65")
+		}
+		// At the bound, a large leaf that changes in one member keeps the work linear: the patch compares members,
+		// not the encoding of each level.
+		leaf := func(last string) string {
+			items := make([]string, 0, 30000)
+			for i := range 30000 {
+				items = append(items, strconv.Itoa(i))
+			}
+			items[len(items)-1] = last
+			return "[" + strings.Join(items, ",") + "]"
+		}
+		start = time.Now()
+		e = sampleEvent("t1", "update")
+		if err := e.SetStates(Settings{Level: LevelChange}, Fields{}, map[string]any{"doc": nested(63, leaf("1"))}, map[string]any{"doc": nested(63, leaf("2"))}); err != nil {
+			t.Fatalf("SetStates with a value of depth 64: %v", err)
+		}
+		if d := time.Since(start); d > time.Second {
+			t.Errorf("an update of a value of depth 64 took %v, want under 1 s", d)
+		}
+		p, err := ParsePatch(e.Patch.JSON())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(p) != 1 || !strings.HasSuffix(p[0].Path, "/29999") || p[0].Op != "replace" {
+			t.Errorf("the patch has %d operations, want one replace of the last member: %.200s", len(p), e.Patch.JSON())
+		}
+		// The patch compares members and not the encoding of each level, so its work is linear also for a value
+		// deeper than the bound, which only the internal compare sees.
+		tree := func(levels int, leaf any) any {
+			v := leaf
+			for range levels {
+				v = map[string]any{strings.Repeat("k", 100): v}
+			}
+			return v
+		}
+		start = time.Now()
+		var ops Patch
+		diffValue("", tree(5000, json.Number("1")), tree(5000, json.Number("2")), &ops)
+		if d := time.Since(start); d > time.Second || len(ops) != 1 || ops[0].Op != "replace" {
+			t.Errorf("the compare of two values of depth 5000 took %v and gave %d operations, want one replace in under 1 s", d, len(ops))
+		}
+	})
+
+	t.Run("ST-SUP-RP05-LC04-T09 A number whose canonical form is long is refused, also when its text is short", func(t *testing.T) {
+		if _, err := canonicalNumber("n", "1e-400"); err != nil {
+			t.Errorf("the number 1e-400 is refused: %v", err)
+		}
+		if _, err := canonicalNumber("n", "1"+"."+strings.Repeat("1", 800)+"e-400"); err == nil || !strings.Contains(err.Error(), "n") {
+			t.Errorf("a number of 801 mantissa digits and the exponent -400 gave %v, want a refusal that names the field", err)
+		}
+		// A JSON array of 1 MiB of 1e-400 would give about 60 MB of canonical text: it is refused before any is made.
+		items := make([]string, 0, 150000)
+		for range 150000 {
+			items = append(items, "1e-400")
+		}
+		raw := json.RawMessage("[" + strings.Join(items, ",") + "]")
+		start := time.Now()
+		e := sampleEvent("t1", "create")
+		err := e.SetStates(Settings{Level: LevelChange}, Fields{}, nil, map[string]any{"doc": raw})
+		if err == nil || !strings.Contains(err.Error(), "doc") || strings.Contains(err.Error(), "1e-400") {
+			t.Errorf("SetStates with 150000 numbers 1e-400 gave %v, want a refusal that names doc and no value", err)
+		}
+		if d := time.Since(start); d > time.Second {
+			t.Errorf("the refusal took %v, want under 1 s", d)
+		}
+		// A few such numbers are kept.
+		e = sampleEvent("t1", "create")
+		if err := e.SetStates(Settings{Level: LevelChange}, Fields{}, nil, map[string]any{"doc": json.RawMessage(`[1e-400, 2.5e3]`)}); err != nil {
+			t.Errorf("SetStates with two numbers: %v", err)
 		}
 	})
 

@@ -1207,6 +1207,13 @@ func TestCrud(t *testing.T) {
 		if n < 2 {
 			t.Errorf("%d audit rows of the tenant, want the create and the update rows", n)
 		}
+		// The audit messages of the tenant in the outbox, which the audit sink gets, hold no secret jsonb field.
+		if n := e.count(`SELECT count(*) FROM stego_outbox.messages WHERE tenant_id = $1 AND kind = 'audit.event'`, a.tenant.ID()); n < 2 {
+			t.Errorf("%d audit messages of the tenant in the outbox, want the create and the update", n)
+		}
+		if n := e.count(`SELECT count(*) FROM stego_outbox.messages WHERE tenant_id = $1 AND (position(convert_to($2, 'UTF8') in payload) > 0 OR position(convert_to($3, 'UTF8') in payload) > 0 OR position(convert_to('vault', 'UTF8') in payload) > 0)`, a.tenant.ID(), first, second); n != 0 {
+			t.Errorf("%d outbox messages of the tenant hold the secret jsonb field, want 0", n)
+		}
 		if n := e.count(`SELECT count(*) FROM idempotency_keys WHERE tenant_id = $1 AND key = $2 AND status = 'completed' AND position(convert_to($3, 'UTF8') in coalesce(response_body, '')) = 0 AND position(convert_to('vault', 'UTF8') in coalesce(response_body, '')) = 0`, a.tenant.ID(), key, first); n != 1 {
 			t.Errorf("%d completed key rows whose stored response holds no secret jsonb field, want 1", n)
 		}
