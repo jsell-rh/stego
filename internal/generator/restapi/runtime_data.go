@@ -232,14 +232,14 @@ func generateRuntimeHandlers(ctx gen.Context, collections []*runtimeCollection, 
 	return files, nil
 }
 
-// renderRuntimeHelpers writes runtime.go: the Runtime that the handlers run on, the command handler steps of the
-// command generator (command.RunHelpers), and the answers of the errors of Run.
+// renderRuntimeHelpers writes runtime.go: the Runtime that the handlers run on and the answers of the errors of Run.
+// The bind, the outcome map and the outcome row of a write are the command runtime's (ST-SUP-RP10-LC34).
 func renderRuntimeHelpers(ctx gen.Context, names []string, dataImport, slotsImportPath string, hasSlots bool, keys *idempotencyHeader) ([]byte, error) {
 	var b bytes.Buffer
 	pkg := path.Base(ctx.OutputNamespace)
 	fmt.Fprintf(&b, "package %s\n\nimport (\n\t\"context\"\n\t\"errors\"\n\t\"log/slog\"\n\t\"net\"\n\t\"net/http\"\n\t\"strings\"\n\t\"sync/atomic\"\n\t\"time\"\n\n", pkg)
-	fmt.Fprintf(&b, "\t\"github.com/jsell-rh/stego/registry/runtime/audit\"\n\t\"github.com/jsell-rh/stego/registry/runtime/authn\"\n\t\"github.com/jsell-rh/stego/registry/runtime/authz\"\n\t\"github.com/jsell-rh/stego/registry/runtime/command\"\n")
-	fmt.Fprintf(&b, "\t\"github.com/jsell-rh/stego/registry/runtime/idempotency\"\n\t\"github.com/jsell-rh/stego/registry/runtime/probe\"\n\t\"github.com/jsell-rh/stego/registry/runtime/query\"\n\t\"github.com/jsell-rh/stego/registry/runtime/tenant\"\n\n")
+	fmt.Fprintf(&b, "\t\"github.com/jsell-rh/stego/registry/runtime/audit\"\n\t\"github.com/jsell-rh/stego/registry/runtime/authn\"\n\t\"github.com/jsell-rh/stego/registry/runtime/command\"\n")
+	fmt.Fprintf(&b, "\t\"github.com/jsell-rh/stego/registry/runtime/idempotency\"\n\t\"github.com/jsell-rh/stego/registry/runtime/probe\"\n\t\"github.com/jsell-rh/stego/registry/runtime/query\"\n\n")
 	fmt.Fprintf(&b, "\tdata %q\n", dataImport)
 	if hasSlots {
 		fmt.Fprintf(&b, "\tslots %q\n", slotsImportPath)
@@ -261,7 +261,6 @@ func renderRuntimeHelpers(ctx gen.Context, names []string, dataImport, slotsImpo
 	b.WriteString("}\n}\n\n")
 	b.WriteString(runtimeHelpers)
 	b.WriteString(listOrderHelper)
-	b.WriteString(command.RunHelpers)
 	if hasSlots {
 		b.WriteString(slotCallerHelper)
 	}
@@ -395,16 +394,16 @@ func (e *invalidRequest) Error() string { return "the request is not valid" }
 func requestKey(requestID string) string { return "request:" + requestID }
 
 // commandRequest gives what Run knows of one write.
-func (rt *Runtime) commandRequest(r *http.Request, b bound, key, fingerprint, requestID string, body []byte, resource string) command.Request {
-	return command.Request{Tenant: b.tenant, Principal: b.principal, Key: key, Fingerprint: fingerprint, Body: body,
+func (rt *Runtime) commandRequest(r *http.Request, b command.Bound, key, fingerprint, requestID string, body []byte, resource string) command.Request {
+	return command.Request{Tenant: b.Tenant, Principal: b.Principal, Key: key, Fingerprint: fingerprint, Body: body,
 		Resource: resource, RequestID: requestID, ActorIP: remoteIP(r.RemoteAddr), UserAgent: r.UserAgent(),
 		Retention: rt.Retention}
 }
 
 // boundQuery gives the bound call of a read for the verified tenant and principal, with its probe call.
-func (rt *Runtime) boundQuery(ctx context.Context, b bound, q *query.Query) query.Bound[struct{}] {
-	call := rt.Probes.Bind(ctx, b.tenant.ID(), b.principal.Subject().String(), q.Name())
-	return query.Bound[struct{}]{Tenant: b.tenant, Principal: b.principal, Call: call, Probe: noProbe, RequestID: command.NewID()}
+func (rt *Runtime) boundQuery(ctx context.Context, b command.Bound, q *query.Query) query.Bound[struct{}] {
+	call := rt.Probes.Bind(ctx, b.Tenant.ID(), b.Principal.Subject().String(), q.Name())
+	return query.Bound[struct{}]{Tenant: b.Tenant, Principal: b.Principal, Call: call, Probe: noProbe, RequestID: command.NewID()}
 }
 
 // answerWrite answers an error of Run and writes the audit row of the denied or failed write in its own short
@@ -425,21 +424,21 @@ func (rt *Runtime) answerWrite(w http.ResponseWriter, r *http.Request, req comma
 		if status <= 0 {
 			status = http.StatusForbidden
 		}
-		recordOutcome(r.Context(), rt.Commands, req, action, resourceType, outcome{status: status, code: "slot_refused", audit: audit.OutcomeDenied})
+		_ = rt.Commands.RecordFailure(r.Context(), req, action, resourceType, command.Outcome{Status: status, Code: "slot_refused", Audit: audit.OutcomeDenied})
 		handleError(w, r, errorForStatus(status, refused.detail))
 		return
 	case errors.Is(err, command.ErrNotFound) && decided:
-		recordOutcome(r.Context(), rt.Commands, req, action, resourceType, outcome{status: http.StatusNotFound, code: "denied", audit: audit.OutcomeDenied})
+		_ = rt.Commands.RecordFailure(r.Context(), req, action, resourceType, command.Outcome{Status: http.StatusNotFound, Code: "denied", Audit: audit.OutcomeDenied})
 		handleError(w, r, NotFound(kind, req.Resource))
 		return
 	case errors.Is(err, command.ErrNotFound):
-		recordOutcome(r.Context(), rt.Commands, req, action, resourceType, outcome{status: http.StatusNotFound, code: "not_found", audit: audit.OutcomeFailed})
+		_ = rt.Commands.RecordFailure(r.Context(), req, action, resourceType, command.Outcome{Status: http.StatusNotFound, Code: "not_found", Audit: audit.OutcomeFailed})
 		handleError(w, r, NotFound(kind, req.Resource))
 		return
 	}
-	o := failedOutcome(err)
-	recordOutcome(r.Context(), rt.Commands, req, action, resourceType, o)
-	switch o.status {
+	o := command.OutcomeOf(err)
+	_ = rt.Commands.RecordFailure(r.Context(), req, action, resourceType, o)
+	switch o.Status {
 	case http.StatusNotFound:
 		handleError(w, r, NotFound(kind, req.Resource))
 	case http.StatusConflict:
@@ -887,7 +886,7 @@ func (w *runtimeHandlerWriter) key(op types.Operation) {
 
 // start writes the binding of the verified caller and the read of the body.
 func (w *runtimeHandlerWriter) start(body bool) {
-	w.f("\tb, err := bind(r.Context())\n\tif err != nil {\n\t\thandleError(w, r, Unauthorized(\"the request is not authenticated\"))\n\t\treturn\n\t}\n")
+	w.f("\tb, err := command.BindIdentity(r.Context(), subjectType)\n\tif err != nil {\n\t\thandleError(w, r, Unauthorized(\"the request is not authenticated\"))\n\t\treturn\n\t}\n")
 	if body {
 		w.f("\tbody, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxRequestBody))\n\tif err != nil {\n\t\thandleError(w, r, BadRequest(\"the body cannot be read\"))\n\t\treturn\n\t}\n")
 	}
@@ -1060,7 +1059,7 @@ func (w *runtimeHandlerWriter) list() {
 		}
 	}
 	w.f("\torder, err := listOrder(r.URL.Query().Get(\"orderBy\"), map[string]bool{%s})\n\tif err != nil {\n\t\thandleError(w, r, BadRequest(err.Error()))\n\t\treturn\n\t}\n", strings.Join(fields, ", "))
-	w.f("\tvar after query.Cursor\n\tif text := r.URL.Query().Get(\"cursor\"); text != \"\" {\n\t\tif after, err = h.rt.Queries.ParseCursor(%s, b.tenant, b.principal, text); err != nil {\n\t\t\thandleError(w, r, BadRequest(\"the cursor is not valid\"))\n\t\t\treturn\n\t\t}\n\t}\n", q)
+	w.f("\tvar after query.Cursor\n\tif text := r.URL.Query().Get(\"cursor\"); text != \"\" {\n\t\tif after, err = h.rt.Queries.ParseCursor(%s, b.Tenant, b.Principal, text); err != nil {\n\t\t\thandleError(w, r, BadRequest(\"the cursor is not valid\"))\n\t\t\treturn\n\t\t}\n\t}\n", q)
 	w.f("\tpage, err := query.Run(r.Context(), h.rt.Queries, %s, h.rt.boundQuery(r.Context(), b, %s), query.ListRequest{Limit: limit, After: after, Order: order}, func(ctx context.Context, request query.ListRequest, qh *query.Handle[struct{}]) (%sPage, error) {\n", q, q, c.camel)
 	w.f("\t\trepo, err := query.Repo(qh, data.Entity%sView())\n\t\tif err != nil {\n\t\t\treturn %sPage{}, err\n\t\t}\n", e.Name, c.camel)
 	w.f("\t\tresult, err := repo.List(ctx, request)\n\t\tif err != nil {\n\t\t\treturn %sPage{}, err\n\t\t}\n", c.camel)
@@ -1071,7 +1070,7 @@ func (w *runtimeHandlerWriter) list() {
 	w.f("\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
 	if w.envelope {
 		w.f("\tresult := map[string]any{\"kind\": %q, \"size\": len(items), \"items\": items}\n", e.Name+"List")
-		w.f("\tif page.more {\n\t\tnext, err := h.rt.Queries.CursorText(%s, b.tenant, b.principal, page.next)\n\t\tif err != nil {\n\t\t\thandleError(w, r, InternalError(\"internal error\"))\n\t\t\treturn\n\t\t}\n\t\tresult[\"next\"] = next\n\t}\n", q)
+		w.f("\tif page.more {\n\t\tnext, err := h.rt.Queries.CursorText(%s, b.Tenant, b.Principal, page.next)\n\t\tif err != nil {\n\t\t\thandleError(w, r, InternalError(\"internal error\"))\n\t\t\treturn\n\t\t}\n\t\tresult[\"next\"] = next\n\t}\n", q)
 		w.f("\t_ = json.NewEncoder(w).Encode(result)\n}\n\n")
 	} else {
 		w.f("\t_ = json.NewEncoder(w).Encode(items)\n}\n\n")
