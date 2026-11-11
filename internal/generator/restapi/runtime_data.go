@@ -703,6 +703,15 @@ func keyMissing(w http.ResponseWriter, r *http.Request) {
 	handleError(w, r, problem)
 }
 
+// canonicalID gives the lower-case form of a UUID, the form that the rows and the relations hold, so that an
+// upper-case UUID in a path or a body names the same row (ST-SUP-RC20-OC24). Another text stays as it is.
+func canonicalID(id string) string {
+	if command.ValidUUID(id) {
+		return strings.ToLower(id)
+	}
+	return id
+}
+
 // answerRead answers an error of a read: a row that is not there or that the caller may not read is 404, and every
 // other error 500 (ST-SUP-RP11-LC06).
 func answerRead(w http.ResponseWriter, r *http.Request, kind, id string, err error) {
@@ -1367,7 +1376,7 @@ func (w *runtimeHandlerWriter) start(body bool) {
 	w.f("\tb, err := command.BindIdentity(r.Context(), subjectType)\n\tif err != nil {\n\t\thandleError(w, r, Unauthorized(\"the request is not authenticated\"))\n\t\treturn\n\t}\n")
 	if w.c.scope != "" {
 		// The parent of a scoped collection is the path parameter of its scope field (ST-SUP-RC20-OC24).
-		w.f("\tscope := r.PathValue(%q)\n\tif !command.ValidUUID(scope) {\n\t\thandleError(w, r, NotFound(%q, scope))\n\t\treturn\n\t}\n", w.c.scope, w.c.decl.ParentEntity())
+		w.f("\tscope := canonicalID(r.PathValue(%q))\n\tif !command.ValidUUID(scope) {\n\t\thandleError(w, r, NotFound(%q, scope))\n\t\treturn\n\t}\n", w.c.scope, w.c.decl.ParentEntity())
 	}
 	if body {
 		w.f("\tbody, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxRequestBody))\n\tif err != nil {\n\t\thandleError(w, r, BadRequest(\"the body cannot be read\"))\n\t\treturn\n\t}\n")
@@ -1420,7 +1429,7 @@ func (w *runtimeHandlerWriter) create() {
 func (w *runtimeHandlerWriter) update() {
 	c, e := w.c, w.c.entity
 	w.f("// Update runs the generated command update of %s through Run, on the row of the path's ID.\n", c.decl.Name)
-	w.f("func (h *%sHandler) Update(w http.ResponseWriter, r *http.Request) {\n\tid := r.PathValue(\"id\")\n", c.pascal)
+	w.f("func (h *%sHandler) Update(w http.ResponseWriter, r *http.Request) {\n\tid := canonicalID(r.PathValue(\"id\"))\n", c.pascal)
 	w.start(true)
 	w.f("\tif _, err := decode%s(body); err != nil {\n\t\th.rt.answerWrite(w, r, command.Request{}, \"update\", %q, %q, false, err)\n\t\treturn\n\t}\n", c.pascal, e.ResourceType, e.Name)
 	w.f("\trequestID := command.NewID()\n\tfingerprint, err := idempotency.Fingerprint(r.Method, r.URL.Path, body)\n\tif err != nil {\n\t\thandleError(w, r, BadRequest(\"the body is not a JSON object\"))\n\t\treturn\n\t}\n")
@@ -1475,6 +1484,15 @@ func (w *runtimeHandlerWriter) forceScope(scope string) {
 func (w *runtimeHandlerWriter) parents(stored string) {
 	c := w.c
 	w.f("\t\tvar parents []command.Ref\n")
+	// A ref holds the lower-case form of its UUID, which the loaded row has (ST-SUP-RC20-OC24).
+	for _, f := range c.refs {
+		v := c.lower + "." + toPascalCase(f.Name)
+		if f.Optional {
+			w.f("\t\tif %s != nil {\n\t\t\t*%s = canonicalID(*%s)\n\t\t}\n", v, v, v)
+		} else {
+			w.f("\t\t%s = canonicalID(%s)\n", v, v)
+		}
+	}
 	for _, f := range c.refs {
 		name := toPascalCase(f.Name)
 		v := c.lower + "." + name
@@ -1572,7 +1590,7 @@ func (w *runtimeHandlerWriter) patch() {
 	c, e := w.c, w.c.entity
 	fields := c.patchFields()
 	w.f("// Patch runs the generated command patch of %s through Run: it changes only the fields that the request\n// gives (ST-SUP-RC20-OC15).\n", c.decl.Name)
-	w.f("func (h *%sHandler) Patch(w http.ResponseWriter, r *http.Request) {\n\tid := r.PathValue(\"id\")\n", c.pascal)
+	w.f("func (h *%sHandler) Patch(w http.ResponseWriter, r *http.Request) {\n\tid := canonicalID(r.PathValue(\"id\"))\n", c.pascal)
 	w.start(true)
 	w.key(types.OpPatch)
 	w.f("\tif _, err := decode%sPatch(body); err != nil {\n", c.pascal)
@@ -1614,7 +1632,7 @@ func (w *runtimeHandlerWriter) patch() {
 func (w *runtimeHandlerWriter) remove() {
 	c := w.c
 	w.f("// Delete runs the generated command delete of %s through Run, and answers 204 with no body (ST-SUP-RC20-OC32).\n", c.decl.Name)
-	w.f("func (h *%sHandler) Delete(w http.ResponseWriter, r *http.Request) {\n\tid := r.PathValue(\"id\")\n", c.pascal)
+	w.f("func (h *%sHandler) Delete(w http.ResponseWriter, r *http.Request) {\n\tid := canonicalID(r.PathValue(\"id\"))\n", c.pascal)
 	w.start(false)
 	w.f("\trequestID := command.NewID()\n\tfingerprint, err := idempotency.Fingerprint(r.Method, r.URL.Path, nil)\n\tif err != nil {\n\t\thandleError(w, r, InternalError(\"internal error\"))\n\t\treturn\n\t}\n")
 	w.f("\treq := h.rt.commandRequest(r, b, requestKey(requestID), fingerprint, requestID, nil, id)\n")
@@ -1631,7 +1649,7 @@ func (w *runtimeHandlerWriter) remove() {
 func (w *runtimeHandlerWriter) read() {
 	c, e := w.c, w.c.entity
 	w.f("// Read runs the query read of %s through query.Run: a row that is not there and a deny are both 404\n// (ST-SUP-RP11-LC06), and a read of a pii field has its audit row (ST-SUP-RC28-OC04).\n", c.decl.Name)
-	w.f("func (h *%sHandler) Read(w http.ResponseWriter, r *http.Request) {\n\tid := r.PathValue(\"id\")\n", c.pascal)
+	w.f("func (h *%sHandler) Read(w http.ResponseWriter, r *http.Request) {\n\tid := canonicalID(r.PathValue(\"id\"))\n", c.pascal)
 	w.start(false)
 	w.f("\tif !command.ValidUUID(id) {\n\t\thandleError(w, r, NotFound(%q, id))\n\t\treturn\n\t}\n", e.Name)
 	q := w.commandVar(types.OpRead)

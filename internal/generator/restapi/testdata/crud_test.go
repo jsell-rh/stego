@@ -344,7 +344,7 @@ func (e *env) start(dsn, endpoint, spiceKey string) {
 	orders := api.NewOrdersHandler(rt, slots.NewBeforeCreateChain(true, orderGate{e}), slots.NewAfterCreateGate(orderAfter{e}))
 	customers := api.NewCustomersHandler(rt, slots.NewValidateGate(customerGate{e}))
 	todos := api.NewTodosHandler(rt)
-	folders, books := api.NewFoldersHandler(rt), api.NewFolderBooksHandler(rt)
+	folders, books, allBooks := api.NewFoldersHandler(rt), api.NewFolderBooksHandler(rt), api.NewBooksHandler(rt)
 	redEvents, blueEvents := api.NewRedEventsHandler(rt), api.NewBlueEventsHandler(rt)
 	folderSettings := api.NewFolderSettingsHandler(rt)
 	mux := http.NewServeMux()
@@ -360,6 +360,9 @@ func (e *env) start(dsn, endpoint, spiceKey string) {
 	mux.HandleFunc("DELETE /api/v1/folders/{folder_id}/books/{id}", books.Delete)
 	mux.HandleFunc("GET /api/v1/folders/{folder_id}/settings", folderSettings.List)
 	mux.HandleFunc("PUT /api/v1/folders/{folder_id}/settings", folderSettings.Upsert)
+	mux.HandleFunc("POST /api/v1/books", allBooks.Create)
+	mux.HandleFunc("GET /api/v1/books/{id}", allBooks.Read)
+	mux.HandleFunc("PUT /api/v1/books/{id}", allBooks.Update)
 	mux.HandleFunc("POST /api/v1/red-events", redEvents.Create)
 	mux.HandleFunc("GET /api/v1/red-events/{id}", redEvents.Read)
 	mux.HandleFunc("GET /api/v1/red-events", redEvents.List)
@@ -1568,6 +1571,65 @@ func TestCrud(t *testing.T) {
 		}
 		if r := e.send(a, http.MethodGet, "/api/v1/folders/"+one+"/books?pageSize=1&cursor="+url.QueryEscape(next), "", ""); r.status != http.StatusOK {
 			t.Errorf("the cursor on its own folder answered %d %s, want 200", r.status, r.body)
+		}
+	})
+
+	t.Run("ST-SUP-RC20-OC24-T07 An upper-case UUID in a path or a ref names the same row as its lower-case form", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-1", newTenant())
+		one := e.create(a, "folders", "folder", `{"name":"one"}`)
+		two := e.create(a, "folders", "folder", `{"name":"two"}`)
+		upper := strings.ToUpper
+		books := func(folder string) string { return "/api/v1/folders/" + folder + "/books" }
+		// The parent of the path in upper case.
+		created := e.send(a, http.MethodPost, books(upper(one)), "k-"+uuid.NewString(), `{"title":"t1"}`)
+		if created.status != http.StatusCreated {
+			t.Fatalf("the create under the upper-case folder answered %d %s, want 201", created.status, created.body)
+		}
+		id := created.member(t, "id")
+		e.own(a, "book", id)
+		if n := e.count(`SELECT count(*) FROM books WHERE id = $1::uuid AND folder_id::text = $2`, id, one); n != 1 {
+			t.Errorf("%d book rows on the lower-case folder, want 1", n)
+		}
+		for _, c := range []struct {
+			method, path, key, body string
+			want                    int
+		}{
+			{http.MethodGet, books(upper(one)) + "/" + upper(id), "", "", http.StatusOK},
+			{http.MethodGet, books(upper(one)), "", "", http.StatusOK},
+			{http.MethodPatch, books(upper(one)) + "/" + upper(id), "k-" + uuid.NewString(), `{"title":"t2"}`, http.StatusOK},
+			{http.MethodPut, books(upper(one)) + "/" + id, "", `{"title":"t3"}`, http.StatusOK},
+			{http.MethodGet, books(upper(two)) + "/" + upper(id), "", "", http.StatusNotFound},
+		} {
+			if r := e.send(a, c.method, c.path, c.key, c.body); r.status != c.want {
+				t.Errorf("%s %s answered %d %s, want %d", c.method, c.path, r.status, r.body, c.want)
+			}
+		}
+		list := e.send(a, http.MethodGet, books(upper(one)), "", "")
+		var page struct {
+			Items []map[string]any `json:"items"`
+		}
+		must(t, json.Unmarshal(list.body, &page))
+		if len(page.Items) != 1 || page.Items[0]["id"] != id {
+			t.Errorf("the list under the upper-case folder answered %s, want its one book", list.body)
+		}
+		// A ref of the body in upper case: a create, an update that keeps the ref and an update that moves it.
+		free := e.send(a, http.MethodPost, "/api/v1/books", "k-"+uuid.NewString(), `{"title":"f1","folder_id":"`+upper(one)+`"}`)
+		if free.status != http.StatusCreated {
+			t.Fatalf("the create with an upper-case ref answered %d %s, want 201", free.status, free.body)
+		}
+		freeID := free.member(t, "id")
+		e.own(a, "book", freeID)
+		for _, folder := range []string{one, two} {
+			if r := e.send(a, http.MethodPut, "/api/v1/books/"+upper(freeID), "", `{"title":"f2","folder_id":"`+upper(folder)+`"}`); r.status != http.StatusOK {
+				t.Errorf("the update with the upper-case ref %s answered %d %s, want 200", folder, r.status, r.body)
+			}
+			if n := e.count(`SELECT count(*) FROM books WHERE id = $1::uuid AND folder_id::text = $2`, freeID, folder); n != 1 {
+				t.Errorf("%d book rows on the lower-case folder %s, want 1", n, folder)
+			}
+		}
+		if r := e.send(a, http.MethodGet, "/api/v1/books/"+upper(freeID), "", ""); r.status != http.StatusOK {
+			t.Errorf("the read of the upper-case ID answered %d %s, want 200", r.status, r.body)
 		}
 	})
 
