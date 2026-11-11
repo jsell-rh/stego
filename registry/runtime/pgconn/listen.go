@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/jsell-rh/stego/registry/runtime/outbox"
+	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // ProbeTimeout bounds the wait for the session's own notice when the listener checks the session.
@@ -35,19 +36,29 @@ type Listener struct {
 
 var _ outbox.Listener = (*Listener)(nil)
 
-// Listen opens the listener session from dsn and checks that it is one direct backend (ST-SUP-RP01-LC20): the
-// process ID of the startup must be the process ID that the server reports, which a pooler that gives the client
-// a key of its own does not keep. Listener.Listen then proves the session with a notice of its own.
-func Listen(ctx context.Context, dsn string) (*Listener, error) {
-	config, err := pgx.ParseConfig(dsn)
+// Listen opens the listener session from cfg, a direct DSN or the connection configuration of the PostgreSQL
+// adapter's opener, and checks that it is one direct backend (ST-SUP-RP01-LC20). Before it connects it makes the
+// checks of tenant.Open with tenant.Connection: the pooler guard refuses a session setting, and the transport check
+// refuses a configuration or a DSN whose TLS does not verify the server, such as sslmode disable, prefer or
+// require, unless cfg.InsecureLoopback holds and every target is a loopback IP address; so no startup message and no
+// password go to a server that is not verified. On the session it runs the pooler guard's check of app.tenant
+// (tenant.CheckSession). Then the process ID of the startup must be the process ID that the server reports, which a
+// pooler that gives the client a key of its own does not keep. Listener.Listen then proves the session with a
+// notice of its own.
+func Listen(ctx context.Context, cfg tenant.Config) (*Listener, error) {
+	config, err := tenant.Connection(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("pgconn: read the listener DSN: %w", err)
+		return nil, fmt.Errorf("pgconn: the listener connection: %w", err)
 	}
 	// The source owns notification handling; the session inherits no hook.
 	config.OnNotification = nil
 	conn, err := pgx.ConnectConfig(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("pgconn: open the listener session: %w", err)
+	}
+	if err := tenant.CheckSession(ctx, conn); err != nil {
+		_ = conn.Close(ctx)
+		return nil, fmt.Errorf("pgconn: the listener session: %w", err)
 	}
 	var pid uint32
 	if err := conn.QueryRow(ctx, "SELECT pg_catalog.pg_backend_pid()").Scan(&pid); err != nil {

@@ -7,7 +7,6 @@ import (
 	"net/http"
 
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -15,9 +14,6 @@ import (
 	"github.com/jsell-rh/stego/registry/runtime/otel"
 	"github.com/jsell-rh/stego/registry/runtime/probe"
 )
-
-// RequestIDMetadata is the gRPC request metadata whose value is the request ID of the audit rows of a query.
-const RequestIDMetadata = "x-request-id"
 
 // RPC is what the generated code gives ServeRPC for one query that a unary gRPC method serves: only what varies with
 // the declaration and with the method's messages (ST-SUP-RP11-LC19, ST-STD-RUNTIME-R05). Fill, Next, Encode and
@@ -190,17 +186,12 @@ func ServeStream[In any, Out proto.Message, Req, T, P any](s StreamRPC[In, Out, 
 	}, nil
 }
 
-// BindRPC gives the Bind of RPC and StreamRPC for the query q: BindContext of the call's context, with the request ID
-// of the RequestIDMetadata request metadata.
+// BindRPC gives the Bind of RPC and StreamRPC for the query q: BindContext of the call's context, with a new request
+// ID that the server makes. Request metadata of the client, such as x-request-id, is not read, so it never reaches
+// an audit row (ST-SUP-RP11-LC19).
 func BindRPC[P any](probes Probes, subjectType string, q *Query, newProbe func(*probe.Probe) P) func(ctx context.Context) (Bound[P], error) {
 	return func(ctx context.Context) (Bound[P], error) {
-		requestID := ""
-		if md, ok := metadata.FromIncomingContext(ctx); ok {
-			if values := md.Get(RequestIDMetadata); len(values) == 1 {
-				requestID = values[0]
-			}
-		}
-		return BindContext(ctx, probes, subjectType, q, newProbe, requestID)
+		return BindContext(ctx, probes, subjectType, q, newProbe, NewRequestID())
 	}
 }
 

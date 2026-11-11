@@ -150,7 +150,7 @@ func (q *Query) Name() string { return q.name }
 // Bound is what the generated handler of one call gives Run: the verified tenant and principal, the probe call that
 // it bound to the span context, the tenant, the principal and the query name, the constructor of the query's typed
 // probe, which Run calls on that call's Probe, so the fill's probe is always the one of this call, and the request
-// ID that the audit rows carry.
+// ID that the audit rows carry, which the server makes (NewRequestID); empty gets a new one.
 type Bound[P any] struct {
 	Tenant    tenant.Tenant
 	Principal authz.Principal
@@ -250,7 +250,11 @@ func runFill[P any](ctx context.Context, rt *Runtime, q *Query, b Bound[P], body
 	if err != nil {
 		return err
 	}
+	// The request ID is one that the server made; a bound call with none gets a new one (ST-SUP-RP11-LC19).
 	h.core.requestID = b.RequestID
+	if h.core.requestID == "" {
+		h.core.requestID = NewRequestID()
+	}
 	fillErr := callFill(ctx, h, body)
 	// The handle and the probe end as soon as the fill returns or panics, before the transaction ends.
 	h.core.life.close()

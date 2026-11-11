@@ -36,7 +36,7 @@ type PurgeJobConfig struct {
 // PurgeJob runs Purge on the declared interval (ST-SUP-RP07-LC09). The generated service only builds it and
 // registers Run as a component.
 type PurgeJob struct {
-	db       Execer
+	db       Querier
 	interval time.Duration
 	opts     PurgeOptions
 	clock    JobClock
@@ -49,12 +49,15 @@ type PurgeJob struct {
 }
 
 // NewPurgeJob returns the purge job on db. It refuses a nil db and a negative interval.
-func NewPurgeJob(db Execer, cfg PurgeJobConfig) (*PurgeJob, error) {
+func NewPurgeJob(db Querier, cfg PurgeJobConfig) (*PurgeJob, error) {
 	if db == nil {
 		return nil, errors.New("idempotency: the purge job needs the database")
 	}
 	if cfg.Interval < 0 || cfg.Batch < 0 || cfg.Pause < 0 {
 		return nil, errors.New("idempotency: the purge job takes no negative interval, batch or pause")
+	}
+	if cfg.Batch > MaxPurgeBatch {
+		return nil, errors.New("idempotency: the purge job takes no batch above MaxPurgeBatch")
 	}
 	j := &PurgeJob{db: db, interval: cfg.Interval, clock: cfg.Clock}
 	if j.interval == 0 {

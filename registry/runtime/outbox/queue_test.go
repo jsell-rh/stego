@@ -878,7 +878,8 @@ func TestQueueTenancy(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = tx.Rollback() }()
-		resolved, err := w.Resolve(ctx, tx, ResolveRequest{ID: m.ID, Subject: "user:ops-1", Resolution: NotActed})
+		resolved, err := w.Resolve(ctx, tx, ResolveRequest{ID: m.ID, Destination: m.Destination, Principal: person("user:ops-1"),
+			Resolution: NotActed})
 		if err != nil {
 			t.Fatalf("Resolve as the runtime role: %v", err)
 		}
@@ -994,7 +995,8 @@ func TestQueueTenancy(t *testing.T) {
 		if len(ids) != 1 || ids[0] != two.ID {
 			t.Fatalf("t2 reads the queue table rows %v", ids)
 		}
-		if _, err := w.Resolve(ctx, tx, ResolveRequest{ID: one.ID, Subject: "user:ops-1", Resolution: Acted}); !errors.Is(err, ErrNotFound) {
+		if _, err := w.Resolve(ctx, tx, ResolveRequest{ID: one.ID, Destination: one.Destination, Principal: person("user:ops-1"),
+			Resolution: Acted}); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("t2 resolving t1's message gave %v", err)
 		}
 		if _, err := tx.ExecContext(ctx, `SAVEPOINT s`); err != nil {

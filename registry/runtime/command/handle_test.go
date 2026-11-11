@@ -193,13 +193,18 @@ func newEnv(t *testing.T, options ...envOption) *env {
 		t.Fatal(err)
 	}
 	grants := "GRANT SELECT, INSERT, UPDATE, DELETE ON " + strings.Join(entityTables, ", ") + " TO " + roles[0]
+	// The idempotency purge role of the test service, one role of the server, which the migration makes.
+	keysDDL, err := idempotency.Migration("cmd_test_idempotency_purge", roles[0])
+	if err != nil {
+		t.Fatal(err)
+	}
 	setup := []string{
 		queueDDL,
 		"CREATE SCHEMA authz",
 		"GRANT USAGE ON SCHEMA authz TO " + roles[0] + ", " + roles[1] + ", " + roles[2],
 		authzDDL,
 		auditDDL,
-		idempotency.Migration,
+		keysDDL,
 		"GRANT SELECT, INSERT, UPDATE ON idempotency_keys TO " + roles[0],
 		lease.LeasesTable,
 		"GRANT SELECT, UPDATE ON leases TO " + roles[0],

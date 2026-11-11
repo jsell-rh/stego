@@ -60,8 +60,13 @@ func NewValidationMiddleware() func(http.Handler) http.Handler {
 			}
 
 			// Buffer the body for validation; restore it for the handler.
-			bodyBytes, err := io.ReadAll(r.Body)
+			// Read at most MaxRequestBody bytes; a larger body gets 413.
+			bodyBytes, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxRequestBody))
 			if err != nil {
+				if tooLarge := new(http.MaxBytesError); errors.As(err, &tooLarge) {
+					handleError(w, r, errorForStatus(http.StatusRequestEntityTooLarge, "the request body is larger than the limit"))
+					return
+				}
 				handleError(w, r, BadRequest("failed to read request body"))
 				return
 			}

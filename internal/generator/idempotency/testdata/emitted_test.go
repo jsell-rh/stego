@@ -89,12 +89,14 @@ func TestEmitted(t *testing.T) {
 	})
 
 	t.Run("ST-SUP-RC30-OC04-T04 The emitted migration makes the key table scoped by tenant, principal and key", func(t *testing.T) {
-		if SchemaSQL != stegoidempotency.Migration {
-			t.Fatal("SchemaSQL is not the runtime's Migration")
+		got, err := SchemaSQL(purgeRole, runtimeRole)
+		want, wantErr := stegoidempotency.Migration(purgeRole, runtimeRole)
+		if err != nil || wantErr != nil || got != want {
+			t.Fatalf("SchemaSQL is not the runtime's Migration: %v, %v", err, wantErr)
 		}
 		db, schema := database(t)
 		ctx := context.Background()
-		if _, err := db.ExecContext(ctx, SchemaSQL); err != nil {
+		if _, err := db.ExecContext(ctx, got); err != nil {
 			t.Fatalf("apply SchemaSQL a second time: %v", err)
 		}
 		if err := insertKey(db, "A", "p1", "K1", time.Now().Add(Retention)); err != nil {
@@ -217,11 +219,24 @@ func database(t *testing.T) (*sql.DB, string) {
 		_, _ = admin.Exec("DROP SCHEMA " + schema + " CASCADE")
 		_ = admin.Close()
 	})
-	if _, err := db.Exec(SchemaSQL); err != nil {
+	if _, err := admin.Exec(`DO $$ BEGIN CREATE ROLE ` + runtimeRole + ` NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$`); err != nil {
+		t.Fatal(err)
+	}
+	text, err := SchemaSQL(purgeRole, runtimeRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(text); err != nil {
 		t.Fatalf("apply SchemaSQL: %v", err)
 	}
 	return db, schema
 }
+
+// The roles of the test service, which a tenancy role migration would make.
+const (
+	purgeRole   = "idem_gen_idempotency_purge"
+	runtimeRole = "idem_gen_runtime"
+)
 
 func insertKey(db *sql.DB, tenant, principal, key string, expires time.Time) error {
 	_, err := db.Exec(`INSERT INTO idempotency_keys (tenant_id, principal_id, key, fingerprint, status, locked_at, expires_at)

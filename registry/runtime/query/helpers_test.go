@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/jsell-rh/stego/registry/runtime/authn"
 	"github.com/jsell-rh/stego/registry/runtime/authn/authntest"
 	"github.com/jsell-rh/stego/registry/runtime/otel"
@@ -135,11 +137,11 @@ func TestServeHelpers(t *testing.T) {
 		claims["tenant"] = "t1"
 		r := httptest.NewRequest(http.MethodGet, "/order", nil)
 		r.Header.Set("Authorization", "Bearer "+authntest.Mint(t, authntest.Header("k1"), claims, key))
-		r.Header.Set(RequestIDHeader, "req-1")
+		r.Header.Set("X-Request-Id", "req-1")
 		w := httptest.NewRecorder()
 		verifier.Middleware(bound).ServeHTTP(w, r)
 		if w.Code != http.StatusOK || got.Tenant.ID() != "t1" || got.Principal.Subject().Type != "user" ||
-			got.RequestID != "req-1" || got.Call == nil || got.Call.Probe().Operation() != "bind-order" {
+			uuid.Validate(got.RequestID) != nil || got.Call == nil || got.Call.Probe().Operation() != "bind-order" {
 			t.Fatalf("the bound call gave %d with %+v, want 200 bound to t1, the user and the query", w.Code, got)
 		}
 		// A verified identity with no tenant claim is not bound: 401.

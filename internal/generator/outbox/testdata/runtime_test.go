@@ -39,6 +39,7 @@ type env struct {
 	cfg                     *pgx.ConnConfig
 	name                    string
 	runtimeRole, workerRole string
+	purgeRole               string
 	owner, runtime, worker  *sql.DB
 }
 
@@ -79,6 +80,12 @@ func newEnv(t *testing.T) *env {
 	// The relay role is one role of the cluster; the owner makes the relay functions as it.
 	exec(`DO $$ BEGIN CREATE ROLE ` + outbox.RelayRole + ` NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$`)
 	exec("GRANT " + outbox.RelayRole + " TO " + ownerRole + " WITH SET TRUE, INHERIT TRUE")
+	// The idempotency purge role is one role of this service; the owner makes the purge function as it with SET
+	// ROLE, as the tenancy role migration allows (SET TRUE, INHERIT FALSE; ST-SUP-RP07-LC11).
+	e.purgeRole = "ob_" + tag + "_idempotency_purge"
+	exec("CREATE ROLE " + e.purgeRole + " NOLOGIN NOINHERIT")
+	exec("GRANT " + e.purgeRole + " TO " + ownerRole + " WITH SET TRUE, INHERIT FALSE")
+	t.Cleanup(func() { _, _ = admin.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+e.purgeRole) })
 	// The runtime migration runs CREATE ROLE for the relay role also when the role is there, so the owner needs
 	// CREATEROLE, though it creates no role here.
 	exec("ALTER ROLE " + ownerRole + " CREATEROLE")
@@ -121,7 +128,11 @@ func (e *env) migrateAll() {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	for _, step := range []struct{ name, text string }{{"idempotency", idempotency.SchemaSQL}, {"audit-log", auditText}} {
+	keysText, err := idempotency.SchemaSQL(e.purgeRole, e.runtimeRole)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	for _, step := range []struct{ name, text string }{{"idempotency", keysText}, {"audit-log", auditText}} {
 		if _, err := e.owner.ExecContext(e.ctx, step.text); err != nil {
 			e.t.Fatalf("the %s migration: %v", step.name, err)
 		}

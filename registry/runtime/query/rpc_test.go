@@ -4,9 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -15,6 +20,8 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
+	"github.com/jsell-rh/stego/registry/runtime/authn"
+	"github.com/jsell-rh/stego/registry/runtime/authn/authntest"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
 	"github.com/jsell-rh/stego/registry/runtime/internal/seal"
 	"github.com/jsell-rh/stego/registry/runtime/internal/staging"
@@ -300,5 +307,64 @@ func TestServeRPC(t *testing.T) {
 		if _, err := ServeStream(StreamRPC[*wrapperspb.StringValue, *structpb.Struct, string, Order, noProbe]{}); err == nil {
 			t.Fatal("a stream helper with no parts was accepted")
 		}
+	})
+}
+
+func TestRequestID(t *testing.T) {
+	t.Run("ST-SUP-RP11-LC19-T02 The request ID of a query call is made on the server, never taken from the client", func(t *testing.T) {
+		orders := orderEntity(t, false)
+		q := mustQuery(t, "bind-order", orders)
+		key := authntest.NewKey(t, "k1")
+		set, err := authn.ParseKeys(authntest.Document(key.JWK()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		verifier, err := authn.New(authn.Settings{Issuer: "https://issuer.example", Audience: "shop", ProblemCode: "SHOP",
+			Keys: set, TenantClaim: "tenant"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(verifier.Stop)
+		claims := authntest.Claims("https://issuer.example", "shop", "u-7", time.Now())
+		claims["tenant"] = "t1"
+		token := authntest.Mint(t, authntest.Header("k1"), claims, key)
+		recorder := probe.NewRecorder(nil)
+		const client = "client-chosen-id"
+		seen := map[string]bool{}
+		check := func(how string, b Bound[noProbe], err error) {
+			t.Helper()
+			if err != nil {
+				t.Fatalf("%s: %v", how, err)
+			}
+			if b.RequestID == client || uuid.Validate(b.RequestID) != nil || seen[b.RequestID] {
+				t.Fatalf("%s gave the request ID %q, want a new UUID of the server", how, b.RequestID)
+			}
+			seen[b.RequestID] = true
+		}
+		// HTTP: the X-Request-Id header of the client is not read; two calls with the same header get two IDs.
+		for range 2 {
+			var b Bound[noProbe]
+			var berr error
+			r := httptest.NewRequest(http.MethodGet, "/order", nil)
+			r.Header.Set("Authorization", "Bearer "+token)
+			r.Header.Set("X-Request-Id", client)
+			verifier.Middleware(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				b, berr = BindHTTP(recorder, "user", q, newNoProbe)(r)
+			})).ServeHTTP(httptest.NewRecorder(), r)
+			check("BindHTTP", b, berr)
+		}
+		// gRPC: the x-request-id metadata of the client is not read.
+		var ctx context.Context
+		r := httptest.NewRequest(http.MethodGet, "/order", nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		verifier.Middleware(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { ctx = r.Context() })).
+			ServeHTTP(httptest.NewRecorder(), r)
+		for range 2 {
+			b, err := BindRPC(recorder, "user", q, newNoProbe)(metadata.NewIncomingContext(ctx, metadata.Pairs("x-request-id", client)))
+			check("BindRPC", b, err)
+		}
+		// A bound call with no request ID gets one of the server.
+		b, err := BindContext(ctx, recorder, "user", q, newNoProbe, "")
+		check("BindContext with no request ID", b, err)
 	})
 }

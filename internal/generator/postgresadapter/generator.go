@@ -811,9 +811,8 @@ func buildGormTag(entity string, f types.Field) string {
 		parts = append(parts, "check:"+strings.Join(checks, " AND "))
 	}
 
-	if f.Default != nil {
-		parts = append(parts, fmt.Sprintf("default:%v", f.Default))
-	}
+	// The default stays out of the tag: the tag is written in a Go raw string, which a backtick in a default would end,
+	// and a ; in it would add GORM settings. The SQL DEFAULT of the column comes from columnDefault, through sqlString.
 
 	return strings.Join(parts, ";")
 }
