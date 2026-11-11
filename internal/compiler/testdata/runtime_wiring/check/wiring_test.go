@@ -640,6 +640,29 @@ func TestWiring(t *testing.T) {
 		})
 	})
 
+	t.Run("ST-SUP-RP14-LC04-T03 The generated worker delivers each audit entry and anchor to the default table", func(t *testing.T) {
+		s.t = t
+		if order == "" {
+			t.Fatal("no order: the collection check did not pass")
+		}
+		// No STEGO_AUDIT_SINK_URL is set, so the worker mode binds the audit-sink port to the table of its own in the
+		// service database: every audit-sink message of the tenant is done, and the table holds one row for each,
+		// keyed by the event ID or the anchor ID, written as the worker role.
+		var last string
+		for deadline := time.Now().Add(60 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+			pending := count(t, s.admin, `SELECT count(*) FROM stego_outbox.messages WHERE tenant_id = $1 AND destination = 'audit-sink' AND state <> 'done'`, owner.tenant.ID())
+			done := count(t, s.admin, `SELECT count(*) FROM stego_outbox.messages WHERE tenant_id = $1 AND destination = 'audit-sink' AND state = 'done'`, owner.tenant.ID())
+			events := count(t, s.admin, `SELECT count(*) FROM stego_audit_sink.entries e JOIN audit_event a ON a.id::text = e.entry_id WHERE e.tenant_id = $1 AND e.kind = 'event'`, owner.tenant.ID())
+			anchors := count(t, s.admin, `SELECT count(*) FROM stego_audit_sink.entries WHERE tenant_id = $1 AND kind = 'anchor'`, owner.tenant.ID())
+			audited := count(t, s.admin, `SELECT count(*) FROM audit_event WHERE tenant_id = $1`, owner.tenant.ID())
+			last = fmt.Sprintf("%d pending, %d done, %d events of %d and %d anchors in the table", pending, done, events, audited, anchors)
+			if pending == 0 && done > 0 && audited > 0 && events == audited && anchors >= 1 && done == events+anchors {
+				return
+			}
+		}
+		t.Fatalf("after 60 s the audit-sink messages did not all land in the default table: %s\n%s", last, s.log)
+	})
+
 	t.Run("ST-SUP-RC33-OC02-T04 A declared query reaches its fill through the generated main.go", func(t *testing.T) {
 		s.t = t
 		if order == "" {

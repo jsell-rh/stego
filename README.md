@@ -64,7 +64,14 @@ worker and controller, all by default. The worker mode also reads
 `STEGO_WORKER_DATABASE_URL` or `STEGO_WORKER_DATABASE_URL_FILE` for the worker role,
 which runs the outbox worker and the after slots, and `STEGO_RELAY_DATABASE_URL` or
 `STEGO_RELAY_DATABASE_URL_FILE` for the relay role, which writes the relationships to
-SpiceDB. The controller mode runs the audit jobs under one lease. `/readyz/modes`
+SpiceDB. The worker mode sends each audit entry and anchor to the audit sink: with
+`STEGO_AUDIT_SINK_URL` to an HTTPS endpoint as OTLP/HTTP log records, with the token of
+`STEGO_AUDIT_SINK_TOKEN_FILE` (read again on each send; `STEGO_AUDIT_SINK_AUTH_HEADER` names
+another header for it), the certificate authorities of `STEGO_AUDIT_SINK_CA_FILE` and the client
+certificate of `STEGO_AUDIT_SINK_CLIENT_CERT_FILE` and `STEGO_AUDIT_SINK_CLIENT_KEY_FILE`; without
+it, to the table `stego_audit_sink.entries` in the service database. A separate sink is the
+stronger choice for production, because an administrator of the service database can change
+both. The controller mode runs the audit jobs under one lease. `/readyz/modes`
 answers the readiness of the worker and controller modes.
 Its binary with the one argument `migrate` is the migration job: it reads
 `STEGO_MIGRATION_DATABASE_URL` or `STEGO_MIGRATION_DATABASE_URL_FILE`, runs as the
