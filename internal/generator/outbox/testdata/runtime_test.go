@@ -39,7 +39,7 @@ type env struct {
 	cfg                     *pgx.ConnConfig
 	name                    string
 	runtimeRole, workerRole string
-	purgeRole               string
+	purgeRole, relayRole    string
 	owner, runtime, worker  *sql.DB
 }
 
@@ -77,18 +77,18 @@ func newEnv(t *testing.T) *env {
 		exec(fmt.Sprintf("CREATE ROLE %s LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT PASSWORD '%s'", role, rolePassword))
 		t.Cleanup(func() { _, _ = admin.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+role) })
 	}
-	// The relay role is one role of the cluster; the owner makes the relay functions as it.
-	exec(`DO $$ BEGIN CREATE ROLE ` + outbox.RelayRole + ` NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$`)
-	exec("GRANT " + outbox.RelayRole + " TO " + ownerRole + " WITH SET TRUE, INHERIT TRUE")
+	// The outbox relay role is one role of this service; the owner makes the relay functions as it with SET ROLE, as
+	// the tenancy role migration allows (SET TRUE, INHERIT FALSE; ST-SUP-RP01-LC19).
+	e.relayRole = "ob_" + tag + outbox.RelaySuffix
+	exec("CREATE ROLE " + e.relayRole + " NOLOGIN NOINHERIT")
+	exec("GRANT " + e.relayRole + " TO " + ownerRole + " WITH SET TRUE, INHERIT FALSE")
+	t.Cleanup(func() { _, _ = admin.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+e.relayRole) })
 	// The idempotency purge role is one role of this service; the owner makes the purge function as it with SET
 	// ROLE, as the tenancy role migration allows (SET TRUE, INHERIT FALSE; ST-SUP-RP07-LC11).
 	e.purgeRole = "ob_" + tag + "_idempotency_purge"
 	exec("CREATE ROLE " + e.purgeRole + " NOLOGIN NOINHERIT")
 	exec("GRANT " + e.purgeRole + " TO " + ownerRole + " WITH SET TRUE, INHERIT FALSE")
 	t.Cleanup(func() { _, _ = admin.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+e.purgeRole) })
-	// The runtime migration runs CREATE ROLE for the relay role also when the role is there, so the owner needs
-	// CREATEROLE, though it creates no role here.
-	exec("ALTER ROLE " + ownerRole + " CREATEROLE")
 	exec("CREATE DATABASE " + e.name + " OWNER " + ownerRole)
 	t.Cleanup(func() {
 		if _, err := admin.ExecContext(context.Background(), "DROP DATABASE "+e.name+" WITH (FORCE)"); err != nil {
@@ -112,7 +112,7 @@ func (e *env) open(role, password string) *sql.DB {
 
 // migrate applies the emitted outbox migration as the owner, in one transaction.
 func (e *env) migrate() error {
-	text, err := Migration(e.runtimeRole, e.workerRole)
+	text, err := Migration(e.relayRole, e.runtimeRole, e.workerRole)
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -155,6 +155,26 @@ func (e *env) value(statement string, args ...any) string {
 		e.t.Fatalf("%s: %v", statement, err)
 	}
 	return v.String
+}
+
+// messages counts the messages of every tenant in the runtime queue table that match where. The owner does not
+// inherit the outbox relay role, so it reads no message as itself; it takes the role with SET ROLE, as the
+// migration does.
+func (e *env) messages(where string) string {
+	e.t.Helper()
+	tx, err := e.owner.BeginTx(e.ctx, nil)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(e.ctx, "SET LOCAL ROLE "+e.relayRole); err != nil {
+		e.t.Fatal(err)
+	}
+	var n string
+	if err := tx.QueryRowContext(e.ctx, "SELECT count(*) FROM stego_outbox.messages WHERE "+where).Scan(&n); err != nil {
+		e.t.Fatal(err)
+	}
+	return n
 }
 
 // tn returns the tenant of the ID, as the tenant runtime builds it from a column that a statement read.
@@ -204,7 +224,7 @@ func (e *env) queueShape(t *testing.T) {
 	}
 	if got := e.value(`SELECT string_agg(p.proname, ',' ORDER BY p.proname) FROM pg_proc p
 		JOIN pg_namespace n ON n.oid = p.pronamespace JOIN pg_roles r ON r.oid = p.proowner
-		WHERE n.nspname = 'stego_outbox' AND r.rolname = $1 AND p.prosecdef`, outbox.RelayRole); got != "blocked,claim,move,oldest,purge_done,purge_parked,release,resolve" {
+		WHERE n.nspname = 'stego_outbox' AND r.rolname = $1 AND p.prosecdef`, e.relayRole); got != "blocked,claim,move,oldest,purge_done,purge_parked,release,resolve" {
 		t.Fatalf("the relay functions of stego_outbox are %s, want the eight functions of the runtime migration", got)
 	}
 }
@@ -218,7 +238,7 @@ func TestMigrations(t *testing.T) {
 			WHERE n.nspname = 'stego_outbox' AND c.relkind = 'r'`); got != "1" {
 			t.Fatalf("the schema stego_outbox holds %s tables, want the queue table only", got)
 		}
-		if _, err := Migration("same_role", "same_role"); err == nil {
+		if _, err := Migration("same"+outbox.RelaySuffix, "same_role", "same_role"); err == nil {
 			t.Fatal("the emitted migration took one role as the runtime role and the worker role")
 		}
 	})
@@ -266,7 +286,7 @@ func TestMigrations(t *testing.T) {
 		if err := e.migrate(); err != nil {
 			t.Fatalf("the migration applied again: %v", err)
 		}
-		if e.value("SELECT count(*) FROM stego_outbox.messages") != "1" {
+		if e.messages("true") != "1" {
 			t.Fatal("the migration applied again lost a message of the runtime queue table")
 		}
 	})
@@ -439,7 +459,7 @@ func TestDelivery(t *testing.T) {
 		done := make(chan error, 1)
 		go func() { done <- worker.Run(runCtx) }()
 		deadline := time.Now().Add(15 * time.Second)
-		for (len(sink.got()) == 0 || e.value("SELECT count(*) FROM stego_outbox.messages WHERE state = 'done'") != "1") && time.Now().Before(deadline) {
+		for (len(sink.got()) == 0 || e.messages("state = 'done'") != "1") && time.Now().Before(deadline) {
 			time.Sleep(20 * time.Millisecond)
 		}
 		cancel()
@@ -450,7 +470,7 @@ func TestDelivery(t *testing.T) {
 		if len(got) != 1 || got[0].ID != stored[0].ID || got[0].TenantID != "t1" {
 			t.Fatalf("the sink got %+v, want the one event of t1; the worker %+v", got, worker.Stats())
 		}
-		if e.value("SELECT count(*) FROM stego_outbox.messages WHERE state = 'done'") != "1" {
+		if e.messages("state = 'done'") != "1" {
 			t.Fatal("the delivered message is not done")
 		}
 	})

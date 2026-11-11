@@ -90,6 +90,19 @@ func (c *fakeClock) Set(t time.Time) {
 // rows past row-level security, and requests maps it to the pool of the request-path runtime role.
 var admins, requests sync.Map
 
+// relays maps the worker pool of each test database to the relay role of that database.
+var relays sync.Map
+
+// relayRole gives the relay role of the test database of db.
+func relayRole(t testing.TB, db *sql.DB) string {
+	t.Helper()
+	r, ok := relays.Load(db)
+	if !ok {
+		t.Fatal("the pool is not a runtime pool of testDatabase")
+	}
+	return r.(string)
+}
+
 // requestPool returns the pool of the request-path runtime role of the test database whose worker pool is db.
 func requestPool(t testing.TB, db *sql.DB) *sql.DB {
 	t.Helper()
@@ -133,10 +146,16 @@ func testDatabase(t testing.TB) (*sql.DB, string) {
 	}
 	t.Cleanup(func() { _ = root.Close() })
 	suffix := randomSuffix(t)
-	request, role := "outbox_runtime_"+suffix, "outbox_worker_"+suffix
+	request, role, relay := "outbox_runtime_"+suffix, "outbox_worker_"+suffix, "outbox_"+suffix+RelaySuffix
 	password := randomSuffix(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	// The migration makes the relay role of the test; it is dropped after the database, as the other roles are.
+	t.Cleanup(func() {
+		if _, err := root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+relay); err != nil {
+			t.Errorf("drop the role %s: %v", relay, err)
+		}
+	})
 	for _, r := range []string{request, role} {
 		if _, err := root.ExecContext(ctx, "CREATE ROLE "+r+" LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '"+password+"'"); err != nil {
 			t.Fatal(err)
@@ -154,7 +173,7 @@ func testDatabase(t testing.TB) (*sql.DB, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = adminDB.Close() })
-	ddl, err := Migration(request, role)
+	ddl, err := Migration(relay, request, role)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,6 +210,8 @@ func testDatabase(t testing.TB) (*sql.DB, string) {
 	t.Cleanup(func() { _ = requestDB.Close() })
 	requests.Store(db, requestDB)
 	t.Cleanup(func() { requests.Delete(db) })
+	relays.Store(db, relay)
+	t.Cleanup(func() { relays.Delete(db) })
 	return db, u.String()
 }
 
@@ -1035,7 +1056,7 @@ func TestQueueTenancy(t *testing.T) {
 			if err := rows.Scan(&name, &definer, &owner, &config, &runtime, &public); err != nil {
 				t.Fatal(err)
 			}
-			if !definer || owner != RelayRole || config != "search_path=pg_catalog, pg_temp" || !runtime || public {
+			if !definer || owner != relayRole(t, db) || config != "search_path=pg_catalog, pg_temp" || !runtime || public {
 				t.Fatalf("the function %s is definer %v, owner %s, config %q, runtime %v, public %v", name, definer, owner, config, runtime, public)
 			}
 			names = append(names, name)
@@ -1045,7 +1066,7 @@ func TestQueueTenancy(t *testing.T) {
 			t.Fatalf("the relay functions are %v", names)
 		}
 		var relayCommands []string
-		rows, err = a.Query(`SELECT cmd FROM pg_policies WHERE schemaname = 'stego_outbox' AND $1 = ANY(roles) ORDER BY cmd`, RelayRole)
+		rows, err = a.Query(`SELECT cmd FROM pg_policies WHERE schemaname = 'stego_outbox' AND $1 = ANY(roles) ORDER BY cmd`, relayRole(t, db))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1463,13 +1484,21 @@ func TestQueueRelayRoles(t *testing.T) {
 
 func TestQueueMigration(t *testing.T) {
 	t.Run("ST-SUP-RP01-LC19-T08 The migration leaves the relay role no CREATE on the schema", func(t *testing.T) {
+		// The relay role is a lower-case name of the form <service role prefix>_outbox_relay, apart from the other
+		// two roles.
+		for _, roles := range [][3]string{{"stego_relay", "rt", "wk"}, {"outbox_relay", "rt", "wk"}, {"Shop_outbox_relay", "rt", "wk"},
+			{"shop_outbox_relay'", "rt", "wk"}, {"x_outbox_relay", "x_outbox_relay", "wk"}, {"x_outbox_relay", "rt", "x_outbox_relay"}, {"x_outbox_relay", "rt", "rt"}} {
+			if _, err := Migration(roles[0], roles[1], roles[2]); err == nil {
+				t.Errorf("the roles %v are accepted", roles)
+			}
+		}
 		f := newMigrationFixture(t)
 		member, stranger := f.owner("outbox_owner", "CREATEROLE", true), f.owner("outbox_stranger", "CREATEROLE", false)
 		if err := f.run(member); err != nil {
 			t.Fatalf("the migration as a member of the relay role: %v", err)
 		}
 		err := f.run(stranger)
-		if err == nil || !strings.Contains(err.Error(), "needs membership in stego_outbox_relay WITH SET TRUE, INHERIT TRUE") {
+		if err == nil || !strings.Contains(err.Error(), "needs membership in "+f.relay+" WITH SET TRUE") {
 			t.Fatalf("the migration as a role with no membership gave %v", err)
 		}
 	})
@@ -1487,15 +1516,65 @@ func TestQueueMigration(t *testing.T) {
 		if err := f.run(owner); err != nil {
 			t.Fatalf("the migration as an owner without CREATEROLE: %v", err)
 		}
+		// A migration login that holds only SET membership in a NOLOGIN owner takes the owner with SET LOCAL ROLE,
+		// as the migration job does; the text returns to the owner, not to the login, so it passes twice.
+		ctx := context.Background()
+		nologin := f.owner("outbox_group", "NOCREATEROLE", true)
+		migrator := f.owner("outbox_login", "NOCREATEROLE", false)
+		if _, err := f.root.ExecContext(ctx, "ALTER ROLE "+nologin+" NOLOGIN"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.root.ExecContext(ctx, "GRANT "+nologin+" TO "+migrator+" WITH SET TRUE, INHERIT FALSE"); err != nil {
+			t.Fatal(err)
+		}
+		dsn := pgtest.Database(t, "outbox_login")
+		u, err := url.Parse(dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.root.ExecContext(ctx, "ALTER DATABASE "+strings.TrimPrefix(u.Path, "/")+" OWNER TO "+nologin); err != nil {
+			t.Fatal(err)
+		}
+		u.User = url.UserPassword(migrator, f.password)
+		login, err := sql.Open("pgx", u.String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = login.Close() }()
+		for run := 1; run <= 2; run++ {
+			tx, err := login.BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tx.ExecContext(ctx, "SET LOCAL ROLE "+nologin); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tx.ExecContext(ctx, f.ddl); err != nil {
+				_ = tx.Rollback()
+				t.Fatalf("run %d of the migration by a login with SET membership only in the owner: %v", run, err)
+			}
+			var role string
+			if err := tx.QueryRowContext(ctx, "SELECT current_user").Scan(&role); err != nil || role != nologin {
+				t.Fatalf("the text left the role %s, want the owner %s: %v", role, nologin, err)
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var create bool
+		if err := login.QueryRowContext(ctx, "SELECT has_schema_privilege($1, 'stego_outbox', 'CREATE')", f.relay).Scan(&create); err != nil || create {
+			t.Fatalf("the relay role keeps CREATE on stego_outbox: %v, %v", create, err)
+		}
 	})
 }
 
-// migrationFixture holds a server with the relay role, a runtime role and a worker role, and the migration text for
-// them.
+// migrationFixture holds a server with the relay role of the test, a runtime role and a worker role, and the
+// migration text for them.
 type migrationFixture struct {
 	t        *testing.T
 	root     *sql.DB
 	password string
+	relay    string
 	ddl      string
 }
 
@@ -1507,7 +1586,7 @@ func newMigrationFixture(t *testing.T) *migrationFixture {
 	}
 	t.Cleanup(func() { _ = root.Close() })
 	suffix := randomSuffix(t)
-	runtime, worker := "outbox_rt_"+suffix, "outbox_wk_"+suffix
+	runtime, worker, relay := "outbox_rt_"+suffix, "outbox_wk_"+suffix, "outbox_"+suffix+RelaySuffix
 	ctx := context.Background()
 	for _, r := range []string{runtime, worker} {
 		if _, err := root.ExecContext(ctx, "CREATE ROLE "+r+" NOLOGIN"); err != nil {
@@ -1515,19 +1594,20 @@ func newMigrationFixture(t *testing.T) *migrationFixture {
 		}
 		t.Cleanup(func() { _, _ = root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+r) })
 	}
-	if _, err := root.ExecContext(ctx, `DO $$ BEGIN CREATE ROLE stego_outbox_relay NOLOGIN;
-		EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$`); err != nil {
+	// The relay role of the test exists before the migration, as the tenancy role migration makes it.
+	if _, err := root.ExecContext(ctx, "CREATE ROLE "+relay+" NOLOGIN NOINHERIT"); err != nil {
 		t.Fatal(err)
 	}
-	ddl, err := Migration(runtime, worker)
+	t.Cleanup(func() { _, _ = root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+relay) })
+	ddl, err := Migration(relay, runtime, worker)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &migrationFixture{t: t, root: root, password: randomSuffix(t), ddl: ddl}
+	return &migrationFixture{t: t, root: root, password: randomSuffix(t), relay: relay, ddl: ddl}
 }
 
-// owner makes a login role with the given attribute, not a superuser, and grants it SET and INHERIT membership in
-// the relay role when member is true.
+// owner makes a login role with the given attribute, not a superuser, and grants it SET membership in the relay
+// role, with no INHERIT, when member is true.
 func (f *migrationFixture) owner(prefix, attribute string, member bool) string {
 	f.t.Helper()
 	ctx := context.Background()
@@ -1537,7 +1617,7 @@ func (f *migrationFixture) owner(prefix, attribute string, member bool) string {
 	}
 	f.t.Cleanup(func() { _, _ = f.root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+r) })
 	if member {
-		if _, err := f.root.ExecContext(ctx, `GRANT stego_outbox_relay TO `+r+` WITH SET TRUE, INHERIT TRUE`); err != nil {
+		if _, err := f.root.ExecContext(ctx, `GRANT `+f.relay+` TO `+r+` WITH SET TRUE, INHERIT FALSE`); err != nil {
 			f.t.Fatal(err)
 		}
 	}
@@ -1571,12 +1651,13 @@ func (f *migrationFixture) run(owner string) error {
 	if _, err := ownerDB.ExecContext(ctx, f.ddl); err != nil {
 		return err
 	}
-	var create bool
-	if err := ownerDB.QueryRowContext(ctx, `SELECT has_schema_privilege('stego_outbox_relay', 'stego_outbox', 'CREATE')`).Scan(&create); err != nil {
+	var create, public bool
+	if err := ownerDB.QueryRowContext(ctx, `SELECT has_schema_privilege($1, 'stego_outbox', 'CREATE'), has_schema_privilege($1, 'public', 'CREATE')`,
+		f.relay).Scan(&create, &public); err != nil {
 		t.Fatal(err)
 	}
-	if create {
-		t.Fatal("the relay role keeps CREATE on the schema")
+	if create || public {
+		t.Fatalf("the relay role keeps CREATE on the schema stego_outbox (%v) or has it on public (%v)", create, public)
 	}
 	// The text runs again with no error.
 	_, err = ownerDB.ExecContext(ctx, f.ddl)

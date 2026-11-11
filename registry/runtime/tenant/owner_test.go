@@ -131,10 +131,33 @@ func TestTenantConnectors(t *testing.T) {
 		superGroup := env.role(t, "supergroup", "NOLOGIN SUPERUSER")
 		superMember := env.role(t, "supermember", "INHERIT")
 		adminExec(t, env.admin, "GRANT "+bypassGroup+" TO "+bypassMember, "GRANT "+superGroup+" TO "+superMember)
-		// A member of the outbox relay role could take it and change every tenant's messages.
+		// A member of the outbox relay role of a service could take it and change every tenant's messages.
 		relayMember := env.role(t, "relaymember", "INHERIT")
-		adminExec(t, env.admin, `DO $do$ BEGIN CREATE ROLE stego_outbox_relay NOLOGIN;
-EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $do$`, "GRANT stego_outbox_relay TO "+relayMember)
+		relayRole := "shop_" + strings.TrimPrefix(env.name, "tenant_") + "_outbox_relay"
+		adminExec(t, env.admin, "CREATE ROLE "+relayRole+" NOLOGIN NOINHERIT", "GRANT "+relayRole+" TO "+relayMember)
+		t.Cleanup(func() { _, _ = env.admin.Exec("DROP ROLE IF EXISTS " + relayRole) })
+		// A role of another name that owns the relay functions counts as a relay role too: it may run them.
+		claimMember := env.role(t, "claimmember", "INHERIT")
+		claimOwner := env.role(t, "claimowner", "NOLOGIN NOINHERIT")
+		// Every role of the service has USAGE on the schema, as the outbox migration grants it.
+		adminExec(t, env.db, "CREATE SCHEMA stego_outbox", "GRANT USAGE ON SCHEMA stego_outbox TO PUBLIC",
+			"CREATE FUNCTION stego_outbox.claim(timestamptz, integer, uuid, bigint) RETURNS bigint LANGUAGE sql AS 'SELECT 0::bigint'",
+			"REVOKE ALL ON FUNCTION stego_outbox.claim(timestamptz, integer, uuid, bigint) FROM PUBLIC",
+			"ALTER FUNCTION stego_outbox.claim(timestamptz, integer, uuid, bigint) OWNER TO "+claimOwner)
+		adminExec(t, env.admin, "GRANT "+claimOwner+" TO "+claimMember)
+		// A role that may run claim itself is refused for every pool but the worker mode's, and a role whose own name
+		// is an outbox relay or purge role name is refused for every pool.
+		claimer := env.role(t, "claimer", "INHERIT")
+		adminExec(t, env.db, "GRANT EXECUTE ON FUNCTION stego_outbox.claim(timestamptz, integer, uuid, bigint) TO "+claimer)
+		tag := strings.TrimPrefix(env.name, "tenant_")
+		named := map[string]string{}
+		for _, suffix := range []string{"_outbox_relay", "_idempotency_purge"} {
+			role := "own_" + tag + suffix
+			adminExec(t, env.admin, "CREATE ROLE "+role+" LOGIN NOINHERIT PASSWORD '"+rolePassword+"'")
+			t.Cleanup(func() { _, _ = env.admin.Exec("DROP ROLE IF EXISTS " + role) })
+			named[role] = "is named as an outbox relay or idempotency purge role"
+		}
+		t.Cleanup(func() { _, _ = env.db.Exec("DROP SCHEMA IF EXISTS stego_outbox CASCADE") })
 		// A member of the idempotency purge role could take it and read or delete every tenant's key rows.
 		purgeMember := env.role(t, "purgemember", "INHERIT")
 		purgeRole := "shop_" + strings.TrimPrefix(env.name, "tenant_") + "_idempotency_purge"
@@ -152,7 +175,8 @@ EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $do$`, "GRANT
 		for role, want := range map[string]string{
 			bypassMember: "holds BYPASSRLS through its membership of " + bypassGroup,
 			superMember:  "is a superuser through its membership of " + superGroup,
-			relayMember:  "is a member of the outbox relay, idempotency purge or hook roles stego_outbox_relay",
+			relayMember:  "is a member of the outbox relay, idempotency purge or hook roles " + relayRole,
+			claimMember:  "is a member of the outbox relay, idempotency purge or hook roles " + claimOwner,
 			purgeMember:  "is a member of the outbox relay, idempotency purge or hook roles " + purgeRole,
 			ownerMember:  "is a member of the outbox relay, idempotency purge or hook roles " + fnOwner,
 		} {
@@ -166,6 +190,28 @@ EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $do$`, "GRANT
 				t.Errorf("the startup error for %s does not say %q: %v", role, want, err)
 			}
 		}
+		for role, want := range named {
+			for _, claims := range []bool{false, true} {
+				db, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(role), Claims: claims})
+				if err == nil {
+					_ = db.Close()
+					t.Errorf("the runtime connector started as the role %s (Claims %v)", role, claims)
+				} else if !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), role) {
+					t.Errorf("the startup error for %s does not say %q: %v", role, want, err)
+				}
+			}
+		}
+		if db, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(claimer)}); err == nil {
+			_ = db.Close()
+			t.Error("the runtime connector started as a role that may run claim itself")
+		} else if !strings.Contains(err.Error(), "may run the outbox relay function stego_outbox.claim") {
+			t.Errorf("the startup error for %s does not name claim: %v", claimer, err)
+		}
+		worker, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(claimer), Claims: true})
+		if err != nil {
+			t.Fatalf("the worker mode's pool did not start as a role that may run claim: %v", err)
+		}
+		_ = worker.Close()
 		plain, err := Open(ctx, Config{InsecureLoopback: true, DSN: env.dsn(env.runtime)})
 		if err != nil {
 			t.Fatalf("the runtime connector did not start as the plain runtime role: %v", err)

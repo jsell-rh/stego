@@ -170,6 +170,9 @@ func newEnv(t *testing.T, options ...envOption) *env {
 		}
 		t.Cleanup(func() { _, _ = root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+role) })
 	}
+	// The outbox migration makes the outbox relay role of the test; it is dropped after the database.
+	outboxRelay := "cmd_" + tag + outbox.RelaySuffix
+	t.Cleanup(func() { _, _ = root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+outboxRelay) })
 	database := pgtest.Database(t, "command")
 	admin, err := sql.Open("pgx", database)
 	if err != nil {
@@ -181,11 +184,11 @@ func newEnv(t *testing.T, options ...envOption) *env {
 			_, _ = admin.ExecContext(context.Background(), "DROP OWNED BY "+role)
 		}
 	})
-	queueDDL, err := outbox.Migration(roles[0], roles[1])
+	queueDDL, err := outbox.Migration(outboxRelay, roles[0], roles[1])
 	if err != nil {
 		t.Fatal(err)
 	}
-	authzDDL, err := authz.Migration("authz", roles[0], roles[2], roles[1])
+	authzDDL, err := authz.Migration("authz", roles[0], roles[2], outboxRelay, roles[1])
 	if err != nil {
 		t.Fatal(err)
 	}

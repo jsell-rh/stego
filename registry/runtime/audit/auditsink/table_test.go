@@ -61,6 +61,9 @@ func newEnv(t *testing.T) *env {
 		}
 		t.Cleanup(func() { _, _ = root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+role) })
 	}
+	// The outbox migration makes the outbox relay role of the test; it is dropped after the database.
+	outboxRelay := "as_" + tag + outbox.RelaySuffix
+	t.Cleanup(func() { _, _ = root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+outboxRelay) })
 	database := pgtest.Database(t, "auditsink")
 	admin, err := sql.Open("pgx", database)
 	if err != nil {
@@ -79,7 +82,7 @@ func newEnv(t *testing.T) *env {
 	if _, err := admin.ExecContext(ctx, "GRANT CREATE ON DATABASE "+u.Path[1:]+" TO "+roles[0]); err != nil {
 		t.Fatal(err)
 	}
-	queueDDL, err := outbox.Migration(roles[1], roles[2])
+	queueDDL, err := outbox.Migration(outboxRelay, roles[1], roles[2])
 	if err != nil {
 		t.Fatal(err)
 	}

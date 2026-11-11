@@ -553,11 +553,12 @@ func newFixture(t *testing.T) *fixture {
 		return db
 	}
 	f := &fixture{t: t, ctx: ctx, admin: open("", ""), roles: roles, logs: &logRecorder{}, reader: sdkmetric.NewManualReader()}
-	queueDDL, err := outbox.Migration(roles[0], roles[1])
+	// The outbox relay role of the test service, one role of the server, which the outbox migration makes.
+	queueDDL, err := outbox.Migration("authz_check"+outbox.RelaySuffix, roles[0], roles[1])
 	if err != nil {
 		t.Fatal(err)
 	}
-	migration, err := Migration(roles[0], roles[2], roles[1])
+	migration, err := Migration(roles[0], roles[2], "authz_check"+outbox.RelaySuffix, roles[1])
 	if err != nil {
 		t.Fatal(err)
 	}
