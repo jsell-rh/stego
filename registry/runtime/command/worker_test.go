@@ -532,7 +532,7 @@ func TestConsumers(t *testing.T) {
 	w := e.worker("apply-partner-replies", "apply", func(s *WorkerSpec[testProbe]) {
 		s.Interval = 0
 		s.Stagers = map[string]string{"reserve-and-charge": "reserve"}
-	}, e.orders, e.chargeE)
+	}, e.orders, e.chargeE, e.reservationE)
 	e.consumer(w, func(c *outbox.WorkerConfig) { c.MaxAttempts = 3 }, func(ctx context.Context, m map[string]string, _ string, h *Handle[testProbe]) error {
 		calls.Add(1)
 		if fill, ok := cases.Load(m["case"]); ok {
@@ -810,6 +810,39 @@ func TestConsumers(t *testing.T) {
  AND action = 'apply-partner-replies' AND on_behalf_of = 'user:u-7' AND after::text LIKE '%applied-lc17%'`); n != 1 {
 			t.Fatalf("%d audit rows of o-1 name user:u-7 on whose behalf the worker acted, want 1", n)
 		}
+	})
+
+	t.Run("ST-SUP-RP10-LC25-T08 A consumer's unique violation is a failed attempt, not a conflict", func(t *testing.T) {
+		e.exec(`INSERT INTO reservations (tenant_id, id, order_id, sku) VALUES ('t1', 'r-dup', 'o-3', 's')`)
+		var dup atomic.Bool
+		var runs atomic.Int64
+		dup.Store(true)
+		cases.Store("unique", func(ctx context.Context, _ map[string]string, h *Handle[testProbe]) error {
+			runs.Add(1)
+			if !dup.Load() {
+				return nil
+			}
+			// The reservation r-dup is there, so its create breaks the primary key of the tenant on each dispatch.
+			_, err := repo(t, h, e.reservationE).Create(ctx, reservation{ID: "r-dup", OrderID: "o-3", SKU: "s"})
+			return err
+		})
+		m := e.stage("t1", "o-3", map[string]string{"case": "unique"})
+		for deadline := time.Now().Add(5 * time.Second); runs.Load() < 1 && time.Now().Before(deadline); {
+			time.Sleep(10 * time.Millisecond)
+		}
+		e.waitState(t, m, "pending")
+		var attempts, conflicts int
+		if err := e.admin.QueryRowContext(e.ctx, `SELECT attempts, conflicts FROM stego_outbox.messages WHERE id = $1`, m).
+			Scan(&attempts, &conflicts); err != nil {
+			t.Fatal(err)
+		}
+		// The fill ran once and the outbox waits for the injected clock, so one dispatch ended.
+		if runs.Load() != 1 || attempts != 1 || conflicts != 0 {
+			t.Fatalf("after the unique violation: %d runs, %d attempts and %d conflicts, want 1 run, 1 attempt and no conflict", runs.Load(), attempts, conflicts)
+		}
+		dup.Store(false)
+		clock.add(time.Hour)
+		e.waitState(t, m, "done")
 	})
 
 	t.Run("ST-SUP-RP10-LC26-T02 A consumer's deny of the staging principal and a declared refusal park the message", func(t *testing.T) {

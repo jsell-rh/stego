@@ -243,8 +243,9 @@ func validateRuntimeScope(ctx gen.Context, c types.Collection, e types.Entity, e
 // validateRuntimeUpsert refuses an upsert that the handlers on the runtime data path cannot serve: one with no
 // upsert key or a key field that is not a required field of the entity, one with optimistic concurrency, whose
 // incoming generation ST-SUP-RC20-OC17 clears (ST-SUP-Q105), one whose update of a stored row decides no
-// permission, and one whose insert decides nothing: an entity with no reference to an entity with a resource type
-// needs a public create, with its reason (ST-SUP-RC20-OC13).
+// permission, and one whose insert can decide nothing: an entity with no required reference to an entity with a
+// resource type needs a public create, with its reason (ST-SUP-RC20-OC13). An optional reference that the body
+// leaves out decides nothing.
 func validateRuntimeUpsert(c types.Collection, e types.Entity, entities map[string]types.Entity) error {
 	if len(c.UpsertKey) == 0 {
 		return fmt.Errorf("rest-api: collection %s declares upsert with no upsert_key", c.Name)
@@ -266,10 +267,10 @@ func validateRuntimeUpsert(c types.Collection, e types.Entity, entities map[stri
 	}
 	referred := false
 	for _, f := range e.Fields {
-		referred = referred || (f.Type == types.FieldTypeRef && entities[f.To].ResourceType != "")
+		referred = referred || (f.Type == types.FieldTypeRef && !f.Optional && entities[f.To].ResourceType != "")
 	}
 	if !referred && e.Permissions[types.OpCreate] != types.PermissionPublic {
-		return fmt.Errorf("rest-api: collection %s declares upsert of %s, which refers to no entity with a resource type, so the insert of a new row is decided on nothing: declare create public with a reason", c.Name, e.Name)
+		return fmt.Errorf("rest-api: collection %s declares upsert of %s, which has no required reference to an entity with a resource type, so the insert of a new row can be decided on nothing: declare create public with a reason", c.Name, e.Name)
 	}
 	return nil
 }
@@ -818,7 +819,7 @@ func (w *runtimeHandlerWriter) f(format string, args ...any) { fmt.Fprintf(&w.Bu
 func renderRuntimeHandler(ctx gen.Context, c *runtimeCollection, dataImport, slotsImportPath string, keys *idempotencyHeader) ([]byte, error) {
 	w := &runtimeHandlerWriter{c: c, ctx: ctx, keys: keys, envelope: ctx.Conventions.ResponseFormat == "envelope"}
 	if c.ops[types.OpUpsert] {
-		read, err := command.KeyListRead(c.entity.Name, ctx.Entities, ctx.Tenancy.Key, c.decl.UpsertKey)
+		read, err := command.KeyListRead(c.entity.Name, ctx.Entities, ctx.Tenancy.Key, c.decl.UpsertLookup())
 		if err != nil {
 			return nil, err
 		}
@@ -968,7 +969,7 @@ func (w *runtimeHandlerWriter) declarations() {
 		}
 	}
 	if c.ops[types.OpUpsert] {
-		w.f("// %sUpsertKey finds the row of an upsert by its natural key %s (ST-SUP-RC20-OC13).\nvar %sUpsertKey = command.Must(command.NewList(data.%sEntity, command.ListSpec{Name: \"upsert-key\", Read: %q}))\n\n", c.camel, strings.Join(c.decl.UpsertKey, ", "), c.camel, e.Name, w.upsertRead)
+		w.f("// %sUpsertKey finds the row of an upsert by %s: its natural key, with its scope and implicit fields\n// (ST-SUP-RC20-OC13).\nvar %sUpsertKey = command.Must(command.NewList(data.%sEntity, command.ListSpec{Name: \"upsert-key\", Read: %q}))\n\n", c.camel, strings.Join(c.decl.UpsertLookup(), ", "), c.camel, e.Name, w.upsertRead)
 	}
 	if c.ops[types.OpList] {
 		w.f("// %sSearchFields are the fields that a list search may name, with the kind of their values: the declared\n// fields that are not pii, secret or implicit, of a text, number or bool type (ST-SUP-RP11-LC20).\nvar %sSearchFields = map[string]query.FieldKind{", c.camel, c.camel)
@@ -1534,9 +1535,12 @@ func (w *runtimeHandlerWriter) upsert() {
 	w.f("\tresult, err := command.Run(r.Context(), h.rt.Commands, %s, req, decode%s, func(ctx context.Context, %s %s, ch *command.Handle[struct{}]) (idempotency.Response, error) {\n", w.commandVar(types.OpUpsert), c.pascal, c.lower, e.Name)
 	w.populateCreate()
 	w.forceScope("scope")
+	// The before slots decide the requested value before the lookup, on both branches, as on the store path
+	// (ST-SUP-RC20-OC13).
+	w.before(types.OpUpsert, nil)
 	w.f("\t\trepo, err := data.%sRepository(ch)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", e.Name)
 	var keys []string
-	for _, key := range c.decl.UpsertKey {
+	for _, key := range c.decl.UpsertLookup() {
 		keys = append(keys, c.lower+"."+toPascalCase(key))
 	}
 	w.f("\t\tfound, err := repo.List(ctx, %sUpsertKey, 1, %s)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", c.camel, strings.Join(keys, ", "))
@@ -1549,17 +1553,20 @@ func (w *runtimeHandlerWriter) upsert() {
 	w.parents("")
 	w.f("\t\tcreated, err := repo.Create(ctx, %s, parents...)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", w.toData(c.lower))
 	w.f("\t\tpersisted = %s\n", w.fromData("created.Value()"))
+	w.after(types.OpUpsert, "persisted", "created", nil)
 	w.respond("http.StatusCreated", "persisted")
 	w.f("\t\t}\n")
 	w.f("\t\tfrom, err := repo.GetForUpdate(ctx, found[0].ID())\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n")
 	w.f("\t\t// A stored row is decided on the upsert permission; a deny is not found (ST-SUP-RP11-LC06).\n")
 	w.f("\t\tallowed, err := ch.Authz().Evaluate(ctx, %q, from, nil)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n\t\tif !allowed {\n\t\t\treturn idempotency.Response{}, command.ErrNotFound\n\t\t}\n", e.Permissions[types.OpUpsert])
 	w.f("\t\tstored := %s\n\t\t%s.ID = stored.ID\n", w.fromData("from.Value()"), c.lower)
+	w.notInCollection()
 	w.populateUpdate()
 	w.forceScope("scope")
 	w.parents("stored")
 	w.f("\t\tupdated, err := repo.Update(ctx, from, %s, parents...)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", w.toData(c.lower))
 	w.f("\t\tpersisted = %s\n", w.fromData("updated.Value()"))
+	w.after(types.OpUpsert, "persisted", "updated", nil)
 	w.respond("http.StatusOK", "persisted")
 	w.f("\t})\n")
 	w.finish(types.OpUpsert, "")
@@ -1572,8 +1579,12 @@ func (w *runtimeHandlerWriter) lockRow() {
 	w.f("\t\trepo, err := data.%sRepository(ch)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", e.Name)
 	w.f("\t\tfrom, err := repo.GetForDelete(ctx, id)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n")
 	w.f("\t\tstored := %s\n\t\t_ = stored\n", w.fromData("from.Value()"))
-	// A row of another parent, or with other implicit values, is not found in this collection (ST-SUP-RC20-OC23,
-	// ST-SUP-RC20-OC24).
+	w.notInCollection()
+}
+
+// notInCollection writes the check of the stored row of a write: a row of another parent, or with other implicit
+// values, is not found in this collection (ST-SUP-RC20-OC23, ST-SUP-RC20-OC24).
+func (w *runtimeHandlerWriter) notInCollection() {
 	var checks []string
 	if w.c.scope != "" {
 		checks = append(checks, fmt.Sprintf("stored.%s != scope", toPascalCase(w.c.scope)))
