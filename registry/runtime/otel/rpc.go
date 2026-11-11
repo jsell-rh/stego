@@ -35,6 +35,7 @@ func (r *Runtime) TraceRPC(ctx context.Context, fullMethod string) (context.Cont
 	}
 	start := time.Now()
 	ctx, span, record := r.startSpan(ctx, tracer, method, trace.SpanKindServer, start, attribute.String("rpc.system.name", "grpc"), attribute.String("rpc.method", method))
+	ctx = withErrorCode(ctx)
 	r.signals.started(ctx, r.signals.rpcActive)
 	return ctx, func(err error) {
 		end := time.Now()

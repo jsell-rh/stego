@@ -3,8 +3,14 @@ package query
 import (
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
@@ -71,18 +77,46 @@ func (c *core) allowRead(ctx context.Context, e *entity, id string, token authz.
 	return result.Allowed, nil
 }
 
-// Cursor is the position of a list: the zero Cursor is its start, and a ListResult gives the next one.
+// Cursor is the position of a list: the zero Cursor is its start, and a ListResult gives the next one. A list in an
+// order of declared fields holds the position of each order field too, and the order it is of (ST-SUP-RP11-LC18).
 type Cursor struct {
 	after   string
 	started bool
 	page    authz.PageToken
+	// order is the text form of the order of the list, and values the encoded position of each order field, in that
+	// order (encodePosition).
+	order  string
+	values string
 }
 
 // ListRequest is one page of a list: at most Limit allowed values after the cursor. A Limit of 0 is 100; the most
-// is 1000.
+// is 1000. Order is the order of the list: the declared fields that the query gives, each ascending or descending,
+// and then the key, ascending, as the last tie-breaker; an empty Order is the order of the key (ST-SUP-RP11-LC18).
 type ListRequest struct {
 	Limit int
 	After Cursor
+	Order []OrderBy
+}
+
+// OrderBy is one field of the order of a list: a column of the entity's Spec, and its direction. NULL values come
+// after every other value, in either direction.
+type OrderBy struct {
+	Field      string
+	Descending bool
+}
+
+// orderText is the text form of an order, which a cursor holds so that it is refused for another order.
+func orderText(order []OrderBy) string {
+	var b strings.Builder
+	for _, o := range order {
+		b.WriteString(o.Field)
+		if o.Descending {
+			b.WriteString(" desc,")
+		} else {
+			b.WriteString(" asc,")
+		}
+	}
+	return b.String()
 }
 
 // ListResult is one page of a list: the allowed values in the order of their key, and when More is true the cursor
@@ -126,13 +160,189 @@ func (r *Repository[T]) List(ctx context.Context, request ListRequest) (ListResu
 		return ListResult[T]{}, fmt.Errorf("query: a list page holds 1 to %d values", MaxLimit)
 	}
 	e := &r.entity.e
+	if len(request.Order) > 0 {
+		// An order of declared fields reads the table in that order, with the key last (ST-SUP-RP11-LC18); a resource
+		// search has the provider's order, so it is not used.
+		if err := e.checkOrder(request.Order); err != nil {
+			return ListResult[T]{}, err
+		}
+		if request.After.started && request.After.order != orderText(request.Order) {
+			return ListResult[T]{}, ErrBadCursor
+		}
+		if _, err := decodePosition(request.After.values, len(request.Order), request.After.started); err != nil {
+			return ListResult[T]{}, err
+		}
+		return r.tablePage(ctx, limit, request.After, request.Order)
+	}
+	if request.After.order != "" {
+		return ListResult[T]{}, ErrBadCursor
+	}
 	if e.spec.ResourceType != "" && e.spec.Search && c.authz != nil {
 		result, err := r.searchPage(ctx, limit, request.After)
 		if !errors.Is(err, authz.ErrNoSearch) {
 			return result, err
 		}
 	}
-	return r.tablePage(ctx, limit, request.After)
+	return r.tablePage(ctx, limit, request.After, nil)
+}
+
+// MaxOrder is the most fields of the order of a list.
+const MaxOrder = 4
+
+// checkOrder refuses an order field that the entity does not declare, a field given twice and more than MaxOrder
+// fields, before any row is read (ST-SUP-RP11-LC18).
+func (e *entity) checkOrder(order []OrderBy) error {
+	if len(order) > MaxOrder {
+		return fmt.Errorf("query: a list of %s orders by at most %d fields", e.spec.Name, MaxOrder)
+	}
+	seen := map[string]bool{}
+	for _, o := range order {
+		if !slices.Contains(e.spec.Columns, o.Field) || seen[o.Field] {
+			return fmt.Errorf("%w: the entity %s declares no order field %q, or the order names it twice", ErrBadRequest, e.spec.Name, o.Field)
+		}
+		seen[o.Field] = true
+	}
+	return nil
+}
+
+// orderedStatement gives the statement of one chunk of a list in order, and its arguments after the tenant: the
+// rows after the position values and key, or from the start when started is false, in the order of the fields and
+// then of the key, with NULL values last in either direction. A position value that is NULL has no row after it on
+// its field but the rows that are NULL there too.
+func (e *entity) orderedStatement(order []OrderBy, started bool, values []any, key string, size int) (string, []any) {
+	var by []string
+	for _, o := range order {
+		if o.Descending {
+			by = append(by, o.Field+" DESC NULLS LAST")
+		} else {
+			by = append(by, o.Field+" ASC NULLS LAST")
+		}
+	}
+	by = append(by, e.spec.Key+" ASC")
+	args := []any{}
+	param := func(v any) string {
+		args = append(args, v)
+		return "$" + strconv.Itoa(len(args)+1)
+	}
+	where := ""
+	if started {
+		var alternatives, equal []string
+		for i, o := range order {
+			if values[i] == nil {
+				// Only NULL is at or after NULL, which is last.
+				equal = append(equal, o.Field+" IS NULL")
+				continue
+			}
+			p := param(values[i])
+			cmp := " > "
+			if o.Descending {
+				cmp = " < "
+			}
+			after := "(" + o.Field + " IS NULL OR " + o.Field + cmp + p + ")"
+			alternatives = append(alternatives, "("+strings.Join(append(slices.Clone(equal), after), " AND ")+")")
+			equal = append(equal, o.Field+" = "+p)
+		}
+		last := e.spec.Key + " > " + param(key)
+		alternatives = append(alternatives, "("+strings.Join(append(equal, last), " AND ")+")")
+		where = " AND (" + strings.Join(alternatives, " OR ") + ")"
+	}
+	limit := param(size)
+	return "SELECT " + e.selectList + " FROM " + e.table + " WHERE " + TenantColumn + " = $1" + where + " ORDER BY " +
+		strings.Join(by, ", ") + " LIMIT " + limit, args
+}
+
+// position gives the encoded position values of a row on the fields of order, which a cursor of the list holds:
+// for each value a tag and its bytes, so the cursor gives it back with its type.
+func position(row Row, order []OrderBy) (string, error) {
+	var b []byte
+	for _, o := range order {
+		v, _ := row.Value(o.Field)
+		switch x := v.(type) {
+		case nil:
+			b = append(b, 'n')
+		case string:
+			b = appendText(append(b, 's'), x)
+		case []byte:
+			b = appendText(append(b, 'b'), string(x))
+		case int64:
+			b = binary.BigEndian.AppendUint64(append(b, 'i'), uint64(x))
+		case float64:
+			b = binary.BigEndian.AppendUint64(append(b, 'f'), math.Float64bits(x))
+		case bool:
+			if x {
+				b = append(b, 't')
+			} else {
+				b = append(b, 'F')
+			}
+		case time.Time:
+			text, err := x.MarshalBinary()
+			if err != nil {
+				return "", err
+			}
+			b = appendText(append(b, 'T'), string(text))
+		default:
+			return "", fmt.Errorf("query: the order field %s holds a value of a type that a cursor cannot hold", o.Field)
+		}
+	}
+	return string(b), nil
+}
+
+// decodePosition reads the n position values that position encoded, and refuses with ErrBadCursor a text that does
+// not hold exactly n. A cursor that has not started holds none.
+func decodePosition(text string, n int, started bool) ([]any, error) {
+	if !started {
+		if text != "" {
+			return nil, ErrBadCursor
+		}
+		return nil, nil
+	}
+	b := []byte(text)
+	values := make([]any, 0, n)
+	for len(b) > 0 {
+		tag := b[0]
+		b = b[1:]
+		switch tag {
+		case 'n':
+			values = append(values, nil)
+		case 't', 'F':
+			values = append(values, tag == 't')
+		case 'i', 'f':
+			if len(b) < 8 {
+				return nil, ErrBadCursor
+			}
+			u := binary.BigEndian.Uint64(b)
+			b = b[8:]
+			if tag == 'i' {
+				values = append(values, int64(u))
+			} else {
+				values = append(values, math.Float64frombits(u))
+			}
+		case 's', 'b', 'T':
+			text, rest, ok := readText(b)
+			if !ok {
+				return nil, ErrBadCursor
+			}
+			b = rest
+			switch tag {
+			case 's':
+				values = append(values, text)
+			case 'b':
+				values = append(values, []byte(text))
+			default:
+				var t time.Time
+				if err := t.UnmarshalBinary([]byte(text)); err != nil {
+					return nil, ErrBadCursor
+				}
+				values = append(values, t)
+			}
+		default:
+			return nil, ErrBadCursor
+		}
+	}
+	if len(values) != n {
+		return nil, ErrBadCursor
+	}
+	return values, nil
 }
 
 // permission is the permission of a list of the entity: the query's declared permission when the query lists this
@@ -144,9 +354,9 @@ func (r *Repository[T]) permission() string {
 	return r.entity.e.spec.ListPermission
 }
 
-// tablePage pages the table by its key and keeps the allowed rows of each page, until it holds limit values or the
-// table ends.
-func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor) (ListResult[T], error) {
+// tablePage pages the table by its key, or in order and then by its key, and keeps the allowed rows of each page,
+// until it holds limit values or the table ends.
+func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, order []OrderBy) (ListResult[T], error) {
 	c := r.core
 	e := &r.entity.e
 	var list *authz.List
@@ -162,15 +372,27 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor) 
 	// never makes one call read the whole table (ST-SUP-RP11-LC07).
 	chunk := max(limit, MinChunk)
 	var result ListResult[T]
-	key, started := after.after, after.started
+	key, started, values := after.after, after.started, after.values
+	ordered := orderText(order)
+	if len(order) == 0 {
+		ordered = ""
+	}
 	scanned := 0
 	for {
 		size := min(chunk, ScanLimit-scanned)
 		var rows *sql.Rows
 		var err error
-		if started {
+		switch {
+		case len(order) > 0:
+			at, err := decodePosition(values, len(order), started)
+			if err != nil {
+				return ListResult[T]{}, err
+			}
+			statement, args := e.orderedStatement(order, started, at, key, size)
+			rows, err = c.tx.QueryContext(ctx, statement, append([]any{c.tenant.ID()}, args...)...)
+		case started:
 			rows, err = c.tx.QueryContext(ctx, next, c.tenant.ID(), key, size)
-		} else {
+		default:
 			rows, err = c.tx.QueryContext(ctx, first, c.tenant.ID(), size)
 		}
 		if err != nil {
@@ -189,6 +411,15 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor) 
 			if ids[i], err = row.Text(e.spec.Key); err != nil {
 				return ListResult[T]{}, err
 			}
+		}
+		positions := make([]string, len(page))
+		if len(order) > 0 {
+			for i, row := range page {
+				if positions[i], err = position(row, order); err != nil {
+					return ListResult[T]{}, err
+				}
+			}
+			values = positions[len(page)-1]
 		}
 		key, started = ids[len(ids)-1], true
 		allowed := map[string]bool{}
@@ -234,7 +465,7 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor) 
 			}
 			result.Items = append(result.Items, loaded)
 			if len(result.Items) == limit {
-				result.Next, result.More = Cursor{after: ids[i], started: true}, true
+				result.Next, result.More = Cursor{after: ids[i], started: true, order: ordered, values: positions[i]}, true
 				return result, nil
 			}
 		}
@@ -242,8 +473,8 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor) 
 			return result, nil
 		}
 		if scanned >= ScanLimit {
-			// The scan budget of the call is spent: the next call goes on after the last key read.
-			result.Next, result.More = Cursor{after: key, started: true}, true
+			// The scan budget of the call is spent: the next call goes on after the last row read.
+			result.Next, result.More = Cursor{after: key, started: true, order: ordered, values: values}, true
 			return result, nil
 		}
 	}

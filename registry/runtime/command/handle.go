@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -151,10 +152,62 @@ type EntitySpec[T any] struct {
 	// ValidID is the generated check of a key: it reports whether id has the form of the entity's key type, such as a
 	// uuid, so a malformed key is not found after the same decision and never fails a statement.
 	ValidID func(id string) bool
-	// Parent is the generated reader of the parent of a new row: the name of the parent entity and the parent's ID
-	// that value names, such as Order and value.OrderID. Nil for an entity that has no parent. Create takes only that
-	// parent (ST-SUP-RP10-LC05).
-	Parent func(value T) (entity, id string)
+	// Parent is the list of the references of a row to the rows of other entities, which the generated code reads
+	// from a value, such as Order and value.OrderID, in the order that the declaration gives them; empty for an
+	// entity that has none. A create, a move and the work on a child take the loaded value of each reference that
+	// is set, and nothing else (ST-SUP-RP10-LC05).
+	Parent []Reference[T]
+}
+
+// Reference is one reference of a row of an entity to a row of another entity, as the declaration states it
+// (ST-DECL-EN02): the referenced entity, the field that holds the referenced ID, the permission that a create and a
+// move decide on the referenced row, and the relation that the runtime writes for the reference (ST-SUP-RP10-LC05).
+type Reference[T any] struct {
+	// Entity is the name of the referenced entity, such as Customer, and ResourceType its resource type, such as
+	// customer, or empty for an entity with none.
+	Entity, ResourceType string
+	// ID reads the ID of the referenced row from a value, such as value.CustomerID. An empty ID is an optional
+	// reference that is not set: it is not decided and has no relation.
+	ID func(value T) string
+	// Permission is the permission that the declaration names for the reference, such as place_order, which a
+	// command decides on the referenced row when it creates the row or moves the reference. Empty is the command's
+	// own permission; a worker always decides its own permission (ST-SUP-RP10-LC17).
+	Permission string
+	// Relation is the relation of the entity's resource type that names the referenced row, such as customer, in
+	// the service's own schema: the runtime writes the tuple <resource type>:<row>#<Relation>@<referenced type>:<ID>
+	// when the row is created or the reference moves, and deletes the old one on a move. Empty writes none. It
+	// needs a resource type on the entity.
+	Relation string
+}
+
+// reference is one set reference of a value: the referenced entity and ID, and the declared permission and
+// relation.
+type reference struct {
+	entity, resourceType, id, permission, relation string
+}
+
+// references gives the set references of value, in the order of the declaration.
+func (e *Entity[T]) references(value T) []reference {
+	var refs []reference
+	for _, r := range e.spec.Parent {
+		if id := r.ID(value); id != "" {
+			refs = append(refs, reference{entity: r.Entity, resourceType: r.ResourceType, id: id, permission: r.Permission,
+				relation: r.Relation})
+		}
+	}
+	return refs
+}
+
+// relations are the relations that the runtime writes for the references of the entity, which the authorization
+// handle of a command or a worker that writes it is bound with besides the fill's own.
+func (e *Entity[T]) relations() []authz.Relation {
+	var out []authz.Relation
+	for _, r := range e.spec.Parent {
+		if r.Relation != "" {
+			out = append(out, authz.Relation{ResourceType: e.spec.ResourceType, Name: r.Relation})
+		}
+	}
+	return out
 }
 
 // Entity is the repository declaration of one entity, which NewEntity checks once.
@@ -169,6 +222,7 @@ type Entity[T any] struct {
 type Declared interface {
 	entityName() string
 	register(rt *Runtime) error
+	relations() []authz.Relation
 }
 
 func (e *Entity[T]) entityName() string { return e.spec.Name }
@@ -221,6 +275,25 @@ func NewEntity[T any](spec EntitySpec[T]) (*Entity[T], error) {
 	if spec.ResourceType != "" && spec.ReadPermission == "" {
 		return nil, fmt.Errorf("command: the entity %s has a resource type and no read permission", spec.Name)
 	}
+	for i, r := range spec.Parent {
+		if r.Entity == "" || r.ID == nil {
+			return nil, fmt.Errorf("command: a reference of %s needs the referenced entity and the reader of its ID", spec.Name)
+		}
+		if r.Relation != "" {
+			if spec.ResourceType == "" || r.ResourceType == "" {
+				return nil, fmt.Errorf("command: the reference of %s to %s writes a relation, which needs a resource type on both", spec.Name, r.Entity)
+			}
+			if _, err := authz.ParseRelation(spec.ResourceType + "#" + r.Relation); err != nil {
+				return nil, fmt.Errorf("command: the relation of the reference of %s to %s: %w", spec.Name, r.Entity, err)
+			}
+		}
+		for _, other := range spec.Parent[:i] {
+			if r.Relation != "" && other.Relation == r.Relation {
+				return nil, fmt.Errorf("command: two references of %s write the relation %s", spec.Name, r.Relation)
+			}
+		}
+	}
+	spec.Parent = slices.Clone(spec.Parent)
 	return &Entity[T]{spec: spec}, nil
 }
 
@@ -317,29 +390,97 @@ func newLoaded[T any](value T, meta Meta, e *Entity[T], s *state, lock lockMode)
 // from its parent (ST-SUP-RP10-LC05).
 func (r *Repository[T]) isChild() bool { return r.entity.isChild() }
 
-func (e *Entity[T]) isChild() bool { return e.spec.Parent != nil && e.spec.ResourceType == "" }
+func (e *Entity[T]) isChild() bool { return len(e.spec.Parent) > 0 && e.spec.ResourceType == "" }
 
-// parentOf gives the parent that the loaded value ref names, for a child entity, and false for any other entity or
+// parentsOf gives the set references of the loaded value ref, for a child entity, and false for any other entity or
 // a value of another entity.
-func (e *Entity[T]) parentOf(ref Ref) (string, string, bool) {
+func (e *Entity[T]) parentsOf(ref Ref) ([]reference, bool) {
 	l, ok := ref.(Loaded[T])
 	if !ok || !e.isChild() {
-		return "", "", false
+		return nil, false
 	}
 	value, _, ok := loaded.Fields(l)
 	if !ok {
-		return "", "", false
+		return nil, false
 	}
-	name, id := e.spec.Parent(value)
-	return name, id, true
+	return e.references(value), true
 }
 
-// decideParents decides, for a locked read, a list, an update or a delete of a child, the permission of the command
-// or the worker on the parent that each of values names, as a create does (ST-SUP-RP10-LC05, ST-SUP-RP10-LC17):
-// parents must hold the loaded value of each such parent, tied with checkParent, and nothing else. An entity that is
-// not a child takes no parent. A deny is not found.
+// nonNil drops the nil values of parents, so Create(ctx, value, nil) gives no parent.
+func nonNil(parents []Ref) []Ref {
+	out := make([]Ref, 0, len(parents))
+	for _, p := range parents {
+		if p != nil {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// matchParents finds, for each of refs, the loaded value of this handle among parents that is the referenced row,
+// the same entity and the same ID. It refuses, as an internal error, a reference with no loaded value and a loaded
+// value of another handle; used marks each parent that a reference takes.
+func (s *state) matchParents(verb, entity string, refs []reference, parents []Ref, used []bool) ([]rowRef, error) {
+	out := make([]rowRef, len(refs))
+	for i, ref := range refs {
+		found := -1
+		for j, p := range parents {
+			if pr := refOf(p); pr.st == s && pr.entity == ref.entity && pr.id == ref.id && pr.resourceType == ref.resourceType {
+				found = j
+				break
+			}
+		}
+		if found < 0 {
+			for _, p := range parents {
+				if refOf(p).st != s {
+					return nil, s.breakWith(internalf("a parent of the %s of %s is a loaded value of another transaction", verb, entity))
+				}
+			}
+			return nil, s.breakWith(internalf("the %s of %s needs the loaded value of each row that the row refers to", verb, entity))
+		}
+		used[found] = true
+		out[i] = refOf(parents[found])
+	}
+	return out, nil
+}
+
+// allUsed refuses a parent that no reference took.
+func (s *state) allUsed(verb, entity string, used []bool) error {
+	for _, u := range used {
+		if !u {
+			return s.breakWith(internalf("the %s of %s takes a parent that the row does not refer to", verb, entity))
+		}
+	}
+	return nil
+}
+
+// decideReference decides one set reference on its loaded referenced row p (ST-SUP-RP10-LC05): a command decides the
+// permission that the declaration names for the reference, or its own permission when it names none; a worker
+// decides its own permission (ST-SUP-RP10-LC17). A deny is not found.
+func (s *state) decideReference(ctx context.Context, ref reference, p rowRef) error {
+	if s.mode == modeCommand && ref.permission != "" {
+		if p.resourceType == "" {
+			return nil
+		}
+		ok, err := s.evaluate(ctx, s.az, ref.permission, p.resourceType, p.id, p.token, nil)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("%w: %s", ErrNotFound, p.entity)
+		}
+		return nil
+	}
+	return s.decideWrite(ctx, p.resourceType, p.entity, p.id, p.token)
+}
+
+// decideParents decides, for a locked read, a list, an update or a delete of a child, on each row that each of
+// values refers to, as a create does (ST-SUP-RP10-LC05, ST-SUP-RP10-LC17): parents must hold the loaded value of each
+// such row, and nothing else. Each row and permission is decided once. An entity that is not a child takes no
+// parent. A deny is not found.
 func (r *Repository[T]) decideParents(ctx context.Context, verb string, parents []Ref, values ...T) error {
 	s, e := r.st, r.entity
+	parents = nonNil(parents)
 	if !r.isChild() {
 		if len(parents) > 0 {
 			return s.breakWith(internalf("the %s of %s takes no parent: it is not a child entity", verb, e.spec.Name))
@@ -347,82 +488,138 @@ func (r *Repository[T]) decideParents(ctx context.Context, verb string, parents 
 		return nil
 	}
 	used := make([]bool, len(parents))
+	decided := map[reference]bool{}
 	for _, value := range values {
-		name, id := e.spec.Parent(value)
-		found := -1
-		for i, p := range parents {
-			if ref := refOf(p); p != nil && ref.st == s && ref.entity == name && ref.id == id {
-				found = i
-				break
+		refs := e.references(value)
+		rows, err := s.matchParents(verb, e.spec.Name, refs, parents, used)
+		if err != nil {
+			return err
+		}
+		for i, ref := range refs {
+			if decided[ref] {
+				continue
+			}
+			decided[ref] = true
+			if err := s.decideReference(ctx, ref, rows[i]); err != nil {
+				return err
 			}
 		}
-		if found < 0 {
-			return s.breakWith(internalf("the %s of %s needs the loaded value of the parent that the row names", verb, e.spec.Name))
-		}
-		if used[found] {
+	}
+	return s.allUsed(verb, e.spec.Name, used)
+}
+
+// decideMove decides the references of an update. A child decides on each row it refers to before and after the
+// update (decideParents). Any other entity with references, such as one with a resource type of its own, decides on
+// each reference that the update moves, on the new referenced row: parents must hold its loaded value and nothing
+// else; an update that moves no reference takes no parent (ST-SUP-RP10-LC05, ST-SUP-RP10-LC17). It gives the moved
+// references and their new rows.
+func (r *Repository[T]) decideMove(ctx context.Context, parents []Ref, from, value T) ([]moved, error) {
+	s, e := r.st, r.entity
+	if r.isChild() || len(e.spec.Parent) == 0 {
+		return nil, r.decideParents(ctx, "update", parents, from, value)
+	}
+	parents = nonNil(parents)
+	var moves []moved
+	var refs []reference
+	for _, ref := range e.spec.Parent {
+		oldID, newID := ref.ID(from), ref.ID(value)
+		if oldID == newID {
 			continue
 		}
-		used[found] = true
-		p := refOf(parents[found])
-		if err := s.decideWrite(ctx, p.resourceType, p.entity, p.id, p.token); err != nil {
+		m := moved{entity: ref.Entity, resourceType: ref.ResourceType, relation: ref.Relation, oldID: oldID, newID: newID}
+		moves = append(moves, m)
+		if newID != "" {
+			refs = append(refs, reference{entity: ref.Entity, resourceType: ref.ResourceType, id: newID,
+				permission: ref.Permission, relation: ref.Relation})
+		}
+	}
+	if len(moves) == 0 {
+		if len(parents) > 0 {
+			return nil, s.breakWith(internalf("an update of %s that keeps its references takes no parent", e.spec.Name))
+		}
+		return nil, nil
+	}
+	used := make([]bool, len(parents))
+	rows, err := s.matchParents("move", e.spec.Name, refs, parents, used)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.allUsed("move", e.spec.Name, used); err != nil {
+		return nil, err
+	}
+	for i, ref := range refs {
+		if err := s.decideReference(ctx, ref, rows[i]); err != nil {
+			return nil, err
+		}
+	}
+	return moves, nil
+}
+
+// moved is one reference that an update moves: the referenced entity, its resource type, the relation, and the old
+// and the new referenced ID.
+type moved struct {
+	entity, resourceType, relation, oldID, newID string
+}
+
+// checkCreate takes the loaded value of each set reference of a new row of entity from parents (ST-SUP-RP10-LC05). A
+// command must give each one; a worker may give none, and then decides nothing on them, or each one. It refuses, as
+// an internal error, a parent that the row does not refer to, a parent of another handle, and a parent for an entity
+// that has no references.
+func (r *Repository[T]) checkCreate(refs []reference, parents []Ref) ([]rowRef, error) {
+	s, e := r.st, r.entity
+	switch {
+	case len(e.spec.Parent) == 0 && len(parents) > 0:
+		return nil, s.breakWith(internalf("a create of %s takes no parent: the entity has none", e.spec.Name))
+	case len(parents) == 0 && len(refs) > 0 && s.mode != modeCommand:
+		return nil, nil
+	}
+	used := make([]bool, len(parents))
+	rows, err := s.matchParents("create", e.spec.Name, refs, parents, used)
+	if err != nil {
+		return nil, err
+	}
+	return rows, s.allUsed("create", e.spec.Name, used)
+}
+
+// relate writes the relation of each reference of a row of the entity that has one (ST-SUP-RP10-LC05): a touch of
+// <resource type>:<row>#<relation>@<referenced type>:<referenced ID> through the authorization handle, so the relay
+// writes it after the commit; and, for a moved reference, the delete of the old tuple. A referenced row with no
+// resource type has no relation.
+func (r *Repository[T]) relate(ctx context.Context, id string, touch, drop []reference) error {
+	s, e := r.st, r.entity
+	if e.spec.ResourceType == "" {
+		return nil
+	}
+	write := func(ref reference, op func(*authz.Handle, context.Context, authz.Tuple) (authz.Revocation, error)) error {
+		if ref.relation == "" || ref.resourceType == "" {
+			return nil
+		}
+		resource, err := authz.NewResource(s.tenant, e.spec.ResourceType, id)
+		if err != nil {
+			return s.breakWith(internalf("the row of %s has a key that is not a resource key", e.spec.Name))
+		}
+		subject, err := authz.ResourceID(s.tenant, ref.id)
+		if err != nil {
+			return s.breakWith(internalf("a reference of %s has a key that is not a resource key", e.spec.Name))
+		}
+		if err := s.setLockTimeout(ctx); err != nil {
+			return s.fail(ctx, "relate", err)
+		}
+		if _, err := op(s.az, ctx, authz.Tuple{Resource: resource, Relation: ref.relation,
+			Subject: authz.Subject{Type: ref.resourceType, ID: subject}}); err != nil {
+			return s.decisionError(ctx, "relate", err)
+		}
+		return nil
+	}
+	for _, ref := range drop {
+		if err := write(ref, (*authz.Handle).Unrelate); err != nil {
 			return err
 		}
 	}
-	for _, u := range used {
-		if !u {
-			return s.breakWith(internalf("the %s of %s takes a parent that the row does not name", verb, e.spec.Name))
+	for _, ref := range touch {
+		if err := write(ref, (*authz.Handle).Relate); err != nil {
+			return err
 		}
-	}
-	return nil
-}
-
-// decideMove decides the parents of an update. A child decides on its parent, and on the new one when the update
-// moves it (decideParents). Any other entity with a Parent, such as one with a resource type of its own, decides on
-// the new parent when the update moves it: parents must hold its loaded value, matched as checkParent matches a
-// create's parent, and nothing else; an update that keeps the parent takes no parent (ST-SUP-RP10-LC05,
-// ST-SUP-RP10-LC17).
-func (r *Repository[T]) decideMove(ctx context.Context, parents []Ref, from, value T) error {
-	s, e := r.st, r.entity
-	if r.isChild() || e.spec.Parent == nil {
-		return r.decideParents(ctx, "update", parents, from, value)
-	}
-	oldName, oldID := e.spec.Parent(from)
-	newName, newID := e.spec.Parent(value)
-	if oldName == newName && oldID == newID {
-		if len(parents) > 0 {
-			return s.breakWith(internalf("an update of %s that keeps its parent takes no parent", e.spec.Name))
-		}
-		return nil
-	}
-	if len(parents) != 1 || parents[0] == nil {
-		return s.breakWith(internalf("an update that moves %s to another parent needs the loaded value of the new parent", e.spec.Name))
-	}
-	if err := s.checkParent(e.spec.Name, true, func() (string, string) { return newName, newID }, parents[0]); err != nil {
-		return err
-	}
-	p := refOf(parents[0])
-	return s.decideWrite(ctx, p.resourceType, p.entity, p.id, p.token)
-}
-
-// checkParent refuses, as an internal error, a parent of a create of entity that is not tied to the new row: a
-// parent of another handle, of another entity or with another ID than parentOf reads from the value, a parent for an
-// entity that has none, and, for a command, no parent for an entity that has one.
-func (s *state) checkParent(entity string, hasParent bool, parentOf func() (string, string), parent Ref) error {
-	switch {
-	case parent == nil && hasParent && s.mode == modeCommand:
-		return s.breakWith(internalf("a create of %s needs the parent that the new row names", entity))
-	case parent == nil:
-		return nil
-	case !hasParent:
-		return s.breakWith(internalf("a create of %s takes no parent: the entity has none", entity))
-	}
-	p := refOf(parent)
-	if p.st != s {
-		return s.breakWith(internalf("the parent of a create of %s is a loaded value of another transaction", entity))
-	}
-	name, id := parentOf()
-	if p.entity != name || p.id != id {
-		return s.breakWith(internalf("the parent of a create of %s is not the parent that the new row names", entity))
 	}
 	return nil
 }
@@ -496,6 +693,9 @@ type state struct {
 	commandPermission string
 	writes            map[Declared]bool
 	destinations      map[string]Destination
+	// ownRelations are the relations that the fill may write itself; the handle is bound with the relations of the
+	// references too, which only the runtime writes (ST-SUP-RP10-LC05).
+	ownRelations map[authz.Relation]bool
 	// inbound gives the inbound key of an effect for the entity ID (ST-SUP-RP10-LC08, ST-SUP-RP10-LC21).
 	inbound func(id string) string
 	staged  []outbox.Message
@@ -991,23 +1191,25 @@ func (r *Repository[T]) loadAll(ctx context.Context, rows []scanned[T], lock loc
 // (ST-SUP-RP10-LC05); a worker's create decides the worker's permission on parent, the loaded
 // parent resource that the new row goes under, before the write (ST-SUP-RP10-LC17). The audit row of the write is
 // buffered for Run (ST-SUP-RP10-LC06).
-func (r *Repository[T]) Create(ctx context.Context, value T, parent Ref) (Loaded[T], error) {
+func (r *Repository[T]) Create(ctx context.Context, value T, parents ...Ref) (Loaded[T], error) {
 	if err := r.st.enter(); err != nil {
 		return nil, err
 	}
 	defer r.st.leave()
 	s, e := r.st, r.entity
-	if err := s.checkParent(e.spec.Name, e.spec.Parent != nil, func() (string, string) { return e.spec.Parent(value) }, parent); err != nil {
+	parents = nonNil(parents)
+	refs := e.references(value)
+	rows, err := r.checkCreate(refs, parents)
+	if err != nil {
 		return nil, err
 	}
-	if s.mode != modeCommand && e.spec.ResourceType != "" && parent == nil {
+	if s.mode != modeCommand && e.spec.ResourceType != "" && len(rows) == 0 {
 		return nil, fmt.Errorf("command: a worker's create of %s needs the parent resource to decide on", e.spec.Name)
 	}
-	if parent != nil {
-		// A create decides the permission of the command or the worker on its parent (ST-SUP-RP10-LC05,
-		// ST-SUP-RP10-LC17).
-		p := refOf(parent)
-		if err := s.decideWrite(ctx, p.resourceType, p.entity, p.id, p.token); err != nil {
+	// A create decides on each row that the new row refers to, and an optional reference that is not set is not
+	// decided (ST-SUP-RP10-LC05, ST-SUP-RP10-LC17).
+	for i, p := range rows {
+		if err := s.decideReference(ctx, refs[i], p); err != nil {
 			return nil, err
 		}
 	}
@@ -1018,6 +1220,11 @@ func (r *Repository[T]) Create(ctx context.Context, value T, parent Ref) (Loaded
 	stored, meta, err := e.spec.Scan(row)
 	if err != nil {
 		return nil, s.fail(ctx, "create "+e.spec.Name, err)
+	}
+	if len(rows) > 0 {
+		if err := r.relate(ctx, meta.ID, refs, nil); err != nil {
+			return nil, err
+		}
 	}
 	if err := s.buffer(e.auditType(), e.spec.Fields, meta.ID, nil, e.spec.State(stored)); err != nil {
 		return nil, err
@@ -1047,8 +1254,9 @@ func (r *Repository[T]) Update(ctx context.Context, from Loaded[T], value T, par
 	if err := s.decideWrite(ctx, e.spec.ResourceType, e.spec.Name, from2.meta.ID, from2.meta.Token); err != nil {
 		return nil, err
 	}
-	// A child decides on its parent, and an update that moves it to another parent on the new parent too.
-	if err := r.decideMove(ctx, parents, from2.value, value); err != nil {
+	// A child decides on its parent, and an update that moves a reference on the new referenced row too.
+	moves, err := r.decideMove(ctx, parents, from2.value, value)
+	if err != nil {
 		return nil, err
 	}
 	step := "update " + e.spec.Name
@@ -1064,6 +1272,19 @@ func (r *Repository[T]) Update(ctx context.Context, from Loaded[T], value T, par
 	}
 	if err != nil {
 		return nil, s.fail(ctx, step, err)
+	}
+	// A moved reference moves its relation: the old tuple goes and the new one is written.
+	var touch, drop []reference
+	for _, m := range moves {
+		if m.oldID != "" {
+			drop = append(drop, reference{entity: m.entity, resourceType: m.resourceType, id: m.oldID, relation: m.relation})
+		}
+		if m.newID != "" {
+			touch = append(touch, reference{entity: m.entity, resourceType: m.resourceType, id: m.newID, relation: m.relation})
+		}
+	}
+	if err := r.relate(ctx, meta.ID, touch, drop); err != nil {
+		return nil, err
 	}
 	if err := s.buffer(e.auditType(), e.spec.Fields, meta.ID, e.spec.State(from2.value), e.spec.State(stored)); err != nil {
 		return nil, err

@@ -69,6 +69,10 @@ func (a *Authz) write(ctx context.Context, on Ref, tuple authz.Tuple,
 	if r.st != s || r.resourceType == "" {
 		return authz.Revocation{}, ErrNoResource
 	}
+	if !s.ownRelations[authz.Relation{ResourceType: tuple.Resource.Type, Name: tuple.Relation}] {
+		// A relation of a reference is the runtime's: only a create or a move writes it (ST-SUP-RP10-LC05).
+		return authz.Revocation{}, fmt.Errorf("command: %s does not declare the relation %s#%s", s.action, tuple.Resource.Type, tuple.Relation)
+	}
 	resource, err := authz.NewResource(s.tenant, r.resourceType, r.id)
 	if err != nil || tuple.Resource != resource {
 		return authz.Revocation{}, s.breakWith(internalf("a tuple of %s names another resource than the loaded value it is for", r.entity))

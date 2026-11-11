@@ -236,6 +236,49 @@ func TestRunLifetime(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RP10-LC11-T03 A command with an empty key runs without the idempotency wrapper", func(t *testing.T) {
+		keys := e.count(`SELECT count(*) FROM idempotency_keys`)
+		calls := 0
+		fill := func(id string) func(context.Context, *Handle[testProbe]) (idempotency.Response, error) {
+			return func(ctx context.Context, h *Handle[testProbe]) (idempotency.Response, error) {
+				calls++
+				if err := create(ctx, h, id); err != nil {
+					return idempotency.Response{}, err
+				}
+				return idempotency.Response{Status: 201, Body: []byte(`{"id":"` + id + `"}`)}, nil
+			}
+		}
+		first := e.request("t1", u7(t), "", `{"sku":"a"}`)
+		first.RequestID = "req-empty-1"
+		second := e.request("t1", u7(t), "", `{"sku":"b"}`)
+		second.RequestID = "req-empty-2"
+		for _, run := range []struct {
+			req Request
+			id  string
+		}{{first, "r-empty-1"}, {second, "r-empty-2"}} {
+			result, err := e.run(cmd, run.req, fill(run.id))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Replayed || result.Problem != "" || result.Response.Status != 201 ||
+				string(result.Response.Body) != `{"id":"`+run.id+`"}` {
+				t.Fatalf("the run with an empty key gave %+v", result)
+			}
+		}
+		if calls != 2 || e.count(`SELECT count(*) FROM reservations WHERE id IN ('r-empty-1', 'r-empty-2')`) != 2 {
+			t.Fatalf("the fill ran %d times, want once on each run with an empty key", calls)
+		}
+		if n := e.count(`SELECT count(*) FROM idempotency_keys`); n != keys {
+			t.Fatalf("the runs with an empty key left %d key rows", n-keys)
+		}
+		if _, err := e.run(cmd, e.request("t1", u7(t), "k-lc11-t03", `{"sku":"c"}`), fill("r-keyed")); err != nil {
+			t.Fatal(err)
+		}
+		if calls != 3 || e.keyRows("k-lc11-t03") != 1 || e.count(`SELECT count(*) FROM idempotency_keys`) != keys+1 {
+			t.Fatalf("the run with a key ran the fill %d times and left %d key rows, want one", calls-2, e.keyRows("k-lc11-t03"))
+		}
+	})
+
 	t.Run("ST-SUP-RP10-LC12-T01 A fill panic rolls back and hides the panic value", func(t *testing.T) {
 		outbox := e.count(`SELECT count(*) FROM stego_outbox.messages`)
 		audits := e.auditRows("t1", "")
@@ -1219,4 +1262,60 @@ func (p *pgProxy) serve(client net.Conn, address string) {
 			return
 		}
 	}
+}
+
+func TestRunServiceResource(t *testing.T) {
+	t.Run("ST-SUP-RP10-LC31-T03 A create with no parent is decided on the service-level resource", func(t *testing.T) {
+		e := newEnv(t)
+		cmd := e.command("create-order", func(s *CommandSpec[testProbe]) {
+			s.Permission, s.Resource = "create_order", &Resource{Type: "service", Service: "todo-svc"}
+		}, e.orders)
+		calls := 0
+		fill := fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
+			calls++
+			_, err := repo(t, h, e.orders).Create(ctx, order{ID: "o-top-" + h.Principal().Subject().ID, Status: "open"}, nil)
+			return err
+		})
+		// The statements that Run sent when the decision was asked: none of them reads a row of an entity.
+		var atDecision []string
+		e.decision.setAfter(func(evaluation) {
+			if atDecision == nil {
+				atDecision = e.statements.all()
+			}
+		})
+		defer e.decision.setAfter(nil)
+		e.exec(`UPDATE authz.authz_floor SET token = 't3'`)
+		e.decision.setRelations(relation(t, "user:u-7", "create_order", "t1", "service", "todo-svc"))
+
+		e.statements.reset()
+		e.decision.taken()
+		if _, err := e.run(cmd, e.request("t1", u7(t), "k-lc31-t03-allowed", `{}`), fill); err != nil {
+			t.Fatalf("the allowed create gave %v", err)
+		}
+		taken := e.decision.taken()
+		if len(taken) != 1 || taken[0].Action != "create_order" || taken[0].Resource != "service:todo-svc" ||
+			consistencyOf(taken[0]) != "at_least t3" {
+			t.Fatalf("the create was decided as %+v, want one decision of create_order on service:todo-svc at the floor t3", taken)
+		}
+		for _, statement := range atDecision {
+			if strings.Contains(statement, "orders") || strings.Contains(strings.ToUpper(statement), "FOR SHARE") {
+				t.Fatalf("Run read a row before the decision: %s", statement)
+			}
+		}
+		if calls != 1 || e.count(`SELECT count(*) FROM orders WHERE id = 'o-top-u-7'`) != 1 {
+			t.Fatal("the allowed create did not commit")
+		}
+
+		atDecision = nil
+		if _, err := e.run(cmd, e.request("t1", person(t, "user:u-9"), "k-lc31-t03-denied", `{}`), fill); !errors.Is(err, ErrDenied) {
+			t.Fatalf("the denied create gave %v, want ErrDenied", err)
+		}
+		if calls != 1 || e.keyRows("k-lc31-t03-denied") != 0 || e.count(`SELECT count(*) FROM orders WHERE id = 'o-top-u-9'`) != 0 {
+			t.Fatal("the denied create called the fill or wrote a key row")
+		}
+		if _, err := NewCommand(CommandSpec[testProbe]{Name: "bad", Probe: newTestProbe, Permission: "create_order",
+			Resource: &Resource{Type: "service", Service: "todo-svc", Token: `SELECT authz_token FROM orders WHERE tenant_id = $1 AND id = $2 FOR SHARE`}}); err == nil {
+			t.Fatal("a service-level resource with a token statement was accepted")
+		}
+	})
 }

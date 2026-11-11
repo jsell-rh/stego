@@ -132,8 +132,11 @@ type command struct {
 	pattern   string
 	relations []string
 	effects   []string
-	retry     int
-	lock      string // a Go duration expression, or empty for the default
+	// effectNames are the declared effect names of each effect destination, which Stage holds the fill to
+	// (ST-SUP-RP10-LC07).
+	effectNames map[string][]string
+	retry       int
+	lock        string // a Go duration expression, or empty for the default
 }
 
 // resource is the resource of a command's permission: its type and the table of the entity that has it.
@@ -287,6 +290,10 @@ func (m *model) planCommand(c gen.Command, byName map[string]types.Entity, plann
 			seen[effect.Destination] = true
 			cmd.effects = append(cmd.effects, effect.Destination)
 		}
+		if cmd.effectNames == nil {
+			cmd.effectNames = map[string][]string{}
+		}
+		cmd.effectNames[effect.Destination] = append(cmd.effectNames[effect.Destination], effect.Name)
 	}
 	retry, lock, err := retryAndLock(decl)
 	if err != nil {

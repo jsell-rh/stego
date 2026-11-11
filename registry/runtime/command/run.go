@@ -6,9 +6,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -54,9 +56,10 @@ func SpanNames() []string { return []string{AttemptSpanName, WorkerSpanName, Con
 // does not run the fill again, and the handler writes the outcome row commit_outcome_unknown.
 var ErrCommitUnknown = &internalError{text: "the outcome of COMMIT is not known"}
 
-// ErrDenied is the error of Run when the principal may not run the command on the resource that the request names:
-// the authorization handle denied the command's declared permission on it (ST-SUP-RP10-LC31). Run did not call the
-// fill and wrote no key row; the handler answers it with 403 and writes the outcome row denied.
+// ErrDenied is the error of Run when the principal may not run the command on the resource that the request names,
+// or the resource row is missing: the authorization handle denied the command's declared permission on it
+// (ST-SUP-RP10-LC31). Run did not call the fill and wrote no key row; Serve answers it with 404, the same as a missing
+// row of a read (ST-SUP-RP11-LC06), and writes the outcome row denied.
 var ErrDenied = errors.New("command: the principal may not run the command on its resource")
 
 // errPanic is the error of a fill that panicked. It holds no part of the panic value (ST-SUP-RP10-LC12).
@@ -207,15 +210,20 @@ type CommandSpec[P any] struct {
 }
 
 // Resource is the generated declaration of the resource of a command (ST-SUP-RP10-LC31): its resource type at the
-// provider, the statement that reads the authorization token of its row, and the check of an ID.
+// provider, the statement that reads the authorization token of its row, and the check of an ID; or, for a create
+// of an entity with no parent, the service-level resource.
 type Resource struct {
-	// Type is the resource type at the provider, such as order.
+	// Type is the resource type at the provider, such as order, or the service-level resource type, such as service.
 	Type string
 	// Token reads the authz_token of the resource row: the tenant is $1 and the ID $2. It gives one text column, or
 	// no row when the tenant holds no such row.
 	Token string
 	// ValidID tells whether id is a key of the resource, such as a uuid.
 	ValidID func(id string) bool
+	// Service is the service name of the service-level resource <Type>:<Service>, such as service:todo-svc, on which
+	// Run decides a create of an entity with no parent, as Provision does (ST-SUP-RC27-OC09): no row names it, so
+	// Run reads no row, and Token and ValidID are empty. It is empty for every other command.
+	Service string
 }
 
 // Command is one checked command declaration.
@@ -223,6 +231,10 @@ type Command[P any] struct {
 	spec         CommandSpec[P]
 	writes       map[Declared]bool
 	destinations map[string]Destination
+	// bound are the relations that the authorization handle is bound with: the fill's own and those that the
+	// runtime writes for the references of the written entities (ST-SUP-RP10-LC05); own are the fill's own.
+	bound []authz.Relation
+	own   map[authz.Relation]bool
 }
 
 // NewCommand checks the declaration of one command.
@@ -244,7 +256,28 @@ func NewCommand[P any](spec CommandSpec[P]) (*Command[P], error) {
 	if err := checkResource(spec.Name, spec.Permission, spec.Resource); err != nil {
 		return nil, err
 	}
-	return &Command[P]{spec: spec, writes: writes, destinations: destinations}, nil
+	bound, own := boundRelations(spec.Relations, spec.Writes)
+	return &Command[P]{spec: spec, writes: writes, destinations: destinations, bound: bound, own: own}, nil
+}
+
+// boundRelations gives the relations of an authorization handle: the declared ones, which the fill may write, and
+// those that the runtime writes for the references of the written entities, which only the runtime writes.
+func boundRelations(declared []authz.Relation, writes []Declared) ([]authz.Relation, map[authz.Relation]bool) {
+	own := make(map[authz.Relation]bool, len(declared))
+	bound := slices.Clone(declared)
+	for _, r := range declared {
+		own[r] = true
+	}
+	seen := maps.Clone(own)
+	for _, e := range writes {
+		for _, r := range e.relations() {
+			if !seen[r] {
+				seen[r] = true
+				bound = append(bound, r)
+			}
+		}
+	}
+	return bound, own
 }
 
 func checkWrites(owner string, declared []Declared) (map[Declared]bool, error) {
@@ -273,6 +306,10 @@ func checkResource(owner, permission string, r *Resource) error {
 		return nil
 	case permission == "" || r == nil:
 		return fmt.Errorf("command: %s declares a permission without its resource, or a resource without a permission", owner)
+	case r.Service != "" && (r.Type == "" || r.Token != "" || r.ValidID != nil):
+		return fmt.Errorf("command: the service-level resource of %s needs its type, and no token statement and no ValidID", owner)
+	case r.Service != "":
+		return nil
 	case r.Type == "" || r.ValidID == nil:
 		return fmt.Errorf("command: the resource of %s needs its type and ValidID", owner)
 	}
@@ -299,7 +336,8 @@ type Request struct {
 	// Tenant is the tenant of the verified identity, and Principal the principal that the handler decided.
 	Tenant    tenant.Tenant
 	Principal authz.Principal
-	// Key is the inbound idempotency key, and Fingerprint the request's fingerprint (ST-SUP-RP07-LC05).
+	// Key is the inbound idempotency key, and Fingerprint the request's fingerprint (ST-SUP-RP07-LC05). An empty
+	// Key runs the command without the idempotency wrapper (ST-SUP-RP10-LC11).
 	Key         string
 	Fingerprint string
 	// Body is the request body, which Run decodes again for each attempt (ST-SUP-RP10-LC25).
@@ -330,7 +368,8 @@ type Result struct {
 // the response to send.
 type Fill[Req, P any] func(ctx context.Context, request Req, h *Handle[P]) (idempotency.Response, error)
 
-// Run calls fill for the request req of the command cmd, inside the idempotency wrapper, in a transaction that it
+// Run calls fill for the request req of the command cmd, inside the idempotency wrapper, or without it for an empty
+// key, which leaves no key row (ST-SUP-RP10-LC11), in a transaction that it
 // opens with tenant.Begin and ends with tenant.Commit or a rollback (ST-SUP-RP10-LC09, ST-SUP-RP10-LC11,
 // ST-SUP-RP10-LC30). Each attempt decodes a copy of the body again with decode, binds a new handle, and calls the
 // fill once; after the fill it enqueues the staged effects and records the buffered audit events as one batch, and
@@ -436,6 +475,10 @@ func runAttempt[Req, P any](ctx context.Context, rt *Runtime, cmd *Command[P], r
 		s.lockTimeout = DefaultLockTimeout
 	}
 	s.inbound = commandInbound(req.Key)
+	if req.Key == "" {
+		// A run with no key has no key of its own: its effects take the request ID, so two runs never share one.
+		s.inbound = func(id string) string { return lengthPrefixed("", req.RequestID, id) }
+	}
 	// The first lock_timeout comes right after the tenant setting and before the key insert (ST-SUP-RP10-LC28).
 	if err := s.setLockTimeout(ctx); err != nil {
 		if isConflict(ctx, err) {
@@ -446,7 +489,8 @@ func runAttempt[Req, P any](ctx context.Context, rt *Runtime, cmd *Command[P], r
 	if err := s.checkIsolation(ctx); err != nil {
 		return Result{}, err, false
 	}
-	if s.az, err = rt.cfg.Authz.Bind(tx, req.Tenant, req.Principal, cmd.spec.Relations); err != nil {
+	s.ownRelations = cmd.own
+	if s.az, err = rt.cfg.Authz.Bind(tx, req.Tenant, req.Principal, cmd.bound); err != nil {
 		return Result{}, internalf("the authorization handle was not bound"), false
 	}
 	if err := s.decideCommand(ctx, cmd.spec.Permission, cmd.spec.Resource, req.Resource); err != nil {
@@ -456,9 +500,7 @@ func runAttempt[Req, P any](ctx context.Context, rt *Runtime, cmd *Command[P], r
 	defer call.Rollback()
 	h := &Handle[P]{st: s, probe: cmd.spec.Probe(call.Probe())}
 
-	wrapped, err := idempotency.Wrap(ctx, wrapTx{s: s}, idempotency.Request{Tenant: req.Tenant.ID(),
-		Principal: req.Principal.Subject().String(), Key: req.Key, Fingerprint: req.Fingerprint,
-		Retention: req.Retention}, func(ctx context.Context) (idempotency.Response, error) {
+	handler := func(ctx context.Context) (idempotency.Response, error) {
 		request, err := decode(bytes.Clone(req.Body))
 		if err != nil {
 			s.close()
@@ -472,7 +514,18 @@ func runAttempt[Req, P any](ctx context.Context, rt *Runtime, cmd *Command[P], r
 			return idempotency.Response{}, err
 		}
 		return response, nil
-	})
+	}
+	var wrapped idempotency.Result
+	if req.Key == "" {
+		// A command with an empty key runs without the wrapper and leaves no key row: no client can send it again
+		// (ST-SUP-RP10-LC11).
+		wrapped.Response, err = handler(ctx)
+		wrapped.Commit = err == nil && !transient(wrapped.Response)
+	} else {
+		wrapped, err = idempotency.Wrap(ctx, wrapTx{s: s}, idempotency.Request{Tenant: req.Tenant.ID(),
+			Principal: req.Principal.Subject().String(), Key: req.Key, Fingerprint: req.Fingerprint,
+			Retention: req.Retention}, handler)
+	}
 	var failure *fillFailure
 	switch {
 	case errors.As(err, &failure):
@@ -505,21 +558,27 @@ func (s *state) decideCommand(ctx context.Context, permission string, r *Resourc
 	if r == nil {
 		return nil
 	}
-	if id == "" || !r.ValidID(id) {
+	if r.Service != "" {
+		// A create of an entity with no parent names no row: Run decides on the service-level resource, with no row
+		// to read, at the floor (ST-SUP-RP10-LC31).
+		id = r.Service
+	} else if id == "" || !r.ValidID(id) {
 		return ErrDenied
 	}
-	if err := s.setLockTimeout(ctx); err != nil {
-		return s.fail(ctx, "lock timeout", err)
+	if r.Service == "" {
+		if err := s.setLockTimeout(ctx); err != nil {
+			return s.fail(ctx, "lock timeout", err)
+		}
+		var token sql.NullString
+		err := s.queryRow(ctx, r.Token, s.tenant.ID(), id).Scan(&token)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return s.fail(ctx, "read the token of the resource", err)
+		}
+		// The row's token is not given to the decision: a missing row has none, and the floor alone gives one
+		// consistency for both. While the floor is zero, the decision is fresh, which is at least as fresh as any
+		// token of the row.
+		_ = token
 	}
-	var token sql.NullString
-	err := s.queryRow(ctx, r.Token, s.tenant.ID(), id).Scan(&token)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return s.fail(ctx, "read the token of the resource", err)
-	}
-	// The row's token is not given to the decision: a missing row has none, and the floor alone gives one
-	// consistency for both. While the floor is zero, the decision is fresh, which is at least as fresh as any
-	// token of the row.
-	_ = token
 	allowed, err := s.evaluate(ctx, s.az, permission, r.Type, id, "", nil)
 	switch {
 	case errors.Is(err, ErrNotFound):
@@ -698,6 +757,13 @@ func (w wrapTx) QueryRowContext(ctx context.Context, query string, args ...any) 
 
 func (w wrapTx) Rollback() error {
 	return errors.New("command: the idempotency wrapper does not end the transaction")
+}
+
+// transient tells whether a response of the fill is one that the idempotency wrapper does not store, so the
+// attempt rolls back: a server error, 429, or a 409 with the conflict code. A run with no key keeps the same rule.
+func transient(resp idempotency.Response) bool {
+	return resp.Status >= 500 || resp.Status == http.StatusTooManyRequests ||
+		(resp.Status == http.StatusConflict && resp.Code == idempotency.ConflictCode)
 }
 
 // errRow is a row whose statement did not run.

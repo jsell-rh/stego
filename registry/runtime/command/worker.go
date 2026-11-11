@@ -55,6 +55,8 @@ type Worker[P any] struct {
 	principal    authz.Principal
 	writes       map[Declared]bool
 	destinations map[string]Destination
+	bound        []authz.Relation
+	own          map[authz.Relation]bool
 }
 
 // NewWorker checks the declaration of one worker.
@@ -77,7 +79,8 @@ func NewWorker[P any](spec WorkerSpec[P]) (*Worker[P], error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Worker[P]{spec: spec, principal: principal, writes: writes, destinations: destinations}, nil
+	bound, own := boundRelations(spec.Relations, spec.Writes)
+	return &Worker[P]{spec: spec, principal: principal, writes: writes, destinations: destinations, bound: bound, own: own}, nil
 }
 
 // TickFill is the fill of a worker with an every trigger: it gets the scheduled tick time and the handle.
@@ -152,7 +155,8 @@ func RunWorker[P any](ctx context.Context, rt *Runtime, w *Worker[P], due time.T
 			return s.failRun(ctx, notAfter, "lease fence", err)
 		}
 	}
-	if s.az, err = rt.cfg.Authz.Bind(tx, t, w.principal, w.spec.Relations); err != nil {
+	s.ownRelations = w.own
+	if s.az, err = rt.cfg.Authz.Bind(tx, t, w.principal, w.bound); err != nil {
 		return internalf("the authorization handle was not bound")
 	}
 	call := rt.cfg.Probes.Bind(ctx, t.ID(), w.principal.Subject().String(), w.spec.Name)
@@ -254,7 +258,8 @@ func RunConsumer[M, P any](ctx context.Context, rt *Runtime, w *Worker[P], tx *s
 	if err := s.checkIsolation(ctx); err != nil {
 		return consumerError(err)
 	}
-	if s.az, err = rt.cfg.Authz.Bind(tx, d.Tenant, w.principal, w.spec.Relations); err != nil {
+	s.ownRelations = w.own
+	if s.az, err = rt.cfg.Authz.Bind(tx, d.Tenant, w.principal, w.bound); err != nil {
 		return outbox.TransientRefusal(internalf("the authorization handle was not bound"))
 	}
 	if s.staging, err = rt.cfg.Authz.Bind(tx, d.Tenant, stagingPrincipal, nil); err != nil {
@@ -331,10 +336,10 @@ func (r *declaredRefusal) Error() string        { return r.err.Error() }
 func (r *declaredRefusal) Unwrap() error        { return r.err }
 func (r *declaredRefusal) Is(target error) bool { return target == errDeclaredRefusal }
 
-// Refusal marks err as a declared refusal of a fill (ST-DECL-EN18, ST-SUP-RC32-OC09): the generated refusal value
-// of a command or a worker wraps itself with it. RunConsumer parks a message whose fill returns one, because a
-// dispatch again gives the same refusal (ST-SUP-RP10-LC26).
-func Refusal(err error) error {
+// Refused marks err as a declared refusal of a fill (ST-DECL-EN18, ST-SUP-RC32-OC09); a *Refusal is one without
+// it. RunConsumer parks a message whose fill returns one, because a dispatch again gives the same refusal
+// (ST-SUP-RP10-LC26).
+func Refused(err error) error {
 	if err == nil {
 		return nil
 	}

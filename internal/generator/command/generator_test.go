@@ -299,7 +299,7 @@ func TestContract(t *testing.T) {
 
 	t.Run("ST-SUP-RC32-OC06-T02 The parent of a row is the one entity with a resource type that it refers to", func(t *testing.T) {
 		files := generated(t, commandContext(t, declaration(t), commandSlot))
-		if !regexp.MustCompile(`Parent: +func\(v Hold\) \(string, string\) \{ return "Order", v.OrderID \},`).Match(files["commands/commands.go"]) {
+		if !regexp.MustCompile(`Parent: +\[\]command\.Reference\[Hold\]\{\{Entity: "Order", ResourceType: "order", ID: func\(v Hold\) string \{ return v.OrderID \}\}\},`).Match(files["commands/commands.go"]) {
 			t.Error("the entity Hold, which has a resource type of its own and refers to Order, has no Parent")
 		}
 		for name, change := range map[string]func(*types.Entity){

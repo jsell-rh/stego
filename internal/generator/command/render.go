@@ -319,7 +319,14 @@ func renderCommandHandlers(w *writer, m *model, c *command) {
 			if i > 0 {
 				w.f(", ")
 			}
-			w.f("{Name: %q, MustLand: true, Idempotent: true}", d)
+			w.f("{Name: %q, MustLand: true, Idempotent: true, Effects: []string{", d)
+			for j, name := range c.effectNames[d] {
+				if j > 0 {
+					w.f(", ")
+				}
+				w.f("%q", name)
+			}
+			w.f("}}")
 		}
 		w.f("},\n")
 	}
