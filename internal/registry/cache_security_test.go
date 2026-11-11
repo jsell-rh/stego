@@ -121,3 +121,25 @@ func TestConcurrentRegistryResolutionPublishesOneCheckout(t *testing.T) {
 		t.Fatalf("temporary or duplicate checkout remains: %v, %v", entries, err)
 	}
 }
+
+func TestRegistryRefusesAnOptionAddress(t *testing.T) {
+	t.Run("ST-SUP-UC02-R04-T07 A registry address that starts with a hyphen is refused before git runs", func(t *testing.T) {
+		root := t.TempDir()
+		project := filepath.Join(root, "project")
+		cache := filepath.Join(root, "cache")
+		marker := filepath.Join(root, "marker")
+		address := "--upload-pack=touch " + marker
+		writeConfig(t, project, registry.RegistryConfig{Registry: []registry.RegistrySource{{URL: address, Ref: strings.Repeat("a", 40)}}})
+		t.Setenv("STEGO_REGISTRY", "")
+		_, err := registry.ResolveRegistry(registry.ResolveOptions{ProjectDir: project, CacheDir: cache})
+		if err == nil || !strings.Contains(err.Error(), `starts with "-"`) {
+			t.Fatalf("got %v, want a refusal of the address", err)
+		}
+		if _, err := os.Stat(marker); !os.IsNotExist(err) {
+			t.Fatalf("git ran the address as an option: %v", err)
+		}
+		if _, err := os.Stat(cache); !os.IsNotExist(err) {
+			t.Fatalf("the refused address changed the cache: %v", err)
+		}
+	})
+}

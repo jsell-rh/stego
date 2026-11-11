@@ -7659,8 +7659,8 @@ func TestGenerate_ValidationMiddleware_BodyRestore(t *testing.T) {
 		if strings.Count(content, "io.NopCloser(bytes.NewReader(bodyBytes))") < 2 {
 			t.Error("validation middleware should restore body at least twice (before validation and after)")
 		}
-		if !strings.Contains(content, "io.ReadAll(r.Body)") {
-			t.Error("validation middleware should buffer the body with io.ReadAll")
+		if !strings.Contains(content, "io.ReadAll(http.MaxBytesReader(w, r.Body, MaxRequestBody))") {
+			t.Error("validation middleware should buffer the body, at most MaxRequestBody bytes, with io.ReadAll")
 		}
 	})
 }
@@ -9010,8 +9010,8 @@ func TestGenerate_CORSMiddleware_Generated(t *testing.T) {
 				if !strings.Contains(content, `CORS_ALLOWED_ORIGINS`) {
 					t.Error("cors.go missing CORS_ALLOWED_ORIGINS env var")
 				}
-				if !strings.Contains(content, `allowedOrigins = "*"`) {
-					t.Error("cors.go missing default * for allowed origins")
+				if strings.Contains(content, `"*"`) {
+					t.Error("cors.go has a default origin of *; with no CORS_ALLOWED_ORIGINS it must set no CORS header")
 				}
 
 				if !strings.Contains(content, `CORS_ALLOWED_METHODS`) {

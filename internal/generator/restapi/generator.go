@@ -320,7 +320,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			}
 		}
 		if hasBodyOps {
-			validationFile, err := generateValidation(ctx.OutputNamespace)
+			validationFile, err := generateValidation(ctx.OutputNamespace, !ctx.RuntimeData)
 			if err != nil {
 				return nil, nil, fmt.Errorf("generating validation middleware: %w", err)
 			}
@@ -2015,9 +2015,11 @@ func emitErrorTypeField(buf *bytes.Buffer, errorTypeBase, slug string) {
 }
 
 // generateCORS produces the cors.go file containing CORS middleware that reads
-// allowed origins, methods, and headers from environment variables with sensible
-// defaults. The middleware sets CORS headers on all responses and handles OPTIONS
-// preflight requests with a 204 No Content response.
+// the allowed origins, methods and headers from environment variables. With no
+// CORS_ALLOWED_ORIGINS the middleware sets no CORS header and passes every
+// request, OPTIONS too, to the handler. With origins set, it compares the
+// request's Origin with each listed origin, echoes the one origin that matches
+// with Vary: Origin, and answers an OPTIONS preflight with 204 No Content.
 func generateCORS(ns string) (gen.File, error) {
 	var buf bytes.Buffer
 	pkg := path.Base(ns)
@@ -2026,19 +2028,26 @@ func generateCORS(ns string) (gen.File, error) {
 	fmt.Fprintf(&buf, "import (\n")
 	fmt.Fprintf(&buf, "\t\"net/http\"\n")
 	fmt.Fprintf(&buf, "\t\"os\"\n")
+	fmt.Fprintf(&buf, "\t\"strings\"\n")
 	fmt.Fprintf(&buf, ")\n\n")
 
-	fmt.Fprintf(&buf, "// NewCORSMiddleware returns HTTP middleware that sets CORS headers on all\n")
-	fmt.Fprintf(&buf, "// responses and handles OPTIONS preflight requests with 204 No Content.\n")
+	fmt.Fprintf(&buf, "// NewCORSMiddleware returns HTTP middleware for cross-origin requests.\n")
 	fmt.Fprintf(&buf, "//\n")
 	fmt.Fprintf(&buf, "// Environment variables:\n")
-	fmt.Fprintf(&buf, "//   - CORS_ALLOWED_ORIGINS: comma-separated list of allowed origins (default: *)\n")
+	fmt.Fprintf(&buf, "//   - CORS_ALLOWED_ORIGINS: comma-separated list of the allowed origins, such as\n")
+	fmt.Fprintf(&buf, "//     https://app.example.com; with none, the middleware sets no CORS header\n")
 	fmt.Fprintf(&buf, "//   - CORS_ALLOWED_METHODS: allowed HTTP methods (default: GET,POST,PATCH,PUT,DELETE,OPTIONS)\n")
 	fmt.Fprintf(&buf, "//   - CORS_ALLOWED_HEADERS: allowed request headers (default: Content-Type,Authorization)\n")
+	fmt.Fprintf(&buf, "//\n")
+	fmt.Fprintf(&buf, "// A request whose Origin is one of the allowed origins gets that origin back in\n")
+	fmt.Fprintf(&buf, "// Access-Control-Allow-Origin; an origin that is not listed gets no CORS header.\n")
+	fmt.Fprintf(&buf, "// Each answer carries Vary: Origin, and an OPTIONS preflight gets 204 No Content.\n")
 	fmt.Fprintf(&buf, "func NewCORSMiddleware() func(http.Handler) http.Handler {\n")
-	fmt.Fprintf(&buf, "\tallowedOrigins := os.Getenv(\"CORS_ALLOWED_ORIGINS\")\n")
-	fmt.Fprintf(&buf, "\tif allowedOrigins == \"\" {\n")
-	fmt.Fprintf(&buf, "\t\tallowedOrigins = \"*\"\n")
+	fmt.Fprintf(&buf, "\tallowed := map[string]bool{}\n")
+	fmt.Fprintf(&buf, "\tfor _, origin := range strings.Split(os.Getenv(\"CORS_ALLOWED_ORIGINS\"), \",\") {\n")
+	fmt.Fprintf(&buf, "\t\tif origin = strings.TrimSpace(origin); origin != \"\" {\n")
+	fmt.Fprintf(&buf, "\t\t\tallowed[origin] = true\n")
+	fmt.Fprintf(&buf, "\t\t}\n")
 	fmt.Fprintf(&buf, "\t}\n")
 	fmt.Fprintf(&buf, "\tallowedMethods := os.Getenv(\"CORS_ALLOWED_METHODS\")\n")
 	fmt.Fprintf(&buf, "\tif allowedMethods == \"\" {\n")
@@ -2050,10 +2059,16 @@ func generateCORS(ns string) (gen.File, error) {
 	fmt.Fprintf(&buf, "\t}\n\n")
 
 	fmt.Fprintf(&buf, "\treturn func(next http.Handler) http.Handler {\n")
+	fmt.Fprintf(&buf, "\t\tif len(allowed) == 0 {\n")
+	fmt.Fprintf(&buf, "\t\t\treturn next\n")
+	fmt.Fprintf(&buf, "\t\t}\n")
 	fmt.Fprintf(&buf, "\t\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n")
-	fmt.Fprintf(&buf, "\t\t\tw.Header().Set(\"Access-Control-Allow-Origin\", allowedOrigins)\n")
-	fmt.Fprintf(&buf, "\t\t\tw.Header().Set(\"Access-Control-Allow-Methods\", allowedMethods)\n")
-	fmt.Fprintf(&buf, "\t\t\tw.Header().Set(\"Access-Control-Allow-Headers\", allowedHeaders)\n\n")
+	fmt.Fprintf(&buf, "\t\t\tw.Header().Add(\"Vary\", \"Origin\")\n")
+	fmt.Fprintf(&buf, "\t\t\tif origin := r.Header.Get(\"Origin\"); allowed[origin] {\n")
+	fmt.Fprintf(&buf, "\t\t\t\tw.Header().Set(\"Access-Control-Allow-Origin\", origin)\n")
+	fmt.Fprintf(&buf, "\t\t\t\tw.Header().Set(\"Access-Control-Allow-Methods\", allowedMethods)\n")
+	fmt.Fprintf(&buf, "\t\t\t\tw.Header().Set(\"Access-Control-Allow-Headers\", allowedHeaders)\n")
+	fmt.Fprintf(&buf, "\t\t\t}\n\n")
 	fmt.Fprintf(&buf, "\t\t\tif r.Method == http.MethodOptions {\n")
 	fmt.Fprintf(&buf, "\t\t\t\tw.WriteHeader(http.StatusNoContent)\n")
 	fmt.Fprintf(&buf, "\t\t\t\treturn\n")
@@ -2077,7 +2092,10 @@ func generateCORS(ns string) (gen.File, error) {
 // generateValidation produces the validation.go file with OpenAPI request body
 // validation middleware. The generated file embeds the openapi.json spec and
 // uses kin-openapi to validate POST, PUT, and PATCH request bodies at runtime.
-func generateValidation(ns string) (gen.File, error) {
+// It reads at most MaxRequestBody bytes of a body and answers a larger body
+// with 413; declareLimit declares MaxRequestBody, which runtime.go declares on
+// the runtime data path.
+func generateValidation(ns string, declareLimit bool) (gen.File, error) {
 	var buf bytes.Buffer
 	pkg := path.Base(ns)
 
@@ -2096,6 +2114,11 @@ func generateValidation(ns string) (gen.File, error) {
 	fmt.Fprintf(&buf, "\t\"github.com/getkin/kin-openapi/openapi3filter\"\n")
 	fmt.Fprintf(&buf, "\tlegacyrouter \"github.com/getkin/kin-openapi/routers/legacy\"\n")
 	fmt.Fprintf(&buf, ")\n\n")
+
+	if declareLimit {
+		fmt.Fprintf(&buf, "// MaxRequestBody is the most bytes of a request body that a handler reads.\n")
+		fmt.Fprintf(&buf, "const MaxRequestBody = 1 << 20\n\n")
+	}
 
 	// Embedded OpenAPI spec.
 	fmt.Fprintf(&buf, "//go:embed openapi.json\n")
@@ -2142,8 +2165,13 @@ func generateValidation(ns string) (gen.File, error) {
 
 	// Buffer the body so it can be read for validation and restored for the handler.
 	fmt.Fprintf(&buf, "\t\t\t// Buffer the body for validation; restore it for the handler.\n")
-	fmt.Fprintf(&buf, "\t\t\tbodyBytes, err := io.ReadAll(r.Body)\n")
+	fmt.Fprintf(&buf, "\t\t\t// Read at most MaxRequestBody bytes; a larger body gets 413.\n")
+	fmt.Fprintf(&buf, "\t\t\tbodyBytes, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxRequestBody))\n")
 	fmt.Fprintf(&buf, "\t\t\tif err != nil {\n")
+	fmt.Fprintf(&buf, "\t\t\t\tif tooLarge := new(http.MaxBytesError); errors.As(err, &tooLarge) {\n")
+	fmt.Fprintf(&buf, "\t\t\t\t\thandleError(w, r, errorForStatus(http.StatusRequestEntityTooLarge, \"the request body is larger than the limit\"))\n")
+	fmt.Fprintf(&buf, "\t\t\t\t\treturn\n")
+	fmt.Fprintf(&buf, "\t\t\t\t}\n")
 	fmt.Fprintf(&buf, "\t\t\t\thandleError(w, r, BadRequest(\"failed to read request body\"))\n")
 	fmt.Fprintf(&buf, "\t\t\t\treturn\n")
 	fmt.Fprintf(&buf, "\t\t\t}\n")

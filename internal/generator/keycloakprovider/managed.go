@@ -19,6 +19,12 @@ type managedAttribute struct {
 	ValueExpr string
 }
 
+// KeyExpr renders the key as a quoted Go string literal.
+func (a managedAttribute) KeyExpr() string { return strconv.Quote(a.Key) }
+
+// OwnerKeyExpr renders the key with the reserved ownership prefix as a quoted Go string literal.
+func (a managedAttribute) OwnerKeyExpr() string { return strconv.Quote(ownershipPrefix + a.Key) }
+
 // managedKind is one declared managed-client kind. The generator derives the
 // exported identity and binding helpers from it.
 type managedKind struct {
@@ -34,6 +40,13 @@ type managedKind struct {
 var managedKindSegment = regexp.MustCompile(`^[a-z][a-z0-9]*$`)
 var managedIDName = regexp.MustCompile(`^[a-z][a-zA-Z0-9]*$`)
 var managedPlaceholder = regexp.MustCompile(`^\{([a-z][a-zA-Z0-9]*)\}$`)
+
+// managedAttributeKey is the form of a declared ownership attribute key: lower-case letters, digits, dots, hyphens
+// and underscores, which the reserved stego.owner. prefix keeps within the Keycloak attribute name limit.
+var managedAttributeKey = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,110}$`)
+
+// clientIDPlaceholder finds each {name} placeholder of a client-name template.
+var clientIDPlaceholder = regexp.MustCompile(`\{([^{}]*)\}`)
 
 const ownershipPrefix = "stego.owner."
 
@@ -95,6 +108,11 @@ func parseManagedKind(path string, entry any) (managedKind, error) {
 	if !ok || clientID == "" || strings.ContainsAny(clientID, "\"`'\n\r\t") {
 		return managedKind{}, fmt.Errorf("%s: client_id must be a nonempty client-name template", path)
 	}
+	// Each {name} of the template becomes a Go identifier in the generated code, so identityChecks holds it to the
+	// declared ids, and no brace may stand outside a placeholder.
+	if strings.ContainsAny(clientIDPlaceholder.ReplaceAllString(clientID, ""), "{}") {
+		return managedKind{}, fmt.Errorf("%s: client_id holds a brace outside a {name} placeholder", path)
+	}
 	kind.ClientID = clientID
 	ids, ok := object["ids"].([]any)
 	if !ok || len(ids) == 0 {
@@ -121,8 +139,8 @@ func parseManagedKind(path string, entry any) (managedKind, error) {
 			return managedKind{}, fmt.Errorf("%s.attributes[%d] must be a key and value pair", path, index)
 		}
 		key, ok := pair["key"].(string)
-		if !ok || key == "" || strings.HasPrefix(key, ownershipPrefix) || len(key)+len(ownershipPrefix) > 128 {
-			return managedKind{}, fmt.Errorf("%s.attributes[%d].key must be a plain attribute key below the length limit", path, index)
+		if !ok || !managedAttributeKey.MatchString(key) || strings.HasPrefix(key, ownershipPrefix) {
+			return managedKind{}, fmt.Errorf("%s.attributes[%d].key must match %s and not start with %s", path, index, managedAttributeKey, ownershipPrefix)
 		}
 		value, ok := pair["value"].(string)
 		if !ok || value == "" || len(value) > 1024 {
@@ -190,7 +208,9 @@ func (k managedKind) identityChecks() ([]string, error) {
 			missing = append(missing, match[1])
 		}
 	}
-	check(k.ClientID)
+	for _, match := range clientIDPlaceholder.FindAllString(k.ClientID, -1) {
+		check(match)
+	}
 	for _, attribute := range k.Attributes {
 		check(attribute.Value)
 	}
@@ -220,35 +240,21 @@ func (k managedKind) EmptyCheck() string {
 	return strings.Join(checks, " || ")
 }
 
-// ClientIDExpr renders the Go expression that composes the client name.
+// ClientIDExpr renders the Go expression that composes the client name: each literal part as a quoted Go string and
+// each {name} placeholder as the id parameter of that name, which parseManagedKind checked.
 func (k managedKind) ClientIDExpr() string {
-	var expression strings.Builder
+	var parts []string
 	rest := k.ClientID
-	for {
-		open := strings.IndexByte(rest, '{')
-		if open < 0 {
-			break
+	for _, at := range clientIDPlaceholder.FindAllStringSubmatchIndex(k.ClientID, -1) {
+		offset := len(k.ClientID) - len(rest)
+		if literal := rest[:at[0]-offset]; literal != "" {
+			parts = append(parts, strconv.Quote(literal))
 		}
-		close := strings.IndexByte(rest[open:], '}')
-		if close < 0 {
-			break
-		}
-		close += open
-		if open != 0 {
-			expression.WriteString(strconv.Quote(rest[:open]))
-			expression.WriteString("+")
-		}
-		expression.WriteString(rest[open+1 : close])
-		rest = rest[close+1:]
-		if rest != "" {
-			expression.WriteString("+")
-		}
+		parts = append(parts, k.ClientID[at[2]:at[3]])
+		rest = k.ClientID[at[1]:]
 	}
-	if expression.Len() == 0 || rest == "" {
-		if expression.Len() != 0 {
-			expression.WriteString("+")
-		}
-		expression.WriteString(strconv.Quote(rest))
+	if rest != "" || len(parts) == 0 {
+		parts = append(parts, strconv.Quote(rest))
 	}
-	return expression.String()
+	return strings.Join(parts, " + ")
 }

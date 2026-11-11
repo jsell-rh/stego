@@ -152,6 +152,9 @@ func headLifecycles(projectDir string) ([]lifecycle.Lifecycle, error) {
 // gitHeadLifecycles fetches the head commit of the registry repository into a temporary repository and reads its
 // lifecycle folder from it.
 func gitHeadLifecycles(url, subfolder string) ([]lifecycle.Lifecycle, error) {
+	if strings.HasPrefix(url, "-") {
+		return nil, fmt.Errorf("the registry address %q starts with \"-\", which git would read as an option", url)
+	}
 	temporary, err := os.MkdirTemp("", "stego-lifecycle-")
 	if err != nil {
 		return nil, err
@@ -174,7 +177,9 @@ func gitHeadLifecycles(url, subfolder string) ([]lifecycle.Lifecycle, error) {
 	if _, err := git("init", "-q", "--bare", repository); err != nil {
 		return nil, err
 	}
-	if _, err := git("-C", repository, "-c", "protocol.file.allow=always", "fetch", "-q", "--depth", "1", "--no-tags", url, "HEAD"); err != nil {
+	// "--" ends the options, so the address is never read as an option of git; an address that starts with "-" is
+	// refused before git runs.
+	if _, err := git("-C", repository, "fetch", "-q", "--depth", "1", "--no-tags", "--", url, "HEAD"); err != nil {
 		return nil, fmt.Errorf("fetching the head of the registry %s: %w", url, err)
 	}
 	folder := lifecycle.Folder

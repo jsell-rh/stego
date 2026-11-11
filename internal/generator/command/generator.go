@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"go/format"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -326,12 +327,17 @@ func (m *model) planCommand(c gen.Command, byName map[string]types.Entity, plann
 	return cmd, nil
 }
 
+// commandRoutePath is the form of a command route's path: segments of letters, digits and the URL characters
+// - . _ ~ : @, or a {name} path parameter. The path is written into Go comments and strings, so it holds no space,
+// quote, backslash, control character or other character that could end them.
+var commandRoutePath = regexp.MustCompile(`^(/([A-Za-z0-9._~:@-]+|\{[A-Za-z_][A-Za-z0-9_]*\}))+$`)
+
 // planRoute checks the command's route, finds its messages and binds each path parameter to a string field of the
 // request message (ST-SUP-RC32-OC11).
 func (m *model) planRoute(cmd *command) error {
 	decl := cmd.decl
 	verb, routePath, ok := strings.Cut(decl.Route, " ")
-	if !ok || verb != "POST" || !strings.HasPrefix(routePath, "/") || strings.ContainsAny(routePath, " \t\"`\\") {
+	if !ok || verb != "POST" || !commandRoutePath.MatchString(routePath) {
 		return fmt.Errorf("command: the command %s has the route %q; a command route is POST and a path", decl.Name, decl.Route)
 	}
 	cmd.pattern = "POST " + m.basePath + routePath
