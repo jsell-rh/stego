@@ -160,12 +160,12 @@ func ListQualification(check compiler.FillCheck) ([]Qualification, error) {
 
 // QualificationFaults is the compiler's compiler.FillQualifier: a fault for
 // each binding of a fill that does not fit that binding or is not qualified,
-// and for each command fill whose import closure breaks the import rule
-// (ST-SUP-RC32-OC03).
+// and for each fill that the declaration names, at every slot, that breaks
+// the fill rules (declaredFillFaults).
 // Each fault names the binding's path in the declaration and its collection
 // and slot, so an agent can go to the exact binding.
 func QualificationFaults(check compiler.FillCheck) ([]compiler.FillFault, error) {
-	faults, err := commandFillFaults(check)
+	faults, err := declaredFillFaults(check)
 	if err != nil {
 		return nil, err
 	}

@@ -203,6 +203,17 @@ type FillCheck struct {
 	// QueryContract is the import path of the query slot contract package, out/queries, which a fill of the query
 	// slot imports (ST-EXT-INV05); empty when the service has no query component.
 	QueryContract string
+	// QueryFills are the fills that the queries of the declaration name when the query component is active, whose
+	// import closure the qualifier checks (ST-SUP-RC33-OC03).
+	QueryFills []QueryFill
+}
+
+// QueryFill is the one fill of one query: the fill, the query and where the declaration names it, such as
+// queries[0].fill.
+type QueryFill struct {
+	Fill  string
+	Query string
+	Path  string
 }
 
 // CommandFill is the one fill of one command: the fill, the command, where the declaration names it, such as

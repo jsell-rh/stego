@@ -152,7 +152,7 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 		check := fillCheck(input, svcDecl, reg, components)
 		// A compiler given no qualifier checks no qualification; cmd/stego,
 		// which runs validate, plan and apply, always gives one.
-		if len(fillErrs) == 0 && (len(check.Bindings) > 0 || len(check.CommandFills) > 0) && input.QualifyFills != nil {
+		if len(fillErrs) == 0 && (len(check.Bindings) > 0 || len(check.CommandFills) > 0 || len(check.QueryFills) > 0) && input.QualifyFills != nil {
 			faults, err := input.QualifyFills(check)
 			if err != nil {
 				return nil, fmt.Errorf("checking the bound fills: %w", err)
@@ -497,6 +497,12 @@ func fillCheck(input ReconcilerInput, svcDecl *types.ServiceDeclaration, reg *re
 			}
 		}
 		check.QueryContract = generatedImportPath(input.ModuleName, outDirName, q.OutputNamespace)
+		for i, query := range svcDecl.Queries {
+			if len(query.Fill) == 1 && query.Fill[0] != "" && !strings.ContainsAny(query.Fill[0], `/\.`) {
+				check.QueryFills = append(check.QueryFills, QueryFill{Fill: query.Fill[0], Query: query.Name,
+					Path: fmt.Sprintf("queries[%d].fill", i)})
+			}
+		}
 	}
 	for i, sb := range svcDecl.Slots {
 		for _, operator := range []struct {

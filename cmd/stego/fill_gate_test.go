@@ -130,9 +130,19 @@ func TestQualifyFillFlow(t *testing.T) {
 // directives, so that a fill compiles with the network off and only the
 // import rule can refuse it.
 var fixtureModules = map[string]map[string]string{
-	"github.com/lib/pq":           {"pq.go": "package pq\n\n// Name is the name of the driver.\nconst Name = \"postgres\"\n"},
-	"github.com/google/uuidx":     {"uuidx.go": "package uuidx\n\n// Name is the name of the module.\nconst Name = \"uuidx\"\n"},
-	"github.com/google/uuid":      {"uuid.go": "package uuid\n\n// NewString gives a fixed identifier.\nfunc NewString() string { return \"00000000-0000-0000-0000-000000000000\" }\n", "sub/sub.go": "package sub\n\n// Name is the name of the package.\nconst Name = \"sub\"\n"},
+	"github.com/lib/pq":       {"pq.go": "package pq\n\n// Name is the name of the driver.\nconst Name = \"postgres\"\n"},
+	"github.com/google/uuidx": {"uuidx.go": "package uuidx\n\n// Name is the name of the module.\nconst Name = \"uuidx\"\n"},
+	"github.com/google/uuid":  {"uuid.go": "package uuid\n\n// NewString gives a fixed identifier.\nfunc NewString() string { return \"00000000-0000-0000-0000-000000000000\" }\n", "sub/sub.go": "package sub\n\n// Name is the name of the package.\nconst Name = \"sub\"\n"},
+	// example.com/helpers holds a package that reaches database/sql, one that prints to standard output and one
+	// whose function has no Go body and comes from an assembly file, for ST-EXT-UC01-R03-T06, ST-EXT-UC01-R05-T02
+	// and ST-EXT-UC01-R03-T10.
+	"example.com/helpers": {
+		"dbutil/dbutil.go": "package dbutil\n\nimport \"database/sql\"\n\n// Drivers names the database drivers.\nfunc Drivers() []string { return sql.Drivers() }\n",
+		"say/say.go":       "package say\n\nimport \"fmt\"\n\n// Hello greets.\nfunc Hello() {\n\tfmt.Println(\"hello\")\n}\n",
+		"raw/raw.go":       "package raw\n\n// Write writes with no import.\nfunc Write(fd uintptr, p *byte, n uintptr) uintptr\n",
+		"raw/raw_amd64.s":  "#include \"textflag.h\"\n\nTEXT ·Write(SB),NOSPLIT,$0-32\n\tMOVQ $1, AX\n\tSYSCALL\n\tMOVQ AX, ret+24(FP)\n\tRET\n",
+		"raw/raw_arm64.s":  "#include \"textflag.h\"\n\nTEXT ·Write(SB),NOSPLIT,$0-32\n\tRET\n",
+	},
 	"github.com/stretchr/testify": {"assert/assert.go": "package assert\n\nimport \"testing\"\n\n// True fails the test when the value is false.\nfunc True(t testing.TB, value bool) bool {\n\tif !value {\n\t\tt.Error(\"not true\")\n\t}\n\treturn value\n}\n"},
 }
 
@@ -157,6 +167,14 @@ func (p *fillProject) withFillModules(t *testing.T) {
 		replace += "replace " + module + " => ./" + folder + "\n"
 	}
 	p.write(t, "go.mod", goMod+"\nrequire (\n"+require+")\n\n"+replace)
+}
+
+// withHelpers is withFillModules with example.com/helpers listed for fills too.
+func (p *fillProject) withHelpers(t *testing.T) {
+	t.Helper()
+	p.withFillModules(t)
+	p.declarationExtra += "  - {module: example.com/helpers, reason: fills share helper code}\n"
+	p.bind(t)
 }
 
 // addImport adds an import to a Go file of a fill and a use of it.
@@ -350,7 +368,7 @@ func TestFillImports(t *testing.T) {
 		for i := range changes {
 			name := fmt.Sprintf("import-copy-%d", i+1)
 			if want, ok := refused[i+1]; ok {
-				expectNoEvidence(t, p, stdout, name, before[name], name, "the file "+want[0]+" imports "+want[1])
+				expectNoEvidence(t, p, stdout, name, before[name], name, want[0], want[1])
 				continue
 			}
 			if p.manifest(t, name).Evidence == nil {
@@ -517,5 +535,160 @@ func TestRequalifyFillFlow(t *testing.T) {
 		p = newFillProject(t)
 		p.bind(t, slotBinding{"stale-fill", "before_create", "org-users"})
 		expectRefused(t, p, "stale-fill")
+	})
+}
+
+// fillCase is one copy of untested-fill with one change, and the texts that the run of stego test must name for it;
+// a case with no text must get evidence.
+type fillCase struct {
+	name   string
+	change func(name string)
+	texts  []string
+}
+
+// runFillCases makes one copy of untested-fill for each case, applies its change, runs stego test once, and checks
+// that each copy that must be refused gets no evidence, with its manifest as it was and the output naming the copy
+// and each text, and that each other copy gets evidence.
+func runFillCases(t *testing.T, p *fillProject, cases []fillCase) string {
+	t.Helper()
+	before := map[string][]byte{}
+	for _, c := range cases {
+		p.copyFill(t, c.name)
+		c.change(c.name)
+		before[c.name] = p.read(t, "fills/"+c.name+"/fill.yaml")
+	}
+	stdout, _, _ := p.stego(t, "no-key", "test")
+	for _, c := range cases {
+		if len(c.texts) == 0 {
+			if p.manifest(t, c.name).Evidence == nil {
+				t.Errorf("%s got no evidence:\n%s", c.name, stdout)
+			}
+			continue
+		}
+		expectNoEvidence(t, p, stdout, c.name, before[c.name], append([]string{c.name}, c.texts...)...)
+	}
+	return stdout
+}
+
+// blankImport adds a blank import to policy.go of the fill.
+func (p *fillProject) blankImport(t *testing.T, name, path string) {
+	t.Helper()
+	p.replace(t, "fills/"+name+"/policy.go", "import (\n\t\"context\"\n", "import (\n\t\"context\"\n\t_ \""+path+"\"\n")
+}
+
+func TestFillAllowList(t *testing.T) {
+	t.Parallel()
+	t.Run("ST-EXT-UC01-R03-T06 stego test records no evidence for a fill that reaches database/sql through a listed module, and names the chain", func(t *testing.T) {
+		p := newFillProject(t)
+		p.withHelpers(t)
+		p.addImport(t, "fills/untested-fill/policy.go", "example.com/helpers/dbutil", "dbutil.Drivers")
+		before := p.read(t, "fills/untested-fill/fill.yaml")
+		stdout, _, _ := p.stego(t, "no-key", "test")
+		expectNoEvidence(t, p, stdout, "untested-fill", before, "may not import database/sql",
+			"example.com/fills/fills/untested-fill (policy.go) -> example.com/helpers/dbutil (dbutil.go) -> database/sql")
+	})
+
+	t.Run("ST-EXT-UC01-R03-T07 stego test records no evidence for a fill that imports a standard library package off the allow list", func(t *testing.T) {
+		p := newFillProject(t)
+		var cases []fillCase
+		for i, path := range []string{"net/http", "os", "os/exec", "unsafe", "reflect", "runtime", "plugin", "syscall"} {
+			cases = append(cases, fillCase{name: fmt.Sprintf("std-copy-%d", i+1), change: func(name string) { p.blankImport(t, name, path) },
+				texts: []string{"may not import " + path + ",", "policy.go"}})
+		}
+		runFillCases(t, p, cases)
+	})
+
+	t.Run("ST-EXT-UC01-R03-T08 stego test records evidence for a fill that imports only allow-listed packages, whose own closure holds os", func(t *testing.T) {
+		p := newFillProject(t)
+		p.replace(t, "fills/untested-fill/policy.go", "import (\n\t\"context\"\n", "import (\n\t\"context\"\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"log\"\n\t\"log/slog\"\n\t\"time\"\n")
+		p.write(t, "fills/untested-fill/policy.go", string(p.read(t, "fills/untested-fill/policy.go"))+
+			"\nvar _ = json.Marshal\nvar _ = fmt.Sprint\nvar _ = log.Printf\nvar _ = slog.Info\nvar _ = time.Now\n")
+		stdout := p.must(t, "no-key", "test")
+		if p.manifest(t, "untested-fill").Evidence == nil {
+			t.Fatalf("untested-fill got no evidence:\n%s", stdout)
+		}
+	})
+
+	t.Run("ST-EXT-UC01-R03-T09 stego test records no evidence for a fill that holds code its imports do not show", func(t *testing.T) {
+		p := newFillProject(t)
+		policy := func(name string) string { return "fills/" + name + "/policy.go" }
+		appendTo := func(name, text string) { p.write(t, policy(name), string(p.read(t, policy(name)))+text) }
+		cases := []fillCase{
+			{"asm-copy", func(name string) {
+				appendTo(name, "\n// rawWrite is in write_amd64.s.\nfunc rawWrite(fd uintptr, p *byte, n uintptr) uintptr\n")
+				p.write(t, "fills/"+name+"/write_amd64.s", "#include \"textflag.h\"\n\nTEXT ·rawWrite(SB),NOSPLIT,$0-32\n\tMOVQ $1, AX\n\tSYSCALL\n\tMOVQ AX, ret+24(FP)\n\tRET\n")
+			}, []string{"the file write_amd64.s, which is not a Go source file", "declares the function rawWrite with no body"}},
+			{"other-arch-copy", func(name string) {
+				p.write(t, "fills/"+name+"/write_arm64.s", "TEXT ·x(SB),$0\n\tRET\n")
+			}, []string{"the file write_arm64.s, which is not a Go source file"}},
+			{"syso-copy", func(name string) { p.write(t, "fills/"+name+"/blob_amd64.syso", "\x7fELF") },
+				[]string{"the file blob_amd64.syso, which is not a Go source file"}},
+			{"c-copy", func(name string) { p.write(t, "fills/"+name+"/sub/helper.c", "int x;\n") },
+				[]string{"the file sub/helper.c, which is not a Go source file"}},
+			{"linkname-copy", func(name string) {
+				appendTo(name, "\n//go:linkname nanotime runtime.nanotime\nfunc nanotime() int64\n")
+			}, []string{"holds the directive //go:linkname", "declares the function nanotime with no body"}},
+			{"cgo-directive-copy", func(name string) {
+				appendTo(name, "\n//go:cgo_import_dynamic libc_write write \"libc.so.6\"\n")
+			}, []string{"holds the directive //go:cgo_import_dynamic"}},
+			{"embed-copy", func(name string) {
+				appendTo(name, "\n//go:embed policy.go\nvar source string\n")
+			}, []string{"holds the directive //go:embed"}},
+			{"cgo-copy", func(name string) {
+				p.write(t, "fills/"+name+"/cgo.go", "package untested_fill\n\n// int one(void) { return 1; }\nimport \"C\"\n")
+			}, []string{"may not import C,", "(cgo.go) -> C"}},
+		}
+		runFillCases(t, p, cases)
+	})
+
+	t.Run("ST-EXT-UC01-R03-T10 stego test records no evidence for a fill that reaches a listed module package with a file that is not Go source", func(t *testing.T) {
+		p := newFillProject(t)
+		p.withHelpers(t)
+		p.addImport(t, "fills/untested-fill/policy.go", "example.com/helpers/raw", "raw.Write")
+		before := p.read(t, "fills/untested-fill/fill.yaml")
+		stdout, _, _ := p.stego(t, "no-key", "test")
+		expectNoEvidence(t, p, stdout, "untested-fill", before, "reaches example.com/helpers/raw, which holds the files raw_amd64.s, raw_arm64.s",
+			"example.com/helpers/raw/raw.go:4 declares the function Write with no body")
+	})
+
+	t.Run("ST-EXT-UC01-R03-T12 Plan refuses a fill bound at a protobuf slot that reaches database/sql through a listed module, and names its binding", func(t *testing.T) {
+		p := newFillProject(t)
+		p.withHelpers(t)
+		p.addImport(t, "fills/qualified-fill/policy.go", "example.com/helpers/dbutil", "dbutil.Drivers")
+		p.bind(t, slotBinding{"qualified-fill", "before_create", "org-users"})
+		stdout, stderr, err := p.stego(t, "no-key", "validate", "--json")
+		if err == nil {
+			t.Fatalf("validate accepted the binding:\n%s", stdout)
+		}
+		var document struct {
+			Faults []struct{ Rule, Path, Found, Message string }
+		}
+		if err := json.Unmarshal([]byte(stdout), &document); err != nil {
+			t.Fatalf("validate --json printed no document: %v\n%s\n%s", err, stdout, stderr)
+		}
+		var found bool
+		for _, fault := range document.Faults {
+			if fault.Rule == "fill-imports" && fault.Path == "slots[0].gate[0]" && fault.Found == "qualified-fill" &&
+				strings.Contains(fault.Message, "example.com/helpers/dbutil (dbutil.go) -> database/sql") {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("validate gave no fill-imports fault for the binding of qualified-fill: %+v", document.Faults)
+		}
+	})
+
+	t.Run("ST-EXT-UC01-R03-T11 stego test records no evidence for a fill that imports a listed module whose path has no dot", func(t *testing.T) {
+		p := newFillProject(t)
+		p.withFillModules(t)
+		p.declarationExtra += "  - {module: evilmod, reason: a module path with no dot}\n"
+		p.bind(t)
+		p.write(t, "fixture-modules/evilmod/go.mod", "module evilmod\n\ngo 1.21\n")
+		p.write(t, "fixture-modules/evilmod/x/x.go", "package x\n\n// Name is the name of the package.\nconst Name = \"x\"\n")
+		p.write(t, "go.mod", string(p.read(t, "go.mod"))+"\nrequire evilmod v1.0.0\n\nreplace evilmod => ./fixture-modules/evilmod\n")
+		p.addImport(t, "fills/untested-fill/policy.go", "evilmod/x", "x.Name")
+		before := p.read(t, "fills/untested-fill/fill.yaml")
+		stdout, _, _ := p.stego(t, "no-key", "test")
+		expectNoEvidence(t, p, stdout, "untested-fill", before, "may not import evilmod/x", "policy.go")
 	})
 }
