@@ -152,7 +152,7 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 		check := fillCheck(input, svcDecl, reg, components)
 		// A compiler given no qualifier checks no qualification; cmd/stego,
 		// which runs validate, plan and apply, always gives one.
-		if len(fillErrs) == 0 && (len(check.Bindings) > 0 || len(check.CommandFills) > 0) && input.QualifyFills != nil {
+		if len(fillErrs) == 0 && (len(check.Bindings) > 0 || len(check.CommandFills) > 0 || len(check.QueryFills) > 0 || len(check.WorkerFills) > 0) && input.QualifyFills != nil {
 			faults, err := input.QualifyFills(check)
 			if err != nil {
 				return nil, fmt.Errorf("checking the bound fills: %w", err)
@@ -442,6 +442,9 @@ func ResolveFillCheck(input ReconcilerInput) (FillCheck, error) {
 // commandComponent is the component that generates the commands (ST-SUP-RC32).
 const commandComponent = "command"
 
+// workerComponent is the component that generates the workers (ST-SUP-RC35).
+const workerComponent = "worker"
+
 // fillCheck gives the fill check of a declaration with its active component
 // set.
 func fillCheck(input ReconcilerInput, svcDecl *types.ServiceDeclaration, reg *registry.Registry, components map[string]*registry.Component) FillCheck {
@@ -497,6 +500,29 @@ func fillCheck(input ReconcilerInput, svcDecl *types.ServiceDeclaration, reg *re
 			}
 		}
 		check.QueryContract = generatedImportPath(input.ModuleName, outDirName, q.OutputNamespace)
+		for i, query := range svcDecl.Queries {
+			if len(query.Fill) == 1 && query.Fill[0] != "" && !strings.ContainsAny(query.Fill[0], `/\.`) {
+				check.QueryFills = append(check.QueryFills, QueryFill{Fill: query.Fill[0], Query: query.Name,
+					Path: fmt.Sprintf("queries[%d].fill", i)})
+			}
+		}
+	}
+	// The fill of a worker is held to the fill rules as every fill is (ST-SUP-RC35-OC03), with the worker slot
+	// contract of the worker component when it is active.
+	if w := components[workerComponent]; w != nil && w.OutputNamespace != "" {
+		outDirName := "out"
+		if input.OutDir != "" {
+			if relative, err := outputRelative(input.ProjectDir, input.OutDir); err == nil {
+				outDirName = relative
+			}
+		}
+		check.WorkerContract = generatedImportPath(input.ModuleName, outDirName, w.OutputNamespace)
+	}
+	for i, worker := range svcDecl.Workers {
+		if len(worker.Fill) == 1 && worker.Fill[0] != "" && !strings.ContainsAny(worker.Fill[0], `/\.`) {
+			check.WorkerFills = append(check.WorkerFills, QueryFill{Fill: worker.Fill[0], Query: worker.Name,
+				Path: fmt.Sprintf("workers[%d].fill", i)})
+		}
 	}
 	for i, sb := range svcDecl.Slots {
 		for _, operator := range []struct {
