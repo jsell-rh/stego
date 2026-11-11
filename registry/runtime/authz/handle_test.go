@@ -641,7 +641,8 @@ func (e *pgEnv) discard(t *testing.T, worker *outbox.Worker, id uuid.UUID) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	resolved, err := worker.Resolve(ctx, tx, outbox.ResolveRequest{ID: id, Subject: "user:operator", Resolution: outbox.Discard})
+	resolved, err := worker.Resolve(ctx, tx, outbox.ResolveRequest{ID: id, Destination: d.Destination,
+		Principal: mustPerson(t, "operator"), Resolution: outbox.Discard})
 	if err != nil {
 		t.Fatal(err)
 	}

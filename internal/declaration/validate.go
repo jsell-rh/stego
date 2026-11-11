@@ -111,6 +111,7 @@ func Validate(service *types.ServiceDeclaration, undeclared ...parser.Undeclared
 	faults.Service = append(faults.Service, validateConventionOverrides(service.Overrides)...)
 
 	faults.Service = append(faults.Service, validateArchetype(service.Archetype)...)
+	faults.Service = append(faults.Service, validateNameForms(service)...)
 	faults.Service = append(faults.Service, validateIdempotency(service)...)
 	faults.Service = append(faults.Service, validateIdempotencyValues(service)...)
 	faults.Service = append(faults.Service, validateDefaultsLeft(service)...)
@@ -174,8 +175,16 @@ func validateFieldDefaults(entities []types.Entity) []ValidationError {
 }
 
 // defaultSuits tells whether a field's default suits its type. A type whose default form the format does not fix
-// (bytes, timestamp, ref, jsonb) accepts any default here.
+// (bytes, timestamp, ref, jsonb) accepts any default here, except on the server-managed generation field, whose
+// default the generated handlers write as a Go literal, so it must be a string, an integer or a boolean of its type.
 func defaultSuits(f types.Field) bool {
+	if f.Name == "generation" {
+		switch f.Type {
+		case types.FieldTypeString, types.FieldTypeBool, types.FieldTypeInt32, types.FieldTypeInt64:
+		default:
+			return false
+		}
+	}
 	switch f.Type {
 	case types.FieldTypeString:
 		_, ok := f.Default.(string)
@@ -217,6 +226,51 @@ func defaultSuits(f types.Field) bool {
 		return false
 	}
 	return true
+}
+
+// The forms of the declared names (ST-DECL-INV86): a generator writes these names into Go, SQL, proto, YAML and
+// JSON, so the declaration holds them to a form that no output can read as code, whatever components are active.
+var (
+	serviceNameForm    = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+	collectionNameForm = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+	entityNameForm     = regexp.MustCompile(`^[A-Z][A-Za-z0-9]{0,62}$`)
+	fieldNameForm      = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
+	fillNameForm       = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+)
+
+// validateNameForms gives one fault for each service, collection, entity, field and slot-binding fill name outside
+// its form
+// (ST-DECL-INV86), with its path and the form.
+func validateNameForms(service *types.ServiceDeclaration) []ValidationError {
+	var faults []ValidationError
+	check := func(kind, path, name string, form *regexp.Regexp) {
+		if !form.MatchString(name) {
+			faults = append(faults, ValidationError{Category: kind, Rule: "name-form", Path: path, Found: name, Allowed: []string{form.String()},
+				Message: fmt.Sprintf("the %s name %q does not match %s", kind, name, form)})
+		}
+	}
+	check("service", "name", service.Name, serviceNameForm)
+	for ei, e := range service.Entities {
+		check("entity", entityPath(ei)+".name", e.Name, entityNameForm)
+		for fi, f := range e.Fields {
+			check("field", fieldPath(ei, fi)+".name", f.Name, fieldNameForm)
+		}
+	}
+	for _, c := range service.Collections {
+		check("collection", collectionPath(c.Name), c.Name, collectionNameForm)
+	}
+	// A fill that a slot binding names becomes a Go import alias and a folder under fills (ST-DECL-INV86).
+	for i, sb := range service.Slots {
+		for _, operator := range []struct {
+			name  string
+			fills []string
+		}{{"gate", sb.Gate}, {"chain", sb.Chain}, {"fan-out", sb.FanOut}} {
+			for j, name := range operator.fills {
+				check("fill", fmt.Sprintf("%s.%s[%d]", slotPath(i), operator.name, j), name, fillNameForm)
+			}
+		}
+	}
+	return faults
 }
 
 // slotBindingKey matches the path of a key of one slot binding, such as slots[0].merge.
@@ -986,6 +1040,17 @@ func validateCollectionReferences(collections []types.Collection, entities []typ
 						Path:     fmt.Sprintf("%s.patchable[%d]", collectionPath(c.Name), pi),
 						Found:    pf,
 						Message:  fmt.Sprintf("collection %q: patchable field %q is a ref type — ref fields cannot be patched", c.Name, pf),
+					})
+				}
+				// An implicit field has the one value of its collection: a patch of it would move the row to another
+				// collection (ST-SUP-RC20-OC23).
+				if _, implicit := c.Implicit[pf]; implicit {
+					errs = append(errs, ValidationError{
+						Category: "collection",
+						Rule:     "patchable",
+						Path:     fmt.Sprintf("%s.patchable[%d]", collectionPath(c.Name), pi),
+						Found:    pf,
+						Message:  fmt.Sprintf("collection %q: patchable field %q is an implicit field — the collection forces its value", c.Name, pf),
 					})
 				}
 			}

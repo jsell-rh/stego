@@ -991,8 +991,13 @@ func TestRunCommit(t *testing.T) {
 		}
 		e.exec(`INSERT INTO reservations (tenant_id, id, order_id, sku) VALUES ('t1', 'r-anchor', 'o1', 's')`)
 		cmd := e.command("move-tenant", nil, e.reservationE, moved)
-		for _, write := range []bool{true, false} {
-			key := fmt.Sprintf("k-move-%t", write)
+		// With no write and a key, the completion of the key row under the other tenant fails first, under the key
+		// table's row-level security (ST-SUP-RP07-LC11); with no write and no key, tenant.Commit's check refuses.
+		for _, run := range []struct {
+			write bool
+			key   string
+		}{{true, "k-move-true"}, {false, "k-move-false"}, {false, ""}} {
+			write, key := run.write, run.key
 			_, err := e.run(cmd, e.request("t1", u7(t), key, `{}`), fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
 				if write {
 					if err := create(t, ctx, e, h, "r-moved"); err != nil {
@@ -1005,8 +1010,8 @@ func TestRunCommit(t *testing.T) {
 			if !errors.Is(err, ErrInternal) || e.keyRows(key) != 0 || e.count(`SELECT count(*) FROM reservations WHERE id = 'r-moved'`) != 0 {
 				t.Fatalf("the moved tenant (write %t) gave %v and left a row", write, err)
 			}
-			if !write && !strings.Contains(err.Error(), "tenant setting") {
-				t.Fatalf("with no write, tenant.Commit's check did not refuse the run: %v", err)
+			if !write && key == "" && !strings.Contains(err.Error(), "tenant setting") {
+				t.Fatalf("with no write and no key, tenant.Commit's check did not refuse the run: %v", err)
 			}
 		}
 	})

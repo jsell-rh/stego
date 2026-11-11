@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/jsell-rh/stego/registry/runtime/internal/seal"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
@@ -605,26 +606,38 @@ type Auditor interface {
 	Record(ctx context.Context, tx *sql.Tx, entry AuditEntry) error
 }
 
-// ResolveRequest is one resolution of a parked message by a person.
+// Principal is who resolves a message: a principal of the authorization runtime, such as authz.Person makes. Only
+// the authorization runtime makes one with a subject (ST-SUP-RP01-LC17), so a caller cannot name a subject of its
+// own choice.
+type Principal = seal.Principal
+
+// ResolveRequest is one resolution of a parked message by a person: the message, the destination that the caller
+// names for it, such as the list of dead letters gives, the principal of the person and the chosen resolution.
 type ResolveRequest struct {
-	ID         uuid.UUID
-	Subject    string
-	Resolution Resolution
+	ID          uuid.UUID
+	Destination string
+	Principal   Principal
+	Resolution  Resolution
 }
 
-// ErrNotFound is the error of Resolve for a message that the transaction's tenant does not hold.
-var ErrNotFound = errors.New("outbox: the tenant of the transaction holds no message with this ID")
-
-// ErrNotParked is the error of Resolve for a message that is not parked.
-var ErrNotParked = errors.New("outbox: only a parked message can be resolved")
-
-// ErrNotAllowed is the error of Resolve when the decision port does not allow the resolution.
+// ErrNotAllowed is the error of Resolve when the decision port does not allow the principal to resolve messages of
+// the named destination. Resolve decides before it reads the message, so the answer is the same for every message:
+// one that is not there, one of another tenant or destination, and one in any state.
 var ErrNotAllowed = errors.New("outbox: the subject may not resolve messages of this destination")
 
+// ErrNotFound is the error of Resolve, after an allow, for a message that the transaction's tenant does not hold
+// under the named destination.
+var ErrNotFound = errors.New("outbox: the tenant of the transaction holds no message with this ID and destination")
+
+// ErrNotParked is the error of Resolve, after an allow, for a message that is not parked.
+var ErrNotParked = errors.New("outbox: only a parked message can be resolved")
+
 // Resolve applies a person's resolution of one parked message in the caller's transaction tx (ST-SUP-RP01-LC13).
-// It asks the decision port itself whether the subject has the permission resolve on
-// outbox_destination:<destination>, and refuses a deny, a port error or a worker with no port (ST-SUP-RP01-LC17);
-// it takes no decision from its caller. acted moves the message to done, not acted to pending with the same
+// It takes the subject only from a principal of the authorization runtime. Before it reads the message, it asks the
+// decision port itself whether the subject has the permission resolve on outbox_destination:<destination>, for the
+// destination that the request names and the tenant of tx, and refuses a deny, a port error or a worker with no port
+// (ST-SUP-RP01-LC17); it takes no decision from its caller. So a refusal of the permission gives one answer for every
+// message, and only an allowed caller learns whether the message is there and parked. acted moves the message to done, not acted to pending with the same
 // identity and outgoing key, and discarded to discarded, which releases its key. For an idempotent destination it
 // accepts only not acted, or discarded when the destination must land; discarded is refused for a destination that
 // need not land. The audit row and the destination's state hook are written in tx with the state change. A refused
@@ -669,49 +682,44 @@ func (w *Worker) resolve(ctx context.Context, tx *sql.Tx, request ResolveRequest
 	if w.auditor == nil {
 		return errors.New("outbox: the worker has no auditor, so it refuses every resolution")
 	}
-	if tx == nil || request.ID == uuid.Nil || request.Subject == "" || !validText(request.Subject, MaxKeyBytes) {
-		return errors.New("outbox: a resolution needs a transaction, a message ID and a subject")
+	subject, ok := seal.SubjectOf(request.Principal)
+	if !ok || !validText(subject, MaxKeyBytes) {
+		return errors.New("outbox: a resolution needs a principal of the authorization runtime")
+	}
+	if tx == nil || request.ID == uuid.Nil || !labelPattern.MatchString(request.Destination) {
+		return errors.New("outbox: a resolution needs a transaction, a message ID and a destination name")
 	}
 	if request.Resolution != Acted && request.Resolution != NotActed && request.Resolution != Discard {
 		return fmt.Errorf("outbox: %q is not a resolution", request.Resolution)
 	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-	// The read runs under the tenant policy: a message of another tenant is not found (ST-SUP-RP01-LC19).
-	rows, err := tx.QueryContext(ctx, `SELECT tenant_id, destination, state, group_id FROM stego_outbox.messages
-		WHERE id = $1`, request.ID)
+	destination := request.Destination
+	// The tenant of the decision is the tenant of tx, which tenant.Begin set; the message is read only after the
+	// decision, under the tenant policy, so a message of another tenant is not found (ST-SUP-RP01-LC19).
+	owner, err := scanTenant(ctx, tx, `SELECT pg_catalog.current_setting('app.tenant', true)`)
 	if err != nil {
-		return canceled(ctx, err)
+		return err
 	}
-	var destination, state, group string
-	var owner tenant.Tenant
-	found := rows.Next()
-	if found {
-		owner, err = tenant.ScanRows(rows, &destination, &state, &group)
-	}
-	closeErr := rows.Close()
-	if err == nil {
-		err = rows.Err()
-	}
-	if err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return canceled(ctx, err)
-	}
-	if !found {
-		return ErrNotFound
-	}
-	if State(state) != Parked {
-		return ErrNotParked
-	}
-	allowed, err := w.decider.Decide(ctx, DecisionRequest{Subject: request.Subject, Permission: "resolve",
+	allowed, err := w.decider.Decide(ctx, DecisionRequest{Subject: subject, Permission: "resolve",
 		Resource: resource + destination, Tenant: owner})
 	if err != nil {
 		return fmt.Errorf("outbox: the decision port failed, so the resolution is refused: %w", err)
 	}
 	if !allowed {
 		return ErrNotAllowed
+	}
+	var state, group string
+	err = tx.QueryRowContext(ctx, `SELECT state, group_id FROM stego_outbox.messages WHERE id = $1 AND destination = $2`,
+		request.ID, destination).Scan(&state, &group)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return canceled(ctx, err)
+	}
+	if State(state) != Parked {
+		return ErrNotParked
 	}
 	reg, ok := w.destinations[destination]
 	if !ok {
@@ -732,7 +740,7 @@ func (w *Worker) resolve(ctx context.Context, tx *sql.Tx, request ResolveRequest
 	// The state changes only through the relay function resolve, which requires the transaction's tenant
 	// (ST-SUP-RP01-LC19).
 	err = tx.QueryRowContext(ctx, `SELECT o_resolved_at, o_age_seconds FROM stego_outbox.resolve($1, $2, $3, $4, $5)`,
-		w.queue.now(), request.ID, string(to), string(request.Resolution), request.Subject).Scan(&at, &seconds)
+		w.queue.now(), request.ID, string(to), string(request.Resolution), subject).Scan(&at, &seconds)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotParked
 	}
@@ -749,10 +757,36 @@ func (w *Worker) resolve(ctx context.Context, tx *sql.Tx, request ResolveRequest
 	}
 	// The audit row is the last write before the caller's commit, as the audit runtime asks (ST-SUP-RP05-LC12).
 	if err := w.auditor.Record(ctx, tx, AuditEntry{MessageID: request.ID, Tenant: owner, Destination: destination,
-		Subject: request.Subject, Resolution: request.Resolution, At: at}); err != nil {
+		Subject: subject, Resolution: request.Resolution, At: at}); err != nil {
 		return fmt.Errorf("outbox: write the audit row of the resolution: %w", err)
 	}
 	*out = Resolved{worker: w, destination: destination, delay: time.Duration(seconds * float64(time.Second)),
 		done: to == Done}
 	return nil
+}
+
+// scanTenant reads the tenant of one row of one column that query gives in tx, through tenant.ScanRows, and refuses
+// no row or an empty tenant.
+func scanTenant(ctx context.Context, tx *sql.Tx, query string, args ...any) (tenant.Tenant, error) {
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return tenant.Tenant{}, canceled(ctx, err)
+	}
+	var t tenant.Tenant
+	if rows.Next() {
+		t, err = tenant.ScanRows(rows)
+	} else {
+		err = errors.New("outbox: the transaction has no tenant")
+	}
+	closeErr := rows.Close()
+	if err == nil {
+		err = rows.Err()
+	}
+	if err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return tenant.Tenant{}, canceled(ctx, err)
+	}
+	return t, nil
 }

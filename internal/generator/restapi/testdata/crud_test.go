@@ -243,13 +243,16 @@ func (e *env) start(dsn, endpoint, spiceKey string) {
 	must(t, err)
 	auditDDL, err := audit.DDL(audit.Config{RuntimeRole: roles[0], AnchorPeriod: time.Hour, RetentionMonths: 12})
 	must(t, err)
+	// The idempotency purge role of the test service, one role of the server, which the migration makes.
+	keysDDL, err := idempotency.Migration("crud_check_idempotency_purge", roles[0])
+	must(t, err)
 	setup := []string{
 		queueDDL,
 		"CREATE SCHEMA authz",
 		"GRANT USAGE ON SCHEMA authz TO " + roles[0] + ", " + roles[1] + ", " + roles[2],
 		authzDDL,
 		auditDDL,
-		idempotency.Migration,
+		keysDDL,
 		"GRANT SELECT, INSERT, UPDATE ON idempotency_keys TO " + roles[0],
 		tablesSQL,
 		"GRANT SELECT, INSERT, UPDATE, DELETE ON " + strings.Join(tables, ", ") + " TO " + roles[0],
@@ -359,6 +362,9 @@ func (e *env) start(dsn, endpoint, spiceKey string) {
 	mux.HandleFunc("POST /api/v1/red-events", redEvents.Create)
 	mux.HandleFunc("GET /api/v1/red-events/{id}", redEvents.Read)
 	mux.HandleFunc("GET /api/v1/red-events", redEvents.List)
+	mux.HandleFunc("PUT /api/v1/red-events/{id}", redEvents.Update)
+	mux.HandleFunc("PATCH /api/v1/red-events/{id}", redEvents.Patch)
+	mux.HandleFunc("DELETE /api/v1/red-events/{id}", redEvents.Delete)
 	mux.HandleFunc("POST /api/v1/blue-events", blueEvents.Create)
 	mux.HandleFunc("GET /api/v1/blue-events", blueEvents.List)
 	mux.HandleFunc("POST /api/v1/orders", orders.Create)
@@ -1507,6 +1513,100 @@ func TestCrud(t *testing.T) {
 		list := e.send(a, http.MethodGet, settings, "", "")
 		if list.status != http.StatusOK || !strings.Contains(string(list.body), `"blue"`) || !strings.Contains(string(list.body), `"large"`) {
 			t.Errorf("the list of the folder's settings answered %d %s, want both settings", list.status, list.body)
+		}
+	})
+
+	t.Run("ST-SUP-RC20-OC23-T05 A write of a row of another implicit value is not found and changes nothing, and a patch keeps the implicit value", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-1", newTenant())
+		red := e.send(a, http.MethodPost, "/api/v1/red-events", "k-"+uuid.NewString(), `{"note":"r"}`)
+		blue := e.send(a, http.MethodPost, "/api/v1/blue-events", "k-"+uuid.NewString(), `{"note":"b"}`)
+		if red.status != http.StatusCreated || blue.status != http.StatusCreated {
+			t.Fatalf("the creates answered %d and %d, want 201", red.status, blue.status)
+		}
+		redID, blueID := red.member(t, "id"), blue.member(t, "id")
+		e.own(a, "event", redID)
+		e.own(a, "event", blueID)
+		for _, c := range []struct{ method, key, body string }{
+			{http.MethodPut, "", `{"note":"moved"}`},
+			{http.MethodPatch, "k-" + uuid.NewString(), `{"note":"moved"}`},
+			{http.MethodDelete, "", ""},
+		} {
+			if r := e.send(a, c.method, "/api/v1/red-events/"+blueID, c.key, c.body); r.status != http.StatusNotFound {
+				t.Errorf("%s of a blue event as red answered %d %s, want 404", c.method, r.status, r.body)
+			}
+		}
+		if n := e.count(`SELECT count(*) FROM events WHERE id = $1::uuid AND source = 'blue' AND note = 'b'`, blueID); n != 1 {
+			t.Errorf("%d blue event rows as created, want 1", n)
+		}
+		// A patch that names the implicit field is refused by the body's schema or keeps the field: the row stays red.
+		e.send(a, http.MethodPatch, "/api/v1/red-events/"+redID, "k-"+uuid.NewString(), `{"note":"n2","source":"green"}`)
+		if r := e.send(a, http.MethodPut, "/api/v1/red-events/"+redID, "", `{"note":"n3","source":"green"}`); r.status != http.StatusOK {
+			t.Errorf("the update of a red event answered %d %s, want 200", r.status, r.body)
+		}
+		if n := e.count(`SELECT count(*) FROM events WHERE id = $1::uuid AND source = 'red' AND note = 'n3'`, redID); n != 1 {
+			t.Errorf("%d red event rows with the updated note and the implicit source, want 1", n)
+		}
+	})
+
+	t.Run("ST-SUP-RC20-OC24-T06 A list cursor of one parent is refused for another", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-1", newTenant())
+		one := e.create(a, "folders", "folder", `{"name":"one"}`)
+		two := e.create(a, "folders", "folder", `{"name":"two"}`)
+		for range 3 {
+			e.create(a, "folders/"+one+"/books", "book", `{"title":"t"}`)
+		}
+		first := e.send(a, http.MethodGet, "/api/v1/folders/"+one+"/books?pageSize=1", "", "")
+		next := first.member(t, "next")
+		if first.status != http.StatusOK || next == "" {
+			t.Fatalf("the first page answered %d %s, want 200 with a cursor", first.status, first.body)
+		}
+		if r := e.send(a, http.MethodGet, "/api/v1/folders/"+two+"/books?pageSize=1&cursor="+url.QueryEscape(next), "", ""); r.status != http.StatusBadRequest {
+			t.Errorf("the cursor of folder one on folder two answered %d %s, want 400", r.status, r.body)
+		}
+		if r := e.send(a, http.MethodGet, "/api/v1/folders/"+one+"/books?pageSize=1&cursor="+url.QueryEscape(next), "", ""); r.status != http.StatusOK {
+			t.Errorf("the cursor on its own folder answered %d %s, want 200", r.status, r.body)
+		}
+	})
+
+	t.Run("ST-SUP-RP11-LC20-T04 A search of the generated service uses the index of its field, and a sensitive field neither searches nor orders", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-1", newTenant())
+		if _, err := e.admin.ExecContext(e.ctx, `INSERT INTO todos (tenant_id, id, title) SELECT $1, gen_random_uuid(), 't-' || g FROM generate_series(1, 20000) g`, a.tenant.ID()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.admin.ExecContext(e.ctx, `ANALYZE todos`); err != nil {
+			t.Fatal(err)
+		}
+		// The statement of the first page of a filtered list, as the query runtime writes it.
+		rows, err := e.admin.QueryContext(e.ctx, `EXPLAIN SELECT id FROM public.todos WHERE tenant_id = $1 AND title = $2 ORDER BY id LIMIT 101`, a.tenant.ID(), "t-7")
+		must(t, err)
+		var plan strings.Builder
+		for rows.Next() {
+			var line string
+			must(t, rows.Scan(&line))
+			plan.WriteString(line + "\n")
+		}
+		must(t, rows.Err())
+		rows.Close()
+		if !strings.Contains(plan.String(), "todos_title_search") {
+			t.Errorf("the plan of a search of title uses no index of title:\n%s", plan.String())
+		}
+		// The rows have no owner, so the caller sees none of them; the search is served.
+		if r := e.send(a, http.MethodGet, "/api/v1/todos?search="+url.QueryEscape("title = 't-7'"), "", ""); r.status != http.StatusOK {
+			t.Errorf("the search answered %d %.200s, want 200", r.status, r.body)
+		}
+		// A pii field neither searches nor orders a list; a bad value is 400 and not 500.
+		for _, q := range []string{"search=" + url.QueryEscape("name = 'Ada'"), "orderBy=name", "orderBy=api_token"} {
+			if r := e.send(a, http.MethodGet, "/api/v1/customers?"+q, "", ""); r.status != http.StatusBadRequest {
+				t.Errorf("the list of customers with %s answered %d %s, want 400", q, r.status, r.body)
+			}
+		}
+		for _, q := range []string{"title = 'a\x00b'"} {
+			if r := e.send(a, http.MethodGet, "/api/v1/todos?search="+url.QueryEscape(q), "", ""); r.status != http.StatusBadRequest {
+				t.Errorf("the search %q answered %d %s, want 400", q, r.status, r.body)
+			}
 		}
 	})
 

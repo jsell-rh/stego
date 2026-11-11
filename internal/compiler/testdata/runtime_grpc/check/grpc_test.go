@@ -422,6 +422,53 @@ func (s *service) auditRows(column, value string) []string {
 	return out
 }
 
+// readMark gives the IDs of the read audit rows so far, so newReads gives the rows of the calls after it. The server
+// makes the request ID of a query call, so a read row cannot be found by a request ID of the client
+// (ST-SUP-RP11-LC19).
+func (s *service) readMark() map[string]bool {
+	t := s.t
+	t.Helper()
+	rows, err := s.admin.Query(`SELECT id::text FROM audit_event WHERE action = 'read'`)
+	must(t, err)
+	defer rows.Close()
+	seen := map[string]bool{}
+	for rows.Next() {
+		var id string
+		must(t, rows.Scan(&id))
+		seen[id] = true
+	}
+	must(t, rows.Err())
+	return seen
+}
+
+// newReads gives the read audit rows that are not in mark, in the form of auditRows, and checks that none holds the
+// request ID of the client.
+func (s *service) newReads(mark map[string]bool, clientIDs ...string) []string {
+	t := s.t
+	t.Helper()
+	rows, err := s.admin.Query(`SELECT id::text, request_id, action, operation, resource_type, outcome, error_code, after IS NOT NULL FROM audit_event WHERE action = 'read'`)
+	must(t, err)
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id, requestID, action, operation, resourceType, outcome, code string
+		var state bool
+		must(t, rows.Scan(&id, &requestID, &action, &operation, &resourceType, &outcome, &code, &state))
+		if mark[id] {
+			continue
+		}
+		for _, client := range clientIDs {
+			if requestID == client {
+				t.Fatalf("the read audit row %s holds the request ID %s of the client", id, client)
+			}
+		}
+		out = append(out, fmt.Sprintf("%s|%s|%s|%s|%s|%t", action, operation, resourceType, outcome, code, state))
+	}
+	must(t, rows.Err())
+	sort.Strings(out)
+	return out
+}
+
 // wantCode checks the gRPC status code of err.
 func wantCode(t *testing.T, err error, code codes.Code, what string) {
 	t.Helper()
@@ -488,6 +535,7 @@ func TestGRPC(t *testing.T) {
 
 		// The query: the allowed order with its read audit row, as over HTTP.
 		readID := uuid.NewString()
+		mark := s.readMark()
 		ctx, cancel = s.rpc(&owner, "", readID)
 		summary, err := s.shop.GetOrderSummary(ctx, &shop.GetOrderSummaryRequest{OrderId: mine})
 		cancel()
@@ -495,16 +543,19 @@ func TestGRPC(t *testing.T) {
 		if summary.GetId() != mine || summary.GetSku() != "a1" || summary.GetQty() != 2 {
 			t.Fatalf("the query gave %v, want the order %s with the sku a1 and the qty 2", summary, mine)
 		}
+		readGRPC := s.newReads(mark, readID)
 		httpReadID := uuid.NewString()
+		mark = s.readMark()
 		if got := s.send(&owner, http.MethodGet, "/orders/"+mine+"/summary", "", httpReadID, ""); got.status != http.StatusOK || !bytes.Contains(got.body, []byte(`"a1"`)) {
 			t.Fatalf("the query over HTTP answered %d %s, want 200 with the sku a1", got.status, got.body)
 		}
-		readGRPC, readHTTP := s.auditRows("request_id", readID), s.auditRows("request_id", httpReadID)
+		readHTTP := s.newReads(mark, httpReadID)
 		if len(readGRPC) == 0 || strings.Join(readGRPC, ";") != strings.Join(readHTTP, ";") {
 			t.Fatalf("the read audit rows over gRPC are %v and over HTTP %v, want the same rows", readGRPC, readHTTP)
 		}
 		// The order that the caller may not view: NotFound over gRPC and 404 over HTTP, with the same audit rows.
 		deniedRead, deniedHTTPRead := uuid.NewString(), uuid.NewString()
+		mark = s.readMark()
 		ctx, cancel = s.rpc(&owner, "", deniedRead)
 		_, err = s.shop.GetOrderSummary(ctx, &shop.GetOrderSummaryRequest{OrderId: theirs})
 		cancel()
@@ -512,10 +563,12 @@ func TestGRPC(t *testing.T) {
 		if status.Convert(err).Message() != "not_found" {
 			t.Fatalf("the denied query has the message %q, want the fixed code not_found", status.Convert(err).Message())
 		}
+		deniedGRPCRows := s.newReads(mark, deniedRead)
+		mark = s.readMark()
 		if got := s.send(&owner, http.MethodGet, "/orders/"+theirs+"/summary", "", deniedHTTPRead, ""); got.status != http.StatusNotFound {
 			t.Fatalf("the denied query over HTTP answered %d %s, want 404", got.status, got.body)
 		}
-		if a, b := s.auditRows("request_id", deniedRead), s.auditRows("request_id", deniedHTTPRead); strings.Join(a, ";") != strings.Join(b, ";") {
+		if a, b := deniedGRPCRows, s.newReads(mark, deniedHTTPRead); strings.Join(a, ";") != strings.Join(b, ";") {
 			t.Fatalf("the audit rows of the denied query over gRPC are %v and over HTTP %v, want the same rows", a, b)
 		}
 		// No token is Unauthenticated, and a method that no declaration names is Unimplemented.

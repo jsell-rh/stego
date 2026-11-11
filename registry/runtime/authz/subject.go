@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jsell-rh/stego/registry/runtime/authn"
+	"github.com/jsell-rh/stego/registry/runtime/internal/seal"
 	"github.com/jsell-rh/stego/registry/runtime/internal/staging"
 )
 
@@ -82,11 +83,22 @@ func ServiceAccount(name string) (Subject, error) {
 	return subject, nil
 }
 
+// principalMark is the seal mark of the module, embedded by an alias so that Principal has no exported field. It
+// holds the subject, so the outbox runtime reads the subject of a resolution from a principal that only this
+// package makes (ST-SUP-RP01-LC17).
+type principalMark = seal.PrincipalMark
+
 // Principal is who acts in a transaction: a person, mapped from a verified identity, or a system, as its service
-// account. Its field is unexported, so a principal comes only from Person or System, and its subject is never
-// zero or a wildcard.
+// account. Its fields are unexported, so a principal comes only from Person, System or StagingPrincipal, and its
+// subject is never zero or a wildcard.
 type Principal struct {
+	principalMark
 	subject Subject
+}
+
+// principal is the principal of subject, with its seal mark.
+func principal(subject Subject) Principal {
+	return Principal{principalMark: seal.NewPrincipalMark(subject.String()), subject: subject}
 }
 
 // Person is the principal of a verified identity, as the subject of the declared subject type.
@@ -98,7 +110,7 @@ func Person(subjectType string, identity authn.Identity) (Principal, error) {
 	if subject.Type == ServiceAccountType {
 		return Principal{}, errors.New("authz: a person cannot have the subject type service_account")
 	}
-	return Principal{subject: subject}, nil
+	return principal(subject), nil
 }
 
 // System is the principal of a worker, a controller or the relay named name: its subject is
@@ -108,7 +120,7 @@ func System(name string) (Principal, error) {
 	if err != nil {
 		return Principal{}, err
 	}
-	return Principal{subject: subject}, nil
+	return principal(subject), nil
 }
 
 // StagingPrincipal is the principal of the principal column of a claimed outbox row, such as user:alice, for the
@@ -128,7 +140,7 @@ func StagingPrincipal(key staging.Staging, column string) (Principal, error) {
 	if err := subject.valid(); err != nil {
 		return Principal{}, errors.New("authz: the staging principal is not a valid subject")
 	}
-	return Principal{subject: subject}, nil
+	return principal(subject), nil
 }
 
 // Subject returns the subject of the principal.

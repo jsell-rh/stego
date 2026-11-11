@@ -7,14 +7,15 @@ import (
 	"unicode/utf8"
 )
 
-// FieldKind is the kind of value of a field that a list search compares: text, a whole number, a decimal number or
-// a bool. The generated code gives the kind of each declared field that a search may name.
+// FieldKind is the kind of value of a field that a list search compares: text, a whole number of 32 or 64 bits, a
+// decimal number or a bool. The generated code gives the kind of each declared field that a search may name.
 type FieldKind int
 
 // The kinds of a field of a list search.
 const (
 	KindText FieldKind = iota + 1
-	KindInt
+	KindInt32
+	KindInt64
 	KindFloat
 	KindBool
 )
@@ -24,11 +25,12 @@ const MaxSearch = 4096
 
 // ParseSearch reads the search of a list into its filter (ST-SUP-RP11-LC20): one or more conditions
 // field = value joined by and, in any case of and, where field is one of fields and value is a text in single
-// quotes, with two quotes for one, a number or true or false, of the field's kind. It refuses, with an error that
-// wraps ErrBadRequest and holds no part of the text, a search longer than MaxSearch, that is not valid UTF-8, that
-// has more than MaxFilter conditions, that names another field or a field twice, or that has any other form. The
-// empty search is no filter.
-func ParseSearch(text string, fields map[string]FieldKind) ([]Equal, error) {
+// quotes, with two quotes for one and no NUL, a whole number in the range of its kind, a decimal number, or true or
+// false, of the field's kind. It refuses, with an error that wraps ErrBadRequest and holds no part of the text, a
+// search longer than MaxSearch, that is not valid UTF-8, that has more than most conditions, that names another
+// field or a field twice, or that has any other form. most is the room that the list's own conditions, such as a
+// scope and implicit fields, leave of MaxFilter. The empty search is no filter.
+func ParseSearch(text string, fields map[string]FieldKind, most int) ([]Equal, error) {
 	bad := func(what string) error { return fmt.Errorf("%w: the search %s", ErrBadRequest, what) }
 	if len(text) > MaxSearch || !utf8.ValidString(text) {
 		return nil, bad("is longer than 4096 bytes or not valid UTF-8")
@@ -57,8 +59,8 @@ func ParseSearch(text string, fields map[string]FieldKind) ([]Equal, error) {
 			return nil, bad("has a value that is not of its field's kind")
 		}
 		where = append(where, Equal{Field: name, Value: value})
-		if len(where) > MaxFilter {
-			return nil, bad(fmt.Sprintf("has more than %d conditions", MaxFilter))
+		if len(where) > min(most, MaxFilter) {
+			return nil, bad(fmt.Sprintf("has more than %d conditions", min(most, MaxFilter)))
 		}
 		p.space()
 		if p.done() {
@@ -126,6 +128,9 @@ func (p *searchParser) value(kind FieldKind) (any, bool) {
 				b.WriteByte('\'')
 				continue
 			}
+			if strings.ContainsRune(b.String(), 0) {
+				return nil, false
+			}
 			return b.String(), true
 		}
 		return nil, false
@@ -137,13 +142,17 @@ func (p *searchParser) value(kind FieldKind) (any, bool) {
 			return false, true
 		}
 		return nil, false
-	case KindInt, KindFloat:
+	case KindInt32, KindInt64, KindFloat:
 		start := p.at
 		for !p.done() && strings.IndexByte("+-.0123456789eE", p.text[p.at]) >= 0 {
 			p.at++
 		}
 		number := p.text[start:p.at]
-		if kind == KindInt {
+		switch kind {
+		case KindInt32:
+			n, err := strconv.ParseInt(number, 10, 32)
+			return int32(n), err == nil
+		case KindInt64:
 			n, err := strconv.ParseInt(number, 10, 64)
 			return n, err == nil
 		}

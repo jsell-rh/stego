@@ -1,8 +1,12 @@
 package service
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // secretValue is in the value of each setting of the test, so a refusal that shows a value shows it.
@@ -163,5 +167,89 @@ func TestSettings(t *testing.T) {
 				t.Fatalf("the migration settings with no URL gave %v", err)
 			}
 		})
+	})
+}
+
+func TestSettingFiles(t *testing.T) {
+	t.Run("ST-SUP-RP14-LC01-T03 The key files pass the checks of a connection string file", func(t *testing.T) {
+		dir := t.TempDir()
+		good := map[string]string{
+			SpiceDBKeyFileSetting: writeFile(t, "spicedb.key", []byte(secretValue+"-key\n")),
+			CursorKeyFileSetting:  writeFile(t, "cursor.key", []byte(strings.Repeat("c", 32)+secretValue)),
+		}
+		base := map[string]string{
+			DatabaseURLSetting:     "postgres://rt:" + secretValue + "@db/app",
+			IssuerSetting:          "https://issuer.example/",
+			AudienceSetting:        "orders",
+			KeysURLSetting:         "https://issuer.example/keys",
+			SpiceDBEndpointSetting: "127.0.0.1:50051",
+		}
+		set := func(t *testing.T, change map[string]string) {
+			t.Helper()
+			for _, name := range []string{DatabaseURLFileSetting, KeysFileSetting, CAFileSetting, SpiceDBInsecureLoopbackSetting, VersionSetting} {
+				t.Setenv(name, "")
+			}
+			for k, v := range base {
+				t.Setenv(k, v)
+			}
+			for k, v := range good {
+				t.Setenv(k, v)
+			}
+			for k, v := range change {
+				t.Setenv(k, v)
+			}
+		}
+		set(t, nil)
+		if _, err := ReadSettings(Auth{}); err != nil {
+			t.Fatalf("the good key files were refused: %v", err)
+		}
+		withMode := func(name string, mode os.FileMode) string {
+			path := writeFile(t, name, []byte(strings.Repeat("k", 48)))
+			if err := os.Chmod(path, mode); err != nil {
+				t.Fatal(err)
+			}
+			return path
+		}
+		fifo := filepath.Join(dir, "fifo-"+secretValue)
+		if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(dir, "zero-"+secretValue)
+		if err := os.Symlink("/dev/zero", link); err != nil {
+			t.Fatal(err)
+		}
+		bad := map[string]string{
+			"a relative path":             "keys/" + secretValue + ".key",
+			"a missing file":              filepath.Join(dir, "missing-"+secretValue),
+			"a folder":                    dir,
+			"a FIFO":                      fifo,
+			"a link to a device":          link,
+			"a file that group can write": withMode("group-write.key", 0o620),
+			"a file that other can write": withMode("other-write.key", 0o602),
+			"an executable file":          withMode("exec.key", 0o700),
+			"a file above 64 KiB":         writeFile(t, "big.key", []byte(strings.Repeat("k", 65537))),
+		}
+		for _, setting := range []string{SpiceDBKeyFileSetting, CursorKeyFileSetting} {
+			for name, path := range bad {
+				t.Run(setting+" with "+name, func(t *testing.T) {
+					set(t, map[string]string{setting: path})
+					done := make(chan error, 1)
+					go func() { _, err := ReadSettings(Auth{}); done <- err }()
+					select {
+					case err := <-done:
+						if err == nil || !strings.Contains(err.Error(), setting) || strings.Contains(err.Error(), secretValue) {
+							t.Fatalf("ReadSettings gave %v, want a refusal that names %s and holds no path", err, setting)
+						}
+					case <-time.After(5 * time.Second):
+						t.Fatal("ReadSettings waits on the file")
+					}
+				})
+			}
+		}
+		// The migration job reads the SpiceDB key file with the same checks.
+		set(t, map[string]string{MigrationDatabaseURLSetting: "postgres://owner@db/app", SpiceDBKeyFileSetting: bad["a file that group can write"]})
+		if _, err := ReadMigrationSettings(); err == nil || !strings.Contains(err.Error(), SpiceDBKeyFileSetting) {
+			t.Fatalf("ReadMigrationSettings took a key file that group can write: %v", err)
+		}
 	})
 }

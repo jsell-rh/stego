@@ -19,18 +19,18 @@ func {{.Name}}ClientIdentity({{.TemplateParams}}) (ClientIdentity, error) {
 		ClientID: {{.ClientIDExpr}},
 		Ownership: map[string]string{
 		{{- range .Attributes}}
-			"stego.owner.{{.Key}}": {{.ValueExpr}},
+			{{.OwnerKeyExpr}}: {{.ValueExpr}},
 		{{- end}}
 		},
 		{{- if .Legacy}}
 		LegacyAttributes: map[string]string{
 		{{- range .Attributes}}
-			"{{.Key}}": {{.ValueExpr}},
+			{{.KeyExpr}}: {{.ValueExpr}},
 		{{- end}}
 		},
 		LegacyRenames: map[string]string{
 		{{- range .Attributes}}
-			"{{.Key}}": "stego.owner.{{.Key}}",
+			{{.KeyExpr}}: {{.OwnerKeyExpr}},
 		{{- end}}
 		},
 		{{- end}}

@@ -125,12 +125,16 @@ func (e *entity) checkFilter(where []Equal) error {
 	}
 	seen := map[string]bool{}
 	for _, w := range where {
-		if !slices.Contains(e.spec.Columns, w.Field) || seen[w.Field] {
-			return fmt.Errorf("%w: the entity %s declares no filter field %q, or the filter names it twice", ErrBadRequest, e.spec.Name, w.Field)
+		if !slices.Contains(e.spec.Columns, w.Field) || seen[w.Field] || e.spec.Fields[w.Field] != "" {
+			return fmt.Errorf("%w: the entity %s declares no filter field %q that is not pii or secret, or the filter names it twice", ErrBadRequest, e.spec.Name, w.Field)
 		}
 		seen[w.Field] = true
-		switch w.Value.(type) {
-		case string, bool, int, int32, int64, float64:
+		switch v := w.Value.(type) {
+		case string:
+			if strings.ContainsRune(v, 0) {
+				return fmt.Errorf("%w: the filter value of the field %s of %s holds a NUL", ErrBadRequest, w.Field, e.spec.Name)
+			}
+		case bool, int, int32, int64, float64:
 		default:
 			return fmt.Errorf("%w: the filter value of the field %s of %s has a type that a filter does not take", ErrBadRequest, w.Field, e.spec.Name)
 		}
@@ -152,6 +156,9 @@ func filterDigest(where []Equal) string {
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
+
+// padKey is the key of the resource of the padding decision of a list call that read no row: no row has it.
+const padKey = "00000000-0000-0000-0000-000000000000"
 
 // filterSQL gives the predicate of a filter, " AND field = $n" for each condition, with its parameters numbered from
 // first, and the values.
@@ -272,7 +279,7 @@ func (e *entity) checkOrder(order []OrderBy) error {
 	}
 	seen := map[string]bool{}
 	for _, o := range order {
-		if !slices.Contains(e.spec.Columns, o.Field) || seen[o.Field] {
+		if !slices.Contains(e.spec.Columns, o.Field) || seen[o.Field] || e.spec.Fields[o.Field] != "" {
 			return fmt.Errorf("%w: the entity %s declares no order field %q, or the order names it twice", ErrBadRequest, e.spec.Name, o.Field)
 		}
 		seen[o.Field] = true
@@ -459,6 +466,21 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, 
 		ordered = ""
 	}
 	scanned := 0
+	// A protected list makes at least one batch decision in each call, also when no row of the table matches, so
+	// the cost of a call does not tell whether rows that the principal may not see match its filter
+	// (ST-SUP-RP11-LC20).
+	batches := 0
+	pad := func() error {
+		if list == nil || batches > 0 {
+			return nil
+		}
+		resource, err := c.resource(e, padKey)
+		if err != nil {
+			return err
+		}
+		_, err = list.Page(ctx, []authz.Row{{Resource: resource}})
+		return err
+	}
 	for {
 		size := min(chunk, ScanLimit-scanned)
 		var rows *sql.Rows
@@ -484,6 +506,9 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, 
 			return ListResult[T]{}, err
 		}
 		if len(page) == 0 {
+			if err := pad(); err != nil {
+				return ListResult[T]{}, ErrUndecided
+			}
 			return result, nil
 		}
 		scanned += len(page)
@@ -513,6 +538,7 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, 
 				}
 				candidates[i] = authz.Row{Resource: resource, Token: tokens[i]}
 			}
+			batches++
 			kept, err := list.Page(ctx, candidates)
 			if err != nil {
 				// Each row of personal data that the page read and could not decide has its failed read row
@@ -551,6 +577,9 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, 
 			}
 		}
 		if len(page) < size {
+			if err := pad(); err != nil {
+				return ListResult[T]{}, ErrUndecided
+			}
 			return result, nil
 		}
 		if scanned >= ScanLimit {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
@@ -149,7 +150,7 @@ func (q *Query) Name() string { return q.name }
 // Bound is what the generated handler of one call gives Run: the verified tenant and principal, the probe call that
 // it bound to the span context, the tenant, the principal and the query name, the constructor of the query's typed
 // probe, which Run calls on that call's Probe, so the fill's probe is always the one of this call, and the request
-// ID that the audit rows carry.
+// ID that the audit rows carry, which the server makes (NewRequestID); empty gets a new one.
 type Bound[P any] struct {
 	Tenant    tenant.Tenant
 	Principal authz.Principal
@@ -168,6 +169,13 @@ var errPanic = errors.New("query: the fill panicked")
 // txOptions are the options of the transaction of a query: READ ONLY, at READ COMMITTED, so each statement and each
 // floor read sees the newest committed revocation.
 var txOptions = &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelReadCommitted}
+
+// StatementTimeout is the most time that one statement of a query runs, and statementTimeoutSQL its setting in the
+// query's transaction.
+const (
+	StatementTimeout    = 5 * time.Second
+	statementTimeoutSQL = "SET LOCAL statement_timeout = '5s'"
+)
 
 // Run runs one query: it opens a READ ONLY transaction of the tenant at READ COMMITTED with tenant.Begin, binds the
 // handle, calls the fill once, and makes the handle and its probe invalid as soon as the fill returns, panics or
@@ -218,6 +226,14 @@ func runFill[P any](ctx context.Context, rt *Runtime, q *Query, b Bound[P], body
 		b.Call.Rollback()
 		return err
 	}
+	// Each statement of the query ends within StatementTimeout, so a list with a filter that matches few rows of a
+	// large table cannot hold the connection (ST-SUP-RP11-LC07, ST-SUP-RP11-LC20).
+	if _, err := tx.ExecContext(ctx, statementTimeoutSQL); err != nil {
+		_ = tx.Rollback()
+		b.Call.Returned()
+		b.Call.Rollback()
+		return err
+	}
 	var h *Handle[P]
 	committed := false
 	defer func() {
@@ -234,7 +250,11 @@ func runFill[P any](ctx context.Context, rt *Runtime, q *Query, b Bound[P], body
 	if err != nil {
 		return err
 	}
+	// The request ID is one that the server made; a bound call with none gets a new one (ST-SUP-RP11-LC19).
 	h.core.requestID = b.RequestID
+	if h.core.requestID == "" {
+		h.core.requestID = NewRequestID()
+	}
 	fillErr := callFill(ctx, h, body)
 	// The handle and the probe end as soon as the fill returns or panics, before the transaction ends.
 	h.core.life.close()
