@@ -187,7 +187,8 @@ func renderRuntimeWiring(data runtimeWiringData) ([]byte, error) {
 // runtimeGrants gives the GRANT statements of the runtime role, each without its grantee: USAGE on each schema but
 // public of the database objects that the component wirings declare, and their privileges on those objects, in the
 // order of the objects; then the key table of the idempotency runtime, which every command runs in
-// (ST-SUP-RP07-LC01): its purge deletes the keys whose retention ended.
+// (ST-SUP-RP07-LC01), with no DELETE, and EXECUTE on its purge function, the only way to delete the keys whose
+// retention ended across tenants (ST-SUP-RP07-LC11).
 func runtimeGrants(wirings []ComponentWiring) []string {
 	var grants []string
 	schemas := map[string]bool{"public": true}
@@ -207,7 +208,8 @@ func runtimeGrants(wirings []ComponentWiring) []string {
 				quoteName(object.Schema)+"."+quoteName(object.Name))
 		}
 	}
-	return append(grants, "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE \"public\".\"idempotency_keys\"")
+	return append(grants, "GRANT SELECT, INSERT, UPDATE ON TABLE \"public\".\"idempotency_keys\"",
+		"GRANT EXECUTE ON FUNCTION \"public\".\"idempotency_keys_purge\"(timestamptz, integer)")
 }
 
 // quoteName quotes one SQL name.

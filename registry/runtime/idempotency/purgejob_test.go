@@ -142,7 +142,7 @@ func TestPurgeJob(t *testing.T) {
 		}
 
 		// A failed purge is counted and reported, and the next tick runs again.
-		failing, err := NewPurgeJob(failingExecer{}, PurgeJobConfig{Clock: clock})
+		failing, err := NewPurgeJob(failingQuerier{db: closedDB(t)}, PurgeJobConfig{Clock: clock})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -169,7 +169,7 @@ func TestPurgeJob(t *testing.T) {
 		}
 
 		// Two runs of one job never purge at once.
-		slow := &slowExecer{}
+		slow := &slowQuerier{db: db}
 		both, err := NewPurgeJob(slow, PurgeJobConfig{Clock: clock})
 		if err != nil {
 			t.Fatal(err)
@@ -183,20 +183,34 @@ func TestPurgeJob(t *testing.T) {
 	})
 }
 
-type failingExecer struct{}
+// failingQuerier is a database that is down: each statement fails.
+type failingQuerier struct{ db *sql.DB }
 
-func (failingExecer) ExecContext(context.Context, string, ...any) (sql.Result, error) {
-	return nil, errors.New("the database is down")
+func (f failingQuerier) QueryRowContext(ctx context.Context, q string, args ...any) *sql.Row {
+	return f.db.QueryRowContext(ctx, q, args...)
 }
 
-// slowExecer takes 50 ms for each statement and records the most statements that ran at once.
-type slowExecer struct {
+// closedDB is a pool that is closed, so each statement on it fails at once.
+func closedDB(t *testing.T) *sql.DB {
+	t.Helper()
+	closed, err := sql.Open("pgx", "postgres://127.0.0.1:1/none")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = closed.Close()
+	return closed
+}
+
+// slowQuerier takes 50 ms for each statement and records the most statements that ran at once; each statement
+// gives no deleted row.
+type slowQuerier struct {
+	db          *sql.DB
 	mu          sync.Mutex
 	active, max int
 	calls       int
 }
 
-func (s *slowExecer) ExecContext(context.Context, string, ...any) (sql.Result, error) {
+func (s *slowQuerier) QueryRowContext(ctx context.Context, _ string, _ ...any) *sql.Row {
 	s.mu.Lock()
 	s.active++
 	s.calls++
@@ -206,10 +220,5 @@ func (s *slowExecer) ExecContext(context.Context, string, ...any) (sql.Result, e
 	s.mu.Lock()
 	s.active--
 	s.mu.Unlock()
-	return driverResult(0), nil
+	return s.db.QueryRowContext(ctx, `SELECT 0::bigint`)
 }
-
-type driverResult int64
-
-func (driverResult) LastInsertId() (int64, error)   { return 0, nil }
-func (r driverResult) RowsAffected() (int64, error) { return int64(r), nil }

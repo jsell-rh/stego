@@ -77,8 +77,8 @@ func TestMigrate(t *testing.T) {
 		}
 		// The job made the objects and the grants of the runtime role, and the partitions of the audit table.
 		var granted bool
-		if err := f.admin.QueryRow(`SELECT has_table_privilege($1, 'public.orders', 'INSERT') AND has_table_privilege($1, 'public.idempotency_keys', 'DELETE')
- AND to_regclass('stego_outbox.messages') IS NOT NULL AND to_regclass('public.authz_floor') IS NOT NULL`, f.runtime).Scan(&granted); err != nil || !granted {
+		if err := f.admin.QueryRow(`SELECT has_table_privilege($1, 'public.orders', 'INSERT') AND has_table_privilege($1, 'public.idempotency_keys', 'UPDATE')
+ AND has_function_privilege($1, 'public.idempotency_keys_purge(timestamptz, integer)', 'EXECUTE') AND to_regclass('stego_outbox.messages') IS NOT NULL AND to_regclass('public.authz_floor') IS NOT NULL`, f.runtime).Scan(&granted); err != nil || !granted {
 			t.Fatalf("the job did not make the objects and the grants of the runtime role: %v", err)
 		}
 		// The tables step made the tenant list of the tenant runtime, owned by the owner role, which the runtime role
@@ -266,7 +266,8 @@ func (f *fixture) migration(calls *int) Migration {
 			return err
 		},
 		Grants: []string{`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "public"."orders"`,
-			`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "public"."idempotency_keys"`},
+			`GRANT SELECT, INSERT, UPDATE ON TABLE "public"."idempotency_keys"`,
+			`GRANT EXECUTE ON FUNCTION "public"."idempotency_keys_purge"(timestamptz, integer)`},
 	}
 }
 

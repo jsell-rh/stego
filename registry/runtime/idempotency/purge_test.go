@@ -8,19 +8,22 @@ import (
 	"time"
 )
 
-// countingExecer records each DELETE that Purge runs and the rows it removed.
+// countingExecer records each call of the purge function that Purge runs and the rows it removed.
 type countingExecer struct {
 	db      *sql.DB
 	deletes []int64
 }
 
-func (c *countingExecer) ExecContext(ctx context.Context, q string, args ...any) (sql.Result, error) {
-	res, err := c.db.ExecContext(ctx, q, args...)
-	if err == nil && strings.HasPrefix(strings.TrimSpace(q), "DELETE") {
-		n, _ := res.RowsAffected()
-		c.deletes = append(c.deletes, n)
+func (c *countingExecer) QueryRowContext(ctx context.Context, q string, args ...any) *sql.Row {
+	row := c.db.QueryRowContext(ctx, q, args...)
+	if strings.Contains(q, PurgeFunction+"(") {
+		var n int64
+		if row.Scan(&n) == nil {
+			c.deletes = append(c.deletes, n)
+		}
+		return c.db.QueryRowContext(ctx, `SELECT $1::bigint`, n)
 	}
-	return res, err
+	return row
 }
 
 func insertExpiring(t *testing.T, db *sql.DB, prefix string, n int, expires time.Time) {
