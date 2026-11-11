@@ -195,6 +195,7 @@
 {"source_id":"ST-SUP-RP07-LC06","target_id":"ST-STD-TXN-R11"}
 {"source_id":"ST-SUP-RP07-LC07","target_id":"ST-STD-TXN-R11"}
 {"source_id":"ST-SUP-RP07-LC08","target_id":"ST-STD-TXN-R11"}
+{"source_id":"ST-SUP-RP07-LC11","target_id":"ST-STD-TXN-R01"}
 {"source_id":"ST-SUP-RP08-LC01","target_id":"ST-STD-TXN-R12"}
 {"source_id":"ST-SUP-RP08-LC02","target_id":"ST-STD-TXN-R12"}
 {"source_id":"ST-SUP-RP08-LC03","target_id":"ST-STD-TXN-R12"}

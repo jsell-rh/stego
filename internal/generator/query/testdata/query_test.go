@@ -434,7 +434,7 @@ func start(t *testing.T) *shop {
 	// The stream watch-orders has no HTTP helper in the runtime library; this test carries its messages as JSON lines
 	// through the generated run of the stream, which decides each value it sends.
 	mux.Handle("GET /api/shop/v1/orders/watch", verifier.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, err := handlers.BindWatchOrders(r.Context(), "")
+		b, err := handlers.BindWatchOrders(r.Context())
 		if err != nil {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
 			return

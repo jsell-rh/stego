@@ -101,3 +101,39 @@ func DecisionOf(decision Decision) (tenant, action string, ok bool) {
 	}
 	return mark.data.tenant, mark.data.action, true
 }
+
+// PrincipalMark holds the subject of a principal of the authorization runtime, in the form type:id. Embed it in the
+// Principal type; only NewPrincipalMark makes one with a subject. The zero PrincipalMark holds no subject. It is a
+// value with no pointer, so two principals of one subject stay equal.
+type PrincipalMark struct {
+	subject string
+}
+
+// NewPrincipalMark makes the mark of a principal with the subject subject. Only the authorization runtime calls it.
+func NewPrincipalMark(subject string) PrincipalMark { return PrincipalMark{subject: subject} }
+
+func (m PrincipalMark) sealedPrincipal() PrincipalMark { return m }
+
+// Principal is a value that carries a PrincipalMark. Only a type that embeds a PrincipalMark satisfies it, so a
+// package outside the runtime module cannot make a principal with a subject of its own choice.
+type Principal interface {
+	sealedPrincipal() PrincipalMark
+}
+
+// SubjectOf reads the subject of principal from its mark. It gives no subject for a nil value, a nil embedded value
+// and a zero mark.
+func SubjectOf(principal Principal) (subject string, ok bool) {
+	if principal == nil {
+		return "", false
+	}
+	defer func() {
+		if recover() != nil {
+			subject, ok = "", false
+		}
+	}()
+	mark := principal.sealedPrincipal()
+	if mark.subject == "" {
+		return "", false
+	}
+	return mark.subject, true
+}

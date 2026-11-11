@@ -216,13 +216,16 @@ func (e *env) start(dsn, endpoint, spiceKey string) {
 	must(t, err)
 	auditDDL, err := audit.DDL(audit.Config{RuntimeRole: roles[0], AnchorPeriod: time.Hour, RetentionMonths: 12})
 	must(t, err)
+	// The idempotency purge role of the test service, one role of the server, which the migration makes.
+	keysDDL, err := idempotency.Migration("crud_check_idempotency_purge", roles[0])
+	must(t, err)
 	setup := []string{
 		queueDDL,
 		"CREATE SCHEMA authz",
 		"GRANT USAGE ON SCHEMA authz TO " + roles[0] + ", " + roles[1] + ", " + roles[2],
 		authzDDL,
 		auditDDL,
-		idempotency.Migration,
+		keysDDL,
 		"GRANT SELECT, INSERT, UPDATE ON idempotency_keys TO " + roles[0],
 		tablesSQL,
 		"GRANT SELECT, INSERT, UPDATE, DELETE ON " + strings.Join(tables, ", ") + " TO " + roles[0],

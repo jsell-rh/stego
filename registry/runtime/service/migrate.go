@@ -44,6 +44,9 @@ type Migration struct {
 	// OwnerRole is the role that owns the database objects; RuntimeRole the role that the service connects as;
 	// WorkerRole the role that the worker mode connects as, which writes the default audit sink (ST-SUP-RP05-LC15).
 	OwnerRole, RuntimeRole, WorkerRole string
+	// PurgeRole is the idempotency purge role of the service, <service role prefix>_idempotency_purge, which the
+	// tenancy role migration makes and which owns the purge function of the key table (ST-SUP-RP07-LC11).
+	PurgeRole string
 	// TenantConfig gives the connection configuration of the PostgreSQL adapter for a connection string.
 	TenantConfig func(dsn string) (tenant.Config, error)
 	// LedgerCheck reads the database and refuses one whose tables this release did not make, writing nothing; Ledger
@@ -103,9 +106,13 @@ var stepped func(step string, conn *sql.Conn)
 // its own schema. It stops at the first step that fails, with a StepError that names the step. Each step runs again
 // on a database that it made, so the job runs on every release.
 func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
-	if m.OwnerRole == "" || m.RuntimeRole == "" || m.WorkerRole == "" || m.TenantConfig == nil || m.LedgerCheck == nil || m.Ledger == nil ||
+	if m.OwnerRole == "" || m.RuntimeRole == "" || m.WorkerRole == "" || m.PurgeRole == "" || m.TenantConfig == nil || m.LedgerCheck == nil || m.Ledger == nil ||
 		m.WriteSchema == nil || m.Outbox == "" || m.Audit == "" || m.Authorization == "" {
 		return failed(StepSettings, errors.New("the migration job needs its roles, the adapter, the ledger, the migration texts and the schema writer"))
+	}
+	keys, err := idempotency.Migration(m.PurgeRole, m.RuntimeRole)
+	if err != nil {
+		return failed(StepSettings, err)
 	}
 	timeout := m.Timeout
 	if timeout <= 0 {
@@ -183,7 +190,7 @@ func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
 		{StepOutboxQueue, m.Outbox},
 		{StepAuditTables, m.Audit + ";\n" + controllerLease(m.RuntimeRole)},
 		{StepAuditSink, sinkTable},
-		{StepIdempotencyKeys, idempotency.Migration},
+		{StepIdempotencyKeys, keys},
 		{StepAuthorizationTables, m.Authorization},
 		{StepRuntimeGrants, granted(m.Grants, m.RuntimeRole)},
 	}

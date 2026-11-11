@@ -91,7 +91,7 @@ func TestPurgeJob(t *testing.T) {
 		clock.waitWaiters(t, 1)
 		if j.Runs() != 1 || countRows(t, db, `SELECT count(*) FROM idempotency_keys WHERE key LIKE 'old%'`) != 0 ||
 			countRows(t, db, `SELECT count(*) FROM idempotency_keys`) != 7 {
-			t.Fatalf("at start: %d runs, deletes %v; want the 7 expired rows gone", j.Runs(), rec.deletes)
+			t.Fatalf("at start: %d runs, deletes %v; want the 7 expired rows gone", j.Runs(), rec.batches())
 		}
 		clock.Advance(59 * time.Second)
 		time.Sleep(20 * time.Millisecond)
@@ -105,8 +105,8 @@ func TestPurgeJob(t *testing.T) {
 		}
 		clock.Advance(time.Minute)
 		clock.waitWaiters(t, 1)
-		if j.Runs() != 3 || len(rec.deletes) != 3 || rec.deletes[2] != 3 {
-			t.Fatalf("after the second tick: %d runs, deletes %v; want one purge per tick, the third of the 3 rows due by then", j.Runs(), rec.deletes)
+		if j.Runs() != 3 || len(rec.batches()) != 3 || rec.batches()[2] != 3 {
+			t.Fatalf("after the second tick: %d runs, deletes %v; want one purge per tick, the third of the 3 rows due by then", j.Runs(), rec.batches())
 		}
 		cancel()
 		if err := <-done; !errors.Is(err, context.Canceled) {
@@ -142,7 +142,7 @@ func TestPurgeJob(t *testing.T) {
 		}
 
 		// A failed purge is counted and reported, and the next tick runs again.
-		failing, err := NewPurgeJob(failingExecer{}, PurgeJobConfig{Clock: clock})
+		failing, err := NewPurgeJob(failingQuerier{db: closedDB(t)}, PurgeJobConfig{Clock: clock})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -169,7 +169,7 @@ func TestPurgeJob(t *testing.T) {
 		}
 
 		// Two runs of one job never purge at once.
-		slow := &slowExecer{}
+		slow := &slowQuerier{db: db}
 		both, err := NewPurgeJob(slow, PurgeJobConfig{Clock: clock})
 		if err != nil {
 			t.Fatal(err)
@@ -183,20 +183,33 @@ func TestPurgeJob(t *testing.T) {
 	})
 }
 
-type failingExecer struct{}
+// failingQuerier is a database that is down: each statement fails.
+type failingQuerier struct{ db *sql.DB }
 
-func (failingExecer) ExecContext(context.Context, string, ...any) (sql.Result, error) {
-	return nil, errors.New("the database is down")
+func (f failingQuerier) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
+	return f.db.BeginTx(ctx, opts)
 }
 
-// slowExecer takes 50 ms for each statement and records the most statements that ran at once.
-type slowExecer struct {
+// closedDB is a pool that is closed, so each statement on it fails at once.
+func closedDB(t *testing.T) *sql.DB {
+	t.Helper()
+	closed, err := sql.Open("pgx", "postgres://127.0.0.1:1/none")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = closed.Close()
+	return closed
+}
+
+// slowQuerier takes 50 ms to begin each batch and records the most batches that began at once.
+type slowQuerier struct {
+	db          *sql.DB
 	mu          sync.Mutex
 	active, max int
 	calls       int
 }
 
-func (s *slowExecer) ExecContext(context.Context, string, ...any) (sql.Result, error) {
+func (s *slowQuerier) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
 	s.mu.Lock()
 	s.active++
 	s.calls++
@@ -206,10 +219,5 @@ func (s *slowExecer) ExecContext(context.Context, string, ...any) (sql.Result, e
 	s.mu.Lock()
 	s.active--
 	s.mu.Unlock()
-	return driverResult(0), nil
+	return s.db.BeginTx(ctx, opts)
 }
-
-type driverResult int64
-
-func (driverResult) LastInsertId() (int64, error)   { return 0, nil }
-func (r driverResult) RowsAffected() (int64, error) { return int64(r), nil }
