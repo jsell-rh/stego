@@ -3,7 +3,6 @@ package org_provisioner
 import (
 	"context"
 	"log"
-	"net/http"
 	"strings"
 
 	"github.com/example/service/out/slots"
@@ -40,9 +39,9 @@ func (p *OrgProvisioner) Evaluate(_ context.Context, req *slots.BeforeCreateRequ
 		return &slots.SlotResult{
 			Ok:         true,
 			Halt:       true,
-			StatusCode: int32(http.StatusNoContent),
+			StatusCode: 204, // HTTP 204 No Content
 		}, nil
 	}
-	log.Printf("provisioning resources for organization: %s", name)
+	log.Printf("provisioning resources for organization: %q", name)
 	return &slots.SlotResult{Ok: true}, nil
 }
