@@ -27,7 +27,6 @@ import (
 	"github.com/jsell-rh/stego/registry/runtime/modes"
 	"github.com/jsell-rh/stego/registry/runtime/outbox"
 	"github.com/jsell-rh/stego/registry/runtime/probe"
-	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
 // recordingSink is the audit sink of the test: it keeps each event and each anchor that the outbox delivers.
@@ -151,17 +150,13 @@ func TestWorkers(t *testing.T) {
 		if err := Migrate(ctx, MigrationSettings{DatabaseURL: f.database, SpiceDB: spice}, f.migration(nil)); err != nil {
 			t.Fatal(err)
 		}
-		// What the tenancy component's role migration and its tenant list give: logins of the worker and the relay
-		// roles, the worker role's grant on the token column of the protected table, and the tenant t1.
-		tenants, err := tenant.Migration("public", f.runtime)
-		if err != nil {
-			t.Fatal(err)
-		}
+		// What the tenancy component's role migration gives, and a provisioned tenant: logins of the worker and the
+		// relay roles, the worker role's grant on the token column of the protected table, and the tenant t1 in the
+		// tenant list that Migrate made.
 		for _, statement := range []string{
 			"ALTER ROLE " + f.worker + " LOGIN PASSWORD '" + rolePassword + "'",
 			"ALTER ROLE " + f.relay + " LOGIN PASSWORD '" + rolePassword + "'",
 			"GRANT SELECT, UPDATE (authz_token) ON public.orders TO " + f.worker,
-			tenants,
 			"INSERT INTO public.stego_tenants (tenant_id) VALUES ('t1')",
 			"INSERT INTO public.orders (tenant_id, id, status) VALUES ('t1', 'o1', 'open')",
 		} {

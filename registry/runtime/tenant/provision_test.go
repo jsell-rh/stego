@@ -206,4 +206,48 @@ func TestTenantProvisioning(t *testing.T) {
 			t.Fatalf("the tenant list holds %d rows and the hook ran %d times, want the one tenant of 255 bytes", rows, hookRuns)
 		}
 	})
+	t.Run("ST-SUP-RP04-LC07-T05 The migration text of the tenant list runs again with no error", func(t *testing.T) {
+		env := newPG(t)
+		ctx := context.Background()
+		if err := Provision(ctx, env.runtimeDB, "public", mustRequested(t, "t1"), nil); err != nil {
+			t.Fatalf("provision t1: %v", err)
+		}
+		// newPG ran the text once as the owner role; the migration job runs it again on every release.
+		migration, err := Migration("public", env.runtime)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for run := 2; run <= 3; run++ {
+			if _, err := env.ownerDB.ExecContext(ctx, migration); err != nil {
+				t.Fatalf("run %d of the migration text: %v", run, err)
+			}
+		}
+		var rows int
+		if err := env.db.QueryRowContext(ctx, "SELECT count(*) FROM stego_tenants WHERE tenant_id = 't1' AND retired_at IS NULL").Scan(&rows); err != nil || rows != 1 {
+			t.Fatalf("after the runs the tenant list holds %d rows of t1 (%v), want the provisioned row", rows, err)
+		}
+		if err := Provision(ctx, env.runtimeDB, "public", mustRequested(t, "t2"), nil); err != nil {
+			t.Fatalf("provision t2 after the runs: %v", err)
+		}
+		var listed []string
+		if err := EachListed(ctx, env.runtimeDB, "public", func(_ context.Context, _ Querier, tenant Tenant) error {
+			listed = append(listed, tenant.ID())
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Join(listed, ",") != "t1,t2" {
+			t.Fatalf("after the runs Each visited %v, want t1 and t2", listed)
+		}
+		// The runs keep the privileges: the runtime role still writes the table only through the functions.
+		_, err = env.runtimeDB.ExecContext(ctx, "INSERT INTO stego_tenants (tenant_id) VALUES ('t4')")
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "42501" {
+			t.Fatalf("the insert into stego_tenants as the runtime role after the runs returned %v, want a refusal for privilege (42501)", err)
+		}
+		var config string
+		if err := env.db.QueryRowContext(ctx, "SELECT array_to_string(proconfig, ';') FROM pg_proc WHERE proname = 'stego_provision_tenant'").Scan(&config); err != nil || config != "search_path=pg_catalog, pg_temp" {
+			t.Fatalf("after the runs the provisioning function has the settings %q (%v), want search_path=pg_catalog, pg_temp", config, err)
+		}
+	})
 }
