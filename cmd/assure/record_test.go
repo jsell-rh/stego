@@ -428,8 +428,10 @@ class Fix(unittest.TestCase):
 			t.Fatal("the suites job does not record the proof run at the commit, under the runner's temporary folder")
 		}
 		// assure record is built from the pull request's base commit, or the commit pushed, before any step runs
-		// code of the change: every step before the build only checks out or sets up a tool.
-		built := -1
+		// code of the change: every step before the build only checks out or sets up a tool, and a Go setup
+		// before it restores no cache, which a run of the change could have saved. The build makes its folder
+		// read-only.
+		built, goSetups := -1, 0
 		for i, step := range suites.Steps {
 			if step.Name == "Build assure record from the base commit" {
 				built = i
@@ -438,14 +440,20 @@ class Fix(unittest.TestCase):
 			if step.Uses == "" {
 				t.Fatalf("the suites job runs %q before it builds assure record from the base commit", step.Name)
 			}
+			if strings.HasPrefix(step.Uses, "actions/setup-go@") {
+				goSetups++
+				if step.With["cache"] != "false" {
+					t.Fatalf("the Go setup before the build of assure record has cache %q, want false: it would restore a cache before the build", step.With["cache"])
+				}
+			}
 		}
-		if built < 0 {
-			t.Fatal("the suites job does not build assure record from the base commit")
+		if built < 0 || goSetups == 0 {
+			t.Fatal("the suites job does not set up Go with no cache and build assure record from the base commit")
 		}
 		build := suites.Steps[built]
 		if build.WorkingDirectory != "base/cmd/assure" || build.Env["GOWORK"] != "off" ||
-			build.Run != "mkdir -p \"$RUNNER_TEMP/record\"\ngo build -mod=readonly -trimpath -o \"$RUNNER_TEMP/record/assure\" .\n" {
-			t.Fatalf("the suites job builds assure record with %+v, not in the base checkout's cmd/assure into the runner's temporary folder", build)
+			build.Run != "mkdir -p \"$RUNNER_TEMP/record\"\ngo build -mod=readonly -trimpath -o \"$RUNNER_TEMP/record/assure\" .\nchmod -R a-w \"$RUNNER_TEMP/record\"\n" {
+			t.Fatalf("the suites job builds assure record with %+v, not in the base checkout's cmd/assure into a read-only folder under the runner's temporary folder", build)
 		}
 		var base *workflowStep
 		for i, step := range suites.Steps[:built] {

@@ -1,5 +1,9 @@
 name: Build and sign one application image
 
+# A caller of this reusable workflow signs only when it runs at refs/heads/main: in a called workflow, github.ref
+# is the caller's ref, so a run on another branch, a pull request or a tag builds the images and signs none. A
+# consumer that wants signed images calls this workflow from a run at main, by a push or by hand.
+
 on:
   workflow_call:
     inputs:
@@ -175,9 +179,10 @@ jobs:
             ${{ runner.temp }}/image-evidence/export-*/export.json
 
   sign:
-    # A consumer must select this workflow, branch, and exact commit. Only a run
-    # at main signs: a candidate branch gets no signature, so its images cannot
-    # be taken for main's.
+    # A consumer must select this workflow, branch, and exact commit. Only a
+    # caller at main signs: github.ref is the caller's ref here, so a candidate
+    # branch, a pull request or a tag build gets no signature, and its images
+    # cannot be taken for main's.
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: build
     runs-on: ubuntu-24.04
