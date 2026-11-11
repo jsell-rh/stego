@@ -275,11 +275,32 @@ func TestIdentityClaims(t *testing.T) {
 		if id := expectAccepted(t, bySub, authntest.Mint(t, header, claims, key)); id.UserID() != "user-1" {
 			t.Errorf("the default subject is %q, want sub user-1", id.UserID())
 		}
-		for _, name := range []string{"exp", "iss", "aud", "iat", "nbf", "jti", "a.b", "has space"} {
+		for _, name := range []string{"exp", "iss", "aud", "iat", "nbf", "jti", "a.b", "has space", "email", "preferred_username", "upn", "Sub", "OID"} {
 			_, err := New(Settings{Issuer: testIssuer, Audience: testAudience, ProblemCode: "SVC", Keys: bySub.keys, SubjectClaim: name})
 			if !errors.Is(err, ErrSettings) {
 				t.Errorf("New with the subject claim %q gave %v, want a refusal of the settings", name, err)
 			}
+		}
+	})
+}
+
+func TestMutableSubject(t *testing.T) {
+	t.Run("ST-SUP-RP13-LC13-T03 Two accounts that share a mutable claim never map to one subject", func(t *testing.T) {
+		// The attack of the security review of PR #202: a provider where a user picks the email, so an attacker
+		// (sub attacker-sub) and a victim (sub victim-sub) hold one email that is not verified.
+		key := authntest.NewKey(t, "k1")
+		bySub := staticVerifier(t, nil, key)
+		if _, err := New(Settings{Issuer: testIssuer, Audience: testAudience, ProblemCode: "SVC", Keys: bySub.keys, SubjectClaim: "email"}); !errors.Is(err, ErrSettings) {
+			t.Fatalf("New with the subject claim email gave %v, want a refusal of the settings", err)
+		}
+		mint := func(sub string) Identity {
+			claims := goodClaims()
+			claims["sub"], claims["email"], claims["email_verified"] = sub, "victim@example.com", false
+			return expectAccepted(t, bySub, authntest.Mint(t, authntest.Header("k1"), claims, key))
+		}
+		victim, attacker := mint("victim-sub"), mint("attacker-sub")
+		if victim.Principal() == attacker.Principal() || victim.UserID() == attacker.UserID() {
+			t.Fatalf("the victim %+v and the attacker %+v map to one principal", victim.Principal(), attacker.Principal())
 		}
 	})
 }

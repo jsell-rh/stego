@@ -38,6 +38,7 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/kubernetesclient"
 	"github.com/jsell-rh/stego/internal/generator/kubernetesservice"
 	"github.com/jsell-rh/stego/internal/generator/kubernetesworkload"
+	"github.com/jsell-rh/stego/internal/generator/oidcauth"
 	"github.com/jsell-rh/stego/internal/generator/oteltracing"
 	"github.com/jsell-rh/stego/internal/generator/outbox"
 	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
@@ -949,6 +950,7 @@ func defaultGenerators() map[string]gen.Generator {
 		"tenancy":               &tenancy.Generator{},
 		"tsl-search":            &tslsearch.Generator{},
 		"jwt-auth":              &jwtauth.Generator{},
+		"oidc-auth":             &oidcauth.Generator{},
 		"rh-sso-auth":           &rhssoauth.Generator{},
 		"otel-tracing":          &oteltracing.Generator{},
 		"health-check":          &healthcheck.Generator{},
