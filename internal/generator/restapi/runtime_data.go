@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/format"
 	"path"
+	"regexp"
 	"strings"
 
 	"github.com/jsell-rh/stego/internal/gen"
@@ -237,9 +238,10 @@ func generateRuntimeHandlers(ctx gen.Context, collections []*runtimeCollection, 
 func renderRuntimeHelpers(ctx gen.Context, names []string, dataImport, slotsImportPath string, hasSlots bool, keys *idempotencyHeader) ([]byte, error) {
 	var b bytes.Buffer
 	pkg := path.Base(ctx.OutputNamespace)
-	fmt.Fprintf(&b, "package %s\n\nimport (\n\t\"context\"\n\t\"errors\"\n\t\"log/slog\"\n\t\"net\"\n\t\"net/http\"\n\t\"strings\"\n\t\"sync/atomic\"\n\t\"time\"\n\n", pkg)
+	fmt.Fprintf(&b, "package %s\n\nimport (\n\t\"context\"\n\t\"errors\"\n\t\"log/slog\"\n\t\"net\"\n\t\"net/http\"\n\t\"strings\"\n\t\"sync\"\n\t\"sync/atomic\"\n\t\"time\"\n\n", pkg)
+	fmt.Fprintf(&b, "\t\"go.opentelemetry.io/otel/attribute\"\n\t\"go.opentelemetry.io/otel/metric\"\n\n")
 	fmt.Fprintf(&b, "\t\"github.com/jsell-rh/stego/registry/runtime/audit\"\n\t\"github.com/jsell-rh/stego/registry/runtime/authn\"\n\t\"github.com/jsell-rh/stego/registry/runtime/command\"\n")
-	fmt.Fprintf(&b, "\t\"github.com/jsell-rh/stego/registry/runtime/idempotency\"\n\t\"github.com/jsell-rh/stego/registry/runtime/probe\"\n\t\"github.com/jsell-rh/stego/registry/runtime/query\"\n\n")
+	fmt.Fprintf(&b, "\t\"github.com/jsell-rh/stego/registry/runtime/idempotency\"\n\t\"github.com/jsell-rh/stego/registry/runtime/outbox\"\n\t\"github.com/jsell-rh/stego/registry/runtime/probe\"\n\t\"github.com/jsell-rh/stego/registry/runtime/query\"\n\n")
 	fmt.Fprintf(&b, "\tdata %q\n", dataImport)
 	if hasSlots {
 		fmt.Fprintf(&b, "\tslots %q\n", slotsImportPath)
@@ -320,6 +322,9 @@ type Runtime struct {
 	Probes   command.Probes
 	// Retention is how long a completed idempotency key is kept; zero is the runtime's default.
 	Retention time.Duration
+	// AfterSlots are the after slots of the collections, which the outbox worker runs (ST-SUP-RC20-OC34). Nil: the
+	// handlers register none, and a staged after slot waits in the outbox.
+	AfterSlots *AfterSlots
 }
 
 // MaxRequestBody is the most bytes of a request body that a handler reads.
@@ -375,12 +380,91 @@ var afterSlotFailures atomic.Int64
 // AfterSlotFailures gives how many after slots failed after their command committed.
 func AfterSlotFailures() int64 { return afterSlotFailures.Load() }
 
-// afterSlotFailed records an after slot that failed after its command committed: the write and its key row are
-// stored, so the handler still answers the committed response, and the log names the slot and holds no error text
-// (ST-SUP-Q89).
-func afterSlotFailed(ctx context.Context, slot string) {
+// AfterSlotsDestination is the outbox destination of the after slots: a command stages each bound after slot in its
+// transaction, so the slot runs only after the command committed, and the outbox worker runs it and retries a
+// failure (ST-SUP-RC20-OC34).
+const AfterSlotsDestination = "rest-api.after-slots"
+
+// errAfterSlot is the fixed error of a failed after slot: the outbox runs it again, and no error text of the fill
+// reaches the queue or the log.
+var errAfterSlot = errors.New("an after slot failed")
+
+// AfterSlots runs the after slots that the outbox worker delivers, one function for each collection, and makes
+// each failure and each retry visible as a metric and a log line that name the slot and hold no error text.
+type AfterSlots struct {
+	mu          sync.Mutex
+	collections map[string]func(ctx context.Context, slot string, payload []byte) error
+	failures    metric.Int64Counter
+	retries     metric.Int64Counter
+}
+
+// NewAfterSlots gives the after slots of the collections, with no metric until Meter sets one.
+func NewAfterSlots() *AfterSlots {
+	return &AfterSlots{collections: map[string]func(context.Context, string, []byte) error{}}
+}
+
+// Meter records the failure and the retry metrics of the after slots on meter, before the worker runs. A nil meter,
+// such as the telemetry runtime's with no collector set, records no metric; the log lines stay.
+func (a *AfterSlots) Meter(meter metric.MeterProvider) error {
+	if meter == nil {
+		return nil
+	}
+	m := meter.Meter("stego/rest-api")
+	failures, err := m.Int64Counter("rest_api.after_slot.failures", metric.WithDescription("after slots that failed, by slot"))
+	if err != nil {
+		return err
+	}
+	retries, err := m.Int64Counter("rest_api.after_slot.retries", metric.WithDescription("after slots that run again, by slot"))
+	if err != nil {
+		return err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.failures, a.retries = failures, retries
+	return nil
+}
+
+// add registers the after slots of one collection.
+func (a *AfterSlots) add(collection string, deliver func(ctx context.Context, slot string, payload []byte) error) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.collections[collection] = deliver
+}
+
+// Deliver runs one after slot that the outbox worker delivers on AfterSlotsDestination, which the wiring registers
+// as idempotent, as a fill runs at least once, and as must land, so a message is retried and never parked for its
+// retries. The message kind is <collection>.<slot>. A run that is not the first counts as a retry, and a failure is
+// counted and logged and refused as transient, so the outbox runs it again.
+func (a *AfterSlots) Deliver(ctx context.Context, d outbox.Delivery) error {
+	collection, slot, _ := strings.Cut(d.Kind, ".")
+	a.mu.Lock()
+	run, failures, retries := a.collections[collection], a.failures, a.retries
+	a.mu.Unlock()
+	attr := metric.WithAttributes(attribute.String("slot", d.Kind))
+	if d.Attempts > 1 {
+		if retries != nil {
+			retries.Add(ctx, 1, attr)
+		}
+		slog.WarnContext(ctx, "an after slot runs again through the outbox", "slot", d.Kind)
+	}
+	if run == nil || run(ctx, slot, d.Payload) != nil {
+		afterSlotFailed(ctx, failures, d.Kind)
+		return errAfterSlot
+	}
+	return nil
+}
+
+// afterSlotFailed records an after slot that failed after its command committed: a metric and a log line that name
+// the slot and hold no error text (ST-SUP-RC20-OC34).
+func afterSlotFailed(ctx context.Context, failures metric.Int64Counter, slot string) {
 	afterSlotFailures.Add(1)
-	slog.ErrorContext(ctx, "an after slot failed after its command committed", "slot", slot)
+	if failures != nil {
+		failures.Add(ctx, 1, metric.WithAttributes(attribute.String("slot", slot)))
+	}
+	slog.ErrorContext(ctx, "an after slot failed after its command committed; the outbox runs it again", "slot", slot)
 }
 
 // invalidRequest is a request body that does not decode into the collection's type.
@@ -543,8 +627,15 @@ func emitRuntimeSlotCheck(buf *bytes.Buffer, fieldName string) {
 // its response is stored, so the failure is logged with no error text and the handler answers the committed
 // response (ST-SUP-Q89).
 func emitRuntimeAfterFailure(buf *bytes.Buffer, param collectionSlotParam) {
-	fmt.Fprintf(buf, "\t\t\tafterSlotFailed(r.Context(), %q)\n", param.SlotName)
+	fmt.Fprintf(buf, "\t\t\t%s\n", afterCallMarker)
 }
+
+// afterCallMarker marks the call of an after slot that the runtime data path replaces with the staging of the slot
+// in the command's transaction (ST-SUP-RC20-OC34).
+const afterCallMarker = "/* stego: after slot */"
+
+// afterCall matches the call of an after slot that the shared emitters write, with the marker of a failure.
+var afterCall = regexp.MustCompile(`(?m)^(\t*)if _, slotErr := h\.(\w+)\.Evaluate\(r\.Context\(\), (.+?)\); slotErr != nil \{\n\t*` + regexp.QuoteMeta(afterCallMarker) + `\n\t*\}\n`)
 
 // runtimeHandlerWriter writes one handler file.
 type runtimeHandlerWriter struct {
@@ -620,11 +711,18 @@ func renderRuntimeHandler(ctx gen.Context, c *runtimeCollection, dataImport, slo
 	for _, sp := range c.slots {
 		w.f(", %s slots.%s", sp.FieldName, sp.InterfaceType)
 	}
-	w.f(") *%sHandler {\n\treturn &%sHandler{rt: rt", c.pascal, c.pascal)
+	w.f(") *%sHandler {\n\th := &%sHandler{rt: rt", c.pascal, c.pascal)
 	for _, sp := range c.slots {
 		w.f(", %s: %s", sp.FieldName, sp.FieldName)
 	}
-	w.f("}\n}\n\n")
+	w.f("}\n")
+	var deliver runtimeHandlerWriter
+	deliver.c = c
+	if deliver.deliverAfter() {
+		w.f("\t// The outbox worker runs the after slots of the collection (ST-SUP-RC20-OC34).\n\trt.AfterSlots.add(%q, h.deliverAfter)\n", c.decl.Name)
+	}
+	w.f("\treturn h\n}\n\n")
+	w.Write(deliver.Bytes())
 	w.helpers()
 	for _, op := range c.decl.Operations {
 		switch op {
@@ -673,6 +771,9 @@ func (w *runtimeHandlerWriter) declarations() {
 		default:
 			w.f("// %s is the generated command of a %s of %s (ST-SUP-RC20-OC37).\n", w.commandVar(op), op, c.decl.Name)
 			w.f("var %s = mustCommand(command.NewCommand(command.CommandSpec[struct{}]{\n\tName: %q,\n\tWrites: []command.Declared{data.%sEntity},\n\tProbe: noProbe,\n", w.commandVar(op), string(op), e.Name)
+			if effects := w.afterEffects(op); len(effects) > 0 {
+				w.f("\tDestinations: []command.Destination{{Name: AfterSlotsDestination, Idempotent: true, MustLand: true, Effects: []string{%s}}},\n", quoteAll(effects))
+			}
 			if p := c.permission(op); p != "" && op != types.OpCreate {
 				token := fmt.Sprintf("SELECT authz_token FROM %s WHERE tenant_id = $1 AND id = $2::uuid FOR SHARE", table)
 				w.f("\tPermission: %q,\n\tResource: &command.Resource{Type: %q, Token: %q, ValidID: command.ValidUUID},\n", p, e.ResourceType, token)
@@ -862,18 +963,78 @@ func (w *runtimeHandlerWriter) before(op types.Operation, patchFields []types.Fi
 	}
 }
 
-// after writes the after slots of an operation, which run after its command committed and wrote, and not after a
-// replay or a before slot that halted the command with no write (ST-SUP-RC20-OC34).
-func (w *runtimeHandlerWriter) after(op types.Operation, entityVar string, patchFields []types.Field) {
+// after writes, inside the fill of an operation's command, the staging of each bound after slot in the command's
+// transaction: the slot request is the one the store path gives the slot, as JSON, and the effect is
+// <collection>.<slot> on AfterSlotsDestination for the loaded value ref. So the slot runs only after the command
+// committed, never after a replay or a before slot that halted the command, and the outbox worker runs it and
+// retries a failure (ST-SUP-RC20-OC34).
+func (w *runtimeHandlerWriter) after(op types.Operation, entityVar, ref string, patchFields []types.Field) {
 	_, after := slotsForOp(op, w.c.slots)
 	if len(after) == 0 {
 		return
 	}
-	w.f("\tif !result.Replayed && result.Response.Status < 300 && !halted(result) {\n")
+	var buf bytes.Buffer
 	for _, sp := range after {
-		dispatchAfterSlot(&w.Buffer, w.slotsAlias, runtimeIdentity, sp, entityVar, w.c.entity, op, patchFields, emitRuntimeAfterFailure)
+		dispatchAfterSlot(&buf, w.slotsAlias, runtimeIdentity, sp, entityVar, w.c.entity, op, patchFields, emitRuntimeAfterFailure)
 	}
-	w.f("\t}\n")
+	text := afterCall.ReplaceAllStringFunc(buf.String(), func(call string) string {
+		m := afterCall.FindStringSubmatch(call)
+		indent, field, request := m[1], m[2], m[3]
+		slot := ""
+		for _, sp := range after {
+			if sp.FieldName == field {
+				slot = sp.SlotName
+			}
+		}
+		return fmt.Sprintf("%[1]sslotPayload, err := json.Marshal(%[2]s)\n%[1]sif err != nil {\n%[1]s\treturn idempotency.Response{}, err\n%[1]s}\n"+
+			"%[1]sif err := ch.Effects().Stage(ctx, AfterSlotsDestination, %[3]q, %[4]s, slotPayload); err != nil {\n%[1]s\treturn idempotency.Response{}, err\n%[1]s}\n",
+			indent, request, w.c.decl.Name+"."+slot, ref)
+	})
+	if strings.Contains(text, afterCallMarker) {
+		panic("rest-api: an after slot call was not replaced by its staging")
+	}
+	for _, line := range strings.SplitAfter(text, "\n") {
+		if line != "" {
+			w.f("\t%s", line)
+		}
+	}
+}
+
+// afterEffects gives the effect names that the command of an operation stages for its after slots.
+func (w *runtimeHandlerWriter) afterEffects(op types.Operation) []string {
+	_, after := slotsForOp(op, w.c.slots)
+	var names []string
+	for _, sp := range after {
+		names = append(names, w.c.decl.Name+"."+sp.SlotName)
+	}
+	return names
+}
+
+// deliverAfter writes the function that runs the after slots of the collection that the outbox worker delivers:
+// it decodes the slot request and calls the bound operator, which a nil guard skips.
+func (w *runtimeHandlerWriter) deliverAfter() bool {
+	var after []collectionSlotParam
+	seen := map[string]bool{}
+	for _, op := range w.c.decl.Operations {
+		_, a := slotsForOp(op, w.c.slots)
+		for _, sp := range a {
+			if !seen[sp.SlotName] {
+				seen[sp.SlotName] = true
+				after = append(after, sp)
+			}
+		}
+	}
+	if len(after) == 0 {
+		return false
+	}
+	w.f("// deliverAfter runs one after slot of %s that the outbox worker delivers (ST-SUP-RC20-OC34).\n", w.c.decl.Name)
+	w.f("func (h *%sHandler) deliverAfter(ctx context.Context, slot string, payload []byte) error {\n\tswitch slot {\n", w.c.pascal)
+	for _, sp := range after {
+		w.f("\tcase %q:\n\t\tif h.%s == nil {\n\t\t\treturn nil\n\t\t}\n\t\tvar request slots.%s\n", sp.SlotName, sp.FieldName, sp.RequestType)
+		w.f("\t\tif err := json.Unmarshal(payload, &request); err != nil {\n\t\t\treturn err\n\t\t}\n\t\t_, err := h.%s.Evaluate(ctx, &request)\n\t\treturn err\n", sp.FieldName)
+	}
+	w.f("\t}\n\treturn errAfterSlot\n}\n\n")
+	return true
 }
 
 // key writes the read of the idempotency key of a create or a patch: required when the declaration requires it,
@@ -926,10 +1087,10 @@ func (w *runtimeHandlerWriter) create() {
 	w.f("\t\trepo, err := data.%sRepository(ch)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", e.Name)
 	w.f("\t\tcreated, err := repo.Create(ctx, data.%s(%s), nil)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", e.Name, c.lower)
 	w.f("\t\tpersisted = %s(created.Value())\n", e.Name)
+	w.after(types.OpCreate, "persisted", "created", nil)
 	w.respond("http.StatusCreated", "persisted")
 	w.f("\t})\n")
 	w.finish(types.OpCreate, "")
-	w.after(types.OpCreate, "persisted", nil)
 	w.f("\twriteResult(w, result)\n}\n\n")
 }
 
@@ -949,10 +1110,10 @@ func (w *runtimeHandlerWriter) update() {
 	w.before(types.OpUpdate, nil)
 	w.f("\t\tupdated, err := repo.Update(ctx, from, data.%s(%s))\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", e.Name, c.lower)
 	w.f("\t\tpersisted = %s(updated.Value())\n", e.Name)
+	w.after(types.OpUpdate, "persisted", "updated", nil)
 	w.respond("http.StatusOK", "persisted")
 	w.f("\t})\n")
 	w.finish(types.OpUpdate, "id")
-	w.after(types.OpUpdate, "persisted", nil)
 	w.f("\twriteResult(w, result)\n}\n\n")
 }
 
@@ -971,12 +1132,7 @@ func (w *runtimeHandlerWriter) patch() {
 	w.f("func (h *%sHandler) Patch(w http.ResponseWriter, r *http.Request) {\n\tid := r.PathValue(\"id\")\n", c.pascal)
 	w.start(true)
 	w.key(types.OpPatch)
-	_, afterPatch := slotsForOp(types.OpPatch, c.slots)
-	if len(afterPatch) > 0 {
-		w.f("\tpatch, err := decode%sPatch(body)\n\tif err != nil {\n", c.pascal)
-	} else {
-		w.f("\tif _, err := decode%sPatch(body); err != nil {\n", c.pascal)
-	}
+	w.f("\tif _, err := decode%sPatch(body); err != nil {\n", c.pascal)
 	w.f("\t\th.rt.answerWrite(w, r, command.Request{}, \"patch\", %q, %q, false, err)\n\t\treturn\n\t}\n", e.ResourceType, e.Name)
 	w.f("\tfingerprint, err := idempotency.FieldFingerprint(r.Method, r.URL.Path, body, %sPatchFields)\n\tif err != nil {\n\t\thandleError(w, r, BadRequest(\"the body is not a JSON object\"))\n\t\treturn\n\t}\n", c.camel)
 	w.f("\treq := h.rt.commandRequest(r, b, key, fingerprint, requestID, body, id)\n")
@@ -1003,13 +1159,10 @@ func (w *runtimeHandlerWriter) patch() {
 	}
 	w.f("\t\tupdated, err := repo.Update(ctx, from, data.%s(%s))\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", e.Name, c.lower)
 	w.f("\t\tpersisted = %s(updated.Value())\n", e.Name)
+	w.after(types.OpPatch, "persisted", "updated", fields)
 	w.respond("http.StatusOK", "persisted")
 	w.f("\t})\n")
 	w.finish(types.OpPatch, "id")
-	if _, after := slotsForOp(types.OpPatch, c.slots); len(after) > 0 {
-		w.f("\t%s := persisted\n", c.lower)
-		w.after(types.OpPatch, c.lower, fields)
-	}
 	w.f("\twriteResult(w, result)\n}\n\n")
 }
 
@@ -1024,9 +1177,9 @@ func (w *runtimeHandlerWriter) remove() {
 	w.lockRow()
 	w.before(types.OpDelete, nil)
 	w.f("\t\tif err := repo.Delete(ctx, from); err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n")
+	w.after(types.OpDelete, "", "from", nil)
 	w.f("\t\treturn idempotency.Response{Status: http.StatusNoContent}, nil\n\t})\n")
 	w.finish(types.OpDelete, "id")
-	w.after(types.OpDelete, "", nil)
 	w.f("\twriteResult(w, result)\n}\n\n")
 }
 
