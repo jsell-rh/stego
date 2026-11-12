@@ -538,12 +538,21 @@ func render(m *model) []byte {
 	w := func(format string, args ...any) { fmt.Fprintf(&b, format, args...) }
 	w("// Package %s holds the typed domain probes of the service (ST-SUP-RC34). A fill emits a declared\n", m.pkg)
 	w("// observation only through the probe of its own command, query, worker, process method or slot binding.\n")
-	w("package %s\n\nimport (\n\t\"context\"\n\n", m.pkg)
-	if len(m.loaded) > 0 {
-		w("\tentities %q\n", m.entityImport)
-		w("\t%q\n", commandImport)
+	// A service with no emitter and no observation, such as one whose collections bind no slot, gets the package
+	// with its recorder constants alone, and imports nothing it does not use.
+	if len(m.emitters) > 0 || len(m.observations) > 0 || len(m.loaded) > 0 {
+		w("package %s\n\nimport (\n", m.pkg)
+		if len(m.emitters) > 0 {
+			w("\t\"context\"\n\n")
+		}
+		if len(m.loaded) > 0 {
+			w("\tentities %q\n", m.entityImport)
+			w("\t%q\n", commandImport)
+		}
+		w("\t%q\n)\n\n", probeImport)
+	} else {
+		w("package %s\n\n", m.pkg)
 	}
-	w("\t%q\n)\n\n", probeImport)
 	w("// RecorderTenant and RecorderPrincipal are the fixed tenant and principal of a probe that a Record\n")
 	w("// constructor binds for a fill test.\nconst (\n\tRecorderTenant = \"tenant-test\"\n\tRecorderPrincipal = \"user:test\"\n)\n\n")
 	for _, l := range m.loaded {
