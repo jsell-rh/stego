@@ -369,7 +369,9 @@ func decided(t *testing.T, name string, result assureResult, code int, reasons .
 }
 
 func TestGateChange(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-ASR-UC02-R01-T01 A change under which an obligation falls is refused, and one that only adds unbuilt, unproved obligations passes", func(t *testing.T) {
+		t.Parallel()
 		g := newGateRepository(t)
 		grows := g.commit(t, g.base, map[string]string{"data/invariant.jsonl": gateSpec["data/invariant.jsonl"] + newInvariant})
 		passed := g.keep(t, "grows", proofRun(grows, pullRef, 1, "FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed"))
@@ -390,6 +392,7 @@ func TestGateChange(t *testing.T) {
 	})
 
 	t.Run("ST-ASR-UC02-R01-T02 A change is not gated when Lathe finds an error in the spec at the base head or at the change", func(t *testing.T) {
+		t.Parallel()
 		g := newGateRepository(t)
 		outcomes := []string{"FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed"}
 		// A dangling test record: Lathe finds an error and gives no coverage.
@@ -417,6 +420,7 @@ func TestGateChange(t *testing.T) {
 	})
 
 	t.Run("ST-ASR-UC02-R01-T03 A change that retires an obligation to a successor with each standing it had at the base passes, and the decision reports the retirement", func(t *testing.T) {
+		t.Parallel()
 		g := newGateRepository(t)
 		change := g.commit(t, g.base, movesOneLoan(true))
 		passed := g.keep(t, "moved", proofRun(change, pullRef, 40, "FX-LEND-INV02-T passed", "FX-LEND-INV05-T passed"))
@@ -428,6 +432,7 @@ func TestGateChange(t *testing.T) {
 	})
 
 	t.Run("ST-ASR-UC02-R01-T04 A change whose retirement names a successor without a standing the retired obligation had at the base is refused, and the reason names the retirement", func(t *testing.T) {
+		t.Parallel()
 		g := newGateRepository(t)
 		change := g.commit(t, g.base, movesOneLoan(false))
 		passed := g.keep(t, "unproved", proofRun(change, pullRef, 41, "FX-LEND-INV02-T passed"))
@@ -440,6 +445,7 @@ func TestGateChange(t *testing.T) {
 	})
 
 	t.Run("ST-ASR-UC02-R01-T05 A retirement with no successor admits the removal of the obligation it names, and a removal that no retirement names is still refused", func(t *testing.T) {
+		t.Parallel()
 		g := newGateRepository(t)
 		retires := with(retirementKind, map[string]string{
 			"data/invariant.jsonl":  strings.Join(strings.SplitAfter(gateSpec["data/invariant.jsonl"], "\n")[:2], ""),
@@ -464,6 +470,7 @@ func TestGateChange(t *testing.T) {
 	})
 
 	t.Run("ST-ASR-UC02-R02-T01 A change with no verified proof run at its commit, or with an automated test record not passed there, is refused", func(t *testing.T) {
+		t.Parallel()
 		g := newGateRepository(t)
 		change := g.commit(t, g.base, map[string]string{"README.md": "Fixture.\n"})
 		none := noVerifiedProofRunAt(change)
@@ -494,6 +501,7 @@ func TestGateChange(t *testing.T) {
 	})
 
 	t.Run("ST-ASR-UC02-R03-T01 A refusal names each obligation that fell with its share and each test record that did not pass, and exits non-zero", func(t *testing.T) {
+		t.Parallel()
 		g := newGateRepository(t)
 		change := g.commit(t, g.base, map[string]string{
 			"data/invariant.jsonl":      strings.Replace(gateSpec["data/invariant.jsonl"], `{"id":"FX-LEND-INV03"`, `{"id":"FX-LEND-INV09"`, 1),
@@ -538,6 +546,7 @@ func TestGateChange(t *testing.T) {
 	})
 
 	t.Run("ST-ASR-UC02-R04-T01 The same commit, base and proof run give the same decision and reasons in the same order", func(t *testing.T) {
+		t.Parallel()
 		g := newGateRepository(t)
 		change := g.commit(t, g.base, map[string]string{
 			"data/invariant_test.jsonl":    invariantTest02,
@@ -564,6 +573,7 @@ func TestGateChange(t *testing.T) {
 	})
 
 	t.Run("ST-ASR-UC02-R06-T01 A proof run signed at the change's own ref counts only while the workflows folder is the base's, and one signed at main counts for any tree", func(t *testing.T) {
+		t.Parallel()
 		g := newGateRepository(t)
 		change := g.commit(t, g.base, map[string]string{
 			".github/workflows/checks.yml":    "name: Checks\non: push\n",
@@ -586,6 +596,7 @@ func TestGateChange(t *testing.T) {
 	})
 
 	t.Run("ST-ASR-UC02-R06-T02 A proof run signed at the change's own ref by a run at a merge of another commit, or into another branch, is refused", func(t *testing.T) {
+		t.Parallel()
 		g := newGateRepository(t)
 		outcomes := []string{"FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed"}
 		// The earlier head of the pull request alters the proof run workflow; the later head leaves the workflows
@@ -620,6 +631,7 @@ func TestGateChange(t *testing.T) {
 	})
 
 	t.Run("ST-ASR-PO01-T The gate job runs after the proof run is attested, and its next run for the commit reads that attestation from the store", func(t *testing.T) {
+		t.Parallel()
 		workflow := readGateWorkflow(t)
 		gate, ok := workflow.Jobs["gate"]
 		if !ok {
@@ -900,7 +912,9 @@ func poisonedLathe(t *testing.T, real string) (string, string) {
 // from the base commit and runs it on the change's tree, which is only data to the decision, and the change's run
 // of Lathe cannot alter the Lathe that measures the base.
 func TestGateBuiltFromBase(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-ASR-UC02-R07-T01 The gate job builds assure from the base commit only, and runs it in the change's checkout with the pinned Lathe, which the change cannot alter", func(t *testing.T) {
+		t.Parallel()
 		workflow := readGateWorkflow(t)
 		gate, ok := workflow.Jobs["gate"]
 		if !ok {
@@ -1300,7 +1314,9 @@ func readReleaseDecision(t *testing.T, file string) releaseDecision {
 }
 
 func TestGateRelease(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-ASR-UC03-R01-T01 A release is refused while any obligation is not designed, built and proved, and each such obligation is named", func(t *testing.T) {
+		t.Parallel()
 		g := newGateRepository(t)
 		predicate := g.releasePredicate(t)
 		// FX-LEND-INV02 loses its test record, and FX-LEND-INV03 its rule and its test record.
@@ -1320,6 +1336,7 @@ func TestGateRelease(t *testing.T) {
 	})
 
 	t.Run("ST-ASR-UC03-R02-T01 A release commit with no verified proof run, or with an automated test record not passed there, is refused", func(t *testing.T) {
+		t.Parallel()
 		g := newGateRepository(t)
 		predicate := g.releasePredicate(t)
 		full := g.commit(t, g.base, fullyProved)
@@ -1342,6 +1359,7 @@ func TestGateRelease(t *testing.T) {
 	})
 
 	t.Run("ST-ASR-UC03-R03-T01 The release gate job runs on a push to main, and only the attest-release job, which runs no repository code, signs a passed decision with the commit as subject", func(t *testing.T) {
+		t.Parallel()
 		// The workflow, the gate-release job and the attest-release job are exactly what is allowed: every key of
 		// the workflow and of each job, and every step with each of its keys and values, in order. A key, a step or a
 		// value that is not listed here, such as a step that fetches and runs code, a container, an if that stops the
@@ -1401,6 +1419,7 @@ func TestGateRelease(t *testing.T) {
 	})
 
 	t.Run("ST-ASR-UC03-R04-T01 A release commit whose tree has a code-standard fault is refused, and each fault is named with its file and rule", func(t *testing.T) {
+		t.Parallel()
 		g := newGateRepository(t)
 		predicate := g.releasePredicate(t)
 		faulty := g.commit(t, g.base, with(fullyProved, map[string]string{
@@ -1420,6 +1439,7 @@ func TestGateRelease(t *testing.T) {
 	})
 
 	t.Run("ST-ASR-UC03-R05-T01 A release takes only a proof run signed at main, and one signed at any other ref is refused with the ref named", func(t *testing.T) {
+		t.Parallel()
 		g := newGateRepository(t)
 		predicate := g.releasePredicate(t)
 		full := g.commit(t, g.base, fullyProved)
@@ -1442,6 +1462,7 @@ func TestGateRelease(t *testing.T) {
 	})
 
 	t.Run("ST-ASR-INV09-T A passed release decision is handed to the attestation action about its commit, for the trusted signer at main, and nothing else is", func(t *testing.T) {
+		t.Parallel()
 		g := newGateRepository(t)
 		full := g.commit(t, g.base, fullyProved)
 		passed := g.keep(t, "passed", proofRun(full, mainRef, 51, allPassed...))
@@ -1612,7 +1633,9 @@ func runDecisionCheck(t *testing.T, commit, document string) error {
 }
 
 func TestGateChangeCodeStandard(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-ASR-UC02-R05-T01 A change is refused for a code-standard fault the base head does not have, and a fault the base has is reported, not refused", func(t *testing.T) {
+		t.Parallel()
 		g := newGateRepository(t)
 		base := g.commit(t, g.base, map[string]string{"internal/lend/old.go": "package lend\n\nconst old = 1\n"})
 		outcomes := []string{"FX-LEND-INV01-T passed", "FX-LEND-INV02-T passed"}
