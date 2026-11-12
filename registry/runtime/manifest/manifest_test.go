@@ -49,8 +49,11 @@ CREATE ROLE manifest_reader_` + "%s" + ` LOGIN PASSWORD 'manifest-reader' NOSUPE
 const tenantWall = "(tenant_id = current_setting('app.tenant'::text, true))"
 
 // want is the manifest of the schema.
+// testOwner is the role that owns the tables of the test database: the superuser of the server.
+var testOwner string
+
 func want() Manifest {
-	return Manifest{Tables: []Table{
+	return Manifest{Owner: testOwner, Tables: []Table{
 		{Schema: "public", Name: "folders", Columns: []Column{{Name: "tenant_id", Type: "text", NotNull: true}, {Name: "id", Type: "uuid", NotNull: true}},
 			Constraints: []Constraint{{Name: "folders_pkey", Kind: KindPrimaryKey, Definition: "PRIMARY KEY (tenant_id, id)"}},
 			Indexes:     []Index{{Name: "folders_pkey", Columns: []string{"tenant_id", "id"}}}},
@@ -86,6 +89,9 @@ func database(t *testing.T) (*sql.DB, *sql.DB) {
 		t.Fatal(err)
 	}
 	role := "manifest_reader_" + strings.TrimPrefix(u.Path, "/manifest_")
+	if err := admin.QueryRow("SELECT current_user").Scan(&testOwner); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := admin.Exec(strings.Replace(schema, "manifest_reader_%s", role, 1)); err != nil {
 		t.Fatal(err)
 	}
@@ -290,6 +296,84 @@ var redTeam = []struct{ name, statement, fault string }{
 	{"an upsert key index with another collation",
 		`DROP INDEX public.books_folder_id_title_key; CREATE UNIQUE INDEX books_folder_id_title_key ON public.books (tenant_id, folder_id, title COLLATE "POSIX") WHERE note IS NULL`,
 		"table public.books: index books_folder_id_title_key has an operator class or a collation that is not the default"},
+}
+
+// redTeam2 are the hostile changes of the delta review of PR 218 at 75acc7c9 (N1 to N5).
+var redTeam2 = []struct{ name, statement, fault string }{
+	{"a partitioned table with a copying trigger on its partition",
+		`DROP TABLE public.books;
+CREATE TABLE public.books (tenant_id text NOT NULL DEFAULT current_setting('app.tenant'), id uuid NOT NULL, folder_id uuid NOT NULL,
+  title character varying(255) NOT NULL, note text, pages integer,
+  CONSTRAINT books_pkey PRIMARY KEY (tenant_id, id), CONSTRAINT books_title_check CHECK (char_length(title) >= 1),
+  CONSTRAINT books_folder_id_fkey FOREIGN KEY (tenant_id, folder_id) REFERENCES public.folders (tenant_id, id)) PARTITION BY LIST (tenant_id);
+CREATE UNIQUE INDEX books_folder_id_title_key ON public.books (tenant_id, folder_id, title) WHERE note IS NULL;
+ALTER TABLE public.books ENABLE ROW LEVEL SECURITY; ALTER TABLE public.books FORCE ROW LEVEL SECURITY;
+CREATE POLICY stego_tenant ON public.books USING ("tenant_id" = pg_catalog.current_setting('app.tenant', true)) WITH CHECK ("tenant_id" = pg_catalog.current_setting('app.tenant', true));
+CREATE TRIGGER books_reject_row BEFORE UPDATE OR DELETE ON public.books FOR EACH ROW EXECUTE FUNCTION public.books_reject();
+CREATE TABLE public.books_all PARTITION OF public.books DEFAULT;
+CREATE TABLE public.leak (LIKE public.books);
+CREATE FUNCTION public.copy_row() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN INSERT INTO public.leak SELECT NEW.*; RETURN NEW; END $$;
+CREATE TRIGGER copy BEFORE INSERT ON public.books_all FOR EACH ROW EXECUTE FUNCTION public.copy_row();`,
+		"table public.books: the table is partitioned, and the manifest needs a plain table"},
+	{"a table made a child of an open parent by INHERIT",
+		`CREATE TABLE public.open_parent (LIKE public.books); ALTER TABLE public.books INHERIT public.open_parent`,
+		"table public.books: the table is a partition or a child of another table"},
+	{"a table that another table inherits from",
+		`CREATE TABLE public.open_child () INHERITS (public.folders)`,
+		"table public.folders: another table inherits from the table"},
+	{"an extra foreign key with ON DELETE CASCADE to an open table",
+		`CREATE TABLE public.evil (id uuid PRIMARY KEY); ALTER TABLE public.books ADD CONSTRAINT books_evil_fkey FOREIGN KEY (folder_id) REFERENCES public.evil (id) ON DELETE CASCADE`,
+		"table public.books: constraint books_evil_fkey is a foreign key that the manifest does not name"},
+	{"an extra foreign key with no action to an open table",
+		`CREATE TABLE public.evil (id uuid PRIMARY KEY); ALTER TABLE public.books ADD CONSTRAINT books_evil_fkey FOREIGN KEY (folder_id) REFERENCES public.evil (id)`,
+		"table public.books: constraint books_evil_fkey is a foreign key that the manifest does not name"},
+	{"a foreign key of another table to a manifest table with ON DELETE SET NULL",
+		`CREATE TABLE public.notes (tenant_id text, folder_id uuid, FOREIGN KEY (tenant_id, folder_id) REFERENCES public.folders (tenant_id, id) ON DELETE SET NULL)`,
+		"table public.folders: the foreign key public.notes.notes_tenant_id_folder_id_fkey refers to the table with an action that writes"},
+	{"the table and the function moved to a third role",
+		`CREATE ROLE manifest_evil_owner NOLOGIN; ALTER TABLE public.books OWNER TO manifest_evil_owner; ALTER FUNCTION public.books_reject() OWNER TO manifest_evil_owner`,
+		"table public.books: the table belongs to the role manifest_evil_owner, and the manifest needs %owner%"},
+	{"a reader role whose sessions skip triggers",
+		`ALTER ROLE %reader% SET session_replication_role = replica`,
+		"the session runs with session_replication_role replica, which skips the triggers"},
+	{"control: a function setting changed",
+		`ALTER FUNCTION public.books_reject() SET search_path = public`,
+		"table public.books: trigger books_reject_row runs the function public.books_reject, which is not the function of the manifest"},
+	{"control: a constraint trigger added",
+		`CREATE CONSTRAINT TRIGGER zz AFTER INSERT ON public.books FOR EACH ROW EXECUTE FUNCTION public.books_reject()`,
+		"table public.books: trigger zz is a trigger that the manifest does not name"},
+}
+
+func TestRedTeam2(t *testing.T) {
+	t.Run("ST-SUP-RP15-LC01-T03 Check refuses a table that is partitioned, inherits, has another owner or foreign key, and a session that skips triggers", func(t *testing.T) {
+		ctx := context.Background()
+		for _, change := range redTeam2 {
+			t.Run(change.name, func(t *testing.T) {
+				admin, reader := database(t)
+				t.Cleanup(func() {
+					_, _ = admin.Exec("DROP OWNED BY manifest_evil_owner; DROP ROLE IF EXISTS manifest_evil_owner")
+				})
+				if err := Check(ctx, reader, want()); err != nil {
+					t.Fatalf("Check refused the database of the manifest: %v", err)
+				}
+				var role string
+				if err := reader.QueryRow("SELECT current_user").Scan(&role); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := admin.Exec(strings.ReplaceAll(change.statement, "%reader%", role)); err != nil {
+					t.Fatal(err)
+				}
+				// A role setting takes effect in a new session.
+				reader.SetMaxIdleConns(0)
+				err := Check(ctx, reader, want())
+				fault := strings.ReplaceAll(change.fault, "%owner%", testOwner)
+				var mismatch *Mismatch
+				if !errors.As(err, &mismatch) || !slices.Contains(mismatch.Faults, fault) {
+					t.Fatalf("Check gave %v, want the fault %q", err, fault)
+				}
+			})
+		}
+	})
 }
 
 func TestRedTeam(t *testing.T) {

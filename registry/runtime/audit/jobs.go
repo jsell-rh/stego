@@ -139,7 +139,7 @@ func Manifest(c Config) (manifest.Manifest, error) {
 		}
 	}
 	return manifest.Manifest{Tables: []manifest.Table{
-		{Schema: s, Name: EventsTable, RowSecurity: true, Policies: wall, Triggers: rejecting(EventsTable)},
+		{Schema: s, Name: EventsTable, Partitioned: true, RowSecurity: true, Policies: wall, Triggers: rejecting(EventsTable)},
 		{Schema: s, Name: HeadsTable, RowSecurity: true, Policies: wall},
 		{Schema: s, Name: BoundariesTable, RowSecurity: true, Policies: wall, Triggers: []manifest.Trigger{
 			{Name: BoundariesTable + "_guard", Timing: "BEFORE", Row: true, Events: []string{"INSERT", "UPDATE"}, Function: guard}}},

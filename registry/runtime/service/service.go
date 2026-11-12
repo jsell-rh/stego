@@ -58,6 +58,9 @@ type Parts struct {
 	Commands, Collections []command.Declared
 	// Workers are the parts of the worker and controller modes, which Start runs (ST-SUP-RP14-LC04).
 	Workers WorkerParts
+	// OwnerRole is the owner role of the service, which the migration job runs as and which must own each table of
+	// the schema manifest and each trigger function (ST-SUP-RP14-LC06).
+	OwnerRole string
 	// Schema is the schema manifest of the tables of the declaration, which the PostgreSQL adapter emits
 	// (ST-SUP-RC01-OC12). New adds the manifest of the audit record to it, for the anchor period of Workers
 	// (ST-SUP-RP14-LC06).
@@ -70,6 +73,8 @@ func (p Parts) check() error {
 		return errors.New("service: the parts need the service name and the declaration version")
 	case p.SubjectType == "" || p.TenantClaim == "" || p.ProblemCode == "":
 		return errors.New("service: the parts need the subject type, the tenant claim and the problem code")
+	case p.OwnerRole == "":
+		return errors.New("service: the parts need the owner role, which owns the tables of the schema manifest")
 	case p.TenantConfig == nil || p.NewQueue == nil || p.AuditQueue == nil || p.NewAuthz == nil:
 		return errors.New("service: the parts need the adapter's connection configuration, the outbox queue, the audit queue and the authorization runtime")
 	}
@@ -118,7 +123,7 @@ func New(ctx context.Context, s Settings, p Parts) (_ *Service, err error) {
 	if svc.pool, err = tenant.Open(ctx, pools); err != nil {
 		return nil, err
 	}
-	if err := checkSchema(ctx, svc.pool, p.Schema, p.Workers.AnchorPeriod); err != nil {
+	if err := checkSchema(ctx, svc.pool, p.Schema, p.OwnerRole, p.Workers.AnchorPeriod); err != nil {
 		return nil, err
 	}
 	if svc.auditDB, err = tenant.Open(ctx, pools); err != nil {
@@ -195,12 +200,14 @@ func New(ctx context.Context, s Settings, p Parts) (_ *Service, err error) {
 // writes nothing and serves no request. The failure record of the process holds no error text, so it logs the
 // faults, which name only objects of the catalog. The audit triggers' functions are those that the audit DDL makes
 // for the declared anchor period (Parts.Workers.AnchorPeriod).
-func checkSchema(ctx context.Context, db *sql.DB, declared manifest.Manifest, anchorPeriod time.Duration) error {
+func checkSchema(ctx context.Context, db *sql.DB, declared manifest.Manifest, owner string, anchorPeriod time.Duration) error {
 	record, err := audit.Manifest(audit.Config{AnchorPeriod: anchorPeriod})
 	if err != nil {
 		return fmt.Errorf("service: the manifest of the audit record: %w", err)
 	}
-	err = manifest.Check(ctx, db, manifest.Join(declared, record))
+	want := manifest.Join(declared, record)
+	want.Owner = owner
+	err = manifest.Check(ctx, db, want)
 	var mismatch *manifest.Mismatch
 	if errors.As(err, &mismatch) {
 		slog.ErrorContext(ctx, "service: the database does not satisfy the schema manifest, and the service does not start",

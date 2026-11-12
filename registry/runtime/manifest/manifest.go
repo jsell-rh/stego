@@ -21,11 +21,18 @@ import (
 // what is missing or different, and a permissive policy that a table with row-level security does not name.
 type Manifest struct {
 	Tables []Table
+	// Owner is the role that must own each table and each trigger function of the manifest: the owner role of the
+	// service, which the migration job runs as. Empty leaves the owner of the table unchecked.
+	Owner string
 }
 
 // Table is one table that the code reads or writes, in its schema.
 type Table struct {
 	Schema, Name string
+	// Partitioned tells that the table is partitioned, as the audit events table is; its partitions may inherit
+	// from it. Every other table of the manifest is a plain table that is no partition, inherits from no table, and
+	// that no table inherits from.
+	Partitioned bool
 	// Columns are the columns that the code reads or writes, each with its type and its NOT NULL.
 	Columns []Column
 	// Constraints are the primary key, check and foreign key constraints of the table, by name.
@@ -110,6 +117,9 @@ func Join(manifests ...Manifest) Manifest {
 	var joined Manifest
 	for _, m := range manifests {
 		joined.Tables = append(joined.Tables, m.Tables...)
+		if joined.Owner == "" {
+			joined.Owner = m.Owner
+		}
 	}
 	return joined
 }
@@ -122,6 +132,9 @@ var name = regexp.MustCompile(`^[^\x00-\x1f]{1,63}$`)
 // table, an unknown constraint kind, policy command, trigger timing or event, a foreign key with no table, or an
 // index with no column.
 func (m Manifest) Validate() error {
+	if m.Owner != "" && !name.MatchString(m.Owner) {
+		return fmt.Errorf("manifest: the owner %q needs a name of at most 63 bytes", m.Owner)
+	}
 	tables := map[string]bool{}
 	for _, t := range m.Tables {
 		if !name.MatchString(t.Schema) || !name.MatchString(t.Name) {
@@ -257,7 +270,7 @@ func (m *Mismatch) Is(target error) bool { return target == ErrNotSatisfied }
 // Timeout bounds Check.
 const Timeout = 30 * time.Second
 
-// Check reads the catalog of the database in one read-only transaction on db, with the search path pg_catalog,
+// Check reads the catalog and the session_replication_role of the session in one read-only transaction on db, with the search path pg_catalog,
 // pg_temp, so no temporary object stands in for a catalog object. It gives a *Mismatch that names each table,
 // column, constraint, index, policy and trigger of the manifest that the database does not hold as the manifest
 // states it, and each rule, extra permissive policy and extra trigger that it does not allow (ST-SUP-RC01-OC12). It reads only the catalog, so the runtime
@@ -281,8 +294,17 @@ func Check(ctx context.Context, db *sql.DB, m Manifest) (err error) {
 		return fmt.Errorf("manifest: read the catalog: %w", err)
 	}
 	var faults []string
+	// session_replication_role replica or local skips each ordinary trigger, so the triggers of the manifest
+	// would not run in this session or in the sessions of its role.
+	var replication string
+	if err := tx.QueryRowContext(ctx, "SELECT pg_catalog.current_setting('session_replication_role')").Scan(&replication); err != nil {
+		return fmt.Errorf("manifest: read the catalog: %w", err)
+	}
+	if replication != "origin" {
+		faults = append(faults, "the session runs with session_replication_role "+replication+", which skips the triggers")
+	}
 	for _, t := range m.Tables {
-		found, err := checkTable(ctx, tx, t)
+		found, err := checkTable(ctx, tx, t, m.Owner)
 		if err != nil {
 			return fmt.Errorf("manifest: read the catalog of the table %s.%s: %w", t.Schema, t.Name, err)
 		}
@@ -295,16 +317,23 @@ func Check(ctx context.Context, db *sql.DB, m Manifest) (err error) {
 }
 
 // checkTable gives the faults of one table.
-func checkTable(ctx context.Context, tx *sql.Tx, t Table) ([]string, error) {
+func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string) ([]string, error) {
 	id := t.Schema + "." + t.Name
 	var (
 		oid                    uint32
 		owner                  uint32
+		ownerName, kind        string
 		rowSecurity, forceRows bool
+		partition              bool
+		child, parent          bool
 	)
-	err := tx.QueryRowContext(ctx, `SELECT c.oid, c.relowner, c.relrowsecurity, c.relforcerowsecurity FROM pg_catalog.pg_class c
+	err := tx.QueryRowContext(ctx, `SELECT c.oid, c.relowner, pg_catalog.pg_get_userbyid(c.relowner), c.relkind::text, c.relrowsecurity,
+  c.relforcerowsecurity, c.relispartition,
+  EXISTS (SELECT 1 FROM pg_catalog.pg_inherits i WHERE i.inhrelid = c.oid),
+  EXISTS (SELECT 1 FROM pg_catalog.pg_inherits i WHERE i.inhparent = c.oid)
+  FROM pg_catalog.pg_class c
   JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind IN ('r', 'p')`,
-		t.Schema, t.Name).Scan(&oid, &owner, &rowSecurity, &forceRows)
+		t.Schema, t.Name).Scan(&oid, &owner, &ownerName, &kind, &rowSecurity, &forceRows, &partition, &child, &parent)
 	if errors.Is(err, sql.ErrNoRows) {
 		return []string{"table " + id + " is missing"}, nil
 	}
@@ -314,6 +343,23 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table) ([]string, error) {
 	var faults []string
 	fault := func(format string, args ...any) {
 		faults = append(faults, "table "+id+": "+fmt.Sprintf(format, args...))
+	}
+	// A partition or a child of another table is read through its parent, which the tenant wall of the manifest
+	// does not hold; a partitioned table routes its rows to partitions whose triggers the manifest does not name.
+	switch {
+	case kind == "p" && !t.Partitioned:
+		fault("the table is partitioned, and the manifest needs a plain table")
+	case kind != "p" && t.Partitioned:
+		fault("the table is not partitioned, and the manifest needs a partitioned table")
+	}
+	if partition || child {
+		fault("the table is a partition or a child of another table")
+	}
+	if parent && !t.Partitioned {
+		fault("another table inherits from the table")
+	}
+	if wantOwner != "" && ownerName != wantOwner {
+		fault("the table belongs to the role %s, and the manifest needs %s", ownerName, wantOwner)
 	}
 
 	type column struct {
@@ -374,6 +420,44 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table) ([]string, error) {
 			return nil, err
 		}
 		constraints[n] = c
+	}
+	if err := closed(rows); err != nil {
+		return nil, err
+	}
+	if t.RowSecurity {
+		// A referential action runs with the rights of the table owner and passes row-level security, so on a table
+		// with row-level security each foreign key is the manifest's.
+		namedConstraints := map[string]bool{}
+		for _, want := range t.Constraints {
+			namedConstraints[want.Name] = true
+		}
+		var extra []string
+		for n, c := range constraints {
+			if c.kind == KindForeignKey && !namedConstraints[n] {
+				extra = append(extra, n)
+			}
+		}
+		slices.Sort(extra)
+		for _, n := range extra {
+			fault("constraint %s is a foreign key that the manifest does not name", n)
+		}
+	}
+	// A foreign key of another table that refers to this one with an action that writes deletes or changes its rows
+	// with the rights of its owner, past row-level security.
+	rows, err = tx.QueryContext(ctx, `SELECT rn.nspname || '.' || r.relname || '.' || c.conname FROM pg_catalog.pg_constraint c
+  JOIN pg_catalog.pg_class r ON r.oid = c.conrelid JOIN pg_catalog.pg_namespace rn ON rn.oid = r.relnamespace
+  WHERE c.contype = 'f' AND c.confrelid = $1 AND c.conrelid <> $1
+    AND (c.confdeltype NOT IN ('a', 'r') OR c.confupdtype NOT IN ('a', 'r')) ORDER BY 1`, oid)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		fault("the foreign key %s refers to the table with an action that writes", n)
 	}
 	if err := closed(rows); err != nil {
 		return nil, err

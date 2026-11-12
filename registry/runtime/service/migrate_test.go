@@ -152,6 +152,10 @@ type fixture struct {
 	purge, outboxRelay            string
 }
 
+// fixtureOwner is the owner role of the last fixture, which the parts of the test service name; the tests of the
+// package do not run in parallel.
+var fixtureOwner string
+
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	suffix := make([]byte, 5)
@@ -203,6 +207,7 @@ func newFixture(t *testing.T) *fixture {
 			_, _ = root.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+role)
 		}
 	})
+	fixtureOwner = f.owner
 	return f
 }
 

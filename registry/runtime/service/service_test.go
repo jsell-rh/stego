@@ -84,7 +84,7 @@ func orderEntity(t *testing.T) *command.Entity[order] {
 func parts(entities []command.Declared, calls *int) Parts {
 	return Parts{
 		Service: "todo-svc", DeclarationVersion: "d1", SubjectType: "user", TenantClaim: "tenant", ProblemCode: "TODO",
-		TenantConfig: tenantConfig(calls),
+		TenantConfig: tenantConfig(calls), OwnerRole: fixtureOwner,
 		NewQueue: func(db *sql.DB) (*outbox.Queue, error) {
 			return outbox.New(db, outbox.Options{PayloadLimits: auditoutbox.PayloadLimits()})
 		},
@@ -325,6 +325,9 @@ func TestNew(t *testing.T) {
 				"table public.orders: column status has the type character varying(20)")
 			refused("ALTER TABLE public.orders NO FORCE ROW LEVEL SECURITY", "ALTER TABLE public.orders FORCE ROW LEVEL SECURITY",
 				"table public.orders: row-level security is not enabled and forced")
+			// Each table of the manifest belongs to the owner role of the service.
+			refused("ALTER TABLE public.orders OWNER TO "+f.relay, "ALTER TABLE public.orders OWNER TO "+f.owner,
+				"table public.orders: the table belongs to the role "+f.relay+", and the manifest needs "+f.owner)
 			// The audit record is in the manifest of every service, with the triggers that make it append-only.
 			refused("DROP TRIGGER audit_event_reject_row ON public.audit_event",
 				"CREATE TRIGGER audit_event_reject_row BEFORE UPDATE OR DELETE ON public.audit_event FOR EACH ROW EXECUTE FUNCTION public.audit_reject_change()",
