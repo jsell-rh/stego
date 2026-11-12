@@ -7,8 +7,8 @@ version: 1.44.0
 # of that folder at the version. A new runtime version moves it in a new archetype version.
 runtime:
   module: github.com/jsell-rh/stego/registry/runtime
-  version: v0.40.0
-  sum: h1:Amv1vP1MFPINeMBO+WTdCWS0OM/4lixoCeM9rB5i5Cg=
+  version: v0.40.1
+  sum: h1:h87PggJtkEZsvYoVxJBIuq+1n9cy7CNnbHM9eQYR1SI=
 components:
   - postgres-adapter
   - domain-probe
