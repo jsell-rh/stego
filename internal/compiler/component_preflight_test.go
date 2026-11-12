@@ -14,7 +14,6 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
 	"github.com/jsell-rh/stego/internal/generator/postgresclient"
 	"github.com/jsell-rh/stego/internal/generator/restapi"
-	"github.com/jsell-rh/stego/internal/generator/tslsearch"
 	"github.com/jsell-rh/stego/internal/types"
 )
 
@@ -30,8 +29,7 @@ func TestComponentPreflightMatchesDirectGeneration(t *testing.T) {
 		{"Kubernetes transport", new(kubernetesclient.Generator), gen.Context{OutputNamespace: "kube", ModuleName: "example.com/service"}, "requires the generated HTTP"},
 		{"PostgreSQL client path", new(postgresclient.Generator), gen.Context{OutputNamespace: "../client"}, "canonical relative path"},
 		{"outbox path", new(outbox.Generator), gen.Context{OutputNamespace: "../outbox"}, "canonical relative path"},
-		{"search metadata", new(tslsearch.Generator), gen.Context{Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "created_at", Type: types.FieldTypeString}}}}}, "conflicts with common metadata"},
-		{"storage reserved table", new(postgresadapter.Generator), gen.Context{Entities: []types.Entity{{Name: "StegoScanCheckpoint"}}}, "internal state table"},
+		{"storage without commands and queries", new(postgresadapter.Generator), gen.Context{Entities: []types.Entity{{Name: "Record"}}}, "ST-SUP-RC20-OC39"},
 		{"JWT header", new(jwtauth.Generator), gen.Context{ComponentConfig: map[string]any{"header": "Bad Header"}}, "invalid authentication header"},
 		{"JWT claim", new(jwtauth.Generator), gen.Context{ComponentConfig: map[string]any{"roles_claim": "roles..name"}}, "dotted claim path"},
 		{"REST observation owner", new(restapi.Generator), gen.Context{Entities: []types.Entity{{Name: "Record", Observations: map[string][]string{"worker": {"status"}}}}, Collections: []types.Collection{{Name: "records", Entity: "Record"}}}, "observation ownership"},
