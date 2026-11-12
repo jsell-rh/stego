@@ -22,6 +22,7 @@
 {"source_id":"ST-BLD-UC02-FL-S03","target_id":"ST-BLD-CMD02"}
 {"source_id":"ST-BLD-UC02-FL-S04","target_id":"ST-BLD-CMD02"}
 {"source_id":"ST-BLD-UC02-FL-S05","target_id":"ST-BLD-CMD02"}
+{"source_id":"ST-BLD-UC02-FL-S06","target_id":"ST-BLD-CMD02"}
 {"source_id":"ST-BLD-UC03-FL-S01","target_id":"ST-BLD-CMD03"}
 {"source_id":"ST-BLD-UC03-FL-S02","target_id":"ST-BLD-CMD03"}
 {"source_id":"ST-BLD-UC04-FL-S01","target_id":"ST-BLD-QRY01"}
