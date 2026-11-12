@@ -833,7 +833,12 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 	})
 	record := filepath.Join(results[0], "build.json")
 	application := filepath.Join(results[0], "application")
-	trusted := fileSHA256(t, record)
+	// The checks below need the result of the builds; when the setup failed, each check reports that alone.
+	built := notPinned == "" && setupErr == nil
+	trusted := ""
+	if built {
+		trusted = fileSHA256(t, record)
+	}
 	t.Run("ST-BLD-UC04-R01-T01 A record whose canonical bytes do not hash to the trusted digest is refused", func(t *testing.T) {
 		ready(t)
 		if err := stegoBuild(t, nil, "verify", "--record", record, "--record-sha256", trusted, "--artifact", application); err != nil {
@@ -856,12 +861,14 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 		}
 	})
 	snapshot := filepath.Join(t.TempDir(), "snapshot")
-	if err := os.Mkdir(snapshot, 0755); err != nil {
-		t.Fatal(err)
-	}
-	archive := exec.Command("sh", "-c", "git -C \"$1\" archive --format=tar \"$2\" | tar -x -C \"$3\"", "sh", source, revision, snapshot)
-	if output, err := archive.CombinedOutput(); err != nil {
-		t.Fatalf("source snapshot: %v\n%s", err, output)
+	if built {
+		if err := os.Mkdir(snapshot, 0755); err != nil {
+			t.Fatal(err)
+		}
+		archive := exec.Command("sh", "-c", "git -C \"$1\" archive --format=tar \"$2\" | tar -x -C \"$3\"", "sh", source, revision, snapshot)
+		if output, err := archive.CombinedOutput(); err != nil {
+			t.Fatalf("source snapshot: %v\n%s", err, output)
+		}
 	}
 	t.Run("ST-BLD-UC04-R01-T02 A source check refuses an untrusted record digest", func(t *testing.T) {
 		ready(t)
