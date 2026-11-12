@@ -9,9 +9,10 @@ name: Proof run
 # stays outside the checkout.
 #
 # On a pull request the commit is the pull request's head, a commit that exists in the repository; on a push it is
-# the commit pushed. A failed test does not stop the run: the proof run records it, and the gates read the
-# attestation. assure record stops the run, and nothing is attested, when a test names an unknown ID or the tree
-# has uncommitted changes.
+# the commit pushed. A failed test does not stop the tests: the proof run records it and is kept as an artifact.
+# Then the suites job fails on any failed test or package, also one whose name carries no test record ID, so
+# nothing is attested and the gates refuse for want of a verified proof run. assure record stops the run, and
+# nothing is attested, when a test names an unknown ID or the tree has uncommitted changes.
 #
 # On a pull request, the gate job then gates the change (ST-ASR-UC02): it hears that the proof run is attested
 # (ST-ASR-PO01), reads the attestation from GitHub's store, verifies it, and measures the coverage at the head and
@@ -224,47 +225,60 @@ jobs:
           mkdir -p "$RUNNER_TEMP/record"
           go build -mod=readonly -trimpath -o "$RUNNER_TEMP/record/assure" .
           chmod -R a-w "$RUNNER_TEMP/record"
+      # Each part's artifact goes to a folder of its own, parts/tests-<part>, so no artifact can write over another.
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           pattern: tests-*
           path: ${{ runner.temp }}/parts
-          merge-multiple: true
-      # A part that is missing, cut short or not whole fails the job, so nothing is attested: each file must be
-      # there; each line of a go test output must be JSON; each package of the root module must be in a part; and
-      # each package that a part lists must have its result (pass, fail or skip) in that part's output.
+      # A part that is missing, cut short or not whole fails the job, so nothing is attested: the folders must be
+      # exactly those of the five parts; each file must be there; each line of a go test output and the Python
+      # output must be JSON; each package of the root module must be in a part; and each package that a part lists
+      # must have its result (pass, fail or skip) in that part's output. bash runs it with pipefail.
       - name: Join the outputs of the parts
+        shell: bash
         run: |
           parts="$RUNNER_TEMP/parts"
-          for file in packages-root.txt python-tests.json; do
+          expected="tests-assure tests-generators tests-rest tests-stego tests-stego-build"
+          found="$(cd "$parts" && ls -A | LC_ALL=C sort | tr '\n' ' ')"
+          if [ "$found" != "$expected " ]; then
+            echo "::error::The parts are $found, not exactly $expected. Nothing is attested."
+            exit 1
+          fi
+          for file in tests-rest/packages-root.txt tests-assure/python-tests.json; do
             test -s "$parts/$file" || { echo "::error::The parts wrote no $file. Nothing is attested."; exit 1; }
           done
-          jq -e . "$parts/python-tests.json" > /dev/null
+          jq -e . "$parts/tests-assure/python-tests.json" > /dev/null
           for part in stego-build stego generators rest assure; do
             for file in "go-test-$part.json" "packages-$part.txt"; do
-              test -s "$parts/$file" || { echo "::error::The part $part wrote no $file. Nothing is attested."; exit 1; }
+              test -s "$parts/tests-$part/$file" || { echo "::error::The part $part wrote no $file. Nothing is attested."; exit 1; }
             done
+            if ! jq -e . "$parts/tests-$part/go-test-$part.json" > /dev/null; then
+              echo "::error::The go test output of the part $part has a line that is not JSON. Nothing is attested."
+              exit 1
+            fi
             jq -r 'select(.Test == null and (.Action == "pass" or .Action == "fail" or .Action == "skip")) | .Package' \
-              "$parts/go-test-$part.json" | sort -u > "$RUNNER_TEMP/done-$part.txt"
-            missing="$(sort -u "$parts/packages-$part.txt" | comm -23 - "$RUNNER_TEMP/done-$part.txt")"
+              "$parts/tests-$part/go-test-$part.json" | LC_ALL=C sort -u > "$RUNNER_TEMP/done-$part.txt"
+            missing="$(LC_ALL=C sort -u "$parts/tests-$part/packages-$part.txt" | LC_ALL=C comm -23 - "$RUNNER_TEMP/done-$part.txt")"
             if [ -n "$missing" ]; then
               echo "::error::The part $part has no result for: $missing. Nothing is attested."
               exit 1
             fi
           done
-          unplaced="$(sort -u "$parts/packages-root.txt" | comm -23 - <(cat "$parts"/packages-{stego-build,stego,generators,rest}.txt | sort -u))"
+          unplaced="$(LC_ALL=C sort -u "$parts/tests-rest/packages-root.txt" | LC_ALL=C comm -23 - <(for part in stego-build stego generators rest; do cat "$parts/tests-$part/packages-$part.txt"; done | LC_ALL=C sort -u))"
           if [ -n "$unplaced" ]; then
             echo "::error::No part ran: $unplaced. Nothing is attested."
             exit 1
           fi
-          cat "$parts/go-test-rest.json" "$parts/go-test-generators.json" "$parts/go-test-stego-build.json" "$parts/go-test-stego.json" \
-            "$parts/go-test-assure.json" > "$RUNNER_TEMP/go-test.json"
+          for part in rest generators stego-build stego assure; do
+            cat "$parts/tests-$part/go-test-$part.json"
+          done > "$RUNNER_TEMP/go-test.json"
       - name: Record the proof run
         run: >-
           mkdir -p "$RUNNER_TEMP/proof-run" &&
           "$RUNNER_TEMP/record/assure" record
           --commit "$COMMIT"
           --go-json "$RUNNER_TEMP/go-test.json"
-          --python-json "$RUNNER_TEMP/parts/python-tests.json"
+          --python-json "$RUNNER_TEMP/parts/tests-assure/python-tests.json"
           --predicate "$RUNNER_TEMP/proof-run/proof-run.json"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -272,6 +286,20 @@ jobs:
           path: ${{ runner.temp }}/proof-run/proof-run.json
           retention-days: 14
           if-no-files-found: error
+      # assure record gives outcomes only to tests whose names carry a test record ID. Every other failure fails the
+      # job here, after the proof run is recorded and kept: a Go test or subtest of any name, a parent test, a
+      # package (TestMain, a race outside a test, a build fault), and a Python test of any name.
+      - name: Fail on any failed test
+        shell: bash
+        run: |
+          parts="$RUNNER_TEMP/parts"
+          go_failed="$(jq -r 'select(.Action == "fail") | "\(.Package) \(.Test // "(package)")"' "$RUNNER_TEMP/go-test.json")"
+          python_failed="$(jq -r '.tests[] | select(.result == "failed") | .test' "$parts/tests-assure/python-tests.json")"
+          if [ -n "$go_failed$python_failed" ]; then
+            printf '%s\n' $'Failed Go tests and packages:' "$go_failed" $'Failed Python tests:' "$python_failed"
+            echo "::error::A test or package failed (listed above). The proof run is recorded and kept, but the suites job fails."
+            exit 1
+          fi
 
   attest:
     name: attest

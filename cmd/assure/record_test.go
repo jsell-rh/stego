@@ -403,6 +403,11 @@ class Fix(unittest.TestCase):
 		if len(suites.Permissions) != 1 || suites.Permissions["contents"] != "read" {
 			t.Fatalf("the suites job's permissions are %v, want only contents: read: it runs the repository's code", suites.Permissions)
 		}
+		// The tests jobs run the suites in parts, the change's code: they may only read the repository too.
+		tests := workflow.Jobs["tests"]
+		if len(tests.Steps) == 0 || len(tests.Permissions) != 1 || tests.Permissions["contents"] != "read" {
+			t.Fatalf("the tests job has %d steps and the permissions %v, want steps and only contents: read", len(tests.Steps), tests.Permissions)
+		}
 		// The workflow and the attest job are exactly what is allowed: each key of the workflow and of the job, and
 		// each step with each of its keys and values, in order. The attest job needs the suites job, may only get an
 		// identity token and write attestations, checks out and runs no code of the repository, and signs
@@ -411,8 +416,11 @@ class Fix(unittest.TestCase):
 		exactWorkflow(t, raw)
 		exactJob(t, raw, "attest", attestJob())
 		var record *workflowStep
-		for _, job := range []workflowJob{suites, attest} {
+		for _, job := range []workflowJob{tests, suites, attest} {
 			for i, step := range job.Steps {
+				if strings.HasPrefix(step.Uses, "actions/checkout@") && step.With["persist-credentials"] != "false" {
+					t.Fatalf("step %q checks out with persist-credentials %q, want false", step.Name, step.With["persist-credentials"])
+				}
 				if strings.Contains(step.Run, "git commit") || strings.Contains(step.Run, "git push") {
 					t.Fatalf("step %q commits to the repository", step.Name)
 				}
@@ -502,10 +510,12 @@ type workflowStep struct {
 	With             map[string]string `yaml:"with"`
 	Env              map[string]string `yaml:"env"`
 	WorkingDirectory string            `yaml:"working-directory"`
+	Shell            string            `yaml:"shell"`
 }
 
 type workflowJob struct {
 	Needs       stringList        `yaml:"needs"`
+	Env         map[string]string `yaml:"env"`
 	Permissions map[string]string `yaml:"permissions"`
 	Steps       []workflowStep    `yaml:"steps"`
 }
@@ -615,4 +625,121 @@ func runPredicateCheck(t *testing.T, commit, about string) error {
 		return fmt.Errorf("%v: %s", err, out)
 	}
 	return nil
+}
+
+// partFiles is the artifact folders of the tests jobs, as the suites job downloads them: each part's go test -json
+// output and the packages it lists; the rest part also lists every package of the root module, and the assure
+// part writes the Python output. Each Go package passes and the Python test passes.
+func partFiles() map[string]string {
+	files := map[string]string{
+		"tests-rest/packages-root.txt":               "example.test/root/a\nexample.test/root/b\nexample.test/root/stego\n",
+		"tests-assure/python-tests.json":             `{"format": 1, "tests": [{"test": "t.T.test_x", "name": "test_x", "result": "passed"}]}` + "\n",
+		"tests-rest/packages-rest.txt":               "example.test/root/a\n",
+		"tests-generators/packages-generators.txt":   "example.test/root/b\n",
+		"tests-stego-build/packages-stego-build.txt": "example.test/root/stego\n",
+		"tests-stego/packages-stego.txt":             "example.test/root/stego\n",
+		"tests-assure/packages-assure.txt":           "example.test/assure\n",
+	}
+	for part, pkg := range map[string]string{"rest": "root/a", "generators": "root/b", "stego-build": "root/stego", "stego": "root/stego", "assure": "assure"} {
+		files["tests-"+part+"/go-test-"+part+".json"] = `{"Action":"run","Package":"example.test/` + pkg + `","Test":"TestX"}` + "\n" +
+			`{"Action":"pass","Package":"example.test/` + pkg + `","Test":"TestX","Elapsed":0.1}` + "\n" +
+			`{"Action":"pass","Package":"example.test/` + pkg + `","Elapsed":0.2}` + "\n"
+	}
+	return files
+}
+
+// runSuitesStep runs the step of the suites job with the name in a runner's temporary folder that holds the
+// files, with bash and pipefail as GitHub Actions runs a step with shell: bash.
+func runSuitesStep(t *testing.T, runnerTemp, name string) error {
+	t.Helper()
+	for _, step := range readWorkflow(t).Jobs["suites"].Steps {
+		if step.Name != name {
+			continue
+		}
+		if step.Shell != "bash" {
+			t.Fatalf("the suites job runs %q with the shell %q, want bash, which sets pipefail", name, step.Shell)
+		}
+		command := exec.Command("bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step.Run)
+		command.Env = []string{"PATH=" + os.Getenv("PATH"), "RUNNER_TEMP=" + runnerTemp}
+		if out, err := command.CombinedOutput(); err != nil {
+			return fmt.Errorf("%v: %s", err, out)
+		}
+		return nil
+	}
+	t.Fatalf("the suites job has no step %q", name)
+	return nil
+}
+
+func TestSuitesJob(t *testing.T) {
+	t.Parallel()
+	t.Run("ST-ASR-UC01-R01-T02 The suites job fails for a missing, extra, cut or incomplete part, and for a failed test or package of any name", func(t *testing.T) {
+		t.Parallel()
+		// Each top-level test of cmd/stego runs in exactly one of its two parts: the same pattern selects the
+		// tests of stego-build (go test -run) and leaves them out of stego (go test -skip).
+		tests := readWorkflow(t).Jobs["tests"]
+		var script string
+		for _, step := range tests.Steps {
+			if strings.Contains(step.Run, "go test -json -race") {
+				script += step.Run
+			}
+		}
+		if tests.Env["STEGO_BUILD_TESTS"] == "" || !strings.Contains(script, `stego-build) select=(-run "$STEGO_BUILD_TESTS")`) ||
+			!strings.Contains(script, `stego) select=(-skip "$STEGO_BUILD_TESTS")`) {
+			t.Fatal("the stego-build and stego parts do not split cmd/stego by the same pattern, with -run and -skip")
+		}
+		run := func(name string, change func(files map[string]string)) (joinErr, failErr error) {
+			files := partFiles()
+			change(files)
+			runnerTemp := t.TempDir()
+			for file, content := range files {
+				writeFile(t, filepath.Join(runnerTemp, "parts", file), content)
+			}
+			if joinErr = runSuitesStep(t, runnerTemp, "Join the outputs of the parts"); joinErr != nil {
+				return joinErr, nil
+			}
+			return nil, runSuitesStep(t, runnerTemp, "Fail on any failed test")
+		}
+		if joinErr, failErr := run("whole", func(map[string]string) {}); joinErr != nil || failErr != nil {
+			t.Fatalf("a whole set of parts that all passed is refused: join %v, check %v", joinErr, failErr)
+		}
+		for name, change := range map[string]func(map[string]string){
+			"a missing part": func(f map[string]string) {
+				delete(f, "tests-generators/go-test-generators.json")
+				delete(f, "tests-generators/packages-generators.txt")
+			},
+			"an extra part": func(f map[string]string) { f["tests-extra/go-test-extra.json"] = "{}\n" },
+			"a cut line": func(f map[string]string) {
+				f["tests-stego/go-test-stego.json"] += `{"Action":"pass","Pack`
+			},
+			"a package with no result": func(f map[string]string) {
+				f["tests-rest/go-test-rest.json"] = `{"Action":"run","Package":"example.test/root/a","Test":"TestX"}` + "\n"
+			},
+			"a root package in no part": func(f map[string]string) { f["tests-rest/packages-root.txt"] += "example.test/root/new\n" },
+			"no Python output":          func(f map[string]string) { delete(f, "tests-assure/python-tests.json") },
+		} {
+			if joinErr, _ := run(name, change); joinErr == nil {
+				t.Errorf("the suites job joins the parts with %s", name)
+			}
+		}
+		for name, change := range map[string]func(map[string]string){
+			"a failed test whose name has no ID": func(f map[string]string) {
+				f["tests-rest/go-test-rest.json"] = `{"Action":"run","Package":"example.test/root/a","Test":"TestRejectsBadToken"}` + "\n" +
+					`{"Action":"fail","Package":"example.test/root/a","Test":"TestRejectsBadToken","Elapsed":0.1}` + "\n" +
+					`{"Action":"fail","Package":"example.test/root/a","Elapsed":0.2}` + "\n"
+			},
+			"a failed package with no failed test": func(f map[string]string) {
+				f["tests-stego/go-test-stego.json"] = `{"Action":"fail","Package":"example.test/root/stego","Elapsed":0.2}` + "\n"
+			},
+			"a failed Python test whose name has no ID": func(f map[string]string) {
+				f["tests-assure/python-tests.json"] = `{"format": 1, "tests": [{"test": "t.T.test_y", "name": "test_y", "result": "failed"}]}` + "\n"
+			},
+		} {
+			joinErr, failErr := run(name, change)
+			if joinErr != nil {
+				t.Errorf("the suites job does not join the parts with %s: %v", name, joinErr)
+			} else if failErr == nil {
+				t.Errorf("the suites job passes with %s", name)
+			}
+		}
+	})
 }
