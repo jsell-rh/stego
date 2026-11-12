@@ -42,7 +42,6 @@ func newGRPCProject(t *testing.T, binary string) *wiringProject {
 		t.Fatal(err)
 	}
 	p.write("go.mod", "module "+wiringModule+"\n\ngo 1.26.11\n")
-	p.git("init", "-q")
 	return p
 }
 

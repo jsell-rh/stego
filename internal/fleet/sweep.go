@@ -25,9 +25,9 @@ const RecordPath = ".stego/state.yaml"
 const OutputFolder = "out"
 
 // RecordFormats are the record formats the sweep reads: format version 2 names each component's digest, and format
-// version 3 adds the archetype with its runtime library pin, and format version 4 adds the data path, which the sweep
-// does not read.
-var RecordFormats = []int{2, 3, 4}
+// version 3 adds the archetype with its runtime library pin, format version 4 adds the data path, which the sweep
+// does not read, and format version 5 removes it again (ST-SUP-RC20-OC39).
+var RecordFormats = []int{2, 3, 4, 5}
 
 // maxRecordBytes bounds one record.
 const maxRecordBytes = 8 << 20

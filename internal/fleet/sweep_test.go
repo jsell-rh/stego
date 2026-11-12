@@ -28,7 +28,7 @@ func TestSweepReadsTheRuntimePin(t *testing.T) {
 		current := writeRecord(t, "format_version: 3\n"+strings.Replace(body, "%s", "bravo", 1)+
 			"    archetype:\n        name: rest-crud\n        version: 3.1.0\n        runtime:\n            module: github.com/jsell-rh/stego/registry/runtime\n            version: v0.1.0\n            sum: h1:LBQv5u8LCsWvwtBuRBSnvN3h7IWSNQHlDW4Og0dSH2g=\n")
 		pinless := writeRecord(t, "format_version: 3\n"+strings.Replace(body, "%s", "charlie", 1))
-		future := writeRecord(t, "format_version: 4\n"+strings.Replace(body, "%s", "delta", 1))
+		future := writeRecord(t, "format_version: 6\n"+strings.Replace(body, "%s", "delta", 1))
 
 		sweep := Project([]string{older, current, pinless, future})
 		if len(sweep.Services) != 2 || sweep.Services[0].Name != "alpha" || sweep.Services[1].Name != "bravo" {
@@ -45,8 +45,8 @@ func TestSweepReadsTheRuntimePin(t *testing.T) {
 			t.Fatalf("pins = %+v", sweep.Services[1].Pins)
 		}
 		if len(sweep.Unknown) != 2 || sweep.Unknown[0].Path != pinless || !strings.Contains(sweep.Unknown[0].Reason, "runtime library pin") ||
-			sweep.Unknown[1].Path != future || sweep.Unknown[1].FormatVersion != 4 {
-			t.Fatalf("unknown = %+v, want the pinless record and format version 4", sweep.Unknown)
+			sweep.Unknown[1].Path != future || sweep.Unknown[1].FormatVersion != 6 {
+			t.Fatalf("unknown = %+v, want the pinless record and format version 6", sweep.Unknown)
 		}
 	})
 }

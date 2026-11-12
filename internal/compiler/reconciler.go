@@ -307,11 +307,6 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	if err := checkPinMove(existingState, archetype); err != nil {
 		return nil, err
 	}
-	if !resolved.NoDataAccess {
-		if err := checkDataPathSnapshot(existingState, componentNames, resolved.RuntimeData); err != nil {
-			return nil, err
-		}
-	}
 	importsRuntime := false
 
 	// Run all component generators in archetype-declared order.
@@ -477,7 +472,6 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	}
 	plan.runtime = runtime
 	plan.NewState.LastApplied.Archetype = &ArchetypeState{Name: archetype.Name, Version: archetype.Version, Runtime: &pin, ImportsRuntime: importsRuntime}
-	plan.NewState.LastApplied.DataPath = dataPathName(resolved.RuntimeData || resolved.NoDataAccess)
 	if plan.StateChanged, err = stateDiffers(existingState, plan.NewState); err != nil {
 		return nil, err
 	}

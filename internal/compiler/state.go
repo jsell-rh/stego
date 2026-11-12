@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/jsell-rh/stego/internal/buildidentity"
@@ -31,10 +32,16 @@ type State struct {
 // Version 2 adds service_name, and makes the sha of each component its
 // component digest (ComponentDigest) where version 1 held the registry
 // reference. Version 3 adds archetype: the archetype's name, version and
-// runtime library pin (ST-GEN-EN01). Version 4 adds data_path: the data path of
-// the run, runtime or store (ST-SUP-RC01-OC41). This compiler reads versions 0
-// to 4, and the next apply writes version 4.
-const StateFormatVersion = 4
+// runtime library pin (ST-GEN-EN01). Version 4 added data_path, the data path
+// of the run, runtime or store (ST-SUP-RC01-OC41), and version 5 removes it
+// again: the runtime data path is the only data path (ST-SUP-RC20-OC39). This
+// compiler reads versions 0 to 5, and the next apply writes version 5.
+const StateFormatVersion = 5
+
+// formatWithDataPath is the one format version whose last_applied held the
+// data path. The compiler drops that key when it reads such a record, and its
+// next apply writes the record without it.
+const formatWithDataPath = 4
 
 // oldestNamedStateFormat is the first state format that names its version.
 const oldestNamedStateFormat = 1
@@ -92,20 +99,53 @@ type AppliedState struct {
 	// Archetype records the archetype of the run with its runtime library pin.
 	// State before format version 3 omits it.
 	Archetype *ArchetypeState `yaml:"archetype,omitempty"`
-
-	// DataPath is the data path of the run: DataPathRuntime when the generated
-	// commands and queries carry all data access, DataPathStore when the GORM
-	// store does (ST-SUP-RC01-OC41). State before format version 4 omits it,
-	// and its service is on the store, because the runtime data path came
-	// with format version 4.
-	DataPath string `yaml:"data_path,omitempty"`
 }
 
-// The data paths of a record (ST-SUP-RC01-OC41).
-const (
-	DataPathRuntime = "runtime"
-	DataPathStore   = "store"
-)
+// withoutDataPath removes the key data_path from the last_applied mapping of a
+// record of format version 4, the one version that held it. The key told the
+// data path of the run; every run is on the runtime data path now, and the
+// migration job of the service, not the record, refuses a database that holds
+// tables its ledger does not record (ST-SUP-RC20-OC39). Any other version
+// keeps the key, and the strict decoder refuses it as an unknown field.
+func withoutDataPath(data []byte) ([]byte, error) {
+	var document yaml.Node
+	if err := yaml.Unmarshal(data, &document); err != nil || document.Kind != yaml.DocumentNode || len(document.Content) != 1 {
+		// The strict decoder reports what is wrong with the document.
+		return data, nil
+	}
+	if !dropDataPath(document.Content[0]) {
+		return data, nil
+	}
+	return yaml.Marshal(&document)
+}
+
+// dropDataPath does the work of withoutDataPath on the record's mapping, and
+// tells whether it removed the key.
+func dropDataPath(node *yaml.Node) bool {
+	if node.Kind != yaml.MappingNode {
+		return false
+	}
+	version := ""
+	var applied *yaml.Node
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		switch node.Content[i].Value {
+		case "format_version":
+			version = node.Content[i+1].Value
+		case "last_applied":
+			applied = node.Content[i+1]
+		}
+	}
+	if version != strconv.Itoa(formatWithDataPath) || applied == nil || applied.Kind != yaml.MappingNode {
+		return false
+	}
+	for i := 0; i+1 < len(applied.Content); i += 2 {
+		if applied.Content[i].Value == "data_path" {
+			applied.Content = append(applied.Content[:i:i], applied.Content[i+2:]...)
+			return true
+		}
+	}
+	return false
+}
 
 // ArchetypeState records the archetype of one run: its name, its version and
 // its runtime library pin, so a later run refuses a pin that moved within one
@@ -147,6 +187,10 @@ func LoadState(path string) (*State, error) {
 }
 
 func decodeState(data []byte, path string) (*State, error) {
+	data, err := withoutDataPath(data)
+	if err != nil {
+		return nil, fmt.Errorf("invalid state; restore or migrate the state file: %w", err)
+	}
 	var s State
 	if err := parser.DecodeStrict(data, path, &s); err != nil {
 		return nil, fmt.Errorf("invalid state; restore or migrate the state file: %w", err)
