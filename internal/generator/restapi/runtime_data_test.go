@@ -73,6 +73,12 @@ func crudContext() gen.Context {
 				References: map[string]types.Reference{"folder_id": {Relation: "folder", Permission: "edit"}}}},
 		types.Entity{Name: "Event", Fields: []types.Field{{Name: "source", Type: types.FieldTypeString}, {Name: "note", Type: types.FieldTypeString}},
 			EntityAuthorization: types.EntityAuthorization{ResourceType: "event", Permissions: permissions(types.OpUpdate, types.OpPatch, types.OpDelete), PublicReasons: reasons}},
+		// Quota gives an upsert with optimistic concurrency: the If-Match precondition names the generation
+		// (ST-SUP-RC20-OC14).
+		types.Entity{Name: "Quota", Fields: []types.Field{{Name: "folder_id", Type: types.FieldTypeRef, To: "Folder"}, {Name: "name", Type: types.FieldTypeString}, {Name: "amount", Type: types.FieldTypeInt64},
+			{Name: "generation", Type: types.FieldTypeInt64, Default: 1}},
+			EntityAuthorization: types.EntityAuthorization{ResourceType: "quota", Permissions: map[types.Operation]string{types.OpRead: "view", types.OpList: "view", types.OpUpsert: "edit"},
+				References: map[string]types.Reference{"folder_id": {Relation: "folder", Permission: "edit"}}}},
 	)
 	return gen.Context{
 		ModuleName:      crudModule,
@@ -93,6 +99,7 @@ func crudContext() gen.Context {
 			{Name: "blue-events", Entity: "Event", PathPrefix: "/blue-events", Implicit: map[string]string{"source": "blue"}, Operations: []types.Operation{types.OpCreate, types.OpList}},
 			{Name: "books", Entity: "Book", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate}},
 			{Name: "folder-flags", Entity: "Setting", Scope: map[string]string{"folder_id": "Folder"}, Implicit: map[string]string{"source": "flag"}, PathPrefix: "/folders/{folder_id}/flags", Operations: []types.Operation{types.OpUpsert}, UpsertKey: []string{"name"}},
+			{Name: "folder-quotas", Entity: "Quota", Scope: map[string]string{"folder_id": "Folder"}, Operations: []types.Operation{types.OpList, types.OpUpsert}, UpsertKey: []string{"name"}, Concurrency: types.ConcurrencyOptimistic},
 		},
 		SlotBindings: []types.SlotDeclaration{
 			{Slot: "before_create", Collection: "orders", Chain: []string{"order-gate"}, ShortCircuit: true},
@@ -527,6 +534,7 @@ var crudCheckIDs = []string{
 	"ST-SUP-RC20-OC23-T04 Implicit fields are forced and filtered on the runtime data path, under their path prefixes",
 	"ST-SUP-RC20-OC37-T09 A list search on the runtime data path filters on declared fields with bound values",
 	"ST-SUP-RC20-OC13-T03 An upsert on the runtime data path creates the row of its key with 201 and updates it with 200",
+	"ST-SUP-RC20-OC14-T01 An upsert with optimistic concurrency updates only under the If-Match of the stored generation",
 	"ST-SUP-RC20-OC13-T04 An upsert finds its row only under its own parent and implicit value",
 	"ST-SUP-RC20-OC13-T05 An upsert calls its validate gate before both branches and on_entity_changed after both",
 	"ST-SUP-RC20-OC23-T05 A write of a row of another implicit value is not found and changes nothing, and a patch keeps the implicit value",
@@ -666,6 +674,33 @@ func TestCORSOrigins(t *testing.T) {
 		p.write("go.mod", []byte("module example.com/cors\n\ngo 1.26.11\n"))
 		if output, err := p.goCommand(nil, "test", "-count=1", "./api"); err != nil {
 			t.Fatalf("the CORS check failed: %v\n%s", err, output)
+		}
+	})
+}
+
+func TestUpsertGateSeesNoServerField(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC13-T06 The validate gate of an upsert sees no server-managed field, and the insert sets them after it", func(t *testing.T) {
+		ctx := crudContext()
+		// Setting gets the server-managed fields created_by and stamped_at.
+		ctx.Entities[5].Fields = append(ctx.Entities[5].Fields, types.Field{Name: "created_by", Type: types.FieldTypeString}, types.Field{Name: "stamped_at", Type: types.FieldTypeTimestamp})
+		source := string(crudFiles(t, ctx)["api/folder_settings_handler.go"])
+		start := strings.Index(source, "func (h *FolderSettingsHandler) Upsert(")
+		if start < 0 {
+			t.Fatal("no Upsert handler of folder-settings")
+		}
+		upsert := source[start:]
+		gate := strings.Index(upsert, "h.validateGate.Evaluate(")
+		blank := strings.Index(upsert, "setting.CreatedBy = serverBlank.CreatedBy")
+		insert := strings.Index(upsert, "if len(found) == 0 {")
+		caller := strings.Index(upsert, "setting.CreatedBy = callerName(r.Context())")
+		if gate < 0 || blank < 0 || insert < 0 || caller < 0 {
+			t.Fatalf("the Upsert handler lacks the gate, the cleared field, the insert branch or the caller value:\n%s", upsert)
+		}
+		if !(blank < gate && gate < insert && insert < caller) {
+			t.Errorf("the gate does not see the cleared field before the insert sets it from the caller: clear %d, gate %d, insert %d, caller %d", blank, gate, insert, caller)
+		}
+		if strings.Count(upsert[:gate], "callerName(") != 0 || strings.Count(upsert[:gate], "time.Now()") != 0 {
+			t.Error("a server value is set before the gate of the upsert")
 		}
 	})
 }

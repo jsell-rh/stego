@@ -248,8 +248,8 @@ func validateRuntimeScope(ctx gen.Context, c types.Collection, e types.Entity, e
 }
 
 // validateRuntimeUpsert refuses an upsert that the handlers on the runtime data path cannot serve: one with no
-// upsert key or a key field that is not a required field of the entity, one with optimistic concurrency, whose
-// incoming generation ST-SUP-RC20-OC17 clears (ST-SUP-Q105), one whose update of a stored row decides no
+// upsert key or a key field that is not a required field of the entity, one with optimistic concurrency on an entity
+// with no required integer generation (ST-SUP-RC20-OC14), one whose update of a stored row decides no
 // permission, and one whose insert can decide nothing: an entity with no required reference to an entity with a
 // resource type needs a public create, with its reason (ST-SUP-RC20-OC13). An optional reference that the body
 // leaves out decides nothing.
@@ -267,7 +267,15 @@ func validateRuntimeUpsert(c types.Collection, e types.Entity, entities map[stri
 		}
 	}
 	if c.Concurrency == types.ConcurrencyOptimistic {
-		return fmt.Errorf("rest-api: collection %s declares optimistic concurrency on upsert, which the runtime data path does not serve: ST-SUP-RC20-OC17 clears the incoming generation that ST-SUP-RC20-OC14 compares (ST-SUP-Q105)", c.Name)
+		// The upsert compares the generation of an If-Match header with the stored one (ST-SUP-RC20-OC14), so the
+		// entity needs a required generation counter.
+		ok := false
+		for _, f := range e.Fields {
+			ok = ok || (f.Name == "generation" && !f.Optional && (f.Type == types.FieldTypeInt32 || f.Type == types.FieldTypeInt64))
+		}
+		if !ok {
+			return fmt.Errorf("rest-api: collection %s declares optimistic concurrency on upsert, and %s has no required field generation of type int32 or int64 for the If-Match precondition to compare (ST-SUP-RC20-OC14)", c.Name, e.Name)
+		}
 	}
 	if p := e.Permissions[types.OpUpsert]; p == "" || p == types.PermissionPublic {
 		return fmt.Errorf("rest-api: collection %s declares upsert with the permission %q; on the runtime data path an upsert of a stored row decides a permission of %s on it", c.Name, p, e.ResourceType)
@@ -678,6 +686,41 @@ type invalidRequest struct{ problem *ServiceError }
 
 func (e *invalidRequest) Error() string { return "the request is not valid" }
 
+// preconditionFailed is the answer of an upsert with optimistic concurrency whose If-Match precondition does not
+// hold: 412 for a stale or malformed generation or a row that does not exist, 428 for a stored row and no If-Match
+// (ST-SUP-RC20-OC14). The command writes nothing.
+type preconditionFailed struct {
+	status int
+	detail string
+}
+
+func (e *preconditionFailed) Error() string { return "the precondition of the request does not hold" }
+
+// ifMatchGeneration reads the If-Match header of an upsert with optimistic concurrency: one strong entity tag that
+// holds the decimal generation the client last read, such as "3". It gives the generation, whether the request
+// sends the header, and whether the header has that form; a weak tag, *, a list or any other text is not valid.
+func ifMatchGeneration(r *http.Request) (int64, bool, bool) {
+	values := r.Header.Values("If-Match")
+	if len(values) == 0 {
+		return 0, false, false
+	}
+	if len(values) != 1 {
+		return 0, true, false
+	}
+	tag := strings.TrimSpace(values[0])
+	if len(tag) < 3 || len(tag) > 21 || tag[0] != '"' || tag[len(tag)-1] != '"' {
+		return 0, true, false
+	}
+	var generation int64
+	for _, digit := range tag[1 : len(tag)-1] {
+		if digit < '0' || digit > '9' || generation > (1<<62)/10 {
+			return 0, true, false
+		}
+		generation = generation*10 + int64(digit-'0')
+	}
+	return generation, true, true
+}
+
 // requestKey is the idempotency key of a write that takes no key from the client: a PUT, a DELETE, or a create or
 // a patch without the header when the declaration does not require it. Run takes every write inside the
 // idempotency wrapper, so the request gets a key of its own that no retry sends again (ST-SUP-Q86).
@@ -705,9 +748,14 @@ func (rt *Runtime) boundQuery(ctx context.Context, b command.Bound, q *query.Que
 func (rt *Runtime) answerWrite(w http.ResponseWriter, r *http.Request, req command.Request, action, resourceType, kind string, decided bool, err error) {
 	var refused *slotRefusal
 	var invalid *invalidRequest
+	var precondition *preconditionFailed
 	switch {
 	case errors.As(err, &invalid):
 		handleError(w, r, invalid.problem)
+		return
+	case errors.As(err, &precondition):
+		_ = rt.Commands.RecordFailure(r.Context(), req, action, resourceType, command.Outcome{Status: precondition.status, Code: "precondition_failed", Audit: audit.OutcomeFailed})
+		handleError(w, r, errorForStatus(precondition.status, precondition.detail))
 		return
 	case errors.As(err, &refused):
 		status := refused.status
@@ -1292,6 +1340,24 @@ func (w *runtimeHandlerWriter) populateCreate() {
 	}
 }
 
+// clearServer writes the zero value into each server-managed field of the requested value, so that a slot that runs
+// before the branch of an upsert is known sees none (ST-SUP-RC20-OC13, ST-SUP-RC20-OC17).
+func (w *runtimeHandlerWriter) clearServer() {
+	c := w.c
+	first := true
+	for _, f := range c.entity.Fields {
+		if !isServerManaged(f) {
+			continue
+		}
+		if first {
+			w.f("\t\tvar serverBlank %s\n", c.entity.Name)
+			first = false
+		}
+		name := toPascalCase(f.Name)
+		w.f("\t\t%s.%s = serverBlank.%s\n", c.lower, name, name)
+	}
+}
+
 // populateUpdate writes the server values of a changed row: the create-only values from the stored row, the
 // generation raised by one, updated_by from the verified caller and updated_time at the time of the change
 // (ST-SUP-RC20-OC16, ST-SUP-RC20-OC18).
@@ -1583,12 +1649,17 @@ func (w *runtimeHandlerWriter) upsert() {
 	w.f("\tif _, err := decode%s(body); err != nil {\n\t\th.rt.answerWrite(w, r, command.Request{}, \"upsert\", %q, %q, false, err)\n\t\treturn\n\t}\n", c.pascal, e.ResourceType, e.Name)
 	w.f("\trequestID := command.NewID()\n\tfingerprint, err := idempotency.Fingerprint(r.Method, r.URL.Path, body)\n\tif err != nil {\n\t\thandleError(w, r, BadRequest(\"the body is not a JSON object\"))\n\t\treturn\n\t}\n")
 	w.f("\treq := h.rt.commandRequest(r, b, requestKey(requestID), fingerprint, requestID, body, \"\")\n")
+	optimistic := c.decl.Concurrency == types.ConcurrencyOptimistic
+	if optimistic {
+		w.f("\tifMatch, ifMatchSent, ifMatchValid := ifMatchGeneration(r)\n")
+	}
 	w.f("\tvar persisted %s\n", e.Name)
 	w.f("\tresult, err := command.Run(r.Context(), h.rt.Commands, %s, req, decode%s, func(ctx context.Context, %s %s, ch *command.Handle[struct{}]) (idempotency.Response, error) {\n", w.commandVar(types.OpUpsert), c.pascal, c.lower, e.Name)
-	w.populateCreate()
+	// The before slots decide the requested value before the lookup, on both branches (ST-SUP-RC20-OC13). They see
+	// no server-managed field: the branch is not known yet, so a create-time value would be wrong on the update
+	// branch, and a client value is never taken (ST-SUP-RC20-OC17).
+	w.clearServer()
 	w.forceScope("scope")
-	// The before slots decide the requested value before the lookup, on both branches
-	// (ST-SUP-RC20-OC13).
 	w.before(types.OpUpsert, nil)
 	w.f("\t\trepo, err := data.%sRepository(ch)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", e.Name)
 	var keys []string
@@ -1597,6 +1668,10 @@ func (w *runtimeHandlerWriter) upsert() {
 	}
 	w.f("\t\tfound, err := repo.List(ctx, %sUpsertKey, 1, %s)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", c.camel, strings.Join(keys, ", "))
 	w.f("\t\tif len(found) == 0 {\n")
+	if optimistic {
+		w.f("\t\tif ifMatchSent {\n\t\t\treturn idempotency.Response{}, &preconditionFailed{status: http.StatusPreconditionFailed, detail: \"the If-Match precondition names a %s that does not exist\"}\n\t\t}\n", e.Name)
+	}
+	w.populateCreate()
 	if w.envelope {
 		w.f("\t\tid, err := uuid.NewV7()\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n\t\t%s.ID = id.String()\n", c.lower)
 	} else {
@@ -1613,6 +1688,12 @@ func (w *runtimeHandlerWriter) upsert() {
 	w.f("\t\tallowed, err := ch.Authz().Evaluate(ctx, %q, from, nil)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n\t\tif !allowed {\n\t\t\treturn idempotency.Response{}, command.ErrNotFound\n\t\t}\n", e.Permissions[types.OpUpsert])
 	w.f("\t\tstored := %s\n\t\t%s.ID = stored.ID\n", w.fromData("from.Value()"), c.lower)
 	w.notInCollection()
+	if optimistic {
+		// The generation that the client last read must be the stored one; the update raises it by one
+		// (ST-SUP-RC20-OC14, ST-SUP-RC20-OC18).
+		w.f("\t\tif !ifMatchSent {\n\t\t\treturn idempotency.Response{}, &preconditionFailed{status: http.StatusPreconditionRequired, detail: \"an upsert of a stored %s needs an If-Match precondition with its generation\"}\n\t\t}\n", e.Name)
+		w.f("\t\tif !ifMatchValid || int64(stored.Generation) != ifMatch {\n\t\t\treturn idempotency.Response{}, &preconditionFailed{status: http.StatusPreconditionFailed, detail: \"the If-Match precondition does not name the stored generation of the %s\"}\n\t\t}\n", e.Name)
+	}
 	w.populateUpdate()
 	w.forceScope("scope")
 	w.parents("stored")

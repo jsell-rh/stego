@@ -698,8 +698,10 @@ func generateErrors(ns string, serviceName string, errorTypeBase string) (gen.Fi
 	fmt.Fprintf(&buf, "\t\tcategory = \"AUZ\"\n")
 	fmt.Fprintf(&buf, "\tcase http.StatusNotFound:\n")
 	fmt.Fprintf(&buf, "\t\tcategory = \"NTF\"\n")
-	fmt.Fprintf(&buf, "\tcase http.StatusConflict:\n")
+	fmt.Fprintf(&buf, "\tcase http.StatusConflict, http.StatusPreconditionFailed:\n")
 	fmt.Fprintf(&buf, "\t\tcategory = \"CNF\"\n")
+	fmt.Fprintf(&buf, "\tcase http.StatusPreconditionRequired:\n")
+	fmt.Fprintf(&buf, "\t\tcategory = \"VAL\"\n")
 	fmt.Fprintf(&buf, "\t}\n")
 	fmt.Fprintf(&buf, "\treturn &ServiceError{\n")
 	fmt.Fprintf(&buf, "\t\tType:   %s,\n", typeExpr)
@@ -725,6 +727,10 @@ func generateErrors(ns string, serviceName string, errorTypeBase string) (gen.Fi
 		fmt.Fprintf(&buf, "\t\treturn \"not-found\"\n")
 		fmt.Fprintf(&buf, "\tcase http.StatusConflict:\n")
 		fmt.Fprintf(&buf, "\t\treturn \"conflict\"\n")
+		fmt.Fprintf(&buf, "\tcase http.StatusPreconditionFailed:\n")
+		fmt.Fprintf(&buf, "\t\treturn \"precondition-failed\"\n")
+		fmt.Fprintf(&buf, "\tcase http.StatusPreconditionRequired:\n")
+		fmt.Fprintf(&buf, "\t\treturn \"precondition-required\"\n")
 		fmt.Fprintf(&buf, "\tdefault:\n")
 		fmt.Fprintf(&buf, "\t\treturn \"internal-error\"\n")
 		fmt.Fprintf(&buf, "\t}\n")
@@ -1284,8 +1290,14 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 					Responses: map[string]openAPIResponse{
 						"200": {Description: "Updated", Content: jsonContent(responseSchema)},
 						"201": {Description: "Created", Content: jsonContent(responseSchema)},
-						"409": {Description: "Conflict — optimistic concurrency check failed"},
+						"409": {Description: "Conflict — the row of the key changed during the request"},
 					},
+				}
+				if eb.Concurrency == types.ConcurrencyOptimistic {
+					// The If-Match precondition of an upsert with optimistic concurrency (ST-SUP-RC20-OC14).
+					upsertOp.Parameters = append(upsertOp.Parameters, openAPIParam{Name: "If-Match", In: "header", Schema: openAPISchema{Type: "string"}})
+					upsertOp.Responses["412"] = openAPIResponse{Description: "Precondition failed — the If-Match generation is stale or not valid, or the row does not exist"}
+					upsertOp.Responses["428"] = openAPIResponse{Description: "Precondition required — the row exists and the request sends no If-Match"}
 				}
 				if len(upsertOp.Parameters) == 0 {
 					upsertOp.Parameters = nil
