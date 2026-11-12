@@ -92,7 +92,7 @@ func ApplyMigration(ctx context.Context, db Database, name, body string) error {
 			return ErrMigrationLedger
 		}
 	}
-	return inTransaction(ctx, db, nil, func(tx *sql.Tx) error {
+	return inTransaction(ctx, db, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, func(tx *sql.Tx) error {
 		if err := lockLedger(ctx, tx); err != nil {
 			return err
 		}
@@ -171,14 +171,16 @@ func checkLedger(applied, registered []Migration) error {
 }
 
 // applyPending applies the migrations after the recorded history, one
-// transaction each: it takes the ledger lock, reads the ledger again,
+// transaction each, at read committed whatever the default isolation of the
+// database is, so each statement takes its snapshot after the ledger lock is
+// granted: it takes the ledger lock, reads the ledger again,
 // refuses a ledger that is not a prefix of the registered history, and
 // applies the next migration with its ledger row. A migration that another
 // job applied in the meantime is not applied again.
 func applyPending(ctx context.Context, db Database, ordered []Migration) error {
 	for {
 		done := false
-		if err := inTransaction(ctx, db, nil, func(tx *sql.Tx) error {
+		if err := inTransaction(ctx, db, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, func(tx *sql.Tx) error {
 			if err := lockLedger(ctx, tx); err != nil {
 				return err
 			}
