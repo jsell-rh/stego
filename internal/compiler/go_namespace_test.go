@@ -26,16 +26,37 @@ import (
 
 func TestLibraryGeneratorsCheckGoPackageNames(t *testing.T) {
 	for name, generator := range map[string]gen.Generator{
-		"keycloak": new(keycloakprovider.Generator), "controller": new(controller.Generator), "grpc": new(grpcapplication.Generator), "http": new(httpapplication.Generator), "jwt": new(jwtauth.Generator), "kafka": new(kafkaproducer.Generator), "kubernetes": new(kubernetesclient.Generator), "outbox": new(outbox.Generator), "storage": new(postgresadapter.Generator), "postgres client": new(postgresclient.Generator), "rest": new(restapi.Generator), "sso": new(rhssoauth.Generator),
+		"keycloak": new(keycloakprovider.Generator), "controller": new(controller.Generator), "grpc": new(grpcapplication.ProcessGenerator), "http": new(httpapplication.Generator), "jwt": new(jwtauth.Generator), "kafka": new(kafkaproducer.Generator), "kubernetes": new(kubernetesclient.Generator), "outbox": new(outbox.Generator), "storage": new(postgresadapter.Generator), "postgres client": new(postgresclient.Generator), "rest": new(restapi.Generator), "sso": new(rhssoauth.Generator),
 	} {
 		t.Run(name, func(t *testing.T) {
-			ctx := gen.Context{ModuleName: "example.com/names", OutDirName: "out", OutputNamespace: "go-services/worker", AuthPackage: "example.com/names/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "http-application": "application", "outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "label", Type: types.FieldTypeString}}}}, Collections: []types.Collection{{Name: "records", Entity: "Record", Operations: []types.Operation{types.OpRead}}}, ComponentConfig: map[string]any{}}
-			if name == "http" || name == "grpc" {
+			ctx := gen.Context{ModuleName: "example.com/names", OutDirName: "out", OutputNamespace: "go-services/worker", AuthPackage: "example.com/names/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "http-application": "application", "outbox": "queue", "command": "commands", "query": "queries"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "label", Type: types.FieldTypeString}}}}, Collections: []types.Collection{{Name: "records", Entity: "Record", Operations: []types.Operation{types.OpRead}}}, ComponentConfig: map[string]any{}}
+			if name == "http" {
 				ctx.ComponentConfig["factory_package"] = "domain"
 			}
+			if name == "storage" || name == "rest" {
+				// The runtime data path: tables from the declaration as SQL, for a pooled tenancy.
+				ctx.ComponentConfig["schema_generation"] = "fresh-v1"
+				ctx.Tenancy = &gen.Tenancy{Key: "tenant_id"}
+				ctx.PeerNamespaces["tenancy"] = "tenancy"
+				if name == "rest" {
+					delete(ctx.ComponentConfig, "schema_generation")
+					ctx.Authorization = &types.Authorization{Provider: "spicedb", SchemaPath: "authz/schema.zed", SubjectFromIdentity: "user"}
+					ctx.Entities[0].ResourceType = "record"
+					ctx.Entities[0].Permissions = map[types.Operation]string{types.OpRead: "view", types.OpList: "view"}
+				}
+			}
+			if name == "kafka" {
+				// kafka-producer with the outbox waits for ST-SUP-Q103; the publisher alone is checked here.
+				delete(ctx.PeerNamespaces, "outbox")
+			}
 			if name == "grpc" {
+				// The protobuf and process generators of grpc-processes: grpc-application serves only declared
+				// commands and queries (ST-SUP-RC07-OC19).
 				ctx.ComponentConfig["proto_files"] = []any{map[string]any{"path": "api.proto", "import_path": "api.proto"}}
-				ctx.Inputs = map[string][]byte{"api.proto": []byte(`syntax="proto3";package sample;message Record{}`)}
+				ctx.ComponentConfig["processes"] = []any{map[string]any{"name": "records", "factory_package": "factory"}}
+				ctx.PeerNamespaces["otel-tracing"] = "telemetry"
+				ctx.Inputs = map[string][]byte{"api.proto": []byte(`syntax="proto3";package sample;message Record{}`),
+					"factory/rpc.go": []byte("package factory\nimport (\n\t\"context\"\n\tprocess \"example.com/names/out/go-services/worker/process\"\n)\nfunc Open(ctx context.Context) (process.Application, error) { return nil, nil }\n")}
 			}
 			validator, ok := generator.(gen.ContextValidator)
 			if !ok {
@@ -105,7 +126,8 @@ func TestOutputDirectoryMustBeAGoImportPath(t *testing.T) {
 }
 
 func TestApplicationFactoriesRequireGoImportPaths(t *testing.T) {
-	for name, generator := range map[string]gen.Generator{"cli": new(cliapplication.Generator), "http": new(httpapplication.Generator), "grpc": new(grpcapplication.Generator)} {
+	// grpc-application has no factory since its bridge to the GORM store is gone (ST-SUP-RC20-OC39, ST-SUP-RC07-OC18).
+	for name, generator := range map[string]gen.Generator{"cli": new(cliapplication.Generator), "http": new(httpapplication.Generator)} {
 		t.Run(name, func(t *testing.T) {
 			for _, factory := range []string{"bad factory", "café/factory"} {
 				input := applicationPreflightInput(t, generator, factory)
@@ -126,11 +148,14 @@ func TestApplicationFactoriesRequireGoImportPaths(t *testing.T) {
 }
 
 func TestProtobufGeneratedPackagesMustBeImportable(t *testing.T) {
-	generator := new(grpcapplication.Generator)
-	ctx := gen.Context{ModuleName: "example.com/names", OutDirName: "out", OutputNamespace: "grpcapi", AuthPackage: "example.com/names/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth"}, Inputs: map[string][]byte{"api.proto": []byte(`syntax="proto3";package sample;message Record{}`)}}
+	// The protobuf compiler of the gRPC generators, through grpc-processes: grpc-application serves only declared
+	// commands and queries (ST-SUP-RC07-OC19).
+	generator := new(grpcapplication.ProcessGenerator)
+	ctx := gen.Context{ModuleName: "example.com/names", OutDirName: "out", OutputNamespace: "grpcapi", AuthPackage: "example.com/names/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "otel-tracing": "telemetry"}, Inputs: map[string][]byte{"api.proto": []byte(`syntax="proto3";package sample;message Record{}`),
+		"factory/rpc.go": []byte("package factory\nimport (\n\t\"context\"\n\tprocess \"example.com/names/out/grpcapi/process\"\n)\nfunc Open(ctx context.Context) (process.Application, error) { return nil, nil }\n")}}
 	for _, name := range []string{"main/api.proto", "bad space/api.proto", "café/api.proto"} {
 		t.Run(name, func(t *testing.T) {
-			ctx.ComponentConfig = map[string]any{"factory_package": "domain", "proto_files": []any{map[string]any{"path": "api.proto", "import_path": name}}}
+			ctx.ComponentConfig = map[string]any{"processes": []any{map[string]any{"name": "records", "factory_package": "factory"}}, "proto_files": []any{map[string]any{"path": "api.proto", "import_path": name}}}
 			if err := generator.ValidateContext(ctx); err == nil {
 				t.Fatal("unimportable generated protobuf passed preflight", name)
 			}

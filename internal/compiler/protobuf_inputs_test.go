@@ -2,8 +2,7 @@ package compiler
 
 import (
 	"github.com/jsell-rh/stego/internal/gen"
-	"github.com/jsell-rh/stego/internal/generator/grpcapplication"
-	"github.com/jsell-rh/stego/internal/types"
+		"github.com/jsell-rh/stego/internal/types"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,18 +10,13 @@ import (
 )
 
 func TestResponseMappingPreparedInputsGateOutput(t *testing.T) {
-	input := applicationPreflightInput(t, new(grpcapplication.Generator), "domain")
-	archetypePath := filepath.Join(input.RegistryDir, "archetypes/test-arch/archetype.yaml")
-	archetype, err := os.ReadFile(archetypePath)
+	// Response mappings are served by grpc-processes since grpc-application serves only the declared commands and
+	// queries (ST-SUP-RC07-OC19); the schema is the one that grpc-processes ships.
+	metadata, err := os.ReadFile("../../registry/components/grpc-processes/component.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, archetypePath, strings.Replace(string(archetype), "  storage-adapter: stub-store", "  storage-adapter: stub-store\n  auth-provider: jwt-auth", 1))
-	metadata, err := os.ReadFile("../../registry/components/grpc-application/component.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(input.RegistryDir, "components/stub-api/component.yaml"), strings.Replace(string(metadata), "name: grpc-application", "name: stub-api", 1))
+	input := processPreflightInput(t, strings.Replace(string(metadata), "name: grpc-processes", "name: stub-api", 1), "grpcapi")
 	probe := &modelProbe{models: []gen.GoModel{{Name: "Parcel", GoType: "Parcel", Fields: []gen.GoModelField{{Name: "id", Selection: "ID", Type: types.FieldTypeString}}}}}
 	input.Generators["stub-store"] = probe
 	servicePath := filepath.Join(input.ProjectDir, "service.yaml")
@@ -33,7 +27,8 @@ func TestResponseMappingPreparedInputsGateOutput(t *testing.T) {
 	declaration := string(service) + `
 overrides:
   stub-api:
-    factory_package: domain
+    processes:
+      - {name: records, factory_package: factory}
     proto_files:
       - {path: api.proto, import_path: api.proto}
     response_mappings:

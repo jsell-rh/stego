@@ -9,42 +9,60 @@ import (
 
 	"github.com/jsell-rh/stego/internal/compiler"
 	"github.com/jsell-rh/stego/internal/gen"
-	"github.com/jsell-rh/stego/internal/generator/outbox"
 	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
-	"github.com/jsell-rh/stego/internal/generator/restapi"
-	"github.com/jsell-rh/stego/internal/types"
 )
 
 //go:embed testdata/database_access_test.go
 var databaseAccessTests []byte
+
+// accessFixtureSource is the fixture component of TestGeneratedDatabaseAccess: a handler on the database that the
+// generated service opens, so the service checks its database access before it configures HTTP.
+const accessFixtureSource = `package records
+
+import (
+	"database/sql"
+	"net/http"
+)
+
+// NewHandler answers each request with the count of the records.
+func NewHandler(db *sql.DB) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var count int
+		if err := db.QueryRowContext(r.Context(), "SELECT count(*) FROM public.records").Scan(&count); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+}
+`
 
 func TestGeneratedDatabaseAccess(t *testing.T) {
 	t.Parallel()
 	if os.Getenv("STEGO_REQUIRE_POSTGRES") == "1" && os.Getenv("STEGO_TEST_POSTGRES_DSN") == "" {
 		t.Fatal("database access checks require PostgreSQL")
 	}
-	ctx := gen.Context{ModuleName: "example.com/access-test", OutDirName: "out",
-		ComponentConfig: map[string]any{"migrations": "external", "schema_generation": "fresh-v1"},
-		Entities:        []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}}}}
-	ctx.Collections = []types.Collection{{Name: "records", Entity: "Record", Operations: []types.Operation{types.OpRead}}}
-	ctx.PeerNamespaces = map[string]string{"postgres-adapter": "storage", "outbox": "queue", "rest-api": "api"}
-	var files []gen.File
-	var wirings []compiler.ComponentWiring
-	for _, c := range []struct {
-		name, namespace string
-		generator       gen.Generator
-	}{
-		{"postgres-adapter", "storage", new(postgresadapter.Generator)}, {"outbox", "queue", new(outbox.Generator)},
-		{"rest-api", "api", new(restapi.Generator)},
-	} {
-		ctx.OutputNamespace = c.namespace
-		generated, wiring, err := c.generator.Generate(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		files = append(files, generated...)
-		wirings = append(wirings, compiler.ComponentWiring{Name: c.name, Wiring: wiring})
+	// The database access contract is the compiler's (ST-GL16): it serves every component that declares its
+	// database objects. The GORM store and the former outbox that declared them before are gone
+	// (ST-SUP-RC20-OC39), so a fixture component declares the objects that the test database holds, and the
+	// PostgreSQL adapter, with no entity, gives the database opener.
+	ctx := gen.Context{ModuleName: "example.com/access-test", OutDirName: "out", OutputNamespace: "storage"}
+	opened, openerWiring, err := new(postgresadapter.Generator).Generate(ctx)
+	if err != nil {
+		t.Fatal(err)
 	}
+	files := append([]gen.File{}, opened...)
+	files = append(files, gen.File{Path: "records/records.go", Content: []byte(accessFixtureSource)})
+	wirings := []compiler.ComponentWiring{{Name: "postgres-adapter", Wiring: openerWiring}, {Name: "records", Wiring: &gen.Wiring{
+		NeedsDB: true, VerifyDatabaseAccess: true, Imports: []string{"records"}, Constructors: []string{"records.NewHandler()"},
+		ConstructorResources: map[int][]gen.Resource{0: {gen.SQLDatabase}}, Routes: []string{`mux.Handle("GET /records", handler)`},
+		DatabaseAccess: []gen.DatabaseObject{
+			{Schema: "public", Name: "records", Kind: "table", Privileges: []string{"SELECT", "INSERT", "UPDATE", "DELETE"}},
+			{Schema: "stego_schema", Name: "generation", Kind: "table", Privileges: []string{"SELECT"}},
+			{Schema: "stego_schema", Name: "epoch_seq", Kind: "sequence", Privileges: []string{"SELECT", "USAGE"}},
+			{Schema: "stego_outbox", Name: "messages", Kind: "table", Privileges: []string{"SELECT", "INSERT", "UPDATE", "DELETE"}},
+			{Schema: "stego_outbox", Name: "messages_sequence_seq", Kind: "sequence", Privileges: []string{}},
+		}}}}
 	assembled, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, GoVersion: "1.26.11", OutDirName: "out", Wirings: wirings})
 	if err != nil {
 		t.Fatal(err)

@@ -15,11 +15,6 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/httpapplication"
 	"github.com/jsell-rh/stego/internal/generator/jwtauth"
 	"github.com/jsell-rh/stego/internal/generator/oteltracing"
-	"github.com/jsell-rh/stego/internal/generator/outbox"
-	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
-	"github.com/jsell-rh/stego/internal/generator/restapi"
-	"github.com/jsell-rh/stego/internal/slot"
-	"github.com/jsell-rh/stego/internal/types"
 )
 
 func TestGeneratedHealth(t *testing.T) {
@@ -112,7 +107,9 @@ func testGeneratedApplicationEndpoint(t *testing.T, pattern string) {
 // makeHTTPApplication generates the HTTP application project into the folder given and tidies it.
 func makeHTTPApplication(t *testing.T, project string) {
 	t.Helper()
-	ctx := gen.Context{ModuleName: "example.com/http-test", OutDirName: "out", AuthPackage: "example.com/http-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "postgres-adapter": "store", "http-application": "application"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "title", Type: types.FieldTypeString}}}}}
+	// The application factory gets the verifier alone and no storage (ST-SUP-RC10-OC31), so the project has no
+	// PostgreSQL adapter.
+	ctx := gen.Context{ModuleName: "example.com/http-test", OutDirName: "out", AuthPackage: "example.com/http-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "http-application": "application"}}
 	var files []gen.File
 	var wirings []compiler.ComponentWiring
 	for _, item := range []struct {
@@ -120,7 +117,6 @@ func makeHTTPApplication(t *testing.T, project string) {
 		generator gen.Generator
 		config    map[string]any
 	}{
-		{"postgres-adapter", new(postgresadapter.Generator), map[string]any{"migrations": "external"}},
 		{"jwt-auth", new(jwtauth.Generator), map[string]any{"mode": "verifier"}},
 		{"http-application", new(httpapplication.Generator), map[string]any{"factory_package": "sample"}},
 	} {
@@ -249,38 +245,37 @@ func testGeneratedGRPCApplication(t *testing.T, watch bool, selected ...string) 
 	}
 }
 
-// makeGRPCApplication generates the gRPC application project into the folder given, and tidies and vets it.
+// makeGRPCApplication generates the project of the gRPC transport, the client and the stream helpers into the folder
+// given, and tidies and vets it. grpc-processes emits them with no data access; grpc-application emits the same
+// transport runtime for the declared commands and queries, and its former bridge to the GORM store is gone
+// (ST-SUP-RC20-OC39). watch adds the client telemetry tests.
 func makeGRPCApplication(t *testing.T, project string, watch bool) {
 	t.Helper()
-	ctx := gen.Context{ServiceName: "records", ModuleName: "example.com/grpc-test", OutDirName: "out", AuthPackage: "example.com/grpc-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "postgres-adapter": "store", "grpc-application": "grpcapi", "outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "title", Type: types.FieldTypeString}}}}, Inputs: map[string][]byte{"api/records.proto": []byte(grpcSchema)}}
-	if watch {
-		ctx.PeerNamespaces["otel-tracing"] = "telemetry"
-	}
+	ctx := grpcProcessContext(t)
+	delete(ctx.ComponentConfig, "factory_package")
+	ctx.PeerNamespaces["grpc-processes"] = "grpcapi"
 	var files []gen.File
 	var wirings []compiler.ComponentWiring
 	for _, item := range []struct {
-		name      string
-		generator gen.Generator
-		config    map[string]any
+		name, namespace string
+		generator       gen.Generator
+		config          map[string]any
 	}{
-		{"otel-tracing", new(oteltracing.Generator), nil},
-		{"postgres-adapter", new(postgresadapter.Generator), map[string]any{"migrations": "external"}},
-		{"outbox", new(outbox.Generator), nil},
-		{"jwt-auth", new(jwtauth.Generator), map[string]any{"mode": "verifier"}},
-		{"grpc-application", new(grpcapplication.Generator), map[string]any{"watch_events": watch, "factory_package": "sample", "proto_files": []any{map[string]any{"path": "api/records.proto", "import_path": "sample/v1/records.proto"}}}},
+		{"otel-tracing", "telemetry", new(oteltracing.Generator), nil},
+		{"jwt-auth", "auth", new(jwtauth.Generator), map[string]any{"mode": "verifier"}},
+		{"grpc-processes", "grpcapi", new(grpcapplication.ProcessGenerator), ctx.ComponentConfig},
 	} {
-		if item.name == "otel-tracing" && !watch {
-			continue
-		}
-		ctx.OutputNamespace = ctx.PeerNamespaces[item.name]
-		ctx.ComponentConfig = item.config
-		generated, wiring, err := item.generator.Generate(ctx)
+		current := ctx
+		current.OutputNamespace = item.namespace
+		current.ComponentConfig = item.config
+		generated, wiring, err := item.generator.Generate(current)
 		if err != nil {
 			t.Fatal(err)
 		}
 		files = append(files, generated...)
 		wirings = append(wirings, compiler.ComponentWiring{Name: item.name, Wiring: wiring})
 	}
+	files = append(files, gen.File{Path: "../factory/rpc.go", Content: ctx.Inputs["factory/rpc.go"]})
 	shared, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, OutDirName: "out", GoVersion: new(grpcapplication.Generator).MinimumGoVersion(), Wirings: wirings})
 	if err != nil {
 		t.Fatal(err)
@@ -425,292 +420,6 @@ func makeGRPCProcesses(t *testing.T, project string) {
 	command.Env = append(os.Environ(), "GOWORK=off")
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("generated RPC process: %v\n%s", err, output)
-	}
-}
-
-func TestGenerate_CrossGeneratorIntegrationCompilation(t *testing.T) {
-	// Checklist item 95: verify that rest-api generator output, slot
-	// interface/operator output, and assembler output compile together.
-	// This catches signature mismatches between handler constructors and
-	// the assembler's injected slot operator arguments.
-
-	moduleName := "testmod"
-	slotsPackage := "internal/slots"
-
-	// 1. Generate rest-api files with slot bindings.
-	g := &restapi.Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "User", Fields: []types.Field{
-				{Name: "email", Type: types.FieldTypeString, Unique: true},
-				{Name: "role", Type: types.FieldTypeEnum, Values: []string{"admin", "member"}},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "users", Entity: "User", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "before_create", Collection: "users", Gate: []string{"rbac-policy"}},
-			{Slot: "validate", Collection: "users", Chain: []string{"validate-fill"}},
-			{Slot: "on_entity_changed", Collection: "users", FanOut: []string{"audit-logger"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      moduleName,
-		SlotsPackage:    slotsPackage,
-	}
-
-	apiFiles, wiring, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("rest-api Generate: %v", err)
-	}
-
-	// 2. Generate slot interface + operator files. We write the slot types
-	// manually (not via GenerateInterface) to avoid duplicate type declarations
-	// across files. The handler populates Input (*CreateRequest) on before-slots
-	// and Entity/Action on after-slots — the types must match.
-	commonTypesFile := gen.File{
-		Path: slotsPackage + "/common_types.go",
-		Content: []byte(`package slots
-
-// SlotResult is generated from proto message SlotResult.
-type SlotResult struct {
-	Ok           bool
-	ErrorMessage string
-	Halt         bool
-	StatusCode   int32
-}
-
-// CreateRequest is generated from proto message CreateRequest.
-type CreateRequest struct {
-	Entity string
-	Fields map[string]string
-}
-
-// Identity is generated from proto message Identity.
-type Identity struct {
-	UserID string
-	Role   string
-}
-`),
-	}
-	bcIfaceFile := gen.File{
-		Path: slotsPackage + "/before_create.go",
-		Content: []byte(`package slots
-
-import "context"
-
-// BeforeCreateRequest is generated from proto message BeforeCreateRequest.
-type BeforeCreateRequest struct {
-	Input  *CreateRequest
-	Caller *Identity
-}
-
-// BeforeCreateSlot is the interface that fills implement for the BeforeCreate slot.
-type BeforeCreateSlot interface {
-	Evaluate(ctx context.Context, req *BeforeCreateRequest) (*SlotResult, error)
-}
-`),
-	}
-	// Operator files: use GenerateOperators for the before_create slot which
-	// only needs the service definition (no imports needed for operators).
-	beforeCreateProto := &slot.ProtoFile{
-		Package: "stego.components.rest_api.slots",
-		Services: []slot.Service{
-			{Name: "BeforeCreate", Methods: []slot.Method{
-				{Name: "Evaluate", InputType: "BeforeCreateRequest", OutputType: "stego.common.SlotResult"},
-			}},
-		},
-		Messages: []slot.Message{
-			{Name: "BeforeCreateRequest", Fields: []slot.MessageField{
-				{Name: "input", Type: "stego.common.CreateRequest"},
-				{Name: "caller", Type: "stego.common.Identity"},
-			}},
-		},
-	}
-	bcOps, err := slot.GenerateOperators(slotsPackage+"/before_create_ops.go", "slots", beforeCreateProto)
-	if err != nil {
-		t.Fatalf("GenerateOperators(before_create): %v", err)
-	}
-	oecIfaceFile := gen.File{
-		Path: slotsPackage + "/on_entity_changed.go",
-		Content: []byte(`package slots
-
-import "context"
-
-// OnEntityChangedRequest is generated from proto message OnEntityChangedRequest.
-type OnEntityChangedRequest struct {
-	Entity string
-	Action string
-}
-
-// OnEntityChangedSlot is the interface that fills implement for the OnEntityChanged slot.
-type OnEntityChangedSlot interface {
-	Evaluate(ctx context.Context, req *OnEntityChangedRequest) (*SlotResult, error)
-}
-`),
-	}
-	onEntityChangedProto := &slot.ProtoFile{
-		Package: "stego.mixins.event_publisher.slots",
-		Services: []slot.Service{
-			{Name: "OnEntityChanged", Methods: []slot.Method{
-				{Name: "Evaluate", InputType: "OnEntityChangedRequest", OutputType: "stego.common.SlotResult"},
-			}},
-		},
-		Messages: []slot.Message{
-			{Name: "OnEntityChangedRequest", Fields: []slot.MessageField{
-				{Name: "entity", Type: "string"},
-				{Name: "action", Type: "string"},
-			}},
-		},
-	}
-	oecOps, err := slot.GenerateOperators(slotsPackage+"/on_entity_changed_ops.go", "slots", onEntityChangedProto)
-	if err != nil {
-		t.Fatalf("GenerateOperators(on_entity_changed): %v", err)
-	}
-
-	// Validate slot: request type has Input + entity string (no Caller).
-	valIfaceFile := gen.File{
-		Path: slotsPackage + "/validate.go",
-		Content: []byte(`package slots
-
-import "context"
-
-// ValidateRequest is generated from proto message ValidateRequest.
-type ValidateRequest struct {
-	Input  *CreateRequest
-	Entity string
-}
-
-// ValidateSlot is the interface that fills implement for the Validate slot.
-type ValidateSlot interface {
-	Evaluate(ctx context.Context, req *ValidateRequest) (*SlotResult, error)
-}
-`),
-	}
-	validateProto := &slot.ProtoFile{
-		Package: "stego.components.rest_api.slots",
-		Services: []slot.Service{
-			{Name: "Validate", Methods: []slot.Method{
-				{Name: "Evaluate", InputType: "ValidateRequest", OutputType: "stego.common.SlotResult"},
-			}},
-		},
-		Messages: []slot.Message{
-			{Name: "ValidateRequest", Fields: []slot.MessageField{
-				{Name: "input", Type: "stego.common.CreateRequest"},
-				{Name: "entity", Type: "string"},
-			}},
-		},
-	}
-	valOps, err := slot.GenerateOperators(slotsPackage+"/validate_ops.go", "slots", validateProto)
-	if err != nil {
-		t.Fatalf("GenerateOperators(validate): %v", err)
-	}
-
-	slotFiles := []gen.File{commonTypesFile, bcIfaceFile, bcOps, valIfaceFile, valOps, oecIfaceFile, oecOps}
-
-	// 3. Assemble main.go from wiring + slot bindings.
-	assemblerInput := compiler.AssemblerInput{
-		ModuleName:  moduleName,
-		ServiceName: "test-svc",
-		GoVersion:   "1.22",
-		Wirings: []compiler.ComponentWiring{
-			{Name: "rest-api", Wiring: wiring},
-			{Name: "fixture-store", Wiring: &gen.Wiring{Imports: []string{"internal/fixture"}, Constructors: []string{"fixture.NewStore()"}}},
-		},
-		SlotBindings: ctx.SlotBindings,
-		SlotsPackage: slotsPackage,
-	}
-	assembledFiles, err := compiler.Assemble(assemblerInput)
-	if err != nil {
-		t.Fatalf("Assemble: %v", err)
-	}
-
-	// 4. Write all files to a temp directory and compile.
-	tmpDir := t.TempDir()
-
-	goMod := "module " + moduleName + "\n\ngo 1.22\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-		t.Fatalf("writing go.mod: %v", err)
-	}
-
-	// Write slot files.
-	for _, f := range slotFiles {
-		dst := filepath.Join(tmpDir, f.Path)
-		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-			t.Fatalf("mkdir for %s: %v", f.Path, err)
-		}
-		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-			t.Fatalf("writing %s: %v", f.Path, err)
-		}
-	}
-
-	// Write rest-api handler/router files.
-	for _, f := range apiFiles {
-		dst := filepath.Join(tmpDir, f.Path)
-		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-			t.Fatalf("mkdir for %s: %v", f.Path, err)
-		}
-		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-			t.Fatalf("writing %s: %v", f.Path, err)
-		}
-	}
-
-	// Write assembled files (main.go, go.mod — skip assembled go.mod since
-	// we already wrote one).
-	for _, f := range assembledFiles {
-		if f.Path == "go.mod" {
-			continue
-		}
-		dst := filepath.Join(tmpDir, f.Path)
-		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-			t.Fatalf("mkdir for %s: %v", f.Path, err)
-		}
-		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-			t.Fatalf("writing %s: %v", f.Path, err)
-		}
-	}
-
-	// Write stub fill packages that implement the slot interfaces.
-	fillSlotTypes := map[string]struct{ iface, reqType, pkg string }{
-		"rbac-policy":   {iface: "BeforeCreateSlot", reqType: "BeforeCreateRequest", pkg: "rbacpolicy"},
-		"validate-fill": {iface: "ValidateSlot", reqType: "ValidateRequest", pkg: "validatefill"},
-		"audit-logger":  {iface: "OnEntityChangedSlot", reqType: "OnEntityChangedRequest", pkg: "auditlogger"},
-	}
-	for fillName, info := range fillSlotTypes {
-		fillDir := filepath.Join(tmpDir, "fills", fillName)
-		if err := os.MkdirAll(fillDir, 0755); err != nil {
-			t.Fatalf("mkdir for fill %s: %v", fillName, err)
-		}
-		stub := "package " + info.pkg + "\n\n" +
-			"import (\n\t\"context\"\n\tslots \"" + moduleName + "/" + slotsPackage + "\"\n)\n\n" +
-			"type impl struct{}\n\n" +
-			"func New() slots." + info.iface + " { return &impl{} }\n\n" +
-			"func (i *impl) Evaluate(_ context.Context, _ *slots." + info.reqType + ") (*slots.SlotResult, error) {\n" +
-			"\treturn &slots.SlotResult{Ok: true}, nil\n" +
-			"}\n"
-		if err := os.WriteFile(filepath.Join(fillDir, "fill.go"), []byte(stub), 0644); err != nil {
-			t.Fatalf("writing fill stub %s: %v", fillName, err)
-		}
-	}
-
-	// Supply the test store through declared wiring. Generated code must not
-	// depend on a global variable added after assembly.
-	storeStub := filepath.Join(tmpDir, "internal", "fixture", "store.go")
-	if err := os.MkdirAll(filepath.Dir(storeStub), 0755); err != nil {
-		t.Fatal(err)
-	}
-	storeStubContent := "package fixture\n\nimport api \"" + moduleName + "/internal/api\"\n\nfunc NewStore() api.Storage { return nil }\n"
-	if err := os.WriteFile(storeStub, []byte(storeStubContent), 0644); err != nil {
-		t.Fatalf("writing store stub: %v", err)
-	}
-
-	// Compile the entire module.
-	cmd := exec.Command("go", "build", "./...")
-	cmd.Dir = tmpDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("cross-generator integration compilation failed:\n%s\n%s", err, output)
 	}
 }
 

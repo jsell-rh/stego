@@ -33,7 +33,7 @@ func TestComponentPreflightMatchesDirectGeneration(t *testing.T) {
 		{"JWT header", new(jwtauth.Generator), gen.Context{ComponentConfig: map[string]any{"header": "Bad Header"}}, "invalid authentication header"},
 		{"JWT claim", new(jwtauth.Generator), gen.Context{ComponentConfig: map[string]any{"roles_claim": "roles..name"}}, "dotted claim path"},
 		{"REST observation owner", new(restapi.Generator), gen.Context{Entities: []types.Entity{{Name: "Record", Observations: map[string][]string{"worker": {"status"}}}}, Collections: []types.Collection{{Name: "records", Entity: "Record"}}}, "observation ownership"},
-		{"Kafka outbox", new(kafkaproducer.Generator), gen.Context{OutputNamespace: "publisher"}, "requires the outbox"},
+		{"Kafka outbox", new(kafkaproducer.Generator), gen.Context{OutputNamespace: "publisher", PeerNamespaces: map[string]string{"outbox": "queue"}}, "ST-SUP-Q103"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			validator, ok := test.generator.(gen.ContextValidator)

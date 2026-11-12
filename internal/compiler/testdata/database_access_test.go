@@ -13,20 +13,22 @@ import (
 	"time"
 
 	access "example.com/access-test/out/contracts/databaseaccess"
-	"example.com/access-test/out/queue"
-	"example.com/access-test/out/storage"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/stdlib"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
-func init() {
-	storage.Register("access_test_outbox", storage.Digest(queue.SchemaSQL), func(db *gorm.DB) error { return db.Exec(queue.SchemaSQL).Error })
-}
+// schemaSQL creates, as the owner, the objects that the fixture component declares: a table of records, the
+// generation marker and the epoch sequence, and a queue table with its identity sequence.
+const schemaSQL = `CREATE TABLE public.records(id text PRIMARY KEY, name text NOT NULL);
+CREATE SCHEMA stego_schema;
+CREATE TABLE stego_schema.generation(generation text NOT NULL);
+INSERT INTO stego_schema.generation VALUES ('fresh-v1');
+CREATE SEQUENCE stego_schema.epoch_seq;
+CREATE SCHEMA stego_outbox;
+CREATE TABLE stego_outbox.messages(id uuid PRIMARY KEY, sequence bigint GENERATED ALWAYS AS IDENTITY UNIQUE NOT NULL,
+  destination text NOT NULL, resource_key text NOT NULL, kind text NOT NULL, payload jsonb NOT NULL);`
 
 type accessFixture struct {
 	admin, pool, runtime               *sql.DB
@@ -102,11 +104,7 @@ func fixture(t *testing.T) *accessFixture {
 			t.Fatal(err)
 		}
 	}
-	orm, err := gorm.Open(postgres.New(postgres.Config{Conn: f.owner}), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = storage.Migrate(orm.WithContext(ctx)); err != nil {
+	if _, err = f.owner.ExecContext(ctx, schemaSQL); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = f.owner.ExecContext(ctx, "CREATE TABLE public.unrelated(value text); GRANT SELECT ON public.unrelated TO "+identifier(f.auditor)); err != nil {
@@ -184,25 +182,18 @@ func TestDatabaseAccessCompleteAndRepeat(t *testing.T) {
 	execute(t, f.runtime, "UPDATE public.records SET name='updated' WHERE id='first'")
 	execute(t, f.runtime, `INSERT INTO stego_outbox.messages(id,destination,resource_key,kind,payload)
   VALUES('11111111-1111-4111-8111-111111111111','test','first','created','{}')`)
-	orm, err := gorm.Open(postgres.New(postgres.Config{Conn: f.runtime}), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = storage.NewStore(orm); err != nil {
-		t.Fatal("generated storage rejected the installed runtime", err)
-	}
 	grant(t, f)
 	var name string
-	if err = f.runtime.QueryRow("SELECT name FROM public.records WHERE id='first'").Scan(&name); err != nil || name != "updated" {
+	if err := f.runtime.QueryRow("SELECT name FROM public.records WHERE id='first'").Scan(&name); err != nil || name != "updated" {
 		t.Fatal("repeated installation changed data", err)
 	}
 	var epoch int64
 	var called bool
-	if err = f.runtime.QueryRow("SELECT last_value, is_called FROM stego_schema.epoch_seq").Scan(&epoch, &called); err != nil {
+	if err := f.runtime.QueryRow("SELECT last_value, is_called FROM stego_schema.epoch_seq").Scan(&epoch, &called); err != nil {
 		t.Fatal("runtime cannot read the epoch sequence", err)
 	}
 	var retained bool
-	if err = f.pool.QueryRow("SELECT has_table_privilege($1,'public.unrelated','SELECT')", f.auditor).Scan(&retained); err != nil || !retained {
+	if err := f.pool.QueryRow("SELECT has_table_privilege($1,'public.unrelated','SELECT')", f.auditor).Scan(&retained); err != nil || !retained {
 		t.Fatal("operator grant changed", err)
 	}
 	for _, statement := range []string{
@@ -210,10 +201,6 @@ func TestDatabaseAccessCompleteAndRepeat(t *testing.T) {
 		"CREATE TABLE public.forbidden(value text)",
 		"TRUNCATE public.records",
 		"SELECT * FROM public.unrelated",
-		"DELETE FROM public.stego_effect_bindings",
-		"DELETE FROM public.stego_resource_state",
-		"DELETE FROM public.stego_resource_state_scopes",
-		"DELETE FROM public.stego_scan_checkpoints",
 		"SELECT nextval('stego_outbox.messages_sequence_seq')",
 		"SELECT last_value FROM stego_outbox.messages_sequence_seq",
 		"SELECT setval('stego_outbox.messages_sequence_seq',1)",
@@ -225,7 +212,7 @@ func TestDatabaseAccessCompleteAndRepeat(t *testing.T) {
 	denied(t, f.runtime, "SELECT * FROM public.future_object")
 	execute(t, f.runtime, "DELETE FROM public.records WHERE id='first'")
 	var records int
-	if err = f.runtime.QueryRow("SELECT count(*) FROM public.records").Scan(&records); err != nil || records != 0 {
+	if err := f.runtime.QueryRow("SELECT count(*) FROM public.records").Scan(&records); err != nil || records != 0 {
 		t.Fatal("required delete access failed", err)
 	}
 }
@@ -382,13 +369,15 @@ func TestDatabaseAccessGeneratedStartup(t *testing.T) {
 			cmd := exec.CommandContext(ctx, executable)
 			for _, entry := range os.Environ() {
 				key, _, _ := strings.Cut(entry, "=")
-				if key != "DATABASE_URL" && key != "DATABASE_URL_FILE" && !strings.HasPrefix(key, "STEGO_HTTP_") {
+				if key != "DATABASE_URL" && key != "DATABASE_URL_FILE" && !strings.HasPrefix(key, "STEGO_HTTP_") && !strings.HasPrefix(key, "STEGO_DATABASE_") {
 					cmd.Env = append(cmd.Env, entry)
 				}
 			}
 			// Complete database access reaches HTTP configuration. Missing TLS
 			// files then stop the process before it can bind any listener.
-			cmd.Env = append(cmd.Env, "DATABASE_URL="+f.runtimeDSN, "STEGO_HTTP_REQUIRE_TLS=1")
+			// The test server is a local container without TLS: the opener of the PostgreSQL adapter accepts it only
+			// on a loopback address in its test mode.
+			cmd.Env = append(cmd.Env, "DATABASE_URL="+f.runtimeDSN, "STEGO_HTTP_REQUIRE_TLS=1", "STEGO_DATABASE_ALLOW_INSECURE_LOOPBACK=1")
 			output, err := cmd.CombinedOutput()
 			expected := "database.access"
 			if mode == "complete" {
