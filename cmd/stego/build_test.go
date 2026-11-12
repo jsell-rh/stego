@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -659,12 +660,23 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 	// A credential in the caller's environment must not reach the record.
 	caller := []string{"GH_TOKEN=stego-test-credential", "GOFLAGS=-race"}
 	results := []string{filepath.Join(root, "first"), filepath.Join(root, "second")}
-	for index, result := range results {
-		if notPinned != "" || setupErr != nil {
-			break
+	// The two builds run at the same time: each has its own work folder and output, and each copies the module
+	// cache, which neither changes. The download above has built the stego binary, so no build starts it.
+	if notPinned == "" && setupErr == nil {
+		buildErrs := make([]error, len(results))
+		var builds sync.WaitGroup
+		for index, result := range results {
+			builds.Add(1)
+			go func() {
+				defer builds.Done()
+				buildErrs[index] = stegoBuild(t, caller, buildArgs(source, revision, goTool, filepath.Join(root, "work"+string(rune('a'+index))), result, cache)...)
+			}()
 		}
-		if err := stegoBuild(t, caller, buildArgs(source, revision, goTool, filepath.Join(root, "work"+string(rune('a'+index))), result, cache)...); err != nil {
-			setupErr = fmt.Errorf("build %d: %v", index+1, err)
+		builds.Wait()
+		for index, err := range buildErrs {
+			if err != nil && setupErr == nil {
+				setupErr = fmt.Errorf("build %d: %v", index+1, err)
+			}
 		}
 	}
 	// brokenCache copies the cache, with its one zip removed or changed, and
