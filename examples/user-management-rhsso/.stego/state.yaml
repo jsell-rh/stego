@@ -34,14 +34,14 @@ last_applied:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261112213549-0290c79ebfe7
+        module_version: v0.0.0-20261112205837-9e47dd10a309
         vcs: git
-        revision: 0290c79ebfe7fca31fdbc0f76adea46283df56d8
+        revision: 9e47dd10a3091df53799de776cb59d03430c298a
         source_state: clean
     service_name: user-management
     service_hash: 105db060dc021906a22c74d952724b23f43f78c2596f33ca0619f3a6c87a8f6a
     registry_sha: env-override
-    registry_content_sha256: 5e5d83cc4e9663fbf6bc931450760e9ffe00acb6a785403f204040c87cbd0d3f
+    registry_content_sha256: 3b0598cb2ba79df46692cb601776abcd4be9599106dd7784a7feef80c0371ff3
     components:
         audit-log:
             version: 1.0.0
@@ -68,8 +68,8 @@ last_applied:
             version: 1.0.1
             sha: d125ad82ad3c2635d53e93493a8d1f4b65ec6fedcb10fa44cc7ed3103e577a54
         rest-api:
-            version: 4.1.0
-            sha: 610425bf231a4449b7ab0459a4d4882f42c8033b2782b4f084f08a72d5ef44cc
+            version: 4.1.1
+            sha: 71caf34b5f704f317bcf08ed926aa87a4c0673726a2ea1ee82ef5c0e5548f519
         rh-sso-auth:
             version: 2.1.0
             sha: e4603ffda52e0f41c2d8a71a46ebcd2303a8e4263854a76b209b0cc47e147fff
@@ -130,8 +130,8 @@ last_applied:
         internal/api/discovery.go: 31cf4a80ece098d319dad61a8c861282481707c57deeaab8af29485c6ded4f85
         internal/api/errors.go: 8746d7f2437f9d6409c35b3ce25a67f3b71f5888ad3cdfe721b55663674f2ec7
         internal/api/openapi.json: cb6e62543830018fd8afc44fc5a8c53f5b106f18315d05b30f0c66adb5a053d3
-        internal/api/org_settings_handler.go: b3f1907085c7483499fbbe760eb4d1412cfc113039d9176dc616ed002f5326cc
-        internal/api/org_users_handler.go: 6cd4a695bac5cb526209b1867156b60609b730767e80528687ddccb93fa677e7
+        internal/api/org_settings_handler.go: f8c1142b25287fb61ec1069863ae07f30ba943820633916d2ba210ec8ae1c4a0
+        internal/api/org_users_handler.go: dcb232803f5ed85de0a60ce04e0ef4c95c0dbcc4ef61e875efad8d9b25bafe8c
         internal/api/organizations_handler.go: b6e6638ef1056c537a82d5cb0bd390e82dbbd3a887a87e97c5866f78d65b74d7
         internal/api/router.go: 015fe23fa351aba15bb5cfa5f7e5b0ada71215d6d50e4db74a5f73f0b07fe826
         internal/api/runtime.go: dcadc88b444c923bcba0557e21e7dc0ff2f315bb692a959950a4dcfb111ba12c

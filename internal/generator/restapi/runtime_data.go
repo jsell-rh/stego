@@ -1183,6 +1183,7 @@ func (w *runtimeHandlerWriter) helpers() {
 		w.f("\tvar %s %s\n\tif err := json.Unmarshal(bodyBytes, &%s); err != nil {\n\t\treturn %s{}, &invalidRequest{problem: BadRequest(\"the body does not decode into %s\")}\n\t}\n", c.lower, e.Name, c.lower, e.Name, e.Name)
 		w.f("\t%s.ID = \"\"\n", c.lower)
 		emitClearServerManagedFields(&w.Buffer, c.lower, e)
+		w.canonicalRefs(c.lower, e.Fields, false)
 		w.f("\treturn %s, nil\n}\n\n", c.lower)
 	}
 	if c.ops[types.OpPatch] {
@@ -1195,7 +1196,26 @@ func (w *runtimeHandlerWriter) helpers() {
 		w.f("func decode%sPatch(bodyBytes []byte) (%sPatchRequest, error) {\n", c.pascal, c.pascal)
 		w.f("\tvar rawMap map[string]json.RawMessage\n\tif err := json.Unmarshal(bodyBytes, &rawMap); err != nil {\n\t\treturn %sPatchRequest{}, &invalidRequest{problem: BadRequest(\"the body is not a JSON object\")}\n\t}\n", c.pascal)
 		w.f("\tif kindRaw, ok := rawMap[\"kind\"]; ok {\n\t\tvar kind string\n\t\tif err := json.Unmarshal(kindRaw, &kind); err != nil || kind != %q {\n\t\t\treturn %sPatchRequest{}, &invalidRequest{problem: BadRequest(\"kind must be %s\")}\n\t\t}\n\t}\n", e.Name, c.pascal, e.Name)
-		w.f("\tvar patch %sPatchRequest\n\tif err := json.Unmarshal(bodyBytes, &patch); err != nil {\n\t\treturn %sPatchRequest{}, &invalidRequest{problem: BadRequest(\"the body does not decode into the patch of %s\")}\n\t}\n\treturn patch, nil\n}\n\n", c.pascal, c.pascal, e.Name)
+		w.f("\tvar patch %sPatchRequest\n\tif err := json.Unmarshal(bodyBytes, &patch); err != nil {\n\t\treturn %sPatchRequest{}, &invalidRequest{problem: BadRequest(\"the body does not decode into the patch of %s\")}\n\t}\n", c.pascal, c.pascal, e.Name)
+		w.canonicalRefs("patch", c.patchFields(), true)
+		w.f("\treturn patch, nil\n}\n\n")
+	}
+}
+
+// canonicalRefs writes, in the decode of a body, the lower-case form of each ref field of the decoded value v. So
+// the before and validate slots, the scope check and the stored row all see the one form of a UUID, whatever case
+// the request sent (ST-SUP-RC20-OC24). Each field of a patch is a pointer, and pointers tells so.
+func (w *runtimeHandlerWriter) canonicalRefs(v string, fields []types.Field, pointers bool) {
+	for _, f := range fields {
+		if f.Type != types.FieldTypeRef {
+			continue
+		}
+		name := v + "." + toPascalCase(f.Name)
+		if pointers || f.Optional {
+			w.f("\tif %s != nil {\n\t\t*%s = canonicalID(*%s)\n\t}\n", name, name, name)
+		} else {
+			w.f("\t%s = canonicalID(%s)\n", name, name)
+		}
 	}
 }
 
@@ -1613,15 +1633,7 @@ func (w *runtimeHandlerWriter) forceScope(scope string) {
 func (w *runtimeHandlerWriter) parents(stored string) {
 	c := w.c
 	w.f("\t\tvar parents []command.Ref\n")
-	// A ref holds the lower-case form of its UUID, which the loaded row has (ST-SUP-RC20-OC24).
-	for _, f := range c.refs {
-		v := c.lower + "." + toPascalCase(f.Name)
-		if f.Optional {
-			w.f("\t\tif %s != nil {\n\t\t\t*%s = canonicalID(*%s)\n\t\t}\n", v, v, v)
-		} else {
-			w.f("\t\t%s = canonicalID(%s)\n", v, v)
-		}
-	}
+	// Each ref already holds the lower-case form of its UUID, which the decode of the body gave (canonicalRefs).
 	for _, f := range c.refs {
 		name := toPascalCase(f.Name)
 		v := c.lower + "." + name

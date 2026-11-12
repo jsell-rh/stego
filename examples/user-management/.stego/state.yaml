@@ -34,14 +34,14 @@ last_applied:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261112213549-0290c79ebfe7
+        module_version: v0.0.0-20261112205837-9e47dd10a309
         vcs: git
-        revision: 0290c79ebfe7fca31fdbc0f76adea46283df56d8
+        revision: 9e47dd10a3091df53799de776cb59d03430c298a
         source_state: clean
     service_name: user-management
     service_hash: e12b2dedf65be6fa32a1eadd2693d5fe4a9c91fcb5f5e848bbcc80184df111d0
     registry_sha: env-override
-    registry_content_sha256: 5e5d83cc4e9663fbf6bc931450760e9ffe00acb6a785403f204040c87cbd0d3f
+    registry_content_sha256: 3b0598cb2ba79df46692cb601776abcd4be9599106dd7784a7feef80c0371ff3
     components:
         audit-log:
             version: 1.0.0
@@ -56,8 +56,8 @@ last_applied:
             version: 1.1.0
             sha: a5c76146b4e739d41cf7ab6aa1bf967493504a5fc5c4c9607fe2d6536df74dac
         jwt-auth:
-            version: 2.5.0
-            sha: a7af616045adaebd9faba9686ae0c449ea7cd50bc8050084c494fd85260e751b
+            version: 2.4.0
+            sha: 73b9e182608e923374ecd5a0c8e06684b9ef4d439b1d833f1d433d595ee0ffd9
         otel-tracing:
             version: 1.19.0
             sha: e773ff6e0eb8fa18f295d68e9c60cf9326d4f6c4cb4d8013825391ae5fc87324
@@ -71,8 +71,8 @@ last_applied:
             version: 1.0.1
             sha: d125ad82ad3c2635d53e93493a8d1f4b65ec6fedcb10fa44cc7ed3103e577a54
         rest-api:
-            version: 4.1.0
-            sha: 610425bf231a4449b7ab0459a4d4882f42c8033b2782b4f084f08a72d5ef44cc
+            version: 4.1.1
+            sha: 71caf34b5f704f317bcf08ed926aa87a4c0673726a2ea1ee82ef5c0e5548f519
         spicedb-authz:
             version: 1.0.0
             sha: e46e1e85a2676de44a569688ce225f1f347e56319bf0f3f5953a10d6632b9e23
@@ -144,8 +144,8 @@ last_applied:
         internal/api/errors.go: 8746d7f2437f9d6409c35b3ce25a67f3b71f5888ad3cdfe721b55663674f2ec7
         internal/api/openapi.json: 0d457a9140061fbffbcef264169911412e38a797667c70a67cb5981c7288ccb7
         internal/api/org_activity_handler.go: 94dd149cdd0ab85e77d18dcd0d4c3df932addd657c9074a1896e57558d994c2d
-        internal/api/org_settings_handler.go: b3f1907085c7483499fbbe760eb4d1412cfc113039d9176dc616ed002f5326cc
-        internal/api/org_users_handler.go: 644fac174b1159ba4060ab3e1be40884a9e9a95c8754d40ba8cf4d5c580a8018
+        internal/api/org_settings_handler.go: f8c1142b25287fb61ec1069863ae07f30ba943820633916d2ba210ec8ae1c4a0
+        internal/api/org_users_handler.go: e6ee9c362eb3e43701b09a7860f4d610a0312606726cd8babb36340306916008
         internal/api/organizations_handler.go: f9c8707be521f11e06eac535c7444052997a0fce7913f1a4d50b6f0613996069
         internal/api/router.go: d6124ed4af38af0415a23e5bfcc77ada26e18fe0cea5cf71dee839d28ff93fa6
         internal/api/runtime.go: e970a9f833c0b37ccb65273656abfc3cff2718646a3a182ba2e9fe36ce7b5375
