@@ -97,11 +97,23 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.26.11'
-          cache: true
-          cache-dependency-path: |
-            stego/go.sum
-            stego/internal/assure/go.sum
-            stego/cmd/assure/go.sum
+          cache: false
+      # Each part keeps its own Go module and build caches: the build cache saves about ten minutes of builds. A
+      # run on main, the release grade, restores no cache: it builds and downloads everything, so no test of it can
+      # pass on what a cache holds. Only a push to main saves the caches it made, under a key of its own run, so
+      # they follow main. Only a pull request restores them: it takes the newest cache of main with the same module
+      # files, or else the newest of main for the part, so a change to go.sum still restores most of the build cache.
+      - name: Restore the Go caches of the part
+        if: github.event_name == 'pull_request'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ matrix.part }}-${{ hashFiles('stego/go.sum', 'stego/internal/assure/go.sum', 'stego/cmd/assure/go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ matrix.part }}-${{ hashFiles('stego/go.sum', 'stego/internal/assure/go.sum', 'stego/cmd/assure/go.sum') }}-
+            go-${{ runner.os }}-${{ matrix.part }}-
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '24.18.1'
@@ -177,6 +189,14 @@ jobs:
         if: matrix.part == 'assure'
         timeout-minutes: 5
         run: python3 -B scripts/run-python-tests.py --output "$RUNNER_TEMP/part/python-tests.json"
+      - name: Save the Go caches of the part
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ matrix.part }}-${{ hashFiles('stego/go.sum', 'stego/internal/assure/go.sum', 'stego/cmd/assure/go.sum') }}-${{ github.run_id }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: tests-${{ matrix.part }}
