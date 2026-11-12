@@ -43,7 +43,7 @@ env:
 jobs:
   # The Go and Python suites run in four parts at once, each on a runner of its own, so the proof run takes about as
   # long as its slowest part, not the sum of all. A part holds a fixed set of Go packages: stego is cmd/stego, the
-  # longest package; generators is the generator packages with the longest tests; assure is Assuring's two modules
+  # longest package; generators is the six generator packages with the longest tests; assure is Assuring's two modules
   # and the Python suites; rest is every other package of the root module, from go list at the commit, so a new
   # package always runs. Each part writes the go test -json output of its packages, and assure uses the Python
   # output, as an artifact of this run. The parts run code of the change, as the suites job did: their outcomes
@@ -145,7 +145,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/part"
           out="$RUNNER_TEMP/part/go-test-$PART.json"
           list="$RUNNER_TEMP/part/packages-$PART.txt"
-          generators="internal/generator/browserbackend internal/generator/controller internal/generator/oteltracing internal/generator/keycloakprovider"
+          generators="internal/generator/browserbackend internal/generator/controller internal/generator/oteltracing internal/generator/keycloakprovider internal/generator/oidcauth internal/generator/kubernetesclient"
           case "$PART" in
             stego) go list -mod=readonly ./cmd/stego > "$list" ;;
             generators) go list -mod=readonly $(printf './%s ' $generators) > "$list" ;;
