@@ -371,7 +371,7 @@ type Wiring struct {
 	// declarations so that referenced variables are declared before referencing
 	// ones. Variable names here correspond to the raw variable name derived
 	// from the target constructor's expression via rawConstructorVarName
-	// (e.g. "store" for storage.NewStore(db)).
+	// (e.g. "queue" for outbox.NewQueue(db)).
 	ConstructorDeps map[int][]string
 
 	// PostDBCalls lists Go expressions that should be called after database

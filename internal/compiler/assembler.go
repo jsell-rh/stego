@@ -1620,7 +1620,7 @@ func findMiddlewareVar(input AssemblerInput) (string, string, int, int) {
 
 // rawConstructorVarName derives a base Go variable name from a constructor expression.
 // "pkg.NewFooBar(args)" → "fooBar"
-// "pkg.NewStore(db)" → "store"
+// "pkg.NewQueue(db)" → "queue"
 // "auth.NewJWTHandler().WithKeysFile(...)" → "jWTHandler"
 func rawConstructorVarName(expr string) string {
 	// Find the function name portion: the text between the last dot before

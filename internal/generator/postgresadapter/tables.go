@@ -20,7 +20,7 @@ import (
 
 // The tables of the runtime data path (ST-SUP-RC01-OC41), the only data path (ST-SUP-RC20-OC39): the generated
 // commands and queries carry all data access, the migration 001_initial is the SQL text of the tables of the
-// declaration, and the adapter emits no store, no entity model and no GORM AutoMigrate. The migration ledger, the
+// declaration, and the adapter emits no store, no entity model and no migration of models. The migration ledger, the
 // schema generation marker and the row-level security of the tenancy component go through the same ledger as every
 // other migration (ST-SUP-RC01-OC11).
 //
