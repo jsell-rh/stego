@@ -10,9 +10,9 @@ name: Proof run
 #
 # On a pull request the commit is the pull request's head, a commit that exists in the repository; on a push it is
 # the commit pushed. A failed test does not stop the tests: the proof run records it and is kept as an artifact.
-# Then the suites job fails on any failed test or package, also one whose name carries no test record ID, so
-# nothing is attested and the gates refuse for want of a verified proof run. assure record stops the run, and
-# nothing is attested, when a test names an unknown ID or the tree has uncommitted changes.
+# Then the suites job fails on any failed test or package, also one whose name carries no test record ID. The
+# attest job still signs the recorded proof run, so the gates name each failed test record. assure record stops
+# the run, and nothing is attested, when a test names an unknown ID or the tree has uncommitted changes.
 #
 # On a pull request, the gate job then gates the change (ST-ASR-UC02): it hears that the proof run is attested
 # (ST-ASR-PO01), reads the attestation from GitHub's store, verifies it, and measures the coverage at the head and
@@ -198,6 +198,9 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+    # recorded is true once the proof run is recorded and kept as the artifact proof-run.
+    outputs:
+      recorded: ${{ steps.recorded.outputs.recorded }}
     defaults:
       run:
         working-directory: stego
@@ -286,6 +289,9 @@ jobs:
           path: ${{ runner.temp }}/proof-run/proof-run.json
           retention-days: 14
           if-no-files-found: error
+      - name: Say that the proof run is recorded
+        id: recorded
+        run: echo "recorded=true" >> "$GITHUB_OUTPUT"
       # assure record gives outcomes only to tests whose names carry a test record ID. Every other failure fails the
       # job here, after the proof run is recorded and kept: a Go test or subtest of any name, a parent test, a
       # package (TestMain, a race outside a test, a build fault), and a Python test of any name.
@@ -304,6 +310,9 @@ jobs:
   attest:
     name: attest
     needs: suites
+    # The proof run is signed when the suites job recorded and kept it, also when the suites job then fails on a
+    # failed test: the predicate records the failure, and the gate names the failed records.
+    if: ${{ !cancelled() && needs.suites.outputs.recorded == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

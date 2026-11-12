@@ -1827,7 +1827,7 @@ func signingJob(name, needs, condition, artifact, folder, checkName, check, sign
 
 // attestJob is all the attest job may hold: it signs the proof run.
 func attestJob() allowedJob {
-	return signingJob("attest", "suites", "", "proof-run", "proof-run", "Check that the predicate is about the commit",
+	return signingJob("attest", "suites", "${{ !cancelled() && needs.suites.outputs.recorded == 'true' }}", "proof-run", "proof-run", "Check that the predicate is about the commit",
 		`test "$(jq -r .commit "$RUNNER_TEMP/proof-run/proof-run.json")" = "$COMMIT"`,
 		"Sign and keep the proof run", assure.ProofRunPredicateType, assure.ProofRunFile)
 }
