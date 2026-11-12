@@ -651,18 +651,18 @@ class ReleasePublishing(unittest.TestCase):
             self.assertEqual(jobs["publish-release"]["if"],
                              "${{ needs.suites.result == 'success' && needs.gate-release.outputs.passed == 'true' }}")
             self.assertNotIn("continue-on-error", jobs["publish-release"])
-            # The pull request workflows cancel only the older run of the same pull request: a push to main and a
-            # dispatch each have a group of their own, so no run on main is cancelled or replaced.
-            for name in ["checks.yml", "runtime-library.yml", "spec.yml"]:
+            # A push to main and a dispatch each have a concurrency group of their own run: no newer run replaces
+            # or cancels it, and no workflow copy in a pull request can name the group before the run starts. Only
+            # the runs of one pull request share a group, by its number, and only there a newer run cancels the older.
+            key = ("${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number)"
+                   " || format('run-{0}', github.run_id) }}")
+            for name in ["proof-run.yml", "checks.yml", "runtime-library.yml", "spec.yml"]:
                 concurrency = workflow(name)["concurrency"]
-                self.assertEqual(concurrency["group"], "${{ github.workflow }}-${{ github.event_name == 'push' && github.sha"
-                                 " || github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number)"
-                                 " || github.run_id }}", name)
+                self.assertEqual(concurrency["group"], "${{ github.workflow }}-" + key, name)
                 self.assertEqual(concurrency["cancel-in-progress"], "${{ github.event_name == 'pull_request' }}", name)
-            # A push has a concurrency group of its own, so no newer push replaces an older commit's pending run.
-            for name in ["proof-run.yml", "compiler-artifact.yml", "checks.yml"]:
-                self.assertIn("github.event_name == 'push' && github.sha", workflow(name)["concurrency"]["group"],
-                              name)
+            artifact = workflow("compiler-artifact.yml")["concurrency"]
+            self.assertEqual(artifact["group"], "compiler-artifact-" + key)
+            self.assertIs(artifact["cancel-in-progress"], False)
             # The signed artifact run that publishing takes exists for every push to main, whatever it changes.
             self.assertEqual(workflow("compiler-artifact.yml")["on"]["push"], {"branches": ["main"]})
             # The checks that qualification needs run on every push to main too, also one that changes only
