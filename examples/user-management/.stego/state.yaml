@@ -34,14 +34,14 @@ last_applied:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261112134033-b10485f1f983
+        module_version: v0.0.0-20261112211107-d9272d40464f
         vcs: git
-        revision: b10485f1f9839f9dd0c0451b748dd2948f0844a2
+        revision: d9272d40464fecdf208e7bee353123b6a1e2aa00
         source_state: clean
     service_name: user-management
     service_hash: e12b2dedf65be6fa32a1eadd2693d5fe4a9c91fcb5f5e848bbcc80184df111d0
     registry_sha: env-override
-    registry_content_sha256: f8970967ad70968010c328124d25a72c383b81d988c6a955977e3615b8cba574
+    registry_content_sha256: 5e5d83cc4e9663fbf6bc931450760e9ffe00acb6a785403f204040c87cbd0d3f
     components:
         audit-log:
             version: 1.0.0
@@ -56,8 +56,8 @@ last_applied:
             version: 1.1.0
             sha: a5c76146b4e739d41cf7ab6aa1bf967493504a5fc5c4c9607fe2d6536df74dac
         jwt-auth:
-            version: 2.4.0
-            sha: 73b9e182608e923374ecd5a0c8e06684b9ef4d439b1d833f1d433d595ee0ffd9
+            version: 2.5.0
+            sha: a7af616045adaebd9faba9686ae0c449ea7cd50bc8050084c494fd85260e751b
         otel-tracing:
             version: 1.19.0
             sha: e773ff6e0eb8fa18f295d68e9c60cf9326d4f6c4cb4d8013825391ae5fc87324
