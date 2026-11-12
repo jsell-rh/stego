@@ -206,7 +206,9 @@ func (f fixture) refusedWithNothingWritten(t *testing.T, result assureResult, pr
 }
 
 func TestRecord(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-ASR-UC01-R01-T01 Every automated test record gets an outcome, and one that did not run is failed with did not run", func(t *testing.T) {
+		t.Parallel()
 		f := newFixture(t, goFixture, pythonFixture)
 		result := f.record(t, f.commit, f.predicate)
 		if result.code != 0 {
@@ -223,6 +225,7 @@ func TestRecord(t *testing.T) {
 	})
 
 	t.Run("ST-ASR-UC01-R02-T01 Outcomes come from Go and Python subtests by the ID in their names, and a test with no ID is ignored", func(t *testing.T) {
+		t.Parallel()
 		python, err := exec.LookPath("python3")
 		if err != nil {
 			t.Fatal("python3 is needed to run the Python runner")
@@ -268,6 +271,7 @@ class Fix(unittest.TestCase):
 	})
 
 	t.Run("ST-ASR-UC01-R03-T01 An outcome for an ID that is not a test record refuses the run, and no predicate is written", func(t *testing.T) {
+		t.Parallel()
 		goJSON := goFixture + `{"Time":"2026-10-29T14:02:15Z","Action":"run","Package":"example.com/fix","Test":"TestOther/ST-FIX-INV09-T_names_no_record"}
 {"Time":"2026-10-29T14:02:15Z","Action":"pass","Package":"example.com/fix","Test":"TestOther/ST-FIX-INV09-T_names_no_record","Elapsed":0}
 `
@@ -277,6 +281,7 @@ class Fix(unittest.TestCase):
 	})
 
 	t.Run("ST-ASR-UC01-R04-T01 The subject is the full commit checked out, and a short ID, a branch or another commit is refused", func(t *testing.T) {
+		t.Parallel()
 		f := newFixture(t, goFixture, pythonFixture)
 		first := f.commit
 		writeFile(t, filepath.Join(f.repository, "data", "domain.jsonl"), `{"id":"ST-FIX","title":"Fixture, second"}`+"\n")
@@ -309,6 +314,7 @@ class Fix(unittest.TestCase):
 	})
 
 	t.Run("ST-ASR-UC01-R04-T02 A tree with uncommitted changes is refused, also when git status hides them", func(t *testing.T) {
+		t.Parallel()
 		userExcludes := filepath.Join(t.TempDir(), "excludes")
 		userConfig := filepath.Join(t.TempDir(), "gitconfig")
 		writeFile(t, userExcludes, "*.local\n")
@@ -392,6 +398,7 @@ class Fix(unittest.TestCase):
 	})
 
 	t.Run("ST-ASR-UC01-R05-T01 Only the trusted workflow's attestation job signs the proof run, it runs no repository code, and CI commits no evidence file", func(t *testing.T) {
+		t.Parallel()
 		workflow := readWorkflow(t)
 		if len(workflow.Permissions) != 1 || workflow.Permissions["contents"] != "read" {
 			t.Fatalf("the workflow's permissions are %v, want only contents: read", workflow.Permissions)
