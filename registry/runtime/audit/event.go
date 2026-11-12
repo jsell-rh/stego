@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"slices"
 	"sort"
 	"strconv"
@@ -354,14 +353,32 @@ func (e *Event) SetStates(s Settings, f Fields, before, after map[string]any) er
 	if err != nil {
 		return err
 	}
-	encoded := encodeTree(patch.tree())
-	// A safety net under the field budgets of Diff: the patch is at most three times the two states and 4 KiB a
-	// field, so the event stays linear in its input (ST-SUP-RP05-LC05).
-	if limit := 3*(len(b)+len(a)) + 4096*(len(before)+len(after)+1); len(encoded) > limit {
-		return fmt.Errorf("audit: the patch of the state is larger than its bound")
+	encoded, err := boundedPatch(patch, before, after, f, len(b)+len(a))
+	if err != nil {
+		return err
 	}
 	e.Before, e.After, e.Patch = State{b}, State{a}, State{encoded}
 	return nil
+}
+
+// boundedPatch encodes patch under a safety net below the field budgets of Diff: the patch is at most three times
+// the two encoded states, whose length is states, and 4 KiB a field, so the event stays linear in its input
+// (ST-SUP-RP05-LC05). A patch over the net falls back to one replace of each changed field, which the net holds;
+// the error stays as the last guard.
+func boundedPatch(patch Patch, before, after map[string]any, f Fields, states int) ([]byte, error) {
+	encoded := encodeTree(patch.tree())
+	limit := 3*states + 4096*(len(before)+len(after)+1)
+	if len(encoded) > limit {
+		whole, err := diff(before, after, f, true)
+		if err != nil {
+			return nil, err
+		}
+		encoded = encodeTree(whole.tree())
+	}
+	if len(encoded) > limit {
+		return nil, fmt.Errorf("audit: the patch of the state is larger than its bound")
+	}
+	return encoded, nil
 }
 
 func encodeState(state map[string]any, f Fields) (json.RawMessage, error) {
@@ -898,23 +915,17 @@ func canonicalNumber(field, s string) (json.Number, error) {
 	if digitsOf, _ := numberParts(mantissa); digitsOf+abs(exp) > maxNumberText {
 		return "", fmt.Errorf("audit: the canonical form of the number of the field %s is longer than %d characters", field, maxNumberText)
 	}
-	if text, ok := shiftDecimal(mantissa, exp); ok {
-		return json.Number(text), nil
-	}
-	r, ok := new(big.Rat).SetString(s)
+	// Only the decimal text of a JSON number is a number here: another text that a parser could read, such as
+	// 0x1p4 or 1/3, is refused.
+	text, ok := shiftDecimal(mantissa, exp)
 	if !ok {
 		return "", fmt.Errorf("audit: the field %s holds a number that is not a decimal", field)
 	}
-	if r.IsInt() {
-		return json.Number(r.Num().String()), nil
+	// The point and the minus can take the form two characters past the bound above.
+	if len(text) > maxNumberText {
+		return "", fmt.Errorf("audit: the canonical form of the number of the field %s is longer than %d characters", field, maxNumberText)
 	}
-	// The value has at most the fraction digits of its mantissa, less its exponent.
-	digits := 0
-	if j := strings.IndexByte(mantissa, '.'); j >= 0 {
-		digits = len(strings.TrimRight(mantissa[j+1:], "0"))
-	}
-	digits = max(digits-exp, 0)
-	return json.Number(strings.TrimRight(r.FloatString(digits), "0")), nil
+	return json.Number(text), nil
 }
 
 func encodeTree(v any) []byte {
