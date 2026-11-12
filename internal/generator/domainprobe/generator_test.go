@@ -191,6 +191,19 @@ func TestEmitters(t *testing.T) {
 	})
 }
 
+func TestNoEmitter(t *testing.T) {
+	t.Run("ST-SUP-RC34-OC03-T03 A service with no emitter gets a probe package that compiles and holds no probe", func(t *testing.T) {
+		ctx := reservationContext()
+		ctx.Emitters, ctx.Observations, ctx.Commands, ctx.Queries, ctx.SlotBindings = nil, nil, nil, nil, nil
+		pkg, _, _, _ := generateService(t, ctx).probePackage()
+		for _, name := range pkg.Scope().Names() {
+			if strings.HasSuffix(name, "Probe") {
+				t.Errorf("the package of a service with no emitter declares the probe %s", name)
+			}
+		}
+	})
+}
+
 func TestProbeCallsOnlyTheRuntime(t *testing.T) {
 	t.Run("ST-SUP-RC34-OC05-T01 A generated probe method calls only the probe runtime", func(t *testing.T) {
 		_, files, info, _ := generateService(t, reservationContext()).probePackage()

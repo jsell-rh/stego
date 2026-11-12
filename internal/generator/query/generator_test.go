@@ -50,7 +50,7 @@ func shopContext(t *testing.T) gen.Context {
 		BasePath: decl.BasePath, Entities: decl.Entities, Queries: decl.Queries, Emitters: emitters,
 		Tenancy:        &gen.Tenancy{Key: "tenant_id"},
 		PeerNamespaces: map[string]string{"query": "queries", probeComponent: "probes"},
-		FillSlots:      fills, QueryStreams: map[string]bool{"watch-orders": true}, RuntimeData: true,
+		FillSlots:      fills, QueryStreams: map[string]bool{"watch-orders": true},
 		Authorization: decl.Authorization,
 	}
 }

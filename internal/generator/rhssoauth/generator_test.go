@@ -82,7 +82,7 @@ func TestRuntimeAuth(t *testing.T) {
 					c[k] = v
 				}
 			}
-			return gen.Context{RuntimeData: true, ComponentConfig: c}
+			return gen.Context{ComponentConfig: c}
 		}
 		g := &Generator{}
 		auth, err := g.RuntimeAuth(config(map[string]any{"jwk_ca_file": "/etc/sso/ca.pem"}))

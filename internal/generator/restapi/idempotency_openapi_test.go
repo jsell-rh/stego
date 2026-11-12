@@ -46,7 +46,7 @@ type documentOperation struct {
 // path.
 func todoOperations(t *testing.T, ctx gen.Context) map[string]documentOperation {
 	t.Helper()
-	files, _, err := new(Generator).Generate(ctx)
+	files, _, err := new(Generator).Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}

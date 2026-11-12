@@ -50,7 +50,7 @@ func handler(t *testing.T) (http.Handler, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler, err := New(nil, verifier, nil)
+	handler, err := New(verifier)
 	if err != nil {
 		t.Fatal(err)
 	}

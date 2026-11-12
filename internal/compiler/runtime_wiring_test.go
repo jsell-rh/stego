@@ -13,8 +13,8 @@ import (
 	"time"
 )
 
-// The proofs of the runtime data path through the stego binary: the switch of the data path (ST-SUP-RC01-OC41), the
-// examples on the store path, and a service generated from testdata/runtime_wiring/project/service.yaml whose
+// The proofs of the runtime data path through the stego binary: a service with data access on the runtime data path
+// only (ST-SUP-RC01-OC41, ST-SUP-RC20-OC39), the examples on it, and a service generated from testdata/runtime_wiring/project/service.yaml whose
 // migration job and binary run against a local PostgreSQL server and a local SpiceDB container.
 
 // wiringFixture is the folder of the test service: its project files and the check that runs in its module.
@@ -63,14 +63,14 @@ type wiringProject struct {
 }
 
 // runtimeArchetype is the components list of the rest-crud archetype of the registry copy on the runtime data path:
-// the shipped list with the command and query generators and the tenancy, domain-probe and outbox components, and
-// without tsl-search, which the runtime data path does not serve.
+// the shipped list with the tenancy component.
 const runtimeArchetype = "components:\n  - rest-api\n  - postgres-adapter\n  - tenancy\n  - domain-probe\n  - command\n  - query\n  - outbox\n  - otel-tracing\n  - health-check\n"
 
 // noQueryArchetype is runtimeArchetype without the query generator.
 const noQueryArchetype = "components:\n  - rest-api\n  - postgres-adapter\n  - tenancy\n  - domain-probe\n  - command\n  - outbox\n  - otel-tracing\n  - health-check\n"
 
-// storeArchetype is runtimeArchetype without the command and query generators: a service on the GORM store.
+// storeArchetype is runtimeArchetype without the command and query generators: the component set of a service on the
+// GORM store, which is refused now (ST-SUP-RC20-OC39).
 const storeArchetype = "components:\n  - rest-api\n  - postgres-adapter\n  - tenancy\n  - domain-probe\n  - outbox\n  - otel-tracing\n  - health-check\n"
 
 // newWiringProject copies the registry of this repository with the components of the archetype given, each alpha
@@ -96,8 +96,6 @@ func newWiringProject(t *testing.T, binary, components string) *wiringProject {
 		t.Fatal(err)
 	}
 	p.write("go.mod", "module "+wiringModule+"\n\ngo 1.26.11\n")
-	// The service's repository: a run with no record reads the record of its HEAD commit (ST-SUP-RC01-OC41).
-	p.git("init", "-q")
 	return p
 }
 
@@ -261,53 +259,47 @@ func TestRuntimeDataPath(t *testing.T) {
 	}
 	t.Parallel()
 	stego := stegoBinary(t)
-	t.Run("ST-SUP-RC01-OC41-T05 The runtime data path is switched on only for a service with no record at its base ref", func(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC41-T05 A service with data access is generated on the runtime data path only, and is refused without the command and query components", func(t *testing.T) {
 		fresh := newWiringProject(t, stego, runtimeArchetype)
 		generated := planned(fresh.stego("plan"), "generate")
 		for _, want := range []string{RuntimeWiringNamespace + "/runtime.go", "internal/storage/tables.go", "commands/handlers/handlers.go", "queries/serve/serve.go"} {
 			if !generated[want] {
-				t.Errorf("the plan of the service with no record does not generate %s", want)
+				t.Errorf("the plan of the service does not generate %s", want)
 			}
 		}
 		for _, refused := range []string{"internal/storage/store.go", "internal/storage/models.go"} {
 			if generated[refused] {
-				t.Errorf("the plan of the service with no record generates the store file %s", refused)
+				t.Errorf("the plan of the service generates the store file %s", refused)
 			}
 		}
 		fresh.stego("apply")
-		if !strings.Contains(fresh.read(".stego/state.yaml"), "data_path: runtime") {
-			t.Error("the record of the service with no record before does not state the runtime data path")
+		record := fresh.read(".stego/state.yaml")
+		if !strings.Contains(record, "format_version: 5") || strings.Contains(record, "data_path") {
+			t.Errorf("the record is not of format version 5 without a data path:\n%s", record)
 		}
 
-		// The release on the GORM store: the same declaration without its commands and queries, generated with no
-		// command and no query generator. Then the declaration and the archetype gain them.
-		released := newWiringProject(t, stego, storeArchetype)
-		full := released.read("service.yaml")
-		store := full[:strings.Index(full, "commands:")]
-		store = strings.Replace(store, "  command:\n    proto_files:\n      - {path: proto/shop.proto, import_path: shop/v1/shop.proto}\n", "", 1)
-		released.write("service.yaml", store)
-		if err := os.RemoveAll(filepath.Join(released.dir, "fills")); err != nil {
-			t.Fatal(err)
-		}
-		released.stego("apply")
-		if record := released.read(".stego/state.yaml"); !strings.Contains(record, "data_path: store") || !strings.Contains(record, "internal/storage/store.go") {
-			t.Fatal("the record of the release on the GORM store does not state the store data path")
-		}
-		released.write("service.yaml", full)
-		if err := os.CopyFS(filepath.Join(released.dir, "fills"), os.DirFS(filepath.Join(wiringFixture, "project", "fills"))); err != nil {
-			t.Fatal(err)
-		}
-		released.archetype(runtimeArchetype)
-		released.useLocalRuntime()
-		released.goCommand("mod", "download")
-		output := released.stego("plan")
-		for _, refused := range []string{RuntimeWiringNamespace + "/runtime.go", "internal/storage/tables.go"} {
-			if planned(output, "generate")[refused] {
-				t.Errorf("the plan of the service with a release on the GORM store generates %s:\n%s", refused, output)
+		// The same declaration without the command or the query generator: no component serves its data, so the
+		// components that served it on the GORM store refuse the run, and the fault names ST-SUP-RC20-OC39.
+		for _, components := range []string{storeArchetype, noQueryArchetype} {
+			lacking := newWiringProject(t, stego, components)
+			if components == storeArchetype {
+				// The declaration of a release on the GORM store: its collections and entities, with no command, no
+				// query and no setting of the command component.
+				full := lacking.read("service.yaml")
+				store := full[:strings.Index(full, "commands:")]
+				store = strings.Replace(store, "  command:\n    proto_files:\n      - {path: proto/shop.proto, import_path: shop/v1/shop.proto}\n", "", 1)
+				lacking.write("service.yaml", store)
+				if err := os.RemoveAll(filepath.Join(lacking.dir, "fills")); err != nil {
+					t.Fatal(err)
+				}
 			}
-		}
-		if planned(output, "delete")["internal/storage/store.go"] || !planned(output, "generate")["commands/handlers/handlers.go"] {
-			t.Errorf("the plan of the service with a release on the GORM store does not keep the store and add the commands:\n%s", output)
+			output, err := lacking.stegoRun("plan")
+			if err == nil || !strings.Contains(output, "ST-SUP-RC20-OC39") || !strings.Contains(output, "command") || !strings.Contains(output, "query component") {
+				t.Errorf("the plan of a service with data access and without the command and query generators gave %v, want a refusal that names ST-SUP-RC20-OC39:\n%s", err, output)
+			}
+			if _, err := os.Stat(filepath.Join(lacking.dir, "out")); !os.IsNotExist(err) {
+				t.Errorf("the refused plan wrote the output folder: %v", err)
+			}
 		}
 	})
 
@@ -329,73 +321,6 @@ func TestRuntimeDataPath(t *testing.T) {
 			if !strings.Contains(wiring, want) {
 				t.Errorf("the runtime verifier does not take the declared setting %s", want)
 			}
-		}
-		// The same declaration on the store path keeps the jwt-auth middleware.
-		store := newWiringProject(t, stego, storeArchetype)
-		full := store.read("service.yaml")
-		declaration := full[:strings.Index(full, "commands:")]
-		declaration = strings.Replace(declaration, "  command:\n    proto_files:\n      - {path: proto/shop.proto, import_path: shop/v1/shop.proto}\n", "", 1)
-		store.write("service.yaml", declaration)
-		if err := os.RemoveAll(filepath.Join(store.dir, "fills")); err != nil {
-			t.Fatal(err)
-		}
-		store.stego("apply")
-		if storeMain := store.read("out/main.go"); !strings.Contains(storeMain, "/out/internal/auth\"") {
-			t.Error("the main.go of the service on the store path does not wire the jwt-auth middleware")
-		}
-	})
-
-	t.Run("ST-SUP-RC01-OC41-T08 The record holds a service on its data path, also when the project has no record checked out", func(t *testing.T) {
-		// A service on the runtime data path that loses the query generator is refused, and the fault names
-		// ST-SUP-Q91.
-		runtime := newWiringProject(t, stego, runtimeArchetype)
-		runtime.stego("apply")
-		runtime.useLocalRuntime()
-		runtime.goCommand("mod", "tidy")
-		runtime.archetype(noQueryArchetype)
-		output, err := runtime.stegoRun("plan")
-		if err == nil || !strings.Contains(output, "ST-SUP-Q91") || !strings.Contains(output, "runtime data path") {
-			t.Errorf("the plan of a service on the runtime data path without the query generator gave %v, want a refusal that names ST-SUP-Q91:\n%s", err, output)
-		}
-
-		// A service with the two generators and no record outside a git repository is refused: the run cannot tell
-		// whether a record of a release is committed.
-		outside := newWiringProject(t, stego, runtimeArchetype)
-		if err := os.RemoveAll(filepath.Join(outside.dir, ".git")); err != nil {
-			t.Fatal(err)
-		}
-		output, err = outside.stegoRun("plan")
-		if err == nil || !strings.Contains(output, "ST-SUP-Q91") || !strings.Contains(output, "HEAD commit") {
-			t.Errorf("the plan of a service with no record outside a git repository gave %v, want a refusal that names ST-SUP-Q91:\n%s", err, output)
-		}
-
-		// A release on the GORM store whose record is committed and not checked out keeps the store when it gains
-		// the command and query generators.
-		released := newWiringProject(t, stego, storeArchetype)
-		full := released.read("service.yaml")
-		store := full[:strings.Index(full, "commands:")]
-		store = strings.Replace(store, "  command:\n    proto_files:\n      - {path: proto/shop.proto, import_path: shop/v1/shop.proto}\n", "", 1)
-		released.write("service.yaml", store)
-		if err := os.RemoveAll(filepath.Join(released.dir, "fills")); err != nil {
-			t.Fatal(err)
-		}
-		released.stego("apply")
-		released.git("add", ".stego/state.yaml")
-		released.git("commit", "-q", "-m", "the record of the release on the GORM store")
-		if err := os.Remove(filepath.Join(released.dir, ".stego", "state.yaml")); err != nil {
-			t.Fatal(err)
-		}
-		released.write("service.yaml", full)
-		if err := os.CopyFS(filepath.Join(released.dir, "fills"), os.DirFS(filepath.Join(wiringFixture, "project", "fills"))); err != nil {
-			t.Fatal(err)
-		}
-		released.archetype(runtimeArchetype)
-		released.useLocalRuntime()
-		released.goCommand("mod", "download")
-		output = released.stego("plan")
-		if generated := planned(output, "generate"); generated[RuntimeWiringNamespace+"/runtime.go"] || generated["internal/storage/tables.go"] ||
-			planned(output, "delete")["internal/storage/store.go"] || !generated["commands/handlers/handlers.go"] {
-			t.Errorf("the plan of a release on the GORM store with its record committed and not checked out does not keep the store:\n%s", output)
 		}
 	})
 
@@ -419,8 +344,8 @@ func TestRuntimeDataPath(t *testing.T) {
 			if !strings.Contains(string(output), "Summary: 0 to generate, 0 to update, 0 to delete") {
 				t.Errorf("the plan of the example %s changes its generated output:\n%s", example, output)
 			}
-			if !strings.Contains(p.read(".stego/state.yaml"), "data_path: runtime") {
-				t.Errorf("the record of the example %s does not state the runtime data path", example)
+			if record := p.read(".stego/state.yaml"); !strings.Contains(record, "format_version: 5") || strings.Contains(record, "data_path") {
+				t.Errorf("the record of the example %s is not of format version 5 without a data path", example)
 			}
 			if _, err := os.Stat(filepath.Join(p.dir, "out", "internal", "storage", "store.go")); err == nil {
 				t.Errorf("the example %s holds the GORM store", example)
@@ -431,8 +356,8 @@ func TestRuntimeDataPath(t *testing.T) {
 			if output, err := apply.CombinedOutput(); err != nil {
 				t.Fatalf("stego apply of %s: %v\n%s", example, err, output)
 			}
-			if record := p.read(".stego/state.yaml"); !strings.Contains(record, "data_path: runtime") || !strings.Contains(record, RuntimeWiringNamespace) {
-				t.Errorf("the record that apply writes for the example %s does not state the runtime data path and its wiring", example)
+			if record := p.read(".stego/state.yaml"); strings.Contains(record, "data_path") || !strings.Contains(record, RuntimeWiringNamespace) {
+				t.Errorf("the record that apply writes for the example %s states a data path or lacks the runtime wiring", example)
 			}
 		}
 	})

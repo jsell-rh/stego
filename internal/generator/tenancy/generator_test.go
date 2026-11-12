@@ -35,9 +35,9 @@ func declaration() []types.Entity {
 }
 
 func contexts() (gen.Context, gen.Context) {
-	peers := map[string]string{"postgres-adapter": "storage", gen.TenancyComponent: "tenancy"}
+	peers := map[string]string{"postgres-adapter": "storage", gen.TenancyComponent: "tenancy", "command": "commands", "query": "queries"}
 	tenancy := &gen.Tenancy{Key: "tenant_id"}
-	storage := gen.Context{OutputNamespace: "storage", ModuleName: module, ServiceName: "tenancy-check", Entities: declaration(), PeerNamespaces: peers, Tenancy: tenancy, ComponentConfig: map[string]any{}}
+	storage := gen.Context{OutputNamespace: "storage", ModuleName: module, ServiceName: "tenancy-check", Entities: declaration(), PeerNamespaces: peers, Tenancy: tenancy, ComponentConfig: map[string]any{"schema_generation": "tenancy-check-v1"}}
 	own := storage
 	own.OutputNamespace = "tenancy"
 	return storage, own

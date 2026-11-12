@@ -22,6 +22,12 @@ import (
 //go:embed testdata/runtime_test.go
 var runtimeTests string
 
+// The migration of the former outbox component, which STEGO no longer generates, for the test of an upgraded
+// database (ST-SUP-RC18-OC30-T02).
+//
+//go:embed testdata/former.sql
+var formerMigration string
+
 // The output namespaces of the service of the RC18-OC30 test records.
 const (
 	outboxNamespace      = "internal/outbox"
@@ -38,7 +44,6 @@ func ordersContext(namespace string) gen.Context {
 		ModuleName:      moduleName,
 		ServiceName:     "orders",
 		OutputNamespace: namespace,
-		RuntimeData:     true,
 		ErrorTypeBase:   "https://errors.example.com/",
 		ComponentConfig: map[string]any{"anchor_period": "1h", "retention_months": 13},
 		PeerNamespaces: map[string]string{"outbox": outboxNamespace, "audit-log": auditNamespace,
@@ -103,12 +108,11 @@ func TestRuntimeOutput(t *testing.T) {
 		if len(wiring.DatabaseAccess) != 0 || len(wiring.GoModRequires) != 0 {
 			t.Fatalf("the outbox wiring asks for grants %v and modules %v, want none", wiring.DatabaseAccess, wiring.GoModRequires)
 		}
-		// The store path keeps the former queue for the GORM store and its peers.
-		store := ordersContext(outboxNamespace)
-		store.RuntimeData = false
-		former, _, err := new(Generator).Generate(store)
-		if err != nil || len(former) < 2 || former[0].Path != outboxNamespace+"/migrations/000001_outbox.sql" {
-			t.Fatalf("the store path gave %d files and %v, want the former queue", len(former), err)
+		// A service with no entity, no command and no query has no command whose effects the outbox carries.
+		noData := ordersContext(outboxNamespace)
+		noData.Entities, noData.Collections = nil, nil
+		if files, _, err := new(Generator).Generate(noData); err != nil || len(files) != 0 {
+			t.Fatalf("a service with no data access gave %d files and %v, want none", len(files), err)
 		}
 	})
 	t.Run("ST-SUP-RC18-OC30-T03 The roles get only the grants of the runtime migration and the tenant wall", func(t *testing.T) {
@@ -130,16 +134,10 @@ func TestRuntimeOutput(t *testing.T) {
 		}
 	})
 	t.Run("ST-SUP-RC18-OC30-T05 The runtime path refuses a peer that calls the former queue", func(t *testing.T) {
-		for name, change := range map[string]func(*gen.Context){
-			"storage contract": func(c *gen.Context) { c.StorageContract = "example.com/orders/contracts/storage" },
-			"events contract":  func(c *gen.Context) { c.EventsContract = "example.com/orders/contracts/events" },
-			"kafka-producer":   func(c *gen.Context) { c.PeerNamespaces["kafka-producer"] = "internal/events" },
-		} {
-			ctx := ordersContext(outboxNamespace)
-			change(&ctx)
-			if _, _, err := new(Generator).Generate(ctx); err == nil || !strings.Contains(err.Error(), "runtime data path") {
-				t.Fatalf("%s: the runtime path gave %v, want a refusal", name, err)
-			}
+		ctx := ordersContext(outboxNamespace)
+		ctx.PeerNamespaces["kafka-producer"] = "internal/events"
+		if _, _, err := new(Generator).Generate(ctx); err == nil || !strings.Contains(err.Error(), "ST-SUP-RC20-OC39") || !strings.Contains(err.Error(), "ST-SUP-Q103") {
+			t.Fatalf("the runtime path with kafka-producer gave %v, want a refusal that names ST-SUP-RC20-OC39 and ST-SUP-Q103", err)
 		}
 	})
 }
@@ -172,7 +170,7 @@ func generateService(t *testing.T) *service {
 	}
 	s.write(filepath.Join(outboxNamespace, "runtime_test.go"), runtimeTests)
 	// The migration of the former outbox component, for the test of an upgraded database.
-	s.write(filepath.Join(outboxNamespace, "testdata", "former.sql"), string(migration))
+	s.write(filepath.Join(outboxNamespace, "testdata", "former.sql"), formerMigration)
 	return s
 }
 
@@ -232,7 +230,7 @@ func TestGeneratedRuntimeOutbox(t *testing.T) {
 	if out, err := s.goTool("vet", "./..."); err != nil {
 		t.Fatalf("go vet of the generated module: %v\n%s", err, out)
 	}
-	for _, id := range []string{"ST-SUP-RC18-OC30-T01", "ST-SUP-RC18-OC30-T02", "ST-SUP-RC18-OC30-T03", "ST-SUP-RC18-OC30-T04"} {
+	for _, id := range []string{"ST-SUP-RC18-OC30-T01", "ST-SUP-RC18-OC30-T02", "ST-SUP-RC18-OC30-T03", "ST-SUP-RC18-OC30-T04", "ST-SUP-RC18-OC11-T01"} {
 		t.Run(id, func(t *testing.T) {
 			s.t = t
 			s.run(id)

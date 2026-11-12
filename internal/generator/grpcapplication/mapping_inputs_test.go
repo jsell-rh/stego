@@ -102,7 +102,7 @@ func TestResponseMappingPreparedInputValidation(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			c := preparedShipmentContext(t)
 			edit(c)
-			g := new(grpcapplication.Generator)
+			g := new(grpcapplication.ProcessGenerator)
 			if err := g.ValidateContext(c); err == nil {
 				t.Fatal("invalid input passed validation")
 			}
@@ -115,7 +115,7 @@ func TestResponseMappingPreparedInputValidation(t *testing.T) {
 
 func TestResponseMappingPreparedOrder(t *testing.T) {
 	c := preparedShipmentContext(t)
-	g := new(grpcapplication.Generator)
+	g := new(grpcapplication.ProcessGenerator)
 	first, _, err := g.Generate(c)
 	if err != nil {
 		t.Fatal(err)

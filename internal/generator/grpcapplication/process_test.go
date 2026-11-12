@@ -18,7 +18,25 @@ func processContext(t *testing.T) gen.Context {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return gen.Context{ServiceName: "records", ModuleName: "example.com/grpc-test", OutDirName: "out", OutputNamespace: "grpcapi", StorageContract: "example.com/grpc-test/out/contracts/storage", AuthPackage: "example.com/grpc-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "otel-tracing": "telemetry"}, Inputs: map[string][]byte{"api.proto": []byte(schema), "factory/rpc.go": source}, ComponentConfig: map[string]any{"factory_package": "sample", "proto_files": []any{map[string]any{"path": "api.proto", "import_path": "sample/v1/records.proto"}}, "processes": []any{map[string]any{"name": "records", "factory_package": "factory"}}}}
+	return gen.Context{ServiceName: "records", ModuleName: "example.com/grpc-test", OutDirName: "out", OutputNamespace: "grpcapi", AuthPackage: "example.com/grpc-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "otel-tracing": "telemetry"}, Inputs: map[string][]byte{"api.proto": []byte(schema), "factory/rpc.go": source}, ComponentConfig: map[string]any{"proto_files": []any{map[string]any{"path": "api.proto", "import_path": "sample/v1/records.proto"}}, "processes": []any{map[string]any{"name": "records", "factory_package": "factory"}}}}
+}
+
+// standalone gives ctx the settings of grpc-processes, which emits the RPC contracts, the transport, the client and
+// the response mappings with no data access: one process records whose factory imports the process package of the
+// context's module and namespace, the otel-tracing peer, and no factory_package. The tests of those templates
+// generate through it, since grpc-application serves only the declared commands and queries (ST-SUP-RC07-OC19).
+func standalone(t *testing.T, ctx gen.Context) gen.Context {
+	t.Helper()
+	source, err := os.ReadFile("testdata/process_factory.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := ctx.ModuleName + "/" + ctx.OutDirName + "/" + ctx.OutputNamespace + "/"
+	ctx.Inputs["factory/rpc.go"] = []byte(strings.ReplaceAll(string(source), "example.com/grpc-test/out/grpcapi/", prefix))
+	delete(ctx.ComponentConfig, "factory_package")
+	ctx.ComponentConfig["processes"] = []any{map[string]any{"name": "records", "factory_package": "factory"}}
+	ctx.PeerNamespaces["otel-tracing"] = "telemetry"
+	return ctx
 }
 func TestGRPCProcessValidation(t *testing.T) {
 	for _, name := range []string{"valid", "missing-source", "missing-open", "wrong-context", "wrong-result", "build-tag", "main-package", "generated-factory", "duplicate", "missing-telemetry", "unknown-field", "invalid-name", "empty-list", "wrong-list"} {
@@ -53,7 +71,7 @@ func TestGRPCProcessValidation(t *testing.T) {
 			case "wrong-list":
 				ctx.ComponentConfig["processes"] = "records"
 			}
-			generator := new(grpcapplication.Generator)
+			generator := new(grpcapplication.ProcessGenerator)
 			validation := generator.ValidateContext(ctx)
 			_, _, generation := generator.Generate(ctx)
 			if name == "valid" {
@@ -66,7 +84,7 @@ func TestGRPCProcessValidation(t *testing.T) {
 		})
 	}
 	ctx := processContext(t)
-	generator := new(grpcapplication.Generator)
+	generator := new(grpcapplication.ProcessGenerator)
 	inputs, err := generator.InputFiles(ctx.ComponentConfig)
 	if err != nil || !reflect.DeepEqual(inputs, gen.SourceInputs([]string{"api.proto", "factory/rpc.go"})) {
 		t.Fatal("factory source is not a compiler input", inputs, err)

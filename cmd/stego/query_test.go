@@ -14,7 +14,7 @@ import (
 
 // queryDeclaration is a pooled rest-crud declaration with the entity Note, the get query get-note and the list
 // query list-notes, each with its own fill.
-const queryDeclaration = `kind: service
+var queryDeclaration = onRuntimePath(`kind: service
 name: notes
 archetype: rest-crud
 language: go
@@ -34,14 +34,18 @@ collections:
 queries:
   - name: get-note
     reads: [Note]
+    resource_type: note
+    permission: view
     resource_member: noteId
     fill: get-note
     route: GET /notes/{noteId}
   - name: list-notes
     reads: [Note]
+    resource_type: note
+    permission: view
     fill: list-notes
     route: GET /notes
-`
+`)
 
 // queryProject is a project with queryDeclaration and its fills, and a copy of the registry whose rest-crud
 // archetype holds the tenancy, domain-probe and query components. The fill of get-note implements the slot slot.
@@ -54,7 +58,7 @@ func queryProjectOf(t *testing.T, service, slot string) compiler.ReconcilerInput
 	t.Helper()
 	project := t.TempDir()
 	registry := filepath.Join(project, "registry")
-	if err := os.CopyFS(registry, os.DirFS(storeRegistry(t))); err != nil {
+	if err := os.CopyFS(registry, os.DirFS(shippedRegistry(t))); err != nil {
 		t.Fatal(err)
 	}
 	archetype := filepath.Join(registry, "archetypes/rest-crud/archetype.yaml")

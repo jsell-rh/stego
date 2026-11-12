@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"io/fs"
 	"maps"
@@ -27,68 +28,62 @@ const generatingDeclaration = `kind: service
 name: generating
 archetype: rest-crud
 language: go
+tenancy: {kind: pooled, key: tenant_id, claim: tenant}
+authorization: {provider: spicedb, schema_path: authz/schema.zed, subject_from_identity: user}
+audit: {level: change}
+overrides:
+  postgres-adapter: {schema_generation: tables-v1}
 entities:
   - name: Todo
+    resource_type: todo
+    permissions: {create: public, read: view, list: view}
+    public_reasons: {create: a new todo has no resource to decide on before it exists}
     fields: [{name: title, type: string}]
   - name: Note
+    resource_type: note
+    permissions: {create: public, read: view, list: view}
+    public_reasons: {create: a new note has no resource to decide on before it exists}
     fields: [{name: body, type: string}]
 collections:
   todos: {entity: Todo, operations: [create, read, list]}
   notes: {entity: Note, operations: [create, read]}
 `
 
-// storeArchetypes are the component lists and bindings of the shipped archetypes before they moved to the runtime
-// data path (ST-SUP-RC20-OC39): the lists of the GORM store path, with tsl-search in rest-crud and grpc-processes in
-// rpc-service.
-var storeArchetypes = map[string][2]string{
-	"rest-crud":       {"components:\n  - rest-api\n  - postgres-adapter\n  - tsl-search\n  - otel-tracing\n  - health-check\n", ""},
-	"browser-service": {"components:\n  - postgres-adapter\n  - otel-tracing\n  - health-check\n  - browser-backend\n  - browser-telemetry\n  - kubernetes-service\n", ""},
-	"rpc-service":     {"components:\n  - otel-tracing\n  - grpc-processes\n", "  application-grpc-processes: grpc-processes\n"},
-}
 
-// storeRegistry gives a copy of the shipped registry whose archetypes keep the component lists of the GORM store
-// path. The tests of compiler behaviour that does not depend on the data path use it until the store path is
-// removed (ST-SUP-RC20-OC39); the shipped archetypes are on the runtime data path.
-func storeRegistry(t testing.TB) string {
+// shippedRegistry gives the folder of the shipped registry, whose archetypes are on the runtime data path, the only
+// data path (ST-SUP-RC20-OC39).
+func shippedRegistry(t testing.TB) string {
 	t.Helper()
-	dir := filepath.Join(t.TempDir(), "registry")
-	if err := storeRegistryInto(dir); err != nil {
+	_, source, _, _ := runtime.Caller(0)
+	dir, err := filepath.Abs(filepath.Join(filepath.Dir(source), "../../registry"))
+	if err != nil {
 		t.Fatal(err)
 	}
 	return dir
 }
 
-// storeRegistryInto writes the copy of storeRegistry to dir, for a fixture that outlives one test.
-func storeRegistryInto(dir string) error {
+// shippedRegistryCopy gives a copy of the shipped registry that a test may change.
+func shippedRegistryCopy(t testing.TB) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "registry")
+	if err := shippedRegistryInto(dir); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// shippedRegistryInto copies the shipped registry to dir, for a fixture that changes it or outlives one test.
+func shippedRegistryInto(dir string) error {
 	_, source, _, _ := runtime.Caller(0)
-	if err := os.CopyFS(dir, os.DirFS(filepath.Join(filepath.Dir(source), "../../registry"))); err != nil {
-		return err
-	}
-	list := regexp.MustCompile(`(?s)components:\n(  - [a-z-]+\n)+`)
-	for name, store := range storeArchetypes {
-		file := filepath.Join(dir, "archetypes", name, "archetype.yaml")
-		data, err := os.ReadFile(file)
-		if err != nil {
-			return err
-		}
-		text := list.ReplaceAllString(string(data), store[0])
-		if store[1] != "" {
-			text = strings.Replace(text, "  storage-adapter: postgres-adapter\n", store[1], 1)
-		}
-		if err := os.WriteFile(file, []byte(text), 0o600); err != nil {
-			return err
-		}
-	}
-	return nil
+	return os.CopyFS(dir, os.DirFS(filepath.Join(filepath.Dir(source), "../../registry")))
 }
 
 // generatingProject makes an empty project with the declaration in a new
 // working directory.
 func generatingProject(t *testing.T, declaration string) {
 	t.Helper()
-	registry := storeRegistry(t)
 	t.Chdir(t.TempDir())
-	t.Setenv("STEGO_REGISTRY", registry)
+	t.Setenv("STEGO_REGISTRY", shippedRegistry(t))
 	t.Setenv("STEGO_MODULE", "example.com/generating")
 	t.Setenv("STEGO_GO_VERSION", "1.26.11")
 	writeProjectFile(t, "service.yaml", declaration)
@@ -102,6 +97,7 @@ func writeProjectFile(t testing.TB, name, data string) {
 	if err := os.WriteFile(name, []byte(data), 0600); err != nil {
 		t.Fatal(err)
 	}
+	withRuntimeSchema(t, ".", name, data)
 }
 
 // projectTree returns every file in the working directory with its content.
@@ -207,12 +203,12 @@ func TestNoOutputWithoutRecord(t *testing.T) {
 }
 
 func TestRecordFormatIsVersioned(t *testing.T) {
-	t.Run("ST-GEN-UC01-R04-T01 The record carries format version 4 and exactly the fields documented for it", func(t *testing.T) {
+	t.Run("ST-GEN-UC01-R04-T01 The record carries format version 5 and exactly the fields documented for it", func(t *testing.T) {
 		generatingProject(t, generatingDeclaration)
 		mustRun(t, runApply)
 		record := plainRecord(t)
-		if record["format_version"] != 4 {
-			t.Fatalf("format version is %v, not 4", record["format_version"])
+		if record["format_version"] != 5 {
+			t.Fatalf("format version is %v, not 5", record["format_version"])
 		}
 		// A change to these fields is a change to the documented format, and
 		// must come with a new format version. True marks a field that apply
@@ -220,13 +216,14 @@ func TestRecordFormatIsVersioned(t *testing.T) {
 		// Version 2 adds service_name, and makes the sha of each component
 		// its component digest, where version 1 held the registry reference.
 		// Version 3 adds archetype, with the archetype's runtime library pin.
-		// Version 4 adds data_path, the data path of the run.
+		// Version 4 added data_path, the data path of the run, and version 5
+		// removes it: the runtime data path is the only data path.
 		documented := map[string]bool{
 			"format_version": true, "last_applied": true,
 			"last_applied.compiler_build": true, "last_applied.components": true, "last_applied.entities": true,
 			"last_applied.files": true, "last_applied.inputs": true, "last_applied.registry_content_sha256": true,
 			"last_applied.service_hash": true, "last_applied.service_name": true, "last_applied.registry_sha": false,
-			"last_applied.archetype": true, "last_applied.data_path": true,
+			"last_applied.archetype": true,
 		}
 		found := map[string]bool{}
 		for name, value := range record {
@@ -239,13 +236,26 @@ func TestRecordFormatIsVersioned(t *testing.T) {
 		}
 		for name := range found {
 			if _, ok := documented[name]; !ok {
-				t.Errorf("the record has %s, which format version 4 does not document", name)
+				t.Errorf("the record has %s, which format version 5 does not document", name)
 			}
 		}
 		for name, always := range documented {
 			if always && !found[name] {
-				t.Errorf("the record lacks %s, which format version 4 documents", name)
+				t.Errorf("the record lacks %s, which format version 5 documents", name)
 			}
+		}
+
+		// A record of format version 4 held the data path; the next apply reads it and writes version 5 without it.
+		data, err := os.ReadFile(".stego/state.yaml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		legacy := strings.Replace(string(data), "format_version: 5\n", "format_version: 4\n", 1)
+		legacy = strings.Replace(legacy, "last_applied:\n", "last_applied:\n    data_path: runtime\n", 1)
+		writeProjectFile(t, ".stego/state.yaml", legacy)
+		mustRun(t, runApply)
+		if upgraded := plainRecord(t); upgraded["format_version"] != 5 || upgraded["last_applied"].(map[string]any)["data_path"] != nil {
+			t.Fatalf("apply on a record of format version 4 did not write version 5 without the data path: %v", upgraded["format_version"])
 		}
 	})
 }
@@ -374,7 +384,7 @@ func TestPlanWritesNothing(t *testing.T) {
 		generatingProject(t, generatingDeclaration)
 		mustRun(t, runPlan)
 		tree := projectTree(t)
-		if paths := slices.Sorted(maps.Keys(tree)); !slices.Equal(paths, []string{".stego/plan.yaml", "service.yaml"}) || tree["service.yaml"] != generatingDeclaration {
+		if paths := slices.Sorted(maps.Keys(tree)); !slices.Equal(paths, []string{".stego/plan.yaml", "authz/schema.zed", "service.yaml"}) || tree["service.yaml"] != generatingDeclaration {
 			t.Fatalf("plan on a new project wrote other files than the saved plan: %v", paths)
 		}
 		mustRun(t, runApply)
@@ -446,4 +456,140 @@ func TestPlanNamesEveryChange(t *testing.T) {
 			t.Fatalf("the plan shows no update and no delete:\n%s", plan)
 		}
 	})
+}
+
+
+// The declarations of these tests prove behaviour of the compiler that does not depend on the data path. Since the
+// runtime data path is the only data path (ST-SUP-RC20-OC39), a rest-crud declaration with entities needs pooled
+// tenancy, which authorization asks to be stated, the audit log, stated so that it selects its component, SpiceDB
+// authorization with a schema,
+// schema_generation, and a resource type and a permission of each operation on each entity. onRuntimePath adds what a declaration does not state, and
+// runtimeSchema gives the schema that it names.
+
+// runtimeHeader is what onRuntimePath adds after the language of the declaration, each line only when the
+// declaration has no such key.
+const runtimeHeader = `tenancy: {kind: pooled, key: tenant_id, claim: tenant}
+authorization: {provider: spicedb, schema_path: authz/schema.zed, subject_from_identity: user}
+audit: {level: change}
+`
+
+// runtimeSchemaMark is the first line of a schema that withRuntimeSchema writes.
+const runtimeSchemaMark = "// The schema of the test declaration.\n"
+
+// runtimeSchemaPath is the schema file that runtimeHeader names, from the project folder.
+const runtimeSchemaPath = "authz/schema.zed"
+
+// entityLine is the first line of an entity in the entities list.
+var entityLine = regexp.MustCompile(`(?m)^  - name: ([A-Za-z][A-Za-z0-9]*)\n`)
+
+// entitiesBlock gives where the entities list of a declaration is: from the line entities: to the next top-level
+// key, or -1 when it has none.
+func entitiesBlock(declaration string) (int, int) {
+	start := strings.Index(declaration, "\nentities:\n")
+	if start < 0 {
+		return -1, -1
+	}
+	start++
+	end := len(declaration)
+	if next := regexp.MustCompile(`(?m)^[a-z_]+:`).FindStringIndex(declaration[start+len("entities:\n"):]); next != nil {
+		end = start + len("entities:\n") + next[0]
+	}
+	return start, end
+}
+
+// resourceType is the resource type that onRuntimePath gives an entity. The type user is the subject of the
+// schema, so an entity User gets the type member.
+func resourceType(entity string) string {
+	name := strings.ToLower(regexp.MustCompile(`([a-z0-9])([A-Z])`).ReplaceAllString(entity, "${1}_${2}"))
+	if name == "user" {
+		return "member"
+	}
+	return name
+}
+
+// onRuntimePath gives the declaration with the settings of the runtime data path that it does not state:
+// tenancy, authorization and audit as runtimeHeader gives them, the setting schema_generation of postgres-adapter,
+// and for each entity with no resource type its resource type and the permission of each operation (create public
+// with a reason, read and list on view, every other write on edit).
+func onRuntimePath(declaration string) string {
+	if start, end := entitiesBlock(declaration); start >= 0 {
+		block := declaration[start:end]
+		locations := entityLine.FindAllStringSubmatchIndex(block, -1)
+		// A name that the declaration gives twice gets a type of its own each time, as the schema needs.
+		names := make([]string, len(locations))
+		count := map[string]int{}
+		for i, at := range locations {
+			names[i] = resourceType(block[at[2]:at[3]])
+			if count[names[i]]++; count[names[i]] > 1 {
+				names[i] = fmt.Sprintf("%s_%d", names[i], count[names[i]])
+			}
+		}
+		for i := len(locations) - 1; i >= 0; i-- {
+			at := locations[i]
+			next := len(block)
+			if i+1 < len(locations) {
+				next = locations[i+1][0]
+			}
+			if strings.Contains(block[at[1]:next], "resource_type:") {
+				continue
+			}
+			name := names[i]
+			block = block[:at[1]] + fmt.Sprintf("    resource_type: %s\n    permissions: {create: public, read: view, list: view, update: edit, patch: edit, delete: edit, upsert: edit}\n    public_reasons: {create: a new %s has no resource to decide on before it exists}\n", name, name) + block[at[1]:]
+		}
+		declaration = declaration[:start] + block + declaration[end:]
+	}
+	header := ""
+	for _, line := range strings.SplitAfter(runtimeHeader, "\n") {
+		key, _, _ := strings.Cut(line, ":")
+		if line != "" && !regexp.MustCompile(`(?m)^`+key+`:`).MatchString(declaration) {
+			header += line
+		}
+	}
+	switch {
+	case strings.Contains(declaration, "\n  postgres-adapter:"):
+	case strings.Contains(declaration, "\noverrides:\n"):
+		declaration = strings.Replace(declaration, "\noverrides:\n", "\noverrides:\n  postgres-adapter: {schema_generation: tables-v1}\n", 1)
+	default:
+		// The overrides go before the lists, so a test that appends to the last list of the declaration still does.
+		header += "overrides:\n  postgres-adapter: {schema_generation: tables-v1}\n"
+	}
+	return strings.Replace(declaration, "language: go\n", "language: go\n"+header, 1)
+}
+
+// runtimeSchema gives the SpiceDB schema of the resource types that the declaration names, each with the
+// permissions view and edit.
+func runtimeSchema(declaration string) string {
+	schema := "definition user {}\n"
+	seen := map[string]bool{"user": true}
+	for _, match := range regexp.MustCompile(`resource_type: *([a-z][a-z0-9_]*)`).FindAllStringSubmatch(declaration, -1) {
+		if seen[match[1]] {
+			continue
+		}
+		seen[match[1]] = true
+		schema += fmt.Sprintf("\ndefinition %s {\n\trelation owner: user\n\tpermission view = owner\n\tpermission edit = owner\n}\n", match[1])
+	}
+	return schema
+}
+
+// withRuntimeSchema writes the schema of runtimeSchema beside a declaration that names runtimeSchemaPath, when the
+// project has no schema there or one that it wrote, so a test that writes its own schema keeps it.
+func withRuntimeSchema(t testing.TB, project, name, declaration string) {
+	t.Helper()
+	if filepath.Clean(name) != "service.yaml" || !strings.Contains(declaration, "schema_path: "+runtimeSchemaPath) {
+		return
+	}
+	path := filepath.Join(project, runtimeSchemaPath)
+	if data, err := os.ReadFile(path); err == nil && !strings.HasPrefix(string(data), runtimeSchemaMark) {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(runtimeSchemaMark+runtimeSchema(declaration)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The mode is part of the record's inputs, so it must not depend on a file that was there before.
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
 }

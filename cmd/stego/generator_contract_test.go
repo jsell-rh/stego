@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"io/fs"
 	"maps"
+	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -128,10 +129,19 @@ func TestGenerationIgnoresMapOrder(t *testing.T) {
 	projects := map[string]func(t *testing.T){
 		"rest-crud": func(t *testing.T) { generatingProject(t, generatingDeclaration) },
 		"rpc-service": func(t *testing.T) {
-			generatingProject(t, rpcDeclaration)
-			t.Setenv("STEGO_MODULE", "example.com/grpc-test")
-			writeProjectFile(t, "factory/rpc.go", string(rpcFactory(t)))
-			writeProjectFile(t, "api.proto", rpcProto)
+			// The service of the compiler's gRPC test on the runtime data path (ST-SUP-RC07-OC19).
+			_, source, _, _ := runtime.Caller(0)
+			fixture := filepath.Join(filepath.Dir(source), "../../internal/compiler/testdata/runtime_grpc/project")
+			generatingProject(t, "")
+			t.Setenv("STEGO_MODULE", "example.com/shop")
+			for _, name := range []string{"service.yaml", "authz"} {
+				if err := os.RemoveAll(name); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.CopyFS(".", os.DirFS(fixture)); err != nil {
+				t.Fatal(err)
+			}
 		},
 		"browser-service": func(t *testing.T) {
 			generatingProject(t, browserDeclaration)

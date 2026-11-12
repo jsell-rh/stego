@@ -28,10 +28,10 @@ import (
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
 	"github.com/jsell-rh/stego/registry/runtime/authn"
@@ -101,6 +101,13 @@ definition setting {
 	permission edit = owner + folder->edit
 }
 
+definition quota {
+	relation folder: folder
+	relation owner: user
+	permission view = owner + folder->view
+	permission edit = owner + folder->edit
+}
+
 definition event {
 	relation owner: user
 	permission view = owner
@@ -109,7 +116,7 @@ definition event {
 `
 )
 
-var tables = []string{"orders", "customers", "todos", "folders", "books", "settings", "events"}
+var tables = []string{"orders", "customers", "todos", "folders", "books", "settings", "events", "quotas"}
 
 // env is the running service: its database with the runtime role, its runtimes and its HTTP server.
 type env struct {
@@ -350,6 +357,7 @@ func (e *env) start(dsn, endpoint, spiceKey string) {
 	redEvents, blueEvents := api.NewRedEventsHandler(rt), api.NewBlueEventsHandler(rt)
 	folderSettings := api.NewFolderSettingsHandler(rt, slots.NewValidateGate(settingGate{e}), slots.NewOnEntityChangedGate(settingChanged{e}))
 	folderFlags := api.NewFolderFlagsHandler(rt)
+	folderQuotas := api.NewFolderQuotasHandler(rt)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/folders", folders.Create)
 	mux.HandleFunc("GET /api/v1/folders/{id}", folders.Read)
@@ -364,6 +372,8 @@ func (e *env) start(dsn, endpoint, spiceKey string) {
 	mux.HandleFunc("GET /api/v1/folders/{folder_id}/settings", folderSettings.List)
 	mux.HandleFunc("PUT /api/v1/folders/{folder_id}/settings", folderSettings.Upsert)
 	mux.HandleFunc("PUT /api/v1/folders/{folder_id}/flags", folderFlags.Upsert)
+	mux.HandleFunc("PUT /api/v1/folders/{folder_id}/quotas", folderQuotas.Upsert)
+	mux.HandleFunc("GET /api/v1/folders/{folder_id}/quotas", folderQuotas.List)
 	mux.HandleFunc("POST /api/v1/books", allBooks.Create)
 	mux.HandleFunc("GET /api/v1/books/{id}", allBooks.Read)
 	mux.HandleFunc("PUT /api/v1/books/{id}", allBooks.Update)
@@ -595,6 +605,12 @@ func (r reply) member(t *testing.T, name string) string {
 
 // send sends one request with the caller's token and, when key is not empty, the idempotency key.
 func (e *env) send(c caller, method, path, key, body string) reply {
+	e.t.Helper()
+	return e.sendWith(c, method, path, key, body, nil)
+}
+
+// sendWith is send with the request headers given.
+func (e *env) sendWith(c caller, method, path, key, body string, headers map[string]string) reply {
 	t := e.t
 	t.Helper()
 	var reader io.Reader
@@ -609,6 +625,9 @@ func (e *env) send(c caller, method, path, key, body string) reply {
 	}
 	if body != "" {
 		request.Header.Set("Content-Type", "application/json")
+	}
+	for name, value := range headers {
+		request.Header.Set(name, value)
 	}
 	response, err := http.DefaultClient.Do(request)
 	must(t, err)
@@ -1530,8 +1549,8 @@ func TestCrud(t *testing.T) {
 		e.own(a, "setting", third.member(t, "id"))
 		// A caller who may not edit the folder upserts nothing, under that folder or under the caller's own key.
 		for name, r := range map[string]reply{
-			"another caller":    e.send(other, http.MethodPut, settings, "", `{"name":"color","value":"green"}`),
-			"a foreign folder":  e.send(a, http.MethodPut, "/api/v1/folders/"+foreign+"/settings", "", `{"name":"color","value":"green"}`),
+			"another caller":   e.send(other, http.MethodPut, settings, "", `{"name":"color","value":"green"}`),
+			"a foreign folder": e.send(a, http.MethodPut, "/api/v1/folders/"+foreign+"/settings", "", `{"name":"color","value":"green"}`),
 		} {
 			if r.status != http.StatusNotFound {
 				t.Errorf("the upsert of %s answered %d %s, want 404", name, r.status, r.body)
@@ -1543,6 +1562,96 @@ func TestCrud(t *testing.T) {
 		list := e.send(a, http.MethodGet, settings, "", "")
 		if list.status != http.StatusOK || !strings.Contains(string(list.body), `"blue"`) || !strings.Contains(string(list.body), `"large"`) {
 			t.Errorf("the list of the folder's settings answered %d %s, want both settings", list.status, list.body)
+		}
+	})
+
+	t.Run("ST-SUP-RC20-OC14-T01 An upsert with optimistic concurrency updates only under the If-Match of the stored generation", func(t *testing.T) {
+		e := service(t)
+		tn := newTenant()
+		a := e.as("u-1", tn)
+		folder := e.create(a, "folders", "folder", `{"name":"one"}`)
+		quotas := "/api/v1/folders/" + folder + "/quotas"
+		put := func(body string, ifMatch string) reply {
+			t.Helper()
+			headers := map[string]string{}
+			if ifMatch != "" {
+				headers["If-Match"] = ifMatch
+			}
+			return e.sendWith(a, http.MethodPut, quotas, "", body, headers)
+		}
+		amount := func(id string) int {
+			t.Helper()
+			return e.count(`SELECT amount FROM quotas WHERE id = $1::uuid`, id)
+		}
+		// An If-Match on a key with no stored row names a generation that does not exist.
+		if r := put(`{"name":"disk","amount":10}`, `"1"`); r.status != http.StatusPreconditionFailed {
+			t.Fatalf("an upsert of a new key with If-Match answered %d %s, want 412", r.status, r.body)
+		}
+		if n := e.count(`SELECT count(*) FROM quotas WHERE name = 'disk'`); n != 0 {
+			t.Fatalf("the refused insert left %d rows", n)
+		}
+		created := put(`{"name":"disk","amount":10}`, "")
+		if created.status != http.StatusCreated {
+			t.Fatalf("the insert answered %d %s, want 201", created.status, created.body)
+		}
+		id := created.member(t, "id")
+		e.own(a, "quota", id)
+		if g, _ := created.object(t)["generation"].(float64); g != 1 {
+			t.Fatalf("the inserted row has the generation %v, want 1", created.object(t)["generation"])
+		}
+		for name, c := range map[string]struct {
+			ifMatch string
+			status  int
+		}{
+			"no If-Match":             {"", http.StatusPreconditionRequired},
+			"a stale generation":      {`"7"`, http.StatusPreconditionFailed},
+			"a weak tag":              {`W/"1"`, http.StatusPreconditionFailed},
+			"any representation":      {`*`, http.StatusPreconditionFailed},
+			"a tag that is no number": {`"one"`, http.StatusPreconditionFailed},
+		} {
+			if r := put(`{"name":"disk","amount":99}`, c.ifMatch); r.status != c.status {
+				t.Errorf("an update with %s answered %d %s, want %d", name, r.status, r.body, c.status)
+			}
+		}
+		if got := amount(id); got != 10 {
+			t.Fatalf("a refused update changed the amount to %d", got)
+		}
+		updated := put(`{"name":"disk","amount":20,"generation":50}`, `"1"`)
+		if updated.status != http.StatusOK || updated.member(t, "id") != id {
+			t.Fatalf("the update with the stored generation answered %d %s, want 200 with the same row", updated.status, updated.body)
+		}
+		if g, _ := updated.object(t)["generation"].(float64); g != 2 || amount(id) != 20 {
+			t.Fatalf("the update has the generation %v and the amount %d, want 2 and 20", updated.object(t)["generation"], amount(id))
+		}
+		// A caller of the tenant who may not edit the folder gets 404 for a key with no stored row and for a stored
+		// key alike, with If-Match and without, so the precondition tells it nothing about which rows exist. The
+		// viewer may read the folder and its quotas, and the stranger has no relation at all.
+		viewer, stranger := e.as("u-2", tn), e.as("u-3", tn)
+		e.relate(viewer, "viewer", "folder", folder)
+		for who, c := range map[string]caller{"the viewer": viewer, "the stranger": stranger} {
+			for name, r := range map[string]struct{ body, ifMatch string }{
+				"a missing key with If-Match":   {`{"name":"cpu","amount":1}`, `"1"`},
+				"a stored key with If-Match":    {`{"name":"disk","amount":1}`, `"2"`},
+				"a stored key with no If-Match": {`{"name":"disk","amount":1}`, ""},
+			} {
+				headers := map[string]string{}
+				if r.ifMatch != "" {
+					headers["If-Match"] = r.ifMatch
+				}
+				if got := e.sendWith(c, http.MethodPut, quotas, "", r.body, headers); got.status != http.StatusNotFound {
+					t.Errorf("the upsert of %s by %s answered %d %s, want 404", name, who, got.status, got.body)
+				}
+			}
+		}
+		if n := e.count(`SELECT count(*) FROM quotas WHERE name = 'cpu'`); n != 0 || amount(id) != 20 {
+			t.Fatalf("the refused upserts of the other caller left %d cpu rows and the amount %d", n, amount(id))
+		}
+		// The generation that the client read before the update is stale now.
+		if r := put(`{"name":"disk","amount":30}`, `"1"`); r.status != http.StatusPreconditionFailed || amount(id) != 20 {
+			t.Errorf("a second update with the old generation answered %d %s and left the amount %d, want 412 and 20", r.status, r.body, amount(id))
+		}
+		if r := put(`{"name":"disk","amount":30}`, `"2"`); r.status != http.StatusOK || amount(id) != 30 {
+			t.Errorf("the update with the new generation answered %d %s and left the amount %d, want 200 and 30", r.status, r.body, amount(id))
 		}
 	})
 

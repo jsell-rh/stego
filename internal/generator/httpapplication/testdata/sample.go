@@ -2,7 +2,6 @@ package sample
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,14 +9,8 @@ import (
 
 	"example.com/http-test/out/application/transport"
 	"example.com/http-test/out/auth"
-	storage "example.com/http-test/out/contracts/storage"
 )
 
-type Repository interface {
-	storage.Storage
-	storage.Transactor
-	storage.ResourceLocker
-}
 type Details struct {
 	Label string `json:"label"`
 }
@@ -40,7 +33,7 @@ type managedHandler struct{ http.Handler }
 func (h *managedHandler) Run(ctx context.Context) error { Runs.Add(1); <-ctx.Done(); return nil }
 func (h *managedHandler) Close()                        { Closes.Add(1) }
 
-func New(repository Repository, verifier *auth.Verifier, db *sql.DB) (http.Handler, error) {
+func New(verifier *auth.Verifier) (http.Handler, error) {
 	handler, err := transport.Endpoint(verifier.Authenticate, transport.JSONBody[Request], func(ctx context.Context, request Request) (Response, error) {
 		Calls.Add(1)
 		if request.Title == "failure" {

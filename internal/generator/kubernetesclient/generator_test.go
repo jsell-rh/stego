@@ -86,7 +86,7 @@ func TestGeneratedDeploymentAvailability(t *testing.T) {
 	testGeneratedKubernetesClient(t, false, "^TestDeploymentAvailability$")
 }
 func testGeneratedKubernetesClient(t *testing.T, telemetry bool, selected string) {
-	ctx := gen.Context{ModuleName: "example.com/widget", OutDirName: "out", OutputNamespace: "kubernetes", PeerNamespaces: map[string]string{"http-application": "application", "jwt-auth": "auth"}, StorageContract: "example.com/widget/out/contracts/storage", AuthPackage: "example.com/widget/out/auth", ComponentConfig: map[string]any{"factory_package": "sample"}}
+	ctx := gen.Context{ModuleName: "example.com/widget", OutDirName: "out", OutputNamespace: "kubernetes", PeerNamespaces: map[string]string{"http-application": "application", "jwt-auth": "auth"}, AuthPackage: "example.com/widget/out/auth", ComponentConfig: map[string]any{"factory_package": "sample"}}
 	if telemetry {
 		ctx.PeerNamespaces["otel-tracing"] = "tracing"
 	}

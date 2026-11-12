@@ -35,11 +35,35 @@ func checkInProcess(t *testing.T, project string) []declaration.ValidationError 
 	return result.Errors
 }
 
+// commandProto holds the request and the response message of the commands of these tests.
+const commandProto = `syntax = "proto3";
+
+package todo.v1;
+
+message ReserveAndChargeRequest {
+  string todo_id = 1;
+  string order_id = 2;
+}
+
+message ReserveAndChargeResponse {
+  string todo_id = 1;
+}
+
+message ReleaseRequest {
+  string todo_id = 1;
+}
+
+message ReleaseResponse {
+  string todo_id = 1;
+}
+`
+
 // commandProject is the project of ST-DECL-TD02 with the declaration given and the fills named, each a fill of
 // the command slot.
 func commandProject(t *testing.T, service string, fills ...string) string {
 	t.Helper()
-	project := td02Project(t, service)
+	project := td02Project(t, strings.Replace(service, "\noverrides:\n", "\noverrides:\n  command:\n    proto_files:\n      - {path: proto/todo.proto, import_path: todo/v1/todo.proto}\n", 1))
+	putFile(t, project, "proto/todo.proto", commandProto)
 	for _, name := range fills {
 		putFile(t, project, filepath.Join("fills", name, "fill.yaml"), "kind: fill\nname: "+name+"\nimplements: "+declaration.CommandSlot+"\n")
 	}
@@ -59,7 +83,7 @@ func routeFaults(faults []declaration.ValidationError) []declaration.ValidationE
 
 func TestOperationRoutes(t *testing.T) {
 	command := func(route string) string {
-		return td02 + "commands:\n  - name: reserve-and-charge\n    writes: [Todo]\n    fill: reserve-and-charge\n" + route
+		return td02 + "commands:\n  - name: reserve-and-charge\n    writes: [Todo]\n    resource_type: todo\n    permission: edit\n    resource_member: todoId\n    fill: reserve-and-charge\n" + route
 	}
 	t.Run("ST-DECL-INV47-T A command on POST under the base path is accepted", func(t *testing.T) {
 		project := commandProject(t, command("    route: POST /orders/{orderId}/reservations\n"), "reserve-and-charge")
@@ -91,14 +115,14 @@ func TestOperationRoutes(t *testing.T) {
 		})
 	}
 	t.Run("ST-DECL-INV47-T Two commands on one route are refused", func(t *testing.T) {
-		service := command("    route: POST /reservations\n") + "  - name: release\n    writes: [Todo]\n    fill: reserve-and-charge\n    route: POST /reservations\n"
+		service := command("    route: POST /reservations\n") + "  - name: release\n    writes: [Todo]\n    resource_type: todo\n    permission: edit\n    resource_member: todoId\n    fill: reserve-and-charge\n    route: POST /reservations\n"
 		routes := routeFaults(checkInProcess(t, commandProject(t, service, "reserve-and-charge")))
 		if len(routes) != 1 || !strings.Contains(routes[0].Message, `"release"`) {
 			t.Fatalf("want one route fault that names release, got %+v", routes)
 		}
 	})
 	queryProject := func(t *testing.T, route string) string {
-		service := command("    route: POST /orders/{orderId}/reservations\n") + "queries:\n  - name: open-reservations\n    reads: [Todo]\n    fill: open-reservations\n" + route
+		service := command("    route: POST /orders/{orderId}/reservations\n") + "queries:\n  - name: open-reservations\n    reads: [Todo]\n    resource_type: todo\n    permission: view\n    fill: open-reservations\n" + route
 		project := commandProject(t, service, "reserve-and-charge")
 		putFile(t, project, filepath.Join("fills", "open-reservations", "fill.yaml"), "kind: fill\nname: open-reservations\nimplements: "+declaration.QuerySlot+"\n")
 		return project
@@ -143,7 +167,7 @@ func TestOperationRoutes(t *testing.T) {
 
 func TestWorkerFillFromProject(t *testing.T) {
 	t.Run("ST-DECL-INV68-T Checking reads the slot of a worker's fill from the project", func(t *testing.T) {
-		service := td02 + "workers:\n  - name: sync-todos\n    trigger: every 1m\n    writes: [Todo]\n    fill: sync-todos\n"
+		service := td02 + "workers:\n  - name: sync-todos\n    trigger: every 1m\n    writes: [Todo]\n    resource_type: todo\n    permission: edit\n    fill: sync-todos\n"
 		project := td02Project(t, service)
 		putFile(t, project, filepath.Join("fills", "sync-todos", "fill.yaml"), "kind: fill\nname: sync-todos\nimplements: "+declaration.WorkerSlot+"\n")
 		if faults := checkInProcess(t, project); len(faults) != 0 {

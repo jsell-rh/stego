@@ -1,9 +1,9 @@
 # Fresh schema generations
 
-`postgres-adapter` 4.3 adds the optional `schema_generation` setting. It is a
-release boundary for applications that require a fresh database and do not
-support an in-place schema transition. Existing applications that omit the
-setting keep their migration behavior.
+`postgres-adapter` 4.3 adds the `schema_generation` setting. It is a release
+boundary for applications that require a fresh database. From version 5.0.0 a
+service with entities must set it, because its tables are SQL migrations that
+only the migration ledger applies one time.
 
 ```yaml
 postgres-adapter:
@@ -18,20 +18,13 @@ with the same name is also rejected. This is not a general upgrade framework.
 
 ## Writer lease
 
-`postgres-adapter` adds the optional `writer_lease` setting. It requires the
-`schema_generation` setting and accepts `single` or `off`; an unset value
-behaves as `single`. In `single` mode every write takes or re-asserts a database-wide
-single-writer lease, and a store that lost the lease to a newer process fails
-closed with `ErrWriterFenced`. Use `off` when several live processes write the
-same database on purpose, for example a runtime plus independent tooling or a
-multi-replica deployment. Epoch and identity rollback detection stay active in
-both modes; `off` removes only the lease table, its fence code, and its grants.
-
-```yaml
-postgres-adapter:
-  schema_generation: fresh-v1
-  writer_lease: off
-```
+The single-writer lease of the GORM store is removed in version 5.0.0
+(ST-SUP-RC20-OC39). The `writer_lease` setting accepts only `off`, or you
+can leave it out. The value `single` is refused. A declaration that sets
+`writer_lease: off` stays valid. The bootstrap still creates the marker tables
+`stego_schema.identity` and `stego_schema.epoch_seq`, and startup checks their
+shape, but no code reads them to detect a restore or a rollback now: that
+detection went with the store.
 
 ## Initialization and startup
 
@@ -64,8 +57,8 @@ Other installation tools must use the same protocol or stop before this call.
 The lock is cooperative; it does not stop arbitrary operator DDL. See the
 [PostgreSQL lock contract](https://www.postgresql.org/docs/18/explicit-locking.html#ADVISORY-LOCKS).
 
-`NewStore` calls `VerifySchema` before model preparation and storage checks.
-The check has a five-second context limit and uses a read-only transaction.
+`VerifySchema` reads the marker. The check has a five-second context limit and
+uses a read-only transaction.
 It accepts exactly one matching marker row. It rejects a view, row-security
 policy, inherited or partitioned relation, altered column types, and write
 permissions granted to another role. A relation lock keeps the inspected marker
@@ -74,9 +67,7 @@ values through a view. See the [relation catalog](https://www.postgresql.org/doc
 
 Use a separate installation role for DDL. The application role needs USAGE on
 `stego_schema` and SELECT on `stego_schema.generation`, plus its normal data
-permissions. Reading the epoch high-water mark with `DatabaseEpoch`,
-`DatabaseIdentityEpoch`, `ReadRestoreRecord`, or `VerifyRestore` also needs
-SELECT on `stego_schema.epoch_seq`; `nextval` on the write path needs USAGE. Do not give it marker writes or DDL rights. The marker is not a
+permissions. Do not give it marker writes or DDL rights. The marker is not a
 boundary against the database owner, who can replace schema objects. It does
 not audit all later operator changes to application tables.
 
@@ -88,7 +79,7 @@ teardown separately. Do not change a marker to force a new release to start.
 ## Application acceptance
 
 The generated checks cover fresh initialization, repeat startup, empty and
-populated legacy schemas, changed generations and declarations, concurrent
+populated unmarked schemas, changed generations and declarations, concurrent
 starts, callback failure, connection loss, and an executable view used as a false
 marker, marker permissions, and a short deadline during lock wait. All eight
 generated tests passed under race detection in the bounded jshell fixture. See

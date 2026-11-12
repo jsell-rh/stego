@@ -98,9 +98,6 @@ func ApplyMigration(db *gorm.DB, name, body string) error {
 		if err != nil {
 			return err
 		}
-		if err := upgradeLedger(tx, ordered, applied); err != nil {
-			return err
-		}
 		if err := checkLedger(applied, ordered); err != nil {
 			return err
 		}
@@ -159,57 +156,9 @@ func checkLedger(applied, registered []Migration) error {
 	return nil
 }
 
-// legacyDigest is false on the runtime data path: a row with the earlier digest
-// of the name alone is of a release on the GORM store, and the ledger refuses it.
-func legacyDigest(Migration, Migration) bool {
-	return false
-}
-
-// upgradeLedger rewrites each row that holds the earlier digest of the name
-// alone to the body digest, once, in the supplied transaction. It changes a
-// row only when its name is registered at the same position and the row is
-// the one the ledger holds for that name. Every other mismatch is left for
-// checkLedger to refuse.
-func upgradeLedger(tx *gorm.DB, registered, applied []Migration) error {
-	for i, row := range applied {
-		if i >= len(registered) || !legacyDigest(row, registered[i]) {
-			continue
-		}
-		result := tx.Exec("UPDATE stego_schema.migrations SET digest=? WHERE version=? AND digest=?", registered[i].Digest, row.Name, row.Digest)
-		if result.Error != nil || result.RowsAffected != 1 {
-			return ErrMigrationLedger
-		}
-		applied[i].Digest = registered[i].Digest
-	}
-	return nil
-}
-
 // applyPending applies migrations after the recorded history, each with
-// its ledger row in one transaction. A row with the earlier name digest is
-// rewritten first, in a transaction that reads the ledger again under lock.
+// its ledger row in one transaction.
 func applyPending(db *gorm.DB, ordered, applied []Migration) error {
-	for i := range applied {
-		if i >= len(ordered) || !legacyDigest(applied[i], ordered[i]) {
-			continue
-		}
-		if err := db.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Exec("LOCK TABLE stego_schema.migrations IN SHARE ROW EXCLUSIVE MODE").Error; err != nil {
-				return ErrMigrationLedger
-			}
-			current, err := appliedMigrations(tx)
-			if err != nil {
-				return err
-			}
-			if err := upgradeLedger(tx, ordered, current); err != nil {
-				return err
-			}
-			applied = current
-			return nil
-		}); err != nil {
-			return err
-		}
-		break
-	}
 	if err := checkLedger(applied, ordered); err != nil {
 		return err
 	}

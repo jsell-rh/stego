@@ -25,7 +25,7 @@ func TestRejectUnsafeCollectionPathsBeforeRendering(t *testing.T) {
 		t.Run(strconv.Quote(prefix), func(t *testing.T) {
 			ctx := basicContext()
 			ctx.Collections[0].PathPrefix = prefix
-			files, wiring, err := (&Generator{}).Generate(ctx)
+			files, wiring, err := (&Generator{}).Generate(onRuntime(ctx))
 			if err == nil {
 				_, failure := basePathMux(wiring)
 				t.Fatalf("accepted unsafe collection path; router result: %v", failure)
@@ -46,7 +46,7 @@ func TestRejectSemanticRouteConflictsBeforeRendering(t *testing.T) {
 				{Name: "first", Entity: "User", PathPrefix: pair[0], Operations: []types.Operation{types.OpList}},
 				{Name: "second", Entity: "User", PathPrefix: pair[1], Operations: []types.Operation{types.OpList}},
 			}
-			files, wiring, err := (&Generator{}).Generate(ctx)
+			files, wiring, err := (&Generator{}).Generate(onRuntime(ctx))
 			if err == nil {
 				_, failure := basePathMux(wiring)
 				t.Fatalf("accepted conflicting routes %v; router result: %v", pair, failure)
@@ -64,7 +64,7 @@ func TestRejectCollectionPathsHiddenByDiscovery(t *testing.T) {
 			ctx := basicContext()
 			ctx.Collections[0].PathPrefix = prefix
 			ctx.Collections[0].Operations = []types.Operation{types.OpList}
-			files, wiring, err := (&Generator{}).Generate(ctx)
+			files, wiring, err := (&Generator{}).Generate(onRuntime(ctx))
 			if err == nil || len(files) != 0 || wiring != nil {
 				t.Fatal("accepted a collection route hidden by public discovery", prefix, err)
 			}
@@ -78,14 +78,14 @@ func TestRejectEquivalentOpenAPIPathsAcrossMethods(t *testing.T) {
 		{Name: "first", Entity: "User", PathPrefix: "/owners/{left}/users", Operations: []types.Operation{types.OpList}},
 		{Name: "second", Entity: "User", PathPrefix: "/owners/{right}/users", Operations: []types.Operation{types.OpCreate}},
 	}
-	files, wiring, err := (&Generator{}).Generate(ctx)
+	files, wiring, err := (&Generator{}).Generate(onRuntime(ctx))
 	if err == nil || len(files) != 0 || wiring != nil {
 		t.Fatal("accepted equivalent OpenAPI paths with different parameter names", err)
 	}
 }
 
 func TestScopedCollectionRoutesKeepParameterNames(t *testing.T) {
-	for _, prefix := range []string{"/people", "/orgs/{tenant}/people"} {
+	for _, prefix := range []string{"/people", "/orgs/{org_id}/people", "/orgs/{tenant}/people"} {
 		t.Run(prefix, func(t *testing.T) {
 			ctx := basicContext()
 			ctx.BasePath = "/api/v1"
@@ -93,7 +93,14 @@ func TestScopedCollectionRoutesKeepParameterNames(t *testing.T) {
 			ctx.Collections[0].Scope = map[string]string{"org_id": "Organization"}
 			ctx.Collections[0].PathPrefix = prefix
 			ctx.Collections = append(ctx.Collections, types.Collection{Name: "organizations", Entity: "Organization", PathPrefix: "/orgs", Operations: []types.Operation{types.OpRead}})
-			files, wiring, err := (&Generator{}).Generate(ctx)
+			files, wiring, err := (&Generator{}).Generate(onRuntime(ctx))
+			if strings.Contains(prefix, "{tenant}") {
+				// The runtime data path checks only the scope field as a path parameter.
+				if err == nil || !strings.Contains(err.Error(), "path parameter tenant") {
+					t.Fatal("accepted a path parameter that is not the scope field", err)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -101,12 +108,8 @@ func TestScopedCollectionRoutesKeepParameterNames(t *testing.T) {
 			if failure != nil {
 				t.Fatal("valid scoped routes failed registration", failure)
 			}
-			parameter := "org_id"
-			if strings.Contains(prefix, "{tenant}") {
-				parameter = "tenant"
-			}
-			handler := findFileContent(t, files, "internal/api/handler_users.go")
-			if !strings.Contains(handler, `r.PathValue("`+parameter+`")`) {
+			handler := findFileContent(t, files, "internal/api/users_handler.go")
+			if !strings.Contains(handler, `r.PathValue("org_id")`) {
 				t.Fatal("handler lost the declared parameter")
 			}
 			var spec struct {
@@ -115,7 +118,7 @@ func TestScopedCollectionRoutesKeepParameterNames(t *testing.T) {
 			if err := json.Unmarshal([]byte(findFileContent(t, files, "internal/api/openapi.json")), &spec); err != nil {
 				t.Fatal(err)
 			}
-			pattern := "/api/v1/orgs/{" + parameter + "}/people"
+			pattern := "/api/v1/orgs/{org_id}/people"
 			if _, ok := spec.Paths[pattern]; !ok {
 				t.Fatal("OpenAPI lost the declared scoped path", pattern)
 			}

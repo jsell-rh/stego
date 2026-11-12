@@ -35,47 +35,41 @@ func schemaGeneration(ctx gen.Context) (string, error) {
 	return value, nil
 }
 
-// writerLeaseMode resolves the writer_lease component setting. The default
-// keeps the single-writer lease. Applications that write from several live
-// processes, such as a runtime plus independent tooling, set writer_lease to
-// off; epoch and identity rollback detection still apply. The setting has no
-// effect without schema_generation.
-func writerLeaseMode(ctx gen.Context) (string, error) {
+// validateWriterLease checks the writer_lease setting. The single-writer lease fenced the writes of the GORM store,
+// which is removed (ST-SUP-RC20-OC39), so the adapter emits no lease: writer_lease may be left out or set to off, as
+// a declaration of the runtime data path sets it, and the value single is refused with its cause. The setting has
+// no meaning without schema_generation.
+func validateWriterLease(ctx gen.Context) error {
 	raw, present := ctx.ComponentConfig["writer_lease"]
 	if !present || raw == nil {
-		return "single", nil
+		return nil
 	}
 	value, ok := raw.(string)
-	if !ok {
-		return "", fmt.Errorf("writer_lease must be single or off")
+	if ok && value == "single" {
+		return fmt.Errorf("postgres-adapter: writer_lease single is refused: the single-writer lease fenced the writes of the GORM store, and %s; remove writer_lease or set it to off", removedStore)
 	}
-	if value != "single" && value != "off" {
-		return "", fmt.Errorf("writer_lease must be single or off")
+	if !ok || value != "off" {
+		return fmt.Errorf("writer_lease must be off or left out")
 	}
 	if _, present := ctx.ComponentConfig["schema_generation"]; !present {
-		return "", fmt.Errorf("writer_lease requires schema_generation")
+		return fmt.Errorf("writer_lease requires schema_generation")
 	}
-	return value, nil
+	return nil
 }
 
-// LeaseEnabled reports whether the given postgres-adapter component
-// configuration declares a single-writer lease. The empty configuration means
-// no postgres-adapter peer. Other packages use it to gate fence wiring on the
-// peer's lease mode.
+// LeaseEnabled reports whether the given postgres-adapter component configuration declares a single-writer lease:
+// schema_generation with writer_lease single. The adapter refuses that configuration (validateWriterLease), so it
+// is false for every service that compiles. The kafka-producer generator still reads it to gate its fence wiring.
 func LeaseEnabled(config map[string]any) bool {
 	if config["schema_generation"] == nil {
 		return false
 	}
 	value, _ := config["writer_lease"].(string)
-	return value != "off"
+	return value == "single"
 }
 
 func generateSchemaGeneration(ctx gen.Context) (gen.File, error) {
 	generation, err := schemaGeneration(ctx)
-	if err != nil {
-		return gen.File{}, err
-	}
-	lease, err := writerLeaseMode(ctx)
 	if err != nil {
 		return gen.File{}, err
 	}
@@ -87,12 +81,9 @@ func generateSchemaGeneration(ctx gen.Context) (gen.File, error) {
 		return gen.File{}, err
 	}
 	hash := sha256.Sum256(declaration)
-	// Store is false on the runtime data path, which emits no store: the store's identity, fence and restore
-	// methods are left out, and the bootstrap, the marker check and the ledger read stay (ST-SUP-RC01-OC41).
-	data := struct {
-		Package, Generation, Definition, Lease string
-		Store                                  bool
-	}{path.Base(ctx.OutputNamespace), generation, hex.EncodeToString(hash[:]), lease, !ctx.RuntimeData}
+	// The marker holds the generation name and the digest of the declaration: the bootstrap, the marker check and
+	// the ledger read (ST-SUP-RC01-OC11, ST-SUP-RC01-OC41).
+	data := struct{ Package, Generation, Definition string }{path.Base(ctx.OutputNamespace), generation, hex.EncodeToString(hash[:])}
 	var output bytes.Buffer
 	t, err := template.New("schema-generation").Parse(schemaGenerationTemplate)
 	if err != nil {

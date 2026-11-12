@@ -1,9 +1,8 @@
-// Package postgresadapter implements the postgres-adapter component Generator.
-// It produces GORM-based model structs, a Store implementation with CRUD + list
-// + upsert methods, migration code, SessionFactory, and GenericDao from the
-// service declaration's entities. On the runtime data path
-// (gen.Context.RuntimeData) it emits instead the tables as SQL from the
-// declaration and no store or model (tables.go, ST-SUP-RC01-OC41).
+// Package postgresadapter implements the postgres-adapter component Generator. It gives the database opener of a
+// service and, for a service with entities, the tables of the runtime data path as SQL from the declaration, the
+// migration ledger that applies them and the schema generation marker (tables.go, ST-SUP-RC01-OC41). It emits no
+// store and no entity model: the generated commands and queries carry all data access, on the only data path
+// (ST-SUP-RC20-OC39).
 package postgresadapter
 
 import (
@@ -37,12 +36,15 @@ type Generator struct{}
 // MinimumGoVersion covers the compiler minimum for golang.org/x/text.
 func (*Generator) MinimumGoVersion() string { return "1.25.0" }
 
-// ValidateContext checks storage names, constraints, and migration settings.
+// ValidateContext checks storage names, constraints, and migration settings, with the checks of Generate.
 func (*Generator) ValidateContext(ctx gen.Context) error {
 	if err := validateTenantColumn(ctx); err != nil {
 		return err
 	}
 	if _, err := schemaGeneration(ctx); err != nil {
+		return err
+	}
+	if err := validateWriterLease(ctx); err != nil {
 		return err
 	}
 	if peer := ctx.PeerNamespaces["otel-tracing"]; peer != "" {
@@ -67,16 +69,6 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	if len(ctx.Entities) == 0 {
 		return gen.ValidateGoPackageNamespace(ctx.OutputNamespace)
 	}
-	if err := validateRuntimeData(ctx); err != nil {
-		return err
-	}
-
-	for _, entity := range ctx.Entities {
-		if tableName(entity.Name) == "stego_scan_checkpoints" || tableName(entity.Name) == "stego_resource_state" {
-			return fmt.Errorf("entity name uses an internal state table")
-		}
-	}
-
 	// Validate no duplicate entity names.
 	if err := validateEntityUniqueness(ctx.Entities); err != nil {
 		return err
@@ -158,21 +150,21 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 			}
 		}
 	}
+	if _, err := tableOrder(ctx.Entities); err != nil {
+		return err
+	}
+	if err := validateRuntimeData(ctx); err != nil {
+		return err
+	}
 
 	return gen.ValidateGoPackageNamespace(ctx.OutputNamespace)
 }
 
+// Generate gives the files and the wiring of the component. A service with entities gets the tables of the runtime
+// data path (generateRuntimeData, ST-SUP-RC01-OC41), which is the only data path (ST-SUP-RC20-OC39); a service with
+// no entity has no data access and gets the database opener alone.
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err := g.ValidateContext(ctx); err != nil {
-		return nil, nil, err
-	}
-	migrations := "startup"
-	if value, present := ctx.ComponentConfig["migrations"]; present {
-		migrations = value.(string)
-	}
-	// Parse the lease mode even without schema_generation so an application
-	// cannot set writer_lease on a component that ignores it.
-	if _, err := writerLeaseMode(ctx); err != nil {
 		return nil, nil, err
 	}
 	if len(ctx.Entities) == 0 {
@@ -183,186 +175,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		wiring := &gen.Wiring{NeedsDB: true, Imports: []string{ctx.OutputNamespace}, DatabaseOpener: &gen.DatabaseOpenerSpec{Namespace: ctx.OutputNamespace, Function: "OpenDatabase"}, GoModRequires: map[string]string{"github.com/jackc/pgx/v5": "v5.11.0"}}
 		return []gen.File{file}, wiring, nil
 	}
-	if ctx.RuntimeData {
-		return generateRuntimeData(ctx)
-	}
-	// Build upsert key lookup: entity name → list of upsert key field sets.
-	// Each collection with an upsert_key contributes a composite unique index.
-	upsertKeys := make(map[string][][]string)
-	for _, c := range ctx.Collections {
-		if len(c.UpsertKey) > 0 {
-			upsertKeys[c.Entity] = append(upsertKeys[c.Entity], c.UpsertKey)
-		}
-	}
-
-	modelsFile, err := generateModels(ctx.OutputNamespace, ctx.Entities, upsertKeys, tenantColumn(ctx))
-	if err != nil {
-		return nil, nil, fmt.Errorf("generating models: %w", err)
-	}
-
-	storeFile, err := generateStore(ctx.OutputNamespace, ctx.Entities, ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("generating store: %w", err)
-	}
-
-	rowSecurity, err := rowSecurityImport(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	migrateFile, err := generateMigrate(ctx.OutputNamespace, ctx.Entities, ctx.ComponentConfig["schema_generation"] != nil, rowSecurity, false)
-	if err != nil {
-		return nil, nil, fmt.Errorf("generating migrate: %w", err)
-	}
-
-	sessionFactoryFile, err := generateSessionFactory(ctx.OutputNamespace)
-	if err != nil {
-		return nil, nil, fmt.Errorf("generating session_factory: %w", err)
-	}
-
-	genericDaoFile, err := generateGenericDao(ctx.OutputNamespace)
-	if err != nil {
-		return nil, nil, fmt.Errorf("generating generic_dao: %w", err)
-	}
-
-	transactionFile, err := generateTransaction(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("generating transaction: %w", err)
-	}
-	files := []gen.File{modelsFile, storeFile, migrateFile, sessionFactoryFile, genericDaoFile, transactionFile}
-	if ctx.ComponentConfig["schema_generation"] != nil {
-		file, err := generateSchemaGeneration(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-		files = append(files, file)
-	}
-	if ctx.StorageContract != "" {
-		cursor, err := generateCursor(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-		files = append(files, cursor)
-		checkpoints, err := generateCheckpoints(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-		files = append(files, checkpoints...)
-		effects, err := generateEffectBindings(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-		files = append(files, effects...)
-		records, err := generateResourceStates(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-		files = append(files, records...)
-		scopes, err := generateResourceStateScopes(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-		files = append(files, scopes...)
-		summary, err := generateCleanupSummary(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-		files = append(files, summary)
-	}
-	conditionFiles, err := generateConditions(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	files = append(files, conditionFiles...)
-	if hasVersioned(ctx.Entities) {
-		versionFiles, err := generateVersions(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-		files = append(files, versionFiles...)
-	}
-
-	base := path.Base(ctx.OutputNamespace)
-	wiring := &gen.Wiring{
-		Imports:                 []string{ctx.OutputNamespace},
-		Constructors:            []string{base + ".NewStore(db)"},
-		ConstructorReturnsError: map[int]bool{0: true},
-		NeedsDB:                 true,
-		DBBackend:               "gorm",
-		PostDBCalls:             []string{base + ".Migrate(db)"},
-		GoModRequires: map[string]string{
-			"github.com/google/uuid":  "v1.6.0",
-			"gorm.io/gorm":            "v1.25.12",
-			"gorm.io/driver/postgres": "v1.5.11",
-		},
-	}
-	entityAccess(ctx, wiring)
-	if ctx.StorageContract != "" {
-		for _, name := range []string{"stego_scan_checkpoints", "stego_effect_bindings", "stego_resource_state", "stego_resource_state_scopes"} {
-			wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
-				Schema: "public", Name: name, Kind: "table",
-				Privileges: []string{"SELECT", "INSERT", "UPDATE"},
-			})
-			wiring.BackupObjects = append(wiring.BackupObjects, gen.BackupObject{
-				Schema: "public", Name: name, Kind: "table",
-			})
-		}
-		wiring.BackupObjects = append(wiring.BackupObjects,
-			gen.BackupObject{Schema: "public", Name: "stego_guard_effect_binding", Kind: "function"},
-			gen.BackupObject{Schema: "public", Name: "stego_guard_resource_state", Kind: "function"},
-			gen.BackupObject{Schema: "public", Name: "stego_guard_resource_state_scope", Kind: "function"},
-			gen.BackupObject{Schema: "public", Name: "stego_track_resource_state_keys", Kind: "function"},
-			gen.BackupObject{Schema: "public", Name: "stego_effect_binding_guard", Kind: "trigger"},
-			gen.BackupObject{Schema: "public", Name: "stego_resource_state_guard", Kind: "trigger"},
-			gen.BackupObject{Schema: "public", Name: "stego_resource_state_scope_guard", Kind: "trigger"},
-			gen.BackupObject{Schema: "public", Name: "stego_resource_state_key_guard", Kind: "trigger"},
-		)
-	}
-	for _, entity := range ctx.Entities {
-		if !entity.Versioned {
-			continue
-		}
-		table := tableName(entity.Name)
-		hash := sha256.Sum256([]byte(table))
-		wiring.BackupObjects = append(wiring.BackupObjects,
-			gen.BackupObject{Schema: "public", Name: fmt.Sprintf("stego_revision_%x", hash[:12]), Kind: "function"},
-			gen.BackupObject{Schema: "public", Name: "stego_resource_revision", Kind: "trigger"},
-		)
-	}
-	schemaGenerationAccess(ctx, wiring)
-	file, err := generateDatabaseOpener(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	files = append(files, file)
-	wiring.DatabaseOpener = &gen.DatabaseOpenerSpec{Namespace: ctx.OutputNamespace, Function: "OpenDatabase"}
-	wiring.GoModRequires["github.com/jackc/pgx/v5"] = "v5.11.0"
-
-	if ctx.StorageContract != "" {
-		wiring.Contracts = []gen.Contract{gen.StorageV1}
-	}
-	if migrations == "external" {
-		wiring.PostDBCalls = nil
-		wiring.VerifyDatabaseAccess = true
-	}
-	for _, entity := range ctx.Entities {
-		if len(entity.GenerationFields) > 0 || len(entity.CleanupOwners) > 0 || len(entity.Conditions) > 0 {
-			wiring.GoModRequires["gorm.io/datatypes"] = "v1.2.5"
-		}
-		for _, field := range entity.Fields {
-			if field.Type == types.FieldTypeJsonb {
-				wiring.GoModRequires["gorm.io/datatypes"] = "v1.2.5"
-			}
-		}
-	}
-
-	if err := sealMigrations(ctx.OutputNamespace, files); err != nil {
-		return nil, nil, err
-	}
-	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
-		return nil, nil, err
-	}
-
-	return files, wiring, nil
+	return generateRuntimeData(ctx)
 }
 
 // entityAccess adds the table of each entity to the database access that the runtime role is granted and to the
@@ -394,102 +207,49 @@ func schemaGenerationAccess(ctx gen.Context, wiring *gen.Wiring) {
 	wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
 		Schema: "stego_schema", Name: "epoch_seq", Kind: "sequence", Privileges: []string{"SELECT", "USAGE"},
 	})
-	if LeaseEnabled(ctx.ComponentConfig) {
-		wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
-			Schema: "stego_schema", Name: "writer_lease", Kind: "table", Privileges: []string{"UPDATE", "SELECT"},
-		})
-	}
 	wiring.BackupObjects = append(wiring.BackupObjects,
 		gen.BackupObject{Schema: "stego_schema", Name: "generation", Kind: "table"},
 		gen.BackupObject{Schema: "stego_schema", Name: "identity", Kind: "table"},
 		gen.BackupObject{Schema: "stego_schema", Name: "epoch_seq", Kind: "sequence"},
 		gen.BackupObject{Schema: "stego_schema", Name: "migrations", Kind: "table"},
 	)
-	if LeaseEnabled(ctx.ComponentConfig) {
-		wiring.BackupObjects = append(wiring.BackupObjects, gen.BackupObject{Schema: "stego_schema", Name: "writer_lease", Kind: "table"})
-	}
 }
 
 // reservedTypeNames is the union of: (1) Go keywords, (2) Go predeclared
 // identifiers, and (3) generator-internal identifiers. Entity names that
 // match any of these produce uncompilable or shadowed generated code.
 var reservedTypeNames = map[string]bool{
-	"ResourceStateMigration": true, "ResourceStateKeysMigration": true, "ResourceStateScopesMigration": true, "verifyResourceStateScopes": true, "statepgconn": true, "verifyResourceStates": true, "statecontract": true,
-	"EffectBindingMigration": true, "verifyEffectBindings": true, "effectcontract": true,
-	"validEffectKey": true, "validEffectDigest": true, "readEffectBinding": true,
-	"StegoEffectBinding": true,
-	"SchemaGeneration":   true, "SchemaDefinition": true, "ErrSchemaGeneration": true, "VerifySchema": true, "BootstrapSchema": true, "readSchemaGeneration": true,
-	"ErrDatabaseRollback": true, "databaseIdentity": true, "databaseUUID": true, "DatabaseIdentity": true, "DatabaseEpoch": true, "DatabaseIdentityEpoch": true, "RememberDatabaseIdentity": true,
-	"ErrWriterFenced": true, "writerFence": true, "WriterLeaseCheck": true, "fenceAutocommit": true,
-	"RestoreRecord": true, "ReadRestoreRecord": true, "ReadRestoreRecordDB": true, "VerifyRestore": true, "VerifyRestoreDB": true, "ErrRestore": true,
+	"SchemaGeneration": true, "SchemaDefinition": true, "ErrSchemaGeneration": true, "VerifySchema": true, "BootstrapSchema": true, "readSchemaGeneration": true,
+	"databaseUUID": true,
 	"ErrMigrationLedger": true, "AppliedMigrations": true, "ApplyMigration": true, "RegisterSQL": true,
-	"conditioncontract":        true,
-	"ResourceCondition":        true,
-	"ConditionUpdate":          true,
-	"ErrCondition":             true,
-	"conditionReason":          true,
-	"validCondition":           true,
-	"ErrVersionConflict":       true,
-	"ScanCheckpointMigration":  true,
-	"verifyScanCheckpoints":    true,
-	"checkpointcontract":       true,
-	"checkpointText":           true,
-	"validCheckpointKey":       true,
-	"StegoScanCheckpoint":      true,
-	"ResourceVersionMigration": true,
-	"verifyResourceVersions":   true,
-	"migrateResourceVersions":  true,
-	"versioncontract":          true,
-	"cursorcontract":           true,
 	// Generator-internal identifiers.
-	"Store":                       true,
-	"ErrTransactionRequired":      true,
-	"ErrTransactionNested":        true,
-	"ErrTransactionClosed":        true,
-	"ErrSerialization":            true,
-	"ErrNotificationLimit":        true,
-	"transactionState":            true,
-	"schemaInitialization":        true,
-	"transactionTimeout":          true,
-	"sqlTransaction":              true,
-	"stegooutbox":                 true,
-	"stegotenancy":                true,
-	"TenantMeta":                  true,
-	"stegostorage":                true,
-	"stegolookup":                 true,
-	"ErrNotificationsUnavailable": true,
-	"sync":                        true,
-	"NewStore":                    true,
-	"OpenDatabase":                true,
-	"databaseConnector":           true,
-	"databaseLoopbackTestMode":    true,
-	"databaseTransport":           true,
-	"tls":                         true,
-	"net":                         true,
-	"driver":                      true,
-	"databasePoolSettings":        true,
-	"readDatabasePoolSettings":    true,
-	"databasePoolInteger":         true,
-	"databasePoolDuration":        true,
-	"os":                          true,
-	"strconv":                     true,
-	"databaseConfiguration":       true,
-	"databaseTracer":              true,
-	"databaseCallKey":             true,
-	"databaseCall":                true,
-	"beginDatabaseCall":           true,
-	"endDatabaseCall":             true,
-	"pgx":                         true,
-	"stdlib":                      true,
-	"telemetry":                   true,
-	"context":                     true,
-	"errors":                      true,
+	"stegotenancy":             true,
+	"OpenDatabase":             true,
+	"databaseConnector":        true,
+	"databaseLoopbackTestMode": true,
+	"databaseTransport":        true,
+	"tls":                      true,
+	"net":                      true,
+	"driver":                   true,
+	"databasePoolSettings":     true,
+	"readDatabasePoolSettings": true,
+	"databasePoolInteger":      true,
+	"databasePoolDuration":     true,
+	"os":                       true,
+	"strconv":                  true,
+	"databaseConfiguration":    true,
+	"databaseTracer":           true,
+	"databaseCallKey":          true,
+	"databaseCall":             true,
+	"beginDatabaseCall":        true,
+	"endDatabaseCall":          true,
+	"pgx":                      true,
+	"stdlib":                   true,
+	"telemetry":                true,
+	"context":                  true,
+	"errors":                   true,
 
-	"Meta":           true,
-	"GenericDao":     true,
-	"NewGenericDao":  true,
-	"SessionFactory": true,
-	"Migrate":        true,
+	"Migrate": true,
 	// Go keywords.
 	"break": true, "case": true, "chan": true, "const": true,
 	"continue": true, "default": true, "defer": true, "else": true,
@@ -512,1079 +272,21 @@ var reservedTypeNames = map[string]bool{
 	"new": true, "panic": true, "print": true, "println": true,
 	"real": true, "recover": true,
 	// Import aliases used in generated files.
-	"gorm":      true,
-	"clause":    true,
-	"datatypes": true,
-	"json":      true,
-	"fmt":       true,
-	"sql":       true,
-	"time":      true,
-	"uuid":      true,
-}
-
-// --- Models ---
-
-// generateModels produces models.go with Meta base struct and entity struct
-// definitions using GORM struct tags.
-func generateModels(ns string, entities []types.Entity, upsertKeys map[string][][]string, key string) (gen.File, error) {
-	var buf bytes.Buffer
-
-	needTime := true // Meta always uses time.Time
-	needDatatypes := false
-	needGormDeletedAt := true // Meta always uses gorm.DeletedAt
-	hasRef := false
-
-	for _, e := range entities {
-		if len(e.GenerationFields) > 0 || len(e.CleanupOwners) > 0 || len(e.Conditions) > 0 {
-			needDatatypes = true
-		}
-		for _, f := range e.Fields {
-			if f.Type == types.FieldTypeJsonb {
-				needDatatypes = true
-			}
-			if f.Type == types.FieldTypeRef && f.To != "" {
-				hasRef = true
-			}
-		}
-	}
-
-	_ = needTime          // always true
-	_ = needGormDeletedAt // always true
-	_ = hasRef
-
-	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
-
-	fmt.Fprintf(&buf, "import (\n")
-	fmt.Fprintf(&buf, "\t\"fmt\"\n")
-	fmt.Fprintf(&buf, "\t\"github.com/google/uuid\"\n")
-	if needDatatypes {
-		fmt.Fprintf(&buf, "\t\"gorm.io/datatypes\"\n")
-	}
-	fmt.Fprintf(&buf, "\t\"gorm.io/gorm\"\n")
-	fmt.Fprintf(&buf, "\t\"time\"\n")
-	fmt.Fprintf(&buf, ")\n\n")
-
-	// Meta base struct.
-	fmt.Fprintf(&buf, "// Meta is the base model, embedded in all entities.\n")
-	fmt.Fprintf(&buf, "type Meta struct {\n")
-	fmt.Fprintf(&buf, "\tID          string         `json:\"id\"`\n")
-	fmt.Fprintf(&buf, "\tCreatedTime time.Time      `json:\"created_time\" gorm:\"autoCreateTime\"`\n")
-	fmt.Fprintf(&buf, "\tUpdatedTime time.Time      `json:\"updated_time\" gorm:\"autoUpdateTime\"`\n")
-	fmt.Fprintf(&buf, "\tDeletedAt   gorm.DeletedAt `json:\"-\" gorm:\"index\"`\n")
-	fmt.Fprintf(&buf, "}\n\n")
-
-	// BeforeCreate hook auto-generates a UUID v7 for ID if not already set.
-	fmt.Fprintf(&buf, "// BeforeCreate is a GORM hook that auto-generates a UUID v7 for ID on create.\n")
-	fmt.Fprintf(&buf, "func (m *Meta) BeforeCreate(tx *gorm.DB) error {\n")
-	fmt.Fprintf(&buf, "\tif m.ID == \"\" {\n")
-	fmt.Fprintf(&buf, "\t\tid, err := uuid.NewV7()\n")
-	fmt.Fprintf(&buf, "\t\tif err != nil {\n")
-	fmt.Fprintf(&buf, "\t\t\treturn fmt.Errorf(\"generating UUID v7: %%w\", err)\n")
-	fmt.Fprintf(&buf, "\t\t}\n")
-	fmt.Fprintf(&buf, "\t\tm.ID = id.String()\n")
-	fmt.Fprintf(&buf, "\t}\n")
-	fmt.Fprintf(&buf, "\treturn nil\n")
-	fmt.Fprintf(&buf, "}\n\n")
-
-	owned := map[string]bool{}
-	for _, e := range entities {
-		owned[e.Name] = key != "" && ownedEntity(e)
-	}
-	if key != "" {
-		// An owned entity embeds TenantMeta: its ID is the second column of the primary key after the tenant
-		// column, and the entity names its own deleted_at index, which the tenant column leads
-		// (ST-SUP-RC01-OC40).
-		fmt.Fprintf(&buf, "// TenantMeta is the base model of an owned entity, whose primary key is the tenant column and ID.\n")
-		fmt.Fprintf(&buf, "type TenantMeta struct {\n")
-		fmt.Fprintf(&buf, "\tID          string    `json:\"id\" gorm:\"primaryKey\"`\n")
-		fmt.Fprintf(&buf, "\tCreatedTime time.Time `json:\"created_time\" gorm:\"autoCreateTime\"`\n")
-		fmt.Fprintf(&buf, "\tUpdatedTime time.Time `json:\"updated_time\" gorm:\"autoUpdateTime\"`\n")
-		fmt.Fprintf(&buf, "}\n\n")
-		fmt.Fprintf(&buf, "// BeforeCreate is a GORM hook that auto-generates a UUID v7 for ID on create.\n")
-		fmt.Fprintf(&buf, "func (m *TenantMeta) BeforeCreate(tx *gorm.DB) error {\n")
-		fmt.Fprintf(&buf, "\tif m.ID == \"\" {\n")
-		fmt.Fprintf(&buf, "\t\tid, err := uuid.NewV7()\n")
-		fmt.Fprintf(&buf, "\t\tif err != nil {\n")
-		fmt.Fprintf(&buf, "\t\t\treturn fmt.Errorf(\"generating UUID v7: %%w\", err)\n")
-		fmt.Fprintf(&buf, "\t\t}\n")
-		fmt.Fprintf(&buf, "\t\tm.ID = id.String()\n")
-		fmt.Fprintf(&buf, "\t}\n")
-		fmt.Fprintf(&buf, "\treturn nil\n")
-		fmt.Fprintf(&buf, "}\n\n")
-	}
-
-	// Entity structs.
-	for _, e := range entities {
-		// Build upsert key index lookup for this entity.
-		// Maps field name → list of composite index names it participates in.
-		upsertIdxByField := make(map[string][]string)
-		if keys, ok := upsertKeys[e.Name]; ok {
-			for _, keyFields := range keys {
-				idxName := "upsert_" + strings.Join(keyFields, "_")
-				for _, kf := range keyFields {
-					upsertIdxByField[kf] = append(upsertIdxByField[kf], idxName)
-				}
-			}
-		}
-
-		tags := map[string]string{}
-		for _, f := range e.Fields {
-			gormTag := buildGormTag(e.Name, f)
-			if e.IsObservationField(f.Name) {
-				gormTag += ";->"
-			}
-			// Append upsert key composite unique indexes.
-			if idxNames, ok := upsertIdxByField[f.Name]; ok {
-				for _, idx := range idxNames {
-					gormTag += ";uniqueIndex:" + idx
-				}
-			}
-			tags[f.Name] = gormTag
-		}
-
-		fmt.Fprintf(&buf, "// %s represents the %s entity.\n", e.Name, e.Name)
-		fmt.Fprintf(&buf, "type %s struct {\n", e.Name)
-		if owned[e.Name] {
-			fmt.Fprintf(&buf, "\t%s string `json:\"-\" gorm:%q`\n", tenantField, leadIndexes(e, key, tags))
-			fmt.Fprintf(&buf, "\t%s\n", tenantMeta)
-			fmt.Fprintf(&buf, "\tDeletedAt gorm.DeletedAt `json:\"-\" gorm:%q`\n", "index:idx_"+tableName(e.Name)+"_deleted_at")
-		} else {
-			fmt.Fprintf(&buf, "\tMeta\n")
-		}
-		if e.Versioned {
-			fmt.Fprintln(&buf, "ResourceVersion int64 `json:\"-\" gorm:\"column:stego_revision;type:bigint;not null;default:1;->\"`")
-		}
-		if len(e.Conditions) > 0 {
-			fmt.Fprintln(&buf, "ConditionState datatypes.JSON `json:\"-\" gorm:\"column:stego_conditions;type:jsonb;not null;default:'{}';->\"`")
-		}
-		if len(e.CleanupOwners) > 0 {
-			fmt.Fprintln(&buf, "CleanupState datatypes.JSON `json:\"-\" gorm:\"column:stego_cleanup;type:jsonb;not null;default:'{}';->\"`")
-			fmt.Fprintln(&buf, "DeletionFinalizedAt *time.Time `json:\"-\" gorm:\"column:stego_finalized_at;->;-:migration\"`")
-		}
-		if len(e.CleanupTargets) > 0 {
-			fmt.Fprintln(&buf, "CleanupTargetState datatypes.JSON `json:\"-\" gorm:\"column:stego_cleanup_targets;type:jsonb;not null;default:'{}';->\"`")
-		}
-		if len(e.GenerationFields) > 0 {
-			fmt.Fprintln(&buf, "ResourceGeneration int64 `json:\"-\" gorm:\"column:stego_generation;type:bigint;not null;default:1;->\"`")
-			fmt.Fprintln(&buf, "ObservedGenerations datatypes.JSON `json:\"-\" gorm:\"column:stego_observations;type:jsonb;not null;default:'{}';->\"`")
-		}
-		for _, f := range e.Fields {
-			goName := toPascalCase(f.Name)
-			goType := fieldTypeToGo(f)
-			gormTag := tags[f.Name]
-			jsonTag := f.Name
-			if f.Optional {
-				jsonTag += ",omitempty"
-			}
-			fmt.Fprintf(&buf, "\t%s %s `json:%q gorm:%q`\n", goName, goType, jsonTag, gormTag)
-
-			// Add GORM relationship field for ref types (enables FK constraints
-			// via AutoMigrate).
-			if f.Type == types.FieldTypeRef && f.To != "" {
-				refFieldName := toPascalCase(f.Name) + "Ref"
-				foreignKey := "foreignKey:" + goName
-				if owned[e.Name] {
-					foreignKey = tenantForeignKey(goName, f.To, owned)
-				}
-				fmt.Fprintf(&buf, "\t%s *%s `json:\"-\" gorm:%q`\n",
-					refFieldName, f.To, foreignKey)
-			}
-		}
-		fmt.Fprintf(&buf, "}\n\n")
-	}
-
-	formatted, err := format.Source(buf.Bytes())
-	if err != nil {
-		return gen.File{}, fmt.Errorf("formatting models: %w", err)
-	}
-
-	return gen.File{
-		Path:    path.Join(ns, "models.go"),
-		Content: formatted,
-	}, nil
-}
-
-// fieldTypeToGo maps a field to its Go type representation, accounting for
-// GORM-specific types (datatypes.JSON for jsonb) and nullability.
-func fieldTypeToGo(f types.Field) string {
-	var base string
-	switch f.Type {
-	case types.FieldTypeString, types.FieldTypeEnum, types.FieldTypeRef:
-		base = "string"
-	case types.FieldTypeInt32:
-		base = "int32"
-	case types.FieldTypeInt64:
-		base = "int64"
-	case types.FieldTypeFloat:
-		base = "float32"
-	case types.FieldTypeDouble:
-		base = "float64"
-	case types.FieldTypeBool:
-		base = "bool"
-	case types.FieldTypeBytes:
-		base = "[]byte"
-	case types.FieldTypeTimestamp:
-		base = "time.Time"
-	case types.FieldTypeJsonb:
-		base = "datatypes.JSON"
-	default:
-		base = "any"
-	}
-
-	// Nullable columns (optional or computed) use pointer types so GORM can
-	// distinguish between zero values and NULL. []byte and datatypes.JSON
-	// already handle nil correctly.
-	if (f.Optional || f.Computed) && base != "[]byte" && base != "datatypes.JSON" {
-		base = "*" + base
-	}
-	return base
-}
-
-// liveUniqueName includes the entity and bounds the PostgreSQL identifier length.
-func liveUniqueName(entity string, fields []string) string {
-	sum := sha256.Sum256([]byte(entity + "\x00" + strings.Join(fields, "\x00")))
-	return fmt.Sprintf("stego_live_unique_%x", sum[:16])
-}
-
-// buildGormTag constructs the GORM struct tag value for a field.
-func buildGormTag(entity string, f types.Field) string {
-	var parts []string
-
-	// Column name mapping.
-	parts = append(parts, "column:"+f.Name)
-
-	// Type overrides.
-	if f.Type == types.FieldTypeJsonb {
-		parts = append(parts, "type:jsonb")
-	}
-
-	// Nullability.
-	if !f.Optional && !f.Computed {
-		parts = append(parts, "not null")
-	}
-
-	// Constraints.
-	if f.Unique {
-		if f.UniqueWhenLive {
-			parts = append(parts, "uniqueIndex:"+liveUniqueName(entity, []string{f.Name})+",where:deleted_at IS NULL")
-		} else {
-			parts = append(parts, "uniqueIndex")
-		}
-	}
-
-	// Composite unique constraints: each field in the group gets the same
-	// named uniqueIndex so GORM creates a single composite index.
-	if len(f.UniqueComposite) > 0 {
-		idxName := "composite_" + strings.Join(f.UniqueComposite, "_")
-		if f.UniqueWhenLive {
-			idxName = liveUniqueName(entity, f.UniqueComposite)
-			priority := 0
-			for i, name := range f.UniqueComposite {
-				if name == f.Name {
-					priority = i + 1
-				}
-			}
-			parts = append(parts, fmt.Sprintf("uniqueIndex:%s,where:deleted_at IS NULL,priority:%d", idxName, priority))
-		} else {
-			parts = append(parts, "uniqueIndex:"+idxName)
-		}
-	}
-
-	if f.MaxLength != nil {
-		parts = append(parts, fmt.Sprintf("size:%d", *f.MaxLength))
-	}
-
-	var checks []string
-	if f.MinLength != nil {
-		checks = append(checks, fmt.Sprintf("length(%s) >= %d", f.Name, *f.MinLength))
-	}
-	if f.Min != nil {
-		checks = append(checks, strconv.Quote(f.Name)+" >= "+strconv.FormatFloat(*f.Min, 'g', -1, 64))
-	}
-	if f.Max != nil {
-		checks = append(checks, strconv.Quote(f.Name)+" <= "+strconv.FormatFloat(*f.Max, 'g', -1, 64))
-	}
-	if (f.Min != nil || f.Max != nil) && (f.Type == types.FieldTypeFloat || f.Type == types.FieldTypeDouble) {
-		checks = append(checks, fmt.Sprintf("%s NOT IN ('NaN'::double precision, 'Infinity'::double precision, '-Infinity'::double precision)", strconv.Quote(f.Name)))
-	}
-	if len(checks) > 0 {
-		parts = append(parts, "check:"+strings.Join(checks, " AND "))
-	}
-
-	// The default stays out of the tag: the tag is written in a Go raw string, which a backtick in a default would end,
-	// and a ; in it would add GORM settings. The SQL DEFAULT of the column comes from columnDefault, through sqlString.
-
-	return strings.Join(parts, ";")
-}
-
-// --- Store ---
-
-// generateStore produces store.go with the Store type and CRUD + list + upsert
-// + exists methods using GORM.
-func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.File, error) {
-	var buf bytes.Buffer
-
-	// Determine the API package import path for referencing Storage interface
-	// types (ListOptions, ListResult). The storage package implements the API
-	// package's Storage interface and must use its types for Go interface
-	// satisfaction.
-	apiNS := ""
-	if ctx.PeerNamespaces != nil {
-		apiNS = ctx.PeerNamespaces["rest-api"]
-	}
-	apiPkg := ""
-	apiAlias := ""
-	if apiNS != "" && ctx.ModuleName != "" {
-		if ctx.OutDirName != "" {
-			apiPkg = ctx.ModuleName + "/" + ctx.OutDirName + "/" + apiNS
-		} else {
-			apiPkg = ctx.ModuleName + "/" + apiNS
-		}
-		apiAlias = path.Base(apiNS)
-	}
-
-	if ctx.StorageContract != "" {
-		apiPkg, apiAlias = ctx.StorageContract, "stegostorage"
-	}
-
-	// Determine the search package import path for TSL search integration.
-	searchNS := ""
-	if ctx.PeerNamespaces != nil {
-		searchNS = ctx.PeerNamespaces["tsl-search"]
-	}
-	searchPkg := ""
-	searchAlias := ""
-	if searchNS != "" && ctx.ModuleName != "" {
-		if ctx.OutDirName != "" {
-			searchPkg = ctx.ModuleName + "/" + ctx.OutDirName + "/" + searchNS
-		} else {
-			searchPkg = ctx.ModuleName + "/" + searchNS
-		}
-		searchAlias = path.Base(searchNS)
-	}
-
-	sortAlias := "sort"
-	for sortAlias == apiAlias || sortAlias == searchAlias {
-		sortAlias = "_" + sortAlias
-	}
-	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
-	fmt.Fprintf(&buf, "import (\n")
-	fmt.Fprintf(&buf, "\t\"context\"\n")
-	fmt.Fprintf(&buf, "\t\"database/sql\"\n")
-	fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
-	fmt.Fprintf(&buf, "\t\"errors\"\n")
-	fmt.Fprintf(&buf, "\t\"fmt\"\n")
-	fmt.Fprintf(&buf, "\t\"strings\"\n")
-	fmt.Fprintf(&buf, "\t%s \"sort\"\n", sortAlias)
-	fmt.Fprintf(&buf, "\t\"sync\"\n")
-	if ctx.StorageContract != "" {
-		fmt.Fprintf(&buf, "\t\"unicode/utf8\"\n")
-	}
-	fmt.Fprintf(&buf, "\n")
-	if apiPkg != "" {
-		fmt.Fprintf(&buf, "\t%s %q\n", apiAlias, apiPkg)
-	}
-	if searchPkg != "" {
-		fmt.Fprintf(&buf, "\t%s %q\n", searchAlias, searchPkg)
-		fmt.Fprintf(&buf, "\t\"github.com/jackc/pgx/v5/pgconn\"\n")
-	}
-	fmt.Fprintf(&buf, "\t\"gorm.io/gorm\"\n")
-	fmt.Fprintf(&buf, "\t\"gorm.io/gorm/clause\"\n")
-	fmt.Fprintf(&buf, ")\n\n")
-
-	fmt.Fprintf(&buf, `// filterKeys keeps equivalent maps on one prepared-query shape.
-func filterKeys[V any](values map[string]V) []string {
- keys := make([]string, 0, len(values))
- for key := range values { keys = append(keys,key) }
- %s.Strings(keys)
- return keys
-}
-`, sortAlias)
-
-	// When the API package is not available (e.g., standalone generation),
-	// define the Storage interface types locally.
-	if apiAlias == "" {
-		fmt.Fprintf(&buf, "// OrderByField represents a single ordering criterion.\n")
-		fmt.Fprintf(&buf, "type OrderByField struct {\n")
-		fmt.Fprintf(&buf, "\tField     string\n")
-		fmt.Fprintf(&buf, "\tDirection string\n")
-		fmt.Fprintf(&buf, "}\n\n")
-
-		fmt.Fprintf(&buf, "// ListOptions contains pagination, ordering, field selection, and search parameters.\n")
-		fmt.Fprintf(&buf, "type ListOptions struct {\n")
-		fmt.Fprintf(&buf, "\tPage    int\n")
-		fmt.Fprintf(&buf, "\tSize    int\n")
-		fmt.Fprintf(&buf, "\tOrderBy []OrderByField\n")
-		fmt.Fprintf(&buf, "\tFields  []string\n")
-		fmt.Fprintf(&buf, "\tSearch  string\n")
-		fmt.Fprintf(&buf, "\tImplicitFilters map[string]string\n")
-		fmt.Fprintf(&buf, "}\n\n")
-
-		fmt.Fprintf(&buf, "// ListResult wraps list query results with total count for pagination.\n")
-		fmt.Fprintf(&buf, "type ListResult struct {\n")
-		fmt.Fprintf(&buf, "\tItems any\n")
-		fmt.Fprintf(&buf, "\tTotal int64\n")
-		fmt.Fprintf(&buf, "}\n\n")
-
-		fmt.Fprintf(&buf, "// ErrNotFound is returned by Get when the entity does not exist.\n")
-		fmt.Fprintf(&buf, "var ErrNotFound = errors.New(\"entity not found\")\n\n")
-
-		fmt.Fprintf(&buf, "// ErrSearch is returned when a search expression is invalid.\n")
-		fmt.Fprintf(&buf, "var ErrSearch = errors.New(\"search error\")\n\n")
-
-		fmt.Fprintf(&buf, "// ErrConflict is returned when a unique constraint is violated or\n")
-		fmt.Fprintf(&buf, "// optimistic concurrency check fails.\n")
-		fmt.Fprintf(&buf, "var ErrConflict = errors.New(\"conflict\")\n\n")
-	}
-
-	if ctx.StorageContract != "" {
-		for _, name := range []string{"OrderByField", "ListOptions", "ListResult"} {
-			fmt.Fprintf(&buf, "type %s = stegostorage.%s\n", name, name)
-		}
-		for _, name := range []string{"ErrNotFound", "ErrConflict", "ErrSearch"} {
-			fmt.Fprintf(&buf, "var %s = stegostorage.%s\n", name, name)
-		}
-		fmt.Fprintln(&buf, "var _ stegostorage.Storage = (*Store)(nil)")
-		fmt.Fprintln(&buf, "var _ stegostorage.Transactor = (*Store)(nil)")
-		fmt.Fprintln(&buf, "var _ stegostorage.Repository = (*Store)(nil)")
-		fmt.Fprintln(&buf, "var _ stegostorage.Transaction = (*Store)(nil)")
-	}
-
-	// Store struct and constructor.
-	fmt.Fprintf(&buf, "// Store provides GORM-backed storage for all entities.\n")
-	fmt.Fprintf(&buf, "type Store struct {\n")
-	fmt.Fprintf(&buf, "\tdb *gorm.DB\n\ttransaction *transactionState\n")
-	if ctx.ComponentConfig["schema_generation"] != nil {
-		fmt.Fprintf(&buf, "\tidentity *databaseIdentity\n")
-	}
-	if LeaseEnabled(ctx.ComponentConfig) {
-		fmt.Fprintf(&buf, "\tfence *writerFence\n")
-	}
-	fmt.Fprintf(&buf, "}\n\n")
-
-	fmt.Fprintln(&buf, "var schemaInitialization sync.Mutex")
-	fmt.Fprintf(&buf, "// NewStore prepares all model metadata before concurrent queries can start.\n")
-	fmt.Fprintf(&buf, "// Construct the store before other code uses these models on the connection.\n")
-	fmt.Fprintf(&buf, "// Preparation does not change database tables. Versioned models require a schema check.\n")
-	fmt.Fprintf(&buf, "func NewStore(db *gorm.DB) (*Store, error) {\n")
-	fmt.Fprintln(&buf, `if db == nil { return nil, errors.New("storage requires an initialized GORM database") }`)
-	fmt.Fprintln(&buf, "if db.Error != nil { return nil, db.Error }")
-	fmt.Fprintln(&buf, `if db.Config == nil || db.Statement == nil || db.NamingStrategy == nil { return nil, errors.New("storage requires an initialized GORM database") }`)
-	if ctx.ComponentConfig["schema_generation"] != nil {
-		fmt.Fprintln(&buf, "if err:=VerifySchema(db);err!=nil{return nil,err}")
-	}
-	fmt.Fprintln(&buf, "schemaInitialization.Lock(); defer schemaInitialization.Unlock()")
-	fmt.Fprintln(&buf, "for _, model := range []any{")
-	for _, entity := range entities {
-		fmt.Fprintf(&buf, "&%s{},\n", entity.Name)
-	}
-	fmt.Fprintln(&buf, "} {")
-	fmt.Fprintln(&buf, "statement := &gorm.Statement{DB: db}")
-	fmt.Fprintln(&buf, `if err := statement.Parse(model); err != nil { return nil, fmt.Errorf("prepare storage schema: %w", err) }`)
-	fmt.Fprintln(&buf, "}")
-	if hasVersioned(entities) {
-		fmt.Fprintln(&buf, "if err := verifyResourceVersions(db); err != nil { return nil, err }")
-	}
-	if ctx.StorageContract != "" {
-		fmt.Fprintln(&buf, "if err := verifyScanCheckpoints(db); err != nil { return nil, err }")
-		fmt.Fprintln(&buf, "if err := verifyEffectBindings(db); err != nil { return nil, err }")
-		fmt.Fprintln(&buf, "if err := verifyResourceStates(db); err != nil { return nil, err }")
-		fmt.Fprintln(&buf, "if err := verifyResourceStateScopes(db); err != nil { return nil, err }")
-	}
-	switch {
-	case LeaseEnabled(ctx.ComponentConfig):
-		fmt.Fprintf(&buf, "\treturn &Store{db: db, identity: &databaseIdentity{}, fence: &writerFence{}}, nil\n")
-	case ctx.ComponentConfig["schema_generation"] != nil:
-		fmt.Fprintf(&buf, "\treturn &Store{db: db, identity: &databaseIdentity{}}, nil\n")
-	default:
-		fmt.Fprintf(&buf, "\treturn &Store{db: db}, nil\n")
-	}
-	fmt.Fprintf(&buf, "}\n\n")
-
-	emitCreateMethod(&buf, entities, apiAlias)
-	emitGetMethod(&buf, entities, apiAlias)
-	emitReplaceMethod(&buf, entities, apiAlias)
-	emitDeleteMethod(&buf, entities, apiAlias)
-	if searchPkg != "" {
-		buf.WriteString(`func searchInputError(err error) bool {
- var failure *pgconn.PgError
- if !errors.As(err,&failure){return false}
- return strings.HasPrefix(failure.Code,"22") || failure.Code=="42883" || failure.Code=="42804" || failure.Code=="42846"
-}
-`)
-	}
-	emitListMethod(&buf, entities, apiAlias, searchAlias)
-	if ctx.StorageContract != "" {
-		emitRelatedFilter(&buf, entities)
-	}
-	emitUpsertMethod(&buf, entities, apiAlias)
-	emitExistsMethod(&buf, entities)
-	emitHelpers(&buf)
-
-	formatted, err := format.Source(buf.Bytes())
-	if err != nil {
-		return gen.File{}, fmt.Errorf("formatting store: %w", err)
-	}
-
-	return gen.File{
-		Path:    path.Join(ns, "store.go"),
-		Content: formatted,
-	}, nil
-}
-
-// emitCreateMethod generates the Create dispatcher using GORM.
-// Translates unique constraint violations to ErrConflict so handlers
-// can return 409 instead of 500.
-func emitCreateMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string) {
-	errConflictRef := "ErrConflict"
-	if apiAlias != "" {
-		errConflictRef = apiAlias + ".ErrConflict"
-	}
-
-	fmt.Fprintf(buf, "// Create inserts a new entity record. Computed fields are excluded.\n")
-	fmt.Fprintf(buf, "// Returns ErrConflict when a unique constraint violation occurs.\n")
-	fmt.Fprintf(buf, "func (s *Store) Create(ctx context.Context, entity string, value any) error {\n")
-	fmt.Fprintf(buf, "\tswitch entity {\n")
-
-	for _, e := range entities {
-		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
-		fmt.Fprintf(buf, "\t\tdata, err := json.Marshal(value)\n")
-		fmt.Fprintf(buf, "\t\tif err != nil {\n")
-		fmt.Fprintf(buf, "\t\t\treturn fmt.Errorf(\"marshaling %s: %%w\", err)\n", e.Name)
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\tvar v %s\n", e.Name)
-		fmt.Fprintf(buf, "\t\tif err := json.Unmarshal(data, &v); err != nil {\n")
-		fmt.Fprintf(buf, "\t\t\treturn fmt.Errorf(\"unmarshaling %s: %%w\", err)\n", e.Name)
-		fmt.Fprintf(buf, "\t\t}\n")
-
-		// Clear computed fields — they are read-only.
-		for _, f := range e.Fields {
-			if f.Computed {
-				goName := toPascalCase(f.Name)
-				goType := fieldTypeToGo(f)
-				fmt.Fprintf(buf, "\t\tv.%s = %s\n", goName, zeroValue(goType))
-			}
-		}
-
-		fmt.Fprintf(buf, "\t\tif err := s.db.WithContext(ctx).Create(&v).Error; err != nil {\n")
-		fmt.Fprintf(buf, "\t\t\tif isUniqueConstraintError(err) {\n")
-		fmt.Fprintf(buf, "\t\t\t\treturn %s\n", errConflictRef)
-		fmt.Fprintf(buf, "\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t\treturn err\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\treturn nil\n")
-	}
-
-	fmt.Fprintf(buf, "\tdefault:\n")
-	fmt.Fprintf(buf, "\t\treturn fmt.Errorf(\"unknown entity: %%s\", entity)\n")
-	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "}\n\n")
-}
-
-// emitGetMethod generates the Get dispatcher using GORM.
-// Translates gorm.ErrRecordNotFound to the domain sentinel ErrNotFound
-// so handlers can distinguish not-found (404) from infrastructure errors (500).
-func emitGetMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string) {
-	errNotFoundRef := "ErrNotFound"
-	if apiAlias != "" {
-		errNotFoundRef = apiAlias + ".ErrNotFound"
-	}
-
-	fmt.Fprintf(buf, "// Get retrieves a single entity by ID.\n")
-	fmt.Fprintf(buf, "// Returns ErrNotFound when no entity with the given ID exists.\n")
-	fmt.Fprintf(buf, "func (s *Store) Get(ctx context.Context, entity string, id string) (any, error) {\n")
-	fmt.Fprintf(buf, "\tswitch entity {\n")
-
-	for _, e := range entities {
-		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
-		fmt.Fprintf(buf, "\t\tvar v %s\n", e.Name)
-		fmt.Fprintf(buf, "\t\tif err := s.db.WithContext(ctx).First(&v, \"id = ?\", id).Error; err != nil {\n")
-		fmt.Fprintf(buf, "\t\t\tif errors.Is(err, gorm.ErrRecordNotFound) {\n")
-		fmt.Fprintf(buf, "\t\t\t\treturn nil, %s\n", errNotFoundRef)
-		fmt.Fprintf(buf, "\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t\treturn nil, err\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\treturn v, nil\n")
-	}
-
-	fmt.Fprintf(buf, "\tdefault:\n")
-	fmt.Fprintf(buf, "\t\treturn nil, fmt.Errorf(\"unknown entity: %%s\", entity)\n")
-	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "}\n\n")
-}
-
-// emitReplaceMethod generates the Replace dispatcher using GORM selective Updates.
-func emitReplaceMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string) {
-	errNotFound := "ErrNotFound"
-	errConflict := "ErrConflict"
-	if apiAlias != "" {
-		errNotFound = apiAlias + ".ErrNotFound"
-		errConflict = apiAlias + ".ErrConflict"
-	}
-	fmt.Fprintf(buf, "// Replace modifies an existing entity by ID. Computed fields are excluded.\n")
-	fmt.Fprintf(buf, "// Returns ErrNotFound when no entity with the given ID exists.\n")
-	fmt.Fprintf(buf, "// Returns ErrConflict when a unique constraint violation occurs.\n")
-	fmt.Fprintf(buf, "func (s *Store) Replace(ctx context.Context, entity string, id string, value any) error {\n")
-	fmt.Fprintf(buf, "\tswitch entity {\n")
-
-	for _, e := range entities {
-		writeCols := writeColumns(e)
-
-		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
-
-		if len(writeCols) == 0 {
-			fmt.Fprintf(buf, "\t\treturn fmt.Errorf(\"entity %s has no writable fields\")\n", e.Name)
-			continue
-		}
-
-		fmt.Fprintf(buf, "\t\tdata, err := json.Marshal(value)\n")
-		fmt.Fprintf(buf, "\t\tif err != nil {\n")
-		fmt.Fprintf(buf, "\t\t\treturn fmt.Errorf(\"marshaling %s: %%w\", err)\n", e.Name)
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\tvar v %s\n", e.Name)
-		fmt.Fprintf(buf, "\t\tif err := json.Unmarshal(data, &v); err != nil {\n")
-		fmt.Fprintf(buf, "\t\t\treturn fmt.Errorf(\"unmarshaling %s: %%w\", err)\n", e.Name)
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\tv.ID = id\n")
-
-		// Clear computed fields — they are read-only and must not be overwritten.
-		for _, f := range e.Fields {
-			if f.Computed {
-				goName := toPascalCase(f.Name)
-				goType := fieldTypeToGo(f)
-				fmt.Fprintf(buf, "\t\tv.%s = %s\n", goName, zeroValue(goType))
-			}
-		}
-
-		// Use selective column update (not Save) so computed fields are
-		// preserved in the database rather than overwritten with zeros.
-		fmt.Fprintf(buf, "\t\tresult := s.db.WithContext(ctx).Model(&%s{}).Where(\"id = ?\", id).Select([]string{%s}).Updates(&v)\n",
-			e.Name, quoteStringSlice(writeCols))
-		fmt.Fprintf(buf, "\t\tif result.Error != nil {\n")
-		fmt.Fprintf(buf, "\t\t\tif isUniqueConstraintError(result.Error) {\n")
-		fmt.Fprintf(buf, "\t\t\t\treturn %s\n", errConflict)
-		fmt.Fprintf(buf, "\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t\treturn result.Error\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\tif result.RowsAffected == 0 {\n")
-		fmt.Fprintf(buf, "\t\t\treturn %s\n", errNotFound)
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\treturn nil\n")
-	}
-
-	fmt.Fprintf(buf, "\tdefault:\n")
-	fmt.Fprintf(buf, "\t\treturn fmt.Errorf(\"unknown entity: %%s\", entity)\n")
-	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "}\n\n")
-}
-
-// emitDeleteMethod generates the Delete dispatcher using GORM soft delete.
-// Returns ErrNotFound when no entity with the given ID exists.
-func emitDeleteMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string) {
-	errNotFound := "ErrNotFound"
-	if apiAlias != "" {
-		errNotFound = apiAlias + ".ErrNotFound"
-	}
-	fmt.Fprintf(buf, "// Delete soft-deletes an entity by ID.\n")
-	fmt.Fprintf(buf, "// Returns ErrNotFound when no entity with the given ID exists.\n")
-	fmt.Fprintf(buf, "func (s *Store) Delete(ctx context.Context, entity string, id string) error {\n")
-	fmt.Fprintf(buf, "\tswitch entity {\n")
-
-	for _, e := range entities {
-		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
-		fmt.Fprintf(buf, "\t\tresult := s.db.WithContext(ctx).Where(\"id = ?\", id).Delete(&%s{})\n", e.Name)
-		fmt.Fprintf(buf, "\t\tif result.Error != nil {\n")
-		fmt.Fprintf(buf, "\t\t\treturn result.Error\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\tif result.RowsAffected == 0 {\n")
-		fmt.Fprintf(buf, "\t\t\treturn %s\n", errNotFound)
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\treturn nil\n")
-	}
-
-	fmt.Fprintf(buf, "\tdefault:\n")
-	fmt.Fprintf(buf, "\t\treturn fmt.Errorf(\"unknown entity: %%s\", entity)\n")
-	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "}\n\n")
-}
-
-// emitListMethod generates the List dispatcher using GORM with scope filtering,
-// ordering, search, and pagination. Accepts ListOptions (from the rest-api
-// Storage interface) and returns ListResult. When apiAlias is set, types are
-// qualified with the API package alias (e.g. api.ListOptions); otherwise,
-// local type definitions are used. When searchAlias is set, TSL search
-// expressions from opts.Search are parsed and applied as WHERE clauses.
-func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string, searchAlias string) {
-	listOptsType := "ListOptions"
-	listResultType := "ListResult"
-	if apiAlias != "" {
-		listOptsType = apiAlias + ".ListOptions"
-		listResultType = apiAlias + ".ListResult"
-	}
-
-	fmt.Fprintf(buf, "// List retrieves entities with optional scope filtering, ordering, and pagination.\n")
-	fmt.Fprintf(buf, "// It performs a COUNT(*) query first to get the total matching records,\n")
-	fmt.Fprintf(buf, "// then applies ordering and fetches the requested page via OFFSET/LIMIT.\n")
-	fmt.Fprintf(buf, "func (s *Store) List(ctx context.Context, entity string, scopeField string, scopeValue string, opts %s) (%s, error) {\n", listOptsType, listResultType)
-	if apiAlias == "stegostorage" {
-		fmt.Fprintln(buf, "return s.listQuery(ctx,entity,scopeField,scopeValue,opts,\"\",false)\n}")
-		fmt.Fprintln(buf, "func(s *Store)listQuery(ctx context.Context,entity,scopeField,scopeValue string,opts stegostorage.ListOptions,afterID string,cursor bool)(stegostorage.ListResult,error){")
-	}
-	fmt.Fprintf(buf, "\tswitch entity {\n")
-
-	for _, e := range entities {
-		allCols := allColumns(e)
-
-		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
-
-		// Build valid column set for scope and orderBy validation.
-		fmt.Fprintf(buf, "\t\tvalidCols := map[string]bool{")
-		for i, col := range allCols {
-			if i > 0 {
-				fmt.Fprintf(buf, ", ")
-			}
-			fmt.Fprintf(buf, "%q: true", col)
-		}
-		fmt.Fprintf(buf, "}\n")
-
-		fmt.Fprintf(buf, "\t\tquery := s.db.WithContext(ctx).Model(&%s{})\n", e.Name)
-		if view := currentObservationTable(e); view != "" {
-			fmt.Fprintf(buf, "query = query.Table(%q)\n", view)
-		}
-		if apiAlias == "stegostorage" {
-			fmt.Fprintln(buf, `if (opts.IncludeDeleting || opts.OnlyDeleting) && (opts.IncludeDeleted || opts.OnlyDeleted || (opts.IncludeDeleting && opts.OnlyDeleting)) { return stegostorage.ListResult{},stegostorage.ErrDeletionVisibility }`)
-			if len(e.CleanupOwners) == 0 {
-				fmt.Fprintln(buf, `if opts.IncludeDeleting || opts.OnlyDeleting { return stegostorage.ListResult{},stegostorage.ErrDeletionVisibility }`)
-			} else {
-				fmt.Fprintln(buf, `if opts.IncludeDeleting || opts.OnlyDeleting { query=query.Unscoped().Where("stego_finalized_at IS NULL") }; if opts.OnlyDeleting { query=query.Where("deleted_at IS NOT NULL") }`)
-			}
-			fmt.Fprintf(buf, "\t\tif opts.IncludeDeleted || opts.OnlyDeleted { query = query.Unscoped() }\n")
-			fmt.Fprintf(buf, "\t\tif opts.OnlyDeleted { query = query.Where(\"deleted_at IS NOT NULL\") }\n")
-			fmt.Fprintf(buf, "\t\tquery, err := s.applyRelated(ctx, query, %q, opts.Related)\n", e.Name)
-			fmt.Fprintf(buf, "\t\tif err != nil { return %s{}, err }\n", listResultType)
-			fmt.Fprintf(buf, "\t\tquery, err = s.applyRowFilter(ctx, query, %q, opts.Filter)\n", e.Name)
-			fmt.Fprintf(buf, "\t\tif err != nil { return %s{}, err }\n", listResultType)
-		}
-		fmt.Fprintf(buf, "\t\tif scopeField != \"\" && scopeValue != \"\" {\n")
-		fmt.Fprintf(buf, "\t\t\tif !validCols[scopeField] {\n")
-		fmt.Fprintf(buf, "\t\t\t\treturn %s{}, fmt.Errorf(\"invalid scope field %%q for entity %s\", scopeField)\n", listResultType, e.Name)
-		fmt.Fprintf(buf, "\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t\tquery = query.Where(scopeField+\" = ?\", scopeValue)\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-
-		// Apply implicit filters from ListOptions. These are compile-time
-		// constant filters set by the handler for collections with implicit
-		// field declarations. Each entry adds a WHERE field = value clause.
-		fmt.Fprintf(buf, "\t\tfor _, field := range filterKeys(opts.ImplicitFilters) {\n")
-		fmt.Fprintln(buf, "value := opts.ImplicitFilters[field]")
-		fmt.Fprintf(buf, "\t\t\tif !validCols[field] {\n")
-		fmt.Fprintf(buf, "\t\t\t\treturn %s{}, fmt.Errorf(\"invalid implicit filter field %%q for entity %s\", field)\n", listResultType, e.Name)
-		fmt.Fprintf(buf, "\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t\tquery = query.Where(field+\" = ?\", value)\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-
-		// Apply TSL search filter when the search engine is available.
-		// Search parse/validation errors are wrapped with ErrSearch so the
-		// handler can distinguish client-input errors (400) from infrastructure
-		// errors (500).
-		errSearchRef := "ErrSearch"
-		if apiAlias != "" {
-			errSearchRef = apiAlias + ".ErrSearch"
-		}
-		if searchAlias != "" {
-			errSearchRef := "ErrSearch"
-			if apiAlias != "" {
-				errSearchRef = apiAlias + ".ErrSearch"
-			}
-			fmt.Fprintf(buf, "\t\tif opts.Search != \"\" {\n")
-			fmt.Fprintf(buf, "\t\t\tsearchResult, err := %s.NewSearchEngine().ParseSearch(%q, opts.Search)\n", searchAlias, e.Name)
-			fmt.Fprintf(buf, "\t\t\tif err != nil {\n")
-			fmt.Fprintf(buf, "\t\t\t\treturn %s{}, fmt.Errorf(\"%%w: %%s\", %s, err)\n", listResultType, errSearchRef)
-			fmt.Fprintf(buf, "\t\t\t}\n")
-			fmt.Fprintf(buf, "\t\t\tif searchResult != nil {\n")
-			fmt.Fprintf(buf, "\t\t\t\tquery = query.Where(searchResult.Where, searchResult.Args...)\n")
-			fmt.Fprintf(buf, "\t\t\t}\n")
-			fmt.Fprintf(buf, "\t\t}\n")
-		} else {
-			fmt.Fprintf(buf, "\t\tif opts.Search != \"\" { return %s{}, fmt.Errorf(\"%%w: search is not configured\", %s) }\n", listResultType, errSearchRef)
-		}
-
-		// Apply ordering from ListOptions. Field names are validated by the
-		// handler; direction strings are hardcoded to "asc" or "desc" only.
-		fmt.Fprintf(buf, "\t\tfor _, ob := range opts.OrderBy {\n")
-		fmt.Fprintf(buf, "\t\t\tif !validCols[ob.Field] || (ob.Direction != \"asc\" && ob.Direction != \"desc\") { return %s{}, fmt.Errorf(\"invalid ordering\") }\n", listResultType)
-		fmt.Fprintf(buf, "\t\t\tif validCols[ob.Field] {\n")
-		fmt.Fprintf(buf, "\t\t\t\tquery = query.Order(ob.Field + \" \" + ob.Direction)\n")
-		fmt.Fprintf(buf, "\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-
-		if apiAlias == "stegostorage" {
-			fmt.Fprintln(buf, `if cursor && afterID!="" { query = query.Where("id > ?",afterID) }`)
-		}
-		// Count total matching records before applying pagination.
-		fmt.Fprintf(buf, "\t\tvar total int64\n")
-		if apiAlias == "stegostorage" {
-			fmt.Fprintln(buf, "if !cursor {")
-		}
-		fmt.Fprintf(buf, "\t\tif err := query.Count(&total).Error; err != nil {\n")
-		if searchAlias != "" {
-			fmt.Fprintf(buf, "\t\t\tif opts.Search != \"\" && searchInputError(err) { return %s{}, fmt.Errorf(\"%%w: invalid search value\", %s) }\n", listResultType, errSearchRef)
-		}
-		fmt.Fprintf(buf, "\t\t\treturn %s{}, err\n", listResultType)
-		fmt.Fprintf(buf, "\t\t}\n")
-		if apiAlias == "stegostorage" {
-			fmt.Fprintf(buf, "\t\tif opts.CountOnly { return %s{Items: []%s{}, Total: total}, nil }\n", listResultType, e.Name)
-		}
-
-		if apiAlias == "stegostorage" {
-			fmt.Fprintln(buf, "}")
-		}
-
-		// Apply sparse fieldset selection.
-		fmt.Fprintf(buf, "\t\tif len(opts.Fields) > 0 {\n")
-		fmt.Fprintf(buf, "\t\t\t// Always include id; add requested fields that exist.\n")
-		fmt.Fprintf(buf, "\t\t\tselectCols := []string{\"id\"}\n")
-		if e.Versioned {
-			fmt.Fprintln(buf, `selectCols = append(selectCols, "stego_revision")`)
-		}
-		if len(e.CleanupOwners) > 0 {
-			fmt.Fprintln(buf, `selectCols = append(selectCols, "stego_cleanup", "deleted_at", "stego_finalized_at")`)
-		}
-		if len(e.CleanupTargets) > 0 {
-			fmt.Fprintln(buf, `selectCols = append(selectCols, "stego_cleanup_targets")`)
-			for _, target := range targetDefinitions(e) {
-				fmt.Fprintf(buf, "selectCols = append(selectCols, %q)\n", target.Field)
-			}
-		}
-		if len(e.GenerationFields) > 0 {
-			fmt.Fprintln(buf, `selectCols = append(selectCols, "stego_generation", "stego_observations")`)
-		}
-		fmt.Fprintf(buf, "\t\t\tfor _, f := range opts.Fields {\n")
-		fmt.Fprintf(buf, "\t\t\t\tif validCols[f] {\n")
-		fmt.Fprintf(buf, "\t\t\t\t\tselectCols = append(selectCols, f)\n")
-		fmt.Fprintf(buf, "\t\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t\tquery = query.Select(selectCols)\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-
-		// Pagination via OFFSET/LIMIT computed from Page and Size.
-		fmt.Fprintf(buf, "\t\toffset := (opts.Page - 1) * opts.Size\n")
-		fmt.Fprintf(buf, "\t\tif offset > 0 {\n")
-		fmt.Fprintf(buf, "\t\t\tquery = query.Offset(offset)\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\tif opts.Size > 0 {\n")
-		fmt.Fprintf(buf, "\t\t\tquery = query.Limit(opts.Size)\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\tvar result []%s\n", e.Name)
-		fmt.Fprintf(buf, "\t\tif err := query.Find(&result).Error; err != nil {\n")
-		if searchAlias != "" {
-			fmt.Fprintf(buf, "\t\t\tif opts.Search != \"\" && searchInputError(err) { return %s{}, fmt.Errorf(\"%%w: invalid search value\", %s) }\n", listResultType, errSearchRef)
-		}
-		fmt.Fprintf(buf, "\t\t\treturn %s{}, err\n", listResultType)
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\treturn %s{Items: result, Total: total}, nil\n", listResultType)
-	}
-
-	fmt.Fprintf(buf, "\tdefault:\n")
-	fmt.Fprintf(buf, "\t\treturn %s{}, fmt.Errorf(\"unknown entity: %%s\", entity)\n", listResultType)
-	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "}\n\n")
-}
-
-// emitUpsertMethod generates the Upsert dispatcher using GORM OnConflict clause.
-// Returns (created bool, err error) where created indicates whether a new row was
-// inserted (true) vs an existing row was updated (false). Returns ErrConflict when
-// optimistic concurrency check fails (incoming generation is not newer).
-func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string) {
-	errConflictRef := "ErrConflict"
-	if apiAlias != "" {
-		errConflictRef = apiAlias + ".ErrConflict"
-	}
-
-	fmt.Fprintf(buf, "// Upsert inserts or updates an entity using natural-key conflict resolution.\n")
-	fmt.Fprintf(buf, "// When concurrency is \"optimistic\", the update only proceeds if the incoming\n")
-	fmt.Fprintf(buf, "// generation value is newer than the existing row's generation.\n")
-	fmt.Fprintf(buf, "// Returns true when a new row was created, false when an existing row was updated.\n")
-	fmt.Fprintf(buf, "// Returns ErrConflict when optimistic concurrency check fails.\n")
-	fmt.Fprintf(buf, "func (s *Store) Upsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) (bool, error) {\n")
-	fmt.Fprintf(buf, "\tswitch entity {\n")
-
-	for _, e := range entities {
-		writeCols := writeColumns(e)
-		hasGeneration := entityHasField(e, "generation")
-
-		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
-		fmt.Fprintf(buf, "\t\tdata, err := json.Marshal(value)\n")
-		fmt.Fprintf(buf, "\t\tif err != nil {\n")
-		fmt.Fprintf(buf, "\t\t\treturn false, fmt.Errorf(\"marshaling %s: %%w\", err)\n", e.Name)
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\tvar v %s\n", e.Name)
-		fmt.Fprintf(buf, "\t\tif err := json.Unmarshal(data, &v); err != nil {\n")
-		fmt.Fprintf(buf, "\t\t\treturn false, fmt.Errorf(\"unmarshaling %s: %%w\", err)\n", e.Name)
-		fmt.Fprintf(buf, "\t\t}\n")
-
-		// Clear computed fields — they are read-only and must not be
-		// persisted on the INSERT path.
-		for _, f := range e.Fields {
-			if f.Computed {
-				goName := toPascalCase(f.Name)
-				goType := fieldTypeToGo(f)
-				fmt.Fprintf(buf, "\t\tv.%s = %s\n", goName, zeroValue(goType))
-			}
-		}
-
-		// Build valid column set for upsert key validation.
-		fmt.Fprintf(buf, "\t\tvalidCols := map[string]bool{")
-		for i, col := range writeCols {
-			if i > 0 {
-				fmt.Fprintf(buf, ", ")
-			}
-			fmt.Fprintf(buf, "%q: true", col)
-		}
-		fmt.Fprintf(buf, "}\n")
-
-		for _, field := range e.Fields {
-			if field.UniqueWhenLive {
-				fmt.Fprintf(buf, "\t\tfor _, k := range upsertKey { if k == %q { return false, fmt.Errorf(\"upsert cannot use a live-row unique key\") } }\n", field.Name)
-			}
-		}
-		fmt.Fprintf(buf, "\t\tfor _, k := range upsertKey {\n")
-		fmt.Fprintf(buf, "\t\t\tif !validCols[k] {\n")
-		fmt.Fprintf(buf, "\t\t\t\treturn false, fmt.Errorf(\"invalid upsert key field %%q for entity %s\", k)\n", e.Name)
-		fmt.Fprintf(buf, "\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-
-		// Build conflict columns.
-		fmt.Fprintf(buf, "\t\tconflictCols := make([]clause.Column, len(upsertKey))\n")
-		fmt.Fprintf(buf, "\t\tfor i, k := range upsertKey {\n")
-		fmt.Fprintf(buf, "\t\t\tconflictCols[i] = clause.Column{Name: k}\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-
-		// Build update columns (non-key, non-id).
-		fmt.Fprintf(buf, "\t\tkeySet := make(map[string]bool, len(upsertKey))\n")
-		fmt.Fprintf(buf, "\t\tfor _, k := range upsertKey {\n")
-		fmt.Fprintf(buf, "\t\t\tkeySet[k] = true\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\tvar updateCols []string\n")
-		fmt.Fprintf(buf, "\t\tfor _, col := range []string{%s} {\n", quoteStringSlice(writeCols))
-		fmt.Fprintf(buf, "\t\t\tif !keySet[col] {\n")
-		fmt.Fprintf(buf, "\t\t\t\tupdateCols = append(updateCols, col)\n")
-		fmt.Fprintf(buf, "\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-
-		fmt.Fprintf(buf, "\t\tonConflict := clause.OnConflict{\n")
-		fmt.Fprintf(buf, "\t\t\tColumns: conflictCols,\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-
-		fmt.Fprintf(buf, "\t\tif len(updateCols) > 0 {\n")
-		fmt.Fprintf(buf, "\t\t\tonConflict.DoUpdates = clause.AssignmentColumns(updateCols)\n")
-
-		if hasGeneration {
-			fmt.Fprintf(buf, "\t\t\tif concurrency == \"optimistic\" {\n")
-			fmt.Fprintf(buf, "\t\t\t\tonConflict.Where = clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: `EXCLUDED.\"generation\" > \"generation\"`}}}\n")
-			fmt.Fprintf(buf, "\t\t\t}\n")
-		} else {
-			fmt.Fprintf(buf, "\t\t\tif concurrency == \"optimistic\" {\n")
-			fmt.Fprintf(buf, "\t\t\t\treturn false, fmt.Errorf(\"optimistic concurrency requires a 'generation' field on entity %s\")\n", e.Name)
-			fmt.Fprintf(buf, "\t\t\t}\n")
-		}
-
-		fmt.Fprintf(buf, "\t\t} else {\n")
-		fmt.Fprintf(buf, "\t\t\tonConflict.DoNothing = true\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-
-		// Use a transaction to atomically check existence and perform the
-		// upsert, eliminating the TOCTOU race between a separate COUNT and
-		// the INSERT...ON CONFLICT.
-		fmt.Fprintf(buf, "\t\tvar created bool\n")
-		fmt.Fprintf(buf, "\t\terr = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {\n")
-
-		// Build WHERE clause from upsert key fields inside the transaction.
-		fmt.Fprintf(buf, "\t\t\tvar valueMap map[string]any\n")
-		fmt.Fprintf(buf, "\t\t\tif err := json.Unmarshal(data, &valueMap); err != nil {\n")
-		fmt.Fprintf(buf, "\t\t\t\treturn fmt.Errorf(\"unmarshaling %s to map: %%w\", err)\n", e.Name)
-		fmt.Fprintf(buf, "\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t\twhereClause := make(map[string]any, len(upsertKey))\n")
-		fmt.Fprintf(buf, "\t\t\tfor _, k := range upsertKey {\n")
-		fmt.Fprintf(buf, "\t\t\t\twhereClause[k] = valueMap[k]\n")
-		fmt.Fprintf(buf, "\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t\tvar existingCount int64\n")
-		fmt.Fprintf(buf, "\t\t\tif err := tx.Model(&%s{}).Where(whereClause).Count(&existingCount).Error; err != nil {\n", e.Name)
-		fmt.Fprintf(buf, "\t\t\t\treturn err\n")
-		fmt.Fprintf(buf, "\t\t\t}\n")
-
-		fmt.Fprintf(buf, "\t\t\tresult := tx.Clauses(onConflict).Create(&v)\n")
-		fmt.Fprintf(buf, "\t\t\tif result.Error != nil {\n")
-		fmt.Fprintf(buf, "\t\t\t\treturn result.Error\n")
-		fmt.Fprintf(buf, "\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t\tif concurrency == \"optimistic\" && result.RowsAffected == 0 {\n")
-		fmt.Fprintf(buf, "\t\t\t\treturn %s\n", errConflictRef)
-		fmt.Fprintf(buf, "\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t\tcreated = existingCount == 0\n")
-		fmt.Fprintf(buf, "\t\t\treturn nil\n")
-		fmt.Fprintf(buf, "\t\t}, &sql.TxOptions{Isolation: sql.LevelSerializable})\n")
-		fmt.Fprintf(buf, "\t\tif err != nil {\n")
-		fmt.Fprintf(buf, "\t\t\treturn false, err\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\treturn created, nil\n")
-	}
-
-	fmt.Fprintf(buf, "\tdefault:\n")
-	fmt.Fprintf(buf, "\t\treturn false, fmt.Errorf(\"unknown entity: %%s\", entity)\n")
-	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "}\n\n")
-}
-
-// emitExistsMethod generates the Exists dispatcher using GORM Count.
-func emitExistsMethod(buf *bytes.Buffer, entities []types.Entity) {
-	fmt.Fprintf(buf, "// Exists checks whether an entity with the given ID exists.\n")
-	fmt.Fprintf(buf, "func (s *Store) Exists(ctx context.Context, entity string, id string) (bool, error) {\n")
-	fmt.Fprintf(buf, "\tswitch entity {\n")
-
-	for _, e := range entities {
-		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
-		fmt.Fprintf(buf, "\t\tvar count int64\n")
-		fmt.Fprintf(buf, "\t\tif err := s.db.WithContext(ctx).Model(&%s{}).Where(\"id = ?\", id).Count(&count).Error; err != nil {\n", e.Name)
-		fmt.Fprintf(buf, "\t\t\treturn false, err\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\treturn count > 0, nil\n")
-	}
-
-	fmt.Fprintf(buf, "\tdefault:\n")
-	fmt.Fprintf(buf, "\t\treturn false, fmt.Errorf(\"unknown entity: %%s\", entity)\n")
-	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "}\n\n")
-}
-
-// emitHelpers generates utility functions used by the Store methods.
-func emitHelpers(buf *bytes.Buffer) {
-	fmt.Fprintf(buf, "// isUniqueConstraintError checks whether a database error is a unique\n")
-	fmt.Fprintf(buf, "// constraint violation (PostgreSQL error code 23505).\n")
-	fmt.Fprintf(buf, "func isUniqueConstraintError(err error) bool {\n")
-	fmt.Fprintf(buf, "\tif err == nil {\n")
-	fmt.Fprintf(buf, "\t\treturn false\n")
-	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "\terrStr := err.Error()\n")
-	fmt.Fprintf(buf, "\treturn strings.Contains(errStr, \"duplicate key value violates unique constraint\") ||\n")
-	fmt.Fprintf(buf, "\t\tstrings.Contains(errStr, \"SQLSTATE 23505\") ||\n")
-	fmt.Fprintf(buf, "\t\tstrings.Contains(errStr, \"duplicated key not allowed\")\n")
-	fmt.Fprintf(buf, "}\n\n")
+	"gorm": true,
+	"fmt":  true,
+	"sql":  true,
+	"time": true,
+	"uuid": true,
 }
 
 // --- Migration ---
 
-// generateMigrate produces migrate.go with migration infrastructure and the
-// initial migration using GORM AutoMigrate.
-// On the runtime data path (sqlTables) 001_initial is the SQL migration of
-// InitialTables, and no model is migrated (ST-SUP-RC01-OC41).
-func generateMigrate(ns string, entities []types.Entity, guarded bool, rowSecurity string, sqlTables bool) (gen.File, error) {
+// generateMigrate produces migrate.go: the migration ledger in stego_schema.migrations, with 001_initial as the SQL
+// migration of InitialTables (ST-SUP-RC01-OC41) and, in a pooled service, the row-level security of the tenancy
+// component after it. The ledger refuses every row that is not the registered history, in order and with the body
+// digest (ST-SUP-RC01-OC11).
+func generateMigrate(ns string, rowSecurity string) (gen.File, error) {
 	var buf bytes.Buffer
-
-	// Sort entities by ref dependencies so referenced tables are created first.
-	sorted, err := topoSortEntities(entities)
-	if err != nil {
-		return gen.File{}, err
-	}
 
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 	fmt.Fprintf(&buf, "import (\n")
@@ -1646,54 +348,37 @@ func generateMigrate(ns string, entities []types.Entity, guarded bool, rowSecuri
 	fmt.Fprintf(&buf, "func Migrate(db *gorm.DB) error {\n")
 	fmt.Fprintf(&buf, "\tif db==nil || db.Config==nil || db.Statement==nil {return fmt.Errorf(\"migration requires an initialized database\")}\n")
 	fmt.Fprintf(&buf, "\tordered := orderedMigrations()\n")
-	if guarded {
-		fmt.Fprintf(&buf, "\tif err := BootstrapSchema(db,func(tx *gorm.DB) error {\n")
-		fmt.Fprintf(&buf, "\t\tfor _, m := range ordered {\n")
-		fmt.Fprintf(&buf, "\t\t\tif err := m.Func(tx); err != nil {return fmt.Errorf(\"migration %%s: %%w\", m.Name, err)}\n")
-		fmt.Fprintf(&buf, "\t\t\tif err := tx.Exec(\"INSERT INTO stego_schema.migrations(version,digest) VALUES(?,?)\",m.Name,m.Digest).Error; err != nil {return err}\n")
-		fmt.Fprintf(&buf, "\t\t}\n")
-		fmt.Fprintf(&buf, "\t\treturn nil\n")
-		fmt.Fprintf(&buf, "\t}); err != nil {return err}\n")
-		fmt.Fprintf(&buf, "\tapplied, err := appliedMigrations(db)\n")
-		fmt.Fprintf(&buf, "\tif err != nil {return err}\n")
-		fmt.Fprintf(&buf, "\treturn applyPending(db, ordered, applied)\n")
-	} else if hasVersioned(entities) {
-		fmt.Fprintf(&buf, "\treturn db.Transaction(func(tx *gorm.DB) error {\n")
-		fmt.Fprintf(&buf, "\t\tfor _, m := range ordered {\n")
-		fmt.Fprintf(&buf, "\t\t\tif err := m.Func(tx); err != nil {return fmt.Errorf(\"migration %%s: %%w\", m.Name, err)}\n")
-		fmt.Fprintf(&buf, "\t\t}\n")
-		fmt.Fprintf(&buf, "\t\treturn nil\n")
-		fmt.Fprintf(&buf, "\t})\n")
-	} else {
-		fmt.Fprintf(&buf, "\tfor _, m := range ordered {\n")
-		fmt.Fprintf(&buf, "\t\tif err := m.Func(db); err != nil {return fmt.Errorf(\"migration %%s: %%w\", m.Name, err)}\n")
-		fmt.Fprintf(&buf, "\t}\n")
-		fmt.Fprintf(&buf, "\treturn nil\n")
-	}
+	fmt.Fprintf(&buf, "\tif err := BootstrapSchema(db,func(tx *gorm.DB) error {\n")
+	fmt.Fprintf(&buf, "\t\tfor _, m := range ordered {\n")
+	fmt.Fprintf(&buf, "\t\t\tif err := m.Func(tx); err != nil {return fmt.Errorf(\"migration %%s: %%w\", m.Name, err)}\n")
+	fmt.Fprintf(&buf, "\t\t\tif err := tx.Exec(\"INSERT INTO stego_schema.migrations(version,digest) VALUES(?,?)\",m.Name,m.Digest).Error; err != nil {return err}\n")
+	fmt.Fprintf(&buf, "\t\t}\n")
+	fmt.Fprintf(&buf, "\t\treturn nil\n")
+	fmt.Fprintf(&buf, "\t}); err != nil {return err}\n")
+	fmt.Fprintf(&buf, "\tapplied, err := appliedMigrations(db)\n")
+	fmt.Fprintf(&buf, "\tif err != nil {return err}\n")
+	fmt.Fprintf(&buf, "\treturn applyPending(db, ordered, applied)\n")
 	fmt.Fprintf(&buf, "}\n\n")
 
-	if guarded {
-		fmt.Fprintf(&buf, "// ApplyMigration applies one SQL migration by body and records it in the\n")
-		fmt.Fprintf(&buf, "// ledger, for databases whose migrations run outside the application. The\n")
-		fmt.Fprintf(&buf, "// same continuity rules hold: no re-application, no gap, no digest change.\n")
-		fmt.Fprintf(&buf, "func ApplyMigration(db *gorm.DB, name, body string) error {\n")
-		fmt.Fprintf(&buf, "\tif db==nil || db.Config==nil || db.Statement==nil {return ErrMigrationLedger}\n")
-		fmt.Fprintf(&buf, "\tordered := orderedMigrations()\n")
-		fmt.Fprintf(&buf, "\tfor _, m := range ordered {\n")
-		fmt.Fprintf(&buf, "\t\tif m.Name == name {return ErrMigrationLedger}\n")
-		fmt.Fprintf(&buf, "\t}\n")
-		fmt.Fprintf(&buf, "\treturn db.Transaction(func(tx *gorm.DB) error {\n")
-		fmt.Fprintf(&buf, "\t\tapplied, err := appliedMigrations(tx)\n")
-		fmt.Fprintf(&buf, "\t\tif err != nil {return err}\n")
-		fmt.Fprintf(&buf, "\t\tif err := upgradeLedger(tx, ordered, applied); err != nil {return err}\n")
-		fmt.Fprintf(&buf, "\t\tif err := checkLedger(applied, ordered); err != nil {return err}\n")
-		fmt.Fprintf(&buf, "\t\tif len(applied) < len(ordered) {return ErrMigrationLedger}\n")
-		fmt.Fprintf(&buf, "\t\tif len(applied) > 0 && name <= applied[len(applied)-1].Name {return ErrMigrationLedger}\n")
-		fmt.Fprintf(&buf, "\t\tif err := tx.Exec(body).Error; err != nil {return fmt.Errorf(\"migration %%s: %%w\", name, err)}\n")
-		fmt.Fprintf(&buf, "\t\treturn tx.Exec(\"INSERT INTO stego_schema.migrations(version,digest) VALUES(?,?)\",name,Digest(body)).Error\n")
-		fmt.Fprintf(&buf, "\t})\n")
-		fmt.Fprintf(&buf, "}\n\n")
-	}
+	fmt.Fprintf(&buf, "// ApplyMigration applies one SQL migration by body and records it in the\n")
+	fmt.Fprintf(&buf, "// ledger, for databases whose migrations run outside the application. The\n")
+	fmt.Fprintf(&buf, "// same continuity rules hold: no re-application, no gap, no digest change.\n")
+	fmt.Fprintf(&buf, "func ApplyMigration(db *gorm.DB, name, body string) error {\n")
+	fmt.Fprintf(&buf, "\tif db==nil || db.Config==nil || db.Statement==nil {return ErrMigrationLedger}\n")
+	fmt.Fprintf(&buf, "\tordered := orderedMigrations()\n")
+	fmt.Fprintf(&buf, "\tfor _, m := range ordered {\n")
+	fmt.Fprintf(&buf, "\t\tif m.Name == name {return ErrMigrationLedger}\n")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "\treturn db.Transaction(func(tx *gorm.DB) error {\n")
+	fmt.Fprintf(&buf, "\t\tapplied, err := appliedMigrations(tx)\n")
+	fmt.Fprintf(&buf, "\t\tif err != nil {return err}\n")
+	fmt.Fprintf(&buf, "\t\tif err := checkLedger(applied, ordered); err != nil {return err}\n")
+	fmt.Fprintf(&buf, "\t\tif len(applied) < len(ordered) {return ErrMigrationLedger}\n")
+	fmt.Fprintf(&buf, "\t\tif len(applied) > 0 && name <= applied[len(applied)-1].Name {return ErrMigrationLedger}\n")
+	fmt.Fprintf(&buf, "\t\tif err := tx.Exec(body).Error; err != nil {return fmt.Errorf(\"migration %%s: %%w\", name, err)}\n")
+	fmt.Fprintf(&buf, "\t\treturn tx.Exec(\"INSERT INTO stego_schema.migrations(version,digest) VALUES(?,?)\",name,Digest(body)).Error\n")
+	fmt.Fprintf(&buf, "\t})\n")
+	fmt.Fprintf(&buf, "}\n\n")
 
 	fmt.Fprintf(&buf, "// orderedMigrations returns the registered migrations sorted by name.\n")
 	fmt.Fprintf(&buf, "// Registration order follows package initialization; the apply order is\n")
@@ -1705,101 +390,43 @@ func generateMigrate(ns string, entities []types.Entity, guarded bool, rowSecuri
 	fmt.Fprintf(&buf, "\treturn ordered\n")
 	fmt.Fprintf(&buf, "}\n\n")
 
-	if guarded {
-		fmt.Fprintf(&buf, "// appliedMigrations reads the ledger in apply order. It fails closed when\n")
-		fmt.Fprintf(&buf, "// the ledger is missing or unreadable.\n")
-		fmt.Fprintf(&buf, "func appliedMigrations(db *gorm.DB) ([]Migration, error) {\n")
-		fmt.Fprintf(&buf, "\tvar rows []struct{ Name string; Digest string }\n")
-		fmt.Fprintf(&buf, "\tif err := db.Raw(\"SELECT version AS name, digest FROM stego_schema.migrations ORDER BY version\").Scan(&rows).Error; err != nil {return nil,ErrMigrationLedger}\n")
-		fmt.Fprintf(&buf, "\tapplied := make([]Migration, len(rows))\n")
-		fmt.Fprintf(&buf, "\tfor i, row := range rows { applied[i] = Migration{Name: row.Name, Digest: row.Digest} }\n")
-		fmt.Fprintf(&buf, "\treturn applied,nil\n")
-		fmt.Fprintf(&buf, "}\n\n")
+	fmt.Fprintf(&buf, "// appliedMigrations reads the ledger in apply order. It fails closed when\n")
+	fmt.Fprintf(&buf, "// the ledger is missing or unreadable.\n")
+	fmt.Fprintf(&buf, "func appliedMigrations(db *gorm.DB) ([]Migration, error) {\n")
+	fmt.Fprintf(&buf, "\tvar rows []struct{ Name string; Digest string }\n")
+	fmt.Fprintf(&buf, "\tif err := db.Raw(\"SELECT version AS name, digest FROM stego_schema.migrations ORDER BY version\").Scan(&rows).Error; err != nil {return nil,ErrMigrationLedger}\n")
+	fmt.Fprintf(&buf, "\tapplied := make([]Migration, len(rows))\n")
+	fmt.Fprintf(&buf, "\tfor i, row := range rows { applied[i] = Migration{Name: row.Name, Digest: row.Digest} }\n")
+	fmt.Fprintf(&buf, "\treturn applied,nil\n")
+	fmt.Fprintf(&buf, "}\n\n")
 
-		fmt.Fprintf(&buf, "// checkLedger rejects any mismatch between the applied versions and the\n")
-		fmt.Fprintf(&buf, "// registered history. Applied versions must be a prefix of the registered\n")
-		fmt.Fprintf(&buf, "// list, in order, with matching digests: no gaps, no extras, no edits.\n")
-		fmt.Fprintf(&buf, "func checkLedger(applied, registered []Migration) error {\n")
-		fmt.Fprintf(&buf, "\tif len(applied) > len(registered) {return ErrMigrationLedger}\n")
-		fmt.Fprintf(&buf, "\tfor i, row := range applied {\n")
-		fmt.Fprintf(&buf, "\t\tif row.Name != registered[i].Name || row.Digest != registered[i].Digest {return ErrMigrationLedger}\n")
-		fmt.Fprintf(&buf, "\t}\n")
-		fmt.Fprintf(&buf, "\treturn nil\n")
-		fmt.Fprintf(&buf, "}\n\n")
+	fmt.Fprintf(&buf, "// checkLedger rejects any mismatch between the applied versions and the\n")
+	fmt.Fprintf(&buf, "// registered history. Applied versions must be a prefix of the registered\n")
+	fmt.Fprintf(&buf, "// list, in order, with matching digests: no gaps, no extras, no edits.\n")
+	fmt.Fprintf(&buf, "func checkLedger(applied, registered []Migration) error {\n")
+	fmt.Fprintf(&buf, "\tif len(applied) > len(registered) {return ErrMigrationLedger}\n")
+	fmt.Fprintf(&buf, "\tfor i, row := range applied {\n")
+	fmt.Fprintf(&buf, "\t\tif row.Name != registered[i].Name || row.Digest != registered[i].Digest {return ErrMigrationLedger}\n")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "\treturn nil\n")
+	fmt.Fprintf(&buf, "}\n\n")
 
-		if sqlTables {
-			// On the runtime data path a row with the digest of the name alone is of a release on the GORM store,
-			// whose tables are not the SQL tables: the ledger never takes it over, and checkLedger refuses it
-			// (ST-SUP-RC01-OC41).
-			fmt.Fprintf(&buf, "// legacyDigest is false on the runtime data path: a row with the earlier digest\n")
-			fmt.Fprintf(&buf, "// of the name alone is of a release on the GORM store, and the ledger refuses it.\n")
-			fmt.Fprintf(&buf, "func legacyDigest(Migration, Migration) bool {\n\treturn false\n}\n\n")
-		} else {
-			fmt.Fprintf(&buf, "// legacyDigest reports whether an applied row holds the earlier digest of\n")
-			fmt.Fprintf(&buf, "// the name alone for the migration registered at the same position.\n")
-			fmt.Fprintf(&buf, "func legacyDigest(row, registered Migration) bool {\n")
-			fmt.Fprintf(&buf, "\treturn row.Name == registered.Name && row.Digest == Digest(row.Name) && row.Digest != registered.Digest\n")
-			fmt.Fprintf(&buf, "}\n\n")
-		}
-
-		fmt.Fprintf(&buf, "// upgradeLedger rewrites each row that holds the earlier digest of the name\n")
-		fmt.Fprintf(&buf, "// alone to the body digest, once, in the supplied transaction. It changes a\n")
-		fmt.Fprintf(&buf, "// row only when its name is registered at the same position and the row is\n")
-		fmt.Fprintf(&buf, "// the one the ledger holds for that name. Every other mismatch is left for\n")
-		fmt.Fprintf(&buf, "// checkLedger to refuse.\n")
-		fmt.Fprintf(&buf, "func upgradeLedger(tx *gorm.DB, registered, applied []Migration) error {\n")
-		fmt.Fprintf(&buf, "\tfor i, row := range applied {\n")
-		fmt.Fprintf(&buf, "\t\tif i >= len(registered) || !legacyDigest(row, registered[i]) {continue}\n")
-		fmt.Fprintf(&buf, "\t\tresult := tx.Exec(\"UPDATE stego_schema.migrations SET digest=? WHERE version=? AND digest=?\", registered[i].Digest, row.Name, row.Digest)\n")
-		fmt.Fprintf(&buf, "\t\tif result.Error != nil || result.RowsAffected != 1 {return ErrMigrationLedger}\n")
-		fmt.Fprintf(&buf, "\t\tapplied[i].Digest = registered[i].Digest\n")
-		fmt.Fprintf(&buf, "\t}\n")
-		fmt.Fprintf(&buf, "\treturn nil\n")
-		fmt.Fprintf(&buf, "}\n\n")
-
-		fmt.Fprintf(&buf, "// applyPending applies migrations after the recorded history, each with\n")
-		fmt.Fprintf(&buf, "// its ledger row in one transaction. A row with the earlier name digest is\n")
-		fmt.Fprintf(&buf, "// rewritten first, in a transaction that reads the ledger again under lock.\n")
-		fmt.Fprintf(&buf, "func applyPending(db *gorm.DB, ordered, applied []Migration) error {\n")
-		fmt.Fprintf(&buf, "\tfor i := range applied {\n")
-		fmt.Fprintf(&buf, "\t\tif i >= len(ordered) || !legacyDigest(applied[i], ordered[i]) {continue}\n")
-		fmt.Fprintf(&buf, "\t\tif err := db.Transaction(func(tx *gorm.DB) error {\n")
-		fmt.Fprintf(&buf, "\t\t\tif err := tx.Exec(\"LOCK TABLE stego_schema.migrations IN SHARE ROW EXCLUSIVE MODE\").Error; err != nil {return ErrMigrationLedger}\n")
-		fmt.Fprintf(&buf, "\t\t\tcurrent, err := appliedMigrations(tx)\n")
-		fmt.Fprintf(&buf, "\t\t\tif err != nil {return err}\n")
-		fmt.Fprintf(&buf, "\t\t\tif err := upgradeLedger(tx, ordered, current); err != nil {return err}\n")
-		fmt.Fprintf(&buf, "\t\t\tapplied = current\n")
-		fmt.Fprintf(&buf, "\t\t\treturn nil\n")
-		fmt.Fprintf(&buf, "\t\t}); err != nil {return err}\n")
-		fmt.Fprintf(&buf, "\t\tbreak\n")
-		fmt.Fprintf(&buf, "\t}\n")
-		fmt.Fprintf(&buf, "\tif err := checkLedger(applied, ordered); err != nil {return err}\n")
-		fmt.Fprintf(&buf, "\tfor _, m := range ordered[len(applied):] {\n")
-		fmt.Fprintf(&buf, "\t\tif err := db.Transaction(func(tx *gorm.DB) error {\n")
-		fmt.Fprintf(&buf, "\t\t\tif err := m.Func(tx); err != nil {return fmt.Errorf(\"migration %%s: %%w\", m.Name, err)}\n")
-		fmt.Fprintf(&buf, "\t\t\treturn tx.Exec(\"INSERT INTO stego_schema.migrations(version,digest) VALUES(?,?)\",m.Name,m.Digest).Error\n")
-		fmt.Fprintf(&buf, "\t\t}); err != nil {return err}\n")
-		fmt.Fprintf(&buf, "\t}\n")
-		fmt.Fprintf(&buf, "\treturn nil\n")
-		fmt.Fprintf(&buf, "}\n\n")
-	}
+	fmt.Fprintf(&buf, "// applyPending applies migrations after the recorded history, each with\n")
+	fmt.Fprintf(&buf, "// its ledger row in one transaction.\n")
+	fmt.Fprintf(&buf, "func applyPending(db *gorm.DB, ordered, applied []Migration) error {\n")
+	fmt.Fprintf(&buf, "\tif err := checkLedger(applied, ordered); err != nil {return err}\n")
+	fmt.Fprintf(&buf, "\tfor _, m := range ordered[len(applied):] {\n")
+	fmt.Fprintf(&buf, "\t\tif err := db.Transaction(func(tx *gorm.DB) error {\n")
+	fmt.Fprintf(&buf, "\t\t\tif err := m.Func(tx); err != nil {return fmt.Errorf(\"migration %%s: %%w\", m.Name, err)}\n")
+	fmt.Fprintf(&buf, "\t\t\treturn tx.Exec(\"INSERT INTO stego_schema.migrations(version,digest) VALUES(?,?)\",m.Name,m.Digest).Error\n")
+	fmt.Fprintf(&buf, "\t\t}); err != nil {return err}\n")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "\treturn nil\n")
+	fmt.Fprintf(&buf, "}\n\n")
 
 	// Initial migration registration.
 	fmt.Fprintf(&buf, "func init() {\n")
-	if sqlTables {
-		fmt.Fprintf(&buf, "\tRegisterSQL(\"001_initial\", %s)\n", tablesConstant)
-	} else {
-		fmt.Fprintf(&buf, "\tRegister(\"001_initial\", func(db *gorm.DB) error {\n")
-		fmt.Fprintf(&buf, "\t\treturn db.AutoMigrate(\n")
-		for _, e := range sorted {
-			fmt.Fprintf(&buf, "\t\t\t&%s{},\n", e.Name)
-		}
-		fmt.Fprintf(&buf, "\t\t)\n")
-		fmt.Fprintf(&buf, "\t})\n")
-	}
-	if hasVersioned(entities) && !sqlTables {
-		fmt.Fprintln(&buf, `Register("002_resource_versions", func(db *gorm.DB) error { return db.Transaction(migrateResourceVersions) })`)
-	}
+	fmt.Fprintf(&buf, "\tRegisterSQL(\"001_initial\", %s)\n", tablesConstant)
 	if rowSecurity != "" {
 		// The row-level security of the tenancy component comes after every table it covers (ST-SUP-RC27-OC03).
 		fmt.Fprintln(&buf, `RegisterSQL("100_tenancy_row_security", stegotenancy.RowSecurity)`)
@@ -1982,118 +609,6 @@ func migrationCalls(ns string, files []gen.File) (map[int][]migrationCall, error
 	return calls, nil
 }
 
-// --- SessionFactory ---
-
-// generateSessionFactory produces session_factory.go with the SessionFactory
-// interface for database connection management.
-func generateSessionFactory(ns string) (gen.File, error) {
-	var buf bytes.Buffer
-
-	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
-	fmt.Fprintf(&buf, "import \"gorm.io/gorm\"\n\n")
-	fmt.Fprintf(&buf, "// SessionFactory provides database connections for production and testing.\n")
-	fmt.Fprintf(&buf, "type SessionFactory interface {\n")
-	fmt.Fprintf(&buf, "\tNew() *gorm.DB\n")
-	fmt.Fprintf(&buf, "\tClose() error\n")
-	fmt.Fprintf(&buf, "}\n")
-
-	formatted, err := format.Source(buf.Bytes())
-	if err != nil {
-		return gen.File{}, fmt.Errorf("formatting session_factory: %w", err)
-	}
-
-	return gen.File{
-		Path:    path.Join(ns, "session_factory.go"),
-		Content: formatted,
-	}, nil
-}
-
-// --- GenericDao ---
-
-// generateGenericDao produces generic_dao.go with the GenericDao base type
-// that the tsl-search component uses for query building.
-func generateGenericDao(ns string) (gen.File, error) {
-	var buf bytes.Buffer
-
-	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
-	fmt.Fprintf(&buf, "import \"gorm.io/gorm\"\n\n")
-	fmt.Fprintf(&buf, "// GenericDao provides a base DAO type that the tsl-search component\n")
-	fmt.Fprintf(&buf, "// can build queries on top of with ordering, filtering, JOINs, and pagination.\n")
-	fmt.Fprintf(&buf, "type GenericDao struct {\n")
-	fmt.Fprintf(&buf, "\tDB *gorm.DB\n")
-	fmt.Fprintf(&buf, "}\n\n")
-	fmt.Fprintf(&buf, "// NewGenericDao creates a GenericDao with the given GORM connection.\n")
-	fmt.Fprintf(&buf, "func NewGenericDao(db *gorm.DB) *GenericDao {\n")
-	fmt.Fprintf(&buf, "\treturn &GenericDao{DB: db}\n")
-	fmt.Fprintf(&buf, "}\n")
-
-	formatted, err := format.Source(buf.Bytes())
-	if err != nil {
-		return gen.File{}, fmt.Errorf("formatting generic_dao: %w", err)
-	}
-
-	return gen.File{
-		Path:    path.Join(ns, "generic_dao.go"),
-		Content: formatted,
-	}, nil
-}
-
-// --- Helpers ---
-
-// zeroValue returns the Go zero-value expression for a type string.
-func zeroValue(goType string) string {
-	if strings.HasPrefix(goType, "*") {
-		return "nil"
-	}
-	switch goType {
-	case "string":
-		return `""`
-	case "bool":
-		return "false"
-	case "int32", "int64", "float32", "float64":
-		return "0"
-	case "[]byte":
-		return "nil"
-	case "time.Time":
-		return "time.Time{}"
-	case "datatypes.JSON":
-		return "nil"
-	default:
-		return "nil"
-	}
-}
-
-// entityHasField checks whether an entity has a field with the given name.
-func entityHasField(e types.Entity, name string) bool {
-	for _, f := range e.Fields {
-		if f.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
-// writeColumns returns the list of non-computed field names for an entity,
-// suitable for INSERT/UPDATE operations.
-func writeColumns(e types.Entity) []string {
-	var cols []string
-	for _, f := range e.Fields {
-		if !f.Computed && !e.IsObservationField(f.Name) {
-			cols = append(cols, f.Name)
-		}
-	}
-	return cols
-}
-
-// allColumns returns all field names for an entity, including computed.
-func allColumns(e types.Entity) []string {
-	cols := []string{"id", "created_time", "updated_time"}
-	for _, f := range e.Fields {
-		cols = append(cols, f.Name)
-	}
-	return cols
-}
-
 // tableName converts an entity name to a PostgreSQL table name:
 // PascalCase to snake_case, then pluralize using English rules.
 func tableName(entityName string) string {
@@ -2149,15 +664,6 @@ func toPascalCase(s string) string {
 		}
 	}
 	return strings.Join(parts, "")
-}
-
-// quoteStringSlice produces a Go source literal for a string slice.
-func quoteStringSlice(ss []string) string {
-	quoted := make([]string, len(ss))
-	for i, s := range ss {
-		quoted[i] = fmt.Sprintf("%q", s)
-	}
-	return strings.Join(quoted, ", ")
 }
 
 // --- Topological Sort ---

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"go/format"
 	"path"
-	"sort"
 	"strings"
 
 	"github.com/jsell-rh/stego/internal/gen"
@@ -24,15 +23,16 @@ func (*Generator) MinimumGoVersion() string { return "1.25.0" }
 
 // consumedSlots are the slot names the generated handlers invoke. A binding
 // to any other slot is rejected: the operator would be wired but never run.
+// before_upsert and after_upsert are not in it: only the store path called
+// them, and that path is removed (ST-SUP-RC20-OC39); an upsert calls validate
+// and on_entity_changed.
 var consumedSlots = []string{
 	"before_create",
-	"before_upsert",
 	"before_patch",
 	"before_delete",
 	"validate",
 	"on_entity_changed",
 	"after_create",
-	"after_upsert",
 	"after_patch",
 	"after_delete",
 }
@@ -197,82 +197,31 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		}
 	}
 
-	// On the runtime data path each collection operation is a generated command or query, and its handler calls
-	// Run (ST-SUP-RC20-OC37). Each handler takes the Runtime that the compiler's runtime wiring builds, the value
-	// service.CollectionRuntime() of main.go, and the operators of its bound slots.
-	if ctx.RuntimeData {
-		collections, err := runtimeCollections(ctx, entityMap, collectionMap)
-		if err != nil {
-			return nil, nil, err
-		}
-		runtimeFiles, err := generateRuntimeHandlers(ctx, collections, slotsImportPath)
-		if err != nil {
-			return nil, nil, err
-		}
-		files = append(files, runtimeFiles...)
-		if err := runtimeWiring(ctx, collections, wiring); err != nil {
-			return nil, nil, err
-		}
+	// Each collection operation is a generated command or query on the runtime data path, the one data path, and its
+	// handler calls Run (ST-SUP-RC20-OC37, ST-SUP-RC20-OC39). Each handler takes the Runtime that the compiler's
+	// runtime wiring builds, the value service.CollectionRuntime() of main.go, and the operators of its bound slots.
+	collections, err := runtimeCollections(ctx, entityMap, collectionMap)
+	if err != nil {
+		return nil, nil, err
 	}
-
-	// Generate handler file per collection.
-	for _, eb := range ctx.Collections {
-		if ctx.RuntimeData {
-			break
-		}
-		entity, ok := entityMap[eb.Entity]
-		if !ok {
-			return nil, nil, fmt.Errorf("collection %q references unknown entity %q", eb.Name, eb.Entity)
-		}
-
-		collPascal := collectionToPascalCase(eb.Name)
-		collCamel := collectionToCamelCase(eb.Name)
-
-		slotParams := collectCollectionSlotParams(eb.Name, ctx.SlotBindings)
-
-		collPath, err := collectionBasePath(eb, collectionMap)
-		if err != nil {
-			return nil, nil, fmt.Errorf("resolving path for collection %s: %w", eb.Name, err)
-		}
-		hrefBase := ctx.BasePath + collPath
-
-		handlerFile, err := generateHandler(ctx.OutputNamespace, entity, eb, collectionMap, slotParams, slotsImportPath, ctx.AuthPackage, ctx.Conventions.ResponseFormat, hrefBase)
-		if err != nil {
-			return nil, nil, fmt.Errorf("generating handler for collection %s: %w", eb.Name, err)
-		}
-		files = append(files, handlerFile)
-
-		constructorIdx := len(wiring.Constructors)
-		wiring.Constructors = append(wiring.Constructors,
-			fmt.Sprintf("%s.New%sHandler(store)", path.Base(ctx.OutputNamespace), collPascal))
-		if wiring.ConstructorCollections == nil {
-			wiring.ConstructorCollections = make(map[int]string)
-		}
-		wiring.ConstructorCollections[constructorIdx] = eb.Name
-		if wiring.ConstructorDeps == nil {
-			wiring.ConstructorDeps = make(map[int][]string)
-		}
-		wiring.ConstructorDeps[constructorIdx] = []string{"store"}
-
-		for _, op := range eb.Operations {
-			route, err := collectionHTTPRoute(op, hrefBase)
-			if err != nil {
-				return nil, nil, err
-			}
-			wiring.Routes = append(wiring.Routes,
-				fmt.Sprintf("mux.HandleFunc(%q, %sHandler.%s)", route.pattern(), collCamel, route.handler))
-		}
+	runtimeFiles, err := generateRuntimeHandlers(ctx, collections, slotsImportPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	files = append(files, runtimeFiles...)
+	if err := runtimeWiring(ctx, collections, wiring); err != nil {
+		return nil, nil, err
 	}
 
 	// Generate router file.
-	routerFile, err := generateRouter(ctx.OutputNamespace, ctx.Entities, ctx.Collections, ctx.Conventions.ResponseFormat, ctx.StorageContract, ctx.RuntimeData)
+	routerFile, err := generateRouter(ctx.OutputNamespace, ctx.Entities, ctx.Collections, ctx.Conventions.ResponseFormat)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating router: %w", err)
 	}
 	files = append(files, routerFile)
 
 	// Generate errors file with RFC 9457 Problem Details support.
-	errorsFile, err := generateErrors(ctx.OutputNamespace, ctx.ServiceName, ctx.ErrorTypeBase, !ctx.RuntimeData)
+	errorsFile, err := generateErrors(ctx.OutputNamespace, ctx.ServiceName, ctx.ErrorTypeBase)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating errors: %w", err)
 	}
@@ -285,9 +234,6 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 	files = append(files, openapiFile)
 
-	if ctx.StorageContract != "" {
-		wiring.Contracts = []gen.Contract{gen.StorageV1}
-	}
 	wiring.Imports = []string{ctx.OutputNamespace}
 
 	// When envelope format is enabled and any collection has create or upsert,
@@ -474,1146 +420,10 @@ func pluralize(s string) string {
 	return s + "s"
 }
 
-// generateHandler produces a single Go handler file for a collection.
-// Each operation is a separate method with http.HandlerFunc signature, registered
-// individually in the router via Go 1.22 method+pattern routes.
-func generateHandler(ns string, entity types.Entity, eb types.Collection, collectionMap map[string]types.Collection, slotParams []collectionSlotParam, slotsImportPath string, authImportPath string, responseFormat string, hrefBase string) (gen.File, error) {
-	var buf bytes.Buffer
-
-	collPascal := collectionToPascalCase(eb.Name)
-	collSnake := collectionToSnakeCase(eb.Name)
-	handlerType := collPascal + "Handler"
-
-	envelope := responseFormat == "envelope"
-
-	// Determine whether encoding/json is needed. It is used by all operations
-	// except delete (which only sends status codes, no JSON body). However,
-	// scoped collections always need encoding/json because scope verification
-	// uses json.Marshal/json.Unmarshal to extract the scope field value from
-	// the store result (which is typed as any).
-	isScoped := len(eb.Scope) > 0 && eb.ParentEntity() != ""
-	needJSON := isScoped
-	needStrconv := false
-	needReflect := false
-	needErrors := false
-	needStrings := false
-	needUUID := false
-	hasList := false
-	hasCreate := false
-	hasUpsert := false
-	hasPatch := false
-	for _, op := range eb.Operations {
-		if op != types.OpDelete {
-			needJSON = true
-		}
-		if op == types.OpList {
-			needStrconv = true
-			hasList = true
-		}
-		if op == types.OpCreate || op == types.OpRead || op == types.OpUpdate || op == types.OpDelete || op == types.OpPatch || op == types.OpList || op == types.OpUpsert {
-			needErrors = true
-		}
-		if op == types.OpCreate {
-			hasCreate = true
-		}
-		if op == types.OpUpsert {
-			hasUpsert = true
-		}
-		if op == types.OpPatch {
-			hasPatch = true
-		}
-	}
-	// reflect is needed for list to compute actual item count from ListResult.Items
-	// (which is typed as any). Both envelope and bare modes need strconv for
-	// page/pageSize parsing, but only envelope uses reflect for actualSize.
-	if hasList && envelope {
-		needReflect = true
-	}
-	// When envelope + create or upsert, generate UUID for entity ID.
-	if envelope && (hasCreate || hasUpsert) {
-		needUUID = true
-	}
-	// orderBy parsing requires strings.Split and strings.TrimSpace.
-	if hasList {
-		needStrings = true
-	}
-
-	// Determine whether time package is needed. Write operations (create,
-	// update, upsert) need time when any field is server-managed with
-	// type timestamp (for clearing or populating). Patch needs time when
-	// any patchable field is a timestamp.
-	needTime := false
-	hasWriteOp := false
-	for _, op := range eb.Operations {
-		if op == types.OpCreate || op == types.OpUpdate || op == types.OpUpsert {
-			hasWriteOp = true
-			break
-		}
-	}
-	if hasWriteOp {
-		for _, f := range entity.Fields {
-			if f.Type == types.FieldTypeTimestamp {
-				needTime = true
-				break
-			}
-		}
-	}
-	// Patch operation needs time import when any patchable field is a timestamp.
-	if !needTime && hasPatch {
-		patchableSet := make(map[string]bool, len(eb.Patchable))
-		for _, pf := range eb.Patchable {
-			patchableSet[pf] = true
-		}
-		for _, f := range entity.Fields {
-			if patchableSet[f.Name] && f.Type == types.FieldTypeTimestamp {
-				needTime = true
-				break
-			}
-		}
-	}
-	// The patch handler sets updated_time, so it needs time as well.
-	if !needTime && hasPatch {
-		for _, f := range entity.Fields {
-			if f.Name == "updated_time" && f.Type == types.FieldTypeTimestamp {
-				needTime = true
-				break
-			}
-		}
-	}
-
-	// Derive the slots import alias from the package path.
-	slotsAlias := ""
-	if len(slotParams) > 0 && slotsImportPath != "" {
-		slotsAlias = path.Base(slotsImportPath)
-	}
-
-	// Determine whether fmt package is needed for slot request field conversion.
-	// Both before-slots and after-slots (after_create, after_upsert, after_patch)
-	// serialize entity fields to map[string]string; non-string-typed fields
-	// require fmt.Sprintf for conversion. after_delete and on_entity_changed do
-	// NOT serialize entity fields and therefore do not trigger needFmt.
-	needFmt := false
-	needAuth := false
-	if len(slotParams) > 0 {
-		hasFieldSerializingSlots := false
-		for _, op := range eb.Operations {
-			before, after := slotsForOp(op, slotParams)
-			if len(before) > 0 {
-				hasFieldSerializingSlots = true
-			}
-			for _, a := range after {
-				// after_create, after_upsert, after_patch all serialize entity
-				// fields via fieldToStringExpr. after_delete and on_entity_changed
-				// only pass string values and do not need fmt.
-				if a.SlotName != "after_delete" && a.SlotName != "on_entity_changed" {
-					hasFieldSerializingSlots = true
-				}
-			}
-		}
-		if hasFieldSerializingSlots {
-			needFmt = needsFmtForSlotFields(entity)
-		}
-		// Check if any slot (before or after) has a Caller field that needs
-		// identity extraction from the request context via auth middleware.
-		if authImportPath != "" {
-			for _, sp := range slotParams {
-				if sp.HasCaller {
-					needAuth = true
-					break
-				}
-			}
-		}
-	}
-	// Server-managed fields created_by/updated_by need the auth package
-	// to extract the authenticated user identity from the request context.
-	if !needAuth && authImportPath != "" && hasWriteOp {
-		for _, f := range entity.Fields {
-			if f.Name == "created_by" || f.Name == "updated_by" {
-				needAuth = true
-				break
-			}
-		}
-	}
-	// The patch handler sets updated_by from the authenticated identity, so it
-	// needs the auth package too.
-	if !needAuth && authImportPath != "" && hasPatch {
-		for _, f := range entity.Fields {
-			if f.Name == "updated_by" {
-				needAuth = true
-				break
-			}
-		}
-	}
-
-	// Derive the auth import alias from the package path.
-	authAlias := ""
-	if needAuth {
-		authAlias = path.Base(authImportPath)
-	}
-
-	// Create, update, and upsert handlers need io for io.ReadAll (body reading
-	// for kind validation).
-	hasUpdate := false
-	for _, op := range eb.Operations {
-		if op == types.OpUpdate {
-			hasUpdate = true
-			break
-		}
-	}
-	// The handlers read their bodies through readBody (errors.go), so they import no io.
-	needIO := false
-	_ = hasCreate || hasUpsert || hasUpdate || hasPatch
-
-	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
-	fmt.Fprintf(&buf, "import (\n")
-	if needJSON {
-		fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
-	}
-	if needErrors {
-		fmt.Fprintf(&buf, "\t\"errors\"\n")
-	}
-	if needFmt {
-		fmt.Fprintf(&buf, "\t\"fmt\"\n")
-	}
-	if needIO {
-		fmt.Fprintf(&buf, "\t\"io\"\n")
-	}
-	fmt.Fprintf(&buf, "\t\"net/http\"\n")
-	if needReflect {
-		fmt.Fprintf(&buf, "\t\"reflect\"\n")
-	}
-	if needStrconv {
-		fmt.Fprintf(&buf, "\t\"strconv\"\n")
-	}
-	if needStrings {
-		fmt.Fprintf(&buf, "\t\"strings\"\n")
-	}
-	if needTime {
-		fmt.Fprintf(&buf, "\t\"time\"\n")
-	}
-	needExternalImports := slotsAlias != "" || authAlias != "" || needUUID
-	if needExternalImports {
-		fmt.Fprintf(&buf, "\n")
-		if needUUID {
-			fmt.Fprintf(&buf, "\t\"github.com/google/uuid\"\n")
-		}
-		if authAlias != "" {
-			fmt.Fprintf(&buf, "\t%s %q\n", authAlias, authImportPath)
-		}
-		if slotsAlias != "" {
-			fmt.Fprintf(&buf, "\t%s %q\n", slotsAlias, slotsImportPath)
-		}
-	}
-	fmt.Fprintf(&buf, ")\n\n")
-
-	// Handler struct.
-	fmt.Fprintf(&buf, "// %s handles HTTP requests for %s entities.\n", handlerType, entity.Name)
-	fmt.Fprintf(&buf, "type %s struct {\n", handlerType)
-	fmt.Fprintf(&buf, "\tstore Storage\n")
-	for _, sp := range slotParams {
-		fmt.Fprintf(&buf, "\t%s %s.%s\n", sp.FieldName, slotsAlias, sp.InterfaceType)
-	}
-	fmt.Fprintf(&buf, "}\n\n")
-
-	// Constructor.
-	fmt.Fprintf(&buf, "// New%sHandler creates a new %s.\n", collPascal, handlerType)
-	if len(slotParams) == 0 {
-		fmt.Fprintf(&buf, "func New%sHandler(store Storage) *%s {\n", collPascal, handlerType)
-		fmt.Fprintf(&buf, "\treturn &%s{store: store}\n", handlerType)
-	} else {
-		fmt.Fprintf(&buf, "func New%sHandler(store Storage", collPascal)
-		for _, sp := range slotParams {
-			fmt.Fprintf(&buf, ", %s %s.%s", sp.FieldName, slotsAlias, sp.InterfaceType)
-		}
-		fmt.Fprintf(&buf, ") *%s {\n", handlerType)
-		fmt.Fprintf(&buf, "\treturn &%s{\n", handlerType)
-		fmt.Fprintf(&buf, "\t\tstore: store,\n")
-		for _, sp := range slotParams {
-			fmt.Fprintf(&buf, "\t\t%s: %s,\n", sp.FieldName, sp.FieldName)
-		}
-		fmt.Fprintf(&buf, "\t}\n")
-	}
-	fmt.Fprintf(&buf, "}\n\n")
-
-	// Resolve ancestor parameter names from the actual route path. When
-	// path_prefix is set, parameter names come from the prefix template;
-	// otherwise they are derived from entity names via convention.
-	var ancestorParams map[string]string
-	var parentParamName string
-	if eb.ParentEntity() != "" {
-		var err error
-		ancestorParams, err = resolveAncestorParams(eb, collectionMap)
-		if err != nil {
-			return gen.File{}, err
-		}
-		parentParamName = ancestorParams[eb.ParentEntity()]
-	}
-
-	// Ancestor verification helper for nested routing. Verifies the existence
-	// of all ancestor entities in the URL hierarchy, not just the immediate parent.
-	if eb.ParentEntity() != "" {
-		ancestors, err := collectAncestors(eb, collectionMap)
-		if err != nil {
-			return gen.File{}, err
-		}
-		fmt.Fprintf(&buf, "// checkAncestors verifies that all ancestor entities in the URL hierarchy exist.\n")
-		fmt.Fprintf(&buf, "func (h *%s) checkAncestors(w http.ResponseWriter, r *http.Request) bool {\n", handlerType)
-		for _, anc := range ancestors {
-			idParam := ancestorParams[anc]
-			idVar := strings.ToLower(anc) + "ID"
-			fmt.Fprintf(&buf, "\t%s := r.PathValue(%q)\n", idVar, idParam)
-			fmt.Fprintf(&buf, "\tif %s == \"\" {\n", idVar)
-			fmt.Fprintf(&buf, "\t\thandleError(w, r, BadRequest(\"missing %s\"))\n", idParam)
-			fmt.Fprintf(&buf, "\t\treturn false\n")
-			fmt.Fprintf(&buf, "\t}\n")
-			fmt.Fprintf(&buf, "\t%sExists, %sErr := h.store.Exists(r.Context(), %q, %s)\n", idVar, idVar, anc, idVar)
-			fmt.Fprintf(&buf, "\tif %sErr != nil {\n", idVar)
-			fmt.Fprintf(&buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-			fmt.Fprintf(&buf, "\t\treturn false\n")
-			fmt.Fprintf(&buf, "\t}\n")
-			fmt.Fprintf(&buf, "\tif !%sExists {\n", idVar)
-			fmt.Fprintf(&buf, "\t\thandleError(w, r, NotFound(%q, %s))\n", anc, idVar)
-			fmt.Fprintf(&buf, "\t\treturn false\n")
-			fmt.Fprintf(&buf, "\t}\n")
-		}
-		fmt.Fprintf(&buf, "\treturn true\n")
-		fmt.Fprintf(&buf, "}\n\n")
-	}
-
-	// Generate operation methods.
-	for _, op := range eb.Operations {
-		var opErr error
-		switch op {
-		case types.OpCreate:
-			opErr = generateCreateMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias, envelope, hrefBase)
-		case types.OpRead:
-			generateReadMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, envelope, hrefBase)
-		case types.OpUpdate:
-			opErr = generateUpdateMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias, envelope, hrefBase)
-		case types.OpDelete:
-			generateDeleteMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias)
-		case types.OpList:
-			opErr = generateListMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, envelope, hrefBase)
-		case types.OpUpsert:
-			opErr = generateUpsertMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias, envelope, hrefBase)
-		case types.OpPatch:
-			opErr = generatePatchMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias, envelope, hrefBase)
-		}
-		if opErr != nil {
-			return gen.File{}, opErr
-		}
-	}
-
-	formatted, err := format.Source(buf.Bytes())
-	if err != nil {
-		return gen.File{}, fmt.Errorf("formatting %s handler: %w", eb.Name, err)
-	}
-
-	return gen.File{
-		Path:    path.Join(ns, "handler_"+collSnake+".go"),
-		Content: formatted,
-	}, nil
-}
-
-func emitParentCheck(buf *bytes.Buffer, eb types.Collection) {
-	if eb.ParentEntity() != "" {
-		fmt.Fprintf(buf, "\tif !h.checkAncestors(w, r) {\n")
-		fmt.Fprintf(buf, "\t\treturn\n")
-		fmt.Fprintf(buf, "\t}\n")
-	}
-}
-
-// emitScopeCheck emits code that verifies the fetched entity's scope field
-// matches the URL path parameter for scoped collections. This prevents
-// cross-scope data access (e.g. reading a user from org A via org B's URL).
-// The variable named by localVar must already hold the deserialized api-type
-// entity (e.g. after JSON roundtrip from store.Get result).
-// Only emits code when the collection has a scope with a parent entity.
-func emitScopeCheck(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, localVar string) {
-	if len(eb.Scope) == 0 || eb.ParentEntity() == "" {
-		return
-	}
-	scopeGoField := toPascalCase(eb.ScopeField())
-	fmt.Fprintf(buf, "\tif %s.%s != r.PathValue(%q) {\n", localVar, scopeGoField, parentParamName)
-	fmt.Fprintf(buf, "\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-}
-
-// emitMapScopeCheck emits scope verification code using map[string]any instead
-// of a typed struct. This avoids a lossy JSON roundtrip to the api type, so
-// the original storage value (with metadata fields like created_time,
-// updated_time) can be encoded directly in the response. The variable
-// 'existing' must already be in scope (the store.Get result).
-func emitMapScopeCheck(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string) {
-	if len(eb.Scope) == 0 || eb.ParentEntity() == "" {
-		return
-	}
-	scopeJSONField := eb.ScopeField()
-	fmt.Fprintf(buf, "\tscopeData, err := json.Marshal(existing)\n")
-	fmt.Fprintf(buf, "\tif err != nil {\n")
-	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "\tvar scopeMap map[string]any\n")
-	fmt.Fprintf(buf, "\tif err := json.Unmarshal(scopeData, &scopeMap); err != nil {\n")
-	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "\tscopeVal, _ := scopeMap[%q].(string)\n", scopeJSONField)
-	fmt.Fprintf(buf, "\tif scopeVal != r.PathValue(%q) {\n", parentParamName)
-	fmt.Fprintf(buf, "\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-}
-
-func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, authAlias string, envelope bool, hrefBase string) error {
-	collPascal := collectionToPascalCase(eb.Name)
-	lower := safeVarName(strings.ToLower(entity.Name))
-	fmt.Fprintf(buf, "func (h *%sHandler) Create(w http.ResponseWriter, r *http.Request) {\n", collPascal)
-	emitParentCheck(buf, eb)
-	// Read body bytes to support kind validation before struct decode.
-	// readBody reads at most MaxRequestBody bytes (errors.go); a larger body gets 413.
-	fmt.Fprintf(buf, "\tbodyBytes, err := readBody(w, r)\n")
-	fmt.Fprintf(buf, "\tif err != nil {\n")
-	fmt.Fprintf(buf, "\t\thandleError(w, r, bodyError(err))\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-	// Validate kind field if present in request body: must match entity name.
-	emitKindValidation(buf, entity)
-	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
-	fmt.Fprintf(buf, "\tif err := json.Unmarshal(bodyBytes, &%s); err != nil {\n", lower)
-	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-	// When envelope format is enabled, generate a UUID v7 for the entity ID.
-	if envelope {
-		fmt.Fprintf(buf, "\tid, err := uuid.NewV7()\n")
-		fmt.Fprintf(buf, "\tif err != nil {\n")
-		fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"generating entity ID: \"+err.Error()))\n")
-		fmt.Fprintf(buf, "\t\treturn\n")
-		fmt.Fprintf(buf, "\t}\n")
-		fmt.Fprintf(buf, "\t%s.ID = id.String()\n", lower)
-	}
-	// Clear all server-managed fields so client-supplied values are discarded,
-	// then populate them with server-derived values.
-	emitClearServerManagedFields(buf, lower, entity)
-	emitPopulateServerManagedFieldsCreate(buf, lower, entity, authAlias)
-	if eb.ParentEntity() != "" {
-		parentField, err := parentLinkingFieldName(entity, eb)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, parentField, parentParamName)
-	}
-	// Implicit field assignments: overwrite client-supplied values with
-	// collection-level fixed values before persisting.
-	emitImplicitFieldAssignments(buf, lower, eb.Implicit)
-	// Before-slots: gate and validate fire before create.
-	before, after := slotsForOp(types.OpCreate, slotParams)
-	for _, sp := range before {
-		emitBeforeSlot(buf, slotsAlias, authAlias, sp, lower, entity, emitSlotResultCheck)
-	}
-	fmt.Fprintf(buf, "\tif err := h.store.Create(r.Context(), %q, %s); err != nil {\n", entity.Name, lower)
-	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrConflict) {\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, Conflict(\"resource already exists\"))\n")
-	fmt.Fprintf(buf, "\t\t} else {\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-	// After-slots: on_entity_changed and after_create fire after create.
-	for _, sp := range after {
-		dispatchAfterSlot(buf, slotsAlias, authAlias, sp, lower, entity, types.OpCreate, nil, emitAfterSlotFailure)
-	}
-	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
-	fmt.Fprintf(buf, "\tw.WriteHeader(http.StatusCreated)\n")
-	if envelope {
-		hrefExpr := resolvedHrefExpr(hrefBase, lower+".ID")
-		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(presentEntity(%s, %q, %s.ID, %s))\n",
-			lower, entity.Name, lower, hrefExpr)
-	} else {
-		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
-	}
-	fmt.Fprintf(buf, "}\n\n")
-	return nil
-}
-
-func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, envelope bool, hrefBase string) {
-	collPascal := collectionToPascalCase(eb.Name)
-	lower := safeVarName(strings.ToLower(entity.Name))
-	isScoped := len(eb.Scope) > 0 && eb.ParentEntity() != ""
-	fmt.Fprintf(buf, "func (h *%sHandler) Read(w http.ResponseWriter, r *http.Request) {\n", collPascal)
-	emitParentCheck(buf, eb)
-	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
-	fmt.Fprintf(buf, "\texisting, err := h.store.Get(r.Context(), %q, id)\n", entity.Name)
-	fmt.Fprintf(buf, "\tif err != nil {\n")
-	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
-	fmt.Fprintf(buf, "\t\t} else {\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(err.Error()))\n")
-	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-	if isScoped {
-		emitMapScopeCheck(buf, entity, eb, parentParamName)
-		// Reuse scopeData from emitMapScopeCheck to convert storage type to
-		// API type, stripping storage metadata (created_time, updated_time).
-		fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
-		fmt.Fprintf(buf, "\tif err := json.Unmarshal(scopeData, &%s); err != nil {\n", lower)
-		fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-		fmt.Fprintf(buf, "\t\treturn\n")
-		fmt.Fprintf(buf, "\t}\n")
-	} else {
-		// Convert storage type to API type via JSON roundtrip, stripping
-		// storage metadata (created_time, updated_time).
-		fmt.Fprintf(buf, "\texistingData, err := json.Marshal(existing)\n")
-		fmt.Fprintf(buf, "\tif err != nil {\n")
-		fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-		fmt.Fprintf(buf, "\t\treturn\n")
-		fmt.Fprintf(buf, "\t}\n")
-		fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
-		fmt.Fprintf(buf, "\tif err := json.Unmarshal(existingData, &%s); err != nil {\n", lower)
-		fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-		fmt.Fprintf(buf, "\t\treturn\n")
-		fmt.Fprintf(buf, "\t}\n")
-	}
-	responseVar := lower
-	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
-	if envelope {
-		hrefExpr := resolvedHrefExpr(hrefBase, "id")
-		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(presentEntity(%s, %q, id, %s))\n",
-			responseVar, entity.Name, hrefExpr)
-	} else {
-		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", responseVar)
-	}
-	fmt.Fprintf(buf, "}\n\n")
-	// Read has no before or after slot lifecycle points.
-	_, _ = slotParams, slotsAlias
-}
-
-func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, authAlias string, envelope bool, hrefBase string) error {
-	collPascal := collectionToPascalCase(eb.Name)
-	lower := safeVarName(strings.ToLower(entity.Name))
-	isScoped := len(eb.Scope) > 0 && eb.ParentEntity() != ""
-	needsExisting := isScoped || hasPreservableFields(entity)
-	fmt.Fprintf(buf, "func (h *%sHandler) Update(w http.ResponseWriter, r *http.Request) {\n", collPascal)
-	emitParentCheck(buf, eb)
-	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
-	if needsExisting {
-		// Fetch the existing entity: needed for scope verification (scoped
-		// collections) and for preserving create-only server-managed fields
-		// (created_by, created_time, generation) that would otherwise be lost
-		// when store.Replace writes all columns.
-		fmt.Fprintf(buf, "\texisting, err := h.store.Get(r.Context(), %q, id)\n", entity.Name)
-		fmt.Fprintf(buf, "\tif err != nil {\n")
-		fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
-		fmt.Fprintf(buf, "\t\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
-		fmt.Fprintf(buf, "\t\t} else {\n")
-		fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\treturn\n")
-		fmt.Fprintf(buf, "\t}\n")
-		if isScoped {
-			emitMapScopeCheck(buf, entity, eb, parentParamName)
-		}
-	}
-	// Read body bytes to support kind validation before struct decode.
-	// readBody reads at most MaxRequestBody bytes (errors.go); a larger body gets 413.
-	fmt.Fprintf(buf, "\tbodyBytes, err := readBody(w, r)\n")
-	fmt.Fprintf(buf, "\tif err != nil {\n")
-	fmt.Fprintf(buf, "\t\thandleError(w, r, bodyError(err))\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-	emitKindValidation(buf, entity)
-	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
-	fmt.Fprintf(buf, "\tif err := json.Unmarshal(bodyBytes, &%s); err != nil {\n", lower)
-	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-	// Clear all server-managed fields so client-supplied values are discarded,
-	// then populate update-specific values and restore create-only fields from
-	// the existing entity.
-	emitClearServerManagedFields(buf, lower, entity)
-	// The path parameter is the authoritative identity for the entity being
-	// updated — the decoded body may have an empty or mismatched ID field.
-	fmt.Fprintf(buf, "\t%s.ID = id\n", lower)
-	if eb.ParentEntity() != "" {
-		parentField, err := parentLinkingFieldName(entity, eb)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, parentField, parentParamName)
-	}
-	emitPopulateServerManagedFieldsUpdate(buf, lower, entity, authAlias)
-	if needsExisting {
-		emitPreserveCreateOnlyFields(buf, lower, entity)
-	}
-	before, after := slotsForOp(types.OpUpdate, slotParams)
-	for _, sp := range before {
-		emitBeforeSlot(buf, slotsAlias, authAlias, sp, lower, entity, emitSlotResultCheck)
-	}
-	fmt.Fprintf(buf, "\tif err := h.store.Replace(r.Context(), %q, id, %s); err != nil {\n", entity.Name, lower)
-	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
-	fmt.Fprintf(buf, "\t\t} else if errors.Is(err, ErrConflict) {\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, Conflict(\"resource already exists\"))\n")
-	fmt.Fprintf(buf, "\t\t} else {\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-	for _, sp := range after {
-		dispatchAfterSlot(buf, slotsAlias, authAlias, sp, lower, entity, types.OpUpdate, nil, emitAfterSlotFailure)
-	}
-	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
-	if envelope {
-		hrefExpr := resolvedHrefExpr(hrefBase, "id")
-		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(presentEntity(%s, %q, id, %s))\n",
-			lower, entity.Name, hrefExpr)
-	} else {
-		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
-	}
-	fmt.Fprintf(buf, "}\n\n")
-	return nil
-}
-
-func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, authAlias string) {
-	collPascal := collectionToPascalCase(eb.Name)
-	isScoped := len(eb.Scope) > 0 && eb.ParentEntity() != ""
-	fmt.Fprintf(buf, "func (h *%sHandler) Delete(w http.ResponseWriter, r *http.Request) {\n", collPascal)
-	emitParentCheck(buf, eb)
-	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
-	if isScoped {
-		// For scoped collections, verify the target entity belongs to this
-		// scope before deleting. Fetch the existing entity and use map[string]any
-		// for the scope field lookup (consistent with the Read handler approach).
-		fmt.Fprintf(buf, "\texisting, err := h.store.Get(r.Context(), %q, id)\n", entity.Name)
-		fmt.Fprintf(buf, "\tif err != nil {\n")
-		fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
-		fmt.Fprintf(buf, "\t\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
-		fmt.Fprintf(buf, "\t\t} else {\n")
-		fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\treturn\n")
-		fmt.Fprintf(buf, "\t}\n")
-		emitMapScopeCheck(buf, entity, eb, parentParamName)
-	}
-	before, after := slotsForOp(types.OpDelete, slotParams)
-	for _, sp := range before {
-		emitBeforeDeleteSlot(buf, slotsAlias, authAlias, sp, entity.Name, emitSlotResultCheck)
-	}
-	fmt.Fprintf(buf, "\tif err := h.store.Delete(r.Context(), %q, id); err != nil {\n", entity.Name)
-	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
-	fmt.Fprintf(buf, "\t\t} else {\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-	for _, sp := range after {
-		dispatchAfterSlot(buf, slotsAlias, authAlias, sp, "", entity, types.OpDelete, nil, emitAfterSlotFailure)
-	}
-	fmt.Fprintf(buf, "\tw.WriteHeader(http.StatusNoContent)\n")
-	fmt.Fprintf(buf, "}\n\n")
-}
-
-func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, envelope bool, hrefBase string) error {
-	collPascal := collectionToPascalCase(eb.Name)
-	fmt.Fprintf(buf, "func (h *%sHandler) List(w http.ResponseWriter, r *http.Request) {\n", collPascal)
-	emitParentCheck(buf, eb)
-
-	// Parse page/pageSize pagination parameters (spec-defined, 1-indexed).
-	// Defaults: page=1, pageSize=100. Max pageSize=65500 (PostgreSQL parameter limit).
-	fmt.Fprintf(buf, "\tpageStr := r.URL.Query().Get(\"page\")\n")
-	fmt.Fprintf(buf, "\tpageSizeStr := r.URL.Query().Get(\"pageSize\")\n")
-	fmt.Fprintf(buf, "\tpage, _ := strconv.Atoi(pageStr)\n")
-	fmt.Fprintf(buf, "\tif page < 1 {\n")
-	fmt.Fprintf(buf, "\t\tpage = 1\n")
-	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "\tpageSize, _ := strconv.Atoi(pageSizeStr)\n")
-	fmt.Fprintf(buf, "\tif pageSize < 1 {\n")
-	fmt.Fprintf(buf, "\t\tpageSize = 100\n")
-	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "\tif pageSize > 65500 {\n")
-	fmt.Fprintf(buf, "\t\tpageSize = 65500\n")
-	fmt.Fprintf(buf, "\t}\n")
-
-	// Build valid fields set for orderBy and fields validation.
-	fmt.Fprintf(buf, "\tvalidFields := map[string]bool{")
-	for i, f := range entity.Fields {
-		if i > 0 {
-			fmt.Fprintf(buf, ", ")
-		}
-		fmt.Fprintf(buf, "%q: true", f.Name)
-	}
-	fmt.Fprintf(buf, "}\n")
-
-	// Parse and validate the order query parameter: direction override for all
-	// orderBy entries. Must be "asc" or "desc"; invalid values return 400.
-	fmt.Fprintf(buf, "\torderDir := r.URL.Query().Get(\"order\")\n")
-	fmt.Fprintf(buf, "\tif orderDir != \"\" && orderDir != \"asc\" && orderDir != \"desc\" {\n")
-	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(\"invalid order value: \"+orderDir+\"; must be 'asc' or 'desc'\"))\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-
-	// Parse orderBy query parameter: comma-separated "field_name" or
-	// "field_name asc|desc" (default direction: asc).
-	// When omitted, defaults to created_time desc (newest first).
-	fmt.Fprintf(buf, "\tvar orderBy []OrderByField\n")
-	fmt.Fprintf(buf, "\tif orderByStr := r.URL.Query().Get(\"orderBy\"); orderByStr != \"\" {\n")
-	fmt.Fprintf(buf, "\t\tfor _, entry := range strings.Split(orderByStr, \",\") {\n")
-	fmt.Fprintf(buf, "\t\t\tentry = strings.TrimSpace(entry)\n")
-	fmt.Fprintf(buf, "\t\t\tif entry == \"\" {\n")
-	fmt.Fprintf(buf, "\t\t\t\tcontinue\n")
-	fmt.Fprintf(buf, "\t\t\t}\n")
-	fmt.Fprintf(buf, "\t\t\tparts := strings.Fields(entry)\n")
-	fmt.Fprintf(buf, "\t\t\tfieldName := parts[0]\n")
-	fmt.Fprintf(buf, "\t\t\tdir := \"asc\"\n")
-	fmt.Fprintf(buf, "\t\t\tif len(parts) > 1 {\n")
-	fmt.Fprintf(buf, "\t\t\t\td := strings.ToLower(parts[1])\n")
-	fmt.Fprintf(buf, "\t\t\t\tif d != \"asc\" && d != \"desc\" {\n")
-	fmt.Fprintf(buf, "\t\t\t\t\thandleError(w, r, BadRequest(\"invalid orderBy direction: \"+parts[1]+\"; must be 'asc' or 'desc'\"))\n")
-	fmt.Fprintf(buf, "\t\t\t\t\treturn\n")
-	fmt.Fprintf(buf, "\t\t\t\t}\n")
-	fmt.Fprintf(buf, "\t\t\t\tdir = d\n")
-	fmt.Fprintf(buf, "\t\t\t}\n")
-	fmt.Fprintf(buf, "\t\t\tif !validFields[fieldName] {\n")
-	fmt.Fprintf(buf, "\t\t\t\thandleError(w, r, BadRequest(\"invalid orderBy field: \"+fieldName))\n")
-	fmt.Fprintf(buf, "\t\t\t\treturn\n")
-	fmt.Fprintf(buf, "\t\t\t}\n")
-	fmt.Fprintf(buf, "\t\t\torderBy = append(orderBy, OrderByField{Field: fieldName, Direction: dir})\n")
-	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t} else {\n")
-	// Default sort: created_time desc (newest first) when orderBy is omitted.
-	fmt.Fprintf(buf, "\t\torderBy = []OrderByField{{Field: \"created_time\", Direction: \"desc\"}}\n")
-	fmt.Fprintf(buf, "\t}\n")
-
-	// Apply order direction override to all orderBy entries when present.
-	fmt.Fprintf(buf, "\tif orderDir != \"\" {\n")
-	fmt.Fprintf(buf, "\t\tfor i := range orderBy {\n")
-	fmt.Fprintf(buf, "\t\t\torderBy[i].Direction = orderDir\n")
-	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t}\n")
-
-	// Parse fields query parameter: comma-separated field names for sparse
-	// fieldset selection. "id" is always included even if not listed.
-	// Field names are validated against the entity's fields to prevent
-	// unvalidated names from reaching the storage layer's SQL SELECT clause.
-	fmt.Fprintf(buf, "\tvar fields []string\n")
-	fmt.Fprintf(buf, "\tif fieldsStr := r.URL.Query().Get(\"fields\"); fieldsStr != \"\" {\n")
-	fmt.Fprintf(buf, "\t\thasID := false\n")
-	fmt.Fprintf(buf, "\t\tfor _, f := range strings.Split(fieldsStr, \",\") {\n")
-	fmt.Fprintf(buf, "\t\t\tf = strings.TrimSpace(f)\n")
-	fmt.Fprintf(buf, "\t\t\tif f == \"\" {\n")
-	fmt.Fprintf(buf, "\t\t\t\tcontinue\n")
-	fmt.Fprintf(buf, "\t\t\t}\n")
-	fmt.Fprintf(buf, "\t\t\tif f != \"id\" && !validFields[f] {\n")
-	fmt.Fprintf(buf, "\t\t\t\thandleError(w, r, BadRequest(\"invalid fields value: \"+f))\n")
-	fmt.Fprintf(buf, "\t\t\t\treturn\n")
-	fmt.Fprintf(buf, "\t\t\t}\n")
-	fmt.Fprintf(buf, "\t\t\tfields = append(fields, f)\n")
-	fmt.Fprintf(buf, "\t\t\tif f == \"id\" {\n")
-	fmt.Fprintf(buf, "\t\t\t\thasID = true\n")
-	fmt.Fprintf(buf, "\t\t\t}\n")
-	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t\tif !hasID {\n")
-	fmt.Fprintf(buf, "\t\t\tfields = append(fields, \"id\")\n")
-	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t}\n")
-
-	// Parse search query parameter (TSL expression for filtering).
-	fmt.Fprintf(buf, "\tsearchExpr := r.URL.Query().Get(\"search\")\n")
-
-	// Build ListOptions.
-	if len(eb.Implicit) > 0 {
-		// Populate ImplicitFilters from the collection's compile-time
-		// constant implicit field declarations. Keys are sorted for
-		// deterministic generated output.
-		keys := make([]string, 0, len(eb.Implicit))
-		for k := range eb.Implicit {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		fmt.Fprintf(buf, "\topts := ListOptions{Page: page, Size: pageSize, OrderBy: orderBy, Fields: fields, Search: searchExpr, ImplicitFilters: map[string]string{")
-		for i, k := range keys {
-			if i > 0 {
-				fmt.Fprintf(buf, ", ")
-			}
-			fmt.Fprintf(buf, "%q: %q", k, eb.Implicit[k])
-		}
-		fmt.Fprintf(buf, "}}\n")
-	} else {
-		fmt.Fprintf(buf, "\topts := ListOptions{Page: page, Size: pageSize, OrderBy: orderBy, Fields: fields, Search: searchExpr}\n")
-	}
-
-	// Scope filtering: when a parent is set the scope value comes from the
-	// parent's path parameter (already present in the route pattern). Without
-	// a parent, scope is passed as a query parameter.
-	if len(eb.Scope) > 0 && eb.ParentEntity() != "" {
-		fmt.Fprintf(buf, "\tscopeValue := r.PathValue(%q)\n", parentParamName)
-		fmt.Fprintf(buf, "\tlistResult, err := h.store.List(r.Context(), %q, %q, scopeValue, opts)\n", entity.Name, eb.ScopeField())
-	} else if len(eb.Scope) > 0 {
-		fmt.Fprintf(buf, "\tscopeValue := r.URL.Query().Get(%q)\n", eb.ScopeField())
-		fmt.Fprintf(buf, "\tlistResult, err := h.store.List(r.Context(), %q, %q, scopeValue, opts)\n", entity.Name, eb.ScopeField())
-	} else if eb.ParentEntity() != "" {
-		parentIDVar := strings.ToLower(eb.ParentEntity()) + "ID"
-		parentField, err := parentRefRawFieldName(entity, eb.ParentEntity())
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(buf, "\t%s := r.PathValue(%q)\n", parentIDVar, parentParamName)
-		fmt.Fprintf(buf, "\tlistResult, err := h.store.List(r.Context(), %q, %q, %s, opts)\n", entity.Name, parentField, parentIDVar)
-	} else {
-		fmt.Fprintf(buf, "\tlistResult, err := h.store.List(r.Context(), %q, \"\", \"\", opts)\n", entity.Name)
-	}
-
-	fmt.Fprintf(buf, "\tif err != nil {\n")
-	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrSearch) {\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, BadRequest(err.Error()))\n")
-	fmt.Fprintf(buf, "\t\t} else {\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(err.Error()))\n")
-	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
-
-	if envelope {
-		// Envelope response with pagination metadata. Present each list item
-		// with id, kind, href metadata — matching single-resource presentation.
-		hrefBaseExpr := resolvedHrefBaseExpr(hrefBase)
-		fmt.Fprintf(buf, "\threfBase := %s\n", hrefBaseExpr)
-		fmt.Fprintf(buf, "\titemsSlice := reflect.ValueOf(listResult.Items)\n")
-		fmt.Fprintf(buf, "\tactualSize := itemsSlice.Len()\n")
-		fmt.Fprintf(buf, "\tpresentedItems := make([]map[string]any, actualSize)\n")
-		fmt.Fprintf(buf, "\tfor i := 0; i < actualSize; i++ {\n")
-		fmt.Fprintf(buf, "\t\titem := itemsSlice.Index(i).Interface()\n")
-		// Extract ID from the item using reflection. The entity struct's
-		// ID field is always the first field (generated by router.go).
-		fmt.Fprintf(buf, "\t\titemID := reflect.ValueOf(item).FieldByName(\"ID\").String()\n")
-		// Convert storage type to API type via JSON roundtrip, stripping
-		// storage metadata (created_time, updated_time).
-		fmt.Fprintf(buf, "\t\titemData, err := json.Marshal(item)\n")
-		fmt.Fprintf(buf, "\t\tif err != nil {\n")
-		fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-		fmt.Fprintf(buf, "\t\t\treturn\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\tvar apiItem %s\n", entity.Name)
-		fmt.Fprintf(buf, "\t\tif err := json.Unmarshal(itemData, &apiItem); err != nil {\n")
-		fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-		fmt.Fprintf(buf, "\t\t\treturn\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\tpresentedItems[i] = presentEntity(apiItem, %q, itemID, hrefBase+\"/\"+itemID)\n", entity.Name)
-		// Sparse fieldset filtering: when the fields query parameter is specified,
-		// remove non-selected fields from the presented entity map. Metadata keys
-		// (id, kind, href) are always retained.
-		fmt.Fprintf(buf, "\t\tif len(fields) > 0 {\n")
-		fmt.Fprintf(buf, "\t\t\tallowed := map[string]bool{\"id\": true, \"kind\": true, \"href\": true}\n")
-		fmt.Fprintf(buf, "\t\t\tfor _, f := range fields {\n")
-		fmt.Fprintf(buf, "\t\t\t\tallowed[f] = true\n")
-		fmt.Fprintf(buf, "\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t\tfor k := range presentedItems[i] {\n")
-		fmt.Fprintf(buf, "\t\t\t\tif !allowed[k] {\n")
-		fmt.Fprintf(buf, "\t\t\t\t\tdelete(presentedItems[i], k)\n")
-		fmt.Fprintf(buf, "\t\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t}\n")
-		fmt.Fprintf(buf, "\tresult := map[string]any{\n")
-		fmt.Fprintf(buf, "\t\t\"kind\":  %q,\n", entity.Name+"List")
-		fmt.Fprintf(buf, "\t\t\"page\":  page,\n")
-		fmt.Fprintf(buf, "\t\t\"size\":  actualSize,\n")
-		fmt.Fprintf(buf, "\t\t\"total\": listResult.Total,\n")
-		fmt.Fprintf(buf, "\t\t\"items\": presentedItems,\n")
-		fmt.Fprintf(buf, "\t}\n")
-		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(result)\n")
-	} else {
-		// Bare response: return items array directly.
-		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(listResult.Items)\n")
-	}
-	fmt.Fprintf(buf, "}\n\n")
-	// List has no before or after slot lifecycle points.
-	_, _ = slotParams, slotsAlias
-	return nil
-}
-
-func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, authAlias string, envelope bool, hrefBase string) error {
-	collPascal := collectionToPascalCase(eb.Name)
-	lower := safeVarName(strings.ToLower(entity.Name))
-	fmt.Fprintf(buf, "func (h *%sHandler) Upsert(w http.ResponseWriter, r *http.Request) {\n", collPascal)
-	emitParentCheck(buf, eb)
-	// Read body bytes to support kind validation before struct decode.
-	// readBody reads at most MaxRequestBody bytes (errors.go); a larger body gets 413.
-	fmt.Fprintf(buf, "\tbodyBytes, err := readBody(w, r)\n")
-	fmt.Fprintf(buf, "\tif err != nil {\n")
-	fmt.Fprintf(buf, "\t\thandleError(w, r, bodyError(err))\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-	emitKindValidation(buf, entity)
-	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
-	fmt.Fprintf(buf, "\tif err := json.Unmarshal(bodyBytes, &%s); err != nil {\n", lower)
-	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-	// When envelope format is enabled, generate a UUID v7 for the entity ID
-	// if the client didn't provide one (covers the insert path of upsert).
-	if envelope {
-		fmt.Fprintf(buf, "\tif %s.ID == \"\" {\n", lower)
-		fmt.Fprintf(buf, "\t\tid, err := uuid.NewV7()\n")
-		fmt.Fprintf(buf, "\t\tif err != nil {\n")
-		fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"generating entity ID: \"+err.Error()))\n")
-		fmt.Fprintf(buf, "\t\t\treturn\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\t%s.ID = id.String()\n", lower)
-		fmt.Fprintf(buf, "\t}\n")
-	}
-	// Clear all server-managed fields so client-supplied values are discarded,
-	// then populate them with server-derived values for the create path.
-	emitClearServerManagedFields(buf, lower, entity)
-	emitPopulateServerManagedFieldsCreate(buf, lower, entity, authAlias)
-	if eb.ParentEntity() != "" {
-		parentField, err := parentLinkingFieldName(entity, eb)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, parentField, parentParamName)
-	}
-	// Implicit field assignments: overwrite client-supplied values with
-	// collection-level fixed values before persisting.
-	emitImplicitFieldAssignments(buf, lower, eb.Implicit)
-
-	before, after := slotsForOp(types.OpUpsert, slotParams)
-	for _, sp := range before {
-		emitBeforeSlot(buf, slotsAlias, authAlias, sp, lower, entity, emitSlotResultCheck)
-	}
-
-	if len(eb.UpsertKey) > 0 {
-		keyFields := make([]string, len(eb.UpsertKey))
-		for i, k := range eb.UpsertKey {
-			keyFields[i] = fmt.Sprintf("%q", k)
-		}
-		fmt.Fprintf(buf, "\tupsertKey := []string{%s}\n", strings.Join(keyFields, ", "))
-	} else {
-		fmt.Fprintf(buf, "\tupsertKey := []string{}\n")
-	}
-
-	concurrency := string(eb.Concurrency)
-	if concurrency == "" {
-		concurrency = "none"
-	}
-	fmt.Fprintf(buf, "\tcreated, err := h.store.Upsert(r.Context(), %q, %s, upsertKey, %q)\n", entity.Name, lower, concurrency)
-	fmt.Fprintf(buf, "\tif err != nil {\n")
-	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrConflict) {\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, Conflict(\"optimistic concurrency conflict: incoming generation is not newer\"))\n")
-	fmt.Fprintf(buf, "\t\t\treturn\n")
-	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(err.Error()))\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-	for _, sp := range after {
-		dispatchAfterSlot(buf, slotsAlias, authAlias, sp, lower, entity, types.OpUpsert, nil, emitAfterSlotFailure)
-	}
-	// When the upsert updated an existing row, the pre-computed ID on the
-	// local entity variable is a phantom — the DB preserved the existing
-	// row's ID. Read the actual record back via List with the upsert key
-	// fields as a scope filter so the response returns the real ID.
-	// The store returns storage-package types, so we convert via JSON
-	// marshal/unmarshal to avoid cross-package type assertion failures
-	// (see Patch handler for the same pattern).
-	fmt.Fprintf(buf, "\tif !created {\n")
-	if eb.ParentEntity() != "" {
-		fmt.Fprintf(buf, "\t\tlistResult, listErr := h.store.List(r.Context(), %q, %q, r.PathValue(%q), ListOptions{Page: 1, Size: 65500})\n",
-			entity.Name, eb.ScopeField(), parentParamName)
-	} else {
-		fmt.Fprintf(buf, "\t\tlistResult, listErr := h.store.List(r.Context(), %q, \"\", \"\", ListOptions{Page: 1, Size: 65500})\n",
-			entity.Name)
-	}
-	fmt.Fprintf(buf, "\t\tif listErr == nil {\n")
-	fmt.Fprintf(buf, "\t\t\titemsData, marshalErr := json.Marshal(listResult.Items)\n")
-	fmt.Fprintf(buf, "\t\t\tif marshalErr == nil {\n")
-	fmt.Fprintf(buf, "\t\t\t\tvar items []%s\n", entity.Name)
-	fmt.Fprintf(buf, "\t\t\t\tif json.Unmarshal(itemsData, &items) == nil {\n")
-	fmt.Fprintf(buf, "\t\t\t\t\tfor _, item := range items {\n")
-	// Match the upsert key fields to find the actual record.
-	for i, k := range eb.UpsertKey {
-		goName := toPascalCase(k)
-		if i == 0 {
-			fmt.Fprintf(buf, "\t\t\t\t\t\tif item.%s == %s.%s", goName, lower, goName)
-		} else {
-			fmt.Fprintf(buf, " && item.%s == %s.%s", goName, lower, goName)
-		}
-	}
-	fmt.Fprintf(buf, " {\n")
-	fmt.Fprintf(buf, "\t\t\t\t\t\t\t%s = item\n", lower)
-	fmt.Fprintf(buf, "\t\t\t\t\t\t\tbreak\n")
-	fmt.Fprintf(buf, "\t\t\t\t\t\t}\n")
-	fmt.Fprintf(buf, "\t\t\t\t\t}\n")
-	fmt.Fprintf(buf, "\t\t\t\t}\n")
-	fmt.Fprintf(buf, "\t\t\t}\n")
-	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t}\n")
-
-	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
-	fmt.Fprintf(buf, "\tif created {\n")
-	fmt.Fprintf(buf, "\t\tw.WriteHeader(http.StatusCreated)\n")
-	fmt.Fprintf(buf, "\t} else {\n")
-	fmt.Fprintf(buf, "\t\tw.WriteHeader(http.StatusOK)\n")
-	fmt.Fprintf(buf, "\t}\n")
-	if envelope {
-		hrefExpr := resolvedHrefExpr(hrefBase, lower+".ID")
-		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(presentEntity(%s, %q, %s.ID, %s))\n",
-			lower, entity.Name, lower, hrefExpr)
-	} else {
-		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
-	}
-	fmt.Fprintf(buf, "}\n\n")
-	return nil
-}
-
-func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, authAlias string, envelope bool, hrefBase string) error {
-	collPascal := collectionToPascalCase(eb.Name)
-	lower := safeVarName(strings.ToLower(entity.Name))
-
-	// Build a map of patchable field names for quick lookup.
-	patchableSet := make(map[string]bool, len(eb.Patchable))
-	for _, pf := range eb.Patchable {
-		patchableSet[pf] = true
-	}
-
-	// Collect the fields that are patchable for this collection.
-	var patchFields []types.Field
-	for _, f := range entity.Fields {
-		if patchableSet[f.Name] {
-			patchFields = append(patchFields, f)
-		}
-	}
-
-	patchReqType := collPascal + "PatchRequest"
-
-	// Emit the patch request struct with pointer fields.
-	fmt.Fprintf(buf, "// %s contains the fields that can be partially updated.\n", patchReqType)
-	fmt.Fprintf(buf, "type %s struct {\n", patchReqType)
-	for _, f := range patchFields {
-		goName := toPascalCase(f.Name)
-		goType := fieldTypeToGo(f.Type)
-		// All patchable fields use pointer types for partial update detection
-		// (nil = not provided). This includes reference types like
-		// json.RawMessage and []byte — the pointer wrapper distinguishes
-		// "not provided" from JSON null (which deserializes to a non-nil
-		// byte slice containing the literal "null").
-		fmt.Fprintf(buf, "\t%s *%s `json:%q`\n", goName, goType, f.Name)
-	}
-	fmt.Fprintf(buf, "}\n\n")
-
-	// Emit the Patch method.
-	fmt.Fprintf(buf, "func (h *%sHandler) Patch(w http.ResponseWriter, r *http.Request) {\n", collPascal)
-	emitParentCheck(buf, eb)
-	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
-
-	// Step 1: Fetch existing entity.
-	// The store returns a storage-package type, so we convert via JSON
-	// marshal/unmarshal to avoid cross-package type assertion panics.
-	fmt.Fprintf(buf, "\texisting, err := h.store.Get(r.Context(), %q, id)\n", entity.Name)
-	fmt.Fprintf(buf, "\tif err != nil {\n")
-	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
-	fmt.Fprintf(buf, "\t\t} else {\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "\texistingData, err := json.Marshal(existing)\n")
-	fmt.Fprintf(buf, "\tif err != nil {\n")
-	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
-	fmt.Fprintf(buf, "\tif err := json.Unmarshal(existingData, &%s); err != nil {\n", lower)
-	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-	emitScopeCheck(buf, entity, eb, parentParamName, lower)
-
-	// Step 2: Read body bytes for kind validation, then decode patch request.
-	// The PatchRequest struct only contains patchable fields, so Go's decoder
-	// silently discards unknown keys like "kind". We must read the raw body
-	// first to inspect the kind field before struct decode.
-	// readBody reads at most MaxRequestBody bytes (errors.go); a larger body gets 413.
-	fmt.Fprintf(buf, "\tbodyBytes, err := readBody(w, r)\n")
-	fmt.Fprintf(buf, "\tif err != nil {\n")
-	fmt.Fprintf(buf, "\t\thandleError(w, r, bodyError(err))\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-	emitKindValidation(buf, entity)
-	fmt.Fprintf(buf, "\tvar patch %s\n", patchReqType)
-	fmt.Fprintf(buf, "\tif err := json.Unmarshal(bodyBytes, &patch); err != nil {\n")
-	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-
-	// Step 3: Invoke before-slots (e.g., before_patch gate).
-	// This must happen BEFORE applying patch fields to the entity variable,
-	// so that existing_entity reflects the pre-patch state from storage.
-	before, after := slotsForOp(types.OpPatch, slotParams)
-	for _, sp := range before {
-		emitBeforePatchSlot(buf, slotsAlias, authAlias, sp, lower, entity, patchFields, emitSlotResultCheck)
-	}
-
-	// Step 4: Apply non-nil fields from patch request to existing entity.
-	for _, f := range patchFields {
-		goName := toPascalCase(f.Name)
-		// All patchable fields are pointers; nil means not provided, dereference if set.
-		fmt.Fprintf(buf, "\tif patch.%s != nil {\n", goName)
-		if f.Optional {
-			// Entity field is already a pointer; assign patch pointer directly.
-			fmt.Fprintf(buf, "\t\t%s.%s = patch.%s\n", lower, goName, goName)
-		} else {
-			// Entity field is a value type; dereference the patch pointer.
-			fmt.Fprintf(buf, "\t\t%s.%s = *patch.%s\n", lower, goName, goName)
-		}
-		fmt.Fprintf(buf, "\t}\n")
-	}
-
-	// Step 5: Record the change. The patch handler sets updated_by from the
-	// verified identity and updated_time to the time of the change. This runs
-	// after the merge, so a client value cannot win. Create-only fields need no
-	// restore: the entity variable starts as the stored record, and a patch only
-	// writes the fields the request supplies.
-	emitPopulateServerManagedFieldsUpdate(buf, lower, entity, authAlias)
-
-	// Step 6: Save via Replace (full entity save after merge).
-	fmt.Fprintf(buf, "\tif err := h.store.Replace(r.Context(), %q, id, %s); err != nil {\n", entity.Name, lower)
-	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
-	fmt.Fprintf(buf, "\t\t} else if errors.Is(err, ErrConflict) {\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, Conflict(\"resource already exists\"))\n")
-	fmt.Fprintf(buf, "\t\t} else {\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
-
-	// Step 7: Invoke after-slots (e.g., on_entity_changed fan-out, after_patch).
-	for _, sp := range after {
-		dispatchAfterSlot(buf, slotsAlias, authAlias, sp, lower, entity, types.OpPatch, patchFields, emitAfterSlotFailure)
-	}
-
-	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
-	if envelope {
-		hrefExpr := resolvedHrefExpr(hrefBase, "id")
-		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(presentEntity(%s, %q, id, %s))\n",
-			lower, entity.Name, hrefExpr)
-	} else {
-		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
-	}
-	fmt.Fprintf(buf, "}\n\n")
-	return nil
-}
-
 // generateRouter produces the router.go file with entity type definitions,
 // the Storage interface, Go 1.22 method+pattern route registration, and
 // helper functions.
-func generateRouter(ns string, entities []types.Entity, collections []types.Collection, responseFormat, storageContract string, runtimeData bool) (_ gen.File, retErr error) {
+func generateRouter(ns string, entities []types.Entity, collections []types.Collection, responseFormat string) (_ gen.File, retErr error) {
 	var buf bytes.Buffer
 
 	envelope := responseFormat == "envelope"
@@ -1644,98 +454,16 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 	}
 
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
-	// Always need context for the Storage interface.
+	// The runtime data path holds no store, so the router declares no storage interface (ST-SUP-RC20-OC37).
 	fmt.Fprintf(&buf, "import (\n")
-	switch {
-	case runtimeData:
-		// The runtime data path holds no store, so the router declares no storage interface (ST-SUP-RC20-OC37).
-	case storageContract == "":
-		fmt.Fprintf(&buf, "\t\"context\"\n")
-	default:
-		fmt.Fprintf(&buf, "\tstegostorage %q\n", storageContract)
-	}
 	if needJSON {
 		fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
-	}
-	if storageContract == "" && !runtimeData {
-		fmt.Fprintf(&buf, "\t\"errors\"\n")
 	}
 	if needTime {
 		fmt.Fprintf(&buf, "\t\"time\"\n")
 	}
 	fmt.Fprintf(&buf, ")\n\n")
 
-	switch {
-	case runtimeData:
-	case storageContract != "":
-		for _, name := range []string{"Storage", "OrderByField", "ListOptions", "ListResult"} {
-			fmt.Fprintf(&buf, "type %s = stegostorage.%s\n", name, name)
-		}
-		for _, name := range []string{"ErrNotFound", "ErrConflict", "ErrSearch"} {
-			fmt.Fprintf(&buf, "var %s = stegostorage.%s\n", name, name)
-		}
-	default:
-		// ErrNotFound is returned by Storage.Get when the entity does not exist.
-		// Handlers use errors.Is to distinguish not-found from infrastructure errors.
-		fmt.Fprintf(&buf, "// ErrNotFound is returned by Storage.Get when the requested entity does not exist.\n")
-		fmt.Fprintf(&buf, "// Storage implementations must return this error (or wrap it) for not-found cases.\n")
-		fmt.Fprintf(&buf, "var ErrNotFound = errors.New(\"entity not found\")\n\n")
-
-		// ErrConflict is returned by Storage.Upsert when optimistic concurrency
-		// check fails (incoming generation is not newer than existing).
-		fmt.Fprintf(&buf, "// ErrConflict is returned by Storage.Upsert when optimistic concurrency check fails.\n")
-		fmt.Fprintf(&buf, "// Storage implementations must return this error when the upsert is a no-op due to\n")
-		fmt.Fprintf(&buf, "// the incoming generation not being newer than the existing row's generation.\n")
-		fmt.Fprintf(&buf, "var ErrConflict = errors.New(\"upsert conflict\")\n\n")
-
-		// ErrSearch is returned by Storage.List when the search expression is invalid
-		// (parse failure, unknown field). Handlers use errors.Is to distinguish
-		// client-input search errors (400) from infrastructure errors (500).
-		fmt.Fprintf(&buf, "// ErrSearch is returned by Storage.List when the search expression is invalid.\n")
-		fmt.Fprintf(&buf, "// Storage implementations must wrap search-related errors with this sentinel.\n")
-		fmt.Fprintf(&buf, "var ErrSearch = errors.New(\"search error\")\n\n")
-
-		// OrderByField represents a single ordering criterion for list queries.
-		fmt.Fprintf(&buf, "// OrderByField represents a single ordering criterion.\n")
-		fmt.Fprintf(&buf, "type OrderByField struct {\n")
-		fmt.Fprintf(&buf, "\tField     string\n")
-		fmt.Fprintf(&buf, "\tDirection string // \"asc\" or \"desc\"\n")
-		fmt.Fprintf(&buf, "}\n\n")
-
-		// ListOptions for pagination and ordering.
-		fmt.Fprintf(&buf, "// ListOptions contains pagination, ordering, field selection, and search parameters.\n")
-		fmt.Fprintf(&buf, "type ListOptions struct {\n")
-		fmt.Fprintf(&buf, "\tPage    int\n")
-		fmt.Fprintf(&buf, "\tSize    int\n")
-		fmt.Fprintf(&buf, "\tOrderBy []OrderByField\n")
-		fmt.Fprintf(&buf, "\tFields  []string\n")
-		fmt.Fprintf(&buf, "\tSearch  string // TSL search expression from ?search= query parameter\n")
-		fmt.Fprintf(&buf, "\tImplicitFilters map[string]string // compile-time constant filters from collection implicit declarations\n")
-		fmt.Fprintf(&buf, "}\n\n")
-
-		// ListResult wraps list query results with total count for pagination.
-		fmt.Fprintf(&buf, "// ListResult wraps list query results with total count for pagination.\n")
-		fmt.Fprintf(&buf, "type ListResult struct {\n")
-		fmt.Fprintf(&buf, "\tItems any\n")
-		fmt.Fprintf(&buf, "\tTotal int64\n")
-		fmt.Fprintf(&buf, "}\n\n")
-
-		// Storage interface used by all handlers.
-		fmt.Fprintf(&buf, "// Storage is the interface that handlers use to interact with the data store.\n")
-		fmt.Fprintf(&buf, "// Get must return ErrNotFound when the entity does not exist.\n")
-		fmt.Fprintf(&buf, "type Storage interface {\n")
-		fmt.Fprintf(&buf, "\tCreate(ctx context.Context, entity string, value any) error\n")
-		fmt.Fprintf(&buf, "\tGet(ctx context.Context, entity string, id string) (any, error)\n")
-		fmt.Fprintf(&buf, "\tReplace(ctx context.Context, entity string, id string, value any) error\n")
-		fmt.Fprintf(&buf, "\tDelete(ctx context.Context, entity string, id string) error\n")
-		fmt.Fprintf(&buf, "\tList(ctx context.Context, entity string, scopeField string, scopeValue string, opts ListOptions) (ListResult, error)\n")
-		fmt.Fprintf(&buf, "\t// Upsert returns true when a new row was created, false when an existing row was updated.\n")
-		fmt.Fprintf(&buf, "\t// Implementations must return ErrConflict when optimistic concurrency check fails.\n")
-		fmt.Fprintf(&buf, "\tUpsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) (bool, error)\n")
-		fmt.Fprintf(&buf, "\tExists(ctx context.Context, entity string, id string) (bool, error)\n")
-		fmt.Fprintf(&buf, "}\n\n")
-
-	}
 	// Entity types with fields from the entity definitions.
 	// Deduplicate across collections: multiple collections may reference
 	// the same entity, but the struct is emitted only once.
@@ -1812,12 +540,8 @@ func deriveErrorPrefix(serviceName string) string {
 
 // generateErrors produces the errors.go file with RFC 9457 Problem Details
 // types, error constructors, and a handleError function for serialization.
-//
-// On the GORM store path (bodyLimit), errors.go also holds MaxRequestBody,
-// readBody and bodyError, through which each handler reads its request body and
-// answers a body over the limit with 413; runtime.go declares MaxRequestBody on
-// the runtime data path.
-func generateErrors(ns string, serviceName string, errorTypeBase string, bodyLimit bool) (gen.File, error) {
+// runtime.go declares MaxRequestBody.
+func generateErrors(ns string, serviceName string, errorTypeBase string) (gen.File, error) {
 	var buf bytes.Buffer
 
 	prefix := deriveErrorPrefix(serviceName)
@@ -1825,16 +549,10 @@ func generateErrors(ns string, serviceName string, errorTypeBase string, bodyLim
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 	fmt.Fprintf(&buf, "import (\n")
 	fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
-	if bodyLimit {
-		fmt.Fprintf(&buf, "\t\"errors\"\n\t\"io\"\n")
-	}
 	fmt.Fprintf(&buf, "\t\"net/http\"\n")
 	fmt.Fprintf(&buf, "\t\"strings\"\n")
 	fmt.Fprintf(&buf, "\t\"time\"\n")
 	fmt.Fprintf(&buf, ")\n\n")
-	if bodyLimit {
-		buf.WriteString(bodyLimitSource)
-	}
 
 	// ServiceError struct.
 	fmt.Fprintf(&buf, "// ServiceError represents an RFC 9457 Problem Details error response.\n")
@@ -1980,8 +698,10 @@ func generateErrors(ns string, serviceName string, errorTypeBase string, bodyLim
 	fmt.Fprintf(&buf, "\t\tcategory = \"AUZ\"\n")
 	fmt.Fprintf(&buf, "\tcase http.StatusNotFound:\n")
 	fmt.Fprintf(&buf, "\t\tcategory = \"NTF\"\n")
-	fmt.Fprintf(&buf, "\tcase http.StatusConflict:\n")
+	fmt.Fprintf(&buf, "\tcase http.StatusConflict, http.StatusPreconditionFailed:\n")
 	fmt.Fprintf(&buf, "\t\tcategory = \"CNF\"\n")
+	fmt.Fprintf(&buf, "\tcase http.StatusPreconditionRequired:\n")
+	fmt.Fprintf(&buf, "\t\tcategory = \"VAL\"\n")
 	fmt.Fprintf(&buf, "\t}\n")
 	fmt.Fprintf(&buf, "\treturn &ServiceError{\n")
 	fmt.Fprintf(&buf, "\t\tType:   %s,\n", typeExpr)
@@ -2007,6 +727,10 @@ func generateErrors(ns string, serviceName string, errorTypeBase string, bodyLim
 		fmt.Fprintf(&buf, "\t\treturn \"not-found\"\n")
 		fmt.Fprintf(&buf, "\tcase http.StatusConflict:\n")
 		fmt.Fprintf(&buf, "\t\treturn \"conflict\"\n")
+		fmt.Fprintf(&buf, "\tcase http.StatusPreconditionFailed:\n")
+		fmt.Fprintf(&buf, "\t\treturn \"precondition-failed\"\n")
+		fmt.Fprintf(&buf, "\tcase http.StatusPreconditionRequired:\n")
+		fmt.Fprintf(&buf, "\t\treturn \"precondition-required\"\n")
 		fmt.Fprintf(&buf, "\tdefault:\n")
 		fmt.Fprintf(&buf, "\t\treturn \"internal-error\"\n")
 		fmt.Fprintf(&buf, "\t}\n")
@@ -2109,32 +833,11 @@ func generateCORS(ns string) (gen.File, error) {
 	}, nil
 }
 
-// bodyLimitSource is the part of errors.go on the GORM store path that bounds each request body that a handler reads.
-const bodyLimitSource = `// MaxRequestBody is the most bytes of a request body that a handler reads.
-const MaxRequestBody = 1 << 20
-
-// readBody reads at most MaxRequestBody bytes of the request body.
-func readBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
-	return io.ReadAll(http.MaxBytesReader(w, r.Body, MaxRequestBody))
-}
-
-// bodyError gives the problem of a body that cannot be read: 413 for a body
-// over MaxRequestBody, else 400.
-func bodyError(err error) *ServiceError {
-	if tooLarge := new(http.MaxBytesError); errors.As(err, &tooLarge) {
-		return errorForStatus(http.StatusRequestEntityTooLarge, "the request body is larger than the limit")
-	}
-	return BadRequest(err.Error())
-}
-
-`
-
 // generateValidation produces the validation.go file with OpenAPI request body
 // validation middleware. The generated file embeds the openapi.json spec and
 // uses kin-openapi to validate POST, PUT, and PATCH request bodies at runtime.
 // It reads at most MaxRequestBody bytes of a body and answers a larger body
-// with 413; runtime.go declares MaxRequestBody on the runtime data path, and
-// errors.go on the GORM store path.
+// with 413; runtime.go declares MaxRequestBody.
 func generateValidation(ns string) (gen.File, error) {
 	var buf bytes.Buffer
 	pkg := path.Base(ns)
@@ -2413,13 +1116,8 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 			switch op {
 			case types.OpList:
 				listParams := append([]openAPIParam{}, parentParams...)
-				// Pagination query parameters (spec-defined).
-				listParams = append(listParams, openAPIParam{
-					Name:     "page",
-					In:       "query",
-					Required: false,
-					Schema:   openAPISchema{Type: "integer", Default: 1},
-				})
+				// The list pages by pageSize and the sealed cursor of the query runtime, and orders by orderBy
+				// (ST-SUP-RC20-OC38).
 				listParams = append(listParams, openAPIParam{
 					Name:     "pageSize",
 					In:       "query",
@@ -2427,18 +1125,18 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 					Schema:   openAPISchema{Type: "integer", Default: 100},
 				})
 				listParams = append(listParams, openAPIParam{
+					Name:        "cursor",
+					In:          "query",
+					Required:    false,
+					Description: "The next value of the previous page",
+					Schema:      openAPISchema{Type: "string"},
+				})
+				listParams = append(listParams, openAPIParam{
 					Name:        "orderBy",
 					In:          "query",
 					Required:    false,
 					Description: "Comma-separated list of field_name or field_name asc|desc",
 					Schema:      openAPISchema{Type: "string"},
-				})
-				listParams = append(listParams, openAPIParam{
-					Name:        "order",
-					In:          "query",
-					Required:    false,
-					Description: "Sort direction override: applied to all orderBy entries",
-					Schema:      openAPISchema{Type: "string", Enum: []string{"asc", "desc"}},
 				})
 				listParams = append(listParams, openAPIParam{
 					Name:        "fields",
@@ -2471,9 +1169,8 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 						Type: "object",
 						Properties: map[string]openAPISchema{
 							"kind":  {Type: "string"},
-							"page":  {Type: "integer"},
 							"size":  {Type: "integer"},
-							"total": {Type: "integer"},
+							"next":  {Type: "string"},
 							"items": {Type: "array", Items: &itemSchema},
 						},
 					}
@@ -2593,8 +1290,14 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 					Responses: map[string]openAPIResponse{
 						"200": {Description: "Updated", Content: jsonContent(responseSchema)},
 						"201": {Description: "Created", Content: jsonContent(responseSchema)},
-						"409": {Description: "Conflict — optimistic concurrency check failed"},
+						"409": {Description: "Conflict — the row of the key changed during the request"},
 					},
+				}
+				if eb.Concurrency == types.ConcurrencyOptimistic {
+					// The If-Match precondition of an upsert with optimistic concurrency (ST-SUP-RC20-OC14).
+					upsertOp.Parameters = append(upsertOp.Parameters, openAPIParam{Name: "If-Match", In: "header", Schema: openAPISchema{Type: "string"}})
+					upsertOp.Responses["412"] = openAPIResponse{Description: "Precondition failed — the If-Match generation is stale or not valid, or the row does not exist"}
+					upsertOp.Responses["428"] = openAPIResponse{Description: "Precondition required — the row exists and the request sends no If-Match"}
 				}
 				if len(upsertOp.Parameters) == 0 {
 					upsertOp.Parameters = nil
@@ -2685,43 +1388,6 @@ func extractPathParams(path string) []string {
 	return params
 }
 
-// resolvedHrefExpr returns a Go expression that builds an href string at runtime
-// by substituting {param} placeholders in the template with r.PathValue("param")
-// calls. For flat paths (no parameters), it returns a simple string literal.
-// The idExpr is appended as the final path segment (e.g. user.ID or id).
-func resolvedHrefExpr(hrefTemplate, idExpr string) string {
-	params := extractPathParams(hrefTemplate)
-	if len(params) == 0 {
-		// No path parameters — use a simple string literal concatenation.
-		return fmt.Sprintf("%q + \"/\" + %s", hrefTemplate, idExpr)
-	}
-	// Build a Go expression that concatenates resolved path segments.
-	// Split the template on {param} placeholders and interleave with
-	// r.PathValue("param") calls.
-	expr := hrefTemplate
-	for _, p := range params {
-		placeholder := "{" + p + "}"
-		expr = strings.Replace(expr, placeholder, "\"+r.PathValue(\""+p+"\")+\"", 1)
-	}
-	return fmt.Sprintf("\"%s\" + \"/\" + %s", expr, idExpr)
-}
-
-// resolvedHrefBaseExpr returns a Go expression that builds an href base (without
-// the trailing /id segment) at runtime by substituting {param} placeholders.
-// Used for list item presentation where the id is appended per-item.
-func resolvedHrefBaseExpr(hrefTemplate string) string {
-	params := extractPathParams(hrefTemplate)
-	if len(params) == 0 {
-		return fmt.Sprintf("%q", hrefTemplate)
-	}
-	expr := hrefTemplate
-	for _, p := range params {
-		placeholder := "{" + p + "}"
-		expr = strings.Replace(expr, placeholder, "\"+r.PathValue(\""+p+"\")+\"", 1)
-	}
-	return fmt.Sprintf("\"%s\"", expr)
-}
-
 // pathParamsToOpenAPI converts path parameter names to OpenAPI parameter objects.
 func pathParamsToOpenAPI(names []string) []openAPIParam {
 	params := make([]openAPIParam, len(names))
@@ -2796,24 +1462,6 @@ func fieldToOpenAPISchema(f types.Field) openAPISchema {
 	return s
 }
 
-// emitKindValidation emits code that checks whether a "kind" field in the raw
-// body bytes matches the entity name. Expects bodyBytes []byte to be in scope.
-// If present and wrong, return 400. If absent, accept the request.
-func emitKindValidation(buf *bytes.Buffer, entity types.Entity) {
-	fmt.Fprintf(buf, "\t{\n")
-	fmt.Fprintf(buf, "\t\tvar rawMap map[string]json.RawMessage\n")
-	fmt.Fprintf(buf, "\t\tif err := json.Unmarshal(bodyBytes, &rawMap); err == nil {\n")
-	fmt.Fprintf(buf, "\t\t\tif kindRaw, ok := rawMap[\"kind\"]; ok {\n")
-	fmt.Fprintf(buf, "\t\t\t\tvar kind string\n")
-	fmt.Fprintf(buf, "\t\t\t\tif err := json.Unmarshal(kindRaw, &kind); err != nil || kind != %q {\n", entity.Name)
-	fmt.Fprintf(buf, "\t\t\t\t\thandleError(w, r, BadRequest(\"kind must be %s\"))\n", entity.Name)
-	fmt.Fprintf(buf, "\t\t\t\t\treturn\n")
-	fmt.Fprintf(buf, "\t\t\t\t}\n")
-	fmt.Fprintf(buf, "\t\t\t}\n")
-	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t}\n")
-}
-
 // isServerManaged returns true when a field's value is assigned by the server,
 // not the client. Server-managed fields are excluded from request schemas.
 // A field is server-managed if any of:
@@ -2832,25 +1480,6 @@ func isServerManaged(f types.Field) bool {
 		return true
 	}
 	if f.Name == "generation" {
-		return true
-	}
-	return false
-}
-
-// hasPreservableFields returns true when the entity has server-managed fields
-// that must be preserved from the existing entity during an update (i.e.,
-// fields that are NOT repopulated by emitPopulateServerManagedFieldsUpdate).
-func hasPreservableFields(entity types.Entity) bool {
-	for _, f := range entity.Fields {
-		if !isServerManaged(f) {
-			continue
-		}
-		if f.Name == "updated_by" {
-			continue
-		}
-		if f.Name == "updated_time" && f.Type == types.FieldTypeTimestamp {
-			continue
-		}
 		return true
 	}
 	return false
@@ -2885,144 +1514,6 @@ func emitClearServerManagedFields(buf *bytes.Buffer, varName string, entity type
 	}
 }
 
-// emitImplicitFieldAssignments emits code that sets implicit field values on
-// the entity variable. Implicit fields are collection-level overrides that
-// force a field to a fixed string value, overwriting anything the client sent.
-// Keys are sorted for deterministic output.
-func emitImplicitFieldAssignments(buf *bytes.Buffer, varName string, implicit map[string]string) {
-	if len(implicit) == 0 {
-		return
-	}
-	keys := make([]string, 0, len(implicit))
-	for k := range implicit {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		goName := toPascalCase(k)
-		fmt.Fprintf(buf, "\t%s.%s = %q\n", varName, goName, implicit[k])
-	}
-}
-
-// emitPopulateServerManagedFieldsCreate emits code that populates server-managed
-// fields for a create operation: created_by/updated_by from auth context
-// (preferring Attributes["email"], falling back to UserID),
-// timestamps via time.Now(), generation from field default.
-func emitPopulateServerManagedFieldsCreate(buf *bytes.Buffer, varName string, entity types.Entity, authAlias string) {
-	for _, f := range entity.Fields {
-		goName := toPascalCase(f.Name)
-		switch {
-		case f.Name == "created_by" || f.Name == "updated_by":
-			if authAlias != "" {
-				fmt.Fprintf(buf, "\tif authID := %s.IdentityFromContext(r.Context()); authID.UserID != \"\" {\n", authAlias)
-				fmt.Fprintf(buf, "\t\tif email := authID.Attributes[\"email\"]; email != \"\" {\n")
-				fmt.Fprintf(buf, "\t\t\t%s.%s = email\n", varName, goName)
-				fmt.Fprintf(buf, "\t\t} else {\n")
-				fmt.Fprintf(buf, "\t\t\t%s.%s = authID.UserID\n", varName, goName)
-				fmt.Fprintf(buf, "\t\t}\n")
-				fmt.Fprintf(buf, "\t}\n")
-			}
-		case f.Type == types.FieldTypeTimestamp && !f.Computed:
-			if f.Optional {
-				fmt.Fprintf(buf, "\t%sNow := time.Now()\n", f.Name)
-				fmt.Fprintf(buf, "\t%s.%s = &%sNow\n", varName, goName, f.Name)
-			} else {
-				fmt.Fprintf(buf, "\t%s.%s = time.Now()\n", varName, goName)
-			}
-		case f.Name == "generation":
-			if literal, err := defaultLiteral(f); f.Default != nil && err == nil {
-				fmt.Fprintf(buf, "\t%s.%s = %s\n", varName, goName, literal)
-			}
-		}
-	}
-}
-
-// emitPopulateServerManagedFieldsUpdate emits code that populates server-managed
-// fields for an update operation: updated_by from auth context
-// (preferring Attributes["email"], falling back to UserID),
-// updated_time via time.Now(). The generation field and create-only fields
-// (created_by, created_time) are handled by emitPreserveCreateOnlyFields,
-// which restores them from the existing entity.
-func emitPopulateServerManagedFieldsUpdate(buf *bytes.Buffer, varName string, entity types.Entity, authAlias string) {
-	for _, f := range entity.Fields {
-		goName := toPascalCase(f.Name)
-		switch {
-		case f.Name == "updated_by":
-			if authAlias != "" {
-				fmt.Fprintf(buf, "\tif authID := %s.IdentityFromContext(r.Context()); authID.UserID != \"\" {\n", authAlias)
-				fmt.Fprintf(buf, "\t\tif email := authID.Attributes[\"email\"]; email != \"\" {\n")
-				fmt.Fprintf(buf, "\t\t\t%s.%s = email\n", varName, goName)
-				fmt.Fprintf(buf, "\t\t} else {\n")
-				fmt.Fprintf(buf, "\t\t\t%s.%s = authID.UserID\n", varName, goName)
-				fmt.Fprintf(buf, "\t\t}\n")
-				fmt.Fprintf(buf, "\t}\n")
-			}
-		case f.Name == "updated_time" && f.Type == types.FieldTypeTimestamp:
-			if f.Optional {
-				fmt.Fprintf(buf, "\t%sNow := time.Now()\n", f.Name)
-				fmt.Fprintf(buf, "\t%s.%s = &%sNow\n", varName, goName, f.Name)
-			} else {
-				fmt.Fprintf(buf, "\t%s.%s = time.Now()\n", varName, goName)
-			}
-		}
-	}
-}
-
-// emitPreserveCreateOnlyFields emits code that restores create-only
-// server-managed fields from the existing entity. This preserves created_by,
-// created_time (and other non-updated timestamps), computed fields, and
-// increments generation from the existing value. The existing variable (of
-// type any from store.Get) is converted via JSON roundtrip to extract fields.
-func emitPreserveCreateOnlyFields(buf *bytes.Buffer, varName string, entity types.Entity) {
-	// Collect create-only fields that need preserving.
-	var hasPreservable bool
-	for _, f := range entity.Fields {
-		if !isServerManaged(f) {
-			continue
-		}
-		// updated_by and updated_time are handled by emitPopulateServerManagedFieldsUpdate.
-		if f.Name == "updated_by" {
-			continue
-		}
-		if f.Name == "updated_time" && f.Type == types.FieldTypeTimestamp {
-			continue
-		}
-		hasPreservable = true
-		break
-	}
-	if !hasPreservable {
-		return
-	}
-
-	fmt.Fprintf(buf, "\t{\n")
-	fmt.Fprintf(buf, "\t\texistingData, marshalErr := json.Marshal(existing)\n")
-	fmt.Fprintf(buf, "\t\tif marshalErr == nil {\n")
-	fmt.Fprintf(buf, "\t\t\tvar existingTyped %s\n", entity.Name)
-	fmt.Fprintf(buf, "\t\t\tif json.Unmarshal(existingData, &existingTyped) == nil {\n")
-	for _, f := range entity.Fields {
-		if !isServerManaged(f) {
-			continue
-		}
-		goName := toPascalCase(f.Name)
-		switch {
-		case f.Name == "updated_by":
-			// Handled by emitPopulateServerManagedFieldsUpdate.
-		case f.Name == "updated_time" && f.Type == types.FieldTypeTimestamp:
-			// Handled by emitPopulateServerManagedFieldsUpdate.
-		case f.Name == "generation":
-			// Increment from existing value, not from zero.
-			fmt.Fprintf(buf, "\t\t\t\t%s.%s = existingTyped.%s + 1\n", varName, goName, goName)
-		default:
-			// Preserve create-only fields (created_by, created_time,
-			// computed fields, other timestamps) from the existing entity.
-			fmt.Fprintf(buf, "\t\t\t\t%s.%s = existingTyped.%s\n", varName, goName, goName)
-		}
-	}
-	fmt.Fprintf(buf, "\t\t\t}\n")
-	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t}\n")
-}
-
 // collectAncestors walks the parent chain from the given collection and returns
 // all ancestor entity names in top-down order (grandparent before parent).
 // Returns an error if a circular parent reference is detected.
@@ -3049,56 +1540,6 @@ func collectAncestors(eb types.Collection, collectionMap map[string]types.Collec
 	return ancestors, nil
 }
 
-// parentLinkingFieldName returns the PascalCase Go field name that links an
-// entity to its parent. When the collection declares a scope, the scope field
-// IS the linking field (covers both ref and polymorphic string fields). When
-// no scope is declared, falls back to parentRefFieldName which searches for a
-// ref field with to: parent.
-func parentLinkingFieldName(entity types.Entity, eb types.Collection) (string, error) {
-	if len(eb.Scope) > 0 {
-		return toPascalCase(eb.ScopeField()), nil
-	}
-	return parentRefFieldName(entity, eb.ParentEntity())
-}
-
-// parentRefFieldName finds the Go field name for the ref field that points to
-// the parent entity. Returns an error if no matching ref field is found or if
-// multiple ref fields point to the same parent (ambiguous match).
-func parentRefFieldName(entity types.Entity, parent string) (string, error) {
-	var matches []string
-	for _, f := range entity.Fields {
-		if f.Type == types.FieldTypeRef && f.To == parent {
-			matches = append(matches, f.Name)
-		}
-	}
-	if len(matches) == 0 {
-		return "", fmt.Errorf("entity %q declares parent %q but has no field of type ref with to: %q", entity.Name, parent, parent)
-	}
-	if len(matches) > 1 {
-		return "", fmt.Errorf("entity %q has multiple ref fields pointing to parent %q: %s; the parent relationship is ambiguous — use a single ref field per parent entity", entity.Name, parent, strings.Join(matches, ", "))
-	}
-	return toPascalCase(matches[0]), nil
-}
-
-// parentRefRawFieldName finds the raw YAML field name for the ref field that
-// points to the parent entity. Returns an error if no matching ref field is
-// found or if multiple ref fields point to the same parent (ambiguous match).
-func parentRefRawFieldName(entity types.Entity, parent string) (string, error) {
-	var matches []string
-	for _, f := range entity.Fields {
-		if f.Type == types.FieldTypeRef && f.To == parent {
-			matches = append(matches, f.Name)
-		}
-	}
-	if len(matches) == 0 {
-		return "", fmt.Errorf("entity %q declares parent %q but has no field of type ref with to: %q", entity.Name, parent, parent)
-	}
-	if len(matches) > 1 {
-		return "", fmt.Errorf("entity %q has multiple ref fields pointing to parent %q: %s; the parent relationship is ambiguous — use a single ref field per parent entity", entity.Name, parent, strings.Join(matches, ", "))
-	}
-	return matches[0], nil
-}
-
 // goReservedWords is the set of Go keywords and predeclared identifiers that
 // cannot be used as variable names in generated code.
 var goReservedWords = map[string]bool{
@@ -3117,48 +1558,25 @@ var goReservedWords = map[string]bool{
 }
 
 // handlerScopeIdentifiers is the set of identifiers that are in scope inside
-// generated handler method bodies. These include the method receiver, parameter
-// names, and import aliases. A generated local variable whose name matches any
-// of these will redeclare or shadow the identifier, causing a compile error.
+// generated handler method bodies and the fills of their commands: the method
+// receiver and parameters, the import aliases of a handler file and the local
+// variables that the handlers declare. A generated local variable whose name
+// matches any of these would redeclare or shadow the identifier, causing a
+// compile error.
 var handlerScopeIdentifiers = map[string]bool{
-	// Method receiver.
-	"h": true,
-	// Handler method parameters.
-	"w": true,
-	"r": true,
+	// Method receiver and parameters, and the parameters of a fill.
+	"h": true, "w": true, "r": true, "ctx": true, "ch": true, "qh": true, "request": true,
 	// Import aliases used in handler files.
-	"errors":  true, // errors (conditional for Read not-found check)
-	"json":    true, // encoding/json
-	"http":    true, // net/http
-	"reflect": true, // reflect (conditional for List actual item count)
-	"strconv": true, // strconv (conditional for List pagination)
-	"time":    true, // time (conditional, but safer to always guard)
-	"fmt":     true, // not currently imported, but guard for safety
-	// Generator-emitted local variables in Get/Replace/Delete/Patch/Upsert method bodies.
-	"id":           true, // id := r.PathValue("id")
-	"err":          true, // %s, err := h.store.Get(...) in Get method
-	"existing":     true, // existing, err := h.store.Get(...) in Patch method
-	"existingVal":  true, // existingVal, err := h.store.Get(...) in scoped Update method
-	"existingData": true, // existingData, err := json.Marshal(existing) in Patch/Update
-	"scopeData":    true, // scopeData, err := json.Marshal(existing) in scoped Read/Delete
-	"scopeValue":   true, // scopeValue := r.PathValue(...) in scoped List method
-	"patch":        true, // var patch <PatchReqType> in Patch method
-	"strings":      true, // strings (conditional for List orderBy/fields parsing)
-	"created":      true, // created, err := h.store.Upsert(...) in Upsert method
-	"upsertKey":    true, // upsertKey := []string{...} in Upsert method
-	// Generator-emitted local variables in List method body.
-	"page":        true, // page, _ := strconv.Atoi(pageStr)
-	"pageSize":    true, // pageSize, _ := strconv.Atoi(pageSizeStr)
-	"pageStr":     true, // pageStr := r.URL.Query().Get("page")
-	"pageSizeStr": true, // pageSizeStr := r.URL.Query().Get("pageSize")
-	"actualSize":  true, // actualSize := reflect.ValueOf(<items>).Len()
-	"orderBy":     true, // var orderBy []OrderByField
-	"orderDir":    true, // orderDir := r.URL.Query().Get("order")
-	"fields":      true, // var fields []string
-	"opts":        true, // opts := ListOptions{...}
-	"searchExpr":  true, // searchExpr := r.URL.Query().Get("search")
-	"listResult":  true, // listResult, err := h.store.List(...)
-	"uuid":        true, // github.com/google/uuid import alias
+	"context": true, "errors": true, "json": true, "fmt": true, "io": true, "http": true, "strconv": true,
+	"strings": true, "time": true, "uuid": true, "command": true, "idempotency": true, "query": true,
+	"data": true, "slots": true,
+	// Local variables of the handlers and their fills.
+	"id": true, "err": true, "b": true, "scope": true, "body": true, "key": true, "requestID": true,
+	"fingerprint": true, "req": true, "persisted": true, "result": true, "repo": true, "created": true,
+	"updated": true, "from": true, "stored": true, "found": true, "allowed": true, "parents": true,
+	"refs": true, "parent": true, "patch": true, "limit": true, "order": true, "fields": true, "where": true,
+	"after": true, "page": true, "items": true, "value": true, "loaded": true, "next": true,
+	"response": true, "slotReq": true, "slotResult": true, "slotErr": true, "slotPayload": true,
 }
 
 // safeVarName returns the given name with a trailing underscore appended if it
@@ -3179,20 +1597,22 @@ func safeVarName(name string) string {
 // at generated code, giving the user no indication that their entity name is
 // the problem.
 var reservedTypeNames = map[string]bool{
-	"stegostorage":    true,
-	"Storage":         true, // type Storage interface { ... } in router.go
-	"ErrNotFound":     true, // var ErrNotFound in router.go
-	"ErrConflict":     true, // var ErrConflict in router.go
-	"ErrSearch":       true, // var ErrSearch in router.go
-	"ServiceError":    true, // type ServiceError struct { ... } in errors.go
-	"ValidationError": true, // type ValidationError struct { ... } in errors.go
-	"NotFound":        true, // func NotFound() in errors.go
-	"BadRequest":      true, // func BadRequest() in errors.go
-	"Conflict":        true, // func Conflict() in errors.go
-	"Validation":      true, // func Validation() in errors.go
-	"Unauthorized":    true, // func Unauthorized() in errors.go
-	"Forbidden":       true, // func Forbidden() in errors.go
-	"InternalError":   true, // func InternalError() in errors.go
+	"Runtime":               true, // type Runtime struct { ... } in runtime.go
+	"AfterSlots":            true, // type AfterSlots struct { ... } in runtime.go
+	"NewAfterSlots":         true, // func NewAfterSlots() in runtime.go
+	"AfterSlotFailures":     true, // func AfterSlotFailures() in runtime.go
+	"AfterSlotsDestination": true, // const AfterSlotsDestination in runtime.go
+	"Entities":              true, // func Entities() in runtime.go
+	"MaxRequestBody":        true, // const MaxRequestBody in runtime.go
+	"ServiceError":          true, // type ServiceError struct { ... } in errors.go
+	"ValidationError":       true, // type ValidationError struct { ... } in errors.go
+	"NotFound":              true, // func NotFound() in errors.go
+	"BadRequest":            true, // func BadRequest() in errors.go
+	"Conflict":              true, // func Conflict() in errors.go
+	"Validation":            true, // func Validation() in errors.go
+	"Unauthorized":          true, // func Unauthorized() in errors.go
+	"Forbidden":             true, // func Forbidden() in errors.go
+	"InternalError":         true, // func InternalError() in errors.go
 }
 
 // checkCollectionNameCollisions verifies that no collection-derived handler type
@@ -3297,39 +1717,6 @@ func validateFieldReferences(collections []types.Collection, entityMap map[strin
 		return fmt.Errorf("unresolved field references:\n  %s", strings.Join(errs, "\n  "))
 	}
 	return nil
-}
-
-// resolveAncestorParams returns a map from ancestor entity name to the actual
-// path parameter name used in the route. When path_prefix is set, parameter
-// names are extracted from the prefix and matched positionally with ancestors.
-// When not set, convention-derived names (lowercase_entity + "_id") are used.
-func resolveAncestorParams(eb types.Collection, collectionMap map[string]types.Collection) (map[string]string, error) {
-	ancestors, err := collectAncestors(eb, collectionMap)
-	if err != nil {
-		return nil, err
-	}
-	if len(ancestors) == 0 {
-		return nil, nil
-	}
-
-	basePath, err := collectionBasePath(eb, collectionMap)
-	if err != nil {
-		return nil, err
-	}
-
-	params := extractPathParams(basePath) // excludes {id}
-
-	if len(params) != len(ancestors) {
-		return nil, fmt.Errorf(
-			"path %q contains %d path parameters %v but entity %q has %d ancestors %v; each ancestor must have a corresponding path parameter",
-			basePath, len(params), params, eb.Entity, len(ancestors), ancestors)
-	}
-
-	result := make(map[string]string, len(ancestors))
-	for i, anc := range ancestors {
-		result[anc] = params[i]
-	}
-	return result, nil
 }
 
 // validateParentReferences verifies that every collection's parent field
@@ -3693,13 +2080,11 @@ type slotRequestMeta struct {
 // derived from the proto definitions in registry/components/rest-api/slots/.
 var knownSlotRequestMeta = map[string]slotRequestMeta{
 	"before_create":     {HasCaller: true},
-	"before_upsert":     {HasCaller: true},
 	"before_patch":      {HasCaller: true},
 	"before_delete":     {HasCaller: true},
 	"validate":          {HasEntityStr: true},
 	"on_entity_changed": {}, // after-slot: Entity + Action, handled by emitAfterSlot
 	"after_create":      {HasCaller: true},
-	"after_upsert":      {HasCaller: true},
 	"after_patch":       {HasCaller: true},
 	"after_delete":      {HasCaller: true},
 }
@@ -3783,17 +2168,17 @@ func collectCollectionSlotParams(collectionName string, bindings []types.SlotDec
 }
 
 // slotBeforeOps maps slot name to operations where the slot fires BEFORE the
-// main handler logic (body decode, store call).
+// write, in the fill of the generated command.
 var slotBeforeOps = map[string]map[types.Operation]bool{
 	"before_create": {types.OpCreate: true},
-	"before_upsert": {types.OpUpsert: true},
 	"before_patch":  {types.OpPatch: true},
 	"before_delete": {types.OpDelete: true},
 	"validate":      {types.OpCreate: true, types.OpUpdate: true, types.OpUpsert: true},
 }
 
 // slotAfterOps maps slot name to operations where the slot fires AFTER the
-// main handler logic (store call) but before the HTTP response is written.
+// write: the command stages it in its transaction, and the outbox worker runs it
+// (ST-SUP-RC20-OC34).
 var slotAfterOps = map[string]map[types.Operation]bool{
 	"on_entity_changed": {
 		types.OpCreate: true,
@@ -3803,7 +2188,6 @@ var slotAfterOps = map[string]map[types.Operation]bool{
 		types.OpPatch:  true,
 	},
 	"after_create": {types.OpCreate: true},
-	"after_upsert": {types.OpUpsert: true},
 	"after_patch":  {types.OpPatch: true},
 	"after_delete": {types.OpDelete: true},
 }
@@ -3826,7 +2210,7 @@ func slotsForOp(op types.Operation, params []collectionSlotParam) (before, after
 // is populated with the decoded entity variable so that fills can inspect the
 // entity being processed. A nil guard wraps the invocation so that when no fills
 // are wired, the handler degrades to passthrough semantics.
-func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityVarName string, entity types.Entity, check slotCheck) {
+func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, param collectionSlotParam, entityVarName string, entity types.Entity, check slotCheck) {
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
 	// Pre-compute string values for optional (pointer) fields so the map
 	// literal uses meaningful values rather than Go debug output from %v.
@@ -3880,7 +2264,7 @@ func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, para
 	fmt.Fprintf(buf, "\t\t\t\t},\n")
 	fmt.Fprintf(buf, "\t\t\t},\n")
 	if param.HasCaller {
-		emitCallerField(buf, slotsAlias, authAlias)
+		emitCallerField(buf)
 	}
 	if param.HasEntityStr {
 		// Populate Entity string field for slots that need the entity name
@@ -3892,51 +2276,21 @@ func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, para
 	check(buf, param.FieldName)
 }
 
-// slotCheck writes the handling of the result of a before slot: on the store path the handler answers it, and on the
-// runtime data path the generated command's fill returns it (ST-SUP-RC20-OC37).
+// slotCheck writes the handling of the result of a before slot: the generated command's fill returns it
+// (ST-SUP-RC20-OC37).
 type slotCheck func(buf *bytes.Buffer, fieldName string)
-
-// emitSlotResultCheck emits the common slot result handling code: error check,
-// rejection check (non-Ok), and halt check. Shared by all before-slot emit
-// functions to avoid duplicating the error/reject/halt pattern.
-func emitSlotResultCheck(buf *bytes.Buffer, fieldName string) {
-	fmt.Fprintf(buf, "\t\tslotResult, slotErr := h.%s.Evaluate(r.Context(), slotReq)\n", fieldName)
-	fmt.Fprintf(buf, "\t\tif slotErr != nil {\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(slotErr.Error()))\n")
-	fmt.Fprintf(buf, "\t\t\treturn\n")
-	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t\tif !slotResult.Ok {\n")
-	fmt.Fprintf(buf, "\t\t\tsc := http.StatusForbidden\n")
-	fmt.Fprintf(buf, "\t\t\tif slotResult.StatusCode > 0 {\n")
-	fmt.Fprintf(buf, "\t\t\t\tsc = int(slotResult.StatusCode)\n")
-	fmt.Fprintf(buf, "\t\t\t}\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, errorForStatus(sc, slotResult.ErrorMessage))\n")
-	fmt.Fprintf(buf, "\t\t\treturn\n")
-	fmt.Fprintf(buf, "\t\t}\n")
-	// Short-circuit halt: chain step returned Ok but wants to stop further
-	// processing (e.g. discard-stale-generation returning 204 no-op).
-	fmt.Fprintf(buf, "\t\tif slotResult.Halt {\n")
-	fmt.Fprintf(buf, "\t\t\tsc := http.StatusOK\n")
-	fmt.Fprintf(buf, "\t\t\tif slotResult.StatusCode > 0 {\n")
-	fmt.Fprintf(buf, "\t\t\t\tsc = int(slotResult.StatusCode)\n")
-	fmt.Fprintf(buf, "\t\t\t}\n")
-	fmt.Fprintf(buf, "\t\t\tw.WriteHeader(sc)\n")
-	fmt.Fprintf(buf, "\t\t\treturn\n")
-	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t}\n")
-}
 
 // emitBeforeDeleteSlot emits code that calls a before_delete slot operator.
 // The before_delete proto has a different structure from before_create: it has
 // entity (string), entity_id (string), and caller (*Identity) — no Input field.
 // The delete handler has the entity ID from the path but no decoded entity struct.
-func emitBeforeDeleteSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityName string, check slotCheck) {
+func emitBeforeDeleteSlot(buf *bytes.Buffer, slotsAlias string, param collectionSlotParam, entityName string, check slotCheck) {
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
 	fmt.Fprintf(buf, "\t\tslotReq := &%s.%s{\n", slotsAlias, param.RequestType)
 	fmt.Fprintf(buf, "\t\t\tEntity: %q,\n", entityName)
 	fmt.Fprintf(buf, "\t\t\tEntityID: id,\n")
 	if param.HasCaller {
-		emitCallerField(buf, slotsAlias, authAlias)
+		emitCallerField(buf)
 	}
 	fmt.Fprintf(buf, "\t\t}\n")
 	check(buf, param.FieldName)
@@ -3946,10 +2300,10 @@ func emitBeforeDeleteSlot(buf *bytes.Buffer, slotsAlias string, authAlias string
 // The before_patch proto has: entity (string), patch_fields (map<string,string>),
 // existing_entity (map<string,string>), and caller (*Identity). The patch handler
 // has both the decoded patch request (pointer fields indicating which fields are
-// being modified) and the existing entity fetched from the store.
+// being modified) and the stored entity, which the fill locked.
 // IMPORTANT: This must be called BEFORE patch fields are applied to the entity
 // variable, so that existing_entity reflects the pre-patch state from storage.
-func emitBeforePatchSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityVarName string, entity types.Entity, patchFields []types.Field, check slotCheck) {
+func emitBeforePatchSlot(buf *bytes.Buffer, slotsAlias string, param collectionSlotParam, entityVarName string, entity types.Entity, patchFields []types.Field, check slotCheck) {
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
 
 	// Build patch_fields map from non-nil patch pointer fields.
@@ -4011,51 +2365,33 @@ func emitBeforePatchSlot(buf *bytes.Buffer, slotsAlias string, authAlias string,
 	fmt.Fprintf(buf, "\t\t\tPatchFields: patchFieldsMap,\n")
 	fmt.Fprintf(buf, "\t\t\tExistingEntity: existingEntityMap,\n")
 	if param.HasCaller {
-		emitCallerField(buf, slotsAlias, authAlias)
+		emitCallerField(buf)
 	}
 	fmt.Fprintf(buf, "\t\t}\n")
 	check(buf, param.FieldName)
 }
 
-// emitCallerField emits the Caller field of a slot request struct literal.
-// If an auth middleware alias is available, it extracts the identity from
-// the request context; otherwise it provides a non-nil empty Identity.
-func emitCallerField(buf *bytes.Buffer, slotsAlias string, authAlias string) {
-	if authAlias == runtimeIdentity {
-		fmt.Fprintf(buf, "\t\t\tCaller: callerIdentity(r.Context()),\n")
-		return
-	}
-	if authAlias != "" {
-		fmt.Fprintf(buf, "\t\t\tCaller: func() *%s.Identity {\n", slotsAlias)
-		fmt.Fprintf(buf, "\t\t\t\tid := %s.IdentityFromContext(r.Context())\n", authAlias)
-		fmt.Fprintf(buf, "\t\t\t\treturn &%s.Identity{UserID: id.UserID, Role: id.Role, Attributes: id.Attributes}\n", slotsAlias)
-		fmt.Fprintf(buf, "\t\t\t}(),\n")
-	} else {
-		fmt.Fprintf(buf, "\t\t\tCaller: &%s.Identity{},\n", slotsAlias)
-	}
+// emitCallerField emits the Caller field of a slot request struct literal: the
+// verified identity of the request (ST-SUP-RP13).
+func emitCallerField(buf *bytes.Buffer) {
+	fmt.Fprintf(buf, "\t\t\tCaller: callerIdentity(r.Context()),\n")
 }
 
 // afterFailure writes the answer of an after slot whose call failed, inside the if of slotErr.
 type afterFailure func(buf *bytes.Buffer, param collectionSlotParam)
 
-// emitAfterSlotFailure is the answer of a failed after slot on the store path: a 500 problem.
-func emitAfterSlotFailure(buf *bytes.Buffer, _ collectionSlotParam) {
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(slotErr.Error()))\n")
-	fmt.Fprintf(buf, "\t\t\treturn\n")
-}
-
 // dispatchAfterSlot routes after-slot emission to the correct emitter based on
-// slot name. Lifecycle after-slots (after_create, after_upsert, after_patch,
-// after_delete) receive rich request data; the legacy on_entity_changed slot
+// slot name. Lifecycle after-slots (after_create, after_patch, after_delete)
+// receive rich request data; the legacy on_entity_changed slot
 // receives only {Entity, Action}.
-func dispatchAfterSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityVarName string, entity types.Entity, op types.Operation, patchFields []types.Field, fail afterFailure) {
+func dispatchAfterSlot(buf *bytes.Buffer, slotsAlias string, param collectionSlotParam, entityVarName string, entity types.Entity, op types.Operation, patchFields []types.Field, fail afterFailure) {
 	switch param.SlotName {
-	case "after_create", "after_upsert":
-		emitAfterCreateOrUpsertSlot(buf, slotsAlias, authAlias, param, entityVarName, entity, fail)
+	case "after_create":
+		emitAfterCreateSlot(buf, slotsAlias, param, entityVarName, entity, fail)
 	case "after_patch":
-		emitAfterPatchSlot(buf, slotsAlias, authAlias, param, entityVarName, entity, patchFields, fail)
+		emitAfterPatchSlot(buf, slotsAlias, param, entityVarName, entity, patchFields, fail)
 	case "after_delete":
-		emitAfterDeleteSlot(buf, slotsAlias, authAlias, param, entity.Name, fail)
+		emitAfterDeleteSlot(buf, slotsAlias, param, entity.Name, fail)
 	default:
 		// Legacy after-slot (on_entity_changed): minimal {Entity, Action} request.
 		emitAfterSlot(buf, slotsAlias, param, entity.Name, op, fail)
@@ -4075,11 +2411,11 @@ func emitAfterSlot(buf *bytes.Buffer, slotsAlias string, param collectionSlotPar
 	fmt.Fprintf(buf, "\t}\n")
 }
 
-// emitAfterCreateOrUpsertSlot emits code that calls an after_create or
-// after_upsert slot operator after the store call succeeds. The proto request
+// emitAfterCreateSlot emits code that calls an after_create slot operator
+// after the write. The proto request
 // has: entity (string), persisted_fields (map<string,string>), caller (*Identity).
-// The persisted entity variable is available in scope after the store call.
-func emitAfterCreateOrUpsertSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityVarName string, entity types.Entity, fail afterFailure) {
+// The persisted entity variable is in scope after the write.
+func emitAfterCreateSlot(buf *bytes.Buffer, slotsAlias string, param collectionSlotParam, entityVarName string, entity types.Entity, fail afterFailure) {
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
 	// Pre-compute string values for optional (pointer) fields.
 	for _, f := range entity.Fields {
@@ -4121,7 +2457,7 @@ func emitAfterCreateOrUpsertSlot(buf *bytes.Buffer, slotsAlias string, authAlias
 	}
 	fmt.Fprintf(buf, "\t\t\t},\n")
 	if param.HasCaller {
-		emitCallerField(buf, slotsAlias, authAlias)
+		emitCallerField(buf)
 	}
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\tif _, slotErr := h.%s.Evaluate(r.Context(), afterReq); slotErr != nil {\n", param.FieldName)
@@ -4136,7 +2472,7 @@ func emitAfterCreateOrUpsertSlot(buf *bytes.Buffer, slotsAlias string, authAlias
 // map contains only the fields that were actually modified by the patch (the
 // non-nil pointer fields from the patch request, captured after applying them
 // to the entity so values reflect post-merge state).
-func emitAfterPatchSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityVarName string, entity types.Entity, patchFields []types.Field, fail afterFailure) {
+func emitAfterPatchSlot(buf *bytes.Buffer, slotsAlias string, param collectionSlotParam, entityVarName string, entity types.Entity, patchFields []types.Field, fail afterFailure) {
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
 	// Build updated_fields map from non-nil patch pointer fields.
 	// At this point, patch fields have already been applied to the entity
@@ -4168,7 +2504,7 @@ func emitAfterPatchSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, 
 	fmt.Fprintf(buf, "\t\t\tEntity: %q,\n", entity.Name)
 	fmt.Fprintf(buf, "\t\t\tUpdatedFields: updatedFieldsMap,\n")
 	if param.HasCaller {
-		emitCallerField(buf, slotsAlias, authAlias)
+		emitCallerField(buf)
 	}
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\tif _, slotErr := h.%s.Evaluate(r.Context(), afterReq); slotErr != nil {\n", param.FieldName)
@@ -4181,13 +2517,13 @@ func emitAfterPatchSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, 
 // a successful deletion. The proto request has: entity (string),
 // deleted_entity_id (string), caller (*Identity). Only the entity ID is
 // available; the full entity data no longer exists.
-func emitAfterDeleteSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityName string, fail afterFailure) {
+func emitAfterDeleteSlot(buf *bytes.Buffer, slotsAlias string, param collectionSlotParam, entityName string, fail afterFailure) {
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
 	fmt.Fprintf(buf, "\t\tafterReq := &%s.%s{\n", slotsAlias, param.RequestType)
 	fmt.Fprintf(buf, "\t\t\tEntity: %q,\n", entityName)
 	fmt.Fprintf(buf, "\t\t\tDeletedEntityID: id,\n")
 	if param.HasCaller {
-		emitCallerField(buf, slotsAlias, authAlias)
+		emitCallerField(buf)
 	}
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\tif _, slotErr := h.%s.Evaluate(r.Context(), afterReq); slotErr != nil {\n", param.FieldName)

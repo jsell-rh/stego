@@ -156,13 +156,6 @@ type Context struct {
 	// Generators must not change it.
 	Authorization *types.Authorization
 
-	// StorageContract is the full import path of the compiler-owned storage
-	// contract. A generator that uses it must request StorageV1 in its wiring.
-	// Empty selects standalone definitions without shared contract assembly.
-	StorageContract string
-	// EventsContract is the compiler-owned live-event contract import path.
-	EventsContract string
-
 	// GoModelSources contains checked provider declarations for field mapping.
 	// Each component receives its own copy. Do not change these declarations.
 	GoModelSources map[string]GoModelSource
@@ -190,13 +183,6 @@ type Context struct {
 	// Tenancy is the pooled tenancy of a service that has the tenancy component, and nil for any other service
 	// (ST-SUP-RC01-OC40). Generators must not change it.
 	Tenancy *Tenancy
-
-	// RuntimeData is true when the generated commands and queries on github.com/jsell-rh/stego/registry/runtime carry all data access of
-	// the service (ST-SUP-RC20-OC37). The PostgreSQL adapter then creates each entity's table from the declaration
-	// as SQL and emits no store and no entity model (ST-SUP-RC01-OC41). The compiler sets it for a service that has
-	// the command and the query generators and whose record is not of a release on the GORM store; for any other
-	// service it is false and the adapter emits the GORM store.
-	RuntimeData bool
 
 	// Commands are the declared commands of the service (ST-DECL-EN18), in declaration order, each with the slot
 	// that its fill implements. Generators must not change them.
@@ -295,10 +281,6 @@ func (f File) Bytes() []byte {
 // in Constructors, including metadata for an unused constructor. At most one
 // component can declare primary MiddlewareConstructor wiring.
 type Wiring struct {
-	// Contracts lists the shared interface versions that this component uses.
-	// The compiler emits each version once and adds its module requirements.
-	Contracts []Contract
-
 	// Imports lists Go import paths the component needs in main.go.
 	Imports []string
 
@@ -389,7 +371,7 @@ type Wiring struct {
 	// declarations so that referenced variables are declared before referencing
 	// ones. Variable names here correspond to the raw variable name derived
 	// from the target constructor's expression via rawConstructorVarName
-	// (e.g. "store" for storage.NewStore(db)).
+	// (e.g. "queue" for outbox.NewQueue(db)).
 	ConstructorDeps map[int][]string
 
 	// PostDBCalls lists Go expressions that should be called after database

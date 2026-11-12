@@ -5,11 +5,13 @@ import (
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/types"
 )
 
-// context is the context of oidc-auth on the runtime data path with the settings given.
+// context is the context of oidc-auth on the runtime data path with the settings given, for a service with one
+// entity.
 func context(config map[string]any) gen.Context {
-	return gen.Context{RuntimeData: true, ComponentConfig: config}
+	return gen.Context{ComponentConfig: config, Entities: []types.Entity{{Name: "Order"}}}
 }
 
 func good() map[string]any {
@@ -83,10 +85,10 @@ func TestGenerator(t *testing.T) {
 				}
 			})
 		}
-		store := context(good())
-		store.RuntimeData = false
-		if err := g.ValidateContext(store); err == nil || !strings.Contains(err.Error(), "runtime data path") {
-			t.Fatalf("oidc-auth on the GORM store gave %v, want a refusal", err)
+		noData := context(good())
+		noData.Entities = nil
+		if err := g.ValidateContext(noData); err == nil || !strings.Contains(err.Error(), "no entity, no command and no query") {
+			t.Fatalf("oidc-auth on a service with no data access gave %v, want a refusal", err)
 		}
 	})
 }

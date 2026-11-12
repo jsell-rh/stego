@@ -22,13 +22,8 @@ type resolvedCompilation struct {
 	InputSnapshots                   map[string]fileSnapshot
 	OutDir, OutDirName, SlotsPackage string
 	HoldsFills                       bool
-	// RuntimeData is the data path of the service: true when the generated commands and queries carry all data
-	// access (ST-SUP-RC01-OC41).
+	// RuntimeData is true when the compiler wires the runtime library into the service (runtimeDataPath).
 	RuntimeData bool
-	// NoDataAccess is true for a service that declares no entity, no command and no query: it has no data access, so
-	// it gets no runtime wiring, its adapter emits the opener alone, and its record states the runtime data path
-	// (ST-SUP-Q101 (a)).
-	NoDataAccess bool
 	// QueryStreams are the queries whose gRPC method is a server stream (ST-SUP-RC33-OC08), which get no HTTP route.
 	QueryStreams map[string]bool
 }
@@ -127,12 +122,7 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 
 	tenancy := pooledTenancy(svcDecl, componentNames)
 	noData := len(svcDecl.Entities) == 0 && len(svcDecl.Commands) == 0 && len(svcDecl.Queries) == 0
-	runtimeData := false
-	if !noData {
-		if runtimeData, err = runtimeDataPath(input.ProjectDir, componentNames); err != nil {
-			return nil, err
-		}
-	}
+	runtimeData := runtimeDataPath(noData, componentNames)
 	if runtimeData {
 		// The verifier of the runtime library binds the identity on the runtime data path; no generator imports the
 		// auth provider's package.
@@ -142,7 +132,7 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 	if err != nil {
 		return nil, err
 	}
-	resolved := &resolvedCompilation{Components: components, Names: componentNames, Contexts: map[string]gen.Context{}, InputSnapshots: map[string]fileSnapshot{}, OutDir: outDir, OutDirName: outDirName, SlotsPackage: slotsPackage, HoldsFills: fills, RuntimeData: runtimeData, NoDataAccess: noData, QueryStreams: declaration.QueryStreams(svcDecl, facts)}
+	resolved := &resolvedCompilation{Components: components, Names: componentNames, Contexts: map[string]gen.Context{}, InputSnapshots: map[string]fileSnapshot{}, OutDir: outDir, OutDirName: outDirName, SlotsPackage: slotsPackage, HoldsFills: fills, RuntimeData: runtimeData, QueryStreams: declaration.QueryStreams(svcDecl, facts)}
 	for _, compName := range componentNames {
 		comp := components[compName]
 		generator := input.Generators[compName]
@@ -169,20 +159,12 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 			Authorization:   svcDecl.Authorization,
 			PeerNamespaces:  peerNamespaces,
 			PeerConfigs:     peerConfigs,
-			StorageContract: generatedImportPath(input.ModuleName, outDirName, gen.StorageContractNamespace),
-			EventsContract:  generatedImportPath(input.ModuleName, outDirName, gen.EventsContractNamespace),
 			Tenancy:         tenancy,
 			Queries:         svcDecl.Queries,
 			FillSlots:       maps.Clone(facts.FillSlots),
 			Commands:        declaredCommands(svcDecl, facts.FillSlots),
 			Destinations:    declaredDestinations(svcDecl, componentNames),
-			RuntimeData:     runtimeData,
 			QueryStreams:    declaration.QueryStreams(svcDecl, facts),
-		}
-		if runtimeData {
-			// The runtime data path emits no store and no live event source, so no component serves the storage or the
-			// events contract (ST-SUP-RC01-OC41, ST-SUP-RC18-OC30).
-			ctx.StorageContract, ctx.EventsContract = "", ""
 		}
 		if compName == authorizationComponent && svcDecl.Authorization != nil && svcDecl.Authorization.SchemaPath != "" {
 			// The authorization component reads the schema that the declaration names (ST-SUP-RC29).

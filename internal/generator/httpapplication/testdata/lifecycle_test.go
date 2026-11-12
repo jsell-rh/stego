@@ -14,7 +14,7 @@ func TestManagedApplicationLifecycle(t *testing.T) {
 	t.Run("ST-SUP-RC10-OC24-T01 The emitted runtime supervises a managed application and closes it once", func(t *testing.T) {
 		sample.Managed.Store(true)
 		defer sample.Managed.Store(false)
-		runtime, err := application.NewHandler(nil, &auth.Verifier{}, nil)
+		runtime, err := application.NewHandler(&auth.Verifier{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -36,7 +36,7 @@ func TestManagedApplicationLifecycle(t *testing.T) {
 			t.Fatalf("managed lifecycle: runs=%d closes=%d", sample.Runs.Load(), sample.Closes.Load())
 		}
 		sample.Managed.Store(false)
-		plain, err := application.NewHandler(nil, &auth.Verifier{}, nil)
+		plain, err := application.NewHandler(&auth.Verifier{})
 		if err != nil {
 			t.Fatal(err)
 		}

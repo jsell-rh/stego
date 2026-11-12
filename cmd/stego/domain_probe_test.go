@@ -19,7 +19,7 @@ import (
 // probeDeclaration is a rest-crud declaration with a command, a query and three observations over the entity
 // Reservation, as the RC34 test records state them. It has no slot binding, because a slot fill needs signed
 // evidence; the unit test of the generator proves the probe of a slot binding.
-const probeDeclaration = `kind: service
+var probeDeclaration = onRuntimePath(`kind: service
 name: reservations
 archetype: rest-crud
 language: go
@@ -36,11 +36,16 @@ collections:
 commands:
   - name: reserve-and-charge
     writes: [Reservation]
+    resource_type: reservation
+    permission: edit
+    resource_member: reservationId
     fill: reserve-and-charge
-    route: POST /orders/{orderId}/reservations
+    route: POST /reservations/{reservationId}/charge
 queries:
   - name: open-reservations
     reads: [Reservation]
+    resource_type: reservation
+    permission: view
     fill: open-reservations
     route: GET /reservations/open
 observations:
@@ -62,6 +67,20 @@ observations:
     severity: info
     value: "wait: ms"
     emitted_by: [open-reservations]
+`)
+
+// probeProto holds the request and the response message of the command reserve-and-charge.
+const probeProto = `syntax = "proto3";
+
+package reservations.v1;
+
+message ReserveAndChargeRequest {
+  string reservation_id = 1;
+}
+
+message ReserveAndChargeResponse {
+  string reservation_id = 1;
+}
 `
 
 // probeProject is a project with probeDeclaration, its fills, and a copy of the registry whose rest-crud archetype
@@ -70,7 +89,7 @@ func probeProject(t *testing.T) (compiler.ReconcilerInput, string) {
 	t.Helper()
 	project := t.TempDir()
 	registry := filepath.Join(project, "registry")
-	if err := os.CopyFS(registry, os.DirFS(storeRegistry(t))); err != nil {
+	if err := os.CopyFS(registry, os.DirFS(shippedRegistry(t))); err != nil {
 		t.Fatal(err)
 	}
 	archetype := filepath.Join(registry, "archetypes/rest-crud/archetype.yaml")
@@ -92,7 +111,8 @@ func probeProject(t *testing.T) (compiler.ReconcilerInput, string) {
 	if err := os.WriteFile(component, []byte(staged), 0644); err != nil {
 		t.Fatal(err)
 	}
-	putFile(t, project, "service.yaml", probeDeclaration)
+	putFile(t, project, "service.yaml", strings.Replace(probeDeclaration, "\noverrides:\n", "\noverrides:\n  command:\n    proto_files:\n      - {path: proto/reservations.proto, import_path: reservations/v1/reservations.proto}\n", 1))
+	putFile(t, project, "proto/reservations.proto", probeProto)
 	putFile(t, project, "fills/reserve-and-charge/fill.yaml", "kind: fill\nname: reserve-and-charge\nimplements: "+declaration.CommandSlot+"\n")
 	putFile(t, project, "fills/open-reservations/fill.yaml", "kind: fill\nname: open-reservations\nimplements: "+declaration.QuerySlot+"\n")
 	input := compiler.ReconcilerInput{ProjectDir: project, RegistryDir: registry, GoVersion: "1.26.11", ModuleName: "example.com/reservations",

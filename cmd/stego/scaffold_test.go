@@ -48,9 +48,7 @@ func TestFillScaffoldRejectsExistingDirectoryAndLinks(t *testing.T) {
 // No database or HTTP server is needed for this contract check.
 func TestFillWorkflowBuild(t *testing.T) {
 	t.Run("ST-EXT-UC01-R01-T01 A scaffolded fill compiles against its slot contract, and its test runs in the generated service", func(t *testing.T) {
-		// The fill workflow builds a rest-crud service of the GORM store path until the store path is removed
-		// (ST-SUP-RC20-OC39).
-		registry := storeRegistry(t)
+		registry := shippedRegistryCopy(t)
 		project := t.TempDir()
 		t.Chdir(project)
 		t.Setenv("STEGO_REGISTRY", registry)
@@ -67,7 +65,7 @@ func TestFillWorkflowBuild(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		declaration := `kind: service
+		declaration := onRuntimePath(`kind: service
 name: fill-workflow
 archetype: rest-crud
 language: go
@@ -79,7 +77,7 @@ collections:
   widgets:
     entity: Widget
     operations: [create, read]
-`
+`)
 		binding := `slots:
   - collection: widgets
     slot: before_create
@@ -87,9 +85,7 @@ collections:
 `
 		// The first apply, with no fill bound, writes the slot contracts that
 		// the fill compiles against.
-		if err := os.WriteFile("service.yaml", []byte(declaration), 0644); err != nil {
-			t.Fatal(err)
-		}
+		writeProjectFile(t, "service.yaml", declaration)
 		if err := runApply(nil); err != nil {
 			t.Fatal(err)
 		}

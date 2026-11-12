@@ -41,14 +41,11 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	return err
 }
 
-// GoModels describes the read-only value type of each entity that a query reads, on the runtime data path, where the
-// PostgreSQL adapter emits no entity model (ST-SUP-RC01-OC41). The domain-probe generator takes the loaded types of
-// its probe methods from it, so a probe method takes a value that a query handle loaded (ST-SUP-RC34-OC01). Off the
-// runtime data path the adapter's models describe the entities, and this generator describes none.
+// GoModels describes the read-only value type of each entity that a query reads; the PostgreSQL adapter emits no
+// entity model (ST-SUP-RC01-OC41). The domain-probe generator takes the loaded types of its probe methods from it, so
+// a probe method takes a value that a query handle loaded (ST-SUP-RC34-OC01). A service that declares no query gets
+// no model.
 func (*Generator) GoModels(ctx gen.Context) ([]gen.GoModel, error) {
-	if !ctx.RuntimeData {
-		return nil, nil
-	}
 	m, err := plan(ctx)
 	if err != nil || m == nil {
 		return nil, err

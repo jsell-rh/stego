@@ -73,6 +73,12 @@ func crudContext() gen.Context {
 				References: map[string]types.Reference{"folder_id": {Relation: "folder", Permission: "edit"}}}},
 		types.Entity{Name: "Event", Fields: []types.Field{{Name: "source", Type: types.FieldTypeString}, {Name: "note", Type: types.FieldTypeString}},
 			EntityAuthorization: types.EntityAuthorization{ResourceType: "event", Permissions: permissions(types.OpUpdate, types.OpPatch, types.OpDelete), PublicReasons: reasons}},
+		// Quota gives an upsert with optimistic concurrency: the If-Match precondition names the generation
+		// (ST-SUP-RC20-OC14).
+		types.Entity{Name: "Quota", Fields: []types.Field{{Name: "folder_id", Type: types.FieldTypeRef, To: "Folder"}, {Name: "name", Type: types.FieldTypeString}, {Name: "amount", Type: types.FieldTypeInt64},
+			{Name: "generation", Type: types.FieldTypeInt64, Default: 1}},
+			EntityAuthorization: types.EntityAuthorization{ResourceType: "quota", Permissions: map[types.Operation]string{types.OpRead: "view", types.OpList: "view", types.OpUpsert: "edit"},
+				References: map[string]types.Reference{"folder_id": {Relation: "folder", Permission: "edit"}}}},
 	)
 	return gen.Context{
 		ModuleName:      crudModule,
@@ -93,6 +99,7 @@ func crudContext() gen.Context {
 			{Name: "blue-events", Entity: "Event", PathPrefix: "/blue-events", Implicit: map[string]string{"source": "blue"}, Operations: []types.Operation{types.OpCreate, types.OpList}},
 			{Name: "books", Entity: "Book", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate}},
 			{Name: "folder-flags", Entity: "Setting", Scope: map[string]string{"folder_id": "Folder"}, Implicit: map[string]string{"source": "flag"}, PathPrefix: "/folders/{folder_id}/flags", Operations: []types.Operation{types.OpUpsert}, UpsertKey: []string{"name"}},
+			{Name: "folder-quotas", Entity: "Quota", Scope: map[string]string{"folder_id": "Folder"}, Operations: []types.Operation{types.OpList, types.OpUpsert}, UpsertKey: []string{"name"}, Concurrency: types.ConcurrencyOptimistic},
 		},
 		SlotBindings: []types.SlotDeclaration{
 			{Slot: "before_create", Collection: "orders", Chain: []string{"order-gate"}, ShortCircuit: true},
@@ -106,8 +113,7 @@ func crudContext() gen.Context {
 		Authorization:  &types.Authorization{Provider: "spicedb", SchemaPath: "authz/schema.zed", SubjectFromIdentity: "user"},
 		Tenancy:        &gen.Tenancy{Key: "tenant_id"},
 		Idempotency:    &types.Idempotency{RequiredOn: []types.Operation{types.OpCreate, types.OpPatch}, Retention: "24h", Fingerprint: "body"},
-		PeerNamespaces: map[string]string{"idempotency": "idempotency", "postgres-adapter": "storage", gen.TenancyComponent: "tenancy"},
-		RuntimeData:    true,
+		PeerNamespaces: map[string]string{"idempotency": "idempotency", "postgres-adapter": "storage", gen.TenancyComponent: "tenancy", "command": "commands", "query": "queries"},
 	}
 }
 
@@ -190,8 +196,8 @@ func slotFiles(t testing.TB, ctx gen.Context) map[string][]byte {
 // data path (ST-SUP-RC01-OC41).
 func crudTables(t testing.TB, ctx gen.Context) []byte {
 	t.Helper()
-	adapter := gen.Context{OutputNamespace: "storage", ModuleName: ctx.ModuleName, ServiceName: ctx.ServiceName, RuntimeData: true,
-		Tenancy: ctx.Tenancy, Entities: ctx.Entities, Collections: ctx.Collections, PeerNamespaces: map[string]string{"postgres-adapter": "storage", gen.TenancyComponent: "tenancy"},
+	adapter := gen.Context{OutputNamespace: "storage", ModuleName: ctx.ModuleName, ServiceName: ctx.ServiceName,
+		Tenancy: ctx.Tenancy, Entities: ctx.Entities, Collections: ctx.Collections, PeerNamespaces: map[string]string{"postgres-adapter": "storage", gen.TenancyComponent: "tenancy", "command": "commands", "query": "queries"},
 		ComponentConfig: map[string]any{"schema_generation": "tables-v1", "writer_lease": "off"}}
 	files, _, err := new(postgresadapter.Generator).Generate(adapter)
 	if err != nil {
@@ -442,11 +448,15 @@ func TestCrudService(t *testing.T) {
 	})
 	t.Run("ST-SUP-RC20-OC37-T04 Generation refuses what the runtime data path does not serve", func(t *testing.T) {
 		cases := map[string]func(*gen.Context){
-			"a create that is not public":                  func(c *gen.Context) { c.Entities[0].Permissions[types.OpCreate] = "edit" },
-			"a public patch":                               func(c *gen.Context) { c.Entities[0].Permissions[types.OpPatch] = "public" },
-			"a delete with no permission":                  func(c *gen.Context) { delete(c.Entities[0].Permissions, types.OpDelete) },
-			"an upsert with optimistic concurrency":        func(c *gen.Context) { c.Collections[5].Concurrency = types.ConcurrencyOptimistic },
-			"an upsert with no key":                        func(c *gen.Context) { c.Collections[5].UpsertKey = nil },
+			"a create that is not public":           func(c *gen.Context) { c.Entities[0].Permissions[types.OpCreate] = "edit" },
+			"a public patch":                        func(c *gen.Context) { c.Entities[0].Permissions[types.OpPatch] = "public" },
+			"a delete with no permission":           func(c *gen.Context) { delete(c.Entities[0].Permissions, types.OpDelete) },
+			"an upsert with optimistic concurrency": func(c *gen.Context) { c.Collections[5].Concurrency = types.ConcurrencyOptimistic },
+			"an upsert with no key":                 func(c *gen.Context) { c.Collections[5].UpsertKey = nil },
+			"an optimistic upsert with no decided insert": func(c *gen.Context) {
+				c.Entities[7].References = nil
+				c.Entities[7].Permissions[types.OpCreate] = "public"
+			},
 			"an upsert of a row with no permission":        func(c *gen.Context) { delete(c.Entities[5].Permissions, types.OpUpsert) },
 			"an implicit field of a number type":           func(c *gen.Context) { c.Collections[0].Implicit = map[string]string{"qty": "1"} },
 			"a path parameter that is not the scope field": func(c *gen.Context) { c.Collections[0].PathPrefix = "/stock/{sku}" },
@@ -469,6 +479,10 @@ func TestCrudService(t *testing.T) {
 			"a slot it never calls": func(c *gen.Context) {
 				c.SlotBindings = append(c.SlotBindings, types.SlotDeclaration{Slot: "before_upsert", Collection: "orders", Gate: []string{"g"}})
 			},
+			// The runtime data path is the one data path, so a service with collections needs the command and the
+			// query components (ST-SUP-RC20-OC39).
+			"no command component": func(c *gen.Context) { delete(c.PeerNamespaces, "command") },
+			"no query component":   func(c *gen.Context) { delete(c.PeerNamespaces, "query") },
 		}
 		for name, change := range cases {
 			c := crudContext()
@@ -524,6 +538,7 @@ var crudCheckIDs = []string{
 	"ST-SUP-RC20-OC23-T04 Implicit fields are forced and filtered on the runtime data path, under their path prefixes",
 	"ST-SUP-RC20-OC37-T09 A list search on the runtime data path filters on declared fields with bound values",
 	"ST-SUP-RC20-OC13-T03 An upsert on the runtime data path creates the row of its key with 201 and updates it with 200",
+	"ST-SUP-RC20-OC14-T01 An upsert with optimistic concurrency updates only under the If-Match of the stored generation",
 	"ST-SUP-RC20-OC13-T04 An upsert finds its row only under its own parent and implicit value",
 	"ST-SUP-RC20-OC13-T05 An upsert calls its validate gate before both branches and on_entity_changed after both",
 	"ST-SUP-RC20-OC23-T05 A write of a row of another implicit value is not found and changes nothing, and a patch keeps the implicit value",
@@ -649,7 +664,7 @@ func TestCORSOrigins(t *testing.T) {
 	t.Run("ST-SUP-RC20-OC27-T02 The emitted CORS middleware sends no header by default and echoes only a listed origin", func(t *testing.T) {
 		ctx := basicContext()
 		ctx.Conventions.CORS = "enabled"
-		files, _, err := new(Generator).Generate(ctx)
+		files, _, err := new(Generator).Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -667,57 +682,29 @@ func TestCORSOrigins(t *testing.T) {
 	})
 }
 
-// storeBodyCheck is a test of the generated api package of the GORM store path: a body over MaxRequestBody that the
-// validation middleware passes on, because a %2F in a path parameter matches no route of the document, still gets 413
-// from the body reader that the handlers use.
-const storeBodyCheck = `package api
-
-import (
-	"net/http"
-	"net/http/httptest"
-	"strings"
-	"testing"
-)
-
-func TestStoreBodyLimit(t *testing.T) {
-	reached := false
-	handler := NewValidationMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		reached = true
-		if _, err := readBody(w, r); err != nil {
-			handleError(w, r, bodyError(err))
-			return
+func TestUpsertGateSeesNoServerField(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC13-T06 The validate gate of an upsert sees no server-managed field, and the insert sets them after it", func(t *testing.T) {
+		ctx := crudContext()
+		// Setting gets the server-managed fields created_by and stamped_at.
+		ctx.Entities[5].Fields = append(ctx.Entities[5].Fields, types.Field{Name: "created_by", Type: types.FieldTypeString}, types.Field{Name: "stamped_at", Type: types.FieldTypeTimestamp})
+		source := string(crudFiles(t, ctx)["api/folder_settings_handler.go"])
+		start := strings.Index(source, "func (h *FolderSettingsHandler) Upsert(")
+		if start < 0 {
+			t.Fatal("no Upsert handler of folder-settings")
 		}
-		w.WriteHeader(http.StatusCreated)
-	}))
-	large := httptest.NewRequest(http.MethodPut, "/users/a%2Fb", strings.NewReader(strings.Repeat("a", 3<<20)))
-	large.Header.Set("Content-Type", "application/json")
-	answer := httptest.NewRecorder()
-	handler.ServeHTTP(answer, large)
-	if answer.Code != http.StatusRequestEntityTooLarge || !reached {
-		t.Fatalf("a 3 MiB body with an encoded slash got %d, handler reached %v", answer.Code, reached)
-	}
-}
-`
-
-func TestStoreBodyLimit(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC21-T05 On the GORM store path a body over MaxRequestBody gets 413 also when no route of the document matches", func(t *testing.T) {
-		ctx := basicContext()
-		ctx.Conventions.RequestValidation = "openapi-schema"
-		files := crudFiles(t, ctx)
-		for name, data := range files {
-			if strings.Contains(name, "handler_") && strings.Contains(string(data), "io.ReadAll(") {
-				t.Errorf("%s reads a body with no limit", name)
-			}
+		upsert := source[start:]
+		gate := strings.Index(upsert, "h.validateGate.Evaluate(")
+		blank := strings.Index(upsert, "setting.CreatedBy = serverBlank.CreatedBy")
+		insert := strings.Index(upsert, "if len(found) == 0 {")
+		caller := strings.Index(upsert, "setting.CreatedBy = callerName(r.Context())")
+		if gate < 0 || blank < 0 || insert < 0 || caller < 0 {
+			t.Fatalf("the Upsert handler lacks the gate, the cleared field, the insert branch or the caller value:\n%s", upsert)
 		}
-		p := &crudProject{t: t, dir: t.TempDir()}
-		for name, data := range files {
-			p.write("api/"+filepath.Base(name), data)
+		if !(blank < gate && gate < insert && insert < caller) {
+			t.Errorf("the gate does not see the cleared field before the insert sets it from the caller: clear %d, gate %d, insert %d, caller %d", blank, gate, insert, caller)
 		}
-		p.write("api/body_test.go", []byte(storeBodyCheck))
-		p.write("go.mod", []byte("module example.com/store\n\ngo 1.26.11\n\nrequire github.com/getkin/kin-openapi v0.149.0\n"))
-		p.mustGo("mod", "tidy")
-		if output, err := p.goCommand(nil, "test", "-count=1", "-run", "^TestStoreBodyLimit$", "./api"); err != nil {
-			t.Fatalf("the body limit check failed: %v\n%s", err, output)
+		if strings.Count(upsert[:gate], "callerName(") != 0 || strings.Count(upsert[:gate], "time.Now()") != 0 {
+			t.Error("a server value is set before the gate of the upsert")
 		}
 	})
 }

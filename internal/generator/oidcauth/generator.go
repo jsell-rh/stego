@@ -46,10 +46,11 @@ func (g *Generator) ValidateContext(ctx gen.Context) error {
 }
 
 // RuntimeAuth reads the settings of oidc-auth from the declaration and gives them to the runtime wiring. It refuses
-// a service that is not on the runtime data path, which oidc-auth alone serves.
+// a service with no entity, no command and no query: the runtime verifier guards the generated commands and queries,
+// and such a service has none, so oidc-auth would verify nothing (ST-SUP-RC37-OC04).
 func (*Generator) RuntimeAuth(ctx gen.Context) (gen.RuntimeAuth, error) {
-	if !ctx.RuntimeData {
-		return gen.RuntimeAuth{}, fmt.Errorf("%s serves the runtime data path only; a service on the GORM store signs in with jwt-auth or rh-sso-auth (ST-SUP-RC20-OC39)", Component)
+	if len(ctx.Entities) == 0 && len(ctx.Commands) == 0 && len(ctx.Queries) == 0 {
+		return gen.RuntimeAuth{}, fmt.Errorf("%s verifies through the runtime verifier of the generated commands and queries; a service with no entity, no command and no query has none (ST-SUP-RC37-OC04)", Component)
 	}
 	c := Config{}
 	for key, target := range map[string]*string{"issuer": &c.Issuer, "audience": &c.Audience, "header": &c.Header,

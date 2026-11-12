@@ -19,7 +19,7 @@ const (
 	TenantClaim  = "org_id"
 	// Algorithm is the signing algorithm of Red Hat SSO.
 	Algorithm = "RS256"
-	// defaultKeysURL is the default of jwk_cert_url, the key document of the store path.
+	// defaultKeysURL is the default of jwk_cert_url, the key document of the JWT handler that Generate emits.
 	defaultKeysURL = "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/certs"
 )
 

@@ -101,6 +101,11 @@ func (h *AllUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, BadRequest(err.Error()))
 		return
 	}
+	fields, err := listFields(r.URL.Query().Get("fields"), map[string]bool{"email": true, "display_name": true, "role": true, "org_id": true, "metadata": true})
+	if err != nil {
+		handleError(w, r, BadRequest(err.Error()))
+		return
+	}
 	where, err := query.ParseSearch(r.URL.Query().Get("search"), allUsersSearchFields, query.MaxFilter-0)
 	if err != nil {
 		handleError(w, r, BadRequest("the search is not valid"))
@@ -142,7 +147,7 @@ func (h *AllUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]any, 0, len(page.items))
 	for _, item := range page.items {
-		items = append(items, allUsersPresented(item))
+		items = append(items, selectFields(allUsersPresented(item), fields))
 	}
 	w.Header().Set("Content-Type", "application/json")
 	result := map[string]any{"kind": "UserList", "size": len(items), "items": items}

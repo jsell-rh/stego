@@ -14,7 +14,7 @@ func TestAllocationCompilation(t *testing.T) {
 	t.Parallel()
 	project := t.TempDir()
 	registry := filepath.Join(project, "registry")
-	if err := os.CopyFS(registry, os.DirFS(storeRegistry(t))); err != nil {
+	if err := os.CopyFS(registry, os.DirFS(shippedRegistry(t))); err != nil {
 		t.Fatal(err)
 	}
 	archetype := filepath.Join(registry, "archetypes/rest-crud/archetype.yaml")
@@ -42,11 +42,6 @@ func Run(ctx context.Context, metrics *runtime.Metrics) error { <-ctx.Done(); re
 name: widget
 archetype: rest-crud
 language: go
-entities:
-  - name: Widget
-    fields: [{name: label, type: string}]
-collections:
-  widgets: {entity: Widget, operations: [create, read]}
 overrides:
   jwt-auth: {mode: verifier}
   http-application: {factory_package: internal/worker}

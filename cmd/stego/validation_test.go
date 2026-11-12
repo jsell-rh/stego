@@ -227,15 +227,15 @@ func TestCommandsRejectNormalizedSlotCollisions(t *testing.T) {
 }
 
 func TestCommandsRejectUnsupportedDependencyTarget(t *testing.T) {
-	// The target minimums of the tracing dependency are those of the rest-crud of the GORM store path, whose
-	// generators need no Go 1.26.11 (ST-SUP-RC20-OC39).
-	registry := storeRegistry(t)
+	// The highest target minimum of the rest-crud components is Go 1.26.11, of the command component.
+	registry := shippedRegistryCopy(t)
 	t.Chdir(t.TempDir())
 	t.Setenv("STEGO_REGISTRY", registry)
 	t.Setenv("STEGO_MODULE", "example.com/target")
 	t.Setenv("STEGO_GO_VERSION", "1.24.9")
 	files := map[string]string{
-		"service.yaml":      "kind: service\nname: target\narchetype: rest-crud\nlanguage: go\nentities:\n  - name: Record\n    fields: [{name: title, type: string}]\ncollections:\n  records: {entity: Record, operations: [create, read]}\n",
+		"service.yaml":      onRuntimePath("kind: service\nname: target\narchetype: rest-crud\nlanguage: go\nentities:\n  - name: Record\n    fields: [{name: title, type: string}]\ncollections:\n  records: {entity: Record, operations: [create, read]}\n"),
+		runtimeSchemaPath:   runtimeSchema("resource_type: record"),
 		"go.mod":            "module example.com/target\ngo 1.24.9\n",
 		"go.sum":            "",
 		"out/retained.txt":  "retained output",
@@ -263,11 +263,11 @@ func TestCommandsRejectUnsupportedDependencyTarget(t *testing.T) {
 			}
 		}
 	}
-	t.Setenv("STEGO_GO_VERSION", "1.25.0")
-	if err := runValidate(nil); err == nil {
-		t.Fatal("target below the tracing dependency minimum was accepted")
-	}
 	t.Setenv("STEGO_GO_VERSION", "1.26.0")
+	if err := runValidate(nil); err == nil {
+		t.Fatal("target below the command component's minimum was accepted")
+	}
+	t.Setenv("STEGO_GO_VERSION", "1.26.11")
 	if err := runValidate(nil); err != nil {
 		t.Fatal("supported target rejected", err)
 	}

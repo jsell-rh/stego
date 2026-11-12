@@ -5,7 +5,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -36,8 +38,19 @@ func rpcFactory(t *testing.T) []byte {
 }
 
 func TestRPCProcessCommandsWithoutStorage(t *testing.T) {
-	// grpc-processes is in the rpc-service of the GORM store path until the store path is removed (ST-SUP-RC20-OC39).
-	registry := storeRegistry(t)
+	// An RPC process service has no data access: its archetype in the registry copy holds otel-tracing and
+	// grpc-processes, and no data component (ST-SUP-Q101).
+	registry := shippedRegistryCopy(t)
+	archetype := filepath.Join(registry, "archetypes", "rpc-service", "archetype.yaml")
+	data, err := os.ReadFile(archetype)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := regexp.MustCompile(`(?s)components:\n(  - [a-z-]+\n)+`).ReplaceAllString(string(data), "components:\n  - otel-tracing\n  - grpc-processes\n")
+	text = strings.Replace(text, "  storage-adapter: postgres-adapter\n", "  application-grpc-processes: grpc-processes\n", 1)
+	if err := os.WriteFile(archetype, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	factory := rpcFactory(t)
 	project := t.TempDir()
 	t.Chdir(project)

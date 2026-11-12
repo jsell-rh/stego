@@ -11,21 +11,21 @@ import (
 // These tests start from ST-GEN-TD03 and take the fix of component A at R2
 // into the service through the stego binary.
 
-// editTwoGeneratedFiles edits by hand one generated file in component A's
-// namespace and one in another component's, and gives their paths under out.
+// editTwoGeneratedFiles edits by hand the generated file that the fix of
+// component A changes and one other generated file, and gives their paths under out.
 func (s *smallService) editTwoGeneratedFiles(t *testing.T) []string {
 	t.Helper()
 	var inA, other string
 	for _, path := range s.generatedFiles(t) {
 		switch {
-		case inA == "" && strings.HasPrefix(path, componentANamespace):
+		case inA == "" && path == componentAFile:
 			inA = path
-		case other == "" && !strings.HasPrefix(path, componentANamespace):
+		case other == "" && path != componentAFile:
 			other = path
 		}
 	}
 	if inA == "" || other == "" {
-		t.Fatal("the service has no generated file in component A's namespace and in another's")
+		t.Fatal("the service has no generated file of component A's fix and no other")
 	}
 	for _, path := range []string{inA, other} {
 		name := filepath.Join("out", path)
@@ -79,13 +79,13 @@ func TestFixLandsByRegeneration(t *testing.T) {
 	t.Parallel()
 	t.Run("ST-GEN-UC03-R01-T01 A component fix shows as an update in the next plan, and apply lands it with no hand edit", func(t *testing.T) {
 		s := newSmallService(t)
-		middleware := filepath.Join("out", componentANamespace, "middleware.go")
+		middleware := filepath.Join("out", componentAFile)
 		if strings.Contains(s.read(t, middleware), "X-Notes-Token") {
 			t.Fatal("the service already carries the fix")
 		}
 		s.pin(t, s.r2)
 		plan := s.must(t, "plan")
-		if !strings.Contains(plan, "update:   "+componentANamespace+"middleware.go") {
+		if !strings.Contains(plan, "update:   "+componentAFile) {
 			t.Fatalf("the plan does not show the fixed file as an update:\n%s", plan)
 		}
 		s.must(t, "apply", "--saved-plan")
@@ -98,10 +98,10 @@ func TestFixLandsByRegeneration(t *testing.T) {
 
 	t.Run("ST-GEN-UC03-R01-T02 A new generation run restores generated output with no hand edit", func(t *testing.T) {
 		s := newSmallService(t)
-		middleware := filepath.Join("out", componentANamespace, "middleware.go")
+		middleware := filepath.Join("out", componentAFile)
 		s.write(t, middleware, s.read(t, middleware)+"// edited by hand\n")
 		plan := s.must(t, "plan")
-		if !strings.Contains(plan, "update:   "+componentANamespace+"middleware.go") {
+		if !strings.Contains(plan, "update:   "+componentAFile) {
 			t.Fatalf("the plan does not name the edited file as an update:\n%s", plan)
 		}
 		s.must(t, "apply", "--saved-plan", "--replace-hand-edits")

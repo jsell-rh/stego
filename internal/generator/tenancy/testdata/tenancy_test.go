@@ -332,9 +332,10 @@ WHERE i.indrelid = $1::regclass`, "public."+table)
 				}
 			}
 			rows.Close()
-			// The primary key, the declared secondary index and the deleted_at index.
-			if count < 3 || !primary {
-				t.Errorf("table %s has %d indexes, primary key %v; want at least the primary key and two more", table, count, primary)
+			// The primary key and the index of the declared unique field; the runtime data path has no deleted_at
+			// index, because it has no deleted rows (ST-SUP-RC20-OC39).
+			if count < 2 || !primary {
+				t.Errorf("table %s has %d indexes, primary key %v; want at least the primary key and one more", table, count, primary)
 			}
 		}
 	})

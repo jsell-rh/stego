@@ -15,7 +15,8 @@ import (
 )
 
 func TestApplicationFactoryChecksGateValidation(t *testing.T) {
-	for name, generator := range map[string]gen.Generator{"cli": new(cliapplication.Generator), "http": new(httpapplication.Generator), "grpc": new(grpcapplication.Generator)} {
+	// grpc-application has no factory since its bridge to the GORM store is gone (ST-SUP-RC20-OC39, ST-SUP-RC07-OC18).
+	for name, generator := range map[string]gen.Generator{"cli": new(cliapplication.Generator), "http": new(httpapplication.Generator)} {
 		t.Run(name, func(t *testing.T) {
 			input := applicationPreflightInput(t, generator, "out/factory")
 			project := input.ProjectDir
@@ -70,6 +71,61 @@ provides: [http-server]
 	return input
 }
 
+// processPreflightInput is the input of applicationPreflightInput with grpc-processes as stub-api: the protobuf
+// and response mapping checks of the gRPC generators run there, since grpc-application serves only declared
+// commands and queries (ST-SUP-RC07-OC19). It adds the otel-tracing component that the processes need and the
+// factory source of the process records. schema is the configuration schema of stub-api, and namespace its output
+// namespace.
+func processPreflightInput(t *testing.T, schema, namespace string) ReconcilerInput {
+	t.Helper()
+	input := applicationPreflightInput(t, new(grpcapplication.ProcessGenerator), "domain")
+	archPath := filepath.Join(input.RegistryDir, "archetypes/test-arch/archetype.yaml")
+	arch, err := os.ReadFile(archPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := strings.Replace(string(arch), "  - jwt-auth", "  - jwt-auth\n  - otel-tracing", 1)
+	changed = strings.Replace(changed, "  storage-adapter: stub-store", "  storage-adapter: stub-store\n  auth-provider: jwt-auth\n  tracing: otel-tracing", 1)
+	writeFile(t, archPath, changed)
+	mkdirAll(t, filepath.Join(input.RegistryDir, "components/otel-tracing"))
+	writeFile(t, filepath.Join(input.RegistryDir, "components/otel-tracing/component.yaml"), "kind: component\nname: otel-tracing\nversion: 1.0.0\nstage: ga\noutput_namespace: tracing\nprovides: [tracing]\n")
+	input.Generators["otel-tracing"] = rejectedInputGenerator{t}
+	writeFile(t, filepath.Join(input.RegistryDir, "components/stub-api/component.yaml"), schema)
+	factory, err := os.ReadFile(filepath.Join("..", "generator", "grpcapplication", "testdata", "process_factory.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := strings.ReplaceAll(string(factory), "example.com/grpc-test/out/grpcapi/", input.ModuleName+"/out/"+namespace+"/")
+	source = strings.ReplaceAll(source, "example.com/grpc-test/out/telemetry", input.ModuleName+"/out/tracing")
+	mkdirAll(t, filepath.Join(input.ProjectDir, "factory"))
+	writeFile(t, filepath.Join(input.ProjectDir, "factory/rpc.go"), source)
+	return input
+}
+
+// processStubSchema is the configuration schema of stub-api as grpc-processes with one process and the proto file
+// api.proto.
+const processStubSchema = `kind: component
+name: stub-api
+version: 1.0.0
+stage: ga
+output_namespace: internal/api
+config:
+  processes:
+    type: list
+    default: [{name: records, factory_package: factory}]
+    items:
+      name: {type: string}
+      factory_package: {type: string}
+  proto_files:
+    type: list
+    default: [{path: api.proto, import_path: api.proto}]
+    items:
+      path: {type: string}
+      import_path: {type: string}
+requires: [storage-adapter]
+provides: [http-server]
+`
+
 func TestProtobufChecksGateValidation(t *testing.T) {
 	for _, source := range []string{
 		`syntax="proto3";message A{string x=1;int32 y=1;}`,
@@ -78,7 +134,7 @@ func TestProtobufChecksGateValidation(t *testing.T) {
 		`syntax="proto3";message A{reserved 1;string x=1;}`,
 	} {
 		t.Run(source, func(t *testing.T) {
-			input := applicationPreflightInput(t, new(grpcapplication.Generator), "domain")
+			input := processPreflightInput(t, processStubSchema, "internal/api")
 			writeFile(t, filepath.Join(input.ProjectDir, "api.proto"), source)
 			result, err := Validate(input)
 			if err != nil || !result.HasErrors() {
@@ -89,7 +145,7 @@ func TestProtobufChecksGateValidation(t *testing.T) {
 			}
 		})
 	}
-	input := applicationPreflightInput(t, new(grpcapplication.Generator), "domain")
+	input := processPreflightInput(t, processStubSchema, "internal/api")
 	if result, err := Validate(input); err != nil || result.HasErrors() {
 		t.Fatal("valid protobuf rejected", result, err)
 	}

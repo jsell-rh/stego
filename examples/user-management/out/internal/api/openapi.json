@@ -14,15 +14,6 @@
         ],
         "parameters": [
           {
-            "name": "page",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 1
-            }
-          },
-          {
             "name": "pageSize",
             "in": "query",
             "required": false,
@@ -32,25 +23,21 @@
             }
           },
           {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "The next value of the previous page",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "orderBy",
             "in": "query",
             "required": false,
             "description": "Comma-separated list of field_name or field_name asc|desc",
             "schema": {
               "type": "string"
-            }
-          },
-          {
-            "name": "order",
-            "in": "query",
-            "required": false,
-            "description": "Sort direction override: applied to all orderBy entries",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "asc",
-                "desc"
-              ]
             }
           },
           {
@@ -107,13 +94,10 @@
                     "kind": {
                       "type": "string"
                     },
-                    "page": {
-                      "type": "integer"
+                    "next": {
+                      "type": "string"
                     },
                     "size": {
-                      "type": "integer"
-                    },
-                    "total": {
                       "type": "integer"
                     }
                   }
@@ -180,15 +164,6 @@
         ],
         "parameters": [
           {
-            "name": "page",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 1
-            }
-          },
-          {
             "name": "pageSize",
             "in": "query",
             "required": false,
@@ -198,25 +173,21 @@
             }
           },
           {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "The next value of the previous page",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "orderBy",
             "in": "query",
             "required": false,
             "description": "Comma-separated list of field_name or field_name asc|desc",
             "schema": {
               "type": "string"
-            }
-          },
-          {
-            "name": "order",
-            "in": "query",
-            "required": false,
-            "description": "Sort direction override: applied to all orderBy entries",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "asc",
-                "desc"
-              ]
             }
           },
           {
@@ -273,13 +244,10 @@
                     "kind": {
                       "type": "string"
                     },
-                    "page": {
-                      "type": "integer"
+                    "next": {
+                      "type": "string"
                     },
                     "size": {
-                      "type": "integer"
-                    },
-                    "total": {
                       "type": "integer"
                     }
                   }
@@ -428,15 +396,6 @@
             }
           },
           {
-            "name": "page",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 1
-            }
-          },
-          {
             "name": "pageSize",
             "in": "query",
             "required": false,
@@ -446,25 +405,21 @@
             }
           },
           {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "The next value of the previous page",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "orderBy",
             "in": "query",
             "required": false,
             "description": "Comma-separated list of field_name or field_name asc|desc",
             "schema": {
               "type": "string"
-            }
-          },
-          {
-            "name": "order",
-            "in": "query",
-            "required": false,
-            "description": "Sort direction override: applied to all orderBy entries",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "asc",
-                "desc"
-              ]
             }
           },
           {
@@ -521,13 +476,10 @@
                     "kind": {
                       "type": "string"
                     },
-                    "page": {
-                      "type": "integer"
+                    "next": {
+                      "type": "string"
                     },
                     "size": {
-                      "type": "integer"
-                    },
-                    "total": {
                       "type": "integer"
                     }
                   }
@@ -621,7 +573,7 @@
             }
           },
           "409": {
-            "description": "Conflict — optimistic concurrency check failed"
+            "description": "Conflict — the row of the key changed during the request"
           }
         }
       }
@@ -643,15 +595,6 @@
             }
           },
           {
-            "name": "page",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 1
-            }
-          },
-          {
             "name": "pageSize",
             "in": "query",
             "required": false,
@@ -661,25 +604,21 @@
             }
           },
           {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "The next value of the previous page",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "orderBy",
             "in": "query",
             "required": false,
             "description": "Comma-separated list of field_name or field_name asc|desc",
             "schema": {
               "type": "string"
-            }
-          },
-          {
-            "name": "order",
-            "in": "query",
-            "required": false,
-            "description": "Sort direction override: applied to all orderBy entries",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "asc",
-                "desc"
-              ]
             }
           },
           {
@@ -736,13 +675,10 @@
                     "kind": {
                       "type": "string"
                     },
-                    "page": {
-                      "type": "integer"
+                    "next": {
+                      "type": "string"
                     },
                     "size": {
-                      "type": "integer"
-                    },
-                    "total": {
                       "type": "integer"
                     }
                   }
@@ -1042,15 +978,6 @@
         ],
         "parameters": [
           {
-            "name": "page",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 1
-            }
-          },
-          {
             "name": "pageSize",
             "in": "query",
             "required": false,
@@ -1060,25 +987,21 @@
             }
           },
           {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "The next value of the previous page",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "orderBy",
             "in": "query",
             "required": false,
             "description": "Comma-separated list of field_name or field_name asc|desc",
             "schema": {
               "type": "string"
-            }
-          },
-          {
-            "name": "order",
-            "in": "query",
-            "required": false,
-            "description": "Sort direction override: applied to all orderBy entries",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "asc",
-                "desc"
-              ]
             }
           },
           {
@@ -1135,13 +1058,10 @@
                     "kind": {
                       "type": "string"
                     },
-                    "page": {
-                      "type": "integer"
+                    "next": {
+                      "type": "string"
                     },
                     "size": {
-                      "type": "integer"
-                    },
-                    "total": {
                       "type": "integer"
                     }
                   }
@@ -1208,15 +1128,6 @@
         ],
         "parameters": [
           {
-            "name": "page",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 1
-            }
-          },
-          {
             "name": "pageSize",
             "in": "query",
             "required": false,
@@ -1226,25 +1137,21 @@
             }
           },
           {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "The next value of the previous page",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "orderBy",
             "in": "query",
             "required": false,
             "description": "Comma-separated list of field_name or field_name asc|desc",
             "schema": {
               "type": "string"
-            }
-          },
-          {
-            "name": "order",
-            "in": "query",
-            "required": false,
-            "description": "Sort direction override: applied to all orderBy entries",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "asc",
-                "desc"
-              ]
             }
           },
           {
@@ -1301,13 +1208,10 @@
                     "kind": {
                       "type": "string"
                     },
-                    "page": {
-                      "type": "integer"
+                    "next": {
+                      "type": "string"
                     },
                     "size": {
-                      "type": "integer"
-                    },
-                    "total": {
                       "type": "integer"
                     }
                   }

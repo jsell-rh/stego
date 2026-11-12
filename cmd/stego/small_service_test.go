@@ -39,25 +39,37 @@ type smallService struct {
 }
 
 // smallServiceDeclaration is the declaration of ST-GEN-TD03: the rest-crud
-// archetype with one entity Note that has a title of type string, and no fill.
+// archetype on the runtime data path, the only data path (ST-SUP-RC20-OC39),
+// with one entity Note that has a title of type string, and no fill.
 const smallServiceDeclaration = `kind: service
 name: notes
 archetype: rest-crud
 language: go
+tenancy: {kind: pooled, key: tenant_id, claim: tenant}
+authorization: {provider: spicedb, schema_path: authz/schema.zed, subject_from_identity: user}
+audit: {level: change}
+overrides:
+  postgres-adapter: {schema_generation: tables-v1}
 entities:
   - name: Note
+    resource_type: note
+    permissions: {create: public, read: view, list: view}
+    public_reasons: {create: a new note has no resource to decide on before it exists}
     fields: [{name: title, type: string}]
 collections:
   notes: {entity: Note, operations: [create, read, list]}
 `
 
-// secondEntityDeclaration adds a second entity, Tag, with its collection.
-var secondEntityDeclaration = strings.Replace(smallServiceDeclaration, "collections:\n", "  - name: Tag\n    fields: [{name: label, type: string}]\ncollections:\n  tags: {entity: Tag, operations: [create, read]}\n", 1)
 
-// componentA is the component that R2 changes, and componentANamespace its
-// output namespace.
+// secondEntityDeclaration adds a second entity, Tag, with its collection.
+var secondEntityDeclaration = strings.Replace(smallServiceDeclaration, "collections:\n", "  - name: Tag\n    resource_type: tag\n    permissions: {create: public, read: view, list: view}\n    public_reasons: {create: a new tag has no resource to decide on before it exists}\n    fields: [{name: label, type: string}]\ncollections:\n  tags: {entity: Tag, operations: [create, read]}\n", 1)
+
+// componentA is the component that R2 changes. On the runtime data path the
+// runtime verifier takes the place of jwt-auth and reads its settings, so the
+// fix of its default header changes one generated file, componentAFile, the
+// runtime wiring.
 const componentA = "jwt-auth"
-const componentANamespace = "internal/auth/"
+const componentAFile = "internal/stegoruntime/runtime.go"
 
 func newSmallService(t *testing.T) *smallService {
 	t.Helper()
@@ -75,9 +87,7 @@ func newSmallService(t *testing.T) *smallService {
 		"TMPDIR=" + os.TempDir(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
 		"GOTOOLCHAIN=local", "GOPROXY=off", "GOWORK=off",
 	}
-	// The small service is a rest-crud service of the GORM store path until the store path is removed
-	// (ST-SUP-RC20-OC39).
-	if output, err := exec.Command("cp", "-a", storeRegistry(t), s.registry).CombinedOutput(); err != nil {
+	if output, err := exec.Command("cp", "-a", shippedRegistry(t), s.registry).CombinedOutput(); err != nil {
 		t.Fatalf("copy the registry: %v\n%s", err, output)
 	}
 	git(t, s.registry, "init", "-q")
@@ -122,10 +132,14 @@ func (s *smallService) pin(t *testing.T, commit string) {
 // checkout gave it.
 func (s *smallService) write(t *testing.T, name, data string) {
 	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(s.service, name)), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	path := writeFile(t, filepath.Dir(filepath.Join(s.service, name)), filepath.Base(name), data, 0o644)
 	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	withRuntimeSchema(t, s.service, name, data)
 }
 
 func (s *smallService) read(t *testing.T, name string) string {
@@ -244,7 +258,8 @@ func TestServiceRecordNamesItsInputs(t *testing.T) {
 
 		archetype := reg.Archetype("rest-crud")
 		baseline := map[string]*registry.Component{}
-		for _, name := range append(slices.Clone(archetype.Components), archetype.DefaultAuth) {
+		// The pooled tenancy, the SpiceDB authorization and the audit of the declaration add their components.
+		for _, name := range append(slices.Clone(archetype.Components), archetype.DefaultAuth, "tenancy", "spicedb-authz", "audit-log") {
 			baseline[name] = reg.Component(name)
 		}
 		resolution, err := ports.Resolve(ports.ResolveInput{Components: baseline, ArchetypeBindings: archetype.Bindings, ComponentLoader: reg.Component})

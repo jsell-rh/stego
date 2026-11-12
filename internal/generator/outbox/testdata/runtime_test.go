@@ -369,6 +369,53 @@ func TestAccess(t *testing.T) {
 	})
 }
 
+func TestIdentity(t *testing.T) {
+	t.Run("ST-SUP-RC18-OC11-T01 A repeated message ID stops the application write", func(t *testing.T) {
+		e := newEnv(t)
+		e.migrateAll()
+		queue, err := NewQueue(e.runtime, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t1 := e.tn("t1")
+		held := outbox.Message{ID: uuid.New(), Destination: "audit-sink", ResourceKey: "k", Kind: "k", Payload: []byte(`{"a":1}`)}
+		tx, err := tenant.Begin(e.ctx, e.runtime, t1, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := queue.Enqueue(e.ctx, tx, held); err != nil {
+			t.Fatal(err)
+		}
+		if err := tenant.Commit(e.ctx, tx, t1); err != nil {
+			t.Fatal(err)
+		}
+		// A second transaction writes a new message and then a message with the ID that the queue holds: the queue
+		// refuses the repeated ID, and the transaction commits nothing, also not the new message.
+		tx, err = tenant.Begin(e.ctx, e.runtime, t1, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback() }()
+		fresh := outbox.Message{ID: uuid.New(), Destination: "audit-sink", ResourceKey: "j", Kind: "k", Payload: []byte(`{"a":2}`)}
+		if err := queue.Enqueue(e.ctx, tx, fresh); err != nil {
+			t.Fatal(err)
+		}
+		repeated := held
+		repeated.Payload = []byte(`{"a":3}`)
+		enqueueErr := queue.Enqueue(e.ctx, tx, repeated)
+		commitErr := tenant.Commit(e.ctx, tx, t1)
+		if enqueueErr == nil || commitErr == nil {
+			t.Fatalf("the repeated message ID gave %v at enqueue and %v at commit, want both refused", enqueueErr, commitErr)
+		}
+		if got := e.messages("true"); got != "1" {
+			t.Fatalf("the queue holds %s messages, want the first one only", got)
+		}
+		if got := e.messages(fmt.Sprintf("id = '%s' AND payload = convert_to('{\"a\":1}', 'UTF8')", held.ID)); got != "1" {
+			t.Fatal("the repeated message ID changed the message that the queue holds")
+		}
+	})
+}
+
 // recordingSink is the audit sink that the audit-sink port binds in the test: it keeps each event it gets.
 type recordingSink struct {
 	mu     sync.Mutex

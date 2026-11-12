@@ -101,24 +101,6 @@ func Assemble(input AssemblerInput) ([]gen.File, error) {
 	if hasAnyRoutes(input) {
 		files = append(files, httpTLSFiles()...)
 	}
-	seenContracts := make(map[gen.Contract]bool)
-	for _, component := range input.Wirings {
-		if component.Wiring == nil {
-			continue
-		}
-		for _, id := range component.Wiring.Contracts {
-			if seenContracts[id] {
-				continue
-			}
-			definition, err := gen.ResolveContract(id)
-			if err != nil {
-				return nil, err
-			}
-			seenContracts[id] = true
-			files = append(files, definition.Files...)
-		}
-	}
-
 	// Invariant: never generate under fills/.
 	for _, f := range files {
 		if strings.HasPrefix(f.Path, "fills/") {
@@ -1638,7 +1620,7 @@ func findMiddlewareVar(input AssemblerInput) (string, string, int, int) {
 
 // rawConstructorVarName derives a base Go variable name from a constructor expression.
 // "pkg.NewFooBar(args)" → "fooBar"
-// "pkg.NewStore(db)" → "store"
+// "pkg.NewQueue(db)" → "queue"
 // "auth.NewJWTHandler().WithKeysFile(...)" → "jWTHandler"
 func rawConstructorVarName(expr string) string {
 	// Find the function name portion: the text between the last dot before

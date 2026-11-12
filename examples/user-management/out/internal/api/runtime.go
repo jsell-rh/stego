@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net"
@@ -202,6 +203,41 @@ type invalidRequest struct{ problem *ServiceError }
 
 func (e *invalidRequest) Error() string { return "the request is not valid" }
 
+// preconditionFailed is the answer of an upsert with optimistic concurrency whose If-Match precondition does not
+// hold: 412 for a stale or malformed generation or a row that does not exist, 428 for a stored row and no If-Match
+// (ST-SUP-RC20-OC14). The command writes nothing.
+type preconditionFailed struct {
+	status int
+	detail string
+}
+
+func (e *preconditionFailed) Error() string { return "the precondition of the request does not hold" }
+
+// ifMatchGeneration reads the If-Match header of an upsert with optimistic concurrency: one strong entity tag that
+// holds the decimal generation the client last read, such as "3". It gives the generation, whether the request
+// sends the header, and whether the header has that form; a weak tag, *, a list or any other text is not valid.
+func ifMatchGeneration(r *http.Request) (int64, bool, bool) {
+	values := r.Header.Values("If-Match")
+	if len(values) == 0 {
+		return 0, false, false
+	}
+	if len(values) != 1 {
+		return 0, true, false
+	}
+	tag := strings.TrimSpace(values[0])
+	if len(tag) < 3 || len(tag) > 21 || tag[0] != '"' || tag[len(tag)-1] != '"' {
+		return 0, true, false
+	}
+	var generation int64
+	for _, digit := range tag[1 : len(tag)-1] {
+		if digit < '0' || digit > '9' || generation > (1<<62)/10 {
+			return 0, true, false
+		}
+		generation = generation*10 + int64(digit-'0')
+	}
+	return generation, true, true
+}
+
 // requestKey is the idempotency key of a write that takes no key from the client: a PUT, a DELETE, or a create or
 // a patch without the header when the declaration does not require it. Run takes every write inside the
 // idempotency wrapper, so the request gets a key of its own that no retry sends again (ST-SUP-Q86).
@@ -229,9 +265,14 @@ func (rt *Runtime) boundQuery(ctx context.Context, b command.Bound, q *query.Que
 func (rt *Runtime) answerWrite(w http.ResponseWriter, r *http.Request, req command.Request, action, resourceType, kind string, decided bool, err error) {
 	var refused *slotRefusal
 	var invalid *invalidRequest
+	var precondition *preconditionFailed
 	switch {
 	case errors.As(err, &invalid):
 		handleError(w, r, invalid.problem)
+		return
+	case errors.As(err, &precondition):
+		_ = rt.Commands.RecordFailure(r.Context(), req, action, resourceType, command.Outcome{Status: precondition.status, Code: "precondition_failed", Audit: audit.OutcomeFailed})
+		handleError(w, r, errorForStatus(precondition.status, precondition.detail))
 		return
 	case errors.As(err, &refused):
 		status := refused.status
@@ -370,6 +411,51 @@ func listOrder(text string, fields map[string]bool) ([]query.OrderBy, error) {
 
 // isBadCursor tells whether err is a cursor of another order, which a list answers with 400.
 func isBadCursor(err error) bool { return errors.Is(err, query.ErrBadCursor) }
+
+// errFields is the error of a fields parameter that names a field that is not declared.
+var errFields = errors.New("fields names a field that is not declared")
+
+// listFields reads the fields parameter of a list: a comma-separated list of declared fields. It gives nil when the
+// parameter names none, and else the selected fields with id, which a selection always keeps (ST-SUP-RC20-OC12).
+func listFields(text string, fields map[string]bool) (map[string]bool, error) {
+	if strings.TrimSpace(text) == "" {
+		return nil, nil
+	}
+	selected := map[string]bool{"id": true}
+	for _, name := range strings.Split(text, ",") {
+		name = strings.TrimSpace(name)
+		if name == "" || name == "id" {
+			continue
+		}
+		if !fields[name] {
+			return nil, errFields
+		}
+		selected[name] = true
+	}
+	return selected, nil
+}
+
+// selectFields gives the members of the presented value v that the selection names, with id, kind and href, and v
+// itself when there is no selection (ST-SUP-RC20-OC12).
+func selectFields(v any, selected map[string]bool) any {
+	if selected == nil {
+		return v
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return v
+	}
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
+		return v
+	}
+	for name := range members {
+		if !selected[name] && name != "kind" && name != "href" {
+			delete(members, name)
+		}
+	}
+	return members
+}
 
 // callerIdentity is the caller of a slot request: the verified identity of the request.
 func callerIdentity(ctx context.Context) *slots.Identity {

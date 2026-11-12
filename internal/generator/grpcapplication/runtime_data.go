@@ -20,7 +20,7 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 )
 
-// The runtime data path of the grpc-application component (gen.Context.RuntimeData, ST-SUP-RC07-OC19): the runtime
+// The runtime data path of the grpc-application component, its only path (ST-SUP-RC07-OC19, ST-SUP-RC20-OC39): the runtime
 // that the component emits registers only the methods that a declared command or query names, each served by a
 // generated handler that calls the fill of its command or query through the command and query runtimes of the
 // runtime library, with the same verification, transaction, permission, audit and idempotency as its HTTP handler.
@@ -75,9 +75,9 @@ type rpcPlan struct {
 	subjectType                                  string
 }
 
-// validateRuntimeData checks the settings of the component on the runtime data path: proto_files alone. The
-// factory_package, the event source and the processes of the GORM store path run hand-written code outside a fill,
-// which the runtime data path does not have (ST-SUP-RC07-OC18, ST-DECL-INV72).
+// validateRuntimeData checks the settings of the component on the runtime data path: proto_files alone. The former
+// settings factory_package, watch_events and processes ran hand-written code outside a fill, which the runtime data
+// path does not have (ST-SUP-RC07-OC18, ST-DECL-INV72).
 func validateRuntimeData(ctx gen.Context) error {
 	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
 		return err

@@ -3,7 +3,6 @@ package storage_test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -13,8 +12,6 @@ import (
 
 	"example.com/schema-gate/changed"
 	"example.com/schema-gate/future"
-	"example.com/schema-gate/legacy"
-	"example.com/schema-gate/unfenced"
 	"example.com/schema-gate/storage"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -75,23 +72,23 @@ func requireRejected(t *testing.T, db *gorm.DB) {
 	if !errors.Is(storage.BootstrapSchema(db, func(*gorm.DB) error { called = true; return nil }), storage.ErrSchemaGeneration) || called {
 		t.Fatal("old schema reached initialization")
 	}
-	if _, err := storage.NewStore(db); !errors.Is(err, storage.ErrSchemaGeneration) {
-		t.Fatal("old schema reached storage", err)
+	if err := storage.VerifySchema(db); !errors.Is(err, storage.ErrSchemaGeneration) {
+		t.Fatal("old schema passed the marker check", err)
 	}
 }
 
 func TestFreshSchemaAndStableRestart(t *testing.T) {
 	db := schemaDB(t)
-	if _, err := storage.NewStore(db); !errors.Is(err, storage.ErrSchemaGeneration) {
-		t.Fatal("uninitialized store accepted", err)
+	if err := storage.VerifySchema(db); !errors.Is(err, storage.ErrSchemaGeneration) {
+		t.Fatal("uninitialized database accepted", err)
 	}
 	if err := storage.Migrate(db); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := storage.NewStore(db); err != nil {
+	if err := storage.VerifySchema(db); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Exec("INSERT INTO records(id,name) VALUES('one','kept')").Error; err != nil {
+	if err := db.Exec("INSERT INTO records(id,name) VALUES(gen_random_uuid(),'kept')").Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := storage.BootstrapSchema(db, func(*gorm.DB) error { return errors.New("completed initialization was replayed") }); err != nil {
@@ -100,34 +97,34 @@ func TestFreshSchemaAndStableRestart(t *testing.T) {
 	if err := storage.Migrate(db); err != nil {
 		t.Fatal(err)
 	}
-	var name string
-	if err := db.Raw("SELECT name FROM records WHERE id='one'").Scan(&name).Error; err != nil || name != "kept" {
+	var count int64
+	if err := db.Raw("SELECT count(*) FROM records WHERE name='kept'").Scan(&count).Error; err != nil || count != 1 {
 		t.Fatal("restart changed data", err)
 	}
 }
-func TestLegacyAndUnknownSchemasRemainUnchanged(t *testing.T) {
+
+// TestUnmarkedSchemasRemainUnchanged runs the migration on a database that holds tables but no marker, as a
+// database of another program has, and on unknown objects: each is refused and left as it was.
+func TestUnmarkedSchemasRemainUnchanged(t *testing.T) {
 	for _, populated := range []bool{false, true} {
-		t.Run(map[bool]string{false: "empty-legacy", true: "populated-legacy"}[populated], func(t *testing.T) {
+		t.Run(map[bool]string{false: "empty-table", true: "populated-table"}[populated], func(t *testing.T) {
 			db := schemaDB(t)
-			if err := legacy.Migrate(db); err != nil {
+			if err := db.Exec("CREATE TABLE public.records(id text PRIMARY KEY, name text)").Error; err != nil {
 				t.Fatal(err)
 			}
 			if populated {
-				if err := db.Exec("INSERT INTO records(id,name) VALUES('legacy','kept')").Error; err != nil {
+				if err := db.Exec("INSERT INTO records(id,name) VALUES('other','kept')").Error; err != nil {
 					t.Fatal(err)
 				}
 			}
 			requireRejected(t, db)
 			if !errors.Is(storage.Migrate(db), storage.ErrSchemaGeneration) {
-				t.Fatal("migration accepted an old schema")
+				t.Fatal("migration accepted an unmarked schema")
 			}
 			noMarker(t, db)
-			if _, err := legacy.NewStore(db); err != nil {
-				t.Fatal("old process can no longer open its schema", err)
-			}
 			var count int64
 			if err := db.Table("records").Count(&count).Error; err != nil || count != map[bool]int64{false: 0, true: 1}[populated] {
-				t.Fatal("rejection changed old data", err)
+				t.Fatal("rejection changed the data", err)
 			}
 		})
 	}
@@ -276,7 +273,7 @@ func TestSchemaMarkerShapeAndPrivileges(t *testing.T) {
 			if err := tx.Exec("SET LOCAL ROLE " + quoted).Error; err != nil {
 				return err
 			}
-			_, err := storage.NewStore(tx)
+			err := storage.VerifySchema(tx)
 			if want && err != nil {
 				t.Error("read-only role cannot verify the schema", err)
 			}
@@ -338,508 +335,6 @@ func TestSchemaBootstrapHonorsShortDeadline(t *testing.T) {
 	}
 }
 
-func TestDatabaseEpochAdvancesOnWrite(t *testing.T) {
-	db := schemaDB(t)
-	if err := storage.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	store, err := storage.NewStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, before, err := store.DatabaseIdentityEpoch()
-	if err != nil || before != 0 {
-		t.Fatal("epoch did not start at zero", before, err)
-	}
-	if err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
-		return tx.Create(ctx, "Record", map[string]any{"name": "one"})
-	}); err != nil {
-		t.Fatal(err)
-	}
-	_, after, err := store.DatabaseIdentityEpoch()
-	if err != nil || after < 1 {
-		t.Fatal("write did not advance the epoch", before, after, err)
-	}
-	id, err := store.DatabaseIdentity()
-	if err != nil || id == "" {
-		t.Fatal("identity read failed", err)
-	}
-}
-
-func TestRestoredDatabaseIsRejected(t *testing.T) {
-	db := schemaDB(t)
-	if err := storage.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	store, err := storage.NewStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
-		return tx.Create(ctx, "Record", map[string]any{"name": "one"})
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
-		return tx.Create(ctx, "Record", map[string]any{"name": "two"})
-	}); err != nil {
-		t.Fatal(err)
-	}
-	_, high, err := store.DatabaseIdentityEpoch()
-	if err != nil || high < 2 {
-		t.Fatal("epoch did not advance over two writes", high, err)
-	}
-	// Simulate a restore of an earlier backup: reset the epoch sequence to a
-	// lower value while keeping the marker and identity intact.
-	if err := db.Exec("ALTER SEQUENCE stego_schema.epoch_seq RESTART WITH 1").Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
-		return tx.Create(ctx, "Record", map[string]any{"name": "two"})
-	}); !errors.Is(err, storage.ErrDatabaseRollback) {
-		t.Fatal("write to a restored database was accepted", err)
-	}
-	// The latch stays closed after the first detection.
-	if err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
-		return tx.Create(ctx, "Record", map[string]any{"name": "three"})
-	}); !errors.Is(err, storage.ErrDatabaseRollback) {
-		t.Fatal("store served a later write after rollback detection", err)
-	}
-	if _, err := store.DatabaseIdentity(); !errors.Is(err, storage.ErrDatabaseRollback) {
-		t.Fatal("identity read after rollback detection", err)
-	}
-	if _, err := store.DatabaseEpoch(); !errors.Is(err, storage.ErrDatabaseRollback) {
-		t.Fatal("epoch read after rollback detection", err)
-	}
-}
-
-func TestReplacedDatabaseIdentityIsRejected(t *testing.T) {
-	db := schemaDB(t)
-	if err := storage.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	store, err := storage.NewStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.DatabaseIdentity(); err != nil {
-		t.Fatal(err)
-	}
-	// Simulate a restore of a different backup: the epoch sequence is higher
-	// but the identity belongs to another database.
-	if err := db.Exec("ALTER SEQUENCE stego_schema.epoch_seq RESTART WITH 1000").Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Exec("UPDATE stego_schema.identity SET database_id='replaced' WHERE singleton").Error; err != nil {
-		t.Fatal(err)
-	}
-	err = store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
-		return tx.Create(ctx, "Record", map[string]any{"name": "one"})
-	})
-	if !errors.Is(err, storage.ErrDatabaseRollback) {
-		t.Fatal("write to a replaced database was accepted", err)
-	}
-}
-
-func TestUnfencedModeAllowsIndependentWriters(t *testing.T) {
-	db := schemaDB(t)
-	if err := unfenced.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	// The lease is off: bootstrap must not create the writer_lease table.
-	var leaseTable bool
-	if err := db.Raw("SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname='stego_schema' AND tablename='writer_lease')").Scan(&leaseTable).Error; err != nil || leaseTable {
-		t.Fatal("writer_lease table exists with the lease off", err)
-	}
-	first, err := unfenced.NewStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := first.WithTransaction(context.Background(), func(ctx context.Context, tx *unfenced.Store) error {
-		return tx.Create(ctx, "Versioned", map[string]any{"name": "one"})
-	}); err != nil {
-		t.Fatal(err)
-	}
-	// An independent store writes while the first one stays live: no fencing.
-	second, err := unfenced.NewStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := second.WithTransaction(context.Background(), func(ctx context.Context, tx *unfenced.Store) error {
-		return tx.Create(ctx, "Versioned", map[string]any{"name": "two"})
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := first.WithTransaction(context.Background(), func(ctx context.Context, tx *unfenced.Store) error {
-		return tx.Create(ctx, "Versioned", map[string]any{"name": "three"})
-	}); err != nil {
-		t.Fatal(err)
-	}
-	// Epoch and identity checks still guard the write path: a restored
-	// database is rejected in unfenced mode too.
-	if err := unfenced.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestUnfencedModeStillDetectsRestoredDatabase(t *testing.T) {
-	db := schemaDB(t)
-	if err := unfenced.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	store, err := unfenced.NewStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *unfenced.Store) error {
-		return tx.Create(ctx, "Versioned", map[string]any{"name": "one"})
-	}); err != nil {
-		t.Fatal(err)
-	}
-	admin, err := db.DB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := admin.Exec("UPDATE stego_schema.identity SET database_id='replaced' WHERE singleton"); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *unfenced.Store) error {
-		return tx.Create(ctx, "Versioned", map[string]any{"name": "two"})
-	}); !errors.Is(err, unfenced.ErrDatabaseRollback) {
-		t.Fatal("replaced identity accepted with the lease off", err)
-	}
-}
-
-func TestWriterLeaseTakeoverFencesStaleStore(t *testing.T) {
-	db := schemaDB(t)
-	if err := storage.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	first, err := storage.NewStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := first.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
-		return tx.Create(ctx, "Versioned", map[string]any{"name": "one"})
-	}); err != nil {
-		t.Fatal(err)
-	}
-	// A second process starts and writes: it takes the lease unconditionally.
-	second, err := storage.NewStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := second.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
-		return tx.Create(ctx, "Versioned", map[string]any{"name": "two"})
-	}); err != nil {
-		t.Fatal(err)
-	}
-	// The first store lost the lease: a transactional write fails closed.
-	if err := first.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
-		return tx.Create(ctx, "Versioned", map[string]any{"name": "three"})
-	}); !errors.Is(err, storage.ErrWriterFenced) {
-		t.Fatal("stale writer was not fenced", err)
-	}
-	// The latch stays closed: a later write and a lease check both fail.
-	if err := first.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
-		return tx.Create(ctx, "Versioned", map[string]any{"name": "four"})
-	}); !errors.Is(err, storage.ErrWriterFenced) {
-		t.Fatal("fenced store served a later write", err)
-	}
-	if err := first.WriterLeaseCheck(context.Background()); !errors.Is(err, storage.ErrWriterFenced) {
-		t.Fatal("fenced store passed a lease check", err)
-	}
-	// The successor keeps writing.
-	if err := second.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
-		return tx.Create(ctx, "Versioned", map[string]any{"name": "five"})
-	}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestWriterLeaseFencesDirectWrites(t *testing.T) {
-	db := schemaDB(t)
-	if err := storage.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	first, err := storage.NewStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Exec("INSERT INTO versioneds(id,name,stego_revision) VALUES('one','kept',1)").Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := first.ReplaceIfVersion(context.Background(), "Versioned", "one", 1, map[string]any{"name": "renamed"}); err != nil {
-		t.Fatal("first direct write failed", err)
-	}
-	second, err := storage.NewStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := second.ReplaceIfVersion(context.Background(), "Versioned", "one", 2, map[string]any{"name": "taken"}); err != nil {
-		t.Fatal("successor direct write failed", err)
-	}
-	// The stale store fails closed on a direct write outside transactions.
-	if err := first.ReplaceIfVersion(context.Background(), "Versioned", "one", 3, map[string]any{"name": "stale"}); !errors.Is(err, storage.ErrWriterFenced) {
-		t.Fatal("stale direct write was accepted", err)
-	}
-	// The latch stays closed on repeated direct writes.
-	if err := first.ReplaceIfVersion(context.Background(), "Versioned", "one", 3, map[string]any{"name": "stale"}); !errors.Is(err, storage.ErrWriterFenced) {
-		t.Fatal("fenced store served a later direct write", err)
-	}
-}
-
-func TestWriterLeaseSurvivesConcurrentWriters(t *testing.T) {
-	db := schemaDB(t)
-	if err := storage.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	store, err := storage.NewStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Concurrent transactions through one store re-assert the lease by
-	// reading it. A write re-assertion would serialize every write on the
-	// lease row and turn serializable conflicts into abort storms.
-	const writers = 8
-	var wg sync.WaitGroup
-	errs := make([]error, writers)
-	start := make(chan struct{})
-	for i := 0; i < writers; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			<-start
-			errs[i] = store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
-				return tx.Create(ctx, "Versioned", map[string]any{"name": fmt.Sprintf("writer-%d", i)})
-			})
-		}(i)
-	}
-	close(start)
-	wg.Wait()
-	for i, err := range errs {
-		if err != nil {
-			t.Fatalf("writer %d failed: %v", i, err)
-		}
-	}
-	if err := store.WriterLeaseCheck(context.Background()); err != nil {
-		t.Fatal("concurrent writers fenced the store", err)
-	}
-}
-
-func TestWriterLeaseToleratesOwnInFlightTakeover(t *testing.T) {
-	db := schemaDB(t)
-	if err := storage.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	store, err := storage.NewStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Hold the first write transaction open after its lease takeover. The
-	// takeover is not committed yet, so a concurrent re-assertion from the
-	// same store reads the last committed holder: empty. An empty holder
-	// is this store's own in-flight takeover, not a foreign writer.
-	ready := make(chan struct{})
-	release := make(chan struct{})
-	heldDone := make(chan error, 1)
-	go func() {
-		heldDone <- store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
-			close(ready)
-			<-release
-			return tx.Create(ctx, "Versioned", map[string]any{"name": "held"})
-		})
-	}()
-	<-ready
-	// A concurrent write through the same store must not fence itself on
-	// the uncommitted takeover. It may commit before or after the held
-	// transaction; either order keeps the lease inside this store.
-	done := make(chan error, 1)
-	go func() {
-		done <- store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
-			return tx.Create(ctx, "Versioned", map[string]any{"name": "concurrent"})
-		})
-	}()
-	var concurrent error
-	select {
-	case concurrent = <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("concurrent write deadlocked on the lease row")
-	}
-	close(release)
-	held := <-heldDone
-	if held != nil {
-		t.Fatal("held transaction failed", held)
-	}
-	if concurrent != nil {
-		t.Fatal("concurrent write during own in-flight takeover was rejected", concurrent)
-	}
-	if err := store.WriterLeaseCheck(context.Background()); err != nil {
-		t.Fatal("store fenced itself on its own takeover", err)
-	}
-}
-
-func TestWriterLeaseCheckBeforeFirstWrite(t *testing.T) {
-	db := schemaDB(t)
-	if err := storage.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	store, err := storage.NewStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// A store that never wrote holds no lease: the check passes.
-	if err := store.WriterLeaseCheck(context.Background()); err != nil {
-		t.Fatal("never-written store failed its lease check", err)
-	}
-	// After another process writes, this store never held the lease; the
-	// check still passes because it never asserted one. Its writes fence it.
-	other, err := storage.NewStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := other.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
-		return tx.Create(ctx, "Versioned", map[string]any{"name": "one"})
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.WriterLeaseCheck(context.Background()); err != nil {
-		t.Fatal("lease check wrote or asserted a lease", err)
-	}
-	if err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
-		return tx.Create(ctx, "Versioned", map[string]any{"name": "two"})
-	}); err != nil {
-		t.Fatal("newest writer was not allowed to take over", err)
-	}
-	// The check reflects the taken lease after a write.
-	if err := store.WriterLeaseCheck(context.Background()); err != nil {
-		t.Fatal("writer failed its own lease check", err)
-	}
-}
-
-func TestWriterLeaseFailsClosedWhenAbsent(t *testing.T) {
-	db := schemaDB(t)
-	if err := storage.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	// A database without a lease table fails closed on the write path.
-	if err := db.Exec("DROP TABLE stego_schema.writer_lease").Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := storage.VerifySchema(db); !errors.Is(err, storage.ErrSchemaGeneration) {
-		t.Fatal("missing lease table was accepted", err)
-	}
-	if _, err := storage.NewStore(db); err == nil {
-		t.Fatal("missing lease table was accepted by the store")
-	}
-}
-
-func TestRestoreRecordRoundTripAndVerification(t *testing.T) {
-	db := schemaDB(t)
-	if err := storage.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	store, err := storage.NewStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	record, err := storage.ReadRestoreRecordDB(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if record.SchemaGeneration != storage.SchemaGeneration || record.SchemaDefinition != storage.SchemaDefinition || record.DatabaseIdentity == "" || record.DatabaseEpoch < 1 {
-		t.Fatal("restore record is incomplete", record)
-	}
-	if err := store.VerifyRestore(context.Background(), record); err != nil {
-		t.Fatal("a current database failed its own restore record", err)
-	}
-}
-
-func TestVerifyRestoreRejectsStaleAndForeignRecords(t *testing.T) {
-	db := schemaDB(t)
-	if err := storage.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	store, err := storage.NewStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Advance the epoch so a restart to the beginning is a real mismatch.
-	// A fresh sequence reports epoch 1 before the first write, so two
-	// writes are needed for a record above the restart value.
-	for _, name := range []string{"one", "two"} {
-		if err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
-			return tx.Create(ctx, "Record", map[string]any{"name": name})
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	record, err := store.ReadRestoreRecord(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if record.DatabaseEpoch < 2 {
-		t.Fatal("epoch did not advance over a write", record)
-	}
-	// A backup taken before further writes carries a lower epoch.
-	if err := db.Exec("ALTER SEQUENCE stego_schema.epoch_seq RESTART WITH 1").Error; err != nil {
-		t.Fatal(err)
-	}
-	// Note: the epoch check inside VerifyRestore runs first; a store that
-	// already observed the higher epoch fails closed there.
-	fresh, err := storage.NewStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := fresh.VerifyRestore(context.Background(), record); !errors.Is(err, storage.ErrRestore) {
-		t.Fatal("a stale restore record was accepted", err)
-	}
-	// A record from a different database is rejected on identity.
-	if err := db.Exec("UPDATE stego_schema.identity SET database_id='foreign' WHERE singleton").Error; err != nil {
-		t.Fatal(err)
-	}
-	foreign := record
-	foreign.DatabaseIdentity = "foreign"
-	if err := storage.VerifyRestoreDB(db, foreign); !errors.Is(err, storage.ErrRestore) {
-		t.Fatal("a foreign restore record was accepted", err)
-	}
-	// A record from a different schema release is rejected up front.
-	other := record
-	other.SchemaGeneration = "other-release"
-	if err := storage.VerifyRestoreDB(db, other); !errors.Is(err, storage.ErrRestore) {
-		t.Fatal("a foreign schema release was accepted", err)
-	}
-}
-
-func TestFreshStoreRejectsReplacedIdentity(t *testing.T) {
-	db := schemaDB(t)
-	if err := storage.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	first, err := storage.NewStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	known, err := first.DatabaseIdentity()
-	if err != nil {
-		t.Fatal(err)
-	}
-	// A second process holds the identifier the first process recorded.
-	second, err := storage.NewStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := second.RememberDatabaseIdentity(known); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Exec("UPDATE stego_schema.identity SET database_id='other' WHERE singleton").Error; err != nil {
-		t.Fatal(err)
-	}
-	if _, err := second.DatabaseIdentity(); !errors.Is(err, storage.ErrDatabaseRollback) {
-		t.Fatal("identity change after restart was accepted", err)
-	}
-}
-
 func ledgerApplied(t *testing.T, db *gorm.DB) []string {
 	t.Helper()
 	versions, err := storage.AppliedMigrations(db)
@@ -850,6 +345,10 @@ func ledgerApplied(t *testing.T, db *gorm.DB) []string {
 }
 
 func TestMigrationLedgerRecordsBootstrapAndRestart(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC11-T01 The ledger records the bootstrap and a restart applies nothing", testMigrationLedgerRecordsBootstrapAndRestart)
+}
+
+func testMigrationLedgerRecordsBootstrapAndRestart(t *testing.T) {
 	db := schemaDB(t)
 	if err := storage.Migrate(db); err != nil {
 		t.Fatal(err)
@@ -874,6 +373,10 @@ func TestMigrationLedgerRecordsBootstrapAndRestart(t *testing.T) {
 }
 
 func TestMigrationLedgerAppliesNewRegistrations(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC11-T02 A new registration is applied once and recorded", testMigrationLedgerAppliesNewRegistrations)
+}
+
+func testMigrationLedgerAppliesNewRegistrations(t *testing.T) {
 	db := schemaDB(t)
 	if err := storage.Migrate(db); err != nil {
 		t.Fatal(err)
@@ -944,81 +447,29 @@ func TestMigrationLedgerRejectsGapsAndDrift(t *testing.T) {
 			t.Fatal("a foreign ledger row was accepted", err)
 		}
 	})
-	t.Run("ST-SUP-RC01-OC11-T04 An edited function migration body is refused at startup", func(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC11-T04 An edited migration body is refused at startup", func(t *testing.T) {
 		db := schemaDB(t)
 		if err := storage.Migrate(db); err != nil {
 			t.Fatal(err)
 		}
-		// The ledger holds the body digest the earlier source produced; the
-		// registered source differs, so startup refuses to continue.
+		// The ledger holds the body digest of an earlier body; the registered
+		// body differs, so startup refuses to continue.
 		applied := ledgerApplied(t, db)
 		before := ledgerDigests(t, db)
 		earlier := storage.Digest("func(db *gorm.DB) error { return nil }")
 		for _, version := range applied {
 			if before[version] == storage.Digest(version) {
-				t.Fatal("a function migration still records the digest of its name", version)
+				t.Fatal("a migration records the digest of its name", version)
 			}
 		}
 		if err := db.Exec("UPDATE stego_schema.migrations SET digest=? WHERE version=?", earlier, applied[0]).Error; err != nil {
 			t.Fatal(err)
 		}
 		if err := storage.Migrate(db); !errors.Is(err, storage.ErrMigrationLedger) {
-			t.Fatal("an edited function migration was accepted", err)
+			t.Fatal("an edited migration was accepted", err)
 		}
 		if got := ledgerDigests(t, db)[applied[0]]; got != earlier {
 			t.Fatal("a refused startup changed the ledger", got)
-		}
-	})
-	t.Run("ST-SUP-RC01-OC11-T05 A name digest is rewritten once to the body digest", func(t *testing.T) {
-		db := schemaDB(t)
-		if err := storage.Migrate(db); err != nil {
-			t.Fatal(err)
-		}
-		applied := ledgerApplied(t, db)
-		body := ledgerDigests(t, db)
-		for _, version := range applied {
-			if body[version] == storage.Digest(version) {
-				t.Fatal("a function migration records the digest of its name", version)
-			}
-		}
-		// The earlier runner recorded the digest of each name.
-		if err := db.Exec("UPDATE stego_schema.migrations SET digest=encode(sha256(version::bytea),'hex')").Error; err != nil {
-			t.Fatal(err)
-		}
-		for _, version := range applied {
-			if ledgerDigests(t, db)[version] != storage.Digest(version) {
-				t.Fatal("the fixture did not record the name digest", version)
-			}
-		}
-		if err := storage.Migrate(db); err != nil {
-			t.Fatal("a registered name digest was not rewritten", err)
-		}
-		rewritten := ledgerDigests(t, db)
-		for _, version := range applied {
-			if rewritten[version] != body[version] {
-				t.Fatal("the row does not hold the body digest", version, rewritten[version])
-			}
-		}
-		var stamps []string
-		if err := db.Raw("SELECT version||' '||digest||' '||applied_at::text FROM stego_schema.migrations ORDER BY version").Scan(&stamps).Error; err != nil {
-			t.Fatal(err)
-		}
-		if err := storage.Migrate(db); err != nil {
-			t.Fatal(err)
-		}
-		var again []string
-		if err := db.Raw("SELECT version||' '||digest||' '||applied_at::text FROM stego_schema.migrations ORDER BY version").Scan(&again).Error; err != nil {
-			t.Fatal(err)
-		}
-		if strings.Join(stamps, "\n") != strings.Join(again, "\n") {
-			t.Fatal("a second migration changed the ledger", stamps, again)
-		}
-		// A name digest on a row the code did not register is not rewritten.
-		if err := db.Exec("INSERT INTO stego_schema.migrations(version,digest) VALUES('zzz_foreign',encode(sha256('zzz_foreign'::bytea),'hex'))").Error; err != nil {
-			t.Fatal(err)
-		}
-		if err := storage.Migrate(db); !errors.Is(err, storage.ErrMigrationLedger) {
-			t.Fatal("a foreign name digest was accepted", err)
 		}
 	})
 }

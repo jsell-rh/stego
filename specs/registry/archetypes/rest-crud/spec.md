@@ -1,5 +1,10 @@
 # rest-crud Archetype Specification
 
+> This prose describes the archetype at version 3.0.0. The archetype and its components are now specified in the
+> Lathe records under `data/` (ST-SUP), which win over this page. Since ST-SUP-RC20-OC39 the runtime data path is
+> the only data path: postgres-adapter emits the tables as SQL and the migration ledger, the generated commands and
+> queries carry all data access, and the GORM store and the tsl-search component are removed.
+
 The `rest-crud` archetype generates REST API services with PostgreSQL storage, JWT authentication, OpenTelemetry tracing, and health checks.
 
 ## Archetype Definition
@@ -13,7 +18,6 @@ version: 3.0.0
 components:
   - rest-api
   - postgres-adapter
-  - tsl-search
   - otel-tracing
   - health-check
 
@@ -408,45 +412,10 @@ slots:
 
 ### postgres-adapter
 
-Generates GORM-based model structs, DAO layer, and database migrations. Uses GORM as the ORM, following the proven rh-trex/hyperfleet-api pattern.
-
-```yaml
-kind: component
-name: postgres-adapter
-version: 2.0.0
-output_namespace: internal/storage
-
-requires: []
-provides:
-  - storage-adapter
-
-slots: []
-```
-
-**Generated model structs** embed a `Meta` base and use GORM tags:
-```go
-// Meta is the base model, embedded in all entities.
-type Meta struct {
-    ID          string
-    CreatedTime time.Time
-    UpdatedTime time.Time
-    DeletedAt   gorm.DeletedAt `gorm:"index"`
-}
-
-type Cluster struct {
-    Meta
-    Name   string         `json:"name" gorm:"uniqueIndex;size:53;not null"`
-    Spec   datatypes.JSON `json:"spec" gorm:"type:jsonb;not null"`
-    Labels datatypes.JSON `json:"labels,omitempty" gorm:"type:jsonb"`
-    // ...
-}
-```
-
-- GORM tags are derived from entity field constraints (unique, min/max length, optional, type)
-- `jsonb` fields use `gorm.io/datatypes.JSON`
-- `ref` fields generate foreign key relationships
-- `computed` fields are included in the model but excluded from create/update inputs (see **Server-Managed Fields and Request Schemas**)
-- Soft delete via `gorm.DeletedAt` (all deletes are soft by default)
+Emits the tables of the declaration as one SQL migration, `001_initial`, the migration ledger that applies each
+migration once, the row-level security of pooled tenancy, and the database opener with verified TLS. It emits no
+model structs, no store and no DAO: the generated commands and queries on the runtime library carry all data access
+(ST-SUP-RC01-OC41).
 
 ## Server-Managed Fields and Request Schemas
 
@@ -500,63 +469,6 @@ The patch handler must update server-managed fields:
 - `updated_by` -- extract from JWT identity (same as create)
 - `updated_time` -- set to `time.Now()`
 - `generation` -- increment by 1. This is a generator-level concern, not a fill. The generation field tracks the version of the customer's intent; every spec mutation must bump it so adapters can detect which version they're processing.
-
-**Generated DAO layer** provides per-entity data access:
-- `Create(ctx, entity)` -- `g2.Create(entity)`
-- `Get(ctx, id)` -- `g2.First(&entity, id)`
-- `Replace(ctx, entity)` -- `g2.Save(entity)` (used by both update and patch)
-- `Delete(ctx, id)` -- soft delete via GORM
-- `List(ctx, listArgs)` -- `g2.Offset(offset).Limit(limit).Find(&list)` with pagination
-- `Upsert(ctx, entity, upsertKey, concurrency)` -- `g2.Clauses(clause.OnConflict{...})`
-- `Exists(ctx, id)` -- existence check for parent verification
-
-**GenericDao** provides the base for the `tsl-search` component to build queries with ordering, filtering, JOINs, and pagination.
-
-**Migrations** use GORM AutoMigrate at startup. The component generates migration structs registered in order, following the hyperfleet-api migration pattern:
-```go
-// internal/storage/migrations/001_initial.go
-func init() {
-    Register("001_initial", func(g2 *gorm.DB) error {
-        return g2.AutoMigrate(&Cluster{}, &NodePool{}, &AdapterStatus{})
-    })
-}
-```
-
-**Session factory** manages database connections with a `SessionFactory` interface, supporting both production (PostgreSQL) and test (testcontainers) configurations.
-
-### tsl-search
-
-Integrates the Tree Search Language library (`github.com/yaacov/tree-search-language`) into list handlers. Generates SQL helper functions for parsing `?search=` expressions into parameterized WHERE clauses.
-
-```yaml
-kind: component
-name: tsl-search
-version: 1.0.0
-output_namespace: internal/search
-
-requires:
-  - storage-adapter
-
-provides:
-  - search-engine
-
-slots:
-  - name: resolve_field
-    proto: stego.components.tsl_search.slots.ResolveField
-    default: column-name-lookup
-```
-
-The component generates:
-- TSL expression parsing and SQL WHERE clause generation (wraps the TSL library)
-- Field name validation against entity field definitions (disallowed fields rejected with 400)
-- Field-to-column mapping (entity field names to SQL column names, including table prefixes)
-- Parameterized queries via squirrel (SQL injection prevention)
-- The `rest-api` component generates `?search=` query parameter handling in all list handlers
-
-The `resolve_field` slot allows fills to customize how specific field types map to SQL. Default behavior maps field names directly to column names. Fills can override this for:
-- JSONB path queries (`status.conditions.Ready.status` -> `jsonb_path_query_first(...)`)
-- Label queries (`labels.region` -> `labels->>'region'`)
-- Related table JOINs (field references that cross entity boundaries)
 
 ### jwt-auth
 
