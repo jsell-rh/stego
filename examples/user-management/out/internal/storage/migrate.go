@@ -3,17 +3,19 @@
 package storage
 
 import (
+	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"sort"
 
 	stegotenancy "github.com/example/service/out/internal/tenancy"
-	"gorm.io/gorm"
 )
 
-// MigrationFunc is a function that performs a database migration.
-type MigrationFunc func(db *gorm.DB) error
+// MigrationFunc is a function that performs a database migration. It runs in the
+// transaction that records the migration in the ledger, and must not commit it.
+type MigrationFunc func(ctx context.Context, tx *sql.Tx) error
 
 // Migration represents a named database migration. The digest covers the
 // migration body; an edited migration changes the digest and is rejected.
@@ -44,8 +46,9 @@ func Register(name, digest string, fn MigrationFunc) {
 // RegisterSQL adds a SQL migration to the ordered migration list. The
 // digest covers the SQL text, so an edit after application is detected.
 func RegisterSQL(name, body string) {
-	migrations = append(migrations, Migration{Name: name, Digest: Digest(body), Func: func(db *gorm.DB) error {
-		return db.Exec(body).Error
+	migrations = append(migrations, Migration{Name: name, Digest: Digest(body), Func: func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, body)
+		return err
 	}})
 }
 
@@ -55,17 +58,17 @@ func RegisterSQL(name, body string) {
 // migration, and an unreadable ledger are all rejected. A fresh database
 // applies all migrations inside the bootstrap transaction; afterwards
 // each pending migration commits with its ledger row in one transaction.
-func Migrate(db *gorm.DB) error {
-	if db == nil || db.Config == nil || db.Statement == nil {
+func Migrate(ctx context.Context, db Database) error {
+	if ctx == nil || db == nil {
 		return fmt.Errorf("migration requires an initialized database")
 	}
 	ordered := orderedMigrations()
-	if err := BootstrapSchema(db, func(tx *gorm.DB) error {
+	if err := BootstrapSchema(ctx, db, func(ctx context.Context, tx *sql.Tx) error {
 		for _, m := range ordered {
-			if err := m.Func(tx); err != nil {
+			if err := m.Func(ctx, tx); err != nil {
 				return fmt.Errorf("migration %s: %w", m.Name, err)
 			}
-			if err := tx.Exec("INSERT INTO stego_schema.migrations(version,digest) VALUES(?,?)", m.Name, m.Digest).Error; err != nil {
+			if err := recordMigration(ctx, tx, m.Name, m.Digest); err != nil {
 				return err
 			}
 		}
@@ -73,18 +76,14 @@ func Migrate(db *gorm.DB) error {
 	}); err != nil {
 		return err
 	}
-	applied, err := appliedMigrations(db)
-	if err != nil {
-		return err
-	}
-	return applyPending(db, ordered, applied)
+	return applyPending(ctx, db, ordered)
 }
 
 // ApplyMigration applies one SQL migration by body and records it in the
 // ledger, for databases whose migrations run outside the application. The
 // same continuity rules hold: no re-application, no gap, no digest change.
-func ApplyMigration(db *gorm.DB, name, body string) error {
-	if db == nil || db.Config == nil || db.Statement == nil {
+func ApplyMigration(ctx context.Context, db Database, name, body string) error {
+	if ctx == nil || db == nil {
 		return ErrMigrationLedger
 	}
 	ordered := orderedMigrations()
@@ -93,8 +92,11 @@ func ApplyMigration(db *gorm.DB, name, body string) error {
 			return ErrMigrationLedger
 		}
 	}
-	return db.Transaction(func(tx *gorm.DB) error {
-		applied, err := appliedMigrations(tx)
+	return inTransaction(ctx, db, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, func(tx *sql.Tx) error {
+		if err := lockLedger(ctx, tx); err != nil {
+			return err
+		}
+		applied, err := appliedMigrations(ctx, tx)
 		if err != nil {
 			return err
 		}
@@ -107,10 +109,10 @@ func ApplyMigration(db *gorm.DB, name, body string) error {
 		if len(applied) > 0 && name <= applied[len(applied)-1].Name {
 			return ErrMigrationLedger
 		}
-		if err := tx.Exec(body).Error; err != nil {
+		if _, err := tx.ExecContext(ctx, body); err != nil {
 			return fmt.Errorf("migration %s: %w", name, err)
 		}
-		return tx.Exec("INSERT INTO stego_schema.migrations(version,digest) VALUES(?,?)", name, Digest(body)).Error
+		return recordMigration(ctx, tx, name, Digest(body))
 	})
 }
 
@@ -124,19 +126,31 @@ func orderedMigrations() []Migration {
 	return ordered
 }
 
-// appliedMigrations reads the ledger in apply order. It fails closed when
-// the ledger is missing or unreadable.
-func appliedMigrations(db *gorm.DB) ([]Migration, error) {
-	var rows []struct {
-		Name   string
-		Digest string
-	}
-	if err := db.Raw("SELECT version AS name, digest FROM stego_schema.migrations ORDER BY version").Scan(&rows).Error; err != nil {
+// recordMigration writes the ledger row of one migration in its transaction.
+func recordMigration(ctx context.Context, tx *sql.Tx, name, digest string) error {
+	_, err := tx.ExecContext(ctx, "INSERT INTO stego_schema.migrations(version,digest) VALUES($1,$2)", name, digest)
+	return err
+}
+
+// appliedMigrations reads the ledger in apply order: the byte order of the
+// version, as orderedMigrations sorts the names, whatever the collation of
+// the database. It fails closed when the ledger is missing or unreadable.
+func appliedMigrations(ctx context.Context, tx *sql.Tx) ([]Migration, error) {
+	rows, err := tx.QueryContext(ctx, "SELECT version, digest FROM stego_schema.migrations ORDER BY version COLLATE \"C\"")
+	if err != nil {
 		return nil, ErrMigrationLedger
 	}
-	applied := make([]Migration, len(rows))
-	for i, row := range rows {
-		applied[i] = Migration{Name: row.Name, Digest: row.Digest}
+	defer rows.Close()
+	var applied []Migration
+	for rows.Next() {
+		var row Migration
+		if err := rows.Scan(&row.Name, &row.Digest); err != nil {
+			return nil, ErrMigrationLedger
+		}
+		applied = append(applied, row)
+	}
+	if rows.Err() != nil {
+		return nil, ErrMigrationLedger
 	}
 	return applied, nil
 }
@@ -156,23 +170,43 @@ func checkLedger(applied, registered []Migration) error {
 	return nil
 }
 
-// applyPending applies migrations after the recorded history, each with
-// its ledger row in one transaction.
-func applyPending(db *gorm.DB, ordered, applied []Migration) error {
-	if err := checkLedger(applied, ordered); err != nil {
-		return err
-	}
-	for _, m := range ordered[len(applied):] {
-		if err := db.Transaction(func(tx *gorm.DB) error {
-			if err := m.Func(tx); err != nil {
+// applyPending applies the migrations after the recorded history, one
+// transaction each, at read committed whatever the default isolation of the
+// database is, so each statement takes its snapshot after the ledger lock is
+// granted: it takes the ledger lock, reads the ledger again,
+// refuses a ledger that is not a prefix of the registered history, and
+// applies the next migration with its ledger row. A migration that another
+// job applied in the meantime is not applied again.
+func applyPending(ctx context.Context, db Database, ordered []Migration) error {
+	for {
+		done := false
+		if err := inTransaction(ctx, db, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, func(tx *sql.Tx) error {
+			if err := lockLedger(ctx, tx); err != nil {
+				return err
+			}
+			applied, err := appliedMigrations(ctx, tx)
+			if err != nil {
+				return err
+			}
+			if err := checkLedger(applied, ordered); err != nil {
+				return err
+			}
+			if len(applied) == len(ordered) {
+				done = true
+				return nil
+			}
+			m := ordered[len(applied)]
+			if err := m.Func(ctx, tx); err != nil {
 				return fmt.Errorf("migration %s: %w", m.Name, err)
 			}
-			return tx.Exec("INSERT INTO stego_schema.migrations(version,digest) VALUES(?,?)", m.Name, m.Digest).Error
+			return recordMigration(ctx, tx, m.Name, m.Digest)
 		}); err != nil {
 			return err
 		}
+		if done {
+			return nil
+		}
 	}
-	return nil
 }
 
 func init() {

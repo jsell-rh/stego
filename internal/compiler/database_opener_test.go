@@ -18,7 +18,6 @@ import (
 func TestDatabaseOpenerValidation(t *testing.T) {
 	for _, change := range []func(*gen.Wiring){
 		func(w *gen.Wiring) { w.NeedsDB = false },
-		func(w *gen.Wiring) { w.DBBackend = "unknown" },
 		func(w *gen.Wiring) { w.DatabaseOpener.Namespace = "../storage" },
 		func(w *gen.Wiring) { w.DatabaseOpener.Namespace = "other" },
 		func(w *gen.Wiring) { w.DatabaseOpener.Function = "Open();panic(1)" },
@@ -40,10 +39,9 @@ func databaseOpenerFixture() *gen.Wiring {
 }
 
 func TestDatabaseOpenerAssembly(t *testing.T) {
-	for _, backend := range []string{"", "gorm"} {
+	{
 		for _, used := range []bool{false, true} {
 			w := databaseOpenerFixture()
-			w.DBBackend = backend
 			if used {
 				w.Routes = []string{`mux.Handle("/",store)`}
 			}
@@ -57,10 +55,7 @@ func TestDatabaseOpenerAssembly(t *testing.T) {
 					if strings.Contains(s, "storage.OpenDatabase(dsn)") != used {
 						t.Fatal("database opener consumption differs from its resource")
 					}
-					if used && backend == "gorm" && (!strings.Contains(s, "postgres.Config{Conn: sqlDB}") || !strings.Contains(s, "defer sqlDB.Close()")) {
-						t.Fatal("GORM did not use the owned pool")
-					}
-					if used && backend == "" && strings.Contains(s, `"database/sql"`) {
+					if used && strings.Contains(s, `"database/sql"`) {
 						t.Fatal("custom SQL opener added an unused SQL import")
 					}
 				}
@@ -79,26 +74,21 @@ func TestDatabaseOpenerUsesRenamedImport(t *testing.T) {
 
 func TestDatabasePoolClosesOnStartupFailure(t *testing.T) {
 	t.Parallel()
-	for _, backend := range []string{"sql", "gorm"} {
-		t.Run(backend, func(t *testing.T) { testDatabaseStartupFailure(t, backend, false) })
-	}
+	testDatabaseStartupFailure(t, false)
 }
 
 func TestIndependentDatabasePoolClosesOnStartupFailure(t *testing.T) {
 	t.Parallel()
-	testDatabaseStartupFailure(t, "sql", true)
+	testDatabaseStartupFailure(t, true)
 }
 
-func testDatabaseStartupFailure(t *testing.T, backend string, independent bool) {
+func testDatabaseStartupFailure(t *testing.T, independent bool) {
 	w := databaseOpenerFixture()
-	if backend == "gorm" {
-		w.DBBackend = "gorm"
-	}
 	w.Imports = []string{"internal/postgres"}
 	w.Constructors = []string{"postgres.NewStore(db)"}
 	w.DatabaseOpener.Namespace = "internal/postgres"
 	w.Routes = []string{`mux.Handle("/",store)`}
-	w.GoModRequires = map[string]string{"gorm.io/gorm": "v1.25.12", "gorm.io/driver/postgres": "v1.5.11", "github.com/jackc/pgx/v5": "v5.11.0"}
+	w.GoModRequires = map[string]string{"github.com/jackc/pgx/v5": "v5.11.0"}
 	wirings := []ComponentWiring{{Name: "store", Wiring: w}}
 	if independent {
 		w.Routes = nil
@@ -109,9 +99,9 @@ func testDatabaseStartupFailure(t *testing.T, backend string, independent bool) 
 		t.Fatal(err)
 	}
 	storeSource := `package postgres
-import("context";"database/sql";"database/sql/driver";"errors";"net/http";"os";"time";"gorm.io/gorm")
+import("context";"database/sql";"database/sql/driver";"errors";"net/http";"os";"time")
 type Store struct{}
-func NewStore(*gorm.DB)*Store{return &Store{}}
+func NewStore(*sql.DB)*Store{return &Store{}}
 func(*Store)ServeHTTP(http.ResponseWriter,*http.Request){}
 func OpenDatabase(dsn string)(*sql.DB,error){if dsn!="private-database-url"{return nil,errors.New("wrong configuration source")};return sql.OpenDB(connector{}),nil}
 type connector struct{}
@@ -129,10 +119,6 @@ func(connection)Ping(ctx context.Context)error{
 }
 func(connection)Close()error{return os.WriteFile(os.Getenv("POOL_CLOSED"),[]byte("closed"),0600)}
 `
-	if backend == "sql" {
-		storeSource = strings.ReplaceAll(storeSource, `;"gorm.io/gorm"`, "")
-		storeSource = strings.ReplaceAll(storeSource, "*gorm.DB", "*sql.DB")
-	}
 	files = append(files, gen.File{Path: "internal/postgres/store.go", Content: []byte(storeSource)})
 	if independent {
 		files = append(files, gen.File{Path: "reader/reader.go", Content: []byte(`package reader
@@ -194,15 +180,14 @@ func(*Reader)Run(ctx context.Context)error{<-ctx.Done();return ctx.Err()}
 }
 
 func TestDatabaseOpenerWithIndependentConsumer(t *testing.T) {
-	for _, backend := range []string{"sql", "gorm"} {
-		t.Run(backend, func(t *testing.T) {
+	{
+		t.Run("sql", func(t *testing.T) {
 			factory := databaseOpenerFixture()
-			factory.DBBackend = "gorm"
 			factory.Imports = []string{"internal/context", "unused"}
 			factory.Constructors = []string{"context.NewStore(db)"}
 			factory.DatabaseOpener.Namespace = "internal/context"
 			factory.PostDBCalls = []string{"context.Migrate(db)"}
-			reader := &gen.Wiring{Imports: []string{"reader"}, Constructors: []string{"reader.NewReader()"}, ConstructorResources: map[int][]gen.Resource{0: {gen.SQLDatabase}}, BackgroundTasks: []int{0}, DBBackend: backend}
+			reader := &gen.Wiring{Imports: []string{"reader"}, Constructors: []string{"reader.NewReader()"}, ConstructorResources: map[int][]gen.Resource{0: {gen.SQLDatabase}}, BackgroundTasks: []int{0}}
 			files, err := Assemble(AssemblerInput{ModuleName: "example.com/pool", GoVersion: "1.26.11", Wirings: []ComponentWiring{{Name: "factory", Wiring: factory}, {Name: "reader", Wiring: reader}}})
 			if err != nil {
 				t.Fatal(err)
@@ -231,9 +216,6 @@ func TestDatabaseOpenerWithIndependentConsumer(t *testing.T) {
 				if strings.Contains(source, unexpected) {
 					t.Fatal("factory consumed unrelated wiring", unexpected)
 				}
-			}
-			if strings.Contains(source, "gorm.Open(") != (backend == "gorm") {
-				t.Fatal("factory changed the consumer's database backend")
 			}
 		})
 	}

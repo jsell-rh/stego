@@ -86,3 +86,57 @@ func TestStoreRemoved(t *testing.T) {
 		}
 	})
 }
+
+// gormModule is an import or a module requirement of GORM: an import path, or a line of go.mod or go.sum.
+var gormModule = regexp.MustCompile(`gorm\.io/`)
+
+// TestGORMRemoved is the proof that no code of STEGO, of its runtime library or of a generated service needs GORM.
+func TestGORMRemoved(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC39-T03 No source, template, test, module file or example of the tree names a GORM module", func(t *testing.T) {
+		root := filepath.Join("..", "..")
+		files := []string{filepath.Join(root, "go.mod"), filepath.Join(root, "go.sum")}
+		for _, folder := range []string{"internal", "cmd", "registry", "examples", "scripts"} {
+			err := filepath.WalkDir(filepath.Join(root, folder), func(path string, entry fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if entry.IsDir() {
+					if entry.Name() == "node_modules" || entry.Name() == ".git" {
+						return filepath.SkipDir
+					}
+					return nil
+				}
+				name := entry.Name()
+				switch {
+				case strings.HasSuffix(name, ".go"), strings.HasSuffix(name, ".tmpl"), strings.HasSuffix(name, ".sh"),
+					name == "go.mod", name == "go.sum", name == "go.work":
+					files = append(files, path)
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		modules := 0
+		for _, path := range files {
+			data, err := os.ReadFile(path)
+			if os.IsNotExist(err) {
+				continue
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.HasSuffix(path, "go.mod") {
+				modules++
+			}
+			if gormModule.Match(data) {
+				t.Errorf("%s names a GORM module", filepath.ToSlash(path))
+			}
+		}
+		// STEGO's own module, the runtime library and the two examples at least.
+		if modules < 4 {
+			t.Fatalf("the walk read %d go.mod files, want STEGO's, the runtime library's and each example's", modules)
+		}
+	})
+}

@@ -140,7 +140,6 @@ func TestBackupContractManifest(t *testing.T) {
 	// The assembler emits the manifest next to the access artifacts.
 	w := databaseOpenerFixture()
 	w.NeedsDB = true
-	w.DBBackend = "gorm"
 	w.BackupObjects = []gen.BackupObject{table}
 	w.DatabaseAccess = []gen.DatabaseObject{{Schema: "public", Name: "records", Kind: "table", Privileges: []string{"SELECT"}}}
 	files, err := Assemble(AssemblerInput{ModuleName: "example.com/access", GoVersion: "1.26.11", OutDirName: "out", Wirings: []ComponentWiring{{Name: "store", Wiring: w}}})
@@ -159,10 +158,9 @@ func TestBackupContractManifest(t *testing.T) {
 }
 
 func TestDatabaseAccessStartup(t *testing.T) {
-	for _, backend := range []string{"", "gorm"} {
+	{
 		for _, used := range []bool{false, true} {
 			w := databaseOpenerFixture()
-			w.DBBackend = backend
 			w.DatabaseAccess = []gen.DatabaseObject{{Schema: "public", Name: "records", Kind: "table", Privileges: []string{"SELECT"}}}
 			w.VerifyDatabaseAccess = true
 			if used {
@@ -178,9 +176,6 @@ func TestDatabaseAccessStartup(t *testing.T) {
 				}
 				text := string(file.Bytes())
 				call := "stegodatabaseaccess.VerifyRuntime(ctx, db)"
-				if backend == "gorm" {
-					call = "stegodatabaseaccess.VerifyRuntime(ctx, sqlDB)"
-				}
 				if strings.Contains(text, call) != used {
 					t.Fatal("runtime check did not follow database consumption")
 				}

@@ -511,8 +511,8 @@ func generateRuntimeAccess(ctx gen.Context) (gen.File, error) {
 // generation marker, the migration ledger with 001_initial as the SQL of InitialTables and, in a pooled service,
 // the row-level security of the tenancy component after it, and the schema manifest of the tables, which the service
 // runtime checks at startup (ST-SUP-RC01-OC12). It emits no entity model and no store, so data access
-// goes only through the generated commands and queries (ST-SUP-RC01-OC41). The ledger runner takes a *gorm.DB in the
-// migration job; the runtime role gets the grants of ST-SUP-RC27-OC07 and ST-STD-TXN-R03.
+// goes only through the generated commands and queries (ST-SUP-RC01-OC41). The ledger runs on database/sql, on the
+// connection of the migration job; the runtime role gets the grants of ST-SUP-RC27-OC07 and ST-STD-TXN-R03.
 func generateRuntimeData(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	files, err := generateTables(ctx)
 	if err != nil {
@@ -543,24 +543,20 @@ func generateRuntimeData(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 	files = append(files, migrateFile, schemaFile, opener, access, schemaManifest)
-	base := path.Base(ctx.OutputNamespace)
+	// The migration job of the runtime wiring runs the ledger (service.Migrate), so the wiring has no call after
+	// the database opens.
 	wiring := &gen.Wiring{
 		Imports:        []string{ctx.OutputNamespace},
 		NeedsDB:        true,
-		DBBackend:      "gorm",
-		PostDBCalls:    []string{base + ".Migrate(db)"},
 		DatabaseOpener: &gen.DatabaseOpenerSpec{Namespace: ctx.OutputNamespace, Function: "OpenDatabase"},
 		GoModRequires: map[string]string{
 			"github.com/google/uuid":  "v1.6.0",
 			"github.com/jackc/pgx/v5": "v5.11.0",
-			"gorm.io/gorm":            "v1.25.12",
-			"gorm.io/driver/postgres": "v1.5.11",
 		},
 	}
 	entityAccess(ctx, wiring)
 	schemaGenerationAccess(ctx, wiring)
 	if value, _ := ctx.ComponentConfig["migrations"].(string); value == "external" {
-		wiring.PostDBCalls = nil
 		wiring.VerifyDatabaseAccess = true
 	}
 	if err := sealMigrations(ctx.OutputNamespace, files); err != nil {

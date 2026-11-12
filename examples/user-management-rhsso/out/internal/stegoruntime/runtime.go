@@ -18,9 +18,6 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	gormlogger "gorm.io/gorm/logger"
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
 	stegoauthz "github.com/jsell-rh/stego/registry/runtime/authz"
@@ -150,8 +147,6 @@ func parts(afterSlots *api.AfterSlots) service.Parts {
 			return svcauthz.NewRuntime(db, provider, q, nil)
 		},
 		AuditSettings: svcaudit.Settings,
-		// The schema manifest of the tables, which New checks before the service serves (ST-SUP-RC01-OC12).
-		Schema: svcstorage.SchemaManifest,
 		Workers: service.WorkerParts{
 			NewWorker: func(q *outbox.Queue, config outbox.WorkerConfig, sink audit.Sink) (*outbox.Worker, error) {
 				w, err := svcoutbox.NewWorker(q, config, svcoutbox.Ports{AuditSink: sink})
@@ -338,21 +333,12 @@ func Migrate(ctx context.Context) error {
 	}
 	return service.Migrate(ctx, settings, service.Migration{
 		OwnerRole: OwnerRole, RuntimeRole: RuntimeRole, WorkerRole: WorkerRole, PurgeRole: PurgeRole, TenantConfig: svcstorage.TenantConfig,
-		LedgerCheck: func(ctx context.Context, conn *sql.Conn) error { return withLedger(ctx, conn, svcstorage.CheckLedger) },
-		Ledger:      func(ctx context.Context, conn *sql.Conn) error { return withLedger(ctx, conn, svcstorage.Migrate) },
+		LedgerCheck: func(ctx context.Context, conn *sql.Conn) error { return svcstorage.CheckLedger(ctx, conn) },
+		Ledger:      func(ctx context.Context, conn *sql.Conn) error { return svcstorage.Migrate(ctx, conn) },
 		Outbox:      queueText, Audit: auditText, Authorization: authzText,
 		WriteSchema: func(ctx context.Context, conn grpc.ClientConnInterface) error { return svcauthz.WriteSchema(ctx, conn) },
 		Grants:      grants, TenantSchema: tenantSchema,
 	})
-}
-
-// withLedger runs a step of the PostgreSQL adapter's ledger on the migration job's connection.
-func withLedger(ctx context.Context, conn *sql.Conn, step func(*gorm.DB) error) error {
-	ledger, err := gorm.Open(postgres.New(postgres.Config{Conn: conn}), &gorm.Config{Logger: gormlogger.Discard, DisableAutomaticPing: true})
-	if err != nil {
-		return err
-	}
-	return step(ledger.WithContext(ctx))
 }
 
 // MigrationStage gives the stage of a failure of Migrate, such as migrate.ledger_check, which names the step and no

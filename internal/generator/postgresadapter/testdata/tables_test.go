@@ -21,9 +21,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/jsell-rh/stego/registry/runtime/manifest"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 // server opens the PostgreSQL server of STEGO_TEST_POSTGRES_DSN as its administrator and drops the roles of the
@@ -75,19 +72,20 @@ func database(t *testing.T, cfg *pgx.ConnConfig, admin *sql.DB) (*pgx.ConnConfig
 
 // migrate runs the migration job of one release as the owner role, on one connection so that SET ROLE holds for
 // every statement, and then grants the runtime role the access that the adapter declares in accessFile.
-func migrate(t *testing.T, cfg *pgx.ConnConfig, admin *sql.DB, run func(*gorm.DB) error, accessFile string) {
+func migrate(t *testing.T, cfg *pgx.ConnConfig, admin *sql.DB, run func(context.Context, *sql.Conn) error, accessFile string) {
 	t.Helper()
+	ctx := context.Background()
 	job := stdlib.OpenDB(*cfg)
-	job.SetMaxOpenConns(1)
 	defer job.Close()
-	if _, err := job.Exec("SET ROLE " + pgx.Identifier{tenancy.OwnerRole}.Sanitize()); err != nil {
-		t.Fatal(err)
-	}
-	db, err := gorm.Open(postgres.New(postgres.Config{Conn: job}), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	conn, err := job.Conn(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := run(db); err != nil {
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "SET ROLE "+pgx.Identifier{tenancy.OwnerRole}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(ctx, conn); err != nil {
 		t.Fatalf("migrate as the owner role: %v", err)
 	}
 	data, err := os.ReadFile(accessFile)
@@ -270,7 +268,7 @@ func TestTables(t *testing.T) {
 
 	t.Run("ST-SUP-RC01-OC41-T01 The tables are SQL from the declaration, with no store", func(t *testing.T) {
 		freshCfg, fresh := database(t, cfg, admin)
-		migrate(t, freshCfg, fresh, storage.Migrate, "access.json")
+		migrate(t, freshCfg, fresh, func(ctx context.Context, conn *sql.Conn) error { return storage.Migrate(ctx, conn) }, "access.json")
 
 		want := []column{
 			{Name: "tenant_id", Type: "text", NotNull: true, Default: "current_setting('app.tenant'::text)"},
@@ -317,9 +315,9 @@ WHERE i.indrelid = 'public.orders'::regclass`)
 		// The upgraded database: the migration job of the release before this one runs, the service writes a row,
 		// and then the migration job of this release runs on the same database.
 		upgradedCfg, upgraded := database(t, cfg, admin)
-		migrate(t, upgradedCfg, upgraded, previous.Migrate, "access.json")
+		migrate(t, upgradedCfg, upgraded, func(ctx context.Context, conn *sql.Conn) error { return previous.Migrate(ctx, conn) }, "access.json")
 		insertOrder(t, upgraded, "tenant-a", "sku-1")
-		migrate(t, upgradedCfg, upgraded, storage.Migrate, "access.json")
+		migrate(t, upgradedCfg, upgraded, func(ctx context.Context, conn *sql.Conn) error { return storage.Migrate(ctx, conn) }, "access.json")
 		var kept int
 		if err := upgraded.QueryRow(`SELECT count(*) FROM public."orders"`).Scan(&kept); err != nil || kept != 1 {
 			t.Errorf("the upgraded database keeps %d rows, error %v; want 1", kept, err)
@@ -336,7 +334,7 @@ WHERE i.indrelid = 'public.orders'::regclass`)
 
 	t.Run("ST-SUP-RC01-OC41-T02 Each field type and constraint is a column that PostgreSQL holds", func(t *testing.T) {
 		cfg, db := database(t, cfg, admin)
-		migrate(t, cfg, db, widgets.Migrate, "widgets_access.json")
+		migrate(t, cfg, db, func(ctx context.Context, conn *sql.Conn) error { return widgets.Migrate(ctx, conn) }, "widgets_access.json")
 		types := map[string]string{}
 		for _, c := range columns(t, db, "widgets") {
 			types[c.Name] = fmt.Sprint(c.Type, " ", c.NotNull)
@@ -387,7 +385,7 @@ WHERE i.indrelid = 'public.orders'::regclass`)
 	})
 	t.Run("ST-SUP-RC01-OC12-T09 The schema manifest is the model of the migrations, which PostgreSQL holds", func(t *testing.T) {
 		cfg, db := database(t, cfg, admin)
-		migrate(t, cfg, db, widgets.Migrate, "widgets_access.json")
+		migrate(t, cfg, db, func(ctx context.Context, conn *sql.Conn) error { return widgets.Migrate(ctx, conn) }, "widgets_access.json")
 		// The runtime role reads the catalog, as the service runtime does at startup.
 		runtime := cfg.Copy()
 		runtime.User, runtime.Password = tenancy.RuntimeRole, "tables-check"
@@ -402,7 +400,7 @@ WHERE i.indrelid = 'public.orders'::regclass`)
 		}
 		// The bounds of each shape: each CHECK definition of the manifest is the text that PostgreSQL writes.
 		boundsCfg, boundsDB := database(t, cfg, admin)
-		migrate(t, boundsCfg, boundsDB, bounds.Migrate, "bounds_access.json")
+		migrate(t, boundsCfg, boundsDB, func(ctx context.Context, conn *sql.Conn) error { return bounds.Migrate(ctx, conn) }, "bounds_access.json")
 		if _, err := boundsDB.Exec("ALTER ROLE " + pgx.Identifier{tenancy.RuntimeRole}.Sanitize() + " LOGIN PASSWORD 'tables-check'"); err != nil {
 			t.Fatal(err)
 		}

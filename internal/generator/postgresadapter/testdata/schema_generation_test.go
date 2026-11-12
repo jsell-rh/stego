@@ -2,6 +2,7 @@ package storage_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"strings"
@@ -16,12 +17,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
-func schemaDB(t *testing.T) *gorm.DB {
+var bg = context.Background()
+
+func schemaDB(t *testing.T) *sql.DB {
 	t.Helper()
 	dsn := os.Getenv("STEGO_TEST_POSTGRES_DSN")
 	if dsn == "" {
@@ -53,52 +53,54 @@ func schemaDB(t *testing.T) *gorm.DB {
 	pool := stdlib.OpenDB(*cfg)
 	pool.SetMaxOpenConns(4)
 	t.Cleanup(func() { pool.Close() })
-	db, err := gorm.Open(postgres.New(postgres.Config{Conn: pool}), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
-	if err != nil {
+	return pool
+}
+
+// exec runs one statement on db and fails the test on an error.
+func exec(t *testing.T, db *sql.DB, query string, args ...any) {
+	t.Helper()
+	if _, err := db.ExecContext(bg, query, args...); err != nil {
 		t.Fatal(err)
 	}
-	return db
 }
-func noMarker(t *testing.T, db *gorm.DB) {
+func noMarker(t *testing.T, db *sql.DB) {
 	t.Helper()
 	var exists bool
-	if err := db.Raw("SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname='stego_schema')").Scan(&exists).Error; err != nil || exists {
+	if err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname='stego_schema')").Scan(&exists); err != nil || exists {
 		t.Fatal("rejected or interrupted initialization left a schema marker", err)
 	}
 }
-func requireRejected(t *testing.T, db *gorm.DB) {
+func requireRejected(t *testing.T, db *sql.DB) {
 	t.Helper()
 	called := false
-	if !errors.Is(storage.BootstrapSchema(db, func(*gorm.DB) error { called = true; return nil }), storage.ErrSchemaGeneration) || called {
+	if !errors.Is(storage.BootstrapSchema(bg, db, func(context.Context, *sql.Tx) error { called = true; return nil }), storage.ErrSchemaGeneration) || called {
 		t.Fatal("old schema reached initialization")
 	}
-	if err := storage.VerifySchema(db); !errors.Is(err, storage.ErrSchemaGeneration) {
+	if err := storage.VerifySchema(bg, db); !errors.Is(err, storage.ErrSchemaGeneration) {
 		t.Fatal("old schema passed the marker check", err)
 	}
 }
 
 func TestFreshSchemaAndStableRestart(t *testing.T) {
 	db := schemaDB(t)
-	if err := storage.VerifySchema(db); !errors.Is(err, storage.ErrSchemaGeneration) {
+	if err := storage.VerifySchema(bg, db); !errors.Is(err, storage.ErrSchemaGeneration) {
 		t.Fatal("uninitialized database accepted", err)
 	}
-	if err := storage.Migrate(db); err != nil {
+	if err := storage.Migrate(bg, db); err != nil {
 		t.Fatal(err)
 	}
-	if err := storage.VerifySchema(db); err != nil {
+	if err := storage.VerifySchema(bg, db); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Exec("INSERT INTO records(id,name) VALUES(gen_random_uuid(),'kept')").Error; err != nil {
+	exec(t, db, "INSERT INTO records(id,name) VALUES(gen_random_uuid(),'kept')")
+	if err := storage.BootstrapSchema(bg, db, func(context.Context, *sql.Tx) error { return errors.New("completed initialization was replayed") }); err != nil {
 		t.Fatal(err)
 	}
-	if err := storage.BootstrapSchema(db, func(*gorm.DB) error { return errors.New("completed initialization was replayed") }); err != nil {
-		t.Fatal(err)
-	}
-	if err := storage.Migrate(db); err != nil {
+	if err := storage.Migrate(bg, db); err != nil {
 		t.Fatal(err)
 	}
 	var count int64
-	if err := db.Raw("SELECT count(*) FROM records WHERE name='kept'").Scan(&count).Error; err != nil || count != 1 {
+	if err := db.QueryRow("SELECT count(*) FROM records WHERE name='kept'").Scan(&count); err != nil || count != 1 {
 		t.Fatal("restart changed data", err)
 	}
 }
@@ -109,50 +111,44 @@ func TestUnmarkedSchemasRemainUnchanged(t *testing.T) {
 	for _, populated := range []bool{false, true} {
 		t.Run(map[bool]string{false: "empty-table", true: "populated-table"}[populated], func(t *testing.T) {
 			db := schemaDB(t)
-			if err := db.Exec("CREATE TABLE public.records(id text PRIMARY KEY, name text)").Error; err != nil {
-				t.Fatal(err)
-			}
+			exec(t, db, "CREATE TABLE public.records(id text PRIMARY KEY, name text)")
 			if populated {
-				if err := db.Exec("INSERT INTO records(id,name) VALUES('other','kept')").Error; err != nil {
-					t.Fatal(err)
-				}
+				exec(t, db, "INSERT INTO records(id,name) VALUES('other','kept')")
 			}
 			requireRejected(t, db)
-			if !errors.Is(storage.Migrate(db), storage.ErrSchemaGeneration) {
+			if !errors.Is(storage.Migrate(bg, db), storage.ErrSchemaGeneration) {
 				t.Fatal("migration accepted an unmarked schema")
 			}
 			noMarker(t, db)
 			var count int64
-			if err := db.Table("records").Count(&count).Error; err != nil || count != map[bool]int64{false: 0, true: 1}[populated] {
+			if err := db.QueryRow("SELECT count(*) FROM records").Scan(&count); err != nil || count != map[bool]int64{false: 0, true: 1}[populated] {
 				t.Fatal("rejection changed the data", err)
 			}
 		})
 	}
 	for _, setup := range []string{"CREATE SCHEMA unknown", "CREATE TYPE public.unknown AS ENUM('kept')", "CREATE FUNCTION public.unknown() RETURNS integer LANGUAGE SQL AS 'SELECT 1'"} {
 		db := schemaDB(t)
-		if err := db.Exec(setup).Error; err != nil {
-			t.Fatal(err)
-		}
+		exec(t, db, setup)
 		requireRejected(t, db)
 		noMarker(t, db)
 	}
 }
 func TestGenerationAndDefinitionMismatch(t *testing.T) {
 	db := schemaDB(t)
-	if err := storage.Migrate(db); err != nil {
+	if err := storage.Migrate(bg, db); err != nil {
 		t.Fatal(err)
 	}
-	if !errors.Is(future.Migrate(db), future.ErrSchemaGeneration) {
+	if !errors.Is(future.Migrate(bg, db), future.ErrSchemaGeneration) {
 		t.Fatal("future generation accepted")
 	}
-	if !errors.Is(changed.Migrate(db), changed.ErrSchemaGeneration) {
+	if !errors.Is(changed.Migrate(bg, db), changed.ErrSchemaGeneration) {
 		t.Fatal("changed declaration accepted")
 	}
-	if err := storage.VerifySchema(db); err != nil {
+	if err := storage.VerifySchema(bg, db); err != nil {
 		t.Fatal("mismatch changed the original marker", err)
 	}
 	var extra bool
-	if err := db.Raw("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='records' AND column_name='extra')").Scan(&extra).Error; err != nil || extra {
+	if err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='records' AND column_name='extra')").Scan(&extra); err != nil || extra {
 		t.Fatal("mismatch changed the table", err)
 	}
 }
@@ -167,9 +163,10 @@ func TestConcurrentSchemaBootstrap(t *testing.T) {
 		go func() {
 			defer group.Done()
 			<-start
-			failures <- storage.BootstrapSchema(db, func(tx *gorm.DB) error {
+			failures <- storage.BootstrapSchema(bg, db, func(ctx context.Context, tx *sql.Tx) error {
 				calls.Add(1)
-				return tx.Exec("CREATE TABLE public.once_only(value integer)").Error
+				_, err := tx.ExecContext(ctx, "CREATE TABLE public.once_only(value integer)")
+				return err
 			})
 		}()
 	}
@@ -189,28 +186,29 @@ func TestInterruptedSchemaBootstrapCanRetry(t *testing.T) {
 	for _, mode := range []string{"callback-error", "connection-loss"} {
 		t.Run(mode, func(t *testing.T) {
 			db := schemaDB(t)
-			err := storage.BootstrapSchema(db, func(tx *gorm.DB) error {
-				if err := tx.Exec("CREATE TABLE public.interrupted(value integer)").Error; err != nil {
+			err := storage.BootstrapSchema(bg, db, func(ctx context.Context, tx *sql.Tx) error {
+				if _, err := tx.ExecContext(ctx, "CREATE TABLE public.interrupted(value integer)"); err != nil {
 					return err
 				}
 				if mode == "callback-error" {
 					return errors.New("injected initialization error")
 				}
 				var pid int
-				if err := tx.Raw("SELECT pg_catalog.pg_backend_pid()").Scan(&pid).Error; err != nil {
+				if err := tx.QueryRowContext(ctx, "SELECT pg_catalog.pg_backend_pid()").Scan(&pid); err != nil {
 					return err
 				}
-				return db.Exec("SELECT pg_catalog.pg_terminate_backend(?)", pid).Error
+				_, err := db.ExecContext(ctx, "SELECT pg_catalog.pg_terminate_backend($1)", pid)
+				return err
 			})
 			if err == nil {
 				t.Fatal("interrupted initialization passed")
 			}
 			noMarker(t, db)
 			var exists bool
-			if err := db.Raw("SELECT pg_catalog.to_regclass('public.interrupted') IS NOT NULL").Scan(&exists).Error; err != nil || exists {
+			if err := db.QueryRow("SELECT pg_catalog.to_regclass('public.interrupted') IS NOT NULL").Scan(&exists); err != nil || exists {
 				t.Fatal("partial schema survived rollback", err)
 			}
-			if err := storage.Migrate(db); err != nil {
+			if err := storage.Migrate(bg, db); err != nil {
 				t.Fatal("retry failed", err)
 			}
 		})
@@ -218,14 +216,12 @@ func TestInterruptedSchemaBootstrapCanRetry(t *testing.T) {
 }
 func TestUnknownMarkerCannotExecuteView(t *testing.T) {
 	db := schemaDB(t)
-	if err := db.Exec(`CREATE SCHEMA stego_schema; CREATE SEQUENCE public.view_calls;
+	exec(t, db, `CREATE SCHEMA stego_schema; CREATE SEQUENCE public.view_calls;
  CREATE FUNCTION public.marker_side_effect() RETURNS text LANGUAGE plpgsql AS $$BEGIN PERFORM nextval('public.view_calls'); RETURN 'fresh-v1'; END$$;
- CREATE VIEW stego_schema.generation AS SELECT true AS singleton,public.marker_side_effect() AS generation,'unknown'::text AS definition`).Error; err != nil {
-		t.Fatal(err)
-	}
+ CREATE VIEW stego_schema.generation AS SELECT true AS singleton,public.marker_side_effect() AS generation,'unknown'::text AS definition`)
 	requireRejected(t, db)
 	var called bool
-	if err := db.Raw("SELECT is_called FROM public.view_calls").Scan(&called).Error; err != nil || called {
+	if err := db.QueryRow("SELECT is_called FROM public.view_calls").Scan(&called); err != nil || called {
 		t.Fatal("schema check executed an unknown view", err)
 	}
 }
@@ -239,105 +235,101 @@ func TestSchemaMarkerShapeAndPrivileges(t *testing.T) {
 		"ALTER TABLE stego_schema.generation ALTER COLUMN definition TYPE varchar",
 	} {
 		db := schemaDB(t)
-		if err := storage.Migrate(db); err != nil {
+		if err := storage.Migrate(bg, db); err != nil {
 			t.Fatal(err)
 		}
-		if err := db.Exec(statement).Error; err != nil {
-			t.Fatal(err)
-		}
+		exec(t, db, statement)
 		requireRejected(t, db)
 		var generation string
-		if err := db.Raw("SELECT generation FROM stego_schema.generation").Scan(&generation).Error; err != nil || generation != storage.SchemaGeneration {
+		if err := db.QueryRow("SELECT generation FROM stego_schema.generation").Scan(&generation); err != nil || generation != storage.SchemaGeneration {
 			t.Fatal("rejection changed the marker", err)
 		}
 	}
 	db := schemaDB(t)
-	if err := storage.Migrate(db); err != nil {
+	if err := storage.Migrate(bg, db); err != nil {
 		t.Fatal(err)
 	}
 	role := "schema_reader_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	quoted := pgx.Identifier{role}.Sanitize()
-	if err := db.Exec("CREATE ROLE " + quoted + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT").Error; err != nil {
-		t.Fatal(err)
-	}
+	exec(t, db, "CREATE ROLE "+quoted+" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT")
 	t.Cleanup(func() {
 		for _, query := range []string{"REVOKE USAGE ON SCHEMA stego_schema FROM " + quoted, "REVOKE SELECT ON stego_schema.generation FROM " + quoted, "REVOKE SELECT ON stego_schema.identity FROM " + quoted, "DROP ROLE " + quoted} {
-			if err := db.Exec(query).Error; err != nil {
+			if _, err := db.ExecContext(bg, query); err != nil {
 				t.Error(err)
 			}
 		}
 	})
+	// asRole runs step on one connection of db, as the role from SET ROLE, which holds for each transaction on it.
+	asRole := func(step func(conn *sql.Conn)) {
+		t.Helper()
+		conn, err := db.Conn(bg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		if _, err := conn.ExecContext(bg, "SET ROLE "+quoted); err != nil {
+			t.Fatal(err)
+		}
+		step(conn)
+		if _, err := conn.ExecContext(bg, "RESET ROLE"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	checkRole := func(want bool) {
 		t.Helper()
-		if err := db.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Exec("SET LOCAL ROLE " + quoted).Error; err != nil {
-				return err
-			}
-			err := storage.VerifySchema(tx)
+		asRole(func(conn *sql.Conn) {
+			err := storage.VerifySchema(bg, conn)
 			if want && err != nil {
 				t.Error("read-only role cannot verify the schema", err)
 			}
 			if !want && !errors.Is(err, storage.ErrSchemaGeneration) {
 				t.Error("missing marker read permission was accepted", err)
 			}
-			return nil
-		}); err != nil {
-			t.Fatal(err)
-		}
+		})
 	}
 	checkRole(false)
-	if err := db.Exec("GRANT USAGE ON SCHEMA stego_schema TO " + quoted + "; GRANT SELECT ON stego_schema.generation TO " + quoted + "; GRANT SELECT ON stego_schema.identity TO " + quoted).Error; err != nil {
-		t.Fatal(err)
-	}
+	exec(t, db, "GRANT USAGE ON SCHEMA stego_schema TO "+quoted+"; GRANT SELECT ON stego_schema.generation TO "+quoted+"; GRANT SELECT ON stego_schema.identity TO "+quoted)
 	checkRole(true)
-	denied := errors.New("expected marker write denial")
-	err := db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec("SET LOCAL ROLE " + quoted).Error; err != nil {
-			return err
-		}
-		if tx.Exec("UPDATE stego_schema.generation SET generation='other'").Error == nil {
+	asRole(func(conn *sql.Conn) {
+		if _, err := conn.ExecContext(bg, "UPDATE stego_schema.generation SET generation='other'"); err == nil {
 			t.Error("application role can change the marker")
 		}
-		return denied
 	})
-	if !errors.Is(err, denied) {
-		t.Fatal(err)
-	}
-	if err := storage.VerifySchema(db); err != nil {
+	if err := storage.VerifySchema(bg, db); err != nil {
 		t.Fatal("denied write changed the marker", err)
 	}
 }
 
 func TestSchemaBootstrapHonorsShortDeadline(t *testing.T) {
 	db := schemaDB(t)
-	held := db.Begin()
-	if held.Error != nil {
-		t.Fatal(held.Error)
+	held, err := db.BeginTx(bg, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
 	defer held.Rollback()
-	if err := held.Exec("SELECT pg_catalog.pg_advisory_xact_lock(1937007983,1935894637)").Error; err != nil {
+	if _, err := held.ExecContext(bg, "SELECT pg_catalog.pg_advisory_xact_lock(1937007983,1935894637)"); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	called := false
 	start := time.Now()
-	err := storage.BootstrapSchema(db.WithContext(ctx), func(*gorm.DB) error { called = true; return nil })
+	err = storage.BootstrapSchema(ctx, db, func(context.Context, *sql.Tx) error { called = true; return nil })
 	if err == nil || called || time.Since(start) > 2*time.Second {
 		t.Fatal("blocked bootstrap ignored the caller deadline", err)
 	}
-	if err := held.Rollback().Error; err != nil {
+	if err := held.Rollback(); err != nil {
 		t.Fatal(err)
 	}
 	noMarker(t, db)
-	if err := storage.Migrate(db); err != nil {
+	if err := storage.Migrate(bg, db); err != nil {
 		t.Fatal("retry after canceled lock failed", err)
 	}
 }
 
-func ledgerApplied(t *testing.T, db *gorm.DB) []string {
+func ledgerApplied(t *testing.T, db *sql.DB) []string {
 	t.Helper()
-	versions, err := storage.AppliedMigrations(db)
+	versions, err := storage.AppliedMigrations(bg, db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +342,7 @@ func TestMigrationLedgerRecordsBootstrapAndRestart(t *testing.T) {
 
 func testMigrationLedgerRecordsBootstrapAndRestart(t *testing.T) {
 	db := schemaDB(t)
-	if err := storage.Migrate(db); err != nil {
+	if err := storage.Migrate(bg, db); err != nil {
 		t.Fatal(err)
 	}
 	applied := ledgerApplied(t, db)
@@ -363,7 +355,7 @@ func testMigrationLedgerRecordsBootstrapAndRestart(t *testing.T) {
 	}
 	// A restart with the same registrations applies nothing new.
 	before := ledgerApplied(t, db)
-	if err := storage.Migrate(db); err != nil {
+	if err := storage.Migrate(bg, db); err != nil {
 		t.Fatal(err)
 	}
 	after := ledgerApplied(t, db)
@@ -378,13 +370,14 @@ func TestMigrationLedgerAppliesNewRegistrations(t *testing.T) {
 
 func testMigrationLedgerAppliesNewRegistrations(t *testing.T) {
 	db := schemaDB(t)
-	if err := storage.Migrate(db); err != nil {
+	if err := storage.Migrate(bg, db); err != nil {
 		t.Fatal(err)
 	}
-	storage.Register("900_ledger_test", storage.Digest("900_ledger_test probe"), func(db *gorm.DB) error {
-		return db.Exec("CREATE TABLE ledger_probe (id boolean PRIMARY KEY)").Error
+	storage.Register("900_ledger_test", storage.Digest("900_ledger_test probe"), func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, "CREATE TABLE ledger_probe (id boolean PRIMARY KEY)")
+		return err
 	})
-	if err := storage.Migrate(db); err != nil {
+	if err := storage.Migrate(bg, db); err != nil {
 		t.Fatal(err)
 	}
 	found := false
@@ -397,24 +390,32 @@ func testMigrationLedgerAppliesNewRegistrations(t *testing.T) {
 		t.Fatal("new registration was not applied")
 	}
 	// A second run does not re-apply it.
-	if err := storage.Migrate(db); err != nil {
+	if err := storage.Migrate(bg, db); err != nil {
 		t.Fatal(err)
 	}
 	// Re-application is rejected even through the SQL entry point.
-	if err := storage.ApplyMigration(db, "900_ledger_test", "CREATE TABLE ledger_probe (id boolean PRIMARY KEY)"); err == nil {
+	if err := storage.ApplyMigration(bg, db, "900_ledger_test", "CREATE TABLE ledger_probe (id boolean PRIMARY KEY)"); err == nil {
 		t.Fatal("re-application was accepted")
 	}
 }
 
-func ledgerDigests(t *testing.T, db *gorm.DB) map[string]string {
+func ledgerDigests(t *testing.T, db *sql.DB) map[string]string {
 	t.Helper()
-	var rows []struct{ Version, Digest string }
-	if err := db.Raw("SELECT version, digest FROM stego_schema.migrations ORDER BY version").Scan(&rows).Error; err != nil {
+	rows, err := db.Query("SELECT version, digest FROM stego_schema.migrations ORDER BY version")
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer rows.Close()
 	digests := map[string]string{}
-	for _, row := range rows {
-		digests[row.Version] = row.Digest
+	for rows.Next() {
+		var version, digest string
+		if err := rows.Scan(&version, &digest); err != nil {
+			t.Fatal(err)
+		}
+		digests[version] = digest
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
 	}
 	return digests
 }
@@ -422,50 +423,42 @@ func ledgerDigests(t *testing.T, db *gorm.DB) map[string]string {
 func TestMigrationLedgerRejectsGapsAndDrift(t *testing.T) {
 	t.Run("ST-SUP-RC01-OC11-T03 Digest drift and a foreign row are refused", func(t *testing.T) {
 		db := schemaDB(t)
-		if err := storage.Migrate(db); err != nil {
+		if err := storage.Migrate(bg, db); err != nil {
 			t.Fatal(err)
 		}
 		applied := ledgerApplied(t, db)
 		recorded := ledgerDigests(t, db)[applied[0]]
 		// An edited migration changes its digest; the ledger row no longer
 		// matches the registered history and the next run refuses to continue.
-		if err := db.Exec("UPDATE stego_schema.migrations SET digest='tampered' WHERE version=?", applied[0]).Error; err != nil {
-			t.Fatal(err)
-		}
-		if err := storage.Migrate(db); !errors.Is(err, storage.ErrMigrationLedger) {
+		exec(t, db, "UPDATE stego_schema.migrations SET digest='tampered' WHERE version=$1", applied[0])
+		if err := storage.Migrate(bg, db); !errors.Is(err, storage.ErrMigrationLedger) {
 			t.Fatal("digest drift was accepted", err)
 		}
 		// A ledger row for a version the code never registered is a foreign
 		// history; it is rejected rather than trusted.
-		if err := db.Exec("UPDATE stego_schema.migrations SET digest=? WHERE version=?", recorded, applied[0]).Error; err != nil {
-			t.Fatal(err)
-		}
-		if err := db.Exec("INSERT INTO stego_schema.migrations(version,digest) VALUES('zzz_foreign',encode(sha256('zzz_foreign'::bytea),'hex'))").Error; err != nil {
-			t.Fatal(err)
-		}
-		if err := storage.Migrate(db); !errors.Is(err, storage.ErrMigrationLedger) {
+		exec(t, db, "UPDATE stego_schema.migrations SET digest=$1 WHERE version=$2", recorded, applied[0])
+		exec(t, db, "INSERT INTO stego_schema.migrations(version,digest) VALUES('zzz_foreign',encode(sha256('zzz_foreign'::bytea),'hex'))")
+		if err := storage.Migrate(bg, db); !errors.Is(err, storage.ErrMigrationLedger) {
 			t.Fatal("a foreign ledger row was accepted", err)
 		}
 	})
 	t.Run("ST-SUP-RC01-OC11-T04 An edited migration body is refused at startup", func(t *testing.T) {
 		db := schemaDB(t)
-		if err := storage.Migrate(db); err != nil {
+		if err := storage.Migrate(bg, db); err != nil {
 			t.Fatal(err)
 		}
 		// The ledger holds the body digest of an earlier body; the registered
 		// body differs, so startup refuses to continue.
 		applied := ledgerApplied(t, db)
 		before := ledgerDigests(t, db)
-		earlier := storage.Digest("func(db *gorm.DB) error { return nil }")
+		earlier := storage.Digest("func(ctx context.Context, tx *sql.Tx) error { return nil }")
 		for _, version := range applied {
 			if before[version] == storage.Digest(version) {
 				t.Fatal("a migration records the digest of its name", version)
 			}
 		}
-		if err := db.Exec("UPDATE stego_schema.migrations SET digest=? WHERE version=?", earlier, applied[0]).Error; err != nil {
-			t.Fatal(err)
-		}
-		if err := storage.Migrate(db); !errors.Is(err, storage.ErrMigrationLedger) {
+		exec(t, db, "UPDATE stego_schema.migrations SET digest=$1 WHERE version=$2", earlier, applied[0])
+		if err := storage.Migrate(bg, db); !errors.Is(err, storage.ErrMigrationLedger) {
 			t.Fatal("an edited migration was accepted", err)
 		}
 		if got := ledgerDigests(t, db)[applied[0]]; got != earlier {
@@ -476,22 +469,22 @@ func TestMigrationLedgerRejectsGapsAndDrift(t *testing.T) {
 
 func TestApplyMigrationRecordsAndValidates(t *testing.T) {
 	db := schemaDB(t)
-	if err := storage.Migrate(db); err != nil {
+	if err := storage.Migrate(bg, db); err != nil {
 		t.Fatal(err)
 	}
 	body := "CREATE TABLE ledger_external (id boolean PRIMARY KEY)"
-	if err := storage.ApplyMigration(db, "902_ledger_external", body); err != nil {
+	if err := storage.ApplyMigration(bg, db, "902_ledger_external", body); err != nil {
 		t.Fatal(err)
 	}
-	if err := storage.ApplyMigration(db, "902_ledger_external", body); err == nil {
+	if err := storage.ApplyMigration(bg, db, "902_ledger_external", body); err == nil {
 		t.Fatal("external re-application was accepted")
 	}
 	// An edited body on the same version is drift.
-	if err := storage.ApplyMigration(db, "902_ledger_external", "CREATE TABLE ledger_external2 (id boolean PRIMARY KEY)"); err == nil {
+	if err := storage.ApplyMigration(bg, db, "902_ledger_external", "CREATE TABLE ledger_external2 (id boolean PRIMARY KEY)"); err == nil {
 		t.Fatal("digest drift was accepted")
 	}
 	// A version before the recorded history is a rollback.
-	if err := storage.ApplyMigration(db, "000_ledger_rollback", "CREATE TABLE ledger_rollback (id boolean PRIMARY KEY)"); err == nil {
+	if err := storage.ApplyMigration(bg, db, "000_ledger_rollback", "CREATE TABLE ledger_rollback (id boolean PRIMARY KEY)"); err == nil {
 		t.Fatal("a rolled-back version was accepted")
 	}
 	found := false
@@ -503,4 +496,145 @@ func TestApplyMigrationRecordsAndValidates(t *testing.T) {
 	if !found {
 		t.Fatal("external migration was not recorded")
 	}
+}
+
+// TestMigrationLedgerAppliesOnceInOrder runs the migration job four times at once on a database whose ledger
+// holds the bootstrap, with migrations registered out of their name order, and with two names whose byte order
+// is not the order of a linguistic collation such as en_US.
+func TestMigrationLedgerAppliesOnceInOrder(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC11-T05 Concurrent migration jobs apply each migration once and in name order", func(t *testing.T) {
+		db := schemaDB(t)
+		if err := storage.Migrate(bg, db); err != nil {
+			t.Fatal(err)
+		}
+		insert := func(name string) storage.MigrationFunc {
+			return func(ctx context.Context, tx *sql.Tx) error {
+				_, err := tx.ExecContext(ctx, "INSERT INTO ledger_runs(name) VALUES($1)", name)
+				return err
+			}
+		}
+		// Registered after the migrations that need its table: the apply order is the name order.
+		storage.Register("980_x_z", storage.Digest("980_x_z probe"), insert("980_x_z"))
+		storage.Register("980_xy", storage.Digest("980_xy probe"), insert("980_xy"))
+		storage.Register("950_ledger_runs", storage.Digest("950_ledger_runs probe"), func(ctx context.Context, tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, "CREATE TABLE ledger_runs(seq bigserial PRIMARY KEY, name text NOT NULL); INSERT INTO ledger_runs(name) VALUES('950_ledger_runs')")
+			return err
+		})
+		var group sync.WaitGroup
+		start := make(chan struct{})
+		failures := make(chan error, 4)
+		for i := 0; i < 4; i++ {
+			group.Add(1)
+			go func() {
+				defer group.Done()
+				<-start
+				failures <- storage.Migrate(bg, db)
+			}()
+		}
+		close(start)
+		group.Wait()
+		close(failures)
+		for err := range failures {
+			if err != nil {
+				t.Fatal("a concurrent migration job failed", err)
+			}
+		}
+		rows, err := db.Query("SELECT name FROM ledger_runs ORDER BY seq")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var runs []string
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				t.Fatal(err)
+			}
+			runs = append(runs, name)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{"950_ledger_runs", "980_x_z", "980_xy"}; strings.Join(runs, ",") != strings.Join(want, ",") {
+			t.Fatalf("the migrations ran %v, want each once in name order %v", runs, want)
+		}
+		applied := ledgerApplied(t, db)
+		if got := strings.Join(applied[len(applied)-3:], ","); got != "950_ledger_runs,980_x_z,980_xy" {
+			t.Fatalf("the ledger reads %v, want the byte order of the names", applied)
+		}
+		// A job after them reads the ledger in the order it was applied and applies nothing.
+		if err := storage.Migrate(bg, db); err != nil {
+			t.Fatal("a later migration job refused the ledger", err)
+		}
+		var count int
+		if err := db.QueryRow("SELECT count(*) FROM ledger_runs").Scan(&count); err != nil || count != 3 {
+			t.Fatal("a later migration job applied a migration again", count, err)
+		}
+	})
+}
+
+// TestMigrationLedgerIgnoresDefaultIsolation runs eight migration jobs at once on a database whose default
+// transaction isolation is repeatable read.
+func TestMigrationLedgerIgnoresDefaultIsolation(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC11-T06 Concurrent migration jobs apply each migration once under a default isolation of repeatable read", func(t *testing.T) {
+		db := schemaDB(t)
+		if err := storage.Migrate(bg, db); err != nil {
+			t.Fatal(err)
+		}
+		var name string
+		if err := db.QueryRow("SELECT current_database()").Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		exec(t, db, "ALTER DATABASE "+pgx.Identifier{name}.Sanitize()+" SET default_transaction_isolation = 'repeatable read'")
+		// A new pool, so each connection starts with the setting of the database.
+		cfg, err := pgx.ParseConfig(os.Getenv("STEGO_TEST_POSTGRES_DSN"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.Database = name
+		jobs := stdlib.OpenDB(*cfg)
+		jobs.SetMaxOpenConns(8)
+		t.Cleanup(func() { jobs.Close() })
+		var isolation string
+		if err := jobs.QueryRow("SHOW default_transaction_isolation").Scan(&isolation); err != nil || isolation != "repeatable read" {
+			t.Fatal("the database does not default to repeatable read", isolation, err)
+		}
+		storage.Register("990_rr_runs", storage.Digest("990_rr_runs probe"), func(ctx context.Context, tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, "CREATE TABLE rr_runs(seq bigserial PRIMARY KEY, name text NOT NULL); INSERT INTO rr_runs(name) VALUES('990_rr_runs')")
+			return err
+		})
+		storage.Register("991_rr_next", storage.Digest("991_rr_next probe"), func(ctx context.Context, tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, "INSERT INTO rr_runs(name) VALUES('991_rr_next')")
+			return err
+		})
+		var group sync.WaitGroup
+		start := make(chan struct{})
+		failures := make(chan error, 8)
+		for i := 0; i < 8; i++ {
+			group.Add(1)
+			go func() {
+				defer group.Done()
+				<-start
+				conn, err := jobs.Conn(bg)
+				if err != nil {
+					failures <- err
+					return
+				}
+				defer conn.Close()
+				failures <- storage.Migrate(bg, conn)
+			}()
+		}
+		close(start)
+		group.Wait()
+		close(failures)
+		for err := range failures {
+			if err != nil {
+				t.Fatal("a concurrent migration job failed under repeatable read", err)
+			}
+		}
+		var runs string
+		if err := db.QueryRow("SELECT string_agg(name, ',' ORDER BY seq) FROM rr_runs").Scan(&runs); err != nil || runs != "990_rr_runs,991_rr_next" {
+			t.Fatalf("the migrations ran %q (%v), want each once in name order", runs, err)
+		}
+	})
 }

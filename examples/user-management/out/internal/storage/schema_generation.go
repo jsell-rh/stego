@@ -9,7 +9,6 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 	"time"
 )
 
@@ -18,21 +17,42 @@ const SchemaDefinition = "389aee52eeb822e1af503d129e715128852729c979954674879c9b
 
 var ErrSchemaGeneration = errors.New("database schema generation is not supported")
 
+// Database is the database/sql handle that the schema marker and the migration ledger run on: a *sql.DB pool, or
+// one *sql.Conn, on which a session setting such as SET ROLE holds for each transaction. Each step begins its own
+// transaction on it, so a *sql.Tx, which cannot begin one, is not a Database.
+type Database interface {
+	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
+}
+
+// inTransaction runs step in one transaction of db and commits it when step returns nil. It rolls the transaction
+// back on an error and on a panic of step.
+func inTransaction(ctx context.Context, db Database, opts *sql.TxOptions, step func(*sql.Tx) error) error {
+	tx, err := db.BeginTx(ctx, opts)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := step(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // VerifySchema reads the release marker before storage can serve requests.
 // The application role needs SELECT, but must not have schema or table DDL rights.
-func VerifySchema(db *gorm.DB) error {
-	if db == nil || db.Config == nil || db.Statement == nil || db.Statement.Context == nil || db.Error != nil {
+func VerifySchema(ctx context.Context, db Database) error {
+	if ctx == nil || db == nil {
 		return ErrSchemaGeneration
 	}
-	ctx, cancel := context.WithTimeout(db.Statement.Context, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		found, err := readSchemaGeneration(tx)
+	return inTransaction(ctx, db, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelReadCommitted}, func(tx *sql.Tx) error {
+		found, err := readSchemaGeneration(ctx, tx)
 		if err != nil || !found {
 			return ErrSchemaGeneration
 		}
 		return nil
-	}, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelReadCommitted})
+	})
 }
 
 // ErrMigrationLedger reports a migration ledger that does not match the
@@ -42,19 +62,25 @@ var ErrMigrationLedger = errors.New("migration ledger mismatch")
 
 // AppliedMigrations returns the recorded migration versions in apply order.
 // It reads only and fails closed when the ledger is absent.
-func AppliedMigrations(db *gorm.DB) ([]string, error) {
-	if db == nil || db.Config == nil || db.Statement == nil || db.Statement.Context == nil || db.Error != nil {
+func AppliedMigrations(ctx context.Context, db Database) ([]string, error) {
+	if ctx == nil || db == nil {
 		return nil, ErrMigrationLedger
 	}
-	ctx, cancel := context.WithTimeout(db.Statement.Context, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	var rows []struct{ Version string }
-	if err := db.WithContext(ctx).Raw("SELECT version FROM stego_schema.migrations ORDER BY version").Scan(&rows).Error; err != nil {
+	var versions []string
+	if err := inTransaction(ctx, db, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelReadCommitted}, func(tx *sql.Tx) error {
+		applied, err := appliedMigrations(ctx, tx)
+		if err != nil {
+			return err
+		}
+		versions = make([]string, 0, len(applied))
+		for _, row := range applied {
+			versions = append(versions, row.Name)
+		}
+		return nil
+	}); err != nil {
 		return nil, ErrMigrationLedger
-	}
-	versions := make([]string, 0, len(rows))
-	for _, row := range rows {
-		versions = append(versions, row.Version)
 	}
 	return versions, nil
 }
@@ -62,24 +88,21 @@ func AppliedMigrations(db *gorm.DB) ([]string, error) {
 // BootstrapSchema initializes only an empty database. All callback statements
 // must use the supplied transaction and must not commit it. A complete marker
 // and the schema commit together. A retry does not repeat a completed callback.
-func BootstrapSchema(db *gorm.DB, initialize func(*gorm.DB) error) error {
-	if db == nil || db.Config == nil || db.Statement == nil || db.Statement.Context == nil || db.Error != nil || initialize == nil {
+func BootstrapSchema(ctx context.Context, db Database, initialize func(context.Context, *sql.Tx) error) error {
+	if ctx == nil || db == nil || initialize == nil {
 		return ErrSchemaGeneration
 	}
-	if _, nested := db.Statement.ConnPool.(gorm.TxCommitter); nested {
-		return ErrSchemaGeneration
-	}
-	ctx, cancel := context.WithTimeout(db.Statement.Context, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if tx.Exec("SET LOCAL lock_timeout='5000'; SET LOCAL statement_timeout='25000'").Error != nil {
+	return inTransaction(ctx, db, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, "SET LOCAL lock_timeout='5000'; SET LOCAL statement_timeout='25000'"); err != nil {
 			return ErrSchemaGeneration
 		}
 		// A database-wide transaction lock covers inspection and initialization.
-		if tx.Exec("SELECT pg_catalog.pg_advisory_xact_lock(1937007983,1935894637)").Error != nil {
+		if err := lockLedger(ctx, tx); err != nil {
 			return ErrSchemaGeneration
 		}
-		found, err := readSchemaGeneration(tx)
+		found, err := readSchemaGeneration(ctx, tx)
 		if err != nil {
 			return err
 		}
@@ -87,14 +110,14 @@ func BootstrapSchema(db *gorm.DB, initialize func(*gorm.DB) error) error {
 			return nil
 		}
 		var empty bool
-		err = tx.Raw(`SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('public','information_schema') AND nspname NOT LIKE 'pg\_%' ESCAPE '\')
+		err = tx.QueryRowContext(ctx, `SELECT NOT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('public','information_schema') AND nspname NOT LIKE 'pg\_%' ESCAPE '\')
    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public')
    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public')
-   AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='public')`).Scan(&empty).Error
+   AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='public')`).Scan(&empty)
 		if err != nil || !empty {
 			return ErrSchemaGeneration
 		}
-		if tx.Exec(`CREATE SCHEMA stego_schema AUTHORIZATION CURRENT_USER;
+		if _, err := tx.ExecContext(ctx, `CREATE SCHEMA stego_schema AUTHORIZATION CURRENT_USER;
    REVOKE ALL ON SCHEMA stego_schema FROM PUBLIC;
    CREATE TABLE stego_schema.generation(singleton boolean PRIMARY KEY CHECK(singleton),generation text NOT NULL,definition text NOT NULL);
    REVOKE ALL ON TABLE stego_schema.generation FROM PUBLIC;
@@ -103,20 +126,28 @@ func BootstrapSchema(db *gorm.DB, initialize func(*gorm.DB) error) error {
    CREATE SEQUENCE stego_schema.epoch_seq AS bigint MAXVALUE 9223372036854775807;
    REVOKE ALL ON SEQUENCE stego_schema.epoch_seq FROM PUBLIC;
    CREATE TABLE stego_schema.migrations(version text PRIMARY KEY,digest text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now());
-   REVOKE ALL ON TABLE stego_schema.migrations FROM PUBLIC`).Error != nil {
+   REVOKE ALL ON TABLE stego_schema.migrations FROM PUBLIC`); err != nil {
 			return ErrSchemaGeneration
 		}
-		if tx.Exec("INSERT INTO stego_schema.identity(singleton,database_id) VALUES(true,?)", databaseUUID()).Error != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO stego_schema.identity(singleton,database_id) VALUES(true,$1)", databaseUUID()); err != nil {
 			return ErrSchemaGeneration
 		}
-		if err := initialize(tx); err != nil {
+		if err := initialize(ctx, tx); err != nil {
 			return err
 		}
-		if tx.Exec("INSERT INTO stego_schema.generation(singleton,generation,definition) VALUES(true,?,?)", SchemaGeneration, SchemaDefinition).Error != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO stego_schema.generation(singleton,generation,definition) VALUES(true,$1,$2)", SchemaGeneration, SchemaDefinition); err != nil {
 			return ErrSchemaGeneration
 		}
 		return nil
-	}, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	})
+}
+
+// lockLedger takes the database-wide transaction lock of the schema marker and the migration ledger. The bootstrap
+// and each later migration take it first, so two migration jobs that run at the same time apply each migration once
+// and in order: the second job waits, then reads the ledger that the first one committed.
+func lockLedger(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, "SELECT pg_catalog.pg_advisory_xact_lock(1937007983,1935894637)")
+	return err
 }
 
 // An unmarked schema is eligible only for the separate empty-database check.
@@ -125,9 +156,9 @@ func BootstrapSchema(db *gorm.DB, initialize func(*gorm.DB) error) error {
 // the bootstrap transaction so every database receives one value.
 func databaseUUID() string { return uuid.NewString() }
 
-func readSchemaGeneration(db *gorm.DB) (bool, error) {
+func readSchemaGeneration(ctx context.Context, tx *sql.Tx) (bool, error) {
 	var schemaExists bool
-	if db.Raw("SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname='stego_schema')").Scan(&schemaExists).Error != nil {
+	if tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname='stego_schema')").Scan(&schemaExists) != nil {
 		return false, ErrSchemaGeneration
 	}
 	if !schemaExists {
@@ -136,7 +167,7 @@ func readSchemaGeneration(db *gorm.DB) (bool, error) {
 	// An identity table is required; a database without one cannot be checked
 	// for restore-induced rollback and fails closed.
 	var identityShape bool
-	if err := db.Raw(`SELECT EXISTS(
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
   SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
   WHERE n.nspname='stego_schema' AND c.relname='identity' AND c.relkind='r' AND c.relpersistence='p'
   AND NOT c.relrowsecurity AND NOT c.relforcerowsecurity AND NOT c.relispartition
@@ -149,7 +180,7 @@ func readSchemaGeneration(db *gorm.DB) (bool, error) {
     OR (a.attname='database_id' AND a.atttypid='pg_catalog.text'::pg_catalog.regtype)))=2
   AND EXISTS(SELECT 1 FROM pg_catalog.pg_class s JOIN pg_catalog.pg_namespace sn ON sn.oid=s.relnamespace
    WHERE sn.nspname='stego_schema' AND s.relname='epoch_seq' AND s.relkind='S' AND s.relpersistence='p')
- )`).Scan(&identityShape).Error; err != nil || !identityShape {
+ )`).Scan(&identityShape); err != nil || !identityShape {
 		return false, ErrSchemaGeneration
 	}
 
@@ -157,7 +188,7 @@ func readSchemaGeneration(db *gorm.DB) (bool, error) {
 	// applied schema changes and fails closed. Its only permitted non-owner
 	// grants are SELECT and INSERT: the runner records, never edits.
 	var ledgerShape bool
-	if err := db.Raw(`SELECT EXISTS(
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
   SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
   WHERE n.nspname='stego_schema' AND c.relname='migrations' AND c.relkind='r' AND c.relpersistence='p'
   AND NOT c.relrowsecurity AND NOT c.relforcerowsecurity AND NOT c.relispartition
@@ -169,14 +200,14 @@ func readSchemaGeneration(db *gorm.DB) (bool, error) {
    AND ((a.attname='version' AND a.atttypid='pg_catalog.text'::pg_catalog.regtype)
     OR (a.attname='digest' AND a.atttypid='pg_catalog.text'::pg_catalog.regtype)
     OR (a.attname='applied_at' AND a.atttypid='pg_catalog.timestamptz'::pg_catalog.regtype)))=3
- )`).Scan(&ledgerShape).Error; err != nil || !ledgerShape {
+ )`).Scan(&ledgerShape); err != nil || !ledgerShape {
 		return false, ErrSchemaGeneration
 	}
-	if db.Exec("LOCK TABLE stego_schema.generation IN ACCESS SHARE MODE; LOCK TABLE stego_schema.identity IN ACCESS SHARE MODE").Error != nil {
+	if _, err := tx.ExecContext(ctx, "LOCK TABLE stego_schema.generation IN ACCESS SHARE MODE; LOCK TABLE stego_schema.identity IN ACCESS SHARE MODE"); err != nil {
 		return false, ErrSchemaGeneration
 	}
 	var safe bool
-	err := db.Raw(`SELECT EXISTS(
+	err := tx.QueryRowContext(ctx, `SELECT EXISTS(
   SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
   WHERE n.nspname='stego_schema' AND c.relname='generation' AND c.relkind='r'
   AND c.relpersistence='p' AND NOT c.relrowsecurity AND NOT c.relforcerowsecurity AND NOT c.relispartition
@@ -188,15 +219,25 @@ func readSchemaGeneration(db *gorm.DB) (bool, error) {
   AND (SELECT count(*) FROM pg_catalog.pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped AND a.attnotnull
    AND ((a.attname='singleton' AND a.atttypid='pg_catalog.bool'::pg_catalog.regtype)
     OR (a.attname IN ('generation','definition') AND a.atttypid='pg_catalog.text'::pg_catalog.regtype)))=3
- )`).Scan(&safe).Error
+ )`).Scan(&safe)
 	if err != nil || !safe {
 		return false, ErrSchemaGeneration
 	}
-	var rows []struct {
-		Singleton              bool
-		Generation, Definition string
+	rows, err := tx.QueryContext(ctx, "SELECT singleton,generation,definition FROM stego_schema.generation LIMIT 2")
+	if err != nil {
+		return false, ErrSchemaGeneration
 	}
-	if db.Raw("SELECT singleton,generation,definition FROM stego_schema.generation LIMIT 2").Scan(&rows).Error != nil || len(rows) != 1 || !rows[0].Singleton || rows[0].Generation != SchemaGeneration || rows[0].Definition != SchemaDefinition {
+	defer rows.Close()
+	marked := 0
+	for rows.Next() {
+		var singleton bool
+		var generation, definition string
+		if rows.Scan(&singleton, &generation, &definition) != nil || !singleton || generation != SchemaGeneration || definition != SchemaDefinition {
+			return false, ErrSchemaGeneration
+		}
+		marked++
+	}
+	if rows.Err() != nil || marked != 1 {
 		return false, ErrSchemaGeneration
 	}
 	return true, nil

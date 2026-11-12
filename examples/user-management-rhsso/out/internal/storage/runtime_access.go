@@ -3,9 +3,10 @@
 package storage
 
 import (
+	"context"
+	"database/sql"
 	"errors"
-
-	"gorm.io/gorm"
+	"strings"
 
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
@@ -40,33 +41,39 @@ var declaredTables = []string{"organizations", "users", "org_settings"}
 // CheckLedger reads the database and refuses it, with ErrForeignTables, when its ledger is not a prefix of the
 // migrations of this release, or when it has no ledger and holds a table of the declaration. It writes nothing; the
 // migration job calls it before its first write (ST-SUP-RC01-OC41).
-func CheckLedger(db *gorm.DB) error {
-	var ledger bool
-	if err := db.Raw("SELECT to_regclass('stego_schema.migrations') IS NOT NULL").Scan(&ledger).Error; err != nil {
-		return err
+func CheckLedger(ctx context.Context, db Database) error {
+	if ctx == nil || db == nil {
+		return ErrMigrationLedger
 	}
-	if !ledger {
-		var found int64
-		if err := db.Raw("SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename IN ?", declaredTables).Scan(&found).Error; err != nil {
+	return inTransaction(ctx, db, &sql.TxOptions{ReadOnly: true}, func(tx *sql.Tx) error {
+		var ledger bool
+		if err := tx.QueryRowContext(ctx, "SELECT pg_catalog.to_regclass('stego_schema.migrations') IS NOT NULL").Scan(&ledger); err != nil {
 			return err
 		}
-		if found > 0 {
+		if !ledger {
+			var found int64
+			if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = ANY(pg_catalog.string_to_array($1, ','))",
+				strings.Join(declaredTables, ",")).Scan(&found); err != nil {
+				return err
+			}
+			if found > 0 {
+				return ErrForeignTables
+			}
+			return nil
+		}
+		applied, err := appliedMigrations(ctx, tx)
+		if err != nil {
+			return err
+		}
+		registered := orderedMigrations()
+		if len(applied) > len(registered) {
 			return ErrForeignTables
+		}
+		for i, row := range applied {
+			if row.Name != registered[i].Name || row.Digest != registered[i].Digest {
+				return ErrForeignTables
+			}
 		}
 		return nil
-	}
-	applied, err := appliedMigrations(db)
-	if err != nil {
-		return err
-	}
-	registered := orderedMigrations()
-	if len(applied) > len(registered) {
-		return ErrForeignTables
-	}
-	for i, row := range applied {
-		if row.Name != registered[i].Name || row.Digest != registered[i].Digest {
-			return ErrForeignTables
-		}
-	}
-	return nil
+	})
 }
