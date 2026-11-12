@@ -651,6 +651,14 @@ class ReleasePublishing(unittest.TestCase):
             self.assertEqual(jobs["publish-release"]["if"],
                              "${{ needs.suites.result == 'success' && needs.gate-release.outputs.passed == 'true' }}")
             self.assertNotIn("continue-on-error", jobs["publish-release"])
+            # The pull request workflows cancel only the older run of the same pull request: a push to main and a
+            # dispatch each have a group of their own, so no run on main is cancelled or replaced.
+            for name in ["checks.yml", "runtime-library.yml", "spec.yml"]:
+                concurrency = workflow(name)["concurrency"]
+                self.assertEqual(concurrency["group"], "${{ github.workflow }}-${{ github.event_name == 'push' && github.sha"
+                                 " || github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number)"
+                                 " || github.run_id }}", name)
+                self.assertEqual(concurrency["cancel-in-progress"], "${{ github.event_name == 'pull_request' }}", name)
             # A push has a concurrency group of its own, so no newer push replaces an older commit's pending run.
             for name in ["proof-run.yml", "compiler-artifact.yml", "checks.yml"]:
                 self.assertIn("github.event_name == 'push' && github.sha", workflow(name)["concurrency"]["group"],

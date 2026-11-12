@@ -17,9 +17,10 @@ permissions:
   contents: read
 
 concurrency:
-  # A push has a group of its own: release qualification needs the checks run of each commit on main, and a newer
-  # push must not replace the pending run of an older one. New pull requests can replace obsolete checks.
-  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  # A push to main has a group of its own commit: release qualification needs the checks run of each commit on
+  # main, and a newer push must not replace the pending run of an older one. A dispatch has a group of its own run.
+  # Only a pull request shares its group, by its number, so a newer push to it cancels its older run.
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
