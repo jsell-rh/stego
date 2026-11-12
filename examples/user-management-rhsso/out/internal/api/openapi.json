@@ -423,7 +423,7 @@
             }
           },
           "409": {
-            "description": "Conflict — optimistic concurrency check failed"
+            "description": "Conflict — the row of the key changed during the request"
           }
         }
       }

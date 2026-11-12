@@ -34,14 +34,14 @@ last_applied:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261112071418-a9e8a88c271f
+        module_version: v0.0.0-20261112090209-54b6bb1adb3c
         vcs: git
-        revision: a9e8a88c271f9ad6d3a138b1b900496d23b36b75
+        revision: 54b6bb1adb3c98ed9476c162d990b903ef6a2989
         source_state: clean
     service_name: user-management
     service_hash: e12b2dedf65be6fa32a1eadd2693d5fe4a9c91fcb5f5e848bbcc80184df111d0
     registry_sha: env-override
-    registry_content_sha256: 6081b3d96e3779be33c45ceadff0220a6fca40882164620efda17d0e92eaa5b5
+    registry_content_sha256: a736f9a0e14abd157615d1da1d527d94ad14989eaed271c528aa42d697faf7bc
     components:
         audit-log:
             version: 1.0.0
@@ -71,8 +71,8 @@ last_applied:
             version: 1.0.1
             sha: d125ad82ad3c2635d53e93493a8d1f4b65ec6fedcb10fa44cc7ed3103e577a54
         rest-api:
-            version: 4.0.0
-            sha: 4575b3ab7d4ae1a7d7cefbcfc800fd59e2c392d36e45a2694ed16b92abbd84ff
+            version: 4.1.0
+            sha: 610425bf231a4449b7ab0459a4d4882f42c8033b2782b4f084f08a72d5ef44cc
         spicedb-authz:
             version: 1.0.0
             sha: e46e1e85a2676de44a569688ce225f1f347e56319bf0f3f5953a10d6632b9e23
@@ -141,14 +141,14 @@ last_applied:
         internal/api/data/entities.go: 99123a5cedacf6f1fa65d62614bec877f5ca9c32a4d565e8271bed54135a3da8
         internal/api/data/views.go: f48599447266a8acddd00423efdfbda2f3d3ad19b853d6eb08d4c4dc225d3f16
         internal/api/discovery.go: f5dc2a3505da0dc3b98bab336e01b9c22ae67d0a04911d5e964d71b58eeb4edc
-        internal/api/errors.go: ef0a217eac895b508f5c89534d68ab2a4471c729144ec07fb94723ec20062340
-        internal/api/openapi.json: aec24d30569012d18618f9a503db3626f9d8544ddec2d710445f097c2210ad08
+        internal/api/errors.go: 8746d7f2437f9d6409c35b3ce25a67f3b71f5888ad3cdfe721b55663674f2ec7
+        internal/api/openapi.json: 0d457a9140061fbffbcef264169911412e38a797667c70a67cb5981c7288ccb7
         internal/api/org_activity_handler.go: 94dd149cdd0ab85e77d18dcd0d4c3df932addd657c9074a1896e57558d994c2d
-        internal/api/org_settings_handler.go: a4b41e7eb766f5ce5e2192f6514bca8ade5d81b717ccf898a3c1087143813a99
+        internal/api/org_settings_handler.go: b3f1907085c7483499fbbe760eb4d1412cfc113039d9176dc616ed002f5326cc
         internal/api/org_users_handler.go: 644fac174b1159ba4060ab3e1be40884a9e9a95c8754d40ba8cf4d5c580a8018
         internal/api/organizations_handler.go: f9c8707be521f11e06eac535c7444052997a0fce7913f1a4d50b6f0613996069
         internal/api/router.go: d6124ed4af38af0415a23e5bfcc77ada26e18fe0cea5cf71dee839d28ff93fa6
-        internal/api/runtime.go: a26553e13c22e4d05e33da0736a6328b0eb38e725617fa344d77ff341edbd414
+        internal/api/runtime.go: e970a9f833c0b37ccb65273656abfc3cff2718646a3a182ba2e9fe36ce7b5375
         internal/api/user_activity_handler.go: dc745f774b96cff99ae9fa5e7548ee53c73720aabc649c3c4b6054afc78c622b
         internal/api/validation.go: df178f48fa19a0702e37c90b401f6ba0079a1d279ce54ad5d48cc1deee29cf7d
         internal/auditlog/audit.go: 7fa2142f0f392775f4e230cef051034f050d33723732be342d1ae8eed40364fc

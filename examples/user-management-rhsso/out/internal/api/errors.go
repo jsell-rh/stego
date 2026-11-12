@@ -135,8 +135,10 @@ func errorForStatus(status int, detail string) *ServiceError {
 		category = "AUZ"
 	case http.StatusNotFound:
 		category = "NTF"
-	case http.StatusConflict:
+	case http.StatusConflict, http.StatusPreconditionFailed:
 		category = "CNF"
+	case http.StatusPreconditionRequired:
+		category = "VAL"
 	}
 	return &ServiceError{
 		Type:   "https://api.example.com/errors/" + statusToSlug(status),
@@ -159,6 +161,10 @@ func statusToSlug(status int) string {
 		return "not-found"
 	case http.StatusConflict:
 		return "conflict"
+	case http.StatusPreconditionFailed:
+		return "precondition-failed"
+	case http.StatusPreconditionRequired:
+		return "precondition-required"
 	default:
 		return "internal-error"
 	}

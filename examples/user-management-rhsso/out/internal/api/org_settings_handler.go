@@ -219,6 +219,8 @@ func (h *OrgSettingsHandler) Upsert(w http.ResponseWriter, r *http.Request) {
 	req := h.rt.commandRequest(r, b, requestKey(requestID), fingerprint, requestID, body, "")
 	var persisted OrgSetting
 	result, err := command.Run(r.Context(), h.rt.Commands, orgSettingsUpsertCommand, req, decodeOrgSettings, func(ctx context.Context, orgsetting OrgSetting, ch *command.Handle[struct{}]) (idempotency.Response, error) {
+		var serverBlank OrgSetting
+		orgsetting.Generation = serverBlank.Generation
 		orgsetting.OrgID = scope
 		repo, err := data.OrgSettingRepository(ch)
 		if err != nil {
