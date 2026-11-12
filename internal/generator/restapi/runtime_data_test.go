@@ -708,3 +708,46 @@ func TestUpsertGateSeesNoServerField(t *testing.T) {
 		}
 	})
 }
+
+func TestSlotsSeeCanonicalRefs(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC24-T08 The decode of a body gives each ref in lower case, before the before and validate slots see it", func(t *testing.T) {
+		ctx := crudContext()
+		// books takes folder_id from the body; it gets a validate gate, a patch of folder_id and a before_patch gate.
+		for i := range ctx.Collections {
+			if ctx.Collections[i].Name == "books" {
+				ctx.Collections[i].Operations = append(ctx.Collections[i].Operations, types.OpPatch)
+				ctx.Collections[i].Patchable = []string{"folder_id", "title"}
+			}
+		}
+		ctx.SlotBindings = append(ctx.SlotBindings, types.SlotDeclaration{Slot: "validate", Collection: "books", Gate: []string{"book-gate"}},
+			types.SlotDeclaration{Slot: "before_patch", Collection: "books", Gate: []string{"book-patch-gate"}})
+		source := string(crudFiles(t, ctx)["api/books_handler.go"])
+		section := func(start, end string) string {
+			i := strings.Index(source, start)
+			if i < 0 {
+				t.Fatalf("the books handler has no %q:\n%s", start, source)
+			}
+			j := strings.Index(source[i:], end)
+			if j < 0 {
+				t.Fatalf("the books handler has no %q after %q", end, start)
+			}
+			return source[i : i+j]
+		}
+		decode := section("func decodeBooks(", "\n}\n")
+		if !strings.Contains(decode, "book.FolderID = canonicalID(book.FolderID)") {
+			t.Errorf("the decode of a books body does not give folder_id in lower case:\n%s", decode)
+		}
+		patch := section("func decodeBooksPatch(", "\n}\n")
+		if !strings.Contains(patch, "*patch.FolderID = canonicalID(*patch.FolderID)") {
+			t.Errorf("the decode of a books patch does not give folder_id in lower case:\n%s", patch)
+		}
+		for _, handler := range []string{"Create", "Update", "Patch"} {
+			body := section("func (h *BooksHandler) "+handler+"(", "\n}\n")
+			run := strings.Index(body, "command.Run(")
+			gate := strings.Index(body, ".Evaluate(ctx, ")
+			if gate < 0 || run < 0 || !strings.Contains(body[run:gate], "decodeBooks") {
+				t.Errorf("the %s handler of books does not give the gate the value of the decode:\n%s", handler, body)
+			}
+		}
+	})
+}
