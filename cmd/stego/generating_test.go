@@ -94,7 +94,7 @@ func generatingProject(t *testing.T, declaration string) {
 	writeProjectFile(t, "service.yaml", declaration)
 }
 
-func writeProjectFile(t *testing.T, name, data string) {
+func writeProjectFile(t testing.TB, name, data string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {
 		t.Fatal(err)

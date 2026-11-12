@@ -51,7 +51,7 @@ func skipUnlessPinned(t *testing.T, err error) {
 	}
 }
 
-func git(t *testing.T, directory string, args ...string) string {
+func git(t testing.TB, directory string, args ...string) string {
 	t.Helper()
 	command := exec.Command("git", append([]string{"-c", "user.name=STEGO", "-c", "user.email=stego@example.test", "-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main"}, args...)...)
 	command.Dir = directory
@@ -503,7 +503,7 @@ func buildSource(t *testing.T) (string, string) {
 }
 
 // buildSourceIn commits the project of buildSource in the folder root.
-func buildSourceIn(t *testing.T, root string) (string, string) {
+func buildSourceIn(t testing.TB, root string) (string, string) {
 	t.Helper()
 	project := filepath.Join(root, "source")
 	registry := filepath.Join(root, "registry")
@@ -547,6 +547,41 @@ func buildSourceIn(t *testing.T, root string) (string, string) {
 	return project, git(t, project, "rev-parse", "HEAD")
 }
 
+// sourceRecorder is the testing.TB of recordedSource: a fatal failure records its message and ends the goroutine
+// of the source, not the test.
+type sourceRecorder struct {
+	testing.TB
+	failure string
+}
+
+func (r *sourceRecorder) Helper() {}
+
+func (r *sourceRecorder) Fatal(args ...any) {
+	r.failure = fmt.Sprint(args...)
+	runtime.Goexit()
+}
+
+func (r *sourceRecorder) Fatalf(format string, args ...any) {
+	r.failure = fmt.Sprintf(format, args...)
+	runtime.Goexit()
+}
+
+// recordedSource makes the project of buildSource and gives the error of a step that failed, in place of failing t.
+func recordedSource(t *testing.T) (string, string, error) {
+	recorder := &sourceRecorder{TB: t}
+	var source, revision string
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		source, revision = buildSourceIn(recorder, t.TempDir())
+	}()
+	<-done
+	if recorder.failure != "" || source == "" {
+		return "", "", fmt.Errorf("the source of the build: %s", recorder.failure)
+	}
+	return source, revision, nil
+}
+
 func buildArgs(source, revision, goTool, work, output, cache string) []string {
 	return []string{"--source", source, "--revision", revision, "--target", "out/internal/api/tiny", "--go", goTool, "--work", work, "--output", output, "--module-cache", cache}
 }
@@ -582,7 +617,8 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 	// The test runs stego build through the binary, with the environment of each run given, so it can run in
 	// parallel with the other tests of the binary.
 	t.Parallel()
-	source, revision := buildSource(t)
+	// The source is made through a recorder, so its failure too is the outcome of each check below.
+	source, revision, sourceErr := recordedSource(t)
 	goTool := pinnedGo(t)
 	root := t.TempDir()
 	// A build keeps its work folders, which hold the read-only module
@@ -609,8 +645,13 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 			t.Fatal(setupErr)
 		}
 	}
-	err := stegoBuild(t, nil, "download", "--source", source, "--revision", revision, "--target", "out/internal/api/tiny", "--go", goTool, "--output", cache)
-	if err != nil && strings.Contains(err.Error(), "is not the pinned official release") {
+	err := sourceErr
+	if err == nil {
+		err = stegoBuild(t, nil, "download", "--source", source, "--revision", revision, "--target", "out/internal/api/tiny", "--go", goTool, "--output", cache)
+	}
+	if err == sourceErr && err != nil {
+		setupErr = err
+	} else if err != nil && strings.Contains(err.Error(), "is not the pinned official release") {
 		notPinned = fmt.Sprintf("the Go SDK of this run is not the pinned one; set STEGO_TEST_PINNED_GO: %v", err)
 	} else if err != nil {
 		setupErr = fmt.Errorf("download: %v", err)
