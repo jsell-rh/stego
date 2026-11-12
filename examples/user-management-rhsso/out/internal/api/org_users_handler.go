@@ -139,6 +139,7 @@ func decodeOrgUsers(bodyBytes []byte) (User, error) {
 		return User{}, &invalidRequest{problem: BadRequest("the body does not decode into User")}
 	}
 	user.ID = ""
+	user.OrgID = canonicalID(user.OrgID)
 	return user, nil
 }
 
@@ -247,7 +248,6 @@ func (h *OrgUsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 			return idempotency.Response{}, err
 		}
 		var parents []command.Ref
-		user.OrgID = canonicalID(user.OrgID)
 		{
 			refs, err := data.OrganizationRepository(ch)
 			if err != nil {
@@ -368,7 +368,6 @@ func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 		user.ID = id
 		user.OrgID = stored.OrgID
 		var parents []command.Ref
-		user.OrgID = canonicalID(user.OrgID)
 		if user.OrgID != stored.OrgID {
 			refs, err := data.OrganizationRepository(ch)
 			if err != nil {
@@ -613,7 +612,6 @@ func (h *OrgUsersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 		}
 		user.OrgID = stored.OrgID
 		var parents []command.Ref
-		user.OrgID = canonicalID(user.OrgID)
 		if user.OrgID != stored.OrgID {
 			refs, err := data.OrganizationRepository(ch)
 			if err != nil {
