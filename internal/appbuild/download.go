@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -20,6 +22,7 @@ import (
 
 	"golang.org/x/mod/modfile"
 	"golang.org/x/mod/module"
+	"golang.org/x/mod/sumdb"
 	"golang.org/x/mod/sumdb/dirhash"
 	modzip "golang.org/x/mod/zip"
 )
@@ -68,6 +71,131 @@ const RuntimeFolder = "registry/runtime"
 // tests of ST-BLD-UC02-R05 build their fixture from RuntimeModule,
 // so a difference fails them.
 const RuntimeModule = "github.com/jsell-rh/stego/registry/runtime"
+
+// runtimePins are the runtime pins of STEGO's own registry, by version: the
+// go.sum hash of the module zip that each archetype in registry/archetypes
+// pins (ST-SUP-INV10). The binary carries them, so a source revision cannot
+// add one. The go.mod hash needs no entry: the go.mod is in the zip, so the
+// zip hash fixes it. A test holds this table equal to the archetypes'
+// pins; a moved pin changes it in the same change (ST-BLD-UC02-R05).
+var runtimePins = map[string]string{
+	"v0.33.0": "h1:c9lAEB7bGEsp675Z15yfeTB7ZxjVv3A1uCEILMW//kM=",
+}
+
+// RuntimePins gives a copy of the runtime pins that this binary trusts, by
+// version.
+func RuntimePins() map[string]string {
+	pins := make(map[string]string, len(runtimePins))
+	for version, sum := range runtimePins {
+		pins[version] = sum
+	}
+	return pins
+}
+
+// runtimeTrust is what a runtime folder must also match: the pins the binary
+// carries, and the hash that the sum database knows, if it knows one.
+type runtimeTrust struct {
+	pins   map[string]string
+	lookup func(ctx context.Context, path, version string) (sum string, found bool, err error)
+}
+
+// defaultRuntimeTrust is the trust of a real download: the built-in pins and
+// sum.golang.org.
+func defaultRuntimeTrust() runtimeTrust {
+	return runtimeTrust{pins: runtimePins, lookup: lookupSumDB}
+}
+
+// errSumDBInconsistent is a sum database answer that its signed tree does not
+// prove. It refuses the runtime folder; any other lookup error does not.
+var errSumDBInconsistent = errors.New("the sum database is not consistent")
+
+// sumDBKey is the public key of sum.golang.org, the key the go command uses.
+const sumDBKey = "sum.golang.org+033de0ae+Ac4zctda0e5eza+HJyk9SxEdh+s3Ux18htTTAD8OuAn8"
+
+// lookupSumDB asks sum.golang.org for the go.sum hash of module@version and
+// checks the answer against the signed tree of the database. It gives
+// found false when the database does not know the module, as for a version
+// that is not released.
+func lookupSumDB(ctx context.Context, path, version string) (string, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	ops := &sumDBOps{ctx: ctx, config: map[string][]byte{"key": []byte(sumDBKey)}, cache: map[string][]byte{}}
+	lines, err := sumdb.NewClient(ops).Lookup(path, version)
+	if ops.security != "" {
+		return "", false, fmt.Errorf("%w: %s", errSumDBInconsistent, ops.security)
+	}
+	if ops.notFound {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) == 3 && fields[0] == path && fields[1] == version {
+			return fields[2], true, nil
+		}
+	}
+	return "", false, fmt.Errorf("the sum database gives no hash for %s %s", path, version)
+}
+
+// sumDBOps is the client side of one sum database lookup: it keeps the
+// signed tree and the tiles in memory and reads the rest over HTTPS.
+type sumDBOps struct {
+	ctx      context.Context
+	config   map[string][]byte
+	cache    map[string][]byte
+	notFound bool
+	security string
+}
+
+func (o *sumDBOps) ReadRemote(path string) ([]byte, error) {
+	request, err := http.NewRequestWithContext(o.ctx, http.MethodGet, "https://sum.golang.org"+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
+	if err != nil {
+		return nil, err
+	}
+	if strings.HasPrefix(path, "/lookup/") && (response.StatusCode == http.StatusNotFound || response.StatusCode == http.StatusGone) {
+		o.notFound = true
+	}
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("sum database %s: %s", path, response.Status)
+	}
+	return data, nil
+}
+
+func (o *sumDBOps) ReadConfig(file string) ([]byte, error) {
+	return o.config[file], nil
+}
+
+func (o *sumDBOps) WriteConfig(file string, old, new []byte) error {
+	if !bytes.Equal(o.config[file], old) {
+		return sumdb.ErrWriteConflict
+	}
+	o.config[file] = new
+	return nil
+}
+
+func (o *sumDBOps) ReadCache(file string) ([]byte, error) {
+	if data, ok := o.cache[file]; ok {
+		return data, nil
+	}
+	return nil, os.ErrNotExist
+}
+
+func (o *sumDBOps) WriteCache(file string, data []byte) { o.cache[file] = data }
+
+func (o *sumDBOps) Log(string) {}
+
+func (o *sumDBOps) SecurityError(message string) { o.security = message }
 
 // maxGoModBytes limits a go.mod file that STEGO reads.
 const maxGoModBytes = 1 << 20
@@ -164,7 +292,7 @@ func Download(ctx context.Context, options DownloadOptions) (*ModuleCacheRecord,
 	if err != nil {
 		return nil, err
 	}
-	served, err := stageRuntimeFolder(filepath.Join(snapshot, filepath.FromSlash(RuntimeFolder)), pin, sums, modSums, filepath.Join(root, "runtime-proxy"), filepath.Join(root, "tmp"))
+	served, err := stageRuntimeFolder(ctx, filepath.Join(snapshot, filepath.FromSlash(RuntimeFolder)), pin, sums, modSums, filepath.Join(root, "runtime-proxy"), filepath.Join(root, "tmp"), defaultRuntimeTrust())
 	if err != nil {
 		return nil, err
 	}
@@ -174,8 +302,9 @@ func Download(ctx context.Context, options DownloadOptions) (*ModuleCacheRecord,
 			return nil, err
 		}
 	}
-	// Download every module with the fixed environment. The Go toolchain
-	// checks every zip against the sum database and go.sum.
+	// Download every module with the fixed environment. The go command checks
+	// every zip against go.sum, and asks the sum database only about a module
+	// that go.sum does not list.
 	if _, err = capture(ctx, module, env, o.Go, "mod", "download"); err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -329,7 +458,7 @@ func runtimePin(name string) (*moduleVersion, error) {
 // version, the hash go.sum states and the hash it found. It gives nil when
 // go.mod requires no runtime library or the source holds no runtime folder;
 // the public proxy then supplies every module.
-func stageRuntimeFolder(folder string, pin *moduleVersion, sums, modSums map[moduleVersion]string, proxy, scratch string) (*moduleVersion, error) {
+func stageRuntimeFolder(ctx context.Context, folder string, pin *moduleVersion, sums, modSums map[moduleVersion]string, proxy, scratch string, trust runtimeTrust) (*moduleVersion, error) {
 	if pin == nil {
 		return nil, nil
 	}
@@ -381,6 +510,26 @@ func stageRuntimeFolder(folder string, pin *moduleVersion, sums, modSums map[mod
 	if found != stated {
 		return nil, fmt.Errorf("module %s %s differs from go.sum: go.sum states %s, the runtime folder %s is %s", pin.path, pin.version, stated, RuntimeFolder, found)
 	}
+	// go.sum is part of the source revision, so it alone cannot make the
+	// folder the pin: the folder must also be a pin of STEGO's own registry
+	// that this binary carries.
+	pinned, ok := trust.pins[pin.version]
+	if !ok {
+		return nil, fmt.Errorf("module %s %s: the runtime folder %s is %s, but STEGO's registry pins no runtime library at %s; expected one of the pins %s", pin.path, pin.version, RuntimeFolder, found, pin.version, pinList(trust.pins))
+	}
+	if found != pinned {
+		return nil, fmt.Errorf("module %s %s differs from STEGO's registry pin: the pin is %s, the runtime folder %s is %s", pin.path, pin.version, pinned, RuntimeFolder, found)
+	}
+	// The sum database may know a released version. A hash it knows must be
+	// the same. A version it does not know, or a database that cannot be
+	// reached, leaves the registry pin as the check.
+	known, foundKnown, lookupErr := trust.lookup(ctx, pin.path, pin.version)
+	if errors.Is(lookupErr, errSumDBInconsistent) {
+		return nil, fmt.Errorf("module %s %s: %w", pin.path, pin.version, lookupErr)
+	}
+	if lookupErr == nil && foundKnown && known != found {
+		return nil, fmt.Errorf("module %s %s differs from the sum database: sum.golang.org states %s, the runtime folder %s is %s", pin.path, pin.version, known, RuntimeFolder, found)
+	}
 	modData, err := zipGoMod(zipPath, *pin)
 	if err != nil {
 		return nil, err
@@ -416,6 +565,16 @@ func stageRuntimeFolder(folder string, pin *moduleVersion, sums, modSums map[mod
 		return nil, err
 	}
 	return pin, nil
+}
+
+// pinList names the pins, in version order, for an error.
+func pinList(pins map[string]string) string {
+	names := make([]string, 0, len(pins))
+	for version, sum := range pins {
+		names = append(names, version+" "+sum)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
 }
 
 // checkPlainTree refuses a folder that holds a link or a special file, at any
@@ -477,13 +636,17 @@ func zipGoMod(zipPath string, pin moduleVersion) ([]byte, error) {
 // public module proxy. The go command asks the public proxy only for a module
 // that the runtime proxy does not hold.
 func withRuntimeProxy(env []string, proxy string) ([]string, error) {
+	// The go command splits GOPROXY at ',' and '|' before it parses each
+	// URL, so these cannot be escaped; the URL form escapes '%', '?' and '#',
+	// which the go command would decode or cut.
 	if !filepath.IsAbs(proxy) || strings.ContainsAny(proxy, ",|") {
 		return nil, fmt.Errorf("the runtime proxy folder %s cannot be named in GOPROXY", proxy)
 	}
+	location := (&url.URL{Scheme: "file", Path: filepath.ToSlash(proxy)}).String()
 	result := make([]string, 0, len(env))
 	for _, value := range env {
 		if strings.HasPrefix(value, "GOPROXY=") {
-			value = "GOPROXY=file://" + filepath.ToSlash(proxy) + "," + ProxySource
+			value = "GOPROXY=" + location + "," + ProxySource
 		}
 		result = append(result, value)
 	}

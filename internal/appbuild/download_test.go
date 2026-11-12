@@ -2,10 +2,13 @@ package appbuild
 
 import (
 	"archive/zip"
+	"context"
 	"errors"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -145,14 +148,23 @@ func runtimeFixture(t *testing.T, folder, version string) (string, string) {
 	return sum, modSum
 }
 
+// fixtureTrust trusts the fixture's pin, and its sum database knows no
+// version.
+func fixtureTrust(t *testing.T, version string) runtimeTrust {
+	t.Helper()
+	sum, _ := runtimeFixture(t, filepath.Join(t.TempDir(), "runtime"), version)
+	return runtimeTrust{pins: map[string]string{version: sum}, lookup: func(context.Context, string, string) (string, bool, error) { return "", false, nil }}
+}
+
 func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 	const version = "v0.99.0"
 	pin := &moduleVersion{RuntimeModule, version}
+	trust := fixtureTrust(t, version)
 	t.Run("ST-BLD-UC02-R05-T05 A runtime folder that hashes to the pin is staged in the proxy layout, and no folder or no pin stages nothing", func(t *testing.T) {
 		folder := filepath.Join(t.TempDir(), "runtime")
 		sum, modSum := runtimeFixture(t, folder, version)
 		proxy := filepath.Join(t.TempDir(), "proxy")
-		served, err := stageRuntimeFolder(folder, pin, map[moduleVersion]string{*pin: sum}, map[moduleVersion]string{*pin: modSum}, proxy, t.TempDir())
+		served, err := stageRuntimeFolder(context.Background(), folder, pin, map[moduleVersion]string{*pin: sum}, map[moduleVersion]string{*pin: modSum}, proxy, t.TempDir(), trust)
 		if err != nil || served == nil || *served != *pin {
 			t.Fatalf("the matching folder served %v: %v", served, err)
 		}
@@ -165,10 +177,10 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 		if err != nil || string(mod) != "module "+RuntimeModule+"\n\ngo 1.26\n" {
 			t.Fatalf("the served go.mod is %q: %v", mod, err)
 		}
-		if served, err := stageRuntimeFolder(folder, nil, nil, nil, filepath.Join(t.TempDir(), "proxy"), t.TempDir()); served != nil || err != nil {
+		if served, err := stageRuntimeFolder(context.Background(), folder, nil, nil, nil, filepath.Join(t.TempDir(), "proxy"), t.TempDir(), trust); served != nil || err != nil {
 			t.Fatalf("a module that requires no runtime library was served %v: %v", served, err)
 		}
-		if served, err := stageRuntimeFolder(filepath.Join(t.TempDir(), "none"), pin, nil, nil, filepath.Join(t.TempDir(), "proxy"), t.TempDir()); served != nil || err != nil {
+		if served, err := stageRuntimeFolder(context.Background(), filepath.Join(t.TempDir(), "none"), pin, nil, nil, filepath.Join(t.TempDir(), "proxy"), t.TempDir(), trust); served != nil || err != nil {
 			t.Fatalf("a source with no runtime folder was served %v: %v", served, err)
 		}
 	})
@@ -178,7 +190,7 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 		wrong := "h1:" + strings.Repeat("A", 43) + "="
 		for name, sums := range map[string][2]string{"zip": {wrong, modSum}, "go.mod": {sum, wrong}} {
 			proxy := filepath.Join(t.TempDir(), "proxy")
-			served, err := stageRuntimeFolder(folder, pin, map[moduleVersion]string{*pin: sums[0]}, map[moduleVersion]string{*pin: sums[1]}, proxy, t.TempDir())
+			served, err := stageRuntimeFolder(context.Background(), folder, pin, map[moduleVersion]string{*pin: sums[0]}, map[moduleVersion]string{*pin: sums[1]}, proxy, t.TempDir(), trust)
 			if err == nil || served != nil {
 				t.Fatalf("a folder whose %s differs from go.sum was served", name)
 			}
@@ -191,7 +203,7 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 				t.Errorf("a refused %s left the proxy folder", name)
 			}
 		}
-		served, err := stageRuntimeFolder(folder, pin, map[moduleVersion]string{}, map[moduleVersion]string{*pin: modSum}, filepath.Join(t.TempDir(), "proxy"), t.TempDir())
+		served, err := stageRuntimeFolder(context.Background(), folder, pin, map[moduleVersion]string{}, map[moduleVersion]string{*pin: modSum}, filepath.Join(t.TempDir(), "proxy"), t.TempDir(), trust)
 		if err == nil || served != nil || !strings.Contains(err.Error(), "states no hash") {
 			t.Fatalf("a pin that go.sum states no hash for was served %v: %v", served, err)
 		}
@@ -205,7 +217,7 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 			t.Fatal(err)
 		}
 		proxy := filepath.Join(t.TempDir(), "proxy")
-		served, err := stageRuntimeFolder(folder, pin, map[moduleVersion]string{*pin: sum}, map[moduleVersion]string{*pin: modSum}, proxy, t.TempDir())
+		served, err := stageRuntimeFolder(context.Background(), folder, pin, map[moduleVersion]string{*pin: sum}, map[moduleVersion]string{*pin: modSum}, proxy, t.TempDir(), trust)
 		if err == nil || served != nil || !strings.Contains(err.Error(), "probe/secret.go") {
 			t.Fatalf("a folder that holds a link was served %v: %v", served, err)
 		}
@@ -213,12 +225,94 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 		if err := os.Symlink(folder, linked); err != nil {
 			t.Fatal(err)
 		}
-		served, err = stageRuntimeFolder(linked, pin, map[moduleVersion]string{*pin: sum}, map[moduleVersion]string{*pin: modSum}, proxy, t.TempDir())
+		served, err = stageRuntimeFolder(context.Background(), linked, pin, map[moduleVersion]string{*pin: sum}, map[moduleVersion]string{*pin: modSum}, proxy, t.TempDir(), trust)
 		if err == nil || served != nil {
 			t.Fatalf("a runtime folder that is a link was served %v: %v", served, err)
 		}
 		if _, statErr := os.Lstat(proxy); !errors.Is(statErr, os.ErrNotExist) {
 			t.Error("a refused folder left the proxy folder")
+		}
+	})
+	t.Run("ST-BLD-UC02-R05-T06 A folder that go.sum agrees with is refused when it is not STEGO's registry pin, or when the sum database knows another hash", func(t *testing.T) {
+		folder := filepath.Join(t.TempDir(), "runtime")
+		sum, modSum := runtimeFixture(t, folder, version)
+		sums, modSums := map[moduleVersion]string{*pin: sum}, map[moduleVersion]string{*pin: modSum}
+		other := "h1:" + strings.Repeat("C", 43) + "="
+		none := func(context.Context, string, string) (string, bool, error) { return "", false, nil }
+		for name, case_ := range map[string]struct {
+			trust runtimeTrust
+			parts []string
+		}{
+			"a pin that differs":       {runtimeTrust{pins: map[string]string{version: other}, lookup: none}, []string{version, sum, other}},
+			"no pin at the version":    {runtimeTrust{pins: map[string]string{"v0.1.0": other}, lookup: none}, []string{version, sum, "v0.1.0 " + other}},
+			"a sum database hash":      {runtimeTrust{pins: map[string]string{version: sum}, lookup: func(context.Context, string, string) (string, bool, error) { return other, true, nil }}, []string{version, sum, other, "sum.golang.org"}},
+			"an inconsistent database": {runtimeTrust{pins: map[string]string{version: sum}, lookup: func(context.Context, string, string) (string, bool, error) { return "", false, errSumDBInconsistent }}, []string{version, "not consistent"}},
+		} {
+			proxy := filepath.Join(t.TempDir(), "proxy")
+			served, err := stageRuntimeFolder(context.Background(), folder, pin, sums, modSums, proxy, t.TempDir(), case_.trust)
+			if err == nil || served != nil {
+				t.Fatalf("a folder with %s was served", name)
+			}
+			for _, part := range case_.parts {
+				if !strings.Contains(err.Error(), part) {
+					t.Errorf("the refusal for %s does not name %s: %v", name, part, err)
+				}
+			}
+			if _, statErr := os.Lstat(proxy); !errors.Is(statErr, os.ErrNotExist) {
+				t.Errorf("the refusal for %s left the proxy folder", name)
+			}
+		}
+		for name, lookup := range map[string]func(context.Context, string, string) (string, bool, error){
+			"the same hash":     func(context.Context, string, string) (string, bool, error) { return sum, true, nil },
+			"an unknown module": none,
+			"no network": func(context.Context, string, string) (string, bool, error) {
+				return "", false, errors.New("dial tcp: no route")
+			},
+		} {
+			served, err := stageRuntimeFolder(context.Background(), folder, pin, sums, modSums, filepath.Join(t.TempDir(), "proxy"), t.TempDir(), runtimeTrust{pins: map[string]string{version: sum}, lookup: lookup})
+			if err != nil || served == nil {
+				t.Errorf("a registry pin with %s from the sum database was refused: %v", name, err)
+			}
+		}
+	})
+	t.Run("ST-BLD-UC02-R05-T05 GOPROXY names the runtime proxy first as an escaped file URL, then the module proxy", func(t *testing.T) {
+		proxy := "/work/p%41?x#y/runtime-proxy"
+		env, err := withRuntimeProxy([]string{"GOFLAGS=", "GOPROXY=" + ProxySource}, proxy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if env[0] != "GOFLAGS=" || !strings.HasPrefix(env[1], "GOPROXY=file://") || !strings.HasSuffix(env[1], ","+ProxySource) || strings.Count(env[1], ",") != 1 {
+			t.Fatalf("the environment is %q; expected the file proxy first, then %s", env, ProxySource)
+		}
+		parsed, err := url.Parse(strings.TrimSuffix(strings.TrimPrefix(env[1], "GOPROXY="), ","+ProxySource))
+		if err != nil || parsed.Scheme != "file" || parsed.Path != proxy || parsed.RawQuery != "" || parsed.Fragment != "" {
+			t.Fatalf("GOPROXY %q names %v, not the folder %s: %v", env[1], parsed, proxy, err)
+		}
+		for _, bad := range []string{"relative/proxy", "/work/a,b", "/work/a|b"} {
+			if _, err := withRuntimeProxy([]string{"GOPROXY=" + ProxySource}, bad); err == nil {
+				t.Errorf("the proxy folder %s was accepted", bad)
+			}
+		}
+	})
+	t.Run("ST-BLD-UC02-R05-T08 The runtime pins that the binary carries are the pins of the archetypes in registry/archetypes", func(t *testing.T) {
+		found := map[string]string{}
+		files, err := filepath.Glob(filepath.Join("..", "..", "registry", "archetypes", "*", "archetype.yaml"))
+		if err != nil || len(files) == 0 {
+			t.Fatalf("no archetype in registry/archetypes: %v", err)
+		}
+		for _, name := range files {
+			data, err := os.ReadFile(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			version, sum := archetypeRuntimePin(t, name, string(data))
+			if previous, ok := found[version]; ok && previous != sum {
+				t.Fatalf("two archetypes pin %s with the hashes %s and %s", version, previous, sum)
+			}
+			found[version] = sum
+		}
+		if !reflect.DeepEqual(found, RuntimePins()) {
+			t.Fatalf("the binary carries the runtime pins %v, but registry/archetypes pins %v; set runtimePins in download.go to the archetypes' pins", RuntimePins(), found)
 		}
 	})
 	t.Run("ST-BLD-UC02-R05-T07 The cache record and the build record name the runtime folder as the source of the pin only", func(t *testing.T) {
@@ -254,4 +348,32 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 			t.Fatal("a module whose hash differs from the cache record was named as from the runtime folder")
 		}
 	})
+}
+
+// archetypeRuntimePin reads the runtime block of an archetype file: the
+// version and the sum lines under runtime:, as registry/archetypes writes
+// them.
+func archetypeRuntimePin(t *testing.T, name, data string) (string, string) {
+	t.Helper()
+	version, sum, inside := "", "", false
+	for _, line := range strings.Split(data, "\n") {
+		if strings.HasPrefix(line, "runtime:") {
+			inside = true
+			continue
+		}
+		if inside && !strings.HasPrefix(line, " ") {
+			inside = false
+		}
+		field := strings.TrimSpace(line)
+		if inside && strings.HasPrefix(field, "version:") {
+			version = strings.TrimSpace(strings.TrimPrefix(field, "version:"))
+		}
+		if inside && strings.HasPrefix(field, "sum:") {
+			sum = strings.Trim(strings.TrimSpace(strings.TrimPrefix(field, "sum:")), "'\"")
+		}
+	}
+	if version == "" || sum == "" {
+		t.Fatalf("%s pins no runtime library with a version and a sum", name)
+	}
+	return version, sum
 }

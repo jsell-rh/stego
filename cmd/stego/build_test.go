@@ -186,20 +186,15 @@ func TestBuildDownloadWritesAStatedRecordedCache(t *testing.T) {
 	})
 }
 
-// runtimeSource commits a module that needs only the runtime library at
-// version, and the common registry's runtime folder that is that version. It
-// gives the repository, its revision and the go.sum hash of the folder's zip.
-// The sum argument, when not empty, is the hash go.sum states for the zip.
-// The download needs no network, since the runtime folder supplies the only
-// module.
-func runtimeSource(t *testing.T, version, sum string, extra ...string) (string, string, string) {
+// commitRuntimeSource commits a module that imports one package of the
+// runtime library at version, with the runtime folder registry/runtime of the
+// files given. go.sum states sum for the zip (the folder's own hash when sum
+// is empty), the folder's go.mod hash, and the lines of goSum. Each link is a
+// link in the runtime folder to a file outside it. It gives the repository,
+// its revision and the hash of the folder's zip.
+func commitRuntimeSource(t *testing.T, files map[string]string, version, sum, goSum, imported string, links ...string) (string, string, string) {
 	t.Helper()
 	folder := filepath.Join(t.TempDir(), "runtime")
-	files := map[string]string{
-		"go.mod":         "module " + registry.RuntimeModule + "\n\ngo 1.26\n",
-		"LICENSE":        "license\n",
-		"probe/probe.go": "package probe\n\n// Ready is true.\nconst Ready = true\n",
-	}
 	for name, data := range files {
 		full := filepath.Join(folder, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
@@ -219,8 +214,8 @@ func runtimeSource(t *testing.T, version, sum string, extra ...string) (string, 
 	}
 	source := map[string]string{
 		"go.mod":           "module example.com/tiny\n\ngo 1.26.11\n\nrequire " + registry.RuntimeModule + " " + version + "\n",
-		"go.sum":           registry.RuntimeModule + " " + version + " " + stated + "\n" + registry.RuntimeModule + " " + version + "/go.mod " + archive.ModSum + "\n",
-		"cmd/tiny/main.go": "package main\n\nimport _ \"" + registry.RuntimeModule + "/probe\"\n\nfunc main() {}\n",
+		"go.sum":           registry.RuntimeModule + " " + version + " " + stated + "\n" + registry.RuntimeModule + " " + version + "/go.mod " + archive.ModSum + "\n" + goSum,
+		"cmd/tiny/main.go": "package main\n\nimport _ \"" + registry.RuntimeModule + "/" + imported + "\"\n\nfunc main() {}\n",
 	}
 	for name, data := range files {
 		source["registry/runtime/"+name] = data
@@ -235,8 +230,7 @@ func runtimeSource(t *testing.T, version, sum string, extra ...string) (string, 
 			t.Fatal(err)
 		}
 	}
-	// Each extra name is a link in the runtime folder to a file outside it.
-	for _, name := range extra {
+	for _, name := range links {
 		if err := os.Symlink("/etc/hostname", filepath.Join(repository, "registry", "runtime", filepath.FromSlash(name))); err != nil {
 			t.Fatal(err)
 		}
@@ -247,26 +241,77 @@ func runtimeSource(t *testing.T, version, sum string, extra ...string) (string, 
 	return repository, git(t, repository, "rev-parse", "HEAD"), archive.Sum
 }
 
+// fixtureRuntime is a small runtime folder that is no pin of STEGO's registry.
+func fixtureRuntime() map[string]string {
+	return map[string]string{
+		"go.mod":         "module " + registry.RuntimeModule + "\n\ngo 1.26\n",
+		"LICENSE":        "license\n",
+		"probe/probe.go": "package probe\n\n// Ready is true.\nconst Ready = true\n",
+	}
+}
+
+// realRuntime reads STEGO's own runtime folder, gives its files, the pin of
+// the binary it is (appbuild.RuntimePins), and the go.mod lines of its
+// go.sum, which the module graph of a service on it needs.
+func realRuntime(t *testing.T) (map[string]string, string, string) {
+	t.Helper()
+	folder := filepath.Join("..", "..", "registry", "runtime")
+	files := map[string]string{}
+	if err := filepath.WalkDir(folder, func(name string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		data, err := os.ReadFile(name)
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(folder, name)
+		files[filepath.ToSlash(relative)] = string(data)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	version := ""
+	for candidate, sum := range appbuild.RuntimePins() {
+		found, err := registry.RuntimeSum(folder, registry.RuntimeModule, candidate, t.TempDir())
+		if err == nil && found == sum {
+			version = candidate
+		}
+	}
+	if version == "" {
+		t.Fatalf("registry/runtime is none of the runtime pins %v", appbuild.RuntimePins())
+	}
+	var goSum strings.Builder
+	for _, line := range strings.Split(files["go.sum"], "\n") {
+		if strings.Contains(line, "/go.mod ") {
+			goSum.WriteString(line + "\n")
+		}
+	}
+	return files, version, goSum.String()
+}
+
 func TestBuildDownloadTakesTheRuntimePinFromTheRuntimeFolder(t *testing.T) {
 	const version = "v0.99.0"
-	t.Run("ST-BLD-UC02-R05-T01 A runtime folder that hashes to the pin supplies it with no module proxy", func(t *testing.T) {
-		source, revision, sum := runtimeSource(t, version, "")
+	t.Run("ST-BLD-UC02-R05-T01 The runtime folder that is STEGO's registry pin supplies it with no module proxy", func(t *testing.T) {
+		files, pinned, goSum := realRuntime(t)
+		source, revision, sum := commitRuntimeSource(t, files, pinned, "", goSum, "money")
 		output := filepath.Join(t.TempDir(), "cache")
 		_, err := capture(t, runBuild, downloadArgs(source, revision, pinnedGo(t), output)...)
 		skipUnlessPinned(t, err)
 		if err != nil {
 			t.Fatal(err)
 		}
-		zip := filepath.Join(output, "cache", "download", "github.com", "jsell-rh", "stego", "registry", "runtime", "@v", version+".zip")
-		if zips := cachedZips(t, output); len(zips) != 1 || zips[0] != "github.com/jsell-rh/stego/registry/runtime/@v/"+version+".zip" {
+		zip := filepath.Join(output, "cache", "download", "github.com", "jsell-rh", "stego", "registry", "runtime", "@v", pinned+".zip")
+		if zips := cachedZips(t, output); len(zips) != 1 || zips[0] != "github.com/jsell-rh/stego/registry/runtime/@v/"+pinned+".zip" {
 			t.Fatalf("the cache holds the zips %v; expected only the runtime pin", zips)
 		}
-		if found := zipSum(t, zip); found != sum {
-			t.Fatalf("the cached runtime zip hashes to %s; expected the pin %s", found, sum)
+		if found := zipSum(t, zip); found != sum || found != appbuild.RuntimePins()[pinned] {
+			t.Fatalf("the cached runtime zip hashes to %s; expected the pin %s", found, appbuild.RuntimePins()[pinned])
 		}
 	})
 	t.Run("ST-BLD-UC02-R05-T04 The cache record names the runtime folder as the source of the runtime pin", func(t *testing.T) {
-		source, revision, sum := runtimeSource(t, version, "")
+		files, pinned, goSum := realRuntime(t)
+		source, revision, sum := commitRuntimeSource(t, files, pinned, "", goSum, "money")
 		output := filepath.Join(t.TempDir(), "cache")
 		_, err := capture(t, runBuild, downloadArgs(source, revision, pinnedGo(t), output)...)
 		skipUnlessPinned(t, err)
@@ -274,14 +319,33 @@ func TestBuildDownloadTakesTheRuntimePinFromTheRuntimeFolder(t *testing.T) {
 			t.Fatal(err)
 		}
 		record := readCacheRecord(t, output)
-		want := appbuild.CachedModule{Path: registry.RuntimeModule, Version: version, Sum: sum, Source: appbuild.RuntimeFolderSource}
+		want := appbuild.CachedModule{Path: registry.RuntimeModule, Version: pinned, Sum: sum, Source: appbuild.RuntimeFolderSource}
 		if len(record.Modules) != 1 || record.Modules[0] != want || record.DependencyProxy != appbuild.ProxySource {
 			t.Fatalf("the record lists %v from %s; expected %v", record.Modules, record.DependencyProxy, want)
 		}
 	})
-	t.Run("ST-BLD-UC02-R05-T02 A runtime folder that differs from the pin stops the download, which names both hashes and leaves nothing", func(t *testing.T) {
+	t.Run("ST-BLD-UC02-R05-T09 A changed runtime folder at a pinned version is refused although go.sum agrees with it", func(t *testing.T) {
+		files, pinned, goSum := realRuntime(t)
+		files["money/changed.go"] = "package money\n\n// Changed is not in the pin.\nconst Changed = true\n"
+		source, revision, sum := commitRuntimeSource(t, files, pinned, "", goSum, "money")
+		parent := t.TempDir()
+		_, err := capture(t, runBuild, downloadArgs(source, revision, pinnedGo(t), filepath.Join(parent, "cache"))...)
+		skipUnlessPinned(t, err)
+		if err == nil {
+			t.Fatal("a changed runtime folder at a pinned version was taken because go.sum agrees with it")
+		}
+		for _, part := range []string{registry.RuntimeModule + " " + pinned, sum, appbuild.RuntimePins()[pinned]} {
+			if !strings.Contains(err.Error(), part) {
+				t.Errorf("the refusal does not name %s: %v", part, err)
+			}
+		}
+		if names := folderNames(t, parent); len(names) != 0 {
+			t.Fatalf("a refused download left %v", names)
+		}
+	})
+	t.Run("ST-BLD-UC02-R05-T02 A runtime folder that differs from go.sum stops the download, which names both hashes and leaves nothing", func(t *testing.T) {
 		wrong := "h1:" + strings.Repeat("A", 43) + "="
-		source, revision, sum := runtimeSource(t, version, wrong)
+		source, revision, sum := commitRuntimeSource(t, fixtureRuntime(), version, wrong, "", "probe")
 		parent := t.TempDir()
 		_, err := capture(t, runBuild, downloadArgs(source, revision, pinnedGo(t), filepath.Join(parent, "cache"))...)
 		skipUnlessPinned(t, err)
@@ -298,7 +362,7 @@ func TestBuildDownloadTakesTheRuntimePinFromTheRuntimeFolder(t *testing.T) {
 		}
 	})
 	t.Run("ST-BLD-UC02-R05-T03 A runtime folder that holds a link stops the download, which leaves nothing", func(t *testing.T) {
-		source, revision, _ := runtimeSource(t, version, "", "probe/linked.go")
+		source, revision, _ := commitRuntimeSource(t, fixtureRuntime(), version, "", "", "probe", "probe/linked.go")
 		parent := t.TempDir()
 		_, err := capture(t, runBuild, downloadArgs(source, revision, pinnedGo(t), filepath.Join(parent, "cache"))...)
 		skipUnlessPinned(t, err)
