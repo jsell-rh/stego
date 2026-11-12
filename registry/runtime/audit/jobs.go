@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jsell-rh/stego/registry/runtime/lease"
+	"github.com/jsell-rh/stego/registry/runtime/manifest"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
@@ -90,6 +91,36 @@ func DDL(c Config) (string, error) {
 		"{checks}", CheckpointsTable,
 		"{maintain}", MaintainFunction,
 	).Replace(ddlText), nil
+}
+
+// tenantWall is the expression of the policy tenant_wall of each audit table, as pg_get_expr gives it.
+const tenantWall = "(tenant_id = current_setting('app.tenant'::text, true))"
+
+// Manifest gives what the code needs of the audit record that DDL makes in the schema of c (ST-SUP-RC01-OC12):
+// the four tables with row-level security enabled and forced and their policy tenant_wall, and the triggers that
+// reject a change of the events table and of the checkpoints and that guard the anchor boundaries. The service
+// runtime checks it before the service serves, so an audit record that a change of the database left open to an
+// edit, or to another tenant, stops the start.
+func Manifest(c Config) manifest.Manifest {
+	s := c.Schema
+	if s == "" {
+		s = "public"
+	}
+	wall := []manifest.Policy{{Name: "tenant_wall", Command: "*", Using: tenantWall, WithCheck: tenantWall}}
+	reject := s + ".audit_reject_change"
+	rejecting := func(table string) []manifest.Trigger {
+		return []manifest.Trigger{
+			{Name: table + "_reject_row", Timing: "BEFORE", Row: true, Events: []string{"UPDATE", "DELETE"}, Function: reject},
+			{Name: table + "_reject_statement", Timing: "BEFORE", Events: []string{"UPDATE", "DELETE", "TRUNCATE"}, Function: reject},
+		}
+	}
+	return manifest.Manifest{Tables: []manifest.Table{
+		{Schema: s, Name: EventsTable, RowSecurity: true, Policies: wall, Triggers: rejecting(EventsTable)},
+		{Schema: s, Name: HeadsTable, RowSecurity: true, Policies: wall},
+		{Schema: s, Name: BoundariesTable, RowSecurity: true, Policies: wall, Triggers: []manifest.Trigger{
+			{Name: BoundariesTable + "_guard", Timing: "BEFORE", Row: true, Events: []string{"INSERT", "UPDATE"}, Function: s + ".audit_boundary_guard"}}},
+		{Schema: s, Name: CheckpointsTable, RowSecurity: true, Policies: wall, Triggers: rejecting(CheckpointsTable)},
+	}}
 }
 
 const ddlText = `CREATE TABLE IF NOT EXISTS {s}.{events} (

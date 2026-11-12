@@ -15,7 +15,8 @@ const exampleFixture = "testdata/runtime_example"
 // record, builds it with the pinned Go against the runtime module of this repository, and runs the check of
 // testdata/runtime_example/check in its module once: the check runs the migration job and the service binary
 // against the local PostgreSQL server of STEGO_TEST_POSTGRES_DSN and a local SpiceDB container, and calls the
-// example's collections over HTTP. A missing server fails the test: a missing result is not a pass.
+// example's collections over HTTP; then it changes the migrated database once for each kind of object of the schema
+// manifest and sees each start refused. A missing server fails the test: a missing result is not a pass.
 func TestRuntimeExample(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs the example service")
@@ -42,7 +43,7 @@ func TestRuntimeExample(t *testing.T) {
 	binary := filepath.Join(p.dir, "bin", "service")
 	p.goCommand("build", "-o", binary, "./out")
 	endpoint, key := startWiringSpiceDB(t)
-	cmd := exec.Command(wiringPinnedGo(), "test", "-count=1", "-timeout=300s", "-v", "-run", "^TestExample$", "./out/examplecheck")
+	cmd := exec.Command(wiringPinnedGo(), "test", "-count=1", "-timeout=480s", "-v", "-run", "^(TestExample|TestSchemaManifest)$", "./out/examplecheck")
 	cmd.Dir = p.dir
 	cmd.Env = wiringGoEnv("STEGO_TEST_SPICEDB="+endpoint, "STEGO_TEST_SPICEDB_KEY="+key, "STEGO_EXAMPLE_BINARY="+binary)
 	output, runErr := cmd.CombinedOutput()
@@ -50,6 +51,12 @@ func TestRuntimeExample(t *testing.T) {
 		name := "ST-SUP-RC20-OC39-T02_The_example_user-management_runs_on_the_runtime_data_path_with_its_scoped_collections,_upsert,_implicit_fields_and_fills"
 		if !strings.Contains(string(output), "--- PASS: TestExample/"+name+" ") {
 			t.Fatalf("the check of the example did not run and pass (go test: %v):\n%s", runErr, output)
+		}
+	})
+	t.Run("ST-SUP-RC01-OC12-T08 Startup fails closed when the database does not satisfy the schema manifest", func(t *testing.T) {
+		name := "ST-SUP-RC01-OC12-T08_Startup_fails_closed_when_the_database_does_not_satisfy_the_schema_manifest"
+		if !strings.Contains(string(output), "--- PASS: TestSchemaManifest/"+name+" ") {
+			t.Fatalf("the schema manifest check of the example did not run and pass (go test: %v):\n%s", runErr, output)
 		}
 	})
 }

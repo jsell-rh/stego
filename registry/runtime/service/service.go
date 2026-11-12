@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/jsell-rh/stego/registry/runtime/authn"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
 	"github.com/jsell-rh/stego/registry/runtime/command"
+	"github.com/jsell-rh/stego/registry/runtime/manifest"
 	"github.com/jsell-rh/stego/registry/runtime/otel"
 	"github.com/jsell-rh/stego/registry/runtime/outbox"
 	"github.com/jsell-rh/stego/registry/runtime/probe"
@@ -56,6 +58,9 @@ type Parts struct {
 	Commands, Collections []command.Declared
 	// Workers are the parts of the worker and controller modes, which Start runs (ST-SUP-RP14-LC04).
 	Workers WorkerParts
+	// Schema is the schema manifest of the tables of the declaration, which the PostgreSQL adapter emits
+	// (ST-SUP-RC01-OC12). New adds the manifest of the audit record to it (ST-SUP-RP14-LC06).
+	Schema manifest.Manifest
 }
 
 func (p Parts) check() error {
@@ -89,7 +94,8 @@ type Service struct {
 }
 
 // New wires the runtimes of one service from its settings and its declared parts (ST-SUP-RP14-LC02): it opens the
-// main pool and the audit pool of the runtime role through tenant.Open with the adapter's connection configuration,
+// main pool of the runtime role through tenant.Open with the adapter's connection configuration, refuses a database
+// that does not hold the schema manifest (ST-SUP-RP14-LC06), opens the audit pool,
 // connects to SpiceDB with the preshared key and checks that it answers, starts the telemetry and the probes, and
 // gives the verifier, the authorization runtime, the audit writer, the outbox queue and the command and query
 // runtimes. It refuses settings or parts that lack a part, and closes what it opened when a step fails.
@@ -109,6 +115,9 @@ func New(ctx context.Context, s Settings, p Parts) (_ *Service, err error) {
 		return nil, err
 	}
 	if svc.pool, err = tenant.Open(ctx, pools); err != nil {
+		return nil, err
+	}
+	if err := checkSchema(ctx, svc.pool, p.Schema); err != nil {
 		return nil, err
 	}
 	if svc.auditDB, err = tenant.Open(ctx, pools); err != nil {
@@ -178,6 +187,23 @@ func New(ctx context.Context, s Settings, p Parts) (_ *Service, err error) {
 		return nil, err
 	}
 	return svc, nil
+}
+
+// checkSchema refuses a database that does not hold the schema manifest of the service and of the audit record
+// (ST-SUP-RP14-LC06): it reads the catalog as the runtime role before New opens anything else, so a refused start
+// writes nothing and serves no request. The failure record of the process holds no error text, so it logs the
+// faults, which name only objects of the catalog.
+func checkSchema(ctx context.Context, db *sql.DB, declared manifest.Manifest) error {
+	err := manifest.Check(ctx, db, manifest.Join(declared, audit.Manifest(audit.Config{})))
+	var mismatch *manifest.Mismatch
+	if errors.As(err, &mismatch) {
+		slog.ErrorContext(ctx, "service: the database does not satisfy the schema manifest, and the service does not start",
+			"faults", mismatch.Faults)
+	}
+	if err != nil {
+		return fmt.Errorf("service: %w", err)
+	}
+	return nil
 }
 
 // reach checks that SpiceDB answers its health check within ReachTimeout, so a service whose SpiceDB cannot be

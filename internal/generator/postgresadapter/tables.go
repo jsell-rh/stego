@@ -241,14 +241,56 @@ func uniqueKeys(entity types.Entity, upsertKeys [][]string) [][]string {
 	return keys
 }
 
-// tablesSQL gives the SQL text of 001_initial on the runtime data path: one CREATE TABLE for each entity and one
-// CREATE UNIQUE INDEX for each of its unique keys, from the declaration alone (ST-SUP-RC01-OC41). In a pooled
-// service the tenant column leads the table, its primary key, every index and every foreign key to another owned
-// table (ST-SUP-RC01-OC40).
-func tablesSQL(ctx gen.Context) (string, error) {
+// tableModel is the shape of one table of the runtime data path, from the declaration alone: the model that both
+// the migration 001_initial (tablesSQL) and the schema manifest (schemaManifest) are made from, so the two cannot
+// differ (ST-SUP-RC01-OC41, ST-SUP-RC01-OC12). Names are not quoted.
+type tableModel struct {
+	name string
+	// owned tells that the table carries the tenant column of a pooled service, which leads the table, its
+	// primary key and every index (ST-SUP-RC01-OC40), and has the row-level security of the tenancy component.
+	owned bool
+	// lead is the tenant column when owned, and else empty.
+	lead    []string
+	columns []columnModel
+	checks  []checkModel
+	foreign []foreignModel
+	// search are the columns of the search indexes, each after lead; unique are the column lists of the unique
+	// indexes, each after lead.
+	search []string
+	unique [][]string
+}
+
+// columnModel is one column: its name, its type, its NOT NULL and its DEFAULT clause.
+type columnModel struct {
+	name, typ, defaultClause string
+	notNull                  bool
+}
+
+// checkModel is one CHECK constraint: its name and its expression.
+type checkModel struct{ name, expression string }
+
+// foreignModel is one FOREIGN KEY constraint: its name, its columns, the table it refers to and that table's
+// columns.
+type foreignModel struct {
+	name, table string
+	from, to    []string
+}
+
+// primaryName, uniqueName and searchName give the names of the primary key, a unique index and a search index of a
+// table.
+func primaryName(table string) string { return sqlName(table, "pkey") }
+
+func uniqueName(table string, columns []string) string {
+	return sqlName(append([]string{table}, append(append([]string{}, columns...), "key")...)...)
+}
+
+func searchName(table, column string) string { return sqlName(table, column, "search") }
+
+// tableModels gives the model of each table of the declaration, in the order of tableOrder.
+func tableModels(ctx gen.Context) ([]tableModel, error) {
 	ordered, err := tableOrder(ctx.Entities)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	key := tenantColumn(ctx)
 	owned := map[string]bool{}
@@ -261,72 +303,99 @@ func tablesSQL(ctx gen.Context) (string, error) {
 			upsertKeys[collection.Entity] = append(upsertKeys[collection.Entity], collection.UpsertLookup())
 		}
 	}
-	var out strings.Builder
+	var models []tableModel
 	for _, entity := range ordered {
-		table := tableName(entity.Name)
-		lead := []string{}
-		if owned[entity.Name] {
-			lead = []string{sqlIdentifier(key)}
+		table := tableModel{name: tableName(entity.Name), owned: owned[entity.Name]}
+		if table.owned {
+			table.lead = []string{key}
+			table.columns = append(table.columns, columnModel{name: key, typ: "text", notNull: true, defaultClause: " DEFAULT current_setting('app.tenant')"})
 		}
-		var lines []string
-		if owned[entity.Name] {
-			lines = append(lines, sqlIdentifier(key)+" text NOT NULL DEFAULT current_setting('app.tenant')")
-		}
-		lines = append(lines, sqlIdentifier(keyColumn)+" uuid NOT NULL")
-		var constraints []string
+		table.columns = append(table.columns, columnModel{name: keyColumn, typ: "uuid", notNull: true})
 		for _, field := range entity.Fields {
 			columnTypeName, err := columnType(field)
 			if err != nil {
-				return "", fmt.Errorf("entity %s: %w", entity.Name, err)
-			}
-			line := sqlIdentifier(field.Name) + " " + columnTypeName
-			if !field.Optional && !field.Computed {
-				line += " NOT NULL"
+				return nil, fmt.Errorf("entity %s: %w", entity.Name, err)
 			}
 			fieldDefault, err := columnDefault(field)
 			if err != nil {
-				return "", fmt.Errorf("entity %s: %w", entity.Name, err)
+				return nil, fmt.Errorf("entity %s: %w", entity.Name, err)
 			}
-			lines = append(lines, line+fieldDefault)
+			table.columns = append(table.columns, columnModel{name: field.Name, typ: columnTypeName,
+				notNull: !field.Optional && !field.Computed, defaultClause: fieldDefault})
 			if checks := columnChecks(field); len(checks) > 0 {
-				constraints = append(constraints, "CONSTRAINT "+sqlIdentifier(sqlName(table, field.Name, "check"))+" CHECK ("+strings.Join(checks, " AND ")+")")
+				table.checks = append(table.checks, checkModel{name: sqlName(table.name, field.Name, "check"), expression: strings.Join(checks, " AND ")})
 			}
 		}
-		lines = append(lines,
-			sqlIdentifier(createdColumn)+" timestamp with time zone NOT NULL DEFAULT now()",
-			sqlIdentifier(updatedColumn)+" timestamp with time zone NOT NULL DEFAULT now()",
-			sqlIdentifier(versionColumn)+" bigint NOT NULL DEFAULT 1")
+		table.columns = append(table.columns,
+			columnModel{name: createdColumn, typ: "timestamp with time zone", notNull: true, defaultClause: " DEFAULT now()"},
+			columnModel{name: updatedColumn, typ: "timestamp with time zone", notNull: true, defaultClause: " DEFAULT now()"},
+			columnModel{name: versionColumn, typ: "bigint", notNull: true, defaultClause: " DEFAULT 1"})
 		if entity.ResourceType != "" {
-			lines = append(lines, sqlIdentifier(tokenColumn)+" text NOT NULL DEFAULT ''")
+			table.columns = append(table.columns, columnModel{name: tokenColumn, typ: "text", notNull: true, defaultClause: " DEFAULT ''"})
 		}
-		primary := append(append([]string{}, lead...), sqlIdentifier(keyColumn))
-		lines = append(lines, "CONSTRAINT "+sqlIdentifier(sqlName(table, "pkey"))+" PRIMARY KEY ("+strings.Join(primary, ", ")+")")
-		lines = append(lines, constraints...)
 		for _, field := range entity.Fields {
 			if field.Type != types.FieldTypeRef || field.To == "" {
 				continue
 			}
-			from, to := []string{sqlIdentifier(field.Name)}, []string{sqlIdentifier(keyColumn)}
-			if owned[entity.Name] && owned[field.To] {
-				from, to = append(append([]string{}, lead...), from...), append(append([]string{}, lead...), to...)
+			from, to := []string{field.Name}, []string{keyColumn}
+			if table.owned && owned[field.To] {
+				from, to = append(append([]string{}, table.lead...), from...), append(append([]string{}, table.lead...), to...)
 			}
-			lines = append(lines, "CONSTRAINT "+sqlIdentifier(sqlName(table, field.Name, "fkey"))+" FOREIGN KEY ("+strings.Join(from, ", ")+
-				") REFERENCES public."+sqlIdentifier(tableName(field.To))+" ("+strings.Join(to, ", ")+")")
+			table.foreign = append(table.foreign, foreignModel{name: sqlName(table.name, field.Name, "fkey"), table: tableName(field.To), from: from, to: to})
 		}
-		fmt.Fprintf(&out, "CREATE TABLE public.%s (\n  %s\n);\n", sqlIdentifier(table), strings.Join(lines, ",\n  "))
+		table.search = searchColumns(entity, ctx.Collections)
+		table.unique = uniqueKeys(entity, upsertKeys[entity.Name])
+		models = append(models, table)
+	}
+	return models, nil
+}
+
+// quoted quotes each name as a PostgreSQL identifier.
+func quoted(names []string) []string {
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = sqlIdentifier(n)
+	}
+	return out
+}
+
+// tablesSQL gives the SQL text of 001_initial on the runtime data path: one CREATE TABLE for each entity and one
+// CREATE UNIQUE INDEX for each of its unique keys, from the declaration alone (ST-SUP-RC01-OC41). In a pooled
+// service the tenant column leads the table, its primary key, every index and every foreign key to another owned
+// table (ST-SUP-RC01-OC40).
+func tablesSQL(ctx gen.Context) (string, error) {
+	models, err := tableModels(ctx)
+	if err != nil {
+		return "", err
+	}
+	var out strings.Builder
+	for _, table := range models {
+		var lines []string
+		for _, column := range table.columns {
+			line := sqlIdentifier(column.name) + " " + column.typ
+			if column.notNull {
+				line += " NOT NULL"
+			}
+			lines = append(lines, line+column.defaultClause)
+		}
+		lines = append(lines, "CONSTRAINT "+sqlIdentifier(primaryName(table.name))+" PRIMARY KEY ("+strings.Join(quoted(append(append([]string{}, table.lead...), keyColumn)), ", ")+")")
+		for _, check := range table.checks {
+			lines = append(lines, "CONSTRAINT "+sqlIdentifier(check.name)+" CHECK ("+check.expression+")")
+		}
+		for _, fk := range table.foreign {
+			lines = append(lines, "CONSTRAINT "+sqlIdentifier(fk.name)+" FOREIGN KEY ("+strings.Join(quoted(fk.from), ", ")+
+				") REFERENCES public."+sqlIdentifier(fk.table)+" ("+strings.Join(quoted(fk.to), ", ")+")")
+		}
+		fmt.Fprintf(&out, "CREATE TABLE public.%s (\n  %s\n);\n", sqlIdentifier(table.name), strings.Join(lines, ",\n  "))
 		// A list filters a table on its scope field, its implicit fields and the fields of its search, each with the
 		// tenant: an index of each keeps a filtered list from scanning the tenant's whole table (ST-SUP-RP11-LC20).
-		for _, column := range searchColumns(entity, ctx.Collections) {
-			fmt.Fprintf(&out, "CREATE INDEX %s ON public.%s (%s);\n", sqlIdentifier(sqlName(table, column, "search")),
-				sqlIdentifier(table), strings.Join(append(append([]string{}, lead...), sqlIdentifier(column)), ", "))
+		for _, column := range table.search {
+			fmt.Fprintf(&out, "CREATE INDEX %s ON public.%s (%s);\n", sqlIdentifier(searchName(table.name, column)),
+				sqlIdentifier(table.name), strings.Join(quoted(append(append([]string{}, table.lead...), column)), ", "))
 		}
-		for _, columns := range uniqueKeys(entity, upsertKeys[entity.Name]) {
-			quoted := append([]string{}, lead...)
-			for _, column := range columns {
-				quoted = append(quoted, sqlIdentifier(column))
-			}
-			fmt.Fprintf(&out, "CREATE UNIQUE INDEX %s ON public.%s (%s);\n", sqlIdentifier(sqlName(append([]string{table}, append(columns, "key")...)...)),
-				sqlIdentifier(table), strings.Join(quoted, ", "))
+		for _, columns := range table.unique {
+			fmt.Fprintf(&out, "CREATE UNIQUE INDEX %s ON public.%s (%s);\n", sqlIdentifier(uniqueName(table.name, columns)),
+				sqlIdentifier(table.name), strings.Join(quoted(append(append([]string{}, table.lead...), columns...)), ", "))
 		}
 	}
 	return out.String(), nil
@@ -417,7 +486,8 @@ func generateRuntimeAccess(ctx gen.Context) (gen.File, error) {
 
 // generateRuntimeData gives the files and the wiring of the runtime data path: the database opener, the schema
 // generation marker, the migration ledger with 001_initial as the SQL of InitialTables and, in a pooled service,
-// the row-level security of the tenancy component after it. It emits no entity model and no store, so data access
+// the row-level security of the tenancy component after it, and the schema manifest of the tables, which the service
+// runtime checks at startup (ST-SUP-RC01-OC12). It emits no entity model and no store, so data access
 // goes only through the generated commands and queries (ST-SUP-RC01-OC41). The ledger runner takes a *gorm.DB in the
 // migration job; the runtime role gets the grants of ST-SUP-RC27-OC07 and ST-STD-TXN-R03.
 func generateRuntimeData(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
@@ -445,7 +515,11 @@ func generateRuntimeData(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	files = append(files, migrateFile, schemaFile, opener, access)
+	schemaManifest, err := generateSchemaManifest(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	files = append(files, migrateFile, schemaFile, opener, access, schemaManifest)
 	base := path.Base(ctx.OutputNamespace)
 	wiring := &gen.Wiring{
 		Imports:        []string{ctx.OutputNamespace},

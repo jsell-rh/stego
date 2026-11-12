@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/jsell-rh/stego/registry/runtime/manifest"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -381,6 +382,29 @@ WHERE i.indrelid = 'public.orders'::regclass`)
 		}
 		if code := write(t, db, "tenant-b", order, uuid.NewString(), first, catalogID); code != "23503" {
 			t.Errorf("an order of tenant-b that names a widget of tenant-a: SQLSTATE %q, want the foreign key violation 23503", code)
+		}
+	})
+	t.Run("ST-SUP-RC01-OC12-T09 The schema manifest is the model of the migrations, which PostgreSQL holds", func(t *testing.T) {
+		cfg, db := database(t, cfg, admin)
+		migrate(t, cfg, db, widgets.Migrate, "widgets_access.json")
+		// The runtime role reads the catalog, as the service runtime does at startup.
+		runtime := cfg.Copy()
+		runtime.User, runtime.Password = tenancy.RuntimeRole, "tables-check"
+		if _, err := db.Exec("ALTER ROLE " + pgx.Identifier{tenancy.RuntimeRole}.Sanitize() + " LOGIN PASSWORD 'tables-check'"); err != nil {
+			t.Fatal(err)
+		}
+		reader := stdlib.OpenDB(*runtime)
+		defer reader.Close()
+		ctx := context.Background()
+		if err := manifest.Check(ctx, reader, widgets.SchemaManifest); err != nil {
+			t.Fatalf("the database that the migrations made does not hold the schema manifest: %v", err)
+		}
+		if _, err := db.Exec(`ALTER TABLE public."orders" DROP CONSTRAINT "orders_widget_id_fkey"`); err != nil {
+			t.Fatal(err)
+		}
+		if err := manifest.Check(ctx, reader, widgets.SchemaManifest); !errors.Is(err, manifest.ErrNotSatisfied) ||
+			!strings.Contains(err.Error(), "table public.orders: constraint orders_widget_id_fkey is missing") {
+			t.Fatalf("a dropped foreign key gave %v, want the fault that names it", err)
 		}
 	})
 }

@@ -22,8 +22,9 @@ type Generator struct{}
 // adapter is the component whose tables the row-level security covers and whose ledger runs the migration.
 const adapter = "postgres-adapter"
 
-// policyName is the name of the one tenant policy of each owned table.
-const policyName = "stego_tenant"
+// policyName is the name of the one tenant policy of each owned table, which the schema manifest of the PostgreSQL
+// adapter names (ST-SUP-RC01-OC12).
+const policyName = postgresadapter.TenantPolicy
 
 // MigrationLoginSetting is the setting in which the operator names the login of the migration job when it is not
 // the owner role itself but a member of it, such as SET stego.migration_login = 'shop_migrator' before the role

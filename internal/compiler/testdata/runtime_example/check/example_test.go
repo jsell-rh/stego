@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -76,12 +77,22 @@ type service struct {
 	key   *authntest.Key
 	base  string
 	log   *bytes.Buffer
+	// cursor is the cursor key of the service, and processEnv the environment of the service binary on a port.
+	cursor     []byte
+	processEnv func(port string) []string
 }
 
 // start makes a database of its own with the roles of the tenancy component, runs the migration job, and starts the
 // service until it answers. The database is on the loopback address, which the loopback test mode of the adapter
 // takes with no TLS.
 func start(t *testing.T) *service {
+	s := migrated(t)
+	s.serve()
+	return s
+}
+
+// migrated makes a database of its own with the roles of the tenancy component and runs the migration job on it.
+func migrated(t *testing.T) *service {
 	dsn, endpoint, binary := os.Getenv("STEGO_TEST_POSTGRES_DSN"), os.Getenv("STEGO_TEST_SPICEDB"), os.Getenv("STEGO_EXAMPLE_BINARY")
 	if dsn == "" || endpoint == "" || binary == "" {
 		t.Fatal("the check needs STEGO_TEST_POSTGRES_DSN, STEGO_TEST_SPICEDB and STEGO_EXAMPLE_BINARY: a missing result is not a pass")
@@ -133,20 +144,34 @@ func start(t *testing.T) *service {
 	if output, err := migrate.CombinedOutput(); err != nil {
 		t.Fatalf("the migration job failed: %v\n%s", err, output)
 	}
+	s.processEnv = func(port string) []string {
+		return append(append(os.Environ(), env...), "PORT="+port, "DATABASE_URL="+as(stegoruntime.RuntimeRole),
+			"STEGO_WORKER_DATABASE_URL="+as(stegoruntime.WorkerRole), "STEGO_RELAY_DATABASE_URL="+as(stegoruntime.RelayRole),
+			"STEGO_AUTHN_KEYS_FILE="+writeFile(t, "keys.json", authntest.Document(s.key.JWK())),
+			"STEGO_AUTHN_ISSUER="+issuer, "STEGO_AUTHN_AUDIENCE="+audience,
+			"STEGO_QUERY_CURSOR_KEY_FILE="+writeFile(t, "cursor.key", s.cursor), "STEGO_SERVICE_VERSION=1.0.0")
+	}
 	s.key = authntest.NewKey(t, "k1")
-	cursor := make([]byte, 32)
-	_, _ = rand.Read(cursor)
+	s.cursor = make([]byte, 32)
+	_, _ = rand.Read(s.cursor)
+	return s
+}
+
+// freePort gives a free port of the loopback address.
+func freePort(t *testing.T) string {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	must(t, err)
-	port := fmt.Sprint(listener.Addr().(*net.TCPAddr).Port)
-	listener.Close()
+	defer listener.Close()
+	return fmt.Sprint(listener.Addr().(*net.TCPAddr).Port)
+}
+
+// serve starts the service binary on the migrated database until it answers /livez.
+func (s *service) serve() {
+	t := s.t
+	port := freePort(t)
 	s.base = "http://127.0.0.1:" + port
-	process := exec.Command(binary)
-	process.Env = append(append(os.Environ(), env...), "PORT="+port, "DATABASE_URL="+as(stegoruntime.RuntimeRole),
-		"STEGO_WORKER_DATABASE_URL="+as(stegoruntime.WorkerRole), "STEGO_RELAY_DATABASE_URL="+as(stegoruntime.RelayRole),
-		"STEGO_AUTHN_KEYS_FILE="+writeFile(t, "keys.json", authntest.Document(s.key.JWK())),
-		"STEGO_AUTHN_ISSUER="+issuer, "STEGO_AUTHN_AUDIENCE="+audience,
-		"STEGO_QUERY_CURSOR_KEY_FILE="+writeFile(t, "cursor.key", cursor), "STEGO_SERVICE_VERSION=1.0.0")
+	process := exec.Command(os.Getenv("STEGO_EXAMPLE_BINARY"))
+	process.Env = s.processEnv(port)
 	process.Stdout, process.Stderr = s.log, s.log
 	must(t, process.Start())
 	exited := make(chan struct{})
@@ -167,7 +192,7 @@ func start(t *testing.T) *service {
 		if err == nil {
 			response.Body.Close()
 			if response.StatusCode == http.StatusOK {
-				return s
+				return
 			}
 		}
 		select {
@@ -363,5 +388,84 @@ func TestExample(t *testing.T) {
 		if n := s.count(`SELECT count(*) FROM audit_event WHERE tenant_id = 't-acme' AND outcome = 'ok' AND action IN ('create', 'patch', 'upsert')`); n < 5 {
 			t.Errorf("%d ok audit rows of the tenant, want at least 5", n)
 		}
+	})
+}
+
+// refusedStart starts the service binary on the database and waits until it stops: it gives the log of the
+// process, and fails the test when the process answers /livez or does not stop with a failure.
+func (s *service) refusedStart() string {
+	t := s.t
+	port := freePort(t)
+	ctx, cancel := context.WithTimeout(s.ctx, time.Minute)
+	defer cancel()
+	process := exec.CommandContext(ctx, os.Getenv("STEGO_EXAMPLE_BINARY"))
+	process.Env = s.processEnv(port)
+	var log bytes.Buffer
+	process.Stdout, process.Stderr = &log, &log
+	err := process.Run()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || ctx.Err() != nil {
+		t.Fatalf("the service did not stop with a failure: %v\n%s", err, log.String())
+	}
+	if response, err := http.Get("http://127.0.0.1:" + port + "/livez"); err == nil {
+		response.Body.Close()
+		t.Fatalf("a process answered /livez on the port of the refused service:\n%s", log.String())
+	}
+	return log.String()
+}
+
+// rows gives the number of rows of each table that the service writes, by table.
+func (s *service) rows() map[string]int {
+	counts := map[string]int{}
+	for _, table := range []string{"public.organizations", "public.users", "public.org_settings", "public.activity_entries",
+		"public.audit_event", "public.audit_chain_heads", "public.idempotency_keys", "public.stego_tenants", "stego_outbox.messages"} {
+		counts[table] = s.count("SELECT count(*) FROM " + table)
+	}
+	return counts
+}
+
+func TestSchemaManifest(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC12-T08 Startup fails closed when the database does not satisfy the schema manifest", func(t *testing.T) {
+		// Each change makes the database that the migration job made differ from the schema manifest of the code
+		// once, as a change by hand after a release does; the service then restarts on it.
+		changes := []struct{ name, statement, fault string }{
+			{"a dropped unique index", `DROP INDEX public.organizations_name_key`,
+				"table public.organizations: index organizations_name_key is missing"},
+			{"an upsert key index on other columns", `DROP INDEX public.org_settings_org_id_key_key;
+CREATE UNIQUE INDEX org_settings_org_id_key_key ON public.org_settings (tenant_id, key)`,
+				"table public.org_settings: index org_settings_org_id_key_key does not have the columns (tenant_id, org_id, key) of the manifest"},
+			{"an upsert key index with a predicate", `DROP INDEX public.org_settings_org_id_key_key;
+CREATE UNIQUE INDEX org_settings_org_id_key_key ON public.org_settings (tenant_id, org_id, key) WHERE generation > 0`,
+				"table public.org_settings: index org_settings_org_id_key_key does not have the predicate of the manifest"},
+			{"a dropped trigger of the audit record", `DROP TRIGGER audit_event_reject_row ON public.audit_event`,
+				"table public.audit_event: trigger audit_event_reject_row is missing"},
+			{"disabled row-level security", `ALTER TABLE public.users DISABLE ROW LEVEL SECURITY`,
+				"table public.users: row-level security is not enabled and forced"},
+			{"a changed column type", `ALTER TABLE public.users ALTER COLUMN email TYPE text`,
+				"table public.users: column email has the type text, and the manifest needs character varying(255)"},
+			{"a dropped check constraint", `ALTER TABLE public.users DROP CONSTRAINT users_role_check`,
+				"table public.users: constraint users_role_check is missing"},
+		}
+		for _, change := range changes {
+			t.Run(change.name, func(t *testing.T) {
+				s := migrated(t)
+				execAll(t, s.admin, change.statement)
+				before := s.rows()
+				log := s.refusedStart()
+				if !strings.Contains(log, "the database does not satisfy the schema manifest") || !strings.Contains(log, change.fault) {
+					t.Fatalf("the refused start does not name %q:\n%s", change.fault, log)
+				}
+				if strings.Contains(log, password) || strings.Contains(log, "postgres://") {
+					t.Fatalf("the log of the refused start holds a credential:\n%s", log)
+				}
+				if after := s.rows(); fmt.Sprint(after) != fmt.Sprint(before) {
+					t.Fatalf("the refused start wrote rows: %v, then %v", before, after)
+				}
+			})
+		}
+		t.Run("the database of the migration job starts", func(t *testing.T) {
+			s := migrated(t)
+			s.serve()
+		})
 	})
 }

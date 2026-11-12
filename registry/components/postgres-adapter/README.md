@@ -23,6 +23,13 @@ For a service with entities, the component emits these files:
   the configuration of `OpenDatabase`. `CheckLedger` lets the migration job
   refuse, before it writes, a database whose ledger is not the history of
   this release or that holds a table of the declaration with no ledger.
+- `schema_manifest.go`: `SchemaManifest`, what the commands and queries need
+  of the tables: the columns with their types and `NOT NULL`, the
+  constraints, the primary key and unique indexes and, on an owned table,
+  row-level security with its tenant policy. It comes from the same model as
+  `001_initial`. At startup the service runtime reads the catalog as the
+  runtime role and does not start on a database that does not hold it. The
+  log names each missing or different object (ST-SUP-RC01-OC12).
 
 For a service with no entity, the component emits `database.go` only.
 

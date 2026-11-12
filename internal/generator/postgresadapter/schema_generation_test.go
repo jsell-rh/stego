@@ -176,7 +176,7 @@ require (
  github.com/jackc/pgx/v5 v5.11.0
  gorm.io/gorm v1.25.12
  gorm.io/driver/postgres v1.5.11
- github.com/jsell-rh/stego/registry/runtime v0.38.0
+ github.com/jsell-rh/stego/registry/runtime v0.40.0
 )
 
 replace github.com/jsell-rh/stego/registry/runtime => ` + runtimeDir + "\n"
