@@ -152,6 +152,7 @@ func (v *Verifier) Verify(raw string) (Identity, error) {
     if err != nil || token == nil || !token.Valid {
         return Identity{}, errors.New("invalid authentication token")
     }
+    if err := accessTokenOnly(parts[1]); err != nil { return Identity{}, err }
     roles, err := v.roles(parts[1])
     if err != nil { return Identity{}, err }
     return Identity{Issuer: claims.Issuer, UserID: claims.Subject, Role: claims.Role, Attributes: claims.Attributes,
@@ -179,6 +180,25 @@ func claimPath(value string) ([]string, error) {
         }
     }
     return parts, nil
+}
+
+// accessTokenOnly refuses a token that is not an access token: one that holds a claim that marks an ID token
+// (at_hash, c_hash, nonce or events), or whose payload typ names Keycloak's ID, refresh or logout token
+// (ST-SUP-RC11-OC33). It runs after the signature and claim checks, and its error names no claim.
+func accessTokenOnly(encoded string) error {
+    refused := errors.New("invalid authentication token")
+    data, err := base64.RawURLEncoding.Strict().DecodeString(encoded)
+    if err != nil { return refused }
+    var claims map[string]json.RawMessage
+    if err := json.Unmarshal(data, &claims); err != nil || claims == nil { return refused }
+    for _, name := range []string{"at_hash", "c_hash", "nonce", "events"} {
+        if _, present := claims[name]; present { return refused }
+    }
+    if kind, present := claims["typ"]; present {
+        var name string
+        if json.Unmarshal(kind, &name) != nil || name == "ID" || name == "Refresh" || name == "Logout" { return refused }
+    }
+    return nil
 }
 
 // roles reads only the configured claim after signature and claim validation.
