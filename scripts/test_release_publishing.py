@@ -642,10 +642,14 @@ class ReleasePublishing(unittest.TestCase):
             proof = workflow("proof-run.yml")
             self.assertEqual(proof["on"]["push"], {"branches": ["main"]})
             jobs = proof["jobs"]
+            # Nothing is gated or published unless the suites job succeeded: every test and package passed, also
+            # those whose names carry no test record ID.
+            self.assertEqual(jobs["gate-release"]["needs"], ["suites", "attest"])
             self.assertEqual(jobs["gate-release"]["if"],
-                             "${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}")
-            self.assertEqual(jobs["publish-release"]["needs"], ["gate-release", "attest-release"])
-            self.assertEqual(jobs["publish-release"]["if"], "${{ needs.gate-release.outputs.passed == 'true' }}")
+                             "${{ !cancelled() && needs.suites.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}")
+            self.assertEqual(jobs["publish-release"]["needs"], ["suites", "gate-release", "attest-release"])
+            self.assertEqual(jobs["publish-release"]["if"],
+                             "${{ needs.suites.result == 'success' && needs.gate-release.outputs.passed == 'true' }}")
             self.assertNotIn("continue-on-error", jobs["publish-release"])
             # A push has a concurrency group of its own, so no newer push replaces an older commit's pending run.
             for name in ["proof-run.yml", "compiler-artifact.yml", "checks.yml"]:
@@ -713,7 +717,7 @@ class ReleasePublishing(unittest.TestCase):
             jobs = workflow("proof-run.yml")["jobs"]
             self.assertIn("attest-release", jobs["publish-release"]["needs"])
             self.assertEqual(jobs["attest-release"]["if"], "${{ needs.gate-release.outputs.passed == 'true' }}")
-            self.assertEqual(jobs["publish-release"]["if"], jobs["attest-release"]["if"])
+            self.assertIn("needs.gate-release.outputs.passed == 'true'", jobs["publish-release"]["if"])
             self.assert_published(self.publish())
             self.world = self.new_world("refused")
             self.world.decide(passed=False)

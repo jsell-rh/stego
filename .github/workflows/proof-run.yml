@@ -1,16 +1,18 @@
 name: Proof run
 
-# Attest a proof run (ST-ASR-UC01). The suites job runs the Go and Python suites at the commit, and assure record
-# writes an outcome for every automated test record in the spec at that commit. The attest job runs no code of the
-# repository: it names the commit as the subject, and GitHub's attestation action signs the proof run with this
-# workflow's keyless identity, the trusted signer of a proof run, and keeps it. Only the attest job can get an
-# identity token, so no test can sign or change what is signed after the suites job ends. Nothing is committed
-# (ST-ASR-A1-SR01): the suites job can only read the repository, and the predicate stays outside the checkout.
+# Attest a proof run (ST-ASR-UC01). The tests jobs run the Go and Python suites at the commit in five parts at once,
+# and in the suites job assure record writes an outcome for every automated test record in the spec at that commit.
+# The attest job runs no code of the repository: it names the commit as the subject, and GitHub's attestation action
+# signs the proof run with this workflow's keyless identity, the trusted signer of a proof run, and keeps it. Only
+# the attest job can get an identity token, so no test can sign or change what is signed after the suites job ends.
+# Nothing is committed (ST-ASR-A1-SR01): the tests and suites jobs can only read the repository, and the predicate
+# stays outside the checkout.
 #
 # On a pull request the commit is the pull request's head, a commit that exists in the repository; on a push it is
-# the commit pushed. A failed test does not stop the run: the proof run records it, and the gates read the
-# attestation. assure record stops the run, and nothing is attested, when a test names an unknown ID or the tree
-# has uncommitted changes.
+# the commit pushed. A failed test does not stop the tests: the proof run records it and is kept as an artifact.
+# Then the suites job fails on any failed test or package, also one whose name carries no test record ID. The
+# attest job still signs the recorded proof run, so the gates name each failed test record. assure record stops
+# the run, and nothing is attested, when a test names an unknown ID or the tree has uncommitted changes.
 #
 # On a pull request, the gate job then gates the change (ST-ASR-UC02): it hears that the proof run is attested
 # (ST-ASR-PO01), reads the attestation from GitHub's store, verifies it, and measures the coverage at the head and
@@ -40,12 +42,25 @@ env:
   LATHE_REF: c9a591d85abc350f0d9854f6e7af11e4a1b5f777
 
 jobs:
-  suites:
-    name: suites
+  # The Go and Python suites run in five parts at once, each on a runner of its own, so the proof run takes about as
+  # long as its slowest part, not the sum of all. A part holds a fixed set of Go packages: cmd/stego, the longest
+  # package, is in two parts by the names of its top-level tests: stego-build runs the tests whose names match
+  # STEGO_BUILD_TESTS (go test -run), and stego runs every other one (go test -skip with the same pattern), so each
+  # test runs in exactly one part; generators is the six generator packages with the longest tests; assure is Assuring's two modules
+  # and the Python suites; rest is every other package of the root module, from go list at the commit, so a new
+  # package always runs. Each part writes the go test -json output of its packages, and assure uses the Python
+  # output, as an artifact of this run. The parts run code of the change, as the suites job did: their outcomes
+  # stay change grade.
+  tests:
+    name: tests (${{ matrix.part }})
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 30
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [stego-build, stego, generators, rest, assure]
     services:
       postgres:
         image: postgres@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2 # 18.6-alpine
@@ -61,6 +76,8 @@ jobs:
           --health-retries 10
     env:
       STEGO_DATABASE_ALLOW_INSECURE_LOOPBACK: '1'
+      PART: ${{ matrix.part }}
+      STEGO_BUILD_TESTS: '^Test(Build|Image|Policy|Dependencies)'
     defaults:
       run:
         working-directory: stego
@@ -77,28 +94,6 @@ jobs:
           ref: ${{ env.LATHE_REF }}
           path: lathe
           persist-credentials: false
-      # assure record is built from the pull request's base commit (on a push, the commit pushed), as the gate job
-      # builds assure (ST-ASR-UC02-R07), with a Go setup that restores no cache, before any step runs code of the
-      # change, and its folder is then made read-only. This keeps the change's source out of the build of the
-      # record code. It does not stop the change: its tests run later in this job as the same user, and can
-      # change any file of the job, also this binary and the test results. So the outcomes stay change grade.
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ github.event.pull_request.base.sha || env.COMMIT }}
-          path: base
-          persist-credentials: false
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: '1.26.11'
-          cache: false
-      - name: Build assure record from the base commit
-        working-directory: base/cmd/assure
-        env:
-          GOWORK: 'off'
-        run: |
-          mkdir -p "$RUNNER_TEMP/record"
-          go build -mod=readonly -trimpath -o "$RUNNER_TEMP/record/assure" .
-          chmod -R a-w "$RUNNER_TEMP/record"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.26.11'
@@ -136,7 +131,7 @@ jobs:
       # not the toolchain setup-go installs. Without it they skip, and a skipped test is no proof.
       - name: Prepare the pinned official SDK for the build tests
         run: python3 -B scripts/prepare-compiler-toolchain.py --download --output "$RUNNER_TEMP/pinned-sdk"
-      - name: Run the Go suites
+      - name: Run the Go suites of the part
         timeout-minutes: 25
         env:
           STEGO_TEST_PINNED_GO: ${{ runner.temp }}/pinned-sdk/go/bin/go
@@ -145,25 +140,148 @@ jobs:
           STEGO_REQUIRE_LATHE: '1'
           STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable
         # go test ./... at the root does not reach Assuring's modules, internal/assure and cmd/assure: each has a
-        # go.mod of its own. Their events go into the same file, after the root's, and assure record reads the file
-        # as one run. Each package gets 20 minutes: under -race the cmd/stego build tests can pass Go's default of
-        # 10 minutes, and a package that times out reports its running tests only as "did not run". The limit stays
-        # under the step's 25 minutes, so a timeout is a test outcome and not a cancelled step.
+        # go.mod of its own, and the assure part runs them, one after the other into one file. Each package gets
+        # 20 minutes, under the step's 25, so a timeout is a test outcome and not a cancelled step.
+        # The part writes the import paths of the packages it runs to packages-<part>.txt, and the rest part also
+        # writes every package of the root module to packages-root.txt, so the suites job can check that each
+        # package of the root module is in a part and that each package of a part has its result.
         run: |
-          go test -json -race -count=1 -mod=readonly -timeout=20m ./... > "$RUNNER_TEMP/go-test.json" || true
-          for module in internal/assure cmd/assure; do
-            go test -C "$module" -json -race -count=1 -mod=readonly -timeout=20m ./... >> "$RUNNER_TEMP/go-test.json" || true
-          done
+          mkdir -p "$RUNNER_TEMP/part"
+          out="$RUNNER_TEMP/part/go-test-$PART.json"
+          list="$RUNNER_TEMP/part/packages-$PART.txt"
+          generators="internal/generator/browserbackend internal/generator/controller internal/generator/oteltracing internal/generator/keycloakprovider internal/generator/oidcauth internal/generator/kubernetesclient"
+          case "$PART" in
+            stego-build | stego) go list -mod=readonly ./cmd/stego > "$list" ;;
+            generators) go list -mod=readonly $(printf './%s ' $generators) > "$list" ;;
+            rest)
+              go list -mod=readonly ./... > "$RUNNER_TEMP/part/packages-root.txt"
+              grep -v -x -F -e github.com/jsell-rh/stego/cmd/stego $(printf -- '-e github.com/jsell-rh/stego/%s ' $generators) \
+                "$RUNNER_TEMP/part/packages-root.txt" > "$list" ;;
+            assure)
+              : > "$out"
+              : > "$list"
+              for module in internal/assure cmd/assure; do
+                go list -C "$module" -mod=readonly ./... >> "$list"
+                go test -C "$module" -json -race -count=1 -mod=readonly -timeout=20m ./... >> "$out" || true
+              done
+              exit 0 ;;
+            *) echo "::error::Unknown part $PART"; exit 1 ;;
+          esac
+          select=()
+          case "$PART" in
+            stego-build) select=(-run "$STEGO_BUILD_TESTS") ;;
+            stego) select=(-skip "$STEGO_BUILD_TESTS") ;;
+          esac
+          go test -json -race -count=1 -mod=readonly -timeout=20m "${select[@]}" $(cat "$list") > "$out" || true
       - name: Run the Python suites
+        if: matrix.part == 'assure'
         timeout-minutes: 5
-        run: python3 -B scripts/run-python-tests.py --output "$RUNNER_TEMP/python-tests.json"
+        run: python3 -B scripts/run-python-tests.py --output "$RUNNER_TEMP/part/python-tests.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tests-${{ matrix.part }}
+          path: ${{ runner.temp }}/part/
+          retention-days: 14
+          if-no-files-found: error
+
+  # The suites job records the proof run from the five parts. It runs no code of the change: it builds assure record
+  # from the pull request's base commit (on a push, the commit pushed), with a Go setup that restores no cache, and
+  # runs it in a checkout of the commit on the outputs of the parts, the root module's parts first, then Assuring's
+  # modules, as one run. A part whose output is missing fails the job, so nothing is attested.
+  suites:
+    name: suites
+    needs: tests
+    # !cancelled(): when a part fails, the suites job still runs and fails for its missing output, so the required
+    # check shows the failure and is not skipped.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    # recorded is true once the proof run is recorded and kept as the artifact proof-run.
+    outputs:
+      recorded: ${{ steps.recorded.outputs.recorded }}
+    defaults:
+      run:
+        working-directory: stego
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.COMMIT }}
+          path: stego
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha || env.COMMIT }}
+          path: base
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26.11'
+          cache: false
+      - name: Build assure record from the base commit
+        working-directory: base/cmd/assure
+        env:
+          GOWORK: 'off'
+        run: |
+          mkdir -p "$RUNNER_TEMP/record"
+          go build -mod=readonly -trimpath -o "$RUNNER_TEMP/record/assure" .
+          chmod -R a-w "$RUNNER_TEMP/record"
+      # Each part's artifact goes to a folder of its own, parts/tests-<part>, so no artifact can write over another.
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          pattern: tests-*
+          path: ${{ runner.temp }}/parts
+      # A part that is missing, cut short or not whole fails the job, so nothing is attested: the folders must be
+      # exactly those of the five parts; each file must be there; each line of a go test output and the Python
+      # output must be JSON; each package of the root module must be in a part; and each package that a part lists
+      # must have its result (pass, fail or skip) in that part's output. bash runs it with pipefail.
+      - name: Join the outputs of the parts
+        shell: bash
+        run: |
+          parts="$RUNNER_TEMP/parts"
+          expected="tests-assure tests-generators tests-rest tests-stego tests-stego-build"
+          found="$(cd "$parts" && ls -A | LC_ALL=C sort | tr '\n' ' ')"
+          if [ "$found" != "$expected " ]; then
+            echo "::error::The parts are $found, not exactly $expected. Nothing is attested."
+            exit 1
+          fi
+          for file in tests-rest/packages-root.txt tests-assure/python-tests.json; do
+            test -s "$parts/$file" || { echo "::error::The parts wrote no $file. Nothing is attested."; exit 1; }
+          done
+          jq -e . "$parts/tests-assure/python-tests.json" > /dev/null
+          for part in stego-build stego generators rest assure; do
+            for file in "go-test-$part.json" "packages-$part.txt"; do
+              test -s "$parts/tests-$part/$file" || { echo "::error::The part $part wrote no $file. Nothing is attested."; exit 1; }
+            done
+            if ! jq -e . "$parts/tests-$part/go-test-$part.json" > /dev/null; then
+              echo "::error::The go test output of the part $part has a line that is not JSON. Nothing is attested."
+              exit 1
+            fi
+            jq -r 'select(.Test == null and (.Action == "pass" or .Action == "fail" or .Action == "skip")) | .Package' \
+              "$parts/tests-$part/go-test-$part.json" | LC_ALL=C sort -u > "$RUNNER_TEMP/done-$part.txt"
+            missing="$(LC_ALL=C sort -u "$parts/tests-$part/packages-$part.txt" | LC_ALL=C comm -23 - "$RUNNER_TEMP/done-$part.txt")"
+            if [ -n "$missing" ]; then
+              echo "::error::The part $part has no result for: $missing. Nothing is attested."
+              exit 1
+            fi
+          done
+          unplaced="$(LC_ALL=C sort -u "$parts/tests-rest/packages-root.txt" | LC_ALL=C comm -23 - <(for part in stego-build stego generators rest; do cat "$parts/tests-$part/packages-$part.txt"; done | LC_ALL=C sort -u))"
+          if [ -n "$unplaced" ]; then
+            echo "::error::No part ran: $unplaced. Nothing is attested."
+            exit 1
+          fi
+          for part in rest generators stego-build stego assure; do
+            cat "$parts/tests-$part/go-test-$part.json"
+          done > "$RUNNER_TEMP/go-test.json"
       - name: Record the proof run
         run: >-
           mkdir -p "$RUNNER_TEMP/proof-run" &&
           "$RUNNER_TEMP/record/assure" record
           --commit "$COMMIT"
           --go-json "$RUNNER_TEMP/go-test.json"
-          --python-json "$RUNNER_TEMP/python-tests.json"
+          --python-json "$RUNNER_TEMP/parts/tests-assure/python-tests.json"
           --predicate "$RUNNER_TEMP/proof-run/proof-run.json"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -171,10 +289,30 @@ jobs:
           path: ${{ runner.temp }}/proof-run/proof-run.json
           retention-days: 14
           if-no-files-found: error
+      - name: Say that the proof run is recorded
+        id: recorded
+        run: echo "recorded=true" >> "$GITHUB_OUTPUT"
+      # assure record gives outcomes only to tests whose names carry a test record ID. Every other failure fails the
+      # job here, after the proof run is recorded and kept: a Go test or subtest of any name, a parent test, a
+      # package (TestMain, a race outside a test, a build fault), and a Python test of any name.
+      - name: Fail on any failed test
+        shell: bash
+        run: |
+          parts="$RUNNER_TEMP/parts"
+          go_failed="$(jq -r 'select(.Action == "fail") | "\(.Package) \(.Test // "(package)")"' "$RUNNER_TEMP/go-test.json")"
+          python_failed="$(jq -r '.tests[] | select(.result == "failed") | .test' "$parts/tests-assure/python-tests.json")"
+          if [ -n "$go_failed$python_failed" ]; then
+            printf '%s\n' $'Failed Go tests and packages:' "$go_failed" $'Failed Python tests:' "$python_failed"
+            echo "::error::A test or package failed (listed above). The proof run is recorded and kept, but the suites job fails."
+            exit 1
+          fi
 
   attest:
     name: attest
     needs: suites
+    # The proof run is signed when the suites job recorded and kept it, also when the suites job then fails on a
+    # failed test: the predicate records the failure, and the gate names the failed records.
+    if: ${{ !cancelled() && needs.suites.outputs.recorded == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -313,10 +451,12 @@ jobs:
   # build files that go build does not check again.
   gate-release:
     name: gate release
-    needs: attest
-    # !cancelled(): when the suites or the attest job fail, the release gate still runs and refuses the release for
-    # want of a verified proof run.
-    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: [suites, attest]
+    # A release is gated only when the suites job succeeded: every test and package passed, also those whose names
+    # carry no test record ID, which the proof run does not record. A failed suites job fails the run, and nothing
+    # is gated or published. !cancelled(): when the attest job fails, the release gate still runs and refuses the
+    # release for want of a verified proof run.
+    if: ${{ !cancelled() && needs.suites.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -438,8 +578,9 @@ jobs:
   # release and its tag. The job gets no identity token and writes no attestation.
   publish-release:
     name: publish release
-    needs: [gate-release, attest-release]
-    if: ${{ needs.gate-release.outputs.passed == 'true' }}
+    needs: [suites, gate-release, attest-release]
+    # Only after a successful suites job, also when the release gate passed: the gate-release job asks it too.
+    if: ${{ needs.suites.result == 'success' && needs.gate-release.outputs.passed == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
