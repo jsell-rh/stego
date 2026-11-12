@@ -74,6 +74,27 @@ func widgetEntities() []types.Entity {
 	}
 }
 
+// boundsService is the service of ST-SUP-RC01-OC12-T09: the owned entity Gauge with bounds of each shape on each
+// numeric type (negative, a fraction, a bigint, an exponent), length bounds on a varchar and a text, enums of one and
+// of three values, and fields whose names are keywords, so each CHECK definition of the manifest is the text that
+// PostgreSQL writes.
+func boundsService() gen.Context {
+	n := func(v int) *int { return &v }
+	f := func(v float64) *float64 { return &v }
+	return runtimeService("bounds", "boundstenancy", []types.Entity{{Name: "Gauge", Fields: []types.Field{
+		{Name: "small", Type: types.FieldTypeInt32, Min: f(-3), Max: f(1.5)},
+		{Name: "wide", Type: types.FieldTypeInt32, Min: f(0), Max: f(3000000000)},
+		{Name: "big", Type: types.FieldTypeInt64, Min: f(-3000000000), Max: f(1e6)},
+		{Name: "edge", Type: types.FieldTypeInt64, Min: f(1), Max: f(2147483647)},
+		{Name: "fine", Type: types.FieldTypeDouble, Min: f(-2.25), Max: f(1e-05)},
+		{Name: "rough", Type: types.FieldTypeFloat, Min: f(-3), Max: f(2.5)},
+		{Name: "order", Type: types.FieldTypeString, MinLength: n(1), MaxLength: n(10)},
+		{Name: "note", Type: types.FieldTypeString, MinLength: n(2)},
+		{Name: "user", Type: types.FieldTypeEnum, Values: []string{"a'b"}},
+		{Name: "level", Type: types.FieldTypeEnum, Values: []string{"x", "y", "z"}},
+	}}}, nil)
+}
+
 // widgetService is the service of ST-SUP-RC01-OC41-T02, with an upsert key over Widget.
 func widgetService(entities []types.Entity) gen.Context {
 	return runtimeService("widgets", "widgettenancy", entities,
@@ -157,7 +178,7 @@ func tableModule(t *testing.T) (map[string]bool, string) {
 	for _, service := range []struct {
 		ctx    gen.Context
 		access string
-	}{{orderService("storage"), "access.json"}, {orderService("previous"), ""}, {widgetService(widgetEntities()), "widgets_access.json"}} {
+	}{{orderService("storage"), "access.json"}, {orderService("previous"), ""}, {widgetService(widgetEntities()), "widgets_access.json"}, {boundsService(), "bounds_access.json"}} {
 		files, wiring, err := new(postgresadapter.Generator).Generate(service.ctx)
 		if err != nil {
 			t.Fatal(err)
@@ -181,7 +202,7 @@ func tableModule(t *testing.T) (map[string]bool, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	goMod := "module " + tablesModule + "\n\ngo 1.26.11\n\nrequire (\n github.com/google/uuid v1.6.0\n github.com/jackc/pgx/v5 v5.11.0\n github.com/jsell-rh/stego/registry/runtime v0.38.0\n)\n\nreplace github.com/jsell-rh/stego/registry/runtime => " + runtimeDir + "\n"
+	goMod := "module " + tablesModule + "\n\ngo 1.26.11\n\nrequire (\n github.com/google/uuid v1.6.0\n github.com/jackc/pgx/v5 v5.11.0\n github.com/jsell-rh/stego/registry/runtime v0.43.0\n)\n\nreplace github.com/jsell-rh/stego/registry/runtime => " + runtimeDir + "\n"
 	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte(goMod), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -311,6 +332,37 @@ func TestTables(t *testing.T) {
 			t.Error("the order of the entities in the declaration changes the body of 001_initial")
 		}
 		onPostgres(t, "ST-SUP-RC01-OC41-T02")
+	})
+
+	t.Run("ST-SUP-RC01-OC12-T09 The schema manifest is the model of the migrations, which PostgreSQL holds", func(t *testing.T) {
+		files, _, err := new(postgresadapter.Generator).Generate(widgetService(widgetEntities()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		source := generated(t, files, "widgets/schema_manifest.go")
+		for _, want := range []string{
+			`var SchemaManifest = manifest.Manifest{`,
+			`{Name: "name", Type: "character varying(64)", NotNull: true}`,
+			`{Name: "ratio", Type: "real", NotNull: false}`,
+			`{Name: "widgets_pkey", Columns: []string{"tenant_id", "id"}}`,
+			`{Name: "widgets_name_key", Columns: []string{"tenant_id", "name"}}`,
+			`Using: "(tenant_id = current_setting('app.tenant'::text, true))"`,
+		} {
+			if !strings.Contains(source, want) {
+				t.Errorf("the schema manifest does not hold %s:\n%s", want, source)
+			}
+		}
+		// pg_get_expr quotes a tenant column that is a keyword, so the manifest does too.
+		keyword := orderService("storage")
+		keyword.Tenancy = &gen.Tenancy{Key: "user"}
+		files, _, err = new(postgresadapter.Generator).Generate(keyword)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if source := generated(t, files, "storage/schema_manifest.go"); !strings.Contains(source, `Using: "(\"user\" = current_setting('app.tenant'::text, true))"`) {
+			t.Errorf("the policy of the tenant column user is not quoted:\n%s", source)
+		}
+		onPostgres(t, "ST-SUP-RC01-OC12-T09")
 	})
 
 	t.Run("ST-SUP-RC01-OC41-T03 A service that needs the store is refused on the runtime data path", func(t *testing.T) {
