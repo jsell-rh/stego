@@ -13,7 +13,9 @@ name: Specification checks
 
 on:
   workflow_dispatch:
+  # A branch gets the check from its pull request, so only a push to main runs it on push.
   push:
+    branches: [main]
     paths:
       - 'data/**'
       - 'lathe.config.json'
