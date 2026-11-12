@@ -88,19 +88,8 @@ jobs:
   compiler:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    services:
-      postgres:
-        image: postgres@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2 # 18.6-alpine
-        env:
-          POSTGRES_PASSWORD: stego_test
-          POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=trust
-        ports:
-          - 5432/tcp
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+    # The proof run (proof-run.yml) runs the whole Go suite of every module and records each outcome. This job
+    # does not run it again: it verifies the modules, scans them for vulnerabilities, and runs the targeted checks.
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -128,13 +117,8 @@ jobs:
         run: go test -v -race -count=1 -mod=readonly -timeout=2m ./internal/generator/kubernetesservice -run '^TestRPCDeployment'
       - name: Check registry initialization and exclusive file creation
         run: go test -v -race -count=1 -mod=readonly -timeout=2m ./internal/compiler ./internal/registry ./cmd/stego -run '^(TestInitialize.*|TestRootCreateDoesNotReplaceFiles|TestResolveRegistryCapturedConfiguration|TestRunInit.*)$'
-      - run: go test -race -count=1 -mod=readonly ./...
-        env:
-          STEGO_REQUIRE_NODE: '1'
-          STEGO_REQUIRE_POSTGRES: '1'
-          STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable
       # Assuring's code is in modules of its own (internal/assure and cmd/assure), which the root's ./... does not
-      # reach. Verify, scan and test each in its own folder.
+      # reach. Verify and scan each in its own folder.
       - name: Verify Assuring's modules
         run: |
           for module in internal/assure cmd/assure; do
@@ -144,11 +128,6 @@ jobs:
         run: |
           for module in internal/assure cmd/assure; do
             (cd "$module" && go run golang.org/x/vuln/cmd/govulncheck@v1.4.0 ./...)
-          done
-      - name: Test Assuring's modules
-        run: |
-          for module in internal/assure cmd/assure; do
-            (cd "$module" && go test -race -count=1 -mod=readonly ./...)
           done
 
   postgres-provisioning:
