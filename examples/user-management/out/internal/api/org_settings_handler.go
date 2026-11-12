@@ -89,6 +89,7 @@ func decodeOrgSettings(bodyBytes []byte) (OrgSetting, error) {
 	}
 	orgsetting.ID = ""
 	orgsetting.Generation = 0
+	orgsetting.OrgID = canonicalID(orgsetting.OrgID)
 	return orgsetting, nil
 }
 
@@ -237,7 +238,6 @@ func (h *OrgSettingsHandler) Upsert(w http.ResponseWriter, r *http.Request) {
 			}
 			orgsetting.ID = id.String()
 			var parents []command.Ref
-			orgsetting.OrgID = canonicalID(orgsetting.OrgID)
 			{
 				refs, err := data.OrganizationRepository(ch)
 				if err != nil {
@@ -280,7 +280,6 @@ func (h *OrgSettingsHandler) Upsert(w http.ResponseWriter, r *http.Request) {
 		orgsetting.Generation = stored.Generation + 1
 		orgsetting.OrgID = scope
 		var parents []command.Ref
-		orgsetting.OrgID = canonicalID(orgsetting.OrgID)
 		if orgsetting.OrgID != stored.OrgID {
 			refs, err := data.OrganizationRepository(ch)
 			if err != nil {
