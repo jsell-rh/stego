@@ -282,8 +282,19 @@ func TestRuntimeDataPath(t *testing.T) {
 		// components that served it on the GORM store refuse the run, and the fault names ST-SUP-RC20-OC39.
 		for _, components := range []string{storeArchetype, noQueryArchetype} {
 			lacking := newWiringProject(t, stego, components)
+			if components == storeArchetype {
+				// The declaration of a release on the GORM store: its collections and entities, with no command, no
+				// query and no setting of the command component.
+				full := lacking.read("service.yaml")
+				store := full[:strings.Index(full, "commands:")]
+				store = strings.Replace(store, "  command:\n    proto_files:\n      - {path: proto/shop.proto, import_path: shop/v1/shop.proto}\n", "", 1)
+				lacking.write("service.yaml", store)
+				if err := os.RemoveAll(filepath.Join(lacking.dir, "fills")); err != nil {
+					t.Fatal(err)
+				}
+			}
 			output, err := lacking.stegoRun("plan")
-			if err == nil || !strings.Contains(output, "ST-SUP-RC20-OC39") || !strings.Contains(output, "command and query components") {
+			if err == nil || !strings.Contains(output, "ST-SUP-RC20-OC39") || !strings.Contains(output, "command") || !strings.Contains(output, "query component") {
 				t.Errorf("the plan of a service with data access and without the command and query generators gave %v, want a refusal that names ST-SUP-RC20-OC39:\n%s", err, output)
 			}
 			if _, err := os.Stat(filepath.Join(lacking.dir, "out")); !os.IsNotExist(err) {
