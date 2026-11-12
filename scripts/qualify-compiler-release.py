@@ -283,10 +283,8 @@ def qualify(revision, output, gh, verify_release=False):
     output = output.absolute()
     if output.exists() or output.is_symlink() or not output.parent.is_dir():
         raise CheckError("The result directory must be new and its parent must exist")
+    # The checks run on main proves the commit: checks.yml runs on push for main only, not for a tag.
     branches = list(CHECKS_BRANCHES)
-    if verify_release:
-        # A published tag also triggers the full checks at the exact commit.
-        branches.append("compiler-" + revision)
     with tempfile.TemporaryDirectory(prefix=".stego-qualification-", dir=output.parent) as temporary:
         stage = Path(temporary)
         decision = release_decision(gh, revision, stage)

@@ -10,7 +10,9 @@ name: Runtime library checks
 
 on:
   workflow_dispatch:
+  # A branch gets these checks from its pull request, so only a push to main runs them on push.
   push:
+    branches: [main]
   pull_request:
 
 permissions:
