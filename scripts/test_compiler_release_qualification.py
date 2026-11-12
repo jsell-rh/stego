@@ -404,10 +404,11 @@ class QualificationChecks(unittest.TestCase):
         with self.assertRaisesRegex(CheckError, "exactly one signing run"):
             self.verify_release()
 
-    def test_tag_triggered_checks_run_qualifies_after_publication(self):
+    def test_tag_triggered_checks_run_does_not_qualify(self):
+        # Only a checks run on main proves the commit: checks.yml runs on push for main only.
         self.checks_run["head_branch"] = self.tag
-        result = self.verify_release()
-        self.assertEqual(result["compiler_checks"]["head_branch"], self.tag)
+        with self.assertRaisesRegex(CheckError, "No compiler checks run exists"):
+            self.verify_release()
 
     def test_release_verification_proves_removed_artifacts_by_signature(self):
         with self.subTest("In process: Release verification proves the signed artifact run by the release signatures after its artifacts expire"):
