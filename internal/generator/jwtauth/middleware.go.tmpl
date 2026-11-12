@@ -183,7 +183,7 @@ func claimPath(value string) ([]string, error) {
 }
 
 // accessTokenOnly refuses a token that is not an access token: one that holds a claim that marks an ID token
-// (at_hash, c_hash, nonce or events), or whose payload typ names Keycloak's ID, refresh or logout token
+// (at_hash, c_hash, nonce or events), or whose payload typ is present and is not the string Bearer
 // (ST-SUP-RC11-OC33). It runs after the signature and claim checks, and its error names no claim.
 func accessTokenOnly(encoded string) error {
     refused := errors.New("invalid authentication token")
@@ -194,9 +194,11 @@ func accessTokenOnly(encoded string) error {
     for _, name := range []string{"at_hash", "c_hash", "nonce", "events"} {
         if _, present := claims[name]; present { return refused }
     }
+    // The payload typ is an allow list: absent, or the JSON string Bearer of a Keycloak access token. null, another
+    // type and every other kind, such as Offline, are refused.
     if kind, present := claims["typ"]; present {
         var name string
-        if json.Unmarshal(kind, &name) != nil || name == "ID" || name == "Refresh" || name == "Logout" { return refused }
+        if len(kind) == 0 || kind[0] != '"' || json.Unmarshal(kind, &name) != nil || name != "Bearer" { return refused }
     }
     return nil
 }
