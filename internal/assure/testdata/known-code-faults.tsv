@@ -129,7 +129,6 @@ ST-STD-CODE-R04	internal/generator/httpclient/testdata/local_test.go	internal/ge
 ST-STD-CODE-R04	internal/generator/httpclient/testdata/options_test.go	internal/generator/httpclient/testdata/options_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/jwtauth/generator_test.go	internal/generator/jwtauth/generator_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/jwtauth/runtime_test.go	internal/generator/jwtauth/runtime_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/generator/kafkaproducer/generator_test.go	internal/generator/kafkaproducer/generator_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/access_lifecycle_test.go	internal/generator/keycloakprovider/testdata/access_lifecycle_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/browser_lifecycle_test.go	internal/generator/keycloakprovider/testdata/browser_lifecycle_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/keycloakprovider/testdata/browser_live_test.go	internal/generator/keycloakprovider/testdata/browser_live_test.go	the test file names no test record's ID in a test or subtest name
@@ -187,8 +186,6 @@ ST-STD-CODE-R04	internal/generator/oteltracing/testdata/http_client_transport_te
 ST-STD-CODE-R04	internal/generator/oteltracing/testdata/http_diagnostics_test.go	internal/generator/oteltracing/testdata/http_diagnostics_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/oteltracing/testdata/outbox_test.go	internal/generator/oteltracing/testdata/outbox_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/oteltracing/testdata/startup_test.go	internal/generator/oteltracing/testdata/startup_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/generator/outbox/generator_test.go	internal/generator/outbox/generator_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/generator/outbox/schema_test.go	internal/generator/outbox/schema_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/postgresadapter/database_test.go	internal/generator/postgresadapter/database_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/postgresadapter/generator_test.go	internal/generator/postgresadapter/generator_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/postgresadapter/go_models_test.go	internal/generator/postgresadapter/go_models_test.go	the test file names no test record's ID in a test or subtest name

@@ -10,8 +10,8 @@ import (
 	"github.com/jsell-rh/stego/internal/gen"
 )
 
-// The outbox on the runtime (ST-SUP-RC18-OC30). When the generated commands and queries carry all data access
-// (gen.Context.RuntimeData), the queue table, its policies and its relay functions come from the runtime outbox
+// The outbox on the runtime (ST-SUP-RC18-OC30). The generated commands and queries carry all data access
+// (ST-SUP-RC20-OC39), and the queue table, its policies and its relay functions come from the runtime outbox
 // migration, outbox.Migration of the pinned github.com/jsell-rh/stego/registry/runtime (ST-SUP-RP01-LC19), and this component emits only
 // what varies with the declaration (ST-STD-RUNTIME-R05): the destinations of the service with their payload
 // limits, the migration call with the roles, and the wiring of the queue and the worker. It emits no queue table,
@@ -64,16 +64,12 @@ type runtimePlan struct {
 	Audit        bool
 }
 
-// validateRuntime refuses a context that the outbox on the runtime cannot serve: peers that call the queue code
-// of the former outbox, which this path does not emit.
+// validateRuntime refuses a context that the outbox on the runtime cannot serve: the kafka-producer component, whose
+// publisher ran on the worker of the former outbox, which STEGO no longer generates (ST-SUP-RC20-OC39). Kafka as a
+// destination of the runtime outbox waits for its generator wiring (ST-SUP-Q103).
 func validateRuntime(ctx gen.Context) error {
-	switch {
-	case ctx.StorageContract != "":
-		return errors.New("outbox: on the runtime data path the outbox emits no queue code, so it cannot serve the storage contract")
-	case ctx.EventsContract != "":
-		return errors.New("outbox: on the runtime data path the outbox emits no live event source, so it cannot serve the events contract")
-	case ctx.PeerNamespaces["kafka-producer"] != "":
-		return errors.New("outbox: on the runtime data path the outbox emits no queue code, so it cannot serve the kafka-producer component")
+	if ctx.PeerNamespaces["kafka-producer"] != "" {
+		return errors.New("outbox: the kafka-producer component ran on the worker of the former outbox, which STEGO no longer generates (ST-SUP-RC20-OC39); kafka-producer as a destination of the runtime outbox is not wired yet (ST-SUP-Q103)")
 	}
 	return nil
 }

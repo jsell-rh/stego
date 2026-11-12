@@ -2,47 +2,37 @@
 package kafkaproducer
 
 import (
-	"bytes"
 	_ "embed"
 	"fmt"
 	"go/format"
 	"path"
 	"strings"
-	"text/template"
 
 	"github.com/jsell-rh/stego/internal/gen"
-	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
 )
 
 //go:embed publisher.go.tmpl
 var publisherSource string
-
-//go:embed runtime.go.tmpl
-var runtimeSource string
 
 type Generator struct{}
 
 // MinimumGoVersion covers the pinned Kafka dependency.
 func (*Generator) MinimumGoVersion() string { return "1.25.0" }
 
-// ValidateContext checks the publisher path and the optional outbox runtime.
+// ValidateContext checks the publisher path. It refuses a service that has the outbox component: the delivery of
+// outbox messages to Kafka ran on the worker of the former outbox, which STEGO no longer generates
+// (ST-SUP-RC20-OC39), and kafka-producer as a destination of the runtime outbox is not wired yet (ST-SUP-Q103).
 func (*Generator) ValidateContext(ctx gen.Context) error {
 	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
 		return err
 	}
-	if outbox := ctx.PeerNamespaces["outbox"]; outbox != "" {
-		if err := gen.ValidateGoPackageNamespace(outbox); err != nil {
-			return err
-		}
-		if ctx.ModuleName == "" {
-			return fmt.Errorf("Kafka runtime requires a module name")
-		}
-	} else if ctx.StorageContract != "" {
-		return fmt.Errorf("Kafka service runtime requires the outbox component")
+	if ctx.PeerNamespaces["outbox"] != "" {
+		return fmt.Errorf("kafka-producer with the outbox component is not served: its delivery of outbox messages ran on the worker of the former outbox, which STEGO no longer generates (ST-SUP-RC20-OC39), and kafka-producer as a destination of the runtime outbox is not wired yet (ST-SUP-Q103); remove the event-publisher mixin or the kafka-producer component")
 	}
 	return nil
 }
 
+// Generate emits the publisher alone.
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err := g.ValidateContext(ctx); err != nil {
 		return nil, nil, err
@@ -56,56 +46,6 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	wiring := &gen.Wiring{GoModRequires: map[string]string{
 		"github.com/twmb/franz-go": "v1.21.6", "github.com/google/uuid": "v1.6.0",
 	}}
-	if outbox := ctx.PeerNamespaces["outbox"]; outbox != "" {
-		fence := ctx.PeerNamespaces["postgres-adapter"] != "" && postgresadapter.LeaseEnabled(ctx.PeerConfigs["postgres-adapter"])
-		tracing := ctx.PeerNamespaces["otel-tracing"]
-		if tracing != "" && ctx.ModuleName == "" {
-			return nil, nil, fmt.Errorf("Kafka telemetry runtime requires a module name")
-		}
-		data := struct {
-			Package, OutboxImport, StorageImport, TracingImport string
-			Fence, Tracing                                      bool
-		}{path.Base(ns), path.Join(ctx.ModuleName, ctx.OutDirName, outbox), "", "", fence, tracing != ""}
-		if fence {
-			data.StorageImport = path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["postgres-adapter"])
-		}
-		if tracing != "" {
-			data.TracingImport = path.Join(ctx.ModuleName, ctx.OutDirName, tracing)
-		}
-		tmpl, err := template.New("runtime").Parse(runtimeSource)
-		if err != nil {
-			return nil, nil, err
-		}
-		var buf bytes.Buffer
-		if err := tmpl.Execute(&buf, data); err != nil {
-			return nil, nil, err
-		}
-		source, err := format.Source(buf.Bytes())
-		if err != nil {
-			return nil, nil, fmt.Errorf("formatting Kafka runtime: %w", err)
-		}
-		files = append(files, gen.File{Path: path.Join(ns, "runtime.go"), Content: source})
-		wiring.Imports = []string{ns}
-		if fence {
-			wiring.Constructors = []string{path.Base(ns) + ".NewRuntime(store)"}
-			wiring.ConstructorDeps = map[int][]string{0: {"store"}}
-		} else {
-			wiring.Constructors = []string{path.Base(ns) + ".NewRuntime()"}
-			wiring.ConstructorDeps = map[int][]string{}
-		}
-		if tracing != "" {
-			separator := "tracingRuntime)"
-			if fence {
-				separator = ", tracingRuntime)"
-			}
-			wiring.Constructors[0] = strings.TrimSuffix(wiring.Constructors[0], ")") + separator
-			wiring.ConstructorDeps[0] = append(wiring.ConstructorDeps[0], "tracingRuntime")
-		}
-		wiring.ConstructorResources = map[int][]gen.Resource{0: {gen.ServiceContext, gen.SQLDatabase}}
-		wiring.ConstructorReturnsError = map[int]bool{0: true}
-		wiring.ConstructorDeferCalls = map[int]string{0: "Close()"}
-		wiring.BackgroundTasks = []int{0}
-	}
 	if err := gen.ValidateNamespace(ns, files); err != nil {
 		return nil, nil, err
 	}
