@@ -94,6 +94,8 @@ func parts(entities []command.Declared, calls *int) Parts {
 		},
 		AuditSettings: audit.Settings{Level: audit.LevelChange},
 		Commands:      entities,
+		// The anchor period of the audit DDL of the migration job of the fixture.
+		Workers: WorkerParts{AnchorPeriod: time.Hour},
 	}
 }
 

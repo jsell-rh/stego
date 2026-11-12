@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"example.com/tables-check/bounds"
 	"example.com/tables-check/previous"
 	"example.com/tables-check/storage"
 	"example.com/tables-check/tenancy"
@@ -398,6 +399,19 @@ WHERE i.indrelid = 'public.orders'::regclass`)
 		ctx := context.Background()
 		if err := manifest.Check(ctx, reader, widgets.SchemaManifest); err != nil {
 			t.Fatalf("the database that the migrations made does not hold the schema manifest: %v", err)
+		}
+		// The bounds of each shape: each CHECK definition of the manifest is the text that PostgreSQL writes.
+		boundsCfg, boundsDB := database(t, cfg, admin)
+		migrate(t, boundsCfg, boundsDB, bounds.Migrate, "bounds_access.json")
+		if _, err := boundsDB.Exec("ALTER ROLE " + pgx.Identifier{tenancy.RuntimeRole}.Sanitize() + " LOGIN PASSWORD 'tables-check'"); err != nil {
+			t.Fatal(err)
+		}
+		boundsRuntime := boundsCfg.Copy()
+		boundsRuntime.User, boundsRuntime.Password = tenancy.RuntimeRole, "tables-check"
+		boundsReader := stdlib.OpenDB(*boundsRuntime)
+		defer boundsReader.Close()
+		if err := manifest.Check(ctx, boundsReader, bounds.SchemaManifest); err != nil {
+			t.Fatalf("the database of the bounds does not hold the schema manifest: %v", err)
 		}
 		if _, err := db.Exec(`ALTER TABLE public."orders" DROP CONSTRAINT "orders_widget_id_fkey"`); err != nil {
 			t.Fatal(err)

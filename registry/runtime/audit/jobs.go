@@ -98,16 +98,40 @@ const tenantWall = "(tenant_id = current_setting('app.tenant'::text, true))"
 
 // Manifest gives what the code needs of the audit record that DDL makes in the schema of c (ST-SUP-RC01-OC12):
 // the four tables with row-level security enabled and forced and their policy tenant_wall, and the triggers that
-// reject a change of the events table and of the checkpoints and that guard the anchor boundaries. The service
-// runtime checks it before the service serves, so an audit record that a change of the database left open to an
-// edit, or to another tenant, stops the start.
-func Manifest(c Config) manifest.Manifest {
+// reject a change of the events table and of the checkpoints and that guard the anchor boundaries, each with the
+// source of its function as DDL makes it for the anchor period of c. The service runtime checks it before the
+// service serves, so an audit record that a change of the database left open to an edit, or to another tenant,
+// stops the start.
+func Manifest(c Config) (manifest.Manifest, error) {
 	s := c.Schema
 	if s == "" {
 		s = "public"
 	}
+	if !plainName.MatchString(s) {
+		return manifest.Manifest{}, errors.New("audit: the schema must be a plain lower-case name")
+	}
+	if c.AnchorPeriod < time.Second {
+		return manifest.Manifest{}, errors.New("audit: the anchor period is less than one second")
+	}
+	text := strings.NewReplacer("{s}", s, "{period}", strconv.FormatInt(int64(c.AnchorPeriod/time.Second), 10)+" seconds").Replace(ddlText)
+	function := func(name string) (manifest.Function, error) {
+		head := "CREATE OR REPLACE FUNCTION " + s + "." + name + "() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$"
+		_, rest, found := strings.Cut(text, head)
+		source, _, closed := strings.Cut(rest, "$$")
+		if !found || !closed {
+			return manifest.Function{}, fmt.Errorf("audit: the DDL has no trigger function %s", name)
+		}
+		return manifest.Function{Name: s + "." + name, Language: "plpgsql", Source: source, Config: []string{"search_path=pg_catalog, pg_temp"}}, nil
+	}
+	reject, err := function("audit_reject_change")
+	if err != nil {
+		return manifest.Manifest{}, err
+	}
+	guard, err := function("audit_boundary_guard")
+	if err != nil {
+		return manifest.Manifest{}, err
+	}
 	wall := []manifest.Policy{{Name: "tenant_wall", Command: "*", Using: tenantWall, WithCheck: tenantWall}}
-	reject := s + ".audit_reject_change"
 	rejecting := func(table string) []manifest.Trigger {
 		return []manifest.Trigger{
 			{Name: table + "_reject_row", Timing: "BEFORE", Row: true, Events: []string{"UPDATE", "DELETE"}, Function: reject},
@@ -118,9 +142,9 @@ func Manifest(c Config) manifest.Manifest {
 		{Schema: s, Name: EventsTable, RowSecurity: true, Policies: wall, Triggers: rejecting(EventsTable)},
 		{Schema: s, Name: HeadsTable, RowSecurity: true, Policies: wall},
 		{Schema: s, Name: BoundariesTable, RowSecurity: true, Policies: wall, Triggers: []manifest.Trigger{
-			{Name: BoundariesTable + "_guard", Timing: "BEFORE", Row: true, Events: []string{"INSERT", "UPDATE"}, Function: s + ".audit_boundary_guard"}}},
+			{Name: BoundariesTable + "_guard", Timing: "BEFORE", Row: true, Events: []string{"INSERT", "UPDATE"}, Function: guard}}},
 		{Schema: s, Name: CheckpointsTable, RowSecurity: true, Policies: wall, Triggers: rejecting(CheckpointsTable)},
-	}}
+	}}, nil
 }
 
 const ddlText = `CREATE TABLE IF NOT EXISTS {s}.{events} (

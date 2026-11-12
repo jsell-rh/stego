@@ -42,7 +42,9 @@ type Table struct {
 }
 
 // Column is one column: its name, its type as format_type gives it, such as character varying(255), and whether
-// the code needs it NOT NULL. A column that the code takes as nullable may be NOT NULL in the database.
+// the code needs it NOT NULL. A column that the code takes as nullable may be NOT NULL in the database. A column of a
+// type with a collation must have the default or the C collation, so equality is the byte equality that the tenant
+// wall and the keys rely on.
 type Column struct {
 	Name, Type string
 	NotNull    bool
@@ -56,14 +58,19 @@ const (
 	KindUnique     = "u"
 )
 
-// Constraint is one constraint of a table, by name: its kind and, for a foreign key, the table it refers to, as
-// schema.table. The constraint must be validated.
+// Constraint is one constraint of a table, by name: its kind and its definition as pg_get_constraintdef gives it
+// with the search path pg_catalog, pg_temp, such as CHECK ((total >= 1)) or FOREIGN KEY (tenant_id, org_id)
+// REFERENCES public.organizations(tenant_id, id). The definition holds the expression of a check, and the columns,
+// the referenced table and columns, the actions, the match type and the deferrability of a foreign key. The
+// constraint must be validated.
 type Constraint struct {
-	Name, Kind, References string
+	Name, Kind, Definition string
 }
 
 // Index is one unique index of a table: its key columns in order and its predicate as pg_get_expr gives it, or
-// empty for an index on every row. The index must be valid, ready, not deferrable, and have no expression column.
+// empty for an index on every row. The index must be valid, ready, not deferrable, treat nulls as distinct, and
+// have no expression column, and each key column must have the default operator class and the default or the C
+// collation.
 type Index struct {
 	Name      string
 	Columns   []string
@@ -78,13 +85,24 @@ type Policy struct {
 }
 
 // Trigger is one trigger of a table: when it fires (BEFORE or AFTER), for each row or for each statement, on
-// which events (INSERT, UPDATE, DELETE, TRUNCATE), and the function it runs, as schema.function. The trigger must
-// be enabled.
+// which events (INSERT, UPDATE, DELETE, TRUNCATE), and the function it runs. The trigger must be enabled, with no
+// WHEN condition, no column list and no argument. On a table with row-level security, each trigger that is not
+// internal is one of the manifest.
 type Trigger struct {
 	Name, Timing string
 	Row          bool
 	Events       []string
-	Function     string
+	Function     Function
+}
+
+// Function is the trigger function that the DDL makes: its name as schema.function, its language, its source (the
+// text between the dollar quotes), whether it is SECURITY DEFINER, and its settings as pg_proc.proconfig gives
+// them, such as search_path=pg_catalog, pg_temp. The function must return trigger, take no argument, be volatile,
+// and belong to the owner of the table.
+type Function struct {
+	Name, Language, Source string
+	SecurityDefiner        bool
+	Config                 []string
 }
 
 // Join gives one manifest with the tables of each manifest, in order.
@@ -140,8 +158,8 @@ func (m Manifest) Validate() error {
 			if !slices.Contains([]string{KindPrimaryKey, KindCheck, KindForeignKey, KindUnique}, c.Kind) {
 				return fmt.Errorf("manifest: table %s: the constraint %s has the unknown kind %q", id, c.Name, c.Kind)
 			}
-			if (c.Kind == KindForeignKey) != (c.References != "") {
-				return fmt.Errorf("manifest: table %s: the constraint %s names a table only when it is a foreign key", id, c.Name)
+			if c.Definition == "" {
+				return fmt.Errorf("manifest: table %s: the constraint %s has no definition", id, c.Name)
 			}
 		}
 		for _, i := range t.Indexes {
@@ -167,8 +185,8 @@ func (m Manifest) Validate() error {
 			if _, err := tr.tgtype(); err != nil {
 				return fmt.Errorf("manifest: table %s: the trigger %s: %w", id, tr.Name, err)
 			}
-			if tr.Function == "" {
-				return fmt.Errorf("manifest: table %s: the trigger %s has no function", id, tr.Name)
+			if tr.Function.Name == "" || tr.Function.Language == "" || tr.Function.Source == "" {
+				return fmt.Errorf("manifest: table %s: the trigger %s has no function name, language or source", id, tr.Name)
 			}
 		}
 	}
@@ -239,9 +257,10 @@ func (m *Mismatch) Is(target error) bool { return target == ErrNotSatisfied }
 // Timeout bounds Check.
 const Timeout = 30 * time.Second
 
-// Check reads the catalog of the database in one read-only transaction on db, with the search path pg_catalog, and
-// gives a *Mismatch that names each table, column, constraint, index, policy and trigger of the manifest that the
-// database does not hold as the manifest states it (ST-SUP-RC01-OC12). It reads only the catalog, so the runtime
+// Check reads the catalog of the database in one read-only transaction on db, with the search path pg_catalog,
+// pg_temp, so no temporary object stands in for a catalog object. It gives a *Mismatch that names each table,
+// column, constraint, index, policy and trigger of the manifest that the database does not hold as the manifest
+// states it, and each rule, extra permissive policy and extra trigger that it does not allow (ST-SUP-RC01-OC12). It reads only the catalog, so the runtime
 // role of the service can run it, and it writes nothing. An invalid manifest, or a catalog it cannot read, is an
 // error too, so the caller fails closed.
 func Check(ctx context.Context, db *sql.DB, m Manifest) (err error) {
@@ -258,7 +277,7 @@ func Check(ctx context.Context, db *sql.DB, m Manifest) (err error) {
 		return fmt.Errorf("manifest: read the catalog: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, "SET LOCAL search_path = pg_catalog"); err != nil {
+	if _, err := tx.ExecContext(ctx, "SET LOCAL search_path = pg_catalog, pg_temp"); err != nil {
 		return fmt.Errorf("manifest: read the catalog: %w", err)
 	}
 	var faults []string
@@ -280,11 +299,12 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table) ([]string, error) {
 	id := t.Schema + "." + t.Name
 	var (
 		oid                    uint32
+		owner                  uint32
 		rowSecurity, forceRows bool
 	)
-	err := tx.QueryRowContext(ctx, `SELECT c.oid, c.relrowsecurity, c.relforcerowsecurity FROM pg_class c
-  JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind IN ('r', 'p')`,
-		t.Schema, t.Name).Scan(&oid, &rowSecurity, &forceRows)
+	err := tx.QueryRowContext(ctx, `SELECT c.oid, c.relowner, c.relrowsecurity, c.relforcerowsecurity FROM pg_catalog.pg_class c
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind IN ('r', 'p')`,
+		t.Schema, t.Name).Scan(&oid, &owner, &rowSecurity, &forceRows)
 	if errors.Is(err, sql.ErrNoRows) {
 		return []string{"table " + id + " is missing"}, nil
 	}
@@ -296,19 +316,28 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table) ([]string, error) {
 		faults = append(faults, "table "+id+": "+fmt.Sprintf(format, args...))
 	}
 
-	columns := map[string]Column{}
-	rows, err := tx.QueryContext(ctx, `SELECT attname, format_type(atttypid, atttypmod), attnotnull FROM pg_attribute
-  WHERE attrelid = $1 AND attnum > 0 AND NOT attisdropped`, oid)
+	type column struct {
+		typ, collation string
+		notNull        bool
+		plainCollation bool
+	}
+	columns := map[string]column{}
+	rows, err := tx.QueryContext(ctx, `SELECT a.attname, pg_catalog.format_type(a.atttypid, a.atttypmod), a.attnotnull,
+  a.attcollation IN (0, 100, 950), COALESCE(cn.nspname || '.' || co.collname, '')
+  FROM pg_catalog.pg_attribute a LEFT JOIN pg_catalog.pg_collation co ON co.oid = a.attcollation
+  LEFT JOIN pg_catalog.pg_namespace cn ON cn.oid = co.collnamespace
+  WHERE a.attrelid = $1 AND a.attnum > 0 AND NOT a.attisdropped`, oid)
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
-		var c Column
-		if err := rows.Scan(&c.Name, &c.Type, &c.NotNull); err != nil {
+		var n string
+		var c column
+		if err := rows.Scan(&n, &c.typ, &c.notNull, &c.plainCollation, &c.collation); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		columns[c.Name] = c
+		columns[n] = c
 	}
 	if err := closed(rows); err != nil {
 		return nil, err
@@ -318,28 +347,29 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table) ([]string, error) {
 		switch {
 		case !ok:
 			fault("column %s is missing", want.Name)
-		case got.Type != want.Type:
-			fault("column %s has the type %s, and the manifest needs %s", want.Name, got.Type, want.Type)
-		case want.NotNull && !got.NotNull:
+		case got.typ != want.Type:
+			fault("column %s has the type %s, and the manifest needs %s", want.Name, got.typ, want.Type)
+		case want.NotNull && !got.notNull:
 			fault("column %s is nullable, and the manifest needs NOT NULL", want.Name)
+		case !got.plainCollation:
+			fault("column %s has the collation %s, and the manifest needs the default or the C collation", want.Name, got.collation)
 		}
 	}
 
 	type constraint struct {
-		kind, references string
+		kind, definition string
 		validated        bool
 	}
 	constraints := map[string]constraint{}
-	rows, err = tx.QueryContext(ctx, `SELECT c.conname, c.contype::text, COALESCE(rn.nspname || '.' || r.relname, ''), c.convalidated
-  FROM pg_constraint c LEFT JOIN pg_class r ON r.oid = c.confrelid LEFT JOIN pg_namespace rn ON rn.oid = r.relnamespace
-  WHERE c.conrelid = $1`, oid)
+	rows, err = tx.QueryContext(ctx, `SELECT c.conname, c.contype::text, pg_catalog.pg_get_constraintdef(c.oid), c.convalidated
+  FROM pg_catalog.pg_constraint c WHERE c.conrelid = $1`, oid)
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
 		var n string
 		var c constraint
-		if err := rows.Scan(&n, &c.kind, &c.references, &c.validated); err != nil {
+		if err := rows.Scan(&n, &c.kind, &c.definition, &c.validated); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -353,7 +383,7 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table) ([]string, error) {
 		switch {
 		case !ok:
 			fault("constraint %s is missing", want.Name)
-		case got.kind != want.Kind || got.references != want.References:
+		case got.kind != want.Kind || strings.TrimSuffix(got.definition, " NOT VALID") != want.Definition:
 			fault("constraint %s is not the constraint of the manifest", want.Name)
 		case !got.validated:
 			fault("constraint %s is not validated", want.Name)
@@ -361,31 +391,52 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table) ([]string, error) {
 	}
 
 	type index struct {
-		columns                         []string
-		predicate                       string
-		unique, valid, ready, immediate bool
-		expressions                     bool
+		columns                                   []string
+		predicate                                 string
+		unique, valid, ready, immediate, distinct bool
+		expressions, plainKeys                    bool
 	}
-	indexes := map[string]index{}
+	indexes := map[string]*index{}
 	rows, err = tx.QueryContext(ctx, `SELECT ic.relname, i.indisunique, i.indisvalid, i.indisready, i.indimmediate,
-  i.indexprs IS NOT NULL, COALESCE(pg_get_expr(i.indpred, i.indrelid), ''),
-  COALESCE((SELECT string_agg(COALESCE(a.attname, ''), chr(31) ORDER BY k.o)
-    FROM unnest(i.indkey::int2[]) WITH ORDINALITY AS k(n, o)
-    LEFT JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.n AND k.n > 0
-    WHERE k.o <= i.indnkeyatts), '')
-  FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid WHERE i.indrelid = $1`, oid)
+  NOT i.indnullsnotdistinct, i.indexprs IS NOT NULL, COALESCE(pg_catalog.pg_get_expr(i.indpred, i.indrelid), ''),
+  NOT EXISTS (SELECT 1 FROM pg_catalog.unnest(i.indclass::pg_catalog.oid[]) WITH ORDINALITY AS k(opclass, o)
+    JOIN pg_catalog.pg_opclass oc ON oc.oid = k.opclass WHERE k.o <= i.indnkeyatts AND NOT oc.opcdefault)
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.unnest(i.indcollation::pg_catalog.oid[]) WITH ORDINALITY AS k(coll, o)
+    WHERE k.o <= i.indnkeyatts AND k.coll NOT IN (0, 100, 950))
+  FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class ic ON ic.oid = i.indexrelid WHERE i.indrelid = $1`, oid)
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
-		var n, keys string
-		var i index
-		if err := rows.Scan(&n, &i.unique, &i.valid, &i.ready, &i.immediate, &i.expressions, &i.predicate, &keys); err != nil {
+		var n string
+		i := &index{}
+		if err := rows.Scan(&n, &i.unique, &i.valid, &i.ready, &i.immediate, &i.distinct, &i.expressions, &i.predicate, &i.plainKeys); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		i.columns = strings.Split(keys, "\x1f")
 		indexes[n] = i
+	}
+	if err := closed(rows); err != nil {
+		return nil, err
+	}
+	// The key columns of each index, one row each in order, so no name of a column can stand for two.
+	rows, err = tx.QueryContext(ctx, `SELECT ic.relname, COALESCE(a.attname, '')
+  FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class ic ON ic.oid = i.indexrelid
+  CROSS JOIN LATERAL pg_catalog.unnest(i.indkey::pg_catalog.int2[]) WITH ORDINALITY AS k(n, o)
+  LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.n AND k.n > 0
+  WHERE i.indrelid = $1 AND k.o <= i.indnkeyatts ORDER BY ic.relname, k.o`, oid)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var n, column string
+		if err := rows.Scan(&n, &column); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if i := indexes[n]; i != nil {
+			i.columns = append(i.columns, column)
+		}
 	}
 	if err := closed(rows); err != nil {
 		return nil, err
@@ -405,6 +456,10 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table) ([]string, error) {
 			fault("index %s is not valid", want.Name)
 		case !got.immediate:
 			fault("index %s is deferrable", want.Name)
+		case !got.distinct:
+			fault("index %s treats nulls as not distinct", want.Name)
+		case !got.plainKeys:
+			fault("index %s has an operator class or a collation that is not the default", want.Name)
 		}
 	}
 
@@ -416,9 +471,9 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table) ([]string, error) {
 		permissive, public        bool
 	}
 	policies := map[string]policy{}
-	rows, err = tx.QueryContext(ctx, `SELECT polname, polcmd::text, polpermissive, polroles = '{0}'::oid[],
-  COALESCE(pg_get_expr(polqual, polrelid), ''), COALESCE(pg_get_expr(polwithcheck, polrelid), '')
-  FROM pg_policy WHERE polrelid = $1`, oid)
+	rows, err = tx.QueryContext(ctx, `SELECT polname, polcmd::text, polpermissive, polroles = '{0}'::pg_catalog.oid[],
+  COALESCE(pg_catalog.pg_get_expr(polqual, polrelid), ''), COALESCE(pg_catalog.pg_get_expr(polwithcheck, polrelid), '')
+  FROM pg_catalog.pg_policy WHERE polrelid = $1`, oid)
 	if err != nil {
 		return nil, err
 	}
@@ -461,20 +516,28 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table) ([]string, error) {
 	}
 
 	type trigger struct {
-		tgtype            int16
-		enabled, function string
+		tgtype                                  int16
+		enabled, function, language, source     string
+		config                                  string
+		plain, securityDefiner, fits, ownerSame bool
 	}
 	triggers := map[string]trigger{}
-	rows, err = tx.QueryContext(ctx, `SELECT t.tgname, t.tgtype, t.tgenabled::text, pn.nspname || '.' || p.proname
-  FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid JOIN pg_namespace pn ON pn.oid = p.pronamespace
-  WHERE t.tgrelid = $1 AND NOT t.tgisinternal`, oid)
+	rows, err = tx.QueryContext(ctx, `SELECT t.tgname, t.tgtype, t.tgenabled::text, pn.nspname || '.' || p.proname, l.lanname, p.prosrc,
+  COALESCE(pg_catalog.array_to_string(p.proconfig, chr(31)), ''), p.prosecdef,
+  t.tgqual IS NULL AND pg_catalog.cardinality(t.tgattr::pg_catalog.int2[]) = 0 AND t.tgnargs = 0,
+  p.prorettype = 'pg_catalog.trigger'::pg_catalog.regtype AND p.pronargs = 0 AND p.provolatile = 'v' AND NOT p.proretset,
+  p.proowner = $2
+  FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_proc p ON p.oid = t.tgfoid
+  JOIN pg_catalog.pg_namespace pn ON pn.oid = p.pronamespace JOIN pg_catalog.pg_language l ON l.oid = p.prolang
+  WHERE t.tgrelid = $1 AND NOT t.tgisinternal`, oid, owner)
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
 		var n string
 		var tr trigger
-		if err := rows.Scan(&n, &tr.tgtype, &tr.enabled, &tr.function); err != nil {
+		if err := rows.Scan(&n, &tr.tgtype, &tr.enabled, &tr.function, &tr.language, &tr.source, &tr.config, &tr.securityDefiner,
+			&tr.plain, &tr.fits, &tr.ownerSame); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -483,17 +546,55 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table) ([]string, error) {
 	if err := closed(rows); err != nil {
 		return nil, err
 	}
+	namedTriggers := map[string]bool{}
 	for _, want := range t.Triggers {
+		namedTriggers[want.Name] = true
 		got, ok := triggers[want.Name]
 		bits, _ := want.tgtype()
 		switch {
 		case !ok:
 			fault("trigger %s is missing", want.Name)
-		case got.tgtype != bits || got.function != want.Function:
+		case got.tgtype != bits || got.function != want.Function.Name || !got.plain:
 			fault("trigger %s is not the trigger of the manifest", want.Name)
 		case got.enabled != "O" && got.enabled != "A":
 			fault("trigger %s is disabled", want.Name)
+		case got.language != want.Function.Language || got.source != want.Function.Source ||
+			got.securityDefiner != want.Function.SecurityDefiner || got.config != strings.Join(want.Function.Config, "\x1f") || !got.fits:
+			fault("trigger %s runs the function %s, which is not the function of the manifest", want.Name, want.Function.Name)
+		case !got.ownerSame:
+			fault("trigger %s runs the function %s, which the owner of the table does not own", want.Name, want.Function.Name)
 		}
+	}
+	if t.RowSecurity {
+		// A trigger runs on every row that a role writes, and can drop, change or copy it, so on a table with
+		// row-level security each trigger is the manifest's.
+		var extra []string
+		for n := range triggers {
+			if !namedTriggers[n] {
+				extra = append(extra, n)
+			}
+		}
+		slices.Sort(extra)
+		for _, n := range extra {
+			fault("trigger %s is a trigger that the manifest does not name", n)
+		}
+	}
+
+	// A rule rewrites each statement on the table, and can copy or drop its rows, so a table of the manifest has none.
+	rows, err = tx.QueryContext(ctx, `SELECT rulename FROM pg_catalog.pg_rewrite WHERE ev_class = $1 ORDER BY rulename`, oid)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		fault("rule %s is a rule that the manifest does not allow", n)
+	}
+	if err := closed(rows); err != nil {
+		return nil, err
 	}
 	return faults, nil
 }

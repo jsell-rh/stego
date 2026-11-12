@@ -174,30 +174,51 @@ func columnDefault(field types.Field) (string, error) {
 	return "", fmt.Errorf("field %s: the default %v has no SQL literal", field.Name, field.Default)
 }
 
-// columnChecks gives the CHECK expressions of a declared field: its length bounds, its numeric bounds, the finite
-// value of a bounded float, and the declared values of an enum. A pattern stays with request validation, because
-// PostgreSQL's regular expressions are not the RE2 expressions that the API checks.
-func columnChecks(field types.Field) []string {
+// checkItem is one CHECK expression of a field: its text in the migration, and its text as pg_get_constraintdef
+// writes it, which the schema manifest holds (ST-SUP-RC01-OC12).
+type checkItem struct{ source, deparsed string }
+
+// columnChecks gives the CHECK expressions of a declared field of the column type typ: its length bounds, its
+// numeric bounds, the finite value of a bounded float, and the declared values of an enum. A pattern stays with
+// request validation, because PostgreSQL's regular expressions are not the RE2 expressions that the API checks.
+func columnChecks(field types.Field, typ string) []checkItem {
 	column := sqlIdentifier(field.Name)
-	var checks []string
+	ref := deparsedName(field.Name)
+	var checks []checkItem
 	if field.MinLength != nil {
-		checks = append(checks, fmt.Sprintf("char_length(%s) >= %d", column, *field.MinLength))
+		length := ref
+		if typ != "text" {
+			length = "(" + ref + ")::text"
+		}
+		checks = append(checks, checkItem{fmt.Sprintf("char_length(%s) >= %d", column, *field.MinLength),
+			fmt.Sprintf("(char_length(%s) >= %d)", length, *field.MinLength)})
 	}
-	if field.Min != nil {
-		checks = append(checks, column+" >= "+strconv.FormatFloat(*field.Min, 'g', -1, 64))
-	}
-	if field.Max != nil {
-		checks = append(checks, column+" <= "+strconv.FormatFloat(*field.Max, 'g', -1, 64))
+	for _, bound := range []struct {
+		op    string
+		value *float64
+	}{{">=", field.Min}, {"<=", field.Max}} {
+		if bound.value == nil {
+			continue
+		}
+		literal := strconv.FormatFloat(*bound.value, 'g', -1, 64)
+		checks = append(checks, checkItem{column + " " + bound.op + " " + literal, deparsedBound(ref, typ, bound.op, literal)})
 	}
 	if (field.Min != nil || field.Max != nil) && (field.Type == types.FieldTypeFloat || field.Type == types.FieldTypeDouble) {
-		checks = append(checks, column+" NOT IN ('NaN'::double precision, 'Infinity'::double precision, '-Infinity'::double precision)")
+		checks = append(checks, checkItem{column + " NOT IN ('NaN'::double precision, 'Infinity'::double precision, '-Infinity'::double precision)",
+			"(" + ref + " <> ALL (ARRAY['NaN'::double precision, 'Infinity'::double precision, '-Infinity'::double precision]))"})
 	}
 	if field.Type == types.FieldTypeEnum && len(field.Values) > 0 {
 		values := make([]string, len(field.Values))
+		typed := make([]string, len(field.Values))
 		for i, value := range field.Values {
 			values[i] = sqlString(value)
+			typed[i] = sqlString(value) + "::text"
 		}
-		checks = append(checks, column+" IN ("+strings.Join(values, ", ")+")")
+		deparsed := "(" + ref + " = ANY (ARRAY[" + strings.Join(typed, ", ") + "]))"
+		if len(typed) == 1 {
+			deparsed = "(" + ref + " = " + typed[0] + ")"
+		}
+		checks = append(checks, checkItem{column + " IN (" + strings.Join(values, ", ") + ")", deparsed})
 	}
 	return checks
 }
@@ -266,8 +287,9 @@ type columnModel struct {
 	notNull                  bool
 }
 
-// checkModel is one CHECK constraint: its name and its expression.
-type checkModel struct{ name, expression string }
+// checkModel is one CHECK constraint: its name, its expression, and its definition as pg_get_constraintdef
+// writes it.
+type checkModel struct{ name, expression, definition string }
 
 // foreignModel is one FOREIGN KEY constraint: its name, its columns, the table it refers to and that table's
 // columns.
@@ -322,8 +344,9 @@ func tableModels(ctx gen.Context) ([]tableModel, error) {
 			}
 			table.columns = append(table.columns, columnModel{name: field.Name, typ: columnTypeName,
 				notNull: !field.Optional && !field.Computed, defaultClause: fieldDefault})
-			if checks := columnChecks(field); len(checks) > 0 {
-				table.checks = append(table.checks, checkModel{name: sqlName(table.name, field.Name, "check"), expression: strings.Join(checks, " AND ")})
+			if checks := columnChecks(field, columnTypeName); len(checks) > 0 {
+				table.checks = append(table.checks, checkModel{name: sqlName(table.name, field.Name, "check"),
+					expression: joinChecks(checks, false), definition: "CHECK (" + joinChecks(checks, true) + ")"})
 			}
 		}
 		table.columns = append(table.columns,
