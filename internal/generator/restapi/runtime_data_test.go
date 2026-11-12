@@ -439,7 +439,7 @@ func TestCrudService(t *testing.T) {
 			if !strings.HasPrefix(name, "api/") || strings.HasPrefix(name, "api/data/") {
 				continue
 			}
-			for _, refused := range []string{"database/sql", "gorm.io", "Storage", "h.store", "sql.Open", "pgx"} {
+			for _, refused := range []string{"database/sql", "gorm", "Storage", "h.store", "sql.Open", "pgx"} {
 				if bytes.Contains(source, []byte(refused)) {
 					t.Errorf("%s holds %q: a handler holds no store and opens no connection", name, refused)
 				}

@@ -290,6 +290,49 @@ func TestMigrations(t *testing.T) {
 			t.Fatal("the migration applied again lost a message of the runtime queue table")
 		}
 	})
+	t.Run("ST-SUP-RC18-OC30-T07 A writer of the former outbox that races the drop keeps its message", func(t *testing.T) {
+		e := newEnv(t)
+		if _, err := e.owner.ExecContext(e.ctx, formerMigration(t)); err != nil {
+			t.Fatalf("the former outbox migration: %v", err)
+		}
+		// A writer of the former release inserts a message into the empty former table and has not committed when
+		// the migration starts: the migration's check for messages cannot see the row yet.
+		writer, err := e.owner.BeginTx(e.ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = writer.Rollback() }()
+		if _, err := writer.ExecContext(e.ctx, `INSERT INTO stego_outbox.messages (id, destination, resource_key, kind, payload)
+			VALUES (gen_random_uuid(), 'kafka', 'user:1', 'user.created', '{"id":1}')`); err != nil {
+			t.Fatal(err)
+		}
+		migrated := make(chan error, 1)
+		go func() { migrated <- e.migrate() }()
+		// The migration waits for a lock on the former table before it drops it.
+		deadline := time.Now().Add(15 * time.Second)
+		for e.value(`SELECT count(*) FROM pg_catalog.pg_locks l JOIN pg_catalog.pg_class c ON c.oid = l.relation
+			JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+			WHERE n.nspname = 'stego_outbox' AND c.relname = 'messages' AND NOT l.granted`) == "0" {
+			if time.Now().After(deadline) {
+				t.Fatal("the migration did not wait for the writer of the former table")
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		if err := writer.Commit(); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case err = <-migrated:
+		case <-time.After(30 * time.Second):
+			t.Fatal("the migration did not end after the writer committed")
+		}
+		if err == nil || !strings.Contains(err.Error(), "holds messages of the former outbox component") {
+			t.Fatalf("the migration over the message of a racing former writer gave %v, want a refusal", err)
+		}
+		if e.value("SELECT count(*) FROM stego_outbox.messages") != "1" {
+			t.Fatal("the migration lost the message of the racing former writer")
+		}
+	})
 }
 
 func TestAccess(t *testing.T) {

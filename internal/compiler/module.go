@@ -45,19 +45,13 @@ func moduleRequirements(wirings []ComponentWiring, runtime *registry.RuntimePin)
 			}
 		}
 	}
-	consumed, hasDB := computeConsumedConstructors(AssemblerInput{Wirings: wirings}, hasAnyRoutes(AssemblerInput{Wirings: wirings}))
-	gormDB := false
-	for key := range consumed {
-		if wirings[key.WiringIndex].Wiring.DBBackend == "gorm" {
-			gormDB = true
-		}
-	}
-	if hasDB && !gormDB && semver.Compare("v5.11.0", requires["github.com/jackc/pgx/v5"]) > 0 {
+	_, hasDB := computeConsumedConstructors(AssemblerInput{Wirings: wirings}, hasAnyRoutes(AssemblerInput{Wirings: wirings}))
+	if hasDB && semver.Compare("v5.11.0", requires["github.com/jackc/pgx/v5"]) > 0 {
 		requires["github.com/jackc/pgx/v5"] = "v5.11.0"
 	}
 	// These runtime dependencies can select an affected unicode/norm version.
 	// Keep a direct minimum so module resolution cannot restore GO-2026-5970.
-	for _, dependency := range []string{"github.com/jackc/pgx/v5", "gorm.io/gorm", "google.golang.org/grpc", "golang.org/x/text"} {
+	for _, dependency := range []string{"github.com/jackc/pgx/v5", "google.golang.org/grpc", "golang.org/x/text"} {
 		if requires[dependency] != "" && semver.Compare(requires["golang.org/x/text"], "v0.40.0") < 0 {
 			requires["golang.org/x/text"] = "v0.40.0"
 		}
@@ -69,7 +63,6 @@ func moduleRequirements(wirings []ComponentWiring, runtime *registry.RuntimePin)
 	for _, minimum := range []struct{ parent, path, version string }{
 		{"google.golang.org/grpc", "golang.org/x/net", "v0.60.0"},
 		{"google.golang.org/grpc", "golang.org/x/sys", "v0.48.0"},
-		{"gorm.io/datatypes", "filippo.io/edwards25519", "v1.1.1"},
 		{"github.com/go-sql-driver/mysql", "filippo.io/edwards25519", "v1.1.1"},
 	} {
 		if requires[minimum.parent] != "" && semver.Compare(requires[minimum.path], minimum.version) < 0 {

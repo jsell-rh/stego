@@ -41,10 +41,12 @@ func TestSchemaGenerationValidationAndWiring(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(findFileContent(t, files, "internal/storage/migrate.go"), "BootstrapSchema(db, func(tx *gorm.DB) error {") {
+		if !strings.Contains(findFileContent(t, files, "internal/storage/migrate.go"), "BootstrapSchema(ctx, db, func(ctx context.Context, tx *sql.Tx) error {") {
 			t.Fatal("migration has no schema gate")
 		}
-		if (len(wiring.PostDBCalls) == 0) != (mode == "external") {
+		// The migration job of the runtime wiring runs the ledger, so no mode adds a call after the database opens;
+		// the external mode asks for the check of the runtime role.
+		if len(wiring.PostDBCalls) != 0 || wiring.VerifyDatabaseAccess != (mode == "external") {
 			t.Fatal("external migration policy changed")
 		}
 		first := findFileContent(t, files, "internal/storage/schema_generation.go")
@@ -174,8 +176,6 @@ go 1.26.11
 require (
  github.com/google/uuid v1.6.0
  github.com/jackc/pgx/v5 v5.11.0
- gorm.io/gorm v1.25.12
- gorm.io/driver/postgres v1.5.11
  github.com/jsell-rh/stego/registry/runtime v0.38.0
 )
 
@@ -201,7 +201,7 @@ replace github.com/jsell-rh/stego/registry/runtime => ` + runtimeDir + "\n"
 func TestFunctionMigrationDigestCoversBody(t *testing.T) {
 	seal := func(statement string) string {
 		t.Helper()
-		source := "package storage\n\nconst probeMigration = " + strconv.Quote(statement) + "\n\nfunc init() {\n\tRegister(\"900_probe\", func(db *gorm.DB) error { return db.Exec(probeMigration).Error })\n}\n"
+		source := "package storage\n\nconst probeMigration = " + strconv.Quote(statement) + "\n\nfunc init() {\n\tRegister(\"900_probe\", func(ctx context.Context, tx *sql.Tx) error { _, err := tx.ExecContext(ctx, probeMigration); return err })\n}\n"
 		files := []gen.File{{Path: "storage/probe.go", Content: []byte(source)}}
 		if err := sealMigrations("storage", files); err != nil {
 			t.Fatal(err)
