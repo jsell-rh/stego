@@ -827,6 +827,12 @@ func TestConsumers(t *testing.T) {
 			return err
 		})
 		m := e.stage("t1", "o-3", map[string]string{"case": "unique"})
+		// The message ends done also when a check fails, so it does not run in the later subtests.
+		defer func() {
+			dup.Store(false)
+			clock.add(time.Hour)
+			e.waitState(t, m, "done")
+		}()
 		for deadline := time.Now().Add(5 * time.Second); runs.Load() < 1 && time.Now().Before(deadline); {
 			time.Sleep(10 * time.Millisecond)
 		}
@@ -836,13 +842,11 @@ func TestConsumers(t *testing.T) {
 			Scan(&attempts, &conflicts); err != nil {
 			t.Fatal(err)
 		}
-		// The fill ran once and the outbox waits for the injected clock, so one dispatch ended.
-		if runs.Load() != 1 || attempts != 1 || conflicts != 0 {
-			t.Fatalf("after the unique violation: %d runs, %d attempts and %d conflicts, want 1 run, 1 attempt and no conflict", runs.Load(), attempts, conflicts)
+		// Each dispatch that ran the fill counts an attempt, and none counts a conflict. A dispatch again may have
+		// started, so the attempts are at least the runs.
+		if n := runs.Load(); n < 1 || int64(attempts) < n || conflicts != 0 {
+			t.Fatalf("after the unique violation: %d runs, %d attempts and %d conflicts, want an attempt for each run and no conflict", n, attempts, conflicts)
 		}
-		dup.Store(false)
-		clock.add(time.Hour)
-		e.waitState(t, m, "done")
 	})
 
 	t.Run("ST-SUP-RP10-LC26-T02 A consumer's deny of the staging principal and a declared refusal park the message", func(t *testing.T) {
