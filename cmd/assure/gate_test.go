@@ -1746,6 +1746,13 @@ func exactValue(t *testing.T, where string, node yaml.Node, want any) {
 			t.Fatalf("%s is not a mapping", where)
 		}
 		exactKeys(t, where, got, want)
+	case []any:
+		if node.Kind != yaml.SequenceNode || len(node.Content) != len(want) {
+			t.Fatalf("%s is not a list of exactly %d values", where, len(want))
+		}
+		for i, item := range want {
+			exactValue(t, fmt.Sprintf("%s, item %d,", where, i+1), *node.Content[i], item)
+		}
 	default:
 		t.Fatalf("%s: the test allows a value of type %T", where, want)
 	}
@@ -1850,7 +1857,7 @@ func signingJob(name, needs, condition, artifact, folder, checkName, check, sign
 
 // attestJob is all the attest job may hold: it signs the proof run.
 func attestJob() allowedJob {
-	return signingJob("attest", "suites", "", "proof-run", "proof-run", "Check that the predicate is about the commit",
+	return signingJob("attest", "suites", "${{ !cancelled() && needs.suites.outputs.recorded == 'true' }}", "proof-run", "proof-run", "Check that the predicate is about the commit",
 		`test "$(jq -r .commit "$RUNNER_TEMP/proof-run/proof-run.json")" = "$COMMIT"`,
 		"Sign and keep the proof run", assure.ProofRunPredicateType, assure.ProofRunFile)
 }
@@ -1872,8 +1879,8 @@ func gateReleaseJob() allowedJob {
 	return allowedJob{
 		keys: map[string]any{
 			"name":            "gate release",
-			"needs":           "attest",
-			"if":              "${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}",
+			"needs":           []any{"suites", "attest"},
+			"if":              "${{ !cancelled() && needs.suites.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}",
 			"runs-on":         "ubuntu-latest",
 			"timeout-minutes": "15",
 			"permissions":     map[string]any{"contents": "read"},
