@@ -40,8 +40,8 @@ func TestRestCrudArchetypeParsesFromLiveRegistry(t *testing.T) {
 	if a.Language != "go" {
 		t.Errorf("Language = %q, want %q", a.Language, "go")
 	}
-	if a.Version != "3.44.0" {
-		t.Errorf("Version = %q, want %q", a.Version, "3.44.0")
+	if a.Version != "3.45.0" {
+		t.Errorf("Version = %q, want %q", a.Version, "3.45.0")
 	}
 	if a.DefaultAuth != "jwt-auth" {
 		t.Errorf("DefaultAuth = %q, want %q", a.DefaultAuth, "jwt-auth")

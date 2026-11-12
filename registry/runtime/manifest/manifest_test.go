@@ -442,6 +442,15 @@ CREATE TRIGGER a_drop BEFORE INSERT ON public.books_all FOR EACH ROW EXECUTE FUN
 	{"(d) the cloned reject trigger disabled on the partition",
 		`ALTER TABLE public.books_all DISABLE TRIGGER books_reject_row`,
 		"table public.books: partition public.books_all: trigger books_reject_row is disabled"},
+	{"(e) the partition readable by PUBLIC",
+		`GRANT SELECT ON public.books_all TO PUBLIC`,
+		"table public.books: partition public.books_all: the partition grants a privilege on it or on a column to another role than its owner"},
+	{"the partition writable by the reader",
+		`GRANT INSERT ON public.books_all TO %reader%`,
+		"table public.books: partition public.books_all: the partition grants a privilege on it or on a column to another role than its owner"},
+	{"a column of the partition readable by PUBLIC",
+		`GRANT SELECT (title) ON public.books_all TO PUBLIC`,
+		"table public.books: partition public.books_all: the partition grants a privilege on it or on a column to another role than its owner"},
 	{"a rule on the partition",
 		`CREATE TABLE public.leak (LIKE public.books); CREATE RULE books_all_leak AS ON INSERT TO public.books_all DO ALSO INSERT INTO public.leak VALUES (NEW.*)`,
 		"table public.books: partition public.books_all: the partition has a rule"},
@@ -477,7 +486,11 @@ func TestRedTeam3(t *testing.T) {
 				if _, err := admin.Exec(partitionedBooks); err != nil {
 					t.Fatal(err)
 				}
-				if _, err := admin.Exec(change.statement); err != nil {
+				var role string
+				if err := reader.QueryRow("SELECT current_user").Scan(&role); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := admin.Exec(strings.ReplaceAll(change.statement, "%reader%", role)); err != nil {
 					t.Fatal(err)
 				}
 				err := Check(ctx, reader, partitionedWant())

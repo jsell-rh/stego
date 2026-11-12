@@ -730,17 +730,22 @@ func triggerFault(want Trigger, got catalogTrigger) string {
 // checkPartitions gives the faults of the partitions of the partitioned table t (oid parent, owned by owner). A row
 // written to the table is written to a partition, so each partition is a plain table of the owner with no rule; its
 // triggers are the clones of the row triggers of the manifest on the table, each enabled, and the triggers that
-// Table.PartitionTriggers names for each partition; and it has a clone of each row trigger of the manifest.
+// Table.PartitionTriggers names for each partition; it grants no privilege, on it or on a column, to another role
+// than its owner, since a partition has no row-level security of its own; and it has a clone of each row trigger of
+// the manifest.
 // namedRows are the row triggers of the manifest on the table, by oid.
 func checkPartitions(ctx context.Context, tx *sql.Tx, t Table, parent uint32, owner string, namedRows map[uint32]string) ([]string, error) {
 	type partition struct {
 		oid, relowner         uint32
 		name, kind, ownerName string
-		isPartition           bool
+		isPartition, granted  bool
 	}
 	var partitions []partition
 	rows, err := tx.QueryContext(ctx, `SELECT c.oid, n.nspname || '.' || c.relname, c.relkind::text, c.relowner,
-  pg_catalog.pg_get_userbyid(c.relowner), c.relispartition
+  pg_catalog.pg_get_userbyid(c.relowner), c.relispartition,
+  EXISTS (SELECT 1 FROM pg_catalog.aclexplode(c.relacl) a WHERE a.grantee <> c.relowner)
+  OR EXISTS (SELECT 1 FROM pg_catalog.pg_attribute att CROSS JOIN LATERAL pg_catalog.aclexplode(att.attacl) a
+    WHERE att.attrelid = c.oid AND a.grantee <> c.relowner)
   FROM pg_catalog.pg_inherits i JOIN pg_catalog.pg_class c ON c.oid = i.inhrelid
   JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE i.inhparent = $1 ORDER BY 2`, parent)
 	if err != nil {
@@ -748,7 +753,7 @@ func checkPartitions(ctx context.Context, tx *sql.Tx, t Table, parent uint32, ow
 	}
 	for rows.Next() {
 		var p partition
-		if err := rows.Scan(&p.oid, &p.name, &p.kind, &p.relowner, &p.ownerName, &p.isPartition); err != nil {
+		if err := rows.Scan(&p.oid, &p.name, &p.kind, &p.relowner, &p.ownerName, &p.isPartition, &p.granted); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -767,6 +772,11 @@ func checkPartitions(ctx context.Context, tx *sql.Tx, t Table, parent uint32, ow
 		}
 		if p.ownerName != owner {
 			fault("the partition belongs to the role %s, and the table belongs to %s", p.ownerName, owner)
+		}
+		// A partition has no row-level security of its own: a role with a grant on it reads or writes the rows of
+		// every tenant past the policy of the table, so only the owner holds a privilege on it.
+		if p.granted {
+			fault("the partition grants a privilege on it or on a column to another role than its owner")
 		}
 		var rules int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM pg_catalog.pg_rewrite WHERE ev_class = $1`, p.oid).Scan(&rules); err != nil {
