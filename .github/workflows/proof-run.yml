@@ -146,11 +146,13 @@ jobs:
           STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable
         # go test ./... at the root does not reach Assuring's modules, internal/assure and cmd/assure: each has a
         # go.mod of its own. Their events go into the same file, after the root's, and assure record reads the file
-        # as one run.
+        # as one run. Each package gets 20 minutes: under -race the cmd/stego build tests can pass Go's default of
+        # 10 minutes, and a package that times out reports its running tests only as "did not run". The limit stays
+        # under the step's 25 minutes, so a timeout is a test outcome and not a cancelled step.
         run: |
-          go test -json -race -count=1 -mod=readonly ./... > "$RUNNER_TEMP/go-test.json" || true
+          go test -json -race -count=1 -mod=readonly -timeout=20m ./... > "$RUNNER_TEMP/go-test.json" || true
           for module in internal/assure cmd/assure; do
-            go test -C "$module" -json -race -count=1 -mod=readonly ./... >> "$RUNNER_TEMP/go-test.json" || true
+            go test -C "$module" -json -race -count=1 -mod=readonly -timeout=20m ./... >> "$RUNNER_TEMP/go-test.json" || true
           done
       - name: Run the Python suites
         timeout-minutes: 5
