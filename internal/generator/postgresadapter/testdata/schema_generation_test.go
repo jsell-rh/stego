@@ -572,3 +572,69 @@ func TestMigrationLedgerAppliesOnceInOrder(t *testing.T) {
 		}
 	})
 }
+
+// TestMigrationLedgerIgnoresDefaultIsolation runs eight migration jobs at once on a database whose default
+// transaction isolation is repeatable read.
+func TestMigrationLedgerIgnoresDefaultIsolation(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC11-T06 Concurrent migration jobs apply each migration once under a default isolation of repeatable read", func(t *testing.T) {
+		db := schemaDB(t)
+		if err := storage.Migrate(bg, db); err != nil {
+			t.Fatal(err)
+		}
+		var name string
+		if err := db.QueryRow("SELECT current_database()").Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		exec(t, db, "ALTER DATABASE "+pgx.Identifier{name}.Sanitize()+" SET default_transaction_isolation = 'repeatable read'")
+		// A new pool, so each connection starts with the setting of the database.
+		cfg, err := pgx.ParseConfig(os.Getenv("STEGO_TEST_POSTGRES_DSN"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.Database = name
+		jobs := stdlib.OpenDB(*cfg)
+		jobs.SetMaxOpenConns(8)
+		t.Cleanup(func() { jobs.Close() })
+		var isolation string
+		if err := jobs.QueryRow("SHOW default_transaction_isolation").Scan(&isolation); err != nil || isolation != "repeatable read" {
+			t.Fatal("the database does not default to repeatable read", isolation, err)
+		}
+		storage.Register("990_rr_runs", storage.Digest("990_rr_runs probe"), func(ctx context.Context, tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, "CREATE TABLE rr_runs(seq bigserial PRIMARY KEY, name text NOT NULL); INSERT INTO rr_runs(name) VALUES('990_rr_runs')")
+			return err
+		})
+		storage.Register("991_rr_next", storage.Digest("991_rr_next probe"), func(ctx context.Context, tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, "INSERT INTO rr_runs(name) VALUES('991_rr_next')")
+			return err
+		})
+		var group sync.WaitGroup
+		start := make(chan struct{})
+		failures := make(chan error, 8)
+		for i := 0; i < 8; i++ {
+			group.Add(1)
+			go func() {
+				defer group.Done()
+				<-start
+				conn, err := jobs.Conn(bg)
+				if err != nil {
+					failures <- err
+					return
+				}
+				defer conn.Close()
+				failures <- storage.Migrate(bg, conn)
+			}()
+		}
+		close(start)
+		group.Wait()
+		close(failures)
+		for err := range failures {
+			if err != nil {
+				t.Fatal("a concurrent migration job failed under repeatable read", err)
+			}
+		}
+		var runs string
+		if err := db.QueryRow("SELECT string_agg(name, ',' ORDER BY seq) FROM rr_runs").Scan(&runs); err != nil || runs != "990_rr_runs,991_rr_next" {
+			t.Fatalf("the migrations ran %q (%v), want each once in name order", runs, err)
+		}
+	})
+}
