@@ -51,6 +51,10 @@ type Module struct {
 	GoModSum    string  `json:"go_mod_sum,omitempty"`
 	Replacement *Module `json:"replacement,omitempty"`
 	LocalPath   string  `json:"local_path,omitempty"`
+	// Source names the common registry's runtime folder of the source
+	// revision when it supplied the module (ST-BLD-UC02-R05); it is empty
+	// when the public module proxy did.
+	Source string `json:"source,omitempty"`
 }
 type Record struct {
 	Format                int                  `json:"format"`
@@ -302,6 +306,24 @@ type goModule struct {
 	Error                             json.RawMessage
 }
 
+// recordModuleSources names, in the build record, the module that the cache
+// record says the common registry's runtime folder supplied
+// (ST-BLD-UC02-R05). It matches path, version and hash, and only a remote
+// module that nothing replaces.
+func recordModuleSources(modules []Module, cache *ModuleCacheRecord) {
+	for index := range modules {
+		current := &modules[index]
+		if current.Replacement != nil || current.LocalPath != "" {
+			continue
+		}
+		for _, cached := range cache.Modules {
+			if cached.Source == RuntimeFolderSource && cached.Path == current.Path && cached.Version == current.Version && cached.Sum == current.Sum {
+				current.Source = RuntimeFolderSource
+			}
+		}
+	}
+}
+
 func moduleInventory(data []byte, source string) ([]Module, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	var result []Module
@@ -529,6 +551,7 @@ func Build(ctx context.Context, options Options) (*Record, error) {
 		if err != nil {
 			return nil, err
 		}
+		recordModuleSources(modules, cache)
 		settings, err := binarySettings(binary)
 		if err != nil {
 			return nil, err

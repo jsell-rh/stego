@@ -55,7 +55,16 @@ type SBOM struct {
 var sbomFormats = []SBOMFormat{SPDX, CycloneDX}
 
 type sbomPackage struct {
-	name, version, purl string
+	name, version, purl, source string
+}
+
+// sbomSourceProperty is the CycloneDX property that names the source of a
+// module that the module proxy did not supply (ST-BLD-UC02-R05).
+const sbomSourceProperty = "stego:module:source"
+
+// sbomSourceComment is the SPDX package comment for such a module.
+func sbomSourceComment(source string) string {
+	return "Supplied by " + source + " of the source revision, not by " + ProxySource + " (ST-BLD-UC02-R05)."
 }
 
 // sbomPackages reads the module inventory of the record into packages in the
@@ -73,7 +82,7 @@ func sbomPackages(record *Record) []sbomPackage {
 		if selected.Version != "" {
 			purl += "@" + selected.Version
 		}
-		packages = append(packages, sbomPackage{name: module.Path, version: selected.Version, purl: purl})
+		packages = append(packages, sbomPackage{name: module.Path, version: selected.Version, purl: purl, source: module.Source})
 	}
 	return packages
 }
@@ -97,6 +106,7 @@ type spdxPackage struct {
 	FilesAnalyzed    bool            `json:"filesAnalyzed"`
 	Checksums        []spdxChecksum  `json:"checksums,omitempty"`
 	ExternalRefs     []spdxReference `json:"externalRefs,omitempty"`
+	Comment          string          `json:"comment,omitempty"`
 }
 
 type spdxRelationship struct {
@@ -124,13 +134,19 @@ type cdxHash struct {
 	Content   string `json:"content"`
 }
 
+type cdxProperty struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
 type cdxComponent struct {
-	Type    string    `json:"type"`
-	Ref     string    `json:"bom-ref"`
-	Name    string    `json:"name"`
-	Version string    `json:"version,omitempty"`
-	PURL    string    `json:"purl,omitempty"`
-	Hashes  []cdxHash `json:"hashes,omitempty"`
+	Type       string        `json:"type"`
+	Ref        string        `json:"bom-ref"`
+	Name       string        `json:"name"`
+	Version    string        `json:"version,omitempty"`
+	PURL       string        `json:"purl,omitempty"`
+	Hashes     []cdxHash     `json:"hashes,omitempty"`
+	Properties []cdxProperty `json:"properties,omitempty"`
 }
 
 type cdxDependency struct {
@@ -195,7 +211,11 @@ func spdxFromPackages(record *Record, packages []sbomPackage) spdxDocument {
 	document.Relationships = []spdxRelationship{{"SPDXRef-DOCUMENT", "DESCRIBES", "SPDXRef-Application"}}
 	for index, item := range packages {
 		id := "SPDXRef-Module-" + strconv.Itoa(index+1)
-		document.Packages = append(document.Packages, spdxPackage{Name: item.name, SPDXID: id, VersionInfo: item.version, DownloadLocation: "NOASSERTION", ExternalRefs: []spdxReference{{"PACKAGE-MANAGER", "purl", item.purl}}})
+		pkg := spdxPackage{Name: item.name, SPDXID: id, VersionInfo: item.version, DownloadLocation: "NOASSERTION", ExternalRefs: []spdxReference{{"PACKAGE-MANAGER", "purl", item.purl}}}
+		if item.source != "" {
+			pkg.Comment = sbomSourceComment(item.source)
+		}
+		document.Packages = append(document.Packages, pkg)
 		document.Relationships = append(document.Relationships, spdxRelationship{"SPDXRef-Application", "DEPENDS_ON", id})
 	}
 	return document
@@ -211,7 +231,11 @@ func cycloneDXFromPackages(record *Record, packages []sbomPackage) cdxDocument {
 	application := cdxDependency{Ref: "application"}
 	for index, item := range packages {
 		ref := "module-" + strconv.Itoa(index+1)
-		document.Components = append(document.Components, cdxComponent{Type: "library", Ref: ref, Name: item.name, Version: item.version, PURL: item.purl})
+		component := cdxComponent{Type: "library", Ref: ref, Name: item.name, Version: item.version, PURL: item.purl}
+		if item.source != "" {
+			component.Properties = []cdxProperty{{sbomSourceProperty, item.source}}
+		}
+		document.Components = append(document.Components, component)
 		application.DependsOn = append(application.DependsOn, ref)
 	}
 	document.Dependencies = []cdxDependency{application}
