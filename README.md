@@ -43,11 +43,11 @@ the fills is essential complexity.
    Validate, plan and apply stop on a bound fill that is not qualified.
    The output has no runtime dependency on STEGO.
 
-A service whose archetype holds the command and query components, and whose
-record does not state the GORM store, runs on the runtime data path: its
-commands, its queries and its collection operations run on the runtime library
-github.com/jsell-rh/stego/registry/runtime. The record states the data path of each run, so the service
-stays on it. Its main reads the deployment settings from the environment:
+Every service with data access runs on the runtime data path, the only data
+path: its commands, its queries and its collection operations run on the
+runtime library github.com/jsell-rh/stego/registry/runtime. Its archetype must
+hold the command and query components; a service that declares entities,
+commands or queries without them is refused. Its main reads the deployment settings from the environment:
 `DATABASE_URL` or `DATABASE_URL_FILE` for the runtime role, `STEGO_SPICEDB_ENDPOINT`
 and `STEGO_SPICEDB_KEY_FILE` for SpiceDB, `STEGO_QUERY_CURSOR_KEY_FILE` for the key
 of the list cursors, and `STEGO_SERVICE_VERSION` for the release that each audit
@@ -255,13 +255,6 @@ setting supports mounted secrets with bounded reads and private file permissions
 See database secret sources (a retired record, in git history) for the source
 rules and restart behavior.
 
-The PostgreSQL adapter prepares model metadata before concurrent work starts.
-This step does not read or change database tables. It also runs when migrations
-are external. Adapter version 3 changes `NewStore(db)` to return `(*Store, error)`.
-Generated startup code checks that error before it starts listeners or tasks.
-Update handwritten constructor calls to handle the error after regeneration.
-Construct the store before other code uses its models on the same GORM connection.
-
 The generated HTTP server uses a five-second header deadline, 30-second read and
 write deadlines, a 60-second idle deadline, and a 32 KiB header limit setting.
 SIGINT and SIGTERM start shutdown. Active requests have ten seconds to finish.
@@ -270,15 +263,8 @@ error. Deferred resource cleanup runs before process exit. These defaults serve
 the current request-response API. Long-lived streams need a separate deadline
 policy. Network deadlines do not stop application code that ignores cancellation.
 
-The service of this quick start is on the GORM store, because its archetype does
-not hold the command and query components. Before you start it, set
-`STEGO_AUTH_ISSUER`, `STEGO_AUTH_AUDIENCE`, and `STEGO_AUTH_PUBLIC_KEY_FILE`. A
-service on the runtime data path reads the `STEGO_AUTHN_` settings above instead.
-The key file must contain one RSA public key in PEM
-format. The default authentication component verifies RS256 signatures and
-requires the configured issuer and audience, a subject, an issue time, and an
-expiry. It accepts the `JWT` token type. Incomplete settings stop startup. Restart
-the service after a public key change. Automatic key rotation is not yet supplied.
+The service of this quick start is on the runtime data path. Before you start
+it, set the `STEGO_AUTHN_` settings above. Incomplete settings stop startup.
 
 Add business logic via fills:
 
