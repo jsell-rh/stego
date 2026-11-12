@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net"
@@ -370,6 +371,51 @@ func listOrder(text string, fields map[string]bool) ([]query.OrderBy, error) {
 
 // isBadCursor tells whether err is a cursor of another order, which a list answers with 400.
 func isBadCursor(err error) bool { return errors.Is(err, query.ErrBadCursor) }
+
+// errFields is the error of a fields parameter that names a field that is not declared.
+var errFields = errors.New("fields names a field that is not declared")
+
+// listFields reads the fields parameter of a list: a comma-separated list of declared fields. It gives nil when the
+// parameter names none, and else the selected fields with id, which a selection always keeps (ST-SUP-RC20-OC12).
+func listFields(text string, fields map[string]bool) (map[string]bool, error) {
+	if strings.TrimSpace(text) == "" {
+		return nil, nil
+	}
+	selected := map[string]bool{"id": true}
+	for _, name := range strings.Split(text, ",") {
+		name = strings.TrimSpace(name)
+		if name == "" || name == "id" {
+			continue
+		}
+		if !fields[name] {
+			return nil, errFields
+		}
+		selected[name] = true
+	}
+	return selected, nil
+}
+
+// selectFields gives the members of the presented value v that the selection names, with id, kind and href, and v
+// itself when there is no selection (ST-SUP-RC20-OC12).
+func selectFields(v any, selected map[string]bool) any {
+	if selected == nil {
+		return v
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return v
+	}
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
+		return v
+	}
+	for name := range members {
+		if !selected[name] && name != "kind" && name != "href" {
+			delete(members, name)
+		}
+	}
+	return members
+}
 
 // callerIdentity is the caller of a slot request: the verified identity of the request.
 func callerIdentity(ctx context.Context) *slots.Identity {

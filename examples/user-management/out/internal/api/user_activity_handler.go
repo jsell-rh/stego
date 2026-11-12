@@ -203,6 +203,11 @@ func (h *UserActivityHandler) List(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, BadRequest(err.Error()))
 		return
 	}
+	fields, err := listFields(r.URL.Query().Get("fields"), map[string]bool{"source_type": true, "source_id": true, "action": true, "detail": true})
+	if err != nil {
+		handleError(w, r, BadRequest(err.Error()))
+		return
+	}
 	where, err := query.ParseSearch(r.URL.Query().Get("search"), userActivitySearchFields, query.MaxFilter-1)
 	if err != nil {
 		handleError(w, r, BadRequest("the search is not valid"))
@@ -245,7 +250,7 @@ func (h *UserActivityHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]any, 0, len(page.items))
 	for _, item := range page.items {
-		items = append(items, userActivityPresented(item))
+		items = append(items, selectFields(userActivityPresented(item), fields))
 	}
 	w.Header().Set("Content-Type", "application/json")
 	result := map[string]any{"kind": "ActivityEntryList", "size": len(items), "items": items}

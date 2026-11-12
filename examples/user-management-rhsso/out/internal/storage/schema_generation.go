@@ -32,7 +32,7 @@ type RestoreRecord struct {
 }
 
 // ErrRestore is returned when the database does not match a recorded restore
-// point. The store stays usable; verification is read-only.
+// point. Verification is read-only.
 var ErrRestore = errors.New("database does not match the recorded restore point")
 
 // VerifySchema reads the release marker before storage can serve requests.
