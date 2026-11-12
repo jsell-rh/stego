@@ -3,8 +3,11 @@ package appbuild
 import (
 	"archive/zip"
 	"context"
+	"crypto/rand"
 	"errors"
+	"fmt"
 	"io"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -13,7 +16,9 @@ import (
 	"testing"
 
 	"golang.org/x/mod/module"
+	"golang.org/x/mod/sumdb"
 	"golang.org/x/mod/sumdb/dirhash"
+	"golang.org/x/mod/sumdb/note"
 	modzip "golang.org/x/mod/zip"
 )
 
@@ -270,6 +275,75 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 			},
 		} {
 			served, err := stageRuntimeFolder(context.Background(), folder, pin, sums, modSums, filepath.Join(t.TempDir(), "proxy"), t.TempDir(), runtimeTrust{pins: map[string]string{version: sum}, lookup: lookup})
+			if err != nil || served == nil {
+				t.Errorf("a registry pin with %s from the sum database was refused: %v", name, err)
+			}
+		}
+	})
+	t.Run("ST-BLD-UC02-R05-T06 The lookup step asks a sum database whose signature it checks: a known other hash refuses, an unknown version or a bad signature leaves the registry pin", func(t *testing.T) {
+		folder := filepath.Join(t.TempDir(), "runtime")
+		sum, modSum := runtimeFixture(t, folder, version)
+		sums, modSums := map[moduleVersion]string{*pin: sum}, map[moduleVersion]string{*pin: modSum}
+		other := "h1:" + strings.Repeat("D", 43) + "="
+		signer, verifier, err := note.GenerateKey(rand.Reader, "sum.test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, strange, err := note.GenerateKey(rand.Reader, "sum.test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// standIn is a local sum database that states hash for the runtime pin, or knows no version when hash is
+		// empty (ST-STD-LOCAL).
+		standIn := func(hash string) *httptest.Server {
+			ops := sumdb.NewTestServer(signer, func(path, vers string) ([]byte, error) {
+				if hash == "" || path != RuntimeModule || vers != version {
+					return nil, os.ErrNotExist
+				}
+				return []byte(fmt.Sprintf("%s %s %s\n%s %s/go.mod %s\n", path, vers, hash, path, vers, modSum)), nil
+			})
+			server := httptest.NewTLSServer(sumdb.NewServer(ops))
+			t.Cleanup(server.Close)
+			return server
+		}
+		trustOf := func(server *httptest.Server, key string) runtimeTrust {
+			at := sumDBServer{url: server.URL, key: key, client: server.Client()}
+			return runtimeTrust{pins: map[string]string{version: sum}, lookup: func(ctx context.Context, path, vers string) (string, bool, error) {
+				return lookupSumDBAt(ctx, at, path, vers)
+			}}
+		}
+		same, differs, unknown := standIn(sum), standIn(other), standIn("")
+
+		known, found, err := trustOf(same, verifier).lookup(context.Background(), RuntimeModule, version)
+		if err != nil || !found || known != sum {
+			t.Errorf("the lookup of a known version gives %q %v: %v; expected %s", known, found, err, sum)
+		}
+		if _, found, err := trustOf(unknown, verifier).lookup(context.Background(), RuntimeModule, version); err != nil || found {
+			t.Errorf("the lookup of an unknown version gives found %v: %v; expected not found and no error", found, err)
+		}
+		if _, found, err := trustOf(same, strange).lookup(context.Background(), RuntimeModule, version); err == nil || found || errors.Is(err, errSumDBInconsistent) {
+			t.Errorf("the lookup of an answer signed by another key gives found %v: %v; expected a lookup error", found, err)
+		}
+
+		proxy := filepath.Join(t.TempDir(), "proxy")
+		served, err := stageRuntimeFolder(context.Background(), folder, pin, sums, modSums, proxy, t.TempDir(), trustOf(differs, verifier))
+		if err == nil || served != nil {
+			t.Fatal("a folder whose hash the sum database states otherwise was served")
+		}
+		for _, part := range []string{version, sum, other, "sum.golang.org"} {
+			if !strings.Contains(err.Error(), part) {
+				t.Errorf("the refusal does not name %s: %v", part, err)
+			}
+		}
+		if _, statErr := os.Lstat(proxy); !errors.Is(statErr, os.ErrNotExist) {
+			t.Error("the refusal left the proxy folder")
+		}
+		for name, trust := range map[string]runtimeTrust{
+			"the same hash":                   trustOf(same, verifier),
+			"an unknown version":              trustOf(unknown, verifier),
+			"an answer signed by another key": trustOf(same, strange),
+		} {
+			served, err := stageRuntimeFolder(context.Background(), folder, pin, sums, modSums, filepath.Join(t.TempDir(), "proxy"), t.TempDir(), trust)
 			if err != nil || served == nil {
 				t.Errorf("a registry pin with %s from the sum database was refused: %v", name, err)
 			}
