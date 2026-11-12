@@ -18,16 +18,18 @@ import (
 	"github.com/jsell-rh/stego/internal/types"
 )
 
-// The runtime data path (gen.Context.RuntimeData) of the rest-api component: each declared collection operation is
+// The runtime data path, the one data path of the rest-api component (ST-SUP-RC20-OC39): each declared collection operation is
 // one generated command on github.com/jsell-rh/stego/registry/runtime/command (create, update, patch, delete) or one query on
 // github.com/jsell-rh/stego/registry/runtime/query (read, list), and each handler calls that command's or query's Run. The handlers open no
 // database connection and hold no store; the bound before slots run in the command's fill, before its write, and
 // the after slots run after the command committed, so tenancy, idempotency, audit and authorization are applied once,
 // by the runtime (ST-SUP-RC20-OC37).
 
-// runtimeIdentity is the auth alias of the slot callers on the runtime data path: the caller is the verified identity
-// of the request (ST-SUP-RP13).
-const runtimeIdentity = "\x00authn"
+// commandComponent and queryComponent are the components whose generated commands and queries the handlers run.
+const (
+	commandComponent = "command"
+	queryComponent   = "query"
+)
 
 // dataFolder is the folder, under the component's namespace, of the entity declarations of the command and the
 // query runtime.
@@ -130,8 +132,10 @@ func (c *runtimeCollection) patchFields() []types.Field {
 // principal, so the service needs pooled tenancy and authorization; the forms that the path does not build yet are
 // refused, so no declared behaviour is lost without a word.
 func validateRuntimeData(ctx gen.Context, entities map[string]types.Entity) error {
-	if !ctx.RuntimeData {
-		return nil
+	// The runtime data path is the one data path (ST-SUP-RC20-OC39): the handlers run the generated commands and
+	// queries, so a service with collections needs the command and the query components.
+	if ctx.PeerNamespaces[commandComponent] == "" || ctx.PeerNamespaces[queryComponent] == "" {
+		return fmt.Errorf("rest-api: the service declares collections, and rest-api serves them only on the runtime data path, which needs the command and the query components; add the components command and query to the service (ST-SUP-RC20-OC39)")
 	}
 	if ctx.Tenancy == nil || ctx.Tenancy.Key != "tenant_id" {
 		return fmt.Errorf("rest-api: on the runtime data path each operation runs in the transaction of one tenant, so the service needs pooled tenancy with the tenant column tenant_id")
@@ -140,6 +144,9 @@ func validateRuntimeData(ctx gen.Context, entities map[string]types.Entity) erro
 		return fmt.Errorf("rest-api: on the runtime data path each operation decides its permission for the verified principal, so the service needs authorization with subject_from_identity")
 	}
 	for _, b := range ctx.SlotBindings {
+		if b.Slot == "before_upsert" || b.Slot == "after_upsert" {
+			return fmt.Errorf("rest-api: collection %s binds the slot %s, which only the removed store path called (ST-SUP-RC20-OC39); bind validate and on_entity_changed, which an upsert calls", b.Collection, b.Slot)
+		}
 		if !runtimeSlots[b.Slot] {
 			return fmt.Errorf("rest-api: collection %s binds the slot %s, which the runtime data path does not call yet", b.Collection, b.Slot)
 		}
@@ -392,7 +399,7 @@ func generateRuntimeHandlers(ctx gen.Context, collections []*runtimeCollection, 
 func renderRuntimeHelpers(ctx gen.Context, names []string, dataImport, slotsImportPath string, hasSlots bool, keys *idempotencyHeader) ([]byte, error) {
 	var b bytes.Buffer
 	pkg := path.Base(ctx.OutputNamespace)
-	fmt.Fprintf(&b, "package %s\n\nimport (\n\t\"context\"\n\t\"errors\"\n\t\"log/slog\"\n\t\"net\"\n\t\"net/http\"\n\t\"strings\"\n\t\"sync\"\n\t\"sync/atomic\"\n\t\"time\"\n\n", pkg)
+	fmt.Fprintf(&b, "package %s\n\nimport (\n\t\"context\"\n\t\"encoding/json\"\n\t\"errors\"\n\t\"log/slog\"\n\t\"net\"\n\t\"net/http\"\n\t\"strings\"\n\t\"sync\"\n\t\"sync/atomic\"\n\t\"time\"\n\n", pkg)
 	fmt.Fprintf(&b, "\t\"go.opentelemetry.io/otel/attribute\"\n\t\"go.opentelemetry.io/otel/metric\"\n\n")
 	fmt.Fprintf(&b, "\t\"github.com/jsell-rh/stego/registry/runtime/audit\"\n\t\"github.com/jsell-rh/stego/registry/runtime/authn\"\n\t\"github.com/jsell-rh/stego/registry/runtime/command\"\n")
 	fmt.Fprintf(&b, "\t\"github.com/jsell-rh/stego/registry/runtime/idempotency\"\n\t\"github.com/jsell-rh/stego/registry/runtime/outbox\"\n\t\"github.com/jsell-rh/stego/registry/runtime/probe\"\n\t\"github.com/jsell-rh/stego/registry/runtime/query\"\n\n")
@@ -427,7 +434,7 @@ func renderRuntimeHelpers(ctx gen.Context, names []string, dataImport, slotsImpo
 	return formatted, nil
 }
 
-// listOrderHelper reads the orderBy parameter of a list on the runtime data path (ST-SUP-RC20-OC38).
+// listOrderHelper reads the orderBy and the fields parameters of a list (ST-SUP-RC20-OC38, ST-SUP-RC20-OC12).
 const listOrderHelper = `// errOrder is the error of an orderBy that names a field that is not declared, or a direction that is not asc or
 // desc.
 var errOrder = errors.New("orderBy names a field that is not declared or a direction that is not asc or desc")
@@ -462,6 +469,51 @@ func listOrder(text string, fields map[string]bool) ([]query.OrderBy, error) {
 
 // isBadCursor tells whether err is a cursor of another order, which a list answers with 400.
 func isBadCursor(err error) bool { return errors.Is(err, query.ErrBadCursor) }
+
+// errFields is the error of a fields parameter that names a field that is not declared.
+var errFields = errors.New("fields names a field that is not declared")
+
+// listFields reads the fields parameter of a list: a comma-separated list of declared fields. It gives nil when the
+// parameter names none, and else the selected fields with id, which a selection always keeps (ST-SUP-RC20-OC12).
+func listFields(text string, fields map[string]bool) (map[string]bool, error) {
+	if strings.TrimSpace(text) == "" {
+		return nil, nil
+	}
+	selected := map[string]bool{"id": true}
+	for _, name := range strings.Split(text, ",") {
+		name = strings.TrimSpace(name)
+		if name == "" || name == "id" {
+			continue
+		}
+		if !fields[name] {
+			return nil, errFields
+		}
+		selected[name] = true
+	}
+	return selected, nil
+}
+
+// selectFields gives the members of the presented value v that the selection names, with id, kind and href, and v
+// itself when there is no selection (ST-SUP-RC20-OC12).
+func selectFields(v any, selected map[string]bool) any {
+	if selected == nil {
+		return v
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return v
+	}
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
+		return v
+	}
+	for name := range members {
+		if !selected[name] && name != "kind" && name != "href" {
+			delete(members, name)
+		}
+	}
+	return members
+}
 
 `
 
@@ -1281,17 +1333,17 @@ func (w *runtimeHandlerWriter) before(op types.Operation, patchFields []types.Fi
 	for _, sp := range before {
 		switch sp.SlotName {
 		case "before_delete":
-			emitBeforeDeleteSlot(&w.Buffer, w.slotsAlias, runtimeIdentity, sp, w.c.entity.Name, emitRuntimeSlotCheck)
+			emitBeforeDeleteSlot(&w.Buffer, w.slotsAlias, sp, w.c.entity.Name, emitRuntimeSlotCheck)
 		case "before_patch":
-			emitBeforePatchSlot(&w.Buffer, w.slotsAlias, runtimeIdentity, sp, w.c.lower, w.c.entity, patchFields, emitRuntimeSlotCheck)
+			emitBeforePatchSlot(&w.Buffer, w.slotsAlias, sp, w.c.lower, w.c.entity, patchFields, emitRuntimeSlotCheck)
 		default:
-			emitBeforeSlot(&w.Buffer, w.slotsAlias, runtimeIdentity, sp, w.c.lower, w.c.entity, emitRuntimeSlotCheck)
+			emitBeforeSlot(&w.Buffer, w.slotsAlias, sp, w.c.lower, w.c.entity, emitRuntimeSlotCheck)
 		}
 	}
 }
 
 // after writes, inside the fill of an operation's command, the staging of each bound after slot in the command's
-// transaction: the slot request is the one the store path gives the slot, as JSON, and the effect is
+// transaction: the slot request is the slot's request of the operation, as JSON, and the effect is
 // <collection>.<slot> on AfterSlotsDestination for the loaded value ref. So the slot runs only after the command
 // committed, never after a replay or a before slot that halted the command, and the outbox worker runs it and
 // retries a failure (ST-SUP-RC20-OC34).
@@ -1302,7 +1354,7 @@ func (w *runtimeHandlerWriter) after(op types.Operation, entityVar, ref string, 
 	}
 	var buf bytes.Buffer
 	for _, sp := range after {
-		dispatchAfterSlot(&buf, w.slotsAlias, runtimeIdentity, sp, entityVar, w.c.entity, op, patchFields, emitRuntimeAfterFailure)
+		dispatchAfterSlot(&buf, w.slotsAlias, sp, entityVar, w.c.entity, op, patchFields, emitRuntimeAfterFailure)
 	}
 	text := afterCall.ReplaceAllStringFunc(buf.String(), func(call string) string {
 		m := afterCall.FindStringSubmatch(call)
@@ -1535,7 +1587,7 @@ func (w *runtimeHandlerWriter) upsert() {
 	w.f("\tresult, err := command.Run(r.Context(), h.rt.Commands, %s, req, decode%s, func(ctx context.Context, %s %s, ch *command.Handle[struct{}]) (idempotency.Response, error) {\n", w.commandVar(types.OpUpsert), c.pascal, c.lower, e.Name)
 	w.populateCreate()
 	w.forceScope("scope")
-	// The before slots decide the requested value before the lookup, on both branches, as on the store path
+	// The before slots decide the requested value before the lookup, on both branches
 	// (ST-SUP-RC20-OC13).
 	w.before(types.OpUpsert, nil)
 	w.f("\t\trepo, err := data.%sRepository(ch)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", e.Name)
@@ -1700,6 +1752,12 @@ func (w *runtimeHandlerWriter) list() {
 		}
 	}
 	w.f("\torder, err := listOrder(r.URL.Query().Get(\"orderBy\"), map[string]bool{%s})\n\tif err != nil {\n\t\thandleError(w, r, BadRequest(err.Error()))\n\t\treturn\n\t}\n", strings.Join(fields, ", "))
+	// A field selection names declared fields; a secret field is cleared in each presented value (ST-SUP-RC20-OC12).
+	var declared []string
+	for _, f := range e.Fields {
+		declared = append(declared, fmt.Sprintf("%q: true", f.Name))
+	}
+	w.f("\tfields, err := listFields(r.URL.Query().Get(\"fields\"), map[string]bool{%s})\n\tif err != nil {\n\t\thandleError(w, r, BadRequest(err.Error()))\n\t\treturn\n\t}\n", strings.Join(declared, ", "))
 	// The filter of the list: the conditions of the search, then the scope field and the implicit fields, which
 	// the search may not name again (ST-SUP-RP11-LC20, ST-SUP-RC20-OC23, ST-SUP-RC20-OC24).
 	own := len(c.implicit)
@@ -1721,7 +1779,7 @@ func (w *runtimeHandlerWriter) list() {
 	w.f("\tif isBadCursor(err) {\n\t\thandleError(w, r, BadRequest(\"the cursor is not valid\"))\n\t\treturn\n\t}\n")
 	w.f("\tif errors.Is(err, query.ErrBadRequest) {\n\t\thandleError(w, r, BadRequest(\"the list request is not valid\"))\n\t\treturn\n\t}\n")
 	w.f("\tif err != nil {\n\t\thandleError(w, r, InternalError(\"internal error\"))\n\t\treturn\n\t}\n")
-	w.f("\titems := make([]any, 0, len(page.items))\n\tfor _, item := range page.items {\n\t\titems = append(items, %sPresented(item))\n\t}\n", c.camel)
+	w.f("\titems := make([]any, 0, len(page.items))\n\tfor _, item := range page.items {\n\t\titems = append(items, selectFields(%sPresented(item), fields))\n\t}\n", c.camel)
 	w.f("\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
 	if w.envelope {
 		w.f("\tresult := map[string]any{\"kind\": %q, \"size\": len(items), \"items\": items}\n", e.Name+"List")

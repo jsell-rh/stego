@@ -106,7 +106,7 @@ func crudContext() gen.Context {
 		Authorization:  &types.Authorization{Provider: "spicedb", SchemaPath: "authz/schema.zed", SubjectFromIdentity: "user"},
 		Tenancy:        &gen.Tenancy{Key: "tenant_id"},
 		Idempotency:    &types.Idempotency{RequiredOn: []types.Operation{types.OpCreate, types.OpPatch}, Retention: "24h", Fingerprint: "body"},
-		PeerNamespaces: map[string]string{"idempotency": "idempotency", "postgres-adapter": "storage", gen.TenancyComponent: "tenancy"},
+		PeerNamespaces: map[string]string{"idempotency": "idempotency", "postgres-adapter": "storage", gen.TenancyComponent: "tenancy", "command": "commands", "query": "queries"},
 		RuntimeData:    true,
 	}
 }
@@ -469,6 +469,10 @@ func TestCrudService(t *testing.T) {
 			"a slot it never calls": func(c *gen.Context) {
 				c.SlotBindings = append(c.SlotBindings, types.SlotDeclaration{Slot: "before_upsert", Collection: "orders", Gate: []string{"g"}})
 			},
+			// The runtime data path is the one data path, so a service with collections needs the command and the
+			// query components (ST-SUP-RC20-OC39).
+			"no command component": func(c *gen.Context) { delete(c.PeerNamespaces, "command") },
+			"no query component":   func(c *gen.Context) { delete(c.PeerNamespaces, "query") },
 		}
 		for name, change := range cases {
 			c := crudContext()
@@ -649,7 +653,7 @@ func TestCORSOrigins(t *testing.T) {
 	t.Run("ST-SUP-RC20-OC27-T02 The emitted CORS middleware sends no header by default and echoes only a listed origin", func(t *testing.T) {
 		ctx := basicContext()
 		ctx.Conventions.CORS = "enabled"
-		files, _, err := new(Generator).Generate(ctx)
+		files, _, err := new(Generator).Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -663,61 +667,6 @@ func TestCORSOrigins(t *testing.T) {
 		p.write("go.mod", []byte("module example.com/cors\n\ngo 1.26.11\n"))
 		if output, err := p.goCommand(nil, "test", "-count=1", "./api"); err != nil {
 			t.Fatalf("the CORS check failed: %v\n%s", err, output)
-		}
-	})
-}
-
-// storeBodyCheck is a test of the generated api package of the GORM store path: a body over MaxRequestBody that the
-// validation middleware passes on, because a %2F in a path parameter matches no route of the document, still gets 413
-// from the body reader that the handlers use.
-const storeBodyCheck = `package api
-
-import (
-	"net/http"
-	"net/http/httptest"
-	"strings"
-	"testing"
-)
-
-func TestStoreBodyLimit(t *testing.T) {
-	reached := false
-	handler := NewValidationMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		reached = true
-		if _, err := readBody(w, r); err != nil {
-			handleError(w, r, bodyError(err))
-			return
-		}
-		w.WriteHeader(http.StatusCreated)
-	}))
-	large := httptest.NewRequest(http.MethodPut, "/users/a%2Fb", strings.NewReader(strings.Repeat("a", 3<<20)))
-	large.Header.Set("Content-Type", "application/json")
-	answer := httptest.NewRecorder()
-	handler.ServeHTTP(answer, large)
-	if answer.Code != http.StatusRequestEntityTooLarge || !reached {
-		t.Fatalf("a 3 MiB body with an encoded slash got %d, handler reached %v", answer.Code, reached)
-	}
-}
-`
-
-func TestStoreBodyLimit(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC21-T05 On the GORM store path a body over MaxRequestBody gets 413 also when no route of the document matches", func(t *testing.T) {
-		ctx := basicContext()
-		ctx.Conventions.RequestValidation = "openapi-schema"
-		files := crudFiles(t, ctx)
-		for name, data := range files {
-			if strings.Contains(name, "handler_") && strings.Contains(string(data), "io.ReadAll(") {
-				t.Errorf("%s reads a body with no limit", name)
-			}
-		}
-		p := &crudProject{t: t, dir: t.TempDir()}
-		for name, data := range files {
-			p.write("api/"+filepath.Base(name), data)
-		}
-		p.write("api/body_test.go", []byte(storeBodyCheck))
-		p.write("go.mod", []byte("module example.com/store\n\ngo 1.26.11\n\nrequire github.com/getkin/kin-openapi v0.149.0\n"))
-		p.mustGo("mod", "tidy")
-		if output, err := p.goCommand(nil, "test", "-count=1", "-run", "^TestStoreBodyLimit$", "./api"); err != nil {
-			t.Fatalf("the body limit check failed: %v\n%s", err, output)
 		}
 	})
 }

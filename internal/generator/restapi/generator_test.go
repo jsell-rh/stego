@@ -2,10 +2,7 @@ package restapi
 
 import (
 	"encoding/json"
-	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -13,6 +10,47 @@ import (
 
 	"github.com/jsell-rh/stego/internal/types"
 )
+
+// onRuntime gives ctx with what the runtime data path, the one data path (ST-SUP-RC20-OC39), needs and ctx does not
+// declare: the command and the query components, pooled tenancy, authorization with subject_from_identity, and for
+// each entity a resource type and the permissions of its operations, with create public.
+func onRuntime(ctx gen.Context) gen.Context {
+	peers := map[string]string{"command": "commands", "query": "queries"}
+	for name, ns := range ctx.PeerNamespaces {
+		peers[name] = ns
+	}
+	ctx.PeerNamespaces = peers
+	if ctx.ModuleName == "" {
+		ctx.ModuleName = "example.com/service"
+	}
+	if ctx.Tenancy == nil {
+		ctx.Tenancy = &gen.Tenancy{Key: "tenant_id"}
+	}
+	if ctx.Authorization == nil {
+		ctx.Authorization = &types.Authorization{Provider: "spicedb", SchemaPath: "authz/schema.zed", SubjectFromIdentity: "user"}
+	}
+	ctx.RuntimeData = true
+	entities := make([]types.Entity, len(ctx.Entities))
+	for i, e := range ctx.Entities {
+		if e.ResourceType == "" {
+			e.ResourceType = strings.ToLower(e.Name)
+		}
+		permissions := map[types.Operation]string{types.OpCreate: types.PermissionPublic, types.OpRead: "view", types.OpList: "view",
+			types.OpUpdate: "edit", types.OpPatch: "edit", types.OpDelete: "edit", types.OpUpsert: "edit"}
+		for op, p := range e.Permissions {
+			permissions[op] = p
+		}
+		e.Permissions = permissions
+		reasons := map[types.Operation]string{types.OpCreate: "a new row has no resource to decide on before it exists"}
+		for op, reason := range e.PublicReasons {
+			reasons[op] = reason
+		}
+		e.PublicReasons = reasons
+		entities[i] = e
+	}
+	ctx.Entities = entities
+	return ctx
+}
 
 // basicContext returns a gen.Context for a simple User entity with CRUD operations.
 func basicContext() gen.Context {
@@ -47,7 +85,7 @@ func basicContext() gen.Context {
 func TestGenerate_EmptyCollections(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{OutputNamespace: "internal/api"}
-	files, wiring, err := g.Generate(ctx)
+	files, wiring, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -59,107 +97,11 @@ func TestGenerate_EmptyCollections(t *testing.T) {
 	}
 }
 
-func TestGenerate_BasicCRUD(t *testing.T) {
-	g := &Generator{}
-	ctx := basicContext()
-
-	files, wiring, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Expect 5 files: handler_user.go, router.go, errors.go, openapi.json, discovery.go
-	if len(files) != 5 {
-		t.Fatalf("expected 5 files, got %d", len(files))
-	}
-
-	// Verify file paths.
-	expectedPaths := map[string]bool{
-		"internal/api/handler_users.go": true,
-		"internal/api/router.go":        true,
-		"internal/api/errors.go":        true,
-		"internal/api/openapi.json":     true,
-		"internal/api/discovery.go":     true,
-	}
-	for _, f := range files {
-		if !expectedPaths[f.Path] {
-			t.Errorf("unexpected file path: %s", f.Path)
-		}
-	}
-
-	// Verify wiring.
-	if wiring == nil {
-		t.Fatal("expected wiring, got nil")
-	}
-	if len(wiring.Imports) != 1 || wiring.Imports[0] != "internal/api" {
-		t.Errorf("unexpected imports: %v", wiring.Imports)
-	}
-	if len(wiring.Constructors) != 2 {
-		t.Fatalf("expected 2 constructors (1 collection + discovery), got %d", len(wiring.Constructors))
-	}
-	if !strings.Contains(wiring.Constructors[0], "NewUsersHandler") {
-		t.Errorf("constructor should reference NewUsersHandler, got: %s", wiring.Constructors[0])
-	}
-	if len(wiring.Routes) == 0 {
-		t.Fatal("expected routes, got none")
-	}
-	foundUsers := false
-	for _, r := range wiring.Routes {
-		if strings.Contains(r, "/users") {
-			foundUsers = true
-		}
-	}
-	if !foundUsers {
-		t.Errorf("expected a route containing /users, got: %v", wiring.Routes)
-	}
-}
-
-func TestGenerate_HandlerContainsCRUDMethods(t *testing.T) {
-	g := &Generator{}
-	ctx := basicContext()
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handlerContent := findFileContent(t, files, "internal/api/handler_users.go")
-
-	for _, method := range []string{"create", "read", "update", "delete", "list"} {
-		if !strings.Contains(handlerContent, "func (h *UsersHandler) "+strings.ToUpper(method[:1])+method[1:]+"(") {
-			t.Errorf("handler missing %s method", method)
-		}
-	}
-
-	if !strings.Contains(handlerContent, "type UsersHandler struct") {
-		t.Error("handler missing UsersHandler struct")
-	}
-	if !strings.Contains(handlerContent, "func NewUsersHandler(") {
-		t.Error("handler missing NewUsersHandler constructor")
-	}
-}
-
-func TestGenerate_RouterContainsStorageInterface(t *testing.T) {
-	g := &Generator{}
-	ctx := basicContext()
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	router := findFileContent(t, files, "internal/api/router.go")
-
-	if !strings.Contains(router, "type Storage interface") {
-		t.Error("router missing Storage interface")
-	}
-}
-
 func TestGenerate_RouterEntityStructsHaveFields(t *testing.T) {
 	g := &Generator{}
 	ctx := basicContext()
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -192,7 +134,7 @@ func TestGenerate_WiringUsesMethodPatternRoutes(t *testing.T) {
 		g := &Generator{}
 		ctx := basicContext()
 
-		_, wiring, err := g.Generate(ctx)
+		_, wiring, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -216,58 +158,6 @@ func TestGenerate_WiringUsesMethodPatternRoutes(t *testing.T) {
 	})
 }
 
-func TestGenerate_NestedRouting(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-			{Name: "NodePool", Fields: []types.Field{{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"}}},
-		},
-		Collections: []types.Collection{
-			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList}},
-			{
-				Name:       "node-pools",
-				Entity:     "NodePool",
-				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
-				Scope:      map[string]string{"cluster_id": "Cluster"},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, wiring, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// NodePool handler should verify ancestor Cluster exists via checkAncestors.
-	npHandler := findFileContent(t, files, "internal/api/handler_node_pools.go")
-	if !strings.Contains(npHandler, "checkAncestors") {
-		t.Error("nested handler missing checkAncestors method")
-	}
-	if !strings.Contains(npHandler, `h.store.Exists(r.Context(), "Cluster"`) {
-		t.Error("nested handler missing parent Exists check")
-	}
-	if !strings.Contains(npHandler, `NotFound("Cluster"`) {
-		t.Error("nested handler missing parent not-found error")
-	}
-
-	// Route should contain nested path with parent param.
-	if wiring == nil {
-		t.Fatal("expected wiring")
-	}
-	foundNestedRoute := false
-	for _, r := range wiring.Routes {
-		if strings.Contains(r, "cluster_id") && strings.Contains(r, "nodepools") {
-			foundNestedRoute = true
-		}
-	}
-	if !foundNestedRoute {
-		t.Errorf("expected nested route with cluster_id and nodepools, got routes: %v", wiring.Routes)
-	}
-}
-
 func TestGenerate_NestedRoutingWithPathPrefix(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -289,7 +179,7 @@ func TestGenerate_NestedRoutingWithPathPrefix(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, wiring, err := g.Generate(ctx)
+	_, wiring, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -307,357 +197,6 @@ func TestGenerate_NestedRoutingWithPathPrefix(t *testing.T) {
 	if !foundPath {
 		t.Errorf("expected explicit path prefix in routes, got: %v", wiring.Routes)
 	}
-}
-
-func TestGenerate_ScopeFilteringWithParent(t *testing.T) {
-	// When scope is set with a parent, the scope value must come from the
-	// parent's path parameter (which is already in the route pattern).
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Organization", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-			{Name: "User", Fields: []types.Field{
-				{Name: "email", Type: types.FieldTypeString},
-				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
-			{
-				Name:       "users",
-				Entity:     "User",
-				Operations: []types.Operation{types.OpList},
-				Scope:      map[string]string{"org_id": "Organization"},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_users.go")
-	// Must use PathValue with the scope field name as the path parameter name.
-	if !strings.Contains(handler, `r.PathValue("org_id")`) {
-		t.Error("scope with parent must extract value from scope field path parameter (org_id)")
-	}
-	if !strings.Contains(handler, `h.store.List(r.Context(), "User", "org_id", scopeValue, opts)`) {
-		t.Error("scope filtering must pass the scope field name and opts to store.List")
-	}
-
-	// List handler must parse page/pageSize (spec-defined) query parameters, not
-	// raw offset/limit.
-	if !strings.Contains(handler, `r.URL.Query().Get("page")`) {
-		t.Error("list handler must parse 'page' query parameter (spec-defined pagination)")
-	}
-	if !strings.Contains(handler, `r.URL.Query().Get("pageSize")`) {
-		t.Error("list handler must parse 'pageSize' query parameter (spec-defined pagination)")
-	}
-	// Default page=1, pageSize=100.
-	if !strings.Contains(handler, "page = 1") {
-		t.Error("list handler must default page to 1 when missing or invalid")
-	}
-	if !strings.Contains(handler, "pageSize = 100") {
-		t.Error("list handler must default pageSize to 100 when missing or invalid")
-	}
-	// Clamp pageSize to 65500 (PostgreSQL parameter limit).
-	if !strings.Contains(handler, "pageSize > 65500") {
-		t.Error("list handler must clamp pageSize to max 65500")
-	}
-	// Build ListOptions with Page and Size from pageSize local.
-	if !strings.Contains(handler, "opts := ListOptions{Page: page, Size: pageSize") {
-		t.Error("list handler must construct ListOptions with Page and Size")
-	}
-
-	// List handler must capture listResult from store.List.
-	if !strings.Contains(handler, "listResult, err := h.store.List(") {
-		t.Error("list handler must capture listResult from store.List 2-return-value")
-	}
-
-	// In bare mode (no envelope), list handler encodes items directly.
-	if !strings.Contains(handler, "listResult.Items") {
-		t.Error("list handler must use listResult.Items")
-	}
-}
-
-func TestGenerate_ListStorageInterfaceReturnsTotalCount(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Item", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-		},
-		Collections: []types.Collection{
-			{Name: "items", Entity: "Item", Operations: []types.Operation{types.OpList}},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	router := findFileContent(t, files, "internal/api/router.go")
-
-	// Storage interface List must accept ListOptions and return (ListResult, error).
-	if !strings.Contains(router, "opts ListOptions) (ListResult, error)") {
-		t.Error("Storage.List must accept ListOptions and return (ListResult, error) for pagination")
-	}
-}
-
-func TestGenerate_ListResponseIncludesPaginationEnvelope(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat", ResponseFormat: "envelope"},
-		Entities: []types.Entity{
-			{Name: "Item", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-		},
-		Collections: []types.Collection{
-			{Name: "items", Entity: "Item", Operations: []types.Operation{types.OpList}},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_items.go")
-
-	// List handler must import reflect for computing actual item count.
-	if !strings.Contains(handler, `"reflect"`) {
-		t.Error("list handler must import reflect for actual item count computation")
-	}
-
-	// List handler must construct a pagination envelope with kind, page, size, total, items.
-	if !strings.Contains(handler, `"kind":  "ItemList"`) {
-		t.Error("list response must include kind with entity name + 'List'")
-	}
-	if !strings.Contains(handler, `"page":  page`) {
-		t.Error("list response must include the requested page number")
-	}
-	if !strings.Contains(handler, `"size":  actualSize`) {
-		t.Error("list response must include the actual number of items returned")
-	}
-	if !strings.Contains(handler, `itemsSlice := reflect.ValueOf(listResult.Items)`) {
-		t.Error("list response must use reflect to access list items")
-	}
-	if !strings.Contains(handler, `actualSize := itemsSlice.Len()`) {
-		t.Error("list response must compute actual item count via itemsSlice.Len()")
-	}
-	if !strings.Contains(handler, `"total": listResult.Total`) {
-		t.Error("list response must include total count of matching records")
-	}
-	if !strings.Contains(handler, `"items":`) {
-		t.Error("list response must include items array")
-	}
-}
-
-func TestGenerate_ScopeFilteringWithoutParent(t *testing.T) {
-	// When scope is set with a parent entity that IS in the collections list,
-	// the scope value comes from the parent's path parameter (nested routing).
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Organization", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-			{Name: "User", Fields: []types.Field{
-				{Name: "email", Type: types.FieldTypeString},
-				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
-			{
-				Name:       "users",
-				Entity:     "User",
-				Operations: []types.Operation{types.OpList},
-				Scope:      map[string]string{"org_id": "Organization"},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_users.go")
-	// Scope with parent entity in collections list uses scope field as path parameter.
-	if !strings.Contains(handler, `r.PathValue("org_id")`) {
-		t.Error("scope with parent in collections must extract value from scope field path parameter")
-	}
-	if !strings.Contains(handler, `h.store.List(r.Context(), "User", "org_id", scopeValue, opts)`) {
-		t.Error("scope filtering must pass the scope field name and opts to store.List")
-	}
-}
-
-func TestGenerate_ParentOnlyListPassesRawFieldName(t *testing.T) {
-	// When an entity has scope pointing to a parent entity that is in
-	// collections, the List method uses the scope+parent path: scope value
-	// comes from the path parameter, and the raw YAML field name (e.g.
-	// "cluster_id") is passed to store.List.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-			{Name: "NodePool", Fields: []types.Field{
-				{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"},
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
-			{
-				Name:       "node-pools",
-				Entity:     "NodePool",
-				Operations: []types.Operation{types.OpList},
-				Scope:      map[string]string{"cluster_id": "Cluster"},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_node_pools.go")
-	// Must pass raw YAML field name "cluster_id", not PascalCase "ClusterID".
-	if !strings.Contains(handler, `h.store.List(r.Context(), "NodePool", "cluster_id", scopeValue, opts)`) {
-		t.Error("scope+parent List must pass raw YAML field name to store.List, not PascalCase")
-	}
-	if strings.Contains(handler, `h.store.List(r.Context(), "NodePool", "ClusterID"`) {
-		t.Error("scope+parent List must not pass PascalCase field name to store.List")
-	}
-}
-
-func TestGenerate_UpsertOperation(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "AdapterStatus", Fields: []types.Field{
-				{Name: "resource_type", Type: types.FieldTypeString},
-				{Name: "resource_id", Type: types.FieldTypeString},
-				{Name: "adapter", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:        "adapter-statuses",
-				Entity:      "AdapterStatus",
-				Operations:  []types.Operation{types.OpList, types.OpUpsert},
-				UpsertKey:   []string{"resource_type", "resource_id", "adapter"},
-				Concurrency: types.ConcurrencyOptimistic,
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_adapter_statuses.go")
-	if !strings.Contains(handler, "func (h *AdapterStatusesHandler) Upsert(") {
-		t.Error("handler missing upsert method")
-	}
-	if !strings.Contains(handler, `"resource_type"`) {
-		t.Error("upsert handler missing upsert key field resource_type")
-	}
-	if !strings.Contains(handler, `"resource_id"`) {
-		t.Error("upsert handler missing upsert key field resource_id")
-	}
-	if !strings.Contains(handler, `"adapter"`) {
-		t.Error("upsert handler missing upsert key field adapter")
-	}
-	if !strings.Contains(handler, `"optimistic"`) {
-		t.Error("upsert handler missing optimistic concurrency mode")
-	}
-}
-
-func TestGenerate_UpsertStatusCodes(t *testing.T) {
-	check := func(t *testing.T) {
-		// Verifies that the upsert handler distinguishes created (201),
-		// updated (200), and conflict (409) via the store return values.
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat"},
-			Entities: []types.Entity{
-				{Name: "Widget", Fields: []types.Field{
-					{Name: "name", Type: types.FieldTypeString},
-					{Name: "generation", Type: types.FieldTypeInt64},
-				}},
-			},
-			Collections: []types.Collection{
-				{
-					Name:        "widgets",
-					Entity:      "Widget",
-					Operations:  []types.Operation{types.OpUpsert},
-					UpsertKey:   []string{"name"},
-					Concurrency: types.ConcurrencyOptimistic,
-				},
-			},
-			OutputNamespace: "internal/api",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-		// Handler must use the (bool, error) return from store.Upsert.
-		if !strings.Contains(handler, "created, err := h.store.Upsert(") {
-			t.Error("handler must capture 'created' return value from store.Upsert")
-		}
-
-		// Handler must check for ErrConflict and return 409.
-		if !strings.Contains(handler, "errors.Is(err, ErrConflict)") {
-			t.Error("handler must check for ErrConflict")
-		}
-		if !strings.Contains(handler, "Conflict(") {
-			t.Error("handler must call Conflict() for optimistic concurrency failure")
-		}
-
-		// Handler must return 201 when created.
-		if !strings.Contains(handler, "http.StatusCreated") {
-			t.Error("handler must return 201 Created for new inserts")
-		}
-
-		// Handler must return 200 when updated.
-		if !strings.Contains(handler, "http.StatusOK") {
-			t.Error("handler must return 200 OK for updates")
-		}
-
-		// Router must define ErrConflict sentinel.
-		router := findFileContent(t, files, "internal/api/router.go")
-		if !strings.Contains(router, "ErrConflict") {
-			t.Error("router must define ErrConflict sentinel variable")
-		}
-
-		// Store interface must return (bool, error) for Upsert.
-		if !strings.Contains(router, "Upsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) (bool, error)") {
-			t.Error("Store.Upsert must return (bool, error)")
-		}
-	}
-	t.Run("ST-SUP-RC20-OC13-T01 The emitted upsert handler separates an insert from an update", check)
-	t.Run("ST-SUP-RC20-OC14-T01 The emitted upsert handler refuses a stale generation", check)
 }
 
 func TestGenerate_UpsertOpenAPIResponses(t *testing.T) {
@@ -683,7 +222,7 @@ func TestGenerate_UpsertOpenAPIResponses(t *testing.T) {
 			OutputNamespace: "internal/api",
 		}
 
-		files, _, err := g.Generate(ctx)
+		files, _, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -711,64 +250,11 @@ func TestGenerate_UpsertOpenAPIResponses(t *testing.T) {
 	})
 }
 
-func TestGenerate_UpdateAndUpsertOnSameEntity(t *testing.T) {
-	// Verifies that update (PUT /path/{id}) and upsert (PUT /path) use
-	// different route patterns and do not create duplicate switch cases.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Item", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-				{Name: "key", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "items",
-				Entity:     "Item",
-				Operations: []types.Operation{types.OpUpdate, types.OpUpsert},
-				UpsertKey:  []string{"key"},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_items.go")
-	if !strings.Contains(handler, "func (h *ItemsHandler) Update(") {
-		t.Error("handler missing update method")
-	}
-	if !strings.Contains(handler, "func (h *ItemsHandler) Upsert(") {
-		t.Error("handler missing upsert method")
-	}
-
-	// Update uses PUT /items/{id}, upsert uses PUT /items — verify via wiring routes.
-	_, wiring, err2 := g.Generate(ctx)
-	if err2 != nil {
-		t.Fatalf("unexpected error: %v", err2)
-	}
-	if wiring == nil {
-		t.Fatal("wiring is nil")
-	}
-	routeStr := strings.Join(wiring.Routes, "\n")
-	if !strings.Contains(routeStr, `"PUT /items/{id}"`) {
-		t.Error("wiring routes missing PUT /items/{id} for update")
-	}
-	if !strings.Contains(routeStr, `"PUT /items"`) {
-		t.Error("wiring routes missing PUT /items for upsert")
-	}
-}
-
 func TestGenerate_OpenAPISpec(t *testing.T) {
 	g := &Generator{}
 	ctx := basicContext()
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -822,86 +308,6 @@ func TestGenerate_OpenAPISpec(t *testing.T) {
 	}
 }
 
-func TestGenerate_OpenAPINestedRoutePathParams(t *testing.T) {
-	// Every {param} placeholder in an OpenAPI path must have a corresponding
-	// parameter declaration. Nested routes must declare parent path parameters.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-			{Name: "NodePool", Fields: []types.Field{{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"}}},
-		},
-		Collections: []types.Collection{
-			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpRead}},
-			{
-				Name:       "node-pools",
-				Entity:     "NodePool",
-				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
-				Scope:      map[string]string{"cluster_id": "Cluster"},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	content := findFileContent(t, files, "internal/api/openapi.json")
-	var spec map[string]any
-	if err := json.Unmarshal([]byte(content), &spec); err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-
-	paths := spec["paths"].(map[string]any)
-
-	// Check nested collection path: /clusters/{cluster_id}/nodepools
-	npCollection, ok := paths["/clusters/{cluster_id}/nodepools"]
-	if !ok {
-		t.Fatal("missing /clusters/{cluster_id}/nodepools path")
-	}
-	npColOps := npCollection.(map[string]any)
-
-	// POST (create) must declare cluster_id parameter.
-	postOp := npColOps["post"].(map[string]any)
-	postParams, _ := postOp["parameters"].([]any)
-	if !hasParam(postParams, "cluster_id") {
-		t.Error("POST /clusters/{cluster_id}/nodepools missing cluster_id parameter")
-	}
-
-	// GET (list) must declare cluster_id parameter and pagination params.
-	getOp := npColOps["get"].(map[string]any)
-	getParams, _ := getOp["parameters"].([]any)
-	if !hasParam(getParams, "cluster_id") {
-		t.Error("GET /clusters/{cluster_id}/nodepools missing cluster_id parameter")
-	}
-	if !hasParam(getParams, "page") {
-		t.Error("GET (list) must declare 'page' query parameter in OpenAPI spec")
-	}
-	if !hasParam(getParams, "pageSize") {
-		t.Error("GET (list) must declare 'pageSize' query parameter in OpenAPI spec")
-	}
-
-	// Check nested item path: /clusters/{cluster_id}/nodepools/{id}
-	npItem, ok := paths["/clusters/{cluster_id}/nodepools/{id}"]
-	if !ok {
-		t.Fatal("missing /clusters/{cluster_id}/nodepools/{id} path")
-	}
-	npItemOps := npItem.(map[string]any)
-
-	// GET (read) must declare both cluster_id and id parameters.
-	readOp := npItemOps["get"].(map[string]any)
-	readParams, _ := readOp["parameters"].([]any)
-	if !hasParam(readParams, "cluster_id") {
-		t.Error("GET /clusters/{cluster_id}/nodepools/{id} missing cluster_id parameter")
-	}
-	if !hasParam(readParams, "id") {
-		t.Error("GET /clusters/{cluster_id}/nodepools/{id} missing id parameter")
-	}
-}
-
 func hasParam(params []any, name string) bool {
 	for _, p := range params {
 		param := p.(map[string]any)
@@ -940,7 +346,7 @@ func TestGenerate_OpenAPIScopeQueryParamWithoutParent(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -973,220 +379,6 @@ func TestGenerate_OpenAPIScopeQueryParamWithoutParent(t *testing.T) {
 	}
 }
 
-func TestGenerate_OpenAPIFieldTypes(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Thing", Fields: []types.Field{
-				{Name: "s", Type: types.FieldTypeString},
-				{Name: "i32", Type: types.FieldTypeInt32},
-				{Name: "i64", Type: types.FieldTypeInt64},
-				{Name: "f", Type: types.FieldTypeFloat},
-				{Name: "d", Type: types.FieldTypeDouble},
-				{Name: "b", Type: types.FieldTypeBool},
-				{Name: "raw", Type: types.FieldTypeBytes},
-				{Name: "ts", Type: types.FieldTypeTimestamp},
-				{Name: "e", Type: types.FieldTypeEnum, Values: []string{"x", "y"}},
-				{Name: "r", Type: types.FieldTypeRef, To: "Other"},
-				{Name: "j", Type: types.FieldTypeJsonb},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "things", Entity: "Thing", Operations: []types.Operation{types.OpRead}},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	content := findFileContent(t, files, "internal/api/openapi.json")
-	var spec map[string]any
-	if err := json.Unmarshal([]byte(content), &spec); err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-
-	schemas := spec["components"].(map[string]any)["schemas"].(map[string]any)
-	thingSchema := schemas["Thing"].(map[string]any)
-	props := thingSchema["properties"].(map[string]any)
-
-	tests := []struct {
-		field    string
-		wantType string
-	}{
-		{"s", "string"},
-		{"i32", "integer"},
-		{"i64", "integer"},
-		{"f", "number"},
-		{"d", "number"},
-		{"b", "boolean"},
-		{"raw", "string"},
-		{"ts", "string"},
-		{"e", "string"},
-		{"r", "string"},
-	}
-
-	for _, tt := range tests {
-		p := props[tt.field].(map[string]any)
-		if p["type"] != tt.wantType {
-			t.Errorf("field %s: expected type %q, got %q", tt.field, tt.wantType, p["type"])
-		}
-	}
-
-	// jsonb fields should have no "type" constraint (accepts any JSON value)
-	// and a description indicating arbitrary JSON.
-	jsonbField := props["j"].(map[string]any)
-	if _, hasType := jsonbField["type"]; hasType {
-		t.Errorf("jsonb field j: expected no type constraint, got type=%q", jsonbField["type"])
-	}
-	if desc, ok := jsonbField["description"].(string); !ok || desc == "" {
-		t.Errorf("jsonb field j: expected non-empty description, got %q", jsonbField["description"])
-	}
-}
-
-func TestGenerate_ComputedFieldsExcludedFromWriteOps(t *testing.T) {
-	// Computed fields (read-only, filled by a fill) must be zeroed after JSON
-	// decode in create, update, and upsert handlers.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Cluster", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString, Unique: true},
-				{Name: "spec", Type: types.FieldTypeJsonb},
-				{Name: "status_conditions", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "status-aggregator"},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "clusters",
-				Entity:     "Cluster",
-				Operations: []types.Operation{types.OpCreate, types.OpUpdate, types.OpUpsert},
-				UpsertKey:  []string{"name"},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_clusters.go")
-
-	// Each write method must zero the computed field after decode.
-	for _, method := range []string{"Create", "Update", "Upsert"} {
-		if !strings.Contains(handler, "func (h *ClustersHandler) "+method+"(") {
-			t.Errorf("handler missing %s method", method)
-			continue
-		}
-	}
-	// The handler must zero StatusConditions (computed field).
-	if !strings.Contains(handler, "cluster.StatusConditions = nil") {
-		t.Error("handler must zero computed field StatusConditions after decode")
-	}
-}
-
-func TestGenerate_ComputedFieldsReadOnlyInOpenAPI(t *testing.T) {
-	// Computed fields must be marked readOnly in OpenAPI schema.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Cluster", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-				{Name: "status_conditions", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "status-aggregator"},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	content := findFileContent(t, files, "internal/api/openapi.json")
-	var spec map[string]any
-	if err := json.Unmarshal([]byte(content), &spec); err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-
-	schemas := spec["components"].(map[string]any)["schemas"].(map[string]any)
-	clusterSchema := schemas["Cluster"].(map[string]any)
-	props := clusterSchema["properties"].(map[string]any)
-
-	// status_conditions must be readOnly.
-	sc := props["status_conditions"].(map[string]any)
-	if sc["readOnly"] != true {
-		t.Error("computed field status_conditions must have readOnly: true in OpenAPI schema")
-	}
-
-	// name must NOT be readOnly.
-	nameField := props["name"].(map[string]any)
-	if _, hasReadOnly := nameField["readOnly"]; hasReadOnly {
-		t.Error("non-computed field name should not have readOnly in OpenAPI schema")
-	}
-}
-
-func TestGenerate_ComputedFieldsCompilesAsPackage(t *testing.T) {
-	// Verify that generated code with computed field zeroing compiles.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Cluster", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString, Unique: true},
-				{Name: "spec", Type: types.FieldTypeJsonb},
-				{Name: "status_conditions", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "status-aggregator"},
-				{Name: "healthy", Type: types.FieldTypeBool, Computed: true, FilledBy: "health-checker"},
-				{Name: "last_aggregated", Type: types.FieldTypeTimestamp, Computed: true, FilledBy: "aggregator"},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "clusters",
-				Entity:     "Cluster",
-				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpUpsert},
-				UpsertKey:  []string{"name"},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	tmpDir := t.TempDir()
-	goMod := "module testpkg\n\ngo 1.22\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-		t.Fatalf("writing go.mod: %v", err)
-	}
-
-	for _, f := range files {
-		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
-		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-			t.Fatalf("writing %s: %v", f.Path, err)
-		}
-	}
-
-	cmd := exec.Command("go", "build", ".")
-	cmd.Dir = tmpDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("generated code with computed fields does not compile:\n%s\n%s", err, output)
-	}
-}
-
 func TestGenerate_UnknownEntity(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -1197,7 +389,7 @@ func TestGenerate_UnknownEntity(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error for unknown entity")
 	}
@@ -1210,7 +402,7 @@ func TestGenerate_AllFilesInNamespace(t *testing.T) {
 	g := &Generator{}
 	ctx := basicContext()
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1226,7 +418,7 @@ func TestGenerate_FilesBytesIncludesHeader(t *testing.T) {
 	g := &Generator{}
 	ctx := basicContext()
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1248,158 +440,6 @@ func TestGenerate_FilesBytesIncludesHeader(t *testing.T) {
 				t.Errorf("JSON file %s rendered via Bytes() is not valid JSON: %v", f.Path, err)
 			}
 		}
-	}
-}
-
-func TestGenerate_MultipleEntities(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-			{Name: "User", Fields: []types.Field{
-				{Name: "email", Type: types.FieldTypeString},
-				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpCreate, types.OpRead}},
-			{
-				Name:       "users",
-				Entity:     "User",
-				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpList},
-				Scope:      map[string]string{"org_id": "Organization"},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, wiring, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Should have handler_organizations.go, handler_users.go, router.go, errors.go, openapi.json, discovery.go
-	if len(files) != 6 {
-		t.Fatalf("expected 6 files, got %d", len(files))
-	}
-
-	expectedPaths := map[string]bool{
-		"internal/api/handler_organizations.go": true,
-		"internal/api/handler_users.go":         true,
-		"internal/api/router.go":                true,
-		"internal/api/errors.go":                true,
-		"internal/api/openapi.json":             true,
-		"internal/api/discovery.go":             true,
-	}
-	for _, f := range files {
-		if !expectedPaths[f.Path] {
-			t.Errorf("unexpected file path: %s", f.Path)
-		}
-	}
-
-	// Verify wiring has constructors for both collections plus discovery handler.
-	if wiring == nil {
-		t.Fatal("expected wiring")
-	}
-	if len(wiring.Constructors) != 3 {
-		t.Fatalf("expected 3 constructors (2 collections + discovery), got %d", len(wiring.Constructors))
-	}
-}
-
-func TestGenerate_ListOnlyGETRoute(t *testing.T) {
-	// When only list is exposed (no read), GET should map to list.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Event", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-		},
-		Collections: []types.Collection{
-			{Name: "events", Entity: "Event", Operations: []types.Operation{types.OpList}},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_events.go")
-	if !strings.Contains(handler, "func (h *EventsHandler) List(") {
-		t.Error("handler missing list method")
-	}
-	// Should not have a read method.
-	if strings.Contains(handler, "func (h *EventsHandler) Read(") {
-		t.Error("handler should not have read method when only list is exposed")
-	}
-}
-
-func TestGenerate_GeneratedCodeCompilesAsPackage(t *testing.T) {
-	// Verify all generated Go files compile together as a single package.
-	// This catches cross-file errors: duplicate case branches, references to
-	// undefined types, field assignments on empty structs, etc.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Organization", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString, Unique: true},
-				{Name: "created_at", Type: types.FieldTypeTimestamp},
-				{Name: "metadata", Type: types.FieldTypeJsonb, Optional: true},
-			}},
-			{Name: "User", Fields: []types.Field{
-				{Name: "email", Type: types.FieldTypeString, Unique: true},
-				{Name: "role", Type: types.FieldTypeEnum, Values: []string{"admin", "member"}},
-				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "organizations",
-				Entity:     "Organization",
-				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpPatch},
-				Patchable:  []string{"name", "metadata"},
-			},
-			{
-				Name:       "users",
-				Entity:     "User",
-				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList, types.OpUpsert},
-				Scope:      map[string]string{"org_id": "Organization"},
-				UpsertKey:  []string{"email"},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	tmpDir := t.TempDir()
-
-	// Write go.mod for the temp package.
-	goMod := "module testpkg\n\ngo 1.22\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-		t.Fatalf("writing go.mod: %v", err)
-	}
-
-	// Write all generated Go files to the temp directory.
-	for _, f := range files {
-		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
-		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-			t.Fatalf("writing %s: %v", f.Path, err)
-		}
-	}
-
-	// Build the package — any cross-file compile error will be caught here.
-	cmd := exec.Command("go", "build", ".")
-	cmd.Dir = tmpDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("generated code does not compile:\n%s\n%s", err, output)
 	}
 }
 
@@ -1632,94 +672,12 @@ func TestFieldTypeToGo(t *testing.T) {
 	}
 }
 
-func TestGenerate_UpsertWithParentSetsParentID(t *testing.T) {
-	// When an entity has a parent and exposes upsert, the handler must assign
-	// the parent's path parameter to the entity's ref field (same as create).
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-			{Name: "NodePool", Fields: []types.Field{
-				{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"},
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
-			{
-				Name:       "node-pools",
-				Entity:     "NodePool",
-				Operations: []types.Operation{types.OpUpsert},
-				Scope:      map[string]string{"cluster_id": "Cluster"},
-				UpsertKey:  []string{"name"},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_node_pools.go")
-	// Upsert must assign parent ID from path parameter, just like create does.
-	if !strings.Contains(handler, `nodepool.ClusterID = r.PathValue("cluster_id")`) {
-		t.Error("upsert handler must assign parent ID from path parameter")
-	}
-}
-
-func TestGenerate_DeleteOnlyEntityCompiles(t *testing.T) {
-	// A delete-only entity must not import encoding/json (unused import = compile error).
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Session", Fields: []types.Field{{Name: "token", Type: types.FieldTypeString}}},
-		},
-		Collections: []types.Collection{
-			{Name: "sessions", Entity: "Session", Operations: []types.Operation{types.OpDelete}},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_sessions.go")
-	if strings.Contains(handler, `"encoding/json"`) {
-		t.Error("delete-only handler must not import encoding/json (unused import)")
-	}
-
-	// Verify the generated code actually compiles.
-	tmpDir := t.TempDir()
-	goMod := "module testpkg\n\ngo 1.22\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-		t.Fatalf("writing go.mod: %v", err)
-	}
-	for _, f := range files {
-		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
-		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-			t.Fatalf("writing %s: %v", f.Path, err)
-		}
-	}
-	cmd := exec.Command("go", "build", ".")
-	cmd.Dir = tmpDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("delete-only entity does not compile:\n%s\n%s", err, output)
-	}
-}
-
 func TestGenerate_OpenAPIRenderedBytesValidJSON(t *testing.T) {
 	// Verify that openapi.json rendered via File.Bytes() is valid JSON.
 	g := &Generator{}
 	ctx := basicContext()
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1728,99 +686,6 @@ func TestGenerate_OpenAPIRenderedBytesValidJSON(t *testing.T) {
 	var parsed any
 	if err := json.Unmarshal(rendered, &parsed); err != nil {
 		t.Fatalf("openapi.json rendered via Bytes() is not valid JSON: %v", err)
-	}
-}
-
-func TestGenerate_HandlersSetContentTypeJSON(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC29-T01 The emitted handlers set the JSON content type", func(t *testing.T) {
-		// Every handler method that writes a JSON response body must set
-		// Content-Type: application/json to match the OpenAPI spec.
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat"},
-			Entities: []types.Entity{
-				{Name: "Item", Fields: []types.Field{
-					{Name: "name", Type: types.FieldTypeString},
-					{Name: "key", Type: types.FieldTypeString},
-				}},
-			},
-			Collections: []types.Collection{
-				{
-					Name:       "items",
-					Entity:     "Item",
-					Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpList, types.OpUpsert},
-					UpsertKey:  []string{"key"},
-				},
-			},
-			OutputNamespace: "internal/api",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_items.go")
-		// Count occurrences of Content-Type header setting — must match the number
-		// of methods that write JSON responses (create, read, update, list, upsert = 5).
-		ct := strings.Count(handler, `w.Header().Set("Content-Type", "application/json")`)
-		if ct != 5 {
-			t.Errorf("expected 5 Content-Type header sets (one per JSON-returning method), got %d", ct)
-		}
-	})
-}
-
-func TestGenerate_ComputedTimestampFieldCompiles(t *testing.T) {
-	// A computed timestamp field must use time.Time{} as zero value, not nil.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Record", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-				{Name: "last_updated", Type: types.FieldTypeTimestamp, Computed: true, FilledBy: "updater"},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "records",
-				Entity:     "Record",
-				Operations: []types.Operation{types.OpCreate, types.OpRead},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_records.go")
-	if !strings.Contains(handler, "record.LastUpdated = time.Time{}") {
-		t.Error("computed timestamp field must be zeroed with time.Time{}, not nil")
-	}
-	if !strings.Contains(handler, `"time"`) {
-		t.Error("handler with computed timestamp field must import time package")
-	}
-
-	// Verify it compiles.
-	tmpDir := t.TempDir()
-	goMod := "module testpkg\n\ngo 1.22\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-		t.Fatalf("writing go.mod: %v", err)
-	}
-	for _, f := range files {
-		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
-		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-			t.Fatalf("writing %s: %v", f.Path, err)
-		}
-	}
-	cmd := exec.Command("go", "build", ".")
-	cmd.Dir = tmpDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("computed timestamp field does not compile:\n%s\n%s", err, output)
 	}
 }
 
@@ -1847,7 +712,7 @@ func TestGenerate_OpenAPIResponseContentForWriteOps(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1919,7 +784,7 @@ func TestGenerate_WiringRoutesUseExportedMethods(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, wiring, err := g.Generate(ctx)
+	_, wiring, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1993,7 +858,7 @@ func TestGenerate_MissingScopeFieldReturnsError(t *testing.T) {
 				OutputNamespace: "internal/api",
 			}
 
-			_, _, err := g.Generate(ctx)
+			_, _, err := g.Generate(onRuntime(ctx))
 			if err == nil {
 				t.Fatal("expected error when scope field is missing from entity")
 			}
@@ -2001,112 +866,6 @@ func TestGenerate_MissingScopeFieldReturnsError(t *testing.T) {
 				t.Errorf("error should mention missing scope field name, got: %v", err)
 			}
 		})
-	}
-}
-
-func TestGenerate_OpenAPIRequiredFields(t *testing.T) {
-	// Finding 20: OpenAPI entity schemas must include a "required" array listing
-	// all non-optional, non-computed fields.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "User", Fields: []types.Field{
-				{Name: "email", Type: types.FieldTypeString, Unique: true},
-				{Name: "role", Type: types.FieldTypeEnum, Values: []string{"admin", "member"}},
-				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-				{Name: "metadata", Type: types.FieldTypeJsonb, Optional: true},
-				{Name: "status", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "aggregator"},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "users", Entity: "User", Operations: []types.Operation{types.OpRead}},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	content := findFileContent(t, files, "internal/api/openapi.json")
-	var spec map[string]any
-	if err := json.Unmarshal([]byte(content), &spec); err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-
-	schemas := spec["components"].(map[string]any)["schemas"].(map[string]any)
-	userSchema := schemas["User"].(map[string]any)
-
-	requiredRaw, ok := userSchema["required"]
-	if !ok {
-		t.Fatal("User schema missing 'required' array")
-	}
-	required := requiredRaw.([]any)
-
-	// email, role, org_id should be required.
-	// metadata (optional) and status (computed) should NOT be required.
-	requiredSet := make(map[string]bool)
-	for _, r := range required {
-		requiredSet[r.(string)] = true
-	}
-
-	for _, want := range []string{"email", "role", "org_id"} {
-		if !requiredSet[want] {
-			t.Errorf("field %q should be in required array", want)
-		}
-	}
-	for _, notWant := range []string{"metadata", "status"} {
-		if requiredSet[notWant] {
-			t.Errorf("field %q should NOT be in required array (optional or computed)", notWant)
-		}
-	}
-}
-
-func TestGenerate_GoKeywordEntityName(t *testing.T) {
-	// Finding 21: entity names that are Go keywords must not produce compile errors.
-	// The generator should escape the variable name.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Type", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "types",
-				Entity:     "Type",
-				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Verify the generated code actually compiles.
-	tmpDir := t.TempDir()
-	goMod := "module testpkg\n\ngo 1.22\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-		t.Fatalf("writing go.mod: %v", err)
-	}
-	for _, f := range files {
-		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
-		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-			t.Fatalf("writing %s: %v", f.Path, err)
-		}
-	}
-	cmd := exec.Command("go", "build", ".")
-	cmd.Dir = tmpDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("entity named 'Type' (Go keyword) does not compile:\n%s\n%s", err, output)
 	}
 }
 
@@ -2159,7 +918,7 @@ func TestGenerate_OpenAPIConstraintAttributes(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2237,102 +996,6 @@ func TestGenerate_OpenAPIConstraintAttributes(t *testing.T) {
 	}
 }
 
-func TestGenerate_MultiLevelAncestorVerification(t *testing.T) {
-	// Finding 23: nested routing must verify ALL ancestor entities, not just the
-	// immediate parent. For Cluster -> NodePool -> AdapterStatus, a request with
-	// an invalid Cluster ID must fail even if NodePool exists.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Cluster", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-			{Name: "NodePool", Fields: []types.Field{
-				{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"},
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-			{Name: "AdapterStatus", Fields: []types.Field{
-				{Name: "nodepool_id", Type: types.FieldTypeRef, To: "NodePool"},
-				{Name: "resource_type", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpRead}},
-			{
-				Name:       "node-pools",
-				Entity:     "NodePool",
-				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
-				Scope:      map[string]string{"cluster_id": "Cluster"},
-			},
-			{
-				Name:       "adapter-statuses",
-				Entity:     "AdapterStatus",
-				Operations: []types.Operation{types.OpList, types.OpUpsert},
-				Scope:      map[string]string{"nodepool_id": "NodePool"},
-				UpsertKey:  []string{"resource_type"},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// AdapterStatus handler must verify BOTH Cluster and NodePool.
-	asHandler := findFileContent(t, files, "internal/api/handler_adapter_statuses.go")
-
-	if !strings.Contains(asHandler, "checkAncestors") {
-		t.Error("AdapterStatus handler missing checkAncestors method")
-	}
-	// Must check Cluster existence (grandparent).
-	if !strings.Contains(asHandler, `h.store.Exists(r.Context(), "Cluster"`) {
-		t.Error("AdapterStatus handler must verify Cluster (grandparent) existence")
-	}
-	// Must check NodePool existence (parent).
-	if !strings.Contains(asHandler, `h.store.Exists(r.Context(), "NodePool"`) {
-		t.Error("AdapterStatus handler must verify NodePool (parent) existence")
-	}
-	// Cluster check must come before NodePool check (top-down order).
-	clusterIdx := strings.Index(asHandler, `h.store.Exists(r.Context(), "Cluster"`)
-	nodepoolIdx := strings.Index(asHandler, `h.store.Exists(r.Context(), "NodePool"`)
-	if clusterIdx > nodepoolIdx {
-		t.Error("Cluster (grandparent) verification must come before NodePool (parent)")
-	}
-
-	// NodePool handler should still only verify Cluster (its single ancestor).
-	npHandler := findFileContent(t, files, "internal/api/handler_node_pools.go")
-	if !strings.Contains(npHandler, `h.store.Exists(r.Context(), "Cluster"`) {
-		t.Error("NodePool handler must verify Cluster existence")
-	}
-	// NodePool should NOT verify NodePool (it's not its own ancestor).
-	clusterCount := strings.Count(npHandler, `h.store.Exists(`)
-	if clusterCount != 1 {
-		t.Errorf("NodePool handler should have exactly 1 Exists check (Cluster), got %d", clusterCount)
-	}
-
-	// Verify the code compiles with three-level nesting.
-	tmpDir := t.TempDir()
-	goMod := "module testpkg\n\ngo 1.22\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-		t.Fatalf("writing go.mod: %v", err)
-	}
-	for _, f := range files {
-		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
-		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-			t.Fatalf("writing %s: %v", f.Path, err)
-		}
-	}
-	cmd := exec.Command("go", "build", ".")
-	cmd.Dir = tmpDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("three-level nested routing does not compile:\n%s\n%s", err, output)
-	}
-}
-
 func TestGenerate_CircularParentSelfReference(t *testing.T) {
 	// An entity that declares itself as its own parent must produce an error,
 	// not an infinite loop or stack overflow.
@@ -2355,7 +1018,7 @@ func TestGenerate_CircularParentSelfReference(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error for self-referencing parent")
 	}
@@ -2394,7 +1057,7 @@ func TestGenerate_CircularParentTwoNodeCycle(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error for two-node cycle in parent chain")
 	}
@@ -2431,44 +1094,6 @@ func TestCollectAncestors_CircularParentReturnsError(t *testing.T) {
 	}
 }
 
-func TestGenerate_UpdateWithParentSetsParentID(t *testing.T) {
-	// Finding 26: update handler must assign parent ID from path parameter after
-	// body decode, just like create and upsert do. Without this, a client can
-	// overwrite or clear the parent ref field via the request body.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-			{Name: "NodePool", Fields: []types.Field{
-				{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"},
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
-			{
-				Name:       "node-pools",
-				Entity:     "NodePool",
-				Operations: []types.Operation{types.OpUpdate},
-				Scope:      map[string]string{"cluster_id": "Cluster"},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_node_pools.go")
-	// Update must assign parent ID from path parameter, just like create does.
-	if !strings.Contains(handler, `nodepool.ClusterID = r.PathValue("cluster_id")`) {
-		t.Error("update handler must assign parent ID from path parameter")
-	}
-}
-
 func TestGenerate_UpdateWithMissingScopeFieldReturnsError(t *testing.T) {
 	// Update with scope field that doesn't exist on the entity must return an
 	// error, caught by validateFieldReferences.
@@ -2494,7 +1119,7 @@ func TestGenerate_UpdateWithMissingScopeFieldReturnsError(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error when scope field is missing for update")
 	}
@@ -2522,7 +1147,7 @@ func TestGenerate_OpenAPIDefaultAttribute(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2555,9 +1180,9 @@ func TestGenerate_OpenAPIDefaultAttribute(t *testing.T) {
 	}
 }
 
-func TestGenerate_CollectionNamedStorageReturnsError(t *testing.T) {
-	// A collection named "storage" produces collectionToPascalCase → "Storage",
-	// which collides with the generated Storage interface in router.go.
+func TestGenerate_CollectionNamedRuntimeReturnsError(t *testing.T) {
+	// A collection named "runtime" produces collectionToPascalCase → "Runtime",
+	// which collides with the generated Runtime type in runtime.go.
 	// The generator must return a clear error at generation time.
 	g := &Generator{}
 	ctx := gen.Context{
@@ -2569,7 +1194,7 @@ func TestGenerate_CollectionNamedStorageReturnsError(t *testing.T) {
 		},
 		Collections: []types.Collection{
 			{
-				Name:       "storage",
+				Name:       "runtime",
 				Entity:     "Warehouse",
 				Operations: []types.Operation{types.OpCreate, types.OpRead},
 			},
@@ -2577,12 +1202,12 @@ func TestGenerate_CollectionNamedStorageReturnsError(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
-		t.Fatal("expected error for collection named 'storage' (collides with generated Storage interface)")
+		t.Fatal("expected error for collection named 'runtime' (collides with generated Runtime type)")
 	}
-	if !strings.Contains(err.Error(), "Storage") {
-		t.Errorf("error should mention 'Storage', got: %v", err)
+	if !strings.Contains(err.Error(), "Runtime") {
+		t.Errorf("error should mention 'Runtime', got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "collides") {
 		t.Errorf("error should mention collision, got: %v", err)
@@ -2606,12 +1231,12 @@ func TestSafeVarName_HandlerScopeIdentifiers(t *testing.T) {
 		{"http", "http_"},
 		{"time", "time_"},
 		{"fmt", "fmt_"},
-		// Generator-emitted locals in Patch method.
-		{"existing", "existing_"},
+		// Locals of the handlers and their fills.
 		{"patch", "patch_"},
-		// Generator-emitted locals in Upsert method.
 		{"created", "created_"},
-		{"upsertKey", "upsertKey_"},
+		{"repo", "repo_"},
+		{"stored", "stored_"},
+		{"persisted", "persisted_"},
 		// Non-colliding names should pass through unchanged.
 		{"user", "user"},
 		{"cluster", "cluster"},
@@ -2621,203 +1246,6 @@ func TestSafeVarName_HandlerScopeIdentifiers(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("safeVarName(%q) = %q, want %q", tt.input, got, tt.want)
 		}
-	}
-}
-
-func TestGenerate_EntityNameMatchingReceiverOrParamCompiles(t *testing.T) {
-	// Finding 28: entity names whose lowercased form matches the handler method
-	// receiver (h) or parameter names (w, r) must not produce compile errors.
-	g := &Generator{}
-
-	collNames := map[string]string{"W": "ws", "R": "rs", "H": "hs"}
-	for _, name := range []string{"W", "R", "H"} {
-		t.Run(name, func(t *testing.T) {
-			ctx := gen.Context{
-				Conventions: types.Convention{Layout: "flat"},
-				Entities: []types.Entity{
-					{Name: name, Fields: []types.Field{
-						{Name: "name", Type: types.FieldTypeString},
-					}},
-				},
-				Collections: []types.Collection{
-					{
-						Name:       collNames[name],
-						Entity:     name,
-						Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList},
-					},
-				},
-				OutputNamespace: "internal/api",
-			}
-
-			files, _, err := g.Generate(ctx)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			tmpDir := t.TempDir()
-			goMod := "module testpkg\n\ngo 1.22\n"
-			if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-				t.Fatalf("writing go.mod: %v", err)
-			}
-			for _, f := range files {
-				dst := filepath.Join(tmpDir, filepath.Base(f.Path))
-				if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-					t.Fatalf("writing %s: %v", f.Path, err)
-				}
-			}
-			cmd := exec.Command("go", "build", ".")
-			cmd.Dir = tmpDir
-			output, err := cmd.CombinedOutput()
-			if err != nil {
-				t.Fatalf("entity named %q does not compile:\n%s\n%s", name, err, output)
-			}
-		})
-	}
-}
-
-func TestGenerate_EntityNameMatchingImportAliasCompiles(t *testing.T) {
-	// Finding 28: entity names whose lowercased form matches import aliases
-	// (json, http, time) must not produce compile errors.
-	g := &Generator{}
-
-	importCollNames := map[string]string{"Json": "jsons", "Http": "https", "Time": "times"}
-	for _, name := range []string{"Json", "Http", "Time"} {
-		t.Run(name, func(t *testing.T) {
-			fields := []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}
-			// For "Time" entity, add a computed timestamp field to ensure
-			// the time import is present and exercised.
-			if name == "Time" {
-				fields = append(fields, types.Field{
-					Name: "last_seen", Type: types.FieldTypeTimestamp, Computed: true, FilledBy: "tracker",
-				})
-			}
-			ctx := gen.Context{
-				Conventions: types.Convention{Layout: "flat"},
-				Entities:    []types.Entity{{Name: name, Fields: fields}},
-				Collections: []types.Collection{
-					{
-						Name:       importCollNames[name],
-						Entity:     name,
-						Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
-					},
-				},
-				OutputNamespace: "internal/api",
-			}
-
-			files, _, err := g.Generate(ctx)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			tmpDir := t.TempDir()
-			goMod := "module testpkg\n\ngo 1.22\n"
-			if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-				t.Fatalf("writing go.mod: %v", err)
-			}
-			for _, f := range files {
-				dst := filepath.Join(tmpDir, filepath.Base(f.Path))
-				if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-					t.Fatalf("writing %s: %v", f.Path, err)
-				}
-			}
-			cmd := exec.Command("go", "build", ".")
-			cmd.Dir = tmpDir
-			output, err := cmd.CombinedOutput()
-			if err != nil {
-				t.Fatalf("entity named %q does not compile:\n%s\n%s", name, err, output)
-			}
-		})
-	}
-}
-
-func TestGenerate_NonDefaultOutputNamespace(t *testing.T) {
-	// Finding 29: all generated output — file paths, package declarations, wiring
-	// imports, and constructor qualifiers — must derive from ctx.OutputNamespace,
-	// not hardcode "api" / "internal/api".
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "User", Fields: []types.Field{
-				{Name: "email", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "users",
-				Entity:     "User",
-				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
-			},
-		},
-		OutputNamespace: "pkg/http",
-	}
-
-	files, wiring, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// File paths must use the non-default namespace.
-	for _, f := range files {
-		if !strings.HasPrefix(f.Path, "pkg/http/") {
-			t.Errorf("file %q should be under pkg/http/, not internal/api/", f.Path)
-		}
-	}
-
-	// Package declarations must use the base of the namespace ("http"), not "api".
-	handlerContent := findFileContent(t, files, "pkg/http/handler_users.go")
-	if !strings.Contains(handlerContent, "package http") {
-		t.Error("handler file should declare 'package http', not 'package api'")
-	}
-	if strings.Contains(handlerContent, "package api") {
-		t.Error("handler file should not contain 'package api' when namespace is pkg/http")
-	}
-
-	routerContent := findFileContent(t, files, "pkg/http/router.go")
-	if !strings.Contains(routerContent, "package http") {
-		t.Error("router file should declare 'package http', not 'package api'")
-	}
-
-	// Wiring imports must reference the actual namespace.
-	if wiring == nil {
-		t.Fatal("expected wiring")
-	}
-	if len(wiring.Imports) != 1 || wiring.Imports[0] != "pkg/http" {
-		t.Errorf("wiring imports should be [\"pkg/http\"], got %v", wiring.Imports)
-	}
-
-	// Wiring constructors must use the package qualifier from the namespace.
-	for _, c := range wiring.Constructors {
-		if strings.Contains(c, "api.") {
-			t.Errorf("wiring constructor should not use 'api.' qualifier, got: %s", c)
-		}
-		if !strings.Contains(c, "http.") {
-			t.Errorf("wiring constructor should use 'http.' qualifier, got: %s", c)
-		}
-	}
-
-	// OpenAPI file must be under the non-default namespace.
-	_ = findFileContent(t, files, "pkg/http/openapi.json")
-
-	// Verify the generated code compiles with the non-default package name.
-	tmpDir := t.TempDir()
-	goMod := "module testpkg\n\ngo 1.22\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-		t.Fatalf("writing go.mod: %v", err)
-	}
-	for _, f := range files {
-		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
-		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-			t.Fatalf("writing %s: %v", f.Path, err)
-		}
-	}
-	cmd := exec.Command("go", "build", ".")
-	cmd.Dir = tmpDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("generated code with non-default namespace does not compile:\n%s\n%s", err, output)
 	}
 }
 
@@ -2855,7 +1283,7 @@ func TestGenerate_OpenAPISchemasOnlyForCollectionEntities(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2910,7 +1338,7 @@ func TestGenerate_ParentNotInCollectionsListReturnsError(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error when parent entity is not in collections list, got nil")
 	}
@@ -2948,84 +1376,13 @@ func TestGenerate_MultipleParentsNotInCollectionsListReportsAll(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error when parent entities are not in collections list, got nil")
 	}
 	// Org is not in the collections list, so Team's reference should fail.
 	if !strings.Contains(err.Error(), "Org") {
 		t.Errorf("error should mention missing parent 'Org', got: %v", err)
-	}
-}
-
-func TestGenerate_PathPrefixDivergentParamNames(t *testing.T) {
-	// When path_prefix is set with parent, the generated handler code must use
-	// the actual prefix parameter names in r.PathValue() calls.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-			{Name: "User", Fields: []types.Field{
-				{Name: "email", Type: types.FieldTypeString},
-				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}, PathPrefix: "/orgs"},
-			{
-				Name:       "users",
-				Entity:     "User",
-				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpList},
-				Scope:      map[string]string{"org_id": "Organization"},
-				PathPrefix: "/orgs/{org_id}/users",
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_users.go")
-
-	// checkAncestors must use {org_id} from the prefix.
-	if !strings.Contains(handler, `r.PathValue("org_id")`) {
-		t.Error("checkAncestors must use prefix parameter name 'org_id'")
-	}
-	if strings.Contains(handler, `r.PathValue("organization_id")`) {
-		t.Error("handler must NOT use 'organization_id' when path_prefix provides 'org_id'")
-	}
-
-	// Create method parent ID assignment must use {org_id}.
-	if !strings.Contains(handler, `user.OrgID = r.PathValue("org_id")`) {
-		t.Error("create handler must assign parent ID using actual prefix parameter name 'org_id'")
-	}
-
-	// Update method parent ID assignment must use {org_id}.
-	if !strings.Contains(handler, `user.OrgID = r.PathValue("org_id")`) {
-		t.Error("update handler must assign parent ID using actual prefix parameter name 'org_id'")
-	}
-
-	// Verify the generated code compiles.
-	tmpDir := t.TempDir()
-	goMod := "module testpkg\n\ngo 1.22\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-		t.Fatalf("writing go.mod: %v", err)
-	}
-	for _, f := range files {
-		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
-		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-			t.Fatalf("writing %s: %v", f.Path, err)
-		}
-	}
-	cmd := exec.Command("go", "build", ".")
-	cmd.Dir = tmpDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("generated code with divergent path_prefix params does not compile:\n%s\n%s", err, output)
 	}
 }
 
@@ -3055,7 +1412,7 @@ func TestGenerate_PathPrefixDivergentParamNamesOpenAPI(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -3082,218 +1439,6 @@ func TestGenerate_PathPrefixDivergentParamNamesOpenAPI(t *testing.T) {
 	}
 	if hasParam(params, "organization_id") {
 		t.Error("OpenAPI must NOT declare convention-derived 'organization_id' when path_prefix provides 'org_id'")
-	}
-}
-
-func TestGenerate_PathPrefixScopeWithDivergentParamNames(t *testing.T) {
-	// When scope+parent are both set and path_prefix uses non-conventional
-	// param names, the List handler must extract scope from the actual prefix
-	// parameter, not the convention-derived one.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-			{Name: "User", Fields: []types.Field{
-				{Name: "email", Type: types.FieldTypeString},
-				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}, PathPrefix: "/orgs"},
-			{
-				Name:       "users",
-				Entity:     "User",
-				Operations: []types.Operation{types.OpList},
-				Scope:      map[string]string{"org_id": "Organization"},
-				PathPrefix: "/orgs/{org_id}/users",
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_users.go")
-	// Scope+parent: must use actual prefix param name for PathValue.
-	if !strings.Contains(handler, `r.PathValue("org_id")`) {
-		t.Error("scope+parent list must use actual prefix parameter name 'org_id' for scope extraction")
-	}
-	if strings.Contains(handler, `r.PathValue("organization_id")`) {
-		t.Error("scope+parent list must NOT use convention-derived 'organization_id'")
-	}
-}
-
-func TestGenerate_PathPrefixMultiLevelDivergentParams(t *testing.T) {
-	// Three-level nesting with custom path_prefix where parameter names diverge
-	// from convention at all levels.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-			{Name: "NodePool", Fields: []types.Field{
-				{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"},
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-			{Name: "AdapterStatus", Fields: []types.Field{
-				{Name: "nodepool_id", Type: types.FieldTypeRef, To: "NodePool"},
-				{Name: "resource_type", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpRead}, PathPrefix: "/clusters"},
-			{
-				Name:       "node-pools",
-				Entity:     "NodePool",
-				Operations: []types.Operation{types.OpRead, types.OpList},
-				Scope:      map[string]string{"cluster_id": "Cluster"},
-				PathPrefix: "/clusters/{cid}/pools",
-			},
-			{
-				Name:       "adapter-statuses",
-				Entity:     "AdapterStatus",
-				Operations: []types.Operation{types.OpList, types.OpUpsert},
-				Scope:      map[string]string{"nodepool_id": "NodePool"},
-				PathPrefix: "/clusters/{cid}/pools/{pid}/statuses",
-				UpsertKey:  []string{"resource_type"},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	asHandler := findFileContent(t, files, "internal/api/handler_adapter_statuses.go")
-
-	// checkAncestors must use {cid} and {pid} from the prefix.
-	if !strings.Contains(asHandler, `r.PathValue("cid")`) {
-		t.Error("checkAncestors must use 'cid' from path_prefix for Cluster ancestor")
-	}
-	if !strings.Contains(asHandler, `r.PathValue("pid")`) {
-		t.Error("checkAncestors must use 'pid' from path_prefix for NodePool ancestor")
-	}
-	if strings.Contains(asHandler, `r.PathValue("cluster_id")`) {
-		t.Error("must NOT use convention-derived 'cluster_id' when path_prefix provides 'cid'")
-	}
-	if strings.Contains(asHandler, `r.PathValue("nodepool_id")`) {
-		t.Error("must NOT use convention-derived 'nodepool_id' when path_prefix provides 'pid'")
-	}
-
-	// Upsert parent ID assignment must use {pid} from the prefix.
-	if !strings.Contains(asHandler, `adapterstatus.NodepoolID = r.PathValue("pid")`) {
-		t.Error("upsert handler must assign parent ID using actual prefix parameter 'pid'")
-	}
-
-	// Verify the generated code compiles.
-	tmpDir := t.TempDir()
-	goMod := "module testpkg\n\ngo 1.22\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-		t.Fatalf("writing go.mod: %v", err)
-	}
-	for _, f := range files {
-		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
-		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-			t.Fatalf("writing %s: %v", f.Path, err)
-		}
-	}
-	cmd := exec.Command("go", "build", ".")
-	cmd.Dir = tmpDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("generated code with multi-level divergent path_prefix does not compile:\n%s\n%s", err, output)
-	}
-}
-
-func TestGenerate_PathPrefixSegmentReplacement(t *testing.T) {
-	// When path_prefix is a segment-only prefix (no ancestor params), the
-	// auto-derived parent chain must be prepended. This tests that a scoped
-	// collection with path_prefix: /statuses produces correct routes with the
-	// full parent chain and compiles.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-			{Name: "NodePool", Fields: []types.Field{
-				{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"},
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-			{Name: "AdapterStatus", Fields: []types.Field{
-				{Name: "nodepool_id", Type: types.FieldTypeRef, To: "NodePool"},
-				{Name: "resource_type", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
-			{
-				Name:       "node-pools",
-				Entity:     "NodePool",
-				Operations: []types.Operation{types.OpRead, types.OpList},
-				Scope:      map[string]string{"cluster_id": "Cluster"},
-			},
-			{
-				Name:       "adapter-statuses",
-				Entity:     "AdapterStatus",
-				Operations: []types.Operation{types.OpList, types.OpRead},
-				Scope:      map[string]string{"nodepool_id": "NodePool"},
-				PathPrefix: "/statuses",
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, wiring, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// The route must include the full parent chain with /statuses as the leaf.
-	routeStr := strings.Join(wiring.Routes, "\n")
-	expectedPath := "/clusters/{cluster_id}/nodepools/{nodepool_id}/statuses"
-	if !strings.Contains(routeStr, expectedPath) {
-		t.Errorf("expected route containing %q, got:\n%s", expectedPath, routeStr)
-	}
-	// Must NOT have a bare /statuses route without parent chain.
-	for _, r := range wiring.Routes {
-		if strings.Contains(r, `"GET /statuses"`) || strings.Contains(r, `"GET /statuses/"`) {
-			t.Errorf("route must not be bare /statuses — parent chain is required, got: %s", r)
-		}
-	}
-
-	asHandler := findFileContent(t, files, "internal/api/handler_adapter_statuses.go")
-
-	// checkAncestors must use convention-derived params since no custom params in prefix.
-	if !strings.Contains(asHandler, `r.PathValue("cluster_id")`) {
-		t.Error("checkAncestors must use convention-derived 'cluster_id' for Cluster ancestor")
-	}
-	if !strings.Contains(asHandler, `r.PathValue("nodepool_id")`) {
-		t.Error("checkAncestors must use convention-derived 'nodepool_id' for NodePool ancestor")
-	}
-
-	// Verify the generated code compiles.
-	tmpDir := t.TempDir()
-	goMod := "module testpkg\n\ngo 1.22\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-		t.Fatalf("writing go.mod: %v", err)
-	}
-	for _, f := range files {
-		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
-		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-			t.Fatalf("writing %s: %v", f.Path, err)
-		}
-	}
-	cmd := exec.Command("go", "build", ".")
-	cmd.Dir = tmpDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("generated code with segment-replacement path_prefix does not compile:\n%s\n%s", err, output)
 	}
 }
 
@@ -3331,34 +1476,9 @@ func TestGenerate_PathPrefixSegmentNoFalseCollision(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("expected no route collision error, got: %v", err)
-	}
-}
-
-func TestResolveAncestorParams_MismatchedParamCount(t *testing.T) {
-	// If path_prefix has a different number of params than ancestors,
-	// resolveAncestorParams must return an error.
-	collectionMap := map[string]types.Collection{
-		"Cluster":  {Entity: "Cluster"},
-		"NodePool": {Entity: "NodePool", Scope: map[string]string{"cluster_id": "Cluster"}},
-	}
-	// path_prefix has 2 params but NodePool only has 1 ancestor (Cluster).
-	eb := types.Collection{
-		Entity:     "Widget",
-		Scope:      map[string]string{"nodepool_id": "NodePool"},
-		PathPrefix: "/a/{x}/b/{y}/c/{z}/widgets",
-	}
-	collectionMap["Widget"] = eb
-	collectionMap["NodePool"] = types.Collection{Entity: "NodePool", Scope: map[string]string{"cluster_id": "Cluster"}}
-
-	_, err := resolveAncestorParams(eb, collectionMap)
-	if err == nil {
-		t.Fatal("expected error for mismatched param count")
-	}
-	if !strings.Contains(err.Error(), "Widget") {
-		t.Errorf("error should mention entity name, got: %v", err)
 	}
 }
 
@@ -3390,7 +1510,7 @@ func TestGenerate_InvalidScopeFieldReturnsError(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error for scope referencing non-existent field")
 	}
@@ -3426,7 +1546,7 @@ func TestGenerate_InvalidUpsertKeyFieldReturnsError(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error for upsert_key referencing non-existent field")
 	}
@@ -3461,7 +1581,7 @@ func TestGenerate_CrossCollectionHandlerTypeCollisionReturnsError(t *testing.T) 
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error for collection-derived handler type name collision")
 	}
@@ -3489,7 +1609,7 @@ func TestGenerate_DuplicateCollectionNamesReturnsError(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error for duplicate collection names")
 	}
@@ -3528,7 +1648,7 @@ func TestGenerate_ValidScopeFieldSucceeds(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error for valid scope field: %v", err)
 	}
@@ -3557,7 +1677,7 @@ func TestGenerate_ValidUpsertKeyFieldsSucceeds(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error for valid upsert_key fields: %v", err)
 	}
@@ -3580,7 +1700,7 @@ func TestGenerate_EmptyOperationsListReturnsError(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error for collection with empty operations list")
 	}
@@ -3608,7 +1728,7 @@ func TestGenerate_EmptyOperationsAmongValid(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error for collection with empty operations list")
 	}
@@ -3633,7 +1753,7 @@ func TestGenerate_DuplicateOperationsReturnsError(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error for duplicate operations in collection")
 	}
@@ -3661,7 +1781,7 @@ func TestGenerate_DuplicateOperationsMultipleEntities(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error for duplicate operations")
 	}
@@ -3690,7 +1810,7 @@ func TestGenerate_RouteCollisionSamePathPrefix(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error for route path collision")
 	}
@@ -3719,7 +1839,7 @@ func TestGenerate_RouteCollisionCaseInsensitive(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error for case-insensitive route path collision")
 	}
@@ -3744,7 +1864,7 @@ func TestGenerate_RouteCollisionAutoVsExplicitPrefix(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error for auto-derived path matching explicit path_prefix")
 	}
@@ -3769,7 +1889,7 @@ func TestGenerate_NoRouteCollisionDifferentPaths(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error for non-colliding routes: %v", err)
 	}
@@ -3803,7 +1923,7 @@ func TestGenerate_ScopeParentInconsistencyReturnsError(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error when scope is not the parent ref field")
 	}
@@ -3844,101 +1964,9 @@ func TestGenerate_ScopeParentConsistentSucceeds(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error for consistent scope+parent: %v", err)
-	}
-}
-
-func TestGenerate_PolymorphicScopeFieldSucceeds(t *testing.T) {
-	// When a scope field is type: string (polymorphic ID pattern — one field
-	// referencing multiple parent entity types), the generator must accept it.
-	// The scope declaration names the parent entity for this collection; the
-	// field itself does not need to be type: ref.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Organization", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-			{Name: "Team", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-			{Name: "AuditEvent", Fields: []types.Field{
-				{Name: "action", Type: types.FieldTypeString},
-				// Polymorphic: resource_id can reference Organization OR Team.
-				{Name: "resource_id", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
-			{Name: "teams", Entity: "Team", Operations: []types.Operation{types.OpRead}},
-			{
-				Name:       "org-audit-events",
-				Entity:     "AuditEvent",
-				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
-				Scope:      map[string]string{"resource_id": "Organization"},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("expected success for polymorphic scope field, got: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_org_audit_events.go")
-
-	// Create handler must assign the scope field from the path parameter.
-	if !strings.Contains(handler, ".ResourceID = r.PathValue(") {
-		t.Error("create handler must assign the polymorphic scope field (resource_id) from the path parameter")
-	}
-
-	// List handler must filter by the scope field.
-	if !strings.Contains(handler, `"resource_id"`) {
-		t.Error("list handler must filter by the scope field name")
-	}
-}
-
-func TestGenerate_PolymorphicScopeFieldScopeCheckWorks(t *testing.T) {
-	// Verify that scoped read with a polymorphic (string-typed) scope field
-	// generates the scope check correctly.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Organization", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-			{Name: "AuditEvent", Fields: []types.Field{
-				{Name: "action", Type: types.FieldTypeString},
-				{Name: "resource_id", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
-			{
-				Name:       "org-events",
-				Entity:     "AuditEvent",
-				Operations: []types.Operation{types.OpRead},
-				Scope:      map[string]string{"resource_id": "Organization"},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("expected success, got: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_org_events.go")
-
-	// Read handler must verify the entity's scope field matches the path.
-	if !strings.Contains(handler, "resource_id") {
-		t.Error("read handler must include scope verification for the polymorphic scope field")
 	}
 }
 
@@ -3969,7 +1997,7 @@ func TestGenerate_ScopeFieldMissingFromEntityReturnsError(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error when scope field doesn't exist on entity")
 	}
@@ -3988,41 +2016,6 @@ func findFileContent(t *testing.T, files []gen.File, path string) string {
 	}
 	t.Fatalf("file %s not found in output", path)
 	return ""
-}
-
-func TestGenerate_MultipleRefFieldsScopeDisambiguates(t *testing.T) {
-	// When an entity has multiple ref fields pointing to the same parent entity,
-	// the scope declaration disambiguates which field is the linking field.
-	// This must succeed — the scope field IS the linking field.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Account", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-			{Name: "Transfer", Fields: []types.Field{
-				{Name: "amount", Type: types.FieldTypeInt64},
-				{Name: "from_account_id", Type: types.FieldTypeRef, To: "Account"},
-				{Name: "to_account_id", Type: types.FieldTypeRef, To: "Account"},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "accounts", Entity: "Account", Operations: []types.Operation{types.OpRead}},
-			{Name: "transfers", Entity: "Transfer", Operations: []types.Operation{types.OpCreate}, Scope: map[string]string{"from_account_id": "Account"}},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("expected success when scope disambiguates multiple ref fields, got: %v", err)
-	}
-	// Verify the create handler assigns the scope field from the path.
-	handler := findFileContent(t, files, "internal/api/handler_transfers.go")
-	if !strings.Contains(handler, ".FromAccountID = r.PathValue(") {
-		t.Error("create handler must assign the scope field (from_account_id) from the path parameter")
-	}
 }
 
 func TestGenerate_MultipleRefFieldsScopeDisambiguatesAllOps(t *testing.T) {
@@ -4059,7 +2052,7 @@ func TestGenerate_MultipleRefFieldsScopeDisambiguatesAllOps(t *testing.T) {
 				OutputNamespace: "internal/api",
 			}
 
-			_, _, err := g.Generate(ctx)
+			_, _, err := g.Generate(onRuntime(ctx))
 			if err != nil {
 				t.Fatalf("expected success when scope disambiguates, got: %v", err)
 			}
@@ -4099,7 +2092,7 @@ func TestGenerate_ScopedReadDeleteOnlyMissingScopeFieldReturnsError(t *testing.T
 				OutputNamespace: "internal/api",
 			}
 
-			_, _, err := g.Generate(ctx)
+			_, _, err := g.Generate(onRuntime(ctx))
 			if err == nil {
 				t.Fatalf("expected error when scope field is missing with %s operations", tt.name)
 			}
@@ -4131,7 +2124,7 @@ func TestGenerate_SingleRefFieldToParentSucceeds(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error with single ref field to parent: %v", err)
 	}
@@ -4147,59 +2140,6 @@ func findFileBytes(t *testing.T, files []gen.File, path string) []byte {
 	}
 	t.Fatalf("file %s not found in output", path)
 	return nil
-}
-
-func TestGenerate_EntityNameIdCompiles(t *testing.T) {
-	// Finding 42: entity named "Id" or "ID" produces strings.ToLower → "id",
-	// which collides with the hardcoded `id := r.PathValue("id")` in
-	// Read/Update/Delete methods. safeVarName must escape "id" to "id_".
-	g := &Generator{}
-
-	idCollNames := map[string]string{"Id": "ids", "ID": "id-items"}
-	for _, name := range []string{"Id", "ID"} {
-		t.Run(name, func(t *testing.T) {
-			ctx := gen.Context{
-				Conventions: types.Convention{Layout: "flat"},
-				Entities: []types.Entity{
-					{Name: name, Fields: []types.Field{
-						{Name: "name", Type: types.FieldTypeString},
-					}},
-				},
-				Collections: []types.Collection{
-					{
-						Name:       idCollNames[name],
-						Entity:     name,
-						Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList},
-					},
-				},
-				OutputNamespace: "internal/api",
-			}
-
-			files, _, err := g.Generate(ctx)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			// Verify the generated code compiles as a package.
-			tmpDir := t.TempDir()
-			goMod := "module testpkg\n\ngo 1.22\n"
-			if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-				t.Fatalf("writing go.mod: %v", err)
-			}
-			for _, f := range files {
-				dst := filepath.Join(tmpDir, filepath.Base(f.Path))
-				if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-					t.Fatalf("writing %s: %v", f.Path, err)
-				}
-			}
-			cmd := exec.Command("go", "build", ".")
-			cmd.Dir = tmpDir
-			output, err := cmd.CombinedOutput()
-			if err != nil {
-				t.Fatalf("entity named %q does not compile:\n%s\n%s", name, err, output)
-			}
-		})
-	}
 }
 
 func TestGenerate_CollectionDerivedIdentifierCollision(t *testing.T) {
@@ -4220,7 +2160,7 @@ func TestGenerate_CollectionDerivedIdentifierCollision(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error for collections with colliding derived identifiers")
 	}
@@ -4251,7 +2191,7 @@ func TestGenerate_CollectionDerivedIdentifierCollisionAutoPath(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error for collections with colliding derived identifiers")
 	}
@@ -4276,252 +2216,9 @@ func TestGenerate_DifferentCollectionNamesDifferentEnoughSucceeds(t *testing.T) 
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error for collections with distinct names: %v", err)
-	}
-}
-
-func TestGenerate_EntityNameErrCompiles(t *testing.T) {
-	// Finding 45: entity named "Err" or "ERR" produces strings.ToLower → "err",
-	// which collides with the hardcoded `err` in the Read method's dual-assignment
-	// `%s, err := h.store.Get(...)`. safeVarName must escape "err" to "err_".
-	g := &Generator{}
-
-	errCollNames := map[string]string{"Err": "errs", "ERR": "err-items"}
-	for _, name := range []string{"Err", "ERR"} {
-		t.Run(name, func(t *testing.T) {
-			ctx := gen.Context{
-				Conventions: types.Convention{Layout: "flat"},
-				Entities: []types.Entity{
-					{Name: name, Fields: []types.Field{
-						{Name: "name", Type: types.FieldTypeString},
-					}},
-				},
-				Collections: []types.Collection{
-					{
-						Name:       errCollNames[name],
-						Entity:     name,
-						Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList},
-					},
-				},
-				OutputNamespace: "internal/api",
-			}
-
-			files, _, err := g.Generate(ctx)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			// Verify the generated code compiles as a package.
-			tmpDir := t.TempDir()
-			goMod := "module testpkg\n\ngo 1.22\n"
-			if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-				t.Fatalf("writing go.mod: %v", err)
-			}
-			for _, f := range files {
-				dst := filepath.Join(tmpDir, filepath.Base(f.Path))
-				if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-					t.Fatalf("writing %s: %v", f.Path, err)
-				}
-			}
-			cmd := exec.Command("go", "build", ".")
-			cmd.Dir = tmpDir
-			output, err := cmd.CombinedOutput()
-			if err != nil {
-				t.Fatalf("entity named %q does not compile:\n%s\n%s", name, err, output)
-			}
-		})
-	}
-}
-
-func TestGenerate_HandlerWithSlotBindings(t *testing.T) {
-	// Verify handler constructor accepts slot operator parameters and
-	// methods invoke slot operators at appropriate lifecycle points.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "User", Fields: []types.Field{
-				{Name: "email", Type: types.FieldTypeString, Unique: true},
-				{Name: "role", Type: types.FieldTypeEnum, Values: []string{"admin", "member"}},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "users", Entity: "User", Operations: []types.Operation{
-				types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList,
-			}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "before_create", Collection: "users", Gate: []string{"rbac-policy"}},
-			{Slot: "on_entity_changed", Collection: "users", FanOut: []string{"audit-logger"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "github.com/myorg/svc",
-		SlotsPackage:    "internal/slots",
-	}
-
-	files, wiring, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Find the handler file.
-	var handlerContent string
-	for _, f := range files {
-		if strings.Contains(f.Path, "handler_users.go") {
-			handlerContent = string(f.Content)
-		}
-	}
-	if handlerContent == "" {
-		t.Fatal("handler_users.go not found")
-	}
-
-	// Verify slot package import.
-	if !strings.Contains(handlerContent, `"github.com/myorg/svc/internal/slots"`) {
-		t.Errorf("handler missing slots package import:\n%s", handlerContent)
-	}
-
-	// Verify handler struct has slot operator fields.
-	if !strings.Contains(handlerContent, "beforeCreateGate slots.BeforeCreateSlot") {
-		t.Errorf("handler struct missing beforeCreateGate field:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, "onEntityChangedFanOut slots.OnEntityChangedSlot") {
-		t.Errorf("handler struct missing onEntityChangedFanOut field:\n%s", handlerContent)
-	}
-
-	// Verify constructor accepts slot params.
-	if !strings.Contains(handlerContent, "func NewUsersHandler(store Storage, beforeCreateGate slots.BeforeCreateSlot, onEntityChangedFanOut slots.OnEntityChangedSlot)") {
-		t.Errorf("constructor missing slot params:\n%s", handlerContent)
-	}
-
-	// Verify slot operator invocation in Create method (before_create gate fires).
-	if !strings.Contains(handlerContent, "h.beforeCreateGate.Evaluate(r.Context()") {
-		t.Errorf("Create method missing before_create gate invocation:\n%s", handlerContent)
-	}
-	// Verify on_entity_changed fires after create.
-	if !strings.Contains(handlerContent, "h.onEntityChangedFanOut.Evaluate(r.Context()") {
-		t.Errorf("Create method missing on_entity_changed invocation:\n%s", handlerContent)
-	}
-
-	// Finding 26: Verify before-slot request is populated with entity data,
-	// not zero-valued. The request must reference the in-scope entity variable
-	// so fills can inspect the entity being processed.
-	if !strings.Contains(handlerContent, `Input: &slots.CreateRequest{`) {
-		t.Errorf("before-slot request missing populated Input field:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, `Entity: "User"`) {
-		t.Errorf("before-slot request missing Entity in CreateRequest:\n%s", handlerContent)
-	}
-	// The entity variable (user) must be referenced in the Fields map.
-	// go/format may add alignment spacing, so check for the field name and
-	// the entity variable reference separately.
-	if !strings.Contains(handlerContent, `"email":`) || !strings.Contains(handlerContent, `user.Email`) {
-		t.Errorf("before-slot request missing entity field reference for email:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, `"role":`) || !strings.Contains(handlerContent, `user.Role`) {
-		t.Errorf("before-slot request missing entity field reference for role:\n%s", handlerContent)
-	}
-
-	// Finding 26: Verify after-slot request is populated with entity name and action.
-	if !strings.Contains(handlerContent, `Entity: "User", Action: "create"`) {
-		t.Errorf("after-slot request in Create missing entity/action:\n%s", handlerContent)
-	}
-
-	// Finding 27: Verify nil guards on slot operator invocations.
-	if !strings.Contains(handlerContent, "if h.beforeCreateGate != nil {") {
-		t.Errorf("before-slot invocation missing nil guard:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, "if h.onEntityChangedFanOut != nil {") {
-		t.Errorf("after-slot invocation missing nil guard:\n%s", handlerContent)
-	}
-
-	// Finding 29: Verify Caller field is populated with non-nil Identity.
-	// The spec's canonical fill accesses req.Caller.Role — nil Caller panics.
-	if !strings.Contains(handlerContent, `Caller: &slots.Identity{}`) {
-		t.Errorf("before-slot request missing non-nil Caller field:\n%s", handlerContent)
-	}
-
-	// Finding 28: Verify halt check in before-slot invocation. A chain step
-	// returning {Ok: true, Halt: true, StatusCode: 204} must stop the handler.
-	if !strings.Contains(handlerContent, "if slotResult.Halt {") {
-		t.Errorf("before-slot invocation missing halt check:\n%s", handlerContent)
-	}
-	// Verify halt branch writes status code and returns.
-	if !strings.Contains(handlerContent, "w.WriteHeader(sc)") {
-		t.Errorf("before-slot halt branch missing WriteHeader:\n%s", handlerContent)
-	}
-
-	// Verify ConstructorCollections wiring.
-	if wiring == nil {
-		t.Fatal("wiring is nil")
-	}
-	if wiring.ConstructorCollections == nil || wiring.ConstructorCollections[0] != "users" {
-		t.Errorf("unexpected ConstructorCollections: %v", wiring.ConstructorCollections)
-	}
-}
-
-func TestGenerate_HandlerWithAuthPackage_IdentityFromContext(t *testing.T) {
-	// When AuthPackage is set and a before-slot has HasCaller, the generated
-	// handler must import the auth package and call IdentityFromContext to
-	// extract the caller identity from the request context.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "User", Fields: []types.Field{
-				{Name: "email", Type: types.FieldTypeString},
-				{Name: "role", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "users",
-				Entity:     "User",
-				Operations: []types.Operation{types.OpCreate, types.OpRead},
-			},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{
-				Slot:       "before_create",
-				Collection: "users",
-				Gate:       []string{"test-policy"},
-			},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "github.com/myorg/svc",
-		SlotsPackage:    "internal/slots",
-		AuthPackage:     "github.com/myorg/svc/out/internal/auth",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var handlerContent string
-	for _, f := range files {
-		if strings.Contains(f.Path, "handler_users.go") {
-			handlerContent = string(f.Content)
-		}
-	}
-	if handlerContent == "" {
-		t.Fatal("handler_users.go not found")
-	}
-
-	// Must import the auth package.
-	if !strings.Contains(handlerContent, `auth "github.com/myorg/svc/out/internal/auth"`) {
-		t.Errorf("handler should import auth package:\n%s", handlerContent)
-	}
-
-	// Must call IdentityFromContext instead of using zero-value Identity.
-	if !strings.Contains(handlerContent, "auth.IdentityFromContext(r.Context())") {
-		t.Errorf("handler should call auth.IdentityFromContext:\n%s", handlerContent)
-	}
-
-	// Must NOT use zero-value Identity{} when auth is available.
-	if strings.Contains(handlerContent, `Caller: &slots.Identity{}`) {
-		t.Errorf("handler should not use zero-value Identity when auth package is available:\n%s", handlerContent)
 	}
 }
 
@@ -4531,177 +2228,19 @@ func TestGenerate_HandlerWithoutSlotBindings_NoSlotCode(t *testing.T) {
 	g := &Generator{}
 	ctx := basicContext()
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	for _, f := range files {
-		if strings.Contains(f.Path, "handler_users.go") {
+		if strings.Contains(f.Path, "users_handler.go") {
 			content := string(f.Content)
-			if strings.Contains(content, "slots.") {
+			if strings.Contains(content, "\tslots \"") || strings.Contains(content, ".Evaluate(") {
 				t.Errorf("handler without slot bindings should not reference slots package:\n%s", content)
 			}
 		}
 	}
-}
-
-func TestGenerate_SlotRequestPopulationWithNonStringFields(t *testing.T) {
-	// Finding 26: verify that when an entity has non-string fields (int32, bool),
-	// the before-slot request uses fmt.Sprintf for type conversion and the handler
-	// imports "fmt".
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Counter", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-				{Name: "count", Type: types.FieldTypeInt32},
-				{Name: "active", Type: types.FieldTypeBool},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "counters", Entity: "Counter", Operations: []types.Operation{types.OpCreate}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "before_create", Collection: "counters", Gate: []string{"policy"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "github.com/myorg/svc",
-		SlotsPackage:    "internal/slots",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var handlerContent string
-	for _, f := range files {
-		if strings.Contains(f.Path, "handler_counters.go") {
-			handlerContent = string(f.Content)
-		}
-	}
-	if handlerContent == "" {
-		t.Fatal("handler_counters.go not found")
-	}
-
-	// fmt must be imported for non-string field conversion.
-	if !strings.Contains(handlerContent, `"fmt"`) {
-		t.Errorf("handler with non-string slot fields missing fmt import:\n%s", handlerContent)
-	}
-
-	// Non-string fields must use fmt.Sprintf for conversion.
-	if !strings.Contains(handlerContent, `fmt.Sprintf("%v", counter.Count)`) {
-		t.Errorf("non-string field 'count' missing fmt.Sprintf conversion:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, `fmt.Sprintf("%v", counter.Active)`) {
-		t.Errorf("non-string field 'active' missing fmt.Sprintf conversion:\n%s", handlerContent)
-	}
-
-	// String fields should be direct references.
-	if !strings.Contains(handlerContent, "counter.Name") {
-		t.Errorf("string field 'name' should use direct reference:\n%s", handlerContent)
-	}
-}
-
-func TestGenerate_NilGuardPassthrough(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC31-T01 An unbound slot is never called", func(t *testing.T) {
-		// Verify that handler methods with slot bindings include nil guards so that
-		// the handler degrades to passthrough semantics when no fills are wired.
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat"},
-			Entities: []types.Entity{
-				{Name: "Item", Fields: []types.Field{
-					{Name: "label", Type: types.FieldTypeString},
-				}},
-			},
-			Collections: []types.Collection{
-				{Name: "items", Entity: "Item", Operations: []types.Operation{
-					types.OpCreate, types.OpUpdate, types.OpDelete, types.OpUpsert,
-				}},
-			},
-			SlotBindings: []types.SlotDeclaration{
-				{Slot: "before_create", Collection: "items", Gate: []string{"gate-fill"}},
-				{Slot: "validate", Collection: "items", Chain: []string{"validate-fill"}},
-				{Slot: "on_entity_changed", Collection: "items", FanOut: []string{"fanout-fill"}},
-			},
-			OutputNamespace: "internal/api",
-			ModuleName:      "github.com/myorg/svc",
-			SlotsPackage:    "internal/slots",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		var handlerContent string
-		for _, f := range files {
-			if strings.Contains(f.Path, "handler_items.go") {
-				handlerContent = string(f.Content)
-			}
-		}
-		if handlerContent == "" {
-			t.Fatal("handler_items.go not found")
-		}
-
-		// Every slot operator invocation must have a nil guard.
-		// Gate before create.
-		if !strings.Contains(handlerContent, "if h.beforeCreateGate != nil {") {
-			t.Errorf("missing nil guard for beforeCreateGate:\n%s", handlerContent)
-		}
-		// Chain for validate (fires on create, update, upsert).
-		if !strings.Contains(handlerContent, "if h.validateChain != nil {") {
-			t.Errorf("missing nil guard for validateChain:\n%s", handlerContent)
-		}
-		// Fan-out for on_entity_changed (fires on create, update, delete, upsert).
-		if !strings.Contains(handlerContent, "if h.onEntityChangedFanOut != nil {") {
-			t.Errorf("missing nil guard for onEntityChangedFanOut:\n%s", handlerContent)
-		}
-
-		// Verify the after-slot request for different operations includes the
-		// correct action string.
-		for _, action := range []string{"create", "update", "delete", "upsert"} {
-			expected := fmt.Sprintf(`Action: "%s"`, action)
-			if !strings.Contains(handlerContent, expected) {
-				t.Errorf("after-slot request missing action %q:\n%s", action, handlerContent)
-			}
-		}
-
-		// Finding 30: verify polymorphic slot request field emission.
-		// before_create has Caller (from proto), validate does NOT.
-		if !strings.Contains(handlerContent, "Caller: &") {
-			t.Errorf("before_create request should have Caller field:\n%s", handlerContent)
-		}
-		// ValidateRequest has Entity string field (distinct from CreateRequest.Entity).
-		// Count occurrences to ensure validate request populates Entity.
-		// The validate slot fires on create, update, and upsert — each should
-		// emit a ValidateRequest with an Entity field.
-		validateReqCount := strings.Count(handlerContent, "ValidateRequest{")
-		if validateReqCount == 0 {
-			t.Errorf("expected ValidateRequest struct literals in handler:\n%s", handlerContent)
-		}
-
-		// Split handler into before_create and validate sections to verify
-		// Caller only appears in before_create requests, not validate requests.
-		// Each ValidateRequest literal must have Entity but NOT Caller.
-		sections := strings.Split(handlerContent, "ValidateRequest{")
-		for i, section := range sections[1:] { // skip pre-first-match
-			closing := strings.Index(section, "}\n")
-			if closing < 0 {
-				continue
-			}
-			reqBody := section[:closing]
-			if strings.Contains(reqBody, "Caller:") {
-				t.Errorf("ValidateRequest occurrence %d should NOT have Caller field:\n%s", i, reqBody)
-			}
-			if !strings.Contains(reqBody, "Entity:") {
-				t.Errorf("ValidateRequest occurrence %d should have Entity field:\n%s", i, reqBody)
-			}
-		}
-	})
 }
 
 // --- base_path tests ---
@@ -4711,7 +2250,7 @@ func TestGenerate_BasePathPrependedToRoutes(t *testing.T) {
 	ctx := basicContext()
 	ctx.BasePath = "/api/v1"
 
-	_, wiring, err := g.Generate(ctx)
+	_, wiring, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -4728,7 +2267,7 @@ func TestGenerate_BasePathOmittedRoutesFromRoot(t *testing.T) {
 	ctx := basicContext()
 	// BasePath is empty — paths should start from root.
 
-	_, wiring, err := g.Generate(ctx)
+	_, wiring, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -4755,7 +2294,7 @@ func TestGenerate_BasePathInOpenAPIPaths(t *testing.T) {
 		ctx := basicContext()
 		ctx.BasePath = "/api/hyperfleet/v1"
 
-		files, _, err := g.Generate(ctx)
+		files, _, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -4800,7 +2339,7 @@ func TestGenerate_BasePathWithNestedRoutes(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, wiring, err := g.Generate(ctx)
+	_, wiring, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -4828,7 +2367,7 @@ func TestGenerate_BasePathWithPathPrefix(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	_, wiring, err := g.Generate(ctx)
+	_, wiring, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -4844,7 +2383,7 @@ func TestGenerate_BasePathValidation(t *testing.T) {
 	ctx := basicContext()
 	ctx.BasePath = "no-leading-slash"
 
-	_, _, err := g.Generate(ctx)
+	_, _, err := g.Generate(onRuntime(ctx))
 	if err == nil {
 		t.Fatal("expected error for base_path without leading slash")
 	}
@@ -4882,7 +2421,7 @@ func TestGenerate_ErrorsFileGenerated(t *testing.T) {
 		ctx := basicContext()
 		ctx.ServiceName = "hyperfleet-api"
 
-		files, _, err := g.Generate(ctx)
+		files, _, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -4955,7 +2494,7 @@ func TestGenerate_ErrorCodePrefixDerived(t *testing.T) {
 		ctx := basicContext()
 		ctx.ServiceName = "user-management"
 
-		files, _, err := g.Generate(ctx)
+		files, _, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -4979,7 +2518,7 @@ func TestGenerate_ErrorTypeBasePopulatesTypeURI(t *testing.T) {
 		ctx.ServiceName = "hyperfleet-api"
 		ctx.ErrorTypeBase = "https://api.hyperfleet.io/errors/"
 
-		files, _, err := g.Generate(ctx)
+		files, _, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -5006,7 +2545,7 @@ func TestGenerate_ErrorTypeBaseAbsentUsesAboutBlank(t *testing.T) {
 		ctx.ServiceName = "test-svc"
 		ctx.ErrorTypeBase = ""
 
-		files, _, err := g.Generate(ctx)
+		files, _, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -5019,86 +2558,6 @@ func TestGenerate_ErrorTypeBaseAbsentUsesAboutBlank(t *testing.T) {
 	})
 }
 
-func TestGenerate_HandlersUseHandleError(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC01-T02 Every emitted handler answers an error through the problem serializer", func(t *testing.T) {
-		// AC6: All handlers use handleError instead of raw http.Error.
-		g := &Generator{}
-		ctx := basicContext()
-		ctx.ServiceName = "test-svc"
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_users.go")
-
-		// Must NOT contain http.Error.
-		if strings.Contains(handler, "http.Error(") {
-			t.Error("handler still contains http.Error() calls; should use handleError()")
-		}
-
-		// Must contain handleError calls for each error case.
-		expectedCalls := []string{
-			"handleError(w, r, BadRequest(",
-			"handleError(w, r, InternalError(",
-			"handleError(w, r, NotFound(",
-		}
-		for _, call := range expectedCalls {
-			if !strings.Contains(handler, call) {
-				t.Errorf("handler missing expected call: %s", call)
-			}
-		}
-	})
-}
-
-func TestGenerate_ErrorsFileCompiles(t *testing.T) {
-	// AC8+AC9: Generated errors.go compiles together with handlers.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Widget", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{
-				types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList,
-			}},
-		},
-		OutputNamespace: "internal/api",
-		ServiceName:     "test-svc",
-		ErrorTypeBase:   "https://example.com/errors/",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	tmpDir := t.TempDir()
-
-	goMod := "module testpkg\n\ngo 1.22\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-		t.Fatalf("writing go.mod: %v", err)
-	}
-
-	for _, f := range files {
-		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
-		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-			t.Fatalf("writing %s: %v", f.Path, err)
-		}
-	}
-
-	cmd := exec.Command("go", "build", ".")
-	cmd.Dir = tmpDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("generated code with errors.go does not compile:\n%s\n%s", err, output)
-	}
-}
-
 func TestGenerate_HandleErrorPopulatesInstance(t *testing.T) {
 	t.Run("ST-SUP-RC20-OC02-T02 The emitted problem names the request path", func(t *testing.T) {
 		// handleError should populate instance from request path.
@@ -5106,7 +2565,7 @@ func TestGenerate_HandleErrorPopulatesInstance(t *testing.T) {
 		ctx := basicContext()
 		ctx.ServiceName = "test-svc"
 
-		files, _, err := g.Generate(ctx)
+		files, _, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -5126,7 +2585,7 @@ func TestGenerate_HandleErrorPopulatesTimestamp(t *testing.T) {
 		ctx := basicContext()
 		ctx.ServiceName = "test-svc"
 
-		files, _, err := g.Generate(ctx)
+		files, _, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -5147,7 +2606,7 @@ func TestGenerate_HandleErrorPopulatesTraceID(t *testing.T) {
 		ctx := basicContext()
 		ctx.ServiceName = "test-svc"
 
-		files, _, err := g.Generate(ctx)
+		files, _, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -5170,7 +2629,7 @@ func TestGenerate_ValidationErrorsArray(t *testing.T) {
 		ctx := basicContext()
 		ctx.ServiceName = "test-svc"
 
-		files, _, err := g.Generate(ctx)
+		files, _, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -5186,254 +2645,6 @@ func TestGenerate_ValidationErrorsArray(t *testing.T) {
 			t.Error("ServiceError should have validation_errors JSON tag")
 		}
 	})
-}
-
-func TestGenerate_SlotErrorsUseHandleError(t *testing.T) {
-	// Slot error responses should use handleError, not raw http.Error.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Widget", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpCreate}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "before_create", Collection: "widgets", Gate: []string{"my-gate"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "testmod",
-		SlotsPackage:    "internal/slots",
-		ServiceName:     "test-svc",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-	if strings.Contains(handler, "http.Error(") {
-		t.Error("handler with slots still uses http.Error; should use handleError")
-	}
-	if !strings.Contains(handler, "handleError(w, r, InternalError(slotErr.Error()))") {
-		t.Error("slot error should use handleError + InternalError")
-	}
-}
-
-func TestGenerate_SlotRejectionIncludesCode(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC30-T01 A before slot refusal becomes a problem response with its own code", func(t *testing.T) {
-		// Round 2 finding: slot rejection errors must include Code field via
-		// errorForStatus, not an inline ServiceError{} without Code.
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat"},
-			Entities: []types.Entity{
-				{Name: "Widget", Fields: []types.Field{
-					{Name: "name", Type: types.FieldTypeString},
-				}},
-			},
-			Collections: []types.Collection{
-				{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpCreate}},
-			},
-			SlotBindings: []types.SlotDeclaration{
-				{Slot: "before_create", Collection: "widgets", Gate: []string{"my-gate"}},
-			},
-			OutputNamespace: "internal/api",
-			ModuleName:      "testmod",
-			SlotsPackage:    "internal/slots",
-			ServiceName:     "test-svc",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-		// Slot rejection must use errorForStatus (which sets Code), not inline ServiceError{}.
-		if !strings.Contains(handler, "handleError(w, r, errorForStatus(sc, slotResult.ErrorMessage))") {
-			t.Error("slot rejection should use errorForStatus to include Code field")
-		}
-		if strings.Contains(handler, "&ServiceError{Type:") {
-			t.Error("handler should not contain inline ServiceError{} construction — use error constructors")
-		}
-
-		// Verify errors.go contains errorForStatus function.
-		errorsContent := findFileContent(t, files, "internal/api/errors.go")
-		if !strings.Contains(errorsContent, "func errorForStatus(status int, detail string) *ServiceError") {
-			t.Error("errors.go should contain errorForStatus function")
-		}
-		// Verify errorForStatus maps status codes to categories.
-		for _, cat := range []string{`category = "VAL"`, `category = "AUT"`, `category = "AUZ"`, `category = "NTF"`, `category = "CNF"`} {
-			if !strings.Contains(errorsContent, cat) {
-				t.Errorf("errorForStatus missing category mapping: %s", cat)
-			}
-		}
-	})
-}
-
-func TestGenerate_ErrorForStatusCompilesWithHandlers(t *testing.T) {
-	// Verify errorForStatus compiles together with handlers and slots.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Widget", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{
-				types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList,
-			}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "before_create", Collection: "widgets", Gate: []string{"my-gate"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "testmod",
-		SlotsPackage:    "internal/slots",
-		ServiceName:     "test-svc",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	tmpDir := t.TempDir()
-
-	goMod := "module testmod\n\ngo 1.22\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-		t.Fatalf("writing go.mod: %v", err)
-	}
-
-	// Write stub slots package for slot interface types.
-	slotsDir := filepath.Join(tmpDir, "internal", "slots")
-	os.MkdirAll(slotsDir, 0755)
-	slotsStub := `package slots
-import "context"
-type BeforeCreateSlot interface { Evaluate(ctx context.Context, req *BeforeCreateRequest) (*SlotResult, error) }
-type BeforeCreateRequest struct { Input *CreateRequest; Caller *Identity; Entity string }
-type CreateRequest struct { Entity string; Fields map[string]string }
-type Identity struct { UserID string; Role string; Attributes map[string]string }
-type SlotResult struct { Ok bool; Halt bool; StatusCode int32; ErrorMessage string }
-`
-	if err := os.WriteFile(filepath.Join(slotsDir, "slots.go"), []byte(slotsStub), 0644); err != nil {
-		t.Fatalf("writing slots stub: %v", err)
-	}
-
-	for _, f := range files {
-		dst := filepath.Join(tmpDir, f.Path)
-		os.MkdirAll(filepath.Dir(dst), 0755)
-		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-			t.Fatalf("writing %s: %v", f.Path, err)
-		}
-	}
-
-	cmd := exec.Command("go", "build", "./...")
-	cmd.Dir = tmpDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("generated code with errorForStatus does not compile:\n%s\n%s", err, output)
-	}
-}
-
-func TestGenerate_ReadHandlerDistinguishesNotFoundFromInternalError(t *testing.T) {
-	// Round 2 finding: Read handler must distinguish not-found (404) from
-	// infrastructure errors (500) using errors.Is(err, ErrNotFound).
-	g := &Generator{}
-	ctx := basicContext()
-	ctx.ServiceName = "test-svc"
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_users.go")
-
-	// Handler must import "errors" for errors.Is.
-	if !strings.Contains(handler, `"errors"`) {
-		t.Error("handler with Read operation must import \"errors\"")
-	}
-	// Handler must check errors.Is(err, ErrNotFound).
-	if !strings.Contains(handler, "errors.Is(err, ErrNotFound)") {
-		t.Error("Read handler must use errors.Is(err, ErrNotFound) to distinguish not-found from internal errors")
-	}
-	// Not-found path must use NotFound constructor.
-	if !strings.Contains(handler, "handleError(w, r, NotFound(") {
-		t.Error("Read handler must use NotFound() for not-found errors")
-	}
-	// Other errors must use InternalError constructor.
-	if !strings.Contains(handler, "handleError(w, r, InternalError(err.Error()))") {
-		t.Error("Read handler must use InternalError() for non-not-found errors")
-	}
-}
-
-func TestGenerate_ErrNotFoundDefinedInRouter(t *testing.T) {
-	// ErrNotFound sentinel must be defined in router.go alongside Storage interface.
-	g := &Generator{}
-	ctx := basicContext()
-	ctx.ServiceName = "test-svc"
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	router := findFileContent(t, files, "internal/api/router.go")
-
-	if !strings.Contains(router, `var ErrNotFound = errors.New("entity not found")`) {
-		t.Error("router.go must define ErrNotFound sentinel error")
-	}
-	if !strings.Contains(router, `"errors"`) {
-		t.Error("router.go must import \"errors\" for ErrNotFound")
-	}
-	// Storage interface doc should reference ErrNotFound.
-	if !strings.Contains(router, "Get must return ErrNotFound") {
-		t.Error("Storage interface doc should document that Get must return ErrNotFound")
-	}
-}
-
-func TestGenerate_DeleteOnlyImportsErrors(t *testing.T) {
-	// Delete-only handler should import "errors" because Delete checks
-	// errors.Is(err, ErrNotFound) to distinguish not-found from internal errors.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Widget", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpDelete}},
-		},
-		OutputNamespace: "internal/api",
-		ServiceName:     "test-svc",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-	// Delete handler returns ErrNotFound for non-existent entities, requiring errors.Is.
-	if !strings.Contains(handler, `"errors"`) {
-		t.Error("delete-only handler must import \"errors\" for ErrNotFound check")
-	}
-	if !strings.Contains(handler, `errors.Is(err, ErrNotFound)`) {
-		t.Error("delete handler must check errors.Is(err, ErrNotFound)")
-	}
 }
 
 func TestGenerate_ErrorForStatusWithTypeBase(t *testing.T) {
@@ -5455,7 +2666,7 @@ func TestGenerate_ErrorForStatusWithTypeBase(t *testing.T) {
 		ErrorTypeBase:   "https://example.com/errors/",
 	}
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -5519,487 +2730,11 @@ func TestGenerate_ResponseFormatConvention(t *testing.T) {
 	}
 }
 
-func TestGenerate_EnvelopeSingleResourceCreate(t *testing.T) {
-	check := func(t *testing.T) {
-		// AC2: Single resource responses include id, kind, href when envelope is enabled.
-		g := &Generator{}
-		ctx := envelopeContext()
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-		// Create handler must generate a UUID v7 for the entity ID.
-		if !strings.Contains(handler, `uuid.NewV7()`) {
-			t.Error("Create handler must use uuid.NewV7() when envelope is enabled")
-		}
-
-		// Create handler must propagate uuid.NewV7() errors as HTTP 500.
-		if !strings.Contains(handler, `InternalError("generating entity ID:`) {
-			t.Error("Create handler must propagate uuid.NewV7() error as InternalError")
-		}
-
-		// Create handler must use presentEntity to wrap the response.
-		if !strings.Contains(handler, `presentEntity(`) {
-			t.Error("Create handler must use presentEntity for envelope response")
-		}
-
-		// Verify kind is the entity name.
-		if !strings.Contains(handler, `"Widget"`) {
-			t.Error("Create handler must pass entity name as kind to presentEntity")
-		}
-
-		// Verify href includes the base path.
-		if !strings.Contains(handler, `"/api/v1/widgets"`) {
-			t.Error("Create handler must include base_path + collection path in href")
-		}
-	}
-	t.Run("ST-SUP-RC20-OC06-T01 The emitted create handler presents the envelope", check)
-	t.Run("ST-SUP-RC20-OC08-T01 The emitted create handler makes a time-ordered identifier", check)
-}
-
-func TestGenerate_EnvelopeSingleResourceRead(t *testing.T) {
-	// AC2: Single resource Read includes id, kind, href.
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-	// Read handler must use presentEntity.
-	if !strings.Contains(handler, `presentEntity(widget,`) {
-		t.Error("Read handler must use presentEntity for envelope response")
-	}
-
-	// Read handler must use the path ID for the envelope.
-	if !strings.Contains(handler, `"/api/v1/widgets"+"/"+id`) {
-		t.Error("Read handler must construct href from base_path + collection_path + id")
-	}
-}
-
-func TestGenerate_EnvelopeSingleResourceUpdate(t *testing.T) {
-	// AC2: Single resource Update includes id, kind, href.
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-	// Update handler must use presentEntity with id from path.
-	updateSection := extractMethodBody(handler, "func (h *WidgetsHandler) Update")
-	if updateSection == "" {
-		t.Fatal("could not find Update method in handler")
-	}
-	if !strings.Contains(updateSection, `presentEntity(`) {
-		t.Error("Update handler must use presentEntity for envelope response")
-	}
-}
-
-func TestGenerate_EnvelopeListResponse(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC07-T01 The emitted list handler answers with the paging envelope", func(t *testing.T) {
-		// AC3: List responses include kind, page, size, total, items envelope.
-		g := &Generator{}
-		ctx := envelopeContext()
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-		// List handler must construct envelope with all required fields.
-		if !strings.Contains(handler, `"kind":  "WidgetList"`) {
-			t.Error("list response must include kind with entity name + 'List'")
-		}
-		if !strings.Contains(handler, `"page":  page`) {
-			t.Error("list response must include page")
-		}
-		if !strings.Contains(handler, `"size":  actualSize`) {
-			t.Error("list response must include actual size")
-		}
-		if !strings.Contains(handler, `"total": listResult.Total`) {
-			t.Error("list response must include total from ListResult")
-		}
-		if !strings.Contains(handler, `"items": presentedItems`) {
-			t.Error("list response must include presented items")
-		}
-		// Each list item must be converted to API type and run through presentEntity for id/kind/href metadata.
-		if !strings.Contains(handler, `presentEntity(apiItem,`) {
-			t.Error("list items must be run through presentEntity for envelope metadata")
-		}
-	})
-}
-
-func TestGenerate_ListQueryParametersParsing(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC09-T02 The emitted list handler parses every list parameter", func(t *testing.T) {
-		// AC4: List query parameters parsed and validated: page, size, orderBy, fields.
-		g := &Generator{}
-		ctx := envelopeContext()
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-		// page and pageSize parsing.
-		if !strings.Contains(handler, `r.URL.Query().Get("page")`) {
-			t.Error("list handler must parse page query parameter")
-		}
-		if !strings.Contains(handler, `r.URL.Query().Get("pageSize")`) {
-			t.Error("list handler must parse pageSize query parameter")
-		}
-
-		// orderBy parsing.
-		if !strings.Contains(handler, `r.URL.Query().Get("orderBy")`) {
-			t.Error("list handler must parse orderBy query parameter")
-		}
-		if !strings.Contains(handler, `strings.Split(orderByStr, ",")`) {
-			t.Error("list handler must split orderBy by comma")
-		}
-
-		// fields parsing.
-		if !strings.Contains(handler, `r.URL.Query().Get("fields")`) {
-			t.Error("list handler must parse fields query parameter")
-		}
-
-		// search parsing.
-		if !strings.Contains(handler, `r.URL.Query().Get("search")`) {
-			t.Error("list handler must parse search query parameter")
-		}
-
-		// ListOptions construction.
-		if !strings.Contains(handler, `opts := ListOptions{Page: page, Size: pageSize, OrderBy: orderBy, Fields: fields, Search: searchExpr}`) {
-			t.Error("list handler must construct ListOptions from parsed parameters")
-		}
-	})
-}
-
-func TestGenerate_PageSizeCappedAt65500(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC09-T01 The emitted list handler clamps the page size", func(t *testing.T) {
-		// AC5: pageSize capped at 65500.
-		g := &Generator{}
-		ctx := envelopeContext()
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-		if !strings.Contains(handler, `pageSize > 65500`) {
-			t.Error("list handler must cap pageSize at 65500")
-		}
-		if !strings.Contains(handler, `pageSize = 65500`) {
-			t.Error("list handler must clamp pageSize to 65500 when exceeded")
-		}
-	})
-}
-
-func TestGenerate_OrderByFieldValidation(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC10-T01 The emitted list handler refuses an order field that is not an entity field", func(t *testing.T) {
-		// AC6: orderBy field names validated against entity fields.
-		g := &Generator{}
-		ctx := envelopeContext()
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-		// Valid fields set must include entity field names.
-		if !strings.Contains(handler, `"name": true`) {
-			t.Error("validFields must include entity field 'name'")
-		}
-		if !strings.Contains(handler, `"color": true`) {
-			t.Error("validFields must include entity field 'color'")
-		}
-
-		// Validation check on orderBy field names.
-		if !strings.Contains(handler, `validFields[fieldName]`) {
-			t.Error("orderBy must validate field names against validFields")
-		}
-
-		// Direction validation.
-		if !strings.Contains(handler, `d != "asc" && d != "desc"`) {
-			t.Error("orderBy must validate direction is 'asc' or 'desc'")
-		}
-
-		// Invalid field produces 400 error.
-		if !strings.Contains(handler, `BadRequest("invalid orderBy field: "`) {
-			t.Error("invalid orderBy field must return BadRequest error")
-		}
-	})
-}
-
-func TestGenerate_DefaultSortOrderWhenOrderByOmitted(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC11-T01 The emitted list handler sorts newest first without an order request", func(t *testing.T) {
-		// AC1: When orderBy is omitted, the generated list handler defaults to
-		// []OrderByField{{Field: "created_time", Direction: "desc"}}
-		g := &Generator{}
-		ctx := envelopeContext()
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-		// The default sort must appear in the else branch of the orderBy check.
-		if !strings.Contains(handler, `orderBy = []OrderByField{{Field: "created_time", Direction: "desc"}}`) {
-			t.Error("when orderBy is omitted, list handler must default to created_time desc")
-		}
-	})
-}
-
-func TestGenerate_OrderQueryParameterParsedAndValidated(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC10-T02 The order direction override is checked", func(t *testing.T) {
-		// AC2: The order query parameter is parsed and validated (must be "asc" or "desc").
-		g := &Generator{}
-		ctx := envelopeContext()
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-		// order parameter parsed from query string.
-		if !strings.Contains(handler, `orderDir := r.URL.Query().Get("order")`) {
-			t.Error("list handler must parse order query parameter")
-		}
-
-		// Validation: must be "asc" or "desc".
-		if !strings.Contains(handler, `orderDir != "asc" && orderDir != "desc"`) {
-			t.Error("list handler must validate order is 'asc' or 'desc'")
-		}
-
-		// Invalid order value returns BadRequest.
-		if !strings.Contains(handler, `BadRequest("invalid order value: "`) {
-			t.Error("invalid order value must return BadRequest error")
-		}
-	})
-}
-
-func TestGenerate_OrderOverridesDirectionOfOrderByEntries(t *testing.T) {
-	// AC3: When order is present, it overrides the direction of every entry in orderBy.
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-	// The override loop must iterate all orderBy entries and replace their direction.
-	if !strings.Contains(handler, `if orderDir != ""`) {
-		t.Error("list handler must check for order direction override")
-	}
-	if !strings.Contains(handler, `for i := range orderBy {`) {
-		t.Error("list handler must iterate over orderBy entries for direction override")
-	}
-	if !strings.Contains(handler, `orderBy[i].Direction = orderDir`) {
-		t.Error("list handler must override each orderBy entry's direction with order value")
-	}
-}
-
-func TestGenerate_OrderOverridesDefaultSortDirection(t *testing.T) {
-	// AC4: When order is present but orderBy is omitted, the default sort
-	// created_time uses the order direction instead of "desc".
-	// This is structurally guaranteed by the code: the default sort produces
-	// orderBy with Direction: "desc", then the orderDir override loop replaces
-	// it. We verify the default sort is set before the override logic runs.
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-	// The default sort must be set in the else branch (when orderBy is empty).
-	defaultSortIdx := strings.Index(handler, `orderBy = []OrderByField{{Field: "created_time", Direction: "desc"}}`)
-	if defaultSortIdx < 0 {
-		t.Fatal("default sort not found in handler")
-	}
-
-	// The order direction override must come after the default sort.
-	overrideIdx := strings.Index(handler, `if orderDir != "" {`)
-	if overrideIdx < 0 {
-		t.Fatal("order direction override not found in handler")
-	}
-	if overrideIdx < defaultSortIdx {
-		t.Error("order direction override must come after the default sort assignment")
-	}
-}
-
-func TestGenerate_OpenAPIOrderQueryParameter(t *testing.T) {
-	// AC5: OpenAPI spec declares order query parameter on all list operations
-	// with enum [asc, desc].
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	specContent := findFileContent(t, files, "internal/api/openapi.json")
-
-	// Parse the spec to verify the order parameter is declared.
-	var spec struct {
-		Paths map[string]map[string]struct {
-			Parameters []struct {
-				Name   string `json:"name"`
-				In     string `json:"in"`
-				Schema struct {
-					Type string   `json:"type"`
-					Enum []string `json:"enum"`
-				} `json:"schema"`
-			} `json:"parameters"`
-		} `json:"paths"`
-	}
-	if err := json.Unmarshal([]byte(specContent), &spec); err != nil {
-		t.Fatalf("failed to parse OpenAPI spec: %v", err)
-	}
-
-	// Find the list operation (GET on the collection path).
-	found := false
-	for _, methods := range spec.Paths {
-		getOp, ok := methods["get"]
-		if !ok {
-			continue
-		}
-		for _, param := range getOp.Parameters {
-			if param.Name == "order" && param.In == "query" {
-				found = true
-				if param.Schema.Type != "string" {
-					t.Errorf("order parameter schema type should be 'string', got %q", param.Schema.Type)
-				}
-				if len(param.Schema.Enum) != 2 || param.Schema.Enum[0] != "asc" || param.Schema.Enum[1] != "desc" {
-					t.Errorf("order parameter should have enum [asc, desc], got %v", param.Schema.Enum)
-				}
-			}
-		}
-	}
-	if !found {
-		t.Error("OpenAPI spec must declare 'order' query parameter on list operations")
-	}
-}
-
-func TestGenerate_StorageInterfaceListOptionsAndResult(t *testing.T) {
-	// AC7: Storage interface includes ListOptions and ListResult types.
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	router := findFileContent(t, files, "internal/api/router.go")
-
-	// ListOptions type.
-	if !strings.Contains(router, "type ListOptions struct") {
-		t.Error("router.go must define ListOptions struct")
-	}
-	if !strings.Contains(router, "Page            int") {
-		t.Error("ListOptions must have Page int field")
-	}
-	if !strings.Contains(router, "Size            int") {
-		t.Error("ListOptions must have Size int field")
-	}
-	if !strings.Contains(router, "OrderBy         []OrderByField") {
-		t.Error("ListOptions must have OrderBy []OrderByField field")
-	}
-	if !strings.Contains(router, "Fields          []string") {
-		t.Error("ListOptions must have Fields []string field")
-	}
-	if !strings.Contains(router, "ImplicitFilters map[string]string") {
-		t.Error("ListOptions must have ImplicitFilters map[string]string field")
-	}
-
-	// ListResult type.
-	if !strings.Contains(router, "type ListResult struct") {
-		t.Error("router.go must define ListResult struct")
-	}
-
-	// OrderByField type.
-	if !strings.Contains(router, "type OrderByField struct") {
-		t.Error("router.go must define OrderByField struct")
-	}
-
-	// Storage interface List method uses new types.
-	if !strings.Contains(router, "List(ctx context.Context, entity string, scopeField string, scopeValue string, opts ListOptions) (ListResult, error)") {
-		t.Error("Storage.List must use ListOptions parameter and return ListResult")
-	}
-}
-
-func TestGenerate_BareResponseFormatPreservesBehavior(t *testing.T) {
-	// AC8: response_format: bare (or unset) preserves current behavior.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Item", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "items", Entity: "Item", Operations: []types.Operation{
-				types.OpCreate, types.OpRead, types.OpList,
-			}},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_items.go")
-
-	// Bare mode: no presentEntity calls.
-	if strings.Contains(handler, "presentEntity(") {
-		t.Error("bare mode must NOT use presentEntity")
-	}
-
-	// Bare mode: no UUID generation.
-	if strings.Contains(handler, "uuid.NewV7()") || strings.Contains(handler, "uuid.New()") {
-		t.Error("bare mode must NOT generate UUIDs")
-	}
-
-	// Bare mode: list should return items directly, not in an envelope.
-	if strings.Contains(handler, `"kind":`) {
-		t.Error("bare mode list must NOT include envelope fields")
-	}
-
-	// Bare mode: list should encode listResult.Items directly.
-	if !strings.Contains(handler, "json.NewEncoder(w).Encode(listResult.Items)") {
-		t.Error("bare mode list must encode listResult.Items directly")
-	}
-
-	// Bare mode: should NOT import reflect (no actualSize computation).
-	if strings.Contains(handler, `"reflect"`) {
-		t.Error("bare mode list must NOT import reflect")
-	}
-}
-
 func TestGenerate_EntityStructIncludesID(t *testing.T) {
 	// Entity structs include an ID field for envelope support.
 	g := &Generator{}
 	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -6017,7 +2752,7 @@ func TestGenerate_PresentEntityHelper(t *testing.T) {
 		// When envelope is enabled, router.go includes presentEntity helper.
 		g := &Generator{}
 		ctx := envelopeContext()
-		files, _, err := g.Generate(ctx)
+		files, _, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -6043,7 +2778,7 @@ func TestGenerate_PresentEntityNotInBareMode(t *testing.T) {
 		},
 		OutputNamespace: "internal/api",
 	}
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -6059,7 +2794,7 @@ func TestGenerate_EnvelopeCreateUUIDGoModRequires(t *testing.T) {
 		// When envelope + create op, wiring must include uuid dependency.
 		g := &Generator{}
 		ctx := envelopeContext()
-		_, wiring, err := g.Generate(ctx)
+		_, wiring, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -6086,7 +2821,7 @@ func TestGenerate_BareCreateNoUUIDGoModRequires(t *testing.T) {
 		},
 		OutputNamespace: "internal/api",
 	}
-	_, wiring, err := g.Generate(ctx)
+	_, wiring, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -6115,264 +2850,6 @@ func extractMethodBody(source, sigPrefix string) string {
 
 // --- Task 024 Round 1 Revision: Findings 1-4 ---
 
-func TestGenerate_EnvelopeScopedCollectionHrefResolved(t *testing.T) {
-	// Finding 1: href for scoped collections must resolve path parameters using
-	// r.PathValue() at runtime, not embed template literals like {org_id}.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{
-			Layout:         "flat",
-			ErrorHandling:  "problem-details-rfc",
-			ResponseFormat: "envelope",
-		},
-		Entities: []types.Entity{
-			{Name: "Organization", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-			{Name: "User", Fields: []types.Field{
-				{Name: "email", Type: types.FieldTypeString},
-				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpCreate, types.OpRead}},
-			{Name: "org-users", Entity: "User",
-				Scope:      map[string]string{"org_id": "Organization"},
-				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpList},
-			},
-		},
-		OutputNamespace: "internal/api",
-		BasePath:        "/api/v1",
-		ServiceName:     "user-service",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_org_users.go")
-
-	// The generated handler must NOT contain unresolved {org_id} template literals.
-	if strings.Contains(handler, `{org_id}`) {
-		t.Error("scoped collection handler must NOT contain unresolved {org_id} template literals in href")
-	}
-
-	// Instead, it must resolve the path parameter using r.PathValue("org_id").
-	if !strings.Contains(handler, `r.PathValue("org_id")`) {
-		t.Error("scoped collection handler must use r.PathValue(\"org_id\") to resolve href path parameters")
-	}
-
-	// Create method must produce a resolved href.
-	createSection := extractMethodBody(handler, "func (h *OrgUsersHandler) Create(")
-	if createSection == "" {
-		t.Fatal("could not find Create method in org-users handler")
-	}
-	if strings.Contains(createSection, `{org_id}`) {
-		t.Error("Create method must not contain unresolved {org_id} in presentEntity call")
-	}
-	if !strings.Contains(createSection, `r.PathValue("org_id")`) {
-		t.Error("Create method must resolve org_id via r.PathValue for href construction")
-	}
-
-	// Read method must produce a resolved href.
-	readSection := extractMethodBody(handler, "func (h *OrgUsersHandler) Read(")
-	if readSection == "" {
-		t.Fatal("could not find Read method in org-users handler")
-	}
-	if strings.Contains(readSection, `{org_id}`) {
-		t.Error("Read method must not contain unresolved {org_id} in presentEntity call")
-	}
-
-	// Update method must produce a resolved href.
-	updateSection := extractMethodBody(handler, "func (h *OrgUsersHandler) Update(")
-	if updateSection == "" {
-		t.Fatal("could not find Update method in org-users handler")
-	}
-	if strings.Contains(updateSection, `{org_id}`) {
-		t.Error("Update method must not contain unresolved {org_id} in presentEntity call")
-	}
-}
-
-func TestGenerate_EnvelopeListItemsPresented(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC07-T02 Each list item is presented like a single resource", func(t *testing.T) {
-		// Finding 2: List response items must be run through presentEntity()
-		// to include id, kind, and href metadata — matching single-resource responses.
-		g := &Generator{}
-		ctx := envelopeContext()
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-		listSection := extractMethodBody(handler, "func (h *WidgetsHandler) List(")
-		if listSection == "" {
-			t.Fatal("could not find List method in widgets handler")
-		}
-
-		// List must iterate items and present each one.
-		if !strings.Contains(listSection, "presentedItems") {
-			t.Error("list handler must build presentedItems array with presented entities")
-		}
-
-		// Each item must be converted to API type and wrapped through presentEntity.
-		if !strings.Contains(listSection, `presentEntity(apiItem,`) {
-			t.Error("list handler must call presentEntity on each item")
-		}
-
-		// The envelope must use presentedItems, not raw listResult.Items.
-		if strings.Contains(listSection, `"items": listResult.Items`) {
-			t.Error("list envelope must use presented items, not raw listResult.Items")
-		}
-
-		// Items must reflect the entity kind.
-		if !strings.Contains(listSection, `"Widget"`) {
-			t.Error("list handler must pass entity name as kind to presentEntity for each item")
-		}
-	})
-}
-
-func TestGenerate_EnvelopeListItemsHrefForScoped(t *testing.T) {
-	// Finding 2 extension: List items for scoped collections must have resolved hrefs.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{
-			Layout:         "flat",
-			ErrorHandling:  "problem-details-rfc",
-			ResponseFormat: "envelope",
-		},
-		Entities: []types.Entity{
-			{Name: "Organization", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-			{Name: "User", Fields: []types.Field{
-				{Name: "email", Type: types.FieldTypeString},
-				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
-			{Name: "org-users", Entity: "User",
-				Scope:      map[string]string{"org_id": "Organization"},
-				Operations: []types.Operation{types.OpList},
-			},
-		},
-		OutputNamespace: "internal/api",
-		ServiceName:     "user-service",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_org_users.go")
-	listSection := extractMethodBody(handler, "func (h *OrgUsersHandler) List(")
-	if listSection == "" {
-		t.Fatal("could not find List method in org-users handler")
-	}
-
-	// The hrefBase in the list handler must be resolved using r.PathValue,
-	// not contain literal {org_id}.
-	if strings.Contains(listSection, `{org_id}`) {
-		t.Error("list handler hrefBase must not contain unresolved {org_id} template literal")
-	}
-	if !strings.Contains(listSection, `r.PathValue("org_id")`) {
-		t.Error("list handler must resolve org_id via r.PathValue for item hrefs")
-	}
-}
-
-func TestGenerate_OpenAPIListOrderByAndFieldsParams(t *testing.T) {
-	// Finding 3: OpenAPI spec must declare orderBy and fields query parameters
-	// for list operations.
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	openapiJSON := findFileContent(t, files, "internal/api/openapi.json")
-	var spec map[string]any
-	if err := json.Unmarshal([]byte(openapiJSON), &spec); err != nil {
-		t.Fatalf("failed to parse openapi.json: %v", err)
-	}
-
-	paths := spec["paths"].(map[string]any)
-	widgetsPath := paths["/api/v1/widgets"].(map[string]any)
-	getOp := widgetsPath["get"].(map[string]any)
-	params := getOp["parameters"].([]any)
-
-	// Collect parameter names.
-	paramNames := make(map[string]bool)
-	for _, p := range params {
-		pm := p.(map[string]any)
-		paramNames[pm["name"].(string)] = true
-	}
-
-	if !paramNames["orderBy"] {
-		t.Error("OpenAPI list operation must include 'orderBy' query parameter")
-	}
-	if !paramNames["fields"] {
-		t.Error("OpenAPI list operation must include 'fields' query parameter")
-	}
-	if !paramNames["search"] {
-		t.Error("OpenAPI list operation must include 'search' query parameter")
-	}
-	if !paramNames["page"] {
-		t.Error("OpenAPI list operation must include 'page' query parameter")
-	}
-	if !paramNames["pageSize"] {
-		t.Error("OpenAPI list operation must include 'pageSize' query parameter")
-	}
-}
-
-func TestGenerate_OpenAPIListResponseEnvelopeSchema(t *testing.T) {
-	// Finding 4: When response_format is envelope, the OpenAPI list response
-	// schema must be an object with kind/page/size/total/items — not a plain array.
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	openapiJSON := findFileContent(t, files, "internal/api/openapi.json")
-	var spec map[string]any
-	if err := json.Unmarshal([]byte(openapiJSON), &spec); err != nil {
-		t.Fatalf("failed to parse openapi.json: %v", err)
-	}
-
-	paths := spec["paths"].(map[string]any)
-	widgetsPath := paths["/api/v1/widgets"].(map[string]any)
-	getOp := widgetsPath["get"].(map[string]any)
-	responses := getOp["responses"].(map[string]any)
-	ok200 := responses["200"].(map[string]any)
-	content := ok200["content"].(map[string]any)
-	jsonMedia := content["application/json"].(map[string]any)
-	schema := jsonMedia["schema"].(map[string]any)
-
-	// Schema must be an object, not an array.
-	if schema["type"] != "object" {
-		t.Errorf("envelope list response schema type must be 'object', got %q", schema["type"])
-	}
-
-	// Must have envelope properties.
-	props := schema["properties"].(map[string]any)
-	for _, field := range []string{"kind", "page", "size", "total", "items"} {
-		if _, ok := props[field]; !ok {
-			t.Errorf("envelope list response schema must include property %q", field)
-		}
-	}
-
-	// Items property must be an array of entity refs.
-	itemsProp := props["items"].(map[string]any)
-	if itemsProp["type"] != "array" {
-		t.Errorf("envelope items property must be type 'array', got %q", itemsProp["type"])
-	}
-}
-
 func TestGenerate_OpenAPIBareListResponseIsArray(t *testing.T) {
 	// When response_format is bare, the OpenAPI list response schema must
 	// remain a plain array (no envelope).
@@ -6388,7 +2865,7 @@ func TestGenerate_OpenAPIBareListResponseIsArray(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -6414,126 +2891,7 @@ func TestGenerate_OpenAPIBareListResponseIsArray(t *testing.T) {
 	}
 }
 
-func TestResolvedHrefExpr_FlatPath(t *testing.T) {
-	// For flat paths (no parameters), resolvedHrefExpr produces a simple literal.
-	expr := resolvedHrefExpr("/api/v1/widgets", "widget.ID")
-	if strings.Contains(expr, "PathValue") {
-		t.Error("flat path href should not use PathValue")
-	}
-	if !strings.Contains(expr, `"/api/v1/widgets"`) {
-		t.Errorf("flat path href should contain the literal path, got: %s", expr)
-	}
-	if !strings.Contains(expr, "widget.ID") {
-		t.Errorf("flat path href should contain the id expression, got: %s", expr)
-	}
-}
-
-func TestResolvedHrefExpr_ScopedPath(t *testing.T) {
-	// For scoped paths, resolvedHrefExpr substitutes {param} with r.PathValue().
-	expr := resolvedHrefExpr("/organizations/{org_id}/users", "user.ID")
-	if strings.Contains(expr, "{org_id}") {
-		t.Errorf("scoped path href must not contain literal {org_id}, got: %s", expr)
-	}
-	if !strings.Contains(expr, `r.PathValue("org_id")`) {
-		t.Errorf("scoped path href must use r.PathValue(\"org_id\"), got: %s", expr)
-	}
-	if !strings.Contains(expr, "user.ID") {
-		t.Errorf("scoped path href must contain the id expression, got: %s", expr)
-	}
-}
-
-func TestResolvedHrefExpr_MultiLevel(t *testing.T) {
-	// For multi-level scoped paths, all parameters must be resolved.
-	expr := resolvedHrefExpr("/clusters/{cluster_id}/nodepools/{nodepool_id}/statuses", "status.ID")
-	if strings.Contains(expr, "{cluster_id}") || strings.Contains(expr, "{nodepool_id}") {
-		t.Errorf("multi-level path must not contain unresolved params, got: %s", expr)
-	}
-	if !strings.Contains(expr, `r.PathValue("cluster_id")`) {
-		t.Errorf("must resolve cluster_id, got: %s", expr)
-	}
-	if !strings.Contains(expr, `r.PathValue("nodepool_id")`) {
-		t.Errorf("must resolve nodepool_id, got: %s", expr)
-	}
-}
-
-func TestResolvedHrefBaseExpr_FlatPath(t *testing.T) {
-	expr := resolvedHrefBaseExpr("/api/v1/widgets")
-	if strings.Contains(expr, "PathValue") {
-		t.Error("flat path hrefBase should not use PathValue")
-	}
-}
-
-func TestResolvedHrefBaseExpr_ScopedPath(t *testing.T) {
-	expr := resolvedHrefBaseExpr("/organizations/{org_id}/users")
-	if strings.Contains(expr, "{org_id}") {
-		t.Errorf("scoped path hrefBase must not contain literal {org_id}, got: %s", expr)
-	}
-	if !strings.Contains(expr, `r.PathValue("org_id")`) {
-		t.Errorf("scoped path hrefBase must use r.PathValue, got: %s", expr)
-	}
-}
-
 // --- Task 024 Round 2 Revision: Findings 1-3 ---
-
-func TestGenerate_EnvelopeFieldsIDAlwaysIncluded(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC12-T02 The identifier stays in the field selection", func(t *testing.T) {
-		// Round 2 Finding 1: The fields query parameter must ensure "id" is always
-		// included in the field list even if the user does not list it.
-		g := &Generator{}
-		ctx := envelopeContext()
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-		listBody := extractMethodBody(handler, "func (h *WidgetsHandler) List")
-		if listBody == "" {
-			t.Fatal("could not find List method in handler")
-		}
-
-		// The fields parsing code must check for "id" and inject it if missing.
-		if !strings.Contains(listBody, `hasID`) {
-			t.Error("List handler must track whether 'id' is in the fields list")
-		}
-		if !strings.Contains(listBody, `fields = append(fields, "id")`) {
-			t.Error("List handler must append 'id' to fields when not listed by user")
-		}
-	})
-}
-
-func TestGenerate_EnvelopeUpdateSetsEntityIDFromPath(t *testing.T) {
-	// Round 2 Finding 2: The Update handler must set entity.ID = id from the
-	// path parameter before passing the entity to storage. Otherwise the stored
-	// entity has an empty or client-provided ID that may not match the URL.
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-	updateBody := extractMethodBody(handler, "func (h *WidgetsHandler) Update")
-	if updateBody == "" {
-		t.Fatal("could not find Update method in handler")
-	}
-
-	// Must set entity ID from path before storage call.
-	if !strings.Contains(updateBody, "widget.ID = id") {
-		t.Error("Update handler must set entity.ID = id from the path parameter")
-	}
-
-	// The ID assignment must come before the store.Replace call.
-	idAssignIdx := strings.Index(updateBody, "widget.ID = id")
-	storeCallIdx := strings.Index(updateBody, "h.store.Replace")
-	if idAssignIdx == -1 || storeCallIdx == -1 {
-		t.Fatal("could not find ID assignment or store.Replace call")
-	}
-	if idAssignIdx > storeCallIdx {
-		t.Error("entity.ID = id must come before h.store.Replace call")
-	}
-}
 
 func TestGenerate_OpenAPISingleResourceEnvelopeSchema(t *testing.T) {
 	// Round 2 Finding 3: When response_format is envelope, single-resource
@@ -6541,7 +2899,7 @@ func TestGenerate_OpenAPISingleResourceEnvelopeSchema(t *testing.T) {
 	// with id, kind, href metadata — not just the bare entity ref.
 	g := &Generator{}
 	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -6599,7 +2957,7 @@ func TestGenerate_OpenAPISingleResourceBareSchema(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -6657,7 +3015,7 @@ func TestGenerate_OpenAPIUpsertEnvelopeSchema(t *testing.T) {
 		BasePath:        "/api/v1",
 	}
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -6679,42 +3037,6 @@ func TestGenerate_OpenAPIUpsertEnvelopeSchema(t *testing.T) {
 	assertEnvelopeResourceSchema(t, upsertedSchema, "upsert")
 }
 
-func TestGenerate_FieldsQueryParameterValidation(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC12-T01 The emitted list handler checks the field selection and keeps the identifier", func(t *testing.T) {
-		// Round 3 Finding 1: The fields query parameter must validate field names
-		// against the entity's fields, same as orderBy validation. Unvalidated
-		// field names in ListOptions.Fields reach the storage layer SQL SELECT.
-		g := &Generator{}
-		ctx := envelopeContext()
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-		listBody := extractMethodBody(handler, "func (h *WidgetsHandler) List")
-		if listBody == "" {
-			t.Fatal("could not find List method in handler")
-		}
-
-		// Fields must be validated against validFields — same map used by orderBy.
-		if !strings.Contains(listBody, `validFields[f]`) {
-			t.Error("fields query parameter must validate each field name against validFields")
-		}
-
-		// Invalid field names must be rejected with a BadRequest error.
-		if !strings.Contains(listBody, `BadRequest("invalid fields value: "`) {
-			t.Error("invalid fields value must return BadRequest error")
-		}
-
-		// "id" must be accepted without validFields check (it's the implicit primary key,
-		// not an entity-declared field).
-		if !strings.Contains(listBody, `f != "id" && !validFields[f]`) {
-			t.Error("fields validation must allow 'id' even though it's not in validFields")
-		}
-	})
-}
-
 func TestGenerate_OpenAPIListItemsEnvelopeSchema(t *testing.T) {
 	// Round 3 Finding 2: When response_format is envelope, the OpenAPI list
 	// response items array must use the presented entity schema (allOf with
@@ -6722,7 +3044,7 @@ func TestGenerate_OpenAPIListItemsEnvelopeSchema(t *testing.T) {
 	// through presentEntity(), so the spec must match.
 	g := &Generator{}
 	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -6785,213 +3107,6 @@ func assertEnvelopeResourceSchema(t *testing.T, schema map[string]any, opName st
 	}
 }
 
-func TestGenerate_FieldsSparseFieldsetFiltersResponse(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC12-T03 A field selection removes the fields it did not name", func(t *testing.T) {
-		// Round 4 Finding: The fields query parameter must filter the response map
-		// to only include requested fields plus metadata (id, kind, href). Without
-		// filtering, non-selected fields appear with zero values (empty strings, 0,
-		// etc.) violating sparse fieldset semantics.
-		g := &Generator{}
-		ctx := envelopeContext()
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-		listBody := extractMethodBody(handler, "func (h *WidgetsHandler) List")
-		if listBody == "" {
-			t.Fatal("could not find List method in handler")
-		}
-
-		// The list handler must filter presented items when fields is non-empty.
-		// It should build an allowed set including metadata keys and requested fields,
-		// then delete non-allowed keys from the presented map.
-		if !strings.Contains(listBody, `if len(fields) > 0`) {
-			t.Error("List handler must check if fields is non-empty to trigger sparse filtering")
-		}
-
-		// Metadata keys (id, kind, href) must always be retained regardless of
-		// the fields selection.
-		if !strings.Contains(listBody, `"id": true, "kind": true, "href": true`) {
-			t.Error("sparse fieldset filter must always allow metadata keys: id, kind, href")
-		}
-
-		// Non-selected fields must be removed from the presented entity map.
-		if !strings.Contains(listBody, `delete(presentedItems[i], k)`) {
-			t.Error("sparse fieldset filter must delete non-allowed keys from presented items")
-		}
-	})
-}
-
-func TestGenerate_PatchOperation(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC15-T02 The emitted patch handler reads, merges and saves", func(t *testing.T) {
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat"},
-			Entities: []types.Entity{
-				{Name: "Cluster", Fields: []types.Field{
-					{Name: "name", Type: types.FieldTypeString, Unique: true},
-					{Name: "spec", Type: types.FieldTypeJsonb},
-					{Name: "labels", Type: types.FieldTypeJsonb, Optional: true},
-					{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-					{Name: "status", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "status-agg"},
-				}},
-			},
-			Collections: []types.Collection{
-				{
-					Name:       "clusters",
-					Entity:     "Cluster",
-					Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpPatch},
-					Patchable:  []string{"spec", "labels"},
-				},
-			},
-			OutputNamespace: "internal/api",
-		}
-
-		files, wiring, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_clusters.go")
-
-		// Verify patch request struct is generated with pointer fields.
-		if !strings.Contains(handler, "type ClustersPatchRequest struct") {
-			t.Error("handler missing ClustersPatchRequest struct")
-		}
-		// spec is jsonb → *json.RawMessage (pointer for nil = not provided).
-		if !strings.Contains(handler, "*json.RawMessage") {
-			t.Error("patch request missing Spec field as *json.RawMessage")
-		}
-		// labels is jsonb → *json.RawMessage (pointer for nil = not provided).
-		if !strings.Contains(handler, "Labels") {
-			t.Error("patch request missing Labels field")
-		}
-
-		// Verify Patch method exists.
-		if !strings.Contains(handler, "func (h *ClustersHandler) Patch(") {
-			t.Error("handler missing Patch method")
-		}
-
-		// Verify get-then-merge: fetches existing, converts via JSON, decodes patch, applies.
-		if !strings.Contains(handler, "h.store.Get(r.Context()") {
-			t.Error("Patch handler must fetch existing entity via store.Get")
-		}
-		if !strings.Contains(handler, "json.Marshal(existing)") {
-			t.Error("Patch handler must marshal Get result for cross-package type conversion")
-		}
-		if !strings.Contains(handler, "json.Unmarshal(existingData") {
-			t.Error("Patch handler must unmarshal Get result into API-package entity type")
-		}
-		if !strings.Contains(handler, "var patch ClustersPatchRequest") {
-			t.Error("Patch handler must decode into patch request struct")
-		}
-		if !strings.Contains(handler, "h.store.Replace(r.Context()") {
-			t.Error("Patch handler must save merged entity via store.Replace")
-		}
-
-		// Verify apply-non-nil logic for patchable fields (pointer dereference for
-		// non-optional fields, direct pointer assignment for optional fields).
-		if !strings.Contains(handler, "if patch.Spec != nil") {
-			t.Error("Patch handler must check patch.Spec != nil before applying")
-		}
-		if !strings.Contains(handler, "*patch.Spec") {
-			t.Error("Patch handler must dereference pointer field Spec (non-optional)")
-		}
-		if !strings.Contains(handler, "if patch.Labels != nil") {
-			t.Error("Patch handler must check patch.Labels != nil before applying")
-		}
-		// Labels is optional → entity field is already a pointer → assign directly.
-		if !strings.Contains(handler, "cluster.Labels = patch.Labels") {
-			t.Error("Patch handler must assign optional pointer field Labels directly (not dereference)")
-		}
-
-		// Verify route is PATCH method on /{id} path.
-		found := false
-		for _, route := range wiring.Routes {
-			if strings.Contains(route, "PATCH") && strings.Contains(route, "{id}") && strings.Contains(route, "Patch") {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Error("wiring must include PATCH /{path}/{id} route")
-		}
-	})
-}
-
-func TestGenerate_PatchOperationWithPointerFields(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC15-T01 The emitted patch handler takes only the patchable fields, as pointers", func(t *testing.T) {
-		// Verify that ALL patchable fields get pointer types, including reference types.
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat"},
-			Entities: []types.Entity{
-				{Name: "Widget", Fields: []types.Field{
-					{Name: "name", Type: types.FieldTypeString},
-					{Name: "count", Type: types.FieldTypeInt32},
-					{Name: "score", Type: types.FieldTypeDouble},
-					{Name: "active", Type: types.FieldTypeBool},
-					{Name: "metadata", Type: types.FieldTypeJsonb},
-					{Name: "payload", Type: types.FieldTypeBytes},
-				}},
-			},
-			Collections: []types.Collection{
-				{
-					Name:       "widgets",
-					Entity:     "Widget",
-					Operations: []types.Operation{types.OpRead, types.OpPatch},
-					Patchable:  []string{"name", "count", "score", "active", "metadata", "payload"},
-				},
-			},
-			OutputNamespace: "internal/api",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-		// Pointer fields for value types.
-		if !strings.Contains(handler, "*string") {
-			t.Error("patch request missing *string pointer field")
-		}
-		if !strings.Contains(handler, "*int32") {
-			t.Error("patch request missing *int32 pointer field")
-		}
-		if !strings.Contains(handler, "*float64") {
-			t.Error("patch request missing *float64 pointer field")
-		}
-		if !strings.Contains(handler, "*bool") {
-			t.Error("patch request missing *bool pointer field")
-		}
-		// Pointer fields for reference types (spec mandates *json.RawMessage, *[]byte).
-		if !strings.Contains(handler, "*json.RawMessage") {
-			t.Error("patch request missing *json.RawMessage pointer field for jsonb")
-		}
-		if !strings.Contains(handler, "*[]byte") {
-			t.Error("patch request missing *[]byte pointer field for bytes")
-		}
-
-		// Verify pointer dereference in apply logic for all types.
-		if !strings.Contains(handler, "*patch.Name") {
-			t.Error("Patch handler must dereference pointer field Name")
-		}
-		if !strings.Contains(handler, "*patch.Count") {
-			t.Error("Patch handler must dereference pointer field Count")
-		}
-		if !strings.Contains(handler, "*patch.Metadata") {
-			t.Error("Patch handler must dereference pointer field Metadata")
-		}
-		if !strings.Contains(handler, "*patch.Payload") {
-			t.Error("Patch handler must dereference pointer field Payload")
-		}
-	})
-}
-
 func TestGenerate_PatchOpenAPISchema(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -7014,7 +3129,7 @@ func TestGenerate_PatchOpenAPISchema(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -7073,208 +3188,6 @@ func TestGenerate_PatchOpenAPISchema(t *testing.T) {
 	}
 }
 
-func TestGenerate_PatchCompilesAsPackage(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Widget", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-				{Name: "count", Type: types.FieldTypeInt32},
-				{Name: "price", Type: types.FieldTypeDouble},
-				{Name: "active", Type: types.FieldTypeBool},
-				{Name: "data", Type: types.FieldTypeJsonb, Optional: true},
-				{Name: "created_at", Type: types.FieldTypeTimestamp},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "widgets",
-				Entity:     "Widget",
-				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpPatch},
-				Patchable:  []string{"name", "count", "price", "active", "data"},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	tmpDir := t.TempDir()
-	goMod := "module testpkg\n\ngo 1.22\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-		t.Fatalf("writing go.mod: %v", err)
-	}
-
-	for _, f := range files {
-		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
-		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-			t.Fatalf("writing %s: %v", f.Path, err)
-		}
-	}
-
-	cmd := exec.Command("go", "build", ".")
-	cmd.Dir = tmpDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("generated code with patch does not compile:\n%s\n%s", err, output)
-	}
-}
-
-func TestGenerate_PatchOnlyCompilesAsPackage(t *testing.T) {
-	// Verify that a collection with only patch+read operations compiles.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Config", Fields: []types.Field{
-				{Name: "value", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "configs",
-				Entity:     "Config",
-				Operations: []types.Operation{types.OpRead, types.OpPatch},
-				Patchable:  []string{"value"},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	tmpDir := t.TempDir()
-	goMod := "module testpkg\n\ngo 1.22\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-		t.Fatalf("writing go.mod: %v", err)
-	}
-
-	for _, f := range files {
-		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
-		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-			t.Fatalf("writing %s: %v", f.Path, err)
-		}
-	}
-
-	cmd := exec.Command("go", "build", ".")
-	cmd.Dir = tmpDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("generated code with patch-only does not compile:\n%s\n%s", err, output)
-	}
-}
-
-func TestGenerate_PatchWithEnvelopeCompilesAsPackage(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions:     types.Convention{Layout: "flat", ResponseFormat: "envelope"},
-		OutputNamespace: "internal/api",
-		Entities: []types.Entity{
-			{Name: "Widget", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-				{Name: "data", Type: types.FieldTypeJsonb, Optional: true},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "widgets",
-				Entity:     "Widget",
-				Operations: []types.Operation{types.OpRead, types.OpPatch},
-				Patchable:  []string{"name", "data"},
-			},
-		},
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	tmpDir := t.TempDir()
-	goMod := "module testpkg\n\ngo 1.22\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-		t.Fatalf("writing go.mod: %v", err)
-	}
-
-	for _, f := range files {
-		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
-		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-			t.Fatalf("writing %s: %v", f.Path, err)
-		}
-	}
-
-	cmd := exec.Command("go", "build", ".")
-	cmd.Dir = tmpDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("generated code with patch+envelope does not compile:\n%s\n%s", err, output)
-	}
-}
-
-func TestGenerate_PatchWithTimestampFieldCompilesAsPackage(t *testing.T) {
-	// When a patchable field is a timestamp, the patch request struct contains
-	// *time.Time, so the handler file must import "time". This test verifies
-	// that the time import is correctly included even without create/update/upsert
-	// (which would otherwise trigger the time import for computed field zeroing).
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Event", Fields: []types.Field{
-				{Name: "title", Type: types.FieldTypeString},
-				{Name: "scheduled_at", Type: types.FieldTypeTimestamp},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "events",
-				Entity:     "Event",
-				Operations: []types.Operation{types.OpRead, types.OpPatch},
-				Patchable:  []string{"scheduled_at"},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	tmpDir := t.TempDir()
-	goMod := "module testpkg\n\ngo 1.22\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-		t.Fatalf("writing go.mod: %v", err)
-	}
-
-	for _, f := range files {
-		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
-		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-			t.Fatalf("writing %s: %v", f.Path, err)
-		}
-	}
-
-	cmd := exec.Command("go", "build", ".")
-	cmd.Dir = tmpDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("generated code with patchable timestamp does not compile:\n%s\n%s", err, output)
-	}
-
-	// Also verify the handler contains *time.Time in the patch request struct.
-	handler := findFileContent(t, files, "internal/api/handler_events.go")
-	if !strings.Contains(handler, "*time.Time") {
-		t.Error("patch request struct missing *time.Time pointer field for timestamp patchable field")
-	}
-}
-
 func TestGenerate_PatchOpenAPIIncludes404Response(t *testing.T) {
 	// The patch handler performs a Get before merging. If the entity does not
 	// exist, it returns 404. The OpenAPI spec must declare this response.
@@ -7298,7 +3211,7 @@ func TestGenerate_PatchOpenAPIIncludes404Response(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -7325,112 +3238,6 @@ func TestGenerate_PatchOpenAPIIncludes404Response(t *testing.T) {
 	}
 }
 
-func TestGenerate_PatchEntityNamedExistingOrPatchCompiles(t *testing.T) {
-	// Checklist item 188: generatePatchMethod introduces hardcoded local
-	// variable names "existing" and "patch" which must be guarded in
-	// handlerScopeIdentifiers. An entity named "Existing" or "Patch" whose
-	// strings.ToLower produces "existing" or "patch" would collide with
-	// those locals without the guard.
-	g := &Generator{}
-
-	collNames := map[string]string{"Existing": "existings", "Patch": "patches"}
-	for _, name := range []string{"Existing", "Patch"} {
-		t.Run(name, func(t *testing.T) {
-			ctx := gen.Context{
-				Conventions: types.Convention{Layout: "flat"},
-				Entities: []types.Entity{
-					{Name: name, Fields: []types.Field{
-						{Name: "label", Type: types.FieldTypeString},
-					}},
-				},
-				Collections: []types.Collection{
-					{
-						Name:       collNames[name],
-						Entity:     name,
-						Operations: []types.Operation{types.OpRead, types.OpPatch},
-						Patchable:  []string{"label"},
-					},
-				},
-				OutputNamespace: "internal/api",
-			}
-
-			files, _, err := g.Generate(ctx)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			tmpDir := t.TempDir()
-			goMod := "module testpkg\n\ngo 1.22\n"
-			if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-				t.Fatalf("writing go.mod: %v", err)
-			}
-			for _, f := range files {
-				dst := filepath.Join(tmpDir, filepath.Base(f.Path))
-				if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-					t.Fatalf("writing %s: %v", f.Path, err)
-				}
-			}
-			cmd := exec.Command("go", "build", ".")
-			cmd.Dir = tmpDir
-			output, err := cmd.CombinedOutput()
-			if err != nil {
-				t.Fatalf("entity named %q with patch operation does not compile:\n%s\n%s", name, err, output)
-			}
-		})
-	}
-}
-
-func TestGenerate_UpsertEntityNamedCreatedCompiles(t *testing.T) {
-	// Checklist item 188: generateUpsertMethod introduces hardcoded local
-	// variable names "created" and "upsertKey" which must be guarded in
-	// handlerScopeIdentifiers. An entity named "Created" whose
-	// strings.ToLower produces "created" would collide with the return-value
-	// variable in the upsert handler without the guard.
-	g := &Generator{}
-
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Created", Fields: []types.Field{
-				{Name: "label", Type: types.FieldTypeString},
-				{Name: "key_field", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "createds",
-				Entity:     "Created",
-				Operations: []types.Operation{types.OpUpsert},
-				UpsertKey:  []string{"key_field"},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	tmpDir := t.TempDir()
-	goMod := "module testpkg\n\ngo 1.22\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-		t.Fatalf("writing go.mod: %v", err)
-	}
-	for _, f := range files {
-		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
-		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-			t.Fatalf("writing %s: %v", f.Path, err)
-		}
-	}
-	cmd := exec.Command("go", "build", ".")
-	cmd.Dir = tmpDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("entity named 'Created' with upsert operation does not compile:\n%s\n%s", err, output)
-	}
-}
-
 // --- Validation Middleware Tests ---
 
 func TestGenerate_ValidationMiddleware_Generated(t *testing.T) {
@@ -7439,7 +3246,7 @@ func TestGenerate_ValidationMiddleware_Generated(t *testing.T) {
 		ctx := basicContext()
 		ctx.Conventions.RequestValidation = "openapi-schema"
 
-		files, wiring, err := g.Generate(ctx)
+		files, wiring, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -7507,7 +3314,7 @@ func TestGenerate_ValidationMiddleware_NotGeneratedWhenNotSet(t *testing.T) {
 	g := &Generator{}
 	ctx := basicContext()
 
-	files, wiring, err := g.Generate(ctx)
+	files, wiring, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -7545,7 +3352,7 @@ func TestGenerate_ValidationMiddleware_NotGeneratedForReadOnly(t *testing.T) {
 		OutputNamespace: "internal/api",
 	}
 
-	files, wiring, err := g.Generate(ctx)
+	files, wiring, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -7567,7 +3374,7 @@ func TestGenerate_ValidationMiddleware_MethodFilter(t *testing.T) {
 		ctx := basicContext()
 		ctx.Conventions.RequestValidation = "openapi-schema"
 
-		files, _, err := g.Generate(ctx)
+		files, _, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -7601,7 +3408,7 @@ func TestGenerate_ValidationMiddleware_ErrorFormat(t *testing.T) {
 		ctx := basicContext()
 		ctx.Conventions.RequestValidation = "openapi-schema"
 
-		files, _, err := g.Generate(ctx)
+		files, _, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -7640,7 +3447,7 @@ func TestGenerate_ValidationMiddleware_BodyRestore(t *testing.T) {
 		ctx := basicContext()
 		ctx.Conventions.RequestValidation = "openapi-schema"
 
-		files, _, err := g.Generate(ctx)
+		files, _, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -7672,7 +3479,7 @@ func TestGenerate_ValidationMiddleware_WithEnvelope(t *testing.T) {
 	ctx.Conventions.ResponseFormat = "envelope"
 	ctx.ModuleName = "github.com/test/svc"
 
-	files, wiring, err := g.Generate(ctx)
+	files, wiring, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -7703,7 +3510,7 @@ func TestGenerate_ValidationMiddleware_AuthBypass(t *testing.T) {
 	ctx := basicContext()
 	ctx.Conventions.RequestValidation = "openapi-schema"
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -7721,264 +3528,6 @@ func TestGenerate_ValidationMiddleware_AuthBypass(t *testing.T) {
 
 	if !strings.Contains(content, "NoopAuthenticationFunc") {
 		t.Error("validation middleware should use NoopAuthenticationFunc to skip auth during validation")
-	}
-}
-
-func TestGenerate_ScopedReadVerifiesScope(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC24-T01 The emitted handlers check a scoped record against its parent", func(t *testing.T) {
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat"},
-			Entities: []types.Entity{
-				{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-				{Name: "User", Fields: []types.Field{
-					{Name: "email", Type: types.FieldTypeString},
-					{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-				}},
-			},
-			Collections: []types.Collection{
-				{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
-				{
-					Name:       "users",
-					Entity:     "User",
-					Operations: []types.Operation{types.OpRead},
-					Scope:      map[string]string{"org_id": "Organization"},
-				},
-			},
-			OutputNamespace: "internal/api",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_users.go")
-		// Read handler for scoped collection must verify scope field via
-		// map[string]any lookup so the original storage value (with metadata)
-		// is preserved for the response.
-		if !strings.Contains(handler, `scopeVal, _ := scopeMap["org_id"].(string)`) {
-			t.Error("scoped Read handler must extract scope field from map[string]any")
-		}
-		if !strings.Contains(handler, `scopeVal != r.PathValue("org_id")`) {
-			t.Error("scoped Read handler must verify scope value matches URL path parameter")
-		}
-		// Must return 404 on scope mismatch.
-		if !strings.Contains(handler, `NotFound("User", id)`) {
-			t.Error("scoped Read handler must return NotFound on scope mismatch")
-		}
-		// Must convert via JSON roundtrip to map for scope field lookup.
-		if !strings.Contains(handler, "json.Marshal(existing)") {
-			t.Error("scoped Read handler must marshal Get result for scope check")
-		}
-		// After scope check, must convert storage type to API type via JSON
-		// unmarshal of scopeData, stripping storage metadata for consistent responses.
-		if !strings.Contains(handler, "json.Unmarshal(scopeData, &") {
-			t.Error("scoped Read handler must unmarshal scopeData into API type")
-		}
-	})
-}
-
-func TestGenerate_ScopedUpdateVerifiesScope(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC24-T02 The emitted update handler checks the parent scope", func(t *testing.T) {
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat"},
-			Entities: []types.Entity{
-				{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-				{Name: "User", Fields: []types.Field{
-					{Name: "email", Type: types.FieldTypeString},
-					{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-				}},
-			},
-			Collections: []types.Collection{
-				{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
-				{
-					Name:       "users",
-					Entity:     "User",
-					Operations: []types.Operation{types.OpUpdate},
-					Scope:      map[string]string{"org_id": "Organization"},
-				},
-			},
-			OutputNamespace: "internal/api",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_users.go")
-		// Update handler for scoped collection must pre-fetch and verify scope
-		// using map[string]any approach (consistent with Read and Delete handlers).
-		if !strings.Contains(handler, `scopeVal != r.PathValue("org_id")`) {
-			t.Error("scoped Update handler must verify existing entity scope field matches URL path parameter")
-		}
-		// Must fetch existing entity before body decode to check scope.
-		if !strings.Contains(handler, `h.store.Get(r.Context(), "User", id)`) {
-			t.Error("scoped Update handler must call store.Get to verify scope before Replace")
-		}
-	})
-}
-
-func TestGenerate_ScopedPatchVerifiesScope(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC24-T03 The emitted patch handler checks the parent scope", func(t *testing.T) {
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat"},
-			Entities: []types.Entity{
-				{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-				{Name: "User", Fields: []types.Field{
-					{Name: "email", Type: types.FieldTypeString},
-					{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-				}},
-			},
-			Collections: []types.Collection{
-				{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
-				{
-					Name:       "users",
-					Entity:     "User",
-					Operations: []types.Operation{types.OpPatch},
-					Scope:      map[string]string{"org_id": "Organization"},
-					Patchable:  []string{"email"},
-				},
-			},
-			OutputNamespace: "internal/api",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_users.go")
-		// Patch handler already does store.Get + JSON roundtrip; scope check
-		// must be added after the unmarshal.
-		if !strings.Contains(handler, `user.OrgID != r.PathValue("org_id")`) {
-			t.Error("scoped Patch handler must verify entity scope field matches URL path parameter")
-		}
-	})
-}
-
-func TestGenerate_ScopedDeleteVerifiesScope(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC24-T04 The emitted delete handler checks the parent scope", func(t *testing.T) {
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat"},
-			Entities: []types.Entity{
-				{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-				{Name: "User", Fields: []types.Field{
-					{Name: "email", Type: types.FieldTypeString},
-					{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-				}},
-			},
-			Collections: []types.Collection{
-				{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
-				{
-					Name:       "users",
-					Entity:     "User",
-					Operations: []types.Operation{types.OpDelete},
-					Scope:      map[string]string{"org_id": "Organization"},
-				},
-			},
-			OutputNamespace: "internal/api",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_users.go")
-		// Delete handler for scoped collection must fetch and verify scope
-		// before performing the delete using map[string]any approach.
-		if !strings.Contains(handler, `scopeVal != r.PathValue("org_id")`) {
-			t.Error("scoped Delete handler must verify entity scope field matches URL path parameter")
-		}
-		if !strings.Contains(handler, `h.store.Get(r.Context(), "User", id)`) {
-			t.Error("scoped Delete handler must call store.Get to verify scope before Delete")
-		}
-		// Verify encoding/json is imported even when delete is the only operation.
-		if !strings.Contains(handler, `"encoding/json"`) {
-			t.Error("scoped delete-only collection must import encoding/json for scope verification")
-		}
-	})
-}
-
-func TestGenerate_UnscopedReadNoScopeCheck(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Item", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-		},
-		Collections: []types.Collection{
-			{Name: "items", Entity: "Item", Operations: []types.Operation{types.OpRead, types.OpDelete}},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_items.go")
-	// Unscoped collections must NOT have scope verification code.
-	if strings.Contains(handler, "scopeData") || strings.Contains(handler, "scopeMap") || strings.Contains(handler, "scopeVal") {
-		t.Error("unscoped collection handler must not contain scope verification code")
-	}
-	// Read fetches into 'existing' and converts to API type via JSON roundtrip.
-	if !strings.Contains(handler, `existing, err := h.store.Get(r.Context(), "Item", id)`) {
-		t.Error("unscoped Read must fetch into 'existing' variable")
-	}
-	if !strings.Contains(handler, "json.Marshal(existing)") {
-		t.Error("unscoped Read must marshal 'existing' for API type conversion")
-	}
-}
-
-func TestGenerate_ListStorageAPIConversionChecksErrors(t *testing.T) {
-	// Round 10 finding: List handler's storage→API JSON roundtrip must check
-	// marshal and unmarshal errors, matching the Read handler's error handling.
-	// Previously, List used `itemData, _ := json.Marshal(item)` (blank
-	// identifier) and `json.Unmarshal(itemData, &apiItem)` (uncaptured return),
-	// while Read properly checked both errors and returned InternalError.
-	g := &Generator{}
-	ctx := envelopeContext()
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-	listSection := extractMethodBody(handler, "func (h *WidgetsHandler) List(")
-	if listSection == "" {
-		t.Fatal("could not find List method in widgets handler")
-	}
-
-	// json.Marshal error must be captured (not discarded via blank identifier).
-	if strings.Contains(listSection, "itemData, _ := json.Marshal") {
-		t.Error("List handler must not discard json.Marshal error via blank identifier; must check err")
-	}
-	if !strings.Contains(listSection, "itemData, err := json.Marshal(item)") {
-		t.Error("List handler must capture json.Marshal error into err variable")
-	}
-
-	// json.Unmarshal error must be captured and checked.
-	if !strings.Contains(listSection, "if err := json.Unmarshal(itemData, &apiItem); err != nil") {
-		t.Error("List handler must check json.Unmarshal error")
-	}
-
-	// Both errors must produce InternalError responses.
-	// Count InternalError calls in the list section — there should be at least
-	// two: one for marshal failure and one for unmarshal failure.
-	marshalErrIdx := strings.Index(listSection, "itemData, err := json.Marshal(item)")
-	if marshalErrIdx == -1 {
-		t.Fatal("could not find json.Marshal call in List method")
-	}
-	afterMarshal := listSection[marshalErrIdx:]
-	if !strings.Contains(afterMarshal, `InternalError("internal error")`) {
-		t.Error("List handler must return InternalError on json.Marshal/Unmarshal failure")
 	}
 }
 
@@ -8048,84 +3597,6 @@ func TestIsServerManaged(t *testing.T) {
 	})
 }
 
-func TestGenerate_CreateRequestSchemaExcludesServerManagedFields(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC20-T01 The emitted create-request schema leaves out the fields a client cannot set", func(t *testing.T) {
-		g := &Generator{}
-		defaultVal := 1
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat"},
-			Entities: []types.Entity{
-				{Name: "Cluster", Fields: []types.Field{
-					{Name: "name", Type: types.FieldTypeString, Unique: true},
-					{Name: "spec", Type: types.FieldTypeJsonb},
-					{Name: "labels", Type: types.FieldTypeJsonb, Optional: true},
-					{Name: "status", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "status-aggregator"},
-					{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
-					{Name: "created_by", Type: types.FieldTypeString},
-					{Name: "updated_by", Type: types.FieldTypeString},
-					{Name: "created_time", Type: types.FieldTypeTimestamp},
-					{Name: "updated_time", Type: types.FieldTypeTimestamp},
-				}},
-			},
-			Collections: []types.Collection{
-				{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpRead}},
-			},
-			OutputNamespace: "internal/api",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		content := findFileContent(t, files, "internal/api/openapi.json")
-		var spec map[string]any
-		if err := json.Unmarshal([]byte(content), &spec); err != nil {
-			t.Fatalf("parse error: %v", err)
-		}
-
-		schemas := spec["components"].(map[string]any)["schemas"].(map[string]any)
-
-		// ClusterCreateRequest schema should exist.
-		createReqRaw, ok := schemas["ClusterCreateRequest"]
-		if !ok {
-			t.Fatal("ClusterCreateRequest schema not found in OpenAPI components")
-		}
-		createReq := createReqRaw.(map[string]any)
-		props := createReq["properties"].(map[string]any)
-
-		// Client-provided fields should be present.
-		for _, expected := range []string{"name", "spec", "labels"} {
-			if _, ok := props[expected]; !ok {
-				t.Errorf("ClusterCreateRequest schema missing client-provided field %q", expected)
-			}
-		}
-
-		// Server-managed fields should be absent.
-		for _, excluded := range []string{"status", "generation", "created_by", "updated_by", "created_time", "updated_time"} {
-			if _, ok := props[excluded]; ok {
-				t.Errorf("ClusterCreateRequest schema should not include server-managed field %q", excluded)
-			}
-		}
-
-		// Required array should only contain client-provided non-optional fields.
-		reqArr, _ := createReq["required"].([]any)
-		reqSet := make(map[string]bool)
-		for _, r := range reqArr {
-			reqSet[r.(string)] = true
-		}
-		if !reqSet["name"] {
-			t.Error("ClusterCreateRequest should list 'name' as required")
-		}
-		if !reqSet["spec"] {
-			t.Error("ClusterCreateRequest should list 'spec' as required")
-		}
-		if reqSet["labels"] {
-			t.Error("ClusterCreateRequest should not list optional field 'labels' as required")
-		}
-	})
-}
-
 func TestGenerate_CreateRequestSchemaExcludesScopeFields(t *testing.T) {
 	t.Run("ST-SUP-RC20-OC20-T02 A create-request schema leaves out the scope fields", func(t *testing.T) {
 		g := &Generator{}
@@ -8152,7 +3623,7 @@ func TestGenerate_CreateRequestSchemaExcludesScopeFields(t *testing.T) {
 			OutputNamespace: "internal/api",
 		}
 
-		files, _, err := g.Generate(ctx)
+		files, _, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -8209,7 +3680,7 @@ func TestGenerate_CreateRequestSchemaExcludesImplicitFields(t *testing.T) {
 			OutputNamespace: "internal/api",
 		}
 
-		files, _, err := g.Generate(ctx)
+		files, _, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -8276,7 +3747,7 @@ func TestGenerate_CreateRequestSchemaExcludesImplicitFieldAcrossCollections(t *t
 		OutputNamespace: "internal/api",
 	}
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -8302,689 +3773,13 @@ func TestGenerate_CreateRequestSchemaExcludesImplicitFieldAcrossCollections(t *t
 	}
 }
 
-func TestGenerate_PostRefPointsToCreateRequest(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC20-T04 The write operation points at the create-request schema", func(t *testing.T) {
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat"},
-			Entities: []types.Entity{
-				{Name: "Widget", Fields: []types.Field{
-					{Name: "name", Type: types.FieldTypeString},
-					{Name: "created_time", Type: types.FieldTypeTimestamp},
-				}},
-			},
-			Collections: []types.Collection{
-				{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpCreate}},
-			},
-			OutputNamespace: "internal/api",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		content := findFileContent(t, files, "internal/api/openapi.json")
-		var spec map[string]any
-		if err := json.Unmarshal([]byte(content), &spec); err != nil {
-			t.Fatalf("parse error: %v", err)
-		}
-
-		paths := spec["paths"].(map[string]any)
-		widgetsPath := paths["/widgets"].(map[string]any)
-		postOp := widgetsPath["post"].(map[string]any)
-		reqBody := postOp["requestBody"].(map[string]any)
-		reqContent := reqBody["content"].(map[string]any)
-		jsonSchema := reqContent["application/json"].(map[string]any)
-		schemaRef := jsonSchema["schema"].(map[string]any)["$ref"].(string)
-
-		if schemaRef != "#/components/schemas/WidgetCreateRequest" {
-			t.Errorf("POST request body $ref = %q, want #/components/schemas/WidgetCreateRequest", schemaRef)
-		}
-	})
-}
-
-func TestGenerate_CreateHandlerPopulatesServerManagedFields(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC17-T01 The emitted create handler discards client values for server-managed fields", func(t *testing.T) {
-		g := &Generator{}
-		defaultVal := 1
-		ctx := gen.Context{
-			Conventions: types.Convention{
-				Layout:         "flat",
-				ResponseFormat: "envelope",
-			},
-			Entities: []types.Entity{
-				{Name: "Cluster", Fields: []types.Field{
-					{Name: "name", Type: types.FieldTypeString},
-					{Name: "created_by", Type: types.FieldTypeString},
-					{Name: "updated_by", Type: types.FieldTypeString},
-					{Name: "created_time", Type: types.FieldTypeTimestamp},
-					{Name: "updated_time", Type: types.FieldTypeTimestamp},
-					{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
-					{Name: "status", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "agg"},
-				}},
-			},
-			Collections: []types.Collection{
-				{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpUpdate}},
-			},
-			OutputNamespace: "internal/api",
-			AuthPackage:     "github.com/example/svc/internal/auth",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_clusters.go")
-
-		// Create handler must clear server-managed fields.
-		if !strings.Contains(handler, "cluster.CreatedBy = \"\"") {
-			t.Error("create handler must clear created_by")
-		}
-		if !strings.Contains(handler, "cluster.UpdatedBy = \"\"") {
-			t.Error("create handler must clear updated_by")
-		}
-		if !strings.Contains(handler, "cluster.Generation = 0") {
-			t.Error("create handler must clear generation")
-		}
-		if !strings.Contains(handler, "cluster.Status = nil") {
-			t.Error("create handler must clear computed field status")
-		}
-
-		// Create handler must populate server-managed fields from auth context,
-		// preferring Attributes["email"] with UserID fallback.
-		if !strings.Contains(handler, "auth.IdentityFromContext(r.Context())") {
-			t.Error("create handler must extract identity from auth context")
-		}
-		if !strings.Contains(handler, `authID.Attributes["email"]`) {
-			t.Error("create handler must check Attributes[\"email\"] for created_by/updated_by")
-		}
-		if !strings.Contains(handler, "cluster.CreatedBy = email") {
-			t.Error("create handler must set created_by from email attribute")
-		}
-		if !strings.Contains(handler, "cluster.UpdatedBy = email") {
-			t.Error("create handler must set updated_by from email attribute")
-		}
-		if !strings.Contains(handler, "cluster.CreatedBy = authID.UserID") {
-			t.Error("create handler must fall back to UserID for created_by")
-		}
-		if !strings.Contains(handler, "cluster.UpdatedBy = authID.UserID") {
-			t.Error("create handler must fall back to UserID for updated_by")
-		}
-
-		// Create handler must populate timestamps.
-		if !strings.Contains(handler, "cluster.CreatedTime = time.Now()") {
-			t.Error("create handler must set created_time to time.Now()")
-		}
-		if !strings.Contains(handler, "cluster.UpdatedTime = time.Now()") {
-			t.Error("create handler must set updated_time to time.Now()")
-		}
-
-		// Create handler must set generation from default.
-		if !strings.Contains(handler, "cluster.Generation = 1") {
-			t.Error("create handler must set generation from field default value")
-		}
-
-		// Update handler must set updated_by and updated_time, and increment generation.
-		updateStart := strings.Index(handler, "func (h *ClustersHandler) Update(")
-		if updateStart == -1 {
-			t.Fatal("Update method not found")
-		}
-		updateSection := handler[updateStart:]
-		if !strings.Contains(updateSection, `authID.Attributes["email"]`) {
-			t.Error("update handler must check Attributes[\"email\"] for updated_by")
-		}
-		if !strings.Contains(updateSection, "cluster.UpdatedBy = email") {
-			t.Error("update handler must set updated_by from email attribute")
-		}
-		if !strings.Contains(updateSection, "cluster.UpdatedBy = authID.UserID") {
-			t.Error("update handler must fall back to UserID for updated_by")
-		}
-		if !strings.Contains(updateSection, "cluster.UpdatedTime = time.Now()") {
-			t.Error("update handler must set updated_time to time.Now()")
-		}
-		if !strings.Contains(updateSection, "cluster.Generation = existingTyped.Generation + 1") {
-			t.Error("update handler must increment generation from existing entity value")
-		}
-	})
-}
-
-func TestGenerate_PatchHandlerRecordsAuditFields(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC16-T01 The emitted patch handler records who changed the record and when", func(t *testing.T) {
-		g := &Generator{}
-		defaultVal := 1
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat"},
-			Entities: []types.Entity{
-				{Name: "Cluster", Fields: []types.Field{
-					{Name: "name", Type: types.FieldTypeString},
-					{Name: "spec", Type: types.FieldTypeJsonb},
-					{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
-					{Name: "created_by", Type: types.FieldTypeString},
-					{Name: "updated_by", Type: types.FieldTypeString},
-					{Name: "created_time", Type: types.FieldTypeTimestamp},
-					{Name: "updated_time", Type: types.FieldTypeTimestamp},
-				}},
-			},
-			Collections: []types.Collection{
-				{
-					Name:       "clusters",
-					Entity:     "Cluster",
-					Operations: []types.Operation{types.OpRead, types.OpPatch},
-					Patchable:  []string{"spec"},
-				},
-			},
-			OutputNamespace: "internal/api",
-			AuthPackage:     "github.com/example/svc/internal/auth",
-			ModuleName:      "github.com/example/svc",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_clusters.go")
-		patchStart := strings.Index(handler, "func (h *ClustersHandler) Patch(")
-		if patchStart == -1 {
-			t.Fatal("Patch method not found")
-		}
-		patchSection := handler[patchStart:]
-
-		// The patch handler must record who changed the record and when.
-		if !strings.Contains(patchSection, `authID.Attributes["email"]`) {
-			t.Error("patch handler must check Attributes[\"email\"] for updated_by")
-		}
-		if !strings.Contains(patchSection, "cluster.UpdatedBy = email") {
-			t.Error("patch handler must set updated_by from email attribute")
-		}
-		if !strings.Contains(patchSection, "cluster.UpdatedBy = authID.UserID") {
-			t.Error("patch handler must fall back to UserID for updated_by")
-		}
-		if !strings.Contains(patchSection, "cluster.UpdatedTime = time.Now()") {
-			t.Error("patch handler must set updated_time to time.Now()")
-		}
-
-		// The audit fields must be set after the merge, so a client value in the
-		// patch request cannot win.
-		applyIndex := strings.Index(patchSection, "if patch.Spec != nil")
-		auditIndex := strings.Index(patchSection, "cluster.UpdatedTime = time.Now()")
-		if applyIndex == -1 || auditIndex < applyIndex {
-			t.Error("patch handler must set the audit fields after it applies the patch")
-		}
-
-		// A database trigger raises generation. The handler must not raise it, and
-		// must not rewrite the create-only fields it already holds.
-		if strings.Contains(patchSection, "cluster.Generation =") {
-			t.Error("patch handler must leave generation to the database trigger")
-		}
-		if strings.Contains(patchSection, "cluster.CreatedBy =") || strings.Contains(patchSection, "cluster.CreatedTime =") {
-			t.Error("patch handler must not rewrite create-only fields")
-		}
-
-		// Compile the generated package to prove the time and auth imports are right.
-		tmpDir := t.TempDir()
-		authDir := filepath.Join(tmpDir, "internal", "auth")
-		if err := os.MkdirAll(authDir, 0o755); err != nil {
-			t.Fatalf("mkdir auth: %v", err)
-		}
-		authStub := `package auth
-
-import "context"
-
-type Identity struct {
-	UserID     string
-	Role       string
-	Attributes map[string]string
-}
-
-type contextKey struct{}
-
-func IdentityFromContext(ctx context.Context) Identity {
-	if id, ok := ctx.Value(contextKey{}).(Identity); ok {
-		return id
-	}
-	return Identity{}
-}
-`
-		if err := os.WriteFile(filepath.Join(authDir, "auth.go"), []byte(authStub), 0o644); err != nil {
-			t.Fatalf("write auth stub: %v", err)
-		}
-		for _, f := range files {
-			fp := filepath.Join(tmpDir, f.Path)
-			if err := os.MkdirAll(filepath.Dir(fp), 0o755); err != nil {
-				t.Fatalf("mkdir: %v", err)
-			}
-			if err := os.WriteFile(fp, f.Bytes(), 0o644); err != nil {
-				t.Fatalf("write: %v", err)
-			}
-		}
-		goMod := "module github.com/example/svc\n\ngo 1.23\n"
-		if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0o644); err != nil {
-			t.Fatalf("write go.mod: %v", err)
-		}
-		cmd := exec.Command("go", "build", "./...")
-		cmd.Dir = tmpDir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("generated patch handler does not compile:\n%s", out)
-		}
-	})
-}
-
-func TestGenerate_KindFieldValidation(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC19-T01 The emitted handlers refuse a body whose kind is not the entity", func(t *testing.T) {
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat"},
-			Entities: []types.Entity{
-				{Name: "Widget", Fields: []types.Field{
-					{Name: "name", Type: types.FieldTypeString},
-				}},
-			},
-			Collections: []types.Collection{
-				{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpCreate}},
-			},
-			OutputNamespace: "internal/api",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-		// Create handler must validate kind field.
-		if !strings.Contains(handler, `rawMap["kind"]`) {
-			t.Error("create handler must check for 'kind' field in request body")
-		}
-		if !strings.Contains(handler, `kind != "Widget"`) {
-			t.Error("create handler must validate kind against entity name 'Widget'")
-		}
-		if !strings.Contains(handler, `BadRequest("kind must be Widget")`) {
-			t.Error("create handler must return BadRequest for wrong kind value")
-		}
-		// The kind validation must reject non-string values (e.g., kind: 42,
-		// kind: true, kind: [1]) — these are "present and wrong" per the spec.
-		// The generated condition must use err != nil || kind != "Entity" so that
-		// JSON unmarshal failures (non-string types) also produce a 400.
-		if strings.Contains(handler, `err == nil && kind != "Widget"`) {
-			t.Error("kind validation must use 'err != nil || kind != Entity' to reject non-string values, not 'err == nil && kind != Entity'")
-		}
-		if !strings.Contains(handler, `err != nil || kind != "Widget"`) {
-			t.Error("kind validation must use 'err != nil || kind != Entity' to reject non-string kind values")
-		}
-	})
-}
-
-func TestGenerate_ServerManagedFieldsCompilesAsPackage(t *testing.T) {
-	g := &Generator{}
-	defaultVal := 1
-	ctx := gen.Context{
-		Conventions: types.Convention{
-			Layout:         "flat",
-			ResponseFormat: "envelope",
-		},
-		Entities: []types.Entity{
-			{Name: "Cluster", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString, Unique: true},
-				{Name: "spec", Type: types.FieldTypeJsonb},
-				{Name: "labels", Type: types.FieldTypeJsonb, Optional: true},
-				{Name: "status", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "agg"},
-				{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
-				{Name: "created_by", Type: types.FieldTypeString},
-				{Name: "updated_by", Type: types.FieldTypeString},
-				{Name: "created_time", Type: types.FieldTypeTimestamp},
-				{Name: "updated_time", Type: types.FieldTypeTimestamp},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{
-				types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList,
-			}},
-		},
-		OutputNamespace: "internal/api",
-		AuthPackage:     "github.com/example/svc/internal/auth",
-		ModuleName:      "github.com/example/svc",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Write all generated files to a temp directory and compile them.
-	tmpDir := t.TempDir()
-	apiDir := filepath.Join(tmpDir, "internal", "api")
-	if err := os.MkdirAll(apiDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-
-	// Create a stub auth package.
-	authDir := filepath.Join(tmpDir, "internal", "auth")
-	if err := os.MkdirAll(authDir, 0o755); err != nil {
-		t.Fatalf("mkdir auth: %v", err)
-	}
-	authStub := `package auth
-
-import "context"
-
-type Identity struct {
-	UserID     string
-	Role       string
-	Attributes map[string]string
-}
-
-type contextKey struct{}
-
-func IdentityFromContext(ctx context.Context) Identity {
-	if id, ok := ctx.Value(contextKey{}).(Identity); ok {
-		return id
-	}
-	return Identity{}
-}
-`
-	if err := os.WriteFile(filepath.Join(authDir, "auth.go"), []byte(authStub), 0o644); err != nil {
-		t.Fatalf("write auth stub: %v", err)
-	}
-
-	for _, f := range files {
-		fp := filepath.Join(tmpDir, f.Path)
-		if err := os.MkdirAll(filepath.Dir(fp), 0o755); err != nil {
-			t.Fatalf("mkdir: %v", err)
-		}
-		rendered := f.Bytes()
-		if err := os.WriteFile(fp, rendered, 0o644); err != nil {
-			t.Fatalf("write: %v", err)
-		}
-	}
-
-	// go.mod
-	goMod := "module github.com/example/svc\n\ngo 1.23\n\nrequire github.com/google/uuid v1.6.0\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0o644); err != nil {
-		t.Fatalf("write go.mod: %v", err)
-	}
-
-	// go.sum (run go mod tidy)
-	cmd := exec.Command("go", "mod", "tidy")
-	cmd.Dir = tmpDir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("go mod tidy: %v\n%s", err, out)
-	}
-
-	// Compile.
-	cmd = exec.Command("go", "build", "./...")
-	cmd.Dir = tmpDir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("go build failed:\n%s", out)
-	}
-}
-
-func TestGenerate_UpsertKindValidationAndServerManagedFields(t *testing.T) {
-	check := func(t *testing.T) {
-		g := &Generator{}
-		defaultVal := 1
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat", ResponseFormat: "envelope"},
-			Entities: []types.Entity{
-				{Name: "Setting", Fields: []types.Field{
-					{Name: "key", Type: types.FieldTypeString},
-					{Name: "value", Type: types.FieldTypeString},
-					{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
-					{Name: "updated_time", Type: types.FieldTypeTimestamp},
-				}},
-			},
-			Collections: []types.Collection{
-				{
-					Name:       "settings",
-					Entity:     "Setting",
-					Operations: []types.Operation{types.OpUpsert, types.OpRead},
-					UpsertKey:  []string{"key"},
-				},
-			},
-			OutputNamespace: "internal/api",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_settings.go")
-
-		// Upsert must validate kind field.
-		if !strings.Contains(handler, `rawMap["kind"]`) {
-			t.Error("upsert handler must check for 'kind' field in request body")
-		}
-		if !strings.Contains(handler, `kind != "Setting"`) {
-			t.Error("upsert handler must validate kind against entity name")
-		}
-
-		// Upsert must clear server-managed fields.
-		if !strings.Contains(handler, "setting.Generation = 0") {
-			t.Error("upsert handler must clear generation field")
-		}
-
-		// Upsert must populate server-managed fields.
-		if !strings.Contains(handler, "setting.Generation = 1") {
-			t.Error("upsert handler must set generation from field default")
-		}
-		if !strings.Contains(handler, "setting.UpdatedTime = time.Now()") {
-			t.Error("upsert handler must set updated_time")
-		}
-
-		// Upsert must use io.ReadAll for body reading.
-		if !strings.Contains(handler, "bodyBytes, err := readBody(w, r)") {
-			t.Error("upsert handler must read the body through readBody, at most MaxRequestBody bytes")
-		}
-		// Kind validation must reject non-string values (checklist item 234).
-		if !strings.Contains(handler, `err != nil || kind != "Setting"`) {
-			t.Error("upsert handler kind validation must use 'err != nil || kind != Entity' to reject non-string kind values")
-		}
-	}
-	t.Run("ST-SUP-RC20-OC17-T03 The emitted upsert handler resets the server fields", check)
-	t.Run("ST-SUP-RC20-OC19-T02 The emitted upsert handler checks the kind", check)
-}
-
-func TestGenerate_UpdateHandlerKindValidation(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC19-T03 The emitted update handler checks the body kind", func(t *testing.T) {
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat"},
-			Entities: []types.Entity{
-				{Name: "Widget", Fields: []types.Field{
-					{Name: "name", Type: types.FieldTypeString},
-				}},
-			},
-			Collections: []types.Collection{
-				{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpUpdate}},
-			},
-			OutputNamespace: "internal/api",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-		// Update handler must use io.ReadAll for body reading.
-		if !strings.Contains(handler, "bodyBytes, err := readBody(w, r)") {
-			t.Error("update handler must read the body through readBody, at most MaxRequestBody bytes")
-		}
-		// Update handler must validate kind field.
-		if !strings.Contains(handler, `rawMap["kind"]`) {
-			t.Error("update handler must check for 'kind' field in request body")
-		}
-		if !strings.Contains(handler, `kind != "Widget"`) {
-			t.Error("update handler must validate kind against entity name 'Widget'")
-		}
-		if !strings.Contains(handler, `BadRequest("kind must be Widget")`) {
-			t.Error("update handler must return BadRequest for wrong kind value")
-		}
-		// Update handler must use json.Unmarshal (not json.NewDecoder).
-		if !strings.Contains(handler, "json.Unmarshal(bodyBytes") {
-			t.Error("update handler must use json.Unmarshal for body decoding")
-		}
-		// Kind validation must reject non-string values (checklist item 234).
-		if !strings.Contains(handler, `err != nil || kind != "Widget"`) {
-			t.Error("update handler kind validation must use 'err != nil || kind != Entity' to reject non-string kind values")
-		}
-	})
-}
-
-func TestGenerate_UpdateHandlerPreservesCreateOnlyFields(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC18-T01 The emitted update handler keeps create-only values and raises the generation", func(t *testing.T) {
-		g := &Generator{}
-		defaultVal := 1
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat", ResponseFormat: "envelope"},
-			Entities: []types.Entity{
-				{Name: "Cluster", Fields: []types.Field{
-					{Name: "name", Type: types.FieldTypeString},
-					{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
-					{Name: "created_by", Type: types.FieldTypeString},
-					{Name: "updated_by", Type: types.FieldTypeString},
-					{Name: "created_time", Type: types.FieldTypeTimestamp},
-					{Name: "updated_time", Type: types.FieldTypeTimestamp},
-				}},
-			},
-			Collections: []types.Collection{
-				{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{
-					types.OpCreate, types.OpUpdate, types.OpRead,
-				}},
-			},
-			OutputNamespace: "internal/api",
-			AuthPackage:     "github.com/example/svc/internal/auth",
-			ModuleName:      "github.com/example/svc",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_clusters.go")
-
-		// Update handler must always fetch existing entity for preserving
-		// create-only fields.
-		if !strings.Contains(handler, `h.store.Get(r.Context(), "Cluster", id)`) {
-			t.Error("update handler must fetch existing entity")
-		}
-
-		// Update handler must clear server-managed fields to prevent client
-		// from setting them.
-		if !strings.Contains(handler, "cluster.Generation = 0") {
-			t.Error("update handler must clear generation field")
-		}
-		if !strings.Contains(handler, `cluster.CreatedBy = ""`) {
-			t.Error("update handler must clear created_by field")
-		}
-
-		// Update handler must set updated_by from auth context, preferring email.
-		if !strings.Contains(handler, `authID.Attributes["email"]`) {
-			t.Error("update handler must check Attributes[\"email\"] for updated_by")
-		}
-		if !strings.Contains(handler, "cluster.UpdatedBy = email") {
-			t.Error("update handler must set updated_by from email attribute")
-		}
-		if !strings.Contains(handler, "cluster.UpdatedBy = authID.UserID") {
-			t.Error("update handler must fall back to UserID for updated_by")
-		}
-		// Update handler must set updated_time.
-		if !strings.Contains(handler, "cluster.UpdatedTime = time.Now()") {
-			t.Error("update handler must set updated_time to time.Now()")
-		}
-
-		// Update handler must restore create-only fields from existing entity
-		// via JSON roundtrip, not leave them zeroed.
-		if !strings.Contains(handler, "cluster.CreatedBy = existingTyped.CreatedBy") {
-			t.Error("update handler must restore created_by from existing entity")
-		}
-		if !strings.Contains(handler, "cluster.CreatedTime = existingTyped.CreatedTime") {
-			t.Error("update handler must restore created_time from existing entity")
-		}
-		// Update handler must increment generation from existing value, not from zero.
-		if !strings.Contains(handler, "cluster.Generation = existingTyped.Generation + 1") {
-			t.Error("update handler must increment generation from existing entity value")
-		}
-		// Update handler must NOT contain generation++ (which increments from zero).
-		if strings.Contains(handler, "cluster.Generation++") {
-			t.Error("update handler must not use generation++ (increments from cleared zero value)")
-		}
-	})
-}
-
-func TestGenerate_PatchHandlerKindValidation(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC19-T04 The emitted patch handler checks the body kind", func(t *testing.T) {
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat"},
-			Entities: []types.Entity{
-				{Name: "Widget", Fields: []types.Field{
-					{Name: "name", Type: types.FieldTypeString},
-					{Name: "color", Type: types.FieldTypeString},
-				}},
-			},
-			Collections: []types.Collection{
-				{
-					Name:       "widgets",
-					Entity:     "Widget",
-					Operations: []types.Operation{types.OpRead, types.OpPatch},
-					Patchable:  []string{"color"},
-				},
-			},
-			OutputNamespace: "internal/api",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-		// Patch handler must use io.ReadAll for body reading (the PatchRequest
-		// struct does not include "kind", so json.NewDecoder would silently
-		// discard it — checklist item 235).
-		if !strings.Contains(handler, "bodyBytes, err := readBody(w, r)") {
-			t.Error("patch handler must read the body through readBody, at most MaxRequestBody bytes")
-		}
-		// Patch handler must validate kind field.
-		if !strings.Contains(handler, `rawMap["kind"]`) {
-			t.Error("patch handler must check for 'kind' field in request body")
-		}
-		if !strings.Contains(handler, `kind != "Widget"`) {
-			t.Error("patch handler must validate kind against entity name 'Widget'")
-		}
-		if !strings.Contains(handler, `BadRequest("kind must be Widget")`) {
-			t.Error("patch handler must return BadRequest for wrong kind value")
-		}
-		// Patch handler must use json.Unmarshal from buffered bytes (not json.NewDecoder).
-		if !strings.Contains(handler, "json.Unmarshal(bodyBytes") {
-			t.Error("patch handler must use json.Unmarshal for body decoding")
-		}
-		// Kind validation must reject non-string values (checklist item 234).
-		if !strings.Contains(handler, `err != nil || kind != "Widget"`) {
-			t.Error("patch handler kind validation must use 'err != nil || kind != Entity' to reject non-string kind values")
-		}
-		// Patch handler must NOT use json.NewDecoder(r.Body) — the body was already
-		// consumed by io.ReadAll.
-		if strings.Contains(handler, "json.NewDecoder(r.Body)") {
-			t.Error("patch handler must not use json.NewDecoder(r.Body) — body is read via io.ReadAll")
-		}
-	})
-}
-
 func TestGenerate_CORSMiddleware_Generated(t *testing.T) {
 	t.Run("ST-SUP-RC20-OC27-T01 The emitted CORS middleware reads the environment and answers a preflight", func(t *testing.T) {
 		g := &Generator{}
 		ctx := basicContext()
 		ctx.Conventions.CORS = "enabled"
 
-		files, wiring, err := g.Generate(ctx)
+		files, wiring, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -9082,7 +3877,7 @@ func TestGenerate_CORSMiddleware_NotGeneratedWhenEmpty(t *testing.T) {
 	ctx := basicContext()
 	// CORS is empty by default in basicContext — should not generate cors.go.
 
-	files, wiring, err := g.Generate(ctx)
+	files, wiring, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -9103,7 +3898,7 @@ func TestGenerate_CORSMiddleware_NotGeneratedWhenUnset(t *testing.T) {
 	ctx := basicContext()
 	ctx.Conventions.CORS = ""
 
-	files, wiring, err := g.Generate(ctx)
+	files, wiring, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -9125,7 +3920,7 @@ func TestGenerate_CORSMiddleware_CompilesWithHandler(t *testing.T) {
 	ctx := basicContext()
 	ctx.Conventions.CORS = "enabled"
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -9150,1627 +3945,6 @@ func TestGenerate_CORSMiddleware_CompilesWithHandler(t *testing.T) {
 	}
 }
 
-func TestGenerate_CreateHandlerSetsImplicitFields(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC23-T01 The emitted handlers force the collection's implicit field values", func(t *testing.T) {
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{
-				Layout:         "flat",
-				ResponseFormat: "bare",
-			},
-			Entities: []types.Entity{
-				{Name: "AdapterStatus", Fields: []types.Field{
-					{Name: "resource_type", Type: types.FieldTypeString},
-					{Name: "resource_id", Type: types.FieldTypeString},
-					{Name: "status", Type: types.FieldTypeString},
-				}},
-			},
-			Collections: []types.Collection{
-				{
-					Name:   "cluster-statuses",
-					Entity: "AdapterStatus",
-					Implicit: map[string]string{
-						"resource_type": "Cluster",
-					},
-					Operations: []types.Operation{types.OpCreate},
-				},
-			},
-			OutputNamespace: "internal/api",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_cluster_statuses.go")
-
-		// Verify implicit field assignment is present.
-		if !strings.Contains(handler, `adapterstatus.ResourceType = "Cluster"`) {
-			t.Error("create handler must set implicit field resource_type to \"Cluster\"")
-		}
-
-		// Verify the assignment is after decode and before store.Create call.
-		decodeIdx := strings.Index(handler, "json.Unmarshal(bodyBytes")
-		implicitIdx := strings.Index(handler, `adapterstatus.ResourceType = "Cluster"`)
-		storeIdx := strings.Index(handler, `h.store.Create(r.Context()`)
-		if decodeIdx == -1 || implicitIdx == -1 || storeIdx == -1 {
-			t.Fatal("could not find decode, implicit, or store.Create in handler")
-		}
-		if implicitIdx < decodeIdx {
-			t.Error("implicit field assignment must come after body decode")
-		}
-		if implicitIdx > storeIdx {
-			t.Error("implicit field assignment must come before store.Create call")
-		}
-	})
-}
-
-func TestGenerate_UpsertHandlerSetsImplicitFields(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC23-T02 The emitted upsert handler forces the implicit values", func(t *testing.T) {
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{
-				Layout:         "flat",
-				ResponseFormat: "bare",
-			},
-			Entities: []types.Entity{
-				{Name: "AdapterStatus", Fields: []types.Field{
-					{Name: "resource_type", Type: types.FieldTypeString},
-					{Name: "resource_id", Type: types.FieldTypeString},
-					{Name: "status", Type: types.FieldTypeString},
-				}},
-			},
-			Collections: []types.Collection{
-				{
-					Name:   "cluster-statuses",
-					Entity: "AdapterStatus",
-					Implicit: map[string]string{
-						"resource_type": "Cluster",
-					},
-					Operations: []types.Operation{types.OpUpsert},
-					UpsertKey:  []string{"resource_type", "resource_id"},
-				},
-			},
-			OutputNamespace: "internal/api",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_cluster_statuses.go")
-
-		// Verify implicit field assignment is present.
-		if !strings.Contains(handler, `adapterstatus.ResourceType = "Cluster"`) {
-			t.Error("upsert handler must set implicit field resource_type to \"Cluster\"")
-		}
-
-		// Verify the assignment is after decode and before store.Upsert call.
-		decodeIdx := strings.Index(handler, "json.Unmarshal(bodyBytes")
-		implicitIdx := strings.Index(handler, `adapterstatus.ResourceType = "Cluster"`)
-		storeIdx := strings.Index(handler, `h.store.Upsert(r.Context()`)
-		if decodeIdx == -1 || implicitIdx == -1 || storeIdx == -1 {
-			t.Fatal("could not find decode, implicit, or store.Upsert in handler")
-		}
-		if implicitIdx < decodeIdx {
-			t.Error("implicit field assignment must come after body decode")
-		}
-		if implicitIdx > storeIdx {
-			t.Error("implicit field assignment must come before store.Upsert call")
-		}
-	})
-}
-
-func TestGenerate_ImplicitFieldsMultipleKeysSorted(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{
-			Layout:         "flat",
-			ResponseFormat: "bare",
-		},
-		Entities: []types.Entity{
-			{Name: "Setting", Fields: []types.Field{
-				{Name: "category", Type: types.FieldTypeString},
-				{Name: "app_name", Type: types.FieldTypeString},
-				{Name: "value", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:   "app-settings",
-				Entity: "Setting",
-				Implicit: map[string]string{
-					"category": "config",
-					"app_name": "myapp",
-				},
-				Operations: []types.Operation{types.OpCreate},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_app_settings.go")
-
-	// Both implicit fields must be set.
-	if !strings.Contains(handler, `setting.AppName = "myapp"`) {
-		t.Error("create handler must set implicit field app_name")
-	}
-	if !strings.Contains(handler, `setting.Category = "config"`) {
-		t.Error("create handler must set implicit field category")
-	}
-
-	// app_name comes before category alphabetically, so its assignment
-	// should appear first in the generated code (deterministic output).
-	appIdx := strings.Index(handler, `setting.AppName = "myapp"`)
-	catIdx := strings.Index(handler, `setting.Category = "config"`)
-	if appIdx > catIdx {
-		t.Error("implicit fields must be emitted in sorted key order (app_name before category)")
-	}
-}
-
-func TestGenerate_NoImplicitFieldsNoExtraCode(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{
-			Layout:         "flat",
-			ResponseFormat: "bare",
-		},
-		Entities: []types.Entity{
-			{Name: "Widget", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "widgets",
-				Entity:     "Widget",
-				Operations: []types.Operation{types.OpCreate},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-	// When no implicit fields are configured, the handler should not
-	// contain any implicit-style field assignments between server-managed
-	// field population and the store call.
-	createStart := strings.Index(handler, "func (h *WidgetsHandler) Create(")
-	if createStart == -1 {
-		t.Fatal("Create method not found")
-	}
-	createSection := handler[createStart:]
-	storeIdx := strings.Index(createSection, "h.store.Create(")
-	if storeIdx == -1 {
-		t.Fatal("store.Create call not found")
-	}
-	// With no implicit, there should be no hardcoded string assignments
-	// like `widget.SomeField = "value"` pattern between server-managed
-	// and store call. The test simply confirms no regression.
-	beforeStore := createSection[:storeIdx]
-	// Confirm we don't see a spurious quoted assignment that would
-	// indicate implicit logic was emitted when it shouldn't be.
-	// Server-managed assignments like `= time.Now()` or `= 0` are fine.
-	// We check there is no `= "` pattern (quoted string assignment) which
-	// is the signature of implicit field injection.
-	lines := strings.Split(beforeStore, "\n")
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "widget.") && strings.Contains(trimmed, "= \"") {
-			t.Errorf("unexpected implicit-style assignment in handler with no implicit fields: %s", trimmed)
-		}
-	}
-}
-
-func TestGenerate_ListHandlerPopulatesImplicitFilters(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC23-T03 The emitted list handler filters on the implicit values", func(t *testing.T) {
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{
-				Layout:         "flat",
-				ResponseFormat: "bare",
-			},
-			Entities: []types.Entity{
-				{Name: "AdapterStatus", Fields: []types.Field{
-					{Name: "resource_type", Type: types.FieldTypeString},
-					{Name: "resource_id", Type: types.FieldTypeString},
-					{Name: "status", Type: types.FieldTypeString},
-				}},
-			},
-			Collections: []types.Collection{
-				{
-					Name:   "cluster-statuses",
-					Entity: "AdapterStatus",
-					Implicit: map[string]string{
-						"resource_type": "Cluster",
-					},
-					Operations: []types.Operation{types.OpList},
-				},
-			},
-			OutputNamespace: "internal/api",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		handler := findFileContent(t, files, "internal/api/handler_cluster_statuses.go")
-
-		// The list handler must populate ImplicitFilters in ListOptions.
-		if !strings.Contains(handler, `ImplicitFilters: map[string]string{`) {
-			t.Error("list handler must populate ImplicitFilters in ListOptions")
-		}
-		if !strings.Contains(handler, `"resource_type": "Cluster"`) {
-			t.Error("list handler must include resource_type: Cluster in ImplicitFilters")
-		}
-
-		// Verify the ImplicitFilters appear in the ListOptions initialization,
-		// not as standalone assignments.
-		optsIdx := strings.Index(handler, "opts := ListOptions{")
-		if optsIdx == -1 {
-			t.Fatal("ListOptions initialization not found")
-		}
-		filtersIdx := strings.Index(handler, `ImplicitFilters: map[string]string{`)
-		if filtersIdx == -1 {
-			t.Fatal("ImplicitFilters not found")
-		}
-		if filtersIdx < optsIdx {
-			t.Error("ImplicitFilters must be inside ListOptions initialization")
-		}
-	})
-}
-
-func TestGenerate_ListHandlerNoImplicitFiltersWhenEmpty(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{
-			Layout:         "flat",
-			ResponseFormat: "bare",
-		},
-		Entities: []types.Entity{
-			{Name: "Widget", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "widgets",
-				Entity:     "Widget",
-				Operations: []types.Operation{types.OpList},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
-
-	// When no implicit fields, ImplicitFilters should not appear in the
-	// ListOptions initialization.
-	if strings.Contains(handler, "ImplicitFilters") {
-		t.Error("list handler without implicit fields must not include ImplicitFilters")
-	}
-}
-
-func TestGenerate_ListHandlerImplicitFiltersSortedKeys(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{
-			Layout:         "flat",
-			ResponseFormat: "bare",
-		},
-		Entities: []types.Entity{
-			{Name: "AdapterStatus", Fields: []types.Field{
-				{Name: "resource_type", Type: types.FieldTypeString},
-				{Name: "category", Type: types.FieldTypeString},
-				{Name: "status", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:   "cluster-errors",
-				Entity: "AdapterStatus",
-				Implicit: map[string]string{
-					"resource_type": "Cluster",
-					"category":      "error",
-				},
-				Operations: []types.Operation{types.OpList},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_cluster_errors.go")
-
-	// Verify both implicit filter entries are present.
-	if !strings.Contains(handler, `"category": "error"`) {
-		t.Error("implicit filter must include category: error")
-	}
-	if !strings.Contains(handler, `"resource_type": "Cluster"`) {
-		t.Error("implicit filter must include resource_type: Cluster")
-	}
-
-	// Verify deterministic key order (category before resource_type).
-	catIdx := strings.Index(handler, `"category": "error"`)
-	rtIdx := strings.Index(handler, `"resource_type": "Cluster"`)
-	if catIdx == -1 || rtIdx == -1 {
-		t.Fatal("implicit filter entries not found")
-	}
-	if catIdx > rtIdx {
-		t.Error("implicit filter keys must be sorted (category before resource_type)")
-	}
-}
-
-func TestGenerate_ListHandlerImplicitFiltersWithScope(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{
-			Layout:         "flat",
-			ResponseFormat: "bare",
-		},
-		Entities: []types.Entity{
-			{Name: "Organization", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-			{Name: "AdapterStatus", Fields: []types.Field{
-				{Name: "resource_type", Type: types.FieldTypeString},
-				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
-				{Name: "status", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{
-				Name:       "organizations",
-				Entity:     "Organization",
-				Operations: []types.Operation{types.OpCreate, types.OpRead},
-			},
-			{
-				Name:   "org-cluster-statuses",
-				Entity: "AdapterStatus",
-				Scope:  map[string]string{"org_id": "Organization"},
-				Implicit: map[string]string{
-					"resource_type": "Cluster",
-				},
-				Operations: []types.Operation{types.OpList},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	handler := findFileContent(t, files, "internal/api/handler_org_cluster_statuses.go")
-
-	// Both scope and implicit filters must be present.
-	if !strings.Contains(handler, `ImplicitFilters: map[string]string{`) {
-		t.Error("handler with scope + implicit must include ImplicitFilters")
-	}
-	if !strings.Contains(handler, `"resource_type": "Cluster"`) {
-		t.Error("handler must include implicit filter resource_type: Cluster")
-	}
-	// Scope filtering is separate from ImplicitFilters — scope comes from
-	// path or query params, implicit is compile-time constant in ListOptions.
-	if !strings.Contains(handler, "scopeValue") {
-		t.Error("handler with scope must include scope value extraction")
-	}
-}
-
-func TestGenerate_BeforeUpsertSlot(t *testing.T) {
-	// Verify that a before_upsert slot binding fires on upsert operations
-	// with the same request shape as before_create (Input + Caller).
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Widget", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-				{Name: "count", Type: types.FieldTypeInt32},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{
-				types.OpUpsert,
-			}, UpsertKey: []string{"name"}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "before_upsert", Collection: "widgets", Gate: []string{"upsert-policy"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "github.com/myorg/svc",
-		SlotsPackage:    "internal/slots",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var handlerContent string
-	for _, f := range files {
-		if strings.Contains(f.Path, "handler_widgets.go") {
-			handlerContent = string(f.Content)
-		}
-	}
-	if handlerContent == "" {
-		t.Fatal("handler_widgets.go not found")
-	}
-
-	// Handler struct must have the before_upsert gate field.
-	if !strings.Contains(handlerContent, "beforeUpsertGate slots.BeforeUpsertSlot") {
-		t.Errorf("handler struct missing beforeUpsertGate field:\n%s", handlerContent)
-	}
-
-	// Upsert method must invoke the before_upsert gate.
-	if !strings.Contains(handlerContent, "h.beforeUpsertGate.Evaluate(r.Context()") {
-		t.Errorf("Upsert method missing before_upsert gate invocation:\n%s", handlerContent)
-	}
-
-	// Nil guard must be present.
-	if !strings.Contains(handlerContent, "if h.beforeUpsertGate != nil {") {
-		t.Errorf("before_upsert invocation missing nil guard:\n%s", handlerContent)
-	}
-
-	// Request must have Input populated with entity data.
-	if !strings.Contains(handlerContent, "BeforeUpsertRequest{") {
-		t.Errorf("Upsert method missing BeforeUpsertRequest struct literal:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, `Input: &slots.CreateRequest{`) {
-		t.Errorf("before_upsert request missing Input field:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, `Entity: "Widget"`) {
-		t.Errorf("before_upsert request missing Entity in CreateRequest:\n%s", handlerContent)
-	}
-	// Caller field must be present (before_upsert has HasCaller=true).
-	if !strings.Contains(handlerContent, "Caller: &slots.Identity{}") {
-		t.Errorf("before_upsert request missing Caller field:\n%s", handlerContent)
-	}
-
-	// Halt semantics must work.
-	if !strings.Contains(handlerContent, "if slotResult.Halt {") {
-		t.Errorf("before_upsert invocation missing halt check:\n%s", handlerContent)
-	}
-
-	// Error rejection must work.
-	if !strings.Contains(handlerContent, "if !slotResult.Ok {") {
-		t.Errorf("before_upsert invocation missing rejection check:\n%s", handlerContent)
-	}
-}
-
-func TestGenerate_BeforeDeleteSlot(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC30-T02 A bound before-delete slot gates the delete", func(t *testing.T) {
-		// Verify that a before_delete slot binding fires on delete operations.
-		// The before_delete proto has a different structure: entity (string),
-		// entity_id (string), caller (*Identity) — no Input field.
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat"},
-			Entities: []types.Entity{
-				{Name: "Task", Fields: []types.Field{
-					{Name: "title", Type: types.FieldTypeString},
-				}},
-			},
-			Collections: []types.Collection{
-				{Name: "tasks", Entity: "Task", Operations: []types.Operation{
-					types.OpDelete,
-				}},
-			},
-			SlotBindings: []types.SlotDeclaration{
-				{Slot: "before_delete", Collection: "tasks", Gate: []string{"delete-guard"}},
-			},
-			OutputNamespace: "internal/api",
-			ModuleName:      "github.com/myorg/svc",
-			SlotsPackage:    "internal/slots",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		var handlerContent string
-		for _, f := range files {
-			if strings.Contains(f.Path, "handler_tasks.go") {
-				handlerContent = string(f.Content)
-			}
-		}
-		if handlerContent == "" {
-			t.Fatal("handler_tasks.go not found")
-		}
-
-		// Handler struct must have the before_delete gate field.
-		if !strings.Contains(handlerContent, "beforeDeleteGate slots.BeforeDeleteSlot") {
-			t.Errorf("handler struct missing beforeDeleteGate field:\n%s", handlerContent)
-		}
-
-		// Delete method must invoke the before_delete gate.
-		if !strings.Contains(handlerContent, "h.beforeDeleteGate.Evaluate(r.Context()") {
-			t.Errorf("Delete method missing before_delete gate invocation:\n%s", handlerContent)
-		}
-
-		// Nil guard must be present.
-		if !strings.Contains(handlerContent, "if h.beforeDeleteGate != nil {") {
-			t.Errorf("before_delete invocation missing nil guard:\n%s", handlerContent)
-		}
-
-		// Request must have the before_delete-specific structure: Entity and EntityID.
-		if !strings.Contains(handlerContent, "BeforeDeleteRequest{") {
-			t.Errorf("Delete method missing BeforeDeleteRequest struct literal:\n%s", handlerContent)
-		}
-		// go/format aligns struct fields, so check for the field name and value
-		// separately rather than exact spacing.
-		if !strings.Contains(handlerContent, "Entity:") || !strings.Contains(handlerContent, `"Task"`) {
-			t.Errorf("before_delete request missing Entity field:\n%s", handlerContent)
-		}
-		if !strings.Contains(handlerContent, "EntityID:") || !strings.Contains(handlerContent, "id,") {
-			t.Errorf("before_delete request missing EntityID field:\n%s", handlerContent)
-		}
-
-		// Caller field must be present.
-		if !strings.Contains(handlerContent, "Caller:") || !strings.Contains(handlerContent, "slots.Identity{}") {
-			t.Errorf("before_delete request missing Caller field:\n%s", handlerContent)
-		}
-
-		// before_delete must NOT have an Input field (different proto from before_create).
-		// The BeforeDeleteRequest has {Entity, EntityID, Caller} — no Input.
-		if strings.Contains(handlerContent, "Input: &slots.CreateRequest{") {
-			t.Errorf("before_delete request should NOT have Input field:\n%s", handlerContent)
-		}
-
-		// Halt and rejection semantics must work.
-		if !strings.Contains(handlerContent, "if slotResult.Halt {") {
-			t.Errorf("before_delete invocation missing halt check:\n%s", handlerContent)
-		}
-		if !strings.Contains(handlerContent, "if !slotResult.Ok {") {
-			t.Errorf("before_delete invocation missing rejection check:\n%s", handlerContent)
-		}
-	})
-}
-
-func TestGenerate_BeforePatchSlot(t *testing.T) {
-	// Verify that a before_patch slot binding fires on patch operations.
-	// The before_patch proto has: entity (string), patch_fields (map),
-	// existing_entity (map), caller (*Identity).
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Profile", Fields: []types.Field{
-				{Name: "display_name", Type: types.FieldTypeString},
-				{Name: "bio", Type: types.FieldTypeString, Optional: true},
-				{Name: "age", Type: types.FieldTypeInt32},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "profiles", Entity: "Profile", Operations: []types.Operation{
-				types.OpRead, types.OpPatch,
-			}, Patchable: []string{"display_name", "bio"}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "before_patch", Collection: "profiles", Gate: []string{"patch-policy"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "github.com/myorg/svc",
-		SlotsPackage:    "internal/slots",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var handlerContent string
-	for _, f := range files {
-		if strings.Contains(f.Path, "handler_profiles.go") {
-			handlerContent = string(f.Content)
-		}
-	}
-	if handlerContent == "" {
-		t.Fatal("handler_profiles.go not found")
-	}
-
-	// Handler struct must have the before_patch gate field.
-	if !strings.Contains(handlerContent, "beforePatchGate slots.BeforePatchSlot") {
-		t.Errorf("handler struct missing beforePatchGate field:\n%s", handlerContent)
-	}
-
-	// Patch method must invoke the before_patch gate.
-	if !strings.Contains(handlerContent, "h.beforePatchGate.Evaluate(r.Context()") {
-		t.Errorf("Patch method missing before_patch gate invocation:\n%s", handlerContent)
-	}
-
-	// Nil guard must be present.
-	if !strings.Contains(handlerContent, "if h.beforePatchGate != nil {") {
-		t.Errorf("before_patch invocation missing nil guard:\n%s", handlerContent)
-	}
-
-	// Request must use BeforePatchRequest struct.
-	if !strings.Contains(handlerContent, "BeforePatchRequest{") {
-		t.Errorf("Patch method missing BeforePatchRequest struct literal:\n%s", handlerContent)
-	}
-	// go/format aligns struct fields, so check name and value separately.
-	if !strings.Contains(handlerContent, "Entity:") || !strings.Contains(handlerContent, `"Profile"`) {
-		t.Errorf("before_patch request missing Entity field:\n%s", handlerContent)
-	}
-
-	// PatchFields map must be populated from non-nil patch pointer fields.
-	if !strings.Contains(handlerContent, "patchFieldsMap") {
-		t.Errorf("before_patch missing patchFieldsMap construction:\n%s", handlerContent)
-	}
-	// display_name is a patchable field — check it is added conditionally.
-	if !strings.Contains(handlerContent, `patchFieldsMap["display_name"]`) {
-		t.Errorf("before_patch missing display_name in patchFieldsMap:\n%s", handlerContent)
-	}
-	// bio is a patchable optional field — also conditionally added.
-	if !strings.Contains(handlerContent, `patchFieldsMap["bio"]`) {
-		t.Errorf("before_patch missing bio in patchFieldsMap:\n%s", handlerContent)
-	}
-
-	// ExistingEntity map must be populated from the fetched entity.
-	if !strings.Contains(handlerContent, "existingEntityMap") {
-		t.Errorf("before_patch missing existingEntityMap construction:\n%s", handlerContent)
-	}
-	// All entity fields should be in the existing entity map.
-	if !strings.Contains(handlerContent, `"display_name":`) {
-		t.Errorf("before_patch existingEntityMap missing display_name:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, `"age":`) {
-		t.Errorf("before_patch existingEntityMap missing age:\n%s", handlerContent)
-	}
-
-	// before_patch must NOT have an Input field (different proto from before_create).
-	if strings.Contains(handlerContent, "Input: &slots.CreateRequest{") {
-		t.Errorf("before_patch request should NOT have Input field:\n%s", handlerContent)
-	}
-
-	// Caller field must be present.
-	if !strings.Contains(handlerContent, "Caller:") || !strings.Contains(handlerContent, "slots.Identity{}") {
-		t.Errorf("before_patch request missing Caller field:\n%s", handlerContent)
-	}
-
-	// Halt and rejection semantics must work.
-	if !strings.Contains(handlerContent, "if slotResult.Halt {") {
-		t.Errorf("before_patch invocation missing halt check:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, "if !slotResult.Ok {") {
-		t.Errorf("before_patch invocation missing rejection check:\n%s", handlerContent)
-	}
-
-	// Temporal ordering: the before_patch slot must fire BEFORE patch fields
-	// are applied to the entity variable, so that existing_entity reflects
-	// the pre-patch state from storage (checklist item 242).
-	slotPos := strings.Index(handlerContent, "h.beforePatchGate")
-	// Patch field application uses "if patch.DisplayName != nil {" pattern.
-	patchApplyPos := strings.Index(handlerContent, "if patch.DisplayName != nil {")
-	if slotPos < 0 || patchApplyPos < 0 {
-		t.Fatal("could not find before_patch slot invocation or patch apply positions")
-	}
-	if slotPos >= patchApplyPos {
-		t.Errorf("before_patch slot invocation (pos %d) must appear BEFORE patch field application (pos %d) so existing_entity reflects pre-patch state", slotPos, patchApplyPos)
-	}
-}
-
-func TestGenerate_BeforeDeleteNilGuardPassthrough(t *testing.T) {
-	// Verify that when no before_delete fill is bound, the delete handler
-	// still works — the nil guard skips the slot invocation.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Note", Fields: []types.Field{
-				{Name: "text", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "notes", Entity: "Note", Operations: []types.Operation{
-				types.OpDelete,
-			}},
-		},
-		// No slot bindings — handler should work without before_delete.
-		OutputNamespace: "internal/api",
-		ModuleName:      "github.com/myorg/svc",
-		SlotsPackage:    "internal/slots",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var handlerContent string
-	for _, f := range files {
-		if strings.Contains(f.Path, "handler_notes.go") {
-			handlerContent = string(f.Content)
-		}
-	}
-	if handlerContent == "" {
-		t.Fatal("handler_notes.go not found")
-	}
-
-	// No before_delete slot binding — handler should NOT contain before_delete invocation.
-	if strings.Contains(handlerContent, "beforeDeleteGate") {
-		t.Errorf("handler without before_delete binding should not reference beforeDeleteGate:\n%s", handlerContent)
-	}
-	// Delete method should still exist and call store.Delete.
-	if !strings.Contains(handlerContent, "h.store.Delete(r.Context()") {
-		t.Errorf("Delete method missing store.Delete call:\n%s", handlerContent)
-	}
-}
-
-func TestGenerate_AllBeforeSlotsNilGuardPassthrough(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC31-T02 Every before slot has its own nil guard", func(t *testing.T) {
-		// Verify that all three new before-slots work correctly together
-		// with nil-guard passthrough semantics.
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat"},
-			Entities: []types.Entity{
-				{Name: "Item", Fields: []types.Field{
-					{Name: "name", Type: types.FieldTypeString},
-				}},
-			},
-			Collections: []types.Collection{
-				{Name: "items", Entity: "Item", Operations: []types.Operation{
-					types.OpDelete, types.OpUpsert, types.OpPatch,
-				}, Patchable: []string{"name"}, UpsertKey: []string{"name"}},
-			},
-			SlotBindings: []types.SlotDeclaration{
-				{Slot: "before_upsert", Collection: "items", Gate: []string{"upsert-guard"}},
-				{Slot: "before_patch", Collection: "items", Gate: []string{"patch-guard"}},
-				{Slot: "before_delete", Collection: "items", Gate: []string{"delete-guard"}},
-			},
-			OutputNamespace: "internal/api",
-			ModuleName:      "github.com/myorg/svc",
-			SlotsPackage:    "internal/slots",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		var handlerContent string
-		for _, f := range files {
-			if strings.Contains(f.Path, "handler_items.go") {
-				handlerContent = string(f.Content)
-			}
-		}
-		if handlerContent == "" {
-			t.Fatal("handler_items.go not found")
-		}
-
-		// All three before-slot operator fields must be present.
-		for _, field := range []string{
-			"beforeUpsertGate slots.BeforeUpsertSlot",
-			"beforePatchGate slots.BeforePatchSlot",
-			"beforeDeleteGate slots.BeforeDeleteSlot",
-		} {
-			if !strings.Contains(handlerContent, field) {
-				t.Errorf("handler struct missing field %q:\n%s", field, handlerContent)
-			}
-		}
-
-		// All three nil guards must be present.
-		for _, guard := range []string{
-			"if h.beforeUpsertGate != nil {",
-			"if h.beforePatchGate != nil {",
-			"if h.beforeDeleteGate != nil {",
-		} {
-			if !strings.Contains(handlerContent, guard) {
-				t.Errorf("missing nil guard %q:\n%s", guard, handlerContent)
-			}
-		}
-	})
-}
-
-func TestGenerate_AfterCreateSlot(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC34-T01 An after-create slot runs after the store call", func(t *testing.T) {
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat"},
-			Entities: []types.Entity{
-				{Name: "Widget", Fields: []types.Field{
-					{Name: "name", Type: types.FieldTypeString},
-					{Name: "count", Type: types.FieldTypeInt32},
-				}},
-			},
-			Collections: []types.Collection{
-				{Name: "widgets", Entity: "Widget", Operations: []types.Operation{
-					types.OpCreate,
-				}},
-			},
-			SlotBindings: []types.SlotDeclaration{
-				{Slot: "after_create", Collection: "widgets", FanOut: []string{"create-notifier"}},
-			},
-			OutputNamespace: "internal/api",
-			ModuleName:      "github.com/myorg/svc",
-			SlotsPackage:    "internal/slots",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		var handlerContent string
-		for _, f := range files {
-			if strings.Contains(f.Path, "handler_widgets.go") {
-				handlerContent = string(f.Content)
-			}
-		}
-		if handlerContent == "" {
-			t.Fatal("handler_widgets.go not found")
-		}
-
-		// Handler struct must have the after_create fan-out field.
-		if !strings.Contains(handlerContent, "afterCreateFanOut slots.AfterCreateSlot") {
-			t.Errorf("handler struct missing afterCreateFanOut field:\n%s", handlerContent)
-		}
-
-		// Nil guard must be present.
-		if !strings.Contains(handlerContent, "if h.afterCreateFanOut != nil {") {
-			t.Errorf("after_create invocation missing nil guard:\n%s", handlerContent)
-		}
-
-		// Request must use AfterCreateRequest with PersistedFields.
-		if !strings.Contains(handlerContent, "AfterCreateRequest{") {
-			t.Errorf("Create method missing AfterCreateRequest struct literal:\n%s", handlerContent)
-		}
-		if !strings.Contains(handlerContent, "PersistedFields: map[string]string{") {
-			t.Errorf("after_create request missing PersistedFields map:\n%s", handlerContent)
-		}
-		if !strings.Contains(handlerContent, `Entity: "Widget"`) {
-			t.Errorf("after_create request missing Entity field:\n%s", handlerContent)
-		}
-
-		// Caller field must be present (no auth alias, so empty Identity).
-		if !strings.Contains(handlerContent, "Caller: &slots.Identity{}") {
-			t.Errorf("after_create request missing Caller field:\n%s", handlerContent)
-		}
-
-		// Fields must be populated in PersistedFields.
-		if !strings.Contains(handlerContent, `"name":`) {
-			t.Errorf("after_create PersistedFields missing name field:\n%s", handlerContent)
-		}
-		if !strings.Contains(handlerContent, `"count":`) {
-			t.Errorf("after_create PersistedFields missing count field:\n%s", handlerContent)
-		}
-
-		// Error from after-slot must return 500.
-		if !strings.Contains(handlerContent, "InternalError(slotErr.Error())") {
-			t.Errorf("after_create missing error handling:\n%s", handlerContent)
-		}
-	})
-}
-
-func TestGenerate_AfterUpsertSlot(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Setting", Fields: []types.Field{
-				{Name: "key", Type: types.FieldTypeString},
-				{Name: "value", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "settings", Entity: "Setting", Operations: []types.Operation{
-				types.OpUpsert,
-			}, UpsertKey: []string{"key"}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "after_upsert", Collection: "settings", FanOut: []string{"upsert-logger"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "github.com/myorg/svc",
-		SlotsPackage:    "internal/slots",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var handlerContent string
-	for _, f := range files {
-		if strings.Contains(f.Path, "handler_settings.go") {
-			handlerContent = string(f.Content)
-		}
-	}
-	if handlerContent == "" {
-		t.Fatal("handler_settings.go not found")
-	}
-
-	// Handler struct must have the after_upsert fan-out field.
-	if !strings.Contains(handlerContent, "afterUpsertFanOut slots.AfterUpsertSlot") {
-		t.Errorf("handler struct missing afterUpsertFanOut field:\n%s", handlerContent)
-	}
-
-	// Nil guard must be present.
-	if !strings.Contains(handlerContent, "if h.afterUpsertFanOut != nil {") {
-		t.Errorf("after_upsert invocation missing nil guard:\n%s", handlerContent)
-	}
-
-	// Request must use AfterUpsertRequest with PersistedFields.
-	if !strings.Contains(handlerContent, "AfterUpsertRequest{") {
-		t.Errorf("Upsert method missing AfterUpsertRequest struct literal:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, "PersistedFields: map[string]string{") {
-		t.Errorf("after_upsert request missing PersistedFields map:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, `Entity: "Setting"`) {
-		t.Errorf("after_upsert request missing Entity field:\n%s", handlerContent)
-	}
-
-	// Caller field must be present.
-	if !strings.Contains(handlerContent, "Caller: &slots.Identity{}") {
-		t.Errorf("after_upsert request missing Caller field:\n%s", handlerContent)
-	}
-}
-
-func TestGenerate_AfterPatchSlot(t *testing.T) {
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Task", Fields: []types.Field{
-				{Name: "title", Type: types.FieldTypeString},
-				{Name: "priority", Type: types.FieldTypeInt32},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "tasks", Entity: "Task", Operations: []types.Operation{
-				types.OpPatch,
-			}, Patchable: []string{"title", "priority"}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "after_patch", Collection: "tasks", FanOut: []string{"patch-notifier"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "github.com/myorg/svc",
-		SlotsPackage:    "internal/slots",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var handlerContent string
-	for _, f := range files {
-		if strings.Contains(f.Path, "handler_tasks.go") {
-			handlerContent = string(f.Content)
-		}
-	}
-	if handlerContent == "" {
-		t.Fatal("handler_tasks.go not found")
-	}
-
-	// Handler struct must have the after_patch fan-out field.
-	if !strings.Contains(handlerContent, "afterPatchFanOut slots.AfterPatchSlot") {
-		t.Errorf("handler struct missing afterPatchFanOut field:\n%s", handlerContent)
-	}
-
-	// Nil guard must be present.
-	if !strings.Contains(handlerContent, "if h.afterPatchFanOut != nil {") {
-		t.Errorf("after_patch invocation missing nil guard:\n%s", handlerContent)
-	}
-
-	// Request must use AfterPatchRequest with UpdatedFields.
-	if !strings.Contains(handlerContent, "AfterPatchRequest{") {
-		t.Errorf("Patch method missing AfterPatchRequest struct literal:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, "UpdatedFields: updatedFieldsMap") {
-		t.Errorf("after_patch request missing UpdatedFields:\n%s", handlerContent)
-	}
-	// Entity field may have alignment padding from go/format; check for presence.
-	if !strings.Contains(handlerContent, `"Task"`) || !strings.Contains(handlerContent, "Entity:") {
-		t.Errorf("after_patch request missing Entity field:\n%s", handlerContent)
-	}
-
-	// The updatedFieldsMap must be built from non-nil patch fields.
-	if !strings.Contains(handlerContent, "updatedFieldsMap := map[string]string{}") {
-		t.Errorf("after_patch missing updatedFieldsMap construction:\n%s", handlerContent)
-	}
-	// Each patchable field should conditionally add to the map.
-	if !strings.Contains(handlerContent, `if patch.Title != nil {`) {
-		t.Errorf("after_patch missing Title patch field check:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, `if patch.Priority != nil {`) {
-		t.Errorf("after_patch missing Priority patch field check:\n%s", handlerContent)
-	}
-
-	// Caller field must be present (may have alignment padding from go/format).
-	if !strings.Contains(handlerContent, "Caller:") || !strings.Contains(handlerContent, "&slots.Identity{}") {
-		t.Errorf("after_patch request missing Caller field:\n%s", handlerContent)
-	}
-}
-
-func TestGenerate_AfterDeleteSlot(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC34-T02 An after-delete slot runs after the store call", func(t *testing.T) {
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat"},
-			Entities: []types.Entity{
-				{Name: "Task", Fields: []types.Field{
-					{Name: "title", Type: types.FieldTypeString},
-				}},
-			},
-			Collections: []types.Collection{
-				{Name: "tasks", Entity: "Task", Operations: []types.Operation{
-					types.OpDelete,
-				}},
-			},
-			SlotBindings: []types.SlotDeclaration{
-				{Slot: "after_delete", Collection: "tasks", FanOut: []string{"delete-auditor"}},
-			},
-			OutputNamespace: "internal/api",
-			ModuleName:      "github.com/myorg/svc",
-			SlotsPackage:    "internal/slots",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		var handlerContent string
-		for _, f := range files {
-			if strings.Contains(f.Path, "handler_tasks.go") {
-				handlerContent = string(f.Content)
-			}
-		}
-		if handlerContent == "" {
-			t.Fatal("handler_tasks.go not found")
-		}
-
-		// Handler struct must have the after_delete fan-out field.
-		if !strings.Contains(handlerContent, "afterDeleteFanOut slots.AfterDeleteSlot") {
-			t.Errorf("handler struct missing afterDeleteFanOut field:\n%s", handlerContent)
-		}
-
-		// Nil guard must be present.
-		if !strings.Contains(handlerContent, "if h.afterDeleteFanOut != nil {") {
-			t.Errorf("after_delete invocation missing nil guard:\n%s", handlerContent)
-		}
-
-		// Request must use AfterDeleteRequest with DeletedEntityID.
-		if !strings.Contains(handlerContent, "AfterDeleteRequest{") {
-			t.Errorf("Delete method missing AfterDeleteRequest struct literal:\n%s", handlerContent)
-		}
-		if !strings.Contains(handlerContent, "DeletedEntityID:") {
-			t.Errorf("after_delete request missing DeletedEntityID field:\n%s", handlerContent)
-		}
-		// Entity field may have alignment padding from go/format; check for presence.
-		if !strings.Contains(handlerContent, `"Task"`) || !strings.Contains(handlerContent, "Entity:") {
-			t.Errorf("after_delete request missing Entity field:\n%s", handlerContent)
-		}
-
-		// Caller field must be present (may have alignment padding from go/format).
-		if !strings.Contains(handlerContent, "Caller:") || !strings.Contains(handlerContent, "&slots.Identity{}") {
-			t.Errorf("after_delete request missing Caller field:\n%s", handlerContent)
-		}
-
-		// Error from after-slot must return 500.
-		if !strings.Contains(handlerContent, "InternalError(slotErr.Error())") {
-			t.Errorf("after_delete missing error handling:\n%s", handlerContent)
-		}
-	})
-}
-
-func TestGenerate_OnEntityChangedStillWorksWithLifecycleAfterSlots(t *testing.T) {
-	// Verify that the existing on_entity_changed slot continues to work
-	// unchanged when lifecycle after-slots are also present.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Widget", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{
-				types.OpCreate, types.OpDelete,
-			}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "on_entity_changed", Collection: "widgets", FanOut: []string{"event-publisher"}},
-			{Slot: "after_create", Collection: "widgets", FanOut: []string{"create-logger"}},
-			{Slot: "after_delete", Collection: "widgets", FanOut: []string{"delete-logger"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "github.com/myorg/svc",
-		SlotsPackage:    "internal/slots",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var handlerContent string
-	for _, f := range files {
-		if strings.Contains(f.Path, "handler_widgets.go") {
-			handlerContent = string(f.Content)
-		}
-	}
-	if handlerContent == "" {
-		t.Fatal("handler_widgets.go not found")
-	}
-
-	// on_entity_changed must still use the simple {Entity, Action} pattern.
-	if !strings.Contains(handlerContent, `Entity: "Widget", Action: "create"`) {
-		t.Errorf("on_entity_changed missing simple create invocation:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, `Entity: "Widget", Action: "delete"`) {
-		t.Errorf("on_entity_changed missing simple delete invocation:\n%s", handlerContent)
-	}
-
-	// Both on_entity_changed AND lifecycle after-slots must be present.
-	if !strings.Contains(handlerContent, "onEntityChangedFanOut slots.OnEntityChangedSlot") {
-		t.Errorf("handler struct missing onEntityChangedFanOut field:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, "afterCreateFanOut slots.AfterCreateSlot") {
-		t.Errorf("handler struct missing afterCreateFanOut field:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, "afterDeleteFanOut slots.AfterDeleteSlot") {
-		t.Errorf("handler struct missing afterDeleteFanOut field:\n%s", handlerContent)
-	}
-
-	// Both slot types must have nil guards.
-	if !strings.Contains(handlerContent, "if h.onEntityChangedFanOut != nil {") {
-		t.Errorf("on_entity_changed missing nil guard:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, "if h.afterCreateFanOut != nil {") {
-		t.Errorf("after_create missing nil guard:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, "if h.afterDeleteFanOut != nil {") {
-		t.Errorf("after_delete missing nil guard:\n%s", handlerContent)
-	}
-
-	// Lifecycle after-slots must use the rich request type, not the simple one.
-	if !strings.Contains(handlerContent, "AfterCreateRequest{") {
-		t.Errorf("after_create missing AfterCreateRequest:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, "AfterDeleteRequest{") {
-		t.Errorf("after_delete missing AfterDeleteRequest:\n%s", handlerContent)
-	}
-}
-
-func TestGenerate_AfterSlotNilGuardPassthrough(t *testing.T) {
-	t.Run("ST-SUP-RC20-OC31-T03 Every after slot has its own nil guard", func(t *testing.T) {
-		// Verify all four lifecycle after-slots have nil-guard passthrough.
-		g := &Generator{}
-		ctx := gen.Context{
-			Conventions: types.Convention{Layout: "flat"},
-			Entities: []types.Entity{
-				{Name: "Item", Fields: []types.Field{
-					{Name: "name", Type: types.FieldTypeString},
-				}},
-			},
-			Collections: []types.Collection{
-				{Name: "items", Entity: "Item", Operations: []types.Operation{
-					types.OpCreate, types.OpDelete, types.OpUpsert, types.OpPatch,
-				}, Patchable: []string{"name"}, UpsertKey: []string{"name"}},
-			},
-			SlotBindings: []types.SlotDeclaration{
-				{Slot: "after_create", Collection: "items", FanOut: []string{"a"}},
-				{Slot: "after_upsert", Collection: "items", FanOut: []string{"b"}},
-				{Slot: "after_patch", Collection: "items", FanOut: []string{"c"}},
-				{Slot: "after_delete", Collection: "items", FanOut: []string{"d"}},
-			},
-			OutputNamespace: "internal/api",
-			ModuleName:      "github.com/myorg/svc",
-			SlotsPackage:    "internal/slots",
-		}
-
-		files, _, err := g.Generate(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		var handlerContent string
-		for _, f := range files {
-			if strings.Contains(f.Path, "handler_items.go") {
-				handlerContent = string(f.Content)
-			}
-		}
-		if handlerContent == "" {
-			t.Fatal("handler_items.go not found")
-		}
-
-		// All four nil guards must be present.
-		for _, guard := range []string{
-			"if h.afterCreateFanOut != nil {",
-			"if h.afterUpsertFanOut != nil {",
-			"if h.afterPatchFanOut != nil {",
-			"if h.afterDeleteFanOut != nil {",
-		} {
-			if !strings.Contains(handlerContent, guard) {
-				t.Errorf("missing nil guard %q:\n%s", guard, handlerContent)
-			}
-		}
-
-		// All four handler struct fields must be present.
-		for _, field := range []string{
-			"afterCreateFanOut slots.AfterCreateSlot",
-			"afterUpsertFanOut slots.AfterUpsertSlot",
-			"afterPatchFanOut slots.AfterPatchSlot",
-			"afterDeleteFanOut slots.AfterDeleteSlot",
-		} {
-			if !strings.Contains(handlerContent, field) {
-				t.Errorf("handler struct missing field %q:\n%s", field, handlerContent)
-			}
-		}
-	})
-}
-
-func TestGenerate_AfterCreateSlotWithOptionalFields(t *testing.T) {
-	// Verify that after_create correctly handles optional (pointer) fields
-	// in the PersistedFields map without using fmt.Sprintf("%v", pointer).
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Doc", Fields: []types.Field{
-				{Name: "title", Type: types.FieldTypeString},
-				{Name: "notes", Type: types.FieldTypeString, Optional: true},
-				{Name: "data", Type: types.FieldTypeJsonb, Optional: true},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "docs", Entity: "Doc", Operations: []types.Operation{
-				types.OpCreate,
-			}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "after_create", Collection: "docs", FanOut: []string{"doc-indexer"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "github.com/myorg/svc",
-		SlotsPackage:    "internal/slots",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var handlerContent string
-	for _, f := range files {
-		if strings.Contains(f.Path, "handler_docs.go") {
-			handlerContent = string(f.Content)
-		}
-	}
-	if handlerContent == "" {
-		t.Fatal("handler_docs.go not found")
-	}
-
-	// Optional fields must be pre-computed with proper dereference.
-	if !strings.Contains(handlerContent, "notesAfterVal") {
-		t.Errorf("after_create missing notesAfterVal pre-computation for optional string:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, "dataAfterVal") {
-		t.Errorf("after_create missing dataAfterVal pre-computation for optional jsonb:\n%s", handlerContent)
-	}
-
-	// The PersistedFields map must use the pre-computed values.
-	// go/format may align map values, so check key and value separately.
-	if !strings.Contains(handlerContent, `"notes":`) || !strings.Contains(handlerContent, "notesAfterVal") {
-		t.Errorf("after_create PersistedFields not using pre-computed notesAfterVal:\n%s", handlerContent)
-	}
-	if !strings.Contains(handlerContent, `"data":`) || !strings.Contains(handlerContent, "dataAfterVal") {
-		t.Errorf("after_create PersistedFields not using pre-computed dataAfterVal:\n%s", handlerContent)
-	}
-}
-
-func TestGenerate_AfterSlotNeedsFmtForNonStringFields(t *testing.T) {
-	// AC#1,2,5: after-slot bindings on entities with non-string fields must
-	// trigger the fmt import. This tests after_create and after_upsert with
-	// an int32 field, verifying the generated handler imports "fmt".
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Widget", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-				{Name: "count", Type: types.FieldTypeInt32},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{
-				types.OpCreate, types.OpUpsert,
-			}, UpsertKey: []string{"name"}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "after_create", Collection: "widgets", FanOut: []string{"create-notifier"}},
-			{Slot: "after_upsert", Collection: "widgets", FanOut: []string{"upsert-notifier"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "github.com/myorg/svc",
-		SlotsPackage:    "internal/slots",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var handlerContent string
-	for _, f := range files {
-		if strings.Contains(f.Path, "handler_widgets.go") {
-			handlerContent = string(f.Content)
-		}
-	}
-	if handlerContent == "" {
-		t.Fatal("handler_widgets.go not found")
-	}
-
-	// The entity has int32 field "count" which requires fmt.Sprintf.
-	// After-slots must trigger the fmt import.
-	if !strings.Contains(handlerContent, `"fmt"`) {
-		t.Errorf("handler with after-slot and non-string fields must import fmt:\n%s", handlerContent)
-	}
-}
-
-func TestGenerate_AfterSlotStringOnlyNoFmt(t *testing.T) {
-	// AC#3: after-slot bindings on entities with ONLY string/bytes/jsonb
-	// fields should NOT add a spurious fmt import.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Label", Fields: []types.Field{
-				{Name: "key", Type: types.FieldTypeString},
-				{Name: "value", Type: types.FieldTypeString},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "labels", Entity: "Label", Operations: []types.Operation{
-				types.OpCreate,
-			}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "after_create", Collection: "labels", FanOut: []string{"notifier"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "github.com/myorg/svc",
-		SlotsPackage:    "internal/slots",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var handlerContent string
-	for _, f := range files {
-		if strings.Contains(f.Path, "handler_labels.go") {
-			handlerContent = string(f.Content)
-		}
-	}
-	if handlerContent == "" {
-		t.Fatal("handler_labels.go not found")
-	}
-
-	// String-only entities should not import fmt for after-slots.
-	if strings.Contains(handlerContent, `"fmt"`) {
-		t.Errorf("handler with after-slot on string-only entity should NOT import fmt:\n%s", handlerContent)
-	}
-}
-
-func TestGenerate_AfterDeleteSlotAloneNoFmt(t *testing.T) {
-	// AC#4: after_delete does not use fieldToStringExpr and should not
-	// trigger the fmt import on its own.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Item", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-				{Name: "quantity", Type: types.FieldTypeInt32},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "items", Entity: "Item", Operations: []types.Operation{
-				types.OpDelete,
-			}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "after_delete", Collection: "items", FanOut: []string{"cleanup"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "github.com/myorg/svc",
-		SlotsPackage:    "internal/slots",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var handlerContent string
-	for _, f := range files {
-		if strings.Contains(f.Path, "handler_items.go") {
-			handlerContent = string(f.Content)
-		}
-	}
-	if handlerContent == "" {
-		t.Fatal("handler_items.go not found")
-	}
-
-	// after_delete should not trigger fmt import (it only passes strings).
-	if strings.Contains(handlerContent, `"fmt"`) {
-		t.Errorf("handler with only after_delete slot should NOT import fmt:\n%s", handlerContent)
-	}
-}
-
-func TestGenerate_AfterCreateOnlyCompiles(t *testing.T) {
-	// AC#6: degenerate-configuration compilation test — collection with ONLY
-	// an after_create slot (no before-slots, no other operations that
-	// independently need fmt) on an entity with an int32 field.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Metric", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-				{Name: "value", Type: types.FieldTypeInt32},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "metrics", Entity: "Metric", Operations: []types.Operation{
-				types.OpCreate,
-			}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "after_create", Collection: "metrics", FanOut: []string{"metric-logger"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "testmod",
-		SlotsPackage:    "internal/slots",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	tmpDir := t.TempDir()
-	goMod := "module testmod\n\ngo 1.22\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
-		t.Fatalf("writing go.mod: %v", err)
-	}
-
-	// Write a stub slots package so the handler's import resolves.
-	slotsDir := filepath.Join(tmpDir, "internal", "slots")
-	if err := os.MkdirAll(slotsDir, 0755); err != nil {
-		t.Fatalf("creating slots dir: %v", err)
-	}
-	slotsStub := `package slots
-
-import "context"
-
-type SlotResult struct {
-	Ok           bool
-	ErrorMessage string
-	Halt         bool
-	StatusCode   int32
-}
-
-type Identity struct {
-	UserID string
-	Role   string
-}
-
-type AfterCreateRequest struct {
-	Entity          string
-	PersistedFields map[string]string
-	Caller          *Identity
-}
-
-type AfterCreateSlot interface {
-	Evaluate(ctx context.Context, req *AfterCreateRequest) (*SlotResult, error)
-}
-`
-	if err := os.WriteFile(filepath.Join(slotsDir, "types.go"), []byte(slotsStub), 0644); err != nil {
-		t.Fatalf("writing slots stub: %v", err)
-	}
-
-	// Write generated handler files into their namespace directory.
-	apiDir := filepath.Join(tmpDir, "internal", "api")
-	if err := os.MkdirAll(apiDir, 0755); err != nil {
-		t.Fatalf("creating api dir: %v", err)
-	}
-	for _, f := range files {
-		dst := filepath.Join(tmpDir, f.Path)
-		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-			t.Fatalf("creating dir for %s: %v", f.Path, err)
-		}
-		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
-			t.Fatalf("writing %s: %v", f.Path, err)
-		}
-	}
-
-	cmd := exec.Command("go", "build", "./...")
-	cmd.Dir = tmpDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("generated code with after_create slot and int32 field does not compile:\n%s\n%s", err, output)
-	}
-}
-
-func TestGenerate_AfterPatchSlotNeedsFmt(t *testing.T) {
-	// AC#1: after_patch with non-string fields must also trigger fmt import.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "Task", Fields: []types.Field{
-				{Name: "title", Type: types.FieldTypeString},
-				{Name: "priority", Type: types.FieldTypeInt32},
-			}},
-		},
-		Collections: []types.Collection{
-			{Name: "tasks", Entity: "Task", Operations: []types.Operation{
-				types.OpPatch,
-			}},
-		},
-		SlotBindings: []types.SlotDeclaration{
-			{Slot: "after_patch", Collection: "tasks", FanOut: []string{"patch-notifier"}},
-		},
-		OutputNamespace: "internal/api",
-		ModuleName:      "github.com/myorg/svc",
-		SlotsPackage:    "internal/slots",
-	}
-
-	files, _, err := g.Generate(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var handlerContent string
-	for _, f := range files {
-		if strings.Contains(f.Path, "handler_tasks.go") {
-			handlerContent = string(f.Content)
-		}
-	}
-	if handlerContent == "" {
-		t.Fatal("handler_tasks.go not found")
-	}
-
-	// The entity has int32 field "priority" which requires fmt.Sprintf
-	// in the after_patch updatedFieldsMap construction.
-	if !strings.Contains(handlerContent, `"fmt"`) {
-		t.Errorf("handler with after_patch slot and non-string fields must import fmt:\n%s", handlerContent)
-	}
-}
-
 // --- Discovery endpoint tests ---
 
 func TestGenerate_DiscoveryFileGenerated(t *testing.T) {
@@ -10778,7 +3952,7 @@ func TestGenerate_DiscoveryFileGenerated(t *testing.T) {
 		g := &Generator{}
 		ctx := basicContext()
 
-		files, _, err := g.Generate(ctx)
+		files, _, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -10832,7 +4006,7 @@ func TestGenerate_DiscoveryWiringRoutes(t *testing.T) {
 		ctx := basicContext()
 		ctx.BasePath = "/api/v1"
 
-		_, wiring, err := g.Generate(ctx)
+		_, wiring, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -10907,7 +4081,7 @@ func TestGenerate_DiscoveryMetadataTopLevelCollectionsOnly(t *testing.T) {
 			ServiceName:     "user-management",
 		}
 
-		files, _, err := g.Generate(ctx)
+		files, _, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -10950,7 +4124,7 @@ func TestGenerate_DiscoveryRoutesUseDiscoveryHandlerVar(t *testing.T) {
 	g := &Generator{}
 	ctx := basicContext()
 
-	_, wiring, err := g.Generate(ctx)
+	_, wiring, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -10980,7 +4154,7 @@ func TestGenerate_DiscoveryEmptyBasePath(t *testing.T) {
 		ctx := basicContext()
 		ctx.BasePath = ""
 
-		_, wiring, err := g.Generate(ctx)
+		_, wiring, err := g.Generate(onRuntime(ctx))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -11023,7 +4197,7 @@ func TestGenerate_DiscoveryMetadataCollectionsEmptyArrayNotNull(t *testing.T) {
 		ServiceName:     "test-service",
 	}
 
-	files, _, err := g.Generate(ctx)
+	files, _, err := g.Generate(onRuntime(ctx))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -11052,7 +4226,471 @@ func TestAutomaticRESTRejectsUnsupportedObservationPolicy(t *testing.T) {
 	ctx.Entities[0].Versioned = true
 	ctx.Entities[0].GenerationFields = []string{"name"}
 	ctx.Entities[0].Observations = map[string][]string{"health": {"status"}}
-	if _, _, err := new(Generator).Generate(ctx); err == nil || !strings.Contains(err.Error(), "observation ownership") {
+	if _, _, err := new(Generator).Generate(onRuntime(ctx)); err == nil || !strings.Contains(err.Error(), "observation ownership") {
 		t.Fatal("automatic API ignored observation policy", err)
 	}
+}
+
+// --- The output contracts of ST-SUP-RC20 on the runtime data path, the one data path (ST-SUP-RC20-OC39) ---
+
+// managedContext is the test service of crudContext with the server-managed fields created_by, updated_by and
+// generation (default 1) on Todo and on Setting, and the before and after slots of todos bound with a gate each.
+func managedContext() gen.Context {
+	ctx := crudContext()
+	managed := []types.Field{{Name: "created_by", Type: types.FieldTypeString, Optional: true},
+		{Name: "updated_by", Type: types.FieldTypeString, Optional: true}, {Name: "generation", Type: types.FieldTypeInt64, Default: 1}}
+	for i := range ctx.Entities {
+		if ctx.Entities[i].Name == "Todo" || ctx.Entities[i].Name == "Setting" {
+			ctx.Entities[i].Fields = append(append([]types.Field(nil), ctx.Entities[i].Fields...), managed...)
+		}
+	}
+	for _, slot := range []string{"before_create", "before_patch", "before_delete", "validate", "after_create", "after_patch", "after_delete", "on_entity_changed"} {
+		ctx.SlotBindings = append(ctx.SlotBindings, types.SlotDeclaration{Slot: slot, Collection: "todos", Gate: []string{"todo-" + slot}})
+	}
+	return ctx
+}
+
+// handlerMethod gives the source of the method name of the handler file of the collection collection in files.
+func handlerMethod(t *testing.T, files map[string][]byte, collection, name string) string {
+	t.Helper()
+	source, ok := files["api/"+collectionToSnakeCase(collection)+"_handler.go"]
+	if !ok {
+		t.Fatalf("no handler file for the collection %s", collection)
+	}
+	body := extractMethodBody(string(source), "func (h *"+collectionToPascalCase(collection)+"Handler) "+name+"(")
+	if body == "" {
+		t.Fatalf("the handler of %s has no method %s", collection, name)
+	}
+	return body
+}
+
+// handlerFunc gives the source of the function name of the handler file of the collection collection in files.
+func handlerFunc(t *testing.T, files map[string][]byte, collection, name string) string {
+	t.Helper()
+	body := extractMethodBody(string(files["api/"+collectionToSnakeCase(collection)+"_handler.go"]), "func "+name+"(")
+	if body == "" {
+		t.Fatalf("the handler of %s has no function %s", collection, name)
+	}
+	return body
+}
+
+// inOrder fails the test unless body holds each part, each after the one before.
+func inOrder(t *testing.T, label, body string, parts ...string) {
+	t.Helper()
+	at := 0
+	for _, part := range parts {
+		i := strings.Index(body[at:], part)
+		if i < 0 {
+			t.Errorf("%s: %q is not after the parts before it in:\n%s", label, part, body)
+			return
+		}
+		at += i + len(part)
+	}
+}
+
+func TestRuntimeProblemAnswers(t *testing.T) {
+	files := crudFiles(t, crudContext())
+	t.Run("ST-SUP-RC20-OC01-T02 Every emitted handler answers an error through the problem serializer", func(t *testing.T) {
+		for name, data := range files {
+			if !strings.HasSuffix(name, "_handler.go") && name != "api/runtime.go" {
+				continue
+			}
+			source := string(data)
+			if strings.Contains(source, "http.Error(") || strings.Contains(source, "WriteHeader(http.Status") {
+				t.Errorf("%s answers an error outside handleError", name)
+			}
+			if strings.HasSuffix(name, "_handler.go") && !strings.Contains(source, "handleError(w, r, ") {
+				t.Errorf("%s does not answer through handleError", name)
+			}
+		}
+		answer := extractMethodBody(string(files["api/runtime.go"]), "func (rt *Runtime) answerWrite(")
+		for _, part := range []string{"handleError(w, r, invalid.problem)", "handleError(w, r, errorForStatus(status, refused.detail))", "handleError(w, r, NotFound(kind, req.Resource))", "handleError(w, r, Conflict(", "handleError(w, r, InternalError("} {
+			if !strings.Contains(answer, part) {
+				t.Errorf("answerWrite does not answer %s", part)
+			}
+		}
+	})
+	t.Run("ST-SUP-RC20-OC29-T01 The emitted handlers set the JSON content type", func(t *testing.T) {
+		for _, c := range crudContext().Collections {
+			for _, op := range c.Operations {
+				switch op {
+				case types.OpRead, types.OpList:
+					body := handlerMethod(t, files, c.Name, collectionToPascalCase(string(op)))
+					if !strings.Contains(body, `w.Header().Set("Content-Type", "application/json")`) {
+						t.Errorf("%s %s sets no JSON content type", c.Name, op)
+					}
+				case types.OpCreate, types.OpUpdate, types.OpPatch, types.OpUpsert:
+					body := handlerMethod(t, files, c.Name, collectionToPascalCase(string(op)))
+					if !strings.Contains(body, "return jsonResponse(") {
+						t.Errorf("%s %s answers no JSON response", c.Name, op)
+					}
+				}
+			}
+		}
+		if !strings.Contains(string(files["api/runtime.go"]), `Header: http.Header{"Content-Type": {"application/json"}}`) {
+			t.Error("jsonResponse does not set the JSON content type")
+		}
+	})
+}
+
+func TestRuntimeSlots(t *testing.T) {
+	files := crudFiles(t, managedContext())
+	t.Run("ST-SUP-RC20-OC30-T01 A before slot refusal becomes a problem response with its own code", func(t *testing.T) {
+		body := handlerMethod(t, files, "orders", "Create")
+		inOrder(t, "orders Create", body, "h.beforeCreateChain.Evaluate(ctx, slotReq)",
+			"&slotRefusal{status: int(slotResult.StatusCode), detail: slotResult.ErrorMessage}", "repo.Create(")
+		answer := extractMethodBody(string(files["api/runtime.go"]), "func (rt *Runtime) answerWrite(")
+		inOrder(t, "answerWrite", answer, "errors.As(err, &refused)", "status := refused.status", "handleError(w, r, errorForStatus(status, refused.detail))")
+		if !strings.Contains(string(files["api/errors.go"]), "func errorForStatus(") {
+			t.Error("errors.go has no errorForStatus, which gives the code of the status")
+		}
+	})
+	t.Run("ST-SUP-RC20-OC30-T02 A bound before-delete slot gates the delete", func(t *testing.T) {
+		body := handlerMethod(t, files, "todos", "Delete")
+		inOrder(t, "todos Delete", body, "if h.beforeDeleteGate != nil {", "h.beforeDeleteGate.Evaluate(ctx, slotReq)",
+			"return idempotency.Response{}, &slotRefusal{", "repo.Delete(ctx, from)")
+	})
+	t.Run("ST-SUP-RC20-OC31-T01 An unbound slot is never called", func(t *testing.T) {
+		plain := crudFiles(t, crudContext())
+		source := string(plain["api/todos_handler.go"])
+		if strings.Contains(source, ".Evaluate(") || strings.Contains(source, "\tslots \"") {
+			t.Errorf("the handler of todos, which binds no slot, calls a slot:\n%s", source)
+		}
+	})
+	t.Run("ST-SUP-RC20-OC31-T02 Every before slot has its own nil guard", func(t *testing.T) {
+		for op, fields := range map[string][]string{"Create": {"beforeCreateGate", "validateGate"}, "Update": {"validateGate"}, "Patch": {"beforePatchGate"}, "Delete": {"beforeDeleteGate"}} {
+			body := handlerMethod(t, files, "todos", op)
+			for _, field := range fields {
+				inOrder(t, "todos "+op, body, "if h."+field+" != nil {", "h."+field+".Evaluate(ctx, slotReq)")
+				if strings.Count(body, "h."+field+".Evaluate(") != strings.Count(body, "if h."+field+" != nil {") {
+					t.Errorf("todos %s calls %s without its own nil guard", op, field)
+				}
+			}
+		}
+	})
+	t.Run("ST-SUP-RC20-OC31-T03 Every after slot has its own nil guard", func(t *testing.T) {
+		deliver := handlerMethod(t, files, "todos", "deliverAfter")
+		for _, slot := range []string{"after_create", "after_patch", "after_delete", "on_entity_changed"} {
+			field := slotCamel(slot) + "Gate"
+			inOrder(t, "todos deliverAfter", deliver, "case \""+slot+"\":", "if h."+field+" == nil {", "return nil", "h."+field+".Evaluate(ctx, &request)")
+		}
+	})
+}
+
+func TestRuntimeEnvelope(t *testing.T) {
+	files := crudFiles(t, crudContext())
+	t.Run("ST-SUP-RC20-OC06-T01 The emitted create handler presents the envelope", func(t *testing.T) {
+		presented := handlerFunc(t, files, "orders", "ordersPresented")
+		if !strings.Contains(presented, `return presentEntity(v, "Order", v.ID, "/api/v1/orders"+"/"+v.ID)`) {
+			t.Errorf("ordersPresented does not present the envelope:\n%s", presented)
+		}
+		inOrder(t, "orders Create", handlerMethod(t, files, "orders", "Create"), "json.Marshal(ordersPresented(persisted))", "jsonResponse(http.StatusCreated, response)")
+	})
+	t.Run("ST-SUP-RC20-OC08-T01 The emitted create handler makes a time-ordered identifier", func(t *testing.T) {
+		for _, c := range []string{"orders", "folder-books"} {
+			body := handlerMethod(t, files, c, "Create")
+			if !strings.Contains(body, "uuid.NewV7()") || strings.Contains(body, "uuid.New()") || strings.Contains(body, "uuid.NewRandom()") {
+				t.Errorf("%s Create does not make a version 7 identifier", c)
+			}
+		}
+		if body := handlerMethod(t, files, "folder-settings", "Upsert"); !strings.Contains(body, "uuid.NewV7()") || strings.Contains(body, "uuid.New()") {
+			t.Error("the upsert insert does not make a version 7 identifier")
+		}
+	})
+}
+
+func TestRuntimeList(t *testing.T) {
+	files := crudFiles(t, crudContext())
+	list := handlerMethod(t, files, "orders", "List")
+	t.Run("ST-SUP-RC20-OC07-T01 The emitted list handler answers with the paging envelope", func(t *testing.T) {
+		inOrder(t, "orders List", list, `result := map[string]any{"kind": "OrderList", "size": len(items), "items": items}`,
+			"if page.more {", "h.rt.Queries.CursorText(ordersListQuery, b.Tenant, b.Principal, page.next)", `result["next"] = next`, "json.NewEncoder(w).Encode(result)")
+		if strings.Contains(list, `"total"`) || strings.Contains(list, `"page"`) {
+			t.Error("the list answers a total or a page number, which the cursor list does not have")
+		}
+	})
+	t.Run("ST-SUP-RC20-OC07-T02 Each list item is presented like a single resource", func(t *testing.T) {
+		if !strings.Contains(list, "items = append(items, selectFields(ordersPresented(item), fields))") {
+			t.Errorf("the list items are not presented as a single resource is:\n%s", list)
+		}
+	})
+	t.Run("ST-SUP-RC20-OC09-T01 The emitted list handler clamps the page size", func(t *testing.T) {
+		inOrder(t, "orders List", list, "limit := 100", `r.URL.Query().Get("pageSize")`, "if err != nil || n < 1 {", "handleError(w, r, BadRequest(", "limit = min(n, query.MaxLimit)")
+	})
+	t.Run("ST-SUP-RC20-OC09-T02 The emitted list handler parses every list parameter", func(t *testing.T) {
+		for _, name := range []string{"pageSize", "cursor", "orderBy", "fields", "search"} {
+			if !strings.Contains(list, `r.URL.Query().Get("`+name+`")`) {
+				t.Errorf("the list does not read the parameter %s", name)
+			}
+		}
+		var document struct {
+			Paths map[string]map[string]struct {
+				Parameters []struct{ Name string } `json:"parameters"`
+			} `json:"paths"`
+		}
+		if err := json.Unmarshal(files["api/openapi.json"], &document); err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for _, p := range document.Paths["/api/v1/orders"]["get"].Parameters {
+			names = append(names, p.Name)
+		}
+		if strings.Join(names, ",") != "pageSize,cursor,orderBy,fields,search" {
+			t.Errorf("the document declares the list parameters %v", names)
+		}
+	})
+	t.Run("ST-SUP-RC20-OC10-T01 The emitted list handler refuses an order field that is not an entity field", func(t *testing.T) {
+		inOrder(t, "orders List", list, `listOrder(r.URL.Query().Get("orderBy"), map[string]bool{"sku": true, "qty": true})`, "handleError(w, r, BadRequest(err.Error()))")
+		// A pii or secret field orders no list (ST-SUP-RP11-LC20).
+		if customers := handlerMethod(t, files, "customers", "List"); !strings.Contains(customers, `listOrder(r.URL.Query().Get("orderBy"), map[string]bool{"plan": true})`) {
+			t.Error("the customers list orders by a sensitive field")
+		}
+		helperRun(t, "TestOrderField")
+	})
+	t.Run("ST-SUP-RC20-OC10-T02 A direction other than asc or desc is refused", func(t *testing.T) {
+		helperRun(t, "TestOrderDirection")
+	})
+	t.Run("ST-SUP-RC20-OC11-T01 The emitted list handler sorts newest first without an order request", func(t *testing.T) {
+		helperRun(t, "TestOrderDefault")
+	})
+	t.Run("ST-SUP-RC20-OC12-T01 The emitted list handler checks the field selection and keeps the identifier", func(t *testing.T) {
+		inOrder(t, "orders List", list, `listFields(r.URL.Query().Get("fields"), map[string]bool{"sku": true, "qty": true})`, "handleError(w, r, BadRequest(err.Error()))")
+		helperRun(t, "TestFieldsDeclared")
+	})
+	t.Run("ST-SUP-RC20-OC12-T02 The identifier stays in the field selection", func(t *testing.T) {
+		helperRun(t, "TestFieldsKeepID")
+	})
+	t.Run("ST-SUP-RC20-OC12-T03 A field selection removes the fields it did not name", func(t *testing.T) {
+		helperRun(t, "TestFieldsSelect")
+	})
+}
+
+// helperChecks are the tests of the list helpers of runtime.go (listOrderHelper), which run them in a module of
+// their own with a stand-in of the query runtime's OrderBy and ErrBadCursor.
+const helperChecks = `package api
+
+import (
+	"encoding/json"
+	"testing"
+
+	"example.com/helpers/query"
+)
+
+var declared = map[string]bool{"sku": true, "qty": true}
+
+func TestOrderField(t *testing.T) {
+	for _, text := range []string{"price", "sku,price", "sku asc desc", ","} {
+		if _, err := listOrder(text, declared); err != errOrder {
+			t.Errorf("orderBy %q gave %v, want errOrder", text, err)
+		}
+	}
+	order, err := listOrder("sku, qty", declared)
+	if err != nil || len(order) != 2 || order[0] != (query.OrderBy{Field: "sku"}) || order[1] != (query.OrderBy{Field: "qty"}) {
+		t.Errorf("orderBy sku, qty gave %v, %v", order, err)
+	}
+}
+
+func TestOrderDirection(t *testing.T) {
+	for _, text := range []string{"sku up", "sku descending", "qty 1"} {
+		if _, err := listOrder(text, declared); err != errOrder {
+			t.Errorf("orderBy %q gave %v, want errOrder", text, err)
+		}
+	}
+	order, err := listOrder("sku DESC,qty asc", declared)
+	if err != nil || order[0] != (query.OrderBy{Field: "sku", Descending: true}) || order[1] != (query.OrderBy{Field: "qty"}) {
+		t.Errorf("orderBy sku DESC,qty asc gave %v, %v", order, err)
+	}
+}
+
+func TestOrderDefault(t *testing.T) {
+	for _, text := range []string{"", "  "} {
+		order, err := listOrder(text, declared)
+		if err != nil || len(order) != 1 || order[0] != (query.OrderBy{Field: "created_time", Descending: true}) {
+			t.Errorf("orderBy %q gave %v, %v, want created_time descending", text, order, err)
+		}
+	}
+}
+
+func TestFieldsDeclared(t *testing.T) {
+	for _, text := range []string{"price", "sku,price", "id,tenant_id"} {
+		if _, err := listFields(text, declared); err != errFields {
+			t.Errorf("fields %q gave %v, want errFields", text, err)
+		}
+	}
+	if selected, err := listFields("", declared); selected != nil || err != nil {
+		t.Errorf("no fields gave %v, %v, want no selection", selected, err)
+	}
+}
+
+func TestFieldsKeepID(t *testing.T) {
+	for _, text := range []string{"sku", "id,sku", " sku , "} {
+		selected, err := listFields(text, declared)
+		if err != nil || !selected["id"] || !selected["sku"] || selected["qty"] {
+			t.Errorf("fields %q gave %v, %v", text, selected, err)
+		}
+	}
+}
+
+func TestFieldsSelect(t *testing.T) {
+	selected, _ := listFields("sku", declared)
+	item := map[string]any{"id": "a", "kind": "Order", "href": "/orders/a", "sku": "s", "qty": 2}
+	raw, err := json.Marshal(selectFields(item, selected))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != ` + "`" + `{"href":"/orders/a","id":"a","kind":"Order","sku":"s"}` + "`" + ` {
+		t.Errorf("the selection of sku gave %s", raw)
+	}
+	type order struct {
+		ID  string ` + "`json:\"id\"`" + `
+		Sku string ` + "`json:\"sku\"`" + `
+		Qty int    ` + "`json:\"qty\"`" + `
+	}
+	raw, _ = json.Marshal(selectFields(order{ID: "a", Sku: "s", Qty: 2}, selected))
+	if string(raw) != ` + "`" + `{"id":"a","sku":"s"}` + "`" + ` {
+		t.Errorf("the selection of sku of a bare value gave %s", raw)
+	}
+	if got := selectFields(item, nil); got == nil {
+		t.Error("no selection dropped the value")
+	}
+}
+`
+
+// helperRun runs the check name of helperChecks against the list helpers that runtime.go emits.
+func helperRun(t *testing.T, name string) {
+	t.Helper()
+	p := &crudProject{t: t, dir: t.TempDir()}
+	p.write("go.mod", []byte("module example.com/helpers\n\ngo 1.26.11\n"))
+	p.write("query/query.go", []byte("package query\n\nimport \"errors\"\n\ntype OrderBy struct {\n\tField      string\n\tDescending bool\n}\n\nvar ErrBadCursor = errors.New(\"bad cursor\")\n"))
+	p.write("api/helpers.go", []byte("package api\n\nimport (\n\t\"encoding/json\"\n\t\"errors\"\n\t\"strings\"\n\n\t\"example.com/helpers/query\"\n)\n\n"+listOrderHelper))
+	p.write("api/helpers_test.go", []byte(helperChecks))
+	output, err := p.goCommand(nil, "test", "-count=1", "-v", "-run", "^"+name+"$", "./api")
+	if err != nil || !strings.Contains(output, "--- PASS: "+name+" ") {
+		t.Fatalf("the check %s of the list helpers did not run and pass: %v\n%s", name, err, output)
+	}
+}
+
+func TestRuntimeWrites(t *testing.T) {
+	files := crudFiles(t, managedContext())
+	t.Run("ST-SUP-RC20-OC15-T01 The emitted patch handler takes only the patchable fields, as pointers", func(t *testing.T) {
+		source := string(files["api/orders_handler.go"])
+		request := strings.Join(strings.Fields(extractMethodBody(source, "type OrdersPatchRequest struct")), " ")
+		if !strings.Contains(request, "Qty *int32 `json:\"qty\"`") || strings.Contains(request, "Sku") {
+			t.Errorf("the patch request of orders is not its one patchable field as a pointer:\n%s", request)
+		}
+		todos := strings.Join(strings.Fields(extractMethodBody(string(files["api/todos_handler.go"]), "type TodosPatchRequest struct")), " ")
+		for _, field := range []string{"Title *string", "Done *bool", "Meta *json.RawMessage"} {
+			if !strings.Contains(todos, field) {
+				t.Errorf("the patch request of todos has no %s", field)
+			}
+		}
+		if strings.Contains(todos, "CreatedBy") || strings.Contains(todos, "Generation") {
+			t.Error("the patch request of todos takes a field that is not patchable")
+		}
+	})
+	t.Run("ST-SUP-RC20-OC15-T02 The emitted patch handler reads, merges and saves", func(t *testing.T) {
+		inOrder(t, "todos Patch", handlerMethod(t, files, "todos", "Patch"), "repo.GetForDelete(ctx, id)", "stored := todosFromData(from.Value())",
+			"todo := stored", "if patch.Title != nil {", "todo.Title = *patch.Title", "if patch.Done != nil {", "todo.Done = ptrOf(*patch.Done)",
+			"repo.Update(ctx, from, todosToData(todo), parents...)")
+	})
+	t.Run("ST-SUP-RC20-OC16-T01 The emitted patch handler records who changed the record and when", func(t *testing.T) {
+		inOrder(t, "todos Patch", handlerMethod(t, files, "todos", "Patch"), "todo.UpdatedBy = ptrOf(callerName(r.Context()))", "repo.Update(")
+		// The command runtime sets updated_time at each update of a row, a patch too.
+		if !strings.Contains(string(files["api/data/entities.go"]), `\"generation\" = $10, \"version\" = \"version\" + 1, \"updated_time\" = now()`) {
+			t.Error("the update of a todo does not set updated_time to the time of the change")
+		}
+		if !strings.Contains(string(files["api/runtime.go"]), "identity.Email()") {
+			t.Error("callerName does not read the verified identity")
+		}
+	})
+	t.Run("ST-SUP-RC20-OC17-T01 The emitted create handler discards client values for server-managed fields", func(t *testing.T) {
+		inOrder(t, "decodeTodos", handlerFunc(t, files, "todos", "decodeTodos"), "json.Unmarshal(bodyBytes, &todo)", `todo.ID = ""`,
+			"todo.CreatedBy = nil", "todo.UpdatedBy = nil", "todo.Generation = 0")
+		inOrder(t, "todos Create", handlerMethod(t, files, "todos", "Create"), "todo.ID = id.String()",
+			"todo.CreatedBy = ptrOf(callerName(r.Context()))", "todo.UpdatedBy = ptrOf(callerName(r.Context()))", "todo.Generation = 1", "repo.Create(")
+	})
+	t.Run("ST-SUP-RC20-OC17-T03 The emitted upsert handler resets the server fields", func(t *testing.T) {
+		inOrder(t, "decodeFolderSettings", handlerFunc(t, files, "folder-settings", "decodeFolderSettings"), "setting.CreatedBy = nil", "setting.UpdatedBy = nil", "setting.Generation = 0")
+		inOrder(t, "folder-settings Upsert", handlerMethod(t, files, "folder-settings", "Upsert"),
+			"setting.CreatedBy = ptrOf(callerName(r.Context()))", "setting.Generation = 1", "repo.Create(",
+			"setting.CreatedBy = stored.CreatedBy", "setting.UpdatedBy = ptrOf(callerName(r.Context()))", "setting.Generation = stored.Generation + 1", "repo.Update(")
+	})
+	t.Run("ST-SUP-RC20-OC18-T01 The emitted update handler keeps create-only values and raises the generation", func(t *testing.T) {
+		inOrder(t, "todos Update", handlerMethod(t, files, "todos", "Update"), "repo.GetForDelete(ctx, id)", "stored := todosFromData(from.Value())",
+			"todo.ID = id", "todo.CreatedBy = stored.CreatedBy", "todo.UpdatedBy = ptrOf(callerName(r.Context()))", "todo.Generation = stored.Generation + 1", "repo.Update(")
+	})
+	kind := func(t *testing.T, collection, decode, op, entity string) {
+		t.Helper()
+		inOrder(t, decode, handlerFunc(t, files, collection, decode), `if kindRaw, ok := rawMap["kind"]; ok {`, `kind != "`+entity+`"`, `BadRequest("kind must be `+entity+`")`)
+		inOrder(t, collection+" "+op, handlerMethod(t, files, collection, op), decode+"(body)", "h.rt.answerWrite(w, r, command.Request{}, ", "command.Run(")
+	}
+	t.Run("ST-SUP-RC20-OC19-T01 The emitted handlers refuse a body whose kind is not the entity", func(t *testing.T) {
+		kind(t, "todos", "decodeTodos", "Create", "Todo")
+		answer := extractMethodBody(string(files["api/runtime.go"]), "func (rt *Runtime) answerWrite(")
+		inOrder(t, "answerWrite", answer, "errors.As(err, &invalid)", "handleError(w, r, invalid.problem)")
+	})
+	t.Run("ST-SUP-RC20-OC19-T02 The emitted upsert handler checks the kind", func(t *testing.T) {
+		kind(t, "folder-settings", "decodeFolderSettings", "Upsert", "Setting")
+	})
+	t.Run("ST-SUP-RC20-OC19-T03 The emitted update handler checks the body kind", func(t *testing.T) {
+		kind(t, "todos", "decodeTodos", "Update", "Todo")
+	})
+	t.Run("ST-SUP-RC20-OC19-T04 The emitted patch handler checks the body kind", func(t *testing.T) {
+		kind(t, "todos", "decodeTodosPatch", "Patch", "Todo")
+	})
+	var document struct {
+		Paths      map[string]map[string]json.RawMessage `json:"paths"`
+		Components struct {
+			Schemas map[string]struct {
+				Properties map[string]json.RawMessage `json:"properties"`
+			} `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(files["api/openapi.json"], &document); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("ST-SUP-RC20-OC20-T01 The emitted create-request schema leaves out the fields a client cannot set", func(t *testing.T) {
+		request, ok := document.Components.Schemas["TodoCreateRequest"]
+		if !ok {
+			t.Fatal("the document has no TodoCreateRequest")
+		}
+		for _, name := range []string{"id", "created_by", "updated_by", "generation"} {
+			if _, ok := request.Properties[name]; ok {
+				t.Errorf("TodoCreateRequest holds the server-managed field %s", name)
+			}
+		}
+		for _, name := range []string{"title", "done", "meta"} {
+			if _, ok := request.Properties[name]; !ok {
+				t.Errorf("TodoCreateRequest has no field %s", name)
+			}
+		}
+	})
+	t.Run("ST-SUP-RC20-OC20-T04 The write operation points at the create-request schema", func(t *testing.T) {
+		if !strings.Contains(strings.Join(strings.Fields(string(document.Paths["/api/v1/todos"]["post"])), ""), `"$ref":"#/components/schemas/TodoCreateRequest"`) {
+			t.Errorf("the create of todos does not point at TodoCreateRequest: %s", document.Paths["/api/v1/todos"]["post"])
+		}
+	})
+}
+
+func TestRuntimeDelete(t *testing.T) {
+	files := crudFiles(t, crudContext())
+	t.Run("ST-SUP-RC20-OC32-T01 A delete answers 204", func(t *testing.T) {
+		for _, c := range crudContext().Collections {
+			if slices.Contains(c.Operations, types.OpDelete) {
+				inOrder(t, c.Name+" Delete", handlerMethod(t, files, c.Name, "Delete"), "repo.Delete(ctx, from)",
+					"return idempotency.Response{Status: http.StatusNoContent}, nil", "writeResult(w, result)")
+			}
+		}
+	})
+	t.Run("ST-SUP-RC20-OC32-T02 A delete writes no response body", func(t *testing.T) {
+		body := handlerMethod(t, files, "orders", "Delete")
+		if strings.Contains(body, "jsonResponse(") || strings.Contains(body, "json.Marshal(") || strings.Contains(body, "w.Write(") {
+			t.Errorf("the delete writes a body:\n%s", body)
+		}
+		// The response of the delete has no header and no body, and writeResult writes only those of the response.
+		if !strings.Contains(body, "return idempotency.Response{Status: http.StatusNoContent}, nil") {
+			t.Errorf("the delete answers a response with a header or a body:\n%s", body)
+		}
+		inOrder(t, "writeResult", extractMethodBody(string(files["api/runtime.go"]), "func writeResult("), "w.WriteHeader(result.Response.Status)", "w.Write(result.Response.Body)")
+	})
 }

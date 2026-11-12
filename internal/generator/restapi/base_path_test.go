@@ -39,7 +39,7 @@ func TestRejectAmbiguousBasePathsBeforeRendering(t *testing.T) {
 		t.Run(strconv.Quote(prefix), func(t *testing.T) {
 			ctx := basicContext()
 			ctx.BasePath = prefix
-			files, wiring, err := (&Generator{}).Generate(ctx)
+			files, wiring, err := (&Generator{}).Generate(onRuntime(ctx))
 			if err == nil {
 				_, failure := basePathMux(wiring)
 				t.Fatalf("accepted ambiguous base_path; generated router result: %v", failure)
@@ -48,7 +48,7 @@ func TestRejectAmbiguousBasePathsBeforeRendering(t *testing.T) {
 				t.Fatalf("invalid prefix produced output or an unrelated error: %v", err)
 			}
 			ctx.Collections = nil
-			if err := (&Generator{}).ValidateContext(ctx); err == nil {
+			if err := (&Generator{}).ValidateContext(onRuntime(ctx)); err == nil {
 				t.Fatal("invalid prefix was accepted without collections")
 			}
 		})
@@ -61,7 +61,7 @@ func TestLiteralBasePathsRegisterAndServeExactRoutes(t *testing.T) {
 			t.Run(prefix, func(t *testing.T) {
 				ctx := basicContext()
 				ctx.BasePath = prefix
-				_, wiring, err := (&Generator{}).Generate(ctx)
+				_, wiring, err := (&Generator{}).Generate(onRuntime(ctx))
 				if err != nil {
 					t.Fatal(err)
 				}

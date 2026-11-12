@@ -39,28 +39,18 @@ func TestGenerationDefaultLiteral(t *testing.T) {
 	t.Run("ST-SUP-RC20-OC17-T04 A generation default is written as a Go literal of its type, and any other default is refused", func(t *testing.T) {
 		hostile := `""; panic("declaration code"); _ = ""`
 		before := panicCalls(t, crudFiles(t, crudContext()), "")
-		for _, runtime := range []bool{true, false} {
-			ctx := crudContext()
-			ctx.RuntimeData = runtime
-			if !runtime {
-				ctx = basicContext()
-			}
-			ctx.Entities[0].Fields = append(ctx.Entities[0].Fields, types.Field{Name: "generation", Type: types.FieldTypeString, Default: hostile})
-			files := crudFiles(t, ctx)
-			base := before
-			if !runtime {
-				base = panicCalls(t, crudFiles(t, basicContext()), "")
-			}
-			if got := panicCalls(t, files, ""); got != base {
-				t.Errorf("runtime %v: the default added %d calls of panic to the generated code", runtime, got-base)
-			}
-			var found bool
-			for _, data := range files {
-				found = found || strings.Contains(string(data), "= "+strconv.Quote(hostile))
-			}
-			if !found {
-				t.Errorf("runtime %v: no generated file sets the generation to the quoted default", runtime)
-			}
+		ctx := crudContext()
+		ctx.Entities[0].Fields = append(ctx.Entities[0].Fields, types.Field{Name: "generation", Type: types.FieldTypeString, Default: hostile})
+		files := crudFiles(t, ctx)
+		if got := panicCalls(t, files, ""); got != before {
+			t.Errorf("the default added %d calls of panic to the generated code", got-before)
+		}
+		var found bool
+		for _, data := range files {
+			found = found || strings.Contains(string(data), "= "+strconv.Quote(hostile))
+		}
+		if !found {
+			t.Error("no generated file sets the generation to the quoted default")
 		}
 		for _, field := range []types.Field{
 			{Name: "generation", Type: types.FieldTypeTimestamp, Default: hostile},

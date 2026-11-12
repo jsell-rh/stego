@@ -1,6 +1,10 @@
+# The rest-api component serves each declared collection on the runtime data path, the one data path
+# (ST-SUP-RC20-OC39): each collection operation is one generated command or query of the command and query
+# components, which a service with collections must therefore have. Version 4.0.0 removed the handlers of the store
+# path and their storage interface.
 kind: component
 name: rest-api
-version: 3.1.0
+version: 4.0.0
 stage: ga
 output_namespace: internal/api
 
@@ -45,6 +49,8 @@ slots:
   - name: before_create
     proto: stego.components.rest_api.slots.BeforeCreate
     default: passthrough
+  # before_upsert and after_upsert are declared, and a binding of them is refused: only the removed store path
+  # called them (ST-SUP-RC20-OC39). An upsert calls validate and on_entity_changed.
   - name: before_upsert
     proto: stego.components.rest_api.slots.BeforeUpsert
     default: passthrough
