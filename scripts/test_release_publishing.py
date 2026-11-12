@@ -653,8 +653,9 @@ class ReleasePublishing(unittest.TestCase):
                               name)
             # The signed artifact run that publishing takes exists for every push to main, whatever it changes.
             self.assertEqual(workflow("compiler-artifact.yml")["on"]["push"], {"branches": ["main"]})
-            # The checks that qualification needs run on every push too, also one that changes only documents.
-            self.assertIsNone(workflow("checks.yml")["on"]["push"])
+            # The checks that qualification needs run on every push to main too, also one that changes only
+            # documents: no path filter limits them.
+            self.assertEqual(workflow("checks.yml")["on"]["push"], {"branches": ["main"]})
             # The gate step: passed=true runs the publish job, passed=false skips it with a green step, and no
             # decision fails the run.
             gate = next(step for step in jobs["gate-release"]["steps"] if step.get("id") == "gate")
