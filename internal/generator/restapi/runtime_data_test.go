@@ -59,6 +59,18 @@ func crudContext() gen.Context {
 			{Name: "meta", Type: types.FieldTypeJsonb, Optional: true}},
 			EntityAuthorization: types.EntityAuthorization{ResourceType: "todo", Permissions: permissions(types.OpPatch, types.OpUpdate, types.OpDelete), PublicReasons: reasons}},
 	}
+	// Folder and Book give a scoped collection: each book is of one folder, and its create is decided on edit of the
+	// folder through the reference (ST-SUP-RC20-OC24). Event gives two collections under path prefixes, each with
+	// one value of the implicit field source (ST-SUP-RC20-OC23).
+	entities = append(entities,
+		types.Entity{Name: "Folder", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}},
+			EntityAuthorization: types.EntityAuthorization{ResourceType: "folder", Permissions: permissions(types.OpDelete), PublicReasons: reasons}},
+		types.Entity{Name: "Book", Fields: []types.Field{{Name: "folder_id", Type: types.FieldTypeRef, To: "Folder"}, {Name: "title", Type: types.FieldTypeString}},
+			EntityAuthorization: types.EntityAuthorization{ResourceType: "book", Permissions: permissions(types.OpUpdate, types.OpPatch, types.OpDelete), PublicReasons: reasons,
+				References: map[string]types.Reference{"folder_id": {Relation: "folder", Permission: "edit"}}}},
+		types.Entity{Name: "Event", Fields: []types.Field{{Name: "source", Type: types.FieldTypeString}, {Name: "note", Type: types.FieldTypeString}},
+			EntityAuthorization: types.EntityAuthorization{ResourceType: "event", Permissions: permissions(types.OpUpdate, types.OpPatch, types.OpDelete), PublicReasons: reasons}},
+	)
 	return gen.Context{
 		ModuleName:      crudModule,
 		OutDirName:      "out",
@@ -71,6 +83,11 @@ func crudContext() gen.Context {
 			{Name: "orders", Entity: "Order", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpPatch, types.OpDelete}, Patchable: []string{"qty"}},
 			{Name: "customers", Entity: "Customer", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpUpdate, types.OpDelete}},
 			{Name: "todos", Entity: "Todo", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpPatch, types.OpUpdate, types.OpDelete}, Patchable: []string{"title", "done", "meta"}},
+			{Name: "folders", Entity: "Folder", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpDelete}},
+			{Name: "folder-books", Entity: "Book", Scope: map[string]string{"folder_id": "Folder"}, Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpUpdate, types.OpPatch, types.OpDelete}, Patchable: []string{"title"}},
+			{Name: "red-events", Entity: "Event", PathPrefix: "/red-events", Implicit: map[string]string{"source": "red"}, Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpUpdate, types.OpPatch, types.OpDelete}, Patchable: []string{"note"}},
+			{Name: "blue-events", Entity: "Event", PathPrefix: "/blue-events", Implicit: map[string]string{"source": "blue"}, Operations: []types.Operation{types.OpCreate, types.OpList}},
+			{Name: "books", Entity: "Book", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate}},
 		},
 		SlotBindings: []types.SlotDeclaration{
 			{Slot: "before_create", Collection: "orders", Chain: []string{"order-gate"}, ShortCircuit: true},
@@ -163,7 +180,7 @@ func slotFiles(t testing.TB, ctx gen.Context) map[string][]byte {
 func crudTables(t testing.TB, ctx gen.Context) []byte {
 	t.Helper()
 	adapter := gen.Context{OutputNamespace: "storage", ModuleName: ctx.ModuleName, ServiceName: ctx.ServiceName, RuntimeData: true,
-		Tenancy: ctx.Tenancy, Entities: ctx.Entities, PeerNamespaces: map[string]string{"postgres-adapter": "storage", gen.TenancyComponent: "tenancy"},
+		Tenancy: ctx.Tenancy, Entities: ctx.Entities, Collections: ctx.Collections, PeerNamespaces: map[string]string{"postgres-adapter": "storage", gen.TenancyComponent: "tenancy"},
 		ComponentConfig: map[string]any{"schema_generation": "tables-v1", "writer_lease": "off"}}
 	files, _, err := new(postgresadapter.Generator).Generate(adapter)
 	if err != nil {
@@ -267,7 +284,7 @@ func newCrudProject(t *testing.T, ctx gen.Context, files map[string][]byte) *cru
 		t.Fatal(err)
 	}
 	p.write("go.sum", sums)
-	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.33.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
+	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.34.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
 	p.mustGo("mod", "tidy")
 	return p
 }
@@ -410,8 +427,17 @@ func TestCrudService(t *testing.T) {
 				c.Collections[0].Operations = append(c.Collections[0].Operations, types.OpUpsert)
 				c.Collections[0].UpsertKey = []string{"sku"}
 			},
-			"implicit fields": func(c *gen.Context) { c.Collections[0].Implicit = map[string]string{"sku": "fixed"} },
-			"a path prefix":   func(c *gen.Context) { c.Collections[0].PathPrefix = "/stock" },
+			"an implicit field of a number type":           func(c *gen.Context) { c.Collections[0].Implicit = map[string]string{"qty": "1"} },
+			"a path parameter that is not the scope field": func(c *gen.Context) { c.Collections[0].PathPrefix = "/stock/{sku}" },
+			"an implicit field that a patch may change": func(c *gen.Context) {
+				c.Collections[5].Patchable = append(c.Collections[5].Patchable, "source")
+			},
+			"a scope field that a patch may change": func(c *gen.Context) {
+				c.Collections[4].Patchable = append(c.Collections[4].Patchable, "folder_id")
+			},
+			"a scope field that is not a ref": func(c *gen.Context) {
+				c.Collections[3].Scope = map[string]string{"name": "Order"}
+			},
 			"a bytes field": func(c *gen.Context) {
 				c.Entities[0].Fields = append(c.Entities[0].Fields, types.Field{Name: "doc", Type: types.FieldTypeBytes})
 			},
@@ -466,6 +492,13 @@ var crudCheckIDs = []string{
 	"ST-SUP-RC20-OC37-T08 A jsonb field is written, read and patched as JSON on the runtime data path",
 	"ST-SUP-RC28-OC01-T06 A secret jsonb field reaches neither the audit rows, the answer nor the stored response",
 	"ST-SUP-RC28-OC01-T07 A pii jsonb field is the redaction marker in the before, the after and the patch",
+	"ST-SUP-RC20-OC24-T05 A scoped collection on the runtime data path checks each row against the parent of the path",
+	"ST-SUP-RC20-OC23-T04 Implicit fields are forced and filtered on the runtime data path, under their path prefixes",
+	"ST-SUP-RC20-OC37-T09 A list search on the runtime data path filters on declared fields with bound values",
+	"ST-SUP-RC20-OC23-T05 A write of a row of another implicit value is not found and changes nothing, and a patch keeps the implicit value",
+	"ST-SUP-RC20-OC24-T06 A list cursor of one parent is refused for another",
+	"ST-SUP-RC20-OC24-T07 An upper-case UUID in a path or a ref names the same row as its lower-case form",
+	"ST-SUP-RP11-LC20-T04 A search of the generated service uses the index of its field, and a sensitive field neither searches nor orders",
 }
 
 // bodyLimitCheck is a test of the generated api package: the validation middleware answers a body larger than

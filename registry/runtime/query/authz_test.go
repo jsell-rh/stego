@@ -68,8 +68,11 @@ func (c *unitConn) Prepare(query string) (driver.Stmt, error) {
 		}}, nil
 	case strings.Contains(query, "current_setting('app.tenant'"):
 		return unitStmt{value: func([]driver.Value) string { return c.tenant }}, nil
+	case query == statementTimeoutSQL:
+		// Run sets the statement time limit of the query's transaction (ST-SUP-RP11-LC20).
+		return unitStmt{value: func([]driver.Value) string { return "" }, exec: true}, nil
 	}
-	return nil, errors.New("the unit driver answers only the floor, the access mode and the tenant setting")
+	return nil, errors.New("the unit driver answers only the floor, the access mode, the tenant setting and the statement time limit")
 }
 func (c *unitConn) Close() error              { return nil }
 func (c *unitConn) Begin() (driver.Tx, error) { return unitTx{}, nil }
@@ -77,11 +80,20 @@ func (c *unitConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error)
 	return unitTx{}, nil
 }
 
-type unitStmt struct{ value func([]driver.Value) string }
+type unitStmt struct {
+	value func([]driver.Value) string
+	exec  bool
+}
 
-func (unitStmt) Close() error                               { return nil }
-func (unitStmt) NumInput() int                              { return -1 }
-func (unitStmt) Exec([]driver.Value) (driver.Result, error) { return nil, errors.New("no exec") }
+func (unitStmt) Close() error  { return nil }
+func (unitStmt) NumInput() int { return -1 }
+func (s unitStmt) Exec(args []driver.Value) (driver.Result, error) {
+	// Only the setting of the statement time limit runs as an Exec.
+	if s.exec {
+		return driver.RowsAffected(0), nil
+	}
+	return nil, errors.New("no exec")
+}
 func (s unitStmt) Query(args []driver.Value) (driver.Rows, error) {
 	return &unitRows{value: s.value(args)}, nil
 }
@@ -368,7 +380,14 @@ func TestAuthz(t *testing.T) {
 					if err != nil {
 						return nil, err
 					}
-					c := call{read: len(port.recorded()) - before, items: len(page.Items), more: page.More}
+					// The padding decision of a call that read no row is on no row of the table (ST-SUP-RP11-LC20).
+					read := 0
+					for _, r := range port.recorded()[before:] {
+						if !strings.HasSuffix(keyOf(r.Resource), padKey) {
+							read++
+						}
+					}
+					c := call{read: read, items: len(page.Items), more: page.More}
 					for _, item := range page.Items {
 						if item.ID() != last {
 							return nil, errors.New("the list holds a row that is not allowed")

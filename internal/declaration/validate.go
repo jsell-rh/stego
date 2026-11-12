@@ -1042,6 +1042,17 @@ func validateCollectionReferences(collections []types.Collection, entities []typ
 						Message:  fmt.Sprintf("collection %q: patchable field %q is a ref type — ref fields cannot be patched", c.Name, pf),
 					})
 				}
+				// An implicit field has the one value of its collection: a patch of it would move the row to another
+				// collection (ST-SUP-RC20-OC23).
+				if _, implicit := c.Implicit[pf]; implicit {
+					errs = append(errs, ValidationError{
+						Category: "collection",
+						Rule:     "patchable",
+						Path:     fmt.Sprintf("%s.patchable[%d]", collectionPath(c.Name), pi),
+						Found:    pf,
+						Message:  fmt.Sprintf("collection %q: patchable field %q is an implicit field — the collection forces its value", c.Name, pf),
+					})
+				}
 			}
 		}
 	}

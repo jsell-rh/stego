@@ -75,3 +75,44 @@ func TestValidateFieldDefaults(t *testing.T) {
 		}
 	})
 }
+
+func TestValidateImplicitPatch(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC23-T06 Checking refuses an implicit field in patchable", func(t *testing.T) {
+		declaration := `kind: service
+name: events
+archetype: rest-crud
+language: go
+entities:
+  - name: Event
+    fields:
+      - {name: source, type: string}
+      - {name: note, type: string}
+collections:
+  red-events:
+    entity: Event
+    path_prefix: /red-events
+    implicit: {source: red}
+    operations: [create, read, list, patch]
+    patchable: [%s]
+`
+		faults := func(patchable string) []ValidationError {
+			service, _, err := parser.ReadServiceDeclaration([]byte(strings.Replace(declaration, "%s", patchable, 1)), "service.yaml")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var found []ValidationError
+			for _, fault := range Validate(service).All() {
+				if fault.Rule == "patchable" {
+					found = append(found, fault)
+				}
+			}
+			return found
+		}
+		if got := faults("note, source"); len(got) != 1 || got[0].Found != "source" || !strings.Contains(got[0].Path, "patchable[1]") {
+			t.Errorf("an implicit field in patchable gave the faults %+v, want one that names source", got)
+		}
+		if got := faults("note"); len(got) != 0 {
+			t.Errorf("a patchable field that is not implicit gave the faults %+v, want none", got)
+		}
+	})
+}

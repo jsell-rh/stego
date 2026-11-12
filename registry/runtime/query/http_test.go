@@ -196,9 +196,9 @@ func TestCursor(t *testing.T) {
 		if first.status != http.StatusOK || strings.Join(first.IDs, ",") != "o1,o2" || first.Next == "" {
 			t.Fatalf("the first page is %d %v %q, want o1 and o2 with a cursor", first.status, first.IDs, first.Next)
 		}
-		// The position of the first page is the key o2. The text holds only the version, the nonce and the
+		// The position of the first page is the key o2, with no filter. The text holds only the version, the nonce and the
 		// AEAD seal of that position, so it shows no key, query or principal.
-		raw := wantSealedOnly(t, rt, q, "t1", "user:u-7", first.Next, appendText([]byte{cursorVersion, cursorTable}, "o2"))
+		raw := wantSealedOnly(t, rt, q, "t1", "user:u-7", first.Next, appendText(appendText([]byte{cursorVersion, cursorTable}, "o2"), ""))
 		second := get(t, h, cursorPath(first.Next), "t1", "user:u-7")
 		if second.status != http.StatusOK || strings.Join(second.IDs, ",") != "o3,o4" {
 			t.Fatalf("the unchanged cursor gave %d %v, want o3 and o4", second.status, second.IDs)

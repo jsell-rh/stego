@@ -79,10 +79,30 @@ definition todo {
 	permission view = owner + viewer
 	permission edit = owner
 }
+
+definition folder {
+	relation owner: user
+	relation viewer: user
+	permission view = owner + viewer
+	permission edit = owner
+}
+
+definition book {
+	relation folder: folder
+	relation owner: user
+	permission view = owner + folder->view
+	permission edit = owner + folder->edit
+}
+
+definition event {
+	relation owner: user
+	permission view = owner
+	permission edit = owner
+}
 `
 )
 
-var tables = []string{"orders", "customers", "todos"}
+var tables = []string{"orders", "customers", "todos", "folders", "books", "events"}
 
 // env is the running service: its database with the runtime role, its runtimes and its HTTP server.
 type env struct {
@@ -317,7 +337,30 @@ func (e *env) start(dsn, endpoint, spiceKey string) {
 	orders := api.NewOrdersHandler(rt, slots.NewBeforeCreateChain(true, orderGate{e}), slots.NewAfterCreateGate(orderAfter{e}))
 	customers := api.NewCustomersHandler(rt, slots.NewValidateGate(customerGate{e}))
 	todos := api.NewTodosHandler(rt)
+	folders, books, allBooks := api.NewFoldersHandler(rt), api.NewFolderBooksHandler(rt), api.NewBooksHandler(rt)
+	redEvents, blueEvents := api.NewRedEventsHandler(rt), api.NewBlueEventsHandler(rt)
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/folders", folders.Create)
+	mux.HandleFunc("GET /api/v1/folders/{id}", folders.Read)
+	mux.HandleFunc("GET /api/v1/folders", folders.List)
+	mux.HandleFunc("DELETE /api/v1/folders/{id}", folders.Delete)
+	mux.HandleFunc("POST /api/v1/folders/{folder_id}/books", books.Create)
+	mux.HandleFunc("GET /api/v1/folders/{folder_id}/books/{id}", books.Read)
+	mux.HandleFunc("GET /api/v1/folders/{folder_id}/books", books.List)
+	mux.HandleFunc("PUT /api/v1/folders/{folder_id}/books/{id}", books.Update)
+	mux.HandleFunc("PATCH /api/v1/folders/{folder_id}/books/{id}", books.Patch)
+	mux.HandleFunc("DELETE /api/v1/folders/{folder_id}/books/{id}", books.Delete)
+	mux.HandleFunc("POST /api/v1/books", allBooks.Create)
+	mux.HandleFunc("GET /api/v1/books/{id}", allBooks.Read)
+	mux.HandleFunc("PUT /api/v1/books/{id}", allBooks.Update)
+	mux.HandleFunc("POST /api/v1/red-events", redEvents.Create)
+	mux.HandleFunc("GET /api/v1/red-events/{id}", redEvents.Read)
+	mux.HandleFunc("GET /api/v1/red-events", redEvents.List)
+	mux.HandleFunc("PUT /api/v1/red-events/{id}", redEvents.Update)
+	mux.HandleFunc("PATCH /api/v1/red-events/{id}", redEvents.Patch)
+	mux.HandleFunc("DELETE /api/v1/red-events/{id}", redEvents.Delete)
+	mux.HandleFunc("POST /api/v1/blue-events", blueEvents.Create)
+	mux.HandleFunc("GET /api/v1/blue-events", blueEvents.List)
 	mux.HandleFunc("POST /api/v1/orders", orders.Create)
 	mux.HandleFunc("GET /api/v1/orders/{id}", orders.Read)
 	mux.HandleFunc("GET /api/v1/orders", orders.List)
@@ -1257,6 +1300,318 @@ func TestCrud(t *testing.T) {
 		}
 		if n := e.count(`SELECT count(*) FROM customers WHERE id = $1::uuid AND contact->>'email' = $2`, id, second); n != 1 {
 			t.Errorf("%d source rows that hold the pii jsonb value, want 1", n)
+		}
+	})
+
+	t.Run("ST-SUP-RC20-OC24-T05 A scoped collection on the runtime data path checks each row against the parent of the path", func(t *testing.T) {
+		e := service(t)
+		tn := newTenant()
+		a, other := e.as("u-1", tn), e.as("u-2", tn)
+		s1 := e.create(a, "folders", "folder", `{"name":"one"}`)
+		s2 := e.create(a, "folders", "folder", `{"name":"two"}`)
+		foreign := e.create(other, "folders", "folder", `{"name":"not mine"}`)
+		books := func(folder string) string { return "/api/v1/folders/" + folder + "/books" }
+		// The scope field comes from the path, also when the body names another folder.
+		created := e.send(a, http.MethodPost, books(s1), "k-"+uuid.NewString(), `{"title":"t1","folder_id":"`+s2+`"}`)
+		if created.status != http.StatusCreated {
+			t.Fatalf("the create answered %d %s, want 201", created.status, created.body)
+		}
+		id := created.member(t, "id")
+		if href := created.member(t, "href"); href != books(s1)+"/"+id {
+			t.Errorf("the href is %q, want the path of the book under its folder", href)
+		}
+		e.own(a, "book", id)
+		if n := e.count(`SELECT count(*) FROM books WHERE id = $1::uuid AND folder_id = $2::uuid AND title = 't1'`, id, s1); n != 1 {
+			t.Errorf("%d book rows on the folder of the path, want 1", n)
+		}
+		if r := e.send(a, http.MethodGet, books(s1)+"/"+id, "", ""); r.status != http.StatusOK {
+			t.Errorf("the read under its folder answered %d %s, want 200", r.status, r.body)
+		}
+		// Under another parent each operation on the row is not found and changes nothing.
+		for _, c := range []struct{ method, key, body string }{
+			{http.MethodGet, "", ""},
+			{http.MethodPut, "", `{"title":"moved"}`},
+			{http.MethodPatch, "k-" + uuid.NewString(), `{"title":"moved"}`},
+			{http.MethodDelete, "", ""},
+		} {
+			if r := e.send(a, c.method, books(s2)+"/"+id, c.key, c.body); r.status != http.StatusNotFound {
+				t.Errorf("%s under another folder answered %d %s, want 404", c.method, r.status, r.body)
+			}
+		}
+		if n := e.count(`SELECT count(*) FROM books WHERE id = $1::uuid AND folder_id = $2::uuid AND title = 't1'`, id, s1); n != 1 {
+			t.Errorf("%d book rows as created after the writes under another folder, want 1", n)
+		}
+		// An update keeps the parent of the path.
+		if r := e.send(a, http.MethodPut, books(s1)+"/"+id, "", `{"title":"t2","folder_id":"`+s2+`"}`); r.status != http.StatusOK {
+			t.Fatalf("the update answered %d %s, want 200", r.status, r.body)
+		}
+		if n := e.count(`SELECT count(*) FROM books WHERE id = $1::uuid AND folder_id = $2::uuid AND title = 't2'`, id, s1); n != 1 {
+			t.Errorf("%d book rows updated on their folder, want 1", n)
+		}
+		e.create(a, "folders/"+s2+"/books", "book", `{"title":"on two"}`)
+		// The list holds the books of the folder of the path only.
+		list := e.send(a, http.MethodGet, books(s1), "", "")
+		var page struct {
+			Items []map[string]any `json:"items"`
+		}
+		must(t, json.Unmarshal(list.body, &page))
+		if list.status != http.StatusOK || len(page.Items) != 1 || page.Items[0]["id"] != id {
+			t.Errorf("the list of folder one answered %d %s, want the one book of that folder", list.status, list.body)
+		}
+		// A create under a folder that the caller may not edit, that does not exist or that is not an ID writes
+		// nothing.
+		before := e.count(`SELECT count(*) FROM books`)
+		for name, folder := range map[string]string{"another owner's folder": foreign, "a missing folder": uuid.NewString(), "not an ID": "x"} {
+			if r := e.send(a, http.MethodPost, books(folder), "k-"+uuid.NewString(), `{"title":"no"}`); r.status != http.StatusNotFound {
+				t.Errorf("a create under %s answered %d %s, want 404", name, r.status, r.body)
+			}
+		}
+		if n := e.count(`SELECT count(*) FROM books`); n != before {
+			t.Errorf("%d book rows after the refused creates, want %d", n, before)
+		}
+	})
+
+	t.Run("ST-SUP-RC20-OC23-T04 Implicit fields are forced and filtered on the runtime data path, under their path prefixes", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-1", newTenant())
+		red := e.send(a, http.MethodPost, "/api/v1/red-events", "k-"+uuid.NewString(), `{"source":"blue","note":"n1"}`)
+		blue := e.send(a, http.MethodPost, "/api/v1/blue-events", "k-"+uuid.NewString(), `{"note":"n2"}`)
+		if red.status != http.StatusCreated || blue.status != http.StatusCreated {
+			t.Fatalf("the creates answered %d %s and %d %s, want 201", red.status, red.body, blue.status, blue.body)
+		}
+		redID, blueID := red.member(t, "id"), blue.member(t, "id")
+		e.own(a, "event", redID)
+		e.own(a, "event", blueID)
+		if n := e.count(`SELECT count(*) FROM events WHERE (id = $1::uuid AND source = 'red') OR (id = $2::uuid AND source = 'blue')`, redID, blueID); n != 2 {
+			t.Errorf("%d event rows with the implicit source of their collection, want 2", n)
+		}
+		if href := red.member(t, "href"); href != "/api/v1/red-events/"+redID {
+			t.Errorf("the href is %q, want the path under the prefix", href)
+		}
+		for path, want := range map[string]string{"/api/v1/red-events": redID, "/api/v1/blue-events": blueID} {
+			r := e.send(a, http.MethodGet, path, "", "")
+			var page struct {
+				Items []map[string]any `json:"items"`
+			}
+			must(t, json.Unmarshal(r.body, &page))
+			if r.status != http.StatusOK || len(page.Items) != 1 || page.Items[0]["id"] != want {
+				t.Errorf("the list of %s answered %d %s, want only its own event", path, r.status, r.body)
+			}
+		}
+		if r := e.send(a, http.MethodGet, "/api/v1/red-events/"+blueID, "", ""); r.status != http.StatusNotFound {
+			t.Errorf("the read of a blue event as red answered %d %s, want 404", r.status, r.body)
+		}
+		if r := e.send(a, http.MethodGet, "/api/v1/red-events/"+redID, "", ""); r.status != http.StatusOK {
+			t.Errorf("the read of a red event answered %d %s, want 200", r.status, r.body)
+		}
+	})
+
+	t.Run("ST-SUP-RC20-OC37-T09 A list search on the runtime data path filters on declared fields with bound values", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-1", newTenant())
+		for _, title := range []string{"x", "y", "x", "it's"} {
+			e.create(a, "todos", "todo", `{"title":"`+title+`"}`)
+		}
+		search := func(text, cursor string) reply {
+			q := url.Values{"search": {text}, "pageSize": {"1"}}
+			if cursor != "" {
+				q.Set("cursor", cursor)
+			}
+			return e.send(a, http.MethodGet, "/api/v1/todos?"+q.Encode(), "", "")
+		}
+		var titles []string
+		cursor := ""
+		for range 10 {
+			r := search("title = 'x'", cursor)
+			if r.status != http.StatusOK {
+				t.Fatalf("the search answered %d %s, want 200", r.status, r.body)
+			}
+			var page struct {
+				Items []map[string]any `json:"items"`
+				Next  string           `json:"next"`
+			}
+			must(t, json.Unmarshal(r.body, &page))
+			for _, item := range page.Items {
+				titles = append(titles, fmt.Sprint(item["title"]))
+			}
+			if cursor = page.Next; cursor == "" {
+				break
+			}
+		}
+		if strings.Join(titles, ",") != "x,x" {
+			t.Errorf("the search of title x gave %v, want two todos x", titles)
+		}
+		if r := search("title = 'it''s'", ""); r.status != http.StatusOK || !strings.Contains(string(r.body), `it's`) {
+			t.Errorf("the search with a quote answered %d %s, want the todo it's", r.status, r.body)
+		}
+		// A cursor of one search is refused for another.
+		first := search("title = 'x'", "")
+		next := first.member(t, "next")
+		if r := search("title = 'y'", next); r.status != http.StatusBadRequest {
+			t.Errorf("the cursor of another search answered %d %s, want 400", r.status, r.body)
+		}
+		// A search of a secret field, of a form other than equality or with SQL text is refused, and no row leaves.
+		for _, text := range []string{"api_token = 'x'", "title = 'x' or done = true", "title = x' OR '1'='1", "title != 'x'"} {
+			path := "/api/v1/todos?" + url.Values{"search": {text}}.Encode()
+			if text == "api_token = 'x'" {
+				path = "/api/v1/customers?" + url.Values{"search": {text}}.Encode()
+			}
+			if r := e.send(a, http.MethodGet, path, "", ""); r.status != http.StatusBadRequest || strings.Contains(string(r.body), "items") {
+				t.Errorf("the search %q answered %d %s, want 400 with no items", text, r.status, r.body)
+			}
+		}
+	})
+
+	t.Run("ST-SUP-RC20-OC23-T05 A write of a row of another implicit value is not found and changes nothing, and a patch keeps the implicit value", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-1", newTenant())
+		red := e.send(a, http.MethodPost, "/api/v1/red-events", "k-"+uuid.NewString(), `{"note":"r"}`)
+		blue := e.send(a, http.MethodPost, "/api/v1/blue-events", "k-"+uuid.NewString(), `{"note":"b"}`)
+		if red.status != http.StatusCreated || blue.status != http.StatusCreated {
+			t.Fatalf("the creates answered %d and %d, want 201", red.status, blue.status)
+		}
+		redID, blueID := red.member(t, "id"), blue.member(t, "id")
+		e.own(a, "event", redID)
+		e.own(a, "event", blueID)
+		for _, c := range []struct{ method, key, body string }{
+			{http.MethodPut, "", `{"note":"moved"}`},
+			{http.MethodPatch, "k-" + uuid.NewString(), `{"note":"moved"}`},
+			{http.MethodDelete, "", ""},
+		} {
+			if r := e.send(a, c.method, "/api/v1/red-events/"+blueID, c.key, c.body); r.status != http.StatusNotFound {
+				t.Errorf("%s of a blue event as red answered %d %s, want 404", c.method, r.status, r.body)
+			}
+		}
+		if n := e.count(`SELECT count(*) FROM events WHERE id = $1::uuid AND source = 'blue' AND note = 'b'`, blueID); n != 1 {
+			t.Errorf("%d blue event rows as created, want 1", n)
+		}
+		// A patch that names the implicit field is refused by the body's schema or keeps the field: the row stays red.
+		e.send(a, http.MethodPatch, "/api/v1/red-events/"+redID, "k-"+uuid.NewString(), `{"note":"n2","source":"green"}`)
+		if r := e.send(a, http.MethodPut, "/api/v1/red-events/"+redID, "", `{"note":"n3","source":"green"}`); r.status != http.StatusOK {
+			t.Errorf("the update of a red event answered %d %s, want 200", r.status, r.body)
+		}
+		if n := e.count(`SELECT count(*) FROM events WHERE id = $1::uuid AND source = 'red' AND note = 'n3'`, redID); n != 1 {
+			t.Errorf("%d red event rows with the updated note and the implicit source, want 1", n)
+		}
+	})
+
+	t.Run("ST-SUP-RC20-OC24-T06 A list cursor of one parent is refused for another", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-1", newTenant())
+		one := e.create(a, "folders", "folder", `{"name":"one"}`)
+		two := e.create(a, "folders", "folder", `{"name":"two"}`)
+		for range 3 {
+			e.create(a, "folders/"+one+"/books", "book", `{"title":"t"}`)
+		}
+		first := e.send(a, http.MethodGet, "/api/v1/folders/"+one+"/books?pageSize=1", "", "")
+		next := first.member(t, "next")
+		if first.status != http.StatusOK || next == "" {
+			t.Fatalf("the first page answered %d %s, want 200 with a cursor", first.status, first.body)
+		}
+		if r := e.send(a, http.MethodGet, "/api/v1/folders/"+two+"/books?pageSize=1&cursor="+url.QueryEscape(next), "", ""); r.status != http.StatusBadRequest {
+			t.Errorf("the cursor of folder one on folder two answered %d %s, want 400", r.status, r.body)
+		}
+		if r := e.send(a, http.MethodGet, "/api/v1/folders/"+one+"/books?pageSize=1&cursor="+url.QueryEscape(next), "", ""); r.status != http.StatusOK {
+			t.Errorf("the cursor on its own folder answered %d %s, want 200", r.status, r.body)
+		}
+	})
+
+	t.Run("ST-SUP-RC20-OC24-T07 An upper-case UUID in a path or a ref names the same row as its lower-case form", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-1", newTenant())
+		one := e.create(a, "folders", "folder", `{"name":"one"}`)
+		two := e.create(a, "folders", "folder", `{"name":"two"}`)
+		upper := strings.ToUpper
+		books := func(folder string) string { return "/api/v1/folders/" + folder + "/books" }
+		// The parent of the path in upper case.
+		created := e.send(a, http.MethodPost, books(upper(one)), "k-"+uuid.NewString(), `{"title":"t1"}`)
+		if created.status != http.StatusCreated {
+			t.Fatalf("the create under the upper-case folder answered %d %s, want 201", created.status, created.body)
+		}
+		id := created.member(t, "id")
+		e.own(a, "book", id)
+		if n := e.count(`SELECT count(*) FROM books WHERE id = $1::uuid AND folder_id::text = $2`, id, one); n != 1 {
+			t.Errorf("%d book rows on the lower-case folder, want 1", n)
+		}
+		for _, c := range []struct {
+			method, path, key, body string
+			want                    int
+		}{
+			{http.MethodGet, books(upper(one)) + "/" + upper(id), "", "", http.StatusOK},
+			{http.MethodGet, books(upper(one)), "", "", http.StatusOK},
+			{http.MethodPatch, books(upper(one)) + "/" + upper(id), "k-" + uuid.NewString(), `{"title":"t2"}`, http.StatusOK},
+			{http.MethodPut, books(upper(one)) + "/" + id, "", `{"title":"t3"}`, http.StatusOK},
+			{http.MethodGet, books(upper(two)) + "/" + upper(id), "", "", http.StatusNotFound},
+		} {
+			if r := e.send(a, c.method, c.path, c.key, c.body); r.status != c.want {
+				t.Errorf("%s %s answered %d %s, want %d", c.method, c.path, r.status, r.body, c.want)
+			}
+		}
+		list := e.send(a, http.MethodGet, books(upper(one)), "", "")
+		var page struct {
+			Items []map[string]any `json:"items"`
+		}
+		must(t, json.Unmarshal(list.body, &page))
+		if len(page.Items) != 1 || page.Items[0]["id"] != id {
+			t.Errorf("the list under the upper-case folder answered %s, want its one book", list.body)
+		}
+		// A ref of the body in upper case: a create, an update that keeps the ref and an update that moves it.
+		free := e.send(a, http.MethodPost, "/api/v1/books", "k-"+uuid.NewString(), `{"title":"f1","folder_id":"`+upper(one)+`"}`)
+		if free.status != http.StatusCreated {
+			t.Fatalf("the create with an upper-case ref answered %d %s, want 201", free.status, free.body)
+		}
+		freeID := free.member(t, "id")
+		e.own(a, "book", freeID)
+		for _, folder := range []string{one, two} {
+			if r := e.send(a, http.MethodPut, "/api/v1/books/"+upper(freeID), "", `{"title":"f2","folder_id":"`+upper(folder)+`"}`); r.status != http.StatusOK {
+				t.Errorf("the update with the upper-case ref %s answered %d %s, want 200", folder, r.status, r.body)
+			}
+			if n := e.count(`SELECT count(*) FROM books WHERE id = $1::uuid AND folder_id::text = $2`, freeID, folder); n != 1 {
+				t.Errorf("%d book rows on the lower-case folder %s, want 1", n, folder)
+			}
+		}
+		if r := e.send(a, http.MethodGet, "/api/v1/books/"+upper(freeID), "", ""); r.status != http.StatusOK {
+			t.Errorf("the read of the upper-case ID answered %d %s, want 200", r.status, r.body)
+		}
+	})
+
+	t.Run("ST-SUP-RP11-LC20-T04 A search of the generated service uses the index of its field, and a sensitive field neither searches nor orders", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-1", newTenant())
+		if _, err := e.admin.ExecContext(e.ctx, `INSERT INTO todos (tenant_id, id, title) SELECT $1, gen_random_uuid(), 't-' || g FROM generate_series(1, 20000) g`, a.tenant.ID()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.admin.ExecContext(e.ctx, `ANALYZE todos`); err != nil {
+			t.Fatal(err)
+		}
+		// The statement of the first page of a filtered list, as the query runtime writes it.
+		rows, err := e.admin.QueryContext(e.ctx, `EXPLAIN SELECT id FROM public.todos WHERE tenant_id = $1 AND title = $2 ORDER BY id LIMIT 101`, a.tenant.ID(), "t-7")
+		must(t, err)
+		var plan strings.Builder
+		for rows.Next() {
+			var line string
+			must(t, rows.Scan(&line))
+			plan.WriteString(line + "\n")
+		}
+		must(t, rows.Err())
+		rows.Close()
+		if !strings.Contains(plan.String(), "todos_title_search") {
+			t.Errorf("the plan of a search of title uses no index of title:\n%s", plan.String())
+		}
+		// The rows have no owner, so the caller sees none of them; the search is served.
+		if r := e.send(a, http.MethodGet, "/api/v1/todos?search="+url.QueryEscape("title = 't-7'"), "", ""); r.status != http.StatusOK {
+			t.Errorf("the search answered %d %.200s, want 200", r.status, r.body)
+		}
+		// A pii field neither searches nor orders a list; a bad value is 400 and not 500.
+		for _, q := range []string{"search=" + url.QueryEscape("name = 'Ada'"), "orderBy=name", "orderBy=api_token"} {
+			if r := e.send(a, http.MethodGet, "/api/v1/customers?"+q, "", ""); r.status != http.StatusBadRequest {
+				t.Errorf("the list of customers with %s answered %d %s, want 400", q, r.status, r.body)
+			}
+		}
+		for _, q := range []string{"title = 'a\x00b'"} {
+			if r := e.send(a, http.MethodGet, "/api/v1/todos?search="+url.QueryEscape(q), "", ""); r.status != http.StatusBadRequest {
+				t.Errorf("the search %q answered %d %s, want 400", q, r.status, r.body)
+			}
 		}
 	})
 
