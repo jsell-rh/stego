@@ -70,7 +70,7 @@ func (s *smallService) reset(t *testing.T) {
 // tagDeclaration adds an entity Tag with its collection, and Note loses its
 // field title and its collection, so that the plan creates, updates and
 // deletes files.
-const tagDeclaration = `kind: service
+var tagDeclaration = onRuntimePath(`kind: service
 name: notes
 archetype: rest-crud
 language: go
@@ -81,7 +81,7 @@ entities:
     fields: [{name: label, type: string}]
 collections:
   tags: {entity: Tag, operations: [create, read]}
-`
+`)
 
 // journal reads the pending journal with a YAML parser.
 func (s *smallService) journal(t *testing.T) (operations []string) {
@@ -310,9 +310,12 @@ func TestApplySavesWholeOrNothing(t *testing.T) {
 			s.stopApply(t, point)
 			if point == "before_prepare" {
 				files := tree(t, s.service)
+				// The test writes the declaration and the schema it names; apply writes nothing.
 				delete(files, "service.yaml")
+				delete(files, runtimeSchemaPath)
 				old := maps.Clone(oldFiles)
 				delete(old, "service.yaml")
+				delete(old, runtimeSchemaPath)
 				if s.read(t, ".stego/state.yaml") != oldRecord || !maps.Equal(files, old) {
 					t.Errorf("a stop before the journal is written did not leave the old record and the old files")
 				}

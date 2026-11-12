@@ -74,7 +74,7 @@ collections:
 func TestCheckADeclaration(t *testing.T) {
 	t.Parallel()
 	t.Run("ST-DECL-UC03-R02-T01 A refusal reports every fault at once", func(t *testing.T) {
-		service := strings.Replace(td02, "{name: title, type: string,", "{name: title, type: foobar,", 1)
+		service := strings.Replace(td02Plain, "{name: title, type: string,", "{name: title, type: foobar,", 1)
 		service = strings.Replace(service, "      - {name: done, type: bool, default: false}\n", "      - {name: done, type: bool, default: false}\n      - {name: status, type: enum}\n", 1)
 		service = strings.Replace(service, "operations: [create, read, update, delete, list]\n", "operations: [create, read, update, delete, list, explode]\n  things:\n    entity: Nothing\n    operations: [read]\n", 1)
 		service += "slots:\n  - collection: gadgets\n    slot: before_create\n    gate: [policy]\n"
@@ -182,6 +182,9 @@ func TestCheckADeclaration(t *testing.T) {
 			t.Fatalf("want three faults:\n%s", run.stdout)
 		}
 		before["service.yaml"] = threeFaults
+		if schema, err := os.ReadFile(filepath.Join(project, runtimeSchemaPath)); err == nil {
+			before[runtimeSchemaPath] = string(schema)
+		}
 		if after := projectFiles(t, project); !reflect.DeepEqual(before, after) {
 			t.Errorf("checking made, changed or removed a file")
 		}

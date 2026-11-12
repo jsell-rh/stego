@@ -26,7 +26,10 @@ func td03Service(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(data)
+	// On the runtime data path, the only data path (ST-SUP-RC20-OC39), a create of a top-level entity is public
+	// with a reason (ST-SUP-RC29-OC01), and the service states its audit and its schema generation.
+	service := strings.Replace(string(data), "permissions: {create: edit,", "public_reasons: {create: a new todo has no resource to decide on before it exists}\n    permissions: {create: public,", 1)
+	return onRuntimePath(service)
 }
 
 // td03Schema reads the fixture schema of ST-DECL-TD03.
@@ -80,10 +83,9 @@ func authzFills(t *testing.T) string {
 		if err := run("no-key", "init", "--archetype", "rest-crud"); err != nil {
 			return "", err
 		}
-		// The fills are generated against TD03 with its authorization left out, so that their qualification does not
-		// depend on the authorization wiring. The slot contracts are the same: no slot contract carries the
-		// authorization of the declaration yet.
-		p.write(t, "service.yaml", withoutAuthorization(td03Service(t)))
+		// The fills are generated against TD03 with its authorization, which the runtime data path needs. No slot
+		// contract carries the authorization of the declaration yet.
+		p.write(t, "service.yaml", td03Service(t))
 		p.write(t, "authz/schema.zed", td03Schema(t))
 		p.write(t, "SIGNERS", keys.signers)
 		p.addFill(t, "policy", "before_create", "todos", true)
@@ -353,10 +355,11 @@ func TestDeclareAuthorization(t *testing.T) {
 	})
 
 	t.Run("ST-DECL-UC06-R07-T03 A public operation is accepted only with a reason", func(t *testing.T) {
-		public := edit(t, td03, "list: view}", "list: public}")
-		expectRefusal(t, td03Project(t, public), "authorization-coverage", "todos.list", "public", "no reason")
-		reasoned := edit(t, public, "    relationships:\n", "    public_reasons: {list: the catalog is public by design}\n    relationships:\n")
-		expectAcceptance(t, td03Project(t, reasoned))
+		// The create of Todo is public with a reason in td03Service, as the runtime data path asks; without the
+		// reason it is refused.
+		public := edit(t, td03, "    public_reasons: {create: a new todo has no resource to decide on before it exists}\n", "")
+		expectRefusal(t, td03Project(t, public), "authorization-coverage", "todos.create", "public", "no reason")
+		expectAcceptance(t, td03Project(t, td03))
 	})
 
 	t.Run("ST-DECL-UC06-R01-T06 A schema that defines the floor marker stego_floor is refused, naming it", func(t *testing.T) {
@@ -393,11 +396,12 @@ func TestDeclareAuthorization(t *testing.T) {
 	t.Run("ST-DECL-UC06-R07-T06 Generation refuses a declaration that binds authorization while the registry holds no spicedb-authz, naming the component", func(t *testing.T) {
 		project := td03Project(t, td03)
 		putFile(t, project, ".stego/config.yaml", registryWithout(t, "spicedb-authz"))
-		expectAcceptance(t, project)
-		for _, command := range []string{"plan", "apply"} {
+		// On the runtime data path the runtime wiring calls the component, so the check of generation in stego
+		// validate refuses the declaration too.
+		for _, command := range []string{"validate", "plan", "apply"} {
 			run := stegoIn(t, project, nil, command)
 			output := run.stdout + run.stderr
-			if run.code == 0 || !strings.Contains(output, "generation refused") || !strings.Contains(output, "spicedb-authz") {
+			if run.code == 0 || !strings.Contains(output, "spicedb-authz") {
 				t.Errorf("stego %s did not refuse the declaration for the missing component spicedb-authz, exit %d:\n%s", command, run.code, output)
 			}
 		}

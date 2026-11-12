@@ -33,7 +33,7 @@ func declaringRegistry(t *testing.T) (string, string) {
 		// ST-DECL-TD01 is a rest-crud service of the GORM store path until the store path is removed
 		// (ST-SUP-RC20-OC39).
 		source := filepath.Join(fixtureRoot, "declaring-store-registry")
-		if err := storeRegistryInto(source); err != nil {
+		if err := shippedRegistryInto(source); err != nil {
 			return "", err
 		}
 		declaringRegistryDir = filepath.Join(fixtureRoot, "declaring-registry")
@@ -59,6 +59,7 @@ func putFile(t *testing.T, folder, name, data string) {
 	if err := os.WriteFile(path, []byte(data), 0644); err != nil {
 		t.Fatal(err)
 	}
+	withRuntimeSchema(t, folder, name, data)
 }
 
 // declaringConfig is the project configuration of ST-DECL-TD01: the fixture registry as a local source pinned at
@@ -79,7 +80,7 @@ func declaringProject(t *testing.T) string {
 
 // td02 is the accepted rest-crud declaration of ST-DECL-TD02. The entity id is implicit in the declaration
 // format, which has no uuid field type, so the declaration does not list it.
-const td02 = `kind: service
+const td02Plain = `kind: service
 name: todo-svc
 archetype: rest-crud
 language: go
@@ -95,9 +96,12 @@ collections:
     operations: [create, read, update, delete, list]
 `
 
+// td02 is td02Plain with the settings of the runtime data path, the only data path (ST-SUP-RC20-OC39).
+var td02 = onRuntimePath(td02Plain)
+
 // threeFaults is ST-DECL-TD02 changed in three places: a second entity named Todo, a binding on todos at
 // before_create with the operator merge, and the type strng on the field done.
-const threeFaults = `kind: service
+const threeFaultsPlain = `kind: service
 name: todo-svc
 archetype: rest-crud
 language: go
@@ -119,6 +123,9 @@ slots:
     slot: before_create
     merge: [policy]
 `
+
+// threeFaults is threeFaultsPlain with the settings of the runtime data path.
+var threeFaults = onRuntimePath(threeFaultsPlain)
 
 // td02Project makes the project of ST-DECL-TD02 with the declaration given, and an empty fills folder.
 func td02Project(t *testing.T, service string) string {
@@ -418,7 +425,7 @@ func TestRepairARefusedDeclaration(t *testing.T) {
 	})
 
 	t.Run("ST-DECL-UC04-R06-T01 An unreadable declaration gives one fault with its line and position, and no semantic fault", func(t *testing.T) {
-		lines := strings.Split(threeFaults, "\n")
+		lines := strings.Split(threeFaultsPlain, "\n")
 		if lines[6] != "  - name: Todo" {
 			t.Fatalf("line 7 is %q", lines[6])
 		}

@@ -140,7 +140,7 @@ func testFillKeys(t *testing.T) *fillKeys {
 		// The fill fixture is a rest-crud project of the GORM store path until the store path is removed
 		// (ST-SUP-RC20-OC39).
 		k.registry = filepath.Join(fixtureRoot, "fill-store-registry")
-		if err := storeRegistryInto(k.registry); err != nil {
+		if err := shippedRegistryInto(k.registry); err != nil {
 			return "", err
 		}
 		return "", nil
@@ -215,7 +215,7 @@ func (p *fillProject) must(t *testing.T, key string, args ...string) string {
 }
 
 // fillBaseService is the declaration of ST-EXT-TD01 with no slot binding.
-const fillBaseService = `kind: service
+var fillBaseService = onRuntimePath(`kind: service
 name: fills
 archetype: rest-crud
 language: go
@@ -233,7 +233,7 @@ collections:
   org-groups:
     entity: Group
     operations: [create, read, delete]
-`
+`)
 
 // slotBinding is one binding of a fill at a slot for a collection.
 type slotBinding struct{ fill, slot, collection string }
@@ -270,6 +270,7 @@ func (p *fillProject) write(t *testing.T, name, data string) {
 	if err := os.WriteFile(p.path(name), []byte(data), 0644); err != nil {
 		t.Fatal(err)
 	}
+	withRuntimeSchema(t, p.dir, name, data)
 }
 
 // replace changes the first match of old in the file, which must hold it.

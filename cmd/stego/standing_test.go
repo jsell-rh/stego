@@ -176,8 +176,7 @@ func TestPastItsFailDateAPinFails(t *testing.T) {
 		headRegistry(t, s)
 		da1, da2 := pinnedDigest(t, s, componentA), digestAt(t, s, s.r2, componentA)
 		supersede(t, s, "STEGO-2026-0001", da1, da2, -30, false)
-		s.write(t, "service.yaml", strings.Replace(smallServiceDeclaration, "collections:\n",
-			"  - name: Tag\n    fields: [{name: label, type: string}]\ncollections:\n  tags: {entity: Tag, operations: [create, read]}\n", 1))
+		s.write(t, "service.yaml", secondEntityDeclaration)
 		git(t, s.service, "commit", "-q", "-am", "add Tag")
 		refusedIn(t, s, []string{da1}, "apply")
 	})
@@ -277,8 +276,7 @@ func TestAServiceAuthorLearnsOfASupersededPin(t *testing.T) {
 		writeFile(t, filepath.Dir(supersedeFile), filepath.Base(supersedeFile), strings.Replace(string(data), lifecycleDay(90), lifecycleDay(-30), 1), 0o644)
 		commitHead(t, s, "the past variant")
 		refusedIn(t, s, []string{da1, "past its fail date"}, "validate")
-		s.write(t, "service.yaml", strings.Replace(smallServiceDeclaration, "collections:\n",
-			"  - name: Tag\n    fields: [{name: label, type: string}]\ncollections:\n  tags: {entity: Tag, operations: [create, read]}\n", 1))
+		s.write(t, "service.yaml", secondEntityDeclaration)
 		git(t, s.service, "commit", "-q", "-am", "add Tag")
 		refusedIn(t, s, []string{da1}, "apply")
 		// On the unchecked path, the lifecycle records cannot be read.
@@ -334,27 +332,20 @@ func TestAComponentFixCarriesNoUnrelatedChanges(t *testing.T) {
 		s.pin(t, s.r2)
 		s.must(t, "apply")
 		changed := strings.Fields(git(t, s.service, "diff", "--name-only"))
-		// The record keys each generated file by its path under out/.
-		namespace := ""
-		reg, err := registry.Load(s.registryAt(t, s.r2))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if component := reg.Component(componentA); component != nil && component.OutputNamespace != "" {
-			namespace = component.OutputNamespace + "/"
-		}
+		// The record keys each generated file by its path under out/. On the runtime data path the fix of
+		// component A lands in the runtime wiring, which reads its settings, and in no other file.
 		fixed := 0
 		for _, path := range changed {
 			switch {
 			case path == ".stego/state.yaml" || path == ".stego/config.yaml":
-			case strings.HasPrefix(path, "out/"+namespace):
+			case path == "out/"+componentAFile:
 				fixed++
 			default:
-				t.Errorf("the fix of component A changed %s, outside its namespace out/%s and the record", path, namespace)
+				t.Errorf("the fix of component A changed %s, which is not out/%s or the record", path, componentAFile)
 			}
 		}
 		if fixed == 0 {
-			t.Errorf("the fix of component A changed no file of its namespace out/%s: %v", namespace, changed)
+			t.Errorf("the fix of component A did not change out/%s: %v", componentAFile, changed)
 		}
 		after := s.record(t)
 		for _, path := range recordDifferences(before, after, "") {
@@ -364,10 +355,10 @@ func TestAComponentFixCarriesNoUnrelatedChanges(t *testing.T) {
 			case path == "last_applied.components."+componentA+".sha", path == "last_applied.registry_sha",
 				path == "last_applied.inputs.options.registry_ref", path == "last_applied.registry_content_sha256",
 				path == "last_applied.inputs.files..stego/config.yaml.sha256", path == "last_applied.inputs.sha256":
-			// The hash the record keeps of a generated file of component A's namespace is part of the fix.
-			case strings.HasPrefix(path, "last_applied.files."+namespace):
+			// The hash the record keeps of the file that the fix changes is part of the fix.
+			case path == "last_applied.files."+componentAFile:
 			default:
-				t.Errorf("the record changed %s, which is neither component A's digest, a file of its namespace, nor the registry reference", path)
+				t.Errorf("the record changed %s, which is neither component A's digest, the file of its fix, nor the registry reference", path)
 			}
 		}
 		if pinnedDigest(t, s, componentA) == da1 {

@@ -11,11 +11,12 @@ import (
 // the commit under test in a project of ST-DECL-TD01 with ST-DECL-TD02 changed in one named place, and reads the
 // structured output of stego validate --json (ST-DECL-CLI02), with the settings that checking reports.
 
-// tenancyClaim is ST-DECL-TD02 with pooled tenancy, the key org_id and the claim given. The stated tenancy selects
+// tenancyClaim is ST-DECL-TD02 with pooled tenancy, the key tenant_id that the runtime data path needs, and the
+// claim given. The stated tenancy selects
 // the tenancy component, which is alpha, so the declaration accepts it (ST-GEN-INV37).
 func tenancyClaim(claim string) string {
-	return td02 + "tenancy:\n  kind: pooled\n  key: org_id\n  claim: \"" + claim + "\"\n" +
-		acceptanceOf("tenancy", "tenancy builder pilot")
+	return onRuntimePath(td02Plain + "tenancy:\n  kind: pooled\n  key: tenant_id\n  claim: \"" + claim + "\"\n" +
+		acceptanceOf("tenancy", "tenancy builder pilot"))
 }
 
 // withProvisioner is ST-DECL-TD02 with the controller provisioner, complete in each field but its tenants.
@@ -84,7 +85,11 @@ func TestDeclareTenancyWithAuditSettings(t *testing.T) {
 		document := acceptedSettings(t, service)
 		expectSetting(t, document, "tenancy.kind", "pooled", false)
 		expectSetting(t, document, "tenancy.claim", "org.id", false)
-		expectOnByDefault(t, document)
+		// The runtime data path needs the audit log selected by its stated setting, so the declaration states the
+		// level; the chain and the anchor stay defaults.
+		expectSetting(t, document, "audit.level", "change", false)
+		expectSetting(t, document, "audit.chain", "sha-256", true)
+		expectSetting(t, document, "audit.anchor", true, true)
 		expectSetting(t, document, "entities[0].tenant", "owned", true)
 		expectSetting(t, document, "entities[1].tenant", "shared", false)
 		expectSetting(t, document, "entities[2].tenant", "system", false)
@@ -93,7 +98,8 @@ func TestDeclareTenancyWithAuditSettings(t *testing.T) {
 	})
 
 	t.Run("ST-DECL-UC05-R01-T01 A declaration that omits tenancy and audit gets pooled tenancy and audit at level change with a SHA-256 chain and an anchor", func(t *testing.T) {
-		document := acceptedSettings(t, td02)
+		// Authorization asks for stated tenancy, so the declaration with no tenancy has no data access.
+		document := acceptedSettings(t, td02Plain[:strings.Index(td02Plain, "entities:\n")])
 		expectSetting(t, document, "tenancy.kind", "pooled", true)
 		expectSetting(t, document, "tenancy.key", "tenant_id", true)
 		expectSetting(t, document, "tenancy.claim", "tenant_id", true)
@@ -101,21 +107,21 @@ func TestDeclareTenancyWithAuditSettings(t *testing.T) {
 	})
 
 	t.Run("ST-DECL-UC05-R02-T01 Tenancy kind single with no reason is refused, naming the setting", func(t *testing.T) {
-		fault := refusedFault(t, td02+"tenancy: {kind: single}\n", "tenancy.reason")
+		fault := refusedFault(t, onRuntimePath(td02Plain+"tenancy: {kind: single}\n"), "tenancy.reason")
 		if !strings.Contains(fault.Message, "tenancy") || !strings.Contains(fault.Message, "reason") {
 			t.Errorf("the fault does not say that the tenancy setting needs a reason: %+v", fault)
 		}
 	})
 
 	t.Run("ST-DECL-UC05-R02-T02 Audit off with no reason is refused, naming the setting", func(t *testing.T) {
-		fault := refusedFault(t, td02+"audit: {enabled: false}\n", "audit.reason")
+		fault := refusedFault(t, onRuntimePath(td02Plain+"audit: {enabled: false}\n"), "audit.reason")
 		if !strings.Contains(fault.Message, "audit") || !strings.Contains(fault.Message, "reason") {
 			t.Errorf("the fault does not say that the audit setting needs a reason: %+v", fault)
 		}
 	})
 
 	t.Run("ST-DECL-UC05-R02-T03 A default left with a reason is accepted", func(t *testing.T) {
-		document := acceptedSettings(t, td02+"tenancy: {kind: single, reason: Internal tool for one organisation}\naudit: {enabled: false, reason: Stateless proxy with no data of its own}\n")
+		document := acceptedSettings(t, td02Plain[:strings.Index(td02Plain, "entities:\n")]+"tenancy: {kind: single, reason: Internal tool for one organisation}\naudit: {enabled: false, reason: Stateless proxy with no data of its own}\n")
 		expectSetting(t, document, "tenancy.kind", "single", false)
 		expectSetting(t, document, "tenancy.reason", "Internal tool for one organisation", false)
 		expectSetting(t, document, "audit.enabled", false, false)

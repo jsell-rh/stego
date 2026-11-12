@@ -214,7 +214,7 @@ func TestInstallAQualifiedCompiler(t *testing.T) {
 		if err := json.Unmarshal(reported, &report); err != nil || !reflect.DeepEqual(report.Build, build.Version.Build) {
 			t.Fatalf("the installed compiler reports %v, and its build record holds %v (%v)", report.Build, build.Version.Build, err)
 		}
-		generatingProject(t, "kind: service\nname: small\narchetype: rest-crud\nlanguage: go\nentities:\n  - name: Note\n    fields: [{name: title, type: string}]\ncollections:\n  notes: {entity: Note, operations: [create, read]}\n")
+		generatingProject(t, onRuntimePath("kind: service\nname: small\narchetype: rest-crud\nlanguage: go\nentities:\n  - name: Note\n    fields: [{name: title, type: string}]\ncollections:\n  notes: {entity: Note, operations: [create, read]}\n"))
 		if output, err := exec.Command(compiler, "apply").CombinedOutput(); err != nil {
 			t.Fatalf("the installed compiler cannot apply: %v\n%s", err, output)
 		}
