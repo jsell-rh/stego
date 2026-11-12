@@ -21,8 +21,10 @@ with the same name is also rejected. This is not a general upgrade framework.
 The single-writer lease of the GORM store is removed in version 5.0.0
 (ST-SUP-RC20-OC39). The `writer_lease` setting accepts only `off`, or you
 can leave it out. The value `single` is refused. A declaration that sets
-`writer_lease: off` stays valid. Epoch and identity rollback detection stay
-in the marker tables.
+`writer_lease: off` stays valid. The bootstrap still creates the marker tables
+`stego_schema.identity` and `stego_schema.epoch_seq`, and startup checks their
+shape, but no code reads them to detect a restore or a rollback now: that
+detection went with the store.
 
 ## Initialization and startup
 

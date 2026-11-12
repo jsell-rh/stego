@@ -23,6 +23,7 @@
 {"source_id":"ST-SUP-RT09","target_id":"ST-DECL-INV20"}
 {"source_id":"ST-SUP-RT10","target_id":"ST-SUP-RP10-LC03"}
 {"source_id":"ST-SUP-RT10","target_id":"ST-SUP-RP11-LC03"}
+{"source_id":"ST-SUP-RT11","target_id":"ST-SUP-RP10-LC24"}
 {"source_id":"ST-SUP-RT12","target_id":"ST-SUP-RP11-LC15"}
 {"source_id":"ST-SUP-RT12","target_id":"ST-SUP-RP11-LC18"}
 {"source_id":"ST-SUP-RT13","target_id":"ST-SUP-RP10-LC07"}

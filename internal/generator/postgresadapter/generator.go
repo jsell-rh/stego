@@ -220,7 +220,7 @@ func schemaGenerationAccess(ctx gen.Context, wiring *gen.Wiring) {
 // match any of these produce uncompilable or shadowed generated code.
 var reservedTypeNames = map[string]bool{
 	"SchemaGeneration": true, "SchemaDefinition": true, "ErrSchemaGeneration": true, "VerifySchema": true, "BootstrapSchema": true, "readSchemaGeneration": true,
-	"ErrDatabaseRollback": true, "databaseUUID": true, "RestoreRecord": true, "ErrRestore": true,
+	"databaseUUID": true,
 	"ErrMigrationLedger": true, "AppliedMigrations": true, "ApplyMigration": true, "RegisterSQL": true,
 	// Generator-internal identifiers.
 	"stegotenancy":             true,

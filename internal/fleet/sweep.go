@@ -126,7 +126,7 @@ func readCheckout(checkout string) (Service, *Unknown) {
 		return unknown(0, "its record is not valid YAML: %v", err)
 	}
 	if !slices.Contains(RecordFormats, head.FormatVersion) {
-		return unknown(head.FormatVersion, "its record has format version %d, and the sweep reads only format versions 2, 3 and 4, which name each component digest", head.FormatVersion)
+		return unknown(head.FormatVersion, "its record has format version %d, and the sweep reads only format versions 2 to 5, which name each component digest", head.FormatVersion)
 	}
 	var r record
 	decoder := yaml.NewDecoder(bytes.NewReader(data))

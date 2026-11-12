@@ -61,7 +61,7 @@ func TestSchemaGenerationValidationAndWiring(t *testing.T) {
 	if files, _, err := new(Generator).Generate(ctx); err == nil || !strings.Contains(err.Error(), "schema_generation") || files != nil {
 		t.Fatal("a service with entities and no schema_generation is accepted", err)
 	}
-	for _, name := range []string{"SchemaGeneration", "SchemaDefinition", "BootstrapSchema", "VerifySchema", "readSchemaGeneration", "ErrSchemaGeneration", "RestoreRecord", "ErrRestore", "ErrMigrationLedger", "AppliedMigrations", "ApplyMigration", "RegisterSQL"} {
+	for _, name := range []string{"SchemaGeneration", "SchemaDefinition", "BootstrapSchema", "VerifySchema", "readSchemaGeneration", "ErrSchemaGeneration", "ErrMigrationLedger", "AppliedMigrations", "ApplyMigration", "RegisterSQL"} {
 		ctx := basicContext()
 		ctx.Entities = []types.Entity{{Name: name}}
 		if _, _, err := new(Generator).Generate(ctx); err == nil {
