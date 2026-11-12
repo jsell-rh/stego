@@ -158,7 +158,7 @@ func TestDatabasePoolWiring(t *testing.T) {
 		ctx := basicContext()
 		ctx.ModuleName = "example.com/pool"
 		if traced {
-			ctx.PeerNamespaces = map[string]string{"otel-tracing": "tracing"}
+			ctx.PeerNamespaces["otel-tracing"] = "tracing"
 		}
 		files, wiring, err := new(Generator).Generate(ctx)
 		if err != nil {

@@ -1,103 +1,50 @@
-The shared storage contract supports literal text search through
-`RowFilter.Text`. `TextMatch` matches a substring in any of its selected string
-fields. PostgreSQL supplies case folding from the database collation.
+# postgres-adapter
 
-The adapter quotes declared field names and passes the search value as a SQL
-parameter. Percent, underscore, and escape characters remain literal. Access
-filters, resource scopes, and deleted-row rules apply before count and paging.
-Text conditions can also occur inside `All` and `Any` groups.
+Version 5.0.0 removes the GORM store (ST-SUP-RC20-OC39). STEGO has one data
+path: the generated commands and queries on the runtime library
+(`registry/runtime`) carry all data access. This component does not emit a
+store, an entity model, a session factory, a generic DAO or GORM
+`AutoMigrate`.
 
-A text match accepts one through eight unique declared string fields. It accepts
-one through 4,096 bytes of valid UTF-8 without NUL. The existing filter limits
-also apply: eight levels, 64 nodes, and 65,536 total value bytes. Other types and
-undeclared fields are rejected. An empty search must omit the text condition.
+For a service with entities, the component emits these files:
 
-These limits bound input, not database cost. Substring matching can scan rows.
-Applications must select appropriate fields, require access checks, and measure
-representative data and concurrent load before making a capacity claim.
-Cursor reads are available through the optional generated CursorReader contract.
-ReadCursor uses a bound ID, fixed database order, and one bounded query without
-a total or offset. It shares List filters and current-observation projection.
-The caller must authorize access and select the required deletion visibility.
-See the cursor contract (a retired record, in git history) for limits,
-continuation rules, tests, and application evidence.
+- `tables.go` and `migrations/001_initial.sql`: the table of each entity as
+  SQL from the declaration, with the tenant column first in a pooled service,
+  the key `id`, the declared fields with their checks, `created_time`,
+  `updated_time`, `version` and, for a protected entity, `authz_token`.
+- `migrate.go`: the migration ledger in `stego_schema.migrations`. `Migrate`
+  applies each registered migration one time, in order, and records the
+  digest of its body. A row that is not the registered history stops the
+  migration with `ErrMigrationLedger`.
+- `schema_generation.go`: the [schema generation marker](schema-generation.md).
+- `database.go`: `OpenDatabase`, with verified TLS, the loopback test mode
+  and the pool bounds of the `DATABASE_POOL_*` settings.
+- `runtime_access.go`: `TenantConfig` gives the runtime library's connectors
+  the configuration of `OpenDatabase`. `CheckLedger` lets the migration job
+  refuse, before it writes, a database whose ledger is not the history of
+  this release or that holds a table of the declaration with no ledger.
 
-`CheckpointStore` stores scan progress with an independent version. It rejects
-stale saves, retains the version when a scan completes, and requires a store
-transaction for each save. The application must authorize each fixed scope.
-See scan checkpoints (a retired record, in git history).
+For a service with no entity, the component emits `database.go` only.
 
-Versioned entities with desired generations can declare condition owners and
-names. The generated condition writer requires the observed resource revision
-and a transaction. PostgreSQL supplies generation and transition time. Current
-views hide old-generation status. See resource conditions (a retired record, in git history).
+## Settings
 
-The generated process uses a private GORM connection with raw logging disabled.
-With `otel-tracing`, version 3.14.0 also generates an instrumented PostgreSQL
-pool factory. The generated main owns the pool. Request contexts supply the
-telemetry runtime; domain code needs no wrapper. See the
-database telemetry contract (a retired record, in git history).
-Process failures report a fixed stage without driver or query text. See the
-process failure policy (a retired record, in git history) for coverage
-and limits. Database telemetry remains an open requirement.
+| Setting | Values | Use |
+| --- | --- | --- |
+| `schema_generation` | a lower-case name | Necessary for a service with entities. The name of the marker. |
+| `migrations` | `startup` (default), `external` | `external` lets the migration job run the migrations. |
+| `writer_lease` | `off`, or leave it out | The single-writer lease of the GORM store is removed. The value `single` is refused. |
+| `connection_string` | text | The database connection. |
 
-Version 3.14.1 rejects entity names that conflict with database helpers or
-import aliases before generation. A source-based regression checks every
-package declaration and import in the generated database helper.
+## Refusals
 
-Version 3.15.0 always generates the pool factory, including without telemetry.
-It limits open and idle connections and sets finite connection lifetime and
-idle time. Deployment settings can change these bounds. Invalid settings stop
-pool creation. See the pool contract (a retired record, in git history)
-for defaults, limits, ownership, and acceptance requirements.
+The component refuses these declarations with an error that names
+ST-SUP-RC20-OC39:
 
-Version 4.4.1 also supplies the pool factory when the service has no entities.
-This supports the separate browser backend and other SQL consumers without
-storage models or automatic migrations. Assembly selects the declared factory
-for each required process pool, even when the storage constructor is unused.
-See the factory contract (a retired record, in git history).
+- A service with entities that does not have the `command` and the `query`
+  components. Add the two components, or use an archetype that has them.
+- An entity with `generation_fields`, `observations`, `conditions`,
+  `cleanup_owners` or `cleanup_targets`. Only the GORM store used them.
+- `writer_lease: single`.
 
-Version 3.16.0 bounds each pool connection operation to five seconds. The limit
-includes host fallbacks and preserves a shorter caller deadline. It does not
-limit an established session. Generated startup also uses a five-second ping
-before migrations, constructors, tasks, or listeners. See the
-database startup contract (a retired record, in git history).
-
-Version 4.3 adds an optional [fresh schema generation gate](schema-generation.md).
-It rejects old or unknown schemas before initialization writes and before the
-store can serve requests. Applications must select this breaking release policy.
-
-The generated `ResourceStateStore` supports bounded binary recovery records with
-compare-and-swap versions. Writes require a transaction; clear content with an
-empty record to retain stale-writer protection. The new
-`000009_resource_state.sql` migration is required before external-mode startup.
-This storage interface accepts opaque data. Encrypt confidential state before
-saving it; the controller runtime supplies `StateProtector` for this purpose.
-
-Version 4.6 adds a permanent deletion completion time for resources with declared
-cleanup owners. `DeletionFinalizer` requires the exact deleted revision and all
-owner and retained-target confirmations. Commit it with the final event in one
-transaction. Later cleanup can reopen, but completion cannot be reversed.
-The first migration preserves the hidden state of earlier deletions. Repeated
-migrations leave new deletion requests pending. See the
-asynchronous deletion contract (a retired record, in git history).
-
-`ListOptions.IncludeDeleting` includes live resources and pending deletion
-requests. `OnlyDeleting` selects pending requests alone. Both require declared
-cleanup owners and reject other deletion options. `CursorVisible` and
-`CursorDeleting` provide the same selection for bounded cursor reads. Access
-filters apply before counts and pages. Related grants must remain live. The
-ordinary live-only reads and locks do not change.
-
-Version 4.7 adds `deleting` values on optional string observation fields.
-A value requires cleanup owners and must satisfy the field's string constraints.
-The generated view uses it only after deletion and before finalization. List
-filters, cursor filters, counts, ordering, and `CurrentObservations` use the same
-value. Retained reads preserve the stored observation for diagnosis. The
-application declares its words; the storage runtime owns the projection.
-
-On the runtime data path the adapter emits no store and no entity model. It
-also emits runtime_access.go: TenantConfig gives the runtime library's
-connectors the configuration of OpenDatabase, with its verified TLS policy, its
-loopback test mode and its pool bounds; CheckLedger lets the migration job
-refuse, before it writes, a database whose tables this release did not make.
+The `tsl-search` component is removed too. A list search of `rest-crud` uses
+the equality filter of the query runtime (ST-SUP-RP11-LC20).

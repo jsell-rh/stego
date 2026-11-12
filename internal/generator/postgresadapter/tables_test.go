@@ -30,7 +30,7 @@ func runtimeService(ns, tenancyNS string, entities []types.Entity, collections [
 	return gen.Context{
 		OutputNamespace: ns, ModuleName: tablesModule, ServiceName: "tables-check", RuntimeData: true,
 		Tenancy:         &gen.Tenancy{Key: "tenant_id"},
-		PeerNamespaces:  map[string]string{"postgres-adapter": ns, gen.TenancyComponent: tenancyNS},
+		PeerNamespaces:  map[string]string{"postgres-adapter": ns, gen.TenancyComponent: tenancyNS, "command": "commands", "query": "queries"},
 		ComponentConfig: map[string]any{"schema_generation": "tables-v1", "writer_lease": "off"},
 		Entities:        entities, Collections: collections,
 	}
@@ -319,9 +319,7 @@ func TestTables(t *testing.T) {
 				delete(ctx.ComponentConfig, "schema_generation")
 				delete(ctx.ComponentConfig, "writer_lease")
 			},
-			"writer_lease off": func(ctx *gen.Context) { ctx.ComponentConfig["writer_lease"] = "single" },
-			"storage contract": func(ctx *gen.Context) { ctx.StorageContract = tablesModule + "/out/internal/contracts/storage" },
-			"tsl-search":       func(ctx *gen.Context) { ctx.PeerNamespaces["tsl-search"] = "search" },
+			"writer_lease single": func(ctx *gen.Context) { ctx.ComponentConfig["writer_lease"] = "single" },
 			"generation_fields": func(ctx *gen.Context) {
 				ctx.Entities[0].Versioned, ctx.Entities[0].GenerationFields = true, []string{"sku"}
 			},
@@ -342,15 +340,45 @@ func TestTables(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), want) || files != nil {
 				t.Errorf("%s: files %d, error %v; want a refusal that names %s", want, len(files), err, want)
 			}
+			if err != nil && want != "schema_generation" && want != "63 bytes" && want != "conditions" && !strings.Contains(err.Error(), "ST-SUP-RC20-OC39") {
+				t.Errorf("%s: the refusal does not name the removal of the GORM store: %v", want, err)
+			}
 		}
+		// The adapter acts on the declaration alone: a context that does not set RuntimeData still gets the tables.
 		store := orderService("storage")
 		store.RuntimeData = false
 		files, _, err := new(postgresadapter.Generator).Generate(store)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(generated(t, files, "storage/migrate.go"), "AutoMigrate") || !strings.Contains(generated(t, files, "storage/store.go"), "type Store struct") {
-			t.Error("without the runtime data path the adapter does not emit the GORM store")
+		noStore(t, files, store.Entities)
+		if !strings.Contains(generated(t, files, "storage/migrate.go"), `RegisterSQL("001_initial", InitialTables)`) {
+			t.Error("a context without RuntimeData does not get the SQL tables")
+		}
+	})
+
+	t.Run("ST-SUP-RC01-OC41-T09 A service with entities and no command or query component is refused", func(t *testing.T) {
+		for _, missing := range []string{"command", "query"} {
+			ctx := orderService("storage")
+			delete(ctx.PeerNamespaces, missing)
+			adapter := new(postgresadapter.Generator)
+			if err := adapter.ValidateContext(ctx); err == nil || !strings.Contains(err.Error(), "no command or query component") || !strings.Contains(err.Error(), "ST-SUP-RC20-OC39") {
+				t.Errorf("without the %s component, ValidateContext gives %v; want the refusal of the removed store", missing, err)
+			}
+			files, wiring, err := adapter.Generate(ctx)
+			if err == nil || !strings.Contains(err.Error(), "add the command and query components") || files != nil || wiring != nil {
+				t.Errorf("without the %s component, Generate gives files %d and error %v; want no output and the refusal", missing, len(files), err)
+			}
+		}
+		empty := orderService("storage")
+		empty.Entities, empty.Collections = nil, nil
+		delete(empty.PeerNamespaces, "command")
+		delete(empty.PeerNamespaces, "query")
+		delete(empty.ComponentConfig, "schema_generation")
+		delete(empty.ComponentConfig, "writer_lease")
+		files, _, err := new(postgresadapter.Generator).Generate(empty)
+		if err != nil || len(files) != 1 || files[0].Path != "storage/database.go" {
+			t.Errorf("a service with no entity gets files %v and error %v; want the database opener alone", len(files), err)
 		}
 	})
 }

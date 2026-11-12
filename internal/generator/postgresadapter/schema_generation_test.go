@@ -18,6 +18,14 @@ import (
 //go:embed testdata/schema_generation_test.go
 var schemaGenerationTests []byte
 
+// schemaContext gives a service with entities on the runtime data path in namespace ns, with the given settings.
+func schemaContext(ns string, config map[string]any) gen.Context {
+	return gen.Context{OutputNamespace: ns, ModuleName: "example.com/schema-gate", RuntimeData: true,
+		PeerNamespaces:  map[string]string{"command": "commands", "query": "queries"},
+		ComponentConfig: config,
+		Entities:        []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}}, {Name: "Note", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}}}}
+}
+
 func TestSchemaGenerationValidationAndWiring(t *testing.T) {
 	for _, value := range []any{"", "UPPER", "a/b", "a' OR true", strings.Repeat("a", 65), true, nil} {
 		ctx := basicContext()
@@ -36,9 +44,6 @@ func TestSchemaGenerationValidationAndWiring(t *testing.T) {
 		if !strings.Contains(findFileContent(t, files, "internal/storage/migrate.go"), "BootstrapSchema(db, func(tx *gorm.DB) error {") {
 			t.Fatal("migration has no schema gate")
 		}
-		if !strings.Contains(findFileContent(t, files, "internal/storage/store.go"), "VerifySchema(db)") {
-			t.Fatal("store has no schema gate")
-		}
 		if (len(wiring.PostDBCalls) == 0) != (mode == "external") {
 			t.Fatal("external migration policy changed")
 		}
@@ -52,16 +57,11 @@ func TestSchemaGenerationValidationAndWiring(t *testing.T) {
 		}
 	}
 	ctx := basicContext()
-	files, _, err := new(Generator).Generate(ctx)
-	if err != nil {
-		t.Fatal(err)
+	ctx.ComponentConfig = map[string]any{}
+	if files, _, err := new(Generator).Generate(ctx); err == nil || !strings.Contains(err.Error(), "schema_generation") || files != nil {
+		t.Fatal("a service with entities and no schema_generation is accepted", err)
 	}
-	for _, file := range files {
-		if strings.HasSuffix(file.Path, "schema_generation.go") {
-			t.Fatal("unselected schema policy changed")
-		}
-	}
-	for _, name := range []string{"SchemaGeneration", "SchemaDefinition", "BootstrapSchema", "VerifySchema", "readSchemaGeneration", "ErrSchemaGeneration", "WriterLeaseCheck", "ErrWriterFenced", "RestoreRecord", "ReadRestoreRecord", "ReadRestoreRecordDB", "VerifyRestore", "VerifyRestoreDB", "ErrRestore", "ErrMigrationLedger", "AppliedMigrations", "ApplyMigration", "RegisterSQL"} {
+	for _, name := range []string{"SchemaGeneration", "SchemaDefinition", "BootstrapSchema", "VerifySchema", "readSchemaGeneration", "ErrSchemaGeneration", "RestoreRecord", "ErrRestore", "ErrMigrationLedger", "AppliedMigrations", "ApplyMigration", "RegisterSQL"} {
 		ctx := basicContext()
 		ctx.Entities = []types.Entity{{Name: name}}
 		if _, _, err := new(Generator).Generate(ctx); err == nil {
@@ -71,99 +71,79 @@ func TestSchemaGenerationValidationAndWiring(t *testing.T) {
 }
 
 func TestWriterLeaseModeValidation(t *testing.T) {
-	base := func() gen.Context {
-		return gen.Context{OutputNamespace: "storage", ComponentConfig: map[string]any{"schema_generation": "fresh-v1"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}}}}
-	}
 	cases := []struct {
 		name    string
 		mutate  func(*gen.Context)
 		wantErr string
 	}{
-		{"default is single", func(c *gen.Context) {}, ""},
-		{"single accepted", func(c *gen.Context) { c.ComponentConfig["writer_lease"] = "single" }, ""},
+		{"left out accepted", func(c *gen.Context) {}, ""},
 		{"off accepted", func(c *gen.Context) { c.ComponentConfig["writer_lease"] = "off" }, ""},
-		{"invalid value rejected", func(c *gen.Context) { c.ComponentConfig["writer_lease"] = "shared" }, "writer_lease must be single or off"},
-		{"non-string rejected", func(c *gen.Context) { c.ComponentConfig["writer_lease"] = 3 }, "writer_lease must be single or off"},
+		{"single refused", func(c *gen.Context) { c.ComponentConfig["writer_lease"] = "single" }, "writer_lease single is refused"},
+		{"invalid value rejected", func(c *gen.Context) { c.ComponentConfig["writer_lease"] = "shared" }, "writer_lease must be off or left out"},
+		{"non-string rejected", func(c *gen.Context) { c.ComponentConfig["writer_lease"] = 3 }, "writer_lease must be off or left out"},
 		{"requires schema_generation", func(c *gen.Context) { c.ComponentConfig["writer_lease"] = "off"; delete(c.ComponentConfig, "schema_generation") }, "writer_lease requires schema_generation"},
 	}
 	for _, tc := range cases {
-		ctx := base()
+		ctx := schemaContext("storage", map[string]any{"schema_generation": "fresh-v1"})
 		tc.mutate(&ctx)
-		_, _, err := new(Generator).Generate(ctx)
+		files, _, err := new(Generator).Generate(ctx)
 		if tc.wantErr == "" {
 			if err != nil {
 				t.Fatalf("%s: %v", tc.name, err)
 			}
 			continue
 		}
-		if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+		if err == nil || !strings.Contains(err.Error(), tc.wantErr) || files != nil {
 			t.Fatalf("%s: got %v, want %q", tc.name, err, tc.wantErr)
+		}
+		if tc.name == "single refused" && !strings.Contains(err.Error(), "ST-SUP-RC20-OC39") {
+			t.Fatalf("the refusal of the lease does not name its cause: %v", err)
 		}
 	}
 }
 
 func TestWriterLeaseOffOmitsFence(t *testing.T) {
-	ctx := gen.Context{OutputNamespace: "storage", ModuleName: "example.com/schema-gate", ComponentConfig: map[string]any{"schema_generation": "fresh-v1", "writer_lease": "off", "migrations": "external"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}}, {Name: "Versioned", Versioned: true, Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}}}}
-	files, wiring, err := new(Generator).Generate(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var schemaFile, transactionFile, versionsFile string
-	for _, file := range files {
-		switch filepath.Base(file.Path) {
-		case "schema_generation.go":
-			schemaFile = string(file.Bytes())
-		case "transaction.go":
-			transactionFile = string(file.Bytes())
-		case "versions.go":
-			versionsFile = string(file.Bytes())
+	for _, config := range []map[string]any{{"schema_generation": "fresh-v1", "writer_lease": "off"}, {"schema_generation": "fresh-v1"}} {
+		files, wiring, err := new(Generator).Generate(schemaContext("storage", config))
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	if schemaFile == "" || transactionFile == "" || versionsFile == "" {
-		t.Fatal("missing generated files")
-	}
-	for _, banned := range []string{"writerFence", "WriterLeaseCheck", "ErrWriterFenced", "fenceAutocommit", "writer_lease"} {
-		for _, source := range []string{schemaFile, transactionFile, versionsFile} {
-			if strings.Contains(source, banned) {
-				t.Fatalf("lease-off output contains %q", banned)
+		for _, file := range files {
+			for _, banned := range []string{"writerFence", "WriterLeaseCheck", "ErrWriterFenced", "fenceAutocommit", "writer_lease"} {
+				if strings.Contains(string(file.Bytes()), banned) {
+					t.Fatalf("%s contains %q", file.Path, banned)
+				}
 			}
 		}
-	}
-	for _, required := range []string{"epoch_seq", "databaseIdentity", "ErrDatabaseRollback"} {
-		if !strings.Contains(schemaFile, required) {
-			t.Fatalf("lease-off output lost epoch support %q", required)
+		for _, object := range append(append([]gen.DatabaseObject{}, wiring.DatabaseAccess...), backupObjects(wiring)...) {
+			if object.Name == "writer_lease" {
+				t.Fatal("the wiring names writer_lease")
+			}
 		}
-	}
-	for _, object := range wiring.DatabaseAccess {
-		if object.Name == "writer_lease" {
-			t.Fatal("lease-off wiring grants access to writer_lease")
-		}
-	}
-	for _, object := range wiring.BackupObjects {
-		if object.Name == "writer_lease" {
-			t.Fatal("lease-off backup manifest includes writer_lease")
+		if LeaseEnabled(config) {
+			t.Fatal("LeaseEnabled reports a lease that the adapter does not emit")
 		}
 	}
 }
 
+// backupObjects gives the backup manifest of the wiring as database objects, so that one loop reads both lists.
+func backupObjects(wiring *gen.Wiring) []gen.DatabaseObject {
+	var objects []gen.DatabaseObject
+	for _, object := range wiring.BackupObjects {
+		objects = append(objects, gen.DatabaseObject{Schema: object.Schema, Name: object.Name, Kind: object.Kind})
+	}
+	return objects
+}
+
 func TestGeneratedSchemaGeneration(t *testing.T) {
 	project := t.TempDir()
-	ctx := gen.Context{OutputNamespace: "storage", ModuleName: "example.com/schema-gate", ComponentConfig: map[string]any{"schema_generation": "fresh-v1", "migrations": "external"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}}, {Name: "Versioned", Versioned: true, Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}}}}
-	for _, packageName := range []string{"storage", "legacy", "future", "changed", "unfenced"} {
-		c := ctx
-		c.OutputNamespace = packageName
-		c.ComponentConfig = map[string]any{"schema_generation": "fresh-v1", "migrations": "external"}
-		if packageName == "legacy" {
-			c.ComponentConfig = map[string]any{"migrations": "external"}
-		}
+	for _, packageName := range []string{"storage", "future", "changed"} {
+		c := schemaContext(packageName, map[string]any{"schema_generation": "fresh-v1", "migrations": "external"})
 		if packageName == "future" {
 			c.ComponentConfig["schema_generation"] = "fresh-v2"
 		}
-		if packageName == "unfenced" {
-			c.ComponentConfig["writer_lease"] = "off"
-		}
 		if packageName == "changed" {
-			c.Entities = []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}, {Name: "extra", Type: types.FieldTypeString}}}, {Name: "Versioned", Versioned: true, Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}, {Name: "note", Type: types.FieldTypeString}}}}
+			c.Entities = []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}, {Name: "extra", Type: types.FieldTypeString}}}, {Name: "Note", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}}}
 		}
 		files, _, err := new(Generator).Generate(c)
 		if err != nil {
@@ -179,24 +159,31 @@ func TestGeneratedSchemaGeneration(t *testing.T) {
 			}
 		}
 	}
+	// runtime_access.go imports the runtime library, so the module takes it from this repository's registry/runtime.
+	runtimeDir, err := filepath.Abs(filepath.Join("..", "..", "..", "registry", "runtime"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	module := `module example.com/schema-gate
 
-go 1.25.0
+go 1.26.11
 
 require (
  github.com/google/uuid v1.6.0
  github.com/jackc/pgx/v5 v5.11.0
  gorm.io/gorm v1.25.12
  gorm.io/driver/postgres v1.5.11
+ github.com/jsell-rh/stego/registry/runtime v0.38.0
 )
-`
+
+replace github.com/jsell-rh/stego/registry/runtime => ` + runtimeDir + "\n"
 	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte(module), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(project, "storage/schema_generation_test.go"), schemaGenerationTests, 0644); err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{{"mod", "tidy", "-go=1.25.0"}, {"test", "-race", "-mod=readonly", "-count=1", "-timeout=90s", "-v", "./..."}} {
+	for _, args := range [][]string{{"mod", "tidy"}, {"test", "-race", "-mod=readonly", "-count=1", "-timeout=90s", "-v", "./..."}} {
 		cmd := exec.Command("go", args...)
 		cmd.Dir = project
 		cmd.Env = append(os.Environ(), "GOWORK=off")
@@ -235,14 +222,12 @@ func TestFunctionMigrationDigestCoversBody(t *testing.T) {
 	if first == hex.EncodeToString(sum[:]) {
 		t.Fatal("the digest covers only the name")
 	}
-	ctx := basicContext()
-	ctx.ComponentConfig = map[string]any{"schema_generation": "fresh-v1"}
-	files, _, err := new(Generator).Generate(ctx)
+	files, _, err := new(Generator).Generate(basicContext())
 	if err != nil {
 		t.Fatal(err)
 	}
 	migrate := findFileContent(t, files, "internal/storage/migrate.go")
-	if !strings.Contains(migrate, `Register("001_initial", "`) || strings.Contains(migrate, "Digest(name)") {
+	if !strings.Contains(migrate, `RegisterSQL("001_initial", InitialTables)`) || strings.Contains(migrate, "Digest(name)") || strings.Contains(migrate, "Digest(row.Name)") {
 		t.Fatal("the initial migration is not sealed by its body", migrate)
 	}
 }

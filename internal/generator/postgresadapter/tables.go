@@ -18,15 +18,15 @@ import (
 	"github.com/jsell-rh/stego/internal/types"
 )
 
-// The tables of the runtime data path (ST-SUP-RC01-OC41): when the generated commands and queries carry all data
-// access (gen.Context.RuntimeData), the migration 001_initial is the SQL text of the tables of the declaration, and
-// the adapter emits no store, no entity model and no GORM AutoMigrate. The migration ledger, the schema generation
-// marker and the row-level security of the tenancy component stay as they are, so the SQL tables go through the
-// same ledger as every other migration (ST-SUP-RC01-OC11).
+// The tables of the runtime data path (ST-SUP-RC01-OC41), the only data path (ST-SUP-RC20-OC39): the generated
+// commands and queries carry all data access, the migration 001_initial is the SQL text of the tables of the
+// declaration, and the adapter emits no store, no entity model and no GORM AutoMigrate. The migration ledger, the
+// schema generation marker and the row-level security of the tenancy component go through the same ledger as every
+// other migration (ST-SUP-RC01-OC11).
 //
 // The shape of each table is fixed by the declaration alone and in this order: the tenant column of an owned
 // entity in a pooled service (ST-SUP-RC01-OC40), the key id, each declared field, created_time and updated_time,
-// the resource version that a write carries (ST-SUP-RC01-OC07, ST-SUP-RP10-LC24) and, for a protected entity, the
+// the resource version that a write carries (ST-SUP-RP10-LC24) and, for a protected entity, the
 // authorization token (ST-SUP-RC29-OC06). The tables follow their references and then their names, never the order
 // of the declaration, so that the same entities give the same body and the same ledger digest.
 
@@ -46,8 +46,8 @@ const (
 	keyColumn     = "id"
 )
 
-// storeOnly names the declaration settings of an entity that only the GORM store carries out: the runtime data
-// path has no deleted rows, no observations and no conditions, so it refuses them rather than drop them.
+// storeOnly names the declaration settings of an entity that only the GORM store carried out: the runtime data
+// path has no deleted rows, no observations and no conditions, so the adapter refuses them rather than drop them.
 func storeOnly(entity types.Entity) string {
 	switch {
 	case len(entity.GenerationFields) > 0:
@@ -64,28 +64,24 @@ func storeOnly(entity types.Entity) string {
 	return ""
 }
 
-// validateRuntimeData refuses a service that the runtime data path cannot serve, with the setting to change. The
-// migration ledger exists only with schema_generation, and a SQL table cannot be created twice, so the path needs
-// it; the single-writer lease and the storage contract fence and serve the store, which the path does not emit.
+// removedStore is the cause that each refusal of a declaration of the removed GORM store names.
+const removedStore = "STEGO serves data only through the generated commands and queries, and the GORM store that served it before is removed (ST-SUP-RC20-OC39)"
+
+// validateRuntimeData refuses a service with entities that the runtime data path cannot serve, with the setting to
+// change. Every such declaration had this component as its GORM store, so the refusal is here: a component set
+// without the command or the query component, which carry all data access, and an entity setting that only the
+// store carried out. The migration ledger exists only with schema_generation, and a SQL table cannot be created
+// twice, so the path needs it.
 func validateRuntimeData(ctx gen.Context) error {
-	if !ctx.RuntimeData {
-		return nil
+	if ctx.PeerNamespaces["command"] == "" || ctx.PeerNamespaces["query"] == "" {
+		return fmt.Errorf("postgres-adapter: the service declares entities, and its component set has no command or query component: %s; add the command and query components, or use an archetype that holds them", removedStore)
 	}
 	if ctx.ComponentConfig["schema_generation"] == nil {
-		return fmt.Errorf("the runtime data path needs schema_generation: its tables are SQL migrations, which only the migration ledger applies once")
-	}
-	if LeaseEnabled(ctx.ComponentConfig) {
-		return fmt.Errorf("the runtime data path needs writer_lease off: the single-writer lease fences the store, which the runtime data path does not emit")
-	}
-	if ctx.StorageContract != "" {
-		return fmt.Errorf("the runtime data path emits no store, so it cannot serve the storage contract %s", ctx.StorageContract)
-	}
-	if ctx.PeerNamespaces["tsl-search"] != "" {
-		return fmt.Errorf("the runtime data path emits no store, so it cannot serve the tsl-search component")
+		return fmt.Errorf("postgres-adapter needs schema_generation: its tables are SQL migrations, which only the migration ledger applies once")
 	}
 	for _, entity := range ctx.Entities {
 		if setting := storeOnly(entity); setting != "" {
-			return fmt.Errorf("entity %s: %s needs the GORM store, which the runtime data path does not emit", entity.Name, setting)
+			return fmt.Errorf("postgres-adapter: entity %s: %s is a setting of the GORM store: %s; remove the setting", entity.Name, setting, removedStore)
 		}
 		// PostgreSQL cuts a longer name to 63 bytes, so two long names could become one column or one table.
 		if table := tableName(entity.Name); len(table) > 63 {
@@ -394,7 +390,8 @@ var runtimeAccessSource string
 
 // generateRuntimeAccess gives runtime_access.go of the runtime data path: TenantConfig, the configuration of the
 // runtime library's connectors from the adapter's opener, and CheckLedger, the read-only check of the migration job
-// that refuses a database with tables this release did not make.
+// that refuses a database whose ledger is not a prefix of this release's migrations or that holds a table of the
+// declaration with no ledger.
 func generateRuntimeAccess(ctx gen.Context) (gen.File, error) {
 	t, err := template.New("runtime-access").Parse(runtimeAccessSource)
 	if err != nil {
@@ -420,10 +417,9 @@ func generateRuntimeAccess(ctx gen.Context) (gen.File, error) {
 
 // generateRuntimeData gives the files and the wiring of the runtime data path: the database opener, the schema
 // generation marker, the migration ledger with 001_initial as the SQL of InitialTables and, in a pooled service,
-// the row-level security of the tenancy component after it. It emits no models.go, store.go, session factory,
-// generic DAO or transaction code, so no entity model or store is there to call (ST-SUP-RC01-OC41). The ledger
-// runner still takes a *gorm.DB in the migration job; the grants of the runtime role are the same as on the store
-// path (ST-SUP-RC27-OC07, ST-STD-TXN-R03).
+// the row-level security of the tenancy component after it. It emits no entity model and no store, so data access
+// goes only through the generated commands and queries (ST-SUP-RC01-OC41). The ledger runner takes a *gorm.DB in the
+// migration job; the runtime role gets the grants of ST-SUP-RC27-OC07 and ST-STD-TXN-R03.
 func generateRuntimeData(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	files, err := generateTables(ctx)
 	if err != nil {
@@ -433,7 +429,7 @@ func generateRuntimeData(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	migrateFile, err := generateMigrate(ctx.OutputNamespace, ctx.Entities, true, rowSecurity, true)
+	migrateFile, err := generateMigrate(ctx.OutputNamespace, rowSecurity)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating migrate: %w", err)
 	}

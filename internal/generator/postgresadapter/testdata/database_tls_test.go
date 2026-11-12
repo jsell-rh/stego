@@ -24,20 +24,20 @@ import (
 
 func TestDatabaseTransportPolicy(t *testing.T) {
 	t.Setenv("STEGO_DATABASE_ALLOW_INSECURE_LOOPBACK", "0")
-	t.Run("ST-SUP-RC01-OC02-T01 The emitted store refuses each weak sslmode", func(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC02-T01 The emitted opener refuses each weak sslmode", func(t *testing.T) {
 		for _, mode := range []string{"disable", "prefer", "allow", "require", "verify-ca"} {
 			if _, err := databaseConfiguration("host=127.0.0.1 user=test dbname=test sslmode=" + mode); err == nil {
 				t.Fatal("weak database transport accepted", mode)
 			}
 		}
 	})
-	t.Run("ST-SUP-RC01-OC01-T01 The emitted store builds a verified TLS configuration", func(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC01-T01 The emitted opener builds a verified TLS configuration", func(t *testing.T) {
 		config, err := databaseConfiguration("host=db.example.test user=test dbname=test sslmode=verify-full")
 		if err != nil || config.TLSConfig == nil || config.TLSConfig.InsecureSkipVerify || config.TLSConfig.MinVersion < tls.VersionTLS12 {
 			t.Fatal("verified TLS configuration failed", err)
 		}
 	})
-	t.Run("ST-SUP-RC01-OC03-T01 The emitted store keeps the loopback exception narrow", func(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC03-T01 The emitted opener keeps the loopback exception narrow", func(t *testing.T) {
 		t.Setenv("STEGO_DATABASE_ALLOW_INSECURE_LOOPBACK", "1")
 		for _, host := range []string{"127.0.0.1", "::1"} {
 			if _, err := databaseConfiguration("host=" + host + " user=test dbname=test sslmode=disable"); err != nil {
@@ -89,7 +89,7 @@ func databaseTestCertificate(t *testing.T) (tls.Certificate, string) {
 }
 
 func TestDatabaseVerifiedTLSConnection(t *testing.T) {
-	t.Run("ST-SUP-RC01-OC04-T01 The emitted store checks the chain, the server name and the TLS version on a real connection", func(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC04-T01 The emitted opener checks the chain, the server name and the TLS version on a real connection", func(t *testing.T) {
 		cfg, err := pgx.ParseConfig(poolTestDSN(t))
 		if err != nil {
 			t.Fatal(err)
