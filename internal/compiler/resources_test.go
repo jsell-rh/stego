@@ -19,12 +19,9 @@ func TestResourceArgumentsUseTheSelectedDatabase(t *testing.T) {
 		}
 		t.Skip("set STEGO_TEST_POSTGRES_DSN to test runtime resources")
 	}
-	for _, backend := range []string{"sql", "gorm"} {
+	for _, backend := range []string{"sql"} {
 		t.Run(backend, func(t *testing.T) {
-			wiring := &gen.Wiring{Imports: []string{"probe"}, Constructors: []string{"probe.NewProbe()"}, ConstructorResources: map[int][]gen.Resource{0: {gen.ServiceContext, gen.SQLDatabase, gen.OptionalSQLDatabase}}, ConstructorReturnsError: map[int]bool{0: true}, BackgroundTasks: []int{0}, DBBackend: backend}
-			if backend == "gorm" {
-				wiring.GoModRequires = map[string]string{"gorm.io/gorm": "v1.25.12", "gorm.io/driver/postgres": "v1.5.11"}
-			}
+			wiring := &gen.Wiring{Imports: []string{"probe"}, Constructors: []string{"probe.NewProbe()"}, ConstructorResources: map[int][]gen.Resource{0: {gen.ServiceContext, gen.SQLDatabase, gen.OptionalSQLDatabase}}, ConstructorReturnsError: map[int]bool{0: true}, BackgroundTasks: []int{0}, NeedsDB: true}
 			files, err := Assemble(AssemblerInput{ModuleName: "example.com/resources", GoVersion: "1.26.11", Wirings: []ComponentWiring{{Name: "probe", Wiring: wiring}}})
 			if err != nil {
 				t.Fatal(err)
@@ -100,13 +97,11 @@ func TestConstructorDependenciesMustExist(t *testing.T) {
 }
 
 func TestOptionalDatabaseResourceDoesNotCreatePool(t *testing.T) {
-	for _, backend := range []string{"", "unused", "sql", "gorm"} {
+	for _, backend := range []string{"", "unused", "sql"} {
 		t.Run(backend, func(t *testing.T) {
 			observer := &gen.Wiring{Imports: []string{"observer"}, Constructors: []string{"observer.NewObserver()"}, ConstructorResources: map[int][]gen.Resource{0: {gen.OptionalSQLDatabase}}, BackgroundTasks: []int{0}}
-			provider := &gen.Wiring{Imports: []string{"provider"}, Constructors: []string{"provider.NewProvider()"}, DBBackend: backend}
-			if backend == "unused" {
-				provider.DBBackend = "sql"
-			} else if backend != "" {
+			provider := &gen.Wiring{Imports: []string{"provider"}, Constructors: []string{"provider.NewProvider()"}, NeedsDB: backend != ""}
+			if backend == "sql" {
 				provider.BackgroundTasks = []int{0}
 			}
 			files, err := Assemble(AssemblerInput{ModuleName: "example.com/optional", GoVersion: "1.26.11", Wirings: []ComponentWiring{{Name: "observer", Wiring: observer}, {Name: "provider", Wiring: provider}}})
@@ -122,9 +117,6 @@ func TestOptionalDatabaseResourceDoesNotCreatePool(t *testing.T) {
 			argument := "nil"
 			if backend == "sql" {
 				argument = "db"
-			}
-			if backend == "gorm" {
-				argument = "sqlDB"
 			}
 			if !strings.Contains(source, "observer.NewObserver("+argument+")") {
 				t.Fatal("wrong optional pool argument", source)

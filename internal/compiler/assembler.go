@@ -185,17 +185,6 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	consumed, effectiveHasDB := computeConsumedConstructors(input, hasRoutes)
 	hasDB := effectiveHasDB
 
-	// Detect GORM mode: any consumed wiring with DBBackend="gorm" means
-	// main.go uses gorm.Open instead of sql.Open.
-	isGORM := false
-	for key := range consumed {
-		cw := input.Wirings[key.WiringIndex]
-		if cw.Wiring != nil && cw.Wiring.DBBackend == "gorm" {
-			isGORM = true
-			break
-		}
-	}
-
 	// Build slot operator variable names by collection so we can inject them
 	// into handler constructor calls.
 	slotVarsByCollection := buildSlotVarsByCollection(input.SlotBindings, hasSlots)
@@ -213,7 +202,7 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	}
 
 	fallible := hasRoutes || hasTasks || hasDB || hasFallibleConstructor(input, consumed)
-	imports := writeMainImports(&buf, input, hasRoutes, hasDB, hasSlots, isGORM, fallible, consumedWirings)
+	imports := writeMainImports(&buf, input, hasRoutes, hasDB, hasSlots, fallible, consumedWirings)
 	if err := validateConstructorDependencies(input.Wirings, imports.PackageAliases); err != nil {
 		return gen.File{}, err
 	}
@@ -248,18 +237,10 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		if hasRoutes || hasTasks {
 			parent = "ctx"
 		}
-		if isGORM {
-			writeGORMDBSetup(&buf, opener, parent)
-		} else {
-			writeDBSetup(&buf, opener, parent)
-		}
+		writeDBSetup(&buf, opener, parent)
 
 		if needsDatabaseAccessCheck(input, consumedWirings) {
-			handle := "db"
-			if isGORM {
-				handle = "sqlDB"
-			}
-			fmt.Fprintf(&buf, "\tstegoStage = \"database.access\"\n\tif err := %s.VerifyRuntime(%s, %s); err != nil { return err }\n", imports.DatabaseAccessAlias, parent, handle)
+			fmt.Fprintf(&buf, "\tstegoStage = \"database.access\"\n\tif err := %s.VerifyRuntime(%s, db); err != nil { return err }\n", imports.DatabaseAccessAlias, parent)
 		}
 
 		// Emit post-DB-setup calls (e.g. migrations) from consumed wirings.
@@ -272,7 +253,7 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		writeSlotWiring(&buf, input, slotVarsByCollection, imports.FillAliases)
 	}
 
-	wiringRenames, err := writeConstructors(&buf, input, slotVarsByCollection, allSlotVarNames, hasDB, isGORM, hasRoutes, imports, consumed)
+	wiringRenames, err := writeConstructors(&buf, input, slotVarsByCollection, allSlotVarNames, hasDB, hasRoutes, imports, consumed)
 	if err != nil {
 		return gen.File{}, err
 	}
@@ -343,7 +324,7 @@ type importResult struct {
 // constructor and route expressions to be updated when their component's import
 // alias is disambiguated. The alias set allows constructor variable
 // disambiguation to avoid shadowing import aliases.
-func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB, hasSlots, isGORM, fallible bool, consumedWirings map[int]bool) importResult {
+func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB, hasSlots, fallible bool, consumedWirings map[int]bool) importResult {
 	hasTasks := hasBackgroundTasks(input)
 	buf.WriteString("import (\n")
 
@@ -371,7 +352,7 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	}
 	// Standard library imports.
 	stdlibNeeded := make(map[string]bool)
-	if hasDB && !isGORM && databaseOpenExpression(input, importResult{}) == "" {
+	if hasDB && databaseOpenExpression(input, importResult{}) == "" {
 		stdlibNeeded["database/sql"] = true
 	}
 	// log reports the HTTP listener.
@@ -412,7 +393,7 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	// All non-stdlib imports share a SINGLE disambiguation namespace so that
 	// component, fill, and slots aliases cannot collide with each other.
 	var compImports []string
-	if hasDB && !isGORM && databaseOpenExpression(input, importResult{}) == "" {
+	if hasDB && databaseOpenExpression(input, importResult{}) == "" {
 		compImports = append(compImports, "\t_ \"github.com/jackc/pgx/v5/stdlib\"")
 	}
 	seen := make(map[string]bool)   // full import path → already added
@@ -427,24 +408,13 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	// non-stdlib imports cannot shadow them. A component import like
 	// "internal/sql" would otherwise get alias "sql", shadowing the
 	// stdlib "database/sql" import.
-	for _, name := range stdlibAliases(hasRoutes, hasBackgroundTasks(input), hasDB, isGORM, extraStdlib) {
+	for _, name := range stdlibAliases(hasRoutes, hasBackgroundTasks(input), hasDB, extraStdlib) {
 		aliases[name]++
 		aliasUsed[name] = true
 	}
 
 	// Track ALL non-stdlib import aliases for constructor var disambiguation.
 	nonStdlibAliases := make(map[string]bool)
-
-	// GORM imports — third-party packages needed by writeGORMDBSetup.
-	// Added before component/fill imports so their aliases are reserved
-	// in the shared disambiguation namespace.
-	if isGORM {
-		for _, gi := range gormImports() {
-			alias := disambiguateAlias(gi.alias, aliases, aliasUsed)
-			nonStdlibAliases[alias] = true
-			compImports = append(compImports, fmt.Sprintf("\t%s %q", alias, gi.path))
-		}
-	}
 
 	// Track per-wiring import alias renames for propagation to constructor
 	// and route expressions.
@@ -584,31 +554,6 @@ func writeDatabasePing(buf *bytes.Buffer, handle, parent string) {
 	buf.WriteString("\t\tcancel()\n\t\tif err != nil { return err }\n\t}\n")
 }
 
-func writeGORMDBSetup(buf *bytes.Buffer, opener, parent string) {
-	writeDatabaseConfiguration(buf)
-	buf.WriteString("\tstegoStage = \"database.open\"\n")
-	if opener != "" {
-		fmt.Fprintf(buf, "\tsqlDB, err := %s\n\tif err != nil { return err }\n\tdefer sqlDB.Close()\n", opener)
-		buf.WriteString("\tdb, err := gorm.Open(postgres.New(postgres.Config{Conn: sqlDB}), &gorm.Config{Logger: gormlogger.Discard, DisableAutomaticPing: true})\n")
-	} else {
-		buf.WriteString("\tdb, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: gormlogger.Discard, DisableAutomaticPing: true})\n")
-	}
-	buf.WriteString("\tif err != nil {\n")
-	buf.WriteString("\t\treturn err\n")
-	buf.WriteString("\t}\n")
-	buf.WriteString("\tstegoStage = \"database.handle\"\n")
-	if opener != "" {
-		writeDatabasePing(buf, "sqlDB", parent)
-		return
-	}
-	buf.WriteString("\tsqlDB, err := db.DB()\n")
-	buf.WriteString("\tif err != nil {\n")
-	buf.WriteString("\t\treturn err\n")
-	buf.WriteString("\t}\n")
-	buf.WriteString("\tdefer sqlDB.Close()\n\n")
-	writeDatabasePing(buf, "sqlDB", parent)
-}
-
 // writePostDBCalls emits post-database-setup calls from consumed component
 // wirings (e.g. storage.Migrate(db)). Each call is wrapped in error handling.
 // Import alias renames are applied so that package-qualified references match
@@ -631,21 +576,6 @@ func writePostDBCalls(buf *bytes.Buffer, input AssemblerInput, consumedWirings m
 			buf.WriteString("\t\treturn err\n")
 			buf.WriteString("\t}\n")
 		}
-	}
-}
-
-// gormImport describes a GORM third-party import needed in main.go.
-type gormImport struct {
-	alias string
-	path  string
-}
-
-// gormImports returns the GORM packages that writeGORMDBSetup references.
-func gormImports() []gormImport {
-	return []gormImport{
-		{alias: "gorm", path: "gorm.io/gorm"},
-		{alias: "postgres", path: "gorm.io/driver/postgres"},
-		{alias: "gormlogger", path: "gorm.io/gorm/logger"},
 	}
 }
 
@@ -678,7 +608,7 @@ func collectAllSlotVarNames(bindings []types.SlotDeclaration, hasSlots bool) map
 // library import aliases that are used after constructor declarations (and
 // would be shadowed by a local variable of the same name). Constructor
 // variable disambiguation must reserve all of these to prevent collisions.
-func assemblerInternalVars(hasDB, isGORM, hasRoutes, hasDiscovery, hasTasks bool) map[string]bool {
+func assemblerInternalVars(hasDB, hasRoutes, hasDiscovery, hasTasks bool) map[string]bool {
 	vars := make(map[string]bool)
 	for _, name := range []string{"stegoStage", "stegoErr", "stegoServiceFailure", "stegoReportFailure"} {
 		vars[name] = true
@@ -687,15 +617,8 @@ func assemblerInternalVars(hasDB, isGORM, hasRoutes, hasDiscovery, hasTasks bool
 		vars["dsn"] = true
 		vars["db"] = true
 		vars["err"] = true
-		if isGORM {
-			vars["sqlDB"] = true
-			// GORM import aliases used in writeGORMDBSetup.
-			vars["gorm"] = true
-			vars["postgres"] = true
-		} else {
-			// stdlib import alias used in writeDBSetup.
-			vars["sql"] = true
-		}
+		// stdlib import alias used in writeDBSetup.
+		vars["sql"] = true
 	}
 	if hasRoutes {
 		for _, name := range []string{"ctx", "stop", "listener", "err", "stegoHTTPServer", "stegoHTTPServerWithErrorLog", "stegoServeHTTP", "stegoHTTPError", "stegoHTTPRequests", "stegoHTTPDiagnostics", "stegoNewHTTPErrorLog", "stegoCloseHTTPDiagnostics"} {
@@ -814,7 +737,7 @@ func computeConsumedConstructors(input AssemblerInput, hasRoutes bool) (map[cons
 				baseVar: baseVar,
 				deps:    deps,
 				expr:    constructor,
-				needsDB: cw.Wiring.NeedsDB || cw.Wiring.DBBackend != "" || constructorUsesResource(cw.Wiring, j, gen.SQLDatabase),
+				needsDB: cw.Wiring.NeedsDB || constructorUsesResource(cw.Wiring, j, gen.SQLDatabase),
 			})
 			varToEntries[baseVar] = append(varToEntries[baseVar], idx)
 		}
@@ -1029,7 +952,7 @@ type constructorEntry struct {
 	Deps             []string // variable names this constructor depends on
 }
 
-func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollection map[string][]string, slotVarNames map[string]bool, hasDB, isGORM, hasRoutes bool, imports importResult, consumed map[constructorKey]bool) (map[int][]constructorRename, error) {
+func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollection map[string][]string, slotVarNames map[string]bool, hasDB, hasRoutes bool, imports importResult, consumed map[constructorKey]bool) (map[int][]constructorRename, error) {
 	varNames := make(map[string]int) // for collision detection
 	varUsed := make(map[string]bool)
 	wiringRenames := make(map[int][]constructorRename)
@@ -1069,7 +992,7 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollec
 	// that are emitted by writeDBSetup, writeRouteRegistration, and
 	// writeServerStart into the same function scope.
 	hasDiscovery := hasAnyDiscoveryRoutes(input)
-	for name := range assemblerInternalVars(hasDB, isGORM, hasRoutes, hasDiscovery, hasBackgroundTasks(input)) {
+	for name := range assemblerInternalVars(hasDB, hasRoutes, hasDiscovery, hasBackgroundTasks(input)) {
 		varNames[name]++
 		varUsed[name] = true
 		preReserved[name] = true
@@ -1119,7 +1042,7 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollec
 	// before any constructor that references it. This is necessary because
 	// the archetype's component order is conceptual — it does not encode
 	// dependency information.
-	provided := map[string]bool{"db": hasDB, "sqlDB": hasDB && isGORM, "ctx": hasRoutes || hasBackgroundTasks(input)}
+	provided := map[string]bool{"db": hasDB, "ctx": hasRoutes || hasBackgroundTasks(input)}
 	sorted, err := topoSortConstructors(entries, provided)
 	if err != nil {
 		return nil, err
@@ -1175,9 +1098,6 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollec
 				expr = injectConstructorArgs(expr, []string{"ctx"})
 			case gen.SQLDatabase, gen.OptionalSQLDatabase:
 				name := "db"
-				if isGORM {
-					name = "sqlDB"
-				}
 				if resource == gen.OptionalSQLDatabase && !hasDB {
 					name = "nil"
 				}
@@ -1850,12 +1770,12 @@ func validateSlotBindingUniqueness(bindings []types.SlotDeclaration) error {
 // import alias disambiguation maps to prevent non-stdlib imports from shadowing
 // them (e.g. component "internal/sql" getting alias "sql" and shadowing
 // "database/sql").
-func stdlibAliases(hasRoutes, hasTasks, hasDB, isGORM bool, extraStdlib map[string]bool) []string {
+func stdlibAliases(hasRoutes, hasTasks, hasDB bool, extraStdlib map[string]bool) []string {
 	var names []string
 	if hasDB {
 		names = append(names, "context", "time")
 	}
-	if hasDB && !isGORM {
+	if hasDB {
 		names = append(names, "sql")
 	}
 	// os is used by writeDBSetup (DATABASE_URL) and writeServerStart (PORT).

@@ -13,9 +13,14 @@ For a service with entities, the component emits these files:
   the key `id`, the declared fields with their checks, `created_time`,
   `updated_time`, `version` and, for a protected entity, `authz_token`.
 - `migrate.go`: the migration ledger in `stego_schema.migrations`. `Migrate`
-  applies each registered migration one time, in order, and records the
-  digest of its body. A row that is not the registered history stops the
-  migration with `ErrMigrationLedger`.
+  applies each registered migration one time, in the byte order of its name,
+  and records the digest of its body. A row that is not the registered
+  history stops the migration with `ErrMigrationLedger`. Version 6.0.0 runs
+  the ledger on `database/sql`: `Migrate`, `CheckLedger` and the marker
+  functions take a `context.Context` and a `Database`, which is a `*sql.DB`
+  or a `*sql.Conn`. Each migration and its ledger row commit in one
+  transaction under the ledger lock, so two migration jobs that run at the
+  same time apply each migration one time.
 - `schema_generation.go`: the [schema generation marker](schema-generation.md).
 - `database.go`: `OpenDatabase`, with verified TLS, the loopback test mode
   and the pool bounds of the `DATABASE_POOL_*` settings.

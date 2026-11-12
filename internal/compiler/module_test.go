@@ -168,7 +168,7 @@ func TestReconcileRetainsApplicationModuleAcrossApplies(t *testing.T) {
 
 func TestRuntimeDependenciesRequirePatchedUnicodeNormalization(t *testing.T) {
 	for _, dependency := range []struct{ path, version string }{
-		{"github.com/jackc/pgx/v5", "v5.11.0"}, {"gorm.io/gorm", "v1.25.12"},
+		{"github.com/jackc/pgx/v5", "v5.11.0"},
 		{"google.golang.org/grpc", "v1.82.1"}, {"golang.org/x/text", "v0.36.0"},
 	} {
 		for _, newer := range []bool{false, true} {
@@ -194,7 +194,6 @@ func TestRuntimeTransitiveSecurityMinimums(t *testing.T) {
 	for _, tc := range []struct{ parent, parentVersion, path, minimum string }{
 		{"google.golang.org/grpc", "v1.82.1", "golang.org/x/net", "v0.60.0"},
 		{"google.golang.org/grpc", "v1.82.1", "golang.org/x/sys", "v0.48.0"},
-		{"gorm.io/datatypes", "v1.2.5", "filippo.io/edwards25519", "v1.1.1"},
 		{"github.com/go-sql-driver/mysql", "v1.8.1", "filippo.io/edwards25519", "v1.1.1"},
 	} {
 		for _, selected := range []string{"v0.0.1", "v1.99.0"} {

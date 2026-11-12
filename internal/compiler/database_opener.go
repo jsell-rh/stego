@@ -22,7 +22,7 @@ func validateDatabaseOpener(wirings []ComponentWiring) error {
 			return fmt.Errorf("multiple components declare a database opener")
 		}
 		seen = true
-		if !w.NeedsDB || (w.DBBackend != "" && w.DBBackend != "gorm") {
+		if !w.NeedsDB {
 			return fmt.Errorf("component %q declares a database opener without a supported database resource", component.Name)
 		}
 		if gen.ValidateGoPackageNamespace(opener.Namespace) != nil || !slices.Contains(w.Imports, opener.Namespace) || !token.IsIdentifier(opener.Function) || !ast.IsExported(opener.Function) {

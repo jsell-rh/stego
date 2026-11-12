@@ -19,9 +19,6 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
 	"github.com/jsell-rh/stego/registry/runtime/outbox"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 // owned are the tables of the owned entities Widget and Order, and others the tables of the shared entity
@@ -72,16 +69,16 @@ func migrated(t *testing.T) *sql.DB {
 	}
 	// One connection, so SET ROLE holds for every statement of the migration job.
 	job := stdlib.OpenDB(*cfg)
-	job.SetMaxOpenConns(1)
 	defer job.Close()
-	if _, err := job.ExecContext(ctx, "SET ROLE "+pgx.Identifier{tenancy.OwnerRole}.Sanitize()); err != nil {
-		t.Fatal(err)
-	}
-	db, err := gorm.Open(postgres.New(postgres.Config{Conn: job}), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	conn, err := job.Conn(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := storage.Migrate(db); err != nil {
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "SET ROLE "+pgx.Identifier{tenancy.OwnerRole}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Migrate(ctx, conn); err != nil {
 		t.Fatalf("migrate as the owner role: %v", err)
 	}
 	grant(t, admin)

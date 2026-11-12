@@ -87,7 +87,7 @@ func TestEmptyEntities(t *testing.T) {
 	if len(files) != 1 || files[0].Path != "internal/storage/database.go" {
 		t.Fatal("missing pool-only output")
 	}
-	if wiring == nil || wiring.DatabaseOpener == nil || wiring.DatabaseOpener.Function != "OpenDatabase" || len(wiring.Constructors) != 0 || len(wiring.PostDBCalls) != 0 || wiring.DBBackend != "" {
+	if wiring == nil || wiring.DatabaseOpener == nil || wiring.DatabaseOpener.Function != "OpenDatabase" || len(wiring.Constructors) != 0 || len(wiring.PostDBCalls) != 0 {
 		t.Fatal("invalid pool-only wiring")
 	}
 	ctx.OutputNamespace = "../invalid"
@@ -127,16 +127,18 @@ func TestBasicGeneration(t *testing.T) {
 	if len(wiring.Imports) != 1 || wiring.Imports[0] != "internal/storage" || len(wiring.Constructors) != 0 || !wiring.NeedsDB {
 		t.Errorf("unexpected wiring: %+v", wiring)
 	}
-	if len(wiring.PostDBCalls) != 1 || wiring.PostDBCalls[0] != "storage.Migrate(db)" {
-		t.Errorf("expected PostDBCalls=[\"storage.Migrate(db)\"], got %v", wiring.PostDBCalls)
+	// The migration job of the runtime wiring runs the ledger, so the wiring has no call after the database opens.
+	if len(wiring.PostDBCalls) != 0 {
+		t.Errorf("expected no PostDBCalls, got %v", wiring.PostDBCalls)
 	}
-	for _, mod := range []string{"gorm.io/gorm", "gorm.io/driver/postgres", "github.com/google/uuid", "github.com/jackc/pgx/v5"} {
+	// The ledger runs on database/sql with the pgx driver: the wiring requires uuid and pgx, and no other module.
+	if len(wiring.GoModRequires) != 2 {
+		t.Errorf("GoModRequires = %v, want github.com/google/uuid and github.com/jackc/pgx/v5 only", wiring.GoModRequires)
+	}
+	for _, mod := range []string{"github.com/google/uuid", "github.com/jackc/pgx/v5"} {
 		if _, ok := wiring.GoModRequires[mod]; !ok {
 			t.Errorf("GoModRequires missing %q", mod)
 		}
-	}
-	if _, exists := wiring.GoModRequires["gorm.io/datatypes"]; exists {
-		t.Error("the runtime data path requires gorm.io/datatypes")
 	}
 }
 
@@ -169,8 +171,6 @@ func TestMigrateCompiles(t *testing.T) {
 		t.Errorf("migrate.go does not compile: %v\n%s", err, string(content))
 	}
 }
-
-// --- Model struct content: Meta embed and GORM tags ---
 
 func TestWiringIncludesUUIDDependency(t *testing.T) {
 	ctx := basicContext()
@@ -206,8 +206,6 @@ func TestReservedEntityNameUUID(t *testing.T) {
 		t.Errorf("error should mention collision, got: %v", err)
 	}
 }
-
-// --- Store uses GORM ---
 
 // --- Upsert ---
 
@@ -431,7 +429,7 @@ func TestReservedEntityNameGoKeywords(t *testing.T) {
 }
 
 func TestReservedEntityNameImportAliases(t *testing.T) {
-	aliases := []string{"gorm", "fmt", "sql", "time", "uuid"}
+	aliases := []string{"fmt", "sql", "time", "uuid", "Database", "inTransaction", "lockLedger", "recordMigration"}
 
 	for _, name := range aliases {
 		t.Run(name, func(t *testing.T) {

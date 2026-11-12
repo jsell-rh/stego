@@ -29,9 +29,10 @@ detection went with the store.
 ## Initialization and startup
 
 `Migrate` calls `BootstrapSchema` before its registered migrations. The latter
-also accepts a trusted application callback. It owns the transaction; do not
-call it from another transaction. The callback must use only its supplied
-`*gorm.DB`. It must not issue transaction control, use another connection, or
+also accepts a trusted application callback. It owns the transaction: it takes
+a `Database` (a `*sql.DB` or a `*sql.Conn` of `database/sql`), not a `*sql.Tx`.
+The callback must use only its supplied `*sql.Tx` and the context it gets.
+It must not issue transaction control, use another connection, or
 perform external effects. Register additional application migrations before
 calling `Migrate` if they must commit with the generated schema. A marker covers
 only work in that transaction; unrelated setup calls remain the application's

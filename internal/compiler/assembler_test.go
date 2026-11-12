@@ -4455,57 +4455,6 @@ func TestAssemble_FillImportsGatedOnHasSlots(t *testing.T) {
 	}
 }
 
-func TestAssemble_GORMDBSetupClosesConnection(t *testing.T) {
-	input := AssemblerInput{
-		ModuleName:  "github.com/myorg/svc",
-		ServiceName: "svc",
-		GoVersion:   "1.22",
-
-		Wirings: []ComponentWiring{
-			{
-				Name: "rest-api",
-				Wiring: &gen.Wiring{
-					Imports:      []string{"internal/api"},
-					Constructors: []string{"api.NewHandler(store)"},
-					Routes:       []string{`mux.HandleFunc("GET /items", handler.List)`},
-				},
-			},
-			{
-				Name: "postgres-adapter",
-				Wiring: &gen.Wiring{
-					Imports:      []string{"internal/storage"},
-					Constructors: []string{"storage.NewStore(db)"},
-					NeedsDB:      true,
-					DBBackend:    "gorm",
-				},
-			},
-		},
-	}
-
-	files, err := Assemble(input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var mainGo gen.File
-	for _, f := range files {
-		if f.Path == "main.go" {
-			mainGo = f
-			break
-		}
-	}
-
-	code := string(mainGo.Content)
-
-	// GORM setup should retrieve underlying sql.DB and defer close.
-	if !strings.Contains(code, "sqlDB, err := db.DB()") {
-		t.Error("GORM setup should retrieve underlying *sql.DB")
-	}
-	if !strings.Contains(code, "defer sqlDB.Close()") {
-		t.Error("GORM setup should defer close of underlying *sql.DB")
-	}
-}
-
 func TestAssemble_PostDBCallsEmitted(t *testing.T) {
 	input := AssemblerInput{
 		ModuleName:  "github.com/myorg/svc",
@@ -4527,7 +4476,6 @@ func TestAssemble_PostDBCallsEmitted(t *testing.T) {
 					Imports:      []string{"internal/storage"},
 					Constructors: []string{"storage.NewStore(db)"},
 					NeedsDB:      true,
-					DBBackend:    "gorm",
 					PostDBCalls:  []string{"storage.Migrate(db)"},
 				},
 			},
@@ -4583,7 +4531,6 @@ func TestAssemble_PostDBCallsImportAliasDisambiguation(t *testing.T) {
 					Imports:      []string{"internal/storage"},
 					Constructors: []string{"storage.NewStoreA(db)"},
 					NeedsDB:      true,
-					DBBackend:    "gorm",
 					PostDBCalls:  []string{"storage.MigrateA(db)"},
 				},
 			},
@@ -4593,7 +4540,6 @@ func TestAssemble_PostDBCallsImportAliasDisambiguation(t *testing.T) {
 					Imports:      []string{"pkg/storage"},
 					Constructors: []string{"storage.NewStoreB(db)"},
 					NeedsDB:      true,
-					DBBackend:    "gorm",
 					PostDBCalls:  []string{"storage.MigrateB(db)"},
 				},
 			},

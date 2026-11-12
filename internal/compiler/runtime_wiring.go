@@ -141,9 +141,7 @@ func runtimeWiring(in runtimeWiringInput) ([]gen.File, ComponentWiring, error) {
 		MiddlewareWrapExpr:    "%s.Middleware(%s)",
 		MigrationJob:          &gen.MigrationJobSpec{Namespace: RuntimeWiringNamespace, Function: "Migrate", Stage: "MigrationStage"},
 		GoModRequires: map[string]string{
-			"google.golang.org/grpc":  "v1.83.2",
-			"gorm.io/gorm":            "v1.25.12",
-			"gorm.io/driver/postgres": "v1.5.11",
+			"google.golang.org/grpc": "v1.83.2",
 		},
 	}
 	base := strings.TrimSuffix(svc.BasePath, "/")
