@@ -448,11 +448,15 @@ func TestCrudService(t *testing.T) {
 	})
 	t.Run("ST-SUP-RC20-OC37-T04 Generation refuses what the runtime data path does not serve", func(t *testing.T) {
 		cases := map[string]func(*gen.Context){
-			"a create that is not public":                  func(c *gen.Context) { c.Entities[0].Permissions[types.OpCreate] = "edit" },
-			"a public patch":                               func(c *gen.Context) { c.Entities[0].Permissions[types.OpPatch] = "public" },
-			"a delete with no permission":                  func(c *gen.Context) { delete(c.Entities[0].Permissions, types.OpDelete) },
-			"an upsert with optimistic concurrency":        func(c *gen.Context) { c.Collections[5].Concurrency = types.ConcurrencyOptimistic },
-			"an upsert with no key":                        func(c *gen.Context) { c.Collections[5].UpsertKey = nil },
+			"a create that is not public":           func(c *gen.Context) { c.Entities[0].Permissions[types.OpCreate] = "edit" },
+			"a public patch":                        func(c *gen.Context) { c.Entities[0].Permissions[types.OpPatch] = "public" },
+			"a delete with no permission":           func(c *gen.Context) { delete(c.Entities[0].Permissions, types.OpDelete) },
+			"an upsert with optimistic concurrency": func(c *gen.Context) { c.Collections[5].Concurrency = types.ConcurrencyOptimistic },
+			"an upsert with no key":                 func(c *gen.Context) { c.Collections[5].UpsertKey = nil },
+			"an optimistic upsert with no decided insert": func(c *gen.Context) {
+				c.Entities[7].References = nil
+				c.Entities[7].Permissions[types.OpCreate] = "public"
+			},
 			"an upsert of a row with no permission":        func(c *gen.Context) { delete(c.Entities[5].Permissions, types.OpUpsert) },
 			"an implicit field of a number type":           func(c *gen.Context) { c.Collections[0].Implicit = map[string]string{"qty": "1"} },
 			"a path parameter that is not the scope field": func(c *gen.Context) { c.Collections[0].PathPrefix = "/stock/{sku}" },

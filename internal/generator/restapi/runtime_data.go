@@ -276,6 +276,16 @@ func validateRuntimeUpsert(c types.Collection, e types.Entity, entities map[stri
 		if !ok {
 			return fmt.Errorf("rest-api: collection %s declares optimistic concurrency on upsert, and %s has no required field generation of type int32 or int64 for the If-Match precondition to compare (ST-SUP-RC20-OC14)", c.Name, e.Name)
 		}
+		// An If-Match on a key with no stored row is decided on a required reference before its 412, so the header
+		// tells no caller that a row exists; a public insert decides nothing.
+		decided := false
+		for _, f := range e.Fields {
+			ref, has := e.References[f.Name]
+			decided = decided || (f.Type == types.FieldTypeRef && !f.Optional && has && ref.Permission != "" && entities[f.To].ResourceType != "")
+		}
+		if !decided {
+			return fmt.Errorf("rest-api: collection %s declares optimistic concurrency on upsert of %s, which has no required reference with a permission: an If-Match on a key with no stored row could not be decided, and its answer would tell that no row exists (ST-SUP-RC20-OC14)", c.Name, e.Name)
+		}
 	}
 	if p := e.Permissions[types.OpUpsert]; p == "" || p == types.PermissionPublic {
 		return fmt.Errorf("rest-api: collection %s declares upsert with the permission %q; on the runtime data path an upsert of a stored row decides a permission of %s on it", c.Name, p, e.ResourceType)
@@ -1669,7 +1679,22 @@ func (w *runtimeHandlerWriter) upsert() {
 	w.f("\t\tfound, err := repo.List(ctx, %sUpsertKey, 1, %s)\n\t\tif err != nil {\n\t\t\treturn idempotency.Response{}, err\n\t\t}\n", c.camel, strings.Join(keys, ", "))
 	w.f("\t\tif len(found) == 0 {\n")
 	if optimistic {
-		w.f("\t\tif ifMatchSent {\n\t\t\treturn idempotency.Response{}, &preconditionFailed{status: http.StatusPreconditionFailed, detail: \"the If-Match precondition names a %s that does not exist\"}\n\t\t}\n", e.Name)
+		// An If-Match names a stored row, and there is none. The insert would be decided on edit of each required
+		// parent through its reference; that decision comes first, so a caller who may not write under the parent gets
+		// 404, the answer of a stored row it may not upsert, and the header tells no caller that a row exists
+		// (ST-SUP-RC20-OC14, ST-SUP-RC20-OC37).
+		w.f("\t\tif ifMatchSent {\n")
+		for _, f := range c.refs {
+			ref, ok := e.References[f.Name]
+			if f.Optional || !ok || ref.Permission == "" {
+				continue
+			}
+			v := c.lower + "." + toPascalCase(f.Name)
+			w.f("\t\t\t{\n\t\t\t\trefs, err := data.%sRepository(ch)\n\t\t\t\tif err != nil {\n\t\t\t\t\treturn idempotency.Response{}, err\n\t\t\t\t}\n", f.To)
+			w.f("\t\t\t\tparent, err := refs.Get(ctx, canonicalID(%s))\n\t\t\t\tif err != nil {\n\t\t\t\t\treturn idempotency.Response{}, err\n\t\t\t\t}\n", v)
+			w.f("\t\t\t\tallowed, err := ch.Authz().Evaluate(ctx, %q, parent, nil)\n\t\t\t\tif err != nil {\n\t\t\t\t\treturn idempotency.Response{}, err\n\t\t\t\t}\n\t\t\t\tif !allowed {\n\t\t\t\t\treturn idempotency.Response{}, command.ErrNotFound\n\t\t\t\t}\n\t\t\t}\n", ref.Permission)
+		}
+		w.f("\t\t\treturn idempotency.Response{}, &preconditionFailed{status: http.StatusPreconditionFailed, detail: \"the If-Match precondition names a %s that does not exist\"}\n\t\t}\n", e.Name)
 	}
 	w.populateCreate()
 	if w.envelope {

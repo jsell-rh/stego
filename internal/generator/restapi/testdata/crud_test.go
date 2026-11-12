@@ -1567,7 +1567,8 @@ func TestCrud(t *testing.T) {
 
 	t.Run("ST-SUP-RC20-OC14-T01 An upsert with optimistic concurrency updates only under the If-Match of the stored generation", func(t *testing.T) {
 		e := service(t)
-		a := e.as("u-1", newTenant())
+		tn := newTenant()
+		a := e.as("u-1", tn)
 		folder := e.create(a, "folders", "folder", `{"name":"one"}`)
 		quotas := "/api/v1/folders/" + folder + "/quotas"
 		put := func(body string, ifMatch string) reply {
@@ -1621,6 +1622,29 @@ func TestCrud(t *testing.T) {
 		}
 		if g, _ := updated.object(t)["generation"].(float64); g != 2 || amount(id) != 20 {
 			t.Fatalf("the update has the generation %v and the amount %d, want 2 and 20", updated.object(t)["generation"], amount(id))
+		}
+		// A caller of the tenant who may not edit the folder gets 404 for a key with no stored row and for a stored
+		// key alike, with If-Match and without, so the precondition tells it nothing about which rows exist. The
+		// viewer may read the folder and its quotas, and the stranger has no relation at all.
+		viewer, stranger := e.as("u-2", tn), e.as("u-3", tn)
+		e.relate(viewer, "viewer", "folder", folder)
+		for who, c := range map[string]caller{"the viewer": viewer, "the stranger": stranger} {
+			for name, r := range map[string]struct{ body, ifMatch string }{
+				"a missing key with If-Match":   {`{"name":"cpu","amount":1}`, `"1"`},
+				"a stored key with If-Match":    {`{"name":"disk","amount":1}`, `"2"`},
+				"a stored key with no If-Match": {`{"name":"disk","amount":1}`, ""},
+			} {
+				headers := map[string]string{}
+				if r.ifMatch != "" {
+					headers["If-Match"] = r.ifMatch
+				}
+				if got := e.sendWith(c, http.MethodPut, quotas, "", r.body, headers); got.status != http.StatusNotFound {
+					t.Errorf("the upsert of %s by %s answered %d %s, want 404", name, who, got.status, got.body)
+				}
+			}
+		}
+		if n := e.count(`SELECT count(*) FROM quotas WHERE name = 'cpu'`); n != 0 || amount(id) != 20 {
+			t.Fatalf("the refused upserts of the other caller left %d cpu rows and the amount %d", n, amount(id))
 		}
 		// The generation that the client read before the update is stale now.
 		if r := put(`{"name":"disk","amount":30}`, `"1"`); r.status != http.StatusPreconditionFailed || amount(id) != 20 {
