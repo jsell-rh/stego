@@ -215,7 +215,8 @@ func tableOrder(entities []types.Entity) ([]types.Entity, error) {
 }
 
 // uniqueKeys gives the column lists of the unique indexes of an entity: each unique field, each unique_composite
-// group once, and each upsert key of a collection over the entity, in that order. A unique_when_live field is
+// group once, and each upsert key of a collection over the entity with its scope and implicit fields
+// (types.Collection.UpsertLookup), in that order. A unique_when_live field is
 // unique over all rows, because a command's delete removes the row and leaves no deleted row to leave out.
 func uniqueKeys(entity types.Entity, upsertKeys [][]string) [][]string {
 	var keys [][]string
@@ -261,7 +262,7 @@ func tablesSQL(ctx gen.Context) (string, error) {
 	upsertKeys := map[string][][]string{}
 	for _, collection := range ctx.Collections {
 		if len(collection.UpsertKey) > 0 {
-			upsertKeys[collection.Entity] = append(upsertKeys[collection.Entity], collection.UpsertKey)
+			upsertKeys[collection.Entity] = append(upsertKeys[collection.Entity], collection.UpsertLookup())
 		}
 	}
 	var out strings.Builder

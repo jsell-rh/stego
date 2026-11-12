@@ -51,7 +51,7 @@ func skipUnlessPinned(t *testing.T, err error) {
 	}
 }
 
-func git(t *testing.T, directory string, args ...string) string {
+func git(t testing.TB, directory string, args ...string) string {
 	t.Helper()
 	command := exec.Command("git", append([]string{"-c", "user.name=STEGO", "-c", "user.email=stego@example.test", "-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main"}, args...)...)
 	command.Dir = directory
@@ -503,7 +503,7 @@ func buildSource(t *testing.T) (string, string) {
 }
 
 // buildSourceIn commits the project of buildSource in the folder root.
-func buildSourceIn(t *testing.T, root string) (string, string) {
+func buildSourceIn(t testing.TB, root string) (string, string) {
 	t.Helper()
 	project := filepath.Join(root, "source")
 	registry := filepath.Join(root, "registry")
@@ -547,6 +547,41 @@ func buildSourceIn(t *testing.T, root string) (string, string) {
 	return project, git(t, project, "rev-parse", "HEAD")
 }
 
+// sourceRecorder is the testing.TB of recordedSource: a fatal failure records its message and ends the goroutine
+// of the source, not the test.
+type sourceRecorder struct {
+	testing.TB
+	failure string
+}
+
+func (r *sourceRecorder) Helper() {}
+
+func (r *sourceRecorder) Fatal(args ...any) {
+	r.failure = fmt.Sprint(args...)
+	runtime.Goexit()
+}
+
+func (r *sourceRecorder) Fatalf(format string, args ...any) {
+	r.failure = fmt.Sprintf(format, args...)
+	runtime.Goexit()
+}
+
+// recordedSource makes the project of buildSource and gives the error of a step that failed, in place of failing t.
+func recordedSource(t *testing.T) (string, string, error) {
+	recorder := &sourceRecorder{TB: t}
+	var source, revision string
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		source, revision = buildSourceIn(recorder, t.TempDir())
+	}()
+	<-done
+	if recorder.failure != "" || source == "" {
+		return "", "", fmt.Errorf("the source of the build: %s", recorder.failure)
+	}
+	return source, revision, nil
+}
+
 func buildArgs(source, revision, goTool, work, output, cache string) []string {
 	return []string{"--source", source, "--revision", revision, "--target", "out/internal/api/tiny", "--go", goTool, "--work", work, "--output", output, "--module-cache", cache}
 }
@@ -582,7 +617,8 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 	// The test runs stego build through the binary, with the environment of each run given, so it can run in
 	// parallel with the other tests of the binary.
 	t.Parallel()
-	source, revision := buildSource(t)
+	// The source is made through a recorder, so its failure too is the outcome of each check below.
+	source, revision, sourceErr := recordedSource(t)
 	goTool := pinnedGo(t)
 	root := t.TempDir()
 	// A build keeps its work folders, which hold the read-only module
@@ -596,17 +632,39 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 		})
 	})
 	cache := filepath.Join(root, "cache")
-	err := stegoBuild(t, nil, "download", "--source", source, "--revision", revision, "--target", "out/internal/api/tiny", "--go", goTool, "--output", cache)
-	skipUnlessPinned(t, err)
-	if err != nil {
-		t.Fatal(err)
+	// A download or a build that fails, or a Go SDK that is not the pinned one, is reported by each check below, so
+	// the proof run holds the cause in the outcome of each test record and not only "did not run".
+	var setupErr error
+	notPinned := ""
+	ready := func(t *testing.T) {
+		t.Helper()
+		if notPinned != "" {
+			t.Skip(notPinned)
+		}
+		if setupErr != nil {
+			t.Fatal(setupErr)
+		}
+	}
+	err := sourceErr
+	if err == nil {
+		err = stegoBuild(t, nil, "download", "--source", source, "--revision", revision, "--target", "out/internal/api/tiny", "--go", goTool, "--output", cache)
+	}
+	if err == sourceErr && err != nil {
+		setupErr = err
+	} else if err != nil && strings.Contains(err.Error(), "is not the pinned official release") {
+		notPinned = fmt.Sprintf("the Go SDK of this run is not the pinned one; set STEGO_TEST_PINNED_GO: %v", err)
+	} else if err != nil {
+		setupErr = fmt.Errorf("download: %v", err)
 	}
 	// A credential in the caller's environment must not reach the record.
 	caller := []string{"GH_TOKEN=stego-test-credential", "GOFLAGS=-race"}
 	results := []string{filepath.Join(root, "first"), filepath.Join(root, "second")}
 	for index, result := range results {
+		if notPinned != "" || setupErr != nil {
+			break
+		}
 		if err := stegoBuild(t, caller, buildArgs(source, revision, goTool, filepath.Join(root, "work"+string(rune('a'+index))), result, cache)...); err != nil {
-			t.Fatalf("build %d: %v", index+1, err)
+			setupErr = fmt.Errorf("build %d: %v", index+1, err)
 		}
 	}
 	// brokenCache copies the cache, with its one zip removed or changed, and
@@ -637,6 +695,7 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 		return err, names
 	}
 	t.Run("ST-BLD-INV04-T A build runs with the proxy off from its recorded cache, and fails when a module is missing or differs", func(t *testing.T) {
+		ready(t)
 		var record appbuild.Record
 		data, err := os.ReadFile(filepath.Join(results[0], "build.json"))
 		if err != nil {
@@ -655,6 +714,7 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 		}
 	})
 	t.Run("ST-BLD-UC03-R01-T02 A build from a cache whose module zip is missing or changed fails and leaves no result", func(t *testing.T) {
+		ready(t)
 		for _, change := range []string{"missing", "changed"} {
 			err, names := brokenCache(t, change)
 			if err == nil || !strings.Contains(err.Error(), "module cache") {
@@ -666,6 +726,7 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 		}
 	})
 	t.Run("ST-BLD-INV06-T Two builds from the same inputs give byte-identical executables, records and SBOMs", func(t *testing.T) {
+		ready(t)
 		for _, name := range []string{"application", "build.json", "sbom.spdx.json", "sbom.cdx.json"} {
 			if fileSHA256(t, filepath.Join(results[0], name)) != fileSHA256(t, filepath.Join(results[1], name)) {
 				t.Errorf("two builds from the same inputs gave a different %s", name)
@@ -673,6 +734,7 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 		}
 	})
 	t.Run("ST-BLD-UC03-R04-T01 The record names every input and output, and both SBOMs are written from it", func(t *testing.T) {
+		ready(t)
 		data, err := os.ReadFile(filepath.Join(results[0], "build.json"))
 		if err != nil {
 			t.Fatal(err)
@@ -707,6 +769,7 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 		}
 	})
 	t.Run("ST-BLD-UC03-R03-T02 Builds from the same inputs give the same executable and record", func(t *testing.T) {
+		ready(t)
 		for _, name := range []string{"application", "build.json", "sbom.spdx.json", "sbom.cdx.json", "SHA256SUMS"} {
 			if fileSHA256(t, filepath.Join(results[0], name)) != fileSHA256(t, filepath.Join(results[1], name)) {
 				t.Errorf("a later build from the same inputs gave a different %s", name)
@@ -714,6 +777,7 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 		}
 	})
 	t.Run("ST-BLD-INV07-T The record of a real build names every input and the fixed build settings, and no credential", func(t *testing.T) {
+		ready(t)
 		raw, err := os.ReadFile(filepath.Join(results[0], "build.json"))
 		if err != nil {
 			t.Fatal(err)
@@ -769,8 +833,14 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 	})
 	record := filepath.Join(results[0], "build.json")
 	application := filepath.Join(results[0], "application")
-	trusted := fileSHA256(t, record)
+	// The checks below need the result of the builds; when the setup failed, each check reports that alone.
+	built := notPinned == "" && setupErr == nil
+	trusted := ""
+	if built {
+		trusted = fileSHA256(t, record)
+	}
 	t.Run("ST-BLD-UC04-R01-T01 A record whose canonical bytes do not hash to the trusted digest is refused", func(t *testing.T) {
+		ready(t)
 		if err := stegoBuild(t, nil, "verify", "--record", record, "--record-sha256", trusted, "--artifact", application); err != nil {
 			t.Fatal(err)
 		}
@@ -791,14 +861,17 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 		}
 	})
 	snapshot := filepath.Join(t.TempDir(), "snapshot")
-	if err := os.Mkdir(snapshot, 0755); err != nil {
-		t.Fatal(err)
-	}
-	archive := exec.Command("sh", "-c", "git -C \"$1\" archive --format=tar \"$2\" | tar -x -C \"$3\"", "sh", source, revision, snapshot)
-	if output, err := archive.CombinedOutput(); err != nil {
-		t.Fatalf("source snapshot: %v\n%s", err, output)
+	if built {
+		if err := os.Mkdir(snapshot, 0755); err != nil {
+			t.Fatal(err)
+		}
+		archive := exec.Command("sh", "-c", "git -C \"$1\" archive --format=tar \"$2\" | tar -x -C \"$3\"", "sh", source, revision, snapshot)
+		if output, err := archive.CombinedOutput(); err != nil {
+			t.Fatalf("source snapshot: %v\n%s", err, output)
+		}
 	}
 	t.Run("ST-BLD-UC04-R01-T02 A source check refuses an untrusted record digest", func(t *testing.T) {
+		ready(t)
 		if err := stegoBuild(t, nil, "verify-source", "--record", record, "--record-sha256", trusted, "--source", snapshot); err != nil {
 			t.Fatal(err)
 		}
@@ -808,6 +881,7 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 		}
 	})
 	t.Run("ST-BLD-UC04-R02-T01 A source snapshot that differs is refused, and each changed, missing or added file is named", func(t *testing.T) {
+		ready(t)
 		changed := filepath.Join(t.TempDir(), "snapshot")
 		copyTree := exec.Command("cp", "-a", snapshot, changed)
 		if output, err := copyTree.CombinedOutput(); err != nil {
@@ -829,6 +903,7 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 		}
 	})
 	t.Run("ST-BLD-UC04-R02-T02 An executable that differs is refused, and its recorded and found digests are named", func(t *testing.T) {
+		ready(t)
 		raw, err := os.ReadFile(application)
 		if err != nil {
 			t.Fatal(err)
@@ -849,6 +924,7 @@ func TestBuildIsReproducibleAndRecordsEveryInput(t *testing.T) {
 		}
 	})
 	t.Run("ST-BLD-UC04-R03-T01 A record or an executable that cannot be read fails the check, is named, and is not changed", func(t *testing.T) {
+		ready(t)
 		before := map[string]string{record: fileSHA256(t, record), application: fileSHA256(t, application)}
 		missing := filepath.Join(t.TempDir(), "missing.json")
 		folder := t.TempDir()

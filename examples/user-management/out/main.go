@@ -15,33 +15,32 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	admincreationpolicy "github.com/example/service/fills/admin-creation-policy"
-	auditlogger "github.com/example/service/fills/audit-logger"
 	checkdependencies "github.com/example/service/fills/check-dependencies"
 	orgnamevalidator "github.com/example/service/fills/org-name-validator"
 	orgprovisioner "github.com/example/service/fills/org-provisioner"
 	rbacpolicy "github.com/example/service/fills/rbac-policy"
 	sendwelcome "github.com/example/service/fills/send-welcome"
-	userchangenotifier "github.com/example/service/fills/user-change-notifier"
 	health "github.com/example/service/out/health"
 	api "github.com/example/service/out/internal/api"
-	auth "github.com/example/service/out/internal/auth"
-	events "github.com/example/service/out/internal/events"
-	storage "github.com/example/service/out/internal/storage"
+	stegoruntime "github.com/example/service/out/internal/stegoruntime"
 	slots "github.com/example/service/out/slots"
 	tracing "github.com/example/service/out/tracing"
-	postgres "gorm.io/driver/postgres"
-	gorm "gorm.io/gorm"
-	gormlogger "gorm.io/gorm/logger"
 )
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "migrate" {
+		if err := stegoruntime.Migrate(context.Background()); err != nil {
+			stegoReportFailure(os.Stderr, &stegoServiceFailure{stage: stegoruntime.MigrationStage(err), cause: err})
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		stegoReportFailure(os.Stderr, err)
 		os.Exit(1)
@@ -57,46 +56,11 @@ func run() (stegoErr error) {
 	}()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	stegoStage = "database.configure"
-	dsn, err := stegoDatabaseURL()
-	if err != nil {
-		return err
-	}
-	stegoStage = "database.open"
-	sqlDB, err := storage.OpenDatabase(dsn)
-	if err != nil {
-		return err
-	}
-	defer sqlDB.Close()
-	db, err := gorm.Open(postgres.New(postgres.Config{Conn: sqlDB}), &gorm.Config{Logger: gormlogger.Discard, DisableAutomaticPing: true})
-	if err != nil {
-		return err
-	}
-	stegoStage = "database.handle"
-	stegoStage = "database.ping"
-	{
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		err := sqlDB.PingContext(ctx)
-		cancel()
-		if err != nil {
-			return err
-		}
-	}
-	stegoStage = "component[1].database[0]"
-	if err := storage.Migrate(db); err != nil {
-		return err
-	}
 	// Slot wiring — fills composed via operators.
 	// Slot: before_create (gate) for org-users
 	beforeCreateOrgUsersGate := slots.NewBeforeCreateGate(
 		rbacpolicy.New(),
 		admincreationpolicy.New(),
-	)
-
-	// Slot: on_entity_changed (fan-out) for org-users
-	onEntityChangedOrgUsersFanOut := slots.NewOnEntityChangedFanOut(
-		userchangenotifier.New(),
-		auditlogger.New(),
 	)
 
 	// Slot: after_create (fan-out) for org-users
@@ -118,39 +82,32 @@ func run() (stegoErr error) {
 	validationMiddleware := api.NewValidationMiddleware()
 	cORSMiddleware := api.NewCORSMiddleware()
 	discoveryHandler := api.NewDiscoveryHandler()
-	stegoStage = "component[1].constructor[0]"
-	store, err := storage.NewStore(db)
-	if err != nil {
-		return err
-	}
-	stegoStage = "component[3].constructor[0]"
-	tracingRuntime, err := tracing.NewTracingRuntime(sqlDB)
+	stegoStage = "component[6].constructor[0]"
+	tracingRuntime, err := tracing.NewTracingRuntime(nil)
 	if err != nil {
 		return err
 	}
 	defer tracingRuntime.Close()
-	stegoStage = "component[4].constructor[0]"
+	stegoStage = "component[7].constructor[0]"
 	monitor, err := health.NewMonitor(ctx)
 	if err != nil {
 		return err
 	}
-	stegoStage = "component[5].constructor[0]"
-	authMiddleware, err := auth.NewAuthMiddleware()
+	stegoStage = "component[11].constructor[0]"
+	service, err := stegoruntime.NewService(ctx)
 	if err != nil {
+		if stage := stegoruntime.StartStage(err); stage != "" {
+			stegoStage = stage
+		}
 		return err
 	}
-	organizationsHandler := api.NewOrganizationsHandler(store, beforeCreateOrganizationsChain, beforeDeleteOrganizationsGate)
-	orgUsersHandler := api.NewOrgUsersHandler(store, beforeCreateOrgUsersGate, onEntityChangedOrgUsersFanOut, afterCreateOrgUsersFanOut)
-	allUsersHandler := api.NewAllUsersHandler(store)
-	orgSettingsHandler := api.NewOrgSettingsHandler(store)
-	userAuditEventsHandler := api.NewUserAuditEventsHandler(store)
-	orgAuditEventsHandler := api.NewOrgAuditEventsHandler(store)
-	stegoStage = "component[7].constructor[0]"
-	runtime, err := events.NewRuntime(tracingRuntime, ctx, sqlDB)
-	if err != nil {
-		return err
-	}
-	defer runtime.Close()
+	defer service.Close()
+	organizationsHandler := api.NewOrganizationsHandler(service.CollectionRuntime(), beforeCreateOrganizationsChain, beforeDeleteOrganizationsGate)
+	orgUsersHandler := api.NewOrgUsersHandler(service.CollectionRuntime(), beforeCreateOrgUsersGate, afterCreateOrgUsersFanOut)
+	allUsersHandler := api.NewAllUsersHandler(service.CollectionRuntime())
+	orgSettingsHandler := api.NewOrgSettingsHandler(service.CollectionRuntime())
+	userActivityHandler := api.NewUserActivityHandler(service.CollectionRuntime())
+	orgActivityHandler := api.NewOrgActivityHandler(service.CollectionRuntime())
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/user-mgmt/v1/organizations", organizationsHandler.Create)
@@ -166,10 +123,10 @@ func run() (stegoErr error) {
 	mux.HandleFunc("GET /api/user-mgmt/v1/users", allUsersHandler.List)
 	mux.HandleFunc("GET /api/user-mgmt/v1/organizations/{org_id}/orgsettings", orgSettingsHandler.List)
 	mux.HandleFunc("PUT /api/user-mgmt/v1/organizations/{org_id}/orgsettings", orgSettingsHandler.Upsert)
-	mux.HandleFunc("POST /api/user-mgmt/v1/user-events", userAuditEventsHandler.Create)
-	mux.HandleFunc("GET /api/user-mgmt/v1/user-events", userAuditEventsHandler.List)
-	mux.HandleFunc("POST /api/user-mgmt/v1/org-events", orgAuditEventsHandler.Create)
-	mux.HandleFunc("GET /api/user-mgmt/v1/org-events", orgAuditEventsHandler.List)
+	mux.HandleFunc("POST /api/user-mgmt/v1/user-activity", userActivityHandler.Create)
+	mux.HandleFunc("GET /api/user-mgmt/v1/user-activity", userActivityHandler.List)
+	mux.HandleFunc("POST /api/user-mgmt/v1/org-activity", orgActivityHandler.Create)
+	mux.HandleFunc("GET /api/user-mgmt/v1/org-activity", orgActivityHandler.List)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -182,7 +139,8 @@ func run() (stegoErr error) {
 	topMux.HandleFunc("GET /api/user-mgmt/v1", discoveryHandler.ServeMetadata)
 	topMux.HandleFunc("GET /livez", monitor.Live)
 	topMux.HandleFunc("GET /readyz", monitor.Ready)
-	topMux.Handle("/", tracingRuntime.Handler(cORSMiddleware(authMiddleware(tracingRuntime.Route(validationMiddleware(mux))))))
+	topMux.Handle("GET /readyz/modes", service.Readiness())
+	topMux.Handle("/", tracingRuntime.Handler(cORSMiddleware(service.Middleware(tracingRuntime.Route(validationMiddleware(mux))))))
 	stegoStage = "http.configure"
 	httpTLS, err := stegoHTTPTransport()
 	if err != nil {
@@ -204,51 +162,8 @@ func run() (stegoErr error) {
 			return stegoServeHTTP(ctx, listener, stegoHTTPServerWithErrorLog(topMux, tracingRuntime.HTTPErrorLog()), 10*time.Second)
 		}},
 		{name: "health-check[0]", run: monitor.Run},
-		{name: "kafka-producer[0]", run: runtime.Run},
+		{name: "stego-runtime[0]", run: service.Run},
 	})
-}
-
-func stegoDatabaseURL() (string, error) {
-	value := os.Getenv("DATABASE_URL")
-	name := os.Getenv("DATABASE_URL_FILE")
-	invalid := errors.New("invalid database configuration source")
-	if (value == "") == (name == "") {
-		return "", invalid
-	}
-	if name == "" {
-		if len(value) > 65536 {
-			return "", invalid
-		}
-		return value, nil
-	}
-	if len(name) > 4096 || !filepath.IsAbs(name) {
-		return "", invalid
-	}
-	// Follow projected-volume symlinks. Check the opened descriptor so a path
-	// replacement cannot bypass the file type and permission checks.
-	file, err := os.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return "", invalid
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() > 65536 || info.Mode().Perm()&0137 != 0 {
-		return "", invalid
-	}
-	data, err := io.ReadAll(io.LimitReader(file, 65537))
-	if err != nil || len(data) > 65536 {
-		return "", invalid
-	}
-	value = string(data)
-	if strings.HasSuffix(value, "\r\n") {
-		value = value[:len(value)-2]
-	} else {
-		value = strings.TrimSuffix(value, "\n")
-	}
-	if value == "" || strings.ContainsAny(value, "\x00\r\n") {
-		return "", invalid
-	}
-	return value, nil
 }
 
 type stegoServiceFailure struct {

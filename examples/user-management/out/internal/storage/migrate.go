@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 
+	stegotenancy "github.com/example/service/out/internal/tenancy"
 	"gorm.io/gorm"
 )
 
@@ -59,12 +60,61 @@ func Migrate(db *gorm.DB) error {
 		return fmt.Errorf("migration requires an initialized database")
 	}
 	ordered := orderedMigrations()
+	if err := BootstrapSchema(db, func(tx *gorm.DB) error {
+		for _, m := range ordered {
+			if err := m.Func(tx); err != nil {
+				return fmt.Errorf("migration %s: %w", m.Name, err)
+			}
+			if err := tx.Exec("INSERT INTO stego_schema.migrations(version,digest) VALUES(?,?)", m.Name, m.Digest).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	applied, err := appliedMigrations(db)
+	if err != nil {
+		return err
+	}
+	return applyPending(db, ordered, applied)
+}
+
+// ApplyMigration applies one SQL migration by body and records it in the
+// ledger, for databases whose migrations run outside the application. The
+// same continuity rules hold: no re-application, no gap, no digest change.
+func ApplyMigration(db *gorm.DB, name, body string) error {
+	if db == nil || db.Config == nil || db.Statement == nil {
+		return ErrMigrationLedger
+	}
+	ordered := orderedMigrations()
 	for _, m := range ordered {
-		if err := m.Func(db); err != nil {
-			return fmt.Errorf("migration %s: %w", m.Name, err)
+		if m.Name == name {
+			return ErrMigrationLedger
 		}
 	}
-	return nil
+	return db.Transaction(func(tx *gorm.DB) error {
+		applied, err := appliedMigrations(tx)
+		if err != nil {
+			return err
+		}
+		if err := upgradeLedger(tx, ordered, applied); err != nil {
+			return err
+		}
+		if err := checkLedger(applied, ordered); err != nil {
+			return err
+		}
+		if len(applied) < len(ordered) {
+			return ErrMigrationLedger
+		}
+		if len(applied) > 0 && name <= applied[len(applied)-1].Name {
+			return ErrMigrationLedger
+		}
+		if err := tx.Exec(body).Error; err != nil {
+			return fmt.Errorf("migration %s: %w", name, err)
+		}
+		return tx.Exec("INSERT INTO stego_schema.migrations(version,digest) VALUES(?,?)", name, Digest(body)).Error
+	})
 }
 
 // orderedMigrations returns the registered migrations sorted by name.
@@ -77,13 +127,106 @@ func orderedMigrations() []Migration {
 	return ordered
 }
 
+// appliedMigrations reads the ledger in apply order. It fails closed when
+// the ledger is missing or unreadable.
+func appliedMigrations(db *gorm.DB) ([]Migration, error) {
+	var rows []struct {
+		Name   string
+		Digest string
+	}
+	if err := db.Raw("SELECT version AS name, digest FROM stego_schema.migrations ORDER BY version").Scan(&rows).Error; err != nil {
+		return nil, ErrMigrationLedger
+	}
+	applied := make([]Migration, len(rows))
+	for i, row := range rows {
+		applied[i] = Migration{Name: row.Name, Digest: row.Digest}
+	}
+	return applied, nil
+}
+
+// checkLedger rejects any mismatch between the applied versions and the
+// registered history. Applied versions must be a prefix of the registered
+// list, in order, with matching digests: no gaps, no extras, no edits.
+func checkLedger(applied, registered []Migration) error {
+	if len(applied) > len(registered) {
+		return ErrMigrationLedger
+	}
+	for i, row := range applied {
+		if row.Name != registered[i].Name || row.Digest != registered[i].Digest {
+			return ErrMigrationLedger
+		}
+	}
+	return nil
+}
+
+// legacyDigest is false on the runtime data path: a row with the earlier digest
+// of the name alone is of a release on the GORM store, and the ledger refuses it.
+func legacyDigest(Migration, Migration) bool {
+	return false
+}
+
+// upgradeLedger rewrites each row that holds the earlier digest of the name
+// alone to the body digest, once, in the supplied transaction. It changes a
+// row only when its name is registered at the same position and the row is
+// the one the ledger holds for that name. Every other mismatch is left for
+// checkLedger to refuse.
+func upgradeLedger(tx *gorm.DB, registered, applied []Migration) error {
+	for i, row := range applied {
+		if i >= len(registered) || !legacyDigest(row, registered[i]) {
+			continue
+		}
+		result := tx.Exec("UPDATE stego_schema.migrations SET digest=? WHERE version=? AND digest=?", registered[i].Digest, row.Name, row.Digest)
+		if result.Error != nil || result.RowsAffected != 1 {
+			return ErrMigrationLedger
+		}
+		applied[i].Digest = registered[i].Digest
+	}
+	return nil
+}
+
+// applyPending applies migrations after the recorded history, each with
+// its ledger row in one transaction. A row with the earlier name digest is
+// rewritten first, in a transaction that reads the ledger again under lock.
+func applyPending(db *gorm.DB, ordered, applied []Migration) error {
+	for i := range applied {
+		if i >= len(ordered) || !legacyDigest(applied[i], ordered[i]) {
+			continue
+		}
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Exec("LOCK TABLE stego_schema.migrations IN SHARE ROW EXCLUSIVE MODE").Error; err != nil {
+				return ErrMigrationLedger
+			}
+			current, err := appliedMigrations(tx)
+			if err != nil {
+				return err
+			}
+			if err := upgradeLedger(tx, ordered, current); err != nil {
+				return err
+			}
+			applied = current
+			return nil
+		}); err != nil {
+			return err
+		}
+		break
+	}
+	if err := checkLedger(applied, ordered); err != nil {
+		return err
+	}
+	for _, m := range ordered[len(applied):] {
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			if err := m.Func(tx); err != nil {
+				return fmt.Errorf("migration %s: %w", m.Name, err)
+			}
+			return tx.Exec("INSERT INTO stego_schema.migrations(version,digest) VALUES(?,?)", m.Name, m.Digest).Error
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func init() {
-	Register("001_initial", "305a38916076862a1b51aaa79fcfc85215ca113b896331ff3b27aaf40e88a421", func(db *gorm.DB) error {
-		return db.AutoMigrate(
-			&Organization{},
-			&AuditEvent{},
-			&User{},
-			&OrgSetting{},
-		)
-	})
+	RegisterSQL("001_initial", InitialTables)
+	RegisterSQL("100_tenancy_row_security", stegotenancy.RowSecurity)
 }

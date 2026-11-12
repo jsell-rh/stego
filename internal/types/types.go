@@ -2,6 +2,8 @@ package types
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 
 	"gopkg.in/yaml.v3"
@@ -215,6 +217,26 @@ func (c Collection) ScopeField() string {
 		return k
 	}
 	return ""
+}
+
+// UpsertLookup gives the fields that the upsert of the collection finds its stored row by, and that its unique
+// index holds: the scope field, the implicit fields in name order, and then the upsert key, each once. So an upsert
+// under one parent or implicit value never finds or moves the row of another (ST-SUP-RC20-OC13).
+func (c Collection) UpsertLookup() []string {
+	var fields []string
+	add := func(name string) {
+		if name != "" && !slices.Contains(fields, name) {
+			fields = append(fields, name)
+		}
+	}
+	add(c.ScopeField())
+	for _, name := range slices.Sorted(maps.Keys(c.Implicit)) {
+		add(name)
+	}
+	for _, name := range c.UpsertKey {
+		add(name)
+	}
+	return fields
 }
 
 // ParentEntity returns the scope value (entity name) from the Scope map. For

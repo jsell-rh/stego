@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -76,8 +75,9 @@ func newSmallService(t *testing.T) *smallService {
 		"TMPDIR=" + os.TempDir(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
 		"GOTOOLCHAIN=local", "GOPROXY=off", "GOWORK=off",
 	}
-	_, source, _, _ := runtime.Caller(0)
-	if output, err := exec.Command("cp", "-a", filepath.Join(filepath.Dir(source), "../../registry"), s.registry).CombinedOutput(); err != nil {
+	// The small service is a rest-crud service of the GORM store path until the store path is removed
+	// (ST-SUP-RC20-OC39).
+	if output, err := exec.Command("cp", "-a", storeRegistry(t), s.registry).CombinedOutput(); err != nil {
 		t.Fatalf("copy the registry: %v\n%s", err, output)
 	}
 	git(t, s.registry, "init", "-q")

@@ -347,3 +347,33 @@ func fillAlias(name string) string {
 	alias := mixedCase(name)
 	return "fill" + alias
 }
+
+// KeyListRead gives the Read statement of a command.ListSpec that finds the row of the entity named name whose
+// fields keys hold the values $3, $4 and on, in the tenant $1, at most $2 rows: the lookup of an upsert by its
+// natural key (ST-SUP-RC20-OC13). It returns the columns of the entity's Scan, as each statement of EntityFile does.
+func KeyListRead(name string, entities []types.Entity, tenantKey string, keys []string) (string, error) {
+	byName := map[string]types.Entity{}
+	for _, e := range entities {
+		byName[e.Name] = e
+	}
+	decl, ok := byName[name]
+	if !ok {
+		return "", fmt.Errorf("command: the entity %s is not declared", name)
+	}
+	e, err := planEntity(decl, byName, tenantKey)
+	if err != nil {
+		return "", fmt.Errorf("command: the entity %s: %w", name, err)
+	}
+	where := []string{fmt.Sprintf("%s = $1", quote(tenantKey))}
+	for i, key := range keys {
+		found := false
+		for _, f := range e.fields {
+			found = found || f.decl.Name == key
+		}
+		if !found {
+			return "", fmt.Errorf("command: the entity %s has no field %s of its upsert key", name, key)
+		}
+		where = append(where, fmt.Sprintf("%s = $%d", quote(key), i+3))
+	}
+	return fmt.Sprintf("SELECT %s FROM public.%s WHERE %s ORDER BY \"id\" LIMIT $2", e.columns(), quote(e.table), strings.Join(where, " AND ")), nil
+}

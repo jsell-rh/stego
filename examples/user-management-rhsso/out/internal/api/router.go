@@ -4,17 +4,7 @@ package api
 
 import (
 	"encoding/json"
-	stegostorage "github.com/example/service/out/contracts/storage"
 )
-
-type Storage = stegostorage.Storage
-type OrderByField = stegostorage.OrderByField
-type ListOptions = stegostorage.ListOptions
-type ListResult = stegostorage.ListResult
-
-var ErrNotFound = stegostorage.ErrNotFound
-var ErrConflict = stegostorage.ErrConflict
-var ErrSearch = stegostorage.ErrSearch
 
 // Organization represents the Organization entity.
 type Organization struct {

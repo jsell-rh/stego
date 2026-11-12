@@ -25,6 +25,10 @@ type resolvedCompilation struct {
 	// RuntimeData is the data path of the service: true when the generated commands and queries carry all data
 	// access (ST-SUP-RC01-OC41).
 	RuntimeData bool
+	// NoDataAccess is true for a service that declares no entity, no command and no query: it has no data access, so
+	// it gets no runtime wiring, its adapter emits the opener alone, and its record states the runtime data path
+	// (ST-SUP-Q101 (a)).
+	NoDataAccess bool
 	// QueryStreams are the queries whose gRPC method is a server stream (ST-SUP-RC33-OC08), which get no HTTP route.
 	QueryStreams map[string]bool
 }
@@ -122,9 +126,12 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 	}
 
 	tenancy := pooledTenancy(svcDecl, componentNames)
-	runtimeData, err := runtimeDataPath(input.ProjectDir, componentNames)
-	if err != nil {
-		return nil, err
+	noData := len(svcDecl.Entities) == 0 && len(svcDecl.Commands) == 0 && len(svcDecl.Queries) == 0
+	runtimeData := false
+	if !noData {
+		if runtimeData, err = runtimeDataPath(input.ProjectDir, componentNames); err != nil {
+			return nil, err
+		}
 	}
 	if runtimeData {
 		// The verifier of the runtime library binds the identity on the runtime data path; no generator imports the
@@ -135,7 +142,7 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 	if err != nil {
 		return nil, err
 	}
-	resolved := &resolvedCompilation{Components: components, Names: componentNames, Contexts: map[string]gen.Context{}, InputSnapshots: map[string]fileSnapshot{}, OutDir: outDir, OutDirName: outDirName, SlotsPackage: slotsPackage, HoldsFills: fills, RuntimeData: runtimeData, QueryStreams: declaration.QueryStreams(svcDecl, facts)}
+	resolved := &resolvedCompilation{Components: components, Names: componentNames, Contexts: map[string]gen.Context{}, InputSnapshots: map[string]fileSnapshot{}, OutDir: outDir, OutDirName: outDirName, SlotsPackage: slotsPackage, HoldsFills: fills, RuntimeData: runtimeData, NoDataAccess: noData, QueryStreams: declaration.QueryStreams(svcDecl, facts)}
 	for _, compName := range componentNames {
 		comp := components[compName]
 		generator := input.Generators[compName]

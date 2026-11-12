@@ -5,13 +5,34 @@ language: go
 base_path: /api/user-mgmt/v1
 error_type_base: https://api.example.com/errors/
 
+# The runtime data path: each operation runs in the transaction of the caller's tenant, is decided for the
+# verified caller in SpiceDB, and leaves an audit row.
+tenancy:
+  kind: pooled
+  key: tenant_id
+  claim: tenant
+authorization:
+  provider: spicedb
+  schema_path: authz/schema.zed
+  subject_from_identity: user
+audit:
+  level: change
+
 entities:
   - name: Organization
+    resource_type: organization
+    permissions: {create: public, read: view, list: view, delete: edit}
+    public_reasons: {create: a new organization has no resource to decide on before it exists}
     fields:
       - { name: name, type: string, unique: true, min_length: 1, max_length: 255 }
       - { name: description, type: string, optional: true, max_length: 1000 }
 
   - name: User
+    resource_type: member
+    permissions: {create: public, read: view, list: view, update: edit, patch: edit, delete: edit}
+    public_reasons: {create: a new user is decided on edit of its organization through the reference org_id}
+    references:
+      org_id: {relation: organization, permission: edit}
     fields:
       - { name: email, type: string, unique: true, max_length: 255 }
       - { name: display_name, type: string, min_length: 1, max_length: 100 }
@@ -20,13 +41,20 @@ entities:
       - { name: metadata, type: jsonb, optional: true }
 
   - name: OrgSetting
+    resource_type: org_setting
+    permissions: {read: view, list: view, upsert: edit}
+    references:
+      org_id: {relation: organization, permission: edit}
     fields:
       - { name: org_id, type: ref, to: Organization }
       - { name: key, type: string, max_length: 255 }
       - { name: value, type: jsonb }
       - { name: generation, type: int64 }
 
-  - name: AuditEvent
+  - name: ActivityEntry
+    resource_type: activity_entry
+    permissions: {create: public, read: view, list: view}
+    public_reasons: {create: an activity entry of a caller has no resource to decide on before it exists}
     fields:
       - { name: source_type, type: string, max_length: 50 }
       - { name: source_id, type: string, max_length: 255 }
@@ -53,17 +81,16 @@ collections:
     scope: { org_id: Organization }
     operations: [list, upsert]
     upsert_key: [org_id, key]
-    concurrency: optimistic
 
-  user-audit-events:
-    entity: AuditEvent
-    path_prefix: /user-events
+  user-activity:
+    entity: ActivityEntry
+    path_prefix: /user-activity
     implicit: { source_type: "User" }
     operations: [create, list]
 
-  org-audit-events:
-    entity: AuditEvent
-    path_prefix: /org-events
+  org-activity:
+    entity: ActivityEntry
+    path_prefix: /org-activity
     implicit: { source_type: "Organization" }
     operations: [create, list]
 
@@ -73,12 +100,6 @@ slots:
     gate:
       - rbac-policy
       - admin-creation-policy
-
-  - collection: org-users
-    slot: on_entity_changed
-    fan-out:
-      - user-change-notifier
-      - audit-logger
 
   - collection: org-users
     slot: after_create
@@ -97,9 +118,10 @@ slots:
     gate:
       - check-dependencies
 
-mixins:
-  - event-publisher
-
 overrides:
   jwt-auth:
     header: X-Internal-Token
+    roles_claim: roles
+  postgres-adapter:
+    schema_generation: tables-v1
+    writer_lease: "off"

@@ -4,17 +4,7 @@ package api
 
 import (
 	"encoding/json"
-	stegostorage "github.com/example/service/out/contracts/storage"
 )
-
-type Storage = stegostorage.Storage
-type OrderByField = stegostorage.OrderByField
-type ListOptions = stegostorage.ListOptions
-type ListResult = stegostorage.ListResult
-
-var ErrNotFound = stegostorage.ErrNotFound
-var ErrConflict = stegostorage.ErrConflict
-var ErrSearch = stegostorage.ErrSearch
 
 // Organization represents the Organization entity.
 type Organization struct {
@@ -42,8 +32,8 @@ type OrgSetting struct {
 	Generation int64           `json:"generation"`
 }
 
-// AuditEvent represents the AuditEvent entity.
-type AuditEvent struct {
+// ActivityEntry represents the ActivityEntry entity.
+type ActivityEntry struct {
 	ID         string           `json:"id,omitempty"`
 	SourceType string           `json:"source_type"`
 	SourceID   string           `json:"source_id"`

@@ -532,7 +532,7 @@ func TestConsumers(t *testing.T) {
 	w := e.worker("apply-partner-replies", "apply", func(s *WorkerSpec[testProbe]) {
 		s.Interval = 0
 		s.Stagers = map[string]string{"reserve-and-charge": "reserve"}
-	}, e.orders, e.chargeE)
+	}, e.orders, e.chargeE, e.reservationE)
 	e.consumer(w, func(c *outbox.WorkerConfig) { c.MaxAttempts = 3 }, func(ctx context.Context, m map[string]string, _ string, h *Handle[testProbe]) error {
 		calls.Add(1)
 		if fill, ok := cases.Load(m["case"]); ok {
@@ -809,6 +809,43 @@ func TestConsumers(t *testing.T) {
 		if n := e.count(`SELECT count(*) FROM audit_event WHERE tenant_id = 't1' AND resource_id = 'o-1'
  AND action = 'apply-partner-replies' AND on_behalf_of = 'user:u-7' AND after::text LIKE '%applied-lc17%'`); n != 1 {
 			t.Fatalf("%d audit rows of o-1 name user:u-7 on whose behalf the worker acted, want 1", n)
+		}
+	})
+
+	t.Run("ST-SUP-RP10-LC25-T08 A consumer's unique violation is a failed attempt, not a conflict", func(t *testing.T) {
+		e.exec(`INSERT INTO reservations (tenant_id, id, order_id, sku) VALUES ('t1', 'r-dup', 'o-3', 's')`)
+		var dup atomic.Bool
+		var runs atomic.Int64
+		dup.Store(true)
+		cases.Store("unique", func(ctx context.Context, _ map[string]string, h *Handle[testProbe]) error {
+			runs.Add(1)
+			if !dup.Load() {
+				return nil
+			}
+			// The reservation r-dup is there, so its create breaks the primary key of the tenant on each dispatch.
+			_, err := repo(t, h, e.reservationE).Create(ctx, reservation{ID: "r-dup", OrderID: "o-3", SKU: "s"})
+			return err
+		})
+		m := e.stage("t1", "o-3", map[string]string{"case": "unique"})
+		// The message ends done also when a check fails, so it does not run in the later subtests.
+		defer func() {
+			dup.Store(false)
+			clock.add(time.Hour)
+			e.waitState(t, m, "done")
+		}()
+		for deadline := time.Now().Add(5 * time.Second); runs.Load() < 1 && time.Now().Before(deadline); {
+			time.Sleep(10 * time.Millisecond)
+		}
+		e.waitState(t, m, "pending")
+		var attempts, conflicts int
+		if err := e.admin.QueryRowContext(e.ctx, `SELECT attempts, conflicts FROM stego_outbox.messages WHERE id = $1`, m).
+			Scan(&attempts, &conflicts); err != nil {
+			t.Fatal(err)
+		}
+		// Each dispatch that ran the fill counts an attempt, and none counts a conflict. A dispatch again may have
+		// started, so the attempts are at least the runs.
+		if n := runs.Load(); n < 1 || int64(attempts) < n || conflicts != 0 {
+			t.Fatalf("after the unique violation: %d runs, %d attempts and %d conflicts, want an attempt for each run and no conflict", n, attempts, conflicts)
 		}
 	})
 

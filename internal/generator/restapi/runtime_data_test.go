@@ -68,6 +68,9 @@ func crudContext() gen.Context {
 		types.Entity{Name: "Book", Fields: []types.Field{{Name: "folder_id", Type: types.FieldTypeRef, To: "Folder"}, {Name: "title", Type: types.FieldTypeString}},
 			EntityAuthorization: types.EntityAuthorization{ResourceType: "book", Permissions: permissions(types.OpUpdate, types.OpPatch, types.OpDelete), PublicReasons: reasons,
 				References: map[string]types.Reference{"folder_id": {Relation: "folder", Permission: "edit"}}}},
+		types.Entity{Name: "Setting", Fields: []types.Field{{Name: "folder_id", Type: types.FieldTypeRef, To: "Folder"}, {Name: "name", Type: types.FieldTypeString}, {Name: "value", Type: types.FieldTypeString}, {Name: "source", Type: types.FieldTypeString}},
+			EntityAuthorization: types.EntityAuthorization{ResourceType: "setting", Permissions: map[types.Operation]string{types.OpRead: "view", types.OpList: "view", types.OpUpsert: "edit"},
+				References: map[string]types.Reference{"folder_id": {Relation: "folder", Permission: "edit"}}}},
 		types.Entity{Name: "Event", Fields: []types.Field{{Name: "source", Type: types.FieldTypeString}, {Name: "note", Type: types.FieldTypeString}},
 			EntityAuthorization: types.EntityAuthorization{ResourceType: "event", Permissions: permissions(types.OpUpdate, types.OpPatch, types.OpDelete), PublicReasons: reasons}},
 	)
@@ -85,14 +88,18 @@ func crudContext() gen.Context {
 			{Name: "todos", Entity: "Todo", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpPatch, types.OpUpdate, types.OpDelete}, Patchable: []string{"title", "done", "meta"}},
 			{Name: "folders", Entity: "Folder", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpDelete}},
 			{Name: "folder-books", Entity: "Book", Scope: map[string]string{"folder_id": "Folder"}, Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpUpdate, types.OpPatch, types.OpDelete}, Patchable: []string{"title"}},
+			{Name: "folder-settings", Entity: "Setting", Scope: map[string]string{"folder_id": "Folder"}, Implicit: map[string]string{"source": "setting"}, Operations: []types.Operation{types.OpList, types.OpUpsert}, UpsertKey: []string{"name"}},
 			{Name: "red-events", Entity: "Event", PathPrefix: "/red-events", Implicit: map[string]string{"source": "red"}, Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpUpdate, types.OpPatch, types.OpDelete}, Patchable: []string{"note"}},
 			{Name: "blue-events", Entity: "Event", PathPrefix: "/blue-events", Implicit: map[string]string{"source": "blue"}, Operations: []types.Operation{types.OpCreate, types.OpList}},
 			{Name: "books", Entity: "Book", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate}},
+			{Name: "folder-flags", Entity: "Setting", Scope: map[string]string{"folder_id": "Folder"}, Implicit: map[string]string{"source": "flag"}, PathPrefix: "/folders/{folder_id}/flags", Operations: []types.Operation{types.OpUpsert}, UpsertKey: []string{"name"}},
 		},
 		SlotBindings: []types.SlotDeclaration{
 			{Slot: "before_create", Collection: "orders", Chain: []string{"order-gate"}, ShortCircuit: true},
 			{Slot: "after_create", Collection: "orders", Gate: []string{"order-after"}},
 			{Slot: "validate", Collection: "customers", Gate: []string{"customer-gate"}},
+			{Slot: "validate", Collection: "folder-settings", Gate: []string{"setting-gate"}},
+			{Slot: "on_entity_changed", Collection: "folder-settings", Gate: []string{"setting-changed"}},
 		},
 		SlotsPackage:   "slots",
 		Conventions:    types.Convention{ResponseFormat: "envelope"},
@@ -143,7 +150,11 @@ func slotFiles(t testing.TB, ctx gen.Context) map[string][]byte {
 	out := map[string][]byte{}
 	emitted := map[string]bool{}
 	for _, name := range sorted {
+		// A slot is of the rest-api component, or of the event-publisher mixin, as on_entity_changed.
 		data, err := os.ReadFile(filepath.Join(root, "components", "rest-api", "slots", name+".proto"))
+		if os.IsNotExist(err) {
+			data, err = os.ReadFile(filepath.Join(root, "mixins", "event-publisher", "slots", name+".proto"))
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -226,6 +237,17 @@ func crudPinnedGo() string {
 	return filepath.Join(runtime.GOROOT(), "bin", "go")
 }
 
+// withNotes adds the entity Note, with one reference to Folder, and the collection notes with upsert and no
+// create: optional tells whether the reference is optional.
+func withNotes(optional bool) func(*gen.Context) {
+	return func(c *gen.Context) {
+		c.Entities = append(c.Entities, types.Entity{Name: "Note", Fields: []types.Field{{Name: "folder_id", Type: types.FieldTypeRef, To: "Folder", Optional: optional}, {Name: "name", Type: types.FieldTypeString}},
+			EntityAuthorization: types.EntityAuthorization{ResourceType: "note", Permissions: map[types.Operation]string{types.OpRead: "view", types.OpList: "view", types.OpUpsert: "edit"},
+				References: map[string]types.Reference{"folder_id": {Relation: "folder", Permission: "edit"}}}})
+		c.Collections = append(c.Collections, types.Collection{Name: "notes", Entity: "Note", Operations: []types.Operation{types.OpUpsert}, UpsertKey: []string{"name"}})
+	}
+}
+
 // crudProject is the generated service module in a temporary folder.
 type crudProject struct {
 	t   *testing.T
@@ -284,7 +306,7 @@ func newCrudProject(t *testing.T, ctx gen.Context, files map[string][]byte) *cru
 		t.Fatal(err)
 	}
 	p.write("go.sum", sums)
-	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.34.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
+	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.38.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
 	p.mustGo("mod", "tidy")
 	return p
 }
@@ -386,9 +408,9 @@ func TestCrudService(t *testing.T) {
 	files := crudFiles(t, ctx)
 	t.Run("ST-SUP-RC20-OC37-T01 The handlers call Run and hold no store", func(t *testing.T) {
 		want := map[string]string{"Create": "command.Run", "Update": "command.Run", "Patch": "command.Run", "Delete": "command.Run",
-			"Read": "query.Run", "List": "query.Run"}
+			"Upsert": "command.Run", "Read": "query.Run", "List": "query.Run"}
 		methods := map[types.Operation]string{types.OpCreate: "Create", types.OpUpdate: "Update", types.OpPatch: "Patch",
-			types.OpDelete: "Delete", types.OpRead: "Read", types.OpList: "List"}
+			types.OpDelete: "Delete", types.OpUpsert: "Upsert", types.OpRead: "Read", types.OpList: "List"}
 		for _, c := range ctx.Collections {
 			name := "api/" + collectionToSnakeCase(c.Name) + "_handler.go"
 			source, ok := files[name]
@@ -420,17 +442,16 @@ func TestCrudService(t *testing.T) {
 	})
 	t.Run("ST-SUP-RC20-OC37-T04 Generation refuses what the runtime data path does not serve", func(t *testing.T) {
 		cases := map[string]func(*gen.Context){
-			"a create that is not public": func(c *gen.Context) { c.Entities[0].Permissions[types.OpCreate] = "edit" },
-			"a public patch":              func(c *gen.Context) { c.Entities[0].Permissions[types.OpPatch] = "public" },
-			"a delete with no permission": func(c *gen.Context) { delete(c.Entities[0].Permissions, types.OpDelete) },
-			"an upsert": func(c *gen.Context) {
-				c.Collections[0].Operations = append(c.Collections[0].Operations, types.OpUpsert)
-				c.Collections[0].UpsertKey = []string{"sku"}
-			},
+			"a create that is not public":                  func(c *gen.Context) { c.Entities[0].Permissions[types.OpCreate] = "edit" },
+			"a public patch":                               func(c *gen.Context) { c.Entities[0].Permissions[types.OpPatch] = "public" },
+			"a delete with no permission":                  func(c *gen.Context) { delete(c.Entities[0].Permissions, types.OpDelete) },
+			"an upsert with optimistic concurrency":        func(c *gen.Context) { c.Collections[5].Concurrency = types.ConcurrencyOptimistic },
+			"an upsert with no key":                        func(c *gen.Context) { c.Collections[5].UpsertKey = nil },
+			"an upsert of a row with no permission":        func(c *gen.Context) { delete(c.Entities[5].Permissions, types.OpUpsert) },
 			"an implicit field of a number type":           func(c *gen.Context) { c.Collections[0].Implicit = map[string]string{"qty": "1"} },
 			"a path parameter that is not the scope field": func(c *gen.Context) { c.Collections[0].PathPrefix = "/stock/{sku}" },
 			"an implicit field that a patch may change": func(c *gen.Context) {
-				c.Collections[5].Patchable = append(c.Collections[5].Patchable, "source")
+				c.Collections[6].Patchable = append(c.Collections[6].Patchable, "source")
 			},
 			"a scope field that a patch may change": func(c *gen.Context) {
 				c.Collections[4].Patchable = append(c.Collections[4].Patchable, "folder_id")
@@ -444,6 +465,7 @@ func TestCrudService(t *testing.T) {
 			"no resource type": func(c *gen.Context) { c.Entities[0].ResourceType = "" },
 			"no tenancy":       func(c *gen.Context) { c.Tenancy = nil },
 			"no authorization": func(c *gen.Context) { c.Authorization = nil },
+			"an upsert whose only reference is optional": withNotes(true),
 			"a slot it never calls": func(c *gen.Context) {
 				c.SlotBindings = append(c.SlotBindings, types.SlotDeclaration{Slot: "before_upsert", Collection: "orders", Gate: []string{"g"}})
 			},
@@ -457,6 +479,12 @@ func TestCrudService(t *testing.T) {
 		}
 		if _, _, err := new(Generator).Generate(crudContext()); err != nil {
 			t.Errorf("the test declaration is refused: %v", err)
+		}
+		// An upsert whose reference is required decides its insert on the parent, so it is not refused.
+		c := crudContext()
+		withNotes(false)(&c)
+		if _, _, err := new(Generator).Generate(c); err != nil {
+			t.Errorf("an upsert with a required reference is refused: %v", err)
 		}
 	})
 	p := newCrudProject(t, ctx, files)
@@ -495,6 +523,9 @@ var crudCheckIDs = []string{
 	"ST-SUP-RC20-OC24-T05 A scoped collection on the runtime data path checks each row against the parent of the path",
 	"ST-SUP-RC20-OC23-T04 Implicit fields are forced and filtered on the runtime data path, under their path prefixes",
 	"ST-SUP-RC20-OC37-T09 A list search on the runtime data path filters on declared fields with bound values",
+	"ST-SUP-RC20-OC13-T03 An upsert on the runtime data path creates the row of its key with 201 and updates it with 200",
+	"ST-SUP-RC20-OC13-T04 An upsert finds its row only under its own parent and implicit value",
+	"ST-SUP-RC20-OC13-T05 An upsert calls its validate gate before both branches and on_entity_changed after both",
 	"ST-SUP-RC20-OC23-T05 A write of a row of another implicit value is not found and changes nothing, and a patch keeps the implicit value",
 	"ST-SUP-RC20-OC24-T06 A list cursor of one parent is refused for another",
 	"ST-SUP-RC20-OC24-T07 An upper-case UUID in a path or a ref names the same row as its lower-case form",

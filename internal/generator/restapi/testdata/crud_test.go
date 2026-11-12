@@ -94,6 +94,13 @@ definition book {
 	permission edit = owner + folder->edit
 }
 
+definition setting {
+	relation folder: folder
+	relation owner: user
+	permission view = owner + folder->view
+	permission edit = owner + folder->edit
+}
+
 definition event {
 	relation owner: user
 	permission view = owner
@@ -102,7 +109,7 @@ definition event {
 `
 )
 
-var tables = []string{"orders", "customers", "todos", "folders", "books", "events"}
+var tables = []string{"orders", "customers", "todos", "folders", "books", "settings", "events"}
 
 // env is the running service: its database with the runtime role, its runtimes and its HTTP server.
 type env struct {
@@ -118,6 +125,8 @@ type env struct {
 	mu           sync.Mutex
 	orderGate    func(*slots.BeforeCreateRequest) *slots.SlotResult
 	customerGate func(*slots.ValidateRequest) *slots.SlotResult
+	// settingGate is the decision of the gate fill of folder-settings.validate.
+	settingGate func(*slots.ValidateRequest) *slots.SlotResult
 	// orderAfter is the fill of orders.after_create: it records each call, and fails the first call for the sku
 	// after-fails and the first two for the sku after-flaky.
 	afterCalls []string
@@ -339,6 +348,8 @@ func (e *env) start(dsn, endpoint, spiceKey string) {
 	todos := api.NewTodosHandler(rt)
 	folders, books, allBooks := api.NewFoldersHandler(rt), api.NewFolderBooksHandler(rt), api.NewBooksHandler(rt)
 	redEvents, blueEvents := api.NewRedEventsHandler(rt), api.NewBlueEventsHandler(rt)
+	folderSettings := api.NewFolderSettingsHandler(rt, slots.NewValidateGate(settingGate{e}), slots.NewOnEntityChangedGate(settingChanged{e}))
+	folderFlags := api.NewFolderFlagsHandler(rt)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/folders", folders.Create)
 	mux.HandleFunc("GET /api/v1/folders/{id}", folders.Read)
@@ -350,6 +361,9 @@ func (e *env) start(dsn, endpoint, spiceKey string) {
 	mux.HandleFunc("PUT /api/v1/folders/{folder_id}/books/{id}", books.Update)
 	mux.HandleFunc("PATCH /api/v1/folders/{folder_id}/books/{id}", books.Patch)
 	mux.HandleFunc("DELETE /api/v1/folders/{folder_id}/books/{id}", books.Delete)
+	mux.HandleFunc("GET /api/v1/folders/{folder_id}/settings", folderSettings.List)
+	mux.HandleFunc("PUT /api/v1/folders/{folder_id}/settings", folderSettings.Upsert)
+	mux.HandleFunc("PUT /api/v1/folders/{folder_id}/flags", folderFlags.Upsert)
 	mux.HandleFunc("POST /api/v1/books", allBooks.Create)
 	mux.HandleFunc("GET /api/v1/books/{id}", allBooks.Read)
 	mux.HandleFunc("PUT /api/v1/books/{id}", allBooks.Update)
@@ -440,6 +454,28 @@ func (g customerGate) Evaluate(_ context.Context, req *slots.ValidateRequest) (*
 			return result, nil
 		}
 	}
+	return &slots.SlotResult{Ok: true}, nil
+}
+
+// settingGate is the fill of folder-settings.validate.
+type settingGate struct{ e *env }
+
+func (g settingGate) Evaluate(_ context.Context, req *slots.ValidateRequest) (*slots.SlotResult, error) {
+	g.e.mu.Lock()
+	decide := g.e.settingGate
+	g.e.mu.Unlock()
+	if decide != nil {
+		if result := decide(req); result != nil {
+			return result, nil
+		}
+	}
+	return &slots.SlotResult{Ok: true}, nil
+}
+
+// settingChanged is the fill of folder-settings.on_entity_changed, which accepts each call.
+type settingChanged struct{ e *env }
+
+func (settingChanged) Evaluate(context.Context, *slots.OnEntityChangedRequest) (*slots.SlotResult, error) {
 	return &slots.SlotResult{Ok: true}, nil
 }
 
@@ -1459,6 +1495,136 @@ func TestCrud(t *testing.T) {
 			if r := e.send(a, http.MethodGet, path, "", ""); r.status != http.StatusBadRequest || strings.Contains(string(r.body), "items") {
 				t.Errorf("the search %q answered %d %s, want 400 with no items", text, r.status, r.body)
 			}
+		}
+	})
+
+	t.Run("ST-SUP-RC20-OC13-T03 An upsert on the runtime data path creates the row of its key with 201 and updates it with 200", func(t *testing.T) {
+		e := service(t)
+		tn := newTenant()
+		a, other := e.as("u-1", tn), e.as("u-2", tn)
+		folder := e.create(a, "folders", "folder", `{"name":"one"}`)
+		foreign := e.create(other, "folders", "folder", `{"name":"not mine"}`)
+		settings := "/api/v1/folders/" + folder + "/settings"
+		first := e.send(a, http.MethodPut, settings, "", `{"name":"color","value":"red"}`)
+		if first.status != http.StatusCreated {
+			t.Fatalf("the first upsert answered %d %s, want 201", first.status, first.body)
+		}
+		id := first.member(t, "id")
+		// The relay of the check does not run, so the caller owns the row: its relation to the folder is in the
+		// outbox.
+		e.own(a, "setting", id)
+		second := e.send(a, http.MethodPut, settings, "", `{"name":"color","value":"blue","folder_id":"`+foreign+`"}`)
+		if second.status != http.StatusOK || second.member(t, "id") != id || second.member(t, "value") != "blue" {
+			t.Fatalf("the second upsert answered %d %s, want 200 with the same row and the new value", second.status, second.body)
+		}
+		if n := e.count(`SELECT count(*) FROM settings WHERE folder_id = $1::uuid AND name = 'color'`, folder); n != 1 {
+			t.Errorf("%d setting rows of the key, want 1", n)
+		}
+		if n := e.count(`SELECT count(*) FROM settings WHERE id = $1::uuid AND value = 'blue'`, id); n != 1 {
+			t.Errorf("%d setting rows with the updated value, want 1", n)
+		}
+		third := e.send(a, http.MethodPut, settings, "", `{"name":"size","value":"large"}`)
+		if third.status != http.StatusCreated || third.member(t, "id") == id {
+			t.Errorf("the upsert of another key answered %d %s, want 201 with a new row", third.status, third.body)
+		}
+		e.own(a, "setting", third.member(t, "id"))
+		// A caller who may not edit the folder upserts nothing, under that folder or under the caller's own key.
+		for name, r := range map[string]reply{
+			"another caller":    e.send(other, http.MethodPut, settings, "", `{"name":"color","value":"green"}`),
+			"a foreign folder":  e.send(a, http.MethodPut, "/api/v1/folders/"+foreign+"/settings", "", `{"name":"color","value":"green"}`),
+		} {
+			if r.status != http.StatusNotFound {
+				t.Errorf("the upsert of %s answered %d %s, want 404", name, r.status, r.body)
+			}
+		}
+		if n := e.count(`SELECT count(*) FROM settings WHERE value = 'green'`); n != 0 {
+			t.Errorf("%d setting rows of the refused upserts, want 0", n)
+		}
+		list := e.send(a, http.MethodGet, settings, "", "")
+		if list.status != http.StatusOK || !strings.Contains(string(list.body), `"blue"`) || !strings.Contains(string(list.body), `"large"`) {
+			t.Errorf("the list of the folder's settings answered %d %s, want both settings", list.status, list.body)
+		}
+	})
+
+	t.Run("ST-SUP-RC20-OC13-T04 An upsert finds its row only under its own parent and implicit value", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-1", newTenant())
+		one := e.create(a, "folders", "folder", `{"name":"one"}`)
+		two := e.create(a, "folders", "folder", `{"name":"two"}`)
+		put := func(path, body string, want int) string {
+			t.Helper()
+			r := e.send(a, http.MethodPut, "/api/v1/folders/"+path, "", body)
+			if r.status != want {
+				t.Fatalf("PUT %s %s answered %d %s, want %d", path, body, r.status, r.body, want)
+			}
+			id := r.member(t, "id")
+			e.own(a, "setting", id)
+			return id
+		}
+		first := put(one+"/settings", `{"name":"k","value":"v1"}`, http.StatusCreated)
+		// The same key under another folder is another row, and the row of the first folder stays as it is.
+		other := put(two+"/settings", `{"name":"k","value":"v2"}`, http.StatusCreated)
+		// The same key under the same folder with another implicit value is another row.
+		flag := put(one+"/flags", `{"name":"k","value":"v3","source":"setting"}`, http.StatusCreated)
+		if other == first || flag == first || flag == other {
+			t.Errorf("the upserts gave the rows %s, %s and %s, want three rows", first, other, flag)
+		}
+		for _, c := range []struct{ id, folder, source, value string }{{first, one, "setting", "v1"}, {other, two, "setting", "v2"}, {flag, one, "flag", "v3"}} {
+			if n := e.count(`SELECT count(*) FROM settings WHERE id = $1::uuid AND folder_id = $2::uuid AND source = $3 AND value = $4`, c.id, c.folder, c.source, c.value); n != 1 {
+				t.Errorf("%d rows %s with the folder %s, the source %s and the value %s, want 1", n, c.id, c.folder, c.source, c.value)
+			}
+		}
+		if again := put(one+"/settings", `{"name":"k","value":"v4"}`, http.StatusOK); again != first {
+			t.Errorf("the upsert of the key under its own folder answered the row %s, want %s", again, first)
+		}
+		if n := e.count(`SELECT count(*) FROM settings WHERE id = $1::uuid AND value = 'v4'`, first); n != 1 {
+			t.Errorf("%d rows of the first folder with the new value, want 1", n)
+		}
+	})
+
+	t.Run("ST-SUP-RC20-OC13-T05 An upsert calls its validate gate before both branches and on_entity_changed after both", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-1", newTenant())
+		folder := e.create(a, "folders", "folder", `{"name":"one"}`)
+		settings := "/api/v1/folders/" + folder + "/settings"
+		e.mu.Lock()
+		e.settingGate = func(req *slots.ValidateRequest) *slots.SlotResult {
+			if req.Input.Fields["value"] == "refused" {
+				return &slots.SlotResult{Ok: false, StatusCode: http.StatusForbidden, ErrorMessage: "the value is refused"}
+			}
+			return nil
+		}
+		e.mu.Unlock()
+		defer func() { e.mu.Lock(); e.settingGate = nil; e.mu.Unlock() }()
+		if r := e.send(a, http.MethodPut, settings, "", `{"name":"g","value":"refused"}`); r.status != http.StatusForbidden {
+			t.Errorf("the refused insert answered %d %s, want 403", r.status, r.body)
+		}
+		if n := e.count(`SELECT count(*) FROM settings WHERE folder_id = $1::uuid`, folder); n != 0 {
+			t.Errorf("%d rows after the refused insert, want 0", n)
+		}
+		created := e.send(a, http.MethodPut, settings, "", `{"name":"g","value":"ok"}`)
+		if created.status != http.StatusCreated {
+			t.Fatalf("the insert answered %d %s, want 201", created.status, created.body)
+		}
+		id := created.member(t, "id")
+		e.own(a, "setting", id)
+		if r := e.send(a, http.MethodPut, settings, "", `{"name":"g","value":"refused"}`); r.status != http.StatusForbidden {
+			t.Errorf("the refused update answered %d %s, want 403", r.status, r.body)
+		}
+		if r := e.send(a, http.MethodPut, settings, "", `{"name":"g","value":"ok2"}`); r.status != http.StatusOK {
+			t.Errorf("the update answered %d %s, want 200", r.status, r.body)
+		}
+		if n := e.count(`SELECT count(*) FROM settings WHERE id = $1::uuid AND value = 'ok2'`, id); n != 1 {
+			t.Errorf("%d rows with the value of the accepted update, want 1", n)
+		}
+		// One on_entity_changed for the insert and one for the update, none for a refused upsert. They are staged in
+		// the transaction of the write; the outbox worker runs them after the relations of the row, which the relay
+		// writes, and the relay of the check does not run (ST-SUP-RC20-OC34 proves the run).
+		if n := e.count(`SELECT count(*) FROM stego_outbox.messages WHERE tenant_id = $1 AND destination = $2 AND kind = 'folder-settings.on_entity_changed' AND resource_key = 'setting:' || $3`, a.tenant.ID(), api.AfterSlotsDestination, id); n != 2 {
+			t.Errorf("%d staged on_entity_changed messages of the row, want 2", n)
+		}
+		if n := e.count(`SELECT count(*) FROM stego_outbox.messages WHERE tenant_id = $1 AND kind = 'folder-settings.on_entity_changed'`, a.tenant.ID()); n != 2 {
+			t.Errorf("%d staged on_entity_changed messages of the tenant, want 2", n)
 		}
 	})
 

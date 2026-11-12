@@ -4,13 +4,54 @@
     {
       "component": "postgres-adapter",
       "schema": "public",
-      "name": "audit_events",
+      "name": "activity_entries",
       "kind": "table",
       "privileges": [
         "DELETE",
         "INSERT",
         "SELECT",
         "UPDATE"
+      ]
+    },
+    {
+      "component": "audit-log",
+      "schema": "public",
+      "name": "audit_anchor_boundaries",
+      "kind": "table",
+      "privileges": [
+        "INSERT",
+        "SELECT",
+        "UPDATE"
+      ]
+    },
+    {
+      "component": "audit-log",
+      "schema": "public",
+      "name": "audit_chain_heads",
+      "kind": "table",
+      "privileges": [
+        "INSERT",
+        "SELECT",
+        "UPDATE"
+      ]
+    },
+    {
+      "component": "audit-log",
+      "schema": "public",
+      "name": "audit_event",
+      "kind": "table",
+      "privileges": [
+        "INSERT",
+        "SELECT"
+      ]
+    },
+    {
+      "component": "audit-log",
+      "schema": "public",
+      "name": "audit_retention_checkpoints",
+      "kind": "table",
+      "privileges": [
+        "SELECT"
       ]
     },
     {
@@ -40,50 +81,6 @@
     {
       "component": "postgres-adapter",
       "schema": "public",
-      "name": "stego_effect_bindings",
-      "kind": "table",
-      "privileges": [
-        "INSERT",
-        "SELECT",
-        "UPDATE"
-      ]
-    },
-    {
-      "component": "postgres-adapter",
-      "schema": "public",
-      "name": "stego_resource_state",
-      "kind": "table",
-      "privileges": [
-        "INSERT",
-        "SELECT",
-        "UPDATE"
-      ]
-    },
-    {
-      "component": "postgres-adapter",
-      "schema": "public",
-      "name": "stego_resource_state_scopes",
-      "kind": "table",
-      "privileges": [
-        "INSERT",
-        "SELECT",
-        "UPDATE"
-      ]
-    },
-    {
-      "component": "postgres-adapter",
-      "schema": "public",
-      "name": "stego_scan_checkpoints",
-      "kind": "table",
-      "privileges": [
-        "INSERT",
-        "SELECT",
-        "UPDATE"
-      ]
-    },
-    {
-      "component": "postgres-adapter",
-      "schema": "public",
       "name": "users",
       "kind": "table",
       "privileges": [
@@ -94,23 +91,32 @@
       ]
     },
     {
-      "component": "outbox",
-      "schema": "stego_outbox",
-      "name": "messages",
-      "kind": "table",
+      "component": "postgres-adapter",
+      "schema": "stego_schema",
+      "name": "epoch_seq",
+      "kind": "sequence",
       "privileges": [
-        "DELETE",
-        "INSERT",
         "SELECT",
-        "UPDATE"
+        "USAGE"
       ]
     },
     {
-      "component": "outbox",
-      "schema": "stego_outbox",
-      "name": "messages_sequence_seq",
-      "kind": "sequence",
-      "privileges": []
+      "component": "postgres-adapter",
+      "schema": "stego_schema",
+      "name": "generation",
+      "kind": "table",
+      "privileges": [
+        "SELECT"
+      ]
+    },
+    {
+      "component": "postgres-adapter",
+      "schema": "stego_schema",
+      "name": "identity",
+      "kind": "table",
+      "privileges": [
+        "SELECT"
+      ]
     }
   ]
 }

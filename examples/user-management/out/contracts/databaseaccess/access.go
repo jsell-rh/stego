@@ -19,18 +19,19 @@ var roleName = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 type object struct{ schema, name, kind, privileges string }
 
 var objects = []object{
-	{"public", "audit_events", "table", "DELETE,INSERT,SELECT,UPDATE"},
+	{"public", "activity_entries", "table", "DELETE,INSERT,SELECT,UPDATE"},
+	{"public", "audit_anchor_boundaries", "table", "INSERT,SELECT,UPDATE"},
+	{"public", "audit_chain_heads", "table", "INSERT,SELECT,UPDATE"},
+	{"public", "audit_event", "table", "INSERT,SELECT"},
+	{"public", "audit_retention_checkpoints", "table", "SELECT"},
 	{"public", "org_settings", "table", "DELETE,INSERT,SELECT,UPDATE"},
 	{"public", "organizations", "table", "DELETE,INSERT,SELECT,UPDATE"},
-	{"public", "stego_effect_bindings", "table", "INSERT,SELECT,UPDATE"},
-	{"public", "stego_resource_state", "table", "INSERT,SELECT,UPDATE"},
-	{"public", "stego_resource_state_scopes", "table", "INSERT,SELECT,UPDATE"},
-	{"public", "stego_scan_checkpoints", "table", "INSERT,SELECT,UPDATE"},
 	{"public", "users", "table", "DELETE,INSERT,SELECT,UPDATE"},
-	{"stego_outbox", "messages", "table", "DELETE,INSERT,SELECT,UPDATE"},
-	{"stego_outbox", "messages_sequence_seq", "sequence", ""},
+	{"stego_schema", "epoch_seq", "sequence", "SELECT,USAGE"},
+	{"stego_schema", "generation", "table", "SELECT"},
+	{"stego_schema", "identity", "table", "SELECT"},
 }
-var schemas = []string{"public", "stego_outbox"}
+var schemas = []string{"public", "stego_schema"}
 
 // GrantRuntime grants only the compiled object permissions in one transaction.
 // Use a verified connection with the database owner as current_user. The

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -36,12 +37,56 @@ collections:
   notes: {entity: Note, operations: [create, read]}
 `
 
+// storeArchetypes are the component lists and bindings of the shipped archetypes before they moved to the runtime
+// data path (ST-SUP-RC20-OC39): the lists of the GORM store path, with tsl-search in rest-crud and grpc-processes in
+// rpc-service.
+var storeArchetypes = map[string][2]string{
+	"rest-crud":       {"components:\n  - rest-api\n  - postgres-adapter\n  - tsl-search\n  - otel-tracing\n  - health-check\n", ""},
+	"browser-service": {"components:\n  - postgres-adapter\n  - otel-tracing\n  - health-check\n  - browser-backend\n  - browser-telemetry\n  - kubernetes-service\n", ""},
+	"rpc-service":     {"components:\n  - otel-tracing\n  - grpc-processes\n", "  application-grpc-processes: grpc-processes\n"},
+}
+
+// storeRegistry gives a copy of the shipped registry whose archetypes keep the component lists of the GORM store
+// path. The tests of compiler behaviour that does not depend on the data path use it until the store path is
+// removed (ST-SUP-RC20-OC39); the shipped archetypes are on the runtime data path.
+func storeRegistry(t testing.TB) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "registry")
+	if err := storeRegistryInto(dir); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// storeRegistryInto writes the copy of storeRegistry to dir, for a fixture that outlives one test.
+func storeRegistryInto(dir string) error {
+	_, source, _, _ := runtime.Caller(0)
+	if err := os.CopyFS(dir, os.DirFS(filepath.Join(filepath.Dir(source), "../../registry"))); err != nil {
+		return err
+	}
+	list := regexp.MustCompile(`(?s)components:\n(  - [a-z-]+\n)+`)
+	for name, store := range storeArchetypes {
+		file := filepath.Join(dir, "archetypes", name, "archetype.yaml")
+		data, err := os.ReadFile(file)
+		if err != nil {
+			return err
+		}
+		text := list.ReplaceAllString(string(data), store[0])
+		if store[1] != "" {
+			text = strings.Replace(text, "  storage-adapter: postgres-adapter\n", store[1], 1)
+		}
+		if err := os.WriteFile(file, []byte(text), 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // generatingProject makes an empty project with the declaration in a new
 // working directory.
 func generatingProject(t *testing.T, declaration string) {
 	t.Helper()
-	_, source, _, _ := runtime.Caller(0)
-	registry := filepath.Join(filepath.Dir(source), "../../registry")
+	registry := storeRegistry(t)
 	t.Chdir(t.TempDir())
 	t.Setenv("STEGO_REGISTRY", registry)
 	t.Setenv("STEGO_MODULE", "example.com/generating")
@@ -49,7 +94,7 @@ func generatingProject(t *testing.T, declaration string) {
 	writeProjectFile(t, "service.yaml", declaration)
 }
 
-func writeProjectFile(t *testing.T, name, data string) {
+func writeProjectFile(t testing.TB, name, data string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {
 		t.Fatal(err)

@@ -1,8 +1,7 @@
 kind: component
 name: spicedb-authz
-version: 0.2.0
-stage: alpha
-sunset: 2027-04-30
+version: 1.0.0
+stage: ga
 output_namespace: internal/authz
 
 config:

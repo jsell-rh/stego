@@ -48,7 +48,11 @@ func internalf(format string, args ...any) error {
 }
 
 // conflictError is a conflict: it matches ErrConflict and names the step and the SQLSTATE, never a database text.
-type conflictError struct{ text string }
+type conflictError struct {
+	text string
+	// unique is true for a unique violation, which a consumer counts as an attempt (uniqueConflict).
+	unique bool
+}
 
 func (e *conflictError) Error() string        { return "command: conflict: " + e.text }
 func (e *conflictError) Is(target error) bool { return target == ErrConflict }
@@ -70,9 +74,18 @@ func (e *deniedError) Is(target error) bool {
 	return target == ErrRefused || (e.read && target == ErrNotFound)
 }
 
-// conflictStates are the SQLSTATE values that are a conflict (ST-SUP-RP10-LC25): serialization failure, deadlock and
-// lock not available, which a lock timeout raises.
-var conflictStates = map[string]bool{"40001": true, "40P01": true, "55P03": true}
+// conflictStates are the SQLSTATE values that are a conflict (ST-SUP-RP10-LC25): serialization failure, deadlock,
+// lock not available, which a lock timeout raises, and unique violation, which a concurrent write of the same unique
+// value raises: a rerun sees the other row.
+var conflictStates = map[string]bool{"40001": true, "40P01": true, "55P03": true, "23505": true}
+
+// uniqueConflict reports whether err is the conflict of a unique violation. A rerun of an HTTP command sees the other
+// row, but a consumer that writes the same value again gets the same violation on each dispatch, so RunConsumer
+// counts it as an attempt and not as a conflict (ST-SUP-RP10-LC25, ST-SUP-RP10-LC26).
+func uniqueConflict(err error) bool {
+	var c *conflictError
+	return errors.As(err, &c) && c.unique
+}
 
 // sqlState returns the SQLSTATE of a database error, as the PostgreSQL drivers and the audit runtime give it.
 func sqlState(err error) string {
@@ -745,7 +758,7 @@ func (s *state) fail(ctx context.Context, step string, err error) error {
 	code := sqlState(err)
 	if isConflict(ctx, err) {
 		if s.conflict == nil {
-			s.conflict = &conflictError{text: fmt.Sprintf("%s ended with SQLSTATE %q or the deadline", step, code)}
+			s.conflict = &conflictError{text: fmt.Sprintf("%s ended with SQLSTATE %q or the deadline", step, code), unique: code == "23505"}
 		}
 		return s.conflict
 	}

@@ -223,7 +223,8 @@ type MessageFill[M, P any] func(ctx context.Context, message M, effect string, h
 // (ST-SUP-RP10-LC08).
 //
 // It returns nil when the outbox may commit tx with the message done; an error marked with outbox.Conflict for a
-// conflict, which the outbox dispatches again and does not count as an attempt (ST-SUP-RP10-LC26); an error marked
+// conflict, which the outbox dispatches again and does not count as an attempt (ST-SUP-RP10-LC26), except a unique
+// violation, which a dispatch again gives again and so is an attempt; an error marked
 // with outbox.PermanentRefusal for a row whose stager or principal it cannot read; and an error marked with
 // outbox.TransientRefusal for a fill that fails or panics, whose writes and effects roll back with tx
 // (ST-SUP-RC35-OC06).
@@ -292,7 +293,7 @@ func RunConsumer[M, P any](ctx context.Context, rt *Runtime, w *Worker[P], tx *s
 	var failure *fillFailure
 	switch {
 	case errors.As(err, &failure):
-		if failure.conflict {
+		if failure.conflict && !uniqueConflict(failure.err) {
 			return outbox.Conflict(failure.err)
 		}
 		// A deny of the staging principal and a declared refusal give the same answer on every dispatch: the
@@ -348,7 +349,7 @@ func Refused(err error) error {
 
 // consumerError marks the error of a consumer's statement for the outbox.
 func consumerError(err error) error {
-	if errors.Is(err, ErrConflict) {
+	if errors.Is(err, ErrConflict) && !uniqueConflict(err) {
 		return outbox.Conflict(err)
 	}
 	return outbox.TransientRefusal(err)
