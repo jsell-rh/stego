@@ -138,26 +138,32 @@ jobs:
         # go test ./... at the root does not reach Assuring's modules, internal/assure and cmd/assure: each has a
         # go.mod of its own, and the assure part runs them, one after the other into one file. Each package gets
         # 20 minutes, under the step's 25, so a timeout is a test outcome and not a cancelled step.
+        # The part writes the import paths of the packages it runs to packages-<part>.txt, and the rest part also
+        # writes every package of the root module to packages-root.txt, so the suites job can check that each
+        # package of the root module is in a part and that each package of a part has its result.
         run: |
           mkdir -p "$RUNNER_TEMP/part"
           out="$RUNNER_TEMP/part/go-test-$PART.json"
+          list="$RUNNER_TEMP/part/packages-$PART.txt"
           generators="internal/generator/browserbackend internal/generator/controller internal/generator/oteltracing internal/generator/keycloakprovider"
           case "$PART" in
-            stego) packages="./cmd/stego" ;;
-            generators) packages="$(printf './%s ' $generators)" ;;
+            stego) go list -mod=readonly ./cmd/stego > "$list" ;;
+            generators) go list -mod=readonly $(printf './%s ' $generators) > "$list" ;;
             rest)
-              packages="$(go list -mod=readonly ./... | grep -v -x -F \
-                -e github.com/jsell-rh/stego/cmd/stego \
-                $(printf -- '-e github.com/jsell-rh/stego/%s ' $generators))" ;;
+              go list -mod=readonly ./... > "$RUNNER_TEMP/part/packages-root.txt"
+              grep -v -x -F -e github.com/jsell-rh/stego/cmd/stego $(printf -- '-e github.com/jsell-rh/stego/%s ' $generators) \
+                "$RUNNER_TEMP/part/packages-root.txt" > "$list" ;;
             assure)
               : > "$out"
+              : > "$list"
               for module in internal/assure cmd/assure; do
+                go list -C "$module" -mod=readonly ./... >> "$list"
                 go test -C "$module" -json -race -count=1 -mod=readonly -timeout=20m ./... >> "$out" || true
               done
               exit 0 ;;
             *) echo "::error::Unknown part $PART"; exit 1 ;;
           esac
-          go test -json -race -count=1 -mod=readonly -timeout=20m $packages > "$out" || true
+          go test -json -race -count=1 -mod=readonly -timeout=20m $(cat "$list") > "$out" || true
       - name: Run the Python suites
         if: matrix.part == 'assure'
         timeout-minutes: 5
@@ -215,13 +221,33 @@ jobs:
           pattern: tests-*
           path: ${{ runner.temp }}/parts
           merge-multiple: true
+      # A part that is missing, cut short or not whole fails the job, so nothing is attested: each file must be
+      # there; each line of a go test output must be JSON; each package of the root module must be in a part; and
+      # each package that a part lists must have its result (pass, fail or skip) in that part's output.
       - name: Join the outputs of the parts
         run: |
           parts="$RUNNER_TEMP/parts"
-          for part in stego generators rest assure; do
-            test -f "$parts/go-test-$part.json" || { echo "::error::The part $part wrote no go test output. Nothing is attested."; exit 1; }
+          for file in packages-root.txt python-tests.json; do
+            test -s "$parts/$file" || { echo "::error::The parts wrote no $file. Nothing is attested."; exit 1; }
           done
-          test -f "$parts/python-tests.json" || { echo "::error::The Python suites wrote no output. Nothing is attested."; exit 1; }
+          jq -e . "$parts/python-tests.json" > /dev/null
+          for part in stego generators rest assure; do
+            for file in "go-test-$part.json" "packages-$part.txt"; do
+              test -s "$parts/$file" || { echo "::error::The part $part wrote no $file. Nothing is attested."; exit 1; }
+            done
+            jq -r 'select(.Test == null and (.Action == "pass" or .Action == "fail" or .Action == "skip")) | .Package' \
+              "$parts/go-test-$part.json" | sort -u > "$RUNNER_TEMP/done-$part.txt"
+            missing="$(sort -u "$parts/packages-$part.txt" | comm -23 - "$RUNNER_TEMP/done-$part.txt")"
+            if [ -n "$missing" ]; then
+              echo "::error::The part $part has no result for: $missing. Nothing is attested."
+              exit 1
+            fi
+          done
+          unplaced="$(sort -u "$parts/packages-root.txt" | comm -23 - <(cat "$parts"/packages-{stego,generators,rest}.txt | sort -u))"
+          if [ -n "$unplaced" ]; then
+            echo "::error::No part ran: $unplaced. Nothing is attested."
+            exit 1
+          fi
           cat "$parts/go-test-rest.json" "$parts/go-test-generators.json" "$parts/go-test-stego.json" \
             "$parts/go-test-assure.json" > "$RUNNER_TEMP/go-test.json"
       - name: Record the proof run
