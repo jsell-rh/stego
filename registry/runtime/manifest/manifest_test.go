@@ -398,3 +398,95 @@ func TestRedTeam(t *testing.T) {
 		}
 	})
 }
+
+// partitionedBooks makes books a table partitioned by tenant with one default partition, as the manifest states it
+// when the table is marked partitioned.
+const partitionedBooks = `DROP TABLE public.books;
+CREATE TABLE public.books (tenant_id text NOT NULL DEFAULT current_setting('app.tenant'), id uuid NOT NULL, folder_id uuid NOT NULL,
+  title character varying(255) NOT NULL, note text, pages integer,
+  CONSTRAINT books_pkey PRIMARY KEY (tenant_id, id), CONSTRAINT books_title_check CHECK (char_length(title) >= 1),
+  CONSTRAINT books_folder_id_fkey FOREIGN KEY (tenant_id, folder_id) REFERENCES public.folders (tenant_id, id)) PARTITION BY LIST (tenant_id);
+CREATE UNIQUE INDEX books_folder_id_title_key ON public.books (tenant_id, folder_id, title) WHERE note IS NULL;
+ALTER TABLE public.books ENABLE ROW LEVEL SECURITY; ALTER TABLE public.books FORCE ROW LEVEL SECURITY;
+CREATE POLICY stego_tenant ON public.books USING ("tenant_id" = pg_catalog.current_setting('app.tenant', true)) WITH CHECK ("tenant_id" = pg_catalog.current_setting('app.tenant', true));
+CREATE TRIGGER books_reject_row BEFORE UPDATE OR DELETE ON public.books FOR EACH ROW EXECUTE FUNCTION public.books_reject();
+CREATE TABLE public.books_all PARTITION OF public.books DEFAULT;
+CREATE TRIGGER books_all_mark BEFORE TRUNCATE ON public.books_all FOR EACH STATEMENT EXECUTE FUNCTION public.books_reject();
+`
+
+// partitionedWant is the manifest with books partitioned: each partition has the clone of books_reject_row and a
+// statement trigger of its own, <partition>_mark.
+func partitionedWant() Manifest {
+	m := want()
+	m.Tables[1].Partitioned = true
+	m.Tables[1].PartitionTriggers = []Trigger{{Name: "_mark", Timing: "BEFORE", Events: []string{"TRUNCATE"},
+		Function: m.Tables[1].Triggers[0].Function}}
+	return m
+}
+
+// redTeam3 are the hostile changes to the partitions of a partitioned table of the second delta review of PR 218 at
+// f43cc169 (P1), each after partitionedBooks.
+var redTeam3 = []struct{ name, statement, fault string }{
+	{"(a) a partition trigger that copies rows out",
+		`CREATE TABLE public.leak (LIKE public.books);
+CREATE FUNCTION public.copy_row() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN INSERT INTO public.leak SELECT NEW.*; RETURN NEW; END $$;
+CREATE TRIGGER copy BEFORE INSERT ON public.books_all FOR EACH ROW EXECUTE FUNCTION public.copy_row()`,
+		"table public.books: partition public.books_all: trigger copy is a trigger that the manifest does not name"},
+	{"(b) a partition trigger that drops rows",
+		`CREATE FUNCTION public.drop_row() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$;
+CREATE TRIGGER a_drop BEFORE INSERT ON public.books_all FOR EACH ROW EXECUTE FUNCTION public.drop_row()`,
+		"table public.books: partition public.books_all: trigger a_drop is a trigger that the manifest does not name"},
+	{"(c) a partition of another owner",
+		`CREATE ROLE manifest_part_owner NOLOGIN; ALTER TABLE public.books_all OWNER TO manifest_part_owner`,
+		"table public.books: partition public.books_all: the partition belongs to the role manifest_part_owner, and the table belongs to %owner%"},
+	{"(d) the cloned reject trigger disabled on the partition",
+		`ALTER TABLE public.books_all DISABLE TRIGGER books_reject_row`,
+		"table public.books: partition public.books_all: trigger books_reject_row is disabled"},
+	{"a rule on the partition",
+		`CREATE TABLE public.leak (LIKE public.books); CREATE RULE books_all_leak AS ON INSERT TO public.books_all DO ALSO INSERT INTO public.leak VALUES (NEW.*)`,
+		"table public.books: partition public.books_all: the partition has a rule"},
+	{"a partition that is partitioned again",
+		`CREATE TABLE public.books_sub PARTITION OF public.books FOR VALUES IN ('t9') PARTITION BY LIST (tenant_id)`,
+		"table public.books: partition public.books_sub: the partition is not a plain table partition"},
+	{"the own statement trigger of the partition dropped",
+		`DROP TRIGGER books_all_mark ON public.books_all`,
+		"table public.books: partition public.books_all: trigger books_all_mark is missing"},
+	{"the own statement trigger of the partition disabled",
+		`ALTER TABLE public.books_all DISABLE TRIGGER books_all_mark`,
+		"table public.books: partition public.books_all: trigger books_all_mark is disabled"},
+}
+
+func TestRedTeam3(t *testing.T) {
+	t.Run("ST-SUP-RP15-LC01-T04 Check refuses a partition with another trigger, owner, rule or kind, or a disabled or missing trigger", func(t *testing.T) {
+		ctx := context.Background()
+		t.Run("the partitioned table as the manifest states it", func(t *testing.T) {
+			admin, reader := database(t)
+			if _, err := admin.Exec(partitionedBooks); err != nil {
+				t.Fatal(err)
+			}
+			if err := Check(ctx, reader, partitionedWant()); err != nil {
+				t.Fatalf("Check refused the partitioned table of the manifest: %v", err)
+			}
+		})
+		for _, change := range redTeam3 {
+			t.Run(change.name, func(t *testing.T) {
+				admin, reader := database(t)
+				t.Cleanup(func() {
+					_, _ = admin.Exec("DROP OWNED BY manifest_part_owner; DROP ROLE IF EXISTS manifest_part_owner")
+				})
+				if _, err := admin.Exec(partitionedBooks); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := admin.Exec(change.statement); err != nil {
+					t.Fatal(err)
+				}
+				err := Check(ctx, reader, partitionedWant())
+				fault := strings.ReplaceAll(change.fault, "%owner%", testOwner)
+				var mismatch *Mismatch
+				if !errors.As(err, &mismatch) || !slices.Contains(mismatch.Faults, fault) {
+					t.Fatalf("Check gave %v, want the fault %q", err, fault)
+				}
+			})
+		}
+	})
+}

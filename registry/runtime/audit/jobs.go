@@ -139,7 +139,10 @@ func Manifest(c Config) (manifest.Manifest, error) {
 		}
 	}
 	return manifest.Manifest{Tables: []manifest.Table{
-		{Schema: s, Name: EventsTable, Partitioned: true, RowSecurity: true, Policies: wall, Triggers: rejecting(EventsTable)},
+		{Schema: s, Name: EventsTable, Partitioned: true, RowSecurity: true, Policies: wall, Triggers: rejecting(EventsTable),
+			// audit_create_partition gives each partition a statement trigger of its own; the row triggers are clones.
+			PartitionTriggers: []manifest.Trigger{{Name: "_reject_statement", Timing: "BEFORE", Events: []string{"UPDATE", "DELETE", "TRUNCATE"},
+				Function: reject}}},
 		{Schema: s, Name: HeadsTable, RowSecurity: true, Policies: wall},
 		{Schema: s, Name: BoundariesTable, RowSecurity: true, Policies: wall, Triggers: []manifest.Trigger{
 			{Name: BoundariesTable + "_guard", Timing: "BEFORE", Row: true, Events: []string{"INSERT", "UPDATE"}, Function: guard}}},

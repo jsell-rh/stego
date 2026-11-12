@@ -46,6 +46,9 @@ type Table struct {
 	Policies []Policy
 	// Triggers are the triggers of the table.
 	Triggers []Trigger
+	// PartitionTriggers are the triggers that each partition of a partitioned table has of its own, each named by
+	// the partition's name and the trigger's Name as a suffix, such as audit_event_p202611 and _reject_statement.
+	PartitionTriggers []Trigger
 }
 
 // Column is one column: its name, its type as format_type gives it, such as character varying(255), and whether
@@ -189,6 +192,14 @@ func (m Manifest) Validate() error {
 			}
 			if !slices.Contains([]string{"*", "r", "a", "w", "d"}, p.Command) {
 				return fmt.Errorf("manifest: table %s: the policy %s has the unknown command %q", id, p.Name, p.Command)
+			}
+		}
+		for _, tr := range t.PartitionTriggers {
+			if !t.Partitioned {
+				return fmt.Errorf("manifest: table %s: only a partitioned table has partition triggers", id)
+			}
+			if _, err := tr.tgtype(); err != nil || tr.Name == "" || tr.Function.Name == "" || tr.Function.Source == "" {
+				return fmt.Errorf("manifest: table %s: the partition trigger %q is not complete", id, tr.Name)
 			}
 		}
 		for _, tr := range t.Triggers {
@@ -599,54 +610,24 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string) ([]s
 		}
 	}
 
-	type trigger struct {
-		tgtype                                  int16
-		enabled, function, language, source     string
-		config                                  string
-		plain, securityDefiner, fits, ownerSame bool
-	}
-	triggers := map[string]trigger{}
-	rows, err = tx.QueryContext(ctx, `SELECT t.tgname, t.tgtype, t.tgenabled::text, pn.nspname || '.' || p.proname, l.lanname, p.prosrc,
-  COALESCE(pg_catalog.array_to_string(p.proconfig, chr(31)), ''), p.prosecdef,
-  t.tgqual IS NULL AND pg_catalog.cardinality(t.tgattr::pg_catalog.int2[]) = 0 AND t.tgnargs = 0,
-  p.prorettype = 'pg_catalog.trigger'::pg_catalog.regtype AND p.pronargs = 0 AND p.provolatile = 'v' AND NOT p.proretset,
-  p.proowner = $2
-  FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_proc p ON p.oid = t.tgfoid
-  JOIN pg_catalog.pg_namespace pn ON pn.oid = p.pronamespace JOIN pg_catalog.pg_language l ON l.oid = p.prolang
-  WHERE t.tgrelid = $1 AND NOT t.tgisinternal`, oid, owner)
+	triggers, err := readTriggers(ctx, tx, oid, owner)
 	if err != nil {
 		return nil, err
 	}
-	for rows.Next() {
-		var n string
-		var tr trigger
-		if err := rows.Scan(&n, &tr.tgtype, &tr.enabled, &tr.function, &tr.language, &tr.source, &tr.config, &tr.securityDefiner,
-			&tr.plain, &tr.fits, &tr.ownerSame); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		triggers[n] = tr
-	}
-	if err := closed(rows); err != nil {
-		return nil, err
-	}
 	namedTriggers := map[string]bool{}
+	namedRows := map[uint32]string{}
 	for _, want := range t.Triggers {
 		namedTriggers[want.Name] = true
 		got, ok := triggers[want.Name]
-		bits, _ := want.tgtype()
-		switch {
-		case !ok:
+		if !ok {
 			fault("trigger %s is missing", want.Name)
-		case got.tgtype != bits || got.function != want.Function.Name || !got.plain:
-			fault("trigger %s is not the trigger of the manifest", want.Name)
-		case got.enabled != "O" && got.enabled != "A":
-			fault("trigger %s is disabled", want.Name)
-		case got.language != want.Function.Language || got.source != want.Function.Source ||
-			got.securityDefiner != want.Function.SecurityDefiner || got.config != strings.Join(want.Function.Config, "\x1f") || !got.fits:
-			fault("trigger %s runs the function %s, which is not the function of the manifest", want.Name, want.Function.Name)
-		case !got.ownerSame:
-			fault("trigger %s runs the function %s, which the owner of the table does not own", want.Name, want.Function.Name)
+			continue
+		}
+		if want.Row {
+			namedRows[got.oid] = want.Name
+		}
+		if f := triggerFault(want, got); f != "" {
+			fault("trigger %s %s", want.Name, f)
 		}
 	}
 	if t.RowSecurity {
@@ -679,6 +660,167 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string) ([]s
 	}
 	if err := closed(rows); err != nil {
 		return nil, err
+	}
+	if t.Partitioned {
+		found, err := checkPartitions(ctx, tx, t, oid, ownerName, namedRows)
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range found {
+			fault("%s", f)
+		}
+	}
+	return faults, nil
+}
+
+// catalogTrigger is one trigger of a table as the catalog holds it.
+type catalogTrigger struct {
+	oid, parent                             uint32
+	tgtype                                  int16
+	enabled, function, language, source     string
+	config                                  string
+	plain, securityDefiner, fits, ownerSame bool
+}
+
+// readTriggers reads the triggers of the table rel that are not internal, by name, with their functions; ownerSame
+// tells that the function belongs to owner.
+func readTriggers(ctx context.Context, tx *sql.Tx, rel, owner uint32) (map[string]catalogTrigger, error) {
+	triggers := map[string]catalogTrigger{}
+	rows, err := tx.QueryContext(ctx, `SELECT t.tgname, t.oid, t.tgparentid, t.tgtype, t.tgenabled::text, pn.nspname || '.' || p.proname, l.lanname,
+  p.prosrc, COALESCE(pg_catalog.array_to_string(p.proconfig, chr(31)), ''), p.prosecdef,
+  t.tgqual IS NULL AND pg_catalog.cardinality(t.tgattr::pg_catalog.int2[]) = 0 AND t.tgnargs = 0,
+  p.prorettype = 'pg_catalog.trigger'::pg_catalog.regtype AND p.pronargs = 0 AND p.provolatile = 'v' AND NOT p.proretset,
+  p.proowner = $2
+  FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_proc p ON p.oid = t.tgfoid
+  JOIN pg_catalog.pg_namespace pn ON pn.oid = p.pronamespace JOIN pg_catalog.pg_language l ON l.oid = p.prolang
+  WHERE t.tgrelid = $1 AND NOT t.tgisinternal`, rel, owner)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var n string
+		var tr catalogTrigger
+		if err := rows.Scan(&n, &tr.oid, &tr.parent, &tr.tgtype, &tr.enabled, &tr.function, &tr.language, &tr.source, &tr.config,
+			&tr.securityDefiner, &tr.plain, &tr.fits, &tr.ownerSame); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		triggers[n] = tr
+	}
+	return triggers, closed(rows)
+}
+
+// triggerFault gives what is wrong with the trigger got against want, such as "is disabled", or "".
+func triggerFault(want Trigger, got catalogTrigger) string {
+	bits, _ := want.tgtype()
+	switch {
+	case got.tgtype != bits || got.function != want.Function.Name || !got.plain:
+		return "is not the trigger of the manifest"
+	case got.enabled != "O" && got.enabled != "A":
+		return "is disabled"
+	case got.language != want.Function.Language || got.source != want.Function.Source ||
+		got.securityDefiner != want.Function.SecurityDefiner || got.config != strings.Join(want.Function.Config, "\x1f") || !got.fits:
+		return "runs the function " + want.Function.Name + ", which is not the function of the manifest"
+	case !got.ownerSame:
+		return "runs the function " + want.Function.Name + ", which the owner of the table does not own"
+	}
+	return ""
+}
+
+// checkPartitions gives the faults of the partitions of the partitioned table t (oid parent, owned by owner). A row
+// written to the table is written to a partition, so each partition is a plain table of the owner with no rule; its
+// triggers are the clones of the row triggers of the manifest on the table, each enabled, and the triggers that
+// Table.PartitionTriggers names for each partition; and it has a clone of each row trigger of the manifest.
+// namedRows are the row triggers of the manifest on the table, by oid.
+func checkPartitions(ctx context.Context, tx *sql.Tx, t Table, parent uint32, owner string, namedRows map[uint32]string) ([]string, error) {
+	type partition struct {
+		oid, relowner         uint32
+		name, kind, ownerName string
+		isPartition           bool
+	}
+	var partitions []partition
+	rows, err := tx.QueryContext(ctx, `SELECT c.oid, n.nspname || '.' || c.relname, c.relkind::text, c.relowner,
+  pg_catalog.pg_get_userbyid(c.relowner), c.relispartition
+  FROM pg_catalog.pg_inherits i JOIN pg_catalog.pg_class c ON c.oid = i.inhrelid
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE i.inhparent = $1 ORDER BY 2`, parent)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var p partition
+		if err := rows.Scan(&p.oid, &p.name, &p.kind, &p.relowner, &p.ownerName, &p.isPartition); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		partitions = append(partitions, p)
+	}
+	if err := closed(rows); err != nil {
+		return nil, err
+	}
+	var faults []string
+	for _, p := range partitions {
+		fault := func(format string, args ...any) {
+			faults = append(faults, "partition "+p.name+": "+fmt.Sprintf(format, args...))
+		}
+		if p.kind != "r" || !p.isPartition {
+			fault("the partition is not a plain table partition")
+		}
+		if p.ownerName != owner {
+			fault("the partition belongs to the role %s, and the table belongs to %s", p.ownerName, owner)
+		}
+		var rules int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM pg_catalog.pg_rewrite WHERE ev_class = $1`, p.oid).Scan(&rules); err != nil {
+			return nil, err
+		}
+		if rules > 0 {
+			fault("the partition has a rule")
+		}
+		triggers, err := readTriggers(ctx, tx, p.oid, p.relowner)
+		if err != nil {
+			return nil, err
+		}
+		_, relname, _ := strings.Cut(p.name, ".")
+		own := map[string]Trigger{}
+		for _, want := range t.PartitionTriggers {
+			own[relname+want.Name] = want
+		}
+		cloned := map[uint32]bool{}
+		var names []string
+		for n := range triggers {
+			names = append(names, n)
+		}
+		slices.Sort(names)
+		for _, n := range names {
+			got := triggers[n]
+			if want, ok := own[n]; ok && got.parent == 0 {
+				if f := triggerFault(want, got); f != "" {
+					fault("trigger %s %s", n, f)
+				}
+				delete(own, n)
+				continue
+			}
+			if _, named := namedRows[got.parent]; got.parent == 0 || !named {
+				fault("trigger %s is a trigger that the manifest does not name", n)
+				continue
+			}
+			cloned[got.parent] = true
+			if got.enabled != "O" && got.enabled != "A" {
+				fault("trigger %s is disabled", n)
+			}
+		}
+		var missing []string
+		for oid, n := range namedRows {
+			if !cloned[oid] {
+				missing = append(missing, n)
+			}
+		}
+		for n := range own {
+			missing = append(missing, n)
+		}
+		slices.Sort(missing)
+		for _, n := range missing {
+			fault("trigger %s is missing", n)
+		}
 	}
 	return faults, nil
 }
