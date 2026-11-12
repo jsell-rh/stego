@@ -88,8 +88,10 @@ jobs:
   compiler:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # The proof run (proof-run.yml) runs the whole Go suite of every module and records each outcome. This job
-    # does not run it again: it verifies the modules, scans them for vulnerabilities, and runs the targeted checks.
+    # The proof run (proof-run.yml) runs the whole Go suite of every module. It records the outcome of each test
+    # whose name carries a test record ID, and its suites job fails on any other failed test or package. This job
+    # does not run the suite again: it verifies the modules, scans them for vulnerabilities, and runs the targeted
+    # checks.
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
