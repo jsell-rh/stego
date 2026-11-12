@@ -137,7 +137,9 @@ func historyLedger(h ledgerHistory) string {
 }
 
 func TestLedger(t *testing.T) {
+	t.Parallel()
 	t.Run("ST-ASR-UC04-R01-T01 The ledger comes from verified attestations and the committed spec, and no file of the working tree changes it", func(t *testing.T) {
+		t.Parallel()
 		h := newLedgerHistory(t)
 		attestations := h.keep(t, "history", historyStatements(h)...)
 		clean := h.ledger(t, attestations, "", []string{"--commit", h.at(5)})
@@ -189,6 +191,7 @@ func TestLedger(t *testing.T) {
 	})
 
 	t.Run("ST-ASR-UC04-R02-T01 Each test record shows its state, its result at the commit and the newest commit a verified proof run passed it at, within the depth", func(t *testing.T) {
+		t.Parallel()
 		h := newLedgerHistory(t)
 		attestations := h.keep(t, "history", historyStatements(h)...)
 		fetches := filepath.Join(h.runnerTemp, "fetches")
@@ -244,6 +247,7 @@ func TestLedger(t *testing.T) {
 	})
 
 	t.Run("ST-ASR-UC04-R03-T01 An attestation that fails verification gives no result at its commit, and the ledger says why", func(t *testing.T) {
+		t.Parallel()
 		h := newLedgerHistory(t)
 		statements := historyStatements(h)
 		statements[0] = forged(statements[0])
