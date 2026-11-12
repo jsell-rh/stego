@@ -1,0 +1,141 @@
+name: CI measure
+
+# Measurement only, on the branch ci-opt/measure. This file is never merged. It runs the Go suites of the proof run
+# in several variants and keeps the go test JSON of each, so the CI optimizer can see where the time goes.
+
+on:
+  push:
+    branches: [ci-opt/measure]
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    name: measure (${{ matrix.leg }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leg: baseline
+            cache: true
+            race: '-race'
+            prebuild: false
+            packages: './...'
+          - leg: nocache
+            cache: false
+            race: '-race'
+            prebuild: false
+            packages: './...'
+          - leg: norace
+            cache: true
+            race: ''
+            prebuild: true
+            packages: './...'
+          - leg: prebuild
+            cache: true
+            race: '-race'
+            prebuild: true
+            packages: './...'
+          - leg: cmdstego
+            cache: true
+            race: '-race'
+            prebuild: true
+            packages: './cmd/stego'
+    services:
+      postgres:
+        image: postgres@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2 # 18.6-alpine
+        env:
+          POSTGRES_PASSWORD: stego_test
+          POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=trust
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      STEGO_DATABASE_ALLOW_INSECURE_LOOPBACK: '1'
+      LATHE_REF: c9a591d85abc350f0d9854f6e7af11e4a1b5f777
+    defaults:
+      run:
+        working-directory: stego
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          path: stego
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: Jared4Robertson/lathe
+          ref: ${{ env.LATHE_REF }}
+          path: lathe
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26.11'
+          cache: ${{ matrix.cache }}
+          cache-dependency-path: |
+            stego/go.sum
+            stego/internal/assure/go.sum
+            stego/cmd/assure/go.sum
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24.18.1'
+      - name: Build the pinned Lathe
+        working-directory: lathe/lathe
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          ./node_modules/.bin/tsc -p tsconfig.build.json
+          chmod +x dist/bin/lathe.js
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm ci --prefix internal/generator/typescriptsdk/testdata --ignore-scripts --no-audit --no-fund
+      - run: npm ci --prefix internal/generator/browsertelemetry/testdata --ignore-scripts --no-audit --no-fund
+      - run: python3 -B scripts/prepare-compiler-toolchain.py --download --output "$RUNNER_TEMP/pinned-sdk"
+      - name: Facts of the runner
+        run: |
+          nproc; free -m; df -h .; go env GOCACHE GOMODCACHE; du -sh "$(go env GOCACHE)" "$(go env GOMODCACHE)" || true
+      - name: Build the test binaries only
+        if: ${{ matrix.prebuild }}
+        run: |
+          start=$SECONDS
+          go test ${{ matrix.race }} -count=1 -mod=readonly -run '^$' ${{ matrix.packages }} > /dev/null || true
+          if [ '${{ matrix.packages }}' = './...' ]; then
+            for module in internal/assure cmd/assure; do
+              go test -C "$module" ${{ matrix.race }} -count=1 -mod=readonly -run '^$' ./... > /dev/null || true
+            done
+          fi
+          echo "prebuild seconds: $((SECONDS - start))"
+      - name: Run the Go suites
+        env:
+          STEGO_TEST_PINNED_GO: ${{ runner.temp }}/pinned-sdk/go/bin/go
+          STEGO_REQUIRE_NODE: '1'
+          STEGO_REQUIRE_POSTGRES: '1'
+          STEGO_REQUIRE_LATHE: '1'
+          STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          start=$SECONDS
+          go test -json ${{ matrix.race }} -count=1 -mod=readonly -timeout=20m ${{ matrix.packages }} > "$RUNNER_TEMP/out/go-test.json" || true
+          echo "root seconds: $((SECONDS - start))"
+          if [ '${{ matrix.packages }}' = './...' ]; then
+            for module in internal/assure cmd/assure; do
+              m=$SECONDS
+              go test -C "$module" -json ${{ matrix.race }} -count=1 -mod=readonly -timeout=20m ./... >> "$RUNNER_TEMP/out/go-test.json" || true
+              echo "$module seconds: $((SECONDS - m))"
+            done
+          fi
+          echo "go suites seconds: $((SECONDS - start))"
+          du -sh "$(go env GOCACHE)" || true
+      - name: Time per package
+        run: |
+          jq -r 'select(.Test == null and (.Action == "pass" or .Action == "fail" or .Action == "skip")) | "\(.Elapsed) \(.Action) \(.Package)"' "$RUNNER_TEMP/out/go-test.json" | sort -rn | head -40
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: go-test-${{ matrix.leg }}
+          path: ${{ runner.temp }}/out/go-test.json
+          retention-days: 3
