@@ -17,23 +17,6 @@ const SchemaGeneration = "tables-v1"
 const SchemaDefinition = "389aee52eeb822e1af503d129e715128852729c979954674879c9b50c8c0b982"
 
 var ErrSchemaGeneration = errors.New("database schema generation is not supported")
-var ErrDatabaseRollback = errors.New("database was restored to an earlier state")
-
-// RestoreRecord names the state a restore must preserve together with the
-// database objects in the generated backup manifest. The schema generation
-// and definition identify the schema release; the database identity and
-// epoch identify the exact data generation. A backup without these values
-// cannot be verified after restore.
-type RestoreRecord struct {
-	SchemaGeneration string
-	SchemaDefinition string
-	DatabaseIdentity string
-	DatabaseEpoch    int64
-}
-
-// ErrRestore is returned when the database does not match a recorded restore
-// point. Verification is read-only.
-var ErrRestore = errors.New("database does not match the recorded restore point")
 
 // VerifySchema reads the release marker before storage can serve requests.
 // The application role needs SELECT, but must not have schema or table DDL rights.

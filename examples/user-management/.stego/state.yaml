@@ -34,9 +34,9 @@ last_applied:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261112090209-54b6bb1adb3c
+        module_version: v0.0.0-20261112091205-32766e178206
         vcs: git
-        revision: 54b6bb1adb3c98ed9476c162d990b903ef6a2989
+        revision: 32766e17820654d492ef8c845ce1fa389ef61633
         source_state: clean
     service_name: user-management
     service_hash: e12b2dedf65be6fa32a1eadd2693d5fe4a9c91fcb5f5e848bbcc80184df111d0
@@ -160,7 +160,7 @@ last_applied:
         internal/storage/migrate.go: eecca06d38025369b03bc100c5b88fec26a63c0c433ba6984279fa17262c3db5
         internal/storage/migrations/001_initial.sql: 8561b6d30aa26aeb145ee71633ecb53242fc7ef58dd6629aa917ac290e33085a
         internal/storage/runtime_access.go: 6d3aa72a40a672f3ef5cef2764c4c2f7134d9a66d9b7bf0e29e164bdc3a416be
-        internal/storage/schema_generation.go: 8ce4b6fa1fb4ce1860ef676c659776e8db1f72316adf1ad51a406a59d62ad503
+        internal/storage/schema_generation.go: 7dc6d1543e249c8d6ebd367dc074f9f0481c1e6ccc34a6cc8ebfa1bdb74c6c94
         internal/storage/tables.go: f3eaaff347c443b907317549ab299251599a0976e0796e2362e18b227f154ec3
         internal/tenancy/migrations/roles.sql: 90305d77db1f8de9af69d995b447540575309c8ffdd4457fb39904259ee9861d
         internal/tenancy/migrations/row_security.sql: 6813d74ed06f5df636433d5335339bcb4338f05de418002cd7ef94b60f44b6d9
