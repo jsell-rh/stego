@@ -1,6 +1,6 @@
 name: Proof run
 
-# Attest a proof run (ST-ASR-UC01). The tests jobs run the Go and Python suites at the commit in four parts at once,
+# Attest a proof run (ST-ASR-UC01). The tests jobs run the Go and Python suites at the commit in five parts at once,
 # and in the suites job assure record writes an outcome for every automated test record in the spec at that commit.
 # The attest job runs no code of the repository: it names the commit as the subject, and GitHub's attestation action
 # signs the proof run with this workflow's keyless identity, the trusted signer of a proof run, and keeps it. Only
@@ -41,9 +41,11 @@ env:
   LATHE_REF: c9a591d85abc350f0d9854f6e7af11e4a1b5f777
 
 jobs:
-  # The Go and Python suites run in four parts at once, each on a runner of its own, so the proof run takes about as
-  # long as its slowest part, not the sum of all. A part holds a fixed set of Go packages: stego is cmd/stego, the
-  # longest package; generators is the six generator packages with the longest tests; assure is Assuring's two modules
+  # The Go and Python suites run in five parts at once, each on a runner of its own, so the proof run takes about as
+  # long as its slowest part, not the sum of all. A part holds a fixed set of Go packages: cmd/stego, the longest
+  # package, is in two parts by the names of its top-level tests: stego-build runs the tests whose names match
+  # STEGO_BUILD_TESTS (go test -run), and stego runs every other one (go test -skip with the same pattern), so each
+  # test runs in exactly one part; generators is the six generator packages with the longest tests; assure is Assuring's two modules
   # and the Python suites; rest is every other package of the root module, from go list at the commit, so a new
   # package always runs. Each part writes the go test -json output of its packages, and assure uses the Python
   # output, as an artifact of this run. The parts run code of the change, as the suites job did: their outcomes
@@ -57,7 +59,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [stego, generators, rest, assure]
+        part: [stego-build, stego, generators, rest, assure]
     services:
       postgres:
         image: postgres@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2 # 18.6-alpine
@@ -74,6 +76,7 @@ jobs:
     env:
       STEGO_DATABASE_ALLOW_INSECURE_LOOPBACK: '1'
       PART: ${{ matrix.part }}
+      STEGO_BUILD_TESTS: '^Test(Build|Image|Policy|Dependencies)'
     defaults:
       run:
         working-directory: stego
@@ -147,7 +150,7 @@ jobs:
           list="$RUNNER_TEMP/part/packages-$PART.txt"
           generators="internal/generator/browserbackend internal/generator/controller internal/generator/oteltracing internal/generator/keycloakprovider internal/generator/oidcauth internal/generator/kubernetesclient"
           case "$PART" in
-            stego) go list -mod=readonly ./cmd/stego > "$list" ;;
+            stego-build | stego) go list -mod=readonly ./cmd/stego > "$list" ;;
             generators) go list -mod=readonly $(printf './%s ' $generators) > "$list" ;;
             rest)
               go list -mod=readonly ./... > "$RUNNER_TEMP/part/packages-root.txt"
@@ -163,7 +166,12 @@ jobs:
               exit 0 ;;
             *) echo "::error::Unknown part $PART"; exit 1 ;;
           esac
-          go test -json -race -count=1 -mod=readonly -timeout=20m $(cat "$list") > "$out" || true
+          select=()
+          case "$PART" in
+            stego-build) select=(-run "$STEGO_BUILD_TESTS") ;;
+            stego) select=(-skip "$STEGO_BUILD_TESTS") ;;
+          esac
+          go test -json -race -count=1 -mod=readonly -timeout=20m "${select[@]}" $(cat "$list") > "$out" || true
       - name: Run the Python suites
         if: matrix.part == 'assure'
         timeout-minutes: 5
@@ -175,7 +183,7 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
-  # The suites job records the proof run from the four parts. It runs no code of the change: it builds assure record
+  # The suites job records the proof run from the five parts. It runs no code of the change: it builds assure record
   # from the pull request's base commit (on a push, the commit pushed), with a Go setup that restores no cache, and
   # runs it in a checkout of the commit on the outputs of the parts, the root module's parts first, then Assuring's
   # modules, as one run. A part whose output is missing fails the job, so nothing is attested.
@@ -231,7 +239,7 @@ jobs:
             test -s "$parts/$file" || { echo "::error::The parts wrote no $file. Nothing is attested."; exit 1; }
           done
           jq -e . "$parts/python-tests.json" > /dev/null
-          for part in stego generators rest assure; do
+          for part in stego-build stego generators rest assure; do
             for file in "go-test-$part.json" "packages-$part.txt"; do
               test -s "$parts/$file" || { echo "::error::The part $part wrote no $file. Nothing is attested."; exit 1; }
             done
@@ -243,12 +251,12 @@ jobs:
               exit 1
             fi
           done
-          unplaced="$(sort -u "$parts/packages-root.txt" | comm -23 - <(cat "$parts"/packages-{stego,generators,rest}.txt | sort -u))"
+          unplaced="$(sort -u "$parts/packages-root.txt" | comm -23 - <(cat "$parts"/packages-{stego-build,stego,generators,rest}.txt | sort -u))"
           if [ -n "$unplaced" ]; then
             echo "::error::No part ran: $unplaced. Nothing is attested."
             exit 1
           fi
-          cat "$parts/go-test-rest.json" "$parts/go-test-generators.json" "$parts/go-test-stego.json" \
+          cat "$parts/go-test-rest.json" "$parts/go-test-generators.json" "$parts/go-test-stego-build.json" "$parts/go-test-stego.json" \
             "$parts/go-test-assure.json" > "$RUNNER_TEMP/go-test.json"
       - name: Record the proof run
         run: >-
