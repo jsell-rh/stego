@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -403,6 +404,21 @@ class Fix(unittest.TestCase):
 		if len(suites.Permissions) != 1 || suites.Permissions["contents"] != "read" {
 			t.Fatalf("the suites job's permissions are %v, want only contents: read: it runs the repository's code", suites.Permissions)
 		}
+		// No release job runs unless the suites job succeeded, since the proof run records only tests whose names
+		// carry an ID: gate-release and publish-release need it to succeed, and attest-release and
+		// qualify-release run only after one of them.
+		for _, name := range []string{"gate-release", "publish-release"} {
+			job := workflow.Jobs[name]
+			if !slices.Contains(job.Needs, "suites") || !strings.Contains(job.If, "needs.suites.result == 'success'") {
+				t.Fatalf("the %s job needs %v and runs if %q: it does not require a successful suites job", name, job.Needs, job.If)
+			}
+		}
+		if needs := workflow.Jobs["attest-release"].Needs; !slices.Equal([]string(needs), []string{"gate-release"}) {
+			t.Fatalf("the attest-release job needs %v, want only gate-release", needs)
+		}
+		if needs := workflow.Jobs["qualify-release"].Needs; !slices.Equal([]string(needs), []string{"publish-release"}) {
+			t.Fatalf("the qualify-release job needs %v, want only publish-release", needs)
+		}
 		// The tests jobs run the suites in parts, the change's code: they may only read the repository too.
 		tests := workflow.Jobs["tests"]
 		if len(tests.Steps) == 0 || len(tests.Permissions) != 1 || tests.Permissions["contents"] != "read" {
@@ -515,6 +531,7 @@ type workflowStep struct {
 
 type workflowJob struct {
 	Needs       stringList        `yaml:"needs"`
+	If          string            `yaml:"if"`
 	Env         map[string]string `yaml:"env"`
 	Permissions map[string]string `yaml:"permissions"`
 	Steps       []workflowStep    `yaml:"steps"`

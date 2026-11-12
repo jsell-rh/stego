@@ -451,10 +451,12 @@ jobs:
   # build files that go build does not check again.
   gate-release:
     name: gate release
-    needs: attest
-    # !cancelled(): when the suites or the attest job fail, the release gate still runs and refuses the release for
-    # want of a verified proof run.
-    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: [suites, attest]
+    # A release is gated only when the suites job succeeded: every test and package passed, also those whose names
+    # carry no test record ID, which the proof run does not record. A failed suites job fails the run, and nothing
+    # is gated or published. !cancelled(): when the attest job fails, the release gate still runs and refuses the
+    # release for want of a verified proof run.
+    if: ${{ !cancelled() && needs.suites.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -576,8 +578,9 @@ jobs:
   # release and its tag. The job gets no identity token and writes no attestation.
   publish-release:
     name: publish release
-    needs: [gate-release, attest-release]
-    if: ${{ needs.gate-release.outputs.passed == 'true' }}
+    needs: [suites, gate-release, attest-release]
+    # Only after a successful suites job, also when the release gate passed: the gate-release job asks it too.
+    if: ${{ needs.suites.result == 'success' && needs.gate-release.outputs.passed == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
