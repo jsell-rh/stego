@@ -1,4 +1,5 @@
-// Package httpapplication connects domain HTTP handlers to the generated runtime.
+// Package httpapplication connects domain HTTP handlers to the generated runtime. The application factory gets
+// the verifier alone and no storage (ST-SUP-RC10-OC31).
 package httpapplication
 
 import (
@@ -44,8 +45,8 @@ func validateApplicationContext(ctx gen.Context) error {
 	if !ok || gen.ValidateGoImportNamespace(factory) != nil || factory == "" {
 		return fmt.Errorf("http-application requires a module-relative factory_package")
 	}
-	if ctx.ModuleName == "" || ctx.StorageContract == "" || ctx.AuthPackage == "" || ctx.PeerNamespaces["jwt-auth"] == "" {
-		return fmt.Errorf("http-application requires public storage and JWT verifier contracts")
+	if ctx.ModuleName == "" || ctx.AuthPackage == "" || ctx.PeerNamespaces["jwt-auth"] == "" {
+		return fmt.Errorf("http-application requires the module name and the JWT verifier of jwt-auth")
 	}
 	// A factory must remain outside generated output to prevent an import cycle.
 	if ctx.OutDirName != "" && (factory == ctx.OutDirName || strings.HasPrefix(factory, ctx.OutDirName+"/")) {
@@ -69,28 +70,27 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 	factory := ctx.ComponentConfig["factory_package"].(string)
-	data := struct{ Package, Factory, Storage, Auth string }{path.Base(ctx.OutputNamespace), path.Join(ctx.ModuleName, factory), ctx.StorageContract, ctx.AuthPackage}
+	data := struct{ Package, Factory, Auth string }{path.Base(ctx.OutputNamespace), path.Join(ctx.ModuleName, factory), ctx.AuthPackage}
+	// The bridge passes the application factory the verifier alone: no repository, no transactor, no resource
+	// locker and no database handle, so hand-written code reaches storage only through command and query fills
+	// (ST-SUP-RC10-OC31).
 	bridge := `package {{.Package}}
 import (
- "database/sql"
  "context"
  "sync"
  "errors"
  "net/http"
  application {{printf "%q" .Factory}}
- storage {{printf "%q" .Storage}}
  auth {{printf "%q" .Auth}}
 )
-// Repository supplies operations and one atomic commit boundary.
-type Repository = storage.Repository
 // ManagedHandler adds application tasks and cleanup to the generated supervisor.
 type ManagedHandler interface {http.Handler;Run(context.Context)error;Close()}
 type Runtime struct {http.Handler;managed ManagedHandler;closeOnce sync.Once}
 func(r *Runtime)Run(ctx context.Context)error{if r.managed!=nil{return r.managed.Run(ctx)};<-ctx.Done();return nil}
 func(r *Runtime)Close(){r.closeOnce.Do(func(){if r.managed!=nil{r.managed.Close()}})}
-// NewHandler connects application code to compiler-owned resources.
-func NewHandler(repository Repository, verifier *auth.Verifier, database *sql.DB) (*Runtime,error) {
- handler,err:=application.New(repository,verifier,database)
+// NewHandler connects application code to the verifier of the service. The factory gets no storage.
+func NewHandler(verifier *auth.Verifier) (*Runtime,error) {
+ handler,err:=application.New(verifier)
  if err!=nil{return nil,err};if handler==nil{return nil,errors.New("application returned no handler")}
  managed,_:=any(handler).(ManagedHandler)
  _,hasRun:=any(handler).(interface{Run(context.Context)error})
@@ -138,7 +138,7 @@ func NewHandler(repository Repository, verifier *auth.Verifier, database *sql.DB
 	}
 	files = append(files, responseFiles...)
 	ns := path.Base(ctx.OutputNamespace)
-	wiring := &gen.Wiring{Contracts: []gen.Contract{gen.StorageV1}, Imports: []string{ctx.OutputNamespace}, Constructors: []string{ns + ".NewHandler(store, verifierFromEnvironment)"}, ConstructorDeps: map[int][]string{0: {"store", "verifierFromEnvironment"}}, ConstructorResources: map[int][]gen.Resource{0: {gen.SQLDatabase}}, ConstructorReturnsError: map[int]bool{0: true}, ConstructorDeferCalls: map[int]string{0: "Close()"}, BackgroundTasks: []int{0}, Routes: []string{fmt.Sprintf("mux.Handle(%q, handler)", mountPattern)}}
+	wiring := &gen.Wiring{Imports: []string{ctx.OutputNamespace}, Constructors: []string{ns + ".NewHandler(verifierFromEnvironment)"}, ConstructorDeps: map[int][]string{0: {"verifierFromEnvironment"}}, ConstructorReturnsError: map[int]bool{0: true}, ConstructorDeferCalls: map[int]string{0: "Close()"}, BackgroundTasks: []int{0}, Routes: []string{fmt.Sprintf("mux.Handle(%q, handler)", mountPattern)}}
 	if responses != nil {
 		wiring.GoModRequires = map[string]string{"github.com/oapi-codegen/runtime": "v1.7.0", "github.com/oapi-codegen/nullable": "v1.1.0", "github.com/google/uuid": "v1.6.0"}
 	}

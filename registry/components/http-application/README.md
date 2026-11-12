@@ -71,3 +71,12 @@ client still checks the CA chain, hostname, certificate purpose, and expiry.
 A pin cannot replace CA trust. `New` copies the pin; a caller cannot change it
 after the client starts. Recreate the client when the expected certificate
 changes. The client refuses an all-zero pin.
+
+Version 2.0.0 passes the application factory the verifier alone:
+`New(verifier *auth.Verifier) (http.Handler, error)`. The factory gets no
+repository, no transactor, no resource locker and no database handle, so
+hand-written code reaches storage only through command and query fills
+(ST-SUP-RC10-OC31). The bridge no longer binds the storage contract of the
+GORM store, which STEGO no longer generates (ST-SUP-RC20-OC39). The order
+parser of the transport returns its own `OrderByField`. The factory itself
+goes away with ST-SUP-RC10-OC35.

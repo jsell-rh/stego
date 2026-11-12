@@ -13,7 +13,6 @@ import (
  "strings"
  "time"
  "unicode/utf8"
- storage {{printf "%q" .Storage}}
 )
 
 const MaxRequestBytes = 64 << 10
@@ -22,17 +21,20 @@ const RequestTimeout = 10 * time.Second
 var ErrRequest = errors.New("invalid request")
 var ErrUnauthenticated = errors.New("authentication is required")
 
+// OrderByField is one term of an order: a declared column and its direction, asc or desc.
+type OrderByField struct{Field string;Direction string}
+
 // ParseOrderBy maps public field names to declared storage columns.
-func ParseOrderBy(value string,fields map[string]string)([]storage.OrderByField,error){
+func ParseOrderBy(value string,fields map[string]string)([]OrderByField,error){
  value=strings.TrimSpace(value);if value==""{return nil,nil}
  if len(value)>512{return nil,ErrRequest}
  terms:=strings.Split(value,",");if len(terms)>8{return nil,ErrRequest}
- result:=make([]storage.OrderByField,0,len(terms));seen:=map[string]bool{}
+ result:=make([]OrderByField,0,len(terms));seen:=map[string]bool{}
  for _,term:=range terms{
   words:=strings.Fields(term);if len(words)<1||len(words)>2{return nil,ErrRequest}
   column,ok:=fields[words[0]];if !ok||seen[column]{return nil,ErrRequest};seen[column]=true
   direction:="asc";if len(words)==2{direction=strings.ToLower(words[1])};if direction!="asc"&&direction!="desc"{return nil,ErrRequest}
-  result=append(result,storage.OrderByField{Field:column,Direction:direction})
+  result=append(result,OrderByField{Field:column,Direction:direction})
  }
  return result,nil
 }
