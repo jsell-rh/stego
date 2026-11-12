@@ -1,7 +1,6 @@
 package grpcapplication_test
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,43 +9,29 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/grpcapplication"
 )
 
 func TestGeneratedTimestampConversions(t *testing.T) {
 	for _, namespace := range []string{"grpcapi", "rpc/provider"} {
 		t.Run(namespace, func(t *testing.T) {
-			var sources [][]byte
-			for _, standalone := range []bool{false, true} {
-				ctx := processContext(t)
-				ctx.OutputNamespace = namespace
-				ctx.Inputs["factory/rpc.go"] = []byte(strings.ReplaceAll(string(ctx.Inputs["factory/rpc.go"]), "out/grpcapi/", "out/"+namespace+"/"))
-				var generator gen.Generator = new(grpcapplication.Generator)
-				if standalone {
-					delete(ctx.ComponentConfig, "factory_package")
-					generator = new(grpcapplication.ProcessGenerator)
-				}
-				files, _, err := generator.Generate(ctx)
-				if err != nil {
-					t.Fatal(err)
-				}
-				var source []byte
-				for _, f := range files {
-					if f.Path == path.Join(namespace, "transport/conversion.go") {
-						if source != nil {
-							t.Fatal("conversion source is repeated")
-						}
-						source = f.Bytes()
-					}
-				}
-				if len(source) == 0 {
-					t.Fatal("conversion source is missing")
-				}
-				sources = append(sources, source)
+			// The transport conversion is emitted by grpc-processes; grpc-application on the runtime data path emits
+			// the transport runtime only (ST-SUP-RC07-OC19).
+			ctx := processContext(t)
+			ctx.OutputNamespace = namespace
+			ctx.Inputs["factory/rpc.go"] = []byte(strings.ReplaceAll(string(ctx.Inputs["factory/rpc.go"]), "out/grpcapi/", "out/"+namespace+"/"))
+			files, _, err := new(grpcapplication.ProcessGenerator).Generate(ctx)
+			if err != nil {
+				t.Fatal(err)
 			}
-			if !bytes.Equal(sources[0], sources[1]) {
-				t.Fatal("application and standalone conversion contracts differ")
+			var sources [][]byte
+			for _, f := range files {
+				if f.Path == path.Join(namespace, "transport/conversion.go") {
+					sources = append(sources, f.Bytes())
+				}
+			}
+			if len(sources) != 1 || len(sources[0]) == 0 {
+				t.Fatalf("the conversion source appears %d times, want once", len(sources))
 			}
 			project := t.TempDir()
 			directory := filepath.Join(project, "out", filepath.FromSlash(namespace), "transport")

@@ -14,9 +14,54 @@ import (
 
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/grpcapplication"
-	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
 	"github.com/jsell-rh/stego/internal/types"
 )
+
+// shipmentModels is the model provider of the response mapping tests: a plain Go package store with the entity
+// Shipment, which the tests write into the generated module, and its Go model declaration. A response mapping reads
+// a model of any provider (gen.GoModelSource); the tests use this fixture, since the GORM store that gave the
+// models before is gone (ST-SUP-RC20-OC39).
+const shipmentModels = `package store
+
+import "time"
+
+// Meta holds the identity and the times of a stored entity.
+type Meta struct {
+	ID          string
+	CreatedTime time.Time
+	UpdatedTime time.Time
+}
+
+// Shipment is the stored Shipment entity.
+type Shipment struct {
+	Meta
+	Name       *string
+	Count      int64
+	Enabled    bool
+	Content    []byte
+	RecordedAt *time.Time
+	Reset      string
+	Score      float32
+	Total      float64
+	Limit      *int64
+	Tags       []byte
+}
+`
+
+func shipmentGoModels() []gen.GoModel {
+	field := func(name, selection string, kind types.FieldType, pointer bool) gen.GoModelField {
+		return gen.GoModelField{Name: name, Selection: selection, Type: kind, Pointer: pointer}
+	}
+	return []gen.GoModel{{Name: "Shipment", GoType: "Shipment", Fields: []gen.GoModelField{
+		field("id", "ID", types.FieldTypeString, false), field("created_time", "CreatedTime", types.FieldTypeTimestamp, false),
+		field("updated_time", "UpdatedTime", types.FieldTypeTimestamp, false), field("name", "Name", types.FieldTypeString, true),
+		field("count", "Count", types.FieldTypeInt64, false), field("enabled", "Enabled", types.FieldTypeBool, false),
+		field("content", "Content", types.FieldTypeBytes, false), field("recorded_at", "RecordedAt", types.FieldTypeTimestamp, true),
+		field("reset", "Reset", types.FieldTypeString, false), field("score", "Score", types.FieldTypeFloat, false),
+		field("total", "Total", types.FieldTypeDouble, false), field("limit", "Limit", types.FieldTypeInt64, true),
+		field("tags", "Tags", types.FieldTypeJsonb, false),
+	}}}
+}
 
 const shipmentProto = `syntax="proto3"; package shipping.v1;
 import "google/protobuf/timestamp.proto";
@@ -30,24 +75,12 @@ message Shipment {
 
 func shipmentContext(t *testing.T) gen.Context {
 	t.Helper()
-	ctx := gen.Context{ModuleName: "example.com/mapping-test", OutDirName: "out", OutputNamespace: "store",
-		StorageContract: "example.com/mapping-test/out/contracts/storage", AuthPackage: "example.com/mapping-test/out/auth",
-		PeerNamespaces: map[string]string{"jwt-auth": "auth"},
-		Entities: []types.Entity{{Name: "Shipment", Fields: []types.Field{
-			{Name: "name", Type: types.FieldTypeString, Optional: true}, {Name: "count", Type: types.FieldTypeInt64},
-			{Name: "enabled", Type: types.FieldTypeBool}, {Name: "content", Type: types.FieldTypeBytes},
-			{Name: "recorded_at", Type: types.FieldTypeTimestamp, Optional: true}, {Name: "reset", Type: types.FieldTypeString},
-			{Name: "score", Type: types.FieldTypeFloat}, {Name: "total", Type: types.FieldTypeDouble},
-			{Name: "limit", Type: types.FieldTypeInt64, Optional: true},
-			{Name: "tags", Type: types.FieldTypeJsonb, Optional: true},
-		}}}, Inputs: map[string][]byte{"api.proto": []byte(shipmentProto)}}
-	models, err := new(postgresadapter.Generator).GoModels(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	ctx := gen.Context{ModuleName: "example.com/mapping-test", OutDirName: "out", OutputNamespace: "grpcapi",
+		AuthPackage: "example.com/mapping-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth"},
+		Inputs: map[string][]byte{"api.proto": []byte(shipmentProto)}}
+	models := shipmentGoModels()
 	ctx.GoModelSources = map[string]gen.GoModelSource{"custom-store": {ImportPath: "example.com/mapping-test/out/store", Models: models}}
-	ctx.OutputNamespace = "grpcapi"
-	ctx.ComponentConfig = map[string]any{"factory_package": "application", "proto_files": []any{map[string]any{"path": "api.proto", "import_path": "shipping/v1/api.proto"}},
+	ctx.ComponentConfig = map[string]any{"proto_files": []any{map[string]any{"path": "api.proto", "import_path": "shipping/v1/api.proto"}},
 		"response_mappings": []any{map[string]any{"name": "Shipment", "provider": "custom-store", "model": "Shipment", "message": "shipping.v1.Shipment", "fields": []any{
 			map[string]any{"target": "metadata.id", "source": "id"},
 			map[string]any{"target": "metadata.kind", "constant": "Shipment"},
@@ -66,7 +99,7 @@ func shipmentContext(t *testing.T) gen.Context {
 			map[string]any{"target": "limit", "source": "limit", "conversion": "int32"},
 			map[string]any{"target": "tags", "source": "tags", "conversion": "json_strings", "max_bytes": 64, "max_items": 3, "max_item_bytes": 16},
 		}}}}
-	return ctx
+	return standalone(t, ctx)
 }
 
 func mappingDeclaration(ctx gen.Context) map[string]any {
@@ -129,7 +162,7 @@ func TestResponseMappingRejectsInvalidContracts(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx := shipmentContext(t)
 			change(ctx)
-			generator := new(grpcapplication.Generator)
+			generator := new(grpcapplication.ProcessGenerator)
 			if err := generator.ValidateContext(ctx); err == nil {
 				t.Fatal("invalid mapping passed preflight")
 			}
@@ -143,7 +176,7 @@ func TestResponseMappingRejectsInvalidContracts(t *testing.T) {
 
 func TestResponseMappingOrderIsStable(t *testing.T) {
 	ctx := shipmentContext(t)
-	first, _, err := new(grpcapplication.Generator).Generate(ctx)
+	first, _, err := new(grpcapplication.ProcessGenerator).Generate(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +184,7 @@ func TestResponseMappingOrderIsStable(t *testing.T) {
 	for i, j := 0, len(fields)-1; i < j; i, j = i+1, j-1 {
 		fields[i], fields[j] = fields[j], fields[i]
 	}
-	second, _, err := new(grpcapplication.Generator).Generate(ctx)
+	second, _, err := new(grpcapplication.ProcessGenerator).Generate(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,24 +208,15 @@ func checkGeneratedResponseMappings(t *testing.T, context func(*testing.T) gen.C
 		t.Run(namespace, func(t *testing.T) {
 			ctx := context(t)
 			ctx.OutputNamespace = namespace
-			if err := new(grpcapplication.Generator).ValidateContext(ctx); err != nil {
+			ctx = standalone(t, ctx)
+			if err := new(grpcapplication.ProcessGenerator).ValidateContext(ctx); err != nil {
 				t.Fatal(err)
 			}
-			files, _, err := new(grpcapplication.Generator).Generate(ctx)
+			files, _, err := new(grpcapplication.ProcessGenerator).Generate(ctx)
 			if err != nil {
 				t.Fatal(err)
 			}
-			ctx.OutputNamespace = "store"
-			ctx.ComponentConfig = nil
-			storage, storageWiring, err := new(postgresadapter.Generator).Generate(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, file := range storage {
-				if file.Path == "store/models.go" {
-					files = append(files, file)
-				}
-			}
+			files = append(files, gen.File{Path: "store/models.go", Content: []byte(shipmentModels)})
 			project := t.TempDir()
 			write := func(name string, data []byte) {
 				t.Helper()
@@ -214,25 +238,14 @@ func checkGeneratedResponseMappings(t *testing.T, context func(*testing.T) gen.C
 				t.Fatal(err)
 			}
 			write("out/"+namespace+"/mapping/mappings_test.go", []byte(strings.ReplaceAll(string(data), "MAPPING_NAMESPACE", namespace)))
-			if storageWiring == nil {
-				t.Fatal("storage dependency declaration is missing")
-			}
 			modules := map[string]string{"google.golang.org/protobuf": "v1.36.11"}
-			for name, version := range storageWiring.GoModRequires {
-				modules[name] = version
-			}
-			for _, name := range []string{"gorm.io/gorm", "gorm.io/datatypes"} {
-				if modules[name] == "" {
-					t.Fatal("storage dependency version is missing", name)
-				}
-			}
 			names := make([]string, 0, len(modules))
 			for name := range modules {
 				names = append(names, name)
 			}
 			sort.Strings(names)
 			var moduleFile strings.Builder
-			fmt.Fprintf(&moduleFile, "module example.com/mapping-test\ngo %s\nrequire (\n", new(grpcapplication.Generator).MinimumGoVersion())
+			fmt.Fprintf(&moduleFile, "module example.com/mapping-test\ngo %s\nrequire (\n", new(grpcapplication.ProcessGenerator).MinimumGoVersion())
 			for _, name := range names {
 				fmt.Fprintf(&moduleFile, "%s %s\n", name, modules[name])
 			}
@@ -308,7 +321,7 @@ func TestResponseMappingJSONLimits(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx := shipmentContext(t)
 			change(ctx)
-			g := new(grpcapplication.Generator)
+			g := new(grpcapplication.ProcessGenerator)
 			if g.ValidateContext(ctx) == nil {
 				t.Fatal("invalid JSON declaration passed preflight")
 			}
@@ -329,7 +342,7 @@ func TestResponseMappingJSONHelperIsConditional(t *testing.T) {
 		}
 	}
 	rule["omit"] = true
-	files, _, err := new(grpcapplication.Generator).Generate(ctx)
+	files, _, err := new(grpcapplication.ProcessGenerator).Generate(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +359,7 @@ func TestResponseMappingJSONBounds(t *testing.T) {
 	rule["max_bytes"] = 16 << 20
 	rule["max_items"] = 65536
 	rule["max_item_bytes"] = 16 << 20
-	g := new(grpcapplication.Generator)
+	g := new(grpcapplication.ProcessGenerator)
 	if err := g.ValidateContext(ctx); err != nil {
 		t.Fatal("exact JSON declaration bound rejected", err)
 	}
@@ -369,8 +382,8 @@ func TestResponseMappingJSONBounds(t *testing.T) {
 // not change the runtime versions that this generated fixture claims to test.
 func checkMappingFixtureModules(t *testing.T, project string, versions map[string]string) {
 	t.Helper()
-	required := map[string]bool{"google.golang.org/protobuf": true, "gorm.io/gorm": true, "gorm.io/datatypes": true}
-	command := exec.Command("go", "list", "-mod=readonly", "-m", "-json", "google.golang.org/protobuf", "gorm.io/gorm", "gorm.io/datatypes")
+	required := map[string]bool{"google.golang.org/protobuf": true}
+	command := exec.Command("go", "list", "-mod=readonly", "-m", "-json", "google.golang.org/protobuf")
 	command.Dir = project
 	command.Env = append(os.Environ(), "GOWORK=off")
 	output, err := command.CombinedOutput()

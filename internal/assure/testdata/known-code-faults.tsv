@@ -114,7 +114,6 @@ ST-STD-CODE-R04	internal/generator/controller/testdata/telemetry_test.go	interna
 ST-STD-CODE-R04	internal/generator/gosdk/generator_test.go	internal/generator/gosdk/generator_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/gosdk/nullable_test.go	internal/generator/gosdk/nullable_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/grpcapplication/conversion_test.go	internal/generator/grpcapplication/conversion_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/generator/grpcapplication/generator_test.go	internal/generator/grpcapplication/generator_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/grpcapplication/mapping_inputs_test.go	internal/generator/grpcapplication/mapping_inputs_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/grpcapplication/mapping_test.go	internal/generator/grpcapplication/mapping_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/generator/grpcapplication/overlay_test.go	internal/generator/grpcapplication/overlay_test.go	the test file names no test record's ID in a test or subtest name

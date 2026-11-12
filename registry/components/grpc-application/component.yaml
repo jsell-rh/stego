@@ -1,74 +1,9 @@
 kind: component
 name: grpc-application
-version: 1.16.0
+version: 2.0.0
 stage: ga
 output_namespace: grpcapi
 config:
-  response_mappings:
-    type: list
-    items:
-      name:
-        type: string
-      provider:
-        type: string
-      model:
-        type: string
-      message:
-        type: string
-      inputs:
-        type: list
-        optional: true
-        items:
-          name:
-            type: string
-          type:
-            type: string
-          optional:
-            type: bool
-            optional: true
-      fields:
-        type: list
-        items:
-          target:
-            type: string
-          source:
-            type: string
-            optional: true
-          input:
-            type: string
-            optional: true
-          constant:
-            type: string
-            optional: true
-          prefix:
-            type: string
-            optional: true
-          conversion:
-            type: string
-            optional: true
-          max_bytes:
-            type: int
-            optional: true
-          max_items:
-            type: int
-            optional: true
-          max_item_bytes:
-            type: int
-            optional: true
-          omit:
-            type: bool
-            optional: true
-  processes:
-    type: list
-    items:
-      name:
-        type: string
-      factory_package:
-        type: string
-  watch_events:
-    type: bool
-  factory_package:
-    type: string
   proto_files:
     type: list
     items:

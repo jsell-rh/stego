@@ -3,8 +3,6 @@ package sample
 import (
 	"context"
 	"errors"
-	events "example.com/grpc-test/out/contracts/events"
-	storage "example.com/grpc-test/out/contracts/storage"
 	pb "example.com/grpc-test/out/grpcapi/pb/sample/v1"
 	transport "example.com/grpc-test/out/grpcapi/transport"
 	"google.golang.org/grpc"
@@ -16,12 +14,6 @@ import (
 	"time"
 )
 
-type Repository interface {
-	storage.Storage
-	storage.Transactor
-	storage.ResourceLocker
-}
-
 var preparations atomic.Int32
 var activeWaits atomic.Int32
 var unavailableCalls atomic.Int32
@@ -29,7 +21,7 @@ var unavailableCalls atomic.Int32
 type identityKey struct{}
 type records struct{ pb.UnimplementedRecordsServer }
 
-func Register(registrar grpc.ServiceRegistrar, _ Repository, _ ...events.Source) error {
+func Register(registrar grpc.ServiceRegistrar) error {
 	prepared, err := transport.PrepareRegistrar(registrar, func(ctx context.Context) error {
 		if ctx.Value(identityKey{}) != "alice" {
 			return errors.New("preparation lost verified identity")

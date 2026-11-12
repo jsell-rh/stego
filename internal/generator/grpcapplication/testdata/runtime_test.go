@@ -96,7 +96,7 @@ func TestRuntime(t *testing.T) {
 		t.Setenv("STEGO_GRPC_STREAM_IO_TIMEOUT", "1s")
 		var expiry atomic.Int64
 		expiry.Store(time.Now().Add(time.Hour).UnixNano())
-		runtime, err := transport.New(authenticate, func(r grpc.ServiceRegistrar) error { return Register(r, nil) }, transport.Options{TraceRPC: func(ctx context.Context, method string) (context.Context, func(error)) {
+		runtime, err := transport.New(authenticate, func(r grpc.ServiceRegistrar) error { return Register(r) }, transport.Options{TraceRPC: func(ctx context.Context, method string) (context.Context, func(error)) {
 			return context.WithValue(ctx, traceKey{}, true), func(err error) { observations <- observation{method, status.Code(err)} }
 		}, IdentityInfo: func(ctx context.Context) (string, time.Time) {
 			return ctx.Value(subjectKey{}).(string), time.Unix(0, expiry.Load())

@@ -1,4 +1,5 @@
-// Package grpcapplication connects protobuf contracts and domain services to a gRPC runtime.
+// Package grpcapplication serves the gRPC methods of the declared commands and queries on the runtime library
+// (Generator), and emits RPC contracts and process executables with no data access (ProcessGenerator).
 package grpcapplication
 
 import (
@@ -30,131 +31,32 @@ type Generator struct{}
 // MinimumGoVersion covers the compiler minimum for golang.org/x/sys.
 func (*Generator) MinimumGoVersion() string { return "1.26.0" }
 
+// ValidateContext refuses a service that grpc-application cannot serve, then checks the settings of the component.
+// grpc-application serves only the gRPC methods of the declared commands and queries, through the command and query
+// components (ST-SUP-RC07-OC19). Its former bridge bound a hand-written factory to the GORM store, which STEGO no
+// longer generates (ST-SUP-RC20-OC39).
 func (*Generator) ValidateContext(ctx gen.Context) error {
-	if ctx.RuntimeData {
-		return validateRuntimeData(ctx)
+	if len(ctx.Entities) == 0 && len(ctx.Commands) == 0 && len(ctx.Queries) == 0 {
+		return fmt.Errorf("grpc-application serves the gRPC methods of the declared commands and queries (ST-SUP-RC07-OC19), and a service with no entity, no command and no query has none (ST-SUP-Q101); its former bridge to a hand-written factory on the GORM store is gone (ST-SUP-RC20-OC39): declare grpc-processes for an RPC process")
 	}
-	if err := validateContext(ctx); err != nil {
-		return err
-	}
-	plugin, err := prepareProto(ctx)
-	if err != nil {
-		return err
-	}
-	_, err = responseMappings(ctx, plugin)
-	return err
-}
-func validateContext(ctx gen.Context) error {
-	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
-		return err
-	}
-	factory, ok := ctx.ComponentConfig["factory_package"].(string)
-	if !ok || factory == "" || gen.ValidateGoImportNamespace(factory) != nil || factory == ctx.OutDirName || strings.HasPrefix(factory, ctx.OutDirName+"/") {
-		return fmt.Errorf("grpc-application requires a factory_package outside generated output")
-	}
-	if ctx.ModuleName == "" || ctx.StorageContract == "" || ctx.AuthPackage == "" || ctx.PeerNamespaces["jwt-auth"] == "" {
-		return fmt.Errorf("grpc-application requires public storage and JWT verifier contracts")
-	}
-	watch := false
-	if value, present := ctx.ComponentConfig["watch_events"]; present {
-		var ok bool
-		watch, ok = value.(bool)
-		if !ok {
-			return fmt.Errorf("watch_events must be a boolean")
+	var missing []string
+	for _, component := range []string{commandComponent, queryComponent} {
+		if ctx.PeerNamespaces[component] == "" {
+			missing = append(missing, component)
 		}
 	}
-	if watch && (ctx.EventsContract == "" || ctx.PeerNamespaces["outbox"] == "") {
-		return fmt.Errorf("watch_events requires the outbox and public event contract")
+	if len(missing) != 0 {
+		return fmt.Errorf("grpc-application serves the declared commands and queries through the command and the query components (ST-SUP-RC07-OC19), and the service has no %s component; the former bridge to the GORM store is gone (ST-SUP-RC20-OC39): add the command and the query components", strings.Join(missing, " and no "))
 	}
-
-	if watch {
-		if err := gen.ValidateGoPackageNamespace(ctx.PeerNamespaces["outbox"]); err != nil {
-			return err
-		}
-	}
-
-	if tracing := ctx.PeerNamespaces["otel-tracing"]; tracing != "" {
-		if err := gen.ValidateGoPackageNamespace(tracing); err != nil {
-			return err
-		}
-	}
-	return validateProcesses(ctx)
+	return validateRuntimeData(ctx)
 }
 
-func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
-	if ctx.RuntimeData {
-		// The runtime data path serves the declared methods through the command and query runtimes
-		// (ST-SUP-RC07-OC19).
-		return generateRuntimeData(ctx)
-	}
-	if err := validateContext(ctx); err != nil {
+// Generate serves the declared methods through the command and query runtimes (ST-SUP-RC07-OC19).
+func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	if err := g.ValidateContext(ctx); err != nil {
 		return nil, nil, err
 	}
-	factory := ctx.ComponentConfig["factory_package"].(string)
-	watch, _ := ctx.ComponentConfig["watch_events"].(bool)
-	files, methods, err := generateProto(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	data := struct {
-		Package, Factory, Storage, Auth, Transport, Events, Tracing string
-		Methods                                                     []string
-		Watch                                                       bool
-	}{path.Base(ctx.OutputNamespace), path.Join(ctx.ModuleName, factory), ctx.StorageContract, ctx.AuthPackage, path.Join(ctx.ModuleName, ctx.OutDirName, ctx.OutputNamespace, "transport"), ctx.EventsContract, "", methods, watch}
-	if tracing := ctx.PeerNamespaces["otel-tracing"]; tracing != "" {
-		data.Tracing = path.Join(ctx.ModuleName, ctx.OutDirName, tracing)
-	}
-	bridge := `package {{.Package}}
-import (
- application {{printf "%q" .Factory}}
- storage {{printf "%q" .Storage}}
- auth {{printf "%q" .Auth}}
- transport {{printf "%q" .Transport}}
- "google.golang.org/grpc"
- "context"
- "time"
- {{if .Tracing}}tracing {{printf "%q" .Tracing}}{{end}}
- {{if .Watch}}events {{printf "%q" .Events}}{{end}}
-)
-type Repository = storage.Repository
-func NewGRPCRuntime(repository Repository, verifier *auth.Verifier{{if .Watch}},source events.Source{{end}}{{if .Tracing}},tracingRuntime *tracing.Runtime{{end}})(*transport.Runtime,error){
- return transport.New(verifier.Authenticate,func(registrar grpc.ServiceRegistrar)error{return application.Register(registrar,repository{{if .Watch}},source{{end}})},transport.Options{ {{if .Tracing}}TraceRPC:tracingRuntime.TraceRPC,{{end}}IdentityInfo:func(ctx context.Context)(string,time.Time){identity:=auth.IdentityFromContext(ctx);return identity.UserID,identity.ExpiresAt}})
-}
-`
-	runtimeFiles, err := renderFiles(ctx, data, []templateSource{{"bridge.go", bridge}, {"transport/runtime.go", runtimeSource}, {"transport/conversion.go", conversionSource}, {"client/client.go", clientSource}, {"client/stream_headers.go", streamHeadersSource}})
-	if err != nil {
-		return nil, nil, err
-	}
-	files = append(files, runtimeFiles...)
-	wiring := &gen.Wiring{Contracts: []gen.Contract{gen.StorageV1}, Imports: []string{ctx.OutputNamespace}, Constructors: []string{path.Base(ctx.OutputNamespace) + ".NewGRPCRuntime(store, verifierFromEnvironment)"}, ConstructorDeps: map[int][]string{0: {"store", "verifierFromEnvironment"}}, ConstructorReturnsError: map[int]bool{0: true}, ConstructorDeferCalls: map[int]string{0: "Close()"}, BackgroundTasks: []int{0}, GoModRequires: rpcDependencies(ctx)}
-	if watch {
-		outbox := ctx.PeerNamespaces["outbox"]
-		if err := gen.ValidateGoPackageNamespace(outbox); err != nil {
-			return nil, nil, err
-		}
-		wiring.Imports = append(wiring.Imports, outbox)
-		wiring.Contracts = append(wiring.Contracts, gen.EventsV1)
-		wiring.Constructors = []string{path.Base(outbox) + ".NewSource()", path.Base(ctx.OutputNamespace) + ".NewGRPCRuntime(store, verifierFromEnvironment, source)"}
-		wiring.ConstructorResources = map[int][]gen.Resource{0: {gen.ServiceContext, gen.SQLDatabase}}
-		wiring.ConstructorDeps = map[int][]string{1: {"store", "verifierFromEnvironment", "source"}}
-		wiring.ConstructorReturnsError = map[int]bool{0: true, 1: true}
-		wiring.ConstructorDeferCalls = map[int]string{0: "Close()", 1: "Close()"}
-		wiring.BackgroundTasks = []int{0, 1}
-	}
-	if data.Tracing != "" {
-		index := len(wiring.Constructors) - 1
-		wiring.Constructors[index] = strings.TrimSuffix(wiring.Constructors[index], ")") + ", tracingRuntime)"
-		wiring.ConstructorDeps[index] = append(wiring.ConstructorDeps[index], "tracingRuntime")
-	}
-	processes, err := processFiles(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	files = append(files, processes...)
-	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
-		return nil, nil, err
-	}
-	return files, wiring, nil
+	return generateRuntimeData(ctx)
 }
 
 type templateSource struct{ Name, Source string }

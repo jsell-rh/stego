@@ -28,7 +28,7 @@ func (*ProcessGenerator) ValidateContext(ctx gen.Context) error {
 }
 func validateStandalone(ctx gen.Context) error {
 	for key := range ctx.ComponentConfig {
-		if key != "processes" && key != "proto_files" {
+		if key != "processes" && key != "proto_files" && key != "response_mappings" {
 			return fmt.Errorf("unsupported grpc-processes setting %q", key)
 		}
 	}

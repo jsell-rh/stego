@@ -15,8 +15,8 @@ const overlayReference = `syntax="proto3";package sample;message Record{string n
 
 const overlayFork = `syntax="proto3";package sample;message Record{string name=1;int32 size=2;reserved 3;reserved "note";string extra=4;}`
 
-func overlayContext(fork string) gen.Context {
-	return gen.Context{ModuleName: "example.com/overlay", OutDirName: "out", OutputNamespace: "grpcapi", StorageContract: "example.com/overlay/out/contracts/storage", AuthPackage: "example.com/overlay/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth"}, Inputs: map[string][]byte{"api.proto": []byte(fork), "reference.proto": []byte(overlayReference)}, ComponentConfig: map[string]any{"factory_package": "domain", "proto_files": []any{map[string]any{"path": "api.proto", "import_path": "api.proto", "reference": "reference.proto"}}}}
+func overlayContext(t *testing.T, fork string) gen.Context {
+	return standalone(t, gen.Context{ModuleName: "example.com/overlay", OutDirName: "out", OutputNamespace: "grpcapi", AuthPackage: "example.com/overlay/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth"}, Inputs: map[string][]byte{"api.proto": []byte(fork), "reference.proto": []byte(overlayReference)}, ComponentConfig: map[string]any{"proto_files": []any{map[string]any{"path": "api.proto", "import_path": "api.proto", "reference": "reference.proto"}}}})
 }
 
 func TestOverlaysRejectInvalidReferences(t *testing.T) {
@@ -38,14 +38,14 @@ func TestOverlaysRejectInvalidReferences(t *testing.T) {
 	}
 	for name, test := range cases {
 		t.Run(name, func(t *testing.T) {
-			ctx := overlayContext(test.fork)
+			ctx := overlayContext(t, test.fork)
 			entry := ctx.ComponentConfig["proto_files"].([]any)[0].(map[string]any)
 			if test.reference == "absent.proto" || test.reference == "api.proto" {
 				entry["reference"] = test.reference
 			} else {
 				ctx.Inputs["reference.proto"] = []byte(test.reference)
 			}
-			if _, _, err := new(grpcapplication.Generator).Generate(ctx); err == nil {
+			if _, _, err := new(grpcapplication.ProcessGenerator).Generate(ctx); err == nil {
 				t.Fatalf("invalid overlay accepted: %s", name)
 			}
 		})
@@ -53,20 +53,20 @@ func TestOverlaysRejectInvalidReferences(t *testing.T) {
 }
 
 func TestOverlaysRejectReferenceEqualToAnotherImportPath(t *testing.T) {
-	ctx := overlayContext(overlayFork)
+	ctx := overlayContext(t, overlayFork)
 	ctx.Inputs["other.proto"] = []byte(overlayFork)
 	ctx.ComponentConfig["proto_files"] = []any{
 		map[string]any{"path": "api.proto", "import_path": "api.proto"},
 		map[string]any{"path": "other.proto", "import_path": "other.proto", "reference": "api.proto"},
 	}
-	if _, _, err := new(grpcapplication.Generator).Generate(ctx); err == nil {
+	if _, _, err := new(grpcapplication.ProcessGenerator).Generate(ctx); err == nil {
 		t.Fatal("reference that equals a sibling import_path was accepted")
 	}
 }
 
 func TestOverlaysAcceptSelfPinnedReference(t *testing.T) {
-	ctx := gen.Context{ModuleName: "example.com/overlay", OutDirName: "out", OutputNamespace: "grpcapi", StorageContract: "example.com/overlay/out/contracts/storage", AuthPackage: "example.com/overlay/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth"}, Inputs: map[string][]byte{"api.proto": []byte(overlayFork)}, ComponentConfig: map[string]any{"factory_package": "domain", "proto_files": []any{map[string]any{"path": "api.proto", "import_path": "sample/api.proto", "reference": "api.proto"}}}}
-	generator := new(grpcapplication.Generator)
+	ctx := standalone(t, gen.Context{ModuleName: "example.com/overlay", OutDirName: "out", OutputNamespace: "grpcapi", AuthPackage: "example.com/overlay/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth"}, Inputs: map[string][]byte{"api.proto": []byte(overlayFork)}, ComponentConfig: map[string]any{"proto_files": []any{map[string]any{"path": "api.proto", "import_path": "sample/api.proto", "reference": "api.proto"}}}})
+	generator := new(grpcapplication.ProcessGenerator)
 	if err := generator.ValidateContext(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -106,8 +106,8 @@ func TestOverlaysAcceptSelfPinnedReference(t *testing.T) {
 }
 
 func TestOverlaysAcceptValidExtensions(t *testing.T) {
-	ctx := overlayContext(overlayFork)
-	generator := new(grpcapplication.Generator)
+	ctx := overlayContext(t, overlayFork)
+	generator := new(grpcapplication.ProcessGenerator)
 	if err := generator.ValidateContext(ctx); err != nil {
 		t.Fatal(err)
 	}
