@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/jsell-rh/stego/internal/buildidentity"
@@ -101,41 +100,61 @@ type AppliedState struct {
 	Archetype *ArchetypeState `yaml:"archetype,omitempty"`
 }
 
-// withoutDataPath removes the key data_path from the last_applied mapping of a
-// record of format version 4, the one version that held it. The key told the
-// data path of the run; every run is on the runtime data path now, and the
-// migration job of the service, not the record, refuses a database that holds
-// tables its ledger does not record (ST-SUP-RC20-OC39). Any other version
-// keeps the key, and the strict decoder refuses it as an unknown field.
-func withoutDataPath(data []byte) ([]byte, error) {
-	var document yaml.Node
-	if err := yaml.Unmarshal(data, &document); err != nil || document.Kind != yaml.DocumentNode || len(document.Content) != 1 {
-		// The strict decoder reports what is wrong with the document.
+// legacyRecord is a record as the strict decoder reads it before the compiler decodes it as State: the record with
+// the key data_path that format version 4 held in last_applied. The strict decoder refuses a second document, an
+// alias, a deep nesting and an unknown field, so the key is removed only from a record that holds nothing else
+// that State does not read (ST-SUP-RC20-OC39).
+type legacyRecord struct {
+	FormatVersion int               `yaml:"format_version,omitempty"`
+	LastApplied   *legacyAppliedRun `yaml:"last_applied,omitempty"`
+}
+
+// legacyAppliedRun is last_applied with the key data_path of format version 4.
+type legacyAppliedRun struct {
+	AppliedState   `yaml:",inline"`
+	LegacyDataPath string `yaml:"data_path,omitempty"`
+}
+
+// withoutDataPath removes the key data_path from the last_applied mapping of a record of format version 4, the one
+// version that held it, after the strict decoder accepted the whole record with it. The key told the data path of
+// the run, runtime or store; every run is on the runtime data path now, and the migration job of the service, not
+// the record, refuses a database that holds tables its ledger does not record (ST-SUP-RC20-OC39). A record of
+// another version with the key, or with another value of it, is refused.
+func withoutDataPath(data []byte, path string) ([]byte, error) {
+	var legacy legacyRecord
+	if err := parser.DecodeStrict(data, path, &legacy); err != nil {
+		// The strict decoder of State reports what is wrong with the record.
 		return data, nil
 	}
-	if !dropDataPath(document.Content[0]) {
+	if legacy.LastApplied == nil || legacy.LastApplied.LegacyDataPath == "" {
 		return data, nil
+	}
+	if legacy.FormatVersion != formatWithDataPath {
+		return nil, fmt.Errorf("the record of format version %d has data_path, which only format version %d held", legacy.FormatVersion, formatWithDataPath)
+	}
+	if value := legacy.LastApplied.LegacyDataPath; value != "runtime" && value != "store" {
+		return nil, fmt.Errorf("the record has the data path %q, which is not runtime or store", value)
+	}
+	var document yaml.Node
+	if err := yaml.Unmarshal(data, &document); err != nil || document.Kind != yaml.DocumentNode || len(document.Content) != 1 || !dropDataPath(document.Content[0]) {
+		return nil, fmt.Errorf("the record of format version %d cannot be read without its data path", formatWithDataPath)
 	}
 	return yaml.Marshal(&document)
 }
 
-// dropDataPath does the work of withoutDataPath on the record's mapping, and
-// tells whether it removed the key.
+// dropDataPath removes the key data_path from the last_applied mapping of the record's mapping, and tells whether
+// it removed it.
 func dropDataPath(node *yaml.Node) bool {
 	if node.Kind != yaml.MappingNode {
 		return false
 	}
-	version := ""
 	var applied *yaml.Node
 	for i := 0; i+1 < len(node.Content); i += 2 {
-		switch node.Content[i].Value {
-		case "format_version":
-			version = node.Content[i+1].Value
-		case "last_applied":
+		if node.Content[i].Value == "last_applied" {
 			applied = node.Content[i+1]
 		}
 	}
-	if version != strconv.Itoa(formatWithDataPath) || applied == nil || applied.Kind != yaml.MappingNode {
+	if applied == nil || applied.Kind != yaml.MappingNode {
 		return false
 	}
 	for i := 0; i+1 < len(applied.Content); i += 2 {
@@ -187,7 +206,7 @@ func LoadState(path string) (*State, error) {
 }
 
 func decodeState(data []byte, path string) (*State, error) {
-	data, err := withoutDataPath(data)
+	data, err := withoutDataPath(data, path)
 	if err != nil {
 		return nil, fmt.Errorf("invalid state; restore or migrate the state file: %w", err)
 	}

@@ -89,6 +89,17 @@ func TestStateFormatDropsTheDataPathOfVersion4(t *testing.T) {
 			t.Fatalf("the saved record keeps the data path or loses a field:\n%s", saved)
 		}
 	}
+	// The strict reader sees the whole record before the key goes: a second document and a value other than
+	// runtime or store are refused.
+	for name, record := range map[string]string{
+		"a second document": "format_version: 4\nlast_applied:\n  service_hash: original\n  data_path: runtime\n---\nformat_version: 4\n",
+		"a bogus data path": "format_version: 4\nlast_applied:\n  service_hash: original\n  data_path: bogus\n",
+		"an alias":          "format_version: 4\nlast_applied: &a\n  service_hash: original\n  data_path: runtime\nother: *a\n",
+	} {
+		if _, err := decodeState([]byte(record), "state.yaml"); err == nil {
+			t.Errorf("a record of format version 4 with %s was accepted", name)
+		}
+	}
 	for _, version := range []string{"3", "5"} {
 		if _, err := decodeState([]byte("format_version: "+version+"\nlast_applied:\n  service_hash: original\n  data_path: runtime\n"), "state.yaml"); err == nil {
 			t.Fatalf("a record of format version %s with a data path was accepted", version)
