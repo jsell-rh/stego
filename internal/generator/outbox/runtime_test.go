@@ -230,7 +230,7 @@ func TestGeneratedRuntimeOutbox(t *testing.T) {
 	if out, err := s.goTool("vet", "./..."); err != nil {
 		t.Fatalf("go vet of the generated module: %v\n%s", err, out)
 	}
-	for _, id := range []string{"ST-SUP-RC18-OC30-T01", "ST-SUP-RC18-OC30-T02", "ST-SUP-RC18-OC30-T03", "ST-SUP-RC18-OC30-T04", "ST-SUP-RC18-OC11-T01"} {
+	for _, id := range []string{"ST-SUP-RC18-OC30-T01", "ST-SUP-RC18-OC30-T02", "ST-SUP-RC18-OC30-T03", "ST-SUP-RC18-OC30-T04", "ST-SUP-RC18-OC30-T07", "ST-SUP-RC18-OC11-T01"} {
 		t.Run(id, func(t *testing.T) {
 			s.t = t
 			s.run(id)

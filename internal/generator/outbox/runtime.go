@@ -36,11 +36,16 @@ const auditComponent = "audit-log"
 // state and no row-level security. The runtime migration keeps a table that is there (CREATE TABLE IF NOT EXISTS)
 // and then fails on its tenant_id index. This step drops that former table when it is empty, so the runtime
 // migration creates its own; when it still holds messages, it stops the migration, so no message is lost, and the
-// former worker must deliver them first. A table of the runtime migration has tenant_id, so the step leaves it.
+// former worker must deliver them first. It locks the former table (ACCESS EXCLUSIVE, in the transaction of the
+// migration) before it checks for messages, so a writer of the former release that still runs cannot add a message
+// between the check and the drop. A table of the runtime migration has tenant_id, so the step leaves it.
 const formerTable = `-- The queue table of the former outbox component, with no tenant_id, is replaced by the runtime's queue table.
 DO $former$ BEGIN
 	IF pg_catalog.to_regclass('stego_outbox.messages') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute
 		WHERE attrelid = pg_catalog.to_regclass('stego_outbox.messages') AND attname = 'tenant_id' AND NOT attisdropped) THEN
+		-- A writer of the former release can still run: the lock waits for its transaction, and holds off its next
+		-- insert, until this transaction ends, so the check below sees each message that the drop would lose.
+		LOCK TABLE stego_outbox.messages IN ACCESS EXCLUSIVE MODE;
 		IF EXISTS (SELECT 1 FROM stego_outbox.messages) THEN
 			RAISE EXCEPTION 'outbox: stego_outbox.messages holds messages of the former outbox component'
 				USING HINT = 'deliver them with the former outbox worker until the table is empty, then run this migration again';
