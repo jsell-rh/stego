@@ -70,6 +70,7 @@ func TestAuthenticationRequests(t *testing.T) {
 	const (
 		checks    = "ST-SUP-RC11-OC01-T01 The emitted verifier gives no claim before every check passes"
 		algorithm = "ST-SUP-RC11-OC02-T01 The emitted verifier accepts RS256 only and refuses unsupported headers"
+		kinds     = "ST-SUP-RC11-OC33-T01 The emitted verifier accepts only an access token"
 		denial    = "ST-SUP-RC11-OC07-T01 A denial from the emitted middleware hides the token and sets no-store and WWW-Authenticate"
 	)
 	tests := []struct {
@@ -101,8 +102,21 @@ func TestAuthenticationRequests(t *testing.T) {
 		{record: algorithm, name: "untrusted key URL", header: map[string]any{"jku": "https://attacker.example/keys"}},
 		{record: algorithm, name: "embedded key", header: map[string]any{"jwk": map[string]string{"kty": "RSA"}}},
 		{record: algorithm, name: "unknown critical header", header: map[string]any{"crit": []string{"unknown"}}},
+		{record: kinds, name: "nonce of an ID token", change: func(c jwt.MapClaims) { c["nonce"] = "n-1" }},
+		{record: kinds, name: "at_hash of an ID token", change: func(c jwt.MapClaims) { c["at_hash"] = "aGFzaA" }},
+		{record: kinds, name: "c_hash of an ID token", change: func(c jwt.MapClaims) { c["c_hash"] = "aGFzaA" }},
+		{record: kinds, name: "events of a logout token", change: func(c jwt.MapClaims) { c["events"] = map[string]any{} }},
+		{record: kinds, name: "payload typ ID", change: func(c jwt.MapClaims) { c["typ"] = "ID" }},
+		{record: kinds, name: "payload typ Refresh", change: func(c jwt.MapClaims) { c["typ"] = "Refresh" }},
+		{record: kinds, name: "payload typ Logout", change: func(c jwt.MapClaims) { c["typ"] = "Logout" }},
+		{record: kinds, name: "payload typ not text", change: func(c jwt.MapClaims) { c["typ"] = 7 }},
+		{record: kinds, name: "payload typ null", change: func(c jwt.MapClaims) { c["typ"] = nil }},
+		{record: kinds, name: "payload typ Offline", change: func(c jwt.MapClaims) { c["typ"] = "Offline" }},
+		{record: kinds, name: "payload typ of another case", change: func(c jwt.MapClaims) { c["typ"] = "bearer" }},
+		{record: kinds, name: "payload typ in a list", change: func(c jwt.MapClaims) { c["typ"] = []string{"Bearer"} }},
+		{record: kinds, name: "payload typ Bearer", change: func(c jwt.MapClaims) { c["typ"] = "Bearer" }, want: http.StatusNoContent},
 	}
-	for _, group := range []string{checks, algorithm, denial} {
+	for _, group := range []string{checks, algorithm, kinds, denial} {
 		t.Run(group, func(t *testing.T) {
 			for _, test := range tests {
 				if test.record != group && (group != denial || test.want != 0) {

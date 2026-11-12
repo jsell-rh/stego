@@ -79,7 +79,7 @@ const RuntimeModule = "github.com/jsell-rh/stego/registry/runtime"
 // zip hash fixes it. A test holds this table equal to the archetypes'
 // pins; a moved pin changes it in the same change (ST-BLD-UC02-R05).
 var runtimePins = map[string]string{
-	"v0.38.0": "h1:Mbcyi8eubiHt+7dbDNbE2R6scjcBL+kbHNXJpXr52HY=",
+	"v0.43.0": "h1:/qXNaoTWnQuyeqDpE1iM2fMGc/B76+AbShg1PCWyvlc=",
 }
 
 // RuntimePins gives a copy of the runtime pins that this binary trusts, by
@@ -117,9 +117,21 @@ const sumDBKey = "sum.golang.org+033de0ae+Ac4zctda0e5eza+HJyk9SxEdh+s3Ux18htTTAD
 // found false when the database does not know the module, as for a version
 // that is not released.
 func lookupSumDB(ctx context.Context, path, version string) (string, bool, error) {
+	return lookupSumDBAt(ctx, sumDBServer{url: "https://sum.golang.org", key: sumDBKey, client: http.DefaultClient}, path, version)
+}
+
+// sumDBServer is the sum database that a lookup asks: its URL, its public
+// key and the HTTP client that reaches it. Tests give a local stand-in.
+type sumDBServer struct {
+	url, key string
+	client   *http.Client
+}
+
+// lookupSumDBAt is lookupSumDB against the sum database server.
+func lookupSumDBAt(ctx context.Context, server sumDBServer, path, version string) (string, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	ops := &sumDBOps{ctx: ctx, config: map[string][]byte{"key": []byte(sumDBKey)}, cache: map[string][]byte{}}
+	ops := &sumDBOps{ctx: ctx, server: server, config: map[string][]byte{"key": []byte(server.key)}, cache: map[string][]byte{}}
 	lines, err := sumdb.NewClient(ops).Lookup(path, version)
 	if ops.security != "" {
 		return "", false, fmt.Errorf("%w: %s", errSumDBInconsistent, ops.security)
@@ -143,6 +155,7 @@ func lookupSumDB(ctx context.Context, path, version string) (string, bool, error
 // signed tree and the tiles in memory and reads the rest over HTTPS.
 type sumDBOps struct {
 	ctx      context.Context
+	server   sumDBServer
 	config   map[string][]byte
 	cache    map[string][]byte
 	notFound bool
@@ -150,11 +163,11 @@ type sumDBOps struct {
 }
 
 func (o *sumDBOps) ReadRemote(path string) ([]byte, error) {
-	request, err := http.NewRequestWithContext(o.ctx, http.MethodGet, "https://sum.golang.org"+path, nil)
+	request, err := http.NewRequestWithContext(o.ctx, http.MethodGet, o.server.url+path, nil)
 	if err != nil {
 		return nil, err
 	}
-	response, err := http.DefaultClient.Do(request)
+	response, err := o.server.client.Do(request)
 	if err != nil {
 		return nil, err
 	}

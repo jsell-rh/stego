@@ -19,6 +19,7 @@ import (
 	"github.com/jsell-rh/stego/registry/runtime/idempotency"
 	"github.com/jsell-rh/stego/registry/runtime/internal/seal"
 	"github.com/jsell-rh/stego/registry/runtime/internal/staging"
+	"github.com/jsell-rh/stego/registry/runtime/manifest"
 	"github.com/jsell-rh/stego/registry/runtime/outbox"
 	"github.com/jsell-rh/stego/registry/runtime/probe"
 	"github.com/jsell-rh/stego/registry/runtime/query"
@@ -83,7 +84,7 @@ func orderEntity(t *testing.T) *command.Entity[order] {
 func parts(entities []command.Declared, calls *int) Parts {
 	return Parts{
 		Service: "todo-svc", DeclarationVersion: "d1", SubjectType: "user", TenantClaim: "tenant", ProblemCode: "TODO",
-		TenantConfig: tenantConfig(calls),
+		TenantConfig: tenantConfig(calls), OwnerRole: fixtureOwner,
 		NewQueue: func(db *sql.DB) (*outbox.Queue, error) {
 			return outbox.New(db, outbox.Options{PayloadLimits: auditoutbox.PayloadLimits()})
 		},
@@ -93,6 +94,8 @@ func parts(entities []command.Declared, calls *int) Parts {
 		},
 		AuditSettings: audit.Settings{Level: audit.LevelChange},
 		Commands:      entities,
+		// The anchor period of the audit DDL of the migration job of the fixture.
+		Workers: WorkerParts{AnchorPeriod: time.Hour},
 	}
 }
 
@@ -275,6 +278,64 @@ func TestNew(t *testing.T) {
 			_, err = New(context.Background(), keyURL, parts(nil, nil))
 			if stage := StartStage(err); err == nil || stage != "service.start.authn.keys" {
 				t.Fatalf("New with a key URL that the system roots do not trust gave %v at the stage %q", err, stage)
+			}
+		})
+
+		t.Run("ST-SUP-RP14-LC06-T01 New refuses a database that does not hold the schema manifest before it opens anything else", func(t *testing.T) {
+			orders := manifest.Table{Schema: "public", Name: "orders", RowSecurity: true,
+				Columns: []manifest.Column{{Name: "tenant_id", Type: "text", NotNull: true}, {Name: "status", Type: "text", NotNull: true}},
+				Policies: []manifest.Policy{{Name: "orders_tenant", Command: "*", Using: "(tenant_id = current_setting('app.tenant'::text, true))",
+					WithCheck: "(tenant_id = current_setting('app.tenant'::text, true))"}}}
+			declared := parts(nil, nil)
+			declared.Schema = manifest.Manifest{Tables: []manifest.Table{orders}}
+			// The database of the migration job holds the manifest, so New starts.
+			svc, err := New(context.Background(), settings, declared)
+			if err != nil {
+				t.Fatalf("New refused the database that the migration job made: %v", err)
+			}
+			_ = svc.Close()
+			refused := func(change, restore, fault string) {
+				t.Helper()
+				if _, err := f.admin.Exec(change); err != nil {
+					t.Fatal(err)
+				}
+				defer func() {
+					if _, err := f.admin.Exec(restore); err != nil {
+						t.Fatal(err)
+					}
+				}()
+				var outbox, audit int64
+				if err := f.admin.QueryRow(`SELECT (SELECT count(*) FROM stego_outbox.messages), (SELECT count(*) FROM public.audit_event)`).Scan(&outbox, &audit); err != nil {
+					t.Fatal(err)
+				}
+				// SpiceDB cannot be reached: a refusal that names the manifest comes before New connects to it.
+				_, err := New(context.Background(), unreachable, declared)
+				if !errors.Is(err, manifest.ErrNotSatisfied) || !strings.Contains(err.Error(), fault) || strings.Contains(err.Error(), "SpiceDB") {
+					t.Fatalf("New after %q gave %v, want a refusal that names %q", change, err, fault)
+				}
+				var outboxAfter, auditAfter int64
+				if err := f.admin.QueryRow(`SELECT (SELECT count(*) FROM stego_outbox.messages), (SELECT count(*) FROM public.audit_event)`).Scan(&outboxAfter, &auditAfter); err != nil {
+					t.Fatal(err)
+				}
+				if outboxAfter != outbox || auditAfter != audit {
+					t.Fatalf("the refused start wrote: outbox %d then %d, audit %d then %d", outbox, outboxAfter, audit, auditAfter)
+				}
+			}
+			refused("ALTER TABLE public.orders ALTER COLUMN status TYPE character varying(20)", "ALTER TABLE public.orders ALTER COLUMN status TYPE text",
+				"table public.orders: column status has the type character varying(20)")
+			refused("ALTER TABLE public.orders NO FORCE ROW LEVEL SECURITY", "ALTER TABLE public.orders FORCE ROW LEVEL SECURITY",
+				"table public.orders: row-level security is not enabled and forced")
+			// Each table of the manifest belongs to the owner role of the service.
+			refused("ALTER TABLE public.orders OWNER TO "+f.relay, "ALTER TABLE public.orders OWNER TO "+f.owner,
+				"table public.orders: the table belongs to the role "+f.relay+", and the manifest needs "+f.owner)
+			// The audit record is in the manifest of every service, with the triggers that make it append-only.
+			refused("DROP TRIGGER audit_event_reject_row ON public.audit_event",
+				"CREATE TRIGGER audit_event_reject_row BEFORE UPDATE OR DELETE ON public.audit_event FOR EACH ROW EXECUTE FUNCTION public.audit_reject_change()",
+				"table public.audit_event: trigger audit_event_reject_row is missing")
+			if svc, err := New(context.Background(), settings, declared); err != nil {
+				t.Fatalf("New refused the restored database: %v", err)
+			} else {
+				_ = svc.Close()
 			}
 		})
 	})
