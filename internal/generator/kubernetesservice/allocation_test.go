@@ -296,7 +296,6 @@ func testGeneratedAllocationRuntime(t *testing.T, filter string) {
 	c.OutputNamespace = "application"
 	c.PeerNamespaces["jwt-auth"] = "auth"
 	c.AuthPackage = "example.com/widget/out/auth"
-	c.StorageContract = "example.com/widget/out/contracts/storage"
 	c.ComponentConfig = map[string]any{"factory_package": "sample"}
 	httpFiles, _, err := new(httpapplication.Generator).Generate(c)
 	if err != nil {

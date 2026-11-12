@@ -107,7 +107,6 @@ func crudContext() gen.Context {
 		Tenancy:        &gen.Tenancy{Key: "tenant_id"},
 		Idempotency:    &types.Idempotency{RequiredOn: []types.Operation{types.OpCreate, types.OpPatch}, Retention: "24h", Fingerprint: "body"},
 		PeerNamespaces: map[string]string{"idempotency": "idempotency", "postgres-adapter": "storage", gen.TenancyComponent: "tenancy", "command": "commands", "query": "queries"},
-		RuntimeData:    true,
 	}
 }
 
@@ -190,8 +189,8 @@ func slotFiles(t testing.TB, ctx gen.Context) map[string][]byte {
 // data path (ST-SUP-RC01-OC41).
 func crudTables(t testing.TB, ctx gen.Context) []byte {
 	t.Helper()
-	adapter := gen.Context{OutputNamespace: "storage", ModuleName: ctx.ModuleName, ServiceName: ctx.ServiceName, RuntimeData: true,
-		Tenancy: ctx.Tenancy, Entities: ctx.Entities, Collections: ctx.Collections, PeerNamespaces: map[string]string{"postgres-adapter": "storage", gen.TenancyComponent: "tenancy"},
+	adapter := gen.Context{OutputNamespace: "storage", ModuleName: ctx.ModuleName, ServiceName: ctx.ServiceName,
+		Tenancy: ctx.Tenancy, Entities: ctx.Entities, Collections: ctx.Collections, PeerNamespaces: map[string]string{"postgres-adapter": "storage", gen.TenancyComponent: "tenancy", "command": "commands", "query": "queries"},
 		ComponentConfig: map[string]any{"schema_generation": "tables-v1", "writer_lease": "off"}}
 	files, _, err := new(postgresadapter.Generator).Generate(adapter)
 	if err != nil {

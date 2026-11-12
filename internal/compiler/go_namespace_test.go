@@ -29,7 +29,7 @@ func TestLibraryGeneratorsCheckGoPackageNames(t *testing.T) {
 		"keycloak": new(keycloakprovider.Generator), "controller": new(controller.Generator), "grpc": new(grpcapplication.Generator), "http": new(httpapplication.Generator), "jwt": new(jwtauth.Generator), "kafka": new(kafkaproducer.Generator), "kubernetes": new(kubernetesclient.Generator), "outbox": new(outbox.Generator), "storage": new(postgresadapter.Generator), "postgres client": new(postgresclient.Generator), "rest": new(restapi.Generator), "sso": new(rhssoauth.Generator),
 	} {
 		t.Run(name, func(t *testing.T) {
-			ctx := gen.Context{ModuleName: "example.com/names", OutDirName: "out", OutputNamespace: "go-services/worker", StorageContract: "example.com/names/out/contracts/storage", EventsContract: "example.com/names/out/contracts/events", AuthPackage: "example.com/names/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "http-application": "application", "outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "label", Type: types.FieldTypeString}}}}, Collections: []types.Collection{{Name: "records", Entity: "Record", Operations: []types.Operation{types.OpRead}}}, ComponentConfig: map[string]any{}}
+			ctx := gen.Context{ModuleName: "example.com/names", OutDirName: "out", OutputNamespace: "go-services/worker", AuthPackage: "example.com/names/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "http-application": "application", "outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "label", Type: types.FieldTypeString}}}}, Collections: []types.Collection{{Name: "records", Entity: "Record", Operations: []types.Operation{types.OpRead}}}, ComponentConfig: map[string]any{}}
 			if name == "http" || name == "grpc" {
 				ctx.ComponentConfig["factory_package"] = "domain"
 			}
@@ -127,7 +127,7 @@ func TestApplicationFactoriesRequireGoImportPaths(t *testing.T) {
 
 func TestProtobufGeneratedPackagesMustBeImportable(t *testing.T) {
 	generator := new(grpcapplication.Generator)
-	ctx := gen.Context{ModuleName: "example.com/names", OutDirName: "out", OutputNamespace: "grpcapi", StorageContract: "example.com/names/out/contracts/storage", AuthPackage: "example.com/names/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth"}, Inputs: map[string][]byte{"api.proto": []byte(`syntax="proto3";package sample;message Record{}`)}}
+	ctx := gen.Context{ModuleName: "example.com/names", OutDirName: "out", OutputNamespace: "grpcapi", AuthPackage: "example.com/names/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth"}, Inputs: map[string][]byte{"api.proto": []byte(`syntax="proto3";package sample;message Record{}`)}}
 	for _, name := range []string{"main/api.proto", "bad space/api.proto", "café/api.proto"} {
 		t.Run(name, func(t *testing.T) {
 			ctx.ComponentConfig = map[string]any{"factory_package": "domain", "proto_files": []any{map[string]any{"path": "api.proto", "import_path": name}}}

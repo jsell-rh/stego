@@ -20,7 +20,7 @@ var schemaGenerationTests []byte
 
 // schemaContext gives a service with entities on the runtime data path in namespace ns, with the given settings.
 func schemaContext(ns string, config map[string]any) gen.Context {
-	return gen.Context{OutputNamespace: ns, ModuleName: "example.com/schema-gate", RuntimeData: true,
+	return gen.Context{OutputNamespace: ns, ModuleName: "example.com/schema-gate",
 		PeerNamespaces:  map[string]string{"command": "commands", "query": "queries"},
 		ComponentConfig: config,
 		Entities:        []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}}, {Name: "Note", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}}}}
@@ -81,7 +81,10 @@ func TestWriterLeaseModeValidation(t *testing.T) {
 		{"single refused", func(c *gen.Context) { c.ComponentConfig["writer_lease"] = "single" }, "writer_lease single is refused"},
 		{"invalid value rejected", func(c *gen.Context) { c.ComponentConfig["writer_lease"] = "shared" }, "writer_lease must be off or left out"},
 		{"non-string rejected", func(c *gen.Context) { c.ComponentConfig["writer_lease"] = 3 }, "writer_lease must be off or left out"},
-		{"requires schema_generation", func(c *gen.Context) { c.ComponentConfig["writer_lease"] = "off"; delete(c.ComponentConfig, "schema_generation") }, "writer_lease requires schema_generation"},
+		{"requires schema_generation", func(c *gen.Context) {
+			c.ComponentConfig["writer_lease"] = "off"
+			delete(c.ComponentConfig, "schema_generation")
+		}, "writer_lease requires schema_generation"},
 	}
 	for _, tc := range cases {
 		ctx := schemaContext("storage", map[string]any{"schema_generation": "fresh-v1"})

@@ -44,7 +44,6 @@ func ordersContext(namespace string) gen.Context {
 		ModuleName:      moduleName,
 		ServiceName:     "orders",
 		OutputNamespace: namespace,
-		RuntimeData:     true,
 		ErrorTypeBase:   "https://errors.example.com/",
 		ComponentConfig: map[string]any{"anchor_period": "1h", "retention_months": 13},
 		PeerNamespaces: map[string]string{"outbox": outboxNamespace, "audit-log": auditNamespace,

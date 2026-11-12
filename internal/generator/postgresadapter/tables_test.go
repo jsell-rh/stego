@@ -28,7 +28,7 @@ const tablesModule = "example.com/tables-check"
 // whose tenancy component writes to tenancyNS.
 func runtimeService(ns, tenancyNS string, entities []types.Entity, collections []types.Collection) gen.Context {
 	return gen.Context{
-		OutputNamespace: ns, ModuleName: tablesModule, ServiceName: "tables-check", RuntimeData: true,
+		OutputNamespace: ns, ModuleName: tablesModule, ServiceName: "tables-check",
 		Tenancy:         &gen.Tenancy{Key: "tenant_id"},
 		PeerNamespaces:  map[string]string{"postgres-adapter": ns, gen.TenancyComponent: tenancyNS, "command": "commands", "query": "queries"},
 		ComponentConfig: map[string]any{"schema_generation": "tables-v1", "writer_lease": "off"},
@@ -343,17 +343,6 @@ func TestTables(t *testing.T) {
 			if err != nil && want != "schema_generation" && want != "63 bytes" && want != "conditions" && !strings.Contains(err.Error(), "ST-SUP-RC20-OC39") {
 				t.Errorf("%s: the refusal does not name the removal of the GORM store: %v", want, err)
 			}
-		}
-		// The adapter acts on the declaration alone: a context that does not set RuntimeData still gets the tables.
-		store := orderService("storage")
-		store.RuntimeData = false
-		files, _, err := new(postgresadapter.Generator).Generate(store)
-		if err != nil {
-			t.Fatal(err)
-		}
-		noStore(t, files, store.Entities)
-		if !strings.Contains(generated(t, files, "storage/migrate.go"), `RegisterSQL("001_initial", InitialTables)`) {
-			t.Error("a context without RuntimeData does not get the SQL tables")
 		}
 	})
 

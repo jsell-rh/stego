@@ -23,7 +23,7 @@ func TestGeneratedDatabaseAccess(t *testing.T) {
 	if os.Getenv("STEGO_REQUIRE_POSTGRES") == "1" && os.Getenv("STEGO_TEST_POSTGRES_DSN") == "" {
 		t.Fatal("database access checks require PostgreSQL")
 	}
-	ctx := gen.Context{ModuleName: "example.com/access-test", OutDirName: "out", StorageContract: "example.com/access-test/out/contracts/storage",
+	ctx := gen.Context{ModuleName: "example.com/access-test", OutDirName: "out",
 		ComponentConfig: map[string]any{"migrations": "external", "schema_generation": "fresh-v1"},
 		Entities:        []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}}}}
 	ctx.Collections = []types.Collection{{Name: "records", Entity: "Record", Operations: []types.Operation{types.OpRead}}}

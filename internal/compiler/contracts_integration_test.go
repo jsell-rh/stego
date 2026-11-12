@@ -112,7 +112,7 @@ func testGeneratedApplicationEndpoint(t *testing.T, pattern string) {
 // makeHTTPApplication generates the HTTP application project into the folder given and tidies it.
 func makeHTTPApplication(t *testing.T, project string) {
 	t.Helper()
-	ctx := gen.Context{ModuleName: "example.com/http-test", OutDirName: "out", StorageContract: "example.com/http-test/out/contracts/storage", AuthPackage: "example.com/http-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "postgres-adapter": "store", "http-application": "application"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "title", Type: types.FieldTypeString}}}}}
+	ctx := gen.Context{ModuleName: "example.com/http-test", OutDirName: "out", AuthPackage: "example.com/http-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "postgres-adapter": "store", "http-application": "application"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "title", Type: types.FieldTypeString}}}}}
 	var files []gen.File
 	var wirings []compiler.ComponentWiring
 	for _, item := range []struct {
@@ -178,7 +178,7 @@ func makeHTTPApplication(t *testing.T, project string) {
 }
 
 func TestApplicationRequiresVerifierProducer(t *testing.T) {
-	ctx := gen.Context{ModuleName: "example.com/http-test", OutDirName: "out", OutputNamespace: "application", StorageContract: "example.com/http-test/out/contracts/storage", AuthPackage: "example.com/http-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth"}, ComponentConfig: map[string]any{"factory_package": "sample"}}
+	ctx := gen.Context{ModuleName: "example.com/http-test", OutDirName: "out", OutputNamespace: "application", AuthPackage: "example.com/http-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth"}, ComponentConfig: map[string]any{"factory_package": "sample"}}
 	_, application, err := new(httpapplication.Generator).Generate(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -252,7 +252,7 @@ func testGeneratedGRPCApplication(t *testing.T, watch bool, selected ...string) 
 // makeGRPCApplication generates the gRPC application project into the folder given, and tidies and vets it.
 func makeGRPCApplication(t *testing.T, project string, watch bool) {
 	t.Helper()
-	ctx := gen.Context{ServiceName: "records", ModuleName: "example.com/grpc-test", OutDirName: "out", EventsContract: "example.com/grpc-test/out/contracts/events", StorageContract: "example.com/grpc-test/out/contracts/storage", AuthPackage: "example.com/grpc-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "postgres-adapter": "store", "grpc-application": "grpcapi", "outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "title", Type: types.FieldTypeString}}}}, Inputs: map[string][]byte{"api/records.proto": []byte(grpcSchema)}}
+	ctx := gen.Context{ServiceName: "records", ModuleName: "example.com/grpc-test", OutDirName: "out", AuthPackage: "example.com/grpc-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "postgres-adapter": "store", "grpc-application": "grpcapi", "outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "title", Type: types.FieldTypeString}}}}, Inputs: map[string][]byte{"api/records.proto": []byte(grpcSchema)}}
 	if watch {
 		ctx.PeerNamespaces["otel-tracing"] = "telemetry"
 	}
@@ -368,7 +368,6 @@ func testGeneratedGRPCProcesses(t *testing.T, selected string) {
 func makeGRPCProcesses(t *testing.T, project string) {
 	t.Helper()
 	ctx := grpcProcessContext(t)
-	ctx.StorageContract = ""
 	delete(ctx.ComponentConfig, "factory_package")
 	var wirings []compiler.ComponentWiring
 	write := func(name string, data []byte) {
@@ -739,5 +738,5 @@ func grpcProcessContext(t *testing.T) gen.Context {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return gen.Context{ServiceName: "records", ModuleName: "example.com/grpc-test", OutDirName: "out", OutputNamespace: "grpcapi", StorageContract: "example.com/grpc-test/out/contracts/storage", AuthPackage: "example.com/grpc-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "otel-tracing": "telemetry"}, Inputs: map[string][]byte{"api.proto": []byte(grpcSchema), "factory/rpc.go": source}, ComponentConfig: map[string]any{"factory_package": "sample", "proto_files": []any{map[string]any{"path": "api.proto", "import_path": "sample/v1/records.proto"}}, "processes": []any{map[string]any{"name": "records", "factory_package": "factory"}}}}
+	return gen.Context{ServiceName: "records", ModuleName: "example.com/grpc-test", OutDirName: "out", OutputNamespace: "grpcapi", AuthPackage: "example.com/grpc-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "otel-tracing": "telemetry"}, Inputs: map[string][]byte{"api.proto": []byte(grpcSchema), "factory/rpc.go": source}, ComponentConfig: map[string]any{"factory_package": "sample", "proto_files": []any{map[string]any{"path": "api.proto", "import_path": "sample/v1/records.proto"}}, "processes": []any{map[string]any{"name": "records", "factory_package": "factory"}}}}
 }

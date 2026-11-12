@@ -164,7 +164,6 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 			FillSlots:       maps.Clone(facts.FillSlots),
 			Commands:        declaredCommands(svcDecl, facts.FillSlots),
 			Destinations:    declaredDestinations(svcDecl, componentNames),
-			RuntimeData:     runtimeData,
 			QueryStreams:    declaration.QueryStreams(svcDecl, facts),
 		}
 		if compName == authorizationComponent && svcDecl.Authorization != nil && svcDecl.Authorization.SchemaPath != "" {

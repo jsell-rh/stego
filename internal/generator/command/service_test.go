@@ -121,8 +121,8 @@ func startSpiceDB(t *testing.T) (string, string) {
 // runtime data path (ST-SUP-RC01-OC41).
 func tablesMigration(t *testing.T, ctx gen.Context) []byte {
 	t.Helper()
-	adapter := gen.Context{OutputNamespace: "storage", ModuleName: ctx.ModuleName, ServiceName: ctx.ServiceName, RuntimeData: true,
-		Tenancy: ctx.Tenancy, Entities: ctx.Entities, PeerNamespaces: map[string]string{"postgres-adapter": "storage", gen.TenancyComponent: "tenancy"},
+	adapter := gen.Context{OutputNamespace: "storage", ModuleName: ctx.ModuleName, ServiceName: ctx.ServiceName,
+		Tenancy: ctx.Tenancy, Entities: ctx.Entities, PeerNamespaces: map[string]string{"postgres-adapter": "storage", gen.TenancyComponent: "tenancy", "command": "commands", "query": "queries"},
 		ComponentConfig: map[string]any{"schema_generation": "tables-v1", "writer_lease": "off"}}
 	files, _, err := new(postgresadapter.Generator).Generate(adapter)
 	if err != nil {

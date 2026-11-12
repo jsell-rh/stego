@@ -37,7 +37,6 @@ func basicContext() gen.Context {
 			},
 		},
 		OutputNamespace: "internal/storage",
-		RuntimeData:     true,
 		PeerNamespaces:  map[string]string{"command": "commands", "query": "queries"},
 		ComponentConfig: map[string]any{"schema_generation": "basic-v1"},
 	}

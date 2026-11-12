@@ -11,7 +11,7 @@ import (
 // context is the context of oidc-auth on the runtime data path with the settings given, for a service with one
 // entity.
 func context(config map[string]any) gen.Context {
-	return gen.Context{RuntimeData: true, ComponentConfig: config, Entities: []types.Entity{{Name: "Order"}}}
+	return gen.Context{ComponentConfig: config, Entities: []types.Entity{{Name: "Order"}}}
 }
 
 func good() map[string]any {

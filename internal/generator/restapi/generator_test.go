@@ -29,7 +29,6 @@ func onRuntime(ctx gen.Context) gen.Context {
 	if ctx.Authorization == nil {
 		ctx.Authorization = &types.Authorization{Provider: "spicedb", SchemaPath: "authz/schema.zed", SubjectFromIdentity: "user"}
 	}
-	ctx.RuntimeData = true
 	entities := make([]types.Entity, len(ctx.Entities))
 	for i, e := range ctx.Entities {
 		if e.ResourceType == "" {

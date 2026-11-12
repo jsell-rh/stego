@@ -48,7 +48,7 @@ func TestGeneratedWorkloadConstruction(t *testing.T) {
 		t.Fatal(err)
 	}
 	contents := map[string][]byte{"go.mod": []byte("module example.com/widget\ngo 1.26.11\nrequire k8s.io/api v0.35.0\nrequire k8s.io/apimachinery v0.35.0\n"), files[0].Path: files[0].Bytes(), "workload/workload_test.go": runtimeTests, "workload/updates_test.go": updateTests, "workload/dependency_data_test.go": dependencyDataTests}
-	clientContext := gen.Context{ModuleName: "example.com/widget", OutputNamespace: "kubernetes", PeerNamespaces: map[string]string{"http-application": "application", "jwt-auth": "auth"}, StorageContract: "example.com/widget/contracts/storage", AuthPackage: "example.com/widget/auth", ComponentConfig: map[string]any{"factory_package": "sample"}}
+	clientContext := gen.Context{ModuleName: "example.com/widget", OutputNamespace: "kubernetes", PeerNamespaces: map[string]string{"http-application": "application", "jwt-auth": "auth"}, AuthPackage: "example.com/widget/auth", ComponentConfig: map[string]any{"factory_package": "sample"}}
 	clientFiles, _, err := new(kubernetesclient.Generator).Generate(clientContext)
 	if err != nil {
 		t.Fatal(err)

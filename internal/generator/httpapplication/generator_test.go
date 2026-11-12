@@ -90,8 +90,8 @@ func TestApplicationFactoryGetsNoStorage(t *testing.T) {
 		if calls != 1 {
 			t.Fatalf("the bridge calls application.New %d times, want once", calls)
 		}
-		if len(wiring.ConstructorResources) != 0 || len(wiring.Contracts) != 0 || strings.Join(wiring.ConstructorDeps[0], ",") != "verifierFromEnvironment" {
-			t.Fatalf("the wiring gives the bridge %v, %v and %v, want the verifier alone", wiring.ConstructorResources, wiring.Contracts, wiring.ConstructorDeps)
+		if len(wiring.ConstructorResources) != 0 || strings.Join(wiring.ConstructorDeps[0], ",") != "verifierFromEnvironment" {
+			t.Fatalf("the wiring gives the bridge %v and %v, want the verifier alone", wiring.ConstructorResources, wiring.ConstructorDeps)
 		}
 	})
 }

@@ -77,9 +77,8 @@ func shopProject(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	adapterCtx := gen.Context{OutputNamespace: "internal/storage", ModuleName: shopModule, OutDirName: "out", ServiceName: "shop",
-		RuntimeData: true, Tenancy: ctx.Tenancy, Entities: ctx.Entities,
-		PeerNamespaces:  map[string]string{"postgres-adapter": "internal/storage", gen.TenancyComponent: "internal/tenancy"},
+	adapterCtx := gen.Context{OutputNamespace: "internal/storage", ModuleName: shopModule, OutDirName: "out", ServiceName: "shop", Tenancy: ctx.Tenancy, Entities: ctx.Entities,
+		PeerNamespaces:  map[string]string{"postgres-adapter": "internal/storage", gen.TenancyComponent: "internal/tenancy", "command": "internal/commands", "query": "internal/queries"},
 		ComponentConfig: map[string]any{"schema_generation": "shop-v1", "writer_lease": "off"}}
 	adapterFiles, _, err := new(postgresadapter.Generator).Generate(adapterCtx)
 	if err != nil {
