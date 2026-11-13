@@ -2,7 +2,9 @@ package query
 
 import (
 	"context"
+	"crypto/md5"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -458,96 +460,123 @@ func TestSmallListOrder(t *testing.T) {
 }
 
 func TestSmallListOrderWork(t *testing.T) {
+	e := newEnv(t)
+	// An index of the order field, which the planner walks when it may test the keys row by row.
+	e.insert(t, "CREATE INDEX orders_total ON app.orders (tenant_id, total)")
+	// In both tenants the caller sees the same 5000 orders; 200000 hidden orders sort before them by total in t1,
+	// and after them in t2.
+	var visible []string
+	for i := range 5000 {
+		visible = append(visible, fmt.Sprintf("v-%05d", i))
+	}
+	e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT t, 'v-' || lpad(g::text, 5, '0'), 1000000 + g FROM generate_series(0, 4999) g, (VALUES ('t1'), ('t2')) AS x(t)")
+	e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't1', 'h-' || g, g FROM generate_series(1, 200000) g")
+	e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't2', 'h-' || g, 2000000 + g FROM generate_series(1, 200000) g")
+	// For a filter on the indexed field: the same visible orders, all of total 7, in t3 with 200000 hidden orders
+	// of total 7 that match the filter, and in t4 with 200000 hidden orders of total 8 that do not.
+	e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT t, 'v-' || lpad(g::text, 5, '0'), 7 FROM generate_series(0, 4999) g, (VALUES ('t3'), ('t4')) AS x(t)")
+	e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't3', 'h-' || g, 7 FROM generate_series(1, 200000) g")
+	e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't4', 'h-' || g, 8 FROM generate_series(1, 200000) g")
+	// For a full search page in the order of the key: 5000 visible orders of total 77 in t5 and t6, whose keys are
+	// spread among the hidden keys, with 2000 hidden orders of total 77 and 198000 of total 78 in t5, and 200000 of
+	// total 78 in t6. Total 77 is rare in the table, so the filter field's index is selective enough for the planner
+	// to walk it.
+	e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT t, md5('v' || g), 77 FROM generate_series(0, 4999) g, (VALUES ('t5'), ('t6')) AS x(t)")
+	e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't5', md5('h' || g), CASE WHEN g <= 2000 THEN 77 ELSE 78 END FROM generate_series(1, 200000) g")
+	e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't6', md5('h' || g), 78 FROM generate_series(1, 200000) g")
+	e.insert(t, "VACUUM ANALYZE app.orders")
+	// spread are the visible keys of t5 and t6, md5('v' || g), in the order of the key.
+	var spread []string
+	for i := range 5000 {
+		sum := md5.Sum([]byte(fmt.Sprintf("v%d", i)))
+		spread = append(spread, hex.EncodeToString(sum[:]))
+	}
+	slices.Sort(spread)
+	var current string
+	port := &fakeDecision{decide: func(authz.EvaluationRequest) bool { return true }, search: func(r authz.SearchRequest) authz.SearchResult {
+		from := 0
+		if cursor, _, ok := r.Page.Token.CursorFor("fake"); ok {
+			fmt.Sscan(cursor, &from)
+		}
+		keys := visible
+		if current == "t5" || current == "t6" {
+			keys = spread
+		}
+		to := min(from+r.Page.Limit, len(keys))
+		var result authz.SearchResult
+		for _, id := range keys[from:to] {
+			result.Resources = append(result.Resources, resourceIn(t, current, "order", id))
+		}
+		if to < len(keys) {
+			result.Next = authz.NewPageToken("fake", fmt.Sprint(to), authz.Fresh())
+		}
+		return result
+	}}
+	rt := e.servedRuntime(t, port)
+	searched := orderEntity(t, true)
+	q := mustListQuery(t, "list-searched-orders", searched, "view")
+	p := mustPrincipal(t, "user:u-7")
+	var listBuffers func(t *testing.T, id string, request ListRequest) ([]string, int)
+	// buffers lists the first page in the order of total as tenant id, and gives its IDs and the shared buffers
+	// that the ordered statement of the list reads, from EXPLAIN (ANALYZE, BUFFERS) of the same statement.
+	buffers := func(t *testing.T, id string, where []Equal) ([]string, int) {
+		return listBuffers(t, id, ListRequest{Limit: 4, Order: []OrderBy{{Field: "total"}}, Where: where})
+	}
+	listBuffers = func(t *testing.T, id string, request ListRequest) ([]string, int) {
+		current = id
+		tn := mustTenant(t, id)
+		rec := &statements{}
+		tx, err := tenant.Begin(context.Background(), e.traced(t, rec), tn, &sql.TxOptions{ReadOnly: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback() }()
+		h, err := bind(context.Background(), rt, tx, tn, p, q, noProbe{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		repo, err := Repo(h, searched)
+		if err != nil {
+			t.Fatal(err)
+		}
+		page, err := repo.List(context.Background(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ids []string
+		for _, item := range page.Items {
+			ids = append(ids, item.ID())
+		}
+		for _, s := range rec.all() {
+			if !strings.Contains(s.sql, "app.orders") || !strings.Contains(s.sql, "ORDER BY") {
+				continue
+			}
+			var plan []struct {
+				Plan struct {
+					Hit  int `json:"Shared Hit Blocks"`
+					Read int `json:"Shared Read Blocks"`
+				} `json:"Plan"`
+			}
+			var text []byte
+			if err := e.admin.QueryRowContext(context.Background(), "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "+s.sql, s.args...).Scan(&text); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(text, &plan); err != nil || len(plan) != 1 {
+				t.Fatalf("the plan %s: %v", text, err)
+			}
+			var nodes []map[string]any
+			if err := json.Unmarshal(text, &nodes); err != nil || len(nodes) != 1 {
+				t.Fatalf("the plan %s: %v", text, err)
+			}
+			lastRowsRead = rowsRead(nodes[0]["Plan"])
+			return ids, plan[0].Plan.Hit + plan[0].Plan.Read
+		}
+		t.Fatal("the list ran no ordered statement")
+		return nil, 0
+	}
 	t.Run("ST-SUP-RP11-LC20-T07 The work of an ordered list of an entity of small expected cardinality depends neither on where hidden rows sort nor on whether they match its filter", func(t *testing.T) {
-		e := newEnv(t)
-		// An index of the order field, which the planner walks when it may test the keys row by row.
-		e.insert(t, "CREATE INDEX orders_total ON app.orders (tenant_id, total)")
-		// In both tenants the caller sees the same 5000 orders; 200000 hidden orders sort before them by total in t1,
-		// and after them in t2.
-		var visible []string
-		for i := range 5000 {
-			visible = append(visible, fmt.Sprintf("v-%05d", i))
-		}
-		e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT t, 'v-' || lpad(g::text, 5, '0'), 1000000 + g FROM generate_series(0, 4999) g, (VALUES ('t1'), ('t2')) AS x(t)")
-		e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't1', 'h-' || g, g FROM generate_series(1, 200000) g")
-		e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't2', 'h-' || g, 2000000 + g FROM generate_series(1, 200000) g")
-		// For a filter on the indexed field: the same visible orders, all of total 7, in t3 with 200000 hidden orders
-		// of total 7 that match the filter, and in t4 with 200000 hidden orders of total 8 that do not.
-		e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT t, 'v-' || lpad(g::text, 5, '0'), 7 FROM generate_series(0, 4999) g, (VALUES ('t3'), ('t4')) AS x(t)")
-		e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't3', 'h-' || g, 7 FROM generate_series(1, 200000) g")
-		e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't4', 'h-' || g, 8 FROM generate_series(1, 200000) g")
-		e.insert(t, "VACUUM ANALYZE app.orders")
-		var current string
-		port := &fakeDecision{decide: func(authz.EvaluationRequest) bool { return true }, search: func(r authz.SearchRequest) authz.SearchResult {
-			from := 0
-			if cursor, _, ok := r.Page.Token.CursorFor("fake"); ok {
-				fmt.Sscan(cursor, &from)
-			}
-			to := min(from+r.Page.Limit, len(visible))
-			var result authz.SearchResult
-			for _, id := range visible[from:to] {
-				result.Resources = append(result.Resources, resourceIn(t, current, "order", id))
-			}
-			if to < len(visible) {
-				result.Next = authz.NewPageToken("fake", fmt.Sprint(to), authz.Fresh())
-			}
-			return result
-		}}
-		rt := e.servedRuntime(t, port)
-		searched := orderEntity(t, true)
-		q := mustListQuery(t, "list-searched-orders", searched, "view")
-		p := mustPrincipal(t, "user:u-7")
-		// buffers lists the first page in the order of total as tenant id, and gives its IDs and the shared buffers
-		// that the ordered statement of the list reads, from EXPLAIN (ANALYZE, BUFFERS) of the same statement.
-		buffers := func(id string, where []Equal) ([]string, int) {
-			current = id
-			tn := mustTenant(t, id)
-			rec := &statements{}
-			tx, err := tenant.Begin(context.Background(), e.traced(t, rec), tn, &sql.TxOptions{ReadOnly: true})
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer func() { _ = tx.Rollback() }()
-			h, err := bind(context.Background(), rt, tx, tn, p, q, noProbe{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			repo, err := Repo(h, searched)
-			if err != nil {
-				t.Fatal(err)
-			}
-			page, err := repo.List(context.Background(), ListRequest{Limit: 4, Order: []OrderBy{{Field: "total"}}, Where: where})
-			if err != nil {
-				t.Fatal(err)
-			}
-			var ids []string
-			for _, item := range page.Items {
-				ids = append(ids, item.ID())
-			}
-			for _, s := range rec.all() {
-				if !strings.Contains(s.sql, "app.orders") || !strings.Contains(s.sql, "ORDER BY") {
-					continue
-				}
-				var plan []struct {
-					Plan struct {
-						Hit  int `json:"Shared Hit Blocks"`
-						Read int `json:"Shared Read Blocks"`
-					} `json:"Plan"`
-				}
-				var text []byte
-				if err := e.admin.QueryRowContext(context.Background(), "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "+s.sql, s.args...).Scan(&text); err != nil {
-					t.Fatal(err)
-				}
-				if err := json.Unmarshal(text, &plan); err != nil || len(plan) != 1 {
-					t.Fatalf("the plan %s: %v", text, err)
-				}
-				return ids, plan[0].Plan.Hit + plan[0].Plan.Read
-			}
-			t.Fatal("the list ran no ordered statement")
-			return nil, 0
-		}
-		beforeIDs, before := buffers("t1", nil)
-		afterIDs, after := buffers("t2", nil)
+		beforeIDs, before := buffers(t, "t1", nil)
+		afterIDs, after := buffers(t, "t2", nil)
 		want := []string{"v-00000", "v-00001", "v-00002", "v-00003"}
 		if !slices.Equal(beforeIDs, want) || !slices.Equal(afterIDs, want) {
 			t.Errorf("the first pages were %v and %v, want %v in both tenants", beforeIDs, afterIDs, want)
@@ -557,8 +586,8 @@ func TestSmallListOrderWork(t *testing.T) {
 		}
 		// A filter on an indexed field: hidden rows that match it cost no more than hidden rows that do not.
 		seven := []Equal{{Field: "total", Value: int64(7)}}
-		matchIDs, match := buffers("t3", seven)
-		noneIDs, none := buffers("t4", seven)
+		matchIDs, match := buffers(t, "t3", seven)
+		noneIDs, none := buffers(t, "t4", seven)
 		if !slices.Equal(matchIDs, want) || !slices.Equal(noneIDs, want) {
 			t.Errorf("the filtered first pages were %v and %v, want %v in both tenants", matchIDs, noneIDs, want)
 		}
@@ -566,6 +595,42 @@ func TestSmallListOrderWork(t *testing.T) {
 			t.Errorf("the filtered ordered list read %d buffers with hidden rows that match the filter and %d with hidden rows that do not; the work depends on hidden matches", match, none)
 		}
 	})
+	t.Run("ST-SUP-RP11-LC20-T09 The work of a filtered list of an entity of small expected cardinality in the order of the key does not depend on whether hidden rows match its filter", func(t *testing.T) {
+		// A full search page of 1000 keys with the filter total = 77, which reads the search page (searchPage).
+		page := ListRequest{Limit: 1000, Where: []Equal{{Field: "total", Value: int64(77)}}}
+		matchIDs, match := listBuffers(t, "t5", page)
+		matchRows := lastRowsRead
+		noneIDs, none := listBuffers(t, "t6", page)
+		noneRows := lastRowsRead
+		if len(matchIDs) != 1000 || !slices.Equal(matchIDs, noneIDs) {
+			t.Errorf("the filtered pages gave %d and %d visible orders, want the same 1000 in both tenants", len(matchIDs), len(noneIDs))
+		}
+		if match > 2*none+50 || matchRows != noneRows {
+			t.Errorf("the filtered list in the order of the key read %d buffers and %v rows of the table with hidden rows that match the filter, and %d buffers and %v rows with hidden rows that do not; the work depends on hidden matches", match, matchRows, none, noneRows)
+		}
+	})
+}
+
+// lastRowsRead is the number of rows of the table that the last plan of listBuffers read.
+var lastRowsRead float64
+
+// rowsRead sums, over the nodes of an EXPLAIN (ANALYZE, FORMAT JSON) plan that read the orders table, the rows that
+// each gave in all its loops and the rows that its filter or recheck removed: every row of the table it read.
+func rowsRead(node any) float64 {
+	m, ok := node.(map[string]any)
+	if !ok {
+		return 0
+	}
+	total := 0.0
+	if m["Relation Name"] == "orders" {
+		number := func(name string) float64 { v, _ := m[name].(float64); return v }
+		total += number("Actual Rows")*number("Actual Loops") + number("Rows Removed by Filter") + number("Rows Removed by Index Recheck")
+	}
+	children, _ := m["Plans"].([]any)
+	for _, child := range children {
+		total += rowsRead(child)
+	}
+	return total
 }
 
 func TestOverBoundWarning(t *testing.T) {

@@ -551,7 +551,9 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, 
 	}
 	// The first page has no key predicate, so a key of any type, such as uuid, needs no lowest value.
 	// The filter's values are the parameters after the tenant ($2 on), and then come the key and the limit.
-	filter, filterArgs := e.filterSQL(where, keys, 2)
+	// The statements in the order of the key take no keys: a list of searched keys is always in an order of fields
+	// (orderedStatement), and an unordered one reads the search page (searchPage).
+	filter, filterArgs := e.filterSQL(where, nil, 2)
 	n := len(filterArgs) + 2
 	first := "SELECT " + e.selectList + " FROM " + e.table + " WHERE " + TenantColumn + " = $1" + filter + " ORDER BY " +
 		e.spec.Key + " LIMIT $" + strconv.Itoa(n)
@@ -715,10 +717,13 @@ func (r *Repository[T]) searchPage(ctx context.Context, limit int, after Cursor,
 	}
 	ids := found.Keys
 	// The filter reads only the rows of the search, so a page may hold fewer values than the limit and still have
-	// more after it.
+	// more after it. The rows are read by the tenant and the key alone first, and only then filtered, so the planner
+	// cannot walk an index of a filter field and test each row it passes, hidden rows included, against the keys
+	// (ST-SUP-RP11-LC20).
 	filter, filterArgs := e.filterSQL(where, nil, 3)
-	rows, err := c.tx.QueryContext(ctx, "SELECT "+e.selectList+" FROM "+e.table+" WHERE "+TenantColumn+" = $1 AND "+
-		e.spec.Key+" = ANY($2)"+filter+" ORDER BY "+e.spec.Key, append([]any{c.tenant.ID(), ids}, filterArgs...)...)
+	rows, err := c.tx.QueryContext(ctx, "WITH v AS MATERIALIZED (SELECT * FROM "+e.table+" WHERE "+TenantColumn+" = $1 AND "+
+		e.spec.Key+" = ANY($2)) SELECT "+e.selectList+" FROM v WHERE true"+filter+" ORDER BY "+e.spec.Key,
+		append([]any{c.tenant.ID(), ids}, filterArgs...)...)
 	if err != nil {
 		return ListResult[T]{}, fmt.Errorf("query: list %s: %w", e.spec.Name, err)
 	}
