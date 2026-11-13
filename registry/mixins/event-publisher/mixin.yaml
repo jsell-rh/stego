@@ -1,14 +1,16 @@
 kind: mixin
 name: event-publisher
-version: 2.0.0
+version: 3.0.0
 
-adds_components:
-  - outbox
-  - kafka-producer
+# A deprecated alias of durable-events and kafka-events (ST-SUP-INV17): binding it binds both. Its slot contract
+# stays at slots/on_entity_changed.proto, so a fill that implements event-publisher.on_entity_changed keeps its
+# contract digest.
+alias_of:
+  - durable-events
+  - kafka-events
 
-adds_slots:
-  - name: on_entity_changed
-    proto: stego.mixins.event_publisher.slots.OnEntityChanged
-    default: noop
+adds_components: []
+
+adds_slots: []
 
 overrides: none

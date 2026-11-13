@@ -197,7 +197,27 @@ func LoadSources(sources ...Source) (*Registry, error) {
 		if err := r.checkSlots("mixins", name, item.AddsSlots); err != nil {
 			return nil, err
 		}
+		if len(item.AliasOf) > 0 && (len(item.AddsComponents) > 0 || len(item.AddsSlots) > 0 || len(item.RequiresMixins) > 0) {
+			return nil, fmt.Errorf("mixin %s is an alias and adds or requires nothing of its own, in %s", name, file)
+		}
 		r.mixins[name] = item
+	}
+	// An alias names mixins that are no aliases, so an alias never leads to itself or to another alias.
+	for name, item := range r.mixins {
+		for _, target := range item.AliasOf {
+			resolved, ok := r.mixins[target]
+			if !ok {
+				return nil, fmt.Errorf("mixin %s is an alias of the mixin %s, which the registry does not hold", name, target)
+			}
+			if len(resolved.AliasOf) > 0 {
+				return nil, fmt.Errorf("mixin %s is an alias of the mixin %s, which is an alias too", name, target)
+			}
+		}
+		for _, required := range item.RequiresMixins {
+			if _, ok := r.mixins[required]; !ok {
+				return nil, fmt.Errorf("mixin %s requires the mixin %s, which the registry does not hold", name, required)
+			}
+		}
 	}
 	if err := checkGoldenPaths(r); err != nil {
 		return nil, err

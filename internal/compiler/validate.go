@@ -115,7 +115,8 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 		// mixin itself, not by any component, so they must be added to the
 		// available set separately.
 		var mixinSlots []registry.SlotDefinition
-		for _, mixinName := range svcDecl.Mixins {
+		mixins, _ := boundMixins(reg, svcDecl.Mixins)
+		for _, mixinName := range mixins {
 			mixin := reg.Mixin(mixinName)
 			if mixin != nil {
 				mixinSlots = append(mixinSlots, mixin.AddsSlots...)
@@ -461,7 +462,8 @@ func fillCheck(input ReconcilerInput, svcDecl *types.ServiceDeclaration, reg *re
 			})
 		}
 	}
-	for _, mixinName := range svcDecl.Mixins {
+	mixins, _ := boundMixins(reg, svcDecl.Mixins)
+	for _, mixinName := range mixins {
 		mixin := reg.Mixin(mixinName)
 		if mixin == nil {
 			continue
@@ -471,6 +473,24 @@ func fillCheck(input ReconcilerInput, svcDecl *types.ServiceDeclaration, reg *re
 				Ref:      types.SlotRef{Component: mixin.Name, Slot: sd.Name},
 				Contract: "mixins/" + mixin.Name + "/slots/" + sd.Name + ".proto",
 			})
+		}
+	}
+	// A fill may name a slot of a mixin that an alias names by the alias, such as event-publisher.on_entity_changed:
+	// its contract is the one that the alias keeps in its own folder, so the digest of the fill's evidence holds.
+	for _, aliasName := range svcDecl.Mixins {
+		alias := reg.Mixin(aliasName)
+		if alias == nil || len(alias.AliasOf) == 0 {
+			continue
+		}
+		for _, target := range alias.AliasOf {
+			if mixin := reg.Mixin(target); mixin != nil {
+				for _, sd := range mixin.AddsSlots {
+					check.Slots = append(check.Slots, FillSlot{
+						Ref:      types.SlotRef{Component: alias.Name, Slot: sd.Name},
+						Contract: "mixins/" + alias.Name + "/slots/" + sd.Name + ".proto",
+					})
+				}
+			}
 		}
 	}
 	for _, c := range svcDecl.Collections {

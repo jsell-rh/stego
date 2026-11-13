@@ -66,11 +66,15 @@ type Component struct {
 	OutputNamespace string                       `yaml:"output_namespace,omitempty"`
 }
 
-// Mixin adds components and slots to an archetype.
+// Mixin adds components and slots to an archetype. A mixin with AliasOf is a deprecated alias: binding it binds
+// the mixins it names instead, and it adds nothing of its own (ST-SUP-INV17). RequiresMixins are the mixins that
+// must be bound with it (ST-SUP-INV16).
 type Mixin struct {
 	Kind           string           `yaml:"kind"`
 	Name           string           `yaml:"name"`
 	Version        string           `yaml:"version"`
+	AliasOf        []string         `yaml:"alias_of,omitempty"`
+	RequiresMixins []string         `yaml:"requires_mixins,omitempty"`
 	AddsComponents []string         `yaml:"adds_components"`
 	AddsSlots      []SlotDefinition `yaml:"adds_slots"`
 	Overrides      string           `yaml:"overrides"` // "none"

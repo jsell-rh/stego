@@ -33,6 +33,8 @@ conventions:
 
 compatible_mixins:
   - event-publisher
+  - durable-events
+  - kafka-events
   - async-worker
 
 bindings:
