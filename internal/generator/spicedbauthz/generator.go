@@ -71,15 +71,9 @@ type operationPlan struct {
 	Public                                                  bool
 }
 
-// entityPlan is one protected entity: its resource type, its table and its relationships.
+// entityPlan is one protected entity: its resource type and its table.
 type entityPlan struct {
 	Name, ResourceType, Table string
-	Relationships             []relationshipPlan
-}
-
-// relationshipPlan is one relationship of an entity, with the Go name of its subject in the subjects struct.
-type relationshipPlan struct {
-	Relation, Source, Field, SubjectType, GoName string
 }
 
 // bindingPlan is one slot binding that names the relations its fills may write.
@@ -167,16 +161,6 @@ func read(ctx gen.Context) (plan, error) {
 		}
 		owners[entity.ResourceType] = entity.Name
 		e := entityPlan{Name: entity.Name, ResourceType: entity.ResourceType, Table: postgresadapter.TableName(entity.Name)}
-		seen := map[string]bool{}
-		for _, relationship := range entity.Relationships {
-			r := relationshipPlan{Relation: relationship.Relation, Source: relationship.SubjectSource,
-				Field: relationship.SubjectField, SubjectType: relationship.SubjectType, GoName: pascal(relationship.Relation)}
-			if r.GoName == "" || !token.IsIdentifier(r.GoName) || seen[r.GoName] {
-				return plan{}, fmt.Errorf("spicedb-authz: the relationship %s of the entity %s gives no Go name of its own", relationship.Relation, entity.Name)
-			}
-			seen[r.GoName] = true
-			e.Relationships = append(e.Relationships, r)
-		}
 		p.Entities = append(p.Entities, e)
 	}
 	for _, collection := range ctx.Collections {
@@ -195,7 +179,7 @@ func read(ctx gen.Context) (plan, error) {
 	}
 	names := map[string]string{}
 	for _, e := range p.Entities {
-		for _, name := range []string{e.Name + "Resource", e.Name + "Relations", e.Name + "Subjects", e.Name + "Tuples", "Write" + e.Name + "Relationships"} {
+		for _, name := range []string{e.Name + "Resource"} {
 			names[name] = "the entity " + e.Name
 		}
 	}
@@ -415,55 +399,11 @@ func Watch(ctx context.Context, relay *stegoauthz.Relay, oldest stegoauthz.Oldes
 	return b.Bytes()
 }
 
-// renderEntity writes the resource function of a protected entity and, when it has relationships, its relations,
-// its subjects, its tuples and its tuple writes.
+// renderEntity writes the resource function of a protected entity. The runtime writes the declared relationships
+// of a row as it writes its references (ST-SUP-RP10-LC05, ST-SUP-Q118), from the Relationships list that the command
+// generator gives the entity, so no relationship mapper is emitted here.
 func renderEntity(b *bytes.Buffer, e entityPlan) {
 	fmt.Fprintf(b, "// %sResource gives the resource %s of the %s row of key in tenant t, with the tenant-qualified ID of the\n", e.Name, e.ResourceType, e.Name)
 	b.WriteString("// runtime (ST-SUP-RC29-OC22, ST-SUP-RP06-LC22).\n")
 	fmt.Fprintf(b, "func %sResource(t tenant.Tenant, key string) (stegoauthz.Resource, error) {\n\treturn stegoauthz.NewResource(t, %q, key)\n}\n\n", e.Name, e.ResourceType)
-	if len(e.Relationships) == 0 {
-		return
-	}
-	fmt.Fprintf(b, "// %sRelations are the relations that the relationships of %s write, for the handle that its writes bind.\n", e.Name, e.Name)
-	fmt.Fprintf(b, "var %sRelations = []stegoauthz.Relation{", e.Name)
-	for i, r := range e.Relationships {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		fmt.Fprintf(b, "{ResourceType: %q, Name: %q}", e.ResourceType, r.Relation)
-	}
-	b.WriteString("}\n\n")
-	fmt.Fprintf(b, "// %sSubjects are the subject IDs of the relationships of one %s row. An empty ID writes no tuple.\n", e.Name, e.Name)
-	fmt.Fprintf(b, "type %sSubjects struct {\n", e.Name)
-	for _, r := range e.Relationships {
-		from := "the caller"
-		if r.Source == types.SubjectSourceField {
-			from = "the field " + r.Field
-		}
-		fmt.Fprintf(b, "\t// %s is the %s that holds %s#%s, from %s.\n\t%s string\n", r.GoName, r.SubjectType, e.ResourceType, r.Relation, from, r.GoName)
-	}
-	b.WriteString("}\n\n")
-	fmt.Fprintf(b, "// %sTuples gives the declared tuples of the %s row of key in tenant t (ST-SUP-RC29-OC05).\n", e.Name, e.Name)
-	fmt.Fprintf(b, "func %sTuples(t tenant.Tenant, key string, s %sSubjects) ([]stegoauthz.Tuple, error) {\n", e.Name, e.Name)
-	fmt.Fprintf(b, "\tresource, err := %sResource(t, key)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tvar tuples []stegoauthz.Tuple\n", e.Name)
-	for _, r := range e.Relationships {
-		fmt.Fprintf(b, "\tif s.%s != \"\" {\n\t\ttuples = append(tuples, stegoauthz.Tuple{Resource: resource, Relation: %q, Subject: stegoauthz.Subject{Type: %q, ID: s.%s}})\n\t}\n", r.GoName, r.Relation, r.SubjectType, r.GoName)
-	}
-	b.WriteString("\treturn tuples, nil\n}\n\n")
-	fmt.Fprintf(b, "// Write%sRelationships enqueues through h, in the transaction of the %s row of key, the tuple changes of\n", e.Name, e.Name)
-	b.WriteString("// the row from before to after: before is nil on create and after is nil on delete. Each relationship whose\n")
-	b.WriteString("// subject changes deletes its old tuple and then touches its new one, and every tuple joins the transaction's\n")
-	b.WriteString("// revocation (ST-SUP-RC29-OC05, ST-SUP-RP06-LC12). It writes nothing to the provider; the relay does. It gives\n")
-	b.WriteString("// the revocation and whether it enqueued a tuple.\n")
-	fmt.Fprintf(b, "func Write%sRelationships(ctx context.Context, h *stegoauthz.Handle, t tenant.Tenant, key string, before, after *%sSubjects) (stegoauthz.Revocation, bool, error) {\n", e.Name, e.Name)
-	fmt.Fprintf(b, "\tvar revocation stegoauthz.Revocation\n\twrote := false\n\tresource, err := %sResource(t, key)\n\tif err != nil {\n\t\treturn revocation, false, err\n\t}\n", e.Name)
-	b.WriteString("\tvar was, is string\n")
-	for _, r := range e.Relationships {
-		fmt.Fprintf(b, "\twas, is = \"\", \"\"\n\tif before != nil {\n\t\twas = before.%s\n\t}\n\tif after != nil {\n\t\tis = after.%s\n\t}\n", r.GoName, r.GoName)
-		b.WriteString("\tif was != is {\n")
-		fmt.Fprintf(b, "\t\tif was != \"\" {\n\t\t\tif revocation, err = h.Unrelate(ctx, stegoauthz.Tuple{Resource: resource, Relation: %q, Subject: stegoauthz.Subject{Type: %q, ID: was}}); err != nil {\n\t\t\t\treturn revocation, wrote, err\n\t\t\t}\n\t\t\twrote = true\n\t\t}\n", r.Relation, r.SubjectType)
-		fmt.Fprintf(b, "\t\tif is != \"\" {\n\t\t\tif revocation, err = h.Relate(ctx, stegoauthz.Tuple{Resource: resource, Relation: %q, Subject: stegoauthz.Subject{Type: %q, ID: is}}); err != nil {\n\t\t\t\treturn revocation, wrote, err\n\t\t\t}\n\t\t\twrote = true\n\t\t}\n", r.Relation, r.SubjectType)
-		b.WriteString("\t}\n")
-	}
-	b.WriteString("\treturn revocation, wrote, nil\n}\n\n")
 }

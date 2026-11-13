@@ -69,8 +69,10 @@ definition order {
 
 definition hold {
 	relation owner: user
+	relation creator: user
 	relation order: order
-	permission view = owner
+	permission view = owner + creator
+	permission reserve = owner + creator
 }
 `
 )
@@ -443,6 +445,109 @@ func (e *env) keyRows(key string) int {
 	return e.count(`SELECT count(*) FROM idempotency_keys WHERE key = $1`, key)
 }
 
+// holdTuple is one authz outbox message of a Hold: op relation@subject_type:subject_id, and its revocation.
+type holdTuple struct {
+	text, revocation string
+}
+
+// holdTuples reads the authz outbox messages of the declared relationships of the Hold row id of the caller's tenant,
+// in enqueue order. The relation order of its reference to Order is proved by ST-SUP-RP10-LC05-T12 and left out.
+func (e *env) holdTuples(c caller, id string) []holdTuple {
+	t := e.t
+	t.Helper()
+	resourceID, err := authz.ResourceID(c.tenant, id)
+	must(t, err)
+	rows, err := e.admin.QueryContext(e.ctx, `SELECT p->>'op', p->'tuple'->>'relation', p->'tuple'->>'subject_type', p->'tuple'->>'subject_id', coalesce(p->>'revocation', '')
+ FROM (SELECT convert_from(payload, 'UTF8')::jsonb AS p, sequence FROM stego_outbox.messages WHERE destination = 'authz' AND tenant_id = $1) m
+ WHERE p->'tuple'->>'resource_type' = 'hold' AND p->'tuple'->>'resource_id' = $2 AND p->'tuple'->>'relation' <> 'order' ORDER BY sequence`, c.tenant.ID(), resourceID)
+	must(t, err)
+	defer rows.Close()
+	var out []holdTuple
+	for rows.Next() {
+		var op, relation, subjectType, subjectID, revocation string
+		must(t, rows.Scan(&op, &relation, &subjectType, &subjectID, &revocation))
+		out = append(out, holdTuple{text: op + " " + relation + "@" + subjectType + ":" + subjectID, revocation: revocation})
+	}
+	must(t, rows.Err())
+	return out
+}
+
+// holdRepositories gives the loaded order, the parent of a Hold, and the Hold repository of the handle.
+func (e *env) holdRepositories(ctx context.Context, h *commands.ReserveAndChargeHandle, order string) (command.Ref, *command.Repository[commands.Hold]) {
+	orders, err := commands.OrderRepository(h)
+	must(e.t, err)
+	holds, err := commands.HoldRepository(h)
+	must(e.t, err)
+	parent, err := orders.Get(ctx, order)
+	must(e.t, err)
+	return parent, holds
+}
+
+// holdCreate creates, in one command, a Hold under the order with the owner, and gives its ID. The caller gets the
+// relation creator on the new Hold in SpiceDB, as the relay would write it, so later commands may lock it.
+func (e *env) holdCreate(t *testing.T, c caller, key, order, owner string) string {
+	t.Helper()
+	var id string
+	e.behave(t, func(ctx context.Context, _ *commands.ReserveAndChargeRequest, h *commands.ReserveAndChargeHandle) (*commands.ReserveAndChargeResponse, error) {
+		parent, holds := e.holdRepositories(ctx, h, order)
+		hold, err := holds.Create(ctx, commands.Hold{OrderID: order, OwnerID: owner}, parent)
+		if err != nil {
+			return nil, err
+		}
+		id = hold.ID()
+		return &commands.ReserveAndChargeResponse{}, nil
+	})
+	if got := e.post(c.token, key, order, body); got.status != http.StatusCreated {
+		t.Fatalf("the create of a Hold answered %d %s, want 201", got.status, got.body)
+	}
+	resourceID, err := authz.ResourceID(c.tenant, id)
+	must(t, err)
+	_, err = v1.NewPermissionsServiceClient(e.spice).WriteRelationships(e.ctx, &v1.WriteRelationshipsRequest{Updates: []*v1.RelationshipUpdate{{
+		Operation: v1.RelationshipUpdate_OPERATION_TOUCH,
+		Relationship: &v1.Relationship{Resource: &v1.ObjectReference{ObjectType: "hold", ObjectId: resourceID}, Relation: "creator",
+			Subject: &v1.SubjectReference{Object: &v1.ObjectReference{ObjectType: "user", ObjectId: c.subject()}}}}}})
+	must(t, err)
+	return id
+}
+
+// holdUpdate sets, in one command, the owner of the Hold, and gives the answer.
+func (e *env) holdUpdate(t *testing.T, c caller, key, order, id, owner string) reply {
+	t.Helper()
+	e.behave(t, func(ctx context.Context, _ *commands.ReserveAndChargeRequest, h *commands.ReserveAndChargeHandle) (*commands.ReserveAndChargeResponse, error) {
+		_, holds := e.holdRepositories(ctx, h, order)
+		from, err := holds.GetForUpdate(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		value := from.Value()
+		value.OwnerID = owner
+		if _, err := holds.Update(ctx, from, value); err != nil {
+			return nil, err
+		}
+		return &commands.ReserveAndChargeResponse{}, nil
+	})
+	return e.post(c.token, key, order, body)
+}
+
+// holdDelete deletes the Hold in one command.
+func (e *env) holdDelete(t *testing.T, c caller, key, order, id string) {
+	t.Helper()
+	e.behave(t, func(ctx context.Context, _ *commands.ReserveAndChargeRequest, h *commands.ReserveAndChargeHandle) (*commands.ReserveAndChargeResponse, error) {
+		_, holds := e.holdRepositories(ctx, h, order)
+		from, err := holds.GetForDelete(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if err := holds.Delete(ctx, from); err != nil {
+			return nil, err
+		}
+		return &commands.ReserveAndChargeResponse{}, nil
+	})
+	if got := e.post(c.token, key, order, body); got.status != http.StatusCreated {
+		t.Fatalf("the delete of a Hold answered %d %s, want 201", got.status, got.body)
+	}
+}
+
 // behave sets what the fill does for one test, and the default again when it ends.
 func (e *env) behave(t *testing.T, fill commands.ReserveAndChargeFill) {
 	reservecharge.Behavior = fill
@@ -580,6 +685,85 @@ func TestCommand(t *testing.T) {
 			if x != reservation {
 				t.Errorf("the Reservation, the Charge, their audit rows, the outbox row and the key row are not in one commit: %s and %s", reservation, x)
 			}
+		}
+	})
+
+	t.Run("ST-SUP-RC29-OC05-T01 Create, update and delete each enqueue the declared tuples", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-7", "tA", time.Now().Add(time.Hour))
+		order := e.order(a)
+		hold := e.holdCreate(t, a, "rc29-oc05-t01-create", order, "u1")
+		// An update that keeps the owner enqueues nothing; one that changes it is refused with 400 naming owner_id,
+		// since the subject of a field-sourced relationship is set at create only (ST-SUP-Q118).
+		if got := e.holdUpdate(t, a, "rc29-oc05-t01-update", order, hold, "u1"); got.status != http.StatusCreated {
+			t.Fatalf("an update that keeps the owner answered %d %s, want 201", got.status, got.body)
+		}
+		if got := e.holdUpdate(t, a, "rc29-oc05-t01-move", order, hold, "u2"); got.status != http.StatusBadRequest ||
+			!strings.Contains(string(got.body), `"code":"invalid"`) || !strings.Contains(string(got.body), `"field":"owner_id"`) {
+			t.Fatalf("an update that moves the owner answered %d %s, want 400 invalid naming owner_id", got.status, got.body)
+		}
+		e.holdDelete(t, a, "rc29-oc05-t01-delete", order, hold)
+		got := e.holdTuples(a, hold)
+		want := []string{"touch creator@user:" + a.subject(), "touch owner@user:u1", "delete owner@user:u1"}
+		if len(got) != len(want) {
+			t.Fatalf("the authz outbox holds %v for the Hold, want %v", got, want)
+		}
+		for i := range want {
+			if got[i].text != want[i] {
+				t.Errorf("message %d is %s, want %s", i, got[i].text, want[i])
+			}
+		}
+	})
+
+	t.Run("ST-SUP-RC29-OC05-T02 The tuples commit and roll back with the row", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-7", "tA", time.Now().Add(time.Hour))
+		order := e.order(a)
+		failed := errors.New("the fill fails after the create")
+		var created string
+		e.behave(t, func(ctx context.Context, _ *commands.ReserveAndChargeRequest, h *commands.ReserveAndChargeHandle) (*commands.ReserveAndChargeResponse, error) {
+			parent, holds := e.holdRepositories(ctx, h, order)
+			hold, err := holds.Create(ctx, commands.Hold{OrderID: order, OwnerID: "u-oc05-t02"}, parent)
+			if err != nil {
+				return nil, err
+			}
+			created = hold.ID()
+			return nil, failed
+		})
+		if got := e.post(a.token, "rc29-oc05-t02", order, body); got.status != http.StatusInternalServerError {
+			t.Fatalf("the failed command answered %d %s, want 500", got.status, got.body)
+		}
+		if created == "" {
+			t.Fatal("the fill created no Hold before it failed")
+		}
+		if n := e.count(`SELECT count(*) FROM holds WHERE id = $1`, created); n != 0 {
+			t.Errorf("the rolled-back create left %d Hold rows", n)
+		}
+		if got := e.holdTuples(a, created); len(got) != 0 {
+			t.Errorf("the rolled-back create left the authz messages %v", got)
+		}
+	})
+
+	t.Run("ST-SUP-RC29-OC05-T03 The tuples of a row join the transaction's revocation", func(t *testing.T) {
+		e := service(t)
+		a := e.as("u-7", "tA", time.Now().Add(time.Hour))
+		order := e.order(a)
+		hold := e.holdCreate(t, a, "rc29-oc05-t03-create", order, "u1")
+		e.holdDelete(t, a, "rc29-oc05-t03-delete", order, hold)
+		got := e.holdTuples(a, hold)
+		if len(got) < 3 {
+			t.Fatalf("the authz outbox holds %v for the Hold, want the two touches of the create and the delete", got)
+		}
+		if got[0].revocation != got[1].revocation || got[0].revocation == "" {
+			t.Errorf("the two touches of the create name the revocations %q and %q, want one", got[0].revocation, got[1].revocation)
+		}
+		for _, m := range got[2:] {
+			if m.revocation != got[2].revocation || m.revocation == "" {
+				t.Errorf("the messages of the delete name the revocations %q and %q, want one", got[2].revocation, m.revocation)
+			}
+		}
+		if got[0].revocation == got[2].revocation {
+			t.Error("the create and the delete name one revocation")
 		}
 	})
 

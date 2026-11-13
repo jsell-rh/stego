@@ -112,11 +112,18 @@ type Outcome struct {
 	Status int
 	Code   string
 	Audit  audit.Outcome
+	// Field and Reason are, for ErrInvalid, the declared field that the refusal names and its fixed reason; they hold
+	// no value of the request.
+	Field, Reason string
 }
+
+// ErrorCodeInvalid is the fixed code of a command that ErrInvalid refused.
+const ErrorCodeInvalid = "invalid"
 
 // OutcomeOf maps an error of Run to its answer (ST-SUP-RP10-LC33, ST-SUP-RP10-LC34): a declared refusal among
 // refusals is its status and code; ErrDenied is 404 denied, the same answer as a missing row of a read
-// (ST-SUP-RP11-LC06); a conflict after the last attempt is 409 conflict; a COMMIT whose outcome is not known and
+// (ST-SUP-RP11-LC06); ErrInvalid is 400 invalid with the field it names (ST-SUP-Q118); a conflict after the last
+// attempt is 409 conflict; a COMMIT whose outcome is not known and
 // every other error are 500 internal, the first with the audit code commit_outcome_unknown. A refusal that is not
 // one of refusals is an other error. No error text reaches the answer, the audit row or the log. Serve uses it, and
 // so does a handler that decodes its own body, such as the handlers of generated CRUD.
@@ -131,6 +138,11 @@ func OutcomeOf(err error, refusals ...*Refusal) Outcome {
 	}
 	if errors.Is(err, ErrDenied) {
 		return Outcome{Status: http.StatusNotFound, Code: ErrorCodeDenied, Audit: audit.OutcomeDenied}
+	}
+	var invalid *invalidError
+	if errors.As(err, &invalid) {
+		return Outcome{Status: http.StatusBadRequest, Code: ErrorCodeInvalid, Audit: audit.OutcomeFailed,
+			Field: invalid.field, Reason: invalid.reason}
 	}
 	code := ErrorCode(err)
 	if code == audit.ErrorCodeConflict {
@@ -273,7 +285,7 @@ func Serve[Req, Res proto.Message, P any](rt *Runtime, s ServeSpec[Req, Res, P])
 		result, failed := serveRun(r.Context(), rt, s, req, decode)
 		switch {
 		case failed != nil:
-			writeProblem(w, failed.Status, "", failed.AnswerCode())
+			writeFieldProblem(w, failed.Status, "", failed.AnswerCode(), failed.Field)
 		case result.Problem != "":
 			writeProblem(w, result.Response.Status, result.Problem, "")
 		default:
@@ -391,6 +403,11 @@ var titles = map[int]string{
 // writeProblem writes a problem response (RFC 9457) with a fixed title, the status, and the problem type and the
 // fixed code when they are given. It holds no error text and no value of a row.
 func writeProblem(w http.ResponseWriter, httpStatus int, problemType, code string) {
+	writeFieldProblem(w, httpStatus, problemType, code, "")
+}
+
+// writeFieldProblem is writeProblem with the declared field that an ErrInvalid names, when field is not empty.
+func writeFieldProblem(w http.ResponseWriter, httpStatus int, problemType, code, field string) {
 	if problemType == "" {
 		problemType = "about:blank"
 	}
@@ -402,6 +419,9 @@ func writeProblem(w http.ResponseWriter, httpStatus int, problemType, code strin
 	b.WriteString("{\"type\":" + strconv.Quote(problemType) + ",\"title\":" + strconv.Quote(title) + ",\"status\":" + strconv.Itoa(httpStatus))
 	if code != "" {
 		b.WriteString(",\"code\":" + strconv.Quote(code))
+	}
+	if field != "" {
+		b.WriteString(",\"field\":" + strconv.Quote(field))
 	}
 	b.WriteString("}")
 	w.Header().Set("Content-Type", "application/problem+json")

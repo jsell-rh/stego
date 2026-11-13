@@ -313,7 +313,7 @@ func newCrudProject(t *testing.T, ctx gen.Context, files map[string][]byte) *cru
 		t.Fatal(err)
 	}
 	p.write("go.sum", sums)
-	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.84.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
+	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.87.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
 	p.mustGo("mod", "tidy")
 	return p
 }
@@ -509,6 +509,30 @@ func TestCrudService(t *testing.T) {
 	for _, id := range crudCheckIDs {
 		t.Run(id, func(t *testing.T) { run.passed(t, p, endpoint, key, strings.SplitN(id, " ", 2)[0]) })
 	}
+}
+
+func TestFieldRelationship(t *testing.T) {
+	t.Run("ST-SUP-RC29-OC05-T06 A public create of an entity with a field-sourced relationship is refused, and a refused field value is 400 naming the field", func(t *testing.T) {
+		c := crudContext()
+		c.Entities[0].Fields = append(c.Entities[0].Fields, types.Field{Name: "owner_id", Type: types.FieldTypeString})
+		c.Entities[0].Relationships = []types.Relationship{{Relation: "owner", SubjectSource: types.SubjectSourceField, SubjectField: "owner_id", SubjectType: "user"}}
+		files, wiring, err := new(Generator).Generate(c)
+		if err == nil || files != nil || wiring != nil || !strings.Contains(err.Error(), "public create of Order") || !strings.Contains(err.Error(), "owner_id") {
+			t.Fatalf("a public create with a field relationship gave %d files and %v, want a refusal naming the entity and the field", len(files), err)
+		}
+		// A caller-sourced relationship is the caller's own: the public create is not refused for it.
+		c = crudContext()
+		c.Entities[0].Relationships = []types.Relationship{{Relation: "creator", SubjectSource: types.SubjectSourceCaller, SubjectType: "user"}}
+		if _, _, err := new(Generator).Generate(c); err != nil {
+			t.Fatalf("a public create with a caller relationship is refused: %v", err)
+		}
+		// The runtime is the guard of a field subject on every interface; the handlers answer its refusal with 400 and
+		// one validation entry that names the field.
+		answer := extractMethodBody(string(crudFiles(t, c)["api/runtime.go"]), "func (rt *Runtime) answerWrite(")
+		if !strings.Contains(answer, "case http.StatusBadRequest:") || !strings.Contains(answer, "Validation([]ValidationError{{Field: o.Field, Message: o.Reason}})") {
+			t.Fatalf("answerWrite does not answer a refused field value with 400 naming the field:\n%s", answer)
+		}
+	})
 }
 
 // crudCheckIDs are the checks of the generated service that this test runs, each with the ID of the test record it
