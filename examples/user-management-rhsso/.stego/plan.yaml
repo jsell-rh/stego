@@ -1,0 +1,15 @@
+version: 1
+base_record_sha256: e559910c64fecc2f3900bb101f6000222dd3790e79fd56d311486153468e360b
+service_hash: 7b506044039a698b5d436b60e4c5e5581aa774206c54f1f8cbc7b57b17c3a351
+registry_content_sha256: a2ea9811fa53e1496398a95fee51324f9b444860ae08736b320d67924174573c
+compiler_build:
+    go_version: go1.26.11
+    goos: linux
+    goarch: amd64
+    module_version: (devel)
+    vcs: unknown
+    revision: unknown
+    source_state: unknown
+output_dir: out
+record_sha256: a418fb9348720b6de153f3a0e29df112bf7b046fe91db6a78dc645c2d28bbd84
+files: []

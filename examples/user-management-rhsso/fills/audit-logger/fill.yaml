@@ -1,0 +1,4 @@
+kind: fill
+name: audit-logger
+implements: event-publisher.on_entity_changed
+collection: org-users
