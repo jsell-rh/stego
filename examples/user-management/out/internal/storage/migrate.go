@@ -82,6 +82,12 @@ func Migrate(ctx context.Context, db Database) error {
 // ApplyMigration applies one SQL migration by body and records it in the
 // ledger, for databases whose migrations run outside the application. The
 // same continuity rules hold: no re-application, no gap, no digest change.
+// The body runs with the ledger row in one transaction, so it must hold no
+// transaction control (BEGIN, COMMIT, ROLLBACK, SAVEPOINT): a COMMIT ends the
+// transaction early and leaves a partial migration with no ledger row. This
+// is a stated limit; the body is not checked. The ledger then holds one row
+// past the registered history, so a later ApplyMigration and Migrate are
+// refused until a release registers that migration.
 func ApplyMigration(ctx context.Context, db Database, name, body string) error {
 	if ctx == nil || db == nil {
 		return ErrMigrationLedger
