@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -266,7 +267,7 @@ func defaultBaseRef() (ref string, found bool, err error) {
 	if _, err := compatGit("rev-parse", "--is-inside-work-tree"); err != nil {
 		// Only git's own answer that the folder is in no repository means no repository; every other failure, such
 		// as a repository of another owner or no git at all, fails rather than skip the check.
-		if strings.Contains(err.Error(), "not a git repository") {
+		if strings.Contains(err.Error(), "not a git repository") && !gitEntryAbove() {
 			return "", false, nil
 		}
 		return "", false, fmt.Errorf("git cannot read the repository of the service folder, so the base check cannot run: %w", err)
@@ -290,6 +291,26 @@ func defaultBaseRef() (ref string, found bool, err error) {
 		}
 	}
 	return "", false, fmt.Errorf("the repository of the service folder has no default branch: refs/remotes/origin/HEAD is not set and there is no branch main or master; name the base with --base")
+}
+
+// gitEntryAbove tells whether a .git entry exists in the working folder or in a folder above it, up to the root. A
+// .git that git cannot read, such as the link of a worktree that was removed, is a broken repository, not the
+// absence of one, so the check fails rather than skip.
+func gitEntryAbove() bool {
+	folder, err := os.Getwd()
+	if err != nil {
+		return true
+	}
+	for {
+		if _, err := os.Lstat(filepath.Join(folder, ".git")); err == nil || !errors.Is(err, os.ErrNotExist) {
+			return true
+		}
+		parent := filepath.Dir(folder)
+		if parent == folder {
+			return false
+		}
+		folder = parent
+	}
 }
 
 // baseGate is what plan and apply learn from the check against the base before they plan: the base they took, and

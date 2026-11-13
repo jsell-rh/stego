@@ -98,6 +98,10 @@ func TestSchemaStepPlan(t *testing.T) {
 		if planned := other.must(t, "plan"); !strings.Contains(planned, "No base check") {
 			t.Errorf("plan in a folder with no repository does not say that it has no base:\n%s", planned)
 		}
+		writeFile(t, other.service, ".git", "gitdir: "+filepath.Join(s.parent, "removed-worktree")+"\n", 0o644)
+		if stdout, stderr, err := other.stego(t, "plan"); err == nil || !strings.Contains(stdout+stderr, "git cannot read the repository") {
+			t.Errorf("a .git link to a removed worktree: %v, want a refusal, not a plan with no check:\n%s%s", err, stdout, stderr)
+		}
 	})
 	t.Run("ST-GEN-UC12-R06-T01 Apply writes the same add steps for a new entity and a new optional field each time", func(t *testing.T) {
 		t.Parallel()
