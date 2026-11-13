@@ -39,7 +39,7 @@ var orgUsersUpdateCommand = mustCommand(command.NewCommand(command.CommandSpec[s
 	Probe:        noProbe,
 	Destinations: []command.Destination{{Name: kafkaoutbox.DestinationName, Idempotent: true, Effects: []string{"user-management.user.updated"}}},
 	Permission:   "edit",
-	Resource:     &command.Resource{Type: "member", Token: "SELECT authz_token FROM public.\"users\" WHERE tenant_id = $1 AND id = $2::uuid FOR SHARE", ValidID: command.ValidUUID},
+	Resource:     &command.Resource{Type: "member", Token: "SELECT authz_token FROM public.users WHERE tenant_id = $1 AND id = $2::uuid FOR SHARE", ValidID: command.ValidUUID},
 }))
 
 // orgUsersDeleteCommand is the generated command of a delete of org-users (ST-SUP-RC20-OC37).
@@ -49,7 +49,7 @@ var orgUsersDeleteCommand = mustCommand(command.NewCommand(command.CommandSpec[s
 	Probe:        noProbe,
 	Destinations: []command.Destination{{Name: kafkaoutbox.DestinationName, Idempotent: true, Effects: []string{"user-management.user.deleted"}}},
 	Permission:   "edit",
-	Resource:     &command.Resource{Type: "member", Token: "SELECT authz_token FROM public.\"users\" WHERE tenant_id = $1 AND id = $2::uuid FOR SHARE", ValidID: command.ValidUUID},
+	Resource:     &command.Resource{Type: "member", Token: "SELECT authz_token FROM public.users WHERE tenant_id = $1 AND id = $2::uuid FOR SHARE", ValidID: command.ValidUUID},
 }))
 
 // orgUsersListQuery is the query of a list of org-users, on the list permission of User (ST-SUP-RP11-LC07).
@@ -62,7 +62,7 @@ var orgUsersPatchCommand = mustCommand(command.NewCommand(command.CommandSpec[st
 	Probe:        noProbe,
 	Destinations: []command.Destination{{Name: kafkaoutbox.DestinationName, Idempotent: true, Effects: []string{"user-management.user.updated"}}},
 	Permission:   "edit",
-	Resource:     &command.Resource{Type: "member", Token: "SELECT authz_token FROM public.\"users\" WHERE tenant_id = $1 AND id = $2::uuid FOR SHARE", ValidID: command.ValidUUID},
+	Resource:     &command.Resource{Type: "member", Token: "SELECT authz_token FROM public.users WHERE tenant_id = $1 AND id = $2::uuid FOR SHARE", ValidID: command.ValidUUID},
 }))
 
 // orgUsersSearchFields are the fields that a list search may name, with the kind of their values: the declared
