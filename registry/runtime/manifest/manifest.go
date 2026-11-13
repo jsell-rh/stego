@@ -28,6 +28,21 @@ type Manifest struct {
 	// Owner is the role that must own each table and each trigger function of the manifest: the owner role of the
 	// service, which the migration job runs as. Empty leaves the owner of the table unchecked.
 	Owner string
+	// Schemas are the schemas that the runtime holds whole, such as stego_outbox: each belongs to Owner, gives
+	// USAGE with no grant option to its Usage roles and to no other role, PUBLIC included, gives no other privilege
+	// to a role but its owner, and holds no function that the manifest does not name, so no overload of a function
+	// of the manifest can stand in for it.
+	Schemas []Schema
+	// Confined are the roles that own no object of the database but the functions of the manifest that name them
+	// as their Owner: no other function, table, view, sequence, type or schema. A SECURITY DEFINER function runs
+	// with the rights of its owner, so a confined role is the owner of the functions of the manifest only.
+	Confined []string
+}
+
+// Schema is one schema that the runtime holds whole, and the roles that may use it.
+type Schema struct {
+	Name  string
+	Usage []string
 }
 
 // Table is one table that the code reads or writes, in its schema.
@@ -96,6 +111,9 @@ type Index struct {
 	Predicate string
 }
 
+// CommandAll is the command of a policy for every command.
+const CommandAll = "*"
+
 // Policy is one permissive row-level security policy: its command (* for all, or r, a, w and d as pg_policy.polcmd
 // gives them), its USING and WITH CHECK expressions as pg_get_expr gives them with the search path pg_catalog, and
 // the roles it applies to. No Roles is a policy for every role (PUBLIC); with Roles, the policy must apply to these
@@ -127,7 +145,7 @@ type Trigger struct {
 // Function is the trigger function that the DDL makes: its name as schema.function, its language, its source (the
 // text between the dollar quotes), whether it is SECURITY DEFINER, and its settings as pg_proc.proconfig gives
 // them, such as search_path=pg_catalog, pg_temp. The function must return trigger, take no argument, be volatile,
-// and belong to the owner of the table.
+// and belong to the owner of the table, or to the role that its Owner names.
 type Function struct {
 	Name, Language, Source string
 	SecurityDefiner        bool
@@ -138,8 +156,15 @@ type Function struct {
 	// Args, for a function of Manifest.Functions, are the types of its arguments as regprocedure takes them, such as
 	// timestamptz, integer; empty is a function of no argument.
 	Args string
-	// Owner, for a function of Manifest.Functions, is the role that must own it; empty is the Owner of the manifest.
+	// Owner is the role that must own the function. Empty is, for a function of Manifest.Functions, the Owner of
+	// the manifest, and for a trigger function, the owner of the table.
 	Owner string
+	// Returns, for a function of Manifest.Functions, is its result as pg_get_function_result gives it, such as
+	// bigint or SETOF stego_outbox.messages; Strict tells that it is STRICT, and Volatility is its volatility as
+	// pg_proc.provolatile gives it: i, s, or v, which empty means.
+	Returns    string
+	Strict     bool
+	Volatility string
 }
 
 // argsText is the grammar of the argument types of a function of the manifest, such as timestamptz, integer.
@@ -151,6 +176,12 @@ func Join(manifests ...Manifest) Manifest {
 	for _, m := range manifests {
 		joined.Tables = append(joined.Tables, m.Tables...)
 		joined.Functions = append(joined.Functions, m.Functions...)
+		joined.Schemas = append(joined.Schemas, m.Schemas...)
+		for _, role := range m.Confined {
+			if !slices.Contains(joined.Confined, role) {
+				joined.Confined = append(joined.Confined, role)
+			}
+		}
 		if joined.Owner == "" {
 			joined.Owner = m.Owner
 		}
@@ -178,6 +209,9 @@ func (m Manifest) Validate() error {
 		if !argsText.MatchString(f.Args) || (f.Owner != "" && !name.MatchString(f.Owner)) {
 			return fmt.Errorf("manifest: the function %s needs argument types of letters, digits, spaces and commas, and an owner of at most 63 bytes", f.Name)
 		}
+		if f.Returns == "" || !slices.Contains([]string{"", "i", "s", "v"}, f.Volatility) {
+			return fmt.Errorf("manifest: the function %s needs its result and a volatility of i, s or v", f.Name)
+		}
 		for _, r := range f.Execute {
 			if !name.MatchString(r) || r == "PUBLIC" {
 				return fmt.Errorf("manifest: the function %s gives EXECUTE to %q; only named roles may run it", f.Name, r)
@@ -188,6 +222,26 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("manifest: the function %s is named twice", id)
 		}
 		functions[id] = true
+	}
+	schemas := map[string]bool{}
+	for _, sc := range m.Schemas {
+		if !name.MatchString(sc.Name) || schemas[sc.Name] {
+			return fmt.Errorf("manifest: the schema %q needs a name of at most 63 bytes, named once", sc.Name)
+		}
+		schemas[sc.Name] = true
+		for _, r := range sc.Usage {
+			if !name.MatchString(r) || r == "PUBLIC" {
+				return fmt.Errorf("manifest: the schema %s gives USAGE to %q; only named roles may use it", sc.Name, r)
+			}
+		}
+	}
+	if len(m.Schemas) > 0 && m.Owner == "" {
+		return errors.New("manifest: a schema of the manifest needs the owner of the manifest")
+	}
+	for _, r := range m.Confined {
+		if !name.MatchString(r) || r == "PUBLIC" {
+			return fmt.Errorf("manifest: the confined role %q needs a name of at most 63 bytes", r)
+		}
 	}
 	tables := map[string]bool{}
 	for _, t := range m.Tables {
@@ -285,6 +339,9 @@ func (m Manifest) Validate() error {
 			}
 			if tr.Function.Name == "" || tr.Function.Language == "" || tr.Function.Source == "" {
 				return fmt.Errorf("manifest: table %s: the trigger %s has no function name, language or source", id, tr.Name)
+			}
+			if tr.Function.Owner != "" && !name.MatchString(tr.Function.Owner) {
+				return fmt.Errorf("manifest: table %s: the trigger %s names the owner %q of its function", id, tr.Name, tr.Function.Owner)
 			}
 		}
 	}
@@ -402,10 +459,175 @@ func Check(ctx context.Context, db *sql.DB, m Manifest) (err error) {
 		}
 		faults = append(faults, found...)
 	}
+	named, err := namedFunctions(ctx, tx, m)
+	if err != nil {
+		return fmt.Errorf("manifest: read the catalog of the functions: %w", err)
+	}
+	for _, sc := range m.Schemas {
+		found, err := checkSchema(ctx, tx, sc, m.Owner, named)
+		if err != nil {
+			return fmt.Errorf("manifest: read the catalog of the schema %s: %w", sc.Name, err)
+		}
+		faults = append(faults, found...)
+	}
+	for _, role := range m.Confined {
+		found, err := checkConfined(ctx, tx, role, named)
+		if err != nil {
+			return fmt.Errorf("manifest: read the catalog of the objects of the role %s: %w", role, err)
+		}
+		faults = append(faults, found...)
+	}
 	if len(faults) > 0 {
 		return &Mismatch{Faults: faults}
 	}
 	return nil
+}
+
+// namedFunctions gives the oids of the functions of the manifest that the database holds, the functions of
+// Manifest.Functions by their signature and the trigger functions by their name and no argument, each with the role
+// that the manifest names as its owner, or "" when it names none.
+func namedFunctions(ctx context.Context, tx *sql.Tx, m Manifest) (map[uint32]string, error) {
+	signatures := map[string]string{}
+	for _, f := range m.Functions {
+		signatures[f.Name+"("+f.Args+")"] = f.Owner
+	}
+	for _, t := range m.Tables {
+		for _, tr := range slices.Concat(t.Triggers, t.PartitionTriggers) {
+			signatures[tr.Function.Name+"()"] = tr.Function.Owner
+		}
+	}
+	named := map[uint32]string{}
+	for signature, owner := range signatures {
+		var oid sql.NullInt64
+		if err := tx.QueryRowContext(ctx, `SELECT pg_catalog.to_regprocedure($1)::pg_catalog.oid`, signature).Scan(&oid); err != nil {
+			return nil, err
+		}
+		if oid.Valid {
+			named[uint32(oid.Int64)] = owner
+		}
+	}
+	return named, nil
+}
+
+// checkSchema gives the faults of one schema that the runtime holds whole: missing, of another owner, a privilege
+// of a role other than its owner that the manifest does not give, PUBLIC included, one with the grant option, a
+// USAGE of the manifest that it does not give, and each function in it that the manifest does not name.
+func checkSchema(ctx context.Context, tx *sql.Tx, sc Schema, wantOwner string, named map[uint32]string) ([]string, error) {
+	var oid uint32
+	var owner string
+	err := tx.QueryRowContext(ctx, `SELECT oid, pg_catalog.pg_get_userbyid(nspowner) FROM pg_catalog.pg_namespace WHERE nspname = $1`, sc.Name).Scan(&oid, &owner)
+	if errors.Is(err, sql.ErrNoRows) {
+		return []string{"schema " + sc.Name + " is missing"}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var faults []string
+	fault := func(format string, args ...any) {
+		faults = append(faults, "schema "+sc.Name+": "+fmt.Sprintf(format, args...))
+	}
+	if owner != wantOwner {
+		fault("the schema belongs to the role %s, and the manifest needs %s", owner, wantOwner)
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END, a.privilege_type, a.is_grantable
+  FROM pg_catalog.pg_namespace n, pg_catalog.aclexplode(COALESCE(n.nspacl, pg_catalog.acldefault('n', n.nspowner))) a
+  WHERE n.oid = $1 AND a.grantee <> n.nspowner`, oid)
+	if err != nil {
+		return nil, err
+	}
+	got := map[string]bool{}
+	for rows.Next() {
+		var role, privilege string
+		var grantable bool
+		if err := rows.Scan(&role, &privilege, &grantable); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		key := grantKey(role, privilege, "")
+		if grantable {
+			fault("the privilege %s is granted with the grant option", key)
+		}
+		got[key] = true
+	}
+	if err := closed(rows); err != nil {
+		return nil, err
+	}
+	want := map[string]bool{}
+	for _, role := range sc.Usage {
+		want[grantKey(role, "USAGE", "")] = true
+	}
+	var extra, missing []string
+	for key := range got {
+		if !want[key] {
+			extra = append(extra, key)
+		}
+	}
+	for key := range want {
+		if !got[key] {
+			missing = append(missing, key)
+		}
+	}
+	slices.Sort(extra)
+	slices.Sort(missing)
+	for _, key := range extra {
+		fault("the privilege %s is granted, and the manifest does not grant it", key)
+	}
+	for _, key := range missing {
+		fault("the privilege %s of the manifest is not granted", key)
+	}
+	rows, err = tx.QueryContext(ctx, `SELECT p.oid, p.oid::pg_catalog.regprocedure::text FROM pg_catalog.pg_proc p WHERE p.pronamespace = $1 ORDER BY 2`, oid)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var fn uint32
+		var signature string
+		if err := rows.Scan(&fn, &signature); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if _, ok := named[fn]; !ok {
+			fault("function %s is a function that the manifest does not name", signature)
+		}
+	}
+	return faults, closed(rows)
+}
+
+// checkConfined gives the faults of one confined role: missing, or the owner of a function that the manifest does
+// not name with the role as its owner, of a relation, of a type that is no row or array type of another object, or
+// of a schema.
+func checkConfined(ctx context.Context, tx *sql.Tx, role string, named map[uint32]string) ([]string, error) {
+	var oid uint32
+	err := tx.QueryRowContext(ctx, `SELECT oid FROM pg_catalog.pg_roles WHERE rolname = $1`, role).Scan(&oid)
+	if errors.Is(err, sql.ErrNoRows) {
+		return []string{"the confined role " + role + " is missing"}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT 'function', p.oid, p.oid::pg_catalog.regprocedure::text FROM pg_catalog.pg_proc p WHERE p.proowner = $1
+  UNION ALL SELECT 'relation', c.oid, c.oid::pg_catalog.regclass::text FROM pg_catalog.pg_class c WHERE c.relowner = $1
+  UNION ALL SELECT 'type', t.oid, t.oid::pg_catalog.regtype::text FROM pg_catalog.pg_type t WHERE t.typowner = $1 AND t.typrelid = 0
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_type e WHERE e.typarray = t.oid)
+  UNION ALL SELECT 'schema', n.oid, n.nspname::text FROM pg_catalog.pg_namespace n WHERE n.nspowner = $1
+  ORDER BY 1, 3`, oid)
+	if err != nil {
+		return nil, err
+	}
+	var faults []string
+	for rows.Next() {
+		var kind, object string
+		var objectOID uint32
+		if err := rows.Scan(&kind, &objectOID, &object); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if owner, ok := named[objectOID]; kind == "function" && ok && owner == role {
+			continue
+		}
+		faults = append(faults, "the confined role "+role+" owns the "+kind+" "+object+", which the manifest does not name for it")
+	}
+	return faults, closed(rows)
 }
 
 // sortedJoin gives the names sorted and joined by the separator of the catalog reads, chr(31).
@@ -492,8 +714,8 @@ func grantKey(role, privilege, column string) string {
 // language, source, SECURITY DEFINER, settings or owner. Its fault names the function only.
 func checkFunction(ctx context.Context, tx *sql.Tx, f Function, wantOwner string) ([]string, error) {
 	schema, fn, _ := strings.Cut(f.Name, ".")
-	var language, source, config, owner, grantees string
-	var definer bool
+	var language, source, config, owner, grantees, volatility, result string
+	var definer, strict bool
 	// A function with arguments is found by its signature, and one with none by its name and no argument.
 	where := `n.nspname = $1 AND p.proname = $2 AND p.pronargs = 0`
 	args := []any{schema, fn}
@@ -507,25 +729,32 @@ func checkFunction(ctx context.Context, tx *sql.Tx, f Function, wantOwner string
 	err := tx.QueryRowContext(ctx, `SELECT l.lanname, p.prosrc, COALESCE(pg_catalog.array_to_string(p.proconfig, chr(31)), ''), p.prosecdef,
   pg_catalog.pg_get_userbyid(p.proowner),
   COALESCE((SELECT pg_catalog.string_agg(CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END ||
-      CASE WHEN a.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END, chr(31)
-    ORDER BY CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END)
+      CASE WHEN a.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END, chr(31))
     FROM pg_catalog.aclexplode(COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))) a
-    WHERE a.privilege_type = 'EXECUTE' AND a.grantee <> p.proowner), '')
+    WHERE a.privilege_type = 'EXECUTE' AND a.grantee <> p.proowner), ''),
+  p.proisstrict, p.provolatile::text, pg_catalog.pg_get_function_result(p.oid)
   FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace JOIN pg_catalog.pg_language l ON l.oid = p.prolang
-  WHERE `+where, args...).Scan(&language, &source, &config, &definer, &owner, &grantees)
+  WHERE `+where, args...).Scan(&language, &source, &config, &definer, &owner, &grantees, &strict, &volatility, &result)
 	if errors.Is(err, sql.ErrNoRows) {
 		return []string{"function " + f.Name + " is missing"}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	wantVolatility := f.Volatility
+	if wantVolatility == "" {
+		wantVolatility = "v"
+	}
 	switch {
 	case language != f.Language || source != f.Source || definer != f.SecurityDefiner || config != strings.Join(f.Config, "\x1f"):
 		return []string{"function " + f.Name + " is not the function of the manifest"}, nil
+	case strict != f.Strict || volatility != wantVolatility || result != f.Returns:
+		return []string{"function " + f.Name + " has another strictness, volatility or result than the manifest"}, nil
 	case f.Owner != "" && owner != f.Owner, f.Owner == "" && wantOwner != "" && owner != wantOwner:
 		return []string{"function " + f.Name + " has another owner"}, nil
 	}
-	if grantees != sortedJoin(f.Execute) {
+	// The grantees are sorted here, byte by byte, and not by the collation of the database.
+	if sortedJoin(strings.Split(grantees, "\x1f")) != sortedJoin(f.Execute) {
 		return []string{"function " + f.Name + " may be run by roles that the manifest does not name"}, nil
 	}
 	return nil, nil
@@ -772,7 +1001,7 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string) ([]s
 	policies := map[string]policy{}
 	rows, err = tx.QueryContext(ctx, `SELECT polname, polcmd::text, polpermissive, polroles = '{0}'::pg_catalog.oid[],
   COALESCE(pg_catalog.pg_get_expr(polqual, polrelid), ''), COALESCE(pg_catalog.pg_get_expr(polwithcheck, polrelid), ''),
-  COALESCE((SELECT pg_catalog.string_agg(CASE WHEN r = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(r) END, chr(31) ORDER BY 1)
+  COALESCE((SELECT pg_catalog.string_agg(CASE WHEN r = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(r) END, chr(31))
     FROM pg_catalog.unnest(polroles) AS r), '')
   FROM pg_catalog.pg_policy WHERE polrelid = $1`, oid)
 	if err != nil {
@@ -785,6 +1014,8 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string) ([]s
 			rows.Close()
 			return nil, err
 		}
+		// polroles keeps the order of the statement, so the names are sorted here, byte by byte as sortedJoin sorts.
+		p.roles = sortedJoin(strings.Split(p.roles, "\x1f"))
 		policies[n] = p
 	}
 	if err := closed(rows); err != nil {
@@ -898,7 +1129,7 @@ type catalogTrigger struct {
 	oid, parent                             uint32
 	tgtype                                  int16
 	enabled, function, language, source     string
-	config                                  string
+	config, functionOwner                   string
 	plain, securityDefiner, fits, ownerSame bool
 }
 
@@ -910,7 +1141,7 @@ func readTriggers(ctx context.Context, tx *sql.Tx, rel, owner uint32) (map[strin
   p.prosrc, COALESCE(pg_catalog.array_to_string(p.proconfig, chr(31)), ''), p.prosecdef,
   t.tgqual IS NULL AND pg_catalog.cardinality(t.tgattr::pg_catalog.int2[]) = 0 AND t.tgnargs = 0,
   p.prorettype = 'pg_catalog.trigger'::pg_catalog.regtype AND p.pronargs = 0 AND p.provolatile = 'v' AND NOT p.proretset,
-  p.proowner = $2
+  p.proowner = $2, pg_catalog.pg_get_userbyid(p.proowner)
   FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_proc p ON p.oid = t.tgfoid
   JOIN pg_catalog.pg_namespace pn ON pn.oid = p.pronamespace JOIN pg_catalog.pg_language l ON l.oid = p.prolang
   WHERE t.tgrelid = $1 AND NOT t.tgisinternal`, rel, owner)
@@ -921,7 +1152,7 @@ func readTriggers(ctx context.Context, tx *sql.Tx, rel, owner uint32) (map[strin
 		var n string
 		var tr catalogTrigger
 		if err := rows.Scan(&n, &tr.oid, &tr.parent, &tr.tgtype, &tr.enabled, &tr.function, &tr.language, &tr.source, &tr.config,
-			&tr.securityDefiner, &tr.plain, &tr.fits, &tr.ownerSame); err != nil {
+			&tr.securityDefiner, &tr.plain, &tr.fits, &tr.ownerSame, &tr.functionOwner); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -941,7 +1172,9 @@ func triggerFault(want Trigger, got catalogTrigger) string {
 	case got.language != want.Function.Language || got.source != want.Function.Source ||
 		got.securityDefiner != want.Function.SecurityDefiner || got.config != strings.Join(want.Function.Config, "\x1f") || !got.fits:
 		return "runs the function " + want.Function.Name + ", which is not the function of the manifest"
-	case !got.ownerSame:
+	case want.Function.Owner != "" && got.functionOwner != want.Function.Owner:
+		return "runs the function " + want.Function.Name + ", which the role " + want.Function.Owner + " does not own"
+	case want.Function.Owner == "" && !got.ownerSame:
 		return "runs the function " + want.Function.Name + ", which the owner of the table does not own"
 	}
 	return ""

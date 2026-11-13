@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jsell-rh/stego/registry/runtime/manifest"
 )
@@ -74,6 +75,19 @@ func TestManifest(t *testing.T) {
 				"function stego_outbox.claim may be run by roles that the manifest does not name"},
 			{"a relay function that is SECURITY INVOKER", "ALTER FUNCTION stego_outbox.purge_done(timestamptz, integer, bigint) SECURITY INVOKER",
 				"ALTER FUNCTION stego_outbox.purge_done(timestamptz, integer, bigint) SECURITY DEFINER", "function stego_outbox.purge_done is not the function of the manifest"},
+			{"an overload of claim in the schema", "CREATE FUNCTION stego_outbox.claim(timestamptz, double precision, uuid, bigint) RETURNS bigint LANGUAGE sql AS 'SELECT 1'",
+				"DROP FUNCTION stego_outbox.claim(timestamptz, double precision, uuid, bigint)",
+				"schema stego_outbox: function stego_outbox.claim(timestamp with time zone,double precision,uuid,bigint) is a function that the manifest does not name"},
+			{"a function of the relay role outside the manifest", "CREATE FUNCTION public.peek() RETURNS bigint LANGUAGE sql SECURITY DEFINER " +
+				"SET search_path = pg_catalog, pg_temp AS 'SELECT count(*) FROM stego_outbox.messages'; ALTER FUNCTION public.peek() OWNER TO " + relay,
+				"DROP FUNCTION public.peek()", "the confined role " + relay + " owns the function public.peek(), which the manifest does not name for it"},
+			{"claim made STRICT", "ALTER FUNCTION stego_outbox.claim(timestamptz, integer, uuid, bigint) STRICT",
+				"ALTER FUNCTION stego_outbox.claim(timestamptz, integer, uuid, bigint) CALLED ON NULL INPUT",
+				"function stego_outbox.claim has another strictness, volatility or result than the manifest"},
+			{"USAGE on the schema for PUBLIC", "GRANT USAGE ON SCHEMA stego_outbox TO PUBLIC", "REVOKE USAGE ON SCHEMA stego_outbox FROM PUBLIC",
+				"schema stego_outbox: the privilege USAGE to PUBLIC is granted, and the manifest does not grant it"},
+			{"CREATE on the schema for the relay role", "GRANT CREATE ON SCHEMA stego_outbox TO " + relay, "REVOKE CREATE ON SCHEMA stego_outbox FROM " + relay,
+				"schema stego_outbox: the privilege CREATE to " + relay + " is granted, and the manifest does not grant it"},
 			{"a dropped check", "ALTER TABLE stego_outbox.messages DROP CONSTRAINT messages_payload_check",
 				"ALTER TABLE stego_outbox.messages ADD CONSTRAINT messages_payload_check CHECK (octet_length(payload) >= 1 AND octet_length(payload) <= 1048576)",
 				"table stego_outbox.messages: constraint messages_payload_check is missing"},
@@ -92,6 +106,28 @@ func TestManifest(t *testing.T) {
 		}
 		if err := manifest.Check(ctx, admin, m); err != nil {
 			t.Fatalf("Check refused the restored database: %v", err)
+		}
+	})
+
+	t.Run("ST-SUP-RP01-LC33-T02 A claim runs the relay function of the manifest when an overload of it is in the schema", func(t *testing.T) {
+		db, _ := testDatabase(t)
+		v, _ := admins.Load(db)
+		admin := v.(*sql.DB)
+		r, _ := relays.Load(db)
+		// An overload whose second parameter is double precision takes an untyped parameter before the function
+		// of the manifest; the claim names each parameter's type, so it runs claim(timestamptz, integer, uuid, bigint).
+		if _, err := admin.Exec(`CREATE FUNCTION stego_outbox.claim(a timestamptz, b double precision, c uuid, d bigint)
+RETURNS SETOF stego_outbox.messages LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+AS $x$ BEGIN RAISE EXCEPTION 'the overload ran'; END $x$;
+ALTER FUNCTION stego_outbox.claim(timestamptz, double precision, uuid, bigint) OWNER TO ` + r.(string)); err != nil {
+			t.Fatal(err)
+		}
+		q, err := New(db, Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := q.Claim(context.Background(), 8, time.Minute); err != nil {
+			t.Fatalf("Claim gave %v, want the claim of the manifest", err)
 		}
 	})
 }

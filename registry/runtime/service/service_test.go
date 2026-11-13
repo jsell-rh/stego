@@ -84,7 +84,7 @@ func orderEntity(t *testing.T) *command.Entity[order] {
 func parts(entities []command.Declared, calls *int) Parts {
 	return Parts{
 		Service: "todo-svc", DeclarationVersion: "d1", SubjectType: "user", TenantClaim: "tenant", ProblemCode: "TODO",
-		TenantConfig: tenantConfig(calls), OwnerRole: fixtureOwner, WorkerRole: fixtureWorker, OutboxRelayRole: fixtureOutboxRelay,
+		TenantConfig: tenantConfig(calls), OwnerRole: fixtureOwner, WorkerRole: fixtureWorker, OutboxRelayRole: fixtureOutboxRelay, RelayRole: fixtureRelay, AuthzSchema: "public",
 		NewQueue: func(db *sql.DB) (*outbox.Queue, error) {
 			return outbox.New(db, outbox.Options{PayloadLimits: auditoutbox.PayloadLimits()})
 		},

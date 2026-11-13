@@ -64,6 +64,9 @@ type Parts struct {
 	// WorkerRole and OutboxRelayRole are the roles of the outbox worker and of the outbox relay functions, which the
 	// manifest of the outbox names with the runtime role, the role that New connects as (ST-SUP-RP14-LC06).
 	WorkerRole, OutboxRelayRole string
+	// RelayRole is the login role of the authorization relay, and AuthzSchema the schema of the revocation tables,
+	// which the manifest of the authorization runtime names (ST-SUP-RP14-LC06).
+	RelayRole, AuthzSchema string
 	// Schema is the schema manifest of the tables of the declaration, which the PostgreSQL adapter emits
 	// (ST-SUP-RC01-OC12). New adds the manifest of the audit record to it, for the anchor period of Workers
 	// (ST-SUP-RP14-LC06).
@@ -78,8 +81,8 @@ func (p Parts) check() error {
 		return errors.New("service: the parts need the subject type, the tenant claim and the problem code")
 	case p.OwnerRole == "":
 		return errors.New("service: the parts need the owner role, which owns the tables of the schema manifest")
-	case p.WorkerRole == "" || p.OutboxRelayRole == "":
-		return errors.New("service: the parts need the worker role and the outbox relay role, which the manifest of the outbox names")
+	case p.WorkerRole == "" || p.OutboxRelayRole == "" || p.RelayRole == "" || p.AuthzSchema == "":
+		return errors.New("service: the parts need the worker, outbox relay and relay roles and the authorization schema, which the manifests of the outbox and the authorization runtime name")
 	case p.TenantConfig == nil || p.NewQueue == nil || p.AuditQueue == nil || p.NewAuthz == nil:
 		return errors.New("service: the parts need the adapter's connection configuration, the outbox queue, the audit queue and the authorization runtime")
 	}
@@ -128,7 +131,7 @@ func New(ctx context.Context, s Settings, p Parts) (_ *Service, err error) {
 	if svc.pool, err = tenant.Open(ctx, pools); err != nil {
 		return nil, err
 	}
-	if err := checkSchema(ctx, svc.pool, p.Schema, p.OwnerRole, p.WorkerRole, p.OutboxRelayRole, p.Workers.AnchorPeriod, p.Workers.RetentionMonths); err != nil {
+	if err := checkSchema(ctx, svc.pool, p); err != nil {
 		return nil, err
 	}
 	if svc.auditDB, err = tenant.Open(ctx, pools); err != nil {
@@ -201,28 +204,34 @@ func New(ctx context.Context, s Settings, p Parts) (_ *Service, err error) {
 	return svc, nil
 }
 
-// checkSchema refuses a database that does not hold the schema manifest of the service and of the audit record
+// checkSchema refuses a database that does not hold the schema manifest of the service, of the audit record, of the outbox and of the authorization runtime
 // (ST-SUP-RP14-LC06): it reads the catalog as the runtime role before New opens anything else, so a refused start
 // writes nothing and serves no request. The failure record of the process holds no error text, so it logs the
 // faults, which name only objects of the catalog. The audit triggers' functions are those that the audit DDL makes
 // for the declared anchor period (Parts.Workers.AnchorPeriod), and audit_maintain is the one of the declared retention
 // (Parts.Workers.RetentionMonths).
-func checkSchema(ctx context.Context, db *sql.DB, declared manifest.Manifest, owner, workerRole, outboxRelayRole string, anchorPeriod time.Duration, retentionMonths int) error {
+func checkSchema(ctx context.Context, db *sql.DB, p Parts) error {
 	// The check runs as the runtime role, which alone may run audit_maintain.
 	var runtimeRole string
 	if err := db.QueryRowContext(ctx, "SELECT current_user").Scan(&runtimeRole); err != nil {
 		return fmt.Errorf("service: read the runtime role: %w", err)
 	}
-	record, err := audit.Manifest(audit.Config{AnchorPeriod: anchorPeriod, RetentionMonths: retentionMonths, RuntimeRole: runtimeRole})
+	record, err := audit.Manifest(audit.Config{AnchorPeriod: p.Workers.AnchorPeriod, RetentionMonths: p.Workers.RetentionMonths, RuntimeRole: runtimeRole})
 	if err != nil {
 		return fmt.Errorf("service: the manifest of the audit record: %w", err)
 	}
-	queue, err := outbox.Manifest(outboxRelayRole, runtimeRole, workerRole)
+	queue, err := outbox.Manifest(p.OutboxRelayRole, runtimeRole, p.WorkerRole)
 	if err != nil {
 		return fmt.Errorf("service: the manifest of the outbox: %w", err)
 	}
-	want := manifest.Join(declared, record, queue)
-	want.Owner = owner
+	// The outbox relay role owns the state hook functions of the authorization runtime too, so its manifest is in
+	// the check, or the confined relay role would own functions that the manifest does not name.
+	revocations, err := authz.Manifest(p.AuthzSchema, runtimeRole, p.RelayRole, p.OutboxRelayRole, p.WorkerRole)
+	if err != nil {
+		return fmt.Errorf("service: the manifest of the authorization runtime: %w", err)
+	}
+	want := manifest.Join(p.Schema, record, queue, revocations)
+	want.Owner = p.OwnerRole
 	err = manifest.Check(ctx, db, want)
 	var mismatch *manifest.Mismatch
 	if errors.As(err, &mismatch) {

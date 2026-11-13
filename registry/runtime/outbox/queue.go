@@ -170,16 +170,40 @@ func Manifest(relayRole, runtimeRole, workerRole string) (manifest.Manifest, err
 		if strings.Contains(head, "LANGUAGE sql") {
 			language = "sql"
 		}
+		volatility := "v"
+		if language == "sql" {
+			volatility = "s"
+		}
 		execute := []string{workerRole}
 		if name == "stego_outbox.resolve" {
 			execute = append(execute, runtimeRole)
 		}
 		functions = append(functions, manifest.Function{Name: name, Args: args, Language: language, Source: source, SecurityDefiner: true,
-			Config: []string{"search_path=pg_catalog, pg_temp"}, Owner: relayRole, Execute: execute})
+			Config: []string{"search_path=pg_catalog, pg_temp"}, Owner: relayRole, Execute: execute,
+			Returns: relayResults[name], Volatility: volatility})
 	}
 	return manifest.Manifest{Functions: functions, Tables: []manifest.Table{{Schema: "stego_outbox", Name: "messages", Columns: columns,
 		Constraints: constraints, Indexes: []manifest.Index{{Name: "messages_pkey", Columns: []string{"id"}}, {Name: "messages_sequence_key", Columns: []string{"sequence"}}},
-		RowSecurity: true, Policies: policies, CheckGrants: true, Grants: grants}}}, nil
+		RowSecurity: true, Policies: policies, CheckGrants: true, Grants: grants}},
+		// The schema is the outbox's whole, so no other function, such as an overload of a relay function, is in it; and
+		// the relay role owns the relay functions only, since each SECURITY DEFINER function of it spans tenants.
+		Schemas:  []manifest.Schema{{Name: "stego_outbox", Usage: []string{runtimeRole, workerRole, relayRole}}},
+		Confined: []string{relayRole}}, nil
+}
+
+// relayResults are the results of the relay functions, as pg_get_function_result gives them.
+var relayResults = map[string]string{
+	"stego_outbox.claim": "TABLE(r_tenant text, r_id uuid, r_destination text, r_resource_key text, r_kind text, r_payload bytea, " +
+		"r_outgoing_key text, r_principal text, r_origin text, r_group text, r_state text, r_attempts bigint, r_conflicts bigint, " +
+		"r_lookups bigint, r_lease_until timestamp with time zone, r_dispatched_at timestamp with time zone)",
+	"stego_outbox.move":         "TABLE(r_result text, r_state text, r_delay double precision, r_attempts bigint, r_conflicts bigint, r_lookups bigint)",
+	"stego_outbox.release":      "bigint",
+	"stego_outbox.purge_parked": "bigint",
+	"stego_outbox.purge_done":   "bigint",
+	"stego_outbox.blocked": "TABLE(r_tenant text, r_destination text, r_resource_key text, r_state text, r_attempts bigint, " +
+		"r_failure_code text, r_available_at timestamp with time zone, r_created_at timestamp with time zone)",
+	"stego_outbox.oldest":  "TABLE(r_destination text, r_age double precision)",
+	"stego_outbox.resolve": "TABLE(o_resolved_at timestamp with time zone, o_age_seconds double precision)",
 }
 
 // The relay functions, by their signature, for the grants and the checks.
@@ -875,7 +899,7 @@ func (q *Queue) Claim(ctx context.Context, limit int, lease time.Duration) ([]De
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 	sent := time.Now()
-	rows, err := q.db.QueryContext(ctx, `SELECT * FROM stego_outbox.claim($1, $2, $3, $4)`, q.now(), limit, token,
+	rows, err := q.db.QueryContext(ctx, `SELECT * FROM stego_outbox.claim($1::timestamptz, $2::integer, $3::uuid, $4::bigint)`, q.now(), limit, token,
 		lease.Milliseconds())
 	if err != nil {
 		return nil, canceled(ctx, err)
@@ -960,7 +984,7 @@ func (q *Queue) move(ctx context.Context, tx *sql.Tx, receipt *Receipt, to State
 	var result, state string
 	var seconds sql.NullFloat64
 	var m moved
-	err := db.QueryRowContext(ctx, `SELECT * FROM stego_outbox.move($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+	err := db.QueryRowContext(ctx, `SELECT * FROM stego_outbox.move($1::timestamptz, $2::uuid, $3::uuid, $4::text, $5::text, $6::bigint, $7::timestamptz, $8::bigint, $9::boolean, $10::boolean, $11::text, $12::bigint)`,
 		q.now(), receipt.ID, receipt.Token, string(receipt.State), string(to), c.delay.Milliseconds(), due, c.attempts,
 		c.conflict, c.lookup, c.failureCode, c.lease.Milliseconds()).Scan(&result, &state, &seconds, &m.attempts,
 		&m.conflicts, &m.lookups)
@@ -999,7 +1023,7 @@ func (q *Queue) release(ctx context.Context, tx *sql.Tx, receipt Receipt, delay 
 		db = tx
 	}
 	var n int64
-	err := db.QueryRowContext(ctx, `SELECT stego_outbox.release($1, $2, $3, $4, $5)`, q.now(), receipt.ID,
+	err := db.QueryRowContext(ctx, `SELECT stego_outbox.release($1::timestamptz, $2::uuid, $3::uuid, $4::bigint, $5::text)`, q.now(), receipt.ID,
 		receipt.Token, delay.Milliseconds(), failureCode).Scan(&n)
 	if err != nil {
 		return false, canceled(ctx, err)
@@ -1052,7 +1076,7 @@ func (q *Queue) Blocked(ctx context.Context, limit int) ([]BlockedMessage, error
 	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-	rows, err := q.db.QueryContext(ctx, `SELECT * FROM stego_outbox.blocked($1, $2)`, q.now(), limit)
+	rows, err := q.db.QueryContext(ctx, `SELECT * FROM stego_outbox.blocked($1::timestamptz, $2::integer)`, q.now(), limit)
 	if err != nil {
 		return nil, canceled(ctx, err)
 	}
@@ -1141,7 +1165,7 @@ func (q *Queue) purge(ctx context.Context, limit int, olderThan time.Duration, p
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 	var n int64
-	err = q.db.QueryRowContext(ctx, `SELECT stego_outbox.purge_parked($1, $2, $3, $4::jsonb)`, q.now(), limit,
+	err = q.db.QueryRowContext(ctx, `SELECT stego_outbox.purge_parked($1::timestamptz, $2::integer, $3::bigint, $4::jsonb)`, q.now(), limit,
 		olderThan.Milliseconds(), string(names)).Scan(&n)
 	return n, canceled(ctx, err)
 }
@@ -1158,7 +1182,7 @@ func (q *Queue) purgeDone(ctx context.Context, limit int, retention time.Duratio
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 	var n int64
-	err := q.db.QueryRowContext(ctx, `SELECT stego_outbox.purge_done($1, $2, $3)`, q.now(), limit,
+	err := q.db.QueryRowContext(ctx, `SELECT stego_outbox.purge_done($1::timestamptz, $2::integer, $3::bigint)`, q.now(), limit,
 		retention.Milliseconds()).Scan(&n)
 	return n, canceled(ctx, err)
 }
