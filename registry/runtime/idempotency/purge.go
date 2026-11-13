@@ -44,8 +44,9 @@ type PurgeOptions struct {
 }
 
 // purgeSQL calls the purge function of the key table that the search path resolves. The function, not the caller,
-// reads and deletes the rows of every tenant (ST-SUP-RP07-LC11).
-const purgeSQL = `SELECT ` + PurgeFunction + `($1, $2)`
+// reads and deletes the rows of every tenant (ST-SUP-RP07-LC11). Each parameter has its type, so no overload of the
+// function with other parameter types runs in its place.
+const purgeSQL = `SELECT ` + PurgeFunction + `($1::timestamptz, $2::integer)`
 
 // Purge deletes the key rows whose expires_at has passed, in batches of at most opts.Batch rows with a pause of
 // opts.Pause between two batches, and returns how many rows it deleted (ST-SUP-RP07-LC07). Each batch is one call of

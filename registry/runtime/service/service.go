@@ -19,6 +19,7 @@ import (
 	"github.com/jsell-rh/stego/registry/runtime/authn"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
 	"github.com/jsell-rh/stego/registry/runtime/command"
+	"github.com/jsell-rh/stego/registry/runtime/idempotency"
 	"github.com/jsell-rh/stego/registry/runtime/manifest"
 	"github.com/jsell-rh/stego/registry/runtime/otel"
 	"github.com/jsell-rh/stego/registry/runtime/outbox"
@@ -67,6 +68,9 @@ type Parts struct {
 	// RelayRole is the login role of the authorization relay, and AuthzSchema the schema of the revocation tables,
 	// which the manifest of the authorization runtime names (ST-SUP-RP14-LC06).
 	RelayRole, AuthzSchema string
+	// PurgeRole is the role that owns the purge function of the key table, which the manifest of the key table names
+	// (ST-SUP-RP14-LC06).
+	PurgeRole string
 	// Schema is the schema manifest of the tables of the declaration, which the PostgreSQL adapter emits
 	// (ST-SUP-RC01-OC12). New adds the manifest of the audit record to it, for the anchor period of Workers
 	// (ST-SUP-RP14-LC06).
@@ -81,8 +85,8 @@ func (p Parts) check() error {
 		return errors.New("service: the parts need the subject type, the tenant claim and the problem code")
 	case p.OwnerRole == "":
 		return errors.New("service: the parts need the owner role, which owns the tables of the schema manifest")
-	case p.WorkerRole == "" || p.OutboxRelayRole == "" || p.RelayRole == "" || p.AuthzSchema == "":
-		return errors.New("service: the parts need the worker, outbox relay and relay roles and the authorization schema, which the manifests of the outbox and the authorization runtime name")
+	case p.WorkerRole == "" || p.OutboxRelayRole == "" || p.RelayRole == "" || p.AuthzSchema == "" || p.PurgeRole == "":
+		return errors.New("service: the parts need the worker, outbox relay, relay and purge roles and the authorization schema, which the manifests of the outbox, the authorization runtime and the key table name")
 	case p.TenantConfig == nil || p.NewQueue == nil || p.AuditQueue == nil || p.NewAuthz == nil:
 		return errors.New("service: the parts need the adapter's connection configuration, the outbox queue, the audit queue and the authorization runtime")
 	}
@@ -204,7 +208,7 @@ func New(ctx context.Context, s Settings, p Parts) (_ *Service, err error) {
 	return svc, nil
 }
 
-// checkSchema refuses a database that does not hold the schema manifest of the service, of the audit record, of the outbox and of the authorization runtime
+// checkSchema refuses a database that does not hold the schema manifest of the service, of the audit record, of the outbox, of the authorization runtime and of the key table
 // (ST-SUP-RP14-LC06): it reads the catalog as the runtime role before New opens anything else, so a refused start
 // writes nothing and serves no request. The failure record of the process holds no error text, so it logs the
 // faults, which name only objects of the catalog. The audit triggers' functions are those that the audit DDL makes
@@ -230,7 +234,12 @@ func checkSchema(ctx context.Context, db *sql.DB, p Parts) error {
 	if err != nil {
 		return fmt.Errorf("service: the manifest of the authorization runtime: %w", err)
 	}
-	want := manifest.Join(p.Schema, record, queue, revocations)
+	// The migration job makes the key table in the schema public, and the grants of the runtime role name it there.
+	keys, err := idempotency.Manifest("public", p.PurgeRole, runtimeRole)
+	if err != nil {
+		return fmt.Errorf("service: the manifest of the key table: %w", err)
+	}
+	want := manifest.Join(p.Schema, record, queue, revocations, keys)
 	want.Owner = p.OwnerRole
 	err = manifest.Check(ctx, db, want)
 	var mismatch *manifest.Mismatch
