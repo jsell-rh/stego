@@ -96,6 +96,16 @@ in the exact form that the step gives it, on the table of a declared entity:
   template of this release, in the schema `stego_steps`, for one column
   that the release before knows and one new column (ST-SUP-RP15-LC02).
 
+The sync trigger takes its direction from the writer, never from a NULL.
+The release of the step sets `stego.schema_step` to the IDs of its open
+changes with `SET LOCAL` in each transaction that writes. When that marker
+names the change, the trigger sets the old column from the new one; else it
+sets the new column from the old one. A conversion of an old value that does
+not convert gives the fill value of the change, or NULL, and never refuses a
+write of the release before. A write that sets both columns to values that
+differ is refused. The backfill passes the trigger of its own change with
+`stego.backfill_change`, only as the owner role.
+
 A column that the manifest does not list, on any table of the manifest,
 must be of a built-in base type of `pg_catalog`, such as `text`, `uuid` or
 `integer`: a domain, an enum, a range or a composite type can run a function

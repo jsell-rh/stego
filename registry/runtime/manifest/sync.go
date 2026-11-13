@@ -18,37 +18,74 @@ import (
 // name only when its function is byte for byte what SyncSource gives for one of its columns, a new column, one
 // conversion of SyncConversions and a version of SyncVersions.
 
-// SyncConfig is the one setting of a sync function: its search path, as pg_proc.proconfig holds it.
+// SyncConfig is the one setting of a sync function: its search path, as pg_proc.proconfig holds it. The template has
+// no conversion whose result depends on another setting, such as TimeZone or DateStyle (decision on finding F4 (c),
+// orchestrator under the owner's delegation, 2026-11-13).
 const SyncConfig = "search_path=pg_catalog, pg_temp"
+
+// SchemaStepSetting is the writer marker of the sync trigger: the runtime of the release of a step sets it with SET
+// LOCAL in each transaction that writes, to the IDs of the open changes of that release, joined by commas
+// (SchemaStepValue). The sync trigger of a change that the marker names copies U into K; else it copies K into U
+// (ST-SUP-RP15-LC02 rule 3; decision on finding F3, orchestrator under the owner's delegation, 2026-11-13).
+const SchemaStepSetting = "stego.schema_step"
+
+// BackfillSetting is the setting of the backfill batch (ST-SUP-RC01-OC32): the sync trigger of the change that it
+// names does nothing in the transaction, when the role that writes is the backfill role, the owner of the manifest.
+const BackfillSetting = "stego.backfill_change"
+
+// SchemaStepValue gives the value of SchemaStepSetting for the open changes of a release: their IDs, joined by commas.
+func SchemaStepValue(changes []string) (string, error) {
+	for _, c := range changes {
+		if !changeID.MatchString(c) {
+			return "", fmt.Errorf("manifest: %q is not the ID of a schema change", c)
+		}
+	}
+	return strings.Join(changes, ","), nil
+}
+
+// changeID is the grammar of the ID of a schema change: lower kebab case.
+var changeID = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 // SyncVersions are the versions of the sync template that this release accepts. A change of the template or of the
 // conversion list is a new version, and a release must accept both versions before a step uses the new one.
 var SyncVersions = []int{1}
 
 // syncTemplates are the bodies of the template versions: %[1]s is K and %[2]s is U, each as quote_ident gives it,
-// %[3]s the conversion of NEW.K to the type of U and %[4]s the conversion of NEW.U to the type of K. The release
-// before the step writes only K, and the release of the step writes only U, so on INSERT the function sets the
-// column that is NULL from the other, and on UPDATE it copies from the column that changed into the other. It
-// refuses a write that sets both columns to values that differ after the conversion, with a fixed message that
-// holds no row value (ST-SUP-RC01-OC23, ST-SUP-RC01-OC13; decision on ST-GEN-Q17).
+// %[3]s the conversion of NEW.K to the type of U and %[4]s the conversion of NEW.U to the type of K, %[5]s the change
+// ID and %[6]s the backfill role, each as a string literal.
+//
+// In a transaction where BackfillSetting names the change and the role is the backfill role, the function does
+// nothing (ST-SUP-RC01-OC32). Else the writer marker SchemaStepSetting picks the direction: when it names the change,
+// the writer is the release of the step, which writes only U, and the function sets K from U; when it does not, the
+// writer is the release before, which writes only K, and the function sets U from K, by a conversion that never
+// raises (ST-SUP-RC01-OC33). On UPDATE it sets the other column only when one of the two changed. It refuses a write
+// that sets both columns to values that differ after the conversion, with a fixed message that holds no row value:
+// an UPDATE that changes both, and an INSERT of the release before that sets U, which has no default
+// (ST-SUP-RC01-OC23, ST-SUP-RC01-OC13; decisions on ST-GEN-Q17 and on finding F3).
 var syncTemplates = map[int]string{1: `
 BEGIN
-  IF TG_OP = 'INSERT' THEN
-    IF NEW.%[2]s IS NULL THEN
-      NEW.%[2]s := %[3]s;
-    ELSIF NEW.%[1]s IS NULL THEN
+  IF pg_catalog.current_setting('stego.backfill_change', true) = %[5]s AND CURRENT_USER = %[6]s THEN
+    RETURN NEW;
+  END IF;
+  IF pg_catalog.strpos(',' || pg_catalog.current_setting('stego.schema_step', true) || ',', ',' || %[5]s || ',') > 0 THEN
+    IF TG_OP = 'INSERT' THEN
       NEW.%[1]s := %[4]s;
-    ELSIF NEW.%[2]s IS DISTINCT FROM %[3]s THEN
+    ELSIF NEW.%[1]s IS DISTINCT FROM OLD.%[1]s OR NEW.%[2]s IS DISTINCT FROM OLD.%[2]s THEN
+      IF NEW.%[1]s IS DISTINCT FROM OLD.%[1]s AND NEW.%[2]s IS DISTINCT FROM OLD.%[2]s AND NEW.%[1]s IS DISTINCT FROM %[4]s THEN
+        RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'stego sync trigger: the write sets the old and the new column to values that differ';
+      END IF;
+      NEW.%[1]s := %[4]s;
+    END IF;
+  ELSIF TG_OP = 'INSERT' THEN
+    IF NEW.%[2]s IS NOT NULL AND NEW.%[2]s IS DISTINCT FROM %[3]s THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'stego sync trigger: the write sets the old and the new column to values that differ';
     END IF;
-  ELSIF NEW.%[1]s IS DISTINCT FROM OLD.%[1]s AND NEW.%[2]s IS DISTINCT FROM OLD.%[2]s THEN
-    IF NEW.%[2]s IS DISTINCT FROM %[3]s THEN
-      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'stego sync trigger: the write sets the old and the new column to values that differ';
-    END IF;
-  ELSIF NEW.%[1]s IS DISTINCT FROM OLD.%[1]s THEN
     NEW.%[2]s := %[3]s;
-  ELSIF NEW.%[2]s IS DISTINCT FROM OLD.%[2]s THEN
-    NEW.%[1]s := %[4]s;
+  ELSIF NEW.%[1]s IS DISTINCT FROM OLD.%[1]s OR NEW.%[2]s IS DISTINCT FROM OLD.%[2]s THEN
+    IF NEW.%[1]s IS DISTINCT FROM OLD.%[1]s AND NEW.%[2]s IS DISTINCT FROM OLD.%[2]s AND NEW.%[2]s IS DISTINCT FROM %[3]s THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'stego sync trigger: the write sets the old and the new column to values that differ';
+    END IF;
+    NEW.%[2]s := %[3]s;
   END IF;
   RETURN NEW;
 END;
@@ -56,25 +93,31 @@ END;
 
 // Conversion is one conversion of the fixed list: its name, the types of K and U as format_type gives them (both
 // empty for the identity, which needs the same type), and the expressions of each direction, each a pg_catalog
-// cast of its one argument %s.
+// cast of its one argument %s. Guard, for a conversion that can fail, is the condition, of its one argument %s, under
+// which Forward converts; where it does not hold, the forward conversion gives the fill value of the change, or NULL,
+// and never raises, so no write of the release before fails (ST-SUP-RC01-OC33). Back is the inverse, which
+// ST-DECL-INV63 makes total.
 type Conversion struct {
-	Name, From, To, Forward, Back string
+	Name, From, To, Forward, Back, Guard string
 }
 
-// SyncConversions are the conversions of the sync template, the same for each version of SyncVersions.
+// SyncConversions are the conversions of the sync template, the same for each version of SyncVersions. No
+// conversion reads a setting of the session: the conversions of a time to text and back, whose text depends on
+// TimeZone and DateStyle, are not in the list (decision on finding F4 (c)).
 var SyncConversions = func() []Conversion {
 	list := []Conversion{
 		{Name: "identity", Forward: "%s", Back: "%s"},
 		{Name: "integer-bigint", From: "integer", To: "bigint", Forward: "CAST(%s AS pg_catalog.int8)", Back: "CAST(%s AS pg_catalog.int4)"},
-		{Name: "bigint-integer", From: "bigint", To: "integer", Forward: "CAST(%s AS pg_catalog.int4)", Back: "CAST(%s AS pg_catalog.int8)"},
+		{Name: "bigint-integer", From: "bigint", To: "integer", Forward: "CAST(%s AS pg_catalog.int4)", Back: "CAST(%s AS pg_catalog.int8)",
+			Guard: "%s BETWEEN -2147483648 AND 2147483647"},
 	}
 	for _, t := range []struct{ format, catalog string }{
 		{"integer", "int4"}, {"bigint", "int8"}, {"numeric", "numeric"}, {"boolean", "bool"}, {"uuid", "uuid"},
-		{"timestamp with time zone", "timestamptz"},
 	} {
 		list = append(list,
 			Conversion{Name: t.catalog + "-text", From: t.format, To: "text", Forward: "CAST(%s AS pg_catalog.text)", Back: "CAST(%s AS pg_catalog." + t.catalog + ")"},
-			Conversion{Name: "text-" + t.catalog, From: "text", To: t.format, Forward: "CAST(%s AS pg_catalog." + t.catalog + ")", Back: "CAST(%s AS pg_catalog.text)"})
+			Conversion{Name: "text-" + t.catalog, From: "text", To: t.format, Forward: "CAST(%s AS pg_catalog." + t.catalog + ")", Back: "CAST(%s AS pg_catalog.text)",
+				Guard: "pg_catalog.pg_input_is_valid(%s, 'pg_catalog." + t.catalog + "')"})
 	}
 	return list
 }()
@@ -96,27 +139,71 @@ func (c Conversion) fits(from, to string) bool {
 	return c.From == from && c.To == to
 }
 
-// SyncSource gives the source of the sync function of version for the columns k and u and the conversion c: the
-// text between the dollar quotes of its CREATE FUNCTION, which pg_proc.prosrc holds.
-func SyncSource(version int, k, u string, c Conversion) (string, error) {
+// Sync is what a sync function is rendered from: the change ID, the backfill role (the owner of the manifest), the
+// columns K and U, the conversion, and, for a conversion with a guard, the fill value of the change as the text of
+// a constant of the type of U, or no fill value (NULL).
+type Sync struct {
+	Change, Owner, K, U string
+	Conversion          Conversion
+	Fill                string
+	HasFill             bool
+}
+
+// syncLiteral gives the text as a SQL string literal. It refuses a backslash, which a session with
+// standard_conforming_strings off reads as an escape, and a control character.
+func syncLiteral(text string) (string, error) {
+	if strings.ContainsAny(text, "\\") || strings.ContainsFunc(text, func(r rune) bool { return r < 0x20 }) {
+		return "", fmt.Errorf("manifest: the sync function takes no backslash or control character in a constant")
+	}
+	return "'" + strings.ReplaceAll(text, "'", "''") + "'", nil
+}
+
+// SyncSource gives the source of the sync function of version for s: the text between the dollar quotes of its
+// CREATE FUNCTION, which pg_proc.prosrc holds.
+func SyncSource(version int, s Sync) (string, error) {
 	template, ok := syncTemplates[version]
 	if !ok || !slices.Contains(SyncVersions, version) {
 		return "", fmt.Errorf("manifest: the sync template has no version %d", version)
 	}
-	if !name.MatchString(k) || !name.MatchString(u) || k == u {
+	if !name.MatchString(s.K) || !name.MatchString(s.U) || s.K == s.U {
 		return "", fmt.Errorf("manifest: the sync function needs two different column names of at most 63 bytes")
 	}
-	if _, ok := SyncConversion(c.Name); !ok {
-		return "", fmt.Errorf("manifest: the conversion %q is not in the list", c.Name)
+	if !changeID.MatchString(s.Change) || !name.MatchString(s.Owner) {
+		return "", fmt.Errorf("manifest: the sync function needs the ID of its change and the backfill role")
 	}
-	qk, qu := QuoteIdent(k), QuoteIdent(u)
-	return fmt.Sprintf(template, qk, qu, fmt.Sprintf(c.Forward, "NEW."+qk), fmt.Sprintf(c.Back, "NEW."+qu)), nil
+	c, ok := SyncConversion(s.Conversion.Name)
+	if !ok {
+		return "", fmt.Errorf("manifest: the conversion %q is not in the list", s.Conversion.Name)
+	}
+	if s.HasFill && c.Guard == "" {
+		return "", fmt.Errorf("manifest: the conversion %q cannot fail and takes no fill value", c.Name)
+	}
+	qk, qu := QuoteIdent(s.K), QuoteIdent(s.U)
+	forward := fmt.Sprintf(c.Forward, "NEW."+qk)
+	if c.Guard != "" {
+		fill := "NULL"
+		if s.HasFill {
+			text, err := syncLiteral(s.Fill)
+			if err != nil {
+				return "", err
+			}
+			fill = text
+		}
+		// In parentheses, as PL/pgSQL ends the condition of an IF at the first THEN outside them.
+		forward = "(CASE WHEN NEW." + qk + " IS NULL THEN NULL WHEN " + fmt.Sprintf(c.Guard, "NEW."+qk) + " THEN " + forward + " ELSE " + fill + " END)"
+	}
+	change, _ := syncLiteral(s.Change)
+	owner, err := syncLiteral(s.Owner)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(template, qk, qu, forward, fmt.Sprintf(c.Back, "NEW."+qu), change, owner), nil
 }
 
 // SyncFunction gives the CREATE FUNCTION statement of a sync function named schema.function, owned by the role that
 // runs it: plpgsql, SECURITY INVOKER, with only the setting SyncConfig, returning trigger and volatile.
-func SyncFunction(schema, function string, version int, k, u string, c Conversion) (string, error) {
-	source, err := SyncSource(version, k, u, c)
+func SyncFunction(schema, function string, version int, s Sync) (string, error) {
+	source, err := SyncSource(version, s)
 	if err != nil {
 		return "", err
 	}
@@ -245,16 +332,35 @@ func stepColumns(ctx context.Context, tx *sql.Tx, rel uint32) (map[string]tableC
 // moves (ST-SUP-RP15-LC02 rule 2).
 var fixedColumns = map[string]bool{"id": true, "version": true, "authz_token": true, "created_time": true, "updated_time": true}
 
-// syncPair finds the columns K and U, the version and the conversion for which SyncSource gives source, among the
-// pairs that pairs gives; ok is false when none does.
-func syncPair(source string, pairs [][2]string, columns map[string]tableColumn) (k, u string, version int, c Conversion, ok bool) {
+// The constants of a sync function that its source names, which syncPair reads back to render it again: the change
+// ID, and the fill value or NULL.
+var (
+	syncChange = regexp.MustCompile(`current_setting\('stego\.backfill_change', true\) = '([a-z0-9-]+)' AND`)
+	syncFill   = regexp.MustCompile(` ELSE ('(?:[^']|'')*'|NULL) END\)`)
+)
+
+// syncPair finds the columns K and U, the version and the conversion for which SyncSource gives source with the
+// backfill role owner, among the pairs that pairs gives; ok is false when none does.
+func syncPair(source, owner string, pairs [][2]string, columns map[string]tableColumn) (k, u string, version int, c Conversion, ok bool) {
+	change := syncChange.FindStringSubmatch(source)
+	if change == nil {
+		return "", "", 0, Conversion{}, false
+	}
+	s := Sync{Change: change[1], Owner: owner}
+	if fill := syncFill.FindStringSubmatch(source); fill != nil && fill[1] != "NULL" {
+		s.Fill, s.HasFill = strings.ReplaceAll(fill[1][1:len(fill[1])-1], "''", "'"), true
+	}
 	for _, pair := range pairs {
 		for _, v := range SyncVersions {
 			for _, conv := range SyncConversions {
 				if !conv.fits(columns[pair[0]].typ, columns[pair[1]].typ) {
 					continue
 				}
-				if text, err := SyncSource(v, pair[0], pair[1], conv); err == nil && text == source {
+				s.K, s.U, s.Conversion = pair[0], pair[1], conv
+				if s.HasFill && conv.Guard == "" {
+					continue
+				}
+				if text, err := SyncSource(v, s); err == nil && text == source {
 					return pair[0], pair[1], v, conv, true
 				}
 			}
@@ -340,7 +446,7 @@ func acceptSync(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n string, 
 		candidates = append(candidates, pair)
 	}
 	// Rules 3, 4 and 6: the body is the template of a version of this release, for the pair and one conversion.
-	k, u, _, _, ok := syncPair(tr.source, candidates, columns)
+	k, u, _, _, ok := syncPair(tr.source, steps.owner, candidates, columns)
 	if !ok {
 		return 0, [2]string{}, false, nil
 	}

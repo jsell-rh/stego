@@ -1734,7 +1734,7 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 					}
 				}
 			}
-			if k, u, _, _, ok := syncPair(got.source, pairs, stepCols); ok {
+			if k, u, _, _, ok := syncPair(got.source, steps.owner, pairs, stepCols); ok {
 				used[k], used[u] = true, true
 			}
 		}

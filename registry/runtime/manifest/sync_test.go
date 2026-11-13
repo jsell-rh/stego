@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -19,14 +20,25 @@ func stepManifest() Manifest {
 }
 
 // syncSQL gives the CREATE FUNCTION of the sync function stego_steps.<function> for k, u and the conversion named
-// conversion, and fails the test when the template cannot render it.
+// conversion, of the change whose ID is the function name in kebab case, with testOwner as the backfill role, and
+// fails the test when the template cannot render it.
 func syncSQL(t *testing.T, function, k, u, conversion string) string {
+	t.Helper()
+	return syncFillSQL(t, function, k, u, conversion, "", false)
+}
+
+// syncFillSQL is syncSQL with a fill value when hasFill.
+func syncFillSQL(t *testing.T, function, k, u, conversion, fill string, hasFill bool) string {
 	t.Helper()
 	c, ok := SyncConversion(conversion)
 	if !ok {
 		t.Fatalf("no conversion %s", conversion)
 	}
-	statement, err := SyncFunction("stego_steps", function, 1, k, u, c)
+	if testOwner == "" {
+		database(t)
+	}
+	statement, err := SyncFunction("stego_steps", function, 1, Sync{Change: strings.ReplaceAll(function, "_", "-"), Owner: testOwner,
+		K: k, U: u, Conversion: c, Fill: fill, HasFill: hasFill})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,66 +86,59 @@ func TestSyncTrigger(t *testing.T) {
 		stepCase(t, "integer pages to text pages_text", stepSchema+"ALTER TABLE public.books ADD COLUMN pages_text text;\n"+syncSQL(t, "books_pages_sync", "pages", "pages_text", "int4-text")+
 			"CREATE TRIGGER books_pages_sync BEFORE INSERT OR UPDATE ON public.books FOR EACH ROW EXECUTE FUNCTION stego_steps.books_pages_sync();\n", stepManifest(), false)
 		stepCase(t, "no step yet: the held schema of the sync functions is missing", "", stepManifest(), false)
-		// The trigger moves the rows as rule 3 says: the release before writes only K, the release of the step
-		// writes only U, and a write that sets both to values that differ is refused (ST-SUP-RC01-OC23).
-		admin, _ := database(t)
-		if _, err := admin.Exec(note(t) + noteSync + `DROP TRIGGER books_reject_row ON public.books; SET app.tenant = 't';
-INSERT INTO public.folders VALUES ('t', '00000000-0000-0000-0000-000000000001');`); err != nil {
-			t.Fatal(err)
-		}
-		insert := func(id, columns, values string) error {
-			_, err := admin.Exec(`SET app.tenant = 't'; INSERT INTO public.books (id, folder_id, title, ` + columns + `) VALUES ('00000000-0000-0000-0000-00000000000` + id + `', '00000000-0000-0000-0000-000000000001', 'a', ` + values + `)`)
-			return err
-		}
-		read := func(id string) (string, string) {
-			var n, v sql.NullString
-			if err := admin.QueryRow(`SELECT note, note_v2 FROM public.books WHERE id = '00000000-0000-0000-0000-00000000000`+id+`'`).Scan(&n, &v); err != nil {
-				t.Fatal(err)
+		noteInt := stepSchema + "ALTER TABLE public.books ADD COLUMN note_int integer;\n" + syncFillSQL(t, "books_note_sync", "note", "note_int", "text-int4", "0", true) +
+			"CREATE TRIGGER books_note_sync BEFORE INSERT OR UPDATE ON public.books FOR EACH ROW EXECUTE FUNCTION stego_steps.books_note_sync();\n"
+		stepCase(t, "text note to integer note_int with the fill value 0", noteInt, stepManifest(), false)
+		stepCase(t, "text note to integer note_int with no fill value", strings.Replace(noteInt, "ELSE '0' END)", "ELSE NULL END)", -1), stepManifest(), false)
+		// Each conversion of the list takes a value of the release before that does not convert to NULL, and never
+		// raises (ST-SUP-RC01-OC33).
+		t.Run("each conversion never raises for a write of the release before", func(t *testing.T) {
+			admin, _ := database(t)
+			hostile := map[string]string{"text": "'abc'", "bigint": "9999999999", "integer": "7", "numeric": "1.5", "boolean": "true",
+				"uuid": "'00000000-0000-0000-0000-000000000009'"}
+			for i, c := range SyncConversions[1:] {
+				table := fmt.Sprintf("conv_%d", i)
+				statement, err := SyncFunction("public", table+"_sync", 1, Sync{Change: "conv", Owner: testOwner, K: "k", U: "u", Conversion: c})
+				if err != nil {
+					t.Fatal(err)
+				}
+				mustExec(t, admin, fmt.Sprintf("CREATE TABLE public.%[1]s (k %[2]s, u %[3]s);\n%[4]s;\nCREATE TRIGGER s BEFORE INSERT OR UPDATE ON public.%[1]s FOR EACH ROW EXECUTE FUNCTION public.%[1]s_sync();", table, c.From, c.To, statement))
+				if _, err := admin.Exec(fmt.Sprintf("INSERT INTO public.%s (k) VALUES (%s)", table, hostile[c.From])); err != nil {
+					t.Errorf("the conversion %s raises for a write of the release before: %v", c.Name, err)
+				}
 			}
-			return n.String, v.String
-		}
-		refusedWrite := func(what string, err error) {
-			t.Helper()
-			if err == nil || !strings.Contains(err.Error(), "23514") && !strings.Contains(err.Error(), "values that differ") {
-				t.Errorf("%s gives %v, want the refusal of the sync trigger", what, err)
+		})
+		// A value of the release before that does not convert gets the fill value, and the write is not refused
+		// (ST-SUP-RC01-OC33).
+		t.Run("a value that does not convert", func(t *testing.T) {
+			admin, _ := database(t)
+			mustExec(t, admin, noteInt+`DROP TRIGGER books_reject_row ON public.books; SET app.tenant = 't';
+INSERT INTO public.folders VALUES ('t', '00000000-0000-0000-0000-000000000001');`)
+			for _, c := range []struct {
+				note string
+				want int64
+			}{{"12", 12}, {"abc", 0}, {"99999999999", 0}, {"", -1}} {
+				if c.want < 0 {
+					// A NULL of the release before stays NULL, and never takes the fill value.
+					mustExec(t, admin, `SET app.tenant = 't'; DELETE FROM public.books; INSERT INTO public.books (id, folder_id, title) VALUES (gen_random_uuid(), '00000000-0000-0000-0000-000000000001', 'a')`)
+					var got sql.NullInt64
+					if err := admin.QueryRow(`SELECT note_int FROM public.books`).Scan(&got); err != nil || got.Valid {
+						t.Errorf("an INSERT of the release before with no note gives note_int %v (%v), want NULL", got, err)
+					}
+					continue
+				}
+				mustExec(t, admin, `SET app.tenant = 't'; DELETE FROM public.books; INSERT INTO public.books (id, folder_id, title, note) VALUES (gen_random_uuid(), '00000000-0000-0000-0000-000000000001', 'a', '`+c.note+`')`)
+				var got int64
+				if err := admin.QueryRow(`SELECT note_int FROM public.books`).Scan(&got); err != nil || got != c.want {
+					t.Errorf("an INSERT of the release before of %q gives note_int %d (%v), want %d", c.note, got, err, c.want)
+				}
 			}
-		}
-		if err := insert("2", "note", "'old'"); err != nil {
-			t.Fatal(err)
-		}
-		if n, v := read("2"); n != "old" || v != "old" {
-			t.Errorf("after an INSERT of K only note and note_v2 are %q and %q, want old and old", n, v)
-		}
-		if err := insert("3", "note_v2", "'new'"); err != nil {
-			t.Fatal(err)
-		}
-		if n, v := read("3"); n != "new" || v != "new" {
-			t.Errorf("after an INSERT of U only note and note_v2 are %q and %q, want new and new", n, v)
-		}
-		refusedWrite("an INSERT of both with values that differ", insert("4", "note, note_v2", "'k', 'u'"))
-		if err := insert("4", "note, note_v2", "'same', 'same'"); err != nil {
-			t.Errorf("an INSERT of both with one value: %v", err)
-		}
-		mustExec(t, admin, `UPDATE public.books SET note_v2 = 'new' WHERE id = '00000000-0000-0000-0000-000000000002'`)
-		if n, v := read("2"); n != "new" || v != "new" {
-			t.Errorf("after an UPDATE of U only they are %q and %q, want new and new", n, v)
-		}
-		mustExec(t, admin, `UPDATE public.books SET note = 'k' WHERE id = '00000000-0000-0000-0000-000000000002'`)
-		if n, v := read("2"); n != "k" || v != "k" {
-			t.Errorf("after an UPDATE of K only they are %q and %q, want k and k", n, v)
-		}
-		_, err := admin.Exec(`UPDATE public.books SET note = 'x', note_v2 = 'y' WHERE id = '00000000-0000-0000-0000-000000000002'`)
-		refusedWrite("an UPDATE of both with values that differ", err)
-		if err != nil && strings.Contains(err.Error(), "'x'") || err != nil && strings.Contains(err.Error(), "'y'") {
-			t.Errorf("the refusal holds a row value: %v", err)
-		}
-		if n, v := read("2"); n != "k" || v != "k" {
-			t.Errorf("after the refused UPDATE they are %q and %q, want k and k", n, v)
-		}
-		mustExec(t, admin, `UPDATE public.books SET note = 'z', note_v2 = 'z' WHERE id = '00000000-0000-0000-0000-000000000002'`)
-		if n, v := read("2"); n != "z" || v != "z" {
-			t.Errorf("after an UPDATE of both with one value they are %q and %q, want z and z", n, v)
-		}
+		})
+		// The trigger moves the rows as rule 3 says: the writer marker picks the direction. The release before
+		// writes only K and sets no marker; the release of the step writes only U and names the change in the marker;
+		// a write that sets both to values that differ is refused (ST-SUP-RC01-OC23). note has a declared default,
+		// which K takes on an INSERT of the release of the step (decision on finding F3).
+		syncWrites(t, note(t)+noteSync)
 	})
 
 	t.Run("ST-SUP-RP15-LC02-T02 Check refuses a trigger that breaks any rule of the strict template form", func(t *testing.T) {
@@ -142,7 +147,7 @@ INSERT INTO public.folders VALUES ('t', '00000000-0000-0000-0000-000000000001');
 		plain.Tables[1].Entity = false
 		noSteps := stepManifest()
 		noSteps.Schemas = nil
-		edited := strings.Replace(base, "IF NEW.note_v2 IS NULL THEN", "IF NEW.note IS NULL THEN", 1)
+		edited := strings.Replace(base, "NEW.note := NEW.note_v2;", "NEW.note_v2 := NEW.note;", 1)
 		for _, c := range []struct{ name, setup string }{
 			// Rule 2: the pair.
 			{"K is the key id", stepSchema + "ALTER TABLE public.books ADD COLUMN id_v2 uuid;\n" + syncSQL(t, "books_id_sync", "id", "id_v2", "identity") +
@@ -192,8 +197,22 @@ INSERT INTO public.folders VALUES ('t', '00000000-0000-0000-0000-000000000001');
 		// Rule 1: the scope, and the held schema.
 		stepCase(t, "a table that is not the table of a declared entity", base+noteSync, plain, true)
 		stepCase(t, "a manifest with no held schema of the sync functions", base+noteSync, noSteps, true)
+		// SyncSource renders no constant with a backslash or a control character, and no fill value for a conversion
+		// that cannot fail.
+		for name, c := range map[string]Sync{
+			"a fill value with a backslash":      {Change: "c", Owner: "o", K: "k", U: "u", Conversion: SyncConversions[len(SyncConversions)-1], Fill: `a\`, HasFill: true},
+			"a backfill role with a backslash":   {Change: "c", Owner: `o\`, K: "k", U: "u", Conversion: SyncConversions[0]},
+			"a fill value with a line break":     {Change: "c", Owner: "o", K: "k", U: "u", Conversion: SyncConversions[len(SyncConversions)-1], Fill: "a\n", HasFill: true},
+			"a fill value on the identity":       {Change: "c", Owner: "o", K: "k", U: "u", Conversion: SyncConversions[0], Fill: "a", HasFill: true},
+			"a change ID that is not kebab case": {Change: "C_1", Owner: "o", K: "k", U: "u", Conversion: SyncConversions[0]},
+			"no backfill role":                   {Change: "c", K: "k", U: "u", Conversion: SyncConversions[0]},
+		} {
+			if _, err := SyncSource(1, c); err == nil {
+				t.Errorf("SyncSource renders %s", name)
+			}
+		}
 		// Rule 6: a version that this release does not build is no template.
-		if _, err := SyncSource(2, "note", "note_v2", SyncConversions[0]); err == nil {
+		if _, err := SyncSource(2, Sync{Change: "books-note-sync", Owner: testOwner, K: "note", U: "note_v2", Conversion: SyncConversions[0]}); err == nil {
 			t.Error("SyncSource renders version 2, which this release does not build")
 		}
 		// A manifest that marks a runtime or a partitioned table as an entity, or holds two schemas of the sync
@@ -230,14 +249,103 @@ INSERT INTO public.folders VALUES ('t', '00000000-0000-0000-0000-000000000001');
 	})
 }
 
-// mustSource gives the source of version 1 of the sync template for k and u with the identity.
+// mustSource gives the source of version 1 of the sync template for k and u with the identity, of the change
+// books-note-sync with testOwner as the backfill role.
 func mustSource(t *testing.T, k, u string) string {
 	t.Helper()
-	source, err := SyncSource(1, k, u, SyncConversions[0])
+	if testOwner == "" {
+		database(t)
+	}
+	source, err := SyncSource(1, Sync{Change: "books-note-sync", Owner: testOwner, K: k, U: u, Conversion: SyncConversions[0]})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return source
+}
+
+// syncWrites runs the writes of rule 3 on a new test database made by setup, which holds the sync trigger of the change
+// books-note-sync from note to note_v2 with the identity, and checks both columns after each one.
+func syncWrites(t *testing.T, setup string) {
+	t.Helper()
+	admin, _ := database(t)
+	mustExec(t, admin, setup+`DROP TRIGGER books_reject_row ON public.books; ALTER TABLE public.books ALTER COLUMN note SET DEFAULT 'dflt';
+SET app.tenant = 't'; INSERT INTO public.folders VALUES ('t', '00000000-0000-0000-0000-000000000001');`)
+	const before, step = "", "SET LOCAL stego.schema_step = 'other-change,books-note-sync'; "
+	id := func(n string) string { return "'00000000-0000-0000-0000-00000000000" + n + "'" }
+	insert := func(marker, n, columns, values string) error {
+		_, err := admin.Exec(marker + `SET LOCAL app.tenant = 't'; INSERT INTO public.books (id, folder_id, title` + columns + `) VALUES (` + id(n) +
+			`, '00000000-0000-0000-0000-000000000001', 'a'` + values + `)`)
+		return err
+	}
+	update := func(marker, n, set string) error {
+		_, err := admin.Exec(marker + `SET LOCAL app.tenant = 't'; UPDATE public.books SET ` + set + ` WHERE id = ` + id(n))
+		return err
+	}
+	want := func(what, n string, note, v2 sql.NullString) {
+		t.Helper()
+		var gn, gv sql.NullString
+		if err := admin.QueryRow(`SELECT note, note_v2 FROM public.books WHERE id = `+id(n)).Scan(&gn, &gv); err != nil {
+			t.Fatal(err)
+		}
+		if gn != note || gv != v2 {
+			t.Errorf("after %s note and note_v2 are %v and %v, want %v and %v", what, gn, gv, note, v2)
+		}
+	}
+	text := func(v string) sql.NullString { return sql.NullString{String: v, Valid: true} }
+	null := sql.NullString{}
+	refused := func(what string, err error) {
+		t.Helper()
+		if err == nil || !strings.Contains(err.Error(), "23514") && !strings.Contains(err.Error(), "values that differ") {
+			t.Errorf("%s gives %v, want the refusal of the sync trigger", what, err)
+		}
+		if err != nil && (strings.Contains(err.Error(), "'x'") || strings.Contains(err.Error(), "'y'")) {
+			t.Errorf("the refusal holds a row value: %v", err)
+		}
+	}
+	accepted := func(what string, err error) {
+		t.Helper()
+		if err != nil {
+			t.Errorf("%s: %v", what, err)
+		}
+	}
+	// The release before: an INSERT of K sets U; with no value, K takes its default and U the same.
+	accepted("an INSERT of the release before", insert(before, "2", ", note", ", 'old'"))
+	want("an INSERT of the release before", "2", text("old"), text("old"))
+	accepted("an INSERT of the release before with no note", insert(before, "5", "", ""))
+	want("an INSERT of the release before with no note", "5", text("dflt"), text("dflt"))
+	refused("an INSERT of the release before that sets U to another value", insert(before, "6", ", note, note_v2", ", 'x', 'y'"))
+	accepted("an INSERT of the release before that sets U to the same value", insert(before, "6", ", note, note_v2", ", 'same', 'same'"))
+	// The release of the step: an INSERT of U sets K, over the default of K, and an explicit NULL stays NULL.
+	accepted("an INSERT of the release of the step", insert(step, "3", ", note_v2", ", 'new'"))
+	want("an INSERT of the release of the step", "3", text("new"), text("new"))
+	accepted("an INSERT of the release of the step with a NULL", insert(step, "4", ", note_v2", ", NULL"))
+	want("an INSERT of the release of the step with a NULL", "4", null, null)
+	// The marker names the change only as a whole item of its list.
+	accepted("an INSERT under a marker of another change", insert("SET LOCAL stego.schema_step = 'books-note-sync-2,books-note'; ", "7", ", note", ", 'k'"))
+	want("an INSERT under a marker of another change", "7", text("k"), text("k"))
+	// UPDATE: the column that changed is copied into the other, by either release.
+	accepted("an UPDATE of U by the release of the step", update(step, "2", "note_v2 = 'new'"))
+	want("an UPDATE of U by the release of the step", "2", text("new"), text("new"))
+	accepted("an UPDATE of K by the release before", update(before, "2", "note = 'k'"))
+	want("an UPDATE of K by the release before", "2", text("k"), text("k"))
+	accepted("an UPDATE of U with no marker", update(before, "2", "note_v2 = 'u'"))
+	want("an UPDATE of U with no marker, which takes U from K", "2", text("k"), text("k"))
+	accepted("an UPDATE of a third column", update(step, "2", "pages = 3"))
+	want("an UPDATE of a third column", "2", text("k"), text("k"))
+	refused("an UPDATE of both with values that differ by the release before", update(before, "2", "note = 'x', note_v2 = 'y'"))
+	refused("an UPDATE of both with values that differ by the release of the step", update(step, "2", "note = 'x', note_v2 = 'y'"))
+	want("the refused UPDATEs", "2", text("k"), text("k"))
+	accepted("an UPDATE of both with one value", update(step, "2", "note = 'z', note_v2 = 'z'"))
+	want("an UPDATE of both with one value", "2", text("z"), text("z"))
+	// The backfill bypass: only the backfill role, the owner of the manifest, passes the trigger of its own change.
+	accepted("an UPDATE of the backfill", update("SET LOCAL stego.backfill_change = 'books-note-sync'; ", "2", "note_v2 = 'b'"))
+	want("an UPDATE of the backfill", "2", text("z"), text("b"))
+	accepted("an UPDATE of the backfill of another change", update("SET LOCAL stego.backfill_change = 'other'; ", "3", "note_v2 = 'b'"))
+	want("an UPDATE of the backfill of another change", "3", text("new"), text("new"))
+	mustExec(t, admin, `DO $$ BEGIN CREATE ROLE sync_other_writer; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+GRANT USAGE ON SCHEMA stego_steps TO sync_other_writer; GRANT SELECT, UPDATE ON public.books TO sync_other_writer;`)
+	accepted("an UPDATE of the backfill setting by another role", update("SET LOCAL ROLE sync_other_writer; SET LOCAL stego.backfill_change = 'books-note-sync'; ", "3", "note_v2 = 'c'"))
+	want("an UPDATE of the backfill setting by another role", "3", text("new"), text("new"))
 }
 
 func mustExec(t *testing.T, db *sql.DB, statement string) {
