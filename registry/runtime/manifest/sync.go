@@ -167,12 +167,13 @@ func digestPrefix(n string) string {
 }
 
 // stepState is what Check accepts of the schema steps across the tables: the held schema of the sync functions,
-// the owner of the manifest, the oids of the tables of the manifest that are tables of declared entities, and the
-// oids of the sync functions that an accepted sync trigger runs, which the Steps schema may hold.
+// the owner of the manifest, the oids of the tables of the manifest that are tables of declared entities, of those
+// that are not owned (no row-level security in the manifest), and the oids of the sync functions that an accepted
+// sync trigger runs, which the Steps schema may hold.
 type stepState struct {
-	schema, owner string
-	entities      map[uint32]bool
-	accepted      map[uint32]bool
+	schema, owner    string
+	entities, shared map[uint32]bool
+	accepted         map[uint32]bool
 }
 
 // builtinTypeSQL tells, for the row of pg_catalog.pg_type ty, that the type is a base type that initdb made in
@@ -345,13 +346,15 @@ func acceptSync(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n string, 
 // acceptForeignKey tells whether the foreign key n of the entity table t (rel) is the foreign key of a later add step
 // in its exact form (ST-SUP-RP15-LC03): on one column of the table that is not in the manifest, is nullable and is of
 // a built-in base type of pg_catalog; referring to the whole primary key of the table of a declared entity of the
-// manifest, which ends with the key id; with the tenant column of the table first when the table is owned, and then
-// referring to the tenant column and the key id, so an owned table never refers to a key that is its key id alone;
-// NO ACTION on delete and on update, match simple, validated and not deferrable; and named as ForeignKeyName names it.
+// manifest, which ends with the key id; with the tenant column of the table first when the referenced table is owned;
+// on one column only when the referenced table is a table of a declared entity that is not owned, whose primary key
+// is its key id alone and whose rows each tenant may read, so the check of the key, which runs past row-level
+// security, tells a tenant nothing it cannot read; NO ACTION on delete and on update, match simple, validated and not
+// deferrable; and named as ForeignKeyName names it.
 func acceptForeignKey(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n string, steps *stepState, columns map[string]tableColumn) (bool, error) {
 	var from, to, ownKey, refKey, actions string
 	var target uint32
-	var validated, deferrable bool
+	var validated, deferrable, targetRows bool
 	keyOf := `COALESCE((SELECT pg_catalog.string_agg(a.attname, chr(31) ORDER BY k.o) FROM pg_catalog.pg_constraint pk
     CROSS JOIN LATERAL pg_catalog.unnest(pk.conkey) WITH ORDINALITY AS k(n, o)
     JOIN pg_catalog.pg_attribute a ON a.attrelid = pk.conrelid AND a.attnum = k.n WHERE pk.conrelid = %s AND pk.contype = 'p'), '')`
@@ -361,9 +364,10 @@ func acceptForeignKey(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n st
   COALESCE((SELECT pg_catalog.string_agg(a.attname, chr(31) ORDER BY k.o) FROM pg_catalog.unnest(c.confkey) WITH ORDINALITY AS k(n, o)
     JOIN pg_catalog.pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = k.n), ''),
   `+fmt.Sprintf(keyOf, "c.conrelid")+`, `+fmt.Sprintf(keyOf, "c.confrelid")+`,
-  c.confrelid, c.confdeltype::text || c.confupdtype::text || c.confmatchtype::text, c.convalidated, c.condeferrable OR c.condeferred
+  c.confrelid, c.confdeltype::text || c.confupdtype::text || c.confmatchtype::text, c.convalidated, c.condeferrable OR c.condeferred,
+  (SELECT r.relrowsecurity FROM pg_catalog.pg_class r WHERE r.oid = c.confrelid)
   FROM pg_catalog.pg_constraint c WHERE c.conrelid = $1 AND c.conname = $2 AND c.contype = 'f'`, rel, n).Scan(
-		&from, &to, &ownKey, &refKey, &target, &actions, &validated, &deferrable)
+		&from, &to, &ownKey, &refKey, &target, &actions, &validated, &deferrable, &targetRows)
 	if err != nil {
 		return false, err
 	}
@@ -379,9 +383,10 @@ func acceptForeignKey(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n st
 	}
 	switch len(refCols) {
 	case 1:
-		// The referenced key is the key id alone: only a table that is not owned, whose primary key is its key id
-		// alone, may refer to it, as an owned table must lead its foreign key with its tenant column.
-		return len(fromCols) == 1 && len(ownCols) == 1 && ownCols[0] == "id", nil
+		// The referenced key is the key id alone: any table may refer to it with one column when it is the table of a
+		// declared entity that is not owned and has no row-level security, so each tenant may read its rows. A runtime
+		// table or a table with row-level security keyed by id alone is no target (review of PR #270, M1).
+		return len(fromCols) == 1 && steps.shared[target] && !targetRows, nil
 	case 2:
 		// The referenced key holds the tenant column: the table is owned, and its tenant column, the first column of
 		// its primary key, comes first.

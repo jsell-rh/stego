@@ -546,7 +546,7 @@ func Check(ctx context.Context, db *sql.DB, m Manifest) (err error) {
 	if replication != "origin" {
 		faults = append(faults, "the session runs with session_replication_role "+replication+", which skips the triggers")
 	}
-	tables, entities := map[uint32]bool{}, map[uint32]bool{}
+	tables, entities, shared := map[uint32]bool{}, map[uint32]bool{}, map[uint32]bool{}
 	for _, t := range m.Tables {
 		var oid sql.NullInt64
 		if err := tx.QueryRowContext(ctx, `SELECT pg_catalog.to_regclass(pg_catalog.quote_ident($1) || '.' || pg_catalog.quote_ident($2))::pg_catalog.oid`,
@@ -556,9 +556,10 @@ func Check(ctx context.Context, db *sql.DB, m Manifest) (err error) {
 		if oid.Valid {
 			tables[uint32(oid.Int64)] = true
 			entities[uint32(oid.Int64)] = t.Entity
+			shared[uint32(oid.Int64)] = t.Entity && !t.RowSecurity
 		}
 	}
-	steps := &stepState{owner: m.Owner, entities: entities, accepted: map[uint32]bool{}}
+	steps := &stepState{owner: m.Owner, entities: entities, shared: shared, accepted: map[uint32]bool{}}
 	for _, sc := range m.Schemas {
 		if sc.Steps {
 			steps.schema = sc.Name
@@ -1008,7 +1009,7 @@ func checkConfined(ctx context.Context, tx *sql.Tx, role, owner string, named ma
 // On the table of a declared entity (entity), a default of a column that the manifest does not list is accepted when
 // it is a constant literal (literalDefault) whose cast is to a type of builtinType, on a column whose type is one of
 // builtinType, which a later add step gives its new column, and no other default; Check reads no value of it. The
-// default holds no function call, and checkTable refuses an unlisted column of the table whose type is no built-in
+// default holds no function call, and checkTable refuses an unlisted column of any table whose type is no built-in
 // base type of pg_catalog, such as a domain with a CHECK that calls a function, so an INSERT that leaves the column
 // out runs no function of the database for it (decision on ST-GEN-Q15 (a); the type rule is the decision of the
 // orchestrator under the owner's delegation, 2026-11-13). A listed column keeps the default of the manifest.
@@ -1387,11 +1388,11 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 			fault("column %s has the collation %s, and the manifest needs the default or the C collation", want.Name, got.collation)
 		}
 	}
-	// On the table of a declared entity, a column that the manifest does not list is of a built-in base type of
-	// pg_catalog: a domain, an enum, a range or a type of another schema can run a function of the database on each
-	// INSERT that leaves the column out, such as the CHECK of a domain (decision of the orchestrator under the owner's
-	// delegation, 2026-11-13: an entity table refuses an unlisted column of a non-built-in type).
-	if t.Entity {
+	// A column that the manifest does not list is of a built-in base type of pg_catalog: a domain, an enum, a range or
+	// a type of another schema can run a function of the database on each INSERT that leaves the column out, such as
+	// the CHECK of a domain (decisions of the orchestrator under the owner's delegation, 2026-11-13: an entity table
+	// refuses an unlisted column of a non-built-in type, and so does each other table of the manifest).
+	{
 		listed := map[string]bool{}
 		for _, c := range t.Columns {
 			listed[c.Name] = true

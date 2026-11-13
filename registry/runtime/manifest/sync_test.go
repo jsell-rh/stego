@@ -245,37 +245,58 @@ func TestStepForeignKey(t *testing.T) {
 		folders := stepManifest()
 		folders.Tables[0].Entity = false
 		stepCase(t, "a referenced table that is not the table of a declared entity", shelf+fk, folders, true)
-		// A key that is the key id alone: a table that is not owned may refer to it with one column; an owned table
-		// may not, as its foreign key must lead with its tenant column (review of PR #270, M1: else the check of the
-		// key, which runs past row-level security, tells a tenant whether a row of another tenant exists).
-		msgs := Table{Schema: "public", Name: "msgs", Entity: true,
+		// A key that is the key id alone: any table may refer to it with one column when it is the table of a declared
+		// entity that is not owned, whose rows each tenant may read; never a runtime table or a table with row-level
+		// security (review of PR #270, M1: else the check of the key, which runs past row-level security, tells a
+		// tenant whether a row of another tenant exists).
+		messages := Table{Schema: "stego_outbox", Name: "messages",
 			Columns:     []Column{{Name: "tenant_id", Type: "text", NotNull: true}, {Name: "id", Type: "uuid", NotNull: true}},
-			Constraints: []Constraint{{Name: "msgs_pkey", Kind: KindPrimaryKey, Definition: "PRIMARY KEY (id)"}},
-			Indexes:     []Index{{Name: "msgs_pkey", Columns: []string{"id"}}},
+			Constraints: []Constraint{{Name: "messages_pkey", Kind: KindPrimaryKey, Definition: "PRIMARY KEY (id)"}},
+			Indexes:     []Index{{Name: "messages_pkey", Columns: []string{"id"}}},
 			RowSecurity: true, Policies: []Policy{{Name: "t", Command: "*", Using: tenantWall, WithCheck: tenantWall}}}
+		const messagesSQL = `CREATE SCHEMA stego_outbox; GRANT USAGE ON SCHEMA stego_outbox TO PUBLIC;
+CREATE TABLE stego_outbox.messages (tenant_id text NOT NULL, id uuid NOT NULL, CONSTRAINT messages_pkey PRIMARY KEY (id));
+ALTER TABLE stego_outbox.messages ENABLE ROW LEVEL SECURITY; ALTER TABLE stego_outbox.messages FORCE ROW LEVEL SECURITY;
+CREATE POLICY t ON stego_outbox.messages USING (tenant_id = pg_catalog.current_setting('app.tenant', true)) WITH CHECK (tenant_id = pg_catalog.current_setting('app.tenant', true));
+`
+		msgs := messages
+		msgs.Schema, msgs.Name, msgs.Entity = "public", "msgs", true
+		msgs.Constraints, msgs.Indexes = []Constraint{{Name: "msgs_pkey", Kind: KindPrimaryKey, Definition: "PRIMARY KEY (id)"}},
+			[]Index{{Name: "msgs_pkey", Columns: []string{"id"}}}
 		const msgsSQL = `CREATE TABLE public.msgs (tenant_id text NOT NULL, id uuid NOT NULL, CONSTRAINT msgs_pkey PRIMARY KEY (id));
 ALTER TABLE public.msgs ENABLE ROW LEVEL SECURITY; ALTER TABLE public.msgs FORCE ROW LEVEL SECURITY;
 CREATE POLICY t ON public.msgs USING (tenant_id = pg_catalog.current_setting('app.tenant', true)) WITH CHECK (tenant_id = pg_catalog.current_setting('app.tenant', true));
 `
-		owned := stepManifest()
-		owned.Tables = append(owned.Tables, msgs)
-		stepCase(t, "an owned table with one column to a key id alone", msgsSQL+"ALTER TABLE public.books ADD COLUMN msg_id uuid;\n"+
-			"ALTER TABLE public.books ADD CONSTRAINT books_msg_id_fkey FOREIGN KEY (msg_id) REFERENCES public.msgs (id);\n", owned, true)
-		shared := stepManifest()
-		tags := Table{Schema: "public", Name: "tags", Entity: true, CheckGrants: true,
+		tags := Table{Schema: "public", Name: "tags", Entity: true,
 			Columns:     []Column{{Name: "id", Type: "uuid", NotNull: true}},
 			Constraints: []Constraint{{Name: "tags_pkey", Kind: KindPrimaryKey, Definition: "PRIMARY KEY (id)"}},
 			Indexes:     []Index{{Name: "tags_pkey", Columns: []string{"id"}}}}
 		labels := tags
-		labels.Name, labels.Constraints, labels.Indexes = "labels", []Constraint{{Name: "labels_pkey", Kind: KindPrimaryKey, Definition: "PRIMARY KEY (id)"}},
+		labels.Name, labels.CheckGrants = "labels", true
+		labels.Constraints, labels.Indexes = []Constraint{{Name: "labels_pkey", Kind: KindPrimaryKey, Definition: "PRIMARY KEY (id)"}},
 			[]Index{{Name: "labels_pkey", Columns: []string{"id"}}}
-		shared.Tables = append(shared.Tables, tags, labels)
-		const sharedSQL = "CREATE TABLE public.tags (id uuid NOT NULL, CONSTRAINT tags_pkey PRIMARY KEY (id));\n" +
-			"CREATE TABLE public.labels (id uuid NOT NULL, CONSTRAINT labels_pkey PRIMARY KEY (id));\nALTER TABLE public.labels ADD COLUMN tag_id uuid;\n"
-		stepCase(t, "a table that is not owned with one column to a key id alone", sharedSQL+
-			"ALTER TABLE public.labels ADD CONSTRAINT labels_tag_id_fkey FOREIGN KEY (tag_id) REFERENCES public.tags (id);\n", shared, false)
-		stepCase(t, "a table that is not owned with one column to an owned key", sharedSQL+
-			"CREATE UNIQUE INDEX folders_id_key ON public.folders (id);\nALTER TABLE public.labels ADD CONSTRAINT labels_tag_id_fkey FOREIGN KEY (tag_id) REFERENCES public.folders (id);\n", shared, true)
+		m := stepManifest()
+		m.Tables = append(m.Tables, messages, msgs, tags, labels)
+		const tablesSQL = messagesSQL + msgsSQL + "CREATE TABLE public.tags (id uuid NOT NULL, CONSTRAINT tags_pkey PRIMARY KEY (id));\n" +
+			"CREATE TABLE public.labels (id uuid NOT NULL, CONSTRAINT labels_pkey PRIMARY KEY (id));\n" +
+			"ALTER TABLE public.books ADD COLUMN ref_id uuid;\nALTER TABLE public.labels ADD COLUMN ref_id uuid;\n"
+		for _, c := range []struct {
+			name, table, target string
+			accepted            bool
+		}{
+			{"an owned table to a shared entity table", "books", "public.tags", true},
+			{"a shared table to a shared entity table", "labels", "public.tags", true},
+			{"an owned table to a runtime table (probe C1)", "books", "stego_outbox.messages", false},
+			{"a shared table to a runtime table (probe C1)", "labels", "stego_outbox.messages", false},
+			{"an owned table to an entity table with row-level security keyed by id alone", "books", "public.msgs", false},
+			{"a shared table to an entity table with row-level security keyed by id alone", "labels", "public.msgs", false},
+		} {
+			stepCase(t, c.name, tablesSQL+"ALTER TABLE public."+c.table+" ADD CONSTRAINT "+c.table+"_ref_id_fkey FOREIGN KEY (ref_id) REFERENCES "+c.target+" (id);\n", m, !c.accepted)
+		}
+		stepCase(t, "a shared entity table with row-level security that the manifest does not state", tablesSQL+"ALTER TABLE public.tags ENABLE ROW LEVEL SECURITY;\n"+
+			"ALTER TABLE public.books ADD CONSTRAINT books_ref_id_fkey FOREIGN KEY (ref_id) REFERENCES public.tags (id);\n", m, true)
+		stepCase(t, "one column to an owned key through a unique index", tablesSQL+
+			"CREATE UNIQUE INDEX folders_id_key ON public.folders (id);\nALTER TABLE public.labels ADD CONSTRAINT labels_ref_id_fkey FOREIGN KEY (ref_id) REFERENCES public.folders (id);\n", m, true)
 		if got := ForeignKeyName(strings.Repeat("t", 40), strings.Repeat("c", 30)); len(got) != 63 || !strings.HasPrefix(got, strings.Repeat("t", 40)+"_ccccc_") {
 			t.Errorf("ForeignKeyName gives %q for a long name", got)
 		}
@@ -283,7 +304,7 @@ CREATE POLICY t ON public.msgs USING (tenant_id = pg_catalog.current_setting('ap
 }
 
 func TestStepColumnType(t *testing.T) {
-	t.Run("ST-SUP-RP15-LC01-T10 Check refuses a column of an entity table that the manifest does not list and whose type is not built in", func(t *testing.T) {
+	t.Run("ST-SUP-RP15-LC01-T10 Check refuses a column of a table that the manifest does not list and whose type is not built in", func(t *testing.T) {
 		for _, c := range []struct{ name, setup string }{
 			{"a text column", "ALTER TABLE public.books ADD COLUMN label text;\n"},
 			{"a uuid column", "ALTER TABLE public.books ADD COLUMN shelf_id uuid;\n"},
@@ -302,10 +323,12 @@ func TestStepColumnType(t *testing.T) {
 		} {
 			stepCase(t, c.name, c.setup, stepManifest(), true)
 		}
-		// The rule holds on the tables of declared entities, and a listed column keeps the type of the manifest.
+		// The rule holds on each table of the manifest, and a listed column keeps the type of the manifest.
 		plain := stepManifest()
 		plain.Tables[1].Entity = false
-		stepCase(t, "a table that is not the table of a declared entity", "CREATE DOMAIN public.dom AS text;\nALTER TABLE public.books ADD COLUMN extra public.dom;\n", plain, false)
+		stepCase(t, "a table that is not the table of a declared entity", "CREATE DOMAIN public.dom AS text;\nALTER TABLE public.books ADD COLUMN extra public.dom;\n", plain, true)
+		stepCase(t, "probe D1 against the manifest with no entity table", hostile+"CREATE DOMAIN public.dom AS text CHECK (public.ran(VALUE));\nALTER TABLE public.books ADD COLUMN extra public.dom;\n", want(), true)
+		stepCase(t, "a text column on the manifest with no entity table", "ALTER TABLE public.books ADD COLUMN label text;\n", want(), false)
 		listed := stepManifest()
 		listed.Tables[1].Columns = append(listed.Tables[1].Columns, Column{Name: "extra", Type: "public.dom"})
 		stepCase(t, "a listed column of the type of the manifest", "CREATE DOMAIN public.dom AS text;\nALTER TABLE public.books ADD COLUMN extra public.dom;\n", listed, false)
