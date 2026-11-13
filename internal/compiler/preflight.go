@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/jsell-rh/stego/internal/declaration"
 	"github.com/jsell-rh/stego/internal/gen"
@@ -321,4 +322,19 @@ func declaredDestinations(svcDecl *types.ServiceDeclaration, componentNames []st
 		}
 	}
 	return out
+}
+
+// unemittedInvariants refuses, for generation, each declared invariant (ST-DECL-EN17): no generator emits one yet as the constraint of
+// the store that ST-STD-TXN-R17 names, so a generation that went on would give a service that does not enforce a
+// rule that checking accepted. The error names each invariant, its kind and its entity, and no file is written.
+func unemittedInvariants(invariants []types.DeclaredInvariant) error {
+	if len(invariants) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(invariants))
+	for _, invariant := range invariants {
+		names = append(names, fmt.Sprintf("%s (%s on %s)", invariant.Name, invariant.Kind, invariant.On))
+	}
+	return fmt.Errorf("no generator emits a declared invariant yet, so the service would not enforce %s; remove the invariants until a component emits them (ST-STD-TXN-R17)",
+		strings.Join(names, ", "))
 }
