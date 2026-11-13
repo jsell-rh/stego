@@ -686,6 +686,9 @@ func TestSchemas(t *testing.T) {
 				"the confined role " + confined + " is a member of the role pg_read_all_data, which the manifest does not name for it"},
 			{"a member of the confined role besides the owner", "GRANT " + confined + " TO %owner% WITH SET TRUE, INHERIT FALSE; GRANT " + confined + " TO " + other,
 				"the role " + other + " is a member of the confined role " + confined + ", which the manifest grants only to its owner WITH SET TRUE, INHERIT FALSE and no ADMIN"},
+			{"a member with ADMIN that a superuser granted", "GRANT " + confined + " TO " + other + " WITH ADMIN TRUE, INHERIT FALSE",
+				"the role " + other + " is a member of the confined role " + confined + ", which the manifest grants only to its owner WITH SET TRUE, INHERIT FALSE and no ADMIN; " +
+					"a superuser runs REVOKE " + confined + " FROM " + other + " GRANTED BY %owner%, or the role migration runs as a superuser"},
 			{"the owner as a member that inherits", "GRANT " + confined + " TO %owner% WITH SET TRUE, INHERIT TRUE",
 				"the role %owner% is a member of the confined role " + confined + ", which the manifest grants only to its owner WITH SET TRUE, INHERIT FALSE and no ADMIN"},
 			{"a privilege of the confined role on another table", "CREATE TABLE public.side (x integer); GRANT SELECT (x) ON public.side TO " + confined,

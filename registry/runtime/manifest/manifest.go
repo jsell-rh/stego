@@ -852,20 +852,27 @@ func checkConfined(ctx context.Context, tx *sql.Tx, role, owner string, named ma
 	// A member of the role gets its rights, and through its SECURITY DEFINER functions the rows of every tenant: the
 	// owner of the manifest alone may be one, to make the functions as the role, WITH SET TRUE, INHERIT FALSE and no
 	// ADMIN, as the role migration of the service grants it.
-	rows, err = tx.QueryContext(ctx, `SELECT mr.rolname, m.admin_option, m.inherit_option, m.set_option FROM pg_catalog.pg_auth_members m
-  JOIN pg_catalog.pg_roles mr ON mr.oid = m.member WHERE m.roleid = $1 ORDER BY 1`, oid)
+	rows, err = tx.QueryContext(ctx, `SELECT mr.rolname, m.admin_option, m.inherit_option, m.set_option, gr.rolname, gr.rolsuper
+  FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles mr ON mr.oid = m.member JOIN pg_catalog.pg_roles gr ON gr.oid = m.grantor
+  WHERE m.roleid = $1 ORDER BY 1`, oid)
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
-		var member string
-		var admin, inherit, set bool
-		if err := rows.Scan(&member, &admin, &inherit, &set); err != nil {
+		var member, grantor string
+		var admin, inherit, set, superuser bool
+		if err := rows.Scan(&member, &admin, &inherit, &set, &grantor, &superuser); err != nil {
 			rows.Close()
 			return nil, err
 		}
 		if member != owner || admin || inherit || !set {
-			faults = append(faults, "the role "+member+" is a member of the confined role "+role+", which the manifest grants only to its owner WITH SET TRUE, INHERIT FALSE and no ADMIN")
+			fault := "the role " + member + " is a member of the confined role " + role + ", which the manifest grants only to its owner WITH SET TRUE, INHERIT FALSE and no ADMIN"
+			// A login with CREATEROLE that made the role holds it WITH ADMIN, granted by the bootstrap superuser,
+			// and cannot revoke it itself.
+			if admin && superuser {
+				fault += "; a superuser runs REVOKE " + role + " FROM " + member + " GRANTED BY " + grantor + ", or the role migration runs as a superuser"
+			}
+			faults = append(faults, fault)
 		}
 	}
 	if err := closed(rows); err != nil {

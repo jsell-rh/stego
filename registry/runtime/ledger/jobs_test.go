@@ -233,10 +233,13 @@ func TestJobs(t *testing.T) {
 	})
 
 	t.Run("ST-SUP-RP08-LC08-T04 Check finds an expired pending transfer that is not voided", func(t *testing.T) {
-		f := newFixture(t, withTimeout(time.Second))
+		// The wait for the transactions of other databases comes before the pending transfers, so the check before
+		// the expiry runs within the timeout of 5 s.
+		f := newFixture(t, withTimeout(5*time.Second))
 		h := f.holder()
 		h.take(t)
 		j := f.jobs(h)
+		f.awaitOthers()
 		p := f.pend("hold", dr("dr", 5), cr("cr", 5))
 		voided := f.pend("hold-2", dr("dr", 5), cr("cr", 5))
 		if _, err := f.call(func(tx *sql.Tx, tn tenant.Tenant) (Transfer, error) {
@@ -244,9 +247,17 @@ func TestJobs(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		// A posting waits for older transactions of other databases (awaitOthers), so on a busy server the expiry may
-		// have passed already; the check before it holds only while it has not.
-		if err := f.settled(j).Check(f.ctx); err != nil && time.Now().Before(p.ExpiresAt.Add(-100*time.Millisecond)) {
+		// The check before the expiry proves its claim only while the expiry is ahead; a run that ends after it does
+		// not prove it, which CI refuses.
+		err := f.settled(j).Check(f.ctx)
+		switch {
+		case !time.Now().Before(p.ExpiresAt.Add(-100 * time.Millisecond)):
+			if os.Getenv("CI") != "" {
+				t.Error("the check before the expiry ended after it, so it proved nothing")
+			} else {
+				t.Log("the check before the expiry ended after it, so it proved nothing")
+			}
+		case err != nil:
 			t.Fatalf("Check before the expiry: %v", err)
 		}
 		// Within one sweep period of the expiry, the sweep has its grace.
@@ -255,7 +266,7 @@ func TestJobs(t *testing.T) {
 			t.Fatalf("Check within the grace of the sweep: %v", err)
 		}
 		f.waitPast(p.ExpiresAt.Add(gracePeriod))
-		err := f.settled(j).Check(f.ctx)
+		err = f.settled(j).Check(f.ctx)
 		if err == nil || !strings.Contains(err.Error(), "the expiry sweep did not void the pending transfer "+p.ID) || strings.Contains(err.Error(), voided.ID) {
 			t.Fatalf("Check after the expiry: %v; want a failure of the sweep that names %s only", err, p.ID)
 		}
