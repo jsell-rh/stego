@@ -687,6 +687,11 @@ func checkAuthorization(service *types.ServiceDeclaration, projectDir string) ([
 // that binds authorization (ST-SUP-RC29).
 const authorizationComponent = "spicedb-authz"
 
+// schemaReader names the components that get the declaration's authorization schema among their inputs: the
+// authorization component, and the command and rest-api components, which read the relations of each resource type
+// (ST-SUP-Q118).
+var schemaReader = map[string]bool{authorizationComponent: true, commandComponent: true, restAPIComponent: true}
+
 // authorizationGeneratorMissing refuses generation of a declaration that binds authorization while the registry
 // holds no authorization component with a generator, so that STEGO never generates a service without the checks
 // its declaration binds: authorization fails closed (ST-DECL-UC06-R07). Checking accepts such a declaration, since

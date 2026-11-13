@@ -168,9 +168,29 @@ func commandContext(t testing.TB, svc *types.ServiceDeclaration, slot string) ge
 		Observations:    svc.Observations,
 		PeerNamespaces:  map[string]string{"domain-probe": "probes", "command": "commands"},
 		ComponentConfig: map[string]any{"proto_files": []any{map[string]any{"path": "proto/orders.proto", "import_path": "orders/v1/orders.proto"}}},
-		Inputs:          map[string][]byte{"proto/orders.proto": []byte(ordersProto)},
+		Inputs:          map[string][]byte{"proto/orders.proto": []byte(ordersProto), "authz/schema.zed": []byte(schemaZed)},
 	}
 }
+
+// schemaZed is the schema of the test declaration, the one that the service check writes to SpiceDB.
+const schemaZed = `definition user {}
+
+definition order {
+	relation owner: user
+	relation viewer: user
+	relation holder: user
+	permission reserve = owner
+	permission view = owner + viewer
+}
+
+definition hold {
+	relation owner: user
+	relation creator: user
+	relation order: order
+	permission view = owner + creator
+	permission reserve = owner + creator
+}
+`
 
 // generated generates ctx and gives the files by path.
 func generated(t testing.TB, ctx gen.Context) map[string][]byte {
@@ -366,8 +386,9 @@ func TestContract(t *testing.T) {
 		contract := string(files["commands/commands.go"])
 		for _, want := range []string{
 			"\tRelationships: []command.Relationship[Hold]{\n",
+			"\tRelations: []string{\"creator\", \"order\", \"owner\"},\n",
 			`{Relation: "creator", SubjectType: "user"},`,
-			`{Relation: "owner", SubjectType: "user", Field: func(v Hold) string { return v.OwnerID }},`,
+			`{Relation: "owner", SubjectType: "user", Field: func(v Hold) string { return v.OwnerID }, FieldName: "owner_id"},`,
 		} {
 			if !strings.Contains(contract, want) {
 				t.Errorf("the entity Hold does not have %s in its Relationships list:\n%s", want, contract)
@@ -388,8 +409,8 @@ func TestContract(t *testing.T) {
 		}
 		contract = string(generated(t, commandContext(t, svc, commandSlot))["commands/commands.go"])
 		for _, want := range []string{
-			`{Relation: "backup", SubjectType: "user", Field: func(v Hold) string {`, "if v.BackupID == nil {", "return *v.BackupID",
-			`{Relation: "linked", SubjectType: "order", Field: func(v Hold) string { return v.LinkedID }, Resource: true},`,
+			`{Relation: "backup", SubjectType: "user", Field: func(v Hold) string {`, "if v.BackupID == nil {", "return *v.BackupID", `}, FieldName: "backup_id"},`,
+			`{Relation: "linked", SubjectType: "order", Field: func(v Hold) string { return v.LinkedID }, FieldName: "linked_id", Resource: true},`,
 		} {
 			if !strings.Contains(contract, want) {
 				t.Errorf("the Relationships list of Hold does not hold %s:\n%s", want, contract)

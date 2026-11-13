@@ -111,10 +111,14 @@ func TestFilteredDelete(t *testing.T) {
 			message.Tuple.tuple() != (Tuple{Resource: doc("d1"), Relation: "owner"}) || d.ResourceKey != "document:d1" {
 			t.Fatalf("the entry is %+v (%s, %s), %v; want the filtered delete of document:d1#owner", message, d.Kind, d.ResourceKey, err)
 		}
-		// A payload of a filtered delete that names a subject, or no resource ID, is refused by the relay.
+		// A payload of a filtered delete that names a subject, or no resource ID, or of version 1, is refused by the
+		// relay.
 		for _, body := range []string{
 			`{"v":2,"op":"delete_relation","revocation":"` + uuid.NewString() + `","tuple":{"resource_type":"document","resource_id":"` + doc("d1").ID + `","relation":"owner","subject_type":"user","subject_id":"bob"}}`,
 			`{"v":2,"op":"delete_relation","revocation":"` + uuid.NewString() + `","tuple":{"resource_type":"document","resource_id":"","relation":"owner","subject_type":"","subject_id":""}}`,
+			// A version 1 payload holds bare keys, which the relay would qualify with the delivery's tenant: a filtered
+			// delete exists only at version 2, so it is refused (L2 of the security review of PR #272).
+			`{"v":1,"op":"delete_relation","revocation":"` + uuid.NewString() + `","tuple":{"resource_type":"document","resource_id":"d1","relation":"owner","subject_type":"","subject_id":""}}`,
 		} {
 			if _, err := readPayload([]byte(body), d.Tenant); err == nil {
 				t.Errorf("the relay read the payload %s", body)

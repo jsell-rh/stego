@@ -379,6 +379,11 @@ func readPayload(body []byte, t tenant.Tenant) (payload, error) {
 	if decoder.More() {
 		return payload{}, errors.New("authz: the relay payload holds more than one value")
 	}
+	// A filtered delete exists only at version 2: a version 1 payload with it is refused before the upgrade, so no
+	// older writer's payload is read as one (ST-SUP-Q118, L2 of the security review of PR #272).
+	if message.Operation == OperationDeleteRelation && message.Version != payloadVersion {
+		return payload{}, errors.New("authz: the relay payload of a filtered delete is not of version 2")
+	}
 	switch message.Version {
 	case payloadVersion:
 	case payloadVersionKeys:
