@@ -60,7 +60,6 @@ collections:
   notes: {entity: Note, operations: [create, read, list]}
 `
 
-
 // secondEntityDeclaration adds a second entity, Tag, with its collection.
 var secondEntityDeclaration = strings.Replace(smallServiceDeclaration, "collections:\n", "  - name: Tag\n    resource_type: tag\n    permissions: {create: public, read: view, list: view}\n    public_reasons: {create: a new tag has no resource to decide on before it exists}\n    fields: [{name: label, type: string}]\ncollections:\n  tags: {entity: Tag, operations: [create, read]}\n", 1)
 
