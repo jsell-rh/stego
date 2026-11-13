@@ -14,7 +14,7 @@ func TestReadAuditCode(t *testing.T) {
 		decision := &fakeDecision{decide: allowAll}
 		rt := e.runtimeOf(t, decision)
 		charges := chargeEntity(t)
-		e.insert(t, "INSERT INTO app.charges (tenant_id, id, card_last4, amount) VALUES ('t1', 'ch-1', '4242', 100), ('t1', 'ch-2', '1881', 200)")
+		e.insert(t, "INSERT INTO app.charges (tenant_id, id, card_last4, amount) VALUES ('t1', 'ch-1', '4242', 100), ('t1', 'ch-2', '#18#', 200)")
 		q := mustQuery(t, "read-charge", charges)
 		read := func(id string) error {
 			_, err := Run(context.Background(), rt, q, bound(t, "t1", "user:u-7", q.Name()), id,
@@ -70,7 +70,9 @@ func TestReadAuditCode(t *testing.T) {
 		if got[1].state != "" && got[1].state != "null" {
 			t.Fatalf("the failed read row holds the state %s, want none", got[1].state)
 		}
-		if n := e.count(t, "SELECT count(*) FROM "+audit.EventsTable+" WHERE row_to_json("+audit.EventsTable+")::text LIKE '%down%' OR row_to_json("+audit.EventsTable+")::text LIKE '%1881%'"); n != 0 {
+		// The card value holds #, which no hex, base64 or UUID text of a random row value can hold, so only a leak of
+		// the value matches.
+		if n := e.count(t, "SELECT count(*) FROM "+audit.EventsTable+" WHERE row_to_json("+audit.EventsTable+")::text LIKE '%down%' OR row_to_json("+audit.EventsTable+")::text LIKE '%#18#%'"); n != 0 {
 			t.Fatalf("%d audit rows hold the error text or the row data", n)
 		}
 		// A list page whose batch decision fails writes a failed read row for each row of personal data it read.

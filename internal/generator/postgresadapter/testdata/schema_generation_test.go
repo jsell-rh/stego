@@ -638,3 +638,173 @@ func TestMigrationLedgerIgnoresDefaultIsolation(t *testing.T) {
 		}
 	})
 }
+
+// TestApplyMigrationAgainstMigrate runs migration jobs and external applies of one migration at once on a database
+// whose default transaction isolation is repeatable read, while a registered migration is pending.
+func TestApplyMigrationAgainstMigrate(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC11-T07 An external apply that runs at once with migration jobs applies its body once, and only after the registered history", func(t *testing.T) {
+		db := schemaDB(t)
+		if err := storage.Migrate(bg, db); err != nil {
+			t.Fatal(err)
+		}
+		var name string
+		if err := db.QueryRow("SELECT current_database()").Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		exec(t, db, "ALTER DATABASE "+pgx.Identifier{name}.Sanitize()+" SET default_transaction_isolation = 'repeatable read'")
+		cfg, err := pgx.ParseConfig(os.Getenv("STEGO_TEST_POSTGRES_DSN"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.Database = name
+		jobs := stdlib.OpenDB(*cfg)
+		jobs.SetMaxOpenConns(8)
+		t.Cleanup(func() { jobs.Close() })
+		// The pending migration makes the table of the runs. Its first run holds the ledger lock until release, so the
+		// external applies meet it while it runs; a later run, on the fresh database below, does not wait.
+		started, release := make(chan struct{}), make(chan struct{})
+		var hold atomic.Bool
+		hold.Store(true)
+		storage.Register("996_apply_pending", storage.Digest("996_apply_pending probe"), func(ctx context.Context, tx *sql.Tx) error {
+			if hold.CompareAndSwap(true, false) {
+				close(started)
+				<-release
+			}
+			_, err := tx.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS apply_runs(seq bigserial PRIMARY KEY, name text NOT NULL); INSERT INTO apply_runs(name) VALUES('996_apply_pending')")
+			return err
+		})
+		const external = "997_apply_external"
+		body := "INSERT INTO apply_runs(name) VALUES('" + external + "')"
+		// An external apply while the registered migration is pending is refused, before any job runs.
+		if err := storage.ApplyMigration(bg, db, external, body); !errors.Is(err, storage.ErrMigrationLedger) {
+			t.Fatalf("an external apply with a registered migration pending gave %v, want ErrMigrationLedger", err)
+		}
+		var group sync.WaitGroup
+		failures := make(chan error, 8)
+		var applied atomic.Int32
+		run := func(apply bool) {
+			group.Add(1)
+			go func() {
+				defer group.Done()
+				conn, err := jobs.Conn(bg)
+				if err != nil {
+					failures <- err
+					return
+				}
+				defer conn.Close()
+				if !apply {
+					// A migration job after the external apply refuses the ledger, which is not the registered history.
+					if err := storage.Migrate(bg, conn); err != nil && !errors.Is(err, storage.ErrMigrationLedger) {
+						failures <- err
+					}
+					return
+				}
+				switch err := storage.ApplyMigration(bg, conn, external, body); {
+				case err == nil:
+					applied.Add(1)
+				case !errors.Is(err, storage.ErrMigrationLedger):
+					failures <- err
+				}
+			}()
+		}
+		// Four migration jobs start; one runs the pending migration and holds the ledger lock. Then four external
+		// applies start, and each meets the pending migration: it waits on the ledger lock with the other jobs.
+		for range 4 {
+			run(false)
+		}
+		<-started
+		for range 4 {
+			run(true)
+		}
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			var waiting int
+			if err := db.QueryRow("SELECT count(*) FROM pg_stat_activity WHERE datname = $1 AND wait_event_type = 'Lock' AND wait_event = 'advisory'", name).Scan(&waiting); err != nil {
+				t.Fatal(err)
+			}
+			if waiting == 7 {
+				break
+			}
+			if time.Now().After(deadline) {
+				close(release)
+				t.Fatalf("%d jobs wait on the ledger lock, want the three other migration jobs and the four external applies", waiting)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		close(release)
+		group.Wait()
+		close(failures)
+		for err := range failures {
+			t.Error("a job failed with an error that is not a ledger refusal", err)
+		}
+		var runs string
+		if err := db.QueryRow("SELECT coalesce(string_agg(name, ',' ORDER BY seq), '') FROM apply_runs").Scan(&runs); err != nil {
+			t.Fatal(err)
+		}
+		ledger := ledgerApplied(t, db)
+		recorded := 0
+		for _, version := range ledger {
+			if version == external {
+				recorded++
+			}
+		}
+		// The applies that waited see the pending migration once it commits: one passes after it, and the others meet
+		// its own row.
+		if applied.Load() != 1 || recorded != 1 || runs != "996_apply_pending,"+external {
+			t.Fatalf("%d external applies passed, the ledger holds %d rows of it and the bodies ran %q; want one, one, and the pending migration and then the external body once each", applied.Load(), recorded, runs)
+		}
+		if len(ledger) < 2 || ledger[len(ledger)-2] != "996_apply_pending" || ledger[len(ledger)-1] != external {
+			t.Fatalf("the ledger reads %v, want the pending migration and then the external one", ledger)
+		}
+		// Then, on a fresh database with the same default, eight external applies of one name at the same moment,
+		// after the registered history: one passes, and its body runs once. The body takes a moment, so the others
+		// wait on the ledger lock while it runs. The ledger takes one external row past
+		// the registered history, so this runs on a database of its own.
+		// The registered migration 996_apply_pending makes the table there too.
+		fresh := schemaDB(t)
+		if err := storage.Migrate(bg, fresh); err != nil {
+			t.Fatal(err)
+		}
+		if err := fresh.QueryRow("SELECT current_database()").Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		exec(t, fresh, "ALTER DATABASE "+pgx.Identifier{name}.Sanitize()+" SET default_transaction_isolation = 'repeatable read'")
+		cfg.Database = name
+		jobs = stdlib.OpenDB(*cfg)
+		jobs.SetMaxOpenConns(8)
+		t.Cleanup(func() { jobs.Close() })
+		const again = "998_apply_again"
+		var passed atomic.Int32
+		start := make(chan struct{})
+		failures = make(chan error, 8)
+		for i := 0; i < 8; i++ {
+			group.Add(1)
+			go func() {
+				defer group.Done()
+				conn, err := jobs.Conn(bg)
+				if err != nil {
+					failures <- err
+					return
+				}
+				defer conn.Close()
+				<-start
+				switch err := storage.ApplyMigration(bg, conn, again, "SELECT pg_sleep(0.2); INSERT INTO apply_runs(name) VALUES('"+again+"')"); {
+				case err == nil:
+					passed.Add(1)
+				case !errors.Is(err, storage.ErrMigrationLedger):
+					failures <- err
+				}
+			}()
+		}
+		close(start)
+		group.Wait()
+		close(failures)
+		for err := range failures {
+			t.Error("an external apply failed with an error that is not a ledger refusal", err)
+		}
+		var count int
+		if err := fresh.QueryRow("SELECT count(*) FROM apply_runs WHERE name = $1", again).Scan(&count); err != nil || passed.Load() != 1 || count != 1 {
+			t.Fatalf("%d of eight external applies of one name passed and its body ran %d times (%v), want one and once", passed.Load(), count, err)
+		}
+	})
+}

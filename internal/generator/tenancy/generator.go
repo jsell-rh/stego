@@ -22,8 +22,9 @@ type Generator struct{}
 // adapter is the component whose tables the row-level security covers and whose ledger runs the migration.
 const adapter = "postgres-adapter"
 
-// policyName is the name of the one tenant policy of each owned table.
-const policyName = "stego_tenant"
+// policyName is the name of the one tenant policy of each owned table, which the schema manifest of the PostgreSQL
+// adapter names (ST-SUP-RC01-OC12).
+const policyName = postgresadapter.TenantPolicy
 
 // MigrationLoginSetting is the setting in which the operator names the login of the migration job when it is not
 // the owner role itself but a member of it, such as SET stego.migration_login = 'shop_migrator' before the role
@@ -276,6 +277,14 @@ func roleMigration(runtime, owner, worker, relay, purge, outboxRelay string) str
 		"\t\t\t\t(g.rolname IN ('%s', '%s') AND mr.rolname = '%s')\n"+
 		"\t\t\t\tOR (g.rolname = '%s' AND mr.rolname IS NOT DISTINCT FROM v_migration)));\n", purge, outboxRelay, owner, owner)
 	text.WriteString("\t\tIF v_members IS NOT NULL THEN\n\t\t\tRAISE EXCEPTION 'tenancy: the role % exists and is not a role of this service alone: it has the members %, which this service does not grant; name the migration login in " + MigrationLoginSetting + " or revoke them', v_role, v_members;\n\t\tEND IF;\n\tEND LOOP;\n")
+	// The named migration login reaches the owner role, so a role that is a member of the login, or holds ADMIN on
+	// it, would reach the owner through it: the login must have no member and no holder of ADMIN, a superuser
+	// included. A login that a role with CREATEROLE made holds that role as a member with ADMIN, so it is refused
+	// until the operator revokes it.
+	text.WriteString("\tSELECT pg_catalog.string_agg(mr.rolname || CASE WHEN m.admin_option THEN ' with ADMIN' ELSE '' END, ', ' ORDER BY mr.rolname)\n" +
+		"\t\tINTO v_members FROM pg_catalog.pg_auth_members AS m JOIN pg_catalog.pg_roles AS g ON g.oid = m.roleid\n" +
+		"\t\tJOIN pg_catalog.pg_roles AS mr ON mr.oid = m.member WHERE g.rolname = v_migration;\n")
+	text.WriteString("\tIF v_members IS NOT NULL THEN\n\t\tRAISE EXCEPTION 'tenancy: the migration login % that " + MigrationLoginSetting + " names has the members %, which reach the owner role through it; revoke them, or name a login with no member', v_migration, v_members;\n\tEND IF;\n")
 	for _, role := range []string{owner, runtime, worker, relay} {
 		fmt.Fprintf(&text, "\tIF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '%s') THEN\n\t\tCREATE ROLE %s %s;\n\tEND IF;\n", role, quote(role), flags)
 	}

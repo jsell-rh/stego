@@ -874,6 +874,26 @@ func TestForeignRoles(t *testing.T) {
 		if err := run(login); err != nil {
 			t.Errorf("the role migration with the migration login named in stego.migration_login: %v", err)
 		}
+		// The named migration login may have no member and no holder of ADMIN of its own: each would reach the owner
+		// role through the login (follow-up L1 of the delta recheck 2 of PR #213).
+		t.Run("ST-SUP-RC27-OC04-T11 The role migration refuses a named migration login that has a member or a holder of ADMIN", func(t *testing.T) {
+			reach := "reach_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+			exec("CREATE ROLE " + reach + " NOLOGIN")
+			t.Cleanup(func() { _, _ = server.ExecContext(context.Background(), "DROP ROLE IF EXISTS "+reach) })
+			exec("GRANT " + login + " TO " + reach)
+			if err := run(login); err == nil || !strings.Contains(err.Error(), "migration login "+login) || !strings.Contains(err.Error(), "has the members "+reach) {
+				t.Errorf("the role migration with a named migration login that %s is a member of gave %v, want a refusal that names both", reach, err)
+			}
+			exec("REVOKE " + login + " FROM " + reach)
+			exec("GRANT " + login + " TO " + reach + " WITH ADMIN TRUE, INHERIT FALSE, SET FALSE")
+			if err := run(login); err == nil || !strings.Contains(err.Error(), reach+" with ADMIN") {
+				t.Errorf("the role migration with a named migration login on which %s holds ADMIN gave %v, want a refusal", reach, err)
+			}
+			exec("REVOKE " + login + " FROM " + reach)
+			if err := run(login); err != nil {
+				t.Errorf("the role migration with the named migration login after the revoke: %v", err)
+			}
+		})
 		exec("GRANT " + q(tenancy.OwnerRole) + " TO " + login + " WITH ADMIN TRUE")
 		if err := run(login); err == nil || !strings.Contains(err.Error(), login+" with ADMIN") {
 			t.Errorf("the role migration with a named migration login that holds ADMIN gave %v, want a refusal", err)
