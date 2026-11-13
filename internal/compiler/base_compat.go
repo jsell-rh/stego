@@ -127,8 +127,50 @@ func validateBaseSchema(base, head *types.ServiceDeclaration) []BaseFault {
 	faults = append(faults, baseStepFaults(base, head)...)
 	faults = append(faults, baseChangeFaults(base, head)...)
 	faults = append(faults, onePhaseFaults(base, head)...)
-	faults = append(faults, baselineFaults(baselineOf(base), baselineOf(head), head)...)
+	faults = append(faults, uniqueAddFaults(base, head)...)
+	shapeFaults := baselineFaults(shapeAt(base, 0), shapeAt(head, 0))
+	// The baselines leave out what a step of the base added, required or retyped, so the head with only its new
+	// steps undone must also be the stored shape of the base as it runs now, with every field in full.
+	named := map[[2]string]bool{}
+	for _, fault := range shapeFaults {
+		named[[2]string{fault.Entity, fault.Field}] = true
+	}
+	for _, fault := range baselineFaults(shapeAt(base, len(base.SchemaHistory)+1), shapeAt(head, len(base.SchemaHistory))) {
+		if !named[[2]string{fault.Entity, fault.Field}] {
+			shapeFaults = append(shapeFaults, fault)
+		}
+	}
+	return append(faults, shapeFaults...)
+}
+
+// uniqueAddFaults refuses a new add of a field that is unique and has a default, on an entity of the base: every
+// row that the table holds gets the default, so the unique index cannot be built.
+func uniqueAddFaults(base, head *types.ServiceDeclaration) []BaseFault {
+	var faults []BaseFault
+	for _, change := range head.SchemaChanges {
+		if change.Kind != "add" || change.Field == "" || slices.ContainsFunc(base.SchemaChanges, func(c types.SchemaChange) bool { return c.ID == change.ID }) {
+			continue
+		}
+		if _, declared := findStoredEntity(base, change.Entity); !declared {
+			continue
+		}
+		entity, _ := findStoredEntity(head, change.Entity)
+		for _, field := range entity.Fields {
+			if field.Name == change.Field && (field.Unique || len(field.UniqueComposite) > 0) && field.Default != nil {
+				faults = append(faults, BaseFault{Rule: BaseCompatRule, Entity: change.Entity, Field: change.Field, Message: fmt.Sprintf("the add %s gives %s.%s both unique and a default; every row of the table gets the default, so its unique index cannot be built: remove the default and make the field optional, or leave out unique", change.ID, change.Entity, change.Field)})
+			}
+		}
+	}
 	return faults
+}
+
+func findStoredEntity(service *types.ServiceDeclaration, name string) (types.Entity, bool) {
+	for _, entity := range service.Entities {
+		if entity.Name == name {
+			return entity, true
+		}
+	}
+	return types.Entity{}, false
 }
 
 // baseStepFaults refuses a head whose schema history does not start with the base's steps in the same order.
@@ -246,32 +288,52 @@ func shapeOf(field types.Field) fieldShape {
 		Optional: field.Optional, Default: field.Default, Values: field.Values, To: field.To}
 }
 
-// storedEntity is the stored shape of one entity: its fields in the order of the declaration and the names of
-// the declared invariants of kind unique on it. A loose entity is one that a drop removed: only its name is known.
+// storedEntity is the stored shape of one entity: its fields in the order of the declaration, the declared
+// invariants of kind unique on it, and the settings of the entity that change its table: its tenant, versioned,
+// kind and generation fields. A loose entity is one that a drop removed: only its name is known.
 type storedEntity struct {
-	Name    string
-	Fields  []storedField
-	Uniques []string
-	Loose   bool
+	Name     string
+	Fields   []storedField
+	Uniques  []storedUnique
+	Settings string
+	Loose    bool
+}
+
+// storedUnique is a declared invariant of kind unique: its name, its columns and its condition.
+type storedUnique struct {
+	Name, By, Where string
+}
+
+// entitySettings gives the settings of an entity that change its table, with the defaults written out.
+func entitySettings(entity types.Entity) string {
+	tenant, kind := entity.Tenant, entity.Kind
+	if tenant == "" {
+		tenant = "owned"
+	}
+	if kind == "" {
+		kind = "data"
+	}
+	return fmt.Sprintf("tenant %s, kind %s, versioned %t, generation_fields [%s]", tenant, kind, entity.Versioned, strings.Join(entity.GenerationFields, ", "))
 }
 
 func (e *storedEntity) field(name string) int {
 	return slices.IndexFunc(e.Fields, func(f storedField) bool { return f.Name == name })
 }
 
-// baselineOf gives the stored shape of a declaration with every schema step undone, last step first: an add
-// removes its field or entity, a rename gives the field its From name, a retype gives it its From type, a require
-// removes its field, a drop brings back its field or entity, and a unique removes its invariant.
-func baselineOf(service *types.ServiceDeclaration) []*storedEntity {
+// shapeAt gives the stored shape of a declaration with each schema change undone whose expand step is at the
+// position from of the schema history or after it, last step first: from 0 gives the baseline, with every step
+// undone. An add removes its field or entity, a rename gives the field its From name, a retype gives it its From
+// type, a require removes its field, a drop brings back its field or entity, and a unique removes its invariant.
+func shapeAt(service *types.ServiceDeclaration, from int) []*storedEntity {
 	var entities []*storedEntity
 	for _, entity := range service.Entities {
-		stored := &storedEntity{Name: entity.Name}
+		stored := &storedEntity{Name: entity.Name, Settings: entitySettings(entity)}
 		for _, field := range entity.Fields {
 			stored.Fields = append(stored.Fields, storedField{Name: field.Name, Shape: shapeOf(field)})
 		}
 		for _, invariant := range service.Invariants {
 			if invariant.Kind == "unique" && invariant.On == entity.Name {
-				stored.Uniques = append(stored.Uniques, invariant.Name)
+				stored.Uniques = append(stored.Uniques, storedUnique{Name: invariant.Name, By: strings.Join(invariant.By, ", "), Where: invariant.Where})
 			}
 		}
 		entities = append(entities, stored)
@@ -279,7 +341,7 @@ func baselineOf(service *types.ServiceDeclaration) []*storedEntity {
 	find := func(name string) int {
 		return slices.IndexFunc(entities, func(e *storedEntity) bool { return e.Name == name })
 	}
-	for _, change := range undoOrder(service) {
+	for _, change := range undoOrder(service, from) {
 		at := find(change.Entity)
 		if change.Kind == "drop" && change.Field == "" {
 			if at < 0 {
@@ -317,7 +379,7 @@ func baselineOf(service *types.ServiceDeclaration) []*storedEntity {
 				entity.Fields = append(entity.Fields, storedField{Name: change.Field, Shape: fieldShape{Type: definitionType(change.Definition)}, Loose: true})
 			}
 		case "unique":
-			entity.Uniques = slices.DeleteFunc(entity.Uniques, func(name string) bool { return name == change.Field })
+			entity.Uniques = slices.DeleteFunc(entity.Uniques, func(unique storedUnique) bool { return unique.Name == change.Field })
 		}
 	}
 	return entities
@@ -332,16 +394,23 @@ func definitionType(definition string) types.FieldType {
 	return types.FieldType(strings.TrimSpace(head))
 }
 
-// undoOrder gives the schema changes in the order that undoes them: the change whose expand step is last comes
-// first, and a change with no step, which checking refuses, comes before all.
-func undoOrder(service *types.ServiceDeclaration) []types.SchemaChange {
+// undoOrder gives the schema changes to undo, in the order that undoes them: each change whose expand step is at
+// the position from or after it, the change whose expand step is last first. A change with no step, which checking
+// refuses, is undone before all, unless from is past the end of the schema history.
+func undoOrder(service *types.ServiceDeclaration, from int) []types.SchemaChange {
 	position := map[string]int{}
 	for i, step := range service.SchemaHistory {
 		if _, seen := position[step.Change]; !seen {
 			position[step.Change] = i
 		}
 	}
-	changes := slices.Clone(service.SchemaChanges)
+	var changes []types.SchemaChange
+	for _, change := range service.SchemaChanges {
+		at, stepped := position[change.ID]
+		if (stepped && at >= from) || (!stepped && from <= len(service.SchemaHistory)) {
+			changes = append(changes, change)
+		}
+	}
 	slices.SortStableFunc(changes, func(a, b types.SchemaChange) int {
 		pa, oka := position[a.ID]
 		pb, okb := position[b.ID]
@@ -363,9 +432,11 @@ func kebab(name string) string {
 	return strings.ReplaceAll(strings.ToLower(name), "_", "-")
 }
 
-// baselineFaults compares the baseline of the head with the baseline of the base, entity by entity and field by
-// field, and gives one fault for each change that no schema step declares, with the schema change to declare.
-func baselineFaults(base, head []*storedEntity, service *types.ServiceDeclaration) []BaseFault {
+// baselineFaults compares a stored shape of the head with one of the base, entity by entity and field by field,
+// and gives one fault for each change that no schema step declares, with the schema change to declare. A change to
+// the settings of an entity's table, or to a unique invariant under its name, has no schema change that makes it
+// safe.
+func baselineFaults(base, head []*storedEntity) []BaseFault {
 	var faults []BaseFault
 	byName := func(entities []*storedEntity, name string) *storedEntity {
 		for _, entity := range entities {
@@ -385,11 +456,18 @@ func baselineFaults(base, head []*storedEntity, service *types.ServiceDeclaratio
 		if old.Loose || entity.Loose {
 			continue
 		}
+		if old.Settings != entity.Settings {
+			faults = append(faults, BaseFault{Rule: BaseCompatRule, Entity: entity.Name, Message: fmt.Sprintf("the head changes the table settings of %s from %s to %s; the release that runs now reads and writes the table as it is, and no schema change moves these settings, so keep them, or add a new entity", entity.Name, old.Settings, entity.Settings)})
+		}
 		faults = append(faults, fieldFaults(old, entity)...)
 		for _, unique := range entity.Uniques {
-			if !slices.Contains(old.Uniques, unique) {
-				faults = append(faults, BaseFault{Rule: BaseCompatRule, Entity: entity.Name, Field: unique, Message: fmt.Sprintf("the head declares the invariant %s of kind unique on %s, which no schema step declares; rows of the base can break it, so declare a unique change, whose backfill counts the duplicate groups", unique, entity.Name),
-					Declare: []SuggestedChange{{ID: kebab(entity.Name) + "-" + kebab(unique) + "-unique", Kind: "unique", Entity: entity.Name, Field: unique, Phase: "expand"}}})
+			at := slices.IndexFunc(old.Uniques, func(u storedUnique) bool { return u.Name == unique.Name })
+			switch {
+			case at < 0:
+				faults = append(faults, BaseFault{Rule: BaseCompatRule, Entity: entity.Name, Field: unique.Name, Message: fmt.Sprintf("the head declares the invariant %s of kind unique on %s, which no schema step declares; rows of the base can break it, so declare a unique change, whose backfill counts the duplicate groups", unique.Name, entity.Name),
+					Declare: []SuggestedChange{{ID: kebab(entity.Name) + "-" + kebab(unique.Name) + "-unique", Kind: "unique", Entity: entity.Name, Field: unique.Name, Phase: "expand"}}})
+			case old.Uniques[at] != unique:
+				faults = append(faults, BaseFault{Rule: BaseCompatRule, Entity: entity.Name, Field: unique.Name, Message: fmt.Sprintf("the head changes the invariant %s of kind unique on %s from by [%s] where %q to by [%s] where %q; a unique invariant of the base stays as it is, so keep it and declare a new invariant with its own unique change", unique.Name, entity.Name, old.Uniques[at].By, old.Uniques[at].Where, unique.By, unique.Where)})
 			}
 		}
 	}
