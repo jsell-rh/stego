@@ -79,6 +79,12 @@ slots:
       - rbac-policy
       - admin-creation-policy
 
+  - collection: org-users
+    slot: on_entity_changed
+    fan-out:
+      - user-change-notifier
+      - audit-logger
+
   - collection: organizations
     slot: before_create
     chain:

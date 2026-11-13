@@ -1,0 +1,41 @@
+kind: fill
+name: audit-logger
+implements: event-publisher.on_entity_changed
+collection: org-users
+evidence:
+  fill_digest: 076df24ad7cffd71d23019bfd10bcffbcd346e122d685b3c53a4d6b6a648d856
+  contract_digest: afbb2afeb8ddb5a5685658af1dfb484ab690d81dc618ce929e8fda08b1584005
+  passed_at: 2026-11-13T03:36:35Z
+  compiler:
+    go_version: go1.26.11
+    goos: linux
+    goarch: amd64
+    module_version: v0.0.0-20261113033630-f56d325eca80
+    vcs: git
+    revision: f56d325eca80b9d4143890461256ac2c52666314
+    source_state: clean
+  files:
+    fill.yaml: 10c2d21c713b1cbbc4437f0acfd3c060c295dd7e8e9087d3efb6f3d9a6853d57
+    logger.go: 0da1fbcbdfc93eb64d8b50212f2fb818d2fca9554785837690d6b6b4c7e6a949
+    logger_test.go: 28e2ef689e4f5e928a914fee9d16be775e4c4a741903e19e51600bf73d69177c
+sign_off:
+  evidence_digest: e1fccd3272f37a2db6d3f6357ab2ced31bb5ee60c599ec4f2d68899e3c063da6
+  signature:
+    key_type: ssh
+    signer: 35787503+elsell@users.noreply.github.com
+    signature: |
+      -----BEGIN SSH SIGNATURE-----
+      U1NIU0lHAAAAAQAAARcAAAAHc3NoLXJzYQAAAAMBAAEAAAEBALsnksSLm9M7JucxPR5fip
+      7av8zqxlfnHPiKO4ScdopJeezbbuPmQz7KkjDKM2oLsdyeV3PZZZz051W6SC4v8mcAk6wM
+      aUo9FQq81i3h9cmgeeJf06thXUgYM0R58QPNwAquZTgvkGTBFvaBO0amv/tmfSGoqw9sYa
+      Kyum85zOVpOMPrOWR9mZqY/I8SG6nvN05jF+YDksFAArzy6DYU/4LHGIkU9NDuKAe2o1Ww
+      WUP0D2JTJIWxnskmDRqUVgtmmPzW8131Mhur+ms2l/K6Qkv8HmJzspCsZPkxhkDMougK7s
+      G/ltb8qpbwznydvO9A525OppB9qgbqpJ1Yo4Jz7usAAAAKc3RlZ28tZmlsbAAAAAAAAAAG
+      c2hhNTEyAAABFAAAAAxyc2Etc2hhMi01MTIAAAEASoNN2m+Z2KIJ2tgoeoohj++CwLGCV0
+      +1mkeMjzsEtaEAnls8vdWmawqws3Xy3OO7MiywSOB+JYh416EmPpOzs1FW94Emm+iZmV/v
+      otSY5Pp9CNX+yo/yXndhP9ffUoemVJ5VKrqXx7O7s+xfQKfEiHiHQASY5QW00YoQwML3iP
+      WihuatQXYW3TeQuTi6vVsFnFO/GLF1vRRzqrL17CugEZHP1dweAnR7wxe2TwDWnRMH7Xei
+      yO5lbQD7QKF8KiJBnHaDlG9NkArZUXkW9f32ZC7AN/X6KR/9S7H0bEX6d1QPBG8TzJAeHd
+      44SP7W32lnq+yc6YBbb+rm+rrJ0DMZWg==
+      -----END SSH SIGNATURE-----
+  signed_at: 2026-11-13T05:19:52Z
