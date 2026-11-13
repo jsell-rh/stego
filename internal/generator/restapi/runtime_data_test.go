@@ -634,6 +634,116 @@ func TestValidationEveryField(t *testing.T) {
 	})
 }
 
+// validationCapCheck is a test of the generated validation.go: a failure of many members lists at most
+// MaxValidationErrors of them, and then one entry that counts the rest.
+const validationCapCheck = `package api
+
+import (
+	"fmt"
+	"testing"
+
+	"github.com/getkin/kin-openapi/openapi3"
+)
+
+func TestValidationCap(t *testing.T) {
+	for _, failures := range []int{MaxValidationErrors, MaxValidationErrors + 1, 120} {
+		var multi openapi3.MultiError
+		for i := 0; i < failures; i++ {
+			multi = append(multi, &openapi3.SchemaError{Reason: "value must be a string"})
+		}
+		// A nested MultiError counts against the same cap.
+		got := parseValidationErrors(openapi3.MultiError{multi[:failures/2], multi[failures/2:]})
+		want := failures
+		if failures > MaxValidationErrors {
+			want = MaxValidationErrors + 1
+		}
+		if len(got) != want {
+			t.Fatalf("%d failures give %d entries, want %d", failures, len(got), want)
+		}
+		last := got[len(got)-1].Message
+		if failures > MaxValidationErrors && last != fmt.Sprintf("%d more failures not listed", failures-MaxValidationErrors) {
+			t.Fatalf("%d failures end with %q, want the count of the failures not listed", failures, last)
+		}
+		if failures <= MaxValidationErrors && last != "value must be a string" {
+			t.Fatalf("%d failures end with %q, want no count entry", failures, last)
+		}
+	}
+	if MaxValidationErrors != 50 {
+		t.Fatalf("MaxValidationErrors is %d, want 50", MaxValidationErrors)
+	}
+}
+`
+
+// markedValueCheck is a test of the generated validation.go: no validation entry quotes a value of the request.
+const markedValueCheck = `package api
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/getkin/kin-openapi/openapi3filter"
+)
+
+func TestNoMarkedValue(t *testing.T) {
+	handler := NewValidationMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("an invalid body reached the handler")
+	}))
+	for _, body := range []string{
+		"{\"title\":7,\"done\":\"MARKED-VALUE-1\"}",
+		"{\"title\":{\"k\":\"MARKED-VALUE-2\"},\"done\":true}",
+		"{\"title\":[\"MARKED-VALUE-3\"]}",
+		"{\"title\":\"MARKED-VALUE-4",
+		"{\"title\": MARKED-VALUE-5}",
+		"MARKED-VALUE-6",
+	} {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/todos", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		answer := httptest.NewRecorder()
+		handler.ServeHTTP(answer, r)
+		if answer.Code != http.StatusBadRequest {
+			t.Fatalf("the body %s got %d: %s", body, answer.Code, answer.Body)
+		}
+		if strings.Contains(answer.Body.String(), "MARKED-VALUE") {
+			t.Fatalf("the problem for the body %s quotes the value: %s", body, answer.Body)
+		}
+	}
+	// The error forms that quote a value in their own text: a schema error with no reason and a parse error.
+	for _, err := range []error{
+		&openapi3.SchemaError{Value: "MARKED-VALUE-7"},
+		&openapi3filter.ParseError{Value: "MARKED-VALUE-8", Reason: "cannot decode the body"},
+		&openapi3filter.ParseError{Value: "MARKED-VALUE-9"},
+		&openapi3filter.RequestError{Err: &openapi3filter.ParseError{Value: "MARKED-VALUE-10"}},
+	} {
+		for _, entry := range parseValidationErrors(err) {
+			if strings.Contains(entry.Field+entry.Message, "MARKED-VALUE") {
+				t.Fatalf("the entry %+v quotes the value of %T", entry, err)
+			}
+		}
+	}
+}
+`
+
+func TestValidationBounds(t *testing.T) {
+	ctx := crudContext()
+	ctx.Conventions.RequestValidation = "openapi-schema"
+	p := newCrudProject(t, ctx, crudFiles(t, ctx))
+	p.write("out/api/cap_test.go", []byte(validationCapCheck))
+	p.write("out/api/marked_test.go", []byte(markedValueCheck))
+	t.Run("ST-SUP-RC20-OC05-T05 A validation problem lists at most 50 failed members and one entry that counts the rest", func(t *testing.T) {
+		if output, err := p.goCommand(nil, "test", "-count=1", "-run", "^TestValidationCap$", "./out/api"); err != nil {
+			t.Fatalf("the check of the cap failed: %v\n%s", err, output)
+		}
+	})
+	t.Run("ST-SUP-RC20-OC05-T06 No validation entry quotes a value of the request", func(t *testing.T) {
+		if output, err := p.goCommand(nil, "test", "-count=1", "-run", "^TestNoMarkedValue$", "./out/api"); err != nil {
+			t.Fatalf("the check of the marked values failed: %v\n%s", err, output)
+		}
+	})
+}
+
 func TestValidationBodyLimit(t *testing.T) {
 	t.Run("ST-SUP-RC20-OC21-T04 The emitted middleware reads at most MaxRequestBody bytes and answers a larger body with 413", func(t *testing.T) {
 		ctx := crudContext()
