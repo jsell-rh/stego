@@ -16,6 +16,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -614,6 +615,58 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 		if entries, err := os.ReadDir(shared); err != nil || len(entries) != 0 {
 			t.Errorf("the cache root that its group may write holds %v (%v), want nothing", entries, err)
 		}
+		// A cache root that is the user's own link, such as an XDG_CACHE_HOME that links to another disk, is followed
+		// (#259). A cache root that is a link of another user is refused: with fs.protected_symlinks=0 the kernel
+		// follows a link that another user put in a shared folder.
+		target := filepath.Join(parent, "target")
+		if err := os.Mkdir(target, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, filepath.Join(parent, "cache")); err != nil {
+			t.Fatal(err)
+		}
+		if linked, err := openKeptTree(context.Background(), filepath.Join(parent, "cache", "stego", "sumdb"), verifier); err != nil {
+			t.Errorf("a kept tree under a cache root that is the user's own link gave %v, want it used", err)
+		} else {
+			linked.close()
+		}
+		if _, err := os.Stat(filepath.Join(target, "stego", "sumdb")); err != nil {
+			t.Errorf("the kept tree under the user's own link is not in the folder it links to: %v", err)
+		}
+		// A cache root that is a link of another user is refused. The test cannot make a link of another user, so the
+		// Lstat of the cache root gives the user's own link with another owner.
+		cache := filepath.Join(parent, "cache")
+		lstatRoot = func(name string) (os.FileInfo, error) {
+			info, err := os.Lstat(name)
+			if err != nil || name != cache {
+				return info, err
+			}
+			foreign := *info.Sys().(*syscall.Stat_t)
+			foreign.Uid = uint32(os.Getuid() + 1)
+			return statInfo{info, &foreign}, nil
+		}
+		t.Cleanup(func() { lstatRoot = os.Lstat })
+		if opened, err := openKeptTree(context.Background(), filepath.Join(cache, "stego", "sumdb"), verifier); err == nil || !strings.Contains(err.Error(), "a link of another user") {
+			if err == nil {
+				opened.close()
+			}
+			t.Errorf("a kept tree under a cache root that is a link of another user gave %v, want the refusal", err)
+		}
+		// A cache root that is a folder when it is read, and a link when it is opened, is refused: another user could
+		// swap a link in after the Lstat. The Lstat gives the folder that the link names.
+		lstatRoot = func(name string) (os.FileInfo, error) {
+			if name == cache {
+				return os.Lstat(target)
+			}
+			return os.Lstat(name)
+		}
+		if opened, err := openKeptTree(context.Background(), filepath.Join(cache, "stego", "sumdb"), verifier); err == nil || !strings.Contains(err.Error(), "it became a link or no folder after it was read") {
+			if err == nil {
+				opened.close()
+			}
+			t.Errorf("a kept tree under a cache root that became a link after it was read gave %v, want the refusal", err)
+		}
+		lstatRoot = os.Lstat
 		// A wait for a lock that another run holds ends with its context, and leaves no goroutine behind.
 		held, err := openKeptTree(context.Background(), moved, verifier)
 		if err != nil {
@@ -747,3 +800,11 @@ func privateTemp(t *testing.T) string {
 	}
 	return dir
 }
+
+// statInfo is a file's information with another owner, for a check of the owner that a test cannot set up.
+type statInfo struct {
+	os.FileInfo
+	stat *syscall.Stat_t
+}
+
+func (s statInfo) Sys() any { return s.stat }
