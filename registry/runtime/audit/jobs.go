@@ -79,6 +79,14 @@ func DDL(c Config) (string, error) {
 	if c.clock == "" {
 		c.clock = "now()"
 	}
+	return render(c), nil
+}
+
+// render gives the DDL text of c with each of its names and values.
+func render(c Config) string {
+	if c.clock == "" {
+		c.clock = "now()"
+	}
 	return strings.NewReplacer(
 		"{s}", c.Schema,
 		"{role}", c.RuntimeRole,
@@ -90,7 +98,7 @@ func DDL(c Config) (string, error) {
 		"{bounds}", BoundariesTable,
 		"{checks}", CheckpointsTable,
 		"{maintain}", MaintainFunction,
-	).Replace(ddlText), nil
+	).Replace(ddlText)
 }
 
 // tenantWall is the expression of the policy tenant_wall of each audit table, as pg_get_expr gives it.
@@ -113,7 +121,12 @@ func Manifest(c Config) (manifest.Manifest, error) {
 	if c.AnchorPeriod < time.Second {
 		return manifest.Manifest{}, errors.New("audit: the anchor period is less than one second")
 	}
-	text := strings.NewReplacer("{s}", s, "{period}", strconv.FormatInt(int64(c.AnchorPeriod/time.Second), 10)+" seconds").Replace(ddlText)
+	// The source of audit_maintain holds the retention, so the manifest needs the retention of the migration.
+	if c.RetentionMonths < 1 {
+		return manifest.Manifest{}, errors.New("audit: the retention is less than one month")
+	}
+	c.Schema = s
+	text := render(c)
 	function := func(name string) (manifest.Function, error) {
 		head := "CREATE OR REPLACE FUNCTION " + s + "." + name + "() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$"
 		_, rest, found := strings.Cut(text, head)
@@ -138,7 +151,17 @@ func Manifest(c Config) (manifest.Manifest, error) {
 			{Name: table + "_reject_statement", Timing: "BEFORE", Events: []string{"UPDATE", "DELETE", "TRUNCATE"}, Function: reject},
 		}
 	}
-	return manifest.Manifest{Tables: []manifest.Table{
+	// audit_maintain is the SECURITY DEFINER function that makes and drops the partitions (ST-SUP-RP05-LC10).
+	maintainHead := "CREATE OR REPLACE FUNCTION " + s + "." + MaintainFunction + "()"
+	_, rest, found := strings.Cut(text, maintainHead)
+	_, body, opened := strings.Cut(rest, "AS $$")
+	source, _, closed := strings.Cut(body, "$$")
+	if !found || !opened || !closed {
+		return manifest.Manifest{}, fmt.Errorf("audit: the DDL has no function %s", MaintainFunction)
+	}
+	maintain := manifest.Function{Name: s + "." + MaintainFunction, Language: "plpgsql", Source: source, SecurityDefiner: true,
+		Config: []string{"search_path=pg_catalog, pg_temp", "lock_timeout=2s"}}
+	return manifest.Manifest{Functions: []manifest.Function{maintain}, Tables: []manifest.Table{
 		{Schema: s, Name: EventsTable, Partitioned: true, RowSecurity: true, Policies: wall, Triggers: rejecting(EventsTable),
 			// audit_create_partition gives each partition a statement trigger of its own; the row triggers are clones.
 			PartitionTriggers: []manifest.Trigger{{Name: "_reject_statement", Timing: "BEFORE", Events: []string{"UPDATE", "DELETE", "TRUNCATE"},

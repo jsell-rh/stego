@@ -4,11 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
@@ -498,6 +500,55 @@ func TestRedTeam3(t *testing.T) {
 				var mismatch *Mismatch
 				if !errors.As(err, &mismatch) || !slices.Contains(mismatch.Faults, fault) {
 					t.Fatalf("Check gave %v, want the fault %q", err, fault)
+				}
+			})
+		}
+	})
+}
+
+func TestFunctions(t *testing.T) {
+	t.Run("ST-SUP-RP15-LC01-T05 Check refuses a function of the manifest that is missing or has another source, SECURITY DEFINER, setting or owner", func(t *testing.T) {
+		ctx := context.Background()
+		const make = "CREATE FUNCTION public.books_maintain() RETURNS integer LANGUAGE plpgsql SECURITY DEFINER " +
+			"SET search_path = pg_catalog, pg_temp SET lock_timeout = '2s' AS $$ BEGIN RETURN 1; END $$"
+		functions := []Function{{Name: "public.books_maintain", Language: "plpgsql", Source: " BEGIN RETURN 1; END ", SecurityDefiner: true,
+			Config: []string{"search_path=pg_catalog, pg_temp", "lock_timeout=2s"}}}
+		other := fmt.Sprintf("manifest_other_%d", time.Now().UnixNano())
+		for _, change := range []struct{ name, statement, fault string }{
+			{"a missing function", "DROP FUNCTION public.books_maintain()", "function public.books_maintain is missing"},
+			{"another source", "CREATE OR REPLACE FUNCTION public.books_maintain() RETURNS integer LANGUAGE plpgsql SECURITY DEFINER " +
+				"SET search_path = pg_catalog, pg_temp SET lock_timeout = '2s' AS $$ BEGIN RETURN 2; END $$",
+				"function public.books_maintain is not the function of the manifest"},
+			{"SECURITY INVOKER", "ALTER FUNCTION public.books_maintain() SECURITY INVOKER", "function public.books_maintain is not the function of the manifest"},
+			{"another setting", "ALTER FUNCTION public.books_maintain() SET search_path = public", "function public.books_maintain is not the function of the manifest"},
+			{"another owner", "CREATE ROLE " + other + " NOLOGIN; ALTER FUNCTION public.books_maintain() OWNER TO " + other,
+				"function public.books_maintain has another owner"},
+		} {
+			t.Run(change.name, func(t *testing.T) {
+				admin, reader := database(t)
+				// The owner of the manifest is known once the database is made.
+				m := want()
+				m.Functions = functions
+				if m.Owner == "" {
+					t.Fatal("the test database has no owner")
+				}
+				if _, err := admin.Exec(make); err != nil {
+					t.Fatal(err)
+				}
+				if err := Check(ctx, reader, m); err != nil {
+					t.Fatalf("Check refused the database of the manifest: %v", err)
+				}
+				if _, err := admin.Exec(change.statement); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() {
+					_, _ = admin.Exec("DROP FUNCTION IF EXISTS public.books_maintain()")
+					_, _ = admin.Exec("DROP ROLE IF EXISTS " + other)
+				})
+				err := Check(ctx, reader, m)
+				var mismatch *Mismatch
+				if !errors.As(err, &mismatch) || len(mismatch.Faults) != 1 || mismatch.Faults[0] != change.fault {
+					t.Fatalf("Check gave %v, want the one fault %q", err, change.fault)
 				}
 			})
 		}

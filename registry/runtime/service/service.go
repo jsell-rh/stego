@@ -123,7 +123,7 @@ func New(ctx context.Context, s Settings, p Parts) (_ *Service, err error) {
 	if svc.pool, err = tenant.Open(ctx, pools); err != nil {
 		return nil, err
 	}
-	if err := checkSchema(ctx, svc.pool, p.Schema, p.OwnerRole, p.Workers.AnchorPeriod); err != nil {
+	if err := checkSchema(ctx, svc.pool, p.Schema, p.OwnerRole, p.Workers.AnchorPeriod, p.Workers.RetentionMonths); err != nil {
 		return nil, err
 	}
 	if svc.auditDB, err = tenant.Open(ctx, pools); err != nil {
@@ -200,9 +200,10 @@ func New(ctx context.Context, s Settings, p Parts) (_ *Service, err error) {
 // (ST-SUP-RP14-LC06): it reads the catalog as the runtime role before New opens anything else, so a refused start
 // writes nothing and serves no request. The failure record of the process holds no error text, so it logs the
 // faults, which name only objects of the catalog. The audit triggers' functions are those that the audit DDL makes
-// for the declared anchor period (Parts.Workers.AnchorPeriod).
-func checkSchema(ctx context.Context, db *sql.DB, declared manifest.Manifest, owner string, anchorPeriod time.Duration) error {
-	record, err := audit.Manifest(audit.Config{AnchorPeriod: anchorPeriod})
+// for the declared anchor period (Parts.Workers.AnchorPeriod), and audit_maintain is the one of the declared retention
+// (Parts.Workers.RetentionMonths).
+func checkSchema(ctx context.Context, db *sql.DB, declared manifest.Manifest, owner string, anchorPeriod time.Duration, retentionMonths int) error {
+	record, err := audit.Manifest(audit.Config{AnchorPeriod: anchorPeriod, RetentionMonths: retentionMonths})
 	if err != nil {
 		return fmt.Errorf("service: the manifest of the audit record: %w", err)
 	}

@@ -16,7 +16,7 @@ import (
 // NoticeChannel is the PostgreSQL notification channel of the outbox notices.
 const NoticeChannel = "stego_outbox_v1"
 
-// The bounds of the event source (ST-SUP-RC18-OC22).
+// The bounds of the event source (ST-SUP-RP01-LC05).
 const (
 	MaxSubscriptions   = 64
 	SubscriptionBuffer = 64
@@ -65,7 +65,7 @@ type Listener interface {
 }
 
 // Source owns one listening session. Run and Close own its lifetime. A lost session closes every subscription and
-// the source; there is no silent reconnect, and a new source needs a new session (ST-SUP-RC18-OC10).
+// the source; there is no silent reconnect, and a new source needs a new session (ST-SUP-RP01-LC05).
 type Source struct {
 	listener      Listener
 	db            *sql.DB

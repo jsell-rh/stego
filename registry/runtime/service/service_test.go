@@ -95,7 +95,7 @@ func parts(entities []command.Declared, calls *int) Parts {
 		AuditSettings: audit.Settings{Level: audit.LevelChange},
 		Commands:      entities,
 		// The anchor period of the audit DDL of the migration job of the fixture.
-		Workers: WorkerParts{AnchorPeriod: time.Hour},
+		Workers: WorkerParts{AnchorPeriod: time.Hour, RetentionMonths: 12},
 	}
 }
 
@@ -332,6 +332,10 @@ func TestNew(t *testing.T) {
 			refused("DROP TRIGGER audit_event_reject_row ON public.audit_event",
 				"CREATE TRIGGER audit_event_reject_row BEFORE UPDATE OR DELETE ON public.audit_event FOR EACH ROW EXECUTE FUNCTION public.audit_reject_change()",
 				"table public.audit_event: trigger audit_event_reject_row is missing")
+			// audit_maintain, the SECURITY DEFINER function of the audit partitions, is in the manifest too, with the
+			// source of the declared retention (#218 L5).
+			refused("ALTER FUNCTION public.audit_maintain() SECURITY INVOKER", "ALTER FUNCTION public.audit_maintain() SECURITY DEFINER",
+				"function public.audit_maintain is not the function of the manifest")
 			if svc, err := New(context.Background(), settings, declared); err != nil {
 				t.Fatalf("New refused the restored database: %v", err)
 			} else {
