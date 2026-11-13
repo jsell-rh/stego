@@ -64,7 +64,11 @@ is refused too: put the step that adds the other entity first.
 
 The marker of the database holds the digest of the stored shape of the
 first release, from postgres-adapter 6.2.0. A change of a collection or a
-permission does not change it. A change of the indexes of a collection over
+permission does not change it. The first migration job of postgres-adapter
+6.2.0 or later on a database that an earlier release made writes the new
+digest into the marker, once. A pod of the earlier release that restarts
+after that job fails its marker check: during that rolling deploy, do not
+restart the pods of the earlier release. A change of the indexes of a collection over
 an entity of the base is refused, because no schema step builds such an
 index yet. See [stego compat](compat.md).
 

@@ -174,10 +174,10 @@ func TestBaseCompat(t *testing.T) {
 		t.Parallel()
 		td01 := string(userManagementBase(t))
 		for _, c := range []struct{ name, head string }{
-			{"a new list with a scope field", strings.Replace(td01, "    operations: [create, read, delete, list]\n", "    operations: [create, read, delete, list]\n\n  all-teams:\n    entity: Organization\n    scope: { name: Organization }\n    operations: [list]\n", 1)},
 			{"list taken from the only collection that lists an entity", strings.Replace(td01, "    operations: [create, read, delete, list]\n", "    operations: [create, read, delete]\n", 1)},
-			{"a new implicit field of a list", strings.Replace(td01, "    implicit: { source_type: \"User\" }\n", "    implicit: { source_type: \"User\", action: \"login\" }\n", 1)},
 			{"an upsert key changed", strings.Replace(td01, "    upsert_key: [org_id, key]\n", "    upsert_key: [org_id, key, value]\n", 1)},
+			{"a searched field of a listed entity marked pii", strings.Replace(td01, "{ name: display_name, type: string, min_length: 1, max_length: 100 }", "{ name: display_name, type: string, min_length: 1, max_length: 100, sensitivity: pii }", 1)},
+			{"a list taken away under a rename, which generation does not carry out yet", strings.Replace(withChanges(renameEmail(td01), emailRename, emailRenameExpand), "    operations: [create, read, delete, list]\n", "    operations: [create, read, delete]\n", 1)},
 		} {
 			if c.head == td01 {
 				t.Fatalf("%s: the head is the base", c.name)
@@ -200,6 +200,9 @@ func TestBaseCompat(t *testing.T) {
 			"  - {change: activityentry-source-type-rename, phase: expand}\n")
 		for _, c := range []struct{ name, base, head string }{
 			{"a permission changed", td01, strings.Replace(td01, "permissions: {create: public, read: view, list: view, delete: edit}", "permissions: {create: public, read: view, list: view, delete: view}", 1)},
+			{"a new list with a scope field that a search index has already", td01, strings.Replace(td01, "    operations: [create, read, delete, list]\n", "    operations: [create, read, delete, list]\n\n  all-teams:\n    entity: Organization\n    scope: { name: Organization }\n    operations: [list]\n", 1)},
+			{"a new implicit field of a list that a search index has already", td01, strings.Replace(td01, "    implicit: { source_type: \"User\" }\n", "    implicit: { source_type: \"User\", action: \"login\" }\n", 1)},
+			{"a field that is not searched marked pii", td01, strings.Replace(td01, "{ name: metadata, type: jsonb, optional: true }", "{ name: metadata, type: jsonb, optional: true, sensitivity: pii }", 1)},
 			{"a collection with no list and no upsert key", td01, strings.Replace(td01, "\nslots:", "\n  one-org:\n    entity: Organization\n    path_prefix: /one-org\n    operations: [read]\n\nslots:", 1)},
 			{"a rename of an implicit field of a list", td01, renamed},
 		} {
@@ -213,6 +216,32 @@ func TestBaseCompat(t *testing.T) {
 					t.Errorf("%s: want no index fault, got %+v", c.name, fault)
 				}
 			}
+		}
+	})
+
+	t.Run("ST-GEN-INV33-T A new order of the fields of a base entity, which changes 001_initial and the marker, is refused", func(t *testing.T) {
+		t.Parallel()
+		td01 := string(userManagementBase(t))
+		head := strings.Replace(td01, "      - { name: email, type: string, unique: true, max_length: 255 }\n      - { name: display_name, type: string, min_length: 1, max_length: 100 }\n",
+			"      - { name: display_name, type: string, min_length: 1, max_length: 100 }\n      - { name: email, type: string, unique: true, max_length: 255 }\n", 1)
+		if head == td01 {
+			t.Fatal("the head is the base")
+		}
+		base := []byte(td01)
+		check, err := CheckBase(BaseSource{Ref: "main", Commit: "c0ffee", Declaration: base, Record: recordFor(base)}, parseHead(t, head))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(check.Faults) != 1 || check.Faults[0].Rule != BaseCompatRule || check.Faults[0].Entity != "User" || !strings.Contains(check.Faults[0].Message, "changes the table users of 001_initial") {
+			t.Errorf("want one fault of %s on User that names the table users of 001_initial, got %+v", BaseCompatRule, check.Faults)
+		}
+		// The same order in the base and the head, and a record that names no postgres-adapter, give no fault.
+		if check, err := CheckBase(BaseSource{Ref: "main", Commit: "c0ffee", Declaration: base, Record: recordFor(base)}, parseHead(t, td01)); err != nil || check.HasFaults() {
+			t.Errorf("the base against itself: %+v, %v", check.Faults, err)
+		}
+		noAdapter := []byte("format_version: 5\nlast_applied:\n  service_hash: " + HashBytes(base) + "\n  components:\n    jwt-auth: {version: 1.0.0}\n")
+		if check, err := CheckBase(BaseSource{Ref: "main", Commit: "c0ffee", Declaration: base, Record: noAdapter}, parseHead(t, head)); err != nil || check.HasFaults() {
+			t.Errorf("a base with no postgres-adapter: %+v, %v", check.Faults, err)
 		}
 	})
 }

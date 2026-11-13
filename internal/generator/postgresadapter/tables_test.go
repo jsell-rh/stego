@@ -381,6 +381,10 @@ func TestTables(t *testing.T) {
 		onPostgres(t, "ST-SUP-RC01-OC42-T02")
 	})
 
+	t.Run("ST-SUP-RC01-OC42-T03 The migration job rewrites the marker digest of a release before to the digest of the stored shape once", func(t *testing.T) {
+		onPostgres(t, "ST-SUP-RC01-OC42-T03")
+	})
+
 	t.Run("ST-SUP-RC01-OC22-T03 An add step takes a database with rows to the schema of a new database, and the release before still runs on it", func(t *testing.T) {
 		onPostgres(t, "ST-SUP-RC01-OC22-T03")
 	})

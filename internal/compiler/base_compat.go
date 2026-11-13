@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
 	"github.com/jsell-rh/stego/internal/parser"
 	"github.com/jsell-rh/stego/internal/types"
 	"golang.org/x/mod/semver"
@@ -124,7 +126,7 @@ func CheckBase(base BaseSource, head *types.ServiceDeclaration) (BaseCheck, erro
 	if err != nil {
 		return check, err
 	}
-	check.Faults = append(check.Faults, validateBaseSchema(declaration, head)...)
+	check.Faults = append(check.Faults, validateBaseSchema(state.LastApplied, declaration, head)...)
 	check.Faults = append(check.Faults, ledgerVersionFaults(state.LastApplied, declaration, head)...)
 	return check, nil
 }
@@ -163,13 +165,18 @@ func ledgerVersionFaults(applied *AppliedState, base, head *types.ServiceDeclara
 // changes stay and change only by a fill value that a retype at expand gets, no change gets its expand and its
 // contract step in one release, and the baseline of the head, its stored shape with every schema step undone, is
 // the baseline of the base. STEGO cannot count rows, so it takes each table of the base as a table with rows.
-func validateBaseSchema(base, head *types.ServiceDeclaration) []BaseFault {
+func validateBaseSchema(applied *AppliedState, base, head *types.ServiceDeclaration) []BaseFault {
 	var faults []BaseFault
 	faults = append(faults, baseStepFaults(base, head)...)
 	faults = append(faults, baseChangeFaults(base, head)...)
 	faults = append(faults, onePhaseFaults(base, head)...)
 	faults = append(faults, uniqueAddFaults(base, head)...)
-	faults = append(faults, collectionIndexFaults(base, head)...)
+	generated, ok := generatedBaselines(applied, base, head)
+	if !ok {
+		// Generation does not carry out each kind of the declarations yet, so the indexes are compared as the
+		// collections describe them.
+		faults = append(faults, collectionIndexFaults(base, head)...)
+	}
 	shapeFaults := baselineFaults(shapeAt(base, 0), shapeAt(head, 0))
 	// The baselines leave out what a step of the base added, required or retyped, so the head with only its new
 	// steps undone must also be the stored shape of the base as it runs now, with every field in full.
@@ -182,7 +189,105 @@ func validateBaseSchema(base, head *types.ServiceDeclaration) []BaseFault {
 			shapeFaults = append(shapeFaults, fault)
 		}
 	}
-	return append(faults, shapeFaults...)
+	faults = append(faults, shapeFaults...)
+	if ok {
+		faults = append(faults, generated.faults(faults)...)
+	}
+	return faults
+}
+
+// baselineOutput is what the postgres-adapter generator gives for the baselines of the base and of the head: the
+// tables of 001_initial and the digest of the schema marker (postgresadapter.Baseline).
+type baselineOutput struct {
+	base, head             []postgresadapter.BaselineTable
+	baseMarker, headMarker string
+}
+
+// generatedBaselines gives what the postgres-adapter generator writes for the baselines of the base and of the head,
+// with the tenancy of each declaration: with the tenancy component when the record at the base names it, or names no
+// component. It gives no output and true when the record names components and no postgres-adapter, which has no
+// 001_initial, and false when generation does not carry out a kind of schema change of either declaration yet.
+func generatedBaselines(applied *AppliedState, base, head *types.ServiceDeclaration) (*baselineOutput, bool) {
+	var components []string
+	if applied == nil || len(applied.Components) == 0 {
+		components = []string{gen.TenancyComponent}
+	} else {
+		if _, adapter := applied.Components["postgres-adapter"]; !adapter {
+			return nil, true
+		}
+		if _, tenancy := applied.Components[gen.TenancyComponent]; tenancy {
+			components = []string{gen.TenancyComponent}
+		}
+	}
+	baseline := func(service *types.ServiceDeclaration) ([]postgresadapter.BaselineTable, string, error) {
+		return postgresadapter.Baseline(gen.Context{Entities: service.Entities, Collections: service.Collections,
+			SchemaChanges: service.SchemaChanges, SchemaHistory: service.SchemaHistory, Tenancy: pooledTenancy(service, components)})
+	}
+	out := &baselineOutput{}
+	var err error
+	if out.base, out.baseMarker, err = baseline(base); err != nil {
+		return nil, false
+	}
+	if out.head, out.headMarker, err = baseline(head); err != nil {
+		return nil, false
+	}
+	return out, true
+}
+
+// faults compares the generated baselines of the base and the head, table by table, and gives a fault for each
+// table whose CREATE TABLE or indexes in 001_initial differ, for a new order of the tables, and for a new digest of
+// the marker: a database with rows holds the 001_initial and the marker of the base, so the head's migration job or
+// marker check would fail on it (ST-GEN-INV33, ST-SUP-RC01-OC41, ST-SUP-RC01-OC42). An entity that an earlier fault
+// names gets no second fault here, and the order and the marker get one only when no other fault names their cause.
+func (o *baselineOutput) faults(earlier []BaseFault) []BaseFault {
+	if o == nil {
+		return nil
+	}
+	named := map[string]bool{}
+	for _, fault := range earlier {
+		named[fault.Entity] = true
+	}
+	headTables := map[string]postgresadapter.BaselineTable{}
+	for _, table := range o.head {
+		headTables[table.Table] = table
+	}
+	var faults []BaseFault
+	for _, before := range o.base {
+		after, ok := headTables[before.Table]
+		switch {
+		case named[before.Entity]:
+		case !ok:
+			faults = append(faults, BaseFault{Rule: BaseCompatRule, Entity: before.Entity, Message: fmt.Sprintf(
+				"the baseline of the head has no table %s, and 001_initial of the base creates it; keep the entity %s of the base, or declare the schema change that removes it", before.Table, before.Entity)})
+		case before.Create != after.Create:
+			faults = append(faults, BaseFault{Rule: BaseCompatRule, Entity: before.Entity, Message: fmt.Sprintf(
+				"the head changes the table %s of 001_initial with no schema step: the base creates\n%sand the head creates\n%sA database with rows holds the table of the base, so the head's migration job would fail its ledger check; keep the fields of %s in the order and with the settings of the base, and declare each change as a schema change", before.Table, before.Create, after.Create, before.Entity)})
+		case before.Indexes != after.Indexes:
+			faults = append(faults, BaseFault{Rule: BaseCompatRule, Entity: before.Entity, Message: fmt.Sprintf(
+				"the collections or the fields over %s change its indexes in 001_initial: the base gives\n%sand the head gives\n%sNo schema change builds such an index yet, so the next migration job of a database with rows would fail; keep the list, the scope and implicit fields, the upsert keys of the collections over %s and the sensitivity of its searched fields as the base has them", before.Entity, before.Indexes, after.Indexes, before.Entity)})
+		}
+	}
+	if len(earlier) > 0 || len(faults) > 0 {
+		return faults
+	}
+	baseOrder, headOrder := make([]string, len(o.base)), []string{}
+	for i, table := range o.base {
+		baseOrder[i] = table.Table
+	}
+	for _, table := range o.head {
+		if slices.Contains(baseOrder, table.Table) {
+			headOrder = append(headOrder, table.Table)
+		}
+	}
+	switch {
+	case len(o.head) != len(o.base) || !slices.Equal(baseOrder, headOrder):
+		faults = append(faults, BaseFault{Rule: BaseCompatRule, Message: fmt.Sprintf(
+			"the baseline of the head creates the tables (%s) and the base creates (%s) in 001_initial; a database with rows holds the 001_initial of the base, so keep the entities of the base and their references as the base has them, and add each new entity with a schema step", strings.Join(headOrder, ", "), strings.Join(baseOrder, ", "))})
+	case o.baseMarker != o.headMarker:
+		faults = append(faults, BaseFault{Rule: BaseCompatRule, Message: fmt.Sprintf(
+			"the schema marker of the head has the digest %s and the base has %s; a database with rows holds the marker of the base, so the head would fail its marker check; keep the stored shape of the base", o.headMarker, o.baseMarker)})
+	}
+	return faults
 }
 
 // collectionIndexFaults refuses a head that changes, with no schema step, an index that the collections over an

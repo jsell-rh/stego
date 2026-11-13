@@ -242,7 +242,7 @@ func TestSchemaMarker(t *testing.T) {
 				t.Errorf("%s is accepted, or its refusal does not name ST-SUP-RC01-OC43: %v", name, err)
 			}
 		}
-		// A step name that the grammar refuses stops generation: the check reads every registration of migrate.go.
+		// A step name that the grammar refuses stops generation: generation checks each name that migrate.go registers.
 		ctx := boardSteps("boards", "boardtenancy")
 		ctx.SchemaChanges[0].ID = "Add_Card"
 		ctx.SchemaHistory[0].Change = "Add_Card"

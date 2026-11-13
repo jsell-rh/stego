@@ -560,4 +560,55 @@ FROM pg_catalog.pg_class c WHERE c.oid = $1::pg_catalog.regclass`, "public."+tab
 			t.Errorf("the marker check gives %v for the digest of another declaration, want ErrSchemaGeneration", err)
 		}
 	})
+
+	t.Run("ST-SUP-RC01-OC42-T03 The migration job rewrites the marker digest of a release before to the digest of the stored shape once", func(t *testing.T) {
+		ctx := context.Background()
+		markCfg, mark := database(t, cfg, admin)
+		migrate(t, markCfg, mark, func(ctx context.Context, conn *sql.Conn) error { return boards.Migrate(ctx, conn) }, "boards_access.json")
+		before := os.Getenv("STEGO_TEST_MARKER_BEFORE")
+		if len(before) != 64 || before == boards.SchemaDefinition {
+			t.Fatalf("the digest of a release before is %q", before)
+		}
+		// A database that a release before ST-SUP-RC01-OC42 made holds the digest of the entities and collections.
+		if _, err := mark.Exec(`UPDATE stego_schema.generation SET definition = $1`, before); err != nil {
+			t.Fatal(err)
+		}
+		var versions int
+		if err := mark.QueryRow(`SELECT count(*) FROM stego_schema.migrations`).Scan(&versions); err != nil {
+			t.Fatal(err)
+		}
+		migrate(t, markCfg, mark, func(ctx context.Context, conn *sql.Conn) error { return boards.Migrate(ctx, conn) }, "boards_access.json")
+		var definition string
+		var after int
+		if err := mark.QueryRow(`SELECT definition, (SELECT count(*) FROM stego_schema.migrations) FROM stego_schema.generation`).Scan(&definition, &after); err != nil {
+			t.Fatal(err)
+		}
+		if definition != boards.SchemaDefinition || after != versions {
+			t.Errorf("after the migration job the marker holds %q and the ledger %d rows; want the digest of the stored shape %s and the %d rows before", definition, after, boards.SchemaDefinition, versions)
+		}
+		if err := boards.VerifySchema(ctx, mark); err != nil {
+			t.Errorf("the marker check refuses the rewritten digest: %v", err)
+		}
+		// A digest that is neither stays as it is: the job rewrites only the digest of a release before.
+		other := strings.Repeat("0", 64)
+		if _, err := mark.Exec(`UPDATE stego_schema.generation SET definition = $1`, other); err != nil {
+			t.Fatal(err)
+		}
+		job := stdlib.OpenDB(*markCfg)
+		defer job.Close()
+		conn, err := job.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		if _, err := conn.ExecContext(ctx, "SET ROLE "+pgx.Identifier{tenancy.OwnerRole}.Sanitize()); err != nil {
+			t.Fatal(err)
+		}
+		if err := boards.Migrate(ctx, conn); !errors.Is(err, boards.ErrSchemaGeneration) {
+			t.Errorf("the migration job gives %v on the digest of another declaration, want ErrSchemaGeneration", err)
+		}
+		if err := mark.QueryRow(`SELECT definition FROM stego_schema.generation`).Scan(&definition); err != nil || definition != other {
+			t.Errorf("the migration job changed the digest of another declaration to %q (error %v)", definition, err)
+		}
+	})
 }

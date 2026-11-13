@@ -53,25 +53,6 @@ func CheckLedgerName(name string) error {
 	return fmt.Errorf("the ledgered migration %q is not 001_initial, %s or a schema step; a component migration of a later release would sort before the step rows of an upgraded ledger (ST-SUP-RC01-OC43)", name, tenancyMigration)
 }
 
-// registration finds the name of each migration that a generated file registers in the ledger.
-var registration = regexp.MustCompile(`\bRegister(?:SQL|Step)?\(\s*"([^"]*)"`)
-
-// checkLedgerNames refuses a file of the namespace that registers a ledgered migration that CheckLedgerName
-// refuses, so that no generated file, in any place, adds one.
-func checkLedgerNames(ns string, files []gen.File) error {
-	for _, file := range files {
-		if path.Dir(file.Path) != ns || path.Ext(file.Path) != ".go" {
-			continue
-		}
-		for _, match := range registration.FindAllSubmatch(file.Content, -1) {
-			if err := CheckLedgerName(string(match[1])); err != nil {
-				return fmt.Errorf("%s: %w", file.Path, err)
-			}
-		}
-	}
-	return nil
-}
-
 // tenancyMigration is the ledger name of the row-level security of the tenancy component.
 const tenancyMigration = "100_tenancy_row_security"
 

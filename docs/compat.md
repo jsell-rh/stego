@@ -38,11 +38,18 @@ When the base ref has a record, the check refuses:
   at expand may get a fill value.
 - A schema change that gets its expand step and its contract step in one
   release.
-- A change to the indexes that the collections give an entity of the base:
-  a collection that starts or stops listing it, a new or removed scope or
-  implicit field of a collection that lists it, or a changed upsert key. No
-  kind of schema change builds such an index yet. A collection change that
-  gives no index, and a change of permissions, are accepted.
+- A change to `001_initial` or to the schema marker that no schema step
+  declares. The check generates both for the base and for the head, with
+  every schema step undone, and compares them table by table. This finds a
+  new order of the fields, a field marked `pii` or `secret` that leaves a
+  search index, and a change to the indexes that the collections give an
+  entity of the base: a collection that starts or stops listing it, a new
+  scope or implicit field that has no search index, or a changed upsert key.
+  No kind of schema change builds such an index yet. A collection change
+  that gives no index, and a change of permissions, are accepted. When
+  generation does not carry out a kind of schema change of the declaration
+  yet, such as a rename, the check compares the indexes that the
+  collections describe.
 - A new schema step when the base runs postgres-adapter before 6.1.0. Deploy
   a release with postgres-adapter 6.1.0 or later first.
 

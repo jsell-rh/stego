@@ -406,6 +406,37 @@ func tablesSQL(ctx gen.Context) (string, error) {
 	return out.String(), nil
 }
 
+// BaselineTable is what the migration 001_initial holds for one table of the baseline: the entity whose table it is,
+// the name of the table, its CREATE TABLE statement and its indexes.
+type BaselineTable struct {
+	Entity, Table, Create, Indexes string
+}
+
+// Baseline gives what a release with the declaration of ctx writes for its baseline: each table of 001_initial in
+// its order (tablesSQL), and the digest of the stored shape that the schema marker holds (markerDefinitions). The
+// check against the base compares it for the base and the head (ST-GEN-INV33), so an edit that changes either one,
+// such as a new order of the fields or a field that leaves a search index, is refused before a release fails the
+// ledger or the marker check of a database with rows.
+func Baseline(ctx gen.Context) ([]BaselineTable, string, error) {
+	baseline, err := ctx.AtSchemaStep(0)
+	if err != nil {
+		return nil, "", err
+	}
+	models, err := tableModels(baseline)
+	if err != nil {
+		return nil, "", err
+	}
+	tables := make([]BaselineTable, len(models))
+	for i, table := range models {
+		tables[i] = BaselineTable{Entity: table.entity, Table: table.name, Create: tableSQL(table), Indexes: indexSQL(table)}
+	}
+	marker, _, err := markerDefinitions(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	return tables, marker, nil
+}
+
 // columnSQL gives the definition of one column, as CREATE TABLE and ADD COLUMN write it.
 func columnSQL(column columnModel) string {
 	line := sqlIdentifier(column.name) + " " + column.typ
@@ -434,6 +465,11 @@ func uniqueIndexSQL(table tableModel, columns []string) string {
 // createTableSQL gives the CREATE TABLE of one table and its indexes: the text of the table in 001_initial, and in
 // the step that adds its entity.
 func createTableSQL(table tableModel) string {
+	return tableSQL(table) + indexSQL(table)
+}
+
+// tableSQL gives the CREATE TABLE statement of one table, with its columns and constraints and no index.
+func tableSQL(table tableModel) string {
 	var out strings.Builder
 	var lines []string
 	for _, column := range table.columns {
@@ -447,6 +483,12 @@ func createTableSQL(table tableModel) string {
 		lines = append(lines, "CONSTRAINT "+sqlIdentifier(fk.name)+" "+foreignSQL(fk))
 	}
 	fmt.Fprintf(&out, "CREATE TABLE public.%s (\n  %s\n);\n", sqlIdentifier(table.name), strings.Join(lines, ",\n  "))
+	return out.String()
+}
+
+// indexSQL gives the indexes of one table: its search indexes and its unique indexes.
+func indexSQL(table tableModel) string {
+	var out strings.Builder
 	// A list filters a table on its scope field, its implicit fields and the fields of its search, each with the
 	// tenant: an index of each keeps a filtered list from scanning the tenant's whole table (ST-SUP-RP11-LC20).
 	for _, column := range table.search {
@@ -599,9 +641,6 @@ func generateRuntimeData(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		wiring.VerifyDatabaseAccess = true
 	}
 	if err := sealMigrations(ctx.OutputNamespace, files); err != nil {
-		return nil, nil, err
-	}
-	if err := checkLedgerNames(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
 	}
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
