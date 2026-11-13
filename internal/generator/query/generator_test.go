@@ -216,3 +216,51 @@ func TestGenerator(t *testing.T) {
 		}
 	})
 }
+
+func TestExpectedCardinality(t *testing.T) {
+	t.Run("ST-SUP-RC33-OC09-T01 An entity of small expected cardinality is declared with Search, and another cardinality is refused", func(t *testing.T) {
+		spec := func(t *testing.T, cardinality string) (string, error) {
+			t.Helper()
+			ctx := shopContext(t)
+			for i := range ctx.Entities {
+				if ctx.Entities[i].Name == "Order" {
+					ctx.Entities[i].ExpectedCardinality = cardinality
+				}
+			}
+			files, _, err := new(Generator).Generate(ctx)
+			if err != nil {
+				return "", err
+			}
+			for _, f := range files {
+				source := string(f.Bytes())
+				if i := strings.Index(source, `query.Spec{Name: "Order",`); i >= 0 {
+					return source[i : i+strings.Index(source[i:], "}, ")], nil
+				}
+			}
+			t.Fatal("no file declares the query entity of Order")
+			return "", nil
+		}
+		small, err := spec(t, "small")
+		if err != nil || !strings.Contains(small, "Search: true,") {
+			t.Errorf("the entity of small expected cardinality is declared as %q (%v), want Search: true", small, err)
+		}
+		for _, cardinality := range []string{"", "large"} {
+			if got, err := spec(t, cardinality); err != nil || strings.Contains(got, "Search") {
+				t.Errorf("the entity of expected cardinality %q is declared as %q (%v), want no Search", cardinality, got, err)
+			}
+		}
+		if _, err := spec(t, "tiny"); err == nil || !strings.Contains(err.Error(), "small or large") {
+			t.Errorf("the expected cardinality tiny gave %v, want a refusal that names small or large", err)
+		}
+		ctx := shopContext(t)
+		for i := range ctx.Entities {
+			if ctx.Entities[i].Name == "Charge" {
+				ctx.Entities[i].ExpectedCardinality = "small"
+				ctx.Entities[i].ResourceType = ""
+			}
+		}
+		if _, _, err := new(Generator).Generate(ctx); err == nil || !strings.Contains(err.Error(), "small but it has no resource type") {
+			t.Errorf("an entity of small expected cardinality with no resource type gave %v, want a refusal that says so", err)
+		}
+	})
+}

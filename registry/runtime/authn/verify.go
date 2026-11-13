@@ -55,9 +55,10 @@ var tokenTypes = []string{"JWT", "at+jwt", "application/at+jwt"}
 // holds one (ST-SUP-RP13-LC03).
 var idTokenClaims = []string{"at_hash", "c_hash", "nonce", "events"}
 
-// otherTokenKinds are the values of the payload claim typ that name a token of another kind: Keycloak's ID, refresh
-// and logout tokens (ST-SUP-RP13-LC03).
-var otherTokenKinds = []string{"ID", "Refresh", "Logout"}
+// accessTokenKind is the one value of the payload claim typ that Verify accepts: Bearer, the kind of a Keycloak
+// access token, in the case that Keycloak sends. Every other value, null and other JSON types included, names a
+// token of another kind, such as Keycloak's ID, refresh, logout or offline token (ST-SUP-RP13-LC03, ST-SUP-Q112).
+const accessTokenKind = "Bearer"
 
 // ErrDenied is the error of each refused token: errors.Is(err, ErrDenied) holds for every refusal of Verify and of
 // the key set. Its text and the text of each refusal are fixed and hold no token, claim, key ID, key document,
@@ -332,7 +333,7 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Identity, error) {
 	}
 	if kind, present := claims["typ"]; present {
 		var name string
-		if json.Unmarshal(kind, &name) != nil || slices.Contains(otherTokenKinds, name) {
+		if len(kind) == 0 || kind[0] != '"' || json.Unmarshal(kind, &name) != nil || name != accessTokenKind {
 			return Identity{}, errIDToken
 		}
 	}

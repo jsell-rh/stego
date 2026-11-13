@@ -31,6 +31,12 @@ BEGIN
 			RAISE EXCEPTION 'tenancy: the role % exists and is not a role of this service alone: it has the members %, which this service does not grant; name the migration login in stego.migration_login or revoke them', v_role, v_members;
 		END IF;
 	END LOOP;
+	SELECT pg_catalog.string_agg(mr.rolname || CASE WHEN m.admin_option THEN ' with ADMIN' ELSE '' END, ', ' ORDER BY mr.rolname)
+		INTO v_members FROM pg_catalog.pg_auth_members AS m JOIN pg_catalog.pg_roles AS g ON g.oid = m.roleid
+		JOIN pg_catalog.pg_roles AS mr ON mr.oid = m.member WHERE g.rolname = v_migration;
+	IF v_members IS NOT NULL THEN
+		RAISE EXCEPTION 'tenancy: the migration login % that stego.migration_login names has the members %, which reach the owner role through it; revoke them, or name a login with no member', v_migration, v_members;
+	END IF;
 	IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'user_management_owner') THEN
 		CREATE ROLE "user_management_owner" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 	END IF;

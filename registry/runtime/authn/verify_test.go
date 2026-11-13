@@ -265,6 +265,19 @@ func TestVerifyAlgorithm(t *testing.T) {
 }
 
 func TestTokenKind(t *testing.T) {
+	t.Run("ST-SUP-RP13-LC03-T04 The payload typ is an allow list: only Bearer passes, and null, another case or a new kind is refused", func(t *testing.T) {
+		key := authntest.NewKey(t, "k1")
+		v := staticVerifier(t, nil, key)
+		expectAccepted(t, v, authntest.Mint(t, authntest.Header("k1"), goodClaims(), key))
+		for _, kind := range []any{nil, "Offline", "bearer", "BEARER", "", []string{"Bearer"}, map[string]any{}, true, "Serialized-ID"} {
+			t.Run(fmt.Sprintf("typ %v", kind), func(t *testing.T) {
+				claims := goodClaims()
+				claims["typ"] = kind
+				id, err := v.Verify(context.Background(), authntest.Mint(t, authntest.Header("k1"), claims, key))
+				expectRefused(t, id, err, errIDToken)
+			})
+		}
+	})
 	t.Run("ST-SUP-RP13-LC03-T03 A token shaped as an ID token is refused, and an at+jwt access token passes", func(t *testing.T) {
 		key := authntest.NewKey(t, "k1")
 		v := staticVerifier(t, nil, key)

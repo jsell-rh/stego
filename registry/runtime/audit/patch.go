@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Op is one RFC 6902 operation. Value is used by add, replace and test.
@@ -36,6 +37,12 @@ func (p Patch) tree() []any {
 // is JSON null. A pii field at any depth whose value changed gets a replace with RedactionMarker, so the patch
 // shows the change and not the value; a secret field is in no operation.
 func Diff(before, after map[string]any, f Fields) (Patch, error) {
+	return diff(before, after, f, false)
+}
+
+// diff is Diff; with whole, each changed field gets one replace of its whole value, the form whose size is
+// bounded by the two states for any keys (ST-SUP-RP05-LC05).
+func diff(before, after map[string]any, f Fields, whole bool) (Patch, error) {
 	if err := checkStateDepth(before); err != nil {
 		return nil, err
 	}
@@ -59,7 +66,7 @@ func Diff(before, after map[string]any, f Fields) (Patch, error) {
 		b = r
 	}
 	var p Patch
-	diffStates(a, b, &p)
+	diffStates(a, b, &p, whole)
 	paths := make(map[string]bool, len(p))
 	for _, o := range p {
 		paths[o.Path] = true
@@ -102,8 +109,8 @@ func fieldBudget(a, b any) int {
 }
 
 // diffStates appends the operations from the state a to the state b, one field at a time. The operations of a
-// field that would pass its budget are replaced by one replace of the field.
-func diffStates(a, b any, p *Patch) {
+// field that would pass its budget, or of every field when whole is true, are replaced by one replace of the field.
+func diffStates(a, b any, p *Patch, whole bool) {
 	am, aIsMap := a.(map[string]any)
 	bm, bIsMap := b.(map[string]any)
 	if !aIsMap || !bIsMap {
@@ -131,7 +138,12 @@ func diffStates(a, b any, p *Patch) {
 			*p = append(*p, Op{Op: "add", Path: "/" + segment, Value: bv})
 		default:
 			var field Patch
-			d := differ{segments: []string{segment}, p: &field, budget: fieldBudget(av, bv)}
+			budget := fieldBudget(av, bv)
+			if whole {
+				// No operation fits a budget of one byte, so a changed field is one replace.
+				budget = 1
+			}
+			d := differ{segments: []string{segment}, p: &field, budget: budget}
 			d.diff(av, bv)
 			if d.over {
 				field = Patch{{Op: "replace", Path: "/" + segment, Value: bv}}
@@ -167,9 +179,10 @@ func (d *differ) spend(segment string) bool {
 	if d.budget == 0 {
 		return true
 	}
-	n := opOverhead + len(segment)
+	// The path counts in its JSON encoding, the form that the bound of the event measures.
+	n := opOverhead + encodedLen(segment)
 	for _, s := range d.segments {
-		n += len(s) + 1
+		n += encodedLen(s) + 1
 	}
 	d.used += n
 	if d.used > d.budget {
@@ -177,6 +190,26 @@ func (d *differ) spend(segment string) bool {
 		return false
 	}
 	return true
+}
+
+// encodedLen is the length of s as writeString encodes it, without the quotes.
+func encodedLen(s string) int {
+	n := 0
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		switch {
+		case r == '"' || r == '\\':
+			n += 2
+		case r < 0x20:
+			n += 6
+		case r == utf8.RuneError && size == 1:
+			n += utf8.RuneLen(utf8.RuneError)
+		default:
+			n += size
+		}
+		i += size
+	}
+	return n
 }
 
 func (d *differ) path() string {

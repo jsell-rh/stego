@@ -8,10 +8,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
@@ -161,15 +163,88 @@ func filterDigest(where []Equal) string {
 const padKey = "00000000-0000-0000-0000-000000000000"
 
 // filterSQL gives the predicate of a filter, " AND field = $n" for each condition, with its parameters numbered from
-// first, and the values.
-func filterSQL(where []Equal, first int) (string, []any) {
+// first, and the values; with keys that are not nil, also " AND key = ANY($n)", so only the rows of those keys are
+// read (ST-SUP-RP11-LC20).
+func (e *entity) filterSQL(where []Equal, keys []string, first int) (string, []any) {
 	var b strings.Builder
-	args := make([]any, 0, len(where))
+	args := make([]any, 0, len(where)+1)
 	for i, w := range where {
 		fmt.Fprintf(&b, " AND %s = $%d", w.Field, first+i)
 		args = append(args, w.Value)
 	}
+	if keys != nil {
+		fmt.Fprintf(&b, " AND %s = ANY($%d)", e.spec.Key, first+len(where))
+		args = append(args, keys)
+	}
 	return b.String(), args
+}
+
+// MaxSearchKeys is the most keys that an ordered list of an entity of small expected cardinality takes from the
+// resource search (ST-SUP-RP11-LC20).
+const MaxSearchKeys = 10000
+
+// ErrTooManyKeys is the error of an ordered list of an entity of small expected cardinality whose resource search
+// gives more than MaxSearchKeys keys: the entity is not small, and the list fails closed (ST-SUP-RP11-LC20).
+var ErrTooManyKeys = errors.New("query: the resource search gives more keys than an entity of small expected cardinality may have")
+
+// overBound is the warning of a list over MaxSearchKeys: at most one log line in each overBoundEvery, which counts
+// the lists over the bound since the last line, so a caller who repeats such a list cannot flood the log.
+var overBound = &boundWarning{every: overBoundEvery, now: time.Now}
+
+// overBoundEvery is the shortest time between two warnings of a list over MaxSearchKeys.
+const overBoundEvery = time.Minute
+
+// boundWarning logs a list over the bound at most once in each period every, with the count of lists since the
+// last line.
+type boundWarning struct {
+	mu    sync.Mutex
+	every time.Duration
+	now   func() time.Time
+	last  time.Time
+	count int
+}
+
+func (b *boundWarning) warn(ctx context.Context, entity string) {
+	b.mu.Lock()
+	b.count++
+	now := b.now()
+	if !b.last.IsZero() && now.Sub(b.last) < b.every {
+		b.mu.Unlock()
+		return
+	}
+	count := b.count
+	b.last, b.count = now, 0
+	b.mu.Unlock()
+	slog.WarnContext(ctx, "query: an entity of small expected cardinality has more visible rows than the bound; declare it large",
+		"entity", entity, "bound", MaxSearchKeys, "lists", count)
+}
+
+// searchKeys gives every key that the resource search gives for the list permission, page by page, and refuses more
+// than MaxSearchKeys with ErrTooManyKeys, which it logs with the entity and the bound so that an operator sees a
+// wrong cardinality declaration. It never falls back to paging the table.
+func (r *Repository[T]) searchKeys(ctx context.Context) ([]string, error) {
+	c := r.core
+	e := &r.entity.e
+	keys := []string{}
+	var token authz.PageToken
+	for {
+		found, err := c.authz.Search(ctx, r.permission(), e.spec.ResourceType, nil, authz.Page{Token: token, Limit: MaxLimit})
+		if errors.Is(err, authz.ErrNoSearch) {
+			return nil, err
+		}
+		if err != nil {
+			return nil, ErrUndecided
+		}
+		keys = append(keys, found.Keys...)
+		if len(keys) > MaxSearchKeys {
+			overBound.warn(ctx, e.spec.Name)
+			return nil, fmt.Errorf("%w: the entity %s, more than %d keys", ErrTooManyKeys, e.spec.Name, MaxSearchKeys)
+		}
+		if found.Next.IsZero() {
+			return keys, nil
+		}
+		token = found.Next
+	}
 }
 
 // OrderBy is one field of the order of a list: a column of the entity's Spec, and its direction. NULL values come
@@ -216,8 +291,8 @@ const (
 // List reads one page of the entity's rows in the tenant (ST-SUP-RP11-LC03, ST-SUP-RP11-LC07). For a protected
 // entity it holds only the rows that the principal may see on the query's declared permission for a list query,
 // and on the permission that the entity declares for list otherwise: for an entity with a small expected
-// cardinality, the provider's resource search gives the rows; otherwise List pages the table and filters each
-// page with one batch evaluation. Each search and each batch runs at least as fresh as the revocation floor read
+// cardinality, the provider's resource search gives the rows, also for a filtered list; otherwise, and for a list in
+// an order of declared fields, List pages the table and filters each page with one batch evaluation. Each search and each batch runs at least as fresh as the revocation floor read
 // at that page through the bound transaction (ST-SUP-RP06-LC04, ST-SUP-RP06-LC09). Each read of personal data is
 // audited before List returns (ST-SUP-RP11-LC08).
 func (r *Repository[T]) List(ctx context.Context, request ListRequest) (ListResult[T], error) {
@@ -253,19 +328,32 @@ func (r *Repository[T]) List(ctx context.Context, request ListRequest) (ListResu
 		if _, err := decodePosition(request.After.values, len(request.Order), request.After.started); err != nil {
 			return ListResult[T]{}, err
 		}
-		return r.tablePage(ctx, limit, request.After, request.Order, request.Where)
+		// An entity of small expected cardinality reads only the rows of the keys that the resource search gives, in
+		// the order of the list (ST-SUP-RP11-LC20).
+		var keys []string
+		if e.spec.ResourceType != "" && e.spec.Search && c.authz != nil {
+			found, err := r.searchKeys(ctx)
+			if err != nil && !errors.Is(err, authz.ErrNoSearch) {
+				return ListResult[T]{}, err
+			}
+			keys = found
+		}
+		return r.tablePage(ctx, limit, request.After, request.Order, request.Where, keys)
 	}
 	if request.After.order != "" {
 		return ListResult[T]{}, ErrBadCursor
 	}
-	// A resource search has no filter of the table's columns, so a filtered list pages the table.
-	if e.spec.ResourceType != "" && e.spec.Search && c.authz != nil && len(request.Where) == 0 {
-		result, err := r.searchPage(ctx, limit, request.After)
+	// An entity of small expected cardinality lists through the provider's resource search, also with a filter: the
+	// search gives the rows that the principal may see, and the filter keeps those that match, so the work of a call
+	// does not grow with hidden rows that match (ST-SUP-RP11-LC20, ST-SUP-Q111 c). A provider with no search pages
+	// the table.
+	if e.spec.ResourceType != "" && e.spec.Search && c.authz != nil {
+		result, err := r.searchPage(ctx, limit, request.After, request.Where)
 		if !errors.Is(err, authz.ErrNoSearch) {
 			return result, err
 		}
 	}
-	return r.tablePage(ctx, limit, request.After, nil, request.Where)
+	return r.tablePage(ctx, limit, request.After, nil, request.Where, nil)
 }
 
 // MaxOrder is the most fields of the order of a list.
@@ -291,7 +379,7 @@ func (e *entity) checkOrder(order []OrderBy) error {
 // rows after the position values and key, or from the start when started is false, in the order of the fields and
 // then of the key, with NULL values last in either direction. A position value that is NULL has no row after it on
 // its field but the rows that are NULL there too.
-func (e *entity) orderedStatement(order []OrderBy, started bool, values []any, key string, size int, where []Equal) (string, []any) {
+func (e *entity) orderedStatement(order []OrderBy, started bool, values []any, key string, size int, where []Equal, keys []string) (string, []any) {
 	var by []string
 	for _, o := range order {
 		if o.Descending {
@@ -328,11 +416,25 @@ func (e *entity) orderedStatement(order []OrderBy, started bool, values []any, k
 		alternatives = append(alternatives, "("+strings.Join(append(equal, last), " AND ")+")")
 		after = " AND (" + strings.Join(alternatives, " OR ") + ")"
 	}
-	filter, filterArgs := filterSQL(where, len(args)+2)
+	filter, filterArgs := e.filterSQL(where, nil, len(args)+2)
 	args = append(args, filterArgs...)
+	var searched string
+	if keys != nil {
+		var keyArgs []any
+		searched, keyArgs = e.filterSQL(nil, keys, len(args)+2)
+		args = append(args, keyArgs...)
+	}
 	limit := param(size)
-	return "SELECT " + e.selectList + " FROM " + e.table + " WHERE " + TenantColumn + " = $1" + filter + after +
-		" ORDER BY " + strings.Join(by, ", ") + " LIMIT " + limit, args
+	tail := " ORDER BY " + strings.Join(by, ", ") + " LIMIT " + limit
+	if keys != nil {
+		// The rows of the searched keys are read by key alone first, at most MaxSearchKeys of them, and only then
+		// filtered and put in order, so the planner cannot walk an index of the order field or of a filter field and
+		// test each row it passes, hidden rows included, against the keys: the work depends on the visible rows only
+		// (ST-SUP-RP11-LC20).
+		return "WITH v AS MATERIALIZED (SELECT * FROM " + e.table + " WHERE " + TenantColumn + " = $1" + searched + ") SELECT " +
+			e.selectList + " FROM v WHERE true" + filter + after + tail, args
+	}
+	return "SELECT " + e.selectList + " FROM " + e.table + " WHERE " + TenantColumn + " = $1" + filter + after + tail, args
 }
 
 // position gives the encoded position values of a row on the fields of order, which a cursor of the list holds:
@@ -440,7 +542,7 @@ func (r *Repository[T]) permission() string {
 
 // tablePage pages the table by its key, or in order and then by its key, and keeps the allowed rows of each page,
 // until it holds limit values or the table ends.
-func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, order []OrderBy, where []Equal) (ListResult[T], error) {
+func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, order []OrderBy, where []Equal, keys []string) (ListResult[T], error) {
 	c := r.core
 	e := &r.entity.e
 	var list *authz.List
@@ -449,7 +551,9 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, 
 	}
 	// The first page has no key predicate, so a key of any type, such as uuid, needs no lowest value.
 	// The filter's values are the parameters after the tenant ($2 on), and then come the key and the limit.
-	filter, filterArgs := filterSQL(where, 2)
+	// The statements in the order of the key take no keys: a list of searched keys is always in an order of fields
+	// (orderedStatement), and an unordered one reads the search page (searchPage).
+	filter, filterArgs := e.filterSQL(where, nil, 2)
 	n := len(filterArgs) + 2
 	first := "SELECT " + e.selectList + " FROM " + e.table + " WHERE " + TenantColumn + " = $1" + filter + " ORDER BY " +
 		e.spec.Key + " LIMIT $" + strconv.Itoa(n)
@@ -491,7 +595,7 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, 
 			if err != nil {
 				return ListResult[T]{}, err
 			}
-			statement, args := e.orderedStatement(order, started, at, key, size, where)
+			statement, args := e.orderedStatement(order, started, at, key, size, where, keys)
 			rows, err = c.tx.QueryContext(ctx, statement, append([]any{c.tenant.ID()}, args...)...)
 		case started:
 			rows, err = c.tx.QueryContext(ctx, next, append(append([]any{c.tenant.ID()}, filterArgs...), key, size)...)
@@ -593,7 +697,7 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, 
 // searchPage asks the provider for one page of the resources the principal may see and reads their rows in the
 // tenant. The authorization handle maps each result back to its row key, in Keys, only when it is of this tenant and
 // this resource type, and drops every other result (ST-SUP-RP06-LC22).
-func (r *Repository[T]) searchPage(ctx context.Context, limit int, after Cursor) (ListResult[T], error) {
+func (r *Repository[T]) searchPage(ctx context.Context, limit int, after Cursor, where []Equal) (ListResult[T], error) {
 	c := r.core
 	e := &r.entity.e
 	found, err := c.authz.Search(ctx, r.permission(), e.spec.ResourceType, nil, authz.Page{Token: after.page, Limit: limit})
@@ -606,14 +710,20 @@ func (r *Repository[T]) searchPage(ctx context.Context, limit int, after Cursor)
 	}
 	var result ListResult[T]
 	if !found.Next.IsZero() {
-		result.Next, result.More = Cursor{page: found.Next}, true
+		result.Next, result.More = Cursor{page: found.Next, filter: filterDigest(where)}, true
 	}
 	if len(found.Keys) == 0 {
 		return result, nil
 	}
 	ids := found.Keys
-	rows, err := c.tx.QueryContext(ctx, "SELECT "+e.selectList+" FROM "+e.table+" WHERE "+TenantColumn+" = $1 AND "+
-		e.spec.Key+" = ANY($2) ORDER BY "+e.spec.Key, c.tenant.ID(), ids)
+	// The filter reads only the rows of the search, so a page may hold fewer values than the limit and still have
+	// more after it. The rows are read by the tenant and the key alone first, and only then filtered, so the planner
+	// cannot walk an index of a filter field and test each row it passes, hidden rows included, against the keys
+	// (ST-SUP-RP11-LC20).
+	filter, filterArgs := e.filterSQL(where, nil, 3)
+	rows, err := c.tx.QueryContext(ctx, "WITH v AS MATERIALIZED (SELECT * FROM "+e.table+" WHERE "+TenantColumn+" = $1 AND "+
+		e.spec.Key+" = ANY($2)) SELECT "+e.selectList+" FROM v WHERE true"+filter+" ORDER BY "+e.spec.Key,
+		append([]any{c.tenant.ID(), ids}, filterArgs...)...)
 	if err != nil {
 		return ListResult[T]{}, fmt.Errorf("query: list %s: %w", e.spec.Name, err)
 	}
