@@ -873,6 +873,197 @@ CREATE EVENT TRIGGER dup_slug ON ddl_command_end WHEN TAG IN ('ALTER TABLE') EXE
 		if err := manifest.Check(ctx, reader, owned(boardsslug.SchemaManifest)); err != nil {
 			t.Errorf("the schema manifest of the release with the step refuses the database: %v", err)
 		}
+		// The release before does not name the unique index of slug, and accepts it in the exact form of a later add
+		// step: the tenant column first, on the column that it does not list.
+		if err := manifest.Check(ctx, reader, owned(boardsbase.SchemaManifest)); err != nil {
+			t.Errorf("the schema manifest of the release before refuses the database after the step: %v", err)
+		}
+	})
+
+	// slugJob makes a database that the Board release before migrated, with two boards, and gives the session of the
+	// migration job of the release with the add of Board.slug as the owner role.
+	slugJob := func(t *testing.T) (*sql.DB, *sql.Conn) {
+		t.Helper()
+		ctx := context.Background()
+		slugCfg, slugged := database(t, cfg, admin)
+		migrate(t, slugCfg, slugged, func(ctx context.Context, conn *sql.Conn) error { return boardsbase.Migrate(ctx, conn) }, "boardsbase_access.json")
+		if _, err := slugged.Exec(`INSERT INTO public."boards" ("tenant_id", "id", "title") VALUES ('tenant-a', gen_random_uuid(), 'a'), ('tenant-a', gen_random_uuid(), 'b')`); err != nil {
+			t.Fatal(err)
+		}
+		job := stdlib.OpenDB(*slugCfg)
+		t.Cleanup(func() { _ = job.Close() })
+		conn, err := job.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = conn.Close() })
+		if _, err := conn.ExecContext(ctx, "SET ROLE "+pgx.Identifier{tenancy.OwnerRole}.Sanitize()); err != nil {
+			t.Fatal(err)
+		}
+		return slugged, conn
+	}
+	ledgerHolds := func(t *testing.T, db *sql.DB, version string) bool {
+		t.Helper()
+		var found bool
+		if err := db.QueryRow(`SELECT EXISTS (SELECT 1 FROM stego_schema.migrations WHERE version = $1)`, version).Scan(&found); err != nil {
+			t.Fatal(err)
+		}
+		return found
+	}
+	indexState := func(t *testing.T, db *sql.DB, name string) (bool, bool) {
+		t.Helper()
+		var present, valid bool
+		if err := db.QueryRow(`SELECT count(*) > 0, coalesce(bool_and(i.indisvalid), false) FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid
+  WHERE c.relname = $1`, name).Scan(&present, &valid); err != nil {
+			t.Fatal(err)
+		}
+		return present, valid
+	}
+	const slugSearch, slugUnique = "step_0001_add-board-slug_expand_index_01", "step_0001_add-board-slug_expand_index_02"
+
+	t.Run("ST-SUP-RC01-OC38-T03 An index build waits for an older transaction with no lock timeout, and is built once", func(t *testing.T) {
+		ctx := context.Background()
+		busy, conn := slugJob(t)
+		// A database event trigger counts each CREATE INDEX and DROP INDEX, so a build that ends at the lock timeout and
+		// runs again shows.
+		if _, err := busy.Exec(`CREATE SEQUENCE public.index_builds; CREATE SEQUENCE public.index_drops;
+CREATE FUNCTION public.count_index() RETURNS event_trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  IF tg_tag = 'CREATE INDEX' THEN PERFORM nextval('public.index_builds'); ELSE PERFORM nextval('public.index_drops'); END IF;
+END $$;
+CREATE EVENT TRIGGER count_index ON ddl_command_start WHEN TAG IN ('CREATE INDEX', 'DROP INDEX') EXECUTE FUNCTION public.count_index();`); err != nil {
+			t.Fatal(err)
+		}
+		// A transaction of another session holds a snapshot for 3 s, longer than the lock timeout of a step. It holds
+		// no lock on boards, so the ALTER TABLE of the step does not wait for it; CREATE INDEX CONCURRENTLY does.
+		holder, err := busy.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer holder.Close()
+		if _, err := holder.ExecContext(ctx, `BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT count(*) FROM pg_catalog.pg_class`); err != nil {
+			t.Fatal(err)
+		}
+		started := time.Now()
+		done := make(chan error, 1)
+		go func() { done <- boardsslug.Migrate(ctx, conn) }()
+		time.Sleep(3*time.Second - time.Since(started))
+		select {
+		case err := <-done:
+			t.Fatalf("the migration job ended while an older transaction was open, with %v; want the build to wait for it", err)
+		default:
+		}
+		if _, err := holder.ExecContext(ctx, `COMMIT`); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("the migration job after the older transaction ended: %v", err)
+			}
+		case <-time.After(60 * time.Second):
+			t.Fatal("the migration job did not end after the older transaction ended")
+		}
+		var builds, drops int64
+		if err := busy.QueryRow(`SELECT (SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM public.index_builds), (SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM public.index_drops)`).Scan(&builds, &drops); err != nil {
+			t.Fatal(err)
+		}
+		if builds != 2 || drops != 0 {
+			t.Errorf("the job ran %d index builds and %d drops, want 2 builds, one for each index of the step, and no drop", builds, drops)
+		}
+		for _, name := range []string{"boards_slug_search", "boards_slug_key"} {
+			if present, valid := indexState(t, busy, name); !present || !valid {
+				t.Errorf("the index %s is present %v and valid %v, want both", name, present, valid)
+			}
+		}
+		if !ledgerHolds(t, busy, slugSearch) || !ledgerHolds(t, busy, slugUnique) {
+			t.Error("the ledger does not hold the rows of both index builds")
+		}
+	})
+
+	t.Run("ST-SUP-RC01-OC38-T04 A failed drop of the invalid index after a failed build runs again, and when it still fails the job fails and names the index", func(t *testing.T) {
+		ctx := context.Background()
+		for _, c := range []struct {
+			name     string
+			failures int
+		}{{"a drop that fails twice", 2}, {"a drop that always fails", 1000}} {
+			t.Run(c.name, func(t *testing.T) {
+				db, conn := slugJob(t)
+				// The event trigger of ST-SUP-RC01-OC38-T02 makes the unique build fail on a duplicate, and a second one
+				// refuses the first drops of an index; a sequence counts the drops, as it keeps its value when the
+				// statement fails.
+				if _, err := db.Exec(fmt.Sprintf(`CREATE FUNCTION public.dup_slug() RETURNS event_trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = 'public.boards'::pg_catalog.regclass AND attname = 'slug') THEN
+    UPDATE public."boards" SET "slug" = 'same';
+  END IF;
+END $$;
+CREATE EVENT TRIGGER dup_slug ON ddl_command_end WHEN TAG IN ('ALTER TABLE') EXECUTE FUNCTION public.dup_slug();
+CREATE SEQUENCE public.drops;
+CREATE FUNCTION public.fail_drop() RETURNS event_trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  IF nextval('public.drops') <= %d THEN
+    RAISE EXCEPTION 'the test refuses the drop';
+  END IF;
+END $$;
+CREATE EVENT TRIGGER fail_drop ON ddl_command_start WHEN TAG IN ('DROP INDEX') EXECUTE FUNCTION public.fail_drop();`, c.failures)); err != nil {
+					t.Fatal(err)
+				}
+				err := boardsslug.Migrate(ctx, conn)
+				if err == nil || !strings.Contains(err.Error(), slugUnique) {
+					t.Fatalf("the migration job with a duplicate gives %v, want the failure of %s", err, slugUnique)
+				}
+				var drops int64
+				if err := db.QueryRow(`SELECT last_value FROM public.drops`).Scan(&drops); err != nil {
+					t.Fatal(err)
+				}
+				present, valid := indexState(t, db, "boards_slug_key")
+				if c.failures == 2 {
+					if present || drops != 3 || strings.Contains(err.Error(), "drops of it failed") {
+						t.Errorf("after two failed drops the index is present %v after %d drops, and the job gives %v; want it dropped by the third drop and only the build failure", present, drops, err)
+					}
+				} else if !present || valid || !strings.Contains(err.Error(), `the failed build left the invalid index public."boards_slug_key", and 5 drops of it failed`) {
+					t.Errorf("when each drop fails the index is present %v and valid %v, and the job gives %v; want the invalid index named in the error after 5 drops", present, valid, err)
+				}
+				if ledgerHolds(t, db, slugUnique) {
+					t.Error("the ledger holds the failed build")
+				}
+			})
+		}
+	})
+
+	t.Run("ST-SUP-RC01-OC38-T05 An index build fails when a relation of its name is there and is not the index of the step", func(t *testing.T) {
+		ctx := context.Background()
+		for _, c := range []struct{ name, setup, failed string }{
+			{"a table of the name of the search index", `CREATE TABLE public."boards_slug_search" (x integer)`, slugSearch},
+			{"an index of the name of the unique index with another definition", `CREATE INDEX "boards_slug_key" ON public."boards" ("tenant_id")`, slugUnique},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				db, conn := slugJob(t)
+				if _, err := db.Exec(c.setup); err != nil {
+					t.Fatal(err)
+				}
+				if err := boardsslug.Migrate(ctx, conn); err == nil || !strings.Contains(err.Error(), c.failed) {
+					t.Fatalf("the migration job gives %v, want the failure of %s", err, c.failed)
+				}
+				if ledgerHolds(t, db, c.failed) {
+					t.Errorf("the ledger holds %s, whose index the step did not build", c.failed)
+				}
+			})
+		}
+		// A rerun after a build that succeeded and wrote no ledger row finds the index of the step and records it.
+		t.Run("the index of the step from a build that wrote no ledger row", func(t *testing.T) {
+			db, conn := slugJob(t)
+			if err := boardsslug.Migrate(ctx, conn); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`DELETE FROM stego_schema.migrations WHERE version >= $1`, slugUnique); err != nil {
+				t.Fatal(err)
+			}
+			if err := boardsslug.Migrate(ctx, conn); err != nil || !ledgerHolds(t, db, slugUnique) {
+				t.Errorf("the rerun gives %v and the ledger holds the build %v; want no error and the row", err, ledgerHolds(t, db, slugUnique))
+			}
+		})
 	})
 
 	t.Run("ST-SUP-RC01-OC42-T02 The marker check accepts the digest of the stored shape and the one a release before wrote, and no other", func(t *testing.T) {

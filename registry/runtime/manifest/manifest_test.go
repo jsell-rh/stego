@@ -882,6 +882,11 @@ func TestUnnamedCode(t *testing.T) {
 				{"an exclusion constraint", "ALTER TABLE public.books ADD CONSTRAINT books_x_excl EXCLUDE USING btree (title WITH =);\n"},
 				{"a CHECK on a listed column", "ALTER TABLE public.books ADD CONSTRAINT books_pages_check CHECK (pages >= 0);\n"},
 				{"a unique index with a predicate", "CREATE UNIQUE INDEX books_z ON public.books (tenant_id, id) WHERE note IS NOT NULL;\n"},
+				// A unique index that the manifest does not name: without the tenant column first, a write of one tenant
+				// that fails with 23505 tells it that another tenant holds the value (review of PR #270, older gap).
+				{"a unique index without the tenant column", "CREATE UNIQUE INDEX books_title_key ON public.books (title);\n"},
+				{"a unique index on listed columns", "CREATE UNIQUE INDEX books_title_key ON public.books (tenant_id, title);\n"},
+				{"a unique constraint", "ALTER TABLE public.books ADD CONSTRAINT books_title_key UNIQUE (tenant_id, title);\n"},
 			} {
 				stepCase(t, c.name+m.name, hostileFunctions+c.setup, m.m(), true)
 			}
@@ -896,7 +901,9 @@ func TestUnnamedCode(t *testing.T) {
 			"CREATE POLICY r ON public.folders AS RESTRICTIVE USING (public.evil0());\n", want(), false)
 		granted := func() Manifest { m := want(); m.Tables[0].CheckGrants = true; return m }
 		stepCase(t, "folders with checked grants", "", granted(), false)
+		stepCase(t, "a unique index on a table with no row-level security", "CREATE UNIQUE INDEX folders_id_key ON public.folders (id);\n", want(), false)
 		for _, c := range []struct{ name, setup string }{
+			{"a unique index on a table with checked grants", "CREATE UNIQUE INDEX folders_id_key ON public.folders (id);\n"},
 			{"a CHECK on a table with checked grants", "ALTER TABLE public.folders ADD CONSTRAINT folders_x_check CHECK (public.evil0());\n"},
 			{"a partial index on a table with checked grants", "CREATE INDEX folders_y ON public.folders (id) WHERE public.evil(id);\n"},
 			{"an expression index on a table with checked grants", "CREATE INDEX folders_y ON public.folders (public.evilt(tenant_id));\n"},
@@ -924,6 +931,9 @@ func TestUnnamedCode(t *testing.T) {
 			{"an expression index of the partition alone", "CREATE INDEX books_all_x ON public.books_all (public.evilt(title));\n"},
 			{"a partial index of the partition alone", "CREATE INDEX books_all_y ON public.books_all (title) WHERE public.evil(title);\n"},
 			{"an exclusion constraint of the partition alone", "ALTER TABLE public.books_all ADD CONSTRAINT books_all_x_excl EXCLUDE USING btree (title WITH =);\n"},
+			// A foreign key checks its key as the owner of the table, past row-level security (review of PR #270, M-B).
+			{"a unique index of the partition alone", "CREATE UNIQUE INDEX books_all_title_key ON public.books_all (title);\n"},
+			{"a foreign key of the partition alone", "ALTER TABLE public.books_all ADD CONSTRAINT books_all_x_fkey FOREIGN KEY (tenant_id, folder_id) REFERENCES public.folders (tenant_id, id);\n"},
 		} {
 			stepCase(t, c.name, partitionedBooks+hostileFunctions+c.setup, partitionedWant(), true)
 		}
@@ -950,6 +960,35 @@ func TestUnnamedCode(t *testing.T) {
 			notValid := c.setup[:at] + ") NOT VALID;\n"
 			stepCase(t, "the step form not yet validated: "+c.name, notValid, stepManifest(), false)
 			stepCase(t, "the step form not yet validated on a table that is not an entity table: "+c.name, notValid, want(), true)
+		}
+		// The unique index of a later add step on an entity table, in the exact form that the add step of the generator
+		// gives: the tenant column first, then the key columns, of which at least one the manifest does not list, named
+		// as UniqueName names it, valid or still building.
+		const slug = `ALTER TABLE public.books ADD COLUMN "slug" text;` + "\n"
+		for _, c := range []struct{ name, setup string }{
+			{"a unique field", slug + `CREATE UNIQUE INDEX "books_slug_key" ON public."books" ("tenant_id", "slug");` + "\n"},
+			{"a composite with a listed column", slug + `CREATE UNIQUE INDEX "books_title_slug_key" ON public."books" ("tenant_id", "title", "slug");` + "\n"},
+		} {
+			stepCase(t, "the step form: "+c.name, c.setup, stepManifest(), false)
+			stepCase(t, "the step form on a table that is not an entity table: "+c.name, c.setup, want(), true)
+		}
+		for _, c := range []struct{ name, setup string }{
+			{"the step unique index without the tenant column", slug + `CREATE UNIQUE INDEX "books_slug_key" ON public."books" ("slug");` + "\n"},
+			{"the step unique index on two new columns without the tenant column", slug + `ALTER TABLE public.books ADD COLUMN "label" text;` + "\n" +
+				`CREATE UNIQUE INDEX "books_label_key" ON public."books" ("slug", "label");` + "\n"},
+			{"the step unique index with the tenant column second", slug + `CREATE UNIQUE INDEX "books_slug_tenant_id_key" ON public."books" ("slug", "tenant_id");` + "\n"},
+			{"the step unique index under another name", slug + `CREATE UNIQUE INDEX "books_slug_uq" ON public."books" ("tenant_id", "slug");` + "\n"},
+			{"a unique index on listed columns under the step name", `CREATE UNIQUE INDEX "books_title_key" ON public."books" ("tenant_id", "title");` + "\n"},
+			{"the step unique index with nulls not distinct", slug + `CREATE UNIQUE INDEX "books_slug_key" ON public."books" ("tenant_id", "slug") NULLS NOT DISTINCT;` + "\n"},
+			{"the step unique index with another collation", slug + `CREATE UNIQUE INDEX "books_slug_key" ON public."books" ("tenant_id", "slug" COLLATE "POSIX");` + "\n"},
+			{"the step unique constraint deferrable", slug + `ALTER TABLE public.books ADD CONSTRAINT "books_slug_key" UNIQUE ("tenant_id", "slug") DEFERRABLE;` + "\n"},
+			{"the step unique index on a column of a type that is not built in", "CREATE DOMAIN public.dom AS text;\nALTER TABLE public.books ADD COLUMN \"slug\" public.dom;\n" +
+				`CREATE UNIQUE INDEX "books_slug_key" ON public."books" ("tenant_id", "slug");` + "\n"},
+		} {
+			stepCase(t, c.name, c.setup, stepManifest(), true)
+		}
+		if got := UniqueName(strings.Repeat("t", 40), []string{strings.Repeat("c", 30)}); len(got) != 63 || !strings.HasPrefix(got, strings.Repeat("t", 40)+"_ccccc_") {
+			t.Errorf("UniqueName gives %q for a long name", got)
 		}
 		const label = `ALTER TABLE public.books ADD COLUMN "label" text;` + "\n"
 		for _, c := range []struct{ name, setup string }{

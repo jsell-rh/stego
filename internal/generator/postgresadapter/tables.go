@@ -490,6 +490,19 @@ func uniqueIndexSQL(table tableModel, columns []string) string {
 		sqlIdentifier(table.name), strings.Join(quoted(append(append([]string{}, table.lead...), columns...)), ", "))
 }
 
+// searchIndexDefinition and uniqueIndexDefinition give the definitions of a search index and of a unique index of a
+// table as pg_get_indexdef writes them, which the migration of a step that builds the index checks before its ledger
+// row (ST-SUP-RC01-OC38).
+func searchIndexDefinition(table tableModel, column string) string {
+	return "CREATE INDEX " + deparsedName(searchName(table.name, column)) + " ON public." + deparsedName(table.name) +
+		" USING btree (" + deparsedList(append(append([]string{}, table.lead...), column)) + ")"
+}
+
+func uniqueIndexDefinition(table tableModel, columns []string) string {
+	return "CREATE UNIQUE INDEX " + deparsedName(uniqueName(table.name, columns)) + " ON public." + deparsedName(table.name) +
+		" USING btree (" + deparsedList(append(append([]string{}, table.lead...), columns...)) + ")"
+}
+
 // createTableSQL gives the CREATE TABLE of one table and its indexes: the text of the table in 001_initial, and in
 // the step that adds its entity.
 func createTableSQL(table tableModel) string {

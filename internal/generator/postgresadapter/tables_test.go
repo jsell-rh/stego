@@ -248,11 +248,12 @@ func tableModule(t *testing.T) (map[string]bool, string) {
 	return passed, log.String()
 }
 
-// passedThere fails the test when the generated subtest of id did not pass.
+// passedThere fails the test when the generated subtest of id did not pass: the subtest itself, not only one of its
+// own subtests, whose names have the same prefix.
 func passedThere(t *testing.T, passed map[string]bool, log, id string) {
 	t.Helper()
 	for name := range passed {
-		if strings.HasPrefix(name, "TestTables/"+id+"_") {
+		if rest, ok := strings.CutPrefix(name, "TestTables/"+id+"_"); ok && !strings.Contains(rest, "/") {
 			return
 		}
 	}
@@ -400,6 +401,18 @@ func TestTables(t *testing.T) {
 
 	t.Run("ST-SUP-RC01-OC38-T02 An index of an add step is built concurrently, and a failed build drops its invalid index at once", func(t *testing.T) {
 		onPostgres(t, "ST-SUP-RC01-OC38-T02")
+	})
+
+	t.Run("ST-SUP-RC01-OC38-T03 An index build waits for an older transaction with no lock timeout, and is built once", func(t *testing.T) {
+		onPostgres(t, "ST-SUP-RC01-OC38-T03")
+	})
+
+	t.Run("ST-SUP-RC01-OC38-T04 A failed drop of the invalid index after a failed build runs again, and when it still fails the job fails and names the index", func(t *testing.T) {
+		onPostgres(t, "ST-SUP-RC01-OC38-T04")
+	})
+
+	t.Run("ST-SUP-RC01-OC38-T05 An index build fails when a relation of its name is there and is not the index of the step", func(t *testing.T) {
+		onPostgres(t, "ST-SUP-RC01-OC38-T05")
 	})
 
 	t.Run("ST-SUP-RC01-OC41-T03 A service that needs the store is refused on the runtime data path", func(t *testing.T) {

@@ -225,6 +225,7 @@ var reservedTypeNames = map[string]bool{
 	"Database": true, "inTransaction": true, "lockLedger": true, "recordMigration": true,
 	"refreshMarker": true, "RegisterStep": true, "RegisterValidateStep": true, "RegisterIndexStep": true, "applyPending": true,
 	"applyIndex": true, "stepTimeouts": true, "lockTimedOut": true, "pause": true, "sessionOf": true, "dropInvalid": true,
+	"dropAfterFailure": true, "indexBuilt": true, "dropAttempts": true,
 	// Generator-internal identifiers.
 	"stegotenancy":             true,
 	"OpenDatabase":             true,
@@ -303,7 +304,8 @@ type MigrationFunc func(ctx context.Context, tx *sql.Tx) error
 // lock, or the long one of a VALIDATE or an index build, which take only a
 // weak lock (ST-SUP-RC01-OC22). Index, for the build of one index of a step
 // on a table with rows, is the qualified name of the index: the migration
-// runs CREATE INDEX CONCURRENTLY outside a transaction (ST-SUP-RC01-OC38).
+// runs CREATE INDEX CONCURRENTLY outside a transaction (ST-SUP-RC01-OC38), and
+// Definition is the definition of that index as pg_get_indexdef gives it.
 type Migration struct {
 	Name             string
 	Digest           string
@@ -312,6 +314,7 @@ type Migration struct {
 	CompatibleWith   []string
 	StatementTimeout string
 	Index            string
+	Definition       string
 	Body             string
 }
 
@@ -321,11 +324,16 @@ type Migration struct {
 // 55P03, at most stepAttempts times. A step that takes a strong lock runs for
 // at most stepStatementTimeout; a VALIDATE and an index build, which take a
 // lock that blocks no read and no write, for at most longStatementTimeout.
+// CREATE INDEX CONCURRENTLY waits for each transaction older than its
+// snapshots, so it runs with no lock timeout (applyIndex). The drop of the
+// invalid index that a failed build left runs again after a pause, at most
+// dropAttempts times.
 const (
 	stepLockTimeout      = "1s"
 	stepStatementTimeout = "15s"
 	longStatementTimeout = "1h"
 	stepAttempts         = 10
+	dropAttempts         = 5
 )
 
 var migrations []Migration
@@ -381,13 +389,42 @@ func RegisterValidateStep(name, body string) {
 // a table with rows by its body, CREATE INDEX CONCURRENTLY, outside a
 // transaction (ST-SUP-RC01-OC38). A new database applies every migration in
 // one transaction on tables with no row, so there it builds the index by the
-// same statement without CONCURRENTLY.
-func RegisterIndexStep(name, index, body string) {
+// same statement without CONCURRENTLY. Definition is the definition of the
+// index as pg_get_indexdef gives it: IF NOT EXISTS builds nothing when a
+// relation of the name is there, so each path checks the index before its
+// ledger row (indexBuilt).
+func RegisterIndexStep(name, index, body, definition string) {
 	plain := strings.Replace(body, " CONCURRENTLY", "", 1)
-	migrations = append(migrations, Migration{Name: name, Digest: Digest(body), Step: true, CompatibleWith: []string{}, StatementTimeout: longStatementTimeout, Index: index, Body: body, Func: func(ctx context.Context, tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, plain)
-		return err
+	migrations = append(migrations, Migration{Name: name, Digest: Digest(body), Step: true, CompatibleWith: []string{}, StatementTimeout: longStatementTimeout, Index: index, Definition: definition, Body: body, Func: func(ctx context.Context, tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, plain); err != nil {
+			return err
+		}
+		return indexBuilt(ctx, tx, index, definition)
 	}})
+}
+
+// indexBuilt checks that the index index is there, valid and ready, and has
+// the definition definition as pg_get_indexdef gives it. CREATE INDEX IF NOT
+// EXISTS builds nothing when a relation of the name is there, so a table, or
+// an index of another definition, of that name fails the migration before its
+// ledger row (ST-SUP-RC01-OC38).
+func indexBuilt(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, index, definition string) error {
+	var got string
+	var valid bool
+	err := q.QueryRowContext(ctx, "SELECT pg_catalog.pg_get_indexdef(i.indexrelid), i.indisvalid AND i.indisready FROM pg_catalog.pg_index i WHERE i.indexrelid = pg_catalog.to_regclass($1)", index).Scan(&got, &valid)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return fmt.Errorf("the index %s is not there after its build: a relation of that name that is no index holds the name", index)
+	case err != nil:
+		return err
+	case !valid:
+		return fmt.Errorf("the index %s is not valid and ready after its build", index)
+	case got != definition:
+		return fmt.Errorf("the index %s is %q, and the step builds %q", index, got, definition)
+	}
+	return nil
 }
 
 // refreshMarker rewrites, in the transaction of the migration job that
@@ -728,8 +765,12 @@ const ledgerLockKey = "1937007983,1935894637"
 // first drops an invalid index of the same name, which a build that stopped
 // part way left, by DROP INDEX CONCURRENTLY, and when the build fails it drops
 // the invalid index that the build left at once, so that no half-built index
-// stays (decision on finding F9). It writes the ledger row only after the
-// build succeeds.
+// stays (decision on finding F9); when that drop fails, it tries again
+// (dropAfterFailure). The build waits for each transaction older than its
+// snapshots, so it runs with no lock timeout and under the statement timeout
+// of m; the drops run under the lock timeout of a step. It writes the ledger
+// row only after the build succeeds and the index has the definition of m
+// (indexBuilt).
 func applyIndex(ctx context.Context, db Database, ordered []Migration, m Migration) error {
 	conn, release, err := sessionOf(ctx, db)
 	if err != nil {
@@ -775,8 +816,17 @@ func applyIndex(ctx context.Context, db Database, ordered []Migration, m Migrati
 	if err := dropInvalid(ctx, conn, m.Index); err != nil {
 		return fmt.Errorf("migration %s: %w", m.Name, err)
 	}
+	if _, err := conn.ExecContext(ctx, "SELECT pg_catalog.set_config('lock_timeout', '0', false)"); err != nil {
+		return err
+	}
 	if _, err := conn.ExecContext(ctx, m.Body); err != nil {
-		_ = dropInvalid(context.WithoutCancel(ctx), conn, m.Index)
+		build := fmt.Errorf("migration %s: %w", m.Name, err)
+		if err := dropAfterFailure(context.WithoutCancel(ctx), conn, m.Index); err != nil {
+			return fmt.Errorf("%w; %v", build, err)
+		}
+		return build
+	}
+	if err := indexBuilt(ctx, conn, m.Index, m.Definition); err != nil {
 		return fmt.Errorf("migration %s: %w", m.Name, err)
 	}
 	return inTransaction(ctx, conn, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, func(tx *sql.Tx) error {
@@ -786,6 +836,29 @@ func applyIndex(ctx context.Context, db Database, ordered []Migration, m Migrati
 		}
 		return recordMigration(ctx, tx, m)
 	})
+}
+
+// dropAfterFailure drops the invalid index index that a failed build left,
+// under the lock timeout of a step, and when the drop fails it runs it again
+// after a pause, at most dropAttempts times. An invalid unique index that is
+// ready goes on enforcing its key on the writes of the release before, so a
+// drop that still fails gives an error that names the index, and the job
+// fails with it; it never stays silent (ST-SUP-RC01-OC38).
+func dropAfterFailure(ctx context.Context, conn *sql.Conn, index string) error {
+	var err error
+	for attempt := 1; attempt <= dropAttempts; attempt++ {
+		if attempt > 1 {
+			if err := pause(ctx, attempt-1); err != nil {
+				return err
+			}
+		}
+		if _, err = conn.ExecContext(ctx, "SELECT pg_catalog.set_config('lock_timeout', $1, false)", stepLockTimeout); err == nil {
+			if err = dropInvalid(ctx, conn, index); err == nil {
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("the failed build left the invalid index %s, and %d drops of it failed, the last with: %v", index, dropAttempts, err)
 }
 
 // sessionOf gives one connection of db for a session setting, and the function
@@ -878,7 +951,7 @@ func generateMigrate(ns string, rowSecurity string, steps []schemaStep) (gen.Fil
 	for _, step := range steps {
 		switch {
 		case step.Index != "":
-			fmt.Fprintf(&buf, "\tRegisterIndexStep(%q, %q, %q)\n", step.Name, step.Index, step.Body)
+			fmt.Fprintf(&buf, "\tRegisterIndexStep(%q, %q, %q, %q)\n", step.Name, step.Index, step.Body, step.Definition)
 		case step.Validate:
 			fmt.Fprintf(&buf, "\tRegisterValidateStep(%q, %q)\n", step.Name, step.Body)
 		default:

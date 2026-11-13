@@ -206,9 +206,26 @@ INSERT INTO public.folders VALUES ('t', '00000000-0000-0000-0000-000000000001');
 			"a fill value on the identity":       {Change: "c", Owner: "o", K: "k", U: "u", Conversion: SyncConversions[0], Fill: "a", HasFill: true},
 			"a change ID that is not kebab case": {Change: "C_1", Owner: "o", K: "k", U: "u", Conversion: SyncConversions[0]},
 			"no backfill role":                   {Change: "c", K: "k", U: "u", Conversion: SyncConversions[0]},
+			"a fill value with a dollar sign":    {Change: "c", Owner: "o", K: "k", U: "u", Conversion: SyncConversions[len(SyncConversions)-1], Fill: "a$b", HasFill: true},
+			"a backfill role with a dollar sign": {Change: "c", Owner: "o$", K: "k", U: "u", Conversion: SyncConversions[0]},
+			"a K with a dollar sign":             {Change: "c", Owner: "o", K: "k$", U: "u", Conversion: SyncConversions[0]},
+			"a U with a dollar sign":             {Change: "c", Owner: "o", K: "k", U: "u$", Conversion: SyncConversions[0]},
 		} {
 			if _, err := SyncSource(1, c); err == nil {
 				t.Errorf("SyncSource renders %s", name)
+			}
+		}
+		// The body is dollar quoted with $stego_sync$: a fill value, a backfill role or a name that holds the quote
+		// would end it, and the text after it would run as SQL as the role of the migration (review of PR #270, M-A).
+		const escape = "$stego_sync$;SELECT 1;SELECT $stego_sync$"
+		for name, c := range map[string]Sync{
+			"a fill value that holds the dollar quote":    {Change: "c", Owner: "o", K: "k", U: "u", Conversion: SyncConversions[len(SyncConversions)-1], Fill: "1" + escape, HasFill: true},
+			"a backfill role that holds the dollar quote": {Change: "c", Owner: "o" + escape, K: "k", U: "u", Conversion: SyncConversions[0]},
+			"a K that holds the dollar quote":             {Change: "c", Owner: "o", K: "k" + escape, U: "u", Conversion: SyncConversions[0]},
+			"a U that holds the dollar quote":             {Change: "c", Owner: "o", K: "k", U: "u" + escape, Conversion: SyncConversions[0]},
+		} {
+			if statement, err := SyncFunction("stego_steps", "books_k_sync", 1, c); err == nil {
+				t.Errorf("SyncFunction renders %s: %s", name, statement)
 			}
 		}
 		// Rule 6: a version that this release does not build is no template.

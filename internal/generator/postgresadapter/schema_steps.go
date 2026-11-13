@@ -31,12 +31,13 @@ const maxSchemaSteps = 9999
 // migration that validates those constraints in its own transaction (ST-SUP-RC01-OC22, decision on finding F2,
 // orchestrator under the owner's delegation, 2026-11-13).
 type schemaStep struct {
-	Name     string
-	Change   types.SchemaChange
-	Phase    string
-	Body     string
-	Index    string
-	Validate bool
+	Name       string
+	Change     types.SchemaChange
+	Phase      string
+	Body       string
+	Index      string
+	Definition string
+	Validate   bool
 }
 
 // stepAddition is what an add step gives: the SQL of its own migration, each index that it builds on a table with
@@ -47,8 +48,9 @@ type stepAddition struct {
 	validates []string
 }
 
-// stepIndex is one index of a step on a table with rows: its qualified name and its CREATE INDEX CONCURRENTLY.
-type stepIndex struct{ name, statement string }
+// stepIndex is one index of a step on a table with rows: its qualified name, its CREATE INDEX CONCURRENTLY and its
+// definition as pg_get_indexdef writes it.
+type stepIndex struct{ name, statement, definition string }
 
 // IndexMigrationName and ValidateMigrationName give the ledger names of the migrations after the migration name of
 // a step: the build of its index number n from 1, in two digits, and the validation of its constraints. They sort
@@ -141,7 +143,7 @@ func schemaSteps(ctx gen.Context) ([]schemaStep, error) {
 		name := StepMigrationName(i+1, change.ID, step.Phase)
 		steps = append(steps, schemaStep{Name: name, Change: change, Phase: step.Phase, Body: added.body.String()})
 		for n, index := range added.indexes {
-			steps = append(steps, schemaStep{Name: IndexMigrationName(name, n+1), Change: change, Phase: step.Phase, Body: index.statement, Index: index.name})
+			steps = append(steps, schemaStep{Name: IndexMigrationName(name, n+1), Change: change, Phase: step.Phase, Body: index.statement, Index: index.name, Definition: index.definition})
 		}
 		if len(added.validates) > 0 {
 			steps = append(steps, schemaStep{Name: ValidateMigrationName(name), Change: change, Phase: step.Phase, Body: strings.Join(added.validates, ""), Validate: true})
@@ -238,12 +240,14 @@ func addedToTable(old, next tableModel, out *stepAddition) error {
 	}
 	for _, column := range next.search {
 		if !slices.Contains(old.search, column) {
-			out.indexes = append(out.indexes, stepIndex{name: "public." + sqlIdentifier(searchName(next.name, column)), statement: concurrently(searchIndexSQL(next, column))})
+			out.indexes = append(out.indexes, stepIndex{name: "public." + sqlIdentifier(searchName(next.name, column)), statement: concurrently(searchIndexSQL(next, column)),
+				definition: searchIndexDefinition(next, column)})
 		}
 	}
 	for _, columns := range next.unique {
 		if !slices.ContainsFunc(old.unique, func(u []string) bool { return slices.Equal(u, columns) }) {
-			out.indexes = append(out.indexes, stepIndex{name: "public." + sqlIdentifier(uniqueName(next.name, columns)), statement: concurrently(uniqueIndexSQL(next, columns))})
+			out.indexes = append(out.indexes, stepIndex{name: "public." + sqlIdentifier(uniqueName(next.name, columns)), statement: concurrently(uniqueIndexSQL(next, columns)),
+				definition: uniqueIndexDefinition(next, columns)})
 		}
 	}
 	return nil

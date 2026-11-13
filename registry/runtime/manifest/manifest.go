@@ -71,18 +71,19 @@ type Table struct {
 	Columns []Column
 	// Constraints are the primary key, check and foreign key constraints of the table, by name.
 	Constraints []Constraint
-	// Indexes are the unique indexes that the code relies on: the primary key and each unique and upsert key; and
-	// each lookup index with an expression or a predicate that the table has.
+	// Indexes are the unique indexes that the table has: the primary key and each unique and upsert key; and each
+	// lookup index with an expression or a predicate that the table has.
 	Indexes []Index
 	// RowSecurity tells that row-level security is enabled and forced on the table. Then, as with CheckGrants, the
 	// table holds no object that runs code as the role that writes or reads a row and that the manifest does not
 	// name: each trigger, foreign key, check and exclusion constraint and policy (permissive or restrictive) is the
 	// manifest's, and so is each index with an expression or a predicate, since PostgreSQL computes these on each
 	// INSERT or UPDATE or on each read, with the functions that they call (decision of the orchestrator under the
-	// owner's delegation, 2026-11-13). On the table of a declared entity, Check accepts in their exact forms the sync
-	// trigger, the foreign key and the CHECK that a later step gives (Entity). Each partition of a partitioned table
-	// holds no check or exclusion constraint of its own, and no index with an expression or a predicate that is not a
-	// partition of an index of the table.
+	// owner's delegation, 2026-11-13), and each unique index, which checks its key over the rows of every tenant
+	// (review of PR #270). On the table of a declared entity, Check accepts in their exact forms the sync trigger, the
+	// foreign key, the CHECK and the unique index that a later step gives (Entity). Each partition of a partitioned
+	// table holds no check, exclusion or foreign key constraint of its own, and no unique index or index with an
+	// expression or a predicate that is not a partition of an index of the table.
 	RowSecurity bool
 	// Policies are the row-level security policies of the table.
 	Policies []Policy
@@ -101,9 +102,9 @@ type Table struct {
 	// as one of Triggers must; when it lacks it, that is no fault. A name matches only as a whole.
 	OptionalTriggers []Trigger
 	// Entity tells that the table is the table of a declared entity, which later schema steps change: on it, and only
-	// on it, Check accepts a sync trigger, a foreign key, a CHECK and a column default that the manifest does not
-	// name, each only in the exact form that a later step gives (ST-SUP-RP15-LC02, ST-SUP-RP15-LC03, ST-SUP-RP15-LC01,
-	// ST-GEN-Q15). A runtime table is never an entity table.
+	// on it, Check accepts a sync trigger, a foreign key, a CHECK, a unique index and a column default that the
+	// manifest does not name, each only in the exact form that a later step gives (ST-SUP-RP15-LC02, ST-SUP-RP15-LC03,
+	// ST-SUP-RP15-LC01, ST-GEN-Q15). A runtime table is never an entity table.
 	Entity bool
 }
 
@@ -1540,10 +1541,10 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 		columns                                   []string
 		predicate                                 string
 		unique, valid, ready, immediate, distinct bool
-		expressions, plainKeys                    bool
+		expressions, plainKeys, primary           bool
 	}
 	indexes := map[string]*index{}
-	rows, err = tx.QueryContext(ctx, `SELECT ic.relname, i.indisunique, i.indisvalid, i.indisready, i.indimmediate,
+	rows, err = tx.QueryContext(ctx, `SELECT ic.relname, i.indisunique, i.indisvalid, i.indisready, i.indimmediate, i.indisprimary,
   NOT i.indnullsnotdistinct, i.indexprs IS NOT NULL, COALESCE(pg_catalog.pg_get_expr(i.indpred, i.indrelid), ''),
   NOT EXISTS (SELECT 1 FROM pg_catalog.unnest(i.indclass::pg_catalog.oid[]) WITH ORDINALITY AS k(opclass, o)
     JOIN pg_catalog.pg_opclass oc ON oc.oid = k.opclass WHERE k.o <= i.indnkeyatts AND NOT oc.opcdefault)
@@ -1556,7 +1557,7 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 	for rows.Next() {
 		var n string
 		i := &index{}
-		if err := rows.Scan(&n, &i.unique, &i.valid, &i.ready, &i.immediate, &i.distinct, &i.expressions, &i.predicate, &i.plainKeys); err != nil {
+		if err := rows.Scan(&n, &i.unique, &i.valid, &i.ready, &i.immediate, &i.primary, &i.distinct, &i.expressions, &i.predicate, &i.plainKeys); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -1615,20 +1616,40 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 		// An expression or a predicate of an index is computed on each INSERT or UPDATE as the role that writes the
 		// row, with the functions that it calls, so on a table with row-level security or that checks its grants each
 		// such index is one of the manifest. An index on plain columns runs only the built-in functions of its
-		// operator class, which only a superuser can make.
+		// operator class, which only a superuser can make. A unique index checks its key over the rows of every
+		// tenant, past row-level security, so a write that fails on it with 23505 tells the writer that a row it
+		// cannot read holds the value: each unique index is one of the manifest too (review of PR #270). On the table
+		// of a declared entity, the unique index of a later add step is accepted in its exact form (acceptUnique).
 		namedIndexes := map[string]bool{}
 		for _, want := range t.Indexes {
 			namedIndexes[want.Name] = true
 		}
-		var extra []string
+		var primary []string
+		for _, i := range indexes {
+			if i.primary {
+				primary = i.columns
+			}
+		}
+		var extra, unique []string
 		for n, i := range indexes {
-			if !namedIndexes[n] && (i.expressions || i.predicate != "") {
+			switch {
+			case namedIndexes[n]:
+			case i.expressions || i.predicate != "":
 				extra = append(extra, n)
+			case i.unique:
+				if t.Entity && plainTable && !i.primary && i.immediate && i.distinct && i.plainKeys && acceptUnique(t, n, i.columns, primary, stepCols) {
+					continue
+				}
+				unique = append(unique, n)
 			}
 		}
 		slices.Sort(extra)
 		for _, n := range extra {
 			fault("index %s has an expression or a predicate, and the manifest does not name it", n)
+		}
+		slices.Sort(unique)
+		for _, n := range unique {
+			fault("index %s is a unique index that the manifest does not name", n)
 		}
 	}
 
@@ -1880,8 +1901,8 @@ func triggerFault(want Trigger, got catalogTrigger) string {
 // triggers are the clones of the row triggers of the manifest on the table, each enabled, and the triggers that
 // Table.PartitionTriggers names for each partition; it grants no privilege, on it or on a column, to another role
 // than its owner, since a partition has no row-level security of its own; and it has a clone of each row trigger of
-// the manifest. With strict, it has no check or exclusion constraint of its own and no index with an expression or a
-// predicate that is not a partition of an index of the table.
+// the manifest. With strict, it has no check, exclusion or foreign key constraint of its own, and no unique index or
+// index with an expression or a predicate that is not a partition of an index of the table.
 // namedRows are the row triggers of the manifest on the table, by oid.
 func checkPartitions(ctx context.Context, tx *sql.Tx, t Table, parent uint32, owner string, namedRows map[uint32]string, strict bool) ([]string, error) {
 	type partition struct {
@@ -1934,15 +1955,16 @@ func checkPartitions(ctx context.Context, tx *sql.Tx, t Table, parent uint32, ow
 		if rules > 0 {
 			fault("the partition has a rule")
 		}
-		// A row that the table routes to the partition meets the check and exclusion constraints and the indexes of
-		// the partition, so with strict (row-level security or checked grants) the partition holds no such constraint
-		// of its own, and no index with an expression or a predicate that is not a partition of an index of the table.
+		// A row that the table routes to the partition meets the check, exclusion and foreign key constraints and the
+		// indexes of the partition, and a foreign key and a unique index check their key past row-level security, so
+		// with strict (row-level security or checked grants) the partition holds no such constraint of its own, and no
+		// unique index or index with an expression or a predicate that is not a partition of an index of the table.
 		if strict {
 			var own []string
 			rows, err := tx.QueryContext(ctx, `SELECT c.conname FROM pg_catalog.pg_constraint c
-  WHERE c.conrelid = $1 AND c.contype IN ('c', 'x') AND c.conislocal
+  WHERE c.conrelid = $1 AND c.contype IN ('c', 'x', 'f') AND c.conislocal
   UNION ALL SELECT ic.relname FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class ic ON ic.oid = i.indexrelid
-  WHERE i.indrelid = $1 AND (i.indexprs IS NOT NULL OR i.indpred IS NOT NULL)
+  WHERE i.indrelid = $1 AND (i.indexprs IS NOT NULL OR i.indpred IS NOT NULL OR i.indisunique)
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_inherits h WHERE h.inhrelid = i.indexrelid) ORDER BY 1`, p.oid)
 			if err != nil {
 				return nil, err
@@ -1959,7 +1981,7 @@ func checkPartitions(ctx context.Context, tx *sql.Tx, t Table, parent uint32, ow
 				return nil, err
 			}
 			for _, n := range own {
-				fault("%s is a check or exclusion constraint or an index with an expression or a predicate of the partition alone", n)
+				fault("%s is a check, exclusion or foreign key constraint, a unique index or an index with an expression or a predicate of the partition alone", n)
 			}
 		}
 		triggers, err := readTriggers(ctx, tx, p.oid, p.relowner)

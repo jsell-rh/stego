@@ -62,13 +62,20 @@ each CHECK and foreign key `NOT VALID`, so it reads no row while it holds
 its lock. Each index of the step is a migration of its own after it,
 `step_<position>_<change>_<phase>_index_<nn>`, which builds the index with
 `CREATE INDEX CONCURRENTLY` outside a transaction. A build that fails drops
-its invalid index at once, and the next job builds it again. The last
+its invalid index at once, and the next job builds it again. When that drop
+fails, the job tries it again, at most 5 times; when it still fails, the job
+fails and names the invalid index, which you must drop by hand. Before the
+job records an index build, it checks that the index is valid and has the
+definition of the step: a table or an index of another definition that has
+the name of the index fails the job. The last
 migration of the step, `..._validate`, validates the constraints in its own
 transaction, which blocks no read and no write. Each migration of a step
 waits at most 1 s for a lock, and runs for at most 15 s, or 1 h for an index
 build or a validation. When the lock wait ends, the job tries again after a
 short random pause, at most 10 times, so a request that queues behind the
-step waits at most 1 s.
+step waits at most 1 s. An index build has no lock timeout, because
+`CREATE INDEX CONCURRENTLY` waits for each older transaction and blocks no
+read and no write while it waits; its statement timeout of 1 h holds.
 
 An add of a field that is required and has no default is refused, because
 the rows that the table holds cannot take it. Make the field optional or
@@ -106,7 +113,15 @@ in the exact form that the step gives it, on the table of a declared entity:
 - the default of the new column of an add: a constant of a built-in type,
   and no function call (ST-GEN-Q15);
 - the CHECK of the new column of an add, validated or not yet validated,
-  named `<table>_<column>_check` (ST-SUP-RP15-LC01);
+  named `<table>_<column>_check` (ST-SUP-RP15-LC01). Only the owner role,
+  which has the DDL rights, can add such a CHECK, so the CPU that an
+  accepted CHECK can use is not an attack surface;
+- the unique index of an add of a unique field: the tenant column first,
+  then the key columns, of which at least one is new, named
+  `<table>_<columns>_key` (ST-SUP-RP15-LC01). On a table with row-level
+  security every other unique index that the manifest does not name fails
+  the check, because a write that fails on it would tell one tenant that
+  another tenant holds the value;
 - the sync trigger of the expand step of a rename, a retype or a require:
   a BEFORE INSERT OR UPDATE row trigger whose function is the fixed
   template of this release, in the schema `stego_steps`, for one column

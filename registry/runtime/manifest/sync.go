@@ -150,10 +150,11 @@ type Sync struct {
 }
 
 // syncLiteral gives the text as a SQL string literal. It refuses a backslash, which a session with
-// standard_conforming_strings off reads as an escape, and a control character.
+// standard_conforming_strings off reads as an escape, a control character, and a dollar sign, which could end the
+// dollar quote of the function body (syncQuote).
 func syncLiteral(text string) (string, error) {
-	if strings.ContainsAny(text, "\\") || strings.ContainsFunc(text, func(r rune) bool { return r < 0x20 }) {
-		return "", fmt.Errorf("manifest: the sync function takes no backslash or control character in a constant")
+	if strings.ContainsAny(text, "\\$") || strings.ContainsFunc(text, func(r rune) bool { return r < 0x20 }) {
+		return "", fmt.Errorf("manifest: the sync function takes no backslash, dollar sign or control character in a constant")
 	}
 	return "'" + strings.ReplaceAll(text, "'", "''") + "'", nil
 }
@@ -167,6 +168,9 @@ func SyncSource(version int, s Sync) (string, error) {
 	}
 	if !name.MatchString(s.K) || !name.MatchString(s.U) || s.K == s.U {
 		return "", fmt.Errorf("manifest: the sync function needs two different column names of at most 63 bytes")
+	}
+	if strings.Contains(s.K, "$") || strings.Contains(s.U, "$") {
+		return "", fmt.Errorf("manifest: the sync function takes no dollar sign in a column name")
 	}
 	if !changeID.MatchString(s.Change) || !name.MatchString(s.Owner) {
 		return "", fmt.Errorf("manifest: the sync function needs the ID of its change and the backfill role")
@@ -210,9 +214,17 @@ func SyncFunction(schema, function string, version int, s Sync) (string, error) 
 	if !name.MatchString(schema) || !name.MatchString(function) {
 		return "", fmt.Errorf("manifest: the sync function needs a schema and a name of at most 63 bytes")
 	}
-	return "CREATE FUNCTION " + QuoteIdent(schema) + "." + QuoteIdent(function) + "() RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER VOLATILE SET search_path = pg_catalog, pg_temp AS $stego_sync$" +
-		source + "$stego_sync$", nil
+	// The body is in the dollar quote syncQuote, so a source that holds it would end the quote, and the text after it
+	// would run as SQL as the role of the migration.
+	if strings.Contains(source, syncQuote) {
+		return "", fmt.Errorf("manifest: the source of the sync function holds its dollar quote %s", syncQuote)
+	}
+	return "CREATE FUNCTION " + QuoteIdent(schema) + "." + QuoteIdent(function) + "() RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER VOLATILE SET search_path = pg_catalog, pg_temp AS " + syncQuote +
+		source + syncQuote, nil
 }
+
+// syncQuote is the dollar quote of the body of a sync function in its CREATE FUNCTION.
+const syncQuote = "$stego_sync$"
 
 // plainIdent is a name that quote_ident leaves as it is when it is no keyword that is not unreserved.
 var plainIdent = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
@@ -519,6 +531,45 @@ func acceptForeignKey(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n st
 // hexadecimal digits of its SHA-256 digest, as the generator's sqlName gives it.
 func CheckName(table, column string) string {
 	n := table + "_" + column + "_check"
+	if len(n) <= 63 {
+		return n
+	}
+	return n[:46] + "_" + digestPrefix(n)
+}
+
+// acceptUnique tells whether the unique index n of the entity table t, with the key columns key, is the unique index of
+// a later add step in its exact form: the columns of the primary key of the table (primary) but its last, the key id,
+// first, which on an owned table is the tenant column, so the key is unique within one tenant; then one or more
+// columns, each of a built-in base type of pg_catalog, of which at least one is a column that the manifest does not
+// list; and named as UniqueName names it. The caller checks that it is no primary key, has no expression or
+// predicate, is not deferrable, treats nulls as distinct and has the default operator classes and collations.
+func acceptUnique(t Table, n string, key, primary []string, columns map[string]tableColumn) bool {
+	if len(primary) == 0 || primary[len(primary)-1] != "id" {
+		return false
+	}
+	lead := primary[:len(primary)-1]
+	if len(key) <= len(lead) || !slices.Equal(key[:len(lead)], lead) {
+		return false
+	}
+	rest := key[len(lead):]
+	unlisted := false
+	for _, k := range rest {
+		c, ok := columns[k]
+		if !ok || !c.builtin || slices.Contains(lead, k) {
+			return false
+		}
+		if !slices.ContainsFunc(t.Columns, func(c Column) bool { return c.Name == k }) {
+			unlisted = true
+		}
+	}
+	return unlisted && n == UniqueName(t.Name, rest)
+}
+
+// UniqueName gives the name that the generator gives the unique index of the key columns of a table, after its tenant
+// column: <table>_<column>_..._key, or, when that is longer than 63 bytes, its first 46 bytes, an underscore and the
+// first 16 hexadecimal digits of its SHA-256 digest, as the generator's sqlName gives it.
+func UniqueName(table string, columns []string) string {
+	n := table + "_" + strings.Join(columns, "_") + "_key"
 	if len(n) <= 63 {
 		return n
 	}
