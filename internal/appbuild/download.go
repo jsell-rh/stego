@@ -117,15 +117,34 @@ const sumDBKey = "sum.golang.org+033de0ae+Ac4zctda0e5eza+HJyk9SxEdh+s3Ux18htTTAD
 // found false when the database does not know the module, as for a version
 // that is not released.
 func lookupSumDB(ctx context.Context, path, version string) (string, bool, error) {
-	return lookupSumDBAt(ctx, sumDBServer{url: "https://sum.golang.org", key: sumDBKey, client: http.DefaultClient}, path, version)
+	return lookupSumDBAt(ctx, sumDBServer{url: "https://sum.golang.org", key: sumDBKey, client: http.DefaultClient, state: sumDBStateDir()}, path, version)
 }
 
 // sumDBServer is the sum database that a lookup asks: its URL, its public
 // key and the HTTP client that reaches it. Tests give a local stand-in.
+// state, when it is not empty, is the folder that keeps the latest signed
+// tree of the database between runs, so a later answer whose tree is not
+// consistent with it shows a fork (errSumDBInconsistent), as the go command
+// keeps it in GOPATH/pkg/sumdb.
 type sumDBServer struct {
 	url, key string
 	client   *http.Client
+	state    string
 }
+
+// sumDBStateDir is the folder of the latest signed tree of sum.golang.org,
+// stego/sumdb in the operating system's user cache, or empty when there is
+// no user cache, and then each lookup starts from no tree.
+func sumDBStateDir() string {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(cache, "stego", "sumdb")
+}
+
+// maxSignedTree limits the signed tree note that a lookup keeps.
+const maxSignedTree = 64 << 10
 
 // lookupSumDBAt is lookupSumDB against the sum database server.
 func lookupSumDBAt(ctx context.Context, server sumDBServer, path, version string) (string, bool, error) {
@@ -135,6 +154,12 @@ func lookupSumDBAt(ctx context.Context, server sumDBServer, path, version string
 	lines, err := sumdb.NewClient(ops).Lookup(path, version)
 	if ops.security != "" {
 		return "", false, fmt.Errorf("%w: %s", errSumDBInconsistent, ops.security)
+	}
+	// Tiles that do not hash to a signed tree are a database that does not
+	// prove its own tree, such as one that forked from the kept tree. The
+	// client gives no sentinel error for it, only this text.
+	if err != nil && strings.Contains(err.Error(), "downloaded inconsistent tile") {
+		return "", false, fmt.Errorf("%w: its tiles do not prove a signed tree", errSumDBInconsistent)
 	}
 	if ops.notFound {
 		return "", false, nil
@@ -186,6 +211,17 @@ func (o *sumDBOps) ReadRemote(path string) ([]byte, error) {
 }
 
 func (o *sumDBOps) ReadConfig(file string) ([]byte, error) {
+	if latest, ok := o.latestFile(file); ok {
+		data, err := readBounded(latest, maxSignedTree)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		o.config[file] = data
+		return data, nil
+	}
 	return o.config[file], nil
 }
 
@@ -193,8 +229,64 @@ func (o *sumDBOps) WriteConfig(file string, old, new []byte) error {
 	if !bytes.Equal(o.config[file], old) {
 		return sumdb.ErrWriteConflict
 	}
+	if latest, ok := o.latestFile(file); ok {
+		// The latest tree is written to a new file and renamed over the old
+		// one, so a reader sees one whole tree or the one before it.
+		if err := os.MkdirAll(filepath.Dir(latest), 0o700); err != nil {
+			return err
+		}
+		temporary, err := os.CreateTemp(filepath.Dir(latest), ".latest-*")
+		if err != nil {
+			return err
+		}
+		_, err = temporary.Write(new)
+		if closeErr := temporary.Close(); err == nil {
+			err = closeErr
+		}
+		if err == nil {
+			err = os.Rename(temporary.Name(), latest)
+		}
+		if err != nil {
+			_ = os.Remove(temporary.Name())
+			return err
+		}
+	}
 	o.config[file] = new
 	return nil
+}
+
+// readBounded reads the file at path, which must be a regular file of at
+// most limit bytes.
+func readBounded(path string, limit int64) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("%s is larger than %d bytes", path, limit)
+	}
+	return data, nil
+}
+
+// latestFile gives the file of the latest signed tree when file is the
+// latest tree of the database and the lookup keeps its state.
+func (o *sumDBOps) latestFile(file string) (string, bool) {
+	if o.server.state == "" || !strings.HasSuffix(file, "/latest") {
+		return "", false
+	}
+	return filepath.Join(o.server.state, "latest"), true
 }
 
 func (o *sumDBOps) ReadCache(file string) ([]byte, error) {

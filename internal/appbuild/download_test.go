@@ -349,6 +349,66 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 			}
 		}
 	})
+	t.Run("ST-BLD-UC02-R05-T06 The lookup step keeps the latest signed tree, so a sum database that forks its tree between two runs refuses the folder", func(t *testing.T) {
+		folder := filepath.Join(t.TempDir(), "runtime")
+		sum, modSum := runtimeFixture(t, folder, version)
+		sums, modSums := map[moduleVersion]string{*pin: sum}, map[moduleVersion]string{*pin: modSum}
+		signer, verifier, err := note.GenerateKey(rand.Reader, "sum.test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// fork is a local sum database, signed with the one key, whose first record is the module first and whose
+		// second is the runtime pin: two databases of other first modules hold trees of one size that differ.
+		fork := func(first string) *httptest.Server {
+			ops := sumdb.NewTestServer(signer, func(path, vers string) ([]byte, error) {
+				switch {
+				case path == RuntimeModule && vers == version:
+					return []byte(fmt.Sprintf("%s %s %s\n%s %s/go.mod %s\n", path, vers, sum, path, vers, modSum)), nil
+				case path == first && vers == "v1.0.0":
+					return []byte(fmt.Sprintf("%s %s h1:%s=\n", path, vers, strings.Repeat("E", 43))), nil
+				}
+				return nil, os.ErrNotExist
+			})
+			server := httptest.NewTLSServer(sumdb.NewServer(ops))
+			t.Cleanup(server.Close)
+			// Lookups with no kept tree put the module first in the tree and the runtime pin second.
+			for _, m := range [][2]string{{first, "v1.0.0"}, {RuntimeModule, version}} {
+				if _, _, err := lookupSumDBAt(context.Background(), sumDBServer{url: server.URL, key: verifier, client: server.Client()}, m[0], m[1]); err != nil {
+					t.Fatal(err)
+				}
+			}
+			return server
+		}
+		one, other := fork("example.com/one"), fork("example.com/other")
+		state := filepath.Join(t.TempDir(), "sumdb")
+		trustOf := func(server *httptest.Server, state string) runtimeTrust {
+			at := sumDBServer{url: server.URL, key: verifier, client: server.Client(), state: state}
+			return runtimeTrust{pins: map[string]string{version: sum}, lookup: func(ctx context.Context, path, vers string) (string, bool, error) {
+				return lookupSumDBAt(ctx, at, path, vers)
+			}}
+		}
+		stage := func(trust runtimeTrust) (*moduleVersion, error) {
+			return stageRuntimeFolder(context.Background(), folder, pin, sums, modSums, filepath.Join(t.TempDir(), "proxy"), t.TempDir(), trust)
+		}
+		// The first run keeps the tree of one, and a second run against one agrees with it.
+		for run := range 2 {
+			if served, err := stage(trustOf(one, state)); err != nil || served == nil {
+				t.Fatalf("run %d against one database was refused: %v", run+1, err)
+			}
+		}
+		if info, err := os.Stat(filepath.Join(state, "latest")); err != nil || info.Mode().Perm()&0o077 != 0 {
+			t.Fatalf("the kept tree is %v (%v), want a file that only its owner reads", info, err)
+		}
+		// A run against the fork, whose tree of the same size differs, is refused as not consistent.
+		served, err := stage(trustOf(other, state))
+		if err == nil || served != nil || !strings.Contains(err.Error(), "not consistent") {
+			t.Fatalf("a run against a fork of the kept tree gave %v, %v; want a refusal that the database is not consistent", served, err)
+		}
+		// With no kept tree, one answer of the fork alone shows nothing: the registry pin stays the check.
+		if served, err := stage(trustOf(other, "")); err != nil || served == nil {
+			t.Fatalf("a run against the fork with no kept tree was refused: %v", err)
+		}
+	})
 	t.Run("ST-BLD-UC02-R05-T05 GOPROXY names the runtime proxy first as an escaped file URL, then the module proxy", func(t *testing.T) {
 		proxy := "/work/p%41?x#y/runtime-proxy"
 		env, err := withRuntimeProxy([]string{"GOFLAGS=", "GOPROXY=" + ProxySource}, proxy)
