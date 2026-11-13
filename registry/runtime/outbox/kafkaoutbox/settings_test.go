@@ -2,11 +2,19 @@ package kafkaoutbox
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // allSettings are the names of every setting, which each case of the settings test clears first.
@@ -223,11 +231,45 @@ func TestSettings(t *testing.T) {
 				t.Errorf("%s: %v, want a refusal that names %s and not the path", c.name, err, c.refused)
 			}
 		}
-		// The CA file and the client certificate are read when the destination is made.
-		ca := file("ca-666", "not read", 0o666)
+		// The CA file and the client certificate are read when the destination is made. Each is a valid PEM file, so
+		// only its mode decides: 0666 is refused by the name of its setting, and 0644 is taken.
+		certPEM, keyPEM := selfSigned(t)
+		ca := file("ca-666", string(certPEM), 0o666)
 		if _, err := New(Settings{Brokers: []string{"k:9093"}, CAFile: ca, Mechanism: MechanismOAuthBearer, TokenFile: "/run/token"}, nil); err == nil ||
 			!strings.Contains(err.Error(), "the setting "+CAFileSetting+" ") {
 			t.Errorf("a CA file of mode 0666 gave %v, want a refusal that names %s", err, CAFileSetting)
 		}
+		if _, err := tlsConfig(Settings{CAFile: file("ca-644", string(certPEM), 0o644)}); err != nil {
+			t.Errorf("a valid CA file of mode 0644 gave %v, want it taken", err)
+		}
+		key := file("client-key-600", string(keyPEM), 0o600)
+		if _, err := tlsConfig(Settings{ClientCertFile: file("client-666", string(certPEM), 0o666), ClientKeyFile: key}); err == nil ||
+			!strings.Contains(err.Error(), "the setting "+ClientCertFileSetting+" ") {
+			t.Errorf("a client certificate of mode 0666 gave %v, want a refusal that names %s", err, ClientCertFileSetting)
+		}
+		if _, err := tlsConfig(Settings{ClientCertFile: file("client-644", string(certPEM), 0o644), ClientKeyFile: key}); err != nil {
+			t.Errorf("a valid client certificate of mode 0644 gave %v, want it taken", err)
+		}
 	})
+}
+
+// selfSigned gives the PEM of a self-signed certificate of a new P-256 key, which is also its own authority, and the
+// PEM of the key.
+func selfSigned(t *testing.T) ([]byte, []byte) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "kafka-test"}, NotBefore: time.Now().Add(-time.Hour),
+		NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
 }

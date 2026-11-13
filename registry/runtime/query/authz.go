@@ -18,6 +18,9 @@ import (
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // errForeignValue is the error of a call that takes a loaded value that this handle did not load.
@@ -238,6 +241,9 @@ func (r *Repository[T]) searchKeys(ctx context.Context) ([]string, error) {
 		keys = append(keys, found.Keys...)
 		if len(keys) > MaxSearchKeys {
 			overBound.warn(ctx, e.spec.Name)
+			if c.overBound != nil {
+				c.overBound.Add(ctx, 1, metric.WithAttributes(attribute.String("entity", e.spec.Name)))
+			}
 			return nil, fmt.Errorf("%w: the entity %s, more than %d keys", ErrTooManyKeys, e.spec.Name, MaxSearchKeys)
 		}
 		if found.Next.IsZero() {
