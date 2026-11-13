@@ -341,8 +341,7 @@ It runs on the runtime data path and demonstrates the rest-crud archetype:
 - **Slot wiring**: gate (RBAC policy), fan-out (welcome message), and
   short-circuit chain (org name validation + provisioning)
 - **Change events**: the event-publisher mixin sends the change event of each
-  write to Kafka through the outbox, and its `on_entity_changed` fills
-  (user-change-notifier, audit-logger) run after each change of a user
+  write to Kafka through the outbox
 
 ```bash
 export STEGO_REGISTRY=/path/to/stego/registry
