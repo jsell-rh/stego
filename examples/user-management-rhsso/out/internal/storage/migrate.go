@@ -69,20 +69,17 @@ func RegisterStep(name, body string, compatibleWith ...string) {
 	}})
 }
 
-// refreshMarker rewrites, under the ledger lock, the marker digest that a
-// release before ST-SUP-RC01-OC42 wrote, the digest of the entities and the
-// collections of the baseline, to the digest of the stored shape, once. The
-// marker check of this release accepts both; a later release whose
-// collections or permissions differ accepts only the digest of the stored
-// shape (ST-SUP-RC01-OC42).
-func refreshMarker(ctx context.Context, db Database) error {
-	return inTransaction(ctx, db, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, func(tx *sql.Tx) error {
-		if err := lockLedger(ctx, tx); err != nil {
-			return err
-		}
-		_, err := tx.ExecContext(ctx, "UPDATE stego_schema.generation SET definition = $1 WHERE singleton AND generation = $2 AND definition = $3", SchemaDefinition, SchemaGeneration, schemaDefinitionBefore)
-		return err
-	})
+// refreshMarker rewrites, in the transaction of the migration job that
+// holds the ledger lock and whose ledger check passed, the marker digest that
+// a release before ST-SUP-RC01-OC42 wrote, the digest of the entities and the
+// collections of the baseline, to the digest of the stored shape. The marker
+// check of this release accepts both; a later release whose collections or
+// permissions differ accepts only the digest of the stored shape
+// (ST-SUP-RC01-OC42). A job that fails its ledger check leaves the marker as
+// it is.
+func refreshMarker(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, "UPDATE stego_schema.generation SET definition = $1 WHERE singleton AND generation = $2 AND definition = $3", SchemaDefinition, SchemaGeneration, schemaDefinitionBefore)
+	return err
 }
 
 // addCompatibleWith adds the nullable column compatible_with to the ledger
@@ -124,9 +121,6 @@ func Migrate(ctx context.Context, db Database) error {
 		return err
 	}
 	if err := addCompatibleWith(ctx, db); err != nil {
-		return err
-	}
-	if err := refreshMarker(ctx, db); err != nil {
 		return err
 	}
 	return applyPending(ctx, db, ordered)
@@ -319,6 +313,9 @@ func applyPending(ctx context.Context, db Database, ordered []Migration) error {
 				return err
 			}
 			if err := checkLedger(applied, ordered); err != nil {
+				return err
+			}
+			if err := refreshMarker(ctx, tx); err != nil {
 				return err
 			}
 			if len(applied) >= len(ordered) {
