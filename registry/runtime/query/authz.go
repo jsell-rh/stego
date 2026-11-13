@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jsell-rh/stego/registry/runtime/audit"
@@ -549,9 +550,19 @@ func (r *Repository[T]) permission() string {
 	return r.entity.e.spec.ListPermission
 }
 
-// searchedCursor is the cursor of the transaction through which an ordered list of searched keys reads its rows; the
-// list closes it before it returns.
-const searchedCursor = "stego_searched_list"
+// searchedCursorPrefix starts the name of the cursor of the transaction through which an ordered list of searched
+// keys reads its rows; the list closes it before it returns.
+const searchedCursorPrefix = "stego_searched_list_"
+
+// searchedCursors numbers the cursors of the process, so each list call declares a cursor of its own name, and two
+// lists on one transaction, such as one that a decision of another starts, never share one (finding C1 of the
+// security review of #261). The name holds only the prefix and a number, never a value of the request.
+var searchedCursors atomic.Uint64
+
+// searchedCursor gives the name of the cursor of one list call.
+func searchedCursor() string {
+	return searchedCursorPrefix + strconv.FormatUint(searchedCursors.Add(1), 10)
+}
 
 // tablePage pages the table by its key, or in order and then by its key, and keeps the allowed rows of each page,
 // until it holds limit values or the table ends.
@@ -600,10 +611,13 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, 
 	}
 	// An ordered list of searched keys reads the rows of the keys once in the call, through a cursor of the
 	// transaction from which each chunk is fetched, so the call does not read them again for each chunk.
-	cursorOpen := false
+	// The cursor's plan follows the server's work_mem: with a very low work_mem the planner reads the whole table,
+	// which tells the size of the table but not which rows are hidden (C3 of the review of #261). The runtime keeps
+	// the server default and sets no work_mem of its own.
+	cursorOpen, cursor := false, ""
 	defer func() {
 		if cursorOpen {
-			_, _ = c.tx.ExecContext(context.WithoutCancel(ctx), "CLOSE "+searchedCursor)
+			_, _ = c.tx.ExecContext(context.WithoutCancel(ctx), "CLOSE "+cursor)
 		}
 	}()
 	for {
@@ -618,13 +632,14 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, 
 					return ListResult[T]{}, err
 				}
 				statement, args := e.orderedStatement(order, started, at, key, 0, where, keys)
-				if _, err := c.tx.ExecContext(ctx, "DECLARE "+searchedCursor+" NO SCROLL CURSOR FOR "+statement,
+				cursor = searchedCursor()
+				if _, err := c.tx.ExecContext(ctx, "DECLARE "+cursor+" NO SCROLL CURSOR FOR "+statement,
 					append([]any{c.tenant.ID()}, args...)...); err != nil {
 					return ListResult[T]{}, fmt.Errorf("query: list %s: %w", e.spec.Name, err)
 				}
 				cursorOpen = true
 			}
-			rows, err = c.tx.QueryContext(ctx, "FETCH FORWARD "+strconv.Itoa(size)+" FROM "+searchedCursor)
+			rows, err = c.tx.QueryContext(ctx, "FETCH FORWARD "+strconv.Itoa(size)+" FROM "+cursor)
 		case len(order) > 0:
 			at, err := decodePosition(values, len(order), started)
 			if err != nil {
