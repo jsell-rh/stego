@@ -737,6 +737,11 @@ func TestOverBoundMetric(t *testing.T) {
 					if sum, ok := m.Data.(metricdata.Sum[int64]); ok && m.Name == "query.list.over_bound" {
 						for _, point := range sum.DataPoints {
 							total += point.Value
+							// The entity is the one attribute: a tenant or principal attribute would tell more than the
+							// entity and split the count.
+							if point.Attributes.Len() != 1 {
+								t.Errorf("a data point of query.list.over_bound has the attributes %v, want the entity only", point.Attributes.ToSlice())
+							}
 							value, _ := point.Attributes.Value("entity")
 							entities = append(entities, value.AsString())
 						}
