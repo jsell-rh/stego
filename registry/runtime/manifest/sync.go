@@ -394,3 +394,94 @@ func acceptForeignKey(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n st
 	}
 	return false, nil
 }
+
+// CheckName gives the name that PostgreSQL and the generator give the CHECK of the column of a table:
+// <table>_<column>_check, or, when that is longer than 63 bytes, its first 46 bytes, an underscore and the first 16
+// hexadecimal digits of its SHA-256 digest, as the generator's sqlName gives it.
+func CheckName(table, column string) string {
+	n := table + "_" + column + "_check"
+	if len(n) <= 63 {
+		return n
+	}
+	return n[:46] + "_" + digestPrefix(n)
+}
+
+// checkNodes are the nodes of the expression of a CHECK that an add step gives: a length, a bound, the finite value of
+// a float and the declared values of an enum, joined by AND. Each other node of a stored expression is refused.
+var checkNodes = map[string]bool{"BOOLEXPR": true, "OPEXPR": true, "FUNCEXPR": true, "SCALARARRAYOPEXPR": true, "VAR": true,
+	"CONST": true, "ARRAYEXPR": true, "NULLTEST": true, "RELABELTYPE": true}
+
+// The parts of the text of a stored expression (pg_node_tree): the tag of each node, and each field with a number.
+var (
+	nodeTag   = regexp.MustCompile(`\{([A-Z_]+)`)
+	nodeField = regexp.MustCompile(`:([a-z_]+) (-?[0-9]+)\b`)
+)
+
+// acceptCheck tells whether the CHECK n of the entity table t (rel) is the CHECK of a later add step in its exact form
+// (decision on ST-SUP-RP15-LC01 (a)): on one column of the table that is not in the manifest and is of a built-in base
+// type of pg_catalog; validated, local and inheritable; named as CheckName names it; with an expression that reads
+// that column only, holds only the nodes of checkNodes, and whose functions, operators, types and collations are each
+// built in (oid below 16384), each function and the function of each operator IMMUTABLE and no set function; and with
+// no dependency in pg_depend on an object that is not built in, or on another column or relation. PostgreSQL records
+// no dependency on a pinned object, so the expression itself is read: a built-in function that is not IMMUTABLE, such
+// as random or set_config, is refused, as is each function of a schema of the database.
+func acceptCheck(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n string, columns map[string]tableColumn) (bool, error) {
+	var con uint32
+	var keys, attnum int
+	var column, tree string
+	var validated, noInherit, local bool
+	err := tx.QueryRowContext(ctx, `SELECT c.oid, COALESCE(pg_catalog.array_length(c.conkey, 1), 0), COALESCE(c.conkey[1], 0),
+  COALESCE(a.attname, ''), COALESCE(c.conbin::pg_catalog.text, ''), c.convalidated, c.connoinherit, c.conislocal AND c.coninhcount = 0
+  FROM pg_catalog.pg_constraint c LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+  WHERE c.conrelid = $1 AND c.conname = $2 AND c.contype = 'c'`, rel, n).Scan(&con, &keys, &attnum, &column, &tree, &validated, &noInherit, &local)
+	if err != nil {
+		return false, err
+	}
+	listed := slices.ContainsFunc(t.Columns, func(c Column) bool { return c.Name == column })
+	c, ok := columns[column]
+	if keys != 1 || attnum <= 0 || !ok || listed || !c.builtin || !validated || noInherit || !local || n != CheckName(t.Name, column) {
+		return false, nil
+	}
+	// The expression: only the nodes of the step form, reading the one column of conkey.
+	for _, m := range nodeTag.FindAllStringSubmatch(tree, -1) {
+		if !checkNodes[m[1]] {
+			return false, nil
+		}
+	}
+	var functions, operators, others []string
+	for _, m := range nodeField.FindAllStringSubmatch(tree, -1) {
+		field, value := m[1], m[2]
+		switch {
+		case field == "varattno" && value != fmt.Sprint(attnum), field == "varlevelsup" && value != "0", field == "varno" && value != "1":
+			return false, nil
+		case field == "funcid" || field == "opfuncid" || field == "hashfuncid" || field == "negfuncid":
+			if value != "0" {
+				functions = append(functions, value)
+			}
+		case field == "opno":
+			operators = append(operators, value)
+		case strings.HasSuffix(field, "type") || strings.HasSuffix(field, "typeid") || strings.HasSuffix(field, "collid"):
+			others = append(others, value)
+		}
+	}
+	if !strings.Contains(tree, "{VAR ") {
+		return false, nil
+	}
+	oids := func(values []string) string { return "{" + strings.Join(values, ",") + "}" }
+	var faults int
+	err = tx.QueryRowContext(ctx, `SELECT
+  (SELECT pg_catalog.count(*) FROM pg_catalog.unnest($1::pg_catalog.oid[]) AS f(oid) LEFT JOIN pg_catalog.pg_proc p ON p.oid = f.oid
+    WHERE p.oid IS NULL OR p.oid >= 16384 OR p.provolatile <> 'i' OR p.prokind <> 'f' OR p.proretset)
+  + (SELECT pg_catalog.count(*) FROM pg_catalog.unnest($2::pg_catalog.oid[]) AS o(oid) LEFT JOIN pg_catalog.pg_operator op ON op.oid = o.oid
+    LEFT JOIN pg_catalog.pg_proc p ON p.oid = op.oprcode
+    WHERE op.oid IS NULL OR op.oid >= 16384 OR p.oid IS NULL OR p.oid >= 16384 OR p.provolatile <> 'i' OR p.proretset)
+  + (SELECT pg_catalog.count(*) FROM pg_catalog.unnest($3::pg_catalog.oid[]) AS x(oid) WHERE x.oid >= 16384)
+  + (SELECT pg_catalog.count(*) FROM pg_catalog.pg_depend d WHERE d.classid = 'pg_catalog.pg_constraint'::pg_catalog.regclass AND d.objid = $4
+    AND NOT (d.refclassid = 'pg_catalog.pg_class'::pg_catalog.regclass AND d.refobjid = $5 AND d.refobjsubid = $6)
+    AND (d.refobjid >= 16384 OR d.refclassid = 'pg_catalog.pg_class'::pg_catalog.regclass))`,
+		oids(functions), oids(operators), oids(others), con, rel, attnum).Scan(&faults)
+	if err != nil {
+		return false, err
+	}
+	return faults == 0, nil
+}

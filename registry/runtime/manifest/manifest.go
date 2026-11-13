@@ -17,8 +17,9 @@ import (
 	"time"
 )
 
-// Manifest is what the code of a service needs in its database. A database may hold more: Check refuses only
-// what is missing or different, and a permissive policy that a table with row-level security does not name.
+// Manifest is what the code of a service needs in its database. A database may hold more: Check refuses what is
+// missing or different, and on a table with row-level security or that checks its grants each object that runs code
+// as the role that writes or reads a row and that the manifest does not name (see Table.RowSecurity).
 type Manifest struct {
 	Tables []Table
 	// Functions are the functions that the code calls and that are no trigger function, such as the SECURITY
@@ -70,10 +71,18 @@ type Table struct {
 	Columns []Column
 	// Constraints are the primary key, check and foreign key constraints of the table, by name.
 	Constraints []Constraint
-	// Indexes are the unique indexes that the code relies on: the primary key and each unique and upsert key.
+	// Indexes are the unique indexes that the code relies on: the primary key and each unique and upsert key; and
+	// each lookup index with an expression or a predicate that the table has.
 	Indexes []Index
-	// RowSecurity tells that row-level security is enabled and forced on the table. Then each permissive policy
-	// of the table is one of Policies.
+	// RowSecurity tells that row-level security is enabled and forced on the table. Then, as with CheckGrants, the
+	// table holds no object that runs code as the role that writes or reads a row and that the manifest does not
+	// name: each trigger, foreign key, check and exclusion constraint and policy (permissive or restrictive) is the
+	// manifest's, and so is each index with an expression or a predicate, since PostgreSQL computes these on each
+	// INSERT or UPDATE or on each read, with the functions that they call (decision of the orchestrator under the
+	// owner's delegation, 2026-11-13). On the table of a declared entity, Check accepts in their exact forms the sync
+	// trigger, the foreign key and the CHECK that a later step gives (Entity). Each partition of a partitioned table
+	// holds no check or exclusion constraint of its own, and no index with an expression or a predicate that is not a
+	// partition of an index of the table.
 	RowSecurity bool
 	// Policies are the row-level security policies of the table.
 	Policies []Policy
@@ -92,9 +101,9 @@ type Table struct {
 	// as one of Triggers must; when it lacks it, that is no fault. A name matches only as a whole.
 	OptionalTriggers []Trigger
 	// Entity tells that the table is the table of a declared entity, which later schema steps change: on it, and only
-	// on it, Check accepts a sync trigger, a foreign key and a column default that the manifest does not name, each
-	// only in the exact form that a later step gives (ST-SUP-RP15-LC02, ST-SUP-RP15-LC03, ST-GEN-Q15). A runtime table
-	// is never an entity table.
+	// on it, Check accepts a sync trigger, a foreign key, a CHECK and a column default that the manifest does not
+	// name, each only in the exact form that a later step gives (ST-SUP-RP15-LC02, ST-SUP-RP15-LC03, ST-SUP-RP15-LC01,
+	// ST-GEN-Q15). A runtime table is never an entity table.
 	Entity bool
 }
 
@@ -154,6 +163,8 @@ const (
 	KindCheck      = "c"
 	KindForeignKey = "f"
 	KindUnique     = "u"
+	// kindExclusion is the kind of an exclusion constraint, which no manifest names.
+	kindExclusion = "x"
 )
 
 // Constraint is one constraint of a table, by name: its kind and its definition as pg_get_constraintdef gives it
@@ -168,11 +179,13 @@ type Constraint struct {
 // Index is one unique index of a table: its key columns in order and its predicate as pg_get_expr gives it, or
 // empty for an index on every row. The index must be valid, ready, not deferrable, treat nulls as distinct, and
 // have no expression column, and each key column must have the default operator class and the default or the C
-// collation.
+// collation. A Lookup index is an index that is not unique, such as a partial index that orders the open messages
+// of the outbox, with the same rules but uniqueness.
 type Index struct {
 	Name      string
 	Columns   []string
 	Predicate string
+	Lookup    bool
 }
 
 // CommandAll is the command of a policy for every command.
@@ -1000,19 +1013,21 @@ func checkConfined(ctx context.Context, tx *sql.Tx, role, owner string, named ma
 	return faults, closed(rows)
 }
 
-// checkDefaults gives the faults of the defaults of the columns of the table oid against columns: a default of a
-// column that the manifest states none for, listed or not, a generated column, and a default that is not the one of
-// the manifest. Two literal defaults are the same when their values are; any other default must have the text of
-// the manifest. The value of a default is read only when both are literals (literalDefault), so no function of the
-// database runs.
+// checkDefaults gives the faults of the defaults of the columns of the table oid against columns: a generated
+// column; a default of a column that the manifest states none for, listed or not, but for the case of entity below; a
+// default that is not the one of the manifest; and a default that the manifest states and the column lacks. A default
+// is the one of the manifest when its text is the same, or when both are literals of built-in types (literal) and the column's
+// type is one of builtinType and the two values are the same as the column's type. Check reads the two values only in
+// that case, with the literals as parameters, so the comparison runs only built-in input and cast functions.
 //
 // On the table of a declared entity (entity), a default of a column that the manifest does not list is accepted when
-// it is a constant literal (literalDefault) whose cast is to a type of builtinType, on a column whose type is one of
-// builtinType, which a later add step gives its new column, and no other default; Check reads no value of it. The
-// default holds no function call, and checkTable refuses an unlisted column of any table whose type is no built-in
-// base type of pg_catalog, such as a domain with a CHECK that calls a function, so an INSERT that leaves the column
-// out runs no function of the database for it (decision on ST-GEN-Q15 (a); the type rule is the decision of the
-// orchestrator under the owner's delegation, 2026-11-13). A listed column keeps the default of the manifest.
+// it is a literal (literalDefault) whose type is one of builtinType, on a column whose type is one of builtinType, such
+// as the constant default that a later add step gives its new column (decision on ST-GEN-Q15 (a)); Check does not read
+// its value. A literal is stored as a constant, so an INSERT that leaves the column out runs no function of the
+// database for it but the built-in length coercion of a type with a length, such as character varying(255); and
+// checkTable refuses an unlisted column of any table whose type is no built-in base type of pg_catalog, such as a
+// domain with a CHECK that calls a function (decision of the orchestrator under the owner's delegation, 2026-11-13).
+// A listed column keeps the default of the manifest.
 func checkDefaults(ctx context.Context, tx *sql.Tx, oid uint32, columns []Column, entity bool) ([]string, error) {
 	want := map[string]string{}
 	listed := map[string]bool{}
@@ -1447,24 +1462,31 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 	}
 	if t.RowSecurity || t.CheckGrants {
 		// A referential action runs with the rights of the table owner and passes row-level security and the
-		// grants, so on a table with row-level security or that checks its grants each foreign key is the
-		// manifest's.
+		// grants, and a check or exclusion constraint runs its expression or operators as the role that writes the
+		// row, so on a table with row-level security or that checks its grants each one is the manifest's.
 		namedConstraints := map[string]bool{}
 		for _, want := range t.Constraints {
 			namedConstraints[want.Name] = true
 		}
 		var extra []string
 		for n, c := range constraints {
-			if c.kind == KindForeignKey && !namedConstraints[n] {
+			if !namedConstraints[n] && (c.kind == KindForeignKey || c.kind == KindCheck || c.kind == kindExclusion) {
 				extra = append(extra, n)
 			}
 		}
 		slices.Sort(extra)
 		for _, n := range extra {
-			// On the table of a declared entity, the foreign key of a later add step is accepted in its exact form
-			// (ST-SUP-RP15-LC03).
-			if t.Entity && plainTable {
-				ok, err := acceptForeignKey(ctx, tx, t, oid, n, steps, stepCols)
+			kind := constraints[n].kind
+			// On the table of a declared entity, the foreign key and the CHECK of a later add step are accepted in
+			// their exact forms (ST-SUP-RP15-LC03, ST-SUP-RP15-LC01).
+			if t.Entity && plainTable && kind != kindExclusion {
+				accept := acceptForeignKey
+				if kind == KindCheck {
+					accept = func(ctx context.Context, tx *sql.Tx, t Table, rel uint32, n string, _ *stepState, columns map[string]tableColumn) (bool, error) {
+						return acceptCheck(ctx, tx, t, rel, n, columns)
+					}
+				}
+				ok, err := accept(ctx, tx, t, oid, n, steps, stepCols)
 				if err != nil {
 					return nil, err
 				}
@@ -1472,7 +1494,14 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 					continue
 				}
 			}
-			fault("constraint %s is a foreign key that the manifest does not name", n)
+			switch kind {
+			case KindForeignKey:
+				fault("constraint %s is a foreign key that the manifest does not name", n)
+			case KindCheck:
+				fault("constraint %s is a check constraint that the manifest does not name", n)
+			default:
+				fault("constraint %s is an exclusion constraint that the manifest does not name", n)
+			}
 		}
 	}
 	// A foreign key of another table that refers to this one with an action that writes deletes or changes its rows
@@ -1563,8 +1592,10 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 		switch {
 		case !ok:
 			fault("index %s is missing", want.Name)
-		case !got.unique:
+		case !got.unique && !want.Lookup:
 			fault("index %s is not unique", want.Name)
+		case got.unique && want.Lookup:
+			fault("index %s is unique, and the manifest needs a lookup index", want.Name)
 		case got.expressions || !slices.Equal(got.columns, want.Columns):
 			fault("index %s does not have the columns (%s) of the manifest", want.Name, strings.Join(want.Columns, ", "))
 		case got.predicate != want.Predicate:
@@ -1577,6 +1608,27 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 			fault("index %s treats nulls as not distinct", want.Name)
 		case !got.plainKeys:
 			fault("index %s has an operator class or a collation that is not the default", want.Name)
+		}
+	}
+
+	if t.RowSecurity || t.CheckGrants {
+		// An expression or a predicate of an index is computed on each INSERT or UPDATE as the role that writes the
+		// row, with the functions that it calls, so on a table with row-level security or that checks its grants each
+		// such index is one of the manifest. An index on plain columns runs only the built-in functions of its
+		// operator class, which only a superuser can make.
+		namedIndexes := map[string]bool{}
+		for _, want := range t.Indexes {
+			namedIndexes[want.Name] = true
+		}
+		var extra []string
+		for n, i := range indexes {
+			if !namedIndexes[n] && (i.expressions || i.predicate != "") {
+				extra = append(extra, n)
+			}
+		}
+		slices.Sort(extra)
+		for _, n := range extra {
+			fault("index %s has an expression or a predicate, and the manifest does not name it", n)
 		}
 	}
 
@@ -1625,18 +1677,23 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 			fault("policy %s applies to other roles than the manifest names", want.Name)
 		}
 	}
-	if t.RowSecurity {
-		// A permissive policy widens what a role sees, so with row-level security each one is the manifest's. A
-		// restrictive policy only narrows it, and is allowed.
+	if t.RowSecurity || t.CheckGrants {
+		// A permissive policy widens what a role sees, and the expression of each policy, restrictive too, runs as the
+		// role that reads or writes a row, with the functions that it calls, so on a table with row-level security or
+		// that checks its grants each policy is the manifest's.
 		var extra []string
-		for n, p := range policies {
-			if p.permissive && !named[n] {
+		for n := range policies {
+			if !named[n] {
 				extra = append(extra, n)
 			}
 		}
 		slices.Sort(extra)
 		for _, n := range extra {
-			fault("policy %s is a permissive policy that the manifest does not name", n)
+			if policies[n].permissive {
+				fault("policy %s is a permissive policy that the manifest does not name", n)
+				continue
+			}
+			fault("policy %s is a restrictive policy that the manifest does not name", n)
 		}
 	}
 
@@ -1751,7 +1808,7 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string, step
 		return nil, err
 	}
 	if t.Partitioned {
-		found, err := checkPartitions(ctx, tx, t, oid, ownerName, namedRows)
+		found, err := checkPartitions(ctx, tx, t, oid, ownerName, namedRows, t.RowSecurity || t.CheckGrants)
 		if err != nil {
 			return nil, err
 		}
@@ -1823,9 +1880,10 @@ func triggerFault(want Trigger, got catalogTrigger) string {
 // triggers are the clones of the row triggers of the manifest on the table, each enabled, and the triggers that
 // Table.PartitionTriggers names for each partition; it grants no privilege, on it or on a column, to another role
 // than its owner, since a partition has no row-level security of its own; and it has a clone of each row trigger of
-// the manifest.
+// the manifest. With strict, it has no check or exclusion constraint of its own and no index with an expression or a
+// predicate that is not a partition of an index of the table.
 // namedRows are the row triggers of the manifest on the table, by oid.
-func checkPartitions(ctx context.Context, tx *sql.Tx, t Table, parent uint32, owner string, namedRows map[uint32]string) ([]string, error) {
+func checkPartitions(ctx context.Context, tx *sql.Tx, t Table, parent uint32, owner string, namedRows map[uint32]string, strict bool) ([]string, error) {
 	type partition struct {
 		oid, relowner         uint32
 		name, kind, ownerName string
@@ -1875,6 +1933,34 @@ func checkPartitions(ctx context.Context, tx *sql.Tx, t Table, parent uint32, ow
 		}
 		if rules > 0 {
 			fault("the partition has a rule")
+		}
+		// A row that the table routes to the partition meets the check and exclusion constraints and the indexes of
+		// the partition, so with strict (row-level security or checked grants) the partition holds no such constraint
+		// of its own, and no index with an expression or a predicate that is not a partition of an index of the table.
+		if strict {
+			var own []string
+			rows, err := tx.QueryContext(ctx, `SELECT c.conname FROM pg_catalog.pg_constraint c
+  WHERE c.conrelid = $1 AND c.contype IN ('c', 'x') AND c.conislocal
+  UNION ALL SELECT ic.relname FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class ic ON ic.oid = i.indexrelid
+  WHERE i.indrelid = $1 AND (i.indexprs IS NOT NULL OR i.indpred IS NOT NULL)
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_inherits h WHERE h.inhrelid = i.indexrelid) ORDER BY 1`, p.oid)
+			if err != nil {
+				return nil, err
+			}
+			for rows.Next() {
+				var n string
+				if err := rows.Scan(&n); err != nil {
+					rows.Close()
+					return nil, err
+				}
+				own = append(own, n)
+			}
+			if err := closed(rows); err != nil {
+				return nil, err
+			}
+			for _, n := range own {
+				fault("%s is a check or exclusion constraint or an index with an expression or a predicate of the partition alone", n)
+			}
 		}
 		triggers, err := readTriggers(ctx, tx, p.oid, p.relowner)
 		if err != nil {

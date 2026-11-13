@@ -51,14 +51,26 @@ func boardSteps(ns, tenancyNS string) gen.Context {
 }
 
 // boardNoDefault is boardSteps with only its adds that give no default: the table Card and the optional field
-// Board.note, and not Board.rank; and an add of the optional reference Board.parent_id, whose foreign key the release
-// before accepts in its exact form (ST-SUP-RP15-LC03).
+// Board.note, and not Board.rank; an add of the optional reference Board.parent_id, whose foreign key the release
+// before accepts in its exact form (ST-SUP-RP15-LC03); and adds of the optional fields Board.level with integer bounds,
+// Board.score with float bounds and so a finite value, and Board.mood with the values of an enum, whose CHECK
+// constraints the release before accepts in their exact forms (ST-SUP-RP15-LC01-T11). Board.note has a minimum
+// length, so its add gives a CHECK too.
 func boardNoDefault(ns, tenancyNS string) gen.Context {
+	f := func(v float64) *float64 { return &v }
 	ctx := boardSteps(ns, tenancyNS)
 	fields := ctx.Entities[0].Fields
-	ctx.Entities[0].Fields = append(fields[:len(fields)-1:len(fields)-1], types.Field{Name: "parent_id", Type: types.FieldTypeRef, To: "Board", Optional: true})
-	ctx.SchemaChanges = append(ctx.SchemaChanges[:2:2], types.SchemaChange{ID: "add-board-parent-id", Kind: "add", Entity: "Board", Field: "parent_id"})
-	ctx.SchemaHistory = append(ctx.SchemaHistory[:2:2], types.SchemaStep{Change: "add-board-parent-id", Phase: "expand"})
+	ctx.Entities[0].Fields = append(fields[:len(fields)-1:len(fields)-1], types.Field{Name: "parent_id", Type: types.FieldTypeRef, To: "Board", Optional: true},
+		types.Field{Name: "level", Type: types.FieldTypeInt32, Optional: true, Min: f(1), Max: f(9)},
+		types.Field{Name: "score", Type: types.FieldTypeDouble, Optional: true, Min: f(0), Max: f(1.5)},
+		types.Field{Name: "mood", Type: types.FieldTypeEnum, Optional: true, Values: []string{"calm", "busy"}})
+	ctx.SchemaChanges = append(ctx.SchemaChanges[:2:2], types.SchemaChange{ID: "add-board-parent-id", Kind: "add", Entity: "Board", Field: "parent_id"},
+		types.SchemaChange{ID: "add-board-level", Kind: "add", Entity: "Board", Field: "level"},
+		types.SchemaChange{ID: "add-board-score", Kind: "add", Entity: "Board", Field: "score"},
+		types.SchemaChange{ID: "add-board-mood", Kind: "add", Entity: "Board", Field: "mood"})
+	ctx.SchemaHistory = append(ctx.SchemaHistory[:2:2], types.SchemaStep{Change: "add-board-parent-id", Phase: "expand"},
+		types.SchemaStep{Change: "add-board-level", Phase: "expand"}, types.SchemaStep{Change: "add-board-score", Phase: "expand"},
+		types.SchemaStep{Change: "add-board-mood", Phase: "expand"})
 	return ctx
 }
 

@@ -172,6 +172,15 @@ func Manifest(c Config) (manifest.Manifest, error) {
 		Returns: "TABLE(step_left boolean, checkpoint_tenant text, checkpoint_seq bigint, checkpoint_hash bytea)"}
 	return manifest.Manifest{Functions: []manifest.Function{maintain}, Tables: []manifest.Table{
 		{Schema: s, Name: EventsTable, Partitioned: true, RowSecurity: true, Policies: wall, Triggers: rejecting(EventsTable),
+			// The check constraints of the DDL: on a table with row-level security, each one is the manifest's.
+			Constraints: []manifest.Constraint{
+				{Name: EventsTable + "_actor_kind_check", Kind: manifest.KindCheck,
+					Definition: "CHECK ((actor_kind = ANY (ARRAY['user'::text, 'service'::text, 'system'::text, 'impersonated_by'::text])))"},
+				{Name: EventsTable + "_outcome_check", Kind: manifest.KindCheck, Definition: "CHECK ((outcome = ANY (ARRAY['ok'::text, 'denied'::text, 'failed'::text])))"},
+				{Name: EventsTable + "_hash_version_check", Kind: manifest.KindCheck, Definition: "CHECK ((hash_version = ANY (ARRAY[1, 2, 3])))"},
+				{Name: EventsTable + "_check", Kind: manifest.KindCheck, Definition: "CHECK (((hash_version >= 2) OR (operation = ''::text)))"},
+				{Name: EventsTable + "_check1", Kind: manifest.KindCheck, Definition: "CHECK (((hash_version = 3) OR (on_behalf_of = ''::text)))"},
+			},
 			// The columns with a default of the DDL; Record writes every other column.
 			Columns: []manifest.Column{{Name: "operation", Type: "text", Default: "''::text"}, {Name: "on_behalf_of", Type: "text", Default: "''::text"},
 				{Name: "hash_version", Type: "smallint", Default: "1"}},

@@ -527,11 +527,18 @@ FROM pg_catalog.pg_class c WHERE c.oid = $1::pg_catalog.regclass`, "public."+tab
 		}
 
 		// Adds with no default, here of the table cards, the optional field note and the optional reference parent_id,
-		// whose foreign key the release before accepts in its exact form (ST-SUP-RP15-LC03): the release before restarts
-		// on the database after the add migrations, and its ledger, schema and manifest checks accept it.
+		// whose foreign key the release before accepts in its exact form (ST-SUP-RP15-LC03), and the optional fields
+		// note, level, score and mood, whose CHECK constraints it accepts in their exact forms (ST-SUP-RP15-LC01-T11):
+		// the release before restarts on the database after the add migrations, and its ledger, schema and manifest
+		// checks accept it.
 		noteCfg, noted := database(t, cfg, admin)
 		migrate(t, noteCfg, noted, func(ctx context.Context, conn *sql.Conn) error { return boardsbase.Migrate(ctx, conn) }, "boardsbase_access.json")
 		migrate(t, noteCfg, noted, func(ctx context.Context, conn *sql.Conn) error { return boardsnote.Migrate(ctx, conn) }, "boardsnote_access.json")
+		var checks string
+		if err := noted.QueryRow(`SELECT pg_catalog.string_agg(conname, ',' ORDER BY conname) FROM pg_catalog.pg_constraint
+  WHERE conrelid = 'public.boards'::pg_catalog.regclass AND contype = 'c'`).Scan(&checks); err != nil || checks != "boards_level_check,boards_mood_check,boards_note_check,boards_score_check" {
+			t.Errorf("the add steps give the CHECK constraints %q (error %v), want those of level, mood, note and score", checks, err)
+		}
 		if _, err := noted.Exec("ALTER ROLE " + pgx.Identifier{tenancy.RuntimeRole}.Sanitize() + " LOGIN PASSWORD 'tables-check'"); err != nil {
 			t.Fatal(err)
 		}
