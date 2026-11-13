@@ -12,36 +12,36 @@ last_applied:
             .stego/config.yaml:
                 exists: true
                 sha256: 1f22e1d31edec033c594c2564b8069aa79b45707f2319448a8c234843177b8e9
-                mode: 436
+                mode: 420
             authz/schema.zed:
                 exists: true
-                sha256: 4725e50f47889dcb4c6e55070d8787ff4edf1a83cc264e30a3b1b513648d6542
-                mode: 436
+                sha256: 78bc6874d740cc42fd173226502fc5d049866f883233f8d4d70750b78d964f3c
+                mode: 420
             go.mod:
                 exists: true
-                sha256: 09cf12e4459cfff6d39a101714d0d7248a8e21013538d1707d6b5ca687082fb6
-                mode: 436
+                sha256: 08643e7893bcfe8dc2ecf165fa20a9946a40937fcb8ad24fe94bc809d0b46058
+                mode: 420
             go.sum:
                 exists: true
-                sha256: 5133e664f907a150ccf5cd65cdf4977dcd0456666ea1c72f7c955a6de1fe9331
-                mode: 436
+                sha256: 1ce8b76c2370580aadd2eb7e2cb3f5a71c97c986fd9125de87eb26ce539485ea
+                mode: 420
             service.yaml:
                 exists: true
-                sha256: 59eb019ac9584302b5674f2fe6b6da7392c364b74e7d578e3e55c98f7eb227ca
-                mode: 436
-        sha256: 88007584d70f87e4e6cb9506d7a72449d7edfdc5347720d0875f0091b103b200
+                sha256: 6a388dd67ba56c520a7b9a433fce8709d156b224dcb80fdecd4eb702dbedb1d1
+                mode: 420
+        sha256: d4dc4edcf67d8d23304b6d9b1c857fac7dda491d309a151e4c5c2a0c8e0711a2
     compiler_build:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261113144711-cdc7a7efe753
+        module_version: v0.0.0-20261113142621-f0d0969711ca
         vcs: git
-        revision: cdc7a7efe753ca0285f0e697f35cad5d17b4b162
+        revision: f0d0969711ca2d867d8647d08b4e89ad200d40e6
         source_state: clean
     service_name: user-management
-    service_hash: 59eb019ac9584302b5674f2fe6b6da7392c364b74e7d578e3e55c98f7eb227ca
+    service_hash: 6a388dd67ba56c520a7b9a433fce8709d156b224dcb80fdecd4eb702dbedb1d1
     registry_sha: env-override
-    registry_content_sha256: b347c7e55d500de54df463809703b9fc4aee50b42898760b5a9816185e3faea7
+    registry_content_sha256: 5fb180f601d33da03a8a113163b9c1d80fe4c6bd225ea875b07c573762f08416
     components:
         audit-log:
             version: 1.1.0
@@ -140,10 +140,10 @@ last_applied:
         internal/api/runtime.go: a02b93e0613ed644abbac80dfde12898121cfbd4da6dd4a4215c0d165e972e27
         internal/api/validation.go: df178f48fa19a0702e37c90b401f6ba0079a1d279ce54ad5d48cc1deee29cf7d
         internal/auditlog/audit.go: a18d0b5be27531bebccf58133dc6cb87198a44d7a7d694871557bfbf96d2f420
-        internal/authz/authz.go: 7d39b69678720eed75906beff8d3155382bfe06a7466e0ca19d2c07ba4ea1be8
-        internal/authz/schema.zed: 66e37233215abea13af5f4cb43b28314cbfb27c01017b0568c0e001096f76e7e
+        internal/authz/authz.go: 3b1a6fc9c55daf12b386c43a59c3bc25aea0b361a5546af30949d65f189d55c3
+        internal/authz/schema.zed: 239edac924f842ffc3c5b4807b6acda0d57ee11a2911070f541ee386c95fb629
         internal/outbox/outbox.go: 5f090d5ae397ff12f1e888f4d3fa758131767e7cc1ec5102fe6962e2397b410a
-        internal/stegoruntime/runtime.go: 5cbd58545212298b7f2a861c48fd90fe7adbd96144f00af149db5c09b8bcd22d
+        internal/stegoruntime/runtime.go: b2053c338aa93e6cfd2a696b57d08ca9657be563599bd44ad46e64f3008b46aa
         internal/storage/database.go: 2969e645f09850b504ad2725978a15d1ccad3147efb4a450d7360be23ffef627
         internal/storage/migrate.go: 029d2589ebd1ae4d89159fc497d5d46f18dd8b2dfe46827b06247aef15c49ff4
         internal/storage/migrations/001_initial.sql: ab78775163028811859a9a67ca89769c43529c4a72451340e6551134668393f9
@@ -194,9 +194,9 @@ last_applied:
         tracing/startup.go: ba2cc8272fddb2c9c18cf10199b7ffe3df430ea88f3d02a6902e00908d154160
     archetype:
         name: rest-crud
-        version: 3.72.0
+        version: 3.76.0
         runtime:
             module: github.com/jsell-rh/stego/registry/runtime
-            version: v0.68.0
-            sum: h1:LvFK0QQpzkLEd/zG4K2zcSeRijaloDsA8gGtltp06n4=
+            version: v0.72.0
+            sum: h1:8XPrGB0pHw4/o76HaQK1mSEnw04CXhzR4T69w2yCre0=
         imports_runtime: true

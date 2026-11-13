@@ -37,7 +37,8 @@ type Manifest struct {
 	// other function, relation, type, schema, large object, operator, operator class or family, collation,
 	// conversion, text search configuration or dictionary, statistics object, foreign-data wrapper, foreign
 	// server, event trigger, extension, language, publication, subscription, database or tablespace, and no default
-	// privileges; that are a member of no role; and that hold no privilege on a relation or a column of a relation
+	// privileges; that are a member of no role, and have no member but the Owner of the manifest WITH SET TRUE,
+	// INHERIT FALSE and no ADMIN; and that hold no privilege on a relation or a column of a relation
 	// that is not a table of the manifest. A SECURITY DEFINER function runs with the rights of its owner, so a
 	// confined role has the rights that the manifest names only.
 	Confined []string
@@ -514,7 +515,7 @@ func Check(ctx context.Context, db *sql.DB, m Manifest) (err error) {
 		}
 	}
 	for _, role := range m.Confined {
-		found, err := checkConfined(ctx, tx, role, named, tables)
+		found, err := checkConfined(ctx, tx, role, m.Owner, named, tables)
 		if err != nil {
 			return fmt.Errorf("manifest: read the catalog of the objects of the role %s: %w", role, err)
 		}
@@ -777,7 +778,7 @@ func checkSchema(ctx context.Context, tx *sql.Tx, sc Schema, wantOwner string, n
 // checkConfined gives the faults of one confined role: missing, or the owner of a function that the manifest does
 // not name with the role as its owner, of a relation, of a type that is no row or array type of another object, or
 // of a schema.
-func checkConfined(ctx context.Context, tx *sql.Tx, role string, named map[uint32]string, tables map[uint32]bool) ([]string, error) {
+func checkConfined(ctx context.Context, tx *sql.Tx, role, owner string, named map[uint32]string, tables map[uint32]bool) ([]string, error) {
 	var oid uint32
 	err := tx.QueryRowContext(ctx, `SELECT oid FROM pg_catalog.pg_roles WHERE rolname = $1`, role).Scan(&oid)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -848,6 +849,39 @@ func checkConfined(ctx context.Context, tx *sql.Tx, role string, named map[uint3
 	if err := closed(rows); err != nil {
 		return nil, err
 	}
+	// A member of the role gets its rights, and through its SECURITY DEFINER functions the rows of every tenant: the
+	// owner of the manifest alone may be one, to make the functions as the role, WITH SET TRUE, INHERIT FALSE and no
+	// ADMIN, as the role migration of the service grants it.
+	// LEFT JOIN: a membership whose member or grantor the catalog does not name still counts, and fails closed.
+	rows, err = tx.QueryContext(ctx, `SELECT COALESCE(mr.rolname::text, m.member::text), m.admin_option, m.inherit_option, m.set_option,
+  COALESCE(gr.rolname::text, ''), COALESCE(gr.rolsuper, false)
+  FROM pg_catalog.pg_auth_members m LEFT JOIN pg_catalog.pg_roles mr ON mr.oid = m.member LEFT JOIN pg_catalog.pg_roles gr ON gr.oid = m.grantor
+  WHERE m.roleid = $1 ORDER BY 1`, oid)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var member, grantor string
+		var admin, inherit, set, superuser bool
+		if err := rows.Scan(&member, &admin, &inherit, &set, &grantor, &superuser); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if member != owner || admin || inherit || !set {
+			fault := "the role " + member + " is a member of the confined role " + role + ", which the manifest grants only to its owner WITH SET TRUE, INHERIT FALSE and no ADMIN"
+			// A login with CREATEROLE that made the role holds it WITH ADMIN, granted by the bootstrap superuser,
+			// and cannot revoke it itself.
+			if admin && superuser {
+				// Each name is a quoted SQL identifier, so a role name cannot make the remedy run other SQL.
+				fault += "; a superuser runs REVOKE " + quoteIdent(role) + " FROM " + quoteIdent(member) + " GRANTED BY " + quoteIdent(grantor) +
+					", or the role migration runs as a superuser"
+			}
+			faults = append(faults, fault)
+		}
+	}
+	if err := closed(rows); err != nil {
+		return nil, err
+	}
 	// A privilege on a relation that is not a table of the manifest, which the grants of a table of the manifest do
 	// not hold, would reach rows of another tenant or another service.
 	rows, err = tx.QueryContext(ctx, `SELECT DISTINCT c.oid, c.oid::pg_catalog.regclass::text FROM pg_catalog.pg_class c, pg_catalog.aclexplode(c.relacl) a
@@ -871,6 +905,9 @@ func checkConfined(ctx context.Context, tx *sql.Tx, role string, named map[uint3
 	}
 	return faults, closed(rows)
 }
+
+// quoteIdent quotes a name as an SQL identifier, with each double quote doubled.
+func quoteIdent(name string) string { return `"` + strings.ReplaceAll(name, `"`, `""`) + `"` }
 
 // sortedJoin gives the names sorted and joined by the separator of the catalog reads, chr(31).
 func sortedJoin(names []string) string {
