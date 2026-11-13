@@ -458,7 +458,7 @@ func TestSmallListOrder(t *testing.T) {
 }
 
 func TestSmallListOrderWork(t *testing.T) {
-	t.Run("ST-SUP-RP11-LC20-T07 The work of an ordered list of an entity of small expected cardinality does not depend on where hidden rows sort", func(t *testing.T) {
+	t.Run("ST-SUP-RP11-LC20-T07 The work of an ordered list of an entity of small expected cardinality depends neither on where hidden rows sort nor on whether they match its filter", func(t *testing.T) {
 		e := newEnv(t)
 		// An index of the order field, which the planner walks when it may test the keys row by row.
 		e.insert(t, "CREATE INDEX orders_total ON app.orders (tenant_id, total)")
@@ -471,6 +471,11 @@ func TestSmallListOrderWork(t *testing.T) {
 		e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT t, 'v-' || lpad(g::text, 5, '0'), 1000000 + g FROM generate_series(0, 4999) g, (VALUES ('t1'), ('t2')) AS x(t)")
 		e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't1', 'h-' || g, g FROM generate_series(1, 200000) g")
 		e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't2', 'h-' || g, 2000000 + g FROM generate_series(1, 200000) g")
+		// For a filter on the indexed field: the same visible orders, all of total 7, in t3 with 200000 hidden orders
+		// of total 7 that match the filter, and in t4 with 200000 hidden orders of total 8 that do not.
+		e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT t, 'v-' || lpad(g::text, 5, '0'), 7 FROM generate_series(0, 4999) g, (VALUES ('t3'), ('t4')) AS x(t)")
+		e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't3', 'h-' || g, 7 FROM generate_series(1, 200000) g")
+		e.insert(t, "INSERT INTO app.orders (tenant_id, id, total) SELECT 't4', 'h-' || g, 8 FROM generate_series(1, 200000) g")
 		e.insert(t, "VACUUM ANALYZE app.orders")
 		var current string
 		port := &fakeDecision{decide: func(authz.EvaluationRequest) bool { return true }, search: func(r authz.SearchRequest) authz.SearchResult {
@@ -494,7 +499,7 @@ func TestSmallListOrderWork(t *testing.T) {
 		p := mustPrincipal(t, "user:u-7")
 		// buffers lists the first page in the order of total as tenant id, and gives its IDs and the shared buffers
 		// that the ordered statement of the list reads, from EXPLAIN (ANALYZE, BUFFERS) of the same statement.
-		buffers := func(id string) ([]string, int) {
+		buffers := func(id string, where []Equal) ([]string, int) {
 			current = id
 			tn := mustTenant(t, id)
 			rec := &statements{}
@@ -511,7 +516,7 @@ func TestSmallListOrderWork(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			page, err := repo.List(context.Background(), ListRequest{Limit: 4, Order: []OrderBy{{Field: "total"}}})
+			page, err := repo.List(context.Background(), ListRequest{Limit: 4, Order: []OrderBy{{Field: "total"}}, Where: where})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -541,14 +546,24 @@ func TestSmallListOrderWork(t *testing.T) {
 			t.Fatal("the list ran no ordered statement")
 			return nil, 0
 		}
-		beforeIDs, before := buffers("t1")
-		afterIDs, after := buffers("t2")
+		beforeIDs, before := buffers("t1", nil)
+		afterIDs, after := buffers("t2", nil)
 		want := []string{"v-00000", "v-00001", "v-00002", "v-00003"}
 		if !slices.Equal(beforeIDs, want) || !slices.Equal(afterIDs, want) {
 			t.Errorf("the first pages were %v and %v, want %v in both tenants", beforeIDs, afterIDs, want)
 		}
 		if before > 2*after+50 {
 			t.Errorf("the ordered list read %d buffers with hidden rows before the visible ones and %d with them after; the work depends on where hidden rows sort", before, after)
+		}
+		// A filter on an indexed field: hidden rows that match it cost no more than hidden rows that do not.
+		seven := []Equal{{Field: "total", Value: int64(7)}}
+		matchIDs, match := buffers("t3", seven)
+		noneIDs, none := buffers("t4", seven)
+		if !slices.Equal(matchIDs, want) || !slices.Equal(noneIDs, want) {
+			t.Errorf("the filtered first pages were %v and %v, want %v in both tenants", matchIDs, noneIDs, want)
+		}
+		if match > 2*none+50 {
+			t.Errorf("the filtered ordered list read %d buffers with hidden rows that match the filter and %d with hidden rows that do not; the work depends on hidden matches", match, none)
 		}
 	})
 }

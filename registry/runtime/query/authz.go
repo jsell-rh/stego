@@ -416,16 +416,23 @@ func (e *entity) orderedStatement(order []OrderBy, started bool, values []any, k
 		alternatives = append(alternatives, "("+strings.Join(append(equal, last), " AND ")+")")
 		after = " AND (" + strings.Join(alternatives, " OR ") + ")"
 	}
-	filter, filterArgs := e.filterSQL(where, keys, len(args)+2)
+	filter, filterArgs := e.filterSQL(where, nil, len(args)+2)
 	args = append(args, filterArgs...)
+	var searched string
+	if keys != nil {
+		var keyArgs []any
+		searched, keyArgs = e.filterSQL(nil, keys, len(args)+2)
+		args = append(args, keyArgs...)
+	}
 	limit := param(size)
 	tail := " ORDER BY " + strings.Join(by, ", ") + " LIMIT " + limit
 	if keys != nil {
-		// The rows of the searched keys are read by key first, at most MaxSearchKeys of them, and only then put in
-		// order, so the planner cannot walk an index of the order field and test each row it passes, hidden rows
-		// included, against the keys: the work depends on the visible rows only (ST-SUP-RP11-LC20).
-		return "WITH v AS MATERIALIZED (SELECT * FROM " + e.table + " WHERE " + TenantColumn + " = $1" + filter + ") SELECT " +
-			e.selectList + " FROM v WHERE true" + after + tail, args
+		// The rows of the searched keys are read by key alone first, at most MaxSearchKeys of them, and only then
+		// filtered and put in order, so the planner cannot walk an index of the order field or of a filter field and
+		// test each row it passes, hidden rows included, against the keys: the work depends on the visible rows only
+		// (ST-SUP-RP11-LC20).
+		return "WITH v AS MATERIALIZED (SELECT * FROM " + e.table + " WHERE " + TenantColumn + " = $1" + searched + ") SELECT " +
+			e.selectList + " FROM v WHERE true" + filter + after + tail, args
 	}
 	return "SELECT " + e.selectList + " FROM " + e.table + " WHERE " + TenantColumn + " = $1" + filter + after + tail, args
 }
