@@ -38,6 +38,23 @@ calling `Migrate` if they must commit with the generated schema. A marker covers
 only work in that transaction; unrelated setup calls remain the application's
 responsibility.
 
+## External migrations
+
+`ApplyMigration` applies one SQL migration by its body and writes its ledger
+row, for a database whose migrations run outside the application. It refuses a
+name that a registered migration has, a name that does not sort after the last
+ledger row, and a ledger that does not hold the whole registered history.
+
+The body and the ledger row run in one transaction. The body must hold no
+transaction control: no `BEGIN`, `COMMIT`, `ROLLBACK` or `SAVEPOINT`. A
+`COMMIT` in the body ends the transaction early, and leaves a partial
+migration with no ledger row. STEGO does not check the body for this.
+
+After one external apply, the ledger holds one row past the registered
+history. A later `ApplyMigration` and a later `Migrate` are then refused with
+`ErrMigrationLedger` until a release registers that migration (question
+ST-SUP-Q113).
+
 Before any schema write, the runtime takes a database-wide transaction advisory
 lock and checks for a completed marker. A matching marker returns success
 without repeating the callback. A missing marker permits initialization only
