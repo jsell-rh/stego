@@ -89,7 +89,6 @@ ST-STD-CODE-R04	internal/compiler/testdata/database_access_test.go	internal/comp
 ST-STD-CODE-R04	internal/compiler/testdata/database_config_test.go	internal/compiler/testdata/database_config_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/testdata/http_lifecycle_test.go	internal/compiler/testdata/http_lifecycle_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/testdata/http_tls_test.go	internal/compiler/testdata/http_tls_test.go	the test file names no test record's ID in a test or subtest name
-ST-STD-CODE-R04	internal/compiler/testdata/service_failure_test.go	internal/compiler/testdata/service_failure_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/testdata/task_http_test.go	internal/compiler/testdata/task_http_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/compiler/testdata/task_lifecycle_test.go	internal/compiler/testdata/task_lifecycle_test.go	the test file names no test record's ID in a test or subtest name
 ST-STD-CODE-R04	internal/gen/gen_test.go	internal/gen/gen_test.go	the test file names no test record's ID in a test or subtest name
