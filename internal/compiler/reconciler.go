@@ -316,6 +316,10 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		if err := selectedComponentMissing(source.Service, source.Registry); err != nil {
 			return nil, err
 		}
+		// Checking accepts a declared invariant; generation refuses it until a generator emits it.
+		if err := unemittedInvariants(source.Service.Invariants); err != nil {
+			return nil, err
+		}
 	}
 	serviceData, svcDecl, reg := source.ServiceData, source.Service, source.Registry
 	existingState, inputSnapshots, moduleData, err := captureProjectInputs(input.ProjectDir, serviceData)
