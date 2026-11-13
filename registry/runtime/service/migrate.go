@@ -214,8 +214,8 @@ func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
 // jobs run (ST-SUP-RP14-LC04), with SELECT and UPDATE on the table for the runtime role, the role of the lease
 // client; the table belongs to no tenant. Each statement runs again with no error on a database that it made.
 func controllerLease(runtimeRole string) string {
-	return lease.LeasesTable + ";\nINSERT INTO leases (name) VALUES ('" + ControllerLease + "') ON CONFLICT (name) DO NOTHING;\n" +
-		"GRANT SELECT, UPDATE ON TABLE leases TO " + quote(runtimeRole) + ";\n"
+	return lease.LeasesTable + ";\nINSERT INTO public.leases (name) VALUES ('" + ControllerLease + "') ON CONFLICT (name) DO NOTHING;\n" +
+		"GRANT SELECT, UPDATE ON TABLE public.leases TO " + quote(runtimeRole) + ";\n"
 }
 
 // granted gives the statements of the grants to the runtime role.

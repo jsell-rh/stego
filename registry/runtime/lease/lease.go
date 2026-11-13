@@ -20,7 +20,7 @@ const (
 
 // LeasesTable is the table that keeps one row for each lease. The migration that the generated code runs creates
 // it, and inserts one row for each lease name with Declare's statement; the client only changes the rows.
-const LeasesTable = `CREATE TABLE IF NOT EXISTS leases (
+const LeasesTable = `CREATE TABLE IF NOT EXISTS public.leases (
 	name text PRIMARY KEY,
 	holder text NOT NULL DEFAULT '',
 	expires_at timestamptz NOT NULL DEFAULT '-infinity',
@@ -29,23 +29,23 @@ const LeasesTable = `CREATE TABLE IF NOT EXISTS leases (
 
 // acquireStatement is the statement of Acquire in ST-SUP-RP09-LC02: it gives the lease to
 // the holder when the holder already has it or the lease has expired, and it increments the token each time.
-const acquireStatement = `UPDATE leases SET holder=$1, expires_at=now()+make_interval(secs => $3), token=token+1 WHERE name=$2 AND (holder=$1 OR expires_at<now()) RETURNING token`
+const acquireStatement = `UPDATE public.leases SET holder=$1, expires_at=now()+make_interval(secs => $3), token=token+1 WHERE name=$2 AND (holder=$1 OR expires_at<now()) RETURNING token`
 
 // renewStatement is the statement of Renew in ST-SUP-RP09-LC02: it extends the lease and increments the token only
 // while the row still names the holder with the token it holds and the lease has not expired, so a renew after the
 // lease expired, was taken over or was released takes nothing and leaves the row as it is.
-const renewStatement = `UPDATE leases SET expires_at=now()+make_interval(secs => $4), token=token+1 WHERE name=$2 AND holder=$1 AND token=$3 AND expires_at>=now() RETURNING token`
+const renewStatement = `UPDATE public.leases SET expires_at=now()+make_interval(secs => $4), token=token+1 WHERE name=$2 AND holder=$1 AND token=$3 AND expires_at>=now() RETURNING token`
 
 // releaseStatement makes the lease expire now, but only while the row still names the holder with its token. It
 // keeps the holder and the token, so the next acquire increments the token past every write of this holder.
-const releaseStatement = `UPDATE leases SET expires_at='-infinity' WHERE name=$1 AND holder=$2 AND token=$3`
+const releaseStatement = `UPDATE public.leases SET expires_at='-infinity' WHERE name=$1 AND holder=$2 AND token=$3`
 
 // declareStatement inserts the row of a lease name with no holder, or does nothing when the row is there.
-const declareStatement = `INSERT INTO leases (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`
+const declareStatement = `INSERT INTO public.leases (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`
 
 // fenceStatement locks the lease row against a change of holder or token until the caller's transaction ends, and
 // reads its token and holder (ST-SUP-RP09-LC03, ST-SUP-RP10-LC20).
-const fenceStatement = `SELECT token, holder FROM leases WHERE name=$1 FOR SHARE`
+const fenceStatement = `SELECT token, holder FROM public.leases WHERE name=$1 FOR SHARE`
 
 var (
 	// ErrTaken is the error of Acquire when another holder has an unexpired lease.

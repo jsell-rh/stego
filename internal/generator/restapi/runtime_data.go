@@ -1124,7 +1124,9 @@ func (w *runtimeHandlerWriter) declarations() {
 			// A create and an upsert have no row to decide on before the fill: an upsert decides its permission on
 			// the stored row in the fill.
 			if p := c.permission(op); p != "" && op != types.OpCreate && op != types.OpUpsert {
-				token := fmt.Sprintf("SELECT authz_token FROM %s WHERE tenant_id = $1 AND id = $2::uuid FOR SHARE", table)
+				// The table is named with its schema, so no relation of the same name earlier on the search path
+				// stands in for it.
+				token := fmt.Sprintf("SELECT authz_token FROM public.\"%s\" WHERE tenant_id = $1 AND id = $2::uuid FOR SHARE", table)
 				w.f("\tPermission: %q,\n\tResource: &command.Resource{Type: %q, Token: %q, ValidID: command.ValidUUID},\n", p, e.ResourceType, token)
 			}
 			w.f("}))\n\n")

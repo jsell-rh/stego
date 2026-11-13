@@ -91,3 +91,6 @@ GRANT USAGE ON SCHEMA public TO "tenancy_check_worker";
 GRANT USAGE ON SCHEMA public TO "tenancy_check_relay";
 GRANT "tenancy_check_idempotency_purge" TO "tenancy_check_owner" WITH SET TRUE, INHERIT FALSE;
 GRANT "tenancy_check_outbox_relay" TO "tenancy_check_owner" WITH SET TRUE, INHERIT FALSE;
+ALTER ROLE "tenancy_check_runtime" SET search_path = public, pg_temp;
+ALTER ROLE "tenancy_check_worker" SET search_path = public, pg_temp;
+ALTER ROLE "tenancy_check_relay" SET search_path = public, pg_temp;

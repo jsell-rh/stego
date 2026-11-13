@@ -343,6 +343,11 @@ func TestNew(t *testing.T) {
 			// The outbox is in the manifest too, with the exact grants of its table.
 			refused("GRANT SELECT ON stego_outbox.messages TO PUBLIC", "REVOKE SELECT ON stego_outbox.messages FROM PUBLIC",
 				"table stego_outbox.messages: the privilege SELECT to PUBLIC is granted, and the manifest does not grant it")
+			// A schema named after the runtime role comes first on its default search path "$user", public, so a
+			// table there of the name of a table of the manifest, which has no row-level security, would stand in
+			// for it for a name with no schema (#243 S1).
+			refused("CREATE SCHEMA "+f.runtime+"; GRANT USAGE ON SCHEMA "+f.runtime+" TO "+f.runtime+"; CREATE TABLE "+f.runtime+".orders (tenant_id text, id uuid)", "DROP SCHEMA "+f.runtime+" CASCADE",
+				"the relation "+f.runtime+".orders comes before public.orders on the search path of the session")
 			// The key table is in the manifest too: the runtime role may not delete a key row of another tenant's key.
 			refused("GRANT DELETE ON public.idempotency_keys TO "+f.runtime, "REVOKE DELETE ON public.idempotency_keys FROM "+f.runtime,
 				"table public.idempotency_keys: the privilege DELETE to "+f.runtime+" is granted, and the manifest does not grant it")

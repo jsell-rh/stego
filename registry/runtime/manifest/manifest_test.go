@@ -708,3 +708,56 @@ func TestSchemas(t *testing.T) {
 		}
 	})
 }
+
+func TestSearchPath(t *testing.T) {
+	t.Run("ST-SUP-RP15-LC01-T08 Check refuses a relation or a function of the name of one of the manifest earlier on the search path of the session, and a schema named after its role", func(t *testing.T) {
+		ctx := context.Background()
+		for _, change := range []struct {
+			name, statement string
+			faults          []string
+		}{
+			{"a schema named after the role", "CREATE SCHEMA %role%",
+				[]string{"the schema %role% has the name of the role of the session, which a search path of \"$user\" puts first"}},
+			{"a shadow table in the schema of the role", "CREATE SCHEMA %role%; GRANT USAGE ON SCHEMA %role% TO %role%; CREATE TABLE %role%.books (tenant_id text)",
+				[]string{"the schema %role% has the name of the role of the session, which a search path of \"$user\" puts first",
+					"the relation %role%.books comes before public.books on the search path of the session"}},
+			{"a view in an earlier schema of the path", "CREATE SCHEMA early; GRANT USAGE ON SCHEMA early TO %role%; ALTER ROLE %role% SET search_path = early, public; " +
+				"CREATE VIEW early.folders AS SELECT 1 AS x",
+				[]string{"the relation early.folders comes before public.folders on the search path of the session"}},
+			{"a function in an earlier schema of the path", "CREATE SCHEMA early; GRANT USAGE ON SCHEMA early TO %role%; ALTER ROLE %role% SET search_path = early, public; " +
+				"CREATE FUNCTION early.books_maintain() RETURNS integer LANGUAGE sql AS 'SELECT 2'",
+				[]string{"the function early.books_maintain comes before public.books_maintain on the search path of the session"}},
+		} {
+			t.Run(change.name, func(t *testing.T) {
+				admin, reader := database(t)
+				var role string
+				if err := reader.QueryRow("SELECT current_user").Scan(&role); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := admin.Exec("CREATE FUNCTION public.books_maintain() RETURNS integer LANGUAGE sql AS 'SELECT 1'; " +
+					"REVOKE ALL ON FUNCTION public.books_maintain() FROM PUBLIC; GRANT EXECUTE ON FUNCTION public.books_maintain() TO " + role); err != nil {
+					t.Fatal(err)
+				}
+				m := want()
+				m.Functions = []Function{{Name: "public.books_maintain", Language: "sql", Source: "SELECT 1", Returns: "integer", Execute: []string{role}}}
+				if err := Check(ctx, reader, m); err != nil {
+					t.Fatalf("Check refused the database of the manifest: %v", err)
+				}
+				if _, err := admin.Exec(strings.ReplaceAll(change.statement, "%role%", role)); err != nil {
+					t.Fatal(err)
+				}
+				// A setting of the role takes effect on a new session.
+				reader.SetMaxIdleConns(0)
+				var wantFaults []string
+				for _, f := range change.faults {
+					wantFaults = append(wantFaults, strings.ReplaceAll(f, "%role%", role))
+				}
+				err := Check(ctx, reader, m)
+				var mismatch *Mismatch
+				if !errors.As(err, &mismatch) || !slices.Equal(mismatch.Faults, wantFaults) {
+					t.Fatalf("Check gave %v, want the faults %q", err, wantFaults)
+				}
+			})
+		}
+	})
+}
