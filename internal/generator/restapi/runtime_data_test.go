@@ -583,6 +583,57 @@ func TestBodyLimit(t *testing.T) {
 }
 `
 
+// everyFieldCheck is a test of the generated validation.go: a body with two bad members gets one entry for each.
+const everyFieldCheck = `package api
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"strings"
+	"testing"
+)
+
+func TestEveryField(t *testing.T) {
+	handler := NewValidationMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("an invalid body reached the handler")
+	}))
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/todos", strings.NewReader("{\"title\":7,\"done\":\"no\"}"))
+	r.Header.Set("Content-Type", "application/json")
+	answer := httptest.NewRecorder()
+	handler.ServeHTTP(answer, r)
+	var problem struct {
+		Errors []struct {
+			Field string \x60json:"field"\x60
+		} \x60json:"validation_errors"\x60
+	}
+	if err := json.Unmarshal(answer.Body.Bytes(), &problem); answer.Code != http.StatusBadRequest || err != nil {
+		t.Fatalf("got %d (%v): %s", answer.Code, err, answer.Body)
+	}
+	var fields []string
+	for _, e := range problem.Errors {
+		fields = append(fields, e.Field)
+	}
+	slices.Sort(fields)
+	if !slices.Equal(fields, []string{"done", "title"}) {
+		t.Fatalf("the problem lists %v, want one entry for done and one for title: %s", fields, answer.Body)
+	}
+}
+`
+
+func TestValidationEveryField(t *testing.T) {
+	t.Run("ST-SUP-RC20-OC05-T04 A body with two bad members gets a validation problem with one entry for each", func(t *testing.T) {
+		ctx := crudContext()
+		ctx.Conventions.RequestValidation = "openapi-schema"
+		p := newCrudProject(t, ctx, crudFiles(t, ctx))
+		p.write("out/api/every_field_test.go", []byte(strings.ReplaceAll(everyFieldCheck, "\\x60", "`")))
+		if output, err := p.goCommand(nil, "test", "-count=1", "-run", "^TestEveryField$", "./out/api"); err != nil {
+			t.Fatalf("the check of every field failed: %v\n%s", err, output)
+		}
+	})
+}
+
 func TestValidationBodyLimit(t *testing.T) {
 	t.Run("ST-SUP-RC20-OC21-T04 The emitted middleware reads at most MaxRequestBody bytes and answers a larger body with 413", func(t *testing.T) {
 		ctx := crudContext()

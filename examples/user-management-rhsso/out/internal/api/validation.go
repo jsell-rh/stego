@@ -79,6 +79,7 @@ func NewValidationMiddleware() func(http.Handler) http.Handler {
 				Route:      route,
 				Options: &openapi3filter.Options{
 					AuthenticationFunc: openapi3filter.NoopAuthenticationFunc,
+					MultiError:         true,
 				},
 			}
 
@@ -106,14 +107,7 @@ func parseValidationErrors(err error) []ValidationError {
 		err = reqErr.Err
 	}
 
-	// Check for MultiError (multiple schema failures).
-	if multiErr, ok := err.(openapi3.MultiError); ok {
-		for _, e := range multiErr {
-			addSchemaErrors(&result, e)
-		}
-	} else {
-		addSchemaErrors(&result, err)
-	}
+	addSchemaErrors(&result, err)
 
 	if len(result) == 0 {
 		result = append(result, ValidationError{Message: err.Error()})
@@ -122,7 +116,16 @@ func parseValidationErrors(err error) []ValidationError {
 	return result
 }
 
+// addSchemaErrors adds one entry for each schema failure in err. A MultiError, also one nested in another,
+// gives an entry for each failure it holds, so each failed member is listed (ST-SUP-RC20-OC05).
 func addSchemaErrors(result *[]ValidationError, err error) {
+	var multi openapi3.MultiError
+	if errors.As(err, &multi) {
+		for _, e := range multi {
+			addSchemaErrors(result, e)
+		}
+		return
+	}
 	var schemaErr *openapi3.SchemaError
 	if errors.As(err, &schemaErr) {
 		pointer := schemaErr.JSONPointer()
