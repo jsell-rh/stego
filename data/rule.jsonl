@@ -39,6 +39,8 @@
 {"id":"ST-DECL-INV22-RL","title":"declaration.validateSchemaNames","invariant_id":"ST-DECL-INV22","file":"internal/declaration/authz.go"}
 {"id":"ST-DECL-INV23-RL","title":"declaration.validateWrittenRelations","invariant_id":"ST-DECL-INV23","file":"internal/declaration/authz.go"}
 {"id":"ST-DECL-INV25-RL","title":"declaration.validateIdempotency","invariant_id":"ST-DECL-INV25","file":"internal/declaration/idempotency.go"}
+{"id":"ST-DECL-INV26-RL","title":"declaration.validateMoney","invariant_id":"ST-DECL-INV26","file":"internal/declaration/ledger.go"}
+{"id":"ST-DECL-INV27-RL","title":"declaration.validateLedgerCollections","invariant_id":"ST-DECL-INV27","file":"internal/declaration/ledger.go"}
 {"id":"ST-DECL-INV31-RL","title":"declaration.validateAuthorizationCoverage","invariant_id":"ST-DECL-INV31","file":"internal/declaration/authz_coverage.go"}
 {"id":"ST-DECL-INV33-RL","title":"types.ValidateLiveUnique","invariant_id":"ST-DECL-INV33","file":"internal/types/live_unique.go"}
 {"id":"ST-DECL-INV34-RL","title":"types.ValidateVersioned","invariant_id":"ST-DECL-INV34","file":"internal/types/versioned.go"}
