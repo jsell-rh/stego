@@ -109,6 +109,8 @@
 {"source_id":"ST-DECL-UC02-FL-T","target_id":"ST-DECL-TD01"}
 {"source_id":"ST-DECL-UC02-R01-T01","target_id":"ST-DECL-TD01"}
 {"source_id":"ST-DECL-UC02-R02-T01","target_id":"ST-DECL-TD01"}
+{"source_id":"ST-DECL-UC02-R02-T02","target_id":"ST-DECL-TD01"}
+{"source_id":"ST-DECL-UC02-R02-T02","target_id":"ST-DECL-TD02"}
 {"source_id":"ST-DECL-UC02-R03-T01","target_id":"ST-DECL-TD01"}
 {"source_id":"ST-DECL-UC02-R03-T01","target_id":"ST-DECL-TD02"}
 {"source_id":"ST-DECL-UC02-R03-T02","target_id":"ST-DECL-TD01"}
