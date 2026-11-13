@@ -34,7 +34,9 @@ func validateProvisioning(service *types.ServiceDeclaration) []ValidationError {
 	case provisioning == nil:
 		return []ValidationError{fault(path, "", "a pooled service declares its tenant provisioning, through which an operator adds and retires tenants; add tenancy.provisioning, such as {resource_type: service, provision: provision, retire: retire}")}
 	case service.Authorization == nil:
-		return nil
+		// Provision and Retire are decided commands, so a service that cannot decide them is refused now, and
+		// does not wait for a generator to fail closed (security review of PR 253, L2).
+		return []ValidationError{fault(path, "", "the tenant provisioning needs authorization, because Provision and Retire are decided on the service-level resource; bind authorization")}
 	}
 	var faults []ValidationError
 	for _, part := range []struct{ key, value, what string }{
@@ -70,10 +72,22 @@ func checkProvisioningSchema(service *types.ServiceDeclaration, schema *AuthzSch
 			Message: fmt.Sprintf("the tenant provisioning names the resource type %q, which the schema %s lacks", provisioning.ResourceType, schema.Path)}}
 	}
 	var faults []ValidationError
+	// The resource of the provisioning has a definition of its own: one that is a subject type, or the resource
+	// type of an entity, would share its IDs with principals or with tenant data (security review of PR 253, L1).
+	if provisioning.ResourceType == service.Authorization.SubjectFromIdentity || schema.grants(provisioning.ResourceType) || declaredResourceTypes(service.Entities)[provisioning.ResourceType] {
+		faults = append(faults, ValidationError{Category: "authorization", Rule: "tenant-provisioning", Path: path + ".resource_type", Found: provisioning.ResourceType,
+			Message: fmt.Sprintf("the tenant provisioning names the resource type %q, which is a subject type or the resource type of an entity; give the service-level resource a definition of its own, such as service", provisioning.ResourceType)})
+	}
 	for _, part := range []struct{ key, value, what string }{{"provision", provisioning.Provision, "Provision"}, {"retire", provisioning.Retire, "Retire"}} {
-		if part.value != "" && part.value != types.PermissionPublic && !definition.permissions[part.value] {
+		switch {
+		case part.value == "" || part.value == types.PermissionPublic:
+		case !definition.permissions[part.value]:
 			faults = append(faults, ValidationError{Category: "authorization", Rule: "tenant-provisioning", Path: path + "." + part.key, Found: part.value, Allowed: sortedKeys(definition.permissions),
 				Message: fmt.Sprintf("the tenant provisioning names the %s permission %q, which the resource type %s of the schema %s lacks", part.what, part.value, provisioning.ResourceType, schema.Path)})
+		case schema.reachesWildcard(provisioning.ResourceType, part.value, map[string]bool{}):
+			// A wildcard such as user:* makes the permission public in effect (security review of PR 253, M1).
+			faults = append(faults, ValidationError{Category: "authorization", Rule: "tenant-provisioning", Path: path + "." + part.key, Found: part.value,
+				Message: fmt.Sprintf("the tenant provisioning names the %s permission %q, which reaches a wildcard subject of the schema %s, so anyone could hold it; Provision and Retire are never public", part.what, part.value, schema.Path)})
 		}
 	}
 	return faults
