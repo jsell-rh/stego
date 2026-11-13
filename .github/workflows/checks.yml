@@ -36,9 +36,8 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          # stego plan and apply check a change against the version that runs now (ST-GEN-UC12-R05). The base is
-          # HEAD's first parent: the target branch's tip for a pull request's merge ref, the previous commit of main
-          # for a push. Depth 2 holds it.
+          # stego plan and apply check a change against the version that runs now (ST-GEN-UC12-R05). For a pull
+          # request, the base is HEAD's first parent, the target branch's tip in the merge ref; depth 2 holds it.
           fetch-depth: 2
           persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
@@ -49,14 +48,37 @@ jobs:
             examples/*/go.sum
       - name: Build the current compiler
         run: go build -mod=readonly -trimpath -buildvcs=true -o "$RUNNER_TEMP/stego" ./cmd/stego
-      # apply checks against the base only when this compiler has --base. A compiler from before the base check
-      # (ST-GEN-UC12-R05) has no such flag and checks nothing; this step then names no base.
+      # For a pull request, the base is HEAD's first parent, the target branch's tip. For a push to main, it is the
+      # commit main pointed at before the push (github.event.before), also after a rebase merge or a push of several
+      # commits; it is fetched by its ID, and the step fails when it cannot be resolved. apply checks against the base
+      # only when this compiler has --base: a compiler from before the base check (ST-GEN-UC12-R05) has no such
+      # flag, and this step then names no base.
       - name: Name the base of the change
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
         run: |
-          base="$(git rev-parse --verify HEAD^1)"
-          if "$RUNNER_TEMP/stego" apply -h 2>&1 | grep -qE '^ +-base( |$)'; then
+          set -euo pipefail
+          case "$EVENT" in
+            pull_request)
+              base="$(git rev-parse --verify 'HEAD^1^{commit}')" ;;
+            push)
+              case "$BEFORE" in
+                ''|*[!0-9a-f]*) echo "::error::The push names no previous commit ($BEFORE)."; exit 1 ;;
+              esac
+              if [ "${#BEFORE}" -ne 40 ] || [ "$BEFORE" = 0000000000000000000000000000000000000000 ]; then
+                echo "::error::The push names no previous commit of main ($BEFORE), so apply has no base."
+                exit 1
+              fi
+              git fetch --no-tags --depth=1 origin "$BEFORE"
+              base="$(git rev-parse --verify "$BEFORE^{commit}")" ;;
+            *)
+              base="$(git rev-parse --verify 'HEAD^1^{commit}')" ;;
+          esac
+          help="$("$RUNNER_TEMP/stego" apply -h 2>&1 || true)"
+          if grep -qE '^ +-base( |$)' <<< "$help"; then
             echo "STEGO_APPLY_BASE=$base" >> "$GITHUB_ENV"
-            echo "apply checks against $base, HEAD's first parent."
+            echo "apply checks against $base ($EVENT)."
           else
             echo "This compiler has no --base: apply checks against no base."
           fi
