@@ -170,6 +170,26 @@ type EntitySpec[T any] struct {
 	// entity that has none. A create, a move and the work on a child take the loaded value of each reference that
 	// is set, and nothing else (ST-SUP-RP10-LC05).
 	Parent []Reference[T]
+	// Relationships are the declared relationships of the entity (ST-DECL-UC06-R04), which the runtime writes as it
+	// writes the relations of the references (ST-SUP-RP10-LC05, ST-SUP-Q118): a create touches the tuple of each one
+	// whose subject is set, an update that changes a field subject deletes the old tuple and touches the new one,
+	// and a delete deletes each field-sourced tuple. They need a resource type on the entity.
+	Relationships []Relationship[T]
+}
+
+// Relationship is one declared relationship of an entity: the relation of the entity's resource type, the subject
+// type, and where the subject comes from.
+type Relationship[T any] struct {
+	// Relation is the relation, such as owner, and SubjectType the type of its subject, such as user.
+	Relation, SubjectType string
+	// Field reads the subject's ID from a value, such as value.OwnerID; an empty ID writes no tuple. Nil takes the
+	// subject from the caller, the principal of the handle, which a create writes and an update never changes; a
+	// caller of another subject type than SubjectType is refused, so a tuple that the schema refuses is never
+	// enqueued.
+	Field func(value T) string
+	// Resource is true when SubjectType is a resource type of this service, so the subject's ID is tenant-qualified
+	// as the ID of a referenced row is (ST-SUP-RP06-LC22).
+	Resource bool
 }
 
 // Reference is one reference of a row of an entity to a row of another entity, as the declaration states it
@@ -220,7 +240,73 @@ func (e *Entity[T]) relations() []authz.Relation {
 			out = append(out, authz.Relation{ResourceType: e.spec.ResourceType, Name: r.Relation})
 		}
 	}
+	for _, r := range e.spec.Relationships {
+		out = append(out, authz.Relation{ResourceType: e.spec.ResourceType, Name: r.Relation})
+	}
 	return out
+}
+
+// declared gives the tuple of each declared relationship of value whose subject is set: for create, the caller's
+// too; otherwise only the field-sourced ones, since the caller of an update or a delete is not the subject that the
+// create wrote.
+func (r *Repository[T]) declared(id string, value T, create bool) ([]authz.Tuple, error) {
+	s, e := r.st, r.entity
+	if len(e.spec.Relationships) == 0 {
+		return nil, nil
+	}
+	resource, err := authz.NewResource(s.tenant, e.spec.ResourceType, id)
+	if err != nil {
+		return nil, s.breakWith(internalf("the row of %s has a key that is not a resource key", e.spec.Name))
+	}
+	var tuples []authz.Tuple
+	for _, rel := range e.spec.Relationships {
+		var subject authz.Subject
+		switch {
+		case rel.Field == nil && !create:
+			continue
+		case rel.Field == nil:
+			subject = s.principal.Subject()
+			if subject.Type != rel.SubjectType {
+				return nil, s.breakWith(internalf("the caller of the create of %s is a %s, and the relationship %s takes a %s", e.spec.Name, subject.Type, rel.Relation, rel.SubjectType))
+			}
+		default:
+			subjectID := rel.Field(value)
+			if subjectID == "" {
+				continue
+			}
+			if rel.Resource {
+				if subjectID, err = authz.ResourceID(s.tenant, subjectID); err != nil {
+					return nil, s.breakWith(internalf("the relationship %s of %s has a subject key that is not a resource key", rel.Relation, e.spec.Name))
+				}
+			}
+			subject = authz.Subject{Type: rel.SubjectType, ID: subjectID}
+		}
+		tuples = append(tuples, authz.Tuple{Resource: resource, Relation: rel.Relation, Subject: subject})
+	}
+	return tuples, nil
+}
+
+// relateDeclared enqueues, through the authorization handle, the delete of each tuple of drop that touch does not
+// hold, and then the touch of each tuple of touch that drop does not hold (ST-SUP-Q118).
+func (r *Repository[T]) relateDeclared(ctx context.Context, touch, drop []authz.Tuple) error {
+	s := r.st
+	for _, set := range []struct {
+		tuples, other []authz.Tuple
+		op            func(*authz.Handle, context.Context, authz.Tuple) (authz.Revocation, error)
+	}{{drop, touch, (*authz.Handle).Unrelate}, {touch, drop, (*authz.Handle).Relate}} {
+		for _, tuple := range set.tuples {
+			if slices.Contains(set.other, tuple) {
+				continue
+			}
+			if err := s.setLockTimeout(ctx); err != nil {
+				return s.fail(ctx, "relate", err)
+			}
+			if _, err := set.op(s.az, ctx, tuple); err != nil {
+				return s.decisionError(ctx, "relate", err)
+			}
+		}
+	}
+	return nil
 }
 
 // Entity is the repository declaration of one entity, which NewEntity checks once.
@@ -306,7 +392,20 @@ func NewEntity[T any](spec EntitySpec[T]) (*Entity[T], error) {
 			}
 		}
 	}
+	for i, r := range spec.Relationships {
+		if spec.ResourceType == "" || r.SubjectType == "" {
+			return nil, fmt.Errorf("command: the relationship %s of %s needs a resource type on the entity and a subject type", r.Relation, spec.Name)
+		}
+		if _, err := authz.ParseRelation(spec.ResourceType + "#" + r.Relation); err != nil {
+			return nil, fmt.Errorf("command: the relationship of %s: %w", spec.Name, err)
+		}
+		if (r.Field == nil && r.Resource) || slices.ContainsFunc(spec.Relationships[:i], func(o Relationship[T]) bool { return o.Relation == r.Relation }) ||
+			slices.ContainsFunc(spec.Parent, func(o Reference[T]) bool { return o.Relation == r.Relation }) {
+			return nil, fmt.Errorf("command: the relationship %s of %s is given twice, also writes a reference's relation, or takes a caller as a resource", r.Relation, spec.Name)
+		}
+	}
 	spec.Parent = slices.Clone(spec.Parent)
+	spec.Relationships = slices.Clone(spec.Relationships)
 	return &Entity[T]{spec: spec}, nil
 }
 
@@ -1239,6 +1338,13 @@ func (r *Repository[T]) Create(ctx context.Context, value T, parents ...Ref) (Lo
 			return nil, err
 		}
 	}
+	tuples, err := r.declared(meta.ID, stored, true)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.relateDeclared(ctx, tuples, nil); err != nil {
+		return nil, err
+	}
 	if err := s.buffer(e.auditType(), e.spec.Fields, meta.ID, nil, e.spec.State(stored)); err != nil {
 		return nil, err
 	}
@@ -1299,6 +1405,18 @@ func (r *Repository[T]) Update(ctx context.Context, from Loaded[T], value T, par
 	if err := r.relate(ctx, meta.ID, touch, drop); err != nil {
 		return nil, err
 	}
+	// A changed field subject moves its tuple; a caller-sourced one stays as the create wrote it.
+	was, err := r.declared(meta.ID, from2.value, false)
+	if err != nil {
+		return nil, err
+	}
+	is, err := r.declared(meta.ID, stored, false)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.relateDeclared(ctx, is, was); err != nil {
+		return nil, err
+	}
 	if err := s.buffer(e.auditType(), e.spec.Fields, meta.ID, e.spec.State(from2.value), e.spec.State(stored)); err != nil {
 		return nil, err
 	}
@@ -1344,6 +1462,13 @@ func (r *Repository[T]) Delete(ctx context.Context, from Loaded[T], parent ...Re
 	if n == 0 {
 		s.conflict = &conflictError{text: "the version of a row of " + e.spec.Name + " moved"}
 		return s.conflict
+	}
+	gone, err := r.declared(from2.meta.ID, from2.value, false)
+	if err != nil {
+		return err
+	}
+	if err := r.relateDeclared(ctx, nil, gone); err != nil {
+		return err
 	}
 	if err := s.buffer(e.auditType(), e.spec.Fields, from2.meta.ID, e.spec.State(from2.value), nil); err != nil {
 		return err

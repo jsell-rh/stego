@@ -22,6 +22,17 @@ type entity struct {
 	// generated Parent list declares (ST-SUP-RP10-LC05, ST-DECL-EN02).
 	references []reference
 	keys       []*entityField // the fields of a unique key besides the ID (ST-SUP-RP10-LC24)
+	// relationships are the declared relationships of the entity, which the generated Relationships list declares
+	// and the runtime writes (ST-DECL-UC06-R04, ST-SUP-Q118).
+	relationships []relationship
+}
+
+// relationship is one declared relationship: the relation, the subject type, the field that holds the subject or
+// nil for the caller, and whether the subject type is a resource type of this service.
+type relationship struct {
+	relation, subjectType string
+	field                 *entityField
+	resource              bool
 }
 
 // reference is one reference of an entity to an entity with a resource type: the field, the referenced entity and
@@ -121,6 +132,31 @@ func planEntity(e types.Entity, byName map[string]types.Entity, tenantKey string
 		}
 		p.references = append(p.references, reference{field: f, entity: to.Name, resourceType: to.ResourceType,
 			relation: relation, permission: declared.Permission})
+	}
+	resourceTypes := map[string]bool{}
+	for _, other := range byName {
+		if other.ResourceType != "" {
+			resourceTypes[other.ResourceType] = true
+		}
+	}
+	for _, r := range e.Relationships {
+		if p.resourceType == "" {
+			return nil, fmt.Errorf("the relationship %s needs a resource type on the entity", r.Relation)
+		}
+		rel := relationship{relation: r.Relation, subjectType: r.SubjectType, resource: resourceTypes[r.SubjectType]}
+		if r.SubjectSource == types.SubjectSourceField {
+			for _, f := range p.fields {
+				if f.decl.Name == r.SubjectField {
+					rel.field = f
+				}
+			}
+			if rel.field == nil || (rel.field.decl.Type != types.FieldTypeString && rel.field.decl.Type != types.FieldTypeRef) {
+				return nil, fmt.Errorf("the relationship %s takes its subject from the field %q, which is not a string or ref field of the entity", r.Relation, r.SubjectField)
+			}
+		} else {
+			rel.resource = false
+		}
+		p.relationships = append(p.relationships, rel)
 	}
 	return p, nil
 }
@@ -274,6 +310,24 @@ func renderEntity(w *writer, e *entity, tenantKey string) {
 			}
 			if r.relation != "" {
 				w.f(", Relation: %q", r.relation)
+			}
+			w.f("},\n")
+		}
+		w.f("\t},\n")
+	}
+	if len(e.relationships) > 0 {
+		w.f("\tRelationships: []command.Relationship[%s]{\n", e.goName)
+		for _, r := range e.relationships {
+			w.f("\t\t{Relation: %q, SubjectType: %q", r.relation, r.subjectType)
+			if f := r.field; f != nil {
+				read := fmt.Sprintf("func(v %s) string { return v.%s }", e.goName, f.goName)
+				if f.pointer {
+					read = fmt.Sprintf("func(v %s) string {\n\t\tif v.%s == nil {\n\t\t\treturn \"\"\n\t\t}\n\t\treturn *v.%s\n\t}", e.goName, f.goName, f.goName)
+				}
+				w.f(", Field: %s", read)
+				if r.resource {
+					w.f(", Resource: true")
+				}
 			}
 			w.f("},\n")
 		}
