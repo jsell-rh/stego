@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"maps"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -97,6 +98,26 @@ func TestSchemaStepPlan(t *testing.T) {
 		other.write(t, "service.yaml", noteFields(renamedTitle))
 		if planned := other.must(t, "plan"); !strings.Contains(planned, "No base check") {
 			t.Errorf("plan in a folder with no repository does not say that it has no base:\n%s", planned)
+		}
+		// The service folder seen through a symbolic link from a folder with no .git, while its real parent holds a
+		// .git that git cannot read: git walks the real path, so the check must stop too.
+		linked := filepath.Join(t.TempDir(), "linked")
+		holder := filepath.Join(s.parent, "holder")
+		if err := os.MkdirAll(holder, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, holder, ".git", "gitdir: "+filepath.Join(s.parent, "removed-worktree")+"\n", 0o644)
+		if output, err := exec.Command("cp", "-a", other.service, filepath.Join(holder, "notes")).CombinedOutput(); err != nil {
+			t.Fatalf("copy the service folder: %v\n%s", err, output)
+		}
+		if err := os.Symlink(filepath.Join(holder, "notes"), linked); err != nil {
+			t.Fatal(err)
+		}
+		through := *other
+		through.service = linked
+		through.env = append(slices.Clone(other.env), "PWD="+linked)
+		if stdout, stderr, err := through.stego(t, "plan"); err == nil || !strings.Contains(stdout+stderr, "git cannot read the repository") {
+			t.Errorf("a linked folder whose real parent holds a .git that git cannot read: %v, want a refusal:\n%s%s", err, stdout, stderr)
 		}
 		writeFile(t, other.service, ".git", "gitdir: "+filepath.Join(s.parent, "removed-worktree")+"\n", 0o644)
 		if stdout, stderr, err := other.stego(t, "plan"); err == nil || !strings.Contains(stdout+stderr, "git cannot read the repository") {

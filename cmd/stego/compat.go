@@ -297,10 +297,20 @@ func defaultBaseRef() (ref string, found bool, err error) {
 // .git that git cannot read, such as the link of a worktree that was removed, is a broken repository, not the
 // absence of one, so the check fails rather than skip.
 func gitEntryAbove() bool {
-	folder, err := os.Getwd()
+	logical, err := os.Getwd()
 	if err != nil {
 		return true
 	}
+	// git walks the physical path, and the working folder can be a symbolic link, so both paths are walked.
+	physical, err := filepath.EvalSymlinks(logical)
+	if err != nil {
+		return true
+	}
+	return gitEntryOnPath(logical) || gitEntryOnPath(physical)
+}
+
+// gitEntryOnPath tells whether a .git entry exists in the folder or in a folder above it, up to the root.
+func gitEntryOnPath(folder string) bool {
 	for {
 		if _, err := os.Lstat(filepath.Join(folder, ".git")); err == nil || !errors.Is(err, os.ErrNotExist) {
 			return true
