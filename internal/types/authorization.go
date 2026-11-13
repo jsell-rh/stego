@@ -52,6 +52,10 @@ type EntityAuthorization struct {
 	// ContextFields are the request fields passed to caveats, such as request.ip. The name after request. is a
 	// caveat parameter of the schema.
 	ContextFields []string `yaml:"context_fields,omitempty" json:",omitempty"`
+	// ExpectedCardinality is small or large; empty is large. A list of an entity of small expected cardinality reads
+	// the rows that the provider's resource search gives; a large one pages the table and decides each page with one
+	// batch evaluation (ST-DECL-EN02, ST-SUP-RP11-LC20).
+	ExpectedCardinality string `yaml:"expected_cardinality,omitempty" json:",omitempty"`
 	// Relationships are the tuples the generated code writes for each row.
 	Relationships []Relationship `yaml:"relationships,omitempty" json:",omitempty"`
 	// References maps each field that refers to an entity with a resource type to the relation of the service's
@@ -66,6 +70,12 @@ type Reference struct {
 	Relation   string `yaml:"relation"`
 	Permission string `yaml:"permission"`
 }
+
+// The expected cardinalities of an entity (ST-DECL-EN02).
+const (
+	CardinalitySmall = "small"
+	CardinalityLarge = "large"
+)
 
 // Principals that the fills of a slot binding run as.
 const (

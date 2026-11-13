@@ -81,7 +81,7 @@ func run() (stegoErr error) {
 	if err != nil {
 		return err
 	}
-	stegoStage = "component[12].constructor[0]"
+	stegoStage = "component[11].constructor[0]"
 	service, err := stegoruntime.NewService(ctx)
 	if err != nil {
 		if stage := stegoruntime.StartStage(err); stage != "" {

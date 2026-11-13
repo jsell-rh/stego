@@ -95,6 +95,9 @@ type entity struct {
 	resourceType   string
 	readPermission string
 	listPermission string
+	// search is true for an entity of small expected cardinality: its list reads the rows of the provider's
+	// resource search (ST-SUP-RP11-LC20).
+	search bool
 	// local is true for the declaration that decides a get query's permission on its requested row in place of the
 	// entity's read permission (ST-SUP-RC33-OC05); it shares the value type of the entity it copies.
 	local bool
@@ -384,6 +387,16 @@ func entityOf(name string, declared map[string]types.Entity, entities map[string
 		return nil, err
 	}
 	e := &entity{value: value, variable: capability.LowerFirst(value.GoType) + "Entity", resourceType: decl.ResourceType}
+	switch decl.ExpectedCardinality {
+	case "", types.CardinalityLarge:
+	case types.CardinalitySmall:
+		if e.resourceType == "" {
+			return nil, fmt.Errorf("its expected cardinality is small but it has no resource type; only a protected entity lists through the resource search")
+		}
+		e.search = true
+	default:
+		return nil, fmt.Errorf("its expected cardinality is %q; it is small or large", decl.ExpectedCardinality)
+	}
 	if e.resourceType != "" {
 		e.readPermission = decl.Permissions[types.OpRead]
 		e.listPermission = decl.Permissions[types.OpList]

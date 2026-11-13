@@ -71,8 +71,9 @@ func crudContext() gen.Context {
 		types.Entity{Name: "Setting", Fields: []types.Field{{Name: "folder_id", Type: types.FieldTypeRef, To: "Folder"}, {Name: "name", Type: types.FieldTypeString}, {Name: "value", Type: types.FieldTypeString}, {Name: "source", Type: types.FieldTypeString}},
 			EntityAuthorization: types.EntityAuthorization{ResourceType: "setting", Permissions: map[types.Operation]string{types.OpRead: "view", types.OpList: "view", types.OpUpsert: "edit"},
 				References: map[string]types.Reference{"folder_id": {Relation: "folder", Permission: "edit"}}}},
+		// Event is of small expected cardinality: its list reads the rows of the resource search (ST-SUP-RC33-OC09).
 		types.Entity{Name: "Event", Fields: []types.Field{{Name: "source", Type: types.FieldTypeString}, {Name: "note", Type: types.FieldTypeString}},
-			EntityAuthorization: types.EntityAuthorization{ResourceType: "event", Permissions: permissions(types.OpUpdate, types.OpPatch, types.OpDelete), PublicReasons: reasons}},
+			EntityAuthorization: types.EntityAuthorization{ResourceType: "event", Permissions: permissions(types.OpUpdate, types.OpPatch, types.OpDelete), PublicReasons: reasons, ExpectedCardinality: types.CardinalitySmall}},
 		// Quota gives an upsert with optimistic concurrency: the If-Match precondition names the generation
 		// (ST-SUP-RC20-OC14).
 		types.Entity{Name: "Quota", Fields: []types.Field{{Name: "folder_id", Type: types.FieldTypeRef, To: "Folder"}, {Name: "name", Type: types.FieldTypeString}, {Name: "amount", Type: types.FieldTypeInt64},
@@ -312,7 +313,7 @@ func newCrudProject(t *testing.T, ctx gen.Context, files map[string][]byte) *cru
 		t.Fatal(err)
 	}
 	p.write("go.sum", sums)
-	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.49.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
+	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.53.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
 	p.mustGo("mod", "tidy")
 	return p
 }
@@ -545,6 +546,7 @@ var crudCheckIDs = []string{
 	"ST-SUP-RC20-OC24-T06 A list cursor of one parent is refused for another",
 	"ST-SUP-RC20-OC24-T07 An upper-case UUID in a path or a ref names the same row as its lower-case form",
 	"ST-SUP-RP11-LC20-T04 A search of the generated service uses the index of its field, and a sensitive field neither searches nor orders",
+	"ST-SUP-RC33-OC09-T02 A search of an entity of small expected cardinality reads only the rows that the caller may see, so hidden rows that match do not fill its pages",
 }
 
 // bodyLimitCheck is a test of the generated api package: the validation middleware answers a body larger than

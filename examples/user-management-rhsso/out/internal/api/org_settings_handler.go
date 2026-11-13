@@ -14,7 +14,6 @@ import (
 
 	"github.com/jsell-rh/stego/registry/runtime/command"
 	"github.com/jsell-rh/stego/registry/runtime/idempotency"
-	"github.com/jsell-rh/stego/registry/runtime/outbox/kafkaoutbox"
 	"github.com/jsell-rh/stego/registry/runtime/query"
 
 	data "github.com/example/service/out/internal/api/data"
@@ -25,10 +24,9 @@ var orgSettingsListQuery = mustQuery(query.NewListQuery("list", data.EntityOrgSe
 
 // orgSettingsUpsertCommand is the generated command of a upsert of org-settings (ST-SUP-RC20-OC37).
 var orgSettingsUpsertCommand = mustCommand(command.NewCommand(command.CommandSpec[struct{}]{
-	Name:         "upsert",
-	Writes:       []command.Declared{data.OrgSettingEntity, data.OrganizationEntity},
-	Probe:        noProbe,
-	Destinations: []command.Destination{{Name: kafkaoutbox.DestinationName, Idempotent: true, Effects: []string{"user-management.org-setting.created", "user-management.org-setting.updated"}}},
+	Name:   "upsert",
+	Writes: []command.Declared{data.OrgSettingEntity, data.OrganizationEntity},
+	Probe:  noProbe,
 }))
 
 // orgSettingsUpsertKey finds the row of an upsert by org_id, key: its natural key, with its scope and implicit fields
@@ -256,9 +254,6 @@ func (h *OrgSettingsHandler) Upsert(w http.ResponseWriter, r *http.Request) {
 				return idempotency.Response{}, err
 			}
 			persisted = orgSettingsFromData(created.Value())
-			if err := ch.Effects().Stage(ctx, kafkaoutbox.DestinationName, "user-management.org-setting.created", created, changeEvent("OrgSetting", "created", persisted.ID)); err != nil {
-				return idempotency.Response{}, err
-			}
 			response, err := json.Marshal(orgSettingsPresented(persisted))
 			if err != nil {
 				return idempotency.Response{}, err
@@ -301,9 +296,6 @@ func (h *OrgSettingsHandler) Upsert(w http.ResponseWriter, r *http.Request) {
 			return idempotency.Response{}, err
 		}
 		persisted = orgSettingsFromData(updated.Value())
-		if err := ch.Effects().Stage(ctx, kafkaoutbox.DestinationName, "user-management.org-setting.updated", updated, changeEvent("OrgSetting", "updated", persisted.ID)); err != nil {
-			return idempotency.Response{}, err
-		}
 		response, err := json.Marshal(orgSettingsPresented(persisted))
 		if err != nil {
 			return idempotency.Response{}, err
