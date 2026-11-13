@@ -1,14 +1,21 @@
 kind: mixin
 name: event-publisher
-version: 2.0.0
+version: 3.0.0
 
-adds_components:
-  - outbox
-  - kafka-producer
+# A deprecated alias of durable-events and kafka-events (ST-SUP-INV17): binding it binds both. Its slot contract
+# stays at slots/on_entity_changed.proto, the same as the one of durable-events, so a fill that implements event-publisher.on_entity_changed keeps its
+# contract digest.
+# It is deprecated in the release of deprecated_on, and the registry removes it at sunset: deprecated_on plus the ga
+# window of policy.yaml.
+deprecated_on: 2026-11-13
+sunset: 2027-05-13
 
-adds_slots:
-  - name: on_entity_changed
-    proto: stego.mixins.event_publisher.slots.OnEntityChanged
-    default: noop
+alias_of:
+  - durable-events
+  - kafka-events
+
+adds_components: []
+
+adds_slots: []
 
 overrides: none

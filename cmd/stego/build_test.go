@@ -485,6 +485,51 @@ func TestBuildDownloadChecksTargetAndSDKFirst(t *testing.T) {
 			})
 		}
 	})
+	t.Run("ST-BLD-UC02-R04-T02 A target with ./ and a file:// source are taken, and a bad flag is refused by its name and value", func(t *testing.T) {
+		root := t.TempDir()
+		source := filepath.Join(root, "source")
+		fakeSDK := filepath.Join(root, "sdk")
+		for _, name := range []string{source, filepath.Join(fakeSDK, "bin")} {
+			if err := os.MkdirAll(name, 0755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		fakeGo := filepath.Join(fakeSDK, "bin", "go")
+		if err := os.WriteFile(fakeGo, []byte("not executed\n"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		revision := strings.Repeat("a", 40)
+		args := func(source, target string) []string {
+			return []string{"download", "--source", source, "--revision", revision, "--target", target, "--go", fakeGo, "--output", filepath.Join(root, "cache")}
+		}
+		for name, testCase := range map[string]struct {
+			args  []string
+			names []string
+		}{
+			// Taken: the run goes on to the check of the SDK, which the fake SDK fails.
+			"a target with ./":    {args(source, "./cmd/tiny"), []string{"is not the pinned official release"}},
+			"a file:// source":    {args("file://"+source, "cmd/tiny"), []string{"is not the pinned official release"}},
+			"a target out of it":  {args(source, "../cmd/tiny"), []string{`--target "../cmd/tiny"`, "clean relative path"}},
+			"a source URL":        {args("https://example.com/service.git", "cmd/tiny"), []string{`--source "https://example.com/service.git"`, "not a https URL"}},
+			"a file URL any host": {args("file://host"+source, "cmd/tiny"), []string{"--source", "absolute path and no host"}},
+		} {
+			t.Run(name, func(t *testing.T) {
+				before := folderNames(t, root)
+				_, err := capture(t, runBuild, testCase.args...)
+				if err == nil {
+					t.Fatal("the download was not refused")
+				}
+				for _, part := range testCase.names {
+					if !strings.Contains(err.Error(), part) {
+						t.Errorf("the refusal does not name %q: %v", part, err)
+					}
+				}
+				if after := folderNames(t, root); strings.Join(after, " ") != strings.Join(before, " ") {
+					t.Fatalf("a refused download changed the folder: %v, then %v", before, after)
+				}
+			})
+		}
+	})
 }
 
 // buildGenerator writes one generated program that needs the small module.

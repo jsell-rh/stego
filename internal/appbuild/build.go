@@ -170,12 +170,43 @@ func outside(parent, child string) bool {
 	return err == nil && (relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)))
 }
 
+// checkLocation checks the source, revision, module and target of a download or a build, and gives each check a
+// refusal that names the flag, what it found and what it expects (ST-BLD-UC02-R04). A target or a module that starts
+// with ./, as go build takes ./cmd/server, is taken as the same path without it, and a --source that is a file://
+// URL is taken as its local path; a URL of another scheme is refused, since the source is a local repository.
+func checkLocation(source, revision, module, target string) (string, string, string, error) {
+	if rest, ok := strings.CutPrefix(source, "file://"); ok {
+		if !strings.HasPrefix(rest, "/") {
+			return "", "", "", fmt.Errorf("--source %q: expected a file URL with an absolute path and no host, such as file:///home/me/service", source)
+		}
+		source = rest
+	} else if scheme, _, ok := strings.Cut(source, "://"); ok && !strings.ContainsAny(scheme, "/") {
+		return "", "", "", fmt.Errorf("--source %q: expected a local Git repository folder or a file:// URL, not a %s URL", source, scheme)
+	}
+	if !revisionPattern.MatchString(revision) {
+		return "", "", "", fmt.Errorf("--revision %q: expected a full commit ID of 40 lower-case hexadecimal digits", revision)
+	}
+	module = strings.TrimPrefix(module, "./")
+	if module == "" {
+		module = "."
+	}
+	if module != "." && !safePath(module) {
+		return "", "", "", fmt.Errorf("--module %q: expected . or a clean relative path in the source with no .. or .git part", module)
+	}
+	target = strings.TrimPrefix(target, "./")
+	if !safePath(target) {
+		return "", "", "", fmt.Errorf("--target %q: expected a clean relative path of the program in the module, such as cmd/server or ./cmd/server, with no .. or .git part", target)
+	}
+	return source, module, target, nil
+}
+
 func prepare(options Options) (Options, error) {
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
 		return options, errors.New("application builds require Linux amd64")
 	}
-	if !revisionPattern.MatchString(options.Revision) || (options.Module != "." && !safePath(options.Module)) || !safePath(options.Target) {
-		return options, errors.New("build requires a commit, relative module, and relative target")
+	var err error
+	if options.Source, options.Module, options.Target, err = checkLocation(options.Source, options.Revision, options.Module, options.Target); err != nil {
+		return options, fmt.Errorf("build: %w", err)
 	}
 	if options.ModuleCache == "" {
 		return options, errors.New("build requires --module-cache: a module cache that stego build download recorded; a build never downloads modules")
@@ -190,7 +221,6 @@ func prepare(options Options) (Options, error) {
 		}
 		*pointer = absolute
 	}
-	var err error
 	options.Source, err = filepath.EvalSymlinks(options.Source)
 	if err != nil {
 		return options, err
