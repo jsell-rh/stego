@@ -404,7 +404,7 @@ func runPlan(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := checkPinStanding(input, plan); err != nil {
+	if err := checkPinStanding(input, plan, os.Stdout); err != nil {
 		return err
 	}
 	if err := compiler.SavePlan(plan, input.ProjectDir); err != nil {
@@ -438,7 +438,7 @@ func runApply(args []string) error {
 		return err
 	}
 
-	if err := checkPinStanding(input, plan); err != nil {
+	if err := checkPinStanding(input, plan, os.Stdout); err != nil {
 		return err
 	}
 	if *savedPlan {
@@ -508,7 +508,13 @@ func runValidate(args []string) error {
 	if err != nil {
 		return err
 	}
-	return checkPinStanding(input, plan)
+	// With --json, standard output holds only the one JSON document (ST-DECL-CLI02), so the pin standing goes to
+	// standard error.
+	standing := io.Writer(os.Stdout)
+	if *structured {
+		standing = os.Stderr
+	}
+	return checkPinStanding(input, plan, standing)
 }
 
 // runDrift implements `stego drift`.
