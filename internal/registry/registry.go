@@ -3,11 +3,13 @@
 package registry
 
 import (
+	"bytes"
 	"fmt"
 	"maps"
 	"path"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/parser"
@@ -197,7 +199,30 @@ func LoadSources(sources ...Source) (*Registry, error) {
 		if err := r.checkSlots("mixins", name, item.AddsSlots); err != nil {
 			return nil, err
 		}
+		if len(item.AliasOf) > 0 && (len(item.AddsComponents) > 0 || len(item.AddsSlots) > 0 || len(item.RequiresMixins) > 0) {
+			return nil, fmt.Errorf("mixin %s is an alias and adds or requires nothing of its own, in %s", name, file)
+		}
 		r.mixins[name] = item
+	}
+	// An alias names mixins that are no aliases, so an alias never leads to itself or to another alias.
+	for name, item := range r.mixins {
+		for _, target := range item.AliasOf {
+			resolved, ok := r.mixins[target]
+			if !ok {
+				return nil, fmt.Errorf("mixin %s is an alias of the mixin %s, which the registry does not hold", name, target)
+			}
+			if len(resolved.AliasOf) > 0 {
+				return nil, fmt.Errorf("mixin %s is an alias of the mixin %s, which is an alias too", name, target)
+			}
+		}
+		for _, required := range item.RequiresMixins {
+			if _, ok := r.mixins[required]; !ok {
+				return nil, fmt.Errorf("mixin %s requires the mixin %s, which the registry does not hold", name, required)
+			}
+		}
+	}
+	if err := r.checkAliases(); err != nil {
+		return nil, err
 	}
 	if err := checkGoldenPaths(r); err != nil {
 		return nil, err
@@ -206,6 +231,81 @@ func LoadSources(sources ...Source) (*Registry, error) {
 		return nil, err
 	}
 	return r, nil
+}
+
+// policyFile is the registry policy file, at the root of the registry.
+const policyFile = "policy.yaml"
+
+// checkAliases holds each deprecated alias to its dates and its slot contracts (ST-SUP-INV17, decision on
+// ST-SUP-Q117 (b)). An alias states deprecated_on and sunset, and sunset is deprecated_on plus the ga window of the
+// registry policy file in months, so the date that a notice names cannot drift. A mixin that is no alias states no
+// dates. An alias keeps, at its own path, each slot contract of the mixins it names, byte for byte the same as the
+// contract of the mixin, so a fill that names the slot by the alias is held to the same contract.
+func (r *Registry) checkAliases() error {
+	ga := -1
+	for _, name := range slices.Sorted(maps.Keys(r.mixins)) {
+		item := r.mixins[name]
+		if len(item.AliasOf) == 0 {
+			if item.DeprecatedOn != "" || item.Sunset != "" {
+				return fmt.Errorf("mixin %s states deprecated_on or sunset, and only a deprecated alias states them", name)
+			}
+			continue
+		}
+		if ga < 0 {
+			window, err := r.gaWindow()
+			if err != nil {
+				return fmt.Errorf("mixin %s is a deprecated alias: %w", name, err)
+			}
+			ga = window
+		}
+		deprecated, err := time.Parse(time.DateOnly, item.DeprecatedOn)
+		if err != nil {
+			return fmt.Errorf("mixin %s is a deprecated alias and states no deprecated_on date as YYYY-MM-DD: %q", name, item.DeprecatedOn)
+		}
+		sunset, err := time.Parse(time.DateOnly, item.Sunset)
+		if err != nil {
+			return fmt.Errorf("mixin %s is a deprecated alias and states no sunset date as YYYY-MM-DD: %q", name, item.Sunset)
+		}
+		if want := addMonths(deprecated, ga); !sunset.Equal(want) {
+			return fmt.Errorf("mixin %s has the sunset %s, and the registry policy gives deprecated_on %s plus the ga window of %d months: %s", name, item.Sunset, item.DeprecatedOn, ga, want.Format(time.DateOnly))
+		}
+		for _, target := range item.AliasOf {
+			for _, slot := range r.mixins[target].AddsSlots {
+				own := "mixins/" + name + "/slots/" + slot.Name + ".proto"
+				contract := "mixins/" + target + "/slots/" + slot.Name + ".proto"
+				ownFile, present := r.source.files[own]
+				if !present || !bytes.Equal(ownFile.data, r.source.files[contract].data) {
+					return fmt.Errorf("mixin %s is an alias of %s and keeps no copy of the slot contract %s at %s that is the same, byte for byte", name, target, contract, own)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// addMonths gives the date the months after a date, on the same day of the month, or on the last day of the month
+// when that month is shorter: 2026-08-31 plus 6 months is 2027-02-28.
+func addMonths(date time.Time, months int) time.Time {
+	year, month, day := date.Date()
+	first := time.Date(year, month+time.Month(months), 1, 0, 0, 0, 0, time.UTC)
+	return first.AddDate(0, 0, min(day, first.AddDate(0, 1, -1).Day())-1)
+}
+
+// gaWindow gives the ga window, in months, of the registry policy file.
+func (r *Registry) gaWindow() (int, error) {
+	data, err := r.ReadFile(policyFile)
+	if err != nil {
+		return 0, fmt.Errorf("the registry policy file %s: %w", policyFile, err)
+	}
+	policy, err := parser.ParseKind(data, policyFile, "policy", func(p *Policy) string { return p.Kind })
+	if err != nil {
+		return 0, err
+	}
+	ga, ok := policy.Windows["ga"]
+	if !ok || ga < 0 {
+		return 0, fmt.Errorf("the registry policy file %s states no ga window of zero or more months", policyFile)
+	}
+	return ga, nil
 }
 
 // SourceParts is one source of the active registry: its name, its trust and

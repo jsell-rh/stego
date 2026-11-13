@@ -1,7 +1,7 @@
 kind: archetype
 name: rest-crud
 language: go
-version: 3.89.0
+version: 3.90.0
 # The runtime library that every service of this archetype imports (ST-SUP-INV10). It is the module in
 # registry/runtime, released with the common registry by the tag registry/runtime/<version>; sum is the go.sum hash
 # of that folder at the version. A new runtime version moves it in a new archetype version.
@@ -33,6 +33,8 @@ conventions:
 
 compatible_mixins:
   - event-publisher
+  - durable-events
+  - kafka-events
   - async-worker
 
 bindings:
