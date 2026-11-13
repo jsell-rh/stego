@@ -144,6 +144,8 @@ func TestCheck(t *testing.T) {
 			{"a dropped policy", "DROP POLICY stego_tenant ON public.books", "table public.books: policy stego_tenant is missing"},
 			{"a policy with another expression", "ALTER POLICY stego_tenant ON public.books USING (true)",
 				"table public.books: policy stego_tenant is not the policy of the manifest"},
+			{"a policy of every role that applies to one role", "DO $$ BEGIN CREATE ROLE manifest_one_role NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$; ALTER POLICY stego_tenant ON public.books TO manifest_one_role",
+				"table public.books: policy stego_tenant is not the policy of the manifest"},
 			{"an added permissive policy", "CREATE POLICY open_door ON public.books USING (true)",
 				"table public.books: policy open_door is a permissive policy that the manifest does not name"},
 			{"a dropped trigger", "DROP TRIGGER books_reject_row ON public.books", "table public.books: trigger books_reject_row is missing"},
@@ -174,6 +176,25 @@ func TestCheck(t *testing.T) {
 				}
 			})
 		}
+
+		t.Run("a policy of two roles named in the other order is taken", func(t *testing.T) {
+			admin, reader := database(t)
+			suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+			a, b := "manifest_a_"+suffix, "manifest_b_"+suffix
+			if _, err := admin.Exec("CREATE ROLE " + a + " NOLOGIN; CREATE ROLE " + b + " NOLOGIN; ALTER POLICY stego_tenant ON public.books TO " + b + ", " + a); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				_, _ = admin.Exec("DROP OWNED BY " + a + ", " + b + "; DROP ROLE IF EXISTS " + a + "; DROP ROLE IF EXISTS " + b)
+			})
+			m := want()
+			for i := range m.Tables[1].Policies {
+				m.Tables[1].Policies[i].Roles = []string{a, b}
+			}
+			if err := Check(ctx, reader, m); err != nil {
+				t.Fatalf("Check refused a policy whose roles the catalog keeps in the other order: %v", err)
+			}
+		})
 
 		t.Run("more objects are allowed, and a nullable column may be NOT NULL", func(t *testing.T) {
 			admin, reader := database(t)
@@ -513,7 +534,7 @@ func TestFunctions(t *testing.T) {
 			"SET search_path = pg_catalog, pg_temp SET lock_timeout = '2s' AS $$ BEGIN RETURN 1; END $$; " +
 			"REVOKE ALL ON FUNCTION public.books_maintain() FROM PUBLIC"
 		functions := []Function{{Name: "public.books_maintain", Language: "plpgsql", Source: " BEGIN RETURN 1; END ", SecurityDefiner: true,
-			Config: []string{"search_path=pg_catalog, pg_temp", "lock_timeout=2s"}}}
+			Config: []string{"search_path=pg_catalog, pg_temp", "lock_timeout=2s"}, Returns: "integer"}}
 		other := fmt.Sprintf("manifest_other_%d", time.Now().UnixNano())
 		for _, change := range []struct{ name, statement, fault string }{
 			{"a missing function", "DROP FUNCTION public.books_maintain()", "function public.books_maintain is missing"},
@@ -531,6 +552,14 @@ func TestFunctions(t *testing.T) {
 			{"no EXECUTE for the role of the manifest", "", "function public.books_maintain may be run by roles that the manifest does not name"},
 			{"EXECUTE with the grant option", "GRANT EXECUTE ON FUNCTION public.books_maintain() TO " + "%role%" + " WITH GRANT OPTION",
 				"function public.books_maintain may be run by roles that the manifest does not name"},
+			{"STRICT", "ALTER FUNCTION public.books_maintain() STRICT",
+				"function public.books_maintain has another strictness, volatility or result than the manifest"},
+			{"STABLE", "ALTER FUNCTION public.books_maintain() STABLE",
+				"function public.books_maintain has another strictness, volatility or result than the manifest"},
+			{"another result", "DROP FUNCTION public.books_maintain(); CREATE FUNCTION public.books_maintain() RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER " +
+				"SET search_path = pg_catalog, pg_temp SET lock_timeout = '2s' AS $$ BEGIN RETURN 1; END $$; " +
+				"REVOKE ALL ON FUNCTION public.books_maintain() FROM PUBLIC; GRANT EXECUTE ON FUNCTION public.books_maintain() TO %role%",
+				"function public.books_maintain has another strictness, volatility or result than the manifest"},
 		} {
 			t.Run(change.name, func(t *testing.T) {
 				admin, reader := database(t)
@@ -572,6 +601,108 @@ func TestFunctions(t *testing.T) {
 				var mismatch *Mismatch
 				if !errors.As(err, &mismatch) || len(mismatch.Faults) != 1 || mismatch.Faults[0] != change.fault {
 					t.Fatalf("Check gave %v, want the one fault %q", err, change.fault)
+				}
+			})
+		}
+	})
+}
+
+func TestValidateNewFields(t *testing.T) {
+	t.Run("ST-SUP-RP15-LC01-T06 A manifest that names PUBLIC, grants it does not check, or a bad role, privilege or argument list is refused", func(t *testing.T) {
+		table := func(change func(*Table)) Manifest {
+			tb := Table{Schema: "public", Name: "t", CheckGrants: true}
+			change(&tb)
+			return Manifest{Tables: []Table{tb}}
+		}
+		for name, m := range map[string]Manifest{
+			"a policy for PUBLIC by name":     table(func(t *Table) { t.Policies = []Policy{{Name: "p", Command: "*", Roles: []string{"PUBLIC"}}} }),
+			"grants that are not checked":     table(func(t *Table) { t.CheckGrants = false; t.Grants = []Grant{{Role: "r", Privileges: []string{"SELECT"}}} }),
+			"a grant to PUBLIC":               table(func(t *Table) { t.Grants = []Grant{{Role: "PUBLIC", Privileges: []string{"SELECT"}}} }),
+			"a grant of no privilege":         table(func(t *Table) { t.Grants = []Grant{{Role: "r"}} }),
+			"a grant of an unknown privilege": table(func(t *Table) { t.Grants = []Grant{{Role: "r", Privileges: []string{"ALL"}}} }),
+			"EXECUTE for PUBLIC":              {Functions: []Function{{Name: "public.f", Language: "sql", Source: "SELECT 1", Execute: []string{"PUBLIC"}}}},
+			"an argument list with SQL text":  {Functions: []Function{{Name: "public.f", Language: "sql", Source: "SELECT 1", Returns: "integer", Args: "int); DROP TABLE x; --"}}},
+			"a function with no result":       {Functions: []Function{{Name: "public.f", Language: "sql", Source: "SELECT 1"}}},
+			"an unknown volatility":           {Functions: []Function{{Name: "public.f", Language: "sql", Source: "SELECT 1", Returns: "integer", Volatility: "x"}}},
+			"a schema with no owner":          {Schemas: []Schema{{Name: "held"}}},
+			"a schema for PUBLIC":             {Owner: "o", Schemas: []Schema{{Name: "held", Usage: []string{"PUBLIC"}}}},
+			"a schema named twice":            {Owner: "o", Schemas: []Schema{{Name: "held"}, {Name: "held"}}},
+			"a shared schema with USAGE":      {Owner: "o", Schemas: []Schema{{Name: "public", Shared: true, Usage: []string{"r"}}}},
+			"PUBLIC confined":                 {Confined: []string{"PUBLIC"}},
+		} {
+			if err := m.Validate(); err == nil {
+				t.Errorf("%s: Validate took it", name)
+			}
+		}
+	})
+}
+
+func TestSchemas(t *testing.T) {
+	t.Run("ST-SUP-RP15-LC01-T07 Check refuses a held schema with another function, owner or privilege, and a confined role that owns what the manifest does not name", func(t *testing.T) {
+		ctx := context.Background()
+		suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+		confined, other := "manifest_confined_"+suffix, "manifest_stranger_"+suffix
+		function := Function{Name: "held.f", Args: "integer", Language: "sql", Source: "SELECT $1", SecurityDefiner: true,
+			Config: []string{"search_path=pg_catalog, pg_temp"}, Owner: confined, Returns: "integer"}
+		for _, change := range []struct{ name, statement, fault string }{
+			{"an overload in the schema", "CREATE FUNCTION held.f(double precision) RETURNS integer LANGUAGE sql AS 'SELECT 1'",
+				"schema held: function held.f(double precision) is a function that the manifest does not name"},
+			{"another function in the schema", "CREATE FUNCTION held.g() RETURNS integer LANGUAGE sql AS 'SELECT 1'",
+				"schema held: function held.g() is a function that the manifest does not name"},
+			{"USAGE for PUBLIC", "GRANT USAGE ON SCHEMA held TO PUBLIC", "schema held: the privilege USAGE to PUBLIC is granted, and the manifest does not grant it"},
+			{"CREATE for a role of the manifest", "GRANT CREATE ON SCHEMA held TO %role%",
+				"schema held: the privilege CREATE to %role% is granted, and the manifest does not grant it"},
+			{"USAGE with the grant option", "GRANT USAGE ON SCHEMA held TO %role% WITH GRANT OPTION",
+				"schema held: the privilege USAGE to %role% is granted with the grant option"},
+			{"no USAGE for a role of the manifest", "REVOKE USAGE ON SCHEMA held FROM " + confined,
+				"schema held: the privilege USAGE to " + confined + " of the manifest is not granted"},
+			{"the schema of another owner", "ALTER SCHEMA held OWNER TO " + other,
+				"schema held: the schema belongs to the role " + other + ", and the manifest needs %owner%"},
+			{"CREATE on a shared schema for a role", "GRANT CREATE ON SCHEMA public TO %role%",
+				"schema public: the privilege CREATE to %role% is granted, and the manifest gives it to no role but the owner"},
+			{"an overload of a function of the manifest outside a held schema", "CREATE FUNCTION public.books_reject(integer) RETURNS integer LANGUAGE sql AS 'SELECT 1'",
+				"function public.books_reject(integer) has the name of a function of the manifest, and is not one of it"},
+			{"a function of the confined role outside the manifest", "CREATE FUNCTION public.peek() RETURNS bigint LANGUAGE sql SECURITY DEFINER AS 'SELECT 1'; " +
+				"ALTER FUNCTION public.peek() OWNER TO " + confined, "the confined role " + confined + " owns the function public.peek(), which the manifest does not name for it"},
+			{"a table of the confined role", "CREATE TABLE public.side (x integer); ALTER TABLE public.side OWNER TO " + confined,
+				"the confined role " + confined + " owns the relation public.side, which the manifest does not name for it"},
+			{"a type of the confined role", "CREATE TYPE public.mood AS ENUM ('calm'); ALTER TYPE public.mood OWNER TO " + confined,
+				"the confined role " + confined + " owns the type public.mood, which the manifest does not name for it"},
+			{"a schema of the confined role", "CREATE SCHEMA side AUTHORIZATION " + confined,
+				"the confined role " + confined + " owns the schema side, which the manifest does not name for it"},
+		} {
+			t.Run(change.name, func(t *testing.T) {
+				admin, reader := database(t)
+				var role string
+				if err := reader.QueryRow("SELECT current_user").Scan(&role); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() {
+					_, _ = admin.Exec("DROP OWNED BY " + confined + ", " + other)
+					_, _ = admin.Exec("DROP ROLE IF EXISTS " + confined)
+					_, _ = admin.Exec("DROP ROLE IF EXISTS " + other)
+				})
+				if _, err := admin.Exec("CREATE ROLE " + confined + " NOLOGIN; CREATE ROLE " + other + " NOLOGIN; CREATE SCHEMA held; " +
+					"CREATE FUNCTION held.f(integer) RETURNS integer LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS 'SELECT $1'; " +
+					"REVOKE ALL ON FUNCTION held.f(integer) FROM PUBLIC; ALTER FUNCTION held.f(integer) OWNER TO " + confined + "; " +
+					"GRANT USAGE ON SCHEMA held TO " + role + ", " + confined); err != nil {
+					t.Fatal(err)
+				}
+				m := want()
+				m.Functions = []Function{function}
+				m.Schemas = []Schema{{Name: "held", Usage: []string{role, confined}}, {Name: "public", Shared: true}}
+				m.Confined = []string{confined}
+				if err := Check(ctx, reader, m); err != nil {
+					t.Fatalf("Check refused the database of the manifest: %v", err)
+				}
+				if _, err := admin.Exec(strings.ReplaceAll(change.statement, "%role%", role)); err != nil {
+					t.Fatal(err)
+				}
+				want := strings.NewReplacer("%role%", role, "%owner%", m.Owner).Replace(change.fault)
+				err := Check(ctx, reader, m)
+				var mismatch *Mismatch
+				if !errors.As(err, &mismatch) || len(mismatch.Faults) != 1 || mismatch.Faults[0] != want {
+					t.Fatalf("Check gave %v, want the one fault %q", err, want)
 				}
 			})
 		}

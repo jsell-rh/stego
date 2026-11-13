@@ -164,7 +164,8 @@ func Manifest(c Config) (manifest.Manifest, error) {
 		return manifest.Manifest{}, errors.New("audit: the manifest needs the runtime role, a plain lower-case name")
 	}
 	maintain := manifest.Function{Name: s + "." + MaintainFunction, Language: "plpgsql", Source: source, SecurityDefiner: true,
-		Config: []string{"search_path=pg_catalog, pg_temp", "lock_timeout=2s"}, Execute: []string{c.RuntimeRole}}
+		Config: []string{"search_path=pg_catalog, pg_temp", "lock_timeout=2s"}, Execute: []string{c.RuntimeRole},
+		Returns: "TABLE(step_left boolean, checkpoint_tenant text, checkpoint_seq bigint, checkpoint_hash bytea)"}
 	return manifest.Manifest{Functions: []manifest.Function{maintain}, Tables: []manifest.Table{
 		{Schema: s, Name: EventsTable, Partitioned: true, RowSecurity: true, Policies: wall, Triggers: rejecting(EventsTable),
 			// audit_create_partition gives each partition a statement trigger of its own; the row triggers are clones.

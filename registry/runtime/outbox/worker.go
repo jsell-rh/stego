@@ -583,7 +583,7 @@ func (w *Worker) oldestAges(ctx context.Context) (map[string]float64, error) {
 	}
 	w.mu.Unlock()
 	// The relay function oldest reads every tenant's messages (ST-SUP-RP01-LC19).
-	rows, err := w.queue.db.QueryContext(ctx, `SELECT * FROM stego_outbox.oldest($1)`, w.queue.now())
+	rows, err := w.queue.db.QueryContext(ctx, `SELECT * FROM stego_outbox.oldest($1::timestamptz)`, w.queue.now())
 	if err != nil {
 		return nil, err
 	}

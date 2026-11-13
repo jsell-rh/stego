@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/jsell-rh/stego/registry/runtime/manifest"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
 
@@ -85,6 +86,124 @@ func Migration(relayRole, runtimeRole, workerRole string) (string, error) {
 	}
 	return strings.NewReplacer("{{relay}}", `"`+relayRole+`"`, "{{relay_text}}", "'"+relayRole+"'",
 		"{{runtime}}", `"`+runtimeRole+`"`, "{{worker}}", `"`+workerRole+`"`).Replace(migration), nil
+}
+
+// Manifest gives what the code of the outbox needs of the database that Migration makes for the same roles
+// (ST-SUP-RP15-LC01, ST-SUP-RC01-OC12): the table stego_outbox.messages with its columns, its checks, its unique keys,
+// row-level security and its four policies, each on its own roles, the exact grants of the table and its columns to
+// the runtime, worker and relay roles, and the eight relay functions, each SECURITY DEFINER with its fixed search
+// path, owned by the relay role, with EXECUTE for the worker role and, for resolve, the runtime role.
+func Manifest(relayRole, runtimeRole, workerRole string) (manifest.Manifest, error) {
+	text, err := Migration(relayRole, runtimeRole, workerRole)
+	if err != nil {
+		return manifest.Manifest{}, err
+	}
+	notNull := func(names ...string) []manifest.Column {
+		var columns []manifest.Column
+		for i := 0; i < len(names); i += 2 {
+			columns = append(columns, manifest.Column{Name: names[i], Type: names[i+1], NotNull: true})
+		}
+		return columns
+	}
+	columns := notNull("id", "uuid", "sequence", "bigint", "tenant_id", "text", "destination", "text", "resource_key", "text",
+		"kind", "text", "payload", "bytea", "outgoing_key", "text", "group_id", "text", "principal", "text", "origin", "text",
+		"state", "text", "created_at", "timestamp with time zone", "available_at", "timestamp with time zone",
+		"attempts", "bigint", "conflicts", "bigint", "lookups", "bigint", "must_land", "boolean", "idempotent", "boolean",
+		"failure_code", "text")
+	for _, c := range [][2]string{{"lease_token", "uuid"}, {"lease_until", "timestamp with time zone"}, {"last_token", "uuid"},
+		{"dispatched_at", "timestamp with time zone"}, {"parked_from", "text"}, {"parked_at", "timestamp with time zone"},
+		{"done_at", "timestamp with time zone"}, {"resolved_by", "text"}, {"resolved_at", "timestamp with time zone"}, {"resolution", "text"}} {
+		columns = append(columns, manifest.Column{Name: c[0], Type: c[1]})
+	}
+	check := func(name, definition string) manifest.Constraint {
+		return manifest.Constraint{Name: name, Kind: manifest.KindCheck, Definition: definition}
+	}
+	states := "ARRAY['pending'::text, 'dispatching'::text, 'outcome_unknown'::text, 'reconciling'::text, 'done'::text, 'parked'::text, 'discarded'::text]"
+	constraints := []manifest.Constraint{
+		{Name: "messages_pkey", Kind: manifest.KindPrimaryKey, Definition: "PRIMARY KEY (id)"},
+		{Name: "messages_sequence_key", Kind: manifest.KindUnique, Definition: "UNIQUE (sequence)"},
+		check("messages_attempts_check", "CHECK ((attempts >= 0))"),
+		check("messages_check", "CHECK (((lease_token IS NULL) = (lease_until IS NULL)))"),
+		check("messages_check1", "CHECK (((state = 'parked'::text) = (parked_from IS NOT NULL)))"),
+		check("messages_conflicts_check", "CHECK ((conflicts >= 0))"),
+		check("messages_destination_check", "CHECK ((destination ~ '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$'::text))"),
+		check("messages_failure_code_check", "CHECK ((octet_length(failure_code) <= 128))"),
+		check("messages_group_id_check", "CHECK ((octet_length(group_id) <= 255))"),
+		check("messages_kind_check", "CHECK ((kind ~ '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$'::text))"),
+		check("messages_lookups_check", "CHECK ((lookups >= 0))"),
+		check("messages_origin_check", "CHECK ((octet_length(origin) <= 255))"),
+		check("messages_outgoing_key_check", "CHECK (((octet_length(outgoing_key) >= 1) AND (octet_length(outgoing_key) <= 255)))"),
+		check("messages_parked_from_check", "CHECK ((parked_from = ANY (ARRAY['dispatching'::text, 'outcome_unknown'::text, 'reconciling'::text])))"),
+		check("messages_payload_check", "CHECK (((octet_length(payload) >= 1) AND (octet_length(payload) <= 1048576)))"),
+		check("messages_principal_check", "CHECK ((octet_length(principal) <= 255))"),
+		check("messages_resolution_check", "CHECK ((resolution = ANY (ARRAY['acted'::text, 'not_acted'::text, 'discarded'::text])))"),
+		check("messages_resolved_by_check", "CHECK ((octet_length(resolved_by) <= 255))"),
+		check("messages_resource_key_check", "CHECK (((octet_length(resource_key) >= 1) AND (octet_length(resource_key) <= 256)))"),
+		check("messages_state_check", "CHECK ((state = ANY ("+states+")))"),
+		check("messages_tenant_id_check", "CHECK (((octet_length(tenant_id) >= 1) AND (octet_length(tenant_id) <= 255)))"),
+	}
+	wall := "(tenant_id = current_setting('app.tenant'::text, true))"
+	policies := []manifest.Policy{
+		{Name: "messages_tenant", Command: "*", Using: wall, WithCheck: wall, Roles: []string{runtimeRole, workerRole}},
+		{Name: "messages_relay_select", Command: "r", Using: "true", Roles: []string{relayRole}},
+		{Name: "messages_relay_update", Command: "w", Using: "true", WithCheck: "true", Roles: []string{relayRole}},
+		{Name: "messages_relay_delete", Command: "d", Using: "true", Roles: []string{relayRole}},
+	}
+	// The columns that an enqueue writes; the rest are the relay's.
+	inserted := []string{"id", "tenant_id", "destination", "resource_key", "kind", "payload", "outgoing_key", "group_id", "principal",
+		"origin", "created_at", "available_at", "must_land", "idempotent"}
+	grants := []manifest.Grant{
+		{Role: runtimeRole, Privileges: []string{"SELECT"}}, {Role: workerRole, Privileges: []string{"SELECT"}},
+		{Role: runtimeRole, Privileges: []string{"INSERT"}, Columns: inserted}, {Role: workerRole, Privileges: []string{"INSERT"}, Columns: inserted},
+		{Role: relayRole, Privileges: []string{"SELECT", "UPDATE", "DELETE"}},
+	}
+	var functions []manifest.Function
+	for _, signature := range relayFunctions {
+		name, args, _ := strings.Cut(strings.TrimSuffix(signature, ")"), "(")
+		_, rest, found := strings.Cut(text, "CREATE OR REPLACE FUNCTION "+name+"(")
+		head, body, opened := strings.Cut(rest, "AS $fn$")
+		source, _, closed := strings.Cut(body, "$fn$")
+		if !found || !opened || !closed {
+			return manifest.Manifest{}, fmt.Errorf("outbox: the migration has no function %s", name)
+		}
+		language := "plpgsql"
+		if strings.Contains(head, "LANGUAGE sql") {
+			language = "sql"
+		}
+		volatility := "v"
+		if language == "sql" {
+			volatility = "s"
+		}
+		execute := []string{workerRole}
+		if name == "stego_outbox.resolve" {
+			execute = append(execute, runtimeRole)
+		}
+		functions = append(functions, manifest.Function{Name: name, Args: args, Language: language, Source: source, SecurityDefiner: true,
+			Config: []string{"search_path=pg_catalog, pg_temp"}, Owner: relayRole, Execute: execute,
+			Returns: relayResults[name], Volatility: volatility})
+	}
+	return manifest.Manifest{Functions: functions, Tables: []manifest.Table{{Schema: "stego_outbox", Name: "messages", Columns: columns,
+		Constraints: constraints, Indexes: []manifest.Index{{Name: "messages_pkey", Columns: []string{"id"}}, {Name: "messages_sequence_key", Columns: []string{"sequence"}}},
+		RowSecurity: true, Policies: policies, CheckGrants: true, Grants: grants}},
+		// The schema is the outbox's whole, so no other function, such as an overload of a relay function, is in it; and
+		// the relay role owns the relay functions only, since each SECURITY DEFINER function of it spans tenants.
+		Schemas:  []manifest.Schema{{Name: "stego_outbox", Usage: []string{runtimeRole, workerRole, relayRole}}},
+		Confined: []string{relayRole}}, nil
+}
+
+// relayResults are the results of the relay functions, as pg_get_function_result gives them.
+var relayResults = map[string]string{
+	"stego_outbox.claim": "TABLE(r_tenant text, r_id uuid, r_destination text, r_resource_key text, r_kind text, r_payload bytea, " +
+		"r_outgoing_key text, r_principal text, r_origin text, r_group text, r_state text, r_attempts bigint, r_conflicts bigint, " +
+		"r_lookups bigint, r_lease_until timestamp with time zone, r_dispatched_at timestamp with time zone)",
+	"stego_outbox.move":         "TABLE(r_result text, r_state text, r_delay double precision, r_attempts bigint, r_conflicts bigint, r_lookups bigint)",
+	"stego_outbox.release":      "bigint",
+	"stego_outbox.purge_parked": "bigint",
+	"stego_outbox.purge_done":   "bigint",
+	"stego_outbox.blocked": "TABLE(r_tenant text, r_destination text, r_resource_key text, r_state text, r_attempts bigint, " +
+		"r_failure_code text, r_available_at timestamp with time zone, r_created_at timestamp with time zone)",
+	"stego_outbox.oldest":  "TABLE(r_destination text, r_age double precision)",
+	"stego_outbox.resolve": "TABLE(o_resolved_at timestamp with time zone, o_age_seconds double precision)",
 }
 
 // The relay functions, by their signature, for the grants and the checks.
@@ -780,7 +899,7 @@ func (q *Queue) Claim(ctx context.Context, limit int, lease time.Duration) ([]De
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 	sent := time.Now()
-	rows, err := q.db.QueryContext(ctx, `SELECT * FROM stego_outbox.claim($1, $2, $3, $4)`, q.now(), limit, token,
+	rows, err := q.db.QueryContext(ctx, `SELECT * FROM stego_outbox.claim($1::timestamptz, $2::integer, $3::uuid, $4::bigint)`, q.now(), limit, token,
 		lease.Milliseconds())
 	if err != nil {
 		return nil, canceled(ctx, err)
@@ -865,7 +984,7 @@ func (q *Queue) move(ctx context.Context, tx *sql.Tx, receipt *Receipt, to State
 	var result, state string
 	var seconds sql.NullFloat64
 	var m moved
-	err := db.QueryRowContext(ctx, `SELECT * FROM stego_outbox.move($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+	err := db.QueryRowContext(ctx, `SELECT * FROM stego_outbox.move($1::timestamptz, $2::uuid, $3::uuid, $4::text, $5::text, $6::bigint, $7::timestamptz, $8::bigint, $9::boolean, $10::boolean, $11::text, $12::bigint)`,
 		q.now(), receipt.ID, receipt.Token, string(receipt.State), string(to), c.delay.Milliseconds(), due, c.attempts,
 		c.conflict, c.lookup, c.failureCode, c.lease.Milliseconds()).Scan(&result, &state, &seconds, &m.attempts,
 		&m.conflicts, &m.lookups)
@@ -904,7 +1023,7 @@ func (q *Queue) release(ctx context.Context, tx *sql.Tx, receipt Receipt, delay 
 		db = tx
 	}
 	var n int64
-	err := db.QueryRowContext(ctx, `SELECT stego_outbox.release($1, $2, $3, $4, $5)`, q.now(), receipt.ID,
+	err := db.QueryRowContext(ctx, `SELECT stego_outbox.release($1::timestamptz, $2::uuid, $3::uuid, $4::bigint, $5::text)`, q.now(), receipt.ID,
 		receipt.Token, delay.Milliseconds(), failureCode).Scan(&n)
 	if err != nil {
 		return false, canceled(ctx, err)
@@ -957,7 +1076,7 @@ func (q *Queue) Blocked(ctx context.Context, limit int) ([]BlockedMessage, error
 	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-	rows, err := q.db.QueryContext(ctx, `SELECT * FROM stego_outbox.blocked($1, $2)`, q.now(), limit)
+	rows, err := q.db.QueryContext(ctx, `SELECT * FROM stego_outbox.blocked($1::timestamptz, $2::integer)`, q.now(), limit)
 	if err != nil {
 		return nil, canceled(ctx, err)
 	}
@@ -1046,7 +1165,7 @@ func (q *Queue) purge(ctx context.Context, limit int, olderThan time.Duration, p
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 	var n int64
-	err = q.db.QueryRowContext(ctx, `SELECT stego_outbox.purge_parked($1, $2, $3, $4::jsonb)`, q.now(), limit,
+	err = q.db.QueryRowContext(ctx, `SELECT stego_outbox.purge_parked($1::timestamptz, $2::integer, $3::bigint, $4::jsonb)`, q.now(), limit,
 		olderThan.Milliseconds(), string(names)).Scan(&n)
 	return n, canceled(ctx, err)
 }
@@ -1063,7 +1182,7 @@ func (q *Queue) purgeDone(ctx context.Context, limit int, retention time.Duratio
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 	var n int64
-	err := q.db.QueryRowContext(ctx, `SELECT stego_outbox.purge_done($1, $2, $3)`, q.now(), limit,
+	err := q.db.QueryRowContext(ctx, `SELECT stego_outbox.purge_done($1::timestamptz, $2::integer, $3::bigint)`, q.now(), limit,
 		retention.Milliseconds()).Scan(&n)
 	return n, canceled(ctx, err)
 }

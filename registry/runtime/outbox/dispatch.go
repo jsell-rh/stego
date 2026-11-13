@@ -739,7 +739,7 @@ func (w *Worker) resolve(ctx context.Context, tx *sql.Tx, request ResolveRequest
 	var seconds float64
 	// The state changes only through the relay function resolve, which requires the transaction's tenant
 	// (ST-SUP-RP01-LC19).
-	err = tx.QueryRowContext(ctx, `SELECT o_resolved_at, o_age_seconds FROM stego_outbox.resolve($1, $2, $3, $4, $5)`,
+	err = tx.QueryRowContext(ctx, `SELECT o_resolved_at, o_age_seconds FROM stego_outbox.resolve($1::timestamptz, $2::uuid, $3::text, $4::text, $5::text)`,
 		w.queue.now(), request.ID, string(to), string(request.Resolution), subject).Scan(&at, &seconds)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotParked

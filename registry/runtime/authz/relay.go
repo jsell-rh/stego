@@ -217,7 +217,7 @@ func (r *Relay) Hook(ctx context.Context, tx *sql.Tx, change outbox.StateChange)
 		return errors.New("authz: the message names no revocation")
 	}
 	var counted bool
-	if err := tx.QueryRowContext(ctx, "SELECT "+r.schema+".authz_revocation_state($1, $2, $3)",
+	if err := tx.QueryRowContext(ctx, "SELECT "+r.schema+".authz_revocation_state($1::uuid, $2::uuid, $3::text)",
 		change.ID, revocation, string(change.State)).Scan(&counted); err != nil {
 		return fixed("authz: the revocation record cannot be changed", err)
 	}

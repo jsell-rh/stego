@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/jsell-rh/stego/registry/runtime/internal/seal"
+	"github.com/jsell-rh/stego/registry/runtime/manifest"
 	"github.com/jsell-rh/stego/registry/runtime/outbox"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )
@@ -978,6 +979,107 @@ func Migration(schema, runtimeRole, relayRole, outboxRelayRole string, hookRoles
 		"{{relay_role}}", quotedRelay, "{{runtime_text}}", sqlText(runtimeRole), "{{relay_text}}", sqlText(relayRole),
 		"{{outbox_relay}}", `"`+outboxRelayRole+`"`, "{{outbox_relay_text}}", sqlText(outboxRelayRole), "{{schema_text}}", sqlText(schema), "{{schema_quoted_text}}", sqlText(quotedSchema),
 		"{{hook_array}}", "ARRAY["+strings.Join(hooks, ", ")+"]", "{{hook_grants}}", grants.String()).Replace(migrationText), nil
+}
+
+// Manifest gives what the code of the revocation floor and the revocation records needs of the database that
+// Migration makes in schema for the same roles (ST-SUP-RP06-LC23, ST-SUP-RP15-LC01): the tables authz_floor,
+// authz_revocations and authz_revocation_tuples with their columns, checks, keys and foreign key, row-level security
+// with the tenant policy for every role on the two revocation tables, the exact grants of each table and its columns,
+// the trigger authz_revocation_tuple_check, and the function authz_revocation_state; both functions are SECURITY
+// DEFINER with their fixed search path and owned by outboxRelayRole, and EXECUTE on authz_revocation_state goes to
+// runtimeRole and the hook roles only; CREATE on schema goes to no role but its owner and the owner of the manifest.
+// schema is a lower-case SQL name that needs no quotes, such as public. Manifest
+// refuses the roles that Migration refuses.
+func Manifest(schema, runtimeRole, relayRole, outboxRelayRole string, hookRoles ...string) (manifest.Manifest, error) {
+	if !outboxRelayPattern.MatchString(schema) {
+		return manifest.Manifest{}, fmt.Errorf("authz: %q is not a schema name the manifest accepts", schema)
+	}
+	text, err := Migration(schema, runtimeRole, relayRole, outboxRelayRole, hookRoles...)
+	if err != nil {
+		return manifest.Manifest{}, err
+	}
+	source := func(signature string) (string, error) {
+		_, rest, found := strings.Cut(text, "CREATE OR REPLACE FUNCTION \""+schema+"\"."+signature)
+		_, body, opened := strings.Cut(rest, "AS $$")
+		src, _, closed := strings.Cut(body, "$$")
+		if !found || !opened || !closed {
+			return "", fmt.Errorf("authz: the migration has no function %s", signature)
+		}
+		return src, nil
+	}
+	checkSource, err := source("authz_revocation_tuple_check()")
+	if err != nil {
+		return manifest.Manifest{}, err
+	}
+	stateSource, err := source("authz_revocation_state(")
+	if err != nil {
+		return manifest.Manifest{}, err
+	}
+	column := func(name, typ string, notNull bool) manifest.Column {
+		return manifest.Column{Name: name, Type: typ, NotNull: notNull}
+	}
+	check := func(table, column, definition string) manifest.Constraint {
+		return manifest.Constraint{Name: table + "_" + column + "_check", Kind: manifest.KindCheck, Definition: definition}
+	}
+	key := func(table, column string) manifest.Constraint {
+		return manifest.Constraint{Name: table + "_pkey", Kind: manifest.KindPrimaryKey, Definition: "PRIMARY KEY (" + column + ")"}
+	}
+	tenant := "CHECK (((octet_length(tenant_id) >= 1) AND (octet_length(tenant_id) <= 255)))"
+	token := "CHECK ((octet_length(token) <= 4096))"
+	wall := "(tenant_id = current_setting('app.tenant'::text, true))"
+	tenantPolicy := func(table string) []manifest.Policy {
+		return []manifest.Policy{{Name: table + "_tenant", Command: manifest.CommandAll, Using: wall, WithCheck: wall}}
+	}
+	timestamp := "timestamp with time zone"
+	config := []string{"search_path=pg_catalog, pg_temp"}
+	floor := manifest.Table{Schema: schema, Name: "authz_floor",
+		Columns:     []manifest.Column{column("only_row", "boolean", true), column("token", "text", true), column("sequence", "bigint", true)},
+		Constraints: []manifest.Constraint{key("authz_floor", "only_row"), check("authz_floor", "only_row", "CHECK (only_row)"), check("authz_floor", "token", token)},
+		Indexes:     []manifest.Index{{Name: "authz_floor_pkey", Columns: []string{"only_row"}}},
+		CheckGrants: true, Grants: []manifest.Grant{
+			{Role: runtimeRole, Privileges: []string{"SELECT"}}, {Role: relayRole, Privileges: []string{"SELECT"}},
+			{Role: outboxRelayRole, Privileges: []string{"SELECT"}}, {Role: relayRole, Privileges: []string{"UPDATE"}, Columns: []string{"token", "sequence"}},
+		}}
+	revocations := manifest.Table{Schema: schema, Name: "authz_revocations",
+		Columns: []manifest.Column{column("id", "uuid", true), column("tenant_id", "text", true), column("principal", "text", true),
+			column("tuple_count", "bigint", false), column("done", "bigint", true), column("parked", "bigint", true),
+			column("discarded", "bigint", true), column("token", "text", true), column("created_at", timestamp, true), column("completed_at", timestamp, false)},
+		Constraints: []manifest.Constraint{key("authz_revocations", "id"), check("authz_revocations", "tenant_id", tenant),
+			check("authz_revocations", "principal", "CHECK (((octet_length(principal) >= 1) AND (octet_length(principal) <= 1200)))"),
+			check("authz_revocations", "tuple_count", "CHECK ((tuple_count >= 1))"), check("authz_revocations", "done", "CHECK ((done >= 0))"),
+			check("authz_revocations", "parked", "CHECK ((parked >= 0))"), check("authz_revocations", "discarded", "CHECK ((discarded >= 0))"),
+			check("authz_revocations", "token", token)},
+		Indexes:     []manifest.Index{{Name: "authz_revocations_pkey", Columns: []string{"id"}}},
+		RowSecurity: true, Policies: tenantPolicy("authz_revocations"),
+		CheckGrants: true, Grants: []manifest.Grant{
+			{Role: runtimeRole, Privileges: []string{"SELECT"}}, {Role: outboxRelayRole, Privileges: []string{"SELECT"}},
+			{Role: runtimeRole, Privileges: []string{"INSERT"}, Columns: []string{"id", "tenant_id", "principal", "tuple_count"}},
+			{Role: outboxRelayRole, Privileges: []string{"UPDATE"}, Columns: []string{"tuple_count", "done", "parked", "discarded", "token", "completed_at"}},
+		}}
+	tuples := manifest.Table{Schema: schema, Name: "authz_revocation_tuples",
+		Columns: []manifest.Column{column("message_id", "uuid", true), column("revocation_id", "uuid", true), column("tenant_id", "text", true),
+			column("state", "text", true)},
+		Constraints: []manifest.Constraint{key("authz_revocation_tuples", "message_id"),
+			{Name: "authz_revocation_tuples_revocation_id_fkey", Kind: manifest.KindForeignKey,
+				Definition: "FOREIGN KEY (revocation_id) REFERENCES " + schema + ".authz_revocations(id)"},
+			check("authz_revocation_tuples", "tenant_id", tenant),
+			check("authz_revocation_tuples", "state", "CHECK ((state = ANY (ARRAY['pending'::text, 'done'::text, 'parked'::text, 'discarded'::text])))")},
+		Indexes:     []manifest.Index{{Name: "authz_revocation_tuples_pkey", Columns: []string{"message_id"}}},
+		RowSecurity: true, Policies: tenantPolicy("authz_revocation_tuples"),
+		Triggers: []manifest.Trigger{{Name: "authz_revocation_tuple_check", Timing: "AFTER", Row: true, Events: []string{"INSERT"},
+			Function: manifest.Function{Name: schema + ".authz_revocation_tuple_check", Language: "plpgsql", Source: checkSource,
+				SecurityDefiner: true, Config: config, Owner: outboxRelayRole}}},
+		CheckGrants: true, Grants: []manifest.Grant{
+			{Role: runtimeRole, Privileges: []string{"SELECT"}}, {Role: outboxRelayRole, Privileges: []string{"SELECT"}},
+			{Role: runtimeRole, Privileges: []string{"INSERT"}, Columns: []string{"message_id", "revocation_id", "tenant_id"}},
+			{Role: outboxRelayRole, Privileges: []string{"UPDATE"}, Columns: []string{"state"}},
+		}}
+	state := manifest.Function{Name: schema + ".authz_revocation_state", Args: "uuid, uuid, text", Language: "plpgsql", Source: stateSource,
+		SecurityDefiner: true, Config: config, Owner: outboxRelayRole, Execute: append([]string{runtimeRole}, hookRoles...), Returns: "boolean"}
+	// The schema may be public, which holds the objects of others, so only its CREATE is checked: no role but its
+	// owner and the owner of the manifest can make a function, such as an overload of the state hook, in it.
+	return manifest.Manifest{Tables: []manifest.Table{floor, revocations, tuples}, Functions: []manifest.Function{state},
+		Schemas: []manifest.Schema{{Name: schema, Shared: true}}, Confined: []string{outboxRelayRole}}, nil
 }
 
 // outboxRelayPattern is a lower-case SQL name of at most 63 characters, which needs no quotes.
