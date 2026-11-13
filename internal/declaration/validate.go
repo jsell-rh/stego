@@ -120,9 +120,12 @@ func Validate(service *types.ServiceDeclaration, undeclared ...parser.Undeclared
 	faults.Entities = append(faults.Entities, validateEntityTenants(service.Entities)...)
 	faults.Service = append(faults.Service, validateTenantlessPaths(service)...)
 	faults.Service = append(faults.Service, validateAuditValues(service)...)
+	faults.Service = append(faults.Service, validateModesAndMixins(service)...)
+	faults.Service = append(faults.Service, validateControllers(service)...)
 	faults.Entities = append(faults.Entities, validateFieldTypes(service.Entities)...)
 	faults.Entities = append(faults.Entities, validateFieldDefaults(service.Entities)...)
 	faults.Entities = append(faults.Entities, validateMoney(service)...)
+	faults.Entities = append(faults.Entities, validateDeclaredInvariants(service)...)
 	for _, err := range types.ValidateVersioned(service.Entities, service.Collections) {
 		faults.Entities = append(faults.Entities, ValidationError{Category: "field-type", Rule: "versioned-metadata", Path: locate(service, err.Error()), Message: err.Error()})
 	}
