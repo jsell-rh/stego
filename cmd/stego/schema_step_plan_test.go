@@ -202,8 +202,12 @@ func TestSchemaStepPlan(t *testing.T) {
 			t.Errorf("plan does not list the add step as\n%s\n%s", want, planned)
 		}
 		migration := s.read(t, "out/internal/storage/migrations/step_0001_add-note-body_expand.sql")
-		if migration != "ALTER TABLE public.\"notes\" ADD COLUMN \"body\" text;\nCREATE INDEX \"notes_body_search\" ON public.\"notes\" (\"tenant_id\", \"body\");\n" {
+		if migration != "ALTER TABLE public.\"notes\" ADD COLUMN \"body\" text;\n" {
 			t.Errorf("the migration of the add step is\n%s", migration)
+		}
+		// The search index of the field is a migration of its own, built CONCURRENTLY (decision on finding F2).
+		if index := s.read(t, "out/internal/storage/migrations/step_0001_add-note-body_expand_index_01.sql"); index != "CREATE INDEX CONCURRENTLY IF NOT EXISTS \"notes_body_search\" ON public.\"notes\" (\"tenant_id\", \"body\");\n" {
+			t.Errorf("the index migration of the add step is\n%s", index)
 		}
 		// 001_initial is the baseline, the body of the release that runs, so its ledger digest does not change.
 		if base := git(t, s.service, "show", "HEAD:out/internal/storage/migrations/001_initial.sql"); strings.TrimSpace(base) != strings.TrimSpace(s.read(t, "out/internal/storage/migrations/001_initial.sql")) {
