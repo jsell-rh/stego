@@ -633,18 +633,40 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(target, "stego", "sumdb")); err != nil {
 			t.Errorf("the kept tree under the user's own link is not in the folder it links to: %v", err)
 		}
-		own, err := os.Lstat(filepath.Join(parent, "cache"))
-		if err != nil {
-			t.Fatal(err)
+		// A cache root that is a link of another user is refused. The test cannot make a link of another user, so the
+		// Lstat of the cache root gives the user's own link with another owner.
+		cache := filepath.Join(parent, "cache")
+		lstatRoot = func(name string) (os.FileInfo, error) {
+			info, err := os.Lstat(name)
+			if err != nil || name != cache {
+				return info, err
+			}
+			foreign := *info.Sys().(*syscall.Stat_t)
+			foreign.Uid = uint32(os.Getuid() + 1)
+			return statInfo{info, &foreign}, nil
 		}
-		if err := rootLinkSafe(own); err != nil {
-			t.Errorf("the user's own link gave %v, want it passed", err)
+		t.Cleanup(func() { lstatRoot = os.Lstat })
+		if opened, err := openKeptTree(context.Background(), filepath.Join(cache, "stego", "sumdb"), verifier); err == nil || !strings.Contains(err.Error(), "a link of another user") {
+			if err == nil {
+				opened.close()
+			}
+			t.Errorf("a kept tree under a cache root that is a link of another user gave %v, want the refusal", err)
 		}
-		foreign := *own.Sys().(*syscall.Stat_t)
-		foreign.Uid = uint32(os.Getuid() + 1)
-		if err := rootLinkSafe(statInfo{own, &foreign}); err == nil || !strings.Contains(err.Error(), "a link of another user") {
-			t.Errorf("a cache root that is a link of another user gave %v, want the refusal", err)
+		// A cache root that is a folder when it is read, and a link when it is opened, is refused: another user could
+		// swap a link in after the Lstat. The Lstat gives the folder that the link names.
+		lstatRoot = func(name string) (os.FileInfo, error) {
+			if name == cache {
+				return os.Lstat(target)
+			}
+			return os.Lstat(name)
 		}
+		if opened, err := openKeptTree(context.Background(), filepath.Join(cache, "stego", "sumdb"), verifier); err == nil || !strings.Contains(err.Error(), "it became a link or no folder after it was read") {
+			if err == nil {
+				opened.close()
+			}
+			t.Errorf("a kept tree under a cache root that became a link after it was read gave %v, want the refusal", err)
+		}
+		lstatRoot = os.Lstat
 		// A wait for a lock that another run holds ends with its context, and leaves no goroutine behind.
 		held, err := openKeptTree(context.Background(), moved, verifier)
 		if err != nil {
