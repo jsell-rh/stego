@@ -188,6 +188,18 @@ func TestMigrateLedgerRole(t *testing.T) {
 		if err := Migrate(context.Background(), settings, f.migration(nil)); err != nil {
 			t.Fatalf("Migrate with the sequence at the highest message: %v", err)
 		}
+		// An enqueue that commits between the two reads of the check, as under live traffic, does not make the healthy
+		// queue look behind (#256 G1).
+		betweenSequenceReads = func() {
+			if _, err := f.admin.Exec(`INSERT INTO stego_outbox.messages (id, tenant_id, destination, resource_key, kind, payload, outgoing_key,
+ created_at, available_at) VALUES (gen_random_uuid(), 't1', 'd', 'r', 'k', 'p', 'o', now(), now())`); err != nil {
+				t.Error(err)
+			}
+		}
+		defer func() { betweenSequenceReads = nil }()
+		if err := Migrate(context.Background(), settings, f.migration(nil)); err != nil {
+			t.Fatalf("Migrate with an enqueue between the reads of the check: %v", err)
+		}
 	})
 
 	t.Run("ST-SUP-RP14-LC03-T03 Migrate makes the tables of the runtime in public when a schema is named after the owner role", func(t *testing.T) {

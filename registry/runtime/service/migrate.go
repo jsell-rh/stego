@@ -228,21 +228,28 @@ func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
 var errSequenceBehind = errors.New("the identity sequence of stego_outbox.messages is behind its highest stored sequence; set it past that sequence as the owner (SELECT setval) before the job runs again")
 
 // checkOutboxSequence refuses a queue whose identity sequence is behind its highest stored sequence. It reads the
-// highest sequence as the outbox relay role, the one role whose policy sees every message, and the state of the
-// sequence as the owner, which owns it. It refuses, and does not move the sequence itself, so a person sees the
-// fault and its cause.
+// highest sequence first, as the outbox relay role, the one role whose policy sees every message, and the state of
+// the sequence second, as the owner, which owns it, so an enqueue that commits between the two reads only raises the
+// state of the sequence and never makes a healthy queue look behind. It refuses, and does not move the sequence
+// itself, so a person sees the fault and its cause.
 func checkOutboxSequence(ctx context.Context, conn *sql.Conn, owner, relay string) error {
 	return ownerStep(ctx, conn, owner, func(tx *sql.Tx) error {
-		var last int64
-		var called bool
-		if err := tx.QueryRowContext(ctx, `SELECT s.last_value, s.is_called FROM stego_outbox.messages_sequence_seq s`).Scan(&last, &called); err != nil {
-			return err
-		}
 		if _, err := tx.ExecContext(ctx, "SET LOCAL ROLE "+quote(relay)); err != nil {
 			return err
 		}
 		var highest sql.NullInt64
 		if err := tx.QueryRowContext(ctx, `SELECT max(m.sequence) FROM stego_outbox.messages m`).Scan(&highest); err != nil {
+			return err
+		}
+		if betweenSequenceReads != nil {
+			betweenSequenceReads()
+		}
+		if _, err := tx.ExecContext(ctx, "SET LOCAL ROLE "+quote(owner)); err != nil {
+			return err
+		}
+		var last int64
+		var called bool
+		if err := tx.QueryRowContext(ctx, `SELECT s.last_value, s.is_called FROM stego_outbox.messages_sequence_seq s`).Scan(&last, &called); err != nil {
 			return err
 		}
 		if !highest.Valid {
@@ -255,6 +262,9 @@ func checkOutboxSequence(ctx context.Context, conn *sql.Conn, owner, relay strin
 		return nil
 	})
 }
+
+// betweenSequenceReads, when a test of the package sets it, runs between the two reads of checkOutboxSequence.
+var betweenSequenceReads func()
 
 // controllerLease gives the statements of the lease table and the row of the controller lease, under which the audit
 // jobs run (ST-SUP-RP14-LC04), with SELECT and UPDATE on the table for the runtime role, the role of the lease
