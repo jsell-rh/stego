@@ -219,7 +219,7 @@ func schemaGenerationAccess(ctx gen.Context, wiring *gen.Wiring) {
 // identifiers, and (3) generator-internal identifiers. Entity names that
 // match any of these produce uncompilable or shadowed generated code.
 var reservedTypeNames = map[string]bool{
-	"SchemaGeneration": true, "SchemaDefinition": true, "ErrSchemaGeneration": true, "VerifySchema": true, "BootstrapSchema": true, "readSchemaGeneration": true,
+	"SchemaGeneration": true, "SchemaDefinition": true, "schemaDefinitionBefore": true, "ErrSchemaGeneration": true, "VerifySchema": true, "BootstrapSchema": true, "readSchemaGeneration": true,
 	"databaseUUID":       true,
 	"ErrMigrationLedger": true, "AppliedMigrations": true, "ApplyMigration": true, "RegisterSQL": true,
 	"Database": true, "inTransaction": true, "lockLedger": true, "recordMigration": true,
@@ -620,7 +620,7 @@ func generateMigrate(ns string, rowSecurity string, steps []schemaStep) (gen.Fil
 	fmt.Fprintf(&buf, "\tRegisterSQL(\"001_initial\", %s)\n", tablesConstant)
 	if rowSecurity != "" {
 		// The row-level security of the tenancy component comes after every table it covers (ST-SUP-RC27-OC03).
-		fmt.Fprintln(&buf, `RegisterSQL("100_tenancy_row_security", stegotenancy.RowSecurity)`)
+		fmt.Fprintf(&buf, "\tRegisterSQL(%q, stegotenancy.RowSecurity)\n", tenancyMigration)
 	}
 	// Each schema step comes after the component's own migrations, in the order of the schema history, with the
 	// empty compatible_with set of a step at expand (ST-SUP-RC01-OC22, ST-SUP-RC01-OC27).

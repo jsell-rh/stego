@@ -18,11 +18,5 @@
 {"source_id":"ST-GEN-Q09","target_id":"ST-GEN-UC12-R03"}
 {"source_id":"ST-GEN-Q09","target_id":"ST-GEN-UC13-R05"}
 {"source_id":"ST-GEN-Q09","target_id":"ST-SUP-RC01-OC12"}
-{"source_id":"ST-GEN-Q13","target_id":"ST-GEN-INV33"}
-{"source_id":"ST-GEN-Q13","target_id":"ST-GEN-INV35"}
-{"source_id":"ST-GEN-Q13","target_id":"ST-SUP-RC01-OC41"}
-{"source_id":"ST-GEN-Q14","target_id":"ST-GEN-INV34"}
-{"source_id":"ST-GEN-Q14","target_id":"ST-SUP-RC01-OC12"}
-{"source_id":"ST-GEN-Q14","target_id":"ST-SUP-RP15-LC02"}
 {"source_id":"ST-SUP-Q110","target_id":"ST-SUP-RC20"}
 {"source_id":"ST-SUP-Q110","target_id":"ST-SUP-RP10-LC25"}

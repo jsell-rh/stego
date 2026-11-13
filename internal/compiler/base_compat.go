@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -168,6 +169,7 @@ func validateBaseSchema(base, head *types.ServiceDeclaration) []BaseFault {
 	faults = append(faults, baseChangeFaults(base, head)...)
 	faults = append(faults, onePhaseFaults(base, head)...)
 	faults = append(faults, uniqueAddFaults(base, head)...)
+	faults = append(faults, collectionIndexFaults(base, head)...)
 	shapeFaults := baselineFaults(shapeAt(base, 0), shapeAt(head, 0))
 	// The baselines leave out what a step of the base added, required or retyped, so the head with only its new
 	// steps undone must also be the stored shape of the base as it runs now, with every field in full.
@@ -181,6 +183,70 @@ func validateBaseSchema(base, head *types.ServiceDeclaration) []BaseFault {
 		}
 	}
 	return append(faults, shapeFaults...)
+}
+
+// collectionIndexFaults refuses a head that changes, with no schema step, an index that the collections over an
+// entity of the base give: whether a collection lists the entity, the scope and implicit fields of a collection that
+// lists it, which have a search index (ST-SUP-RP11-LC20), or an upsert key, which has a unique index. No kind of
+// schema change builds such an index yet, so a change of it would change the indexes of 001_initial and fail the
+// migration job of a database with rows (decision on ST-GEN-Q13 part 1 (b), 2026-11-13). The field names of the
+// head go back through its renames to the names of the base, so a rename alone changes no index here.
+func collectionIndexFaults(base, head *types.ServiceDeclaration) []BaseFault {
+	var faults []BaseFault
+	for _, entity := range base.Entities {
+		if _, kept := findStoredEntity(head, entity.Name); !kept {
+			continue
+		}
+		before, after := collectionIndexes(base, entity.Name), collectionIndexes(head, entity.Name)
+		if before != after {
+			faults = append(faults, BaseFault{Rule: BaseCompatRule, Entity: entity.Name, Message: fmt.Sprintf(
+				"the collections over %s change its indexes: the base gives %s and the head gives %s. No schema change builds an index of a collection yet, so the next migration job of a database with rows would fail; keep the list, the scope and implicit fields and the upsert keys of the collections over %s as the base has them",
+				entity.Name, before, after, entity.Name)})
+		}
+	}
+	return faults
+}
+
+// collectionIndexes describes the indexes that the collections of the declaration give the entity, with the field
+// names of the declaration before its renames: whether a collection lists it, the scope and implicit fields of each
+// collection that lists it, and each upsert key, each part in a fixed order.
+func collectionIndexes(service *types.ServiceDeclaration, entity string) string {
+	original := func(field string) string {
+		for i := len(service.SchemaChanges) - 1; i >= 0; i-- {
+			change := service.SchemaChanges[i]
+			if change.Kind == "rename" && change.Entity == entity && change.Field == field {
+				field = change.From
+			}
+		}
+		return field
+	}
+	listed := false
+	filtered := map[string]bool{}
+	var upserts []string
+	for _, collection := range service.Collections {
+		if collection.Entity != entity {
+			continue
+		}
+		if slices.Contains(collection.Operations, types.OpList) {
+			listed = true
+			for field := range collection.Scope {
+				filtered[original(field)] = true
+			}
+			for field := range collection.Implicit {
+				filtered[original(field)] = true
+			}
+		}
+		if len(collection.UpsertKey) > 0 {
+			var key []string
+			for _, field := range collection.UpsertLookup() {
+				key = append(key, original(field))
+			}
+			upserts = append(upserts, "("+strings.Join(key, ", ")+")")
+		}
+	}
+	fields := slices.Sorted(maps.Keys(filtered))
+	slices.Sort(upserts)
+	return fmt.Sprintf("listed %t, list fields [%s], upsert keys [%s]", listed, strings.Join(fields, ", "), strings.Join(upserts, ", "))
 }
 
 // uniqueAddFaults refuses a new add of a field that is unique and has a default, on an entity of the base: every

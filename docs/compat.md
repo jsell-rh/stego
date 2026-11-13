@@ -38,6 +38,13 @@ When the base ref has a record, the check refuses:
   at expand may get a fill value.
 - A schema change that gets its expand step and its contract step in one
   release.
+- A change to the indexes that the collections give an entity of the base:
+  a collection that starts or stops listing it, a new or removed scope or
+  implicit field of a collection that lists it, or a changed upsert key. No
+  kind of schema change builds such an index yet. A collection change that
+  gives no index, and a change of permissions, are accepted.
+- A new schema step when the base runs postgres-adapter before 6.1.0. Deploy
+  a release with postgres-adapter 6.1.0 or later first.
 
 Each fault names the entity, the field, the rule and the schema change and
 phase to declare. See [schema changes](schema-changes.md).

@@ -33,7 +33,12 @@ For a service with entities, the component emits these files:
   `compatible_with` set of each step row, and the code of the release before
   a step accepts that row (ST-SUP-RC01-OC27, ST-SUP-RC01-OC28). The migration
   job adds the `compatible_with` column to a ledger that has none
-  (ST-SUP-RC01-OC29). The marker digest is the digest of the baseline too.
+  (ST-SUP-RC01-OC29). Version 6.2.0 makes the marker digest the digest of
+  the stored shape of the baseline: its tables, columns, keys and checks,
+  with no collection and no permission (ST-SUP-RC01-OC42). The marker check
+  also accepts the digest that an earlier release wrote. The ledger takes no
+  migration but `001_initial`, `100_tenancy_row_security` and the steps
+  (ST-SUP-RC01-OC43).
 - `schema_generation.go`: the [schema generation marker](schema-generation.md).
 - `database.go`: `OpenDatabase`, with verified TLS, the loopback test mode
   and the pool bounds of the `DATABASE_POOL_*` settings.

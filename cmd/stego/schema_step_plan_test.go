@@ -7,9 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
+
+	"golang.org/x/mod/semver"
 )
 
 // noteBody gives Note of ST-GEN-TD03 an optional field body.
@@ -223,10 +226,11 @@ func TestSchemaStepPlan(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(data), "\nversion: 6.1.0\n") {
-			t.Fatalf("the postgres-adapter of R1 is not 6.1.0:\n%s", data)
+		version := regexp.MustCompile(`\nversion: ([0-9.]+)\n`)
+		if found := version.FindStringSubmatch(string(data)); found == nil || semver.Compare("v"+found[1], "v6.1.0") < 0 {
+			t.Fatalf("the postgres-adapter of R1 is not 6.1.0 or later:\n%s", data)
 		}
-		writeFile(t, filepath.Dir(definition), "component.yaml", strings.Replace(string(data), "\nversion: 6.1.0\n", "\nversion: 6.0.1\n", 1), 0o644)
+		writeFile(t, filepath.Dir(definition), "component.yaml", version.ReplaceAllString(string(data), "\nversion: 6.0.1\n"), 0o644)
 		git(t, s.registry, "commit", "-q", "-am", "R0")
 		r0 := git(t, s.registry, "rev-parse", "HEAD")
 		git(t, s.registry, "branch", "r0", r0)

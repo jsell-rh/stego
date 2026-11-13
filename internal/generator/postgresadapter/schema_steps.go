@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -37,6 +38,42 @@ type schemaStep struct {
 func StepMigrationName(position int, change, phase string) string {
 	return fmt.Sprintf("step_%04d_%s_%s", position, change, phase)
 }
+
+// stepName is the grammar of the ledger name of a step migration.
+var stepName = regexp.MustCompile(`^step_[0-9]{4}_[a-z0-9]+(-[a-z0-9]+)*_(expand|contract)$`)
+
+// CheckLedgerName refuses a ledgered migration whose name is not 001_initial, 100_tenancy_row_security or the name of
+// a schema step (ST-SUP-RC01-OC43): the ledger applies and checks migrations in the byte order of their names, so a
+// component migration that a later release adds, such as 101_x, would sort before the step rows that an upgraded
+// database holds, and that database would fail the ledger check. Such a migration waits for its own schema step.
+func CheckLedgerName(name string) error {
+	if name == "001_initial" || name == tenancyMigration || stepName.MatchString(name) {
+		return nil
+	}
+	return fmt.Errorf("the ledgered migration %q is not 001_initial, %s or a schema step; a component migration of a later release would sort before the step rows of an upgraded ledger (ST-SUP-RC01-OC43)", name, tenancyMigration)
+}
+
+// registration finds the name of each migration that a generated file registers in the ledger.
+var registration = regexp.MustCompile(`\bRegister(?:SQL|Step)?\(\s*"([^"]*)"`)
+
+// checkLedgerNames refuses a file of the namespace that registers a ledgered migration that CheckLedgerName
+// refuses, so that no generated file, in any place, adds one.
+func checkLedgerNames(ns string, files []gen.File) error {
+	for _, file := range files {
+		if path.Dir(file.Path) != ns || path.Ext(file.Path) != ".go" {
+			continue
+		}
+		for _, match := range registration.FindAllSubmatch(file.Content, -1) {
+			if err := CheckLedgerName(string(match[1])); err != nil {
+				return fmt.Errorf("%s: %w", file.Path, err)
+			}
+		}
+	}
+	return nil
+}
+
+// tenancyMigration is the ledger name of the row-level security of the tenancy component.
+const tenancyMigration = "100_tenancy_row_security"
 
 // StepMigrationFile gives the path, in the output namespace of the adapter, of the SQL file of a step migration.
 func StepMigrationFile(ns, name string) string { return path.Join(ns, "migrations", name+".sql") }

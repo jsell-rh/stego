@@ -11,7 +11,11 @@ import (
 )
 
 const SchemaGeneration = {{printf "%q" .Generation}}
+// SchemaDefinition is the digest of the stored shape of the baseline, which the marker of a database that this
+// release made holds; schemaDefinitionBefore is the digest of the entities and the collections of the same baseline,
+// which a release before ST-SUP-RC01-OC42 wrote, and the marker check accepts it too.
 const SchemaDefinition = {{printf "%q" .Definition}}
+const schemaDefinitionBefore = {{printf "%q" .DefinitionBefore}}
 var ErrSchemaGeneration = errors.New("database schema generation is not supported")
 
 // Database is the database/sql handle that the schema marker and the migration ledger run on: a *sql.DB pool, or
@@ -179,7 +183,7 @@ func readSchemaGeneration(ctx context.Context, tx *sql.Tx) (bool,error) {
  for rows.Next() {
   var singleton bool
   var generation,definition string
-  if rows.Scan(&singleton,&generation,&definition)!=nil || !singleton || generation!=SchemaGeneration || definition!=SchemaDefinition{return false,ErrSchemaGeneration}
+  if rows.Scan(&singleton,&generation,&definition)!=nil || !singleton || generation!=SchemaGeneration || (definition!=SchemaDefinition && definition!=schemaDefinitionBefore){return false,ErrSchemaGeneration}
   marked++
  }
  if rows.Err()!=nil || marked!=1{return false,ErrSchemaGeneration}

@@ -601,6 +601,9 @@ func generateRuntimeData(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err := sealMigrations(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
 	}
+	if err := checkLedgerNames(ctx.OutputNamespace, files); err != nil {
+		return nil, nil, err
+	}
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
 	}

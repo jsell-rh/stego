@@ -169,4 +169,50 @@ func TestBaseCompat(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("ST-GEN-INV33-T A change of the indexes that a collection gives a base entity is refused, and a change that gives no index is accepted", func(t *testing.T) {
+		t.Parallel()
+		td01 := string(userManagementBase(t))
+		for _, c := range []struct{ name, head string }{
+			{"a new list with a scope field", strings.Replace(td01, "    operations: [create, read, delete, list]\n", "    operations: [create, read, delete, list]\n\n  all-teams:\n    entity: Organization\n    scope: { name: Organization }\n    operations: [list]\n", 1)},
+			{"list taken from the only collection that lists an entity", strings.Replace(td01, "    operations: [create, read, delete, list]\n", "    operations: [create, read, delete]\n", 1)},
+			{"a new implicit field of a list", strings.Replace(td01, "    implicit: { source_type: \"User\" }\n", "    implicit: { source_type: \"User\", action: \"login\" }\n", 1)},
+			{"an upsert key changed", strings.Replace(td01, "    upsert_key: [org_id, key]\n", "    upsert_key: [org_id, key, value]\n", 1)},
+		} {
+			if c.head == td01 {
+				t.Fatalf("%s: the head is the base", c.name)
+			}
+			base := []byte(td01)
+			check, err := CheckBase(BaseSource{Ref: "main", Commit: "c0ffee", Declaration: base, Record: recordFor(base)}, parseHead(t, c.head))
+			if err != nil {
+				t.Fatalf("%s: %v", c.name, err)
+			}
+			found := false
+			for _, fault := range check.Faults {
+				found = found || (fault.Rule == BaseCompatRule && strings.Contains(fault.Message, "change its indexes"))
+			}
+			if !found {
+				t.Errorf("%s: no fault says that the collections change the indexes: %+v", c.name, check.Faults)
+			}
+		}
+		renamed := withChanges(strings.ReplaceAll(strings.Replace(td01, "{ name: source_type, type: string, max_length: 50 }", "{ name: origin_type, type: string, max_length: 50 }", 1), "implicit: { source_type:", "implicit: { origin_type:"),
+			"  - {id: activityentry-source-type-rename, kind: rename, entity: ActivityEntry, field: origin_type, from: source_type}\n",
+			"  - {change: activityentry-source-type-rename, phase: expand}\n")
+		for _, c := range []struct{ name, base, head string }{
+			{"a permission changed", td01, strings.Replace(td01, "permissions: {create: public, read: view, list: view, delete: edit}", "permissions: {create: public, read: view, list: view, delete: view}", 1)},
+			{"a collection with no list and no upsert key", td01, strings.Replace(td01, "\nslots:", "\n  one-org:\n    entity: Organization\n    path_prefix: /one-org\n    operations: [read]\n\nslots:", 1)},
+			{"a rename of an implicit field of a list", td01, renamed},
+		} {
+			base := []byte(c.base)
+			check, err := CheckBase(BaseSource{Ref: "main", Commit: "c0ffee", Declaration: base, Record: recordFor(base)}, parseHead(t, c.head))
+			if err != nil {
+				t.Fatalf("%s: %v", c.name, err)
+			}
+			for _, fault := range check.Faults {
+				if strings.Contains(fault.Message, "change its indexes") {
+					t.Errorf("%s: want no index fault, got %+v", c.name, fault)
+				}
+			}
+		}
+	})
 }

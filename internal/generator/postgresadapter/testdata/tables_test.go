@@ -532,4 +532,32 @@ FROM pg_catalog.pg_class c WHERE c.oid = $1::pg_catalog.regclass`, "public."+tab
 				strings.Join(freshCatalog, "\n"), strings.Join(upCatalog, "\n"))
 		}
 	})
+
+	t.Run("ST-SUP-RC01-OC42-T02 The marker check accepts the digest of the stored shape and the one a release before wrote, and no other", func(t *testing.T) {
+		ctx := context.Background()
+		markCfg, mark := database(t, cfg, admin)
+		migrate(t, markCfg, mark, func(ctx context.Context, conn *sql.Conn) error { return boards.Migrate(ctx, conn) }, "boards_access.json")
+		var definition string
+		if err := mark.QueryRow(`SELECT definition FROM stego_schema.generation`).Scan(&definition); err != nil || definition != boards.SchemaDefinition {
+			t.Fatalf("a new database holds the marker digest %q (error %v), want the digest of the stored shape %s", definition, err, boards.SchemaDefinition)
+		}
+		before := os.Getenv("STEGO_TEST_MARKER_BEFORE")
+		if len(before) != 64 || before == boards.SchemaDefinition {
+			t.Fatalf("the digest of a release before is %q", before)
+		}
+		// A database that a release before ST-SUP-RC01-OC42 made holds the digest of the entities and collections.
+		if _, err := mark.Exec(`UPDATE stego_schema.generation SET definition = $1`, before); err != nil {
+			t.Fatal(err)
+		}
+		if err := boards.VerifySchema(ctx, mark); err != nil {
+			t.Errorf("the marker check refuses the digest that a release before wrote: %v", err)
+		}
+		migrate(t, markCfg, mark, func(ctx context.Context, conn *sql.Conn) error { return boards.Migrate(ctx, conn) }, "boards_access.json")
+		if _, err := mark.Exec(`UPDATE stego_schema.generation SET definition = $1`, strings.Repeat("0", 64)); err != nil {
+			t.Fatal(err)
+		}
+		if err := boards.VerifySchema(ctx, mark); !errors.Is(err, boards.ErrSchemaGeneration) {
+			t.Errorf("the marker check gives %v for the digest of another declaration, want ErrSchemaGeneration", err)
+		}
+	})
 }

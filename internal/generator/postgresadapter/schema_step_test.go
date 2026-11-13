@@ -177,3 +177,77 @@ func TestSchemaSteps(t *testing.T) {
 		}
 	})
 }
+
+// markerOf gives the two marker digests that the schema_generation.go of the namespace ns holds.
+func markerOf(t *testing.T, files []gen.File, ns string) (string, string) {
+	t.Helper()
+	source := generated(t, files, ns+"/schema_generation.go")
+	definition := regexp.MustCompile(`const SchemaDefinition = "([0-9a-f]{64})"`).FindStringSubmatch(source)
+	before := regexp.MustCompile(`const schemaDefinitionBefore = "([0-9a-f]{64})"`).FindStringSubmatch(source)
+	if definition == nil || before == nil {
+		t.Fatalf("schema_generation.go holds no two marker digests:\n%s", source)
+	}
+	return definition[1], before[1]
+}
+
+func TestSchemaMarker(t *testing.T) {
+	t.Run("ST-SUP-RC01-OC42-T01 The marker digest changes with the stored shape and not with a collection or a permission", func(t *testing.T) {
+		generate := func(ctx gen.Context) (string, string) {
+			t.Helper()
+			files, _, err := new(postgresadapter.Generator).Generate(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return markerOf(t, files, "boards")
+		}
+		definition, before := generate(boardBase("boards", "boardtenancy"))
+		if definition == before {
+			t.Error("the digest of the stored shape is the digest that a release before wrote")
+		}
+		if steps, _ := generate(boardSteps("boards", "boardtenancy")); steps != definition {
+			t.Error("the add steps change the marker digest")
+		}
+		listed := boardBase("boards", "boardtenancy")
+		listed.Collections = append(listed.Collections, types.Collection{Name: "boards-by-title", Entity: "Board", Operations: []types.Operation{types.OpList, types.OpUpsert}, UpsertKey: []string{"title"}, Implicit: map[string]string{"title": "x"}})
+		listed.Entities[0].ResourceType, listed.Entities[0].Permissions = "", map[types.Operation]string{types.OpRead: "public"}
+		if got, gotBefore := generate(listed); got != definition || gotBefore == before {
+			t.Errorf("a collection and a permission change the digest of the stored shape (%v) or do not change the digest of a release before (%v)", got != definition, gotBefore == before)
+		}
+		for name, change := range map[string]func(*gen.Context){
+			"a new column": func(ctx *gen.Context) {
+				ctx.Entities[0].Fields = append(ctx.Entities[0].Fields, types.Field{Name: "note", Type: types.FieldTypeString, Optional: true})
+			},
+			"a NOT NULL":     func(ctx *gen.Context) { ctx.Entities[0].Fields[0].Optional = true },
+			"a unique field": func(ctx *gen.Context) { ctx.Entities[0].Fields[0].Unique = true },
+			"a protected entity": func(ctx *gen.Context) {
+				ctx.Entities[0].ResourceType = "board"
+			},
+		} {
+			ctx := boardBase("boards", "boardtenancy")
+			change(&ctx)
+			if got, _ := generate(ctx); got == definition {
+				t.Errorf("%s does not change the digest of the stored shape", name)
+			}
+		}
+	})
+
+	t.Run("ST-SUP-RC01-OC43-T01 Generation refuses a ledgered migration that is not the baseline, the tenancy row-level security or a step", func(t *testing.T) {
+		for _, name := range []string{"001_initial", "100_tenancy_row_security", "step_0001_add-card_expand", "step_0012_note-title-rename_contract"} {
+			if err := postgresadapter.CheckLedgerName(name); err != nil {
+				t.Errorf("%s is refused: %v", name, err)
+			}
+		}
+		for _, name := range []string{"101_x", "002_audit", "200_outbox", "step_1_add-card_expand", "step_0001_add-card_backfill", "step_0001_Add_expand", "zz_late", ""} {
+			if err := postgresadapter.CheckLedgerName(name); err == nil || !strings.Contains(err.Error(), "ST-SUP-RC01-OC43") {
+				t.Errorf("%s is accepted, or its refusal does not name ST-SUP-RC01-OC43: %v", name, err)
+			}
+		}
+		// A step name that the grammar refuses stops generation: the check reads every registration of migrate.go.
+		ctx := boardSteps("boards", "boardtenancy")
+		ctx.SchemaChanges[0].ID = "Add_Card"
+		ctx.SchemaHistory[0].Change = "Add_Card"
+		if files, _, err := new(postgresadapter.Generator).Generate(ctx); err == nil || !strings.Contains(err.Error(), "ST-SUP-RC01-OC43") || files != nil {
+			t.Errorf("a step named step_0001_Add_Card_expand gives files %d and error %v, want the refusal", len(files), err)
+		}
+	})
+}

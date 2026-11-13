@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -215,8 +216,18 @@ func tableModule(t *testing.T) (map[string]bool, string) {
 	if output, err := tidy.CombinedOutput(); err != nil {
 		t.Fatalf("go mod tidy: %v\n%s", err, output)
 	}
+	// The marker digest that a release before ST-SUP-RC01-OC42 wrote for the boards service, which the generated
+	// test writes into a database to stand for one that such a release made.
+	boardsMarker, err := os.ReadFile(filepath.Join(project, "boards", "schema_generation.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := regexp.MustCompile(`const schemaDefinitionBefore = "([0-9a-f]{64})"`).FindSubmatch(boardsMarker)
+	if before == nil {
+		t.Fatal("the boards service has no marker digest of a release before")
+	}
 	run := exec.Command("go", "test", "-json", "-mod=readonly", "-count=1", "-timeout=120s", "./check")
-	run.Dir, run.Env = project, append(os.Environ(), "GOWORK=off")
+	run.Dir, run.Env = project, append(os.Environ(), "GOWORK=off", "STEGO_TEST_MARKER_BEFORE="+string(before[1]))
 	output, _ := run.CombinedOutput()
 	passed := map[string]bool{}
 	var log strings.Builder
@@ -364,6 +375,10 @@ func TestTables(t *testing.T) {
 			t.Errorf("the policy of the tenant column user is not quoted:\n%s", source)
 		}
 		onPostgres(t, "ST-SUP-RC01-OC12-T09")
+	})
+
+	t.Run("ST-SUP-RC01-OC42-T02 The marker check accepts the digest of the stored shape and the one a release before wrote, and no other", func(t *testing.T) {
+		onPostgres(t, "ST-SUP-RC01-OC42-T02")
 	})
 
 	t.Run("ST-SUP-RC01-OC22-T03 An add step takes a database with rows to the schema of a new database, and the release before still runs on it", func(t *testing.T) {

@@ -62,6 +62,12 @@ the rows that the table holds cannot take it. Make the field optional or
 give it a default. An entity that refers to an entity that a later step adds
 is refused too: put the step that adds the other entity first.
 
+The marker of the database holds the digest of the stored shape of the
+first release, from postgres-adapter 6.2.0. A change of a collection or a
+permission does not change it. A change of the indexes of a collection over
+an entity of the base is refused, because no schema step builds such an
+index yet. See [stego compat](compat.md).
+
 The release before a step must run postgres-adapter 6.1.0 or later, because
 an earlier ledger refuses the row of a step that it does not know. The check
 against the base refuses a new step on such a base and names the version to
@@ -75,8 +81,8 @@ reference field to an entity of the base adds such a foreign key, so a pod of
 the release before the add fails its schema check when it restarts after the
 add's migration. During the rolling deploy, do not restart the pods of the
 release before. An add of a new entity, or of a field that is not a
-reference, has no such limit. The question ST-GEN-Q14 asks how the check of the
-release before can accept that foreign key in its exact form.
+reference, has no such limit. A later release of the schema check accepts that
+foreign key in its exact form (ST-SUP-RP15-LC03).
 
 The expand step of a rename, a retype or a require adds a sync trigger. Until
 the schema check of a release accepts the sync trigger of a later step, a pod
