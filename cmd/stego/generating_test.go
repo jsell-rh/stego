@@ -49,7 +49,6 @@ collections:
   notes: {entity: Note, operations: [create, read]}
 `
 
-
 // shippedRegistry gives the folder of the shipped registry, whose archetypes are on the runtime data path, the only
 // data path (ST-SUP-RC20-OC39).
 func shippedRegistry(t testing.TB) string {
@@ -457,7 +456,6 @@ func TestPlanNamesEveryChange(t *testing.T) {
 		}
 	})
 }
-
 
 // The declarations of these tests prove behaviour of the compiler that does not depend on the data path. Since the
 // runtime data path is the only data path (ST-SUP-RC20-OC39), a rest-crud declaration with entities needs pooled
