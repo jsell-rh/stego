@@ -286,7 +286,7 @@ func renderCommandHandlers(w *writer, m *model, c *command) {
 	}
 	r := c.resource
 	// The table is named with its schema, so no relation of the same name earlier on the search path stands in for it.
-	token := fmt.Sprintf("SELECT authz_token FROM public.%s WHERE %s = $1 AND id = $2::%s FOR SHARE", quote(r.table), m.tenantKey, r.keyCast)
+	token := fmt.Sprintf("SELECT authz_token FROM public.%s WHERE %s = $1 AND id = $2::%s FOR SHARE", r.table, m.tenantKey, r.keyCast)
 	w.f("\tPermission: %q,\n\tResource: &command.Resource{Type: %q, Token: %q, ValidID: command.ValidUUID},\n}))\n\n", c.decl.Permission, r.resourceType, token)
 	spec := fmt.Sprintf("command.ServeSpec[*commands.%s, *commands.%s, %s]", c.request.name, c.response.name, probe)
 	w.f("// %sSpec is what varies with the declaration of %s.\nfunc %sSpec(fill commands.%sFill, options Options) %s {\n", lower, c.decl.Name, lower, c.goName, spec)
