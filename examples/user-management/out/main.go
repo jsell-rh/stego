@@ -21,13 +21,11 @@ import (
 	"time"
 
 	admincreationpolicy "github.com/example/service/fills/admin-creation-policy"
-	auditlogger "github.com/example/service/fills/audit-logger"
 	checkdependencies "github.com/example/service/fills/check-dependencies"
 	orgnamevalidator "github.com/example/service/fills/org-name-validator"
 	orgprovisioner "github.com/example/service/fills/org-provisioner"
 	rbacpolicy "github.com/example/service/fills/rbac-policy"
 	sendwelcome "github.com/example/service/fills/send-welcome"
-	userchangenotifier "github.com/example/service/fills/user-change-notifier"
 	health "github.com/example/service/out/health"
 	api "github.com/example/service/out/internal/api"
 	stegoruntime "github.com/example/service/out/internal/stegoruntime"
@@ -70,12 +68,6 @@ func run() (stegoErr error) {
 		sendwelcome.New(),
 	)
 
-	// Slot: on_entity_changed (fan-out) for org-users
-	onEntityChangedOrgUsersFanOut := slots.NewOnEntityChangedFanOut(
-		userchangenotifier.New(),
-		auditlogger.New(),
-	)
-
 	// Slot: before_create (chain, short_circuit=true) for organizations
 	beforeCreateOrganizationsChain := slots.NewBeforeCreateChain(true,
 		orgnamevalidator.New(),
@@ -111,7 +103,7 @@ func run() (stegoErr error) {
 	}
 	defer service.Close()
 	organizationsHandler := api.NewOrganizationsHandler(service.CollectionRuntime(), beforeCreateOrganizationsChain, beforeDeleteOrganizationsGate)
-	orgUsersHandler := api.NewOrgUsersHandler(service.CollectionRuntime(), beforeCreateOrgUsersGate, afterCreateOrgUsersFanOut, onEntityChangedOrgUsersFanOut)
+	orgUsersHandler := api.NewOrgUsersHandler(service.CollectionRuntime(), beforeCreateOrgUsersGate, afterCreateOrgUsersFanOut)
 	allUsersHandler := api.NewAllUsersHandler(service.CollectionRuntime())
 	orgSettingsHandler := api.NewOrgSettingsHandler(service.CollectionRuntime())
 	userActivityHandler := api.NewUserActivityHandler(service.CollectionRuntime())
