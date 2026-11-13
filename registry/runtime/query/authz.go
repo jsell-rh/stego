@@ -216,8 +216,8 @@ const (
 // List reads one page of the entity's rows in the tenant (ST-SUP-RP11-LC03, ST-SUP-RP11-LC07). For a protected
 // entity it holds only the rows that the principal may see on the query's declared permission for a list query,
 // and on the permission that the entity declares for list otherwise: for an entity with a small expected
-// cardinality, the provider's resource search gives the rows; otherwise List pages the table and filters each
-// page with one batch evaluation. Each search and each batch runs at least as fresh as the revocation floor read
+// cardinality, the provider's resource search gives the rows, also for a filtered list; otherwise, and for a list in
+// an order of declared fields, List pages the table and filters each page with one batch evaluation. Each search and each batch runs at least as fresh as the revocation floor read
 // at that page through the bound transaction (ST-SUP-RP06-LC04, ST-SUP-RP06-LC09). Each read of personal data is
 // audited before List returns (ST-SUP-RP11-LC08).
 func (r *Repository[T]) List(ctx context.Context, request ListRequest) (ListResult[T], error) {
@@ -258,9 +258,12 @@ func (r *Repository[T]) List(ctx context.Context, request ListRequest) (ListResu
 	if request.After.order != "" {
 		return ListResult[T]{}, ErrBadCursor
 	}
-	// A resource search has no filter of the table's columns, so a filtered list pages the table.
-	if e.spec.ResourceType != "" && e.spec.Search && c.authz != nil && len(request.Where) == 0 {
-		result, err := r.searchPage(ctx, limit, request.After)
+	// An entity of small expected cardinality lists through the provider's resource search, also with a filter: the
+	// search gives the rows that the principal may see, and the filter keeps those that match, so the work of a call
+	// does not grow with hidden rows that match (ST-SUP-RP11-LC20, ST-SUP-Q111 c). A provider with no search pages
+	// the table.
+	if e.spec.ResourceType != "" && e.spec.Search && c.authz != nil {
+		result, err := r.searchPage(ctx, limit, request.After, request.Where)
 		if !errors.Is(err, authz.ErrNoSearch) {
 			return result, err
 		}
@@ -593,7 +596,7 @@ func (r *Repository[T]) tablePage(ctx context.Context, limit int, after Cursor, 
 // searchPage asks the provider for one page of the resources the principal may see and reads their rows in the
 // tenant. The authorization handle maps each result back to its row key, in Keys, only when it is of this tenant and
 // this resource type, and drops every other result (ST-SUP-RP06-LC22).
-func (r *Repository[T]) searchPage(ctx context.Context, limit int, after Cursor) (ListResult[T], error) {
+func (r *Repository[T]) searchPage(ctx context.Context, limit int, after Cursor, where []Equal) (ListResult[T], error) {
 	c := r.core
 	e := &r.entity.e
 	found, err := c.authz.Search(ctx, r.permission(), e.spec.ResourceType, nil, authz.Page{Token: after.page, Limit: limit})
@@ -606,14 +609,17 @@ func (r *Repository[T]) searchPage(ctx context.Context, limit int, after Cursor)
 	}
 	var result ListResult[T]
 	if !found.Next.IsZero() {
-		result.Next, result.More = Cursor{page: found.Next}, true
+		result.Next, result.More = Cursor{page: found.Next, filter: filterDigest(where)}, true
 	}
 	if len(found.Keys) == 0 {
 		return result, nil
 	}
 	ids := found.Keys
+	// The filter reads only the rows of the search, so a page may hold fewer values than the limit and still have
+	// more after it.
+	filter, filterArgs := filterSQL(where, 3)
 	rows, err := c.tx.QueryContext(ctx, "SELECT "+e.selectList+" FROM "+e.table+" WHERE "+TenantColumn+" = $1 AND "+
-		e.spec.Key+" = ANY($2) ORDER BY "+e.spec.Key, c.tenant.ID(), ids)
+		e.spec.Key+" = ANY($2)"+filter+" ORDER BY "+e.spec.Key, append([]any{c.tenant.ID(), ids}, filterArgs...)...)
 	if err != nil {
 		return ListResult[T]{}, fmt.Errorf("query: list %s: %w", e.spec.Name, err)
 	}
