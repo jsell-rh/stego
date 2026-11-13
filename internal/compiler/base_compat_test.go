@@ -1,11 +1,13 @@
 package compiler
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/parser"
 	"github.com/jsell-rh/stego/internal/types"
 )
@@ -239,9 +241,56 @@ func TestBaseCompat(t *testing.T) {
 		if check, err := CheckBase(BaseSource{Ref: "main", Commit: "c0ffee", Declaration: base, Record: recordFor(base)}, parseHead(t, td01)); err != nil || check.HasFaults() {
 			t.Errorf("the base against itself: %+v, %v", check.Faults, err)
 		}
+		// A record that names components and no postgres-adapter has no 001_initial to compare, and its indexes are
+		// compared as the collections describe them.
 		noAdapter := []byte("format_version: 5\nlast_applied:\n  service_hash: " + HashBytes(base) + "\n  components:\n    jwt-auth: {version: 1.0.0}\n")
 		if check, err := CheckBase(BaseSource{Ref: "main", Commit: "c0ffee", Declaration: base, Record: noAdapter}, parseHead(t, head)); err != nil || check.HasFaults() {
 			t.Errorf("a base with no postgres-adapter: %+v, %v", check.Faults, err)
+		}
+		unlisted := strings.Replace(td01, "    operations: [create, read, delete, list]\n", "    operations: [create, read, delete]\n", 1)
+		check, err = CheckBase(BaseSource{Ref: "main", Commit: "c0ffee", Declaration: base, Record: noAdapter}, parseHead(t, unlisted))
+		if err != nil || len(check.Faults) != 1 || !strings.Contains(check.Faults[0].Message, "change its indexes") {
+			t.Errorf("a list taken away on a base with no postgres-adapter: want one index fault, got %+v, %v", check.Faults, err)
+		}
+	})
+
+	t.Run("ST-GEN-INV33-T A head that adds pooled tenancy to a base with no tenancy, which adds the tenant column to 001_initial, is refused", func(t *testing.T) {
+		t.Parallel()
+		td01 := string(userManagementBase(t))
+		single := strings.Replace(td01, "tenancy:\n  kind: pooled\n  key: tenant_id\n  claim: tenant\n", "", 1)
+		if single == td01 {
+			t.Fatal("the base still has its tenancy")
+		}
+		base := []byte(single)
+		adapterOnly := []byte("format_version: 5\nlast_applied:\n  service_hash: " + HashBytes(base) + "\n  components:\n    postgres-adapter: {version: 6.2.0}\n")
+		for name, record := range map[string][]byte{"a record that names postgres-adapter and no tenancy": adapterOnly, "a record that names no component": recordFor(base)} {
+			check, err := CheckBase(BaseSource{Ref: "main", Commit: "c0ffee", Declaration: base, Record: record}, parseHead(t, td01))
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			found := false
+			for _, fault := range check.Faults {
+				found = found || (fault.Rule == BaseCompatRule && strings.Contains(fault.Message, "of 001_initial with no schema step"))
+			}
+			if !found {
+				t.Errorf("%s: the head that adds pooled tenancy gives no fault on 001_initial: %+v", name, check.Faults)
+			}
+		}
+		// The settings alone select the tenancy component: no archetype or mixin of the registry holds it.
+		for _, folder := range []string{"archetypes", "mixins"} {
+			err := filepath.WalkDir(filepath.Join("..", "..", "registry", folder), func(path string, entry fs.DirEntry, err error) error {
+				if err != nil || entry.IsDir() {
+					return err
+				}
+				data, err := os.ReadFile(path)
+				if err == nil && strings.Contains(string(data), gen.TenancyComponent) {
+					t.Errorf("%s names the component %s, so the settings alone do not select it", path, gen.TenancyComponent)
+				}
+				return err
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
 		}
 	})
 }

@@ -204,31 +204,39 @@ type baselineOutput struct {
 }
 
 // generatedBaselines gives what the postgres-adapter generator writes for the baselines of the base and of the head,
-// with the tenancy of each declaration: with the tenancy component when the record at the base names it, or names no
-// component. It gives no output and true when the record names components and no postgres-adapter, which has no
-// 001_initial, and false when generation does not carry out a kind of schema change of either declaration yet.
+// each with its own tenancy: the base with the tenancy component when the record at the base names it (or, for a
+// record that names no component, when its settings select it), and the head when its settings select it
+// (selectComponents). No archetype or mixin holds the tenancy component, so the settings alone select it. It gives
+// false, so that the check compares the indexes that the collections describe, when the record names components and
+// no postgres-adapter, and when generation does not carry out a kind of schema change of either declaration yet.
 func generatedBaselines(applied *AppliedState, base, head *types.ServiceDeclaration) (*baselineOutput, bool) {
-	var components []string
-	if applied == nil || len(applied.Components) == 0 {
-		components = []string{gen.TenancyComponent}
-	} else {
-		if _, adapter := applied.Components["postgres-adapter"]; !adapter {
-			return nil, true
+	selected := func(service *types.ServiceDeclaration) []string {
+		var names []string
+		for _, s := range selectComponents(service) {
+			names = append(names, s.Component)
 		}
+		return names
+	}
+	baseComponents := selected(base)
+	if applied != nil && len(applied.Components) > 0 {
+		if _, adapter := applied.Components["postgres-adapter"]; !adapter {
+			return nil, false
+		}
+		baseComponents = nil
 		if _, tenancy := applied.Components[gen.TenancyComponent]; tenancy {
-			components = []string{gen.TenancyComponent}
+			baseComponents = []string{gen.TenancyComponent}
 		}
 	}
-	baseline := func(service *types.ServiceDeclaration) ([]postgresadapter.BaselineTable, string, error) {
+	baseline := func(service *types.ServiceDeclaration, components []string) ([]postgresadapter.BaselineTable, string, error) {
 		return postgresadapter.Baseline(gen.Context{Entities: service.Entities, Collections: service.Collections,
 			SchemaChanges: service.SchemaChanges, SchemaHistory: service.SchemaHistory, Tenancy: pooledTenancy(service, components)})
 	}
 	out := &baselineOutput{}
 	var err error
-	if out.base, out.baseMarker, err = baseline(base); err != nil {
+	if out.base, out.baseMarker, err = baseline(base, baseComponents); err != nil {
 		return nil, false
 	}
-	if out.head, out.headMarker, err = baseline(head); err != nil {
+	if out.head, out.headMarker, err = baseline(head, selected(head)); err != nil {
 		return nil, false
 	}
 	return out, true

@@ -610,5 +610,19 @@ FROM pg_catalog.pg_class c WHERE c.oid = $1::pg_catalog.regclass`, "public."+tab
 		if err := mark.QueryRow(`SELECT definition FROM stego_schema.generation`).Scan(&definition); err != nil || definition != other {
 			t.Errorf("the migration job changed the digest of another declaration to %q (error %v)", definition, err)
 		}
+		// A job that fails its ledger check, here on an edited migration, leaves the digest of a release before as it
+		// is, so the pods of that release can still restart.
+		if _, err := mark.Exec(`UPDATE stego_schema.generation SET definition = $1`, before); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := mark.Exec(`UPDATE stego_schema.migrations SET digest = $1 WHERE version = '001_initial'`, strings.Repeat("f", 64)); err != nil {
+			t.Fatal(err)
+		}
+		if err := boards.Migrate(ctx, conn); !errors.Is(err, boards.ErrMigrationLedger) {
+			t.Errorf("the migration job gives %v on an edited migration, want ErrMigrationLedger", err)
+		}
+		if err := mark.QueryRow(`SELECT definition FROM stego_schema.generation`).Scan(&definition); err != nil || definition != before {
+			t.Errorf("a job that fails its ledger check left the marker %q (error %v), want the digest of a release before", definition, err)
+		}
 	})
 }
