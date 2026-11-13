@@ -109,7 +109,7 @@ type Scanner interface {
 }
 
 // Meta is what the generated scan of an entity reads from a row besides its fields: the ID, the resource version
-// (ST-SUP-RC01-OC07) and the text form of the authorization token, empty while the relay has written none.
+// (ST-SUP-RP10-LC24) and the text form of the authorization token, empty while the relay has written none.
 type Meta struct {
 	ID      string
 	Version int64

@@ -21,6 +21,10 @@ import (
 // what is missing or different, and a permissive policy that a table with row-level security does not name.
 type Manifest struct {
 	Tables []Table
+	// Functions are the functions that the code calls and that are no trigger function, such as the SECURITY
+	// DEFINER function audit_maintain of the audit record: each takes no argument, and its language, source,
+	// SECURITY DEFINER and settings must be those of the manifest, and its owner Owner.
+	Functions []Function
 	// Owner is the role that must own each table and each trigger function of the manifest: the owner role of the
 	// service, which the migration job runs as. Empty leaves the owner of the table unchecked.
 	Owner string
@@ -113,6 +117,9 @@ type Function struct {
 	Name, Language, Source string
 	SecurityDefiner        bool
 	Config                 []string
+	// Execute, for a function of Manifest.Functions, are the roles that may run it besides its owner: EXECUTE must
+	// go to these roles and to no other grantee, PUBLIC included.
+	Execute []string
 }
 
 // Join gives one manifest with the tables of each manifest, in order.
@@ -120,6 +127,7 @@ func Join(manifests ...Manifest) Manifest {
 	var joined Manifest
 	for _, m := range manifests {
 		joined.Tables = append(joined.Tables, m.Tables...)
+		joined.Functions = append(joined.Functions, m.Functions...)
 		if joined.Owner == "" {
 			joined.Owner = m.Owner
 		}
@@ -137,6 +145,17 @@ var name = regexp.MustCompile(`^[^\x00-\x1f]{1,63}$`)
 func (m Manifest) Validate() error {
 	if m.Owner != "" && !name.MatchString(m.Owner) {
 		return fmt.Errorf("manifest: the owner %q needs a name of at most 63 bytes", m.Owner)
+	}
+	functions := map[string]bool{}
+	for _, f := range m.Functions {
+		schema, fn, ok := strings.Cut(f.Name, ".")
+		if !ok || !name.MatchString(schema) || !name.MatchString(fn) || f.Language == "" || f.Source == "" {
+			return fmt.Errorf("manifest: the function %q needs a schema and a name of at most 63 bytes, a language and a source", f.Name)
+		}
+		if functions[f.Name] {
+			return fmt.Errorf("manifest: the function %s is named twice", f.Name)
+		}
+		functions[f.Name] = true
 	}
 	tables := map[string]bool{}
 	for _, t := range m.Tables {
@@ -321,10 +340,53 @@ func Check(ctx context.Context, db *sql.DB, m Manifest) (err error) {
 		}
 		faults = append(faults, found...)
 	}
+	for _, f := range m.Functions {
+		found, err := checkFunction(ctx, tx, f, m.Owner)
+		if err != nil {
+			return fmt.Errorf("manifest: read the catalog of the function %s: %w", f.Name, err)
+		}
+		faults = append(faults, found...)
+	}
 	if len(faults) > 0 {
 		return &Mismatch{Faults: faults}
 	}
 	return nil
+}
+
+// checkFunction gives the faults of one function of the manifest that takes no argument: missing, or with another
+// language, source, SECURITY DEFINER, settings or owner. Its fault names the function only.
+func checkFunction(ctx context.Context, tx *sql.Tx, f Function, wantOwner string) ([]string, error) {
+	schema, fn, _ := strings.Cut(f.Name, ".")
+	var language, source, config, owner, grantees string
+	var definer bool
+	// The grantees of EXECUTE other than the owner, by name, PUBLIC for grantee 0; a function with no ACL has the
+	// default one, which gives EXECUTE to PUBLIC.
+	err := tx.QueryRowContext(ctx, `SELECT l.lanname, p.prosrc, COALESCE(pg_catalog.array_to_string(p.proconfig, chr(31)), ''), p.prosecdef,
+  pg_catalog.pg_get_userbyid(p.proowner),
+  COALESCE((SELECT pg_catalog.string_agg(CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END, chr(31)
+    ORDER BY CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END)
+    FROM pg_catalog.aclexplode(COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))) a
+    WHERE a.privilege_type = 'EXECUTE' AND a.grantee <> p.proowner), '')
+  FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace JOIN pg_catalog.pg_language l ON l.oid = p.prolang
+  WHERE n.nspname = $1 AND p.proname = $2 AND p.pronargs = 0`, schema, fn).Scan(&language, &source, &config, &definer, &owner, &grantees)
+	if errors.Is(err, sql.ErrNoRows) {
+		return []string{"function " + f.Name + " is missing"}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case language != f.Language || source != f.Source || definer != f.SecurityDefiner || config != strings.Join(f.Config, "\x1f"):
+		return []string{"function " + f.Name + " is not the function of the manifest"}, nil
+	case wantOwner != "" && owner != wantOwner:
+		return []string{"function " + f.Name + " has another owner"}, nil
+	}
+	want := slices.Clone(f.Execute)
+	slices.Sort(want)
+	if grantees != strings.Join(want, "\x1f") {
+		return []string{"function " + f.Name + " may be run by roles that the manifest does not name"}, nil
+	}
+	return nil, nil
 }
 
 // checkTable gives the faults of one table.

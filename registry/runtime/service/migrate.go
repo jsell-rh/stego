@@ -250,7 +250,8 @@ func maintainAudit(ctx context.Context, conn *sql.Conn, owner string) error {
 	for range 64 {
 		var more bool
 		if err := ownerStep(ctx, conn, owner, func(tx *sql.Tx) error {
-			return tx.QueryRowContext(ctx, "SELECT step_left FROM "+audit.MaintainFunction+"()").Scan(&more)
+			// By its schema, so no function of the same name earlier on the search path runs in its place.
+			return tx.QueryRowContext(ctx, "SELECT step_left FROM public."+audit.MaintainFunction+"()").Scan(&more)
 		}); err != nil {
 			return err
 		}

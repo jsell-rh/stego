@@ -79,6 +79,14 @@ func DDL(c Config) (string, error) {
 	if c.clock == "" {
 		c.clock = "now()"
 	}
+	return render(c), nil
+}
+
+// render gives the DDL text of c with each of its names and values.
+func render(c Config) string {
+	if c.clock == "" {
+		c.clock = "now()"
+	}
 	return strings.NewReplacer(
 		"{s}", c.Schema,
 		"{role}", c.RuntimeRole,
@@ -90,7 +98,7 @@ func DDL(c Config) (string, error) {
 		"{bounds}", BoundariesTable,
 		"{checks}", CheckpointsTable,
 		"{maintain}", MaintainFunction,
-	).Replace(ddlText), nil
+	).Replace(ddlText)
 }
 
 // tenantWall is the expression of the policy tenant_wall of each audit table, as pg_get_expr gives it.
@@ -113,7 +121,12 @@ func Manifest(c Config) (manifest.Manifest, error) {
 	if c.AnchorPeriod < time.Second {
 		return manifest.Manifest{}, errors.New("audit: the anchor period is less than one second")
 	}
-	text := strings.NewReplacer("{s}", s, "{period}", strconv.FormatInt(int64(c.AnchorPeriod/time.Second), 10)+" seconds").Replace(ddlText)
+	// The source of audit_maintain holds the retention, so the manifest needs the retention of the migration.
+	if c.RetentionMonths < 1 {
+		return manifest.Manifest{}, errors.New("audit: the retention is less than one month")
+	}
+	c.Schema = s
+	text := render(c)
 	function := func(name string) (manifest.Function, error) {
 		head := "CREATE OR REPLACE FUNCTION " + s + "." + name + "() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$"
 		_, rest, found := strings.Cut(text, head)
@@ -138,7 +151,21 @@ func Manifest(c Config) (manifest.Manifest, error) {
 			{Name: table + "_reject_statement", Timing: "BEFORE", Events: []string{"UPDATE", "DELETE", "TRUNCATE"}, Function: reject},
 		}
 	}
-	return manifest.Manifest{Tables: []manifest.Table{
+	// audit_maintain is the SECURITY DEFINER function that makes and drops the partitions (ST-SUP-RP05-LC10).
+	maintainHead := "CREATE OR REPLACE FUNCTION " + s + "." + MaintainFunction + "()"
+	_, rest, found := strings.Cut(text, maintainHead)
+	_, body, opened := strings.Cut(rest, "AS $$")
+	source, _, closed := strings.Cut(body, "$$")
+	if !found || !opened || !closed {
+		return manifest.Manifest{}, fmt.Errorf("audit: the DDL has no function %s", MaintainFunction)
+	}
+	// EXECUTE goes to the runtime role only, which runs the maintenance loop.
+	if !plainName.MatchString(c.RuntimeRole) {
+		return manifest.Manifest{}, errors.New("audit: the manifest needs the runtime role, a plain lower-case name")
+	}
+	maintain := manifest.Function{Name: s + "." + MaintainFunction, Language: "plpgsql", Source: source, SecurityDefiner: true,
+		Config: []string{"search_path=pg_catalog, pg_temp", "lock_timeout=2s"}, Execute: []string{c.RuntimeRole}}
+	return manifest.Manifest{Functions: []manifest.Function{maintain}, Tables: []manifest.Table{
 		{Schema: s, Name: EventsTable, Partitioned: true, RowSecurity: true, Policies: wall, Triggers: rejecting(EventsTable),
 			// audit_create_partition gives each partition a statement trigger of its own; the row triggers are clones.
 			PartitionTriggers: []manifest.Trigger{{Name: "_reject_statement", Timing: "BEFORE", Events: []string{"UPDATE", "DELETE", "TRUNCATE"},
@@ -570,6 +597,8 @@ type MaintainConfig struct {
 	Outbox Enqueuer
 	// Now is the controller's clock; nil is time.Now.
 	Now func() time.Time
+	// Schema is the schema of the audit record, as Config.Schema; empty is public.
+	Schema string
 }
 
 // Maintainer is the maintenance loop (ST-SUP-RP05-LC10). The controller calls Run; the job owns no loop of its
@@ -593,14 +622,25 @@ func NewMaintainer(cfg MaintainConfig) (*Maintainer, error) {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
+	if cfg.Schema == "" {
+		cfg.Schema = "public"
+	}
+	if !plainName.MatchString(cfg.Schema) {
+		return nil, errors.New("audit: the schema must be a plain lower-case name")
+	}
 	return &Maintainer{cfg: cfg}, nil
+}
+
+// maintainCall is the call of audit_maintain in the schema of the audit record, by its schema, so no function of the
+// same name earlier on the search path runs in its place.
+func maintainCall(schema string) string {
+	return `SELECT step_left, checkpoint_tenant, checkpoint_seq, checkpoint_hash FROM ` + schema + `.` + MaintainFunction + `()`
 }
 
 // maxSteps bounds one run, so a run ends also when the function always reports a step left.
 const maxSteps = 64
 
 const (
-	callMaintain = `SELECT step_left, checkpoint_tenant, checkpoint_seq, checkpoint_hash FROM ` + MaintainFunction + `()`
 	setTenant    = `SELECT pg_catalog.set_config('app.tenant', $1, true)`
 	readTenant   = `SELECT coalesce(pg_catalog.current_setting('app.tenant', true), '')`
 	leaseTimeout = `SET LOCAL lock_timeout = '2s'`
@@ -659,7 +699,7 @@ func (m *Maintainer) Run(ctx context.Context) (int, error) {
 			if _, err := h.Fence(ctx, tx); err != nil {
 				return err
 			}
-			rows, err := tx.QueryContext(ctx, callMaintain)
+			rows, err := tx.QueryContext(ctx, maintainCall(m.cfg.Schema))
 			if err != nil {
 				return stmtError(ctx, "maintenance call", err)
 			}

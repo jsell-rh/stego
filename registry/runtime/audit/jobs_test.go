@@ -435,6 +435,30 @@ func TestJobs(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RP05-LC10-T12 The maintenance loop calls audit_maintain by its schema, so a function of that name earlier on the search path does not run", func(t *testing.T) {
+		f := newPG(t)
+		// "$user" is first on the default search path: a schema named as the runtime role, with a function
+		// audit_maintain that writes a row of its call, stands in front of the schema of the audit record.
+		if _, err := f.owner.ExecContext(f.ctx, `CREATE SCHEMA `+runtimeRole+`;
+ CREATE TABLE `+runtimeRole+`.planted_calls (at timestamptz NOT NULL DEFAULT now());
+ CREATE FUNCTION `+runtimeRole+`.`+MaintainFunction+`() RETURNS TABLE (step_left boolean, checkpoint_tenant text, checkpoint_seq bigint, checkpoint_hash bytea)
+  LANGUAGE plpgsql AS $$ BEGIN INSERT INTO `+runtimeRole+`.planted_calls DEFAULT VALUES; RETURN QUERY SELECT false, NULL::text, NULL::bigint, NULL::bytea; END $$;
+ GRANT USAGE ON SCHEMA `+runtimeRole+` TO `+runtimeRole+`; GRANT INSERT ON `+runtimeRole+`.planted_calls TO `+runtimeRole+`;
+ GRANT EXECUTE ON FUNCTION `+runtimeRole+`.`+MaintainFunction+`() TO `+runtimeRole+`;
+ DROP TABLE `+partitionName(monthStart(time.Now()).AddDate(0, 3, 0))); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.maintainer(nil).Run(f.ctx); err != nil {
+			t.Fatal(err)
+		}
+		if n := f.count("", "SELECT count(*) FROM "+runtimeRole+".planted_calls"); n != 0 {
+			t.Errorf("the planted audit_maintain ran %d times, want none", n)
+		}
+		if n := f.count("", "SELECT count(*) FROM pg_inherits WHERE inhparent = '"+EventsTable+"'::regclass"); n != 4 {
+			t.Errorf("%d partitions, want 4: the audit_maintain of the audit record made the dropped one again", n)
+		}
+	})
+
 	t.Run("ST-SUP-RP05-LC10-T10 A maintenance call takes the lease lock before it locks a partition", func(t *testing.T) {
 		f := newPG(t)
 		if _, err := f.owner.ExecContext(f.ctx, "DROP TABLE "+partitionName(monthStart(time.Now()).AddDate(0, 3, 0))); err != nil {
@@ -928,7 +952,7 @@ func (f *pgFixture) maintainOnce() (bool, []string) {
 	var more bool
 	var tenants []string
 	if err := f.inTx(f.runtime, "", func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(f.ctx, callMaintain)
+		rows, err := tx.QueryContext(f.ctx, maintainCall("public"))
 		if err != nil {
 			return err
 		}

@@ -19,33 +19,33 @@ last_applied:
                 mode: 420
             go.mod:
                 exists: true
-                sha256: 7cf56767cd1a2e676c5998667c76b704b8a5466be3c90ceeabd6f0bbd92facbb
+                sha256: 433860ce4f56e19c87ab9a225d0308af9e311fc351aefeffb12f43e7672df3e7
                 mode: 420
             go.sum:
                 exists: true
-                sha256: 2bf47e3212c3316e784ade0cf09b75394ac80e25c16bf956c0eeced38a886290
+                sha256: 85d44b04a217a4029c71c864007965fe08578d7fd0b463b816702d3325c3e644
                 mode: 420
             service.yaml:
                 exists: true
                 sha256: 5b828f37efb0c74cdd3d2535c7ad16713f9784d20421fd415f54adfa1d17fad7
                 mode: 420
-        sha256: b714bafef0057c59adb634eb996289c263dd2ac879d680543e2a2a7c9e10082c
+        sha256: 4b276685026a44b681bbbd22ae800d39124a8feca8726c7ea0c17fba48b58795
     compiler_build:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261113033746-fe3aa06dea84
+        module_version: v0.0.0-20261113041557-777e956c86f5
         vcs: git
-        revision: fe3aa06dea84a7ce9c4664f203141446323d9c2e
+        revision: 777e956c86f5a17bcf71d886caa8c7d634fbe698
         source_state: clean
     service_name: user-management
     service_hash: 5b828f37efb0c74cdd3d2535c7ad16713f9784d20421fd415f54adfa1d17fad7
     registry_sha: env-override
-    registry_content_sha256: 927e485db476b73691905d932e58c8a83e5df4efe32b28c4c4ddcc1cdce5f140
+    registry_content_sha256: 8b2d304a9dc06fa637bc348e0e08d1e12d8df23aff39b58571bcef41d3be7b1d
     components:
         audit-log:
-            version: 1.0.0
-            sha: c2c22795f2c0670456d773d1e4531d73a0da82919408383d56f45a72231acdb9
+            version: 1.1.0
+            sha: f16032b07588ef1b61f6e63cc0a5076eafee42cad6f876b9c1a92437f8d7475f
         command:
             version: 1.0.0
             sha: 7ac97e662ee1158df5559ae5f62e55f2845b9ea289b86e5c22d245222d771a60
@@ -158,7 +158,7 @@ last_applied:
         internal/authz/authz.go: 12e919abea5effc80b1c40747f85d71283cde21d65d0ff026a70a86ee4f1d878
         internal/authz/schema.zed: d4862acfa0f82e11d3394e12c6476447940cff59b2affb6650b096fdce52bccd
         internal/outbox/outbox.go: 5f090d5ae397ff12f1e888f4d3fa758131767e7cc1ec5102fe6962e2397b410a
-        internal/stegoruntime/runtime.go: a3686dcf9797135108c9900c718cbb34c8a49ea6734ef77ff24c13fbb8c92d51
+        internal/stegoruntime/runtime.go: 9e046e33c12e459395d5fa777ab363d6a9b58da60d179ccf64d0427bec0de3e2
         internal/storage/database.go: 2969e645f09850b504ad2725978a15d1ccad3147efb4a450d7360be23ffef627
         internal/storage/migrate.go: 029d2589ebd1ae4d89159fc497d5d46f18dd8b2dfe46827b06247aef15c49ff4
         internal/storage/migrations/001_initial.sql: 8561b6d30aa26aeb145ee71633ecb53242fc7ef58dd6629aa917ac290e33085a
@@ -209,9 +209,9 @@ last_applied:
         tracing/startup.go: ba2cc8272fddb2c9c18cf10199b7ffe3df430ea88f3d02a6902e00908d154160
     archetype:
         name: rest-crud
-        version: 3.58.0
+        version: 3.61.0
         runtime:
             module: github.com/jsell-rh/stego/registry/runtime
-            version: v0.55.0
-            sum: h1:OLqcZyIG1OpKnTzIS0ymP8Zh5PNSse66SXkGqixUZGg=
+            version: v0.58.0
+            sum: h1:d2rdjGuJJG3cFEK/PJSdssYtFAkn5xORooIYSBv733g=
         imports_runtime: true
