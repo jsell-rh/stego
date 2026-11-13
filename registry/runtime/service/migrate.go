@@ -28,6 +28,7 @@ const (
 	StepAuthorizationSchema = "authorization_schema"
 	StepTables              = "tables"
 	StepOutboxQueue         = "outbox_queue"
+	StepOutboxSequence      = "outbox_sequence"
 	StepAuditTables         = "audit_tables"
 	StepAuditSink           = "audit_sink"
 	StepIdempotencyKeys     = "idempotency_keys"
@@ -47,6 +48,9 @@ type Migration struct {
 	// PurgeRole is the idempotency purge role of the service, <service role prefix>_idempotency_purge, which the
 	// tenancy role migration makes and which owns the purge function of the key table (ST-SUP-RP07-LC11).
 	PurgeRole string
+	// OutboxRelayRole is the outbox relay role of the service, which may read every message of the queue; the job
+	// reads the highest sequence as that role to check the identity sequence of the queue (ST-SUP-RP14-LC03).
+	OutboxRelayRole string
 	// TenantConfig gives the connection configuration of the PostgreSQL adapter for a connection string.
 	TenantConfig func(dsn string) (tenant.Config, error)
 	// LedgerCheck reads the database and refuses one whose tables this release did not make, writing nothing; Ledger
@@ -106,7 +110,7 @@ var stepped func(step string, conn *sql.Conn)
 // its own schema. It stops at the first step that fails, with a StepError that names the step. Each step runs again
 // on a database that it made, so the job runs on every release.
 func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
-	if m.OwnerRole == "" || m.RuntimeRole == "" || m.WorkerRole == "" || m.PurgeRole == "" || m.TenantConfig == nil || m.LedgerCheck == nil || m.Ledger == nil ||
+	if m.OwnerRole == "" || m.RuntimeRole == "" || m.WorkerRole == "" || m.PurgeRole == "" || m.OutboxRelayRole == "" || m.TenantConfig == nil || m.LedgerCheck == nil || m.Ledger == nil ||
 		m.WriteSchema == nil || m.Outbox == "" || m.Audit == "" || m.Authorization == "" {
 		return failed(StepSettings, errors.New("the migration job needs its roles, the adapter, the ledger, the migration texts and the schema writer"))
 	}
@@ -206,12 +210,61 @@ func Migrate(parent context.Context, s MigrationSettings, m Migration) error {
 		}); err != nil {
 			return err
 		}
+		if t.name == StepOutboxQueue {
+			if err := step(StepOutboxSequence, func() error { return checkOutboxSequence(ctx, conn, m.OwnerRole, m.OutboxRelayRole) }); err != nil {
+				return err
+			}
+		}
 	}
 	if err := step(StepAuditPartitions, func() error { return maintainAudit(ctx, conn, m.OwnerRole) }); err != nil {
 		return err
 	}
 	return step(StepSchemaAgain, func() error { return m.WriteSchema(ctx, spice) })
 }
+
+// errSequenceBehind is the refusal of a queue whose identity sequence would give a message a sequence that a stored
+// message already has or that is below one, as after a logical replication failover that does not carry the state
+// of the sequences: the delivery order of a key follows the sequence (ST-SUP-RP01-LC03).
+var errSequenceBehind = errors.New("the identity sequence of stego_outbox.messages is behind its highest stored sequence; set it past that sequence as the owner (SELECT setval) before the job runs again")
+
+// checkOutboxSequence refuses a queue whose identity sequence is behind its highest stored sequence. It reads the
+// highest sequence first, as the outbox relay role, the one role whose policy sees every message, and the state of
+// the sequence second, as the owner, which owns it, so an enqueue that commits between the two reads only raises the
+// state of the sequence and never makes a healthy queue look behind. It refuses, and does not move the sequence
+// itself, so a person sees the fault and its cause.
+func checkOutboxSequence(ctx context.Context, conn *sql.Conn, owner, relay string) error {
+	return ownerStep(ctx, conn, owner, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, "SET LOCAL ROLE "+quote(relay)); err != nil {
+			return err
+		}
+		var highest sql.NullInt64
+		if err := tx.QueryRowContext(ctx, `SELECT max(m.sequence) FROM stego_outbox.messages m`).Scan(&highest); err != nil {
+			return err
+		}
+		if betweenSequenceReads != nil {
+			betweenSequenceReads()
+		}
+		if _, err := tx.ExecContext(ctx, "SET LOCAL ROLE "+quote(owner)); err != nil {
+			return err
+		}
+		var last int64
+		var called bool
+		if err := tx.QueryRowContext(ctx, `SELECT s.last_value, s.is_called FROM stego_outbox.messages_sequence_seq s`).Scan(&last, &called); err != nil {
+			return err
+		}
+		if !highest.Valid {
+			return nil
+		}
+		// The next value is last_value when is_called is false, and last_value + 1 when it is true.
+		if (called && last < highest.Int64) || (!called && last <= highest.Int64) {
+			return errSequenceBehind
+		}
+		return nil
+	})
+}
+
+// betweenSequenceReads, when a test of the package sets it, runs between the two reads of checkOutboxSequence.
+var betweenSequenceReads func()
 
 // controllerLease gives the statements of the lease table and the row of the controller lease, under which the audit
 // jobs run (ST-SUP-RP14-LC04), with SELECT and UPDATE on the table for the runtime role, the role of the lease
