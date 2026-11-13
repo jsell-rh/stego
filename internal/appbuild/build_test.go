@@ -421,3 +421,27 @@ func TestCommandRejectsOutputLimitAndCancellation(t *testing.T) {
 		t.Fatal("independent cache paths did not change")
 	}
 }
+
+func TestCheckLocationCanonicalPaths(t *testing.T) {
+	t.Run("ST-BLD-UC02-R04-T04 A file:// source and a ./ module are cleaned to the same path as their plain forms", func(t *testing.T) {
+		revision := strings.Repeat("a", 40)
+		for _, pair := range [][2][2]string{
+			{{"file:///a/../b", "./m"}, {"/b", "m"}},
+			{{"file:///a/./b/", "./m/n"}, {"/a/b", "m/n"}},
+			{{"/a//b/../c", "."}, {"/a/c", "./"}},
+		} {
+			source, module, _, err := checkLocation(pair[0][0], revision, pair[0][1], "cmd/tiny")
+			if err != nil {
+				t.Fatalf("checkLocation(%q, %q): %v", pair[0][0], pair[0][1], err)
+			}
+			wantSource, wantModule, _, err := checkLocation(pair[1][0], revision, pair[1][1], "cmd/tiny")
+			if err != nil {
+				t.Fatalf("checkLocation(%q, %q): %v", pair[1][0], pair[1][1], err)
+			}
+			if source != wantSource || module != wantModule || source != filepath.Clean(source) {
+				t.Errorf("%q with module %q gives %q and %q; %q with module %q gives %q and %q", pair[0][0], pair[0][1], source, module,
+					pair[1][0], pair[1][1], wantSource, wantModule)
+			}
+		}
+	})
+}
