@@ -852,8 +852,10 @@ func checkConfined(ctx context.Context, tx *sql.Tx, role, owner string, named ma
 	// A member of the role gets its rights, and through its SECURITY DEFINER functions the rows of every tenant: the
 	// owner of the manifest alone may be one, to make the functions as the role, WITH SET TRUE, INHERIT FALSE and no
 	// ADMIN, as the role migration of the service grants it.
-	rows, err = tx.QueryContext(ctx, `SELECT mr.rolname, m.admin_option, m.inherit_option, m.set_option, gr.rolname, gr.rolsuper
-  FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles mr ON mr.oid = m.member JOIN pg_catalog.pg_roles gr ON gr.oid = m.grantor
+	// LEFT JOIN: a membership whose member or grantor the catalog does not name still counts, and fails closed.
+	rows, err = tx.QueryContext(ctx, `SELECT COALESCE(mr.rolname::text, m.member::text), m.admin_option, m.inherit_option, m.set_option,
+  COALESCE(gr.rolname::text, ''), COALESCE(gr.rolsuper, false)
+  FROM pg_catalog.pg_auth_members m LEFT JOIN pg_catalog.pg_roles mr ON mr.oid = m.member LEFT JOIN pg_catalog.pg_roles gr ON gr.oid = m.grantor
   WHERE m.roleid = $1 ORDER BY 1`, oid)
 	if err != nil {
 		return nil, err
@@ -870,7 +872,9 @@ func checkConfined(ctx context.Context, tx *sql.Tx, role, owner string, named ma
 			// A login with CREATEROLE that made the role holds it WITH ADMIN, granted by the bootstrap superuser,
 			// and cannot revoke it itself.
 			if admin && superuser {
-				fault += "; a superuser runs REVOKE " + role + " FROM " + member + " GRANTED BY " + grantor + ", or the role migration runs as a superuser"
+				// Each name is a quoted SQL identifier, so a role name cannot make the remedy run other SQL.
+				fault += "; a superuser runs REVOKE " + quoteIdent(role) + " FROM " + quoteIdent(member) + " GRANTED BY " + quoteIdent(grantor) +
+					", or the role migration runs as a superuser"
 			}
 			faults = append(faults, fault)
 		}
@@ -901,6 +905,9 @@ func checkConfined(ctx context.Context, tx *sql.Tx, role, owner string, named ma
 	}
 	return faults, closed(rows)
 }
+
+// quoteIdent quotes a name as an SQL identifier, with each double quote doubled.
+func quoteIdent(name string) string { return `"` + strings.ReplaceAll(name, `"`, `""`) + `"` }
 
 // sortedJoin gives the names sorted and joined by the separator of the catalog reads, chr(31).
 func sortedJoin(names []string) string {

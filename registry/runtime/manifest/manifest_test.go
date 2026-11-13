@@ -642,6 +642,9 @@ func TestSchemas(t *testing.T) {
 		ctx := context.Background()
 		suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 		confined, other := "manifest_confined_"+suffix, "manifest_stranger_"+suffix
+		// A role name with a quote and SQL in it; hostileSQL is it as a quoted identifier.
+		hostile := "manifest_evil_" + suffix + `"; DROP ROLE x; --`
+		hostileSQL := `"` + strings.ReplaceAll(hostile, `"`, `""`) + `"`
 		function := Function{Name: "held.f", Args: "integer", Language: "sql", Source: "SELECT $1", SecurityDefiner: true,
 			Config: []string{"search_path=pg_catalog, pg_temp"}, Owner: confined, Returns: "integer"}
 		for _, change := range []struct{ name, statement, fault string }{
@@ -688,7 +691,10 @@ func TestSchemas(t *testing.T) {
 				"the role " + other + " is a member of the confined role " + confined + ", which the manifest grants only to its owner WITH SET TRUE, INHERIT FALSE and no ADMIN"},
 			{"a member with ADMIN that a superuser granted", "GRANT " + confined + " TO " + other + " WITH ADMIN TRUE, INHERIT FALSE",
 				"the role " + other + " is a member of the confined role " + confined + ", which the manifest grants only to its owner WITH SET TRUE, INHERIT FALSE and no ADMIN; " +
-					"a superuser runs REVOKE " + confined + " FROM " + other + " GRANTED BY %owner%, or the role migration runs as a superuser"},
+					"a superuser runs REVOKE \"" + confined + "\" FROM \"" + other + "\" GRANTED BY \"%owner%\", or the role migration runs as a superuser"},
+			{"a member with ADMIN whose name holds SQL", "CREATE ROLE " + hostileSQL + " NOLOGIN; GRANT " + confined + " TO " + hostileSQL + " WITH ADMIN TRUE, INHERIT FALSE",
+				"the role " + hostile + " is a member of the confined role " + confined + ", which the manifest grants only to its owner WITH SET TRUE, INHERIT FALSE and no ADMIN; " +
+					"a superuser runs REVOKE \"" + confined + "\" FROM " + hostileSQL + " GRANTED BY \"%owner%\", or the role migration runs as a superuser"},
 			{"the owner as a member that inherits", "GRANT " + confined + " TO %owner% WITH SET TRUE, INHERIT TRUE",
 				"the role %owner% is a member of the confined role " + confined + ", which the manifest grants only to its owner WITH SET TRUE, INHERIT FALSE and no ADMIN"},
 			{"a privilege of the confined role on another table", "CREATE TABLE public.side (x integer); GRANT SELECT (x) ON public.side TO " + confined,
@@ -705,6 +711,7 @@ func TestSchemas(t *testing.T) {
 					_, _ = admin.Exec("DROP OWNED BY " + confined)
 					_, _ = admin.Exec("DROP OWNED BY " + other)
 					_, _ = admin.Exec("DROP ROLE IF EXISTS " + confined)
+					_, _ = admin.Exec("DROP ROLE IF EXISTS " + hostileSQL)
 					_, _ = admin.Exec("DROP ROLE IF EXISTS " + other)
 				})
 				if _, err := admin.Exec("CREATE ROLE " + confined + " NOLOGIN; CREATE ROLE " + other + " NOLOGIN; CREATE SCHEMA held; " +
