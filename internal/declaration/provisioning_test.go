@@ -14,7 +14,7 @@ func TestTenantProvisioning(t *testing.T) {
 	})
 	for _, c := range []struct {
 		name, provisioning, path string
-		texts                []string
+		texts                    []string
 	}{
 		{"no tenant provisioning", "", "tenancy.provisioning", []string{"tenant provisioning", "add tenancy.provisioning"}},
 		{"no Retire permission", "  provisioning: {resource_type: service, provision: provision}\n", "tenancy.provisioning.retire", []string{"tenant provisioning", "Retire permission"}},
