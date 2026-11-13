@@ -19,7 +19,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  # A push to main and a dispatch each have a group of their own run, which no pull request can name before the
+  # run starts, so no run on main is cancelled or replaced.
+  # Only a pull request shares its group, by its number, so a newer push to it cancels its older run.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:

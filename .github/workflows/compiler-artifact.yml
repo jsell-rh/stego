@@ -28,7 +28,9 @@ permissions:
 
 # A push to main has a group of its own, so a newer push never replaces the pending run of an older commit.
 concurrency:
-  group: compiler-artifact-${{ github.event_name == 'push' && github.sha || github.ref }}
+  # The group of a push or a dispatch holds its run ID, which no pull request can name before the run starts, so no
+  # workflow copy in a pull request can cancel a run on main with a group of the same name.
+  group: compiler-artifact-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:

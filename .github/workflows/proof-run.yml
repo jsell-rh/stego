@@ -33,7 +33,9 @@ permissions:
 # A push has a group of its own: each push to main gets its release decision and its release (ST-DIS-UC11-R04),
 # and a newer push must not replace the pending run of an older one. A newer pull request run cancels the older.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  # The group of a push or a dispatch holds its run ID, which no pull request can name before the run starts, so no
+  # workflow copy in a pull request can cancel a run on main with a group of the same name.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
