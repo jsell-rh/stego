@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -528,6 +529,55 @@ func TestRuntimeFolderSuppliesOnlyTheMatchingPin(t *testing.T) {
 		case <-done:
 		case <-time.After(10 * time.Second):
 			t.Fatal("the run did not go on after the lock was released")
+		}
+	})
+	t.Run("ST-BLD-UC02-R05-T06 The kept tree is written through the handle of its folder, and a wait for its lock leaves nothing running", func(t *testing.T) {
+		_, verifier, err := note.GenerateKey(rand.Reader, "sum.test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// A folder that is moved after the lookup opened it, with another folder put at its path, keeps the tree in
+		// the folder that the lookup opened: no write goes to the new path.
+		parent := t.TempDir()
+		state, moved := filepath.Join(parent, "sumdb"), filepath.Join(parent, "moved")
+		kept, err := openKeptTree(context.Background(), state, verifier)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(state, moved); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(state, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := kept.write([]byte("tree")); err != nil {
+			t.Fatal(err)
+		}
+		kept.close()
+		if data, err := os.ReadFile(filepath.Join(moved, "latest")); err != nil || string(data) != "tree" {
+			t.Errorf("the opened folder holds %q (%v), want the tree", data, err)
+		}
+		if _, err := os.Lstat(filepath.Join(state, "latest")); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("the tree was written to the folder at the path after the move: %v", err)
+		}
+		// A wait for a lock that another run holds ends with its context, and leaves no goroutine behind.
+		held, err := openKeptTree(context.Background(), moved, verifier)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer held.close()
+		before := runtime.NumGoroutine()
+		for range 5 {
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+			_, err := openKeptTree(ctx, moved, verifier)
+			cancel()
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("a wait for a held lock gave %v, want the deadline", err)
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+		if after := runtime.NumGoroutine(); after > before {
+			t.Errorf("five waits for a held lock left %d goroutines running, want none", after-before)
 		}
 	})
 	t.Run("ST-BLD-UC02-R05-T05 GOPROXY names the runtime proxy first as an escaped file URL, then the module proxy", func(t *testing.T) {

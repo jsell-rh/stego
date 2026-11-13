@@ -4,6 +4,8 @@ package appbuild
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"golang.org/x/mod/sumdb/note"
 	"golang.org/x/mod/sumdb/tlog"
@@ -18,17 +21,26 @@ import (
 
 // keptTree is the latest signed tree of a sum database, kept in a folder of
 // the current user between runs, which a lookup holds under the lock of that
-// folder from its first read to its last write.
+// folder from its first read to its last write. Every file of the folder is
+// reached through one handle of the folder (openat, renameat, unlinkat), so
+// a change of the path above it after the folder is opened cannot send a
+// read or a write elsewhere.
 type keptTree struct {
 	folder string
 	key    string
+	dir    *os.File
 	lock   *os.File
 }
 
-// openKeptTree takes the lock of the folder, which it makes when it is
-// missing. It refuses a folder that is a link, that is not a folder, that
-// another user owns or that its group or others may write, so that no other
-// user can plant or change the kept tree.
+// lockPoll is how often a lookup tries again to take the lock of the folder.
+const lockPoll = 20 * time.Millisecond
+
+// openKeptTree opens the folder, which it makes when it is missing, as one
+// handle that does not follow a link, and takes the lock of the folder. It
+// refuses a folder that is a link, that is not a folder, that another user
+// owns or that its group or others may write, so that no other user can
+// plant or change the kept tree. It waits for the lock no longer than ctx
+// allows, and leaves nothing running when it gives up.
 func openKeptTree(ctx context.Context, folder, key string) (*keptTree, error) {
 	if err := os.MkdirAll(filepath.Dir(folder), 0o700); err != nil {
 		return nil, err
@@ -36,34 +48,58 @@ func openKeptTree(ctx context.Context, folder, key string) (*keptTree, error) {
 	if err := os.Mkdir(folder, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
 		return nil, err
 	}
-	info, err := os.Lstat(folder)
+	fd, err := syscall.Open(folder, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
 	if err != nil {
+		if errors.Is(err, syscall.ELOOP) || errors.Is(err, syscall.ENOTDIR) {
+			return nil, fmt.Errorf("%s is not a folder", folder)
+		}
 		return nil, err
 	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("%s is not a folder", folder)
+	dir := os.NewFile(uintptr(fd), folder)
+	info, err := dir.Stat()
+	if err == nil {
+		err = ownedAlone(info)
 	}
-	if err := ownedAlone(info); err != nil {
+	if err != nil {
+		dir.Close()
 		return nil, fmt.Errorf("%s: %w", folder, err)
 	}
-	lock, err := os.OpenFile(filepath.Join(folder, "lock"), os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
+	k := &keptTree{folder: folder, key: key, dir: dir}
+	lock, err := k.openAt("lock", syscall.O_CREAT|syscall.O_RDWR, 0o600)
 	if err != nil {
+		dir.Close()
 		return nil, err
 	}
-	locked := make(chan error, 1)
-	go func() { locked <- syscall.Flock(int(lock.Fd()), syscall.LOCK_EX) }()
-	select {
-	case err := <-locked:
-		if err != nil {
+	for {
+		err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EINTR) {
 			lock.Close()
+			dir.Close()
 			return nil, err
 		}
-	case <-ctx.Done():
-		// Closing the file ends the wait for its lock.
-		lock.Close()
-		return nil, ctx.Err()
+		select {
+		case <-ctx.Done():
+			lock.Close()
+			dir.Close()
+			return nil, ctx.Err()
+		case <-time.After(lockPoll):
+		}
 	}
-	return &keptTree{folder: folder, key: key, lock: lock}, nil
+	k.lock = lock
+	return k, nil
+}
+
+// openAt opens the file name of the folder through its handle, never
+// through a link.
+func (k *keptTree) openAt(name string, flags int, mode uint32) (*os.File, error) {
+	fd, err := syscall.Openat(int(k.dir.Fd()), name, flags|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, mode)
+	if err != nil {
+		return nil, &os.PathError{Op: "open", Path: filepath.Join(k.folder, name), Err: err}
+	}
+	return os.NewFile(uintptr(fd), filepath.Join(k.folder, name)), nil
 }
 
 // ownedAlone refuses a file of another user, or one that its group or
@@ -85,6 +121,7 @@ func ownedAlone(info os.FileInfo) error {
 func (k *keptTree) close() {
 	_ = syscall.Flock(int(k.lock.Fd()), syscall.LOCK_UN)
 	_ = k.lock.Close()
+	_ = k.dir.Close()
 }
 
 // read gives the kept tree, or nothing when there is none. A kept tree that
@@ -93,21 +130,32 @@ func (k *keptTree) close() {
 // removed with a warning, and the lookup starts from no tree, which the run
 // then keeps again: a bad file never ends the check of the database.
 func (k *keptTree) read(ctx context.Context) []byte {
-	path := filepath.Join(k.folder, "latest")
-	data, err := k.load(path)
+	data, err := k.load()
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
-		slog.WarnContext(ctx, "the kept tree of the sum database is not valid; it is removed and kept again from this run", "file", path, "error", err)
-		_ = os.Remove(path)
+		slog.WarnContext(ctx, "the kept tree of the sum database is not valid; it is removed and kept again from this run",
+			"file", filepath.Join(k.folder, "latest"), "error", err)
+		_ = syscall.Unlinkat(int(k.dir.Fd()), "latest")
 		return nil
 	}
 	return data
 }
 
-func (k *keptTree) load(path string) ([]byte, error) {
-	info, err := os.Lstat(path)
+func (k *keptTree) load() ([]byte, error) {
+	file, err := k.openAt("latest", syscall.O_RDONLY, 0)
+	if errors.Is(err, syscall.ENOENT) {
+		return nil, os.ErrNotExist
+	}
+	if errors.Is(err, syscall.ELOOP) {
+		return nil, errors.New("it is a link")
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
 	if err != nil {
 		return nil, err
 	}
@@ -117,11 +165,6 @@ func (k *keptTree) load(path string) ([]byte, error) {
 	if err := ownedAlone(info); err != nil {
 		return nil, err
 	}
-	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
 	data, err := io.ReadAll(io.LimitReader(file, maxSignedTree+1))
 	if err != nil {
 		return nil, err
@@ -143,22 +186,28 @@ func (k *keptTree) load(path string) ([]byte, error) {
 	return data, nil
 }
 
-// write keeps the tree in a new file that it renames over the old one, so
-// a reader sees one whole tree or the one before it.
+// write keeps the tree in a new file of the folder that it renames over the
+// old one, both through the handle of the folder, so a reader sees one whole
+// tree or the one before it.
 func (k *keptTree) write(data []byte) error {
-	temporary, err := os.CreateTemp(k.folder, ".latest-*")
+	suffix := make([]byte, 8)
+	if _, err := rand.Read(suffix); err != nil {
+		return err
+	}
+	temporary := ".latest-" + hex.EncodeToString(suffix)
+	file, err := k.openAt(temporary, syscall.O_CREAT|syscall.O_EXCL|syscall.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
-	_, err = temporary.Write(data)
-	if closeErr := temporary.Close(); err == nil {
+	_, err = file.Write(data)
+	if closeErr := file.Close(); err == nil {
 		err = closeErr
 	}
 	if err == nil {
-		err = os.Rename(temporary.Name(), filepath.Join(k.folder, "latest"))
+		err = syscall.Renameat(int(k.dir.Fd()), temporary, int(k.dir.Fd()), "latest")
 	}
 	if err != nil {
-		_ = os.Remove(temporary.Name())
+		_ = syscall.Unlinkat(int(k.dir.Fd()), temporary)
 	}
 	return err
 }
