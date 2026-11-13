@@ -159,8 +159,12 @@ func Manifest(c Config) (manifest.Manifest, error) {
 	if !found || !opened || !closed {
 		return manifest.Manifest{}, fmt.Errorf("audit: the DDL has no function %s", MaintainFunction)
 	}
+	// EXECUTE goes to the runtime role only, which runs the maintenance loop.
+	if !plainName.MatchString(c.RuntimeRole) {
+		return manifest.Manifest{}, errors.New("audit: the manifest needs the runtime role, a plain lower-case name")
+	}
 	maintain := manifest.Function{Name: s + "." + MaintainFunction, Language: "plpgsql", Source: source, SecurityDefiner: true,
-		Config: []string{"search_path=pg_catalog, pg_temp", "lock_timeout=2s"}}
+		Config: []string{"search_path=pg_catalog, pg_temp", "lock_timeout=2s"}, Execute: []string{c.RuntimeRole}}
 	return manifest.Manifest{Functions: []manifest.Function{maintain}, Tables: []manifest.Table{
 		{Schema: s, Name: EventsTable, Partitioned: true, RowSecurity: true, Policies: wall, Triggers: rejecting(EventsTable),
 			// audit_create_partition gives each partition a statement trigger of its own; the row triggers are clones.
@@ -593,6 +597,8 @@ type MaintainConfig struct {
 	Outbox Enqueuer
 	// Now is the controller's clock; nil is time.Now.
 	Now func() time.Time
+	// Schema is the schema of the audit record, as Config.Schema; empty is public.
+	Schema string
 }
 
 // Maintainer is the maintenance loop (ST-SUP-RP05-LC10). The controller calls Run; the job owns no loop of its
@@ -616,14 +622,25 @@ func NewMaintainer(cfg MaintainConfig) (*Maintainer, error) {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
+	if cfg.Schema == "" {
+		cfg.Schema = "public"
+	}
+	if !plainName.MatchString(cfg.Schema) {
+		return nil, errors.New("audit: the schema must be a plain lower-case name")
+	}
 	return &Maintainer{cfg: cfg}, nil
+}
+
+// maintainCall is the call of audit_maintain in the schema of the audit record, by its schema, so no function of the
+// same name earlier on the search path runs in its place.
+func maintainCall(schema string) string {
+	return `SELECT step_left, checkpoint_tenant, checkpoint_seq, checkpoint_hash FROM ` + schema + `.` + MaintainFunction + `()`
 }
 
 // maxSteps bounds one run, so a run ends also when the function always reports a step left.
 const maxSteps = 64
 
 const (
-	callMaintain = `SELECT step_left, checkpoint_tenant, checkpoint_seq, checkpoint_hash FROM ` + MaintainFunction + `()`
 	setTenant    = `SELECT pg_catalog.set_config('app.tenant', $1, true)`
 	readTenant   = `SELECT coalesce(pg_catalog.current_setting('app.tenant', true), '')`
 	leaseTimeout = `SET LOCAL lock_timeout = '2s'`
@@ -682,7 +699,7 @@ func (m *Maintainer) Run(ctx context.Context) (int, error) {
 			if _, err := h.Fence(ctx, tx); err != nil {
 				return err
 			}
-			rows, err := tx.QueryContext(ctx, callMaintain)
+			rows, err := tx.QueryContext(ctx, maintainCall(m.cfg.Schema))
 			if err != nil {
 				return stmtError(ctx, "maintenance call", err)
 			}

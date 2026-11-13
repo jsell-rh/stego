@@ -203,7 +203,12 @@ func New(ctx context.Context, s Settings, p Parts) (_ *Service, err error) {
 // for the declared anchor period (Parts.Workers.AnchorPeriod), and audit_maintain is the one of the declared retention
 // (Parts.Workers.RetentionMonths).
 func checkSchema(ctx context.Context, db *sql.DB, declared manifest.Manifest, owner string, anchorPeriod time.Duration, retentionMonths int) error {
-	record, err := audit.Manifest(audit.Config{AnchorPeriod: anchorPeriod, RetentionMonths: retentionMonths})
+	// The check runs as the runtime role, which alone may run audit_maintain.
+	var runtimeRole string
+	if err := db.QueryRowContext(ctx, "SELECT current_user").Scan(&runtimeRole); err != nil {
+		return fmt.Errorf("service: read the runtime role: %w", err)
+	}
+	record, err := audit.Manifest(audit.Config{AnchorPeriod: anchorPeriod, RetentionMonths: retentionMonths, RuntimeRole: runtimeRole})
 	if err != nil {
 		return fmt.Errorf("service: the manifest of the audit record: %w", err)
 	}

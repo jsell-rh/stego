@@ -336,6 +336,9 @@ func TestNew(t *testing.T) {
 			// source of the declared retention (#218 L5).
 			refused("ALTER FUNCTION public.audit_maintain() SECURITY INVOKER", "ALTER FUNCTION public.audit_maintain() SECURITY DEFINER",
 				"function public.audit_maintain is not the function of the manifest")
+			// Only the runtime role may run it: EXECUTE for PUBLIC is refused (#239 L2).
+			refused("GRANT EXECUTE ON FUNCTION public.audit_maintain() TO PUBLIC", "REVOKE EXECUTE ON FUNCTION public.audit_maintain() FROM PUBLIC",
+				"function public.audit_maintain may be run by roles that the manifest does not name")
 			if svc, err := New(context.Background(), settings, declared); err != nil {
 				t.Fatalf("New refused the restored database: %v", err)
 			} else {

@@ -510,7 +510,8 @@ func TestFunctions(t *testing.T) {
 	t.Run("ST-SUP-RP15-LC01-T05 Check refuses a function of the manifest that is missing or has another source, SECURITY DEFINER, setting or owner", func(t *testing.T) {
 		ctx := context.Background()
 		const make = "CREATE FUNCTION public.books_maintain() RETURNS integer LANGUAGE plpgsql SECURITY DEFINER " +
-			"SET search_path = pg_catalog, pg_temp SET lock_timeout = '2s' AS $$ BEGIN RETURN 1; END $$"
+			"SET search_path = pg_catalog, pg_temp SET lock_timeout = '2s' AS $$ BEGIN RETURN 1; END $$; " +
+			"REVOKE ALL ON FUNCTION public.books_maintain() FROM PUBLIC"
 		functions := []Function{{Name: "public.books_maintain", Language: "plpgsql", Source: " BEGIN RETURN 1; END ", SecurityDefiner: true,
 			Config: []string{"search_path=pg_catalog, pg_temp", "lock_timeout=2s"}}}
 		other := fmt.Sprintf("manifest_other_%d", time.Now().UnixNano())
@@ -523,23 +524,43 @@ func TestFunctions(t *testing.T) {
 			{"another setting", "ALTER FUNCTION public.books_maintain() SET search_path = public", "function public.books_maintain is not the function of the manifest"},
 			{"another owner", "CREATE ROLE " + other + " NOLOGIN; ALTER FUNCTION public.books_maintain() OWNER TO " + other,
 				"function public.books_maintain has another owner"},
+			{"EXECUTE for PUBLIC", "GRANT EXECUTE ON FUNCTION public.books_maintain() TO PUBLIC",
+				"function public.books_maintain may be run by roles that the manifest does not name"},
+			{"EXECUTE for another role", "CREATE ROLE " + other + " NOLOGIN; GRANT EXECUTE ON FUNCTION public.books_maintain() TO " + other,
+				"function public.books_maintain may be run by roles that the manifest does not name"},
+			{"no EXECUTE for the role of the manifest", "", "function public.books_maintain may be run by roles that the manifest does not name"},
 		} {
 			t.Run(change.name, func(t *testing.T) {
 				admin, reader := database(t)
 				// The owner of the manifest is known once the database is made.
 				m := want()
-				m.Functions = functions
+				m.Functions = slices.Clone(functions)
+				var role string
+				if err := reader.QueryRow("SELECT current_user").Scan(&role); err != nil {
+					t.Fatal(err)
+				}
+				// EXECUTE goes to the reader of the test only, as the runtime role of a service.
+				grant := "GRANT EXECUTE ON FUNCTION public.books_maintain() TO " + role
+				if change.statement == "" {
+					grant = "SELECT 1"
+				}
+				m.Functions[0].Execute = []string{role}
 				if m.Owner == "" {
 					t.Fatal("the test database has no owner")
 				}
 				if _, err := admin.Exec(make); err != nil {
 					t.Fatal(err)
 				}
-				if err := Check(ctx, reader, m); err != nil {
-					t.Fatalf("Check refused the database of the manifest: %v", err)
-				}
-				if _, err := admin.Exec(change.statement); err != nil {
+				if _, err := admin.Exec(grant); err != nil {
 					t.Fatal(err)
+				}
+				if change.statement != "" {
+					if err := Check(ctx, reader, m); err != nil {
+						t.Fatalf("Check refused the database of the manifest: %v", err)
+					}
+					if _, err := admin.Exec(change.statement); err != nil {
+						t.Fatal(err)
+					}
 				}
 				t.Cleanup(func() {
 					_, _ = admin.Exec("DROP FUNCTION IF EXISTS public.books_maintain()")

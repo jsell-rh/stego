@@ -117,6 +117,9 @@ type Function struct {
 	Name, Language, Source string
 	SecurityDefiner        bool
 	Config                 []string
+	// Execute, for a function of Manifest.Functions, are the roles that may run it besides its owner: EXECUTE must
+	// go to these roles and to no other grantee, PUBLIC included.
+	Execute []string
 }
 
 // Join gives one manifest with the tables of each manifest, in order.
@@ -354,12 +357,18 @@ func Check(ctx context.Context, db *sql.DB, m Manifest) (err error) {
 // language, source, SECURITY DEFINER, settings or owner. Its fault names the function only.
 func checkFunction(ctx context.Context, tx *sql.Tx, f Function, wantOwner string) ([]string, error) {
 	schema, fn, _ := strings.Cut(f.Name, ".")
-	var language, source, config, owner string
+	var language, source, config, owner, grantees string
 	var definer bool
+	// The grantees of EXECUTE other than the owner, by name, PUBLIC for grantee 0; a function with no ACL has the
+	// default one, which gives EXECUTE to PUBLIC.
 	err := tx.QueryRowContext(ctx, `SELECT l.lanname, p.prosrc, COALESCE(pg_catalog.array_to_string(p.proconfig, chr(31)), ''), p.prosecdef,
-  pg_catalog.pg_get_userbyid(p.proowner)
+  pg_catalog.pg_get_userbyid(p.proowner),
+  COALESCE((SELECT pg_catalog.string_agg(CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END, chr(31)
+    ORDER BY CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END)
+    FROM pg_catalog.aclexplode(COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))) a
+    WHERE a.privilege_type = 'EXECUTE' AND a.grantee <> p.proowner), '')
   FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace JOIN pg_catalog.pg_language l ON l.oid = p.prolang
-  WHERE n.nspname = $1 AND p.proname = $2 AND p.pronargs = 0`, schema, fn).Scan(&language, &source, &config, &definer, &owner)
+  WHERE n.nspname = $1 AND p.proname = $2 AND p.pronargs = 0`, schema, fn).Scan(&language, &source, &config, &definer, &owner, &grantees)
 	if errors.Is(err, sql.ErrNoRows) {
 		return []string{"function " + f.Name + " is missing"}, nil
 	}
@@ -371,6 +380,11 @@ func checkFunction(ctx context.Context, tx *sql.Tx, f Function, wantOwner string
 		return []string{"function " + f.Name + " is not the function of the manifest"}, nil
 	case wantOwner != "" && owner != wantOwner:
 		return []string{"function " + f.Name + " has another owner"}, nil
+	}
+	want := slices.Clone(f.Execute)
+	slices.Sort(want)
+	if grantees != strings.Join(want, "\x1f") {
+		return []string{"function " + f.Name + " may be run by roles that the manifest does not name"}, nil
 	}
 	return nil, nil
 }

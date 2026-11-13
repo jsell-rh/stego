@@ -144,7 +144,7 @@ func (f *pgFixture) maintainAll() int {
 	for ; calls < 64; calls++ {
 		var more bool
 		err := f.inTx(f.runtime, "", func(tx *sql.Tx) error {
-			rows, err := tx.QueryContext(f.ctx, callMaintain)
+			rows, err := tx.QueryContext(f.ctx, maintainCall("public"))
 			if err != nil {
 				return err
 			}
