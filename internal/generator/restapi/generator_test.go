@@ -62,10 +62,11 @@ func withSchema(ctx gen.Context) gen.Context {
 		return ctx
 	}
 	var b strings.Builder
-	b.WriteString("definition user {}\n")
+	// The subject type user has one definition; an entity of the resource type user gets the relations there.
+	b.WriteString("definition user {\n\trelation owner: user\n\trelation viewer: user\n\tpermission view = owner + viewer\n\tpermission edit = owner\n}\n")
 	seen := map[string]bool{}
 	for _, e := range ctx.Entities {
-		if e.ResourceType == "" || seen[e.ResourceType] {
+		if e.ResourceType == "" || e.ResourceType == "user" || seen[e.ResourceType] {
 			continue
 		}
 		seen[e.ResourceType] = true
