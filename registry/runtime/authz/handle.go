@@ -1018,6 +1018,7 @@ func Manifest(schema, runtimeRole, relayRole, outboxRelayRole string, hookRoles 
 	column := func(name, typ string, notNull bool) manifest.Column {
 		return manifest.Column{Name: name, Type: typ, NotNull: notNull}
 	}
+	withDefault := func(c manifest.Column, def string) manifest.Column { c.Default = def; return c }
 	check := func(table, column, definition string) manifest.Constraint {
 		return manifest.Constraint{Name: table + "_" + column + "_check", Kind: manifest.KindCheck, Definition: definition}
 	}
@@ -1033,7 +1034,8 @@ func Manifest(schema, runtimeRole, relayRole, outboxRelayRole string, hookRoles 
 	timestamp := "timestamp with time zone"
 	config := []string{"search_path=pg_catalog, pg_temp"}
 	floor := manifest.Table{Schema: schema, Name: "authz_floor",
-		Columns:     []manifest.Column{column("only_row", "boolean", true), column("token", "text", true), column("sequence", "bigint", true)},
+		Columns: []manifest.Column{withDefault(column("only_row", "boolean", true), "true"), withDefault(column("token", "text", true), "''::text"),
+			withDefault(column("sequence", "bigint", true), "0")},
 		Constraints: []manifest.Constraint{key("authz_floor", "only_row"), check("authz_floor", "only_row", "CHECK (only_row)"), check("authz_floor", "token", token)},
 		Indexes:     []manifest.Index{{Name: "authz_floor_pkey", Columns: []string{"only_row"}}},
 		CheckGrants: true, Grants: []manifest.Grant{
@@ -1042,8 +1044,8 @@ func Manifest(schema, runtimeRole, relayRole, outboxRelayRole string, hookRoles 
 		}}
 	revocations := manifest.Table{Schema: schema, Name: "authz_revocations",
 		Columns: []manifest.Column{column("id", "uuid", true), column("tenant_id", "text", true), column("principal", "text", true),
-			column("tuple_count", "bigint", false), column("done", "bigint", true), column("parked", "bigint", true),
-			column("discarded", "bigint", true), column("token", "text", true), column("created_at", timestamp, true), column("completed_at", timestamp, false)},
+			column("tuple_count", "bigint", false), withDefault(column("done", "bigint", true), "0"), withDefault(column("parked", "bigint", true), "0"),
+			withDefault(column("discarded", "bigint", true), "0"), withDefault(column("token", "text", true), "''::text"), withDefault(column("created_at", timestamp, true), "now()"), column("completed_at", timestamp, false)},
 		Constraints: []manifest.Constraint{key("authz_revocations", "id"), check("authz_revocations", "tenant_id", tenant),
 			check("authz_revocations", "principal", "CHECK (((octet_length(principal) >= 1) AND (octet_length(principal) <= 1200)))"),
 			check("authz_revocations", "tuple_count", "CHECK ((tuple_count >= 1))"), check("authz_revocations", "done", "CHECK ((done >= 0))"),
@@ -1058,7 +1060,7 @@ func Manifest(schema, runtimeRole, relayRole, outboxRelayRole string, hookRoles 
 		}}
 	tuples := manifest.Table{Schema: schema, Name: "authz_revocation_tuples",
 		Columns: []manifest.Column{column("message_id", "uuid", true), column("revocation_id", "uuid", true), column("tenant_id", "text", true),
-			column("state", "text", true)},
+			withDefault(column("state", "text", true), "'pending'::text")},
 		Constraints: []manifest.Constraint{key("authz_revocation_tuples", "message_id"),
 			{Name: "authz_revocation_tuples_revocation_id_fkey", Kind: manifest.KindForeignKey,
 				Definition: "FOREIGN KEY (revocation_id) REFERENCES " + schema + ".authz_revocations(id)"},

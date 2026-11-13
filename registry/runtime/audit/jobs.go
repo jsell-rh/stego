@@ -172,13 +172,17 @@ func Manifest(c Config) (manifest.Manifest, error) {
 		Returns: "TABLE(step_left boolean, checkpoint_tenant text, checkpoint_seq bigint, checkpoint_hash bytea)"}
 	return manifest.Manifest{Functions: []manifest.Function{maintain}, Tables: []manifest.Table{
 		{Schema: s, Name: EventsTable, Partitioned: true, RowSecurity: true, Policies: wall, Triggers: rejecting(EventsTable),
+			// The columns with a default of the DDL; Record writes every other column.
+			Columns: []manifest.Column{{Name: "operation", Type: "text", Default: "''::text"}, {Name: "on_behalf_of", Type: "text", Default: "''::text"},
+				{Name: "hash_version", Type: "smallint", Default: "1"}},
 			// audit_create_partition gives each partition a statement trigger of its own; the row triggers are clones.
 			PartitionTriggers: []manifest.Trigger{{Name: "_reject_statement", Timing: "BEFORE", Events: []string{"UPDATE", "DELETE", "TRUNCATE"},
 				Function: reject}}},
 		{Schema: s, Name: HeadsTable, RowSecurity: true, Policies: wall},
 		{Schema: s, Name: BoundariesTable, RowSecurity: true, Policies: wall, Triggers: []manifest.Trigger{
 			{Name: BoundariesTable + "_guard", Timing: "BEFORE", Row: true, Events: []string{"INSERT", "UPDATE"}, Function: guard}}},
-		{Schema: s, Name: CheckpointsTable, RowSecurity: true, Policies: wall, Triggers: rejecting(CheckpointsTable)},
+		{Schema: s, Name: CheckpointsTable, RowSecurity: true, Policies: wall, Triggers: rejecting(CheckpointsTable),
+			Columns: []manifest.Column{{Name: "written_at", Type: "timestamp with time zone", Default: "now()"}}},
 	}}, nil
 }
 

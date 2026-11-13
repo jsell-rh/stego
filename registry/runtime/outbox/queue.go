@@ -115,6 +115,12 @@ func Manifest(relayRole, runtimeRole, workerRole string) (manifest.Manifest, err
 		{"done_at", "timestamp with time zone"}, {"resolved_by", "text"}, {"resolved_at", "timestamp with time zone"}, {"resolution", "text"}} {
 		columns = append(columns, manifest.Column{Name: c[0], Type: c[1]})
 	}
+	// The defaults of the migration; an enqueue leaves these columns out.
+	defaults := map[string]string{"group_id": "''::text", "principal": "''::text", "origin": "''::text", "state": "'pending'::text",
+		"attempts": "0", "conflicts": "0", "lookups": "0", "must_land": "false", "idempotent": "false", "failure_code": "''::text"}
+	for i := range columns {
+		columns[i].Default = defaults[columns[i].Name]
+	}
 	check := func(name, definition string) manifest.Constraint {
 		return manifest.Constraint{Name: name, Kind: manifest.KindCheck, Definition: definition}
 	}

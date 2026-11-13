@@ -88,10 +88,26 @@ type Table struct {
 // the code needs it NOT NULL. A column that the code takes as nullable may be NOT NULL in the database. A column of a
 // type with a collation must have the default or the C collation, so equality is the byte equality that the tenant
 // wall and the keys rely on.
+//
+// Default is the column's default as pg_get_expr gives it with the search path pg_catalog, such as now() or
+// current_setting('app.tenant'::text), or a literal of the column's type, such as ”::text; empty is no default. An
+// INSERT that leaves a column out takes its default, so a column of a table of the manifest, listed or not, has the
+// default that the manifest states and no other: a default that differs, or one on a column that the manifest
+// states none for, is a fault. A literal default is compared by its value, so the manifest may write it in any form
+// that PostgreSQL reads as the same value of the column's type.
 type Column struct {
 	Name, Type string
 	NotNull    bool
+	Default    string
 }
+
+// builtinType is a column type of pg_catalog whose input and comparison functions are built in and have no side
+// effect, so Check may read a literal of it as a value: no domain, enum or other type of a schema of the database.
+var builtinType = regexp.MustCompile(`^(?:text|character varying(?:\([0-9]+\))?|uuid|jsonb|bytea|boolean|smallint|integer|bigint|real|double precision|numeric(?:\([0-9, ]+\))?|timestamp with time zone|date)$`)
+
+// literalDefault is a default that is a constant: a number, true or false, or a quoted literal with a cast to a
+// type of pg_catalog that has no schema in its name, so its value is read by a built-in input function only.
+var literalDefault = regexp.MustCompile(`^(?:-?[0-9]+(?:\.[0-9]+)?|true|false|'(?:[^']|'')*'::[a-z][a-z0-9 ]*(?:\([0-9, ]+\))?)$`)
 
 // The kinds of a constraint, as pg_constraint.contype gives them.
 const (
@@ -906,6 +922,68 @@ func checkConfined(ctx context.Context, tx *sql.Tx, role, owner string, named ma
 	return faults, closed(rows)
 }
 
+// checkDefaults gives the faults of the defaults of the columns of the table oid against columns: a default of a
+// column that the manifest states none for, listed or not, a generated column, and a default that is not the one of
+// the manifest. Two literal defaults are the same when their values are; any other default must have the text of
+// the manifest. The value of a default is read only when both are literals (literalDefault), so no function of the
+// database runs.
+func checkDefaults(ctx context.Context, tx *sql.Tx, oid uint32, columns []Column) ([]string, error) {
+	want := map[string]string{}
+	for _, c := range columns {
+		want[c.Name] = c.Default
+	}
+	type stored struct{ name, expr, typ, generated string }
+	var defaults []stored
+	rows, err := tx.QueryContext(ctx, `SELECT a.attname, pg_catalog.pg_get_expr(d.adbin, d.adrelid), pg_catalog.format_type(a.atttypid, a.atttypmod),
+  a.attgenerated::text
+  FROM pg_catalog.pg_attrdef d JOIN pg_catalog.pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+  WHERE d.adrelid = $1 AND NOT a.attisdropped ORDER BY a.attnum`, oid)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var d stored
+		if err := rows.Scan(&d.name, &d.expr, &d.typ, &d.generated); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		defaults = append(defaults, d)
+	}
+	if err := closed(rows); err != nil {
+		return nil, err
+	}
+	var faults []string
+	got := map[string]bool{}
+	for _, d := range defaults {
+		got[d.name] = true
+		expected := want[d.name]
+		switch {
+		case d.generated != "":
+			faults = append(faults, "column "+d.name+" is a generated column, which the manifest does not state")
+		case expected == "":
+			faults = append(faults, "column "+d.name+" has a default that the manifest does not state")
+		case d.expr == expected:
+		case literalDefault.MatchString(d.expr) && literalDefault.MatchString(expected) && builtinType.MatchString(d.typ):
+			// Both are constants of built-in types: compare their values as the column's type.
+			var same bool
+			if err := tx.QueryRowContext(ctx, "SELECT ("+d.expr+")::"+d.typ+" IS NOT DISTINCT FROM ("+expected+")::"+d.typ).Scan(&same); err != nil {
+				return nil, err
+			}
+			if !same {
+				faults = append(faults, "column "+d.name+" has another default than the manifest states")
+			}
+		default:
+			faults = append(faults, "column "+d.name+" has another default than the manifest states")
+		}
+	}
+	for _, c := range columns {
+		if c.Default != "" && !got[c.Name] {
+			faults = append(faults, "column "+c.Name+" has no default, and the manifest states one")
+		}
+	}
+	return faults, nil
+}
+
 // quoteIdent quotes a name as an SQL identifier, with each double quote doubled.
 func quoteIdent(name string) string { return `"` + strings.ReplaceAll(name, `"`, `""`) + `"` }
 
@@ -1123,6 +1201,13 @@ func checkTable(ctx context.Context, tx *sql.Tx, t Table, wantOwner string) ([]s
 		case !got.plainCollation:
 			fault("column %s has the collation %s, and the manifest needs the default or the C collation", want.Name, got.collation)
 		}
+	}
+	found, err := checkDefaults(ctx, tx, oid, t.Columns)
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range found {
+		fault("%s", f)
 	}
 
 	type constraint struct {

@@ -283,7 +283,8 @@ func TestNew(t *testing.T) {
 
 		t.Run("ST-SUP-RP14-LC06-T01 New refuses a database that does not hold the schema manifest before it opens anything else", func(t *testing.T) {
 			orders := manifest.Table{Schema: "public", Name: "orders", RowSecurity: true,
-				Columns: []manifest.Column{{Name: "tenant_id", Type: "text", NotNull: true}, {Name: "status", Type: "text", NotNull: true}},
+				Columns: []manifest.Column{{Name: "tenant_id", Type: "text", NotNull: true}, {Name: "status", Type: "text", NotNull: true},
+					{Name: "version", Type: "bigint", Default: "1"}, {Name: "authz_token", Type: "text", Default: "''::text"}},
 				Policies: []manifest.Policy{{Name: "orders_tenant", Command: "*", Using: "(tenant_id = current_setting('app.tenant'::text, true))",
 					WithCheck: "(tenant_id = current_setting('app.tenant'::text, true))"}}}
 			declared := parts(nil, nil)
@@ -348,6 +349,9 @@ func TestNew(t *testing.T) {
 			// for it for a name with no schema (#243 S1).
 			refused("CREATE SCHEMA "+f.runtime+"; GRANT USAGE ON SCHEMA "+f.runtime+" TO "+f.runtime+"; CREATE TABLE "+f.runtime+".orders (tenant_id text, id uuid)", "DROP SCHEMA "+f.runtime+" CASCADE",
 				"the relation "+f.runtime+".orders comes before public.orders on the search path of the session")
+			// A default that the manifest does not state is refused: an INSERT that leaves the column out takes it.
+			refused("ALTER TABLE public.orders ALTER COLUMN status SET DEFAULT 'paid'", "ALTER TABLE public.orders ALTER COLUMN status DROP DEFAULT",
+				"table public.orders: column status has a default that the manifest does not state")
 			// The key table is in the manifest too: the runtime role may not delete a key row of another tenant's key.
 			refused("GRANT DELETE ON public.idempotency_keys TO "+f.runtime, "REVOKE DELETE ON public.idempotency_keys FROM "+f.runtime,
 				"table public.idempotency_keys: the privilege DELETE to "+f.runtime+" is granted, and the manifest does not grant it")
