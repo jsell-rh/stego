@@ -350,8 +350,9 @@ func TestLeaseIsOneRow(t *testing.T) {
 		if err := h.Renew(ctx); err != nil {
 			t.Fatal(err)
 		}
+		// The locks of this test's database only: a test of another package on the same server may hold its own.
 		var locks int
-		if err := d.other.QueryRowContext(ctx, "SELECT count(*) FROM pg_locks WHERE locktype='advisory'").Scan(&locks); err != nil {
+		if err := d.other.QueryRowContext(ctx, "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND database = (SELECT oid FROM pg_database WHERE datname = current_database())").Scan(&locks); err != nil {
 			t.Fatal(err)
 		}
 		if locks != 0 {
