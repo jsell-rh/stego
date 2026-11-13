@@ -371,6 +371,7 @@ hand; see [Specification checks](#specification-checks).
 | `stego build download` | `stego build download --source <repo> --revision <commit> [--module <path>] --target <path> --go <sdk>/bin/go --output <folder>` |
 | `stego build verify` | `stego build verify --record <file> --record-sha256 <digest> --artifact <file>` |
 | `stego build verify-source` | `stego build verify-source --record <file> --record-sha256 <digest> --source <folder>` |
+| `stego compat` | `stego compat --base <ref> [--json]` |
 | `stego deps` | `stego deps` |
 | `stego drift` | `stego drift` |
 | `stego fill create` | `stego fill create <name> --slot <slot> [--component <component>] [--collection <collection>]` |
