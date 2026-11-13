@@ -91,3 +91,6 @@ GRANT USAGE ON SCHEMA public TO "user_management_worker";
 GRANT USAGE ON SCHEMA public TO "user_management_relay";
 GRANT "user_management_idempotency_purge" TO "user_management_owner" WITH SET TRUE, INHERIT FALSE;
 GRANT "user_management_outbox_relay" TO "user_management_owner" WITH SET TRUE, INHERIT FALSE;
+ALTER ROLE "user_management_runtime" SET search_path = public, pg_temp;
+ALTER ROLE "user_management_worker" SET search_path = public, pg_temp;
+ALTER ROLE "user_management_relay" SET search_path = public, pg_temp;

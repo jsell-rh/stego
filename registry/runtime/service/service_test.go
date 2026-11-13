@@ -343,16 +343,29 @@ func TestNew(t *testing.T) {
 			// The outbox is in the manifest too, with the exact grants of its table.
 			refused("GRANT SELECT ON stego_outbox.messages TO PUBLIC", "REVOKE SELECT ON stego_outbox.messages FROM PUBLIC",
 				"table stego_outbox.messages: the privilege SELECT to PUBLIC is granted, and the manifest does not grant it")
+			// A schema named after the runtime role comes first on its default search path "$user", public, so a
+			// table there of the name of a table of the manifest, which has no row-level security, would stand in
+			// for it for a name with no schema (#243 S1).
+			refused("CREATE SCHEMA "+f.runtime+"; GRANT USAGE ON SCHEMA "+f.runtime+" TO "+f.runtime+"; CREATE TABLE "+f.runtime+".orders (tenant_id text, id uuid)", "DROP SCHEMA "+f.runtime+" CASCADE",
+				"the relation "+f.runtime+".orders comes before public.orders on the search path of the session")
 			// The key table is in the manifest too: the runtime role may not delete a key row of another tenant's key.
 			refused("GRANT DELETE ON public.idempotency_keys TO "+f.runtime, "REVOKE DELETE ON public.idempotency_keys FROM "+f.runtime,
 				"table public.idempotency_keys: the privilege DELETE to "+f.runtime+" is granted, and the manifest does not grant it")
 			// Only the runtime role may run it: EXECUTE for PUBLIC is refused (#239 L2).
 			refused("GRANT EXECUTE ON FUNCTION public.audit_maintain() TO PUBLIC", "REVOKE EXECUTE ON FUNCTION public.audit_maintain() FROM PUBLIC",
 				"function public.audit_maintain may be run by roles that the manifest does not name")
+			// A function of the name of a relay function in public, a schema of the path that the relay function's own
+			// schema stego_outbox is not on, stands in for no call, as each call names stego_outbox (#245 Q3).
+			if _, err := f.admin.Exec("CREATE FUNCTION public.claim() RETURNS integer LANGUAGE sql AS 'SELECT 1'"); err != nil {
+				t.Fatal(err)
+			}
 			if svc, err := New(context.Background(), settings, declared); err != nil {
-				t.Fatalf("New refused the restored database: %v", err)
+				t.Fatalf("New refused the restored database with an unrelated public.claim(): %v", err)
 			} else {
 				_ = svc.Close()
+			}
+			if _, err := f.admin.Exec("DROP FUNCTION public.claim()"); err != nil {
+				t.Fatal(err)
 			}
 		})
 	})

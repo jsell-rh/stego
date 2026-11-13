@@ -260,6 +260,19 @@ func TestTenancy(t *testing.T) {
 		}
 	})
 
+	t.Run("ST-SUP-RC27-OC04-T12 The login roles of the service resolve a name with no schema in pg_catalog and public only", func(t *testing.T) {
+		for _, role := range []string{tenancy.RuntimeRole, tenancy.WorkerRole, tenancy.RelayRole} {
+			var setting string
+			if err := db.QueryRowContext(ctx, `SELECT COALESCE((SELECT pg_catalog.array_to_string(s.setconfig, ';') FROM pg_catalog.pg_db_role_setting s
+  JOIN pg_catalog.pg_roles r ON r.oid = s.setrole WHERE r.rolname = $1 AND s.setdatabase = 0), '')`, role).Scan(&setting); err != nil {
+				t.Fatal(err)
+			}
+			if setting != "search_path=public, pg_temp" {
+				t.Errorf("the role %s has the settings %q, want search_path=public, pg_temp", role, setting)
+			}
+		}
+	})
+
 	t.Run("ST-SUP-RC27-OC07-T01 Every tenant reads a shared entity", func(t *testing.T) {
 		tx, err := db.Begin()
 		if err != nil {

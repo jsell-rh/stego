@@ -245,6 +245,7 @@ func purgeRole(runtime string) string {
 // (the purge and outbox relay roles), one that is a member of a role that the text does not grant it, or one that has
 // a member, or a holder of ADMIN, that the text does not grant: the owner in the purge and outbox relay roles, and in
 // the owner role the migration login that the operator names in MigrationLoginSetting.
+// It sets the search path of the runtime, worker and relay roles to public, pg_temp, after the implicit pg_catalog, so a name with no schema never resolves in a schema named after the role.
 func roleMigration(runtime, owner, worker, relay, purge, outboxRelay string) string {
 	flags := "NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"
 	var text strings.Builder
@@ -319,6 +320,12 @@ func roleMigration(runtime, owner, worker, relay, purge, outboxRelay string) str
 	}
 	for _, role := range []string{purge, outboxRelay} {
 		fmt.Fprintf(&text, "GRANT %s TO %s WITH SET TRUE, INHERIT FALSE;\n", quote(role), quote(owner))
+	}
+	// Each login role of the service resolves a name with no schema in pg_catalog, then public, then its own
+	// temporary schema: never in a schema named after the role ("$user"), where a relation of the name of a table
+	// of the service could stand in for it. The roles are this service's alone, so the setting is the role's.
+	for _, role := range []string{runtime, worker, relay} {
+		fmt.Fprintf(&text, "ALTER ROLE %s SET search_path = public, pg_temp;\n", quote(role))
 	}
 	return text.String()
 }

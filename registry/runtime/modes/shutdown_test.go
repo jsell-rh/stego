@@ -631,7 +631,7 @@ func TestModeShutdown(t *testing.T) {
 				}
 			case s.sql == "commit" && i >= int(stopAt.Load()) && batchCommit < 0:
 				batchCommit = i
-			case strings.HasPrefix(s.sql, "UPDATE leases SET expires_at='-infinity'"):
+			case strings.HasPrefix(s.sql, "UPDATE public.leases SET expires_at='-infinity'"):
 				if released < 0 {
 					released = i
 				}

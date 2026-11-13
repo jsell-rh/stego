@@ -230,8 +230,8 @@ func TestLeaseIsOneRow(t *testing.T) {
 		if err := h.Renew(ctx); err != nil {
 			t.Fatal(err)
 		}
-		wantAcquire := "UPDATE leases SET holder=$1, expires_at=now()+ttl, token=token+1 WHERE name=$2 AND (holder=$1 OR expires_at<now()) RETURNING token"
-		wantRenew := "UPDATE leases SET expires_at=now()+ttl, token=token+1 WHERE name=$2 AND holder=$1 AND token=$3 AND expires_at>=now() RETURNING token"
+		wantAcquire := "UPDATE public.leases SET holder=$1, expires_at=now()+ttl, token=token+1 WHERE name=$2 AND (holder=$1 OR expires_at<now()) RETURNING token"
+		wantRenew := "UPDATE public.leases SET expires_at=now()+ttl, token=token+1 WHERE name=$2 AND holder=$1 AND token=$3 AND expires_at>=now() RETURNING token"
 		sent := d.rec.all()
 		if len(sent) != 2 {
 			t.Fatalf("Acquire and Renew sent %d statements, want 2: %v", len(sent), sent)

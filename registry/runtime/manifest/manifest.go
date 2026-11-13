@@ -445,10 +445,20 @@ func Check(ctx context.Context, db *sql.DB, m Manifest) (err error) {
 		return fmt.Errorf("manifest: read the catalog: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	// The search path of the session, and the role that it runs as, before the check fixes its own path.
+	var path, role string
+	if err := tx.QueryRowContext(ctx, "SELECT pg_catalog.array_to_string(pg_catalog.current_schemas(true), chr(31)), current_user").Scan(&path, &role); err != nil {
+		return fmt.Errorf("manifest: read the catalog: %w", err)
+	}
 	if _, err := tx.ExecContext(ctx, "SET LOCAL search_path = pg_catalog, pg_temp"); err != nil {
 		return fmt.Errorf("manifest: read the catalog: %w", err)
 	}
 	var faults []string
+	found, err := checkSearchPath(ctx, tx, m, strings.Split(path, "\x1f"), role)
+	if err != nil {
+		return fmt.Errorf("manifest: read the catalog of the search path: %w", err)
+	}
+	faults = append(faults, found...)
 	// session_replication_role replica or local skips each ordinary trigger, so the triggers of the manifest
 	// would not run in this session or in the sessions of its role.
 	var replication string
@@ -483,7 +493,7 @@ func Check(ctx context.Context, db *sql.DB, m Manifest) (err error) {
 		}
 		faults = append(faults, found...)
 	}
-	found, err := checkNames(ctx, tx, m, named)
+	found, err = checkNames(ctx, tx, m, named)
 	if err != nil {
 		return fmt.Errorf("manifest: read the catalog of the functions: %w", err)
 	}
@@ -525,6 +535,72 @@ func namedFunctions(ctx context.Context, tx *sql.Tx, m Manifest) (map[uint32]str
 		}
 	}
 	return named, nil
+}
+
+// checkSearchPath gives a fault for each relation that has the name of a table of the manifest in a schema of the
+// search path of the session (path, as current_schemas(true) gives it) that comes before the schema of the table, or
+// in any schema of the path when the path does not hold that schema: a name with no schema resolves to it first. It
+// gives a fault for each function that has the name of a function of the manifest in a schema of the path before the
+// schema of that function, when the path holds that schema. It also refuses a schema
+// named after the role of the session (role), which the default search path "$user", public puts first.
+func checkSearchPath(ctx context.Context, tx *sql.Tx, m Manifest, path []string, role string) ([]string, error) {
+	var faults []string
+	var own bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = $1)`, role).Scan(&own); err != nil {
+		return nil, err
+	}
+	if own {
+		faults = append(faults, "the schema "+role+" has the name of the role of the session, which a search path of \"$user\" puts first")
+	}
+	// earlier gives the schemas of the path before schema, or the whole path when it does not hold schema.
+	earlier := func(schema string) []string {
+		if i := slices.Index(path, schema); i >= 0 {
+			return path[:i]
+		}
+		return path
+	}
+	type object struct{ kind, schema, name string }
+	var objects []object
+	for _, t := range m.Tables {
+		objects = append(objects, object{"relation", t.Schema, t.Name})
+	}
+	for _, f := range m.Functions {
+		schema, fn, _ := strings.Cut(f.Name, ".")
+		objects = append(objects, object{"function", schema, fn})
+	}
+	for _, o := range objects {
+		// A function of the manifest is called with its schema (ST-STD-TXN-R19), so only a function earlier on the
+		// path than its own schema, when that schema is on it, could stand in for a call with no schema.
+		if o.kind == "function" && !slices.Contains(path, o.schema) {
+			continue
+		}
+		before := earlier(o.schema)
+		if len(before) == 0 {
+			continue
+		}
+		query := `SELECT n.nspname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  WHERE c.relname = $1 AND n.nspname = ANY ($2::text[]) AND n.nspname <> $3 ORDER BY 1`
+		if o.kind == "function" {
+			query = `SELECT DISTINCT n.nspname FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+  WHERE p.proname = $1 AND n.nspname = ANY ($2::text[]) AND n.nspname <> $3 ORDER BY 1`
+		}
+		rows, err := tx.QueryContext(ctx, query, o.name, before, o.schema)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var schema string
+			if err := rows.Scan(&schema); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			faults = append(faults, fmt.Sprintf("the %s %s.%s comes before %s.%s on the search path of the session", o.kind, schema, o.name, o.schema, o.name))
+		}
+		if err := closed(rows); err != nil {
+			return nil, err
+		}
+	}
+	return faults, nil
 }
 
 // checkNames gives a fault for each function that has the schema and the name of a function of the manifest and that
