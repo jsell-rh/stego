@@ -225,6 +225,14 @@ func (f *fixture) inTx(db *sql.DB, tenantID string, fn func(tx *sql.Tx) error) {
 	}
 }
 
+// settled waits for the transactions of other databases that began before now (awaitOthers), and gives j, so a
+// job that reads below the oldest running transaction of the server sees what the test wrote.
+func (f *fixture) settled(j *Jobs) *Jobs {
+	f.t.Helper()
+	f.awaitOthers()
+	return j
+}
+
 func usd(n int64) money.Money {
 	m, err := money.New(n, "USD")
 	if err != nil {
@@ -245,14 +253,15 @@ func (f *fixture) post(db *sql.DB, key string, entries ...Entry) Transfer {
 		out, err = f.usd.Post(f.ctx, tx, f.tn(acme), Posting{Key: key, Code: "topup", Entries: entries})
 		return err
 	})
-	f.awaitOthers()
 	return out
 }
 
 // awaitOthers waits until no transaction of another database of the server, such as one of a test of another
-// package, that began before now is still running. A snapshot takes entries only below the oldest running
-// transaction of the whole server (pg_snapshot_xmin), so such a transaction would hold back the snapshots of this
-// test; the transactions of the test's own database are left as the test makes them.
+// package, that began before now is still running. A snapshot and the check take entries only below the oldest
+// running transaction of the whole server (pg_snapshot_xmin), so such a transaction would hold back the jobs of
+// this test; the transactions of the test's own database are left as the test makes them. It is called before a
+// job and before a snapshot row of a test, not after each write, so a test of a short pending timeout keeps its
+// timing.
 func (f *fixture) awaitOthers() {
 	f.t.Helper()
 	var next int64
@@ -284,7 +293,6 @@ func (f *fixture) pend(key string, entries ...Entry) Transfer {
 		out, err = f.usd.Pend(f.ctx, tx, f.tn(acme), Posting{Key: key, Code: "purchase", Entries: entries})
 		return err
 	})
-	f.awaitOthers()
 	return out
 }
 
