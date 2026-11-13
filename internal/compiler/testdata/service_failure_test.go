@@ -70,7 +70,8 @@ func TestFailureOutputHasDeadline(t *testing.T) {
 		<-writer.entered
 		select {
 		case <-returned:
-		case <-time.After(3 * time.Second):
+		// The deadline is one second (ST-GEN-INV16); 1.5 s leaves room for a slow run and refuses a longer one.
+		case <-time.After(1500 * time.Millisecond):
 			t.Fatal("failure output blocked exit")
 		}
 	})
