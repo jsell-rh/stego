@@ -258,7 +258,7 @@ func TestAuthorizationTenancy(t *testing.T) {
 	t.Run("ST-DECL-INV84-T A declaration that binds authorization without pooled tenancy is refused", func(t *testing.T) {
 		service, schema := td03Files(t)
 		expectAccepted(t, checkTD03(t, service, schema))
-		block := "tenancy:\n  kind: pooled\n  key: tenant_id\n  claim: tenant\n"
+		block := "tenancy:\n  kind: pooled\n  key: tenant_id\n  claim: tenant\n  provisioning: {resource_type: \"document\", provision: edit, retire: edit}\n"
 		omitted := change(t, service, block, "")
 		expectOneFault(t, checkTD03(t, omitted, schema), "authorization-tenancy", "tenancy", "tenant-qualified", "pooled")
 		single := change(t, service, block, "tenancy:\n  kind: single\n  reason: one customer per deployment\n")

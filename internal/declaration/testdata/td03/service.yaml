@@ -7,6 +7,7 @@ tenancy:
   kind: pooled
   key: tenant_id
   claim: tenant
+  provisioning: {resource_type: "document", provision: edit, retire: edit}
 experimental_acceptances:
   - {component: spicedb-authz, accepted_until: 2027-04-30, reason: the authorization tests take the alpha component}
   - {component: tenancy, accepted_until: 2027-04-30, reason: authorization needs pooled tenancy}
