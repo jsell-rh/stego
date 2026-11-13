@@ -1,0 +1,15 @@
+kind: mixin
+name: durable-events
+version: 1.0.0
+
+# Each change of an entity is stored in the outbox of the service, in the transaction of the change. The slot keeps
+# the proto package and the contract of event-publisher, which this mixin replaces (ST-SUP-INV17).
+adds_components:
+  - outbox
+
+adds_slots:
+  - name: on_entity_changed
+    proto: stego.mixins.event_publisher.slots.OnEntityChanged
+    default: noop
+
+overrides: none

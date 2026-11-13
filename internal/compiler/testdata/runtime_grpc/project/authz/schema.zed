@@ -1,5 +1,11 @@
 definition user {}
 
+definition service {
+	relation operator: user
+	permission provision = operator
+	permission retire = operator
+}
+
 definition order {
 	relation owner: user
 	relation viewer: user
