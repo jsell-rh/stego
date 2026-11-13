@@ -19,29 +19,29 @@ last_applied:
                 mode: 420
             go.mod:
                 exists: true
-                sha256: 7986d9f9dd4e63598c4ebffd10b6370b7bad684ee879d78c54540c61f8e77807
+                sha256: c9ee7f02352bf27799eeb3ee06932b6cd6ee78642b4f5a63dd6fc708d2aa85e4
                 mode: 420
             go.sum:
                 exists: true
-                sha256: b54ae2ae7a6026d46f15df0e47232e30f6efd7ef857bce74f0aaba03d663cddc
+                sha256: b6471422debe9af9e47733ab3ea6322ed8eb399da22b103350c31a9b591e5b4c
                 mode: 420
             service.yaml:
                 exists: true
                 sha256: 7b506044039a698b5d436b60e4c5e5581aa774206c54f1f8cbc7b57b17c3a351
                 mode: 420
-        sha256: b06682d2df09888e1f40fd59e8f459e5be4562347637ca223a334a27ddda0ced
+        sha256: a9cb1639e2b2005845b3c2c6d12da924ade85c352a9f1100557e769b0e728311
     compiler_build:
         go_version: go1.26.11
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20261113052610-51facd5188f4
+        module_version: v0.0.0-20261113053905-56ef578bb608
         vcs: git
-        revision: 51facd5188f429ede17e53524b3fad0256ce5afd
+        revision: 56ef578bb6089a83a1b644691dbdbc9af0d04abf
         source_state: clean
     service_name: user-management
     service_hash: 7b506044039a698b5d436b60e4c5e5581aa774206c54f1f8cbc7b57b17c3a351
     registry_sha: env-override
-    registry_content_sha256: 9213d72288b27b91dceecf9907be910efe9eabb334f438bf91692687c22c44e6
+    registry_content_sha256: 094831cd0752d59e53b1ceb21fe3874894ca84e4f6c3608bbb85e3ee97245f2d
     components:
         audit-log:
             version: 1.1.0
@@ -194,9 +194,9 @@ last_applied:
         tracing/startup.go: ba2cc8272fddb2c9c18cf10199b7ffe3df430ea88f3d02a6902e00908d154160
     archetype:
         name: rest-crud
-        version: 3.65.0
+        version: 3.66.0
         runtime:
             module: github.com/jsell-rh/stego/registry/runtime
-            version: v0.61.0
-            sum: h1:eiOR+SsBQxrXxOGkxG/jEt/yYxOiNcXnjk7DNwoarE4=
+            version: v0.62.0
+            sum: h1:j8FW5V7SJK2JSDOJ0DhFSkiyqQ5/gIN5hDXllc5+eCY=
         imports_runtime: true
