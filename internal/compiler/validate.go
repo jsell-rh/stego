@@ -42,6 +42,7 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 	result, err := validateSource(input, source)
 	if result != nil {
 		result.Settings = declaration.ResolvedSettings(source.Service)
+		result.Warnings = declaration.Warnings(source.Service)
 	}
 	return result, err
 }

@@ -83,7 +83,7 @@ func TestSchemaChangeEntity(t *testing.T) {
 		{"a retype from the type that the field has now", renamed, "{id: todo-title-rename, kind: retype, entity: Todo, field: summary, from: string, conversion: text_to_text, inverse_conversion: text_to_text}", "summary"},
 	} {
 		t.Run("ST-DECL-INV58-T "+c.name+" is refused", func(t *testing.T) {
-			service := todoFields(c.fields, "", []string{c.change}, "todo-title-rename expand") + "invariants:\n  - {name: summary_window, kind: no_overlap, on: Todo, range: during, by: [summary]}\n"
+			service := todoFields(c.fields, "", []string{c.change}, "todo-title-rename expand") + "invariants:\n  - {name: summary_window, kind: no_overlap, on: Todo, range: 'starts_at, ends_at', by: [summary]}\n"
 			faults := schemaFaults(t, service, "schema-change-entity")
 			wantFault(t, faults, `"todo-title-rename"`, `"Todo"`, `"`+c.field+`"`)
 		})

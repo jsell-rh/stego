@@ -2,6 +2,7 @@ package declaration
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/jsell-rh/stego/internal/types"
 )
@@ -11,6 +12,7 @@ import (
 type FaultsReader struct {
 	faults   []ValidationError
 	settings []Setting
+	warnings []ValidationError
 }
 
 // Setting is one setting of the declaration as checking resolved it (ST-DECL-RM01): its path in the declaration,
@@ -45,15 +47,19 @@ type FaultsDocument struct {
 	Accepted bool              `json:"accepted"`
 	Faults   []ValidationError `json:"faults"`
 	Settings []Setting         `json:"settings"`
+	// Warnings are the notices about accepted parts of the declaration, each with the parts of a fault. They do
+	// not change Accepted (decision on ST-DECL-Q15).
+	Warnings []ValidationError `json:"warnings"`
 }
 
 // NewFaultsReader reads the faults and the resolved settings of one check.
 func NewFaultsReader(result *ValidationResult) FaultsReader {
-	reader := FaultsReader{faults: []ValidationError{}, settings: []Setting{}}
+	reader := FaultsReader{faults: []ValidationError{}, settings: []Setting{}, warnings: []ValidationError{}}
 	if result == nil {
 		return reader
 	}
 	reader.settings = append(reader.settings, result.Settings...)
+	reader.warnings = append(reader.warnings, result.Warnings...)
 	for _, fault := range result.Errors {
 		if fault.Rule == "" {
 			fault.Rule = fault.Category
@@ -68,7 +74,7 @@ func NewFaultsReader(result *ValidationResult) FaultsReader {
 
 // Document gives the faults as one structured document.
 func (r FaultsReader) Document() FaultsDocument {
-	return FaultsDocument{Accepted: len(r.faults) == 0, Faults: append([]ValidationError{}, r.faults...), Settings: append([]Setting{}, r.settings...)}
+	return FaultsDocument{Accepted: len(r.faults) == 0, Faults: append([]ValidationError{}, r.faults...), Settings: append([]Setting{}, r.settings...), Warnings: append([]ValidationError{}, r.warnings...)}
 }
 
 // JSON gives the structured document as JSON, for an agent to read.
@@ -76,7 +82,14 @@ func (r FaultsReader) JSON() ([]byte, error) {
 	return json.MarshalIndent(r.Document(), "", "  ")
 }
 
-// Prose gives the faults for a person, each rendered from its structured fields.
+// Prose gives the faults for a person, each rendered from its structured fields, and then the warnings.
 func (r FaultsReader) Prose() string {
-	return FormatValidation(&ValidationResult{Errors: r.faults})
+	prose := FormatValidation(&ValidationResult{Errors: r.faults})
+	if len(r.warnings) > 0 {
+		prose += fmt.Sprintf("\n%d warning(s):\n\n", len(r.warnings))
+		for _, warning := range r.warnings {
+			prose += "  " + warning.Prose() + "\n"
+		}
+	}
+	return prose
 }
