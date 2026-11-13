@@ -402,7 +402,8 @@ func (t Tuple) valid() error {
 }
 
 // Filter selects the relationships that Delete removes and that a precondition matches. ResourceType is required;
-// each other empty field matches any value.
+// each other empty field matches any value in a precondition. Delete takes only an exact filter or one of
+// RelationFilter.
 type Filter struct {
 	ResourceType    string
 	ResourceID      string
@@ -416,6 +417,26 @@ type Filter struct {
 // empty for a direct subject.
 func (f Filter) Exact() bool {
 	return f.ResourceType != "" && f.ResourceID != "" && f.Relation != "" && f.SubjectType != "" && f.SubjectID != ""
+}
+
+// RelationFilter gives the filter of every tuple of one relation of one resource, which the delete of the
+// resource's row removes (ST-SUP-Q118). It names exactly one resource type, one resource ID and one relation, and no
+// subject. It refuses an empty or malformed one, so the filter never reaches the tuples of another resource.
+func RelationFilter(resource Resource, relation string) (Filter, error) {
+	if err := resource.qualified(); err != nil {
+		return Filter{}, err
+	}
+	if err := validType("relation", relation); err != nil {
+		return Filter{}, err
+	}
+	return Filter{ResourceType: resource.Type, ResourceID: resource.ID, Relation: relation}, nil
+}
+
+// OfRelation reports whether the filter names exactly one resource type, one resource ID and one relation, and no
+// subject: the only filter that is not exact which an adapter's Delete takes.
+func (f Filter) OfRelation() bool {
+	return f.ResourceType != "" && f.ResourceID != "" && f.Relation != "" && f.SubjectType == "" && f.SubjectID == "" &&
+		f.SubjectRelation == ""
 }
 
 // FilterOf returns the exact filter of one tuple.

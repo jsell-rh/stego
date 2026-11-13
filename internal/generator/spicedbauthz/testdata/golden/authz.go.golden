@@ -98,65 +98,6 @@ func DocumentResource(t tenant.Tenant, key string) (stegoauthz.Resource, error) 
 	return stegoauthz.NewResource(t, "document", key)
 }
 
-// DocumentRelations are the relations that the relationships of Document write, for the handle that its writes bind.
-var DocumentRelations = []stegoauthz.Relation{{ResourceType: "document", Name: "owner"}}
-
-// DocumentSubjects are the subject IDs of the relationships of one Document row. An empty ID writes no tuple.
-type DocumentSubjects struct {
-	// Owner is the user that holds document#owner, from the field owner_id.
-	Owner string
-}
-
-// DocumentTuples gives the declared tuples of the Document row of key in tenant t (ST-SUP-RC29-OC05).
-func DocumentTuples(t tenant.Tenant, key string, s DocumentSubjects) ([]stegoauthz.Tuple, error) {
-	resource, err := DocumentResource(t, key)
-	if err != nil {
-		return nil, err
-	}
-	var tuples []stegoauthz.Tuple
-	if s.Owner != "" {
-		tuples = append(tuples, stegoauthz.Tuple{Resource: resource, Relation: "owner", Subject: stegoauthz.Subject{Type: "user", ID: s.Owner}})
-	}
-	return tuples, nil
-}
-
-// WriteDocumentRelationships enqueues through h, in the transaction of the Document row of key, the tuple changes of
-// the row from before to after: before is nil on create and after is nil on delete. Each relationship whose
-// subject changes deletes its old tuple and then touches its new one, and every tuple joins the transaction's
-// revocation (ST-SUP-RC29-OC05, ST-SUP-RP06-LC12). It writes nothing to the provider; the relay does. It gives
-// the revocation and whether it enqueued a tuple.
-func WriteDocumentRelationships(ctx context.Context, h *stegoauthz.Handle, t tenant.Tenant, key string, before, after *DocumentSubjects) (stegoauthz.Revocation, bool, error) {
-	var revocation stegoauthz.Revocation
-	wrote := false
-	resource, err := DocumentResource(t, key)
-	if err != nil {
-		return revocation, false, err
-	}
-	var was, is string
-	was, is = "", ""
-	if before != nil {
-		was = before.Owner
-	}
-	if after != nil {
-		is = after.Owner
-	}
-	if was != is {
-		if was != "" {
-			if revocation, err = h.Unrelate(ctx, stegoauthz.Tuple{Resource: resource, Relation: "owner", Subject: stegoauthz.Subject{Type: "user", ID: was}}); err != nil {
-				return revocation, wrote, err
-			}
-			wrote = true
-		}
-		if is != "" {
-			if revocation, err = h.Relate(ctx, stegoauthz.Tuple{Resource: resource, Relation: "owner", Subject: stegoauthz.Subject{Type: "user", ID: is}}); err != nil {
-				return revocation, wrote, err
-			}
-			wrote = true
-		}
-	}
-	return revocation, wrote, nil
-}
-
 // ProjectResource gives the resource project of the Project row of key in tenant t, with the tenant-qualified ID of the
 // runtime (ST-SUP-RC29-OC22, ST-SUP-RP06-LC22).
 func ProjectResource(t tenant.Tenant, key string) (stegoauthz.Resource, error) {
