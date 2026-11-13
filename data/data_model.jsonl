@@ -22,6 +22,8 @@
 {"id":"ST-DECL-EN11-DM","title":"types.Authorization","entity_id":"ST-DECL-EN11","file":"internal/types/authorization.go"}
 {"id":"ST-DECL-EN12-DM","title":"types.Relationship","entity_id":"ST-DECL-EN12","file":"internal/types/authorization.go"}
 {"id":"ST-DECL-EN13-DM","title":"types.Idempotency","entity_id":"ST-DECL-EN13","file":"internal/types/idempotency.go"}
+{"id":"ST-DECL-EN14-DM","title":"types.Ledger","entity_id":"ST-DECL-EN14","file":"internal/types/ledger.go"}
+{"id":"ST-DECL-EN15-DM","title":"types.LedgerAccount","entity_id":"ST-DECL-EN15","file":"internal/types/ledger.go"}
 {"id":"ST-DECL-EN16-DM","title":"types.Controller","entity_id":"ST-DECL-EN16","file":"internal/types/controller.go"}
 {"id":"ST-DECL-EN17-DM","title":"types.DeclaredInvariant","entity_id":"ST-DECL-EN17","file":"internal/types/declared_invariant.go"}
 {"id":"ST-DECL-EN18-DM","title":"types.Command","entity_id":"ST-DECL-EN18","file":"internal/types/command.go"}

@@ -40,7 +40,7 @@ type applyFixture struct {
 
 func applySetup(t *testing.T) *applyFixture {
 	t.Helper()
-	f := &applyFixture{directory: t.TempDir(), rows: map[string]map[string]any{}}
+	f := &applyFixture{directory: privateDir(t), rows: map[string]map[string]any{}}
 	t.Setenv("TEST_CLI_CONFIG", filepath.Join(f.directory, "config.json"))
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
@@ -325,7 +325,7 @@ func TestApplyDirectoriesAndInputBounds(t *testing.T) {
 func TestApplyStdinAndCancellation(t *testing.T) {
 	original := os.Stdin
 	defer func() { os.Stdin = original }()
-	file, err := os.CreateTemp(t.TempDir(), "stdin")
+	file, err := os.CreateTemp(privateDir(t), "stdin")
 	if err != nil {
 		t.Fatal(err)
 	}

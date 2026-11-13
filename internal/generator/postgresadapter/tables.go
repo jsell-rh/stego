@@ -174,6 +174,32 @@ func columnDefault(field types.Field) (string, error) {
 	return "", fmt.Errorf("field %s: the default %v has no SQL literal", field.Name, field.Default)
 }
 
+// literalDefault gives a declared field's default as the schema manifest states it: the value as a quoted literal
+// with a cast to the column's type, which the check compares by its value with the default of the column; "" when
+// the field has none.
+func literalDefault(value any, columnType string) string {
+	var text string
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case string:
+		text = v
+	case bool:
+		text = strconv.FormatBool(v)
+	case int:
+		text = strconv.Itoa(v)
+	case int64:
+		text = strconv.FormatInt(v, 10)
+	case uint64:
+		text = strconv.FormatUint(v, 10)
+	case float64:
+		text = strconv.FormatFloat(v, 'g', -1, 64)
+	default:
+		return ""
+	}
+	return sqlString(text) + "::" + columnType
+}
+
 // checkItem is one CHECK expression of a field: its text in the migration, and its text as pg_get_constraintdef
 // writes it, which the schema manifest holds (ST-SUP-RC01-OC12).
 type checkItem struct{ source, deparsed string }
@@ -281,10 +307,11 @@ type tableModel struct {
 	unique [][]string
 }
 
-// columnModel is one column: its name, its type, its NOT NULL and its DEFAULT clause.
+// columnModel is one column: its name, its type, its NOT NULL, its DEFAULT clause, and its default as the schema
+// manifest states it (ST-SUP-RC01-OC12).
 type columnModel struct {
-	name, typ, defaultClause string
-	notNull                  bool
+	name, typ, defaultClause, manifestDefault string
+	notNull                                   bool
 }
 
 // checkModel is one CHECK constraint: its name, its expression, and its definition as pg_get_constraintdef
@@ -330,7 +357,8 @@ func tableModels(ctx gen.Context) ([]tableModel, error) {
 		table := tableModel{name: tableName(entity.Name), owned: owned[entity.Name]}
 		if table.owned {
 			table.lead = []string{key}
-			table.columns = append(table.columns, columnModel{name: key, typ: "text", notNull: true, defaultClause: " DEFAULT current_setting('app.tenant')"})
+			table.columns = append(table.columns, columnModel{name: key, typ: "text", notNull: true, defaultClause: " DEFAULT current_setting('app.tenant')",
+				manifestDefault: "current_setting('app.tenant'::text)"})
 		}
 		table.columns = append(table.columns, columnModel{name: keyColumn, typ: "uuid", notNull: true})
 		for _, field := range entity.Fields {
@@ -343,18 +371,18 @@ func tableModels(ctx gen.Context) ([]tableModel, error) {
 				return nil, fmt.Errorf("entity %s: %w", entity.Name, err)
 			}
 			table.columns = append(table.columns, columnModel{name: field.Name, typ: columnTypeName,
-				notNull: !field.Optional && !field.Computed, defaultClause: fieldDefault})
+				notNull: !field.Optional && !field.Computed, defaultClause: fieldDefault, manifestDefault: literalDefault(field.Default, columnTypeName)})
 			if checks := columnChecks(field, columnTypeName); len(checks) > 0 {
 				table.checks = append(table.checks, checkModel{name: sqlName(table.name, field.Name, "check"),
 					expression: joinChecks(checks, false), definition: "CHECK (" + joinChecks(checks, true) + ")"})
 			}
 		}
 		table.columns = append(table.columns,
-			columnModel{name: createdColumn, typ: "timestamp with time zone", notNull: true, defaultClause: " DEFAULT now()"},
-			columnModel{name: updatedColumn, typ: "timestamp with time zone", notNull: true, defaultClause: " DEFAULT now()"},
-			columnModel{name: versionColumn, typ: "bigint", notNull: true, defaultClause: " DEFAULT 1"})
+			columnModel{name: createdColumn, typ: "timestamp with time zone", notNull: true, defaultClause: " DEFAULT now()", manifestDefault: "now()"},
+			columnModel{name: updatedColumn, typ: "timestamp with time zone", notNull: true, defaultClause: " DEFAULT now()", manifestDefault: "now()"},
+			columnModel{name: versionColumn, typ: "bigint", notNull: true, defaultClause: " DEFAULT 1", manifestDefault: "1"})
 		if entity.ResourceType != "" {
-			table.columns = append(table.columns, columnModel{name: tokenColumn, typ: "text", notNull: true, defaultClause: " DEFAULT ''"})
+			table.columns = append(table.columns, columnModel{name: tokenColumn, typ: "text", notNull: true, defaultClause: " DEFAULT ''", manifestDefault: "''::text"})
 		}
 		for _, field := range entity.Fields {
 			if field.Type != types.FieldTypeRef || field.To == "" {
