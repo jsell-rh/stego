@@ -14,7 +14,12 @@ import (
 	"github.com/jsell-rh/stego/registry/runtime/authz"
 	"github.com/jsell-rh/stego/registry/runtime/probe"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
+
+	"go.opentelemetry.io/otel/metric"
 )
+
+// instrumentation is the instrumentation scope of the metrics of the query runtime.
+const instrumentation = "github.com/jsell-rh/stego/registry/runtime/query"
 
 // Config is what the query runtime of a service needs.
 type Config struct {
@@ -37,6 +42,10 @@ type Config struct {
 	// CursorKey is the key of the MAC of the text form of a list cursor (ST-SUP-RP11-LC15): at least MinCursorKey
 	// random bytes, the same in every replica of the service, and secret. Without it, a cursor has no text form.
 	CursorKey []byte
+	// Meter, when it is not nil, records the metric query.list.over_bound: the count of ordered lists of an entity of
+	// small expected cardinality whose resource search gave more than MaxSearchKeys keys, by entity
+	// (ST-SUP-RP11-LC20). Nil records no metric.
+	Meter metric.MeterProvider
 }
 
 // Runtime is the query runtime of one service: it runs query fills, each in a READ ONLY transaction of its own.
@@ -48,6 +57,8 @@ type Runtime struct {
 	authz    *authz.Runtime
 	service  string
 	dropped  atomic.Uint64
+	// overBound counts the lists over MaxSearchKeys by entity; nil without a Meter.
+	overBound metric.Int64Counter
 
 	cursorAEAD cipher.AEAD
 
@@ -88,6 +99,14 @@ func New(cfg Config) (*Runtime, error) {
 	}
 	rt := &Runtime{db: cfg.DB, auditDB: cfg.AuditDB, audit: cfg.Audit, settings: cfg.AuditSettings, authz: cfg.Authz,
 		service: cfg.Service}
+	if cfg.Meter != nil {
+		counter, err := cfg.Meter.Meter(instrumentation).Int64Counter("query.list.over_bound",
+			metric.WithDescription("The ordered lists of an entity of small expected cardinality whose resource search gave more keys than the bound, by entity."))
+		if err != nil {
+			return nil, err
+		}
+		rt.overBound = counter
+	}
 	if len(cfg.CursorKey) > 0 {
 		aead, err := newCursorAEAD(cfg.CursorKey)
 		if err != nil {

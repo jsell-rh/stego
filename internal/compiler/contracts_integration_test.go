@@ -348,7 +348,7 @@ func testGeneratedGRPCProcesses(t *testing.T, selected string) {
 	for _, args := range commands {
 		command := exec.Command("go", args...)
 		command.Dir = project
-		command.Env = append(os.Environ(), "GOWORK=off")
+		command.Env = append(os.Environ(), "GOWORK=off", processBinaryVariable+"="+filepath.Join(project, "_bin", "records"))
 		output, err := command.CombinedOutput()
 		if err != nil {
 			t.Fatalf("generated RPC process: %v\n%s", err, output)
@@ -421,7 +421,20 @@ func makeGRPCProcesses(t *testing.T, project string) {
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("generated RPC process: %v\n%s", err, output)
 	}
+	// The process executable is built once, with the race detector, outside the time limit of the inner tests:
+	// they run it through processBinaryVariable, so their limit bounds the scenarios and not a build. The folder
+	// _bin is one that go vet and go test leave out.
+	build := exec.Command("go", "build", "-race", "-mod=readonly", "-o", filepath.Join(project, "_bin", "records"), "./out/grpcapi/processes/records")
+	build.Dir = project
+	build.Env = append(os.Environ(), "GOWORK=off")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build the generated RPC process: %v\n%s", err, output)
+	}
 }
+
+// processBinaryVariable names the process executable that the generated integration tests run, built by
+// makeGRPCProcesses. When it is not set, those tests build the executable themselves.
+const processBinaryVariable = "STEGO_TEST_PROCESS_BINARY"
 
 // The tests below assemble the output of Supplying's generators with compiler.Assemble (ST-GEN-DS03). They sit in
 // Generating's package, which may import the generators, and read the generators' test data in place.

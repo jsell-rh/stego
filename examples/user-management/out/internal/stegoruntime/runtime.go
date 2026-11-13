@@ -159,7 +159,7 @@ func parts(afterSlots *api.AfterSlots) service.Parts {
 				return w, nil
 			},
 			NewRelay: svcauthz.NewRelay, WatchInterval: svcauthz.WatchInterval,
-			AuditJobs: svcaudit.Jobs, AnchorPeriod: svcaudit.AnchorPeriod, TenantSchema: tenantSchema,
+			AuditJobs: svcaudit.Jobs, AnchorPeriod: svcaudit.AnchorPeriod, RetentionMonths: svcaudit.RetentionMonths, TenantSchema: tenantSchema,
 		},
 		Collections: api.Entities(),
 	}

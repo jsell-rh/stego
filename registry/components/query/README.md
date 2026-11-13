@@ -30,5 +30,13 @@ route.
 
 A secret field is never read: the read-only value and the reads leave it out.
 
+An entity may declare `expected_cardinality: small`. Its lists then read only
+the rows that the authorization provider's resource search gives (ST-SUP-RP11-LC20). An
+ordered list takes at most 10000 keys. Above that, the list fails, and the
+runtime counts it in the metric `query.list.over_bound`, with the entity as
+an attribute. Alert on this metric. When it fires, the entity is not small:
+declare it `expected_cardinality: large`, or remove the setting. There is no
+quota at create (ST-SUP-Q116, decided 2026-11-12).
+
 The component needs pooled tenancy with the key tenant_id and the
 domain-probe component. The stage is ga.
