@@ -81,7 +81,7 @@ func crudContext() gen.Context {
 			EntityAuthorization: types.EntityAuthorization{ResourceType: "quota", Permissions: map[types.Operation]string{types.OpRead: "view", types.OpList: "view", types.OpUpsert: "edit"},
 				References: map[string]types.Reference{"folder_id": {Relation: "folder", Permission: "edit"}}}},
 	)
-	return gen.Context{
+	return withSchema(gen.Context{
 		ModuleName:      crudModule,
 		OutDirName:      "out",
 		OutputNamespace: "api",
@@ -115,7 +115,7 @@ func crudContext() gen.Context {
 		Tenancy:        &gen.Tenancy{Key: "tenant_id"},
 		Idempotency:    &types.Idempotency{RequiredOn: []types.Operation{types.OpCreate, types.OpPatch}, Retention: "24h", Fingerprint: "body"},
 		PeerNamespaces: map[string]string{"idempotency": "idempotency", "postgres-adapter": "storage", gen.TenancyComponent: "tenancy", "command": "commands", "query": "queries"},
-	}
+	})
 }
 
 // crudFiles generates the rest-api files of ctx, by path.
@@ -313,7 +313,7 @@ func newCrudProject(t *testing.T, ctx gen.Context, files map[string][]byte) *cru
 		t.Fatal(err)
 	}
 	p.write("go.sum", sums)
-	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.87.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
+	p.write("go.mod", []byte("module "+ctx.ModuleName+"\n\ngo 1.26.11\n\nrequire github.com/jsell-rh/stego/registry/runtime v0.88.0\n\nreplace github.com/jsell-rh/stego/registry/runtime => "+runtimeDir+"\n"))
 	p.mustGo("mod", "tidy")
 	return p
 }

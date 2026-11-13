@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/jsell-rh/stego/registry/runtime/authz"
 )
 
 // relationshipEntity is the order entity of the reference tests with two declared relationships and no reference:
@@ -76,8 +78,108 @@ func TestDeclaredRelationships(t *testing.T) {
 			t.Fatal(err)
 		}
 		added = e.tuples()[len(before):]
-		if want := []string{"delete order:r1#buyer@customer:c1"}; !slices.Equal(added, want) {
+		// Every relation of the entity's resource type goes by the filtered delete of its relation (ST-SUP-Q118,
+		// delete path 1), which names no subject: the field-sourced one too.
+		if want := []string{"delete_relation order:r1#owner@:UNQUALIFIED()", "delete_relation order:r1#buyer@:UNQUALIFIED()"}; !slices.Equal(added, want) {
 			t.Fatalf("the delete enqueued %v, want %v", added, want)
+		}
+	})
+	t.Run("ST-SUP-RP10-LC05-T15 A delete enqueues the filtered delete of each caller-sourced relationship and each reference of the row", func(t *testing.T) {
+		e := newEnv(t)
+		_, referring, _ := referenceEntities(e)
+		s := referring.spec
+		s.Relationships = []Relationship[placedOrder]{{Relation: "owner", SubjectType: "user"}}
+		withReferences, err := NewEntity(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The rows are made through the same table with no Parent, so the create decides no reference.
+		s.Parent = nil
+		plain, err := NewEntity(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		make := e.command("make", nil, plain)
+		drop := e.command("drop", nil, withReferences)
+		for _, id := range []string{"r3", "r4"} {
+			if _, err := e.run(make, e.request("t1", u7(t), "k-t15-"+id, `{}`), fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
+				_, err := repo(t, h, plain).Create(ctx, placedOrder{ID: id, CustomerID: "c1", ProductID: "p1"})
+				return err
+			})); err != nil {
+				t.Fatal(err)
+			}
+		}
+		before := e.tuples()
+		if _, err := e.run(drop, e.request("t1", u7(t), "k-t15-drop", `{}`), fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
+			r := repo(t, h, withReferences)
+			from, err := r.GetForDelete(ctx, "r3")
+			if err != nil {
+				return err
+			}
+			return r.Delete(ctx, from)
+		})); err != nil {
+			t.Fatal(err)
+		}
+		added := e.tuples()[len(before):]
+		want := []string{"delete_relation order:r3#owner@:UNQUALIFIED()", "delete_relation order:r3#customer@:UNQUALIFIED()", "delete_relation order:r3#product@:UNQUALIFIED()"}
+		if !slices.Equal(added, want) {
+			t.Fatalf("the delete of r3 enqueued %v, want %v: each filter names r3 and one relation, so r4 keeps its tuples", added, want)
+		}
+	})
+	t.Run("ST-SUP-RP10-LC05-T22 A delete clears every relation that the schema declares on the row's resource type", func(t *testing.T) {
+		e := newEnv(t)
+		_, orders, _ := referenceEntities(e)
+		s := orders.spec
+		s.Parent = nil
+		s.Relationships = []Relationship[placedOrder]{{Relation: "owner", SubjectType: "user"}}
+		// The schema declares owner and viewer on order: no relationship and no reference names viewer.
+		s.Relations = []string{"owner", "viewer"}
+		entity, err := NewEntity(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		viewer := authz.Relation{ResourceType: "order", Name: "viewer"}
+		cmd := e.command("share", func(c *CommandSpec[testProbe]) {
+			c.Permission, c.Resource, c.Relations = "place", &Resource{Type: "service", Service: "orders"}, []authz.Relation{viewer}
+		}, entity)
+		// The fill creates r5 and writes a viewer tuple of its own on it.
+		if _, err := e.run(cmd, e.request("t1", u7(t), "k-t22-create", `{}`), fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
+			row, err := repo(t, h, entity).Create(ctx, placedOrder{ID: "r5", CustomerID: "c1", ProductID: "p1"})
+			if err != nil {
+				return err
+			}
+			resource, err := authz.NewResource(h.Tenant(), "order", "r5")
+			if err != nil {
+				return err
+			}
+			_, err = h.Authz().Relate(ctx, row, authz.Tuple{Resource: resource, Relation: "viewer", Subject: authz.Subject{Type: "user", ID: "u-3"}})
+			return err
+		})); err != nil {
+			t.Fatal(err)
+		}
+		before := e.tuples()
+		if _, err := e.run(cmd, e.request("t1", u7(t), "k-t22-delete", `{}`), fillOf(func(ctx context.Context, h *Handle[testProbe]) error {
+			r := repo(t, h, entity)
+			from, err := r.GetForDelete(ctx, "r5")
+			if err != nil {
+				return err
+			}
+			return r.Delete(ctx, from)
+		})); err != nil {
+			t.Fatal(err)
+		}
+		added := e.tuples()[len(before):]
+		if want := []string{"delete_relation order:r5#owner@:UNQUALIFIED()", "delete_relation order:r5#viewer@:UNQUALIFIED()"}; !slices.Equal(added, want) {
+			t.Fatalf("the delete of r5 enqueued %v, want %v: the viewer tuple that the fill wrote must go too", added, want)
+		}
+		// A schema relation needs a resource type, and a name that the schema can hold.
+		s.ResourceType, s.Relationships = "", nil
+		if _, err := NewEntity(s); err == nil {
+			t.Error("an entity with schema relations and no resource type was accepted")
+		}
+		s.ResourceType, s.Relations = "order", []string{"Viewer!"}
+		if _, err := NewEntity(s); err == nil {
+			t.Error("an entity with a schema relation that is not a relation name was accepted")
 		}
 	})
 	t.Run("ST-SUP-RP10-LC05-T14 A create whose caller is not of the relationship's subject type is refused and writes nothing", func(t *testing.T) {

@@ -43,6 +43,8 @@ func TestLibraryGeneratorsCheckGoPackageNames(t *testing.T) {
 					ctx.Authorization = &types.Authorization{Provider: "spicedb", SchemaPath: "authz/schema.zed", SubjectFromIdentity: "user"}
 					ctx.Entities[0].ResourceType = "record"
 					ctx.Entities[0].Permissions = map[types.Operation]string{types.OpRead: "view", types.OpList: "view"}
+					// The command and rest-api components get the schema among their inputs (ST-SUP-Q118).
+					ctx.Inputs = map[string][]byte{"authz/schema.zed": []byte("definition user {}\n\ndefinition record {\n\trelation viewer: user\n\tpermission view = viewer\n}\n")}
 				}
 			}
 			if name == "grpc" {

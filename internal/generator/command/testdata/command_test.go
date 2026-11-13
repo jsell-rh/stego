@@ -704,7 +704,9 @@ func TestCommand(t *testing.T) {
 		}
 		e.holdDelete(t, a, "rc29-oc05-t01-delete", order, hold)
 		got := e.holdTuples(a, hold)
-		want := []string{"touch creator@user:" + a.subject(), "touch owner@user:u1", "delete owner@user:u1"}
+		// The delete clears each relation that the schema declares on hold by a filtered delete; the reference
+		// relation order is left out of holdTuples.
+		want := []string{"touch creator@user:" + a.subject(), "touch owner@user:u1", "delete_relation creator@:", "delete_relation owner@:"}
 		if len(got) != len(want) {
 			t.Fatalf("the authz outbox holds %v for the Hold, want %v", got, want)
 		}

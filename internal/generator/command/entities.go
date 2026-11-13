@@ -5,6 +5,8 @@ import (
 	"go/token"
 	"strings"
 
+	authzschema "github.com/jsell-rh/stego/internal/declaration"
+	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/types"
 )
 
@@ -25,6 +27,9 @@ type entity struct {
 	// relationships are the declared relationships of the entity, which the generated Relationships list declares
 	// and the runtime writes (ST-DECL-UC06-R04, ST-SUP-Q118).
 	relationships []relationship
+	// schemaRelations are the relations that the schema declares on the entity's resource type, which the generated
+	// Relations list holds; a delete of a row clears each of them (ST-SUP-Q118).
+	schemaRelations []string
 }
 
 // relationship is one declared relationship: the relation, the subject type, the field that holds the subject or
@@ -61,15 +66,43 @@ var goTypes = map[types.FieldType]string{
 	types.FieldTypeBytes: "[]byte", types.FieldTypeJsonb: "[]byte",
 }
 
-// planEntity checks one entity that a command writes and builds its repository declaration.
-func planEntity(e types.Entity, byName map[string]types.Entity, tenantKey string) (*entity, error) {
+// SchemaRelations gives, for each resource type that the service's schema defines, the names of the relations that
+// the schema declares on it (ST-SUP-Q118): the runtime clears each of them on the resource of a deleted row. It reads
+// the schema that the authorization setting names among the generator's inputs, and gives none for a service with no
+// authorization.
+func SchemaRelations(ctx gen.Context) (map[string][]string, error) {
+	setting := ctx.Authorization
+	if setting == nil || setting.SchemaPath == "" {
+		return nil, nil
+	}
+	source, ok := ctx.Inputs[setting.SchemaPath]
+	if !ok {
+		return nil, fmt.Errorf("command: the schema %q that the authorization setting names is not among the inputs of the generator", setting.SchemaPath)
+	}
+	schema, err := authzschema.CompileAuthzSchema(setting.SchemaPath, source)
+	if err != nil {
+		return nil, fmt.Errorf("command: the schema %q does not compile: %w", setting.SchemaPath, err)
+	}
+	relations := map[string][]string{}
+	for _, e := range ctx.Entities {
+		if e.ResourceType != "" {
+			relations[e.ResourceType] = schema.Relations(e.ResourceType)
+		}
+	}
+	return relations, nil
+}
+
+// planEntity checks one entity that a command writes and builds its repository declaration; relations are the
+// schema relations of each resource type (SchemaRelations).
+func planEntity(e types.Entity, byName map[string]types.Entity, tenantKey string, relations map[string][]string) (*entity, error) {
 	if e.Tenant != "" && e.Tenant != "owned" {
 		return nil, fmt.Errorf("the entity is %s; a command writes only entities that a tenant owns", e.Tenant)
 	}
 	if e.Kind != "" && e.Kind != "data" {
 		return nil, fmt.Errorf("the entity is of kind %s; a command writes only data entities", e.Kind)
 	}
-	p := &entity{decl: e, goName: e.Name, table: tableName(e.Name), resourceType: e.ResourceType}
+	p := &entity{decl: e, goName: e.Name, table: tableName(e.Name), resourceType: e.ResourceType,
+		schemaRelations: relations[e.ResourceType]}
 	if !sqlName.MatchString(p.table) || !token.IsIdentifier(e.Name) || !token.IsExported(e.Name) {
 		return nil, fmt.Errorf("the entity name %s does not give a plain table name and an exported Go name", e.Name)
 	}
@@ -314,6 +347,13 @@ func renderEntity(w *writer, e *entity, tenantKey string) {
 			w.f("},\n")
 		}
 		w.f("\t},\n")
+	}
+	if len(e.schemaRelations) > 0 {
+		quoted := make([]string, len(e.schemaRelations))
+		for i, name := range e.schemaRelations {
+			quoted[i] = fmt.Sprintf("%q", name)
+		}
+		w.f("\tRelations: []string{%s},\n", strings.Join(quoted, ", "))
 	}
 	if len(e.relationships) > 0 {
 		w.f("\tRelationships: []command.Relationship[%s]{\n", e.goName)

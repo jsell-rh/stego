@@ -195,6 +195,10 @@ type EntitySpec[T any] struct {
 	// whose subject is set, an update that changes a field subject deletes the old tuple and touches the new one,
 	// and a delete deletes each field-sourced tuple. They need a resource type on the entity.
 	Relationships []Relationship[T]
+	// Relations are the relations that the schema declares on ResourceType, which the generator reads from the
+	// service's schema: a delete of a row clears each of them on the row's resource, whatever wrote the tuple
+	// (ST-SUP-Q118). The handle is bound with them, but a fill relates only its own relations.
+	Relations []string
 }
 
 // Relationship is one declared relationship of an entity: the relation of the entity's resource type, the subject
@@ -255,17 +259,15 @@ func (e *Entity[T]) references(value T) []reference {
 	return refs
 }
 
-// relations are the relations that the runtime writes for the references of the entity, which the authorization
-// handle of a command or a worker that writes it is bound with besides the fill's own.
+// relations are the relations that the runtime writes or clears for the rows of the entity (relationNames), which the
+// authorization handle of a command or a worker that writes it is bound with besides the fill's own.
 func (e *Entity[T]) relations() []authz.Relation {
-	var out []authz.Relation
-	for _, r := range e.spec.Parent {
-		if r.Relation != "" {
-			out = append(out, authz.Relation{ResourceType: e.spec.ResourceType, Name: r.Relation})
-		}
+	if e.spec.ResourceType == "" {
+		return nil
 	}
-	for _, r := range e.spec.Relationships {
-		out = append(out, authz.Relation{ResourceType: e.spec.ResourceType, Name: r.Relation})
+	var out []authz.Relation
+	for _, name := range e.relationNames() {
+		out = append(out, authz.Relation{ResourceType: e.spec.ResourceType, Name: name})
 	}
 	return out
 }
@@ -354,6 +356,58 @@ func (s *state) afterWrite(ctx context.Context, step string, err error) error {
 		return s.fail(ctx, step, err)
 	}
 	return s.breakWith(internalf("the %s of a tuple of the written row was not enqueued", step))
+}
+
+// unrelateAll enqueues, through the authorization handle in the transaction of the delete of the row id, after the
+// row statement, the filtered delete of every tuple of the row's resource in each relation of the entity's resource
+// type, whatever its subject (ST-SUP-Q118, delete path 1, and M3 of the security review of PR #272): each relation
+// that the schema declares on the type (EntitySpec.Relations), so also a tuple that a fill or an operator wrote, and
+// each relation of a declared relationship and of a reference. Each filter names exactly the row's resource type,
+// its tenant-qualified ID and the one relation, so the tuples of every other row stay. Each failure breaks the
+// handle.
+func (r *Repository[T]) unrelateAll(ctx context.Context, id string) error {
+	s, e := r.st, r.entity
+	if e.spec.ResourceType == "" {
+		return nil
+	}
+	relations := e.relationNames()
+	if len(relations) == 0 {
+		return nil
+	}
+	resource, err := authz.NewResource(s.tenant, e.spec.ResourceType, id)
+	if err != nil {
+		return s.breakWith(internalf("the row of %s has a key that is not a resource key", e.spec.Name))
+	}
+	for _, relation := range relations {
+		if err := s.setLockTimeout(ctx); err != nil {
+			return s.fail(ctx, "relate", err)
+		}
+		if _, err := s.az.UnrelateAll(ctx, resource, relation); err != nil {
+			return s.afterWrite(ctx, "relate", err)
+		}
+	}
+	return nil
+}
+
+// relationNames gives, once each and in a fixed order, the relations of the entity's resource type that a delete
+// of a row clears: the schema's, then those of the declared relationships and the references.
+func (e *Entity[T]) relationNames() []string {
+	var names []string
+	add := func(name string) {
+		if name != "" && !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	for _, name := range e.spec.Relations {
+		add(name)
+	}
+	for _, rel := range e.spec.Relationships {
+		add(rel.Relation)
+	}
+	for _, ref := range e.spec.Parent {
+		add(ref.Relation)
+	}
+	return names
 }
 
 // Entity is the repository declaration of one entity, which NewEntity checks once.
@@ -454,8 +508,17 @@ func NewEntity[T any](spec EntitySpec[T]) (*Entity[T], error) {
 			return nil, fmt.Errorf("command: the relationship %s of %s is given twice, also writes a reference's relation, or takes a caller as a resource", r.Relation, spec.Name)
 		}
 	}
+	for _, name := range spec.Relations {
+		if spec.ResourceType == "" {
+			return nil, fmt.Errorf("command: the schema relations of %s need a resource type on the entity", spec.Name)
+		}
+		if _, err := authz.ParseRelation(spec.ResourceType + "#" + name); err != nil {
+			return nil, fmt.Errorf("command: a schema relation of %s: %w", spec.Name, err)
+		}
+	}
 	spec.Parent = slices.Clone(spec.Parent)
 	spec.Relationships = slices.Clone(spec.Relationships)
+	spec.Relations = slices.Clone(spec.Relations)
 	return &Entity[T]{spec: spec}, nil
 }
 
@@ -1508,11 +1571,7 @@ func (r *Repository[T]) Delete(ctx context.Context, from Loaded[T], parent ...Re
 		s.conflict = &conflictError{text: "the version of a row of " + e.spec.Name + " moved"}
 		return s.conflict
 	}
-	gone, err := r.subjects(from2.value, false)
-	if err != nil {
-		return err
-	}
-	if err := r.relateDeclared(ctx, from2.meta.ID, gone, (*authz.Handle).Unrelate); err != nil {
+	if err := r.unrelateAll(ctx, from2.meta.ID); err != nil {
 		return err
 	}
 	if err := s.buffer(e.auditType(), e.spec.Fields, from2.meta.ID, e.spec.State(from2.value), nil); err != nil {

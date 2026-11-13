@@ -459,6 +459,9 @@ const (
 	OperationTouch Operation = "touch"
 	// OperationDelete removes a tuple.
 	OperationDelete Operation = "delete"
+	// OperationDeleteRelation removes every tuple of one relation of one resource, whatever its subject: the
+	// filtered delete of a deleted row (ST-SUP-Q118). Its payload tuple has no subject.
+	OperationDeleteRelation Operation = "delete_relation"
 )
 
 // payloadVersion is the version of the relay payload. Version 2 holds tenant-qualified resource IDs
@@ -575,6 +578,27 @@ func (h *Handle) revocation(ctx context.Context) (uuid.UUID, error) {
 	return id, nil
 }
 
+// UnrelateAll enqueues the delete of every tuple of the relation on resource, whatever its subject, for the relay in
+// the transaction's outbox, and returns the transaction's revocation (ST-SUP-Q118). The filter names exactly the one
+// resource type, the one resource ID, which must be of the handle's tenant, and the one relation; an empty one is
+// refused. It refuses a relation the handle was not bound with before it writes anything.
+func (h *Handle) UnrelateAll(ctx context.Context, resource Resource, relation string) (Revocation, error) {
+	allowed := Relation{ResourceType: resource.Type, Name: relation}
+	if !h.allowed[allowed] {
+		return Revocation{}, fmt.Errorf("authz: the handle may not write the relation %s", allowed)
+	}
+	filter, err := RelationFilter(resource, relation)
+	if err != nil {
+		return Revocation{}, err
+	}
+	key, err := keyIn(h.tenant, filter.ResourceID)
+	if err != nil {
+		return Revocation{}, err
+	}
+	tuple := Tuple{Resource: resource, Relation: relation}
+	return h.enqueue(ctx, OperationDeleteRelation, tuple, key)
+}
+
 func (h *Handle) write(ctx context.Context, operation Operation, tuple Tuple) (Revocation, error) {
 	relation := Relation{ResourceType: tuple.Resource.Type, Name: tuple.Relation}
 	if !h.allowed[relation] {
@@ -587,6 +611,12 @@ func (h *Handle) write(ctx context.Context, operation Operation, tuple Tuple) (R
 	if err != nil {
 		return Revocation{}, err
 	}
+	return h.enqueue(ctx, operation, tuple, key)
+}
+
+// enqueue records the tuple write in the transaction's revocation and enqueues it for the relay, under the outbox
+// resource key of the row of key.
+func (h *Handle) enqueue(ctx context.Context, operation Operation, tuple Tuple, key string) (Revocation, error) {
 	revocation, err := h.revocation(ctx)
 	if err != nil {
 		return Revocation{}, err
@@ -618,7 +648,7 @@ func (h *Handle) write(ctx context.Context, operation Operation, tuple Tuple) (R
 		MustLand:    true,
 		Idempotent:  true,
 	}); err != nil {
-		return Revocation{}, fmt.Errorf("authz: the tuple %s cannot be enqueued for the relay", tuple.Name())
+		return Revocation{}, fmt.Errorf("authz: the %s of %s cannot be enqueued for the relay", operation, tuple.Resource.Type+"#"+tuple.Relation)
 	}
 	return Revocation{id: revocation}, nil
 }

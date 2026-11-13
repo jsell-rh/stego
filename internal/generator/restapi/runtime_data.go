@@ -405,7 +405,11 @@ func generateRuntimeHandlers(ctx gen.Context, collections []*runtimeCollection, 
 			}
 		}
 	}
-	entityFile, err := command.EntityFile(dataFolder, names, ctx.Entities, ctx.Tenancy.Key)
+	relations, err := command.SchemaRelations(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("rest-api: %w", err)
+	}
+	entityFile, err := command.EntityFile(dataFolder, names, ctx.Entities, ctx.Tenancy.Key, relations)
 	if err != nil {
 		return nil, fmt.Errorf("rest-api: %w", err)
 	}

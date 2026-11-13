@@ -236,7 +236,9 @@ func (s *SpiceDB) Touch(ctx context.Context, tuples []Tuple, preconditions []Pre
 
 // Delete removes the relationships of the filters, which is idempotent on retry. Exact filters go in one
 // WriteRelationships request with OPERATION_DELETE; one filter that is not exact goes to DeleteRelationships, and
-// more than one is refused, because two calls would not be atomic.
+// more than one is refused, because two calls would not be atomic. A filter that is not exact must name exactly one
+// resource type, one resource ID and one relation, and no subject (Filter.OfRelation): one with an empty resource ID
+// or relation would delete the tuples of other resources, so it is refused (ST-SUP-Q118).
 func (s *SpiceDB) Delete(ctx context.Context, filters []Filter, preconditions []Precondition) (Token, error) {
 	if len(filters) == 0 {
 		return Token{}, errors.New("authz: Delete needs at least one filter")
@@ -265,6 +267,9 @@ func (s *SpiceDB) Delete(ctx context.Context, filters []Filter, preconditions []
 	}
 	if len(filters) > 1 {
 		return Token{}, Refused(errors.New("authz: Delete takes more than one filter only when each names one relationship"))
+	}
+	if !filters[0].OfRelation() {
+		return Token{}, Refused(errors.New("authz: a filter that does not name one relationship must name one resource type, one resource ID and one relation, and no subject"))
 	}
 	response, err := s.permissions.DeleteRelationships(ctx, &v1.DeleteRelationshipsRequest{
 		RelationshipFilter:    spiceFilter(filters[0]),

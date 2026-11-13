@@ -210,6 +210,22 @@ func (s *AuthzSchema) Defines(typeName string) bool {
 	return ok
 }
 
+// Relations gives the names of the relations that the schema declares on the type, in sorted order, and none for a
+// type that the schema does not define. The command generator gives them to the runtime, which clears each on the
+// resource of a deleted row (ST-SUP-Q118).
+func (s *AuthzSchema) Relations(typeName string) []string {
+	definition, ok := s.definitions[typeName]
+	if !ok {
+		return nil
+	}
+	names := make([]string, 0, len(definition.relations))
+	for name := range definition.relations {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // grants tells whether a relation of the schema admits the subject type.
 func (s *AuthzSchema) grants(subjectType string) bool {
 	for _, definition := range s.definitions {
