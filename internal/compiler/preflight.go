@@ -140,6 +140,8 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 			Conventions:     conventions,
 			Entities:        svcDecl.Entities,
 			Collections:     svcDecl.Collections,
+			SchemaChanges:   svcDecl.SchemaChanges,
+			SchemaHistory:   svcDecl.SchemaHistory,
 			SlotBindings:    svcDecl.Slots,
 			Observations:    svcDecl.Observations,
 			Emitters:        declaredEmitters(svcDecl),

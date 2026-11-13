@@ -83,6 +83,12 @@ type Context struct {
 	// Collections from the service declaration.
 	Collections []types.Collection
 
+	// SchemaChanges and SchemaHistory are the declaration's changes to the stored shape of its entities after the
+	// first release, and the ordered steps that move them (ST-DECL-EN21, ST-DECL-EN22). Entities is the shape after
+	// every step; the shape of the first release is Entities with every step undone.
+	SchemaChanges []types.SchemaChange
+	SchemaHistory []types.SchemaStep
+
 	// SlotBindings from the service declaration, in declaration order.
 	// The ordering is significant: generators and the assembler must iterate
 	// bindings in the same order to agree on constructor parameter positions.

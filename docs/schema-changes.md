@@ -42,6 +42,15 @@ local `main`, else `master`. When the check refuses the declaration, plan and
 apply write nothing. With no Git repository and no such branch there is no
 check, and plan and apply say so.
 
+## Restarts during a rolling deploy
+
+The expand step of a rename, a retype or a require adds a sync trigger. Until
+the schema check of a release accepts the sync trigger of a later step, a pod
+of the release before the expand step fails its schema check when it restarts
+after the expand migration. During the rolling deploy, do not restart the pods
+of the release before. To roll back to the release before, remove the sync
+trigger of the open change first.
+
 ## The check against the base
 
 `stego compat --base <ref>` checks the declaration against the declaration at
