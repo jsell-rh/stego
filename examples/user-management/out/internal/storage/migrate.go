@@ -7,9 +7,12 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"math/rand/v2"
 	"sort"
 	"strings"
+	"time"
 
 	stegotenancy "github.com/example/service/out/internal/tenancy"
 )
@@ -24,13 +27,36 @@ type MigrationFunc func(ctx context.Context, tx *sql.Tx) error
 // migrations that code must register to run on a schema that holds its row
 // (ST-SUP-RC01-OC27). Step tells that the set is recorded; a row with no set
 // is an exact match.
+//
+// A migration of a schema step runs under the lock timeout of the step, and
+// under its statement timeout: the short one of a step that takes a strong
+// lock, or the long one of a VALIDATE or an index build, which take only a
+// weak lock (ST-SUP-RC01-OC22). Index, for the build of one index of a step
+// on a table with rows, is the qualified name of the index: the migration
+// runs CREATE INDEX CONCURRENTLY outside a transaction (ST-SUP-RC01-OC38).
 type Migration struct {
-	Name           string
-	Digest         string
-	Func           MigrationFunc
-	Step           bool
-	CompatibleWith []string
+	Name             string
+	Digest           string
+	Func             MigrationFunc
+	Step             bool
+	CompatibleWith   []string
+	StatementTimeout string
+	Index            string
+	Body             string
 }
+
+// The limits of a migration of a schema step (ST-SUP-RC01-OC22): it waits at
+// most stepLockTimeout for a lock, so the statements that queue behind it wait
+// no longer, and it runs again after a pause when the wait ends with SQLSTATE
+// 55P03, at most stepAttempts times. A step that takes a strong lock runs for
+// at most stepStatementTimeout; a VALIDATE and an index build, which take a
+// lock that blocks no read and no write, for at most longStatementTimeout.
+const (
+	stepLockTimeout      = "1s"
+	stepStatementTimeout = "15s"
+	longStatementTimeout = "1h"
+	stepAttempts         = 10
+)
 
 var migrations []Migration
 
@@ -61,10 +87,35 @@ func RegisterSQL(name, body string) {
 
 // RegisterStep adds the SQL migration of a schema step with its compatible_with
 // set: none for a step at expand, and the migration of the expand step of its
-// change for a step at contract (ST-SUP-RC01-OC27).
+// change for a step at contract (ST-SUP-RC01-OC27). It runs under the short
+// statement timeout of a step that takes a strong lock.
 func RegisterStep(name, body string, compatibleWith ...string) {
-	migrations = append(migrations, Migration{Name: name, Digest: Digest(body), Step: true, CompatibleWith: append([]string{}, compatibleWith...), Func: func(ctx context.Context, tx *sql.Tx) error {
+	migrations = append(migrations, Migration{Name: name, Digest: Digest(body), Step: true, CompatibleWith: append([]string{}, compatibleWith...), StatementTimeout: stepStatementTimeout, Body: body, Func: func(ctx context.Context, tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, body)
+		return err
+	}})
+}
+
+// RegisterValidateStep adds the migration that validates the constraints that
+// the step before it added NOT VALID, in its own transaction, under the long
+// statement timeout: VALIDATE CONSTRAINT takes a lock that blocks no read and
+// no write (ST-SUP-RC01-OC22).
+func RegisterValidateStep(name, body string) {
+	migrations = append(migrations, Migration{Name: name, Digest: Digest(body), Step: true, CompatibleWith: []string{}, StatementTimeout: longStatementTimeout, Body: body, Func: func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, body)
+		return err
+	}})
+}
+
+// RegisterIndexStep adds the migration that builds the index index of a step on
+// a table with rows by its body, CREATE INDEX CONCURRENTLY, outside a
+// transaction (ST-SUP-RC01-OC38). A new database applies every migration in
+// one transaction on tables with no row, so there it builds the index by the
+// same statement without CONCURRENTLY.
+func RegisterIndexStep(name, index, body string) {
+	plain := strings.Replace(body, " CONCURRENTLY", "", 1)
+	migrations = append(migrations, Migration{Name: name, Digest: Digest(body), Step: true, CompatibleWith: []string{}, StatementTimeout: longStatementTimeout, Index: index, Body: body, Func: func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, plain)
 		return err
 	}})
 }
@@ -300,11 +351,17 @@ func checkLedger(applied, registered []Migration) error {
 // granted: it takes the ledger lock, reads the ledger again,
 // refuses a ledger that is not a prefix of the registered history, and
 // applies the next migration with its ledger row. A migration that another
-// job applied in the meantime is not applied again.
+// job applied in the meantime is not applied again. A migration of a schema
+// step runs under the limits of a step (stepTimeouts), and when it waits too
+// long for a lock it runs again after a pause, at most stepAttempts times
+// (ST-SUP-RC01-OC22). The build of an index of a step runs outside a
+// transaction (applyIndex).
 func applyPending(ctx context.Context, db Database, ordered []Migration) error {
+	tries := 0
 	for {
 		done := false
-		if err := inTransaction(ctx, db, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, func(tx *sql.Tx) error {
+		var index *Migration
+		err := inTransaction(ctx, db, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, func(tx *sql.Tx) error {
 			if err := lockLedger(ctx, tx); err != nil {
 				return err
 			}
@@ -323,17 +380,175 @@ func applyPending(ctx context.Context, db Database, ordered []Migration) error {
 				return nil
 			}
 			m := ordered[len(applied)]
+			if m.Index != "" {
+				index = &m
+				return nil
+			}
+			if m.Step {
+				if err := stepTimeouts(ctx, tx, m); err != nil {
+					return err
+				}
+			}
 			if err := m.Func(ctx, tx); err != nil {
 				return fmt.Errorf("migration %s: %w", m.Name, err)
 			}
 			return recordMigration(ctx, tx, m)
-		}); err != nil {
-			return err
+		})
+		if err == nil && index != nil {
+			err = applyIndex(ctx, db, ordered, *index)
 		}
+		if err != nil {
+			tries++
+			if !lockTimedOut(err) || tries >= stepAttempts {
+				return err
+			}
+			if err := pause(ctx, tries); err != nil {
+				return err
+			}
+			continue
+		}
+		tries = 0
 		if done {
 			return nil
 		}
 	}
+}
+
+// stepTimeouts sets, in the transaction of a migration of a schema step and
+// after the ledger lock, the lock timeout of a step and the statement timeout
+// of the migration (ST-SUP-RC01-OC22).
+func stepTimeouts(ctx context.Context, tx *sql.Tx, m Migration) error {
+	_, err := tx.ExecContext(ctx, "SELECT pg_catalog.set_config('lock_timeout', $1, true), pg_catalog.set_config('statement_timeout', $2, true)", stepLockTimeout, m.StatementTimeout)
+	return err
+}
+
+// lockTimedOut tells whether err ends a wait for a lock at the lock timeout:
+// SQLSTATE 55P03, lock_not_available.
+func lockTimedOut(err error) bool {
+	var state interface{ SQLState() string }
+	return errors.As(err, &state) && state.SQLState() == "55P03"
+}
+
+// pause waits before the next attempt of a migration that waited too long for
+// a lock: a time that doubles with each attempt from 100ms to at most 5s, of
+// which a random part, so that two jobs do not try again at once.
+func pause(ctx context.Context, attempt int) error {
+	wait := 100 * time.Millisecond << min(attempt-1, 6)
+	wait = min(wait, 5*time.Second)
+	wait = wait/2 + rand.N(wait/2+1)
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+// ledgerLockKey is the key of the ledger lock: lockLedger takes it for a
+// transaction, and applyIndex for its session.
+const ledgerLockKey = "1937007983,1935894637"
+
+// applyIndex builds the index of the migration m of a schema step on a table
+// with rows (ST-SUP-RC01-OC38). It holds the ledger lock for its session, on
+// one connection, and no transaction is open on it while the index builds, so
+// CREATE INDEX CONCURRENTLY waits for no transaction of its own job. It reads
+// the ledger again, and builds nothing when another job has applied m. It
+// first drops an invalid index of the same name, which a build that stopped
+// part way left, by DROP INDEX CONCURRENTLY, and when the build fails it drops
+// the invalid index that the build left at once, so that no half-built index
+// stays (decision on finding F9). It writes the ledger row only after the
+// build succeeds.
+func applyIndex(ctx context.Context, db Database, ordered []Migration, m Migration) error {
+	conn, release, err := sessionOf(ctx, db)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if _, err := conn.ExecContext(ctx, "SELECT pg_catalog.pg_advisory_lock("+ledgerLockKey+")"); err != nil {
+		return err
+	}
+	defer func() {
+		_, _ = conn.ExecContext(context.WithoutCancel(ctx), "SELECT pg_catalog.pg_advisory_unlock("+ledgerLockKey+")")
+	}()
+	position := -1
+	for i := range ordered {
+		if ordered[i].Name == m.Name {
+			position = i
+		}
+	}
+	pending := func(tx *sql.Tx) (bool, error) {
+		applied, err := appliedMigrations(ctx, tx)
+		if err != nil {
+			return false, err
+		}
+		if err := checkLedger(applied, ordered); err != nil {
+			return false, err
+		}
+		return len(applied) == position, nil
+	}
+	next := false
+	if err := inTransaction(ctx, conn, &sql.TxOptions{Isolation: sql.LevelReadCommitted, ReadOnly: true}, func(tx *sql.Tx) error {
+		var err error
+		next, err = pending(tx)
+		return err
+	}); err != nil || !next {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, "SELECT pg_catalog.set_config('lock_timeout', $1, false), pg_catalog.set_config('statement_timeout', $2, false)", stepLockTimeout, m.StatementTimeout); err != nil {
+		return err
+	}
+	defer func() {
+		_, _ = conn.ExecContext(context.WithoutCancel(ctx), "RESET lock_timeout; RESET statement_timeout")
+	}()
+	if err := dropInvalid(ctx, conn, m.Index); err != nil {
+		return fmt.Errorf("migration %s: %w", m.Name, err)
+	}
+	if _, err := conn.ExecContext(ctx, m.Body); err != nil {
+		_ = dropInvalid(context.WithoutCancel(ctx), conn, m.Index)
+		return fmt.Errorf("migration %s: %w", m.Name, err)
+	}
+	return inTransaction(ctx, conn, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, func(tx *sql.Tx) error {
+		next, err := pending(tx)
+		if err != nil || !next {
+			return err
+		}
+		return recordMigration(ctx, tx, m)
+	})
+}
+
+// sessionOf gives one connection of db for a session setting, and the function
+// that gives it back: db itself when it is one connection, else a connection of
+// its pool.
+func sessionOf(ctx context.Context, db Database) (*sql.Conn, func(), error) {
+	switch d := db.(type) {
+	case *sql.Conn:
+		return d, func() {}, nil
+	case interface {
+		Conn(context.Context) (*sql.Conn, error)
+	}:
+		conn, err := d.Conn(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		return conn, func() { _ = conn.Close() }, nil
+	}
+	return nil, nil, ErrMigrationLedger
+}
+
+// dropInvalid drops the index index, outside a transaction, when it is there
+// and not valid.
+func dropInvalid(ctx context.Context, conn *sql.Conn, index string) error {
+	var invalid bool
+	if err := conn.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_index WHERE indexrelid = pg_catalog.to_regclass($1) AND NOT indisvalid)", index).Scan(&invalid); err != nil {
+		return err
+	}
+	if !invalid {
+		return nil
+	}
+	_, err := conn.ExecContext(ctx, "DROP INDEX CONCURRENTLY IF EXISTS "+index)
+	return err
 }
 
 func init() {
