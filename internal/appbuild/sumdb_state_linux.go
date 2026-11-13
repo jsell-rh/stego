@@ -91,8 +91,28 @@ func walkKeptFolder(folder string) (*os.File, error) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, err
 	}
-	fd, err := syscall.Open(root, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_CLOEXEC, 0)
+	// A cache root that is a link must be the user's own link (#259): on a system with fs.protected_symlinks=0, the
+	// kernel follows a link that another user put in a shared folder such as /tmp, and that link could send the kept
+	// tree to a folder of that user.
+	info, err := lstatRoot(root)
+	if err == nil {
+		err = rootLinkSafe(info)
+	}
 	if err != nil {
+		return nil, fmt.Errorf("the cache root %s: %w", root, err)
+	}
+	// A cache root that is no link is opened with O_NOFOLLOW, so a link that another user puts in its place after
+	// the Lstat gives ELOOP (or ENOTDIR, which Linux gives first for O_DIRECTORY) and is not followed. The user's own link is followed; the folder that it names is
+	// checked when it is open.
+	flags := syscall.O_RDONLY | syscall.O_DIRECTORY | syscall.O_CLOEXEC
+	if info.Mode()&os.ModeSymlink == 0 {
+		flags |= syscall.O_NOFOLLOW
+	}
+	fd, err := syscall.Open(root, flags, 0)
+	if err != nil {
+		if flags&syscall.O_NOFOLLOW != 0 && (errors.Is(err, syscall.ELOOP) || errors.Is(err, syscall.ENOTDIR)) {
+			return nil, fmt.Errorf("the cache root %s: it became a link or no folder after it was read", root)
+		}
 		return nil, &os.PathError{Op: "open", Path: root, Err: err}
 	}
 	current := os.NewFile(uintptr(fd), root)
@@ -155,6 +175,26 @@ func cacheRootSafe(info os.FileInfo) error {
 		return nil
 	}
 	return ownedAlone(info)
+}
+
+// lstatRoot reads the cache root without following a link. A test replaces it to give an owner that it cannot set
+// up, or an entry that changes after it is read.
+var lstatRoot = os.Lstat
+
+// rootLinkSafe refuses a cache root that is a link of another user. A cache root that is no link, or the user's
+// own link, passes; the folder that it names is checked when it is open.
+func rootLinkSafe(info os.FileInfo) error {
+	if info.Mode()&os.ModeSymlink == 0 {
+		return nil
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return errors.New("the owner of the link cannot be read")
+	}
+	if int(stat.Uid) != os.Getuid() {
+		return errors.New("it is a link of another user")
+	}
+	return nil
 }
 
 // ownedAlone refuses a file of another user, or one that its group or
