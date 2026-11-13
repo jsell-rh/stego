@@ -36,6 +36,11 @@ var currencyCodes = map[string]bool{
 	"XOF": true, "XPF": true, "YER": true, "ZAR": true, "ZMW": true, "ZWG": true,
 }
 
+// maxMinorUnits is the largest size of an amount that a declaration may state, 2^53 minor units. A ledger adds and
+// compares the stated amounts with posted ones, so an amount near the limits of an int64 could overflow there; and
+// 2^53 is the largest whole number that a JSON reader of a float keeps exactly.
+const maxMinorUnits = 1 << 53
+
 // ledgerNameForm is the form of a transfer code, an account code and an account owner. The generated service writes
 // the transfer codes into a check constraint and the account codes into its DDL, so the declaration holds them to a
 // form that SQL cannot read as code (ST-DECL-INV86).
@@ -118,7 +123,8 @@ func LedgerCollectionMutates(service *types.ServiceDeclaration) bool {
 
 // validateMoney holds the declaration to ST-DECL-INV26: a money field is integer minor units with an ISO 4217
 // currency, a ledger holds one ISO 4217 currency, its transfer codes and its two-phase rule, and each account
-// states a normal balance of debit or credit, with a minimum balance as Money in the currency of the ledger. Each
+// states a normal balance of debit or credit, with a minimum balance as Money in the currency of the ledger, and a
+// hot account states no minimum balance. Each
 // fault names the entity, and the field or the account, so that the author knows what to change.
 func validateMoney(service *types.ServiceDeclaration) []ValidationError {
 	var faults []ValidationError
@@ -133,6 +139,8 @@ func validateMoney(service *types.ServiceDeclaration) []ValidationError {
 				fault("money", path+".currency", "", nil, "entity %q field %q is money with no currency; a money field is integer minor units with an ISO 4217 currency, such as currency: EUR", e.Name, f.Name)
 			case f.Type == types.FieldTypeMoney && !currencyCodes[f.Currency]:
 				fault("currency", path+".currency", f.Currency, nil, "entity %q field %q has the currency %q, which is not an ISO 4217 code, such as EUR", e.Name, f.Name, f.Currency)
+			case f.Type == types.FieldTypeMoney && !moneyDefaultInBound(f.Default):
+				fault("money", path+".default", fmt.Sprint(f.Default), nil, "entity %q field %q has the default %v, which is beyond the bound of %d minor units either side of zero", e.Name, f.Name, f.Default, int64(maxMinorUnits))
 			case f.Currency != "" && slices.Contains(floatTypes, f.Type):
 				fault("money", path+".type", string(f.Type), []string{string(types.FieldTypeMoney)}, "entity %q field %q holds money as %s, which loses minor units; a money field is integer minor units: type money with its currency", e.Name, f.Name, f.Type)
 			case f.Currency != "" && f.Type != types.FieldTypeMoney:
@@ -206,10 +214,17 @@ func validateMoney(service *types.ServiceDeclaration) []ValidationError {
 			if account.Owner != "" && !ledgerNameForm.MatchString(account.Owner) {
 				fault("name-form", at+".owner", account.Owner, []string{ledgerNameForm.String()}, "account %q of ledger %q has the owner %q, which does not match %s", account.Name, e.Name, account.Owner, ledgerNameForm)
 			}
+			if account.Hot && account.MinBalance != nil {
+				// A post locks the row of an account with a limit, and a hot account is never locked (decision on
+				// ST-DECL-Q14).
+				fault("hot-minimum-balance", at+".min_balance", "", nil, "account %q of ledger %q is hot and states a minimum balance; a hot account is never row-locked, so it states no minimum balance: remove the minimum balance or hot", account.Name, e.Name)
+			}
 			if minimum := account.MinBalance; minimum != nil {
 				switch {
 				case !minimum.Amount.Whole:
 					fault("money", at+".min_balance.amount", minimum.Amount.Text, nil, "account %q of ledger %q has the minimum balance %q, which is not Money: an amount is a whole number of minor units", account.Name, e.Name, minimum.Amount.Text)
+				case minimum.Amount.Value > maxMinorUnits || minimum.Amount.Value < -maxMinorUnits:
+					fault("money", at+".min_balance.amount", minimum.Amount.Text, nil, "account %q of ledger %q has the minimum balance %s, which is beyond the bound of %d minor units either side of zero", account.Name, e.Name, minimum.Amount.Text, int64(maxMinorUnits))
 				case minimum.Currency == "":
 					fault("money", at+".min_balance.currency", "", nil, "account %q of ledger %q has a minimum balance with no currency, which is not Money; give the currency of the ledger", account.Name, e.Name)
 				case len(ledger.Currency) == 1 && minimum.Currency != ledger.Currency[0]:
@@ -278,4 +293,18 @@ func nameLedgerAccounts(service *types.ServiceDeclaration, faults []ValidationEr
 		}
 		faults[i].Message = message
 	}
+}
+
+// moneyDefaultInBound tells whether the default of a money field, when it is a whole number, is within maxMinorUnits
+// of zero. A default that is not a whole number is refused by ST-DECL-INV13.
+func moneyDefaultInBound(value any) bool {
+	switch number := value.(type) {
+	case int:
+		return number <= maxMinorUnits && number >= -maxMinorUnits
+	case int64:
+		return number <= maxMinorUnits && number >= -maxMinorUnits
+	case uint64:
+		return number <= maxMinorUnits
+	}
+	return true
 }

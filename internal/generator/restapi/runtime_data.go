@@ -197,6 +197,9 @@ func validateRuntimeData(ctx gen.Context, entities map[string]types.Entity) erro
 			}
 		}
 		for _, f := range e.Fields {
+			if f.Type == types.FieldTypeMoney {
+				return fmt.Errorf("rest-api: entity %s has the field %s of type money, which the runtime data path does not serve yet: the storage form (a bigint of minor units and a char(3) currency) and the API form {amount, currency} of a money field of a data entity are decided (ST-DECL-Q13) but not built", e.Name, f.Name)
+			}
 			if !runtimeFieldTypes[f.Type] {
 				return fmt.Errorf("rest-api: entity %s has the field %s of type %s, which the runtime data path does not serve yet", e.Name, f.Name, f.Type)
 			}
