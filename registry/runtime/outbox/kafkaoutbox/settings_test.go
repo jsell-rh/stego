@@ -1,6 +1,8 @@
 package kafkaoutbox
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -113,6 +115,76 @@ func TestSettings(t *testing.T) {
 			if strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), dir) {
 				t.Errorf("%s: %q holds a value", c.name, err)
 			}
+		}
+	})
+	t.Run("ST-SUP-RP01-LC32-T10 A broker host is compared in ASCII only, and a host that is not ASCII is refused", func(t *testing.T) {
+		const kelvin = "\u212aafka.example" // K is the Kelvin sign, which a Unicode case fold makes k
+		credential := Settings{ClientCertFile: "/c", ClientKeyFile: "/k"}
+		for _, c := range []struct {
+			name, refused string
+			s             Settings
+		}{
+			{name: "a host list with the Kelvin sign", refused: BrokerHostsSetting, s: Settings{Brokers: []string{"kafka.example:9093"}, BrokerHosts: []string{kelvin}}},
+			{name: "a seed with the Kelvin sign", refused: BrokersSetting, s: Settings{Brokers: []string{kelvin + ":9093"}}},
+			{name: "a seed with the Kelvin sign and a list of its ASCII form", refused: BrokersSetting, s: Settings{Brokers: []string{kelvin + ":9093"}, BrokerHosts: []string{"kafka.example"}}},
+			{name: "an ASCII host in another case", s: Settings{Brokers: []string{"KAFKA.example:9093"}, BrokerHosts: []string{"kafka.EXAMPLE"}}},
+		} {
+			c.s.ClientCertFile, c.s.ClientKeyFile = credential.ClientCertFile, credential.ClientKeyFile
+			err := c.s.Check()
+			switch {
+			case c.refused == "" && err != nil:
+				t.Errorf("%s: refused: %v", c.name, err)
+			case c.refused != "" && (err == nil || !strings.Contains(err.Error(), "the setting "+c.refused+" ")):
+				t.Errorf("%s: %v, want a refusal that names %s", c.name, err, c.refused)
+			}
+		}
+		// A broker that names a host in its metadata gets no connection when the host is not ASCII, also when its fold
+		// is in the list; an ASCII host of the list in another case is dialed.
+		dialer := &brokerDialer{loopbackOnly: true, hosts: map[string]bool{"kafka.example": true, "localhost": true}}
+		for _, host := range []string{kelvin, "kafk\u0430.example"} {
+			if _, err := dialer.dial(context.Background(), "tcp", host+":9092"); !errors.Is(err, errBrokerRefused) {
+				t.Errorf("the broker host %q gave %v, want %v", host, err, errBrokerRefused)
+			}
+		}
+		if _, err := dialer.dial(context.Background(), "tcp", "LOCALHOST:1"); errors.Is(err, errBrokerRefused) {
+			t.Errorf("the ASCII host LOCALHOST of the list in another case was refused: %v", err)
+		}
+	})
+	t.Run("ST-SUP-RP01-LC32-T11 A secret file with an execute bit, that its group may write or that others may use is refused by its name", func(t *testing.T) {
+		dir := t.TempDir()
+		const secret = "s3cret-mode-9a2e"
+		for _, c := range []struct {
+			mode os.FileMode
+			ok   bool
+		}{{0o400, true}, {0o600, true}, {0o640, true}, {0o440, true}, {0o644, false}, {0o604, false}, {0o700, false}, {0o620, false}, {0o602, false}, {0o610, false}, {0o666, false}} {
+			path := filepath.Join(dir, "password-"+c.mode.String())
+			if err := os.WriteFile(path, []byte(secret+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(path, c.mode); err != nil {
+				t.Fatal(err)
+			}
+			got, err := readSecret(PasswordFileSetting, path)
+			switch {
+			case c.ok && (err != nil || got != secret):
+				t.Errorf("a password file of mode %v gave %q and %v, want the password", c.mode, got, err)
+			case !c.ok && (err == nil || !strings.Contains(err.Error(), "the setting "+PasswordFileSetting+" ") || strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), dir)):
+				t.Errorf("a password file of mode %v gave %v, want a refusal that names %s and holds neither the password nor the path", c.mode, err, PasswordFileSetting)
+			}
+		}
+		// The client key of mutual TLS is a secret file too: New refuses a key that its group or others may write.
+		cert, key := filepath.Join(dir, "client.pem"), filepath.Join(dir, "client-key.pem")
+		for _, f := range []string{cert, key} {
+			if err := os.WriteFile(f, []byte("not read"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.Chmod(key, 0o622); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := New(Settings{Brokers: []string{"k:9093"}, ClientCertFile: cert, ClientKeyFile: key}, nil); err == nil ||
+			!strings.Contains(err.Error(), "the setting "+ClientKeyFileSetting+" ") {
+			t.Errorf("a client key that others may write gave %v, want a refusal that names %s", err, ClientKeyFileSetting)
 		}
 	})
 }

@@ -17,9 +17,9 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/twmb/franz-go/pkg/kgo"
 
-	"github.com/jsell-rh/stego/registry/runtime/internal/kafkatest"
 	"github.com/jsell-rh/stego/registry/runtime/internal/pgtest"
 	"github.com/jsell-rh/stego/registry/runtime/internal/seal"
+	"github.com/jsell-rh/stego/registry/runtime/kafkatest"
 	"github.com/jsell-rh/stego/registry/runtime/outbox"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
 )

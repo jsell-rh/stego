@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kfake"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kmsg"
@@ -292,6 +293,48 @@ func TestBrokerSafety(t *testing.T) {
 			if got := logs.got(); len(got) == 0 || got[0] != FailureSCRAMBounds {
 				t.Errorf("%s: logged %v, want %s", c.name, got, FailureSCRAMBounds)
 			}
+		}
+	})
+
+	t.Run("ST-SUP-RP01-LC32-T09 A SASL refusal on the connection of the produce is classified, not only on the ping", func(t *testing.T) {
+		server, ca := certificates(t, "", net.ParseIP("127.0.0.1"))
+		cluster := fake(t, on("127.0.0.1"), kfake.TLS(server), kfake.EnableSASL(), kfake.Superuser(MechanismSCRAMSHA512, "svc", "secret-pass"))
+		// The broker takes the first authentication, the connection of the metadata ping, and refuses each later one,
+		// so the produce opens its own connection and the broker refuses it.
+		var mu sync.Mutex
+		authentications := 0
+		cluster.ControlKey(int16(kmsg.SASLAuthenticate), func(req kmsg.Request) (kmsg.Response, error, bool) {
+			cluster.KeepControl()
+			mu.Lock()
+			defer mu.Unlock()
+			if request := req.(*kmsg.SASLAuthenticateRequest); strings.Contains(string(request.SASLAuthBytes), "n,,") {
+				authentications++
+			}
+			if authentications <= 1 {
+				return nil, nil, false
+			}
+			response := req.ResponseKind().(*kmsg.SASLAuthenticateResponse)
+			response.ErrorCode = kerr.SaslAuthenticationFailed.Code
+			return response, nil, true
+		})
+		logs := &recorder{}
+		d, err := New(Settings{Brokers: cluster.ListenAddrs(), Topic: fakeTopic, CAFile: ca, Mechanism: MechanismSCRAMSHA512,
+			Username: "svc", PasswordFile: writeFile(t, "password", "secret-pass")}, logs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer d.Close()
+		err, _ = deliver(t, d, 5*time.Second)
+		if err == nil || outbox.IsPermanent(err) || strings.Contains(err.Error(), "secret-pass") {
+			t.Fatalf("a refused authentication of the produce gave %v, want an error that is not permanent and holds no password", err)
+		}
+		if got := logs.got(); len(got) == 0 || got[0] != FailureSASL {
+			t.Fatalf("logged %v, want one event of the class %s", got, FailureSASL)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if authentications < 2 {
+			t.Fatalf("the broker saw %d authentications, want the ping's and the produce's", authentications)
 		}
 	})
 

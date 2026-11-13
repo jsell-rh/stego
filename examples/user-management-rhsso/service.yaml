@@ -79,12 +79,24 @@ slots:
       - rbac-policy
       - admin-creation-policy
 
+  # The change of each user runs these fills as an after slot through the outbox, after its command committed
+  # (ST-SUP-RC20-OC34); the change event goes to Kafka through the outbox too (ST-SUP-RC20-OC40).
+  - collection: org-users
+    slot: on_entity_changed
+    fan-out:
+      - user-change-notifier
+      - audit-logger
+
   - collection: organizations
     slot: before_create
     chain:
       - org-name-validator
       - org-provisioner
     short_circuit: true
+
+# The change events of the collections go to Kafka through the outbox (ST-SUP-Q103 (a)).
+mixins:
+  - event-publisher
 
 overrides:
   auth-provider: rh-sso-auth

@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/jsell-rh/stego/registry/runtime/idempotency"
-	"github.com/jsell-rh/stego/registry/runtime/internal/kafkatest"
+	"github.com/jsell-rh/stego/registry/runtime/kafkatest"
 	"github.com/jsell-rh/stego/registry/runtime/outbox"
 	"github.com/jsell-rh/stego/registry/runtime/outbox/kafkaoutbox"
 )

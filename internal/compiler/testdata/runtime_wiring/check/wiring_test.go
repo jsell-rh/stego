@@ -1,7 +1,8 @@
 // Package check runs the generated service of the runtime wiring test as an operator runs it: the migration job and
 // then the service binary, built from the generated main.go, against a local PostgreSQL server
 // (STEGO_TEST_POSTGRES_DSN) with verified TLS and a local SpiceDB container (STEGO_TEST_SPICEDB), and sends it one
-// collection call, one command and one query over HTTP.
+// collection call, one command and one query over HTTP. The service has the event-publisher mixin: its worker sends
+// the change events of the collections to a local Kafka broker of kafkatest (ST-SUP-RC20-OC40, ST-SUP-RC18-OC31).
 package check
 
 import (
@@ -32,12 +33,15 @@ import (
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/twmb/franz-go/pkg/kgo"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/jsell-rh/stego/registry/runtime/authn"
 	"github.com/jsell-rh/stego/registry/runtime/authn/authntest"
 	"github.com/jsell-rh/stego/registry/runtime/authz"
+	"github.com/jsell-rh/stego/registry/runtime/kafkatest"
+	"github.com/jsell-rh/stego/registry/runtime/outbox/kafkaoutbox"
 	"github.com/jsell-rh/stego/registry/runtime/tenant"
 
 	"example.com/shop/out/internal/stegoruntime"
@@ -50,6 +54,13 @@ const (
 	audience = "wiring-shop"
 	password = "wiring-check"
 )
+
+// changeTopic is the declared topic of the change events of the service, so the events of one entity go to one
+// partition of one topic in their order.
+const changeTopic = "wiring-shop.changes"
+
+// TestMain removes the Kafka container of kafkatest when the tests end.
+func TestMain(m *testing.M) { os.Exit(kafkatest.Wrap(m.Run)) }
 
 // migratorRole is the login of the migration job: the owner role, as the outbox migration of the runtime library
 // needs (ST-SUP-RP01-LC19), and never the runtime role.
@@ -67,9 +78,10 @@ type service struct {
 	base   string
 	log    *bytes.Buffer
 
-	weakMigration, weakStart, foreignMigration, legacyMigration, secondMigration, nextRelease runResult
-	foreignDB, legacyDB                                                                       *sql.DB
-	schemaBeforeNext                                                                          string
+	weakMigration, weakStart, foreignMigration, legacyMigration, secondMigration, nextRelease, noKafka runResult
+	broker                                                                                             *kafkatest.Broker
+	foreignDB, legacyDB                                                                                *sql.DB
+	schemaBeforeNext                                                                                   string
 }
 
 // runResult is the outcome of one run of the binary.
@@ -295,8 +307,12 @@ func start(t *testing.T) *service {
 	cursorFile := writeFile(t, "cursor.key", cursor)
 	port := freePort(t)
 	s.base = "http://127.0.0.1:" + port
+	s.broker = kafkatest.Start(t)
+	s.broker.CreateTopic(t, changeTopic, 3)
+	kafka := []string{kafkaoutbox.BrokersSetting + "=" + s.broker.Plain.Addr(), kafkaoutbox.InsecureLoopbackSetting + "=1",
+		kafkaoutbox.TopicSetting + "=" + changeTopic}
 	serviceEnv := func(mode string) []string {
-		return append(append([]string{}, spice...),
+		return append(append(append([]string{}, spice...), kafka...),
 			"PORT="+port, "DATABASE_URL="+withTLS(u, stegoruntime.RuntimeRole, mode, ca), "STEGO_AUTHN_KEYS_FILE="+keys,
 			"STEGO_WORKER_DATABASE_URL="+withTLS(u, stegoruntime.WorkerRole, mode, ca),
 			"STEGO_RELAY_DATABASE_URL="+withTLS(u, stegoruntime.RelayRole, mode, ca),
@@ -304,6 +320,14 @@ func start(t *testing.T) *service {
 	}
 	// A service with TLS that does not verify the server does not start.
 	s.weakStart = run(binary, serviceEnv("disable"))
+	// The worker mode of a service with no Kafka setting does not start: it names the setting (ST-SUP-RC18-OC31).
+	var unset []string
+	for _, v := range serviceEnv("verify-full") {
+		if !strings.HasPrefix(v, "STEGO_KAFKA_") {
+			unset = append(unset, v)
+		}
+	}
+	s.noKafka = run(binary, append(unset, kafkaoutbox.BrokersSetting+"=", kafkaoutbox.TopicSetting+"=", kafkaoutbox.InsecureLoopbackSetting+"="), "--mode=worker")
 
 	process := exec.Command(binary)
 	process.Env = append(append(os.Environ(), serviceEnv("verify-full")...), noTestMode)
@@ -677,4 +701,147 @@ func TestWiring(t *testing.T) {
 			t.Errorf("the query of a caller who may not view the order answered %d %s, want 404", got.status, got.body)
 		}
 	})
+
+	t.Run("ST-SUP-RC18-OC31-T02 The generated worker sends to Kafka with the settings of the process, and does not start without them", func(t *testing.T) {
+		s.t = t
+		// The run with no Kafka setting has the environment of the service of the check, which runs, without the
+		// STEGO_KAFKA_ settings alone: its worker fails to start, and the failure record names the stage and the task,
+		// with no error text (ST-SUP-RP14-LC05).
+		if s.noKafka.err == nil || !strings.Contains(s.noKafka.output, `"stage":"service.run"`) || !strings.Contains(s.noKafka.output, `"stego-runtime[0]"`) {
+			t.Fatalf("the worker mode with no Kafka setting gave %v, want a failed start of the runtime task:\n%s", s.noKafka.err, s.noKafka.output)
+		}
+		// The service of the check runs with the settings: its worker registered the destination kafka, and the
+		// change event of the first create is done.
+		if order == "" {
+			t.Fatal("no order: the collection check did not pass")
+		}
+		s.eventDone(t, order, "wiring-shop.order.created")
+	})
+
+	t.Run("ST-SUP-RC20-OC40-T02 A change event of a generated write arrives once with its key and headers, waits out a broker outage in the outbox, and keeps the order of its entity", func(t *testing.T) {
+		s.t = t
+		created := s.send(&owner, http.MethodPost, "/orders", "k-"+uuid.NewString(), `{"sku":"k1","qty":1}`)
+		if created.status != http.StatusCreated {
+			t.Fatalf("the create answered %d %s, want 201", created.status, created.body)
+		}
+		id := created.member(t, "id")
+		s.own(owner, id)
+		s.canEdit(t, owner, id)
+		first := s.eventDone(t, id, "wiring-shop.order.created")
+		records := s.records(t, id, 1)
+		if len(records) != 1 {
+			t.Fatalf("the topic holds %d records of the order, want the one event", len(records))
+		}
+		r := records[0]
+		if want := kafkaoutbox.Key(owner.tenant.ID(), first.resourceKey); string(r.Key) != want {
+			t.Errorf("the record key is %q, want %q: the tenant, the separator and the resource key of the message", r.Key, want)
+		}
+		var payload map[string]string
+		if err := json.Unmarshal(r.Value, &payload); err != nil || payload["entity"] != "Order" || payload["action"] != "created" || payload["id"] != id || len(payload) != 3 {
+			t.Errorf("the record value is %s (%v), want the entity Order, the action created and the ID %s only", r.Value, err, id)
+		}
+		for name, value := range map[string]string{kafkaoutbox.HeaderEventID: first.id, kafkaoutbox.HeaderEventType: "wiring-shop.order.created",
+			kafkaoutbox.HeaderIdempotencyKey: first.outgoing, kafkaoutbox.HeaderTenant: owner.tenant.ID(), kafkaoutbox.HeaderContentType: "application/json"} {
+			if got, once := kafkatest.Header(r, name); !once || got != value {
+				t.Errorf("the header %s is %q (once: %v), want %q", name, got, once, value)
+			}
+		}
+
+		// The broker is down: the patch commits, and its event stays in the outbox with no record.
+		s.broker.Plain.Down()
+		patched := s.send(&owner, http.MethodPatch, "/orders/"+id, "k-"+uuid.NewString(), `{"qty":5}`)
+		if patched.status != http.StatusOK {
+			s.broker.Plain.Up()
+			t.Fatalf("the patch during the outage answered %d %s, want 200", patched.status, patched.body)
+		}
+		deleted := s.send(&owner, http.MethodDelete, "/orders/"+id, "", "")
+		if deleted.status != http.StatusNoContent {
+			s.broker.Plain.Up()
+			t.Fatalf("the delete during the outage answered %d %s, want 204", deleted.status, deleted.body)
+		}
+		s.eventually(t, "the event of the patch is tried during the outage", func() bool {
+			return count(t, s.admin, `SELECT count(*) FROM stego_outbox.messages WHERE destination = 'kafka' AND kind = 'wiring-shop.order.updated'
+ AND resource_key = $1 AND state <> 'done' AND attempts > 0`, first.resourceKey) == 1
+		})
+		pending := count(t, s.admin, `SELECT count(*) FROM stego_outbox.messages WHERE destination = 'kafka' AND resource_key = $1 AND state <> 'done'`, first.resourceKey)
+		s.broker.Plain.Up()
+		if pending != 2 {
+			t.Errorf("%d events of the order wait in the outbox during the outage, want the patch and the delete", pending)
+		}
+		s.eventDone(t, id, "wiring-shop.order.updated")
+		s.eventDone(t, id, "wiring-shop.order.deleted")
+
+		// Each event arrives once, all on one partition, in the order of the writes.
+		records = s.records(t, id, 3)
+		var actions []string
+		for _, r := range records {
+			var payload map[string]string
+			must(t, json.Unmarshal(r.Value, &payload))
+			actions = append(actions, payload["action"])
+			if r.Partition != records[0].Partition {
+				t.Errorf("the events of one order are on the partitions %d and %d", records[0].Partition, r.Partition)
+			}
+		}
+		if got := strings.Join(actions, ","); got != "created,updated,deleted" {
+			t.Errorf("the events of the order arrived as %s, want created,updated,deleted, each once", got)
+		}
+	})
+}
+
+// canEdit waits until SpiceDB answers, at its quantized revision, that the caller may edit the order id, as the
+// service asks it on a patch or a delete.
+func (s *service) canEdit(t *testing.T, c caller, id string) {
+	t.Helper()
+	resourceID, err := authz.ResourceID(c.tenant, id)
+	must(t, err)
+	s.eventually(t, "SpiceDB answers that the owner may edit the order", func() bool {
+		answer, err := v1.NewPermissionsServiceClient(s.spice).CheckPermission(s.ctx, &v1.CheckPermissionRequest{
+			Consistency: &v1.Consistency{Requirement: &v1.Consistency_MinimizeLatency{MinimizeLatency: true}},
+			Resource:    &v1.ObjectReference{ObjectType: "order", ObjectId: resourceID}, Permission: "edit",
+			Subject: &v1.SubjectReference{Object: &v1.ObjectReference{ObjectType: "user", ObjectId: c.subject}}})
+		return err == nil && answer.GetPermissionship() == v1.CheckPermissionResponse_PERMISSIONSHIP_HAS_PERMISSION
+	})
+}
+
+// message is one outbox message of the destination kafka.
+type message struct{ id, resourceKey, outgoing string }
+
+// eventually waits at most 60 s for ok.
+func (s *service) eventually(t *testing.T, what string, ok func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(60 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+		if ok() {
+			return
+		}
+	}
+	t.Fatalf("after 60 s: %s\n%s", what, s.log)
+}
+
+// eventDone waits until the one change event of the kind for the order id is done, and gives its message.
+func (s *service) eventDone(t *testing.T, id, kind string) message {
+	t.Helper()
+	s.eventually(t, "the event "+kind+" of the order "+id+" is done", func() bool {
+		return count(t, s.admin, `SELECT count(*) FROM stego_outbox.messages WHERE destination = 'kafka' AND kind = $1
+ AND resource_key LIKE '%:' || $2 AND state = 'done'`, kind, id) == 1
+	})
+	var m message
+	must(t, s.admin.QueryRow(`SELECT id::text, resource_key, outgoing_key FROM stego_outbox.messages WHERE destination = 'kafka'
+ AND kind = $1 AND resource_key LIKE '%:' || $2`, kind, id).Scan(&m.id, &m.resourceKey, &m.outgoing))
+	return m
+}
+
+// records reads the records of the change topic whose payload names the order id: at least least of them, and then
+// what more arrives in the next three seconds.
+func (s *service) records(t *testing.T, id string, least int) []*kgo.Record {
+	t.Helper()
+	var mine []*kgo.Record
+	for _, r := range s.broker.Records(t, changeTopic, 0, 10*time.Second, 3*time.Second) {
+		if bytes.Contains(r.Value, []byte(`"id":"`+id+`"`)) {
+			mine = append(mine, r)
+		}
+	}
+	if len(mine) < least {
+		t.Fatalf("the topic %s holds %d records of the order %s, want at least %d", changeTopic, len(mine), id, least)
+	}
+	return mine
 }

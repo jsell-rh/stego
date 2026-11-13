@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -124,8 +125,40 @@ type Destination struct {
 }
 
 type session struct {
-	client *kgo.Client
-	once   sync.Once
+	client   *kgo.Client
+	once     sync.Once
+	connects *connectFailures
+}
+
+// connectFailures keeps the failure class of the last connection of a client that failed to start: its TLS handshake
+// or its SASL authentication. The client opens a connection of its own for the produce, after the metadata ping, and
+// it retries a connection that fails until the attempt ends, so the error of the produce does not tell the class; the
+// hook of the connection does.
+type connectFailures struct {
+	mu    sync.Mutex
+	class string
+}
+
+// OnBrokerConnect is the kgo hook of each connection that the client opens: err is the error of its dial or of its
+// start, which holds the TLS handshake and the SASL authentication.
+func (c *connectFailures) OnBrokerConnect(_ kgo.BrokerMetadata, _ time.Duration, _ net.Conn, err error) {
+	if err == nil {
+		return
+	}
+	if _, class := failure(err); class != "" {
+		c.mu.Lock()
+		c.class = class
+		c.mu.Unlock()
+	}
+}
+
+// take gives the class of the last connection that failed, and forgets it.
+func (c *connectFailures) take() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	class := c.class
+	c.class = ""
+	return class
 }
 
 func (s *session) close() { s.once.Do(s.client.Close) }
@@ -144,7 +177,8 @@ func New(s Settings, logs otellog.LoggerProvider) (*Destination, error) {
 	if len(s.BrokerHosts) > 0 {
 		dialer.hosts = map[string]bool{}
 		for _, h := range s.BrokerHosts {
-			dialer.hosts[strings.ToLower(h)] = true
+			lower, _ := asciiLower(h)
+			dialer.hosts[lower] = true
 		}
 	}
 	options := []kgo.Opt{
@@ -213,7 +247,9 @@ func (b *brokerDialer) dial(ctx context.Context, network, address string) (net.C
 	if err != nil {
 		return nil, errBrokerRefused
 	}
-	if b.hosts != nil && !b.hosts[strings.ToLower(host)] {
+	// A host that a broker names is compared in ASCII only, and a host that is not ASCII is refused.
+	lower, ascii := asciiLower(host)
+	if !ascii || b.hosts != nil && !b.hosts[lower] {
 		return nil, errBrokerRefused
 	}
 	target := address
@@ -267,9 +303,9 @@ func tlsConfig(s Settings) (*tls.Config, error) {
 		if err != nil {
 			return nil, settingError(ClientCertFileSetting, "must name a readable PEM file")
 		}
-		key, err := readFile(s.ClientKeyFile, maxPEM)
+		key, err := readPrivate(s.ClientKeyFile, maxPEM)
 		if err != nil {
-			return nil, settingError(ClientKeyFileSetting, "must name a readable PEM file")
+			return nil, settingError(ClientKeyFileSetting, "must name a readable PEM file, with no execute bit, that its group may not write and others may not use")
 		}
 		pair, err := tls.X509KeyPair(certificate, key)
 		if err != nil {
@@ -321,9 +357,34 @@ func (d *Destination) Deliver(ctx context.Context, _ *sql.Tx, delivery outbox.De
 		if err = <-result; err == nil {
 			return nil
 		}
+		// A connection of the produce that failed its TLS handshake or its SASL authentication is retried until the
+		// attempt ends; its class is that of the hook. The outcome stays not known.
+		class := s.connects.take()
+		if _, own := failure(err); own != "" {
+			class = own
+		}
+		if fixed := classError(class); fixed != nil {
+			d.failed(context.WithoutCancel(ctx), class)
+			return fixed
+		}
 		return ctx.Err()
 	}
 	return d.outcome(s, err)
+}
+
+// classError gives the fixed error of a failure class, or nil for no class.
+func classError(class string) error {
+	switch class {
+	case FailureTLSVerification:
+		return errTLSVerify
+	case FailureSASL:
+		return errSASL
+	case FailureSCRAMBounds:
+		return errSCRAMBounds
+	case FailureBrokerRefused:
+		return errBrokerRefused
+	}
+	return nil
 }
 
 // outcome marks the error of a produce. A broker's refusal of the batch means the record is not in the log: it is
@@ -332,6 +393,12 @@ func (d *Destination) Deliver(ctx context.Context, _ *sql.Tx, delivery outbox.De
 func (d *Destination) outcome(s *session, err error) error {
 	if err == nil {
 		return nil
+	}
+	if errors.Is(err, kerr.SaslAuthenticationFailed) {
+		// The broker refused the authentication of a connection before it took the record.
+		s.connects.take()
+		d.failed(context.Background(), FailureSASL)
+		return outbox.TransientRefusal(errSASL)
 	}
 	if refusal, ok := errors.AsType[*kerr.Error](err); ok {
 		switch refusal {
@@ -345,8 +412,13 @@ func (d *Destination) outcome(s *session, err error) error {
 		}
 	}
 	d.invalidate(s)
-	if _, class := failure(err); class != "" {
+	class := s.connects.take()
+	if _, own := failure(err); own != "" {
+		class = own
+	}
+	if fixed := classError(class); fixed != nil {
 		d.failed(context.Background(), class)
+		return fixed
 	}
 	return errUnknownOutcome
 }
@@ -425,11 +497,12 @@ func (d *Destination) acquire() (*session, error) {
 		return nil, ErrClosed
 	}
 	if d.session == nil {
-		client, err := kgo.NewClient(d.options...)
+		connects := &connectFailures{}
+		client, err := kgo.NewClient(slices.Concat(d.options, []kgo.Opt{kgo.WithHooks(connects)})...)
 		if err != nil {
 			return nil, errors.New("kafkaoutbox: the client configuration is not valid")
 		}
-		d.session = &session{client: client}
+		d.session = &session{client: client, connects: connects}
 	}
 	return d.session, nil
 }

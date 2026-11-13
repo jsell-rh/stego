@@ -1,0 +1,41 @@
+kind: fill
+name: user-change-notifier
+implements: event-publisher.on_entity_changed
+collection: org-users
+evidence:
+  fill_digest: ab15d123064d2f5f1936df979f250d69f1c525a0d24522a0a7b2e38906e38a81
+  contract_digest: afbb2afeb8ddb5a5685658af1dfb484ab690d81dc618ce929e8fda08b1584005
+  passed_at: 2026-11-07T14:10:09Z
+  compiler:
+    go_version: go1.26.10
+    goos: linux
+    goarch: amd64
+    module_version: (devel)
+    vcs: unknown
+    revision: unknown
+    source_state: unknown
+  files:
+    fill.yaml: 8b5f1cfccc5511e8bd0410659a19f54cfd36f02e8956c8cea708ab41bb480c11
+    notifier.go: b79866f5522d8433360eb114f311f8f7b79d2c44d538c3a287e041700c8d33d2
+    notifier_test.go: 0516b1fec6eb9600d75736f816c6b47c62bd3d01644b98f7af455d746c52e16c
+sign_off:
+  evidence_digest: 88971164b08fea578391fa16ab2f444bf294d8afa51ac326ecd7b61baf88ebba
+  signature:
+    key_type: ssh
+    signer: 35787503+elsell@users.noreply.github.com
+    signature: |
+      -----BEGIN SSH SIGNATURE-----
+      U1NIU0lHAAAAAQAAARcAAAAHc3NoLXJzYQAAAAMBAAEAAAEBALsnksSLm9M7JucxPR5fip
+      7av8zqxlfnHPiKO4ScdopJeezbbuPmQz7KkjDKM2oLsdyeV3PZZZz051W6SC4v8mcAk6wM
+      aUo9FQq81i3h9cmgeeJf06thXUgYM0R58QPNwAquZTgvkGTBFvaBO0amv/tmfSGoqw9sYa
+      Kyum85zOVpOMPrOWR9mZqY/I8SG6nvN05jF+YDksFAArzy6DYU/4LHGIkU9NDuKAe2o1Ww
+      WUP0D2JTJIWxnskmDRqUVgtmmPzW8131Mhur+ms2l/K6Qkv8HmJzspCsZPkxhkDMougK7s
+      G/ltb8qpbwznydvO9A525OppB9qgbqpJ1Yo4Jz7usAAAAKc3RlZ28tZmlsbAAAAAAAAAAG
+      c2hhNTEyAAABFAAAAAxyc2Etc2hhMi01MTIAAAEAlbbzyuo6I7cnIgQHZALfymHRyjdeQG
+      fRfN1Z/3BgBSCg1+o1VNULomOD+BuCSy54FsUbpVvJ3StWRAFMbcgfGJmnNv3Qpc70/wpu
+      O7PMCafuovwqx8axXp8fuAwUhnkmdT+vWi8t975SByqQxaNV+ZyNi3pm1g4Q+VxpLxCAUY
+      Er5uk1EK9x47c9M9LGzLo1hRs50Fr5sEsPK9OxNtoB/9Cu0Xo2opVwwkQci+iYX3196Q4/
+      PF+20fLbGmSLgfV/bIij21IKULL0L3CfSEnscKUeCTZjR2tSHEtt7QqNMKmXXXhdNRniLE
+      FkFd1ZZaH1O7xE5KoZp6BO4hMMsOhAWA==
+      -----END SSH SIGNATURE-----
+  signed_at: 2026-11-07T14:10:10Z

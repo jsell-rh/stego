@@ -406,12 +406,15 @@ var wiringCheckIDs = []string{
 	"ST-SUP-RC33-OC02-T04 A declared query reaches its fill through the generated main.go",
 	"ST-SUP-RP14-LC04-T02 The generated service runs its workers through the service runtime",
 	"ST-SUP-RP14-LC04-T03 The generated worker delivers each audit entry and anchor to the default table",
+	"ST-SUP-RC18-OC31-T02 The generated worker sends to Kafka with the settings of the process, and does not start without them",
+	"ST-SUP-RC20-OC40-T02 A change event of a generated write arrives once with its key and headers, waits out a broker outage in the outbox, and keeps the order of its entity",
 }
 
 // TestRuntimeWiring generates the test service with stego apply, builds it with the pinned Go, and runs the check of
 // testdata/runtime_wiring/check in its module once: the check runs the migration job and the service binary against
-// the local PostgreSQL server of STEGO_TEST_POSTGRES_DSN and a local SpiceDB container, and sends one collection
-// call, one command and one query over HTTP. A missing server fails the test: a missing result is not a pass.
+// the local PostgreSQL server of STEGO_TEST_POSTGRES_DSN, a local SpiceDB container and the local Kafka broker of
+// kafkatest, and sends collection calls, one command and one query over HTTP. A missing server fails the test: a
+// missing result is not a pass.
 func TestRuntimeWiring(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs a generated service")
@@ -443,7 +446,7 @@ func TestRuntimeWiring(t *testing.T) {
 	nextBinary := filepath.Join(next.dir, "bin", "service")
 	next.goCommand("build", "-o", nextBinary, "./out")
 	endpoint, key := startWiringSpiceDB(t)
-	cmd := exec.Command(wiringPinnedGo(), "test", "-count=1", "-timeout=300s", "-v", "-run", "^TestWiring$", "./out/wiringcheck")
+	cmd := exec.Command(wiringPinnedGo(), "test", "-count=1", "-timeout=480s", "-v", "-run", "^TestWiring$", "./out/wiringcheck")
 	cmd.Dir = p.dir
 	cmd.Env = wiringGoEnv("STEGO_TEST_SPICEDB="+endpoint, "STEGO_TEST_SPICEDB_KEY="+key, "STEGO_WIRING_BINARY="+binary,
 		"STEGO_WIRING_NEXT_BINARY="+nextBinary)

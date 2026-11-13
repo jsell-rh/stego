@@ -174,8 +174,8 @@ func (s Settings) Check() error {
 	for _, broker := range s.Brokers {
 		host, port, err := net.SplitHostPort(broker)
 		number, portErr := strconv.Atoi(port)
-		if err != nil || portErr != nil || number < 1 || number > 65535 || host == "" || len(host) > 253 ||
-			strings.ContainsAny(host, "/\\@ ,") || strings.ContainsFunc(host, control) {
+		if _, ascii := asciiLower(host); err != nil || portErr != nil || number < 1 || number > 65535 || host == "" ||
+			len(host) > 253 || !ascii || strings.ContainsAny(host, "/\\@ ,") || strings.ContainsFunc(host, control) {
 			return settingError(BrokersSetting, "must be a comma-separated list of host:port")
 		}
 		if seen[broker] {
@@ -188,16 +188,17 @@ func (s Settings) Check() error {
 	}
 	allowed := map[string]bool{}
 	for _, host := range s.BrokerHosts {
-		if host == "" || len(host) > 253 || strings.ContainsAny(host, "/\\@ ,[]") || strings.ContainsFunc(host, control) ||
+		lower, ascii := asciiLower(host)
+		if host == "" || len(host) > 253 || !ascii || strings.ContainsAny(host, "/\\@ ,[]") || strings.ContainsFunc(host, control) ||
 			strings.Contains(host, ":") && net.ParseIP(host) == nil {
-			return settingError(BrokerHostsSetting, "must be a comma-separated list of host names or IP addresses with no port")
+			return settingError(BrokerHostsSetting, "must be a comma-separated list of ASCII host names or IP addresses with no port")
 		}
-		allowed[strings.ToLower(host)] = true
+		allowed[lower] = true
 	}
 	if len(allowed) > 0 {
 		for _, broker := range s.Brokers {
 			host, _, _ := net.SplitHostPort(broker)
-			if !allowed[strings.ToLower(host)] {
+			if lower, _ := asciiLower(host); !allowed[lower] {
 				return settingError(BrokersSetting, "names a host that "+BrokerHostsSetting+" does not hold")
 			}
 		}
@@ -269,9 +270,35 @@ func cleanPath(path string) bool { return filepath.IsAbs(path) && filepath.Clean
 
 func control(r rune) bool { return r < 0x20 || r == 0x7f }
 
+// asciiLower gives host with each ASCII upper-case letter in lower case, and whether host is ASCII. A host name of a
+// broker is compared in ASCII only: a Unicode case fold would match a host such as one with the Kelvin sign K (U+212A)
+// to the ASCII host kafka.
+func asciiLower(host string) (string, bool) {
+	b := []byte(host)
+	for i, c := range b {
+		switch {
+		case c >= 0x80:
+			return "", false
+		case 'A' <= c && c <= 'Z':
+			b[i] = c + ('a' - 'A')
+		}
+	}
+	return string(b), true
+}
+
 // readFile reads a regular file of at most limit bytes. It opens the file without blocking, so a FIFO cannot hold
 // the caller, and refuses anything that is not a regular file.
-func readFile(path string, limit int64) ([]byte, error) {
+func readFile(path string, limit int64) ([]byte, error) { return read(path, limit, false) }
+
+// privateModes are the mode bits that a secret file must not have: an execute bit, write for its group, or any access
+// for others, as the service runtime refuses a setting file (ST-SUP-RP01-LC32). 0400, 0440, 0600 and 0640 pass.
+const privateModes = 0o137
+
+// readPrivate reads a secret file as readFile does, and refuses a file whose mode has a bit of privateModes. It checks
+// the mode of the file that it opened, so a link that changes after the check reads nothing else.
+func readPrivate(path string, limit int64) ([]byte, error) { return read(path, limit, true) }
+
+func read(path string, limit int64, private bool) ([]byte, error) {
 	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
@@ -284,6 +311,9 @@ func readFile(path string, limit int64) ([]byte, error) {
 	if !info.Mode().IsRegular() {
 		return nil, errors.New("not a regular file")
 	}
+	if private && info.Mode().Perm()&privateModes != 0 {
+		return nil, errors.New("the file has an execute bit, its group may write it, or others may use it")
+	}
 	data, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err != nil {
 		return nil, err
@@ -295,11 +325,12 @@ func readFile(path string, limit int64) ([]byte, error) {
 }
 
 // readSecret reads the secret file of the setting name: one value of at most 16 KiB with no control character, and
-// a final line end taken off. Its error names the setting and holds no part of the file.
+// a final line end taken off, from a file with no execute bit that its group may not write and others may not use. Its error
+// names the setting and holds no part of the file.
 func readSecret(name, path string) (string, error) {
-	data, err := readFile(path, maxValue)
+	data, err := readPrivate(path, maxValue)
 	if err != nil {
-		return "", settingError(name, "must name a readable regular file of at most 16 KiB")
+		return "", settingError(name, "must name a readable regular file of at most 16 KiB, with no execute bit, that its group may not write and others may not use")
 	}
 	secret := strings.TrimSuffix(strings.TrimSuffix(string(data), "\n"), "\r")
 	if secret == "" || !utf8.ValidString(secret) || strings.ContainsFunc(secret, control) {
