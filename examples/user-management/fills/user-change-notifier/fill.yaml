@@ -2,3 +2,19 @@ kind: fill
 name: user-change-notifier
 implements: event-publisher.on_entity_changed
 collection: org-users
+evidence:
+  fill_digest: 989792dd080832f939077f4911ff228d24c938301bbd3d74a045611e395bd18f
+  contract_digest: afbb2afeb8ddb5a5685658af1dfb484ab690d81dc618ce929e8fda08b1584005
+  passed_at: 2026-11-13T03:36:35Z
+  compiler:
+    go_version: go1.26.11
+    goos: linux
+    goarch: amd64
+    module_version: v0.0.0-20261113033630-f56d325eca80
+    vcs: git
+    revision: f56d325eca80b9d4143890461256ac2c52666314
+    source_state: clean
+  files:
+    fill.yaml: 8b5f1cfccc5511e8bd0410659a19f54cfd36f02e8956c8cea708ab41bb480c11
+    notifier.go: b79866f5522d8433360eb114f311f8f7b79d2c44d538c3a287e041700c8d33d2
+    notifier_test.go: 1cb8c87fd26d3d1f06b6d359fdfe8f89bc70718a05bc86a0f1a67b591802191b

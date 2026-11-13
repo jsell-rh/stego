@@ -2,3 +2,19 @@ kind: fill
 name: audit-logger
 implements: event-publisher.on_entity_changed
 collection: org-users
+evidence:
+  fill_digest: 076df24ad7cffd71d23019bfd10bcffbcd346e122d685b3c53a4d6b6a648d856
+  contract_digest: afbb2afeb8ddb5a5685658af1dfb484ab690d81dc618ce929e8fda08b1584005
+  passed_at: 2026-11-13T03:36:35Z
+  compiler:
+    go_version: go1.26.11
+    goos: linux
+    goarch: amd64
+    module_version: v0.0.0-20261113033630-f56d325eca80
+    vcs: git
+    revision: f56d325eca80b9d4143890461256ac2c52666314
+    source_state: clean
+  files:
+    fill.yaml: 10c2d21c713b1cbbc4437f0acfd3c060c295dd7e8e9087d3efb6f3d9a6853d57
+    logger.go: 0da1fbcbdfc93eb64d8b50212f2fb818d2fca9554785837690d6b6b4c7e6a949
+    logger_test.go: 28e2ef689e4f5e928a914fee9d16be775e4c4a741903e19e51600bf73d69177c
