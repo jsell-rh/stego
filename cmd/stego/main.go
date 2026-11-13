@@ -384,8 +384,10 @@ func runPlan(args []string) error {
 	if fs.NArg() != 0 {
 		return fmt.Errorf("plan takes no arguments")
 	}
+	var gate baseGate
 	if !*show {
-		gate, err := checkBaseBeforePlan(*baseRef, os.Stdout)
+		var err error
+		gate, err = checkBaseBeforePlan(*baseRef, os.Stdout)
 		if err != nil {
 			return err
 		}
@@ -431,6 +433,7 @@ func runPlan(args []string) error {
 	}
 
 	fmt.Print(compiler.FormatPlan(plan))
+	printNewSchemaSteps(os.Stdout, gate, plan)
 	fmt.Println("\nSaved the plan in .stego/plan.yaml; stego apply --saved-plan carries it out.")
 	return nil
 }

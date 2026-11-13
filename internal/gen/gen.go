@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/jsell-rh/stego/internal/types"
@@ -212,6 +213,79 @@ type Context struct {
 	// is a server stream of the proto files of the grpc-application component, which the compiler reads for the check
 	// of ST-DECL-INV73 (ST-SUP-RC33-OC08). Generators must not change it.
 	QueryStreams map[string]bool
+}
+
+// AtSchemaStep gives a copy of the context with the stored shape after the first steps steps of the schema
+// history: each schema change whose first step is at the position steps or after it is undone, the change whose
+// step is last first. AtSchemaStep(0) is the baseline, the shape of the first release, and AtSchemaStep with the
+// length of the schema history is the context itself. An add of an entity is undone with the entity and each
+// collection over it, and an add of a field with the field. Generation carries out no other kind of schema change
+// yet, so AtSchemaStep refuses one, and a change with no step.
+func (c Context) AtSchemaStep(steps int) (Context, error) {
+	first := map[string]int{}
+	for i, step := range c.SchemaHistory {
+		if _, seen := first[step.Change]; !seen {
+			first[step.Change] = i
+		}
+	}
+	var undo []types.SchemaChange
+	for _, change := range c.SchemaChanges {
+		at, stepped := first[change.ID]
+		if !stepped {
+			return Context{}, fmt.Errorf("schema change %q has no step in the schema history", change.ID)
+		}
+		if change.Kind != "add" {
+			return Context{}, fmt.Errorf("schema change %q has the kind %s, which generation does not carry out yet", change.ID, change.Kind)
+		}
+		if at >= steps {
+			undo = append(undo, change)
+		}
+	}
+	if len(undo) == 0 {
+		return c, nil
+	}
+	shaped := c
+	shaped.Entities = make([]types.Entity, len(c.Entities))
+	for i, entity := range c.Entities {
+		entity.Fields = append([]types.Field(nil), entity.Fields...)
+		shaped.Entities[i] = entity
+	}
+	shaped.Collections = append([]types.Collection(nil), c.Collections...)
+	sort.SliceStable(undo, func(i, j int) bool { return first[undo[i].ID] > first[undo[j].ID] })
+	for _, change := range undo {
+		at := -1
+		for j, entity := range shaped.Entities {
+			if entity.Name == change.Entity {
+				at = j
+			}
+		}
+		if at < 0 {
+			return Context{}, fmt.Errorf("schema change %q adds to the entity %s, which the declaration does not have", change.ID, change.Entity)
+		}
+		if change.Field == "" {
+			shaped.Entities = append(shaped.Entities[:at:at], shaped.Entities[at+1:]...)
+			var kept []types.Collection
+			for _, collection := range shaped.Collections {
+				if collection.Entity != change.Entity {
+					kept = append(kept, collection)
+				}
+			}
+			shaped.Collections = kept
+			continue
+		}
+		fields := shaped.Entities[at].Fields
+		found := -1
+		for j, field := range fields {
+			if field.Name == change.Field {
+				found = j
+			}
+		}
+		if found < 0 {
+			return Context{}, fmt.Errorf("schema change %q adds the field %s.%s, which the declaration does not have", change.ID, change.Entity, change.Field)
+		}
+		shaped.Entities[at].Fields = append(fields[:found:found], fields[found+1:]...)
+	}
+	return shaped, nil
 }
 
 // Destination is one outbox destination that a component declares in its setting destinations: its name, the

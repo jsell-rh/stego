@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jsell-rh/stego/internal/compiler"
+	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
 	"github.com/jsell-rh/stego/internal/parser"
 	"github.com/jsell-rh/stego/internal/types"
 )
@@ -330,6 +331,10 @@ type baseGate struct {
 	checked bool
 	steps   []types.SchemaChange
 	data    []byte
+	// head is the declaration as plan and apply read it, and newSteps the positions, from 1, of the steps of its
+	// schema history that the base does not hold (ST-GEN-UC12-R01).
+	head     *types.ServiceDeclaration
+	newSteps []int
 }
 
 // checkBaseBeforePlan runs the check against the base for plan and apply (ST-GEN-UC12-R05): against the ref the
@@ -389,7 +394,44 @@ func checkBaseBeforePlan(named string, stdout io.Writer) (baseGate, error) {
 			return gate, err
 		}
 	}
+	gate.head = head
+	if gate.newSteps, err = compiler.NewSchemaSteps(base, head); err != nil {
+		return gate, err
+	}
 	return gate, nil
+}
+
+// printNewSchemaSteps lists each schema step of the declaration that the base does not hold, with its change, its
+// kind, its phase, and the migration, the trigger and the backfill that it adds (ST-GEN-UC12-R01). The migration is
+// the file of the plan that holds the step's SQL. The add kind, the only kind that generation carries out yet, adds
+// no trigger and no backfill.
+func printNewSchemaSteps(stdout io.Writer, gate baseGate, plan *compiler.Plan) {
+	if gate.head == nil || len(gate.newSteps) == 0 {
+		return
+	}
+	kinds := map[string]types.SchemaChange{}
+	for _, change := range gate.head.SchemaChanges {
+		kinds[change.ID] = change
+	}
+	fmt.Fprintln(stdout, "\nNew schema steps:")
+	for _, position := range gate.newSteps {
+		step := gate.head.SchemaHistory[position-1]
+		change := kinds[step.Change]
+		target := change.Entity
+		if change.Field != "" {
+			target += "." + change.Field
+		}
+		migration := "none"
+		name := postgresadapter.StepMigrationName(position, step.Change, step.Phase)
+		if plan != nil {
+			for _, file := range plan.Files {
+				if strings.HasSuffix(file.Path, "/migrations/"+name+".sql") {
+					migration = file.Path
+				}
+			}
+		}
+		fmt.Fprintf(stdout, "  %d. %s: %s %s at %s; migration %s; trigger none; backfill none\n", position, step.Change, change.Kind, target, step.Phase, migration)
+	}
 }
 
 // printSchemaSteps names each add step that apply writes, or wrote, into the declaration.

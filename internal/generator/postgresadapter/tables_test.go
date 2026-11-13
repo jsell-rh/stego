@@ -178,7 +178,8 @@ func tableModule(t *testing.T) (map[string]bool, string) {
 	for _, service := range []struct {
 		ctx    gen.Context
 		access string
-	}{{orderService("storage"), "access.json"}, {orderService("previous"), ""}, {widgetService(widgetEntities()), "widgets_access.json"}, {boundsService(), "bounds_access.json"}} {
+	}{{orderService("storage"), "access.json"}, {orderService("previous"), ""}, {widgetService(widgetEntities()), "widgets_access.json"}, {boundsService(), "bounds_access.json"},
+		{boardBase("boardsbase", "boardsbasetenancy"), "boardsbase_access.json"}, {boardSteps("boards", "boardtenancy"), "boards_access.json"}} {
 		files, wiring, err := new(postgresadapter.Generator).Generate(service.ctx)
 		if err != nil {
 			t.Fatal(err)
@@ -363,6 +364,10 @@ func TestTables(t *testing.T) {
 			t.Errorf("the policy of the tenant column user is not quoted:\n%s", source)
 		}
 		onPostgres(t, "ST-SUP-RC01-OC12-T09")
+	})
+
+	t.Run("ST-SUP-RC01-OC22-T03 An add step takes a database with rows to the schema of a new database, and the release before still runs on it", func(t *testing.T) {
+		onPostgres(t, "ST-SUP-RC01-OC22-T03")
 	})
 
 	t.Run("ST-SUP-RC01-OC41-T03 A service that needs the store is refused on the runtime data path", func(t *testing.T) {

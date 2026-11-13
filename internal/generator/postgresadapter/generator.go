@@ -594,10 +594,10 @@ func applyPending(ctx context.Context, db Database, ordered []Migration) error {
 `
 
 // generateMigrate produces migrate.go: the migration ledger in stego_schema.migrations, with 001_initial as the SQL
-// migration of InitialTables (ST-SUP-RC01-OC41) and, in a pooled service, the row-level security of the tenancy
-// component after it. The ledger refuses every row that is not the registered history, in order and with the body
+// migration of InitialTables (ST-SUP-RC01-OC41), in a pooled service the row-level security of the tenancy
+// component after it, and then the migration of each schema step (ST-SUP-RC01-OC22). The ledger refuses every row that is not the registered history, in order and with the body
 // digest (ST-SUP-RC01-OC11).
-func generateMigrate(ns string, rowSecurity string) (gen.File, error) {
+func generateMigrate(ns string, rowSecurity string, steps []schemaStep) (gen.File, error) {
 	var buf bytes.Buffer
 
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
@@ -621,6 +621,11 @@ func generateMigrate(ns string, rowSecurity string) (gen.File, error) {
 	if rowSecurity != "" {
 		// The row-level security of the tenancy component comes after every table it covers (ST-SUP-RC27-OC03).
 		fmt.Fprintln(&buf, `RegisterSQL("100_tenancy_row_security", stegotenancy.RowSecurity)`)
+	}
+	// Each schema step comes after the component's own migrations, in the order of the schema history, with the
+	// empty compatible_with set of a step at expand (ST-SUP-RC01-OC22, ST-SUP-RC01-OC27).
+	for _, step := range steps {
+		fmt.Fprintf(&buf, "\tRegisterStep(%q, %q)\n", step.Name, step.Body)
 	}
 	fmt.Fprintf(&buf, "}\n")
 

@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"example.com/tables-check/boards"
+	"example.com/tables-check/boardsbase"
 	"example.com/tables-check/bounds"
 	"example.com/tables-check/previous"
 	"example.com/tables-check/storage"
@@ -417,6 +419,98 @@ WHERE i.indrelid = 'public.orders'::regclass`)
 		if err := manifest.Check(ctx, reader, widgets.SchemaManifest); !errors.Is(err, manifest.ErrNotSatisfied) ||
 			!strings.Contains(err.Error(), "table public.orders: constraint orders_widget_id_fkey is missing") {
 			t.Fatalf("a dropped foreign key gave %v, want the fault that names it", err)
+		}
+	})
+
+	t.Run("ST-SUP-RC01-OC22-T03 An add step takes a database with rows to the schema of a new database, and the release before still runs on it", func(t *testing.T) {
+		ctx := context.Background()
+		upCfg, up := database(t, cfg, admin)
+		migrate(t, upCfg, up, func(ctx context.Context, conn *sql.Conn) error { return boardsbase.Migrate(ctx, conn) }, "boardsbase_access.json")
+		first := uuid.Must(uuid.NewV7()).String()
+		if code := write(t, up, "tenant-a", `INSERT INTO public."boards" ("id", "title") VALUES ($1, 'first')`, first); code != "" {
+			t.Fatalf("the release before writes no board: %s", code)
+		}
+		migrate(t, upCfg, up, func(ctx context.Context, conn *sql.Conn) error { return boards.Migrate(ctx, conn) }, "boards_access.json")
+
+		// The row of the release before is kept, with no note and the default rank.
+		var title string
+		var note sql.NullString
+		var rank int
+		if err := up.QueryRow(`SELECT "title", "note", "rank" FROM public."boards" WHERE "id" = $1`, first).Scan(&title, &note, &rank); err != nil || title != "first" || note.Valid || rank != 0 {
+			t.Errorf("the board of the release before is %q, %v, %d (error %v); want first, no note and rank 0", title, note, rank, err)
+		}
+		// Each step row has the empty compatible_with set of a step at expand, and the rows before it have none
+		// (ST-SUP-RC01-OC27).
+		rows, err := up.Query(`SELECT version, coalesce(compatible_with::text, 'none') FROM stego_schema.migrations ORDER BY version COLLATE "C"`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ledger []string
+		for rows.Next() {
+			var version, set string
+			if err := rows.Scan(&version, &set); err != nil {
+				t.Fatal(err)
+			}
+			ledger = append(ledger, version+" "+set)
+		}
+		rows.Close()
+		want := "001_initial none,100_tenancy_row_security none,step_0001_add-card_expand {},step_0002_add-board-note_expand {},step_0003_add-board-rank_expand {}"
+		if strings.Join(ledger, ",") != want {
+			t.Errorf("the ledger is %v, want %s", ledger, want)
+		}
+
+		// The release before runs on the schema of the release with the steps: its read-only ledger check, its schema
+		// generation check and its schema manifest accept the database, and it writes and reads as before.
+		if _, err := up.Exec("ALTER ROLE " + pgx.Identifier{tenancy.RuntimeRole}.Sanitize() + " LOGIN PASSWORD 'tables-check'"); err != nil {
+			t.Fatal(err)
+		}
+		runtime := upCfg.Copy()
+		runtime.User, runtime.Password = tenancy.RuntimeRole, "tables-check"
+		reader := stdlib.OpenDB(*runtime)
+		defer reader.Close()
+		if err := boardsbase.CheckLedger(ctx, up); err != nil {
+			t.Errorf("the ledger check of the release before refuses the steps: %v", err)
+		}
+		if err := boardsbase.VerifySchema(ctx, up); err != nil {
+			t.Errorf("the schema check of the release before refuses the database: %v", err)
+		}
+		if err := manifest.Check(ctx, reader, boardsbase.SchemaManifest); err != nil {
+			t.Errorf("the schema manifest of the release before refuses the database: %v", err)
+		}
+		if err := manifest.Check(ctx, reader, boards.SchemaManifest); err != nil {
+			t.Errorf("the schema manifest of the release with the steps refuses the database: %v", err)
+		}
+		if code := write(t, up, "tenant-a", `INSERT INTO public."boards" ("id", "title") VALUES ($1, 'second')`, uuid.Must(uuid.NewV7()).String()); code != "" {
+			t.Errorf("the release before writes no board after the steps: %s", code)
+		}
+		// The new table has the tenant wall of a table of the baseline: a card of one tenant is not seen by another.
+		if code := write(t, up, "tenant-a", `INSERT INTO public."cards" ("id", "board_id", "code") VALUES ($1, $2, 'c1')`, uuid.Must(uuid.NewV7()).String(), first); code != "" {
+			t.Fatalf("the release with the steps writes no card: %s", code)
+		}
+		if code := write(t, up, "tenant-b", `UPDATE public."cards" SET "code" = 'stolen'`); code != "" {
+			t.Fatalf("an update of another tenant: %s", code)
+		}
+		var code string
+		if err := up.QueryRow(`SELECT "code" FROM public."cards"`).Scan(&code); err != nil || code != "c1" {
+			t.Errorf("another tenant changed the card to %q (error %v)", code, err)
+		}
+		if code := write(t, up, "tenant-b", `INSERT INTO public."cards" ("tenant_id", "id", "board_id") VALUES ('tenant-a', $1, $2)`, uuid.Must(uuid.NewV7()).String(), first); code != "42501" {
+			t.Errorf("a card written into another tenant gives %q, want 42501", code)
+		}
+		// The migration job of the release before runs again, as in a rollback of the job, and changes nothing.
+		before := catalog(t, up)
+		migrate(t, upCfg, up, func(ctx context.Context, conn *sql.Conn) error { return boardsbase.Migrate(ctx, conn) }, "boardsbase_access.json")
+		if after := catalog(t, up); strings.Join(before, "\n") != strings.Join(after, "\n") {
+			t.Error("the migration job of the release before changed the database after the steps")
+		}
+
+		// A new database that the migrations of the release with the steps make has the same schema (ST-GEN-INV35).
+		freshCfg, fresh := database(t, cfg, admin)
+		migrate(t, freshCfg, fresh, func(ctx context.Context, conn *sql.Conn) error { return boards.Migrate(ctx, conn) }, "boards_access.json")
+		freshCatalog, upCatalog := catalog(t, fresh), catalog(t, up)
+		if strings.Join(freshCatalog, "\n") != strings.Join(upCatalog, "\n") {
+			t.Errorf("a new database and an upgraded one differ (ST-GEN-INV35):\nnew:\n%s\nupgraded:\n%s",
+				strings.Join(freshCatalog, "\n"), strings.Join(upCatalog, "\n"))
 		}
 	})
 }

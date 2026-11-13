@@ -188,6 +188,70 @@ func TestSchemaStepPlan(t *testing.T) {
 			t.Errorf("stego validate refuses the declared rename, which checking accepts: %v\n%s%s", err, stdout, stderr)
 		}
 	})
+	t.Run("ST-GEN-UC12-R01-T02 Plan lists a new add step with its kind, phase and migration, and no trigger or backfill", func(t *testing.T) {
+		t.Parallel()
+		s := newSmallService(t)
+		s.write(t, "service.yaml", noteBody(smallServiceDeclaration))
+		s.must(t, "apply", "--base", "HEAD")
+		planned := s.must(t, "plan", "--base", "HEAD")
+		want := "1. add-note-body: add Note.body at expand; migration internal/storage/migrations/step_0001_add-note-body_expand.sql; trigger none; backfill none"
+		if !strings.Contains(planned, "New schema steps:\n  "+want+"\n") {
+			t.Errorf("plan does not list the add step as\n%s\n%s", want, planned)
+		}
+		migration := s.read(t, "out/internal/storage/migrations/step_0001_add-note-body_expand.sql")
+		if migration != "ALTER TABLE public.\"notes\" ADD COLUMN \"body\" text;\nCREATE INDEX \"notes_body_search\" ON public.\"notes\" (\"tenant_id\", \"body\");\n" {
+			t.Errorf("the migration of the add step is\n%s", migration)
+		}
+		// 001_initial is the baseline, the body of the release that runs, so its ledger digest does not change.
+		if base := git(t, s.service, "show", "HEAD:out/internal/storage/migrations/001_initial.sql"); strings.TrimSpace(base) != strings.TrimSpace(s.read(t, "out/internal/storage/migrations/001_initial.sql")) {
+			t.Errorf("001_initial changed with the add step:\nbase %s\nnow %s", base, s.read(t, "out/internal/storage/migrations/001_initial.sql"))
+		}
+		// Once the step is in the base, it is not new.
+		git(t, s.service, "add", "-A")
+		git(t, s.service, "commit", "-q", "-m", "body")
+		if again := s.must(t, "plan", "--base", "HEAD"); strings.Contains(again, "New schema steps") {
+			t.Errorf("plan lists a step that the base holds:\n%s", again)
+		}
+	})
+	t.Run("ST-GEN-INV36-T A schema step on a base that pins an old postgres-adapter is refused and names the release to deploy first", func(t *testing.T) {
+		t.Parallel()
+		s := newSmallService(t)
+		// R0: the registry of R1 with the postgres-adapter version before the one that holds ST-SUP-RC01-OC28.
+		git(t, s.registry, "checkout", "-q", "--detach", s.r1)
+		definition := filepath.Join(s.registry, "components", "postgres-adapter", "component.yaml")
+		data, err := os.ReadFile(definition)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), "\nversion: 6.1.0\n") {
+			t.Fatalf("the postgres-adapter of R1 is not 6.1.0:\n%s", data)
+		}
+		writeFile(t, filepath.Dir(definition), "component.yaml", strings.Replace(string(data), "\nversion: 6.1.0\n", "\nversion: 6.0.1\n", 1), 0o644)
+		git(t, s.registry, "commit", "-q", "-am", "R0")
+		r0 := git(t, s.registry, "rev-parse", "HEAD")
+		git(t, s.registry, "branch", "r0", r0)
+		git(t, s.registry, "checkout", "-q", "--detach", s.r1)
+		s.pin(t, r0)
+		s.must(t, "apply", "--base", "HEAD")
+		git(t, s.service, "add", "-A")
+		git(t, s.service, "commit", "-q", "-m", "base at R0")
+		head := noteBody(smallServiceDeclaration) + "schema_changes:\n  - {id: add-note-body, kind: add, entity: Note, field: body}\nschema_history:\n  - {change: add-note-body, phase: expand}\n"
+		s.pin(t, s.r1)
+		s.write(t, "service.yaml", head)
+		stdout, stderr, err := s.stego(t, "compat", "--base", "HEAD")
+		if code := exitCode(t, err); code != 1 || !strings.Contains(stdout+stderr, "ST-GEN-INV36") || !strings.Contains(stdout+stderr, "deploy a release with postgres-adapter 6.1.0 or later") {
+			t.Errorf("compat on a base at postgres-adapter 6.0.1: exit %d, want 1 and a fault that names 6.1.0 as the release to deploy first:\n%s%s", code, stdout, stderr)
+		}
+		// The base moves to R1 first, with no new step, and then the same head passes.
+		s.write(t, "service.yaml", smallServiceDeclaration)
+		s.must(t, "apply", "--base", "HEAD")
+		git(t, s.service, "add", "-A")
+		git(t, s.service, "commit", "-q", "-m", "base at R1")
+		s.write(t, "service.yaml", head)
+		if stdout, stderr, err := s.stego(t, "compat", "--base", "HEAD"); exitCode(t, err) != 0 {
+			t.Errorf("compat on a base at postgres-adapter 6.1.0 refuses the add step: %v\n%s%s", err, stdout, stderr)
+		}
+	})
 	t.Run("ST-GEN-UC12-R06-T02 Without apply, the check refuses a new field that has no add step", func(t *testing.T) {
 		t.Parallel()
 		s := newSmallService(t)

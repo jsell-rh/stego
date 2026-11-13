@@ -22,10 +22,6 @@ type Generator struct{}
 // adapter is the component whose tables the row-level security covers and whose ledger runs the migration.
 const adapter = "postgres-adapter"
 
-// policyName is the name of the one tenant policy of each owned table, which the schema manifest of the PostgreSQL
-// adapter names (ST-SUP-RC01-OC12).
-const policyName = postgresadapter.TenantPolicy
-
 // MigrationLoginSetting is the setting in which the operator names the login of the migration job when it is not
 // the owner role itself but a member of it, such as SET stego.migration_login = 'shop_migrator' before the role
 // migration; the role migration then accepts that one member of the owner role (ST-SUP-RC27-OC04).
@@ -91,7 +87,11 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	security := rowSecurity(ctx.Entities, ctx.Tenancy.Key)
+	baseline, err := ctx.AtSchemaStep(0)
+	if err != nil {
+		return nil, nil, err
+	}
+	security := rowSecurity(baseline.Entities, ctx.Tenancy.Key)
 	worker, relay := workerRoles(runtime)
 	purge, outboxRelay := purgeRole(runtime), outboxRelayRole(runtime)
 	for _, role := range []string{worker, relay, purge, outboxRelay} {
@@ -181,21 +181,19 @@ func roles(ctx gen.Context) (string, string, error) {
 	return runtime, owner, nil
 }
 
-// rowSecurity gives the migration that enables and forces row-level security on the table of each owned entity,
-// with one policy whose USING and WITH CHECK compare the tenant column with the tenant setting of the
-// transaction. It drops the policy before it creates it, so a run on every start applies it again with no error.
+// rowSecurity gives the migration that enables and forces row-level security on the table of each owned entity of
+// the baseline, the declaration with every schema step undone, with one policy whose USING and WITH CHECK compare
+// the tenant column with the tenant setting of the transaction (postgresadapter.TenantRowSecurity). It drops the
+// policy before it creates it, so a run on every start applies it again with no error. An owned entity that a schema
+// step adds gets the same text in the migration of its step, so the body and the ledger digest of this migration stay
+// those of the first release.
 func rowSecurity(entities []types.Entity, key string) string {
 	var text strings.Builder
-	setting := "pg_catalog.current_setting('app.tenant', true)"
 	for _, entity := range entities {
 		if entity.Tenant != "" && entity.Tenant != "owned" {
 			continue
 		}
-		table := "public." + quote(postgresadapter.TableName(entity.Name))
-		fmt.Fprintf(&text, "ALTER TABLE %s ENABLE ROW LEVEL SECURITY;\n", table)
-		fmt.Fprintf(&text, "ALTER TABLE %s FORCE ROW LEVEL SECURITY;\n", table)
-		fmt.Fprintf(&text, "DROP POLICY IF EXISTS %s ON %s;\n", policyName, table)
-		fmt.Fprintf(&text, "CREATE POLICY %s ON %s USING (%s = %s) WITH CHECK (%s = %s);\n", policyName, table, quote(key), setting, quote(key), setting)
+		text.WriteString(postgresadapter.TenantRowSecurity(entity.Name, key))
 	}
 	return text.String()
 }

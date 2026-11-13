@@ -80,7 +80,8 @@ func MissingAddSteps(base BaseSource, head *types.ServiceDeclaration) ([]types.S
 // generatedSchemaKinds are the kinds of schema change whose steps generation carries out. The kinds rename,
 // retype, require, drop and unique have no generated step migration yet, so generation refuses them rather than
 // write code that does not move the rows; each kind joins the list in the change that generates its steps. An add
-// generates the table or the column as before (ST-GEN-UC12-R06).
+// is a step migration of the postgres-adapter after the baseline 001_initial: the table of a new entity with its
+// row-level security, or the column of a new field (ST-SUP-RC01-OC22, ST-GEN-UC12-R02, ST-GEN-UC12-R06).
 var generatedSchemaKinds = map[string]bool{"add": true}
 
 // unbuiltSchemaChanges refuses a declaration with a schema change of a kind that generation does not carry out
@@ -206,4 +207,29 @@ func blockEnd(lines []string, first int) int {
 		end = i + 1
 	}
 	return end
+}
+
+// NewSchemaSteps gives the steps of the head's schema history that come after the steps of the base declaration, in
+// their order, with the position of each in the head's history from 1 (ST-GEN-UC12-R01). With no record at the base
+// no release has run, and every step of the head is new.
+func NewSchemaSteps(base BaseSource, head *types.ServiceDeclaration) ([]int, error) {
+	from := 0
+	if base.Record != nil && base.Declaration != nil {
+		state, err := decodeState(base.Record, ".stego/state.yaml at "+base.Ref)
+		if err != nil {
+			return nil, err
+		}
+		if state.LastApplied != nil {
+			declaration, err := parser.ParseServiceDeclarationFromBytes(base.Declaration, "service.yaml at "+base.Ref)
+			if err != nil {
+				return nil, err
+			}
+			from = min(len(declaration.SchemaHistory), len(head.SchemaHistory))
+		}
+	}
+	var positions []int
+	for i := from; i < len(head.SchemaHistory); i++ {
+		positions = append(positions, i+1)
+	}
+	return positions, nil
 }

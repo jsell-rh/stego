@@ -43,7 +43,39 @@ apply write nothing. When the service folder is in no Git repository, there is
 no check, and plan and apply say so. A repository with no such branch, or one
 that git cannot read, stops plan and apply: name the base with `--base`.
 
+## The migrations of the steps
+
+`001_initial` holds the tables of the first release: the declaration with
+every schema step undone. Each step is one more migration, after the
+migrations of the components, in the order of the schema history. Its name
+is `step_<position>_<change>_<phase>`, such as
+`step_0001_add-note-body_expand`. The migration of an add creates the table
+of the new entity, with the row-level security of an owned table in a pooled
+service, or adds the column of the new field with its checks, its foreign
+key and its indexes. It changes nothing that is there. `stego plan` lists
+each new step with its change, kind, phase, migration, trigger and backfill.
+A new database and a database that each release migrated in turn get the
+same schema.
+
+An add of a field that is required and has no default is refused, because
+the rows that the table holds cannot take it. Make the field optional or
+give it a default. An entity that refers to an entity that a later step adds
+is refused too: put the step that adds the other entity first.
+
+The release before a step must run postgres-adapter 6.1.0 or later, because
+an earlier ledger refuses the row of a step that it does not know. The check
+against the base refuses a new step on such a base and names the version to
+deploy first.
+
 ## Restarts during a rolling deploy
+
+In a pooled service, the schema check of a release refuses a foreign key
+that it does not name on a table with row-level security. An add of a
+reference field to an entity of the base adds such a foreign key, so a pod of
+the release before the add fails its schema check when it restarts after the
+add's migration. During the rolling deploy, do not restart the pods of the
+release before. An add of a new entity, or of a field that is not a
+reference, has no such limit.
 
 The expand step of a rename, a retype or a require adds a sync trigger. Until
 the schema check of a release accepts the sync trigger of a later step, a pod

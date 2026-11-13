@@ -73,15 +73,21 @@ func generateSchemaGeneration(ctx gen.Context) (gen.File, error) {
 	if err != nil {
 		return gen.File{}, err
 	}
+	// The digest is of the baseline, the declaration with every schema step undone, so that each release after the
+	// first one holds the marker that the first release wrote, and a step changes the tables only by its migration.
+	baseline, err := ctx.AtSchemaStep(0)
+	if err != nil {
+		return gen.File{}, err
+	}
 	declaration, err := json.Marshal(struct {
 		Entities    any
 		Collections any
-	}{ctx.Entities, ctx.Collections})
+	}{baseline.Entities, baseline.Collections})
 	if err != nil {
 		return gen.File{}, err
 	}
 	hash := sha256.Sum256(declaration)
-	// The marker holds the generation name and the digest of the declaration: the bootstrap, the marker check and
+	// The marker holds the generation name and the digest of the baseline: the bootstrap, the marker check and
 	// the ledger read (ST-SUP-RC01-OC11, ST-SUP-RC01-OC41).
 	data := struct{ Package, Generation, Definition string }{path.Base(ctx.OutputNamespace), generation, hex.EncodeToString(hash[:])}
 	var output bytes.Buffer

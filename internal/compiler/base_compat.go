@@ -8,6 +8,7 @@ import (
 
 	"github.com/jsell-rh/stego/internal/parser"
 	"github.com/jsell-rh/stego/internal/types"
+	"golang.org/x/mod/semver"
 )
 
 // BaseCompatRule is the rule that a fault of the base check names when the head changes a table of the base other
@@ -123,7 +124,37 @@ func CheckBase(base BaseSource, head *types.ServiceDeclaration) (BaseCheck, erro
 		return check, err
 	}
 	check.Faults = append(check.Faults, validateBaseSchema(declaration, head)...)
+	check.Faults = append(check.Faults, ledgerVersionFaults(state.LastApplied, declaration, head)...)
 	return check, nil
+}
+
+// StepLedgerVersion is the first postgres-adapter version that holds ST-SUP-RC01-OC28, as the introduced_in of that
+// output contract names it: its ledger accepts the rows of a later schema step within their compatible_with sets.
+const StepLedgerVersion = "6.1.0"
+
+// StepLedgerRule is the rule that refuses a new schema step on a base whose postgres-adapter does not hold
+// ST-SUP-RC01-OC28.
+const StepLedgerRule = "ST-GEN-INV36"
+
+// ledgerVersionFaults refuses a head with a new schema step, one after the steps of the base, when the record at
+// the base pins a postgres-adapter version before StepLedgerVersion: that release refuses a ledger longer than its
+// own, so it cannot restart after the step's migration. The fault names the version to deploy first (ST-GEN-INV36).
+// A base with no postgres-adapter has no ledger to refuse.
+func ledgerVersionFaults(applied *AppliedState, base, head *types.ServiceDeclaration) []BaseFault {
+	if len(head.SchemaHistory) <= len(base.SchemaHistory) {
+		return nil
+	}
+	adapter, pinned := applied.Components["postgres-adapter"]
+	if !pinned {
+		return nil
+	}
+	version := "v" + strings.TrimPrefix(adapter.Version, "v")
+	if semver.IsValid(version) && semver.Compare(version, "v"+StepLedgerVersion) >= 0 {
+		return nil
+	}
+	step := head.SchemaHistory[len(base.SchemaHistory)]
+	return []BaseFault{{Rule: StepLedgerRule, Entity: changeEntity(head, step.Change), Message: fmt.Sprintf(
+		"the base runs postgres-adapter %s, whose ledger refuses the row of a new schema step such as %s at %s, so its pods cannot restart after the step's migration; deploy a release with postgres-adapter %s or later, with no new schema step, first", adapter.Version, step.Change, step.Phase, StepLedgerVersion)}}
 }
 
 // validateBaseSchema enforces ST-GEN-INV33 on a head declaration against the declaration of a base that has a
